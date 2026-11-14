@@ -1,0 +1,370 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Max Boksem
+
+# Builds a release from a vX.Y.Z tag and uploads it to a draft GitHub release.
+# Installed apps see a release only once it's published. .github/RELEASING.md
+# explains the whole process.
+#
+#   prepare-release ─> linux-maxd (x86_64, aarch64) ─> release-macos (aarch64, x64)
+#                                                       ─> publish-latest-json ─> sync-dev
+#
+# The tag's message decides whether the draft is published at the end: a line
+# that reads exactly `Publish-Release: true` publishes it. The one-click
+# pipeline writes that line when its publish box is ticked, and so does
+# release-tag.yml. A tag without it stays a draft.
+
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions: {}
+
+# A tag pushed again while its release is still building waits for that run.
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: 0
+
+jobs:
+  # The draft exists before any build, so the parallel jobs upload to it
+  # without racing to create it.
+  prepare-release:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      publish: ${{ steps.version.outputs.publish }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+
+      - name: Read the version and the publish line
+        id: version
+        env:
+          TAG: ${{ github.ref_name }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          VERSION=$(node scripts/release/version.mjs get)
+          if [[ "$TAG" != "v$VERSION" ]]; then
+            echo "::error::The tag is $TAG but Cargo.toml says $VERSION. Tag the commit that bumped the version."
+            exit 1
+          fi
+          # The checkout may hold the tag as a plain ref; the API has its message.
+          SHA=$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$TAG" --jq .object.sha)
+          TYPE=$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$TAG" --jq .object.type)
+          PUBLISH=false
+          if [[ "$TYPE" == tag ]] &&
+            gh api "repos/$GITHUB_REPOSITORY/git/tags/$SHA" --jq .message | grep -qx 'Publish-Release: true'; then
+            PUBLISH=true
+          fi
+          echo "Version $VERSION. Publish the draft at the end: $PUBLISH."
+          { echo "version=$VERSION"; echo "publish=$PUBLISH"; } >> "$GITHUB_OUTPUT"
+
+      - name: Create the draft release
+        env:
+          TAG: ${{ github.ref_name }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
+            echo "Release $TAG already exists, so it's reused."
+          else
+            gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --verify-tag \
+              --draft --generate-notes --title "MaxHQ $TAG"
+          fi
+
+  # A static maxd for each Linux CPU, built natively on each. The app copies
+  # it to Linux devices, and maxd checks it against maxd-release.json. These
+  # jobs get no secrets and no token they could write with.
+  linux-maxd:
+    name: linux-maxd (${{ matrix.target }})
+    needs: [prepare-release]
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-musl
+            runner: ubuntu-24.04
+          - target: aarch64-unknown-linux-musl
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    permissions:
+      contents: read
+    env:
+      TARGET: ${{ matrix.target }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # ring and the bundled SQLite compile C, which needs musl-gcc.
+      - name: Install musl tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends musl-tools
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@686976e191b89faba57d3206551f0f330d8cb249 # stable
+        with:
+          toolchain: stable
+          targets: ${{ matrix.target }}
+
+      - name: Build
+        run: cargo build --release --locked -p maxd --target "$TARGET"
+
+      # A dynamic binary would need the host's loader and libc.
+      - name: Check that it's static and runs
+        run: |
+          bin="target/$TARGET/release/maxd"
+          file "$bin"
+          file "$bin" | grep -Eq 'static(-pie)? linked|statically linked'
+          "$bin" --version
+
+      - name: Stage
+        run: |
+          mkdir -p out
+          cp "target/$TARGET/release/maxd" "out/maxd-$TARGET"
+          sha256sum "out/maxd-$TARGET"
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: release-maxd-${{ matrix.target }}
+          path: out/maxd-${{ matrix.target }}
+          retention-days: 7
+          if-no-files-found: error
+
+  # One build for each Mac CPU. The Apple secrets and the update key live in
+  # the macos-signing environment, which waits for a reviewer to approve each
+  # job before it starts.
+  release-macos:
+    name: release-macos (${{ matrix.arch }})
+    needs: [prepare-release, linux-maxd]
+    strategy:
+      # Each CPU's build carries on when the other fails.
+      fail-fast: false
+      matrix:
+        include:
+          - arch: aarch64
+            runner: macos-15
+          # Tauri and the release assets call the Intel build x64.
+          - arch: x64
+            runner: macos-15-intel
+    runs-on: ${{ matrix.runner }}
+    environment: macos-signing
+    permissions:
+      contents: write
+    env:
+      VERSION: ${{ needs.prepare-release.outputs.version }}
+      ARCH: ${{ matrix.arch }}
+      OUT: target/release/bundle/release
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up the frontend
+        uses: ./.github/actions/setup-frontend
+
+      # Fail before the build, not after it, when the key is missing or
+      # malformed.
+      - name: Check the update key
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+        run: node scripts/release/sign.mjs --check
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@686976e191b89faba57d3206551f0f330d8cb249 # stable
+        with:
+          toolchain: stable
+
+      - name: Download the Linux maxd
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          pattern: release-maxd-*
+          merge-multiple: true
+          path: linux
+
+      # Runs before the Apple secrets are in the environment.
+      - name: Build maxd, maxd-vm and the app
+        run: sh scripts/release/package-macos.sh build
+
+      - name: Set up Developer ID signing
+        id: apple
+        uses: ./.github/actions/macos-signing
+        with:
+          certificate: ${{ secrets.APPLE_CERTIFICATE }}
+          certificate-password: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          api-key-id: ${{ secrets.APPLE_API_KEY_ID }}
+          api-issuer: ${{ secrets.APPLE_API_ISSUER }}
+          api-private-key: ${{ secrets.APPLE_API_PRIVATE_KEY }}
+
+      - name: Sign, notarize and package
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          NOTARIZE: ${{ steps.apple.outputs.notarizing == 'true' && '--notarize' || '' }}
+        # NOTARIZE is empty or one flag, so it's left unquoted.
+        run: sh scripts/release/package-macos.sh assemble --linux-dir linux --require-linux --out "$OUT" $NOTARIZE
+
+      - name: Check the bundle
+        run: sh scripts/release/smoke-test.sh target/release/bundle/macos/MaxHQ.app --require-linux --require-sig
+
+      - name: Verify signing
+        if: steps.apple.outputs.signing == 'true'
+        env:
+          NOTARIZED: ${{ steps.apple.outputs.notarizing == 'true' && '--notarized' || '' }}
+        run: sh scripts/release/verify-signing.sh $NOTARIZED target/release/bundle/macos/MaxHQ.app "$OUT/MaxHQ_$ARCH.dmg"
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: updater-sig-${{ matrix.arch }}
+          path: ${{ env.OUT }}/MaxHQ_${{ env.VERSION }}_${{ matrix.arch }}.app.tar.gz.sig
+          retention-days: 7
+          if-no-files-found: error
+
+      - name: Upload to the draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          archive="$OUT/MaxHQ_${VERSION}_${ARCH}.app.tar.gz"
+          gh release upload "v$VERSION" --repo "$GITHUB_REPOSITORY" --clobber \
+            "$OUT/MaxHQ_$ARCH.dmg" "$archive" "$archive.sig"
+
+  # Uploads the Linux maxd and latest.json once both Macs have built, then
+  # publishes the draft when the tag asked for it.
+  publish-latest-json:
+    needs: [prepare-release, linux-maxd, release-macos]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    env:
+      VERSION: ${{ needs.prepare-release.outputs.version }}
+      PUBLISH: ${{ needs.prepare-release.outputs.publish }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+
+      - name: Download the Linux maxd
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          pattern: release-maxd-*
+          merge-multiple: true
+          path: linux
+
+      - name: Download the updater signatures
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          pattern: updater-sig-*
+          merge-multiple: true
+          path: sigs
+
+      - name: Upload the Linux maxd and SHA256SUMS
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          cd linux
+          sha256sum maxd-x86_64-unknown-linux-musl maxd-aarch64-unknown-linux-musl > SHA256SUMS
+          cat SHA256SUMS
+          gh release upload "v$VERSION" --repo "$GITHUB_REPOSITORY" --clobber \
+            maxd-x86_64-unknown-linux-musl maxd-aarch64-unknown-linux-musl SHA256SUMS
+
+      - name: Write and upload latest.json
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release view "v$VERSION" --repo "$GITHUB_REPOSITORY" --json body --jq .body > notes.md
+          node scripts/release/latest-json.mjs --version "$VERSION" --repo "$GITHUB_REPOSITORY" \
+            --notes-file notes.md --out latest.json \
+            --sig "aarch64=sigs/MaxHQ_${VERSION}_aarch64.app.tar.gz.sig" \
+            --sig "x64=sigs/MaxHQ_${VERSION}_x64.app.tar.gz.sig"
+          cat latest.json
+          gh release upload "v$VERSION" --repo "$GITHUB_REPOSITORY" --clobber latest.json
+
+      - name: Publish the draft
+        if: env.PUBLISH == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release edit "v$VERSION" --repo "$GITHUB_REPOSITORY" --draft=false --latest
+          echo "### Published v$VERSION" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Summary
+        if: env.PUBLISH != 'true'
+        run: |
+          {
+            echo "### v$VERSION is a draft"
+            echo "Check its assets on the releases page, then publish it. Installed apps see it only once it's published."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  # Brings the version bump on main back into dev.
+  sync-dev:
+    needs: [publish-latest-json]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          # The PAT, because a push made with GITHUB_TOKEN starts no workflows
+          # and can't carry changes to workflow files.
+          token: ${{ secrets.RELEASE_AUTOMATION_PAT || github.token }}
+
+      - name: Configure git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Merge main into dev
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_AUTOMATION_PAT || github.token }}
+        run: |
+          set -euo pipefail
+          if ! git ls-remote --heads origin dev | grep -q .; then
+            echo "::notice::There's no dev branch, so there's nothing to sync."
+            exit 0
+          fi
+          git fetch origin main dev
+          git checkout -B dev origin/dev
+          if [ "$(git rev-list --count origin/dev..origin/main)" = 0 ]; then
+            echo "dev already has everything on main."
+            exit 0
+          fi
+          if git merge --ff-only origin/main 2> /dev/null; then
+            echo "Fast-forwarded dev to main."
+            git push origin dev
+          elif git merge --no-edit -m "chore(release): merge main back into dev" origin/main; then
+            echo "Merged main into dev."
+            git push origin dev
+          else
+            echo "::warning::main doesn't merge into dev cleanly, so a pull request is opened instead."
+            git merge --abort || true
+            branch="chore/sync-main-to-dev-$(date -u +%Y%m%d-%H%M%S)-$GITHUB_RUN_ID"
+            git checkout -b "$branch" origin/main
+            git push -u origin "$branch"
+            gh pr create --base dev --head "$branch" \
+              --title "chore(release): merge main back into dev" \
+              --body "The release left main with changes dev doesn't have, and they conflict. Resolve the conflicts and merge."
+          fi

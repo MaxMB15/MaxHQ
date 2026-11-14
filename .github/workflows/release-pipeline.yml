@@ -1,0 +1,220 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Max Boksem
+
+# One-click release. It pins dev's current commit, waits for that commit's
+# CI and Linux binaries runs to pass, merges it into main, bumps the version,
+# tags vX.Y.Z and pushes. The tag starts release.yml, which builds the draft.
+# Ticking "publish" writes `Publish-Release: true` into the tag's message, and
+# release.yml publishes the draft once every asset is up.
+#
+# The push uses RELEASE_AUTOMATION_PAT: a push made with GITHUB_TOKEN starts
+# no workflows, so the tag would never build. .github/RELEASING.md has the rest.
+
+name: Release pipeline
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_type:
+        description: Which part of the version to bump
+        type: choice
+        options: [patch, minor, major]
+        default: patch
+      dry_run:
+        description: Do everything except push, and print what would be pushed
+        type: boolean
+        default: false
+      publish:
+        description: Publish the release once it's built, instead of leaving a draft
+        type: boolean
+        default: false
+
+permissions: {}
+
+concurrency:
+  group: release-pipeline
+  cancel-in-progress: false
+
+jobs:
+  authorize:
+    runs-on: ubuntu-24.04
+    permissions: {}
+    steps:
+      - name: Check who started the release
+        env:
+          ALLOWED: ${{ vars.RELEASE_ALLOWED_ACTORS || github.repository_owner }}
+          ACTOR: ${{ github.triggering_actor }}
+        run: |
+          set -euo pipefail
+          IFS=', ' read -r -a allowed <<< "$ALLOWED"
+          for name in "${allowed[@]}"; do
+            if [[ -n "$name" && "${name,,}" == "${ACTOR,,}" ]]; then
+              echo "$ACTOR may release."
+              exit 0
+            fi
+          done
+          echo "::error::$ACTOR isn't in RELEASE_ALLOWED_ACTORS ($ALLOWED)."
+          exit 1
+
+  release:
+    needs: [authorize]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    permissions:
+      actions: read
+      contents: read
+    env:
+      RELEASE_TYPE: ${{ inputs.release_type }}
+      DRY_RUN: ${{ inputs.dry_run }}
+      PUBLISH: ${{ inputs.publish }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Check the automation token
+        env:
+          PAT: ${{ secrets.RELEASE_AUTOMATION_PAT }}
+        run: |
+          if [[ -z "$PAT" && "$DRY_RUN" != true ]]; then
+            echo "::error::RELEASE_AUTOMATION_PAT isn't set. .github/RELEASING.md says how to make it."
+            exit 1
+          fi
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: dev
+          fetch-depth: 0
+          token: ${{ secrets.RELEASE_AUTOMATION_PAT || github.token }}
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@686976e191b89faba57d3206551f0f330d8cb249 # stable
+        with:
+          toolchain: stable
+
+      # Later pushes to dev don't change what's released.
+      - name: Pin dev's commit
+        id: pin
+        run: |
+          sha=$(git rev-parse HEAD)
+          echo "Releasing dev at $sha"
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+
+      - name: Wait for CI and Linux binaries on that commit
+        env:
+          SHA: ${{ steps.pin.outputs.sha }}
+        run: |
+          set -euo pipefail
+          # Up to an hour and a half, a minute at a time.
+          for attempt in $(seq 1 90); do
+            pending=0
+            for workflow in "CI" "Linux binaries"; do
+              run=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs?head_sha=$SHA&event=push&per_page=100" \
+                --jq "[.workflow_runs[] | select(.name == \"$workflow\")] | sort_by(.created_at) | last // empty | \"\(.status) \(.conclusion) \(.html_url)\"")
+              if [[ -z "$run" ]]; then
+                echo "$workflow: no push run for $SHA yet"
+                pending=1
+                continue
+              fi
+              read -r status conclusion url <<< "$run"
+              if [[ "$status" != completed ]]; then
+                echo "$workflow: $status ($url)"
+                pending=1
+              elif [[ "$conclusion" != success ]]; then
+                echo "::error::$workflow finished as $conclusion on $SHA: $url"
+                exit 1
+              else
+                echo "$workflow: passed ($url)"
+              fi
+            done
+            if [[ "$pending" == 0 ]]; then
+              exit 0
+            fi
+            sleep 60
+          done
+          echo "::error::CI and Linux binaries didn't both finish on $SHA within 90 minutes."
+          exit 1
+
+      - name: Configure git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Merge into main, bump and tag
+        id: tag
+        env:
+          SHA: ${{ steps.pin.outputs.sha }}
+        run: |
+          set -euo pipefail
+          git checkout -B main origin/main
+          if git merge-base --is-ancestor HEAD "$SHA"; then
+            git merge --ff-only "$SHA"
+          else
+            git merge --no-ff --no-edit -m "chore(release): merge dev into main" "$SHA"
+          fi
+          version=$(node scripts/release/version.mjs next "$RELEASE_TYPE")
+          tag="v$version"
+          if git ls-remote --exit-code --tags origin "refs/tags/$tag" > /dev/null; then
+            echo "::error::$tag already exists on origin."
+            exit 1
+          fi
+          node scripts/release/version.mjs set "$version"
+          cargo update --workspace
+          git add Cargo.toml Cargo.lock
+          git commit -m "chore(release): $tag"
+          message="MaxHQ $tag"
+          if [[ "$PUBLISH" == true ]]; then
+            message="$message
+
+          Publish-Release: true"
+          fi
+          git tag -a "$tag" -m "$message"
+          git show --stat HEAD
+          git tag -n9 -l "$tag"
+          { echo "version=$version"; echo "tag=$tag"; } >> "$GITHUB_OUTPUT"
+
+      - name: Push main and the tag
+        if: inputs.dry_run != true
+        env:
+          TAG: ${{ steps.tag.outputs.tag }}
+        # Both or neither, so a tag never points at a commit main doesn't have.
+        run: git push --atomic origin main "refs/tags/$TAG"
+
+      - name: Find the release run
+        if: inputs.dry_run != true
+        env:
+          TAG: ${{ steps.tag.outputs.tag }}
+        run: |
+          set -euo pipefail
+          url=
+          for attempt in $(seq 1 30); do
+            url=$(gh run list --repo "$GITHUB_REPOSITORY" --workflow release.yml --branch "$TAG" \
+              --limit 1 --json url --jq '.[0].url // empty')
+            [[ -n "$url" ]] && break
+            sleep 10
+          done
+          {
+            echo "### Tagged $TAG"
+            echo "Released dev at \`${{ steps.pin.outputs.sha }}\`."
+            if [[ -n "$url" ]]; then
+              echo "The release is building: $url"
+            else
+              echo "The release run hasn't shown up yet. Look under Actions > Release."
+            fi
+            if [[ "$PUBLISH" == true ]]; then
+              echo "It's published once every asset is up."
+            else
+              echo "It stays a draft until you publish it."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Dry-run summary
+        if: inputs.dry_run == true
+        env:
+          TAG: ${{ steps.tag.outputs.tag }}
+        run: |
+          {
+            echo "### Dry run: would tag $TAG"
+            echo "From dev at \`${{ steps.pin.outputs.sha }}\`. Publish: $PUBLISH. Nothing was pushed."
+          } >> "$GITHUB_STEP_SUMMARY"

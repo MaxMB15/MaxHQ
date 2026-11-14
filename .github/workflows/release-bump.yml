@@ -1,0 +1,89 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Max Boksem
+
+# Fallback: bumps the version on main and pushes the commit, without merging
+# dev or tagging. Use it when the pipeline stopped after the merge, or to
+# release main as it is. Run release-tag.yml afterwards to start the build.
+
+name: Release bump
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_type:
+        description: Which part of the version to bump
+        type: choice
+        options: [patch, minor, major]
+        default: patch
+      dry_run:
+        description: Make the commit but don't push it
+        type: boolean
+        default: false
+
+permissions: {}
+
+concurrency:
+  group: release-pipeline
+  cancel-in-progress: false
+
+jobs:
+  bump:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    steps:
+      - name: Check who started it
+        env:
+          ALLOWED: ${{ vars.RELEASE_ALLOWED_ACTORS || github.repository_owner }}
+          ACTOR: ${{ github.triggering_actor }}
+        run: |
+          set -euo pipefail
+          IFS=', ' read -r -a allowed <<< "$ALLOWED"
+          for name in "${allowed[@]}"; do
+            [[ -n "$name" && "${name,,}" == "${ACTOR,,}" ]] && exit 0
+          done
+          echo "::error::$ACTOR isn't in RELEASE_ALLOWED_ACTORS ($ALLOWED)."
+          exit 1
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: main
+          token: ${{ secrets.RELEASE_AUTOMATION_PAT || github.token }}
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@686976e191b89faba57d3206551f0f330d8cb249 # stable
+        with:
+          toolchain: stable
+
+      - name: Bump and commit
+        id: bump
+        env:
+          RELEASE_TYPE: ${{ inputs.release_type }}
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          version=$(node scripts/release/version.mjs next "$RELEASE_TYPE")
+          node scripts/release/version.mjs set "$version"
+          cargo update --workspace
+          git add Cargo.toml Cargo.lock
+          git commit -m "chore(release): v$version"
+          git show --stat HEAD
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Push
+        if: inputs.dry_run != true
+        env:
+          PAT: ${{ secrets.RELEASE_AUTOMATION_PAT }}
+          VERSION: ${{ steps.bump.outputs.version }}
+        run: |
+          if [[ -z "$PAT" ]]; then
+            echo "::error::RELEASE_AUTOMATION_PAT isn't set. .github/RELEASING.md says how to make it."
+            exit 1
+          fi
+          git push origin HEAD:main
+          echo "### main is at v$VERSION. Run Release tag to build it." >> "$GITHUB_STEP_SUMMARY"

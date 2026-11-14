@@ -1,0 +1,91 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Max Boksem
+
+# Fallback: tags main's head with the version in Cargo.toml and pushes the
+# tag, which starts release.yml. Use it after release-bump.yml, or when the
+# pipeline pushed main but not the tag.
+
+name: Release tag
+
+on:
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: Publish the release once it's built, instead of leaving a draft
+        type: boolean
+        default: false
+      dry_run:
+        description: Make the tag but don't push it
+        type: boolean
+        default: false
+
+permissions: {}
+
+concurrency:
+  group: release-pipeline
+  cancel-in-progress: false
+
+jobs:
+  tag:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    steps:
+      - name: Check who started it
+        env:
+          ALLOWED: ${{ vars.RELEASE_ALLOWED_ACTORS || github.repository_owner }}
+          ACTOR: ${{ github.triggering_actor }}
+        run: |
+          set -euo pipefail
+          IFS=', ' read -r -a allowed <<< "$ALLOWED"
+          for name in "${allowed[@]}"; do
+            [[ -n "$name" && "${name,,}" == "${ACTOR,,}" ]] && exit 0
+          done
+          echo "::error::$ACTOR isn't in RELEASE_ALLOWED_ACTORS ($ALLOWED)."
+          exit 1
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: main
+          token: ${{ secrets.RELEASE_AUTOMATION_PAT || github.token }}
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+
+      - name: Tag
+        id: tag
+        env:
+          PUBLISH: ${{ inputs.publish }}
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          tag="v$(node scripts/release/version.mjs get)"
+          if git ls-remote --exit-code --tags origin "refs/tags/$tag" > /dev/null; then
+            echo "::error::$tag already exists. Bump the version first with Release bump."
+            exit 1
+          fi
+          # release.yml publishes the draft only when this line is in the message.
+          message="MaxHQ $tag"
+          if [[ "$PUBLISH" == true ]]; then
+            message="$message
+
+          Publish-Release: true"
+          fi
+          git tag -a "$tag" -m "$message"
+          git tag -n9 -l "$tag"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+
+      - name: Push the tag
+        if: inputs.dry_run != true
+        env:
+          PAT: ${{ secrets.RELEASE_AUTOMATION_PAT }}
+          TAG: ${{ steps.tag.outputs.tag }}
+        run: |
+          if [[ -z "$PAT" ]]; then
+            echo "::error::RELEASE_AUTOMATION_PAT isn't set, and a tag pushed with GITHUB_TOKEN starts no build."
+            exit 1
+          fi
+          git push origin "refs/tags/$TAG"
+          echo "### Pushed $TAG. Actions > Release builds it." >> "$GITHUB_STEP_SUMMARY"
