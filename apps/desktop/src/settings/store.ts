@@ -41,6 +41,7 @@ export type SettingsPage =
 	| { readonly kind: "test-hosts" }
 	| { readonly kind: "skills" }
 	| { readonly kind: "notifications" }
+	| { readonly kind: "updates" }
 	| { readonly kind: "phones" }
 	| { readonly kind: "shortcuts" };
 

@@ -42,6 +42,10 @@ pub struct AppUpdate {
     pub status: UpdateStatus,
     /// Your settings for it.
     pub prefs: UpdatePrefs,
+    /// The page that lists the releases, taken from where the updater
+    /// looks, when that is a GitHub release download. A release's notes are
+    /// at `<release_notes>/tag/v<version>`.
+    pub release_notes: Option<String>,
 }
 
 /// The update's state, which the commands reach through the app's state.
@@ -271,7 +275,28 @@ pub fn app_update(app: AppHandle, updates: State<'_, Updates>) -> AppUpdate {
         version: app.package_info().version.to_string(),
         status: inner.status.clone(),
         prefs: inner.prefs,
+        release_notes: release_notes(&app),
     }
+}
+
+/// Where the updater's first endpoint says the releases are.
+fn release_notes(app: &AppHandle) -> Option<String> {
+    let endpoint = app
+        .config()
+        .plugins
+        .0
+        .get("updater")?
+        .get("endpoints")?
+        .get(0)?
+        .as_str()?;
+    releases_page(endpoint)
+}
+
+/// The releases page behind a `.../releases/latest/download/<file>` link.
+fn releases_page(endpoint: &str) -> Option<String> {
+    let (base, _file) = endpoint.split_once("/releases/latest/download/")?;
+    base.starts_with("https://")
+        .then(|| format!("{base}/releases"))
 }
 
 /// Looks for a newer version now, whatever the setting says.
@@ -312,6 +337,20 @@ pub fn set_update_prefs(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn releases_page_comes_from_a_release_download() {
+        assert_eq!(
+            releases_page("https://github.com/OWNER/REPO/releases/latest/download/latest.json")
+                .as_deref(),
+            Some("https://github.com/OWNER/REPO/releases")
+        );
+        assert_eq!(releases_page("https://example.com/latest.json"), None);
+        assert_eq!(
+            releases_page("http://example.com/releases/latest/download/latest.json"),
+            None
+        );
+    }
 
     #[test]
     fn progress_moves_on_each_percent_or_megabyte() {

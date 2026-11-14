@@ -48,6 +48,7 @@ import { SCHEDULED_TASKS_TERMS, ScheduledTasksSettingsPage } from "./scheduled-t
 import { type Found, findIn, type Span } from "./search";
 import { SIDEBAR_TERMS, SidebarSettingsPage } from "./sidebar-settings";
 import { TEST_HOSTS_TERMS, TestHostsSettingsPage } from "./test-hosts-settings";
+import { UPDATES_TERMS, UpdatesSettingsPage } from "./updates-settings";
 import {
 	closeSettings,
 	type LoginPage,
@@ -180,6 +181,13 @@ const appPages = (): readonly AppPage[] => [
 		hint: translate("Which alerts this Mac shows, and which of them play a sound"),
 		terms: NOTIFICATIONS_TERMS,
 		Body: NotificationsSettingsPage,
+	},
+	{
+		kind: "updates",
+		title: translate("Updates"),
+		hint: translate("This app's version, and when it looks for a newer one"),
+		terms: UPDATES_TERMS,
+		Body: UpdatesSettingsPage,
 	},
 	{
 		kind: "phones",

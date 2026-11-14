@@ -1035,6 +1035,12 @@ export type AppUpdate = {
 	status: UpdateStatus,
 	/**  Your settings for it. */
 	prefs: UpdatePrefs,
+	/**
+	 *  The page that lists the releases, taken from where the updater
+	 *  looks, when that is a GitHub release download. A release's notes are
+	 *  at `<release_notes>/tag/v<version>`.
+	 */
+	release_notes: string | null,
 };
 
 /**
