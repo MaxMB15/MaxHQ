@@ -263,11 +263,14 @@ fn stamps(dir: &Path) -> io::Result<Vec<Stamp>> {
 
 /// Writes the tree at `from` to `to` through a folder beside it that's
 /// renamed into place, read-only: 0444 files, 0555 executables and
-/// folders. A copy at `to` goes.
+/// folders. A copy at `to` goes. The top folder turns read-only only once
+/// it's in place, since macOS 15 won't rename a read-only folder.
 fn copy_tree(from: &Path, to: &Path) -> io::Result<()> {
     let temp = beside(to, "tmp");
     clear(&temp)?;
-    let copied = copy_dir(from, &temp).and_then(|()| set_modes(&temp, true));
+    let copied = copy_dir(from, &temp)
+        .and_then(|()| set_modes(&temp, true))
+        .and_then(|()| fs::set_permissions(&temp, fs::Permissions::from_mode(0o755)));
     if let Err(err) = copied {
         let _ = clear(&temp);
         return Err(err);
@@ -279,6 +282,7 @@ fn copy_tree(from: &Path, to: &Path) -> io::Result<()> {
         fs::rename(to, &old)?;
     }
     fs::rename(&temp, to)?;
+    fs::set_permissions(to, fs::Permissions::from_mode(0o555))?;
     clear(&old)
 }
 
