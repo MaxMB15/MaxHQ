@@ -33,8 +33,13 @@
 #   TAURI_SIGNING_PRIVATE_KEY, or TAURI_SIGNING_PRIVATE_KEY_PATH, and
 #     TAURI_SIGNING_PRIVATE_KEY_PASSWORD: the update key that signs
 #     maxd-release.json and the updater archive (see sign.mjs).
+#   MAXHQ_RELEASES_REPO: the GitHub repository, as owner/name, whose
+#     releases the app updates from. The build writes its
+#     releases/latest/download/latest.json into the updater's endpoints.
+#     Without it the app can't look for updates.
 #   MAXHQ_UNSIGNED_UPDATES=1: skip both update-key signatures, for a local
-#     build without the key. Such a bundle can't update other devices' maxd.
+#     build without the key. Update everything then asks before it sends
+#     this bundle's maxd to other devices.
 #   CARGO_TARGET_DIR: as cargo reads it. Default target/.
 
 set -eu
@@ -123,8 +128,22 @@ build() {
 		-u TAURI_SIGNING_PRIVATE_KEY_PASSWORD
 	(cd "$ROOT" && "$@" cargo build --release --locked -p maxd -p maxhq-vm)
 	# The updater archive is made in assemble, after the app is signed.
-	(cd "$ROOT" && "$@" pnpm --filter ./apps/desktop exec tauri build --bundles app \
-		--config '{"bundle":{"createUpdaterArtifacts":false}}')
+	# The releases repository goes in at build time, so no tracked file names
+	# its owner.
+	config='{"bundle":{"createUpdaterArtifacts":false}'
+	if [ -n "${MAXHQ_RELEASES_REPO:-}" ]; then
+		case "$MAXHQ_RELEASES_REPO" in
+		*/*) ;;
+		*) die "MAXHQ_RELEASES_REPO is owner/name, not $MAXHQ_RELEASES_REPO" ;;
+		esac
+		endpoint=https://github.com/$MAXHQ_RELEASES_REPO/releases/latest/download/latest.json
+		note "Updates come from $endpoint"
+		config="$config,\"plugins\":{\"updater\":{\"endpoints\":[\"$endpoint\"]}}"
+	else
+		warn "MAXHQ_RELEASES_REPO isn't set, so this app can't look for updates"
+	fi
+	config="$config}"
+	(cd "$ROOT" && "$@" pnpm --filter ./apps/desktop exec tauri build --bundles app --config "$config")
 	[ -d "$app" ] || die "tauri build made no $app"
 }
 

@@ -99,8 +99,10 @@ Without the Apple secrets the Mac jobs still run, sign ad hoc and skip notarizin
 `scripts/release/package-macos.sh` does on your Mac what the Mac job does. With no identity it signs ad hoc, and it skips Linux binaries it can't find with a warning:
 
 ```sh
-TAURI_SIGNING_PRIVATE_KEY_PATH=<path to your update key> \
+TAURI_SIGNING_PRIVATE_KEY_PATH=<path to your update key> MAXHQ_RELEASES_REPO=<owner>/<repo> \
   sh scripts/release/package-macos.sh --linux-dir <folder with the Linux maxd>
 ```
 
-Set `MAXHQ_SIGN_IDENTITY` to sign with a Developer ID from your keychain, and add `--notarize` with `APPLE_API_KEY`, `APPLE_API_ISSUER` and `APPLE_API_KEY_PATH` set to notarize. `MAXHQ_UNSIGNED_UPDATES=1` skips the update key entirely, for a build you only run yourself. The files land in `target/release/bundle/release`.
+`MAXHQ_RELEASES_REPO` names the repository whose releases the app updates from. The build writes its `latest.json` link into the app, so no tracked file names the owner; without it the app can't look for updates.
+
+Set `MAXHQ_SIGN_IDENTITY` to sign with a Developer ID from your keychain, and add `--notarize` with `APPLE_API_KEY`, `APPLE_API_ISSUER` and `APPLE_API_KEY_PATH` set to notarize. `MAXHQ_UNSIGNED_UPDATES=1` skips the update key entirely, for a build you only run yourself; Update everything then asks before it sends that build's maxd to other devices. The files land in `target/release/bundle/release`.

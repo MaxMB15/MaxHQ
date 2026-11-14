@@ -11,22 +11,25 @@
 # - Contents/MacOS/maxd doesn't print its version
 # - a Linux maxd isn't listed in SHA256SUMS with its own sum, or isn't in
 #   maxd-release.json with it
+# - with --require-updates, the app has no update endpoint
 # - the Mac maxd's sum isn't the one maxd-release.json lists
 #
 # It doesn't start the app.
 #
-#   sh scripts/release/smoke-test.sh path/to/MaxHQ.app [--require-linux] [--require-sig]
+#   sh scripts/release/smoke-test.sh path/to/MaxHQ.app [--require-linux] [--require-sig] [--require-updates]
 
 set -eu
 
-app=${1:?usage: smoke-test.sh <MaxHQ.app> [--require-linux] [--require-sig]}
+app=${1:?usage: smoke-test.sh <MaxHQ.app> [--require-linux] [--require-sig] [--require-updates]}
 shift
 require_linux=0
 require_sig=0
+require_updates=0
 for flag in "$@"; do
 	case "$flag" in
 	--require-linux) require_linux=1 ;;
 	--require-sig) require_sig=1 ;;
+	--require-updates) require_updates=1 ;;
 	*)
 		echo "smoke-test.sh: unknown argument $flag" >&2
 		exit 2
@@ -55,6 +58,11 @@ for f in "$macos/maxhq-desktop" "$macos/maxd" "$macos/maxd-vm" "$manifest"; do
 done
 if [ "$require_sig" = 1 ] && [ ! -s "$manifest.sig" ]; then
 	fail "Contents/Resources/maxd-release.json.sig is missing"
+fi
+# The updater's endpoint goes in at build time (MAXHQ_RELEASES_REPO), and
+# without it the app never looks for an update.
+if [ "$require_updates" = 1 ] && ! grep -aq '/releases/latest/download/latest.json' "$macos/maxhq-desktop"; then
+	fail "the app has no update endpoint; build it with MAXHQ_RELEASES_REPO set"
 fi
 
 # Each Mach-O binary in the bundle, one path per line. The bundle's paths

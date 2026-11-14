@@ -199,6 +199,9 @@ jobs:
 
       # Runs before the Apple secrets are in the environment.
       - name: Build maxd, maxd-vm and the app
+        env:
+          # Where the app looks for its updates, written in at build time.
+          MAXHQ_RELEASES_REPO: ${{ github.repository }}
         run: sh scripts/release/package-macos.sh build
 
       - name: Set up Developer ID signing
@@ -220,7 +223,7 @@ jobs:
         run: sh scripts/release/package-macos.sh assemble --linux-dir linux --require-linux --out "$OUT" $NOTARIZE
 
       - name: Check the bundle
-        run: sh scripts/release/smoke-test.sh target/release/bundle/macos/MaxHQ.app --require-linux --require-sig
+        run: sh scripts/release/smoke-test.sh target/release/bundle/macos/MaxHQ.app --require-linux --require-sig --require-updates
 
       - name: Verify signing
         if: steps.apple.outputs.signing == 'true'

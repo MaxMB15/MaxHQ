@@ -289,3 +289,17 @@ fn this_maxd_trusts_the_release_key_and_reads_its_own_version() {
     assert!(semver::Version::parse(own.version).is_ok());
     assert_ne!(TEST_ONLY_KEY.trim(), RELEASE_PUBLIC_KEY);
 }
+
+#[test]
+fn the_release_key_is_the_one_the_app_updates_with() {
+    // One key signs the app's own updates and the fleet manifest, so the
+    // app's updater and this maxd must trust the same one.
+    let config: serde_json::Value = serde_json::from_str(include_str!(
+        "../../../../../apps/desktop/src-tauri/tauri.conf.json"
+    ))
+    .unwrap();
+    assert_eq!(
+        config["plugins"]["updater"]["pubkey"].as_str(),
+        Some(RELEASE_PUBLIC_KEY)
+    );
+}
