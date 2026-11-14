@@ -1,0 +1,37 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Max Boksem
+
+# A host spec for a home server. maxd reads it as maxhq-host.toml, and the
+# NixOS module reads the same file with lib.importTOML. Every key may be
+# left out; a missing one takes its default.
+version = 1
+
+[service]
+user = "dev"
+data_dir = "/srv/maxhq"            # secrets and resume flags
+
+[incus]
+enable = true
+pool = { name = "agents", driver = "btrfs", image = "/srv/agents.img", size = "100GiB", needs_mount = "/srv" }
+bridge = { name = "agentbr0", subnet = "10.10.0.1/24" }
+
+[caps]
+parent = "maxhq-workspaces"        # the parent cgroup every workspace runs under
+manage_parent = true               # maxd's units make the parent and set its limits
+memory_high = "12GiB"              # a soft cap on all workspaces together
+cpu_max = 8                        # CPUs' worth, all workspaces together
+cpu_weight = 50                    # below the host's services at 100
+workspace_memory = "3GiB"          # soft, per workspace, unless a project sets more
+system_memory_low = "4GiB"         # kept for the host's own services
+zram = true
+
+[snapshots]
+schedule = "@hourly"
+expiry = "7d"
+
+[shutdown]
+quiesce_window = "20m"
+
+[tools]
+user = ["claude", "codex", "cursor", "node"]
+system = ["git"]

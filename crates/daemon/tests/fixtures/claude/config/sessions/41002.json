@@ -1,0 +1,16 @@
+{
+  "pid": 41002,
+  "sessionId": "9a8b7c6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d",
+  "cwd": "/work/maxhq",
+  "startedAt": 1792887600000,
+  "procStart": "Sun Oct 25 00:20:00 2026",
+  "version": "2.1.310",
+  "kind": "interactive",
+  "entrypoint": "cli",
+  "name": "fix the flaky test",
+  "nameSource": "auto",
+  "status": "waiting",
+  "waitingFor": "permission prompt",
+  "updatedAt": 1792889000000,
+  "statusUpdatedAt": 1792889000000
+}

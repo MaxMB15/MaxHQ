@@ -1,0 +1,1 @@
+{"jsonrpc":"2.0","id":11,"method":"cursor/ask_question","params":{"sessionId":"00000000-0000-4000-8000-000000000001","toolCallId":"call-q","title":"Which database?","questions":[{"id":"db","prompt":"Which database?","options":[{"id":"pg","label":"Postgres"},{"id":"lite","label":"SQLite"}],"allowMultiple":false}]}}

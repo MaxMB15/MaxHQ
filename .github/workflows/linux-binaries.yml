@@ -1,0 +1,81 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Max Boksem
+
+# Builds maxd for Linux as one static musl binary. The same file runs as the
+# daemon on a Linux host and as the guest binary in its containers, so a host
+# needs no Rust or Nix toolchain of its own. Each run uploads the binary and
+# its SHA-256 as the artifact `maxd-linux-<commit>`, which a developer machine
+# downloads with `gh run download`.
+#
+# Only x86_64 for now. An aarch64 host would add a second target here.
+
+name: Linux binaries
+
+on:
+  push:
+    branches: [main, dev]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: linux-binaries-${{ github.ref }}
+  # A new push to a pull request cancels the build it replaces. Builds on main
+  # and dev always finish, so every commit there has binaries.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  CARGO_TERM_COLOR: always
+  TARGET: x86_64-unknown-linux-musl
+
+jobs:
+  maxd:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # ring and the bundled SQLite compile C, which needs musl-gcc.
+      - name: Install musl tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends musl-tools
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@686976e191b89faba57d3206551f0f330d8cb249 # stable
+        with:
+          toolchain: stable
+          targets: ${{ env.TARGET }}
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: ". -> target"
+          # Only branch pushes save, for the same reason as in CI.
+          save-if: ${{ github.event_name == 'push' }}
+
+      - name: Build
+        run: cargo build --release --locked -p maxd --target "$TARGET"
+
+      # A dynamic binary would need the host's loader and libc, which is the
+      # dependency this build exists to remove.
+      - name: Check that it's static and runs
+        run: |
+          bin="target/$TARGET/release/maxd"
+          file "$bin"
+          file "$bin" | grep -Eq 'static(-pie)? linked|statically linked'
+          "$bin" --version
+
+      - name: Stage
+        run: |
+          mkdir -p out
+          cp "target/$TARGET/release/maxd" "out/maxd-$TARGET"
+          (cd out && sha256sum "maxd-$TARGET" > SHA256SUMS)
+          cat out/SHA256SUMS
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: maxd-linux-${{ github.event.pull_request.head.sha || github.sha }}
+          path: out/
+          retention-days: 30
+          if-no-files-found: error

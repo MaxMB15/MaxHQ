@@ -1,0 +1,34 @@
+{
+ "type": "sync",
+ "status": "Success",
+ "status_code": 200,
+ "operation": "",
+ "error_code": 0,
+ "error": "",
+ "metadata": {
+  "api_status": "stable",
+  "api_version": "1.0",
+  "auth": "trusted",
+  "auth_user_method": "unix",
+  "public": false,
+  "api_extensions": [
+   "container_exec_recording",
+   "file_delete",
+   "storage_api_local_volume_handling",
+   "container_exec_user_group_cwd",
+   "event_lifecycle_name_and_project",
+   "instance_create_start"
+  ],
+  "environment": {
+   "server_version": "7.0.0",
+   "kernel": "Linux",
+   "kernel_version": "6.18.35",
+   "storage": "dir | btrfs",
+   "storage_version": "1 | 7.0",
+   "driver": "lxc | qemu",
+   "driver_version": "7.0.0 | 11.0.1",
+   "firewall": "nftables",
+   "server_clustered": false
+  }
+ }
+}

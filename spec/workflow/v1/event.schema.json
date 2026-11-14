@@ -1,0 +1,65 @@
+{
+  "$id": "https://schemas.example.com/maxhq/workflow/v1/event.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "EventLine",
+  "description": "One line of a run's event log, `{jsonl: <file>}`: UTF-8 JSON Lines,\nappended to and never rewritten. `t` and `node` are required, plus\n`status` or `note`.",
+  "type": "object",
+  "properties": {
+    "agent": {
+      "description": "The agent that made it, by id.",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "attempt": {
+      "description": "The attempt it belongs to. A busy event with the same attempt as the\none before continues it.",
+      "type": [
+        "integer",
+        "null"
+      ],
+      "format": "uint64",
+      "minimum": 0
+    },
+    "node": {
+      "description": "The node, by id.",
+      "type": "string"
+    },
+    "note": {
+      "description": "A note on it, such as why a dispatch was refused.",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "status": {
+      "description": "Its new status, in the workflow's words.",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "t": {
+      "description": "When it happened, RFC 3339, such as `2026-11-01T14:02:07.120Z`.",
+      "type": "string",
+      "format": "date-time"
+    }
+  },
+  "additionalProperties": true,
+  "anyOf": [
+    {
+      "required": [
+        "status"
+      ]
+    },
+    {
+      "required": [
+        "note"
+      ]
+    }
+  ],
+  "required": [
+    "t",
+    "node"
+  ]
+}

@@ -1,0 +1,43 @@
+/* SPDX-License-Identifier: MIT */
+/* Copyright (c) 2026 Max Boksem */
+
+/* The answer field is the composer's text box set smaller. TipTap draws it,
+   so Tailwind classes can't reach its parts. The underlines for misspelled
+   words and the pills come from composer.css. */
+
+.answer-field .composer-editor {
+	min-height: calc(var(--answer-line) + 2 * var(--answer-pad));
+	max-height: var(--answer-max);
+	overflow-x: hidden;
+	padding: var(--answer-pad) var(--answer-side);
+	font-size: var(--answer-size);
+	line-height: var(--answer-line);
+	transition: max-height 140ms ease-out;
+}
+
+/* Opened, it takes most of the window before it scrolls. */
+.answer-field[data-size="tall"] .composer-editor {
+	max-height: max(var(--answer-max), 60vh);
+}
+
+/* Shut, the whole text runs along one line and is cut off at the edge,
+   the way a single-line input shows it. */
+.answer-field[data-state="collapsed"] .composer-editor {
+	max-height: calc(var(--answer-line) + 2 * var(--answer-pad));
+	overflow: hidden;
+	white-space: pre;
+	text-overflow: ellipsis;
+}
+
+.answer-field[data-state="collapsed"] .composer-editor p {
+	display: inline;
+}
+
+.answer-field[data-state="collapsed"] .composer-editor p + p::before {
+	content: " ";
+}
+
+/* An empty line's break would start a new line. */
+.answer-field[data-state="collapsed"] .composer-editor br {
+	display: none;
+}

@@ -1,0 +1,2 @@
+{"jsonrpc":"2.0","id":"$initialize","result":{"protocolVersion":2,"info":{"name":"example","version":"2.0.0"},"capabilities":{}}}
+{"jsonrpc":"2.0","id":"$session/new","result":{"sessionId":"00000000-0000-4000-8000-000000000001"}}

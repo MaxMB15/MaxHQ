@@ -1,0 +1,2 @@
+{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"00000000-0000-4000-8000-000000000001","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"Here is the plan."}}}}
+{"jsonrpc":"2.0","id":9,"method":"cursor/create_plan","params":{"sessionId":"00000000-0000-4000-8000-000000000001","toolCallId":"call-plan","name":"Add a flag","overview":"Add a --quiet flag","plan":"# Add a flag\n\n1. Parse it\n2. Use it","todos":[{"id":"parse","content":"Parse --quiet","status":"pending"},{"id":"use","content":"Use it","status":"pending"}]}}

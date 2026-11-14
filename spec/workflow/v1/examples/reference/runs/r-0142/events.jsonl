@@ -1,0 +1,15 @@
+{"t":"2026-11-01T14:00:00.000Z","node":"plan","status":"busy","attempt":1}
+{"t":"2026-11-01T14:03:10.000Z","node":"plan","status":"done","attempt":1}
+{"t":"2026-11-01T14:03:12.000Z","node":"build","status":"busy","attempt":1}
+{"t":"2026-11-01T14:09:40.000Z","node":"build","status":"done","attempt":1}
+{"t":"2026-11-01T14:09:41.000Z","node":"unit","status":"busy","attempt":1}
+{"t":"2026-11-01T14:09:41.000Z","node":"lint","status":"busy","attempt":1}
+{"t":"2026-11-01T14:11:02.000Z","node":"lint","status":"done","attempt":1}
+{"t":"2026-11-01T14:12:30.000Z","node":"unit","status":"done","attempt":1}
+{"t":"2026-11-01T14:12:31.000Z","node":"review","status":"busy","attempt":1}
+{"t":"2026-11-01T14:15:00.000Z","node":"review","status":"queued","note":"The changelog is missing a line."}
+{"t":"2026-11-01T14:15:01.000Z","node":"build","status":"busy","attempt":2,"tier":"full"}
+{"t":"2026-11-01T14:21:20.000Z","node":"build","status":"done","attempt":2}
+{"t":"2026-11-01T14:21:21.000Z","node":"unit","status":"busy","attempt":2}
+{"t":"2026-11-01T14:21:21.000Z","node":"lint","status":"busy","attempt":2}
+{"t":"2026-11-01T14:22:40.000Z","node":"lint","status":"done","attempt":2}

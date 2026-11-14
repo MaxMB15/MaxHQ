@@ -1,0 +1,15 @@
+/* SPDX-License-Identifier: MIT */
+/* Copyright (c) 2026 Max Boksem */
+
+/* Find's matches in the conversation, painted over the text without
+   changing it, so copying and selecting work as before. */
+
+::highlight(maxhq-find) {
+	background-color: var(--find-match-bg);
+	color: var(--find-match-text);
+}
+
+::highlight(maxhq-find-active) {
+	background-color: var(--find-active-bg);
+	color: var(--find-active-text);
+}

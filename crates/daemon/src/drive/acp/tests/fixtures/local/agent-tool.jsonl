@@ -1,0 +1,4 @@
+{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"00000000-0000-4000-8000-000000000001","update":{"sessionUpdate":"tool_call","toolCallId":"mcp-1","title":"mcp__maxhq__list_agents","kind":"other","status":"pending","rawInput":{"scope":"workspace"}}}}
+{"jsonrpc":"2.0","id":9,"method":"session/request_permission","params":{"sessionId":"00000000-0000-4000-8000-000000000001","toolCall":{"toolCallId":"mcp-1","title":"mcp__maxhq__list_agents","kind":"other","status":"pending"},"options":[{"optionId":"yes","name":"Allow","kind":"allow_once"},{"optionId":"no","name":"Reject","kind":"reject_once"}]}}
+{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"00000000-0000-4000-8000-000000000001","update":{"sessionUpdate":"tool_call_update","toolCallId":"mcp-1","status":"completed","rawOutput":{"agents":[]}}}}
+{"jsonrpc":"2.0","id":"$session/prompt","result":{"stopReason":"end_turn"}}

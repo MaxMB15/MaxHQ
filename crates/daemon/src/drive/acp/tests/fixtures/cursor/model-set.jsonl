@@ -1,0 +1,1 @@
+{"jsonrpc":"2.0","id":"$session/set_config_option","result":{"configOptions":[{"id":"model","name":"Model","category":"model","type":"select","currentValue":"default","options":[{"value":"default","name":"Auto"},{"value":"grok-4.7","name":"Grok 4.7"}]}]}}

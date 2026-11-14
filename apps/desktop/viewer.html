@@ -1,0 +1,36 @@
+<!doctype html>
+<!-- SPDX-License-Identifier: MIT -->
+<!-- Copyright (c) 2026 Max Boksem -->
+<!-- The file viewer's frame. The app serves it with its own content policy. -->
+<!-- It loads none of the app's styles, so its two themes' colors are its own. -->
+<html lang="en">
+	<head>
+		<meta charset="UTF-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+		<title>File viewer</title>
+		<style>
+			:root {
+				--ground: #141414;
+				--text: #e6e6e6;
+				color-scheme: dark;
+			}
+			:root[data-theme="light"] {
+				--ground: #ffffff;
+				--text: #1f2329;
+				color-scheme: light;
+			}
+			html,
+			body,
+			#viewer {
+				margin: 0;
+				height: 100%;
+				background: var(--ground);
+				color: var(--text);
+			}
+		</style>
+	</head>
+	<body>
+		<div id="viewer"></div>
+		<script type="module" src="/src/viewer/frame.ts"></script>
+	</body>
+</html>

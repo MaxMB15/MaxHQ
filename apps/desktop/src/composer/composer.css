@@ -1,0 +1,260 @@
+/* SPDX-License-Identifier: MIT */
+/* Copyright (c) 2026 Max Boksem */
+
+/* The text box. TipTap draws it, so Tailwind classes can't reach its parts. */
+
+.composer-editor {
+	min-height: 46px;
+	max-height: 40vh;
+	overflow-y: auto;
+	padding: 11px 12px 4px;
+	font-size: 13px;
+	line-height: 1.55;
+	color: var(--foreground);
+	white-space: pre-wrap;
+	overflow-wrap: anywhere;
+	outline: none;
+}
+
+.composer-editor p {
+	margin: 0;
+}
+
+.composer-editor p.is-editor-empty:first-child::before {
+	content: attr(data-placeholder);
+	float: left;
+	height: 0;
+	color: var(--subtle-foreground);
+	pointer-events: none;
+}
+
+/* A pill in text that can change takes a press to drag it somewhere else. */
+.composer-editor[contenteditable="true"] .pill-host .pill {
+	cursor: grab;
+}
+
+/* A pill being dragged to a new place, faded where it sits until it lands. */
+.composer-editor .pill-moving .pill {
+	opacity: 0.45;
+}
+
+/* The whole page holds the grabbing hand while a pill drags, over the
+   text, the caret and everything around them. */
+body.pill-dragging {
+	user-select: none;
+}
+
+body.pill-dragging,
+body.pill-dragging * {
+	cursor: grabbing !important;
+}
+
+/* Words the system's spell check flags, drawn without touching the text. */
+::highlight(misspelled) {
+	text-decoration: underline dotted var(--destructive);
+	text-decoration-thickness: 2px;
+	text-underline-offset: 3px;
+}
+
+/* Markdown as it will read, drawn over the plain text by markdown.ts. The
+   look follows what a sent message's Markdown shows. A note shares it. */
+:is(.composer-editor, .note-editor) .md-strong {
+	font-weight: 600;
+}
+
+:is(.composer-editor, .note-editor) .md-em {
+	font-style: italic;
+}
+
+:is(.composer-editor, .note-editor) .md-strike {
+	text-decoration: line-through;
+}
+
+:is(.composer-editor, .note-editor) .md-link {
+	color: var(--primary);
+}
+
+:is(.composer-editor, .note-editor) .md-code {
+	padding: 1px 5px;
+	border: 1px solid var(--track);
+	border-radius: 4px;
+	background: var(--secondary);
+	font-family: var(--font-mono);
+	font-size: 11.5px;
+	color: var(--terminal);
+}
+
+:is(.composer-editor, .note-editor) .md-marker {
+	color: var(--subtle-foreground);
+}
+
+/* It keeps a place in the text, with no width, so the caret's and the
+   selection's measures of the line around it still hold. */
+:is(.composer-editor, .note-editor) .md-hidden {
+	font-size: 0;
+}
+
+:is(.composer-editor, .note-editor) p.md-h1,
+:is(.composer-editor, .note-editor) p.md-h2,
+:is(.composer-editor, .note-editor) p.md-h3,
+:is(.composer-editor, .note-editor) p.md-h4 {
+	font-weight: 600;
+	color: var(--foreground-strong);
+}
+
+:is(.composer-editor, .note-editor) p.md-h1 {
+	font-size: 15px;
+}
+
+:is(.composer-editor, .note-editor) p.md-h2 {
+	font-size: 14px;
+}
+
+:is(.composer-editor, .note-editor) p.md-h3 {
+	font-size: 13.5px;
+}
+
+/* A quote draws one bar for each level it's nested in. */
+:is(.composer-editor, .note-editor) p.md-quote {
+	--quote-depth: 1;
+	--quote-bar: var(--track);
+	padding-left: calc(var(--quote-depth) * 14px);
+	background: repeating-linear-gradient(to right, var(--quote-bar) 0 2px, transparent 2px 14px)
+		left / calc(var(--quote-depth) * 14px) 100% no-repeat;
+	color: var(--muted-foreground);
+}
+
+:is(.composer-editor, .note-editor) p.md-quote-2 {
+	--quote-depth: 2;
+}
+
+:is(.composer-editor, .note-editor) p.md-quote-3 {
+	--quote-depth: 3;
+}
+
+:is(.composer-editor, .note-editor) p.md-quote-4 {
+	--quote-depth: 4;
+}
+
+:is(.composer-editor, .note-editor) p.md-quote-5 {
+	--quote-depth: 5;
+}
+
+:is(.composer-editor, .note-editor) p.md-quote-6 {
+	--quote-depth: 6;
+}
+
+/* A callout's source takes its colour, as the drawn one does. */
+:is(.composer-editor, .note-editor) p.md-tone-blue {
+	--quote-bar: var(--primary);
+}
+
+:is(.composer-editor, .note-editor) p.md-tone-green {
+	--quote-bar: var(--status-ready);
+}
+
+:is(.composer-editor, .note-editor) p.md-tone-purple {
+	--quote-bar: var(--status-linked);
+}
+
+:is(.composer-editor, .note-editor) p.md-tone-amber {
+	--quote-bar: var(--status-busy);
+}
+
+:is(.composer-editor, .note-editor) p.md-tone-red {
+	--quote-bar: var(--destructive);
+}
+
+/* A footnote's number, as a reply raises it. */
+:is(.composer-editor, .note-editor) .md-footnote {
+	font-size: 75%;
+	line-height: 0;
+	vertical-align: super;
+	color: var(--primary);
+	cursor: text;
+	user-select: none;
+}
+
+/* Each line of a code block is its own paragraph, drawn as one box. */
+:is(.composer-editor, .note-editor) p.md-code-line {
+	padding: 0 12px;
+	border-inline: 1px solid var(--border);
+	background: var(--subpanel);
+	font-family: var(--font-mono);
+	font-size: 11.5px;
+	line-height: 1.6;
+	color: var(--terminal);
+}
+
+:is(.composer-editor, .note-editor) p.md-code-first {
+	margin-top: 4px;
+	padding-top: 6px;
+	border-top: 1px solid var(--border);
+	border-top-left-radius: 8px;
+	border-top-right-radius: 8px;
+}
+
+:is(.composer-editor, .note-editor) p.md-code-last {
+	margin-bottom: 4px;
+	padding-bottom: 6px;
+	border-bottom: 1px solid var(--border);
+	border-bottom-left-radius: 8px;
+	border-bottom-right-radius: 8px;
+}
+
+:is(.composer-editor, .note-editor) p.md-fence {
+	color: var(--subtle-foreground);
+}
+
+/* A block's lines while it draws as it will read. */
+:is(.composer-editor, .note-editor) p.md-preview-source {
+	display: none;
+}
+
+/* A click on the drawing is a click to edit it, so nothing in it takes one. */
+:is(.composer-editor, .note-editor) .md-preview {
+	margin: 4px 0;
+	white-space: normal;
+	cursor: text;
+	user-select: none;
+}
+
+:is(.composer-editor, .note-editor) .md-preview > * {
+	pointer-events: none;
+}
+
+:is(.composer-editor, .note-editor) .md-preview button {
+	display: none;
+}
+
+/* A visual's card in a note. Its page takes its own presses. */
+.note-editor .md-visual {
+	margin: 8px 0;
+	white-space: normal;
+}
+
+.note-editor .md-visual[data-selected] figure {
+	outline: 2px solid var(--ring);
+	outline-offset: 1px;
+}
+
+/* A drawn `<details>` opens and shuts from its summary, in a note. */
+:is(.composer-editor, .note-editor) .md-preview summary {
+	pointer-events: auto;
+	user-select: none;
+}
+
+/* A rule's line while the selection is off it: a line across its middle,
+   at the line's own height, so nothing moves as its marker comes back. */
+:is(.composer-editor, .note-editor) p.md-rule.md-folded {
+	min-height: 1lh;
+	padding-block: 0;
+	line-height: inherit;
+	background: linear-gradient(var(--border), var(--border)) center / 100% 1px no-repeat;
+}
+
+:is(.composer-editor, .note-editor) .md-formula {
+	white-space: normal;
+	cursor: text;
+	user-select: none;
+}

@@ -1,0 +1,7 @@
+{"t":"2026-11-01T17:02:00.000Z","node":"df-interview","status":"in_progress","attempt":1,"tier":"host"}
+{"t":"2026-11-01T17:04:00.000Z","node":"df-interview","status":"completed","attempt":1,"tier":"host"}
+{"t":"2026-11-01T17:05:00.000Z","node":"cr-design","status":"in_progress","attempt":1,"tier":"script"}
+{"t":"2026-11-01T17:07:00.000Z","node":"cr-design","status":"completed","attempt":1,"tier":"script"}
+{"t":"2026-11-01T17:08:00.000Z","node":"df-approve","status":"in_progress","attempt":1,"tier":"host"}
+{"t":"2026-11-01T17:10:00.000Z","node":"df-approve","status":"completed","attempt":1,"tier":"host"}
+{"t":"2026-11-01T17:12:00.000Z","node":"cr-code","status":"in_progress","attempt":1,"tier":"script"}

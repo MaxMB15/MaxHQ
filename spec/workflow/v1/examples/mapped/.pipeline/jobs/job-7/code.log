@@ -1,0 +1,5 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (C) 2026 Max Boksem
+running 14 tests
+error: search returns no rows for an empty query
+error: the list page test expects 20 rows, got 0

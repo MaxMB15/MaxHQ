@@ -1,0 +1,25 @@
+# yaml-language-server: $schema=https://schemas.example.com/maxhq/workflow/v1/descriptor.schema.json
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (C) 2026 Max Boksem
+
+# A vendored workflow: a tool cloned into the project's vendor-checks
+# folder ships its own descriptor. {workflow} is that folder. Its runs
+# write the reference shape and no event log, so MaxHQ keeps their history
+# itself.
+format: maxhq.workflow/1.0
+id: checks
+name: Checks
+revision: 5
+runs:
+  glob: .checks/*/run.yaml
+  facts:
+    tool_version:
+      match: '^\d+\.\d+\.\d+$'
+      in: "{workflow}/VERSION"
+groups:
+  lint:
+    label: Lint
+  test:
+    label: Tests
+header:
+  - text: "checks {run.tool_version}"

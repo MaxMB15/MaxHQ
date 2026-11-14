@@ -1,0 +1,84 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Max Boksem
+
+[package]
+name = "maxhq-desktop"
+description = "The MaxHQ desktop app"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lib]
+name = "maxhq_desktop_lib"
+# The desktop binary links the rlib, and the iOS companion will link the
+# staticlib. The name differs from the binary's so their debug files don't
+# collide on Windows.
+crate-type = ["staticlib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2.7", features = [] }
+
+[dependencies]
+maxhq-app = { workspace = true, features = ["desktop"] }
+maxhq-core = { workspace = true }
+maxhq-protocol = { workspace = true }
+serde = { workspace = true }
+specta = { workspace = true }
+specta-typescript = { workspace = true }
+tauri = { version = "2.12", features = [] }
+tauri-plugin-dialog = "2.8"
+tauri-specta = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+
+# Notifications on macOS go through UNUserNotificationCenter directly, so a
+# click can say which agent it was for. The composer's spell check, menu,
+# picker, clipboard and thumbnails go through AppKit and Quick Look.
+[target.'cfg(target_os = "macos")'.dependencies]
+block2 = { workspace = true }
+objc2 = { workspace = true }
+objc2-app-kit = { workspace = true, features = [
+    "std",
+    "block2",
+    "objc2-core-foundation",
+    "objc2-core-graphics",
+    "NSApplication",
+    "NSBitmapImageRep",
+    "NSImageRep",
+    "NSMenu",
+    "NSMenuItem",
+    "NSOpenPanel",
+    "NSPanel",
+    "NSPasteboard",
+    "NSResponder",
+    "NSSavePanel",
+    "NSSpellChecker",
+    "NSView",
+    "NSWindow",
+    "NSWorkspace",
+] }
+objc2-core-foundation = { workspace = true, features = ["std", "CFCGTypes"] }
+objc2-core-graphics = { workspace = true, features = [
+    "std",
+    "CGBitmapContext",
+    "CGColorSpace",
+    "CGContext",
+    "CGImage",
+] }
+objc2-foundation = { workspace = true }
+objc2-quick-look-thumbnailing = { workspace = true, features = [
+    "std",
+    "block2",
+    "objc2-core-foundation",
+    "objc2-core-graphics",
+    "QLThumbnailGenerationRequest",
+    "QLThumbnailGenerator",
+    "QLThumbnailRepresentation",
+] }
+objc2-user-notifications = { workspace = true }
+
+[lints]
+workspace = true

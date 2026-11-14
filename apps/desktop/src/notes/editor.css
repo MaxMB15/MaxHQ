@@ -1,0 +1,158 @@
+/* A note reads as a page: larger type than the composer, and headings
+   sized like a document's. The rest of the look is the composer's, in
+   composer.css. */
+.note-content {
+	min-height: 0;
+}
+
+.note-editor {
+	padding: 16px 20px 40vh;
+	font-size: 14px;
+	line-height: 1.6;
+	color: var(--foreground);
+	white-space: pre-wrap;
+	overflow-wrap: anywhere;
+	outline: none;
+}
+
+.note-editor p {
+	margin: 0;
+	min-height: 1.6em;
+}
+
+.note-editor p.md-h1 {
+	margin-top: 8px;
+	font-size: 24px;
+	line-height: 1.3;
+}
+
+.note-editor p.md-h2 {
+	margin-top: 6px;
+	font-size: 20px;
+	line-height: 1.35;
+}
+
+.note-editor p.md-h3 {
+	font-size: 17px;
+}
+
+.note-editor p.md-h4 {
+	font-size: 15px;
+}
+
+.note-editor .md-code,
+.note-editor p.md-code-line {
+	font-size: 12.5px;
+}
+
+/* A fence's own line, while the caret is out of its block. Its box keeps
+   its rounded edge, with nothing in it. */
+.note-editor p.md-folded {
+	min-height: 0;
+	line-height: 0;
+	padding-block: 3px;
+}
+
+.note-editor p.md-task-done {
+	color: var(--muted-foreground);
+}
+
+/* Struck from the first word, so the line misses the box. */
+.note-editor .md-task-done-text {
+	text-decoration: line-through;
+}
+
+.note-editor .md-task {
+	margin: 0 6px 0 0;
+	vertical-align: -2px;
+	cursor: pointer;
+}
+
+.note-editor .md-task:disabled {
+	cursor: default;
+}
+
+.note-editor .md-preview img {
+	max-width: 100%;
+}
+
+/* What a pair of raw HTML tags holds, looking as a reply draws it. */
+.note-editor .md-tag-mark {
+	padding: 0 2px;
+	border-radius: 3px;
+	background: color-mix(in srgb, var(--status-busy) 25%, transparent);
+}
+
+.note-editor .md-tag-kbd {
+	padding: 1px 5px;
+	border: 1px solid var(--input);
+	border-radius: 4px;
+	background: var(--secondary);
+	font-family: var(--font-mono);
+	font-size: 12px;
+	color: var(--terminal);
+}
+
+.note-editor .md-tag-code {
+	padding: 1px 5px;
+	border: 1px solid var(--track);
+	border-radius: 4px;
+	background: var(--secondary);
+	font-family: var(--font-mono);
+	font-size: 12.5px;
+	color: var(--terminal);
+}
+
+.note-editor :is(.md-tag-samp, .md-tag-tt) {
+	font-family: var(--font-mono);
+}
+
+.note-editor :is(.md-tag-sub, .md-tag-sup) {
+	font-size: 75%;
+	line-height: 0;
+}
+
+.note-editor .md-tag-sub {
+	vertical-align: sub;
+}
+
+.note-editor .md-tag-sup {
+	vertical-align: super;
+}
+
+.note-editor .md-tag-ins {
+	text-decoration: underline;
+}
+
+.note-editor :is(.md-tag-del, .md-tag-s, .md-tag-strike) {
+	text-decoration: line-through;
+}
+
+.note-editor :is(.md-tag-b, .md-tag-strong) {
+	font-weight: 600;
+}
+
+.note-editor :is(.md-tag-i, .md-tag-em, .md-tag-var) {
+	font-style: italic;
+}
+
+/* An HTML comment, which never hides. */
+.note-editor .md-comment {
+	font-style: italic;
+	color: var(--subtle-foreground);
+}
+
+/* Text a change from elsewhere put in, lit and then fading. */
+.note-editor .note-incoming {
+	animation: note-incoming 1.5s ease-out forwards;
+	border-radius: 2px;
+}
+
+@keyframes note-incoming {
+	from {
+		background: color-mix(in srgb, var(--primary) 30%, transparent);
+	}
+	to {
+		background: transparent;
+	}
+}

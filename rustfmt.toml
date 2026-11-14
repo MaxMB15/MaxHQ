@@ -1,0 +1,7 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Max Boksem
+
+# The same style as the owner's other Tauri app, so code moves between the
+# two repos without reformatting. The 2024 style would reorder imports and
+# rewrap code.
+style_edition = "2021"

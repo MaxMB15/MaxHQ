@@ -1,0 +1,1416 @@
+{
+  "$id": "https://schemas.example.com/maxhq/workflow/v1/descriptor.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Descriptor",
+  "description": "A workflow descriptor, `maxhq.workflow/1.x`. Keys that start with `x-`\nare extensions and are ignored.",
+  "type": "object",
+  "properties": {
+    "badges": {
+      "description": "Short labels on nodes, in order.",
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/BadgeRule"
+      }
+    },
+    "bind": {
+      "description": "Patterns that bind agents to nodes and runs. When left out, the\nstandard's default applies: a prompt line `maxhq-node: <run> <node>`.",
+      "anyOf": [
+        {
+          "$ref": "#/$defs/Bind"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "detail": {
+      "description": "Lists for a node's expanded row.",
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/DetailRule"
+      }
+    },
+    "format": {
+      "description": "`maxhq.workflow/<major>.<minor>`, such as `maxhq.workflow/1.0`.",
+      "type": "string",
+      "pattern": "^maxhq\\.workflow/\\d+\\.\\d+$"
+    },
+    "groups": {
+      "description": "A label and folded state per group id.",
+      "type": "object",
+      "additionalProperties": {
+        "$ref": "#/$defs/GroupInfo"
+      }
+    },
+    "header": {
+      "description": "Lines for the run's header.",
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/Label"
+      }
+    },
+    "id": {
+      "description": "The workflow's id: lower case letters, digits, `.`, `_` and `-`.",
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9._-]*$"
+    },
+    "links": {
+      "description": "Links a node offers, only to `127.0.0.1` or `localhost`.",
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/LinkRule"
+      }
+    },
+    "loops": {
+      "description": "Loops between nodes, counted from the run's history.",
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/LoopRule"
+      }
+    },
+    "name": {
+      "description": "What MaxHQ calls it. The id when left out.",
+      "type": [
+        "string",
+        "null"
+      ],
+      "default": null
+    },
+    "nodes": {
+      "description": "How the run file lists its nodes.",
+      "$ref": "#/$defs/Nodes"
+    },
+    "revision": {
+      "description": "The descriptor's own revision. The workflow bumps it; MaxHQ only\nshows it.",
+      "type": [
+        "integer",
+        "null"
+      ],
+      "format": "uint64",
+      "default": null,
+      "minimum": 0
+    },
+    "rules": {
+      "description": "Display rules, applied after the standard status rules. For each\nnode the first rule whose `when` holds wins.",
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/Rule"
+      }
+    },
+    "runs": {
+      "description": "Where runs live and what each run says about itself.",
+      "$ref": "#/$defs/Runs"
+    }
+  },
+  "additionalProperties": false,
+  "patternProperties": {
+    "^x-": {}
+  },
+  "required": [
+    "format",
+    "id",
+    "runs"
+  ],
+  "$defs": {
+    "AgentState": {
+      "description": "How an agent stands, as the hub sees it.",
+      "oneOf": [
+        {
+          "description": "It's working on a turn.",
+          "type": "string",
+          "const": "busy"
+        },
+        {
+          "description": "It waits for you, on a question or a permission.",
+          "type": "string",
+          "const": "waiting"
+        },
+        {
+          "description": "It's running and has nothing to do.",
+          "type": "string",
+          "const": "idle"
+        },
+        {
+          "description": "It ended, or its process is gone.",
+          "type": "string",
+          "const": "gone"
+        }
+      ]
+    },
+    "BadgeRule": {
+      "description": "A badge on nodes.",
+      "type": "object",
+      "properties": {
+        "node": {
+          "description": "The nodes it may show on. Every node when left out.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/OneOrMany2"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "text": {
+          "description": "The text, as a template.",
+          "type": "string"
+        },
+        "tone": {
+          "description": "How it reads. Neutral when left out.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Tone"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "value": {
+          "description": "A value source, for `{value}` and the `value` predicate.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Expr"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "vars": {
+          "description": "More value sources, for `{vars.<name>}` in the text.",
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/Expr"
+          }
+        },
+        "when": {
+          "description": "When it shows. Always when left out.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Predicate"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "text"
+      ]
+    },
+    "Bind": {
+      "description": "Patterns that bind agents to nodes and runs. Named groups `run` and\n`node` say what a match binds to.",
+      "type": "object",
+      "properties": {
+        "node": {
+          "description": "Patterns that bind an agent to a node.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/NodePattern"
+          }
+        },
+        "process": {
+          "description": "Pids, read per node, that bind the agent with that pid to the node.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ProcessPattern"
+          }
+        },
+        "run": {
+          "description": "Patterns that bind an agent as a run's lead.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/RunPattern"
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "Compare": {
+      "description": "Comparisons on one value.",
+      "type": "object",
+      "properties": {
+        "eq": {
+          "description": "Equal to.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Operand"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "exists": {
+          "description": "Whether it has a value at all.",
+          "type": [
+            "boolean",
+            "null"
+          ],
+          "default": null
+        },
+        "gt": {
+          "description": "Greater than.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Operand"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "gte": {
+          "description": "Greater than or equal to.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Operand"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "lt": {
+          "description": "Less than.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Operand"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "lte": {
+          "description": "Less than or equal to.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Operand"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "ne": {
+          "description": "Not equal to.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Operand"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
+    "DetailRule": {
+      "description": "A list for a node's expanded row.",
+      "type": "object",
+      "properties": {
+        "label": {
+          "description": "What the list is.",
+          "type": "string"
+        },
+        "limit": {
+          "description": "The most items to show, the last ones.",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint",
+          "default": null,
+          "minimum": 0
+        },
+        "list": {
+          "description": "The items, as a value source.",
+          "$ref": "#/$defs/Expr"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "label",
+        "list"
+      ]
+    },
+    "Each": {
+      "description": "What `sum` does to each number before adding it.",
+      "type": "object",
+      "properties": {
+        "add": {
+          "description": "Added to the number.",
+          "type": [
+            "number",
+            "null"
+          ],
+          "format": "double",
+          "default": null
+        },
+        "max": {
+          "description": "The most it may be after `add`.",
+          "type": [
+            "number",
+            "null"
+          ],
+          "format": "double",
+          "default": null
+        },
+        "min": {
+          "description": "The least it may be after `add`.",
+          "type": [
+            "number",
+            "null"
+          ],
+          "format": "double",
+          "default": null
+        }
+      },
+      "additionalProperties": false
+    },
+    "EventSource": {
+      "description": "An event log a run writes.",
+      "anyOf": [
+        {
+          "description": "JSON Lines, one event object per line, read by offset.",
+          "type": "object",
+          "properties": {
+            "jsonl": {
+              "description": "The file, relative to the run folder.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "jsonl"
+          ]
+        },
+        {
+          "description": "Any line log, read by offset, with a pattern whose named groups `t`,\n`node` and `status` (and optionally `note`) give each event.",
+          "type": "object",
+          "properties": {
+            "lines": {
+              "description": "The file, relative to the run folder.",
+              "type": "string"
+            },
+            "match": {
+              "description": "The pattern each event line matches.",
+              "type": "string",
+              "format": "regex"
+            }
+          },
+          "required": [
+            "lines",
+            "match"
+          ]
+        }
+      ]
+    },
+    "Expr": {
+      "description": "A value: a literal, or a source read from the run.",
+      "anyOf": [
+        {
+          "description": "Read from a file.",
+          "$ref": "#/$defs/Source"
+        },
+        {
+          "description": "A plain value."
+        }
+      ]
+    },
+    "FactTest": {
+      "description": "A test on the run's facts.",
+      "anyOf": [
+        {
+          "description": "One fact, by name, tested with `exists`.",
+          "type": "string"
+        },
+        {
+          "description": "Each named fact matches.",
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/Matcher"
+          }
+        }
+      ]
+    },
+    "GroupInfo": {
+      "description": "What the descriptor says about one group.",
+      "type": "object",
+      "properties": {
+        "collapsed": {
+          "description": "Whether it starts folded.",
+          "type": "boolean",
+          "default": false
+        },
+        "label": {
+          "description": "What MaxHQ calls it. Its id when left out.",
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null
+        }
+      },
+      "additionalProperties": false
+    },
+    "GroupRef": {
+      "description": "A group of a pattern, by number or name.",
+      "anyOf": [
+        {
+          "description": "By number, 0 for the whole match.",
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0
+        },
+        {
+          "description": "By name.",
+          "type": "string"
+        }
+      ]
+    },
+    "Label": {
+      "description": "A line of text with an optional value, shown when `when` holds, as in a\nbadge or a header line.",
+      "type": "object",
+      "properties": {
+        "text": {
+          "description": "The text, as a template.",
+          "type": "string"
+        },
+        "tone": {
+          "description": "How it reads. Neutral when left out.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Tone"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "value": {
+          "description": "A value source, for `{value}` and the `value` predicate.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Expr"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "vars": {
+          "description": "More value sources, for `{vars.<name>}` in the text.",
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/Expr"
+          }
+        },
+        "when": {
+          "description": "When it shows. Always when left out.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Predicate"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "text"
+      ]
+    },
+    "LinkRule": {
+      "description": "A link a node offers while `when` holds.",
+      "type": "object",
+      "properties": {
+        "label": {
+          "description": "What it says.",
+          "type": "string"
+        },
+        "node": {
+          "description": "The nodes it shows on. Every node when left out.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/OneOrMany2"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "url": {
+          "description": "Where it goes, as a template. Only `http://127.0.0.1` and\n`http://localhost` URLs are kept.",
+          "type": "string"
+        },
+        "value": {
+          "description": "A value source, for `{value}`.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Expr"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "when": {
+          "description": "When it shows. Always when left out.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Predicate"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "label",
+        "url"
+      ]
+    },
+    "LoopRule": {
+      "description": "A loop between nodes. Its count is how often a `to` node, or a member of\na `to` group, went busy again after `from` went busy.",
+      "type": "object",
+      "properties": {
+        "budget": {
+          "description": "How many times it may go round.",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint32",
+          "default": null,
+          "minimum": 0
+        },
+        "from": {
+          "description": "The node work goes back from.",
+          "type": "string"
+        },
+        "label": {
+          "description": "What it's called.",
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null
+        },
+        "to": {
+          "description": "The nodes or groups work goes back to.",
+          "$ref": "#/$defs/OneOrMany2"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "from",
+        "to"
+      ]
+    },
+    "Matcher": {
+      "description": "A test on one value.",
+      "anyOf": [
+        {
+          "description": "Comparisons, all of which must hold.",
+          "$ref": "#/$defs/Compare"
+        },
+        {
+          "description": "Equal to one of these.",
+          "type": "array",
+          "items": true
+        },
+        {
+          "description": "Equal to this."
+        }
+      ]
+    },
+    "NodeInfo": {
+      "description": "What the descriptor says about one node.",
+      "type": "object",
+      "properties": {
+        "host": {
+          "description": "Whether the run's lead works on it itself, rather than a sub-agent.",
+          "type": "boolean",
+          "default": false
+        },
+        "label": {
+          "description": "What MaxHQ calls it.",
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null
+        },
+        "lane": {
+          "description": "A lane other than the main one, such as `side`.",
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null
+        },
+        "vars": {
+          "description": "Variables for templates on this node, as `{vars.<name>}`.",
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "NodePattern": {
+      "description": "A pattern over an agent's title or the head of its first prompt.",
+      "type": "object",
+      "properties": {
+        "and": {
+          "description": "A second pattern the same prompt must also match. Its groups count\ntoo.",
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "regex"
+        },
+        "prompt": {
+          "description": "Matched against the first 4 KB of the agent's first prompt.",
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "regex"
+        },
+        "title": {
+          "description": "Matched against the agent's title.",
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "regex"
+        }
+      },
+      "additionalProperties": false,
+      "oneOf": [
+        {
+          "required": [
+            "title"
+          ]
+        },
+        {
+          "required": [
+            "prompt"
+          ]
+        }
+      ]
+    },
+    "NodeStatus": {
+      "description": "Where a node stands, in the standard's words. A workflow maps its own\nwords onto these.",
+      "oneOf": [
+        {
+          "description": "This run leaves it out.",
+          "type": "string",
+          "const": "omitted"
+        },
+        {
+          "description": "It waits for the nodes it needs.",
+          "type": "string",
+          "const": "queued"
+        },
+        {
+          "description": "Everything it needs is done, and it can start.",
+          "type": "string",
+          "const": "ready"
+        },
+        {
+          "description": "It's running.",
+          "type": "string",
+          "const": "busy"
+        },
+        {
+          "description": "It waits for a child run or agent.",
+          "type": "string",
+          "const": "waiting_child"
+        },
+        {
+          "description": "It waits for you.",
+          "type": "string",
+          "const": "waiting_human"
+        },
+        {
+          "description": "It finished.",
+          "type": "string",
+          "const": "done"
+        },
+        {
+          "description": "It was skipped.",
+          "type": "string",
+          "const": "skipped"
+        },
+        {
+          "description": "It will be skipped when the run reaches it.",
+          "type": "string",
+          "const": "will_skip"
+        },
+        {
+          "description": "It failed.",
+          "type": "string",
+          "const": "failed"
+        },
+        {
+          "description": "Something it needs failed, so it can't run.",
+          "type": "string",
+          "const": "blocked"
+        },
+        {
+          "description": "It says it's busy, but no live agent works on it.",
+          "type": "string",
+          "const": "stale"
+        },
+        {
+          "description": "The workflow wrote a word the standard doesn't know.",
+          "type": "string",
+          "const": "unknown"
+        }
+      ]
+    },
+    "Nodes": {
+      "description": "How the run file lists its nodes. Field names are keys of each node\nobject. Everything left out reads the reference shape.",
+      "type": "object",
+      "properties": {
+        "agent": {
+          "description": "The agent working on it, by id.",
+          "type": "string",
+          "default": "agent"
+        },
+        "attempts": {
+          "description": "How many attempts it took.",
+          "type": "string",
+          "default": "attempts"
+        },
+        "fields": {
+          "description": "More fields rules, badges and templates may read, as `{<field>}`.",
+          "type": "array",
+          "default": [],
+          "items": {
+            "type": "string"
+          }
+        },
+        "group": {
+          "description": "The group it sits in.",
+          "type": "string",
+          "default": "group"
+        },
+        "id": {
+          "description": "The node's id.",
+          "type": "string",
+          "default": "id"
+        },
+        "info": {
+          "description": "Per node id: its label, lane, host flag and variables. A node named\nhere that a run doesn't list is `omitted` in that run.",
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/NodeInfo"
+          }
+        },
+        "label": {
+          "description": "What it's called, when `info` names no label.",
+          "type": "string",
+          "default": "label"
+        },
+        "list": {
+          "description": "Where the list of nodes is, as JSONPath.",
+          "type": "string",
+          "pattern": "^\\$"
+        },
+        "needs": {
+          "description": "The ids of the nodes it needs.",
+          "type": "string",
+          "default": "needs"
+        },
+        "status": {
+          "description": "Its status, in the workflow's words.",
+          "type": "string",
+          "default": "status"
+        },
+        "status_map": {
+          "description": "The workflow's status words, mapped to the standard's. A word missing\nhere that is a standard status reads as itself; any other reads as\n`unknown`.",
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/NodeStatus"
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "OneOrMany": {
+      "description": "One value or a list of them.",
+      "anyOf": [
+        {
+          "description": "One.",
+          "$ref": "#/$defs/NodeStatus"
+        },
+        {
+          "description": "Several.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/NodeStatus"
+          }
+        }
+      ]
+    },
+    "OneOrMany2": {
+      "description": "One value or a list of them.",
+      "anyOf": [
+        {
+          "description": "One.",
+          "type": "string"
+        },
+        {
+          "description": "Several.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      ]
+    },
+    "OneOrMany3": {
+      "description": "One value or a list of them.",
+      "anyOf": [
+        {
+          "description": "One.",
+          "$ref": "#/$defs/AgentState"
+        },
+        {
+          "description": "Several.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/AgentState"
+          }
+        }
+      ]
+    },
+    "Operand": {
+      "description": "The other side of a comparison.",
+      "anyOf": [
+        {
+          "description": "A run fact, by name.",
+          "type": "object",
+          "properties": {
+            "fact": {
+              "description": "The fact.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "fact"
+          ]
+        },
+        {
+          "description": "A plain value."
+        }
+      ]
+    },
+    "Pick": {
+      "description": "Which lines a `match` gives.",
+      "oneOf": [
+        {
+          "description": "The first matching line.",
+          "type": "string",
+          "const": "first"
+        },
+        {
+          "description": "The last matching line.",
+          "type": "string",
+          "const": "last"
+        },
+        {
+          "description": "How many lines match.",
+          "type": "string",
+          "const": "count"
+        },
+        {
+          "description": "Every matching line, as a list.",
+          "type": "string",
+          "const": "all"
+        }
+      ]
+    },
+    "Predicate": {
+      "description": "A test on nodes and the run. Every key given must hold.",
+      "type": "object",
+      "properties": {
+        "all": {
+          "description": "Every one of these holds.",
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "$ref": "#/$defs/Predicate"
+          }
+        },
+        "any": {
+          "description": "At least one of these holds.",
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "$ref": "#/$defs/Predicate"
+          }
+        },
+        "any_node": {
+          "description": "Some node of the run passes this test.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Predicate"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "exists": {
+          "description": "With `fact` as a name: whether the run has that fact.",
+          "type": [
+            "boolean",
+            "null"
+          ],
+          "default": null
+        },
+        "fact": {
+          "description": "The run's facts match: a map from fact to test, or one fact's name\nwith `exists`.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/FactTest"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "field": {
+          "description": "Each named field of the node matches.",
+          "type": [
+            "object",
+            "null"
+          ],
+          "additionalProperties": {
+            "$ref": "#/$defs/Matcher"
+          }
+        },
+        "id": {
+          "description": "The node is one of these, by id.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/OneOrMany2"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "node": {
+          "description": "The node is one of these, by id.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/OneOrMany2"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "not": {
+          "description": "This doesn't hold.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Predicate"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "orchestrator": {
+          "description": "The run's lead stands as one of these.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/OneOrMany3"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "status": {
+          "description": "The node's status is one of these.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/OneOrMany"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "value": {
+          "description": "The rule's or badge's value matches.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Matcher"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "additionalProperties": false,
+      "not": {
+        "required": [
+          "node",
+          "id"
+        ]
+      }
+    },
+    "ProcessPattern": {
+      "description": "A pid file per node.",
+      "type": "object",
+      "properties": {
+        "pid": {
+          "description": "The pid, as a value source evaluated per node.",
+          "$ref": "#/$defs/Expr"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "pid"
+      ]
+    },
+    "Provisional": {
+      "description": "Whether a rule's status is a guess.",
+      "anyOf": [
+        {
+          "description": "Always or never.",
+          "type": "boolean"
+        },
+        {
+          "description": "While this holds.",
+          "$ref": "#/$defs/Predicate"
+        }
+      ]
+    },
+    "Rule": {
+      "description": "A display rule.",
+      "type": "object",
+      "properties": {
+        "is": {
+          "description": "The status it gives the node.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/NodeStatus"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "note": {
+          "description": "A note for the node, as a template.",
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null
+        },
+        "provisional": {
+          "description": "Whether the status is a guess: `true`, or a predicate.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Provisional"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "value": {
+          "description": "A value source the `value` predicate in `when` tests.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Expr"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "when": {
+          "description": "When it applies to a node.",
+          "$ref": "#/$defs/Predicate"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "when"
+      ]
+    },
+    "RunPattern": {
+      "description": "A pattern over the commands an agent ran.",
+      "type": "object",
+      "properties": {
+        "command": {
+          "description": "Matched against each finished command. Checked only on commands that\ncontain the pattern's literal start.",
+          "type": "string",
+          "format": "regex"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "command"
+      ]
+    },
+    "Runs": {
+      "description": "Where a workflow's runs live and what each says about itself. Values\nleft out read the reference shape: `$.run.id`, `$.run.label`,\n`$.run.agent` and `$.run.status`.",
+      "type": "object",
+      "properties": {
+        "agent": {
+          "description": "The agent that leads the run, by id, such as the `MAXHQ_AGENT` the\nlead was started with.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Expr"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "env": {
+          "description": "Variables MaxHQ sets on agents it starts in a project the descriptor\napplies to. Each name starts with the upper-cased id and `_`.",
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "events": {
+          "description": "Event logs, in order of preference. The first that exists is read.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/EventSource"
+          }
+        },
+        "facts": {
+          "description": "Named facts about the run, for rules, badges and templates as\n`{run.<name>}`.",
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/Expr"
+          }
+        },
+        "glob": {
+          "description": "A glob, from the project's root, that matches each run's file. It may\nstart with `{project}/`. `*` stays inside a folder and `**` crosses\nfolders.",
+          "type": "string"
+        },
+        "id": {
+          "description": "The run's id. The run folder's name when it reads nothing.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Expr"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "label": {
+          "description": "What the run is called.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Expr"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "status": {
+          "description": "The run's own status, in the workflow's words.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Expr"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "glob"
+      ]
+    },
+    "Source": {
+      "description": "A value read from the run file, or the file named by `in`. Exactly one\nof `path`, `count`, `sum`, `match` and `alive_pid`.",
+      "type": "object",
+      "properties": {
+        "alive_pid": {
+          "description": "A pid file, relative to the run folder: true while that process\nruns.",
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null
+        },
+        "count": {
+          "description": "How many values a JSONPath selects. A path that selects one list\ncounts its items.",
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^\\$"
+        },
+        "default": {
+          "description": "The value when the source reads nothing.",
+          "default": null
+        },
+        "each": {
+          "description": "What `sum` does to each number first.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Each"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "group": {
+          "description": "The group of the match to give, by number or name. The whole match\nwhen left out.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/GroupRef"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "in": {
+          "description": "The file to read, as a template: relative to the run folder, or\nstarting with `{project}` or `{workflow}`. The run file when left out.",
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null
+        },
+        "match": {
+          "description": "A pattern over the lines of the file, as a template.",
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null
+        },
+        "path": {
+          "description": "The value at a JSONPath (RFC 9535). Several matches read as a list.",
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^\\$"
+        },
+        "pick": {
+          "description": "Which matching lines `match` gives. The first when left out.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Pick"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "sum": {
+          "description": "The sum of the numbers a JSONPath selects.",
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^\\$"
+        }
+      },
+      "additionalProperties": false,
+      "oneOf": [
+        {
+          "required": [
+            "path"
+          ]
+        },
+        {
+          "required": [
+            "count"
+          ]
+        },
+        {
+          "required": [
+            "sum"
+          ]
+        },
+        {
+          "required": [
+            "match"
+          ]
+        },
+        {
+          "required": [
+            "alive_pid"
+          ]
+        }
+      ]
+    },
+    "Tone": {
+      "description": "How a badge or a header reads.",
+      "oneOf": [
+        {
+          "description": "Plain.",
+          "type": "string",
+          "const": "neutral"
+        },
+        {
+          "description": "Worth a look.",
+          "type": "string",
+          "const": "info"
+        },
+        {
+          "description": "Went well.",
+          "type": "string",
+          "const": "good"
+        },
+        {
+          "description": "Needs care.",
+          "type": "string",
+          "const": "warn"
+        },
+        {
+          "description": "Went wrong.",
+          "type": "string",
+          "const": "bad"
+        }
+      ]
+    }
+  }
+}

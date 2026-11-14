@@ -1,0 +1,385 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026 Max Boksem
+
+// The footer's model and permission pickers. The labels are the same for
+// every vendor, and a change applies from the agent's next message. A
+// model of another vendor moves the agent there. The agent view's header
+// draws the model picker too, as a smaller chip that opens downward. In a
+// narrow footer the permission picker folds to its icon and the model's
+// name gets cut short, and their tooltips and accessible names keep the
+// full text.
+
+import { Menu } from "@base-ui/react/menu";
+import {
+	Asterisk,
+	Bot,
+	Check,
+	ChevronDown,
+	Hexagon,
+	type LucideIcon,
+	MousePointer2,
+	Shield,
+} from "lucide-react";
+import { Fragment, type ReactNode } from "react";
+
+import {
+	currentModel,
+	modelLabel,
+	moveModels,
+	NOT_OFFERED,
+	permissionChoices,
+	permissionLabel,
+	permissionNote,
+	runningMode,
+} from "@maxhq/shared/agent-view/controls";
+import type {
+	Account,
+	AccountId,
+	AcpFeatures,
+	AgentPermission,
+	ModelChoice,
+	PermissionMode,
+	Vendor,
+} from "@maxhq/shared/bindings";
+import { Tooltip } from "@/components/ui/tooltip";
+import { cn } from "@/lib/utils";
+import { accountName } from "@maxhq/shared/status/usage";
+import type { Move } from "@maxhq/shared/view/select";
+import { t as translate, useI18n } from "@maxhq/shared/i18n";
+
+const MODEL_ICON: Record<Vendor, LucideIcon> = {
+	claude: Asterisk,
+	codex: Hexagon,
+	cursor: MousePointer2,
+	acp: Bot,
+};
+
+/** The look of a footer picker's button. */
+export const TRIGGER =
+	"inline-flex h-[26px] shrink-0 items-center gap-[5px] rounded-md px-2 text-xs whitespace-nowrap text-secondary-foreground outline-none hover:bg-border hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring data-popup-open:bg-border data-popup-open:text-foreground";
+
+const HEADER_TRIGGER =
+	"inline-flex h-[22px] shrink-0 items-center gap-1 rounded-md px-1.5 text-[11.5px] whitespace-nowrap text-secondary-foreground outline-none hover:bg-border hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring data-popup-open:bg-border data-popup-open:text-foreground";
+
+/** The look of a menu's popup, shared with the header's other menus. */
+export const MENU_POPUP =
+	"w-[300px] rounded-[10px] border border-input bg-popover p-[5px] text-popover-foreground shadow-menu outline-none";
+
+/** The look of one item in a menu. */
+export const MENU_ITEM =
+	"flex cursor-default items-center gap-2.5 rounded-md px-2 py-1.5 outline-none select-none data-checked:bg-selected data-disabled:opacity-50 data-highlighted:bg-accent";
+
+/** Where a picker sits: the composer's footer, or the agent view's header. */
+export type PickerPlace = "footer" | "header";
+
+/**
+ * How a chip in the footer makes room: down to its icon, or by cutting its
+ * label short, which it then draws in a span that `truncate`s and keeps
+ * a few letters wide.
+ */
+export type PickerFold = "icon" | "shrink";
+
+// A chip folded to its icon is as wide as it is tall. One cut short can
+// shrink down to its icon, four letters and its chevron: 16 pixels of
+// padding, 12 of icon, two gaps of 5 and 9 of chevron. Below that the row
+// runs past its edge, so it folds its next step.
+export const FOLDED: Record<PickerFold, string> = {
+	icon: "w-[26px] justify-center px-0",
+	shrink: "min-w-[calc(4ch+47px)] shrink",
+};
+
+// The model's name cut short where it can't be changed, without the chevron.
+const CUT_PLAIN = "min-w-[calc(4ch+33px)] shrink";
+
+export const Picker = ({
+	label,
+	trigger,
+	place = "footer",
+	fold = null,
+	tip = null,
+	children,
+}: {
+	/** Its accessible name, which says what the trigger shows in full. */
+	label: string;
+	trigger: ReactNode;
+	place?: PickerPlace;
+	fold?: PickerFold | null;
+	/** What its tooltip says, or null for none. */
+	tip?: ReactNode;
+	children: ReactNode;
+}) => {
+	useI18n();
+	return (
+		<Menu.Root>
+			<Tooltip content={tip}>
+				<Menu.Trigger
+					className={cn(
+						place === "header" ? HEADER_TRIGGER : TRIGGER,
+						fold && FOLDED[fold]
+					)}
+					aria-label={label}
+				>
+					{trigger}
+					{fold !== "icon" && (
+						<ChevronDown
+							aria-hidden
+							className="size-[9px] shrink-0"
+							strokeWidth={2.6}
+						/>
+					)}
+				</Menu.Trigger>
+			</Tooltip>
+			<Menu.Portal>
+				<Menu.Positioner
+					side={place === "header" ? "bottom" : "top"}
+					align="start"
+					sideOffset={6}
+					className="z-[130]"
+				>
+					<Menu.Popup
+						className={cn(
+							MENU_POPUP,
+							"max-h-[min(420px,var(--available-height))] overflow-y-auto"
+						)}
+					>
+						{children}
+					</Menu.Popup>
+				</Menu.Positioner>
+			</Menu.Portal>
+		</Menu.Root>
+	);
+};
+
+export const Tick = () => {
+	useI18n();
+	return (
+		<span className="flex size-3.5 items-center justify-center">
+			<Menu.RadioItemIndicator>
+				<Check aria-hidden className="size-3.5 text-primary" strokeWidth={2.6} />
+			</Menu.RadioItemIndicator>
+		</span>
+	);
+};
+
+export const GROUP_LABEL = "px-2 pt-[5px] pb-1 text-[11px] text-muted-foreground";
+
+/** A model under another account, which moves the agent there. */
+const MoveGroup = ({
+	move,
+	onPick,
+}: {
+	move: Move;
+	onPick: (model: string, account: AccountId) => void;
+}) => {
+	useI18n();
+	const Icon = MODEL_ICON[move.account.vendor];
+	return (
+		<Menu.Group>
+			<Menu.GroupLabel className={GROUP_LABEL}>
+				{translate("Move to ")}
+				{accountName(move.account)}
+			</Menu.GroupLabel>
+			{moveModels(move).map((choice) => (
+				<Menu.Item
+					key={choice.id}
+					className={MENU_ITEM}
+					onClick={() => onPick(choice.id, move.account.id)}
+				>
+					<Icon aria-hidden className="size-3 text-muted-foreground" strokeWidth={2.4} />
+					<span className="flex-1 text-[12.5px] font-[550]">{choice.label}</span>
+				</Menu.Item>
+			))}
+		</Menu.Group>
+	);
+};
+
+/**
+ * Picks the agent's model from `choices`, what its account can run (see
+ * `modelsOf`), or a model of one of `moves`, which moves the agent to that
+ * account with its conversation.
+ * Without a list to pick from, or with `onPick` left out, it only names
+ * the model. `folded`, in a narrow footer, cuts its name short.
+ */
+export const ModelPicker = ({
+	vendor,
+	model,
+	account,
+	choices,
+	moves = [],
+	place = "footer",
+	folded = false,
+	onPick,
+}: {
+	vendor: Vendor;
+	model: string | null;
+	account: Account | undefined;
+	choices: readonly ModelChoice[];
+	moves?: readonly Move[];
+	place?: PickerPlace;
+	folded?: boolean;
+	onPick?: (model: string, account?: AccountId) => void;
+}) => {
+	useI18n();
+	const Icon = MODEL_ICON[vendor];
+	const label = modelLabel(model, choices);
+	// A name cut short keeps four letters' width, so a shorter one stays whole.
+	const cut = folded && label.length > 4;
+	// The header names the vendor beside it already, so it leaves the icon out.
+	const shown =
+		place === "header" ? (
+			label
+		) : (
+			<>
+				<Icon aria-hidden className="size-3 shrink-0" strokeWidth={2.4} />
+				<span className={cn("truncate", cut && "min-w-[4ch]")}>{label}</span>
+			</>
+		);
+	// The footer's tooltip names the model the agent runs, when its name
+	// says less, and its full name once that gets cut short.
+	const id = model !== null && model !== label ? model : null;
+	const tip =
+		place === "footer" && (folded || id !== null) ? (
+			<>
+				<span className="block">{label}</span>
+				{id !== null && <span className="block text-muted-foreground">{id}</span>}
+			</>
+		) : null;
+	if (!account || (choices.length === 0 && moves.length === 0) || !onPick) {
+		return (
+			<Tooltip content={tip}>
+				<span
+					className={
+						place === "header"
+							? "inline-flex h-[22px] shrink-0 items-center px-1.5 text-[11.5px] whitespace-nowrap text-secondary-foreground"
+							: cn(
+									"inline-flex h-[26px] shrink-0 items-center gap-[5px] px-2 text-xs whitespace-nowrap text-secondary-foreground",
+									cut && CUT_PLAIN
+								)
+					}
+				>
+					{shown}
+				</span>
+			</Tooltip>
+		);
+	}
+	const current = currentModel(model, choices);
+	return (
+		<Picker
+			label={translate("Model: {{label}}", { label: label })}
+			trigger={shown}
+			place={place}
+			fold={cut ? "shrink" : null}
+			tip={tip}
+		>
+			{choices.length > 0 && (
+				<Menu.RadioGroup
+					value={current}
+					onValueChange={(value: string) => {
+						if (value !== current) onPick(value);
+					}}
+				>
+					<Menu.GroupLabel className={GROUP_LABEL}>
+						{translate("Model, ")}
+						{accountName(account)}
+					</Menu.GroupLabel>
+					{choices.map((choice) => (
+						<Menu.RadioItem key={choice.id} value={choice.id} className={MENU_ITEM}>
+							<span className="flex-1 text-[12.5px] font-[550] [[data-checked]_&]:font-semibold">
+								{choice.label}
+							</span>
+							{choice.default && (
+								<span className="text-[11px] text-muted-foreground">
+									{translate("Default")}
+								</span>
+							)}
+							<Tick />
+						</Menu.RadioItem>
+					))}
+				</Menu.RadioGroup>
+			)}
+			{moves.map((move, at) => (
+				<Fragment key={move.account.id}>
+					{(choices.length > 0 || at > 0) && (
+						<Menu.Separator className="mx-1 my-[5px] h-px bg-border" />
+					)}
+					<MoveGroup move={move} onPick={onPick} />
+				</Fragment>
+			))}
+		</Picker>
+	);
+};
+
+/**
+ * Picks the agent's permission mode, showing the one it really runs in.
+ * `acp` is what a local ACP agent can do, which hides the modes it can't.
+ * `folded`, in a narrow footer, shows its icon alone.
+ */
+export const PermissionPicker = ({
+	vendor,
+	acp,
+	permission,
+	folded = false,
+	onPick,
+}: {
+	vendor: Vendor;
+	acp?: AcpFeatures | null;
+	permission: AgentPermission;
+	folded?: boolean;
+	onPick: (mode: PermissionMode) => void;
+}) => {
+	useI18n();
+	const running = runningMode(permission);
+	const note = permissionNote(permission);
+	const label = translate("Permission mode: {{label}}", { label: permissionLabel(running) });
+	return (
+		<Picker
+			label={label}
+			fold={folded ? "icon" : null}
+			tip={folded ? label : null}
+			trigger={
+				<>
+					<Shield aria-hidden className="size-[13px]" strokeWidth={2} />
+					{!folded && permissionLabel(running)}
+				</>
+			}
+		>
+			<Menu.RadioGroup
+				value={running}
+				onValueChange={(value: PermissionMode) => {
+					if (value !== running) onPick(value);
+				}}
+			>
+				{permissionChoices(vendor, acp).map(({ mode, label, detail, offered }) => (
+					<Menu.RadioItem
+						key={mode}
+						value={mode}
+						disabled={!offered}
+						className={MENU_ITEM}
+					>
+						<span className="flex flex-1 flex-col gap-px">
+							<span className="text-[12.5px] font-[550] [[data-checked]_&]:font-semibold">
+								{label}
+							</span>
+							<span
+								className={cn(
+									"text-[11px]",
+									mode === "full_access"
+										? "text-status-busy-text"
+										: "text-muted-foreground"
+								)}
+							>
+								{offered ? detail : NOT_OFFERED}
+							</span>
+						</span>
+						<Tick />
+					</Menu.RadioItem>
+				))}
+			</Menu.RadioGroup>
+			{note && (
+				<p className="mt-[5px] border-t border-track px-2 pt-[7px] pb-1 text-[11px] text-muted-foreground">
+					{note}
+				</p>
+			)}
+		</Picker>
+	);
+};

@@ -1,0 +1,497 @@
+/* SPDX-License-Identifier: MIT */
+/* Copyright (c) 2026 Max Boksem */
+
+@import "tailwindcss";
+
+/* Class names in the shared package, such as a workspace state's tone. */
+@source "../../../../packages/shared/src";
+
+@custom-variant dark (&:is(.dark, .dark *));
+
+/* The colors from the approved mockups. The names follow shadcn's, so the
+   components taken from a shadcn kit (U-6) pick them up unchanged. The dark
+   theme is the default, and the light one below gives every name again. The
+   boot script sets `data-theme` on the root before the first paint. */
+:root,
+:root[data-theme="dark"] {
+	--background: #0f1217;
+	--foreground: #e8ecf2;
+	--foreground-strong: #f3f6fa;
+	--card: #14181f;
+	--card-foreground: #e8ecf2;
+	--popover: #1a1f27;
+	--popover-foreground: #e8ecf2;
+	--primary: #4692f6;
+	--primary-foreground: #071225;
+	--secondary: #1a1f27;
+	--secondary-foreground: #b8c0cc;
+	--muted: #1a1f27;
+	--muted-foreground: #8b94a3;
+	--subtle-foreground: #5b6472;
+	--accent: #1c2129;
+	--accent-foreground: #e8ecf2;
+	--destructive: #f0616d;
+	--border: #222832;
+	--input: #2c333e;
+	--ring: #4692f6;
+	--track: #262c36;
+	--sidebar: #14181f;
+	--sidebar-foreground: #e8ecf2;
+	--sidebar-border: #222832;
+	--subpanel: #12161c;
+	--terminal: #c9d0da;
+	--canvas: #0b0e12;
+	/* Text on a dark wash over a picture, a video or its empty frame. */
+	--media-foreground: #c9d0da;
+	--hover-card: #1e242e;
+	--hover-card-border: #343b47;
+	--row-divider: #1c2129;
+	--selected: rgb(70 146 246 / 0.14);
+	--selected-ring: rgb(70 146 246 / 0.35);
+	--scrollbar-thumb: #2c333e;
+	--scrollbar-thumb-hover: #3a424e;
+
+	/* Agent activity (N-1) and device connection (N-2). Every state also
+	   has its own shape, so none of them rely on color alone. */
+	--status-busy: #e8c547;
+	--status-ready: #3fb37f;
+	--status-ready-foreground: #06140d;
+	--status-warm: #8fe3b5;
+	--status-linked: #a07cf0;
+	--status-connecting: #f08a3c;
+	--status-error: #f0616d;
+	--status-off: #5b6472;
+
+	/* Text that sits on a tint of a status color. */
+	--status-ready-text: #9fd9bc;
+	--status-busy-text: #e9d9a0;
+	--status-connecting-text: #f5b88a;
+	--status-error-text: #f4a3aa;
+
+	/* A diff's marks and line numbers on its added and removed lines. */
+	--diff-added: var(--status-ready);
+	--diff-removed: var(--destructive);
+
+	/* Context pills. Hue names the family and shade names the state. Text
+	   sits at oklch lightness 0.82, and each fill is a 14% tint with a
+	   border at 35%, both from the chip accents. */
+	--pill-file-text: oklch(0.82 0.09 237);
+	--pill-file-bg: oklch(0.62 0.136 237 / 0.14);
+	--pill-file-border: oklch(0.62 0.136 237 / 0.35);
+	--pill-quote-text: oklch(0.82 0.09 285);
+	--pill-quote-bg: oklch(0.62 0.15 285 / 0.14);
+	--pill-quote-border: oklch(0.62 0.15 285 / 0.35);
+	--pill-agent-text: oklch(0.82 0.08 190);
+	--pill-agent-bg: oklch(0.62 0.12 190 / 0.14);
+	--pill-agent-border: oklch(0.62 0.12 190 / 0.35);
+	/* Notes in lemon yellow, at hue 95, clear of find's amber at 74 to 85.
+	   The tint comes from a lighter yellow, since a darker one turns olive. */
+	--pill-note-text: oklch(0.82 0.1 95);
+	--pill-note-bg: oklch(0.8 0.15 95 / 0.14);
+	--pill-note-border: oklch(0.8 0.15 95 / 0.35);
+	--pill-visual-text: oklch(0.82 0.1 340);
+	--pill-visual-bg: oklch(0.62 0.16 340 / 0.14);
+	--pill-visual-border: oklch(0.62 0.16 340 / 0.35);
+	--pill-git-open-text: oklch(0.82 0.11 163);
+	--pill-git-open-bg: oklch(0.62 0.134 163 / 0.14);
+	--pill-git-open-border: oklch(0.62 0.134 163 / 0.35);
+	--pill-git-draft-text: oklch(0.82 0.02 259);
+	--pill-git-draft-bg: oklch(0.62 0.02 259 / 0.14);
+	--pill-git-draft-border: oklch(0.62 0.02 259 / 0.35);
+	--pill-git-merged-text: oklch(0.82 0.1 300);
+	--pill-git-merged-bg: oklch(0.62 0.16 300 / 0.14);
+	--pill-git-merged-border: oklch(0.62 0.16 300 / 0.35);
+	--pill-git-closed-text: oklch(0.82 0.08 16);
+	--pill-git-closed-bg: oklch(0.62 0.16 16 / 0.14);
+	--pill-git-closed-border: oklch(0.62 0.16 16 / 0.35);
+	--pill-failed-text: oklch(0.82 0.08 22);
+	--pill-failed-bg: oklch(0.62 0.18 22 / 0.14);
+	--pill-failed-border: oklch(0.62 0.18 22 / 0.35);
+	--pill-unresolved-text: oklch(0.72 0.02 259);
+	--pill-unresolved-bg: oklch(0.62 0.02 259 / 0);
+	--pill-unresolved-border: oklch(0.62 0.02 259 / 0.35);
+
+	/* Find's matches in the conversation, and the active one brighter,
+	   in search colors. */
+	--find-match-text: oklch(0.97 0 0);
+	--find-match-bg: oklch(0.55 0.1 85);
+	--find-active-text: oklch(0.216 0.028 77.4);
+	--find-active-bg: oklch(0.774 0.152 74.3);
+
+	/* Code, in the colours of GitHub's dark theme. The highlighter writes
+	   each of its colours as one of these, so code changes with the theme
+	   without being drawn again. */
+	--code-text: #e6edf3;
+	--code-comment: #8b949e;
+	--code-keyword: #ff7b72;
+	--code-constant: #79c0ff;
+	--code-variable: #ffa657;
+	--code-function: #d2a8ff;
+	--code-tag: #7ee787;
+	--code-string: #a5d6ff;
+	--code-invalid: #ffa198;
+
+	/* A diagram's series in a fixed order, each checked against
+	   `--subpanel` for colour blindness and for telling neighbours apart,
+	   and the text drawn on them. Mermaid reads these, so they stay hex. */
+	--series-0: #4692f6;
+	--series-1: #d95926;
+	--series-2: #199e70;
+	--series-3: #c98500;
+	--series-4: #d55181;
+	--series-5: #9085e9;
+	--series-6: #e66767;
+	--series-7: #2aa5c0;
+	--on-series: #0b0e12;
+
+	/* A visual's chart colours, the series in an order whose neighbours
+	   differ most. A visual reads them as `--chart-1` to `--chart-6`. */
+	--chart-1: var(--series-0);
+	--chart-2: var(--series-2);
+	--chart-3: var(--series-3);
+	--chart-4: var(--series-1);
+	--chart-5: var(--series-5);
+	--chart-6: var(--series-7);
+
+	/* What sits under a dialog, and the shadows of what floats: dialogs and
+	   popups, menus, hover cards, the sub-agent panel, the usage card and
+	   the dispatch field while it's open. */
+	--scrim: rgb(0 0 0 / 0.5);
+	--popup-shadow: 0 18px 48px -12px rgb(0 0 0 / 0.7), 0 2px 6px rgb(0 0 0 / 0.4);
+	--menu-shadow: 0 18px 40px -16px rgb(0 0 0 / 0.75);
+	--hover-shadow: 0 14px 32px -12px rgb(0 0 0 / 0.7);
+	--side-shadow: 8px 0 24px -16px rgb(0 0 0 / 0.6);
+	--large-shadow: 0 24px 56px -14px rgb(0 0 0 / 0.8), 0 2px 6px rgb(0 0 0 / 0.4);
+	--lift-shadow: 0 12px 28px -14px rgb(0 0 0 / 0.7);
+
+	color-scheme: dark;
+}
+
+/* The light theme. Surfaces go the other way, so a raised one is white and
+   the canvas between panes is the deepest grey, and the accents darken so
+   text in them reads on white. */
+:root[data-theme="light"] {
+	--background: #ffffff;
+	--foreground: #1f2329;
+	--foreground-strong: #0d1117;
+	--card: #f5f7f9;
+	--card-foreground: #1f2329;
+	--popover: #ffffff;
+	--popover-foreground: #1f2329;
+	--primary: #0b67d6;
+	--primary-foreground: #ffffff;
+	--secondary: #edf0f4;
+	--secondary-foreground: #3b4350;
+	--muted: #edf0f4;
+	--muted-foreground: #576070;
+	--subtle-foreground: #646c7b;
+	--accent: #e6eaef;
+	--accent-foreground: #1f2329;
+	--destructive: #cf222e;
+	--border: #e0e4ea;
+	--input: #cfd5dd;
+	--ring: #0b67d6;
+	--track: #e3e7ec;
+	--sidebar: #f5f7f9;
+	--sidebar-foreground: #1f2329;
+	--sidebar-border: #e0e4ea;
+	--subpanel: #f8f9fb;
+	--terminal: #2c323b;
+	--canvas: #e7eaef;
+	--media-foreground: #ffffff;
+	--hover-card: #ffffff;
+	--hover-card-border: #cfd5dd;
+	--row-divider: #ebeef2;
+	--selected: rgb(11 103 214 / 0.1);
+	--selected-ring: rgb(11 103 214 / 0.35);
+	--scrollbar-thumb: #cdd3db;
+	--scrollbar-thumb-hover: #b1b9c4;
+
+	--status-busy: #9a6700;
+	--status-ready: #1a7f4b;
+	--status-ready-foreground: #ffffff;
+	--status-warm: #2e9e63;
+	--status-linked: #7c4fd6;
+	--status-connecting: #bc4c00;
+	--status-error: #cf222e;
+	--status-off: #7d8695;
+
+	--status-ready-text: #116539;
+	--status-busy-text: #7a5200;
+	--status-connecting-text: #953800;
+	--status-error-text: #a40e26;
+
+	--diff-added: var(--status-ready-text);
+	--diff-removed: var(--status-error-text);
+
+	/* Pill text sits at oklch lightness 0.45, so it reads on white and on
+	   a light grey. */
+	--pill-file-text: oklch(0.45 0.13 237);
+	--pill-file-bg: oklch(0.62 0.136 237 / 0.14);
+	--pill-file-border: oklch(0.62 0.136 237 / 0.35);
+	--pill-quote-text: oklch(0.45 0.16 285);
+	--pill-quote-bg: oklch(0.62 0.15 285 / 0.14);
+	--pill-quote-border: oklch(0.62 0.15 285 / 0.35);
+	--pill-agent-text: oklch(0.45 0.08 190);
+	--pill-agent-bg: oklch(0.62 0.12 190 / 0.14);
+	--pill-agent-border: oklch(0.62 0.12 190 / 0.35);
+	--pill-note-text: oklch(0.45 0.09 95);
+	--pill-note-bg: oklch(0.8 0.15 95 / 0.14);
+	--pill-note-border: oklch(0.8 0.15 95 / 0.35);
+	--pill-visual-text: oklch(0.45 0.14 340);
+	--pill-visual-bg: oklch(0.62 0.16 340 / 0.14);
+	--pill-visual-border: oklch(0.62 0.16 340 / 0.35);
+	--pill-git-open-text: oklch(0.45 0.1 163);
+	--pill-git-open-bg: oklch(0.62 0.134 163 / 0.14);
+	--pill-git-open-border: oklch(0.62 0.134 163 / 0.35);
+	--pill-git-draft-text: oklch(0.45 0.02 259);
+	--pill-git-draft-bg: oklch(0.62 0.02 259 / 0.14);
+	--pill-git-draft-border: oklch(0.62 0.02 259 / 0.35);
+	--pill-git-merged-text: oklch(0.45 0.16 300);
+	--pill-git-merged-bg: oklch(0.62 0.16 300 / 0.14);
+	--pill-git-merged-border: oklch(0.62 0.16 300 / 0.35);
+	--pill-git-closed-text: oklch(0.45 0.15 16);
+	--pill-git-closed-bg: oklch(0.62 0.16 16 / 0.14);
+	--pill-git-closed-border: oklch(0.62 0.16 16 / 0.35);
+	--pill-failed-text: oklch(0.45 0.16 22);
+	--pill-failed-bg: oklch(0.62 0.18 22 / 0.14);
+	--pill-failed-border: oklch(0.62 0.18 22 / 0.35);
+	--pill-unresolved-text: oklch(0.45 0.02 259);
+	--pill-unresolved-bg: oklch(0.62 0.02 259 / 0);
+	--pill-unresolved-border: oklch(0.62 0.02 259 / 0.35);
+
+	--find-match-text: oklch(0.216 0.028 77.4);
+	--find-match-bg: oklch(0.915 0.11 85);
+	--find-active-text: oklch(0.216 0.028 77.4);
+	--find-active-bg: oklch(0.774 0.152 74.3);
+
+	/* Code, in the colours of GitHub's light theme. */
+	--code-text: #1f2328;
+	--code-comment: #59636e;
+	--code-keyword: #cf222e;
+	--code-constant: #0550ae;
+	--code-variable: #953800;
+	--code-function: #8250df;
+	--code-tag: #116329;
+	--code-string: #0a3069;
+	--code-invalid: #82071e;
+
+	/* The series darken to carry white text. */
+	--series-0: #0b67d6;
+	--series-1: #b8460f;
+	--series-2: #0b7a52;
+	--series-3: #8a5c00;
+	--series-4: #b5336a;
+	--series-5: #6a56cf;
+	--series-6: #c22f36;
+	--series-7: #0b7189;
+	--on-series: #ffffff;
+
+	/* A visual's chart colours, the series in an order whose neighbours
+	   differ most. A visual reads them as `--chart-1` to `--chart-6`. */
+	--chart-1: var(--series-0);
+	--chart-2: var(--series-2);
+	--chart-3: var(--series-3);
+	--chart-4: var(--series-1);
+	--chart-5: var(--series-5);
+	--chart-6: var(--series-7);
+
+	/* Shadows tinted with the text's own ink, and much lighter. */
+	--scrim: rgb(15 23 42 / 0.3);
+	--popup-shadow: 0 18px 48px -12px rgb(15 23 42 / 0.24), 0 2px 6px rgb(15 23 42 / 0.08);
+	--menu-shadow: 0 18px 40px -16px rgb(15 23 42 / 0.26), 0 1px 3px rgb(15 23 42 / 0.06);
+	--hover-shadow: 0 14px 32px -12px rgb(15 23 42 / 0.24);
+	--side-shadow: 8px 0 24px -16px rgb(15 23 42 / 0.2);
+	--large-shadow: 0 24px 56px -14px rgb(15 23 42 / 0.28), 0 2px 6px rgb(15 23 42 / 0.08);
+	--lift-shadow: 0 12px 28px -14px rgb(15 23 42 / 0.24);
+
+	color-scheme: light;
+}
+
+/* The same in both themes, made from the tokens above or laid over a
+   picture, which is as likely light as dark. */
+:root {
+	/* The glow around a focused field, and the light along a filled
+	   button's top edge. */
+	--focus-glow: 0 0 0 3px color-mix(in srgb, var(--primary) 18%, transparent);
+	--lit-edge: inset 0 1px 0 rgb(255 255 255 / 0.2);
+
+	/* Controls laid over a picture or a video, and the lightbox. */
+	--media: #000000;
+
+	--radius: 8px;
+}
+
+/* While the theme switches, nothing eases from one look to the other. */
+.theme-switching,
+.theme-switching * {
+	transition: none !important;
+}
+
+@theme inline {
+	--color-background: var(--background);
+	--color-foreground: var(--foreground);
+	--color-foreground-strong: var(--foreground-strong);
+	--color-card: var(--card);
+	--color-card-foreground: var(--card-foreground);
+	--color-popover: var(--popover);
+	--color-popover-foreground: var(--popover-foreground);
+	--color-primary: var(--primary);
+	--color-primary-foreground: var(--primary-foreground);
+	--color-secondary: var(--secondary);
+	--color-secondary-foreground: var(--secondary-foreground);
+	--color-muted: var(--muted);
+	--color-muted-foreground: var(--muted-foreground);
+	--color-subtle-foreground: var(--subtle-foreground);
+	--color-accent: var(--accent);
+	--color-accent-foreground: var(--accent-foreground);
+	--color-destructive: var(--destructive);
+	--color-border: var(--border);
+	--color-input: var(--input);
+	--color-ring: var(--ring);
+	--color-track: var(--track);
+	--color-sidebar: var(--sidebar);
+	--color-sidebar-foreground: var(--sidebar-foreground);
+	--color-sidebar-border: var(--sidebar-border);
+	--color-subpanel: var(--subpanel);
+	--color-terminal: var(--terminal);
+	--color-canvas: var(--canvas);
+	--color-hover-card: var(--hover-card);
+	--color-hover-card-border: var(--hover-card-border);
+	--color-row-divider: var(--row-divider);
+	--color-selected: var(--selected);
+	--color-selected-ring: var(--selected-ring);
+	--color-scrollbar-thumb: var(--scrollbar-thumb);
+	--color-scrollbar-thumb-hover: var(--scrollbar-thumb-hover);
+	--color-status-busy: var(--status-busy);
+	--color-status-ready: var(--status-ready);
+	--color-status-ready-foreground: var(--status-ready-foreground);
+	--color-status-warm: var(--status-warm);
+	--color-status-linked: var(--status-linked);
+	--color-status-connecting: var(--status-connecting);
+	--color-status-error: var(--status-error);
+	--color-status-off: var(--status-off);
+	--color-status-ready-text: var(--status-ready-text);
+	--color-status-busy-text: var(--status-busy-text);
+	--color-status-connecting-text: var(--status-connecting-text);
+	--color-status-error-text: var(--status-error-text);
+	--color-scrim: var(--scrim);
+	--color-media: var(--media);
+	--color-media-foreground: var(--media-foreground);
+
+	--shadow-popup: var(--popup-shadow);
+	--shadow-menu: var(--menu-shadow);
+	--shadow-hover: var(--hover-shadow);
+	--shadow-side: var(--side-shadow);
+	--shadow-large: var(--large-shadow);
+	--shadow-focus: var(--focus-glow);
+	--shadow-lit: var(--lit-edge);
+
+	/* The dot motion from the mockups. Busy spins faster than starting, so
+	   the two read apart even in grey. */
+	--animate-busy: mx-spin 0.9s linear infinite;
+	--animate-starting: mx-spin 1.4s linear infinite;
+	/* Done with work still going on: a slow, calm turn of a dashed ring. */
+	--animate-orbit: mx-spin 8s linear infinite;
+	--animate-needs-you: mx-pulse 1.6s ease-in-out infinite;
+	--animate-slide-in: mx-slide-in 160ms ease-out;
+	--animate-reveal-down: mx-reveal-down 180ms ease-out;
+
+	--radius-sm: calc(var(--radius) - 2px);
+	--radius-md: var(--radius);
+	--radius-lg: calc(var(--radius) + 2px);
+
+	/* Instrument Sans and JetBrains Mono get bundled with the first real
+	   panes in M1. Until then the system fonts stand in. */
+	--font-sans:
+		"Instrument Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+	--font-mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
+}
+
+@layer base {
+	* {
+		@apply border-border;
+	}
+
+	html,
+	body,
+	#root {
+		height: 100%;
+	}
+
+	body {
+		@apply bg-background font-sans text-foreground antialiased;
+		font-size: 13px;
+		line-height: 1.4;
+		/* A desktop app, so text only selects where it's content. */
+		user-select: none;
+		overflow: hidden;
+	}
+
+	:focus-visible {
+		@apply outline-2 outline-offset-2 outline-ring;
+	}
+}
+
+/* A formula can place what it draws anywhere, and this keeps that near its own
+   line and out of what scrolls. Its box reaches past the formula for the marks
+   that hang outside it, and those whole pixels neither move the line nor catch
+   clicks. WebKit moves the baseline under `overflow: clip`, so it isn't used. */
+.formula-box {
+	display: inline-block;
+	max-width: 100%;
+	margin: -8px -5px;
+	padding: 8px 5px;
+	contain: paint;
+	vertical-align: baseline;
+	pointer-events: none;
+}
+
+.formula-box > * {
+	pointer-events: auto;
+}
+
+@keyframes mx-spin {
+	to {
+		transform: rotate(360deg);
+	}
+}
+
+@keyframes mx-pulse {
+	0%,
+	100% {
+		box-shadow: 0 0 0 0 color-mix(in srgb, var(--status-ready) 55%, transparent);
+	}
+	50% {
+		box-shadow: 0 0 0 4px color-mix(in srgb, var(--status-ready) 0%, transparent);
+	}
+}
+
+/* The sub-agent panel slides out from under the sidebar. */
+@keyframes mx-slide-in {
+	from {
+		opacity: 0;
+		transform: translateX(-12px);
+	}
+}
+
+/* The Workflow tab's rows show from the top down, the way the run reads. */
+@keyframes mx-reveal-down {
+	from {
+		clip-path: inset(0 0 100% 0);
+	}
+	to {
+		clip-path: inset(0);
+	}
+}
+
+/* Every state has its own shape as well as its motion, so nothing is lost
+   when the system asks for less motion. */
+@media (prefers-reduced-motion: reduce) {
+	*,
+	*::before,
+	*::after {
+		animation: none !important;
+		transition: none !important;
+	}
+}

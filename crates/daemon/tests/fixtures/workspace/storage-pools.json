@@ -1,0 +1,35 @@
+{
+ "type": "sync",
+ "status": "Success",
+ "status_code": 200,
+ "operation": "",
+ "error_code": 0,
+ "error": "",
+ "metadata": [
+  {
+   "config": {
+    "source": "/data/agents-pool",
+    "volatile.initial_source": "/data/agents-pool"
+   },
+   "description": "",
+   "driver": "btrfs",
+   "locations": [
+    "none"
+   ],
+   "name": "agents",
+   "status": "Created"
+  },
+  {
+   "config": {
+    "source": "/data/incus"
+   },
+   "description": "",
+   "driver": "dir",
+   "locations": [
+    "none"
+   ],
+   "name": "default",
+   "status": "Created"
+  }
+ ]
+}

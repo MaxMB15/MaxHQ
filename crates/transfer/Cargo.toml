@@ -1,0 +1,18 @@
+[package]
+name = "maxhq-transfer"
+description = "Files and folders over a MaxHQ link: manifests, hashes and writes that stay inside their folder"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+maxhq-protocol.workspace = true
+maxhq-wire.workspace = true
+rustix = { workspace = true, features = ["fs"] }
+sha2.workspace = true
+thiserror.workspace = true
+unicode-normalization.workspace = true
+
+[lints]
+workspace = true

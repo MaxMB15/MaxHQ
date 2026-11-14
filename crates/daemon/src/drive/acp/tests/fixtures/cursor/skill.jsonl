@@ -1,0 +1,4 @@
+{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"00000000-0000-4000-8000-000000000001","update":{"sessionUpdate":"tool_call","toolCallId":"call-skill","title":"Skill: review","kind":"other","status":"in_progress","rawInput":{"skill":"review","args":"PR 12"}}}}
+{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"00000000-0000-4000-8000-000000000001","update":{"sessionUpdate":"tool_call_update","toolCallId":"call-skill","status":"completed"}}}
+{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"00000000-0000-4000-8000-000000000001","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"The PR looks fine."}}}}
+{"jsonrpc":"2.0","id":"$session/prompt","result":{"stopReason":"end_turn"}}

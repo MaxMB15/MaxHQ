@@ -1,0 +1,4 @@
+{"jsonrpc":"2.0","id":"$session/prompt","result":{}}
+{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"00000000-0000-4000-8000-000000000001","update":{"sessionUpdate":"state_update","state":"running"}}}
+{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"00000000-0000-4000-8000-000000000001","update":{"sessionUpdate":"agent_message_chunk","messageId":"m-1","content":{"type":"text","text":"Hello there."}}}}
+{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"00000000-0000-4000-8000-000000000001","update":{"sessionUpdate":"state_update","state":"idle","stopReason":"end_turn"}}}

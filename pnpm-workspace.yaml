@@ -1,0 +1,62 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Max Boksem
+
+packages:
+  - apps/desktop
+  - apps/mobile
+  - packages/shared
+
+# Versions that more than one package.json uses. ESLint runs from the root and
+# parses with TypeScript, so it gets the same TypeScript as the app. React is
+# exact because React Native checks that its renderer matches React, and the
+# shared package must load the same React as both apps.
+catalog:
+  "@types/node": ^24.19.2
+  "@types/react": ~19.3.0
+  marked: ^18.1.1
+  react: 19.3.0
+  react-dom: 19.3.0
+  typescript: ~6.0.3
+
+# No dependency runs an install script. A new dependency that has one stops
+# the install until it's listed under allowBuilds.
+strictDepBuilds: true
+
+# Packages whose install script never runs. The Markdown view's script only
+# downloads code highlighting and math sources, and the phone builds without
+# both.
+allowBuilds:
+  react-native-enriched-markdown: false
+
+# pnpm only installs versions that have been on the registry for at least three
+# days, given here in minutes. A bad release is usually found and pulled by
+# then. The check covers every entry already in pnpm-lock.yaml too, so a frozen
+# install in CI fails on a version that's too new.
+minimumReleaseAge: 4320
+
+# pnpm 12 records its own version in a first document in pnpm-lock.yaml.
+# GitHub's dependency graph reads only that document, so it would see no
+# dependencies and close every Dependabot alert. See
+# https://github.com/dependabot/dependabot-core/issues/15904. With ignore, the
+# lockfile stays one document. Corepack and pnpm/action-setup already run the
+# version that packageManager in package.json names.
+pmOnFail: ignore
+
+# eslint-plugin-react 7.37.5 still lists ESLint 9 as its newest peer. It runs
+# on ESLint 10 once settings.react.version is set, since detecting the version
+# calls a context method that ESLint 10 removed.
+peerDependencyRules:
+  allowedVersions:
+    eslint-plugin-react>eslint: "10"
+
+patchedDependencies:
+  react-native-enriched-markdown@1.1.1: patches/react-native-enriched-markdown@1.1.1.patch
+
+# The file viewer leaves out two packages its renderers name. occt-import-js
+# (LGPL-2.1) reads STEP models, which the viewer doesn't open, and the build
+# swaps the code that would load it for a stub. The Noto Sans SC font (OFL-1.1)
+# is a fallback the PDF renderer only fetches over the network, which the
+# viewer frame can't reach.
+overrides:
+  occt-import-js: "-"
+  "@fontsource-variable/noto-sans-sc": "-"

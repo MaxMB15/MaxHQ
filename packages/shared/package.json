@@ -1,0 +1,35 @@
+{
+	"name": "@maxhq/shared",
+	"private": true,
+	"license": "MIT",
+	"description": "The app logic with no platform in it, for the desktop app now and a phone app later",
+	"type": "module",
+	"exports": {
+		"./lib/clock": "./src/lib/clock.tsx",
+		"./agent-view/context": "./src/agent-view/context.tsx",
+		"./agent-view/find-context": "./src/agent-view/find-context.tsx",
+		"./*": "./src/*.ts",
+		"./i18n": "./src/i18n.ts"
+	},
+	"scripts": {
+		"typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.test.json",
+		"test": "vitest run"
+	},
+	"dependencies": {
+		"diff": "9.0.0",
+		"i18next": "^27.1.1",
+		"marked": "catalog:",
+		"react-i18next": "^18.0.1",
+		"zustand": "5.0.15"
+	},
+	"peerDependencies": {
+		"react": "^19.3.0"
+	},
+	"devDependencies": {
+		"@types/node": "catalog:",
+		"@types/react": "catalog:",
+		"react": "catalog:",
+		"typescript": "catalog:",
+		"vitest": "^5.0.4"
+	}
+}

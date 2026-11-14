@@ -1,0 +1,24 @@
+# yaml-language-server: $schema=https://schemas.example.com/maxhq/workflow/v1/run.schema.json
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (C) 2026 Max Boksem
+
+# No run.status, so the run's status comes from its nodes. "warming" isn't a
+# standard word and the descriptor maps no words, so docs reads as unknown.
+run:
+  id: c-31
+nodes:
+  - id: fmt
+    status: done
+    group: lint
+  - id: clippy
+    status: failed
+    group: lint
+  - id: unit
+    status: skipped
+    group: test
+  - id: e2e
+    status: queued
+    needs: [unit]
+    group: test
+  - id: docs
+    status: warming

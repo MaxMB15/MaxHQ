@@ -1,0 +1,2 @@
+findings:
+  - { id: v-1, severity: blocker, file: src/app.ts, note: export drops rows, status: fixed }

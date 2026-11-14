@@ -1,0 +1,56 @@
+[package]
+name = "maxhq-app"
+description = "What the MaxHQ apps do apart from their windows, shared by the desktop and phone shells"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lib]
+name = "maxhq_app"
+
+# `desktop` holds what only the Mac does: SSH config, sign-ins, setup,
+# editors, the service install, the git identity and the bundled binaries.
+# The phone builds without it.
+[features]
+default = ["desktop"]
+desktop = ["maxhq-client/system-ssh", "maxhq-client/tailscale", "dep:qrcodegen", "dep:rustix"]
+# `phone` holds the phone's connector, over the client's own SSH and the
+# devices' network access.
+phone = ["maxhq-client/russh", "maxhq-client/ws"]
+
+[dependencies]
+base64.workspace = true
+directories.workspace = true
+futures.workspace = true
+getrandom.workspace = true
+maxhq-client.workspace = true
+maxhq-core.workspace = true
+maxhq-protocol.workspace = true
+qrcodegen = { workspace = true, optional = true }
+rusqlite.workspace = true
+rusqlite_migration.workspace = true
+rustix = { workspace = true, optional = true }
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+specta.workspace = true
+specta-typescript.workspace = true
+ssh-key.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+url.workspace = true
+uuid.workspace = true
+zeroize.workspace = true
+
+# The apps' keys live in the Keychain: the phone's own, and the Mac app's key
+# it proves itself to each maxd with.
+[target.'cfg(any(target_os = "ios", target_os = "macos"))'.dependencies]
+security-framework.workspace = true
+
+[dev-dependencies]
+maxhq-core = { workspace = true, features = ["testing"] }
+
+[lints]
+workspace = true

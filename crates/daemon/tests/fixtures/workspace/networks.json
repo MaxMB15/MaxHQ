@@ -1,0 +1,135 @@
+{
+ "type": "sync",
+ "status": "Success",
+ "status_code": 200,
+ "operation": "",
+ "error_code": 0,
+ "error": "",
+ "metadata": [
+  {
+   "config": {
+    "ipv4.address": "10.100.2.1/24",
+    "ipv4.nat": "true",
+    "ipv6.address": "none",
+    "raw.dnsmasq": "port=0\ndhcp-option=6,10.100.2.1\n"
+   },
+   "description": "",
+   "locations": [
+    "none"
+   ],
+   "managed": true,
+   "name": "agentbr0",
+   "project": "default",
+   "status": "Created",
+   "type": "bridge"
+  },
+  {
+   "config": {
+    "ipv4.address": "10.100.3.1/24",
+    "ipv4.nat": "true",
+    "ipv6.address": "none",
+    "raw.dnsmasq": "port=0\ndhcp-option=6,10.100.3.1\n"
+   },
+   "description": "",
+   "locations": [
+    "none"
+   ],
+   "managed": true,
+   "name": "incusbr-blue",
+   "project": "default",
+   "status": "Created",
+   "type": "bridge"
+  },
+  {
+   "config": {
+    "ipv4.address": "10.100.4.1/24",
+    "ipv4.nat": "true",
+    "ipv6.address": "none",
+    "raw.dnsmasq": "port=0\ndhcp-option=6,10.100.4.1\n"
+   },
+   "description": "",
+   "locations": [
+    "none"
+   ],
+   "managed": true,
+   "name": "incusbr-green",
+   "project": "default",
+   "status": "Created",
+   "type": "bridge"
+  },
+  {
+   "config": {
+    "ipv4.address": "10.100.1.1/24",
+    "ipv4.nat": "true",
+    "ipv6.address": "none",
+    "raw.dnsmasq": "port=0\ndhcp-option=6,10.100.1.1\n"
+   },
+   "description": "",
+   "locations": [
+    "none"
+   ],
+   "managed": true,
+   "name": "incusbr-red",
+   "project": "default",
+   "status": "Created",
+   "type": "bridge"
+  },
+  {
+   "config": {
+    "ipv4.address": "10.100.0.1/24",
+    "ipv4.nat": "true",
+    "ipv6.address": "none",
+    "raw.dnsmasq": "port=0\ndhcp-option=6,10.100.0.1\n"
+   },
+   "description": "",
+   "locations": [
+    "none"
+   ],
+   "managed": true,
+   "name": "incusbr0",
+   "project": "default",
+   "status": "Created",
+   "type": "bridge"
+  },
+  {
+   "config": {},
+   "description": "",
+   "locations": null,
+   "managed": false,
+   "name": "lo",
+   "project": "default",
+   "status": "",
+   "type": "loopback"
+  },
+  {
+   "config": {},
+   "description": "",
+   "locations": null,
+   "managed": false,
+   "name": "enp1s0",
+   "project": "default",
+   "status": "",
+   "type": "physical"
+  },
+  {
+   "config": {},
+   "description": "",
+   "locations": null,
+   "managed": false,
+   "name": "enp2s0",
+   "project": "default",
+   "status": "",
+   "type": "physical"
+  },
+  {
+   "config": {},
+   "description": "",
+   "locations": null,
+   "managed": false,
+   "name": "wlp3s0",
+   "project": "default",
+   "status": "",
+   "type": "physical"
+  }
+ ]
+}

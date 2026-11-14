@@ -1,0 +1,4 @@
+{"version": 3, "term": {"cols": 80, "rows": 24}}
+# Nothing to print, for the --loop check.
+[0.00, "m", "start"]
+[0.00, "r", "100x30"]

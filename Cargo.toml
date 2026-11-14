@@ -1,0 +1,185 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Max Boksem
+
+[workspace]
+resolver = "3"
+members = [
+    "crates/protocol",
+    "crates/core",
+    "crates/term",
+    "crates/daemon",
+    "crates/hold",
+    "crates/client",
+    "crates/wire",
+    "crates/transfer",
+    "crates/workflow",
+    "crates/fake-agent",
+    "crates/vm",
+    "crates/app",
+    "crates/mobile",
+    "apps/desktop/src-tauri",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+publish = false
+
+[workspace.dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+uuid = { version = "1", features = ["v5", "v7", "serde"] }
+# Clears a token's bytes when the `Secret` holding it drops.
+zeroize = "1"
+schemars = { version = "1", features = ["uuid1"] }
+# Release candidates, so every one is pinned exactly. tauri-specta rc.26 needs
+# specta rc.26 and the 0.0.13 helpers, not the rc.27 published the same day.
+# Move all four together.
+specta = { version = "=2.0.0-rc.26", features = ["derive", "uuid"] }
+specta-typescript = "=0.0.13"
+tauri-specta = { version = "=2.0.0-rc.26", features = ["derive", "typescript"] }
+criterion = { version = "0.8", default-features = false, features = ["cargo_bench_support"] }
+# rusqlite_migration 2.6 needs rusqlite 0.40, so rusqlite stays a minor behind.
+rusqlite = { version = "0.40", features = ["bundled"] }
+rusqlite_migration = "2.6"
+tokio = { version = "1.54", features = ["macros", "rt-multi-thread", "net", "io-util", "io-std", "process", "sync", "time", "fs", "signal"] }
+tokio-util = { version = "0.7", features = ["codec"] }
+futures = "0.3"
+bytes = "1"
+# HTTP over local sockets only: Tailscale's LocalAPI and the Incus REST API.
+hyper = { version = "1.12", features = ["client", "http1"] }
+hyper-util = { version = "0.1.21", features = ["tokio"] }
+http-body-util = "0.1"
+base64 = "0.23"
+# Shrinks large pictures before they go to an agent, in the formats the
+# Claude API takes inline.
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "gif", "webp"] }
+fastrand = "2"
+# Edits the CLIs' TOML config in a guest and keeps the comments around it.
+toml_edit = "0.25"
+# Reads the host spec, maxhq-host.toml.
+toml = { version = "1.1", default-features = false, features = ["std", "serde", "parse"] }
+# GitHub's API, for the App's installation tokens. Rustls on ring with no
+# default features, so no OpenSSL and no aws-lc build, and the system's
+# roots check the server.
+reqwest = { version = "0.13.5", default-features = false, features = ["rustls-no-provider"] }
+rustls = { version = "0.23.27", default-features = false, features = ["ring", "std", "tls12"] }
+# The phone's way in to a device's maxd: TLS that trusts only the device's
+# own certificate, pinned at pairing, and the link's WebSocket over it. On
+# ring, as rustls is.
+tokio-rustls = { version = "0.26.6", default-features = false, features = ["ring", "tls12"] }
+tokio-tungstenite = { version = "0.30", default-features = false, features = ["handshake"] }
+# Compares a certificate with its pin in constant time. Already in the
+# build through rustls and russh.
+subtle = { version = "2.6", default-features = false }
+# Self-signed certificates, on ring.
+rcgen = { version = "0.14.10", default-features = false, features = ["crypto", "ring"] }
+# Signs the GitHub App's JWTs with its RSA key, and hashes the key.
+ring = "0.17.14"
+# Process and host use for diagnostics.
+sysinfo = { version = "0.39.3", default-features = false, features = ["system"] }
+# process-mux runs the system `ssh`, so ~/.ssh/config, ProxyCommand and
+# ControlMaster all behave as they do in a terminal.
+openssh = { version = "0.11.6", default-features = false, features = ["process-mux"] }
+directories = "6"
+# The guest's SSH server, which editors reach through maxd with no sshd in
+# the container. On ring, as rustls is, with no compression or RSA.
+russh = { version = "0.65", default-features = false, features = ["ring"] }
+# The app's own key for those sessions, read and written as OpenSSH does.
+# Only ed25519, with no encryption or other key types. A release candidate,
+# so pinned exactly, at the one russh takes.
+ssh-key = { version = "=0.7.0-rc.11", default-features = false, features = ["ed25519", "std"] }
+# The seed for that key, from the system's random source.
+getrandom = "0.4"
+# The phone's push key, an X25519 key whose public half the phone makes
+# from its private one. Already in the build through russh.
+curve25519-dalek = { version = "5.0.0", default-features = false, features = ["zeroize"] }
+# The QR code the Mac shows to pair a phone.
+qrcodegen = "1.8"
+# Safe wrappers for the process calls the holder needs: setsid, killpg,
+# waitpid and the Linux child subreaper.
+rustix = { version = "1.1", features = ["process", "stdio"] }
+# The user database and the calls rustix leaves out, for a holder that
+# starts its CLI as another user: getpwnam_r, getgrouplist and setgroups.
+libc = "0.2.191"
+# Read the text out of the documents you attach: the XML inside Office,
+# OpenDocument and EPUB files, and the ZIP archives that hold it.
+quick-xml = "0.42"
+flate2 = "1.1"
+# Walks an agent's folder for the `@` path search, skipping what
+# `.gitignore` leaves out.
+ignore = "0.4.23"
+# Hashes every file in a transfer, so a file that changed or broke on the
+# way is caught before it's renamed into place.
+sha2 = "0.10"
+# Lines two note versions changed, for merging notes edited on two devices.
+similar = { version = "3.2.1", default-features = false, features = ["std"] }
+# Reads the page a sign-in opens and the callback it comes back to.
+url = "2.5"
+# File names arrive in NFC, since APFS keeps whatever form a name was made
+# in and Linux compares bytes.
+unicode-normalization = "0.1"
+# Reads a reply's Markdown the way the app shows it, to find where a quote
+# from it sits. Only the parser, without its HTML writer.
+pulldown-cmark = { version = "0.13.6", default-features = false }
+# Reads the Cursor CLI's login from the Keychain, once you turn Cursor
+# usage on. Already in the build through rustls-platform-verifier.
+security-framework = { version = "3.7", default-features = false }
+# The audit token and signing details maxd hands the Security framework
+# when it checks a program's signature. Already in the build through
+# security-framework.
+core-foundation = "0.10"
+# The phone app's bridge to React Native, through its proc macros. At
+# 0.31, the version uniffi-bindgen-react-native is on.
+uniffi = { version = "=0.31.2", default-features = false }
+objc2 = "0.6"
+objc2-foundation = "0.3"
+objc2-user-notifications = "0.3"
+objc2-app-kit = { version = "0.3", default-features = false }
+objc2-core-foundation = { version = "0.3", default-features = false }
+objc2-core-graphics = { version = "0.3", default-features = false }
+objc2-quick-look-thumbnailing = { version = "0.3", default-features = false }
+block2 = "0.6"
+# The macOS test VM, which only maxd-vm runs.
+objc2-virtualization = "0.3"
+dispatch2 = { version = "0.3", default-features = false, features = ["std", "objc2"] }
+# A scheduled task's times in its IANA zone, across daylight saving changes.
+jiff = "0.2.38"
+# YAML: skill frontmatter, Codex's skill metadata, and workflow
+# descriptors and run files. JSONPath over those, the patterns that bind
+# agents, and the globs that find runs.
+serde_norway = "0.9.42"
+serde_json_path = "0.7.2"
+regex = "1.13"
+globset = "0.4.18"
+# Finds descriptor keys the standard lacks, with their paths.
+serde_ignored = "0.1"
+# Checks the workflow standard's examples against its schemas, in tests
+# only. No network or file resolving: the schemas hold every definition.
+jsonschema = { version = "0.60", default-features = false }
+
+maxhq-protocol = { path = "crates/protocol" }
+maxhq-core = { path = "crates/core" }
+maxhq-term = { path = "crates/term" }
+maxhq-client = { path = "crates/client", default-features = false }
+maxhq-hold = { path = "crates/hold" }
+maxhq-wire = { path = "crates/wire" }
+maxhq-transfer = { path = "crates/transfer" }
+maxhq-app = { path = "crates/app", default-features = false }
+maxhq-workflow = { path = "crates/workflow" }
+maxhq-vm = { path = "crates/vm" }
+
+[workspace.lints.rust]
+unsafe_code = "deny"
+
+[workspace.lints.clippy]
+all = { level = "warn", priority = -1 }
+
+# Transfers hash every file they send, and an unoptimized SHA-256 makes a
+# debug maxd and its tests take seconds over a large file.
+[profile.dev.package.sha2]
+opt-level = 3

@@ -1,0 +1,24 @@
+<!doctype html>
+<!-- SPDX-License-Identifier: MIT -->
+<!-- Copyright (c) 2026 Max Boksem -->
+<!-- A visual's frame. The app serves it with its own content policy. -->
+<!-- It starts in the theme its query names, so it never flashes white. -->
+<html lang="en">
+	<head>
+		<meta charset="UTF-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+		<title>Visual</title>
+		<script>
+			document.documentElement.style.colorScheme =
+				new URLSearchParams(location.search).get("theme") === "light" ? "light" : "dark";
+		</script>
+		<style>
+			html {
+				background: transparent;
+			}
+		</style>
+	</head>
+	<body>
+		<script type="module" src="/src/visuals/frame-page.ts"></script>
+	</body>
+</html>

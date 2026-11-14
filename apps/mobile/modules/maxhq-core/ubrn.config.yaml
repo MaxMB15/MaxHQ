@@ -1,0 +1,7 @@
+rust:
+  directory: ../../../..
+  manifestPath: crates/mobile/Cargo.toml
+ios:
+  targets:
+    - aarch64-apple-ios
+    - aarch64-apple-ios-sim

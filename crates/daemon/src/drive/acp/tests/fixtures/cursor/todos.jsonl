@@ -1,0 +1,3 @@
+{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"00000000-0000-4000-8000-000000000001","update":{"sessionUpdate":"plan","entries":[{"content":"Read the code","priority":"high","status":"completed"},{"content":"Write the fix","priority":"high","status":"in_progress"},{"content":"Run the tests","priority":"medium","status":"pending"}]}}}
+{"jsonrpc":"2.0","method":"cursor/update_todos","params":{"sessionId":"00000000-0000-4000-8000-000000000001","toolCallId":"call-todo","merge":true,"todos":[{"id":"1","content":"Write the fix","status":"completed"}]}}
+{"jsonrpc":"2.0","id":"$session/prompt","result":{"stopReason":"end_turn"}}

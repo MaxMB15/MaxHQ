@@ -1,0 +1,139 @@
+task:
+  id: t-20261101-example-consensus
+  request: Add rate limits to the public API
+  type: non-ui
+  classification: small_feature
+  routing_mode: host
+  workflow: cr
+  status: active
+  agent: 4f69fad8-7a0f-5de4-9ea2-cf7b04027a06
+code:
+  snapshot_id: null
+  changed_modules: []
+  pr_ref: null
+graph:
+- block: df-interview
+  status: completed
+  depends_on: []
+  parallel_group: null
+  writes_code: false
+  attempts: 1
+  tier: host
+  effort: standard
+- block: cr-design
+  status: in_progress
+  depends_on:
+  - df-interview
+  parallel_group: null
+  writes_code: false
+  attempts: 1
+  tier: script
+- block: df-approve
+  status: pending
+  depends_on:
+  - cr-design
+  parallel_group: null
+  writes_code: false
+  attempts: 0
+  tier: null
+  effort: standard
+- block: cr-code
+  status: pending
+  depends_on:
+  - df-approve
+  parallel_group: null
+  writes_code: true
+  attempts: 0
+  tier: null
+- block: df-code-quality
+  status: pending
+  depends_on:
+  - cr-code
+  parallel_group: null
+  writes_code: true
+  attempts: 0
+  tier: null
+  quality_pass: true
+  effort: standard
+- block: df-testing
+  status: pending
+  depends_on:
+  - df-code-quality
+  parallel_group: analysis
+  writes_code: false
+  attempts: 0
+  tier: null
+  quality_pass: true
+  effort: standard
+- block: df-security
+  status: pending
+  depends_on:
+  - df-code-quality
+  parallel_group: analysis
+  writes_code: false
+  attempts: 0
+  tier: null
+  quality_pass: true
+  effort: standard
+- block: df-edge-cases
+  status: pending
+  depends_on:
+  - df-code-quality
+  parallel_group: analysis
+  writes_code: false
+  attempts: 0
+  tier: null
+  quality_pass: true
+  effort: standard
+- block: df-chaos
+  status: pending
+  depends_on:
+  - df-code-quality
+  parallel_group: analysis
+  writes_code: false
+  attempts: 0
+  tier: null
+  quality_pass: true
+  effort: 'off'
+- block: df-perf
+  status: pending
+  depends_on:
+  - df-code-quality
+  parallel_group: analysis
+  writes_code: false
+  attempts: 0
+  tier: null
+  quality_pass: true
+  effort: 'off'
+- block: df-integrate
+  status: pending
+  depends_on:
+  - df-testing
+  - df-security
+  - df-edge-cases
+  - df-chaos
+  - df-perf
+  parallel_group: null
+  writes_code: true
+  attempts: 0
+  tier: null
+  quality_pass: true
+- block: df-validate
+  status: pending
+  depends_on:
+  - df-integrate
+  parallel_group: null
+  writes_code: false
+  attempts: 0
+  tier: null
+  quality_pass: true
+  effort: standard
+- block: df-source-control
+  status: pending
+  depends_on:
+  - df-validate
+  parallel_group: null
+  writes_code: false
+  attempts: 0
+  tier: null
+  effort: standard

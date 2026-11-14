@@ -1,0 +1,13 @@
+[package]
+name = "maxhq-wire"
+description = "One writer per connection, so control frames overtake file data"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+tokio.workspace = true
+
+[lints]
+workspace = true

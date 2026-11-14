@@ -1,0 +1,175 @@
+# yaml-language-server: $schema=https://schemas.example.com/maxhq/workflow/v1/descriptor.schema.json
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (C) 2026 Max Boksem
+
+# A workflow with a run file of its own shape, mapped here. It shows every
+# kind of value source, rules, badges, links, binding by title,
+# prompt, command and pid, a line log for events, and an extension key.
+format: maxhq.workflow/1.0
+id: pipeline
+name: Pipeline
+revision: 12
+
+runs:
+  glob: .pipeline/jobs/*/state.json
+  id:
+    path: $.job.key
+  label:
+    path: $.job.title
+  agent:
+    path: $.job.lead
+  status:
+    path: $.job.phase
+  facts:
+    effort:
+      path: $.job.effort
+      default: normal
+    retries:
+      sum: "$.steps[*].tries"
+      each:
+        add: -1
+        min: 0
+    chunks:
+      match: '^chunk \d+ of (?<total>\d+)$'
+      in: chunks.log
+      pick: last
+      group: total
+    preview:
+      alive_pid: preview.pid
+    tool:
+      match: '^\S+$'
+      in: "{project}/.pipeline/VERSION"
+  events:
+    - jsonl: events.jsonl
+    - lines: journal.log
+      match: '^(?<t>\S+) (?<node>\S+) (?<status>\S+)(?: (?<note>.+))?$'
+  env:
+    PIPELINE_TRACE: "1"
+
+nodes:
+  list: $.steps
+  id: name
+  needs: after
+  group: stage
+  status: state
+  attempts: tries
+  fields: [chunk]
+  status_map:
+    pending: queued
+    working: busy
+    running: busy
+    asking: waiting_human
+    finished: done
+    declined: skipped
+    broken: failed
+  info:
+    research:
+      label: Research
+    code:
+      label: Write the code
+      vars:
+        log: code.log
+    review:
+      label: Review
+      lane: side
+      host: true
+
+groups:
+  prep:
+    label: Prepare
+  make:
+    label: Make
+  check:
+    label: Check
+    collapsed: true
+
+rules:
+  - when:
+      node: docs
+      status: [queued, ready]
+      fact:
+        effort: quick
+    is: will_skip
+    note: Quick jobs skip the docs.
+    provisional:
+      any_node:
+        node: api
+        status: busy
+  - when:
+      status: failed
+      field:
+        attempts:
+          gte: 3
+    is: blocked
+    note: "Out of retries after {attempts} tries."
+  - when:
+      all:
+        - status: waiting_human
+        - not:
+            orchestrator: [busy, waiting, idle]
+    note: Waiting on you, and no lead is running to pick up the answer.
+
+badges:
+  - node: api
+    text: "chunk {chunk}"
+    when:
+      field:
+        chunk:
+          exists: true
+  - node: code
+    text: "{value} errors"
+    tone: bad
+    value:
+      match: "^error:"
+      in: "{vars.log}"
+      pick: count
+    when:
+      value:
+        gt: 0
+
+links:
+  - node: api
+    label: Open the preview
+    url: "http://127.0.0.1:{value}/"
+    value:
+      path: $.job.port
+    when:
+      fact:
+        preview: true
+
+bind:
+  node:
+    - title: '^(?<node>[a-z-]+) for (?<run>job-\d+)$'
+    - prompt: '(?m)^step: (?<node>\S+)$'
+      and: '(?m)^job: (?<run>\S+)$'
+  run:
+    - command: '^pipeline next (?<run>job-\d+)'
+  process:
+    - pid:
+        match: '^\d+$'
+        in: "pids/{id}.pid"
+
+detail:
+  - label: Errors
+    list:
+      match: '^error: (?<message>.+)$'
+      in: "{vars.log}"
+      pick: all
+      group: message
+    limit: 5
+
+header:
+  - text: "Effort: {run.effort}"
+  - text: "{run.retries} retries so far"
+    tone: warn
+    when:
+      fact:
+        retries:
+          gt: 0
+  - text: "{vars.left} steps left"
+    vars:
+      left:
+        count: "$.steps[?@.state != 'finished']"
+
+x-pipeline:
+  docs: https://example.com/pipeline

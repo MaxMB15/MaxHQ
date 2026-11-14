@@ -1,0 +1,2 @@
+{"jsonrpc":"2.0","method":"_example/status","params":{"busy":true}}
+{"jsonrpc":"2.0","id":12,"method":"_example/ping","params":{}}

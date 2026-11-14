@@ -1,0 +1,167 @@
+task:
+  id: t-20261101-example-ceiling
+  request: Fix the date filter
+  type: non-ui
+  classification: hotfix
+  routing_mode: host
+  workflow: df
+  status: active
+  agent: 4f69fad8-7a0f-5de4-9ea2-cf7b04027a06
+code:
+  snapshot_id: a1b2c3d
+  changed_modules: []
+  pr_ref: null
+graph:
+- block: df-interview
+  status: completed
+  depends_on: []
+  parallel_group: null
+  writes_code: false
+  attempts: 1
+  tier: host
+  effort: standard
+- block: df-research
+  status: completed
+  depends_on:
+  - df-interview
+  parallel_group: null
+  writes_code: false
+  attempts: 1
+  tier: S
+  effort: light
+- block: df-design
+  status: completed
+  depends_on:
+  - df-research
+  parallel_group: null
+  writes_code: false
+  attempts: 1
+  tier: M
+  effort: light
+- block: df-approve
+  status: completed
+  depends_on:
+  - df-design
+  parallel_group: null
+  writes_code: false
+  attempts: 1
+  tier: host
+  effort: standard
+- block: df-impl-docs
+  status: completed
+  depends_on:
+  - df-approve
+  parallel_group: null
+  writes_code: false
+  attempts: 1
+  tier: S
+  effort: light
+- block: df-implement
+  status: completed
+  depends_on:
+  - df-impl-docs
+  parallel_group: null
+  writes_code: true
+  attempts: 1
+  tier: M
+- block: df-code-quality
+  status: completed
+  depends_on:
+  - df-implement
+  parallel_group: null
+  writes_code: true
+  attempts: 1
+  tier: M
+  effort: standard
+- block: df-testing
+  status: completed
+  depends_on:
+  - df-code-quality
+  parallel_group: analysis
+  writes_code: false
+  attempts: 1
+  tier: M
+  effort: standard
+- block: df-security
+  status: completed
+  depends_on:
+  - df-code-quality
+  parallel_group: analysis
+  writes_code: false
+  attempts: 1
+  tier: M
+  effort: light
+- block: df-edge-cases
+  status: completed
+  depends_on:
+  - df-code-quality
+  parallel_group: analysis
+  writes_code: false
+  attempts: 1
+  tier: M
+  effort: light
+- block: df-chaos
+  status: skipped
+  depends_on:
+  - df-code-quality
+  parallel_group: analysis
+  writes_code: false
+  attempts: 0
+  tier: null
+  effort: 'off'
+- block: df-perf
+  status: skipped
+  depends_on:
+  - df-code-quality
+  parallel_group: analysis
+  writes_code: false
+  attempts: 0
+  tier: null
+  effort: 'off'
+- block: df-integrate
+  status: completed
+  depends_on:
+  - df-testing
+  - df-security
+  - df-edge-cases
+  - df-chaos
+  - df-perf
+  parallel_group: null
+  writes_code: true
+  attempts: 2
+  tier: M
+- block: df-validate
+  status: failed
+  depends_on:
+  - df-integrate
+  parallel_group: null
+  writes_code: false
+  attempts: 1
+  tier: M
+  effort: standard
+- block: df-docs
+  status: pending
+  depends_on:
+  - df-validate
+  parallel_group: null
+  writes_code: false
+  attempts: 0
+  tier: null
+  effort: light
+- block: df-source-control
+  status: pending
+  depends_on:
+  - df-docs
+  parallel_group: null
+  writes_code: false
+  attempts: 0
+  tier: null
+  effort: standard
+- block: df-cicd-watch
+  status: pending
+  depends_on:
+  - df-source-control
+  parallel_group: null
+  writes_code: false
+  attempts: 0
+  tier: null

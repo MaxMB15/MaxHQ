@@ -1,0 +1,6 @@
+decision: pending
+provenance: human
+rounds:
+  - { round: 1, response_type: feedback, summary: move the save button }
+  - { round: 2, response_type: feedback, summary: darker header }
+timestamp: 2026-11-01T15:30:00Z

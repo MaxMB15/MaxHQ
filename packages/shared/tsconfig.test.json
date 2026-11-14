@@ -1,0 +1,10 @@
+{
+	// The tests import Vitest, whose types bring in Node's globals. They get
+	// their own check so those globals don't reach the code they test.
+	"extends": "./tsconfig.json",
+	"compilerOptions": {
+		"types": ["node"]
+	},
+	"include": ["src"],
+	"exclude": []
+}

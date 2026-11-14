@@ -1,0 +1,24 @@
+p50100
+fcwd
+n/Users/dev/src/my app
+ftxt
+n/opt/homebrew/bin/codex
+f0
+n/dev/ttys004
+f23
+n/Users/dev/.codex/sessions/2026/10/24/rollout-2026-10-24T09-12-03-0199f0a1-7c1e-7a52-9d1e-3f4a5b6c7d8e.jsonl
+f24
+n/Users/dev/.codex/sessions/2026/10/24/rollout-2026-10-24T09-30-41-0199f0b2-1111-7222-8333-944455566677.jsonl
+f25
+n/Users/dev/.codex/state_5.sqlite
+f26
+n/Users/dev/.codex/sessions/2026/10/01/rollout-2026-10-01T08-00-00-0199e000-0000-7000-8000-000000000000.jsonl.zst
+f27
+n/Users/dev/.codex/sessions/2026/10/24/rollout-2026-10-24T09-12-03-0199f0a1-7c1e-7a52-9d1e-3f4a5b6c7d8e.jsonl
+p52001
+fcwd
+n/Users/dev/src/api
+ftxt
+n/Users/dev/.npm-global/lib/node_modules/@openai/codex/vendor/aarch64-apple-darwin/codex/codex
+f1
+n/dev/ttys005

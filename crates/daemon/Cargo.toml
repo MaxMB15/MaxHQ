@@ -1,0 +1,72 @@
+[package]
+name = "maxd"
+description = "The MaxHQ daemon, one per device"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+base64.workspace = true
+flate2.workspace = true
+futures.workspace = true
+http-body-util.workspace = true
+# The webhook listener serves HTTP/1.1 on 127.0.0.1, and network access on
+# private addresses, with upgrades for the link's WebSocket.
+hyper = { workspace = true, features = ["server"] }
+hyper-util.workspace = true
+ignore.workspace = true
+image.workspace = true
+jiff.workspace = true
+maxhq-client = { workspace = true, features = ["system-ssh", "tailscale"] }
+maxhq-core.workspace = true
+maxhq-hold.workspace = true
+maxhq-protocol.workspace = true
+maxhq-workflow.workspace = true
+maxhq-transfer.workspace = true
+maxhq-vm.workspace = true
+maxhq-wire.workspace = true
+quick-xml.workspace = true
+# Network access: its own certificate, TLS and the link's WebSocket.
+rcgen.workspace = true
+# APNs takes HTTP/2 only.
+reqwest = { workspace = true, features = ["http2"] }
+ring.workspace = true
+rusqlite.workspace = true
+rusqlite_migration.workspace = true
+russh.workspace = true
+rustls.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sysinfo.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+tokio-rustls.workspace = true
+tokio-tungstenite.workspace = true
+toml.workspace = true
+toml_edit.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+url.workspace = true
+uuid.workspace = true
+zeroize.workspace = true
+
+[target.'cfg(target_os = "macos")'.dependencies]
+security-framework.workspace = true
+core-foundation.workspace = true
+
+[target.'cfg(unix)'.dependencies]
+libc.workspace = true
+# The guest's SSH shells, which run on a pty.
+rustix = { workspace = true, features = ["pty", "termios"] }
+
+[dev-dependencies]
+# The fake APNs in the push tests.
+hyper = { workspace = true, features = ["http2", "server"] }
+# The phone's core, paired over network access end to end, and the
+# Mac's app key proving itself.
+maxhq-app.workspace = true
+maxhq-mobile = { path = "../mobile" }
+
+[lints]
+workspace = true

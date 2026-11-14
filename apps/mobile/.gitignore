@@ -1,0 +1,19 @@
+# Expo writes these. `expo prebuild` makes the native projects again from
+# app.config.ts.
+.expo/
+dist/
+expo-env.d.ts
+/ios
+/android
+*.tsbuildinfo
+.metro-health-check*
+
+# The core's framework, which `pnpm mobile:core` builds.
+/modules/maxhq-core/*.xcframework
+
+# The Team ID and bundle ID for signing. ios.local.example.json shows the shape.
+/ios.local.json
+
+# What `swift test` builds for the push extension.
+/targets/push/.build/
+/targets/push/.swiftpm/

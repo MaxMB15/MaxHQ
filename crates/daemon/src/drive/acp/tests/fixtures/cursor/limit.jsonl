@@ -1,0 +1,1 @@
+{"jsonrpc":"2.0","id":"$session/prompt","error":{"code":-32603,"message":"You've hit your usage limit","data":{"code":"free_usage_limit"}}}

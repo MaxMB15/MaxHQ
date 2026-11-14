@@ -1,0 +1,519 @@
+{
+  "header_lines": [],
+  "orchestrators": [],
+  "snapshot": {
+    "header": {
+      "label": "Show totals in the footer",
+      "lines": [],
+      "progress": {
+        "done": 6,
+        "total": 10
+      },
+      "status": "queued"
+    },
+    "key": {
+      "device": "6c1b90b8-1506-5bfa-b92a-10eb2fe0268d",
+      "project": "3f58176e-ff64-50f5-9570-0533b0f5a437",
+      "run": "t-20260601-example-old",
+      "workflow": "devflow"
+    },
+    "loops": [
+      {
+        "budget": null,
+        "count": 0,
+        "from": "df-approve",
+        "label": "feedback",
+        "to": "df-interview"
+      }
+    ],
+    "nodes": [
+      {
+        "agents": [],
+        "attempts": [
+          {
+            "agent": null,
+            "end": 1780308540000,
+            "end_status": "done",
+            "start": 1780308060000
+          }
+        ],
+        "badges": [],
+        "id": "df-interview",
+        "links": [],
+        "note": null,
+        "provisional": false,
+        "quiet": false,
+        "status": "done"
+      },
+      {
+        "agents": [],
+        "attempts": [
+          {
+            "agent": null,
+            "end": 1780309200000,
+            "end_status": "done",
+            "start": 1780308600000
+          }
+        ],
+        "badges": [],
+        "id": "df-research",
+        "links": [],
+        "note": null,
+        "provisional": false,
+        "quiet": false,
+        "status": "done"
+      },
+      {
+        "agents": [],
+        "attempts": [
+          {
+            "agent": null,
+            "end": 1780310400000,
+            "end_status": "done",
+            "start": 1780309260000
+          }
+        ],
+        "badges": [],
+        "id": "df-design",
+        "links": [],
+        "note": null,
+        "provisional": false,
+        "quiet": false,
+        "status": "done"
+      },
+      {
+        "agents": [],
+        "attempts": [
+          {
+            "agent": null,
+            "end": 1780310460000,
+            "end_status": "done",
+            "start": 1780310460000
+          }
+        ],
+        "badges": [],
+        "id": "df-approve",
+        "links": [],
+        "note": null,
+        "provisional": false,
+        "quiet": false,
+        "status": "done"
+      },
+      {
+        "agents": [],
+        "attempts": [
+          {
+            "agent": null,
+            "end": 1780311000000,
+            "end_status": "done",
+            "start": 1780310700000
+          }
+        ],
+        "badges": [],
+        "id": "df-impl-docs",
+        "links": [],
+        "note": null,
+        "provisional": false,
+        "quiet": false,
+        "status": "done"
+      },
+      {
+        "agents": [],
+        "attempts": [
+          {
+            "agent": null,
+            "end": 1780313400000,
+            "end_status": "failed",
+            "start": 1780311060000
+          },
+          {
+            "agent": null,
+            "end": 1780315800000,
+            "end_status": "done",
+            "start": 1780313460000
+          }
+        ],
+        "badges": [
+          {
+            "text": "x2",
+            "tone": "neutral"
+          }
+        ],
+        "id": "df-implement",
+        "links": [],
+        "note": null,
+        "provisional": false,
+        "quiet": false,
+        "status": "done"
+      },
+      {
+        "agents": [],
+        "attempts": [
+          {
+            "agent": null,
+            "end": null,
+            "end_status": null,
+            "start": 1780315860000
+          }
+        ],
+        "badges": [],
+        "id": "df-code-quality",
+        "links": [],
+        "note": null,
+        "provisional": false,
+        "quiet": false,
+        "status": "unknown"
+      },
+      {
+        "agents": [],
+        "attempts": [],
+        "badges": [],
+        "id": "df-testing",
+        "links": [],
+        "note": null,
+        "provisional": false,
+        "quiet": false,
+        "status": "queued"
+      },
+      {
+        "agents": [],
+        "attempts": [],
+        "badges": [],
+        "id": "df-validate",
+        "links": [],
+        "note": null,
+        "provisional": false,
+        "quiet": false,
+        "status": "queued"
+      },
+      {
+        "agents": [],
+        "attempts": [],
+        "badges": [],
+        "id": "df-source-control",
+        "links": [],
+        "note": null,
+        "provisional": false,
+        "quiet": false,
+        "status": "queued"
+      },
+      {
+        "agents": [],
+        "attempts": [],
+        "badges": [],
+        "id": "df-mockup",
+        "links": [],
+        "note": null,
+        "provisional": false,
+        "quiet": false,
+        "status": "omitted"
+      },
+      {
+        "agents": [],
+        "attempts": [],
+        "badges": [],
+        "id": "df-security",
+        "links": [],
+        "note": null,
+        "provisional": false,
+        "quiet": false,
+        "status": "omitted"
+      },
+      {
+        "agents": [],
+        "attempts": [],
+        "badges": [],
+        "id": "df-edge-cases",
+        "links": [],
+        "note": null,
+        "provisional": false,
+        "quiet": false,
+        "status": "omitted"
+      },
+      {
+        "agents": [],
+        "attempts": [],
+        "badges": [],
+        "id": "df-chaos",
+        "links": [],
+        "note": null,
+        "provisional": false,
+        "quiet": false,
+        "status": "omitted"
+      },
+      {
+        "agents": [],
+        "attempts": [],
+        "badges": [],
+        "id": "df-perf",
+        "links": [],
+        "note": null,
+        "provisional": false,
+        "quiet": false,
+        "status": "omitted"
+      },
+      {
+        "agents": [],
+        "attempts": [],
+        "badges": [],
+        "id": "df-integrate",
+        "links": [],
+        "note": null,
+        "provisional": false,
+        "quiet": false,
+        "status": "omitted"
+      },
+      {
+        "agents": [],
+        "attempts": [],
+        "badges": [],
+        "id": "df-docs",
+        "links": [],
+        "note": null,
+        "provisional": false,
+        "quiet": false,
+        "status": "omitted"
+      },
+      {
+        "agents": [],
+        "attempts": [],
+        "badges": [],
+        "id": "df-cicd-watch",
+        "links": [],
+        "note": null,
+        "provisional": false,
+        "quiet": false,
+        "status": "omitted"
+      },
+      {
+        "agents": [],
+        "attempts": [],
+        "badges": [],
+        "id": "cr-design",
+        "links": [],
+        "note": null,
+        "provisional": false,
+        "quiet": false,
+        "status": "omitted"
+      },
+      {
+        "agents": [],
+        "attempts": [],
+        "badges": [],
+        "id": "cr-code",
+        "links": [],
+        "note": null,
+        "provisional": false,
+        "quiet": false,
+        "status": "omitted"
+      }
+    ],
+    "notice": null,
+    "rev": 1,
+    "shape": {
+      "edges": [
+        {
+          "from": "df-interview",
+          "to": "df-research"
+        },
+        {
+          "from": "df-research",
+          "to": "df-design"
+        },
+        {
+          "from": "df-design",
+          "to": "df-approve"
+        },
+        {
+          "from": "df-approve",
+          "to": "df-impl-docs"
+        },
+        {
+          "from": "df-impl-docs",
+          "to": "df-implement"
+        },
+        {
+          "from": "df-implement",
+          "to": "df-code-quality"
+        },
+        {
+          "from": "df-code-quality",
+          "to": "df-testing"
+        },
+        {
+          "from": "df-testing",
+          "to": "df-validate"
+        },
+        {
+          "from": "df-validate",
+          "to": "df-source-control"
+        }
+      ],
+      "groups": [],
+      "hash": "6b375330ccd21a76",
+      "nodes": [
+        {
+          "group": null,
+          "host": null,
+          "id": "df-interview",
+          "label": "Interview",
+          "lane": null
+        },
+        {
+          "group": null,
+          "host": null,
+          "id": "df-research",
+          "label": "Research",
+          "lane": null
+        },
+        {
+          "group": null,
+          "host": null,
+          "id": "df-design",
+          "label": "Design",
+          "lane": null
+        },
+        {
+          "group": null,
+          "host": null,
+          "id": "df-approve",
+          "label": "Approve",
+          "lane": null
+        },
+        {
+          "group": null,
+          "host": null,
+          "id": "df-impl-docs",
+          "label": "Implementation plan",
+          "lane": null
+        },
+        {
+          "group": null,
+          "host": null,
+          "id": "df-implement",
+          "label": "Implement",
+          "lane": null
+        },
+        {
+          "group": null,
+          "host": null,
+          "id": "df-code-quality",
+          "label": "Code quality",
+          "lane": null
+        },
+        {
+          "group": null,
+          "host": null,
+          "id": "df-testing",
+          "label": "Testing",
+          "lane": null
+        },
+        {
+          "group": null,
+          "host": null,
+          "id": "df-validate",
+          "label": "Validate",
+          "lane": null
+        },
+        {
+          "group": null,
+          "host": null,
+          "id": "df-source-control",
+          "label": "Source control",
+          "lane": null
+        },
+        {
+          "group": null,
+          "host": null,
+          "id": "df-mockup",
+          "label": "Mockup",
+          "lane": "side"
+        },
+        {
+          "group": null,
+          "host": null,
+          "id": "df-security",
+          "label": "Security",
+          "lane": null
+        },
+        {
+          "group": null,
+          "host": null,
+          "id": "df-edge-cases",
+          "label": "Edge cases",
+          "lane": null
+        },
+        {
+          "group": null,
+          "host": null,
+          "id": "df-chaos",
+          "label": "Chaos",
+          "lane": null
+        },
+        {
+          "group": null,
+          "host": null,
+          "id": "df-perf",
+          "label": "Performance",
+          "lane": null
+        },
+        {
+          "group": null,
+          "host": null,
+          "id": "df-integrate",
+          "label": "Integrate fixes",
+          "lane": null
+        },
+        {
+          "group": null,
+          "host": null,
+          "id": "df-docs",
+          "label": "Docs",
+          "lane": null
+        },
+        {
+          "group": null,
+          "host": null,
+          "id": "df-cicd-watch",
+          "label": "CI watch",
+          "lane": null
+        },
+        {
+          "group": null,
+          "host": null,
+          "id": "cr-design",
+          "label": "Design by consensus",
+          "lane": null
+        },
+        {
+          "group": null,
+          "host": null,
+          "id": "cr-code",
+          "label": "Code by consensus",
+          "lane": null
+        }
+      ]
+    }
+  },
+  "summary": {
+    "agents": [],
+    "current": [],
+    "done": false,
+    "failed": false,
+    "id": "c60efaba-b3e0-53fb-882e-a62a191bcacc",
+    "key": {
+      "device": "6c1b90b8-1506-5bfa-b92a-10eb2fe0268d",
+      "project": "3f58176e-ff64-50f5-9570-0533b0f5a437",
+      "run": "t-20260601-example-old",
+      "workflow": "devflow"
+    },
+    "label": "Show totals in the footer",
+    "last_activity": 1780315860000,
+    "needs_you": false,
+    "orchestrators": [],
+    "progress": {
+      "done": 6,
+      "total": 10
+    }
+  }
+}

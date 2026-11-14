@@ -1,0 +1,161 @@
+task:
+  id: t-20261101-example-mockup
+  request: Redesign the settings page
+  type: ui
+  classification: small_feature
+  routing_mode: host
+  workflow: df
+  status: active
+code:
+  snapshot_id: null
+  changed_modules: []
+  pr_ref: null
+graph:
+- block: df-interview
+  status: completed
+  depends_on: []
+  parallel_group: null
+  writes_code: false
+  attempts: 1
+  tier: host
+- block: df-research
+  status: completed
+  depends_on:
+  - df-interview
+  parallel_group: null
+  writes_code: false
+  attempts: 1
+  tier: S
+- block: df-design
+  status: completed
+  depends_on:
+  - df-research
+  parallel_group: null
+  writes_code: false
+  attempts: 1
+  tier: M
+- block: df-mockup
+  status: completed
+  depends_on:
+  - df-design
+  parallel_group: null
+  writes_code: false
+  attempts: 1
+  tier: M
+- block: df-approve
+  status: in_progress
+  depends_on:
+  - df-design
+  - df-mockup
+  parallel_group: null
+  writes_code: false
+  attempts: 1
+  tier: host
+- block: df-impl-docs
+  status: pending
+  depends_on:
+  - df-approve
+  parallel_group: null
+  writes_code: false
+  attempts: 0
+  tier: null
+- block: df-implement
+  status: pending
+  depends_on:
+  - df-impl-docs
+  parallel_group: null
+  writes_code: true
+  attempts: 0
+  tier: null
+- block: df-code-quality
+  status: pending
+  depends_on:
+  - df-implement
+  parallel_group: null
+  writes_code: true
+  attempts: 0
+  tier: null
+- block: df-testing
+  status: pending
+  depends_on:
+  - df-code-quality
+  parallel_group: analysis
+  writes_code: false
+  attempts: 0
+  tier: null
+- block: df-security
+  status: pending
+  depends_on:
+  - df-code-quality
+  parallel_group: analysis
+  writes_code: false
+  attempts: 0
+  tier: null
+- block: df-edge-cases
+  status: pending
+  depends_on:
+  - df-code-quality
+  parallel_group: analysis
+  writes_code: false
+  attempts: 0
+  tier: null
+- block: df-chaos
+  status: pending
+  depends_on:
+  - df-code-quality
+  parallel_group: analysis
+  writes_code: false
+  attempts: 0
+  tier: null
+- block: df-perf
+  status: pending
+  depends_on:
+  - df-code-quality
+  parallel_group: analysis
+  writes_code: false
+  attempts: 0
+  tier: null
+- block: df-integrate
+  status: pending
+  depends_on:
+  - df-testing
+  - df-security
+  - df-edge-cases
+  - df-chaos
+  - df-perf
+  parallel_group: null
+  writes_code: true
+  attempts: 0
+  tier: null
+- block: df-validate
+  status: pending
+  depends_on:
+  - df-integrate
+  parallel_group: null
+  writes_code: false
+  attempts: 0
+  tier: null
+- block: df-docs
+  status: pending
+  depends_on:
+  - df-validate
+  parallel_group: null
+  writes_code: false
+  attempts: 0
+  tier: null
+- block: df-source-control
+  status: pending
+  depends_on:
+  - df-docs
+  parallel_group: null
+  writes_code: false
+  attempts: 0
+  tier: null
+- block: df-cicd-watch
+  status: pending
+  depends_on:
+  - df-source-control
+  parallel_group: null
+  writes_code: false
+  attempts: 0
+  tier: null

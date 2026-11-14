@@ -1,0 +1,19 @@
+[package]
+name = "maxhq-fake-agent"
+description = "Stands in for an agent CLI in tests and benchmarks"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[[bin]]
+name = "fake-agent"
+path = "src/main.rs"
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+
+[lints]
+workspace = true

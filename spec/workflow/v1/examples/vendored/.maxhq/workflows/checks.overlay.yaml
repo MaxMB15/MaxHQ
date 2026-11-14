@@ -1,0 +1,13 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (C) 2026 Max Boksem
+
+# An overlay the project keeps on top of the vendored descriptor. It merges
+# key by key: a map merges, a list or plain value replaces, and null removes
+# the key.
+format: maxhq.workflow-overlay/1.0
+workflow: checks
+name: Pre-merge checks
+revision: null
+groups:
+  lint:
+    collapsed: true

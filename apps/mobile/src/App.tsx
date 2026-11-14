@@ -1,0 +1,120 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026 Max Boksem
+
+import "./i18n";
+
+import { useI18n } from "@maxhq/shared/i18n";
+
+import {
+	DarkTheme,
+	type LinkingOptions,
+	NavigationContainer,
+	type Theme,
+} from "@react-navigation/native";
+import { createNativeStackNavigator } from "@react-navigation/native-stack";
+import { StatusBar } from "expo-status-bar";
+import { useState } from "react";
+import { Linking } from "react-native";
+import { SafeAreaProvider } from "react-native-safe-area-context";
+
+import { createSource } from "./data";
+import { AgentScreen } from "./features/agent/AgentScreen";
+import { PromptAlerts } from "./features/attention/PromptAlerts";
+import { DevicesScreen } from "./features/devices/DevicesScreen";
+import { InboxScreen } from "./features/inbox/InboxScreen";
+import { NoteScreen } from "./features/notes/NoteScreen";
+import { NotesScreen } from "./features/notes/NotesScreen";
+import { PhoneScreen } from "./features/phone/PhoneScreen";
+import { scanLinkOf } from "./features/scan/code";
+import { ScanScreen } from "./features/scan/ScanScreen";
+import { UsageScreen } from "./features/usage/UsageScreen";
+import { VisualScreen } from "./features/visuals/VisualScreen";
+import { agentScreenId, noteScreenId, type Screens } from "./navigation";
+import { pushNavigation, PushSetup } from "./push/PushSetup";
+import { ServicesProvider } from "./services";
+import { color } from "./theme";
+import { PictureViewer } from "./ui/Picture";
+
+const Stack = createNativeStackNavigator<Screens>();
+
+const theme: Theme = {
+	...DarkTheme,
+	colors: {
+		...DarkTheme.colors,
+		primary: color.primary,
+		background: color.background,
+		card: color.background,
+		text: color.foreground,
+		border: color.border,
+		notification: color.ready,
+	},
+};
+
+// Each screen draws its own compact header, as the desktop's panes do. The
+// edge swipe still goes back.
+const SCREEN = {
+	headerShown: false,
+	contentStyle: { backgroundColor: color.background },
+} as const;
+
+// maxhq://agent/<id> opens an agent, and ?attention=<id> scrolls to that
+// prompt. maxhq://phone is the old name for Settings. A pairing code,
+// maxhq:<code>, opens Scan with the code ready to pair. Whatever a link
+// opens sits over the inbox, so Back has somewhere to go.
+const linking: LinkingOptions<Screens> = {
+	prefixes: ["maxhq://"],
+	getInitialURL: async () => {
+		const url = await Linking.getInitialURL();
+		return url ? scanLinkOf(url) : url;
+	},
+	subscribe: (listener) => {
+		const opened = Linking.addEventListener("url", ({ url }) => listener(scanLinkOf(url)));
+		return () => opened.remove();
+	},
+	config: {
+		initialRouteName: "Inbox",
+		screens: {
+			Inbox: "",
+			Agent: "agent/:agent",
+			Usage: "usage",
+			Devices: "devices",
+			Settings: { path: "settings", alias: ["phone"] },
+			Scan: "scan",
+			Notes: "notes/:project",
+			Note: "note/:project/:note",
+		},
+	},
+};
+
+export const App = () => {
+	useI18n();
+
+	const [{ source, phone }] = useState(createSource);
+	return (
+		<SafeAreaProvider>
+			<ServicesProvider source={source} phone={phone}>
+				<PushSetup />
+				<NavigationContainer ref={pushNavigation} theme={theme} linking={linking}>
+					<Stack.Navigator screenOptions={SCREEN}>
+						<Stack.Screen name="Inbox" component={InboxScreen} />
+						<Stack.Screen name="Agent" component={AgentScreen} getId={agentScreenId} />
+						<Stack.Screen name="Usage" component={UsageScreen} />
+						<Stack.Screen name="Devices" component={DevicesScreen} />
+						<Stack.Screen name="Settings" component={PhoneScreen} />
+						<Stack.Screen name="Notes" component={NotesScreen} />
+						<Stack.Screen name="Note" component={NoteScreen} getId={noteScreenId} />
+						<Stack.Screen
+							name="Scan"
+							component={ScanScreen}
+							options={{ presentation: "modal" }}
+						/>
+					</Stack.Navigator>
+				</NavigationContainer>
+				<PromptAlerts />
+				<PictureViewer />
+				<VisualScreen />
+				<StatusBar style="light" />
+			</ServicesProvider>
+		</SafeAreaProvider>
+	);
+};

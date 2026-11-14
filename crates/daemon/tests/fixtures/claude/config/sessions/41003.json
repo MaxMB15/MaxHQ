@@ -1,0 +1,13 @@
+{
+  "pid": 41003,
+  "sessionId": "3c4d5e6f-7a8b-4c9d-8e0f-1a2b3c4d5e6f",
+  "cwd": "/work/notes",
+  "startedAt": 1792882800000,
+  "procStart": "Sat Oct 24 23:00:00 2026",
+  "version": "2.1.310",
+  "kind": "interactive",
+  "entrypoint": "cli",
+  "status": "idle",
+  "updatedAt": 1792889400000,
+  "statusUpdatedAt": 1792888205000
+}

@@ -1,0 +1,35 @@
+# yaml-language-server: $schema=https://schemas.example.com/maxhq/workflow/v1/descriptor.schema.json
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (C) 2026 Max Boksem
+
+# A workflow whose run file is in the reference shape, so it maps nothing.
+# It writes standard status words, logs events as JSON Lines and binds
+# agents through the default `maxhq-node:` prompt line.
+format: maxhq.workflow/1.0
+id: release
+name: Release
+revision: 3
+runs:
+  glob: runs/*/run.yaml
+  facts:
+    checks:
+      count: "$.nodes[?@.group == 'checks']"
+  events:
+    - jsonl: events.jsonl
+groups:
+  checks:
+    label: Checks
+badges:
+  - text: "try {attempts}"
+    tone: warn
+    when:
+      field:
+        attempts:
+          gt: 1
+loops:
+  - from: review
+    to: build
+    label: Review sent it back
+    budget: 3
+header:
+  - text: "{run.checks} checks"

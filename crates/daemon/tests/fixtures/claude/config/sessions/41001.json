@@ -1,0 +1,15 @@
+{
+  "pid": 41001,
+  "sessionId": "6f1d2c3b-0a4e-4b8f-9c11-2d3e4f5a6b7c",
+  "cwd": "/work/maxhq",
+  "startedAt": 1792880000000,
+  "procStart": "Sat Oct 24 22:13:20 2026",
+  "version": "2.1.310",
+  "kind": "interactive",
+  "entrypoint": "cli",
+  "name": "observer refactor",
+  "nameSource": "user",
+  "status": "busy",
+  "updatedAt": 1792889360000,
+  "statusUpdatedAt": 1792888800000
+}

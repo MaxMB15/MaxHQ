@@ -1,0 +1,1 @@
+{ block: df-research, effort_key: research, requires: [requirements.md], emits: [research.md], writes_code: false }

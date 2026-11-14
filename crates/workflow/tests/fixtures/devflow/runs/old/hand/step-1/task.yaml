@@ -1,0 +1,21 @@
+task:
+  id: t-20260601-example-old
+  request: Show totals in the footer
+  type: non-ui
+  classification: small_feature
+  status: active
+code:
+  snapshot_id: 9f8e7d6
+  changed_modules: [src/footer]
+  pr_ref: null
+graph:
+- { block: df-interview, status: completed, depends_on: [], writes_code: false, attempts: 1 }
+- { block: df-research, status: completed, depends_on: [df-interview], writes_code: false, attempts: 1 }
+- { block: df-design, status: completed, depends_on: [df-research], writes_code: false, attempts: 1 }
+- { block: df-approve, status: completed, depends_on: [df-design], writes_code: false, attempts: 1 }
+- { block: df-impl-docs, status: completed, depends_on: [df-approve], writes_code: false, attempts: 1 }
+- { block: df-implement, status: completed, depends_on: [df-impl-docs], writes_code: true, attempts: 2 }
+- { block: df-code-quality, status: paused, depends_on: [df-implement], writes_code: true, attempts: 1 }
+- { block: df-testing, status: pending, depends_on: [df-code-quality], writes_code: false, attempts: 0 }
+- { block: df-validate, status: pending, depends_on: [df-testing], writes_code: false, attempts: 0 }
+- { block: df-source-control, status: pending, depends_on: [df-validate], writes_code: false, attempts: 0 }

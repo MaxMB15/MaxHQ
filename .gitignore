@@ -1,0 +1,76 @@
+# Dependencies
+node_modules/
+target/
+
+# Build output
+dist/
+*.tsbuildinfo
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Environment
+.env
+.env.*
+
+# AI tools. Agent instructions, settings, memory and session state stay on
+# the machine that made them. .githooks/pre-commit rejects these even when
+# they're added with -f.
+CLAUDE.md
+CLAUDE.local.md
+.claude/
+.mcp.json
+AGENTS.md
+AGENT.md
+AGENTS.override.md
+.codex/
+.agents/
+GEMINI.md
+.gemini/
+.cursor/
+.cursorrules
+.cursorignore
+.windsurf/
+.windsurfrules
+.github/copilot-instructions.md
+.github/instructions/
+.github/prompts/
+.github/chatmodes/
+.aider*
+.continue/
+.clinerules
+.cline/
+.roo/
+.roomodes
+.kiro/
+.junie/
+.amazonq/
+.opencode/
+opencode.json
+CRUSH.md
+.crush/
+.goosehints
+.specstory/
+.serena/
+.devflow/
+
+# User-facing docs, such as the README, SECURITY.md and CONTRIBUTING.md, are
+# tracked. Plans, briefs, research and other implementation notes stay on the
+# machine that wrote them, in docs/. So do the benchmark notes.
+/docs/
+/scripts/bench/README.md
+
+# Benchmark recordings of real agent sessions. They can hold private
+# output, so they stay on the machine that recorded them.
+scripts/bench/traces/
+
+# Tauri writes its permission schemas here on every build.
+apps/desktop/src-tauri/gen/

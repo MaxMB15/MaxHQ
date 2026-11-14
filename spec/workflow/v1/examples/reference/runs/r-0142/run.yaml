@@ -1,0 +1,38 @@
+# yaml-language-server: $schema=https://schemas.example.com/maxhq/workflow/v1/run.schema.json
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (C) 2026 Max Boksem
+
+# One run in the reference shape. The lead copied its MAXHQ_AGENT into
+# run.agent, so the run binds to it at once.
+run:
+  id: r-0142
+  status: busy
+  label: Release 0.4.2
+  agent: 00000000-0000-4000-8000-000000000001
+nodes:
+  - id: plan
+    status: done
+    attempts: 1
+  - id: build
+    status: done
+    needs: [plan]
+    attempts: 2
+  - id: unit
+    label: Unit tests
+    status: busy
+    needs: [build]
+    group: checks
+  - id: lint
+    status: done
+    needs: [build]
+    group: checks
+  - id: review
+    status: queued
+    needs: [unit, lint]
+  - id: notes
+    label: Release notes
+    status: queued
+    needs: [plan]
+  - id: publish
+    status: queued
+    needs: [review, notes]

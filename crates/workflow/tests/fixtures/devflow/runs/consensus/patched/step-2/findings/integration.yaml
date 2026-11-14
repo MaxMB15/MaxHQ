@@ -1,0 +1,4 @@
+block: df-integrate
+status: skipped
+reason: block skipped; gate did not run
+findings: []

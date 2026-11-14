@@ -1,0 +1,181 @@
+/* SPDX-License-Identifier: MIT */
+/* Copyright (c) 2026 Max Boksem */
+
+/* One piece of context in a message. The family sets the hue and the state
+   the shade. The text box draws a pull request's `#123` with these classes
+   too, as a decoration over the text, so they hold the whole look. */
+
+.pill {
+	--pill-text: var(--pill-file-text);
+	--pill-bg: var(--pill-file-bg);
+	--pill-border: var(--pill-file-border);
+	position: relative;
+	display: inline-flex;
+	max-width: 100%;
+	min-width: 0;
+	align-items: center;
+	gap: 0.25em;
+	padding: 0 0.32em;
+	border: 1px solid var(--pill-border);
+	border-radius: 5px;
+	background: var(--pill-bg);
+	color: var(--pill-text);
+	font-size: 0.93em;
+	font-weight: 500;
+	line-height: 1.4;
+	vertical-align: baseline;
+	white-space: nowrap;
+	cursor: default;
+	user-select: none;
+}
+
+.pill svg {
+	display: block;
+	width: 1em;
+	height: 1em;
+	flex-shrink: 0;
+}
+
+.pill[data-family="quote"] {
+	--pill-text: var(--pill-quote-text);
+	--pill-bg: var(--pill-quote-bg);
+	--pill-border: var(--pill-quote-border);
+}
+
+.pill[data-family="agent"] {
+	--pill-text: var(--pill-agent-text);
+	--pill-bg: var(--pill-agent-bg);
+	--pill-border: var(--pill-agent-border);
+}
+
+.pill[data-family="note"] {
+	--pill-text: var(--pill-note-text);
+	--pill-bg: var(--pill-note-bg);
+	--pill-border: var(--pill-note-border);
+}
+
+.pill[data-family="visual"] {
+	--pill-text: var(--pill-visual-text);
+	--pill-bg: var(--pill-visual-bg);
+	--pill-border: var(--pill-visual-border);
+}
+
+.pill[data-family="git-open"] {
+	--pill-text: var(--pill-git-open-text);
+	--pill-bg: var(--pill-git-open-bg);
+	--pill-border: var(--pill-git-open-border);
+}
+
+.pill[data-family="git-draft"] {
+	--pill-text: var(--pill-git-draft-text);
+	--pill-bg: var(--pill-git-draft-bg);
+	--pill-border: var(--pill-git-draft-border);
+}
+
+.pill[data-family="git-merged"] {
+	--pill-text: var(--pill-git-merged-text);
+	--pill-bg: var(--pill-git-merged-bg);
+	--pill-border: var(--pill-git-merged-border);
+}
+
+.pill[data-family="git-closed"] {
+	--pill-text: var(--pill-git-closed-text);
+	--pill-bg: var(--pill-git-closed-bg);
+	--pill-border: var(--pill-git-closed-border);
+}
+
+/* A file on its way fills from the left as it uploads. */
+.pill[data-state="uploading"],
+.pill[data-state="staging"] {
+	background: linear-gradient(
+		to right,
+		var(--pill-bg) var(--pill-progress, 0%),
+		transparent var(--pill-progress, 0%)
+	);
+}
+
+.pill[data-state="failed"] {
+	--pill-text: var(--pill-failed-text);
+	--pill-bg: var(--pill-failed-bg);
+	--pill-border: var(--pill-failed-border);
+}
+
+.pill[data-state="unresolved"] {
+	--pill-text: var(--pill-unresolved-text);
+	--pill-bg: var(--pill-unresolved-bg);
+	--pill-border: var(--pill-unresolved-border);
+	border-style: dashed;
+}
+
+/* A pill in a sent message that does something on a click, such as
+   showing the picture or opening the agent. */
+.pill.pill-action {
+	cursor: pointer;
+	text-decoration: none;
+}
+
+.pill.pill-action:hover {
+	filter: brightness(1.15);
+}
+
+.pill.pill-action:focus-visible {
+	outline: 2px solid var(--ring);
+	outline-offset: 1px;
+}
+
+.pill-label {
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+
+.pill-thumb {
+	width: 1.15em;
+	height: 1.15em;
+	flex-shrink: 0;
+	border-radius: 3px;
+	object-fit: cover;
+}
+
+.pill-spin {
+	animation: pill-spin 0.9s linear infinite;
+}
+
+@keyframes pill-spin {
+	to {
+		transform: rotate(360deg);
+	}
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.pill-spin {
+		animation: none;
+	}
+}
+
+/* A pull request or issue in the text box stays text, so the caret can go
+   in and change the number. The icon and title are drawn around it. */
+.pill.pill-text {
+	display: inline;
+	padding: 0 0.2em;
+	font-size: inherit;
+	box-decoration-break: clone;
+	-webkit-box-decoration-break: clone;
+	cursor: text;
+	user-select: text;
+}
+
+.pill.pill-text::before {
+	content: "";
+	display: inline-block;
+	width: 0.95em;
+	height: 0.95em;
+	margin-right: 0.22em;
+	vertical-align: -0.13em;
+	background: currentColor;
+	mask: var(--pill-icon) center / contain no-repeat;
+}
+
+.pill.pill-text::after {
+	content: " " attr(data-title);
+}

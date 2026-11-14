@@ -1,0 +1,3 @@
+{"t":"2026-11-01T09:02:00.000Z","node":"df-interview","status":"in_progress","attempt":1,"tier":"host"}
+{"t":"2026-11-01T09:04:00.000Z","node":"df-interview","status":"completed","attempt":1,"tier":"host"}
+{"t":"2026-11-01T09:05:00.000Z","node":"df-research","status":"in_progress","attempt":1,"tier":"S"}

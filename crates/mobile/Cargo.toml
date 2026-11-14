@@ -1,0 +1,45 @@
+[package]
+name = "maxhq-mobile"
+description = "The phone app's shell over the shared core, called from React Native"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lib]
+name = "maxhq_mobile"
+# A static library for the app's Xcode build, and the Rust one for tests.
+crate-type = ["lib", "staticlib"]
+
+[dependencies]
+base64.workspace = true
+curve25519-dalek.workspace = true
+futures.workspace = true
+getrandom.workspace = true
+maxhq-app = { workspace = true, features = ["phone"] }
+maxhq-client = { workspace = true, features = ["ws"] }
+maxhq-core.workspace = true
+maxhq-protocol.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+uniffi.workspace = true
+zeroize = { workspace = true, features = ["serde"] }
+
+# The phone's data stays out of backups. Its keys live in the Keychain
+# through maxhq-app's key store.
+[target.'cfg(any(target_os = "ios", target_os = "macos"))'.dependencies]
+objc2-core-foundation = { workspace = true, features = [
+    "std",
+    "CFError",
+    "CFNumber",
+    "CFString",
+    "CFURL",
+] }
+
+[dev-dependencies]
+tracing-subscriber.workspace = true
+
+[lints]
+workspace = true

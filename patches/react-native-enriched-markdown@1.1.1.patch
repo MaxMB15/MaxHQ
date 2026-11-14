@@ -1,0 +1,15 @@
+diff --git a/cpp/parser/MD4CParser.cpp b/cpp/parser/MD4CParser.cpp
+index c99a52d978578b5b7c2c1e4c80764e4f4cde40ff..4d452d47a9427b770cddeb9e1c6f4c32877f78c3 100644
+--- a/cpp/parser/MD4CParser.cpp
++++ b/cpp/parser/MD4CParser.cpp
+@@ -338,7 +338,9 @@ public:
+       }
+ 
+       case MD_SPAN_IMG: {
+-        auto node = std::make_shared<MarkdownASTNode>(NodeType::Image);
++        // Agent text picks this address, and loading it would send what the
++        // address carries with no tap. So an image is a link to it.
++        auto node = std::make_shared<MarkdownASTNode>(NodeType::Link);
+         if (detail) {
+           auto *imgDetail = static_cast<MD_SPAN_IMG_DETAIL *>(detail);
+           std::string url = impl->getAttributeText(&imgDetail->src);

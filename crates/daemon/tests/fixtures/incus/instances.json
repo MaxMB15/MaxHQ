@@ -1,0 +1,605 @@
+{
+ "type": "sync",
+ "status": "Success",
+ "status_code": 200,
+ "operation": "",
+ "error_code": 0,
+ "error": "",
+ "metadata": [
+  {
+   "architecture": "x86_64",
+   "config": {
+    "boot.autostart": "false",
+    "boot.host_shutdown_timeout": "780",
+    "image.description": "Ledger guest VM",
+    "image.os": "nixos",
+    "limits.cpu": "4",
+    "limits.memory": "4GiB",
+    "volatile.base_image": "85e981490ef14e1d1dbafc124be66056dfb68c1cc4e06a3a7f33901ec06308c4",
+    "volatile.cloud-init.instance-id": "43be11a0-dae4-5311-9d66-aea7c9f312b4",
+    "volatile.eth0.host_name": "tap00001001",
+    "volatile.eth0.hwaddr": "10:66:6a:00:00:01",
+    "volatile.last_state.power": "RUNNING",
+    "volatile.uuid": "8fd3d213-3fc6-5b82-872b-864de43ddc1d",
+    "volatile.uuid.generation": "8fd3d213-3fc6-5b82-872b-864de43ddc1d",
+    "volatile.vm.rtc_adjustment": "0",
+    "volatile.vm.rtc_offset": "0",
+    "volatile.vsock_id": "1001"
+   },
+   "devices": {
+    "data": {
+     "pool": "default",
+     "source": "ledger-data",
+     "type": "disk"
+    },
+    "eth0": {
+     "ipv4.address": "10.0.3.10",
+     "name": "eth0",
+     "network": "incusbr-ledger",
+     "type": "nic"
+    },
+    "root": {
+     "path": "/",
+     "pool": "default",
+     "size": "16GiB",
+     "type": "disk"
+    }
+   },
+   "ephemeral": false,
+   "profiles": [
+    "default"
+   ],
+   "stateful": false,
+   "description": "",
+   "created_at": "2026-10-05T01:43:56.456597485Z",
+   "expanded_config": {
+    "boot.autostart": "false",
+    "boot.host_shutdown_timeout": "780",
+    "image.description": "Ledger guest VM",
+    "image.os": "nixos",
+    "limits.cpu": "4",
+    "limits.memory": "4GiB",
+    "volatile.base_image": "85e981490ef14e1d1dbafc124be66056dfb68c1cc4e06a3a7f33901ec06308c4",
+    "volatile.cloud-init.instance-id": "43be11a0-dae4-5311-9d66-aea7c9f312b4",
+    "volatile.eth0.host_name": "tap00001001",
+    "volatile.eth0.hwaddr": "10:66:6a:00:00:01",
+    "volatile.last_state.power": "RUNNING",
+    "volatile.uuid": "8fd3d213-3fc6-5b82-872b-864de43ddc1d",
+    "volatile.uuid.generation": "8fd3d213-3fc6-5b82-872b-864de43ddc1d",
+    "volatile.vm.rtc_adjustment": "0",
+    "volatile.vm.rtc_offset": "0",
+    "volatile.vsock_id": "1001"
+   },
+   "expanded_devices": {
+    "data": {
+     "pool": "default",
+     "source": "ledger-data",
+     "type": "disk"
+    },
+    "eth0": {
+     "ipv4.address": "10.0.3.10",
+     "name": "eth0",
+     "network": "incusbr-ledger",
+     "type": "nic"
+    },
+    "root": {
+     "path": "/",
+     "pool": "default",
+     "size": "16GiB",
+     "type": "disk"
+    }
+   },
+   "name": "ledger",
+   "status": "Running",
+   "status_code": 103,
+   "last_used_at": "2026-10-23T04:02:22.098325145Z",
+   "location": "none",
+   "type": "virtual-machine",
+   "project": "default"
+  },
+  {
+   "architecture": "x86_64",
+   "config": {
+    "image.architecture": "amd64",
+    "image.description": "Agent workspace base (Debian 13 + claude/codex/gh) 20260825",
+    "image.name": "debian-trixie-amd64-default-20260825_05:24",
+    "image.os": "debian",
+    "image.release": "trixie",
+    "image.serial": "20260825_05:24",
+    "image.variant": "default",
+    "volatile.base_image": "b70f9fb5596ce6076fb5e22e1e82765978020c7dc73c1ddb1c67978545f63909",
+    "volatile.cloud-init.instance-id": "1341751a-81da-52dd-b209-76c5eaa20363",
+    "volatile.eth0.hwaddr": "10:66:6a:00:00:02",
+    "volatile.eth0.name": "eth0",
+    "volatile.idmap.base": "0",
+    "volatile.idmap.current": "[{\"Isuid\":true,\"Isgid\":false,\"Hostid\":1000000,\"Nsid\":0,\"Maprange\":1000000000},{\"Isuid\":false,\"Isgid\":true,\"Hostid\":1000000,\"Nsid\":0,\"Maprange\":1000000000}]",
+    "volatile.idmap.next": "[{\"Isuid\":true,\"Isgid\":false,\"Hostid\":1000000,\"Nsid\":0,\"Maprange\":1000000000},{\"Isuid\":false,\"Isgid\":true,\"Hostid\":1000000,\"Nsid\":0,\"Maprange\":1000000000}]",
+    "volatile.last_state.idmap": "[]",
+    "volatile.last_state.power": "STOPPED",
+    "volatile.uuid": "675a94c3-51b4-5253-aecd-bf2e4999303f",
+    "volatile.uuid.generation": "675a94c3-51b4-5253-aecd-bf2e4999303f"
+   },
+   "devices": {},
+   "ephemeral": false,
+   "profiles": [
+    "agent-ws"
+   ],
+   "stateful": false,
+   "description": "",
+   "created_at": "2026-08-25T12:26:52.061731119Z",
+   "expanded_config": {
+    "image.architecture": "amd64",
+    "image.description": "Agent workspace base (Debian 13 + claude/codex/gh) 20260825",
+    "image.name": "debian-trixie-amd64-default-20260825_05:24",
+    "image.os": "debian",
+    "image.release": "trixie",
+    "image.serial": "20260825_05:24",
+    "image.variant": "default",
+    "limits.cpu": "4-7,12-15",
+    "limits.memory": "3072MiB",
+    "limits.memory.enforce": "soft",
+    "security.nesting": "false",
+    "security.privileged": "false",
+    "volatile.base_image": "b70f9fb5596ce6076fb5e22e1e82765978020c7dc73c1ddb1c67978545f63909",
+    "volatile.cloud-init.instance-id": "1341751a-81da-52dd-b209-76c5eaa20363",
+    "volatile.eth0.hwaddr": "10:66:6a:00:00:02",
+    "volatile.eth0.name": "eth0",
+    "volatile.idmap.base": "0",
+    "volatile.idmap.current": "[{\"Isuid\":true,\"Isgid\":false,\"Hostid\":1000000,\"Nsid\":0,\"Maprange\":1000000000},{\"Isuid\":false,\"Isgid\":true,\"Hostid\":1000000,\"Nsid\":0,\"Maprange\":1000000000}]",
+    "volatile.idmap.next": "[{\"Isuid\":true,\"Isgid\":false,\"Hostid\":1000000,\"Nsid\":0,\"Maprange\":1000000000},{\"Isuid\":false,\"Isgid\":true,\"Hostid\":1000000,\"Nsid\":0,\"Maprange\":1000000000}]",
+    "volatile.last_state.idmap": "[]",
+    "volatile.last_state.power": "STOPPED",
+    "volatile.uuid": "675a94c3-51b4-5253-aecd-bf2e4999303f",
+    "volatile.uuid.generation": "675a94c3-51b4-5253-aecd-bf2e4999303f"
+   },
+   "expanded_devices": {
+    "creds": {
+     "path": "/opt/agent-creds",
+     "pool": "agents",
+     "source": "agent-creds",
+     "type": "disk"
+    },
+    "eth0": {
+     "network": "agentbr0",
+     "type": "nic"
+    },
+    "root": {
+     "path": "/",
+     "pool": "agents",
+     "size": "15GiB",
+     "type": "disk"
+    },
+    "shared": {
+     "path": "/opt/agent-shared",
+     "pool": "agents",
+     "source": "agent-shared",
+     "type": "disk"
+    }
+   },
+   "name": "vault",
+   "status": "Stopped",
+   "status_code": 102,
+   "last_used_at": "2026-08-25T14:27:28.26680409Z",
+   "location": "none",
+   "type": "container",
+   "project": "default"
+  },
+  {
+   "architecture": "x86_64",
+   "config": {
+    "boot.autostart": "true",
+    "image.architecture": "amd64",
+    "image.description": "Agent workspace base (Debian 13 + claude/codex/gh) 20260826",
+    "image.name": "debian-trixie-amd64-default-20260826_05:24",
+    "image.os": "debian",
+    "image.release": "trixie",
+    "image.serial": "20260826_05:24",
+    "image.variant": "default",
+    "raw.lxc": "lxc.cgroup.dir.container = agent-workspaces/ws-harbor\nlxc.cgroup.dir.monitor = agent-workspaces.monitor/ws-harbor",
+    "user.agent": "claude",
+    "user.created": "2026-09-18T08:15:14+02:00",
+    "user.repo": "example-org/Harbor",
+    "user.title": "Harbor",
+    "volatile.base_image": "6df00f834d91503c453890fafd8337651f5e9201be50fdf69b209e65a9af23dc",
+    "volatile.cloud-init.instance-id": "aca7a7d4-192b-5d89-923c-b1b381ec384a",
+    "volatile.eth0.host_name": "veth00001003",
+    "volatile.eth0.hwaddr": "10:66:6a:00:00:03",
+    "volatile.eth0.name": "eth0",
+    "volatile.idmap.base": "0",
+    "volatile.idmap.current": "[{\"Isuid\":true,\"Isgid\":false,\"Hostid\":1000000,\"Nsid\":0,\"Maprange\":1000000000},{\"Isuid\":false,\"Isgid\":true,\"Hostid\":1000000,\"Nsid\":0,\"Maprange\":1000000000}]",
+    "volatile.idmap.next": "[{\"Isuid\":true,\"Isgid\":false,\"Hostid\":1000000,\"Nsid\":0,\"Maprange\":1000000000},{\"Isuid\":false,\"Isgid\":true,\"Hostid\":1000000,\"Nsid\":0,\"Maprange\":1000000000}]",
+    "volatile.last_state.idmap": "[]",
+    "volatile.last_state.power": "RUNNING",
+    "volatile.uuid": "1b913e66-ae6d-5cef-98be-360e40ea086c",
+    "volatile.uuid.generation": "1b913e66-ae6d-5cef-98be-360e40ea086c"
+   },
+   "devices": {},
+   "ephemeral": false,
+   "profiles": [
+    "agent-ws"
+   ],
+   "stateful": false,
+   "description": "",
+   "created_at": "2026-09-18T06:15:12.414785777Z",
+   "expanded_config": {
+    "boot.autostart": "true",
+    "image.architecture": "amd64",
+    "image.description": "Agent workspace base (Debian 13 + claude/codex/gh) 20260826",
+    "image.name": "debian-trixie-amd64-default-20260826_05:24",
+    "image.os": "debian",
+    "image.release": "trixie",
+    "image.serial": "20260826_05:24",
+    "image.variant": "default",
+    "limits.cpu": "4-7,12-15",
+    "limits.memory": "3072MiB",
+    "limits.memory.enforce": "soft",
+    "raw.lxc": "lxc.cgroup.dir.container = agent-workspaces/ws-harbor\nlxc.cgroup.dir.monitor = agent-workspaces.monitor/ws-harbor",
+    "security.nesting": "false",
+    "security.privileged": "false",
+    "user.agent": "claude",
+    "user.created": "2026-09-18T08:15:14+02:00",
+    "user.repo": "example-org/Harbor",
+    "user.title": "Harbor",
+    "volatile.base_image": "6df00f834d91503c453890fafd8337651f5e9201be50fdf69b209e65a9af23dc",
+    "volatile.cloud-init.instance-id": "aca7a7d4-192b-5d89-923c-b1b381ec384a",
+    "volatile.eth0.host_name": "veth00001003",
+    "volatile.eth0.hwaddr": "10:66:6a:00:00:03",
+    "volatile.eth0.name": "eth0",
+    "volatile.idmap.base": "0",
+    "volatile.idmap.current": "[{\"Isuid\":true,\"Isgid\":false,\"Hostid\":1000000,\"Nsid\":0,\"Maprange\":1000000000},{\"Isuid\":false,\"Isgid\":true,\"Hostid\":1000000,\"Nsid\":0,\"Maprange\":1000000000}]",
+    "volatile.idmap.next": "[{\"Isuid\":true,\"Isgid\":false,\"Hostid\":1000000,\"Nsid\":0,\"Maprange\":1000000000},{\"Isuid\":false,\"Isgid\":true,\"Hostid\":1000000,\"Nsid\":0,\"Maprange\":1000000000}]",
+    "volatile.last_state.idmap": "[]",
+    "volatile.last_state.power": "RUNNING",
+    "volatile.uuid": "1b913e66-ae6d-5cef-98be-360e40ea086c",
+    "volatile.uuid.generation": "1b913e66-ae6d-5cef-98be-360e40ea086c"
+   },
+   "expanded_devices": {
+    "creds": {
+     "path": "/opt/agent-creds",
+     "pool": "agents",
+     "source": "agent-creds",
+     "type": "disk"
+    },
+    "eth0": {
+     "network": "agentbr0",
+     "type": "nic"
+    },
+    "root": {
+     "path": "/",
+     "pool": "agents",
+     "size": "15GiB",
+     "type": "disk"
+    },
+    "shared": {
+     "path": "/opt/agent-shared",
+     "pool": "agents",
+     "source": "agent-shared",
+     "type": "disk"
+    }
+   },
+   "name": "ws-harbor",
+   "status": "Running",
+   "status_code": 103,
+   "last_used_at": "2026-10-23T04:03:13.963341509Z",
+   "location": "none",
+   "type": "container",
+   "project": "default"
+  },
+  {
+   "architecture": "x86_64",
+   "config": {
+    "boot.autostart": "true",
+    "image.architecture": "amd64",
+    "image.description": "Agent workspace base (Debian 13 + claude/codex/gh) 20260826",
+    "image.name": "debian-trixie-amd64-default-20260826_05:24",
+    "image.os": "debian",
+    "image.release": "trixie",
+    "image.serial": "20260826_05:24",
+    "image.variant": "default",
+    "limits.memory": "8192MiB",
+    "raw.lxc": "lxc.cgroup.dir.container = agent-workspaces/ws-lantern\nlxc.cgroup.dir.monitor = agent-workspaces.monitor/ws-lantern",
+    "user.agent": "claude",
+    "user.created": "2026-10-18T02:34:46+02:00",
+    "user.repo": "example-org/Lantern",
+    "user.title": "lantern",
+    "volatile.base_image": "6df00f834d91503c453890fafd8337651f5e9201be50fdf69b209e65a9af23dc",
+    "volatile.cloud-init.instance-id": "378b63e6-83dd-50f6-b7b8-f6b67a44f132",
+    "volatile.eth0.host_name": "veth00001004",
+    "volatile.eth0.hwaddr": "10:66:6a:00:00:04",
+    "volatile.eth0.name": "eth0",
+    "volatile.idmap.base": "0",
+    "volatile.idmap.current": "[{\"Isuid\":true,\"Isgid\":false,\"Hostid\":1000000,\"Nsid\":0,\"Maprange\":1000000000},{\"Isuid\":false,\"Isgid\":true,\"Hostid\":1000000,\"Nsid\":0,\"Maprange\":1000000000}]",
+    "volatile.idmap.next": "[{\"Isuid\":true,\"Isgid\":false,\"Hostid\":1000000,\"Nsid\":0,\"Maprange\":1000000000},{\"Isuid\":false,\"Isgid\":true,\"Hostid\":1000000,\"Nsid\":0,\"Maprange\":1000000000}]",
+    "volatile.last_state.idmap": "[]",
+    "volatile.last_state.power": "RUNNING",
+    "volatile.uuid": "bf4ae8ad-630a-57b0-b9d0-b8bb0a358145",
+    "volatile.uuid.generation": "bf4ae8ad-630a-57b0-b9d0-b8bb0a358145"
+   },
+   "devices": {
+    "root": {
+     "path": "/",
+     "pool": "agents",
+     "size": "60GiB",
+     "type": "disk"
+    }
+   },
+   "ephemeral": false,
+   "profiles": [
+    "agent-ws"
+   ],
+   "stateful": false,
+   "description": "",
+   "created_at": "2026-10-18T00:34:44.202083267Z",
+   "expanded_config": {
+    "boot.autostart": "true",
+    "image.architecture": "amd64",
+    "image.description": "Agent workspace base (Debian 13 + claude/codex/gh) 20260826",
+    "image.name": "debian-trixie-amd64-default-20260826_05:24",
+    "image.os": "debian",
+    "image.release": "trixie",
+    "image.serial": "20260826_05:24",
+    "image.variant": "default",
+    "limits.cpu": "4-7,12-15",
+    "limits.memory": "8192MiB",
+    "limits.memory.enforce": "soft",
+    "raw.lxc": "lxc.cgroup.dir.container = agent-workspaces/ws-lantern\nlxc.cgroup.dir.monitor = agent-workspaces.monitor/ws-lantern",
+    "security.nesting": "false",
+    "security.privileged": "false",
+    "user.agent": "claude",
+    "user.created": "2026-10-18T02:34:46+02:00",
+    "user.repo": "example-org/Lantern",
+    "user.title": "lantern",
+    "volatile.base_image": "6df00f834d91503c453890fafd8337651f5e9201be50fdf69b209e65a9af23dc",
+    "volatile.cloud-init.instance-id": "378b63e6-83dd-50f6-b7b8-f6b67a44f132",
+    "volatile.eth0.host_name": "veth00001004",
+    "volatile.eth0.hwaddr": "10:66:6a:00:00:04",
+    "volatile.eth0.name": "eth0",
+    "volatile.idmap.base": "0",
+    "volatile.idmap.current": "[{\"Isuid\":true,\"Isgid\":false,\"Hostid\":1000000,\"Nsid\":0,\"Maprange\":1000000000},{\"Isuid\":false,\"Isgid\":true,\"Hostid\":1000000,\"Nsid\":0,\"Maprange\":1000000000}]",
+    "volatile.idmap.next": "[{\"Isuid\":true,\"Isgid\":false,\"Hostid\":1000000,\"Nsid\":0,\"Maprange\":1000000000},{\"Isuid\":false,\"Isgid\":true,\"Hostid\":1000000,\"Nsid\":0,\"Maprange\":1000000000}]",
+    "volatile.last_state.idmap": "[]",
+    "volatile.last_state.power": "RUNNING",
+    "volatile.uuid": "bf4ae8ad-630a-57b0-b9d0-b8bb0a358145",
+    "volatile.uuid.generation": "bf4ae8ad-630a-57b0-b9d0-b8bb0a358145"
+   },
+   "expanded_devices": {
+    "creds": {
+     "path": "/opt/agent-creds",
+     "pool": "agents",
+     "source": "agent-creds",
+     "type": "disk"
+    },
+    "eth0": {
+     "network": "agentbr0",
+     "type": "nic"
+    },
+    "root": {
+     "path": "/",
+     "pool": "agents",
+     "size": "60GiB",
+     "type": "disk"
+    },
+    "shared": {
+     "path": "/opt/agent-shared",
+     "pool": "agents",
+     "source": "agent-shared",
+     "type": "disk"
+    }
+   },
+   "name": "ws-lantern",
+   "status": "Running",
+   "status_code": 103,
+   "last_used_at": "2026-10-23T04:03:13.744621176Z",
+   "location": "none",
+   "type": "container",
+   "project": "default"
+  },
+  {
+   "architecture": "x86_64",
+   "config": {
+    "boot.autostart": "true",
+    "image.architecture": "amd64",
+    "image.description": "Agent workspace base (Debian 13 + claude/codex/gh) 20260826",
+    "image.name": "debian-trixie-amd64-default-20260826_05:24",
+    "image.os": "debian",
+    "image.release": "trixie",
+    "image.serial": "20260826_05:24",
+    "image.variant": "default",
+    "raw.lxc": "lxc.cgroup.dir.container = agent-workspaces/ws-quill\nlxc.cgroup.dir.monitor = agent-workspaces.monitor/ws-quill",
+    "user.agent": "claude",
+    "user.created": "2026-09-24T02:32:55+02:00",
+    "user.repo": "example-org/Quill",
+    "user.title": "quill",
+    "volatile.base_image": "6df00f834d91503c453890fafd8337651f5e9201be50fdf69b209e65a9af23dc",
+    "volatile.cloud-init.instance-id": "fae371c2-7011-5a55-9084-f9717d612b58",
+    "volatile.eth0.host_name": "veth00001005",
+    "volatile.eth0.hwaddr": "10:66:6a:00:00:05",
+    "volatile.eth0.name": "eth0",
+    "volatile.idmap.base": "0",
+    "volatile.idmap.current": "[{\"Isuid\":true,\"Isgid\":false,\"Hostid\":1000000,\"Nsid\":0,\"Maprange\":1000000000},{\"Isuid\":false,\"Isgid\":true,\"Hostid\":1000000,\"Nsid\":0,\"Maprange\":1000000000}]",
+    "volatile.idmap.next": "[{\"Isuid\":true,\"Isgid\":false,\"Hostid\":1000000,\"Nsid\":0,\"Maprange\":1000000000},{\"Isuid\":false,\"Isgid\":true,\"Hostid\":1000000,\"Nsid\":0,\"Maprange\":1000000000}]",
+    "volatile.last_state.idmap": "[]",
+    "volatile.last_state.power": "RUNNING",
+    "volatile.uuid": "c928d029-f5eb-5874-b2fe-e822273c2764",
+    "volatile.uuid.generation": "c928d029-f5eb-5874-b2fe-e822273c2764"
+   },
+   "devices": {
+    "root": {
+     "path": "/",
+     "pool": "agents",
+     "size": "25GiB",
+     "type": "disk"
+    }
+   },
+   "ephemeral": false,
+   "profiles": [
+    "agent-ws"
+   ],
+   "stateful": false,
+   "description": "",
+   "created_at": "2026-09-24T00:32:54.61335979Z",
+   "expanded_config": {
+    "boot.autostart": "true",
+    "image.architecture": "amd64",
+    "image.description": "Agent workspace base (Debian 13 + claude/codex/gh) 20260826",
+    "image.name": "debian-trixie-amd64-default-20260826_05:24",
+    "image.os": "debian",
+    "image.release": "trixie",
+    "image.serial": "20260826_05:24",
+    "image.variant": "default",
+    "limits.cpu": "4-7,12-15",
+    "limits.memory": "3072MiB",
+    "limits.memory.enforce": "soft",
+    "raw.lxc": "lxc.cgroup.dir.container = agent-workspaces/ws-quill\nlxc.cgroup.dir.monitor = agent-workspaces.monitor/ws-quill",
+    "security.nesting": "false",
+    "security.privileged": "false",
+    "user.agent": "claude",
+    "user.created": "2026-09-24T02:32:55+02:00",
+    "user.repo": "example-org/Quill",
+    "user.title": "quill",
+    "volatile.base_image": "6df00f834d91503c453890fafd8337651f5e9201be50fdf69b209e65a9af23dc",
+    "volatile.cloud-init.instance-id": "fae371c2-7011-5a55-9084-f9717d612b58",
+    "volatile.eth0.host_name": "veth00001005",
+    "volatile.eth0.hwaddr": "10:66:6a:00:00:05",
+    "volatile.eth0.name": "eth0",
+    "volatile.idmap.base": "0",
+    "volatile.idmap.current": "[{\"Isuid\":true,\"Isgid\":false,\"Hostid\":1000000,\"Nsid\":0,\"Maprange\":1000000000},{\"Isuid\":false,\"Isgid\":true,\"Hostid\":1000000,\"Nsid\":0,\"Maprange\":1000000000}]",
+    "volatile.idmap.next": "[{\"Isuid\":true,\"Isgid\":false,\"Hostid\":1000000,\"Nsid\":0,\"Maprange\":1000000000},{\"Isuid\":false,\"Isgid\":true,\"Hostid\":1000000,\"Nsid\":0,\"Maprange\":1000000000}]",
+    "volatile.last_state.idmap": "[]",
+    "volatile.last_state.power": "RUNNING",
+    "volatile.uuid": "c928d029-f5eb-5874-b2fe-e822273c2764",
+    "volatile.uuid.generation": "c928d029-f5eb-5874-b2fe-e822273c2764"
+   },
+   "expanded_devices": {
+    "creds": {
+     "path": "/opt/agent-creds",
+     "pool": "agents",
+     "source": "agent-creds",
+     "type": "disk"
+    },
+    "eth0": {
+     "network": "agentbr0",
+     "type": "nic"
+    },
+    "root": {
+     "path": "/",
+     "pool": "agents",
+     "size": "25GiB",
+     "type": "disk"
+    },
+    "shared": {
+     "path": "/opt/agent-shared",
+     "pool": "agents",
+     "source": "agent-shared",
+     "type": "disk"
+    }
+   },
+   "name": "ws-quill",
+   "status": "Running",
+   "status_code": 103,
+   "last_used_at": "2026-10-23T04:03:13.914274619Z",
+   "location": "none",
+   "type": "container",
+   "project": "default"
+  },
+  {
+   "architecture": "x86_64",
+   "config": {
+    "boot.autostart": "false",
+    "image.architecture": "amd64",
+    "image.description": "Agent workspace base (Debian 13 + claude/codex/gh) 20260826",
+    "image.name": "debian-trixie-amd64-default-20260826_05:24",
+    "image.os": "debian",
+    "image.release": "trixie",
+    "image.serial": "20260826_05:24",
+    "image.variant": "default",
+    "raw.lxc": "lxc.cgroup.dir.container = agent-workspaces/ws-tidepool\nlxc.cgroup.dir.monitor = agent-workspaces.monitor/ws-tidepool",
+    "user.agent": "claude",
+    "user.created": "2026-08-26T20:42:09+02:00",
+    "user.repo": "example-org/tidepool",
+    "user.title": "TIDEPOOL",
+    "volatile.base_image": "6df00f834d91503c453890fafd8337651f5e9201be50fdf69b209e65a9af23dc",
+    "volatile.cloud-init.instance-id": "a517f802-21e3-5da4-b4dd-a9965495d04e",
+    "volatile.eth0.hwaddr": "10:66:6a:00:00:06",
+    "volatile.eth0.name": "eth0",
+    "volatile.idmap.base": "0",
+    "volatile.idmap.current": "[{\"Isuid\":true,\"Isgid\":false,\"Hostid\":1000000,\"Nsid\":0,\"Maprange\":1000000000},{\"Isuid\":false,\"Isgid\":true,\"Hostid\":1000000,\"Nsid\":0,\"Maprange\":1000000000}]",
+    "volatile.idmap.next": "[{\"Isuid\":true,\"Isgid\":false,\"Hostid\":1000000,\"Nsid\":0,\"Maprange\":1000000000},{\"Isuid\":false,\"Isgid\":true,\"Hostid\":1000000,\"Nsid\":0,\"Maprange\":1000000000}]",
+    "volatile.last_state.idmap": "[]",
+    "volatile.last_state.power": "STOPPED",
+    "volatile.uuid": "42d1f6c5-a850-5b1e-94a8-c2b0098bff82",
+    "volatile.uuid.generation": "42d1f6c5-a850-5b1e-94a8-c2b0098bff82"
+   },
+   "devices": {},
+   "ephemeral": false,
+   "profiles": [
+    "agent-ws"
+   ],
+   "stateful": false,
+   "description": "",
+   "created_at": "2026-08-26T18:42:07.849310135Z",
+   "expanded_config": {
+    "boot.autostart": "false",
+    "image.architecture": "amd64",
+    "image.description": "Agent workspace base (Debian 13 + claude/codex/gh) 20260826",
+    "image.name": "debian-trixie-amd64-default-20260826_05:24",
+    "image.os": "debian",
+    "image.release": "trixie",
+    "image.serial": "20260826_05:24",
+    "image.variant": "default",
+    "limits.cpu": "4-7,12-15",
+    "limits.memory": "3072MiB",
+    "limits.memory.enforce": "soft",
+    "raw.lxc": "lxc.cgroup.dir.container = agent-workspaces/ws-tidepool\nlxc.cgroup.dir.monitor = agent-workspaces.monitor/ws-tidepool",
+    "security.nesting": "false",
+    "security.privileged": "false",
+    "user.agent": "claude",
+    "user.created": "2026-08-26T20:42:09+02:00",
+    "user.repo": "example-org/tidepool",
+    "user.title": "TIDEPOOL",
+    "volatile.base_image": "6df00f834d91503c453890fafd8337651f5e9201be50fdf69b209e65a9af23dc",
+    "volatile.cloud-init.instance-id": "a517f802-21e3-5da4-b4dd-a9965495d04e",
+    "volatile.eth0.hwaddr": "10:66:6a:00:00:06",
+    "volatile.eth0.name": "eth0",
+    "volatile.idmap.base": "0",
+    "volatile.idmap.current": "[{\"Isuid\":true,\"Isgid\":false,\"Hostid\":1000000,\"Nsid\":0,\"Maprange\":1000000000},{\"Isuid\":false,\"Isgid\":true,\"Hostid\":1000000,\"Nsid\":0,\"Maprange\":1000000000}]",
+    "volatile.idmap.next": "[{\"Isuid\":true,\"Isgid\":false,\"Hostid\":1000000,\"Nsid\":0,\"Maprange\":1000000000},{\"Isuid\":false,\"Isgid\":true,\"Hostid\":1000000,\"Nsid\":0,\"Maprange\":1000000000}]",
+    "volatile.last_state.idmap": "[]",
+    "volatile.last_state.power": "STOPPED",
+    "volatile.uuid": "42d1f6c5-a850-5b1e-94a8-c2b0098bff82",
+    "volatile.uuid.generation": "42d1f6c5-a850-5b1e-94a8-c2b0098bff82"
+   },
+   "expanded_devices": {
+    "creds": {
+     "path": "/opt/agent-creds",
+     "pool": "agents",
+     "source": "agent-creds",
+     "type": "disk"
+    },
+    "eth0": {
+     "network": "agentbr0",
+     "type": "nic"
+    },
+    "root": {
+     "path": "/",
+     "pool": "agents",
+     "size": "15GiB",
+     "type": "disk"
+    },
+    "shared": {
+     "path": "/opt/agent-shared",
+     "pool": "agents",
+     "source": "agent-shared",
+     "type": "disk"
+    }
+   },
+   "name": "ws-tidepool",
+   "status": "Stopped",
+   "status_code": 102,
+   "last_used_at": "2026-09-26T01:26:42.381231265Z",
+   "location": "none",
+   "type": "container",
+   "project": "default"
+  }
+ ]
+}

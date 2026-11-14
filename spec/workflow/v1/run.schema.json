@@ -1,0 +1,118 @@
+{
+  "$id": "https://schemas.example.com/maxhq/workflow/v1/run.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "RunFile",
+  "description": "A run file in the reference shape. Any YAML or JSON file the\ndescriptor's `runs.glob` matches, replaced whole on each change.",
+  "type": "object",
+  "properties": {
+    "nodes": {
+      "description": "Its nodes, in the order they're drawn.",
+      "type": "array",
+      "default": [],
+      "items": {
+        "$ref": "#/$defs/NodeEntry"
+      }
+    },
+    "run": {
+      "description": "The run itself.",
+      "$ref": "#/$defs/RunInfo"
+    }
+  },
+  "required": [
+    "run"
+  ],
+  "$defs": {
+    "NodeEntry": {
+      "description": "One node of a run.",
+      "type": "object",
+      "properties": {
+        "agent": {
+          "description": "The agent working on it, by id.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "attempts": {
+          "description": "How many attempts it took.",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint64",
+          "minimum": 0
+        },
+        "group": {
+          "description": "The group it sits in.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "id": {
+          "description": "Its id, unique in the run.",
+          "type": "string"
+        },
+        "label": {
+          "description": "What it's called.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "needs": {
+          "description": "The ids of the nodes it needs.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "status": {
+          "description": "Its status, in the workflow's words.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "additionalProperties": true,
+      "required": [
+        "id"
+      ]
+    },
+    "RunInfo": {
+      "description": "What a run says about itself.",
+      "type": "object",
+      "properties": {
+        "agent": {
+          "description": "The agent leading it: the `MAXHQ_AGENT` it was started with.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "id": {
+          "description": "The run's id, unique in the project.",
+          "type": "string"
+        },
+        "label": {
+          "description": "What it's called.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "status": {
+          "description": "The run's status, in the workflow's words.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "id"
+      ]
+    }
+  }
+}

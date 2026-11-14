@@ -1,0 +1,44 @@
+[package]
+name = "maxhq-vm"
+description = "Runs the macOS test VM for maxd, and what maxd says to it"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+# Virtualization.framework needs the entitlement in maxd-vm.entitlements, so
+# a build that ships it signs it ad hoc, beside maxd:
+#   codesign --force --sign - --entitlements crates/vm/maxd-vm.entitlements \
+#     target/release/maxd-vm
+[[bin]]
+name = "maxd-vm"
+path = "src/main.rs"
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+
+# Virtualization.framework, AppKit for the setup window, and the main queue
+# every VM call runs on. Only macOS builds them.
+[target.'cfg(target_os = "macos")'.dependencies]
+block2.workspace = true
+dispatch2.workspace = true
+libc.workspace = true
+objc2.workspace = true
+objc2-app-kit = { workspace = true, features = [
+    "std",
+    "NSApplication",
+    "NSControl",
+    "NSGraphics",
+    "NSResponder",
+    "NSRunningApplication",
+    "NSText",
+    "NSTextField",
+    "NSView",
+    "NSWindow",
+] }
+objc2-foundation = { workspace = true, features = ["std", "NSData", "NSError", "NSGeometry", "NSProgress", "NSString", "NSURL", "NSArray"] }
+objc2-virtualization.workspace = true
+
+[lints]
+workspace = true

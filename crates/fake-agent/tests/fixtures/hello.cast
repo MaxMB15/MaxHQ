@@ -1,0 +1,9 @@
+{"version": 3, "term": {"cols": 80, "rows": 24, "type": "xterm-256color"}, "idle_time_limit": 1.0, "title": "Synthetic test recording"}
+# A short made-up session, so the replay test needs no real trace.
+[0.05, "o", "\u001b[1mfake-agent\u001b[0m ready\r\n"]
+[0.02, "i", "fix the build\r"]
+[0.30, "o", "Reading Cargo.toml\r\n"]
+[5.00, "o", "\u001b[32mDone.\u001b[0m\r\n"]
+[0.01, "r", "100x30"]
+[0.01, "m", "end"]
+[0.01, "x", "0"]

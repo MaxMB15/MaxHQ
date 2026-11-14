@@ -1,0 +1,19 @@
+{
+	"job": {
+		"key": "job-7",
+		"title": "Add search to the list page",
+		"phase": "working",
+		"lead": null,
+		"effort": "quick",
+		"port": 4173
+	},
+	"steps": [
+		{ "name": "research", "state": "finished", "after": [], "stage": "prep", "tries": 1 },
+		{ "name": "design", "state": "finished", "after": ["research"], "stage": "prep", "tries": 1 },
+		{ "name": "approve", "state": "asking", "after": ["design"], "stage": "prep", "tries": 1 },
+		{ "name": "api", "state": "running", "after": ["design"], "stage": "make", "tries": 1, "chunk": "2/5" },
+		{ "name": "code", "state": "broken", "after": ["design"], "stage": "make", "tries": 3 },
+		{ "name": "docs", "state": "pending", "after": ["research"], "stage": "make" },
+		{ "name": "verify", "state": "pending", "after": ["api", "code", "docs"], "stage": "check" }
+	]
+}

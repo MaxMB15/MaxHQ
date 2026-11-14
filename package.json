@@ -1,0 +1,68 @@
+{
+	"name": "maxhq",
+	"private": true,
+	"license": "MIT",
+	"description": "Desktop manager for AI coding agents across devices, built with Tauri",
+	"packageManager": "pnpm@12.8.1+sha512.f64ba907507f5ceafe06c8d38e6052d0179444580ec1279ddd5bfc11cb48aa8a2644b66598e07e761da84872a9fc57d5f902b87fa49d024198d558612aabbe45",
+	"scripts": {
+		"prepare": "sh scripts/install-hooks.sh",
+		"format": "prettier --write \"{apps,packages}/**/*.{ts,tsx,js,jsx,json,css,md,html}\" \"scripts/**/*.{mjs,md}\" \".github/**/*.{yml,yaml}\" \"*.{json,mjs,yaml,md}\"",
+		"format:check": "prettier --check \"{apps,packages}/**/*.{ts,tsx,js,jsx,json,css,md,html}\" \"scripts/**/*.{mjs,md}\" \".github/**/*.{yml,yaml}\" \"*.{json,mjs,yaml,md}\"",
+		"lint": "pnpm check:translations && eslint apps/desktop apps/mobile packages scripts",
+		"lint:fix": "eslint apps/desktop apps/mobile packages scripts --fix",
+		"typecheck": "pnpm --filter ./apps/desktop --filter ./apps/mobile --filter ./packages/shared typecheck",
+		"dev": "pnpm --filter ./apps/desktop tauri:dev",
+		"dev:web": "pnpm --filter ./apps/desktop dev",
+		"mobile": "pnpm --filter ./apps/mobile",
+		"mobile:core": "pnpm --filter ./apps/mobile mobile:core",
+		"mobile:dev": "pnpm --filter ./apps/mobile mobile:dev",
+		"mobile:install": "pnpm --filter ./apps/mobile mobile:install",
+		"mobile:testflight": "pnpm --filter ./apps/mobile mobile:testflight",
+		"build": "pnpm --filter ./apps/desktop tauri build",
+		"tauri": "pnpm --filter ./apps/desktop tauri",
+		"bindings": "MAXHQ_REGENERATE=1 cargo test -p maxhq-protocol -p maxhq-desktop generated_",
+		"test": "cargo test --workspace && pnpm --filter ./apps/desktop test && pnpm --filter ./apps/mobile test && pnpm --filter ./packages/shared test && node --test \"scripts/**/*.test.mjs\"",
+		"test:rust": "cargo test --workspace",
+		"test:desktop": "pnpm --filter ./apps/desktop test",
+		"test:mobile": "pnpm --filter ./apps/mobile test",
+		"test:shared": "pnpm --filter ./packages/shared test",
+		"test:scripts": "node --test \"scripts/**/*.test.mjs\"",
+		"bench": "cargo bench --workspace --bench '*' --",
+		"check:ai-files": "sh scripts/check-ai-files.sh",
+		"check:license-headers": "sh scripts/check-license-headers.sh",
+		"check:licenses": "cargo deny check licenses && node scripts/check-licenses.mjs",
+		"check:translations": "node scripts/check-translations.mjs"
+	},
+	"lint-staged": {
+		"{apps,packages}/**/*.{ts,tsx,js,jsx,json,css,md,html}": [
+			"prettier --write"
+		],
+		"scripts/**/*.{mjs,md}": [
+			"prettier --write"
+		],
+		".github/**/*.{yml,yaml}": [
+			"prettier --write"
+		],
+		"./*.{json,mjs,yaml,md}": [
+			"prettier --write"
+		],
+		"{apps,packages,scripts}/**/*.{ts,tsx,mjs}": [
+			"eslint --fix"
+		],
+		"*.rs": [
+			"rustfmt --edition 2024"
+		]
+	},
+	"devDependencies": {
+		"@eslint/js": "^10.0.1",
+		"eslint": "^10.11.0",
+		"eslint-config-prettier": "^10.1.8",
+		"eslint-plugin-react": "^7.37.5",
+		"eslint-plugin-react-hooks": "^7.1.1",
+		"globals": "^17.12.0",
+		"lint-staged": "^17.6.0",
+		"prettier": "^3.9.9",
+		"typescript": "catalog:",
+		"typescript-eslint": "^8.71.1"
+	}
+}

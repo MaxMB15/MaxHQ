@@ -1,0 +1,21 @@
+{
+  "about": "Push encryption test vectors with made-up keys. maxd seals with these and checks the result; the phone's extension opens them.",
+  "steps": [
+    "shared = X25519(fresh_private, phone_public)",
+    "key = HKDF-SHA256(ikm: shared, salt: fresh_public || phone_public, info, 32 bytes)",
+    "box = ChaCha20-Poly1305(key, nonce, plaintext, no associated data)",
+    "sealed = base64(fresh_public || nonce || ciphertext || tag)"
+  ],
+  "info": "maxhq push 1",
+  "vectors": [
+    {
+      "phone_private": "101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f",
+      "phone_public": "d89e3bad79437dbed9f843418304f460ff05c7fe81fe4a9577a804cb9367ff66",
+      "fresh_private": "808182838485868788898a8b8c8d8e8f909192939495969798999a9b9c9d9e9f",
+      "fresh_public": "493e82fc74464a59268817623d2053c5eb8e2cc4a988b4fee179ec6b010d531d",
+      "nonce": "a0a1a2a3a4a5a6a7a8a9aaab",
+      "plaintext": "{\"title\":\"Fix the merge\",\"subtitle\":\"maxhq on devbox\",\"body\":\"Run cargo test --workspace?\",\"agent\":\"00000000-0000-4000-8000-000000000001\",\"device\":\"00000000-0000-4000-8000-000000000002\",\"attention\":\"00000000-0000-4000-8000-000000000003\",\"options\":[{\"id\":\"allow\",\"label\":\"Allow\"},{\"id\":\"deny\",\"label\":\"Deny\"}]}",
+      "sealed": "ST6C/HRGSlkmiBdiPSBTxeuOLMSpiLT+4XnsawENUx2goaKjpKWmp6ipqquJQW2dTRXZ6bJSq6YMCBdi73TEx4coB7Dyazz/KDSwekwCdPVZivOOAm8We3DnM292o/7u16++4SxQSO2ZToabyMc/fDTfM2gvZ/IBgkGMYB+O1SbASVuu3qceueSP75kQgnKqRdhChI1zBOY/Oxb5ofF4/6aPCKCKw7Pj/QzTMrUMOSh8KRVzRP1qOqBkjrI51xMMZN06wIx4xmmUw86/LbTVGQAeB4F775/Ye4X33cF6TiL3gRstV5EahM31uQwzcoA9phrerERcxL0Tg4ZJo5pWHOkCJRoHSciIQMUIZaQ1X5RUvR/hVhZ1sBijb3JZ6wC9SZx32a6jSy3kW6d6ndmC0bAhZV0HnZ6GZthDHBYlizOYkQJ7wn6b7vxDTo3m8YHktWPdYcBRzsdV1dPDTLPUo2XyHWSMD/tbJvLsKCahHYRL"
+    }
+  ]
+}

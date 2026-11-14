@@ -1,0 +1,4 @@
+{"method":"thread/goal/cleared","params":{"threadId":"01a17276-be5d-7bb1-8561-9ac24632a961"},"emittedAtMs":1792921826834}
+{"method":"thread/status/changed","params":{"threadId":"01a17276-be5d-7bb1-8561-9ac24632a961","status":{"type":"notLoaded"}},"emittedAtMs":1792921826841}
+{"id":"$thread/archive","result":{}}
+{"method":"thread/archived","params":{"threadId":"01a17276-be5d-7bb1-8561-9ac24632a961"},"emittedAtMs":1792921826852}

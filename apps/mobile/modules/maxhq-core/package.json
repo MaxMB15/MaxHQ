@@ -1,0 +1,28 @@
+{
+	"name": "maxhq-core",
+	"version": "0.0.0",
+	"description": "The phone core's React Native bridge",
+	"private": true,
+	"license": "MIT",
+	"author": "Max Boksem",
+	"homepage": "https://example.com/maxhq",
+	"repository": {
+		"type": "git",
+		"url": "https://example.com/maxhq.git"
+	},
+	"main": "src/index.tsx",
+	"codegenConfig": {
+		"name": "RNMaxhqCoreSpec",
+		"type": "modules",
+		"jsSrcsDir": "src",
+		"ios": {
+			"modulesProvider": {
+				"MaxhqCore": "MaxhqCore"
+			}
+		}
+	},
+	"dependencies": {
+		"@ubjs/core": "npm:uniffi-bindgen-react-native@0.31.0-6",
+		"uniffi-bindgen-react-native": "0.31.0-6"
+	}
+}

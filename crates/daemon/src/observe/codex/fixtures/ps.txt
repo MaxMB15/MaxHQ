@@ -1,0 +1,12 @@
+    1     0 /sbin/launchd
+79594     1 /Applications/ChatGPT.app/Contents/MacOS/ChatGPT
+79631 79594 /Applications/ChatGPT.app/Contents/Frameworks/Codex Framework.framework/Versions/155.0.8059.40/Helpers/Codex (Service).app/Contents/MacOS/Codex (Service)
+79699 79594 /Applications/ChatGPT.app/Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS/codex
+41000     1 /Users/dev/.local/bin/maxd
+41010 41000 /Users/dev/.local/bin/codex
+41011 41010 /Users/dev/.local/bin/codex
+50050 50000 -zsh
+50100 50050 /opt/homebrew/bin/codex
+52000 50050 node
+52001 52000 /Users/dev/.npm-global/lib/node_modules/@openai/codex/vendor/aarch64-apple-darwin/codex/codex
+not a process line

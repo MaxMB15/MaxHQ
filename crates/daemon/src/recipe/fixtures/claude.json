@@ -1,0 +1,17 @@
+{
+  "numStartups": 4,
+  "installMethod": "native",
+  "autoUpdates": true,
+  "theme": "dark",
+  "hasCompletedOnboarding": false,
+  "tipsHistory": {
+    "new-user-warmup": 1
+  },
+  "projects": {
+    "/home/agent/work/demo": {
+      "allowedTools": [],
+      "hasTrustDialogAccepted": false,
+      "lastCost": 0.25
+    }
+  }
+}

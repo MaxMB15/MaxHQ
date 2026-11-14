@@ -1,0 +1,27 @@
+[package]
+name = "maxhq-workflow"
+description = "The maxhq.workflow standard: descriptors, run files, event logs and what a run looks like from them"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+globset.workspace = true
+jiff.workspace = true
+maxhq-protocol.workspace = true
+regex.workspace = true
+schemars.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+serde_ignored.workspace = true
+serde_json_path.workspace = true
+serde_norway.workspace = true
+sha2.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+jsonschema.workspace = true
+
+[lints]
+workspace = true

@@ -1,0 +1,2 @@
+{"jsonrpc":"2.0","id":"$session/prompt","result":{}}
+{"jsonrpc":"2.0","id":8,"method":"session/request_permission","params":{"sessionId":"00000000-0000-4000-8000-000000000001","title":"make clean","subject":{"type":"command","command":"make clean"},"options":[{"optionId":"yes","name":"Allow","kind":"allow_once"},{"optionId":"no","name":"Reject","kind":"reject_once"}]}}

@@ -1,0 +1,31 @@
+/* SPDX-License-Identifier: MIT */
+/* Copyright (c) 2026 Max Boksem */
+
+/* A quoted passage a jump went to, lit in the quote pills' hue for a
+   moment. A row whose passage can't be lit on its own fades instead. */
+
+::highlight(quote-jump) {
+	background-color: var(--pill-quote-border);
+	color: inherit;
+}
+
+@keyframes quote-flash {
+	from {
+		background-color: var(--pill-quote-border);
+	}
+	to {
+		background-color: transparent;
+	}
+}
+
+[data-quote-flash] {
+	border-radius: 6px;
+	animation: quote-flash 1.6s ease-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+	[data-quote-flash] {
+		animation: none;
+		background-color: var(--pill-quote-bg);
+	}
+}

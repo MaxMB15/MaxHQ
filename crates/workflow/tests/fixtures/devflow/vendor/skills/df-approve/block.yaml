@@ -1,0 +1,1 @@
+{ block: df-approve, effort_key: design_approval, requires: [design.md], emits: ["approval.yaml#decision"], writes_code: false }

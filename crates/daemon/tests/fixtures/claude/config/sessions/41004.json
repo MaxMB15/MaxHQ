@@ -1,0 +1,13 @@
+{
+  "pid": 41004,
+  "sessionId": "0d1e2f3a-4b5c-4d6e-8f70-8192a3b4c5d6",
+  "cwd": "/work/maxhq",
+  "startedAt": 1792888800000,
+  "procStart": "Sun Oct 25 00:40:00 2026",
+  "version": "2.1.310",
+  "kind": "interactive",
+  "entrypoint": "cli",
+  "status": "shell",
+  "updatedAt": 1792889100000,
+  "statusUpdatedAt": 1792889100000
+}

@@ -1,0 +1,20 @@
+# Codex config for one MaxHQ account.
+model = "gpt-5.5-codex" # the default model
+approval_policy = "on-request"
+
+# Asks maxd for each access token.
+[model_providers.maxhq]
+name = "MaxHQ"
+base_url = "https://chatgpt.com/backend-api/codex"
+
+[model_providers.maxhq.auth]
+command = "/usr/local/bin/maxd"
+args = ["guest", "token", "codex"]
+
+# Trusted by hand before the recipe ran.
+[projects."/home/agent/work/demo"]
+trust_level = "trusted"
+
+[tui]
+# Keep the bell off.
+notifications = false

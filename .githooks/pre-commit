@@ -1,0 +1,95 @@
+#!/bin/sh
+# Runs before each commit once pnpm install has pointed core.hooksPath here.
+# Its steps, in order: refuse AI tool files, refuse the old proprietary
+# license, refuse private names in the staged lines, format and lint the
+# staged files, type-check and run clippy, then run the tests.
+
+top=$(git rev-parse --show-toplevel)
+
+sh "$top/scripts/check-ai-files.sh" || exit 1
+sh "$top/scripts/check-license-headers.sh" || exit 1
+
+# Real host, network and project names stay out of the repo. Their patterns,
+# one extended regex per line with # comments, live in docs/ at the top of
+# the main checkout. docs/ is untracked, so a clone without the file skips
+# this step. The common git dir finds it from linked worktrees too. Only the
+# lines a commit adds are checked, not the files around them.
+patterns="$(git rev-parse --path-format=absolute --git-common-dir)/../docs/private-patterns.txt"
+if [ -f "$patterns" ]; then
+	list=$(mktemp) || exit 1
+	trap 'rm -f "$list"' EXIT
+	# grep -f would match every line on a blank pattern, and the comments
+	# aren't patterns.
+	grep -vE '^[[:space:]]*(#|$)' "$patterns" >"$list"
+	# Each file's added lines, without the headers git prints before the
+	# first hunk, so an added line that starts with ++ is still checked.
+	hits=$(git diff --cached --name-only --diff-filter=d | while IFS= read -r file; do
+		if git diff --cached -U0 --no-color -- "$file" |
+			awk '/^diff --git / { head = 1; next }
+				head && /^@@/ { head = 0; next }
+				head { next }
+				/^\+/ { print substr($0, 2) }' |
+			grep -qE -f "$list"; then
+			printf '  %s\n' "$file"
+		fi
+	done)
+	rm -f "$list"
+	if [ -n "$hits" ]; then
+		echo "pre-commit: these staged files add a line that matches docs/private-patterns.txt:" >&2
+		printf '%s\n' "$hits" >&2
+		echo "Use the placeholder for each real value, then stage the files again." >&2
+		exit 1
+	fi
+fi
+
+# lint-staged runs with --no-stash so it never adds to or drops from the git
+# stash, which other worktrees share. It still hides the unstaged parts of
+# partially staged files in a patch while the tasks run, and puts them back
+# afterwards, even when a task fails. A git error or a killed run can leave
+# the patch behind without saying where, so this hook looks for one before
+# and after the run.
+dir=$(git rev-parse --path-format=absolute --git-path lint-staged)
+
+leftover() {
+	find "$dir" -name unstaged.patch 2>/dev/null || true
+}
+
+# Single-quotes a path for the shell, apostrophes included.
+quote() {
+	printf "'%s'" "$(printf '%s' "$1" | sed "s/'/'\\\\''/g")"
+}
+
+# git apply skips files outside the folder it runs in, so the command it
+# prints runs from the top of the worktree wherever it's pasted.
+explain() {
+	echo "Put them back with" >&2
+	printf '%s\n' "$1" | while IFS= read -r patch; do
+		printf '  git -C %s apply -v --whitespace=nowarn --recount --unidiff-zero %s\n' \
+			"$(quote "$top")" "$(quote "$patch")" >&2
+	done
+	echo "If git status shows a conflict, the patch is already in that file, so" >&2
+	echo "resolve the conflict instead. Check git diff, then delete the patch." >&2
+}
+
+left=$(leftover)
+if [ -n "$left" ]; then
+	echo "pre-commit: an earlier run stopped before restoring unstaged changes." >&2
+	explain "$left"
+	exit 1
+fi
+
+if ! pnpm exec lint-staged --no-stash; then
+	left=$(leftover)
+	if [ -n "$left" ]; then
+		echo "pre-commit: unstaged changes weren't restored." >&2
+		explain "$left"
+	fi
+	exit 1
+fi
+
+# The type checker and clippy look at the whole tree, like CI does, so a
+# commit that passes here passes there too.
+pnpm typecheck || exit 1
+cargo clippy --workspace --all-targets --locked -- -D warnings || exit 1
+
+pnpm test

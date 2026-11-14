@@ -1,0 +1,5 @@
+decision: approved
+provenance: human
+rounds:
+  - { round: 1, response_type: approve, summary: looks right }
+timestamp: 2026-11-01T09:20:00Z

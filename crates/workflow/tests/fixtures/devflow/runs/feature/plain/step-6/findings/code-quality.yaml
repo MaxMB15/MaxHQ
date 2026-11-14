@@ -1,0 +1,3 @@
+findings:
+  - { id: cq-1, severity: major, file: src/app.ts, note: long function, status: open }
+  - { id: cq-2, severity: minor, file: src/app.ts, note: naming, status: open }

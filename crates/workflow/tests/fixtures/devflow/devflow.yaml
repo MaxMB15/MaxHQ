@@ -1,0 +1,161 @@
+# yaml-language-server: $schema=https://schemas.example.com/maxhq/workflow/v1/descriptor.schema.json
+# How MaxHQ draws a devflow run. Format: maxhq.workflow/1.0.
+# Lives in the devflow repo at .maxhq/workflows/devflow.yaml, so a project's
+# vendored copy is found at .devflow-vendor/.maxhq/workflows/devflow.yaml.
+# Paths in `in:` are relative to the run folder unless they start with
+# {project} (the project root) or {workflow} (the folder that holds .maxhq/).
+format: maxhq.workflow/1.0
+id: devflow
+name: devflow
+revision: 1
+
+runs:
+  glob: "{project}/.devflow/state/*/task.yaml"
+  id: { path: $.task.id }
+  label: { path: $.task.request }
+  agent: { path: $.task.agent }
+  facts:
+    workflow: { path: $.task.workflow, default: df }
+    preset: { path: $.task.classification }
+    type: { path: $.task.type }
+    routing: { path: $.task.routing_mode, default: host }
+    ceiling: { path: $.model_router.attempt_ceiling, in: "{project}/.devflow/config.yaml", default: 12 }
+    retries: { sum: "$.graph[*].attempts", each: { add: -1, min: 0 } }
+    reclassed: { match: '^- \S+ reclass: ', in: journal.md, pick: last }
+  events:
+    - { jsonl: events.jsonl }
+    - lines: journal.md
+      match: '^- (?<t>\S+) (?<node>(?:df|cr)-[\w-]+): (?<status>pending|in_progress|completed|skipped|failed)\.$'
+  env:
+    # Set on agents MaxHQ starts in a project where this descriptor applies.
+    # Only names that start with DEVFLOW_ are allowed for id `devflow`.
+    DEVFLOW_DIAG: "1"
+
+nodes:
+  list: $.graph
+  id: block
+  needs: depends_on
+  group: parallel_group
+  status: status
+  attempts: attempts
+  fields: [tier, chunk, effort, declined]
+  status_map:
+    pending: queued
+    in_progress: busy
+    completed: done
+    skipped: skipped
+    failed: failed
+  info:
+    df-interview: { label: Interview, host: true }
+    df-research: { label: Research }
+    df-design: { label: Design }
+    df-mockup: { label: Mockup, lane: side }
+    df-approve: { label: Approve, host: true }
+    df-impl-docs: { label: Implementation plan }
+    df-implement: { label: Implement, vars: { plan: impl-plan.md } }
+    df-code-quality: { label: Code quality, vars: { findings: code-quality } }
+    df-testing: { label: Testing, vars: { findings: testing } }
+    df-security: { label: Security, vars: { findings: security } }
+    df-edge-cases: { label: Edge cases, vars: { findings: edge-cases } }
+    df-chaos: { label: Chaos, vars: { findings: chaos } }
+    df-perf: { label: Performance, vars: { findings: perf } }
+    df-integrate: { label: Integrate fixes }
+    df-validate: { label: Validate, vars: { findings: validation } }
+    df-docs: { label: Docs }
+    df-source-control: { label: Source control }
+    df-cicd-watch: { label: CI watch, vars: { findings: cicd } }
+    cr-design: { label: Design by consensus, vars: { phase: design } }
+    cr-code: { label: Code by consensus, vars: { phase: code } }
+
+groups:
+  analysis: { label: Analysis gates, collapsed: true }
+
+# Display rules: first match wins, applied after status_map and after
+# MaxHQ's own ready, stale and quiet rules.
+rules:
+  - { when: { status: skipped, field: { declined: true } }, note: declined }
+  - { when: { status: skipped }, note: "effort off under {run.preset}" }
+  - when: { status: [queued, ready], field: { effort: "off" } }
+    is: will_skip
+    # Firm once research is done and the orchestrator has judged the preset,
+    # or at once in a run with no research step.
+    provisional:
+      any:
+        - { any_node: { id: df-research, status: [queued, ready, busy, stale] } }
+        - all:
+            - { any_node: { id: df-research, not: { status: omitted } } }
+            - { fact: reclassed, exists: false }
+  # devflow never refuses a block's first dispatch, only a re-run once the
+  # retries spent reach the ceiling.
+  - when: { status: [queued, ready, failed], field: { attempts: { gte: 1 } }, fact: { retries: { gte: { fact: ceiling } } } }
+    is: blocked
+    note: retry ceiling spent
+  - when: { node: df-approve, status: busy, any_node: { id: [df-interview, df-design, df-mockup], status: busy } }
+    is: waiting_child
+  - { when: { node: [df-interview, df-approve], status: busy, orchestrator: waiting }, is: waiting_human }
+  - { when: { status: failed, orchestrator: [idle, gone] }, is: waiting_human, note: "failed, run stopped" }
+  # cr phases: the session file says when a round needs you.
+  - when: { node: [cr-design, cr-code], status: busy, value: awaiting_human }
+    value: { path: $.state, in: "cr/{vars.phase}/session.yaml" }
+    is: waiting_human
+    note: escalation
+  - when: { node: [cr-design, cr-code], status: busy, value: limit_reached }
+    value: { path: $.state, in: "cr/{vars.phase}/session.yaml" }
+    is: waiting_human
+    note: round limit reached
+
+badges:
+  - { text: "x{attempts}", when: { field: { attempts: { gt: 1 } } } }
+  - { text: "{tier}", when: { field: { tier: { exists: true } } } }
+  - { text: "{effort}", when: { field: { effort: [light, thorough] } } }
+  - text: "{chunk}/{value}"
+    value: { match: '^##\s+Chunk\s+\d+', in: "{vars.plan}", pick: count }
+    when: { value: { gt: 1 } }
+  - text: "{value} open"
+    tone: bad
+    value: { count: "$.findings[?@.status == 'open' && (@.severity == 'blocker' || @.severity == 'major')]", in: "findings/{vars.findings}.yaml" }
+    when: { value: { gt: 0 } }
+  - node: [cr-design, cr-code]
+    text: "round {value}/{vars.limit}"
+    value: { path: $.round, in: "cr/{vars.phase}/session.yaml" }
+    vars: { limit: { path: $.limit, in: "cr/{vars.phase}/session.yaml" } }
+    when: { value: { gt: 0 } }
+  - node: df-approve
+    text: "round {value}"
+    value: { count: $.rounds, in: approval.yaml }
+    when: { value: { gt: 1 } }
+  - node: df-source-control
+    text: "{value}"
+    value: { path: $.code.pr_ref }
+    when: { value: { exists: true } }
+
+loops:
+  - { from: df-approve, to: [df-interview, df-design, df-mockup], label: feedback }
+  - { from: df-integrate, to: analysis, label: re-verify }
+  - { from: df-validate, to: df-integrate, label: blocker open, budget: 3 }
+  - { from: df-cicd-watch, to: df-integrate, label: CI red, budget: 3 }
+
+links:
+  - node: df-approve
+    label: Open review frame
+    url: "http://127.0.0.1:{value}/"
+    # df-ui-serve.sh removes server.port when it stops the server, and the
+    # link goes with it.
+    value: { match: '^(\d+)$', in: mockup/server.port, pick: last, group: 1 }
+
+bind:
+  # A dispatched agent belongs to a node when one of these matches.
+  node:
+    - { title: '^(?<node>(?:df|cr)-[\w-]+) (?<run>t-\S+)$' }
+    - prompt: '(?m)^\s*block:\s*(?<node>(?:df|cr)-[\w-]+)\s*$'
+      and: '(?m)^\s*task:\s*(?<run>t-\S+)\s*$'
+  # An agent drives a run when one of its commands matches.
+  run:
+    - { command: 'df-state\.sh (?:init|next|set-status) (?<run>t-\S+)' }
+  process:
+    - { pid: { path: $.pid, in: "bridge/{id}.meta.yaml" } }
+
+detail:
+  - { label: Reads, list: { path: $.requires, in: "{workflow}/skills/{id}/block.yaml" } }
+  - { label: Writes, list: { path: $.emits, in: "{workflow}/skills/{id}/block.yaml" } }
+  - { label: Journal, list: { match: '^- \S+ {id}: .*', in: journal.md, pick: all }, limit: 5 }

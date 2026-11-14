@@ -1,0 +1,39 @@
+{
+	"good": [
+		"agent/fix-login",
+		"v1.2",
+		"feature_x",
+		"maxhq/0a1b2c3d",
+		"Fix-Login",
+		"a",
+		"release/2026.11",
+		"a.b",
+		"x-"
+	],
+	"bad": [
+		"",
+		"-b",
+		"/a",
+		"a/",
+		"a.",
+		"a.lock",
+		"a..b",
+		"a//b",
+		"a@{1}",
+		"a b",
+		" a",
+		"a\tb",
+		"a;b",
+		"a:b",
+		"main~1",
+		"a^",
+		"a?",
+		"a*",
+		"a[b",
+		"a\\b",
+		"a+b",
+		"a@b",
+		"é",
+		"a'b"
+	]
+}

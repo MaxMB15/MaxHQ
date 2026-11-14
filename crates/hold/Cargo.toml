@@ -1,0 +1,29 @@
+[package]
+name = "maxhq-hold"
+description = "Keeps one agent CLI alive across maxd restarts and records what it prints"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+futures.workspace = true
+getrandom.workspace = true
+libc.workspace = true
+maxhq-core.workspace = true
+maxhq-protocol.workspace = true
+rustix.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+subtle.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+
+# The test binary also plays the holder, the fake agent CLI and the process
+# that spawns a holder, so it brings its own main.
+[[test]]
+name = "holder"
+harness = false
+
+[lints]
+workspace = true
