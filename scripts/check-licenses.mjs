@@ -37,6 +37,25 @@ const exceptions = new Map([
 	["mdn-data", "CC0-1.0"],
 ]);
 
+// Packages whose package.json names no license, with the license their
+// license file grants, read by hand for each version. pnpm looks for a file
+// named LICENSE, which finds a lowercase `license` on macOS but not on
+// Linux, so CI reports these as Unknown.
+const unlabeled = new Map([
+	// Mermaid's color library.
+	["khroma@2.1.0", "MIT"],
+]);
+
+/**
+ * The license `pkg` is under: the one pnpm reported, or, when it reported
+ * Unknown, the one read by hand, if every version of it was read.
+ */
+export const licenseOf = (license, pkg, read = unlabeled) => {
+	if (license !== "Unknown") return license;
+	const found = new Set(pkg.versions.map((version) => read.get(`${pkg.name}@${version}`)));
+	return found.size === 1 && !found.has(undefined) ? [...found][0] : license;
+};
+
 // Whether an SPDX expression holds when `ok` says which single licenses are
 // acceptable. Handles OR, AND, WITH and parentheses, with AND binding
 // tighter, which covers everything npm packages declare.
@@ -103,7 +122,7 @@ const main = () => {
 			const ok = (id) => allowedLower.has(id.toLowerCase()) || id.toLowerCase() === extra;
 			let fine = false;
 			try {
-				fine = satisfies(license, ok);
+				fine = satisfies(licenseOf(license, pkg), ok);
 			} catch {}
 			if (!fine) problems.push(`  ${pkg.name} ${pkg.versions.join(", ")}: ${license}`);
 		}
@@ -118,5 +137,5 @@ const main = () => {
 	console.log(`All ${count} production npm packages have allowed licenses.`);
 };
 
-// Run as a script, not when the tests import satisfies.
+// Run as a script, not when the tests import from here.
 if (import.meta.main) main();

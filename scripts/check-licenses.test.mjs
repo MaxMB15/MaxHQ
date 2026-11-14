@@ -3,7 +3,7 @@
 
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { satisfies } from "./check-licenses.mjs";
+import { licenseOf, satisfies } from "./check-licenses.mjs";
 
 const ok = (id) => ["MIT", "Apache-2.0", "Apache-2.0 WITH LLVM-exception"].includes(id);
 
@@ -39,4 +39,13 @@ test("anything it can't parse throws", () => {
 	for (const bad of ["", "MIT OR", "(MIT", "MIT)", "AND MIT", "MIT WITH"]) {
 		assert.throws(() => satisfies(bad, ok), /can't read/, bad);
 	}
+});
+
+test("a package pnpm can't label takes the license read by hand for its version", () => {
+	const read = new Map([["khroma@2.1.0", "MIT"]]);
+	const khroma = (...versions) => ({ name: "khroma", versions });
+	assert.equal(licenseOf("Unknown", khroma("2.1.0"), read), "MIT");
+	assert.equal(licenseOf("Unknown", khroma("2.2.0"), read), "Unknown");
+	assert.equal(licenseOf("Unknown", khroma("2.1.0", "2.2.0"), read), "Unknown");
+	assert.equal(licenseOf("ISC", khroma("2.1.0"), read), "ISC");
 });
