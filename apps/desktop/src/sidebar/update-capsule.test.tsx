@@ -31,7 +31,7 @@ const driven = (source: ReturnType<typeof renderSidebar>["source"]) => {
 	let send: (progress: FleetProgress) => void = () => {};
 	let finish: () => void = () => {};
 	const updateFleet = vi.spyOn(source, "updateFleet").mockImplementation(
-		(_devices, _tools, onProgress) =>
+		(_devices, _tools, _unsigned, onProgress) =>
 			new Promise((resolve) => {
 				send = onProgress;
 				finish = () => resolve({ status: "ok", data: null });
@@ -58,13 +58,88 @@ describe("the Update everything capsule", () => {
 		vi.spyOn(setup.source, "appInfo").mockResolvedValue({
 			version: "0.4.0",
 			protocol_version: 1,
-			bundled: [{ target: "x86_64-unknown-linux-musl", build: `${DEVBOX_BUILD}0` }],
+			bundled: [
+				{ target: "x86_64-unknown-linux-musl", build: `${DEVBOX_BUILD}0`, signed: true },
+			],
 		});
 		show(setup);
 		fireEvent.click(await screen.findByRole("button", { name: "Update 1 device and 1 CLI" }));
 		const popup = await screen.findByRole("dialog");
 		expect(within(popup).getByText("maxd, Claude in mhq-maxhq")).toBeVisible();
 		expect(within(popup).getByText("version 0.4.0")).toBeVisible();
+		expect(within(popup).queryByText("doesn't check signatures")).toBeNull();
+	});
+
+	it("sends a signed build without asking", async () => {
+		const setup = renderSidebar();
+		vi.spyOn(setup.source, "appInfo").mockResolvedValue({
+			version: "0.4.0",
+			protocol_version: 1,
+			bundled: [
+				{ target: "x86_64-unknown-linux-musl", build: `${DEVBOX_BUILD}0`, signed: true },
+			],
+		});
+		const fleet = driven(setup.source);
+		show(setup);
+		await screen.findByRole("button", { name: "Update 1 device and 1 CLI" });
+		fireEvent.click(screen.getByRole("button", { name: "Update everything" }));
+		await waitFor(() =>
+			expect(fleet.updateFleet).toHaveBeenCalledWith(
+				["dev-devbox"],
+				true,
+				false,
+				expect.any(Function)
+			)
+		);
+		expect(screen.queryByRole("alertdialog")).toBeNull();
+	});
+
+	it("asks before it sends a maxd no release signed, and sends nothing on Cancel", async () => {
+		const setup = renderSidebar();
+		vi.spyOn(setup.source, "appInfo").mockResolvedValue({
+			version: "0.4.0",
+			protocol_version: 1,
+			bundled: [
+				{ target: "x86_64-unknown-linux-musl", build: `${DEVBOX_BUILD}0`, signed: false },
+			],
+		});
+		const fleet = driven(setup.source);
+		show(setup);
+		await screen.findByRole("button", { name: "Update 1 device and 1 CLI" });
+		fireEvent.click(screen.getByRole("button", { name: "Update everything" }));
+		const ask = await screen.findByRole("alertdialog");
+		expect(ask).toHaveTextContent(
+			"The devices will run a maxd no release signed, built on this Mac."
+		);
+		fireEvent.click(within(ask).getByRole("button", { name: "Cancel" }));
+		await waitFor(() => expect(screen.queryByRole("alertdialog")).toBeNull());
+		expect(fleet.updateFleet).not.toHaveBeenCalled();
+
+		fireEvent.click(screen.getByRole("button", { name: "Update everything" }));
+		fireEvent.click(
+			within(await screen.findByRole("alertdialog")).getByRole("button", {
+				name: "Install anyway",
+			})
+		);
+		await waitFor(() =>
+			expect(fleet.updateFleet).toHaveBeenCalledWith(
+				["dev-devbox"],
+				true,
+				true,
+				expect.any(Function)
+			)
+		);
+		// A retry keeps your say.
+		fleet.send({ device: "dev-devbox", status: { status: "failed", reason: "disk full" } });
+		await fleet.finish();
+		const capsule = await screen.findByRole("status", { name: "Update everything" });
+		fireEvent.click(within(capsule).getByRole("button", { name: "Retry" }));
+		expect(fleet.updateFleet).toHaveBeenLastCalledWith(
+			["dev-devbox"],
+			true,
+			true,
+			expect.any(Function)
+		);
 	});
 
 	it("follows the run and closes once every device is done", async () => {
@@ -72,7 +147,12 @@ describe("the Update everything capsule", () => {
 		const fleet = driven(setup.source);
 		show(setup);
 		fireEvent.click(await screen.findByRole("button", { name: "Update everything" }));
-		expect(fleet.updateFleet).toHaveBeenCalledWith(["dev-devbox"], true, expect.any(Function));
+		expect(fleet.updateFleet).toHaveBeenCalledWith(
+			["dev-devbox"],
+			true,
+			false,
+			expect.any(Function)
+		);
 		fleet.send({ device: "dev-devbox", status: { status: "uploading" } });
 		const capsule = await screen.findByRole("status", { name: "Update everything" });
 		expect(capsule).toHaveTextContent("0 of 1 updated");
@@ -97,6 +177,7 @@ describe("the Update everything capsule", () => {
 		expect(fleet.updateFleet).toHaveBeenLastCalledWith(
 			["dev-devbox"],
 			true,
+			false,
 			expect.any(Function)
 		);
 		expect(capsule).toHaveTextContent("0 of 1 updated");

@@ -6,7 +6,8 @@
 // label, the slow device's time in the warning colour, the Retry or Dismiss
 // link at its end, and the popover that lists this app and each device with
 // its step. Before a run it offers the plan, and MaxHQ's app slot says where
-// its build came from.
+// its build came from. A plan that would send a maxd no release signed asks
+// first, and a device too old to check signatures says so.
 
 import { t, useI18n } from "@maxhq/shared/i18n";
 
@@ -14,7 +15,8 @@ import { useQuery } from "@tanstack/react-query";
 import {} from "react";
 import { useStore } from "zustand";
 
-import { useServices, useView } from "@/app/services";
+import { type Services, useServices, useView } from "@/app/services";
+import { requestConfirm } from "@/components/confirm";
 import { Popover, PopoverPopup, PopoverTitle, PopoverTrigger } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
 import type { AppInfo } from "@maxhq/shared/fleet/wire";
@@ -25,6 +27,7 @@ import {
 	planUpdate,
 	type FleetRun,
 	type PlanRow,
+	type UpdatePlan,
 } from "@maxhq/shared/fleet/update-view";
 import { useNow } from "@maxhq/shared/lib/clock";
 
@@ -61,6 +64,29 @@ const AppLine = ({ info }: { info: AppInfo | null | undefined }) => {
 const planLine = (row: PlanRow): string =>
 	[row.maxd ? "maxd" : null, ...row.tools].filter((part) => part !== null).join(", ");
 
+/**
+ * Starts the plan's run. One that would send a `maxd` no release signed,
+ * built on this Mac, names the risk and goes only once you say Install
+ * anyway, which marks those uploads unsigned so the devices take them.
+ */
+export const confirmAndStart = async (
+	services: Services,
+	plan: UpdatePlan,
+	now: number
+): Promise<void> => {
+	if (plan.unsigned) {
+		const agreed = await requestConfirm(services, {
+			title: t("Install a maxd no release signed?"),
+			detail: t(
+				"The devices will run a maxd no release signed, built on this Mac. Anyone who could change what this Mac builds could then run their code on them."
+			),
+			action: t("Install anyway"),
+		});
+		if (!agreed) return;
+	}
+	startUpdate(services, plan, now, plan.unsigned);
+};
+
 const Plan = ({
 	summary,
 	rows,
@@ -91,11 +117,24 @@ const Plan = ({
 					<PopoverTitle className="text-xs">{summary}</PopoverTitle>
 					<AppLine info={info} />
 					{rows.map((row) => (
-						<div key={row.device} className="flex items-center justify-between gap-3">
-							<span className="truncate">{row.label}</span>
-							<span className="shrink-0 truncate text-muted-foreground">
-								{planLine(row)}
-							</span>
+						<div key={row.device} className="flex min-w-0 flex-col">
+							<div className="flex items-center justify-between gap-3">
+								<span className="truncate">{row.label}</span>
+								<span className="shrink-0 truncate text-muted-foreground">
+									{planLine(row)}
+								</span>
+							</div>
+							{row.unchecked ? (
+								<span
+									className="text-status-connecting-text"
+									title={t(
+										"{{name}}'s maxd is too old to check signatures, so it installs what it's sent.",
+										{ name: row.label }
+									)}
+								>
+									{t("doesn't check signatures")}
+								</span>
+							) : null}
 						</div>
 					))}
 					<div className="mt-1 flex justify-end">
@@ -250,7 +289,7 @@ export const UpdateCapsule = () => {
 			summary={plan.summary}
 			rows={plan.rows}
 			info={info}
-			onStart={() => startUpdate(services, plan, now)}
+			onStart={() => void confirmAndStart(services, plan, now)}
 		/>
 	);
 };

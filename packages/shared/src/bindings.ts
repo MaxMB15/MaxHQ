@@ -1238,6 +1238,11 @@ export type BundledBuild = {
 	target: string,
 	/**  Its build: the first 16 hex characters of its sha256. */
 	build: string,
+	/**
+	 *  Whether a signed release manifest came with it. A build from source
+	 *  has none, and goes out only once you agree to send it unsigned.
+	 */
+	signed: boolean,
 };
 
 /**

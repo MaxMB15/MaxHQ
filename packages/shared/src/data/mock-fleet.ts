@@ -484,7 +484,7 @@ export const mockFleet = (
 			);
 			return { status: "ok", data: { status: "done" } };
 		},
-		updateFleet: async (devices, tools, onProgress) => {
+		updateFleet: async (devices, tools, _unsigned, onProgress) => {
 			for (const device of devices) onProgress({ device, status: { status: "waiting" } });
 			await Promise.all(devices.map((device) => fleetStep(device, tools, onProgress)));
 			return OK;

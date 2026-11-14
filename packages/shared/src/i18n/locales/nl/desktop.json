@@ -1196,5 +1196,9 @@
 	"Later prompt": "Volgende prompt",
 	"Your prompts": "Je prompts",
 	"{{index}} of {{total}} · {{line}}": "{{index}} van {{total}} · {{line}}",
-	"Latest message": "Nieuwste bericht"
+	"Latest message": "Nieuwste bericht",
+	"Install a maxd no release signed?": "Een maxd installeren die geen release heeft ondertekend?",
+	"The devices will run a maxd no release signed, built on this Mac. Anyone who could change what this Mac builds could then run their code on them.": "De apparaten gaan een maxd draaien die geen release heeft ondertekend, gebouwd op deze Mac. Wie kan veranderen wat deze Mac bouwt, kan dan zijn eigen code op ze draaien.",
+	"doesn't check signatures": "controleert geen handtekeningen",
+	"{{name}}'s maxd is too old to check signatures, so it installs what it's sent.": "De maxd van {{name}} is te oud om handtekeningen te controleren, dus installeert hij wat hij krijgt."
 }

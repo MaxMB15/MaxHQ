@@ -1196,5 +1196,9 @@
 	"Later prompt": "Later prompt",
 	"Your prompts": "Your prompts",
 	"{{index}} of {{total}} · {{line}}": "{{index}} of {{total}} · {{line}}",
-	"Latest message": "Latest message"
+	"Latest message": "Latest message",
+	"Install a maxd no release signed?": "Install a maxd no release signed?",
+	"The devices will run a maxd no release signed, built on this Mac. Anyone who could change what this Mac builds could then run their code on them.": "The devices will run a maxd no release signed, built on this Mac. Anyone who could change what this Mac builds could then run their code on them.",
+	"doesn't check signatures": "doesn't check signatures",
+	"{{name}}'s maxd is too old to check signatures, so it installs what it's sent.": "{{name}}'s maxd is too old to check signatures, so it installs what it's sent."
 }

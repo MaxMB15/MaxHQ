@@ -11,7 +11,7 @@
 
 import { t } from "../i18n";
 
-import type { DeviceId, Timestamp } from "../bindings";
+import { SIGNED_UPDATES_SINCE, type DeviceId, type Timestamp } from "../bindings";
 import type { ViewState } from "../view/replica";
 import type {
 	BundledBuild,
@@ -51,6 +51,21 @@ export const isBehind = (device: Device, bundled: readonly BundledBuild[] | null
 	return carried !== undefined && carried.build !== device.build;
 };
 
+/**
+ * Whether the `maxd` the app carries for a device's target is a build from
+ * source, which no release signed. An app that names no signing, from
+ * before signed updates, counts as unsigned.
+ */
+export const isUnsigned = (device: Device, bundled: readonly BundledBuild[] | null): boolean =>
+	bundled?.find((b) => b.target === device.target)?.signed !== true;
+
+/**
+ * Whether a device's `maxd` checks the release signature on an update. One
+ * from before signed updates installs what it's sent without a look.
+ */
+export const checksSignatures = (protocol: number | null): boolean =>
+	protocol !== null && protocol >= SIGNED_UPDATES_SINCE;
+
 /** Whether a CLI has a newer version than the one installed. */
 export const hasNewer = (tool: ToolInfo): boolean =>
 	tool.latest !== null && tool.version !== null && tool.latest !== tool.version;
@@ -84,6 +99,10 @@ export type PlanRow = {
 	readonly label: string;
 	/** Whether its `maxd` is behind the app's. */
 	readonly maxd: boolean;
+	/** Whether the `maxd` it would get is a build from source no release signed. */
+	readonly unsigned: boolean;
+	/** Whether it would get a `maxd` without checking its signature, being too old to. */
+	readonly unchecked: boolean;
 	/** The CLIs MaxHQ would update, by name and place. */
 	readonly tools: readonly string[];
 };
@@ -95,6 +114,11 @@ export type UpdatePlan = {
 	readonly rows: readonly PlanRow[];
 	/** Whether any CLI is in the plan, so the run asks for them. */
 	readonly tools: boolean;
+	/**
+	 * Whether any device would get a `maxd` no release signed, so the run
+	 * asks you first and sends it only once you agree.
+	 */
+	readonly unsigned: boolean;
 };
 
 /** A CLI by name, with the container it's in, such as "Codex in mhq-one". */
@@ -129,7 +153,14 @@ export const planUpdate = (
 		const maxd = isBehind(device, bundled);
 		const tools = updatableTools(view, link.device).map((t) => toolLabel(view, t));
 		if (maxd || tools.length > 0)
-			rows.push({ device: link.device, label: link.name, maxd, tools });
+			rows.push({
+				device: link.device,
+				label: link.name,
+				maxd,
+				unsigned: maxd && isUnsigned(device, bundled),
+				unchecked: maxd && !checksSignatures(link.protocol ?? null),
+				tools,
+			});
 	}
 	rows.sort((a, b) => a.label.localeCompare(b.label));
 	const devices = rows.filter((r) => r.maxd).length;
@@ -144,6 +175,7 @@ export const planUpdate = (
 				: t("Update {{joinList_parts}}", { joinList_parts: joinList(parts) }),
 		rows,
 		tools: cli > 0,
+		unsigned: rows.some((r) => r.unsigned),
 	};
 };
 
@@ -160,6 +192,8 @@ export type RunDevice = {
 export type FleetRun = {
 	/** Whether it updates CLIs as well, so a retry does too. */
 	readonly tools: boolean;
+	/** Whether you agreed to send a `maxd` no release signed, so a retry does too. */
+	readonly unsigned: boolean;
 	readonly devices: readonly RunDevice[];
 };
 
@@ -189,9 +223,11 @@ export const isActive = (status: FleetStatus): boolean =>
 export const startRun = (
 	rows: readonly Pick<PlanRow, "device" | "label">[],
 	tools: boolean,
+	unsigned: boolean,
 	now: Timestamp
 ): FleetRun => ({
 	tools,
+	unsigned,
 	devices: rows.map(({ device, label }) => ({
 		device,
 		label,

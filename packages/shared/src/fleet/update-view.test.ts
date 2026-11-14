@@ -3,6 +3,7 @@
 
 import { describe, expect, it } from "vitest";
 
+import { PROTOCOL_VERSION, SIGNED_UPDATES_SINCE } from "../bindings";
 import { device, link, MIN, NOW, workspace } from "../test/build";
 import { applySnapshot } from "../view/replica";
 import {
@@ -13,7 +14,9 @@ import {
 	dismissSettled,
 	failedDevices,
 	formatUpdateElapsed,
+	checksSignatures,
 	isBehind,
+	isUnsigned,
 	planUpdate,
 	restartDevices,
 	startRun,
@@ -21,7 +24,7 @@ import {
 import type { Entity, ToolInfo } from "./wire";
 
 const LINUX = "x86_64-unknown-linux-musl";
-const BUNDLED = [{ target: LINUX, build: "new" }];
+const BUNDLED = [{ target: LINUX, build: "new", signed: true }];
 
 const tool = (over: Partial<ToolInfo>): ToolInfo => ({
 	kind: { type: "agent", tool: "claude" },
@@ -54,12 +57,36 @@ describe("isBehind", () => {
 	});
 });
 
+describe("signed updates", () => {
+	it("counts a build from source, or an app that names no signing, as unsigned", () => {
+		const d = { ...device({ id: "dev-a" }), build: "old", target: LINUX };
+		expect(isUnsigned(d, BUNDLED)).toBe(false);
+		expect(isUnsigned(d, [{ ...BUNDLED[0]!, signed: false }])).toBe(true);
+		expect(isUnsigned(d, null)).toBe(true);
+	});
+
+	it("knows a maxd from before signed updates installs without a check", () => {
+		expect(checksSignatures(SIGNED_UPDATES_SINCE)).toBe(true);
+		expect(checksSignatures(PROTOCOL_VERSION)).toBe(true);
+		expect(checksSignatures(SIGNED_UPDATES_SINCE - 1)).toBe(false);
+		expect(checksSignatures(null)).toBe(false);
+	});
+});
+
 describe("planUpdate", () => {
 	const entities = (
-		over: { ticked?: ("claude" | "codex")[]; tools?: ToolInfo[] } = {}
+		over: {
+			ticked?: ("claude" | "codex")[];
+			tools?: ToolInfo[];
+			protocol?: number | null;
+		} = {}
 	): Entity[] => [
 		{ entity: "device", ...device({ id: "dev-a" }), build: "old", target: LINUX },
-		{ entity: "device_link", ...link({ id: "a" }) },
+		{
+			entity: "device_link",
+			...link({ id: "a" }),
+			protocol: over.protocol === undefined ? PROTOCOL_VERSION : over.protocol,
+		},
 		{ entity: "device", ...device({ id: "dev-b" }), build: "new", target: LINUX },
 		{ entity: "device_link", ...link({ id: "b" }) },
 		{ entity: "device", ...device({ id: "dev-c" }), build: "old", target: LINUX },
@@ -119,11 +146,41 @@ describe("planUpdate", () => {
 	it("lists connected devices that are behind or have a CLI MaxHQ may update", () => {
 		const plan = planUpdate(viewOf(entities()), BUNDLED);
 		expect(plan.rows).toEqual([
-			{ device: "dev-a", label: "a", maxd: true, tools: [] },
-			{ device: "dev-b", label: "b", maxd: false, tools: ["Codex in mhq-one"] },
+			{
+				device: "dev-a",
+				label: "a",
+				maxd: true,
+				unsigned: false,
+				unchecked: false,
+				tools: [],
+			},
+			{
+				device: "dev-b",
+				label: "b",
+				maxd: false,
+				unsigned: false,
+				unchecked: false,
+				tools: ["Codex in mhq-one"],
+			},
 		]);
 		expect(plan.summary).toBe("Update 1 device and 1 CLI");
 		expect(plan.tools).toBe(true);
+		expect(plan.unsigned).toBe(false);
+	});
+
+	it("asks first when a device would get a build from source", () => {
+		const plan = planUpdate(viewOf(entities()), [{ ...BUNDLED[0]!, signed: false }]);
+		expect(plan.rows[0]).toMatchObject({ device: "dev-a", maxd: true, unsigned: true });
+		// A device only getting its CLIs gets no maxd, signed or not.
+		expect(plan.rows[1]).toMatchObject({ device: "dev-b", unsigned: false });
+		expect(plan.unsigned).toBe(true);
+	});
+
+	it("marks a device whose maxd is too old to check signatures", () => {
+		for (const protocol of [SIGNED_UPDATES_SINCE - 1, null]) {
+			const plan = planUpdate(viewOf(entities({ protocol })), BUNDLED);
+			expect(plan.rows[0]).toMatchObject({ device: "dev-a", unchecked: true });
+		}
 	});
 
 	it("adds the host's CLIs once you tick them", () => {
@@ -134,7 +191,7 @@ describe("planUpdate", () => {
 
 	it("has nothing to do when every build matches and no CLI is behind", () => {
 		const plan = planUpdate(viewOf(entities({ tools: [] })), null);
-		expect(plan).toEqual({ summary: null, rows: [], tools: false });
+		expect(plan).toEqual({ summary: null, rows: [], tools: false, unsigned: false });
 	});
 });
 
@@ -145,7 +202,7 @@ describe("a run", () => {
 	];
 
 	it("counts the devices that are done", () => {
-		let run = startRun(rows, false, NOW);
+		let run = startRun(rows, false, false, NOW);
 		run = applyProgress(run, { device: "dev-a", status: { status: "uploading" } }, NOW);
 		expect(describeUpdateCapsule(run, NOW)).toEqual({
 			tone: "default",
@@ -157,7 +214,7 @@ describe("a run", () => {
 	});
 
 	it("names the slowest device after three minutes", () => {
-		let run = startRun(rows, false, NOW);
+		let run = startRun(rows, false, false, NOW);
 		run = applyProgress(run, { device: "dev-b", status: { status: "restarting" } }, NOW);
 		const later = NOW + 4 * MIN;
 		expect(describeUpdateCapsule(run, later)).toEqual({
@@ -171,7 +228,7 @@ describe("a run", () => {
 	});
 
 	it("offers a retry for failures and a dismiss for skips", () => {
-		let run = startRun(rows, false, NOW);
+		let run = startRun(rows, false, false, NOW);
 		run = applyProgress(
 			run,
 			{ device: "dev-a", status: { status: "failed", reason: "no" } },
@@ -202,7 +259,7 @@ describe("a run", () => {
 	});
 
 	it("closes once every device is done", () => {
-		let run = startRun(rows, false, NOW);
+		let run = startRun(rows, false, false, NOW);
 		for (const { device: d } of rows) {
 			run = applyProgress(run, { device: d, status: { status: "done" } }, NOW);
 		}

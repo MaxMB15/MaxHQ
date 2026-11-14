@@ -600,11 +600,16 @@ describe("fleet calls", () => {
 	it("updates the fleet with a progress channel", async () => {
 		const heard: unknown[] = [];
 		await expect(
-			tauriSource().updateFleet(["device-1"], true, (p) => heard.push(p))
+			tauriSource().updateFleet(["device-1"], true, false, (p) => heard.push(p))
 		).resolves.toEqual(OK);
 		const [channel, ...more] = FakeChannel.made;
 		expect(more).toEqual([]);
-		expect(commands.updateFleet).toHaveBeenCalledExactlyOnceWith(["device-1"], true, channel);
+		expect(commands.updateFleet).toHaveBeenCalledExactlyOnceWith(
+			["device-1"],
+			true,
+			false,
+			channel
+		);
 		channel?.onmessage({ device: "device-1", status: { status: "waiting" } });
 		expect(heard).toEqual([{ device: "device-1", status: { status: "waiting" } }]);
 	});

@@ -100,8 +100,8 @@ export const tauriSource = (): DataSource => ({
 					: file,
 		};
 	},
-	updateFleet: (devices, tools, onProgress) =>
-		commands.updateFleet(devices, tools, new Channel<FleetProgress>(onProgress)),
+	updateFleet: (devices, tools, unsigned, onProgress) =>
+		commands.updateFleet(devices, tools, unsigned, new Channel<FleetProgress>(onProgress)),
 	setupDevice: (host, secrets, onProgress) =>
 		commands.setupDevice(host, secrets, new Channel<SetupProgress>(onProgress)),
 });
