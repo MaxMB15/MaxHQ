@@ -381,6 +381,13 @@ fn run() -> ExitCode {
     init_logging();
     rotate_log();
     raise_open_files();
+    // The build is read from the program's file, so read it before an app
+    // update can put a newer `maxd` there. Read later, a `maxd` still
+    // running the old program would report the new build, and the app
+    // couldn't tell it needs a restart.
+    if identity::build().is_none() {
+        warn!("couldn't read this program, so maxd reports no build");
+    }
     let runtime = match multi_thread_runtime() {
         Ok(runtime) => runtime,
         Err(err) => return fail(&RunError::Runtime(err)),

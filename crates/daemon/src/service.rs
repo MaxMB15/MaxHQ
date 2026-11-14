@@ -26,7 +26,7 @@ use std::time::Duration;
 use maxhq_core::fs::{write_atomic, Atomic};
 use thiserror::Error;
 
-pub use maxhq_core::service::{Manager, LABEL, UNIT};
+pub use maxhq_core::service::{launch_agent_file, Manager, LABEL, UNIT};
 pub use uninstall::{uninstall, Clis, SystemHolders, Uninstall};
 
 /// Where the NixOS module puts maxd's user unit. systemd reads it for every
@@ -482,12 +482,6 @@ fn is_executable(file: &Path) -> bool {
     use std::os::unix::fs::PermissionsExt;
     file.metadata()
         .is_ok_and(|meta| meta.is_file() && meta.permissions().mode() & 0o111 != 0)
-}
-
-/// The LaunchAgent install writes for the user at `home`.
-pub fn launch_agent_file(home: &Path) -> PathBuf {
-    home.join("Library/LaunchAgents")
-        .join(format!("{LABEL}.plist"))
 }
 
 /// Where launchd writes what `maxd` logs for the user at `home`.
