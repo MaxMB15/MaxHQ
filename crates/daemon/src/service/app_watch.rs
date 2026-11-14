@@ -12,7 +12,7 @@
 #![cfg_attr(not(target_os = "macos"), allow(dead_code))]
 
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::time::{Duration, Instant};
 
 pub use maxhq_core::service::program_in;
@@ -44,7 +44,7 @@ pub async fn app_deleted() {
 
 /// This program, when it's the one to watch.
 #[cfg(target_os = "macos")]
-fn watched_here() -> Option<PathBuf> {
+fn watched_here() -> Option<std::path::PathBuf> {
     let exe = std::env::current_exe().and_then(fs::canonicalize).ok()?;
     let home = std::env::var_os("HOME").filter(|home| !home.is_empty())?;
     watched(&super::launch_agent_file(Path::new(&home)), &exe).then_some(exe)
@@ -118,6 +118,7 @@ mod tests {
     use super::*;
     use crate::service::plist;
     use crate::testing::TempDir;
+    use std::path::PathBuf;
 
     #[test]
     fn the_program_reads_back_from_the_plist() {
