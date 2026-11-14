@@ -27,10 +27,28 @@ impl Binaries for Fixed {
     }
 }
 
+/// A binary a release signed. The device checks the signature, so the app
+/// only carries it, and these stand-ins needn't be real.
 fn binary(name: &str) -> Binary {
     Binary {
         path: PathBuf::from(format!("/bin/{name}")),
         sha256: format!("{NEW}{}", "0".repeat(48)),
+        release: Some(release()),
+    }
+}
+
+fn release() -> SignedRelease {
+    SignedRelease {
+        manifest: "{\"version\":\"0.2.0\",\"binaries\":{}}".into(),
+        signature: "c2lnbmF0dXJl".into(),
+    }
+}
+
+/// A binary built from source, with no release beside it.
+fn from_source(name: &str) -> Binary {
+    Binary {
+        release: None,
+        ..binary(name)
     }
 }
 
@@ -108,7 +126,7 @@ fn updates_devices_behind_and_names_every_skipped_one() {
             ..machine("buildbox", old)
         },
     ];
-    let plan = plan(&machines, &fleet_binaries(), false, true);
+    let plan = plan(&machines, &fleet_binaries(), false, true, false);
     let targets: Vec<_> = plan
         .targets
         .iter()
@@ -148,10 +166,10 @@ fn a_current_device_still_gets_its_tools_when_asked() {
         tools: vec![claude_on_host()],
         ..machine("devbox", NEW)
     }];
-    assert!(plan(&machines, &fleet_binaries(), false, false)
+    assert!(plan(&machines, &fleet_binaries(), false, false, false)
         .targets
         .is_empty());
-    let with_tools = plan(&machines, &fleet_binaries(), true, false);
+    let with_tools = plan(&machines, &fleet_binaries(), true, false, false);
     assert_eq!(with_tools.targets.len(), 1);
     assert_eq!(with_tools.targets[0].tools, [claude_on_host()]);
     assert_eq!(with_tools.targets[0].maxd, None);
@@ -164,7 +182,7 @@ fn a_bundled_app_leaves_its_own_macs_maxd_to_move_with_it() {
         ..machine("this-mac", "bbbbbbbbbbbbbbbb")
     }];
     assert_eq!(
-        plan(&machines, &fleet_binaries(), false, false),
+        plan(&machines, &fleet_binaries(), false, false, false),
         Plan::default()
     );
 }
@@ -177,7 +195,7 @@ fn this_mac_s_clis_update_while_its_maxd_moves_with_the_app() {
             tools: vec![claude_on_host()],
             ..machine("this-mac", "bbbbbbbbbbbbbbbb")
         }];
-        let plan = plan(&machines, &fleet_binaries(), true, dev_tree);
+        let plan = plan(&machines, &fleet_binaries(), true, dev_tree, false);
         assert!(plan.skipped.is_empty(), "{plan:?}");
         assert_eq!(plan.targets.len(), 1);
         assert_eq!(plan.targets[0].tools, [claude_on_host()]);
@@ -288,8 +306,16 @@ impl FleetOps for FakeFleet {
         _staged: AttachmentId,
         kind: UpdateKind,
         _sha256: String,
+        release: Option<SignedRelease>,
+        unsigned: bool,
     ) -> Result<ActionOutcome, CommandError> {
-        self.call(format!("install {kind:?}"));
+        let how = match (release.is_some(), unsigned) {
+            (true, false) => "signed",
+            (false, true) => "unsigned",
+            (false, false) => "bare",
+            (true, true) => "signed and marked",
+        };
+        self.call(format!("install {kind:?} {how}"));
         Ok(if self.refuse_install {
             ActionOutcome::Refused {
                 reason: "The binary doesn't match its sum".into(),
@@ -322,6 +348,7 @@ fn full_target() -> Plan {
             tools: vec![claude_on_host()],
             maxd: Some(binary("maxd")),
             guest: Some(binary("guest")),
+            unsigned: false,
         }],
         skipped: vec![Skipped {
             device: DeviceId::derive("offline"),
@@ -353,12 +380,90 @@ async fn tools_go_first_then_maxd_then_the_guest() {
         [
             "tools 1",
             "upload /bin/maxd",
-            "install Maxd",
+            "install Maxd signed",
             &format!("wait {NEW}"),
             "upload /bin/guest",
-            "install Guest",
+            "install Guest signed",
         ]
     );
+}
+
+#[test]
+fn a_build_from_source_goes_out_only_once_you_agree() {
+    let machines = [
+        Machine {
+            workspaces: true,
+            ..machine("devbox", "bbbbbbbbbbbbbbbb")
+        },
+        Machine {
+            tools: vec![claude_on_host()],
+            ..machine("current", NEW)
+        },
+    ];
+    let source = Fixed(vec![
+        (UpdateKind::Maxd, TARGET, from_source("maxd")),
+        (UpdateKind::Guest, TARGET, from_source("guest")),
+    ]);
+    // Without your say the device that needs the build is left out, and
+    // one that only needs its CLIs still gets them.
+    let refused = plan(&machines, &source, true, false, false);
+    assert_eq!(
+        refused
+            .skipped
+            .iter()
+            .map(|s| (s.name.as_str(), s.reason.as_str()))
+            .collect::<Vec<_>>(),
+        [("devbox", UNSIGNED_SKIP)]
+    );
+    assert_eq!(refused.targets.len(), 1);
+    assert_eq!(refused.targets[0].name, "current");
+    assert!(!refused.targets[0].unsigned);
+
+    let agreed = plan(&machines, &source, true, false, true);
+    assert!(agreed.skipped.is_empty(), "{agreed:?}");
+    assert_eq!(agreed.targets[0].maxd, Some(from_source("maxd")));
+    assert!(agreed.targets[0].unsigned);
+
+    // A guest without a release holds the device back too.
+    let mixed = Fixed(vec![
+        (UpdateKind::Maxd, TARGET, binary("maxd")),
+        (UpdateKind::Guest, TARGET, from_source("guest")),
+    ]);
+    assert_eq!(
+        plan(&machines[..1], &mixed, false, false, false)
+            .skipped
+            .len(),
+        1
+    );
+}
+
+#[tokio::test]
+async fn only_an_upload_no_release_signed_goes_out_marked() {
+    let mut target = full_target();
+    target.targets[0].unsigned = true;
+    target.targets[0].guest = Some(from_source("guest"));
+    let fleet = FakeFleet::default();
+    statuses(target, &fleet).await;
+    let calls = fleet.calls.lock().unwrap().clone();
+    assert!(
+        calls.contains(&"install Maxd signed".to_owned()),
+        "{calls:?}"
+    );
+    assert!(
+        calls.contains(&"install Guest unsigned".to_owned()),
+        "{calls:?}"
+    );
+
+    // Without your say nothing goes out marked, even if a plan held one.
+    let mut target = full_target();
+    target.targets[0].maxd = Some(from_source("maxd"));
+    let fleet = FakeFleet::default();
+    statuses(target, &fleet).await;
+    assert!(fleet
+        .calls
+        .lock()
+        .unwrap()
+        .contains(&"install Maxd bare".to_owned()));
 }
 
 #[tokio::test]
@@ -460,8 +565,26 @@ fn binaries_come_from_the_first_folder_and_match_their_sums() {
         [BundledBuild {
             target: TARGET.to_owned(),
             build: sum[..16].to_owned(),
+            signed: false,
         }]
     );
+    // A release's manifest and signature go with the binaries beside them,
+    // and only when both are there.
+    assert_eq!(dirs.find(UpdateKind::Maxd, TARGET).unwrap().release, None);
+    std::fs::write(first.join(RELEASE_MANIFEST), "manifest").unwrap();
+    assert_eq!(dirs.find(UpdateKind::Maxd, TARGET).unwrap().release, None);
+    std::fs::write(first.join(RELEASE_SIGNATURE), "signature").unwrap();
+    assert_eq!(
+        dirs.find(UpdateKind::Maxd, TARGET).unwrap().release,
+        Some(SignedRelease {
+            manifest: "manifest".into(),
+            signature: "signature".into(),
+        })
+    );
+    assert!(dirs.bundled()[0].signed);
+    // The second folder's binaries don't borrow the first one's release.
+    std::fs::remove_file(first.join(format!("maxd-{TARGET}"))).unwrap();
+    assert_eq!(dirs.find(UpdateKind::Maxd, TARGET).unwrap().release, None);
     let _ = std::fs::remove_dir_all(first);
     let _ = std::fs::remove_dir_all(second);
 }

@@ -1211,5 +1211,9 @@
 	"Later prompt": "Instrucción siguiente",
 	"Your prompts": "Tus instrucciones",
 	"{{index}} of {{total}} · {{line}}": "{{index}} de {{total}} · {{line}}",
-	"Latest message": "Último mensaje"
+	"Latest message": "Último mensaje",
+	"Install a maxd no release signed?": "¿Instalar un maxd que ninguna versión ha firmado?",
+	"The devices will run a maxd no release signed, built on this Mac. Anyone who could change what this Mac builds could then run their code on them.": "Los dispositivos ejecutarán un maxd que ninguna versión ha firmado, compilado en este Mac. Quien pueda cambiar lo que compila este Mac podrá ejecutar su código en ellos.",
+	"doesn't check signatures": "no comprueba las firmas",
+	"{{name}}'s maxd is too old to check signatures, so it installs what it's sent.": "El maxd de {{name}} es demasiado antiguo para comprobar firmas, así que instala lo que recibe."
 }

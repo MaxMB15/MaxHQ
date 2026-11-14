@@ -702,11 +702,14 @@ export type DataSource = {
 	readonly updateTools: (device: DeviceId, tools: ToolTarget[]) => Promise<ActionResult>;
 	/**
 	 * Brings each device's `maxd` up to the app's build, one at a time, and
-	 * its CLIs too when `tools` is set. `onProgress` hears each step.
+	 * its CLIs too when `tools` is set. `unsigned` says you agreed to send a
+	 * `maxd` no release signed, built on this Mac; without it a device that
+	 * would get one is skipped. `onProgress` hears each step.
 	 */
 	readonly updateFleet: (
 		devices: DeviceId[],
 		tools: boolean,
+		unsigned: boolean,
 		onProgress: (progress: FleetProgress) => void
 	) => Promise<CommandResult>;
 	/**

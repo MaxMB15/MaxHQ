@@ -193,21 +193,24 @@ pub async fn upload_pasted(
 }
 
 /// Updates `devices`, or every device when it's empty, to the `maxd` this
-/// app carries, and their agent CLIs too when `tools` is set. `progress`
-/// hears each device's every step.
+/// app carries, and their agent CLIs too when `tools` is set. `unsigned`
+/// says you agreed, in the window's dialog, to send a `maxd` no release
+/// signed, built on this Mac. `progress` hears each device's every step.
 #[tauri::command]
 #[specta::specta]
 pub async fn update_fleet(
     app: State<'_, App>,
     devices: Vec<DeviceId>,
     tools: bool,
+    unsigned: bool,
     progress: Channel<FleetProgress>,
 ) -> Result<(), CommandError> {
     let binaries = BinaryDirs::for_app();
     let report = move |step| {
         let _ = progress.send(step);
     };
-    app.update_fleet(devices, tools, &binaries, &report).await;
+    app.update_fleet(devices, tools, unsigned, &binaries, &report)
+        .await;
     Ok(())
 }
 

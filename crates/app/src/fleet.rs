@@ -33,7 +33,7 @@ use maxhq_protocol::ids::{AttachmentId, DeviceId, IdempotencyKey};
 use maxhq_protocol::link::LinkState;
 #[cfg(feature = "desktop")]
 use maxhq_protocol::message::UploadTarget;
-use maxhq_protocol::message::{ActionOutcome, Capabilities, ToolTarget, UpdateKind};
+use maxhq_protocol::message::{ActionOutcome, Capabilities, SignedRelease, ToolTarget, UpdateKind};
 use maxhq_protocol::model::Tool;
 use maxhq_protocol::state::{Entity, EntityKey, ToolInfo, ToolState, ToolUpdate};
 use maxhq_protocol::time::Timestamp;
@@ -98,6 +98,14 @@ pub struct FleetProgress {
     pub status: FleetStatus,
 }
 
+/// The name of the signed fleet manifest a release puts beside its
+/// binaries. It lists the release's version and each `maxd-<target>`'s
+/// sha256.
+pub const RELEASE_MANIFEST: &str = "maxd-release.json";
+
+/// The name of the manifest's minisign signature, beside it.
+pub const RELEASE_SIGNATURE: &str = "maxd-release.json.sig";
+
 /// A Linux binary this app can send.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Binary {
@@ -105,6 +113,10 @@ pub struct Binary {
     pub path: PathBuf,
     /// Its sha256, in hex.
     pub sha256: String,
+    /// The signed manifest found beside it, which the device checks before
+    /// it runs the binary. None for a build from source, which goes out
+    /// only once you agree to send a build no release signed.
+    pub release: Option<SignedRelease>,
 }
 
 impl Binary {
@@ -125,7 +137,9 @@ pub trait Binaries: Send + Sync {
 /// Binaries named `maxd-<target>` and `maxd-guest-<target>` in a few
 /// folders, the first folder that has one winning. A musl `maxd` is static
 /// and serves as the guest too, so it stands in for a missing guest file.
-/// A folder with a `SHA256SUMS` must list the file with the same sum.
+/// A folder with a `SHA256SUMS` must list the file with the same sum. A
+/// folder with [`RELEASE_MANIFEST`] and [`RELEASE_SIGNATURE`] sends both
+/// with its binaries, for the device to check.
 #[cfg(feature = "desktop")]
 pub struct BinaryDirs {
     dirs: Vec<PathBuf>,
@@ -175,7 +189,11 @@ impl BinaryDirs {
                     tracing::warn!(path = %path.display(), "a binary doesn't match its SHA256SUMS");
                     None
                 }
-                _ => Some(Binary { path, sha256 }),
+                _ => Some(Binary {
+                    path,
+                    sha256,
+                    release: release_in(dir),
+                }),
             }
         })
     }
@@ -223,6 +241,7 @@ impl BinaryDirs {
                 let found = self.find(UpdateKind::Maxd, &target)?;
                 Some(BundledBuild {
                     build: found.build().to_owned(),
+                    signed: found.release.is_some(),
                     target,
                 })
             })
@@ -237,6 +256,9 @@ pub struct BundledBuild {
     pub target: String,
     /// Its build: the first 16 hex characters of its sha256.
     pub build: String,
+    /// Whether a signed release manifest came with it. A build from source
+    /// has none, and goes out only once you agree to send it unsigned.
+    pub signed: bool,
 }
 
 #[cfg(feature = "desktop")]
@@ -281,6 +303,18 @@ pub fn from_dev_tree() -> bool {
     !exe.components().any(|part| {
         let part = part.as_os_str().to_string_lossy();
         part.ends_with(".app") && part != DEV_BUNDLE
+    })
+}
+
+/// The signed manifest in `dir`, when both it and its signature are there.
+/// The device checks them, so the app only carries them.
+#[cfg(feature = "desktop")]
+fn release_in(dir: &Path) -> Option<SignedRelease> {
+    let manifest = std::fs::read_to_string(dir.join(RELEASE_MANIFEST)).ok()?;
+    let signature = std::fs::read_to_string(dir.join(RELEASE_SIGNATURE)).ok()?;
+    Some(SignedRelease {
+        manifest,
+        signature,
     })
 }
 
@@ -361,6 +395,9 @@ pub struct Target {
     pub maxd: Option<Binary>,
     /// The guest binary to send after it.
     pub guest: Option<Binary>,
+    /// Whether you agreed to send binaries no release signed, which marks
+    /// any such upload unsigned so the device takes it.
+    pub unsigned: bool,
 }
 
 /// A device the run leaves out, and why.
@@ -373,6 +410,11 @@ pub struct Skipped {
     /// Why, for a person to read.
     pub reason: String,
 }
+
+/// Why a device that would get a `maxd` no release signed is left out
+/// until you agree to send it.
+pub const UNSIGNED_SKIP: &str =
+    "this app's maxd wasn't signed by a release, so it goes only once you choose Install anyway";
 
 /// What a run does.
 #[derive(Debug, Clone, PartialEq, Default)]
@@ -387,8 +429,16 @@ pub struct Plan {
 /// current without a word and naming why each other one can't. `tools`
 /// says whether to update agent CLIs too. This Mac's own `maxd` moves
 /// with the app, and `dev_tree` says the app runs from the source tree,
-/// where it restarts with Start maxd instead.
-pub fn plan(machines: &[Machine], binaries: &dyn Binaries, tools: bool, dev_tree: bool) -> Plan {
+/// where it restarts with Start maxd instead. `unsigned` says you agreed
+/// to send a `maxd` no release signed, built on this Mac. Without it a
+/// device that would get one is left out.
+pub fn plan(
+    machines: &[Machine],
+    binaries: &dyn Binaries,
+    tools: bool,
+    dev_tree: bool,
+    unsigned: bool,
+) -> Plan {
     let mut plan = Plan::default();
     for machine in machines {
         let skip = |plan: &mut Plan, reason: &str| {
@@ -458,12 +508,22 @@ pub fn plan(machines: &[Machine], binaries: &dyn Binaries, tools: bool, dev_tree
             }
             _ => None,
         };
+        // A build no release signed only goes out once you've agreed to it.
+        let unsigned_binary = [&maxd, &guest]
+            .into_iter()
+            .flatten()
+            .any(|binary| binary.release.is_none());
+        if unsigned_binary && !unsigned {
+            skip(&mut plan, UNSIGNED_SKIP);
+            continue;
+        }
         plan.targets.push(Target {
             device: machine.device,
             name: machine.name.clone(),
             tools: wanted_tools,
             maxd,
             guest,
+            unsigned,
         });
     }
     plan
@@ -511,13 +571,16 @@ pub trait FleetOps: Sync {
         path: PathBuf,
     ) -> impl Future<Output = Result<AttachmentId, CommandError>> + Send;
 
-    /// Has the device install an uploaded binary.
+    /// Has the device install an uploaded binary, with the signed release
+    /// that lists it, or else marked `unsigned` when you agreed to send it.
     fn install(
         &self,
         device: DeviceId,
         staged: AttachmentId,
         kind: UpdateKind,
         sha256: String,
+        release: Option<SignedRelease>,
+        unsigned: bool,
     ) -> impl Future<Output = Result<ActionOutcome, CommandError>> + Send;
 
     /// Waits until the device's `maxd` says hello on `build`, for at most
@@ -567,6 +630,10 @@ async fn update_one(
     report: &(dyn Fn(FleetProgress) + Sync),
 ) -> Result<(), String> {
     let device = target.device;
+    let consent = target.unsigned;
+    // The mark goes only on an upload no release signed, and only when you
+    // agreed to send one.
+    let mark = |binary: &Binary| consent && binary.release.is_none();
     let step = |status| report(FleetProgress { device, status });
     let mut failure = None;
     if !target.tools.is_empty() {
@@ -579,7 +646,14 @@ async fn update_one(
         step(FleetStatus::Uploading);
         let staged = ops.upload(device, maxd.path.clone()).await.map_err(words)?;
         let installed = ops
-            .install(device, staged, UpdateKind::Maxd, maxd.sha256.clone())
+            .install(
+                device,
+                staged,
+                UpdateKind::Maxd,
+                maxd.sha256.clone(),
+                maxd.release.clone(),
+                mark(&maxd),
+            )
             .await;
         accepted(installed)?;
         step(FleetStatus::Restarting);
@@ -600,8 +674,15 @@ async fn update_one(
             .await
             .map_err(words)?;
         accepted(
-            ops.install(device, staged, UpdateKind::Guest, guest.sha256.clone())
-                .await,
+            ops.install(
+                device,
+                staged,
+                UpdateKind::Guest,
+                guest.sha256.clone(),
+                guest.release.clone(),
+                mark(&guest),
+            )
+            .await,
         )?;
     }
     failure.map_or(Ok(()), Err)
@@ -723,6 +804,8 @@ impl<C: Connector> FleetOps for Through<'_, C> {
         staged: AttachmentId,
         kind: UpdateKind,
         sha256: String,
+        release: Option<SignedRelease>,
+        unsigned: bool,
     ) -> Result<ActionOutcome, CommandError> {
         let key = IdempotencyKey::generate();
         let action = ClientMessage::InstallUpdate {
@@ -730,6 +813,8 @@ impl<C: Connector> FleetOps for Through<'_, C> {
             staged,
             kind,
             sha256,
+            release,
+            unsigned,
         };
         self.devices.act_on(device, action).await
     }
@@ -858,19 +943,22 @@ impl<C: Connector> App<C> {
 
     /// Updates `devices`, or every device when it's empty, to the `maxd`
     /// and guest binary this app carries, and their agent CLIs too when
-    /// `tools` is set. `report` hears each device's every step. It ends
+    /// `tools` is set. `unsigned` says you agreed to send a `maxd` no
+    /// release signed, built on this Mac; without it a device that would
+    /// get one is skipped. `report` hears each device's every step. It ends
     /// once every device is done, failed or skipped.
     #[cfg(feature = "desktop")]
     pub async fn update_fleet(
         &self,
         devices: Vec<DeviceId>,
         tools: bool,
+        unsigned: bool,
         binaries: &dyn Binaries,
         report: &(dyn Fn(FleetProgress) + Sync),
     ) {
         let only = (!devices.is_empty()).then_some(devices.as_slice());
         let machines = self.view.read(|merge| machines(merge, only));
-        let plan = plan(&machines, binaries, tools, from_dev_tree());
+        let plan = plan(&machines, binaries, tools, from_dev_tree(), unsigned);
         let through = Through {
             devices: &self.devices,
             view: &self.view,

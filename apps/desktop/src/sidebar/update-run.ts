@@ -56,9 +56,14 @@ const failRest =
 		),
 	});
 
-const follow = async (services: Services, devices: DeviceId[], tools: boolean) => {
+const follow = async (
+	services: Services,
+	devices: DeviceId[],
+	tools: boolean,
+	unsigned: boolean
+) => {
 	try {
-		const result = await services.source.updateFleet(devices, tools, (progress) =>
+		const result = await services.source.updateFleet(devices, tools, unsigned, (progress) =>
 			edit(services, (run) => closeFinishedRun(applyProgress(run, progress, Date.now())))
 		);
 		if (result.status === "error") {
@@ -74,16 +79,26 @@ const follow = async (services: Services, devices: DeviceId[], tools: boolean) =
 	edit(services, (run) => closeFinishedRun(failRest(devices, t("No answer from the app"))(run)));
 };
 
-/** Starts a run over the plan's devices. Does nothing while one is going. */
-export const startUpdate = (services: Services, plan: UpdatePlan, now: number): void => {
+/**
+ * Starts a run over the plan's devices. Does nothing while one is going.
+ * `unsigned` says you agreed to send a `maxd` no release signed; without
+ * it the app leaves out the devices that would get one.
+ */
+export const startUpdate = (
+	services: Services,
+	plan: UpdatePlan,
+	now: number,
+	unsigned = false
+): void => {
 	const store = updateRunOf(services);
 	if (store.getState().run?.devices.some((d) => isActive(d.status))) return;
 	if (plan.rows.length === 0) return;
-	store.setState({ run: startRun(plan.rows, plan.tools, now) });
+	store.setState({ run: startRun(plan.rows, plan.tools, unsigned, now) });
 	void follow(
 		services,
 		plan.rows.map((r) => r.device),
-		plan.tools
+		plan.tools,
+		unsigned
 	);
 };
 
@@ -94,7 +109,7 @@ export const retryFailed = (services: Services, now: number): void => {
 	const failed = failedDevices(run);
 	if (failed.length === 0) return;
 	edit(services, (r) => restartDevices(r, failed, now));
-	void follow(services, failed, run.tools);
+	void follow(services, failed, run.tools, run.unsigned);
 };
 
 /** Drops the devices that finished, failed or were skipped. */

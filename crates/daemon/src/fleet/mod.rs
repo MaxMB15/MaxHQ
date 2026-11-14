@@ -21,6 +21,7 @@ use crate::guestlink::Guests;
 use crate::identity;
 use crate::tools::Tools;
 
+pub mod release;
 pub mod update;
 
 use update::{Installed, Layout, Refusal};
@@ -177,6 +178,8 @@ pub async fn handle(message: ClientMessage) -> ActionOutcome {
             staged,
             kind,
             sha256,
+            release,
+            unsigned,
             ..
         } => {
             let Some(running) = FLEET.get() else {
@@ -191,9 +194,20 @@ pub async fn handle(message: ClientMessage) -> ActionOutcome {
             ) else {
                 return refused(&sentence(&Refusal::Missing.to_string()));
             };
-            let result = match kind {
-                UpdateKind::Maxd => install_maxd(running, &path, &sha256).await,
-                UpdateKind::Guest => install_guest(running, &path, &sha256).await,
+            // Nothing runs the upload, not even `--build`, until it's shown
+            // to be a release's, or one you chose to send unsigned.
+            let vouched = release::vouch(
+                &path,
+                &sha256,
+                kind,
+                release.as_ref(),
+                unsigned,
+                release::Trust::own(),
+            );
+            let result = match (vouched, kind) {
+                (Err(refusal), _) => Err(refusal),
+                (Ok(()), UpdateKind::Maxd) => install_maxd(running, &path, &sha256).await,
+                (Ok(()), UpdateKind::Guest) => install_guest(running, &path, &sha256).await,
             };
             let _ = std::fs::remove_file(&path);
             match result {

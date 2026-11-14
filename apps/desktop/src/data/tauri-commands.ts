@@ -64,10 +64,11 @@ export const commands = {
 	media: (agent: AgentId, path: string, limit: number, anyway: boolean, progress: Channel<TransferProgress>) => typedError<MediaFile, CommandError>(__TAURI_INVOKE("media", { agent, path, limit, anyway, progress })),
 	/**
 	 *  Updates `devices`, or every device when it's empty, to the `maxd` this
-	 *  app carries, and their agent CLIs too when `tools` is set. `progress`
-	 *  hears each device's every step.
+	 *  app carries, and their agent CLIs too when `tools` is set. `unsigned`
+	 *  says you agreed, in the window's dialog, to send a `maxd` no release
+	 *  signed, built on this Mac. `progress` hears each device's every step.
 	 */
-	updateFleet: (devices: DeviceId[], tools: boolean, progress: Channel<FleetProgress>) => typedError<null, CommandError>(__TAURI_INVOKE("update_fleet", { devices, tools, progress })),
+	updateFleet: (devices: DeviceId[], tools: boolean, unsigned: boolean, progress: Channel<FleetProgress>) => typedError<null, CommandError>(__TAURI_INVOKE("update_fleet", { devices, tools, unsigned, progress })),
 	/**
 	 *  Sets `host` up as a device over your own SSH login, then hands it the
 	 *  logins in `secrets` over its link. `progress` hears each step, ending

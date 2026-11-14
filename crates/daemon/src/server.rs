@@ -54,6 +54,10 @@ const READ_CHUNK: usize = 64 * 1024;
 const PHONE_CANT: &str = "A phone can't do that. To let this phone, turn on Let this phone do \
                           everything for it in the Mac's Settings, under Phones.";
 
+/// The refusal for an update no release signed, from a phone.
+const PHONE_UNSIGNED: &str = "A phone can't send a maxd no release signed. Send it from the \
+                              Mac's Update everything.";
+
 /// The answer to a request whose part of `maxd` isn't built yet.
 pub fn not_yet() -> ActionOutcome {
     ActionOutcome::Refused {
@@ -711,6 +715,19 @@ impl Connection {
                     ErrorCode::NotAllowed,
                     "A phone can't let other keys in. Do that from the Mac.",
                 )
+                .await;
+        }
+        // A binary no release signed runs only because you chose it on the
+        // Mac, which built it and named the risk first. A phone carries no
+        // binaries and can't start Update everything, so one marked
+        // unsigned from a phone is someone else's. Its switch never lifts
+        // this. Agents' tools and links from other devices can't send an
+        // update at all.
+        if self.phone.is_some()
+            && matches!(message, ClientMessage::InstallUpdate { unsigned: true, .. })
+        {
+            return self
+                .refuse(&message, ErrorCode::NotAllowed, PHONE_UNSIGNED)
                 .await;
         }
         // A phone is easier to lose than a Mac, and it never stores or
@@ -3389,6 +3406,8 @@ pub(crate) mod tests {
                 staged: AttachmentId::derive("maxd"),
                 kind: UpdateKind::Maxd,
                 sha256: "0".repeat(64),
+                release: None,
+                unsigned: false,
             },
             ClientMessage::InstallTool {
                 key: key("install"),
@@ -3593,6 +3612,21 @@ pub(crate) mod tests {
             );
         }
         assert!(phones.everything(phone));
+        // Nor send a maxd no release signed, which only the Mac builds.
+        let unsigned = ClientMessage::InstallUpdate {
+            key: key("unsigned"),
+            staged: AttachmentId::derive("maxd"),
+            kind: UpdateKind::Maxd,
+            sha256: "0".repeat(64),
+            release: None,
+            unsigned: true,
+        };
+        own.send(&unsigned).await;
+        let answer = own.recv().await;
+        assert!(
+            refused_with(&unsigned, &answer, PHONE_UNSIGNED),
+            "{answer:?}"
+        );
         let stage = || ClientMessage::StageAttachment {
             key: IdempotencyKey::generate(),
             source: AttachmentSource::Path { path: path.clone() },
@@ -3659,6 +3693,8 @@ pub(crate) mod tests {
                 staged: maxhq_protocol::ids::AttachmentId::derive("maxd"),
                 kind: maxhq_protocol::message::UpdateKind::Maxd,
                 sha256: "0".repeat(64),
+                release: None,
+                unsigned: false,
             })
             .await;
         let ServerMessage::ActionResult {
