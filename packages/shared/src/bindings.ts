@@ -1027,6 +1027,22 @@ export type AppKeyState = {
 	kept: boolean,
 };
 
+/**  What the settings page shows about the app's own update. */
+export type AppUpdate = {
+	/**  This app's version. */
+	version: string,
+	/**  Where its update stands. */
+	status: UpdateStatus,
+	/**  Your settings for it. */
+	prefs: UpdatePrefs,
+};
+
+/**
+ *  Sent whenever the update's status changes, so the prompt and the
+ *  settings page follow it.
+ */
+export type AppUpdateChanged = UpdateStatus;
+
 /**  What an agent asks approval for. */
 export type ApprovalKind = 
 /**  To run a shell command. */
@@ -5995,6 +6011,23 @@ export type NetworkState =
 /**  MaxHQ hasn't checked yet. */
 "unknown";
 
+/**  Why this copy of the app doesn't offer updates. */
+export type NoUpdates = 
+/**
+ *  A debug build, or one run from the source tree. A new build comes
+ *  from the source instead.
+ */
+"from_source" | 
+/**  It runs from a disk image, which goes once you eject it. */
+"disk_image" | 
+/**  macOS moved it aside, because it was opened where it was downloaded. */
+"translocated" | 
+/**
+ *  It's outside the Applications folder, where an update can't be sure
+ *  to replace it.
+ */
+"not_in_applications";
+
 /**  More about one node, asked for when you open it. */
 export type NodeDetail = {
 	/**  Its lists. */
@@ -9374,6 +9407,58 @@ export type UpdateKind =
 "maxd" | 
 /**  The binary each container workspace runs as `maxd guest`. */
 "guest";
+
+/**
+ *  Your settings for the app's updates, kept with this Mac's other app
+ *  settings.
+ */
+export type UpdatePrefs = {
+	/**
+	 *  Whether the app looks for an update when it starts and every few
+	 *  hours after.
+	 */
+	auto_check?: boolean,
+};
+
+/**  Where the app's own update stands. */
+export type UpdateStatus = 
+/**  This copy doesn't offer updates, for `reason`. */
+{ state: "unavailable"; 
+/**  Why not. */
+reason: NoUpdates } | 
+/**  It hasn't looked yet. */
+{ state: "idle" } | 
+/**  It's looking now. */
+{ state: "checking" } | 
+/**  It looked, and this is the newest version. */
+{ state: "up_to_date"; 
+/**  When it looked. */
+checked_at: Timestamp } | 
+/**  A newer version is out. */
+{ state: "available"; 
+/**  The newer version, such as `0.2.0`. */
+version: string } | 
+/**  The newer version is on its way. */
+{ state: "downloading"; 
+/**  The version. */
+version: string; 
+/**  Bytes so far. */
+downloaded: number; 
+/**  All of it, when the server says. */
+total: number | null } | 
+/**  It's downloaded and going into place. The app restarts next. */
+{ state: "installing"; 
+/**  The version. */
+version: string } | 
+/**  Looking or installing failed. */
+{ state: "failed"; 
+/**  Why, as the updater said. */
+reason: string; 
+/**
+ *  The newer version, when it failed installing one, so you can
+ *  try again.
+ */
+version: string | null };
 
 /**  Where uploaded files come from. */
 export type UploadSource = 

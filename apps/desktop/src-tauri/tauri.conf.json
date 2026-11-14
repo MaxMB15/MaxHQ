@@ -47,5 +47,11 @@
 		"macOS": {
 			"minimumSystemVersion": "15.0"
 		}
+	},
+	"plugins": {
+		"updater": {
+			"pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEY2NkZENzhDMUZBQzU5NUMKUldSY1dhd2ZqTmR2OWs3dStvNGt1RE05K0RtTjYvMk16MnhXUis1ZXhpTG1kMjF1YkFIQUR1bzUK",
+			"endpoints": []
+		}
 	}
 }
