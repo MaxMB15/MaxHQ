@@ -28,6 +28,7 @@ import { CliSignInHost } from "@/settings/cli-sign-in";
 import { SlideOutFor } from "@/workflow/containers";
 import type { UiStore } from "@maxhq/shared/ui/store";
 import { runName, runsOf } from "@maxhq/shared/workflow/select";
+import { UpdatePrompt } from "@/updates/update-prompt";
 import { CopyProjectHost } from "@/workspaces/copy-project";
 
 const SubAgents = () => {
@@ -85,6 +86,7 @@ export const Shell = () => {
 			<CopyProjectHost />
 			<CliSignInHost />
 			<ConfirmHost />
+			<UpdatePrompt />
 		</div>
 	);
 };

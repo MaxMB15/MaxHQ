@@ -116,8 +116,7 @@ impl<C: Connector> Devices<C> {
 /// at: a copy macOS moved aside because the app was opened where it was
 /// downloaded, or a disk image, which goes once you eject it.
 fn misplaced(maxd: &Path) -> bool {
-    let path = maxd.to_string_lossy();
-    path.contains("/AppTranslocation/") || path.starts_with("/Volumes/")
+    crate::app_update::moved_aside(maxd).is_some()
 }
 
 /// Runs `maxd` with `args`. A failure gives what `maxd` wrote to stderr.

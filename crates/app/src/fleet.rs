@@ -305,7 +305,7 @@ fn parse_sums(sums: &str, name: &str) -> Option<String> {
 
 /// A file's sha256, in hex.
 #[cfg(feature = "desktop")]
-fn sha256_file(path: &Path) -> std::io::Result<String> {
+pub(crate) fn sha256_file(path: &Path) -> std::io::Result<String> {
     let mut file = std::fs::File::open(path)?;
     let mut hash = Sha256::new();
     let mut buffer = vec![0; 1 << 16];
@@ -838,22 +838,6 @@ pub(crate) fn device_name(merge: &Merge, device: DeviceId) -> String {
                 _ => None,
             })
             .unwrap_or_else(|| "The device".to_owned()),
-    }
-}
-
-/// The app's own update. It stays a slot until the app has a signed
-/// release feed.
-pub trait AppUpdater: Send + Sync {
-    /// Where this app's own update stands, in words.
-    fn status(&self) -> String;
-}
-
-/// The updater a build from source has: none.
-pub struct NoAppUpdater;
-
-impl AppUpdater for NoAppUpdater {
-    fn status(&self) -> String {
-        "Built from source".to_owned()
     }
 }
 

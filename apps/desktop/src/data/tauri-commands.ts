@@ -4,7 +4,7 @@
 import { invoke as __TAURI_INVOKE, Channel } from "@tauri-apps/api/core";
 import * as __TAURI_EVENT from "@tauri-apps/api/event";
 
-import type { ActionOutcome, AgentId, AttachmentPickerLabels, CommandError, CopiedProject, CopyTarget, DeviceId, Downloaded, FleetProgress, FocusAgent, LinkId, MediaFile, Misspelling, NativeError, NotificationPermission, NotificationPrefs, PathInfo, Request, Response, RunKey, SavedExport, SetupProgress, SetupSecret, SpellingChoice, SpellingMenuLabels, TimelineMessage, TransferProgress, UploadTarget, ViewChanged, WebviewPoint, WorkflowMessage, WorkspaceId } from "@maxhq/shared/bindings";
+import type { ActionOutcome, AgentId, AppUpdate, AppUpdateChanged, AttachmentPickerLabels, CommandError, CopiedProject, CopyTarget, DeviceId, Downloaded, FleetProgress, FocusAgent, LinkId, MediaFile, Misspelling, NativeError, NotificationPermission, NotificationPrefs, PathInfo, Request, Response, RunKey, SavedExport, SetupProgress, SetupSecret, SpellingChoice, SpellingMenuLabels, TimelineMessage, TransferProgress, UpdatePrefs, UpdateStatus, UploadTarget, ViewChanged, WebviewPoint, WorkflowMessage, WorkspaceId } from "@maxhq/shared/bindings";
 
 /** Commands */
 export const commands = {
@@ -147,10 +147,22 @@ export const commands = {
 	sendTestNotification: () => typedError<null, NativeError>(__TAURI_INVOKE("send_test_notification")),
 	/**  Opens this app's page under Notifications in System Settings. */
 	openNotificationSettings: () => typedError<null, NativeError>(__TAURI_INVOKE("open_notification_settings")),
+	/**  This app's version, where its update stands and your settings for it. */
+	appUpdate: () => __TAURI_INVOKE<AppUpdate>("app_update"),
+	/**  Looks for a newer version now, whatever the setting says. */
+	checkForUpdate: () => typedError<UpdateStatus, NativeError>(__TAURI_INVOKE("check_for_update")),
+	/**
+	 *  Downloads and installs the newer version found, then restarts the app.
+	 *  It answers only when that fails.
+	 */
+	installUpdate: () => typedError<null, NativeError>(__TAURI_INVOKE("install_update")),
+	/**  Changes the update settings. They last across restarts. */
+	setUpdatePrefs: (prefs: UpdatePrefs) => typedError<null, NativeError>(__TAURI_INVOKE("set_update_prefs", { prefs })),
 };
 
 /** Events */
 export const events = {
+	appUpdateChanged: makeEvent<AppUpdateChanged, AppUpdateChanged>("app-update-changed"),
 	focusAgent: makeEvent<FocusAgent, FocusAgent>("focus-agent"),
 	viewChanged: makeEvent<ViewChanged, ViewChanged>("view-changed"),
 };

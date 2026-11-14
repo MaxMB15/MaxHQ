@@ -15,6 +15,8 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
+pub use maxhq_core::service::program_in;
+
 /// How often the app is looked for.
 pub const CHECK_EVERY: Duration = Duration::from_secs(60);
 
@@ -78,18 +80,6 @@ pub fn in_app(exe: &Path) -> bool {
         && app
             .and_then(Path::extension)
             .is_some_and(|extension| extension == "app")
-}
-
-/// The program a LaunchAgent [`plist`](super::plist) runs.
-pub fn program_in(plist: &str) -> Option<PathBuf> {
-    let (_, rest) = plist.split_once("<key>ProgramArguments</key>")?;
-    let (_, rest) = rest.split_once("<string>")?;
-    let (program, _) = rest.split_once("</string>")?;
-    let program = program
-        .replace("&lt;", "<")
-        .replace("&gt;", ">")
-        .replace("&amp;", "&");
-    Some(PathBuf::from(program))
 }
 
 /// Whether the app `exe` is in still looks there. When the folder that held

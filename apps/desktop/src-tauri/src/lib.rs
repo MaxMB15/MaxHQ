@@ -11,6 +11,7 @@ mod commands;
 mod native;
 mod notify;
 mod terminal;
+mod updater;
 
 use std::path::PathBuf;
 use std::process::Stdio;
@@ -18,6 +19,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use maxhq_app::app_keys;
+use maxhq_app::app_update::UpdatePrefs;
 use maxhq_app::devices::{self, Devices};
 use maxhq_app::editors;
 use maxhq_app::media::{self, Served};
@@ -87,8 +89,16 @@ pub fn specta_builder() -> Builder<tauri::Wry> {
             notify::notification_permission,
             notify::send_test_notification,
             notify::open_notification_settings,
+            updater::app_update,
+            updater::check_for_update,
+            updater::install_update,
+            updater::set_update_prefs,
         ])
-        .events(collect_events![ViewChanged, FocusAgent])
+        .events(collect_events![
+            ViewChanged,
+            FocusAgent,
+            updater::AppUpdateChanged
+        ])
         .typ::<maxhq_protocol::ClientMessage>()
         .typ::<maxhq_protocol::ServerMessage>()
         .constant("PROTOCOL_VERSION", maxhq_protocol::PROTOCOL_VERSION)
@@ -149,6 +159,7 @@ pub fn run() {
     let builder = specta_builder();
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .invoke_handler(native::invoke_handler(builder.invoke_handler()))
         .on_window_event(|window, event| {
             native::on_window_event(window, event);
@@ -173,6 +184,7 @@ pub fn run() {
                 NotificationPrefs::load(&registry),
             );
             app.manage(notifications);
+            app.manage(updater::Updates::new(UpdatePrefs::load(&registry)));
             let view = View::new(emit, sender);
             let downloads = app.path().download_dir().ok();
             let media = media_folder(app.handle());
@@ -204,11 +216,24 @@ pub fn run() {
                 app: app.handle().clone(),
             };
             app.manage(App::new(view, devices, desktop));
+            keep_local_maxd_current(app.handle());
+            updater::start(app.handle());
             open_main_window(app)?;
             Ok(())
         })
         .run(tauri::generate_context!())
         .expect("the Tauri runtime failed to start");
+}
+
+/// Restarts this Mac's maxd once it says hello, when its login service
+/// runs the maxd inside this app and that one is a different build: the
+/// app was updated or put back in place, and the maxd still running is
+/// the one from before.
+fn keep_local_maxd_current(handle: &AppHandle) {
+    let handle = handle.clone();
+    tauri::async_runtime::spawn(async move {
+        handle.state::<App>().keep_local_maxd_current().await;
+    });
 }
 
 /// Makes the main window from its config, once the app's state is there

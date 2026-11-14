@@ -14,6 +14,8 @@
 
 pub mod agents;
 pub mod app_keys;
+#[cfg(feature = "desktop")]
+pub mod app_update;
 pub mod devices;
 #[cfg(feature = "desktop")]
 pub mod editors;

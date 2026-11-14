@@ -4,13 +4,35 @@
 //! The login service `maxd` runs as: its names under launchd and systemd,
 //! and the commands that restart it. `maxd` restarts itself with them after
 //! an update, and the app restarts a device's `maxd` with them, which works
-//! however old that `maxd` is.
+//! however old that `maxd` is. The app also reads which `maxd` the
+//! LaunchAgent runs, from the file both of them know.
+
+use std::path::{Path, PathBuf};
 
 /// The LaunchAgent's label, which is also its file name.
 pub const LABEL: &str = "com.maxagenthq.maxd";
 
 /// The systemd user unit's name. The NixOS module's unit has it too.
 pub const UNIT: &str = "maxd.service";
+
+/// The LaunchAgent `maxd service install` writes for the user at `home`.
+pub fn launch_agent_file(home: &Path) -> PathBuf {
+    home.join("Library/LaunchAgents")
+        .join(format!("{LABEL}.plist"))
+}
+
+/// The program a LaunchAgent's `plist` runs: the first of its
+/// `ProgramArguments`.
+pub fn program_in(plist: &str) -> Option<PathBuf> {
+    let (_, rest) = plist.split_once("<key>ProgramArguments</key>")?;
+    let (_, rest) = rest.split_once("<string>")?;
+    let (program, _) = rest.split_once("</string>")?;
+    let program = program
+        .replace("&lt;", "<")
+        .replace("&gt;", ">")
+        .replace("&amp;", "&");
+    Some(PathBuf::from(program))
+}
 
 /// What starts and stops services on a system.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
