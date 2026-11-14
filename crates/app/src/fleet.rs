@@ -730,6 +730,9 @@ impl<C: Connector> FleetOps for Through<'_, C> {
             staged,
             kind,
             sha256,
+            // The app sends no release yet, so a maxd that checks refuses.
+            release: None,
+            unsigned: false,
         };
         self.devices.act_on(device, action).await
     }

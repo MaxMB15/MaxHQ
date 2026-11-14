@@ -1,0 +1,8 @@
+{
+  "version": "0.2.0",
+  "binaries": {
+    "maxd-x86_64-unknown-linux-musl": "a32179b8f22c5d1221b6fa3c20ebed510b27572e8a89fca12b933bee06440d81",
+    "maxd-aarch64-unknown-linux-musl": "46e79bd0884bd63e42bcf284f21b645007733273b59dc268f48413a8710f2dff",
+    "maxd-aarch64-apple-darwin": "21c9b6ece5d75329cac9e198d20a1e886cb3574c61b591df900d720b728be2a0"
+  }
+}

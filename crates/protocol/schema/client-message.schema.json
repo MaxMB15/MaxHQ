@@ -1983,6 +1983,17 @@
           "description": "Which binary it is.",
           "$ref": "#/$defs/UpdateKind"
         },
+        "release": {
+          "description": "The signed release manifest that lists the binary, from the\nfolder it came from. A `maxd` from [`SIGNED_UPDATES_SINCE`] on\nchecks it before it runs or installs the upload, and refuses an\nupload without one unless `unsigned` is set. A client from\nbefore sends none, and an older `maxd` ignores it.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SignedRelease"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "sha256": {
           "description": "The binary's sha256 in lowercase hex, checked before anything\nchanges.",
           "type": "string"
@@ -1994,6 +2005,10 @@
         "type": {
           "type": "string",
           "const": "install_update"
+        },
+        "unsigned": {
+          "description": "You chose to send a binary no release signed, such as one built\nfrom source on the Mac, after the app named the risk. Only the\nMac's own connection may set it, never a phone. A client from\nbefore sends none, and reads as false.",
+          "type": "boolean"
         }
       },
       "required": [
@@ -11254,6 +11269,24 @@
         "encoding",
         "prefix",
         "has_secret"
+      ]
+    },
+    "SignedRelease": {
+      "description": "A release's fleet manifest, `maxd-release.json`, and its signature,\n`maxd-release.json.sig`, as the release put them beside its binaries.",
+      "type": "object",
+      "properties": {
+        "manifest": {
+          "description": "The manifest's text: the release's version and the sha256 of each\n`maxd-<target>` it carries.",
+          "type": "string"
+        },
+        "signature": {
+          "description": "The signature's text: base64 of a minisign signature over the\nmanifest's bytes, as `tauri signer sign` writes it.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "manifest",
+        "signature"
       ]
     },
     "SkillFlags": {

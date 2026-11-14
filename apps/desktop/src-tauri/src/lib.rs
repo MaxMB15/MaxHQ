@@ -129,6 +129,10 @@ pub fn specta_builder() -> Builder<tauri::Wry> {
         .constant("EFFORT_SINCE", maxhq_protocol::message::EFFORT_SINCE)
         .constant("TAKE_OVER_SINCE", maxhq_protocol::message::TAKE_OVER_SINCE)
         .constant("DISMISS_SINCE", maxhq_protocol::message::DISMISS_SINCE)
+        .constant(
+            "SIGNED_UPDATES_SINCE",
+            maxhq_protocol::message::SIGNED_UPDATES_SINCE,
+        )
 }
 
 /// The exporter settings for the generated file.

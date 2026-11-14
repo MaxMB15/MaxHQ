@@ -116,6 +116,11 @@ ignore = "0.4.23"
 # Hashes every file in a transfer, so a file that changed or broke on the
 # way is caught before it's renamed into place.
 sha2 = "0.10"
+# Checks the fleet manifest's minisign signature, the format `tauri signer`
+# writes, before maxd installs an update. No dependencies of its own.
+minisign-verify = "0.2.5"
+# Compares the fleet manifest's version with the running maxd's.
+semver = { version = "1.0.28", default-features = false, features = ["std"] }
 # Lines two note versions changed, for merging notes edited on two devices.
 similar = { version = "3.2.1", default-features = false, features = ["std"] }
 # Reads the page a sign-in opens and the callback it comes back to.

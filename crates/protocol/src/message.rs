@@ -998,6 +998,19 @@ pub enum ClientMessage {
         /// The binary's sha256 in lowercase hex, checked before anything
         /// changes.
         sha256: String,
+        /// The signed release manifest that lists the binary, from the
+        /// folder it came from. A `maxd` from [`SIGNED_UPDATES_SINCE`] on
+        /// checks it before it runs or installs the upload, and refuses an
+        /// upload without one unless `unsigned` is set. A client from
+        /// before sends none, and an older `maxd` ignores it.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        release: Option<SignedRelease>,
+        /// You chose to send a binary no release signed, such as one built
+        /// from source on the Mac, after the app named the risk. Only the
+        /// Mac's own connection may set it, never a phone. A client from
+        /// before sends none, and reads as false.
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        unsigned: bool,
     },
     /// Updates agent CLIs on the device and in its workspaces. Each one's
     /// progress shows in [`crate::state::DeviceTools`]. The outcome is
@@ -2219,6 +2232,18 @@ pub enum UpdateKind {
     Guest,
 }
 
+/// A release's fleet manifest, `maxd-release.json`, and its signature,
+/// `maxd-release.json.sig`, as the release put them beside its binaries.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, Type, JsonSchema)]
+pub struct SignedRelease {
+    /// The manifest's text: the release's version and the sha256 of each
+    /// `maxd-<target>` it carries.
+    pub manifest: String,
+    /// The signature's text: base64 of a minisign signature over the
+    /// manifest's bytes, as `tauri signer sign` writes it.
+    pub signature: String,
+}
+
 /// One CLI in one place, for [`ClientMessage::UpdateTools`].
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, Type, JsonSchema)]
 pub struct ToolTarget {
@@ -2548,6 +2573,13 @@ pub const TAKE_OVER_SINCE: u32 = 41;
 /// before a [`SendMode::Interrupt`] message. An older one interrupts the
 /// turn, and its prompts close without an answer.
 pub const DISMISS_SINCE: u32 = 42;
+
+/// The protocol version whose `maxd` first checks the signed release
+/// manifest of an update, [`SignedRelease`], before it runs or installs the
+/// upload, and refuses one no release signed unless you chose to send it.
+/// An older one ignores both and installs the upload as before, so the app
+/// says it doesn't check signatures.
+pub const SIGNED_UPDATES_SINCE: u32 = 43;
 
 /// When [`ClientMessage::TakeOver`] stops the terminal's CLI.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, Type, JsonSchema)]
@@ -3691,6 +3723,48 @@ mod tests {
         assert_eq!(pick.since(), OLDEST_PROTOCOL_VERSION);
         assert_eq!(DISMISS_SINCE, 42);
         const { assert!(DISMISS_SINCE <= crate::PROTOCOL_VERSION) };
+    }
+
+    #[test]
+    fn an_update_carries_its_release_and_still_reaches_an_older_maxd() {
+        let update = |release, unsigned| ClientMessage::InstallUpdate {
+            key: key(),
+            staged: "0199a7c2-0000-7000-8000-000000000003".parse().unwrap(),
+            kind: UpdateKind::Maxd,
+            sha256: "0".repeat(64),
+            release,
+            unsigned,
+        };
+        let signed = update(
+            Some(SignedRelease {
+                manifest: "{}".into(),
+                signature: "c2ln".into(),
+            }),
+            false,
+        );
+        let json = round_trip(&signed);
+        assert_eq!(json["release"]["manifest"], "{}");
+        assert!(json.get("unsigned").is_none());
+        let unsigned = update(None, true);
+        let json = round_trip(&unsigned);
+        assert!(json.get("release").is_none());
+        assert_eq!(json["unsigned"], true);
+        // An older maxd ignores both and installs as before, so neither
+        // holds the update back from it.
+        assert_eq!(signed.since(), OLDEST_PROTOCOL_VERSION);
+        assert_eq!(unsigned.since(), OLDEST_PROTOCOL_VERSION);
+        // A client from before sends neither.
+        let old: ClientMessage = serde_json::from_value(serde_json::json!({
+            "type": "install_update",
+            "key": key(),
+            "staged": "0199a7c2-0000-7000-8000-000000000003",
+            "kind": "maxd",
+            "sha256": "0".repeat(64),
+        }))
+        .unwrap();
+        assert_eq!(old, update(None, false));
+        assert_eq!(SIGNED_UPDATES_SINCE, 43);
+        const { assert!(SIGNED_UPDATES_SINCE <= crate::PROTOCOL_VERSION) };
     }
 
     #[test]

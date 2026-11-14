@@ -125,6 +125,45 @@ pub enum Refusal {
     /// The upload's sha256 isn't the one the app sent.
     #[error("the upload doesn't match its checksum, so it wasn't installed")]
     Checksum,
+    /// No release manifest came with the upload, and it isn't marked as
+    /// one you chose to send unsigned.
+    #[error(
+        "no release signed this upload, so it wasn't installed. Update the app, or send it again \
+         from Update everything, which asks before it sends a build from source"
+    )]
+    Unsigned,
+    /// The release manifest's signature isn't the release key's.
+    #[error(
+        "the release manifest's signature doesn't match the release key, so the upload wasn't \
+         installed"
+    )]
+    Signature,
+    /// The release manifest, or this maxd's own key or version, doesn't
+    /// read.
+    #[error("the release manifest can't be read ({0}), so the upload wasn't installed")]
+    Manifest(String),
+    /// The release is older than the maxd that runs.
+    #[error("the release is version {release}, older than this maxd's {running}, so it wasn't installed")]
+    Older {
+        /// The manifest's version.
+        release: String,
+        /// This maxd's version.
+        running: String,
+    },
+    /// The release lists the upload, but for another target.
+    #[error("the release lists this upload as {listed}, not {wanted}, so it wasn't installed")]
+    OtherTarget {
+        /// The entry that lists it.
+        listed: String,
+        /// The entry this device needs.
+        wanted: String,
+    },
+    /// The release doesn't list the upload at all.
+    #[error("the release doesn't list this upload as {entry}, so it wasn't installed")]
+    Unlisted {
+        /// The entry this device needs.
+        entry: String,
+    },
     /// The new binary didn't run, or printed a build that isn't its own.
     #[error("the new binary didn't report its own build ({0}), so it wasn't installed")]
     Build(String),
