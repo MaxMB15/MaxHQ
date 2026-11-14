@@ -6,7 +6,16 @@ A daemon called `maxd` runs on every device. It starts the agent CLIs, keeps the
 
 ## Status
 
-MaxHQ is pre-release. There are no releases or signed builds, so you build it from source. The protocol between the apps and `maxd` still changes often, and so do the screens.
+MaxHQ is pre-release. Signed builds come out as GitHub releases, or you can build it from source. The protocol between the apps and `maxd` still changes often, and so do the screens.
+
+## Download
+
+The latest release has a signed, notarized app for each Mac:
+
+- Apple silicon: [MaxHQ_aarch64.dmg](../../releases/latest/download/MaxHQ_aarch64.dmg)
+- Intel: [MaxHQ_x64.dmg](../../releases/latest/download/MaxHQ_x64.dmg)
+
+Open the DMG and drag MaxHQ to Applications. The app carries `maxd` for the Mac and a static `maxd` for x86_64 and arm64 Linux, which it copies to the Linux devices you add. The same Linux binaries are on each release as `maxd-x86_64-unknown-linux-musl` and `maxd-aarch64-unknown-linux-musl`, with their sums in `SHA256SUMS`. The app checks for updates against the latest release.
 
 ## What it does
 
@@ -92,7 +101,7 @@ pnpm dev
 
 To work on the frontend alone, `pnpm dev:web` serves it in a browser with sample data and no Rust.
 
-`pnpm build` runs `tauri build`. The bundle it makes doesn't carry `maxd` or the Linux binaries yet.
+`pnpm build` runs `tauri build`, which makes the app without `maxd` or the Linux binaries. `scripts/release/package-macos.sh` makes the full bundle the releases ship, with both of them inside; see [.github/RELEASING.md](.github/RELEASING.md).
 
 ### Linux binaries
 

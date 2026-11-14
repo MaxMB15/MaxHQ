@@ -41,6 +41,10 @@ Every push to `main` or `dev`, and every pull request, runs these jobs:
 
 CI can't run the private names check, since `docs/private-patterns.txt` stays on your machine. CI runs clippy on Linux only. The hook runs it on your machine, so on a Mac it also covers code behind `cfg(target_os = "macos")`.
 
+## Releases
+
+A release is a `vX.Y.Z` tag on `main`, made by the Release pipeline workflow in one click. [.github/RELEASING.md](.github/RELEASING.md) explains how to run it, what it builds, the secrets it needs, and what to do when a step fails.
+
 ## Changing the protocol
 
 `crates/protocol` holds the types that `maxd`, the Mac app and the phone app send each other. The TypeScript bindings in `packages/shared/src/bindings.ts` and the JSON Schemas in `crates/protocol/schema` are generated from them. After you change a type, regenerate them:
