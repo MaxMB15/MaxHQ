@@ -1436,6 +1436,7 @@ mod tests {
             default: true,
             efforts: Vec::new(),
             default_effort: None,
+            no_images: false,
         }];
 
         let first = hub();

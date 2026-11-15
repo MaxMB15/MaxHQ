@@ -1787,15 +1787,215 @@ fn an_image_goes_by_path_when_cursor_cant_take_images() {
         vec![image(dir.path())],
         SendMode::Queue,
     ));
-    let fx = run.take();
-    let prompt = sent_once(&fx, "session/prompt");
-    let blocks = prompt["params"]["prompt"].as_array().unwrap();
-    assert!(blocks.iter().all(|block| block["type"] == "text"));
-    let all: String = blocks
+    let (text, inline) = prompt_sent(&run.take());
+    assert!(!inline);
+    assert!(text.contains("red.png"), "{text}");
+}
+
+/// Cursor's answer to a model change that took `model`.
+fn model_taken(model: &str) -> String {
+    format!(
+        r#"{{"jsonrpc":"2.0","id":"$session/set_config_option","result":{{"configOptions":[{{"id":"model","category":"model","currentValue":"{model}","options":[{{"value":"{model}","name":"{model}"}}]}}]}}}}"#
+    )
+}
+
+/// Changes the agent's model to `model`, which Cursor takes.
+fn change_model(run: &mut Run, n: u128, model: &str) {
+    run.act(Action::SetModel {
+        key: key(n),
+        agent: lead(),
+        model: model.into(),
+    });
+    run.feed(&model_taken(model));
+    run.take();
+}
+
+/// The text blocks of the one prompt in `fx`, and whether it had an
+/// image block.
+fn prompt_sent(fx: &Effects) -> (String, bool) {
+    let prompt = sent_once(fx, "session/prompt");
+    let blocks = prompt["params"]["prompt"].as_array().unwrap().clone();
+    let text = blocks
         .iter()
         .filter_map(|block| block["text"].as_str())
         .collect();
-    assert!(all.contains("red.png"), "{all}");
+    (text, blocks.iter().any(|block| block["type"] == "image"))
+}
+
+#[test]
+fn an_image_goes_by_path_to_a_model_that_cant_read_images() {
+    let dir = crate::testing::TempDir::new();
+    let mut run = Run::ready();
+    change_model(&mut run, 1, "glm-5p3-flash");
+    run.act(send_with(
+        key(2),
+        "What color?",
+        vec![image(dir.path())],
+        SendMode::Queue,
+    ));
+    let (text, inline) = prompt_sent(&run.take());
+    assert!(!inline);
+    assert!(
+        text.contains(&dir.path().join("red.png").to_string_lossy().into_owned()),
+        "{text}"
+    );
+}
+
+#[test]
+fn an_image_goes_by_path_while_a_change_to_such_a_model_waits() {
+    let dir = crate::testing::TempDir::new();
+    let mut run = Run::ready();
+    run.act(Action::SetModel {
+        key: key(1),
+        agent: lead(),
+        model: "glm-5p3".into(),
+    });
+    run.act(send_with(
+        key(2),
+        "What color?",
+        vec![image(dir.path())],
+        SendMode::Queue,
+    ));
+    let (_, inline) = prompt_sent(&run.take());
+    assert!(!inline);
+}
+
+#[test]
+fn listed_models_say_which_cant_read_images() {
+    let mut run = Run::with(None, PermissionMode::Ask);
+    run.connect();
+    run.feed(&handshake()[0]);
+    run.feed(&handshake()[1].replace(r#""grok-4.6""#, r#""glm-5p3-flash""#));
+    let fx = run.take();
+    let (_, models) = fx.models.last().expect("models");
+    let without: Vec<&str> = models
+        .iter()
+        .filter(|model| model.no_images)
+        .map(|model| model.id.as_str())
+        .collect();
+    assert_eq!(without, ["glm-5p3-flash"]);
+}
+
+/// Cursor's reply when the model's provider refuses the request.
+const REFUSED: &str = "Error: NonRetriableError: Provider Error We're having trouble connecting to the model provider. This might be temporary - please try again in a moment.";
+
+/// Feeds a turn that ends with [`REFUSED`] as its whole reply, and gives
+/// the error it showed.
+fn refused_turn(run: &mut Run) -> String {
+    let chunk = json!({
+        "jsonrpc": "2.0",
+        "method": "session/update",
+        "params": {
+            "sessionId": SESSION,
+            "update": {
+                "sessionUpdate": "agent_message_chunk",
+                "content": { "type": "text", "text": REFUSED },
+            },
+        },
+    });
+    run.feed(&chunk.to_string());
+    run.feed(r#"{"jsonrpc":"2.0","id":"$session/prompt","result":{"stopReason":"end_turn"}}"#);
+    let fx = run.take();
+    let items = items_of(&fx);
+    assert!(
+        !items
+            .iter()
+            .any(|item| matches!(item.body, ItemBody::AssistantMessage { .. })),
+        "the refusal isn't a reply"
+    );
+    let error = items
+        .iter()
+        .find(|item| item.id.0.ends_with(":error"))
+        .expect("an error");
+    match &error.body {
+        ItemBody::Error {
+            message,
+            retrying,
+            sign_in,
+        } => {
+            assert!(!retrying);
+            assert_eq!(*sign_in, None);
+            assert!(sent(&fx, "session/prompt").is_empty(), "no retry");
+            message.clone()
+        }
+        other => panic!("{other:?}"),
+    }
+}
+
+#[test]
+fn a_provider_refusal_reads_as_an_error() {
+    let mut run = Run::turning("Go");
+    assert_eq!(refused_turn(&mut run), REFUSED);
+}
+
+#[test]
+fn a_refusal_says_why_when_the_model_cant_read_the_image_it_has() {
+    let dir = crate::testing::TempDir::new();
+    let mut run = Run::ready();
+    run.act(send_with(
+        key(1),
+        "What color?",
+        vec![image(dir.path())],
+        SendMode::Queue,
+    ));
+    let (_, inline) = prompt_sent(&run.take());
+    assert!(inline);
+    // A model that reads images gets no hint.
+    assert_eq!(refused_turn(&mut run), REFUSED);
+    change_model(&mut run, 2, "glm-5p3-flash");
+    run.act(send(key(3), "Hello?", SendMode::Queue));
+    run.take();
+    let message = refused_turn(&mut run);
+    assert!(message.starts_with(REFUSED), "{message}");
+    assert!(
+        message.ends_with(
+            "This model can't read images, and this conversation has one. \
+             Switch to a model that reads images to continue."
+        ),
+        "{message}"
+    );
+}
+
+#[test]
+fn a_refusal_without_an_image_gives_no_hint() {
+    let mut run = Run::ready();
+    change_model(&mut run, 1, "glm-5p3-flash");
+    run.act(send(key(2), "Hello?", SendMode::Queue));
+    run.take();
+    assert_eq!(refused_turn(&mut run), REFUSED);
+}
+
+#[test]
+fn an_image_a_load_replays_counts_for_the_hint() {
+    let mut run = Run::kept(
+        Kept {
+            session: Some(SESSION.into()),
+            model: Some("glm-5p3-flash".into()),
+            ..Kept::default()
+        },
+        PermissionMode::Ask,
+    );
+    run.connect();
+    let load = recording("acp-load.jsonl");
+    run.feed(&load[0]);
+    let picture = json!({
+        "jsonrpc": "2.0",
+        "method": "session/update",
+        "params": {
+            "sessionId": SESSION,
+            "update": {
+                "sessionUpdate": "user_message_chunk",
+                "content": { "type": "image", "mimeType": "image/png", "data": "iVBORw0KGgo=" },
+            },
+        },
+    });
+    run.feed(&picture.to_string());
+    run.feed_all(&load[1..]);
+    run.feed(&model_taken("glm-5p3-flash"));
+    run.take();
+    run.act(send(key(1), "Hello?", SendMode::Queue));
+    run.take();
+    assert!(refused_turn(&mut run).ends_with("Switch to a model that reads images to continue."));
 }
 
 // Models and modes.

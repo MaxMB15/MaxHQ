@@ -417,6 +417,7 @@ fn a_mode_change_follows_the_cli_and_the_init_reply_lists_models() {
                     default: true,
                     efforts: efforts(),
                     default_effort: Some("medium".to_owned()),
+                    no_images: false,
                 },
                 ModelChoice {
                     id: "fable".to_owned(),
@@ -424,6 +425,7 @@ fn a_mode_change_follows_the_cli_and_the_init_reply_lists_models() {
                     default: false,
                     efforts: efforts(),
                     default_effort: Some("high".to_owned()),
+                    no_images: false,
                 },
                 ModelChoice {
                     id: "sonnet".to_owned(),
@@ -431,6 +433,7 @@ fn a_mode_change_follows_the_cli_and_the_init_reply_lists_models() {
                     default: false,
                     efforts: efforts(),
                     default_effort: Some("medium".to_owned()),
+                    no_images: false,
                 },
             ],
         )]

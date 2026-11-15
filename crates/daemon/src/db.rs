@@ -1887,6 +1887,7 @@ mod tests {
             default: true,
             efforts: Vec::new(),
             default_effort: None,
+            no_images: false,
         }];
         db.put_models(a, &models).unwrap();
         db.put_models(b, &models).unwrap();

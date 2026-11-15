@@ -120,6 +120,18 @@ export const modelLabel = (model: string | null, choices: readonly ModelChoice[]
 export const currentModel = (model: string | null, choices: readonly ModelChoice[]): string =>
 	choiceOf(model, choices)?.id ?? model ?? "";
 
+/**
+ * The name of the agent's model when it can't read images, else null.
+ * `maxd` sends such a model each image by its file path.
+ */
+export const modelWithoutImages = (
+	model: string | null,
+	choices: readonly ModelChoice[]
+): string | null => {
+	const choice = choiceOf(model, choices);
+	return choice?.no_images ? choice.label : null;
+};
+
 /** The models a move offers. Without a list, the account's own default runs. */
 export const moveModels = (move: Move): readonly Pick<ModelChoice, "id" | "label">[] =>
 	move.models.length > 0 ? move.models : [{ id: "", label: t("Default model") }];

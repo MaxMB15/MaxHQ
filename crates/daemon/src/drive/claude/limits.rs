@@ -108,6 +108,7 @@ pub fn models(reply: &Value, saved: &Saved) -> Option<Vec<ModelChoice>> {
                 default: is_default,
                 efforts: efforts(model),
                 default_effort: None,
+                no_images: false,
             };
             choice.default_effort =
                 effort::default_for(&choice, text(model, "resolvedModel"), saved);
@@ -202,6 +203,7 @@ mod tests {
                         .map(String::from)
                         .into(),
                     default_effort: Some("medium".into()),
+                    no_images: false,
                 },
                 ModelChoice {
                     id: "sonnet".into(),
@@ -209,6 +211,7 @@ mod tests {
                     default: false,
                     efforts: Vec::new(),
                     default_effort: None,
+                    no_images: false,
                 },
             ]
         );

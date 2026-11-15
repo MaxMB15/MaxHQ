@@ -5830,6 +5830,11 @@ export type ModelChoice = {
 	 *  also where a new agent starts when nothing else names one.
 	 */
 	default_effort?: string | null,
+	/**
+	 *  Set when the model can't read images, so `maxd` sends an attached
+	 *  image by its path only. A `maxd` from before leaves this out.
+	 */
+	no_images?: boolean,
 };
 
 /**

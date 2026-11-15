@@ -8928,6 +8928,10 @@
         "label": {
           "description": "The name to show.",
           "type": "string"
+        },
+        "no_images": {
+          "description": "Set when the model can't read images, so `maxd` sends an attached\nimage by its path only. A `maxd` from before leaves this out.",
+          "type": "boolean"
         }
       },
       "required": [

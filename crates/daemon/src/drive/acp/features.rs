@@ -119,6 +119,7 @@ pub fn legacy(result: &Value, names: &Legacy) -> Option<(Vec<ModelChoice>, Optio
                 default: Some(value) == current,
                 efforts: Vec::new(),
                 default_effort: None,
+                no_images: false,
             })
         })
         .collect();

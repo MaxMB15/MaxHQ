@@ -749,6 +749,7 @@
 	"runs its default model": "utiliza su modelo predeterminado",
 	"{{name}} can't load an earlier session, so it starts again without this conversation's history.": "{{name}} no puede cargar una sesión anterior, así que empieza de nuevo sin el historial de esta conversación.",
 	"{{name}} doesn't take images, so they go as file paths in the message.": "{{name}} no admite imágenes, así que se incluyen como rutas de archivo en el mensaje.",
+	"{{name}} can't see images. The agent gets the file path instead.": "{{name}} no puede ver imágenes. El agente recibe la ruta del archivo en su lugar.",
 	"{{name}} needs a sign-in.": "{{name}} requiere iniciar sesión.",
 	"Signature checked": "Firma verificada",
 	"Sent at setup": "Enviada durante la configuración",

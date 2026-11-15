@@ -616,6 +616,7 @@ impl Harness {
             default: true,
             efforts: efforts.iter().copied().map(String::from).collect(),
             default_effort: Some(default.into()),
+            no_images: false,
         }];
         self.keep(Entity::Account(account));
     }
@@ -1394,6 +1395,7 @@ async fn every_effect_a_driver_reports_is_carried_out() {
         default: true,
         efforts: Vec::new(),
         default_effort: None,
+        no_images: false,
     }];
     let say = Say {
         agents: vec![h.reported(lead, Activity::Busy), sub.clone()],

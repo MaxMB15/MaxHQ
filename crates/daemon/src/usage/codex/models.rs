@@ -47,6 +47,7 @@ pub fn page(result: &Value, into: &mut Vec<ModelChoice>) -> Option<String> {
                 .get("defaultReasoningEffort")
                 .and_then(Value::as_str)
                 .map(str::to_owned),
+            no_images: false,
         });
     }
     result
