@@ -15,6 +15,7 @@ import {
 } from "@maxhq/shared/agent-view/footer-fit";
 import { SKIP_WORDS } from "@maxhq/shared/agent-view/dismiss";
 import type { SendMode } from "@maxhq/shared/bindings";
+import { BUSY_SEND_WORDS, type BusySend, otherBusySend } from "@maxhq/shared/composer/send";
 import { t as translate, useI18n } from "@maxhq/shared/i18n";
 import { foldsAt } from "@maxhq/shared/ui/fold";
 import {
@@ -38,7 +39,8 @@ const KEY = "text-[10.5px]";
 
 // Both keys take Command, or Control off a Mac, as the editor does.
 const ATTACH: Shortcut = { label: "U", code: "KeyU" };
-const steerKey = (): string => keyHint({ label: onMac() ? "⏎" : "Enter", code: "" });
+/** Command-Enter as the key hints show it, such as ⌘⏎. */
+export const commandEnter = (): string => keyHint({ label: onMac() ? "⏎" : "Enter", code: "" });
 
 const BUTTON =
 	"inline-flex h-7 shrink-0 items-center gap-[7px] rounded-md px-2.5 text-xs whitespace-nowrap outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed";
@@ -236,18 +238,23 @@ const SendButton = ({
 };
 
 /**
- * What the send buttons offer: `send` while the agent idles, `steer` and
- * queue while a turn runs, `now` and queue while a prompt waits, and
+ * What the send buttons offer: `send` while the agent idles, steer and
+ * queue while a turn is `busy`, `now` and queue while a prompt waits, and
  * `queue` alone while the agent waits for its limit to reset.
  */
-export type Sends = "send" | "steer" | "now" | "queue";
+export type Sends = "send" | "busy" | "now" | "queue";
+
+const BUSY_ICON: Record<BusySend, LucideIcon> = { queue: TextAlignStart, steer: CornerUpRight };
 
 /**
  * The right end of the row: a note while the message waits for its
- * files, the stop button while a turn runs, and the send buttons.
+ * files, the stop button while a turn runs, and the send buttons. While a
+ * turn runs, the one Enter does, as `pick` says, sits last with ⏎, and the
+ * other before it with ⌘⏎.
  */
 export const SendButtons = ({
 	sends,
+	pick,
 	ready,
 	waiting,
 	stops,
@@ -256,6 +263,8 @@ export const SendButtons = ({
 	onStop,
 }: {
 	sends: Sends;
+	/** What Enter does while a turn runs. */
+	pick: BusySend;
 	ready: boolean;
 	/** Why the message waits, while it waits for its files. */
 	waiting: string | null;
@@ -270,12 +279,21 @@ export const SendButtons = ({
 		(sends === "queue"
 			? translate("⏎ to queue")
 			: sends === "now"
-				? translate("⏎ to queue, {{keyHint}} to send now", { keyHint: steerKey() })
+				? translate("⏎ to queue, {{keyHint}} to send now", { keyHint: commandEnter() })
 				: null);
-	// The row's hint names the keys while a prompt waits, so the buttons don't.
-	const keyless = sends === "queue" || sends === "now";
 	const enter = "font-medium opacity-70";
 	const shared = { waiting, folded, disabled: !ready };
+	const busy = (mode: BusySend, keys: string, keyLook: string, look: string) => (
+		<SendButton
+			label={BUSY_SEND_WORDS[mode].label}
+			keys={keys}
+			keyLook={keyLook}
+			look={look}
+			icon={BUSY_ICON[mode]}
+			onClick={() => onSend(mode)}
+			{...shared}
+		/>
+	);
 	return (
 		<div className="ml-auto flex shrink-0 items-center gap-1">
 			{hint !== null && (
@@ -305,21 +323,12 @@ export const SendButtons = ({
 					</button>
 				</Tooltip>
 			)}
-			{sends === "steer" && (
-				<SendButton
-					label={translate("Steer")}
-					keys={steerKey()}
-					keyLook="text-muted-foreground"
-					look={SECONDARY}
-					icon={CornerUpRight}
-					onClick={() => onSend("steer")}
-					{...shared}
-				/>
-			)}
+			{sends === "busy" &&
+				busy(otherBusySend(pick), commandEnter(), "text-muted-foreground", SECONDARY)}
 			{sends === "now" && (
 				<SendButton
 					label={SKIP_WORDS.sendNow}
-					keys={steerKey()}
+					keys={commandEnter()}
 					keyLook={null}
 					look={SECONDARY}
 					icon={SkipForward}
@@ -339,14 +348,17 @@ export const SendButtons = ({
 					onClick={() => onSend("queue")}
 					{...shared}
 				/>
+			) : sends === "busy" ? (
+				busy(pick, "⏎", enter, PRIMARY)
 			) : (
+				// The row's hint names the keys while a prompt waits, so the button doesn't.
 				<SendButton
-					label={translate("Queue")}
+					label={BUSY_SEND_WORDS.queue.label}
 					keys="⏎"
-					keyLook={keyless ? null : enter}
+					keyLook={null}
 					look={PRIMARY}
-					icon={TextAlignStart}
-					iconShown={keyless}
+					icon={BUSY_ICON.queue}
+					iconShown
 					onClick={() => onSend("queue")}
 					{...shared}
 				/>

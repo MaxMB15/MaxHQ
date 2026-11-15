@@ -50,6 +50,24 @@ describe("the shortcut list", () => {
 		expect(rowOf("Stop the agent's turn")).toMatchObject({ keys: ["⌘."], group: "Composer" });
 	});
 
+	it("says what Enter and Command+Enter do as this Mac picked for a working agent", () => {
+		onMac();
+		const sending = (pick?: "queue" | "steer") =>
+			shortcutRows(pick)
+				.filter((row) => row.group === "Composer")
+				.filter((row) => ["⏎", "⌘⏎"].includes(row.keys.join()))
+				.map((row) => [row.keys.join(), row.what]);
+		expect(sending()).toEqual([
+			["⏎", "Send, or queue while the agent works"],
+			["⌘⏎", "Send at once to steer the agent"],
+		]);
+		expect(sending("queue")).toEqual(sending());
+		expect(sending("steer")).toEqual([
+			["⏎", "Send, or steer while the agent works"],
+			["⌘⏎", "Queue until the agent finishes"],
+		]);
+	});
+
 	it("adds the keys other parts of the app listen for", () => {
 		onMac();
 		expect(rowOf("New agent")).toMatchObject({ keys: ["⌘N"], group: "Agents" });

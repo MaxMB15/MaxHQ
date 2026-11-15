@@ -5,6 +5,8 @@ import { act, cleanup, fireEvent, waitFor, within } from "@testing-library/react
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 
 import { EFFORT_SINCE } from "@maxhq/shared/bindings";
+import type { BusySend } from "@maxhq/shared/composer/send";
+import { DEFAULT_TYPING, writeTypingPrefs } from "@maxhq/shared/editor/typing";
 import { account, link } from "@maxhq/shared/test/build";
 import { FOLD_SLACK } from "@maxhq/shared/ui/fold";
 
@@ -17,6 +19,7 @@ import {
 	renderComposer,
 	type,
 } from "./testing";
+import { TYPING_KEY } from "./typing-prefs";
 
 // jsdom lays nothing out, so the row is as wide as the test makes the pane,
 // and what it wants is a rough sum of what it shows: 7 pixels a letter, 16
@@ -265,6 +268,41 @@ describe("the composer's footer", () => {
 		expect(within(button("Queue")).getByText("Queue")).toHaveClass("sr-only");
 		expect(await tipOf(button("Steer"))).toBe("Steer Ctrl+Enter");
 		expect(await tipOf(button("Stop"))).toBe("Stop this turn Ctrl+.");
+	});
+
+	it.each<[BusySend, string, string]>([
+		["queue", "SteerCtrl+Enter", "Queue⏎"],
+		["steer", "QueueCtrl+Enter", "Steer⏎"],
+	])(
+		"puts the %s pick last with Enter during a turn, and the other before it",
+		async (pick, other, enter) => {
+			localStorage.setItem(
+				TYPING_KEY,
+				writeTypingPrefs({ ...DEFAULT_TYPING, busySend: pick })
+			);
+			renderComposer({ agent: heldAgent({ activity: { state: "busy" } }) });
+			type(await findTextbox(), "hi");
+			const sends = within(row())
+				.getAllByRole("button")
+				.filter((b) => /^(Steer|Queue)/.test(b.textContent ?? ""));
+			expect(sends.map((b) => b.textContent)).toEqual([other, enter]);
+			// The row's hint is for a waiting prompt, so the buttons carry the keys.
+			expect(row()).not.toHaveTextContent("to queue");
+		}
+	);
+
+	it("keeps a waiting prompt's keys and hint with Steer picked", async () => {
+		localStorage.setItem(
+			TYPING_KEY,
+			writeTypingPrefs({ ...DEFAULT_TYPING, busySend: "steer" })
+		);
+		renderComposer({
+			agent: heldAgent({ activity: { state: "needs_input", attention: "att-1" } }),
+		});
+		type(await findTextbox(), "hi");
+		expect(row()).toHaveTextContent("⏎ to queue, Ctrl+Enter to send now");
+		expect(button("Send now")).toBeInTheDocument();
+		expect(within(row()).queryByRole("button", { name: /^Steer/ })).not.toBeInTheDocument();
 	});
 
 	it("says what Send now does while a prompt waits, folded or not", async () => {

@@ -1,10 +1,11 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026 Max Boksem
 
-// Settings, in cards as the desktop's: this phone's name and Unpair, which
-// pushes it gets, the way to its devices and to pairing, and, by hand, the
-// line that lets it into a device and a form to add one. Opened from the
-// first screen's "Add a device by hand", the form starts open and in view.
+// Settings, in cards as the desktop's: this phone's name and Unpair, what
+// its send button does while an agent works, which pushes it gets, the way
+// to its devices and to pairing, and, by hand, the line that lets it into a
+// device and a form to add one. Opened from the first screen's "Add a
+// device by hand", the form starts open and in view.
 
 import { type LanguageChoice, useI18n } from "@maxhq/shared/i18n";
 
@@ -26,6 +27,7 @@ import { choose } from "../../ui/choose";
 import { Card, CardRow } from "../../ui/Card";
 import { Input } from "../../ui/Field";
 import { Header } from "../../ui/Header";
+import { SendSection } from "../agent/SendSection";
 import { pairedWith, reachSummary } from "../devices/summary";
 import { DispatcherSection } from "../dispatcher/DispatcherSection";
 
@@ -63,6 +65,7 @@ export const PhoneScreen = ({ navigation, route }: ScreenProps<"Settings">) => {
 				<ScrollView contentContainerStyle={styles.content}>
 					<Text style={styles.note}>{t("The sample data has no phone.")}</Text>
 					<LanguageSection />
+					<SendSection />
 					<DispatcherSection />
 				</ScrollView>
 			</View>
@@ -136,6 +139,7 @@ export const PhoneScreen = ({ navigation, route }: ScreenProps<"Settings">) => {
 					{unpair ? <Text style={[styles.note, styles.inCard]}>{unpair}</Text> : null}
 				</Card>
 				<LanguageSection />
+				<SendSection />
 				<PushSection />
 				<DispatcherSection />
 				<Card title={t("Devices")}>

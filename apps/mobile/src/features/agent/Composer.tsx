@@ -5,8 +5,8 @@ import { useI18n } from "@maxhq/shared/i18n";
 
 import { useMemo, useState } from "react";
 import { StyleSheet, Text, TextInput, View } from "react-native";
+import { useStore } from "zustand";
 
-import { SKIP_WORDS } from "@maxhq/shared/agent-view/dismiss";
 import { keptValue, useKept } from "@maxhq/shared/agent-view/kept";
 import type { Agent, SendMode, TimelineItem } from "@maxhq/shared/bindings";
 import {
@@ -29,21 +29,23 @@ import {
 	canSend,
 	draftKey,
 	inputOf,
-	SEND_MODE,
+	otherSend,
 	sendAgreed,
 	sendLabel,
-	sendsNow,
+	sendMode,
 	stopsTurn,
 } from "./compose";
 import { QueuedList } from "./Queued";
 import { savedDrafts } from "./saved-drafts";
+import { busySendPref } from "./send-pref";
 
 /**
  * The box under an agent's output, bordered as the desktop's, with the send
- * button inside it and the messages that wait for the turn above it. While a
- * prompt waits, Send now beside it skips the prompt. What you type stays
- * with the agent until it goes, and the phone saves it, so it comes back
- * after a restart.
+ * button inside it and the messages that wait for the turn above it. Once
+ * you type, a second button beside it steers or queues, whichever the send
+ * button doesn't, while a turn runs, and skips the prompt while one waits.
+ * What you type stays with the agent until it goes, and the phone saves it,
+ * so it comes back after a restart.
  */
 export const Composer = ({
 	agent,
@@ -78,9 +80,12 @@ export const Composer = ({
 	const waiting = useMemo(() => waitingMessages(queued, hidden), [queued, hidden]);
 	const input = inputOf(text);
 	const open = canSend(agent.activity);
+	const pick = useStore(busySendPref, (s) => s.pick);
 	const stop = stopsTurn(agent.activity, text);
-	const now = sendsNow(agent.activity, text);
-	const { label, hint } = stop ? { label: t("Stop"), hint: null } : sendLabel(agent.activity);
+	const other = otherSend(agent.activity, pick, text);
+	const { label, hint } = stop
+		? { label: t("Stop"), hint: null }
+		: sendLabel(agent.activity, pick);
 
 	/** Runs an action and shows why it failed, if it did. Returns whether it went through. */
 	const run = async (
@@ -150,13 +155,13 @@ export const Composer = ({
 					<Text style={styles.hint} numberOfLines={1}>
 						{hint ?? ""}
 					</Text>
-					{now ? (
+					{other ? (
 						<Button
-							label={SKIP_WORDS.sendNow}
-							hint={SKIP_WORDS.sendNowTip}
+							label={other.label}
+							hint={other.hint}
 							small
 							disabled={!open || sending}
-							onPress={() => void press("interrupt")}
+							onPress={() => void press(other.mode)}
 						/>
 					) : null}
 					<Button
@@ -164,7 +169,7 @@ export const Composer = ({
 						tone={stop ? "secondary" : "primary"}
 						small
 						disabled={!open || sending || (!stop && !input)}
-						onPress={() => void press(SEND_MODE)}
+						onPress={() => void press(sendMode(agent.activity, pick))}
 					/>
 				</View>
 			</View>

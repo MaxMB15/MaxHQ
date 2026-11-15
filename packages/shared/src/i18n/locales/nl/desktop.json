@@ -779,6 +779,8 @@
 	"Search the library": "Bibliotheek doorzoeken",
 	"Search the registry": "Register doorzoeken",
 	"Send at once to steer the agent": "Direct verzenden om de agent bij te sturen",
+	"Send, or steer while the agent works": "Verzenden, of bijsturen als de agent werkt",
+	"Queue until the agent finishes": "In de wachtrij zetten tot de agent klaar is",
 	"Send logins": "Aanmeldingen verzenden",
 	"Send, or queue while the agent works": "Verzenden, of in de wachtrij zetten als de agent werkt",
 	"Sending": "Verzenden",
