@@ -14,8 +14,8 @@ use maxhq_client::pinned::{PeerDial, PeerStream, Pins};
 use maxhq_client::Client;
 use maxhq_core::prove::{self, Challenge, Kind, Statement};
 use maxhq_protocol::agents::{
-    Actor, ClientRole, LeaveContainer, Limits, PeerBook, PeerCall, PeerEntry, PeerRequest,
-    PeerRoute, PeerWake, Permission, ToolAnswer, ToolCall, WakeTurn, DEPTH,
+    Actor, AgentMoveStep, ClientRole, LeaveContainer, Limits, PeerBook, PeerCall, PeerEntry,
+    PeerRequest, PeerRoute, PeerWake, Permission, ToolAnswer, ToolCall, WakeTurn, DEPTH,
 };
 use maxhq_protocol::frame::{self, Frame, FrameDecoder};
 use maxhq_protocol::ids::{
@@ -52,6 +52,7 @@ const HOST_KEY: &str =
 struct Served {
     calls: AtomicUsize,
     wakes: Mutex<Vec<(DeviceId, PeerWake)>>,
+    moves: Mutex<Vec<(DeviceId, AgentMoveStep)>>,
     gate: Mutex<Option<Arc<Notify>>>,
 }
 
@@ -74,6 +75,11 @@ impl Serve for Served {
     fn wake(&self, from: DeviceId, wake: PeerWake) -> BoxFuture<'_, Result<(), String>> {
         self.wakes.lock().unwrap().push((from, wake));
         Box::pin(async { Ok(()) })
+    }
+
+    fn move_step(&self, from: DeviceId, step: AgentMoveStep) -> BoxFuture<'_, ActionOutcome> {
+        self.moves.lock().unwrap().push((from, step));
+        Box::pin(async { ActionOutcome::Done })
     }
 }
 
@@ -301,9 +307,20 @@ impl Device {
                 },
                 host_key: HOST_KEY.into(),
                 test_kinds: Vec::new(),
+                home: false,
             })
             .collect();
         self.peers.set_book(PeerBook { ssh, peers }).unwrap();
+    }
+
+    /// Marks `home` as the device that runs the MaxHQ app, in this
+    /// device's book.
+    fn homed_at(&self, home: &Device) {
+        let mut book = self.peers.lock().book.clone();
+        for peer in &mut book.peers {
+            peer.home = peer.device == home.id;
+        }
+        self.peers.set_book(book).unwrap();
     }
 
     fn outgoing(&self) -> usize {
@@ -574,6 +591,29 @@ async fn a_wake_reaches_the_callers_device() {
 }
 
 #[tokio::test]
+async fn only_the_device_that_runs_the_app_moves_agents() {
+    let net = Net::default();
+    let a = Device::new(&net, "a");
+    let b = Device::new(&net, "b");
+    a.knows(true, &[(&b, true)]);
+    b.knows(true, &[(&a, true)]);
+    let step = AgentMoveStep::Targets;
+    let refused = within("the step", a.peers.move_step(b.id, step.clone())).await;
+    assert!(
+        matches!(&refused, Ok(ActionOutcome::Refused { reason }) if reason.contains("runs the MaxHQ app")),
+        "{refused:?}"
+    );
+    assert!(b.served.moves.lock().unwrap().is_empty());
+    assert_eq!(PeerCalls::home(&b.peers), None);
+
+    b.homed_at(&a);
+    assert_eq!(PeerCalls::home(&b.peers), Some(a.id));
+    let done = within("the step", a.peers.move_step(b.id, step.clone())).await;
+    assert_eq!(done, Ok(ActionOutcome::Done));
+    assert_eq!(*b.served.moves.lock().unwrap(), [(a.id, step)]);
+}
+
+#[tokio::test]
 async fn a_link_that_says_hello_as_another_device_is_refused() {
     let net = Net::default();
     let a = Device::new(&net, "a");
@@ -627,6 +667,7 @@ async fn the_book_writes_pinned_host_keys_and_refuses_a_bad_one() {
             routes: Vec::new(),
             host_key: "ssh-rsa AAAAnope".into(),
             test_kinds: Vec::new(),
+            home: false,
         }],
     });
     assert!(refused.is_err());
@@ -650,6 +691,7 @@ async fn a_device_with_no_routes_needs_no_host_key() {
             routes,
             host_key: String::new(),
             test_kinds: Vec::new(),
+            home: false,
         }],
     };
     a.peers.set_book(book(Vec::new())).expect("taken");

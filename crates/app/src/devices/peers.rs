@@ -167,6 +167,9 @@ pub(super) struct Found {
     pub(super) host_key: Option<String>,
     /// The kinds of test machine it hosts.
     test_kinds: Vec<TestKind>,
+    /// Whether it's this machine, which runs the app and so may move
+    /// agents on the others.
+    pub(super) home: bool,
 }
 
 /// What one device should have.
@@ -326,10 +329,9 @@ impl<L: LinkControl> Core<L> {
         let mut found = BTreeMap::new();
         for (&device, known) in &kept.devices {
             let kinds = hosted.remove(&device).unwrap_or_default();
-            found.insert(
-                device,
-                find(facts.as_ref(), device, known, &specs, kinds).await,
-            );
+            let mut one = find(facts.as_ref(), device, known, &specs, kinds).await;
+            one.home = self.view.read(|merge| super::is_local(merge, device));
+            found.insert(device, one);
         }
         for device in connected {
             self.bring(device, &mut kept, &found).await;
@@ -594,6 +596,7 @@ pub(super) async fn find(
             facts.host_key(device)
         },
         test_kinds,
+        home: false,
     }
 }
 
@@ -636,6 +639,7 @@ fn entry(device: DeviceId, found: &Found) -> Option<PeerEntry> {
         routes: found.routes.clone(),
         host_key,
         test_kinds: found.test_kinds.clone(),
+        home: found.home,
     })
 }
 

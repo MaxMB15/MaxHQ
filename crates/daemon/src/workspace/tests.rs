@@ -167,6 +167,7 @@ fn agent(id: &str, workspace: WorkspaceId, activity: Activity) -> Entity {
         asleep: false,
         effort: None,
         running: None,
+        moved: None,
     })
 }
 

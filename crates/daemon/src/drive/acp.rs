@@ -1273,6 +1273,7 @@ impl AcpSession {
             asleep: false,
             effort: None,
             running: None,
+            moved: None,
         }
     }
 

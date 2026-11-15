@@ -1869,6 +1869,7 @@ pub struct FakePeers {
     sessions: Arc<Mutex<Option<(super::Sessions, DeviceId)>>>,
     calls: Arc<Mutex<Vec<(DeviceId, maxhq_protocol::agents::PeerCall)>>>,
     down: Arc<std::sync::atomic::AtomicBool>,
+    home: Arc<Mutex<Option<DeviceId>>>,
 }
 
 impl FakePeers {
@@ -1886,6 +1887,17 @@ impl FakePeers {
         self.down.load(std::sync::atomic::Ordering::SeqCst)
     }
 
+    /// Names the device that runs the MaxHQ app, as a device's link book
+    /// does.
+    pub fn set_home(&self, home: DeviceId) {
+        *lock(&self.home) = Some(home);
+    }
+
+    /// The manager that answers, unless the line is down.
+    fn answering(&self) -> Option<(super::Sessions, DeviceId)> {
+        lock(&self.sessions).clone().filter(|_| !self.is_down())
+    }
+
     /// Each call carried, with the device it went to.
     pub fn calls(&self) -> Vec<(DeviceId, maxhq_protocol::agents::PeerCall)> {
         lock(&self.calls).clone()
@@ -1899,13 +1911,31 @@ impl crate::agents::PeerCalls for FakePeers {
         call: maxhq_protocol::agents::PeerCall,
     ) -> crate::agents::Answer<'_> {
         lock(&self.calls).push((device, call.clone()));
-        let answering = lock(&self.sessions).clone().filter(|_| !self.is_down());
+        let answering = self.answering();
         Box::pin(async move {
             match answering {
                 Some((sessions, home)) => Ok(sessions.peer_call(home, call).await),
                 None => Err(crate::agents::Unreachable("no line to that device".into())),
             }
         })
+    }
+
+    fn move_step(
+        &self,
+        _device: DeviceId,
+        step: maxhq_protocol::agents::AgentMoveStep,
+    ) -> crate::agents::Stepped<'_> {
+        let answering = self.answering();
+        Box::pin(async move {
+            match answering {
+                Some((sessions, home)) => Ok(sessions.peer_move(home, step).await),
+                None => Err(crate::agents::Unreachable("no line to that device".into())),
+            }
+        })
+    }
+
+    fn home(&self) -> Option<DeviceId> {
+        *lock(&self.home)
     }
 
     fn reach(&self, _device: DeviceId) -> crate::agents::Woken<'_> {

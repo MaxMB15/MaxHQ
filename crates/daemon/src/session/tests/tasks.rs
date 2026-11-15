@@ -50,7 +50,7 @@ impl crate::hooks::Hooks for FakeHooks {
 const MINUTE: Duration = Duration::from_secs(60);
 
 /// A task the user made, every hour unless `trigger` says otherwise.
-fn task(name: &str, trigger: Trigger, target: TaskTarget) -> Task {
+pub(super) fn task(name: &str, trigger: Trigger, target: TaskTarget) -> Task {
     Task {
         id: TaskId::derive(name),
         name: name.into(),
@@ -74,7 +74,7 @@ fn away(agent: AgentId) -> TaskTarget {
     }
 }
 
-fn hourly() -> Trigger {
+pub(super) fn hourly() -> Trigger {
     Trigger::Every { minutes: 60 }
 }
 
@@ -121,7 +121,7 @@ impl Harness {
     }
 
     /// Saves a task as the user, and gives it as `maxd` keeps it.
-    async fn save(&mut self, task: Task) -> Task {
+    pub(super) async fn save(&mut self, task: Task) -> Task {
         match self.save_answer(task).await {
             ActionOutcome::TaskSaved { task, .. } => *task,
             other => panic!("the task wasn't saved: {other:?}"),
@@ -914,7 +914,7 @@ impl Harness {
     }
 
     /// A task as clients see it, while it's here.
-    fn published_task(&self, id: TaskId) -> Option<Task> {
+    pub(super) fn published_task(&self, id: TaskId) -> Option<Task> {
         self.published()
             .tasks
             .into_iter()

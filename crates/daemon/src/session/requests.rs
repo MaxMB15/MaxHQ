@@ -7,7 +7,7 @@
 //! first outcome.
 
 use std::borrow::Cow;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use maxhq_core::{context, names, pill_text};
 use maxhq_protocol::attention::{AnswerOutcome, AttentionAnswer};
@@ -42,7 +42,7 @@ use super::timeline::MAX_PAGE;
 use super::vendors::{full_access_relaunches, speaks_acp, takes_effort};
 use super::{is_queued, refused, Input, Manager};
 use crate::drive::{acp, Action, Message, Place, PlaceHost, Staged};
-use crate::hub::Command;
+use crate::hub::{Command, Hub};
 use crate::recipe;
 use crate::secrets;
 use crate::transfer::disk;
@@ -219,6 +219,7 @@ impl Manager {
             ClientMessage::AskDispatcher { .. }
             | ClientMessage::ConfirmPlan { .. }
             | ClientMessage::DismissPlan { .. } => return self.dispatcher_message(conn, message),
+            ClientMessage::MoveAgent { .. } => return self.move_message(conn, message),
             ClientMessage::StartAgent { key, .. }
             | ClientMessage::SendInput { key, .. }
             | ClientMessage::CancelQueued { key, .. }
@@ -565,14 +566,10 @@ impl Manager {
         let hub = self.hub.clone();
         let tx = self.tx.clone();
         tokio::task::spawn_blocking(move || {
-            let folder = if hub.in_clone(&path) {
-                Err(STILL_CLONING.to_owned())
-            } else if path.is_absolute() && path.is_dir() {
+            let folder = usable_folder(&hub, &path).map(|()| {
                 let workspace = hub.locate_folder(&path);
-                Ok((path, workspace))
-            } else {
-                Err("that folder doesn't exist".to_owned())
-            };
+                (path, workspace)
+            });
             let _ = tx.send(Input::Located {
                 key,
                 spec: Box::new(spec),
@@ -785,7 +782,7 @@ impl Manager {
     /// Checks a new agent's spec, and works out where and how it runs and
     /// which staged attachments its first message takes. `folder` is where
     /// a folder place was found.
-    fn prepare(
+    pub(super) fn prepare(
         &self,
         spec: &AgentSpec,
         folder: Option<(PathBuf, WorkspaceId)>,
@@ -1903,6 +1900,17 @@ fn title(spec: &AgentSpec, name: impl Fn(&AttachmentId) -> Option<String>) -> St
     asked_title(spec)
         .or_else(first)
         .unwrap_or_else(|| "New agent".to_owned())
+}
+
+/// Whether a new agent can run in the folder at `path`, read off the loop.
+pub(super) fn usable_folder(hub: &Hub, path: &Path) -> Result<(), String> {
+    if hub.in_clone(path) {
+        Err(STILL_CLONING.to_owned())
+    } else if path.is_absolute() && path.is_dir() {
+        Ok(())
+    } else {
+        Err("that folder doesn't exist".to_owned())
+    }
 }
 
 /// The title a new agent's spec asks for, if it names one that isn't

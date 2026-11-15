@@ -322,6 +322,7 @@ impl Watcher {
             asleep: false,
             effort: None,
             running: None,
+            moved: None,
         })
     }
 
@@ -570,6 +571,7 @@ mod tests {
             asleep: false,
             effort: None,
             running: None,
+            moved: None,
         };
         hub.apply([Change::Upsert {
             value: Entity::Agent(other.clone()),

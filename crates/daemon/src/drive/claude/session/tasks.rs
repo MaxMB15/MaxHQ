@@ -306,6 +306,7 @@ impl ClaudeSession {
             asleep: false,
             effort: None,
             running: None,
+            moved: None,
         }
     }
 }

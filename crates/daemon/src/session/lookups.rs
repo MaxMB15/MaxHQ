@@ -410,17 +410,7 @@ impl ReadFrom {
     pub async fn taken(self, agent: AgentId) -> Result<Taken, String> {
         match self {
             ReadFrom::Kept { items, what } => {
-                let read = tokio::task::spawn_blocking(move || {
-                    let items = items.into_iter().filter_map(|stored| {
-                        stored
-                            .load()
-                            .inspect_err(
-                                |err| warn!(%err, %agent, "couldn't read a timeline item back"),
-                            )
-                            .ok()
-                    });
-                    take(items, &what)
-                });
+                let read = tokio::task::spawn_blocking(move || take(loaded(items, agent), &what));
                 read.await.unwrap_or_else(|_| Err(NO_HISTORY.to_owned()))
             }
             ReadFrom::History {
@@ -431,6 +421,33 @@ impl ReadFrom {
             } => take(&history(vendors, places, source, agent).await?, &what),
         }
     }
+
+    /// Every item, oldest first, read off the loop.
+    pub async fn items(self, agent: AgentId) -> Result<Vec<TimelineItem>, String> {
+        match self {
+            ReadFrom::Kept { items, .. } => {
+                let read = tokio::task::spawn_blocking(move || loaded(items, agent).collect());
+                read.await.map_err(|_| NO_HISTORY.to_owned())
+            }
+            ReadFrom::History {
+                source,
+                vendors,
+                places,
+                ..
+            } => history(vendors, places, source, agent).await,
+        }
+    }
+}
+
+/// The items of a kept timeline, read back from disk where they spilled,
+/// leaving out any that don't read.
+fn loaded(items: Vec<Stored<'static>>, agent: AgentId) -> impl Iterator<Item = TimelineItem> {
+    items.into_iter().filter_map(move |stored| {
+        stored
+            .load()
+            .inspect_err(|err| warn!(%err, %agent, "couldn't read a timeline item back"))
+            .ok()
+    })
 }
 
 /// The items of a session's history, read off the loop, once each and

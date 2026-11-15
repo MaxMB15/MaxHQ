@@ -31,7 +31,9 @@ use futures::future::BoxFuture;
 use maxhq_client::pinned::{PinnedSsh, Pins};
 use maxhq_client::{Client, LinkError, LinkEvent, LinkHandle, LinkSpec};
 use maxhq_core::authorized_keys;
-use maxhq_protocol::agents::{PeerBook, PeerCall, PeerEntry, PeerRequest, PeerWake, ToolAnswer};
+use maxhq_protocol::agents::{
+    AgentMoveStep, PeerBook, PeerCall, PeerEntry, PeerRequest, PeerWake, ToolAnswer,
+};
 use maxhq_protocol::frame;
 use maxhq_protocol::ids::{DeviceId, IdempotencyKey, LinkId};
 use maxhq_protocol::link::{LinkState, Route};
@@ -41,7 +43,7 @@ use maxhq_wire::Queue;
 use tokio::sync::{oneshot, watch, Semaphore};
 use tracing::{debug, info, warn};
 
-use crate::agents::{Answer, PeerCalls, Unreachable, Woken};
+use crate::agents::{Answer, PeerCalls, Stepped, Unreachable, Woken};
 use crate::db::Db;
 use crate::secrets::files::Folder;
 use crate::session::clock::Clock;
@@ -85,6 +87,9 @@ pub trait Serve: Send + Sync + 'static {
     /// Tells a caller here that an agent it started on `from` finished a
     /// turn.
     fn wake(&self, from: DeviceId, wake: PeerWake) -> BoxFuture<'_, Result<(), String>>;
+    /// Runs a step of moving an agent that `from`, the device that runs
+    /// the MaxHQ app, asked for.
+    fn move_step(&self, from: DeviceId, step: AgentMoveStep) -> BoxFuture<'_, ActionOutcome>;
 }
 
 impl Serve for Sessions {
@@ -94,6 +99,10 @@ impl Serve for Sessions {
 
     fn wake(&self, from: DeviceId, wake: PeerWake) -> BoxFuture<'_, Result<(), String>> {
         Box::pin(self.peer_wake(from, wake))
+    }
+
+    fn move_step(&self, from: DeviceId, step: AgentMoveStep) -> BoxFuture<'_, ActionOutcome> {
+        Box::pin(self.peer_move(from, step))
     }
 }
 
@@ -694,6 +703,10 @@ impl Peers {
                 Ok(()) => ActionOutcome::Done,
                 Err(reason) => ActionOutcome::Refused { reason },
             },
+            PeerRequest::Move { step } if self.is_home(from) => serve.move_step(from, step).await,
+            PeerRequest::Move { .. } => ActionOutcome::Refused {
+                reason: "Only the device that runs the MaxHQ app moves agents here.".into(),
+            },
             PeerRequest::NoteHashes { .. }
             | PeerRequest::NoteVersions { .. }
             | PeerRequest::PutNoteVersions { .. } => unreachable!("served above"),
@@ -737,6 +750,15 @@ impl Peers {
             state.incoming.remove(&device);
             self.relink(&state);
         }
+    }
+
+    /// Whether `device` runs the MaxHQ app, as the book says.
+    fn is_home(&self, device: DeviceId) -> bool {
+        self.lock()
+            .book
+            .peers
+            .iter()
+            .any(|peer| peer.device == device && peer.home)
     }
 
     /// Whether `device` is in the book.
@@ -867,6 +889,19 @@ impl PeerCalls for Peers {
 
     fn reach(&self, device: DeviceId) -> Woken<'_> {
         Box::pin(async move { self.way(device, REACH_WITHIN).await.map(drop) })
+    }
+
+    fn move_step(&self, device: DeviceId, step: AgentMoveStep) -> Stepped<'_> {
+        Box::pin(self.request(device, PeerRequest::Move { step }))
+    }
+
+    fn home(&self) -> Option<DeviceId> {
+        self.lock()
+            .book
+            .peers
+            .iter()
+            .find(|peer| peer.home)
+            .map(|peer| peer.device)
     }
 
     fn wake(&self, device: DeviceId, wake: PeerWake) -> Woken<'_> {

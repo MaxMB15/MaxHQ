@@ -17,7 +17,7 @@ use crate::ids::{
 };
 use crate::leases::TestKind;
 use crate::message::AgentPlace;
-use crate::model::Vendor;
+use crate::model::{PermissionMode, Vendor};
 use crate::notes::{NoteVersion, VersionHash};
 use crate::time::Timestamp;
 
@@ -270,6 +270,13 @@ pub enum PeerRequest {
         /// The versions.
         versions: Vec<NoteVersion>,
     },
+    /// A step of moving an agent, from the device that runs the MaxHQ
+    /// app. A `maxd` from before [`crate::message::MOVE_AGENT_SINCE`]
+    /// refuses it.
+    Move {
+        /// The step.
+        step: AgentMoveStep,
+    },
     /// A request from a newer `maxd`, which this one refuses.
     Unknown,
 }
@@ -332,6 +339,10 @@ pub struct PeerEntry {
     /// start another that can lease one.
     #[serde(default)]
     pub test_kinds: Vec<TestKind>,
+    /// Set for the device that runs the MaxHQ app, the only one that may
+    /// move agents on this one.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub home: bool,
 }
 
 /// One way to reach a device over SSH, resolved by the app, with no jump
@@ -344,6 +355,119 @@ pub struct PeerRoute {
     pub port: u16,
     /// The login.
     pub user: String,
+}
+
+/// An agent on a device, such as the one a moved agent became.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, Type, JsonSchema)]
+pub struct AgentAt {
+    /// The device.
+    pub device: DeviceId,
+    /// The agent.
+    pub agent: AgentId,
+}
+
+/// Where an agent moved between devices. A `maxd` from before
+/// [`crate::message::MOVE_AGENT_SINCE`] never sets it.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize, Type, JsonSchema)]
+pub struct Moved {
+    /// The agent it became on another device, once it moved there.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub to: Option<AgentAt>,
+    /// The agent it was on the device it came from.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub from: Option<AgentAt>,
+}
+
+/// Where an agent moves to.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, Type, JsonSchema)]
+pub struct MoveTo {
+    /// The device.
+    pub device: DeviceId,
+    /// The account it runs under there, which also picks its vendor.
+    pub account: AccountId,
+    /// The model there, or none for the account's default.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
+    /// The folder there.
+    pub place: AgentPlace,
+}
+
+/// What an agent takes along from the device it leaves.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, Type, JsonSchema)]
+pub struct Departure {
+    /// Its name.
+    pub title: String,
+    /// The permission mode it ran in.
+    pub mode: PermissionMode,
+    /// The effort level it ran at, if its vendor has one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub effort: Option<String>,
+    /// The summary of its conversation that the new agent starts from, or
+    /// none when there was nothing to carry.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub brief: Option<String>,
+}
+
+/// What starts a moved agent on the device it goes to.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, Type, JsonSchema)]
+pub struct Arrival {
+    /// Where it goes.
+    pub to: MoveTo,
+    /// The agent it was.
+    pub from: AgentAt,
+    /// What it took along.
+    pub departure: Departure,
+    /// The permissions of the tasks that follow it, which the asking device
+    /// keeps.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub grants: Vec<Permission>,
+}
+
+/// One step of moving an agent to another device. Only the device that
+/// runs the MaxHQ app asks for these, of the device the agent leaves and
+/// the one it goes to.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, Type, JsonSchema)]
+#[serde(tag = "step", rename_all = "snake_case")]
+pub enum AgentMoveStep {
+    /// Lists the vendors, accounts, models and folders an agent could run
+    /// with on the asked device. The outcome is
+    /// [`crate::message::ActionOutcome::Tool`], as `list_targets` answers.
+    Targets,
+    /// Checks that the account is signed in and the folder is there. The
+    /// outcome is [`crate::message::ActionOutcome::Tool`], naming what the
+    /// agent will run as.
+    Check {
+        /// Where the agent goes.
+        to: MoveTo,
+    },
+    /// Stops the agent, or refuses while it works unless `stop` is set,
+    /// and sums up its conversation. The outcome is
+    /// [`crate::message::ActionOutcome::Departed`].
+    Leave {
+        /// The agent.
+        agent: AgentId,
+        /// Whether to stop a turn that runs or a prompt that waits.
+        #[serde(default)]
+        stop: bool,
+    },
+    /// Starts the agent from what it took along. The outcome is
+    /// [`crate::message::ActionOutcome::Started`].
+    Arrive {
+        /// The start.
+        arrival: Box<Arrival>,
+    },
+    /// Marks the agent moved and settles it, and takes back the
+    /// permissions of the tasks that left with it. The outcome is
+    /// [`crate::message::ActionOutcome::Done`].
+    Settle {
+        /// The agent that left.
+        agent: AgentId,
+        /// The agent it became.
+        to: AgentAt,
+        /// The task permissions to take back.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        revoke: Vec<PermissionId>,
+    },
 }
 
 #[cfg(test)]
@@ -413,5 +537,6 @@ mod tests {
         }))
         .expect("an old entry reads");
         assert!(entry.test_kinds.is_empty());
+        assert!(!entry.home);
     }
 }

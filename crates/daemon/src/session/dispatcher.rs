@@ -49,6 +49,10 @@ const ONLY_READS: &str = "The dispatcher only reads and proposes plans.";
 /// Why a plan can't name another device yet.
 const MAC_ONLY: &str = "This version of the dispatcher plans on this Mac only.";
 
+/// How the dispatcher uses what `list_targets` shows of this Mac.
+const TARGETS_HERE: &str = "Plans run on this Mac. A folder workspace's location is the folder \
+                            to give start_agent; a container is named by its workspace id.";
+
 /// What `submit_plan` answers.
 const PLAN_SHOWN: &str =
     "The plan shows under the bar. Nothing in it runs until the user confirms it.";
@@ -440,7 +444,7 @@ impl Manager {
             key: call.key,
         };
         let text = match call.call {
-            Call::ListTargets => Ok(self.dispatcher_targets()),
+            Call::ListTargets => Ok(self.device_targets(TARGETS_HERE)),
             Call::ListAgents(list) => Ok(self.list(self.agent_caller(lead), &list)),
             Call::ReadAgent(read) if read.device.is_none_or(|device| device == self.device) => {
                 return self.read_agent(reply, Some(lead), read, true);
@@ -454,9 +458,10 @@ impl Manager {
         self.reply_now(reply, text);
     }
 
-    /// What the dispatcher's `list_targets` shows: this Mac's accounts of
-    /// every vendor, and its projects with their folders and workspaces.
-    fn dispatcher_targets(&self) -> String {
+    /// What the dispatcher's `list_targets` shows of this device, with
+    /// `note` for how to use it: its accounts of every vendor, and its
+    /// projects with their folders and workspaces.
+    pub(super) fn device_targets(&self, note: &str) -> String {
         let home = self.dispatcher.home();
         let mut accounts = Vec::new();
         let mut projects = Vec::new();
@@ -504,8 +509,7 @@ impl Manager {
             "accounts": accounts,
             "projects": projects,
             "other_workspaces": others,
-            "note": "Plans run on this Mac. A folder workspace's location is the folder to give \
-                     start_agent; a container is named by its workspace id.",
+            "note": note,
         })
         .to_string()
     }

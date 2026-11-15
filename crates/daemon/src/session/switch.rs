@@ -254,6 +254,7 @@ impl Manager {
                     marker,
                     since,
                     context,
+                    brief: None,
                 });
             }
             self.keep_earlier(lead);
@@ -296,26 +297,35 @@ impl Manager {
         let Some(pending) = pending.filter(|_| *agent == lead) else {
             return Ok(());
         };
-        let earlier = self
-            .timelines
-            .get(&lead)
-            .map(|timeline| timeline.earlier())
-            .unwrap_or_default();
-        let (items, strategy) = carried(before(&earlier, &pending.marker), pending.since.as_ref());
-        let usage = match (strategy, pending.context) {
-            (Strategy::Delta, Some(context)) => Usage {
-                used: context.used_tokens.into(),
-                window: Some(context.window_tokens.into()).filter(|window| *window > 0),
-            },
-            _ => Usage::default(),
-        };
         let kinds: Vec<_> = attachments
             .iter()
             .map(|staged| staged.attachment.kind)
             .collect();
-        let budget = handoff::budget(text, &kinds, usage);
-        let history = handoff::deliver(lead, items, strategy, budget)
-            .ok_or_else(|| handoff::TOO_LITTLE.to_owned())?;
+        let history = if let Some(brief) = pending.brief {
+            // An agent that moved here starts from the summary the device
+            // it left made, since its conversation stayed there.
+            Some(brief).filter(|brief| {
+                handoff::fits(brief, handoff::budget(text, &kinds, Usage::default()))
+            })
+        } else {
+            let earlier = self
+                .timelines
+                .get(&lead)
+                .map(|timeline| timeline.earlier())
+                .unwrap_or_default();
+            let (items, strategy) =
+                carried(before(&earlier, &pending.marker), pending.since.as_ref());
+            let usage = match (strategy, pending.context) {
+                (Strategy::Delta, Some(context)) => Usage {
+                    used: context.used_tokens.into(),
+                    window: Some(context.window_tokens.into()).filter(|window| *window > 0),
+                },
+                _ => Usage::default(),
+            };
+            let budget = handoff::budget(text, &kinds, usage);
+            handoff::deliver(lead, items, strategy, budget)
+        };
+        let history = history.ok_or_else(|| handoff::TOO_LITTLE.to_owned())?;
         *text = handoff::wrap(&history, text);
         if let Some(held) = self.held.get_mut(&lead) {
             held.handoff = None;
