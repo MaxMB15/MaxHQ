@@ -5,8 +5,9 @@
 // find shortcuts come from `SHORTCUTS`, so one added there shows up without
 // a change here, under Other until it gets words. The keys that other parts
 // of the app listen for, such as Cmd+N and the composer's keys, are written
-// out here.
+// out here. Enter and Cmd+Enter read as this Mac's pick for a working agent.
 
+import { type BusySend, DEFAULT_BUSY_SEND } from "@maxhq/shared/composer/send";
 import { t } from "@maxhq/shared/i18n";
 
 import { keyHint, SHORTCUTS, type Shortcut } from "@/layout/shortcuts";
@@ -84,7 +85,7 @@ const ATTACH: Shortcut = { label: "U", code: "KeyU" };
 
 // The list in order. The projects-only shortcuts are the ones `commandFor`
 // checks after the mode, and the panes' arrows and numbers.
-const lines = (): readonly Line[] => [
+const lines = (pick: BusySend): readonly Line[] => [
 	{ what: t("Show keyboard shortcuts"), group: "General", id: "shortcuts" },
 	{ what: t("Open settings"), group: "General", keys: [keyHint(SETTINGS)], anywhere: SETTINGS },
 	{ what: t("New agent"), group: "Agents", keys: [keyHint(NEW_AGENT)], anywhere: NEW_AGENT },
@@ -149,8 +150,22 @@ const lines = (): readonly Line[] => [
 		keys: [plain(ENTER), plain(ENTER, { shift: true })],
 	},
 	{ what: t("Close find"), group: "Find", projectsOnly: true, keys: [plain(ESCAPE)] },
-	{ what: t("Send, or queue while the agent works"), group: "Composer", keys: [plain(ENTER)] },
-	{ what: t("Send at once to steer the agent"), group: "Composer", keys: [command(ENTER)] },
+	{
+		what:
+			pick === "steer"
+				? t("Send, or steer while the agent works")
+				: t("Send, or queue while the agent works"),
+		group: "Composer",
+		keys: [plain(ENTER)],
+	},
+	{
+		what:
+			pick === "steer"
+				? t("Queue until the agent finishes")
+				: t("Send at once to steer the agent"),
+		group: "Composer",
+		keys: [command(ENTER)],
+	},
 	{
 		what: t("New line"),
 		group: "Composer",
@@ -189,11 +204,14 @@ const nameOf = (id: string): string => {
 	return spaced.charAt(0).toUpperCase() + spaced.slice(1);
 };
 
-/** Every shortcut, by group, each group in the order its lines are written. */
-export const shortcutRows = (): readonly ShortcutRow[] => {
+/**
+ * Every shortcut, by group, each group in the order its lines are written.
+ * `pick` is what Enter does while an agent works.
+ */
+export const shortcutRows = (pick: BusySend = DEFAULT_BUSY_SEND): readonly ShortcutRow[] => {
 	const all = Object.entries(SHORTCUTS) as [Id, Shortcut][];
 	const used = new Set<Id>();
-	const rows: ShortcutRow[] = lines().map((line) => {
+	const rows: ShortcutRow[] = lines(pick).map((line) => {
 		const row = { what: line.what, group: line.group, projectsOnly: !!line.projectsOnly };
 		const found =
 			"id" in line

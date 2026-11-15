@@ -21,8 +21,9 @@ import {
 	hasComposer,
 	inputOf,
 	sendAgreed,
+	otherSend,
 	sendLabel,
-	sendsNow,
+	sendMode,
 	stopsTurn,
 } from "./compose";
 
@@ -56,13 +57,32 @@ describe("canSend", () => {
 	});
 });
 
-describe("sendLabel", () => {
-	it("queues while a turn runs and sends when idle", () => {
-		expect(sendLabel({ state: "busy" })).toEqual({
+const prompted = { state: "needs_input", attention: "att-1" } as const;
+
+describe("the send button", () => {
+	it("queues while a turn runs and sends when idle, by default", () => {
+		expect(sendLabel({ state: "busy" }, "queue")).toEqual({
 			label: "Queue",
 			hint: "Sends when the turn ends",
 		});
-		expect(sendLabel({ state: "idle" })).toEqual({ label: "Send", hint: null });
+		expect(sendMode({ state: "busy" }, "queue")).toBe("queue");
+		expect(sendLabel({ state: "idle" }, "queue")).toEqual({ label: "Send", hint: null });
+		expect(sendMode({ state: "idle" }, "queue")).toBe("queue");
+	});
+
+	it("steers a running turn with Steer picked", () => {
+		expect(sendLabel({ state: "busy" }, "steer")).toEqual({
+			label: "Steer",
+			hint: "The agent reads it between steps",
+		});
+		expect(sendMode({ state: "busy" }, "steer")).toBe("steer");
+	});
+
+	it("queues while a prompt waits and sends when idle, whatever the pick", () => {
+		expect(sendLabel(prompted, "steer").label).toBe("Queue");
+		expect(sendMode(prompted, "steer")).toBe("queue");
+		expect(sendLabel({ state: "idle" }, "steer")).toEqual({ label: "Send", hint: null });
+		expect(sendMode({ state: "idle" }, "steer")).toBe("queue");
 	});
 });
 
@@ -78,17 +98,35 @@ describe("stopsTurn", () => {
 	});
 });
 
-describe("sendsNow", () => {
-	const prompted = { state: "needs_input", attention: "att-1" } as const;
-
-	it("offers Send now once you type while a prompt waits", () => {
-		expect(sendsNow(prompted, "skip that, run the tests")).toBe(true);
-		expect(sendsNow(prompted, " \n ")).toBe(false);
+describe("otherSend", () => {
+	it("offers Send now once you type while a prompt waits, whatever the pick", () => {
+		for (const pick of ["queue", "steer"] as const) {
+			expect(otherSend(prompted, pick, "skip that, run the tests")).toEqual({
+				mode: "interrupt",
+				label: "Send now",
+				hint: "Skips what's waiting and sends this now",
+			});
+			expect(otherSend(prompted, pick, " \n ")).toBeNull();
+		}
 	});
 
-	it("leaves a running turn to Queue and an idle agent to Send", () => {
-		expect(sendsNow({ state: "busy" }, "and lint")).toBe(false);
-		expect(sendsNow({ state: "idle" }, "hi")).toBe(false);
+	it("offers the action you didn't pick once you type while a turn runs", () => {
+		expect(otherSend({ state: "busy" }, "queue", "and lint")).toMatchObject({
+			mode: "steer",
+			label: "Steer",
+		});
+		expect(otherSend({ state: "busy" }, "steer", "and lint")).toMatchObject({
+			mode: "queue",
+			label: "Queue",
+		});
+		expect(otherSend({ state: "busy" }, "steer", "")).toBeNull();
+	});
+
+	it("offers nothing more to an idle agent or one waiting for its limit", () => {
+		expect(otherSend({ state: "idle" }, "steer", "hi")).toBeNull();
+		expect(
+			otherSend({ state: "waiting_for_limit_reset", resets_at: null }, "steer", "hi")
+		).toBeNull();
 	});
 });
 

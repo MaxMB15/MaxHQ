@@ -3,10 +3,10 @@
 
 // The one input for every agent, Claude or Codex, wherever it runs. It
 // sends at once while the agent is idle, queues or steers while a turn
-// runs, and queues while a prompt waits. Files, quotes, other agents and
-// notes go into the text as pills: files by drop, paste, the picker, the
-// `@` menu and a drag out of a timeline, agents and notes by the `@` menu
-// or a drag from the sidebar. A file dropped or pasted on an answer field
+// runs, with Enter doing the one this Mac picked, and queues while a
+// prompt waits. Files, quotes, other agents and notes go into the text as
+// pills: files by drop, paste, the picker, the `@` menu and a drag out of
+// a timeline, agents and notes by the `@` menu or a drag from the sidebar. A file dropped or pasted on an answer field
 // in the pane comes here as if dropped here, and the focus stays put. An
 // agent on another device goes with an excerpt taken when you send, and a
 // note from another project with a copy made then. A `#123` stays text
@@ -150,6 +150,7 @@ import { quoteInbox } from "./quote-inbox";
 import { releasedFiles } from "./retained";
 import { draftsOf } from "./saved-drafts";
 import { useStopKey } from "./stop-key";
+import { useTypingPrefs } from "./typing-prefs";
 import {
 	attempt,
 	canStop,
@@ -158,6 +159,7 @@ import {
 	nowMode,
 	placeholderFor,
 	type QueuedMessage,
+	sendModeFor,
 	turnOf,
 	waitingMessages,
 } from "@maxhq/shared/composer/send";
@@ -380,6 +382,7 @@ const ComposerBody = ({
 	const account = agent.account ? view.tables.account.get(agent.account) : undefined;
 	const where = deviceName(view, device);
 	const turn = turnOf(agent.activity);
+	const { busySend } = useTypingPrefs();
 	const link = linkForDevice(view, device);
 	const remote = link !== undefined && link.route.type !== "local";
 	const linkDown = remote && link.state.state !== "connected";
@@ -1210,7 +1213,7 @@ const ComposerBody = ({
 	const ready = hasContent && turn !== "offline" && !sending;
 	const sends: Sends =
 		turn === "busy"
-			? "steer"
+			? "busy"
 			: turn === "prompt"
 				? "now"
 				: turn === "waiting"
@@ -1235,6 +1238,7 @@ const ComposerBody = ({
 		agent.effort,
 		agent.permission && runningMode(agent.permission),
 		sends,
+		busySend,
 		canStop(turn),
 		ready,
 		waitingNote,
@@ -1304,7 +1308,7 @@ const ComposerBody = ({
 						menuAttributes={pillMenu.attributes}
 						initial={initial}
 						onEnter={(withModifier) =>
-							void send((withModifier ? nowMode(turn) : null) ?? "queue")
+							void send(sendModeFor(turn, busySend, withModifier))
 						}
 						onHistoryKey={historyKey}
 						onAttach={() => void pick()}
@@ -1399,6 +1403,7 @@ const ComposerBody = ({
 								)}
 								<SendButtons
 									sends={sends}
+									pick={busySend}
 									ready={ready}
 									waiting={waitingNote}
 									stops={canStop(turn)}

@@ -75,6 +75,8 @@
 	"Didn't rename": "Niet hernoemd",
 	"send the message": "het bericht versturen",
 	"steer the turn": "de beurt bijsturen",
+	"Waits until the agent finishes, then sends.": "Wacht tot de agent klaar is en verstuurt het dan.",
+	"Sends at once; the agent reads it between steps.": "Verstuurt direct; de agent leest het tussen twee stappen.",
 	"take the message back": "het bericht terugnemen",
 	"stop the turn": "de beurt stoppen",
 	"change the model": "het model wijzigen",

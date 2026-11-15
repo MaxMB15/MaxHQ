@@ -774,6 +774,8 @@
 	"Search the library": "Rechercher dans la bibliothèque",
 	"Search the registry": "Rechercher dans le registre",
 	"Send at once to steer the agent": "Envoyer immédiatement pour orienter l'agent",
+	"Send, or steer while the agent works": "Envoyer ou orienter si l'agent travaille",
+	"Queue until the agent finishes": "Mettre en attente jusqu'à ce que l'agent ait terminé",
 	"Send logins": "Envoyer les identifiants",
 	"Send, or queue while the agent works": "Envoyer ou mettre en attente si l'agent travaille",
 	"Sending": "Envoi en cours",

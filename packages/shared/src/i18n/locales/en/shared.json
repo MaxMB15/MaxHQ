@@ -141,6 +141,8 @@
 	"Message {{agentTitle}} on {{device}}": "Message {{agentTitle}} on {{device}}",
 	"send the message": "send the message",
 	"steer the turn": "steer the turn",
+	"Waits until the agent finishes, then sends.": "Waits until the agent finishes, then sends.",
+	"Sends at once; the agent reads it between steps.": "Sends at once; the agent reads it between steps.",
 	"take the message back": "take the message back",
 	"stop the turn": "stop the turn",
 	"change the model": "change the model",

@@ -2,16 +2,18 @@
 // Copyright (c) 2026 Max Boksem
 
 // The editor settings, kept on this Mac since editors belong to it: which
-// editor the Open in button and file rows' buttons use, or none, and how
-// the boxes you type prompts and notes in check spelling. Each change saves
-// as you make it.
+// editor the Open in button and file rows' buttons use, or none, how the
+// boxes you type prompts and notes in check spelling, and what Enter does
+// while an agent works. Each change saves as you make it.
 
 import { useServices } from "@/app/services";
 import { setDefaultEditor, useDefaultEditor } from "@/agent-view/editor-prefs";
 import { useEditors } from "@/agent-view/open-in";
 import { type DefaultEditor, editorOptions, LAST_USED } from "@maxhq/shared/editor/open";
 import { Switch } from "@/components/ui/switch";
+import { commandEnter } from "@/composer/footer";
 import { setTypingPrefs, useTypingPrefs } from "@/composer/typing-prefs";
+import { BUSY_SEND_WORDS, type BusySend } from "@maxhq/shared/composer/send";
 
 import { Row, Section } from "./controls";
 import { type Choice, Pick as Picker } from "./snooze-presets";
@@ -37,6 +39,9 @@ export const EDITOR_TERMS: readonly string[] = [
 	"Typing",
 	"Check spelling",
 	"Correct spelling automatically",
+	"While an agent works, Enter",
+	"Queue",
+	"Steer",
 ];
 
 /** The Editor page. */
@@ -76,10 +81,19 @@ export const EditorSettingsPage = () => {
 	);
 };
 
-/** Check spelling, and Correct spelling automatically, which needs it. */
+// What Command-Enter does instead, after the pick's own line.
+const otherKey = (pick: BusySend): string =>
+	pick === "queue"
+		? translate("{{keyHint}} steers instead.", { keyHint: commandEnter() })
+		: translate("{{keyHint}} queues instead.", { keyHint: commandEnter() });
+
+/**
+ * Check spelling, Correct spelling automatically, which needs it, and what
+ * Enter does while an agent works.
+ */
 const TypingSection = () => {
 	const services = useServices();
-	const { checkSpelling, correctSpelling } = useTypingPrefs();
+	const { checkSpelling, correctSpelling, busySend } = useTypingPrefs();
 	return (
 		<Section title={translate("Typing")}>
 			<Row
@@ -105,6 +119,21 @@ const TypingSection = () => {
 					checked={checkSpelling && correctSpelling}
 					disabled={!checkSpelling}
 					onCheckedChange={(on) => setTypingPrefs(services, { correctSpelling: on })}
+				/>
+			</Row>
+			<Row
+				title={translate("While an agent works, Enter")}
+				sub={`${BUSY_SEND_WORDS[busySend].line} ${otherKey(busySend)}`}
+			>
+				<Picker
+					label={translate("While an agent works, Enter")}
+					value={busySend}
+					options={(["queue", "steer"] as const).map((value) => ({
+						value,
+						label: BUSY_SEND_WORDS[value].label,
+					}))}
+					onChange={(value) => setTypingPrefs(services, { busySend: value })}
+					className="w-[180px]"
 				/>
 			</Row>
 		</Section>

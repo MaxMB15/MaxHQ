@@ -779,6 +779,8 @@
 	"Search the library": "Bibliothek durchsuchen",
 	"Search the registry": "Registry durchsuchen",
 	"Send at once to steer the agent": "Sofort senden, um den Agenten zu steuern",
+	"Send, or steer while the agent works": "Senden oder lenken, während der Agent arbeitet",
+	"Queue until the agent finishes": "Einreihen, bis der Agent fertig ist",
 	"Send logins": "Anmeldungen senden",
 	"Send, or queue while the agent works": "Senden oder einreihen, während der Agent arbeitet",
 	"Sending": "Wird gesendet",

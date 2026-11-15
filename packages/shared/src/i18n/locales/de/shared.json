@@ -75,6 +75,8 @@
 	"Didn't rename": "Nicht umbenannt",
 	"send the message": "die Nachricht senden",
 	"steer the turn": "den Durchlauf steuern",
+	"Waits until the agent finishes, then sends.": "Wartet, bis der Agent fertig ist, und sendet dann.",
+	"Sends at once; the agent reads it between steps.": "Sendet sofort; der Agent liest es zwischen zwei Schritten.",
 	"take the message back": "die Nachricht zurücknehmen",
 	"stop the turn": "den Durchlauf stoppen",
 	"change the model": "das Modell ändern",

@@ -12,6 +12,7 @@ import { X } from "lucide-react";
 import { type KeyboardEvent } from "react";
 
 import { useServices } from "@/app/services";
+import { useTypingPrefs } from "@/composer/typing-prefs";
 import { holdsCommand, keyHint, SHORTCUTS } from "@/layout/shortcuts";
 import { cn } from "@/lib/utils";
 import { BACKDROP, POPUP } from "@/workspaces/new-workspace";
@@ -79,8 +80,9 @@ const Group = ({ title, rows }: { title: string; rows: readonly ShortcutRow[] })
 export const ShortcutList = () => {
 	const { t } = useI18n();
 
+	const { busySend } = useTypingPrefs();
 	const groups = (() => {
-		const rows = shortcutRows();
+		const rows = shortcutRows(busySend);
 		return SHORTCUT_GROUPS.flatMap((group) => {
 			const inGroup = rows.filter((row) => row.group === group);
 			return inGroup.length > 0 ? [[group, inGroup] as const] : [];

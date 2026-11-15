@@ -779,6 +779,8 @@
 	"Search the library": "Search the library",
 	"Search the registry": "Search the registry",
 	"Send at once to steer the agent": "Send at once to steer the agent",
+	"Send, or steer while the agent works": "Send, or steer while the agent works",
+	"Queue until the agent finishes": "Queue until the agent finishes",
 	"Send logins": "Send logins",
 	"Send, or queue while the agent works": "Send, or queue while the agent works",
 	"Sending": "Sending",

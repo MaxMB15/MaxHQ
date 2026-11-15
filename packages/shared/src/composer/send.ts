@@ -2,9 +2,10 @@
 // Copyright (c) 2026 Max Boksem
 
 // When a message goes out and how. An idle agent takes it at once. While a
-// turn runs, Enter queues it for when the turn ends and Steer sends it into
-// the turn. While a prompt waits for an answer, Enter queues it too, and
-// Send now dismisses what waits, stops the turn and sends it as the next.
+// turn runs, Queue keeps it for when the turn ends and Steer sends it into
+// the turn; Enter does the one this device picked. While a prompt waits for
+// an answer, Enter queues it, and Send now dismisses what waits, stops the
+// turn and sends it as the next.
 
 import { t } from "../i18n";
 
@@ -53,6 +54,63 @@ export const canStop = (turn: Turn): boolean => turn === "busy" || turn === "pro
  */
 export const nowMode = (turn: Turn): Extract<SendMode, "steer" | "interrupt"> | null =>
 	turn === "busy" ? "steer" : turn === "prompt" ? "interrupt" : null;
+
+/**
+ * What Enter, or the phone's send button, does while a turn runs: queue
+ * the message for when the turn ends, or steer the turn with it. Each
+ * device keeps its own pick, and Command-Enter does the other.
+ */
+export type BusySend = Extract<SendMode, "queue" | "steer">;
+
+/** The pick a device starts with, as Enter worked before you could pick. */
+export const DEFAULT_BUSY_SEND: BusySend = "queue";
+
+/** The pick a stored value names, or the default for anything else. */
+export const busySendOf = (value: unknown): BusySend =>
+	value === "queue" || value === "steer" ? value : DEFAULT_BUSY_SEND;
+
+/** The one of the two that `pick` isn't. */
+export const otherBusySend = (pick: BusySend): BusySend => (pick === "queue" ? "steer" : "queue");
+
+/**
+ * How Enter and Command-Enter send as the turn stands. On the phone, Enter
+ * is the send button and Command-Enter the button beside it.
+ */
+export type SendKeys = {
+	readonly enter: SendMode;
+	/** What Command-Enter sends, or null when it does what Enter does. */
+	readonly modified: SendMode | null;
+};
+
+/**
+ * The keys for `turn`. While a turn runs, Enter does your pick and
+ * Command-Enter the other. Otherwise the pick doesn't count: Enter queues,
+ * which an idle agent takes at once, and Command-Enter sends now past a
+ * prompt.
+ */
+export const sendKeys = (turn: Turn, pick: BusySend): SendKeys =>
+	turn === "busy"
+		? { enter: pick, modified: otherBusySend(pick) }
+		: { enter: "queue", modified: nowMode(turn) };
+
+/** How a message goes from Enter, or from Command-Enter when `withModifier`. */
+export const sendModeFor = (turn: Turn, pick: BusySend, withModifier: boolean): SendMode => {
+	const keys = sendKeys(turn, pick);
+	return (withModifier ? keys.modified : null) ?? keys.enter;
+};
+
+/** How a pick reads: its name, and a line on what it does. */
+export type BusySendWords = { readonly label: string; readonly line: string };
+
+/** The words for each pick, in the interface's language. */
+export const BUSY_SEND_WORDS: Record<BusySend, BusySendWords> = {
+	get queue() {
+		return { label: t("Queue"), line: t("Waits until the agent finishes, then sends.") };
+	},
+	get steer() {
+		return { label: t("Steer"), line: t("Sends at once; the agent reads it between steps.") };
+	},
+};
 
 /** What the empty composer says. */
 export const placeholderFor = (activity: Activity, agentTitle: string, device: string): string => {
