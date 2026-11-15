@@ -2912,7 +2912,7 @@ dependencies = [
 
 [[package]]
 name = "maxd"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "base64 0.23.1",
  "core-foundation 0.10.1",
@@ -2965,7 +2965,7 @@ dependencies = [
 
 [[package]]
 name = "maxhq-app"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "base64 0.23.1",
  "directories",
@@ -2995,7 +2995,7 @@ dependencies = [
 
 [[package]]
 name = "maxhq-client"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "base64 0.23.1",
  "bytes",
@@ -3029,7 +3029,7 @@ dependencies = [
 
 [[package]]
 name = "maxhq-core"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "base64 0.23.1",
  "directories",
@@ -3055,7 +3055,7 @@ dependencies = [
 
 [[package]]
 name = "maxhq-desktop"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "block2",
  "maxhq-app",
@@ -3085,7 +3085,7 @@ dependencies = [
 
 [[package]]
 name = "maxhq-fake-agent"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "serde",
  "serde_json",
@@ -3094,7 +3094,7 @@ dependencies = [
 
 [[package]]
 name = "maxhq-hold"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "futures",
  "getrandom 0.4.3",
@@ -3111,7 +3111,7 @@ dependencies = [
 
 [[package]]
 name = "maxhq-mobile"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "base64 0.23.1",
  "curve25519-dalek",
@@ -3133,7 +3133,7 @@ dependencies = [
 
 [[package]]
 name = "maxhq-protocol"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "criterion",
  "maxhq-workflow",
@@ -3150,11 +3150,11 @@ dependencies = [
 
 [[package]]
 name = "maxhq-term"
-version = "0.1.0"
+version = "0.1.1"
 
 [[package]]
 name = "maxhq-transfer"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "maxhq-protocol",
  "maxhq-wire",
@@ -3166,7 +3166,7 @@ dependencies = [
 
 [[package]]
 name = "maxhq-vm"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "block2",
  "dispatch2",
@@ -3181,14 +3181,14 @@ dependencies = [
 
 [[package]]
 name = "maxhq-wire"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "tokio",
 ]
 
 [[package]]
 name = "maxhq-workflow"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "globset",
  "jiff",
