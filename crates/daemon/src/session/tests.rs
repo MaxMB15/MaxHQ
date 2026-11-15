@@ -57,6 +57,7 @@ const WAIT: Duration = Duration::from_secs(5);
 const QUIET: Duration = Duration::from_millis(50);
 
 mod agents;
+mod automated;
 mod container_reach;
 mod deletes;
 mod dispatcher;

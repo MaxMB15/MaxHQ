@@ -270,6 +270,14 @@ pub enum PeerRequest {
         /// The versions.
         versions: Vec<NoteVersion>,
     },
+    /// Tells the asked device which of its agents the asking device's
+    /// enabled tasks send runs to, all of them each time, so auto-settle
+    /// there leaves them be. None clears what it said before. The outcome
+    /// is [`crate::message::ActionOutcome::Done`].
+    TaskTargets {
+        /// The agents, on the asked device.
+        agents: Vec<AgentId>,
+    },
     /// A request from a newer `maxd`, which this one refuses.
     Unknown,
 }

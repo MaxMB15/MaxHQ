@@ -287,6 +287,19 @@ describe("the row menu", () => {
 		).toBeInTheDocument();
 	});
 
+	it("says when an automation keeps an agent active", async () => {
+		renderApp();
+		const bindings = await menuFor(/Bindings check/);
+		expect(within(bindings).queryByText("Kept active by an automation")).toBeNull();
+		fireEvent.keyDown(bindings, { key: "Escape" });
+
+		const menu = await menuFor(/Release checklist/);
+		const item = within(menu).getByRole("menuitemcheckbox", {
+			name: /^Auto-settle when idle/,
+		});
+		expect(await within(item).findByText("Kept active by an automation")).toBeInTheDocument();
+	});
+
 	it("turns continuing after the limit on for an agent MaxHQ holds", async () => {
 		const { setInbox } = renderApp();
 		const bindings = await menuFor(/Bindings check/);

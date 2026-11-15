@@ -10219,6 +10219,27 @@
           ]
         },
         {
+          "description": "Tells the asked device which of its agents the asking device's\nenabled tasks send runs to, all of them each time, so auto-settle\nthere leaves them be. None clears what it said before. The outcome\nis [`crate::message::ActionOutcome::Done`].",
+          "type": "object",
+          "properties": {
+            "agents": {
+              "description": "The agents, on the asked device.",
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/AgentId"
+              }
+            },
+            "kind": {
+              "type": "string",
+              "const": "task_targets"
+            }
+          },
+          "required": [
+            "kind",
+            "agents"
+          ]
+        },
+        {
           "description": "A request from a newer `maxd`, which this one refuses.",
           "type": "object",
           "properties": {

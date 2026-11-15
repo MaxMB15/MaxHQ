@@ -589,6 +589,11 @@ enum Input {
     },
     /// `maxd` is stopping.
     Shutdown { done: oneshot::Sender<()> },
+    /// Another device said which agents here its enabled tasks reach.
+    TaskTargets {
+        from: DeviceId,
+        agents: Vec<AgentId>,
+    },
 }
 
 /// The manager's state, owned by its task.
@@ -1119,6 +1124,7 @@ impl Manager {
             Input::Shutdown { done } => {
                 let _ = done.send(());
             }
+            Input::TaskTargets { from, agents } => self.heard_task_targets(from, agents),
         }
     }
 

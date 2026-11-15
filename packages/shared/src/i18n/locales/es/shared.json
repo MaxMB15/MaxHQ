@@ -288,6 +288,8 @@
 	"Pin": "Fijar",
 	"Unpin": "Desfijar",
 	"Until the limit resets": "Hasta que se restablezca el límite",
+	"Kept active by an automation": "Mantenido activo por una automatización",
+	"Some are kept active by an automation": "Algunos se mantienen activos por una automatización",
 	"Wake": "Volver a mostrar",
 	"On": "Activado",
 	"Settled {{them}}": "{{them}} marcado como atendido",

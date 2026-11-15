@@ -799,6 +799,8 @@
 	"Pin": "Pin",
 	"Unpin": "Unpin",
 	"Until the limit resets": "Until the limit resets",
+	"Kept active by an automation": "Kept active by an automation",
+	"Some are kept active by an automation": "Some are kept active by an automation",
 	"Wake": "Wake",
 	"On": "On",
 	"Settled {{them}}": "Settled {{them}}",

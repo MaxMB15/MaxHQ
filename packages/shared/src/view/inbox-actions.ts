@@ -12,6 +12,7 @@ import type { Agent, AgentId, Inbox, InboxChange, Timestamp } from "../bindings"
 import type { ActionResult } from "../data/source";
 import { formatWhen, plural, sentence } from "../status/format";
 import { canContinueAtLimit, continuesAfterLimit } from "../settings/limits";
+import { keptByAutomation } from "../tasks/place";
 import { atLimit, blockingWindow } from "../status/usage";
 
 import { inboxOf, isSnoozed } from "./inbox";
@@ -96,6 +97,12 @@ export type InboxMenu = {
 	/** Whether auto-settle is on for all of them, off for all, or mixed. */
 	readonly autoSettle: "on" | "off" | "mixed";
 	/**
+	 * Says that auto-settle leaves some of them be whatever the switch
+	 * says, since an enabled automation sends its runs to them. Null when
+	 * none has one.
+	 */
+	readonly keptActive: string | null;
+	/**
 	 * Has the ones that don't carry on after a usage limit carry on. Null
 	 * unless every agent is a Claude Code or Codex agent MaxHQ holds, on a
 	 * `maxd` that has the switch.
@@ -156,6 +163,13 @@ export const inboxMenu = (
 
 	const off = where((inbox) => inbox.auto_settle_off);
 	const on = where((inbox) => !inbox.auto_settle_off);
+	const automated = targets.filter((agent) => keptByAutomation(view, agent.id)).length;
+	const keptActive =
+		automated === 0
+			? null
+			: automated === targets.length
+				? t("Kept active by an automation")
+				: t("Some are kept active by an automation");
 
 	const switchable =
 		targets.length > 0 && targets.every((agent) => canContinueAtLimit(view, agent));
@@ -170,6 +184,7 @@ export const inboxMenu = (
 		autoSettleOn: choice(t("On"), off, { change: "auto_settle", on: true }, several),
 		autoSettleOff: choice(t("Off"), on, { change: "auto_settle", on: false }, several),
 		autoSettle: off.length === 0 ? "on" : on.length === 0 ? "off" : "mixed",
+		keptActive,
 		continueOn: choice(t("On"), stopping, { change: "continue_at_limit", on: true }, several),
 		continueOff: choice(
 			t("Off"),

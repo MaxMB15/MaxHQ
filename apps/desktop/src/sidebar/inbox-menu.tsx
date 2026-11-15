@@ -273,7 +273,12 @@ export const InboxMenuItems = ({
 						<Check aria-hidden size={13} strokeWidth={2.6} className="text-primary" />
 					</Menu.CheckboxItemIndicator>
 				</span>
-				<span className={LABEL}>{t("Auto-settle when idle")}</span>
+				<span className="flex min-w-0 flex-1 flex-col">
+					<span className={LABEL}>{t("Auto-settle when idle")}</span>
+					{menu.keptActive ? (
+						<span className="text-[11px] text-muted-foreground">{menu.keptActive}</span>
+					) : null}
+				</span>
 				{menu.autoSettle === "mixed" ? <span className={HINT}>{t("Some")}</span> : null}
 			</Menu.CheckboxItem>
 			{menu.continueOn || menu.continueOff ? (

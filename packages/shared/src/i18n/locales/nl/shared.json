@@ -288,6 +288,8 @@
 	"Pin": "Vastmaken",
 	"Unpin": "Losmaken",
 	"Until the limit resets": "Tot de limiet wordt hersteld",
+	"Kept active by an automation": "Actief gehouden door een automatisering",
+	"Some are kept active by an automation": "Sommige worden actief gehouden door een automatisering",
 	"Wake": "Weer tonen",
 	"On": "Aan",
 	"Settled {{them}}": "{{them}} afgehandeld",

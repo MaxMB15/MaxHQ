@@ -288,6 +288,8 @@
 	"Pin": "Épingler",
 	"Unpin": "Désépingler",
 	"Until the limit resets": "Jusqu'à la réinitialisation de la limite",
+	"Kept active by an automation": "Maintenu actif par une automatisation",
+	"Some are kept active by an automation": "Certains sont maintenus actifs par une automatisation",
 	"Wake": "Réafficher",
 	"On": "Activé",
 	"Settled {{them}}": "{{them}} marqué comme traité",
