@@ -4,11 +4,13 @@
 //! Cursor's flavor of the ACP driver, for a held `agent acp`. Cursor adds
 //! its own todos, sub-agents, plans and questions to ACP, sends its usage
 //! limit as an error with its own codes, and reports some failures as
-//! ordinary replies (see [`failures`]). Each tool call gets
-//! [`TOOL_TIMEOUT`], as Cursor's tools can hang. Full access is the
-//! process's sandbox flag, which lasts for its life.
+//! ordinary replies (see [`failures`]). Some of its models can't read
+//! images (see [`images`]). Each tool call gets [`TOOL_TIMEOUT`], as
+//! Cursor's tools can hang. Full access is the process's sandbox flag,
+//! which lasts for its life.
 
 mod failures;
+mod images;
 mod launch;
 mod limits;
 mod requests;
@@ -100,6 +102,10 @@ impl Flavor for Cursor {
 
     fn reply_failure(&self, reply: &str) -> Option<Failure> {
         failures::failure(reply)
+    }
+
+    fn reads_images(&self, model: &str) -> bool {
+        images::reads_images(model)
     }
 
     fn stop_reason(&self, stderr: &str) -> Option<String> {

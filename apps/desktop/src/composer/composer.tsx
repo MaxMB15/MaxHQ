@@ -79,7 +79,6 @@ import { agentPillOf } from "@maxhq/shared/pills/agent-pill";
 import { messageFragment } from "@maxhq/shared/pills/sent";
 import type { TriggerKind } from "@maxhq/shared/pills/trigger";
 import type { TimelineStore } from "@maxhq/shared/timeline/store";
-import { imagesNote, takesImages } from "@maxhq/shared/settings/acp-agents";
 import { VENDOR_NAME } from "@maxhq/shared/status/usage";
 import { errorText } from "@maxhq/shared/timeline/store";
 import { draggedName } from "@maxhq/shared/ui/rows";
@@ -136,6 +135,7 @@ import {
 	shownItems,
 	useGitHover,
 } from "./git-pills";
+import { ImageNote } from "./image-note";
 import { useComposerNative } from "./native";
 import { type PaneFile, usePaneFiles } from "./pane-files";
 import { nextPastedTextFileName, pastesAsFile } from "./paste";
@@ -1336,11 +1336,12 @@ const ComposerBody = ({
 							{error}
 						</p>
 					)}
-					{account && !takesImages(account) && placed.some((c) => c.kind === "image") && (
-						<p className="px-3 pb-1 text-[11.5px] text-muted-foreground">
-							{imagesNote(account.label)}
-						</p>
-					)}
+					<ImageNote
+						account={account}
+						model={agent.model}
+						choices={models}
+						chips={placed}
+					/>
 					<FooterRow
 						shows={{
 							sized: attached !== null && attached.summary !== attached.count,

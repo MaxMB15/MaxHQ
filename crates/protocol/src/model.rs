@@ -902,6 +902,10 @@ pub struct ModelChoice {
     /// also where a new agent starts when nothing else names one.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub default_effort: Option<String>,
+    /// Set when the model can't read images, so `maxd` sends an attached
+    /// image by its path only. A `maxd` from before leaves this out.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub no_images: bool,
 }
 
 /// The effort levels MaxHQ knows, lowest first.
@@ -1657,6 +1661,7 @@ mod tests {
             default: false,
             efforts: ["low", "medium", "high"].map(String::from).into(),
             default_effort: Some("medium".into()),
+            no_images: false,
         };
         assert_eq!(model.fit_effort("medium").as_deref(), Some("medium"));
         assert_eq!(model.fit_effort("max").as_deref(), Some("high"));

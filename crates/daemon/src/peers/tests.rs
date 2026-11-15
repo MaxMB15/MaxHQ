@@ -53,6 +53,7 @@ struct Served {
     calls: AtomicUsize,
     wakes: Mutex<Vec<(DeviceId, PeerWake)>>,
     gate: Mutex<Option<Arc<Notify>>>,
+    targets: Mutex<Vec<(DeviceId, Vec<AgentId>)>>,
 }
 
 impl Serve for Served {
@@ -74,6 +75,11 @@ impl Serve for Served {
     fn wake(&self, from: DeviceId, wake: PeerWake) -> BoxFuture<'_, Result<(), String>> {
         self.wakes.lock().unwrap().push((from, wake));
         Box::pin(async { Ok(()) })
+    }
+
+    fn task_targets(&self, from: DeviceId, agents: Vec<AgentId>) -> Result<(), String> {
+        self.targets.lock().unwrap().push((from, agents));
+        Ok(())
     }
 }
 
@@ -571,6 +577,22 @@ async fn a_wake_reaches_the_callers_device() {
         .await
         .unwrap();
     assert_eq!(*a.served.wakes.lock().unwrap(), [(b.id, wake)]);
+}
+
+#[tokio::test]
+async fn the_agents_a_devices_tasks_reach_reach_that_device() {
+    use crate::tasks::targets::Reach;
+
+    let net = Net::default();
+    let a = Device::new(&net, "a");
+    let b = Device::new(&net, "b");
+    a.knows(true, &[(&b, true)]);
+    b.knows(true, &[(&a, true)]);
+    let agent = AgentId::derive("watched");
+    within("the targets", Reach::tell(&b.peers, a.id, vec![agent]))
+        .await
+        .unwrap();
+    assert_eq!(*a.served.targets.lock().unwrap(), [(b.id, vec![agent])]);
 }
 
 #[tokio::test]

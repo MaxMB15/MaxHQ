@@ -704,6 +704,35 @@ describe("attachments", () => {
 		expect(screen.queryByText(note)).not.toBeInTheDocument();
 	});
 
+	it("says under an image that a model that can't read images gets its file path", async () => {
+		const note = "GLM 5.3 Flash can't see images. The agent gets the file path instead.";
+		const cursor = account({
+			id: "a-cursor",
+			vendor: "cursor",
+			label: "Cursor",
+			models: [
+				{ id: "composer-2.5", label: "Composer 2.5", default: true },
+				{ id: "glm-5p3-flash", label: "GLM 5.3 Flash", default: false, no_images: true },
+			],
+		});
+		const attach = async (model: string) => {
+			const { drop, source } = renderComposer({
+				agent: heldAgent({ vendor: "cursor", account: "a-cursor", model }),
+				account: cursor,
+			});
+			source.stageAttachments.mockReturnValueOnce(new Promise(() => {}));
+			const textbox = await findTextbox();
+			expect(screen.queryByText(note)).not.toBeInTheDocument();
+			act(() => drop().onDrop(["/Users/max/shot.png"], { x: 0, y: 0 }));
+			await waitFor(() => expect(pillsIn(textbox)).toHaveLength(1));
+		};
+		await attach("glm-5p3-flash");
+		expect(screen.getByText(note)).toBeInTheDocument();
+		cleanup();
+		await attach("composer-2.5");
+		expect(screen.queryByText(note)).not.toBeInTheDocument();
+	});
+
 	it("takes a drop, shows the overlay while over, and sends once staged", async () => {
 		const { source, drop } = renderComposer();
 		const staging = deferred<ActionResult[]>();

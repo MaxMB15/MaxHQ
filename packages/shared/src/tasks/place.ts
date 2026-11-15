@@ -3,7 +3,8 @@
 
 // Where tasks live: which devices run them, the device a new task's home
 // defaults to, the repos a GitHub events task can watch, the agents a task
-// can send its prompt to, and the tasks that reach one agent. A device
+// can send its prompt to, and the tasks that reach one agent, which keep it
+// from auto-settling while one is enabled. A device
 // whose `maxd` predates scheduled tasks shows none of it.
 
 import { t } from "../i18n";
@@ -124,6 +125,13 @@ export const tasksTargeting = (view: ViewState, agent: AgentId): HomedTask[] =>
 			.filter((t) => t.target.type === "agent" && t.target.agent === agent)
 			.map((task) => ({ task, home: device }))
 	);
+
+/**
+ * Whether an enabled task sends its runs to the agent, which keeps it
+ * from auto-settling: its device leaves it be, whatever its switch says.
+ */
+export const keptByAutomation = (view: ViewState, agent: AgentId): boolean =>
+	tasksTargeting(view, agent).some(({ task }) => task.enabled);
 
 /** The device a task lives on, if a device that runs tasks holds it. */
 export const homeOf = (view: ViewState, task: string): DeviceId | undefined =>

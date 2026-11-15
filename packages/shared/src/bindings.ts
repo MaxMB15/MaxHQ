@@ -5830,6 +5830,11 @@ export type ModelChoice = {
 	 *  also where a new agent starts when nothing else names one.
 	 */
 	default_effort?: string | null,
+	/**
+	 *  Set when the model can't read images, so `maxd` sends an attached
+	 *  image by its path only. A `maxd` from before leaves this out.
+	 */
+	no_images?: boolean,
 };
 
 /**
@@ -6488,6 +6493,15 @@ hashes: VersionHash[] } |
 project: ProjectId; 
 /**  The versions. */
 versions: NoteVersion[] } | 
+/**
+ *  Tells the asked device which of its agents the asking device's
+ *  enabled tasks send runs to, all of them each time, so auto-settle
+ *  there leaves them be. None clears what it said before. The outcome
+ *  is [`crate::message::ActionOutcome::Done`].
+ */
+{ kind: "task_targets"; 
+/**  The agents, on the asked device. */
+agents: AgentId[] } | 
 /**  A request from a newer `maxd`, which this one refuses. */
 { kind: "unknown" };
 

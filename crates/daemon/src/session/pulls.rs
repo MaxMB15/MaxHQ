@@ -223,12 +223,12 @@ impl Manager {
     }
 
     /// Settles a lead agent whose linked PRs all ended, when one of them
-    /// settles it and nothing keeps it busy.
+    /// settles it and nothing keeps it busy or an enabled task reaches it.
     pub(super) fn settle_ended(&mut self, lead: AgentId) {
         let Some(agent) = self.hub.reported(lead) else {
             return;
         };
-        if agent.pulls.is_empty() {
+        if agent.pulls.is_empty() || self.automated(lead) {
             return;
         }
         let settle_on_merge = self

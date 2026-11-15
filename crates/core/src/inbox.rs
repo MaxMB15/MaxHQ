@@ -6,9 +6,11 @@
 //! itself, and when auto-settle settles one. U-8's guards sit
 //! on top of the base rules.
 
+use maxhq_protocol::ids::{AgentId, DeviceId};
 use maxhq_protocol::model::{
     Activity, Agent, Inbox, InboxChange, PauseReason, Pin, Settled, Settler,
 };
+use maxhq_protocol::tasks::{Task, TaskTarget};
 use maxhq_protocol::time::Timestamp;
 
 const DAY_MS: u64 = 24 * 60 * 60 * 1000;
@@ -147,6 +149,21 @@ pub fn auto_settled(agent: &Agent) -> Settled {
         at: agent.last_activity_at,
         by: Settler::Auto,
     }
+}
+
+/// Each agent an enabled task sends its runs to, with the device it's on.
+/// Auto-settle leaves these agents be: you keep them for the task. A task
+/// that starts a new agent for each run keeps none.
+pub fn automated<'a>(
+    tasks: impl IntoIterator<Item = &'a Task>,
+) -> impl Iterator<Item = (DeviceId, AgentId)> {
+    tasks
+        .into_iter()
+        .filter(|task| task.enabled)
+        .filter_map(|task| match &task.target {
+            TaskTarget::Agent { device, agent } => Some((*device, *agent)),
+            TaskTarget::New { .. } => None,
+        })
 }
 
 #[cfg(test)]
@@ -410,6 +427,60 @@ mod tests {
         assert!(
             !auto_settles(&waiting, 5, Some(false), NOW),
             "a PR may be open"
+        );
+    }
+
+    #[test]
+    fn only_an_enabled_task_that_reaches_an_agent_keeps_it() {
+        use maxhq_protocol::ids::{PermissionId, TaskId};
+        use maxhq_protocol::tasks::{Maker, Trigger};
+
+        let task = |name: &str, enabled: bool, target: TaskTarget| Task {
+            id: TaskId::derive(name),
+            name: name.to_owned(),
+            prompt: "Look".to_owned(),
+            trigger: Trigger::Every { minutes: 60 },
+            target,
+            enabled,
+            permission: PermissionId::derive("p"),
+            made_by: Maker::User,
+            next_run: None,
+            last_run: None,
+            approval_asked: None,
+        };
+        let (mac, devbox) = (DeviceId::derive("mac"), DeviceId::derive("devbox"));
+        let (here, there) = (AgentId::derive("here"), AgentId::derive("there"));
+        let on = |device, agent| TaskTarget::Agent { device, agent };
+        let spec = maxhq_protocol::message::AgentSpec {
+            vendor: Vendor::Claude,
+            account: maxhq_protocol::ids::AccountId::derive("claude"),
+            place: maxhq_protocol::message::AgentPlace::Workspace {
+                workspace: WorkspaceId(uuid::Uuid::nil()),
+            },
+            model: None,
+            permission: None,
+            title: None,
+            first: None,
+            branch: None,
+            origin: None,
+            effort: None,
+        };
+        let tasks = [
+            task("here", true, on(mac, here)),
+            task("there", true, on(devbox, there)),
+            task("paused", false, on(mac, AgentId::derive("paused"))),
+            task(
+                "new",
+                true,
+                TaskTarget::New {
+                    device: mac,
+                    spec: Box::new(spec),
+                },
+            ),
+        ];
+        assert_eq!(
+            automated(&tasks).collect::<Vec<_>>(),
+            [(mac, here), (devbox, there)]
         );
     }
 

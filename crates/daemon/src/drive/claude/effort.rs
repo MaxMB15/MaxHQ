@@ -192,6 +192,7 @@ mod tests {
             default: true,
             efforts: efforts.iter().copied().map(String::from).collect(),
             default_effort: None,
+            no_images: false,
         }
     }
 

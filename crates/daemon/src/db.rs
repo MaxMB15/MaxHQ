@@ -221,6 +221,10 @@ pub fn migrations() -> Migrations<'static> {
         // agent last shown. Until it runs again, MaxHQ continues it, or you
         // settle or delete it.
         M::up("CREATE TABLE ended_outside (agent TEXT PRIMARY KEY, record TEXT NOT NULL);"),
+        // The agents here each other device's enabled tasks send runs to,
+        // as that device last said, so auto-settle leaves them be. Until
+        // it says otherwise, or says nothing for a week.
+        M::up("CREATE TABLE task_targets (home TEXT PRIMARY KEY, record TEXT NOT NULL);"),
     ])
 }
 
@@ -529,6 +533,52 @@ impl Db {
         self.lock().execute(
             "DELETE FROM ended_outside WHERE agent = ?1",
             params![agent.to_string()],
+        )?;
+        Ok(())
+    }
+
+    /// What each other device last said its enabled tasks reach here. A
+    /// row that doesn't parse is skipped.
+    pub fn task_targets<T: DeserializeOwned>(&self) -> rusqlite::Result<Vec<T>> {
+        let conn = self.lock();
+        let mut query = conn.prepare("SELECT home, record FROM task_targets")?;
+        let rows = query.query_map([], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        })?;
+        let mut heard = Vec::new();
+        for row in rows {
+            let (home, record) = row?;
+            match serde_json::from_str(&record) {
+                Ok(record) => heard.push(record),
+                Err(err) => {
+                    tracing::warn!(home, %err, "skipping task targets that don't parse")
+                }
+            }
+        }
+        Ok(heard)
+    }
+
+    /// Keeps what `home` said its enabled tasks reach here, in place of
+    /// what it said before.
+    pub fn put_task_targets(
+        &self,
+        home: DeviceId,
+        record: &impl Serialize,
+    ) -> Result<(), RecordError> {
+        let record = serde_json::to_string(record)?;
+        self.lock().execute(
+            "INSERT INTO task_targets (home, record) VALUES (?1, ?2)
+             ON CONFLICT (home) DO UPDATE SET record = excluded.record",
+            params![home.to_string(), record],
+        )?;
+        Ok(())
+    }
+
+    /// Forgets what `home` said its enabled tasks reach here.
+    pub fn remove_task_targets(&self, home: DeviceId) -> rusqlite::Result<()> {
+        self.lock().execute(
+            "DELETE FROM task_targets WHERE home = ?1",
+            params![home.to_string()],
         )?;
         Ok(())
     }
@@ -1543,6 +1593,21 @@ mod tests {
     }
 
     #[test]
+    fn task_targets_survive_a_reopen_until_forgotten() {
+        an_older_database_gains(30, "task_targets");
+        let dir = TempDir::new();
+        let path = dir.path().join(FILE);
+        let (gone, kept) = (DeviceId::derive("gone"), DeviceId::derive("kept"));
+        let db = Db::open(&path).unwrap();
+        db.put_task_targets(gone, &"first").unwrap();
+        db.put_task_targets(kept, &"first").unwrap();
+        db.put_task_targets(kept, &"second").unwrap();
+        db.remove_task_targets(gone).unwrap();
+        let reopened = Db::open(&path).unwrap();
+        assert_eq!(reopened.task_targets::<String>().unwrap(), vec!["second"]);
+    }
+
+    #[test]
     fn an_older_database_gains_hidden_projects_and_keeps_its_rows() {
         an_older_database_gains(21, "hidden_projects");
     }
@@ -1887,6 +1952,7 @@ mod tests {
             default: true,
             efforts: Vec::new(),
             default_effort: None,
+            no_images: false,
         }];
         db.put_models(a, &models).unwrap();
         db.put_models(b, &models).unwrap();

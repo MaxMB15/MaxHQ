@@ -33,7 +33,7 @@ use maxhq_client::{Client, LinkError, LinkEvent, LinkHandle, LinkSpec};
 use maxhq_core::authorized_keys;
 use maxhq_protocol::agents::{PeerBook, PeerCall, PeerEntry, PeerRequest, PeerWake, ToolAnswer};
 use maxhq_protocol::frame;
-use maxhq_protocol::ids::{DeviceId, IdempotencyKey, LinkId};
+use maxhq_protocol::ids::{AgentId, DeviceId, IdempotencyKey, LinkId};
 use maxhq_protocol::link::{LinkState, Route};
 use maxhq_protocol::message::ActionOutcome;
 use maxhq_protocol::{ClientMessage, ServerMessage};
@@ -85,6 +85,8 @@ pub trait Serve: Send + Sync + 'static {
     /// Tells a caller here that an agent it started on `from` finished a
     /// turn.
     fn wake(&self, from: DeviceId, wake: PeerWake) -> BoxFuture<'_, Result<(), String>>;
+    /// Keeps what `from` said: the agents here its enabled tasks reach.
+    fn task_targets(&self, from: DeviceId, agents: Vec<AgentId>) -> Result<(), String>;
 }
 
 impl Serve for Sessions {
@@ -94,6 +96,10 @@ impl Serve for Sessions {
 
     fn wake(&self, from: DeviceId, wake: PeerWake) -> BoxFuture<'_, Result<(), String>> {
         Box::pin(self.peer_wake(from, wake))
+    }
+
+    fn task_targets(&self, from: DeviceId, agents: Vec<AgentId>) -> Result<(), String> {
+        Sessions::task_targets(self, from, agents)
     }
 }
 
@@ -697,6 +703,10 @@ impl Peers {
             PeerRequest::NoteHashes { .. }
             | PeerRequest::NoteVersions { .. }
             | PeerRequest::PutNoteVersions { .. } => unreachable!("served above"),
+            PeerRequest::TaskTargets { agents } => match serve.task_targets(from, agents) {
+                Ok(()) => ActionOutcome::Done,
+                Err(reason) => ActionOutcome::Refused { reason },
+            },
             PeerRequest::Unknown => ActionOutcome::Refused {
                 reason: "This maxd is too old for that; update it.".into(),
             },

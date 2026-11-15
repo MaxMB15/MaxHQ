@@ -4,6 +4,8 @@
 import { describe, expect, it } from "vitest";
 
 import type { Agent, Entity, Inbox, UsageWindow } from "../bindings";
+import { mockTasks } from "../data/mock-tasks";
+import { mockEntities } from "../data/mock-view";
 import { account, agent, entities, MIN, NOW, workspace } from "../test/build";
 
 import { DEFAULT_INBOX } from "./inbox";
@@ -148,6 +150,22 @@ describe("the menu", () => {
 		expect(mixed.autoSettle).toBe("mixed");
 		expect(mixed.autoSettleOn?.steps[0]?.agents).toEqual(["d"]);
 		expect(mixed.autoSettleOff?.steps[0]?.agents).toEqual(["a"]);
+	});
+});
+
+describe("the note that an automation keeps an agent active", () => {
+	const view = applySnapshot({
+		seq: 1,
+		entities: [...mockEntities(NOW), ...mockTasks({ now: () => NOW }).entities()],
+	});
+	const note = (...ids: string[]) => inboxMenu(view, inboxTargets(view, ids), NOW).keptActive;
+
+	it("shows for an agent an enabled task reaches, and says when only some are", () => {
+		expect(note("agent-release")).toBe("Kept active by an automation");
+		expect(note("agent-release", "agent-bindings")).toBe(
+			"Some are kept active by an automation"
+		);
+		expect(note("agent-bindings")).toBeNull();
 	});
 });
 
