@@ -123,8 +123,10 @@ export type AttachmentsState = {
 	/** Stages or uploads a visual's page as an HTML file, keeping the page. Returns its key. */
 	readonly addPage: (context: StageContext, name: string, html: string) => string;
 	/**
-	 * Adds already staged attachments again, such as a queued message's when
-	 * you edit it. Returns their keys, in order.
+	 * Adds a sent message's attachments again, such as a queued message's
+	 * when you edit it. maxd already moved them into that agent's folder,
+	 * and a message to the same agent may name them again. Returns their
+	 * keys, in order.
 	 */
 	readonly restore: (refs: readonly AttachmentRef[]) => string[];
 	/** Drops a chip and stops its upload if it has one on its way. */

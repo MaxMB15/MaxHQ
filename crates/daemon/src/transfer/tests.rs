@@ -1527,11 +1527,26 @@ async fn delivering_to_an_agent_on_the_device_moves_the_staged_copy() {
     assert_eq!(delivered[0].path, want);
     assert_eq!(fs::read(&want).unwrap(), b"hello");
 
-    // It's used up.
+    // A message to the same agent finds it where it went, such as a
+    // queued one taken back and sent again.
+    let again = rig
+        .transfers
+        .deliver(&rig.local, vec![attachment.id])
+        .await
+        .unwrap();
+    assert_eq!(again, delivered);
+    assert_eq!(fs::read(&want).unwrap(), b"hello");
+
+    // Another agent's message can't name it.
+    let other = Place {
+        attachments: rig.attachments().join(AgentId::generate().to_string()),
+        ..rig.local.clone()
+    };
     assert!(matches!(
-        rig.transfers.deliver(&rig.local, vec![attachment.id]).await,
+        rig.transfers.deliver(&other, vec![attachment.id]).await,
         Err(DeliverError::Missing(id)) if id == attachment.id
     ));
+    assert!(want.exists());
 }
 
 #[tokio::test]
@@ -1560,6 +1575,25 @@ async fn delivering_into_a_container_pushes_the_staged_copy() {
         .join("staged")
         .join(attachment.id.to_string())
         .exists());
+
+    // A message to the same agent finds it where it went.
+    let again = rig
+        .transfers
+        .deliver(&rig.boxed, vec![attachment.id])
+        .await
+        .unwrap();
+    assert_eq!(again, delivered);
+
+    // Another agent's message in the same container can't name it.
+    let other = Place {
+        attachments: Path::new(ATTACHMENTS_DIR).join(AgentId::generate().to_string()),
+        ..rig.boxed.clone()
+    };
+    assert!(matches!(
+        rig.transfers.deliver(&other, vec![attachment.id]).await,
+        Err(DeliverError::Missing(id)) if id == attachment.id
+    ));
+    assert_eq!(fs::read(rig.container.local(inside)).unwrap(), data);
 }
 
 #[tokio::test]

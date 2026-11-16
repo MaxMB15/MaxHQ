@@ -499,8 +499,8 @@ pub struct Looked {
 #[derive(Debug, Error)]
 #[allow(dead_code)]
 pub enum DeliverError {
-    /// The attachment isn't staged on this device, or was used already.
-    #[error("attachment {0} isn't staged here")]
+    /// The attachment isn't staged on this device, or another agent has it.
+    #[error("{}", super::attach::GONE)]
     Missing(AttachmentId),
     /// The copy failed.
     #[error("couldn't copy the attachments in: {0}")]
