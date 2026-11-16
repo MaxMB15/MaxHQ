@@ -203,6 +203,8 @@ type Props = {
 	readonly ended: boolean;
 	/** When it ended, if maxd knows. */
 	readonly endedAt: Timestamp | null;
+	/** Set for a sub-agent that finished, whose history is all there is. */
+	readonly finished?: boolean;
 	/** Hears the element that scrolls, once it mounts, for what works on the rows. */
 	readonly onScroller?: (scroller: HTMLElement | null) => void;
 	/** Hears what lets a jump or a find go to an item, once the list mounts. */
@@ -216,6 +218,7 @@ const TimelineListView = ({
 	startedAt,
 	ended: down,
 	endedAt,
+	finished = false,
 	onScroller,
 	onTarget,
 }: Props) => {
@@ -616,9 +619,11 @@ const TimelineListView = ({
 				</Status>
 			) : rows.length === 0 && !hasOlder ? (
 				<Status>
-					{observed
-						? translate("Nothing in the session file yet.")
-						: translate("No messages yet. Send one below to start.")}
+					{finished
+						? translate("MaxHQ found no history for this sub-agent.")
+						: observed
+							? translate("Nothing in the session file yet.")
+							: translate("No messages yet. Send one below to start.")}
 				</Status>
 			) : null}
 			{stepsShown ? <PromptRail steps={prompts} /> : null}

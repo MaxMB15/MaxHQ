@@ -147,6 +147,10 @@ pub fn specta_builder() -> Builder<tauri::Wry> {
             "MOVE_AGENT_SINCE",
             maxhq_protocol::message::MOVE_AGENT_SINCE,
         )
+        .constant(
+            "FINISHED_SUB_AGENTS_SINCE",
+            maxhq_protocol::message::FINISHED_SUB_AGENTS_SINCE,
+        )
 }
 
 /// The exporter settings for the generated file.

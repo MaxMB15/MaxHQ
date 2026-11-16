@@ -66,6 +66,7 @@ async fn deleting_a_running_agent_stops_it_and_forgets_it_with_its_sub_agents() 
         agent: lead,
         since: None,
         limit: 50,
+        lead: None,
     });
     let (_, items, _) = reset(laptop.timeline(lead).await);
     assert!(items.is_empty(), "{items:?}");

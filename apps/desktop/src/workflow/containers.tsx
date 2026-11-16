@@ -29,6 +29,7 @@ import type {
 } from "@maxhq/shared/bindings";
 import { all } from "@maxhq/shared/view/replica";
 import { childrenOf } from "@maxhq/shared/view/select";
+import { finishedLead, nameSubAgent } from "@maxhq/shared/agent-view/finished";
 import { foldWorkflows, workflowsFolded } from "@maxhq/shared/workflow/fold";
 import { projectRuns, runAt, runChip, runsOf, sameRun } from "@maxhq/shared/workflow/select";
 
@@ -42,13 +43,16 @@ const useLatestRun = (lead: AgentId): WorkflowRun | undefined =>
 
 /**
  * Opens a node's agent: beside the focused pane when `split`, and in place
- * for the lead's own sub-agents, as on the Sub-agents tab.
+ * for the lead's own sub-agents, as on the Sub-agents tab, even once they
+ * finished. A finished one's pane takes its node's `label`.
  */
 export const useOpenNodeAgent = (lead: AgentId | undefined) => {
 	const services = useServices();
 	return useCallback(
-		(agent: AgentId, split: boolean) => {
-			const parent = services.view.getState().view.tables.agent.get(agent)?.parent;
+		(agent: AgentId, split: boolean, label?: string) => {
+			const view = services.view.getState().view;
+			if (label !== undefined) nameSubAgent(view, agent, label);
+			const parent = view.tables.agent.get(agent)?.parent ?? finishedLead(view, agent)?.id;
 			if (!split && lead !== undefined && parent === lead) {
 				services.ui.getState().selectSubAgent(agent);
 			} else {

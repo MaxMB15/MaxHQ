@@ -29,6 +29,12 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useStore } from "zustand";
 
 import { FindProvider } from "@maxhq/shared/agent-view/find-context";
+import {
+	finishedLead,
+	finishedNote,
+	subAgentLead,
+	useKeepSubAgent,
+} from "@maxhq/shared/agent-view/finished";
 import { movedTo } from "@maxhq/shared/agent-view/outside";
 import type { Agent, AgentId, AttentionId } from "@maxhq/shared/bindings";
 import { useNow } from "@maxhq/shared/lib/clock";
@@ -61,6 +67,7 @@ import { Composer } from "./Composer";
 import { FeedProvider, useFeedRows } from "./feed-context";
 import { FindBar, FindButton, useFeedFind } from "./FeedFind";
 import { FeedItem } from "./FeedRow";
+import { FinishedAgent } from "./FinishedAgent";
 import { Latest } from "./Latest";
 import { MovedBanner } from "./MovedBanner";
 import { Divider } from "./Notices";
@@ -87,7 +94,7 @@ export const AgentScreen = ({ navigation, route }: ScreenProps<"Agent">) => {
 /**
  * An agent the view doesn't have: Loading while the devices may still send
  * it, then gone. A sub-agent gone with its session points to where the
- * session went.
+ * session went, and one that finished shows its history.
  */
 const MissingAgent = ({ id, back }: { id: AgentId; back: Back }) => {
 	const { t } = useI18n();
@@ -95,7 +102,9 @@ const MissingAgent = ({ id, back }: { id: AgentId; back: Back }) => {
 	const status = useView((s) => s.status);
 	const view = useView((s) => s.view);
 	const moved = movedTo(view.tables.agent, id);
+	const lead = moved ? null : finishedLead(view, id);
 	const loading = missingAgent(status, view, useNow(1_000)) === "loading";
+	if (lead) return <FinishedAgent id={id} lead={lead} back={back} />;
 	return (
 		<View style={styles.screen}>
 			<Header title="" back={back} />
@@ -106,7 +115,7 @@ const MissingAgent = ({ id, back }: { id: AgentId; back: Back }) => {
 				</View>
 			) : (
 				<Text style={[styles.note, styles.gone]}>
-					{loading ? t("Loading") : t("This agent is gone.")}
+					{loading ? t("Loading") : (finishedNote(view, id) ?? t("This agent is gone."))}
 				</Text>
 			)}
 		</View>
@@ -164,6 +173,8 @@ const AgentBody = ({
 	const { source } = useServices();
 	useLookingAt(agent);
 	const view = useView((s) => s.view);
+	// So the screen can show the history once the sub-agent finishes.
+	useKeepSubAgent(agent, subAgentLead(view.tables.agent, agent));
 	const timeline = useTimeline(source, agent.id);
 	const status = useStore(timeline.store, (s) => s.status);
 	const error = useStore(timeline.store, (s) => s.error);

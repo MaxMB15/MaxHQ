@@ -30,7 +30,7 @@ use std::path::Path;
 
 pub(crate) use wire::clip;
 
-pub use history::History;
+pub use history::{subagent_ids, History};
 pub use launch::{add_effort, launch, login_launch, OAUTH_TOKEN, STRIPPED_PREFIXES};
 pub use session::ClaudeSession;
 

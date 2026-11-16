@@ -27,7 +27,7 @@
 //! The client sits behind [`Connector`] and [`LinkControl`], so tests drive
 //! the devices with fake links.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 use std::future::Future;
 #[cfg(feature = "desktop")]
 use std::io;
@@ -179,12 +179,14 @@ pub trait LinkControl: Send + Sync + 'static {
 
     /// Opens an agent's timeline, whose updates then come as
     /// [`LinkEvent::Timeline`]. With `since` it picks up after that
-    /// version, and otherwise starts from the newest items.
+    /// version, and otherwise starts from the newest items. `lead` names
+    /// the lead of a sub-agent.
     fn open_timeline(
         &self,
         agent: AgentId,
         since: Option<Seq>,
         limit: u32,
+        lead: Option<AgentId>,
     ) -> impl Future<Output = Result<(), LinkError>> + Send;
 
     /// Asks for up to `limit` items before the ordinal `before`.
@@ -386,8 +388,9 @@ impl LinkControl for LinkHandle {
         agent: AgentId,
         since: Option<Seq>,
         limit: u32,
+        lead: Option<AgentId>,
     ) -> impl Future<Output = Result<(), LinkError>> + Send {
-        LinkHandle::open_timeline(self, agent, since, limit)
+        LinkHandle::open_timeline(self, agent, since, limit, lead)
     }
 
     fn load_older(
@@ -570,6 +573,10 @@ struct Core<L> {
     turns: Mutex<BTreeMap<DeviceId, Arc<tokio::sync::Mutex<Turn>>>>,
     /// Every window's timeline channel.
     timelines: Timelines,
+    /// The lead of each sub-agent whose timeline a window opened, so its
+    /// timeline still opens through the lead once it finishes and the view
+    /// no longer lists it.
+    leads: Mutex<HashMap<AgentId, AgentId>>,
     /// Every window's workflow channel.
     workflows: Workflows,
     /// Held from changing which timelines and runs a link should have open
@@ -681,6 +688,7 @@ impl<C: Connector> Devices<C> {
                 registry: Mutex::new(registry),
                 turns: Mutex::new(BTreeMap::new()),
                 timelines: Timelines::start(),
+                leads: Mutex::default(),
                 workflows: Workflows::default(),
                 order: tokio::sync::Mutex::new(()),
                 runtime: runtime.clone(),
@@ -1566,7 +1574,13 @@ impl<L: LinkControl> Core<L> {
         agent: AgentId,
     ) -> Result<(), CommandError> {
         let _order = self.order.lock().await;
-        let targets = self.view.read(|merge| agent_targets(merge, agent))?;
+        let known = lock(&self.leads).get(&agent).copied();
+        let (targets, lead) = self
+            .view
+            .read(|merge| timeline_targets(merge, agent, known))?;
+        if let Some(lead) = lead {
+            lock(&self.leads).insert(agent, lead);
+        }
         let Some((id, link)) = targets
             .iter()
             .find_map(|(id, _)| self.link(*id).map(|link| (*id, link)))
@@ -1576,7 +1590,7 @@ impl<L: LinkControl> Core<L> {
         let plan = self.timelines.subscribe(window, sink, agent, id);
         self.close_all(plan.close).await;
         if plan.open.is_some()
-            && let Err(error) = link.open_timeline(agent, None, PAGE).await
+            && let Err(error) = link.open_timeline(agent, None, PAGE, lead).await
         {
             // Only a link that closed fails, and nothing opened.
             self.timelines.unsubscribe(window, agent);
@@ -1619,21 +1633,25 @@ impl<L: LinkControl> Core<L> {
         self.close_runs(runs).await;
         self.relink_runs().await;
         for (agent, from) in self.timelines.watched() {
+            let known = lock(&self.leads).get(&agent).copied();
             let to = self.view.read(|merge| {
                 if connected(merge, from) {
                     return None;
                 }
-                let targets = agent_targets(merge, agent).ok()?;
+                let (targets, lead) = timeline_targets(merge, agent, known).ok()?;
                 let mut ids = targets.into_iter().map(|(id, _)| id);
                 ids.find(|id| *id != from && connected(merge, *id))
+                    .map(|id| (id, lead))
             });
-            let Some((to, link)) = to.and_then(|to| self.link(to).map(|link| (to, link))) else {
+            let Some((to, lead, link)) =
+                to.and_then(|(to, lead)| self.link(to).map(|link| (to, lead, link)))
+            else {
                 continue;
             };
             let Some(since) = self.timelines.relink(agent, from, to) else {
                 continue;
             };
-            if let Err(error) = link.open_timeline(agent, since, PAGE).await {
+            if let Err(error) = link.open_timeline(agent, since, PAGE, lead).await {
                 tracing::debug!(%to, %agent, %error, "a link didn't open a timeline");
                 self.timelines.relink(agent, to, from);
                 continue;
@@ -2582,6 +2600,63 @@ fn agent_targets(merge: &Merge, agent: AgentId) -> Result<Vec<Target>, CommandEr
     }
 }
 
+/// How far up a sub-agent's parents [`root_lead`] looks. `maxd` nests
+/// sub-agents three deep.
+const NESTING: usize = 8;
+
+/// The links that carry an agent's timeline, and the lead to name for a
+/// sub-agent, at the top of its tree. A sub-agent the view no longer lists,
+/// such as one that finished, goes through its lead: `known`, the one it had
+/// when a window last opened it, or the lead of a workflow run it's bound to.
+fn timeline_targets(
+    merge: &Merge,
+    agent: AgentId,
+    known: Option<AgentId>,
+) -> Result<(Vec<Target>, Option<AgentId>), CommandError> {
+    if merge.store().get(&EntityKey::Agent(agent)).is_some() {
+        let lead = root_lead(merge, agent).filter(|lead| *lead != agent);
+        return Ok((agent_targets(merge, agent)?, lead));
+    }
+    let lead = known
+        .or_else(|| run_lead(merge, agent))
+        .and_then(|lead| root_lead(merge, lead))
+        .ok_or_else(|| gone("This agent"))?;
+    Ok((agent_targets(merge, lead)?, Some(lead)))
+}
+
+/// The lead at the top of `agent`'s tree, when the view lists it and every
+/// agent on the way.
+fn root_lead(merge: &Merge, agent: AgentId) -> Option<AgentId> {
+    let store = merge.store();
+    let mut at = agent;
+    for _ in 0..=NESTING {
+        let Some(Entity::Agent(found)) = store.get(&EntityKey::Agent(at)) else {
+            return None;
+        };
+        match found.parent {
+            Some(parent) => at = parent,
+            None => return Some(at),
+        }
+    }
+    None
+}
+
+/// The workflow whose runs list a lead's sub-agents, `maxhq.agents`.
+const SUB_AGENTS: &str = "maxhq.agents";
+
+/// The lead of the sub-agents run with `agent` bound to one of its nodes.
+/// Other workflows bind agents of their own, which aren't sub-agents.
+fn run_lead(merge: &Merge, agent: AgentId) -> Option<AgentId> {
+    merge.store().entities().find_map(|entity| match entity {
+        Entity::WorkflowRun(run)
+            if run.key.workflow == SUB_AGENTS && run.agents.contains(&agent) =>
+        {
+            run.orchestrators.first().copied()
+        }
+        _ => None,
+    })
+}
+
 /// The links to the device a new agent starts on: its workspace's device,
 /// or for a folder, the device of the account it runs as.
 fn place_targets(merge: &Merge, spec: &AgentSpec) -> Result<Vec<Target>, CommandError> {
@@ -2767,8 +2842,9 @@ pub(crate) mod tests {
     #[derive(Clone, Debug, PartialEq)]
     pub(crate) enum Call {
         Send(ClientMessage),
-        /// An open, with the version it picks up after.
-        Open(AgentId, Option<Seq>),
+        /// An open, with the version it picks up after and the lead it
+        /// names.
+        Open(AgentId, Option<Seq>, Option<AgentId>),
         Close(AgentId),
         Refresh,
         Upload(UploadTarget, PathBuf),
@@ -3149,11 +3225,12 @@ pub(crate) mod tests {
             agent: AgentId,
             since: Option<Seq>,
             _limit: u32,
+            lead: Option<AgentId>,
         ) -> impl Future<Output = Result<(), LinkError>> + Send {
             // A link opens timelines whether it's connected or not.
             let gate = {
                 let mut record = self.record.lock().unwrap();
-                let _ = record.take(self.id, Call::Open(agent, since));
+                let _ = record.take(self.id, Call::Open(agent, since, lead));
                 record.gate.clone()
             };
             let (id, record) = (self.id, self.record.clone());
@@ -4620,7 +4697,7 @@ pub(crate) mod tests {
             block_on(h.devices.open_timeline("main", main.clone(), b)),
             Ok(())
         );
-        assert_eq!(h.fake.calls(), [(nl.id, Call::Open(b, None))]);
+        assert_eq!(h.fake.calls(), [(nl.id, Call::Open(b, None, None))]);
         block_on(h.devices.open_timeline("main", main.clone(), b)).unwrap();
         block_on(h.devices.open_timeline("other", other.clone(), b)).unwrap();
         assert!(
@@ -4666,6 +4743,113 @@ pub(crate) mod tests {
         assert!(h.fake.calls().is_empty(), "the other window still watches");
         block_on(h.devices.close_timeline("other", b));
         assert_eq!(h.fake.calls(), [(nl.id, Call::Close(b))]);
+    }
+
+    /// `name` on `nl`, under the lead `parent`.
+    fn sub_agent(name: &str, parent: &str) -> Entity {
+        match agent(name, "w-nl", Activity::Busy) {
+            Entity::Agent(mut agent) => {
+                agent.parent = Some(AgentId::derive(parent));
+                Entity::Agent(agent)
+            }
+            _ => unreachable!(),
+        }
+    }
+
+    /// A run of `workflow` on `nl` that `lead` leads, with `agents` bound
+    /// to its nodes.
+    fn led_run(workflow: &str, lead: &str, agents: &[&str]) -> Entity {
+        let key = maxhq_protocol::workflow::RunKey {
+            device: DeviceId::derive("nl"),
+            project: ProjectId::derive("p"),
+            workflow: workflow.to_owned(),
+            run: lead.to_owned(),
+        };
+        Entity::WorkflowRun(maxhq_protocol::workflow::WorkflowRun {
+            id: key.id(),
+            key,
+            label: "Sub-agents".to_owned(),
+            progress: maxhq_protocol::workflow::Progress { done: 1, total: 1 },
+            current: Vec::new(),
+            needs_you: false,
+            orchestrators: vec![AgentId::derive(lead)],
+            last_activity: None,
+            done: false,
+            failed: false,
+            agents: agents.iter().map(|name| AgentId::derive(name)).collect(),
+        })
+    }
+
+    #[test]
+    fn a_finished_sub_agent_opens_through_its_lead() {
+        let (h, _, nl) = two_devices();
+        let [lead, running, done, nested] = ["b", "s", "done", "n"].map(AgentId::derive);
+        let listed = |subs: Vec<Entity>| {
+            let mut synced = vec![
+                on("nl", workspace("w-nl", "p")),
+                agent("b", "w-nl", Activity::Busy),
+                led_run(SUB_AGENTS, "b", &["s", "done"]),
+                led_run("pipeline", "b", &["x"]),
+            ];
+            synced.extend(subs);
+            LinkEvent::Synced(synced)
+        };
+        h.report(
+            nl.id,
+            listed(vec![sub_agent("s", "b"), sub_agent("n", "s")]),
+        );
+        let window = Recorder::new(1);
+
+        // A listed sub-agent names the lead at the top of its tree, so a
+        // link that reconnects names it again.
+        block_on(h.devices.open_timeline("main", window.clone(), nested)).unwrap();
+        block_on(h.devices.open_timeline("main", window.clone(), lead)).unwrap();
+        assert_eq!(
+            h.fake.calls(),
+            [
+                (nl.id, Call::Open(nested, None, Some(lead))),
+                (nl.id, Call::Open(lead, None, None)),
+            ]
+        );
+
+        // The nested one finished and left the view, as did its parent.
+        // It still opens through the lead a window saw it under, and one
+        // a window never opened through the run it's bound to.
+        block_on(h.devices.close_timeline("main", nested));
+        h.report(nl.id, listed(Vec::new()));
+        h.fake.calls();
+        block_on(h.devices.open_timeline("main", window.clone(), nested)).unwrap();
+        block_on(h.devices.open_timeline("main", window.clone(), done)).unwrap();
+        block_on(h.devices.open_timeline("main", window.clone(), running)).unwrap();
+        assert_eq!(
+            h.fake.calls(),
+            [
+                (nl.id, Call::Open(nested, None, Some(lead))),
+                (nl.id, Call::Open(done, None, Some(lead))),
+                (nl.id, Call::Open(running, None, Some(lead))),
+            ]
+        );
+        assert_eq!(
+            block_on(
+                h.devices
+                    .open_timeline("main", window.clone(), AgentId::derive("x"))
+            ),
+            Err(gone("This agent")),
+            "only a sub-agents run names a lead"
+        );
+
+        // Once the lead goes, so do its sub-agents.
+        h.report(
+            nl.id,
+            LinkEvent::Synced(vec![on("nl", workspace("w-nl", "p"))]),
+        );
+        assert_eq!(
+            block_on(
+                h.devices
+                    .open_timeline("other", Recorder::new(2), AgentId::derive("done"))
+            ),
+            Err(gone("This agent"))
+        );
     }
 
     #[test]
@@ -4886,7 +5070,7 @@ pub(crate) mod tests {
         assert_eq!(
             h.fake.calls(),
             [
-                (second, Call::Open(b, Some(Seq(3)))),
+                (second, Call::Open(b, Some(Seq(3)), None)),
                 (first, Call::Close(b))
             ],
             "the new link picks up after what the app holds"
@@ -5412,7 +5596,7 @@ pub(crate) mod tests {
                 h.fake
                     .record()
                     .calls
-                    .contains(&(nl.id, Call::Open(b, None)))
+                    .contains(&(nl.id, Call::Open(b, None, None)))
             });
             // The window lets go while the link is still opening.
             let close = scope.spawn(|| block_on(h.devices.close_timeline("main", b)));

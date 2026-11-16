@@ -1237,5 +1237,15 @@
 	"This sub-agent's session continues in MaxHQ.": "De sessie van deze subagent gaat verder in MaxHQ.",
 	"The sub-agent stopped when its session left the terminal. {{vendor}} keeps its history, so the session can pick it up again, and then it shows here.": "De subagent stopte toen zijn sessie de terminal verliet. {{vendor}} bewaart zijn geschiedenis, dus de sessie kan hem weer oppakken, en dan verschijnt hij hier.",
 	"Session continues in MaxHQ": "Sessie gaat verder in MaxHQ",
-	"Open session": "Sessie openen"
+	"Open session": "Sessie openen",
+	"This sub-agent finished, and its lead is no longer here.": "Deze subagent is klaar, en zijn hoofdagent is hier niet meer.",
+	"This sub-agent finished. MaxHQ shows the history of finished sub-agents only for {{vendor}}.": "Deze subagent is klaar. MaxHQ toont de geschiedenis van afgeronde subagents alleen voor {{vendor}}.",
+	"This sub-agent finished. MaxHQ can't show the history of finished sub-agents in a container yet.": "Deze subagent is klaar. MaxHQ kan de geschiedenis van afgeronde subagents in een container nog niet tonen.",
+	"This sub-agent finished. Showing its history needs a newer maxd on {{device}}.": "Deze subagent is klaar. Zijn geschiedenis tonen vraagt een nieuwere maxd op {{device}}.",
+	"This sub-agent finished.": "Deze subagent is klaar.",
+	"This is its history, read only. To follow up on its work, write to its lead.": "Dit is zijn geschiedenis, alleen-lezen. Wil je verder met zijn werk, schrijf dan zijn hoofdagent.",
+	"Sub-agent finished": "Subagent klaar",
+	"Open lead": "Hoofdagent openen",
+	"Finished, read only": "Klaar, alleen-lezen",
+	"MaxHQ found no history for this sub-agent.": "MaxHQ vond geen geschiedenis voor deze subagent."
 }

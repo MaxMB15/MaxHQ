@@ -687,18 +687,21 @@ impl LinkHandle {
     /// with the events after it, or with a reset if the device can't go
     /// back that far. Opening one that's open already asks again from
     /// `since`. Each open needs its own close. A link that isn't connected
-    /// opens it once it connects.
+    /// opens it once it connects. `lead` names the lead a sub-agent runs
+    /// under, so the device can still read it once it finished.
     pub async fn open_timeline(
         &self,
         agent: AgentId,
         since: Option<Seq>,
         limit: u32,
+        lead: Option<AgentId>,
     ) -> Result<(), LinkError> {
-        self.book.lock().open(agent, since, limit)?;
+        self.book.lock().open(agent, since, limit, lead)?;
         let open = ClientMessage::OpenTimeline {
             agent,
             since,
             limit,
+            lead,
         };
         match self.post(open).await {
             Err(LinkError::Closed) => Err(LinkError::Closed),

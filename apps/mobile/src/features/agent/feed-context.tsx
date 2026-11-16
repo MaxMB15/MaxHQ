@@ -19,7 +19,10 @@ type Feed = {
 	/** The device the agent runs on, by name. */
 	readonly device: string;
 	readonly store: TimelineStore;
-	/** Set for a session in a terminal, which MaxHQ watches but can't answer. */
+	/**
+	 * Set for a session in a terminal, which MaxHQ watches but can't answer,
+	 * or a sub-agent that finished.
+	 */
 	readonly readOnly: boolean;
 };
 
@@ -30,17 +33,21 @@ export const FeedProvider = ({
 	agent,
 	device,
 	store,
+	readOnly = false,
 	children,
 }: {
-	agent: Agent;
+	agent: Pick<Agent, "id" | "vendor" | "control">;
 	device: string;
 	store: TimelineStore;
+	/** Set for a feed nothing answers, such as a finished sub-agent's. */
+	readOnly?: boolean;
 	children: ReactNode;
 }) => {
 	const { id, vendor, control } = agent;
+	const shut = readOnly || control === "observed";
 	const value = useMemo(
-		() => ({ agent: id, vendor, device, store, readOnly: control === "observed" }),
-		[id, vendor, device, store, control]
+		() => ({ agent: id, vendor, device, store, readOnly: shut }),
+		[id, vendor, device, store, shut]
 	);
 	return <Context value={value}>{children}</Context>;
 };

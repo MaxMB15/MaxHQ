@@ -32,6 +32,7 @@ fn open(since: Option<u64>) -> ClientMessage {
         agent: agent(),
         since: since.map(Seq),
         limit: 50,
+        lead: None,
     }
 }
 
@@ -207,7 +208,7 @@ async fn an_action_on_a_link_that_isnt_connected_is_refused_at_once() {
         handle.act(interrupt(IdempotencyKey::generate())).await,
         Err(LinkError::NotConnected)
     );
-    handle.open_timeline(agent(), None, 50).await.unwrap();
+    handle.open_timeline(agent(), None, 50, None).await.unwrap();
     assert_eq!(
         handle.load_older(agent(), 10, 20).await,
         Err(LinkError::NotConnected)
@@ -220,7 +221,7 @@ async fn a_timeline_reopens_after_its_last_version_on_a_reconnect() {
     let instance = InstanceId::generate();
     let (handle, mut events, mut maxd) = connected(&mut rig, instance).await;
 
-    handle.open_timeline(agent(), None, 50).await.unwrap();
+    handle.open_timeline(agent(), None, 50, None).await.unwrap();
     assert_eq!(maxd.recv().await, Some(open(None)));
     maxd.send(&timeline(reset(3))).await;
     assert_eq!(next(&mut events).await, update(reset(3)));
@@ -242,7 +243,7 @@ async fn only_events_after_the_answer_to_an_open_are_live() {
     let (handle, mut events, mut maxd) = connected(&mut rig, instance).await;
 
     handle
-        .open_timeline(agent(), Some(Seq(2)), 50)
+        .open_timeline(agent(), Some(Seq(2)), 50, None)
         .await
         .unwrap();
     assert_eq!(maxd.recv().await, Some(open(Some(2))));
@@ -262,7 +263,7 @@ async fn only_events_after_the_answer_to_an_open_are_live() {
 
     // A second open is answered too, before events are live again.
     handle
-        .open_timeline(agent(), Some(Seq(7)), 50)
+        .open_timeline(agent(), Some(Seq(7)), 50, None)
         .await
         .unwrap();
     assert_eq!(maxd.recv().await, Some(open(Some(7))));
@@ -277,8 +278,8 @@ async fn a_timeline_closes_on_its_last_close() {
     let mut rig = Rig::new(FAST, Tailnet::default(), &[]);
     let (handle, mut events, mut maxd) = connected(&mut rig, InstanceId::generate()).await;
 
-    handle.open_timeline(agent(), None, 50).await.unwrap();
-    handle.open_timeline(agent(), None, 50).await.unwrap();
+    handle.open_timeline(agent(), None, 50, None).await.unwrap();
+    handle.open_timeline(agent(), None, 50, None).await.unwrap();
     assert_eq!(maxd.recv().await, Some(open(None)));
     assert_eq!(maxd.recv().await, Some(open(None)));
 
@@ -306,7 +307,7 @@ async fn a_timeline_opened_from_a_version_asks_from_it_until_an_update_comes() {
     let (handle, mut events, mut maxd) = connected(&mut rig, instance).await;
 
     handle
-        .open_timeline(agent(), Some(Seq(7)), 50)
+        .open_timeline(agent(), Some(Seq(7)), 50, None)
         .await
         .unwrap();
     assert_eq!(maxd.recv().await, Some(open(Some(7))));
@@ -322,8 +323,35 @@ async fn a_timeline_opened_from_a_version_asks_from_it_until_an_update_comes() {
     assert_eq!(maxd.recv().await, Some(open(Some(9))));
 
     // Opening again asks from the version given, not the one held.
-    handle.open_timeline(agent(), None, 50).await.unwrap();
+    handle.open_timeline(agent(), None, 50, None).await.unwrap();
     assert_eq!(maxd.recv().await, Some(open(None)));
+}
+
+#[tokio::test]
+async fn a_sub_agents_timeline_names_its_lead_again_after_a_reconnect() {
+    let mut rig = Rig::new(FAST, Tailnet::default(), &[]);
+    let instance = InstanceId::generate();
+    let (handle, mut events, maxd) = connected(&mut rig, instance).await;
+    let lead = AgentId::derive("lead");
+    let under = |since: Option<u64>| ClientMessage::OpenTimeline {
+        agent: agent(),
+        since: since.map(Seq),
+        limit: 50,
+        lead: Some(lead),
+    };
+
+    handle
+        .open_timeline(agent(), None, 50, Some(lead))
+        .await
+        .unwrap();
+    // An open that doesn't name it keeps the one it had.
+    handle.open_timeline(agent(), None, 50, None).await.unwrap();
+    let mut maxd = maxd;
+    assert_eq!(maxd.recv().await, Some(under(None)));
+    assert_eq!(maxd.recv().await, Some(open(None)));
+
+    let mut maxd = reconnect(&mut rig, &mut events, maxd, InstanceId::generate()).await;
+    assert_eq!(maxd.recv().await, Some(under(None)));
 }
 
 fn older(before: u64) -> ClientMessage {
@@ -347,7 +375,7 @@ async fn a_page_asked_for_before_a_drop_comes_once_after_the_reconnect() {
     let instance = InstanceId::generate();
     let (handle, mut events, mut maxd) = connected(&mut rig, instance).await;
 
-    handle.open_timeline(agent(), None, 50).await.unwrap();
+    handle.open_timeline(agent(), None, 50, None).await.unwrap();
     assert_eq!(maxd.recv().await, Some(open(None)));
     maxd.send(&timeline(reset(3))).await;
     assert_eq!(next(&mut events).await, update(reset(3)));
@@ -373,7 +401,7 @@ async fn a_page_that_came_isnt_asked_for_again() {
     let instance = InstanceId::generate();
     let (handle, mut events, mut maxd) = connected(&mut rig, instance).await;
 
-    handle.open_timeline(agent(), None, 50).await.unwrap();
+    handle.open_timeline(agent(), None, 50, None).await.unwrap();
     assert_eq!(maxd.recv().await, Some(open(None)));
     maxd.send(&timeline(reset(3))).await;
     assert_eq!(next(&mut events).await, update(reset(3)));
@@ -394,7 +422,7 @@ async fn a_page_goes_nowhere_once_its_timeline_closes() {
     let mut rig = Rig::new(FAST, Tailnet::default(), &[]);
     let (handle, mut events, mut maxd) = connected(&mut rig, InstanceId::generate()).await;
 
-    handle.open_timeline(agent(), None, 50).await.unwrap();
+    handle.open_timeline(agent(), None, 50, None).await.unwrap();
     assert_eq!(maxd.recv().await, Some(open(None)));
     handle.load_older(agent(), 10, 20).await.unwrap();
     assert_eq!(maxd.recv().await, Some(older(10)));
@@ -413,7 +441,7 @@ async fn a_page_goes_nowhere_once_its_timeline_closes() {
 
     // A reopened timeline doesn't take the page asked for before as the
     // answer to its own.
-    handle.open_timeline(agent(), None, 50).await.unwrap();
+    handle.open_timeline(agent(), None, 50, None).await.unwrap();
     assert_eq!(maxd.recv().await, Some(open(None)));
     handle.load_older(agent(), 8, 20).await.unwrap();
     assert_eq!(maxd.recv().await, Some(older(8)));

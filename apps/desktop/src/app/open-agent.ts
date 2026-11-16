@@ -2,13 +2,15 @@
 // Copyright (c) 2026 Max Boksem
 
 // Opening an agent, from a sidebar click or a notification. It gets a pane,
-// or its pane takes focus, and a sub-agent opens with its lead's panel.
+// or its pane takes focus, and a sub-agent opens with its lead's panel,
+// even once it finished.
 // Looking at it marks it seen and clears its Woke marker, by the rule the
 // phone shares.
 
 import { askForRequest } from "@/agent-view/request";
 import { type OpenOptions, panesOf } from "@/layout/panes";
 import type { Agent, AgentId } from "@maxhq/shared/bindings";
+import { finishedLead } from "@maxhq/shared/agent-view/finished";
 import { slideOutOf } from "@maxhq/shared/ui/store";
 import { lookAt } from "@maxhq/shared/view/seen";
 
@@ -35,9 +37,10 @@ export const openAgent = (services: Services, id: AgentId, options?: OpenOptions
 	panesOf(services).open(id, options);
 	const view = services.view.getState().view;
 	const agent = view.tables.agent.get(id);
-	if (agent?.parent) {
+	const parent = agent ? agent.parent : (finishedLead(view, id)?.id ?? null);
+	if (parent) {
 		// One change, so the panes never see the lead selected on the way.
-		const slideOut = slideOutOf(services.ui.getState(), agent.parent);
+		const slideOut = slideOutOf(services.ui.getState(), parent);
 		services.ui.setState({ selectedAgent: id, slideOut, mode: "projects" });
 	} else {
 		// A lead with a run but no sub-agents has a slide-out too, which

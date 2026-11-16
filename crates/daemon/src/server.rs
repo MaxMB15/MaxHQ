@@ -3982,6 +3982,7 @@ pub(crate) mod tests {
                 agent,
                 since: None,
                 limit: 50,
+                lead: None,
             })
             .await;
         match client.recv().await {

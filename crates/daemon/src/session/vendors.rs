@@ -98,6 +98,9 @@ pub trait Vendors: Send + Sync + 'static {
         subagent: Option<&str>,
         agent: AgentId,
     ) -> Option<Box<dyn History>>;
+    /// The IDs of a session's sub-agents that keep a transcript of their
+    /// own, which only Claude's do.
+    fn subagents(&self, vendor: Vendor, config_dir: &Path, session: &str) -> Vec<String>;
 }
 
 /// The drivers this build has: Claude Code in stream-json mode, Codex
@@ -223,6 +226,14 @@ impl Vendors for Wired {
             // agent's history comes from `session/load`, and so does any
             // other ACP agent's.
             Vendor::Cursor | Vendor::Acp => None,
+        }
+    }
+
+    fn subagents(&self, vendor: Vendor, config_dir: &Path, session: &str) -> Vec<String> {
+        match vendor {
+            Vendor::Claude => claude::subagent_ids(config_dir, session),
+            // A Codex sub-agent is a thread of its own.
+            Vendor::Codex | Vendor::Cursor | Vendor::Acp => Vec::new(),
         }
     }
 }
@@ -382,6 +393,10 @@ mod unwired {
             _agent: AgentId,
         ) -> Option<Box<dyn History>> {
             None
+        }
+
+        fn subagents(&self, _vendor: Vendor, _config_dir: &Path, _session: &str) -> Vec<String> {
+            Vec::new()
         }
     }
 

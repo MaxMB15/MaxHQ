@@ -103,6 +103,7 @@ impl Harness {
             agent,
             since: None,
             limit: 100,
+            lead: None,
         });
         reset(viewer.timeline(agent).await).1
     }

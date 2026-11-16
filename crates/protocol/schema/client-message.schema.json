@@ -581,6 +581,17 @@
           "description": "The agent whose timeline to send.",
           "$ref": "#/$defs/AgentId"
         },
+        "lead": {
+          "description": "The lead `agent` runs under, when it's a sub-agent. A `maxd`\nfrom [`FINISHED_SUB_AGENTS_SINCE`] on reads a sub-agent it no\nlonger lists, such as one that finished, from its transcript\nbeside the lead's. An older one ignores it.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/AgentId"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "limit": {
           "description": "The most items a reset may hold.",
           "type": "integer",

@@ -1274,5 +1274,15 @@
 	"This sub-agent's session continues in MaxHQ.": "La session de ce sous-agent continue dans MaxHQ.",
 	"The sub-agent stopped when its session left the terminal. {{vendor}} keeps its history, so the session can pick it up again, and then it shows here.": "Le sous-agent s'est arrêté quand sa session a quitté le terminal. {{vendor}} garde son historique, la session peut donc le reprendre, et il s'affiche alors ici.",
 	"Session continues in MaxHQ": "La session continue dans MaxHQ",
-	"Open session": "Ouvrir la session"
+	"Open session": "Ouvrir la session",
+	"This sub-agent finished, and its lead is no longer here.": "Ce sous-agent a terminé, et son agent principal n'est plus ici.",
+	"This sub-agent finished. MaxHQ shows the history of finished sub-agents only for {{vendor}}.": "Ce sous-agent a terminé. MaxHQ n'affiche l'historique des sous-agents terminés que pour {{vendor}}.",
+	"This sub-agent finished. MaxHQ can't show the history of finished sub-agents in a container yet.": "Ce sous-agent a terminé. MaxHQ ne peut pas encore afficher l'historique des sous-agents terminés dans un conteneur.",
+	"This sub-agent finished. Showing its history needs a newer maxd on {{device}}.": "Ce sous-agent a terminé. Afficher son historique demande un maxd plus récent sur {{device}}.",
+	"This sub-agent finished.": "Ce sous-agent a terminé.",
+	"This is its history, read only. To follow up on its work, write to its lead.": "Voici son historique, en lecture seule. Pour donner suite à son travail, écrivez à son agent principal.",
+	"Sub-agent finished": "Sous-agent terminé",
+	"Open lead": "Ouvrir l'agent principal",
+	"Finished, read only": "Terminé, lecture seule",
+	"MaxHQ found no history for this sub-agent.": "MaxHQ n'a trouvé aucun historique pour ce sous-agent."
 }
