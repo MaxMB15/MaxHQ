@@ -3887,6 +3887,12 @@ export type DeviceLink = {
 	 */
 	protocol?: number | null,
 	/**
+	 *  The protocol versions the device's `maxd` speaks, when its last
+	 *  hello found none in common with this client's. Kept while the link
+	 *  is down, and unset once a hello agrees.
+	 */
+	protocol_mismatch?: ProtocolRange | null,
+	/**
 	 *  The agents with inbox changes waiting in the app's outbox to go out
 	 *  through this link, in ID order. The client leaves it empty, and the
 	 *  app's view fills it in.

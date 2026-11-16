@@ -391,6 +391,9 @@ struct Failure {
     host_down: bool,
     /// When the device was last seen by another source, such as Tailscale.
     last_seen: Option<Timestamp>,
+    /// The protocol versions `maxd` speaks, when its hello found none in
+    /// common with ours.
+    mismatch: Option<ProtocolRange>,
 }
 
 impl Failure {
@@ -400,6 +403,15 @@ impl Failure {
             reason: reason.into(),
             host_down: false,
             last_seen: None,
+            mismatch: None,
+        }
+    }
+
+    /// A `maxd` speaking `theirs`, with no protocol version in common.
+    fn mismatched(reason: impl Into<String>, theirs: Option<ProtocolRange>) -> Self {
+        Self {
+            mismatch: theirs,
+            ..Self::refused(reason)
         }
     }
 }
@@ -1303,6 +1315,7 @@ impl Task {
         self.link.capabilities = Some(hello.capabilities);
         self.capabilities.send_replace(hello.capabilities);
         self.link.protocol = Some(hello.protocol.current);
+        self.link.protocol_mismatch = None;
         self.protocol.send_replace(Some(hello.protocol.current));
         let now = Timestamp::now();
         self.last_connected = Some((Instant::now(), now));
@@ -1664,6 +1677,7 @@ impl Task {
                 reason: "offline".to_owned(),
                 host_down: true,
                 last_seen: self.link.peer.as_ref().and_then(|peer| peer.last_seen),
+                mismatch: None,
             },
             // The device may be fine. It's the way there that's gone, so
             // this says nothing about a restart.
@@ -1720,6 +1734,13 @@ impl Task {
         if failure.host_down && self.dropped_at.is_some() {
             self.went_down = true;
         }
+        // Kept through failures that never reach a hello, so the phone can
+        // still say which side to update.
+        let mismatch_changed =
+            failure.mismatch.is_some() && failure.mismatch != self.link.protocol_mismatch;
+        if mismatch_changed {
+            self.link.protocol_mismatch = failure.mismatch;
+        }
         if self.rebooting() {
             self.set_connecting(ConnectStep::WaitingForReboot).await;
             return;
@@ -1730,8 +1751,12 @@ impl Task {
             .into_iter()
             .chain(failure.last_seen)
             .max();
-        self.set_state(LinkState::Unreachable { reason, last_seen })
-            .await;
+        let state = LinkState::Unreachable { reason, last_seen };
+        if mismatch_changed && self.link.state == state {
+            self.emit_link().await;
+        } else {
+            self.set_state(state).await;
+        }
     }
 
     /// Whether the device dropped and then stopped answering recently,
@@ -1962,6 +1987,7 @@ fn no_hello(route: &Route) -> Failure {
         reason: "maxd didn't answer".to_owned(),
         host_down: matches!(route, Route::Ssh { .. }),
         last_seen: None,
+        mismatch: None,
     }
 }
 
@@ -1976,6 +2002,7 @@ impl From<DialError> for Failure {
             reason: err.reason,
             host_down: err.host_down,
             last_seen: None,
+            mismatch: None,
         }
     }
 }
@@ -2003,7 +2030,10 @@ async fn handshake(wire: &mut Wire, shared: &Shared) -> Result<ServerHello, Fail
         match wire.inbound.next().await {
             Ok(ServerMessage::Hello(hello)) => {
                 if ProtocolRange::OURS.agree(hello.protocol).is_none() {
-                    return Err(Failure::refused(incompatible(hello.protocol)));
+                    return Err(Failure::mismatched(
+                        incompatible(hello.protocol),
+                        Some(hello.protocol),
+                    ));
                 }
                 return Ok(hello);
             }
@@ -2012,7 +2042,10 @@ async fn handshake(wire: &mut Wire, shared: &Shared) -> Result<ServerHello, Fail
                 message,
             }) => {
                 debug!(%message, "maxd refused the protocol");
-                return Err(Failure::refused("maxd speaks a different protocol version"));
+                return Err(Failure::mismatched(
+                    "maxd speaks a different protocol version",
+                    ProtocolRange::from_refusal(&message),
+                ));
             }
             Ok(_) => {}
             Err(ReadError::Eof | ReadError::Io(_)) => {

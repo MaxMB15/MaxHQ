@@ -3,7 +3,8 @@
 
 // Runs the phone app's local builds. No EAS and no Expo account: signing is
 // automatic with the Team ID from ios.local.json, and the upload uses the
-// account signed in to Xcode.
+// account signed in to Xcode, or the App Store Connect API key the
+// MAXHQ_ASC_* variables name (see native.ts).
 //
 //   core [--release]                  the Rust core for both Apple targets
 //   dev [--simulator] [--rebuild]     the core, a new dev build when the
@@ -14,6 +15,11 @@
 //                                     production app archived, signed ad hoc
 //                                     and installed on the paired iPhone
 //   check                             the fingerprint check on its own, for CI
+//   build-number                      prints the release workflow's build
+//                                     number for this run and attempt
+//
+// With MAXHQ_BUILD_NUMBER set, as the release workflow sets it, testflight
+// uploads under that number and leaves native-build.json alone.
 //
 // --dry-run prints the commands instead of running them and writes nothing.
 
@@ -26,6 +32,8 @@ import { createProjectHashAsync } from "expo/fingerprint";
 
 import { MISSING_LOCAL, readIosLocal } from "./ios-config.ts";
 import {
+	apiKeyFromEnv,
+	BUILD_NUMBER_ENV,
 	checkNativeBuild,
 	CORE_MODULE,
 	coreSteps,
@@ -38,6 +46,8 @@ import {
 	NATIVE_BUILD_FILE,
 	needsDevBuild,
 	onlyPhone,
+	pipelineBuildNumber,
+	resolveBuildNumber,
 	testflightSteps,
 	type DevBuilds,
 	type ExportKind,
@@ -45,6 +55,7 @@ import {
 	type NativeBuild,
 	type Step,
 } from "./native.ts";
+import { releaseExtra } from "./release-config.ts";
 
 const appDir = resolve(import.meta.dirname, "..");
 const repoDir = resolve(appDir, "../..");
@@ -61,7 +72,8 @@ const fail = (message: string): never => {
 const attempt = (steps: Step[]): Step | undefined =>
 	steps.find((step) => {
 		const env = Object.entries(step.env ?? {}).map(([key, value]) => `${key}=${value} `);
-		console.log(`$ ${env.join("")}${step.cmd} ${step.args.join(" ")}`);
+		const args = step.args.map((arg) => (step.hide?.includes(arg) ? "***" : arg));
+		console.log(`$ ${env.join("")}${step.cmd} ${args.join(" ")}`);
 		if (dryRun) return false;
 		const result = spawnSync(step.cmd, step.args, {
 			cwd: { repo: repoDir, app: appDir, core: join(appDir, CORE_MODULE) }[step.cwd ?? "app"],
@@ -162,9 +174,29 @@ const release = (steps: Step[], teamId: string, kind: ExportKind) => {
 
 const testflight = async () => {
 	const local = readIosLocal(appDir) ?? fail(MISSING_LOCAL);
+	const key = apiKeyFromEnv(process.env);
+	if (key && !dryRun && !existsSync(key.path)) fail("The API key file isn't there.");
+	// app.config.ts reads these at prebuild, after the core's long build, so a
+	// bad value stops here first.
+	releaseExtra(process.env);
+	const numbered = process.env[BUILD_NUMBER_ENV];
+	if (numbered) {
+		// The workflow's numbers never meet native-build.json's, so neither
+		// the check nor the record applies.
+		const record = readJson<NativeBuild>(NATIVE_BUILD_FILE, {
+			buildNumber: 1,
+			lastUpload: null,
+		});
+		const buildNumber = resolveBuildNumber(record, numbered);
+		run(coreSteps(true));
+		console.log(`Build ${buildNumber}, numbered by ${BUILD_NUMBER_ENV}.`);
+		release(testflightSteps(local, key), local.teamId, "testflight");
+		if (!dryRun) console.log(`Build ${buildNumber} is on its way to TestFlight.`);
+		return;
+	}
 	run(coreSteps(true));
 	const { record, hash } = await check(true);
-	release(testflightSteps(local), local.teamId, "testflight");
+	release(testflightSteps(local, key), local.teamId, "testflight");
 	const uploaded: NativeBuild = {
 		...record,
 		lastUpload: { buildNumber: record.buildNumber, fingerprint: hash },
@@ -201,8 +233,15 @@ const main = async () => {
 			return install();
 		case "check":
 			return void (await check(false));
+		case "build-number":
+			return console.log(
+				pipelineBuildNumber(
+					Number(process.env.GITHUB_RUN_NUMBER),
+					Number(process.env.GITHUB_RUN_ATTEMPT)
+				)
+			);
 		default:
-			fail("Usage: mobile.ts core|dev|testflight|install|check [--dry-run]");
+			fail("Usage: mobile.ts core|dev|testflight|install|check|build-number [--dry-run]");
 	}
 };
 
