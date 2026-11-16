@@ -7,7 +7,8 @@
 // are the phone's switches. The app keeps the settings and applies each
 // change as you make it. The line at the top says what macOS allows, and
 // reads again whenever the window comes back to the front, since that's
-// changed in System Settings.
+// changed in System Settings. The Dock badge's card hears the same read,
+// since macOS hides the badge with notifications off or badges off.
 
 import { useCallback, useEffect, useState } from "react";
 
@@ -15,7 +16,8 @@ import { Switch } from "@/components/ui/switch";
 import type { PushKind } from "@maxhq/shared/bindings";
 import { PUSH_KINDS, switchKind } from "@maxhq/shared/push/push";
 import {
-	notificationPermission,
+	type NotificationAccess,
+	notificationAccess,
 	notificationPrefs,
 	type NotificationPermission,
 	type NotificationPrefs,
@@ -72,7 +74,7 @@ export const NOTIFICATIONS_TERMS: readonly string[] = [
 export const NotificationsSettingsPage = () => {
 	useI18n();
 	const [prefs, setPrefs] = useState<NotificationPrefs | null>(null);
-	const [permission, setPermission] = useState<NotificationPermission | null>(null);
+	const [access, setAccess] = useState<NotificationAccess | null>(null);
 	const [note, setNote] = useState<Note | null>(null);
 
 	useEffect(() => {
@@ -84,9 +86,9 @@ export const NotificationsSettingsPage = () => {
 	}, []);
 
 	const check = useCallback(() => {
-		void notificationPermission()
-			.then(setPermission)
-			.catch(() => setPermission(null));
+		void notificationAccess()
+			.then(setAccess)
+			.catch(() => setAccess(null));
 	}, []);
 	useEffect(() => {
 		check();
@@ -104,6 +106,12 @@ export const NotificationsSettingsPage = () => {
 		);
 	};
 
+	const openSettings = () => {
+		openNotificationSettings().catch((error: unknown) =>
+			setNote({ text: said(error), error: true })
+		);
+	};
+
 	const test = () => {
 		setNote(null);
 		sendTestNotification()
@@ -112,6 +120,7 @@ export const NotificationsSettingsPage = () => {
 	};
 
 	const off = !prefs?.show;
+	const permission = access?.permission;
 	return (
 		<>
 			<Section title={translate("Notifications")}>
@@ -125,15 +134,7 @@ export const NotificationsSettingsPage = () => {
 					}
 				>
 					{permission === "denied" ? (
-						<button
-							type="button"
-							className={SECONDARY}
-							onClick={() =>
-								openNotificationSettings().catch((error: unknown) =>
-									setNote({ text: said(error), error: true })
-								)
-							}
-						>
+						<button type="button" className={SECONDARY} onClick={openSettings}>
 							{translate("Open System Settings")}
 						</button>
 					) : null}
@@ -207,7 +208,7 @@ export const NotificationsSettingsPage = () => {
 					/>
 				</Row>
 			</Section>
-			<DockBadgeSection />
+			<DockBadgeSection access={access} onOpenSettings={openSettings} />
 		</>
 	);
 };

@@ -6,8 +6,10 @@ import { clearMocks, mockIPC } from "@tauri-apps/api/mocks";
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import type { NotificationPermission, NotificationPrefs } from "@maxhq/shared/bindings";
+import type { NotificationAccess, NotificationPrefs } from "@maxhq/shared/bindings";
+import { setBadgePrefs } from "@/native/dock-badge";
 import { DEFAULT_NOTIFICATION_PREFS } from "@/native/notifications";
+import { DEFAULT_BADGE_PREFS } from "@maxhq/shared/view/badge";
 
 import { NotificationsSettingsPage } from "./notifications-settings";
 
@@ -15,14 +17,16 @@ const app = globalThis as { isTauri?: boolean };
 
 /** What the app holds, and the calls the page made. */
 let held: NotificationPrefs;
-let permission: NotificationPermission;
+let access: NotificationAccess;
 const calls: [string, InvokeArgs | undefined][] = [];
 
 beforeEach(() => {
 	app.isTauri = true;
 	held = { ...DEFAULT_NOTIFICATION_PREFS, kinds: [...DEFAULT_NOTIFICATION_PREFS.kinds] };
-	permission = "allowed";
+	access = { permission: "allowed", badge: true };
 	calls.length = 0;
+	localStorage.clear();
+	setBadgePrefs(DEFAULT_BADGE_PREFS);
 	mockIPC((command, args) => {
 		calls.push([command, args]);
 		switch (command) {
@@ -32,7 +36,7 @@ beforeEach(() => {
 				held = (args as { prefs: NotificationPrefs }).prefs;
 				return null;
 			case "notification_permission":
-				return permission;
+				return access;
 			case "send_test_notification":
 			case "open_notification_settings":
 				return null;
@@ -65,6 +69,9 @@ const checked = (name: string) =>
 	screen.getByRole("switch", { name }).getAttribute("aria-checked") === "true";
 
 const sent = (command: string) => calls.filter(([name]) => name === command);
+
+/** A card on the page, by its title. */
+const card = (title: string) => within(screen.getByRole("region", { name: title }));
 
 describe("the Notifications page", () => {
 	it("starts with every kind on and a sound for prompts only", async () => {
@@ -104,20 +111,22 @@ describe("the Notifications page", () => {
 	});
 
 	it("opens System Settings when macOS says no", async () => {
-		permission = "denied";
+		access = { permission: "denied", badge: false };
 		await renderPage();
 		expect(await screen.findByRole("status")).toHaveTextContent(
 			"turned off for MaxHQ in System Settings"
 		);
-		fireEvent.click(screen.getByRole("button", { name: "Open System Settings" }));
+		fireEvent.click(
+			card("Notifications").getByRole("button", { name: "Open System Settings" })
+		);
 		await waitFor(() => expect(sent("open_notification_settings")).toHaveLength(1));
 	});
 
 	it("reads macOS again when the window comes back", async () => {
-		permission = "not_decided";
+		access = { permission: "not_decided", badge: false };
 		await renderPage();
 		expect(await screen.findByRole("status")).toHaveTextContent("hasn't asked");
-		permission = "allowed";
+		access = { permission: "allowed", badge: true };
 		act(() => {
 			window.dispatchEvent(new Event("focus"));
 		});
@@ -126,7 +135,7 @@ describe("the Notifications page", () => {
 	});
 
 	it("says when the build can't show any, and can't send a test", async () => {
-		permission = "unavailable";
+		access = { permission: "unavailable", badge: true };
 		await renderPage();
 		const status = await screen.findByText(/doesn't run from an app bundle/);
 		expect(
@@ -134,6 +143,65 @@ describe("the Notifications page", () => {
 				name: "Send a test notification",
 			})
 		).toBeDisabled();
+	});
+});
+
+describe("the Dock badge card", () => {
+	const HIDDEN = /macOS hides the (badge|count)/;
+
+	it("says nothing more while macOS shows the badge", async () => {
+		await renderPage();
+		await screen.findByText("macOS shows MaxHQ's notifications.");
+		expect(card("Dock badge").queryByText(HIDDEN)).toBeNull();
+		expect(card("Dock badge").queryByRole("button")).toBeNull();
+	});
+
+	it("says when badges are off, and opens System Settings", async () => {
+		access = { permission: "allowed", badge: false };
+		await renderPage();
+		expect(
+			await card("Dock badge").findByText(
+				"Badges are turned off for MaxHQ in System Settings, so macOS hides the count."
+			)
+		).toBeInTheDocument();
+		fireEvent.click(card("Dock badge").getByRole("button", { name: "Open System Settings" }));
+		await waitFor(() => expect(sent("open_notification_settings")).toHaveLength(1));
+	});
+
+	it.each(["denied", "not_decided"] as const)(
+		"says the badge waits on notifications when they're %s",
+		async (permission) => {
+			access = { permission, badge: false };
+			await renderPage();
+			expect(
+				await card("Dock badge").findByText(
+					"macOS hides the badge until MaxHQ's notifications are allowed."
+				)
+			).toBeInTheDocument();
+			fireEvent.click(
+				card("Dock badge").getByRole("button", { name: "Open System Settings" })
+			);
+			await waitFor(() => expect(sent("open_notification_settings")).toHaveLength(1));
+		}
+	);
+
+	it("says nothing while MaxHQ's own badge is off", async () => {
+		access = { permission: "allowed", badge: false };
+		setBadgePrefs({ show: false });
+		await renderPage();
+		await screen.findByText("macOS shows MaxHQ's notifications.");
+		expect(card("Dock badge").queryByText(HIDDEN)).toBeNull();
+	});
+
+	it("drops the line once badges are back on in System Settings", async () => {
+		access = { permission: "allowed", badge: false };
+		await renderPage();
+		await card("Dock badge").findByText(HIDDEN);
+		access = { permission: "allowed", badge: true };
+		act(() => {
+			window.dispatchEvent(new Event("focus"));
+		});
+		await waitFor(() => expect(card("Dock badge").queryByText(HIDDEN)).toBeNull());
 	});
 });
 

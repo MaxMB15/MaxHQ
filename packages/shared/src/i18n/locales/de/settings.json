@@ -1021,6 +1021,8 @@
 	"Show the badge": "Kennzeichen zeigen",
 	"The number of agents that need you, on MaxHQ's icon in the Dock": "Die Zahl der Agents, die dich brauchen, auf dem Symbol von MaxHQ im Dock",
 	"Badge: {{what}}": "Kennzeichen: {{what}}",
+	"macOS hides the badge until MaxHQ's notifications are allowed.": "macOS blendet das Kennzeichen aus, bis MaxHQ-Mitteilungen erlaubt sind.",
+	"Badges are turned off for MaxHQ in System Settings, so macOS hides the count.": "Kennzeichen sind für MaxHQ in den Systemeinstellungen deaktiviert, daher blendet macOS die Zahl aus.",
 	"Copy path": "Pfad kopieren",
 	"Claude Code effort": "Aufwand für Claude Code",
 	"Codex effort": "Aufwand für Codex",

@@ -2,10 +2,14 @@
 // Copyright (c) 2026 Max Boksem
 
 // The Mac's own notifications: which ones show and sound, whether macOS
-// lets them, and a test one. The settings live with the app, which reads
+// lets them and the Dock badge, and a test one. The settings live with the app, which reads
 // them before the page loads. In a browser there are none to show.
 
-import type { NotificationPermission, NotificationPrefs } from "@maxhq/shared/bindings";
+import type {
+	NotificationAccess,
+	NotificationPermission,
+	NotificationPrefs,
+} from "@maxhq/shared/bindings";
 import { DEFAULT_KINDS } from "@maxhq/shared/push/push";
 import { commands } from "@/data/tauri-commands";
 
@@ -30,9 +34,12 @@ export const setNotificationPrefs = (prefs: NotificationPrefs): Promise<void> =>
 		? unwrap(commands.setNotificationPrefs(prefs)).then(() => undefined)
 		: Promise.resolve();
 
-/** Whether macOS lets the app show notifications. */
-export const notificationPermission = (): Promise<NotificationPermission> =>
-	inApp() ? unwrap(commands.notificationPermission()) : Promise.resolve("unavailable");
+/** A build that can't show notifications, where nothing hides the badge. */
+const UNAVAILABLE: NotificationAccess = { permission: "unavailable", badge: true };
+
+/** Whether macOS lets the app show notifications and badge its icon. */
+export const notificationAccess = (): Promise<NotificationAccess> =>
+	inApp() ? unwrap(commands.notificationPermission()) : Promise.resolve(UNAVAILABLE);
 
 /** Shows a test notification, asking macOS first if it hasn't asked yet. */
 export const sendTestNotification = (): Promise<void> =>
@@ -42,4 +49,4 @@ export const sendTestNotification = (): Promise<void> =>
 export const openNotificationSettings = (): Promise<void> =>
 	inApp() ? unwrap(commands.openNotificationSettings()).then(() => undefined) : Promise.resolve();
 
-export type { NotificationPermission, NotificationPrefs };
+export type { NotificationAccess, NotificationPermission, NotificationPrefs };

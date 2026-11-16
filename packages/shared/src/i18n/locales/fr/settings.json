@@ -1022,6 +1022,8 @@
 	"Show the badge": "Afficher la pastille",
 	"The number of agents that need you, on MaxHQ's icon in the Dock": "Le nombre d'agents qui ont besoin de vous, sur l'icône de MaxHQ dans le Dock",
 	"Badge: {{what}}": "Pastille : {{what}}",
+	"macOS hides the badge until MaxHQ's notifications are allowed.": "macOS masque la pastille tant que les notifications MaxHQ ne sont pas autorisées.",
+	"Badges are turned off for MaxHQ in System Settings, so macOS hides the count.": "Les pastilles sont désactivées pour MaxHQ dans les Réglages Système, donc macOS masque le nombre.",
 	"Copy path": "Copier le chemin",
 	"Claude Code effort": "Effort de Claude Code",
 	"Codex effort": "Effort de Codex",

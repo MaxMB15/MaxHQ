@@ -4,7 +4,7 @@
 import { invoke as __TAURI_INVOKE, Channel } from "@tauri-apps/api/core";
 import * as __TAURI_EVENT from "@tauri-apps/api/event";
 
-import type { ActionOutcome, AgentId, AppUpdate, AppUpdateChanged, AttachmentPickerLabels, CommandError, CopiedProject, CopyTarget, DeviceId, Downloaded, FleetProgress, FocusAgent, LinkId, MediaFile, Misspelling, NativeError, NotificationPermission, NotificationPrefs, PathInfo, Request, Response, RunKey, SavedExport, SetupProgress, SetupSecret, SpellingChoice, SpellingMenuLabels, TimelineMessage, TransferProgress, UpdatePrefs, UpdateStatus, UploadTarget, ViewChanged, WebviewPoint, WorkflowMessage, WorkspaceId } from "@maxhq/shared/bindings";
+import type { ActionOutcome, AgentId, AppUpdate, AppUpdateChanged, AttachmentPickerLabels, CommandError, CopiedProject, CopyTarget, DeviceId, Downloaded, FleetProgress, FocusAgent, LinkId, MediaFile, Misspelling, NativeError, NotificationAccess, NotificationPrefs, PathInfo, Request, Response, RunKey, SavedExport, SetupProgress, SetupSecret, SpellingChoice, SpellingMenuLabels, TimelineMessage, TransferProgress, UpdatePrefs, UpdateStatus, UploadTarget, ViewChanged, WebviewPoint, WorkflowMessage, WorkspaceId } from "@maxhq/shared/bindings";
 
 /** Commands */
 export const commands = {
@@ -137,10 +137,10 @@ export const commands = {
 	 */
 	setNotificationPrefs: (prefs: NotificationPrefs) => typedError<null, NativeError>(__TAURI_INVOKE("set_notification_prefs", { prefs })),
 	/**
-	 *  Whether macOS lets this app show notifications, as System Settings has
-	 *  it now.
+	 *  Whether macOS lets this app show notifications and badge its icon, as
+	 *  System Settings has it now.
 	 */
-	notificationPermission: () => typedError<NotificationPermission, NativeError>(__TAURI_INVOKE("notification_permission")),
+	notificationPermission: () => typedError<NotificationAccess, NativeError>(__TAURI_INVOKE("notification_permission")),
 	/**
 	 *  Shows a notification to try the settings out, whichever kinds are on.
 	 *  macOS asks for permission first if it hasn't yet.

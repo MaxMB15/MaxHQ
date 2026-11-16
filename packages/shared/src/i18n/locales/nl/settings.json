@@ -1021,6 +1021,8 @@
 	"Show the badge": "Badge tonen",
 	"The number of agents that need you, on MaxHQ's icon in the Dock": "Het aantal agents dat je nodig heeft, op het icoon van MaxHQ in het Dock",
 	"Badge: {{what}}": "Badge: {{what}}",
+	"macOS hides the badge until MaxHQ's notifications are allowed.": "macOS verbergt de badge tot meldingen voor MaxHQ zijn toegestaan.",
+	"Badges are turned off for MaxHQ in System Settings, so macOS hides the count.": "Badges staan uit voor MaxHQ in Systeeminstellingen, dus macOS verbergt het aantal.",
 	"Copy path": "Pad kopiëren",
 	"Claude Code effort": "Inspanning van Claude Code",
 	"Codex effort": "Inspanning van Codex",
