@@ -3,7 +3,15 @@
 
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 
-import type { AgentId, AttentionId, NoteId, ProjectId } from "@maxhq/shared/bindings";
+import type {
+	AgentId,
+	AttentionId,
+	DeviceId,
+	LeaseId,
+	LinkId,
+	NoteId,
+	ProjectId,
+} from "@maxhq/shared/bindings";
 
 /** The screens and what each takes. */
 export type Screens = {
@@ -21,6 +29,14 @@ export type Screens = {
 	Note: { readonly project: ProjectId; readonly note: NoteId; readonly made?: boolean };
 	/** A file on the agent's device, read-only, scrolled to `line` when it's given. */
 	File: { readonly agent: AgentId; readonly path: string; readonly line?: number };
+	/** A device's page, by the link the phone reaches it through. */
+	Device: { readonly link: LinkId };
+	/** The licences a device waits on, to read and accept. */
+	Licences: { readonly device: DeviceId };
+	/** The form that makes a workspace on a device. */
+	NewWorkspace: { readonly device: DeviceId };
+	/** A test machine an agent leases: what it is, its screen, and End lease. */
+	Lease: { readonly device: DeviceId; readonly lease: LeaseId };
 };
 
 /**
@@ -41,5 +57,13 @@ export const noteScreenId = ({ params }: { readonly params: Screens["Note"] }): 
  */
 export const fileScreenId = ({ params }: { readonly params: Screens["File"] }): string =>
 	`${params.agent}\n${params.path}`;
+
+/** The Device screen's ID: one screen for each device. */
+export const deviceScreenId = ({ params }: { readonly params: Screens["Device"] }): string =>
+	params.link;
+
+/** The Lease screen's ID: one screen for each lease. */
+export const leaseScreenId = ({ params }: { readonly params: Screens["Lease"] }): string =>
+	`${params.device}\n${params.lease}`;
 
 export type ScreenProps<Name extends keyof Screens> = NativeStackScreenProps<Screens, Name>;

@@ -5,11 +5,11 @@
 // the desktop's devices list: how it is, its agents, whether the phone
 // reaches it now, and by which route, with the others it tries. A device
 // that ended the phone's sign-in offers to pair again. Showing one Mac at a
-// time, only that Mac's card shows.
+// time, only that Mac's card shows. Tapping a device opens its page.
 
 import { useI18n } from "@maxhq/shared/i18n";
 
-import { ScrollView, StyleSheet, Text, View } from "react-native";
+import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 
 import { useNow } from "@maxhq/shared/lib/clock";
 import type { ConnectionLook } from "@maxhq/shared/status/connection";
@@ -24,7 +24,7 @@ import { Card } from "../../ui/Card";
 import { ConnectionDot } from "../../ui/Dot";
 import { ConnectionBanner } from "../../ui/ConnectionBanner";
 import { Header } from "../../ui/Header";
-import { Plus } from "../../ui/Icon";
+import { Chevron, Plus } from "../../ui/Icon";
 import { Pill } from "../../ui/Pill";
 import { deviceGroups } from "../macs/macs";
 import { useMacs } from "../macs/useMacs";
@@ -76,6 +76,9 @@ export const DevicesScreen = ({ navigation }: ScreenProps<"Devices">) => {
 										view={view}
 										first={i === 0}
 										pair={pair}
+										open={() =>
+											navigation.navigate("Device", { link: device.id })
+										}
 									/>
 								))}
 							</Card>
@@ -97,20 +100,24 @@ const DeviceRow = ({
 	view,
 	first,
 	pair,
+	open,
 }: {
 	device: DeviceReach;
 	view: ViewState;
 	first: boolean;
 	pair: () => void;
+	/** Opens the device's page. */
+	open: () => void;
 }) => {
 	const { t } = useI18n();
 
 	const agents = agentSummary(view, device.id);
 	return (
-		<View
-			style={[styles.row, !first && styles.line]}
-			accessible
+		<Pressable
+			style={({ pressed }) => [styles.row, !first && styles.line, pressed && styles.pressed]}
+			accessibilityRole="link"
 			accessibilityLabel={`${device.name}. ${device.title}. ${device.detail}${device.version ? `. ${device.version}` : ""}`}
+			onPress={open}
 		>
 			<View style={styles.top}>
 				<ConnectionDot look={device.look} size={8} surface={color.card} decorative />
@@ -120,6 +127,7 @@ const DeviceRow = ({
 				<Text style={[styles.status, { color: LOOK[device.look] }]} numberOfLines={1}>
 					{device.title}
 				</Text>
+				<Chevron dir="right" size={12} />
 			</View>
 			<View style={styles.body}>
 				{agents ? <Text style={styles.agents}>{agents}</Text> : null}
@@ -155,7 +163,7 @@ const DeviceRow = ({
 					</View>
 				) : null}
 			</View>
-		</View>
+		</Pressable>
 	);
 };
 
@@ -166,6 +174,7 @@ const styles = StyleSheet.create({
 	summary: { color: color.mutedForeground, fontSize: size.meta, paddingHorizontal: 2 },
 	row: { minHeight: 44, paddingHorizontal: 14, paddingVertical: 12, gap: 4 },
 	line: { borderTopColor: color.border, borderTopWidth: StyleSheet.hairlineWidth },
+	pressed: { backgroundColor: color.accent },
 	top: { flexDirection: "row", alignItems: "center", gap: 9 },
 	name: { flexShrink: 1, color: color.foregroundStrong, fontSize: size.body, fontWeight: "600" },
 	status: { marginLeft: "auto", fontSize: size.meta },
