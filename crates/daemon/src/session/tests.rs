@@ -537,6 +537,18 @@ impl Harness {
             agent,
             since,
             limit,
+            lead: None,
+        });
+        self.phone.timeline(agent).await
+    }
+
+    /// Opens a sub-agent's timeline, naming the lead it ran under.
+    async fn open_under(&mut self, agent: AgentId, lead: AgentId) -> TimelineUpdate {
+        self.phone.send(ClientMessage::OpenTimeline {
+            agent,
+            since: None,
+            limit: 50,
+            lead: Some(lead),
         });
         self.phone.timeline(agent).await
     }
@@ -3017,6 +3029,7 @@ async fn a_slow_history_read_holds_up_no_other_agent() {
         agent: outside,
         since: None,
         limit: 50,
+        lead: None,
     });
     eventually("the history read", || h.vendors.waiting_reads() == 1).await;
 
@@ -3115,6 +3128,99 @@ async fn a_terminal_codex_sessions_sub_agent_shows_its_own_thread() {
     );
     let (_, items, _) = reset(h.open(sub.id, None, 50).await);
     assert_eq!(ids(&items), ["s1"]);
+}
+
+#[tokio::test]
+async fn a_finished_sub_agent_opens_from_its_transcript_once() {
+    let mut h = Harness::new();
+    let session = Uuid::now_v7().to_string();
+    let lead = h.outside(&session, Activity::Busy);
+    // Only a1 runs still. a2 and the a3 it started finished, so they aren't
+    // listed.
+    let helper = Agent {
+        id: names::subagent(lead, "a1"),
+        parent: Some(lead),
+        vendor_session_id: Some("a1".into()),
+        ..h.agent(lead)
+    };
+    h.hub.apply([Change::Upsert {
+        value: Entity::Agent(helper.clone()),
+    }]);
+    let (done, deep) = (names::subagent(lead, "a2"), names::subagent(lead, "a3"));
+    let mut written = vec![reply(done, "d1", "Found it", ItemStatus::Completed)];
+    h.vendors
+        .set_history(&format!("{session}/a2"), written.clone());
+    h.vendors.set_history(
+        &format!("{session}/a3"),
+        vec![reply(deep, "n1", "Deep down", ItemStatus::Completed)],
+    );
+
+    let (_, items, _) = reset(h.open_under(done, lead).await);
+    assert_eq!(ids(&items), ["d1"]);
+    // A sub-agent's own sub-agent names its parent, which leads to the same
+    // session.
+    let (_, items, _) = reset(h.open_under(deep, helper.id).await);
+    assert_eq!(ids(&items), ["n1"]);
+
+    // A finished transcript isn't read again while it's open.
+    written.push(reply(done, "d2", "Later", ItemStatus::Completed));
+    h.vendors.set_history(&format!("{session}/a2"), written);
+    tokio::time::sleep(QUIET).await;
+    h.clock.advance(super::POLL_EVERY);
+    h.phone
+        .quiet(
+            "a poll of the finished sub-agent",
+            |message| matches!(message, ServerMessage::Timeline { agent, .. } if *agent == done),
+        )
+        .await;
+    let read = format!("{session}/a2");
+    assert_eq!(h.vendors.reads().iter().filter(|r| **r == read).count(), 1);
+
+    // A client that doesn't name the lead gets what it got before.
+    let other = names::subagent(lead, "a9");
+    let (_, items, _) = reset(h.open(other, None, 50).await);
+    assert!(items.is_empty());
+}
+
+#[tokio::test]
+async fn a_finished_sub_agent_goes_with_its_lead() {
+    let mut h = Harness::new();
+    let session = Uuid::now_v7().to_string();
+    let lead = h.outside(&session, Activity::Idle);
+    let done = names::subagent(lead, "a2");
+    h.vendors.set_history(
+        &format!("{session}/a2"),
+        vec![reply(done, "d1", "Found it", ItemStatus::Completed)],
+    );
+    h.hub.apply([Change::Remove {
+        key: EntityKey::Agent(lead),
+    }]);
+
+    let (_, items, _) = reset(h.open_under(done, lead).await);
+    assert!(items.is_empty());
+    assert!(h.vendors.reads().is_empty());
+}
+
+#[tokio::test]
+async fn a_held_leads_finished_sub_agent_opens_after_a_restart() {
+    let mut h = Harness::new();
+    let (lead, _) = h.start_claude(None).await;
+    let session = h.stored(lead).vendor_session;
+    let done = names::subagent(lead, "t1");
+    h.vendors.set_history(
+        &format!("{session}/t1"),
+        vec![reply(done, "d1", "Found it", ItemStatus::Completed)],
+    );
+    let (_, items, _) = reset(h.open_under(done, lead).await);
+    assert_eq!(ids(&items), ["d1"]);
+
+    h.restart().await;
+    eventually("the lead back", || {
+        h.hub.get(&EntityKey::Agent(lead)).is_some()
+    })
+    .await;
+    let (_, items, _) = reset(h.open_under(done, lead).await);
+    assert_eq!(ids(&items), ["d1"]);
 }
 
 #[tokio::test]

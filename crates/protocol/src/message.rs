@@ -475,6 +475,12 @@ pub enum ClientMessage {
         since: Option<Seq>,
         /// The most items a reset may hold.
         limit: u32,
+        /// The lead `agent` runs under, when it's a sub-agent. A `maxd`
+        /// from [`FINISHED_SUB_AGENTS_SINCE`] on reads a sub-agent it no
+        /// longer lists, such as one that finished, from its transcript
+        /// beside the lead's. An older one ignores it.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        lead: Option<AgentId>,
     },
     /// Asks for items before the oldest the client has.
     LoadOlder {
@@ -2581,6 +2587,12 @@ pub const DISMISS_SINCE: u32 = 42;
 /// says it doesn't check signatures.
 pub const SIGNED_UPDATES_SINCE: u32 = 43;
 
+/// The protocol version whose `maxd` first opens the timeline of a Claude
+/// sub-agent that finished, read once from its transcript, when
+/// [`ClientMessage::OpenTimeline`] names its lead. An older one sends an
+/// empty timeline, so the app says the sub-agent isn't there.
+pub const FINISHED_SUB_AGENTS_SINCE: u32 = 44;
+
 /// When [`ClientMessage::TakeOver`] stops the terminal's CLI.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, Type, JsonSchema)]
 #[serde(rename_all = "snake_case")]
@@ -3630,6 +3642,28 @@ mod tests {
     }
 
     #[test]
+    fn a_sub_agents_lead_is_a_hint_an_older_maxd_ignores() {
+        let open = |lead| ClientMessage::OpenTimeline {
+            agent: agent(),
+            since: None,
+            limit: 50,
+            lead,
+        };
+        assert!(round_trip(&open(None)).get("lead").is_none());
+        let lead = AgentId::derive("lead");
+        assert_eq!(round_trip(&open(Some(lead)))["lead"], json!(lead));
+        // An older maxd reads past it, so it goes to every maxd.
+        assert_eq!(open(Some(lead)).since(), OLDEST_PROTOCOL_VERSION);
+        let old = json!({ "type": "open_timeline", "agent": agent(), "since": null, "limit": 50 });
+        let read: ClientMessage = serde_json::from_value(old).unwrap();
+        assert!(matches!(
+            read,
+            ClientMessage::OpenTimeline { lead: None, .. }
+        ));
+        assert_eq!(FINISHED_SUB_AGENTS_SINCE, 44);
+    }
+
+    #[test]
     fn show_anyway_goes_only_to_a_maxd_that_reads_it() {
         let fetch = |anyway| ClientMessage::FetchBegin {
             key: key(),
@@ -3992,6 +4026,7 @@ mod tests {
                     agent: agent(),
                     since: Some(Seq(9)),
                     limit: 200,
+                    lead: None,
                 },
             ),
             (

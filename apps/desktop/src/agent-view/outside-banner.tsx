@@ -5,9 +5,10 @@
 // terminal runs it, MaxHQ only follows along, and Take over stops it
 // there after asking. Once it ends, the session can continue here. While
 // the device can't be reached, it says so. A sub-agent's banner takes over
-// the session it runs in, and points there once it continues in MaxHQ.
+// the session it runs in, and points there once it continues in MaxHQ. A
+// sub-agent that finished points to its lead.
 
-import { SquareTerminal } from "lucide-react";
+import { CircleCheck, SquareTerminal } from "lucide-react";
 import { type ReactNode, useId } from "react";
 
 import { openAgent } from "@/app/open-agent";
@@ -15,6 +16,7 @@ import { useServices, useView } from "@/app/services";
 import { requestAnswer } from "@/components/confirm";
 import { CopyButton } from "@/components/copy-button";
 import type { Agent, Vendor } from "@maxhq/shared/bindings";
+import { finishedBanner } from "@maxhq/shared/agent-view/finished";
 import { useNow } from "@maxhq/shared/lib/clock";
 import { cn } from "@/lib/utils";
 import { childrenOf, deviceName, linkForDevice } from "@maxhq/shared/view/select";
@@ -80,11 +82,13 @@ const Frame = ({
 	title,
 	children,
 	actions,
+	icon = <SquareTerminal size={14} strokeWidth={2} />,
 }: {
 	label: string;
 	title: string;
 	children: ReactNode;
 	actions: ReactNode;
+	icon?: ReactNode;
 }) => (
 	<section
 		aria-label={label}
@@ -94,7 +98,7 @@ const Frame = ({
 			aria-hidden
 			className="mt-px grid size-[26px] shrink-0 place-items-center rounded-md border border-input bg-hover-card text-secondary-foreground"
 		>
-			<SquareTerminal size={14} strokeWidth={2} />
+			{icon}
 		</span>
 		<div className="flex min-w-0 flex-1 flex-col gap-[3px]">
 			<h3 className="text-[13px] font-semibold text-foreground-strong">{title}</h3>
@@ -125,6 +129,31 @@ export const SessionMoved = ({ lead }: { lead: Agent }) => {
 					className={PRIMARY}
 				>
 					{translate("Open session")}
+				</button>
+			}
+		>
+			<p className="text-[12px] leading-[1.45] text-muted-foreground">{body}</p>
+		</Frame>
+	);
+};
+
+/** In place of the composer for a sub-agent that finished, whose history shows above it. */
+export const SubAgentFinished = ({ lead }: { lead: Agent }) => {
+	useI18n();
+	const services = useServices();
+	const { title, body } = finishedBanner();
+	return (
+		<Frame
+			label={translate("Sub-agent finished")}
+			title={title}
+			icon={<CircleCheck size={14} strokeWidth={2} />}
+			actions={
+				<button
+					type="button"
+					onClick={() => openAgent(services, lead.id)}
+					className={PRIMARY}
+				>
+					{translate("Open lead")}
 				</button>
 			}
 		>

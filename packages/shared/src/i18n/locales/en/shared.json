@@ -1202,5 +1202,15 @@
 	"This sub-agent's session continues in MaxHQ.": "This sub-agent's session continues in MaxHQ.",
 	"The sub-agent stopped when its session left the terminal. {{vendor}} keeps its history, so the session can pick it up again, and then it shows here.": "The sub-agent stopped when its session left the terminal. {{vendor}} keeps its history, so the session can pick it up again, and then it shows here.",
 	"Session continues in MaxHQ": "Session continues in MaxHQ",
-	"Open session": "Open session"
+	"Open session": "Open session",
+	"This sub-agent finished, and its lead is no longer here.": "This sub-agent finished, and its lead is no longer here.",
+	"This sub-agent finished. MaxHQ shows the history of finished sub-agents only for {{vendor}}.": "This sub-agent finished. MaxHQ shows the history of finished sub-agents only for {{vendor}}.",
+	"This sub-agent finished. MaxHQ can't show the history of finished sub-agents in a container yet.": "This sub-agent finished. MaxHQ can't show the history of finished sub-agents in a container yet.",
+	"This sub-agent finished. Showing its history needs a newer maxd on {{device}}.": "This sub-agent finished. Showing its history needs a newer maxd on {{device}}.",
+	"This sub-agent finished.": "This sub-agent finished.",
+	"This is its history, read only. To follow up on its work, write to its lead.": "This is its history, read only. To follow up on its work, write to its lead.",
+	"Sub-agent finished": "Sub-agent finished",
+	"Open lead": "Open lead",
+	"Finished, read only": "Finished, read only",
+	"MaxHQ found no history for this sub-agent.": "MaxHQ found no history for this sub-agent."
 }

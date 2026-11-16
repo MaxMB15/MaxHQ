@@ -30,6 +30,7 @@ import { LocalMaxdNotice } from "@/main-area/local-maxd";
 import { createPaneFiles, PaneFilesContext } from "@/composer/pane-files";
 import { isRemoteDevice, PortOffers } from "@/ports";
 import { type RowContext, RowProvider } from "@maxhq/shared/agent-view/context";
+import { subAgentLead, useKeepSubAgent } from "@maxhq/shared/agent-view/finished";
 import { CloneBanner } from "./clone-banner";
 import { FindBar } from "./find/bar";
 import { FindProvider } from "@maxhq/shared/agent-view/find-context";
@@ -53,6 +54,11 @@ export const AgentView = ({ agent }: { agent: Agent }) => {
 	const queued = useStore(timeline.store, (s) => s.queued);
 	const device = useView((s) => s.view.tables.workspace.get(agent.workspace)?.device);
 	const remote = useView((s) => (device ? isRemoteDevice(s.view, device) : false));
+	// So the pane can show the history once the sub-agent finishes.
+	useKeepSubAgent(
+		agent,
+		useView((s) => subAgentLead(s.view.tables.agent, agent))
+	);
 	const subAgentsShown = useUi((s) => slideLead(s) === agent.id);
 	const shownSubAgent = useUi((s) => spotOf(s, agent.id));
 	const signIn = useView((s) =>

@@ -326,6 +326,7 @@ async fn open(
         agent,
         since,
         limit,
+        lead: None,
     });
     loop {
         let message = tokio::time::timeout(LONG, client.recv())

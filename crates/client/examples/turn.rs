@@ -109,7 +109,7 @@ async fn main() {
         other => fail(&format!("start: {other:?}")),
     };
     println!("started {agent}");
-    if let Err(error) = link.open_timeline(agent, None, 200).await {
+    if let Err(error) = link.open_timeline(agent, None, 200, None).await {
         fail(&format!("open timeline: {error}"));
     }
 

@@ -60,6 +60,7 @@ async fn the_manager_answers_while_a_timeline_is_still_read() {
         agent,
         since: None,
         limit: 50,
+        lead: None,
     });
     h.phone
         .quiet(
@@ -118,6 +119,7 @@ async fn an_agent_a_client_opens_is_read_next() {
         agent: oldest,
         since: None,
         limit: 50,
+        lead: None,
     });
     h.phone
         .quiet(

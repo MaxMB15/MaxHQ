@@ -13,6 +13,7 @@ import { useCallback } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 
 import { useFold } from "@maxhq/shared/agent-view/find-context";
+import { keepCardSubAgent } from "@maxhq/shared/agent-view/finished";
 import { isOpen } from "@maxhq/shared/agent-view/format";
 import {
 	endedLine,
@@ -76,16 +77,23 @@ const NestedMeta = ({ item }: { item: Item }) => {
 	return <Meta item={item} work={useWork(store, mine, isOpen(item.status), false)} />;
 };
 
-const OpenButton = ({ agent }: { agent: AgentId }) => {
+const OpenButton = ({ agent, title }: { agent: AgentId; title: string }) => {
 	const { t } = useI18n();
 
 	const navigation = useNavigation<NativeStackNavigationProp<Screens>>();
+	const services = useServices();
+	const feed = useFeed();
+	const open = () => {
+		// So it still opens, by this name, once it finished.
+		keepCardSubAgent(services.view.getState().view, feed.agent, agent, title);
+		navigation.push("Agent", { agent });
+	};
 	return (
 		<Pressable
 			accessibilityRole="button"
 			accessibilityLabel={t("Open this sub-agent")}
 			hitSlop={9}
-			onPress={() => navigation.push("Agent", { agent })}
+			onPress={open}
 			style={({ pressed }) => [styles.open, pressed ? styles.pressed : null]}
 		>
 			<Text style={styles.openText}>{t("Open")}</Text>
@@ -147,7 +155,9 @@ export const SubAgentCard = ({ item }: { item: Item }) => {
 				) : (
 					<View style={styles.summary}>{summary}</View>
 				)}
-				{item.subagent ? <OpenButton agent={item.subagent} /> : null}
+				{item.subagent ? (
+					<OpenButton agent={item.subagent} title={item.description} />
+				) : null}
 			</View>
 			{open && hasResult ? (
 				<View style={styles.report}>

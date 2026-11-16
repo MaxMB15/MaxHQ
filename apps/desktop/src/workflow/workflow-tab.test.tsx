@@ -94,15 +94,15 @@ describe("WorkflowTab", () => {
 		fireEvent.click(within(nodes()).getByRole("button", { name: /^Analysis/ }));
 		expect(row("Testing")).toHaveAccessibleName("Testing, Running, opens its agent");
 		fireEvent.click(row("Testing"));
-		expect(props.onOpenAgent).toHaveBeenLastCalledWith("agent-ex-testing", false);
+		expect(props.onOpenAgent).toHaveBeenLastCalledWith("agent-ex-testing", false, "Testing");
 		fireEvent.click(row("Testing"), { ctrlKey: true });
-		expect(props.onOpenAgent).toHaveBeenLastCalledWith("agent-ex-testing", true);
+		expect(props.onOpenAgent).toHaveBeenLastCalledWith("agent-ex-testing", true, "Testing");
 	});
 
 	it("opens a node with no agent on its orchestrator while it's under way", () => {
 		const { props } = tab(SETTINGS);
 		fireEvent.click(row("Approve"));
-		expect(props.onOpenAgent).toHaveBeenLastCalledWith(RUN_LEADS.approve, false);
+		expect(props.onOpenAgent).toHaveBeenLastCalledWith(RUN_LEADS.approve, false, "Approve");
 	});
 
 	it("opens the popover with the note for a settled node with no agent", async () => {

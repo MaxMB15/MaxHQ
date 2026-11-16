@@ -166,7 +166,7 @@ const agents = (now: Timestamp): Agent[] => {
 			activity: { state: "busy_in_subagents" },
 		}),
 		sub(RUN_LEADS.agents, "agent-ex-flags-web", "Flags in the web app", true),
-		sub(RUN_LEADS.agents, "agent-ex-flags-docs", "Flags in the docs", false),
+		// "agent-ex-flags-docs" finished, so maxd no longer lists it.
 		onMac(API_MAC, {
 			id: RUN_LEADS.cr,
 			title: "Rate limit design",
@@ -607,6 +607,9 @@ const entityOf = (sample: SampleRun): WorkflowRun => {
 		orchestrators: sample.orchestrators,
 		last_activity: sample.lastActivity,
 		done: sample.status === "done",
+		agents: [...new Set(nodes.flatMap((node) => node.agents))].filter(
+			(agent) => !sample.orchestrators.includes(agent)
+		),
 	};
 };
 

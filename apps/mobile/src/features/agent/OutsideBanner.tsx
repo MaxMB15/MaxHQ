@@ -8,6 +8,7 @@ import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { StyleSheet, Text, View } from "react-native";
 
 import type { Agent } from "@maxhq/shared/bindings";
+import { finishedBanner } from "@maxhq/shared/agent-view/finished";
 import {
 	MANUAL_NOTE,
 	movedNote,
@@ -61,6 +62,27 @@ export const SessionMoved = ({ lead }: { lead: Agent }) => {
 				small
 				onPress={() => navigation.navigate("Agent", { agent: lead.id })}
 			/>
+		</View>
+	);
+};
+
+/** In place of the composer for a sub-agent that finished, pointing to its `lead`. */
+export const SubAgentFinished = ({ lead }: { lead: Agent }) => {
+	const { t } = useI18n();
+	const navigation = useNavigation<NativeStackNavigationProp<Screens>>();
+	const { title, body } = finishedBanner();
+	return (
+		<View style={styles.bar}>
+			<View style={styles.box} accessibilityLabel={t("Sub-agent finished")}>
+				<Text style={styles.title}>{title}</Text>
+				<Text style={styles.body}>{body}</Text>
+				<Button
+					label={t("Open lead")}
+					tone="primary"
+					small
+					onPress={() => navigation.navigate("Agent", { agent: lead.id })}
+				/>
+			</View>
 		</View>
 	);
 };

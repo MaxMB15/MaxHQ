@@ -940,6 +940,20 @@ impl Vendors for FakeVendors {
             }) as Box<dyn History>
         })
     }
+
+    fn subagents(&self, vendor: Vendor, config_dir: &Path, session: &str) -> Vec<String> {
+        let state = lock(&self.state);
+        if vendor == Vendor::Claude && state.real_claude {
+            return Wired { pictures: None }.subagents(vendor, config_dir, session);
+        }
+        let prefix = format!("{session}/");
+        state
+            .histories
+            .keys()
+            .filter_map(|key| key.strip_prefix(&prefix))
+            .map(str::to_owned)
+            .collect()
+    }
 }
 
 /// A session's history, read from the script.

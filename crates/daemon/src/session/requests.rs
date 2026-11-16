@@ -36,7 +36,8 @@ use super::held::{
 };
 use super::idem::{Outcome, Seen};
 use super::loading::Later;
-use super::reads::{ReadKind, Reader, Source};
+use super::places;
+use super::reads::{ReadKind, Reader, Source, Subagent};
 use super::revive::{AgentSpawn, Cli};
 use super::timeline::MAX_PAGE;
 use super::vendors::{full_access_relaunches, speaks_acp, takes_effort};
@@ -139,8 +140,9 @@ impl Manager {
                 agent,
                 since,
                 limit,
+                lead,
             } => {
-                self.open_timeline(conn, *agent, *since, *limit);
+                self.open_timeline(conn, *agent, *since, *limit, *lead);
                 return;
             }
             ClientMessage::LoadOlder {
@@ -1533,15 +1535,28 @@ impl Manager {
 
     /// Opens a timeline for a client: the events after its seq, or a reset.
     /// An outside session's timeline comes from its CLI's files, read again
-    /// while the client keeps it open.
-    fn open_timeline(&mut self, conn: u64, agent: AgentId, since: Option<Seq>, limit: u32) {
+    /// while the client keeps it open. A sub-agent of `lead` that isn't
+    /// listed, such as one that finished, is read once from its transcript.
+    fn open_timeline(
+        &mut self,
+        conn: u64,
+        agent: AgentId,
+        since: Option<Seq>,
+        limit: u32,
+        lead: Option<AgentId>,
+    ) {
         let limit = page_size(limit);
         let Some(viewer) = self.clients.get_mut(&conn) else {
             return;
         };
         viewer.open.insert(agent, limit);
         if !self.timelines.contains_key(&agent) && !self.held.contains_key(&self.lead_of(agent)) {
-            self.open_outside(agent);
+            match lead {
+                Some(lead) if self.hub.get(&EntityKey::Agent(agent)).is_none() => {
+                    self.open_finished(agent, lead);
+                }
+                _ => self.open_outside(agent),
+            }
         }
         self.hurry(self.lead_of(agent));
         if self.filling(agent) {
@@ -1562,6 +1577,29 @@ impl Manager {
         self.read(agent, ReadKind::Outside, Reader::Open(source));
     }
 
+    /// Starts reading the transcript of a Claude sub-agent of `lead` that
+    /// isn't listed, off the loop. It's read once and never polled, since a
+    /// sub-agent that finished writes nothing more. Nothing is read once
+    /// the lead isn't listed either.
+    fn open_finished(&mut self, agent: AgentId, lead: AgentId) {
+        let Some(top) = self.top_lead(lead) else {
+            return;
+        };
+        let source = match self.held.get(&top.id) {
+            Some(held) => Some(places::source(held)),
+            None => self.outside_source(top.id),
+        };
+        let Some(source) = source.filter(|source| source.vendor == Vendor::Claude) else {
+            return;
+        };
+        self.timeline_mut(agent);
+        let source = Source {
+            subagent: Some(Subagent::Of(top.id)),
+            ..source
+        };
+        self.read(agent, ReadKind::Outside, Reader::Open(source));
+    }
+
     /// Where a session this device doesn't hold keeps its history, when
     /// MaxHQ knows its account and session. A Claude sub-agent's is its own
     /// transcript, kept with its lead's session.
@@ -1576,7 +1614,10 @@ impl Manager {
             return None;
         };
         let (session, subagent) = match (found.vendor, found.parent) {
-            (Vendor::Claude, Some(parent)) => (self.lead_session(parent)?, Some(session)),
+            (Vendor::Claude, Some(parent)) => (
+                self.top_lead(parent)?.vendor_session_id?,
+                Some(Subagent::Id(session)),
+            ),
             _ => (session, None),
         };
         Some(Source {
@@ -1589,16 +1630,16 @@ impl Manager {
         })
     }
 
-    /// The vendor session of the lead at the top of `agent`'s parents, or
-    /// of `agent` when it's the lead.
-    fn lead_session(&self, mut agent: AgentId) -> Option<String> {
+    /// The lead at the top of `agent`'s parents, or `agent` when it's the
+    /// lead, while the hub lists them all.
+    fn top_lead(&self, mut agent: AgentId) -> Option<Agent> {
         for _ in 0..MAX_NESTING {
             let Some(Entity::Agent(found)) = self.hub.get(&EntityKey::Agent(agent)) else {
                 return None;
             };
             match found.parent {
                 Some(parent) => agent = parent,
-                None => return found.vendor_session_id,
+                None => return Some(found),
             }
         }
         None

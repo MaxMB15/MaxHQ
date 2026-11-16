@@ -2140,6 +2140,7 @@ async fn timeline_now(h: &Harness, agent: AgentId) -> Vec<TimelineItem> {
         agent,
         since: None,
         limit: 100,
+        lead: None,
     });
     let TimelineUpdate::Reset { items, .. } = viewer.timeline(agent).await else {
         panic!("opening a timeline resets it");

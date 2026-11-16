@@ -17,6 +17,7 @@ import type { AddPanelPositionOptions, DockviewApi } from "dockview-react";
 
 import type { Services } from "@/app/services";
 import type { AgentId, NoteId, ProjectId, RunKey } from "@maxhq/shared/bindings";
+import { finishedTitle } from "@maxhq/shared/agent-view/finished";
 import { fileName } from "@maxhq/shared/agent-view/viewer-files";
 import { noteSummary } from "@maxhq/shared/view/notes";
 import type { VisualTransfer } from "@maxhq/shared/visuals/transfer";
@@ -333,7 +334,11 @@ export const panesOf = (services: Services): Panes => {
 		panes = createPanes(
 			(params) => {
 				if (params.kind === "agent")
-					return view().tables.agent.get(params.agent)?.title ?? t("Agent");
+					return (
+						view().tables.agent.get(params.agent)?.title ??
+						finishedTitle(params.agent) ??
+						t("Agent")
+					);
 				if (params.kind === "note")
 					return noteSummary(view(), params.project, params.note)?.title ?? t("Note");
 				if (params.kind === "file") return fileName(params.path);
