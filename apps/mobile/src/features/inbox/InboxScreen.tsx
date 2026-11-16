@@ -265,6 +265,7 @@ export const InboxScreen = ({ navigation }: ScreenProps<"Inbox">) => {
 								: item.name
 						}
 						onPress={() => setClosed((set) => toggle(set, item.key.slice(2)))}
+						hitSlop={slop(GROUP)}
 						style={styles.group}
 					>
 						<Chevron dir={item.open ? "down" : "right"} size={12} />
@@ -288,6 +289,7 @@ export const InboxScreen = ({ navigation }: ScreenProps<"Inbox">) => {
 									: t("Notes")
 							}
 							onPress={() => navigation.navigate("Notes", { project })}
+							hitSlop={slop(LINE)}
 							style={({ pressed }) => [styles.notesOpen, pressed && styles.pressed]}
 						>
 							<Text style={styles.notesLabel}>{t("Notes")}</Text>
@@ -316,6 +318,7 @@ export const InboxScreen = ({ navigation }: ScreenProps<"Inbox">) => {
 						accessibilityRole="button"
 						accessibilityState={{ expanded: item.open }}
 						onPress={() => setShown((set) => toggle(set, item.of))}
+						hitSlop={slop(LINE)}
 						style={[styles.more, item.of !== SETTLED && styles.moreInGroup]}
 					>
 						<Chevron dir={item.open ? "down" : "right"} size={12} />
@@ -590,6 +593,16 @@ const NoticeBar = ({
 	);
 };
 
+// Compact heights, as the desktop sidebar's. A row stays the full width, so
+// it is easy to hit; shorter headers and links reach TOUCH through hitSlop.
+const ROW = 40;
+const GROUP = 30;
+const LINE = 36;
+const slop = (height: number) => {
+	const extra = Math.max(0, (TOUCH - height) / 2);
+	return { top: extra, bottom: extra };
+};
+
 const styles = StyleSheet.create({
 	screen: { flex: 1, backgroundColor: color.background },
 	content: { paddingHorizontal: 10, paddingTop: 12, paddingBottom: 96, gap: 0 },
@@ -608,7 +621,7 @@ const styles = StyleSheet.create({
 	dots: { flexDirection: "row", alignItems: "center", gap: 3 },
 	devicesLabel: { color: color.secondaryForeground, fontSize: size.meta, fontWeight: "500" },
 	needs: {
-		marginBottom: 12,
+		marginBottom: 8,
 		padding: 6,
 		gap: 4,
 		borderRadius: 10,
@@ -635,7 +648,7 @@ const styles = StyleSheet.create({
 	},
 	needsCountText: { color: color.readyText, fontSize: size.pill, fontWeight: "600" },
 	ask: {
-		minHeight: 48,
+		minHeight: ROW,
 		flexDirection: "row",
 		alignItems: "center",
 		gap: 10,
@@ -645,27 +658,27 @@ const styles = StyleSheet.create({
 	},
 	askSub: { color: color.readyText, fontSize: size.meta },
 	group: {
-		minHeight: TOUCH,
+		minHeight: GROUP,
 		flexDirection: "row",
 		alignItems: "center",
 		gap: 6,
 		paddingHorizontal: 8,
-		marginBottom: -8,
 	},
 	groupName: { flex: 1, color: color.mutedForeground, fontSize: size.meta, fontWeight: "600" },
 	groupCount: { color: color.mutedForeground, fontSize: size.meta, fontWeight: "500" },
 	more: {
-		minHeight: TOUCH,
+		minHeight: LINE,
 		flexDirection: "row",
 		alignItems: "center",
 		gap: 6,
 		paddingHorizontal: 8,
 	},
 	moreInGroup: { paddingLeft: 30 },
-	notes: { flexDirection: "row", alignItems: "center" },
+	// The New note button keeps its 44 pt width and overhangs the shorter line.
+	notes: { height: LINE, flexDirection: "row", alignItems: "center" },
 	notesOpen: {
 		flex: 1,
-		minHeight: TOUCH,
+		minHeight: LINE,
 		flexDirection: "row",
 		alignItems: "center",
 		gap: 6,
@@ -675,7 +688,7 @@ const styles = StyleSheet.create({
 	},
 	notesLabel: { flex: 1, color: color.secondaryForeground, fontSize: 12.5 },
 	moreLabel: { color: color.mutedForeground, fontSize: 12.5 },
-	row: { minHeight: 46, flexDirection: "row", alignItems: "center", gap: 10, paddingRight: 8 },
+	row: { minHeight: ROW, flexDirection: "row", alignItems: "center", gap: 10, paddingRight: 8 },
 	text: { flex: 1, minWidth: 0, gap: 1 },
 	title: { color: color.foregroundStrong, fontSize: size.body },
 	quiet: { color: color.terminal },

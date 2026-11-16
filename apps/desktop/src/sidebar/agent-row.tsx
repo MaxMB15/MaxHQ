@@ -80,7 +80,7 @@ export const useLookingAt = (): ((agent: Agent) => boolean) => {
 /** How far each level of started agents sits in from its caller. */
 const LEVEL_INDENT = 14;
 
-const ROW = "relative flex h-7 w-full shrink-0 items-center gap-2 rounded-md pr-2 pl-[22px]";
+const ROW = "relative flex h-6 w-full shrink-0 items-center gap-2 rounded-md pr-2 pl-[22px]";
 
 /** One agent in a project group, the pins or a shelf, and the agents it started. */
 export const AgentRow = (props: {
@@ -181,7 +181,7 @@ const Row = ({
 					label={t("Agent name")}
 					onCommit={rename}
 					onCancel={() => setRenaming(false)}
-					className="h-[22px] text-[12.5px]"
+					className="h-5 text-[12.5px]"
 				/>
 			</div>
 		);

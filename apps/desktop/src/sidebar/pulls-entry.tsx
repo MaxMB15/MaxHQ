@@ -58,7 +58,7 @@ export const PullsEntry = ({ project, now }: { project: Project; now: Timestamp 
 			}
 			onClick={() => openPulls(project.id)}
 			className={cn(
-				"flex h-[26px] shrink-0 items-center gap-2 rounded-md pr-2 pl-[22px] text-left text-[12.5px] text-secondary-foreground hover:bg-accent hover:text-foreground",
+				"flex h-6 shrink-0 items-center gap-2 rounded-md pr-2 pl-[22px] text-left text-[12.5px] text-secondary-foreground hover:bg-accent hover:text-foreground",
 				showing && "bg-selected text-foreground"
 			)}
 		>

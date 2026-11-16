@@ -85,7 +85,7 @@ const Row = ({
 			data-spotted={spotted || undefined}
 			onClick={onOpen}
 			className={cn(
-				"flex h-7 w-full shrink-0 items-center gap-2 rounded-md px-1.5 text-left",
+				"flex h-6 w-full shrink-0 items-center gap-2 rounded-md px-1.5 text-left",
 				selected
 					? "bg-selected shadow-[inset_0_0_0_1px_var(--selected-ring)]"
 					: spotted
@@ -226,7 +226,7 @@ export const SlideOut = ({
 	return (
 		<aside
 			aria-label={label}
-			className="flex shrink-0 animate-slide-in flex-col gap-0.5 overflow-y-auto border-r border-sidebar-border bg-subpanel px-2 py-2.5 shadow-side"
+			className="flex shrink-0 animate-slide-in flex-col gap-px overflow-y-auto border-r border-sidebar-border bg-subpanel px-2 py-2.5 shadow-side"
 			style={{ width, "--dot-surface": "var(--subpanel)" } as CSSProperties}
 		>
 			<div className="flex items-start gap-1.5 px-1.5 pb-2">
@@ -284,7 +284,7 @@ export const SlideOut = ({
 				<div
 					role="tabpanel"
 					aria-label={TAB_NAMES[tab ?? "agents"]}
-					className="flex flex-col gap-0.5"
+					className="flex flex-col gap-px"
 				>
 					{children}
 				</div>

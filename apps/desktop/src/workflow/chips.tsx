@@ -75,7 +75,7 @@ export const HeaderRunChip = ({ chip, onOpen }: { chip: RunChip; onOpen: () => v
 };
 
 const ROW =
-	"flex h-[26px] w-full shrink-0 items-center gap-2 rounded-md pr-2 text-left text-[12.5px] text-secondary-foreground hover:bg-accent hover:text-foreground";
+	"flex h-6 w-full shrink-0 items-center gap-2 rounded-md pr-2 text-left text-[12.5px] text-secondary-foreground hover:bg-accent hover:text-foreground";
 
 /** One run's row: its state, its name, and its progress while live or when it ended. */
 const RunRow = ({

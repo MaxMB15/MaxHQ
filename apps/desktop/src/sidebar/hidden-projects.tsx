@@ -38,12 +38,12 @@ export const HiddenProjects = ({ projects }: { projects: readonly Project[] }) =
 	const [open, setOpen] = useState(false);
 	if (projects.length === 0) return null;
 	return (
-		<section aria-label={t("Hidden projects")} className="mt-2 flex flex-col gap-0.5">
+		<section aria-label={t("Hidden projects")} className="mt-1.5 flex flex-col gap-px">
 			<button
 				type="button"
 				aria-expanded={open}
 				onClick={() => setOpen(!open)}
-				className="flex h-[26px] shrink-0 items-center gap-1.5 rounded-md px-2 text-left text-xs font-semibold text-muted-foreground hover:text-secondary-foreground"
+				className="flex h-[22px] shrink-0 items-center gap-1.5 rounded-md px-2 text-left text-xs font-semibold text-muted-foreground hover:text-secondary-foreground"
 			>
 				<Chevron closed={!open} />
 				<EyeOff aria-hidden size={11} strokeWidth={2.2} className="shrink-0" />
@@ -56,7 +56,7 @@ export const HiddenProjects = ({ projects }: { projects: readonly Project[] }) =
 				? projects.map((project) => (
 						<div
 							key={project.id}
-							className="flex h-6 shrink-0 items-center gap-2 rounded-md pr-1 pl-[22px] text-[12px] text-secondary-foreground"
+							className="flex h-[22px] shrink-0 items-center gap-2 rounded-md pr-1 pl-[22px] text-[12px] text-secondary-foreground"
 						>
 							<span className="min-w-0 flex-1 truncate">{project.name}</span>
 							<button

@@ -87,7 +87,7 @@ const Group = ({
 	const action = cn(HEADER_ACTION, holdsSelected ? "opacity-100" : "opacity-0");
 
 	const header = (
-		<div className="group/header flex h-[26px] shrink-0 items-center">
+		<div className="group/header flex h-[22px] shrink-0 items-center">
 			<button
 				type="button"
 				aria-expanded={open}
@@ -156,7 +156,7 @@ const Group = ({
 	);
 
 	return (
-		<section aria-label={group.name} className={cn("flex flex-col gap-0.5", !first && "mt-2")}>
+		<section aria-label={group.name} className={cn("flex flex-col gap-px", !first && "mt-1.5")}>
 			{project ? (
 				<ProjectContextMenu project={project} hidden={group.hidden} now={now}>
 					{header}
@@ -184,7 +184,7 @@ const Group = ({
 								type="button"
 								aria-expanded={showingOlder}
 								onClick={() => toggleOlder(group.key)}
-								className="flex h-6 shrink-0 items-center gap-1.5 rounded-md pr-2 pl-[22px] text-left text-[11.5px] text-muted-foreground hover:text-secondary-foreground"
+								className="flex h-[22px] shrink-0 items-center gap-1.5 rounded-md pr-2 pl-[22px] text-left text-[11.5px] text-muted-foreground hover:text-secondary-foreground"
 							>
 								<Chevron closed={!showingOlder} />
 								{showingOlder
@@ -213,7 +213,7 @@ const Group = ({
 					(!project ||
 						(notesOf(view, project.id).length === 0 &&
 							projectRuns(view, project.id).length === 0)) ? (
-						<p className="h-6 pl-[22px] text-[11.5px] text-muted-foreground">
+						<p className="flex h-[22px] items-center pl-[22px] text-[11.5px] text-muted-foreground">
 							{t("No agents")}
 						</p>
 					) : null}
@@ -255,7 +255,7 @@ export const NeedsYou = () => {
 					onClick={() => openAgent(services, item.agent.id)}
 					onPointerDown={(e) => pressAgent(services, item.agent, e.nativeEvent)}
 					className={cn(
-						"flex h-7 items-center gap-2 rounded-md px-1.5 text-left hover:bg-status-ready/12",
+						"flex h-6 items-center gap-2 rounded-md px-1.5 text-left hover:bg-status-ready/12",
 						i === 0 && "bg-status-ready/12"
 					)}
 				>
@@ -312,7 +312,7 @@ export const ProjectList = ({ now }: { now: Timestamp }) => {
 			role="listbox"
 			aria-label={t("Agents")}
 			aria-multiselectable
-			className="flex shrink-0 grow flex-col gap-0.5"
+			className="flex shrink-0 grow flex-col gap-px"
 		>
 			<PinnedList agents={pinned} view={view} now={now} />
 			{lists.groups.map((group, i) => (
