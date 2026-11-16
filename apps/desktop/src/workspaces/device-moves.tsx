@@ -23,6 +23,7 @@ import {
 	moveSteps,
 	offersMoves,
 	retireLoses,
+	STEP_STATUS_LABEL,
 	type StepStatus,
 } from "@maxhq/shared/hosts/moves";
 import { useNow } from "@maxhq/shared/lib/clock";
@@ -31,24 +32,6 @@ import { DANGER, PRIMARY, Row, SECONDARY, Section, StatusNote } from "@/settings
 import { failureOf, type Note } from "@/settings/result";
 import { sentence } from "@maxhq/shared/status/format";
 import type { ViewState } from "@maxhq/shared/view/replica";
-
-const STATUS_LABEL: Record<StepStatus, string> = {
-	get done() {
-		return t("Done");
-	},
-	get ready() {
-		return t("Waiting for you");
-	},
-	get running() {
-		return t("Running");
-	},
-	get failed() {
-		return t("Failed");
-	},
-	get todo() {
-		return t("Not yet");
-	},
-};
 
 const STATUS_TONE: Record<StepStatus, string> = {
 	done: "bg-status-ready",
@@ -146,7 +129,7 @@ const MoveCard = ({
 				{steps.map((step) => (
 					<li
 						key={step.step}
-						aria-label={`${step.label}: ${STATUS_LABEL[step.status]}`}
+						aria-label={`${step.label}: ${STEP_STATUS_LABEL[step.status]}`}
 						className="flex gap-2.5"
 					>
 						<span
@@ -167,7 +150,7 @@ const MoveCard = ({
 							>
 								{step.label}
 								<span className="text-muted-foreground">
-									{` · ${STATUS_LABEL[step.status]}`}
+									{` · ${STEP_STATUS_LABEL[step.status]}`}
 								</span>
 							</span>
 							{step.note ? (

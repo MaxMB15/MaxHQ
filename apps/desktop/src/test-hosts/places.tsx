@@ -21,6 +21,7 @@ import { Badge } from "@/tasks/activity";
 import type { DeviceId, TestHost, TestHostSettings } from "@maxhq/shared/bindings";
 import type { ActionResult } from "@maxhq/shared/data/source";
 import { useNow } from "@maxhq/shared/lib/clock";
+import { testHostsChange } from "@maxhq/shared/test-hosts/device";
 import { HOST_STATE, hostActions, hostLine, vmLine } from "@maxhq/shared/test-hosts/format";
 import { backendLabel, kindLabel } from "@maxhq/shared/test-hosts/hosts";
 import { type Place, withKind } from "@maxhq/shared/test-hosts/place";
@@ -51,14 +52,8 @@ export const useCall = () => {
 /** Saves a change to a device's test host settings, keeping the rest as it has them. */
 export const useSaveTestHosts = (view: ViewState) => {
 	const { source } = useServices();
-	return (device: DeviceId, change: (settings: TestHostSettings) => TestHostSettings) => {
-		const fields = deviceSettingsOf(view, device);
-		return source.setDeviceSettings({
-			device,
-			...fields,
-			test_hosts: change(fields.test_hosts),
-		});
-	};
+	return (device: DeviceId, change: (settings: TestHostSettings) => TestHostSettings) =>
+		source.setDeviceSettings(testHostsChange(view, device, change));
 };
 
 /** Check again, which runs detection on the device once more. */

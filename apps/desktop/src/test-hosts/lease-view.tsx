@@ -6,7 +6,7 @@
 // every 2 seconds while the view is open and the lease ready, the commands
 // it last ran, and End lease.
 
-import { useI18n, formatNumber } from "@maxhq/shared/i18n";
+import { useI18n } from "@maxhq/shared/i18n";
 
 import { Dialog } from "@base-ui/react/dialog";
 import { useEffect, useState } from "react";
@@ -17,20 +17,19 @@ import { failureOf } from "@/settings/result";
 import type { LeaseId, TestLease } from "@maxhq/shared/bindings";
 import { useNow } from "@maxhq/shared/lib/clock";
 import { formatWhen } from "@maxhq/shared/status/format";
+import { commandOutcome, LEASE_SCREEN_EVERY, leaseHeld } from "@maxhq/shared/test-hosts/device";
 import {
 	LEASE_END,
 	leaseCommandLine,
-	leaseLine,
 	type LeaseScreen,
 	leaseScreenOf,
 } from "@maxhq/shared/test-hosts/format";
-import { backendLabel, kindLabel } from "@maxhq/shared/test-hosts/hosts";
-import { actorName, deviceName } from "@maxhq/shared/view/select";
+import { kindLabel } from "@maxhq/shared/test-hosts/hosts";
 
 import { useCall } from "./places";
 
 /** How often an open lease view takes the screen again. */
-export const SCREEN_EVERY = 2000;
+export const SCREEN_EVERY = LEASE_SCREEN_EVERY;
 
 const Screen = ({ lease }: { lease: TestLease }) => {
 	const { t } = useI18n();
@@ -110,14 +109,7 @@ const Commands = ({ lease }: { lease: TestLease }) => {
 								{leaseCommandLine(command)}
 							</code>
 							<span className="shrink-0 text-muted-foreground">
-								{command.exit_code === null
-									? t("Didn't finish")
-									: t("Exit {{exit_code}}", {
-											exit_code: formatNumber(command.exit_code, {
-												useGrouping: false,
-											}),
-										})}
-								, {formatWhen(command.at, now)}
+								{commandOutcome(command)}, {formatWhen(command.at, now)}
 							</span>
 						</li>
 					))}
@@ -134,10 +126,6 @@ const Body = ({ lease }: { lease: TestLease }) => {
 	const { source } = useServices();
 	const now = useNow(30_000);
 	const { note, busy, call } = useCall();
-	const host = view.tables.test_host.get(lease.host);
-	const where = [deviceName(view, lease.device), host ? backendLabel(host.backend) : null]
-		.filter(Boolean)
-		.join(", ");
 	return (
 		<>
 			<div className="flex items-center gap-3">
@@ -146,13 +134,7 @@ const Body = ({ lease }: { lease: TestLease }) => {
 				</Dialog.Title>
 				<Dialog.Close className={SECONDARY}>{t("Close")}</Dialog.Close>
 			</div>
-			<p className="text-[12.5px] text-secondary-foreground">
-				{t("Held by {{value2}} on {{where}}. {{value6}}.", {
-					value2: actorName(view, lease.holder),
-					where: where,
-					value6: leaseLine(lease, now),
-				})}
-			</p>
+			<p className="text-[12.5px] text-secondary-foreground">{leaseHeld(view, lease, now)}</p>
 			<Screen lease={lease} />
 			<Commands lease={lease} />
 			<div className="flex items-center justify-end gap-2">

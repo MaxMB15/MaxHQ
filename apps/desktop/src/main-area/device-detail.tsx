@@ -6,7 +6,7 @@
 // routes and settings, and the agents it runs or last ran, with the
 // settled ones last. This Mac's page also starts and uninstalls its maxd.
 
-import { t, useI18n, formatNumber } from "@maxhq/shared/i18n";
+import { useI18n, formatNumber } from "@maxhq/shared/i18n";
 
 import { CircleCheck } from "lucide-react";
 import { type CSSProperties, useEffect, useRef, useState } from "react";
@@ -25,6 +25,12 @@ import { failureOf, type Note } from "@/settings/result";
 import { ACTIVITY_LABEL, agentLook } from "@maxhq/shared/status/activity";
 import type { Check, CheckState } from "@maxhq/shared/status/card";
 import { deviceConnection, linkChecks } from "@maxhq/shared/status/connection";
+import {
+	DEFAULT_WIND_DOWN_MINUTES,
+	deviceChips,
+	splitDetail,
+	WIND_DOWN_MINUTES,
+} from "@maxhq/shared/status/device-page";
 import { formatDuration, formatWhen } from "@maxhq/shared/status/format";
 import { versionNote } from "@maxhq/shared/status/reach";
 import { accountName, VENDOR_NAME } from "@maxhq/shared/status/usage";
@@ -44,32 +50,6 @@ import { DeviceRoutes } from "./device-routes";
 import { DeviceSetup } from "./device-setup";
 import { DeviceTools } from "./device-tools";
 import { LocalMaxd, StartMaxdButton, useStartMaxd } from "./local-maxd";
-
-const OS_NAME: Record<string, string> = {
-	linux: "Linux",
-	macos: "macOS",
-	windows: "Windows",
-	freebsd: "FreeBSD",
-};
-
-/** The chips under the device's name. */
-export const deviceChips = (node: DeviceNode): string[] => {
-	const { link, device, network } = node.ctx;
-	const chips: string[] = [];
-	if (network?.kind.type === "tailscale") chips.push(t("Needs Tailscale"));
-	chips.push(
-		link.route.type === "ssh" ? t("SSH as {{host}}", { host: link.route.host }) : t("This Mac")
-	);
-	if (device) {
-		chips.push(OS_NAME[device.os] ?? device.os);
-		chips.push(
-			node.look === "live"
-				? t("maxd {{maxd_version}}", { maxd_version: device.maxd_version })
-				: t("maxd {{maxd_version}} when last seen", { maxd_version: device.maxd_version })
-		);
-	}
-	return chips;
-};
 
 const CheckIcon = ({ state }: { state: CheckState }) => {
 	const { t } = useI18n();
@@ -145,12 +125,6 @@ const CheckIcon = ({ state }: { state: CheckState }) => {
 				</span>
 			);
 	}
-};
-
-/** A failed check's detail split into the finding and the reason behind it. */
-export const splitDetail = (detail: string): [string, string | undefined] => {
-	const at = detail.indexOf(". ");
-	return at < 0 ? [detail, undefined] : [detail.slice(0, at), detail.slice(at + 2)];
 };
 
 const CheckRow = ({ check, first }: { check: Check; first: boolean }) => {
@@ -340,11 +314,6 @@ export const WindingDown = ({
 	);
 };
 
-// How long busy agents get to finish, in minutes. `maxd host quiesce`
-// gives 20 unless told otherwise.
-const WINDOWS = [2, 5, 10, 20, 30, 60];
-const DEFAULT_WINDOW = 20;
-
 const WindDown = ({
 	device,
 	name,
@@ -360,7 +329,7 @@ const WindDown = ({
 	const { t } = useI18n();
 
 	const { source } = useServices();
-	const [minutes, setMinutes] = useState(DEFAULT_WINDOW);
+	const [minutes, setMinutes] = useState(DEFAULT_WIND_DOWN_MINUTES);
 	const [busy, setBusy] = useState(false);
 	const [note, setNote] = useState<Note | null>(null);
 	const start = async () => {
@@ -392,7 +361,7 @@ const WindDown = ({
 			<Picker
 				label={t("Window")}
 				value={String(minutes)}
-				options={WINDOWS.map((m) => ({
+				options={WIND_DOWN_MINUTES.map((m) => ({
 					value: String(m),
 					label: t("{{m}} min", { m: formatNumber(m) }),
 				}))}

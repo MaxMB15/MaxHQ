@@ -4,9 +4,10 @@
 
 // Adapted from MIT-licensed code, see THIRD_PARTY_NOTICES: the stat blocks,
 // the CPU history's average and peak bars, the process table, rewritten as
-// arrow functions in MaxHQ's cards, with its `formatBytes` now `formatMemory`
-// in the shared package. MaxHQ reads one device's `maxd` instead of the local
-// server, and names each process tree by the agent that runs it.
+// arrow functions in MaxHQ's cards, with their numbers and words in the
+// shared package's `fleet/load`, which the phone draws too. MaxHQ reads one
+// device's `maxd` instead of the local server, and names each process tree by
+// the agent that runs it.
 
 import { useI18n } from "@maxhq/shared/i18n";
 
@@ -17,18 +18,17 @@ import { cn } from "@/lib/utils";
 import { SECONDARY, Section, StatusNote } from "@/settings/controls";
 import type { DeviceId } from "@maxhq/shared/bindings";
 import type { DeviceLoad as Sample } from "@maxhq/shared/data/source";
-import { formatMemory } from "@maxhq/shared/fleet/memory";
+import {
+	cpuBars,
+	LOAD_BUCKET_SECS,
+	LOAD_REFRESH_MS,
+	LOAD_WINDOW_SECS,
+	loadStats,
+	processRows,
+} from "@maxhq/shared/fleet/load";
 import type { Diagnostics, UseBucket } from "@maxhq/shared/fleet/wire";
 import type { ViewState } from "@maxhq/shared/view/replica";
 import type { Note } from "@/settings/result";
-
-/** How often the meters read the device again. */
-export const LOAD_REFRESH_MS = 5000;
-/** The history covers the last hour in two-minute bars. */
-const WINDOW_SECS = 3600;
-const BUCKET_SECS = 120;
-
-const percent = (value: number) => `${Math.round(value)}%`;
 
 const StatBlock = ({
 	label,
@@ -60,7 +60,6 @@ const StatBlock = ({
 const History = ({ buckets }: { buckets: readonly UseBucket[] }) => {
 	const { t } = useI18n();
 
-	const top = Math.max(1, ...buckets.map((b) => b.max_cpu));
 	return (
 		<div
 			role="img"
@@ -68,29 +67,22 @@ const History = ({ buckets }: { buckets: readonly UseBucket[] }) => {
 			className="border-t border-sidebar-border px-4 py-3"
 		>
 			<div className="flex h-24 items-end gap-0.5 overflow-hidden rounded-sm bg-subpanel p-2">
-				{buckets.map((bucket) => {
-					const peak = Math.max(2, (bucket.max_cpu / top) * 100);
-					const average = Math.max(2, (bucket.avg_cpu / top) * 100);
-					return (
+				{cpuBars(buckets).map((bar) => (
+					<div
+						key={bar.at}
+						title={bar.label}
+						className="relative h-full min-w-0.5 flex-1"
+					>
 						<div
-							key={bucket.started_at}
-							title={t("Average {{value1}}, peak {{value2}}", {
-								value1: percent(bucket.avg_cpu),
-								value2: percent(bucket.max_cpu),
-							})}
-							className="relative h-full min-w-0.5 flex-1"
-						>
-							<div
-								className="absolute inset-x-0 bottom-0 rounded-t-sm bg-foreground/15"
-								style={{ height: `${peak}%` }}
-							/>
-							<div
-								className="absolute inset-x-0 bottom-0 rounded-t-sm bg-foreground/60"
-								style={{ height: `${average}%` }}
-							/>
-						</div>
-					);
-				})}
+							className="absolute inset-x-0 bottom-0 rounded-t-sm bg-foreground/15"
+							style={{ height: `${bar.peak}%` }}
+						/>
+						<div
+							className="absolute inset-x-0 bottom-0 rounded-t-sm bg-foreground/60"
+							style={{ height: `${bar.average}%` }}
+						/>
+					</div>
+				))}
 			</div>
 		</div>
 	);
@@ -99,11 +91,6 @@ const History = ({ buckets }: { buckets: readonly UseBucket[] }) => {
 const Processes = ({ diagnostics, view }: { diagnostics: Diagnostics; view: ViewState }) => {
 	const { t } = useI18n();
 
-	const rows = [...diagnostics.top].sort((a, b) => b.cpu_now - a.cpu_now);
-	const name = (agent: string | null, command: string) =>
-		(agent ? view.tables.agent.get(agent)?.title : undefined) ??
-		command.split(" ")[0] ??
-		command;
 	return (
 		<table
 			aria-label={t("Busiest processes")}
@@ -118,22 +105,20 @@ const Processes = ({ diagnostics, view }: { diagnostics: Diagnostics; view: View
 				</tr>
 			</thead>
 			<tbody>
-				{rows.map((p) => (
+				{processRows(diagnostics, view).map((p) => (
 					<tr key={p.pid} className="border-t border-row-divider">
 						<td
 							className="max-w-0 truncate px-4 py-1.5 text-foreground"
 							title={p.command}
 						>
-							{name(p.agent, p.command)}
+							{p.name}
 						</td>
-						<td className="px-2 py-1.5 text-right font-mono tabular-nums">
-							{percent(p.cpu_now)}
-						</td>
+						<td className="px-2 py-1.5 text-right font-mono tabular-nums">{p.cpu}</td>
 						<td className="px-2 py-1.5 text-right font-mono text-muted-foreground tabular-nums">
-							{percent(p.cpu_max)}
+							{p.peak}
 						</td>
 						<td className="px-4 py-1.5 text-right font-mono tabular-nums">
-							{formatMemory(p.rss_now)}
+							{p.memory}
 						</td>
 					</tr>
 				))}
@@ -183,7 +168,7 @@ export const DeviceLoad = ({
 	useEffect(() => {
 		if (!live) return;
 		let gone = false;
-		void source.readDiagnostics(device, WINDOW_SECS, BUCKET_SECS).then(
+		void source.readDiagnostics(device, LOAD_WINDOW_SECS, LOAD_BUCKET_SECS).then(
 			(result) => {
 				if (gone) return;
 				if (result.status === "ok") {
@@ -207,7 +192,6 @@ export const DeviceLoad = ({
 	}, [source, device, name, live, reads, t]);
 
 	const load = live ? sample?.load : null;
-	const agents = diagnostics?.top.filter((p) => p.agent !== null).length ?? 0;
 
 	return (
 		<Section
@@ -222,31 +206,14 @@ export const DeviceLoad = ({
 			) : (
 				<>
 					<div className="grid grid-cols-4 divide-x divide-sidebar-border">
-						<StatBlock
-							label="CPU"
-							value={
-								load?.cpu_util === null || load?.cpu_util === undefined
-									? "..."
-									: percent(load.cpu_util * 100)
-							}
-							tone={
-								load?.cpu_util != null && load.cpu_util >= 0.9
-									? "warning"
-									: "default"
-							}
-						/>
-						<StatBlock
-							label={t("Cores")}
-							value={load ? String(load.cpu_count) : "..."}
-						/>
-						<StatBlock
-							label={t("Memory free")}
-							value={load ? formatMemory(load.mem_available) : "..."}
-						/>
-						<StatBlock
-							label={t("Agents")}
-							value={diagnostics ? String(agents) : "..."}
-						/>
+						{loadStats(load, diagnostics).map((stat) => (
+							<StatBlock
+								key={stat.label}
+								label={stat.label}
+								value={stat.value}
+								tone={stat.warning ? "warning" : "default"}
+							/>
+						))}
 					</div>
 					{diagnostics && diagnostics.buckets.length > 0 ? (
 						<History buckets={diagnostics.buckets} />

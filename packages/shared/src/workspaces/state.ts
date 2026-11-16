@@ -268,6 +268,32 @@ export const workspaceActions = (state: WorkspaceState): WorkspaceAction[] => {
 	}
 };
 
+/** What each action's button says. */
+export const ACTION_LABEL: Readonly<Record<WorkspaceAction, string>> = {
+	get start() {
+		return t("Start");
+	},
+	get stop() {
+		return t("Stop");
+	},
+	get delete() {
+		return t("Delete");
+	},
+};
+
+/** What a workspace's note says while an action runs. */
+export const ACTION_NOTE: Readonly<Record<WorkspaceAction, string>> = {
+	get start() {
+		return t("Starting");
+	},
+	get stop() {
+		return t("Stopping");
+	},
+	get delete() {
+		return t("Deleting");
+	},
+};
+
 /** What you pick for a new workspace. */
 export type WorkspaceChoices = {
 	readonly project: ProjectId | null;

@@ -540,6 +540,58 @@ export const workspaceName = (workspace: Workspace): string => {
 	return parts[parts.length - 1] ?? workspace.location.path;
 };
 
+// The top-level agents a device page counts, leaving out a dispatcher's.
+const deviceAgents = (view: ViewState): Agent[] => {
+	const homes = dispatcherHomes(view);
+	return all(view, "agent").filter((a) => a.parent === null && !homes.has(a.workspace));
+};
+
+// One device from the agents `deviceAgents` gave.
+const nodeOf = (
+	view: ViewState,
+	link: DeviceLink,
+	agents: readonly Agent[],
+	now: Timestamp
+): DeviceNode => {
+	const ctx = linkContext(view, link);
+	const here = agents.filter(
+		(a) =>
+			link.device !== null && view.tables.workspace.get(a.workspace)?.device === link.device
+	);
+	const mine = here.filter((a) => inboxOf(a).settled === null);
+	const settledAt = (a: Agent) => inboxOf(a).settled?.at ?? 0;
+	const settled = here
+		.filter((a) => inboxOf(a).settled !== null)
+		.sort((a, b) => settledAt(b) - settledAt(a) || a.id.localeCompare(b.id));
+	const looks = (list: readonly Agent[]) =>
+		worstLook(list.map((a) => agentConnection(a, ctx, now).look));
+	const workspaces = all(view, "workspace")
+		.filter((w) => w.device === link.device && w.location.type === "container")
+		.map((workspace) => {
+			const inside = mine.filter((a) => a.workspace === workspace.id);
+			return {
+				workspace,
+				name: workspaceName(workspace),
+				agents: inside,
+				worst: looks(inside),
+			};
+		})
+		.sort((a, b) => a.name.localeCompare(b.name));
+	return {
+		link,
+		ctx,
+		look: deviceConnection(ctx, now).look,
+		agents: mine,
+		settled,
+		worst: looks(mine),
+		workspaces,
+	};
+};
+
+/** One device as the connections view has it, for a page of its own. */
+export const deviceNode = (view: ViewState, link: DeviceLink, now: Timestamp): DeviceNode =>
+	nodeOf(view, link, deviceAgents(view), now);
+
 /**
  * Devices grouped by how they're reached: this Mac first, then each
  * network, then devices on a plain SSH path. Each device lists its
@@ -548,44 +600,8 @@ export const workspaceName = (workspace: Workspace): string => {
  * A dispatcher's agents aren't counted.
  */
 export const deviceGroups = (view: ViewState, now: Timestamp): DeviceGroup[] => {
-	const homes = dispatcherHomes(view);
-	const agents = all(view, "agent").filter((a) => a.parent === null && !homes.has(a.workspace));
-	const node = (link: DeviceLink): DeviceNode => {
-		const ctx = linkContext(view, link);
-		const here = agents.filter(
-			(a) =>
-				link.device !== null &&
-				view.tables.workspace.get(a.workspace)?.device === link.device
-		);
-		const mine = here.filter((a) => inboxOf(a).settled === null);
-		const settledAt = (a: Agent) => inboxOf(a).settled?.at ?? 0;
-		const settled = here
-			.filter((a) => inboxOf(a).settled !== null)
-			.sort((a, b) => settledAt(b) - settledAt(a) || a.id.localeCompare(b.id));
-		const looks = (list: readonly Agent[]) =>
-			worstLook(list.map((a) => agentConnection(a, ctx, now).look));
-		const workspaces = all(view, "workspace")
-			.filter((w) => w.device === link.device && w.location.type === "container")
-			.map((workspace) => {
-				const inside = mine.filter((a) => a.workspace === workspace.id);
-				return {
-					workspace,
-					name: workspaceName(workspace),
-					agents: inside,
-					worst: looks(inside),
-				};
-			})
-			.sort((a, b) => a.name.localeCompare(b.name));
-		return {
-			link,
-			ctx,
-			look: deviceConnection(ctx, now).look,
-			agents: mine,
-			settled,
-			worst: looks(mine),
-			workspaces,
-		};
-	};
+	const agents = deviceAgents(view);
+	const node = (link: DeviceLink): DeviceNode => nodeOf(view, link, agents, now);
 
 	const links = all(view, "device_link").sort((a, b) => a.name.localeCompare(b.name));
 	const groups: DeviceGroup[] = [];
