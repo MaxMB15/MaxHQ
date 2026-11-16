@@ -9,7 +9,6 @@
 
 import { type LanguageChoice, useI18n } from "@maxhq/shared/i18n";
 
-import Constants from "expo-constants";
 import { type ComponentRef, type Ref, useRef, useState } from "react";
 import { Alert, ScrollView, Share, StyleSheet, Text, View } from "react-native";
 
@@ -30,6 +29,7 @@ import { Header } from "../../ui/Header";
 import { SendSection } from "../agent/SendSection";
 import { pairedWith, reachSummary } from "../devices/summary";
 import { DispatcherSection } from "../dispatcher/DispatcherSection";
+import { AboutSection } from "../updates/AboutSection";
 
 // Shown when the device turns the unpair away. The phone can't take itself
 // out of a device's book yet, so the Mac does it.
@@ -103,7 +103,6 @@ export const PhoneScreen = ({ navigation, route }: ScreenProps<"Settings">) => {
 		form.current?.measureLayout(content, (_x, y) => scroll.current?.scrollTo({ y }));
 	};
 
-	const version = Constants.expoConfig?.version;
 	return (
 		<View style={styles.screen}>
 			{header}
@@ -161,7 +160,7 @@ export const PhoneScreen = ({ navigation, route }: ScreenProps<"Settings">) => {
 						<ByHand ref={form} phone={phone} line={key} onLayout={toForm} />
 					) : null}
 				</Card>
-				{version ? <Text style={styles.version}>MaxHQ {version}</Text> : null}
+				<AboutSection />
 			</ScrollView>
 		</View>
 	);
@@ -312,11 +311,5 @@ const styles = StyleSheet.create({
 		borderColor: color.border,
 		borderWidth: StyleSheet.hairlineWidth,
 		padding: 10,
-	},
-	version: {
-		color: color.subtleForeground,
-		fontSize: size.tiny,
-		textAlign: "center",
-		marginTop: 4,
 	},
 });

@@ -64,6 +64,7 @@ import { renamesOf } from "../agent/renames";
 import { reachSummary } from "../devices/summary";
 import { Dispatcher } from "../dispatcher/Dispatcher";
 import { openNewNote } from "../notes/NotesScreen";
+import { UpdateBanners } from "../updates/UpdateBanners";
 import { UsageButton } from "../usage/UsageButton";
 import { FirstRun } from "./FirstRun";
 import { openInboxSheet } from "./InboxSheet";
@@ -422,6 +423,7 @@ export const InboxScreen = ({ navigation }: ScreenProps<"Inbox">) => {
 				}
 			/>
 			<ConnectionBanner />
+			<UpdateBanners />
 			{status.state === "failed" ? <Text style={styles.note}>{status.message}</Text> : null}
 			{devices.length === 0 ? (
 				<>
