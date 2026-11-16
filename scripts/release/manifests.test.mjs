@@ -10,6 +10,7 @@ import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 import { latestJson } from "./latest-json.mjs";
 import { fleetManifest, sha256 } from "./maxd-release.mjs";
+import { mobileJson, phoneLine, readProtocol, withPhoneLine } from "./mobile-json.mjs";
 
 const a = "a".repeat(64);
 const b = "b".repeat(64);
@@ -111,4 +112,86 @@ test("latest.json refuses empty signatures and unknown arches", () => {
 		() => latestJson({ ...base, repo: "not a repo", signatures: { x64: "x" } }),
 		/owner/
 	);
+});
+
+test("mobile.json names the build, its protocol range and the notes", () => {
+	const text = mobileJson({
+		version: "0.2.0",
+		build: 10702,
+		protocol: { current: 45, oldest: 20 },
+		repo: "owner/MaxHQ",
+		now: new Date("2026-11-16T10:11:12.345Z"),
+	});
+	assert.deepEqual(JSON.parse(text), {
+		version: "0.2.0",
+		build: 10702,
+		protocol: { current: 45, oldest: 20 },
+		notes_url: "https://github.com/owner/MaxHQ/releases/tag/v0.2.0",
+		pub_date: "2026-11-16T10:11:12Z",
+	});
+	assert.ok(text.endsWith("}\n"));
+});
+
+test("mobile.json refuses a bad version, build, range or repository", () => {
+	const base = {
+		version: "0.2.0",
+		build: 3,
+		protocol: { current: 45, oldest: 20 },
+		repo: "owner/MaxHQ",
+	};
+	assert.throws(() => mobileJson({ ...base, version: "0.2" }), /X.Y.Z/);
+	assert.throws(() => mobileJson({ ...base, build: 0 }), /whole number/);
+	assert.throws(() => mobileJson({ ...base, build: 1.5 }), /whole number/);
+	assert.throws(() => mobileJson({ ...base, protocol: { current: 19, oldest: 20 } }), /range/);
+	assert.throws(() => mobileJson({ ...base, repo: "not a repo" }), /owner/);
+});
+
+test("the protocol range comes from the protocol crate", () => {
+	const text = [
+		"/// The version.",
+		"pub const PROTOCOL_VERSION: u32 = 45;",
+		"pub const OLDEST_PROTOCOL_VERSION: u32 = 20;",
+	].join("\n");
+	assert.deepEqual(readProtocol(text), { current: 45, oldest: 20 });
+	assert.throws(() => readProtocol("pub const PROTOCOL_VERSION: u32 = 45;"), /OLDEST/);
+	const real = readFileSync(new URL("../../crates/protocol/src/lib.rs", import.meta.url), "utf8");
+	const range = readProtocol(real);
+	assert.ok(range.oldest <= range.current);
+});
+
+test("the release notes name the iPhone build once", () => {
+	const line = phoneLine("0.2.0", 10702);
+	assert.equal(line, "iPhone: MaxHQ 0.2.0 (build 10702) is in TestFlight.");
+	const once = withPhoneLine("## What's changed\n* Fixes.\n", "0.2.0", 10702);
+	assert.equal(once, `## What's changed\n* Fixes.\n\n${line}\n`);
+	assert.equal(withPhoneLine(once, "0.2.0", 10702), once);
+	assert.equal(withPhoneLine("", "0.2.0", 10702), `${line}\n`);
+});
+
+test("the mobile.json script reads the range and adds the notes line", () => {
+	const dir = mkdtempSync(join(tmpdir(), "maxhq-mobile-json-"));
+	try {
+		const out = join(dir, "mobile.json");
+		const notes = join(dir, "notes.md");
+		writeFileSync(notes, "Fixes.\n");
+		const script = fileURLToPath(new URL("./mobile-json.mjs", import.meta.url));
+		const args = ["--version", "1.2.3", "--build", "10101", "--repo", "owner/MaxHQ"];
+		const run = spawnSync(
+			process.execPath,
+			[script, ...args, "--out", out, "--notes-file", notes],
+			{ encoding: "utf8" }
+		);
+		assert.equal(run.status, 0, run.stderr);
+		const json = JSON.parse(readFileSync(out, "utf8"));
+		assert.equal(json.build, 10101);
+		assert.ok(json.protocol.oldest <= json.protocol.current);
+		assert.equal(readFileSync(notes, "utf8"), `Fixes.\n\n${phoneLine("1.2.3", 10101)}\n`);
+		const bad = spawnSync(process.execPath, [script, ...args.slice(0, 2), "--out", out], {
+			encoding: "utf8",
+		});
+		assert.equal(bad.status, 1);
+		assert.match(bad.stderr, /--build/);
+	} finally {
+		rmSync(dir, { recursive: true, force: true });
+	}
 });

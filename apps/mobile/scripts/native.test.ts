@@ -7,6 +7,8 @@ import { createFingerprintAsync } from "expo/fingerprint";
 import { describe, expect, it } from "vitest";
 
 import {
+	API_KEY_ENV,
+	apiKeyFromEnv,
 	checkNativeBuild,
 	coreSteps,
 	devBuildSteps,
@@ -15,6 +17,9 @@ import {
 	needsDevBuild,
 	NO_PHONE,
 	onlyPhone,
+	PIPELINE_BUILD_FLOOR,
+	pipelineBuildNumber,
+	resolveBuildNumber,
 	RUST_TARGETS,
 	testflightSteps,
 	type NativeBuild,
@@ -124,6 +129,79 @@ describe("testflightSteps", () => {
 		expect(plist).toContain("<key>manageAppVersionAndBuildNumber</key>\n\t<false/>");
 		expect(plist).toContain("<key>teamID</key>\n\t<string>ABCDE12345</string>");
 	});
+
+	it("signs and uploads with an API key when there is one, and hides its IDs", () => {
+		const key = { path: "/tmp/AuthKey.p8", id: "KEY1234567", issuer: "issuer-uuid" };
+		const [prebuild, archive, upload] = testflightSteps(local, key);
+		expect(prebuild!.hide).toBeUndefined();
+		const auth = [
+			"-authenticationKeyPath",
+			"/tmp/AuthKey.p8",
+			"-authenticationKeyID",
+			"KEY1234567",
+			"-authenticationKeyIssuerID",
+			"issuer-uuid",
+		];
+		for (const step of [archive!, upload!]) {
+			expect(line(step)).toContain(`-allowProvisioningUpdates ${auth.join(" ")}`);
+			expect(step.hide).toEqual(["KEY1234567", "issuer-uuid"]);
+		}
+		expect(archive!.args.at(-1)).toBe("archive");
+		expect(testflightSteps(local)[1]!.args).not.toContain("-authenticationKeyPath");
+	});
+});
+
+describe("apiKeyFromEnv", () => {
+	const full = {
+		[API_KEY_ENV.path]: "/tmp/AuthKey.p8",
+		[API_KEY_ENV.id]: "KEY1234567",
+		[API_KEY_ENV.issuer]: "issuer-uuid",
+	};
+
+	it("reads all three or none", () => {
+		expect(apiKeyFromEnv({})).toBeNull();
+		expect(apiKeyFromEnv(full)).toEqual({
+			path: "/tmp/AuthKey.p8",
+			id: "KEY1234567",
+			issuer: "issuer-uuid",
+		});
+	});
+
+	it("names what's missing from half a key and echoes nothing that's set", () => {
+		const half = { ...full, [API_KEY_ENV.issuer]: "" };
+		expect(() => apiKeyFromEnv(half)).toThrow(`${API_KEY_ENV.issuer} isn't set`);
+		try {
+			apiKeyFromEnv(half);
+		} catch (error) {
+			expect(String(error)).not.toContain("KEY1234567");
+		}
+	});
+});
+
+describe("build numbers", () => {
+	it("numbers the workflow's builds by run and attempt, above every local one", () => {
+		expect(pipelineBuildNumber(7, 1)).toBe(10701);
+		expect(pipelineBuildNumber(7, 2)).toBe(10702);
+		expect(pipelineBuildNumber(8, 1)).toBeGreaterThan(pipelineBuildNumber(7, 99));
+		expect(pipelineBuildNumber(1, 1)).toBeGreaterThan(PIPELINE_BUILD_FLOOR);
+	});
+
+	it("refuses a run or attempt it can't number", () => {
+		expect(() => pipelineBuildNumber(Number.NaN, 1)).toThrow(/run number/);
+		expect(() => pipelineBuildNumber(0, 1)).toThrow(/run number/);
+		expect(() => pipelineBuildNumber(7, 0)).toThrow(/attempt/);
+		expect(() => pipelineBuildNumber(7, 100)).toThrow(/attempt/);
+	});
+
+	it("takes the workflow's number when set, else native-build.json's", () => {
+		const record = { buildNumber: 3, lastUpload: null };
+		expect(resolveBuildNumber(record, undefined)).toBe(3);
+		expect(resolveBuildNumber(record, "")).toBe(3);
+		expect(resolveBuildNumber(record, "10702")).toBe(10702);
+		for (const bad of ["5", "10000", "10702.1", "0x2a00", "abc"]) {
+			expect(() => resolveBuildNumber(record, bad)).toThrow(/MAXHQ_BUILD_NUMBER/);
+		}
+	});
 });
 
 describe("installSteps", () => {
@@ -165,6 +243,21 @@ describe("checkNativeBuild", () => {
 
 	it("lets the first build through", () => {
 		expect(checkNativeBuild({ buildNumber: 1, lastUpload: null }, "any", true)).toBeNull();
+	});
+
+	it("keeps local numbers out of the release workflow's range", () => {
+		expect(
+			checkNativeBuild({ buildNumber: PIPELINE_BUILD_FLOOR, lastUpload: null }, "any", false)
+		).toBe(
+			"Build 10000 is in the release workflow's range; keep buildNumber in apps/mobile/native-build.json below 10000."
+		);
+		expect(
+			checkNativeBuild(
+				{ buildNumber: PIPELINE_BUILD_FLOOR - 1, lastUpload: null },
+				"any",
+				true
+			)
+		).toBeNull();
 	});
 
 	it("refuses a changed fingerprint under the same build number", () => {

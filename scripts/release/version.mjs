@@ -3,8 +3,9 @@
 
 // Reads and bumps the one version MaxHQ has: `version` under
 // [workspace.package] in the root Cargo.toml. Every crate and the app inherit
-// it, and tauri.conf.json has none of its own. Run `cargo update --workspace`
-// after `set`, so Cargo.lock's entries for the workspace crates follow.
+// it, tauri.conf.json has none of its own, and the phone app's app.config.ts
+// reads it through repoVersion. Run `cargo update --workspace` after `set`,
+// so Cargo.lock's entries for the workspace crates follow.
 //
 //   node scripts/release/version.mjs get              # prints 0.1.0
 //   node scripts/release/version.mjs next patch       # prints 0.1.1, changes nothing
@@ -62,6 +63,9 @@ export const nextVersion = (current, kind) => {
 			throw new Error(`the bump is patch, minor or major, not "${kind}"`);
 	}
 };
+
+// The version in this checkout's Cargo.toml.
+export const repoVersion = () => readVersion(readFileSync(CARGO_TOML, "utf8"));
 
 // Returns the text with the new version, or throws without a change.
 export const setVersion = (text, version) => {

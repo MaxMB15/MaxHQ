@@ -4,7 +4,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
-import { nextVersion, readVersion, setVersion } from "./version.mjs";
+import { nextVersion, readVersion, repoVersion, setVersion } from "./version.mjs";
 
 const cargo = `[workspace]
 members = ["crates/a"]
@@ -25,6 +25,7 @@ test("reads the workspace version and nothing else", () => {
 test("reads the repo's own Cargo.toml", () => {
 	const text = readFileSync(new URL("../../Cargo.toml", import.meta.url), "utf8");
 	assert.match(readVersion(text), /^\d+\.\d+\.\d+$/);
+	assert.equal(repoVersion(), readVersion(text));
 });
 
 test("next version for each bump", () => {
