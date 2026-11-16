@@ -14,6 +14,8 @@ const VISUAL_LIBRARY_MODULE = "maxhq-visual-lib/";
 const VISUAL_LIBRARIES = {
 	"chart.js": "chart.js/dist/chart.umd.min.js",
 	"d3.js": "d3/dist/d3.min.js",
+	"mermaid.js": "mermaid/dist/mermaid.min.js",
+	"katex.js": "katex/dist/katex.min.js",
 };
 
 /**

@@ -623,18 +623,6 @@ export const OpenInSetup = ({
 	);
 };
 
-/** The first line a unified diff changes in the new file, if it says. */
-export const editLine = (patch: string | null): number | undefined => {
-	const hunk = patch ? /^@@ -\d+(?:,\d+)? \+(\d+)/m.exec(patch) : null;
-	return hunk ? Number(hunk[1]) : undefined;
-};
-
-/** The first line of a read's span, such as 10 for "10-40". */
-export const readLine = (lines: string | null): number | undefined => {
-	const first = lines ? /^\s*(\d+)/.exec(lines) : null;
-	return first ? Number(first[1]) : undefined;
-};
-
 const ROW_BUTTON =
 	"inline-flex size-[22px] shrink-0 cursor-pointer items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground";
 

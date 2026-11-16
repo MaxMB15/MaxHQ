@@ -7,7 +7,7 @@
 // blindness and for telling neighbours apart, so a series always gets the same
 // colour for its place, and the status colours keep their meanings.
 
-import type { Theme } from "@maxhq/shared/theme/theme";
+import type { Theme } from "../theme/theme";
 
 const SERIES_COUNT = 8;
 

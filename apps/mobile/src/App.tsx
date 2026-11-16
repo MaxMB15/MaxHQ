@@ -21,6 +21,7 @@ import { createSource } from "./data";
 import { AgentScreen } from "./features/agent/AgentScreen";
 import { PromptAlerts } from "./features/attention/PromptAlerts";
 import { DevicesScreen } from "./features/devices/DevicesScreen";
+import { DiagramRenderer } from "./features/diagrams/DiagramRenderer";
 import { InboxScreen } from "./features/inbox/InboxScreen";
 import { NoteScreen } from "./features/notes/NoteScreen";
 import { NotesScreen } from "./features/notes/NotesScreen";
@@ -28,8 +29,9 @@ import { PhoneScreen } from "./features/phone/PhoneScreen";
 import { scanLinkOf } from "./features/scan/code";
 import { ScanScreen } from "./features/scan/ScanScreen";
 import { UsageScreen } from "./features/usage/UsageScreen";
+import { FileScreen } from "./features/viewer/FileScreen";
 import { VisualScreen } from "./features/visuals/VisualScreen";
-import { agentScreenId, noteScreenId, type Screens } from "./navigation";
+import { agentScreenId, fileScreenId, noteScreenId, type Screens } from "./navigation";
 import { pushNavigation, PushSetup } from "./push/PushSetup";
 import { ServicesProvider } from "./services";
 import { color } from "./theme";
@@ -58,9 +60,10 @@ const SCREEN = {
 } as const;
 
 // maxhq://agent/<id> opens an agent, and ?attention=<id> scrolls to that
-// prompt. maxhq://phone is the old name for Settings. A pairing code,
-// maxhq:<code>, opens Scan with the code ready to pair. Whatever a link
-// opens sits over the inbox, so Back has somewhere to go.
+// prompt. maxhq://file/<agent>?path=<path>&line=<n> opens a file on the
+// agent's device at a line. maxhq://phone is the old name for Settings. A
+// pairing code, maxhq:<code>, opens Scan with the code ready to pair.
+// Whatever a link opens sits over the inbox, so Back has somewhere to go.
 const linking: LinkingOptions<Screens> = {
 	prefixes: ["maxhq://"],
 	getInitialURL: async () => {
@@ -82,6 +85,7 @@ const linking: LinkingOptions<Screens> = {
 			Scan: "scan",
 			Notes: "notes/:project",
 			Note: "note/:project/:note",
+			File: { path: "file/:agent", parse: { line: Number } },
 		},
 	},
 };
@@ -103,6 +107,7 @@ export const App = () => {
 						<Stack.Screen name="Settings" component={PhoneScreen} />
 						<Stack.Screen name="Notes" component={NotesScreen} />
 						<Stack.Screen name="Note" component={NoteScreen} getId={noteScreenId} />
+						<Stack.Screen name="File" component={FileScreen} getId={fileScreenId} />
 						<Stack.Screen
 							name="Scan"
 							component={ScanScreen}
@@ -113,6 +118,7 @@ export const App = () => {
 				<PromptAlerts />
 				<PictureViewer />
 				<VisualScreen />
+				<DiagramRenderer />
 				<StatusBar style="light" />
 			</ServicesProvider>
 		</SafeAreaProvider>

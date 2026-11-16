@@ -3,7 +3,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import { agentScreenId, noteScreenId } from "./navigation";
+import { agentScreenId, fileScreenId, noteScreenId } from "./navigation";
 
 describe("agentScreenId", () => {
 	it("gives each agent its own screen, and keeps one agent's screen for a new prompt", () => {
@@ -26,6 +26,20 @@ describe("noteScreenId", () => {
 		);
 		expect(noteScreenId({ params: { project: "p1", note: "n1", made: true } })).toBe(
 			noteScreenId({ params: { project: "p1", note: "n1" } })
+		);
+	});
+});
+
+describe("fileScreenId", () => {
+	it("gives each of an agent's files its own screen, and keeps it for another line", () => {
+		expect(fileScreenId({ params: { agent: "a1", path: "src/a.ts" } })).not.toBe(
+			fileScreenId({ params: { agent: "a1", path: "src/b.ts" } })
+		);
+		expect(fileScreenId({ params: { agent: "a1", path: "src/a.ts" } })).not.toBe(
+			fileScreenId({ params: { agent: "a2", path: "src/a.ts" } })
+		);
+		expect(fileScreenId({ params: { agent: "a1", path: "src/a.ts", line: 12 } })).toBe(
+			fileScreenId({ params: { agent: "a1", path: "src/a.ts" } })
 		);
 	});
 });

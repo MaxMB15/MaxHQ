@@ -8,6 +8,8 @@
 
 import { useEffect, useState } from "react";
 
+import { mathSettings } from "@maxhq/shared/agent-view/drawing";
+
 type Katex = typeof import("katex").default;
 
 let katex: Katex | null = null;
@@ -24,9 +26,6 @@ export const loadMath = (): Promise<Katex> => {
 	return loading;
 };
 
-// The most, in ems, that a formula's own sizes can reach.
-const LARGEST_EM = 20;
-
 /**
  * A formula as HTML. It's null until KaTeX has loaded, and for one too deep
  * for it to read, whatever `throwOnError` says, so its source shows instead.
@@ -34,15 +33,8 @@ const LARGEST_EM = 20;
 export const mathHtml = (source: string, display: boolean): string | null => {
 	try {
 		return (
-			katex?.renderToString(source, {
-				displayMode: display,
-				output: "html",
-				throwOnError: false,
-				errorColor: "var(--destructive)",
-				trust: false,
-				strict: "ignore",
-				maxSize: LARGEST_EM,
-			}) ?? null
+			katex?.renderToString(source, mathSettings(display, "html", "var(--destructive)")) ??
+			null
 		);
 	} catch {
 		return null;

@@ -19,6 +19,8 @@ export type Screens = {
 	Notes: { readonly project: ProjectId };
 	/** One note. `made` opens a note just made with its title ready to type. */
 	Note: { readonly project: ProjectId; readonly note: NoteId; readonly made?: boolean };
+	/** A file on the agent's device, read-only, scrolled to `line` when it's given. */
+	File: { readonly agent: AgentId; readonly path: string; readonly line?: number };
 };
 
 /**
@@ -32,5 +34,12 @@ export const agentScreenId = ({ params }: { readonly params: Screens["Agent"] })
 /** The Note screen's ID, so each note gets its own entry in the stack, with its own saving. */
 export const noteScreenId = ({ params }: { readonly params: Screens["Note"] }): string =>
 	`${params.project}/${params.note}`;
+
+/**
+ * The File screen's ID: one screen for each of an agent's files, so asking
+ * for another line of a file that's open scrolls the screen already there.
+ */
+export const fileScreenId = ({ params }: { readonly params: Screens["File"] }): string =>
+	`${params.agent}\n${params.path}`;
 
 export type ScreenProps<Name extends keyof Screens> = NativeStackScreenProps<Screens, Name>;

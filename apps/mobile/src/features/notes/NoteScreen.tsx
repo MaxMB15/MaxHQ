@@ -7,17 +7,29 @@
 // a second after you stop, at most ten seconds apart, and right away when
 // a field loses focus, the screen goes or the app leaves the screen. Text
 // from elsewhere, a merge or another device's save, comes into the box
-// around what you typed. The menu deletes the note. A note deleted
-// elsewhere says so and offers it back.
+// around what you typed. A tap on a task box in the rendered note ticks it
+// and saves the same way. The menu opens the note's history, where an old
+// version reads as it was and Restore saves it as the newest, or deletes
+// the note. A note deleted elsewhere says so and offers it back.
 
 import { useI18n } from "@maxhq/shared/i18n";
 
-import { useEffect, useRef, useState, useSyncExternalStore, type ComponentRef } from "react";
+import {
+	useCallback,
+	useEffect,
+	useRef,
+	useState,
+	useSyncExternalStore,
+	type ComponentRef,
+} from "react";
 import {
 	Alert,
 	AppState,
+	BackHandler,
+	FlatList,
 	KeyboardAvoidingView,
 	Platform,
+	Pressable,
 	ScrollView,
 	StyleSheet,
 	Text,
@@ -26,11 +38,27 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import type { DeviceId, NoteId, NoteVersion, ProjectId } from "@maxhq/shared/bindings";
+import type {
+	DeviceId,
+	NoteId,
+	NoteVersion,
+	NoteVersionInfo,
+	ProjectId,
+	VersionHash,
+} from "@maxhq/shared/bindings";
+import { useNow } from "@maxhq/shared/lib/clock";
 import { deleteNoteQuestion } from "@maxhq/shared/notes/actions";
 import { createAutosave, incomingText, saveText } from "@maxhq/shared/notes/autosave";
+import { setTask } from "@maxhq/shared/notes/tasks";
 import { errorText } from "@maxhq/shared/timeline/store";
-import { noteOn, remoteNotesReach, shownTitle } from "@maxhq/shared/view/notes";
+import {
+	noteOn,
+	remoteNotesReach,
+	savedBy,
+	shownTitle,
+	versionHeading,
+	versionWhen,
+} from "@maxhq/shared/view/notes";
 
 import type { ScreenProps } from "../../navigation";
 import { useServices, useView } from "../../services";
@@ -40,6 +68,14 @@ import { choose, confirm } from "../../ui/choose";
 import { Header, IconButton } from "../../ui/Header";
 import { More } from "../../ui/Icon";
 import { MarkdownText } from "../../ui/MarkdownText";
+import {
+	type Loaded,
+	pickVersion,
+	readHistory,
+	readVersion,
+	type Showing,
+	stepBack,
+} from "./history";
 
 type Load =
 	| { readonly kind: "reading" }
@@ -152,11 +188,66 @@ const NoteBody = ({
 	const [body, setBody] = useState(initial.body);
 	const typed = useRef(initial.body);
 	const titleField = useRef<ComponentRef<typeof TextInput>>(null);
+	const [showing, setShowing] = useState<Showing>({ kind: "note" });
+	const [history, setHistory] = useState<Loaded<NoteVersionInfo[]>>({ kind: "reading" });
+	const [historyTry, setHistoryTry] = useState(0);
+	const [restoring, setRestoring] = useState(false);
 
-	const changeBody = (text: string) => {
-		typed.current = text;
-		setBody(text);
-		saving.edit({ body: text });
+	const changeBody = useCallback(
+		(text: string) => {
+			typed.current = text;
+			setBody(text);
+			saving.edit({ body: text });
+		},
+		[saving]
+	);
+
+	// A tap on a task box ticks it in the text, which saves as typing does.
+	const tick = useCallback(
+		(index: number, done: boolean) => {
+			const next = setTask(typed.current, index, done);
+			if (next !== typed.current) changeBody(next);
+		},
+		[changeBody]
+	);
+
+	// The history reads when it opens, and again when the note gets a new
+	// version, with the list it had showing until then.
+	const listing = showing.kind !== "note";
+	useEffect(() => {
+		if (!listing) return;
+		let live = true;
+		void readHistory(source, device, project, note).then((next) => {
+			if (live) setHistory(next);
+		});
+		return () => {
+			live = false;
+		};
+	}, [listing, source, device, project, note, state.base, historyTry]);
+
+	// Android's Back steps out of an old version and the history before it leaves the note.
+	useEffect(() => {
+		if (!listing) return;
+		const watch = BackHandler.addEventListener("hardwareBackPress", () => {
+			setShowing(stepBack);
+			return true;
+		});
+		return () => watch.remove();
+	}, [listing]);
+
+	const openHistory = () => {
+		void saving.flush();
+		setHistory((was) => (was.kind === "failed" ? { kind: "reading" } : was));
+		setShowing({ kind: "history" });
+	};
+
+	const restore = (version: NoteVersion) => {
+		setRestoring(true);
+		void saving.replace({ title: version.title, body: version.body }).then((failure) => {
+			setRestoring(false);
+			if (failure === null) setShowing({ kind: "note" });
+			else Alert.alert(t("Couldn't restore it."), failure);
+		});
 	};
 
 	// Text from elsewhere goes into the box around what was typed since,
@@ -231,6 +322,7 @@ const NoteBody = ({
 							label={t("More")}
 							onPress={() =>
 								choose(shownTitle(state.title), [
+									{ label: t("History"), pick: openHistory },
 									{ label: t("Delete"), destructive: true, pick: remove },
 								])
 							}
@@ -254,6 +346,37 @@ const NoteBody = ({
 					<Button label={t("Bring it back")} onPress={() => void saving.replace({})} />
 				</View>
 			</View>
+		);
+	}
+
+	if (showing.kind === "history") {
+		return (
+			<HistoryList
+				title={state.title}
+				history={history}
+				onPick={setShowing}
+				onRetry={() => {
+					setHistory({ kind: "reading" });
+					setHistoryTry((n) => n + 1);
+				}}
+				onBack={() => setShowing(stepBack)}
+			/>
+		);
+	}
+
+	if (showing.kind === "version") {
+		return (
+			<VersionShown
+				key={showing.hash}
+				device={device}
+				project={project}
+				note={note}
+				hash={showing.hash}
+				restoring={restoring}
+				onBack={() => setShowing(stepBack)}
+				onCurrent={() => setShowing({ kind: "note" })}
+				onRestore={restore}
+			/>
 		);
 	}
 
@@ -304,12 +427,163 @@ const NoteBody = ({
 						{body.trim() === "" ? (
 							<Text style={styles.empty}>{t("Empty. Tap Edit to write.")}</Text>
 						) : (
-							<MarkdownText text={body} />
+							<MarkdownText text={body} onTask={tick} />
 						)}
 					</>
 				)}
 			</ScrollView>
 		</KeyboardAvoidingView>
+	);
+};
+
+/**
+ * A note's versions, newest first, with when each was saved and by whom.
+ * Picking the newest goes back to the note, any other shows it.
+ */
+const HistoryList = ({
+	title,
+	history,
+	onPick,
+	onRetry,
+	onBack,
+}: {
+	title: string;
+	history: Loaded<NoteVersionInfo[]>;
+	onPick: (showing: Showing) => void;
+	onRetry: () => void;
+	onBack: () => void;
+}) => {
+	const { t } = useI18n();
+
+	const view = useView((s) => s.view);
+	const now = useNow(30_000);
+	const insets = useSafeAreaInsets();
+	return (
+		<View style={styles.screen}>
+			<Header
+				title={t("History")}
+				subtitle={
+					<Text numberOfLines={1} style={styles.status}>
+						{shownTitle(title)}
+					</Text>
+				}
+				back={{ label: t("Back"), onPress: onBack }}
+			/>
+			{history.kind === "read" ? (
+				<FlatList
+					data={history.data}
+					keyExtractor={(version) => version.hash}
+					contentContainerStyle={[styles.list, { paddingBottom: insets.bottom + 24 }]}
+					renderItem={({ item, index }) => (
+						<Pressable
+							accessibilityRole="button"
+							accessibilityState={{ selected: index === 0 }}
+							onPress={() => onPick(pickVersion(index, item.hash))}
+							style={({ pressed }) => [styles.row, pressed && styles.pressed]}
+						>
+							<Text style={styles.when} numberOfLines={1}>
+								{versionWhen(item, index === 0, now)}
+							</Text>
+							<Text style={styles.by} numberOfLines={1}>
+								{savedBy(view, item.by)}
+							</Text>
+						</Pressable>
+					)}
+				/>
+			) : history.kind === "failed" ? (
+				<View style={styles.gone}>
+					<Text style={styles.failure}>{history.reason}</Text>
+					<Button label={t("Try again")} onPress={onRetry} />
+				</View>
+			) : (
+				<Text style={styles.message}>{t("Reading…")}</Text>
+			)}
+		</View>
+	);
+};
+
+/** An old version of a note, read-only, with a way back to the note and Restore. */
+const VersionShown = ({
+	device,
+	project,
+	note,
+	hash,
+	restoring,
+	onBack,
+	onCurrent,
+	onRestore,
+}: {
+	device: DeviceId;
+	project: ProjectId;
+	note: NoteId;
+	hash: VersionHash;
+	restoring: boolean;
+	onBack: () => void;
+	onCurrent: () => void;
+	onRestore: (version: NoteVersion) => void;
+}) => {
+	const { t } = useI18n();
+
+	const { source } = useServices();
+	const insets = useSafeAreaInsets();
+	const now = useNow(30_000);
+	const [version, setVersion] = useState<Loaded<NoteVersion>>({ kind: "reading" });
+	const [attempt, setAttempt] = useState(0);
+	useEffect(() => {
+		let live = true;
+		void readVersion(source, device, project, note, hash).then((next) => {
+			if (live) setVersion(next);
+		});
+		return () => {
+			live = false;
+		};
+	}, [source, device, project, note, hash, attempt]);
+
+	const read = version.kind === "read" ? version.data : null;
+	return (
+		<View style={styles.screen}>
+			<Header title={t("History")} back={{ label: t("Back"), onPress: onBack }} />
+			<View style={styles.bar}>
+				{version.kind === "failed" ? null : (
+					<Text style={styles.heading} numberOfLines={2}>
+						{read ? versionHeading(read, now) : t("Reading the version…")}
+					</Text>
+				)}
+				<View style={styles.actions}>
+					<Button label={t("Back to current")} small onPress={onCurrent} />
+					<Button
+						label={t("Restore")}
+						small
+						disabled={read === null || restoring}
+						onPress={() => {
+							if (read) onRestore(read);
+						}}
+					/>
+				</View>
+			</View>
+			{version.kind === "failed" ? (
+				<View style={styles.gone}>
+					<Text style={styles.failure}>{version.reason}</Text>
+					<Button
+						label={t("Try again")}
+						onPress={() => {
+							setVersion({ kind: "reading" });
+							setAttempt((n) => n + 1);
+						}}
+					/>
+				</View>
+			) : read ? (
+				<ScrollView
+					contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 24 }]}
+				>
+					{read.body.trim() === "" ? (
+						<Text style={styles.empty}>{t("Empty")}</Text>
+					) : (
+						<MarkdownText text={read.body} />
+					)}
+				</ScrollView>
+			) : null}
+		</View>
 	);
 };
 
@@ -335,4 +609,31 @@ const styles = StyleSheet.create({
 	empty: { color: color.mutedForeground, fontSize: size.small },
 	message: { color: color.mutedForeground, fontSize: size.small, padding: 16 },
 	gone: { alignItems: "center", gap: 12, paddingTop: 48 },
+	failure: {
+		color: color.errorText,
+		fontSize: size.small,
+		textAlign: "center",
+		paddingHorizontal: 16,
+	},
+	list: { paddingHorizontal: 10, paddingTop: 8 },
+	row: {
+		minHeight: 52,
+		justifyContent: "center",
+		gap: 1,
+		paddingHorizontal: 10,
+		borderRadius: 6,
+	},
+	pressed: { backgroundColor: color.accent },
+	when: { color: color.foregroundStrong, fontSize: size.body, fontVariant: ["tabular-nums"] },
+	by: { color: color.mutedForeground, fontSize: size.meta },
+	bar: {
+		gap: 8,
+		paddingHorizontal: 16,
+		paddingVertical: 10,
+		backgroundColor: color.subpanel,
+		borderBottomWidth: StyleSheet.hairlineWidth,
+		borderBottomColor: color.border,
+	},
+	heading: { color: color.secondaryForeground, fontSize: size.small },
+	actions: { flexDirection: "row", gap: 8 },
 });

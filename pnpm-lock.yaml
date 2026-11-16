@@ -319,6 +319,9 @@ importers:
       expo-status-bar:
         specifier: ~58.0.3
         version: 58.0.4(expo@58.0.14(@babel/core@7.29.7(supports-color@8.1.1))(react-dom@19.3.0(react@19.3.0))(react-native-webview@14.0.1(react-native@0.88.0(@babel/core@7.29.7(supports-color@8.1.1))(@types/react@19.3.0)(react@19.3.0)(supports-color@8.1.1))(react@19.3.0))(react-native@0.88.0(@babel/core@7.29.7(supports-color@8.1.1))(@types/react@19.3.0)(react@19.3.0)(supports-color@8.1.1))(react@19.3.0)(supports-color@8.1.1)(typescript@6.0.3))(react-native@0.88.0(@babel/core@7.29.7(supports-color@8.1.1))(@types/react@19.3.0)(react@19.3.0)(supports-color@8.1.1))(react@19.3.0)
+      katex:
+        specifier: ^0.16.47
+        version: 0.16.47
       lucide-react-native:
         specifier: 1.61.0
         version: 1.61.0(@types/react@19.3.0)(react-native-svg@15.16.0(react-native@0.88.0(@babel/core@7.29.7(supports-color@8.1.1))(@types/react@19.3.0)(react@19.3.0)(supports-color@8.1.1))(react@19.3.0))(react-native@0.88.0(@babel/core@7.29.7(supports-color@8.1.1))(@types/react@19.3.0)(react@19.3.0)(supports-color@8.1.1))(react@19.3.0)
@@ -328,6 +331,9 @@ importers:
       maxhq-core:
         specifier: link:./modules/maxhq-core
         version: link:modules/maxhq-core
+      mermaid:
+        specifier: ^11.17.2
+        version: 11.17.2
       react:
         specifier: 'catalog:'
         version: 19.3.0
@@ -349,6 +355,9 @@ importers:
       react-native-webview:
         specifier: 14.0.1
         version: 14.0.1(react-native@0.88.0(@babel/core@7.29.7(supports-color@8.1.1))(@types/react@19.3.0)(react@19.3.0)(supports-color@8.1.1))(react@19.3.0)
+      shiki:
+        specifier: ^4.5.0
+        version: 4.5.0
       uniffi-bindgen-react-native:
         specifier: 0.31.0-6
         version: 0.31.0-6

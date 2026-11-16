@@ -47,7 +47,8 @@ import {
 } from "@maxhq/shared/agent-view/format";
 import { useFold } from "@maxhq/shared/agent-view/find-context";
 import { useKept } from "@maxhq/shared/agent-view/kept";
-import { editLine, OpenFileButton, readLine } from "../open-in";
+import { editLine, readLine } from "@maxhq/shared/agent-view/viewer-files";
+import { OpenFileButton } from "../open-in";
 import { PictureSet } from "../picture-set";
 import { PictureThumb } from "../picture-viewer";
 import { Detail, Target, ToolRow } from "./tool-row";
