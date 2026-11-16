@@ -3094,7 +3094,11 @@ pub(crate) mod tests {
         let phones = crate::phones::for_tests();
         let served = serve();
         let me = served.hub.device().id;
-        let ssh_public = PublicKey::from(Ed25519Keypair::from_seed(&[201; 32]).public)
+        // Every test shares one phone store, so this phone's key is its own:
+        // with another test's key, that test removing its phone would take
+        // this one away mid-run.
+        const SEED: [u8; 32] = [231; 32];
+        let ssh_public = PublicKey::from(Ed25519Keypair::from_seed(&SEED).public)
             .to_openssh()
             .unwrap();
         let phone = PhoneId::derive(&ssh_public);
@@ -3121,12 +3125,7 @@ pub(crate) mod tests {
             panic!("expected a hello");
         };
         let proved = own
-            .prove_as(
-                Kind::Phone,
-                &[201; 32],
-                &server,
-                &hello(ProtocolRange::OURS),
-            )
+            .prove_as(Kind::Phone, &SEED, &server, &hello(ProtocolRange::OURS))
             .await;
         assert_eq!(proved, ActionOutcome::Done);
 
