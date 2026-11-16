@@ -134,6 +134,7 @@ const links = (now: Timestamp): DeviceLink[] => [
 			host_spec: true,
 			tool_installs: true,
 			phones: true,
+			terminals: true,
 		},
 		waiting: [],
 		routes: [{ route: { type: "local" }, last_good_here: true }],
@@ -174,6 +175,7 @@ const links = (now: Timestamp): DeviceLink[] => [
 			snapshots: true,
 			moves: true,
 			tool_installs: true,
+			terminals: true,
 		},
 		waiting: [],
 		routes: [

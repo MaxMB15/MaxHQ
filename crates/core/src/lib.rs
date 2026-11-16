@@ -26,6 +26,7 @@ pub mod host_spec;
 pub mod ignored_files;
 pub mod inbox;
 pub mod leases;
+pub mod mask;
 pub mod names;
 pub mod notes;
 pub mod notify;

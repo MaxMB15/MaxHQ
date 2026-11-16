@@ -2,11 +2,12 @@
 // Copyright (c) 2026 Max Boksem
 
 // The workspace, copy, editor, login, transfer, forward, process, lookup,
-// fleet, agent tools, scheduled task, dispatcher and PR calls for a
-// hand-made source in a test that doesn't use them. Each one says it's
-// done, git knows no identity, this Mac has no editors, no workspace
+// fleet, agent tools, scheduled task, dispatcher, PR and terminal calls
+// for a hand-made source in a test that doesn't use them. Each one says
+// it's done, git knows no identity, this Mac has no editors, no workspace
 // reaches one over SSH, the lookups find nothing, no agent runs a process,
-// no device holds a permission or a key, and no device has a task or PR.
+// no device holds a permission or a key, no device has a task or PR, and
+// no maxd has terminals.
 
 import {
 	AGENT_DEFAULTS,
@@ -19,6 +20,7 @@ import { noHosts } from "../data/mock-host-calls";
 import { noPulls } from "../data/mock-pulls";
 import { noSkills } from "../data/mock-skills";
 import { noTasks } from "../data/mock-tasks";
+import { noTerminals } from "../data/mock-terminals";
 import { noTestHosts } from "../data/mock-test-hosts";
 
 type RemoteCalls = Pick<
@@ -116,6 +118,7 @@ type RemoteCalls = Pick<
 	| keyof typeof noSkills
 	| keyof typeof noHosts
 	| keyof typeof noCliLogins
+	| keyof typeof noTerminals
 >;
 
 const DONE: ActionResult = { status: "ok", data: { status: "done" } };
@@ -245,4 +248,5 @@ export const remoteCalls = (): RemoteCalls => ({
 	...noSkills,
 	...noHosts,
 	...noCliLogins,
+	...noTerminals,
 });

@@ -300,6 +300,24 @@ const SAMPLES: Record<ItemBody["kind"], [ItemBody, string | RegExp, ItemStatus?]
 		},
 		"Weekly usage",
 	],
+	user_run: [
+		{
+			kind: "user_run",
+			terminal: "terminal-1",
+			command: "pnpm test",
+			cwd: "~/code/example-app",
+			device: "device-1",
+			private: false,
+			process: { state: "exited", code: 1, signal: null },
+			duration_ms: 4200,
+			lines: 214,
+			output: "1 failed",
+			output_truncated: false,
+			moved: false,
+		},
+		"user_run",
+		"failed",
+	],
 	unknown: [{ kind: "unknown", native_kind: "hook_progress" }, "hook_progress"],
 };
 

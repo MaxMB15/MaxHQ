@@ -178,6 +178,28 @@ const visual = (title: string, name: string, bytes: number): ItemBody => ({
 	replaces: null,
 });
 
+/** A command you ran with `!` in the composer, ended with `code`. */
+const ranByYou = (
+	command: string,
+	cwd: string,
+	output: string,
+	code: number,
+	took: number
+): ItemBody => ({
+	kind: "user_run",
+	terminal: `0199a7c2-0000-7000-8000-${took.toString(16).padStart(12, "0")}`,
+	command,
+	cwd,
+	device: MAC,
+	private: false,
+	process: { state: "exited", code, signal: null },
+	duration_ms: took,
+	lines: output.split("\n").length,
+	output,
+	output_truncated: false,
+	moved: false,
+});
+
 const read = (path: string, lines: string | null = null): ItemBody => ({
 	kind: "file_read",
 	path,
@@ -689,6 +711,9 @@ const usagePopover = (now: Timestamp): TimelineItem[] => {
 	s.add(you("Show me the popover notes."));
 	s.add(opened(`${MAXHQ_FOLDER}/docs/usage-popover.md`, 12));
 	s.add(say("The popover notes are open in the viewer at line 12."));
+	s.add(ranByYou("git status --short", MAXHQ_FOLDER, " M src/usage/popover.tsx", 0, 140), {
+		took: 140,
+	});
 	s.turn(MIN);
 	s.add(you("How did usage move this week?"));
 	s.add(visual("Weekly usage by vendor", "visual-weekly-usage-by-vendor.html", 6_240));
@@ -906,6 +931,10 @@ const hdrToneMapping = (now: Timestamp): TimelineItem[] => {
 	s.add({ kind: "interrupted" });
 	s.add(opened(`${COMET_FOLDER}/docs/hdr-tone-mapping.md`));
 	s.add(visual("Tone curve by mode", "visual-tone-curve-by-mode.html", 8_120));
+	s.add(ranByYou("cargo fmt --check", COMET_FOLDER, "Diff in src/tone.rs at line 88", 1, 1_900), {
+		took: 1_900,
+		status: "failed",
+	});
 	s.add(summary(7 * MIN + 4 * SEC, 151_000));
 	s.turn(MIN);
 	s.add(you("Keep going, the peak test is fine to loosen for this sample."));

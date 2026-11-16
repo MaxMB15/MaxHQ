@@ -196,6 +196,30 @@ mod tests {
         assert!(!text.contains("show_visual"), "{text}");
     }
 
+    /// The CLI hands the text back when it loads the thread, and the pill
+    /// reads back from it.
+    #[test]
+    fn an_output_pill_comes_back_from_what_the_cli_got() {
+        let refs = vec![crate::testing::output_pill()];
+        let typed = "Why did \u{FFFC} fail?";
+        let sent = blocks(typed, &refs, &[], lead(), true, true);
+        assert_eq!(sent.len(), 1);
+        let text = sent[0]["text"].as_str().unwrap();
+        assert!(text.contains("\n````\nFAIL src/cache.test.ts\n"), "{text}");
+        let maxhq_protocol::timeline::ItemBody::UserMessage {
+            text: back,
+            attachments,
+            refs: read,
+            ..
+        } = super::super::history::user_message("cursor", text)
+        else {
+            panic!("not a user message");
+        };
+        assert_eq!(back, typed);
+        assert!(attachments.is_empty());
+        assert_eq!(read, refs);
+    }
+
     #[test]
     fn text_alone_is_one_block() {
         assert_eq!(

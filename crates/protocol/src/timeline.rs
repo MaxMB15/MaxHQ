@@ -14,9 +14,10 @@ use specta::Type;
 
 use crate::attention::{AttentionAnswer, AttentionOption};
 use crate::context::InlineRef;
-use crate::ids::{AccountId, AgentId, AttachmentId, AttentionId, ClientId};
+use crate::ids::{AccountId, AgentId, AttachmentId, AttentionId, ClientId, DeviceId, TerminalId};
 use crate::model::Vendor;
 use crate::state::Seq;
+use crate::terminal::TerminalStatus;
 use crate::time::Timestamp;
 
 /// One entry in an agent's conversation. `<vendor>:<native id>` when the
@@ -327,6 +328,41 @@ pub enum ItemBody {
         /// none.
         #[serde(default)]
         replaces: Option<ItemId>,
+    },
+    /// A command you ran with `!` in the composer, as a card. The command
+    /// runs in a terminal of its own, and the card shows it live until it
+    /// ends. Since protocol 45.
+    UserRun {
+        /// The terminal it runs in.
+        terminal: TerminalId,
+        /// The command line, as typed after the `!`.
+        command: String,
+        /// The folder it ran in, as the device writes it.
+        cwd: String,
+        /// The device it ran on.
+        device: DeviceId,
+        /// Whether you ran it with `!!`, so its output only goes to the
+        /// agent when you attach it to a message.
+        private: bool,
+        /// Whether its process still runs, and how it ended. It isn't
+        /// called `status`, which is the item's own: running while the
+        /// command runs, then completed when it exits with 0 and failed
+        /// otherwise.
+        process: TerminalStatus,
+        /// How long it ran, once it ended.
+        #[specta(type = Option<specta_typescript::Number>)]
+        duration_ms: Option<u64>,
+        /// How many lines it wrote.
+        lines: u32,
+        /// What it wrote, with colors and styles as SGR escapes and no
+        /// other escapes. A password you sent at a prompt shows as the
+        /// prompt followed by ` 🔒 sent`, never as what you typed.
+        output: String,
+        /// Whether `output` holds only the last part of what it wrote.
+        output_truncated: bool,
+        /// Whether you moved it to the terminal drawer, where it goes on as
+        /// a tab.
+        moved: bool,
     },
     /// Something the driver doesn't know how to show yet.
     Unknown {

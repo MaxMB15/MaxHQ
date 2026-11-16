@@ -590,11 +590,7 @@ impl Inbound {
                 })) => self.transfers.chunk(transfer, offset, data),
                 Ok(Some(Frame::TunnelData { stream, data })) => self.forwards.data(stream, data),
                 Ok(Some(_)) => {}
-                Err(
-                    DecodeError::UnknownKind(_)
-                    | DecodeError::MissingSession
-                    | DecodeError::ShortHeader(_),
-                ) => {}
+                Err(DecodeError::UnknownKind(_) | DecodeError::ShortHeader(_)) => {}
                 Err(err) => return Err(ReadError::Bad(err)),
                 Ok(None) => {
                     let n = self
@@ -1564,6 +1560,10 @@ impl Task {
             | ServerMessage::TunnelCredit { .. }
             | ServerMessage::TunnelClose { .. } => {
                 debug!(link = %self.link.id, "ignored a transfer or tunnel message");
+            }
+            // Nothing here asks for a terminal's bytes yet.
+            ServerMessage::TerminalAttached { .. } => {
+                debug!(link = %self.link.id, "ignored a terminal attach");
             }
             ServerMessage::PeerRequest { key, request } => {
                 if self.shared.role == ClientRole::Peer {

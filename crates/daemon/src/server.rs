@@ -26,6 +26,7 @@ use maxhq_protocol::message::{
     UploadSource,
 };
 use maxhq_protocol::state::{Delta, Seq};
+use maxhq_protocol::terminal::TerminalKind;
 use maxhq_protocol::{ClientMessage, ProtocolRange, ServerMessage};
 use maxhq_wire::{Queue, Sender};
 use thiserror::Error;
@@ -57,6 +58,9 @@ const PHONE_CANT: &str = "A phone can't do that. To let this phone, turn on Let 
 /// The refusal for an update no release signed, from a phone.
 const PHONE_UNSIGNED: &str = "A phone can't send a maxd no release signed. Send it from the \
                               Mac's Update everything.";
+
+/// The refusal for a terminal request, until this `maxd` holds terminals.
+const TERMINALS_NOT_YET: &str = "Terminals aren't available on this maxd yet.";
 
 /// The answer to a request whose part of `maxd` isn't built yet.
 pub fn not_yet() -> ActionOutcome {
@@ -565,7 +569,7 @@ impl Connection {
                     }
                 }
                 Ok(Some(Frame::TerminalInput { .. } | Frame::TerminalOutput { .. })) => {
-                    debug!("skipped a terminal frame, since this maxd holds no sessions");
+                    debug!("skipped a terminal frame, since this maxd holds no terminals yet");
                 }
                 Ok(Some(Frame::TransferChunk {
                     transfer,
@@ -581,11 +585,7 @@ impl Connection {
                     data: data.to_vec(),
                 }),
                 // The decoder has consumed these frames, so reading goes on.
-                Err(
-                    err @ (DecodeError::UnknownKind(_)
-                    | DecodeError::MissingSession
-                    | DecodeError::ShortHeader(_)),
-                ) => {
+                Err(err @ (DecodeError::UnknownKind(_) | DecodeError::ShortHeader(_))) => {
                     debug!(%err, "skipped a frame");
                 }
                 Err(err) => return Err(err),
@@ -734,8 +734,9 @@ impl Connection {
         // removes a credential, signs in, changes how this device is set
         // up, installs anything or reads a path on the device. So a stolen
         // phone's key can't either. Nor can it start or move agents, start
-        // tasks, make or remove workspaces, reach a guest's shell or ports,
-        // signal a process, copy files out or change hosts, snapshots,
+        // tasks, make or remove workspaces, open a shell, reach a guest's
+        // shell or ports, signal a process, copy files out or change hosts,
+        // snapshots,
         // moves, skills, the skill library or its sources: the phone asks
         // the dispatcher, answers and steers agents that already run.
         // Unless the Mac turned the phone's switch on, which lets it.
@@ -751,6 +752,10 @@ impl Connection {
                     | ClientMessage::CreateWorkspace { .. }
                     | ClientMessage::DeleteWorkspace { .. }
                     | ClientMessage::GuestSshOpen { .. }
+                    | ClientMessage::TerminalOpen {
+                        kind: TerminalKind::Shell,
+                        ..
+                    }
                     | ClientMessage::OpenForward { .. }
                     | ClientMessage::TunnelOpen { .. }
                     | ClientMessage::SignalProcess { .. }
@@ -1240,6 +1245,19 @@ impl Connection {
                 Ok(())
             }
             ClientMessage::Ping { nonce } => self.send(&ServerMessage::Pong { nonce }).await,
+            // Terminals come in a later build. Until then this `maxd` says
+            // so, and its hello says it holds none.
+            message @ (ClientMessage::TerminalOpen { .. }
+            | ClientMessage::TerminalAttach { .. }
+            | ClientMessage::TerminalDetach { .. }
+            | ClientMessage::TerminalResize { .. }
+            | ClientMessage::TerminalInterrupt { .. }
+            | ClientMessage::TerminalClose { .. }
+            | ClientMessage::TerminalRename { .. }
+            | ClientMessage::TerminalMove { .. }) => {
+                self.refuse(&message, ErrorCode::NotAllowed, TERMINALS_NOT_YET)
+                    .await
+            }
             // Updates, tools, load and diagnostics belong to the fleet.
             message @ (ClientMessage::InstallUpdate { key, .. }
             | ClientMessage::UpdateTools { key, .. }
@@ -1762,6 +1780,8 @@ impl Connection {
                 library_moves: true,
                 proposal_targets: true,
                 peer_proofs: true,
+                // On once terminals are built.
+                terminals: false,
             },
             challenge: self.challenge.map(|challenge| challenge.encode()),
         }
@@ -2221,6 +2241,100 @@ pub(crate) mod tests {
         assert_eq!(hello.boot_id, BootId("boot-1".into()));
         assert_eq!(hello.instance, served.hub.instance());
         assert_eq!(hello.maxd_version, "0.1.0");
+    }
+
+    /// Until this `maxd` holds terminals, its hello says so and it refuses
+    /// every terminal request. An agent's tools get no further than they do
+    /// with anything else.
+    #[tokio::test]
+    async fn terminals_are_refused_until_this_maxd_holds_them() {
+        use maxhq_protocol::ids::TerminalId;
+
+        let served = serve();
+        let (mut app, server) = TestClient::greeted(&served.socket).await;
+        assert!(!server.capabilities.terminals);
+        let key = IdempotencyKey::derive;
+        let terminal = TerminalId::derive("terminal");
+        let requests = [
+            ClientMessage::TerminalOpen {
+                key: key("open"),
+                agent: AgentId::derive("a"),
+                kind: TerminalKind::Shell,
+                cols: 120,
+                rows: 32,
+            },
+            ClientMessage::TerminalAttach {
+                terminal,
+                after: None,
+            },
+            ClientMessage::TerminalDetach { terminal },
+            ClientMessage::TerminalResize {
+                terminal,
+                cols: 100,
+                rows: 30,
+            },
+            ClientMessage::TerminalInterrupt {
+                key: key("interrupt"),
+                terminal,
+            },
+            ClientMessage::TerminalClose {
+                key: key("close"),
+                terminal,
+                force: false,
+            },
+            ClientMessage::TerminalRename {
+                key: key("rename"),
+                terminal,
+                title: "dev server".into(),
+            },
+            ClientMessage::TerminalMove {
+                key: key("move"),
+                terminal,
+            },
+        ];
+        for message in &requests {
+            app.send(message).await;
+            let answer = app.recv().await;
+            let refused = match message.action_key() {
+                Some(sent) => matches!(
+                    &answer,
+                    ServerMessage::ActionResult {
+                        key,
+                        outcome: ActionOutcome::Refused { reason },
+                    } if *key == sent && reason == TERMINALS_NOT_YET
+                ),
+                None => matches!(
+                    &answer,
+                    ServerMessage::Error {
+                        code: ErrorCode::NotAllowed,
+                        message,
+                    } if message == TERMINALS_NOT_YET
+                ),
+            };
+            assert!(refused, "{message:?} got {answer:?}");
+        }
+
+        let mut tools = TestClient::connect(&served.socket).await;
+        let ClientMessage::Hello(mut greeting) = hello(ProtocolRange::OURS) else {
+            unreachable!()
+        };
+        greeting.role = ClientRole::Mcp;
+        tools.send(&ClientMessage::Hello(greeting)).await;
+        assert!(matches!(tools.recv().await, ServerMessage::Hello(_)));
+        for message in &requests {
+            tools.send(message).await;
+            let answer = tools.recv().await;
+            assert!(
+                matches!(
+                    &answer,
+                    ServerMessage::Error {
+                        code: ErrorCode::NotAllowed,
+                        message,
+                    } if message == "this connection may only call agent tools"
+                ),
+                "{message:?} got {answer:?}"
+            );
+        }
     }
 
     #[tokio::test]
@@ -3228,6 +3342,13 @@ pub(crate) mod tests {
                 stream: StreamId::generate(),
                 workspace,
             },
+            ClientMessage::TerminalOpen {
+                key: key("shell"),
+                agent: AgentId::derive("a"),
+                kind: TerminalKind::Shell,
+                cols: 80,
+                rows: 24,
+            },
             ClientMessage::OpenForward {
                 key: key("forward"),
                 port: PortId::derive("port"),
@@ -3552,7 +3673,8 @@ pub(crate) mod tests {
             );
         }
         assert!(!phones.everything(phone), "the phone can't turn it on");
-        // A sign-in the Mac began can still be read and stopped from it.
+        // A sign-in the Mac began can still be read and stopped from it, and
+        // a command typed after `!` still runs.
         let round = SignInId::derive("round");
         for message in [
             ClientMessage::CheckCliLogin {
@@ -3562,6 +3684,16 @@ pub(crate) mod tests {
             ClientMessage::CancelCliLogin {
                 key: key("cli-cancel"),
                 sign_in: round,
+            },
+            ClientMessage::TerminalOpen {
+                key: key("run"),
+                agent: AgentId::derive("a"),
+                kind: TerminalKind::Run {
+                    command: "pnpm test".into(),
+                    private: false,
+                },
+                cols: 80,
+                rows: 24,
             },
         ] {
             own.send(&message).await;

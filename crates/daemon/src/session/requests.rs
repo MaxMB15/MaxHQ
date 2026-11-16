@@ -369,7 +369,15 @@ impl Manager {
             | ClientMessage::Prove { .. }
             | ClientMessage::EnrollAppKey { .. }
             | ClientMessage::RemoveAppKey { .. }
-            | ClientMessage::AnswerAdmission { .. } => return,
+            | ClientMessage::AnswerAdmission { .. }
+            | ClientMessage::TerminalOpen { .. }
+            | ClientMessage::TerminalAttach { .. }
+            | ClientMessage::TerminalDetach { .. }
+            | ClientMessage::TerminalResize { .. }
+            | ClientMessage::TerminalInterrupt { .. }
+            | ClientMessage::TerminalClose { .. }
+            | ClientMessage::TerminalRename { .. }
+            | ClientMessage::TerminalMove { .. } => return,
         };
         match self.keys.begin(key, conn) {
             Seen::New => {}

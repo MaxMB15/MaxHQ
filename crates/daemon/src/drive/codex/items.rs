@@ -1524,6 +1524,27 @@ mod tests {
     }
 
     #[test]
+    fn an_output_pill_comes_back_from_what_the_input_sent() {
+        let to = names::agent(maxhq_protocol::model::Vendor::Codex, "t");
+        let refs = vec![crate::testing::output_pill()];
+        let typed = "Why did \u{FFFC} fail?";
+        let content = super::super::input::input(typed, &refs, &[], to, true);
+        let message = json!({ "type": "userMessage", "id": "u", "content": content });
+        let ItemBody::UserMessage {
+            text,
+            attachments,
+            refs: back,
+            ..
+        } = body(message)
+        else {
+            panic!("not a user message");
+        };
+        assert_eq!(text, typed);
+        assert!(attachments.is_empty());
+        assert_eq!(back, refs);
+    }
+
+    #[test]
     fn a_label_someone_typed_stays() {
         let message = json!({
             "type": "userMessage", "id": "u",

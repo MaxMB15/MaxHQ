@@ -222,6 +222,13 @@ const PieceView = ({
 					now={now}
 				/>
 			);
+		case "output":
+			return (
+				<ShownPill
+					presentation={presentPill({ kind: "output", ref }, { now })}
+					{...marked(index)}
+				/>
+			);
 	}
 };
 

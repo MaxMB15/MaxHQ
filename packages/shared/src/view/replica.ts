@@ -145,6 +145,7 @@ const KINDS: readonly EntityKind[] = [
 	"project_notes",
 	"app_key",
 	"admission",
+	"terminal",
 ];
 
 const HELD: ReadonlySet<string> = new Set(KINDS);

@@ -679,6 +679,52 @@ export const ACTIONS: Case[] = [
 			text_sha256: "abc123",
 		},
 	],
+	[
+		"openTerminal",
+		(s) => s.openTerminal("agent-1", { type: "shell" }, { cols: 120, rows: 32 }),
+		{ kind: "terminal_open", agent: "agent-1", runs: { type: "shell" }, cols: 120, rows: 32 },
+	],
+	[
+		"openTerminal for a command",
+		(s) =>
+			s.openTerminal(
+				"agent-1",
+				{ type: "run", command: "pnpm test", private: true },
+				{ cols: 80, rows: 24 }
+			),
+		{
+			kind: "terminal_open",
+			agent: "agent-1",
+			runs: { type: "run", command: "pnpm test", private: true },
+			cols: 80,
+			rows: 24,
+		},
+	],
+	[
+		"interruptTerminal",
+		(s) => s.interruptTerminal("terminal-1"),
+		{ kind: "terminal_interrupt", terminal: "terminal-1" },
+	],
+	[
+		"closeTerminal",
+		(s) => s.closeTerminal("terminal-1"),
+		{ kind: "terminal_close", terminal: "terminal-1", force: false },
+	],
+	[
+		"closeTerminal by force",
+		(s) => s.closeTerminal("terminal-1", true),
+		{ kind: "terminal_close", terminal: "terminal-1", force: true },
+	],
+	[
+		"renameTerminal",
+		(s) => s.renameTerminal("terminal-1", "dev server"),
+		{ kind: "terminal_rename", terminal: "terminal-1", title: "dev server" },
+	],
+	[
+		"moveTerminal",
+		(s) => s.moveTerminal("terminal-1"),
+		{ kind: "terminal_move", terminal: "terminal-1" },
+	],
 ];
 
 /** The requests that can fail but answer with nothing. */
@@ -707,5 +753,25 @@ export const UNITS: Case[] = [
 		"setDeviceLink",
 		(s) => s.setDeviceLink("device-1", "device-2", false),
 		{ kind: "set_device_link", device: "device-1", peer: "device-2", on: false },
+	],
+	[
+		"attachTerminal",
+		(s) => s.attachTerminal("terminal-1", 4096),
+		{ kind: "terminal_attach", terminal: "terminal-1", after: 4096 },
+	],
+	[
+		"attachTerminal from the start",
+		(s) => s.attachTerminal("terminal-1", null),
+		{ kind: "terminal_attach", terminal: "terminal-1", after: null },
+	],
+	[
+		"detachTerminal",
+		(s) => s.detachTerminal("terminal-1"),
+		{ kind: "terminal_detach", terminal: "terminal-1" },
+	],
+	[
+		"resizeTerminal",
+		(s) => s.resizeTerminal("terminal-1", { cols: 100, rows: 30 }),
+		{ kind: "terminal_resize", terminal: "terminal-1", cols: 100, rows: 30 },
 	],
 ];

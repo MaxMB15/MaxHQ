@@ -828,6 +828,24 @@ mod tests {
     }
 
     #[test]
+    fn an_output_pill_comes_back_from_what_claude_got() {
+        let refs = vec![crate::testing::output_pill()];
+        let typed = "Why did \u{FFFC} fail?";
+        let content = content(typed, &refs, &[], lead(), true);
+        assert_eq!(content.blocks.len(), 1);
+        let said = said(&Value::Array(content.blocks));
+        assert!(
+            said.starts_with("Why did [Output 1: pnpm test --filter cache, exit 1] fail?"),
+            "{said}"
+        );
+        assert!(said.contains("\n````\nFAIL src/cache.test.ts\n"), "{said}");
+        let (back, attachments, read) = parse(&said);
+        assert_eq!(back, typed);
+        assert!(attachments.is_empty());
+        assert_eq!(read, refs);
+    }
+
+    #[test]
     fn a_label_stays_when_no_file_follows_it() {
         let blocks = json!([
             {"type": "text", "text": "Image 1:"},

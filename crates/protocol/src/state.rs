@@ -20,7 +20,7 @@ use crate::hosts::{AcpRegistry, HostReport, Move, PendingLicence};
 use crate::ids::{
     AccountId, AcpAgentId, AdmissionId, AgentId, AppKeyId, AttentionId, CredentialId, DeviceId,
     ForwardId, LeaseId, LinkId, MoveId, NetworkId, PhoneId, PhoneSessionId, PortId, ProjectId,
-    SkillProposalId, TestHostId, WorkflowRunId, WorkspaceId,
+    SkillProposalId, TerminalId, TestHostId, WorkflowRunId, WorkspaceId,
 };
 use crate::leases::{TestHost, TestLease};
 use crate::link::{DeviceLink, Network};
@@ -33,6 +33,7 @@ use crate::notes::ProjectNotes;
 use crate::phones::{Phone, PhoneBook};
 use crate::skills::{ProjectSkills, SkillLibrary, SkillProposal};
 use crate::tasks::DeviceTasks;
+use crate::terminal::Terminal;
 use crate::workflow::WorkflowRun;
 
 /// Numbers each version of the state. Each delta is one more than the last.
@@ -138,6 +139,9 @@ pub enum Entity {
     AppKey(AppKey),
     /// A card that asks whether to let in a program that proved no app key.
     Admission(Admission),
+    /// A terminal a device holds for an agent: a shell in its drawer or a
+    /// command you ran with `!`. Since protocol 45.
+    Terminal(Terminal),
 }
 
 /// Names one entity, for removal and lookup.
@@ -252,6 +256,8 @@ pub enum EntityKey {
     AppKey(AppKeyId),
     /// An admission card.
     Admission(AdmissionId),
+    /// A terminal.
+    Terminal(TerminalId),
 }
 
 impl Entity {
@@ -308,6 +314,7 @@ impl Entity {
             },
             Self::AppKey(key) => EntityKey::AppKey(key.id),
             Self::Admission(admission) => EntityKey::Admission(admission.id),
+            Self::Terminal(terminal) => EntityKey::Terminal(terminal.id),
         }
     }
 }

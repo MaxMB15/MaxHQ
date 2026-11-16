@@ -2,7 +2,7 @@
 // Copyright (c) 2026 Max Boksem
 
 // The pills that take a place in the text: a file, a visual, a quote, an
-// agent and a note.
+// agent, a note and a command's output.
 // Each is one atom that reads as one object mark, so the draft's offsets,
 // spell check and the sent text all count it as one character. The nodes
 // keep only what names the pill. A file's state lives in the composer's
@@ -13,6 +13,7 @@ import {
 	type AgentRef,
 	type NoteRef,
 	OBJECT_MARK,
+	type OutputRef,
 	type QuoteRef,
 	type VisualPill as VisualPillRef,
 } from "@maxhq/shared/pills/draft";
@@ -253,6 +254,17 @@ const NotePillView = ({ node, selected }: ReactNodeViewProps) => {
 	);
 };
 
+const OutputPillView = ({ node, selected }: ReactNodeViewProps) => {
+	useI18n();
+	const { now } = usePills();
+	const presentation = presentPill({ kind: "output", ref: node.attrs.ref as OutputRef }, { now });
+	return (
+		<NodeViewWrapper as="span" className="pill-node" contentEditable={false}>
+			<ShownPill presentation={presentation} selected={selected} />
+		</NodeViewWrapper>
+	);
+};
+
 const pillNode = (
 	name: string,
 	attribute: "key" | "ref",
@@ -285,6 +297,7 @@ export const VisualPill = pillNode(PILL_NODES.visual, "ref", VisualPillView);
 export const QuotePill = pillNode(PILL_NODES.quote, "ref", QuotePillView);
 export const AgentPill = pillNode(PILL_NODES.agent, "ref", AgentPillView);
 export const NotePill = pillNode(PILL_NODES.note, "ref", NotePillView);
+export const OutputPill = pillNode(PILL_NODES.output, "ref", OutputPillView);
 
 /**
  * Makes each pill read as one object mark wherever ProseMirror turns the
@@ -298,4 +311,12 @@ export const PillText = Extension.create({
 });
 
 /** Every extension the pills need. */
-export const PILL_EXTENSIONS = [FilePill, VisualPill, QuotePill, AgentPill, NotePill, PillText];
+export const PILL_EXTENSIONS = [
+	FilePill,
+	VisualPill,
+	QuotePill,
+	AgentPill,
+	NotePill,
+	OutputPill,
+	PillText,
+];

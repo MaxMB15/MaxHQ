@@ -7,26 +7,30 @@
 //! u32 big-endian   length of the kind byte plus the body
 //! u8               kind: 0 message, 1 terminal output, 2 terminal input,
 //!                  3 transfer chunk, 4 tunnel data
-//! body             JSON for a message. For terminal kinds, the 16-byte
-//!                  session ID, then the bytes. For a transfer chunk, the
-//!                  16-byte transfer ID, a u64 big-endian offset, then at
-//!                  most 256 KiB. For tunnel data, the 16-byte stream ID,
-//!                  then at most 64 KiB.
+//! body             JSON for a message. For terminal output, the 16-byte
+//!                  terminal ID, a u64 big-endian offset, then at most
+//!                  64 KiB. For terminal input, the 16-byte terminal ID,
+//!                  then at most 64 KiB. For a transfer chunk, the 16-byte
+//!                  transfer ID, a u64 big-endian offset, then at most
+//!                  256 KiB. For tunnel data, the 16-byte stream ID, then at
+//!                  most 64 KiB.
 //! ```
 //!
 //! Terminal, file and tunnel bytes never go through JSON, so they cost one
 //! copy into the frame on the way out and none on the way in.
 //!
 //! A transfer's offset counts into its entries' bytes laid end to end in
-//! manifest order, so one number says how far it got. A kind 3 or 4 frame
-//! for an ID nobody opened gets dropped and counted, and a frame over its
-//! limit closes the link.
+//! manifest order, so one number says how far it got. A terminal output
+//! frame's offset counts into everything that terminal wrote since it
+//! started, so a client that comes back asks for what it missed. A kind 3
+//! or 4 frame for an ID nobody opened gets dropped and counted, and a frame
+//! over its limit closes the link.
 
 use serde::Serialize;
 use thiserror::Error;
 use uuid::Uuid;
 
-use crate::ids::{SessionId, StreamId, TransferId};
+use crate::ids::{StreamId, TerminalId, TransferId};
 
 /// The most a frame may declare. A peer that declares more is broken, and
 /// the connection should close.
@@ -34,12 +38,12 @@ pub const MAX_FRAME_LEN: usize = 16 * 1024 * 1024;
 
 const LEN_BYTES: usize = 4;
 const KIND_BYTES: usize = 1;
-const SESSION_BYTES: usize = 16;
 const ID_BYTES: usize = 16;
 const OFFSET_BYTES: usize = 8;
 
-/// The most terminal bytes one frame carries. Longer writes are split.
-pub const MAX_TERMINAL_CHUNK: usize = MAX_FRAME_LEN - KIND_BYTES - SESSION_BYTES;
+/// The most terminal bytes one frame carries, 64 KiB. Longer writes are
+/// split, and a peer that sends more closes the link.
+pub const MAX_TERMINAL_CHUNK: usize = 64 * 1024;
 
 /// The most file bytes one transfer chunk frame carries, 256 KiB. Longer
 /// writes are split, and a peer that sends more closes the link.
@@ -55,9 +59,9 @@ pub const MAX_TUNNEL_CHUNK: usize = 64 * 1024;
 pub enum FrameKind {
     /// A JSON [`crate::ClientMessage`] or [`crate::ServerMessage`].
     Message = 0,
-    /// Bytes a session's terminal wrote.
+    /// `[terminal: 16 bytes][offset: u64 BE][data, at most 64 KiB]`
     TerminalOutput = 1,
-    /// Bytes for a session's terminal to read, such as keystrokes.
+    /// `[terminal: 16 bytes][data, at most 64 KiB]`
     TerminalInput = 2,
     /// `[transfer: 16 bytes][offset: u64 BE][data, at most 256 KiB]`
     TransferChunk = 3,
@@ -70,18 +74,21 @@ pub enum FrameKind {
 pub enum Frame<'a> {
     /// JSON for a message.
     Message(&'a [u8]),
-    /// Bytes a session's terminal wrote.
+    /// Bytes a terminal wrote.
     TerminalOutput {
-        /// The session they came from.
-        session: SessionId,
-        /// The bytes.
+        /// The terminal they came from.
+        terminal: TerminalId,
+        /// Where `bytes` start in everything the terminal wrote.
+        offset: u64,
+        /// At most [`MAX_TERMINAL_CHUNK`] bytes.
         bytes: &'a [u8],
     },
-    /// Bytes for a session's terminal to read.
+    /// Bytes for a terminal to read, such as keystrokes. Never logged or
+    /// kept.
     TerminalInput {
-        /// The session they go to.
-        session: SessionId,
-        /// The bytes.
+        /// The terminal they go to.
+        terminal: TerminalId,
+        /// At most [`MAX_TERMINAL_CHUNK`] bytes.
         bytes: &'a [u8],
     },
     /// Part of an upload or download.
@@ -127,24 +134,22 @@ pub enum DecodeError {
     /// the next call reads the frame after it.
     #[error("unknown frame kind {0}")]
     UnknownKind(u8),
-    /// A terminal frame is too short to hold its session ID. The frame is
+    /// A terminal, transfer or tunnel frame is too short to hold its ID,
+    /// and its offset for terminal output or a transfer. The frame is
     /// consumed.
-    #[error("terminal frame is shorter than a session ID")]
-    MissingSession,
-    /// A transfer or tunnel frame is too short to hold its ID, and its
-    /// offset for a transfer. The frame is consumed.
     #[error("kind {0} frame is shorter than its header")]
     ShortHeader(u8),
-    /// A transfer or tunnel frame carries more than its kind allows. The
-    /// frame is consumed, but the peer is broken and the connection should
-    /// close.
+    /// A terminal, transfer or tunnel frame carries more than its kind
+    /// allows. The frame is consumed, but the peer is broken and the
+    /// connection should close.
     #[error("kind {kind} frame carries {len} bytes, more than the {limit} allowed")]
     ChunkTooLong {
-        /// The kind byte, 3 or 4.
+        /// The kind byte, 1 to 4.
         kind: u8,
         /// The bytes after the header.
         len: usize,
-        /// [`MAX_TRANSFER_CHUNK`] or [`MAX_TUNNEL_CHUNK`].
+        /// [`MAX_TERMINAL_CHUNK`], [`MAX_TRANSFER_CHUNK`] or
+        /// [`MAX_TUNNEL_CHUNK`].
         limit: usize,
     },
 }
@@ -163,15 +168,34 @@ pub fn encode_message(out: &mut Vec<u8>, message: &impl Serialize) -> Result<(),
 }
 
 /// Appends terminal output frames to `out`, one per [`MAX_TERMINAL_CHUNK`]
-/// bytes. Empty output appends nothing.
-pub fn encode_terminal_output(out: &mut Vec<u8>, session: SessionId, bytes: &[u8]) {
-    encode_terminal(out, FrameKind::TerminalOutput, session, bytes);
+/// bytes, for `bytes` that start at `offset` in what the terminal wrote.
+/// Each frame's offset moves on by the bytes before it. Empty output
+/// appends nothing.
+pub fn encode_terminal_output(out: &mut Vec<u8>, terminal: TerminalId, offset: u64, bytes: &[u8]) {
+    let mut offset = offset;
+    for chunk in bytes.chunks(MAX_TERMINAL_CHUNK) {
+        out.reserve(LEN_BYTES + KIND_BYTES + ID_BYTES + OFFSET_BYTES + chunk.len());
+        let start = begin(out, FrameKind::TerminalOutput);
+        out.extend_from_slice(terminal.0.as_bytes());
+        out.extend_from_slice(&offset.to_be_bytes());
+        out.extend_from_slice(chunk);
+        // The chunk size keeps every frame within the limit.
+        let _ = finish(out, start);
+        offset += chunk.len() as u64;
+    }
 }
 
 /// Appends terminal input frames to `out`, one per [`MAX_TERMINAL_CHUNK`]
 /// bytes. Empty input appends nothing.
-pub fn encode_terminal_input(out: &mut Vec<u8>, session: SessionId, bytes: &[u8]) {
-    encode_terminal(out, FrameKind::TerminalInput, session, bytes);
+pub fn encode_terminal_input(out: &mut Vec<u8>, terminal: TerminalId, bytes: &[u8]) {
+    for chunk in bytes.chunks(MAX_TERMINAL_CHUNK) {
+        out.reserve(LEN_BYTES + KIND_BYTES + ID_BYTES + chunk.len());
+        let start = begin(out, FrameKind::TerminalInput);
+        out.extend_from_slice(terminal.0.as_bytes());
+        out.extend_from_slice(chunk);
+        // The chunk size keeps every frame within the limit.
+        let _ = finish(out, start);
+    }
 }
 
 /// Appends transfer chunk frames to `out`, one per [`MAX_TRANSFER_CHUNK`]
@@ -199,17 +223,6 @@ pub fn encode_tunnel_data(out: &mut Vec<u8>, stream: StreamId, bytes: &[u8]) {
         out.reserve(LEN_BYTES + KIND_BYTES + ID_BYTES + chunk.len());
         let start = begin(out, FrameKind::TunnelData);
         out.extend_from_slice(stream.0.as_bytes());
-        out.extend_from_slice(chunk);
-        // The chunk size keeps every frame within the limit.
-        let _ = finish(out, start);
-    }
-}
-
-fn encode_terminal(out: &mut Vec<u8>, kind: FrameKind, session: SessionId, bytes: &[u8]) {
-    for chunk in bytes.chunks(MAX_TERMINAL_CHUNK) {
-        out.reserve(LEN_BYTES + KIND_BYTES + SESSION_BYTES + chunk.len());
-        let start = begin(out, kind);
-        out.extend_from_slice(session.0.as_bytes());
         out.extend_from_slice(chunk);
         // The chunk size keeps every frame within the limit.
         let _ = finish(out, start);
@@ -284,10 +297,8 @@ impl FrameDecoder {
         let (&kind, body) = frame.split_first().expect("len is at least 1");
         match kind {
             0 => Ok(Some(Frame::Message(body))),
-            1 => Self::terminal(body)
-                .map(|(session, bytes)| Some(Frame::TerminalOutput { session, bytes })),
-            2 => Self::terminal(body)
-                .map(|(session, bytes)| Some(Frame::TerminalInput { session, bytes })),
+            1 => Self::terminal_output(body).map(Some),
+            2 => Self::terminal_input(body).map(Some),
             3 => Self::transfer(body).map(Some),
             4 => Self::tunnel(body).map(Some),
             other => Err(DecodeError::UnknownKind(other)),
@@ -303,17 +314,10 @@ impl FrameDecoder {
         let (offset, data) = rest
             .split_first_chunk::<OFFSET_BYTES>()
             .ok_or(DecodeError::ShortHeader(kind))?;
-        if data.len() > MAX_TRANSFER_CHUNK {
-            return Err(DecodeError::ChunkTooLong {
-                kind,
-                len: data.len(),
-                limit: MAX_TRANSFER_CHUNK,
-            });
-        }
         Ok(Frame::TransferChunk {
             transfer: TransferId(Uuid::from_bytes(*transfer)),
             offset: u64::from_be_bytes(*offset),
-            data,
+            data: within(kind, data, MAX_TRANSFER_CHUNK)?,
         })
     }
 
@@ -323,24 +327,39 @@ impl FrameDecoder {
         let (stream, data) = body
             .split_first_chunk::<ID_BYTES>()
             .ok_or(DecodeError::ShortHeader(kind))?;
-        if data.len() > MAX_TUNNEL_CHUNK {
-            return Err(DecodeError::ChunkTooLong {
-                kind,
-                len: data.len(),
-                limit: MAX_TUNNEL_CHUNK,
-            });
-        }
         Ok(Frame::TunnelData {
             stream: StreamId(Uuid::from_bytes(*stream)),
-            data,
+            data: within(kind, data, MAX_TUNNEL_CHUNK)?,
         })
     }
 
-    /// Splits a terminal frame's body into its session and its bytes.
-    fn terminal(body: &[u8]) -> Result<(SessionId, &[u8]), DecodeError> {
-        body.split_first_chunk::<SESSION_BYTES>()
-            .map(|(session, bytes)| (SessionId(Uuid::from_bytes(*session)), bytes))
-            .ok_or(DecodeError::MissingSession)
+    /// Splits a terminal output frame's body into its terminal, offset and
+    /// bytes.
+    fn terminal_output(body: &[u8]) -> Result<Frame<'_>, DecodeError> {
+        let kind = FrameKind::TerminalOutput as u8;
+        let (terminal, rest) = body
+            .split_first_chunk::<ID_BYTES>()
+            .ok_or(DecodeError::ShortHeader(kind))?;
+        let (offset, bytes) = rest
+            .split_first_chunk::<OFFSET_BYTES>()
+            .ok_or(DecodeError::ShortHeader(kind))?;
+        Ok(Frame::TerminalOutput {
+            terminal: TerminalId(Uuid::from_bytes(*terminal)),
+            offset: u64::from_be_bytes(*offset),
+            bytes: within(kind, bytes, MAX_TERMINAL_CHUNK)?,
+        })
+    }
+
+    /// Splits a terminal input frame's body into its terminal and bytes.
+    fn terminal_input(body: &[u8]) -> Result<Frame<'_>, DecodeError> {
+        let kind = FrameKind::TerminalInput as u8;
+        let (terminal, bytes) = body
+            .split_first_chunk::<ID_BYTES>()
+            .ok_or(DecodeError::ShortHeader(kind))?;
+        Ok(Frame::TerminalInput {
+            terminal: TerminalId(Uuid::from_bytes(*terminal)),
+            bytes: within(kind, bytes, MAX_TERMINAL_CHUNK)?,
+        })
     }
 
     /// Drops spent bytes once they're at least half the buffer, so each byte
@@ -360,12 +379,25 @@ impl FrameDecoder {
     }
 }
 
+/// `data`, unless it's longer than `limit`, which breaks a kind `kind`
+/// frame.
+fn within(kind: u8, data: &[u8], limit: usize) -> Result<&[u8], DecodeError> {
+    if data.len() > limit {
+        return Err(DecodeError::ChunkTooLong {
+            kind,
+            len: data.len(),
+            limit,
+        });
+    }
+    Ok(data)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::message::ClientMessage;
 
-    fn session() -> SessionId {
+    fn terminal() -> TerminalId {
         "0199a7c2-0000-7000-8000-0000000000c1".parse().unwrap()
     }
 
@@ -393,8 +425,8 @@ mod tests {
     #[test]
     fn frames_survive_any_split() {
         let mut out = Vec::new();
-        encode_terminal_output(&mut out, session(), b"\x1b[32mok\x1b[0m\r\n");
-        encode_terminal_input(&mut out, session(), b"y");
+        encode_terminal_output(&mut out, terminal(), 40, b"\x1b[32mok\x1b[0m\r\n");
+        encode_terminal_input(&mut out, terminal(), b"y");
         encode_message(&mut out, &ClientMessage::Ping { nonce: 1 }).unwrap();
 
         let mut decoder = FrameDecoder::new();
@@ -403,12 +435,19 @@ mod tests {
             decoder.push(std::slice::from_ref(byte));
             while let Some(frame) = decoder.next_frame().unwrap() {
                 kinds.push(match frame {
-                    Frame::TerminalOutput { session: s, bytes } => {
-                        assert_eq!((s, bytes), (session(), &b"\x1b[32mok\x1b[0m\r\n"[..]));
+                    Frame::TerminalOutput {
+                        terminal: t,
+                        offset,
+                        bytes,
+                    } => {
+                        assert_eq!(
+                            (t, offset, bytes),
+                            (terminal(), 40, &b"\x1b[32mok\x1b[0m\r\n"[..])
+                        );
                         1
                     }
-                    Frame::TerminalInput { bytes, .. } => {
-                        assert_eq!(bytes, b"y");
+                    Frame::TerminalInput { terminal: t, bytes } => {
+                        assert_eq!((t, bytes), (terminal(), &b"y"[..]));
                         2
                     }
                     Frame::Message(_) => 0,
@@ -421,24 +460,65 @@ mod tests {
     }
 
     #[test]
-    fn long_output_splits_across_frames() {
+    fn long_output_splits_at_the_limit_and_moves_its_offset_on() {
         let mut out = Vec::new();
-        let bytes = vec![b'y'; MAX_TERMINAL_CHUNK + 10];
-        encode_terminal_output(&mut out, session(), &bytes);
+        let bytes = vec![b'y'; MAX_TERMINAL_CHUNK * 2 + 10];
+        encode_terminal_output(&mut out, terminal(), 500, &bytes);
+
+        let mut decoder = FrameDecoder::new();
+        decoder.push(&out);
+        let mut seen = Vec::new();
+        while let Some(Frame::TerminalOutput { offset, bytes, .. }) = decoder.next_frame().unwrap()
+        {
+            seen.push((offset, bytes.len()));
+        }
+        let full = MAX_TERMINAL_CHUNK as u64;
+        assert_eq!(
+            seen,
+            [
+                (500, MAX_TERMINAL_CHUNK),
+                (500 + full, MAX_TERMINAL_CHUNK),
+                (500 + 2 * full, 10),
+            ]
+        );
+        assert_eq!(MAX_TERMINAL_CHUNK, 64 * 1024);
+    }
+
+    #[test]
+    fn long_input_splits_at_the_limit() {
+        let mut out = Vec::new();
+        encode_terminal_input(&mut out, terminal(), &vec![b'q'; MAX_TERMINAL_CHUNK + 1]);
 
         let mut decoder = FrameDecoder::new();
         decoder.push(&out);
         let mut lengths = Vec::new();
-        while let Some(Frame::TerminalOutput { bytes, .. }) = decoder.next_frame().unwrap() {
+        while let Some(Frame::TerminalInput { bytes, .. }) = decoder.next_frame().unwrap() {
             lengths.push(bytes.len());
         }
-        assert_eq!(lengths, [MAX_TERMINAL_CHUNK, 10]);
+        assert_eq!(lengths, [MAX_TERMINAL_CHUNK, 1]);
     }
 
     #[test]
-    fn empty_output_writes_nothing() {
+    fn terminal_frames_lay_out_their_header() {
         let mut out = Vec::new();
-        encode_terminal_output(&mut out, session(), b"");
+        encode_terminal_output(&mut out, terminal(), 0x0102, b"ok");
+        let mut body = terminal().0.as_bytes().to_vec();
+        body.extend_from_slice(&0x0102u64.to_be_bytes());
+        body.extend_from_slice(b"ok");
+        assert_eq!(out, raw(1, &body));
+
+        let mut out = Vec::new();
+        encode_terminal_input(&mut out, terminal(), b"\x03");
+        let mut body = terminal().0.as_bytes().to_vec();
+        body.push(3);
+        assert_eq!(out, raw(2, &body));
+    }
+
+    #[test]
+    fn empty_terminal_bytes_write_nothing() {
+        let mut out = Vec::new();
+        encode_terminal_output(&mut out, terminal(), 7, b"");
+        encode_terminal_input(&mut out, terminal(), b"");
         assert!(out.is_empty());
     }
 
@@ -461,7 +541,7 @@ mod tests {
         let mut decoder = FrameDecoder::new();
         decoder.push(&[0, 0, 0, 2, 9, 0]);
         let mut out = Vec::new();
-        encode_terminal_input(&mut out, session(), b"q");
+        encode_terminal_input(&mut out, terminal(), b"q");
         decoder.push(&out);
         assert_eq!(decoder.next_frame(), Err(DecodeError::UnknownKind(9)));
         assert!(matches!(
@@ -474,7 +554,23 @@ mod tests {
     fn short_terminal_frames_are_rejected() {
         let mut decoder = FrameDecoder::new();
         decoder.push(&[0, 0, 0, 3, 1, 0xab, 0xcd]);
-        assert_eq!(decoder.next_frame(), Err(DecodeError::MissingSession));
+        // A terminal ID with no offset after it.
+        decoder.push(&raw(1, terminal().0.as_bytes()));
+        decoder.push(&raw(2, &[1, 2, 3]));
+        assert_eq!(decoder.next_frame(), Err(DecodeError::ShortHeader(1)));
+        assert_eq!(decoder.next_frame(), Err(DecodeError::ShortHeader(1)));
+        assert_eq!(decoder.next_frame(), Err(DecodeError::ShortHeader(2)));
+        assert_eq!(decoder.next_frame(), Ok(None));
+
+        // Input needs no offset, so an ID alone is empty input.
+        decoder.push(&raw(2, terminal().0.as_bytes()));
+        assert_eq!(
+            decoder.next_frame(),
+            Ok(Some(Frame::TerminalInput {
+                terminal: terminal(),
+                bytes: &[],
+            }))
+        );
     }
 
     fn transfer() -> TransferId {
@@ -578,6 +674,33 @@ mod tests {
                 limit: MAX_TUNNEL_CHUNK,
             })
         );
+
+        let mut body = terminal().0.as_bytes().to_vec();
+        body.extend_from_slice(&0u64.to_be_bytes());
+        body.extend(std::iter::repeat_n(0u8, MAX_TERMINAL_CHUNK + 1));
+        let mut decoder = FrameDecoder::new();
+        decoder.push(&raw(1, &body));
+        assert_eq!(
+            decoder.next_frame(),
+            Err(DecodeError::ChunkTooLong {
+                kind: 1,
+                len: MAX_TERMINAL_CHUNK + 1,
+                limit: MAX_TERMINAL_CHUNK,
+            })
+        );
+
+        let mut body = terminal().0.as_bytes().to_vec();
+        body.extend(std::iter::repeat_n(0u8, MAX_TERMINAL_CHUNK + 1));
+        let mut decoder = FrameDecoder::new();
+        decoder.push(&raw(2, &body));
+        assert_eq!(
+            decoder.next_frame(),
+            Err(DecodeError::ChunkTooLong {
+                kind: 2,
+                len: MAX_TERMINAL_CHUNK + 1,
+                limit: MAX_TERMINAL_CHUNK,
+            })
+        );
     }
 
     #[test]
@@ -594,7 +717,7 @@ mod tests {
     #[test]
     fn spent_bytes_are_dropped() {
         let mut one = Vec::new();
-        encode_terminal_output(&mut one, session(), &[b'x'; 1000]);
+        encode_terminal_output(&mut one, terminal(), 0, &[b'x'; 1000]);
         let mut decoder = FrameDecoder::new();
         for _ in 0..1000 {
             decoder.push(&one);

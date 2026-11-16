@@ -1580,4 +1580,21 @@ mod testing {
             let _ = fs::remove_dir_all(&self.0);
         }
     }
+
+    /// An output pill for a command that failed, whose text holds a fence
+    /// of its own, for the tests that send one to each kind of agent and
+    /// read it back.
+    pub fn output_pill() -> maxhq_protocol::context::InlineRef {
+        maxhq_protocol::context::InlineRef::Output {
+            command: "pnpm test --filter cache".to_owned(),
+            device_name: "devbox".to_owned(),
+            cwd: "~/code/example-app".to_owned(),
+            exit_code: Some(1),
+            running: false,
+            ran_at: maxhq_protocol::time::Timestamp(1_793_368_920_000),
+            duration_ms: Some(4_200),
+            lines_total: 214,
+            text: "FAIL src/cache.test.ts\n```\nexpected 1, got 2\n```\n1 failed".to_owned(),
+        }
+    }
 }

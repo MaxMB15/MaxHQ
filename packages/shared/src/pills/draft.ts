@@ -29,6 +29,7 @@ export const OBJECT_MARK = "￼";
 export type QuoteRef = Extract<InlineRef, { type: "quote" }>;
 export type AgentRef = Extract<InlineRef, { type: "agent" }>;
 export type NoteRef = Extract<InlineRef, { type: "note" }>;
+export type OutputRef = Extract<InlineRef, { type: "output" }>;
 export type GitItemRef = Extract<InlineRef, { type: "git_item" }>;
 
 /**
@@ -50,7 +51,8 @@ export type PlacedPill =
 	| VisualPill
 	| QuoteRef
 	| AgentRef
-	| NoteRef;
+	| NoteRef
+	| OutputRef;
 
 /** The key of the staged file a pill stands for, or null when it stands for none. */
 export const fileKeyOf = (pill: PlacedPill): string | null =>
@@ -483,6 +485,15 @@ export const agentMarker = (title: string): string => `[Agent: ${bare(title)}]`;
 
 /** A note as plain text, such as `[Note: Release steps]`. */
 export const noteMarker = (title: string): string => `[Note: ${bare(noteLabel(title))}]`;
+
+/**
+ * A command's output as plain text, such as `[Output: pnpm test, exit 1]`,
+ * the way the agent's marker names it without its number.
+ */
+export const outputMarker = (ref: OutputRef): string => {
+	const end = ref.running ? ", running" : ref.exit_code === null ? "" : `, exit ${ref.exit_code}`;
+	return `[Output: ${bare(ref.command)}${end}]`;
+};
 
 /** A visual as plain text, such as `[Visual: Weekly usage]`. */
 export const visualMarker = (title: string): string => `[Visual: ${bare(visualLabel(title))}]`;

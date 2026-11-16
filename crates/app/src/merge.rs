@@ -607,6 +607,8 @@ fn claim(entity: &Entity) -> Claim {
             port.agent.map(EntityKey::Agent),
         ),
         Entity::Attention(event) => Claim::Through(EntityKey::Agent(event.agent), None),
+        // A terminal runs in its agent's folder, on the device that runs it.
+        Entity::Terminal(terminal) => Claim::Through(EntityKey::Agent(terminal.agent), None),
         Entity::Forward(forward) => Claim::Through(EntityKey::ListeningPort(forward.port), None),
         Entity::Project(_) => Claim::Anyone,
         Entity::DeviceLink(_) | Entity::Network(_) => Claim::Nobody,

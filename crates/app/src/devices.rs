@@ -47,7 +47,7 @@ use maxhq_protocol::attention::{AnswerOutcome, AttentionAnswer};
 use maxhq_protocol::context::InlineRef;
 use maxhq_protocol::ids::{
     AccountId, AgentId, AttentionId, DeviceId, ForwardId, IdempotencyKey, LinkId, PortId,
-    TransferId, WorkspaceId,
+    TerminalId, TransferId, WorkspaceId,
 };
 use maxhq_protocol::link::{DeviceLink, LinkState, Network, Route};
 use maxhq_protocol::message::{
@@ -1436,6 +1436,18 @@ impl<C: Connector> Devices<C> {
         Err(CommandError::NotConnected { device })
     }
 
+    /// Sends a request about a terminal through a link to the device that
+    /// holds it, for one that answers on the link rather than with an
+    /// outcome, such as attaching to it.
+    pub async fn send_terminal(
+        &self,
+        terminal: TerminalId,
+        message: ClientMessage,
+    ) -> Result<(), CommandError> {
+        self.send_through(EntityKey::Terminal(terminal), "This terminal", message)
+            .await
+    }
+
     /// Sends a request to every device. It's enough that one takes it,
     /// since the rest catch up once they connect.
     async fn send_everywhere(&self, message: ClientMessage) -> Result<(), CommandError> {
@@ -2463,7 +2475,18 @@ fn action_targets(merge: &Merge, action: &ClientMessage) -> Result<Vec<Target>, 
         | ClientMessage::SignalProcess { agent, .. }
         | ClientMessage::FindGitItems { agent, .. }
         | ClientMessage::ExcerptAgent { agent, .. }
-        | ClientMessage::FindInTimeline { agent, .. } => agent_targets(merge, *agent),
+        | ClientMessage::FindInTimeline { agent, .. }
+        | ClientMessage::TerminalOpen { agent, .. } => agent_targets(merge, *agent),
+        // A terminal runs where its agent does.
+        ClientMessage::TerminalInterrupt { terminal, .. }
+        | ClientMessage::TerminalClose { terminal, .. }
+        | ClientMessage::TerminalRename { terminal, .. }
+        | ClientMessage::TerminalMove { terminal, .. } => {
+            match merge.store().get(&EntityKey::Terminal(*terminal)) {
+                Some(Entity::Terminal(found)) => agent_targets(merge, found.agent),
+                _ => Err(gone("This terminal")),
+            }
+        }
         ClientMessage::StageAttachment {
             source: AttachmentSource::Found { agent, .. },
             ..
@@ -4313,6 +4336,64 @@ pub(crate) mod tests {
         act(found("b")).unwrap();
         assert_eq!(went_through(&h), [nl.id]);
         assert_eq!(act(found("nobody")), Err(gone("This agent")));
+    }
+
+    #[test]
+    fn terminal_requests_go_where_the_terminals_agent_runs() {
+        use maxhq_protocol::terminal::{Terminal, TerminalKind, TerminalStatus};
+
+        let (h, _, nl) = two_devices();
+        let act = |action| block_on(h.devices.act(action));
+        let b = AgentId::derive("b");
+        let terminal = TerminalId::derive("terminal");
+        act(ClientMessage::TerminalOpen {
+            key: IdempotencyKey::generate(),
+            agent: b,
+            kind: TerminalKind::Shell,
+            cols: 80,
+            rows: 24,
+        })
+        .unwrap();
+        assert_eq!(went_through(&h), [nl.id], "the device of b's workspace");
+
+        let close = || ClientMessage::TerminalClose {
+            key: IdempotencyKey::generate(),
+            terminal,
+            force: false,
+        };
+        let attach = ClientMessage::TerminalAttach {
+            terminal,
+            after: None,
+        };
+        let send = |message| block_on(h.devices.send_terminal(terminal, message));
+        assert_eq!(act(close()), Err(gone("This terminal")));
+        assert_eq!(send(attach.clone()), Err(gone("This terminal")));
+
+        let shell = Terminal {
+            id: terminal,
+            agent: b,
+            device: DeviceId::derive("nl"),
+            kind: TerminalKind::Shell,
+            moved: false,
+            title: "zsh".into(),
+            cwd: "~/code/example-app".into(),
+            status: TerminalStatus::Running,
+            password_prompt: false,
+            started_at: Timestamp(1_793_368_920_000),
+            cols: 80,
+            rows: 24,
+        };
+        h.report(
+            nl.id,
+            LinkEvent::Changed(vec![Change::Upsert {
+                value: Entity::Terminal(shell),
+            }]),
+        );
+        h.fake.calls();
+        act(close()).unwrap();
+        assert_eq!(went_through(&h), [nl.id]);
+        send(attach.clone()).unwrap();
+        assert_eq!(h.fake.calls(), [(nl.id, Call::Send(attach))]);
     }
 
     #[test]

@@ -26,6 +26,7 @@ import {
 	noteMarker,
 	normalize,
 	OBJECT_MARK,
+	outputMarker,
 	type PlacedRef,
 	type ReceivedInput,
 	type Segment,
@@ -132,7 +133,8 @@ export const sentNumbers = (
  * A piece as plain text, for another app's paste: a file as its marker,
  * such as `[Image 1: shot.png]`, a quote in quote marks, an agent as
  * `[Agent: title]`, a note as `[Note: title]`, a visual as
- * `[Visual: title]` and a `#123` as typed.
+ * `[Visual: title]`, a command's output as `[Output: command, exit 1]` and
+ * a `#123` as typed.
  */
 export const pieceText = (
 	piece: SentPiece,
@@ -155,6 +157,8 @@ export const pieceText = (
 			return noteMarker(ref.title);
 		case "visual":
 			return visualMarker(ref.title);
+		case "output":
+			return outputMarker(ref);
 	}
 };
 

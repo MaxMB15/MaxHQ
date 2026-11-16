@@ -506,6 +506,109 @@ mod tests {
     }
 
     #[test]
+    fn a_run_stands_in_as_unknown_on_an_older_build() {
+        // A build before protocol 45 knew the visual but not a command you
+        // ran.
+        #[derive(Debug, PartialEq, serde::Deserialize)]
+        #[serde(tag = "kind", rename_all = "snake_case")]
+        enum Older {
+            AgentVisual { title: String },
+            Unknown { native_kind: String },
+        }
+        impl super::Unknown for Older {
+            fn unknown(kind: &str) -> Self {
+                Self::Unknown {
+                    native_kind: kind.to_owned(),
+                }
+            }
+        }
+
+        let run = serde_json::to_value(ItemBody::UserRun {
+            terminal: ONE.parse().unwrap(),
+            command: "pnpm test".into(),
+            cwd: "~/code/example-app".into(),
+            device: TWO.parse().unwrap(),
+            private: false,
+            process: crate::terminal::TerminalStatus::Running,
+            duration_ms: None,
+            lines: 0,
+            output: String::new(),
+            output_truncated: false,
+            moved: false,
+        })
+        .unwrap();
+        assert_eq!(run["kind"], "user_run");
+        let read: Older = super::stand_in(run);
+        assert_eq!(
+            read,
+            Older::Unknown {
+                native_kind: "user_run".into()
+            }
+        );
+    }
+
+    #[test]
+    fn a_terminal_is_left_out_on_an_older_build() {
+        // A build before protocol 45 knew hidden projects but not
+        // terminals.
+        #[derive(Debug, PartialEq, serde::Deserialize)]
+        #[serde(tag = "entity", rename_all = "snake_case")]
+        enum Older {
+            HiddenProjects { device: String },
+        }
+        #[derive(Debug, PartialEq, serde::Deserialize)]
+        #[serde(tag = "entity", content = "id", rename_all = "snake_case")]
+        enum OlderKey {
+            HiddenProjects(String),
+        }
+        #[derive(serde::Deserialize)]
+        struct Snapshot {
+            #[serde(deserialize_with = "super::list")]
+            entities: Vec<Older>,
+            #[serde(deserialize_with = "super::list")]
+            keys: Vec<OlderKey>,
+        }
+
+        let terminal = Entity::Terminal(crate::terminal::Terminal {
+            id: ONE.parse().unwrap(),
+            agent: TWO.parse().unwrap(),
+            device: TWO.parse().unwrap(),
+            kind: crate::terminal::TerminalKind::Shell,
+            moved: false,
+            title: "zsh".into(),
+            cwd: "~/code/example-app".into(),
+            status: crate::terminal::TerminalStatus::Running,
+            password_prompt: false,
+            started_at: crate::time::Timestamp(1_793_368_920_000),
+            cols: 120,
+            rows: 32,
+        });
+        let sent = json!({
+            "entities": [serde_json::to_value(&terminal).unwrap(), hidden(ONE)],
+            "keys": [
+                serde_json::to_value(terminal.key()).unwrap(),
+                serde_json::to_value(hidden_key(ONE)).unwrap(),
+            ],
+        });
+        let older: Snapshot = serde_json::from_value(sent).unwrap();
+        assert_eq!(
+            older.entities,
+            [Older::HiddenProjects { device: ONE.into() }]
+        );
+        assert_eq!(older.keys, [OlderKey::HiddenProjects(ONE.into())]);
+
+        // This build keeps it.
+        let ServerMessage::Snapshot(snapshot) = read(&json!({
+            "type": "snapshot",
+            "seq": 1,
+            "entities": [serde_json::to_value(&terminal).unwrap()],
+        })) else {
+            panic!("expected a snapshot");
+        };
+        assert_eq!(snapshot.entities, [terminal]);
+    }
+
+    #[test]
     fn a_message_this_build_cant_read_is_skipped() {
         assert_eq!(
             ServerMessage::read(br#"{"type":"hologram","beam":3}"#),
