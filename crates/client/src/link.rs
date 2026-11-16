@@ -1259,7 +1259,11 @@ impl Task {
         let transport = Arc::clone(&self.shared.transport);
         let dialed = tokio::select! {
             () = self.cancel.cancelled() => return Err(Step::Cancelled),
-            dialed = transport.dial(&self.link.route, self.route.config.as_ref()) => dialed,
+            dialed = transport.dial(
+                &self.link.route,
+                self.route.config.as_ref(),
+                self.link.device,
+            ) => dialed,
         };
         let conn = dialed.map_err(|err| Step::Failed(err.into()))?;
         if shows && !rebooting {
@@ -1933,7 +1937,7 @@ async fn try_route(
     forwards: Arc<Forwards>,
     known: Option<DeviceId>,
 ) -> Result<(Wire, ServerHello), Failure> {
-    let conn = shared.transport.dial(route, None).await?;
+    let conn = shared.transport.dial(route, None, known).await?;
     let mut wire = Wire::new(conn, transfers, forwards);
     let hello = tokio::time::timeout(shared.timing.handshake, handshake(&mut wire, shared))
         .await

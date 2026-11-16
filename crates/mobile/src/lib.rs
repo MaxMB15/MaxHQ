@@ -26,7 +26,7 @@ use std::sync::{Arc, Mutex, OnceLock, PoisonError};
 
 use maxhq_app::request::{CommandError, Request};
 use maxhq_app::timeline::{Sink, TimelineMessage};
-use maxhq_protocol::ids::AgentId;
+use maxhq_protocol::ids::{AgentId, DeviceId};
 use maxhq_protocol::phones::PushToken;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
@@ -37,7 +37,7 @@ pub use crate::keys::Keychain;
 pub use crate::keys::{
     forget_token, push_public, save_token, seed, token, Key, KeyStore, MemoryStore, Token,
 };
-pub use crate::phone::{Core, PhoneKey};
+pub use crate::phone::{Core, PairedDevice, PairedMac, PhoneKey};
 
 uniffi::setup_scaffolding!();
 
@@ -284,6 +284,33 @@ pub fn add_device(name: String, route: String, host_key: String) -> String {
     reply(core().and_then(|core| core.add_device(&name, &route, &host_key)))
 }
 
+/// The Macs the phone paired with, in the order it paired. Answers a
+/// reply whose `data` is a list of [`PairedMac`], with the book of devices
+/// added by hand last when there is one.
+#[uniffi::export]
+pub fn paired_macs() -> String {
+    reply(core().and_then(Core::paired_macs))
+}
+
+/// Forgets one Mac on the phone: its book, the devices only it lists with
+/// what waited for them, and their sign-ins. `keeper` is the device that
+/// keeps its book, as [`paired_macs`] names it, as a JSON string's
+/// contents. The other Macs stay paired. Answers a reply with
+/// `data: null`.
+#[uniffi::export]
+pub fn forget_mac(keeper: String) -> String {
+    reply(word::<DeviceId>(&keeper).and_then(|keeper| core()?.forget_mac(keeper)))
+}
+
+/// The name of the Mac the phone already paired with that the pairing
+/// code `code` comes from, so pairing replaces that Mac's devices.
+/// Answers a reply whose `data` is the name, or `null` for a new Mac or a
+/// code that doesn't read.
+#[uniffi::export]
+pub fn pair_code_mac(code: String) -> String {
+    reply(core().and_then(|core| core.pair_code_mac(&code)))
+}
+
 /// A call's answer as a reply.
 fn reply<T: Serialize>(result: Result<T, CommandError>) -> String {
     let value = match result.and_then(|data| to_value(&data)) {
@@ -324,6 +351,8 @@ mod tests {
     use std::sync::Mutex;
     use std::task::{Context, Poll, Waker};
 
+    use maxhq_app::pair_code::PairCode;
+    use maxhq_protocol::phones::{PhoneBook, PhoneBookEntry, PhoneMac, PhoneRoute};
     use serde_json::json;
 
     use super::*;
@@ -365,6 +394,10 @@ mod tests {
         assert_eq!(parsed(push_token(token().to_string())), not_started);
         assert_eq!(parsed(presence(r#"{"agent":null}"#.into())), not_started);
         assert_eq!(parsed(phone_key()), not_started);
+        assert_eq!(parsed(paired_macs()), not_started);
+        let keeper = DeviceId::derive("Home Mac").to_string();
+        assert_eq!(parsed(forget_mac(keeper)), not_started);
+        assert_eq!(parsed(pair_code_mac("maxhq:AQ".into())), not_started);
         assert_eq!(
             parsed(now(pair("maxhq:AQ".into(), "iPhone".into()))),
             not_started
@@ -389,6 +422,7 @@ mod tests {
             parsed(start("/data".into(), "/cache".into(), "android".into())),
             parsed(now(request(r#"{"kind":"no_such_kind"}"#.into()))),
             parsed(presence(r#"{"agent":"nobody"}"#.into())),
+            parsed(forget_mac("nobody".into())),
             parsed(now(media(
                 "nobody".into(),
                 "shot.png".into(),
@@ -604,8 +638,11 @@ mod tests {
             .unwrap();
         core.add_device("devbox", "dev@devbox.local:2222", host_key)
             .unwrap();
-        let book = core.shared_book();
+        let books = core.shared_books();
+        assert_eq!(books.len(), 1);
+        let book = &books[0];
         assert_eq!(book.phone, core.key().phone);
+        assert_eq!(book.device, maxhq_app::phone::by_hand());
         assert_eq!(book.devices.len(), 1);
         let entry = &book.devices[0];
         assert_eq!(entry.name, "devbox");
@@ -615,5 +652,123 @@ mod tests {
             entry.host_key,
             "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIExample"
         );
+        let macs = core.paired_macs().unwrap();
+        assert_eq!(macs.len(), 1);
+        assert!(macs[0].by_hand);
+        assert_eq!(macs[0].devices[0].name, "devbox");
+    }
+
+    /// A Mac's book of `names`, listing the Mac first, with the phone's ID.
+    fn mac_book(phone: maxhq_protocol::ids::PhoneId, mac: &str, names: &[&str]) -> PhoneBook {
+        let entry = |name: &str| PhoneBookEntry {
+            device: DeviceId::derive(name),
+            name: name.to_owned(),
+            routes: vec![PhoneRoute {
+                user: "dev".into(),
+                host: format!("{name}.local"),
+                port: 22,
+            }],
+            host_key: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIExample".into(),
+            network: None,
+        };
+        PhoneBook {
+            phone,
+            device: DeviceId::derive(mac),
+            devices: std::iter::once(mac)
+                .chain(names.iter().copied())
+                .map(entry)
+                .collect(),
+            mac: Some(PhoneMac {
+                device: DeviceId::derive(mac),
+                name: mac.to_owned(),
+            }),
+        }
+    }
+
+    #[test]
+    fn each_mac_shows_with_its_devices_and_forgetting_one_leaves_the_rest() {
+        let data = Data::new();
+        let store: Arc<dyn KeyStore> = Arc::new(MemoryStore::default());
+        let core = data.open(Arc::clone(&store));
+        let phone = core.key().phone;
+        core.put_book(&mac_book(phone, "Home Mac", &["devbox", "build-box"]));
+        core.put_book(&mac_book(phone, "Work Mac", &["devbox", "ci-box"]));
+        for name in ["Work Mac", "ci-box", "devbox"] {
+            save_token(&*store, DeviceId::derive(name), &held_token()).unwrap();
+        }
+
+        let macs = core.paired_macs().unwrap();
+        let names = |mac: &PairedMac| -> Vec<(String, bool)> {
+            mac.devices
+                .iter()
+                .map(|device| (device.name.clone(), device.elsewhere))
+                .collect()
+        };
+        assert_eq!(macs.len(), 2);
+        assert_eq!(
+            (macs[0].name.as_str(), macs[0].by_hand),
+            ("Home Mac", false)
+        );
+        assert_eq!(
+            names(&macs[0]),
+            [
+                ("Home Mac".to_owned(), false),
+                ("devbox".to_owned(), true),
+                ("build-box".to_owned(), false)
+            ]
+        );
+        assert_eq!(
+            names(&macs[1]),
+            [("Work Mac".to_owned(), false), ("ci-box".to_owned(), false)],
+            "devbox shows once, under the first Mac that lists it"
+        );
+        assert_eq!(
+            macs[1].devices[0].link,
+            maxhq_app::phone::book_link(DeviceId::derive("Work Mac"))
+        );
+
+        // A code from a Mac the phone has names it; a new one names none.
+        let code = |device: &str| {
+            PairCode {
+                pair: maxhq_protocol::ids::PairId::generate(),
+                seed: zeroize::Zeroizing::new([9; 32]),
+                device: DeviceId::derive(device),
+                host_key: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8g".into(),
+                routes: vec![PhoneRoute {
+                    user: "dev".into(),
+                    host: format!("{device}.local"),
+                    port: 22,
+                }],
+                network: None,
+            }
+            .encode()
+            .unwrap()
+            .as_str()
+            .to_owned()
+        };
+        assert_eq!(
+            core.pair_code_mac(&code("Work Mac")).unwrap().as_deref(),
+            Some("Work Mac")
+        );
+        assert_eq!(core.pair_code_mac(&code("Lab Mac")).unwrap(), None);
+        assert_eq!(core.pair_code_mac("not a code").unwrap(), None);
+
+        core.forget_mac(DeviceId::derive("Work Mac")).unwrap();
+        let macs = core.paired_macs().unwrap();
+        assert_eq!(macs.len(), 1);
+        assert_eq!(macs[0].name, "Home Mac");
+        assert!(!macs[0].devices[1].elsewhere, "Work Mac's book went");
+        for (name, kept) in [("Work Mac", false), ("ci-box", false), ("devbox", true)] {
+            let token = keys::token(&*store, DeviceId::derive(name)).unwrap();
+            assert_eq!(token.is_some(), kept, "{name}'s sign-in");
+        }
+        assert!(core.forget_mac(DeviceId::derive("Work Mac")).is_err());
+    }
+
+    fn held_token() -> Token {
+        Token {
+            token: zeroize::Zeroizing::new("test-not-a-real-token".to_owned()),
+            expires: maxhq_protocol::time::Timestamp(u64::MAX / 4),
+        }
     }
 }

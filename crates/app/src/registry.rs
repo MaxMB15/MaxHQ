@@ -6,8 +6,8 @@
 //! Each device is one link, keyed by the [`LinkId`] it got when you added
 //! it. The `maxd` on this machine is always there as [`Route::Local`], and
 //! every other device is an SSH host. The phone has no `maxd` of its own,
-//! and its devices are the ones in the book it paired with (see
-//! [`Registry::set_phone_book`]).
+//! and its devices are the ones in the books it paired with, one per Mac
+//! (see [`Registry::set_phone_books`]).
 //!
 //! The same database holds the outbox: inbox changes made while their
 //! device was away, kept until it's back to take them, and the app's own
@@ -114,6 +114,45 @@ fn steps() -> Vec<M<'static>> {
     ) STRICT;",
             seed::link_devices,
         ),
+        // Two Macs' networks can each have a device at 192.168.1.20, so a
+        // first route no longer has to be one device's alone. SQLite drops
+        // a UNIQUE only by building the table again, and dropping the old
+        // one empties the tables that point at it, so their rows wait in
+        // copies. The phone's one book becomes the first of its books.
+        M::up(
+            "CREATE TABLE device_next (
+        link TEXT PRIMARY KEY NOT NULL,
+        name TEXT NOT NULL,
+        kind TEXT NOT NULL CHECK (kind IN ('local', 'ssh')),
+        host TEXT,
+        added_at INTEGER NOT NULL,
+        CHECK ((kind = 'local') = (host IS NULL))
+    ) STRICT;
+    INSERT INTO device_next (rowid, link, name, kind, host, added_at)
+        SELECT rowid, link, name, kind, host, added_at FROM device;
+    CREATE TEMP TABLE outbox_kept AS SELECT * FROM outbox;
+    CREATE TEMP TABLE route_kept AS SELECT * FROM route;
+    CREATE TEMP TABLE last_good_kept AS SELECT * FROM last_good;
+    CREATE TEMP TABLE link_device_kept AS SELECT * FROM link_device;
+    CREATE TEMP TABLE link_claim_kept AS SELECT * FROM link_claim;
+    DROP TABLE device;
+    ALTER TABLE device_next RENAME TO device;
+    CREATE UNIQUE INDEX device_one_local ON device (kind) WHERE kind = 'local';
+    INSERT INTO outbox SELECT * FROM temp.outbox_kept;
+    INSERT INTO route SELECT * FROM temp.route_kept;
+    INSERT INTO last_good SELECT * FROM temp.last_good_kept;
+    INSERT INTO link_device SELECT * FROM temp.link_device_kept;
+    INSERT INTO link_claim SELECT * FROM temp.link_claim_kept;
+    DROP TABLE temp.outbox_kept;
+    DROP TABLE temp.route_kept;
+    DROP TABLE temp.last_good_kept;
+    DROP TABLE temp.link_device_kept;
+    DROP TABLE temp.link_claim_kept;
+    INSERT INTO setting (name, value)
+        SELECT 'phone_books', '[' || value || ']' FROM setting WHERE name = 'phone_book';
+    DELETE FROM setting WHERE name = 'phone_book';",
+        )
+        .foreign_key_check(),
     ]
 }
 
@@ -123,8 +162,8 @@ pub fn local_link() -> LinkId {
     LinkId::derive("local")
 }
 
-/// The setting the phone's device book is kept under.
-const PHONE_BOOK: &str = "phone_book";
+/// The setting the phone's device books are kept under, one per Mac.
+const PHONE_BOOKS: &str = "phone_books";
 
 /// The setting the revokes waiting for a device are kept under.
 const PENDING_REVOKES: &str = "pending_revokes";
@@ -440,12 +479,11 @@ impl Registry {
     /// place. This machine has none, since it can't be removed to trust a
     /// new ID.
     pub fn known_device(&self, link: LinkId) -> Result<Option<DeviceId>, RegistryError> {
-        let booked = self.phone_book()?.and_then(|book| {
-            book.devices
-                .iter()
-                .find(|entry| phone::book_link(entry.device) == link)
-                .map(|entry| entry.device)
-        });
+        let books = self.phone_books()?;
+        let booked = phone::listed(&books)
+            .into_iter()
+            .find(|(_, entry)| phone::book_link(entry.device) == link)
+            .map(|(_, entry)| entry.device);
         if booked.is_some() {
             return Ok(booked);
         }
@@ -549,29 +587,28 @@ impl Registry {
         Ok(())
     }
 
-    /// The device book the phone paired with, once it has one.
-    pub fn phone_book(&self) -> Result<Option<PhoneBook>, RegistryError> {
-        self.setting(PHONE_BOOK)
+    /// The device books the phone paired with, one per Mac, in the order
+    /// it paired.
+    pub fn phone_books(&self) -> Result<Vec<PhoneBook>, RegistryError> {
+        Ok(self.setting(PHONE_BOOKS)?.unwrap_or_default())
     }
 
-    /// Makes the book's devices the ones the phone has, in its order, and
-    /// keeps the book for their host keys. A device that left the book is
+    /// Makes the books' devices the ones the phone has, in their order, and
+    /// keeps the books for their host keys. A device more than one book
+    /// lists comes once, from the first. A device that left every book is
     /// forgotten, with what waited for it. One with no routes is left out.
     /// Each keeps its link from one book to the next, and the routes that
-    /// last worked for it while they're still in the book. A device's
+    /// last worked for it while they're still in its book. A device's
     /// network access comes before its SSH routes.
-    pub fn set_phone_book(&self, book: &PhoneBook) -> Result<(), RegistryError> {
-        let mut wanted: Vec<(LinkId, &str, Vec<String>)> = Vec::new();
-        for entry in &book.devices {
-            let hosts = phone::route_hosts(entry);
-            let taken = wanted
-                .iter()
-                .any(|(_, _, have)| have.first() == hosts.first());
-            if hosts.is_empty() || taken {
-                continue;
-            }
-            wanted.push((phone::book_link(entry.device), &entry.name, hosts));
-        }
+    pub fn set_phone_books(&self, books: &[PhoneBook]) -> Result<(), RegistryError> {
+        let wanted: Vec<(LinkId, &str, Vec<String>)> = phone::listed(books)
+            .into_iter()
+            .map(|(_, entry)| {
+                let hosts = phone::route_hosts(entry);
+                (phone::book_link(entry.device), entry.name.as_str(), hosts)
+            })
+            .filter(|(_, _, hosts)| !hosts.is_empty())
+            .collect();
         let tx = self.conn.unchecked_transaction()?;
         let keep: Vec<String> = wanted.iter().map(|(link, ..)| link_key(*link)).collect();
         let stored: Vec<String> = {
@@ -579,17 +616,8 @@ impl Registry {
             let rows = statement.query_map([], |row| row.get::<_, String>(0))?;
             rows.collect::<Result<_, _>>()?
         };
-        for link in stored {
-            // A device that stays moves off its first host for now, so the
-            // book can hand that host to another.
-            if keep.contains(&link) {
-                tx.execute(
-                    "UPDATE device SET host = 'moving:' || link WHERE link = ?1",
-                    params![link],
-                )?;
-            } else {
-                tx.execute("DELETE FROM device WHERE link = ?1", params![link])?;
-            }
+        for link in stored.iter().filter(|link| !keep.contains(link)) {
+            tx.execute("DELETE FROM device WHERE link = ?1", params![link])?;
         }
         for (pos, (link, name, hosts)) in wanted.iter().enumerate() {
             let key = link_key(*link);
@@ -621,7 +649,7 @@ impl Registry {
             }
         }
         // The same connection, so inside the transaction.
-        self.set_setting(PHONE_BOOK, book)?;
+        self.set_setting(PHONE_BOOKS, &books)?;
         tx.commit()?;
         Ok(())
     }
@@ -949,7 +977,7 @@ mod tests {
         assert_eq!(registry.known_device(book_link(devbox)).unwrap(), None);
 
         registry
-            .set_phone_book(&book(vec![entry("devbox", &["devbox.local"])]))
+            .set_phone_books(&[book(vec![entry("devbox", &["devbox.local"])])])
             .unwrap();
         // No hello needed, and none can change it.
         assert_eq!(
@@ -964,7 +992,7 @@ mod tests {
             Some(devbox)
         );
 
-        registry.set_phone_book(&book(Vec::new())).unwrap();
+        registry.set_phone_books(&[]).unwrap();
         assert_eq!(registry.known_device(book_link(devbox)).unwrap(), None);
     }
 
@@ -1162,14 +1190,16 @@ mod tests {
         };
         let registry = Registry::in_memory_phone().unwrap();
         assert!(registry.list().unwrap().is_empty());
-        assert_eq!(registry.phone_book().unwrap(), None);
+        assert!(registry.phone_books().unwrap().is_empty());
 
         let first = book(vec![
             entry("devbox", &["devbox.local", "192.0.2.7", "devbox.local"]),
             entry("buildbox", &["buildbox.local"]),
             entry("empty", &[]),
         ]);
-        registry.set_phone_book(&first).unwrap();
+        registry
+            .set_phone_books(std::slice::from_ref(&first))
+            .unwrap();
         let devices = registry.list().unwrap();
         let names: Vec<&str> = devices.iter().map(|spec| spec.name.as_str()).collect();
         assert_eq!(names, ["devbox", "buildbox"]);
@@ -1177,7 +1207,7 @@ mod tests {
         assert_eq!(devices[0].id, devbox);
         assert_eq!(devices[0].route, ssh("devbox.local"));
         assert_eq!(devices[0].fallbacks, [ssh("192.0.2.7")]);
-        assert_eq!(registry.phone_book().unwrap(), Some(first));
+        assert_eq!(registry.phone_books().unwrap(), [first]);
 
         // The last route that worked stays only while the book has it.
         let Route::Ssh { host: lan } = ssh("192.0.2.7") else {
@@ -1191,13 +1221,13 @@ mod tests {
             entry("buildbox", &["devbox.local"]),
             entry("devbox", &["192.0.2.7"]),
         ]);
-        registry.set_phone_book(&second).unwrap();
+        registry.set_phone_books(&[second]).unwrap();
         assert_eq!(hosts(&registry), [ssh("devbox.local"), ssh("192.0.2.7")]);
         let kept = registry.get(devbox).unwrap();
         assert_eq!(kept.last_good.get("home"), Some(&ssh("192.0.2.7")));
 
         registry
-            .set_phone_book(&book(vec![entry("devbox", &["devbox.lan"])]))
+            .set_phone_books(&[book(vec![entry("devbox", &["devbox.lan"])])])
             .unwrap();
         let only = registry.list().unwrap();
         assert_eq!(only.len(), 1);
@@ -1228,7 +1258,9 @@ mod tests {
         let mut mac = entry("mac", &[]);
         mac.network = network(&["192.168.1.30"]);
         let registry = Registry::in_memory_phone().unwrap();
-        registry.set_phone_book(&book(vec![devbox, mac])).unwrap();
+        registry
+            .set_phone_books(&[book(vec![devbox, mac])])
+            .unwrap();
         let devices = registry.list().unwrap();
         assert_eq!(devices[0].route, host("wss://192.168.1.20:7466"));
         assert_eq!(
@@ -1241,5 +1273,136 @@ mod tests {
         assert_eq!(devices[1].name, "mac");
         assert_eq!(devices[1].route, host("wss://192.168.1.30:7466"));
         assert!(devices[1].fallbacks.is_empty());
+    }
+
+    #[test]
+    fn two_macs_can_each_have_a_device_at_one_private_address() {
+        use crate::phone::book_link;
+        use crate::phone::tests::{entry, mac_book};
+
+        let registry = Registry::in_memory_phone().unwrap();
+        let home = mac_book("Home Mac", vec![entry("devbox", &["192.168.1.20"])]);
+        let work = mac_book(
+            "Work Mac",
+            vec![
+                entry("build-box", &["192.168.1.20"]),
+                // Both Macs list devbox, so it comes once, from Home Mac.
+                entry("devbox", &["devbox.work"]),
+            ],
+        );
+        registry
+            .set_phone_books(&[home.clone(), work.clone()])
+            .unwrap();
+        let devices = registry.list().unwrap();
+        let names: Vec<&str> = devices.iter().map(|spec| spec.name.as_str()).collect();
+        assert_eq!(names, ["Home Mac", "devbox", "Work Mac", "build-box"]);
+        let lan = Route::Ssh {
+            host: "ssh://dev@192.168.1.20:22".into(),
+        };
+        assert_eq!(devices[1].route, lan);
+        assert_eq!(devices[3].route, lan);
+        for name in ["devbox", "build-box"] {
+            let device = DeviceId::derive(name);
+            assert_eq!(
+                registry.known_device(book_link(device)).unwrap(),
+                Some(device)
+            );
+        }
+        assert_eq!(registry.phone_books().unwrap(), [home.clone(), work]);
+
+        // Work Mac goes, and Home Mac's devices stay as they were.
+        registry
+            .set_phone_books(std::slice::from_ref(&home))
+            .unwrap();
+        let names: Vec<String> = registry
+            .list()
+            .unwrap()
+            .into_iter()
+            .map(|spec| spec.name)
+            .collect();
+        assert_eq!(names, ["Home Mac", "devbox"]);
+        assert_eq!(registry.phone_books().unwrap(), [home]);
+    }
+
+    #[test]
+    fn a_paired_phone_keeps_its_book_devices_and_waiting_changes_through_the_update() {
+        use crate::phone::book_link;
+        use crate::phone::tests::{book, entry};
+
+        let dir = std::env::temp_dir().join(format!("maxhq-registry-{}", LinkId::generate()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("maxhq.db");
+        let old_book = book(vec![
+            entry("devbox", &["192.168.1.20"]),
+            entry("build-box", &["build-box.local"]),
+        ]);
+        let devbox = book_link(DeviceId::derive("devbox"));
+        let build_box = book_link(DeviceId::derive("build-box"));
+        {
+            let mut conn = Connection::open(&path).unwrap();
+            let mut old = steps();
+            old.truncate(6);
+            Migrations::new(old).to_latest(&mut conn).unwrap();
+            // What a paired phone held before: its one book, its devices,
+            // and what each of their tables kept for them.
+            conn.execute_batch(&format!(
+                "INSERT INTO device (link, name, kind, host, added_at) VALUES
+                     ('{devbox}', 'devbox', 'ssh', 'ssh://dev@192.168.1.20:22', 0),
+                     ('{build_box}', 'build-box', 'ssh', 'ssh://dev@build-box.local:22', 1);
+                 INSERT INTO route (link, pos, host)
+                     VALUES ('{devbox}', 0, 'ssh://dev@devbox.lan:22');
+                 INSERT INTO last_good (link, net, host, at)
+                     VALUES ('{devbox}', 'home', 'ssh://dev@devbox.lan:22', 5);
+                 INSERT INTO link_device (link, device, at) VALUES ('{build_box}', 'x', 6);
+                 INSERT INTO link_claim (link, device, known_by, different, at)
+                     VALUES ('{build_box}', 'y', NULL, 0, 7);
+                 INSERT INTO outbox (key, link, device, agent, title, change, queued_at)
+                     VALUES ('k1', '{devbox}', 'd', 'a', 'Fix the build', '{{}}', 8);"
+            ))
+            .unwrap();
+            conn.execute(
+                "INSERT INTO setting (name, value) VALUES ('phone_book', ?1)",
+                params![serde_json::to_string(&old_book).unwrap()],
+            )
+            .unwrap();
+        }
+        let registry = Registry::open_phone(&path).unwrap();
+        assert_eq!(registry.phone_books().unwrap(), [old_book]);
+        assert_eq!(registry.setting::<PhoneBook>("phone_book").unwrap(), None);
+        let devices = registry.list().unwrap();
+        assert_eq!(devices.len(), 2);
+        assert_eq!(devices[0].id, devbox);
+        assert_eq!(
+            devices[0].fallbacks,
+            [Route::Ssh {
+                host: "ssh://dev@devbox.lan:22".into()
+            }]
+        );
+        assert_eq!(devices[0].last_good.len(), 1);
+        let count = |table: &str| {
+            registry
+                .conn
+                .query_row(&format!("SELECT COUNT(*) FROM {table}"), [], |row| {
+                    row.get::<_, i64>(0)
+                })
+                .unwrap()
+        };
+        for table in ["outbox", "route", "last_good", "link_device", "link_claim"] {
+            assert_eq!(count(table), 1, "{table}");
+        }
+
+        // A device that goes still takes what pointed at it, and two
+        // devices may now start at one address.
+        registry
+            .set_phone_books(&[book(vec![
+                entry("devbox", &["192.168.1.20", "devbox.lan"]),
+                entry("other-box", &["192.168.1.20"]),
+            ])])
+            .unwrap();
+        assert_eq!(count("link_device") + count("link_claim"), 0);
+        assert_eq!(count("outbox"), 1);
+        assert_eq!(registry.list().unwrap().len(), 2);
+        drop(registry);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

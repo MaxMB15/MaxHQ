@@ -30,7 +30,7 @@ use maxhq_protocol::ids::{DeviceId, IdempotencyKey, LinkId, PairId, PhoneId};
 use maxhq_protocol::link::LinkState;
 use maxhq_protocol::message::ActionOutcome;
 use maxhq_protocol::netaccess::PhoneNetwork;
-use maxhq_protocol::phones::{Phone, PhoneBook, PhoneBookEntry, PhoneRoute};
+use maxhq_protocol::phones::{Phone, PhoneBook, PhoneBookEntry, PhoneMac, PhoneRoute};
 use maxhq_protocol::secret::Secret;
 use maxhq_protocol::state::{Entity, EntityKey};
 use maxhq_protocol::time::Timestamp;
@@ -44,6 +44,7 @@ use super::{device_links, failed, lock, Connector, Core, Devices, LinkControl};
 use crate::fleet::{check_can, Needs};
 use crate::merge::Merge;
 use crate::pair_code::{qr_path, PairCode, QrPath};
+use crate::registry::local_link;
 use crate::request::CommandError;
 
 /// The setting the phone addresses are kept under, by device.
@@ -208,6 +209,7 @@ impl<C: Connector> Devices<C> {
         let action = ClientMessage::BeginPhonePair {
             key: IdempotencyKey::generate(),
             book,
+            mac: self.core.view.read(this_mac),
         };
         let (pair, seed, host_key, expires_at) = match self.act_on(through, action).await? {
             ActionOutcome::PhonePair {
@@ -428,16 +430,22 @@ impl<L: LinkControl> Core<L> {
         }
         let books = {
             let mut codes = lock(&self.phone_codes);
+            let named = lock(&self.phone_named);
             self.view
-                .read(|merge| books_due(merge, &removals, &approved, &mut codes))
+                .read(|merge| books_due(merge, &removals, &approved, &mut codes, &named))
         };
-        for (device, phone, book) in books {
+        for due in books {
             let action = ClientMessage::SetPhoneBook {
                 key: IdempotencyKey::generate(),
-                phone,
-                book,
+                phone: due.phone,
+                book: due.devices,
+                mac: due.mac,
             };
-            self.took(device, action).await;
+            // A keeper too old to keep the name gets it once a run.
+            if due.naming {
+                lock(&self.phone_named).insert((due.phone, due.keeper));
+            }
+            self.took(due.keeper, action).await;
         }
         let due = self
             .view
@@ -890,18 +898,45 @@ fn take_in(
     }
 }
 
+/// This Mac as a phone's book names it, once its own link knows its device.
+fn this_mac(merge: &Merge) -> Option<PhoneMac> {
+    let device = match merge.store().get(&EntityKey::DeviceLink(local_link())) {
+        Some(Entity::DeviceLink(link)) => link.device?,
+        _ => return None,
+    };
+    Some(PhoneMac {
+        device,
+        name: crate::fleet::device_name(merge, device),
+    })
+}
+
+/// A book for [`books_due`] to send.
+struct BookDue {
+    keeper: DeviceId,
+    phone: PhoneId,
+    devices: Vec<PhoneBookEntry>,
+    /// The Mac the book names.
+    mac: Option<PhoneMac>,
+    /// Whether it goes to give the book this Mac's name.
+    naming: bool,
+}
+
 /// The books to send, each to the connected device that keeps it, for an
 /// approved phone that isn't on its way out: each entry's network part as its
 /// device publishes it now, with the code `codes` or the book has for it
 /// until that device lists a session for the phone. An entry with no other
 /// way in keeps the network part it had, and so does a device the phone
 /// wasn't approved for. Takes the codes that are done with out of `codes`.
+/// A book that names no Mac, or this Mac by an old name, gets this Mac's
+/// name, unless it went with it already this run as `named` says.
 fn books_due(
     merge: &Merge,
     removals: &Removals,
     approved: &Approved,
     codes: &mut Codes,
-) -> Vec<(DeviceId, PhoneId, Vec<PhoneBookEntry>)> {
+    named: &BTreeSet<(PhoneId, DeviceId)>,
+) -> Vec<BookDue> {
+    let me = this_mac(merge);
     let sessions: BTreeSet<(PhoneId, DeviceId)> = merge
         .store()
         .entities()
@@ -948,8 +983,22 @@ fn books_due(
                 entry
             })
             .collect();
-        if devices != book.devices {
-            due.push((book.device, book.phone, devices));
+        let naming = me.as_ref().is_some_and(|me| {
+            let stale = book
+                .mac
+                .as_ref()
+                .is_none_or(|mac| mac.device == me.device && mac.name != me.name);
+            stale && !named.contains(&(book.phone, book.device))
+        });
+        if devices != book.devices || naming {
+            let mac = if naming { me.clone() } else { book.mac.clone() };
+            due.push(BookDue {
+                keeper: book.device,
+                phone: book.phone,
+                devices,
+                mac,
+                naming,
+            });
         }
     }
     due

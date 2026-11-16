@@ -17,6 +17,7 @@ import {
 import {
 	type Bridge,
 	nativeSource,
+	type PairedMac,
 	pathOf,
 	phoneCalls,
 	type TimelineListener,
@@ -28,6 +29,16 @@ const CACHE = "/phone/Library/Caches/maxhq";
 
 /** The book a pairing answers. */
 const BOOK: PhoneBook = { phone: "phone-1", device: "device-1", devices: [] };
+
+/** The Macs the core says the phone paired with. */
+const MACS: PairedMac[] = [
+	{
+		keeper: "home-mac",
+		name: "Home Mac",
+		by_hand: false,
+		devices: [{ device: "devbox", link: "link-devbox", name: "devbox", elsewhere: false }],
+	},
+];
 
 /** A bridge that answers each request with a response of its kind. */
 const fakeBridge = () => {
@@ -60,6 +71,9 @@ const fakeBridge = () => {
 			}),
 		addDevice: vi.fn(() => json(OK)),
 		pair: vi.fn(async () => json({ status: "ok", data: BOOK })),
+		pairedMacs: () => json({ status: "ok", data: MACS }),
+		forgetMac: vi.fn(() => json(OK)),
+		pairCodeMac: vi.fn(() => json({ status: "ok", data: "Home Mac" })),
 	};
 	const answerWith = (next: (request: Request) => unknown) => (answer = next);
 	return { bridge, sent, timelines, viewers, answerWith };
@@ -319,5 +333,14 @@ describe("phone calls", () => {
 			data: BOOK,
 		});
 		expect(fake.bridge.pair).toHaveBeenCalledWith("maxhq:AQ", "iPhone");
+	});
+
+	it("lists the Macs, forgets one by its keeper and names a code's Mac", () => {
+		const phone = phoneCalls(fake.bridge);
+		expect(phone.pairedMacs()).toEqual({ status: "ok", data: MACS });
+		expect(phone.forgetMac("home-mac")).toEqual(OK);
+		expect(fake.bridge.forgetMac).toHaveBeenCalledWith("home-mac");
+		expect(phone.pairCodeMac("maxhq:AQ")).toEqual({ status: "ok", data: "Home Mac" });
+		expect(fake.bridge.pairCodeMac).toHaveBeenCalledWith("maxhq:AQ");
 	});
 });

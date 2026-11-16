@@ -2,7 +2,8 @@
 // Copyright (c) 2026 Max Boksem
 
 //! Phones. A phone pairs through one device, which keeps its [`PhoneBook`]
-//! of the devices it may reach. Each device that lets the phone's key in
+//! of the devices it may reach. A phone can pair with several Macs, each
+//! with a book of its own. Each device that lets the phone's key in
 //! publishes a [`Phone`], and pushes to it with the [`PushToken`] the phone
 //! sends over its own connection.
 //!
@@ -55,6 +56,20 @@ pub struct PhoneBook {
     pub device: DeviceId,
     /// Every device the phone may reach, in your order.
     pub devices: Vec<PhoneBookEntry>,
+    /// The Mac that made the book, which the phone names it by. A book
+    /// from an older Mac leaves it out, and the phone names the keeper.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mac: Option<PhoneMac>,
+}
+
+/// The Mac that made a [`PhoneBook`]. It is often not the keeper, which
+/// can be any device the Mac paired the phone through.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, Type, JsonSchema)]
+pub struct PhoneMac {
+    /// The Mac's own device.
+    pub device: DeviceId,
+    /// Its name, such as "Home Mac".
+    pub name: String,
 }
 
 /// One device in a [`PhoneBook`].
@@ -161,6 +176,7 @@ mod tests {
                 host_key: "ssh-ed25519 AAAAexample".into(),
                 network: None,
             }],
+            mac: None,
         };
         let value = serde_json::to_value(&book).unwrap();
         assert_eq!(
@@ -168,7 +184,20 @@ mod tests {
             json!({ "user": "dev", "host": "devbox.local", "port": 22 })
         );
         assert!(value["devices"][0].get("network").is_none());
+        assert!(value.get("mac").is_none());
         assert_eq!(serde_json::from_value::<PhoneBook>(value).unwrap(), book);
+
+        // A book that names its Mac reads back.
+        let named = PhoneBook {
+            mac: Some(PhoneMac {
+                device: DeviceId::derive("mac"),
+                name: "Home Mac".into(),
+            }),
+            ..book.clone()
+        };
+        let value = serde_json::to_value(&named).unwrap();
+        assert_eq!(value["mac"]["name"], json!("Home Mac"));
+        assert_eq!(serde_json::from_value::<PhoneBook>(value).unwrap(), named);
 
         // A book with a network part reads back, and its code stays out
         // of logs.

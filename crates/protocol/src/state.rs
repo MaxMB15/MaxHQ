@@ -889,6 +889,7 @@ mod tests {
             phone: id,
             device,
             devices: Vec::new(),
+            mac: None,
         });
         assert_eq!(book.key(), EntityKey::PhoneBook(id));
         assert_eq!(

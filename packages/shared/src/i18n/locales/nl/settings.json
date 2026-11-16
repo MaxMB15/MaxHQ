@@ -1,4 +1,5 @@
 {
+	"Add the key file": "Sleutelbestand toevoegen",
 	"Removing": "Verwijderen",
 	"Couldn't remove the ACP agent": "Kon de ACP-agent niet verwijderen",
 	"Couldn't remove it. Try again.": "Verwijderen mislukt. Probeer het opnieuw.",
@@ -37,6 +38,9 @@
 	"Variable name": "Variabelenaam",
 	"Value of {{label}}": "Waarde van {{label}}",
 	"Value": "Waarde",
+	"{{devices}} has no APNs key yet, so it can't push to the phone.": "{{devices}} hebben nog geen APNs-sleutel en kunnen dus geen pushberichten naar de telefoon sturen.",
+	"{{devices}} has no APNs key yet, so it can't push to the phone._one": "{{devices}} heeft nog geen APNs-sleutel en kan dus geen pushberichten naar de telefoon sturen.",
+	"{{devices}} has no APNs key yet, so it can't push to the phone._other": "{{devices}} hebben nog geen APNs-sleutel en kunnen dus geen pushberichten naar de telefoon sturen.",
 	"{{name}} is set": "{{name}} is ingesteld",
 	"Keep {{name}}": "{{name}} behouden",
 	"Replace {{name}}": "{{name}} vervangen",

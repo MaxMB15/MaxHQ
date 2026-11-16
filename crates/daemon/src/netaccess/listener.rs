@@ -437,11 +437,17 @@ async fn pair(ctx: &Ctx, request: Request<Incoming>) -> Result<Response<Full<Byt
     })
     .await
     .map_err(|_| NetError::Unavailable)??;
-    let ActionOutcome::PhonePaired { phone, book } = paired else {
+    let ActionOutcome::PhonePaired { phone, book, mac } = paired else {
         return Err(NetError::BadRequest);
     };
     let token = ctx.access.start(phone)?;
-    Ok(json(StatusCode::OK, &NetPaired { phone, book, token }))
+    let paired = NetPaired {
+        phone,
+        book,
+        token,
+        mac,
+    };
+    Ok(json(StatusCode::OK, &paired))
 }
 
 /// `POST /token`: trades a code, or swaps a token for a new one.

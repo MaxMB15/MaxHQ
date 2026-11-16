@@ -207,6 +207,10 @@ interface NativeModuleInterface {
 		state: Uint8Array,
 		uniffi_out_err: UniffiRustCallStatus
 	): Uint8Array;
+	ubrn_uniffi_maxhq_mobile_fn_func_forget_mac(
+		keeper: Uint8Array,
+		uniffi_out_err: UniffiRustCallStatus
+	): Uint8Array;
 	ubrn_uniffi_maxhq_mobile_fn_func_media(
 		agent: Uint8Array,
 		path: Uint8Array,
@@ -219,6 +223,11 @@ interface NativeModuleInterface {
 	): Uint8Array;
 	ubrn_uniffi_maxhq_mobile_fn_func_open_timeline(agent: Uint8Array, listener: bigint): bigint;
 	ubrn_uniffi_maxhq_mobile_fn_func_pair(code: Uint8Array, name: Uint8Array): bigint;
+	ubrn_uniffi_maxhq_mobile_fn_func_pair_code_mac(
+		code: Uint8Array,
+		uniffi_out_err: UniffiRustCallStatus
+	): Uint8Array;
+	ubrn_uniffi_maxhq_mobile_fn_func_paired_macs(uniffi_out_err: UniffiRustCallStatus): Uint8Array;
 	ubrn_uniffi_maxhq_mobile_fn_func_phone_key(uniffi_out_err: UniffiRustCallStatus): Uint8Array;
 	ubrn_uniffi_maxhq_mobile_fn_func_presence(
 		json: Uint8Array,
@@ -261,10 +270,13 @@ interface NativeModuleInterface {
 	ubrn_ffi_maxhq_mobile_uniffi_contract_version(): number;
 	ubrn_uniffi_maxhq_mobile_checksum_func_add_device(): number;
 	ubrn_uniffi_maxhq_mobile_checksum_func_app_state(): number;
+	ubrn_uniffi_maxhq_mobile_checksum_func_forget_mac(): number;
 	ubrn_uniffi_maxhq_mobile_checksum_func_media(): number;
 	ubrn_uniffi_maxhq_mobile_checksum_func_network_changed(): number;
 	ubrn_uniffi_maxhq_mobile_checksum_func_open_timeline(): number;
 	ubrn_uniffi_maxhq_mobile_checksum_func_pair(): number;
+	ubrn_uniffi_maxhq_mobile_checksum_func_pair_code_mac(): number;
+	ubrn_uniffi_maxhq_mobile_checksum_func_paired_macs(): number;
 	ubrn_uniffi_maxhq_mobile_checksum_func_phone_key(): number;
 	ubrn_uniffi_maxhq_mobile_checksum_func_presence(): number;
 	ubrn_uniffi_maxhq_mobile_checksum_func_push_token(): number;

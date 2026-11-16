@@ -7,7 +7,7 @@ import type { DeviceReach } from "@maxhq/shared/status/reach";
 import { agent, entities, link, workspace } from "@maxhq/shared/test/build";
 import { applySnapshot } from "@maxhq/shared/view/replica";
 
-import { agentSummary, pairedWith, reachSummary } from "./summary";
+import { agentSummary, reachSummary } from "./summary";
 
 const reach = (look: DeviceReach["look"]): DeviceReach => ({
 	id: look,
@@ -62,22 +62,5 @@ describe("agentSummary", () => {
 
 	it("says nothing for a device with no agents", () => {
 		expect(agentSummary(view, "empty")).toBeNull();
-	});
-});
-
-describe("pairedWith", () => {
-	const named = (...names: string[]) => names.map((name) => ({ ...reach("live"), name }));
-
-	it("names up to three devices", () => {
-		expect(pairedWith([])).toBeNull();
-		expect(pairedWith(named("Mac"))).toBe("Mac");
-		expect(pairedWith(named("Mac", "devbox"))).toBe("Mac and devbox");
-		expect(pairedWith(named("Mac", "devbox", "buildbox"))).toBe("Mac, devbox and buildbox");
-	});
-
-	it("counts the rest past three", () => {
-		expect(pairedWith(named("Mac", "devbox", "buildbox", "a", "b"))).toBe(
-			"Mac, devbox, buildbox and 2 more"
-		);
 	});
 });

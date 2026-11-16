@@ -23,7 +23,7 @@ use maxhq_app::view::{Emit, View};
 use maxhq_app::{App, Caller};
 use maxhq_client::{Client, LinkEvent, LinkSpec, PhoneSsh, PhoneWs, Transport};
 use maxhq_core::authorized_keys;
-use maxhq_protocol::ids::{AgentId, DeviceId, IdempotencyKey, PhoneId};
+use maxhq_protocol::ids::{AgentId, DeviceId, IdempotencyKey, LinkId, PhoneId};
 use maxhq_protocol::link::LinkState;
 use maxhq_protocol::message::{ActionOutcome, ClientMessage};
 use maxhq_protocol::phones::{PhoneBook, PhoneBookEntry, PushToken};
@@ -57,6 +57,33 @@ pub struct PhoneKey {
     pub line: String,
     /// The public half of the key devices seal its pushes to, as base64.
     pub push_public: String,
+}
+
+/// A Mac the phone paired with, as Settings lists it: the book it keeps
+/// and the devices the phone has from it.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+pub struct PairedMac {
+    /// The device that keeps the book, which forgetting the Mac names.
+    pub keeper: DeviceId,
+    /// The Mac's name, as it gave it or else as its book has it.
+    pub name: String,
+    /// Whether it's the book of devices you added by hand.
+    pub by_hand: bool,
+    /// The devices the phone has from this Mac, in its book's order. A
+    /// device an earlier book lists too shows there instead.
+    pub devices: Vec<PairedDevice>,
+}
+
+/// A device the phone has from a Mac.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+pub struct PairedDevice {
+    pub device: DeviceId,
+    /// The link the phone reaches it on.
+    pub link: LinkId,
+    pub name: String,
+    /// Whether another Mac's book lists it too, so it stays when this Mac
+    /// goes.
+    pub elsewhere: bool,
 }
 
 /// The running core.
@@ -95,9 +122,9 @@ impl Core {
         move_old_media(dir, &media);
         let registry = Registry::open_phone(&dir.join("maxhq.db"))
             .map_err(|error| failed(format!("Couldn't open the phone's data: {error}")))?;
-        let book = registry
-            .phone_book()
-            .map_err(|error| failed(format!("Couldn't read the phone's book: {error}")))?;
+        let books = registry
+            .phone_books()
+            .map_err(|error| failed(format!("Couldn't read the phone's books: {error}")))?;
         let seed = keys::seed(&*store, Key::Ssh).map_err(failed)?;
         let push_public = keys::push_public(&*keys::seed(&*store, Key::Push).map_err(failed)?);
         let runtime = tokio::runtime::Builder::new_multi_thread()
@@ -115,12 +142,14 @@ impl Core {
         let connector = PhoneConnector::new(
             runtime.handle(),
             &seed,
-            Box::new(move |device, route, code| signing.route(device, route, code)),
+            Box::new(move |device, mac, route, code| signing.route(device, mac, route, code)),
             Some(dir.join("downloads")),
             Some(media),
         );
         let public_key = connector.public_key();
-        let phone = book.map_or_else(|| PhoneId::derive(&public_key), |book| book.phone);
+        let phone = books
+            .first()
+            .map_or_else(|| PhoneId::derive(&public_key), |book| book.phone);
         let line = authorized_keys::phone_line(&public_key, &phone.to_string()).map_err(failed)?;
         let client = connector.client();
         let listener: Listener = Arc::default();
@@ -260,7 +289,8 @@ impl Core {
         self.shared.key.clone()
     }
 
-    /// Adds a device to the book by hand, or replaces the one of that name.
+    /// Adds a device by hand, or replaces the one of that name, in a book
+    /// of its own beside the Macs' books.
     pub fn add_device(&self, name: &str, route: &str, host_key: &str) -> Result<(), CommandError> {
         let name = name.trim();
         if name.is_empty() {
@@ -280,27 +310,83 @@ impl Core {
             network: None,
         };
         let devices = self.shared.app.devices();
-        let kept = devices
-            .registry()
-            .phone_book()
-            .map_err(|error| failed(format!("Couldn't read the phone's book: {error}")))?;
-        let mut book = kept.unwrap_or_else(|| PhoneBook {
-            phone: self.shared.key.phone,
-            device: entry.device,
-            devices: Vec::new(),
-        });
+        let mut book = self
+            .books()?
+            .into_iter()
+            .find(|book| book.device == phone::by_hand())
+            .unwrap_or_else(|| PhoneBook {
+                phone: self.shared.key.phone,
+                device: phone::by_hand(),
+                devices: Vec::new(),
+                mac: None,
+            });
         book.devices.retain(|each| each.device != entry.device);
         book.devices.push(entry);
         let _entered = self.runtime.enter();
-        devices.set_phone_book(&book)
+        devices.put_phone_book(&book)?;
+        Ok(())
+    }
+
+    /// The Macs the phone paired with, in the order it paired, and the
+    /// book of devices added by hand last when there is one.
+    pub fn paired_macs(&self) -> Result<Vec<PairedMac>, CommandError> {
+        let mut macs = paired(&self.books()?);
+        macs.sort_by_key(|mac| mac.by_hand);
+        Ok(macs)
+    }
+
+    /// Forgets the Mac whose book `keeper` keeps: its book, each device
+    /// only it lists with what waited for it, and their sign-ins. The
+    /// other Macs stay paired.
+    pub fn forget_mac(&self, keeper: DeviceId) -> Result<(), CommandError> {
+        if self.books()?.iter().all(|book| book.device != keeper) {
+            return Err(failed("This phone isn't paired with that Mac".to_owned()));
+        }
+        let _entered = self.runtime.enter();
+        let gone = self.shared.app.devices().forget_phone_book(keeper)?;
+        for device in gone {
+            self.shared.sign_ins.forget(device);
+        }
+        Ok(())
+    }
+
+    /// The name of the Mac the phone already has a book from that `code`
+    /// pairs through, so pairing replaces that Mac's devices, or `None`
+    /// for a new Mac or a code that doesn't read.
+    pub fn pair_code_mac(&self, code: &str) -> Result<Option<String>, CommandError> {
+        let Ok(code) = PairCode::decode(code) else {
+            return Ok(None);
+        };
+        Ok(self
+            .books()?
+            .iter()
+            .find(|book| {
+                book.device == code.device
+                    || book
+                        .mac
+                        .as_ref()
+                        .is_some_and(|mac| mac.device == code.device)
+            })
+            .map(phone::mac_name))
+    }
+
+    /// The phone's books, one per Mac.
+    fn books(&self) -> Result<Vec<PhoneBook>, CommandError> {
+        self.shared
+            .app
+            .devices()
+            .registry()
+            .phone_books()
+            .map_err(|error| failed(format!("Couldn't read the phone's books: {error}")))
     }
 
     /// Pairs the phone through the device whose pairing code is `code`,
     /// as the Mac shows it, giving it `name` to show, and keeps the book
-    /// the device answers with. A code with the device's network access
-    /// pairs through it, and the phone keeps the token it gets. Else the
-    /// phone logs in over SSH with the code's one-time key, which the
-    /// device swaps for the phone's own.
+    /// the device answers with: beside the other Macs' books for a new
+    /// Mac, or in place of the one it had from the same Mac. A code with
+    /// the device's network access pairs through it, and the phone keeps
+    /// the token it gets. Else the phone logs in over SSH with the code's
+    /// one-time key, which the device swaps for the phone's own.
     pub fn pair(
         &self,
         code: &str,
@@ -332,21 +418,25 @@ impl Core {
                         .to_owned(),
                 )
             })??;
-            shared.app.devices().set_phone_book(&book)?;
+            // A device the Mac's new book leaves out goes with its sign-in.
+            for device in shared.app.devices().put_phone_book(&book)? {
+                shared.sign_ins.forget(device);
+            }
             Ok(book)
         })
     }
 
-    /// The book the phone has now.
+    /// The books the phone has now.
     #[cfg(test)]
-    pub(crate) fn shared_book(&self) -> PhoneBook {
-        self.shared
-            .app
-            .devices()
-            .registry()
-            .phone_book()
-            .unwrap()
-            .unwrap()
+    pub(crate) fn shared_books(&self) -> Vec<PhoneBook> {
+        self.books().unwrap()
+    }
+
+    /// Keeps `book` as pairing with its Mac does.
+    #[cfg(test)]
+    pub(crate) fn put_book(&self, book: &PhoneBook) {
+        let _entered = self.runtime.enter();
+        self.shared.app.devices().put_phone_book(book).unwrap();
     }
 
     /// Runs `task` on the core's runtime, for a caller on any thread.
@@ -431,10 +521,11 @@ async fn pair_through(
         .await
         .map_err(|error| failed(format!("The device didn't pair the phone: {error}")))?;
     match outcome {
-        ActionOutcome::PhonePaired { phone, book } if phone == key.phone => Ok(PhoneBook {
+        ActionOutcome::PhonePaired { phone, book, mac } if phone == key.phone => Ok(PhoneBook {
             phone,
             device: code.device,
             devices: book,
+            mac,
         }),
         ActionOutcome::PhonePaired { .. } => Err(failed(
             "The device knows this phone by another name. Scan a new code.".to_owned(),
@@ -444,6 +535,32 @@ async fn pair_through(
             "The device answered something other than a pairing".to_owned(),
         )),
     }
+}
+
+/// The Macs `books` come from, each with the devices the phone has from it.
+fn paired(books: &[PhoneBook]) -> Vec<PairedMac> {
+    let listed = phone::listed(books);
+    books
+        .iter()
+        .enumerate()
+        .map(|(at, book)| PairedMac {
+            keeper: book.device,
+            name: phone::mac_name(book),
+            by_hand: book.device == phone::by_hand(),
+            devices: listed
+                .iter()
+                .filter(|(from, _)| *from == at)
+                .map(|(_, entry)| PairedDevice {
+                    device: entry.device,
+                    link: phone::book_link(entry.device),
+                    name: entry.name.clone(),
+                    elsewhere: books.iter().enumerate().any(|(other, book)| {
+                        other != at && book.devices.iter().any(|each| each.device == entry.device)
+                    }),
+                })
+                .collect(),
+        })
+        .collect()
 }
 
 /// Sends each batch of the view's changes to the listener, as one JSON array.

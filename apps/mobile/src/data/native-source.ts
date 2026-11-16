@@ -63,6 +63,30 @@ export type Bridge = {
 	phoneKey: () => string;
 	addDevice: (name: string, route: string, hostKey: string) => string;
 	pair: (code: string, name: string) => Promise<string>;
+	pairedMacs: () => string;
+	forgetMac: (keeper: string) => string;
+	pairCodeMac: (code: string) => string;
+};
+
+/** A device a Mac's book lists, as the phone shows it under that Mac. */
+export type PairedDevice = {
+	readonly device: string;
+	/** The phone's link to it, as the view's `device_link` has it. */
+	readonly link: string;
+	readonly name: string;
+	/** Whether another Mac's book lists it too, so forgetting this one keeps it. */
+	readonly elsewhere: boolean;
+};
+
+/** A Mac the phone paired with, or the devices added by hand. */
+export type PairedMac = {
+	/** The device that keeps its book, which `forgetMac` takes. */
+	readonly keeper: string;
+	readonly name: string;
+	/** Whether it holds the devices added by hand rather than a Mac's. */
+	readonly by_hand: boolean;
+	/** Each device once, under the first Mac that lists it. */
+	readonly devices: readonly PairedDevice[];
 };
 
 /** The phone's key, and the `authorized_keys` line that lets it in. */
@@ -216,8 +240,14 @@ export const phoneCalls = (bridge: Bridge) => ({
 	/** Adds a device by hand: a name, `user@host:port`, and its host key line. */
 	addDevice: (name: string, route: string, hostKey: string) =>
 		readReply<null>(bridge.addDevice(name, route, hostKey)),
-	/** Pairs through the device whose code the Mac shows, as `name`. */
+	/** Pairs through the device whose code a Mac shows, as `name`. */
 	pair: async (code: string, name: string) => readReply<PhoneBook>(await bridge.pair(code, name)),
+	/** The Macs the phone paired with, in the order it paired, the devices added by hand last. */
+	pairedMacs: () => readReply<PairedMac[]>(bridge.pairedMacs()),
+	/** Forgets one Mac and the devices only it lists. The other Macs stay paired. */
+	forgetMac: (keeper: string) => readReply<null>(bridge.forgetMac(keeper)),
+	/** The name of the paired Mac a code comes from, or null for a new Mac. */
+	pairCodeMac: (code: string) => readReply<string | null>(bridge.pairCodeMac(code)),
 });
 
 export type PhoneCalls = ReturnType<typeof phoneCalls>;
