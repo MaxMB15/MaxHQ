@@ -7,7 +7,7 @@
 //! first outcome.
 
 use std::borrow::Cow;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use maxhq_core::{context, names, pill_text};
 use maxhq_protocol::attention::{AnswerOutcome, AttentionAnswer};
@@ -36,13 +36,14 @@ use super::held::{
 };
 use super::idem::{Outcome, Seen};
 use super::loading::Later;
-use super::reads::{ReadKind, Reader, Source};
+use super::places;
+use super::reads::{ReadKind, Reader, Source, Subagent};
 use super::revive::{AgentSpawn, Cli};
 use super::timeline::MAX_PAGE;
 use super::vendors::{full_access_relaunches, speaks_acp, takes_effort};
 use super::{is_queued, refused, Input, Manager};
 use crate::drive::{acp, Action, Message, Place, PlaceHost, Staged};
-use crate::hub::Command;
+use crate::hub::{Command, Hub};
 use crate::recipe;
 use crate::secrets;
 use crate::transfer::disk;
@@ -139,8 +140,9 @@ impl Manager {
                 agent,
                 since,
                 limit,
+                lead,
             } => {
-                self.open_timeline(conn, *agent, *since, *limit);
+                self.open_timeline(conn, *agent, *since, *limit, *lead);
                 return;
             }
             ClientMessage::LoadOlder {
@@ -219,6 +221,7 @@ impl Manager {
             ClientMessage::AskDispatcher { .. }
             | ClientMessage::ConfirmPlan { .. }
             | ClientMessage::DismissPlan { .. } => return self.dispatcher_message(conn, message),
+            ClientMessage::MoveAgent { .. } => return self.move_message(conn, message),
             ClientMessage::StartAgent { key, .. }
             | ClientMessage::SendInput { key, .. }
             | ClientMessage::CancelQueued { key, .. }
@@ -513,6 +516,8 @@ impl Manager {
                 self.answer_env_card(conn, key, event, &answer, by)
             } else if self.is_task_card(event) {
                 self.answer_task_card(conn, key, event, &answer, by)
+            } else if self.is_move_card(event) {
+                self.answer_move_card(conn, key, event, &answer, by)
             } else if open.ours {
                 // MaxHQ's own events only tell you something, so answering
                 // one dismisses it.
@@ -565,14 +570,10 @@ impl Manager {
         let hub = self.hub.clone();
         let tx = self.tx.clone();
         tokio::task::spawn_blocking(move || {
-            let folder = if hub.in_clone(&path) {
-                Err(STILL_CLONING.to_owned())
-            } else if path.is_absolute() && path.is_dir() {
+            let folder = usable_folder(&hub, &path).map(|()| {
                 let workspace = hub.locate_folder(&path);
-                Ok((path, workspace))
-            } else {
-                Err("that folder doesn't exist".to_owned())
-            };
+                (path, workspace)
+            });
             let _ = tx.send(Input::Located {
                 key,
                 spec: Box::new(spec),
@@ -785,7 +786,7 @@ impl Manager {
     /// Checks a new agent's spec, and works out where and how it runs and
     /// which staged attachments its first message takes. `folder` is where
     /// a folder place was found.
-    fn prepare(
+    pub(super) fn prepare(
         &self,
         spec: &AgentSpec,
         folder: Option<(PathBuf, WorkspaceId)>,
@@ -833,9 +834,10 @@ impl Manager {
             self.check_sign_in(&checked, guest.is_some())?;
         }
         // A container's first message goes to the file delivery, which
-        // looks its attachments up itself.
+        // looks its attachments up itself. A new agent's folder holds none
+        // yet.
         let found = match &spec.first {
-            Some(first) if guest.is_none() => self.find_attachments(&first.attachments)?,
+            Some(first) if guest.is_none() => self.find_attachments(&first.attachments, None)?,
             _ => Vec::new(),
         };
         Ok((
@@ -1533,15 +1535,28 @@ impl Manager {
 
     /// Opens a timeline for a client: the events after its seq, or a reset.
     /// An outside session's timeline comes from its CLI's files, read again
-    /// while the client keeps it open.
-    fn open_timeline(&mut self, conn: u64, agent: AgentId, since: Option<Seq>, limit: u32) {
+    /// while the client keeps it open. A sub-agent of `lead` that isn't
+    /// listed, such as one that finished, is read once from its transcript.
+    fn open_timeline(
+        &mut self,
+        conn: u64,
+        agent: AgentId,
+        since: Option<Seq>,
+        limit: u32,
+        lead: Option<AgentId>,
+    ) {
         let limit = page_size(limit);
         let Some(viewer) = self.clients.get_mut(&conn) else {
             return;
         };
         viewer.open.insert(agent, limit);
         if !self.timelines.contains_key(&agent) && !self.held.contains_key(&self.lead_of(agent)) {
-            self.open_outside(agent);
+            match lead {
+                Some(lead) if self.hub.get(&EntityKey::Agent(agent)).is_none() => {
+                    self.open_finished(agent, lead);
+                }
+                _ => self.open_outside(agent),
+            }
         }
         self.hurry(self.lead_of(agent));
         if self.filling(agent) {
@@ -1562,6 +1577,29 @@ impl Manager {
         self.read(agent, ReadKind::Outside, Reader::Open(source));
     }
 
+    /// Starts reading the transcript of a Claude sub-agent of `lead` that
+    /// isn't listed, off the loop. It's read once and never polled, since a
+    /// sub-agent that finished writes nothing more. Nothing is read once
+    /// the lead isn't listed either.
+    fn open_finished(&mut self, agent: AgentId, lead: AgentId) {
+        let Some(top) = self.top_lead(lead) else {
+            return;
+        };
+        let source = match self.held.get(&top.id) {
+            Some(held) => Some(places::source(held)),
+            None => self.outside_source(top.id),
+        };
+        let Some(source) = source.filter(|source| source.vendor == Vendor::Claude) else {
+            return;
+        };
+        self.timeline_mut(agent);
+        let source = Source {
+            subagent: Some(Subagent::Of(top.id)),
+            ..source
+        };
+        self.read(agent, ReadKind::Outside, Reader::Open(source));
+    }
+
     /// Where a session this device doesn't hold keeps its history, when
     /// MaxHQ knows its account and session. A Claude sub-agent's is its own
     /// transcript, kept with its lead's session.
@@ -1576,7 +1614,10 @@ impl Manager {
             return None;
         };
         let (session, subagent) = match (found.vendor, found.parent) {
-            (Vendor::Claude, Some(parent)) => (self.lead_session(parent)?, Some(session)),
+            (Vendor::Claude, Some(parent)) => (
+                self.top_lead(parent)?.vendor_session_id?,
+                Some(Subagent::Id(session)),
+            ),
             _ => (session, None),
         };
         Some(Source {
@@ -1589,16 +1630,16 @@ impl Manager {
         })
     }
 
-    /// The vendor session of the lead at the top of `agent`'s parents, or
-    /// of `agent` when it's the lead.
-    fn lead_session(&self, mut agent: AgentId) -> Option<String> {
+    /// The lead at the top of `agent`'s parents, or `agent` when it's the
+    /// lead, while the hub lists them all.
+    fn top_lead(&self, mut agent: AgentId) -> Option<Agent> {
         for _ in 0..MAX_NESTING {
             let Some(Entity::Agent(found)) = self.hub.get(&EntityKey::Agent(agent)) else {
                 return None;
             };
             match found.parent {
                 Some(parent) => agent = parent,
-                None => return found.vendor_session_id,
+                None => return Some(found),
             }
         }
         None
@@ -1903,6 +1944,17 @@ fn title(spec: &AgentSpec, name: impl Fn(&AttachmentId) -> Option<String>) -> St
     asked_title(spec)
         .or_else(first)
         .unwrap_or_else(|| "New agent".to_owned())
+}
+
+/// Whether a new agent can run in the folder at `path`, read off the loop.
+pub(super) fn usable_folder(hub: &Hub, path: &Path) -> Result<(), String> {
+    if hub.in_clone(path) {
+        Err(STILL_CLONING.to_owned())
+    } else if path.is_absolute() && path.is_dir() {
+        Ok(())
+    } else {
+        Err("that folder doesn't exist".to_owned())
+    }
 }
 
 /// The title a new agent's spec asks for, if it names one that isn't

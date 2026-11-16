@@ -10,6 +10,7 @@
 
 //! The agent tools' arguments: what each takes, and its checks.
 
+use maxhq_protocol::agents::MoveTo;
 use maxhq_protocol::ids::{AccountId, AgentId, DeviceId, WorkspaceId};
 use maxhq_protocol::message::{AgentPlace, SendMode};
 use maxhq_protocol::model::{PermissionMode, Vendor};
@@ -178,6 +179,19 @@ pub struct Stop {
     pub stop: bool,
 }
 
+/// Move an agent to another device.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Move {
+    /// The caller's id for the request.
+    pub request_id: String,
+    /// The device the agent is on, or none for the caller's.
+    pub device: Option<DeviceId>,
+    /// The agent.
+    pub agent: AgentId,
+    /// Where it goes.
+    pub to: MoveTo,
+}
+
 /// List agents.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct List {
@@ -200,6 +214,7 @@ pub(super) fn title(tool: Tool) -> &'static str {
         Tool::SendAgent => "Message an agent",
         Tool::WaitAgent => "Wait for agents",
         Tool::InterruptAgent => "Stop an agent",
+        Tool::MoveAgent => "Move an agent to another device",
         _ => unreachable!("not an agent tool"),
     }
 }
@@ -210,8 +225,9 @@ pub(super) fn description(tool: Tool) -> &'static str {
         Tool::ListTargets => {
             "Lists what you may start agents with and where: the devices, vendors, accounts, \
              workspaces and models you're allowed, how many levels of agents you may still \
-             start, and any limits on you. Only works once the user allows you to run other \
-             agents. Call it before start_agent."
+             start, and any limits on you. Give a `device` to list what that device has, \
+             its accounts, models and workspaces. Only works once the user allows you to run \
+             other agents. Call it before start_agent or move_agent."
         }
         Tool::ListAgents => {
             "Lists the MaxHQ agents on the devices you're allowed, newest activity first, one \
@@ -247,6 +263,16 @@ pub(super) fn description(tool: Tool) -> &'static str {
             "Stops a MaxHQ agent's turn. With `stop` set, stops the agent itself, and every \
              agent it started. Only works once the user allows you to run other agents."
         }
+        Tool::MoveAgent => {
+            "Moves a MaxHQ agent to another device, once the user approves it in MaxHQ. The \
+             agent stops and settles, and a new one starts on `to_device` under the same name, \
+             from a summary of the conversation: files and uncommitted changes stay on the old \
+             device. Scheduled tasks that target the agent follow it. Give an account, and a \
+             workspace or a folder there, as list_targets with that `device` names them; any \
+             vendor signed in there works. The agent must be idle: if it's working, wait_agent \
+             and call again. Returns the new agent's id and device. Only works once the user \
+             allows you to run other agents."
+        }
         _ => unreachable!("not an agent tool"),
     }
 }
@@ -265,7 +291,12 @@ pub(super) fn input_schema(tool: Tool) -> Value {
         })
     };
     let (properties, required) = match tool {
-        Tool::ListTargets => (json!({}), json!([])),
+        Tool::ListTargets => (
+            json!({
+                "device": {"type": "string", "description": "List what this device has, by its id. Leave it out for the device you're on."},
+            }),
+            json!([]),
+        ),
         Tool::ListAgents => (
             json!({
                 "device": {"type": "string", "description": "Only the agents on this device, by its id."},
@@ -321,6 +352,19 @@ pub(super) fn input_schema(tool: Tool) -> Value {
             }),
             json!(["request_id", "agent"]),
         ),
+        Tool::MoveAgent => (
+            json!({
+                "request_id": request_id,
+                "agent": agent,
+                "device": {"type": "string", "description": "The device the agent is on, by its id. Leave it out for the device you're on."},
+                "to_device": {"type": "string", "minLength": 1, "description": "The device to move it to, by its id."},
+                "account": {"type": "string", "minLength": 1, "description": "The account there, as list_targets with that `device` gives it. Its vendor is the new agent's."},
+                "workspace": {"type": "string", "description": "The workspace there, as list_targets with that `device` gives it. Give this or `folder`."},
+                "folder": {"type": "string", "description": "An absolute folder there. Give this or `workspace`."},
+                "model": {"type": "string", "description": "The model, as list_targets names it. Leave it out for the account's default."},
+            }),
+            json!(["request_id", "agent", "to_device", "account"]),
+        ),
         _ => unreachable!("not an agent tool"),
     };
     json!({
@@ -335,7 +379,7 @@ pub(super) fn input_schema(tool: Tool) -> Value {
 pub(super) fn parse(tool: Tool, arguments: &Value) -> Result<Call, String> {
     let args = fields(arguments)?;
     Ok(match tool {
-        Tool::ListTargets => Call::ListTargets,
+        Tool::ListTargets => Call::ListTargets(id(&args, "device")?),
         Tool::ListAgents => Call::ListAgents(List {
             device: id(&args, "device")?,
             mine: flag(&args, "mine")?.unwrap_or(false),
@@ -401,6 +445,12 @@ pub(super) fn parse(tool: Tool, arguments: &Value) -> Result<Call, String> {
             agent: id(&args, "agent")?.ok_or("Give an `agent`.")?,
             stop: flag(&args, "stop")?.unwrap_or(false),
         }),
+        Tool::MoveAgent => Call::MoveAgent(Move {
+            request_id: request_id(&args)?,
+            device: id(&args, "device")?,
+            agent: id(&args, "agent")?.ok_or("Give an `agent`.")?,
+            to: move_to(&args)?,
+        }),
         _ => unreachable!("not an agent tool"),
     })
 }
@@ -448,6 +498,17 @@ pub(super) fn id<T: std::str::FromStr>(
                 .map_err(|_| format!("`{name}` isn't a valid id."))
         })
         .transpose()
+}
+
+/// Checks where a move takes an agent: `to_device`, with an account, a
+/// place and maybe a model there.
+pub(super) fn move_to(args: &Map<String, Value>) -> Result<MoveTo, String> {
+    Ok(MoveTo {
+        device: id(args, "to_device")?.ok_or("Give a `to_device`.")?,
+        account: id(args, "account")?.ok_or("Give an `account`.")?,
+        model: text(args, "model")?,
+        place: place(args)?.ok_or("Give a `workspace` or a `folder` there.")?,
+    })
 }
 
 /// Where a new agent runs: a `workspace` or a `folder`, or none for the
@@ -610,6 +671,54 @@ mod tests {
         )
         .contains("3600"));
         assert!(refused(Tool::ListAgents, json!({"limit": 101})).contains("100"));
+    }
+
+    #[test]
+    fn a_move_names_where_it_goes_and_a_target_list_may_name_a_device() {
+        let devbox = DeviceId::derive("devbox");
+        let agent = AgentId::derive("agent");
+        let account = AccountId::derive("account");
+        let call = Tool::MoveAgent.parse(&json!({
+            "request_id": "r1",
+            "agent": agent.to_string(),
+            "to_device": devbox.to_string(),
+            "account": account.to_string(),
+            "folder": "/work/app",
+        }));
+        let to = MoveTo {
+            device: devbox,
+            account,
+            model: None,
+            place: AgentPlace::Folder {
+                path: "/work/app".into(),
+            },
+        };
+        assert_eq!(
+            call,
+            Ok(Call::MoveAgent(Move {
+                request_id: "r1".into(),
+                device: None,
+                agent,
+                to,
+            }))
+        );
+        let refused = Tool::MoveAgent
+            .parse(&json!({
+                "request_id": "r1",
+                "agent": agent.to_string(),
+                "to_device": devbox.to_string(),
+                "account": account.to_string(),
+            }))
+            .expect_err("a move needs a place");
+        assert!(refused.contains("folder"), "{refused}");
+        assert_eq!(
+            Tool::ListTargets.parse(&json!({"device": devbox.to_string()})),
+            Ok(Call::ListTargets(Some(devbox)))
+        );
+        assert_eq!(
+            Tool::ListTargets.parse(&json!({})),
+            Ok(Call::ListTargets(None))
+        );
     }
 
     #[test]

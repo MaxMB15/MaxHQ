@@ -1336,6 +1336,7 @@ mod tests {
             default,
             efforts: vec!["low".into(), "medium".into(), "high".into()],
             default_effort: effort.map(str::to_owned),
+            no_images: false,
         };
         let catalog = [
             choice("gpt-sol", true, Some("medium")),

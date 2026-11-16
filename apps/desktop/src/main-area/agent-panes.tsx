@@ -39,6 +39,7 @@ import {
 } from "react";
 
 import { AgentView } from "@/agent-view";
+import { FinishedView } from "@/agent-view/finished-view";
 import { SessionMoved } from "@/agent-view/outside-banner";
 import { useServices, useView } from "@/app/services";
 import { useTheme } from "@/app/theme";
@@ -69,6 +70,7 @@ import { VisualPaneFor } from "@/visuals/visual-view";
 import { CanvasPaneFor } from "@/workflow/canvas-pane";
 import type { AgentId } from "@maxhq/shared/bindings";
 import { movedTo } from "@maxhq/shared/agent-view/outside";
+import { finishedLead, finishedNote } from "@maxhq/shared/agent-view/finished";
 import { agentLook } from "@maxhq/shared/status/activity";
 import { noteSummary } from "@maxhq/shared/view/notes";
 import { runAt } from "@maxhq/shared/workflow/select";
@@ -428,7 +430,8 @@ const VisualPane = ({ api, params }: IDockviewPanelProps<VisualParams>) => {
 
 /**
  * What a pane shows: its agent's view, mounted while the pane is open. A
- * sub-agent gone with its session points to where the session went.
+ * sub-agent gone with its session points to where the session went, and
+ * one that finished shows its history.
  */
 const AgentPane = ({ params }: IDockviewPanelProps<AgentParams>) => {
 	const { t } = useI18n();
@@ -441,10 +444,27 @@ const AgentPane = ({ params }: IDockviewPanelProps<AgentParams>) => {
 				<SessionMoved lead={moved} />
 			</div>
 		);
-	if (!agent) return <Empty>{t("This agent isn't here. It may still be starting.")}</Empty>;
+	if (!agent)
+		return (
+			<FinishedOr agent={params.agent}>
+				{t("This agent isn't here. It may still be starting.")}
+			</FinishedOr>
+		);
 	return (
 		<ErrorBoundary part="agent pane" className="bg-background">
 			<AgentView agent={agent} />
+		</ErrorBoundary>
+	);
+};
+
+/** A finished sub-agent's history, or why it can't show, or `children`. */
+const FinishedOr = ({ agent, children }: { agent: AgentId; children: string }) => {
+	const lead = useView((s) => finishedLead(s.view, agent));
+	const note = useView((s) => finishedNote(s.view, agent));
+	if (!lead) return <Empty>{note ?? children}</Empty>;
+	return (
+		<ErrorBoundary part="agent pane" className="bg-background">
+			<FinishedView agent={agent} lead={lead} />
 		</ErrorBoundary>
 	);
 };

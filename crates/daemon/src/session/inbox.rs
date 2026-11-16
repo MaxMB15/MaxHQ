@@ -38,6 +38,8 @@ use super::{is_queued, refused, Input, Manager};
 use crate::drive::Action;
 use crate::hub::{self, Moved};
 
+pub(super) mod automated;
+
 /// How often auto-settle looks at every lead agent. A snooze whose end the
 /// timer missed, such as while the Mac slept, wakes on this beat too.
 pub(super) const SWEEP_EVERY: Duration = Duration::from_secs(60);
@@ -70,6 +72,8 @@ pub(super) struct Inboxes {
     /// When a beat first found each agent with an inbox gone, as stored
     /// with its inbox.
     missing: HashMap<AgentId, Timestamp>,
+    /// What each other device last said its enabled tasks reach here.
+    heard: automated::Heard,
 }
 
 /// Why an agent can't settle or snooze now.
@@ -102,6 +106,7 @@ impl Manager {
             warn!(%err, "couldn't read when the agents with an inbox went missing");
             HashMap::new()
         });
+        self.load_task_targets();
         self.wake_due();
         // Snoozed and settled agents an observer reported before the
         // manager watched count as seen for the first time.
@@ -563,8 +568,9 @@ impl Manager {
 
     /// Whether auto-settle settles the agent now, given what's known of its
     /// worktree. On top of the shared rules, an agent with a message
-    /// waiting or a sub-agent at work stays, and a snooze that ended counts
-    /// as activity, so an agent that just woke stays in view.
+    /// waiting, a sub-agent at work or an enabled task that reaches it
+    /// stays, and a snooze that ended counts as activity, so an agent that
+    /// just woke stays in view.
     fn may_auto_settle(&self, agent: &Agent, unsaved: Option<bool>) -> bool {
         let now = self.clock.wall();
         let mut quiet = agent.clone();
@@ -579,7 +585,9 @@ impl Manager {
         .max()
         .unwrap_or(agent.last_activity_at);
         let days = self.settle_days(agent);
-        inbox::auto_settles(&quiet, days, unsaved, now) && self.busy(agent).is_none()
+        inbox::auto_settles(&quiet, days, unsaved, now)
+            && self.busy(agent).is_none()
+            && !self.automated(agent.id)
     }
 
     /// The days auto-settle waits for the agent: its project's setting on

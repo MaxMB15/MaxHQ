@@ -14,7 +14,7 @@ import { mockSource } from "@/data/mock-source";
 import { NoteEditor } from "@/notes/editor";
 import type { DataSource } from "@maxhq/shared/data/source";
 import { readDefaultEditor, writeDefaultEditor } from "@maxhq/shared/editor/open";
-import { readTypingPrefs } from "@maxhq/shared/editor/typing";
+import { DEFAULT_TYPING, readTypingPrefs, writeTypingPrefs } from "@maxhq/shared/editor/typing";
 import { FixedNow } from "@maxhq/shared/lib/clock";
 import { NOW } from "@maxhq/shared/test/build";
 import { createUiStore } from "@maxhq/shared/ui/store";
@@ -169,9 +169,54 @@ describe("the typing settings", () => {
 		expect(underlined()).toEqual([]);
 		expect(note).toHaveAttribute("spellcheck", "true");
 		expect(note).toHaveAttribute("autocorrect", "on");
-		expect(readTypingPrefs(localStorage.getItem(TYPING_KEY))).toEqual({
+		expect(readTypingPrefs(localStorage.getItem(TYPING_KEY))).toMatchObject({
 			checkSpelling: true,
 			correctSpelling: true,
 		});
+	});
+});
+
+describe("what Enter does while an agent works", () => {
+	const renderTyping = () => {
+		render(
+			<ServicesProvider source={mock()} ui={createUiStore()}>
+				<EditorSettingsPage />
+			</ServicesProvider>
+		);
+		return within(screen.getByRole("region", { name: "Typing" }));
+	};
+
+	it("queues by default, and saves Steer once you pick it", async () => {
+		const page = renderTyping();
+		const picker = page.getByRole("combobox", { name: "While an agent works, Enter, Queue" });
+		expect(
+			page.getByText("Waits until the agent finishes, then sends. Ctrl+Enter steers instead.")
+		).toBeInTheDocument();
+
+		await choose(picker, "Steer");
+		expect(readTypingPrefs(localStorage.getItem(TYPING_KEY))).toMatchObject({
+			checkSpelling: true,
+			busySend: "steer",
+		});
+		expect(
+			page.getByRole("combobox", { name: "While an agent works, Enter, Steer" })
+		).toBeInTheDocument();
+		expect(
+			page.getByText(
+				"Sends at once; the agent reads it between steps. Ctrl+Enter queues instead."
+			)
+		).toBeInTheDocument();
+	});
+
+	it("starts from the saved pick", () => {
+		localStorage.setItem(
+			TYPING_KEY,
+			writeTypingPrefs({ ...DEFAULT_TYPING, checkSpelling: false, busySend: "steer" })
+		);
+		const page = renderTyping();
+		expect(
+			page.getByRole("combobox", { name: "While an agent works, Enter, Steer" })
+		).toBeInTheDocument();
+		expect(page.getByRole("switch", { name: "Check spelling" })).not.toBeChecked();
 	});
 });

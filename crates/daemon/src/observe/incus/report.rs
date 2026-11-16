@@ -179,6 +179,7 @@ pub fn report(
         asleep: false,
         effort: None,
         running: None,
+        moved: None,
     };
     Some(Report {
         project,

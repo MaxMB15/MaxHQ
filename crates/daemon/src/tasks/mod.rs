@@ -15,6 +15,7 @@ use maxhq_protocol::time::Timestamp;
 use tokio::sync::watch;
 
 mod store;
+pub mod targets;
 
 /// What `maxd` says to a task request before scheduled tasks are built.
 pub const NOT_BUILT: &str = "Scheduled tasks aren't built yet.";

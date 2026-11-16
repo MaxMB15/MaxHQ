@@ -17,6 +17,7 @@ import { attachFailure, intakeFailure } from "./failure";
 import { PASTED_TEXT_ATTACHMENT_THRESHOLD_BYTES } from "./paste";
 import { quoteInbox } from "./quote-inbox";
 import { failureOf } from "@maxhq/shared/composer/send";
+import { DEFAULT_TYPING, writeTypingPrefs } from "@maxhq/shared/editor/typing";
 import {
 	AGENT,
 	attachment,
@@ -39,6 +40,7 @@ import {
 	textIn,
 	type,
 } from "./testing";
+import { TYPING_KEY } from "./typing-prefs";
 
 const busy = heldAgent({ activity: { state: "busy" } });
 const prompted = heldAgent({ activity: { state: "needs_input", attention: "att-1" } });
@@ -137,6 +139,80 @@ describe("sending", () => {
 			)
 		);
 		expect(source.sendInput).toHaveBeenCalledTimes(3);
+	});
+
+	describe("with Steer picked for Enter", () => {
+		const pickSteer = () =>
+			localStorage.setItem(
+				TYPING_KEY,
+				writeTypingPrefs({ ...DEFAULT_TYPING, busySend: "steer" })
+			);
+
+		it("steers on Enter during a turn, and queues from the button or Command+Enter", async () => {
+			pickSteer();
+			const { source } = renderComposer({ agent: busy });
+			const textbox = await findTextbox();
+			const sent = (text: string, mode: string) =>
+				waitFor(() =>
+					expect(source.sendInput).toHaveBeenLastCalledWith(
+						AGENT,
+						{ text, attachments: [] },
+						mode
+					)
+				);
+
+			await type(textbox, "Use the new font");
+			fireEvent.keyDown(textbox, { key: "Enter" });
+			await sent("Use the new font", "steer");
+			await waitFor(() => expect(textIn(textbox)).toBe(""));
+
+			await type(textbox, "And the footer");
+			fireEvent.keyDown(textbox, { key: "Enter", ctrlKey: true });
+			await sent("And the footer", "queue");
+			await waitFor(() => expect(textIn(textbox)).toBe(""));
+
+			await type(textbox, "Then lint");
+			fireEvent.click(screen.getByRole("button", { name: /^Queue/ }));
+			await sent("Then lint", "queue");
+			expect(source.sendInput).toHaveBeenCalledTimes(3);
+		});
+
+		it("still queues on Enter and sends now on Command+Enter while a prompt waits", async () => {
+			pickSteer();
+			const { source } = renderComposer({ agent: prompted });
+			const textbox = await findTextbox();
+			await type(textbox, "Then run the linter");
+			fireEvent.keyDown(textbox, { key: "Enter" });
+			await waitFor(() =>
+				expect(source.sendInput).toHaveBeenLastCalledWith(AGENT, expect.anything(), "queue")
+			);
+			await waitFor(() => expect(textIn(textbox)).toBe(""));
+			await type(textbox, "Skip it");
+			fireEvent.keyDown(textbox, { key: "Enter", metaKey: true });
+			await waitFor(() =>
+				expect(source.sendInput).toHaveBeenLastCalledWith(
+					AGENT,
+					expect.anything(),
+					"interrupt"
+				)
+			);
+		});
+
+		it("sends on Enter and Command+Enter alike while the agent is idle", async () => {
+			pickSteer();
+			const { source } = renderComposer();
+			const textbox = await findTextbox();
+			await type(textbox, "Hello");
+			fireEvent.keyDown(textbox, { key: "Enter" });
+			await waitFor(() =>
+				expect(source.sendInput).toHaveBeenLastCalledWith(AGENT, expect.anything(), "queue")
+			);
+			await waitFor(() => expect(textIn(textbox)).toBe(""));
+			await type(textbox, "Again");
+			fireEvent.keyDown(textbox, { key: "Enter", metaKey: true });
+			await waitFor(() => expect(source.sendInput).toHaveBeenCalledTimes(2));
+			expect(source.sendInput).toHaveBeenLastCalledWith(AGENT, expect.anything(), "queue");
+		});
 	});
 
 	it("stops the turn", async () => {
@@ -625,6 +701,35 @@ describe("attachments", () => {
 		expect(screen.getByText(note)).toBeInTheDocument();
 		cleanup();
 		await attach(true);
+		expect(screen.queryByText(note)).not.toBeInTheDocument();
+	});
+
+	it("says under an image that a model that can't read images gets its file path", async () => {
+		const note = "GLM 5.3 Flash can't see images. The agent gets the file path instead.";
+		const cursor = account({
+			id: "a-cursor",
+			vendor: "cursor",
+			label: "Cursor",
+			models: [
+				{ id: "composer-2.5", label: "Composer 2.5", default: true },
+				{ id: "glm-5p3-flash", label: "GLM 5.3 Flash", default: false, no_images: true },
+			],
+		});
+		const attach = async (model: string) => {
+			const { drop, source } = renderComposer({
+				agent: heldAgent({ vendor: "cursor", account: "a-cursor", model }),
+				account: cursor,
+			});
+			source.stageAttachments.mockReturnValueOnce(new Promise(() => {}));
+			const textbox = await findTextbox();
+			expect(screen.queryByText(note)).not.toBeInTheDocument();
+			act(() => drop().onDrop(["/Users/max/shot.png"], { x: 0, y: 0 }));
+			await waitFor(() => expect(pillsIn(textbox)).toHaveLength(1));
+		};
+		await attach("glm-5p3-flash");
+		expect(screen.getByText(note)).toBeInTheDocument();
+		cleanup();
+		await attach("composer-2.5");
 		expect(screen.queryByText(note)).not.toBeInTheDocument();
 	});
 

@@ -7,7 +7,7 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import { type Services, ServicesProvider, useServices } from "@/app/services";
 import { mockSource } from "@/data/mock-source";
-import { writeTypingPrefs } from "@maxhq/shared/editor/typing";
+import { DEFAULT_TYPING, writeTypingPrefs } from "@maxhq/shared/editor/typing";
 import { NOW } from "@maxhq/shared/test/build";
 import { createUiStore } from "@maxhq/shared/ui/store";
 
@@ -83,7 +83,7 @@ describe("a plain field's typing", () => {
 	it("starts from the saved settings", () => {
 		localStorage.setItem(
 			TYPING_KEY,
-			writeTypingPrefs({ checkSpelling: true, correctSpelling: true })
+			writeTypingPrefs({ ...DEFAULT_TYPING, correctSpelling: true })
 		);
 		const { hook } = renderField({ spelling: true });
 		expect(hook.result.current.autoCorrect).toBe("on");

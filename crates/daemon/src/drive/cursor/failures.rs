@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026 Max Boksem
 
-//! Failures `agent acp` reports as an ordinary reply. A dropped connection
-//! or a sign-in gone stale ends the turn with `end_turn` and the error as
-//! the assistant's text, so the driver reads the whole reply against the
+//! Failures `agent acp` reports as an ordinary reply. A dropped connection,
+//! a model provider that refuses the request or a sign-in gone stale ends
+//! the turn with `end_turn` and the error as the assistant's text, so the driver reads the whole reply against the
 //! texts Cursor is known to send. Only a reply that is nothing but one of
 //! them counts, so a reply that talks about such an error doesn't.
 
@@ -15,8 +15,14 @@ const MAX_CHARS: usize = 600;
 /// Replies that mean the sign-in went stale, without case or a full stop.
 const SIGN_IN: &[&str] = &["please sign in to continue", "please log in to continue"];
 
-/// How replies that are a failed connection start.
-const ERROR_STARTS: &[&str] = &["Error: RetriableError:", "Error: ConnectError:"];
+/// How replies that are a failed connection, or a refusal from the
+/// model's provider, start. A provider refuses every request of a
+/// conversation with an image in it when the model can't read images.
+const ERROR_STARTS: &[&str] = &[
+    "Error: RetriableError:",
+    "Error: ConnectError:",
+    "Error: NonRetriableError:",
+];
 
 /// Whole replies that are a failed connection.
 const ERROR_TEXTS: &[&str] =
@@ -55,11 +61,12 @@ mod tests {
     }
 
     #[test]
-    fn connection_errors_read_as_failures() {
+    fn connection_and_provider_errors_read_as_failures() {
         for text in [
             "Error: RetriableError: WritableIterable is closed",
             "Error: ConnectError: [unavailable] upstream connect error",
             "Error: ConnectError: [aborted] aborted",
+            "Error: NonRetriableError: Provider Error We're having trouble connecting to the model provider. This might be temporary - please try again in a moment.",
             "Something went wrong communicating with the server. Please try again.",
         ] {
             assert_eq!(

@@ -221,14 +221,16 @@ impl AcpSession {
         );
         events::upsert(&mut out, item);
         self.emit(out, fx);
+        // A model that can't read images gets each one by its path.
         let blocks = prompt::blocks(
             &message.text,
             &message.refs,
             &message.attachments,
             self.lead,
-            self.can_image(),
+            self.can_image() && self.model_reads_images(),
             self.place.host == PlaceHost::Local,
         );
+        self.had_image |= blocks.iter().any(|block| block["type"] == "image");
         self.send(
             "session/prompt",
             rpc::prompt(&session, blocks),

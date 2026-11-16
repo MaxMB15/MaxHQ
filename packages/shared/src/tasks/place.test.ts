@@ -15,6 +15,7 @@ import {
 	deviceTasks,
 	githubRepos,
 	homeOf,
+	keptByAutomation,
 	sleepWarning,
 	taskDevices,
 	tasksTargeting,
@@ -103,5 +104,16 @@ describe("the agents a task reaches", () => {
 			{ task: expect.objectContaining({ id: "task-deploy" }), home: MAC },
 		]);
 		expect(tasksTargeting(view, "agent-nobody")).toEqual([]);
+	});
+
+	it("keeps an agent active while one of its tasks is enabled", () => {
+		expect(keptByAutomation(view, "agent-release")).toBe(true);
+		expect(keptByAutomation(view, "agent-nobody")).toBe(false);
+		const paused = viewWith((e): Entity =>
+			e.entity === "device_tasks"
+				? { ...e, tasks: e.tasks.map((task) => ({ ...task, enabled: false })) }
+				: e
+		);
+		expect(keptByAutomation(paused, "agent-release")).toBe(false);
 	});
 });

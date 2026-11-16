@@ -17,8 +17,9 @@ use std::pin::Pin;
 
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine;
-use maxhq_protocol::agents::{McpCommand, PeerCall, PeerWake, ToolAnswer};
+use maxhq_protocol::agents::{AgentMoveStep, McpCommand, PeerCall, PeerWake, ToolAnswer};
 use maxhq_protocol::ids::{DeviceId, KeyId, PermissionId};
+use maxhq_protocol::message::ActionOutcome;
 use maxhq_protocol::Secret;
 use ring::digest::{digest, SHA256};
 use ring::rand::{SecureRandom, SystemRandom};
@@ -50,6 +51,10 @@ pub type Answer<'a> = Pin<Box<dyn Future<Output = Result<ToolAnswer, Unreachable
 /// Whether a wake reached the device its caller is on.
 pub type Woken<'a> = Pin<Box<dyn Future<Output = Result<(), Unreachable>> + Send + 'a>>;
 
+/// What a step of moving an agent came to on another device.
+pub type Stepped<'a> =
+    Pin<Box<dyn Future<Output = Result<ActionOutcome, Unreachable>> + Send + 'a>>;
+
 /// The line to the `maxd` on other devices. The device that gets a call
 /// checks it against its own copy of the permission and runs it.
 pub trait PeerCalls: Send + Sync {
@@ -73,6 +78,20 @@ pub trait PeerCalls: Send + Sync {
                 "MaxHQ can't reach other devices from here yet.".into(),
             ))
         })
+    }
+
+    /// Asks `device` for a step of moving an agent.
+    fn move_step(&self, _device: DeviceId, _step: AgentMoveStep) -> Stepped<'_> {
+        Box::pin(async {
+            Err(Unreachable(
+                "MaxHQ can't reach other devices from here yet.".into(),
+            ))
+        })
+    }
+
+    /// The device that runs the MaxHQ app, when it's another one.
+    fn home(&self) -> Option<DeviceId> {
+        None
     }
 }
 

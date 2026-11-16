@@ -88,6 +88,11 @@ const REASON_CHARS: usize = 200;
 /// How long a title made from a prompt gets.
 const TITLE_CHARS: usize = 60;
 
+/// What a failed turn adds when the model can't read images and the
+/// conversation has one, which is most likely why it failed.
+const IMAGE_HINT: &str = "This model can't read images, and this conversation has one. \
+     Switch to a model that reads images to continue.";
+
 /// What one CLI does its own way. The driver asks its flavor for names,
 /// for the CLI's own notifications and requests, and for what its replies
 /// and errors mean.
@@ -127,6 +132,11 @@ pub trait Flavor: Send {
     /// reason would.
     fn stop_reason(&self, _stderr: &str) -> Option<String> {
         None
+    }
+    /// Whether the model `model` reads images. One that can't gets an
+    /// attached image by its path only, whatever the CLI says it takes.
+    fn reads_images(&self, _model: &str) -> bool {
+        true
     }
 }
 
@@ -355,6 +365,9 @@ pub struct AcpSession {
     /// Set when the last turn ended on a usage limit.
     limited: bool,
     errored: Option<String>,
+    /// Set once the conversation has an image in it, sent inline or shown
+    /// by a replay. The CLI sends it again with every later request.
+    had_image: bool,
     title: Option<String>,
     /// Whether the title is the CLI's or one kept from before, which a
     /// replayed first message doesn't replace.
@@ -440,6 +453,7 @@ impl AcpSession {
             deadlines: HashMap::new(),
             limited: false,
             errored: None,
+            had_image: false,
             named: kept.title.is_some(),
             title: kept.title,
             context: None,
@@ -618,6 +632,21 @@ impl AcpSession {
     /// Whether the CLI takes images inline.
     fn can_image(&self) -> bool {
         self.features.as_ref().is_some_and(|found| found.images)
+    }
+
+    /// Whether the model the session runs reads images, and so does each
+    /// one asked for that the CLI hasn't answered yet, since the next turn
+    /// may run it. Auto and a model not known yet do.
+    fn model_reads_images(&self) -> bool {
+        let asked = self.calls.values().filter_map(|call| match call {
+            Call::SetModel { model, .. } => Some(model.as_str()),
+            _ => None,
+        });
+        self.model
+            .as_deref()
+            .into_iter()
+            .chain(asked)
+            .all(|model| self.flavor.reads_images(model))
     }
 
     /// Answers a sign-in error from a session request with `authenticate`,
@@ -883,6 +912,9 @@ impl AcpSession {
             return;
         }
         self.replaying = true;
+        if update.pointer("/content/type").and_then(Value::as_str) == Some("image") {
+            self.had_image = true;
+        }
         let Some(chunk) = chunk_text(update) else {
             return;
         };
@@ -1028,6 +1060,9 @@ impl AcpSession {
                 self.errored = Some(message.clone());
                 (message, Some(self.login.account))
             }
+            Failure::Error(message) if self.had_image && !self.model_reads_images() => {
+                (format!("{message}\n\n{IMAGE_HINT}"), None)
+            }
             Failure::Error(message) => (message, None),
         };
         let item = self.stream.item(
@@ -1168,7 +1203,10 @@ impl AcpSession {
                 self.mode_is(&current);
             }
         }
-        if let Some(models) = models.filter(|models| !models.is_empty()) {
+        if let Some(mut models) = models.filter(|models| !models.is_empty()) {
+            for model in &mut models {
+                model.no_images = !self.flavor.reads_images(&model.id);
+            }
             fx.models.push((self.login.account, models));
         }
     }
@@ -1273,6 +1311,7 @@ impl AcpSession {
             asleep: false,
             effort: None,
             running: None,
+            moved: None,
         }
     }
 
@@ -1574,6 +1613,7 @@ fn choices(option: &Value, current: Option<&str>) -> Vec<ModelChoice> {
             default: Some(value) == current,
             efforts: Vec::new(),
             default_effort: None,
+            no_images: false,
         });
     }
     found

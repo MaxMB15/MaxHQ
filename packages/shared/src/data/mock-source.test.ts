@@ -427,6 +427,57 @@ describe("mock source deletes", () => {
 	});
 });
 
+describe("mock source moves", () => {
+	const to = {
+		device: DEVBOX,
+		account: "acct-claude-nl-token",
+		model: null,
+		place: { type: "workspace" as const, workspace: "ws-mhq-maxhq" },
+	};
+
+	it("refuses an agent in a turn unless it stops it", async () => {
+		const mock = source();
+		expect(await mock.moveAgent(MAC, "agent-release", MAC, to, false)).toEqual({
+			status: "ok",
+			data: {
+				status: "refused",
+				reason: "The agent waits for your answer. Answer it, or stop it and move it.",
+			},
+		});
+		expect(await mock.moveAgent(DEVBOX, "agent-release", MAC, to, true)).toMatchObject({
+			data: { reason: "Only the device that runs the MaxHQ app moves agents." },
+		});
+		expect(
+			await mock.moveAgent(MAC, "agent-release", MAC, { ...to, account: CLAUDE }, true)
+		).toMatchObject({ data: { reason: "That account isn't on that device." } });
+	});
+
+	it("stops the old agent, links both, and points its tasks at the new one", async () => {
+		const mock = source();
+		const result = await mock.moveAgent(MAC, "agent-release", MAC, to, true);
+		if (result.status !== "ok" || result.data.status !== "started") throw new Error("no move");
+		const moved = result.data.agent;
+		const view = applySnapshot(await mock.snapshot());
+		const old = view.tables.agent.get("agent-release");
+		expect(old?.activity).toEqual({ state: "paused", reason: "by_you" });
+		expect(old?.moved).toEqual({ to: { device: DEVBOX, agent: moved } });
+		expect(inboxOf(old!).settled).not.toBeNull();
+		expect(view.tables.attention.has("att-release")).toBe(false);
+		expect(view.tables.agent.get(moved)).toMatchObject({
+			workspace: "ws-mhq-maxhq",
+			title: "Release checklist",
+			moved: { from: { device: MAC, agent: "agent-release" } },
+		});
+		const targets = all(view, "device_tasks")
+			.flatMap((d) => d.tasks)
+			.filter((task) => task.target.type === "agent" && task.target.agent === moved);
+		expect(targets.map((task) => task.id).sort()).toEqual(["task-checklist", "task-deploy"]);
+		expect(await mock.moveAgent(MAC, "agent-release", MAC, to, true)).toMatchObject({
+			data: { reason: "That agent moved already." },
+		});
+	});
+});
+
 describe("mock source renames", () => {
 	it("names an agent from a terminal too, and a blank name brings back its title", async () => {
 		const mock = source();

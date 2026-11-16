@@ -429,6 +429,7 @@ mod tests {
             default: true,
             efforts: Vec::new(),
             default_effort: None,
+            no_images: false,
         };
         secrets.store_claude_token(origin(), String::new(), Secret::new(CLAUDE_TOKEN.into()));
         secrets.inner.hub.set_models(id, vec![listed]);

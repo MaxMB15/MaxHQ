@@ -940,6 +940,20 @@ impl Vendors for FakeVendors {
             }) as Box<dyn History>
         })
     }
+
+    fn subagents(&self, vendor: Vendor, config_dir: &Path, session: &str) -> Vec<String> {
+        let state = lock(&self.state);
+        if vendor == Vendor::Claude && state.real_claude {
+            return Wired { pictures: None }.subagents(vendor, config_dir, session);
+        }
+        let prefix = format!("{session}/");
+        state
+            .histories
+            .keys()
+            .filter_map(|key| key.strip_prefix(&prefix))
+            .map(str::to_owned)
+            .collect()
+    }
 }
 
 /// A session's history, read from the script.
@@ -1613,6 +1627,8 @@ pub struct FakeFiles {
     attachments: Attachments,
     root: PathBuf,
     uploaded: Arc<Mutex<HashMap<AttachmentId, AttachmentRef>>>,
+    /// Each staged attachment delivered, under the folder it went to.
+    moved: Arc<Mutex<HashMap<AttachmentId, Staged>>>,
     delivered: Arc<Mutex<Vec<Delivered>>>,
     collected: Arc<Mutex<Vec<Collected>>>,
     found: Arc<Mutex<Vec<Found>>>,
@@ -1628,6 +1644,7 @@ impl FakeFiles {
             attachments: Attachments::new(root.clone()),
             root,
             uploaded: Arc::default(),
+            moved: Arc::default(),
             delivered: Arc::default(),
             collected: Arc::default(),
             found: Arc::default(),
@@ -1686,6 +1703,15 @@ impl AgentFiles for FakeFiles {
                 });
                 continue;
             }
+            // One delivered already stays where it went, and only that
+            // folder's agent may name it again, as XF's delivery does.
+            if let Some(staged) = lock(&self.moved).get(&id) {
+                if !staged.path.starts_with(&place.attachments) {
+                    return Box::pin(async move { Err(DeliverError::Missing(id)) });
+                }
+                moved.push(staged.clone());
+                continue;
+            }
             let Some(mut attachment) = self.attachments.find(id) else {
                 return Box::pin(async move { Err(DeliverError::Missing(id)) });
             };
@@ -1694,13 +1720,14 @@ impl AgentFiles for FakeFiles {
                 .join(id.to_string())
                 .join(&attachment.name);
             attachment.path = path.display().to_string();
-            // Each one is delivered once, as XF's delivery does.
             let _ = std::fs::remove_dir_all(self.root.join("staged").join(id.to_string()));
-            moved.push(Staged {
+            let staged = Staged {
                 attachment,
                 path,
                 text: None,
-            });
+            };
+            lock(&self.moved).insert(id, staged.clone());
+            moved.push(staged);
         }
         lock(&self.delivered).push((place.clone(), staged));
         Box::pin(async move { Ok(moved) })
@@ -1869,6 +1896,7 @@ pub struct FakePeers {
     sessions: Arc<Mutex<Option<(super::Sessions, DeviceId)>>>,
     calls: Arc<Mutex<Vec<(DeviceId, maxhq_protocol::agents::PeerCall)>>>,
     down: Arc<std::sync::atomic::AtomicBool>,
+    home: Arc<Mutex<Option<DeviceId>>>,
 }
 
 impl FakePeers {
@@ -1886,6 +1914,17 @@ impl FakePeers {
         self.down.load(std::sync::atomic::Ordering::SeqCst)
     }
 
+    /// Names the device that runs the MaxHQ app, as a device's link book
+    /// does.
+    pub fn set_home(&self, home: DeviceId) {
+        *lock(&self.home) = Some(home);
+    }
+
+    /// The manager that answers, unless the line is down.
+    fn answering(&self) -> Option<(super::Sessions, DeviceId)> {
+        lock(&self.sessions).clone().filter(|_| !self.is_down())
+    }
+
     /// Each call carried, with the device it went to.
     pub fn calls(&self) -> Vec<(DeviceId, maxhq_protocol::agents::PeerCall)> {
         lock(&self.calls).clone()
@@ -1899,13 +1938,31 @@ impl crate::agents::PeerCalls for FakePeers {
         call: maxhq_protocol::agents::PeerCall,
     ) -> crate::agents::Answer<'_> {
         lock(&self.calls).push((device, call.clone()));
-        let answering = lock(&self.sessions).clone().filter(|_| !self.is_down());
+        let answering = self.answering();
         Box::pin(async move {
             match answering {
                 Some((sessions, home)) => Ok(sessions.peer_call(home, call).await),
                 None => Err(crate::agents::Unreachable("no line to that device".into())),
             }
         })
+    }
+
+    fn move_step(
+        &self,
+        _device: DeviceId,
+        step: maxhq_protocol::agents::AgentMoveStep,
+    ) -> crate::agents::Stepped<'_> {
+        let answering = self.answering();
+        Box::pin(async move {
+            match answering {
+                Some((sessions, home)) => Ok(sessions.peer_move(home, step).await),
+                None => Err(crate::agents::Unreachable("no line to that device".into())),
+            }
+        })
+    }
+
+    fn home(&self) -> Option<DeviceId> {
+        *lock(&self.home)
     }
 
     fn reach(&self, _device: DeviceId) -> crate::agents::Woken<'_> {

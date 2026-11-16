@@ -581,6 +581,17 @@
           "description": "The agent whose timeline to send.",
           "$ref": "#/$defs/AgentId"
         },
+        "lead": {
+          "description": "The lead `agent` runs under, when it's a sub-agent. A `maxd`\nfrom [`FINISHED_SUB_AGENTS_SINCE`] on reads a sub-agent it no\nlonger lists, such as one that finished, from its transcript\nbeside the lead's. An older one ignores it.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/AgentId"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "limit": {
           "description": "The most items a reset may hold.",
           "type": "integer",
@@ -4630,6 +4641,44 @@
         "admission",
         "allow"
       ]
+    },
+    {
+      "description": "Moves an agent to another device: checks the device it goes to,\nstops the agent, starts a new one there from a summary of its\nconversation, marks the old one moved and points the tasks that\ntarget it at the new one. Only the device that runs the MaxHQ app\ntakes it. The outcome is [`ActionOutcome::Started`] with the new\nagent. A `maxd` from before [`MOVE_AGENT_SINCE`] refuses it.",
+      "type": "object",
+      "properties": {
+        "agent": {
+          "description": "The agent.",
+          "$ref": "#/$defs/AgentId"
+        },
+        "from": {
+          "description": "The device it runs on.",
+          "$ref": "#/$defs/DeviceId"
+        },
+        "key": {
+          "description": "Makes a resend after a dropped connection safe.",
+          "$ref": "#/$defs/IdempotencyKey"
+        },
+        "stop": {
+          "description": "Whether to stop a turn that runs or a prompt that waits. Without\nit, a move of an agent that works is refused.",
+          "type": "boolean",
+          "default": false
+        },
+        "to": {
+          "description": "Where it goes.",
+          "$ref": "#/$defs/MoveTo"
+        },
+        "type": {
+          "type": "string",
+          "const": "move_agent"
+        }
+      },
+      "required": [
+        "type",
+        "key",
+        "agent",
+        "from",
+        "to"
+      ]
     }
   ],
   "$defs": {
@@ -5969,6 +6018,42 @@
           ]
         },
         {
+          "description": "What an agent took along when it left this device, for\n[`crate::agents::AgentMoveStep::Leave`].",
+          "type": "object",
+          "properties": {
+            "departure": {
+              "description": "What it took.",
+              "$ref": "#/$defs/Departure"
+            },
+            "status": {
+              "type": "string",
+              "const": "departed"
+            }
+          },
+          "required": [
+            "status",
+            "departure"
+          ]
+        },
+        {
+          "description": "What an agent would run as on this device, for\n[`crate::agents::AgentMoveStep::Check`].",
+          "type": "object",
+          "properties": {
+            "check": {
+              "description": "What it would run as.",
+              "$ref": "#/$defs/MoveCheck"
+            },
+            "status": {
+              "type": "string",
+              "const": "checked"
+            }
+          },
+          "required": [
+            "status",
+            "check"
+          ]
+        },
+        {
           "description": "An outcome from a newer `maxd`. The action went through, and what\nit came to needs a newer app to show.",
           "type": "object",
           "properties": {
@@ -6047,6 +6132,24 @@
       "type": "string",
       "format": "uuid"
     },
+    "AgentAt": {
+      "description": "An agent on a device, such as the one a moved agent became.",
+      "type": "object",
+      "properties": {
+        "agent": {
+          "description": "The agent.",
+          "$ref": "#/$defs/AgentId"
+        },
+        "device": {
+          "description": "The device.",
+          "$ref": "#/$defs/DeviceId"
+        }
+      },
+      "required": [
+        "device",
+        "agent"
+      ]
+    },
     "AgentExcerpt": {
       "description": "An agent's timeline as Markdown, cut to a budget, for an agent pill\nthat travels as a file.",
       "type": "object",
@@ -6083,6 +6186,131 @@
       "description": "An agent CLI session, or a sub-agent inside one.",
       "type": "string",
       "format": "uuid"
+    },
+    "AgentMoveStep": {
+      "description": "One step of moving an agent to another device. Only the device that\nruns the MaxHQ app asks for these, of the device the agent leaves and\nthe one it goes to.",
+      "oneOf": [
+        {
+          "description": "Lists the vendors, accounts, models and folders an agent could run\nwith on the asked device. The outcome is\n[`crate::message::ActionOutcome::Tool`], as `list_targets` answers.",
+          "type": "object",
+          "properties": {
+            "step": {
+              "type": "string",
+              "const": "targets"
+            }
+          },
+          "required": [
+            "step"
+          ]
+        },
+        {
+          "description": "Checks that the account is signed in and the folder is there. The\noutcome is [`crate::message::ActionOutcome::Checked`], naming what\nthe agent will run as.",
+          "type": "object",
+          "properties": {
+            "step": {
+              "type": "string",
+              "const": "check"
+            },
+            "to": {
+              "description": "Where the agent goes.",
+              "$ref": "#/$defs/MoveTo"
+            }
+          },
+          "required": [
+            "step",
+            "to"
+          ]
+        },
+        {
+          "description": "Says whether the agent could leave now and what it would take\nalong, without stopping it or summing anything up. The outcome is\n[`crate::message::ActionOutcome::Departed`] with no brief.",
+          "type": "object",
+          "properties": {
+            "agent": {
+              "description": "The agent.",
+              "$ref": "#/$defs/AgentId"
+            },
+            "step": {
+              "type": "string",
+              "const": "look"
+            }
+          },
+          "required": [
+            "step",
+            "agent"
+          ]
+        },
+        {
+          "description": "Stops the agent, or refuses while it works unless `stop` is set,\nand sums up its conversation. The outcome is\n[`crate::message::ActionOutcome::Departed`].",
+          "type": "object",
+          "properties": {
+            "agent": {
+              "description": "The agent.",
+              "$ref": "#/$defs/AgentId"
+            },
+            "step": {
+              "type": "string",
+              "const": "leave"
+            },
+            "stop": {
+              "description": "Whether to stop a turn that runs or a prompt that waits.",
+              "type": "boolean",
+              "default": false
+            }
+          },
+          "required": [
+            "step",
+            "agent"
+          ]
+        },
+        {
+          "description": "Starts the agent from what it took along. The outcome is\n[`crate::message::ActionOutcome::Started`].",
+          "type": "object",
+          "properties": {
+            "arrival": {
+              "description": "The start.",
+              "$ref": "#/$defs/Arrival"
+            },
+            "step": {
+              "type": "string",
+              "const": "arrive"
+            }
+          },
+          "required": [
+            "step",
+            "arrival"
+          ]
+        },
+        {
+          "description": "Marks the agent moved and settles it, and takes back the\npermissions of the tasks that left with it. The outcome is\n[`crate::message::ActionOutcome::Done`].",
+          "type": "object",
+          "properties": {
+            "agent": {
+              "description": "The agent that left.",
+              "$ref": "#/$defs/AgentId"
+            },
+            "revoke": {
+              "description": "The task permissions to take back.",
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/PermissionId"
+              }
+            },
+            "step": {
+              "type": "string",
+              "const": "settle"
+            },
+            "to": {
+              "description": "The agent it became.",
+              "$ref": "#/$defs/AgentAt"
+            }
+          },
+          "required": [
+            "step",
+            "agent",
+            "to"
+          ]
+        }
+      ]
     },
     "AgentOrigin": {
       "description": "Who started an agent, kept with it so it nests under its caller and a\nstop reaches it.",
@@ -6369,6 +6597,36 @@
       "required": [
         "name",
         "digest"
+      ]
+    },
+    "Arrival": {
+      "description": "What starts a moved agent on the device it goes to.",
+      "type": "object",
+      "properties": {
+        "departure": {
+          "description": "What it took along.",
+          "$ref": "#/$defs/Departure"
+        },
+        "from": {
+          "description": "The agent it was.",
+          "$ref": "#/$defs/AgentAt"
+        },
+        "grants": {
+          "description": "The permissions of the tasks that follow it, which the asking device\nkeeps.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Permission"
+          }
+        },
+        "to": {
+          "description": "Where it goes.",
+          "$ref": "#/$defs/MoveTo"
+        }
+      },
+      "required": [
+        "to",
+        "from",
+        "departure"
       ]
     },
     "AttachmentId": {
@@ -6904,6 +7162,43 @@
           "type": "string",
           "const": "target_offline"
         }
+      ]
+    },
+    "Departure": {
+      "description": "What an agent takes along from the device it leaves.",
+      "type": "object",
+      "properties": {
+        "brief": {
+          "description": "The summary of its conversation that the new agent starts from, or\nnone when there was nothing to carry.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "device": {
+          "description": "The name of the device it leaves.",
+          "type": "string"
+        },
+        "effort": {
+          "description": "The effort level it ran at, if its vendor has one.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "mode": {
+          "description": "The permission mode it ran in.",
+          "$ref": "#/$defs/PermissionMode"
+        },
+        "title": {
+          "description": "Its name.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "device",
+        "title",
+        "mode"
       ]
     },
     "DetailList": {
@@ -9087,6 +9382,44 @@
         }
       ]
     },
+    "MoveCheck": {
+      "description": "What the device an agent moves to says it will run as there.",
+      "type": "object",
+      "properties": {
+        "account": {
+          "description": "The account's name.",
+          "type": "string"
+        },
+        "device": {
+          "description": "The device's name.",
+          "type": "string"
+        },
+        "model": {
+          "description": "The model, or the words for the account's default.",
+          "type": "string"
+        },
+        "place": {
+          "description": "The folder it runs in, or what's made for it.",
+          "type": "string"
+        },
+        "vendor": {
+          "description": "The account's vendor.",
+          "$ref": "#/$defs/Vendor"
+        },
+        "workspace": {
+          "description": "The workspace that folder belongs to.",
+          "$ref": "#/$defs/WorkspaceId"
+        }
+      },
+      "required": [
+        "device",
+        "vendor",
+        "account",
+        "model",
+        "place",
+        "workspace"
+      ]
+    },
     "MoveId": {
       "description": "One move of a workspace the old scripts made into MaxHQ.",
       "type": "string",
@@ -9125,6 +9458,36 @@
           "type": "string",
           "const": "retire"
         }
+      ]
+    },
+    "MoveTo": {
+      "description": "Where an agent moves to.",
+      "type": "object",
+      "properties": {
+        "account": {
+          "description": "The account it runs under there, which also picks its vendor.",
+          "$ref": "#/$defs/AccountId"
+        },
+        "device": {
+          "description": "The device.",
+          "$ref": "#/$defs/DeviceId"
+        },
+        "model": {
+          "description": "The model there, or none for the account's default.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "place": {
+          "description": "The folder there.",
+          "$ref": "#/$defs/AgentPlace"
+        }
+      },
+      "required": [
+        "device",
+        "account",
+        "place"
       ]
     },
     "NetworkAccessSettings": {
@@ -9405,6 +9768,10 @@
           "description": "The device.",
           "$ref": "#/$defs/DeviceId"
         },
+        "home": {
+          "description": "Set for the device that runs the MaxHQ app, the only one that may\nmove agents on this one.",
+          "type": "boolean"
+        },
         "host_key": {
           "description": "Its SSH host key, as `ssh-ed25519 <base64>`. Empty for a device\nwith no routes, which is never dialed.",
           "type": "string"
@@ -9543,6 +9910,45 @@
             "kind",
             "project",
             "versions"
+          ]
+        },
+        {
+          "description": "Tells the asked device which of its agents the asking device's\nenabled tasks send runs to, all of them each time, so auto-settle\nthere leaves them be. None clears what it said before. The outcome\nis [`crate::message::ActionOutcome::Done`].",
+          "type": "object",
+          "properties": {
+            "agents": {
+              "description": "The agents, on the asked device.",
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/AgentId"
+              }
+            },
+            "kind": {
+              "type": "string",
+              "const": "task_targets"
+            }
+          },
+          "required": [
+            "kind",
+            "agents"
+          ]
+        },
+        {
+          "description": "A step of moving an agent, from the device that runs the MaxHQ\napp. A `maxd` from before [`crate::message::MOVE_AGENT_SINCE`]\nrefuses it.",
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "move"
+            },
+            "step": {
+              "description": "The step.",
+              "$ref": "#/$defs/AgentMoveStep"
+            }
+          },
+          "required": [
+            "kind",
+            "step"
           ]
         },
         {

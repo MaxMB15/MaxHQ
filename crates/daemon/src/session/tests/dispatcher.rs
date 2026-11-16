@@ -22,7 +22,7 @@ const ONLY_READS: &str = "The dispatcher only reads and proposes plans.";
 
 impl Harness {
     /// A harness whose manager has a dispatcher, as on the Mac.
-    async fn with_dispatcher() -> Self {
+    pub(super) async fn with_dispatcher() -> Self {
         let mut h = Harness::new();
         h.fakes.dispatcher = true;
         h.restart().await;
@@ -31,7 +31,7 @@ impl Harness {
 
     /// Asks the dispatcher `text` as the Claude account. Gives its agent
     /// and holder once the request reached the CLI.
-    async fn dispatch(&mut self, text: &str) -> (AgentId, SessionId) {
+    pub(super) async fn dispatch(&mut self, text: &str) -> (AgentId, SessionId) {
         let account = self.claude;
         let asked = text.to_owned();
         let agent = started(
@@ -51,7 +51,7 @@ impl Harness {
     }
 
     /// The dispatcher as clients see it.
-    fn dispatcher(&self) -> Dispatcher {
+    pub(super) fn dispatcher(&self) -> Dispatcher {
         match self.hub.get(&EntityKey::Dispatcher(self.host.id)) {
             Some(Entity::Dispatcher(dispatcher)) => dispatcher,
             other => panic!("the hub has no dispatcher: {other:?}"),

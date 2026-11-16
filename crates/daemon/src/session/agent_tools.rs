@@ -249,11 +249,13 @@ struct Job {
 }
 
 /// What a job answers with.
-enum Then {
+pub(super) enum Then {
     /// A start: the new agent, or its first turn when it waits.
     Started { wait: Option<Duration> },
     /// This text, once the action is done.
     Done(&'static str),
+    /// A move: the new agent, on the device it moved to.
+    Moved { device: DeviceId },
 }
 
 /// A call waiting for agents to finish their turn, need input or stop.
@@ -401,6 +403,7 @@ impl Manager {
     /// the cards nobody answered in time.
     pub(super) fn settle_waits(&mut self) {
         self.expire_consents();
+        self.expire_move_cards();
         let now = self.clock.now();
         let mut ended = Vec::new();
         let mut index = 0;
@@ -648,8 +651,9 @@ impl Manager {
             container: None,
         };
         // Leases stay on the device that hosts them: an agent elsewhere
-        // starts an agent here to lease.
-        match parse(&call.call, |tool| !tool.shows() && !tool.leases()) {
+        // starts an agent here to lease. Moves run on the caller's home.
+        let runs_here = |tool: Tool| !tool.shows() && !tool.leases() && tool != Tool::MoveAgent;
+        match parse(&call.call, runs_here) {
             Ok(parsed) => self.run_agent_call(reply, caller, parsed, call.call, true),
             Err(reason) => self.reply_now(reply, Err(reason)),
         }
@@ -724,10 +728,11 @@ impl Manager {
             return self.forward(reply, caller, &permission, device, call, raw);
         }
         match call {
-            Call::ListTargets => {
+            Call::ListTargets(_) => {
                 let text = self.targets(caller, &permission);
                 self.reply_now(reply, Ok(text));
             }
+            Call::MoveAgent(asked) => self.move_tool(reply, caller, &permission, asked),
             Call::ListAgents(list) => {
                 let text = self.list(caller, &list);
                 self.reply_now(reply, Ok(text));
@@ -958,21 +963,16 @@ impl Manager {
             "depth_left": permission.depth.saturating_sub(caller.level.saturating_add(1)),
             "limits": permission.limits,
             "started": started,
-            "note": "Other devices' accounts and workspaces show once you list them with \
-                     list_agents on that device.",
+            "note": "Other devices' accounts and workspaces show once you call \
+                     list_targets with that `device`.",
         })
         .to_string()
     }
 
     /// A page of the agents on this device, newest activity first.
     pub(super) fn list(&self, caller: Calling, list: &List) -> String {
-        let mut agents: Vec<Agent> = self
-            .hub
-            .leads()
-            .into_iter()
-            .filter(|agent| !list.mine || agent.origin.is_some_and(|o| o.by == caller.actor))
-            .collect();
-        agents.sort_by_key(|agent| std::cmp::Reverse(agent.last_activity_at));
+        let agents = self
+            .newest_leads(|agent| !list.mine || agent.origin.is_some_and(|o| o.by == caller.actor));
         let total = agents.len();
         let page: Vec<Value> = agents
             .iter()
@@ -988,8 +988,21 @@ impl Manager {
         .to_string()
     }
 
+    /// The lead agents on this device that `keep` keeps, newest activity
+    /// first.
+    pub(super) fn newest_leads(&self, keep: impl Fn(&Agent) -> bool) -> Vec<Agent> {
+        let mut agents: Vec<Agent> = self
+            .hub
+            .leads()
+            .into_iter()
+            .filter(|agent| keep(agent))
+            .collect();
+        agents.sort_by_key(|agent| std::cmp::Reverse(agent.last_activity_at));
+        agents
+    }
+
     /// What a list or a wait shows of one agent.
-    fn card(&self, agent: &Agent) -> Value {
+    pub(super) fn card(&self, agent: &Agent) -> Value {
         json!({
             "agent": agent.id,
             "title": agent.title,
@@ -1266,12 +1279,12 @@ impl Manager {
     }
 
     /// Whether an action key ran before, so the call only waits for it.
-    fn repeat(&self, key: IdempotencyKey) -> bool {
+    pub(super) fn repeat(&self, key: IdempotencyKey) -> bool {
         self.keys.done(key).is_some() || self.keys.is_running(key)
     }
 
     /// Answers `reply` once the action `key` finishes, or now if it has.
-    fn join(&mut self, key: IdempotencyKey, reply: Reply, then: Then) {
+    pub(super) fn join(&mut self, key: IdempotencyKey, reply: Reply, then: Then) {
         let job = Job { reply, then };
         match self.keys.done(key).cloned() {
             Some(Outcome::Action(outcome)) => self.job_done(job, &outcome),
@@ -1296,6 +1309,9 @@ impl Manager {
                 None => Ok(json!({"agent": agent, "device": self.device}).to_string()),
             },
             (Then::Done(text), ActionOutcome::Done) => Ok(text.to_owned()),
+            (Then::Moved { device }, ActionOutcome::Started { agent }) => {
+                Ok(json!({"agent": agent, "device": device}).to_string())
+            }
             (_, outcome) => Err(failure(outcome)),
         };
         self.reply_now(job.reply, result);

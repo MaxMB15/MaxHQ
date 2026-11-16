@@ -4,9 +4,11 @@
 //! Attachments. A client stages each file before it sends a message, which
 //! puts a copy in `attachments/staged/<id>/<name>`. Sending moves the copy
 //! into `attachments/<agent>/<id>/<name>`, a folder the agent's CLI may
-//! read. Staged copies nobody sent are deleted after a day. A picture's
-//! preview and a document's text are made as it's staged, and move with it
-//! (see [`crate::sidecar`]).
+//! read. A message to that agent may name it again, such as a queued one
+//! taken back and sent again, and it stays where it is. Staged copies
+//! nobody sent are deleted after a day. A picture's preview and a
+//! document's text are made as it's staged, and move with it (see
+//! [`crate::sidecar`]).
 //!
 //! Staging can copy a large file, so the manager runs it off its loop.
 //! Finding and moving a staged copy are quick renames, which it runs in
@@ -35,6 +37,12 @@ pub const MAX_FOLDER: u64 = 200 * 1024 * 1024;
 
 /// How long a staged copy waits to be sent before it's deleted.
 pub const STALE_AFTER: Duration = Duration::from_secs(24 * 60 * 60);
+
+/// Why a message can't name an attachment that's neither staged nor in its
+/// agent's folder, such as one sent to another agent or staged over a day
+/// ago.
+pub const GONE: &str =
+    "a file attached to the message is no longer ready to send. Remove it and attach it again";
 
 /// Why an attachment couldn't be staged.
 #[derive(Debug, Error)]
@@ -186,13 +194,17 @@ impl Attachments {
     /// Describes a staged attachment from its folder, for one staged before
     /// `maxd` restarted.
     pub fn find(&self, id: AttachmentId) -> Option<AttachmentRef> {
-        let path = sidecar::attachment_in(&self.staged().join(id.to_string()))?;
-        let mut attachment = describe(id, &path, None).ok()?;
-        attachment.thumbnail = sidecar::thumbnail_of(&path);
-        Some(attachment)
+        found_in(id, &self.staged())
     }
 
-    /// Moves a staged attachment into `into`, under its ID.
+    /// Describes an attachment a message already moved into `into`, an
+    /// agent's folder, so another message to that agent can name it.
+    pub fn sent(&self, id: AttachmentId, into: &Path) -> Option<AttachmentRef> {
+        found_in(id, into)
+    }
+
+    /// Moves a staged attachment into `into`, under its ID. One already
+    /// there stays.
     pub fn take(&self, attachment: &AttachmentRef, into: &Path) -> io::Result<Staged> {
         let id = attachment.id.to_string();
         let from = PathBuf::from(&attachment.path);
@@ -200,11 +212,13 @@ impl Attachments {
             .file_name()
             .ok_or_else(|| io::Error::other("a staged attachment has no name"))?;
         let dir = into.join(&id);
-        fs::create_dir_all(&dir)?;
         let to = dir.join(name);
-        fs::rename(&from, &to)?;
-        sidecar::carry(&from, &to);
-        let _ = maxhq_transfer::remove_tree(self.staged().join(&id));
+        if from != to {
+            fs::create_dir_all(&dir)?;
+            fs::rename(&from, &to)?;
+            sidecar::carry(&from, &to);
+            let _ = maxhq_transfer::remove_tree(self.staged().join(&id));
+        }
         let mut moved = attachment.clone();
         moved.path = to.to_string_lossy().into_owned();
         Ok(Staged {
@@ -274,6 +288,14 @@ fn copy_folder(from: &Path, to: &Path, budget: &mut u64) -> Result<(), StageErro
         }
     }
     Ok(())
+}
+
+/// The attachment `id` in its folder under `root`, with its preview.
+fn found_in(id: AttachmentId, root: &Path) -> Option<AttachmentRef> {
+    let path = sidecar::attachment_in(&root.join(id.to_string()))?;
+    let mut attachment = describe(id, &path, None).ok()?;
+    attachment.thumbnail = sidecar::thumbnail_of(&path);
+    Some(attachment)
 }
 
 /// What a staged file or folder is.

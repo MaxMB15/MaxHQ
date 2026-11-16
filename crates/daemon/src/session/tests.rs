@@ -57,6 +57,7 @@ const WAIT: Duration = Duration::from_secs(5);
 const QUIET: Duration = Duration::from_millis(50);
 
 mod agents;
+mod automated;
 mod container_reach;
 mod deletes;
 mod dispatcher;
@@ -68,6 +69,7 @@ mod limits;
 mod loading;
 mod lookups;
 mod memory;
+mod moves;
 mod notes;
 mod pace;
 mod pulls;
@@ -98,7 +100,7 @@ fn device() -> Device {
     }
 }
 
-/// A hub for the test device with a Claude and a Codex account.
+/// A hub for `host` with a Claude and a Codex account.
 fn make_hub(dir: &Path, db: &Db, host: &Device) -> Hub {
     let hub = Hub::new(host.clone(), db.seen().unwrap_or_default());
     hub.remember_deleted(db);
@@ -109,7 +111,7 @@ fn make_hub(dir: &Path, db: &Db, host: &Device) -> Hub {
     hub.apply(accounts.map(|(id, vendor, name)| Change::Upsert {
         value: Entity::Account(Account {
             id,
-            device: device().id,
+            device: host.id,
             vendor,
             label: "Personal".into(),
             config_dir: dir.join(name).display().to_string(),
@@ -518,18 +520,58 @@ impl Harness {
     }
 
     async fn send(&mut self, agent: AgentId, text: &str) -> ActionOutcome {
+        self.send_with(agent, text, Vec::new(), SendMode::Queue)
+            .await
+    }
+
+    /// Sends a message with these attachments, the way `mode` says.
+    async fn send_with(
+        &mut self,
+        agent: AgentId,
+        text: &str,
+        attachments: Vec<AttachmentId>,
+        mode: SendMode,
+    ) -> ActionOutcome {
         let text = text.to_owned();
         self.act(|key| ClientMessage::SendInput {
             key,
             agent,
             input: UserInput {
                 text,
-                attachments: Vec::new(),
+                attachments,
                 refs: Vec::new(),
             },
-            mode: SendMode::Queue,
+            mode,
         })
         .await
+    }
+
+    /// Stages pasted bytes as `name`.
+    async fn stage_bytes(&mut self, name: &str, bytes: &[u8]) -> AttachmentRef {
+        let source = AttachmentSource::Bytes {
+            name: name.into(),
+            mime: super::attach::mime_for(name).unwrap_or("text/plain").into(),
+            data: base64::engine::general_purpose::STANDARD.encode(bytes),
+        };
+        let outcome = self
+            .act(|key| ClientMessage::StageAttachment { key, source })
+            .await;
+        let ActionOutcome::Staged { attachment } = outcome else {
+            panic!("the bytes weren't staged: {outcome:?}");
+        };
+        attachment
+    }
+
+    /// The paths the last message sent to the CLI named.
+    fn attached(&self, session: SessionId) -> Vec<PathBuf> {
+        let writes = self.holders.writes(session);
+        let line: serde_json::Value = serde_json::from_str(&writes.last().unwrap().0).unwrap();
+        line["attachments"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|path| PathBuf::from(path.as_str().unwrap()))
+            .collect()
     }
 
     async fn open(&mut self, agent: AgentId, since: Option<Seq>, limit: u32) -> TimelineUpdate {
@@ -537,6 +579,18 @@ impl Harness {
             agent,
             since,
             limit,
+            lead: None,
+        });
+        self.phone.timeline(agent).await
+    }
+
+    /// Opens a sub-agent's timeline, naming the lead it ran under.
+    async fn open_under(&mut self, agent: AgentId, lead: AgentId) -> TimelineUpdate {
+        self.phone.send(ClientMessage::OpenTimeline {
+            agent,
+            since: None,
+            limit: 50,
+            lead: Some(lead),
         });
         self.phone.timeline(agent).await
     }
@@ -616,6 +670,7 @@ impl Harness {
             default: true,
             efforts: efforts.iter().copied().map(String::from).collect(),
             default_effort: Some(default.into()),
+            no_images: false,
         }];
         self.keep(Entity::Account(account));
     }
@@ -721,6 +776,7 @@ impl Harness {
             asleep: false,
             effort: None,
             running: None,
+            moved: None,
         }
     }
 
@@ -883,6 +939,7 @@ impl Harness {
             asleep: false,
             effort: None,
             running: None,
+            moved: None,
         };
         self.hub.apply([Change::Upsert {
             value: Entity::Agent(agent),
@@ -1394,6 +1451,7 @@ async fn every_effect_a_driver_reports_is_carried_out() {
         default: true,
         efforts: Vec::new(),
         default_effort: None,
+        no_images: false,
     }];
     let say = Say {
         agents: vec![h.reported(lead, Activity::Busy), sub.clone()],
@@ -1877,20 +1935,26 @@ async fn attachments_are_staged_then_moved_when_sent() {
     assert!(!staged.join(copied.id.to_string()).exists());
     assert!(!staged.join(written.id.to_string()).exists());
 
-    // A staged file goes once.
+    // The same agent may name a sent file again, and it stays put.
     let outcome = h
-        .act(|key| ClientMessage::SendInput {
-            key,
-            agent,
-            input: UserInput {
-                text: "again".into(),
-                attachments: vec![copied.id],
-                refs: Vec::new(),
-            },
-            mode: SendMode::Queue,
-        })
+        .send_with(agent, "again", vec![copied.id], SendMode::Queue)
         .await;
-    assert!(reason(&outcome).contains("isn't staged"), "{outcome:?}");
+    assert_eq!(outcome, ActionOutcome::Done);
+    assert_eq!(h.attached(session), [paths[0].clone()]);
+    assert_eq!(fs::read_to_string(&paths[0]).unwrap(), "remember");
+
+    // A staged file goes to one agent only.
+    let (other, other_session) = h.start_claude(None).await;
+    let outcome = h
+        .send_with(other, "mine?", vec![copied.id], SendMode::Queue)
+        .await;
+    assert_eq!(reason(&outcome), super::attach::GONE, "{outcome:?}");
+    assert!(h
+        .holders
+        .writes(other_session)
+        .iter()
+        .all(|write| !write.0.contains("mine?")));
+    assert!(paths[0].exists());
 
     // Staged files nobody sent are removed when maxd starts.
     let old = staged.join("old");
@@ -1903,6 +1967,71 @@ async fn attachments_are_staged_then_moved_when_sent() {
     h.restart().await;
     eventually("the stale copy going", || !old.exists()).await;
     assert!(fresh.exists());
+}
+
+#[tokio::test]
+async fn a_queued_message_taken_back_goes_again_with_its_picture() {
+    let mut h = Harness::new();
+    let (claude, claude_session) = h.start_claude(None).await;
+    let (codex, codex_server) = h.start_codex("thread-1").await;
+    let account = h.acp_agent(false);
+    let mut spec = h.spec(Vendor::Acp, None);
+    spec.account = account;
+    let acp = started(h.act(|key| ClientMessage::StartAgent { key, spec }).await);
+    let acp_session = h.holders.last();
+
+    for (agent, session) in [
+        (claude, claude_session),
+        (codex, codex_server),
+        (acp, acp_session),
+    ] {
+        let picture = h.stage_bytes("pasted-image.png", b"png!").await;
+        let outcome = h
+            .send_with(agent, "look", vec![picture.id], SendMode::Queue)
+            .await;
+        assert_eq!(outcome, ActionOutcome::Done);
+        let sent = h.attached(session);
+        let into = h.dir.path().join("attachments").join(agent.to_string());
+        assert_eq!(
+            sent,
+            [into.join(picture.id.to_string()).join("pasted-image.png")]
+        );
+
+        // Steer now: the app takes the queued message back and sends it
+        // again at once, naming the same picture.
+        let cancel = |key| ClientMessage::CancelQueued {
+            key,
+            agent,
+            item: ItemId("q1".into()),
+        };
+        assert_eq!(h.act(cancel).await, ActionOutcome::Done);
+        let outcome = h
+            .send_with(agent, "look", vec![picture.id], SendMode::Steer)
+            .await;
+        assert_eq!(outcome, ActionOutcome::Done, "{:?}", h.agent(agent).vendor);
+        assert_eq!(h.attached(session), sent);
+
+        // Edit: taken back, changed and sent again.
+        assert_eq!(h.act(cancel).await, ActionOutcome::Done);
+        let outcome = h
+            .send_with(agent, "look closer", vec![picture.id], SendMode::Queue)
+            .await;
+        assert_eq!(outcome, ActionOutcome::Done, "{:?}", h.agent(agent).vendor);
+        assert_eq!(h.attached(session), sent);
+        assert_eq!(fs::read(&sent[0]).unwrap(), b"png!");
+        assert!(h.sent(session).contains(&"look closer".to_owned()));
+    }
+
+    // Another agent can't name a picture sent to the first.
+    let picture = h.stage_bytes("pasted-image.png", b"png!").await;
+    let outcome = h
+        .send_with(claude, "look", vec![picture.id], SendMode::Queue)
+        .await;
+    assert_eq!(outcome, ActionOutcome::Done);
+    let outcome = h
+        .send_with(codex, "and you", vec![picture.id], SendMode::Steer)
+        .await;
+    assert_eq!(reason(&outcome), super::attach::GONE);
 }
 
 #[tokio::test]
@@ -3017,6 +3146,7 @@ async fn a_slow_history_read_holds_up_no_other_agent() {
         agent: outside,
         since: None,
         limit: 50,
+        lead: None,
     });
     eventually("the history read", || h.vendors.waiting_reads() == 1).await;
 
@@ -3115,6 +3245,99 @@ async fn a_terminal_codex_sessions_sub_agent_shows_its_own_thread() {
     );
     let (_, items, _) = reset(h.open(sub.id, None, 50).await);
     assert_eq!(ids(&items), ["s1"]);
+}
+
+#[tokio::test]
+async fn a_finished_sub_agent_opens_from_its_transcript_once() {
+    let mut h = Harness::new();
+    let session = Uuid::now_v7().to_string();
+    let lead = h.outside(&session, Activity::Busy);
+    // Only a1 runs still. a2 and the a3 it started finished, so they aren't
+    // listed.
+    let helper = Agent {
+        id: names::subagent(lead, "a1"),
+        parent: Some(lead),
+        vendor_session_id: Some("a1".into()),
+        ..h.agent(lead)
+    };
+    h.hub.apply([Change::Upsert {
+        value: Entity::Agent(helper.clone()),
+    }]);
+    let (done, deep) = (names::subagent(lead, "a2"), names::subagent(lead, "a3"));
+    let mut written = vec![reply(done, "d1", "Found it", ItemStatus::Completed)];
+    h.vendors
+        .set_history(&format!("{session}/a2"), written.clone());
+    h.vendors.set_history(
+        &format!("{session}/a3"),
+        vec![reply(deep, "n1", "Deep down", ItemStatus::Completed)],
+    );
+
+    let (_, items, _) = reset(h.open_under(done, lead).await);
+    assert_eq!(ids(&items), ["d1"]);
+    // A sub-agent's own sub-agent names its parent, which leads to the same
+    // session.
+    let (_, items, _) = reset(h.open_under(deep, helper.id).await);
+    assert_eq!(ids(&items), ["n1"]);
+
+    // A finished transcript isn't read again while it's open.
+    written.push(reply(done, "d2", "Later", ItemStatus::Completed));
+    h.vendors.set_history(&format!("{session}/a2"), written);
+    tokio::time::sleep(QUIET).await;
+    h.clock.advance(super::POLL_EVERY);
+    h.phone
+        .quiet(
+            "a poll of the finished sub-agent",
+            |message| matches!(message, ServerMessage::Timeline { agent, .. } if *agent == done),
+        )
+        .await;
+    let read = format!("{session}/a2");
+    assert_eq!(h.vendors.reads().iter().filter(|r| **r == read).count(), 1);
+
+    // A client that doesn't name the lead gets what it got before.
+    let other = names::subagent(lead, "a9");
+    let (_, items, _) = reset(h.open(other, None, 50).await);
+    assert!(items.is_empty());
+}
+
+#[tokio::test]
+async fn a_finished_sub_agent_goes_with_its_lead() {
+    let mut h = Harness::new();
+    let session = Uuid::now_v7().to_string();
+    let lead = h.outside(&session, Activity::Idle);
+    let done = names::subagent(lead, "a2");
+    h.vendors.set_history(
+        &format!("{session}/a2"),
+        vec![reply(done, "d1", "Found it", ItemStatus::Completed)],
+    );
+    h.hub.apply([Change::Remove {
+        key: EntityKey::Agent(lead),
+    }]);
+
+    let (_, items, _) = reset(h.open_under(done, lead).await);
+    assert!(items.is_empty());
+    assert!(h.vendors.reads().is_empty());
+}
+
+#[tokio::test]
+async fn a_held_leads_finished_sub_agent_opens_after_a_restart() {
+    let mut h = Harness::new();
+    let (lead, _) = h.start_claude(None).await;
+    let session = h.stored(lead).vendor_session;
+    let done = names::subagent(lead, "t1");
+    h.vendors.set_history(
+        &format!("{session}/t1"),
+        vec![reply(done, "d1", "Found it", ItemStatus::Completed)],
+    );
+    let (_, items, _) = reset(h.open_under(done, lead).await);
+    assert_eq!(ids(&items), ["d1"]);
+
+    h.restart().await;
+    eventually("the lead back", || {
+        h.hub.get(&EntityKey::Agent(lead)).is_some()
+    })
+    .await;
+    let (_, items, _) = reset(h.open_under(done, lead).await);
+    assert_eq!(ids(&items), ["d1"]);
 }
 
 #[tokio::test]

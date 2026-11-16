@@ -1229,6 +1229,7 @@ mod tests {
             asleep: false,
             effort: None,
             running: None,
+            moved: None,
         })
     }
 
@@ -1436,6 +1437,7 @@ mod tests {
             default: true,
             efforts: Vec::new(),
             default_effort: None,
+            no_images: false,
         }];
 
         let first = hub();

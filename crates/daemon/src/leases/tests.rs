@@ -233,6 +233,7 @@ async fn a_kind_this_device_doesnt_offer_names_the_devices_that_do() {
                 routes: Vec::new(),
                 host_key: String::new(),
                 test_kinds: vec![TestKind::Linux],
+                home: false,
             }],
         })
         .expect("a peer book");
@@ -454,6 +455,7 @@ fn agent_named(id: AgentId) -> Agent {
         asleep: false,
         effort: None,
         running: None,
+        moved: None,
     }
 }
 

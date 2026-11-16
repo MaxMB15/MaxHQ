@@ -11,8 +11,8 @@ use specta::Type;
 
 use crate::acp::{AcpAgent, AcpEnvValue};
 use crate::agents::{
-    AccessKey, AgentOrigin, ClientRole, McpCommand, PeerBook, PeerRequest, Permission, ToolAnswer,
-    ToolCall, ToolImage,
+    AccessKey, AgentOrigin, ClientRole, Departure, McpCommand, MoveCheck, MoveTo, PeerBook,
+    PeerRequest, Permission, ToolAnswer, ToolCall, ToolImage,
 };
 use crate::attention::{AnswerOutcome, AttentionAnswer};
 use crate::context::InlineRef;
@@ -475,6 +475,12 @@ pub enum ClientMessage {
         since: Option<Seq>,
         /// The most items a reset may hold.
         limit: u32,
+        /// The lead `agent` runs under, when it's a sub-agent. A `maxd`
+        /// from [`FINISHED_SUB_AGENTS_SINCE`] on reads a sub-agent it no
+        /// longer lists, such as one that finished, from its transcript
+        /// beside the lead's. An older one ignores it.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        lead: Option<AgentId>,
     },
     /// Asks for items before the oldest the client has.
     LoadOlder {
@@ -1973,6 +1979,26 @@ pub enum ClientMessage {
         /// Whether to let the program in until it disconnects.
         allow: bool,
     },
+    /// Moves an agent to another device: checks the device it goes to,
+    /// stops the agent, starts a new one there from a summary of its
+    /// conversation, marks the old one moved and points the tasks that
+    /// target it at the new one. Only the device that runs the MaxHQ app
+    /// takes it. The outcome is [`ActionOutcome::Started`] with the new
+    /// agent. A `maxd` from before [`MOVE_AGENT_SINCE`] refuses it.
+    MoveAgent {
+        /// Makes a resend after a dropped connection safe.
+        key: IdempotencyKey,
+        /// The agent.
+        agent: AgentId,
+        /// The device it runs on.
+        from: DeviceId,
+        /// Where it goes.
+        to: MoveTo,
+        /// Whether to stop a turn that runs or a prompt that waits. Without
+        /// it, a move of an agent that works is refused.
+        #[serde(default)]
+        stop: bool,
+    },
 }
 
 impl ClientMessage {
@@ -2024,6 +2050,7 @@ impl ClientMessage {
                 .first
                 .as_ref()
                 .map_or(OLDEST_PROTOCOL_VERSION, UserInput::since),
+            Self::MoveAgent { .. } => MOVE_AGENT_SINCE,
             _ => OLDEST_PROTOCOL_VERSION,
         }
     }
@@ -2189,7 +2216,8 @@ impl ClientMessage {
             | Self::Prove { key, .. }
             | Self::EnrollAppKey { key, .. }
             | Self::RemoveAppKey { key, .. }
-            | Self::AnswerAdmission { key, .. } => Some(*key),
+            | Self::AnswerAdmission { key, .. }
+            | Self::MoveAgent { key, .. } => Some(*key),
             Self::Hello(_)
             | Self::Phone { .. }
             | Self::Pair { .. }
@@ -2580,6 +2608,19 @@ pub const DISMISS_SINCE: u32 = 42;
 /// An older one ignores both and installs the upload as before, so the app
 /// says it doesn't check signatures.
 pub const SIGNED_UPDATES_SINCE: u32 = 43;
+
+/// The protocol version whose `maxd` first moves agents between devices:
+/// [`ClientMessage::MoveAgent`], [`crate::agents::PeerRequest::Move`], the
+/// `move_agent` tool, the dispatcher's move step and the `device` that
+/// `list_targets` takes. An older one refuses each, so the app says the
+/// move needs a newer `maxd`.
+pub const MOVE_AGENT_SINCE: u32 = 44;
+
+/// The protocol version whose `maxd` first opens the timeline of a Claude
+/// sub-agent that finished, read once from its transcript, when
+/// [`ClientMessage::OpenTimeline`] names its lead. An older one sends an
+/// empty timeline, so the app says the sub-agent isn't there.
+pub const FINISHED_SUB_AGENTS_SINCE: u32 = 44;
 
 /// When [`ClientMessage::TakeOver`] stops the terminal's CLI.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, Type, JsonSchema)]
@@ -2992,6 +3033,20 @@ pub enum ActionOutcome {
     /// A card on another device asks whether to trust the key, for
     /// [`ClientMessage::EnrollAppKey`].
     Asked,
+
+    // Moving agents.
+    /// What an agent took along when it left this device, for
+    /// [`crate::agents::AgentMoveStep::Leave`].
+    Departed {
+        /// What it took.
+        departure: Box<Departure>,
+    },
+    /// What an agent would run as on this device, for
+    /// [`crate::agents::AgentMoveStep::Check`].
+    Checked {
+        /// What it would run as.
+        check: Box<MoveCheck>,
+    },
 
     /// An outcome from a newer `maxd`. The action went through, and what
     /// it came to needs a newer app to show.
@@ -3630,6 +3685,28 @@ mod tests {
     }
 
     #[test]
+    fn a_sub_agents_lead_is_a_hint_an_older_maxd_ignores() {
+        let open = |lead| ClientMessage::OpenTimeline {
+            agent: agent(),
+            since: None,
+            limit: 50,
+            lead,
+        };
+        assert!(round_trip(&open(None)).get("lead").is_none());
+        let lead = AgentId::derive("lead");
+        assert_eq!(round_trip(&open(Some(lead)))["lead"], json!(lead));
+        // An older maxd reads past it, so it goes to every maxd.
+        assert_eq!(open(Some(lead)).since(), OLDEST_PROTOCOL_VERSION);
+        let old = json!({ "type": "open_timeline", "agent": agent(), "since": null, "limit": 50 });
+        let read: ClientMessage = serde_json::from_value(old).unwrap();
+        assert!(matches!(
+            read,
+            ClientMessage::OpenTimeline { lead: None, .. }
+        ));
+        assert_eq!(FINISHED_SUB_AGENTS_SINCE, 44);
+    }
+
+    #[test]
     fn show_anyway_goes_only_to_a_maxd_that_reads_it() {
         let fetch = |anyway| ClientMessage::FetchBegin {
             key: key(),
@@ -3992,6 +4069,7 @@ mod tests {
                     agent: agent(),
                     since: Some(Seq(9)),
                     limit: 200,
+                    lead: None,
                 },
             ),
             (

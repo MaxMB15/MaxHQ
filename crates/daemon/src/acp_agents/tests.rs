@@ -320,6 +320,7 @@ fn agent_on(account: AccountId, activity: Activity) -> Entity {
         asleep: false,
         effort: None,
         running: None,
+        moved: None,
     })
 }
 

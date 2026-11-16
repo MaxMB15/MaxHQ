@@ -810,6 +810,7 @@ impl ClaudeSession {
                 waiting: Some(waiting),
                 ..AgentRunning::default()
             }),
+            moved: None,
         }
     }
 

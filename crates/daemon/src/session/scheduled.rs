@@ -388,7 +388,7 @@ impl Manager {
 
     /// Stores a task, with the permission of one the user made, and
     /// publishes the change.
-    fn keep_task(&mut self, task: Task) -> Result<(), String> {
+    pub(super) fn keep_task(&mut self, task: Task) -> Result<(), String> {
         if task.made_by == Maker::User
             && let ActionOutcome::Refused { reason } =
                 self.grant(maxhq_core::agents::task_permission(&task, self.device))
@@ -1156,6 +1156,16 @@ impl Manager {
     }
 
     /// Who made a task, while it's here.
+    /// The tasks stored here whose runs reach `target`.
+    pub(super) fn tasks_targeting(&self, target: &TaskTarget) -> Vec<Task> {
+        self.tasks
+            .tasks
+            .values()
+            .filter(|task| task.target == *target)
+            .cloned()
+            .collect()
+    }
+
     pub(super) fn task_maker(&self, task: TaskId) -> Option<Maker> {
         self.tasks.tasks.get(&task).map(|task| task.made_by)
     }

@@ -487,6 +487,28 @@ pub fn transcript(config_dir: &Path, session: &str) -> Option<PathBuf> {
         .find(|path| path.is_file())
 }
 
+/// The IDs of the sub-agents of `session` in `config_dir` that wrote a
+/// transcript, running or not.
+pub fn subagent_ids(config_dir: &Path, session: &str) -> Vec<String> {
+    let Some(dir) = transcript(config_dir, session) else {
+        return Vec::new();
+    };
+    let Ok(entries) = fs::read_dir(dir.with_extension("").join("subagents")) else {
+        return Vec::new();
+    };
+    entries
+        .flatten()
+        .filter_map(|entry| {
+            let name = entry.file_name();
+            let id = name
+                .to_str()?
+                .strip_prefix("agent-")?
+                .strip_suffix(".jsonl")?;
+            (!id.is_empty()).then(|| id.to_owned())
+        })
+        .collect()
+}
+
 /// Reads the end of the transcript of `session` into `convo`, with its
 /// sub-agents' transcripts, for a driver that meets a session already
 /// under way. `lead` gets each of the session's own records, with its
@@ -1056,5 +1078,17 @@ mod tests {
             records(&mut tail),
             vec![json!({"long": long}), json!({"short": 1})]
         );
+    }
+
+    #[test]
+    fn lists_the_sub_agents_that_wrote_a_transcript() {
+        let session = Session::new();
+        assert!(subagent_ids(session.dir.path(), SESSION).is_empty());
+        session.lead(&[json!({"type": "user"})]);
+        session.sub("a1", &[json!({"type": "user"})]);
+        session.meta("a2", "toolu_2");
+        fs::write(session.subagents().join("notes.txt"), "").unwrap();
+        assert_eq!(subagent_ids(session.dir.path(), SESSION), ["a1"]);
+        assert!(subagent_ids(session.dir.path(), "not-a-session").is_empty());
     }
 }

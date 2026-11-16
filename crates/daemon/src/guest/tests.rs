@@ -111,6 +111,7 @@ fn guest_ticking(
         room: Room {
             keep_bytes: 0,
             keep_percent: 0,
+            keep_at_most: 0,
         },
         quota: DEVICE_QUOTA,
     });
@@ -1257,6 +1258,7 @@ fn placing(root: &Path) -> (Files, PathBuf) {
         room: Room {
             keep_bytes: 0,
             keep_percent: 0,
+            keep_at_most: 0,
         },
         quota: DEVICE_QUOTA,
     });

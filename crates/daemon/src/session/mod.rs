@@ -31,6 +31,8 @@ mod jobs;
 mod limits;
 mod loading;
 mod lookups;
+mod move_agent;
+mod move_tool;
 mod moved;
 mod note_tools;
 mod pace;
@@ -587,8 +589,15 @@ enum Input {
         workspace: WorkspaceId,
         done: moved::Done,
     },
+    /// Something came for moving an agent between devices.
+    Move(Box<move_agent::Later>),
     /// `maxd` is stopping.
     Shutdown { done: oneshot::Sender<()> },
+    /// Another device said which agents here its enabled tasks reach.
+    TaskTargets {
+        from: DeviceId,
+        agents: Vec<AgentId>,
+    },
 }
 
 /// The manager's state, owned by its task.
@@ -692,6 +701,8 @@ struct Manager {
     trust_fresh: HashSet<AgentId>,
     /// Moves waiting for the agent they resume to be up.
     moved: HashMap<IdempotencyKey, moved::Done>,
+    /// Agents that move between devices.
+    moves: move_agent::Moves,
     /// Each container workspace's guest link, as last heard.
     links: HashMap<WorkspaceId, Link>,
     /// The agent summaries each container workspace was last given.
@@ -820,6 +831,7 @@ impl Manager {
             trust_restarts: HashSet::new(),
             trust_fresh: HashSet::new(),
             moved: HashMap::new(),
+            moves: move_agent::Moves::default(),
             links: HashMap::new(),
             summaries: HashMap::new(),
             limit_waits: HashMap::new(),
@@ -945,6 +957,7 @@ impl Manager {
             .chain(self.next_poll)
             .chain(self.inbox_deadline())
             .chain(self.agent_tools.deadline())
+            .chain(self.moves.deadline())
             .chain(self.task_deadline())
             .chain(self.idle.deadline())
             .chain(self.pace.deadline())
@@ -1115,10 +1128,12 @@ impl Manager {
             Input::SkillsChanged(changed) => self.skills_changed(changed).await,
             Input::ResumeMoved { resume, done } => self.resume_moved(resume, done),
             Input::StopIn { workspace, done } => self.stop_in(workspace, done),
+            Input::Move(later) => self.move_later(*later),
             // The loop handles it before it gets here.
             Input::Shutdown { done } => {
                 let _ = done.send(());
             }
+            Input::TaskTargets { from, agents } => self.heard_task_targets(from, agents),
         }
     }
 
@@ -1191,6 +1206,7 @@ impl Manager {
     fn finish(&mut self, key: IdempotencyKey, outcome: Outcome) {
         self.agent_action_done(key, &outcome);
         self.moved_done(key, &outcome);
+        self.move_done(key, &outcome);
         self.dispatch_done(key, &outcome);
         let message = outcome.message(key);
         for conn in self.keys.finish(key, outcome) {
@@ -1337,6 +1353,7 @@ impl Manager {
         }
         agent.account = Some(held.account);
         agent.origin = held.origin;
+        agent.moved.clone_from(&held.moved);
         // A Cursor agent's session is named once its CLI makes it.
         agent.vendor_session_id =
             Some(held.vendor_session.clone()).filter(|session| !session.is_empty());
@@ -1472,6 +1489,7 @@ impl Manager {
             asleep: false,
             effort: None,
             running: None,
+            moved: None,
         }
     }
 
@@ -1553,31 +1571,40 @@ impl Manager {
         account.models.into_iter().nth(at)
     }
 
-    /// Moves staged attachments into an agent's folder.
+    /// Moves staged attachments into an agent's folder. One a message moved
+    /// there already, such as a queued message's taken back and sent again,
+    /// stays where it is.
     fn take_attachments(
         &mut self,
         ids: &[AttachmentId],
         into: &std::path::Path,
     ) -> Result<Vec<Staged>, String> {
-        let found = self.find_attachments(ids)?;
+        let found = self.find_attachments(ids, Some(into))?;
         self.move_attachments(&found, into)
     }
 
-    /// Looks staged attachments up.
-    fn find_attachments(&self, ids: &[AttachmentId]) -> Result<Vec<AttachmentRef>, String> {
+    /// Looks staged attachments up, and with `sent_to` set, the ones a
+    /// message already moved into that agent's folder. No other agent's
+    /// folder is looked in.
+    fn find_attachments(
+        &self,
+        ids: &[AttachmentId],
+        sent_to: Option<&std::path::Path>,
+    ) -> Result<Vec<AttachmentRef>, String> {
         ids.iter()
             .map(|id| {
                 self.staged
                     .get(id)
                     .cloned()
                     .or_else(|| self.attachments.find(*id))
-                    .ok_or_else(|| format!("attachment {id} isn't staged"))
+                    .or_else(|| sent_to.and_then(|into| self.attachments.sent(*id, into)))
+                    .ok_or_else(|| attach::GONE.to_owned())
             })
             .collect()
     }
 
-    /// Moves found attachments into an agent's folder. Each one moves
-    /// once, so a later message can't name it again.
+    /// Moves found attachments into an agent's folder. Each one moves out
+    /// of staging once, so only that agent's messages can name it again.
     fn move_attachments(
         &mut self,
         found: &[AttachmentRef],

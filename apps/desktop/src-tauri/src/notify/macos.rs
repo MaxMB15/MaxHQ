@@ -10,6 +10,10 @@
 //! which also groups an agent's notifications together, and a click hands
 //! it back.
 //!
+//! macOS hides the Dock badge of an app that uses the center unless the
+//! app asked for badges and you leave them on, so the app asks for them
+//! along with alerts and sounds.
+//!
 //! `pnpm dev` runs the debug build from a small bundle of its own, with
 //! `.dev` on the end of the app's identifier, so macOS asks about it and
 //! lists it in System Settings apart from the app you installed.
@@ -32,12 +36,12 @@ use objc2_foundation::{NSArray, NSBundle, NSError, NSString, NSURL};
 use objc2_user_notifications::{
     UNAuthorizationOptions, UNAuthorizationStatus, UNMutableNotificationContent, UNNotification,
     UNNotificationPresentationOptions, UNNotificationRequest, UNNotificationResponse,
-    UNNotificationSettings, UNNotificationSound, UNUserNotificationCenter,
+    UNNotificationSetting, UNNotificationSettings, UNNotificationSound, UNUserNotificationCenter,
     UNUserNotificationCenterDelegate,
 };
 use tokio::sync::oneshot;
 
-use super::NotificationPermission;
+use super::{NotificationAccess, NotificationPermission};
 use crate::native::NativeError;
 
 /// What a click calls with the agent it was about.
@@ -112,8 +116,8 @@ pub struct Center;
 
 impl Center {
     /// Sets up Notification Center for this app and asks once for
-    /// permission to alert. Returns none when the app isn't running from
-    /// its bundle, where the center can't work.
+    /// permission to alert and badge. Returns none when the app isn't
+    /// running from its bundle, where the center can't work.
     pub fn start(on_click: OnClick) -> Option<Self> {
         let bundle = NSBundle::mainBundle();
         let path = bundle.bundlePath().to_string();
@@ -138,26 +142,31 @@ impl Center {
     }
 }
 
-/// Asks for permission to alert, and calls `answered` with whether it's
-/// given. macOS asks only the first time, then answers from your settings.
+/// Asks for permission to alert, play sounds and badge the icon, and calls
+/// `answered` with whether it's given. macOS asks only the first time,
+/// then answers from your settings. An app that asked before without
+/// badges gets no new prompt for them.
 fn request(answered: impl Fn(bool) + 'static) {
     let answered = RcBlock::new(move |granted: Bool, _error: *mut NSError| {
         answered(granted.as_bool());
     });
     UNUserNotificationCenter::currentNotificationCenter()
         .requestAuthorizationWithOptions_completionHandler(
-            UNAuthorizationOptions::Alert | UNAuthorizationOptions::Sound,
+            UNAuthorizationOptions::Alert
+                | UNAuthorizationOptions::Sound
+                | UNAuthorizationOptions::Badge,
             &answered,
         );
 }
 
-/// Asks for permission to alert, if macOS hasn't yet, and waits for the
-/// answer.
+/// Asks for permission to alert and badge, if macOS hasn't yet, and waits
+/// for the answer.
 pub async fn ask() {
     let _ = asked().await;
 }
 
-/// Asks for permission to alert. The answer comes through the receiver.
+/// Asks for permission to alert and badge. The answer comes through the
+/// receiver.
 fn asked() -> oneshot::Receiver<bool> {
     let (tell, told) = oneshot::channel();
     let tell = Once::new(tell);
@@ -165,27 +174,43 @@ fn asked() -> oneshot::Receiver<bool> {
     told
 }
 
-/// Whether macOS lets this app show notifications now.
-pub async fn permission() -> NotificationPermission {
-    match status().await {
-        Ok(UNAuthorizationStatus::NotDetermined) => NotificationPermission::NotDecided,
-        Ok(UNAuthorizationStatus::Denied) => NotificationPermission::Denied,
-        Ok(_) => NotificationPermission::Allowed,
+/// Whether macOS lets this app show notifications and badge its icon now.
+pub async fn access() -> NotificationAccess {
+    settings().await.unwrap_or_else(|_| {
         // The center dropped the block without calling it.
-        Err(_) => NotificationPermission::NotDecided,
+        access_from(
+            UNAuthorizationStatus::NotDetermined,
+            UNNotificationSetting::NotSupported,
+        )
+    })
+}
+
+/// What the app's authorization and badge setting let it do.
+fn access_from(status: UNAuthorizationStatus, badge: UNNotificationSetting) -> NotificationAccess {
+    let permission = match status {
+        UNAuthorizationStatus::NotDetermined => NotificationPermission::NotDecided,
+        UNAuthorizationStatus::Denied => NotificationPermission::Denied,
+        _ => NotificationPermission::Allowed,
+    };
+    NotificationAccess {
+        permission,
+        badge: badge == UNNotificationSetting::Enabled,
     }
 }
 
-/// Reads the app's authorization from the center. The answer comes
-/// through the receiver. The block stays here, since it can't cross
-/// threads.
-fn status() -> oneshot::Receiver<UNAuthorizationStatus> {
+/// Reads the app's settings from the center. The answer comes through the
+/// receiver. The block stays here, since it can't cross threads.
+fn settings() -> oneshot::Receiver<NotificationAccess> {
     let (tell, told) = oneshot::channel();
     let tell = Once::new(tell);
     let read = RcBlock::new(move |settings: NonNull<UNNotificationSettings>| {
         // SAFETY: The center hands the block settings that live at least
         // as long as the call.
-        tell.send(unsafe { settings.as_ref() }.authorizationStatus());
+        let settings = unsafe { settings.as_ref() };
+        tell.send(access_from(
+            settings.authorizationStatus(),
+            settings.badgeSetting(),
+        ));
     });
     UNUserNotificationCenter::currentNotificationCenter()
         .getNotificationSettingsWithCompletionHandler(&read);
@@ -269,5 +294,37 @@ impl NotificationSender for Center {
         let center = UNUserNotificationCenter::currentNotificationCenter();
         center.removeAllDeliveredNotifications();
         center.removeAllPendingNotificationRequests();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn each_status_gives_its_permission() {
+        use NotificationPermission::{Allowed, Denied, NotDecided};
+        for (status, permission) in [
+            (UNAuthorizationStatus::NotDetermined, NotDecided),
+            (UNAuthorizationStatus::Denied, Denied),
+            (UNAuthorizationStatus::Authorized, Allowed),
+            (UNAuthorizationStatus::Provisional, Allowed),
+            (UNAuthorizationStatus::Ephemeral, Allowed),
+        ] {
+            let access = access_from(status, UNNotificationSetting::Enabled);
+            assert_eq!(access.permission, permission, "{status:?}");
+        }
+    }
+
+    #[test]
+    fn only_a_badge_setting_that_is_on_lets_the_badge_show() {
+        for (setting, badge) in [
+            (UNNotificationSetting::NotSupported, false),
+            (UNNotificationSetting::Disabled, false),
+            (UNNotificationSetting::Enabled, true),
+        ] {
+            let access = access_from(UNAuthorizationStatus::Authorized, setting);
+            assert_eq!(access.badge, badge, "{setting:?}");
+        }
     }
 }

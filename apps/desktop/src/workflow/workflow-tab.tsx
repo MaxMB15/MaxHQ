@@ -86,8 +86,11 @@ export type WorkflowTabProps = {
 	/** Whether the header says the run's name, which run mode already does above. */
 	readonly named: boolean;
 	readonly onPickRun: (run: WorkflowRunId) => void;
-	/** Opens an agent, beside the focused pane when `split`. */
-	readonly onOpenAgent: (agent: AgentId, split: boolean) => void;
+	/**
+	 * Opens an agent, beside the focused pane when `split`. A row names it
+	 * by its `label`, for a sub-agent that finished.
+	 */
+	readonly onOpenAgent: (agent: AgentId, split: boolean, label?: string) => void;
 	/** Opens the run on a canvas, when there's a pane for it. */
 	readonly onOpenCanvas?: () => void;
 	/** Reads a node's detail lists, when the source offers them. */
@@ -308,7 +311,7 @@ export const NodeRow = memo(
 		lane: 0 | 1;
 		selected: boolean;
 		orchestrator: AgentId | null;
-		onOpenAgent: (agent: AgentId, split: boolean) => void;
+		onOpenAgent: (agent: AgentId, split: boolean, label?: string) => void;
 		onDetail?: (node: string) => Promise<NodeDetail | null>;
 		rowMenu?: (agent: AgentId | null) => ReactNode;
 	}) => {
@@ -318,7 +321,7 @@ export const NodeRow = memo(
 		const agent = nodeAgent(node, orchestrator);
 		const ghost = node.status === "will_skip" || node.status === "skipped";
 		const click = (e: MouseEvent) => {
-			if (agent) onOpenAgent(agent, holdsCommand(e));
+			if (agent) onOpenAgent(agent, holdsCommand(e), shape.label);
 			else setOpen(true);
 		};
 		return (
@@ -473,7 +476,7 @@ const RunRows = ({
 	loops: readonly LoopState[];
 	selected: AgentId | null;
 	orchestrator: AgentId | null;
-	onOpenAgent: (agent: AgentId, split: boolean) => void;
+	onOpenAgent: (agent: AgentId, split: boolean, label?: string) => void;
 	onDetail?: (node: string) => Promise<NodeDetail | null>;
 	rowMenu?: (agent: AgentId | null) => ReactNode;
 }) => {

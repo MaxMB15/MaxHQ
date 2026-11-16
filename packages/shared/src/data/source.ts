@@ -50,6 +50,7 @@ import type {
 	McpCommand,
 	MoveId,
 	MoveStep,
+	MoveTo,
 	NodeDetail,
 	NoteId,
 	NoteVersion,
@@ -388,6 +389,20 @@ export type DataSource = {
 	 * first. Its folder and its CLI's transcript stay.
 	 */
 	readonly deleteAgent: (agent: AgentId) => Promise<ActionResult>;
+	/**
+	 * Moves a lead agent MaxHQ holds on `from` to another device, through
+	 * the `maxd` on `device`, the one the app runs with. A new agent starts
+	 * there from a summary of the conversation, the old one stops and
+	 * settles, and the tasks that send to it follow. `stop` stops a turn
+	 * that runs or a prompt that waits first. Answers with the new agent.
+	 */
+	readonly moveAgent: (
+		device: DeviceId,
+		agent: AgentId,
+		from: DeviceId,
+		to: MoveTo,
+		stop: boolean
+	) => Promise<ActionResult>;
 	/**
 	 * Names an agent, held or seen outside MaxHQ, over the title its CLI
 	 * gives. A blank title clears the name.

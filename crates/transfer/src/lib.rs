@@ -102,14 +102,24 @@ pub struct Room {
     pub keep_bytes: u64,
     /// The share of the disk that stays free, in percent.
     pub keep_percent: u64,
+    /// The most that share keeps free, however big the disk.
+    pub keep_at_most: u64,
 }
 
 impl Room {
-    /// 1 GiB or 5%, whichever is more.
+    /// 5% of the disk, but at least 1 GiB and at most 10 GiB.
     pub const DEFAULT: Room = Room {
         keep_bytes: GIB,
         keep_percent: 5,
+        keep_at_most: 10 * GIB,
     };
+
+    /// The bytes that stay free on a disk of `size` bytes.
+    fn keep(&self, size: u64) -> u64 {
+        (size / 100 * self.keep_percent.min(100))
+            .min(self.keep_at_most)
+            .max(self.keep_bytes)
+    }
 
     /// Refuses `incoming` more bytes if they'd leave less than this free on
     /// the disk under `dir`.
@@ -121,15 +131,16 @@ impl Room {
     /// Refuses `incoming` more bytes on a disk of `size` bytes with `free`
     /// left.
     pub fn check_space(&self, free: u64, size: u64, incoming: u64) -> Result<(), Failure> {
-        let keep = self.keep_bytes.max(size / 100 * self.keep_percent.min(100));
+        let keep = self.keep(size);
         if free.saturating_sub(incoming) < keep || free < incoming {
             return Err(Failure::new(
                 ErrorCode::NoSpace,
                 None,
                 format!(
-                    "the device needs {} free and has {}",
-                    human(incoming.saturating_add(keep)),
-                    human(free)
+                    "the device has {} free and MaxHQ keeps {} free, so {} more won't fit",
+                    human(free),
+                    human(keep),
+                    human(incoming)
                 ),
             ));
         }
@@ -249,19 +260,44 @@ mod tests {
         assert_eq!(missing.kind(), io::ErrorKind::NotFound);
     }
 
+    /// A 2 TB disk, as its maker counts.
+    const TWO_TB: u64 = 2_000_000_000_000;
+
     #[test]
-    fn space_runs_short_below_a_gibibyte_or_five_percent() {
+    fn the_reserve_is_five_percent_between_one_and_ten_gibibytes() {
+        let room = Room::DEFAULT;
+        // On a small disk the floor is what counts.
+        assert_eq!(room.keep(4 * GIB), GIB);
+        // A mid-size disk keeps 5%.
+        assert_eq!(room.keep(100 * GIB), 5 * GIB);
+        // A big one keeps no more than the ceiling.
+        assert_eq!(room.keep(TWO_TB), 10 * GIB);
+    }
+
+    #[test]
+    fn space_runs_short_below_the_reserve() {
         let room = Room::DEFAULT;
         let disk = 100 * GIB;
         assert!(room.check_space(10 * GIB, disk, 4 * GIB).is_ok());
         // 5% of 100 GiB is 5 GiB, more than the 1 GiB floor.
         let short = room.check_space(10 * GIB, disk, 6 * GIB).unwrap_err();
         assert_eq!(short.code, ErrorCode::NoSpace);
-        // On a small disk the floor is what counts.
+        assert_eq!(
+            short.message,
+            "the device has 10.0 GiB free and MaxHQ keeps 5.0 GiB free, so 6.0 GiB more won't fit"
+        );
         let small = 4 * GIB;
         assert!(room.check_space(2 * GIB, small, GIB / 2).is_ok());
         assert!(room.check_space(2 * GIB, small, GIB + 1).is_err());
         assert!(room.check_space(GIB, small, 2 * GIB).is_err());
+        // A small picture fits on a 2 TB disk with 80 GiB free, and runs
+        // short only once less than 10 GiB would be left.
+        let picture = 60 * 1024;
+        assert!(room.check_space(80 * GIB, TWO_TB, picture).is_ok());
+        assert!(room
+            .check_space(10 * GIB + picture, TWO_TB, picture)
+            .is_ok());
+        assert!(room.check_space(10 * GIB, TWO_TB, picture).is_err());
     }
 
     #[test]

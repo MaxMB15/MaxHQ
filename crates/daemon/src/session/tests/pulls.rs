@@ -509,3 +509,36 @@ async fn an_agent_outside_a_repo_has_no_prs() {
     assert!(matches!(outcome, ActionOutcome::Refused { .. }));
     assert!(h.agent(agent).pulls.is_empty());
 }
+
+#[tokio::test]
+async fn a_merge_leaves_an_agent_a_task_keeps() {
+    let mut h = Harness::new();
+    let (agent, _) = h.in_repo().await;
+    h.sessions
+        .task_targets(DeviceId::derive("devbox"), vec![agent])
+        .unwrap();
+    let outcome = h
+        .act(|key| ClientMessage::LinkPull {
+            key,
+            agent,
+            number: 12,
+        })
+        .await;
+    assert_eq!(outcome, ActionOutcome::Done);
+
+    let fake = h.watch();
+    let merged = Pull {
+        state: "closed".to_owned(),
+        merged_at: Some("2027-06-01T00:00:00Z".to_owned()),
+        ..pull(12, "fix-build")
+    };
+    fake.state()
+        .pulls
+        .insert("owner/repo".to_owned(), vec![merged]);
+    h.beats("the read", || {
+        h.state_of(agent, 12) == Some(PullState::Merged)
+    })
+    .await;
+    tokio::time::sleep(QUIET).await;
+    assert!(h.inbox(agent).settled.is_none());
+}

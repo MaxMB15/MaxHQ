@@ -95,6 +95,8 @@ pub enum Tool {
     WaitAgent,
     /// Stops an agent's turn, or the agent.
     InterruptAgent,
+    /// Moves an agent to another device, once the user approves.
+    MoveAgent,
     /// Makes or changes a scheduled task.
     ScheduleTask,
     /// Lists scheduled tasks.
@@ -141,7 +143,7 @@ pub enum Tool {
 
 impl Tool {
     /// Every tool, in the order the CLI lists them.
-    pub const ALL: [Tool; 29] = [
+    pub const ALL: [Tool; 30] = [
         Tool::SendAttachments,
         Tool::OpenFile,
         Tool::ShowVisual,
@@ -152,6 +154,7 @@ impl Tool {
         Tool::SendAgent,
         Tool::WaitAgent,
         Tool::InterruptAgent,
+        Tool::MoveAgent,
         Tool::ScheduleTask,
         Tool::ListTasks,
         Tool::DeleteTask,
@@ -248,9 +251,9 @@ impl Tool {
 
     /// Whether a tool outside MaxHQ with an access key gets the tool. It
     /// has no timeline, so it can't send attachments, open files or show
-    /// visuals, and no PRs.
+    /// visuals, have PRs, or ask you to approve a move.
     pub fn for_key(self) -> bool {
-        !self.shows() && !self.pulls() && !self.dispatches()
+        !self.shows() && !self.pulls() && !self.dispatches() && self != Tool::MoveAgent
     }
 
     /// Whether the tool shows the user something on the caller's own
@@ -285,6 +288,7 @@ impl Tool {
             Tool::SendAgent => "send_agent",
             Tool::WaitAgent => "wait_agent",
             Tool::InterruptAgent => "interrupt_agent",
+            Tool::MoveAgent => "move_agent",
             Tool::ScheduleTask => "schedule_task",
             Tool::ListTasks => "list_tasks",
             Tool::DeleteTask => "delete_task",
@@ -607,8 +611,8 @@ pub enum Call {
     ShowVisual(Show),
     /// Read another agent's timeline.
     ReadAgent(Read),
-    /// List where agents may start.
-    ListTargets,
+    /// List where agents may start, on this device or the one named.
+    ListTargets(Option<DeviceId>),
     /// List agents.
     ListAgents(agents::List),
     /// Start an agent.
@@ -619,6 +623,8 @@ pub enum Call {
     WaitAgent(agents::Wait),
     /// Stop an agent's turn, or the agent.
     InterruptAgent(agents::Stop),
+    /// Move an agent to another device.
+    MoveAgent(agents::Move),
     /// Make or change a scheduled task.
     ScheduleTask(tasks::Schedule),
     /// List scheduled tasks.
@@ -655,12 +661,13 @@ impl Call {
             Call::OpenFile(_) => Tool::OpenFile,
             Call::ShowVisual(_) => Tool::ShowVisual,
             Call::ReadAgent(_) => Tool::ReadAgent,
-            Call::ListTargets => Tool::ListTargets,
+            Call::ListTargets(_) => Tool::ListTargets,
             Call::ListAgents(_) => Tool::ListAgents,
             Call::StartAgent(_) => Tool::StartAgent,
             Call::SendAgent(_) => Tool::SendAgent,
             Call::WaitAgent(_) => Tool::WaitAgent,
             Call::InterruptAgent(_) => Tool::InterruptAgent,
+            Call::MoveAgent(_) => Tool::MoveAgent,
             Call::ScheduleTask(_) => Tool::ScheduleTask,
             Call::ListTasks => Tool::ListTasks,
             Call::DeleteTask(_) => Tool::DeleteTask,
@@ -703,7 +710,7 @@ impl Call {
             Call::SendAttachments(_)
             | Call::OpenFile(_)
             | Call::ShowVisual(_)
-            | Call::ListTargets
+            | Call::MoveAgent(_)
             | Call::ScheduleTask(_)
             | Call::ListTasks
             | Call::DeleteTask(_)
@@ -718,6 +725,7 @@ impl Call {
             | Call::ListRepoPullRequests(_)
             | Call::SubmitPlan(_) => None,
             Call::ReadAgent(read) => read.device,
+            Call::ListTargets(device) => *device,
             Call::ListAgents(list) => list.device,
             Call::StartAgent(start) => start.device,
             Call::SendAgent(message) => message.device,

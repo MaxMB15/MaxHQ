@@ -59,7 +59,7 @@ describe("the Dock badge", () => {
 		// Nothing counts before the view loads, so the badge starts cleared.
 		expect(counts).toEqual([undefined, 1, 2]);
 
-		render(<DockBadgeSection />);
+		render(<DockBadgeSection access={null} onOpenSettings={() => {}} />);
 		await act(async () => {
 			fireEvent.click(
 				screen.getByRole("switch", { name: "Badge: Failed or stopped with an error" })

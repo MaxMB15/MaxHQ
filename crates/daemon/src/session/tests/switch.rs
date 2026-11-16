@@ -36,7 +36,7 @@ fn marker(items: &[TimelineItem]) -> Vec<(Vendor, Vendor, ItemStatus)> {
 
 impl Harness {
     /// A Claude agent that did one turn and is idle, with its holder.
-    async fn claude_after_a_turn(&mut self) -> (AgentId, SessionId) {
+    pub(super) async fn claude_after_a_turn(&mut self) -> (AgentId, SessionId) {
         let (agent, session) = self.start_claude(Some("Build it")).await;
         let say = Say {
             agents: vec![self.reported(agent, Activity::Idle)],
@@ -103,6 +103,7 @@ impl Harness {
             agent,
             since: None,
             limit: 100,
+            lead: None,
         });
         reset(viewer.timeline(agent).await).1
     }

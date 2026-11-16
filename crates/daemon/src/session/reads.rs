@@ -8,6 +8,7 @@
 use std::io;
 use std::path::PathBuf;
 
+use maxhq_core::names;
 use maxhq_protocol::ids::{AccountId, AgentId, WorkspaceId};
 use maxhq_protocol::model::Vendor;
 use maxhq_protocol::timeline::{Delivery, ItemBody, TimelineEvent, TimelineItem};
@@ -38,13 +39,23 @@ pub(super) struct Source {
     pub session: String,
     /// The Claude sub-agent of `session` whose own transcript holds the
     /// history, or none for the session's.
-    pub subagent: Option<String>,
+    pub subagent: Option<Subagent>,
     /// The container workspace whose guest keeps the history, or none for
     /// this device.
     pub workspace: Option<WorkspaceId>,
     /// The account the session runs under, which what a login that ran out
     /// shows names, when MaxHQ knows it.
     pub account: Option<AccountId>,
+}
+
+/// Which of a Claude session's sub-agents keeps the history.
+pub(super) enum Subagent {
+    /// The one with this ID within the session.
+    Id(String),
+    /// The one the agent read is, which this lead started. It's for a
+    /// sub-agent `maxd` no longer lists, such as one that finished, so the
+    /// read looks through the session's sub-agents for it.
+    Of(AgentId),
 }
 
 /// Where a read gets its items.
@@ -108,7 +119,7 @@ fn open_history(
     agent: AgentId,
     bytes: Option<u64>,
 ) -> Option<Box<dyn History>> {
-    match (source.workspace, source.subagent.as_deref()) {
+    match (source.workspace, &source.subagent) {
         (Some(workspace), None) => places.history(
             workspace,
             source.vendor,
@@ -119,20 +130,34 @@ fn open_history(
         ),
         // A guest reads only a session's own history.
         (Some(_), Some(_)) => None,
-        (None, subagent) => vendors
-            .history(
-                source.vendor,
-                &source.config_dir,
-                &source.session,
-                subagent,
-                agent,
-            )
-            .map(|mut history| {
-                if let Some(account) = source.account {
-                    history.account(account);
+        (None, subagent) => {
+            let found;
+            let subagent = match subagent {
+                Some(Subagent::Id(id)) => Some(id.as_str()),
+                Some(Subagent::Of(lead)) => {
+                    found = vendors
+                        .subagents(source.vendor, &source.config_dir, &source.session)
+                        .into_iter()
+                        .find(|id| names::subagent(*lead, id) == agent)?;
+                    Some(found.as_str())
                 }
-                history
-            }),
+                None => None,
+            };
+            vendors
+                .history(
+                    source.vendor,
+                    &source.config_dir,
+                    &source.session,
+                    subagent,
+                    agent,
+                )
+                .map(|mut history| {
+                    if let Some(account) = source.account {
+                        history.account(account);
+                    }
+                    history
+                })
+        }
     }
 }
 

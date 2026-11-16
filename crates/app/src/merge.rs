@@ -769,6 +769,7 @@ pub(crate) mod tests {
             asleep: false,
             effort: None,
             running: None,
+            moved: None,
         })
     }
 

@@ -104,6 +104,8 @@ struct Timeline {
     /// each with a reset or the events since, which hold what came before
     /// rather than something that just happened.
     owed: usize,
+    /// The lead a sub-agent runs under, which each open names again.
+    lead: Option<AgentId>,
 }
 
 /// One page of older items asked for.
@@ -209,6 +211,7 @@ impl Requests {
         agent: AgentId,
         since: Option<Seq>,
         limit: u32,
+        lead: Option<AgentId>,
     ) -> Result<(), LinkError> {
         if self.closed {
             return Err(LinkError::Closed);
@@ -219,11 +222,13 @@ impl Requests {
             seq: None,
             older: Vec::new(),
             owed: 0,
+            lead: None,
         });
         timeline.opens += 1;
         timeline.owed += 1;
         timeline.limit = limit;
         timeline.seq = since;
+        timeline.lead = lead.or(timeline.lead);
         Ok(())
     }
 
@@ -378,6 +383,7 @@ impl Requests {
                 agent: *agent,
                 since: timeline.seq.filter(|_| resume),
                 limit: timeline.limit,
+                lead: timeline.lead,
             });
         let mut messages: Vec<ClientMessage> = opens.collect();
         let runs = self.runs.keys().cloned();

@@ -29,6 +29,7 @@ import {
 	type LinkId,
 	type LinkState,
 	type LoginKind,
+	type MoveTo,
 	type PermissionMode,
 	type SshIncludeState,
 	type Timestamp,
@@ -742,6 +743,77 @@ export const mockSource = (options: MockOptions = {}): MockSource => {
 		return result;
 	};
 
+	// Moves a held lead agent to another device the way maxd does, through
+	// the Mac: a new agent starts there under the same name, the old one
+	// stops and settles, and the tasks the Mac keeps that send to it follow.
+	const moveAgent = async (
+		device: DeviceId,
+		id: AgentId,
+		from: DeviceId,
+		to: MoveTo,
+		stop: boolean
+	): Promise<ActionResult> => {
+		if (device !== MAC) return refused("Only the device that runs the MaxHQ app moves agents.");
+		if (from === to.device) return refused("The agent is on that device already.");
+		const agent = current.get(`agent:${id}`);
+		const workspace = agent?.entity === "agent" && current.get(`workspace:${agent.workspace}`);
+		if (agent?.entity !== "agent" || !workspace || workspace.entity !== "workspace") {
+			return missing(`agent ${id}`);
+		}
+		if (workspace.device !== from) return missing(`agent ${id}`);
+		if (agent.control !== "held" || agent.parent !== null) {
+			return refused("Only an agent MaxHQ runs moves, and a sub-agent moves with its lead.");
+		}
+		if (agent.moved?.to) return refused("That agent moved already.");
+		if (!stop && agent.activity.state === "needs_input") {
+			return refused("The agent waits for your answer. Answer it, or stop it and move it.");
+		}
+		if (!stop && WORKING.has(agent.activity.state)) {
+			return refused(
+				"The agent is working. Wait for its turn to end, or stop it and move it."
+			);
+		}
+		if (!stop && QUEUED.has(id)) {
+			return refused(
+				"A message waits for the agent. Take it back or let it go, or stop the agent and move it."
+			);
+		}
+		const account = current.get(`account:${to.account}`);
+		if (account?.entity !== "account" || account.device !== to.device) {
+			return refused("That account isn't on that device.");
+		}
+		const result = await startAgent({
+			vendor: account.vendor,
+			account: account.id,
+			place: to.place,
+			model: to.model ?? null,
+			permission: agent.permission?.requested ?? null,
+			title: agent.title,
+			first: null,
+			branch: null,
+		});
+		if (result.status !== "ok" || result.data.status !== "started") return result;
+		const moved = result.data.agent;
+		const at = now();
+		// Stopping it drops its prompts.
+		base = base.filter((e) => !(e.entity === "attention" && e.agent === id));
+		update((e) => {
+			if (e.entity !== "agent") return e;
+			if (e.id === id) {
+				return {
+					...e,
+					activity: { state: "paused", reason: "by_you" },
+					pid: null,
+					inbox: apply(inboxOf(e), { change: "settle" }, at),
+					moved: { to: { device: to.device, agent: moved } },
+				};
+			}
+			return e.id === moved ? { ...e, moved: { from: { device: from, agent: id } } } : e;
+		});
+		tasks.retarget(MAC, { device: from, agent: id }, { device: to.device, agent: moved });
+		return result;
+	};
+
 	// The dispatcher on the Mac, which plans through the same sample calls.
 	const dispatcher = mockDispatcher({
 		now,
@@ -754,6 +826,7 @@ export const mockSource = (options: MockOptions = {}): MockSource => {
 		timelines,
 		startAgent,
 		saveTask: tasks.calls.saveTask,
+		moveAgent,
 	});
 
 	// Container workspaces, which move through their states a step at a time.
@@ -1324,6 +1397,7 @@ export const mockSource = (options: MockOptions = {}): MockSource => {
 		setEffort: done,
 		stopAgent: done,
 		deleteAgent,
+		moveAgent,
 		renameAgent,
 		setInbox,
 		continueHere: done,

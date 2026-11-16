@@ -9,6 +9,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use specta::Type;
 
+use crate::agents::MoveTo;
 use crate::ids::{AgentId, DeviceId, TaskId, WorkspaceId};
 use crate::message::AgentSpec;
 use crate::tasks::{TaskTarget, Trigger};
@@ -78,6 +79,16 @@ pub enum PlanStep {
         trigger: Box<Trigger>,
         /// The agent each run reaches.
         target: PlanTarget,
+    },
+    /// Moves an agent to another device: it stops and settles, and a new
+    /// one starts there from a summary of its conversation.
+    MoveAgent {
+        /// The device the agent is on.
+        device: DeviceId,
+        /// The agent.
+        agent: AgentId,
+        /// Where it goes.
+        to: MoveTo,
     },
 }
 
