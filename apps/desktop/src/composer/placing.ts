@@ -8,6 +8,7 @@
 // text moves there with the space it brought, as one undo step.
 
 import { OBJECT_MARK, type Segment } from "@maxhq/shared/pills/draft";
+import { spaced } from "@maxhq/shared/pills/spacing";
 import { Extension } from "@tiptap/core";
 import { closeHistory } from "@tiptap/pm/history";
 import { Fragment, type Node as ProseNode, Slice } from "@tiptap/pm/model";
@@ -21,7 +22,6 @@ import {
 } from "@tiptap/pm/state";
 
 import { paragraphsFor, pillOf } from "./doc";
-import { spaced } from "./pill-keys";
 
 /**
  * Puts text and pills between two positions of the transaction's document,

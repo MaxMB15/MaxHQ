@@ -15,7 +15,7 @@ import { type ReactNode, useMemo, useState, useSyncExternalStore } from "react";
 
 import { type Services, useServicesIfAny } from "@/app/services";
 import { CopyButton } from "@/components/copy-button";
-import { quoteInbox } from "@/composer/quote-inbox";
+import { quoteInbox } from "@maxhq/shared/pills/quote-inbox";
 import { panesOf } from "@/layout/panes";
 import { cn } from "@/lib/utils";
 import { makeQuote } from "@maxhq/shared/pills/quote";

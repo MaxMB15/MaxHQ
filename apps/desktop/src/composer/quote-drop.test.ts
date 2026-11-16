@@ -20,7 +20,7 @@ import {
 	useQuoteDrop,
 	visualOfDrag,
 } from "./quote-drop";
-import { quoteInbox } from "./quote-inbox";
+import { quoteInbox } from "@maxhq/shared/pills/quote-inbox";
 
 const quote: QuoteRef = {
 	type: "quote",

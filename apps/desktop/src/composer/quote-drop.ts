@@ -19,7 +19,7 @@ import { useEffect, useState } from "react";
 import { claimPageDrop, type PageDrag } from "@/native/drop";
 
 import { type ComposerNative, useComposerNative } from "./native";
-import { quoteInbox } from "./quote-inbox";
+import { quoteInbox } from "@maxhq/shared/pills/quote-inbox";
 
 /** The quote a drag from the page carries, or null. */
 export const quoteOfDrag = (drag: PageDrag): QuoteRef | null => parseQuote(drag.get(QUOTE_MIME));

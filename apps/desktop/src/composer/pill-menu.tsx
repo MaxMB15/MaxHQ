@@ -5,10 +5,13 @@
 // in its place. The composer and the answer fields share it: each says
 // which words open a menu, whose folder and repo it searches, which agents
 // and notes `@` names, and what a picked file becomes. Escape shuts the
-// menu for its word, which stays shut until the word changes.
+// menu for its word, which stays shut until the word changes. What each
+// menu offers, and what a pick puts in, are shared with the phone.
 
 import type { Agent, AgentId, DeviceId, ProjectId } from "@maxhq/shared/bindings";
+import { menuPick, menuWord } from "@maxhq/shared/composer/menu";
 import { type AgentRef, gitKey, type Segment } from "@maxhq/shared/pills/draft";
+import { type GitPillsStore, shownItem } from "@maxhq/shared/pills/git-pills";
 import { detectTrigger, type TriggerKind } from "@maxhq/shared/pills/trigger";
 import { useSkillFeed } from "@maxhq/shared/skills/feed";
 import { noteChoices } from "@maxhq/shared/view/notes";
@@ -18,16 +21,7 @@ import { useStore } from "zustand";
 import { useServices, useView } from "@/app/services";
 
 import type { MenuKey, PromptEditorHandle } from "./editor";
-import { type GitPillsStore, shownItem } from "./git-pills";
 import { ComposerMenu, type MenuOption, optionId, useMenuContents } from "./menu";
-
-/** Names the word at the caret that a menu is for, so Escape can keep it shut. */
-export const menuWord = (text: string, caret: number | null): string | null => {
-	const trigger = caret === null ? null : detectTrigger(text, caret);
-	return trigger
-		? `${trigger.rangeStart}:${text.slice(trigger.rangeStart, trigger.rangeEnd)}`
-		: null;
-};
 
 /** The notes a box's `@` menu finds: all, with `own`'s first, or only `own`'s. */
 export type MenuNotes = { readonly own: ProjectId | null; readonly only: boolean };
@@ -134,47 +128,16 @@ export const usePillMenu = (setup: PillMenuSetup): PillMenu => {
 	const pick = (option: MenuOption) => {
 		if (!menu || !editor.current) return;
 		const { rangeStart: from, rangeEnd: to } = menu;
-		switch (option.kind) {
-			case "path": {
-				const segments = onPath?.(`${option.path}${option.folder ? "/" : ""}`) ?? [];
-				if (segments.length > 0) editor.current.replaceRange(from, to, segments);
-				break;
-			}
-			case "agent": {
-				const pill = agentPill(option.agent);
-				if (pill) editor.current.replaceRange(from, to, [{ type: "pill", pill }]);
-				break;
-			}
-			case "note":
-				editor.current.replaceRange(from, to, [{ type: "pill", pill: option.note.ref }]);
-				break;
-			case "git":
-				gitPills
-					.getState()
-					.seed(
-						new Map([[gitKey({ repo: null, number: option.item.number }), option.item]])
-					);
-				editor.current.replaceRange(
-					from,
-					to,
-					[{ type: "text", text: `#${option.item.number}` }],
-					true
-				);
-				break;
-			case "keep":
-				gitPills.getState().keep(gitKey({ repo: null, number: option.number }));
-				setDismissed(word);
-				break;
-			case "skill":
-				// The skill goes in as `$name`.
-				editor.current.replaceRange(
-					from,
-					to,
-					[{ type: "text", text: `$${option.skill.name}` }],
-					true
-				);
-				break;
+		const chosen = menuPick(option, { onPath, agentPill });
+		if (chosen.seed)
+			gitPills
+				.getState()
+				.seed(new Map([[gitKey({ repo: null, number: chosen.seed.number }), chosen.seed]]));
+		if (chosen.keep !== null) {
+			gitPills.getState().keep(gitKey({ repo: null, number: chosen.keep }));
+			setDismissed(word);
 		}
+		if (chosen.segments) editor.current.replaceRange(from, to, chosen.segments, chosen.spaced);
 	};
 
 	const onKey = (key: MenuKey): boolean => {

@@ -30,6 +30,7 @@ export { default as Info } from "lucide-react-native/icons/info";
 export { default as Lightbulb } from "lucide-react-native/icons/lightbulb";
 export { default as ListChecks } from "lucide-react-native/icons/list-checks";
 export { default as ListTodo } from "lucide-react-native/icons/list-todo";
+export { default as Paperclip } from "lucide-react-native/icons/paperclip";
 export { default as Pencil } from "lucide-react-native/icons/pencil";
 export { default as Search } from "lucide-react-native/icons/search";
 export { default as Shrink } from "lucide-react-native/icons/shrink";

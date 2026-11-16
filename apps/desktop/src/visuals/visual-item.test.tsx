@@ -7,7 +7,7 @@ import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 
 import { type Services, ServicesProvider } from "@/app/services";
 import { installBrowserFakes } from "@/composer/testing";
-import { quoteInbox } from "@/composer/quote-inbox";
+import { quoteInbox } from "@maxhq/shared/pills/quote-inbox";
 import { mockSource } from "@/data/mock-source";
 import { panesOf } from "@/layout/panes";
 import { type RowContext, RowProvider } from "@maxhq/shared/agent-view/context";
