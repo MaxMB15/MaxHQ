@@ -508,11 +508,7 @@ impl Reader {
                 }
                 Ok(Some(_)) => continue,
                 Ok(None) => {}
-                Err(
-                    DecodeError::UnknownKind(_)
-                    | DecodeError::MissingSession
-                    | DecodeError::ShortHeader(_),
-                ) => continue,
+                Err(DecodeError::UnknownKind(_) | DecodeError::ShortHeader(_)) => continue,
                 Err(err) => return Err(err.into()),
             }
             let n = match self.socket.read(&mut self.buf) {

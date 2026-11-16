@@ -21,6 +21,7 @@ import {
 	type WorkflowMessage,
 	type WorkflowUpdate,
 } from "../bindings";
+import { terminalCalls } from "../terminal/requests";
 import { runName } from "../workflow/select";
 import type { ActionResult, CommandResult, DataSource, GitItemRef, Unsubscribe } from "./source";
 
@@ -243,6 +244,7 @@ export type PlatformCalls =
 
 /** Every call that's one request, over `ask`. */
 export const requestCalls = (ask: Ask): Omit<DataSource, PlatformCalls> => ({
+	...terminalCalls(ask),
 	appInfo: async () => orThrow(await ask({ kind: "app_info" })),
 	snapshot: async () => orThrow(await ask({ kind: "view_snapshot" })),
 	markSeen: (agent) => ask({ kind: "mark_seen", agent }),

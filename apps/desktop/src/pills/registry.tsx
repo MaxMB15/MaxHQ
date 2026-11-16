@@ -10,7 +10,7 @@
 import { t, useI18n, formatNumber } from "@maxhq/shared/i18n";
 
 import type { Agent, AttachmentKind, NoteSummary, Timestamp } from "@maxhq/shared/bindings";
-import type { AgentRef, GitItemRef, NoteRef, QuoteRef } from "@maxhq/shared/pills/draft";
+import type { AgentRef, GitItemRef, NoteRef, OutputRef, QuoteRef } from "@maxhq/shared/pills/draft";
 import {
 	type FileProgress,
 	fileAria,
@@ -34,6 +34,7 @@ import {
 	Image,
 	LoaderCircle,
 	Quote,
+	SquareTerminal,
 	StickyNote,
 } from "lucide-react";
 import { type CSSProperties, type ReactNode, useState } from "react";
@@ -46,7 +47,15 @@ import { cn } from "@/lib/utils";
 import { GitIcon, type PillFamily, type PillState, gitFamily } from "./pill";
 
 /** Each kind of pill. */
-export const PILL_KINDS = ["attachment", "visual", "quote", "agent", "note", "git_item"] as const;
+export const PILL_KINDS = [
+	"attachment",
+	"visual",
+	"quote",
+	"agent",
+	"note",
+	"git_item",
+	"output",
+] as const;
 
 export type PillKind = (typeof PILL_KINDS)[number];
 
@@ -67,6 +76,7 @@ const DEFINITIONS = [
 	{ kind: "agent", capabilities: { details: "popover" } },
 	{ kind: "note", capabilities: { details: "popover" } },
 	{ kind: "git_item", capabilities: { details: "popover" } },
+	{ kind: "output", capabilities: { details: "none" } },
 ] as const satisfies readonly PillDefinition[];
 
 const buildDefinitions = (
@@ -185,7 +195,9 @@ export type PillRecord =
 			/** Its first lines, drawn only once the preview opens, since they're read then. */
 			readonly lines?: ReactNode;
 	  }
-	| { readonly kind: "git_item"; readonly ref: GitItemRef };
+	| { readonly kind: "git_item"; readonly ref: GitItemRef }
+	/** A command's output, drawn plain with its command until its own look comes. */
+	| { readonly kind: "output"; readonly ref: OutputRef };
 
 export type PillContext = { readonly now: Timestamp };
 
@@ -649,6 +661,22 @@ export const pillRegistry = createPillRegistry<PillRecord, PillContext, PillPres
 					label: middleTruncate(gitItemLabel(ref)),
 					aria: `${gitKindWords(ref)} ${ref.number}, ${ref.title}, ${gitStateWords(ref.state)}`,
 					preview: <GitItemDetails item={ref} now={now} />,
+				};
+			},
+		},
+		{
+			kind: "output",
+			canRender: (record) => record.kind === "output",
+			render: (record) => {
+				const { ref } = record as Extract<PillRecord, { kind: "output" }>;
+				return {
+					family: "file",
+					state: "ready",
+					progress: null,
+					icon: <SquareTerminal aria-hidden className={ICON_CLASS} />,
+					label: middleTruncate(ref.command),
+					aria: t("Output of {{from}}", { from: ref.command }),
+					preview: null,
 				};
 			},
 		},

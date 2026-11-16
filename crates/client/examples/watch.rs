@@ -152,5 +152,6 @@ fn kind(entity: &Entity) -> &'static str {
         Entity::ProjectNotes(_) => "project notes",
         Entity::AppKey(_) => "app key",
         Entity::Admission(_) => "admission",
+        Entity::Terminal(_) => "terminal",
     }
 }

@@ -118,6 +118,7 @@ import type {
 } from "../fleet/wire";
 import { DEPTH } from "../bindings";
 import type { GitItemRef } from "../pills/draft";
+import type { TerminalCalls } from "../terminal/requests";
 
 export type {
 	AccessKey,
@@ -327,8 +328,11 @@ export type MockControls = {
 	readonly setScenario: (id: string) => void;
 };
 
-/** One place the view comes from, with the commands that act on it. */
-export type DataSource = {
+/**
+ * One place the view comes from, with the commands that act on it. The
+ * terminal calls live with the terminal helpers.
+ */
+export type DataSource = TerminalCalls & {
 	/** Which implementation this is. */
 	readonly kind: "tauri" | "native" | "mock";
 	/** The whole view now. */

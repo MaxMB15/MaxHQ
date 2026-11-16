@@ -2232,7 +2232,7 @@ mod tests {
     #[test]
     fn terminal_kinds_drop_the_link() {
         let mut out = Vec::new();
-        encode_terminal_output(&mut out, session(), b"ls\r\n");
+        encode_terminal_output(&mut out, crate::ids::TerminalId::generate(), 0, b"ls\r\n");
         let mut decoder = GuestDecoder::new();
         decoder.push(&out);
         assert!(matches!(

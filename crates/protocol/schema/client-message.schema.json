@@ -4679,6 +4679,231 @@
         "from",
         "to"
       ]
+    },
+    {
+      "description": "Opens a terminal in an agent's folder, on the agent's device and in\nits container when it runs in one. The outcome is\n[`ActionOutcome::TerminalOpened`].",
+      "type": "object",
+      "properties": {
+        "agent": {
+          "description": "The agent whose folder it starts in.",
+          "$ref": "#/$defs/AgentId"
+        },
+        "cols": {
+          "description": "Its width in cells.",
+          "type": "integer",
+          "format": "uint16",
+          "maximum": 65535,
+          "minimum": 0
+        },
+        "key": {
+          "description": "Makes a resend after a dropped connection safe.",
+          "$ref": "#/$defs/IdempotencyKey"
+        },
+        "kind": {
+          "description": "A shell for the drawer, or one command you ran with `!`.",
+          "$ref": "#/$defs/TerminalKind"
+        },
+        "rows": {
+          "description": "Its height in cells.",
+          "type": "integer",
+          "format": "uint16",
+          "maximum": 65535,
+          "minimum": 0
+        },
+        "type": {
+          "type": "string",
+          "const": "terminal_open"
+        }
+      },
+      "required": [
+        "type",
+        "key",
+        "agent",
+        "kind",
+        "cols",
+        "rows"
+      ]
+    },
+    {
+      "description": "Starts sending this connection a terminal's output frames. `maxd`\nanswers first with [`ServerMessage::TerminalAttached`], then sends\nthe output from there on. Sending it again for a terminal already\nattached starts over from `after`.",
+      "type": "object",
+      "properties": {
+        "after": {
+          "description": "The offset of the last output byte the client has, or none for\neverything `maxd` still holds.",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint64",
+          "minimum": 0
+        },
+        "terminal": {
+          "description": "The terminal.",
+          "$ref": "#/$defs/TerminalId"
+        },
+        "type": {
+          "type": "string",
+          "const": "terminal_attach"
+        }
+      },
+      "required": [
+        "type",
+        "terminal"
+      ]
+    },
+    {
+      "description": "Stops sending this connection a terminal's output frames.",
+      "type": "object",
+      "properties": {
+        "terminal": {
+          "description": "The terminal.",
+          "$ref": "#/$defs/TerminalId"
+        },
+        "type": {
+          "type": "string",
+          "const": "terminal_detach"
+        }
+      },
+      "required": [
+        "type",
+        "terminal"
+      ]
+    },
+    {
+      "description": "Sets a terminal's size. The client you last typed in owns it.",
+      "type": "object",
+      "properties": {
+        "cols": {
+          "description": "Its width in cells.",
+          "type": "integer",
+          "format": "uint16",
+          "maximum": 65535,
+          "minimum": 0
+        },
+        "rows": {
+          "description": "Its height in cells.",
+          "type": "integer",
+          "format": "uint16",
+          "maximum": 65535,
+          "minimum": 0
+        },
+        "terminal": {
+          "description": "The terminal.",
+          "$ref": "#/$defs/TerminalId"
+        },
+        "type": {
+          "type": "string",
+          "const": "terminal_resize"
+        }
+      },
+      "required": [
+        "type",
+        "terminal",
+        "cols",
+        "rows"
+      ]
+    },
+    {
+      "description": "Writes Ctrl-C to a terminal. A phone may send it to a drawer\nterminal it may not type into.",
+      "type": "object",
+      "properties": {
+        "key": {
+          "description": "Makes a resend after a dropped connection safe.",
+          "$ref": "#/$defs/IdempotencyKey"
+        },
+        "terminal": {
+          "description": "The terminal.",
+          "$ref": "#/$defs/TerminalId"
+        },
+        "type": {
+          "type": "string",
+          "const": "terminal_interrupt"
+        }
+      },
+      "required": [
+        "type",
+        "key",
+        "terminal"
+      ]
+    },
+    {
+      "description": "Closes a terminal: hangs up its shell or command, then forgets it.",
+      "type": "object",
+      "properties": {
+        "force": {
+          "description": "Whether to kill what still runs rather than hang it up.",
+          "type": "boolean"
+        },
+        "key": {
+          "description": "Makes a resend after a dropped connection safe.",
+          "$ref": "#/$defs/IdempotencyKey"
+        },
+        "terminal": {
+          "description": "The terminal.",
+          "$ref": "#/$defs/TerminalId"
+        },
+        "type": {
+          "type": "string",
+          "const": "terminal_close"
+        }
+      },
+      "required": [
+        "type",
+        "key",
+        "terminal",
+        "force"
+      ]
+    },
+    {
+      "description": "Renames a terminal's tab.",
+      "type": "object",
+      "properties": {
+        "key": {
+          "description": "Makes a resend after a dropped connection safe.",
+          "$ref": "#/$defs/IdempotencyKey"
+        },
+        "terminal": {
+          "description": "The terminal.",
+          "$ref": "#/$defs/TerminalId"
+        },
+        "title": {
+          "description": "The new name. Empty goes back to the name the shell sets.",
+          "type": "string"
+        },
+        "type": {
+          "type": "string",
+          "const": "terminal_rename"
+        }
+      },
+      "required": [
+        "type",
+        "key",
+        "terminal",
+        "title"
+      ]
+    },
+    {
+      "description": "Moves a command you ran with `!` to the agent's terminal drawer,\nwhere it goes on as a tab. The terminal and its card in the timeline\nboth say it moved.",
+      "type": "object",
+      "properties": {
+        "key": {
+          "description": "Makes a resend after a dropped connection safe.",
+          "$ref": "#/$defs/IdempotencyKey"
+        },
+        "terminal": {
+          "description": "The terminal.",
+          "$ref": "#/$defs/TerminalId"
+        },
+        "type": {
+          "type": "string",
+          "const": "terminal_move"
+        }
+      },
+      "required": [
+        "type",
+        "key",
+        "terminal"
+      ]
     }
   ],
   "$defs": {
@@ -6051,6 +6276,24 @@
           "required": [
             "status",
             "check"
+          ]
+        },
+        {
+          "description": "A terminal is open, for [`ClientMessage::TerminalOpen`].",
+          "type": "object",
+          "properties": {
+            "status": {
+              "type": "string",
+              "const": "terminal_opened"
+            },
+            "terminal": {
+              "description": "The new terminal.",
+              "$ref": "#/$defs/TerminalId"
+            }
+          },
+          "required": [
+            "status",
+            "terminal"
           ]
         },
         {
@@ -9031,6 +9274,73 @@
             "type",
             "attachment",
             "title"
+          ]
+        },
+        {
+          "description": "What a command you ran with `!` printed, as plain text with no\nescapes, from the last lines only. A client sends it only to a\n`maxd` at [`crate::message::TERMINALS_SINCE`] or later. Since\nprotocol 45.",
+          "type": "object",
+          "properties": {
+            "command": {
+              "description": "The command line, as typed after the `!`.",
+              "type": "string"
+            },
+            "cwd": {
+              "description": "The folder it ran in, as the device writes it.",
+              "type": "string"
+            },
+            "device_name": {
+              "description": "The name of the device it ran on, such as \"Mac\".",
+              "type": "string"
+            },
+            "duration_ms": {
+              "description": "How long it ran, or has run so far, if known.",
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "uint64",
+              "minimum": 0
+            },
+            "exit_code": {
+              "description": "Its exit code, or none while it runs or when a signal ended it.",
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "int32"
+            },
+            "lines_total": {
+              "description": "How many lines it wrote in all, which may be more than `text`\nholds.",
+              "type": "integer",
+              "format": "uint32",
+              "minimum": 0
+            },
+            "ran_at": {
+              "description": "When it started.",
+              "$ref": "#/$defs/Timestamp"
+            },
+            "running": {
+              "description": "Whether it still ran when the message went.",
+              "type": "boolean"
+            },
+            "text": {
+              "description": "Its last lines, as plain text.",
+              "type": "string"
+            },
+            "type": {
+              "type": "string",
+              "const": "output"
+            }
+          },
+          "required": [
+            "type",
+            "command",
+            "device_name",
+            "cwd",
+            "running",
+            "ran_at",
+            "lines_total",
+            "text"
           ]
         },
         {
@@ -12339,6 +12649,52 @@
             "type",
             "device",
             "spec"
+          ]
+        }
+      ]
+    },
+    "TerminalId": {
+      "description": "A terminal a device's `maxd` holds: a shell in an agent's terminal\ndrawer, or a command you ran with `!`.",
+      "type": "string",
+      "format": "uuid"
+    },
+    "TerminalKind": {
+      "description": "What a terminal runs.",
+      "oneOf": [
+        {
+          "description": "Your login shell, as a tab in the agent's terminal drawer.",
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "shell"
+            }
+          },
+          "required": [
+            "type"
+          ]
+        },
+        {
+          "description": "One command you ran with `!`, shown as a card in the timeline until\nyou move it to the drawer.",
+          "type": "object",
+          "properties": {
+            "command": {
+              "description": "The command line, as typed after the `!`.",
+              "type": "string"
+            },
+            "private": {
+              "description": "Whether you ran it with `!!`, so its output only goes to the\nagent when you attach it to a message.",
+              "type": "boolean"
+            },
+            "type": {
+              "type": "string",
+              "const": "run"
+            }
+          },
+          "required": [
+            "type",
+            "command",
+            "private"
           ]
         }
       ]

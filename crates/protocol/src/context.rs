@@ -4,10 +4,11 @@
 //! Context a message carries inline, such as a quote or a pull request.
 //!
 //! A message's text holds U+FFFC, the object replacement character, where
-//! each [`InlineRef::Attachment`], [`InlineRef::Quote`], [`InlineRef::Agent`]
-//! and [`InlineRef::Note`] sits, one for one in the order of its refs. A
-//! [`InlineRef::GitItem`] has no U+FFFC: the text keeps `#123` as typed,
-//! and the ref says which number resolved.
+//! each [`InlineRef::Attachment`], [`InlineRef::Quote`], [`InlineRef::Agent`],
+//! [`InlineRef::Note`], [`InlineRef::Visual`] and [`InlineRef::Output`]
+//! sits, one for one in the order of its refs. A [`InlineRef::GitItem`] has
+//! no U+FFFC: the text keeps `#123` as typed, and the ref says which number
+//! resolved.
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -91,6 +92,32 @@ pub enum InlineRef {
         /// mini".
         #[serde(default)]
         from: Option<String>,
+    },
+    /// What a command you ran with `!` printed, as plain text with no
+    /// escapes, from the last lines only. A client sends it only to a
+    /// `maxd` at [`crate::message::TERMINALS_SINCE`] or later. Since
+    /// protocol 45.
+    Output {
+        /// The command line, as typed after the `!`.
+        command: String,
+        /// The name of the device it ran on, such as "Mac".
+        device_name: String,
+        /// The folder it ran in, as the device writes it.
+        cwd: String,
+        /// Its exit code, or none while it runs or when a signal ended it.
+        exit_code: Option<i32>,
+        /// Whether it still ran when the message went.
+        running: bool,
+        /// When it started.
+        ran_at: Timestamp,
+        /// How long it ran, or has run so far, if known.
+        #[specta(type = Option<specta_typescript::Number>)]
+        duration_ms: Option<u64>,
+        /// How many lines it wrote in all, which may be more than `text`
+        /// holds.
+        lines_total: u32,
+        /// Its last lines, as plain text.
+        text: String,
     },
     /// A pull request or issue, checked when picked.
     GitItem {
@@ -221,6 +248,17 @@ mod tests {
                 title: "Weekly usage".into(),
                 from: Some("api refactor".into()),
             },
+            InlineRef::Output {
+                command: "pnpm test".into(),
+                device_name: "Mac".into(),
+                cwd: "~/code/example-app".into(),
+                exit_code: Some(1),
+                running: false,
+                ran_at: Timestamp(1_761_350_400_000),
+                duration_ms: Some(4_200),
+                lines_total: 214,
+                text: "FAIL src/cache.test.ts\n1 failed".into(),
+            },
         ]
     }
 
@@ -267,6 +305,21 @@ mod tests {
                 "checked_at": 1_761_350_400_000u64,
             })
         );
+        assert_eq!(
+            values[6],
+            json!({
+                "type": "output",
+                "command": "pnpm test",
+                "device_name": "Mac",
+                "cwd": "~/code/example-app",
+                "exit_code": 1,
+                "running": false,
+                "ran_at": 1_761_350_400_000u64,
+                "duration_ms": 4_200,
+                "lines_total": 214,
+                "text": "FAIL src/cache.test.ts\n1 failed",
+            })
+        );
     }
 
     #[test]
@@ -283,6 +336,6 @@ mod tests {
     #[test]
     fn only_git_items_sit_outside_the_text() {
         let placed: Vec<_> = all().iter().map(InlineRef::is_placed).collect();
-        assert_eq!(placed, [true, true, true, true, false, true]);
+        assert_eq!(placed, [true, true, true, true, false, true, true]);
     }
 }

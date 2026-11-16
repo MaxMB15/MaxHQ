@@ -140,6 +140,9 @@ uuid_ids! {
     /// A card that asks whether to let in a program that proved no app key
     /// the device trusts.
     AdmissionId;
+    /// A terminal a device's `maxd` holds: a shell in an agent's terminal
+    /// drawer, or a command you ran with `!`.
+    TerminalId;
 }
 
 /// The boot a device or container is on.

@@ -44,6 +44,7 @@ pub mod secret;
 pub mod skills;
 pub mod state;
 pub mod tasks;
+pub mod terminal;
 pub mod time;
 pub mod timeline;
 mod tolerant;

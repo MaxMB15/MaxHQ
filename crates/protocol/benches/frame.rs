@@ -7,7 +7,7 @@ use std::hint::black_box;
 
 use criterion::{criterion_group, criterion_main, Criterion, Throughput};
 use maxhq_protocol::frame::{encode_message, encode_terminal_output, Frame, FrameDecoder};
-use maxhq_protocol::ids::SessionId;
+use maxhq_protocol::ids::TerminalId;
 use maxhq_protocol::state::{Delta, Seq};
 use maxhq_protocol::ServerMessage;
 
@@ -16,7 +16,7 @@ const CHUNK: usize = 64 * 1024;
 const CHUNKS: usize = 64;
 
 fn terminal(c: &mut Criterion) {
-    let session = SessionId::generate();
+    let terminal = TerminalId::generate();
     let bytes = vec![b'y'; CHUNK];
     let mut group = c.benchmark_group("terminal");
     group.throughput(Throughput::Bytes((CHUNK * CHUNKS) as u64));
@@ -26,7 +26,7 @@ fn terminal(c: &mut Criterion) {
         b.iter(|| {
             out.clear();
             for _ in 0..CHUNKS {
-                encode_terminal_output(&mut out, session, black_box(&bytes));
+                encode_terminal_output(&mut out, terminal, 0, black_box(&bytes));
             }
             black_box(&out);
         });
@@ -34,7 +34,7 @@ fn terminal(c: &mut Criterion) {
 
     let mut stream = Vec::new();
     for _ in 0..CHUNKS {
-        encode_terminal_output(&mut stream, session, &bytes);
+        encode_terminal_output(&mut stream, terminal, 0, &bytes);
     }
     group.bench_function("decode", |b| {
         let mut decoder = FrameDecoder::new();

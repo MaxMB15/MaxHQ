@@ -20,7 +20,7 @@ use maxhq_protocol::hosts::MoveStep;
 use maxhq_protocol::ids::{
     AccountId, AcpAgentId, AgentId, AttentionId, CredentialId, DeviceId, ForwardId, IdempotencyKey,
     LeaseId, LinkId, MoveId, PermissionId, PortId, ProjectId, SignInId, SkillProposalId,
-    SkillSourceId, TaskId, TestHostId, TransferId, WorkspaceId,
+    SkillSourceId, TaskId, TerminalId, TestHostId, TransferId, WorkspaceId,
 };
 use maxhq_protocol::message::{
     ActionOutcome, AgentPlace, AgentSpec, AttachmentSource, HostLoad, IgnoredFile, SendMode,
@@ -38,6 +38,7 @@ use maxhq_protocol::skills::{
 };
 use maxhq_protocol::state::{Entity, EntityKey, Snapshot, ToolKind, ToolPlace};
 use maxhq_protocol::tasks::{FunnelState, HookAddress, Run, Task, TaskDelivery};
+use maxhq_protocol::terminal::TerminalKind;
 use maxhq_protocol::time::Timestamp;
 use maxhq_protocol::timeline::{FindAt, ItemId, TimelineFind};
 use maxhq_protocol::workflow::{NodeDetail, RunKey};
@@ -823,6 +824,48 @@ pub enum Request {
         #[serde(default)]
         stop: bool,
     },
+    // Terminals. Each goes to the device of the agent it runs for, and
+    // only a device whose `maxd` holds terminals takes one.
+    /// Opens a terminal for `agent`, `cols` cells wide and `rows` high,
+    /// that `runs` a shell in its drawer or a command typed after `!`.
+    /// Answers with the new terminal, as `terminal_opened`. The field
+    /// isn't `kind`, which names the request.
+    TerminalOpen {
+        agent: AgentId,
+        runs: TerminalKind,
+        cols: u16,
+        rows: u16,
+    },
+    /// Asks the device to send this app a terminal's output, from just
+    /// past byte `after` or from all it still holds. The device answers on
+    /// the link, so this answers once the request went out.
+    TerminalAttach {
+        terminal: TerminalId,
+        #[specta(type = Option<specta_typescript::Number>)]
+        after: Option<u64>,
+    },
+    /// Asks the device to stop sending this app a terminal's output.
+    TerminalDetach { terminal: TerminalId },
+    /// Sets a terminal's size. The client you last typed in owns it.
+    TerminalResize {
+        terminal: TerminalId,
+        cols: u16,
+        rows: u16,
+    },
+    /// Sends a terminal Ctrl-C.
+    TerminalInterrupt { terminal: TerminalId },
+    /// Closes a terminal: hangs up what runs in it, or kills it with
+    /// `force`, then forgets it.
+    TerminalClose {
+        terminal: TerminalId,
+        #[serde(default)]
+        force: bool,
+    },
+    /// Renames a terminal's tab. Empty goes back to the name the shell
+    /// sets.
+    TerminalRename { terminal: TerminalId, title: String },
+    /// Moves a command you ran with `!` to the agent's terminal drawer.
+    TerminalMove { terminal: TerminalId },
 }
 
 /// The answer to a [`Request`], of the same kind. A request that only
@@ -1026,6 +1069,14 @@ pub enum Response {
     ConfirmPlan(ActionOutcome),
     DismissPlan(ActionOutcome),
     MoveAgent(ActionOutcome),
+    TerminalOpen(ActionOutcome),
+    TerminalAttach,
+    TerminalDetach,
+    TerminalResize,
+    TerminalInterrupt(ActionOutcome),
+    TerminalClose(ActionOutcome),
+    TerminalRename(ActionOutcome),
+    TerminalMove(ActionOutcome),
 }
 
 impl Request {
@@ -1222,6 +1273,14 @@ impl Request {
             Self::ConfirmPlan { .. } => "confirm_plan",
             Self::DismissPlan { .. } => "dismiss_plan",
             Self::MoveAgent { .. } => "move_agent",
+            Self::TerminalOpen { .. } => "terminal_open",
+            Self::TerminalAttach { .. } => "terminal_attach",
+            Self::TerminalDetach { .. } => "terminal_detach",
+            Self::TerminalResize { .. } => "terminal_resize",
+            Self::TerminalInterrupt { .. } => "terminal_interrupt",
+            Self::TerminalClose { .. } => "terminal_close",
+            Self::TerminalRename { .. } => "terminal_rename",
+            Self::TerminalMove { .. } => "terminal_move",
         }
     }
 }
@@ -1420,6 +1479,14 @@ impl Response {
             Self::ConfirmPlan(_) => "confirm_plan",
             Self::DismissPlan(_) => "dismiss_plan",
             Self::MoveAgent(_) => "move_agent",
+            Self::TerminalOpen(_) => "terminal_open",
+            Self::TerminalAttach => "terminal_attach",
+            Self::TerminalDetach => "terminal_detach",
+            Self::TerminalResize => "terminal_resize",
+            Self::TerminalInterrupt(_) => "terminal_interrupt",
+            Self::TerminalClose(_) => "terminal_close",
+            Self::TerminalRename(_) => "terminal_rename",
+            Self::TerminalMove(_) => "terminal_move",
         }
     }
 }
@@ -2482,6 +2549,70 @@ impl<C: Connector> App<C> {
                 };
                 Response::MoveAgent(devices.act_on(device, action).await?)
             }
+            Request::TerminalOpen {
+                agent,
+                runs,
+                cols,
+                rows,
+            } => {
+                let action = ClientMessage::TerminalOpen {
+                    key,
+                    agent,
+                    kind: runs,
+                    cols,
+                    rows,
+                };
+                Response::TerminalOpen(devices.act(action).await?)
+            }
+            Request::TerminalAttach { terminal, after } => {
+                devices
+                    .send_terminal(terminal, ClientMessage::TerminalAttach { terminal, after })
+                    .await?;
+                Response::TerminalAttach
+            }
+            Request::TerminalDetach { terminal } => {
+                devices
+                    .send_terminal(terminal, ClientMessage::TerminalDetach { terminal })
+                    .await?;
+                Response::TerminalDetach
+            }
+            Request::TerminalResize {
+                terminal,
+                cols,
+                rows,
+            } => {
+                let resize = ClientMessage::TerminalResize {
+                    terminal,
+                    cols,
+                    rows,
+                };
+                devices.send_terminal(terminal, resize).await?;
+                Response::TerminalResize
+            }
+            Request::TerminalInterrupt { terminal } => {
+                let action = ClientMessage::TerminalInterrupt { key, terminal };
+                Response::TerminalInterrupt(devices.act(action).await?)
+            }
+            Request::TerminalClose { terminal, force } => {
+                let action = ClientMessage::TerminalClose {
+                    key,
+                    terminal,
+                    force,
+                };
+                Response::TerminalClose(devices.act(action).await?)
+            }
+            Request::TerminalRename { terminal, title } => {
+                let action = ClientMessage::TerminalRename {
+                    key,
+                    terminal,
+                    title,
+                };
+                Response::TerminalRename(devices.act(action).await?)
+            }
+            Request::TerminalMove { terminal } => {
+                let action = ClientMessage::TerminalMove { key, terminal };
+                Response::TerminalMove(devices.act(action).await?)
+            }
         })
     }
 
@@ -3135,6 +3266,7 @@ mod tests {
         });
         let task = serde_json::to_value(crate::tasks::tests::task("t", "mac")).unwrap();
         let run = json!({"device": mac, "project": project, "workflow": "build", "run": "r1"});
+        let terminal = TerminalId::derive("terminal");
         vec![
             json!({"kind": "app_info"}),
             json!({"kind": "view_snapshot"}),
@@ -3372,6 +3504,20 @@ mod tests {
                 "to": {"device": mac, "account": personal, "place": {"type": "folder", "path": "/srv/app"}},
                 "stop": true,
             }),
+            json!({
+                "kind": "terminal_open",
+                "agent": a,
+                "runs": {"type": "run", "command": "pnpm test", "private": false},
+                "cols": 80,
+                "rows": 24,
+            }),
+            json!({"kind": "terminal_attach", "terminal": terminal, "after": 4096}),
+            json!({"kind": "terminal_detach", "terminal": terminal}),
+            json!({"kind": "terminal_resize", "terminal": terminal, "cols": 120, "rows": 32}),
+            json!({"kind": "terminal_interrupt", "terminal": terminal}),
+            json!({"kind": "terminal_close", "terminal": terminal}),
+            json!({"kind": "terminal_rename", "terminal": terminal, "title": "dev server"}),
+            json!({"kind": "terminal_move", "terminal": terminal}),
         ]
         .into_iter()
         .chain(skill_requests(mac))
@@ -4150,7 +4296,21 @@ mod tests {
             device: DeviceId::derive("mac"),
             projects: Vec::new(),
         });
-        for value in [moving("mac"), hidden] {
+        let shell = Entity::Terminal(maxhq_protocol::terminal::Terminal {
+            id: TerminalId::derive("terminal"),
+            agent: AgentId::derive("a"),
+            device: DeviceId::derive("mac"),
+            kind: TerminalKind::Shell,
+            moved: false,
+            title: "zsh".into(),
+            cwd: "~/code/example-app".into(),
+            status: maxhq_protocol::terminal::TerminalStatus::Running,
+            password_prompt: false,
+            started_at: Timestamp(1_793_368_920_000),
+            cols: 80,
+            rows: 24,
+        });
+        for value in [moving("mac"), hidden, shell] {
             h.report(
                 local.id,
                 maxhq_client::LinkEvent::Changed(vec![maxhq_protocol::state::Change::Upsert {
@@ -4197,7 +4357,7 @@ mod tests {
                 }
             }
         }
-        assert_eq!(kinds.len() + mac_only.len(), 150);
+        assert_eq!(kinds.len() + mac_only.len(), 158);
         // The harness has no maxd to install or uninstall, no timeline open, no
         // listening port, no setup waiting on a host key, no GitHub
         // sign-in to merge with, no skill proposal, no link or card waiting

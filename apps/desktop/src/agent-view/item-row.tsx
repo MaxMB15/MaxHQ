@@ -52,6 +52,7 @@ export const estimateHeight = (kind: Kind): number => {
 		case "turn_summary":
 		case "notice":
 		case "handoff":
+		case "user_run":
 		case "unknown":
 			return 24;
 		case "agent_opened_file":
@@ -113,6 +114,10 @@ export const ItemBodyView = ({ item }: { item: TimelineItem }) => {
 			return <OpenedFileRow item={item} />;
 		case "agent_visual":
 			return <VisualItem item={item} />;
+		// A command you ran with `!` shows as an item this build can't
+		// show until its card comes.
+		case "user_run":
+			return <UnknownRow item={{ ...item, kind: "unknown", native_kind: item.kind }} />;
 		case "unknown":
 			return <UnknownRow item={item} />;
 	}

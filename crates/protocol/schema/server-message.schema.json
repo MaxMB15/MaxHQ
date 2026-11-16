@@ -414,6 +414,36 @@
         "key",
         "request"
       ]
+    },
+    {
+      "description": "Answers [`ClientMessage::TerminalAttach`]: the terminal's output\nframes to this connection start at `from`.",
+      "type": "object",
+      "properties": {
+        "from": {
+          "description": "The offset of the first output byte that follows.",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "reset": {
+          "description": "Whether the client must clear what it shows and draw again from\n`from`, since what it had ended before what `maxd` still holds.",
+          "type": "boolean"
+        },
+        "terminal": {
+          "description": "The terminal.",
+          "$ref": "#/$defs/TerminalId"
+        },
+        "type": {
+          "type": "string",
+          "const": "terminal_attached"
+        }
+      },
+      "required": [
+        "type",
+        "terminal",
+        "from",
+        "reset"
+      ]
     }
   ],
   "$defs": {
@@ -1974,6 +2004,24 @@
           "required": [
             "status",
             "check"
+          ]
+        },
+        {
+          "description": "A terminal is open, for [`ClientMessage::TerminalOpen`].",
+          "type": "object",
+          "properties": {
+            "status": {
+              "type": "string",
+              "const": "terminal_opened"
+            },
+            "terminal": {
+              "description": "The new terminal.",
+              "$ref": "#/$defs/TerminalId"
+            }
+          },
+          "required": [
+            "status",
+            "terminal"
           ]
         },
         {
@@ -3828,6 +3876,11 @@
         },
         "snapshots": {
           "description": "Takes `ListSnapshots` and `RestoreSnapshot` for its container\nworkspaces. A `maxd` from before it leaves this out, and reads as\nfalse.",
+          "type": "boolean",
+          "default": false
+        },
+        "terminals": {
+          "description": "Holds terminals for its agents, publishes\n[`crate::terminal::Terminal`], and takes the terminal requests and\nframes. A `maxd` from before it leaves this out, and reads as false.",
           "type": "boolean",
           "default": false
         },
@@ -6006,6 +6059,20 @@
           "required": [
             "entity"
           ]
+        },
+        {
+          "description": "A terminal a device holds for an agent: a shell in its drawer or a\ncommand you ran with `!`. Since protocol 45.",
+          "type": "object",
+          "properties": {
+            "entity": {
+              "type": "string",
+              "const": "terminal"
+            }
+          },
+          "$ref": "#/$defs/Terminal",
+          "required": [
+            "entity"
+          ]
         }
       ]
     },
@@ -6670,6 +6737,23 @@
             },
             "id": {
               "$ref": "#/$defs/AdmissionId"
+            }
+          },
+          "required": [
+            "entity",
+            "id"
+          ]
+        },
+        {
+          "description": "A terminal.",
+          "type": "object",
+          "properties": {
+            "entity": {
+              "type": "string",
+              "const": "terminal"
+            },
+            "id": {
+              "$ref": "#/$defs/TerminalId"
             }
           },
           "required": [
@@ -8252,6 +8336,73 @@
             "type",
             "attachment",
             "title"
+          ]
+        },
+        {
+          "description": "What a command you ran with `!` printed, as plain text with no\nescapes, from the last lines only. A client sends it only to a\n`maxd` at [`crate::message::TERMINALS_SINCE`] or later. Since\nprotocol 45.",
+          "type": "object",
+          "properties": {
+            "command": {
+              "description": "The command line, as typed after the `!`.",
+              "type": "string"
+            },
+            "cwd": {
+              "description": "The folder it ran in, as the device writes it.",
+              "type": "string"
+            },
+            "device_name": {
+              "description": "The name of the device it ran on, such as \"Mac\".",
+              "type": "string"
+            },
+            "duration_ms": {
+              "description": "How long it ran, or has run so far, if known.",
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "uint64",
+              "minimum": 0
+            },
+            "exit_code": {
+              "description": "Its exit code, or none while it runs or when a signal ended it.",
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "int32"
+            },
+            "lines_total": {
+              "description": "How many lines it wrote in all, which may be more than `text`\nholds.",
+              "type": "integer",
+              "format": "uint32",
+              "minimum": 0
+            },
+            "ran_at": {
+              "description": "When it started.",
+              "$ref": "#/$defs/Timestamp"
+            },
+            "running": {
+              "description": "Whether it still ran when the message went.",
+              "type": "boolean"
+            },
+            "text": {
+              "description": "Its last lines, as plain text.",
+              "type": "string"
+            },
+            "type": {
+              "type": "string",
+              "const": "output"
+            }
+          },
+          "required": [
+            "type",
+            "command",
+            "device_name",
+            "cwd",
+            "running",
+            "ran_at",
+            "lines_total",
+            "text"
           ]
         },
         {
@@ -14043,6 +14194,173 @@
         "instant"
       ]
     },
+    "Terminal": {
+      "description": "A terminal one device holds for one agent.",
+      "type": "object",
+      "properties": {
+        "agent": {
+          "description": "The agent whose folder it runs in.",
+          "$ref": "#/$defs/AgentId"
+        },
+        "cols": {
+          "description": "Its width in cells.",
+          "type": "integer",
+          "format": "uint16",
+          "maximum": 65535,
+          "minimum": 0
+        },
+        "cwd": {
+          "description": "The folder it started in, as the device writes it, such as\n`~/code/example-app`.",
+          "type": "string"
+        },
+        "device": {
+          "description": "The device whose `maxd` holds it.",
+          "$ref": "#/$defs/DeviceId"
+        },
+        "id": {
+          "description": "The terminal.",
+          "$ref": "#/$defs/TerminalId"
+        },
+        "kind": {
+          "description": "What it runs.",
+          "$ref": "#/$defs/TerminalKind"
+        },
+        "moved": {
+          "description": "Whether you moved this run from the timeline to the drawer, where it\ngoes on as a tab. A shell is always a tab there, so it's false.",
+          "type": "boolean"
+        },
+        "password_prompt": {
+          "description": "Whether it waits for a password at a prompt that hides what you\ntype, so clients offer a secure field.",
+          "type": "boolean"
+        },
+        "rows": {
+          "description": "Its height in cells.",
+          "type": "integer",
+          "format": "uint16",
+          "maximum": 65535,
+          "minimum": 0
+        },
+        "started_at": {
+          "description": "When it started.",
+          "$ref": "#/$defs/Timestamp"
+        },
+        "status": {
+          "description": "Whether it still runs.",
+          "$ref": "#/$defs/TerminalStatus"
+        },
+        "title": {
+          "description": "The tab's name: what the shell set as the window title, or what you\nrenamed it to.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "agent",
+        "device",
+        "kind",
+        "moved",
+        "title",
+        "cwd",
+        "status",
+        "password_prompt",
+        "started_at",
+        "cols",
+        "rows"
+      ]
+    },
+    "TerminalId": {
+      "description": "A terminal a device's `maxd` holds: a shell in an agent's terminal\ndrawer, or a command you ran with `!`.",
+      "type": "string",
+      "format": "uuid"
+    },
+    "TerminalKind": {
+      "description": "What a terminal runs.",
+      "oneOf": [
+        {
+          "description": "Your login shell, as a tab in the agent's terminal drawer.",
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "shell"
+            }
+          },
+          "required": [
+            "type"
+          ]
+        },
+        {
+          "description": "One command you ran with `!`, shown as a card in the timeline until\nyou move it to the drawer.",
+          "type": "object",
+          "properties": {
+            "command": {
+              "description": "The command line, as typed after the `!`.",
+              "type": "string"
+            },
+            "private": {
+              "description": "Whether you ran it with `!!`, so its output only goes to the\nagent when you attach it to a message.",
+              "type": "boolean"
+            },
+            "type": {
+              "type": "string",
+              "const": "run"
+            }
+          },
+          "required": [
+            "type",
+            "command",
+            "private"
+          ]
+        }
+      ]
+    },
+    "TerminalStatus": {
+      "description": "Whether a terminal's process still runs.",
+      "oneOf": [
+        {
+          "description": "It runs.",
+          "type": "object",
+          "properties": {
+            "state": {
+              "type": "string",
+              "const": "running"
+            }
+          },
+          "required": [
+            "state"
+          ]
+        },
+        {
+          "description": "It ended.",
+          "type": "object",
+          "properties": {
+            "code": {
+              "description": "The exit code, or none when a signal ended it.",
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "int32"
+            },
+            "signal": {
+              "description": "The signal that ended it, if one did.",
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "int32"
+            },
+            "state": {
+              "type": "string",
+              "const": "exited"
+            }
+          },
+          "required": [
+            "state"
+          ]
+        }
+      ]
+    },
     "TestHost": {
       "description": "One kind of test machine on one backend on one device, as that\ndevice's `maxd` publishes it for each kind it hosts.",
       "type": "object",
@@ -15356,6 +15674,80 @@
             "kind",
             "title",
             "attachment"
+          ]
+        },
+        {
+          "description": "A command you ran with `!` in the composer, as a card. The command\nruns in a terminal of its own, and the card shows it live until it\nends. Since protocol 45.",
+          "type": "object",
+          "properties": {
+            "command": {
+              "description": "The command line, as typed after the `!`.",
+              "type": "string"
+            },
+            "cwd": {
+              "description": "The folder it ran in, as the device writes it.",
+              "type": "string"
+            },
+            "device": {
+              "description": "The device it ran on.",
+              "$ref": "#/$defs/DeviceId"
+            },
+            "duration_ms": {
+              "description": "How long it ran, once it ended.",
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "uint64",
+              "minimum": 0
+            },
+            "kind": {
+              "type": "string",
+              "const": "user_run"
+            },
+            "lines": {
+              "description": "How many lines it wrote.",
+              "type": "integer",
+              "format": "uint32",
+              "minimum": 0
+            },
+            "moved": {
+              "description": "Whether you moved it to the terminal drawer, where it goes on as\na tab.",
+              "type": "boolean"
+            },
+            "output": {
+              "description": "What it wrote, with colors and styles as SGR escapes and no\nother escapes. A password you sent at a prompt shows as the\nprompt followed by ` 🔒 sent`, never as what you typed.",
+              "type": "string"
+            },
+            "output_truncated": {
+              "description": "Whether `output` holds only the last part of what it wrote.",
+              "type": "boolean"
+            },
+            "private": {
+              "description": "Whether you ran it with `!!`, so its output only goes to the\nagent when you attach it to a message.",
+              "type": "boolean"
+            },
+            "process": {
+              "description": "Whether its process still runs, and how it ended. It isn't\ncalled `status`, which is the item's own: running while the\ncommand runs, then completed when it exits with 0 and failed\notherwise.",
+              "$ref": "#/$defs/TerminalStatus"
+            },
+            "terminal": {
+              "description": "The terminal it runs in.",
+              "$ref": "#/$defs/TerminalId"
+            }
+          },
+          "required": [
+            "kind",
+            "terminal",
+            "command",
+            "cwd",
+            "device",
+            "private",
+            "process",
+            "lines",
+            "output",
+            "output_truncated",
+            "moved"
           ]
         },
         {

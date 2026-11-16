@@ -23,7 +23,7 @@ use crate::ids::{
     AccountId, AcpAgentId, AdmissionId, AgentId, AttachmentId, AttentionId, BootId, ClientId,
     CredentialId, DeviceId, ForwardId, IdempotencyKey, InstanceId, KeyId, LeaseId, MoveId, PairId,
     PermissionId, PhoneId, PhoneSessionId, PortId, ProjectId, SignInId, SkillProposalId,
-    SkillSourceId, StreamId, TaskId, TestHostId, TransferId, WorkspaceId,
+    SkillSourceId, StreamId, TaskId, TerminalId, TestHostId, TransferId, WorkspaceId,
 };
 use crate::model::{
     CommandRule, DeviceSettingChange, DeviceSettings, InboxChange, PermissionMode, ProjectSettings,
@@ -43,6 +43,7 @@ use crate::skills::{
 };
 use crate::state::{Delta, Seq, Snapshot, ToolKind, ToolPlace};
 use crate::tasks::{HookAddress, Run, Task, TaskDelivery};
+use crate::terminal::TerminalKind;
 use crate::time::Timestamp;
 use crate::timeline::{AttachmentRef, FindAt, ItemId, TimelineFind, TimelineUpdate};
 use crate::workflow::{NodeDetail, RunKey, WorkflowUpdate};
@@ -264,6 +265,11 @@ pub struct Capabilities {
     /// before it leaves this out, and reads as false.
     #[serde(default)]
     pub peer_proofs: bool,
+    /// Holds terminals for its agents, publishes
+    /// [`crate::terminal::Terminal`], and takes the terminal requests and
+    /// frames. A `maxd` from before it leaves this out, and reads as false.
+    #[serde(default)]
+    pub terminals: bool,
 }
 
 /// A message from a client to `maxd`.
@@ -1999,6 +2005,85 @@ pub enum ClientMessage {
         #[serde(default)]
         stop: bool,
     },
+
+    // Terminals, since [`TERMINALS_SINCE`]. Only the app and phones may
+    // send these, never a link from another device or an agent's tools.
+    /// Opens a terminal in an agent's folder, on the agent's device and in
+    /// its container when it runs in one. The outcome is
+    /// [`ActionOutcome::TerminalOpened`].
+    TerminalOpen {
+        /// Makes a resend after a dropped connection safe.
+        key: IdempotencyKey,
+        /// The agent whose folder it starts in.
+        agent: AgentId,
+        /// A shell for the drawer, or one command you ran with `!`.
+        kind: TerminalKind,
+        /// Its width in cells.
+        cols: u16,
+        /// Its height in cells.
+        rows: u16,
+    },
+    /// Starts sending this connection a terminal's output frames. `maxd`
+    /// answers first with [`ServerMessage::TerminalAttached`], then sends
+    /// the output from there on. Sending it again for a terminal already
+    /// attached starts over from `after`.
+    TerminalAttach {
+        /// The terminal.
+        terminal: TerminalId,
+        /// The offset of the last output byte the client has, or none for
+        /// everything `maxd` still holds.
+        #[specta(type = Option<specta_typescript::Number>)]
+        after: Option<u64>,
+    },
+    /// Stops sending this connection a terminal's output frames.
+    TerminalDetach {
+        /// The terminal.
+        terminal: TerminalId,
+    },
+    /// Sets a terminal's size. The client you last typed in owns it.
+    TerminalResize {
+        /// The terminal.
+        terminal: TerminalId,
+        /// Its width in cells.
+        cols: u16,
+        /// Its height in cells.
+        rows: u16,
+    },
+    /// Writes Ctrl-C to a terminal. A phone may send it to a drawer
+    /// terminal it may not type into.
+    TerminalInterrupt {
+        /// Makes a resend after a dropped connection safe.
+        key: IdempotencyKey,
+        /// The terminal.
+        terminal: TerminalId,
+    },
+    /// Closes a terminal: hangs up its shell or command, then forgets it.
+    TerminalClose {
+        /// Makes a resend after a dropped connection safe.
+        key: IdempotencyKey,
+        /// The terminal.
+        terminal: TerminalId,
+        /// Whether to kill what still runs rather than hang it up.
+        force: bool,
+    },
+    /// Renames a terminal's tab.
+    TerminalRename {
+        /// Makes a resend after a dropped connection safe.
+        key: IdempotencyKey,
+        /// The terminal.
+        terminal: TerminalId,
+        /// The new name. Empty goes back to the name the shell sets.
+        title: String,
+    },
+    /// Moves a command you ran with `!` to the agent's terminal drawer,
+    /// where it goes on as a tab. The terminal and its card in the timeline
+    /// both say it moved.
+    TerminalMove {
+        /// Makes a resend after a dropped connection safe.
+        key: IdempotencyKey,
+        /// The terminal.
+        terminal: TerminalId,
+    },
 }
 
 impl ClientMessage {
@@ -2051,6 +2136,14 @@ impl ClientMessage {
                 .as_ref()
                 .map_or(OLDEST_PROTOCOL_VERSION, UserInput::since),
             Self::MoveAgent { .. } => MOVE_AGENT_SINCE,
+            Self::TerminalOpen { .. }
+            | Self::TerminalAttach { .. }
+            | Self::TerminalDetach { .. }
+            | Self::TerminalResize { .. }
+            | Self::TerminalInterrupt { .. }
+            | Self::TerminalClose { .. }
+            | Self::TerminalRename { .. }
+            | Self::TerminalMove { .. } => TERMINALS_SINCE,
             _ => OLDEST_PROTOCOL_VERSION,
         }
     }
@@ -2217,7 +2310,12 @@ impl ClientMessage {
             | Self::EnrollAppKey { key, .. }
             | Self::RemoveAppKey { key, .. }
             | Self::AnswerAdmission { key, .. }
-            | Self::MoveAgent { key, .. } => Some(*key),
+            | Self::MoveAgent { key, .. }
+            | Self::TerminalOpen { key, .. }
+            | Self::TerminalInterrupt { key, .. }
+            | Self::TerminalClose { key, .. }
+            | Self::TerminalRename { key, .. }
+            | Self::TerminalMove { key, .. } => Some(*key),
             Self::Hello(_)
             | Self::Phone { .. }
             | Self::Pair { .. }
@@ -2240,7 +2338,10 @@ impl ClientMessage {
             | Self::TunnelClose { .. }
             | Self::GuestSshOpen { .. }
             | Self::Peer { .. }
-            | Self::PeerAnswer { .. } => None,
+            | Self::PeerAnswer { .. }
+            | Self::TerminalAttach { .. }
+            | Self::TerminalDetach { .. }
+            | Self::TerminalResize { .. } => None,
         }
     }
 }
@@ -2528,6 +2629,7 @@ pub fn refs_since(refs: &[InlineRef]) -> u32 {
         .map(|one| match one {
             InlineRef::Note { .. } => NOTE_PILLS_SINCE,
             InlineRef::Visual { .. } => VISUALS_SINCE,
+            InlineRef::Output { .. } => TERMINALS_SINCE,
             _ => OLDEST_PROTOCOL_VERSION,
         })
         .max()
@@ -2621,6 +2723,15 @@ pub const MOVE_AGENT_SINCE: u32 = 44;
 /// [`ClientMessage::OpenTimeline`] names its lead. An older one sends an
 /// empty timeline, so the app says the sub-agent isn't there.
 pub const FINISHED_SUB_AGENTS_SINCE: u32 = 44;
+
+/// The protocol version whose `maxd` first holds terminals: the terminal
+/// requests from [`ClientMessage::TerminalOpen`] to
+/// [`ClientMessage::TerminalMove`], the terminal frames, the
+/// [`crate::terminal::Terminal`] entity, the `UserRun` timeline item and
+/// the output pill. An older one refuses each, so the app hides the
+/// terminal drawer and shell mode. A `maxd` at this version may still say
+/// [`Capabilities::terminals`] is false.
+pub const TERMINALS_SINCE: u32 = 45;
 
 /// When [`ClientMessage::TakeOver`] stops the terminal's CLI.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, Type, JsonSchema)]
@@ -3048,6 +3159,13 @@ pub enum ActionOutcome {
         check: Box<MoveCheck>,
     },
 
+    // Terminals.
+    /// A terminal is open, for [`ClientMessage::TerminalOpen`].
+    TerminalOpened {
+        /// The new terminal.
+        terminal: TerminalId,
+    },
+
     /// An outcome from a newer `maxd`. The action went through, and what
     /// it came to needs a newer app to show.
     Unknown,
@@ -3223,6 +3341,18 @@ pub enum ServerMessage {
         #[serde(deserialize_with = "crate::tolerant::or_unknown")]
         #[specta(type = PeerRequest)]
         request: PeerRequest,
+    },
+    /// Answers [`ClientMessage::TerminalAttach`]: the terminal's output
+    /// frames to this connection start at `from`.
+    TerminalAttached {
+        /// The terminal.
+        terminal: TerminalId,
+        /// The offset of the first output byte that follows.
+        #[specta(type = specta_typescript::Number)]
+        from: u64,
+        /// Whether the client must clear what it shows and draw again from
+        /// `from`, since what it had ended before what `maxd` still holds.
+        reset: bool,
     },
 }
 
@@ -4881,6 +5011,7 @@ mod tests {
                 library_moves: false,
                 proposal_targets: false,
                 peer_proofs: false,
+                terminals: false,
             },
             challenge: None,
         });
@@ -4915,6 +5046,7 @@ mod tests {
                 "library_moves": false,
                 "proposal_targets": false,
                 "peer_proofs": false,
+                "terminals": false,
             })
         );
         assert_eq!(value["build"], json!("0123456789abcdef"));

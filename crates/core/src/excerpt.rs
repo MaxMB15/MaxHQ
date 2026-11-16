@@ -347,6 +347,9 @@ fn request(text: &str, attachments: &[AttachmentRef], refs: &[InlineRef]) -> Str
                 };
                 out.push_str(&format!("[Visual: {}]", one_line(title, MAX_TITLE)));
             }
+            Some(InlineRef::Output { command, .. }) => {
+                out.push_str(&format!("[Output: {}]", one_line(command, MAX_TITLE)));
+            }
             // A mark with no ref left to fill it is dropped.
             Some(InlineRef::GitItem { .. }) | None => {}
         }
@@ -565,6 +568,9 @@ fn steps_of(body: &ItemBody) -> Vec<String> {
         | ItemBody::Reasoning { .. }
         | ItemBody::TurnSummary { .. }
         | ItemBody::Notice { .. }
+        // A command you ran stays out until excerpts know which ones are
+        // private.
+        | ItemBody::UserRun { .. }
         | ItemBody::Unknown { .. } => Vec::new(),
     }
 }
