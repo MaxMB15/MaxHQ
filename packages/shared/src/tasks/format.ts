@@ -9,7 +9,7 @@
 // and the runs' own outcomes are new, as are the webhook address words and
 // how a GitHub events task hears of events.
 
-import { t } from "../i18n";
+import { formatNumber, t } from "../i18n";
 
 import type {
 	DeliveryOutcome,
@@ -21,12 +21,13 @@ import type {
 	RunOutcome,
 	RunSummary,
 	Task,
+	TaskDelivery,
 	TaskId,
 	Timestamp,
 	Trigger,
 } from "../bindings";
 import { formatAgo, listInWords } from "../status/format";
-import { COALESCE_SECS, MAX_WAIT_SECS, WEEKDAYS } from "./draft";
+import { COALESCE_SECS, MAX_WAIT_SECS, type PromptField, WEEKDAYS } from "./draft";
 
 const MINUTE = 60_000;
 const pad = (n: number) => String(n).padStart(2, "0");
@@ -266,6 +267,15 @@ export const deliveryTone = (outcome: DeliveryOutcome): Tone => {
 	return "warn";
 };
 
+/** How a request came, such as its method, content type, size and signature. */
+export const deliveryFacts = (delivery: TaskDelivery): string[] =>
+	[
+		delivery.method,
+		delivery.content_type,
+		t("{{value1}} bytes", { value1: formatNumber(delivery.body_bytes) }),
+		delivery.signature_verified ? "signed" : null,
+	].filter((fact): fact is string => Boolean(fact));
+
 /**
  * The GitHub events a task can watch, by their webhook names: the ones
  * `maxd` maps from the Events API, less `public` and `sponsorship`, which
@@ -406,8 +416,76 @@ export const addressHint = (address: HookAddress, funnel: FunnelState): string =
 	address.kind === "funnel" ? FUNNEL_HINT[funnel.state] : ADDRESS_LABEL[address.kind];
 
 /**
+ * Who reaches a device's webhooks, in a sentence, for `device` by its
+ * name, or null while its Funnel needs setting up, which shows the steps.
+ */
+export const addressNote = (
+	reach: Pick<DeviceTasks, "address" | "port" | "funnel">,
+	device: string
+): string | null => {
+	const { port, funnel } = reach;
+	const address = addressOf(reach);
+	if (address.kind === "local")
+		return t(
+			"Only programs on {{device}} reach its webhooks. Pick another address in Settings › Scheduled tasks to take requests from elsewhere.",
+			{ device: device }
+		);
+	if (address.kind === "own")
+		return t(
+			"Requests come in through {{base}}. maxd can't check that it reaches{{value4}}{{value6}} on {{device}}.",
+			{
+				base: address.base,
+				value4: " ",
+				value6: port
+					? t("port {{port}}", { port: formatNumber(port, { useGrouping: false }) })
+					: t("the hooks port"),
+				device: device,
+			}
+		);
+	if (funnel.state === "on")
+		return t("Funnel is on, so requests reach {{device}}.", { device: device });
+	if (funnel.state === "off")
+		return t("Funnel turns on for {{device}} when a webhook on it does.", { device: device });
+	return null;
+};
+
+/** What to paste as your own address, for a device whose hooks listen on `port`. */
+export const ownAddressHint = (port: number | null | undefined): string =>
+	t(
+		"Paste the address of a tunnel or proxy that points at{{value2}}{{value4}}. It needs https, or http on this device. maxd can't check that it works.",
+		{
+			value2: " ",
+			value4: port ? `http://127.0.0.1:${port}` : t("this device's hooks port"),
+		}
+	);
+
+/** How a prompt's fields fill in, said under them, for GitHub events or a webhook. */
+export const fieldsNote = (github: boolean): string =>
+	github
+		? t(
+				"Numbers, logins, actions, URLs and other structural values fill in as they are, and fenced when one doesn't look the way GitHub writes it. Free text, such as a title, a body or a comment, comes from whoever wrote it, so it stays out unless you allow it, and then fills in fenced as untrusted data."
+			)
+		: t(
+				"Every value from the request, headers and query included, comes from whoever sent it, so it stays out unless you allow it, and then fills in fenced as untrusted data."
+			);
+
+/** What a prompt's field is: free text, or a structural value. */
+export const fieldKind = ({ expression, free }: PromptField, github: boolean): string =>
+	free
+		? t("Free text")
+		: github && expression === "body"
+			? t("Structural parts")
+			: t("Structural");
+
+/**
  * A webhook's URL with its token hidden, since only a rotate shows it
  * again. Before the address works, it's only the path.
  */
 export const hiddenHookUrl = (task: TaskId, funnel: FunnelState): string =>
 	`${funnel.state === "on" ? funnel.url : ""}/maxhq/${task}/••••••`;
+
+/** Whether a task's webhook waits on a signing secret its device doesn't hold. */
+export const needsSecret = (task: Task): boolean =>
+	task.trigger.type === "hook" &&
+	task.trigger.signature !== null &&
+	!task.trigger.signature.has_secret;

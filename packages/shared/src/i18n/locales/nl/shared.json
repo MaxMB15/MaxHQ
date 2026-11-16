@@ -711,6 +711,8 @@
 	"Fix the merge conflicts": "Mergeconflicten oplossen",
 	"Resolve the merge conflicts between {{pr}} and its base branch. {{branch}} Bring it up to date the way this repository does, keep what both sides meant, and run the relevant checks before you push.": "Los de mergeconflicten tussen {{pr}} en de basisbranch op. {{branch}} Werk de branch bij volgens de werkwijze van deze repository, behoud de bedoeling van beide kanten en voer de relevante controles uit voordat je pusht.",
 	"Explain the PR": "PR uitleggen",
+	"Couldn't link #{{number}}. {{reason}}": "Kon #{{number}} niet koppelen. {{reason}}",
+	"Couldn't link #{{number}}. Try again.": "Kon #{{number}} niet koppelen. Probeer het opnieuw.",
 	"Explain {{pr}}. Read its diff and walk me through what it's for, what it changes, its risks, and what I should read closely before approving it. Don't change any code.": "Leg {{pr}} uit. Lees de diff en beschrijf het doel, de wijzigingen, de risico's en wat ik goed moet bekijken voordat ik de PR goedkeur. Wijzig geen code.",
 	"Sign in to GitHub in Settings to {{act}} here.": "Meld je aan bij GitHub in Instellingen om hier te {{act}}.",
 	"Merging": "Mergen",

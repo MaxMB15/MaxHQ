@@ -7,7 +7,7 @@
 // share: filters, replay and coalesce keys, a window that restarts, the
 // oldest request it takes and its runs a day.
 
-import { t, useI18n, formatNumber } from "@maxhq/shared/i18n";
+import { useI18n, formatNumber } from "@maxhq/shared/i18n";
 
 import { Plus, X } from "lucide-react";
 import type { ReactNode } from "react";
@@ -20,6 +20,7 @@ import { FIELD, Label, SECONDARY } from "@/settings/controls";
 import { cn } from "@/lib/utils";
 import type { DeviceTasks } from "@maxhq/shared/bindings";
 import {
+	allowField,
 	emptyFilter,
 	FILTER_OPS,
 	type FilterDraft,
@@ -28,8 +29,16 @@ import {
 	MAX_WAIT_SECS,
 	promptFields,
 	type TaskDraft,
+	toggled,
+	withFilter,
 } from "@maxhq/shared/tasks/draft";
-import { addressOf, GITHUB_EVENTS, GITHUB_LATENCY_NOTE } from "@maxhq/shared/tasks/format";
+import {
+	addressNote,
+	fieldKind,
+	fieldsNote,
+	GITHUB_EVENTS,
+	GITHUB_LATENCY_NOTE,
+} from "@maxhq/shared/tasks/format";
 
 /** A change to some of the draft's fields. */
 export type Edit = (patch: Partial<TaskDraft>) => void;
@@ -120,43 +129,10 @@ export const AddressNote = ({
 }) => {
 	const { t } = useI18n();
 
-	const { port, funnel } = reach;
-	const address = addressOf(reach);
-	if (address.kind === "local")
-		return (
-			<Hint>
-				{t(
-					"Only programs on {{device}} reach its webhooks. Pick another address in Settings › Scheduled tasks to take requests from elsewhere.",
-					{ device: device }
-				)}
-			</Hint>
-		);
-	if (address.kind === "own")
-		return (
-			<Hint>
-				{t(
-					"Requests come in through {{base}}. maxd can't check that it reaches{{value4}}{{value6}} on {{device}}.",
-					{
-						base: address.base,
-						value4: " ",
-						value6: port
-							? t("port {{port}}", {
-									port: formatNumber(port, { useGrouping: false }),
-								})
-							: t("the hooks port"),
-						device: device,
-					}
-				)}
-			</Hint>
-		);
-	if (funnel.state === "on")
-		return <Hint>{t("Funnel is on, so requests reach {{device}}.", { device: device })}</Hint>;
-	if (funnel.state === "off")
-		return (
-			<Hint>
-				{t("Funnel turns on for {{device}} when a webhook on it does.", { device: device })}
-			</Hint>
-		);
+	const note = addressNote(reach, device);
+	if (note !== null) return <Hint>{note}</Hint>;
+	const { funnel } = reach;
+	if (funnel.state !== "needs_setup") return null;
 	return (
 		<div
 			role="status"
@@ -329,19 +305,6 @@ const FilterRow = ({
 	);
 };
 
-const FIELDS_NOTE = {
-	get github() {
-		return t(
-			"Numbers, logins, actions, URLs and other structural values fill in as they are, and fenced when one doesn't look the way GitHub writes it. Free text, such as a title, a body or a comment, comes from whoever wrote it, so it stays out unless you allow it, and then fills in fenced as untrusted data."
-		);
-	},
-	get hook() {
-		return t(
-			"Every value from the request, headers and query included, comes from whoever sent it, so it stays out unless you allow it, and then fills in fenced as untrusted data."
-		);
-	},
-} as const;
-
 /** The placeholders the prompt uses, which are free text, and the free text it may hold. */
 export const PromptFields = ({ draft, edit }: { draft: TaskDraft; edit: Edit }) => {
 	const { t } = useI18n();
@@ -352,9 +315,7 @@ export const PromptFields = ({ draft, edit }: { draft: TaskDraft; edit: Edit }) 
 	const everything = draft.fields === null && !github;
 	const allowed = draft.fields ?? [];
 	const allow = (expression: string, on: boolean) =>
-		edit({
-			fields: on ? [...allowed, expression] : allowed.filter((f) => f !== expression),
-		});
+		edit({ fields: allowField(draft.fields, expression, on) });
 	return (
 		<>
 			{everything ? (
@@ -383,37 +344,36 @@ export const PromptFields = ({ draft, edit }: { draft: TaskDraft; edit: Edit }) 
 				<Hint>{t("The prompt uses no placeholders.")}</Hint>
 			) : (
 				<ul aria-label={t("Fields")} className="flex flex-col gap-1.5">
-					{used.map(({ expression, free }) => (
-						<li key={expression} className="flex min-w-0 items-center gap-2">
-							{free && !everything ? (
-								<Checkbox
-									aria-label={t("Allow {{expression}}", {
-										expression: expression,
-									})}
-									checked={allowed.includes(expression)}
-									onCheckedChange={(on) => allow(expression, on)}
-								/>
-							) : null}
-							<code className="min-w-0 truncate font-mono text-xs text-foreground">
-								{expression}
-							</code>
-							<span
-								className={cn(
-									"shrink-0 text-[11.5px]",
-									free ? "text-status-busy-text" : "text-muted-foreground"
-								)}
-							>
-								{free
-									? t("Free text")
-									: github && expression === "body"
-										? t("Structural parts")
-										: t("Structural")}
-							</span>
-						</li>
-					))}
+					{used.map((field) => {
+						const { expression, free } = field;
+						return (
+							<li key={expression} className="flex min-w-0 items-center gap-2">
+								{free && !everything ? (
+									<Checkbox
+										aria-label={t("Allow {{expression}}", {
+											expression: expression,
+										})}
+										checked={allowed.includes(expression)}
+										onCheckedChange={(on) => allow(expression, on)}
+									/>
+								) : null}
+								<code className="min-w-0 truncate font-mono text-xs text-foreground">
+									{expression}
+								</code>
+								<span
+									className={cn(
+										"shrink-0 text-[11.5px]",
+										free ? "text-status-busy-text" : "text-muted-foreground"
+									)}
+								>
+									{fieldKind(field, github)}
+								</span>
+							</li>
+						);
+					})}
 				</ul>
 			)}
-			<Hint>{github ? FIELDS_NOTE.github : FIELDS_NOTE.hook}</Hint>
+			<Hint>{fieldsNote(github)}</Hint>
 		</>
 	);
 };
@@ -423,11 +383,7 @@ export const RulesFields = ({ draft, edit }: { draft: TaskDraft; edit: Edit }) =
 	const { t } = useI18n();
 
 	const setFilter = (index: number, filter: FilterDraft | null) =>
-		edit({
-			filters: filter
-				? draft.filters.map((f, i) => (i === index ? filter : f))
-				: draft.filters.filter((_, i) => i !== index),
-		});
+		edit({ filters: withFilter(draft.filters, index, filter) });
 	return (
 		<>
 			<div className="flex flex-col gap-2">
@@ -546,12 +502,7 @@ export const GithubFields = ({
 						key={event}
 						label={label}
 						checked={draft.events.has(event)}
-						onChange={(on) => {
-							const events = new Set(draft.events);
-							if (on) events.add(event);
-							else events.delete(event);
-							edit({ events });
-						}}
+						onChange={(on) => edit({ events: toggled(draft.events, event, on) })}
 					/>
 				))}
 			</TickGroup>

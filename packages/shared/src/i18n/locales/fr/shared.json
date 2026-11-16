@@ -713,6 +713,8 @@
 	"Fix the merge conflicts": "Résoudre les conflits de fusion",
 	"Resolve the merge conflicts between {{pr}} and its base branch. {{branch}} Bring it up to date the way this repository does, keep what both sides meant, and run the relevant checks before you push.": "Résous les conflits de fusion entre {{pr}} et sa branche de base. {{branch}} Mets-la à jour selon les pratiques du dépôt, préserve l'intention des deux côtés et lance les vérifications pertinentes avant de pousser.",
 	"Explain the PR": "Expliquer la PR",
+	"Couldn't link #{{number}}. {{reason}}": "Impossible de lier #{{number}}. {{reason}}",
+	"Couldn't link #{{number}}. Try again.": "Impossible de lier #{{number}}. Réessaie.",
 	"Explain {{pr}}. Read its diff and walk me through what it's for, what it changes, its risks, and what I should read closely before approving it. Don't change any code.": "Explique {{pr}}. Lis son diff et détaille son objectif, ses changements, ses risques et les points à lire attentivement avant de l'approuver. Ne modifie aucun code.",
 	"Sign in to GitHub in Settings to {{act}} here.": "Connecte-toi à GitHub dans les réglages pour {{act}} ici.",
 	"Merging": "Fusion en cours",

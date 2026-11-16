@@ -12,6 +12,7 @@ import { t } from "../i18n";
 
 import type { DeviceId, NoteId, ProjectId } from "../bindings";
 import type { DataSource } from "../data/source";
+import { newUuid } from "../lib/uuid";
 import { errorText } from "../timeline/store";
 import { type NotesReach, untitled } from "../view/notes";
 import type { ViewState } from "../view/replica";
@@ -34,29 +35,8 @@ export const deleteNoteQuestion = (
 	detail: t("It goes from every device. Its history stays, so it can be brought back."),
 });
 
-/**
- * A new note's ID, a random version 4 UUID. React Native may have no
- * `crypto.randomUUID`, so it falls back to `crypto.getRandomValues`, and
- * to `Math.random` where neither is there.
- */
-export const newNoteId = (): NoteId => {
-	const crypto = (
-		globalThis as {
-			crypto?: {
-				randomUUID?: () => string;
-				getRandomValues?: (bytes: Uint8Array) => Uint8Array;
-			};
-		}
-	).crypto;
-	if (typeof crypto?.randomUUID === "function") return crypto.randomUUID();
-	const bytes = new Uint8Array(16);
-	if (typeof crypto?.getRandomValues === "function") crypto.getRandomValues(bytes);
-	else for (let i = 0; i < bytes.length; i++) bytes[i] = Math.floor(Math.random() * 256);
-	bytes[6] = ((bytes[6] ?? 0) & 0x0f) | 0x40;
-	bytes[8] = ((bytes[8] ?? 0) & 0x3f) | 0x80;
-	const hex = [...bytes].map((b) => b.toString(16).padStart(2, "0")).join("");
-	return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
-};
+/** A new note's ID, a random version 4 UUID. */
+export const newNoteId = (): NoteId => newUuid();
 
 /**
  * Makes a note through `reach`, empty or holding `body`, titled "Untitled"
