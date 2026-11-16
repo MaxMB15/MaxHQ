@@ -28,6 +28,7 @@
 
 use std::ffi::OsString;
 use std::fs::{self, File, OpenOptions, TryLockError};
+use std::future::Future;
 use std::io::{self, BufRead, BufReader, Read, Write};
 use std::os::fd::AsFd;
 use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
@@ -63,6 +64,9 @@ use crate::{ChildState, Exit, Framing, Limits, WriteOutcome};
 
 /// The flag the first step adds when it runs the second.
 pub(crate) const DETACHED: &str = "--detached";
+
+/// The flag that makes `maxd hold` a terminal's holder.
+pub(crate) const PTY: &str = "--pty";
 
 /// What reading a line of a CLI's stdout found.
 #[derive(Debug, PartialEq, Eq)]
@@ -111,28 +115,29 @@ const LOCK_WAIT: Duration = Duration::from_secs(2);
 const SECRET_WAIT: Duration = Duration::from_secs(10);
 
 /// How long a client has to say hello.
-const HELLO_WAIT: Duration = Duration::from_secs(10);
+pub(crate) const HELLO_WAIT: Duration = Duration::from_secs(10);
 
 /// How long the holder waits for the CLI's pipes to close after it exits.
 /// Something the CLI started can keep them open, and its output after the
 /// CLI has gone isn't recorded.
-const DRAIN_WAIT: Duration = Duration::from_secs(2);
+pub(crate) const DRAIN_WAIT: Duration = Duration::from_secs(2);
 
 /// How often the holder checks for the CLI's exit besides SIGCHLD.
-const REAP_TICK: Duration = Duration::from_millis(200);
+pub(crate) const REAP_TICK: Duration = Duration::from_millis(200);
 
 /// The grace a SIGTERM or SIGINT to the holder gives the CLI.
-const QUIT_GRACE: Duration = Duration::from_secs(2);
+pub(crate) const QUIT_GRACE: Duration = Duration::from_secs(2);
 
 /// How long the holder stays after deciding to go, so connections can send
 /// what they have.
-const FLUSH_WAIT: Duration = Duration::from_millis(200);
+pub(crate) const FLUSH_WAIT: Duration = Duration::from_millis(200);
 
 /// The most lines a connection takes in one go.
 const BATCH: usize = 256;
 
-/// Runs `maxd hold`. `args` are the arguments after `hold`: the session's
-/// folder, and `--detached` for the second step.
+/// Runs `maxd hold`. `args` are the arguments after `hold`: `--pty` for a
+/// terminal's holder, the session's or terminal's folder, and `--detached`
+/// for the second step.
 ///
 /// The first step runs this program again with its own arguments and
 /// `--detached` added, so the program has to reach this function the same
@@ -141,8 +146,10 @@ pub fn run_holder(args: &[OsString]) -> ExitCode {
     match args {
         [_dir] => detach(),
         [dir, flag] if flag == DETACHED => hold(Path::new(dir)),
+        [pty, _dir] if pty == PTY => detach(),
+        [pty, dir, flag] if pty == PTY && flag == DETACHED => crate::terminal::hold(Path::new(dir)),
         _ => {
-            eprintln!("usage: maxd hold <session folder>");
+            eprintln!("usage: maxd hold [--pty] <session or terminal folder>");
             ExitCode::from(2)
         }
     }
@@ -175,6 +182,28 @@ fn detach() -> ExitCode {
 
 /// The second step: the holder itself.
 fn hold(dir: &Path) -> ExitCode {
+    detached(dir, |dir| async move {
+        match Started::start(&dir) {
+            Ok(started) => {
+                started.run().await;
+                ExitCode::SUCCESS
+            }
+            Err(message) => {
+                eprintln!("{message}");
+                ExitCode::FAILURE
+            }
+        }
+    })
+}
+
+/// Leaves the spawner's session and folder, then runs `body` with the
+/// holder's absolute folder on a small runtime. An agent's holder and a
+/// terminal's start the same way.
+pub(crate) fn detached<F, Fut>(dir: &Path, body: F) -> ExitCode
+where
+    F: FnOnce(PathBuf) -> Fut,
+    Fut: Future<Output = ExitCode>,
+{
     let dir = match std::path::absolute(dir) {
         Ok(dir) => dir,
         Err(err) => {
@@ -204,18 +233,7 @@ fn hold(dir: &Path) -> ExitCode {
             return ExitCode::FAILURE;
         }
     };
-    let code = runtime.block_on(async {
-        match Started::start(&dir) {
-            Ok(started) => {
-                started.run().await;
-                ExitCode::SUCCESS
-            }
-            Err(message) => {
-                eprintln!("{message}");
-                ExitCode::FAILURE
-            }
-        }
-    });
+    let code = runtime.block_on(body(dir));
     runtime.shutdown_timeout(FLUSH_WAIT);
     code
 }
@@ -422,7 +440,7 @@ fn spawn_failure(program: &Path, cwd: &Path, err: &io::Error) -> String {
 }
 
 /// Takes the session's lock, waiting a moment in case a client has it.
-fn take_lock(path: &Path) -> Result<File, String> {
+pub(crate) fn take_lock(path: &Path) -> Result<File, String> {
     let lock = OpenOptions::new()
         .create(true)
         .truncate(false)
@@ -465,7 +483,7 @@ fn take_lock(path: &Path) -> Result<File, String> {
 /// Reads what the spawner writes on stdin: the holder's key when `keyed`,
 /// then the secret variables, which must be the ones `names` lists, in
 /// order. With no key and no names it reads nothing.
-fn read_stdin(keyed: bool, names: &[OsBytes]) -> Result<Piped, String> {
+pub(crate) fn read_stdin(keyed: bool, names: &[OsBytes]) -> Result<Piped, String> {
     if !keyed && names.is_empty() {
         return Ok((None, Vec::new()));
     }
@@ -508,7 +526,7 @@ fn read_stdin(keyed: bool, names: &[OsBytes]) -> Result<Piped, String> {
 }
 
 /// Points stdin at `/dev/null`, so nothing else reads the spawner's pipe.
-fn quiet_stdin() {
+pub(crate) fn quiet_stdin() {
     if let Ok(null) = File::open("/dev/null") {
         let _ = rustix::stdio::dup2_stdin(&null);
     }
@@ -517,7 +535,7 @@ fn quiet_stdin() {
 /// Tells the spawner the socket takes connections, then sends the holder's
 /// own output to `holder.log`. That closes the spawner's pipes, so it
 /// isn't left waiting on them.
-fn say_ready(dir: &Path) {
+pub(crate) fn say_ready(dir: &Path) {
     let mut stdout = io::stdout();
     let _ = stdout.write_all(b"ready\n").and_then(|()| stdout.flush());
     match files::append(&dir.join(HOLDER_LOG)) {
@@ -534,7 +552,7 @@ fn say_ready(dir: &Path) {
     }
 }
 
-fn spawn_thread(name: &str, work: impl FnOnce() + Send + 'static) {
+pub(crate) fn spawn_thread(name: &str, work: impl FnOnce() + Send + 'static) {
     if let Err(err) = thread::Builder::new().name(name.into()).spawn(work) {
         eprintln!("couldn't start the {name} thread: {err}");
     }

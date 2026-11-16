@@ -15,12 +15,12 @@
 
 use std::collections::HashMap;
 use std::ffi::OsString;
-use std::fs::{self, OpenOptions};
+use std::fs;
 use std::io;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
-use std::os::fd::{AsFd, OwnedFd};
-use std::os::unix::ffi::{OsStrExt, OsStringExt};
-use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
+use std::os::fd::OwnedFd;
+use std::os::unix::ffi::OsStringExt;
+use std::os::unix::fs::PermissionsExt;
 use std::os::unix::process::{CommandExt, ExitStatusExt};
 use std::path::{Path, PathBuf};
 use std::process::{ExitStatus, Stdio};
@@ -28,6 +28,7 @@ use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::time::Duration;
 
 use maxhq_core::fs::{write_atomic, Atomic};
+use maxhq_hold::pty::{self, controlling_tty, winsize, Master};
 use maxhq_hold::RunAs;
 use maxhq_protocol::guest::MAX_SSH_KEYS;
 use ring::rand::{SecureRandom, SystemRandom};
@@ -38,7 +39,6 @@ use russh::server::{self, Auth, ChannelOpenHandle, Msg, PublicKeyOffer, Verified
 use russh::{Channel, ChannelId, ChannelMsg, ChannelOpenFailure, MethodKind, MethodSet, Sig};
 use rustix::process::{Pid, Signal};
 use rustix::termios::Winsize;
-use tokio::io::unix::AsyncFd;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, DuplexStream};
 use tokio::net::TcpStream;
 use tokio::process::{Child, ChildStdin};
@@ -621,7 +621,7 @@ fn prepare(
     let io = match pty {
         Some(ask) => {
             let (master, slave) =
-                open_pty(ask.size).map_err(|err| format!("couldn't open a pty: {err}"))?;
+                pty::open(ask.size).map_err(|err| format!("couldn't open a pty: {err}"))?;
             process.env("TERM", ask.term);
             let copy = |fd: &OwnedFd| {
                 fd.try_clone()
@@ -667,103 +667,6 @@ fn new_session(process: &mut std::process::Command) {
             rustix::process::setsid()?;
             Ok(())
         });
-    }
-}
-
-/// Has the forked process lead a session of its own with the pty on its
-/// standard input as the session's terminal.
-#[allow(unsafe_code)]
-fn controlling_tty(process: &mut std::process::Command) {
-    // SAFETY: `setsid` and the `TIOCSCTTY` ioctl are plain system calls,
-    // which are safe in a forked process, and fd 0 is the pty there.
-    unsafe {
-        process.pre_exec(|| {
-            rustix::process::setsid()?;
-            let stdin = std::os::fd::BorrowedFd::borrow_raw(0);
-            rustix::process::ioctl_tiocsctty(stdin)?;
-            Ok(())
-        });
-    }
-}
-
-/// A new pty of `size`: its master and the terminal end.
-fn open_pty(size: Winsize) -> io::Result<(OwnedFd, OwnedFd)> {
-    use rustix::pty::{grantpt, openpt, ptsname, unlockpt, OpenptFlags};
-
-    #[cfg(target_os = "linux")]
-    let master = openpt(OpenptFlags::RDWR | OpenptFlags::NOCTTY | OpenptFlags::CLOEXEC)?;
-    // macOS can't open the master closed on exec, so it's marked after.
-    #[cfg(not(target_os = "linux"))]
-    let master = {
-        let master = openpt(OpenptFlags::RDWR | OpenptFlags::NOCTTY)?;
-        rustix::io::fcntl_setfd(&master, rustix::io::FdFlags::CLOEXEC)?;
-        master
-    };
-    grantpt(&master)?;
-    unlockpt(&master)?;
-    let name = ptsname(&master, Vec::new())?;
-    let slave = OpenOptions::new()
-        .read(true)
-        .write(true)
-        .custom_flags(libc::O_NOCTTY)
-        .open(Path::new(std::ffi::OsStr::from_bytes(name.as_bytes())))?;
-    rustix::termios::tcsetwinsize(&master, size)?;
-    Ok((master, slave.into()))
-}
-
-/// A window size from the client's numbers, which a pty keeps as 16 bits.
-fn winsize(cols: u32, rows: u32, width: u32, height: u32) -> Winsize {
-    let clamp = |value: u32| u16::try_from(value).unwrap_or(u16::MAX);
-    Winsize {
-        ws_row: clamp(rows),
-        ws_col: clamp(cols),
-        ws_xpixel: clamp(width),
-        ws_ypixel: clamp(height),
-    }
-}
-
-/// A pty's master, read and written without blocking.
-struct Master(AsyncFd<OwnedFd>);
-
-impl Master {
-    #[allow(unsafe_code)]
-    fn new(fd: OwnedFd) -> io::Result<Self> {
-        rustix::io::ioctl_fionbio(&fd, true)?;
-        // SAFETY: the master is a file descriptor this owns, which nothing
-        // else closes or replaces while it's registered.
-        let fd = unsafe { AsyncFd::register(fd) }.map_err(|err| err.into_parts().1)?;
-        Ok(Self(fd))
-    }
-
-    /// Reads some output. Zero once every terminal end has closed, which
-    /// Linux reports as an I/O error.
-    async fn read(&self, buf: &mut [u8]) -> io::Result<usize> {
-        loop {
-            let mut ready = self.0.readable().await?;
-            let read = ready.try_io(|fd| match rustix::io::read(fd.get_ref(), &mut *buf) {
-                Err(rustix::io::Errno::IO) => Ok(0),
-                read => read.map_err(io::Error::from),
-            });
-            if let Ok(read) = read {
-                return read;
-            }
-        }
-    }
-
-    /// Writes all of `data` as input.
-    async fn write_all(&self, mut data: &[u8]) -> io::Result<()> {
-        while !data.is_empty() {
-            let mut ready = self.0.writable().await?;
-            let wrote = ready.try_io(|fd| Ok(rustix::io::write(fd.get_ref(), data)?));
-            if let Ok(wrote) = wrote {
-                data = &data[wrote?..];
-            }
-        }
-        Ok(())
-    }
-
-    fn resize(&self, size: Winsize) {
-        let _ = rustix::termios::tcsetwinsize(self.0.get_ref().as_fd(), size);
     }
 }
 

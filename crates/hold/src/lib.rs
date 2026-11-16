@@ -66,6 +66,10 @@ pub use crate::holder::run_holder;
 pub use crate::scope::unit_name;
 pub use crate::secret::Secret;
 pub use crate::spawn::DETACH_ENV;
+pub use crate::terminal::{
+    login_shell, Reached, RunOutput, TermControl, TermEvent, TermExit, TermHello, TermLaunch,
+    TermLink, Terminals,
+};
 
 mod client;
 mod end;
@@ -75,11 +79,13 @@ mod find;
 mod holder;
 mod log;
 mod pending;
+pub mod pty;
 mod scope;
 mod secret;
 mod socket;
 mod spawn;
 mod stderr;
+mod terminal;
 mod user;
 mod wire;
 

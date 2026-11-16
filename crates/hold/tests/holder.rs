@@ -40,6 +40,20 @@ use maxhq_protocol::ids::SessionId;
 use rustix::process::{Pid, Signal};
 use serde_json::{json, Value};
 
+use self::terminal::{
+    a_goodbye_before_the_end_changes_nothing,
+    a_password_prompt_is_flagged_and_its_answer_kept_nowhere,
+    a_reader_past_the_ring_starts_over_at_a_whole_line, a_run_keeps_what_it_showed,
+    a_terminal_holder_refuses_a_client_without_its_key, a_terminal_outlives_its_spawner,
+    a_terminal_replays_from_an_offset_without_a_gap,
+    an_ended_terminal_leaves_its_exit_when_nobody_says_goodbye,
+    interrupt_stops_what_the_shell_runs, kill_escalates_to_sigkill, kill_hangs_up_the_whole_group,
+    the_title_and_folder_come_from_the_shell,
+};
+
+#[path = "holder/terminal.rs"]
+mod terminal;
+
 /// How long any one step may take before the test fails.
 const WAIT: Duration = Duration::from_secs(15);
 
@@ -111,6 +125,18 @@ const TESTS: &[(&str, TestFn)] = tests![
     a_client_started_later_finds_the_key,
     a_holder_from_before_keys_takes_any_client,
     the_key_shows_in_no_other_file_environment_or_arguments,
+    a_terminal_replays_from_an_offset_without_a_gap,
+    a_reader_past_the_ring_starts_over_at_a_whole_line,
+    a_password_prompt_is_flagged_and_its_answer_kept_nowhere,
+    the_title_and_folder_come_from_the_shell,
+    interrupt_stops_what_the_shell_runs,
+    kill_hangs_up_the_whole_group,
+    kill_escalates_to_sigkill,
+    an_ended_terminal_leaves_its_exit_when_nobody_says_goodbye,
+    a_goodbye_before_the_end_changes_nothing,
+    a_terminal_holder_refuses_a_client_without_its_key,
+    a_run_keeps_what_it_showed,
+    a_terminal_outlives_its_spawner,
 ];
 
 /// Tests that need root, systemd or a running `maxd`, each with why. They
@@ -2057,6 +2083,12 @@ fn spawner(args: &[OsString]) -> ExitCode {
         [args @ .., flag, report] if flag == "--ensure" => (args, Some(Path::new(report))),
         args => (args, None),
     };
+    if let [flag, sessions, sockets, terminal, cwd] = args
+        && flag == "--terminal"
+    {
+        let terminal = terminal.to_str().unwrap();
+        return terminal::spawner(sessions.as_ref(), sockets.as_ref(), terminal, cwd.as_ref());
+    }
     let [sessions, sockets, session, cwd] = args else {
         eprintln!("usage: __spawner <sessions> <sockets> <session> <cwd> [--ensure <report>]");
         return ExitCode::from(2);

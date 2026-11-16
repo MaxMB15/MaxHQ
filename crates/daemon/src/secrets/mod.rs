@@ -53,9 +53,7 @@ pub(crate) mod testing;
 mod tests;
 
 pub use apns::ApnsKey;
-pub use github::{
-    Fetched, GithubError, GithubToken, RepoName, UserToken, NOT_GITHUB, TOKEN_STARTS,
-};
+pub use github::{Fetched, GithubError, GithubToken, RepoName, UserToken, NOT_GITHUB};
 
 /// The store's folder under `maxd`'s data folder.
 pub const DIR: &str = "secrets";

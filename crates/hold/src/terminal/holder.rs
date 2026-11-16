@@ -1,0 +1,835 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026 Max Boksem
+
+//! A terminal's holder, `maxd hold --pty <terminal folder>`.
+//!
+//! It detaches as an agent's holder does, takes the folder's lock, reads
+//! its key from stdin, binds its socket and starts the program on a new
+//! pty, in a session of its own with the pty as its terminal. Then it says
+//! `ready`.
+//!
+//! One task reads the master into the ring, and for a `!` run into a
+//! headless terminal too. One task writes input, in the order it came.
+//! Every 150 ms the holder looks at the pty's modes and its foreground
+//! group, and tells clients when the program starts or stops waiting for
+//! a password or the shell starts or stops running something.
+//!
+//! Once the program ends and its output is in, the holder writes
+//! `exit.json`. A goodbye from a client that saw the exit deletes the
+//! folder and ends the holder. Without one, the holder ends after its
+//! linger and leaves the folder for `maxd` to find.
+
+use std::fs::File;
+use std::io;
+use std::path::{Path, PathBuf};
+use std::process::{Command, Stdio};
+use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use std::time::{Duration, Instant};
+
+use maxhq_protocol::ids::TerminalId;
+use maxhq_protocol::time::Timestamp;
+use maxhq_term::Emulator;
+use rustix::process::{Pid, Signal, WaitOptions};
+use tokio::io::BufReader;
+use tokio::net::unix::OwnedReadHalf;
+use tokio::net::UnixStream;
+use tokio::signal::unix::{signal, SignalKind};
+use tokio::sync::{mpsc, watch};
+
+use super::osc::{Scanner, Set};
+use super::ring::{Ring, RING_BYTES};
+use super::wire::{self, FromHolder, ToHolder, Typed, CHUNK};
+use super::{socket_name, LaunchFile, RunOutput, TermExit, TermHello};
+use crate::files::{self, HolderFile, EXIT, HOLDER, LAUNCH, LOCK};
+use crate::holder::{
+    quiet_stdin, read_stdin, say_ready, take_lock, DRAIN_WAIT, FLUSH_WAIT, HELLO_WAIT, QUIT_GRACE,
+    REAP_TICK,
+};
+use crate::pty::{self, Master};
+use crate::secret::{self, Secret};
+use crate::socket::{self, Socket};
+
+/// How often the holder looks for a password prompt and a busy shell.
+const POLL: Duration = Duration::from_millis(150);
+
+/// How much output the holder reads at once.
+const READ_SIZE: usize = 64 * 1024;
+
+/// What the second step sets up before saying it's ready.
+pub(super) struct Started {
+    holder: Arc<Holder>,
+    socket: Socket,
+    input: mpsc::UnboundedReceiver<Typed>,
+    _lock: File,
+}
+
+impl Started {
+    pub(super) fn start(dir: &Path) -> Result<Self, String> {
+        let at = |path: &Path| {
+            let path = path.to_owned();
+            move |err: io::Error| format!("couldn't set up {}: {err}", path.display())
+        };
+        let lock = take_lock(&dir.join(LOCK))?;
+        let launch: LaunchFile = files::read_json(&dir.join(LAUNCH))
+            .map_err(at(&dir.join(LAUNCH)))?
+            .ok_or_else(|| format!("{} has no {LAUNCH}", dir.display()))?;
+        if dir.join(HOLDER).exists() || dir.join(EXIT).exists() {
+            return Err(format!("terminal {} has already run", launch.terminal));
+        }
+        let (key, _) = read_stdin(true, &[])?;
+        let key = key.ok_or("the holder's key didn't come on stdin")?;
+        quiet_stdin();
+        let sockets = PathBuf::from(launch.sockets.0.clone());
+        socket::make_dir(&sockets).map_err(at(&sockets))?;
+        let socket =
+            socket::bind_named(&sockets, &socket_name(launch.terminal)).map_err(at(&sockets))?;
+        socket
+            .listener
+            .set_nonblocking(true)
+            .map_err(at(&socket.path))?;
+
+        let size = pty::winsize(launch.cols.into(), launch.rows.into(), 0, 0);
+        let (master, slave) =
+            pty::open(size).map_err(|err| format!("couldn't open a pty: {err}"))?;
+        let program = PathBuf::from(launch.program.0.clone());
+        let cwd = PathBuf::from(launch.cwd.0.clone());
+        let mut command = Command::new(&program);
+        command
+            .args(launch.args.iter().map(|arg| &arg.0))
+            .current_dir(&cwd);
+        for (key, value) in &launch.env {
+            command.env(&key.0, &value.0);
+        }
+        let stdio = |slave: &std::os::fd::OwnedFd| {
+            slave
+                .try_clone()
+                .map(Stdio::from)
+                .map_err(|err| format!("couldn't hand over the pty: {err}"))
+        };
+        command
+            .stdin(stdio(&slave)?)
+            .stdout(stdio(&slave)?)
+            .stderr(Stdio::from(slave));
+        pty::controlling_tty(&mut command);
+        let spawned = command.spawn();
+        // The program has the terminal's end now. The holder keeps none, so
+        // reading the master ends once the program and what it started let
+        // go of theirs.
+        drop(command);
+        let child = spawned.map_err(|err| spawn_failure(&program, &cwd, &err))?;
+        let child_pid = i32::try_from(child.id())
+            .ok()
+            .and_then(Pid::from_raw)
+            .ok_or("the program has no process ID")?;
+        // The holder reaps the program itself, so it can signal its group
+        // only while the ID still belongs to it.
+        drop(child);
+        let master = Master::new(master).map_err(|err| format!("couldn't read the pty: {err}"))?;
+
+        let started_at = Timestamp::now();
+        let (input_tx, input) = mpsc::unbounded_channel();
+        let holder = Arc::new(Holder {
+            dir: dir.to_owned(),
+            terminal: launch.terminal,
+            key,
+            pid: std::process::id(),
+            child_pid,
+            started_at,
+            run: launch.run,
+            linger: Duration::from_millis(launch.linger_ms),
+            master,
+            input: input_tx,
+            state: Mutex::new(State {
+                ring: Ring::new(RING_BYTES),
+                emulator: launch
+                    .run
+                    .then(|| maxhq_term::emulator(launch.cols, launch.rows)),
+                scanner: Scanner::new(),
+                title: None,
+                cwd: None,
+                password: false,
+                noted: false,
+                busy: launch.run,
+                cols: launch.cols,
+                rows: launch.rows,
+                phase: Phase::Running,
+                output_done: false,
+                ending: false,
+            }),
+            changed: watch::Sender::new(0),
+        });
+        let record = HolderFile {
+            holder_pid: holder.pid,
+            child_pid: child_pid.as_raw_nonzero().get().unsigned_abs(),
+            socket: socket.path.as_path().into(),
+            started_at,
+        };
+        if let Err(err) = files::write_json(&dir.join(HOLDER), &record) {
+            holder.signal_child(Signal::KILL);
+            return Err(format!("couldn't write {HOLDER}: {err}"));
+        }
+        say_ready(dir);
+        Ok(Self {
+            holder,
+            socket,
+            input,
+            _lock: lock,
+        })
+    }
+
+    pub(super) async fn run(self) {
+        let holder = self.holder;
+        match self
+            .socket
+            .listener
+            .try_clone()
+            .and_then(tokio::net::UnixListener::from_std)
+        {
+            Ok(listener) => {
+                let accepting = holder.clone();
+                tokio::spawn(async move {
+                    loop {
+                        match listener.accept().await {
+                            Ok((stream, _)) => {
+                                tokio::spawn(serve(accepting.clone(), stream));
+                            }
+                            Err(err) => {
+                                eprintln!("couldn't accept a connection: {err}");
+                                tokio::time::sleep(REAP_TICK).await;
+                            }
+                        }
+                    }
+                });
+            }
+            Err(err) => {
+                eprintln!("couldn't listen on {}: {err}", self.socket.path.display());
+                holder.quit();
+            }
+        }
+        tokio::spawn(holder.clone().read_output());
+        tokio::spawn(holder.clone().write_input(self.input));
+        tokio::spawn(holder.clone().reap_loop());
+        tokio::spawn(holder.clone().poll());
+        tokio::spawn(holder.clone().watch_signals());
+
+        let mut changes = holder.changed.subscribe();
+        while !holder.exited() {
+            changes.borrow_and_update();
+            if holder.exited() || changes.changed().await.is_err() {
+                break;
+            }
+        }
+        let linger = tokio::time::sleep(holder.linger);
+        tokio::pin!(linger);
+        loop {
+            changes.borrow_and_update();
+            if holder.lock().ending {
+                break;
+            }
+            tokio::select! {
+                () = &mut linger => break,
+                changed = changes.changed() => if changed.is_err() { break },
+            }
+        }
+        tokio::time::sleep(FLUSH_WAIT).await;
+        drop(self.socket);
+    }
+}
+
+/// Why the program didn't start, naming the folder when that's what's
+/// gone.
+fn spawn_failure(program: &Path, cwd: &Path, err: &io::Error) -> String {
+    if err.kind() == io::ErrorKind::NotFound && matches!(cwd.try_exists(), Ok(false)) {
+        format!("the folder {} is gone", cwd.display())
+    } else {
+        format!("couldn't start {}: {err}", program.display())
+    }
+}
+
+/// Where the program is in its life.
+enum Phase {
+    Running,
+    /// Reaped, with the holder still reading what it printed last.
+    Reaped {
+        code: Option<i32>,
+        signal: Option<i32>,
+        at: Timestamp,
+    },
+    Exited(TermExit),
+}
+
+struct State {
+    ring: Ring,
+    /// The headless terminal a `!` run's transcript comes from.
+    emulator: Option<Box<dyn Emulator>>,
+    scanner: Scanner,
+    title: Option<String>,
+    cwd: Option<String>,
+    password: bool,
+    /// The transcript already says a password went at this prompt.
+    noted: bool,
+    busy: bool,
+    cols: u16,
+    rows: u16,
+    phase: Phase,
+    output_done: bool,
+    /// The holder should go once the program has ended: a client said
+    /// goodbye or the holder was told to quit.
+    ending: bool,
+}
+
+/// What a connection has told its client, so it sends only changes.
+#[derive(Clone, PartialEq, Eq)]
+struct View {
+    password: bool,
+    busy: bool,
+    title: Option<String>,
+    cwd: Option<String>,
+}
+
+struct Holder {
+    dir: PathBuf,
+    terminal: TerminalId,
+    key: Secret,
+    pid: u32,
+    child_pid: Pid,
+    started_at: Timestamp,
+    run: bool,
+    linger: Duration,
+    master: Master,
+    /// Input for the writer task, which is the only one that writes.
+    input: mpsc::UnboundedSender<Typed>,
+    state: Mutex<State>,
+    /// Counts changes, so tasks can wait for the next one.
+    changed: watch::Sender<u64>,
+}
+
+impl Holder {
+    /// Why a client whose hello names `terminal` and shows `key` is turned
+    /// away, or `None` when it's welcome. The key comes first, so a client
+    /// without it learns nothing else.
+    fn refusal(&self, terminal: TerminalId, key: &Secret) -> Option<String> {
+        if !secret::key_matches(&self.key, key) {
+            return Some("the key in the hello isn't this holder's".into());
+        }
+        (terminal != self.terminal).then(|| format!("this holder runs terminal {}", self.terminal))
+    }
+
+    fn lock(&self) -> MutexGuard<'_, State> {
+        self.state.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    fn bump(&self) {
+        self.changed
+            .send_modify(|count| *count = count.wrapping_add(1));
+    }
+
+    fn exited(&self) -> bool {
+        matches!(self.lock().phase, Phase::Exited(_))
+    }
+
+    /// Reads the master until every terminal end has closed.
+    async fn read_output(self: Arc<Self>) {
+        let mut buf = vec![0; READ_SIZE];
+        loop {
+            match self.master.read(&mut buf).await {
+                Ok(0) => break,
+                Ok(read) => self.record(&buf[..read]),
+                Err(err) if err.kind() == io::ErrorKind::Interrupted => {}
+                Err(err) => {
+                    eprintln!("stopped reading the terminal: {err}");
+                    break;
+                }
+            }
+        }
+        self.lock().output_done = true;
+        self.bump();
+    }
+
+    /// Keeps output, and the title and folder it sets.
+    fn record(&self, bytes: &[u8]) {
+        let mut state = self.lock();
+        let State {
+            ring,
+            emulator,
+            scanner,
+            title,
+            cwd,
+            noted,
+            phase,
+            ..
+        } = &mut *state;
+        if matches!(phase, Phase::Exited(_)) {
+            return;
+        }
+        ring.push(bytes);
+        if let Some(emulator) = emulator {
+            emulator.feed(bytes);
+        }
+        scanner.feed(bytes, |set| match set {
+            Set::Title(set) => *title = Some(set),
+            Set::Cwd(set) => *cwd = Some(set),
+        });
+        // A prompt that hides input prints nothing while it's answered, so
+        // any output means the next password is a new one.
+        *noted = false;
+        drop(state);
+        self.bump();
+    }
+
+    /// The writer task. It's the only one that writes to the master, so
+    /// input never interleaves.
+    async fn write_input(self: Arc<Self>, mut input: mpsc::UnboundedReceiver<Typed>) {
+        while let Some(typed) = input.recv().await {
+            if self.master.password_mode() {
+                self.note_secret();
+            }
+            // A program that has gone takes nothing more, and that's no
+            // error worth reporting.
+            let _ = self.master.write_all(&typed.0).await;
+        }
+    }
+
+    /// Marks the transcript where a password went, once per prompt.
+    fn note_secret(&self) {
+        let mut state = self.lock();
+        if state.noted {
+            return;
+        }
+        state.noted = true;
+        if let Some(emulator) = state.emulator.as_mut() {
+            emulator.note(maxhq_term::SECRET_SENT);
+        }
+    }
+
+    /// Queues `typed` for the program.
+    fn type_in(&self, typed: Typed) {
+        let _ = self.input.send(typed);
+    }
+
+    fn resize(&self, cols: u16, rows: u16) {
+        if cols == 0 || rows == 0 {
+            return;
+        }
+        let mut state = self.lock();
+        if (state.cols, state.rows) == (cols, rows) {
+            return;
+        }
+        state.cols = cols;
+        state.rows = rows;
+        if let Some(emulator) = state.emulator.as_mut() {
+            emulator.resize(cols, rows);
+        }
+        self.master
+            .resize(pty::winsize(cols.into(), rows.into(), 0, 0));
+    }
+
+    /// Looks at the pty's modes and foreground group, and bumps when the
+    /// password prompt or the busy shell changed.
+    async fn poll(self: Arc<Self>) {
+        let mut tick = tokio::time::interval(POLL);
+        loop {
+            tick.tick().await;
+            if self.exited() {
+                return;
+            }
+            let password = self.master.password_mode();
+            let foreground = self.master.foreground();
+            let mut state = self.lock();
+            let running = matches!(state.phase, Phase::Running);
+            let busy = if self.run {
+                running
+            } else {
+                running && foreground.is_some_and(|group| group != self.child_pid)
+            };
+            let changed = (state.password, state.busy) != (password, busy);
+            state.password = password;
+            state.busy = busy;
+            if !password {
+                state.noted = false;
+            }
+            drop(state);
+            if changed {
+                self.bump();
+            }
+        }
+    }
+
+    /// Reaps every child that has exited. Returns whether the program has.
+    /// This holds the state lock, as [`Holder::signal_child`] does, so the
+    /// program's ID is never signalled once it could be reused.
+    fn reap(&self) -> bool {
+        let mut state = self.lock();
+        loop {
+            match rustix::process::wait(WaitOptions::NOHANG) {
+                Ok(Some((pid, status))) => {
+                    if pid == self.child_pid && matches!(state.phase, Phase::Running) {
+                        state.phase = Phase::Reaped {
+                            code: status.exit_status(),
+                            signal: status.terminating_signal(),
+                            at: Timestamp::now(),
+                        };
+                    }
+                }
+                Ok(None) => break,
+                Err(rustix::io::Errno::INTR) => {}
+                // No children left.
+                Err(_) => break,
+            }
+        }
+        !matches!(state.phase, Phase::Running)
+    }
+
+    async fn reap_loop(self: Arc<Self>) {
+        let mut sigchld = signal(SignalKind::child()).ok();
+        let mut tick = tokio::time::interval(REAP_TICK);
+        let mut drain_until = None;
+        loop {
+            match sigchld.as_mut() {
+                Some(sigchld) => {
+                    tokio::select! {
+                        _ = sigchld.recv() => {}
+                        _ = tick.tick() => {}
+                    }
+                }
+                None => {
+                    tick.tick().await;
+                }
+            }
+            if !self.reap() || self.exited() {
+                continue;
+            }
+            // Something the program started in the background can keep the
+            // terminal open, and what it prints after the program has gone
+            // isn't kept.
+            let drained = self.lock().output_done;
+            let until = *drain_until.get_or_insert_with(|| Instant::now() + DRAIN_WAIT);
+            if drained || Instant::now() >= until {
+                self.finish();
+                if !cfg!(target_os = "linux") {
+                    // Only a subreaper gets orphans to reap later.
+                    return;
+                }
+            }
+        }
+    }
+
+    /// Records the exit once the program's output is in, with the run's
+    /// transcript.
+    fn finish(&self) {
+        let mut state = self.lock();
+        let Phase::Reaped { code, signal, at } = state.phase else {
+            return;
+        };
+        let output = (state.emulator.as_mut())
+            .map(|emulator| RunOutput::from_transcript(emulator.transcript()));
+        let exit = TermExit {
+            code,
+            signal,
+            at,
+            output,
+        };
+        let path = self.dir.join(EXIT);
+        if let Err(err) = files::write_json(&path, &exit) {
+            eprintln!("couldn't write {}: {err}", path.display());
+        }
+        state.phase = Phase::Exited(exit);
+        state.password = false;
+        state.busy = false;
+        drop(state);
+        self.bump();
+    }
+
+    /// Signals the program's process group, or the program alone if it has
+    /// left it, and the group in the terminal's foreground, while the
+    /// program hasn't been reaped.
+    fn signal_child(&self, signal: Signal) {
+        let state = self.lock();
+        if !matches!(state.phase, Phase::Running) {
+            return;
+        }
+        let foreground = self.master.foreground();
+        if rustix::process::kill_process_group(self.child_pid, signal).is_err() {
+            let _ = rustix::process::kill_process(self.child_pid, signal);
+        }
+        if let Some(group) = foreground.filter(|&group| group != self.child_pid) {
+            let _ = rustix::process::kill_process_group(group, signal);
+        }
+    }
+
+    /// Hangs the terminal up, then kills what's left after `grace`.
+    /// Returns once the exit is recorded.
+    async fn kill(self: Arc<Self>, grace: Duration) {
+        self.signal_child(Signal::HUP);
+        if self.wait_exit(Some(grace)).await {
+            return;
+        }
+        self.signal_child(Signal::KILL);
+        self.wait_exit(None).await;
+    }
+
+    /// Waits up to `limit` for the exit to be recorded. Returns whether it
+    /// was.
+    async fn wait_exit(&self, limit: Option<Duration>) -> bool {
+        let mut changes = self.changed.subscribe();
+        let wait = async {
+            loop {
+                changes.borrow_and_update();
+                if self.exited() || changes.changed().await.is_err() {
+                    return;
+                }
+            }
+        };
+        match limit {
+            Some(limit) => tokio::time::timeout(limit, wait).await.is_ok(),
+            None => {
+                wait.await;
+                true
+            }
+        }
+    }
+
+    /// Ends the holder: kills the program if it runs and goes without
+    /// lingering.
+    fn quit(self: &Arc<Self>) {
+        self.lock().ending = true;
+        self.bump();
+        tokio::spawn(self.clone().kill(QUIT_GRACE));
+    }
+
+    async fn watch_signals(self: Arc<Self>) {
+        let (Ok(mut term), Ok(mut int), Ok(mut hup)) = (
+            signal(SignalKind::terminate()),
+            signal(SignalKind::interrupt()),
+            signal(SignalKind::hangup()),
+        ) else {
+            eprintln!("couldn't watch for signals");
+            return;
+        };
+        loop {
+            tokio::select! {
+                _ = term.recv() => self.quit(),
+                _ = int.recv() => self.quit(),
+                // The holder has no terminal of its own, so a hangup means
+                // nothing.
+                _ = hup.recv() => {}
+            }
+        }
+    }
+
+    /// Deletes the folder once the program has ended, and ends the holder.
+    /// A goodbye before the end means nothing.
+    fn goodbye(&self) {
+        let mut state = self.lock();
+        if !matches!(state.phase, Phase::Exited(_)) {
+            return;
+        }
+        if let Err(err) = files::remove_session(&self.dir) {
+            eprintln!("couldn't remove {}: {err}", self.dir.display());
+        }
+        state.ending = true;
+        drop(state);
+        self.bump();
+    }
+
+    /// The hello for a client that has everything before `after`, and where
+    /// its output starts.
+    fn hello(&self, after: Option<u64>) -> (TermHello, View) {
+        let state = self.lock();
+        let (from, reset) = state.ring.resume(after);
+        let view = View {
+            password: state.password,
+            busy: state.busy,
+            title: state.title.clone(),
+            cwd: state.cwd.clone(),
+        };
+        let hello = TermHello {
+            holder_pid: self.pid,
+            child_pid: self.child_pid.as_raw_nonzero().get().unsigned_abs(),
+            started_at: self.started_at,
+            from,
+            reset,
+            cols: state.cols,
+            rows: state.rows,
+            password: view.password,
+            busy: view.busy,
+            title: view.title.clone(),
+            cwd: view.cwd.clone(),
+        };
+        (hello, view)
+    }
+
+    /// What a connection at `cursor` sends next.
+    fn next(&self, cursor: u64, view: &View) -> Next {
+        let state = self.lock();
+        if cursor < state.ring.end() {
+            return match state.ring.read(cursor, CHUNK) {
+                Some(data) => Next::Output(cursor, data),
+                // The connection fell behind the ring, so it starts over
+                // at a whole line. The offset shows the jump.
+                None => {
+                    let (from, _) = state.ring.resume(Some(cursor));
+                    Next::Output(from, state.ring.read(from, CHUNK).unwrap_or_default())
+                }
+            };
+        }
+        let now = View {
+            password: state.password,
+            busy: state.busy,
+            title: state.title.clone(),
+            cwd: state.cwd.clone(),
+        };
+        if now != *view {
+            return Next::View(now);
+        }
+        Next::Idle(match &state.phase {
+            Phase::Exited(exit) => Some(exit.clone()),
+            _ => None,
+        })
+    }
+}
+
+/// What a connection sends next.
+enum Next {
+    Output(u64, Vec<u8>),
+    View(View),
+    /// Nothing new, with the exit once there is one.
+    Idle(Option<TermExit>),
+}
+
+/// The messages that tell a client how `now` differs from `was`.
+fn changes(was: &View, now: &View) -> Vec<FromHolder> {
+    let mut sent = Vec::new();
+    if now.password != was.password {
+        sent.push(FromHolder::Password { on: now.password });
+    }
+    if now.busy != was.busy {
+        sent.push(FromHolder::Busy { on: now.busy });
+    }
+    if let Some(title) = now.title.as_ref().filter(|_| now.title != was.title) {
+        sent.push(FromHolder::Title {
+            title: title.clone(),
+        });
+    }
+    if let Some(cwd) = now.cwd.as_ref().filter(|_| now.cwd != was.cwd) {
+        sent.push(FromHolder::Cwd { cwd: cwd.clone() });
+    }
+    sent
+}
+
+/// Serves one client: its hello, then the output from where it asked,
+/// what changes, and the exit, while it sends input and the like.
+async fn serve(holder: Arc<Holder>, stream: UnixStream) {
+    let (read, mut write) = stream.into_split();
+    let mut read = BufReader::new(read);
+    let mut buf = Vec::new();
+    let hello = tokio::time::timeout(HELLO_WAIT, wire::recv(&mut read, &mut buf)).await;
+    let Ok(Ok(Some(ToHolder::Hello {
+        terminal,
+        key,
+        after,
+    }))) = hello
+    else {
+        return;
+    };
+    if let Some(message) = holder.refusal(terminal, &key) {
+        let _ = wire::send(&mut write, &FromHolder::Refused { message }).await;
+        return;
+    }
+    drop(key);
+    let (hello, mut view) = holder.hello(after);
+    let mut cursor = hello.from;
+    if wire::send(&mut write, &FromHolder::Hello(hello))
+        .await
+        .is_err()
+    {
+        return;
+    }
+    let mut requests = tokio::spawn(handle_requests(holder.clone(), read));
+    let mut changes_seen = holder.changed.subscribe();
+    let mut sent_exit = false;
+    let served: io::Result<()> = async {
+        loop {
+            changes_seen.borrow_and_update();
+            match holder.next(cursor, &view) {
+                Next::Output(offset, data) => {
+                    cursor = offset + data.len() as u64;
+                    wire::send(&mut write, &FromHolder::Output { offset, data }).await?;
+                }
+                Next::View(now) => {
+                    for message in changes(&view, &now) {
+                        wire::send(&mut write, &message).await?;
+                    }
+                    view = now;
+                }
+                Next::Idle(Some(exit)) if !sent_exit => {
+                    sent_exit = true;
+                    wire::send(&mut write, &FromHolder::Exit(exit)).await?;
+                }
+                Next::Idle(_) => {
+                    tokio::select! {
+                        changed = changes_seen.changed() => if changed.is_err() { return Ok(()) },
+                        _ = &mut requests => return Ok(()),
+                    }
+                }
+            }
+        }
+    }
+    .await;
+    if let Err(err) = served
+        && err.kind() != io::ErrorKind::BrokenPipe
+    {
+        eprintln!("a connection ended: {err}");
+    }
+    requests.abort();
+}
+
+/// Reads a client's requests and acts on each. Ends when the client
+/// detaches or goes.
+async fn handle_requests(holder: Arc<Holder>, read: BufReader<OwnedReadHalf>) {
+    let mut read = read;
+    let mut buf = Vec::new();
+    while let Ok(Some(request)) = wire::recv::<_, ToHolder>(&mut read, &mut buf).await {
+        match request {
+            ToHolder::Hello { .. } => {}
+            ToHolder::Input { data } => holder.type_in(data),
+            ToHolder::Resize { cols, rows } => holder.resize(cols, rows),
+            ToHolder::Interrupt => holder.type_in(Typed(vec![0x03])),
+            ToHolder::Kill { grace_ms } => {
+                tokio::spawn(holder.clone().kill(Duration::from_millis(grace_ms)));
+            }
+            ToHolder::Detach => return,
+            ToHolder::Goodbye => holder.goodbye(),
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn view(password: bool, title: Option<&str>) -> View {
+        View {
+            password,
+            busy: false,
+            title: title.map(str::to_owned),
+            cwd: None,
+        }
+    }
+
+    #[test]
+    fn only_what_changed_goes_out() {
+        assert!(changes(&view(false, None), &view(false, None)).is_empty());
+        assert_eq!(
+            changes(&view(false, None), &view(true, Some("vim"))),
+            [
+                FromHolder::Password { on: true },
+                FromHolder::Title {
+                    title: "vim".into()
+                }
+            ]
+        );
+        // A title that goes away isn't news: the shell sets a new one.
+        assert!(changes(&view(false, Some("vim")), &view(false, None)).is_empty());
+    }
+}

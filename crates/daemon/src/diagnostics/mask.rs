@@ -4,17 +4,15 @@
 //! Takes credentials out of a command line before a sample keeps it. Any
 //! program under `maxd` may take a token in its arguments, and diagnostics
 //! go to every client with App rights, a paired phone among them.
+//!
+//! It goes word by word, as a command line splits. What a command prints
+//! goes through [`maxhq_core::mask::mask_text`] instead, which shares the
+//! mark and the token starts with this.
 
 use maxhq_core::hooks::template::is_credential;
+use maxhq_core::mask::{starts_like_token, MASK};
 
 use crate::clone::redact;
-use crate::secrets::TOKEN_STARTS;
-
-/// What stands in for a value taken out.
-const MASK: &str = "[hidden]";
-
-/// How other services' tokens start.
-const OTHER_TOKEN_STARTS: [&str; 6] = ["sk-", "xox", "glpat-", "AKIA", "eyJ", "npm_"];
 
 /// What can come between `Authorization:` and the credential.
 const AUTH_SCHEMES: [&str; 4] = ["bearer", "basic", "token", "digest"];
@@ -86,7 +84,7 @@ fn masked_word(word: &str, next: &mut Next) -> String {
         }
         return MASK.to_owned();
     }
-    if looks_like_token(bare) {
+    if starts_like_token(bare) {
         return MASK.to_owned();
     }
     // A header, with its value in this word or the next.
@@ -102,7 +100,7 @@ fn masked_word(word: &str, next: &mut Next) -> String {
     }
     if let Some((name, value)) = word.split_once('=')
         && (names_credential(name)
-            || looks_like_token(value.trim_start_matches(['\'', '"']))
+            || starts_like_token(value.trim_start_matches(['\'', '"']))
             || login_mark(name).is_some_and(|mark| value.contains(mark)))
     {
         return format!("{name}={MASK}");
@@ -167,14 +165,6 @@ fn login_mark(flag: &str) -> Option<char> {
         .iter()
         .find(|(name, _)| *name == flag)
         .map(|(_, mark)| *mark)
-}
-
-/// Whether `text` starts the way a token does.
-fn looks_like_token(text: &str) -> bool {
-    TOKEN_STARTS
-        .iter()
-        .chain(&OTHER_TOKEN_STARTS)
-        .any(|start| text.starts_with(start))
 }
 
 #[cfg(test)]
