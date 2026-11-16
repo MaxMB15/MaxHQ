@@ -61,6 +61,8 @@ import { Header } from "../../ui/Header";
 import { usePullToRefresh } from "../../ui/Refresh";
 import { AttentionCard } from "../attention/AttentionCard";
 import { promptOfEvent } from "../attention/prompt";
+import { PullChips } from "../pulls";
+import { Automations } from "../tasks";
 import { AgentMore } from "./AgentMore";
 import { hasComposer } from "./compose";
 import { Composer } from "./Composer";
@@ -261,6 +263,8 @@ const AgentBody = ({
 				}
 			/>
 			<FindBar find={found.find} />
+			<PullChips agent={agent} />
+			<Automations agent={agent} />
 			<ConnectionBanner />
 			<FindProvider store={found.find.store}>
 				<FeedProvider agent={agent} device={device} store={timeline.store}>

@@ -3,7 +3,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import { agentScreenId, fileScreenId, noteScreenId } from "./navigation";
+import { agentScreenId, fileScreenId, noteScreenId, pullScreenId } from "./navigation";
 
 describe("agentScreenId", () => {
 	it("gives each agent its own screen, and keeps one agent's screen for a new prompt", () => {
@@ -40,6 +40,21 @@ describe("fileScreenId", () => {
 		);
 		expect(fileScreenId({ params: { agent: "a1", path: "src/a.ts", line: 12 } })).toBe(
 			fileScreenId({ params: { agent: "a1", path: "src/a.ts" } })
+		);
+	});
+});
+
+describe("pullScreenId", () => {
+	it("gives each PR its own screen, the same for a repository in any case", () => {
+		const pull = { device: "d1", repo: "owner/repo", number: 7 };
+		expect(pullScreenId({ params: pull })).not.toBe(
+			pullScreenId({ params: { ...pull, number: 8 } })
+		);
+		expect(pullScreenId({ params: pull })).not.toBe(
+			pullScreenId({ params: { ...pull, device: "d2" } })
+		);
+		expect(pullScreenId({ params: pull })).toBe(
+			pullScreenId({ params: { ...pull, repo: "Owner/Repo" } })
 		);
 	});
 });

@@ -35,6 +35,7 @@ import {
 import type { AccountId, Agent, AgentPermission, PermissionMode } from "@maxhq/shared/bindings";
 import { attempt } from "@maxhq/shared/composer/send";
 import type { ActionResult } from "@maxhq/shared/data/source";
+import { shownPulls } from "@maxhq/shared/pulls/links";
 import { AUTO_NOTE, type AutoConsent, whenModeAllowed } from "@maxhq/shared/settings/auto-mode";
 import { accountName } from "@maxhq/shared/status/usage";
 import { deletableAgents } from "@maxhq/shared/ui/delete-agents";
@@ -45,7 +46,8 @@ import { type Move, modelsOf, movesOf } from "@maxhq/shared/view/select";
 import type { Choice } from "../../ui/choose";
 
 /** What the More sheet can offer. */
-export type MoreChoice = "find" | "rename" | "permission" | "model" | "effort" | "stop" | "delete";
+export type MoreChoice =
+	"find" | "rename" | "permission" | "model" | "effort" | "link" | "stop" | "delete";
 
 /** Each choice as the sheet names it. */
 export const MORE_LABEL: Record<MoreChoice, string> = {
@@ -54,14 +56,16 @@ export const MORE_LABEL: Record<MoreChoice, string> = {
 	permission: "Permission",
 	model: "Model",
 	effort: "Effort",
+	link: "Link a pull request",
 	stop: STOP_AGENT.label,
 	delete: "Delete agent",
 };
 
 /**
  * The More sheet's choices: Find and Rename for every agent, Permission,
- * Model and Effort where the desktop's composer can change them, Stop agent while
- * MaxHQ can end its process, and Delete for one MaxHQ holds.
+ * Model and Effort where the desktop's composer can change them, Link a pull
+ * request while none is linked, as the desktop's header menu offers it, Stop
+ * agent while MaxHQ can end its process, and Delete for one MaxHQ holds.
  */
 export const moreChoices = (view: ViewState, agent: Agent): MoreChoice[] => {
 	const account = agent.account ? view.tables.account.get(agent.account) : undefined;
@@ -70,6 +74,7 @@ export const moreChoices = (view: ViewState, agent: Agent): MoreChoice[] => {
 	if (picksModel(agent, modelsOf(view, account), movesOf(view, agent))) choices.push("model");
 	if (account && canSetEffort(view, agent, account.device, modelsOf(view, account)))
 		choices.push("effort");
+	if (shownPulls(agent).length === 0) choices.push("link");
 	if (canEnd(agent)) choices.push("stop");
 	if (deletableAgents(view, [agent.id]).length > 0) choices.push("delete");
 	return choices;

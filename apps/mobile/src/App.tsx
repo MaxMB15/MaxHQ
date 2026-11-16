@@ -26,12 +26,20 @@ import { InboxScreen } from "./features/inbox/InboxScreen";
 import { NoteScreen } from "./features/notes/NoteScreen";
 import { NotesScreen } from "./features/notes/NotesScreen";
 import { PhoneScreen } from "./features/phone/PhoneScreen";
+import { PullScreen, PullsScreen } from "./features/pulls";
 import { scanLinkOf } from "./features/scan/code";
 import { ScanScreen } from "./features/scan/ScanScreen";
+import { TaskActivityScreen, TaskEditorScreen, TasksScreen } from "./features/tasks";
 import { UsageScreen } from "./features/usage/UsageScreen";
 import { FileScreen } from "./features/viewer/FileScreen";
 import { VisualScreen } from "./features/visuals/VisualScreen";
-import { agentScreenId, fileScreenId, noteScreenId, type Screens } from "./navigation";
+import {
+	agentScreenId,
+	fileScreenId,
+	noteScreenId,
+	pullScreenId,
+	type Screens,
+} from "./navigation";
 import { pushNavigation, PushSetup } from "./push/PushSetup";
 import { ServicesProvider } from "./services";
 import { color } from "./theme";
@@ -61,8 +69,11 @@ const SCREEN = {
 
 // maxhq://agent/<id> opens an agent, and ?attention=<id> scrolls to that
 // prompt. maxhq://file/<agent>?path=<path>&line=<n> opens a file on the
-// agent's device at a line. maxhq://phone is the old name for Settings. A
-// pairing code, maxhq:<code>, opens Scan with the code ready to pair.
+// agent's device at a line. maxhq://pull/<device>/<n>?repo=<owner/repo>
+// opens a PR, maxhq://task/<id> a task's history, and
+// maxhq://task-editor?task=<id> its editor (no task makes a new one).
+// maxhq://phone is the old name for Settings. A pairing code,
+// maxhq:<code>, opens Scan with the code ready to pair.
 // Whatever a link opens sits over the inbox, so Back has somewhere to go.
 const linking: LinkingOptions<Screens> = {
 	prefixes: ["maxhq://"],
@@ -86,6 +97,11 @@ const linking: LinkingOptions<Screens> = {
 			Notes: "notes/:project",
 			Note: "note/:project/:note",
 			File: { path: "file/:agent", parse: { line: Number } },
+			Pulls: "pulls",
+			Pull: { path: "pull/:device/:number", parse: { number: Number } },
+			Tasks: "tasks",
+			TaskActivity: "task/:task",
+			TaskEditor: "task-editor",
 		},
 	},
 };
@@ -108,6 +124,15 @@ export const App = () => {
 						<Stack.Screen name="Notes" component={NotesScreen} />
 						<Stack.Screen name="Note" component={NoteScreen} getId={noteScreenId} />
 						<Stack.Screen name="File" component={FileScreen} getId={fileScreenId} />
+						<Stack.Screen name="Pulls" component={PullsScreen} />
+						<Stack.Screen name="Pull" component={PullScreen} getId={pullScreenId} />
+						<Stack.Screen name="Tasks" component={TasksScreen} />
+						<Stack.Screen name="TaskActivity" component={TaskActivityScreen} />
+						<Stack.Screen
+							name="TaskEditor"
+							component={TaskEditorScreen}
+							options={{ presentation: "modal" }}
+						/>
 						<Stack.Screen
 							name="Scan"
 							component={ScanScreen}

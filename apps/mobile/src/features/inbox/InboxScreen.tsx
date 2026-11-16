@@ -49,10 +49,11 @@ import { deviceName, type NeedsYouItem } from "@maxhq/shared/view/select";
 import type { ScreenProps } from "../../navigation";
 import { useServices, useView } from "../../services";
 import { color, radius, size, tint, TOUCH } from "../../theme";
+import { choose } from "../../ui/choose";
 import { ConnectionBanner } from "../../ui/ConnectionBanner";
 import { ActivityDot, ConnectionDot } from "../../ui/Dot";
 import { Header, IconButton } from "../../ui/Header";
-import { Chevron, Gear, Plus } from "../../ui/Icon";
+import { Chevron, Gear, More, Plus } from "../../ui/Icon";
 import { Pill } from "../../ui/Pill";
 import { usePullToRefresh } from "../../ui/Refresh";
 import { type SwipeAction, SwipeRow } from "../../ui/SwipeRow";
@@ -437,6 +438,25 @@ export const InboxScreen = ({ navigation }: ScreenProps<"Inbox">) => {
 									{t("{{count}} devices", { count: devices.length })}
 								</Text>
 							</Pressable>
+						) : null}
+						{devices.length > 0 ? (
+							<IconButton
+								label={t("More")}
+								onPress={() =>
+									choose(t("More"), [
+										{
+											label: t("Pull requests"),
+											pick: () => navigation.navigate("Pulls"),
+										},
+										{
+											label: t("Scheduled tasks"),
+											pick: () => navigation.navigate("Tasks"),
+										},
+									])
+								}
+							>
+								<More />
+							</IconButton>
 						) : null}
 						<IconButton
 							label={t("Settings")}

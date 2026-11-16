@@ -4,8 +4,8 @@
 // The More button in an agent's header. Its sheet opens find over the
 // feed, renames the agent in a small dialog, picks its permission mode and
 // model in sheets of their own and its effort level in a small dialog, as
-// the desktop's composer does, and stops it or deletes one MaxHQ holds after
-// asking. The screen goes back to the agents once it's gone,
+// the desktop's composer does, links a pull request to it in a sheet, and
+// stops it or deletes one MaxHQ holds after asking. The screen goes back to the agents once it's gone,
 // and a control that fails says why in an alert.
 
 import { useI18n } from "@maxhq/shared/i18n";
@@ -19,6 +19,7 @@ import type { ActionResult } from "@maxhq/shared/data/source";
 import { AUTO_QUESTION } from "@maxhq/shared/settings/auto-mode";
 import { deleteAgents, deleteQuestion } from "@maxhq/shared/ui/delete-agents";
 
+import { LinkPullSheet } from "../pulls";
 import { useServices } from "../../services";
 import { choose, confirm } from "../../ui/choose";
 import { IconButton } from "../../ui/Header";
@@ -59,6 +60,7 @@ export const AgentMore = ({
 	const { source } = services;
 	const [dialog] = useState(() => createRenameDialog(renamesOf(services)));
 	const [effort, setEffort] = useState<EffortPick | null>(null);
+	const [linking, setLinking] = useState(false);
 	const title = useShownTitle(agent);
 
 	const run = (what: string, action: () => Promise<ActionResult>) =>
@@ -108,6 +110,7 @@ export const AgentMore = ({
 					)
 				),
 			effort: () => setEffort(effortPick(view, now)),
+			link: () => setLinking(true),
 			stop: confirmStop,
 			delete: confirmDelete,
 		};
@@ -127,6 +130,7 @@ export const AgentMore = ({
 				<More />
 			</IconButton>
 			<RenameDialog dialog={dialog} />
+			<LinkPullSheet agent={agent} open={linking} onClose={() => setLinking(false)} />
 			<EffortDialog
 				pick={effort}
 				onPick={(level) =>

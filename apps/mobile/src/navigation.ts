@@ -3,7 +3,14 @@
 
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 
-import type { AgentId, AttentionId, NoteId, ProjectId } from "@maxhq/shared/bindings";
+import type {
+	AgentId,
+	AttentionId,
+	DeviceId,
+	NoteId,
+	ProjectId,
+	TaskId,
+} from "@maxhq/shared/bindings";
 
 /** The screens and what each takes. */
 export type Screens = {
@@ -21,6 +28,16 @@ export type Screens = {
 	Note: { readonly project: ProjectId; readonly note: NoteId; readonly made?: boolean };
 	/** A file on the agent's device, read-only, scrolled to `line` when it's given. */
 	File: { readonly agent: AgentId; readonly path: string; readonly line?: number };
+	/** A project's pull requests, or the first project with any when none is given. */
+	Pulls: { readonly project?: ProjectId } | undefined;
+	/** One pull request, read on `device`. */
+	Pull: { readonly device: DeviceId; readonly repo: string; readonly number: number };
+	/** Every device's scheduled tasks. */
+	Tasks: undefined;
+	/** A task's runs and the requests its webhook took. */
+	TaskActivity: { readonly task: TaskId };
+	/** A task to edit, or a new one on `home`, or on the device that suits it best. */
+	TaskEditor: { readonly task?: TaskId; readonly home?: DeviceId } | undefined;
 };
 
 /**
@@ -41,5 +58,12 @@ export const noteScreenId = ({ params }: { readonly params: Screens["Note"] }): 
  */
 export const fileScreenId = ({ params }: { readonly params: Screens["File"] }): string =>
 	`${params.agent}\n${params.path}`;
+
+/**
+ * The Pull screen's ID, so each PR gets its own entry in the stack. A
+ * repository is the same in any case.
+ */
+export const pullScreenId = ({ params }: { readonly params: Screens["Pull"] }): string =>
+	`${params.device}\n${params.repo.toLowerCase()}#${params.number}`;
 
 export type ScreenProps<Name extends keyof Screens> = NativeStackScreenProps<Screens, Name>;
