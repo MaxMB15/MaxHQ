@@ -59,6 +59,9 @@ const PAIRS: readonly Pair[] = [
 	...SURFACES.map((ground): Pair => ["--subtle-foreground", ground, PART]),
 	// Filled buttons and badges, and links and errors written in an accent.
 	["--primary-foreground", "--primary", TEXT],
+	// The composer's Run button, and its Shell tag on the composer.
+	["--shell-foreground", "--shell", TEXT],
+	["--shell", "--subpanel", TEXT],
 	["--status-ready-foreground", "--status-ready", TEXT],
 	...["--background", "--card", "--popover"].flatMap((ground): Pair[] => [
 		["--primary", ground, TEXT],

@@ -27,7 +27,7 @@ type ShownPillProps = Omit<useRender.ComponentProps<"span">, "children"> & {
 /** A pill with its preview. */
 export const ShownPill = ({ presentation, selected = false, footer, ...props }: ShownPillProps) => {
 	const [hovered, setHovered] = useState(false);
-	const { family, state, progress, icon, label, aria, preview } = presentation;
+	const { family, state, progress, icon, label, aria, preview, trail } = presentation;
 	const pill = (
 		<Pill family={family} state={state} progress={progress} aria-label={aria} {...props} />
 	);
@@ -36,6 +36,7 @@ export const ShownPill = ({ presentation, selected = false, footer, ...props }: 
 			<Pill family={family} state={state} progress={progress} aria-label={aria} {...props}>
 				{icon}
 				<PillLabel>{label}</PillLabel>
+				{trail}
 			</Pill>
 		);
 	return (
@@ -57,6 +58,7 @@ export const ShownPill = ({ presentation, selected = false, footer, ...props }: 
 			>
 				{icon}
 				<PillLabel>{label}</PillLabel>
+				{trail}
 			</PopoverTrigger>
 			<PopoverPopup
 				side="top"

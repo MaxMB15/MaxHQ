@@ -322,6 +322,15 @@ pub async fn open_root_fix(
         .map_err(|message| CommandError::Failed { message })
 }
 
+/// A command's output with the keys and tokens MaxHQ recognizes masked, the
+/// way it goes to an agent, so an output pill's preview shows what the
+/// agent will read.
+#[tauri::command]
+#[specta::specta]
+pub fn mask_output(text: String) -> String {
+    maxhq_core::mask::mask_text(&text).to_string()
+}
+
 /// Sends each step of a transfer down its channel. A window that went away
 /// misses the rest, and the transfer goes on.
 fn reporter(channel: Channel<TransferProgress>) -> impl Report {

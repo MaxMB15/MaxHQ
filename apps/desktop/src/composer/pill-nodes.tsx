@@ -18,6 +18,7 @@ import {
 	type VisualPill as VisualPillRef,
 } from "@maxhq/shared/pills/draft";
 import { visualBytes } from "@maxhq/shared/visuals/visual";
+import type { TimelineStore } from "@maxhq/shared/timeline/store";
 import type { FileProgress } from "@maxhq/shared/pills/label";
 import { Extension, mergeAttributes, Node } from "@tiptap/core";
 import { NodeViewWrapper, ReactNodeViewRenderer, type ReactNodeViewProps } from "@tiptap/react";
@@ -33,6 +34,7 @@ import { ReadVisualPage, ScaledVisual } from "@/visuals/visual-preview";
 import { type AttachmentsStore, type Chip, chipDetail } from "./attachments";
 import { PILL_NAMES, PILL_NODES } from "./doc";
 import type { ComposerNative } from "./native";
+import { useOutputPill } from "./output-pill";
 import { useThumbnail } from "./thumbnail";
 import { t as translate, useI18n } from "@maxhq/shared/i18n";
 
@@ -47,6 +49,8 @@ export type PillsContextValue = {
 	readonly deviceName: (id: DeviceId) => string | null;
 	/** The composer's agent, which reads a staged visual's page when the composer doesn't hold it. */
 	readonly agent?: AgentId;
+	/** The agent's timeline, where an output pill finds its command once it ends. */
+	readonly timeline?: TimelineStore;
 };
 
 export const PillsContext = createContext<PillsContextValue | null>(null);
@@ -256,8 +260,8 @@ const NotePillView = ({ node, selected }: ReactNodeViewProps) => {
 
 const OutputPillView = ({ node, selected }: ReactNodeViewProps) => {
 	useI18n();
-	const { now } = usePills();
-	const presentation = presentPill({ kind: "output", ref: node.attrs.ref as OutputRef }, { now });
+	const { now, timeline } = usePills();
+	const presentation = useOutputPill(node.attrs.ref as OutputRef, timeline, now);
 	return (
 		<NodeViewWrapper as="span" className="pill-node" contentEditable={false}>
 			<ShownPill presentation={presentation} selected={selected} />

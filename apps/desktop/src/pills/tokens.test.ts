@@ -15,6 +15,8 @@ const FAMILIES = [
 	"git-draft",
 	"git-merged",
 	"git-closed",
+	"output",
+	"output-failed",
 	"failed",
 	"unresolved",
 ];

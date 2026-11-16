@@ -1,0 +1,113 @@
+/* SPDX-License-Identifier: MIT */
+/* Copyright (c) 2026 Max Boksem */
+
+/* Shell mode: the box takes the shell's color, the text box steps aside
+   for the command, and Run stands where Send was. */
+
+.composer [data-shell],
+.composer [data-shell]:focus-within {
+	border-color: var(--shell);
+	box-shadow: 0 0 0 1px color-mix(in oklab, var(--shell) 40%, transparent);
+}
+
+/* The message being written waits, hidden, until the box goes back to it. */
+.composer [data-shell] .composer-content {
+	display: none;
+}
+
+.shell-field {
+	padding: 11px 12px 4px;
+}
+
+.shell-line {
+	display: flex;
+	align-items: flex-start;
+}
+
+.shell-tag {
+	display: inline-flex;
+	flex-shrink: 0;
+	align-items: center;
+	gap: 4px;
+	height: 21px;
+	margin-right: 6px;
+	padding: 0 6px;
+	border: 1px solid color-mix(in oklab, var(--shell) 40%, transparent);
+	border-radius: 5px;
+	background: color-mix(in oklab, var(--shell) 14%, transparent);
+	color: var(--shell);
+	font-size: 12px;
+	font-weight: 600;
+	user-select: none;
+}
+
+.shell-command {
+	flex: 1;
+	min-width: 0;
+	min-height: 21px;
+	max-height: 40vh;
+	padding: 0;
+	border: 0;
+	background: transparent;
+	color: var(--foreground);
+	font-family: var(--font-mono);
+	font-size: 13.5px;
+	line-height: 21px;
+	resize: none;
+	outline: none;
+	overflow-y: auto;
+	white-space: pre-wrap;
+	overflow-wrap: anywhere;
+}
+
+.shell-hint {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 6px 14px;
+	margin-top: 6px;
+	color: var(--muted-foreground);
+	font-size: 11.5px;
+}
+
+.shell-hint b {
+	color: var(--foreground);
+	font-weight: 500;
+}
+
+.shell-hint .shell-folder {
+	font-family: var(--font-mono);
+	font-size: 11px;
+}
+
+.shell-key {
+	padding: 0 4px;
+	border: 1px solid var(--border);
+	border-radius: 4px;
+	font-family: var(--font-mono);
+	font-size: 10.5px;
+}
+
+.shell-run {
+	display: inline-flex;
+	flex-shrink: 0;
+	align-items: center;
+	gap: 4px;
+	height: 28px;
+	margin-left: auto;
+	padding: 0 10px 0 8px;
+	border-radius: 14px;
+	background: var(--shell);
+	color: var(--shell-foreground);
+	font-size: 12px;
+	font-weight: 500;
+	outline: none;
+}
+
+.shell-run:focus-visible {
+	box-shadow: 0 0 0 2px var(--ring);
+}
+
+.shell-run:disabled {
+	cursor: not-allowed;
+	opacity: 0.5;
+}

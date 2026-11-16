@@ -76,6 +76,7 @@ pub fn specta_builder() -> Builder<tauri::Wry> {
             commands::update_fleet,
             commands::setup_device,
             commands::open_root_fix,
+            commands::mask_output,
             native::check_spelling,
             native::spelling_menu,
             native::pick_attachments,

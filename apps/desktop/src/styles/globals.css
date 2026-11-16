@@ -110,6 +110,17 @@
 	--pill-unresolved-text: oklch(0.72 0.02 259);
 	--pill-unresolved-bg: oklch(0.62 0.02 259 / 0);
 	--pill-unresolved-border: oklch(0.62 0.02 259 / 0.35);
+	/* A command's output in neutral grey, and red once it failed. */
+	--pill-output-text: oklch(0.86 0.015 259);
+	--pill-output-bg: oklch(0.62 0.02 259 / 0.16);
+	--pill-output-border: oklch(0.62 0.02 259 / 0.4);
+	--pill-output-failed-text: var(--pill-failed-text);
+	--pill-output-failed-bg: var(--pill-failed-bg);
+	--pill-output-failed-border: var(--pill-failed-border);
+
+	/* The composer while it holds a command to run, and the text on its Run button. */
+	--shell: oklch(0.72 0.12 55);
+	--shell-foreground: oklch(0.18 0.03 55);
 
 	/* Find's matches in the conversation, and the active one brighter,
 	   in search colors. */
@@ -259,6 +270,15 @@
 	--pill-unresolved-text: oklch(0.45 0.02 259);
 	--pill-unresolved-bg: oklch(0.62 0.02 259 / 0);
 	--pill-unresolved-border: oklch(0.62 0.02 259 / 0.35);
+	--pill-output-text: oklch(0.38 0.02 259);
+	--pill-output-bg: oklch(0.62 0.02 259 / 0.12);
+	--pill-output-border: oklch(0.62 0.02 259 / 0.4);
+	--pill-output-failed-text: var(--pill-failed-text);
+	--pill-output-failed-bg: var(--pill-failed-bg);
+	--pill-output-failed-border: var(--pill-failed-border);
+
+	--shell: oklch(0.55 0.14 55);
+	--shell-foreground: oklch(0.99 0.01 55);
 
 	--find-match-text: oklch(0.216 0.028 77.4);
 	--find-match-bg: oklch(0.915 0.11 85);
@@ -355,6 +375,8 @@
 	--color-sidebar-border: var(--sidebar-border);
 	--color-subpanel: var(--subpanel);
 	--color-terminal: var(--terminal);
+	--color-shell: var(--shell);
+	--color-shell-foreground: var(--shell-foreground);
 	--color-canvas: var(--canvas);
 	--color-hover-card: var(--hover-card);
 	--color-hover-card-border: var(--hover-card-border);

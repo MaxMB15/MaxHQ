@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026 Max Boksem
 
-// A fenced code block in a message: a header with the language and a copy
-// button, then the code, plain at first and highlighted once Shiki has it.
+// A fenced code block in a message: a header with the language, a copy
+// button and, for commands in a reply, Run, then the code, plain at first
+// and highlighted once Shiki has it.
 
 import { useEffect, useState } from "react";
 
@@ -10,6 +11,7 @@ import { CopyButton } from "@/components/copy-button";
 import { cn } from "@/lib/utils";
 
 import { cachedLines, highlight, languageOf, type Lines } from "./highlight";
+import { RunMenu } from "./run-menu";
 import { t as translate, useI18n } from "@maxhq/shared/i18n";
 
 // Highlighted lines for code, once they're ready. Code still streaming in
@@ -64,6 +66,7 @@ export const CodeBlock = ({
 			>
 				<span className="truncate">{title ?? lang ?? translate("Code")}</span>
 				<CopyButton text={text} />
+				{live ? null : <RunMenu code={text} lang={lang} />}
 			</div>
 			<pre className="overflow-x-auto px-3 py-2.5 font-mono text-[11.5px] leading-[1.6] text-terminal select-text">
 				<code>

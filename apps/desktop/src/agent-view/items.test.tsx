@@ -315,7 +315,7 @@ const SAMPLES: Record<ItemBody["kind"], [ItemBody, string | RegExp, ItemStatus?]
 			output_truncated: false,
 			moved: false,
 		},
-		"user_run",
+		"pnpm test",
 		"failed",
 	],
 	unknown: [{ kind: "unknown", native_kind: "hook_progress" }, "hook_progress"],

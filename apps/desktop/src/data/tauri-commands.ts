@@ -83,6 +83,12 @@ export const commands = {
 	 */
 	openRootFix: (device: DeviceId, item: string) => typedError<null, CommandError>(__TAURI_INVOKE("open_root_fix", { device, item })),
 	/**
+	 *  A command's output with the keys and tokens MaxHQ recognizes masked, the
+	 *  way it goes to an agent, so an output pill's preview shows what the
+	 *  agent will read.
+	 */
+	maskOutput: (text: string) => __TAURI_INVOKE<string>("mask_output", { text }),
+	/**
 	 *  Finds the misspelled words in the composer's text, with the languages
 	 *  and learned words from System Settings. Each sentence gets its own
 	 *  language guess, so Dutch and English can share a message. Off macOS
