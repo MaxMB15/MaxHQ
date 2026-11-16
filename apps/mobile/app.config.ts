@@ -49,12 +49,23 @@ const config: ExpoConfig = {
 			"expo-camera",
 			{
 				cameraPermission:
-					"Allow MaxHQ to use the camera to scan the pairing code your Mac shows.",
+					"Allow MaxHQ to use the camera to scan the pairing code your Mac shows and to take photos you send to an agent.",
 				microphonePermission: false,
 				recordAudioAndroid: false,
 				barcodeScannerEnabled: true,
 			},
 		],
+		// Photos and files you attach to a message. Nothing is recorded.
+		[
+			"expo-image-picker",
+			{
+				photosPermission: "Allow MaxHQ to read the photos you choose to send to an agent.",
+				cameraPermission:
+					"Allow MaxHQ to use the camera to scan the pairing code your Mac shows and to take photos you send to an agent.",
+				microphonePermission: false,
+			},
+		],
+		"expo-document-picker",
 		// Push needs a signed build, which sets its own aps-environment.
 		...(ios.push ? ["expo-notifications"] : []),
 	],

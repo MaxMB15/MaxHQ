@@ -60,6 +60,15 @@ export const pairedPhones = (view: ViewState): PairedPhone[] => {
 		.sort((a, b) => a.name.localeCompare(b.name) || a.id.localeCompare(b.id));
 };
 
+/**
+ * Whether `device` lets the phone `phone` do everything, so its maxd takes
+ * the requests a phone can't make on its own, such as starting an agent.
+ */
+export const letsPhone = (view: ViewState, phone: PhoneId, device: DeviceId): boolean =>
+	all(view, "phone").some(
+		(p) => p.id === phone && p.device === device && (p.everything ?? false)
+	);
+
 /** The devices Add phone ticks first: each one a phone can reach. */
 export const reachable = (devices: readonly PhoneDevice[]): DeviceId[] =>
 	devices.filter((d) => d.note === null).map((d) => d.device);

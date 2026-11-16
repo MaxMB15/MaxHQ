@@ -7,7 +7,7 @@ import type { Entity, Phone, PhoneDevice } from "../bindings";
 import { device, entities, NOW } from "../test/build";
 import { applySnapshot } from "../view/replica";
 
-import { pairedPhones, pairingDevice, reachable } from "./phones";
+import { letsPhone, pairedPhones, pairingDevice, reachable } from "./phones";
 
 const phone = (over: Partial<Phone> & { device: string }): Entity => ({
 	entity: "phone",
@@ -81,5 +81,19 @@ describe("phones", () => {
 		expect(pairingDevice(v, ["mac", "devbox"])).toBe("devbox");
 		expect(pairingDevice(v, ["mac"])).toBe("mac");
 		expect(pairingDevice(v, [])).toBeNull();
+	});
+});
+
+describe("letsPhone", () => {
+	it("is on only for the device that turned the switch on for that phone", () => {
+		const v = view([
+			phone({ device: "mac", everything: true }),
+			phone({ device: "devbox" }),
+			phone({ id: "phone-2", device: "ws-alpha", everything: true }),
+		]);
+		expect(letsPhone(v, "phone-1", "mac")).toBe(true);
+		expect(letsPhone(v, "phone-1", "devbox")).toBe(false);
+		expect(letsPhone(v, "phone-1", "ws-alpha")).toBe(false);
+		expect(letsPhone(v, "phone-2", "ws-alpha")).toBe(true);
 	});
 });

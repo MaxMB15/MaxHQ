@@ -197,6 +197,7 @@
 	"Sends when the limit resets": "Se envía cuando se restablece el límite",
 	"Sends when the turn ends": "Se envía cuando termina el turno",
 	"The agent reads it between steps": "El agente lo lee entre pasos",
+	"To do this from the phone, turn on Let this phone do everything for this device in the Mac's Settings, under Phones.": "Para hacerlo desde el teléfono, activa Dar acceso completo a este teléfono para este dispositivo en los Ajustes del Mac, en Teléfonos.",
 	"While an agent works": "Mientras un agente trabaja",
 	"The send button does this. The other shows beside it once you type.": "El botón de enviar hace esto. El otro aparece al lado en cuanto escribes.",
 	"Sent": "Enviado",
