@@ -29,25 +29,29 @@ import { FRAME_SANDBOX } from "@/viewer/messages";
 import { formatBytes } from "@maxhq/shared/agent-view/format";
 import type { Theme } from "@maxhq/shared/theme/theme";
 import {
-	type Blocked,
-	blockedLoad,
 	HEIGHT_START,
 	type HeightTrack,
-	MOST_HOSTS,
 	nextHeight,
 	readFrameReport,
 	type ShowVisual,
 	THEME_VARIABLES,
 	visualFrameQuery,
 } from "@maxhq/shared/visuals/frame";
+import {
+	addReport,
+	loadableHosts,
+	NO_REPORTS,
+	type VisualError,
+	type VisualReports,
+	withHosts,
+} from "@maxhq/shared/visuals/reports";
 import { MAX_VISUAL_BYTES, visualBytes, visualKey } from "@maxhq/shared/visuals/visual";
 
 import { FIRST_HEIGHT_PX, knownHeight, noteHeight } from "./heights";
 
 const guard = hangGuard("visual");
 
-/** An error a visual's page threw, with the line it came from when known. */
-export type VisualError = { readonly message: string; readonly line: number | null };
+export type { VisualError };
 
 const MONO_FALLBACK = '"JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace';
 
@@ -63,51 +67,6 @@ const themeVariables = (): Record<string, string> => {
 	values["--font-sans"] ||= getComputedStyle(document.body).fontFamily;
 	values["--font-mono"] ||= MONO_FALLBACK;
 	return values;
-};
-
-// The errors kept to show, and how many there were.
-const KEPT_ERRORS = 20;
-
-type Reports = {
-	readonly errors: readonly VisualError[];
-	readonly errorCount: number;
-	readonly blocked: ReadonlyMap<string, Blocked>;
-	readonly missing: readonly string[];
-};
-
-const NONE: Reports = { errors: [], errorCount: 0, blocked: new Map(), missing: [] };
-
-type Report =
-	| { readonly type: "error"; readonly error: VisualError }
-	| { readonly type: "blocked"; readonly url: string; readonly what: string }
-	| { readonly type: "missing"; readonly path: string };
-
-const reduce = (reports: Reports, report: Report): Reports => {
-	switch (report.type) {
-		case "error": {
-			const known = reports.errors.some((e) => e.message === report.error.message);
-			return {
-				...reports,
-				errorCount: reports.errorCount + 1,
-				errors:
-					known || reports.errors.length >= KEPT_ERRORS
-						? reports.errors
-						: [...reports.errors, report.error],
-			};
-		}
-		case "blocked": {
-			const blocked = blockedLoad(report.url, report.what);
-			if (!blocked) return reports;
-			const before = reports.blocked.get(blocked.host);
-			// A host is loadable when anything it was asked for would be.
-			if (before && (before.loadable || !blocked.loadable)) return reports;
-			return { ...reports, blocked: new Map(reports.blocked).set(blocked.host, blocked) };
-		}
-		case "missing":
-			return reports.missing.includes(report.path)
-				? reports
-				: { ...reports, missing: [...reports.missing, report.path] };
-	}
 };
 
 // A page can say it was clicked when it wasn't, so the app opens a link only
@@ -146,7 +105,7 @@ const Bars = ({
 	onTell,
 	onLoad,
 }: {
-	reports: Reports;
+	reports: VisualReports;
 	hosts: readonly string[];
 	onTell: ((errors: readonly VisualError[], count: number) => void) | undefined;
 	onLoad: (hosts: readonly string[]) => void;
@@ -154,11 +113,7 @@ const Bars = ({
 	const { t } = useI18n();
 	const [first] = reports.errors;
 	const blocked = [...reports.blocked.values()];
-	const room = MOST_HOSTS - hosts.length;
-	const loadable = blocked
-		.filter((b) => b.loadable && !hosts.includes(b.host))
-		.map((b) => b.host)
-		.slice(0, Math.max(0, room));
+	const loadable = loadableHosts(reports.blocked, hosts);
 	return (
 		<>
 			{first ? (
@@ -267,7 +222,7 @@ const FrameRun = ({
 		...HEIGHT_START,
 		height: knownHeight(mark) ?? FIRST_HEIGHT_PX,
 	}));
-	const [reports, report] = useReducer(reduce, NONE);
+	const [reports, report] = useReducer(addReport, NO_REPORTS);
 	const reported = useRef(false);
 
 	useEffect(() => {
@@ -456,7 +411,7 @@ export const VisualFrame = ({
 					hosts={hosts}
 					fill={fill}
 					onTell={onTell}
-					onLoad={(more) => setHosts((hosts) => [...hosts, ...more].slice(0, MOST_HOSTS))}
+					onLoad={(more) => setHosts((hosts) => withHosts(hosts, more))}
 				/>
 			) : (
 				<div style={{ height: knownHeight(mark) ?? FIRST_HEIGHT_PX }} />

@@ -147,3 +147,49 @@ export const guardDollars = (text: string): string => {
 
 /** Puts each `$` that `guardDollars` swapped back. */
 export const restoreDollars = (text: string): string => text.replaceAll(PLAIN_DOLLAR, "$");
+
+/** A fenced code block: the language its fence names, its code, and whether it has closed. */
+export type CodeFence = {
+	readonly lang: string | null;
+	readonly code: string;
+	/** False while its closing fence hasn't come, as for a block streaming in. */
+	readonly closed: boolean;
+};
+
+// A fence's opening line: its indent, its marks, and what follows them.
+const FENCE_OPENING = /^( {0,3})(`{3,}|~{3,})(.*)$/;
+
+// A fence's closing line, its marks in the first group.
+const FENCE_CLOSING = /^ {0,3}(`{3,}|~{3,})[ \t]*$/;
+
+/**
+ * The code block a top-level block is, when it's one fence and nothing more,
+ * or null. The language is the first word after the marks, and each line of
+ * code gives up as much of its indent as the opening line had.
+ */
+export const codeFenceOf = (block: string): CodeFence | null => {
+	const lines = block.replace(/\r\n?/g, "\n").split("\n");
+	const opening = FENCE_OPENING.exec(lines[0] ?? "");
+	if (!opening) return null;
+	const [, indent = "", marks = "", info = ""] = opening;
+	// A backtick fence's info can't hold a backtick.
+	if (marks[0] === "`" && info.includes("`")) return null;
+	const code: string[] = [];
+	let closed = false;
+	let at = 1;
+	for (; at < lines.length; at++) {
+		const line = lines[at] ?? "";
+		const run = FENCE_CLOSING.exec(line)?.[1];
+		if (run && run[0] === marks[0] && run.length >= marks.length) {
+			closed = true;
+			break;
+		}
+		const spaces = /^ */.exec(line)?.[0].length ?? 0;
+		code.push(line.slice(Math.min(spaces, indent.length)));
+	}
+	// Anything but blank lines after it makes the block more than a fence.
+	if (lines.slice(at + 1).some((line) => line.trim() !== "")) return null;
+	// A block still coming in may end in the break before its next line.
+	if (!closed && code.at(-1) === "") code.pop();
+	return { lang: info.trim().split(/\s+/)[0] || null, code: code.join("\n"), closed };
+};

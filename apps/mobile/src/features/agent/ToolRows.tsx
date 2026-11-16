@@ -4,10 +4,15 @@
 // The tool steps, one line each as on the desktop: an icon, a verb, what it
 // acted on and a figure at the end. Commands, edits and tool calls open under
 // their line to show what they printed or changed, and the pictures a read or
-// a tool showed the agent sit under its line.
+// a tool showed the agent sit under its line. A file read, edited or opened
+// shows in the file viewer, at the line the desktop opens it at: a tap on
+// the row for a read or an opened file, and the eye at the end of an edit's
+// row, whose own tap opens its changes.
 
 import { useI18n, formatNumber } from "@maxhq/shared/i18n";
 
+import { useNavigation } from "@react-navigation/native";
+import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import type { ComponentType, ReactNode } from "react";
 import { useMemo } from "react";
 import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
@@ -26,6 +31,7 @@ import {
 } from "@maxhq/shared/agent-view/format";
 import { useKept } from "@maxhq/shared/agent-view/kept";
 import { EDIT_VERBS, TOOL_VERBS, verbFor, WEB_VERBS } from "@maxhq/shared/agent-view/tool-line";
+import { editLine, readLine } from "@maxhq/shared/agent-view/viewer-files";
 import type {
 	AttachmentRef,
 	FileEdit,
@@ -36,8 +42,9 @@ import type {
 
 import { editPath } from "@maxhq/shared/timeline/diff";
 
+import type { Screens } from "../../navigation";
 import { useView } from "../../services";
-import { color, font, radius, size } from "../../theme";
+import { color, font, radius, size, TOUCH } from "../../theme";
 import { AnsiText } from "../../ui/AnsiText";
 import { Spinner } from "../../ui/Dot";
 import { Elapsed } from "../../ui/Elapsed";
@@ -58,6 +65,7 @@ import {
 	Wrench,
 } from "../../ui/glyphs";
 import { PictureThumbs } from "../../ui/Picture";
+import { fileRoute } from "../viewer/file";
 import { visualOfItem } from "../visuals/visual";
 import { VisualOpenRow } from "../visuals/VisualOpenRow";
 import { useFeed } from "./feed-context";
@@ -104,6 +112,32 @@ const Detail = ({ children }: { children: ReactNode }) => {
 	return <View style={styles.detail}>{children}</View>;
 };
 
+/** Showing a file in the viewer, and what VoiceOver calls it. */
+type ShowFile = { readonly label: string; readonly onPress: () => void };
+
+// The rows are shorter than a finger, so the eye takes taps a little past itself.
+const ROW = 30;
+const SLOP = (TOUCH - ROW) / 2;
+
+/**
+ * Showing the file at `path` in the viewer, at `line`, when `when` holds and
+ * the viewer opens a file of its kind.
+ */
+const useShowFile = (path: string, line: number | undefined, when: boolean): ShowFile | null => {
+	const { t } = useI18n();
+	const { agent } = useFeed();
+	const navigation = useNavigation<NativeStackNavigationProp<Screens>>();
+	const route = when ? fileRoute(agent, path, line) : null;
+	return route
+		? {
+				label: t("Show {{name}}", { name: baseName(path) }),
+				onPress: () => navigation.navigate("File", route),
+			}
+		: null;
+};
+
+const ShowGlyph = () => <Eye size={13} strokeWidth={2} color={color.mutedForeground} />;
+
 const ToolRow = ({
 	icon,
 	tint,
@@ -114,6 +148,7 @@ const ToolRow = ({
 	running = false,
 	open,
 	onToggle,
+	show,
 	children,
 }: {
 	icon: Glyph;
@@ -129,6 +164,11 @@ const ToolRow = ({
 	/** Whether the details show. Leave unset for a row with none. */
 	open?: boolean;
 	onToggle?: () => void;
+	/**
+	 * Shows the file in the viewer: a tap on a row with no details, and the
+	 * eye at the end of one with them.
+	 */
+	show?: ShowFile | null;
 	/** The details, shown while open. */
 	children?: ReactNode;
 }) => {
@@ -150,16 +190,47 @@ const ToolRow = ({
 			</Text>
 			{expandable ? (
 				<Chevron size={10} strokeWidth={2.4} color={color.mutedForeground} />
+			) : show ? (
+				<ShowGlyph />
 			) : null}
 		</>
 	);
+	const toggle = expandable ? (
+		<Pressable
+			accessibilityRole="button"
+			accessibilityState={{ expanded: open }}
+			onPress={onToggle}
+			style={({ pressed }) => [
+				styles.row,
+				show ? styles.grow : null,
+				pressed ? styles.pressed : null,
+			]}
+		>
+			{line}
+		</Pressable>
+	) : null;
 	return (
 		<View style={styles.step}>
-			{expandable ? (
+			{toggle && show ? (
+				<View style={styles.split}>
+					{toggle}
+					<Pressable
+						accessibilityRole="button"
+						accessibilityLabel={show.label}
+						onPress={show.onPress}
+						hitSlop={SLOP}
+						style={({ pressed }) => [styles.show, pressed ? styles.pressed : null]}
+					>
+						<ShowGlyph />
+					</Pressable>
+				</View>
+			) : toggle ? (
+				toggle
+			) : show ? (
 				<Pressable
 					accessibilityRole="button"
-					accessibilityState={{ expanded: open }}
-					onPress={onToggle}
+					accessibilityHint={show.label}
+					onPress={show.onPress}
 					style={({ pressed }) => [styles.row, pressed ? styles.pressed : null]}
 				>
 					{line}
@@ -314,6 +385,11 @@ const FileEditRow = ({
 }) => {
 	const [open, setOpen] = useKept(`open:${id}`, false);
 	const changes = useMemo(() => [edit], [edit]);
+	const show = useShowFile(
+		edit.path,
+		editLine(edit.patch),
+		status === "completed" && edit.op !== "delete"
+	);
 	return (
 		<ToolRow
 			icon={EDIT_ICON[edit.op]}
@@ -328,6 +404,7 @@ const FileEditRow = ({
 			running={status === "running" || status === "pending"}
 			open={open}
 			onToggle={() => setOpen(!open)}
+			show={show}
 		>
 			<PatchView changes={changes} style={styles.patch} />
 		</ToolRow>
@@ -354,6 +431,7 @@ export const FileChangeRow = ({ item }: { item: ItemOf<"file_change"> }) => {
 
 /** A file the agent read. */
 export const FileReadRow = ({ item }: { item: ItemOf<"file_read"> }) => {
+	const show = useShowFile(item.path, readLine(item.lines), item.status === "completed");
 	return (
 		<WithPictures images={item.images}>
 			<ToolRow
@@ -363,6 +441,7 @@ export const FileReadRow = ({ item }: { item: ItemOf<"file_read"> }) => {
 				meta={endedEarly(item.status) ?? lineSpan(item.lines)}
 				since={item.started_at}
 				running={isOpen(item.status)}
+				show={show}
 			/>
 		</WithPictures>
 	);
@@ -370,13 +449,15 @@ export const FileReadRow = ({ item }: { item: ItemOf<"file_read"> }) => {
 
 /**
  * A file the agent opened in MaxHQ's viewer for you, named with its folder
- * and line. The phone has no viewer, so the row only says so.
+ * and line. A tap shows it in the phone's viewer, at that line.
  */
 export const OpenedFileRow = ({ item }: { item: ItemOf<"agent_opened_file"> }) => {
 	const { t } = useI18n();
+	const show = useShowFile(item.path, item.line ?? undefined, true);
 	return (
 		<ToolRow
 			icon={Eye}
+			show={show}
 			verb={t("Opened")}
 			target={
 				<>
@@ -582,6 +663,16 @@ const styles = StyleSheet.create({
 		borderRadius: radius.md,
 	},
 	pressed: { backgroundColor: color.accent },
+	// An edit's row and the eye that shows its file, side by side.
+	split: { flexDirection: "row", alignItems: "center", gap: 2 },
+	grow: { flex: 1, minWidth: 0 },
+	show: {
+		width: ROW,
+		height: ROW,
+		alignItems: "center",
+		justifyContent: "center",
+		borderRadius: radius.md,
+	},
 	icon: { width: 14, height: 14, alignItems: "center", justifyContent: "center" },
 	verb: { flexShrink: 0, color: color.secondaryForeground, fontSize: 12.5 },
 	verbless: { flexShrink: 0, color: color.mutedForeground, fontSize: 12.5 },

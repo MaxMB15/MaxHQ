@@ -17,8 +17,14 @@ import { createContext, use, useMemo } from "react";
 import { type Services, useServicesIfAny } from "@/app/services";
 import { openEditor, openNote } from "@/notes/open";
 import type { AgentId, NoteId, ProjectId } from "@maxhq/shared/bindings";
-import { changeHead, makeNote, writerOf } from "@maxhq/shared/notes/actions";
-import { appendVisual, type Placed, projectOfAgent, takeOut } from "@maxhq/shared/notes/visuals";
+import {
+	addToHead,
+	addToNewNote,
+	addToNoteTarget,
+	takeOutOfHead,
+	visualChanged,
+} from "@maxhq/shared/notes/add-visual";
+import type { Placed } from "@maxhq/shared/notes/visuals";
 import { noteSummary, notesOf, notesReach, untitled } from "@maxhq/shared/view/notes";
 import type { Visual } from "@maxhq/shared/visuals/fence";
 
@@ -31,8 +37,6 @@ export const VisualNoteContext = createContext<{
 	readonly project: ProjectId;
 	readonly note: NoteId;
 } | null>(null);
-
-const changed = (): string => t("The visual changed since it went in, so it stays.");
 
 /** The title the sidebar shows for a note. */
 const titleOf = (services: Services, project: ProjectId, note: NoteId): string => {
@@ -52,11 +56,9 @@ const undoPlaced = async (
 	placed: Placed
 ): Promise<string | null> => {
 	const editor = openEditor(project, note);
-	if (editor) return editor.removePlaced(placed) ? null : changed();
+	if (editor) return editor.removePlaced(placed) ? null : visualChanged();
 	const reach = notesReach(services.view.getState().view, project);
-	return changeHead(services.source, reach, project, note, {
-		body: (body) => takeOut(body, placed) ?? { refused: changed() },
-	});
+	return takeOutOfHead(services.source, reach, project, note, placed);
 };
 
 /**
@@ -69,28 +71,23 @@ export const addVisualToNote = async (
 	note: NoteId,
 	visual: Visual
 ): Promise<void> => {
-	const put: { placed: Placed | null } = { placed: null };
 	const editor = openEditor(project, note);
-	let why: string | null;
+	let done: Placed;
 	if (editor) {
 		const placed = editor.insertVisual(visual);
-		why = "refused" in placed ? placed.refused : null;
-		if (!("refused" in placed)) put.placed = placed;
+		if ("refused" in placed) {
+			showAdded(placed.refused);
+			return;
+		}
+		done = placed;
 	} else {
 		const reach = notesReach(services.view.getState().view, project);
-		why = await changeHead(services.source, reach, project, note, {
-			body: (body) => {
-				const placing = appendVisual(body, visual);
-				if ("refused" in placing) return placing;
-				put.placed = placing.placed;
-				return placing.body;
-			},
-		});
-	}
-	const done = put.placed;
-	if (why !== null || done === null) {
-		showAdded(why ?? t("The visual didn't go in."));
-		return;
+		const added = await addToHead(services.source, reach, project, note, visual);
+		if ("failure" in added) {
+			showAdded(added.failure);
+			return;
+		}
+		done = added.placed;
 	}
 	showAdded({
 		note: titleOf(services, project, note),
@@ -105,18 +102,13 @@ export const addVisualToNewNote = async (
 	project: ProjectId,
 	visual: Visual
 ): Promise<void> => {
-	const placing = appendVisual("", visual);
-	if ("refused" in placing) {
-		showAdded(placing.refused);
-		return;
-	}
 	const { view } = services.view.getState();
-	const made = await makeNote(
+	const made = await addToNewNote(
 		services.source,
 		view,
 		notesReach(view, project),
 		project,
-		placing.body
+		visual
 	);
 	if ("failure" in made) {
 		showAdded(made.failure);
@@ -126,7 +118,7 @@ export const addVisualToNewNote = async (
 		// The view may not list it yet, and it's named as it was made.
 		note: untitled(view, project),
 		open: () => openNote(services, project, made.note),
-		undo: () => undoPlaced(services, project, made.note, placing.placed),
+		undo: () => undoPlaced(services, project, made.note, made.placed),
 	});
 };
 
@@ -147,8 +139,8 @@ export const addToNoteAction = (
 	run: () => {},
 	entries: () => {
 		const { view } = services.view.getState();
-		const target = (agent === null ? null : projectOfAgent(view, agent)) ?? project;
-		if (target === null || writerOf(notesReach(view, target)).device === null) return [];
+		const target = addToNoteTarget(view, { agent, project }, notesReach)?.project;
+		if (target === undefined) return [];
 		const rows = notesOf(view, target);
 		return [
 			...rows.map((row) => ({

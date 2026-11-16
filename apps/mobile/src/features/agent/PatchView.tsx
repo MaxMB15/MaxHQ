@@ -1,26 +1,36 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026 Max Boksem
 
-// A file change's patch, plain: added lines green, removed lines red and
-// hunk headers dimmed, in monospace that scrolls sideways rather than
-// wraps. It shows the first lines with a button for the rest, so a long
-// patch keeps the feed quick, and names each file when there are several.
+// A file change's patch, as on the desktop: added lines on a green tint and
+// removed lines on a red one, the code in colour once the highlighter has
+// it and plain until then, and hunk headers dimmed, in monospace that
+// scrolls sideways rather than wraps. Each hunk is highlighted on its own,
+// both sides of it, so the colours stay right across added and removed
+// lines. It shows the first lines with a button for more, a page at a time,
+// so a long patch keeps the feed quick, and names each file when there are
+// several. The hunks already shown stay as they are when more shows.
 
 import { formatNumber, useI18n } from "@maxhq/shared/i18n";
 
-import { useMemo, useState } from "react";
+import { Fragment, memo, useMemo, useState } from "react";
 import { Pressable, ScrollView, StyleSheet, Text, View, type ViewStyle } from "react-native";
 
+import { extensionOf } from "@maxhq/shared/agent-view/viewer-files";
 import type { FileEdit } from "@maxhq/shared/bindings";
 import {
 	editPath,
 	PATCH_LINES,
+	PATCH_PAGE,
+	patchFiles,
 	type PatchLine,
+	patchRuns,
+	patchSides,
 	shownCounts,
 	shownPatch,
 } from "@maxhq/shared/timeline/diff";
 
-import { color, font, radius, size } from "../../theme";
+import { color, font, radius, size, tint } from "../../theme";
+import { type Language, languageOf, tokenStyle, useHighlight } from "../../ui/highlight";
 
 /** Lines added and removed, such as "+3 −1", as the desktop shows them. */
 export const Counts = ({ additions, deletions }: { additions: number; deletions: number }) => {
@@ -39,30 +49,76 @@ export const Counts = ({ additions, deletions }: { additions: number; deletions:
 	);
 };
 
-// Lines per text block. A view per line would make thousands for a long
-// patch, and one block for all of it a layer too tall to draw.
+// Lines per text block at most. A view per line would make thousands for a
+// long patch, and one block for all of it a layer too tall to draw.
 const BLOCK = 100;
 
 const SIGN: Record<PatchLine["type"], string> = { hunk: "", add: "+", remove: "-", context: " " };
 
-const Lines = ({ lines }: { lines: readonly PatchLine[] }) => {
-	const blocks: (readonly PatchLine[])[] = [];
-	for (let i = 0; i < lines.length; i += BLOCK) blocks.push(lines.slice(i, i + BLOCK));
-	return blocks.map((block, b) => (
-		// Blocks and lines have no identity but their place in the patch.
-		<Text key={b} selectable style={styles.code}>
-			{block.map((line, i) => (
-				<Text key={i} style={LINE[line.type]}>
-					{SIGN[line.type]}
-					{line.text}
-					{i < block.length - 1 ? "\n" : ""}
-				</Text>
+/** One hunk, or part of a long one, in runs of lines of one kind. */
+const Chunk = memo(({ lines, lang }: { lines: readonly PatchLine[]; lang: Language | null }) => {
+	const sides = useMemo(() => patchSides(lines), [lines]);
+	const before = useHighlight(sides.old ?? "", lang, sides.old !== null);
+	const after = useHighlight(sides.new ?? "", lang, sides.new !== null);
+	const runs = useMemo(() => patchRuns(lines, BLOCK), [lines]);
+	return (
+		<>
+			{runs.map(({ type, start, end }) => (
+				// A run's place in its chunk is its identity, as the chunk never changes.
+				<View key={start} style={RUN[type]}>
+					<Text selectable style={[styles.code, LINE[type]]}>
+						{lines.slice(start, end).map((line, i) => {
+							const spot = sides.spots[start + i];
+							const tokens =
+								spot && (spot.side === "old" ? before : after)?.[spot.line];
+							return (
+								// Lines have no identity but their place in the run.
+								<Fragment key={i}>
+									{type === "hunk" ? null : (
+										<Text style={SIGN_COLOR[type]}>{SIGN[type]}</Text>
+									)}
+									{tokens
+										? tokens.map((token, j) => (
+												<Text key={j} style={tokenStyle(token)}>
+													{token.content}
+												</Text>
+											))
+										: line.text}
+									{start + i < end - 1 ? "\n" : ""}
+								</Fragment>
+							);
+						})}
+					</Text>
+				</View>
 			))}
-		</Text>
-	));
-};
+		</>
+	);
+});
+Chunk.displayName = "PatchChunk";
 
-/** The patches of `changes`, the first lines until "Show all". */
+/** One file's patch, chunk by chunk. */
+const FileLines = memo(
+	({ chunks, path }: { chunks: readonly (readonly PatchLine[])[]; path: string }) => {
+		const lang = languageOf(extensionOf(path));
+		return (
+			<ScrollView
+				horizontal
+				showsHorizontalScrollIndicator={false}
+				contentContainerStyle={styles.scroll}
+			>
+				<View style={styles.lines}>
+					{chunks.map((chunk, i) => (
+						// Chunks have no identity but their place in the patch.
+						<Chunk key={i} lines={chunk} lang={lang} />
+					))}
+				</View>
+			</ScrollView>
+		);
+	}
+);
+FileLines.displayName = "PatchFileLines";
+
+/** The patches of `changes`, the first lines until "Show all" or "Show more". */
 export const PatchView = ({
 	changes,
 	style,
@@ -72,12 +128,15 @@ export const PatchView = ({
 }) => {
 	const { t } = useI18n();
 
-	const [all, setAll] = useState(false);
-	const patch = useMemo(() => shownPatch(changes, all ? null : PATCH_LINES), [changes, all]);
+	const files = useMemo(() => patchFiles(changes), [changes]);
+	// The most lines shown, null for all of them.
+	const [limit, setLimit] = useState<number | null>(PATCH_LINES);
+	const patch = useMemo(() => shownPatch(files, limit), [files, limit]);
+	const paged = limit !== null && patch.hidden > PATCH_PAGE;
 	const several = changes.length > 1;
 	return (
 		<View style={[styles.patch, style]}>
-			{patch.files.map(({ change, lines }, i) => (
+			{patch.files.map(({ change, chunks }, i) => (
 				// Edits have no ID of their own; their place in the item never changes.
 				<View key={i} style={styles.file}>
 					{several ? (
@@ -88,31 +147,27 @@ export const PatchView = ({
 							<Counts additions={change.additions} deletions={change.deletions} />
 						</View>
 					) : null}
-					{lines === null ? (
+					{chunks === null ? (
 						<Text style={styles.note}>
 							{t("The CLI didn't send a diff for this file.")}
 						</Text>
-					) : lines.length > 0 ? (
-						<ScrollView
-							horizontal
-							showsHorizontalScrollIndicator={false}
-							contentContainerStyle={styles.scroll}
-						>
-							<View>
-								<Lines lines={lines} />
-							</View>
-						</ScrollView>
+					) : chunks.length > 0 ? (
+						<FileLines chunks={chunks} path={change.path} />
 					) : null}
 				</View>
 			))}
 			{patch.more ? (
 				<Pressable
 					accessibilityRole="button"
-					onPress={() => setAll(true)}
+					onPress={() => setLimit(paged ? limit + PATCH_PAGE : null)}
 					hitSlop={8}
 					style={styles.more}
 				>
-					<Text style={styles.moreText}>{t("Show all")}</Text>
+					<Text style={styles.moreText}>
+						{paged
+							? t("Show {{value2}} more", { value2: formatNumber(PATCH_PAGE) })
+							: t("Show all")}
+					</Text>
 				</Pressable>
 			) : null}
 		</View>
@@ -139,7 +194,9 @@ const styles = StyleSheet.create({
 		fontFamily: font.mono,
 		fontSize: size.tiny,
 	},
-	scroll: { paddingHorizontal: 10 },
+	// At least as wide as the screen, so a tinted line reaches across it.
+	scroll: { flexGrow: 1 },
+	lines: { flexGrow: 1 },
 	code: { fontFamily: font.mono, fontSize: size.tiny, lineHeight: 17 },
 	note: { paddingHorizontal: 10, color: color.mutedForeground, fontSize: size.tiny },
 	more: {
@@ -151,9 +208,25 @@ const styles = StyleSheet.create({
 	moreText: { color: color.primary, fontSize: size.meta, fontWeight: "600" },
 });
 
+// Each kind of line's tint, the desktop's 8% of its colour.
+const RUN = StyleSheet.create({
+	hunk: { paddingHorizontal: 10 },
+	add: { paddingHorizontal: 10, backgroundColor: tint(color.ready, 0.08) },
+	remove: { paddingHorizontal: 10, backgroundColor: tint(color.destructive, 0.08) },
+	context: { paddingHorizontal: 10 },
+});
+
+// Each kind of line's colour while it's plain.
 const LINE = StyleSheet.create({
 	hunk: { color: color.subtleForeground },
 	add: { color: color.readyText },
 	remove: { color: color.errorText },
 	context: { color: color.secondaryForeground },
+});
+
+const SIGN_COLOR = StyleSheet.create({
+	hunk: {},
+	add: { color: color.ready },
+	remove: { color: color.destructive },
+	context: {},
 });

@@ -8,12 +8,12 @@ import { describe, expect, it } from "vitest";
 import type { AgentId, AttachmentRef } from "@maxhq/shared/bindings";
 import { THEME_VARIABLES } from "@maxhq/shared/visuals/frame";
 import { INLINE_VISUAL_POLICY, inlineVisualDocument } from "@maxhq/shared/visuals/inline";
+import { addReport, NO_REPORTS, type VisualReport } from "@maxhq/shared/visuals/reports";
 
 import { color } from "../../theme";
 import { BUNDLED_LIBRARIES } from "./libraries";
 import {
-	blockedHosts,
-	blockedText,
+	blockedBar,
 	closeVisual,
 	errorText,
 	linkGate,
@@ -123,18 +123,29 @@ describe("a visual's page on the phone", () => {
 		expect(missingText([])).toBeNull();
 	});
 
-	it("names each host it was kept from once", () => {
-		const hosts = [
+	it("names each host it was kept from once, and what loading one risks", () => {
+		const { blocked } = [
 			{ url: "https://cdn.example.com/a.js", what: "script-src-elem" },
 			{ url: "https://cdn.example.com/b.css", what: "style-src-elem" },
 			{ url: "inline", what: "script-src" },
 			{ url: "https://api.example.org/data", what: "connect-src" },
-		].reduce<readonly string[]>(blockedHosts, []);
-		expect(hosts).toEqual(["cdn.example.com", "api.example.org"]);
-		expect(blockedText(hosts)).toBe(
-			"Blocked loading from cdn.example.com and api.example.org. Visuals don't reach the network."
+		].reduce(
+			(reports, { url, what }) =>
+				addReport(reports, { type: "blocked", url, what } satisfies VisualReport),
+			NO_REPORTS
 		);
-		expect(blockedText([])).toBeNull();
+		expect(blockedBar(blocked, [])).toEqual({
+			text:
+				"Blocked loading from cdn.example.com and api.example.org. Visuals don't reach the network. " +
+				"Loading runs code from cdn.example.com in this visual, and tells them your address and that you opened it.",
+			load: ["cdn.example.com"],
+		});
+		// A host let through already isn't offered again.
+		expect(blockedBar(blocked, ["cdn.example.com"])).toEqual({
+			text: "Blocked loading from cdn.example.com and api.example.org. Visuals don't reach the network.",
+			load: [],
+		});
+		expect(blockedBar(NO_REPORTS.blocked, [])).toBeNull();
 	});
 
 	it("says its first error and how many more came", () => {

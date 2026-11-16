@@ -3,7 +3,15 @@
 
 import { describe, expect, it } from "vitest";
 
-import { type DeviceLink, type Entity, NOTE_PILLS_SINCE, type NoteSummary } from "../bindings";
+import {
+	type DeviceLink,
+	type Entity,
+	NOTE_PILLS_SINCE,
+	type NoteSummary,
+	type NoteVersion,
+	type NoteVersionInfo,
+} from "../bindings";
+import { formatWhen } from "../status/format";
 import { agent, device, entities, link, MIN, NOW, project, workspace } from "../test/build";
 
 import {
@@ -22,6 +30,8 @@ import {
 	savedBy,
 	shownTitle,
 	untitled,
+	versionHeading,
+	versionWhen,
 } from "./notes";
 import { applySnapshot } from "./replica";
 
@@ -293,6 +303,50 @@ describe("shownTitle", () => {
 	it("calls a blank title Untitled", () => {
 		expect(shownTitle("Plan")).toBe("Plan");
 		expect(shownTitle("  ")).toBe("Untitled");
+	});
+});
+
+describe("versionWhen", () => {
+	const info = (over: Partial<NoteVersionInfo> = {}): NoteVersionInfo => ({
+		hash: "h1",
+		parents: [],
+		title: "Plan",
+		deleted: false,
+		at: NOW - 5 * MIN,
+		by: null,
+		size: 10,
+		...over,
+	});
+	const when = formatWhen(NOW - 5 * MIN, NOW);
+
+	it("marks the current version", () => {
+		expect(versionWhen(info(), true, NOW)).toBe(`${when} · Current`);
+	});
+
+	it("marks a deleted one, unless it's current", () => {
+		expect(versionWhen(info({ deleted: true }), false, NOW)).toBe(`${when} · Deleted`);
+		expect(versionWhen(info({ deleted: true }), true, NOW)).toBe(`${when} · Current`);
+	});
+
+	it("gives only the time for any other", () => {
+		expect(versionWhen(info(), false, NOW)).toBe(when);
+	});
+});
+
+describe("versionHeading", () => {
+	it("names the version's title and when it was saved", () => {
+		const version: NoteVersion = {
+			hash: "h1",
+			project: "p-a",
+			note: "n1",
+			parents: [],
+			title: "Plan",
+			body: "Body",
+			deleted: false,
+			at: NOW - 5 * MIN,
+			by: null,
+		};
+		expect(versionHeading(version, NOW)).toBe(`"Plan" from ${formatWhen(NOW - 5 * MIN, NOW)}`);
 	});
 });
 

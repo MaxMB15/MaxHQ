@@ -1,9 +1,10 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026 Max Boksem
 
-// What the phone needs to show a visual whole: which one, from a feed's item
-// or a fenced block, the theme it draws in, which of the page's links may
-// open, and what its bars say. The screen draws from this.
+// What the phone needs to show a visual, in its card or whole: which one,
+// from a feed's item or a fenced block, the theme it draws in, which of the
+// page's links may open, and what its bars say. The card and the screen
+// draw from this.
 
 import { t } from "@maxhq/shared/i18n";
 
@@ -11,9 +12,10 @@ import { createStore } from "zustand/vanilla";
 
 import type { AgentId, AttachmentRef } from "@maxhq/shared/bindings";
 import { listInWords } from "@maxhq/shared/status/format";
-import { type Blocked, blockedLoad, THEME_VARIABLES } from "@maxhq/shared/visuals/frame";
+import { type Blocked, THEME_VARIABLES } from "@maxhq/shared/visuals/frame";
 import { fromVisualFence } from "@maxhq/shared/visuals/fence";
 import { opensFromVisual } from "@maxhq/shared/visuals/inline";
+import { loadableHosts } from "@maxhq/shared/visuals/reports";
 
 import { color, radius } from "../../theme";
 
@@ -105,22 +107,27 @@ export const errorText = (first: PageError, count: number): string => {
 		: error;
 };
 
-/** The hosts the page tried to load from, each once, from the policy's reports. */
-export const blockedHosts = (
-	hosts: readonly string[],
-	report: { readonly url: string; readonly what: string }
-): readonly string[] => {
-	const blocked: Blocked | null = blockedLoad(report.url, report.what);
-	return !blocked || hosts.includes(blocked.host) ? hosts : [...hosts, blocked.host];
+/**
+ * The bar for what the content policy kept the page from loading, and the
+ * hosts Load this time lets through, which it names with what that risks.
+ * `through` are the hosts already let through. Null when nothing was kept.
+ */
+export const blockedBar = (
+	blocked: ReadonlyMap<string, Blocked>,
+	through: readonly string[]
+): { readonly text: string; readonly load: readonly string[] } | null => {
+	if (blocked.size === 0) return null;
+	const load = loadableHosts(blocked, through);
+	const text = t("Blocked loading from {{hosts}}. Visuals don't reach the network.", {
+		hosts: listInWords([...blocked.keys()]),
+	});
+	return load.length === 0
+		? { text, load }
+		: {
+				text: `${text} ${t("Loading runs code from {{hosts}} in this visual, and tells them your address and that you opened it.", { hosts: listInWords(load) })}`,
+				load,
+			};
 };
-
-/** The bar for what the content policy kept the page from loading. */
-export const blockedText = (hosts: readonly string[]): string | null =>
-	hosts.length === 0
-		? null
-		: t("Blocked loading from {{hosts}}. Visuals don't reach the network.", {
-				hosts: listInWords(hosts),
-			});
 
 /** The visual shown whole, if one is. */
 export const shownVisual = createStore<{ visual: VisualToOpen | null }>(() => ({ visual: null }));
