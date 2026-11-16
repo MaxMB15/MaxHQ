@@ -6,10 +6,11 @@
 // runs, with Enter doing the one this Mac picked, and queues while a
 // prompt waits. Files, quotes, other agents and notes go into the text as
 // pills: files by drop, paste, the picker, the `@` menu and a drag out of
-// a timeline, agents and notes by the `@` menu or a drag from the sidebar. A file dropped or pasted on an answer field
-// in the pane comes here as if dropped here, and the focus stays put. An
-// agent on another device goes with an excerpt taken when you send, and a
-// note from another project with a copy made then. A `#123` stays text
+// a timeline, agents and notes by the `@` menu or a drag from the
+// sidebar. A file dropped or pasted on an answer field in the pane comes
+// here as if dropped here, and the focus stays put. An agent on another
+// device goes with an excerpt taken when you send, and a note from
+// another project with a copy made then. A `#123` stays text
 // and shows as a pill once it resolves, and one picked a while ago is
 // looked up again when you send.
 // A pasted link to a
