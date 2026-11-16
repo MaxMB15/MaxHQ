@@ -5,26 +5,46 @@
 // the left in a frame, and the agent's reply as Markdown across the column,
 // with a button under it that copies the reply. A picture in either opens
 // whole on a tap. A file you placed in your message's text carries the number
-// its pill shows.
+// its pill shows. A pill in what you sent opens its agent, note, pull
+// request, visual or picture on a tap, and words you select in a reply go
+// in the box below as a quote.
 
 import { t, useI18n, formatNumber } from "@maxhq/shared/i18n";
 
+import { useNavigation } from "@react-navigation/native";
+import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import * as Clipboard from "expo-clipboard";
-import { useEffect } from "react";
-import { Animated, Pressable, StyleSheet, Text, useAnimatedValue, View } from "react-native";
+import { useCallback, useEffect, useMemo } from "react";
+import {
+	Animated,
+	Linking,
+	Pressable,
+	StyleSheet,
+	Text,
+	useAnimatedValue,
+	View,
+} from "react-native";
 
 import { attachmentMeta, formatBytes, sentFilesLine } from "@maxhq/shared/agent-view/format";
 import type { AttachmentId, AttachmentRef, TimelineItem } from "@maxhq/shared/bindings";
 import { copyLabel, useCopyWith } from "@maxhq/shared/lib/copy";
-import { sentMessage, sentText } from "@maxhq/shared/pills/sent";
+import { quoteInbox } from "@maxhq/shared/pills/quote-inbox";
+import { makeQuote } from "@maxhq/shared/pills/quote";
+import { sentMessage } from "@maxhq/shared/pills/sent";
 import { formatClock } from "@maxhq/shared/status/format";
 
+import type { Screens } from "../../navigation";
+import { useView } from "../../services";
 import { color, radius, size } from "../../theme";
 import { Check, CircleAlert, Copy, File, FileText, Folder, ImageIcon } from "../../ui/glyphs";
-import { withCaret } from "../../ui/markdown";
+import { opensInBrowser, withCaret } from "../../ui/markdown";
 import { MarkdownText } from "../../ui/MarkdownText";
 import { useReduceMotion } from "../../ui/motion";
-import { PictureThumbs } from "../../ui/Picture";
+import { PictureThumbs, showPicture } from "../../ui/Picture";
+import { useBoxShown } from "../composer/open-boxes";
+import { quoteOfSelection } from "../composer/quote";
+import { sentMarkdown } from "../composer/sent-markdown";
+import { openVisual, visualOfItem } from "../visuals/visual";
 import { useFeed } from "./feed-context";
 
 type ItemOf<K extends TimelineItem["kind"]> = Extract<TimelineItem, { kind: K }>;
@@ -92,15 +112,44 @@ const Attachments = ({
 /** A message you sent. */
 export const UserMessage = ({ item }: { item: ItemOf<"user_message"> }) => {
 	const { t } = useI18n();
+	const { agent } = useFeed();
+	const navigation = useNavigation<NativeStackNavigationProp<Screens>>();
+	const agents = useView((state) => state.view.tables.agent);
 
 	const at = item.started_at ?? item.completed_at;
-	const sent = sentMessage(item);
-	const text = sentText(sent.pieces, sent.factsOf);
+	const sent = useMemo(() => sentMessage(item), [item]);
+	const text = useMemo(
+		() => sentMarkdown(sent.pieces, sent.factsOf, sent.numbers, (id) => agents.get(id)?.title),
+		[sent, agents]
+	);
+	// A tap on a pill's chip opens what it names, where the phone can.
+	const onPill = useCallback(
+		(index: number) => {
+			const piece = sent.pieces[index];
+			if (!piece || piece.type === "text") return;
+			if (piece.type === "git") {
+				if (opensInBrowser(piece.ref.url)) Linking.openURL(piece.ref.url).catch(() => {});
+				return;
+			}
+			const { ref } = piece;
+			if (ref.type === "agent") navigation.push("Agent", { agent: ref.agent });
+			else if (ref.type === "note")
+				navigation.push("Note", { project: ref.project, note: ref.note });
+			else if (ref.type === "visual") {
+				const file = sent.files.get(ref.attachment);
+				if (file) openVisual(visualOfItem(agent, { title: ref.title, attachment: file }));
+			} else if (ref.type === "attachment") {
+				const file = sent.files.get(ref.id);
+				if (file?.kind === "image") showPicture(agent, file);
+			}
+		},
+		[agent, navigation, sent]
+	);
 	return (
 		<View style={styles.mine}>
 			<View style={[styles.bubble, styles.bubbleMine]}>
 				<Attachments files={sent.shown} numbers={sent.numbers} />
-				{text ? <MarkdownText text={text} mine /> : null}
+				{text ? <MarkdownText text={text} mine onPill={onPill} /> : null}
 			</View>
 			{at !== null ? (
 				<Text style={[styles.time, styles.timeMine]}>
@@ -174,13 +223,30 @@ const CopyReply = ({ text }: { text: string }) => {
 	);
 };
 
-/** The agent's reply, and once it has finished, a button that copies its Markdown. */
+/**
+ * The agent's reply, and once it has finished, a button that copies its
+ * Markdown. While the agent's box shows, words you select in it can go
+ * there as a quote.
+ */
 export const AssistantMessage = ({ item }: { item: ItemOf<"assistant_message"> }) => {
-	const { agent } = useFeed();
+	const { agent, readOnly } = useFeed();
+	const title = useView((state) => state.view.tables.agent.get(agent)?.title ?? "");
+	const boxShown = useBoxShown(agent);
+	const onQuote = useCallback(
+		(selected: string) => {
+			const anchor = quoteOfSelection(item.text, selected);
+			if (anchor) quoteInbox.send(agent, makeQuote({ id: agent, title }, item, anchor), true);
+		},
+		[agent, item, title]
+	);
 	if (item.text === "" && item.streaming) return <Writing />;
 	return (
 		<View style={styles.reply}>
-			<MarkdownText text={item.streaming ? withCaret(item.text) : item.text} agent={agent} />
+			<MarkdownText
+				text={item.streaming ? withCaret(item.text) : item.text}
+				agent={agent}
+				onQuote={!readOnly && boxShown && !item.streaming ? onQuote : undefined}
+			/>
 			{!item.streaming && item.text.trim() !== "" ? <CopyReply text={item.text} /> : null}
 		</View>
 	);

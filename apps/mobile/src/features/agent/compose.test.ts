@@ -1,33 +1,21 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026 Max Boksem
 
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 
 import { clearKept, keep, keptValue } from "@maxhq/shared/agent-view/kept";
-import type { ActionResult } from "@maxhq/shared/data/source";
-import {
-	agreeToSend,
-	type AutoChoice,
-	type AutoConsent,
-	keptConsent,
-} from "@maxhq/shared/settings/auto-mode";
-import { agent, device, entities, workspace } from "@maxhq/shared/test/build";
-import { applySnapshot } from "@maxhq/shared/view/replica";
+import { agent } from "@maxhq/shared/test/build";
 
 import {
 	canSend,
 	continueTone,
 	draftKey,
 	hasComposer,
-	inputOf,
-	sendAgreed,
 	otherSend,
 	sendLabel,
 	sendMode,
 	stopsTurn,
 } from "./compose";
-
-const DONE: ActionResult = { status: "ok", data: { status: "done" } };
 
 describe("hasComposer", () => {
 	it("gives a session started in a terminal no compose box", () => {
@@ -40,13 +28,6 @@ describe("continueTone", () => {
 	it("draws Continue in MaxHQ quiet until the terminal lets go", () => {
 		expect(continueTone(false)).toBe("secondary");
 		expect(continueTone(true)).toBe("primary");
-	});
-});
-
-describe("inputOf", () => {
-	it("sends the trimmed text and nothing for blank text", () => {
-		expect(inputOf("  fix it \n")).toEqual({ text: "fix it", attachments: [] });
-		expect(inputOf(" \n ")).toBeNull();
 	});
 });
 
@@ -88,121 +69,44 @@ describe("the send button", () => {
 
 describe("stopsTurn", () => {
 	it("stops a running turn while the box is empty", () => {
-		expect(stopsTurn({ state: "busy" }, "")).toBe(true);
-		expect(stopsTurn({ state: "busy" }, " \n ")).toBe(true);
+		expect(stopsTurn({ state: "busy" }, false)).toBe(true);
 	});
 
 	it("queues once you type, and has nothing to stop when idle", () => {
-		expect(stopsTurn({ state: "busy" }, "and lint")).toBe(false);
-		expect(stopsTurn({ state: "idle" }, "")).toBe(false);
+		expect(stopsTurn({ state: "busy" }, true)).toBe(false);
+		expect(stopsTurn({ state: "idle" }, false)).toBe(false);
 	});
 });
 
 describe("otherSend", () => {
 	it("offers Send now once you type while a prompt waits, whatever the pick", () => {
 		for (const pick of ["queue", "steer"] as const) {
-			expect(otherSend(prompted, pick, "skip that, run the tests")).toEqual({
+			expect(otherSend(prompted, pick, true)).toEqual({
 				mode: "interrupt",
 				label: "Send now",
 				hint: "Skips what's waiting and sends this now",
 			});
-			expect(otherSend(prompted, pick, " \n ")).toBeNull();
+			expect(otherSend(prompted, pick, false)).toBeNull();
 		}
 	});
 
 	it("offers the action you didn't pick once you type while a turn runs", () => {
-		expect(otherSend({ state: "busy" }, "queue", "and lint")).toMatchObject({
+		expect(otherSend({ state: "busy" }, "queue", true)).toMatchObject({
 			mode: "steer",
 			label: "Steer",
 		});
-		expect(otherSend({ state: "busy" }, "steer", "and lint")).toMatchObject({
+		expect(otherSend({ state: "busy" }, "steer", true)).toMatchObject({
 			mode: "queue",
 			label: "Queue",
 		});
-		expect(otherSend({ state: "busy" }, "steer", "")).toBeNull();
+		expect(otherSend({ state: "busy" }, "steer", false)).toBeNull();
 	});
 
 	it("offers nothing more to an idle agent or one waiting for its limit", () => {
-		expect(otherSend({ state: "idle" }, "steer", "hi")).toBeNull();
+		expect(otherSend({ state: "idle" }, "steer", true)).toBeNull();
 		expect(
-			otherSend({ state: "waiting_for_limit_reset", resets_at: null }, "steer", "hi")
+			otherSend({ state: "waiting_for_limit_reset", resets_at: null }, "steer", true)
 		).toBeNull();
-	});
-});
-
-describe("sendAgreed", () => {
-	// A held agent on the Mac in Auto, which its default put it in.
-	const inAuto = agent({
-		id: "a1",
-		control: "held",
-		permission: { requested: "auto", effective: null },
-	});
-	const view = applySnapshot({
-		seq: 1,
-		entities: entities({
-			agents: [inAuto],
-			devices: [device({ id: "dev-mac", name: "Mac", os: "macos" })],
-			workspaces: [workspace({ id: "w1" })],
-		}),
-	});
-	const memory = () => {
-		let kept: string | null = null;
-		return keptConsent({
-			read: () => kept,
-			write: (value) => {
-				kept = value;
-			},
-		});
-	};
-	const phone = (settings: ActionResult = DONE) => ({
-		setPermission: vi.fn(async () => DONE),
-		setDeviceSettings: vi.fn(async () => settings),
-		sendInput: vi.fn(async () => DONE),
-	});
-	const press = (
-		source: ReturnType<typeof phone>,
-		consent: AutoConsent,
-		choice: AutoChoice | null
-	) =>
-		sendAgreed(
-			() => agreeToSend(inAuto, consent, async () => choice, source, view),
-			() => source.sendInput()
-		);
-
-	it("sends in Auto once you say Use Auto, and asks once per install", async () => {
-		const source = phone();
-		const consent = memory();
-		expect(await press(source, consent, "auto")).toEqual({ sent: true, failure: null });
-		expect(consent.confirmed()).toBe(true);
-		expect(source.setPermission).not.toHaveBeenCalled();
-		expect(source.sendInput).toHaveBeenCalledTimes(1);
-	});
-
-	it("switches the agent and the Mac's default with Ask first instead, then sends", async () => {
-		const source = phone();
-		expect(await press(source, memory(), "ask")).toEqual({ sent: true, failure: null });
-		expect(source.setPermission).toHaveBeenCalledWith("a1", "ask");
-		expect(source.setDeviceSettings).toHaveBeenCalledWith(
-			expect.objectContaining({ device: "dev-mac", default_permission: "ask" })
-		);
-		expect(source.sendInput).toHaveBeenCalledTimes(1);
-	});
-
-	it("still sends when the Mac won't take a default from the phone, and says so", async () => {
-		const source = phone({
-			status: "ok",
-			data: { status: "refused", reason: "A phone can't do that" },
-		});
-		expect(await press(source, memory(), "ask")).toEqual({
-			sent: true,
-			failure: "Couldn't make Ask first the default on Mac. A phone can't do that.",
-		});
-	});
-
-	it("keeps the message when you dismiss the question", async () => {
-		const source = phone();
-		expect(await press(source, memory(), null)).toEqual({ sent: false, failure: null });
-		expect(source.sendInput).not.toHaveBeenCalled();
 	});
 });
 
