@@ -1687,10 +1687,7 @@ impl Connection {
     async fn hello(&mut self, hello: ClientHello) -> Result<(), ConnError> {
         let ours = ProtocolRange::OURS;
         let Some(version) = ours.agree(hello.protocol) else {
-            let message = format!(
-                "this maxd speaks protocol {} to {}, and the client {} to {}",
-                ours.oldest, ours.current, hello.protocol.oldest, hello.protocol.current
-            );
+            let message = ours.refusal(hello.protocol);
             self.error(ErrorCode::UnsupportedProtocol, message).await?;
             return Err(ConnError::Unsupported);
         };

@@ -5024,6 +5024,17 @@
           "format": "uint32",
           "minimum": 0
         },
+        "protocol_mismatch": {
+          "description": "The protocol versions the device's `maxd` speaks, when its last\nhello found none in common with this client's. Kept while the link\nis down, and unset once a hello agrees.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ProtocolRange"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "route": {
           "description": "How the client reaches it, or the route it tries first while down.",
           "$ref": "#/$defs/Route"

@@ -72,6 +72,28 @@ impl ProtocolRange {
         let version = self.current.min(other.current);
         (version >= self.oldest.max(other.oldest)).then_some(version)
     }
+
+    /// What `maxd`, speaking `self`, tells a client speaking `client` when
+    /// they have no version in common. [`ProtocolRange::from_refusal`] reads
+    /// `self` back out, so a client can say which side to update.
+    pub fn refusal(self, client: Self) -> String {
+        format!(
+            "this maxd speaks protocol {} to {}, and the client {} to {}",
+            self.oldest, self.current, client.oldest, client.current
+        )
+    }
+
+    /// The range `maxd` named in a [`ProtocolRange::refusal`], or none when
+    /// the message says something else.
+    pub fn from_refusal(message: &str) -> Option<Self> {
+        let rest = message.strip_prefix("this maxd speaks protocol ")?;
+        let (range, _) = rest.split_once(',')?;
+        let (oldest, current) = range.split_once(" to ")?;
+        Some(Self {
+            current: current.parse().ok()?,
+            oldest: oldest.parse().ok()?,
+        })
+    }
 }
 
 /// Names the program on the other end, for logs and the device list.
@@ -3472,6 +3494,28 @@ mod tests {
             oldest: 3,
         };
         assert_eq!(old.agree(newer), None);
+    }
+
+    #[test]
+    fn a_refusal_names_the_range_maxd_speaks() {
+        let maxd = ProtocolRange {
+            current: 46,
+            oldest: 45,
+        };
+        let message = maxd.refusal(ProtocolRange::OURS);
+        assert_eq!(
+            message,
+            format!(
+                "this maxd speaks protocol 45 to 46, and the client {} to {}",
+                OLDEST_PROTOCOL_VERSION, PROTOCOL_VERSION
+            )
+        );
+        assert_eq!(ProtocolRange::from_refusal(&message), Some(maxd));
+        assert_eq!(ProtocolRange::from_refusal("bad frame"), None);
+        assert_eq!(
+            ProtocolRange::from_refusal("this maxd speaks protocol x to 46, and"),
+            None
+        );
     }
 
     #[test]

@@ -634,6 +634,7 @@ fn a_device_can_t_report_another_device_s_build() {
             via: Vec::new(),
             capabilities: None,
             protocol: None,
+            protocol_mismatch: None,
             waiting: Vec::new(),
             claim: None,
         }))
