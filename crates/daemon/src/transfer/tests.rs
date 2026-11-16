@@ -37,6 +37,7 @@ const WAIT: Duration = Duration::from_secs(10);
 const ANY_ROOM: Room = Room {
     keep_bytes: 0,
     keep_percent: 0,
+    keep_at_most: 0,
 };
 
 /// Bytes that differ from one offset to the next.
@@ -871,6 +872,7 @@ async fn an_upload_that_would_fill_the_disk_is_refused() {
         Room {
             keep_bytes: u64::MAX / 2,
             keep_percent: 0,
+            keep_at_most: 0,
         },
         DEVICE_QUOTA,
     );

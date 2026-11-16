@@ -20,6 +20,7 @@ use crate::media::Media;
 const ANY_ROOM: Room = Room {
     keep_bytes: 0,
     keep_percent: 0,
+    keep_at_most: 0,
 };
 
 /// A folder of its own for one test, removed when it drops.

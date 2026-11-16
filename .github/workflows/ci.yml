@@ -48,8 +48,9 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       # The clippy and test builds nearly fill the runner's disk, and the
-      # transfer tests refuse files once under 5% is free. This job never
-      # uses the runner's .NET, Android, Haskell or CodeQL.
+      # transfer tests refuse files once under 5% of the disk (between
+      # 1 and 10 GiB) is free. This job never uses the runner's .NET,
+      # Android, Haskell or CodeQL.
       - name: Free disk space
         run: |
           sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /usr/local/.ghcup /opt/hostedtoolcache/CodeQL
