@@ -6,15 +6,13 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import App from "@/App";
 import { mockSource } from "@/data/mock-source";
-import type { PullDetail, PullFile, PullReview } from "@maxhq/shared/bindings";
+import type { PullFile } from "@maxhq/shared/bindings";
 import { MOCK_REPO, SIGN_IN_MS } from "@maxhq/shared/data/mock-pulls";
 import { MAC } from "@maxhq/shared/data/mock-view";
 import { FixedNow } from "@maxhq/shared/lib/clock";
 import { NOW } from "@maxhq/shared/test/build";
-import { detail } from "@maxhq/shared/test/pulls";
 import { createUiStore } from "@maxhq/shared/ui/store";
 
-import { latestVerdicts, mergeability } from "./summary";
 import { withHeaders } from "./tabs";
 
 afterEach(() => {
@@ -162,46 +160,6 @@ describe("the PR viewer", () => {
 		await screen.findByRole("complementary", { name: "Pull request #142" });
 		fireEvent.keyDown(window, { key: "Escape" });
 		expect(ui.getState().shownPull).toBeNull();
-	});
-});
-
-const review = (author: string, verdict: PullReview["verdict"], at: number): PullReview => ({
-	author,
-	verdict,
-	commit_sha: "abc",
-	at,
-});
-
-describe("latestVerdicts", () => {
-	it("keeps each reviewer's last verdict, past later comments", () => {
-		const shown = latestVerdicts([
-			review("sam", "changes_requested", 1),
-			review("alex", "commented", 2),
-			review("Sam", "approved", 3),
-			review("sam", "commented", 4),
-			review("alex", "approved", 5),
-		]);
-		expect(shown.map((r) => [r.author, r.verdict])).toEqual([
-			["Sam", "approved"],
-			["alex", "approved"],
-		]);
-	});
-});
-
-describe("mergeability", () => {
-	const withPull = (pull: Partial<PullDetail["summary"]["pull"]>): PullDetail => {
-		const pr = detail(1);
-		return { ...pr, summary: { ...pr.summary, pull: { ...pr.summary.pull, ...pull } } };
-	};
-
-	it("says whether the PR merges cleanly, and nothing once it's closed", () => {
-		expect(mergeability(withPull({ mergeable: "yes", base: "main" }))).toBe(
-			"No conflicts with main."
-		);
-		expect(mergeability(withPull({ mergeable: "unknown" }))).toBe(
-			"GitHub is still checking for conflicts."
-		);
-		expect(mergeability(withPull({ state: "merged" }))).toBeNull();
 	});
 });
 

@@ -10,7 +10,9 @@
 
 import { t } from "../i18n";
 
-import type { PullLink } from "../bindings";
+import { failureOf } from "../agent-view/answer";
+import type { AgentId, PullLink } from "../bindings";
+import type { DataSource } from "../data/source";
 
 /** The state a chip shows: GitHub's, or `unread` before the first read. */
 export type ChipState = "open" | "draft" | "merged" | "closed" | "unread";
@@ -102,6 +104,32 @@ export const foldChips = (links: readonly PullLink[]): FoldedChip => {
 			links_map_chipLabel__join: links.map(chipLabel).join("; "),
 		}),
 	};
+};
+
+/** A PR number as typed, or null unless it's a whole number above 0. */
+export const parsePullNumber = (text: string): number | null => {
+	const trimmed = text.trim().replace(/^#/, "");
+	if (!/^\d{1,9}$/.test(trimmed)) return null;
+	const number = Number(trimmed);
+	return number > 0 ? number : null;
+};
+
+/** Links PR `number` to `agent`, and says why it didn't link, or null. */
+export const linkPullNumber = async (
+	source: Pick<DataSource, "linkPull">,
+	agent: AgentId,
+	number: number
+): Promise<string | null> => {
+	const shown = String(number);
+	try {
+		const why = failureOf(await source.linkPull(agent, number));
+		return why
+			? t("Couldn't link #{{number}}. {{reason}}", { number: shown, reason: why })
+			: null;
+	} catch (error) {
+		console.warn("Couldn't link the PR", error);
+		return t("Couldn't link #{{number}}. Try again.", { number: shown });
+	}
 };
 
 /** A message a chip can send the agent about its PR. */

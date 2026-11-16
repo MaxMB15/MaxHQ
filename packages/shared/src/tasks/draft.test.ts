@@ -9,6 +9,7 @@ import { DEVBOX, DEVBOX_CODEX, MAC, mockEntities } from "../data/mock-view";
 import { NOW } from "../test/build";
 import { applySnapshot } from "../view/replica";
 import {
+	allowField,
 	DEFAULT_GITHUB_PROMPT,
 	DEFAULT_HOOK_PROMPT,
 	emptyDraft,
@@ -25,6 +26,9 @@ import {
 	type TaskDraft,
 	taskFromDraft,
 	taskToDraft,
+	takesRequests,
+	toggled,
+	withFilter,
 } from "./draft";
 
 const sample = mockTasks({ now: () => NOW });
@@ -440,5 +444,33 @@ describe("the prompt a trigger starts with", () => {
 		expect(promptFor("github_events", DEFAULT_HOOK_PROMPT)).toBe(DEFAULT_GITHUB_PROMPT);
 		expect(promptFor("every", DEFAULT_HOOK_PROMPT)).toBe("");
 		expect(promptFor("hook", "Mine")).toBe("Mine");
+	});
+});
+
+describe("editing the form", () => {
+	it("says which triggers take requests", () => {
+		expect(takesRequests("hook")).toBe(true);
+		expect(takesRequests("github_events")).toBe(true);
+		expect(takesRequests("every")).toBe(false);
+		expect(takesRequests("at")).toBe(false);
+	});
+
+	it("turns a day or an event on and off without changing the set it had", () => {
+		const days = new Set(["mon"] as const);
+		expect([...toggled(days, "tue", true)]).toEqual(["mon", "tue"]);
+		expect([...toggled(days, "mon", false)]).toEqual([]);
+		expect([...days]).toEqual(["mon"]);
+	});
+
+	it("allows a field, from a list from before the choice too", () => {
+		expect(allowField(null, "body.title", true)).toEqual(["body.title"]);
+		expect(allowField(["body.title", "body.body"], "body.title", false)).toEqual(["body.body"]);
+	});
+
+	it("changes and removes a filter row", () => {
+		const rows = [emptyFilter(), emptyFilter()];
+		const changed = { ...rows[1]!, path: "body.action" };
+		expect(withFilter(rows, 1, changed)).toEqual([rows[0], changed]);
+		expect(withFilter(rows, 0, null)).toEqual([rows[1]]);
 	});
 });

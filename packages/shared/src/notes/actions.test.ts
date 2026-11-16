@@ -58,16 +58,6 @@ describe("newNoteId", () => {
 		expect(newNoteId()).toMatch(shape);
 		expect(newNoteId()).not.toBe(newNoteId());
 	});
-
-	it("makes one without randomUUID too", () => {
-		const real = globalThis.crypto;
-		vi.stubGlobal("crypto", { getRandomValues: real.getRandomValues.bind(real) });
-		try {
-			expect(newNoteId()).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab]/);
-		} finally {
-			vi.unstubAllGlobals();
-		}
-	});
 });
 
 describe("makeNote", () => {

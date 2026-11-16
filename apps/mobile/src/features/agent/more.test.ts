@@ -6,6 +6,7 @@ import { describe, expect, it, vi } from "vitest";
 import { type Agent, type AgentId, EFFORT_SINCE } from "@maxhq/shared/bindings";
 import type { ActionResult } from "@maxhq/shared/data/source";
 import { keptConsent } from "@maxhq/shared/settings/auto-mode";
+import { pullLink } from "@maxhq/shared/test/pulls";
 import { account, agent, entities, link, workspace } from "@maxhq/shared/test/build";
 import { createRenames, shownTitle } from "@maxhq/shared/ui/rename-agent";
 import { applySnapshot } from "@maxhq/shared/view/replica";
@@ -149,11 +150,19 @@ describe("the More sheet", () => {
 			"Rename",
 			"Permission",
 			"Model",
+			"Link a pull request",
 			"Stop agent",
 			"Delete agent",
 		]);
 		const watched = controls({ control: "observed", permission: null, session: null });
-		expect(moreChoices(watched.view, watched.agent)).toEqual(["find", "rename"]);
+		expect(moreChoices(watched.view, watched.agent)).toEqual(["find", "rename", "link"]);
+	});
+
+	it("offers Link a pull request only while no PR shows on the agent", () => {
+		const linked = controls({ pulls: [pullLink(7)] });
+		expect(moreChoices(linked.view, linked.agent)).not.toContain("link");
+		const dismissed = controls({ pulls: [pullLink(7, "dismissed")] });
+		expect(moreChoices(dismissed.view, dismissed.agent)).toContain("link");
 	});
 
 	it("leaves Stop agent out once its device is out of reach", () => {
@@ -165,6 +174,7 @@ describe("the More sheet", () => {
 			"rename",
 			"permission",
 			"model",
+			"link",
 			"delete",
 		]);
 	});

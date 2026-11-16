@@ -13,7 +13,7 @@ import type { AgentId, DeviceId, DeviceTasks, Task } from "../bindings";
 import type { Option } from "../new-agent/spec";
 import { all, type ViewState } from "../view/replica";
 import { deviceName, linkForDevice } from "../view/select";
-import type { TriggerKind } from "./draft";
+import { type TaskDraft, targetFrom, type TriggerKind } from "./draft";
 
 /** Whether a device's `maxd` runs scheduled tasks. */
 export const runsTasks = (view: ViewState, device: DeviceId): boolean =>
@@ -89,6 +89,17 @@ export const defaultHome = (
 	return on ?? own ?? devices[0] ?? null;
 };
 
+/** Where the draft's task lives until you pick: the default home for its trigger and target. */
+export const draftHome = (view: ViewState, draft: TaskDraft): DeviceId | null => {
+	const target = targetFrom(view, draft);
+	return defaultHome(
+		view,
+		draft.kind,
+		typeof target === "string" ? null : target.device,
+		draft.repo
+	);
+};
+
 /** The choices for a task's home. */
 export const homeOptions = (view: ViewState): Option[] =>
 	taskDevices(view).map((d) => ({
@@ -115,6 +126,23 @@ export const agentOptions = (view: ViewState, kept: AgentId | null = null): Opti
 		})
 		.sort((a, b) => a.label.localeCompare(b.label));
 
+/** The target picker's entry for a new agent, which no agent ID can match. */
+export const NEW_AGENT = "*new";
+
+/** Where a task can send its prompt: a new agent each run, or one from `agentOptions`. */
+export const targetOptions = (view: ViewState, kept: AgentId | null = null): Option[] => [
+	{ value: NEW_AGENT, label: t("A new agent"), detail: t("Started for each run") },
+	...agentOptions(view, kept),
+];
+
+/** The target picker's value for the draft. */
+export const targetValue = (draft: Pick<TaskDraft, "target" | "agent">): string =>
+	draft.target === "new" ? NEW_AGENT : (draft.agent ?? "");
+
+/** The change to the draft that picking `value` from `targetOptions` makes. */
+export const targetPatch = (value: string): Partial<TaskDraft> =>
+	value === NEW_AGENT ? { target: "new" } : { target: "agent", agent: value };
+
 /** A task with the device it lives on. */
 export type HomedTask = { readonly task: Task; readonly home: DeviceId };
 
@@ -133,9 +161,18 @@ export const tasksTargeting = (view: ViewState, agent: AgentId): HomedTask[] =>
 export const keptByAutomation = (view: ViewState, agent: AgentId): boolean =>
 	tasksTargeting(view, agent).some(({ task }) => task.enabled);
 
+/** A task with the device it lives on, if a device that runs tasks holds it. */
+export const taskById = (view: ViewState, task: string): HomedTask | undefined => {
+	for (const { device, tasks } of deviceTasks(view)) {
+		const found = tasks.find((t) => t.id === task);
+		if (found) return { task: found, home: device };
+	}
+	return undefined;
+};
+
 /** The device a task lives on, if a device that runs tasks holds it. */
 export const homeOf = (view: ViewState, task: string): DeviceId | undefined =>
-	deviceTasks(view).find((d) => d.tasks.some((t) => t.id === task))?.device;
+	taskById(view, task)?.home;
 
 /**
  * The warning for a timed task on a Mac: it doesn't wake to run one, so a

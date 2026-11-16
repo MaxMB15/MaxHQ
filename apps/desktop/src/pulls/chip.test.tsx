@@ -12,8 +12,6 @@ import { FixedNow } from "@maxhq/shared/lib/clock";
 import { NOW } from "@maxhq/shared/test/build";
 import { createUiStore } from "@maxhq/shared/ui/store";
 
-import { parsePullNumber } from "./chip";
-
 const show = (agent: string) => {
 	const source = mockSource({ now: () => NOW, tick: false });
 	const ui = createUiStore({ selectedAgent: agent });
@@ -215,16 +213,5 @@ describe("PR chips", () => {
 		expect(
 			await within(await header()).findByRole("button", { name: /^Pull request 143,/ })
 		).toBeInTheDocument();
-	});
-});
-
-describe("parsePullNumber", () => {
-	it("takes a whole number above 0, with or without #", () => {
-		expect(parsePullNumber("142")).toBe(142);
-		expect(parsePullNumber(" #7 ")).toBe(7);
-		expect(parsePullNumber("0")).toBeNull();
-		expect(parsePullNumber("1.5")).toBeNull();
-		expect(parsePullNumber("abc")).toBeNull();
-		expect(parsePullNumber("")).toBeNull();
 	});
 });

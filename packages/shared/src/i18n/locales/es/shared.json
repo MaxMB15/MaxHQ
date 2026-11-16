@@ -715,6 +715,8 @@
 	"Fix the merge conflicts": "Resolver los conflictos de fusión",
 	"Resolve the merge conflicts between {{pr}} and its base branch. {{branch}} Bring it up to date the way this repository does, keep what both sides meant, and run the relevant checks before you push.": "Resuelve los conflictos entre {{pr}} y su rama base. {{branch}} Actualízala según las prácticas de este repositorio, conserva la intención de ambos lados y ejecuta las comprobaciones pertinentes antes de hacer push.",
 	"Explain the PR": "Explicar la PR",
+	"Couldn't link #{{number}}. {{reason}}": "No se pudo vincular #{{number}}. {{reason}}",
+	"Couldn't link #{{number}}. Try again.": "No se pudo vincular #{{number}}. Inténtalo de nuevo.",
 	"Explain {{pr}}. Read its diff and walk me through what it's for, what it changes, its risks, and what I should read closely before approving it. Don't change any code.": "Explica {{pr}}. Lee su diff y describe su objetivo, qué cambia, sus riesgos y qué debo revisar con atención antes de aprobarla. No cambies ningún código.",
 	"Sign in to GitHub in Settings to {{act}} here.": "Inicia sesión en GitHub desde Ajustes para {{act}} aquí.",
 	"Merging": "Fusionando",

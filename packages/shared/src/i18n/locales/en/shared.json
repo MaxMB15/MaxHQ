@@ -294,6 +294,8 @@
 	"Fix the merge conflicts": "Fix the merge conflicts",
 	"Resolve the merge conflicts between {{pr}} and its base branch. {{branch}} Bring it up to date the way this repository does, keep what both sides meant, and run the relevant checks before you push.": "Resolve the merge conflicts between {{pr}} and its base branch. {{branch}} Bring it up to date the way this repository does, keep what both sides meant, and run the relevant checks before you push.",
 	"Explain the PR": "Explain the PR",
+	"Couldn't link #{{number}}. {{reason}}": "Couldn't link #{{number}}. {{reason}}",
+	"Couldn't link #{{number}}. Try again.": "Couldn't link #{{number}}. Try again.",
 	"Explain {{pr}}. Read its diff and walk me through what it's for, what it changes, its risks, and what I should read closely before approving it. Don't change any code.": "Explain {{pr}}. Read its diff and walk me through what it's for, what it changes, its risks, and what I should read closely before approving it. Don't change any code.",
 	"Sign in to GitHub in Settings to {{act}} here.": "Sign in to GitHub in Settings to {{act}} here.",
 	"Merging": "Merging",

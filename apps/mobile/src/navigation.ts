@@ -11,6 +11,7 @@ import type {
 	LinkId,
 	NoteId,
 	ProjectId,
+	TaskId,
 } from "@maxhq/shared/bindings";
 
 /** The screens and what each takes. */
@@ -37,6 +38,16 @@ export type Screens = {
 	NewWorkspace: { readonly device: DeviceId };
 	/** A test machine an agent leases: what it is, its screen, and End lease. */
 	Lease: { readonly device: DeviceId; readonly lease: LeaseId };
+	/** A project's pull requests, or the first project with any when none is given. */
+	Pulls: { readonly project?: ProjectId } | undefined;
+	/** One pull request, read on `device`. */
+	Pull: { readonly device: DeviceId; readonly repo: string; readonly number: number };
+	/** Every device's scheduled tasks. */
+	Tasks: undefined;
+	/** A task's runs and the requests its webhook took. */
+	TaskActivity: { readonly task: TaskId };
+	/** A task to edit, or a new one on `home`, or on the device that suits it best. */
+	TaskEditor: { readonly task?: TaskId; readonly home?: DeviceId } | undefined;
 };
 
 /**
@@ -65,5 +76,12 @@ export const deviceScreenId = ({ params }: { readonly params: Screens["Device"] 
 /** The Lease screen's ID: one screen for each lease. */
 export const leaseScreenId = ({ params }: { readonly params: Screens["Lease"] }): string =>
 	`${params.device}\n${params.lease}`;
+
+/**
+ * The Pull screen's ID, so each PR gets its own entry in the stack. A
+ * repository is the same in any case.
+ */
+export const pullScreenId = ({ params }: { readonly params: Screens["Pull"] }): string =>
+	`${params.device}\n${params.repo.toLowerCase()}#${params.number}`;
 
 export type ScreenProps<Name extends keyof Screens> = NativeStackScreenProps<Screens, Name>;
