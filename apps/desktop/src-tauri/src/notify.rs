@@ -38,6 +38,26 @@ pub enum NotificationPermission {
     Unavailable,
 }
 
+/// What macOS lets this app do, as System Settings has it now.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Type)]
+pub struct NotificationAccess {
+    /// Whether it shows notifications.
+    pub permission: NotificationPermission,
+    /// Whether it may badge its icon in the Dock. macOS hides the badge
+    /// of an app that uses Notification Center without this, even when
+    /// the app sets one.
+    pub badge: bool,
+}
+
+impl NotificationAccess {
+    /// A build that doesn't use Notification Center, so nothing there
+    /// hides its badge.
+    const UNAVAILABLE: Self = Self {
+        permission: NotificationPermission::Unavailable,
+        badge: true,
+    };
+}
+
 /// The system's sender and your settings for it, which the commands reach
 /// through the app's state.
 pub struct Notifications {
@@ -105,20 +125,20 @@ pub fn set_notification_prefs(
         .map_err(NativeError::failed)
 }
 
-/// Whether macOS lets this app show notifications, as System Settings has
-/// it now.
+/// Whether macOS lets this app show notifications and badge its icon, as
+/// System Settings has it now.
 #[tauri::command]
 #[specta::specta]
 pub async fn notification_permission(
     notifications: State<'_, Notifications>,
-) -> Result<NotificationPermission, NativeError> {
+) -> Result<NotificationAccess, NativeError> {
     if !notifications.center {
-        return Ok(NotificationPermission::Unavailable);
+        return Ok(NotificationAccess::UNAVAILABLE);
     }
     #[cfg(target_os = "macos")]
-    return Ok(macos::permission().await);
+    return Ok(macos::access().await);
     #[cfg(not(target_os = "macos"))]
-    Ok(NotificationPermission::Unavailable)
+    Ok(NotificationAccess::UNAVAILABLE)
 }
 
 /// Shows a notification to try the settings out, whichever kinds are on.

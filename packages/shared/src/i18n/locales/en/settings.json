@@ -1021,6 +1021,8 @@
 	"Show the badge": "Show the badge",
 	"The number of agents that need you, on MaxHQ's icon in the Dock": "The number of agents that need you, on MaxHQ's icon in the Dock",
 	"Badge: {{what}}": "Badge: {{what}}",
+	"macOS hides the badge until MaxHQ's notifications are allowed.": "macOS hides the badge until MaxHQ's notifications are allowed.",
+	"Badges are turned off for MaxHQ in System Settings, so macOS hides the count.": "Badges are turned off for MaxHQ in System Settings, so macOS hides the count.",
 	"Copy path": "Copy path",
 	"Claude Code effort": "Claude Code effort",
 	"Codex effort": "Codex effort",

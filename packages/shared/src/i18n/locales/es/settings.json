@@ -1022,6 +1022,8 @@
 	"Show the badge": "Mostrar el globo",
 	"The number of agents that need you, on MaxHQ's icon in the Dock": "El número de agentes que te necesitan, en el icono de MaxHQ en el Dock",
 	"Badge: {{what}}": "Globo: {{what}}",
+	"macOS hides the badge until MaxHQ's notifications are allowed.": "macOS oculta el globo hasta que se permitan las notificaciones de MaxHQ.",
+	"Badges are turned off for MaxHQ in System Settings, so macOS hides the count.": "Los globos están desactivados para MaxHQ en Ajustes del Sistema, así que macOS oculta el número.",
 	"Copy path": "Copiar ruta",
 	"Claude Code effort": "Esfuerzo de Claude Code",
 	"Codex effort": "Esfuerzo de Codex",

@@ -6399,6 +6399,18 @@ export type NoticeLevel =
 /**  Worth a look. */
 "warning";
 
+/**  What macOS lets this app do, as System Settings has it now. */
+export type NotificationAccess = {
+	/**  Whether it shows notifications. */
+	permission: NotificationPermission,
+	/**
+	 *  Whether it may badge its icon in the Dock. macOS hides the badge
+	 *  of an app that uses Notification Center without this, even when
+	 *  the app sets one.
+	 */
+	badge: boolean,
+};
+
 /**
  *  Whether macOS lets this app show notifications. Off a Mac it's always
  *  `Unavailable`.
