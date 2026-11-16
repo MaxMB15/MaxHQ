@@ -26,7 +26,7 @@ export const NOTE_PILLS_SINCE = 28 as const;
 
 export const OLDEST_PROTOCOL_VERSION = 20 as const;
 
-export const PROTOCOL_VERSION = 43 as const;
+export const PROTOCOL_VERSION = 44 as const;
 
 export const SHOW_ANYWAY_SINCE = 29 as const;
 
