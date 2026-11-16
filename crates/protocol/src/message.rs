@@ -11,8 +11,8 @@ use specta::Type;
 
 use crate::acp::{AcpAgent, AcpEnvValue};
 use crate::agents::{
-    AccessKey, AgentOrigin, ClientRole, McpCommand, PeerBook, PeerRequest, Permission, ToolAnswer,
-    ToolCall, ToolImage,
+    AccessKey, AgentOrigin, ClientRole, Departure, McpCommand, MoveCheck, MoveTo, PeerBook,
+    PeerRequest, Permission, ToolAnswer, ToolCall, ToolImage,
 };
 use crate::attention::{AnswerOutcome, AttentionAnswer};
 use crate::context::InlineRef;
@@ -1973,6 +1973,26 @@ pub enum ClientMessage {
         /// Whether to let the program in until it disconnects.
         allow: bool,
     },
+    /// Moves an agent to another device: checks the device it goes to,
+    /// stops the agent, starts a new one there from a summary of its
+    /// conversation, marks the old one moved and points the tasks that
+    /// target it at the new one. Only the device that runs the MaxHQ app
+    /// takes it. The outcome is [`ActionOutcome::Started`] with the new
+    /// agent. A `maxd` from before [`MOVE_AGENT_SINCE`] refuses it.
+    MoveAgent {
+        /// Makes a resend after a dropped connection safe.
+        key: IdempotencyKey,
+        /// The agent.
+        agent: AgentId,
+        /// The device it runs on.
+        from: DeviceId,
+        /// Where it goes.
+        to: MoveTo,
+        /// Whether to stop a turn that runs or a prompt that waits. Without
+        /// it, a move of an agent that works is refused.
+        #[serde(default)]
+        stop: bool,
+    },
 }
 
 impl ClientMessage {
@@ -2024,6 +2044,7 @@ impl ClientMessage {
                 .first
                 .as_ref()
                 .map_or(OLDEST_PROTOCOL_VERSION, UserInput::since),
+            Self::MoveAgent { .. } => MOVE_AGENT_SINCE,
             _ => OLDEST_PROTOCOL_VERSION,
         }
     }
@@ -2189,7 +2210,8 @@ impl ClientMessage {
             | Self::Prove { key, .. }
             | Self::EnrollAppKey { key, .. }
             | Self::RemoveAppKey { key, .. }
-            | Self::AnswerAdmission { key, .. } => Some(*key),
+            | Self::AnswerAdmission { key, .. }
+            | Self::MoveAgent { key, .. } => Some(*key),
             Self::Hello(_)
             | Self::Phone { .. }
             | Self::Pair { .. }
@@ -2580,6 +2602,13 @@ pub const DISMISS_SINCE: u32 = 42;
 /// An older one ignores both and installs the upload as before, so the app
 /// says it doesn't check signatures.
 pub const SIGNED_UPDATES_SINCE: u32 = 43;
+
+/// The protocol version whose `maxd` first moves agents between devices:
+/// [`ClientMessage::MoveAgent`], [`crate::agents::PeerRequest::Move`], the
+/// `move_agent` tool, the dispatcher's move step and the `device` that
+/// `list_targets` takes. An older one refuses each, so the app says the
+/// move needs a newer `maxd`.
+pub const MOVE_AGENT_SINCE: u32 = 44;
 
 /// When [`ClientMessage::TakeOver`] stops the terminal's CLI.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, Type, JsonSchema)]
@@ -2992,6 +3021,20 @@ pub enum ActionOutcome {
     /// A card on another device asks whether to trust the key, for
     /// [`ClientMessage::EnrollAppKey`].
     Asked,
+
+    // Moving agents.
+    /// What an agent took along when it left this device, for
+    /// [`crate::agents::AgentMoveStep::Leave`].
+    Departed {
+        /// What it took.
+        departure: Box<Departure>,
+    },
+    /// What an agent would run as on this device, for
+    /// [`crate::agents::AgentMoveStep::Check`].
+    Checked {
+        /// What it would run as.
+        check: Box<MoveCheck>,
+    },
 
     /// An outcome from a newer `maxd`. The action went through, and what
     /// it came to needs a newer app to show.

@@ -263,6 +263,8 @@ export const requestCalls = (ask: Ask): Omit<DataSource, PlatformCalls> => ({
 	setEffort: (agent, effort) => ask({ kind: "set_effort", agent, effort }),
 	stopAgent: (agent) => ask({ kind: "stop_agent", agent }),
 	deleteAgent: (agent) => ask({ kind: "delete_agent", agent }),
+	moveAgent: (device, agent, from, to, stop) =>
+		ask({ kind: "move_agent", device, agent, from, to, stop }),
 	renameAgent: (agent, title) => ask({ kind: "rename_agent", agent, title }),
 	setInbox: async (agents, change) => orThrow(await ask({ kind: "set_inbox", agents, change })),
 	continueHere: (agent) => ask({ kind: "continue_here", agent }),

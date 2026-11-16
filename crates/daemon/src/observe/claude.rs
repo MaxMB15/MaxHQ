@@ -302,6 +302,7 @@ impl Observer {
             asleep: false,
             effort: None,
             running: None,
+            moved: None,
         }));
         if let Some(event) = attention {
             out.push(Entity::Attention(event));
@@ -380,6 +381,7 @@ impl Observer {
             asleep: false,
             effort: None,
             running: None,
+            moved: None,
         }
     }
 }
@@ -842,6 +844,7 @@ pub(crate) mod tests {
             asleep: false,
             effort: None,
             running: None,
+            moved: None,
         };
         hub.apply([Change::Upsert {
             value: Entity::Agent(elsewhere),

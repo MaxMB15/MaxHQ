@@ -10,6 +10,7 @@ import type {
 	AttentionAnswer,
 	DeviceSettings,
 	InlineRef,
+	MoveTo,
 	Limits,
 	Permission,
 	ProjectSettings,
@@ -45,6 +46,14 @@ export const SPEC: AgentSpec = {
 	first: null,
 	branch: null,
 };
+
+const MOVE_TO: MoveTo = {
+	device: "device-3",
+	account: "account-1",
+	model: null,
+	place: { type: "workspace", workspace: "workspace-1" },
+};
+
 export const INPUT: UserInput = { text: "hello", attachments: [] };
 export const ANSWER: AttentionAnswer = { type: "option", id: "allow" };
 export const AGENT_PILL: InlineRef = {
@@ -162,6 +171,18 @@ export const ACTIONS: Case[] = [
 	],
 	["stopAgent", (s) => s.stopAgent("agent-1"), { kind: "stop_agent", agent: "agent-1" }],
 	["deleteAgent", (s) => s.deleteAgent("agent-1"), { kind: "delete_agent", agent: "agent-1" }],
+	[
+		"moveAgent",
+		(s) => s.moveAgent("device-1", "agent-1", "device-2", MOVE_TO, true),
+		{
+			kind: "move_agent",
+			device: "device-1",
+			agent: "agent-1",
+			from: "device-2",
+			to: MOVE_TO,
+			stop: true,
+		},
+	],
 	[
 		"renameAgent",
 		(s) => s.renameAgent("agent-1", "Release notes"),

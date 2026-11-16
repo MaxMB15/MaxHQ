@@ -31,6 +31,8 @@ mod jobs;
 mod limits;
 mod loading;
 mod lookups;
+mod move_agent;
+mod move_tool;
 mod moved;
 mod note_tools;
 mod pace;
@@ -587,6 +589,8 @@ enum Input {
         workspace: WorkspaceId,
         done: moved::Done,
     },
+    /// Something came for moving an agent between devices.
+    Move(Box<move_agent::Later>),
     /// `maxd` is stopping.
     Shutdown { done: oneshot::Sender<()> },
     /// Another device said which agents here its enabled tasks reach.
@@ -697,6 +701,8 @@ struct Manager {
     trust_fresh: HashSet<AgentId>,
     /// Moves waiting for the agent they resume to be up.
     moved: HashMap<IdempotencyKey, moved::Done>,
+    /// Agents that move between devices.
+    moves: move_agent::Moves,
     /// Each container workspace's guest link, as last heard.
     links: HashMap<WorkspaceId, Link>,
     /// The agent summaries each container workspace was last given.
@@ -825,6 +831,7 @@ impl Manager {
             trust_restarts: HashSet::new(),
             trust_fresh: HashSet::new(),
             moved: HashMap::new(),
+            moves: move_agent::Moves::default(),
             links: HashMap::new(),
             summaries: HashMap::new(),
             limit_waits: HashMap::new(),
@@ -950,6 +957,7 @@ impl Manager {
             .chain(self.next_poll)
             .chain(self.inbox_deadline())
             .chain(self.agent_tools.deadline())
+            .chain(self.moves.deadline())
             .chain(self.task_deadline())
             .chain(self.idle.deadline())
             .chain(self.pace.deadline())
@@ -1120,6 +1128,7 @@ impl Manager {
             Input::SkillsChanged(changed) => self.skills_changed(changed).await,
             Input::ResumeMoved { resume, done } => self.resume_moved(resume, done),
             Input::StopIn { workspace, done } => self.stop_in(workspace, done),
+            Input::Move(later) => self.move_later(*later),
             // The loop handles it before it gets here.
             Input::Shutdown { done } => {
                 let _ = done.send(());
@@ -1197,6 +1206,7 @@ impl Manager {
     fn finish(&mut self, key: IdempotencyKey, outcome: Outcome) {
         self.agent_action_done(key, &outcome);
         self.moved_done(key, &outcome);
+        self.move_done(key, &outcome);
         self.dispatch_done(key, &outcome);
         let message = outcome.message(key);
         for conn in self.keys.finish(key, outcome) {
@@ -1343,6 +1353,7 @@ impl Manager {
         }
         agent.account = Some(held.account);
         agent.origin = held.origin;
+        agent.moved.clone_from(&held.moved);
         // A Cursor agent's session is named once its CLI makes it.
         agent.vendor_session_id =
             Some(held.vendor_session.clone()).filter(|session| !session.is_empty());
@@ -1478,6 +1489,7 @@ impl Manager {
             asleep: false,
             effort: None,
             running: None,
+            moved: None,
         }
     }
 

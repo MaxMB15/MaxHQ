@@ -22,7 +22,7 @@ use maxhq_protocol::ids::{
 };
 use maxhq_protocol::message::{ActionOutcome, AgentPlace};
 use maxhq_protocol::model::WorkspaceLocation;
-use maxhq_protocol::state::{Change, Entity, EntityKey};
+use maxhq_protocol::state::{Entity, EntityKey};
 use maxhq_protocol::tasks::Maker;
 use maxhq_protocol::time::Timestamp;
 use maxhq_protocol::timeline::{
@@ -33,10 +33,10 @@ use tracing::warn;
 
 use super::agent_tools::{Calling, Reply};
 use super::folders::{answered, picked, ticked};
-use super::held::Open;
 use super::note_tools::device_name;
 use super::Manager;
 use crate::drive::codex::requests::visible;
+use crate::folder_trust::Card;
 use crate::leases::kind_label;
 
 /// The card's question, which clients know it by.
@@ -80,8 +80,7 @@ pub(super) struct Pending {
 /// A card waiting for your answer, and the call it holds.
 pub(super) struct Asking {
     event: AttentionId,
-    /// The agent whose feed shows the card.
-    feed: AgentId,
+    /// The card in the feed that shows it.
     item: TimelineItem,
     pending: Pending,
     /// The permission an answer can be kept on, when the card offers that.
@@ -115,13 +114,32 @@ impl Manager {
         let Some(feed) = self.feed_of(pending.caller) else {
             return self.reply_now(pending.reply, Err(NO_FEED.into()));
         };
-        let now = self.clock.wall();
-        let event = AttentionId::generate();
-        let expires_at = Timestamp(now.0.saturating_add(WAIT * 1000));
         let (summary, question) = self.consent_question(feed, &pending, permission, device);
         let keep = keeps(permission).then_some(permission.id);
+        let (event, item) = self.open_timed_card(feed, "container-reach", summary, question);
+        self.agent_tools.asking.push(Asking {
+            event,
+            item,
+            pending,
+            keep,
+            until: self.clock.now() + Duration::from_secs(WAIT),
+        });
+    }
+
+    /// Opens a card in `feed`'s timeline that waits [`WAIT`] seconds for
+    /// your answer, with `name` in its item's id. Answers with its event and
+    /// item.
+    pub(super) fn open_timed_card(
+        &mut self,
+        feed: AgentId,
+        name: &str,
+        summary: String,
+        question: Question,
+    ) -> (AttentionId, TimelineItem) {
+        let now = self.clock.wall();
+        let event = AttentionId::generate();
         let item = TimelineItem {
-            id: ItemId(format!("maxhq-container-reach-{event}")),
+            id: ItemId(format!("maxhq-{name}-{event}")),
             agent: feed,
             turn: None,
             parent: None,
@@ -135,37 +153,45 @@ impl Manager {
                 answers: None,
             },
         };
-        self.attention.insert(
-            event,
-            Open {
-                agent: feed,
-                ours: true,
-                expires_at: Some(expires_at),
-            },
-        );
-        self.hub.apply_held([Change::Upsert {
-            value: Entity::Attention(AttentionEvent {
-                id: event,
-                agent: feed,
-                kind: AttentionKind::Question,
-                summary,
-                // No buttons: the phone answers in the app, never from the
-                // lock screen, and the inbox sends you to the feed.
-                options: Vec::new(),
-                accepts_text: false,
-                created_at: now,
-                expires_at: Some(expires_at),
-            }),
-        }]);
-        self.timeline_events(vec![(feed, TimelineEvent::Upsert { item: item.clone() })]);
-        self.agent_tools.asking.push(Asking {
-            event,
-            feed,
-            item,
-            pending,
-            keep,
-            until: self.clock.now() + Duration::from_secs(WAIT),
+        let attention = AttentionEvent {
+            id: event,
+            agent: feed,
+            kind: AttentionKind::Question,
+            summary,
+            // No buttons: the phone answers in the app, never from the
+            // lock screen, and the inbox sends you to the feed.
+            options: Vec::new(),
+            accepts_text: false,
+            created_at: now,
+            expires_at: Some(Timestamp(now.0.saturating_add(WAIT * 1000))),
+        };
+        self.open_folder_card(Card {
+            event: attention,
+            item: item.clone(),
         });
+        (event, item)
+    }
+
+    /// Closes a timed card, showing what you picked on its `question`, or
+    /// that it closed unanswered.
+    pub(super) fn close_timed_card(
+        &mut self,
+        event: AttentionId,
+        mut item: TimelineItem,
+        question: &str,
+        picked: Option<Vec<String>>,
+    ) {
+        self.close_attention(event);
+        let now = self.clock.wall();
+        match picked {
+            Some(values) => answered(&mut item, question, values, now),
+            None => {
+                item.status = ItemStatus::Cancelled;
+                item.completed_at = Some(now);
+            }
+        }
+        let feed = item.agent;
+        self.timeline_events(vec![(feed, TimelineEvent::Upsert { item })]);
     }
 
     /// Whether an event is a card holding a call.
@@ -256,17 +282,7 @@ impl Manager {
 
     /// Closes a card, showing what you picked, or that it closed unanswered.
     fn close_consent(&mut self, asking: &Asking, picked: Option<Vec<String>>) {
-        self.close_attention(asking.event);
-        let now = self.clock.wall();
-        let mut item = asking.item.clone();
-        match picked {
-            Some(values) => answered(&mut item, QUESTION, values, now),
-            None => {
-                item.status = ItemStatus::Cancelled;
-                item.completed_at = Some(now);
-            }
-        }
-        self.timeline_events(vec![(asking.feed, TimelineEvent::Upsert { item })]);
+        self.close_timed_card(asking.event, asking.item.clone(), QUESTION, picked);
     }
 
     /// Keeps an answer on the permission, for every later call under it.

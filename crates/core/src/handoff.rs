@@ -12,7 +12,7 @@
 //! before the switch go in front of the next message the agent gets, as
 //! many as fit the new session's window, each one whole.
 
-use maxhq_protocol::ids::AgentId;
+use maxhq_protocol::ids::{AgentId, DeviceId};
 use maxhq_protocol::timeline::{AttachmentKind, ItemBody, TimelineItem};
 use serde_json::{json, Value};
 
@@ -297,23 +297,25 @@ fn select(messages: Vec<Historical>, coverage: &str, omitted: usize, budget: u64
     }
 }
 
-/// What the history covers, and how to read what didn't go.
-fn coverage(agent: AgentId, items: &[TimelineItem]) -> String {
+/// What the history covers, and how to read what didn't go. `device` is
+/// the device the agent moved from, if it moved.
+fn coverage(agent: AgentId, device: Option<DeviceId>, items: &[TimelineItem]) -> String {
     let first = items.first().map_or("none", |item| item.id.0.as_str());
     let last = items.last().map_or("none", |item| item.id.0.as_str());
     format!(
         "Provider context handoff. Thread: {agent}.\nSource item range: {first} through \
          {last}.\n{}",
-        recover(agent)
+        recover(agent, device)
     )
 }
 
 /// How to read the history that didn't go.
-fn recover(agent: AgentId) -> String {
+fn recover(agent: AgentId, device: Option<DeviceId>) -> String {
+    let device = device.map_or_else(String::new, |device| format!(" and device \"{device}\""));
     format!(
-        "Recover omitted history using MaxHQ's read_agent tool with agent \"{agent}\"; read \
-         further back with the before item number a page ends with. For an individual item use \
-         item with its ID. Item IDs identify historical activity; no foreign tool calls are \
+        "Recover omitted history using MaxHQ's read_agent tool with agent \"{agent}\"{device}; \
+         read further back with the before item number a page ends with. For an individual item \
+         use item with its ID. Item IDs identify historical activity; no foreign tool calls are \
          replayed."
     )
 }
@@ -328,23 +330,52 @@ pub fn deliver(
     strategy: Strategy,
     budget: u64,
 ) -> Option<String> {
+    deliver_from(agent, None, items, strategy, budget)
+}
+
+/// The whole history of an agent that moves to another device, as
+/// [`deliver`] makes it, with the way back to the rest naming `device`,
+/// the one it leaves. It goes in front of the new agent's first message
+/// if [`fits`] the budget that message leaves.
+pub fn deliver_moved(
+    agent: AgentId,
+    device: DeviceId,
+    items: &[TimelineItem],
+    budget: u64,
+) -> Option<String> {
+    deliver_from(agent, Some(device), items, Strategy::Full, budget)
+}
+
+/// [`deliver`], for an agent that came from `device` if it moved.
+fn deliver_from(
+    agent: AgentId,
+    device: Option<DeviceId>,
+    items: &[TimelineItem],
+    strategy: Strategy,
+    budget: u64,
+) -> Option<String> {
     let messages: Vec<Historical> = items.iter().filter_map(historical).collect();
-    let made = select(messages, &coverage(agent, items), 0, TOKEN_CAP);
+    let made = select(messages, &coverage(agent, device, items), 0, TOKEN_CAP);
     let mut coverage = format!(
         "Context handoff ({}):\n{}",
         strategy.name(),
-        coverage(agent, items)
+        coverage(agent, device, items)
     );
     if cost(&[], &coverage) > (budget / 2).min(4_000) {
         coverage = format!(
             "Context handoff ({}). 1 handoff records; detailed coverage references omitted. {}",
             strategy.name(),
-            recover(agent)
+            recover(agent, device)
         );
     }
     let selected = select(made.messages, &coverage, made.omitted, budget);
     (cost(&selected.messages, &selected.context) <= budget)
         .then(|| render_history(&selected.messages, &selected.context))
+}
+
+/// Whether a history made earlier still fits `budget`.
+pub fn fits(history: &str, budget: u64) -> bool {
+    json_len(&Value::from(history)) <= budget
 }
 
 /// Whether any of `items` carries over. With none, as with no turns,
@@ -548,6 +579,24 @@ mod tests {
             "Context handoff (full_thread_summary). 1 handoff records; detailed coverage \
              references omitted."
         ));
+    }
+
+    #[test]
+    fn a_moved_agent_s_history_names_the_device_it_left() {
+        let device = DeviceId(Uuid::from_u128(9));
+        let items = vec![said("u1", "Fix the build"), replied("a1", "Fixed")];
+        let history = deliver_moved(agent(), device, &items, TOKEN_CAP).unwrap();
+        assert!(history.starts_with("Context handoff (full_thread_summary):\n"));
+        assert!(history.contains(&format!(
+            "read_agent tool with agent \"{}\" and device \"{device}\";",
+            agent()
+        )));
+        assert!(history.contains("item=a1;"));
+        assert!(fits(&history, TOKEN_CAP));
+        assert!(!fits(&history, 10));
+        // A switch between vendors stays on its device.
+        let switched = deliver(agent(), &items, Strategy::Full, TOKEN_CAP).unwrap();
+        assert!(!switched.contains("and device"));
     }
 
     #[test]

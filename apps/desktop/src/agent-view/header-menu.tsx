@@ -5,8 +5,8 @@
 // process, which keeps the conversation, copies the ID the CLI resumes
 // the session by, saves the conversation as Markdown in a file you pick
 // or copies it, opens the sheet that lets it run agents, links a PR when
-// it has none, since the PR chips' menu links the rest, and deletes an
-// agent MaxHQ holds.
+// it has none, since the PR chips' menu links the rest, moves it to
+// another device, and deletes an agent MaxHQ holds.
 
 import { Menu } from "@base-ui/react/menu";
 import {
@@ -17,6 +17,7 @@ import {
 	Ellipsis,
 	FileDown,
 	GitPullRequest,
+	MonitorUp,
 	Power,
 	Trash2,
 } from "lucide-react";
@@ -230,6 +231,8 @@ export const AgentMenu = ({
 	onAllow,
 	allowed,
 	onLink,
+	onMove,
+	moveOff,
 	onDelete,
 }: {
 	agent: Agent;
@@ -240,6 +243,10 @@ export const AgentMenu = ({
 	allowed?: boolean;
 	/** Opens the field that links a PR, when the agent has none. */
 	onLink?: () => void;
+	/** Opens the Move dialog, when the agent can move. */
+	onMove?: () => void;
+	/** Why it can't move now, which turns the entry off. */
+	moveOff?: string | null;
 	/** Asks, then deletes the agent, when MaxHQ can. */
 	onDelete?: () => void;
 }) => {
@@ -304,6 +311,29 @@ export const AgentMenu = ({
 									</span>
 									<span className={DETAIL}>
 										{translate("Show its state and checks here.")}
+									</span>
+								</span>
+							</Menu.Item>
+						) : null}
+						{onMove ? (
+							<Menu.Item
+								onClick={onMove}
+								disabled={moveOff != null}
+								className={MENU_ITEM}
+							>
+								<MonitorUp
+									aria-hidden
+									size={13}
+									strokeWidth={2}
+									className="shrink-0 text-secondary-foreground"
+								/>
+								<span className="flex min-w-0 flex-1 flex-col gap-px">
+									<span className={LABEL}>{translate("Move to…")}</span>
+									<span className={DETAIL}>
+										{moveOff ??
+											translate(
+												"Go on in a new agent on another device, from a summary."
+											)}
 									</span>
 								</span>
 							</Menu.Item>

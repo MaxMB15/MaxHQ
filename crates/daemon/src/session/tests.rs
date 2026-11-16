@@ -69,6 +69,7 @@ mod limits;
 mod loading;
 mod lookups;
 mod memory;
+mod moves;
 mod notes;
 mod pace;
 mod pulls;
@@ -99,7 +100,7 @@ fn device() -> Device {
     }
 }
 
-/// A hub for the test device with a Claude and a Codex account.
+/// A hub for `host` with a Claude and a Codex account.
 fn make_hub(dir: &Path, db: &Db, host: &Device) -> Hub {
     let hub = Hub::new(host.clone(), db.seen().unwrap_or_default());
     hub.remember_deleted(db);
@@ -110,7 +111,7 @@ fn make_hub(dir: &Path, db: &Db, host: &Device) -> Hub {
     hub.apply(accounts.map(|(id, vendor, name)| Change::Upsert {
         value: Entity::Account(Account {
             id,
-            device: device().id,
+            device: host.id,
             vendor,
             label: "Personal".into(),
             config_dir: dir.join(name).display().to_string(),
@@ -763,6 +764,7 @@ impl Harness {
             asleep: false,
             effort: None,
             running: None,
+            moved: None,
         }
     }
 
@@ -925,6 +927,7 @@ impl Harness {
             asleep: false,
             effort: None,
             running: None,
+            moved: None,
         };
         self.hub.apply([Change::Upsert {
             value: Entity::Agent(agent),

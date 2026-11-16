@@ -11,6 +11,7 @@
 // tasks go out as its `device_tasks` entity the way `maxd` publishes them.
 
 import type {
+	AgentAt,
 	DeviceId,
 	DeviceTasks,
 	Entity,
@@ -401,6 +402,8 @@ export type MockTasks = {
 	readonly calls: TaskCalls;
 	/** Each device's `device_tasks` entity as it stands. */
 	readonly entities: () => Entity[];
+	/** Points the tasks `home` keeps that send to `from` at `to`, as a move does. */
+	readonly retarget: (home: DeviceId, from: AgentAt, to: AgentAt) => void;
 };
 
 /**
@@ -589,9 +592,24 @@ export const mockTasks = ({
 		funnelState: async (device) => ({ status: "ok", data: funnel(device) }),
 	};
 
+	const retarget = (home: DeviceId, from: AgentAt, to: AgentAt) => {
+		for (const task of on(home)) {
+			const { target } = task;
+			if (
+				target.type === "agent" &&
+				target.device === from.device &&
+				target.agent === from.agent
+			) {
+				tasks.set(task.id, { ...task, target: { type: "agent", ...to } });
+			}
+		}
+		changed();
+	};
+
 	return {
 		calls,
 		entities: () =>
 			DEVICES.map((d) => ({ entity: "device_tasks" as const, ...deviceTasks(d) })),
+		retarget,
 	};
 };

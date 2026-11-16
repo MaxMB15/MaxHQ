@@ -72,6 +72,7 @@ export type DispatcherContext = {
 	readonly timelines: Pick<MockTimelines, "post" | "decide">;
 	readonly startAgent: DataSource["startAgent"];
 	readonly saveTask: DataSource["saveTask"];
+	readonly moveAgent: DataSource["moveAgent"];
 };
 
 const DONE: ActionResult = { status: "ok", data: { status: "done" } };
@@ -292,6 +293,12 @@ export const mockDispatcher = (ctx: DispatcherContext): MockDispatcher => {
 				return result.status === "ok" && result.data.status === "task_saved"
 					? { type: "task_saved", task: result.data.task.id }
 					: { type: "failed", reason: why(result, "The task wasn't saved.") };
+			}
+			case "move_agent": {
+				const result = await ctx.moveAgent(MAC, step.agent, step.device, step.to, false);
+				return result.status === "ok" && result.data.status === "started"
+					? { type: "started", agent: result.data.agent }
+					: { type: "failed", reason: why(result, "The agent didn't move.") };
 			}
 		}
 	};

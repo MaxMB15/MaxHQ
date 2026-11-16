@@ -389,7 +389,7 @@ impl Manager {
             Open {
                 agent,
                 ours: true,
-                expires_at: None,
+                expires_at: event.expires_at,
             },
         );
         self.hub.apply_held([Change::Upsert {

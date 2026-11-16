@@ -10,7 +10,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Instant;
 
-use maxhq_protocol::agents::AgentOrigin;
+use maxhq_protocol::agents::{AgentOrigin, Moved};
 use maxhq_protocol::ids::{
     AccountId, AgentId, AttentionId, BootId, ClientId, IdempotencyKey, SessionId, WorkspaceId,
 };
@@ -131,6 +131,9 @@ pub struct Held {
     /// at, or none for the vendor's default. Kept for restarts.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub effort: Option<String>,
+    /// Where the agent moved between devices, if it did.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub moved: Option<Box<Moved>>,
 }
 
 /// A session an agent left when it moved to another vendor.
@@ -157,6 +160,10 @@ pub struct Handoff {
     pub since: Option<ItemId>,
     /// How full that session's context was.
     pub context: Option<ContextUsage>,
+    /// The summary an agent that moved here from another device starts
+    /// from, which goes in place of the conversation before the marker.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub brief: Option<String>,
 }
 
 impl Held {
@@ -194,6 +201,7 @@ impl Held {
             workflow_env: None,
             cut_at_limit: false,
             limit_resets_at: None,
+            moved: None,
         }
     }
 

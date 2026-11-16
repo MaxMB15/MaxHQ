@@ -62,6 +62,7 @@ import { FeedProvider, useFeedRows } from "./feed-context";
 import { FindBar, FindButton, useFeedFind } from "./FeedFind";
 import { FeedItem } from "./FeedRow";
 import { Latest } from "./Latest";
+import { MovedBanner } from "./MovedBanner";
 import { Divider } from "./Notices";
 import { feedScroll, missingAgent } from "./opening";
 import { OutsideBanner, SessionMoved } from "./OutsideBanner";
@@ -213,7 +214,12 @@ const AgentBody = ({
 		[goal]
 	);
 	const observed = agent.control === "observed";
-	const headed = hasOlder || status === "loading" || Boolean(error) || observed;
+	const headed =
+		hasOlder ||
+		status === "loading" ||
+		Boolean(error) ||
+		observed ||
+		Boolean(agent.moved?.from);
 
 	return (
 		<KeyboardAvoidingView
@@ -276,6 +282,7 @@ const AgentBody = ({
 									<Text style={styles.note}>{t("Loading")}</Text>
 								) : null}
 								{error ? <Text style={styles.failed}>{error}</Text> : null}
+								<MovedBanner agent={agent} way="from" />
 								{observed && !hasOlder ? (
 									<Divider icon={null}>
 										{t(
@@ -345,6 +352,7 @@ const AgentBody = ({
 						onPress={() => list.current?.scrollToEnd()}
 					/>
 				) : null}
+				<MovedBanner agent={agent} way="to" />
 				{hasComposer(agent) ? (
 					<Composer key={agent.id} agent={agent} device={device} queued={queued} />
 				) : (

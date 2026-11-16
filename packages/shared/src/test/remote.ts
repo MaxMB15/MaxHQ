@@ -28,6 +28,7 @@ type RemoteCalls = Pick<
 	| "stopWorkspace"
 	| "deleteWorkspace"
 	| "deleteAgent"
+	| "moveAgent"
 	| "renameAgent"
 	| "listIgnoredFiles"
 	| "copyProject"
@@ -132,6 +133,7 @@ export const remoteCalls = (): RemoteCalls => ({
 	stopWorkspace: done,
 	deleteWorkspace: done,
 	deleteAgent: done,
+	moveAgent: done,
 	renameAgent: done,
 	listIgnoredFiles: async () => ({ files: [], truncated: false }),
 	copyProject: async () => ({ workspace: "workspace-copy", written: 0, failed: [] }),

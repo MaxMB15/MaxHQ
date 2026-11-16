@@ -21,7 +21,8 @@ export type AgentTool =
 	| "start_agent"
 	| "send_agent"
 	| "wait_agent"
-	| "interrupt_agent";
+	| "interrupt_agent"
+	| "move_agent";
 
 const TOOLS = new Set<string>([
 	"list_targets",
@@ -31,6 +32,7 @@ const TOOLS = new Set<string>([
 	"send_agent",
 	"wait_agent",
 	"interrupt_agent",
+	"move_agent",
 ]);
 
 const SERVER = "maxhq";
@@ -159,5 +161,10 @@ export const agentToolLine = (call: ToolCallText, names: ToolNames): AgentToolLi
 			return input.stop === true
 				? line(t("Stopping"), t("Stopped"), agentName(input.agent))
 				: line(t("Interrupting"), t("Interrupted"), agentName(input.agent));
+		case "move_agent": {
+			const to = str(output.device) ?? str(input.to_device);
+			const there = to ? t(" to {{value1}}", { value1: names.device(to) }) : "";
+			return line(t("Moving"), t("Moved"), `${agentName(input.agent)}${there}`);
+		}
 	}
 };

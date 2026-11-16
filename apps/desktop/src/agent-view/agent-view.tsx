@@ -4,13 +4,13 @@
 // One agent's conversation, the same for Claude and Codex: the header, the
 // timeline with its find bar, and the composer or, for a session in a
 // terminal, the banner that says why there's none. A stopped agent gets a
-// Resume banner over its composer, and a local ACP agent that needs a
-// sign-in gets its sign-in card there. So does a folder still cloning or
-// missing files a copy brought, and the ports its processes listen on sit
-// just above it, under a notice while this Mac's maxd, which runs it, can't
-// be reached. A file dropped or pasted on an answer field goes to the
-// composer. It fills its parent and scrolls on its own, and any number can
-// be open side by side.
+// Resume banner over its composer, or one that opens the agent it moved
+// to, and a local ACP agent that needs a sign-in gets its sign-in card
+// there. So does a folder still cloning or missing files a copy brought,
+// and the ports its processes listen on sit just above it, under a notice
+// while this Mac's maxd, which runs it, can't be reached. A file dropped or
+// pasted on an answer field goes to the composer. It fills its parent and
+// scrolls on its own, and any number can be open side by side.
 
 import { useCallback, useMemo, useState } from "react";
 import { useStore } from "zustand";
@@ -38,6 +38,7 @@ import { AgentHeader } from "./header";
 import type { JumpTarget } from "./jump";
 import { OutsideBanner } from "./outside-banner";
 import { TimelineQuotes } from "./quotes";
+import { MovedBanner, movedAway } from "./moved-banner";
 import { canResume, ResumeBanner } from "./resume-banner";
 import { needsSignIn } from "@maxhq/shared/settings/acp-agents";
 import { slideLead, spotOf } from "@maxhq/shared/ui/store";
@@ -141,7 +142,11 @@ export const AgentView = ({ agent }: { agent: Agent }) => {
 				<TimelineQuotes agent={agent} viewport={scroller} store={timeline.store} />
 				<CloneBanner workspace={agent.workspace} className="shrink-0 px-7 pb-2" />
 				{observed ? <OutsideBanner agent={agent} /> : null}
-				{canResume(agent) || signIn ? <ResumeBanner agent={agent} /> : null}
+				{movedAway(agent) ? (
+					<MovedBanner agent={agent} />
+				) : canResume(agent) || signIn ? (
+					<ResumeBanner agent={agent} />
+				) : null}
 				<PortOffers agent={agent} />
 				{device ? (
 					<div className="shrink-0 px-7 pb-3.5 empty:hidden">

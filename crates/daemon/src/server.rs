@@ -733,16 +733,17 @@ impl Connection {
         // A phone is easier to lose than a Mac, and it never stores or
         // removes a credential, signs in, changes how this device is set
         // up, installs anything or reads a path on the device. So a stolen
-        // phone's key can't either. Nor can it start agents or tasks, make
-        // or remove workspaces, reach a guest's shell or ports, signal a
-        // process, copy files out or change hosts, snapshots, moves, skills,
-        // the skill library or its sources: the phone asks the dispatcher,
-        // answers and steers agents that already run. Unless the Mac turned
-        // the phone's switch on, which lets it.
+        // phone's key can't either. Nor can it start or move agents, start
+        // tasks, make or remove workspaces, reach a guest's shell or ports,
+        // signal a process, copy files out or change hosts, snapshots,
+        // moves, skills, the skill library or its sources: the phone asks
+        // the dispatcher, answers and steers agents that already run.
+        // Unless the Mac turned the phone's switch on, which lets it.
         if self.phone.is_some()
             && matches!(
                 message,
                 ClientMessage::StartAgent { .. }
+                    | ClientMessage::MoveAgent { .. }
                     | ClientMessage::SaveTask { .. }
                     | ClientMessage::SetDeviceSettings { .. }
                     | ClientMessage::UpdateDeviceSettings { .. }
@@ -1283,7 +1284,8 @@ impl Connection {
             | ClientMessage::WindDown { .. }
             | ClientMessage::PullsDue { .. }
             | ClientMessage::LinkPull { .. }
-            | ClientMessage::UnlinkPull { .. }) => {
+            | ClientMessage::UnlinkPull { .. }
+            | ClientMessage::MoveAgent { .. }) => {
                 if let Some(client) = &self.client {
                     client.send(message);
                 }
@@ -1979,6 +1981,7 @@ pub(crate) mod tests {
             asleep: false,
             effort: None,
             running: None,
+            moved: None,
         })
     }
 

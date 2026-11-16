@@ -281,6 +281,7 @@ fn agent_titled(activity: Activity, title: &str) -> Change {
             asleep: false,
             effort: None,
             running: None,
+            moved: None,
         }),
     }
 }

@@ -188,6 +188,7 @@ fn keys_are_asked_once_and_logins_go_only_to_devices_that_take_them() {
                         routes: vec![route("devbox")],
                         host_key: HOST_KEY.into(),
                         test_kinds: Vec::new(),
+                        home: false,
                     }],
                 }
             ),
@@ -202,13 +203,15 @@ fn keys_are_asked_once_and_logins_go_only_to_devices_that_take_them() {
                 "nl",
                 PeerBook {
                     ssh: true,
-                    // The Mac is never dialed, so it has no host key.
+                    // The Mac is never dialed, so it has no host key. It
+                    // runs the app, so it may move agents.
                     peers: vec![PeerEntry {
                         device: mac,
                         name: local.name.clone(),
                         routes: Vec::new(),
                         host_key: String::new(),
                         test_kinds: Vec::new(),
+                        home: true,
                     }],
                 }
             ),

@@ -33,6 +33,7 @@ use super::agent_tools::{
     account_card, failure, no_account, workspace_card, Later, Reply, NO_CONN, NO_PLACE,
 };
 use super::idem::{Outcome, Seen};
+use super::move_agent::ALREADY_THERE;
 use super::scheduled::system_zone;
 use super::{refused, Input, Manager};
 use crate::drive::{ToolCall, ToolResult};
@@ -47,7 +48,14 @@ pub const DIR: &str = "dispatcher";
 const ONLY_READS: &str = "The dispatcher only reads and proposes plans.";
 
 /// Why a plan can't name another device yet.
-const MAC_ONLY: &str = "This version of the dispatcher plans on this Mac only.";
+const MAC_ONLY: &str = "This version of the dispatcher plans on this Mac only, except a move.";
+
+/// How the dispatcher uses what `list_targets` shows of this Mac.
+const TARGETS_HERE: &str = "Plans start agents and save tasks on this Mac; a move_agent item \
+                            may move an agent on any device. A folder workspace's location is \
+                            the folder to give start_agent; a container is named by its \
+                            workspace id. Call list_targets with one of `other_devices` as \
+                            `device` to see its accounts, folders and agents.";
 
 /// What `submit_plan` answers.
 const PLAN_SHOWN: &str =
@@ -118,6 +126,7 @@ enum Waited {
     Start,
     Send(AgentId),
     Save(TaskId),
+    Move,
 }
 
 impl Manager {
@@ -381,6 +390,16 @@ impl Manager {
                 };
                 (message, Waited::Save(id))
             }
+            PlanStep::MoveAgent { device, agent, to } => {
+                let message = ClientMessage::MoveAgent {
+                    key,
+                    agent,
+                    from: device,
+                    to,
+                    stop: false,
+                };
+                (message, Waited::Move)
+            }
         };
         // Set first, since a request may finish before it returns.
         run.waiting = Some((key, waited));
@@ -418,7 +437,7 @@ impl Manager {
             return;
         };
         let result = match (waited, outcome) {
-            (Waited::Start, ActionOutcome::Started { agent }) => {
+            (Waited::Start | Waited::Move, ActionOutcome::Started { agent }) => {
                 PlanOutcome::Started { agent: *agent }
             }
             (Waited::Send(agent), ActionOutcome::Done) => PlanOutcome::Sent { agent },
@@ -440,7 +459,14 @@ impl Manager {
             key: call.key,
         };
         let text = match call.call {
-            Call::ListTargets => Ok(self.dispatcher_targets()),
+            Call::ListTargets(Some(device)) if device != self.device => {
+                return self.targets_there(reply, device);
+            }
+            Call::ListTargets(_) => {
+                let mut targets = self.device_targets(TARGETS_HERE);
+                targets["other_devices"] = self.other_devices();
+                Ok(targets.to_string())
+            }
             Call::ListAgents(list) => Ok(self.list(self.agent_caller(lead), &list)),
             Call::ReadAgent(read) if read.device.is_none_or(|device| device == self.device) => {
                 return self.read_agent(reply, Some(lead), read, true);
@@ -454,9 +480,10 @@ impl Manager {
         self.reply_now(reply, text);
     }
 
-    /// What the dispatcher's `list_targets` shows: this Mac's accounts of
-    /// every vendor, and its projects with their folders and workspaces.
-    fn dispatcher_targets(&self) -> String {
+    /// What the dispatcher's `list_targets` shows of this device, with
+    /// `note` for how to use it: its accounts of every vendor, and its
+    /// projects with their folders and workspaces.
+    pub(super) fn device_targets(&self, note: &str) -> Value {
         let home = self.dispatcher.home();
         let mut accounts = Vec::new();
         let mut projects = Vec::new();
@@ -504,10 +531,18 @@ impl Manager {
             "accounts": accounts,
             "projects": projects,
             "other_workspaces": others,
-            "note": "Plans run on this Mac. A folder workspace's location is the folder to give \
-                     start_agent; a container is named by its workspace id.",
+            "note": note,
         })
-        .to_string()
+    }
+
+    /// The other devices this one links to, by id and name.
+    fn other_devices(&self) -> Value {
+        let book = self.db.peer_book().ok().flatten().unwrap_or_default();
+        book.peers
+            .iter()
+            .filter(|peer| peer.device != self.device)
+            .map(|peer| json!({"device": peer.device, "name": peer.name}))
+            .collect()
     }
 
     /// Reads a project's open PRs off the loop, for `list_repo_pull_requests`.
@@ -593,6 +628,16 @@ impl Manager {
                 agent: self.running_agent(agent)?,
                 text,
             },
+            Step::Move { device, agent, to } => {
+                let device = device.unwrap_or(self.device);
+                if device == to.device {
+                    return Err(ALREADY_THERE.into());
+                }
+                if device == self.device {
+                    self.running_agent(agent)?;
+                }
+                PlanStep::MoveAgent { device, agent, to }
+            }
             Step::Schedule {
                 device,
                 name,

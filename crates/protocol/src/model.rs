@@ -643,6 +643,9 @@ pub struct Agent {
     /// [`crate::message::PROCESSES_SINCE`].
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub running: Option<crate::processes::AgentRunning>,
+    /// Where the agent moved between devices, if it did.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub moved: Option<Box<crate::agents::Moved>>,
 }
 
 /// Where a lead agent sits in the sidebar. The agent's own `maxd` keeps it,
