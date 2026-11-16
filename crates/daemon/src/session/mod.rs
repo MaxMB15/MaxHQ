@@ -32,6 +32,7 @@ mod limits;
 mod loading;
 mod lookups;
 mod move_agent;
+mod move_tool;
 mod moved;
 mod note_tools;
 mod pace;
@@ -951,6 +952,7 @@ impl Manager {
             .chain(self.next_poll)
             .chain(self.inbox_deadline())
             .chain(self.agent_tools.deadline())
+            .chain(self.moves.deadline())
             .chain(self.task_deadline())
             .chain(self.idle.deadline())
             .chain(self.pace.deadline())

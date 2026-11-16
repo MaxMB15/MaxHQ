@@ -6025,6 +6025,24 @@
           ]
         },
         {
+          "description": "What an agent would run as on this device, for\n[`crate::agents::AgentMoveStep::Check`].",
+          "type": "object",
+          "properties": {
+            "check": {
+              "description": "What it would run as.",
+              "$ref": "#/$defs/MoveCheck"
+            },
+            "status": {
+              "type": "string",
+              "const": "checked"
+            }
+          },
+          "required": [
+            "status",
+            "check"
+          ]
+        },
+        {
           "description": "An outcome from a newer `maxd`. The action went through, and what\nit came to needs a newer app to show.",
           "type": "object",
           "properties": {
@@ -6175,7 +6193,7 @@
           ]
         },
         {
-          "description": "Checks that the account is signed in and the folder is there. The\noutcome is [`crate::message::ActionOutcome::Tool`], naming what the\nagent will run as.",
+          "description": "Checks that the account is signed in and the folder is there. The\noutcome is [`crate::message::ActionOutcome::Checked`], naming what\nthe agent will run as.",
           "type": "object",
           "properties": {
             "step": {
@@ -6190,6 +6208,24 @@
           "required": [
             "step",
             "to"
+          ]
+        },
+        {
+          "description": "Says whether the agent could leave now and what it would take\nalong, without stopping it or summing anything up. The outcome is\n[`crate::message::ActionOutcome::Departed`] with no brief.",
+          "type": "object",
+          "properties": {
+            "agent": {
+              "description": "The agent.",
+              "$ref": "#/$defs/AgentId"
+            },
+            "step": {
+              "type": "string",
+              "const": "look"
+            }
+          },
+          "required": [
+            "step",
+            "agent"
           ]
         },
         {
@@ -7128,6 +7164,10 @@
             "null"
           ]
         },
+        "device": {
+          "description": "The name of the device it leaves.",
+          "type": "string"
+        },
         "effort": {
           "description": "The effort level it ran at, if its vendor has one.",
           "type": [
@@ -7145,6 +7185,7 @@
         }
       },
       "required": [
+        "device",
         "title",
         "mode"
       ]
@@ -9328,6 +9369,44 @@
           "type": "string",
           "const": "unknown"
         }
+      ]
+    },
+    "MoveCheck": {
+      "description": "What the device an agent moves to says it will run as there.",
+      "type": "object",
+      "properties": {
+        "account": {
+          "description": "The account's name.",
+          "type": "string"
+        },
+        "device": {
+          "description": "The device's name.",
+          "type": "string"
+        },
+        "model": {
+          "description": "The model, or the words for the account's default.",
+          "type": "string"
+        },
+        "place": {
+          "description": "The folder it runs in, or what's made for it.",
+          "type": "string"
+        },
+        "vendor": {
+          "description": "The account's vendor.",
+          "$ref": "#/$defs/Vendor"
+        },
+        "workspace": {
+          "description": "The workspace that folder belongs to.",
+          "$ref": "#/$defs/WorkspaceId"
+        }
+      },
+      "required": [
+        "device",
+        "vendor",
+        "account",
+        "model",
+        "place",
+        "workspace"
       ]
     },
     "MoveId": {

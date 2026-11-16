@@ -293,6 +293,8 @@ export const mockDispatcher = (ctx: DispatcherContext): MockDispatcher => {
 					? { type: "task_saved", task: result.data.task.id }
 					: { type: "failed", reason: why(result, "The task wasn't saved.") };
 			}
+			case "move_agent":
+				return { type: "failed", reason: "The sample app doesn't move agents." };
 		}
 	};
 

@@ -374,6 +374,32 @@ pub fn check(
     Ok(mode)
 }
 
+/// Checks that a caller may move an agent off `from`, to start again as
+/// `start` says. The user approves each move, so a caller in a container
+/// may ask for one unless its permission never lets it reach outside.
+pub fn check_move(
+    permission: &Permission,
+    caller: Caller,
+    from: DeviceId,
+    start: Start,
+    now: Timestamp,
+) -> Result<(), Refusal> {
+    check(Some(permission), caller, &Ask::Act { device: from }, now)?;
+    if caller.container.is_some() && permission.leave_container == LeaveContainer::Never {
+        return Err(Refusal::LeavesContainer);
+    }
+    let caller = Caller {
+        container: None,
+        ..caller
+    };
+    let start = Start {
+        mode: None,
+        counts: None,
+        ..start
+    };
+    check(Some(permission), caller, &Ask::Start(start), now).map(|_| ())
+}
+
 /// Checks one lease tool call under a permission, on the device that runs
 /// it. `kind` is the kind the call leases or acts on, or none for a call
 /// that names no kind, such as a list, which any kind allows. Leasing is
@@ -588,6 +614,41 @@ mod tests {
 
     fn checked(permission: &Permission, caller: Caller, start: Start) -> Result<(), Refusal> {
         check(Some(permission), caller, &Ask::Start(start), NOW).map(|_| ())
+    }
+
+    #[test]
+    fn a_move_needs_both_devices_and_the_vendor_there_and_asks_no_container_consent() {
+        let devbox = DeviceId::derive("devbox");
+        let place = folder("/work/app");
+        let there = Start {
+            device: devbox,
+            ..start(&place)
+        };
+        let mut both = permission();
+        both.devices.push(devbox);
+        let moved = |permission: &Permission, caller: Caller, from: DeviceId| {
+            check_move(permission, caller, from, there.clone(), NOW)
+        };
+        assert_eq!(moved(&both, holder(), here()), Ok(()));
+        assert_eq!(moved(&permission(), holder(), here()), Err(Refusal::Device));
+        assert_eq!(
+            moved(&both, holder(), DeviceId::derive("other")),
+            Err(Refusal::Device)
+        );
+        let mut claude = both.clone();
+        claude.vendors = vec![Vendor::Claude];
+        assert_eq!(
+            moved(&claude, holder(), here()),
+            Err(Refusal::Vendor(Vendor::Codex))
+        );
+        // The user approves the move, so a container's Ask needs no more.
+        assert_eq!(moved(&both, boxed(), here()), Ok(()));
+        let mut never = both;
+        never.leave_container = LeaveContainer::Never;
+        assert_eq!(
+            moved(&never, boxed(), here()),
+            Err(Refusal::LeavesContainer)
+        );
     }
 
     #[test]

@@ -2,13 +2,14 @@
 // Copyright (c) 2026 Max Boksem
 
 //! The dispatcher's own tools: a project's open PRs, and the plan it
-//! submits. Neither starts, sends or schedules anything. A plan runs only
-//! once the user confirms it in the app.
+//! submits. Neither starts, sends, schedules or moves anything. A plan runs
+//! only once the user confirms it in the app.
 
+use maxhq_protocol::agents::MoveTo;
 use maxhq_protocol::ids::{AgentId, DeviceId, ProjectId};
 use serde_json::{json, Map, Value};
 
-use super::agents::{id, message, number, text, MAX_TITLE};
+use super::agents::{id, message, move_to, number, text, MAX_TITLE};
 use super::tasks::{new_agent, NewAgent, MAX_NAME};
 use super::{fields, Call, Tool, MAX_MESSAGE};
 
@@ -16,16 +17,23 @@ use super::{fields, Call, Tool, MAX_MESSAGE};
 /// checks where they're called keep it to reading and proposing, so this
 /// only says how to use them well.
 pub const INSTRUCTIONS: &str = "You are MaxHQ's dispatcher. The user types requests into \
-    the bar at the top of MaxHQ, such as starting an agent in a project, messaging an agent \
-    or making a scheduled task, and you turn each one into a plan. You can't start, message \
-    or schedule anything yourself, and you can't change files. submit_plan is the only tool \
-    that leads to action, and its plan runs only once the user confirms it in MaxHQ.\n\n\
+    the bar at the top of MaxHQ, such as starting an agent in a project, messaging an agent, \
+    making a scheduled task or moving an agent to another device, and you turn each one into \
+    a plan. You can't start, message, schedule or move anything yourself, and you can't \
+    change files. submit_plan is the only tool that leads to action, and its plan runs only \
+    once the user confirms it in MaxHQ.\n\n\
     Find what you need with the read tools. list_targets gives this Mac's projects with \
     their repositories, folders and workspaces, and the accounts signed in for each vendor \
     with their models. list_agents and read_agent show the agents, by the ids list_agents \
     gives. list_tasks shows the scheduled tasks. list_repo_pull_requests shows a project's \
     open pull requests and their authors, which is how you find a person's GitHub login \
     from their name.\n\n\
+    A move_agent item moves an agent on any device to another device. Before you plan one, \
+    call list_targets with the `device` the agent goes to: it lists that device's accounts \
+    with their models, its projects and workspaces, and the agents on it, so call it with \
+    the device the agent is on too when it isn't this Mac. Any vendor signed in there works, \
+    and only a summary of the conversation carries over. The agent must be idle when the \
+    plan runs. Its scheduled tasks follow it.\n\n\
     Before you submit a plan, ask the user about anything the request leaves open, with \
     your tool for asking the user questions: which project, account or person they mean, \
     or a detail the request needs. Don't guess. Keep the plan to what was asked, with no \
@@ -83,6 +91,15 @@ pub enum Step {
         agent: AgentId,
         /// The message.
         text: String,
+    },
+    /// Move an agent to another device.
+    Move {
+        /// The device the agent is on, or none for this one.
+        device: Option<DeviceId>,
+        /// The agent.
+        agent: AgentId,
+        /// Where it goes.
+        to: MoveTo,
     },
     /// Make a scheduled task.
     Schedule {
@@ -152,10 +169,10 @@ pub(super) fn description(tool: Tool) -> &'static str {
             "Shows the user a plan under the bar, with one line for each item. Nothing in it \
              runs until the user confirms it, and then the items run in order and stop at \
              the first that fails. An item starts an agent (idle when it has no \
-             first_message), messages an agent that runs, or makes a scheduled task. A \
-             task's runs reach an agent that runs, the agent an earlier start_agent item \
-             starts, or a new agent for each run. Submitting again replaces the plan the \
-             user sees."
+             first_message), messages an agent that runs, makes a scheduled task, or moves an \
+             agent to another device. A task's runs reach an agent that runs, the agent an \
+             earlier start_agent item starts, or a new agent for each run. Submitting again \
+             replaces the plan the user sees."
         }
         _ => unreachable!("not a dispatcher tool"),
     }
@@ -174,7 +191,7 @@ pub(super) fn input_schema(tool: Tool) -> Value {
         }),
         Tool::SubmitPlan => {
             let agent = json!({"type": "string", "minLength": 1, "description": "The agent's id, as list_agents gives it."});
-            let device = json!({"type": "string", "description": "The device's id. Leave it out for this Mac."});
+            let device = json!({"type": "string", "description": "The device's id. Leave it out for this Mac. move_agent: the device the agent is on."});
             let task = super::tasks::input_schema(Tool::ScheduleTask);
             let mut target = task["properties"]["target"]["properties"]
                 .as_object()
@@ -186,19 +203,20 @@ pub(super) fn input_schema(tool: Tool) -> Value {
             ]);
             let mut item = json!({
                 "vendor": {"type": "string", "description": "start_agent: the vendor, as list_targets names it."},
-                "account": {"type": "string", "description": "start_agent: the account's id, as list_targets gives it. Leave it out for the vendor's first."},
-                "workspace": {"type": "string", "description": "start_agent: the workspace's id, as list_targets gives it. Give this or `folder`."},
-                "folder": {"type": "string", "description": "start_agent: an absolute folder, as list_targets gives it. Give this or `workspace`."},
-                "model": {"type": "string", "description": "start_agent: the model, as list_targets names it. Leave it out for the account's default."},
+                "account": {"type": "string", "description": "start_agent: the account's id, as list_targets gives it. Leave it out for the vendor's first. move_agent: the account on `to_device`, as list_targets with that `device` gives it."},
+                "workspace": {"type": "string", "description": "start_agent, move_agent: the workspace's id, as list_targets gives it. Give this or `folder`."},
+                "folder": {"type": "string", "description": "start_agent, move_agent: an absolute folder, as list_targets gives it. Give this or `workspace`."},
+                "model": {"type": "string", "description": "start_agent, move_agent: the model, as list_targets names it. Leave it out for the account's default."},
                 "mode": {"type": "string", "enum": ["ask", "accept_edits", "auto", "plan", "full_access"], "description": "start_agent: the permission mode. Leave it out for the vendor's default."},
             })
             .as_object()
             .cloned()
             .unwrap_or_default();
             item.extend([
-                ("type".to_owned(), json!({"type": "string", "enum": ["start_agent", "send_message", "schedule_task"], "description": "What the item does."})),
+                ("type".to_owned(), json!({"type": "string", "enum": ["start_agent", "send_message", "schedule_task", "move_agent"], "description": "What the item does."})),
                 ("reason".to_owned(), json!({"type": "string", "minLength": 1, "maxLength": MAX_REASON, "description": "Why it's in the plan, in one line the user reads."})),
                 ("device".to_owned(), device),
+                ("to_device".to_owned(), json!({"type": "string", "description": "move_agent: the device to move the agent to, by its id."})),
                 ("title".to_owned(), json!({"type": "string", "maxLength": MAX_NAME, "description": "start_agent: a title for the agent. schedule_task: the task's name."})),
                 ("first_message".to_owned(), json!({"type": "string", "maxLength": MAX_MESSAGE, "description": "start_agent: its first message. Leave it out to start it idle. A marker copied from the request, such as [Agent: title], carries that context."})),
                 ("agent".to_owned(), agent),
@@ -288,7 +306,16 @@ fn proposed(item: &Value, earlier: &[Proposed]) -> Result<Proposed, String> {
                 earlier,
             )?,
         },
-        _ => return Err("`type` must be start_agent, send_message or schedule_task.".into()),
+        Some("move_agent") => Step::Move {
+            device: id(&args, "device")?,
+            agent: id(&args, "agent")?.ok_or("Give an `agent`.")?,
+            to: move_to(&args)?,
+        },
+        _ => {
+            return Err(
+                "`type` must be start_agent, send_message, schedule_task or move_agent.".into(),
+            )
+        }
     };
     Ok(Proposed {
         reason: reason.chars().take(MAX_REASON).collect(),
@@ -335,7 +362,7 @@ fn placed(args: &Map<String, Value>) -> Result<NewAgent, String> {
 mod tests {
     use super::*;
 
-    use maxhq_protocol::ids::WorkspaceId;
+    use maxhq_protocol::ids::{AccountId, WorkspaceId};
     use maxhq_protocol::message::AgentPlace;
     use maxhq_protocol::model::Vendor;
 
@@ -343,6 +370,8 @@ mod tests {
     fn a_plan_reads_each_kind_of_item() {
         let workspace = WorkspaceId::derive("w");
         let agent = AgentId::derive("a");
+        let devbox = DeviceId::derive("devbox");
+        let account = AccountId::derive("account");
         let Ok(Call::SubmitPlan(plan)) = Tool::SubmitPlan.parse(&json!({"items": [
             {"type": "start_agent", "reason": "Reviews the PRs\nand more", "vendor": "cursor", "folder": "/work/repo", "title": "Reviewer"},
             {"type": "send_message", "reason": "Goes on", "agent": agent.to_string(), "text": "continue"},
@@ -352,10 +381,12 @@ mod tests {
             {"type": "schedule_task", "reason": "Each run fresh", "title": "Nightly", "prompt": "Check",
              "schedule": {"type": "interval", "everyMs": 3600000},
              "target": {"type": "new_agent", "vendor": "claude", "workspace": workspace.to_string()}},
+            {"type": "move_agent", "reason": "Runs on devbox", "agent": agent.to_string(),
+             "to_device": devbox.to_string(), "account": account.to_string(), "folder": "/work/repo"},
         ]})) else {
             panic!("the plan parses");
         };
-        assert_eq!(plan.items.len(), 4);
+        assert_eq!(plan.items.len(), 5);
         assert_eq!(plan.items[0].reason, "Reviews the PRs");
         let Step::Start(start) = &plan.items[0].step else {
             panic!("a start");
@@ -391,6 +422,21 @@ mod tests {
             panic!("a task with a new agent");
         };
         assert_eq!(new.place, Some(AgentPlace::Workspace { workspace }));
+        assert_eq!(
+            plan.items[4].step,
+            Step::Move {
+                device: None,
+                agent,
+                to: MoveTo {
+                    device: devbox,
+                    account,
+                    model: None,
+                    place: AgentPlace::Folder {
+                        path: "/work/repo".into()
+                    },
+                },
+            }
+        );
     }
 
     #[test]
@@ -428,6 +474,12 @@ mod tests {
                         "target": {"type": "new_agent", "vendor": "claude"}}]),
                 "`folder`",
             ),
+            (
+                json!([{"type": "move_agent", "reason": "r",
+                        "agent": AgentId::derive("a").to_string(),
+                        "account": AccountId::derive("a").to_string(), "folder": "/work"}]),
+                "`to_device`",
+            ),
             (json!([{"type": "launch", "reason": "r"}]), "`type`"),
         ] {
             let refused = Tool::SubmitPlan
@@ -448,6 +500,7 @@ mod tests {
                     | Tool::SendAgent
                     | Tool::WaitAgent
                     | Tool::InterruptAgent
+                    | Tool::MoveAgent
                     | Tool::ScheduleTask
                     | Tool::DeleteTask
                     | Tool::RunTaskNow

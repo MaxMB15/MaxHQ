@@ -19,6 +19,7 @@ import type {
 	Plan,
 	PlanItem,
 	PlanOutcome,
+	PlanStep,
 	PlanTarget,
 	Trigger,
 	UserInput,
@@ -29,6 +30,7 @@ import { listInWords, plural, sentence } from "../status/format";
 import { accountName, VENDOR_NAME } from "../status/usage";
 import { FILTER_OPS } from "../tasks/draft";
 import { triggerLine } from "../tasks/format";
+import { tasksTargeting } from "../tasks/place";
 import type { ViewState } from "../view/replica";
 import { accounts, deviceName, workspaceName } from "../view/select";
 
@@ -84,6 +86,10 @@ const placeName = (view: ViewState, device: DeviceId, place: AgentPlace): string
 	return place.path.split("/").filter(Boolean).pop() ?? place.path;
 };
 
+/** Where an opened item runs: a folder's whole path, else the place's name. */
+const whereLine = (view: ViewState, device: DeviceId, place: AgentPlace): string =>
+	place.type === "folder" ? place.path : placeName(view, device, place);
+
 const agentTitle = (view: ViewState, agent: string): string =>
 	view.tables.agent.get(agent)?.title ?? t("an agent");
 
@@ -127,19 +133,27 @@ const PREVIEW_CHARS = 400;
 const firstText = (first: UserInput | null): string | undefined =>
 	first ? labeledText(first, () => undefined) : undefined;
 
+// What a step sends: a new agent's first message, a message or a task's
+// prompt. A move sends nothing.
+const sentText = (step: PlanStep): string | null | undefined => {
+	switch (step.type) {
+		case "start_agent":
+			return firstText(step.spec.first);
+		case "send_message":
+			return step.text;
+		case "schedule_task":
+			return step.prompt;
+		case "move_agent":
+			return null;
+	}
+};
+
 /**
  * The first lines of what an item sends, without blank ones so that nothing
  * hides further down. It ends in dots when there's more to read.
  */
 export const itemPreview = (item: PlanItem): string | null => {
-	const { step } = item;
-	const text =
-		step.type === "start_agent"
-			? firstText(step.spec.first)
-			: step.type === "send_message"
-				? step.text
-				: step.prompt;
-	const lines = (text ?? "").split("\n").filter((line) => line.trim() !== "");
+	const lines = (sentText(item.step) ?? "").split("\n").filter((line) => line.trim() !== "");
 	if (lines.length === 0) return null;
 	const shown = lines.slice(0, PREVIEW_LINES).join("\n");
 	const cut = shown.slice(0, PREVIEW_CHARS);
@@ -179,6 +193,11 @@ export const itemPhrase = (view: ViewState, item: PlanItem): string => {
 			return t("a task {{triggerPhrase_step_trigger}}{{access}}", {
 				triggerPhrase_step_trigger: triggerPhrase(step.trigger),
 				access: access,
+			});
+		case "move_agent":
+			return t("a move of {{agent}} to {{device}}", {
+				agent: agentTitle(view, step.agent),
+				device: deviceName(view, step.to.device),
 			});
 	}
 };
@@ -274,14 +293,10 @@ export const itemLines = (view: ViewState, plan: Plan, index: number): ItemLine[
 		case "start_agent": {
 			const { spec } = step;
 			const account = view.tables.account.get(spec.account);
-			const place =
-				spec.place.type === "folder"
-					? spec.place.path
-					: placeName(view, step.device, spec.place);
 			return [
 				{ label: t("Account"), value: account?.label ?? VENDOR_NAME[spec.vendor] },
 				{ label: t("Device"), value: deviceName(view, step.device) },
-				{ label: t("Where"), value: place },
+				{ label: t("Where"), value: whereLine(view, step.device, spec.place) },
 				{ label: t("Model"), value: spec.model ?? t("Default") },
 				...modeLine,
 				...(spec.title ? [{ label: t("Title"), value: spec.title }] : []),
@@ -310,8 +325,30 @@ export const itemLines = (view: ViewState, plan: Plan, index: number): ItemLine[
 				{ label: t("Prompt"), value: step.prompt },
 			];
 		}
+		case "move_agent": {
+			const { to } = step;
+			const account = view.tables.account.get(to.account);
+			const follow = tasksTargeting(view, step.agent).length;
+			return [
+				{ label: t("Agent"), value: agentTitle(view, step.agent) },
+				{ label: t("From"), value: deviceName(view, step.device) },
+				{ label: t("To"), value: deviceName(view, to.device) },
+				{
+					label: t("Account"),
+					value: account ? dispatcherAccountLabel(account) : t("An account there"),
+				},
+				{ label: t("Model"), value: to.model ?? t("Default") },
+				{ label: t("Where"), value: whereLine(view, to.device, to.place) },
+				{ label: t("Carries over"), value: t("Only a summary of the conversation") },
+				...(follow > 0 ? [{ label: t("Automations"), value: followLine(follow) }] : []),
+			];
+		}
 	}
 };
+
+/** The automations that follow a moved agent, such as "2 automations will follow it". */
+export const followLine = (count: number): string =>
+	t("{{count, number}} automations will follow it", { count });
 
 /** How a confirmed item went, in a word or with why it failed. */
 export const outcomeLine = (outcome: PlanOutcome): string => {
@@ -361,9 +398,10 @@ export const resultRows = (
 ): ResultRow[] =>
 	plan.items.map((item, index) => {
 		const outcome = results[index];
+		const moved = item.step.type === "move_agent" && outcome?.type === "started";
 		return {
 			phrase: sentence(itemPhrase(view, item)),
-			line: outcome ? outcomeLine(outcome) : NOT_RUN,
+			line: moved ? t("Moved") : outcome ? outcomeLine(outcome) : NOT_RUN,
 			failed: outcome?.type === "failed",
 			agent: outcome?.type === "started" || outcome?.type === "sent" ? outcome.agent : null,
 			task:

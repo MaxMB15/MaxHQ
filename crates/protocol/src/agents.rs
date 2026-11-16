@@ -392,9 +392,28 @@ pub struct MoveTo {
     pub place: AgentPlace,
 }
 
+/// What the device an agent moves to says it will run as there.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, Type, JsonSchema)]
+pub struct MoveCheck {
+    /// The device's name.
+    pub device: String,
+    /// The account's vendor.
+    pub vendor: Vendor,
+    /// The account's name.
+    pub account: String,
+    /// The model, or the words for the account's default.
+    pub model: String,
+    /// The folder it runs in, or what's made for it.
+    pub place: String,
+    /// The workspace that folder belongs to.
+    pub workspace: WorkspaceId,
+}
+
 /// What an agent takes along from the device it leaves.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, Type, JsonSchema)]
 pub struct Departure {
+    /// The name of the device it leaves.
+    pub device: String,
     /// Its name.
     pub title: String,
     /// The permission mode it ran in.
@@ -434,11 +453,18 @@ pub enum AgentMoveStep {
     /// [`crate::message::ActionOutcome::Tool`], as `list_targets` answers.
     Targets,
     /// Checks that the account is signed in and the folder is there. The
-    /// outcome is [`crate::message::ActionOutcome::Tool`], naming what the
-    /// agent will run as.
+    /// outcome is [`crate::message::ActionOutcome::Checked`], naming what
+    /// the agent will run as.
     Check {
         /// Where the agent goes.
         to: MoveTo,
+    },
+    /// Says whether the agent could leave now and what it would take
+    /// along, without stopping it or summing anything up. The outcome is
+    /// [`crate::message::ActionOutcome::Departed`] with no brief.
+    Look {
+        /// The agent.
+        agent: AgentId,
     },
     /// Stops the agent, or refuses while it works unless `stop` is set,
     /// and sums up its conversation. The outcome is

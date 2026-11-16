@@ -514,6 +514,8 @@ impl Manager {
                 self.answer_env_card(conn, key, event, &answer, by)
             } else if self.is_task_card(event) {
                 self.answer_task_card(conn, key, event, &answer, by)
+            } else if self.is_move_card(event) {
+                self.answer_move_card(conn, key, event, &answer, by)
             } else if open.ours {
                 // MaxHQ's own events only tell you something, so answering
                 // one dismisses it.

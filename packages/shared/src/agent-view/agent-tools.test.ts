@@ -36,6 +36,18 @@ describe("agentToolOf", () => {
 });
 
 describe("agentToolLine", () => {
+	it("names the agent a move took and where it went", () => {
+		const asked = { agent: "agent-a", to_device: "dev-devbox", account: "x", folder: "/w" };
+		const line = agentToolLine(call("move_agent", asked), names);
+		expect(line?.doing).toBe("Moving");
+		expect(said(line)).toBe("Moved Fix the login bug to devbox");
+		const done = agentToolLine(
+			call("move_agent", asked, { agent: "agent-b", device: "dev-mac" }),
+			names
+		);
+		expect(done?.target).toBe("Fix the login bug to Mac");
+	});
+
 	it("names the agent a call started and where", () => {
 		const line = agentToolLine(
 			call(

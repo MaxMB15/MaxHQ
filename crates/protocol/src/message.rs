@@ -11,8 +11,8 @@ use specta::Type;
 
 use crate::acp::{AcpAgent, AcpEnvValue};
 use crate::agents::{
-    AccessKey, AgentOrigin, ClientRole, Departure, McpCommand, MoveTo, PeerBook, PeerRequest,
-    Permission, ToolAnswer, ToolCall, ToolImage,
+    AccessKey, AgentOrigin, ClientRole, Departure, McpCommand, MoveCheck, MoveTo, PeerBook,
+    PeerRequest, Permission, ToolAnswer, ToolCall, ToolImage,
 };
 use crate::attention::{AnswerOutcome, AttentionAnswer};
 use crate::context::InlineRef;
@@ -3028,6 +3028,12 @@ pub enum ActionOutcome {
     Departed {
         /// What it took.
         departure: Box<Departure>,
+    },
+    /// What an agent would run as on this device, for
+    /// [`crate::agents::AgentMoveStep::Check`].
+    Checked {
+        /// What it would run as.
+        check: Box<MoveCheck>,
     },
 
     /// An outcome from a newer `maxd`. The action went through, and what

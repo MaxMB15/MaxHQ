@@ -13,12 +13,15 @@
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::time::Instant;
 
 use maxhq_core::agents::{offers, task_permission};
 use maxhq_core::handoff::{self, Usage};
+use maxhq_core::tools::agents::MAX_LIST;
 use maxhq_core::{inbox, names};
 use maxhq_protocol::agents::{
-    Actor, AgentAt, AgentMoveStep, Arrival, Departure, MoveTo, Moved, Permission, ToolAnswer,
+    Actor, AgentAt, AgentMoveStep, Arrival, Departure, MoveCheck, MoveTo, Moved, Permission,
+    ToolAnswer,
 };
 use maxhq_protocol::ids::{AgentId, DeviceId, IdempotencyKey, PermissionId};
 use maxhq_protocol::message::{ActionOutcome, AgentPlace, AgentSpec, ClientMessage};
@@ -26,18 +29,21 @@ use maxhq_protocol::model::{InboxChange, PermissionMode, WorkspaceLocation};
 use maxhq_protocol::state::{Entity, EntityKey};
 use maxhq_protocol::tasks::{Maker, Task, TaskTarget};
 use maxhq_protocol::timeline::ItemId;
+use serde_json::Value;
 use tokio::sync::{mpsc, oneshot};
 use tracing::warn;
 use uuid::Uuid;
 
-use super::agent_tools::{failure, NO_CONN};
+use super::agent_tools::{failure, Later as Answered, Reply, NO_CONN};
 use super::held::{internal_key, Handoff};
 use super::idem::{Outcome, Seen};
 use super::inbox::Busy;
 use super::lookups::Take;
+use super::move_tool::{Asking, Looked};
 use super::requests::usable_folder;
 use super::{refused, stopping, Input, Manager, Sessions};
 use crate::agents::{PeerCalls, Unreachable};
+use crate::drive::ToolResult;
 use crate::moves::vendor_name;
 
 /// Where a step's outcome goes.
@@ -47,9 +53,13 @@ pub(super) type Done = oneshot::Sender<ActionOutcome>;
 /// move with.
 pub(super) const NOT_HOME: &str = "Only the device that runs the MaxHQ app moves agents.";
 
+/// What a move to the device the agent is on answers.
+pub(super) const ALREADY_THERE: &str = "The agent is on that device already.";
+
 /// The note on what a device lists for a move to it.
 const TARGETS_THERE: &str = "An agent that moves to this device runs under one of these \
-                             accounts, in one of these workspaces or in a folder here.";
+                             accounts, in one of these workspaces or in a folder here. The \
+                             agents listed run here, newest first, and can move elsewhere.";
 
 /// The moves in flight.
 #[derive(Default)]
@@ -58,6 +68,15 @@ pub(super) struct Moves {
     moving: HashSet<AgentId>,
     /// The steps here that wait for a stop or a start to finish.
     waiting: HashMap<IdempotencyKey, Waiting>,
+    /// The moves tools asked for that wait for your answer.
+    pub(super) asking: Vec<Asking>,
+}
+
+impl Moves {
+    /// When the next card nobody answers runs out.
+    pub(super) fn deadline(&self) -> Option<Instant> {
+        self.asking.iter().map(|asking| asking.until).min()
+    }
 }
 
 /// A step that waits for a stop or a start.
@@ -86,6 +105,8 @@ pub(super) enum Later {
         folder: Result<PathBuf, String>,
         done: Done,
     },
+    /// Both devices said what they could about a move a tool asked for.
+    Looked(Box<Looked>),
     /// A move this device ran ended, with the new agent or why not.
     Ran {
         key: IdempotencyKey,
@@ -151,7 +172,7 @@ impl Manager {
             return Some(refused(NOT_HOME));
         }
         if from == to.device {
-            return Some(refused("The agent is on that device already."));
+            return Some(refused(ALREADY_THERE));
         }
         if !self.moves.moving.insert(agent) {
             return Some(refused("That agent is moving already."));
@@ -159,10 +180,7 @@ impl Manager {
         // The tasks that follow it keep their permissions here. The device
         // it goes to gets a copy, and the one it leaves gives its copy back.
         let follow: Vec<Task> = self
-            .tasks_targeting(&TaskTarget::Agent {
-                device: from,
-                agent,
-            })
+            .following(from, agent)
             .into_iter()
             .filter(|task| task.made_by == Maker::User)
             .collect();
@@ -191,11 +209,7 @@ impl Manager {
         } else {
             follow.iter().map(|task| task.permission).collect()
         };
-        let mover = Mover {
-            here: home,
-            tx: self.tx.clone(),
-            peers: self.agent_tools.peers.clone(),
-        };
+        let mover = self.mover();
         let tx = self.tx.clone();
         let device = to.device;
         tokio::spawn(async move {
@@ -212,10 +226,51 @@ impl Manager {
         None
     }
 
+    /// The tasks kept here that target `agent` on `from`, which follow it
+    /// when it moves.
+    pub(super) fn following(&self, from: DeviceId, agent: AgentId) -> Vec<Task> {
+        self.tasks_targeting(&TaskTarget::Agent {
+            device: from,
+            agent,
+        })
+    }
+
+    /// Runs the steps of a move from this device.
+    pub(super) fn mover(&self) -> Mover {
+        Mover {
+            here: self.device,
+            tx: self.tx.clone(),
+            peers: self.agent_tools.peers.clone(),
+        }
+    }
+
+    /// Answers a call with what `device` lists for a move to it: its
+    /// accounts, workspaces and agents. Asked off the loop.
+    pub(super) fn targets_there(&self, reply: Reply, device: DeviceId) {
+        let mover = self.mover();
+        let tx = self.tx.clone();
+        tokio::spawn(async move {
+            let result = match mover.step(device, AgentMoveStep::Targets).await {
+                ActionOutcome::Tool { answer } if !answer.failed => {
+                    Ok(ToolResult::Text(answer.text))
+                }
+                ActionOutcome::Tool { answer } => Err(answer.text),
+                other => Err(failure(&other)),
+            };
+            let later = Answered::Answer {
+                reply,
+                result,
+                release: None,
+            };
+            let _ = tx.send(Input::Agents(Box::new(later)));
+        });
+    }
+
     /// Handles what came back for a move.
     pub(super) fn move_later(&mut self, later: Later) {
         match later {
             Later::Step { from, step, done } => self.move_step(from, step, done),
+            Later::Looked(looked) => self.move_looked(*looked),
             Later::Located { to, folder, done } => {
                 let outcome = match folder {
                     Ok(path) => self.move_checked(&to, Some(path)),
@@ -282,14 +337,37 @@ impl Manager {
     fn move_step(&mut self, from: DeviceId, step: AgentMoveStep, done: Done) {
         match step {
             AgentMoveStep::Targets => {
+                let mut targets = self.device_targets(TARGETS_THERE);
+                // An agent that moved away already can't move again.
+                let agents: Vec<Value> = self
+                    .newest_leads(|agent| {
+                        !self.is_dispatcher(agent.id)
+                            && agent.moved.as_ref().is_none_or(|moved| moved.to.is_none())
+                    })
+                    .iter()
+                    .take(MAX_LIST)
+                    .map(|agent| self.card(agent))
+                    .collect();
+                targets["agents"] = Value::Array(agents);
                 let answer = ToolAnswer {
-                    text: self.device_targets(TARGETS_THERE),
+                    text: targets.to_string(),
                     failed: false,
                     images: Vec::new(),
                 };
                 let _ = done.send(ActionOutcome::Tool { answer });
             }
             AgentMoveStep::Check { to } => self.check_move(to, done),
+            AgentMoveStep::Look { agent } => {
+                let outcome = self.kept_from_leaving(agent, false).unwrap_or_else(|| {
+                    self.departure(agent)
+                        .map_or(ActionOutcome::UnknownAgent, |departure| {
+                            ActionOutcome::Departed {
+                                departure: Box::new(departure),
+                            }
+                        })
+                });
+                let _ = done.send(outcome);
+            }
             AgentMoveStep::Leave { agent, stop } => self.leave_device(agent, stop, done),
             AgentMoveStep::Arrive { arrival } => self.arrive_here(from, arrival, done),
             AgentMoveStep::Settle { agent, to, revoke } => {
@@ -334,6 +412,9 @@ impl Manager {
             Ok((info, _)) => info,
             Err(reason) => return refused(reason),
         };
+        if Some(info.workspace) == self.dispatcher.home() {
+            return refused("An agent can't run in the dispatcher's own folder.");
+        }
         let account = match self.hub.get(&EntityKey::Account(to.account)) {
             Some(Entity::Account(account)) => account,
             _ => return refused(NO_ACCOUNT),
@@ -353,18 +434,16 @@ impl Manager {
             Some(_) => "a new worktree in its container".to_owned(),
             None => info.cwd.display().to_string(),
         };
-        let text = format!(
-            "{}: {} as {}, with {model}, in {place}",
-            self.hub.device().name,
-            vendor_name(spec.vendor),
-            account.label,
-        );
-        ActionOutcome::Tool {
-            answer: ToolAnswer {
-                text,
-                failed: false,
-                images: Vec::new(),
-            },
+        let check = MoveCheck {
+            device: self.hub.device().name.clone(),
+            vendor: spec.vendor,
+            account: account.label,
+            model,
+            place,
+            workspace: info.workspace,
+        };
+        ActionOutcome::Checked {
+            check: Box::new(check),
         }
     }
 
@@ -444,14 +523,11 @@ impl Manager {
         Some(refused(reason))
     }
 
-    /// Sums up the conversation of an agent that stopped to leave, off the
-    /// loop, and answers with what it takes along.
-    fn depart_device(&mut self, agent: AgentId, done: Done) {
-        let Some(held) = self.held.get(&agent) else {
-            let _ = done.send(ActionOutcome::UnknownAgent);
-            return;
-        };
-        let departure = Departure {
+    /// What an agent would take along if it left, less the summary.
+    fn departure(&self, agent: AgentId) -> Option<Departure> {
+        let held = self.held.get(&agent)?;
+        Some(Departure {
+            device: self.hub.device().name.clone(),
             title: held
                 .title
                 .clone()
@@ -459,6 +535,15 @@ impl Manager {
             mode: held.mode,
             effort: held.effort.clone(),
             brief: None,
+        })
+    }
+
+    /// Sums up the conversation of an agent that stopped to leave, off the
+    /// loop, and answers with what it takes along.
+    fn depart_device(&mut self, agent: AgentId, done: Done) {
+        let Some(departure) = self.departure(agent) else {
+            let _ = done.send(ActionOutcome::UnknownAgent);
+            return;
         };
         let read = self.reading(agent, &Take::All).map(|(_, from)| from);
         let here = self.device;
@@ -614,7 +699,7 @@ fn is_task_copy(permission: &Permission, home: DeviceId) -> bool {
 
 /// Runs a move's steps in order, off the loop, asking each device for its
 /// step: this one through the manager, others over their links.
-struct Mover {
+pub(super) struct Mover {
     here: DeviceId,
     tx: mpsc::UnboundedSender<Input>,
     peers: Arc<dyn PeerCalls>,
@@ -622,7 +707,7 @@ struct Mover {
 
 impl Mover {
     /// What `device` answers a step with.
-    async fn step(&self, device: DeviceId, step: AgentMoveStep) -> ActionOutcome {
+    pub(super) async fn step(&self, device: DeviceId, step: AgentMoveStep) -> ActionOutcome {
         if device != self.here {
             return self
                 .peers
@@ -656,8 +741,7 @@ impl Mover {
     ) -> ActionOutcome {
         let check = AgentMoveStep::Check { to: to.clone() };
         match self.step(to.device, check).await {
-            ActionOutcome::Tool { answer } if !answer.failed => {}
-            ActionOutcome::Tool { answer } => return refused(answer.text),
+            ActionOutcome::Checked { .. } => {}
             other => return refused(failure(&other)),
         }
         let departure = match self.step(from, AgentMoveStep::Leave { agent, stop }).await {

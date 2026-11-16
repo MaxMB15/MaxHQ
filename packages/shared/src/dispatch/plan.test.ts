@@ -4,7 +4,9 @@
 import { describe, expect, it } from "vitest";
 
 import type { PermissionMode, Plan, PlanItem } from "../bindings";
-import { account, agent, device, entities, link, project, workspace } from "../test/build";
+import { mockTasks } from "../data/mock-tasks";
+import { DEVBOX, DEVBOX_CLAUDE, MAC, mockEntities } from "../data/mock-view";
+import { account, agent, device, entities, link, NOW, project, workspace } from "../test/build";
 import { applySnapshot } from "../view/replica";
 
 import {
@@ -16,6 +18,7 @@ import {
 	itemPreview,
 	outcomeLine,
 	planSummary,
+	resultRows,
 } from "./plan";
 
 const view = applySnapshot({
@@ -266,5 +269,59 @@ describe("a plan in words", () => {
 		expect(outcomeLine({ type: "failed", reason: "Item 0 didn't start an agent." })).toBe(
 			"Item 0 didn't start an agent."
 		);
+	});
+});
+
+describe("a planned move", () => {
+	const sample = applySnapshot({
+		seq: 1,
+		entities: [...mockEntities(NOW), ...mockTasks({ now: () => NOW }).entities()],
+	});
+	const move = (agent: string): Plan => ({
+		id: 9,
+		items: [
+			{
+				reason: "Runs it on the server, which stays on",
+				step: {
+					type: "move_agent",
+					device: MAC,
+					agent,
+					to: {
+						device: DEVBOX,
+						account: DEVBOX_CLAUDE,
+						model: null,
+						place: { type: "folder", path: "/home/me/work/MaxHQ" },
+					},
+				},
+			},
+		],
+	});
+
+	it("names the agent and where it goes, and sends nothing", () => {
+		const moved = move("agent-release");
+		expect(planSummary(sample, moved)).toBe("1 item: a move of Release checklist to devbox");
+		expect(itemPreview(moved.items[0]!)).toBeNull();
+	});
+
+	it("opens to where it runs there, what carries over and the automations that follow", () => {
+		expect(itemLines(sample, move("agent-release"), 0)).toEqual([
+			{ label: "Agent", value: "Release checklist" },
+			{ label: "From", value: "Mac" },
+			{ label: "To", value: "devbox" },
+			{ label: "Account", value: "Claude" },
+			{ label: "Model", value: "Default" },
+			{ label: "Where", value: "/home/me/work/MaxHQ" },
+			{ label: "Carries over", value: "Only a summary of the conversation" },
+			{ label: "Automations", value: "2 automations will follow it" },
+		]);
+		const lone = itemLines(sample, move("agent-usage-popover"), 0).map((l) => l.label);
+		expect(lone).not.toContain("Automations");
+	});
+
+	it("says it moved once it ran", () => {
+		const [row] = resultRows(sample, move("agent-release"), [
+			{ type: "started", agent: "agent-new" },
+		]);
+		expect(row).toMatchObject({ line: "Moved", agent: "agent-new", failed: false });
 	});
 });
