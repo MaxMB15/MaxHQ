@@ -1,16 +1,16 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026 Max Boksem
 
-// Settings, in cards as the desktop's: this phone's name and Unpair, what
-// its send button does while an agent works, which pushes it gets, the way
-// to its devices and to pairing, and, by hand, the line that lets it into a
-// device and a form to add one. Opened from the first screen's "Add a
+// Settings, in cards as the desktop's: this phone's name, the Macs it
+// pairs with, what its send button does while an agent works, which pushes
+// it gets, the way to its devices, and, by hand, the line that lets it into
+// a device and a form to add one. Opened from the first screen's "Add a
 // device by hand", the form starts open and in view.
 
 import { type LanguageChoice, useI18n } from "@maxhq/shared/i18n";
 
 import { type ComponentRef, type Ref, useRef, useState } from "react";
-import { Alert, ScrollView, Share, StyleSheet, Text, View } from "react-native";
+import { ScrollView, Share, StyleSheet, Text, View } from "react-native";
 
 import { describe } from "@maxhq/shared/data/request-source";
 import { useNow } from "@maxhq/shared/lib/clock";
@@ -27,23 +27,21 @@ import { Card, CardRow } from "../../ui/Card";
 import { Input } from "../../ui/Field";
 import { Header } from "../../ui/Header";
 import { SendSection } from "../agent/SendSection";
-import { pairedWith, reachSummary } from "../devices/summary";
+import { reachSummary } from "../devices/summary";
 import { DispatcherSection } from "../dispatcher/DispatcherSection";
+import { phoneName, renameNote } from "../macs/macs";
+import { PairedMacsCard } from "../macs/PairedMacsCard";
+import { useMacs } from "../macs/useMacs";
 import { AboutSection } from "../updates/AboutSection";
-
-// Shown when the device turns the unpair away. The phone can't take itself
-// out of a device's book yet, so the Mac does it.
-const UNPAIR_ON_MAC =
-	"This phone can't unpair itself yet. Remove it on the Mac, in Settings, Phones.";
 
 export const PhoneScreen = ({ navigation, route }: ScreenProps<"Settings">) => {
 	const { t } = useI18n();
 
-	const { phone, source } = useServices();
+	const { phone } = useServices();
 	const [key] = useState(() => phone?.phoneKey());
 	const id = key?.status === "ok" ? key.data.phone : null;
-	const named = useView((s) => (id ? s.view.tables.phone.get(id)?.name : undefined));
-	const [unpair, setUnpair] = useState<string | null>(null);
+	const named = useView((s) => (id ? phoneName(s.view, id) : undefined));
+	const { macs } = useMacs();
 	const [byHand, setByHand] = useState(route.params?.byHand === true);
 	const scroll = useRef<ComponentRef<typeof ScrollView>>(null);
 	const form = useRef<ComponentRef<typeof View>>(null);
@@ -72,29 +70,6 @@ export const PhoneScreen = ({ navigation, route }: ScreenProps<"Settings">) => {
 		);
 	}
 
-	const confirmUnpair = () => {
-		if (!id) return;
-		Alert.alert(
-			t("Unpair this phone?"),
-			t("It stops reaching your devices until you pair again."),
-			[
-				{ text: t("Cancel"), style: "cancel" },
-				{
-					text: t("Unpair"),
-					style: "destructive",
-					onPress: () =>
-						void source.removePhone(id).then(
-							(result) =>
-								setUnpair(
-									result.status === "ok" ? t("Unpaired.") : t(UNPAIR_ON_MAC)
-								),
-							() => setUnpair(t(UNPAIR_ON_MAC))
-						),
-				},
-			]
-		);
-	};
-
 	// Scrolls to the form once, when the screen opened with it.
 	const toForm = () => {
 		const content = scroll.current?.getInnerViewRef();
@@ -113,30 +88,13 @@ export const PhoneScreen = ({ navigation, route }: ScreenProps<"Settings">) => {
 				automaticallyAdjustKeyboardInsets
 			>
 				<Card title={t("This phone")}>
-					<CardRow
-						label={t("Name")}
-						note={
-							named
-								? t("How your devices list this phone. Rename it on the Mac.")
-								: undefined
-						}
-					>
+					<CardRow label={t("Name")} note={named ? renameNote(macs) : undefined}>
 						<Text style={styles.value} numberOfLines={1}>
 							{named ?? t("Not paired yet")}
 						</Text>
 					</CardRow>
-					{named ? (
-						<CardRow label={t("Paired with")} note={pairedWith(devices) ?? undefined}>
-							<Button
-								label={t("Unpair")}
-								tone="danger"
-								small
-								onPress={confirmUnpair}
-							/>
-						</CardRow>
-					) : null}
-					{unpair ? <Text style={[styles.note, styles.inCard]}>{unpair}</Text> : null}
 				</Card>
+				<PairedMacsCard phone={phone} onPair={() => navigation.navigate("Scan")} />
 				<LanguageSection />
 				<SendSection />
 				<PushSection />
@@ -148,12 +106,8 @@ export const PhoneScreen = ({ navigation, route }: ScreenProps<"Settings">) => {
 						onPress={() => navigation.navigate("Devices")}
 					/>
 					<CardRow
-						label={t("Pair with a device")}
-						onPress={() => navigation.navigate("Scan")}
-					/>
-					<CardRow
 						label={t("Add a device by hand")}
-						note={t("For a device without the Mac nearby")}
+						note={t("For a device without a Mac nearby")}
 						onPress={() => setByHand((open) => !open)}
 					/>
 					{byHand ? (
@@ -289,7 +243,6 @@ const styles = StyleSheet.create({
 	screen: { flex: 1, backgroundColor: color.background },
 	content: { padding: 14, gap: 14, paddingBottom: 40 },
 	value: { maxWidth: "50%", color: color.secondaryForeground, fontSize: size.small },
-	inCard: { paddingHorizontal: 14, paddingBottom: 12 },
 	byHand: {
 		gap: 16,
 		paddingHorizontal: 14,

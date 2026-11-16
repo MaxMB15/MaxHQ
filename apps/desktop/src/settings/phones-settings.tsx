@@ -5,8 +5,9 @@
 // the one it pairs through and shows the code to scan, and the list below
 // has each paired phone with the devices that let it in, a Remove, a New
 // code for the devices it hasn't signed in to over the network yet, and the
-// switch that lets it do everything, which asks first. A device's own
-// settings take the address the phone dials it at.
+// switch that lets it do everything, which asks first. Once a phone pairs,
+// a device without the APNs key says so, with the way to add it. A
+// device's own settings take the address the phone dials it at.
 
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Fragment, type KeyboardEvent, useMemo, useState } from "react";
@@ -23,6 +24,7 @@ import {
 	pairedPhones,
 	pairingDevice,
 	reachable,
+	withoutPushKey,
 } from "@maxhq/shared/settings/phones";
 import { formatDuration } from "@maxhq/shared/status/format";
 
@@ -30,7 +32,8 @@ import { ConfirmButton, FIELD, PRIMARY, Row, SECONDARY, Section, StatusNote } fr
 import { DeviceTicks, useTicks } from "./login-parts";
 import { failureOf, type Note } from "./result";
 import { Pick } from "./snooze-presets";
-import { t as translate, useI18n } from "@maxhq/shared/i18n";
+import { showPage } from "./store";
+import { formatList, t as translate, useI18n } from "@maxhq/shared/i18n";
 
 const PHONE_DEVICES = "phone-devices";
 
@@ -156,9 +159,12 @@ const AddPhone = ({ devices }: { devices: readonly PhoneDevice[] }) => {
 					<StatusNote note={note} />
 				</span>
 				{paired ? (
-					<span role="status" className="text-[12.5px] text-foreground">
-						{paired.name} {translate(" is paired.")}
-					</span>
+					<div className="flex flex-col gap-2">
+						<span role="status" className="text-[12.5px] text-foreground">
+							{paired.name} {translate(" is paired.")}
+						</span>
+						<NoPushKey names={withoutPushKey(view, paired)} />
+					</div>
 				) : pairing && !expired ? (
 					<div className="flex items-end gap-4">
 						<Code pairing={pairing.code} />
@@ -176,6 +182,31 @@ const AddPhone = ({ devices }: { devices: readonly PhoneDevice[] }) => {
 				) : null}
 			</div>
 		</Section>
+	);
+};
+
+/**
+ * The devices a new phone paired with that hold no APNs key, which can't
+ * push to it until they get one, with the way to the key's page.
+ */
+const NoPushKey = ({ names }: { names: readonly string[] }) => {
+	useI18n();
+	const services = useServices();
+	if (names.length === 0) return null;
+	return (
+		<span className="flex flex-wrap items-center gap-2.5 text-xs text-muted-foreground">
+			{translate("{{devices}} has no APNs key yet, so it can't push to the phone.", {
+				devices: formatList(names),
+				count: names.length,
+			})}
+			<button
+				type="button"
+				className={SECONDARY}
+				onClick={() => showPage(services, { kind: "login", login: "apns" })}
+			>
+				{translate("Add the key file")}
+			</button>
+		</span>
 	);
 };
 

@@ -331,7 +331,7 @@ async fn a_proof_naming_another_certificate_opens_nothing_here() {
     let pin = state.pin.clone().unwrap();
     let mut phone = Phone::new(state.port, &pin);
     let book = crate::phones::book_for_tests();
-    let ActionOutcome::PhonePair { pair, seed, .. } = phones.begin(book) else {
+    let ActionOutcome::PhonePair { pair, seed, .. } = phones.begin(book, None) else {
         panic!("expected a pairing");
     };
     let pairing = NetPair {
@@ -385,7 +385,8 @@ async fn a_proof_naming_another_certificate_opens_nothing_here() {
 /// Pairs a phone over `phone`, and gives its token.
 async fn paired_token(phone: &mut Phone) -> String {
     let phones = crate::phones::installed().unwrap();
-    let ActionOutcome::PhonePair { pair, seed, .. } = phones.begin(crate::phones::book_for_tests())
+    let ActionOutcome::PhonePair { pair, seed, .. } =
+        phones.begin(crate::phones::book_for_tests(), None)
     else {
         panic!("expected a pairing");
     };
@@ -553,7 +554,7 @@ async fn a_phone_pairs_trades_a_code_and_links_until_its_session_ends() {
 
     // Pair with the seed of a real pairing.
     let book = crate::phones::book_for_tests();
-    let ActionOutcome::PhonePair { pair, seed, .. } = phones.begin(book.clone()) else {
+    let ActionOutcome::PhonePair { pair, seed, .. } = phones.begin(book.clone(), None) else {
         panic!("expected a pairing");
     };
     let pairing = |seed: Secret| NetPair {
@@ -718,7 +719,7 @@ async fn a_message_past_the_limit_ends_the_link() {
     let (_access, state) = listening(&served, &dir).await;
     let mut phone = Phone::new(state.port, state.pin.as_deref().unwrap());
     let book = crate::phones::book_for_tests();
-    let ActionOutcome::PhonePair { pair, seed, .. } = phones.begin(book) else {
+    let ActionOutcome::PhonePair { pair, seed, .. } = phones.begin(book, None) else {
         panic!("expected a pairing");
     };
     let pairing = NetPair {
@@ -915,7 +916,7 @@ mod phone_core {
             host_key: String::new(),
             network: Some(network.clone()),
         }];
-        let ActionOutcome::PhonePair { pair, seed, .. } = phones.begin(book.clone()) else {
+        let ActionOutcome::PhonePair { pair, seed, .. } = phones.begin(book.clone(), None) else {
             panic!("expected a pairing");
         };
         let seed: [u8; 32] = STANDARD.decode(seed.expose()).unwrap().try_into().unwrap();

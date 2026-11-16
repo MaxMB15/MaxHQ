@@ -133,6 +133,7 @@ impl Transport for Fake {
         &'a self,
         route: &'a Route,
         _config: Option<&'a SshConfig>,
+        _device: Option<DeviceId>,
     ) -> BoxFuture<'a, Result<Conn, DialError>> {
         Box::pin(async move {
             self.dials.fetch_add(1, Ordering::SeqCst);

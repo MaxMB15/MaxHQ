@@ -1,4 +1,5 @@
 {
+	"Add the key file": "Schlüsseldatei hinzufügen",
 	"Removing": "Wird entfernt",
 	"Couldn't remove the ACP agent": "ACP-Agent konnte nicht entfernt werden",
 	"Couldn't remove it. Try again.": "Entfernen fehlgeschlagen. Versuche es erneut.",
@@ -37,6 +38,9 @@
 	"Variable name": "Variablenname",
 	"Value of {{label}}": "Wert von {{label}}",
 	"Value": "Wert",
+	"{{devices}} has no APNs key yet, so it can't push to the phone.": "{{devices}} haben noch keinen APNs-Schlüssel und können dem Telefon daher keine Push-Mitteilungen senden.",
+	"{{devices}} has no APNs key yet, so it can't push to the phone._one": "{{devices}} hat noch keinen APNs-Schlüssel und kann dem Telefon daher keine Push-Mitteilungen senden.",
+	"{{devices}} has no APNs key yet, so it can't push to the phone._other": "{{devices}} haben noch keinen APNs-Schlüssel und können dem Telefon daher keine Push-Mitteilungen senden.",
 	"{{name}} is set": "{{name}} ist gesetzt",
 	"Keep {{name}}": "{{name}} behalten",
 	"Replace {{name}}": "{{name}} ersetzen",

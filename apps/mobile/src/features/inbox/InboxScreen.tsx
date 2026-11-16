@@ -11,7 +11,8 @@
 // to settle or snooze it where its device keeps inboxes, and a long press
 // opens the rest of its menu. Pulling the list down tries the devices
 // again. Before the phone is paired with anything, it shows how to pair
-// instead.
+// instead. With several Macs each row carries its Mac's tag, or a switch on
+// top shows one Mac at a time.
 
 import { t, useI18n, formatNumber } from "@maxhq/shared/i18n";
 
@@ -59,6 +60,10 @@ import { AdmissionCard } from "../attention/AdmissionCard";
 import { AttentionCard } from "../attention/AttentionCard";
 import { promptOfEvent } from "../attention/prompt";
 import { createRenameDialog } from "../agent/more";
+import { tagOf } from "../macs/macs";
+import { MacSwitch } from "../macs/MacSwitch";
+import { MacTag } from "../macs/MacTag";
+import { useMacs, useMacView } from "../macs/useMacs";
 import { RenameDialog } from "../agent/RenameDialog";
 import { renamesOf } from "../agent/renames";
 import { reachSummary } from "../devices/summary";
@@ -187,7 +192,10 @@ export const InboxScreen = ({ navigation }: ScreenProps<"Inbox">) => {
 	const { t } = useI18n();
 
 	const services = useServices();
-	const view = useView((s) => s.view);
+	const whole = useView((s) => s.view);
+	// Showing one Mac at a time, the list holds only that Mac's.
+	const macs = useMacs();
+	const view = useMacView(whole, macs);
 	const status = useView((s) => s.status);
 	const now = useNow(60_000);
 	const [closed, setClosed] = useState<ReadonlySet<string>>(new Set());
@@ -200,7 +208,9 @@ export const InboxScreen = ({ navigation }: ScreenProps<"Inbox">) => {
 
 	const devices = deviceReach(view, now);
 	const items = itemsOf(view, now, closed, shown);
-	const unpaired = status.state !== "loading" && devices.length === 0;
+	const unpaired =
+		status.state !== "loading" &&
+		(view === whole ? devices : deviceReach(whole, now)).length === 0;
 
 	const open = (agent: Agent) =>
 		navigation.navigate("Agent", {
@@ -245,13 +255,23 @@ export const InboxScreen = ({ navigation }: ScreenProps<"Inbox">) => {
 		const workspace = view.tables.workspace.get(agent.workspace);
 		return workspace ? deviceName(view, workspace.device) : t("Unknown device");
 	};
+	// The Mac tag on a row, while several Macs show together.
+	const tagFor = (agent: Agent) => tagOf(whole, macs.places, macs.mode, agent);
 
 	const renderItem = ({ item }: { item: Item }) => {
 		switch (item.kind) {
 			case "admission":
 				return <AdmissionCard admission={item.admission} view={view} />;
 			case "needs":
-				return <NeedsYou items={item.items} placeOf={placeOf} onOpen={open} now={now} />;
+				return (
+					<NeedsYou
+						items={item.items}
+						placeOf={placeOf}
+						tagOf={tagFor}
+						onOpen={open}
+						now={now}
+					/>
+				);
 			case "group":
 				return (
 					<Pressable
@@ -333,6 +353,7 @@ export const InboxScreen = ({ navigation }: ScreenProps<"Inbox">) => {
 						agent={agent}
 						level={level}
 						place={placeOf(agent)}
+						tag={tagFor(agent)}
 						actions={actionsOf(agent)}
 						onOpen={open}
 						onMore={() => openInboxSheet(services, agent, dialog)}
@@ -357,6 +378,7 @@ export const InboxScreen = ({ navigation }: ScreenProps<"Inbox">) => {
 			contentContainerStyle={styles.content}
 			keyboardShouldPersistTaps="handled"
 			refreshControl={refreshControl}
+			ListHeaderComponent={<MacSwitch view={whole} macs={macs} />}
 			ListEmptyComponent={
 				<Text style={styles.note}>
 					{status.state === "loading"
@@ -448,11 +470,13 @@ export const InboxScreen = ({ navigation }: ScreenProps<"Inbox">) => {
 const NeedsYou = ({
 	items,
 	placeOf,
+	tagOf,
 	onOpen,
 	now,
 }: {
 	items: readonly NeedsYouItem[];
 	placeOf: (agent: Agent) => string;
+	tagOf: (agent: Agent) => string | null;
 	onOpen: (agent: Agent) => void;
 	now: number;
 }) => {
@@ -467,14 +491,16 @@ const NeedsYou = ({
 					<Text style={styles.needsCountText}>{formatNumber(items.length)}</Text>
 				</View>
 			</View>
-			{items.map(({ agent, attention }) =>
-				attention ? (
+			{items.map(({ agent, attention }) => {
+				const tag = tagOf(agent);
+				return attention ? (
 					<AttentionCard
 						key={agent.id}
 						prompt={promptOfEvent(attention)}
 						vendor={agent.vendor}
 						title={agent.title}
 						place={placeOf(agent)}
+						tag={tag ? <MacTag name={tag} /> : undefined}
 						onOpen={() => onOpen(agent)}
 					/>
 				) : (
@@ -497,12 +523,13 @@ const NeedsYou = ({
 								{t("Waiting on you, on {{device}}", { device: placeOf(agent) })}
 							</Text>
 						</View>
+						{tag ? <MacTag name={tag} /> : null}
 						<Text style={styles.meta}>
 							{formatAgoShort(agent.last_activity_at, now)}
 						</Text>
 					</Pressable>
-				)
-			)}
+				);
+			})}
 		</View>
 	);
 };
@@ -511,6 +538,7 @@ const AgentRow = ({
 	agent,
 	level,
 	place,
+	tag,
 	actions,
 	onOpen,
 	onMore,
@@ -520,6 +548,8 @@ const AgentRow = ({
 	agent: Agent;
 	level: number;
 	place: string;
+	/** The short name of the agent's Mac, while several Macs show together. */
+	tag: string | null;
 	actions: readonly SwipeAction[];
 	onOpen: (agent: Agent) => void;
 	onMore: () => void;
@@ -547,6 +577,7 @@ const AgentRow = ({
 						{rowSubtitle(agent.vendor, place, look)}
 					</Text>
 				</View>
+				{tag ? <MacTag name={tag} /> : null}
 				{meta.kind === "input" ? (
 					<Pill label={t("Input")} tone="ready" />
 				) : (

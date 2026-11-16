@@ -1,4 +1,5 @@
 {
+	"Add the key file": "Ajouter le fichier de clé",
 	"Removing": "Suppression",
 	"Couldn't remove the ACP agent": "Impossible de supprimer l'agent ACP",
 	"Couldn't remove it. Try again.": "Suppression impossible. Réessayez.",
@@ -37,6 +38,10 @@
 	"Variable name": "Nom de la variable",
 	"Value of {{label}}": "Valeur de {{label}}",
 	"Value": "Valeur",
+	"{{devices}} has no APNs key yet, so it can't push to the phone.": "{{devices}} n'ont pas encore de clé APNs et ne peuvent donc pas envoyer de notifications au téléphone.",
+	"{{devices}} has no APNs key yet, so it can't push to the phone._many": "{{devices}} n'ont pas encore de clé APNs et ne peuvent donc pas envoyer de notifications au téléphone.",
+	"{{devices}} has no APNs key yet, so it can't push to the phone._one": "{{devices}} n'a pas encore de clé APNs et ne peut donc pas envoyer de notifications au téléphone.",
+	"{{devices}} has no APNs key yet, so it can't push to the phone._other": "{{devices}} n'ont pas encore de clé APNs et ne peuvent donc pas envoyer de notifications au téléphone.",
 	"{{name}} is set": "{{name}} est définie",
 	"Keep {{name}}": "Conserver {{name}}",
 	"Replace {{name}}": "Remplacer {{name}}",

@@ -1115,8 +1115,8 @@ impl Connection {
                 self.answer_when(key, tokio::task::spawn_blocking(undo));
                 Ok(())
             }
-            ClientMessage::BeginPhonePair { key, book } => {
-                let begin = move || crate::phones::with(|phones| phones.begin(book));
+            ClientMessage::BeginPhonePair { key, book, mac } => {
+                let begin = move || crate::phones::with(|phones| phones.begin(book, mac));
                 self.answer_when(key, tokio::task::spawn_blocking(begin));
                 Ok(())
             }
@@ -1167,8 +1167,13 @@ impl Connection {
                 self.answer_when(key, tokio::task::spawn_blocking(revoke));
                 Ok(())
             }
-            ClientMessage::SetPhoneBook { key, phone, book } => {
-                let set = move || crate::phones::with(|phones| phones.set_book(phone, book));
+            ClientMessage::SetPhoneBook {
+                key,
+                phone,
+                book,
+                mac,
+            } => {
+                let set = move || crate::phones::with(|phones| phones.set_book(phone, book, mac));
                 self.answer_when(key, tokio::task::spawn_blocking(set));
                 Ok(())
             }
@@ -2373,9 +2378,14 @@ pub(crate) mod tests {
             network: None,
         }];
         let (mut app, _) = TestClient::greeted(&served.socket).await;
+        let home = maxhq_protocol::phones::PhoneMac {
+            device: DeviceId::derive("Home Mac"),
+            name: "Home Mac".into(),
+        };
         app.send(&ClientMessage::BeginPhonePair {
             key: IdempotencyKey::derive("begin"),
             book: book.clone(),
+            mac: Some(home.clone()),
         })
         .await;
         let ServerMessage::ActionResult {
@@ -2419,10 +2429,16 @@ pub(crate) mod tests {
         pairing.send(&pair_phone("pair")).await;
         let phone = match pairing.recv().await {
             ServerMessage::ActionResult {
-                outcome: ActionOutcome::PhonePaired { phone, book: got },
+                outcome:
+                    ActionOutcome::PhonePaired {
+                        phone,
+                        book: got,
+                        mac,
+                    },
                 ..
             } => {
                 assert_eq!(got, book);
+                assert_eq!(mac, Some(home), "the phone hears which Mac paired it");
                 phone
             }
             other => panic!("{other:?}"),
@@ -2510,6 +2526,7 @@ pub(crate) mod tests {
             ClientMessage::BeginPhonePair {
                 key: IdempotencyKey::derive("begin-phone"),
                 book: book.clone(),
+                mac: None,
             },
             add("add-phone", 202),
             ClientMessage::AuthorizePeer {
@@ -3450,6 +3467,7 @@ pub(crate) mod tests {
             ClientMessage::BeginPhonePair {
                 key: key("pair"),
                 book: Vec::new(),
+                mac: None,
             },
             ClientMessage::AddPhone {
                 key: key("add-another"),
@@ -3504,6 +3522,7 @@ pub(crate) mod tests {
                 key: key("phone-book"),
                 phone,
                 book: Vec::new(),
+                mac: None,
             },
             ClientMessage::SetPhoneEverything {
                 key: key("everything"),

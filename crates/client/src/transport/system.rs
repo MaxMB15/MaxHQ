@@ -13,6 +13,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use futures::future::BoxFuture;
+use maxhq_protocol::ids::DeviceId;
 use maxhq_protocol::link::Route;
 use openssh::{ControlPersist, KnownHosts, Session, SessionBuilder, Stdio};
 use tokio::net::UnixStream;
@@ -85,6 +86,7 @@ impl Transport for System {
         &'a self,
         route: &'a Route,
         config: Option<&'a SshConfig>,
+        _device: Option<DeviceId>,
     ) -> BoxFuture<'a, Result<Conn, DialError>> {
         Box::pin(async move {
             match route {
@@ -147,6 +149,7 @@ impl Transport for Pinned {
         &'a self,
         route: &'a Route,
         _config: Option<&'a SshConfig>,
+        _device: Option<DeviceId>,
     ) -> BoxFuture<'a, Result<Conn, DialError>> {
         Box::pin(async move {
             let Route::Ssh { host } = route else {

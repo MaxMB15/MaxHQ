@@ -24,6 +24,7 @@ use futures::stream::{SplitSink, SplitStream};
 use futures::{SinkExt, StreamExt};
 use http_body_util::{BodyExt, Full, Limited};
 use hyper::header::{HeaderName, HeaderValue, CONTENT_TYPE, HOST};
+use maxhq_protocol::ids::DeviceId;
 use maxhq_protocol::link::Route;
 use maxhq_protocol::netaccess::{NetError, NetRefusal, MAX_LINK_MESSAGE};
 use rustls::client::danger::{HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier};
@@ -138,26 +139,35 @@ impl PhoneWs {
         }
     }
 
-    /// Lets the phone reach a device on `routes`, each trusting only its
+    /// Lets the phone reach `device` on `routes`, each trusting only its
     /// pin, with `headers` for every upgrade, and returns the routes in
     /// their order, for a [`crate::LinkSpec`]. `ended` hears when the
     /// device ends the phone's sign-in. A route trusted again replaces
     /// what it had.
-    pub fn trust(&self, routes: &[WsRoute], headers: &Headers, ended: &Ended) -> Vec<Route> {
-        self.logins.trust(routes.iter().map(|route| {
-            let login = Login {
-                route: route.clone(),
-                headers: Arc::clone(headers),
-                ended: Arc::clone(ended),
-            };
-            (super::ws_route_host(&route.host, route.port), login)
-        }))
+    pub fn trust(
+        &self,
+        device: DeviceId,
+        routes: &[WsRoute],
+        headers: &Headers,
+        ended: &Ended,
+    ) -> Vec<Route> {
+        self.logins.trust(
+            device,
+            routes.iter().map(|route| {
+                let login = Login {
+                    route: route.clone(),
+                    headers: Arc::clone(headers),
+                    ended: Arc::clone(ended),
+                };
+                (super::ws_route_host(&route.host, route.port), login)
+            }),
+        )
     }
 
-    /// Whether `name` is one of its routes.
+    /// Whether `name` is one of `device`'s routes.
     #[cfg(feature = "russh")]
-    pub(crate) fn knows(&self, name: &str) -> bool {
-        self.logins.knows(name)
+    pub(crate) fn knows(&self, device: Option<DeviceId>, name: &str) -> bool {
+        self.logins.knows(device, name)
     }
 
     /// Posts `body` as JSON to `path` on `route`, such as `/pair` or
@@ -222,9 +232,9 @@ impl PhoneWs {
             .map_err(|err| tls_failure(&err))
     }
 
-    /// Opens the link's WebSocket on the route `name`.
-    async fn open(&self, name: &str) -> Result<Conn, DialError> {
-        let login = self.logins.get(name)?;
+    /// Opens the link's WebSocket on the route `name` to `device`.
+    async fn open(&self, device: Option<DeviceId>, name: &str) -> Result<Conn, DialError> {
+        let login = self.logins.get(device, name)?;
         let opening = async {
             let url = format!(
                 "wss://{}{LINK_PATH}",
@@ -273,6 +283,7 @@ impl Transport for PhoneWs {
         &'a self,
         route: &'a Route,
         _config: Option<&'a SshConfig>,
+        device: Option<DeviceId>,
     ) -> BoxFuture<'a, Result<Conn, DialError>> {
         Box::pin(async move {
             let Route::Ssh { host } = route else {
@@ -280,7 +291,7 @@ impl Transport for PhoneWs {
                     "the phone reaches devices over the network",
                 ));
             };
-            self.open(host).await
+            self.open(device, host).await
         })
     }
 

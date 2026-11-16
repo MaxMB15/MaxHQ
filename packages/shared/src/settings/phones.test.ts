@@ -7,7 +7,7 @@ import type { Entity, Phone, PhoneDevice } from "../bindings";
 import { device, entities, NOW } from "../test/build";
 import { applySnapshot } from "../view/replica";
 
-import { letsPhone, pairedPhones, pairingDevice, reachable } from "./phones";
+import { letsPhone, pairedPhones, pairingDevice, reachable, withoutPushKey } from "./phones";
 
 const phone = (over: Partial<Phone> & { device: string }): Entity => ({
 	entity: "phone",
@@ -81,6 +81,31 @@ describe("phones", () => {
 		expect(pairingDevice(v, ["mac", "devbox"])).toBe("devbox");
 		expect(pairingDevice(v, ["mac"])).toBe("mac");
 		expect(pairingDevice(v, [])).toBeNull();
+	});
+
+	it("names a new phone's devices that hold no APNs key", () => {
+		const key = (device: string, type: "apns" | "github_user"): Entity =>
+			({
+				entity: "credential",
+				id: `cred-${type}-${device}`,
+				device,
+				kind:
+					type === "apns"
+						? { type, key_id: "ABC123DEFG", team_id: "TEAM" }
+						: { type, login: "me" },
+				stored_at: NOW,
+				problem: null,
+			}) as Entity;
+		const v = view([
+			phone({ device: "devbox" }),
+			phone({ device: "ws-alpha" }),
+			key("devbox", "apns"),
+			key("ws-alpha", "github_user"),
+		]);
+		const [paired] = pairedPhones(v);
+		expect(withoutPushKey(v, paired!)).toEqual(["ws-alpha"]);
+		const keyed = view([phone({ device: "devbox" }), key("devbox", "apns")]);
+		expect(withoutPushKey(keyed, pairedPhones(keyed)[0]!)).toEqual([]);
 	});
 });
 

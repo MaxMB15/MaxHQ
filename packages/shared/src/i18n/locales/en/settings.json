@@ -1,4 +1,5 @@
 {
+	"Add the key file": "Add the key file",
 	"Removing": "Removing",
 	"Couldn't remove the ACP agent": "Couldn't remove the ACP agent",
 	"Couldn't remove it. Try again.": "Couldn't remove it. Try again.",
@@ -37,6 +38,9 @@
 	"Variable name": "Variable name",
 	"Value of {{label}}": "Value of {{label}}",
 	"Value": "Value",
+	"{{devices}} has no APNs key yet, so it can't push to the phone.": "{{devices}} have no APNs key yet, so they can't push to the phone.",
+	"{{devices}} has no APNs key yet, so it can't push to the phone._one": "{{devices}} has no APNs key yet, so it can't push to the phone.",
+	"{{devices}} has no APNs key yet, so it can't push to the phone._other": "{{devices}} have no APNs key yet, so they can't push to the phone.",
 	"{{name}} is set": "{{name}} is set",
 	"Keep {{name}}": "Keep {{name}}",
 	"Replace {{name}}": "Replace {{name}}",

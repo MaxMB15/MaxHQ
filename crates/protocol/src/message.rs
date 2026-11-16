@@ -30,7 +30,7 @@ use crate::model::{
     Tool, Vendor, WorkspaceSpec,
 };
 use crate::notes::{NoteId, NoteVersion, NoteVersionInfo, VersionHash};
-use crate::phones::{PhoneBookEntry, PushToken};
+use crate::phones::{PhoneBookEntry, PhoneMac, PushToken};
 use crate::processes::{ProcessList, ProcessSignal};
 use crate::pulls::{
     ChecksState, PullAction, PullCheck, PullComment, PullDetail, PullFile, PullListState,
@@ -1813,6 +1813,10 @@ pub enum ClientMessage {
         key: IdempotencyKey,
         /// The devices the phone may reach, with their routes resolved.
         book: Vec<PhoneBookEntry>,
+        /// The Mac that pairs it, which the phone names the book by. An
+        /// older Mac leaves it out.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        mac: Option<PhoneMac>,
     },
     /// Pairs the phone on a connection a one-time key opened. `maxd` swaps
     /// that key for the phone's own and keeps the book for it. The outcome
@@ -1866,6 +1870,10 @@ pub enum ClientMessage {
         phone: PhoneId,
         /// The devices.
         book: Vec<PhoneBookEntry>,
+        /// The Mac that sends it. An older Mac leaves it out, and the
+        /// device keeps the one it has.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        mac: Option<PhoneMac>,
     },
     /// Lets a phone do what only the Mac does here, short of letting other
     /// keys in, or stops it. Only the Mac sends it.
@@ -3030,6 +3038,9 @@ pub enum ActionOutcome {
         phone: PhoneId,
         /// The devices it may reach.
         book: Vec<PhoneBookEntry>,
+        /// The Mac that paired it, when the Mac said.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        mac: Option<PhoneMac>,
     },
     /// The phone is let in, from [`ClientMessage::AddPhone`] on a device
     /// whose network access is on.
@@ -5377,6 +5388,7 @@ mod tests {
                 ClientMessage::BeginPhonePair {
                     key: key(),
                     book: book.clone(),
+                    mac: None,
                 },
                 "begin_phone_pair",
             ),
@@ -5415,6 +5427,7 @@ mod tests {
                     key: key(),
                     phone,
                     book: book.clone(),
+                    mac: None,
                 },
                 "set_phone_book",
             ),
@@ -5468,7 +5481,14 @@ mod tests {
                 },
                 "phone_pair",
             ),
-            (ActionOutcome::PhonePaired { phone, book }, "phone_paired"),
+            (
+                ActionOutcome::PhonePaired {
+                    phone,
+                    book,
+                    mac: None,
+                },
+                "phone_paired",
+            ),
             (
                 ActionOutcome::PhoneAdded {
                     code: Secret::new("test-not-a-real-code".into()),

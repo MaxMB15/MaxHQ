@@ -227,6 +227,10 @@ extern "C" {
         RustBuffer state, 
         RustCallStatus *uniffi_out_err
     );
+    RustBuffer uniffi_maxhq_mobile_fn_func_forget_mac(
+        RustBuffer keeper, 
+        RustCallStatus *uniffi_out_err
+    );
     /*handle*/ uint64_t uniffi_maxhq_mobile_fn_func_media(
         RustBuffer agent, 
         RustBuffer path, 
@@ -244,6 +248,12 @@ extern "C" {
     /*handle*/ uint64_t uniffi_maxhq_mobile_fn_func_pair(
         RustBuffer code, 
         RustBuffer name
+    );
+    RustBuffer uniffi_maxhq_mobile_fn_func_pair_code_mac(
+        RustBuffer code, 
+        RustCallStatus *uniffi_out_err
+    );
+    RustBuffer uniffi_maxhq_mobile_fn_func_paired_macs(RustCallStatus *uniffi_out_err
     );
     RustBuffer uniffi_maxhq_mobile_fn_func_phone_key(RustCallStatus *uniffi_out_err
     );
@@ -469,6 +479,8 @@ extern "C" {
     );
     uint16_t uniffi_maxhq_mobile_checksum_func_app_state(
     );
+    uint16_t uniffi_maxhq_mobile_checksum_func_forget_mac(
+    );
     uint16_t uniffi_maxhq_mobile_checksum_func_media(
     );
     uint16_t uniffi_maxhq_mobile_checksum_func_network_changed(
@@ -476,6 +488,10 @@ extern "C" {
     uint16_t uniffi_maxhq_mobile_checksum_func_open_timeline(
     );
     uint16_t uniffi_maxhq_mobile_checksum_func_pair(
+    );
+    uint16_t uniffi_maxhq_mobile_checksum_func_pair_code_mac(
+    );
+    uint16_t uniffi_maxhq_mobile_checksum_func_paired_macs(
     );
     uint16_t uniffi_maxhq_mobile_checksum_func_phone_key(
     );
@@ -3486,6 +3502,14 @@ NativeMaxhqMobile::NativeMaxhqMobile(
             return this->cpp_uniffi_maxhq_mobile_fn_func_app_state(rt, thisVal, args, count);
         }
     );
+    props["ubrn_uniffi_maxhq_mobile_fn_func_forget_mac"] = jsi::Function::createFromHostFunction(
+        rt,
+        jsi::PropNameID::forAscii(rt, "ubrn_uniffi_maxhq_mobile_fn_func_forget_mac"),
+        1,
+        [this](jsi::Runtime &rt, const jsi::Value &thisVal, const jsi::Value *args, size_t count) -> jsi::Value {
+            return this->cpp_uniffi_maxhq_mobile_fn_func_forget_mac(rt, thisVal, args, count);
+        }
+    );
     props["ubrn_uniffi_maxhq_mobile_fn_func_media"] = jsi::Function::createFromHostFunction(
         rt,
         jsi::PropNameID::forAscii(rt, "ubrn_uniffi_maxhq_mobile_fn_func_media"),
@@ -3516,6 +3540,22 @@ NativeMaxhqMobile::NativeMaxhqMobile(
         2,
         [this](jsi::Runtime &rt, const jsi::Value &thisVal, const jsi::Value *args, size_t count) -> jsi::Value {
             return this->cpp_uniffi_maxhq_mobile_fn_func_pair(rt, thisVal, args, count);
+        }
+    );
+    props["ubrn_uniffi_maxhq_mobile_fn_func_pair_code_mac"] = jsi::Function::createFromHostFunction(
+        rt,
+        jsi::PropNameID::forAscii(rt, "ubrn_uniffi_maxhq_mobile_fn_func_pair_code_mac"),
+        1,
+        [this](jsi::Runtime &rt, const jsi::Value &thisVal, const jsi::Value *args, size_t count) -> jsi::Value {
+            return this->cpp_uniffi_maxhq_mobile_fn_func_pair_code_mac(rt, thisVal, args, count);
+        }
+    );
+    props["ubrn_uniffi_maxhq_mobile_fn_func_paired_macs"] = jsi::Function::createFromHostFunction(
+        rt,
+        jsi::PropNameID::forAscii(rt, "ubrn_uniffi_maxhq_mobile_fn_func_paired_macs"),
+        0,
+        [this](jsi::Runtime &rt, const jsi::Value &thisVal, const jsi::Value *args, size_t count) -> jsi::Value {
+            return this->cpp_uniffi_maxhq_mobile_fn_func_paired_macs(rt, thisVal, args, count);
         }
     );
     props["ubrn_uniffi_maxhq_mobile_fn_func_phone_key"] = jsi::Function::createFromHostFunction(
@@ -3966,6 +4006,14 @@ NativeMaxhqMobile::NativeMaxhqMobile(
             return this->cpp_uniffi_maxhq_mobile_checksum_func_app_state(rt, thisVal, args, count);
         }
     );
+    props["ubrn_uniffi_maxhq_mobile_checksum_func_forget_mac"] = jsi::Function::createFromHostFunction(
+        rt,
+        jsi::PropNameID::forAscii(rt, "ubrn_uniffi_maxhq_mobile_checksum_func_forget_mac"),
+        0,
+        [this](jsi::Runtime &rt, const jsi::Value &thisVal, const jsi::Value *args, size_t count) -> jsi::Value {
+            return this->cpp_uniffi_maxhq_mobile_checksum_func_forget_mac(rt, thisVal, args, count);
+        }
+    );
     props["ubrn_uniffi_maxhq_mobile_checksum_func_media"] = jsi::Function::createFromHostFunction(
         rt,
         jsi::PropNameID::forAscii(rt, "ubrn_uniffi_maxhq_mobile_checksum_func_media"),
@@ -3996,6 +4044,22 @@ NativeMaxhqMobile::NativeMaxhqMobile(
         0,
         [this](jsi::Runtime &rt, const jsi::Value &thisVal, const jsi::Value *args, size_t count) -> jsi::Value {
             return this->cpp_uniffi_maxhq_mobile_checksum_func_pair(rt, thisVal, args, count);
+        }
+    );
+    props["ubrn_uniffi_maxhq_mobile_checksum_func_pair_code_mac"] = jsi::Function::createFromHostFunction(
+        rt,
+        jsi::PropNameID::forAscii(rt, "ubrn_uniffi_maxhq_mobile_checksum_func_pair_code_mac"),
+        0,
+        [this](jsi::Runtime &rt, const jsi::Value &thisVal, const jsi::Value *args, size_t count) -> jsi::Value {
+            return this->cpp_uniffi_maxhq_mobile_checksum_func_pair_code_mac(rt, thisVal, args, count);
+        }
+    );
+    props["ubrn_uniffi_maxhq_mobile_checksum_func_paired_macs"] = jsi::Function::createFromHostFunction(
+        rt,
+        jsi::PropNameID::forAscii(rt, "ubrn_uniffi_maxhq_mobile_checksum_func_paired_macs"),
+        0,
+        [this](jsi::Runtime &rt, const jsi::Value &thisVal, const jsi::Value *args, size_t count) -> jsi::Value {
+            return this->cpp_uniffi_maxhq_mobile_checksum_func_paired_macs(rt, thisVal, args, count);
         }
     );
     props["ubrn_uniffi_maxhq_mobile_checksum_func_phone_key"] = jsi::Function::createFromHostFunction(
@@ -4471,6 +4535,16 @@ jsi::Value NativeMaxhqMobile::cpp_uniffi_maxhq_mobile_fn_func_app_state(jsi::Run
         
         return uniffi::maxhq_mobile::Bridging<RustBuffer>::toJs(rt, callInvoker, value);
 }
+jsi::Value NativeMaxhqMobile::cpp_uniffi_maxhq_mobile_fn_func_forget_mac(jsi::Runtime& rt, const jsi::Value& thisVal, const jsi::Value* args, size_t count) {
+        RustCallStatus status = uniffi::maxhq_mobile::Bridging<RustCallStatus>::rustSuccess(rt);
+        auto value = uniffi_maxhq_mobile_fn_func_forget_mac(uniffi::maxhq_mobile::Bridging<RustBuffer>::fromJs(rt, callInvoker, args[0]), 
+            &status
+        );
+        uniffi::maxhq_mobile::Bridging<RustCallStatus>::copyIntoJs(rt, callInvoker, status, args[count - 1]);
+
+        
+        return uniffi::maxhq_mobile::Bridging<RustBuffer>::toJs(rt, callInvoker, value);
+}
 jsi::Value NativeMaxhqMobile::cpp_uniffi_maxhq_mobile_fn_func_media(jsi::Runtime& rt, const jsi::Value& thisVal, const jsi::Value* args, size_t count) {
         auto value = uniffi_maxhq_mobile_fn_func_media(uniffi::maxhq_mobile::Bridging<RustBuffer>::fromJs(rt, callInvoker, args[0]), uniffi::maxhq_mobile::Bridging<RustBuffer>::fromJs(rt, callInvoker, args[1]), uniffi_jsi::Bridging<uint32_t>::fromJs(rt, callInvoker, args[2]), uniffi_jsi::Bridging</*handle*/ uint64_t>::fromJs(rt, callInvoker, args[3])
         );
@@ -4501,6 +4575,25 @@ jsi::Value NativeMaxhqMobile::cpp_uniffi_maxhq_mobile_fn_func_pair(jsi::Runtime&
 
         
         return uniffi_jsi::Bridging</*handle*/ uint64_t>::toJs(rt, callInvoker, value);
+}
+jsi::Value NativeMaxhqMobile::cpp_uniffi_maxhq_mobile_fn_func_pair_code_mac(jsi::Runtime& rt, const jsi::Value& thisVal, const jsi::Value* args, size_t count) {
+        RustCallStatus status = uniffi::maxhq_mobile::Bridging<RustCallStatus>::rustSuccess(rt);
+        auto value = uniffi_maxhq_mobile_fn_func_pair_code_mac(uniffi::maxhq_mobile::Bridging<RustBuffer>::fromJs(rt, callInvoker, args[0]), 
+            &status
+        );
+        uniffi::maxhq_mobile::Bridging<RustCallStatus>::copyIntoJs(rt, callInvoker, status, args[count - 1]);
+
+        
+        return uniffi::maxhq_mobile::Bridging<RustBuffer>::toJs(rt, callInvoker, value);
+}
+jsi::Value NativeMaxhqMobile::cpp_uniffi_maxhq_mobile_fn_func_paired_macs(jsi::Runtime& rt, const jsi::Value& thisVal, const jsi::Value* args, size_t count) {
+        RustCallStatus status = uniffi::maxhq_mobile::Bridging<RustCallStatus>::rustSuccess(rt);
+        auto value = uniffi_maxhq_mobile_fn_func_paired_macs(&status
+        );
+        uniffi::maxhq_mobile::Bridging<RustCallStatus>::copyIntoJs(rt, callInvoker, status, args[count - 1]);
+
+        
+        return uniffi::maxhq_mobile::Bridging<RustBuffer>::toJs(rt, callInvoker, value);
 }
 jsi::Value NativeMaxhqMobile::cpp_uniffi_maxhq_mobile_fn_func_phone_key(jsi::Runtime& rt, const jsi::Value& thisVal, const jsi::Value* args, size_t count) {
         RustCallStatus status = uniffi::maxhq_mobile::Bridging<RustCallStatus>::rustSuccess(rt);
@@ -4944,6 +5037,13 @@ jsi::Value NativeMaxhqMobile::cpp_uniffi_maxhq_mobile_checksum_func_app_state(js
         
         return uniffi_jsi::Bridging<uint16_t>::toJs(rt, callInvoker, value);
 }
+jsi::Value NativeMaxhqMobile::cpp_uniffi_maxhq_mobile_checksum_func_forget_mac(jsi::Runtime& rt, const jsi::Value& thisVal, const jsi::Value* args, size_t count) {
+        auto value = uniffi_maxhq_mobile_checksum_func_forget_mac(
+        );
+
+        
+        return uniffi_jsi::Bridging<uint16_t>::toJs(rt, callInvoker, value);
+}
 jsi::Value NativeMaxhqMobile::cpp_uniffi_maxhq_mobile_checksum_func_media(jsi::Runtime& rt, const jsi::Value& thisVal, const jsi::Value* args, size_t count) {
         auto value = uniffi_maxhq_mobile_checksum_func_media(
         );
@@ -4967,6 +5067,20 @@ jsi::Value NativeMaxhqMobile::cpp_uniffi_maxhq_mobile_checksum_func_open_timelin
 }
 jsi::Value NativeMaxhqMobile::cpp_uniffi_maxhq_mobile_checksum_func_pair(jsi::Runtime& rt, const jsi::Value& thisVal, const jsi::Value* args, size_t count) {
         auto value = uniffi_maxhq_mobile_checksum_func_pair(
+        );
+
+        
+        return uniffi_jsi::Bridging<uint16_t>::toJs(rt, callInvoker, value);
+}
+jsi::Value NativeMaxhqMobile::cpp_uniffi_maxhq_mobile_checksum_func_pair_code_mac(jsi::Runtime& rt, const jsi::Value& thisVal, const jsi::Value* args, size_t count) {
+        auto value = uniffi_maxhq_mobile_checksum_func_pair_code_mac(
+        );
+
+        
+        return uniffi_jsi::Bridging<uint16_t>::toJs(rt, callInvoker, value);
+}
+jsi::Value NativeMaxhqMobile::cpp_uniffi_maxhq_mobile_checksum_func_paired_macs(jsi::Runtime& rt, const jsi::Value& thisVal, const jsi::Value* args, size_t count) {
+        auto value = uniffi_maxhq_mobile_checksum_func_paired_macs(
         );
 
         

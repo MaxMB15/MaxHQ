@@ -140,19 +140,29 @@ describe("deviceReach", () => {
 			id: "devbox",
 			state: {
 				state: "unreachable",
-				reason: `devbox ${NO_LONGER_KNOWN}`,
+				reason: `devbox ${NO_LONGER_KNOWN} Home Mac.`,
 				last_seen: NOW - 9 * MIN,
 			},
 		});
 		const [device] = deviceReach(viewOf([unknown]), NOW);
 		expect(device).toMatchObject({ title: "Pair again", pairAgain: true });
 		expect(device!.detail).toMatch(
-			/^devbox no longer knows this phone\. Pair it again from the Mac\. Last reachable/i
+			/^devbox no longer knows this phone\. Pair it again from Home Mac\. Last reachable/i
 		);
+		// A Mac with no name says "the Mac".
+		const unnamed = link({
+			id: "devbox",
+			state: {
+				state: "unreachable",
+				reason: `devbox ${NO_LONGER_KNOWN} the Mac.`,
+				last_seen: null,
+			},
+		});
+		expect(deviceReach(viewOf([unnamed]), NOW)[0]!.pairAgain).toBe(true);
 		// The words alone, with no device before them, are some other reason.
 		const other = link({
 			id: "devbox",
-			state: { state: "unreachable", reason: NO_LONGER_KNOWN, last_seen: null },
+			state: { state: "unreachable", reason: `${NO_LONGER_KNOWN} the Mac.`, last_seen: null },
 		});
 		expect(deviceReach(viewOf([other]), NOW)[0]!.pairAgain).toBe(false);
 	});

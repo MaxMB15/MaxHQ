@@ -1,10 +1,11 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026 Max Boksem
 
-// Every device this phone pairs with, in one card as the desktop's devices
-// list: how it is, its agents, whether the phone reaches it now, and by
-// which route, with the others it tries. A device that ended the phone's
-// sign-in offers to pair again.
+// Every device this phone pairs with, in a card under each Mac's name as
+// the desktop's devices list: how it is, its agents, whether the phone
+// reaches it now, and by which route, with the others it tries. A device
+// that ended the phone's sign-in offers to pair again. Showing one Mac at a
+// time, only that Mac's card shows.
 
 import { useI18n } from "@maxhq/shared/i18n";
 
@@ -25,6 +26,8 @@ import { ConnectionBanner } from "../../ui/ConnectionBanner";
 import { Header } from "../../ui/Header";
 import { Plus } from "../../ui/Icon";
 import { Pill } from "../../ui/Pill";
+import { deviceGroups } from "../macs/macs";
+import { useMacs } from "../macs/useMacs";
 import { agentSummary, reachSummary } from "./summary";
 
 const LOOK: Record<ConnectionLook, string> = {
@@ -41,7 +44,10 @@ export const DevicesScreen = ({ navigation }: ScreenProps<"Devices">) => {
 
 	const view = useView((s) => s.view);
 	const now = useNow(10_000);
-	const devices = deviceReach(view, now);
+	const all = deviceReach(view, now);
+	const macs = useMacs();
+	const groups = deviceGroups(all, macs.macs, macs.mode);
+	const devices = groups.flatMap((group) => group.devices);
 	const pair = () => navigation.navigate("Scan");
 	return (
 		<View style={styles.screen}>
@@ -51,7 +57,7 @@ export const DevicesScreen = ({ navigation }: ScreenProps<"Devices">) => {
 			/>
 			<ConnectionBanner />
 			<ScrollView contentContainerStyle={styles.content}>
-				{devices.length === 0 ? (
+				{all.length === 0 ? (
 					<View style={styles.empty}>
 						<Text style={styles.note}>
 							{t("This phone isn't paired with a device yet.")}
@@ -61,17 +67,19 @@ export const DevicesScreen = ({ navigation }: ScreenProps<"Devices">) => {
 				) : (
 					<>
 						<Text style={styles.summary}>{reachSummary(devices)}</Text>
-						<Card label={t("Devices")}>
-							{devices.map((device, i) => (
-								<DeviceRow
-									key={device.id}
-									device={device}
-									view={view}
-									first={i === 0}
-									pair={pair}
-								/>
-							))}
-						</Card>
+						{groups.map((group) => (
+							<Card key={group.key} title={group.name}>
+								{group.devices.map((device, i) => (
+									<DeviceRow
+										key={device.id}
+										device={device}
+										view={view}
+										first={i === 0}
+										pair={pair}
+									/>
+								))}
+							</Card>
+						))}
 						<Button
 							label={t("Pair with another device")}
 							icon={<Plus size={12} />}

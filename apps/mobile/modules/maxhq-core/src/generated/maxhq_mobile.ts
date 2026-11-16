@@ -94,6 +94,30 @@ export function appState(state: string): string {
 }
 
 /**
+ * Forgets one Mac on the phone: its book, the devices only it lists with
+ * what waited for them, and their sign-ins. `keeper` is the device that
+ * keeps its book, as [`paired_macs`] names it, as a JSON string's
+ * contents. The other Macs stay paired. Answers a reply with
+ * `data: null`.
+ */
+export function forgetMac(keeper: string): string {
+	const __rb: Uint8Array = uniffiCaller.rustCall(
+		/*caller:*/ (callStatus) => {
+			return nativeModule().ubrn_uniffi_maxhq_mobile_fn_func_forget_mac(
+				FfiConverterString.lower(keeper, nativeModule().rustbuffer_alloc),
+				callStatus
+			);
+		},
+		/*liftString:*/ FfiConverterString.lift.bind(FfiConverterString)
+	);
+	try {
+		return FfiConverterString.lift(__rb);
+	} finally {
+		nativeModule().rustbuffer_free(__rb);
+	}
+}
+
+/**
  * Fetches a picture or video `agent` can see into the media cache, unless
  * it's there already or is larger than `limit` bytes, with how far it has
  * got going to `listener`. `path` is as the timeline names it, and `agent`
@@ -272,6 +296,48 @@ export async function pair(
 			__error.stack = __stack;
 		}
 		throw __error;
+	}
+}
+
+/**
+ * The name of the Mac the phone already paired with that the pairing
+ * code `code` comes from, so pairing replaces that Mac's devices.
+ * Answers a reply whose `data` is the name, or `null` for a new Mac or a
+ * code that doesn't read.
+ */
+export function pairCodeMac(code: string): string {
+	const __rb: Uint8Array = uniffiCaller.rustCall(
+		/*caller:*/ (callStatus) => {
+			return nativeModule().ubrn_uniffi_maxhq_mobile_fn_func_pair_code_mac(
+				FfiConverterString.lower(code, nativeModule().rustbuffer_alloc),
+				callStatus
+			);
+		},
+		/*liftString:*/ FfiConverterString.lift.bind(FfiConverterString)
+	);
+	try {
+		return FfiConverterString.lift(__rb);
+	} finally {
+		nativeModule().rustbuffer_free(__rb);
+	}
+}
+
+/**
+ * The Macs the phone paired with, in the order it paired. Answers a
+ * reply whose `data` is a list of [`PairedMac`], with the book of devices
+ * added by hand last when there is one.
+ */
+export function pairedMacs(): string {
+	const __rb: Uint8Array = uniffiCaller.rustCall(
+		/*caller:*/ (callStatus) => {
+			return nativeModule().ubrn_uniffi_maxhq_mobile_fn_func_paired_macs(callStatus);
+		},
+		/*liftString:*/ FfiConverterString.lift.bind(FfiConverterString)
+	);
+	try {
+		return FfiConverterString.lift(__rb);
+	} finally {
+		nativeModule().rustbuffer_free(__rb);
 	}
 }
 
@@ -1048,6 +1114,11 @@ function uniffiEnsureInitialized() {
 			"uniffi_maxhq_mobile_checksum_func_app_state"
 		);
 	}
+	if (nativeModule().ubrn_uniffi_maxhq_mobile_checksum_func_forget_mac() !== 37615) {
+		throw new UniffiInternalError.ApiChecksumMismatch(
+			"uniffi_maxhq_mobile_checksum_func_forget_mac"
+		);
+	}
 	if (nativeModule().ubrn_uniffi_maxhq_mobile_checksum_func_media() !== 13923) {
 		throw new UniffiInternalError.ApiChecksumMismatch(
 			"uniffi_maxhq_mobile_checksum_func_media"
@@ -1065,6 +1136,16 @@ function uniffiEnsureInitialized() {
 	}
 	if (nativeModule().ubrn_uniffi_maxhq_mobile_checksum_func_pair() !== 63185) {
 		throw new UniffiInternalError.ApiChecksumMismatch("uniffi_maxhq_mobile_checksum_func_pair");
+	}
+	if (nativeModule().ubrn_uniffi_maxhq_mobile_checksum_func_pair_code_mac() !== 33512) {
+		throw new UniffiInternalError.ApiChecksumMismatch(
+			"uniffi_maxhq_mobile_checksum_func_pair_code_mac"
+		);
+	}
+	if (nativeModule().ubrn_uniffi_maxhq_mobile_checksum_func_paired_macs() !== 42533) {
+		throw new UniffiInternalError.ApiChecksumMismatch(
+			"uniffi_maxhq_mobile_checksum_func_paired_macs"
+		);
 	}
 	if (nativeModule().ubrn_uniffi_maxhq_mobile_checksum_func_phone_key() !== 34682) {
 		throw new UniffiInternalError.ApiChecksumMismatch(
