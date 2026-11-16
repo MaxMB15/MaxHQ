@@ -5,13 +5,15 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { mockSource } from "../data/mock-source";
 import { DEVBOX, MAC, MHQ_WORKSPACE } from "../data/mock-view";
-import { NOW } from "../test/build";
+import { formatWhen } from "../status/format";
+import { MIN, NOW } from "../test/build";
 import { applySnapshot } from "../view/replica";
 import {
 	clearSnapshots,
 	offersSnapshots,
 	refreshSnapshots,
 	restoreSnapshot,
+	snapshotLine,
 	snapshotsOf,
 } from "./snapshots";
 
@@ -65,5 +67,19 @@ describe("snapshots", () => {
 
 	it("has no list for a workspace never asked about", () => {
 		expect(snapshotsOf("ws-alpha")).toBeUndefined();
+	});
+
+	it("says when one was taken and how long it's kept", () => {
+		const taken = formatWhen(NOW - 60 * MIN, NOW);
+		expect(
+			snapshotLine({ name: "keep", taken_at: NOW - 60 * MIN, expires_at: null }, NOW)
+		).toBe(`Taken ${taken}, kept until you delete it`);
+		const until = formatWhen(NOW + 24 * 60 * MIN, NOW);
+		expect(
+			snapshotLine(
+				{ name: "auto", taken_at: NOW - 60 * MIN, expires_at: NOW + 24 * 60 * MIN },
+				NOW
+			)
+		).toBe(`Taken ${taken}, kept until ${until}`);
 	});
 });

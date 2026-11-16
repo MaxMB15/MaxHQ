@@ -33,6 +33,7 @@ Files:
   apps/desktop/src/sidebar/update-capsule.tsx
   apps/desktop/src/sidebar/update-run.ts
   apps/desktop/src/workspaces/copy-project.tsx
+  apps/mobile/src/features/devices/DeviceLoad.tsx
   crates/app/src/editors.rs
   crates/app/src/fleet.rs
   crates/app/src/fleet/tests.rs
@@ -86,6 +87,7 @@ Files:
   packages/shared/src/find/store.ts
   packages/shared/src/fleet/balance.test.ts
   packages/shared/src/fleet/balance.ts
+  packages/shared/src/fleet/load.ts
   packages/shared/src/fleet/memory.ts
   packages/shared/src/fleet/update-view.ts
   packages/shared/src/pills/anchor.ts

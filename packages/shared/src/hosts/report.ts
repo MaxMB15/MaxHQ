@@ -150,3 +150,30 @@ export const sourceText = (source: HostSource): string => {
 			return t("No spec file, so the defaults");
 	}
 };
+
+/** What a row says about an item's fix, when it doesn't show the fix itself. */
+export const FIX_TEXT: Readonly<Record<FixView["kind"], string>> = {
+	none: "",
+	get now() {
+		return t("Apply fixes it");
+	},
+	get terminal() {
+		return t("The root command below fixes it");
+	},
+	nix: "",
+};
+
+/** One root command and the items it fixes. */
+export type RootPart = { readonly line: string; readonly item: string; readonly labels: string[] };
+
+/** The distinct root commands in `groups`, each with the items it fixes. */
+export const rootParts = (groups: readonly HostGroup[]): RootPart[] => {
+	const parts = new Map<string, RootPart>();
+	for (const item of groups.flatMap((g) => g.items)) {
+		if (item.ok || item.fix.kind !== "terminal") continue;
+		const part = parts.get(item.fix.line);
+		if (part) part.labels.push(item.label);
+		else parts.set(item.fix.line, { line: item.fix.line, item: item.id, labels: [item.label] });
+	}
+	return [...parts.values()];
+};

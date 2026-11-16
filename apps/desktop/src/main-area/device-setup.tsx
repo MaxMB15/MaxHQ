@@ -7,7 +7,7 @@
 // Terminal, where you type the sudo password. A NixOS host gets the change
 // to make instead.
 
-import { t, useI18n } from "@maxhq/shared/i18n";
+import { useI18n } from "@maxhq/shared/i18n";
 
 import { useState } from "react";
 
@@ -20,42 +20,18 @@ import { failureOf, type Note } from "@/settings/result";
 import type { DeviceId } from "@maxhq/shared/bindings";
 import { useNow } from "@maxhq/shared/lib/clock";
 import {
-	type FixView,
+	FIX_TEXT,
 	fixableNow,
 	hostGroups,
 	type HostGroup,
 	hostReportOf,
 	offersHostSpec,
+	type RootPart,
+	rootParts,
 	sourceText,
 } from "@maxhq/shared/hosts/report";
 import { formatWhen, plural } from "@maxhq/shared/status/format";
 import type { ViewState } from "@maxhq/shared/view/replica";
-
-/** One root command and the items it fixes. */
-type RootPart = { readonly line: string; readonly item: string; readonly labels: string[] };
-
-/** The distinct root commands in `groups`, each with the items it fixes. */
-export const rootParts = (groups: readonly HostGroup[]): RootPart[] => {
-	const parts = new Map<string, RootPart>();
-	for (const item of groups.flatMap((g) => g.items)) {
-		if (item.ok || item.fix.kind !== "terminal") continue;
-		const part = parts.get(item.fix.line);
-		if (part) part.labels.push(item.label);
-		else parts.set(item.fix.line, { line: item.fix.line, item: item.id, labels: [item.label] });
-	}
-	return [...parts.values()];
-};
-
-const FIX_TEXT: Readonly<Record<FixView["kind"], string>> = {
-	none: "",
-	get now() {
-		return t("Apply fixes it");
-	},
-	get terminal() {
-		return t("The root command below fixes it");
-	},
-	nix: "",
-};
 
 const Code = ({ text }: { text: string }) => {
 	useI18n();

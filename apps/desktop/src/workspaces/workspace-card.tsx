@@ -7,7 +7,7 @@
 // Delete asks once, and when the device refuses because of unpushed work it
 // says so and takes a second click to throw that work away.
 
-import { t, useI18n } from "@maxhq/shared/i18n";
+import { useI18n } from "@maxhq/shared/i18n";
 
 import { useState } from "react";
 
@@ -19,12 +19,14 @@ import { useNow } from "@maxhq/shared/lib/clock";
 import { cn } from "@/lib/utils";
 import { DANGER, SECONDARY, StatusNote } from "@/settings/controls";
 import { failureOf, type Note } from "@/settings/result";
-import { offersSnapshots } from "@maxhq/shared/hosts/snapshots";
 import { unsavedOf } from "@maxhq/shared/hosts/unsaved";
 import { sentence } from "@maxhq/shared/status/format";
 import { deviceName } from "@maxhq/shared/view/select";
 
+import { bootLine, deleteRefusal, showsSnapshots } from "@maxhq/shared/workspaces/device";
 import {
+	ACTION_LABEL,
+	ACTION_NOTE,
 	cloneLabel,
 	cloneOf,
 	egressText,
@@ -39,30 +41,6 @@ import {
 } from "@maxhq/shared/workspaces/state";
 
 import { WorkspaceSnapshots } from "./workspace-snapshots";
-
-const ACTION_LABEL: Record<WorkspaceAction, string> = {
-	get start() {
-		return t("Start");
-	},
-	get stop() {
-		return t("Stop");
-	},
-	get delete() {
-		return t("Delete");
-	},
-};
-
-const ACTION_NOTE: Record<WorkspaceAction, string> = {
-	get start() {
-		return t("Starting");
-	},
-	get stop() {
-		return t("Stopping");
-	},
-	get delete() {
-		return t("Deleting");
-	},
-};
 
 // Where the delete stands: not asked, asked once, or refused for work
 // that isn't pushed, with the device's reason.
@@ -103,19 +81,16 @@ export const WorkspaceCard = ({
 		: null;
 	const actions = live ? workspaceActions(managed.state) : [];
 	const unsaved = unsavedOf(workspace, now);
-	// Snapshots need the device to answer and a container that's there to
-	// start or stop, so not one whose storage is locked or that's being made.
-	const snapshots =
-		offersSnapshots(view, workspace.device) &&
-		actions.some((action) => action === "start" || action === "stop");
+	const snapshots = showsSnapshots(view, workspace, actions);
 
 	const run = async (action: WorkspaceAction, call: () => Promise<ActionResult>) => {
 		setBusy(true);
 		setNote({ text: ACTION_NOTE[action], error: false });
 		try {
 			const result = await call();
-			if (action === "delete" && result.status === "ok" && result.data.status === "refused") {
-				setDeleting({ step: "unpushed", reason: result.data.reason });
+			const refused = action === "delete" ? deleteRefusal(result) : null;
+			if (refused !== null) {
+				setDeleting({ step: "unpushed", reason: refused });
 				setNote(null);
 				return;
 			}
@@ -223,11 +198,7 @@ export const WorkspaceCard = ({
 				<li className={cn(managed.egress.state === "failed" && "text-status-error-text")}>
 					{egressText(managed.egress, now)}
 				</li>
-				<li>
-					{managed.start_at_boot
-						? t("Starts when {{where}} boots", { where: where })
-						: t("Starts only when you start it")}
-				</li>
+				<li>{bootLine(workspace, where)}</li>
 				{unsaved ? (
 					<li className={cn(unsaved.any && !unsaved.old && "text-secondary-foreground")}>
 						{`${unsaved.text}. ${unsaved.readAt}.`}

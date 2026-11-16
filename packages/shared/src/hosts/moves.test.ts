@@ -19,6 +19,7 @@ import {
 	moveSteps,
 	offersMoves,
 	retireLoses,
+	STEP_STATUS_LABEL,
 } from "./moves";
 
 const load = async () =>
@@ -36,6 +37,7 @@ describe("moves", () => {
 	it("shows each step with what it changes", async () => {
 		const move = (await load()).tables.move.get(MOCK_MOVE)!;
 		const steps = moveSteps(move);
+		expect(steps.map((s) => STEP_STATUS_LABEL[s.status])).toContain("Done");
 		expect(steps.map((s) => s.status)).toEqual([
 			"done",
 			"ready",

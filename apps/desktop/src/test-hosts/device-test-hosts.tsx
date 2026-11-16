@@ -4,9 +4,10 @@
 // A device's test hosts in its detail: the kinds it could host with their
 // hosts, how long its leases last, and the leases it grants now. Leases
 // stay on the device, so only agents there get one. Hidden when the
-// device's `maxd` doesn't offer test hosts.
+// device's `maxd` doesn't offer test hosts. The limits and the lease's
+// words are in shared `test-hosts/device`, which the phone shows too.
 
-import { t, useI18n, formatNumber } from "@maxhq/shared/i18n";
+import { useI18n } from "@maxhq/shared/i18n";
 
 import { useState } from "react";
 
@@ -15,10 +16,16 @@ import { Picker } from "@/new-agent/picker";
 import { ConfirmButton, Row, SECONDARY, Section, StatusNote } from "@/settings/controls";
 import type { DeviceId, LeaseId, TestHostSettings, TestLease } from "@maxhq/shared/bindings";
 import { useNow } from "@maxhq/shared/lib/clock";
-import type { Option } from "@maxhq/shared/new-agent/spec";
-import { leaseLine } from "@maxhq/shared/test-hosts/format";
 import {
-	backendLabel,
+	LEASE_LIMITS,
+	type LeaseLimit,
+	leaseSub,
+	leaseTitle,
+	localNote,
+	minuteChoices,
+	VM_CHOICES,
+} from "@maxhq/shared/test-hosts/device";
+import {
 	kindLabel,
 	leasesOn,
 	offersTestHosts,
@@ -26,62 +33,11 @@ import {
 } from "@maxhq/shared/test-hosts/hosts";
 import { placesOn } from "@maxhq/shared/test-hosts/place";
 import type { ViewState } from "@maxhq/shared/view/replica";
-import { actorName } from "@maxhq/shared/view/select";
 
 import { LeaseView } from "./lease-view";
 import { CheckAgain, PlaceBlock, useCall, useSaveTestHosts } from "./places";
 
-/** Where a remote agent gets a lease, since leases stay on their device. */
-export const localNote = (name: string): string =>
-	t(
-		"Only agents on {{name}} lease its test machines. For an agent elsewhere to test here, start an agent on {{name2}}.",
-		{ name: name, name2: name }
-	);
-
-const minutes = (choices: readonly number[], kept: number): Option[] =>
-	[...new Set([...choices, kept])]
-		.sort((a, b) => a - b)
-		.map((m) => ({ value: String(m), label: t("{{m}} min", { m: formatNumber(m) }) }));
-
-type Limit = "default_minutes" | "longest_minutes" | "idle_minutes" | "max_vms";
-
-const LIMITS: readonly {
-	key: Limit;
-	title: string;
-	sub: string;
-	choices: readonly number[];
-}[] = [
-	{
-		key: "default_minutes",
-		get title() {
-			return t("Lease length");
-		},
-		get sub() {
-			return t("How long a lease lasts when the agent doesn't say.");
-		},
-		choices: [15, 30, 60, 120],
-	},
-	{
-		key: "longest_minutes",
-		get title() {
-			return t("Longest lease");
-		},
-		get sub() {
-			return t("The most an agent may ask for.");
-		},
-		choices: [60, 120, 240],
-	},
-	{
-		key: "idle_minutes",
-		get title() {
-			return t("Ends when idle");
-		},
-		get sub() {
-			return t("A lease ends after this long without a command.");
-		},
-		choices: [5, 10, 20, 30],
-	},
-];
+type Limit = LeaseLimit | "max_vms";
 
 const Limits = ({
 	device,
@@ -105,12 +61,15 @@ const Limits = ({
 		);
 	return (
 		<>
-			{LIMITS.map((limit) => (
+			{LEASE_LIMITS.map((limit) => (
 				<Row key={limit.key} title={limit.title} sub={limit.sub}>
 					<Picker
 						label={limit.title}
 						value={String(kept[limit.key])}
-						options={minutes(limit.choices, kept[limit.key])}
+						options={minuteChoices(limit.choices, kept[limit.key]).map((m) => ({
+							value: String(m.value),
+							label: m.label,
+						}))}
 						onChange={(value) => change(limit.key, Number(value))}
 						disabled={!live || busy}
 					/>
@@ -124,10 +83,7 @@ const Limits = ({
 					<Picker
 						label={t("macOS VMs at once")}
 						value={String(kept.max_vms)}
-						options={[
-							{ value: "1", label: "1" },
-							{ value: "2", label: "2" },
-						]}
+						options={VM_CHOICES.map((n) => ({ value: String(n), label: String(n) }))}
 						onChange={(value) => change("max_vms", Number(value))}
 						disabled={!live || busy}
 					/>
@@ -156,18 +112,9 @@ const LeaseRow = ({
 	const { source } = useServices();
 	const now = useNow(30_000);
 	const { note, busy, call } = useCall();
-	const host = view.tables.test_host.get(lease.host);
-	const title = t("{{value1}} for {{value2}}", {
-		value1: kindLabel(lease.kind),
-		value2: actorName(view, lease.holder),
-	});
+	const title = leaseTitle(view, lease);
 	return (
-		<Row
-			title={title}
-			sub={[leaseLine(lease, now), host ? backendLabel(host.backend) : null]
-				.filter(Boolean)
-				.join(", ")}
-		>
+		<Row title={title} sub={leaseSub(view, lease, now)}>
 			<StatusNote note={note} />
 			<button
 				type="button"
