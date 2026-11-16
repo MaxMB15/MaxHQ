@@ -1613,6 +1613,8 @@ pub struct FakeFiles {
     attachments: Attachments,
     root: PathBuf,
     uploaded: Arc<Mutex<HashMap<AttachmentId, AttachmentRef>>>,
+    /// Each staged attachment delivered, under the folder it went to.
+    moved: Arc<Mutex<HashMap<AttachmentId, Staged>>>,
     delivered: Arc<Mutex<Vec<Delivered>>>,
     collected: Arc<Mutex<Vec<Collected>>>,
     found: Arc<Mutex<Vec<Found>>>,
@@ -1628,6 +1630,7 @@ impl FakeFiles {
             attachments: Attachments::new(root.clone()),
             root,
             uploaded: Arc::default(),
+            moved: Arc::default(),
             delivered: Arc::default(),
             collected: Arc::default(),
             found: Arc::default(),
@@ -1686,6 +1689,15 @@ impl AgentFiles for FakeFiles {
                 });
                 continue;
             }
+            // One delivered already stays where it went, and only that
+            // folder's agent may name it again, as XF's delivery does.
+            if let Some(staged) = lock(&self.moved).get(&id) {
+                if !staged.path.starts_with(&place.attachments) {
+                    return Box::pin(async move { Err(DeliverError::Missing(id)) });
+                }
+                moved.push(staged.clone());
+                continue;
+            }
             let Some(mut attachment) = self.attachments.find(id) else {
                 return Box::pin(async move { Err(DeliverError::Missing(id)) });
             };
@@ -1694,13 +1706,14 @@ impl AgentFiles for FakeFiles {
                 .join(id.to_string())
                 .join(&attachment.name);
             attachment.path = path.display().to_string();
-            // Each one is delivered once, as XF's delivery does.
             let _ = std::fs::remove_dir_all(self.root.join("staged").join(id.to_string()));
-            moved.push(Staged {
+            let staged = Staged {
                 attachment,
                 path,
                 text: None,
-            });
+            };
+            lock(&self.moved).insert(id, staged.clone());
+            moved.push(staged);
         }
         lock(&self.delivered).push((place.clone(), staged));
         Box::pin(async move { Ok(moved) })

@@ -2034,6 +2034,7 @@ pub(crate) mod tests {
             room: maxhq_transfer::Room {
                 keep_bytes: 0,
                 keep_percent: 0,
+                keep_at_most: 0,
             },
             ..crate::transfer::Config::local(hub.clone(), dir.path().join("attachments"))
         });

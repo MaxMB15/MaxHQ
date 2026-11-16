@@ -926,6 +926,7 @@ mod tests {
     const ROOM: Room = Room {
         keep_bytes: 0,
         keep_percent: 0,
+        keep_at_most: 0,
     };
 
     fn write(path: &Path, bytes: &[u8], mode: u32) {

@@ -542,6 +542,7 @@ mod tests {
     const ROOM: Room = Room {
         keep_bytes: 0,
         keep_percent: 0,
+        keep_at_most: 0,
     };
 
     fn dir(path: &str) -> ManifestEntry {
@@ -788,6 +789,7 @@ mod tests {
         let greedy = Room {
             keep_bytes: u64::MAX / 2,
             keep_percent: 0,
+            keep_at_most: 0,
         };
         let failure = Receiver::open(&temp.path().join("in"), &manifest, greedy).unwrap_err();
         assert_eq!(failure.code, ErrorCode::NoSpace);

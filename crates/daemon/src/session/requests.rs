@@ -833,9 +833,10 @@ impl Manager {
             self.check_sign_in(&checked, guest.is_some())?;
         }
         // A container's first message goes to the file delivery, which
-        // looks its attachments up itself.
+        // looks its attachments up itself. A new agent's folder holds none
+        // yet.
         let found = match &spec.first {
-            Some(first) if guest.is_none() => self.find_attachments(&first.attachments)?,
+            Some(first) if guest.is_none() => self.find_attachments(&first.attachments, None)?,
             _ => Vec::new(),
         };
         Ok((

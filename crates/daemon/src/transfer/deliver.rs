@@ -134,12 +134,16 @@ impl Transfers {
     }
 
     /// Moves an attachment staged on this device into a local agent's
-    /// folder, as M2 does.
+    /// folder, as M2 does. One a message moved there already stays.
     async fn take_local(&self, place: &Place, id: AttachmentId) -> Result<Staged, DeliverError> {
         let shared = self.shared.clone();
         let into = place.attachments.clone();
         tokio::task::spawn_blocking(move || {
-            let found = shared.store.find(id).ok_or(DeliverError::Missing(id))?;
+            let found = shared
+                .store
+                .find(id)
+                .or_else(|| shared.store.sent(id, &into))
+                .ok_or(DeliverError::Missing(id))?;
             shared
                 .store
                 .take(&found, &into)
@@ -237,7 +241,8 @@ impl Transfers {
     }
 
     /// Pushes an attachment staged on this device into the container, then
-    /// removes the staged copy.
+    /// removes the staged copy. It's noted as the agent's, so a message to
+    /// the agent can name it again, such as a queued one taken back.
     async fn push_staged(
         &self,
         workspace: WorkspaceId,
@@ -270,6 +275,15 @@ impl Transfers {
         attachment.thumbnail = found.thumbnail.or(attachment.thumbnail);
         let staged = self.shared.root.join("staged").join(id.to_string());
         disk::remove(&staged).await;
+        self.shared.note_remote(Remote {
+            workspace,
+            agent: Some(agent),
+            transfer,
+            entries: walk.entries,
+            attachment: attachment.clone(),
+            text: text.clone(),
+            at: Instant::now(),
+        });
         Ok(Staged {
             path: PathBuf::from(&attachment.path),
             attachment,

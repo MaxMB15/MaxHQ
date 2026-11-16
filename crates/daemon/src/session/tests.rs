@@ -519,18 +519,58 @@ impl Harness {
     }
 
     async fn send(&mut self, agent: AgentId, text: &str) -> ActionOutcome {
+        self.send_with(agent, text, Vec::new(), SendMode::Queue)
+            .await
+    }
+
+    /// Sends a message with these attachments, the way `mode` says.
+    async fn send_with(
+        &mut self,
+        agent: AgentId,
+        text: &str,
+        attachments: Vec<AttachmentId>,
+        mode: SendMode,
+    ) -> ActionOutcome {
         let text = text.to_owned();
         self.act(|key| ClientMessage::SendInput {
             key,
             agent,
             input: UserInput {
                 text,
-                attachments: Vec::new(),
+                attachments,
                 refs: Vec::new(),
             },
-            mode: SendMode::Queue,
+            mode,
         })
         .await
+    }
+
+    /// Stages pasted bytes as `name`.
+    async fn stage_bytes(&mut self, name: &str, bytes: &[u8]) -> AttachmentRef {
+        let source = AttachmentSource::Bytes {
+            name: name.into(),
+            mime: super::attach::mime_for(name).unwrap_or("text/plain").into(),
+            data: base64::engine::general_purpose::STANDARD.encode(bytes),
+        };
+        let outcome = self
+            .act(|key| ClientMessage::StageAttachment { key, source })
+            .await;
+        let ActionOutcome::Staged { attachment } = outcome else {
+            panic!("the bytes weren't staged: {outcome:?}");
+        };
+        attachment
+    }
+
+    /// The paths the last message sent to the CLI named.
+    fn attached(&self, session: SessionId) -> Vec<PathBuf> {
+        let writes = self.holders.writes(session);
+        let line: serde_json::Value = serde_json::from_str(&writes.last().unwrap().0).unwrap();
+        line["attachments"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|path| PathBuf::from(path.as_str().unwrap()))
+            .collect()
     }
 
     async fn open(&mut self, agent: AgentId, since: Option<Seq>, limit: u32) -> TimelineUpdate {
@@ -1880,20 +1920,26 @@ async fn attachments_are_staged_then_moved_when_sent() {
     assert!(!staged.join(copied.id.to_string()).exists());
     assert!(!staged.join(written.id.to_string()).exists());
 
-    // A staged file goes once.
+    // The same agent may name a sent file again, and it stays put.
     let outcome = h
-        .act(|key| ClientMessage::SendInput {
-            key,
-            agent,
-            input: UserInput {
-                text: "again".into(),
-                attachments: vec![copied.id],
-                refs: Vec::new(),
-            },
-            mode: SendMode::Queue,
-        })
+        .send_with(agent, "again", vec![copied.id], SendMode::Queue)
         .await;
-    assert!(reason(&outcome).contains("isn't staged"), "{outcome:?}");
+    assert_eq!(outcome, ActionOutcome::Done);
+    assert_eq!(h.attached(session), [paths[0].clone()]);
+    assert_eq!(fs::read_to_string(&paths[0]).unwrap(), "remember");
+
+    // A staged file goes to one agent only.
+    let (other, other_session) = h.start_claude(None).await;
+    let outcome = h
+        .send_with(other, "mine?", vec![copied.id], SendMode::Queue)
+        .await;
+    assert_eq!(reason(&outcome), super::attach::GONE, "{outcome:?}");
+    assert!(h
+        .holders
+        .writes(other_session)
+        .iter()
+        .all(|write| !write.0.contains("mine?")));
+    assert!(paths[0].exists());
 
     // Staged files nobody sent are removed when maxd starts.
     let old = staged.join("old");
@@ -1906,6 +1952,71 @@ async fn attachments_are_staged_then_moved_when_sent() {
     h.restart().await;
     eventually("the stale copy going", || !old.exists()).await;
     assert!(fresh.exists());
+}
+
+#[tokio::test]
+async fn a_queued_message_taken_back_goes_again_with_its_picture() {
+    let mut h = Harness::new();
+    let (claude, claude_session) = h.start_claude(None).await;
+    let (codex, codex_server) = h.start_codex("thread-1").await;
+    let account = h.acp_agent(false);
+    let mut spec = h.spec(Vendor::Acp, None);
+    spec.account = account;
+    let acp = started(h.act(|key| ClientMessage::StartAgent { key, spec }).await);
+    let acp_session = h.holders.last();
+
+    for (agent, session) in [
+        (claude, claude_session),
+        (codex, codex_server),
+        (acp, acp_session),
+    ] {
+        let picture = h.stage_bytes("pasted-image.png", b"png!").await;
+        let outcome = h
+            .send_with(agent, "look", vec![picture.id], SendMode::Queue)
+            .await;
+        assert_eq!(outcome, ActionOutcome::Done);
+        let sent = h.attached(session);
+        let into = h.dir.path().join("attachments").join(agent.to_string());
+        assert_eq!(
+            sent,
+            [into.join(picture.id.to_string()).join("pasted-image.png")]
+        );
+
+        // Steer now: the app takes the queued message back and sends it
+        // again at once, naming the same picture.
+        let cancel = |key| ClientMessage::CancelQueued {
+            key,
+            agent,
+            item: ItemId("q1".into()),
+        };
+        assert_eq!(h.act(cancel).await, ActionOutcome::Done);
+        let outcome = h
+            .send_with(agent, "look", vec![picture.id], SendMode::Steer)
+            .await;
+        assert_eq!(outcome, ActionOutcome::Done, "{:?}", h.agent(agent).vendor);
+        assert_eq!(h.attached(session), sent);
+
+        // Edit: taken back, changed and sent again.
+        assert_eq!(h.act(cancel).await, ActionOutcome::Done);
+        let outcome = h
+            .send_with(agent, "look closer", vec![picture.id], SendMode::Queue)
+            .await;
+        assert_eq!(outcome, ActionOutcome::Done, "{:?}", h.agent(agent).vendor);
+        assert_eq!(h.attached(session), sent);
+        assert_eq!(fs::read(&sent[0]).unwrap(), b"png!");
+        assert!(h.sent(session).contains(&"look closer".to_owned()));
+    }
+
+    // Another agent can't name a picture sent to the first.
+    let picture = h.stage_bytes("pasted-image.png", b"png!").await;
+    let outcome = h
+        .send_with(claude, "look", vec![picture.id], SendMode::Queue)
+        .await;
+    assert_eq!(outcome, ActionOutcome::Done);
+    let outcome = h
+        .send_with(codex, "and you", vec![picture.id], SendMode::Steer)
+        .await;
+    assert_eq!(reason(&outcome), super::attach::GONE);
 }
 
 #[tokio::test]

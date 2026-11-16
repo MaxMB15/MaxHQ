@@ -1559,31 +1559,40 @@ impl Manager {
         account.models.into_iter().nth(at)
     }
 
-    /// Moves staged attachments into an agent's folder.
+    /// Moves staged attachments into an agent's folder. One a message moved
+    /// there already, such as a queued message's taken back and sent again,
+    /// stays where it is.
     fn take_attachments(
         &mut self,
         ids: &[AttachmentId],
         into: &std::path::Path,
     ) -> Result<Vec<Staged>, String> {
-        let found = self.find_attachments(ids)?;
+        let found = self.find_attachments(ids, Some(into))?;
         self.move_attachments(&found, into)
     }
 
-    /// Looks staged attachments up.
-    fn find_attachments(&self, ids: &[AttachmentId]) -> Result<Vec<AttachmentRef>, String> {
+    /// Looks staged attachments up, and with `sent_to` set, the ones a
+    /// message already moved into that agent's folder. No other agent's
+    /// folder is looked in.
+    fn find_attachments(
+        &self,
+        ids: &[AttachmentId],
+        sent_to: Option<&std::path::Path>,
+    ) -> Result<Vec<AttachmentRef>, String> {
         ids.iter()
             .map(|id| {
                 self.staged
                     .get(id)
                     .cloned()
                     .or_else(|| self.attachments.find(*id))
-                    .ok_or_else(|| format!("attachment {id} isn't staged"))
+                    .or_else(|| sent_to.and_then(|into| self.attachments.sent(*id, into)))
+                    .ok_or_else(|| attach::GONE.to_owned())
             })
             .collect()
     }
 
-    /// Moves found attachments into an agent's folder. Each one moves
-    /// once, so a later message can't name it again.
+    /// Moves found attachments into an agent's folder. Each one moves out
+    /// of staging once, so only that agent's messages can name it again.
     fn move_attachments(
         &mut self,
         found: &[AttachmentRef],
