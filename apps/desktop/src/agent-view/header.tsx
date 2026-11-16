@@ -6,7 +6,8 @@
 // runs, which opens the workspace's ports, its git branch, which a click
 // copies, Open in for an editor, and a
 // More menu, with who started it below for one the agent tools started,
-// the scheduled tasks that reach it, a chip when it may run agents
+// the device it moved from with a way back to the old agent, the
+// scheduled tasks that reach it, a chip when it may run agents
 // itself, one for each test machine it leases, one for its latest
 // workflow run, and one when it restarts for changed skills. Linking a PR
 // opens a field under the strip, and a double-click on the title, as in
@@ -51,8 +52,11 @@ import { failureOf } from "@maxhq/shared/agent-view/answer";
 import { picksModel } from "@maxhq/shared/agent-view/controls";
 import { baseName } from "@maxhq/shared/agent-view/format";
 import { foldedAt, headerNeeds } from "@maxhq/shared/agent-view/header-fit";
+import { canMove, moveBlocked } from "@maxhq/shared/agent-view/move-agent";
 import { AgentMenu } from "./header-menu";
 import { VendorIcon } from "./icons";
+import { MoveDialog } from "./move-dialog";
+import { MovedFrom } from "./moved-banner";
 import { OpenInButton } from "./open-in";
 import { t as translate, useI18n } from "@maxhq/shared/i18n";
 
@@ -166,6 +170,8 @@ export const AgentHeader = ({ agent }: { agent: Agent }) => {
 	const deletable = deletableAgents(view, [agent.id]).length > 0;
 	const [allowing, setAllowing] = useState(false);
 	const [linking, setLinking] = useState(false);
+	const [moving, setMoving] = useState(false);
+	const movable = canMove(view, agent);
 	const [portsOpen, setPortsOpen] = useState(false);
 	const strip = useRef<HTMLDivElement>(null);
 	const folded = useFolded(
@@ -352,6 +358,8 @@ export const AgentHeader = ({ agent }: { agent: Agent }) => {
 					onAllow={allows ? () => setAllowing(true) : undefined}
 					allowed={held !== undefined}
 					onLink={shownPulls(agent).length === 0 ? () => setLinking(true) : undefined}
+					onMove={movable ? () => setMoving(true) : undefined}
+					moveOff={movable ? moveBlocked(view, agent) : null}
 					onDelete={
 						deletable
 							? () => {
@@ -366,12 +374,16 @@ export const AgentHeader = ({ agent }: { agent: Agent }) => {
 				{allows ? (
 					<AllowSheet agent={agent} open={allowing} onOpenChange={setAllowing} />
 				) : null}
+				{movable ? (
+					<MoveDialog agent={agent} open={moving} onOpenChange={setMoving} />
+				) : null}
 			</div>
 			{startedBy ? (
 				<p className="truncate pr-3 pb-2 pl-3.5 text-[11.5px] text-muted-foreground">
 					{startedBy}
 				</p>
 			) : null}
+			<MovedFrom agent={agent} />
 			<Automations agent={agent} />
 			{shown ? (
 				<div className="flex items-start gap-2 pr-3 pb-2 pl-3.5">

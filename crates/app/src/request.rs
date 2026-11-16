@@ -12,7 +12,7 @@ use std::process::Stdio;
 use std::sync::Arc;
 
 use maxhq_protocol::acp::{AcpAgent, AcpEnvValue};
-use maxhq_protocol::agents::{AccessKey, Permission};
+use maxhq_protocol::agents::{AccessKey, MoveTo, Permission};
 use maxhq_protocol::attention::AttentionAnswer;
 use maxhq_protocol::context::InlineRef;
 use maxhq_protocol::find::{AgentExcerpt, GitItemSearch, PathMatch};
@@ -812,6 +812,17 @@ pub enum Request {
     ConfirmPlan { device: DeviceId, plan: u32 },
     /// Drops the plan the dispatcher shows.
     DismissPlan { device: DeviceId, plan: u32 },
+    /// Moves an agent on `from` to another device, through the `maxd` on
+    /// `device`, the one the app runs with. `stop` stops a turn that runs
+    /// or a prompt that waits first.
+    MoveAgent {
+        device: DeviceId,
+        agent: AgentId,
+        from: DeviceId,
+        to: MoveTo,
+        #[serde(default)]
+        stop: bool,
+    },
 }
 
 /// The answer to a [`Request`], of the same kind. A request that only
@@ -1014,6 +1025,7 @@ pub enum Response {
     AskDispatcher(ActionOutcome),
     ConfirmPlan(ActionOutcome),
     DismissPlan(ActionOutcome),
+    MoveAgent(ActionOutcome),
 }
 
 impl Request {
@@ -1209,6 +1221,7 @@ impl Request {
             Self::AskDispatcher { .. } => "ask_dispatcher",
             Self::ConfirmPlan { .. } => "confirm_plan",
             Self::DismissPlan { .. } => "dismiss_plan",
+            Self::MoveAgent { .. } => "move_agent",
         }
     }
 }
@@ -1406,6 +1419,7 @@ impl Response {
             Self::AskDispatcher(_) => "ask_dispatcher",
             Self::ConfirmPlan(_) => "confirm_plan",
             Self::DismissPlan(_) => "dismiss_plan",
+            Self::MoveAgent(_) => "move_agent",
         }
     }
 }
@@ -2452,6 +2466,22 @@ impl<C: Connector> App<C> {
                 let action = ClientMessage::DismissPlan { key, plan };
                 Response::DismissPlan(devices.act_on(device, action).await?)
             }
+            Request::MoveAgent {
+                device,
+                agent,
+                from,
+                to,
+                stop,
+            } => {
+                let action = ClientMessage::MoveAgent {
+                    key,
+                    agent,
+                    from,
+                    to,
+                    stop,
+                };
+                Response::MoveAgent(devices.act_on(device, action).await?)
+            }
         })
     }
 
@@ -3334,6 +3364,14 @@ mod tests {
             json!({"kind": "reset_test_host", "device": mac, "host": TestHostId::derive("h")}),
             json!({"kind": "end_lease", "device": mac, "lease": LeaseId::derive("l")}),
             json!({"kind": "read_lease_screen", "device": mac, "lease": LeaseId::derive("l")}),
+            json!({
+                "kind": "move_agent",
+                "device": mac,
+                "agent": a,
+                "from": DeviceId::derive("nl"),
+                "to": {"device": mac, "account": personal, "place": {"type": "folder", "path": "/srv/app"}},
+                "stop": true,
+            }),
         ]
         .into_iter()
         .chain(skill_requests(mac))
@@ -4159,7 +4197,7 @@ mod tests {
                 }
             }
         }
-        assert_eq!(kinds.len() + mac_only.len(), 149);
+        assert_eq!(kinds.len() + mac_only.len(), 150);
         // The harness has no maxd to install or uninstall, no timeline open, no
         // listening port, no setup waiting on a host key, no GitHub
         // sign-in to merge with, no skill proposal, no link or card waiting
