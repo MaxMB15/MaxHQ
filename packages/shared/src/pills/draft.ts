@@ -101,6 +101,10 @@ export const markedText = (segments: readonly Segment[]): string =>
 export const isBlank = (draft: Draft): boolean =>
 	draft.segments.every((segment) => segment.type === "text" && segment.text.trim() === "");
 
+/** Whether the text holds a note's pill. */
+export const hasNote = (segments: readonly Segment[]): boolean =>
+	segments.some((segment) => segment.type === "pill" && segment.pill.type === "note");
+
 /** The keys of the files placed in a draft, each visual's page too, in order, once each. */
 export const fileKeys = (segments: readonly Segment[]): string[] => [
 	...new Set(

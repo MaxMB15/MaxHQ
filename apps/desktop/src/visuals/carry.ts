@@ -14,7 +14,7 @@ import { MessageSquarePlus, MessagesSquare } from "lucide-react";
 import type { Services } from "@/app/services";
 import { otherAgents } from "@/agent-view/quotes";
 import { writeDraftClipboard } from "@/composer/pill-keys";
-import { quoteInbox } from "@/composer/quote-inbox";
+import { quoteInbox } from "@maxhq/shared/pills/quote-inbox";
 import { paneAgent } from "@/layout/pane-id";
 import { panesOf } from "@/layout/panes";
 import type { AgentId } from "@maxhq/shared/bindings";

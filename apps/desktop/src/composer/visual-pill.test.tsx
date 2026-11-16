@@ -13,7 +13,7 @@ import { toVisualFence } from "@maxhq/shared/visuals/fence";
 import { VISUAL_MIME, writeVisualTransfer } from "@maxhq/shared/visuals/transfer";
 import { MAX_VISUAL_BYTES } from "@maxhq/shared/visuals/visual";
 
-import { quoteInbox } from "./quote-inbox";
+import { quoteInbox } from "@maxhq/shared/pills/quote-inbox";
 import {
 	AGENT,
 	DEVICE,

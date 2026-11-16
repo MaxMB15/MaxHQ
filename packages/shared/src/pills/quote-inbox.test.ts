@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026 Max Boksem
 
-import type { QuoteRef } from "@maxhq/shared/pills/draft";
+import type { QuoteRef } from "./draft";
 import { describe, expect, it, vi } from "vitest";
 
 import { createQuoteInbox } from "./quote-inbox";

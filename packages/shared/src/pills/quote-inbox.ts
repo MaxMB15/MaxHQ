@@ -6,9 +6,9 @@
 // lives in its composer, so each waits here until that composer takes it:
 // right away when it's mounted, or when it mounts.
 
-import type { AgentId } from "@maxhq/shared/bindings";
-import type { QuoteRef } from "@maxhq/shared/pills/draft";
-import type { VisualTransfer } from "@maxhq/shared/visuals/transfer";
+import type { AgentId } from "../bindings";
+import type { QuoteRef } from "./draft";
+import type { VisualTransfer } from "../visuals/transfer";
 
 /** One quote or visual for a composer. */
 export type InboundQuote = (

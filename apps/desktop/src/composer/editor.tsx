@@ -42,7 +42,8 @@ import {
 } from "./doc";
 import { CodeColours } from "./code-colours";
 import { dropTimelineFile } from "./file-drop";
-import { type GitHover, gitHoverAt, GitPills, type GitPillsStore } from "./git-pills";
+import type { GitPillsStore } from "@maxhq/shared/pills/git-pills";
+import { type GitHover, gitHoverAt, GitPills } from "./git-pills";
 import type { ComposerNative } from "./native";
 import { enterAddsLine, MarkdownLook } from "./markdown";
 import { insertLink, PastedLinks, swapLink } from "./pasted-links";

@@ -18,6 +18,7 @@ import {
 	gitKey,
 	gitNumbers,
 	gitTargetOf,
+	hasNote,
 	isBlank,
 	keyedGitItems,
 	labeledText,
@@ -435,6 +436,11 @@ describe("note pills", () => {
 	};
 	const other: NoteRef = { ...note, project: "proj-2", note: "note-2", title: "" };
 	const pill = (ref: NoteRef): Segment => ({ type: "pill", pill: ref });
+
+	it("finds a note's pill in the text", () => {
+		expect(hasNote([text("see "), pill(note)])).toBe(true);
+		expect(hasNote([text("see "), file("k")])).toBe(false);
+	});
 
 	it("lists each note from another project once, in text order", () => {
 		const segments = [pill(other), text(" "), pill(note), text(" "), pill(other)];
