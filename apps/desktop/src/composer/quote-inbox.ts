@@ -1,18 +1,19 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026 Max Boksem
 
-// Quotes and visuals on their way to an agent's composer, from Add to
-// chat, the timeline's menu or a drop on the agent in the sidebar. A draft
+// Quotes, command output and visuals on their way to an agent's composer,
+// from Add to chat, the timeline's menu, a command you ran with `!` or a
+// drop on the agent in the sidebar. A draft
 // lives in its composer, so each waits here until that composer takes it:
 // right away when it's mounted, or when it mounts.
 
 import type { AgentId } from "@maxhq/shared/bindings";
-import type { QuoteRef } from "@maxhq/shared/pills/draft";
+import type { OutputRef, QuoteRef } from "@maxhq/shared/pills/draft";
 import type { VisualTransfer } from "@maxhq/shared/visuals/transfer";
 
-/** One quote or visual for a composer. */
+/** One quote, output or visual for a composer. */
 export type InboundQuote = (
-	| { readonly quote: QuoteRef; readonly visual?: undefined }
+	| { readonly quote: QuoteRef | OutputRef; readonly visual?: undefined }
 	| { readonly visual: VisualTransfer; readonly quote?: undefined }
 ) & {
 	/** Whether the composer takes the focus as it adds the pill. */
@@ -21,8 +22,8 @@ export type InboundQuote = (
 
 /** The quotes and visuals waiting for each agent's composer. */
 export type QuoteInbox = {
-	/** Queues a quote for an agent's composer, and tells it. */
-	readonly send: (agent: AgentId, quote: QuoteRef, focus: boolean) => void;
+	/** Queues a quote or a command's output for an agent's composer, and tells it. */
+	readonly send: (agent: AgentId, quote: QuoteRef | OutputRef, focus: boolean) => void;
 	/** Queues a visual for an agent's composer, and tells it. */
 	readonly sendVisual: (agent: AgentId, visual: VisualTransfer, focus: boolean) => void;
 	/** Takes the quotes waiting for an agent, oldest first. */

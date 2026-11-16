@@ -14,8 +14,9 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use specta::Type;
 
-use crate::ids::{AgentId, AttachmentId, DeviceId, NoteId, ProjectId};
+use crate::ids::{AgentId, AttachmentId, DeviceId, NoteId, ProjectId, TerminalId};
 use crate::model::Vendor;
+use crate::terminal::LineSpan;
 use crate::time::Timestamp;
 use crate::timeline::ItemId;
 
@@ -116,8 +117,16 @@ pub enum InlineRef {
         /// How many lines it wrote in all, which may be more than `text`
         /// holds.
         lines_total: u32,
-        /// Its last lines, as plain text.
+        /// Its last lines, as plain text, or the lines in `lines`.
         text: String,
+        /// The terminal it came from, so the app can follow a command that
+        /// still runs. Agents never see it, so it reads back as none.
+        #[serde(default)]
+        terminal: Option<TerminalId>,
+        /// The lines `text` holds when you picked them in the drawer,
+        /// counted in all the terminal printed. None means its last lines.
+        #[serde(default)]
+        lines: Option<LineSpan>,
     },
     /// A pull request or issue, checked when picked.
     GitItem {
@@ -258,6 +267,8 @@ mod tests {
                 duration_ms: Some(4_200),
                 lines_total: 214,
                 text: "FAIL src/cache.test.ts\n1 failed".into(),
+                terminal: None,
+                lines: Some(LineSpan { first: 6, last: 8 }),
             },
         ]
     }
@@ -318,6 +329,8 @@ mod tests {
                 "duration_ms": 4_200,
                 "lines_total": 214,
                 "text": "FAIL src/cache.test.ts\n1 failed",
+                "terminal": null,
+                "lines": { "first": 6, "last": 8 },
             })
         );
     }

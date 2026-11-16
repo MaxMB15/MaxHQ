@@ -86,6 +86,16 @@ pub struct Terminal {
     pub rows: u16,
 }
 
+/// A run of lines in what a terminal printed, counted from 1 with both ends
+/// in.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, Type, JsonSchema)]
+pub struct LineSpan {
+    /// The first line.
+    pub first: u32,
+    /// The last line.
+    pub last: u32,
+}
+
 #[cfg(test)]
 mod tests {
     use serde::Serialize;

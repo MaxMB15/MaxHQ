@@ -28,7 +28,7 @@ export const NOTE_PILLS_SINCE = 28 as const;
 
 export const OLDEST_PROTOCOL_VERSION = 20 as const;
 
-export const PROTOCOL_VERSION = 44 as const;
+export const PROTOCOL_VERSION = 45 as const;
 
 export const SHOW_ANYWAY_SINCE = 29 as const;
 
@@ -5399,8 +5399,18 @@ duration_ms: number | null;
  *  holds.
  */
 lines_total: number; 
-/**  Its last lines, as plain text. */
-text: string } | 
+/**  Its last lines, as plain text, or the lines in `lines`. */
+text: string; 
+/**
+ *  The terminal it came from, so the app can follow a command that
+ *  still runs. Agents never see it, so it reads back as none.
+ */
+terminal?: TerminalId | null; 
+/**
+ *  The lines `text` holds when you picked them in the drawer,
+ *  counted in all the terminal printed. None means its last lines.
+ */
+lines?: LineSpan | null } | 
 /**  A pull request or issue, checked when picked. */
 { type: "git_item"; 
 /**  "owner/name". */
@@ -5836,6 +5846,17 @@ export type Limits = {
 	usage_cap_percent: number | null,
 	/**  When it stops allowing anything. */
 	expires_at: Timestamp | null,
+};
+
+/**
+ *  A run of lines in what a terminal printed, counted from 1 with both ends
+ *  in.
+ */
+export type LineSpan = {
+	/**  The first line. */
+	first: number,
+	/**  The last line. */
+	last: number,
 };
 
 /**  A link a node offers, such as its PR. */

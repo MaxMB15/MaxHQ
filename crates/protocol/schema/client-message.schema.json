@@ -9309,6 +9309,18 @@
               ],
               "format": "int32"
             },
+            "lines": {
+              "description": "The lines `text` holds when you picked them in the drawer,\ncounted in all the terminal printed. None means its last lines.",
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/LineSpan"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
             "lines_total": {
               "description": "How many lines it wrote in all, which may be more than `text`\nholds.",
               "type": "integer",
@@ -9323,8 +9335,20 @@
               "description": "Whether it still ran when the message went.",
               "type": "boolean"
             },
+            "terminal": {
+              "description": "The terminal it came from, so the app can follow a command that\nstill runs. Agents never see it, so it reads back as none.",
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/TerminalId"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
             "text": {
-              "description": "Its last lines, as plain text.",
+              "description": "Its last lines, as plain text, or the lines in `lines`.",
               "type": "string"
             },
             "type": {
@@ -9517,6 +9541,28 @@
           "minimum": 0
         }
       }
+    },
+    "LineSpan": {
+      "description": "A run of lines in what a terminal printed, counted from 1 with both ends\nin.",
+      "type": "object",
+      "properties": {
+        "first": {
+          "description": "The first line.",
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "last": {
+          "description": "The last line.",
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "first",
+        "last"
+      ]
     },
     "LockedSkill": {
       "description": "One skill in a project's lock.",

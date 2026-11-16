@@ -23,6 +23,7 @@ use std::collections::{HashMap, HashSet};
 use maxhq_protocol::context::{GitItemKind, GitItemState, InlineRef, QuoteSource, REF_MARK};
 use maxhq_protocol::ids::{AgentId, AttachmentId, DeviceId, NoteId, ProjectId};
 use maxhq_protocol::model::Vendor;
+use maxhq_protocol::terminal::LineSpan;
 use maxhq_protocol::time::Timestamp;
 use maxhq_protocol::timeline::{AttachmentKind, ItemBody, ItemId};
 use uuid::Uuid;
@@ -464,6 +465,8 @@ impl Book {
                 duration_ms,
                 lines_total,
                 text,
+                lines,
+                ..
             } => {
                 self.outputs += 1;
                 let number = self.outputs;
@@ -478,15 +481,22 @@ impl Book {
                     status_words(*running, *exit_code, *duration_ms)
                 );
                 let shown = line_count(&text);
-                if shown != *lines_total {
-                    head.push_str(&format!(" The last {shown} of {lines_total} lines:"));
+                match lines {
+                    Some(span) => head.push_str(&format!(
+                        " Lines {} to {} of {lines_total}:",
+                        span.first, span.last
+                    )),
+                    None if shown != *lines_total => {
+                        head.push_str(&format!(" The last {shown} of {lines_total} lines:"));
+                    }
+                    None => {}
                 }
                 self.lines.push(head);
                 let fence = fence_for(&text);
                 self.lines.push(fence.clone());
                 self.lines.extend(text.split('\n').map(str::to_owned));
                 self.lines.push(fence);
-                output_marker(number, command, *running, *exit_code)
+                output_marker(number, command, *running, *exit_code, *lines)
             }
             InlineRef::GitItem { .. } => String::new(),
         }
@@ -1172,22 +1182,32 @@ fn visual_entry(number: usize, rest: &str) -> Option<Entry> {
 
 /// An output's marker, such as `[Output 1: pnpm test, exit 1]`, with
 /// `, running` while it runs and nothing after the command without an
-/// exit code.
-fn output_marker(number: usize, command: &str, running: bool, exit_code: Option<i32>) -> String {
+/// exit code. Lines picked in the drawer follow, as in `, lines 6-8`.
+fn output_marker(
+    number: usize,
+    command: &str,
+    running: bool,
+    exit_code: Option<i32>,
+    lines: Option<LineSpan>,
+) -> String {
     let how = match (running, exit_code) {
         (true, _) => ", running".to_owned(),
         (false, Some(code)) => format!(", exit {code}"),
         (false, None) => String::new(),
     };
+    let picked = lines.map_or_else(String::new, |span| {
+        format!(", lines {}-{}", span.first, span.last)
+    });
     format!(
-        "[Output {number}: {}{how}]",
+        "[Output {number}: {}{how}{picked}]",
         label(&short(command), "command")
     )
 }
 
 /// An output's entry: the command, where and when it ran and how it went,
 /// then how many lines it wrote when the fence that follows doesn't hold
-/// them all. The text comes from the fence.
+/// them all, or which lines it holds when they were picked. The text comes
+/// from the fence.
 fn output_entry(number: usize, rest: &str) -> Option<Entry> {
     let rest = rest.strip_prefix("You ran ")?;
     let (command, rest) = match rest.strip_prefix('`') {
@@ -1201,18 +1221,26 @@ fn output_entry(number: usize, rest: &str) -> Option<Entry> {
     let (device_name, rest) = read_spot(rest, " at ")?;
     let (at, rest) = rest.split_once(". ")?;
     let (running, exit_code, duration_ms, rest) = read_status(rest)?;
-    let total = if rest.is_empty() {
-        None
+    let (total, lines) = if rest.is_empty() {
+        (None, None)
+    } else if let Some(picked) = rest.strip_prefix(" Lines ") {
+        let (span, total) = picked.strip_suffix(':')?.split_once(" of ")?;
+        let (first, last) = span.split_once(" to ")?;
+        let span = LineSpan {
+            first: first.parse().ok()?,
+            last: last.parse().ok()?,
+        };
+        (Some(total.parse().ok()?), Some(span))
     } else {
         let (shown, total) = rest
             .strip_prefix(" The last ")?
             .strip_suffix(" lines:")?
             .split_once(" of ")?;
         shown.parse::<u32>().ok()?;
-        Some(total.parse().ok()?)
+        (Some(total.parse().ok()?), None)
     };
     Some(Entry::Output {
-        marker: output_marker(number, &command, running, exit_code),
+        marker: output_marker(number, &command, running, exit_code, lines),
         made: InlineRef::Output {
             command,
             device_name,
@@ -1223,6 +1251,8 @@ fn output_entry(number: usize, rest: &str) -> Option<Entry> {
             duration_ms,
             lines_total: total.unwrap_or_default(),
             text: String::new(),
+            terminal: None,
+            lines,
         },
         total,
     })
@@ -2087,6 +2117,8 @@ mod tests {
             duration_ms,
             lines_total: 1,
             text: "ok".to_owned(),
+            terminal: None,
+            lines: None,
         }
     }
 
@@ -2198,6 +2230,8 @@ mod tests {
             duration_ms: None,
             lines_total: 6,
             text: sneaky.to_owned(),
+            terminal: None,
+            lines: None,
         };
         let refs = vec![odd, output("", 0), output("ok\n", 1)];
         let typed = "\u{FFFC} then \u{FFFC} and \u{FFFC}";
@@ -2229,6 +2263,48 @@ mod tests {
         assert_eq!(parsed.text, typed);
         assert_eq!(parsed.refs, refs);
         assert!(parsed.files.is_empty(), "{:?}", parsed.files);
+    }
+
+    #[test]
+    fn picked_lines_read_back_and_the_terminal_stays_home() {
+        let id = maxhq_protocol::ids::TerminalId::derive("dev server");
+        let mut picked = ran(None, true, Some(61_000));
+        if let InlineRef::Output {
+            text,
+            lines_total,
+            terminal,
+            lines,
+            ..
+        } = &mut picked
+        {
+            *text =
+                "14:06:12 [cache] hit\n14:06:12 [cache] served\n14:06:13 [banner] shown".to_owned();
+            *lines_total = 214;
+            *terminal = Some(id);
+            *lines = Some(LineSpan { first: 6, last: 8 });
+        }
+        let refs = [picked.clone()];
+        let sent = encode("\u{FFFC}", &refs, &[], agent(1));
+        assert!(
+            sent.text
+                .starts_with("[Output 1: pnpm test, running, lines 6-8]\n"),
+            "{}",
+            sent.text
+        );
+        assert!(
+            sent.text.contains(
+                "[Output 1] You ran `pnpm test` in ~/code/example-app on Mac at \
+                 2026-10-30T14:02:00Z. Still running after 61 s. Lines 6 to 8 of 214:\n```\n"
+            ),
+            "{}",
+            sent.text
+        );
+        assert!(!sent.text.contains(&id.to_string()), "{}", sent.text);
+        let InlineRef::Output { terminal, .. } = &mut picked else {
+            unreachable!()
+        };
+        *terminal = None;
+        assert_eq!(back(&sent.text).refs, [picked]);
     }
 
     #[test]

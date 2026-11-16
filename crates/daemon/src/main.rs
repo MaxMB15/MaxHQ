@@ -1595,6 +1595,8 @@ mod testing {
             duration_ms: Some(4_200),
             lines_total: 214,
             text: "FAIL src/cache.test.ts\n```\nexpected 1, got 2\n```\n1 failed".to_owned(),
+            terminal: None,
+            lines: None,
         }
     }
 }
