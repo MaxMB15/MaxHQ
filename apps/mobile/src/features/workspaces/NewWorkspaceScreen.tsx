@@ -53,8 +53,11 @@ import { Buttons } from "../devices/section";
 import { NeedsSwitch, useLetsPhone } from "../phone/everything";
 import { LOOK_TEXT } from "./look";
 
-/** A workspace being made, step by step, then its state, guest and egress. */
-const CreationSteps = ({ id, planned }: { id: WorkspaceId; planned: string }) => {
+/**
+ * A workspace being made, step by step, then its state, guest and egress.
+ * A copy into a new container shows it too.
+ */
+export const CreationSteps = ({ id, planned }: { id: WorkspaceId; planned: string }) => {
 	const { t } = useI18n();
 
 	const workspace = useView((s) => s.view.tables.workspace.get(id));

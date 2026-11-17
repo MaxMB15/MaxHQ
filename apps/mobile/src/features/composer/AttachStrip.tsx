@@ -4,12 +4,13 @@
 // The photos and files the paperclip added, in a row above the field, each
 // with its picture or a file's mark, its name, a spinner while it gets
 // ready on the agent's device, and an X that takes it out. One that
-// couldn't get ready shows in red with why.
+// uploads says how far it has got under its name, and one that couldn't
+// get ready shows in red with why.
 
 import { useI18n } from "@maxhq/shared/i18n";
 
 import { previewOf } from "@maxhq/shared/agent-view/pictures";
-import type { StagedFile } from "@maxhq/shared/composer/staging";
+import { type StagedFile, uploadText } from "@maxhq/shared/composer/staging";
 import { fileLabel, middleTruncate } from "@maxhq/shared/pills/label";
 import { memo } from "react";
 import { Image, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
@@ -43,6 +44,7 @@ const Staged = memo(
 		);
 		const face = (file.ref && previewOf(file.ref)) ?? file.preview;
 		const failed = file.state === "failed";
+		const going = uploadText(file);
 		return (
 			<View style={[styles.file, failed && styles.failedFile]}>
 				{face ? (
@@ -63,6 +65,10 @@ const Staged = memo(
 					{failed ? (
 						<Text style={styles.error} numberOfLines={2}>
 							{file.error ?? t("Couldn't get it ready")}
+						</Text>
+					) : going ? (
+						<Text style={styles.going} numberOfLines={1}>
+							{going}
 						</Text>
 					) : null}
 				</View>
@@ -139,6 +145,7 @@ const styles = StyleSheet.create({
 	words: { flexShrink: 1, minWidth: 0 },
 	name: { color: color.foreground, fontSize: size.meta },
 	error: { color: color.errorText, fontSize: size.tiny },
+	going: { color: color.mutedForeground, fontSize: size.tiny, fontVariant: ["tabular-nums"] },
 	remove: {
 		width: 28,
 		height: 28,

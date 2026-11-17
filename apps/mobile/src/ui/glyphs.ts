@@ -48,4 +48,5 @@ export { default as Unlink } from "lucide-react-native/icons/unlink";
 export { default as UserCheck } from "lucide-react-native/icons/user-check";
 export { default as UserRound } from "lucide-react-native/icons/user-round";
 export { default as UserRoundX } from "lucide-react-native/icons/user-round-x";
+export { default as Workflow } from "lucide-react-native/icons/workflow";
 export { default as Wrench } from "lucide-react-native/icons/wrench";

@@ -6,18 +6,27 @@
 // media cache, up to the viewer's limit for its kind, and a larger one waits
 // for Show anyway. What it draws as is in file.ts. More holds Copy path, and
 // Share on iOS, where Save to Files is, or Save on Android, which puts it in
-// a folder you pick, as a visual's Save as .html does.
+// a folder you pick, as a visual's Save as .html does. A file the viewer
+// hasn't fetched whole, such as one too large to show, downloads first,
+// with how far it has got in its note and a way to cancel it.
 
 import { t, useI18n } from "@maxhq/shared/i18n";
 
 import * as Clipboard from "expo-clipboard";
 import { Directory, File, FileMode, Paths } from "expo-file-system";
-import { type ReactNode, useEffect, useMemo, useState } from "react";
+import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { Alert, Image, Platform, ScrollView, Share, StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { WebView } from "react-native-webview";
 
 import { BINARY_SNIFF, looksBinary, textLines } from "@maxhq/shared/agent-view/code-text";
+import {
+	cancelDownload,
+	type DownloadState,
+	downloadOf,
+	startDownload,
+	useDownload,
+} from "@maxhq/shared/agent-view/downloads";
 import { FULL_LIMIT, loadMedia, mediaLost, useMedia } from "@maxhq/shared/agent-view/media";
 import {
 	fileName,
@@ -28,6 +37,7 @@ import {
 import type { AgentId } from "@maxhq/shared/bindings";
 import { copyLabel, useCopyWith } from "@maxhq/shared/lib/copy";
 
+import { urlOf } from "../../data/native-source";
 import type { ScreenProps } from "../../navigation";
 import { useServices, useView } from "../../services";
 import { color, size } from "../../theme";
@@ -38,7 +48,7 @@ import { Header, IconButton } from "../../ui/Header";
 import { More } from "../../ui/Icon";
 import { MarkdownText } from "../../ui/MarkdownText";
 import { CodeLines } from "./CodeLines";
-import { binaryNote, fileNote, lookOf, mimeOf, noViewNote } from "./file";
+import { binaryNote, fileNote, lookOf, mimeOf, noViewNote, saveText } from "./file";
 
 // The words of an error something threw.
 const said = (error: unknown): string => (error instanceof Error ? error.message : String(error));
@@ -46,8 +56,12 @@ const said = (error: unknown): string => (error instanceof Error ? error.message
 /** What Save or Share is called here. */
 const saveLabel = (): string => (Platform.OS === "ios" ? t("Share") : t("Save"));
 
-/** Hands a copy of the file on, through the share sheet on iOS and into a picked folder on Android. */
-const saveFile = async (url: string, path: string): Promise<void> => {
+/**
+ * Hands a copy of the file on, through the share sheet on iOS and into a
+ * picked folder on Android. A download is `owned`, so it moves rather than
+ * copies, and none of it stays behind.
+ */
+const saveFile = async (url: string, path: string, owned = false): Promise<void> => {
 	const name = fileName(path);
 	try {
 		const file = new File(url);
@@ -56,7 +70,8 @@ const saveFile = async (url: string, path: string): Promise<void> => {
 			const folder = new Directory(Paths.cache, "shared");
 			folder.create({ intermediates: true, idempotent: true });
 			const copy = new File(folder, name);
-			await file.copy(copy, { overwrite: true });
+			if (owned) await file.move(copy, { overwrite: true });
+			else await file.copy(copy, { overwrite: true });
 			await Share.share({ url: copy.uri });
 			return;
 		}
@@ -64,10 +79,63 @@ const saveFile = async (url: string, path: string): Promise<void> => {
 		// Closed without picking one.
 		if (!folder) return;
 		await folder.createFile(name, mimeOf(path)).write(await file.bytes());
+		if (owned) file.delete();
 		Alert.alert(t("Saved"), name);
 	} catch (error) {
 		Alert.alert(t("Couldn't save {{what}}", { what: name }), said(error));
 	}
+};
+
+/**
+ * Save for the file at `path`: from the viewer's copy at `url` once it has
+ * the whole file, and through a download otherwise. A download that ends
+ * after the screen closed waits for the next Save.
+ */
+const useSave = (
+	agent: AgentId,
+	path: string,
+	url: string | null
+): {
+	readonly download: DownloadState | null;
+	readonly save: () => Promise<void>;
+	readonly cancel: () => void;
+} => {
+	const { source } = useServices();
+	const download = useDownload(agent, path);
+	const live = useRef(true);
+	useEffect(() => {
+		live.current = true;
+		return () => {
+			live.current = false;
+		};
+	}, []);
+	const save = async () => {
+		if (url) return saveFile(url, path);
+		const before = downloadOf(agent, path);
+		if (before?.state === "downloading") return;
+		if (before?.state !== "done" || !new File(urlOf(before.path)).exists)
+			await startDownload(source, agent, path);
+		const landed = downloadOf(agent, path);
+		if (!live.current || landed === null || landed.state === "downloading") return;
+		// Forgotten either way, since the file moves on and a failure says why now.
+		cancelDownload(source, agent, path);
+		if (landed.state === "failed") {
+			Alert.alert(t("Couldn't save {{what}}", { what: fileName(path) }), landed.reason);
+			return;
+		}
+		await saveFile(urlOf(landed.path), path, true);
+	};
+	return { download, save, cancel: () => cancelDownload(source, agent, path) };
+};
+
+type Save = ReturnType<typeof useSave>;
+
+/** Save for a file the viewer won't draw, or Cancel while its download is on its way. */
+const SaveAction = ({ save }: { save: Save }) => {
+	const { t } = useI18n();
+	if (save.download?.state === "downloading")
+		return <Button small label={t("Cancel")} onPress={save.cancel} />;
+	return <Button small label={saveLabel()} onPress={() => void save.save()} />;
 };
 
 /**
@@ -108,14 +176,16 @@ const useText = (url: string, size: number): [Read | null, () => void] => {
 	return [read && read.url === url ? read : null, () => setReads((n) => n + 1)];
 };
 
-/** What shows in the file's place: why, with what you can do about it. */
+/** What shows in the file's place: why, with what you can do about it, and how far Save has got. */
 const Note = ({
 	text,
 	busy = false,
+	saving = null,
 	children,
 }: {
 	text: string;
 	busy?: boolean;
+	saving?: string | null;
 	children?: ReactNode;
 }) => (
 	<View
@@ -125,6 +195,7 @@ const Note = ({
 	>
 		{busy ? <Spinner /> : null}
 		<Text style={styles.noteText}>{text}</Text>
+		{saving ? <Text style={styles.saving}>{saving}</Text> : null}
 		{children ? <View style={styles.actions}>{children}</View> : null}
 	</View>
 );
@@ -276,15 +347,18 @@ const Body = ({
 	path,
 	line,
 	ask,
+	save,
 }: {
 	agent: AgentId;
 	path: string;
 	line: number | undefined;
 	ask: object;
+	save: Save;
 }) => {
 	const { t } = useI18n();
 	const { source } = useServices();
 	const media = useMedia(agent, path);
+	const saving = saveText(save.download);
 	// Show anyway asks for the whole file, as far as the app's cache takes.
 	const [limit, setLimit] = useState(() => viewerLimit(path));
 	useEffect(() => {
@@ -297,7 +371,7 @@ const Body = ({
 		switch (note?.kind) {
 			case "large":
 				return (
-					<Note text={note.text}>
+					<Note text={note.text} saving={saving}>
 						{note.more ? (
 							<Button
 								small
@@ -305,11 +379,12 @@ const Body = ({
 								onPress={() => setLimit(FULL_LIMIT)}
 							/>
 						) : null}
+						<SaveAction save={save} />
 					</Note>
 				);
 			case "failed":
 				return (
-					<Note text={note.text}>
+					<Note text={note.text} saving={saving}>
 						<Button
 							small
 							label={t("Try again")}
@@ -318,7 +393,7 @@ const Body = ({
 					</Note>
 				);
 			default:
-				return <Note busy text={note?.text ?? t("Reading…")} />;
+				return <Note busy text={note?.text ?? t("Reading…")} saving={saving} />;
 		}
 	}
 
@@ -335,7 +410,7 @@ const Body = ({
 		case "none":
 			return (
 				<Note text={noViewNote(path, size, Platform.OS)}>
-					<Button small label={saveLabel()} onPress={() => void saveFile(url, path)} />
+					<SaveAction save={save} />
 				</Note>
 			);
 	}
@@ -349,11 +424,16 @@ export const FileScreen = ({ navigation, route }: ScreenProps<"File">) => {
 	const name = fileName(path);
 	const media = useMedia(agent, path);
 	const url = media?.state === "ready" ? media.url : null;
+	const save = useSave(agent, path, url);
 	const [copied, copy] = useCopyWith(Clipboard.setStringAsync);
 	const more = () =>
 		choose(name, [
 			{ label: t("Copy path"), pick: () => copy(path) },
-			{ label: saveLabel(), disabled: !url, pick: () => url && void saveFile(url, path) },
+			{
+				label: saveLabel(),
+				disabled: save.download?.state === "downloading",
+				pick: () => void save.save(),
+			},
 		]);
 	return (
 		<View style={styles.screen}>
@@ -376,7 +456,7 @@ export const FileScreen = ({ navigation, route }: ScreenProps<"File">) => {
 					</IconButton>
 				}
 			/>
-			<Body agent={agent} path={path} line={params.line} ask={params} />
+			<Body agent={agent} path={path} line={params.line} ask={params} save={save} />
 		</View>
 	);
 };
@@ -400,5 +480,6 @@ const styles = StyleSheet.create({
 		fontSize: size.small,
 		textAlign: "center",
 	},
+	saving: { color: color.mutedForeground, fontSize: size.meta, fontVariant: ["tabular-nums"] },
 	actions: { flexDirection: "row", gap: 8 },
 });

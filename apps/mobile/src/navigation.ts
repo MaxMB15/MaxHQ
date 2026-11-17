@@ -12,7 +12,9 @@ import type {
 	NoteId,
 	ProjectId,
 	TaskId,
+	WorkspaceId,
 } from "@maxhq/shared/bindings";
+import { runName } from "@maxhq/shared/workflow/select";
 
 /** The screens and what each takes. */
 export type Screens = {
@@ -71,6 +73,23 @@ export type Screens = {
 	SubAgents: { readonly agent: AgentId };
 	/** The form that starts an agent, in `project` when one is given. */
 	NewAgent: { readonly project?: ProjectId } | undefined;
+	/** A project's workflow runs, live ones first. */
+	Workflows: { readonly project: ProjectId };
+	/** One workflow run, by its key: its steps and its timeline. */
+	Run: {
+		readonly device: DeviceId;
+		readonly project: ProjectId;
+		readonly workflow: string;
+		readonly run: string;
+	};
+	/** The form that copies a project to another device, for a project, a checkout or a device. */
+	CopyProject:
+		| {
+				readonly project?: ProjectId;
+				readonly from?: WorkspaceId;
+				readonly device?: DeviceId;
+		  }
+		| undefined;
 };
 
 /**
@@ -110,5 +129,9 @@ export const leaseScreenId = ({ params }: { readonly params: Screens["Lease"] })
  */
 export const pullScreenId = ({ params }: { readonly params: Screens["Pull"] }): string =>
 	`${params.device}\n${params.repo.toLowerCase()}#${params.number}`;
+
+/** The Run screen's ID: one screen for each run. */
+export const runScreenId = ({ params }: { readonly params: Screens["Run"] }): string =>
+	runName(params);
 
 export type ScreenProps<Name extends keyof Screens> = NativeStackScreenProps<Screens, Name>;

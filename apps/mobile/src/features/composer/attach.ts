@@ -3,8 +3,9 @@
 
 // The photos and files the paperclip adds: from the photo library, a new
 // photo from the camera, or any file from the system's file picker. Each
-// comes back as a picked file the box stages, with its bytes read only
-// once it stages, and nothing when you cancel.
+// comes back as a picked file the box stages, and nothing when you cancel.
+// The pickers copy what you pick into the app's caches folder, so the box
+// can upload it from there, or read its bytes only once it stages.
 
 import { t } from "@maxhq/shared/i18n";
 
@@ -12,6 +13,8 @@ import type { PickedFile } from "@maxhq/shared/composer/staging";
 import * as DocumentPicker from "expo-document-picker";
 import { File } from "expo-file-system";
 import * as ImagePicker from "expo-image-picker";
+
+import { pathOf } from "../../data/native-source";
 
 /** Where the paperclip takes a file from. */
 export type PickFrom = "library" | "camera" | "files";
@@ -32,6 +35,7 @@ const pickedOf = (asset: {
 	mime: asset.mime,
 	size: asset.size,
 	preview: asset.picture ? asset.uri : null,
+	path: asset.uri.startsWith("file://") ? pathOf(asset.uri) : null,
 	read: () => new File(asset.uri).bytes(),
 });
 

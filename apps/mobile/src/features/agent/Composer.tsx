@@ -29,7 +29,7 @@ import {
 	turnOf,
 	waitingMessages,
 } from "@maxhq/shared/composer/send";
-import { factsOfStaged, type StagedFile } from "@maxhq/shared/composer/staging";
+import { factsOfStaged, type StagedFile, takesFiles } from "@maxhq/shared/composer/staging";
 import type { ActionResult } from "@maxhq/shared/data/source";
 import { agentPillOf } from "@maxhq/shared/pills/agent-pill";
 import { fileNumbers, markedText, type Segment } from "@maxhq/shared/pills/draft";
@@ -269,8 +269,10 @@ export const Composer = ({
 		}
 		const added: string[] = [];
 		let refused: string | null = null;
+		// A device that takes uploads gets a file of any size; another, only its bytes.
+		const uploads = takesFiles(services.view.getState().view, on);
 		for (const file of picked.files) {
-			const result = staging.getState().addPicked(file);
+			const result = staging.getState().addPicked(file, uploads);
 			if ("key" in result) added.push(result.key);
 			else refused = result.refused;
 		}

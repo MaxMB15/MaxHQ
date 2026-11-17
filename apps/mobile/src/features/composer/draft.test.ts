@@ -48,6 +48,7 @@ const staged = (key: string, over: Partial<StagedFile> = {}): StagedFile => ({
 	ref: ref(`att-${key}`, `${key}.png`),
 	error: null,
 	found: null,
+	upload: null,
 	...over,
 });
 

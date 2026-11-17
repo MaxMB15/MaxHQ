@@ -8,12 +8,15 @@
 // shows as its text, since React Native's Image can't draw one. iOS shows a
 // PDF in a web view, and Android, whose web view can't, says so. Models and
 // Office documents only give their size, and Save or Share hands them on.
+// Save downloads a file the viewer hasn't fetched whole, of any size, and
+// says how far it has got.
 //
 // The phone can't use Show anyway: it fetches only from the agent's folders,
 // so a file outside them says to show it on the Mac.
 
 import { t } from "@maxhq/shared/i18n";
 
+import { type DownloadState, downloadPercent } from "@maxhq/shared/agent-view/downloads";
 import { formatBytes } from "@maxhq/shared/agent-view/format";
 import type { Lines, Token } from "@maxhq/shared/agent-view/highlight";
 import { FULL_LIMIT, type MediaState } from "@maxhq/shared/agent-view/media";
@@ -129,6 +132,15 @@ export const noViewNote = (path: string, size: number, os: string): string =>
 	viewerKind(path) === "pdf" && os !== "ios"
 		? t("Android can't show PDFs here. Save it to open it in another app.")
 		: t("Can't show this file here. It's {{size}}.", { size: formatBytes(size) });
+
+/** What the screen says while Save downloads the file, or null when it isn't downloading. */
+export const saveText = (download: DownloadState | null): string | null => {
+	if (download?.state !== "downloading") return null;
+	if (download.held === "paused") return t("Paused, reconnecting");
+	if (download.held === "waiting") return t("Waiting for room on this phone");
+	const percent = downloadPercent(download.sent, download.total);
+	return percent === null ? t("Downloading") : t("Downloading, {{percent}}%", { percent });
+};
 
 /** Lines in each block of the list. */
 export const BLOCK = 200;

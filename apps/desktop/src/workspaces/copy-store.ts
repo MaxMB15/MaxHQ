@@ -9,15 +9,11 @@ import { useStore } from "zustand";
 import { createStore, type StoreApi } from "zustand/vanilla";
 
 import { type Services, useServices } from "@/app/services";
-import type { DeviceId, ProjectId, WorkspaceId } from "@maxhq/shared/bindings";
+import type { WorkspaceId } from "@maxhq/shared/bindings";
 import type { PlaceFailure } from "@maxhq/shared/data/source";
+import type { CopyRequest } from "@maxhq/shared/workspaces/copy-form";
 
-/** What the form opened for: a project, a checkout, a device, or a mix. */
-export type CopyRequest = {
-	readonly project?: ProjectId | null;
-	readonly from?: WorkspaceId | null;
-	readonly device?: DeviceId | null;
-};
+export type { CopyRequest };
 
 /** The form's state. */
 export type CopyState = {

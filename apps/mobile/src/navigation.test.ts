@@ -3,7 +3,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import { agentScreenId, fileScreenId, noteScreenId, pullScreenId } from "./navigation";
+import { agentScreenId, fileScreenId, noteScreenId, pullScreenId, runScreenId } from "./navigation";
 
 describe("agentScreenId", () => {
 	it("gives each agent its own screen, and keeps one agent's screen for a new prompt", () => {
@@ -55,6 +55,22 @@ describe("pullScreenId", () => {
 		);
 		expect(pullScreenId({ params: pull })).toBe(
 			pullScreenId({ params: { ...pull, repo: "Owner/Repo" } })
+		);
+	});
+});
+
+describe("runScreenId", () => {
+	it("gives each run its own screen", () => {
+		const run = { device: "d1", project: "p1", workflow: "pipeline", run: "r1" };
+		expect(runScreenId({ params: run })).toBe(runScreenId({ params: { ...run } }));
+		expect(runScreenId({ params: run })).not.toBe(
+			runScreenId({ params: { ...run, run: "r2" } })
+		);
+		expect(runScreenId({ params: run })).not.toBe(
+			runScreenId({ params: { ...run, workflow: "review" } })
+		);
+		expect(runScreenId({ params: run })).not.toBe(
+			runScreenId({ params: { ...run, device: "d2" } })
 		);
 	});
 });

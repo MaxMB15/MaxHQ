@@ -7,6 +7,7 @@ import type { LoopState, RunShape, RunSnapshot } from "../bindings";
 import { mockRunSnapshot, nodeState } from "../data/mock-workflow";
 import { NOW } from "../test/build";
 import {
+	barLabel,
 	CARD,
 	columnLayout,
 	ELK_OPTIONS,
@@ -273,5 +274,26 @@ describe("timeline", () => {
 			waitFrom: null,
 		});
 		expect(line).toMatchObject({ start: NOW - 50, end: NOW - 20 });
+	});
+});
+
+describe("barLabel", () => {
+	const bar = {
+		start: NOW - 72_000,
+		end: NOW,
+		running: false,
+		status: "failed" as const,
+		waitFrom: null,
+		agent: null,
+	};
+
+	it("says the try, how it went and how long it took", () => {
+		expect(barLabel(bar, 1)).toBe("Try 2, Failed, 1 min 12 s");
+	});
+
+	it("says a running try isn't over and that a try with an agent opens it", () => {
+		expect(barLabel({ ...bar, running: true, status: "busy", agent: "agent-a" }, 0)).toBe(
+			"Try 1, Running, 1 min 12 s so far, opens its agent"
+		);
 	});
 });
