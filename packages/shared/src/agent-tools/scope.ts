@@ -12,6 +12,7 @@ import { t } from "../i18n";
 import type {
 	AccountId,
 	Actor,
+	Agent,
 	AgentDefaults,
 	AgentId,
 	AgentPlace,
@@ -209,6 +210,14 @@ export const permissionFrom = (
 		},
 	};
 };
+
+/**
+ * Whether an agent can hold a permission: one MaxHQ runs, which gets the
+ * tools over its pipe, and not a sub-agent. One watched in a terminal
+ * can't call them as itself.
+ */
+export const canAllow = (agent: Pick<Agent, "control" | "parent">): boolean =>
+	agent.control === "held" && agent.parent === null;
 
 /** The permission an agent holds, if it holds one. */
 export const heldBy = (

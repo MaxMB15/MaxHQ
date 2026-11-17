@@ -394,6 +394,8 @@
 	"Egress check failed at {{formatWhen_egress_at__now}}. {{listInWords_egress_reached}} answered, so agents won't start until a check passes": "Controle op uitgaand verkeer mislukt op {{formatWhen_egress_at__now}}. {{listInWords_egress_reached}} antwoordde; agents starten pas na een geslaagde controle",
 	"Egress check failed at {{formatWhen_egress_at__now}}, so agents won't start until a check passes": "Controle op uitgaand verkeer mislukt op {{formatWhen_egress_at__now}}; agents starten pas na een geslaagde controle",
 	"Pick a project.": "Kies een project.",
+	"{{reason}}. Retry runs it again, and Remove forgets the folder.": "{{reason}}. Opnieuw proberen start het opnieuw. Verwijderen vergeet de map.",
+	"{{reason}}. The conversation stays, and Resume starts it again.": "{{reason}}. Het gesprek blijft behouden, en Hervatten start de agent opnieuw.",
 	"{{where}} has no Incus.": "{{where}} heeft geen Incus.",
 	"{{where}} doesn't make workspaces now.": "{{where}} kan nu geen werkruimtes aanmaken.",
 	"Use lower-case letters, digits and hyphens for the name, up to 59 of them.": "Gebruik maximaal 59 kleine letters, cijfers en koppeltekens voor de naam.",

@@ -16,7 +16,7 @@ import type { ActionResult, CloneState, PlaceFailure } from "@maxhq/shared/data/
 import { cn } from "@/lib/utils";
 import { plural, sentence } from "@maxhq/shared/status/format";
 import { dismissMissed, useCopy } from "@/workspaces/copy-store";
-import { cloneLabel, cloneOf } from "@maxhq/shared/workspaces/state";
+import { cloneOf, cloneWording } from "@maxhq/shared/workspaces/state";
 
 import { failureOf, type SendState } from "@maxhq/shared/agent-view/answer";
 import { Spinner } from "./icons";
@@ -29,38 +29,6 @@ const LOUD = cn(
 	BUTTON,
 	"bg-primary font-semibold text-primary-foreground shadow-lit hover:bg-primary/90"
 );
-
-const wording = (clone: CloneState): { title: string; body: string } => {
-	switch (clone.state) {
-		case "cloning":
-			return clone.stalled
-				? {
-						title: translate("Clone stalled{{value1}}", {
-							value1:
-								clone.percent === null
-									? ""
-									: translate(" at {{percent}}%", { percent: clone.percent }),
-						}),
-						body: translate(
-							"git has said nothing for a while. A slow link can do that, or you can cancel it."
-						),
-					}
-				: {
-						title: cloneLabel(clone) ?? translate("Cloning"),
-						body: translate("Agents can start in this folder once git is done."),
-					};
-		case "failed":
-			return {
-				title: translate("Clone failed"),
-				body: `${sentence(clone.reason)}. Retry runs it again, and Remove forgets the folder.`,
-			};
-		case "cancelled":
-			return {
-				title: translate("Clone cancelled"),
-				body: translate("Retry runs it again, and Remove forgets the folder."),
-			};
-	}
-};
 
 /** A bar for how far something has got, out of 100. */
 export const Bar = ({ label, percent }: { label: string; percent: number | null }) => {
@@ -181,7 +149,7 @@ const Clone = ({ workspace, clone }: { workspace: WorkspaceId; clone: CloneState
 	const { source } = useServices();
 	const [state, setState] = useState<SendState>({ state: "idle" });
 	const busy = state.state === "sending";
-	const { title, body } = wording(clone);
+	const { title, body } = cloneWording(clone);
 
 	const run = (action: (id: WorkspaceId) => Promise<ActionResult>, fallback: string) => {
 		setState({ state: "sending" });

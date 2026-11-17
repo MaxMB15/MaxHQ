@@ -394,6 +394,8 @@
 	"Egress check failed at {{formatWhen_egress_at__now}}. {{listInWords_egress_reached}} answered, so agents won't start until a check passes": "La comprobación falló a las {{formatWhen_egress_at__now}}. Respondió {{listInWords_egress_reached}}; los agentes no se iniciarán hasta superar la comprobación",
 	"Egress check failed at {{formatWhen_egress_at__now}}, so agents won't start until a check passes": "La comprobación falló a las {{formatWhen_egress_at__now}}; los agentes no se iniciarán hasta superarla",
 	"Pick a project.": "Elige un proyecto.",
+	"{{reason}}. Retry runs it again, and Remove forgets the folder.": "{{reason}}. Reintentar lo ejecuta de nuevo. Eliminar olvida la carpeta.",
+	"{{reason}}. The conversation stays, and Resume starts it again.": "{{reason}}. La conversación se conserva y Reanudar lo inicia de nuevo.",
 	"{{where}} has no Incus.": "{{where}} no tiene Incus.",
 	"{{where}} doesn't make workspaces now.": "{{where}} no crea espacios de trabajo en este momento.",
 	"Use lower-case letters, digits and hyphens for the name, up to 59 of them.": "Usa hasta 59 letras minúsculas, dígitos y guiones en el nombre.",

@@ -147,6 +147,8 @@
 	"stop the turn": "stop the turn",
 	"change the model": "change the model",
 	"change the permission mode": "change the permission mode",
+	"{{reason}}. Retry runs it again, and Remove forgets the folder.": "{{reason}}. Retry runs it again, and Remove forgets the folder.",
+	"{{reason}}. The conversation stays, and Resume starts it again.": "{{reason}}. The conversation stays, and Resume starts it again.",
 	"{{sentence_error_what}} isn't there anymore": "{{sentence_error_what}} isn't there anymore",
 	"{{error_device}} isn't connected": "{{error_device}} isn't connected",
 	"MaxHQ no longer knows this agent": "MaxHQ no longer knows this agent",
