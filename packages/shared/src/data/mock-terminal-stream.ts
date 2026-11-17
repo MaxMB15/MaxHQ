@@ -7,7 +7,8 @@
 // `pnpm test` prints a failing run over a few seconds, `pnpm dev` prints a
 // log line every second until Ctrl-C, and `sudo true` asks for a password
 // the way a real prompt does, with the terminal in password mode until you
-// send a line, which it never echoes or keeps.
+// send a line, which it never echoes or keeps. A command you ran with `!`
+// keeps what it printed, which its card shows once it ends.
 
 import type { Terminal, TerminalId, Timestamp } from "../bindings";
 import { utf8 } from "../notes/merge";
@@ -18,6 +19,17 @@ export type MockStreamHooks = {
 	readonly find: (id: TerminalId) => Terminal | undefined;
 	readonly edit: (id: TerminalId, next: (terminal: Terminal) => Terminal) => void;
 	readonly now: () => Timestamp;
+	/** A command you ran with `!` ended, with its status already set. */
+	readonly exited?: (terminal: TerminalId) => void;
+};
+
+/** What a command you ran with `!` printed, as its card keeps it. */
+export type Printed = {
+	/** Its lines, with colors and styles and no other escapes. A last line break makes no line. */
+	readonly text: string;
+	readonly lines: number;
+	/** Whether `text` holds only the last part of what it printed. */
+	readonly truncated: boolean;
 };
 
 /** The sample stream, and what the terminal calls tell it. */
@@ -32,6 +44,8 @@ export type MockTerminalStream = TerminalStream & {
 	readonly end: (terminal: TerminalId) => void;
 	/** Whether you named it, so commands no longer change its title. */
 	readonly named: (terminal: TerminalId, named: boolean) => void;
+	/** What a command you ran with `!` printed so far. */
+	readonly printed: (terminal: TerminalId) => Printed | undefined;
 };
 
 /** The signal Ctrl-C sends. */
@@ -163,6 +177,24 @@ type State = {
 	/** Set while a password prompt waits, with what to do once a line comes. */
 	secret: (() => void) | null;
 	named: boolean;
+	/** What it printed as text, up to what it keeps. */
+	text: string;
+	/** Whether `text` lost its start to the limit. */
+	dropped: boolean;
+};
+
+/** Escape sequences other than colors and styles, which a card leaves out. */
+// eslint-disable-next-line no-control-regex
+const NOT_SGR = /\x1b\[[0-?]*[ -/]*[@-ln-~]|\x1b[^[]/g;
+
+/** What a card shows of a command's text: SGR escapes kept, one `\n` per line, no last break. */
+const shown = (text: string): Printed => {
+	const body = text
+		.replace(NOT_SGR, "")
+		.replace(/\r\n/g, "\n")
+		.replace(/\r/g, "")
+		.replace(/\n$/, "");
+	return { text: body, lines: body === "" ? 0 : body.split("\n").length, truncated: false };
 };
 
 /**
@@ -180,7 +212,12 @@ const typedText = (bytes: Uint8Array): string => {
 };
 
 /** The sample terminals' bytes. */
-export const mockTerminalStream = ({ find, edit, now }: MockStreamHooks): MockTerminalStream => {
+export const mockTerminalStream = ({
+	find,
+	edit,
+	now,
+	exited,
+}: MockStreamHooks): MockTerminalStream => {
 	const states = new Map<TerminalId, State>();
 
 	const emit = (state: State, event: TerminalEvent) => {
@@ -191,6 +228,13 @@ export const mockTerminalStream = ({ find, edit, now }: MockStreamHooks): MockTe
 	const print = (state: State, text: string) => {
 		const bytes = utf8(text);
 		if (bytes.length === 0) return;
+		if (!state.shell) {
+			state.text += text;
+			if (state.text.length > KEPT) {
+				state.text = state.text.slice(-KEPT);
+				state.dropped = true;
+			}
+		}
 		const chunk = { offset: state.end, bytes };
 		state.chunks.push(chunk);
 		state.end += bytes.length;
@@ -220,6 +264,7 @@ export const mockTerminalStream = ({ find, edit, now }: MockStreamHooks): MockTe
 			password_prompt: false,
 			status: { state: "exited", code, signal },
 		}));
+		exited?.(state.id);
 	};
 
 	const run = (state: State, command: string) => {
@@ -350,6 +395,8 @@ export const mockTerminalStream = ({ find, edit, now }: MockStreamHooks): MockTe
 				job: null,
 				secret: null,
 				named: false,
+				text: "",
+				dropped: false,
 			};
 			states.set(terminal.id, state);
 			if (terminal.kind.type === "shell") prompt(state);
@@ -367,6 +414,11 @@ export const mockTerminalStream = ({ find, edit, now }: MockStreamHooks): MockTe
 		named: (id, named) => {
 			const state = stateOf(id);
 			if (state) state.named = named;
+		},
+		printed: (id) => {
+			const state = stateOf(id);
+			if (!state || state.shell) return undefined;
+			return { ...shown(state.text), truncated: state.dropped };
 		},
 		attach: async (id, after) => {
 			const state = stateOf(id);

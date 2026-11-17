@@ -4,13 +4,16 @@
 // The terminal calls of the sample data and of tests. In the sample data an
 // open adds a terminal in the agent's folder with a made-up shell or
 // command behind it (see `mock-terminal-stream.ts`), and an interrupt sends
-// it Ctrl-C.
+// it Ctrl-C. A command you ran with `!` adds a "You ran" card to the
+// agent's timeline, which gets how it ended and what it printed, as `maxd`
+// does.
 
-import type { AgentId, Terminal, TerminalId } from "../bindings";
+import type { AgentId, ItemId, Terminal, TerminalId, TerminalStatus } from "../bindings";
 import type { TerminalCalls } from "../terminal/requests";
 import type { TerminalStream } from "../terminal/stream";
 import type { FleetContext } from "./mock-fleet";
 import { mockTerminalStream } from "./mock-terminal-stream";
+import type { MockTimelines } from "./mock-timeline";
 import type { ActionResult, CommandResult } from "./source";
 
 const DONE: ActionResult = { status: "ok", data: { status: "done" } };
@@ -45,13 +48,23 @@ export const noTerminals: TerminalCalls = {
 /** What a device says to a close without force while a command runs. */
 export const STILL_RUNNING = "Still running. Close anyway?";
 
+/** The signal a terminal that closes sends what runs in it. */
+const SIGHUP = 1;
+
+/** The ID of a `!` run's card, as `maxd` names it. */
+const runItem = (terminal: TerminalId): ItemId => `run-${terminal}`;
+
 /** The tab's name until the shell or you set one. */
 const defaultTitle = (terminal: Pick<Terminal, "kind">) =>
 	terminal.kind.type === "shell" ? "zsh" : terminal.kind.command;
 
-/** The terminal calls over the sample entities, and their bytes. */
+/**
+ * The terminal calls over the sample entities, and their bytes. With
+ * `runs`, a `!` run shows as a card in its agent's timeline.
+ */
 export const mockTerminals = (
-	context: FleetContext
+	context: FleetContext,
+	runs?: Pick<MockTimelines, "post" | "amend">
 ): TerminalCalls & { readonly terminalStream: TerminalStream } => {
 	const { now, change } = context;
 	let opened = 0;
@@ -77,6 +90,26 @@ export const mockTerminals = (
 		}
 		return undefined;
 	};
+	/** Ends a `!` run's card as `process` says, with what it printed. */
+	const endRun = (terminal: Terminal, process: TerminalStatus) => {
+		if (terminal.kind.type !== "run" || process.state !== "exited") return;
+		const shown = printed(terminal.id);
+		const at = now();
+		runs?.amend(terminal.agent, runItem(terminal.id), (item) =>
+			item.kind === "user_run"
+				? {
+						...item,
+						status: process.code === 0 ? "completed" : "failed",
+						completed_at: at,
+						process,
+						duration_ms: at - (item.started_at ?? at),
+						lines: shown?.lines ?? 0,
+						output: shown?.text ?? "",
+						output_truncated: shown?.truncated ?? false,
+					}
+				: item
+		);
+	};
 	/** Answers for a terminal that's there, or says it's gone. */
 	const withTerminal =
 		<A extends unknown[]>(act: (terminal: Terminal, ...args: A) => ActionResult) =>
@@ -84,10 +117,14 @@ export const mockTerminals = (
 			const terminal = find(id);
 			return terminal ? act(terminal, ...args) : notFound(`terminal ${id}`);
 		};
-	const { start, interrupt, busy, end, named, ...terminalStream } = mockTerminalStream({
+	const { start, interrupt, busy, end, named, printed, ...terminalStream } = mockTerminalStream({
 		find,
 		edit,
 		now,
+		exited: (id) => {
+			const terminal = find(id);
+			if (terminal) endRun(terminal, terminal.status);
+		},
 	});
 	return {
 		terminalStream,
@@ -110,6 +147,26 @@ export const mockTerminals = (
 				rows,
 			};
 			change((base) => [...base, { entity: "terminal", ...terminal }]);
+			if (kind.type === "run")
+				runs?.post(
+					agent,
+					{
+						kind: "user_run",
+						terminal: terminal.id,
+						command: kind.command,
+						cwd: place.cwd,
+						device: place.device,
+						private: kind.private,
+						process: { state: "running" },
+						duration_ms: null,
+						lines: 0,
+						output: "",
+						output_truncated: false,
+						moved: false,
+					},
+					"running",
+					runItem(terminal.id)
+				);
 			start(terminal);
 			return { status: "ok", data: { status: "terminal_opened", terminal: terminal.id } };
 		},
@@ -127,6 +184,8 @@ export const mockTerminals = (
 		}),
 		closeTerminal: withTerminal((terminal, force = false) => {
 			if (!force && busy(terminal.id)) return refused(STILL_RUNNING);
+			if (terminal.status.state === "running")
+				endRun(terminal, { state: "exited", code: null, signal: SIGHUP });
 			end(terminal.id);
 			change((base) =>
 				base.filter((e) => !(e.entity === "terminal" && e.id === terminal.id))
@@ -142,6 +201,9 @@ export const mockTerminals = (
 			if (terminal.kind.type === "shell") return refused("A shell is already in the drawer.");
 			if (terminal.moved) return refused("This command is already in the drawer.");
 			edit(terminal.id, (t) => ({ ...t, moved: true }));
+			runs?.amend(terminal.agent, runItem(terminal.id), (item) =>
+				item.kind === "user_run" ? { ...item, moved: true } : item
+			);
 			return DONE;
 		}),
 	};

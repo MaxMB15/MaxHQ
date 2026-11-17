@@ -1478,10 +1478,17 @@ export type MockTimelines = {
 	/** Looks for text across the agent's whole sample timeline, as `maxd` does. */
 	readonly find: (agent: AgentId, query: string, at: FindAt) => TimelineFind;
 	/**
-	 * Adds an item to the end of an agent's timeline, as the CLI would. An
-	 * agent with no timeline yet starts an empty one, not a sample story.
+	 * Adds an item to the end of an agent's timeline, as the CLI would,
+	 * under `id` when given. An agent with no timeline yet starts an empty
+	 * one, not a sample story.
 	 */
-	readonly post: (agent: AgentId, body: ItemBody, status?: ItemStatus) => void;
+	readonly post: (agent: AgentId, body: ItemBody, status?: ItemStatus, id?: ItemId) => void;
+	/** Changes an item already in an agent's timeline, if it's there. */
+	readonly amend: (
+		agent: AgentId,
+		id: ItemId,
+		change: (item: TimelineItem) => TimelineItem
+	) => void;
 };
 
 /**
@@ -1759,7 +1766,12 @@ export const createMockTimelines = (options: MockTimelineOptions): MockTimelines
 		timer = null;
 	};
 
-	const post = (agent: AgentId, body: ItemBody, status: ItemStatus = "completed") => {
+	const post = (
+		agent: AgentId,
+		body: ItemBody,
+		status: ItemStatus = "completed",
+		id?: ItemId
+	) => {
 		let live = lives.get(agent);
 		if (!live) {
 			live = {
@@ -1775,7 +1787,7 @@ export const createMockTimelines = (options: MockTimelineOptions): MockTimelines
 		const at = now();
 		const ordinal = live.next++;
 		const item: TimelineItem = {
-			id: `${agent}:posted-${ordinal}`,
+			id: id ?? `${agent}:posted-${ordinal}`,
 			agent,
 			turn: null,
 			parent: null,
@@ -1786,6 +1798,12 @@ export const createMockTimelines = (options: MockTimelineOptions): MockTimelines
 			...body,
 		};
 		emit(live, [{ type: "upsert", item }]);
+	};
+
+	const amend = (agent: AgentId, id: ItemId, change: (item: TimelineItem) => TimelineItem) => {
+		const live = lives.get(agent);
+		const item = live && current(live, id);
+		if (live && item) emit(live, [{ type: "upsert", item: change(item) }]);
 	};
 
 	return {
@@ -1877,6 +1895,7 @@ export const createMockTimelines = (options: MockTimelineOptions): MockTimelines
 			return false;
 		},
 		post,
+		amend,
 		find: (agent, query, at) => {
 			const needle = findQueryOf(query);
 			const counts = liveOf(agent).items.map((item) => ({

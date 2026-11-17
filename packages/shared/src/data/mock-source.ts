@@ -1604,7 +1604,7 @@ export const mockSource = (options: MockOptions = {}): MockSource => {
 		}),
 		...mockFleet(fleet),
 		...mockClaims(fleet),
-		...mockTerminals(fleet),
+		...mockTerminals(fleet, timelines),
 		...mockHostCalls(fleet),
 		...mockAgents(now),
 		...mockLinks(),
