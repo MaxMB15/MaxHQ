@@ -493,6 +493,13 @@
 	pointer-events: auto;
 }
 
+/* xterm paints its viewport black, which would show in the space around a
+   terminal's text. Its sheet loads after this one, so the element name makes
+   this rule outrank it. */
+.xterm div.xterm-viewport {
+	background-color: var(--terminal-background);
+}
+
 @keyframes mx-spin {
 	to {
 		transform: rotate(360deg);
