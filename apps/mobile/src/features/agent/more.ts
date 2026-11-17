@@ -2,10 +2,11 @@
 // Copyright (c) 2026 Max Boksem
 
 // The More button on an agent's screen: what its sheet offers, the sheets
-// its Permission, Model and Effort open, and the small dialog its Rename opens on
-// the agent's name. The sheets list what the desktop's pickers list. Save
-// sends the name through the shared renames, as the desktop's field does,
-// and Cancel closes it with nothing sent.
+// its Permission, Model, Effort and Copy and export open, and the small
+// dialog its Rename opens on the agent's name. The sheets list what the
+// desktop's pickers and header menu list. Save sends the name through the
+// shared renames, as the desktop's field does, and Cancel closes it with
+// nothing sent.
 
 import { t } from "@maxhq/shared/i18n";
 
@@ -23,6 +24,7 @@ import {
 	permissionNote,
 	picksModel,
 	runningMode,
+	sessionIdName,
 	STOP_AGENT,
 } from "@maxhq/shared/agent-view/controls";
 import {
@@ -32,6 +34,7 @@ import {
 	effortLevel,
 	effortShown,
 } from "@maxhq/shared/agent-view/effort";
+import { canMove } from "@maxhq/shared/agent-view/move-agent";
 import type { AccountId, Agent, AgentPermission, PermissionMode } from "@maxhq/shared/bindings";
 import { attempt } from "@maxhq/shared/composer/send";
 import type { ActionResult } from "@maxhq/shared/data/source";
@@ -44,40 +47,102 @@ import type { ViewState } from "@maxhq/shared/view/replica";
 import { type Move, modelsOf, movesOf } from "@maxhq/shared/view/select";
 
 import type { Choice } from "../../ui/choose";
+import { showsPorts } from "./running";
+import { hasSubAgents } from "./sub-agents";
 
 /** What the More sheet can offer. */
 export type MoreChoice =
-	"find" | "rename" | "permission" | "model" | "effort" | "link" | "stop" | "delete";
+	| "find"
+	| "prompts"
+	| "rename"
+	| "permission"
+	| "model"
+	| "effort"
+	| "link"
+	| "subAgents"
+	| "running"
+	| "copyOut"
+	| "allowed"
+	| "move"
+	| "stop"
+	| "delete";
 
 /** Each choice as the sheet names it. */
 export const MORE_LABEL: Record<MoreChoice, string> = {
 	find: "Find",
+	prompts: "Your prompts",
 	rename: "Rename",
 	permission: "Permission",
 	model: "Model",
 	effort: "Effort",
 	link: "Link a pull request",
+	subAgents: "Sub-agents",
+	running: "Ports and processes",
+	copyOut: "Copy and export…",
+	allowed: "Allowed to run agents",
+	move: "Move to…",
 	stop: STOP_AGENT.label,
 	delete: "Delete agent",
 };
 
 /**
- * The More sheet's choices: Find and Rename for every agent, Permission,
- * Model and Effort where the desktop's composer can change them, Link a pull
- * request while none is linked, as the desktop's header menu offers it, Stop
- * agent while MaxHQ can end its process, and Delete for one MaxHQ holds.
+ * The More sheet's choices: Find, Your prompts and Rename for every agent,
+ * Permission, Model and Effort where the desktop's composer can change them,
+ * Link a pull request while none is linked, Sub-agents for a lead that has
+ * some, Ports and processes once its folder is known, Copy and export,
+ * Allowed to run agents while it `holds` a permission, which the phone can
+ * revoke, Move for one that can move, Stop agent while MaxHQ can end its
+ * process, and Delete for one MaxHQ holds. The rest of the desktop's header
+ * is on the details screen, which the header's second line opens.
  */
-export const moreChoices = (view: ViewState, agent: Agent): MoreChoice[] => {
+export const moreChoices = (view: ViewState, agent: Agent, holds = false): MoreChoice[] => {
 	const account = agent.account ? view.tables.account.get(agent.account) : undefined;
-	const choices: MoreChoice[] = ["find", "rename"];
+	const choices: MoreChoice[] = ["find", "prompts", "rename"];
 	if (agent.permission) choices.push("permission");
 	if (picksModel(agent, modelsOf(view, account), movesOf(view, agent))) choices.push("model");
 	if (account && canSetEffort(view, agent, account.device, modelsOf(view, account)))
 		choices.push("effort");
 	if (shownPulls(agent).length === 0) choices.push("link");
+	if (hasSubAgents(view, agent.id)) choices.push("subAgents");
+	if (showsPorts(view, agent)) choices.push("running");
+	choices.push("copyOut");
+	if (holds) choices.push("allowed");
+	if (canMove(view, agent)) choices.push("move");
 	if (canEnd(agent)) choices.push("stop");
 	if (deletableAgents(view, [agent.id]).length > 0) choices.push("delete");
 	return choices;
+};
+
+/** What Copy and export offers. */
+export type CopyOut = "session" | "file" | "copy";
+
+/**
+ * The Copy and export sheet, as the desktop's header menu offers it: Copy
+ * the ID the CLI resumes the session by, when it has one, which the sheet's
+ * line shows, then Export as Markdown and Copy as Markdown.
+ */
+export const copyOutSheet = (
+	agent: Agent,
+	pick: (what: CopyOut) => void
+): { readonly message: string | undefined; readonly choices: readonly Choice[] } => {
+	const id = agent.vendor_session_id;
+	return {
+		message: id ?? undefined,
+		choices: [
+			...(id
+				? [
+						{
+							label: t("Copy {{sessionIdName}}", {
+								sessionIdName: sessionIdName(agent),
+							}),
+							pick: () => pick("session"),
+						},
+					]
+				: []),
+			{ label: t("Export as Markdown…"), pick: () => pick("file") },
+			{ label: t("Copy as Markdown"), pick: () => pick("copy") },
+		],
+	};
 };
 
 /** A sheet of choices, with a line under its title. */

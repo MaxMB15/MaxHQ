@@ -69,6 +69,7 @@ import { RenameDialog } from "../agent/RenameDialog";
 import { renamesOf } from "../agent/renames";
 import { reachSummary } from "../devices/summary";
 import { Dispatcher } from "../dispatcher/Dispatcher";
+import { NewAgentPlus, newAgentAction } from "../new-agent/NewAgentPlus";
 import { openNewNote } from "../notes/NotesScreen";
 import { UpdateBanners } from "../updates/UpdateBanners";
 import { UsageButton } from "../usage/UsageButton";
@@ -88,6 +89,8 @@ type Item =
 			readonly name: string;
 			readonly count: number;
 			readonly open: boolean;
+			/** The project, whose Plus opens New agent in it. */
+			readonly project: ProjectId | null;
 	  }
 	| { readonly kind: "row"; readonly key: string; readonly row: InboxRow }
 	| {
@@ -141,6 +144,7 @@ const itemsOf = (
 			name,
 			count: rows.length + older.length,
 			open,
+			project,
 		});
 		if (!open) return;
 		for (const row of rows) items.push({ kind: "row", key: row.agent.id, row });
@@ -287,6 +291,7 @@ export const InboxScreen = ({ navigation }: ScreenProps<"Inbox">) => {
 								: item.name
 						}
 						onPress={() => setClosed((set) => toggle(set, item.key.slice(2)))}
+						{...newAgentAction(navigation, item.name, item.project)}
 						hitSlop={slop(GROUP)}
 						style={styles.group}
 					>
@@ -296,6 +301,9 @@ export const InboxScreen = ({ navigation }: ScreenProps<"Inbox">) => {
 						</Text>
 						{item.count > 0 ? (
 							<Text style={styles.groupCount}>{formatNumber(item.count)}</Text>
+						) : null}
+						{item.project ? (
+							<NewAgentPlus name={item.name} project={item.project} />
 						) : null}
 					</Pressable>
 				);
@@ -444,6 +452,10 @@ export const InboxScreen = ({ navigation }: ScreenProps<"Inbox">) => {
 								label={t("More")}
 								onPress={() =>
 									choose(t("More"), [
+										{
+											label: t("New agent"),
+											pick: () => navigation.navigate("NewAgent"),
+										},
 										{
 											label: t("Pull requests"),
 											pick: () => navigation.navigate("Pulls"),

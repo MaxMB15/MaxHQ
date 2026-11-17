@@ -18,13 +18,18 @@ import { Linking } from "react-native";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 
 import { createSource } from "./data";
+import { AgentInfoScreen } from "./features/agent/AgentInfoScreen";
 import { AgentScreen } from "./features/agent/AgentScreen";
+import { MoveScreen } from "./features/agent/MoveScreen";
+import { RunningScreen } from "./features/agent/RunningScreen";
+import { SubAgentsScreen } from "./features/agent/SubAgentsScreen";
 import { PromptAlerts } from "./features/attention/PromptAlerts";
 import { DeviceScreen } from "./features/devices/DeviceScreen";
 import { DevicesScreen } from "./features/devices/DevicesScreen";
 import { LicencesScreen } from "./features/devices/LicencesScreen";
 import { DiagramRenderer } from "./features/diagrams/DiagramRenderer";
 import { InboxScreen } from "./features/inbox/InboxScreen";
+import { NewAgentScreen } from "./features/new-agent/NewAgentScreen";
 import { NoteScreen } from "./features/notes/NoteScreen";
 import { NotesScreen } from "./features/notes/NotesScreen";
 import { PhoneScreen } from "./features/phone/PhoneScreen";
@@ -38,6 +43,7 @@ import { FileScreen } from "./features/viewer/FileScreen";
 import { VisualScreen } from "./features/visuals/VisualScreen";
 import { NewWorkspaceScreen } from "./features/workspaces/NewWorkspaceScreen";
 import {
+	agentPageId,
 	agentScreenId,
 	deviceScreenId,
 	fileScreenId,
@@ -113,6 +119,11 @@ const linking: LinkingOptions<Screens> = {
 			Tasks: "tasks",
 			TaskActivity: "task/:task",
 			TaskEditor: "task-editor",
+			AgentInfo: "agent-info/:agent",
+			MoveAgent: "move-agent/:agent",
+			Running: "running/:agent",
+			SubAgents: "sub-agents/:agent",
+			NewAgent: "new-agent",
 		},
 	},
 };
@@ -129,6 +140,31 @@ export const App = () => {
 					<Stack.Navigator screenOptions={SCREEN}>
 						<Stack.Screen name="Inbox" component={InboxScreen} />
 						<Stack.Screen name="Agent" component={AgentScreen} getId={agentScreenId} />
+						<Stack.Screen
+							name="AgentInfo"
+							component={AgentInfoScreen}
+							getId={agentPageId}
+						/>
+						<Stack.Screen
+							name="Running"
+							component={RunningScreen}
+							getId={agentPageId}
+						/>
+						<Stack.Screen
+							name="SubAgents"
+							component={SubAgentsScreen}
+							getId={agentPageId}
+						/>
+						<Stack.Screen
+							name="MoveAgent"
+							component={MoveScreen}
+							options={{ presentation: "modal" }}
+						/>
+						<Stack.Screen
+							name="NewAgent"
+							component={NewAgentScreen}
+							options={{ presentation: "modal" }}
+						/>
 						<Stack.Screen name="Usage" component={UsageScreen} />
 						<Stack.Screen name="Devices" component={DevicesScreen} />
 						<Stack.Screen name="Settings" component={PhoneScreen} />
