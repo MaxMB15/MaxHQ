@@ -4,7 +4,8 @@
 // Over the composer while an agent's folder is still cloning, with how far
 // git has got and Cancel, or once the clone failed or was cancelled, with
 // Remove and Retry, as the desktop has it. Agents can't start in the folder
-// until the clone is done.
+// until the clone is done. Remove and Retry need the phone's switch on the
+// folder's device; Cancel doesn't, since it only stops work.
 
 import { useI18n } from "@maxhq/shared/i18n";
 
@@ -19,6 +20,7 @@ import { cloneOf, cloneWording } from "@maxhq/shared/workspaces/state";
 import { useServices, useView } from "../../services";
 import { color, radius, size } from "../../theme";
 import { Button } from "../../ui/Button";
+import { NeedsSwitch, useLetsPhone } from "../phone/everything";
 
 export const CloneBanner = ({ workspace }: { workspace: WorkspaceId }) => {
 	const { t } = useI18n();
@@ -29,6 +31,8 @@ export const CloneBanner = ({ workspace }: { workspace: WorkspaceId }) => {
 		const found = s.view.tables.workspace.get(workspace);
 		return found ? cloneOf(found) : null;
 	});
+	const device = useView((s) => s.view.tables.workspace.get(workspace)?.device ?? null);
+	const lets = useLetsPhone(device);
 	if (!clone) return null;
 	const { title, body } = cloneWording(clone);
 	const busy = state.state === "sending";
@@ -91,7 +95,7 @@ export const CloneBanner = ({ workspace }: { workspace: WorkspaceId }) => {
 							<Button
 								label={t("Remove")}
 								small
-								disabled={busy}
+								disabled={busy || !lets}
 								onPress={() =>
 									run(source.removeClone, t("Couldn't remove the folder."))
 								}
@@ -100,7 +104,7 @@ export const CloneBanner = ({ workspace }: { workspace: WorkspaceId }) => {
 								label={t("Retry")}
 								tone="primary"
 								small
-								disabled={busy}
+								disabled={busy || !lets}
 								onPress={() =>
 									run(source.retryClone, t("Couldn't retry the clone."))
 								}
@@ -108,6 +112,7 @@ export const CloneBanner = ({ workspace }: { workspace: WorkspaceId }) => {
 						</>
 					)}
 				</View>
+				{clone.state !== "cloning" && !lets ? <NeedsSwitch /> : null}
 			</View>
 		</View>
 	);

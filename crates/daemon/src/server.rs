@@ -734,11 +734,12 @@ impl Connection {
         // removes a credential, signs in, changes how this device is set
         // up, installs anything or reads a path on the device. So a stolen
         // phone's key can't either. Nor can it start or move agents, start
-        // tasks, make or remove workspaces, reach a guest's shell or ports,
-        // signal a process, copy files out or change hosts, snapshots,
-        // moves, skills, the skill library or its sources: the phone asks
-        // the dispatcher, answers and steers agents that already run.
-        // Unless the Mac turned the phone's switch on, which lets it.
+        // tasks, make, clone or remove workspaces, place files in them,
+        // reach a guest's shell or ports, signal a process, copy files out
+        // or change hosts, snapshots, moves, skills, the skill library or
+        // its sources: the phone asks the dispatcher, answers and steers
+        // agents that already run. Unless the Mac turned the phone's switch
+        // on, which lets it.
         if self.phone.is_some()
             && matches!(
                 message,
@@ -750,6 +751,10 @@ impl Connection {
                     | ClientMessage::InstallAcpAgent { .. }
                     | ClientMessage::CreateWorkspace { .. }
                     | ClientMessage::DeleteWorkspace { .. }
+                    | ClientMessage::CloneFolder { .. }
+                    | ClientMessage::CloneRetry { .. }
+                    | ClientMessage::CloneRemove { .. }
+                    | ClientMessage::PlaceStaged { .. }
                     | ClientMessage::GuestSshOpen { .. }
                     | ClientMessage::OpenForward { .. }
                     | ClientMessage::TunnelOpen { .. }
@@ -3237,6 +3242,27 @@ pub(crate) mod tests {
                 key: key("delete"),
                 workspace,
                 discard_unpushed: true,
+            },
+            ClientMessage::CloneFolder {
+                key: key("clone"),
+                project: ProjectId::derive("project"),
+                device: me,
+                parent: "/home/dev/src".into(),
+                name: "stolen".into(),
+            },
+            ClientMessage::CloneRetry {
+                key: key("clone-retry"),
+                workspace,
+            },
+            ClientMessage::CloneRemove {
+                key: key("clone-remove"),
+                workspace,
+            },
+            ClientMessage::PlaceStaged {
+                key: key("place"),
+                workspace,
+                attachment: AttachmentId::derive("place"),
+                overwrite: true,
             },
             ClientMessage::GuestSshOpen {
                 stream: StreamId::generate(),
