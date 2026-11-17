@@ -29,7 +29,6 @@ import {
 	usable,
 	withoutWhitespace,
 } from "@maxhq/shared/settings/logins";
-import { letsPhone } from "@maxhq/shared/settings/phones";
 import { formatAgo, sentence } from "@maxhq/shared/status/format";
 import { scrub } from "@maxhq/shared/data/failure";
 import type { ViewState } from "@maxhq/shared/view/replica";
@@ -44,7 +43,7 @@ import { Input } from "../../ui/Field";
 import { opensInBrowser } from "../../ui/markdown";
 import { SignInSheet } from "../agent/SignInAgain";
 import { Buttons, CardBody, Muted, type Note, NoteLine } from "../devices/section";
-import { NeedsSwitch } from "../phone/everything";
+import { NeedsSwitch, useLetsEach } from "../phone/everything";
 import { GatedToggle } from "../test-hosts/parts";
 
 /** Opens a page in the browser, when it's one the phone opens. */
@@ -53,27 +52,12 @@ export const openPage = (url: string) => {
 };
 
 /**
- * Whether each device takes this phone's gated requests, as `useLetsPhone`
- * says for one device, for the pages that list several. Off the phone's
- * core, such as with the sample data, every device does.
- */
-export const useLets = (): ((device: DeviceId) => boolean) => {
-	const { phone } = useServices();
-	const view = useView((s) => s.view);
-	const [id] = useState(() => {
-		const key = phone?.phoneKey();
-		return key?.status === "ok" ? key.data.phone : null;
-	});
-	return (device) => phone === null || (id !== null && letsPhone(view, id, device));
-};
-
-/**
  * The targets with each one the phone may not send to marked, so it can't
  * be ticked, and whether any is.
  */
 export const useGated = (targets: readonly Target[]): { targets: Target[]; someOff: boolean } => {
 	const { t } = useI18n();
-	const lets = useLets();
+	const lets = useLetsEach();
 	const gated = targets.map((target) =>
 		lets(target.device)
 			? target
@@ -542,7 +526,7 @@ export const HeldList = <T extends CredentialKind["type"]>({
 	forget?: ForgetWords;
 }) => {
 	const { t } = useI18n();
-	const lets = useLets();
+	const lets = useLetsEach();
 	const forgetWords = useForgetWords();
 	const words = forget ?? forgetWords;
 	if (held.length === 0) {
@@ -652,7 +636,7 @@ const SignInRow = ({
 export const SignInAgainCard = ({ vendor, device }: { vendor: Vendor; device?: DeviceId }) => {
 	const { t } = useI18n();
 	const view = useView((s) => s.view);
-	const lets = useLets();
+	const lets = useLetsEach();
 	const [open, setOpen] = useState<Account["id"] | null>(null);
 	const accounts = deviceFirst(folderAccounts(view, vendor), device);
 	if (accounts.length === 0) return null;

@@ -8,6 +8,7 @@
 
 import { t } from "../i18n";
 
+import { sessionIdName } from "../agent-view/controls";
 import type { Agent, Vendor } from "../bindings";
 
 import type { ViewState } from "./replica";
@@ -15,16 +16,9 @@ import type { ViewState } from "./replica";
 /** One thing to copy, under its label. */
 export type AgentCopy = { readonly label: string; readonly text: string };
 
-const SESSION_ID_NAME: Record<Vendor, () => string> = {
-	claude: () => t("session ID"),
-	codex: () => t("thread ID"),
-	cursor: () => t("chat ID"),
-	acp: () => t("session ID"),
-};
-
 /** What the agent's CLI calls its session ID, starting with a capital. */
 export const sessionIdLabel = (vendor: Vendor): string => {
-	const name = SESSION_ID_NAME[vendor]();
+	const name = sessionIdName({ vendor });
 	return name.charAt(0).toUpperCase() + name.slice(1);
 };
 

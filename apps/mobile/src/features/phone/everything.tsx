@@ -38,6 +38,18 @@ export const useLetsPhone = (device: DeviceId | null): boolean => {
 	);
 };
 
+/**
+ * Whether each device takes this phone's gated requests, as `useLetsPhone`
+ * says for one device, for the pages that list several. Off the phone's
+ * core, such as with the sample data, every device does.
+ */
+export const useLetsEach = (): ((device: DeviceId) => boolean) => {
+	const { phone } = useServices();
+	const id = usePhoneId();
+	const view = useView((s) => s.view);
+	return (device) => phone === null || (id !== null && letsPhone(view, id, device));
+};
+
 /** The line under an action the switch keeps off. */
 export const NeedsSwitch = () => {
 	const { t } = useI18n();
