@@ -6,7 +6,7 @@
 // for each place and asks again when a view mounts, after an apply or when
 // you press Rescan. It lasts as long as the window does.
 
-import { useEffect } from "react";
+import { useEffect, useMemo } from "react";
 import { useStore } from "zustand";
 import { createStore } from "zustand/vanilla";
 
@@ -85,6 +85,24 @@ export const useSkillScan = (
 		void rescanSkills(source, device, place);
 	}, [source, device, place]);
 	return scan;
+};
+
+/**
+ * `place` as one object while it names the same place, so `useSkillScan`
+ * asks only when the place changes, not on each new view.
+ */
+export const useSteadyPlace = (place: AgentPlace | null): AgentPlace | null => {
+	const kind = place?.type ?? null;
+	const at = place?.type === "workspace" ? place.workspace : (place?.path ?? "");
+	return useMemo(
+		(): AgentPlace | null =>
+			kind === "workspace"
+				? { type: "workspace", workspace: at }
+				: kind === "folder"
+					? { type: "folder", path: at }
+					: null,
+		[kind, at]
+	);
 };
 
 /** Forgets every scan, for tests. */

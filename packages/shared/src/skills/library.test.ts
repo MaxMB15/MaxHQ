@@ -23,6 +23,7 @@ import {
 	skillBadges,
 	skillLibrary,
 	skillProposals,
+	sourceFacts,
 	sourceWhere,
 	waitsForSkills,
 } from "./library";
@@ -64,6 +65,22 @@ describe("skills selectors", () => {
 		expect(library.device).toBe(MAC);
 		expect(library.sources.map((s) => s.trust)).toEqual(["own", "own", "third_party"]);
 		expect(sourceWhere(library.sources[0]!.kind)).toContain("example/agent-skills");
+	});
+
+	it("says where a source comes from, its commit, when it was fetched and what waits to push", async () => {
+		const library = libraryOf(await load());
+		const [ours, , theirs] = library.sources;
+		const facts = sourceFacts(ours!, NOW);
+		expect(facts[0]).toBe("https://github.com/example/agent-skills");
+		expect(facts[1]).toBe("4f1c2a9");
+		expect(facts[2]).toMatch(/^fetched /);
+		expect(facts).toHaveLength(3);
+		expect(sourceFacts(theirs!, NOW)[0]).toBe(
+			"https://github.com/example/third-party-skills at v1.2.0"
+		);
+		expect(
+			sourceFacts({ ...ours!, commit: null, fetched_at: null, unpushed: true }, NOW)
+		).toEqual(["https://github.com/example/agent-skills", "not fetched yet", "not pushed"]);
 	});
 
 	it("prefers the connected holder while two devices publish a library", async () => {

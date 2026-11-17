@@ -14,15 +14,7 @@ import { Badge } from "@/tasks/activity";
 import { cn } from "@/lib/utils";
 import type { ActionResult } from "@maxhq/shared/data/source";
 import type { Budget } from "@maxhq/shared/skills/effective";
-import { badgeLabel, type SkillBadge } from "@maxhq/shared/skills/library";
-import type { Tone } from "@maxhq/shared/tasks/format";
-
-const BADGE_TONE: Record<SkillBadge, Tone> = {
-	scripts: "warn",
-	hooks: "warn",
-	allowed_tools: "info",
-	third_party: "plain",
-};
+import { badgeLabel, SKILL_BADGE_TONE, type SkillBadge } from "@maxhq/shared/skills/library";
 
 /** A skill's badges in a row, or nothing for none. */
 export const SkillBadges = ({ badges }: { badges: readonly SkillBadge[] }) => {
@@ -30,7 +22,7 @@ export const SkillBadges = ({ badges }: { badges: readonly SkillBadge[] }) => {
 	return badges.length > 0 ? (
 		<span className="flex shrink-0 flex-wrap gap-1">
 			{badges.map((badge) => (
-				<Badge key={badge} tone={BADGE_TONE[badge]}>
+				<Badge key={badge} tone={SKILL_BADGE_TONE[badge]}>
 					{badgeLabel(badge)}
 				</Badge>
 			))}

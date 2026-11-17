@@ -22,6 +22,8 @@ import type {
 	SkillSource,
 	SourceKind,
 } from "../bindings";
+import { formatAgo } from "../status/format";
+import type { Tone } from "../tasks/format";
 import { all, type ViewState } from "../view/replica";
 import { linkForDevice } from "../view/select";
 
@@ -49,6 +51,25 @@ export const skillLibrary = (view: ViewState): SkillLibrary | undefined => {
 export const sourceWhere = (kind: SourceKind): string =>
 	kind.kind === "git" ? kind.url : kind.path;
 
+/**
+ * What the library page says of a source under its name: where it comes
+ * from and at which branch or tag, its commit, when it was fetched, and
+ * whether it has commits to push.
+ */
+export const sourceFacts = (source: SkillSource, now: number): string[] => {
+	const where = sourceWhere(source.kind);
+	return [
+		source.default_ref
+			? t("{{where}} at {{default_ref}}", { where: where, default_ref: source.default_ref })
+			: where,
+		source.commit,
+		source.fetched_at
+			? t("fetched {{value1}}", { value1: formatAgo(source.fetched_at, now) })
+			: t("not fetched yet"),
+		source.unpushed ? t("not pushed") : null,
+	].filter((part): part is string => Boolean(part));
+};
+
 /** What a skill does beyond its instructions, and whether its source is someone else's. */
 export type SkillBadge = "scripts" | "hooks" | "allowed_tools" | "third_party";
 
@@ -74,6 +95,14 @@ export const badgeLabel = (badge: SkillBadge): string =>
 		allowed_tools: t("Allowed tools"),
 		third_party: t("Third party"),
 	})[badge];
+
+/** How a badge is tinted: running code warns, the tools it may use inform. */
+export const SKILL_BADGE_TONE: Readonly<Record<SkillBadge, Tone>> = {
+	scripts: "warn",
+	hooks: "warn",
+	allowed_tools: "info",
+	third_party: "plain",
+};
 
 /** One skill of the library, with the source it's in. */
 export type LibrarySkill = { readonly skill: SkillInfo; readonly source: SkillSource };

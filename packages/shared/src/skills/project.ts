@@ -12,13 +12,19 @@ import type {
 	AgentPlace,
 	DeviceId,
 	EffectiveSkill,
+	GlobalsPlan,
 	LockedSkill,
 	ProjectId,
 	ProjectSkills,
+	ProposalAction,
+	ProposalDiff,
+	ProposalSeen,
 	SkillInfo,
 	SkillLibrary,
 	SkillLock,
 	SkillProposal,
+	SkillSource,
+	TreeHash,
 	Vendor,
 } from "../bindings";
 import { all, type ViewState } from "../view/replica";
@@ -90,6 +96,16 @@ export const libraryCopy = (library: SkillLibrary, locked: LockedSkill): SkillIn
 	library.sources
 		.find((source) => source.id === locked.source)
 		?.skills.find((skill) => skill.name === locked.name);
+
+/**
+ * Where a locked skill comes from, in words: its source's name and the
+ * commit it was taken at, or that the source no longer has it.
+ */
+export const lockedWhere = (library: SkillLibrary, locked: LockedSkill): string => {
+	if (!libraryCopy(library, locked)) return t("Its source no longer has it");
+	const from = library.sources.find((s) => s.id === locked.source);
+	return `${from?.name ?? locked.source}${locked.commit ? t(" at {{commit}}", { commit: locked.commit }) : ""}`;
+};
 
 /**
  * A locked skill as its source has it now, or null when it's already
@@ -223,6 +239,69 @@ export const cantApprove = (
 	}
 	return name === proposal.name ? t("Give the fork a name of its own.") : null;
 };
+
+/** What a proposal's viewer works out from the library, the diff once it came, and the fork's name. */
+export type ProposalReview = {
+	/** The library source the change goes to. */
+	readonly from: SkillSource | undefined;
+	/** Whether it needs a fork's name, being a third party's skill. */
+	readonly forking: boolean;
+	/** Why it can't be approved yet, or null when it can. */
+	readonly refusal: string | null;
+	/** The tree the change replaces, or null for a new skill. */
+	readonly base: TreeHash | null;
+	/** What an approve carries, so it can't land on anything else, or undefined before the diff. */
+	readonly seen: ProposalSeen | undefined;
+	/** "New skill", or the skill it replaces when it didn't start from one, once the diff came. */
+	readonly standing: string | null;
+};
+
+/**
+ * A proposal as its viewer shows it. Once the holder said where the
+ * change goes, in the diff's target, that's what counts.
+ */
+export const proposalReview = (
+	library: SkillLibrary | undefined,
+	proposal: SkillProposal,
+	diff: ProposalDiff | undefined,
+	fork: string
+): ProposalReview => {
+	const target = diff?.target ?? null;
+	const aimed = target ? { ...proposal, source: target.source } : proposal;
+	const from = library?.sources.find((s) => s.id === aimed.source);
+	const base = target ? target.base : proposal.base;
+	const standing = !diff
+		? null
+		: base === null
+			? t("New skill")
+			: proposal.base === null
+				? t("Replaces {{name}}{{value2}}", {
+						name: proposal.name,
+						value2: from ? t(" in {{name}}", { name: from.name }) : "",
+					})
+				: null;
+	return {
+		from,
+		forking: needsFork(library, aimed),
+		refusal: cantApprove(library, aimed, fork),
+		base,
+		seen: diff ? { tree: diff.tree ?? proposal.tree, base } : undefined,
+		standing,
+	};
+};
+
+/** What a proposal's viewer says once the device took the answer. */
+export const answerDone = (action: ProposalAction, push: boolean): string =>
+	action === "reject" ? t("Rejected") : push ? t("Approved and pushed") : t("Approved");
+
+/** Whether tidying a device's global skills would do nothing. */
+export const globalsPlanEmpty = (plan: GlobalsPlan): boolean =>
+	plan.moves.length +
+		plan.links.length +
+		plan.backups.length +
+		(plan.joins?.length ?? 0) +
+		(plan.conflicts?.length ?? 0) ===
+	0;
 
 /**
  * The setting that hides one of `cli`'s skills, which stays yours to
