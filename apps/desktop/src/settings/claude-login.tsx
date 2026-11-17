@@ -16,6 +16,7 @@ import { CopyButton } from "@/components/copy-button";
 import type { AccountId, DeviceId } from "@maxhq/shared/bindings";
 import { useNow } from "@maxhq/shared/lib/clock";
 import { Picker } from "@/new-agent/picker";
+import { tokenLine } from "@maxhq/shared/settings/login-parts";
 import { SETUP_TOKENS_OFF, takesSetupTokens } from "@maxhq/shared/settings/setup-tokens";
 import { accountName } from "@maxhq/shared/status/usage";
 import { isLive } from "@maxhq/shared/workspaces/state";
@@ -183,15 +184,7 @@ export const ClaudeLogin = ({ device }: { device?: DeviceId }) => {
 					live={(device) => isLive(view, device, now)}
 					what={translate("the token")}
 					empty={translate("No device holds a token yet.")}
-					describe={(c) => {
-						const login = view.tables.account.get(c.kind.origin);
-						return translate("{{label}}, for {{value2}}", {
-							label: c.kind.label,
-							value2: login
-								? translate("{{label}} on the Mac", { label: login.label })
-								: translate("a Mac login that's gone"),
-						});
-					}}
+					describe={(c) => tokenLine(view, c)}
 				/>
 			</Section>
 		</div>

@@ -24,6 +24,7 @@ import {
 	planAcpSave,
 	probeLine,
 	runsAcpAgents,
+	scrubAll,
 	sendsValue,
 	type VariableRow,
 } from "@maxhq/shared/settings/acp-agents";
@@ -42,11 +43,8 @@ import {
 	Section,
 	StatusNote,
 } from "./controls";
-import { failureOf, type Note, scrub } from "./result";
+import { failureOf, type Note } from "./result";
 import { t as translate, useI18n } from "@maxhq/shared/i18n";
-
-const scrubAll = (text: string, values: readonly string[]): string =>
-	values.reduce((shown, value) => scrub(shown, value), text);
 
 /** The ACP agents section, or nothing when the device's `maxd` doesn't run them. */
 export const AcpAgents = ({

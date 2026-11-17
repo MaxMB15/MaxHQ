@@ -1,5 +1,6 @@
 {
 	"Add the key file": "Ajouter le fichier de clé",
+	"Click the plus button, give the key a name such as `MaxHQ pushes`, tick Apple Push Notifications service (APNs), and click Continue, then Register.": "Cliquez sur le bouton plus, donnez à la clé un nom comme `MaxHQ pushes`, cochez Apple Push Notifications service (APNs), puis cliquez sur Continue, puis sur Register.",
 	"Removing": "Suppression",
 	"Couldn't remove the ACP agent": "Impossible de supprimer l'agent ACP",
 	"Couldn't remove it. Try again.": "Suppression impossible. Réessayez.",

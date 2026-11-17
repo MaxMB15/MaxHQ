@@ -119,11 +119,15 @@ const sideFacts = (side: ClaimedLink, now: Timestamp): Fact[] => [
 	},
 ];
 
-/** The whole card, with the details once the app has sent them. */
+/**
+ * The whole card, with the details once the app has sent them. `where` is
+ * where this app changes the answer later, when the details don't say.
+ */
 export const claimCard = (
 	names: ClaimNames,
 	details: LinkClaimDetails | null,
-	now: Timestamp
+	now: Timestamp,
+	where: string = WHERE_TO_CHANGE
 ): ClaimCard => {
 	const sides: ClaimSide[] = [];
 	if (details) {
@@ -143,7 +147,6 @@ export const claimCard = (
 			});
 		}
 	}
-	const where = details?.where_to_change ?? WHERE_TO_CHANGE;
 	return {
 		title: claimTitle(names),
 		risk: claimRisk(names),
@@ -151,7 +154,7 @@ export const claimCard = (
 		same: t("Same device"),
 		different: t("Different device"),
 		remember: t("MaxHQ keeps your answer. You can change it under {{where}}.", {
-			where: where,
+			where: details?.where_to_change ?? where,
 		}),
 	};
 };

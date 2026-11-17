@@ -40,6 +40,8 @@ import { deviceCards } from "./device-settings";
 import { DispatcherSettingsPage } from "./dispatcher-settings";
 import { EDITOR_TERMS, EditorSettingsPage } from "./editor-settings";
 import { GITHUB_LOGIN_TERMS, GithubLogin } from "./github-login";
+import { LOGIN_HINT, LOGIN_PAGES } from "@maxhq/shared/settings/login-steps";
+
 import { LOGIN_STEPS } from "./login-steps";
 import { NOTIFICATIONS_TERMS, NotificationsSettingsPage } from "./notifications-settings";
 import { PHONES_TERMS, PhonesSettingsPage } from "./phones-settings";
@@ -63,27 +65,7 @@ import {
 } from "./store";
 import { t as translate, useI18n } from "@maxhq/shared/i18n";
 
-const LOGINS: readonly LoginPage[] = ["claude", "codex", "cursor", "github", "apns"];
-
-const LOGIN_HINT: Record<LoginPage, string> = {
-	get claude() {
-		return translate("A setup-token from a Mac login, for Claude Code in containers");
-	},
-	get codex() {
-		return translate("Each device's own Codex sign-in, for Codex in containers");
-	},
-	get cursor() {
-		return translate("The Mac's own Cursor login, and an API key for Cursor in containers");
-	},
-	get github() {
-		return translate(
-			"The App for pushes from workspaces and # lookups, and the repos it reaches"
-		);
-	},
-	get apns() {
-		return translate("The Apple key each device signs its pushes to your phones with");
-	},
-};
+const LOGINS = LOGIN_PAGES;
 
 const LOGIN_TERMS: Record<LoginPage, readonly string[]> = {
 	claude: CLAUDE_LOGIN_TERMS,

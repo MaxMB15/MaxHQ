@@ -74,6 +74,12 @@ export const isSnoozePresetSetting = (value: unknown): value is SnoozePresetSett
 	);
 };
 
+/** Whether a stored value is a whole snooze menu: at most eight options, each one good. */
+export const isSnoozePresetList = (value: unknown): value is readonly SnoozePresetSetting[] =>
+	Array.isArray(value) &&
+	value.length <= MAX_SNOOZE_PRESETS &&
+	value.every(isSnoozePresetSetting);
+
 const WEEKDAY_INDEX = {
 	sunday: 0,
 	monday: 1,

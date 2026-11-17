@@ -18,7 +18,8 @@ import { useServices, useView } from "@/app/services";
 import type { DeviceId } from "@maxhq/shared/bindings";
 import { useNow } from "@maxhq/shared/lib/clock";
 import { cn } from "@/lib/utils";
-import { listInWords, sentence } from "@maxhq/shared/status/format";
+import { appLines } from "@maxhq/shared/settings/login-parts";
+import { sentence } from "@maxhq/shared/status/format";
 import type { ViewState } from "@maxhq/shared/view/replica";
 import { isLive } from "@maxhq/shared/workspaces/state";
 
@@ -35,15 +36,11 @@ import {
 } from "./login-parts";
 import { Steps } from "./login-steps";
 import { MergeAsYou } from "./github-sign-in";
-import { appTargets, heldOf, parseAppId } from "./logins";
+import { appTargets, heldOf, parseAppId, reachText } from "./logins";
 import { failureOf, type Note } from "./result";
 import { t as translate, useI18n } from "@maxhq/shared/i18n";
 
-/** What a device's App reaches, in words. */
-export const reachText = (repos: readonly string[]): string =>
-	repos.length > 0
-		? translate("Reaches {{listInWords}}.", { listInWords: listInWords(repos) })
-		: translate("Reaches no repo yet. Install the App on the repos your projects use.");
+export { reachText };
 
 // The App the device stored last, which is the one it just took.
 const reachOn = (view: ViewState, device: DeviceId) => {
@@ -236,18 +233,13 @@ export const GithubLogin = () => {
 					actions={(c) => (
 						<CheckAgain device={c.device} live={isLive(view, c.device, now)} />
 					)}
-					describe={(c) => (
-						<>
-							<span className="block">
-								{translate("App {{app_id}}{{value2}}. Key SHA-256 {{value3}}…", {
-									app_id: String(c.kind.app_id),
-									value2: c.kind.slug ? `, ${c.kind.slug}` : "",
-									value3: c.kind.key_sha256.slice(0, 12),
-								})}
+					describe={(c) =>
+						appLines(c).map((line) => (
+							<span key={line} className="block">
+								{line}
 							</span>
-							<span className="block">{reachText(c.kind.repos)}</span>
-						</>
-					)}
+						))
+					}
 				/>
 			</Section>
 			<MergeAsYou />

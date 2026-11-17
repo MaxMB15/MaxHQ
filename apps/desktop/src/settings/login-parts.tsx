@@ -15,47 +15,17 @@ import type { CredentialKind, DeviceId, Timestamp } from "@maxhq/shared/bindings
 import type { ActionResult } from "@maxhq/shared/data/source";
 import { cn } from "@/lib/utils";
 import { moveToTrash, pickAttachments, useDropTarget } from "@/native";
+import { forgetNote, type Outcome, outcomesOf, useTicks } from "@maxhq/shared/settings/login-parts";
 import { formatAgo, sentence } from "@maxhq/shared/status/format";
 import { deviceName } from "@maxhq/shared/view/select";
 import type { ViewState } from "@maxhq/shared/view/replica";
 
 import { ConfirmButton, ErrorCopy, FIELD, Label, PRIMARY, SECONDARY, StatusNote } from "./controls";
 import { fileName, type Held, type Target, usable, withoutWhitespace } from "./logins";
-import { failureOf, type Note, scrub } from "./result";
+import { type Note, scrub } from "./result";
 import { t as translate, useI18n } from "@maxhq/shared/i18n";
 
-/**
- * The devices ticked: each one that's connected and can take the login,
- * until you untick it. A device that connects later starts ticked too.
- */
-export const useTicks = (
-	targets: readonly Target[],
-	/** The device to tick alone at first, as Sign in again on its error asks. */
-	only?: DeviceId
-): [ReadonlySet<DeviceId>, (ticked: ReadonlySet<DeviceId>) => void] => {
-	const [unticked, setUnticked] = useState<ReadonlySet<DeviceId>>(
-		() =>
-			new Set(
-				only !== undefined
-					? targets.filter((t) => t.device !== only).map((t) => t.device)
-					: []
-			)
-	);
-	const ticked = new Set(
-		targets.filter((t) => usable(t) && !unticked.has(t.device)).map((t) => t.device)
-	);
-	const change = (next: ReadonlySet<DeviceId>) =>
-		setUnticked((before) => {
-			const after = new Set(before);
-			for (const t of targets) {
-				if (!usable(t)) continue;
-				if (next.has(t.device)) after.delete(t.device);
-				else after.add(t.device);
-			}
-			return after;
-		});
-	return [ticked, change];
-};
+export { type Outcome, useTicks };
 
 /** The devices to send a login to, each with a tick. */
 export const DeviceTicks = ({
@@ -113,13 +83,6 @@ export const DeviceTicks = ({
 			)}
 		</div>
 	);
-};
-
-/** How one device took what was sent. */
-export type Outcome = {
-	readonly device: DeviceId;
-	/** Why it didn't, or null when it did. */
-	readonly failure: string | null;
 };
 
 /** One line for each device a login went to. */
@@ -366,16 +329,7 @@ export const useSecretSend = ({
 		setFailure(null);
 		setOutcomes([]);
 		try {
-			const results = await deliver(devices, secret);
-			setOutcomes(
-				devices.map((device, i) => {
-					const result = results[i];
-					const reason = result
-						? failureOf(result)
-						: translate("The device didn't answer");
-					return { device, failure: reason === null ? null : scrub(reason, secret) };
-				})
-			);
+			setOutcomes(outcomesOf(devices, await deliver(devices, secret), secret));
 		} catch (error) {
 			const reason = error instanceof Error ? error.message : String(error);
 			console.warn(
@@ -492,24 +446,7 @@ export const Forget = ({
 	const forget = async () => {
 		setNote({ text: busy, error: false });
 		try {
-			const result = await source.forgetCredential(device, credential);
-			const failure = failureOf(result);
-			const unconfirmed =
-				result.status === "ok" &&
-				result.data.status === "signed_out" &&
-				!result.data.revoked;
-			setNote(
-				failure
-					? { text: sentence(failure), error: true }
-					: unconfirmed
-						? {
-								text: translate(
-									"Signed out on the device, but OpenAI didn't confirm it ended the session. Disconnect MaxHQ in ChatGPT's settings to be sure."
-								),
-								error: true,
-							}
-						: null
-			);
+			setNote(forgetNote(await source.forgetCredential(device, credential)));
 		} catch (error) {
 			console.warn(translate("Couldn't forget the login"), error);
 			setNote({ text: translate("Couldn't reach the device. Try again."), error: true });

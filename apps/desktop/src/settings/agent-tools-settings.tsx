@@ -20,6 +20,7 @@ import { CopyButton } from "@/components/copy-button";
 import { CopyIcon } from "@/components/copy-field";
 import { Picker } from "@/new-agent/picker";
 import { type AccessKey, type AgentDefaults, DEPTH, type Permission } from "@maxhq/shared/bindings";
+import { keyGrants } from "@maxhq/shared/agent-tools/grants";
 import {
 	commandLine,
 	depthFrom,
@@ -297,9 +298,7 @@ export const AgentToolsSettingsPage = () => {
 	const defaults = useAgentDefaults();
 	const keys = useKeys();
 	const permissions = usePermissions();
-	const byId = new Map(
-		(permissions.data?.status === "ok" ? permissions.data.data : []).map((p) => [p.id, p])
-	);
+	const held = permissions.data?.status === "ok" ? permissions.data.data : [];
 	const listed = keys.data?.status === "ok" ? keys.data.data : null;
 	return (
 		<>
@@ -334,8 +333,8 @@ export const AgentToolsSettingsPage = () => {
 				) : listed.length === 0 ? (
 					<Row title={translate("No keys yet")} />
 				) : (
-					listed.map((k) => (
-						<KeyRow key={k.id} accessKey={k} permission={byId.get(k.permission)} />
+					keyGrants(listed, held).map(({ key, permission }) => (
+						<KeyRow key={key.id} accessKey={key} permission={permission} />
 					))
 				)}
 				{defaults.data ? <MintForm defaults={defaults.data} /> : null}
