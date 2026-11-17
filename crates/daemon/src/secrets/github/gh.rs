@@ -10,6 +10,7 @@ use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::time::Duration;
 
+use maxhq_core::mask::GITHUB_TOKEN_STARTS;
 use serde_json::Value;
 use tokio::process::Command;
 use tokio::sync::Semaphore;
@@ -43,9 +44,6 @@ const SET: [(&str, &str); 3] = [
     ("GH_NO_UPDATE_NOTIFIER", "1"),
     ("NO_COLOR", "1"),
 ];
-/// How tokens start, so one in `gh`'s words is never passed on.
-pub const TOKEN_STARTS: [&str; 6] = ["gho_", "ghp_", "ghu_", "ghs_", "ghr_", "github_pat_"];
-
 /// `gh` on this device, run a few at a time.
 pub struct Gh {
     runner: Runner,
@@ -318,7 +316,10 @@ fn hidden(text: &str) -> String {
         .split(' ')
         .map(|word| {
             let bare = word.trim_start_matches(|c: char| !c.is_ascii_alphanumeric());
-            if TOKEN_STARTS.iter().any(|start| bare.starts_with(start)) {
+            if GITHUB_TOKEN_STARTS
+                .iter()
+                .any(|start| bare.starts_with(start))
+            {
                 "[token]"
             } else {
                 word

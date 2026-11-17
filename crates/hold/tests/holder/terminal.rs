@@ -1,0 +1,581 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026 Max Boksem
+
+//! Tests of real terminal holders running `/bin/sh` on a pty.
+//!
+//! The scripts run with `sh -c`, or `sh -i` with `HOME` and `ENV` pointed
+//! at the test's own folder, so no shell reads anyone's startup files.
+
+use maxhq_hold::{Reached, TermEvent, TermExit, TermLaunch, TermLink, Terminals};
+use maxhq_protocol::ids::TerminalId;
+
+use super::*;
+
+/// How long a holder stays after its program ends in these tests.
+const LINGER: Duration = Duration::from_secs(3);
+
+fn terminals(ctx: &Ctx) -> Terminals {
+    Terminals::new(ctx.dirs.clone())
+        .with_holder(exe(), vec!["__hold".into()])
+        .with_detach(Detach::Setsid)
+        .with_linger(LINGER)
+}
+
+fn terminal_dir(ctx: &Ctx, terminal: TerminalId) -> PathBuf {
+    ctx.dirs.sessions.join(terminal.to_string())
+}
+
+/// `/bin/sh -c script` in the test's folder, with no startup files.
+fn sh(ctx: &Ctx, script: &str, run: bool) -> TermLaunch {
+    TermLaunch {
+        terminal: TerminalId::generate(),
+        program: "/bin/sh".into(),
+        args: vec!["-c".into(), script.into()],
+        env: quiet_env(ctx),
+        cwd: ctx.root.clone(),
+        cols: 80,
+        rows: 24,
+        run,
+    }
+}
+
+fn quiet_env(ctx: &Ctx) -> Vec<(OsString, OsString)> {
+    vec![
+        ("TERM".into(), "xterm-256color".into()),
+        ("HOME".into(), ctx.root.clone().into()),
+        ("ENV".into(), "/dev/null".into()),
+        ("PS1".into(), "$ ".into()),
+    ]
+}
+
+async fn start(ctx: &Ctx, launch: &TermLaunch) -> TermLink {
+    let terminals = terminals(ctx);
+    terminals.spawn(launch).await.unwrap();
+    live(&terminals, launch.terminal, None).await
+}
+
+async fn live(terminals: &Terminals, terminal: TerminalId, after: Option<u64>) -> TermLink {
+    match terminals.connect(terminal, after).await.unwrap() {
+        Reached::Live(link) => link,
+        Reached::Ended(exit) => panic!("the terminal ended: {exit:?}"),
+        Reached::Missing => panic!("the terminal has no folder"),
+    }
+}
+
+/// What a link has told, with the output and the offset just past it.
+struct Seen {
+    bytes: Vec<u8>,
+    end: u64,
+    exit: Option<TermExit>,
+    password: bool,
+    busy: bool,
+    title: Option<String>,
+    cwd: Option<String>,
+}
+
+/// The state with only the end of the output, which can run to megabytes.
+impl std::fmt::Debug for Seen {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let tail = &self.bytes[self.bytes.len().saturating_sub(300)..];
+        f.debug_struct("Seen")
+            .field("tail", &String::from_utf8_lossy(tail))
+            .field("end", &self.end)
+            .field("exit", &self.exit)
+            .field("password", &self.password)
+            .field("busy", &self.busy)
+            .field("title", &self.title)
+            .field("cwd", &self.cwd)
+            .finish()
+    }
+}
+
+impl Seen {
+    fn from(link: &TermLink) -> Self {
+        Self {
+            bytes: Vec::new(),
+            end: link.hello.from,
+            exit: None,
+            password: link.hello.password,
+            busy: link.hello.busy,
+            title: link.hello.title.clone(),
+            cwd: link.hello.cwd.clone(),
+        }
+    }
+
+    fn text(&self) -> String {
+        String::from_utf8_lossy(&self.bytes).into_owned()
+    }
+
+    /// Reads events until `done` says so, checking output comes with no
+    /// gap unless `gaps`.
+    async fn until(&mut self, link: &mut TermLink, gaps: bool, done: impl Fn(&Self) -> bool) {
+        while !done(self) {
+            let event = match tokio::time::timeout(WAIT, link.events.recv()).await {
+                Ok(Some(event)) => event,
+                Ok(None) => panic!("the events ended at {self:?}"),
+                Err(_) => panic!("nothing new within {WAIT:?} at {self:?}"),
+            };
+            match event {
+                TermEvent::Output { offset, data } => {
+                    if !gaps {
+                        assert_eq!(offset, self.end, "a gap before {:?}", self.text());
+                    }
+                    assert!(offset >= self.end, "output went back");
+                    self.end = offset + data.len() as u64;
+                    self.bytes.extend(data);
+                }
+                TermEvent::Password(on) => self.password = on,
+                TermEvent::Busy(on) => self.busy = on,
+                TermEvent::Title(title) => self.title = Some(title),
+                TermEvent::Cwd(cwd) => self.cwd = Some(cwd),
+                TermEvent::Exit(exit) => {
+                    assert!(self.exit.is_none(), "two exits");
+                    self.exit = Some(exit);
+                }
+            }
+        }
+    }
+
+    async fn until_text(&mut self, link: &mut TermLink, text: &str) {
+        self.until(link, false, |seen| seen.text().contains(text))
+            .await;
+    }
+
+    async fn until_exit(&mut self, link: &mut TermLink) -> TermExit {
+        self.until(link, false, |seen| seen.exit.is_some()).await;
+        self.exit.clone().unwrap()
+    }
+}
+
+fn alive(pid: u32) -> bool {
+    rustix::process::test_kill_process(super::pid(pid)).is_ok()
+}
+
+pub(super) async fn a_terminal_replays_from_an_offset_without_a_gap(ctx: Ctx) {
+    let script = "stty -echo; echo ready; while read line; do echo \"got:$line\"; stty size; done";
+    let launch = sh(&ctx, script, false);
+    let terminals = terminals(&ctx);
+    let mut link = start(&ctx, &launch).await;
+    assert_eq!(link.hello.from, 0);
+    assert!(!link.hello.reset);
+    assert_eq!((link.hello.cols, link.hello.rows), (80, 24));
+    let mut seen = Seen::from(&link);
+    seen.until_text(&mut link, "ready").await;
+    assert!(link.control.input(b"one\n".to_vec()));
+    seen.until_text(&mut link, "24 80").await;
+    let first = seen.end;
+    // Input sent just before letting go still gets there.
+    assert!(link.control.resize(100, 30));
+    assert!(link.control.input(b"two\n".to_vec()));
+    drop(link);
+
+    let mut again = live(&terminals, launch.terminal, Some(first)).await;
+    assert_eq!((again.hello.from, again.hello.reset), (first, false));
+    assert_eq!((again.hello.cols, again.hello.rows), (100, 30));
+    let mut rest = Seen::from(&again);
+    rest.until_text(&mut again, "30 100").await;
+    assert!(rest.text().contains("got:two"), "{}", rest.text());
+    assert!(!rest.text().contains("got:one"), "{}", rest.text());
+
+    // With nothing, a client gets all the holder keeps.
+    let mut whole = live(&terminals, launch.terminal, None).await;
+    assert_eq!((whole.hello.from, whole.hello.reset), (0, false));
+    let mut all = Seen::from(&whole);
+    all.until(&mut whole, false, |seen| seen.end >= rest.end)
+        .await;
+    let text = all.text();
+    let one = text.find("got:one").unwrap();
+    let two = text.find("got:two").unwrap();
+    assert!(one < two, "{text}");
+    // Output the program never printed isn't there either.
+    let past = live(&terminals, launch.terminal, Some(rest.end + 10)).await;
+    assert!(past.hello.reset);
+    drop((whole, past));
+
+    assert!(again.control.kill(Duration::from_secs(5)));
+    let exit = rest.until_exit(&mut again).await;
+    assert_eq!(exit.signal, Some(1), "{exit:?}");
+    assert_eq!(exit.output, None);
+}
+
+pub(super) async fn a_reader_past_the_ring_starts_over_at_a_whole_line(ctx: Ctx) {
+    let line = "0123456789abcdef0123456789abcdef";
+    let script = format!("stty -echo; yes {line} | head -c 3145728; echo; echo done; read wait");
+    let launch = sh(&ctx, &script, false);
+    let terminals = terminals(&ctx);
+    let mut link = start(&ctx, &launch).await;
+    let mut seen = Seen::from(&link);
+    // This reader may fall behind the ring itself, which shows as a jump.
+    seen.until(&mut link, true, |seen| seen.bytes.ends_with(b"done\r\n"))
+        .await;
+    let end = seen.end;
+    assert!(end > 3 * 1024 * 1024, "{end}");
+
+    let mut behind = live(&terminals, launch.terminal, Some(0)).await;
+    assert!(behind.hello.reset);
+    let from = behind.hello.from;
+    assert!(from > end - 2 * 1024 * 1024 - 1, "{from} of {end}");
+    let mut caught = Seen::from(&behind);
+    caught
+        .until(&mut behind, false, |seen| seen.end == end)
+        .await;
+    assert!(
+        caught.text().starts_with(line),
+        "{:?}",
+        &caught.text()[..40]
+    );
+    assert!(caught.bytes.ends_with(b"done\r\n"));
+
+    let at_end = live(&terminals, launch.terminal, Some(end)).await;
+    assert_eq!((at_end.hello.from, at_end.hello.reset), (end, false));
+    drop((link, behind));
+    at_end.control.kill(Duration::from_secs(5));
+}
+
+pub(super) async fn a_password_prompt_is_flagged_and_its_answer_kept_nowhere(ctx: Ctx) {
+    let canary = format!("canary-{}", TerminalId::generate().0.simple());
+    let script = "printf 'Password: '; stty -echo; read secret; stty echo; echo; \
+                  echo \"length ${#secret}\"; echo after";
+    let launch = sh(&ctx, script, true);
+    let mut link = start(&ctx, &launch).await;
+    assert!(link.hello.busy, "a run is busy until it ends");
+    let mut seen = Seen::from(&link);
+    // Typing before the prompt hides it would echo, so wait for the flag.
+    seen.until(&mut link, false, |seen| seen.password).await;
+    let holder_pid = link.hello.holder_pid;
+    assert!(link.control.input(format!("{canary}\n").into_bytes()));
+    seen.until(&mut link, false, |seen| !seen.password).await;
+    let exit = seen.until_exit(&mut link).await;
+    assert_eq!(exit.code, Some(0));
+    let output = exit.output.unwrap();
+    let lines: Vec<&str> = output.text.lines().collect();
+    assert_eq!(
+        lines,
+        [
+            format!("Password:{}", maxhq_term::SECRET_SENT),
+            format!("length {}", canary.len()),
+            "after".to_owned()
+        ],
+        "{:?}",
+        output.text
+    );
+    assert!(!seen.text().contains(&canary));
+    // The holder lingers, so its arguments and environment can be read.
+    assert!(alive(holder_pid));
+    assert!(!holds_bytes(&args_and_env(holder_pid), canary.as_bytes()));
+    assert_no_file_has(&ctx.root, &canary);
+    let exit_file = fs::read_to_string(terminal_dir(&ctx, launch.terminal).join("exit.json"));
+    assert!(exit_file.unwrap().contains("🔒 sent"));
+}
+
+pub(super) async fn the_title_and_folder_come_from_the_shell(ctx: Ctx) {
+    let script = "stty -echo; printf '\\033]0;my title\\007'; \
+                  printf '\\033]7;file://devbox/tmp/my%%20app\\033\\\\'; echo set; read wait";
+    let launch = sh(&ctx, script, false);
+    let mut link = start(&ctx, &launch).await;
+    let mut seen = Seen::from(&link);
+    seen.until(&mut link, false, |seen| {
+        seen.title.is_some() && seen.cwd.is_some()
+    })
+    .await;
+    assert_eq!(seen.title.as_deref(), Some("my title"));
+    assert_eq!(seen.cwd.as_deref(), Some("/tmp/my app"));
+    let again = live(&terminals(&ctx), launch.terminal, Some(seen.end)).await;
+    assert_eq!(again.hello.title.as_deref(), Some("my title"));
+    assert_eq!(again.hello.cwd.as_deref(), Some("/tmp/my app"));
+    again.control.kill(Duration::from_secs(5));
+}
+
+pub(super) async fn a_watch_gets_all_but_the_output(ctx: Ctx) {
+    let script = "stty -echo; printf '\\033]0;watched\\007'; echo loud; read line; echo louder";
+    let launch = sh(&ctx, script, false);
+    let terminals = terminals(&ctx);
+    let mut link = start(&ctx, &launch).await;
+    let mut seen = Seen::from(&link);
+    seen.until_text(&mut link, "loud").await;
+    let Reached::Live(mut watch) = terminals.watch(launch.terminal).await.unwrap() else {
+        panic!("no watch");
+    };
+    assert_eq!(watch.hello.title.as_deref(), Some("watched"));
+    assert!(link.control.input(b"go\n".to_vec()));
+    let mut exit = None;
+    while exit.is_none() {
+        match tokio::time::timeout(WAIT, watch.events.recv()).await {
+            Ok(Some(TermEvent::Output { offset, data })) => {
+                panic!("a watch got output at {offset}: {data:?}")
+            }
+            Ok(Some(TermEvent::Exit(ended))) => exit = Some(ended),
+            Ok(Some(_)) => {}
+            Ok(None) => panic!("the watch ended without the exit"),
+            Err(_) => panic!("no exit within {WAIT:?}"),
+        }
+    }
+    assert_eq!(exit.unwrap().code, Some(0));
+    seen.until_exit(&mut link).await;
+    assert!(seen.text().contains("louder"), "{}", seen.text());
+}
+
+pub(super) async fn interrupt_stops_what_the_shell_runs(ctx: Ctx) {
+    let mut launch = sh(&ctx, "", false);
+    launch.args = vec!["-i".into()];
+    let mut link = start(&ctx, &launch).await;
+    assert!(!link.hello.busy);
+    let shell = link.hello.child_pid;
+    let mut seen = Seen::from(&link);
+    seen.until_text(&mut link, "$ ").await;
+    assert!(link.control.input(b"sleep 30 && echo slept\n".to_vec()));
+    seen.until(&mut link, false, |seen| seen.busy).await;
+    assert!(link.control.interrupt());
+    seen.until(&mut link, false, |seen| !seen.busy).await;
+    assert!(alive(shell), "the interrupt reached the shell");
+    // The pty echoes the command, so only a line of its own counts.
+    assert!(!seen.text().contains("\nslept"), "{}", seen.text());
+    assert!(link.control.input(b"exit 4\n".to_vec()));
+    let exit = seen.until_exit(&mut link).await;
+    assert_eq!((exit.code, exit.signal), (Some(4), None));
+}
+
+pub(super) async fn kill_hangs_up_the_whole_group(ctx: Ctx) {
+    let script = "stty -echo; sleep 300 & echo \"pid $!\"; wait";
+    let launch = sh(&ctx, script, false);
+    let terminals = terminals(&ctx);
+    let mut link = start(&ctx, &launch).await;
+    let mut seen = Seen::from(&link);
+    seen.until(&mut link, false, |seen| seen.text().contains('\n'))
+        .await;
+    let text = seen.text();
+    let sleeper: u32 = text
+        .trim()
+        .strip_prefix("pid ")
+        .and_then(|pid| pid.parse().ok())
+        .unwrap_or_else(|| panic!("no pid in {text:?}"));
+    assert!(link.control.kill(Duration::from_secs(5)));
+    let exit = seen.until_exit(&mut link).await;
+    assert_eq!(exit.signal, Some(1), "{exit:?}");
+    eventually("the background sleep ended", || !alive(sleeper)).await;
+
+    // A goodbye after the exit deletes the folder and ends the holder.
+    let dir = terminal_dir(&ctx, launch.terminal);
+    let holder_pid = link.hello.holder_pid;
+    assert!(link.control.goodbye());
+    eventually("the folder went", || !dir.exists()).await;
+    eventually("the holder ended", || !alive(holder_pid)).await;
+    assert!(matches!(
+        terminals.connect(launch.terminal, None).await.unwrap(),
+        Reached::Missing
+    ));
+}
+
+pub(super) async fn kill_escalates_to_sigkill(ctx: Ctx) {
+    let script = "trap '' HUP; stty -echo; echo ready; while :; do sleep 1; done";
+    let launch = sh(&ctx, script, false);
+    let mut link = start(&ctx, &launch).await;
+    let mut seen = Seen::from(&link);
+    seen.until_text(&mut link, "ready").await;
+    let started = Instant::now();
+    assert!(link.control.kill(Duration::from_millis(300)));
+    let exit = seen.until_exit(&mut link).await;
+    assert_eq!(exit.signal, Some(9), "{exit:?}");
+    assert!(started.elapsed() >= Duration::from_millis(300));
+}
+
+pub(super) async fn an_ended_terminal_leaves_its_exit_when_nobody_says_goodbye(ctx: Ctx) {
+    let launch = sh(&ctx, "echo bye; exit 7", true);
+    let terminals = terminals(&ctx);
+    let mut link = start(&ctx, &launch).await;
+    let mut seen = Seen::from(&link);
+    let exit = seen.until_exit(&mut link).await;
+    assert_eq!(exit.code, Some(7));
+    assert_eq!(exit.output.as_ref().unwrap().text, "bye");
+    // A goodbye before the end means nothing, and here nobody says one.
+    drop(link);
+    let dir = terminal_dir(&ctx, launch.terminal);
+    eventually("the holder ended", || live_holder(&dir).is_none()).await;
+    let Reached::Ended(Some(left)) = terminals.connect(launch.terminal, None).await.unwrap() else {
+        panic!("no exit left behind");
+    };
+    assert_eq!(left, exit);
+    assert_eq!(terminals.list().unwrap(), [launch.terminal]);
+    assert!(terminals.remove(launch.terminal).unwrap());
+    assert!(!dir.exists());
+    assert!(terminals.list().unwrap().is_empty());
+}
+
+pub(super) async fn a_goodbye_before_the_end_changes_nothing(ctx: Ctx) {
+    let launch = sh(&ctx, "stty -echo; read line; echo \"got:$line\"", false);
+    let terminals = terminals(&ctx);
+    let mut link = start(&ctx, &launch).await;
+    assert!(link.control.goodbye());
+    assert!(!terminals.remove(launch.terminal).unwrap());
+    assert!(link.control.input(b"still here\n".to_vec()));
+    let mut seen = Seen::from(&link);
+    let exit = seen.until_exit(&mut link).await;
+    assert_eq!(exit.code, Some(0));
+    assert!(seen.text().contains("got:still here"));
+}
+
+pub(super) async fn a_terminal_holder_refuses_a_client_without_its_key(ctx: Ctx) {
+    let launch = sh(&ctx, "stty -echo; read line; echo \"got:$line\"", false);
+    let terminals = terminals(&ctx);
+    let mut link = start(&ctx, &launch).await;
+    let dir = terminal_dir(&ctx, launch.terminal);
+    let key_path = dir.join("holder.key");
+    let key = fs::read_to_string(&key_path).unwrap();
+    let mode = fs::metadata(&key_path).unwrap().permissions().mode();
+    assert_eq!(mode & 0o777, 0o600);
+    let socket = socket_of(&dir);
+    let hello = |terminal: TerminalId, key: &str| json!({"type": "hello", "terminal": terminal, "key": key, "after": null});
+    let wrong = "0".repeat(64);
+    for shown in [wrong.as_str(), &key[..63], ""] {
+        let (answer, mut read, mut write) =
+            say_hello(&socket, &hello(launch.terminal, shown)).await;
+        assert_eq!(answer["type"], "refused", "{answer}");
+        let message = answer["message"].as_str().unwrap();
+        assert!(message.contains("isn't this holder's"), "{message}");
+        let sneak = json!({"type": "input", "data": "c25lYWtlZCBpbgo="});
+        let _ = send_raw(&mut write, &sneak).await;
+        assert!(hung_up(&mut read).await, "the holder kept a refused client");
+    }
+    // No key at all doesn't get a word.
+    let (stream_read, mut stream_write) = tokio::net::UnixStream::connect(&socket)
+        .await
+        .unwrap()
+        .into_split();
+    send_raw(
+        &mut stream_write,
+        &json!({"type": "hello", "terminal": launch.terminal}),
+    )
+    .await
+    .unwrap();
+    assert!(hung_up(&mut tokio::io::BufReader::new(stream_read)).await);
+    let (answer, _, _) = say_hello(&socket, &hello(TerminalId::generate(), &key)).await;
+    assert_eq!(answer["type"], "refused", "{answer}");
+    assert!(answer["message"]
+        .as_str()
+        .unwrap()
+        .contains("runs terminal"));
+    fs::write(&key_path, &wrong).unwrap();
+    let Err(err) = terminals.connect(launch.terminal, None).await else {
+        panic!("a wrong key got in");
+    };
+    assert_eq!(err.kind(), io::ErrorKind::PermissionDenied, "{err}");
+    fs::write(&key_path, &key).unwrap();
+
+    assert!(link.control.input(b"after\n".to_vec()));
+    let mut seen = Seen::from(&link);
+    seen.until_exit(&mut link).await;
+    assert!(seen.text().contains("got:after"), "{}", seen.text());
+    assert!(!seen.text().contains("sneaked"));
+}
+
+pub(super) async fn a_run_keeps_what_it_showed(ctx: Ctx) {
+    let terminal = TerminalId::generate();
+    let command = "printf '\\033[1mbold\\033[0m\\n'; echo \"$TERM $COLORTERM $TERM_PROGRAM\"";
+    let mut launch = TermLaunch::run(terminal, ctx.root.clone(), command, 80, 24);
+    // The user's shell would read their startup files.
+    launch.program = "/bin/sh".into();
+    launch.env.extend(quiet_env(&ctx).into_iter().skip(1));
+    let mut link = start(&ctx, &launch).await;
+    let mut seen = Seen::from(&link);
+    let exit = seen.until_exit(&mut link).await;
+    assert_eq!(exit.code, Some(0));
+    let output = exit.output.unwrap();
+    assert!(output.text.contains("1mbold\x1b[0m"), "{:?}", output.text);
+    assert!(
+        output.text.contains("xterm-256color truecolor MaxHQ"),
+        "{:?}",
+        output.text
+    );
+    assert!(!output.truncated);
+
+    let full = "printf 'before\\n\\033[?1049hALT\\033[?1049l'; echo after";
+    let launch = sh(&ctx, full, true);
+    let mut link = start(&ctx, &launch).await;
+    let mut seen = Seen::from(&link);
+    let output = seen.until_exit(&mut link).await.output.unwrap();
+    assert_eq!(
+        output.text,
+        format!("before\nafter\n{}", maxhq_term::FULL_SCREEN)
+    );
+}
+
+pub(super) async fn a_terminal_outlives_its_spawner(ctx: Ctx) {
+    let terminal = TerminalId::generate();
+    let mut command = Command::new(exe());
+    command
+        .arg("__spawner")
+        .arg("--terminal")
+        .arg(&ctx.dirs.sessions)
+        .arg(&ctx.dirs.sockets)
+        .arg(terminal.to_string())
+        .arg(&ctx.root)
+        .env(DETACH_ENV, "setsid")
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .process_group(0);
+    let mut spawner = command.spawn().unwrap();
+    let stdout = spawner.stdout.take().unwrap();
+    let said = tokio::task::spawn_blocking(move || {
+        let mut line = String::new();
+        BufReader::new(stdout).read_line(&mut line).map(|_| line)
+    })
+    .await
+    .unwrap()
+    .unwrap();
+    assert_eq!(said.trim(), "spawned");
+    let spawner_pid = i32::try_from(spawner.id()).unwrap();
+    rustix::process::kill_process_group(Pid::from_raw(spawner_pid).unwrap(), Signal::KILL).unwrap();
+    spawner.wait().unwrap();
+
+    let mut link = live(&terminals(&ctx), terminal, None).await;
+    let holder = super::pid(link.hello.holder_pid);
+    let child = super::pid(link.hello.child_pid);
+    if let Ok(sid) = rustix::process::getsid(Some(holder)) {
+        assert_eq!(sid, holder);
+    }
+    // The program leads a session of its own, with the pty as its terminal.
+    if let Ok(sid) = rustix::process::getsid(Some(child)) {
+        assert_eq!(sid, child);
+    }
+    let mut seen = Seen::from(&link);
+    assert!(link.control.input(b"still here\n".to_vec()));
+    let exit = seen.until_exit(&mut link).await;
+    assert_eq!(exit.code, Some(0));
+    assert!(seen.text().contains("got:still here"), "{}", seen.text());
+}
+
+/// `__spawner --terminal`: starts a terminal holder, says so, and waits to
+/// be killed.
+pub(super) fn spawner(sessions: &Path, sockets: &Path, terminal: &str, cwd: &Path) -> ExitCode {
+    let terminals = Terminals::new(Dirs {
+        sessions: sessions.into(),
+        sockets: sockets.into(),
+    })
+    .with_holder(exe(), vec!["__hold".into()])
+    .with_linger(LINGER);
+    let launch = TermLaunch {
+        terminal: terminal.parse().unwrap(),
+        program: "/bin/sh".into(),
+        args: vec![
+            "-c".into(),
+            "stty -echo; read line; echo \"got:$line\"".into(),
+        ],
+        env: Vec::new(),
+        cwd: cwd.into(),
+        cols: 80,
+        rows: 24,
+        run: false,
+    };
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    if let Err(err) = runtime.block_on(terminals.spawn(&launch)) {
+        eprintln!("spawn failed: {err}");
+        return ExitCode::FAILURE;
+    }
+    println!("spawned");
+    let _ = io::stdout().flush();
+    thread::sleep(Duration::from_secs(60));
+    ExitCode::SUCCESS
+}

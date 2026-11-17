@@ -17,14 +17,15 @@ use std::time::{Duration, Instant};
 use maxhq_app::merge::Merge;
 use maxhq_client::{LinkEvent, LinkSpec};
 use maxhq_core::prove::{self, Challenge, Kind, Statement};
-use maxhq_hold::{Detach, Dirs, Event, Framing, Holds, Launch, WriteOutcome};
+use maxhq_hold::{Detach, Dirs, Event, Framing, Holds, Launch, TermLaunch, WriteOutcome};
 use maxhq_protocol::agents::ClientRole;
 use maxhq_protocol::frame::{self, Frame, FrameDecoder};
-use maxhq_protocol::ids::{ClientId, IdempotencyKey, LinkId, SessionId};
+use maxhq_protocol::ids::{AgentId, ClientId, IdempotencyKey, LinkId, SessionId, TerminalId};
 use maxhq_protocol::link::{DeviceLink, LinkState, Route};
-use maxhq_protocol::message::{ActionOutcome, ClientHello, ClientInfo, ServerHello};
+use maxhq_protocol::message::{ActionOutcome, ClientHello, ClientInfo, ErrorCode, ServerHello};
 use maxhq_protocol::model::Device;
 use maxhq_protocol::state::{Entity, EntityKey, Replica};
+use maxhq_protocol::terminal::{TerminalKind, TerminalStatus};
 use maxhq_protocol::time::Timestamp;
 use maxhq_protocol::{ClientMessage, ProtocolRange, ServerMessage};
 
@@ -75,12 +76,17 @@ impl World {
 
     /// Starts `maxd run` and waits until its socket answers.
     fn start(&self) -> Running {
-        let child = self
-            .maxd(&["run"])
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .spawn()
-            .expect("maxd runs");
+        self.run(self.maxd(&["run"]).stderr(Stdio::null()))
+    }
+
+    /// Starts `maxd run` logging all it can to `log`.
+    fn start_logging(&self, log: &Path) -> Running {
+        let log = File::options().create(true).append(true).open(log).unwrap();
+        self.run(self.maxd(&["run"]).env("RUST_LOG", "trace").stderr(log))
+    }
+
+    fn run(&self, command: &mut Command) -> Running {
+        let child = command.stdout(Stdio::null()).spawn().expect("maxd runs");
         let mut running = Running(child);
         let start = Instant::now();
         while UnixStream::connect(self.socket()).is_err() {
@@ -142,6 +148,15 @@ struct Client<R, W> {
     reader: R,
     writer: W,
     decoder: FrameDecoder,
+    /// Every byte maxd sent, for tests that look for what it mustn't.
+    heard: Vec<u8>,
+}
+
+/// A message or a terminal's output, as a client hears it.
+#[derive(Debug)]
+enum Heard {
+    Message(ServerMessage),
+    Output { offset: u64, bytes: Vec<u8> },
 }
 
 impl Client<UnixStream, UnixStream> {
@@ -158,6 +173,7 @@ impl<R: Read, W: Write> Client<R, W> {
             reader,
             writer,
             decoder: FrameDecoder::new(),
+            heard: Vec::new(),
         }
     }
 
@@ -169,15 +185,107 @@ impl<R: Read, W: Write> Client<R, W> {
     }
 
     fn recv(&mut self) -> ServerMessage {
+        loop {
+            if let Heard::Message(message) = self.hear() {
+                return message;
+            }
+        }
+    }
+
+    /// The next message or terminal output. Other frames pass.
+    fn hear(&mut self) -> Heard {
         let mut buf = [0; 4096];
         loop {
-            if let Some(Frame::Message(json)) = self.decoder.next_frame().unwrap() {
-                return serde_json::from_slice(json).unwrap();
+            match self.decoder.next_frame().unwrap() {
+                Some(Frame::Message(json)) => {
+                    return Heard::Message(serde_json::from_slice(json).unwrap());
+                }
+                Some(Frame::TerminalOutput { offset, bytes, .. }) => {
+                    let bytes = bytes.to_vec();
+                    return Heard::Output { offset, bytes };
+                }
+                Some(_) => continue,
+                None => {}
             }
             let n = self.reader.read(&mut buf).unwrap();
             assert_ne!(n, 0, "maxd closed the connection");
+            self.heard.extend_from_slice(&buf[..n]);
             self.decoder.push(&buf[..n]);
         }
+    }
+
+    /// Attaches to `terminal` after the byte at `after`, and returns where
+    /// its output starts. A `maxd` that just started publishes the
+    /// terminals it finds a moment later, so it asks until one does.
+    fn attach(&mut self, terminal: TerminalId, after: Option<u64>) -> u64 {
+        let start = Instant::now();
+        loop {
+            self.send(&ClientMessage::TerminalAttach { terminal, after });
+            match self.answer() {
+                ServerMessage::TerminalAttached {
+                    terminal: got,
+                    from,
+                    reset,
+                } if got == terminal => {
+                    assert!(!reset, "an attach after {after:?} started over");
+                    return from;
+                }
+                ServerMessage::Error {
+                    code: ErrorCode::BadMessage,
+                    ..
+                } if start.elapsed() < WAIT => thread::sleep(Duration::from_millis(50)),
+                other => panic!("expected the attach, got {other:?}"),
+            }
+        }
+    }
+
+    /// Reads a terminal's output from `next` into `text` until it holds
+    /// `until`. Returns where the next chunk starts.
+    fn read_until(&mut self, next: u64, text: &mut Vec<u8>, until: &str) -> u64 {
+        let mut state = Replica::default();
+        self.follow(&mut state, text, next, |_, text| {
+            has(text, until.as_bytes())
+        })
+    }
+
+    /// Hears the state into `replica` and a terminal's output from `next`
+    /// into `text` until `done`, checking each chunk starts where the last
+    /// ended. Returns where the next chunk starts.
+    fn follow(
+        &mut self,
+        replica: &mut Replica,
+        text: &mut Vec<u8>,
+        mut next: u64,
+        done: impl Fn(&Replica, &[u8]) -> bool,
+    ) -> u64 {
+        while !done(replica, text) {
+            match self.hear() {
+                Heard::Output { offset, bytes } => {
+                    assert_eq!(offset, next, "the output has a gap or repeats");
+                    next += u64::try_from(bytes.len()).unwrap();
+                    text.extend(bytes);
+                }
+                Heard::Message(ServerMessage::TerminalAttached { from, .. }) => {
+                    panic!("the output started over at {from}")
+                }
+                Heard::Message(ServerMessage::Snapshot(snapshot)) => {
+                    replica.apply_snapshot(snapshot);
+                }
+                Heard::Message(ServerMessage::Delta(delta)) => {
+                    let _ = replica.apply_delta(delta);
+                }
+                Heard::Message(_) => {}
+            }
+        }
+        next
+    }
+
+    /// Types `bytes` into `terminal`.
+    fn type_into(&mut self, terminal: TerminalId, bytes: &[u8]) {
+        let mut out = Vec::new();
+        frame::encode_terminal_input(&mut out, terminal, bytes);
+        self.writer.write_all(&out).unwrap();
+        self.writer.flush().unwrap();
     }
 
     /// The next message that isn't a delta. A synced client gets one
@@ -605,4 +713,243 @@ fn hold_keeps_an_agent_running_for_maxd() {
         connection.writer.forget().await.unwrap();
         assert!(holds.list().unwrap().is_empty());
     });
+}
+
+/// Whether `haystack` holds `needle`.
+fn has(haystack: &[u8], needle: &[u8]) -> bool {
+    haystack
+        .windows(needle.len())
+        .any(|window| window == needle)
+}
+
+/// The folder a `maxd` in `world` keeps its data in.
+fn data_dir(world: &World) -> PathBuf {
+    if cfg!(target_os = "macos") {
+        world.0.join("home/Library/Application Support/MaxHQ")
+    } else {
+        world.0.join("data/maxhq")
+    }
+}
+
+/// Every file under `dir`, with what it holds.
+fn every_file(dir: &Path) -> Vec<(PathBuf, Vec<u8>)> {
+    let mut found = Vec::new();
+    let mut dirs = vec![dir.to_path_buf()];
+    while let Some(dir) = dirs.pop() {
+        let Ok(entries) = fs::read_dir(&dir) else {
+            continue;
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            match entry.file_type() {
+                Ok(kind) if kind.is_dir() => dirs.push(path),
+                Ok(kind) if kind.is_file() => {
+                    if let Ok(bytes) = fs::read(&path) {
+                        found.push((path, bytes));
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+    found
+}
+
+/// `secret` as it could turn up: itself, and the middle of its base64 at
+/// each of the three places it can start, in both alphabets.
+fn secret_forms(secret: &str) -> Vec<Vec<u8>> {
+    use base64::Engine;
+    let mut forms = vec![secret.as_bytes().to_vec()];
+    for engine in [
+        &base64::engine::general_purpose::STANDARD,
+        &base64::engine::general_purpose::URL_SAFE,
+    ] {
+        for shift in 0..3 {
+            let encoded = engine.encode(format!("{}{secret}", "x".repeat(shift)));
+            // The first and last four characters depend on what's around.
+            forms.push(encoded.as_bytes()[4..encoded.len() - 4].to_vec());
+        }
+    }
+    forms
+}
+
+/// Starts a terminal's holder in `world`'s folders, as a `maxd` there
+/// would, running `script` in `sh`, and notes it as `kind` for an agent
+/// this `maxd` doesn't have, so the next `maxd` there publishes it. A
+/// terminal opens only for an agent `maxd` runs, which needs a vendor's
+/// CLI, so the test starts the holder itself.
+fn hold_terminal(
+    world: &World,
+    kind: TerminalKind,
+    moved: bool,
+    script: &str,
+) -> (TerminalId, Held) {
+    let terminals = maxhq_hold::Terminals::new(Dirs {
+        sessions: data_dir(world).join("terminals"),
+        sockets: world.0.join("holders"),
+    })
+    .with_holder(BIN, vec!["hold".into()])
+    .with_detach(Detach::Setsid)
+    .with_linger(Duration::from_secs(30));
+    let launch = TermLaunch {
+        terminal: TerminalId::generate(),
+        program: "/bin/sh".into(),
+        args: vec!["-c".into(), script.into()],
+        env: vec![
+            ("TERM".into(), "xterm-256color".into()),
+            ("HOME".into(), world.0.clone().into()),
+        ],
+        cwd: world.0.clone(),
+        cols: 80,
+        rows: 24,
+        run: matches!(kind, TerminalKind::Run { .. }),
+    };
+    let held = Held(terminals.dirs().sessions.join(launch.terminal.to_string()));
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    runtime.block_on(terminals.spawn(&launch)).unwrap();
+    let note = serde_json::json!({
+        "agent": AgentId::derive("maxd-cli-test"),
+        "kind": kind,
+        "cwd": "~",
+        "started_at": Timestamp::now(),
+        "opener": {"by": "app"},
+        "moved": moved,
+    });
+    terminals.save_note(launch.terminal, &note).unwrap();
+    (launch.terminal, held)
+}
+
+/// Waits until `done`, or fails saying `what` never happened.
+fn wait_for(what: &str, done: impl Fn() -> bool) {
+    let start = Instant::now();
+    while !done() {
+        assert!(start.elapsed() < WAIT, "{what} never happened");
+        thread::sleep(Duration::from_millis(20));
+    }
+}
+
+#[test]
+fn a_terminal_outlives_its_maxd_and_goes_on_from_the_last_byte_a_client_has() {
+    let world = World::new();
+    // Three bursts of 40 numbered lines. After each the shell leaves a
+    // `wrote` file and waits for a `go` one, so the test knows what it
+    // wrote while no maxd ran.
+    let script = "i=0; for burst in 1 2 3; do end=$((burst * 40)); \
+                  while [ $i -lt $end ]; do echo line $i; i=$((i+1)); done; \
+                  : > wrote$burst; while [ ! -e go$burst ]; do sleep 0.05; done; done; \
+                  exec sleep 600";
+    let (terminal, held) = hold_terminal(&world, TerminalKind::Shell, false, script);
+    let burst = |n: u32| {
+        fs::write(world.0.join(format!("go{}", n - 1)), "").unwrap();
+        let wrote = world.0.join(format!("wrote{n}"));
+        wait_for(&format!("burst {n}"), || wrote.exists());
+    };
+    let mut text = Vec::new();
+
+    let maxd = world.start();
+    let mut client = Client::connect(&world.socket());
+    client.hello();
+    assert_eq!(client.attach(terminal, None), 0);
+    let mut next = client.read_until(0, &mut text, "line 39\r\n");
+
+    // A crash, then a stop as launchd or systemd asks for one. Each time
+    // the shell writes on while no maxd runs, and the next one sends it
+    // from the byte after the last one the client has.
+    maxd.crash();
+    burst(2);
+    let maxd = world.start();
+    let mut client = Client::connect(&world.socket());
+    client.hello();
+    assert_eq!(client.attach(terminal, Some(next - 1)), next);
+    next = client.read_until(next, &mut text, "line 79\r\n");
+    maxd.stop();
+    burst(3);
+    let _maxd = world.start();
+    let mut client = Client::connect(&world.socket());
+    client.hello();
+    assert_eq!(client.attach(terminal, Some(next - 1)), next);
+    client.read_until(next, &mut text, "line 119\r\n");
+
+    let text = String::from_utf8(text).unwrap();
+    let lines: Vec<&str> = text.split_terminator("\r\n").collect();
+    let all: Vec<String> = (0..120).map(|i| format!("line {i}")).collect();
+    assert_eq!(lines, all);
+
+    let close = ClientMessage::TerminalClose {
+        key: IdempotencyKey::generate(),
+        terminal,
+        force: true,
+    };
+    assert_eq!(client.act(close), ActionOutcome::Done);
+    wait_for("the closed terminal's folder going", || !held.0.exists());
+}
+
+#[test]
+fn a_password_typed_into_a_terminal_is_kept_nowhere() {
+    let world = World::new();
+    let secret = format!("canary-{}", uuid::Uuid::now_v7().simple());
+    let script = "stty -echo; printf 'Password: '; read secret; stty echo; echo; \
+                  echo \"got ${#secret}\"";
+    let kind = TerminalKind::Run {
+        command: "./deploy.sh".into(),
+        private: false,
+    };
+    // Moved to the drawer, so maxd keeps it, and its folder, once it ends.
+    let (terminal, held) = hold_terminal(&world, kind, true, script);
+    let log = world.0.join("maxd.log");
+    let maxd = world.start_logging(&log);
+    let mut client = Client::connect(&world.socket());
+    client.hello();
+    let mut text = Vec::new();
+    let next = client.attach(terminal, None);
+    let next = client.read_until(next, &mut text, "Password: ");
+
+    // maxd shows the shell waits for a secret, as its holder sees.
+    let shown = |replica: &Replica| match replica.get(&EntityKey::Terminal(terminal)) {
+        Some(Entity::Terminal(shown)) => Some(shown.clone()),
+        _ => None,
+    };
+    let mut replica = Replica::default();
+    client.send(&ClientMessage::Sync { since: None });
+    let next = client.follow(&mut replica, &mut text, next, |replica, _| {
+        shown(replica).is_some_and(|shown| shown.password_prompt)
+    });
+
+    client.type_into(terminal, format!("{secret}\r").as_bytes());
+    let said = format!("got {}\r\n", secret.len());
+    client.follow(&mut replica, &mut text, next, |replica, text| {
+        has(text, said.as_bytes())
+            && shown(replica).is_some_and(|shown| {
+                !shown.password_prompt
+                    && matches!(shown.status, TerminalStatus::Exited { code: Some(0), .. })
+            })
+    });
+
+    // The run's transcript marks where the secret went.
+    let exit = held.0.join("exit.json");
+    wait_for("the run's end kept", || {
+        fs::read(&exit)
+            .is_ok_and(|bytes| serde_json::from_slice::<serde_json::Value>(&bytes).is_ok())
+    });
+    let transcript = fs::read_to_string(&exit).unwrap();
+    assert!(transcript.contains("🔒 sent"), "{transcript}");
+
+    maxd.stop();
+    let logged = fs::read_to_string(&log).unwrap();
+    assert!(
+        logged.contains("DEBUG") || logged.contains("TRACE"),
+        "{logged}"
+    );
+    let forms = secret_forms(&secret);
+    for (path, bytes) in every_file(&world.0) {
+        for form in &forms {
+            assert!(!has(&bytes, form), "{} has the secret", path.display());
+        }
+    }
+    for form in &forms {
+        assert!(!has(&client.heard, form), "maxd sent the secret back");
+    }
 }

@@ -79,6 +79,7 @@ mod running;
 mod switch;
 mod take_over;
 mod tasks;
+mod terminals;
 mod workflow_env;
 
 /// The client most tests act as.
@@ -148,6 +149,7 @@ struct Fakes {
     ports: crate::ports::HolderWatch,
     /// Whether the manager has a dispatcher, as on the Mac.
     dispatcher: bool,
+    terminals: terminals::FakeTerminals,
 }
 
 /// Starts a manager over the test's fakes.
@@ -175,6 +177,7 @@ fn manager(dir: &Path, hub: &Hub, db: &Db, fakes: &Fakes, clock: &Arc<FakeClock>
         funnel: fakes.hooks.reach.subscribe(),
         workflows: fakes.workflows.clone(),
         notes: crate::notes::Notes::new(db.clone(), hub.clone()),
+        terminals: fakes.terminals.wiring(),
         dispatcher: fakes
             .dispatcher
             .then(|| super::dispatcher::home(hub, &dir.join("data")))
@@ -448,6 +451,7 @@ impl Harness {
             workflows: crate::workflow::Shared::default(),
             ports: crate::ports::HolderWatch::default(),
             dispatcher: false,
+            terminals: terminals::FakeTerminals::default(),
         };
         let epoch = clock.wall();
         let hub = make_hub(dir.path(), &db, &host);

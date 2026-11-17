@@ -49,10 +49,14 @@ pub(crate) fn short_name(session: &SessionId) -> String {
 
 /// Binds a socket for `session` in `dir`, which must exist.
 pub(crate) fn bind(dir: &Path, session: &SessionId) -> io::Result<Socket> {
-    let base = short_name(session);
+    bind_named(dir, &short_name(session))
+}
+
+/// Binds a socket named `base`, or `base` with a suffix, in `dir`.
+pub(crate) fn bind_named(dir: &Path, base: &str) -> io::Result<Socket> {
     for n in 0..TRIES {
         let name = if n == 0 {
-            base.clone()
+            base.to_owned()
         } else {
             format!("{base}-{n}")
         };
@@ -87,7 +91,7 @@ pub(crate) fn bind(dir: &Path, session: &SessionId) -> io::Result<Socket> {
     }
     Err(io::Error::new(
         io::ErrorKind::AddrInUse,
-        format!("every socket name for session {session} is taken"),
+        format!("every socket name starting {base} is taken"),
     ))
 }
 

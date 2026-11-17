@@ -284,6 +284,15 @@ pub fn add_device(name: String, route: String, host_key: String) -> String {
     reply(core().and_then(|core| core.add_device(&name, &route, &host_key)))
 }
 
+/// `text` with the secrets it holds masked, such as tokens and keys a
+/// command printed, as the desktop masks a command's output before it
+/// goes to an agent. It needs no core, so it answers the text itself, not
+/// a reply.
+#[uniffi::export]
+pub fn mask_text(text: String) -> String {
+    maxhq_core::mask::mask_text(&text).into_owned()
+}
+
 /// A call's answer as a reply.
 fn reply<T: Serialize>(result: Result<T, CommandError>) -> String {
     let value = match result.and_then(|data| to_value(&data)) {
@@ -401,6 +410,16 @@ mod tests {
             let message = wrong["error"]["message"].as_str().unwrap();
             assert!(message.starts_with("That doesn't read"), "{message}");
         }
+    }
+
+    #[test]
+    fn output_is_masked_without_the_core() {
+        let token = format!("ghp_{}", "Zx7Q".repeat(9));
+        assert_eq!(
+            mask_text(format!("GH_TOKEN={token}\nok")),
+            "GH_TOKEN=[hidden]\nok"
+        );
+        assert_eq!(mask_text("1 passed".into()), "1 passed");
     }
 
     #[test]

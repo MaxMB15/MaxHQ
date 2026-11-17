@@ -55,6 +55,9 @@ hyper = { version = "1.12", features = ["client", "http1"] }
 hyper-util = { version = "0.1.21", features = ["tokio"] }
 http-body-util = "0.1"
 base64 = "0.23"
+# The headless terminal behind maxhq-term's `Emulator`, which turns what a
+# `!` run printed into styled lines. Without serde, which nothing here needs.
+alacritty_terminal = { version = "0.26", default-features = false }
 # Shrinks large pictures before they go to an agent, in the formats the
 # Claude API takes inline.
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "gif", "webp"] }

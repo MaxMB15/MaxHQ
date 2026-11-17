@@ -7,9 +7,10 @@ use std::time::Duration;
 use base64::Engine;
 use maxhq_core::prove::Kind;
 use maxhq_protocol::admission::{Admission, AppKeyOrigin};
-use maxhq_protocol::ids::{AdmissionId, ClientId, IdempotencyKey, PhoneId};
+use maxhq_protocol::ids::{AdmissionId, AgentId, ClientId, IdempotencyKey, PhoneId};
 use maxhq_protocol::message::{ActionOutcome, ErrorCode, ServerHello};
 use maxhq_protocol::state::Entity;
+use maxhq_protocol::terminal::TerminalKind;
 use maxhq_protocol::{ClientMessage, ProtocolRange, ServerMessage};
 use tokio::time::{sleep, timeout};
 
@@ -18,7 +19,9 @@ use crate::admission::alert::{Alert, Reply};
 use crate::admission::Limits;
 use crate::app_keys::testing;
 use crate::server::proof::unproven;
+use crate::server::terminals::NOT_FOR_TERMINALS;
 use crate::server::tests::{hello, serve, Served, TestClient, WAIT};
+use crate::terminals::access::Opener;
 
 /// Another app key's seed.
 const NEW: [u8; 32] = [9; 32];
@@ -671,4 +674,51 @@ async fn a_pairing_that_doesnt_prove_gets_no_card() {
     until_cards(&served, 1).await;
     sleep(QUICK.delay * 2).await;
     assert_eq!(cards(&served).len(), 1);
+}
+
+/// The next error `client` gets, past the state it reads.
+async fn next_error(client: &mut TestClient) -> (ErrorCode, String) {
+    loop {
+        if let ServerMessage::Error { code, message } = client.recv().await {
+            return (code, message);
+        }
+    }
+}
+
+#[tokio::test]
+async fn a_program_or_phone_let_in_from_its_card_still_cant_reach_a_terminal() {
+    let served = served(QUICK, None);
+    let (mut app, _) = TestClient::greeted(&served.socket).await;
+    let shell = (served.terminals).plant(AgentId::derive("a"), TerminalKind::Shell, Opener::App);
+
+    let mut other = stranger(&served).await;
+    let card = until_cards(&served, 1).await.remove(0);
+    assert_eq!(answer(&mut app, card.id, true).await, ActionOutcome::Done);
+    assert!(may_sync(&mut other).await);
+    until_cards(&served, 0).await;
+
+    let phone = phone_in(&mut app, &[242; 32]).await;
+    let (mut own, _) = as_phone(&served, phone).await;
+    assert!(!may_sync(&mut own).await);
+    let card = until_cards(&served, 1).await.remove(0);
+    assert_eq!(answer(&mut app, card.id, true).await, ActionOutcome::Done);
+    assert!(may_sync(&mut own).await);
+
+    let not_for_terminals = (ErrorCode::NotAllowed, NOT_FOR_TERMINALS.to_owned());
+    for client in [&mut other, &mut own] {
+        client.type_into(shell, b"whoami\r").await;
+        assert_eq!(next_error(client).await, not_for_terminals);
+        let attach = ClientMessage::TerminalAttach {
+            terminal: shell,
+            after: None,
+        };
+        client.send(&attach).await;
+        assert_eq!(next_error(client).await, not_for_terminals);
+        let close = ClientMessage::TerminalClose {
+            key: IdempotencyKey::generate(),
+            terminal: shell,
+            force: true,
+        };
+        assert_eq!(ask(client, close).await, refused(NOT_FOR_TERMINALS));
+    }
 }

@@ -130,7 +130,11 @@ where
 
 /// Reads the next message of up to `cap` bytes, with its newline. A longer one
 /// is an error, which ends the connection.
-async fn recv_within<R, T>(reader: &mut R, buf: &mut Vec<u8>, cap: usize) -> io::Result<Option<T>>
+pub(crate) async fn recv_within<R, T>(
+    reader: &mut R,
+    buf: &mut Vec<u8>,
+    cap: usize,
+) -> io::Result<Option<T>>
 where
     R: AsyncBufRead + Unpin,
     T: DeserializeOwned,

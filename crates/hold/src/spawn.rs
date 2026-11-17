@@ -47,7 +47,7 @@ pub(crate) const READY_WAIT: Duration = Duration::from_secs(20);
 
 /// How long the first step of the holder has to exit once it has started
 /// the second.
-const EXIT_WAIT: Duration = Duration::from_secs(5);
+pub(crate) const EXIT_WAIT: Duration = Duration::from_secs(5);
 
 /// How long `systemctl` has to answer whether it runs.
 const CHECK_WAIT: Duration = Duration::from_secs(5);
@@ -114,7 +114,13 @@ pub(crate) async fn spawn(holds: &Holds, launch: &Launch) -> Result<(), SpawnErr
             source,
         });
     }
-    let started = start(holds, &launch, detach, &dir, pipe).await;
+    let run = Run {
+        holder: holds.holder.as_ref(),
+        flags: &[],
+        unit: scope::unit_base(launch.session),
+        detach,
+    };
+    let started = start(run, &dir, pipe).await;
     // A holder that gave up leaves nothing worth keeping. One that is
     // merely slow may still start, so its folder stays. One that reported
     // an error is on its way out, but may not have let go of its lock yet.
@@ -129,7 +135,7 @@ pub(crate) async fn spawn(holds: &Holds, launch: &Launch) -> Result<(), SpawnErr
     started
 }
 
-fn absolute(path: &Path) -> Result<PathBuf, SpawnError> {
+pub(crate) fn absolute(path: &Path) -> Result<PathBuf, SpawnError> {
     std::path::absolute(path).map_err(|source| SpawnError::Io {
         path: path.to_owned(),
         source,
@@ -146,16 +152,20 @@ fn scope_manager(detach: Detach) -> Option<bool> {
     }
 }
 
+/// How to run a holder: `holder` is the program and the arguments before
+/// `flags` and the folder, or `<this program> hold` when it's empty, and
+/// `unit` names its scope when it gets one.
+pub(crate) struct Run<'a> {
+    pub holder: Option<&'a (PathBuf, Vec<OsString>)>,
+    pub flags: &'a [&'a str],
+    pub unit: String,
+    pub detach: Detach,
+}
+
 /// Runs the holder, hands it `pipe`, its key and the secret variables, and
 /// waits for its `ready`.
-async fn start(
-    holds: &Holds,
-    launch: &Launch,
-    detach: Detach,
-    dir: &Path,
-    pipe: Zeroed,
-) -> Result<(), SpawnError> {
-    let (program, mut args) = match &holds.holder {
+pub(crate) async fn start(run: Run<'_>, dir: &Path, pipe: Zeroed) -> Result<(), SpawnError> {
+    let (program, mut args) = match run.holder {
         Some((program, args)) => (program.clone(), args.clone()),
         None => {
             let program = std::env::current_exe().map_err(|source| SpawnError::Start {
@@ -165,8 +175,9 @@ async fn start(
             (program, vec![OsString::from("hold")])
         }
     };
+    args.extend(run.flags.iter().map(OsString::from));
     args.push(dir.as_os_str().to_owned());
-    let (mut command, shown) = match scope_manager(detach) {
+    let (mut command, shown) = match scope_manager(run.detach) {
         Some(user) => {
             let mut command = Command::new("systemd-run");
             if user {
@@ -174,7 +185,7 @@ async fn start(
             }
             command
                 .args(["--scope", "--collect", "--quiet"])
-                .arg(format!("--unit={}", scope::unit_base(launch.session)))
+                .arg(format!("--unit={}", run.unit))
                 .arg("--")
                 .arg(&program);
             (command, PathBuf::from("systemd-run"))
@@ -268,7 +279,7 @@ async fn read_capped(stderr: Option<impl AsyncRead + Unpin>) -> String {
 }
 
 /// Settles [`Detach::Auto`].
-async fn resolve(detach: Detach) -> Result<Detach, SpawnError> {
+pub(crate) async fn resolve(detach: Detach) -> Result<Detach, SpawnError> {
     if detach != Detach::Auto {
         return Ok(detach);
     }

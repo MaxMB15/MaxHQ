@@ -31,7 +31,7 @@ use zeroize::Zeroizing;
 
 use self::api::{Access, Installation, Paced, Reads, Scope};
 pub use self::api::{Api, Fetched, GITHUB_API, GITHUB_LOGIN};
-pub use self::gh::{Gh, TOKEN_STARTS};
+pub use self::gh::Gh;
 pub use self::items::NOT_GITHUB;
 use self::key::AppKey;
 pub use self::user::UserToken;
