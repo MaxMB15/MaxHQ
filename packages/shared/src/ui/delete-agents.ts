@@ -6,7 +6,7 @@
 // for the agents you selected, and the agent to open
 // in place of the one you were looking at.
 
-import { t } from "../i18n";
+import { formatList, t } from "../i18n";
 
 import type { Agent, AgentId } from "../bindings";
 import type { DataSource } from "../data/source";
@@ -25,25 +25,40 @@ export const deletableAgents = (view: ViewState, ids: Iterable<AgentId>): Agent[
 /** What the confirmation asks before deleting these agents, and what it means. */
 export type DeleteQuestion = { readonly title: string; readonly detail: string };
 
-/** The confirmation for deleting these agents, naming the agent when there's one. */
-export const deleteQuestion = (agents: readonly Agent[]): DeleteQuestion =>
-	agents.length === 1
+/**
+ * The confirmation for deleting these agents, naming the agent when there's
+ * one, and the commands still running in their terminals, which stop too.
+ */
+export const deleteQuestion = (
+	agents: readonly Agent[],
+	running: readonly string[] = []
+): DeleteQuestion => {
+	const stops =
+		running.length > 0
+			? ` ${t("Deleting also stops what still runs in a terminal: {{commands}}.", {
+					commands: formatList(running),
+				})}`
+			: "";
+	return agents.length === 1
 		? {
 				title: t('Delete agent "{{agents_0___title}}"?', {
 					agents_0___title: agents[0]!.title,
 				}),
-				detail: t(
-					"MaxHQ stops it and won't show it again. Its folder and its CLI's transcript stay."
-				),
+				detail:
+					t(
+						"MaxHQ stops it and won't show it again. Its folder and its CLI's transcript stay."
+					) + stops,
 			}
 		: {
 				title: t("Delete {{plural_agents_length___agent}}?", {
 					plural_agents_length___agent: plural(agents.length, "agent"),
 				}),
-				detail: t(
-					"MaxHQ stops them and won't show them again. Their folders and their CLIs' transcripts stay."
-				),
+				detail:
+					t(
+						"MaxHQ stops them and won't show them again. Their folders and their CLIs' transcripts stay."
+					) + stops,
 			};
+};
 
 /** How a delete went. */
 export type DeleteOutcome = {

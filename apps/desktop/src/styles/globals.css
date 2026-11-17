@@ -40,6 +40,28 @@
 	--sidebar-border: #222832;
 	--subpanel: #12161c;
 	--terminal: #c9d0da;
+	/* A terminal's own colours: its 16, then its ground, text, cursor and
+	   selection. The drawer's terminals read them as the theme changes. */
+	--terminal-black: #3b4252;
+	--terminal-red: #f0616d;
+	--terminal-green: #3fb37f;
+	--terminal-yellow: #e8c547;
+	--terminal-blue: #4692f6;
+	--terminal-magenta: #a07cf0;
+	--terminal-cyan: #3fc1c9;
+	--terminal-white: #c9d0da;
+	--terminal-bright-black: #5b6472;
+	--terminal-bright-red: #ff8a93;
+	--terminal-bright-green: #8fe3b5;
+	--terminal-bright-yellow: #f5d97a;
+	--terminal-bright-blue: #7fb4ff;
+	--terminal-bright-magenta: #c3a6ff;
+	--terminal-bright-cyan: #7fdfe5;
+	--terminal-bright-white: #f3f6fa;
+	--terminal-background: #12161c;
+	--terminal-foreground: #c9d0da;
+	--terminal-cursor: #c9d0da;
+	--terminal-selection: rgba(70, 146, 246, 0.32);
 	--canvas: #0b0e12;
 	/* Text on a dark wash over a picture, a video or its empty frame. */
 	--media-foreground: #c9d0da;
@@ -197,6 +219,26 @@
 	--sidebar-border: #e0e4ea;
 	--subpanel: #f8f9fb;
 	--terminal: #2c323b;
+	--terminal-black: #2c323b;
+	--terminal-red: #cf222e;
+	--terminal-green: #1a7f4b;
+	--terminal-yellow: #9a6700;
+	--terminal-blue: #0b67d6;
+	--terminal-magenta: #7c4fd6;
+	--terminal-cyan: #0b7189;
+	--terminal-white: #6e7781;
+	--terminal-bright-black: #57606a;
+	--terminal-bright-red: #a40e26;
+	--terminal-bright-green: #116539;
+	--terminal-bright-yellow: #7a5200;
+	--terminal-bright-blue: #0550ae;
+	--terminal-bright-magenta: #6a56cf;
+	--terminal-bright-cyan: #1b7c83;
+	--terminal-bright-white: #8c959f;
+	--terminal-background: #f8f9fb;
+	--terminal-foreground: #2c323b;
+	--terminal-cursor: #2c323b;
+	--terminal-selection: rgba(11, 103, 214, 0.18);
 	--canvas: #e7eaef;
 	--media-foreground: #ffffff;
 	--hover-card: #ffffff;

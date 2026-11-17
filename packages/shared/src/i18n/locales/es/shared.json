@@ -67,6 +67,7 @@
 	"Didn't edit": "No editado",
 	"Deleting": "Eliminando",
 	"Deleted": "Eliminado",
+	"Deleting also stops what still runs in a terminal: {{commands}}.": "Al eliminar también se detiene lo que aún se ejecuta en un terminal: {{commands}}.",
 	"Wants to delete": "Solicita eliminar",
 	"Didn't delete": "No eliminado",
 	"Renaming": "Cambiando nombre",

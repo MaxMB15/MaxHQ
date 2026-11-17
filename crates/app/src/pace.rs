@@ -22,6 +22,8 @@ pub struct Outbox<T> {
     since: Option<Instant>,
     /// When the last batch went out.
     sent: Option<Instant>,
+    /// The shortest time between two batches.
+    gap: Duration,
 }
 
 impl<T> Default for Outbox<T> {
@@ -30,11 +32,21 @@ impl<T> Default for Outbox<T> {
             queued: Vec::new(),
             since: None,
             sent: None,
+            gap: FRAME,
         }
     }
 }
 
 impl<T> Outbox<T> {
+    /// An outbox whose batches go at most one every `gap`, instead of a
+    /// frame.
+    pub fn every(gap: Duration) -> Self {
+        Self {
+            gap,
+            ..Self::default()
+        }
+    }
+
     /// What waits, for a change that came at `now` to join.
     pub fn waiting(&mut self, now: Instant) -> &mut Vec<T> {
         if self.queued.is_empty() {
@@ -54,11 +66,11 @@ impl<T> Outbox<T> {
     }
 
     /// When what waits should go out: at once after a quiet spell, and
-    /// otherwise a frame after the last batch. None when nothing waits.
+    /// otherwise a gap after the last batch. None when nothing waits.
     pub fn due(&self) -> Option<Instant> {
         let since = self.since.filter(|_| !self.queued.is_empty())?;
         Some(match self.sent {
-            Some(sent) => since.max(sent + FRAME),
+            Some(sent) => since.max(sent + self.gap),
             None => since,
         })
     }

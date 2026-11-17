@@ -2,13 +2,15 @@
 // Copyright (c) 2026 Max Boksem
 
 // The terminal calls of the sample data and of tests. In the sample data an
-// open adds a terminal in the agent's folder that runs until you close it,
-// and an interrupt ends a command the way Ctrl-C would. No output comes,
-// since the samples have no process behind them.
+// open adds a terminal in the agent's folder with a made-up shell or
+// command behind it (see `mock-terminal-stream.ts`), and an interrupt sends
+// it Ctrl-C.
 
 import type { AgentId, Terminal, TerminalId } from "../bindings";
 import type { TerminalCalls } from "../terminal/requests";
+import type { TerminalStream } from "../terminal/stream";
 import type { FleetContext } from "./mock-fleet";
+import { mockTerminalStream } from "./mock-terminal-stream";
 import type { ActionResult, CommandResult } from "./source";
 
 const DONE: ActionResult = { status: "ok", data: { status: "done" } };
@@ -40,15 +42,17 @@ export const noTerminals: TerminalCalls = {
 	moveTerminal: async () => refused(NO_TERMINALS),
 };
 
-/** The signal Ctrl-C sends. */
-const SIGINT = 2;
+/** What a device says to a close without force while a command runs. */
+export const STILL_RUNNING = "Still running. Close anyway?";
 
 /** The tab's name until the shell or you set one. */
 const defaultTitle = (terminal: Pick<Terminal, "kind">) =>
 	terminal.kind.type === "shell" ? "zsh" : terminal.kind.command;
 
-/** The terminal calls over the sample entities. */
-export const mockTerminals = (context: FleetContext): TerminalCalls => {
+/** The terminal calls over the sample entities, and their bytes. */
+export const mockTerminals = (
+	context: FleetContext
+): TerminalCalls & { readonly terminalStream: TerminalStream } => {
 	const { now, change } = context;
 	let opened = 0;
 	const find = (id: TerminalId): Terminal | undefined => {
@@ -80,7 +84,13 @@ export const mockTerminals = (context: FleetContext): TerminalCalls => {
 			const terminal = find(id);
 			return terminal ? act(terminal, ...args) : notFound(`terminal ${id}`);
 		};
+	const { start, interrupt, busy, end, named, ...terminalStream } = mockTerminalStream({
+		find,
+		edit,
+		now,
+	});
 	return {
+		terminalStream,
 		openTerminal: async (agent, kind, { cols, rows }) => {
 			const place = placeOf(agent);
 			if (!place) return notFound(`agent ${agent}`);
@@ -100,31 +110,31 @@ export const mockTerminals = (context: FleetContext): TerminalCalls => {
 				rows,
 			};
 			change((base) => [...base, { entity: "terminal", ...terminal }]);
+			start(terminal);
 			return { status: "ok", data: { status: "terminal_opened", terminal: terminal.id } };
 		},
 		attachTerminal: async (id) => (find(id) ? OK : notFound(`terminal ${id}`)),
 		detachTerminal: async () => OK,
-		resizeTerminal: async (id, { cols, rows }) => {
+		resizeTerminal: async (id, size) => {
 			if (!find(id)) return notFound(`terminal ${id}`);
-			edit(id, (terminal) => ({ ...terminal, cols, rows }));
+			terminalStream.resize(id, size);
 			return OK;
 		},
 		interruptTerminal: withTerminal((terminal) => {
 			// A shell takes Ctrl-C and goes on; a command ends.
-			if (terminal.kind.type === "run" && terminal.status.state === "running")
-				edit(terminal.id, (t) => ({
-					...t,
-					status: { state: "exited", code: null, signal: SIGINT },
-				}));
+			if (terminal.status.state === "running") interrupt(terminal.id);
 			return DONE;
 		}),
-		closeTerminal: withTerminal((terminal) => {
+		closeTerminal: withTerminal((terminal, force = false) => {
+			if (!force && busy(terminal.id)) return refused(STILL_RUNNING);
+			end(terminal.id);
 			change((base) =>
 				base.filter((e) => !(e.entity === "terminal" && e.id === terminal.id))
 			);
 			return DONE;
 		}),
 		renameTerminal: withTerminal((terminal, title: string) => {
+			named(terminal.id, title.trim() !== "");
 			edit(terminal.id, (t) => ({ ...t, title: title.trim() || defaultTitle(t) }));
 			return DONE;
 		}),

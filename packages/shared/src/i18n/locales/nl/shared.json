@@ -67,6 +67,7 @@
 	"Didn't edit": "Niet bewerkt",
 	"Deleting": "Verwijderen",
 	"Deleted": "Verwijderd",
+	"Deleting also stops what still runs in a terminal: {{commands}}.": "Verwijderen stopt ook wat nog in een terminal draait: {{commands}}.",
 	"Wants to delete": "Wil verwijderen",
 	"Didn't delete": "Niet verwijderd",
 	"Renaming": "Hernoemen",

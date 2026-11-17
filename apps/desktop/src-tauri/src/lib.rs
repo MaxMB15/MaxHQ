@@ -11,6 +11,7 @@ mod commands;
 mod native;
 mod notify;
 mod terminal;
+mod terminal_stream;
 mod updater;
 
 use std::path::PathBuf;

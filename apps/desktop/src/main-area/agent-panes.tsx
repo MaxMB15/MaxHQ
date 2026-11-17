@@ -54,6 +54,7 @@ import {
 	type PaneParams,
 	type Panes,
 	panesOf,
+	TERMINAL_PANE,
 	VISUAL_PANE,
 	WORKFLOW_PANE,
 } from "@/layout/panes";
@@ -65,6 +66,7 @@ import { useNow } from "@maxhq/shared/lib/clock";
 import { cn } from "@/lib/utils";
 import { useOpenNote } from "@/notes/open";
 import { NotePaneFor } from "@/notes/note-pane";
+import { TerminalIcon, TerminalPaneFor, useTerminalTab } from "@/terminal/terminal-pane";
 import { FilePaneFor } from "@/viewer/file-pane";
 import { VisualPaneFor } from "@/visuals/visual-view";
 import { CanvasPaneFor } from "@/workflow/canvas-pane";
@@ -428,6 +430,38 @@ const VisualPane = ({ api, params }: IDockviewPanelProps<VisualParams>) => {
 	);
 };
 
+type TerminalParams = Extract<PaneParams, { kind: "terminal" }>;
+
+/** A terminal's tab: the terminal icon, its title and a dot while a command runs. */
+const TerminalTab = ({ api, params }: IDockviewPanelHeaderProps<TerminalParams>) => {
+	const { t } = useI18n();
+	const visible = usePanelVisible(api);
+	const { title, running } = useTerminalTab(params.terminal);
+	return (
+		<PaneTab
+			api={api}
+			title={title ?? api.title ?? t("Terminal")}
+			visible={visible}
+			lead={<TerminalIcon />}
+		>
+			{running ? (
+				<span
+					role="img"
+					aria-label={t("Running")}
+					className="size-1.5 shrink-0 rounded-full bg-status-ready"
+				/>
+			) : null}
+		</PaneTab>
+	);
+};
+
+/** What a terminal's pane shows. Closing it puts the terminal back in its drawer. */
+const TerminalPane = ({ params }: IDockviewPanelProps<TerminalParams>) => (
+	<ErrorBoundary part="terminal pane" className="bg-background">
+		<TerminalPaneFor agent={params.agent} terminal={params.terminal} />
+	</ErrorBoundary>
+);
+
 /**
  * What a pane shows: its agent's view, mounted while the pane is open. A
  * sub-agent gone with its session points to where the session went, and
@@ -712,6 +746,7 @@ export const AgentPanes = ({ hidden }: { hidden: boolean }) => {
 					[NOTE_PANE]: NotePane,
 					[FILE_PANE]: FilePane,
 					[VISUAL_PANE]: VisualPane,
+					[TERMINAL_PANE]: TerminalPane,
 				}}
 				tabComponents={{
 					[AGENT_PANE]: AgentTab,
@@ -719,6 +754,7 @@ export const AgentPanes = ({ hidden }: { hidden: boolean }) => {
 					[NOTE_PANE]: NoteTab,
 					[FILE_PANE]: FileTab,
 					[VISUAL_PANE]: VisualTab,
+					[TERMINAL_PANE]: TerminalTab,
 				}}
 				watermarkComponent={NoPane}
 				rightHeaderActionsComponent={GroupActions}

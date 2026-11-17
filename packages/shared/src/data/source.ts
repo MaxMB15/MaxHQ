@@ -119,6 +119,7 @@ import type {
 import { DEPTH } from "../bindings";
 import type { GitItemRef } from "../pills/draft";
 import type { TerminalCalls } from "../terminal/requests";
+import type { TerminalStream } from "../terminal/stream";
 
 export type {
 	AccessKey,
@@ -335,6 +336,8 @@ export type MockControls = {
 export type DataSource = TerminalCalls & {
 	/** Which implementation this is. */
 	readonly kind: "tauri" | "native" | "mock";
+	/** Terminals' bytes both ways, where this source carries them. */
+	readonly terminalStream?: TerminalStream;
 	/** The whole view now. */
 	readonly snapshot: () => Promise<Snapshot>;
 	/** Calls `onDelta` with each change. Subscribe before loading the snapshot. */

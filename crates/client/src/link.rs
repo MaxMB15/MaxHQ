@@ -69,6 +69,7 @@ use crate::proof::{Kind, Pipeline, Prover, Proving, Verdict};
 use crate::requests::Book;
 use crate::ssh_config::{split_hop, SshConfig};
 use crate::tailnet::Tailnet;
+use crate::terminals::Terminals;
 use crate::transfer::{Places, Transfers};
 use crate::transport::{Conn, DialError, Reader, Rest, Transport};
 use crate::LinkEvent;
@@ -238,6 +239,8 @@ pub(crate) struct Control {
     pub pings: Arc<Pings>,
     /// The link's port forwards, shared with the task.
     pub forwards: Arc<Forwards>,
+    /// The terminals the link attached, shared with the task.
+    pub terminals: Arc<Terminals>,
     /// Stops the task when dropped.
     pub guard: DropGuard,
 }
@@ -302,6 +305,7 @@ pub(crate) fn spawn(
     let timing = shared.timing;
     let tunnel = Arc::new(Tunnel::new(timing.reply));
     let forwards = Arc::new(Forwards::new(Arc::clone(&tunnel) as Arc<dyn ForwardLink>));
+    let terminals = Arc::new(Terminals::default());
     let cancel = CancellationToken::new();
     let mut tailnet = shared.tailnet.clone();
     let view = tailnet.borrow_and_update().clone();
@@ -321,6 +325,7 @@ pub(crate) fn spawn(
         pings: Arc::clone(&pings),
         tunnel,
         forwards: Arc::clone(&forwards),
+        terminals: Arc::clone(&terminals),
         cancel: cancel.clone(),
         tailnet,
         tailnet_open: true,
@@ -354,6 +359,7 @@ pub(crate) fn spawn(
         transfers,
         pings,
         forwards,
+        terminals,
         guard: cancel.drop_guard(),
     }
 }
@@ -538,7 +544,12 @@ struct Wire {
 
 impl Wire {
     /// Starts the writer.
-    fn new(conn: Conn, transfers: Arc<Transfers>, forwards: Arc<Forwards>) -> Self {
+    fn new(
+        conn: Conn,
+        transfers: Arc<Transfers>,
+        forwards: Arc<Forwards>,
+        terminals: Arc<Terminals>,
+    ) -> Self {
         let (queue, pending) = mpsc::channel(QUEUE);
         let (tunnel, tunneled) = mpsc::unbounded_channel();
         let (frames, writer) = maxhq_wire::spawn(conn.writer);
@@ -549,6 +560,7 @@ impl Wire {
                 buf: vec![0; READ_CHUNK],
                 transfers,
                 forwards,
+                terminals,
             },
             queue,
             tunnel,
@@ -570,6 +582,8 @@ struct Inbound {
     transfers: Arc<Transfers>,
     /// Where tunnel frames go.
     forwards: Arc<Forwards>,
+    /// Where terminal output goes.
+    terminals: Arc<Terminals>,
 }
 
 impl Inbound {
@@ -589,6 +603,11 @@ impl Inbound {
                     data,
                 })) => self.transfers.chunk(transfer, offset, data),
                 Ok(Some(Frame::TunnelData { stream, data })) => self.forwards.data(stream, data),
+                Ok(Some(Frame::TerminalOutput {
+                    terminal,
+                    offset,
+                    bytes,
+                })) => self.terminals.output(terminal, offset, bytes),
                 Ok(Some(_)) => {}
                 Err(DecodeError::UnknownKind(_) | DecodeError::ShortHeader(_)) => {}
                 Err(err) => return Err(ReadError::Bad(err)),
@@ -833,6 +852,7 @@ struct Task {
     /// The forwards' way onto the connection.
     tunnel: Arc<Tunnel>,
     forwards: Arc<Forwards>,
+    terminals: Arc<Terminals>,
     cancel: CancellationToken,
     tailnet: watch::Receiver<Arc<Tailnet>>,
     /// Whether the watcher is still there to send changes.
@@ -1073,7 +1093,10 @@ impl Task {
         let pages = self.book.pages().await;
         self.book.lock().begin();
         self.outbox.send_replace(Some(wire.queue.clone()));
-        let replay = self.book.lock().replay(resume);
+        let mut replay = self.book.lock().replay(resume);
+        let protocol = *self.protocol.borrow();
+        let terminals = self.terminals.replay().into_iter();
+        replay.extend(terminals.filter(|message| message.reaches(protocol)));
         for message in replay {
             if wire.queue.send(message).await.is_err() {
                 // The writer stopped, which the session sees at once.
@@ -1185,9 +1208,11 @@ impl Task {
             let shared = Arc::clone(&self.shared);
             let transfers = Arc::clone(&self.transfers);
             let forwards = Arc::clone(&self.forwards);
+            let terminals = Arc::clone(&self.terminals);
             let known = self.link.device;
             async move {
-                let reached = try_route(&shared, &route, transfers, forwards, known).await;
+                let reached =
+                    try_route(&shared, &route, transfers, forwards, terminals, known).await;
                 (route, reached)
             }
         };
@@ -1266,6 +1291,7 @@ impl Task {
             conn,
             Arc::clone(&self.transfers),
             Arc::clone(&self.forwards),
+            Arc::clone(&self.terminals),
         );
         let timing = self.shared.timing;
         let hello = tokio::select! {
@@ -1561,10 +1587,11 @@ impl Task {
             | ServerMessage::TunnelClose { .. } => {
                 debug!(link = %self.link.id, "ignored a transfer or tunnel message");
             }
-            // Nothing here asks for a terminal's bytes yet.
-            ServerMessage::TerminalAttached { .. } => {
-                debug!(link = %self.link.id, "ignored a terminal attach");
-            }
+            ServerMessage::TerminalAttached {
+                terminal,
+                from,
+                reset,
+            } => self.terminals.attached(terminal, from, reset),
             ServerMessage::PeerRequest { key, request } => {
                 if self.shared.role == ClientRole::Peer {
                     self.emit(LinkEvent::PeerRequest { key, request }).await;
@@ -1931,10 +1958,11 @@ async fn try_route(
     route: &Route,
     transfers: Arc<Transfers>,
     forwards: Arc<Forwards>,
+    terminals: Arc<Terminals>,
     known: Option<DeviceId>,
 ) -> Result<(Wire, ServerHello), Failure> {
     let conn = shared.transport.dial(route, None).await?;
-    let mut wire = Wire::new(conn, transfers, forwards);
+    let mut wire = Wire::new(conn, transfers, forwards, terminals);
     let hello = tokio::time::timeout(shared.timing.handshake, handshake(&mut wire, shared))
         .await
         .map_err(|_| no_hello(route))??;

@@ -49,6 +49,7 @@ mod tailnet;
 // Only `Client::new`, with the system ssh, starts the watcher.
 #[cfg_attr(not(feature = "system-ssh"), allow(dead_code))]
 mod tailscale;
+mod terminals;
 mod transfer;
 mod transport;
 
@@ -65,13 +66,14 @@ use maxhq_core::paths;
 use maxhq_protocol::agents::{ClientRole, PeerRequest};
 use maxhq_protocol::attention::{AnswerOutcome, AttentionAnswer};
 use maxhq_protocol::context::InlineRef;
+use maxhq_protocol::frame;
 use maxhq_protocol::ids::{
-    AgentId, AttentionId, ClientId, DeviceId, IdempotencyKey, LinkId, PortId, TransferId,
-    WorkspaceId,
+    AgentId, AttentionId, ClientId, DeviceId, IdempotencyKey, LinkId, PortId, TerminalId,
+    TransferId, WorkspaceId,
 };
 use maxhq_protocol::link::{DeviceLink, LinkState, Network, Route, RouteChoice};
 use maxhq_protocol::message::{
-    ActionOutcome, Capabilities, ClientInfo, UploadTarget, SHOW_ANYWAY_SINCE,
+    ActionOutcome, Capabilities, ClientInfo, UploadTarget, SHOW_ANYWAY_SINCE, TERMINALS_SINCE,
 };
 use maxhq_protocol::model::ListeningPort;
 use maxhq_protocol::skills::TreeHash;
@@ -91,6 +93,7 @@ use crate::pinned::PeerDial;
 use crate::pinned::Pins;
 use crate::requests::{Book, Reply};
 use crate::tailnet::Tailnet;
+use crate::terminals::Terminals;
 use crate::transfer::{Item, Places, Transfers};
 use crate::transport::Dialed;
 #[cfg(feature = "system-ssh")]
@@ -104,6 +107,7 @@ pub use crate::tailscale::{
     cli_path as tailscale_cli, funnel_needs as tailscale_funnel_needs, run_cli as run_tailscale,
     CliRun as TailscaleRun, FunnelNeeds as TailscaleFunnelNeeds,
 };
+pub use crate::terminals::TerminalSink;
 pub use crate::transfer::{Copied, TransferError, TransferProgress, TransferState};
 #[cfg(feature = "russh")]
 pub use crate::transport::PhoneSsh;
@@ -541,6 +545,7 @@ impl Client {
             transfers: control.transfers,
             pings: control.pings,
             forwards: control.forwards,
+            terminals: control.terminals,
             reply: self.shared.timing.reply,
             _task: control.guard,
         };
@@ -576,8 +581,7 @@ pub struct LinkHandle {
     /// Where requests go while the link is connected.
     outbox: watch::Receiver<Option<mpsc::Sender<ClientMessage>>>,
     /// The connection's writer while connected, for frames that aren't
-    /// messages, such as a tunnel's data.
-    #[allow(dead_code)]
+    /// messages, such as what you type into a terminal.
     wire: watch::Receiver<Option<maxhq_wire::Sender>>,
     /// Wakes the link's task for a probe.
     refresh: Arc<Notify>,
@@ -594,6 +598,8 @@ pub struct LinkHandle {
     pings: Arc<Pings>,
     /// The link's port forwards, shared with its task.
     forwards: Arc<Forwards>,
+    /// The terminals the link attached, shared with its task.
+    terminals: Arc<Terminals>,
     /// How long an action waits for its result.
     reply: Duration,
     /// Stops the link's task when the handle drops.
@@ -976,6 +982,70 @@ impl LinkHandle {
             Ok(Err(_)) => Err(LinkError::Closed),
             Err(_) => Err(LinkError::TimedOut),
         }
+    }
+
+    /// Attaches a terminal, whose output then goes to `sink`, from byte
+    /// `after` on or from the start of what `maxd` holds. Attaching one
+    /// that's attached already starts its output over from `after`. A link
+    /// that isn't connected attaches it once it connects, and a reconnect
+    /// goes on from where the output got to.
+    pub async fn attach_terminal(
+        &self,
+        terminal: TerminalId,
+        after: Option<u64>,
+        sink: Arc<dyn TerminalSink>,
+    ) -> Result<(), LinkError> {
+        let attach = ClientMessage::TerminalAttach { terminal, after };
+        if !attach.reaches(*self.protocol.borrow()) {
+            return Err(LinkError::TooOld);
+        }
+        self.terminals.attach(terminal, after, sink);
+        match self.post(attach).await {
+            Err(LinkError::Closed) => Err(LinkError::Closed),
+            // The next connect attaches it.
+            _ => Ok(()),
+        }
+    }
+
+    /// Detaches a terminal, so its output stops coming. One that isn't
+    /// attached is left alone.
+    pub async fn detach_terminal(&self, terminal: TerminalId) -> Result<(), LinkError> {
+        if !self.terminals.detach(terminal) {
+            return Ok(());
+        }
+        match self.post(ClientMessage::TerminalDetach { terminal }).await {
+            // A new connection attaches only what's still attached.
+            Err(LinkError::NotConnected | LinkError::TooOld) => Ok(()),
+            result => result,
+        }
+    }
+
+    /// Writes what you typed to a terminal, ahead of file data. Nothing
+    /// keeps it, so with no connection it doesn't go at all.
+    pub async fn terminal_input(
+        &self,
+        terminal: TerminalId,
+        bytes: &[u8],
+    ) -> Result<(), LinkError> {
+        if self
+            .protocol
+            .borrow()
+            .is_some_and(|version| version < TERMINALS_SINCE)
+        {
+            return Err(LinkError::TooOld);
+        }
+        let wire = self.wire.borrow().clone();
+        let Some(wire) = wire else {
+            return Err(self.not_connected());
+        };
+        let mut frames = Vec::new();
+        frame::encode_terminal_input(&mut frames, terminal, bytes);
+        if frames.is_empty() {
+            return Ok(());
+        }
+        wire.send(maxhq_wire::Queue::Control, frames)
+            .await
+            .map_err(|_| LinkError::NotConnected)
     }
 
     /// Queues a message for the connection, if there is one and its

@@ -98,8 +98,8 @@ pub type TimelineChannelName = ChannelName<TimelineMessage>;
 /// `Channel`, and the TypeScript says so, but every open names the same
 /// one and the app keeps only the first open's.
 pub struct ChannelName<M> {
-    id: u32,
-    name: JavaScriptChannelId,
+    pub(crate) id: u32,
+    pub(crate) name: JavaScriptChannelId,
     message: PhantomData<fn() -> M>,
 }
 

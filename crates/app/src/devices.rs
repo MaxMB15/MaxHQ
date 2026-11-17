@@ -41,7 +41,8 @@ use std::time::Duration;
 use maxhq_client::forward::{ForwardError, LocalForward};
 use maxhq_client::media::Media;
 use maxhq_client::{
-    Client, Copied, LinkError, LinkEvent, LinkHandle, LinkSpec, TransferError, TransferProgress,
+    Client, Copied, LinkError, LinkEvent, LinkHandle, LinkSpec, TerminalSink, TransferError,
+    TransferProgress,
 };
 use maxhq_protocol::attention::{AnswerOutcome, AttentionAnswer};
 use maxhq_protocol::context::InlineRef;
@@ -73,6 +74,7 @@ use crate::request::CommandError;
 use crate::restart::{self, Here, Restarter};
 #[cfg(feature = "desktop")]
 use crate::ssh_config::{SshFiles, SshIncludeState};
+use crate::terminals::Terminals;
 use crate::timeline::{Close, Sink, Timelines, PAGE};
 use crate::view::View;
 use crate::workflow::{self, Workflows};
@@ -87,6 +89,7 @@ mod peers;
 #[cfg(feature = "desktop")]
 mod phones;
 mod push;
+mod terminals;
 mod workflows;
 
 #[cfg(feature = "desktop")]
@@ -292,6 +295,28 @@ pub trait LinkControl: Send + Sync + 'static {
 
     /// The forwards open on this link.
     fn forwards(&self) -> Vec<LocalForward>;
+
+    /// Attaches a terminal from byte `after` of its output on, which then
+    /// goes to `sink`. A reconnect attaches it again from where it got to.
+    fn attach_terminal(
+        &self,
+        terminal: TerminalId,
+        after: Option<u64>,
+        sink: Arc<dyn TerminalSink>,
+    ) -> impl Future<Output = Result<(), LinkError>> + Send;
+
+    /// Detaches a terminal, if it's attached.
+    fn detach_terminal(
+        &self,
+        terminal: TerminalId,
+    ) -> impl Future<Output = Result<(), LinkError>> + Send;
+
+    /// Sends what you typed into a terminal. Nothing keeps it.
+    fn terminal_input(
+        &self,
+        terminal: TerminalId,
+        bytes: Vec<u8>,
+    ) -> impl Future<Output = Result<(), LinkError>> + Send;
 }
 
 impl Connector for Client {
@@ -507,6 +532,26 @@ impl LinkControl for LinkHandle {
     fn forwards(&self) -> Vec<LocalForward> {
         LinkHandle::forwards(self)
     }
+
+    fn attach_terminal(
+        &self,
+        terminal: TerminalId,
+        after: Option<u64>,
+        sink: Arc<dyn TerminalSink>,
+    ) -> impl Future<Output = Result<(), LinkError>> + Send {
+        LinkHandle::attach_terminal(self, terminal, after, sink)
+    }
+
+    fn detach_terminal(
+        &self,
+        terminal: TerminalId,
+    ) -> impl Future<Output = Result<(), LinkError>> + Send {
+        LinkHandle::detach_terminal(self, terminal)
+    }
+
+    async fn terminal_input(&self, terminal: TerminalId, bytes: Vec<u8>) -> Result<(), LinkError> {
+        LinkHandle::terminal_input(self, terminal, &bytes).await
+    }
 }
 
 /// Starts the Mac's client on `runtime`, as [`start_client`] does.
@@ -579,6 +624,8 @@ struct Core<L> {
     leads: Mutex<HashMap<AgentId, AgentId>>,
     /// Every window's workflow channel.
     workflows: Workflows,
+    /// Every window's terminal channel.
+    terminals: Terminals,
     /// Held from changing which timelines and runs a link should have open
     /// until
     /// the link has the change, so the links get the changes in the order
@@ -690,6 +737,7 @@ impl<C: Connector> Devices<C> {
                 timelines: Timelines::start(),
                 leads: Mutex::default(),
                 workflows: Workflows::default(),
+                terminals: Terminals::start(),
                 order: tokio::sync::Mutex::new(()),
                 runtime: runtime.clone(),
                 #[cfg(feature = "desktop")]
@@ -1372,17 +1420,19 @@ impl<C: Connector> Devices<C> {
     }
 
     /// Lets go of a window that closed or reloaded, and of every timeline
-    /// it watched, and of every workflow run. The window lets go at once,
-    /// and the timelines no window
-    /// watches now close on their links in the background.
+    /// it watched, every workflow run and every terminal. The window lets
+    /// go at once, and the timelines no window watches now close on their
+    /// links in the background.
     pub fn release_window(&self, window: &str) -> JoinHandle<()> {
         let closes = self.core.timelines.release(window);
         let runs = self.core.workflows.release(window);
+        let terminals = self.core.terminals.release(window);
         let core = Arc::clone(&self.core);
         self.core.runtime.spawn(async move {
             let _order = core.order.lock().await;
             core.close_all(closes).await;
             core.close_runs(runs).await;
+            core.detach_terminals(terminals).await;
         })
     }
 
@@ -2884,6 +2934,11 @@ pub(crate) mod tests {
         Cancel(TransferId),
         OpenForward(PortId),
         CloseForward(PortId),
+        /// A terminal attached from where it says.
+        AttachTerminal(TerminalId, Option<u64>),
+        DetachTerminal(TerminalId),
+        /// Input to a terminal, by its length alone.
+        TerminalInput(TerminalId, usize),
     }
 
     /// Everything the fake connector and its links saw.
@@ -2898,7 +2953,7 @@ pub(crate) mod tests {
         /// Links whose devices never send a result.
         silent: BTreeSet<LinkId>,
         /// Links whose devices' `maxd` is too old for every request.
-        old: BTreeSet<LinkId>,
+        pub(crate) old: BTreeSet<LinkId>,
         /// Links whose devices run the oldest `maxd` this app still talks
         /// to, which refuses only the requests newer than that.
         pub(crate) oldest: BTreeSet<LinkId>,
@@ -2910,6 +2965,8 @@ pub(crate) mod tests {
         /// before the answer comes back.
         drops: BTreeSet<AgentId>,
         pub(crate) calls: Vec<(LinkId, Call)>,
+        /// The sink each terminal was last attached with.
+        pub(crate) terminal_sinks: BTreeMap<TerminalId, Arc<dyn TerminalSink>>,
         pub(crate) closed: Vec<LinkId>,
         networks: Option<Box<dyn Fn(Vec<Network>) + Send + Sync>>,
         /// Holds each open back until it gets a permit, when set.
@@ -3531,6 +3588,45 @@ pub(crate) mod tests {
         fn forwards(&self) -> Vec<LocalForward> {
             let record = self.record.lock().unwrap();
             record.forwards.get(&self.id).cloned().unwrap_or_default()
+        }
+
+        fn attach_terminal(
+            &self,
+            terminal: TerminalId,
+            after: Option<u64>,
+            sink: Arc<dyn TerminalSink>,
+        ) -> impl Future<Output = Result<(), LinkError>> + Send {
+            let mut record = self.record.lock().unwrap();
+            let result = record.take(self.id, Call::AttachTerminal(terminal, after));
+            if !matches!(result, Err(LinkError::TooOld)) {
+                record.terminal_sinks.insert(terminal, sink);
+            }
+            async move { result }
+        }
+
+        fn detach_terminal(
+            &self,
+            terminal: TerminalId,
+        ) -> impl Future<Output = Result<(), LinkError>> + Send {
+            let result = self
+                .record
+                .lock()
+                .unwrap()
+                .take(self.id, Call::DetachTerminal(terminal));
+            async move { result }
+        }
+
+        fn terminal_input(
+            &self,
+            terminal: TerminalId,
+            bytes: Vec<u8>,
+        ) -> impl Future<Output = Result<(), LinkError>> + Send {
+            let result = self
+                .record
+                .lock()
+                .unwrap()
+                .take(self.id, Call::TerminalInput(terminal, bytes.len()));
+            async move { result }
         }
     }
 

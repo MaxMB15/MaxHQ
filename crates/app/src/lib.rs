@@ -44,6 +44,7 @@ pub mod skills;
 #[cfg(feature = "desktop")]
 pub mod ssh_config;
 pub mod tasks;
+pub mod terminals;
 pub mod timeline;
 pub mod transfers;
 pub mod view;
@@ -57,7 +58,7 @@ use std::pin::Pin;
 use std::sync::Arc;
 
 use maxhq_client::Client;
-use maxhq_protocol::ids::AgentId;
+use maxhq_protocol::ids::{AgentId, TerminalId};
 use maxhq_protocol::workflow::RunKey;
 
 use crate::devices::{Connector, Devices};
@@ -65,6 +66,7 @@ use crate::devices::{Connector, Devices};
 use crate::editors::{Installed, Places};
 use crate::offered::Offered;
 use crate::request::CommandError;
+use crate::terminals::RecordSink;
 use crate::timeline::Sink;
 use crate::view::View;
 use crate::workflow::WorkflowMessage;
@@ -167,8 +169,39 @@ impl<C: Connector> App<C> {
         self.devices.open_workflow(window, sink, run).await
     }
 
-    /// Lets go of the timelines and runs a window watched, once its page
-    /// starts loading a new one. What the new page opens comes after.
+    /// Attaches a terminal to a window from byte `after` of its output on.
+    /// The output comes to `sink`, the window's one terminal channel, as
+    /// records under the number this gives. Each attach needs a detach,
+    /// though a window that reloads or closes lets go of all its attaches.
+    pub async fn attach_terminal(
+        &self,
+        window: &str,
+        sink: Arc<RecordSink>,
+        terminal: TerminalId,
+        after: Option<u64>,
+    ) -> Result<u32, CommandError> {
+        self.devices
+            .attach_terminal(window, sink, terminal, after)
+            .await
+    }
+
+    /// Takes back a window's attach of a terminal.
+    pub async fn detach_terminal(&self, window: &str, terminal: TerminalId) {
+        self.devices.detach_terminal(window, terminal).await;
+    }
+
+    /// Sends what you typed into a terminal. Nothing keeps it.
+    pub async fn terminal_input(
+        &self,
+        terminal: TerminalId,
+        bytes: Vec<u8>,
+    ) -> Result<(), CommandError> {
+        self.devices.terminal_input(terminal, bytes).await
+    }
+
+    /// Lets go of the timelines, runs and terminals a window watched, once
+    /// its page starts loading a new one. What the new page opens comes
+    /// after.
     pub fn release_window(&self, window: &str) {
         drop(self.devices.release_window(window));
     }
