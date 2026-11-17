@@ -34,6 +34,18 @@ export const PILL_NAMES: ReadonlySet<string> = new Set(Object.values(PILL_NODES)
 export const isPill = (node: ProseNode | null | undefined): node is ProseNode =>
 	node != null && PILL_NAMES.has(node.type.name);
 
+/**
+ * Whether `pos` is on the first line with only pills and spaces before it,
+ * so a `!` there still starts a command, such as after the output pill of
+ * the one you just ran.
+ */
+export const onlyPillsBefore = (doc: ProseNode, pos: number): boolean => {
+	const at = doc.resolve(pos);
+	if (at.depth !== 1 || at.index(0) !== 0) return false;
+	// Pills are leaves, which read as nothing here.
+	return at.parent.textBetween(0, at.parentOffset, "", () => "").trim() === "";
+};
+
 /** The pill a node holds, or null for any other node. */
 export const pillOf = (node: ProseNode): PlacedPill | null => {
 	switch (node.type.name) {

@@ -300,6 +300,41 @@ describe("running a command", () => {
 		expect(source.sendInput).not.toHaveBeenCalled();
 	});
 
+	it("starts the next command on ! after the last one's pill, and keeps the pill", async () => {
+		renderShell();
+		const textbox = await findTextbox();
+		bang(textbox);
+		typeCommand(await commandField(), "pnpm test");
+		fireEvent.click(screen.getByRole("button", { name: "Run" }));
+		await waitFor(() => expect(pillsIn(textbox)).toEqual(["Output of pnpm test, running"]));
+		act(() => {
+			editorOf(textbox).commands.focus("end");
+		});
+
+		bang(textbox);
+
+		expect((await commandField()).value).toBe("");
+		expect(pillsIn(textbox)).toEqual(["Output of pnpm test, running"]);
+	});
+
+	it("leaves a ! after text and a pill alone", async () => {
+		renderShell();
+		const textbox = await findTextbox();
+		await type(textbox, "Why did ");
+		act(() => putCommand(AGENT, "pnpm test", false));
+		const field = await commandField();
+		fireEvent.keyDown(field, { key: "Enter" });
+		await waitFor(() => expect(pillsIn(textbox)).toEqual(["Output of pnpm test, running"]));
+		act(() => {
+			editorOf(textbox).commands.focus("end");
+		});
+
+		bang(textbox);
+
+		await act(async () => {});
+		expect(screen.queryByRole("textbox", { name: "Command to run" })).toBeNull();
+	});
+
 	it("runs on Enter, and a private command leaves no pill", async () => {
 		const { openTerminal } = renderShell();
 		const textbox = await findTextbox();

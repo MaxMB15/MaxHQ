@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026 Max Boksem
 
-// Shell mode: a `!` typed at the very start of the composer turns it into a
-// Shell tag, the text goes monospace and Send becomes Run. A second `!`
+// Shell mode: a `!` typed at the very start of the composer, or after only
+// pills such as the last command's output, turns it into a Shell tag, the
+// text goes monospace and Send becomes Run. A second `!`
 // makes it Private, whose output the agent sees only once you attach it.
 // Backspace on the tag steps back, and the command goes back in the box as
 // text. ↑ and ↓ walk the commands you ran in this agent's timeline.
@@ -90,7 +91,7 @@ export type ShellModeProps = {
 /** What the composer draws for shell mode. */
 export type ShellModeParts = {
 	readonly mode: ShellMode;
-	/** For the text box's `!` at the very start, while the device has terminals. */
+	/** For the text box's `!` at the start or after only pills, while the device has terminals. */
 	readonly onBang: (() => boolean) | undefined;
 	/** The tag, the command and the hint, in shell mode. */
 	readonly field: ReactNode;
