@@ -85,7 +85,9 @@ export const useFeedFind = (
 		listRef.current?.scrollToIndex({ index, viewPosition: 0.3 });
 	}, [goal, rows, listRef, atEndRef]);
 
-	return { find, goal: feed.goal, onViewableItemsChanged };
+	// Your prompts marks the prompt nearest the same row.
+	const topRow = useCallback(() => seen.current.top, []);
+	return { find, goal: feed.goal, onViewableItemsChanged, topRow };
 };
 
 /** The search button in an agent's header. */

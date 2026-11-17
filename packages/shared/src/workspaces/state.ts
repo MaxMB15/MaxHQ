@@ -104,6 +104,41 @@ export const cloneLabel = (clone: CloneState | null): string | null => {
 	}
 };
 
+/** What a clone's banner says: its state, and what you can do about it. */
+export const cloneWording = (clone: CloneState): { title: string; body: string } => {
+	switch (clone.state) {
+		case "cloning":
+			return clone.stalled
+				? {
+						title: t("Clone stalled{{value1}}", {
+							value1:
+								clone.percent === null
+									? ""
+									: t(" at {{percent}}%", { percent: clone.percent }),
+						}),
+						body: t(
+							"git has said nothing for a while. A slow link can do that, or you can cancel it."
+						),
+					}
+				: {
+						title: cloneLabel(clone) ?? t("Cloning"),
+						body: t("Agents can start in this folder once git is done."),
+					};
+		case "failed":
+			return {
+				title: t("Clone failed"),
+				body: t("{{reason}}. Retry runs it again, and Remove forgets the folder.", {
+					reason: sentence(clone.reason),
+				}),
+			};
+		case "cancelled":
+			return {
+				title: t("Clone cancelled"),
+				body: t("Retry runs it again, and Remove forgets the folder."),
+			};
+	}
+};
+
 type Made = {
 	readonly managed: ManagedWorkspace;
 	readonly location: Extract<Workspace["location"], { type: "container" }>;

@@ -13,6 +13,7 @@ import { applySnapshot } from "@maxhq/shared/view/replica";
 import { createViewStore } from "@maxhq/shared/view/store";
 
 import {
+	copyOutSheet,
 	createRenameDialog,
 	effortPick,
 	MORE_LABEL,
@@ -143,19 +144,74 @@ describe("the More sheet", () => {
 		expect(pick.current).toBe("medium");
 	});
 
-	it("offers the controls of an agent MaxHQ holds, and Find and Rename for one it watches", () => {
+	it("offers the controls of an agent MaxHQ holds, and what reads for one it watches", () => {
 		const { view, agent: target } = controls();
 		expect(moreChoices(view, target).map((c) => MORE_LABEL[c])).toEqual([
 			"Find",
+			"Your prompts",
 			"Rename",
 			"Permission",
 			"Model",
 			"Link a pull request",
+			"Ports and processes",
+			"Copy and export…",
+			"Move to…",
 			"Stop agent",
 			"Delete agent",
 		]);
 		const watched = controls({ control: "observed", permission: null, session: null });
-		expect(moreChoices(watched.view, watched.agent)).toEqual(["find", "rename", "link"]);
+		expect(moreChoices(watched.view, watched.agent)).toEqual([
+			"find",
+			"prompts",
+			"rename",
+			"link",
+			"running",
+			"copyOut",
+		]);
+	});
+
+	it("offers Allowed to run agents only while it holds a permission", () => {
+		const { view, agent: target } = controls();
+		expect(moreChoices(view, target)).not.toContain("allowed");
+		expect(moreChoices(view, target, true)).toContain("allowed");
+	});
+
+	it("offers Sub-agents for a lead that has some, and no Move for one that moved", () => {
+		const { view, agent: target } = controls();
+		const lead = applySnapshot({
+			seq: 1,
+			entities: entities({
+				agents: [target, agent({ id: "sub", parent: target.id, control: "held" })],
+				workspaces: [workspace({ id: "w1" })],
+			}),
+		});
+		expect(moreChoices(lead, target)).toContain("subAgents");
+		const moved = {
+			...target,
+			moved: { to: { device: "devbox", agent: "h2" }, from: null },
+		} as Agent;
+		expect(moreChoices(view, moved)).not.toContain("move");
+	});
+
+	it("copies the session ID when the CLI gave one, then exports or copies the conversation", () => {
+		const picked: string[] = [];
+		const sheet = copyOutSheet({ ...held, vendor_session_id: "abc-123" }, (what) =>
+			picked.push(what)
+		);
+		expect(sheet.message).toBe("abc-123");
+		expect(sheet.choices.map((c) => c.label)).toEqual([
+			"Copy session ID",
+			"Export as Markdown…",
+			"Copy as Markdown",
+		]);
+		for (const choice of sheet.choices) choice.pick();
+		expect(picked).toEqual(["session", "file", "copy"]);
+		const none = copyOutSheet({ ...held, vendor_session_id: null }, () => {});
+		expect(none.message).toBeUndefined();
+		expect(none.choices.map((c) => c.label)).toEqual([
+			"Export as Markdown…",
+			"Copy as Markdown",
+		]);
 	});
 
 	it("offers Link a pull request only while no PR shows on the agent", () => {
@@ -171,10 +227,14 @@ describe("the More sheet", () => {
 		});
 		expect(moreChoices(view, target)).toEqual([
 			"find",
+			"prompts",
 			"rename",
 			"permission",
 			"model",
 			"link",
+			"running",
+			"copyOut",
+			"move",
 			"delete",
 		]);
 	});

@@ -76,6 +76,7 @@ import { RenameDialog } from "../agent/RenameDialog";
 import { renamesOf } from "../agent/renames";
 import { reachSummary } from "../devices/summary";
 import { Dispatcher } from "../dispatcher/Dispatcher";
+import { NewAgentPlus, newAgentAction } from "../new-agent/NewAgentPlus";
 import { openNewNote } from "../notes/NotesScreen";
 import { UpdateBanners } from "../updates/UpdateBanners";
 import { UsageButton } from "../usage/UsageButton";
@@ -345,6 +346,7 @@ export const InboxScreen = ({ navigation }: ScreenProps<"Inbox">) => {
 									: item.name
 							}
 							onPress={() => setClosed((set) => toggle(set, item.key.slice(2)))}
+							{...newAgentAction(navigation, item.name, project?.id ?? null)}
 							hitSlop={slop(GROUP)}
 							style={styles.group}
 						>
@@ -359,6 +361,7 @@ export const InboxScreen = ({ navigation }: ScreenProps<"Inbox">) => {
 								<Text style={styles.groupCount}>{formatNumber(item.count)}</Text>
 							) : null}
 						</Pressable>
+						{project ? <NewAgentPlus name={item.name} project={project.id} /> : null}
 						{project ? (
 							<IconButton
 								label={t("More for {{name}}", { name: item.name })}
@@ -528,6 +531,10 @@ export const InboxScreen = ({ navigation }: ScreenProps<"Inbox">) => {
 								label={t("More")}
 								onPress={() =>
 									choose(t("More"), [
+										{
+											label: t("New agent"),
+											pick: () => navigation.navigate("NewAgent"),
+										},
 										{
 											label: t("Pull requests"),
 											pick: () => navigation.navigate("Pulls"),

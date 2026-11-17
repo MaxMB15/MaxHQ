@@ -61,6 +61,16 @@ export type Screens = {
 	DeviceSettings: { readonly device: DeviceId };
 	/** A project's settings on each device it's on. */
 	ProjectSettings: { readonly project: ProjectId };
+	/** An agent's details: its context window, branch, who started it, and what it may run. */
+	AgentInfo: { readonly agent: AgentId };
+	/** The form that moves an agent to another device. */
+	MoveAgent: { readonly agent: AgentId };
+	/** The ports an agent's workspace listens on and the processes it left running. */
+	Running: { readonly agent: AgentId };
+	/** A lead agent's sub-agents and its context window. */
+	SubAgents: { readonly agent: AgentId };
+	/** The form that starts an agent, in `project` when one is given. */
+	NewAgent: { readonly project?: ProjectId } | undefined;
 };
 
 /**
@@ -69,6 +79,10 @@ export type Screens = {
  * and only swaps its params, and its draft goes with it.
  */
 export const agentScreenId = ({ params }: { readonly params: Screens["Agent"] }): string =>
+	params.agent;
+
+/** The ID of a screen about one agent, so each agent gets its own. */
+export const agentPageId = ({ params }: { readonly params: { readonly agent: AgentId } }): string =>
 	params.agent;
 
 /** The Note screen's ID, so each note gets its own entry in the stack, with its own saving. */
