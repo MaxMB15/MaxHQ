@@ -35,7 +35,7 @@ use maxhq_protocol::terminal::{Terminal, TerminalKind, TerminalStatus};
 use maxhq_protocol::time::Timestamp;
 use maxhq_wire::{Queue, Sender};
 use serde::{Deserialize, Serialize};
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, watch};
 use tokio::task::AbortHandle;
 use tracing::{debug, warn};
 
@@ -55,6 +55,10 @@ pub const UNREACHABLE: &str = "Couldn't reach the terminal. Try again in a momen
 /// How long a terminal that's closed, or whose agent ended, has after its
 /// hangup before it's killed.
 const HANGUP_GRACE: Duration = Duration::from_secs(2);
+
+/// How long a request waits at most for the terminals a previous `maxd`
+/// left to come back.
+const RESTORE_WAIT: Duration = Duration::from_secs(5);
 
 /// Why a request that isn't an action, such as an attach or a keystroke,
 /// didn't go through. The connection gets it as an error.
@@ -333,11 +337,14 @@ struct Inner {
     device: DeviceId,
     open: Mutex<HashMap<TerminalId, Open>>,
     notes: mpsc::UnboundedSender<RunNote>,
+    /// False while the terminals a previous `maxd` left come back.
+    restored: watch::Sender<bool>,
 }
 
 impl Terminals {
     /// Terminals in `holds`'s folders, published on `hub`. Call
-    /// [`Terminals::restore`] once the session manager runs.
+    /// [`Terminals::restoring`] before the server takes connections, and
+    /// run what it returns once the session manager runs.
     pub fn wire(holds: maxhq_hold::Terminals, hub: Hub) -> Wiring {
         let (notes, notes_rx) = mpsc::unbounded_channel();
         let terminals = Self {
@@ -347,6 +354,7 @@ impl Terminals {
                 hub,
                 open: Mutex::new(HashMap::new()),
                 notes,
+                restored: watch::Sender::new(true),
             }),
         };
         Wiring {
@@ -378,9 +386,29 @@ impl Terminals {
         }
     }
 
+    /// What publishes again the terminals a previous `maxd` left. From
+    /// this call until it ends, [`Terminals::restored`] waits, so a client
+    /// that reconnects as soon as the socket opens still finds the
+    /// terminals it had.
+    pub fn restoring(&self) -> impl Future<Output = ()> + Send + 'static {
+        self.inner.restored.send_replace(false);
+        let terminals = self.clone();
+        async move {
+            terminals.restore().await;
+            terminals.inner.restored.send_replace(true);
+        }
+    }
+
+    /// Waits until the terminals a previous `maxd` left are back, or
+    /// [`RESTORE_WAIT`] at most.
+    pub async fn restored(&self) {
+        let mut restored = self.inner.restored.subscribe();
+        let _ = tokio::time::timeout(RESTORE_WAIT, restored.wait_for(|done| *done)).await;
+    }
+
     /// Publishes again the terminals a previous `maxd` left running, and
     /// tells the manager about the runs that ended while none ran.
-    pub async fn restore(&self) {
+    async fn restore(&self) {
         let terminals = match self.inner.holds.list() {
             Ok(terminals) => terminals,
             Err(err) => {

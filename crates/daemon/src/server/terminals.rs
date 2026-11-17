@@ -42,17 +42,20 @@ impl Connection {
         }
     }
 
-    /// The terminals and who asks, or the refusal.
-    fn terminals(&self) -> Result<(Terminals, Caller, u64), &'static str> {
+    /// The terminals and who asks, or the refusal. Waits while the
+    /// terminals a previous `maxd` left come back, so a request from a
+    /// client that reconnected at once finds its terminal.
+    async fn terminals(&self) -> Result<(Terminals, Caller, u64), &'static str> {
         let caller = self.terminal_caller().ok_or(NOT_FOR_TERMINALS)?;
         let terminals = self.sessions.terminals().ok_or(NO_TERMINALS)?.clone();
         let conn = self.client.as_ref().ok_or(NOT_FOR_TERMINALS)?.conn();
+        terminals.restored().await;
         Ok((terminals, caller, conn))
     }
 
     /// Answers a terminal request.
     pub(super) async fn terminal(&mut self, message: ClientMessage) -> Result<(), ConnError> {
-        let (terminals, caller, conn) = match self.terminals() {
+        let (terminals, caller, conn) = match self.terminals().await {
             Ok(found) => found,
             Err(reason) => return self.refuse(&message, ErrorCode::NotAllowed, reason).await,
         };
@@ -121,7 +124,7 @@ impl Connection {
         terminal: TerminalId,
         data: Vec<u8>,
     ) -> Result<(), ConnError> {
-        let (terminals, caller, conn) = match self.terminals() {
+        let (terminals, caller, conn) = match self.terminals().await {
             Ok(found) => found,
             Err(reason) => {
                 debug!(%terminal, "refused a terminal's input");

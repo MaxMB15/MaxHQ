@@ -98,6 +98,27 @@ async fn a_request_for_a_terminal_nobody_holds_says_so() {
 }
 
 #[tokio::test]
+async fn requests_wait_while_the_terminals_a_previous_maxd_left_come_back() {
+    let f = fixture();
+    // With no return under way, nothing waits.
+    timeout(Duration::from_secs(1), f.terminals.restored())
+        .await
+        .expect("a wait with no return under way");
+    let restore = f.terminals.restoring();
+    let waiting = tokio::spawn({
+        let terminals = f.terminals.clone();
+        async move { terminals.restored().await }
+    });
+    tokio::time::sleep(Duration::from_millis(50)).await;
+    assert!(!waiting.is_finished(), "a request went ahead of the return");
+    restore.await;
+    timeout(Duration::from_secs(1), waiting)
+        .await
+        .expect("the request waited on after the return")
+        .unwrap();
+}
+
+#[tokio::test]
 async fn a_phone_types_only_into_its_own_runs_until_its_switch_is_on() {
     let mut f = fixture();
     let agent = AgentId::derive("a");

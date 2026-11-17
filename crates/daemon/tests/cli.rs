@@ -11,18 +11,22 @@ use std::io::{self, Read, Write};
 use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Output, Stdio};
+use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 
+use futures::future::BoxFuture;
 use maxhq_app::merge::Merge;
-use maxhq_client::{LinkEvent, LinkSpec};
+use maxhq_client::pinned::{PeerDial, PeerStream};
+use maxhq_client::proof::{Prover, Proving, Verdict};
+use maxhq_client::{LinkEvent, LinkSpec, TerminalSink, Transport};
 use maxhq_core::prove::{self, Challenge, Kind, Statement};
 use maxhq_hold::{Detach, Dirs, Event, Framing, Holds, Launch, TermLaunch, WriteOutcome};
 use maxhq_protocol::agents::ClientRole;
 use maxhq_protocol::frame::{self, Frame, FrameDecoder};
 use maxhq_protocol::ids::{AgentId, ClientId, IdempotencyKey, LinkId, SessionId, TerminalId};
 use maxhq_protocol::link::{DeviceLink, LinkState, Route};
-use maxhq_protocol::message::{ActionOutcome, ClientHello, ClientInfo, ErrorCode, ServerHello};
+use maxhq_protocol::message::{ActionOutcome, ClientHello, ClientInfo, ServerHello};
 use maxhq_protocol::model::Device;
 use maxhq_protocol::state::{Entity, EntityKey, Replica};
 use maxhq_protocol::terminal::{TerminalKind, TerminalStatus};
@@ -215,27 +219,20 @@ impl<R: Read, W: Write> Client<R, W> {
     }
 
     /// Attaches to `terminal` after the byte at `after`, and returns where
-    /// its output starts. A `maxd` that just started publishes the
-    /// terminals it finds a moment later, so it asks until one does.
+    /// its output starts. A `maxd` that just started holds the attach until
+    /// the terminals the last one left are back, so it asks only once.
     fn attach(&mut self, terminal: TerminalId, after: Option<u64>) -> u64 {
-        let start = Instant::now();
-        loop {
-            self.send(&ClientMessage::TerminalAttach { terminal, after });
-            match self.answer() {
-                ServerMessage::TerminalAttached {
-                    terminal: got,
-                    from,
-                    reset,
-                } if got == terminal => {
-                    assert!(!reset, "an attach after {after:?} started over");
-                    return from;
-                }
-                ServerMessage::Error {
-                    code: ErrorCode::BadMessage,
-                    ..
-                } if start.elapsed() < WAIT => thread::sleep(Duration::from_millis(50)),
-                other => panic!("expected the attach, got {other:?}"),
+        self.send(&ClientMessage::TerminalAttach { terminal, after });
+        match self.answer() {
+            ServerMessage::TerminalAttached {
+                terminal: got,
+                from,
+                reset,
+            } if got == terminal => {
+                assert!(!reset, "an attach after {after:?} started over");
+                from
             }
+            other => panic!("expected the attach, got {other:?}"),
         }
     }
 
@@ -824,10 +821,85 @@ fn hold_terminal(
 
 /// Waits until `done`, or fails saying `what` never happened.
 fn wait_for(what: &str, done: impl Fn() -> bool) {
+    wait_up_to(WAIT, what, done);
+}
+
+/// Waits `limit` at most until `done`, or fails saying `what` never
+/// happened.
+fn wait_up_to(limit: Duration, what: &str, done: impl Fn() -> bool) {
     let start = Instant::now();
     while !done() {
-        assert!(start.elapsed() < WAIT, "{what} never happened");
+        assert!(start.elapsed() < limit, "{what} never happened");
         thread::sleep(Duration::from_millis(20));
+    }
+}
+
+/// Dials the world's socket for an app link, in place of SSH.
+struct Dial(PathBuf);
+
+impl PeerDial for Dial {
+    fn dial(&self, _host: &str) -> BoxFuture<'static, io::Result<PeerStream>> {
+        let socket = self.0.clone();
+        Box::pin(async move {
+            let stream = tokio::net::UnixStream::connect(socket).await?;
+            let (reader, writer) = stream.into_split();
+            let stream: PeerStream = (Box::new(reader), Box::new(writer));
+            Ok(stream)
+        })
+    }
+}
+
+/// Proves an app link with the test key, asking a device that doesn't
+/// know it yet to trust it, as the app does.
+struct AppKey;
+
+impl Prover for AppKey {
+    fn kind(&self) -> Kind {
+        Kind::App
+    }
+
+    fn prove(&self, proving: Proving) -> BoxFuture<'static, Verdict> {
+        Box::pin(async move {
+            let outcome = match proving.prove(&APP_SEED, false).await {
+                Ok(ActionOutcome::Refused { .. }) => proving.enroll("MaxHQ").await,
+                outcome => outcome,
+            };
+            match outcome {
+                Ok(ActionOutcome::Done) => Verdict::Proven,
+                Ok(other) => Verdict::Refused(format!("{other:?}")),
+                Err(_) => Verdict::Lost,
+            }
+        })
+    }
+}
+
+/// Where an app link hands a terminal's output: the text, and each place
+/// it had a gap, repeated or started over. A panic here would only end
+/// the link's task, so the test reads them after.
+#[derive(Default)]
+struct Screen(Mutex<(Vec<u8>, Vec<String>)>);
+
+impl Screen {
+    fn shows(&self, text: &str) -> bool {
+        has(&self.0.lock().unwrap().0, text.as_bytes())
+    }
+}
+
+impl TerminalSink for Screen {
+    fn output(&self, _terminal: TerminalId, offset: u64, bytes: &[u8]) {
+        let mut screen = self.0.lock().unwrap();
+        let next = u64::try_from(screen.0.len()).unwrap();
+        if offset != next {
+            screen
+                .1
+                .push(format!("{} bytes at {offset}, after {next}", bytes.len()));
+        }
+        screen.0.extend_from_slice(bytes);
+    }
+
+    fn reset(&self, _terminal: TerminalId, from: u64) {
+        let mut screen = self.0.lock().unwrap();
+        screen.1.push(format!("started over at {from}"));
     }
 }
 
@@ -884,6 +956,71 @@ fn a_terminal_outlives_its_maxd_and_goes_on_from_the_last_byte_a_client_has() {
         force: true,
     };
     assert_eq!(client.act(close), ActionOutcome::Done);
+    wait_for("the closed terminal's folder going", || !held.0.exists());
+}
+
+/// The app's own link, not this file's client: it notes where a
+/// terminal's output got to, and its reconnect attaches again from there.
+#[test]
+fn the_app_s_link_goes_on_after_the_last_byte_it_showed_when_maxd_comes_back() {
+    let world = World::new();
+    let script = "i=0; for burst in 1 2; do end=$((burst * 40)); \
+                  while [ $i -lt $end ]; do echo line $i; i=$((i+1)); done; \
+                  : > wrote$burst; while [ ! -e go$burst ]; do sleep 0.05; done; done; \
+                  exec sleep 600";
+    let (terminal, held) = hold_terminal(&world, TerminalKind::Shell, false, script);
+    let runtime = tokio::runtime::Builder::new_multi_thread()
+        .worker_threads(2)
+        .enable_all()
+        .build()
+        .unwrap();
+    let _inside = runtime.enter();
+
+    let maxd = world.start();
+    let app = maxhq_client::Client::app(Transport::Streams(Arc::new(Dial(world.socket()))))
+        .proving(Arc::new(AppKey));
+    let (link, mut events) = app.link(LinkSpec {
+        id: LinkId::derive("real"),
+        name: "real".into(),
+        route: Route::Ssh {
+            host: "real".into(),
+        },
+        fallbacks: Vec::new(),
+        last_good: BTreeMap::new(),
+    });
+    runtime.spawn(async move { while events.recv().await.is_some() {} });
+    let screen = Arc::new(Screen::default());
+    let sink: Arc<dyn TerminalSink> = screen.clone();
+    runtime
+        .block_on(link.attach_terminal(terminal, None, sink))
+        .unwrap();
+    wait_up_to(WAIT * 3, "the first burst", || screen.shows("line 39\r\n"));
+
+    // The shell writes on while no maxd runs. The link tries again a
+    // second or more after it lost the connection, then up to three
+    // times as long as the last try each time.
+    maxd.crash();
+    fs::write(world.0.join("go1"), "").unwrap();
+    wait_for("burst 2", || world.0.join("wrote2").exists());
+    let _maxd = world.start();
+    wait_up_to(WAIT * 6, "the second burst", || screen.shows("line 79\r\n"));
+
+    let (text, wrong) = screen.0.lock().unwrap().clone();
+    assert_eq!(wrong, Vec::<String>::new());
+    let text = String::from_utf8(text).unwrap();
+    let lines: Vec<&str> = text.split_terminator("\r\n").collect();
+    let all: Vec<String> = (0..80).map(|i| format!("line {i}")).collect();
+    assert_eq!(lines, all);
+
+    let close = ClientMessage::TerminalClose {
+        key: IdempotencyKey::generate(),
+        terminal,
+        force: true,
+    };
+    assert_eq!(
+        runtime.block_on(link.act(close)).unwrap(),
+        ActionOutcome::Done
+    );
     wait_for("the closed terminal's folder going", || !held.0.exists());
 }
 

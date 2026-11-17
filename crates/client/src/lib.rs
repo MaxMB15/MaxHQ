@@ -984,11 +984,11 @@ impl LinkHandle {
         }
     }
 
-    /// Attaches a terminal, whose output then goes to `sink`, from byte
-    /// `after` on or from the start of what `maxd` holds. Attaching one
-    /// that's attached already starts its output over from `after`. A link
-    /// that isn't connected attaches it once it connects, and a reconnect
-    /// goes on from where the output got to.
+    /// Attaches a terminal, whose output then goes to `sink`, from the byte
+    /// after `after`, the last one the caller has, or from the start of
+    /// what `maxd` holds. Attaching one that's attached already starts its
+    /// output over there. A link that isn't connected attaches it once it
+    /// connects, and a reconnect goes on from where the output got to.
     pub async fn attach_terminal(
         &self,
         terminal: TerminalId,

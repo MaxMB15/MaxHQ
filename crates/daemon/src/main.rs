@@ -738,7 +738,12 @@ async fn serve() -> Result<Stopped, RunError> {
         maxhq_hold::Terminals::from_env().ok_or(RunError::NoDataDir)?,
         hub.clone(),
     );
-    let restore = terminals.terminals.clone();
+    // Terminal requests wait for the return from here, since the server
+    // takes connections before it runs.
+    let restore = terminals
+        .terminals
+        .as_ref()
+        .map(terminals::Terminals::restoring);
     let sessions = session::start(session::Config {
         hub: hub.clone(),
         db: db.clone(),
@@ -771,11 +776,8 @@ async fn serve() -> Result<Stopped, RunError> {
     });
     // The terminals a previous maxd left come back once the manager runs,
     // so it hears of the runs that ended meanwhile.
-    if let Some(terminals) = restore {
-        spawn_task(
-            "the terminals' return",
-            async move { terminals.restore().await },
-        );
+    if let Some(restore) = restore {
+        spawn_task("the terminals' return", restore);
     }
     workflow::install(
         hub.clone(),
