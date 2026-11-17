@@ -164,11 +164,11 @@ interface NativeModuleInterface {
 		uniffi_out_err: UniffiRustCallStatus
 	): void;
 	ubrn_ffi_maxhq_mobile_rust_future_free_void(handle: bigint): void;
-	ubrn_uniffi_maxhq_mobile_fn_clone_medialistener(
+	ubrn_uniffi_maxhq_mobile_fn_clone_progresslistener(
 		ptr: bigint,
 		uniffi_out_err: UniffiRustCallStatus
 	): bigint;
-	ubrn_uniffi_maxhq_mobile_fn_free_medialistener(
+	ubrn_uniffi_maxhq_mobile_fn_free_progresslistener(
 		ptr: bigint,
 		uniffi_out_err: UniffiRustCallStatus
 	): void;
@@ -188,8 +188,8 @@ interface NativeModuleInterface {
 		ptr: bigint,
 		uniffi_out_err: UniffiRustCallStatus
 	): void;
-	ubrn_uniffi_maxhq_mobile_fn_init_callback_vtable_medialistener(
-		vtable: UniffiVTableCallbackInterfaceMaxhqMobileMediaListener
+	ubrn_uniffi_maxhq_mobile_fn_init_callback_vtable_progresslistener(
+		vtable: UniffiVTableCallbackInterfaceMaxhqMobileProgressListener
 	): void;
 	ubrn_uniffi_maxhq_mobile_fn_init_callback_vtable_timelinelistener(
 		vtable: UniffiVTableCallbackInterfaceMaxhqMobileTimelineListener
@@ -207,6 +207,24 @@ interface NativeModuleInterface {
 		state: Uint8Array,
 		uniffi_out_err: UniffiRustCallStatus
 	): Uint8Array;
+	ubrn_uniffi_maxhq_mobile_fn_func_attach_from_agent(
+		device: Uint8Array,
+		target: Uint8Array,
+		agent: Uint8Array,
+		path: Uint8Array,
+		listener: bigint
+	): bigint;
+	ubrn_uniffi_maxhq_mobile_fn_func_copy_project(
+		from: Uint8Array,
+		target: Uint8Array,
+		files: Uint8Array,
+		listener: bigint
+	): bigint;
+	ubrn_uniffi_maxhq_mobile_fn_func_download(
+		agent: Uint8Array,
+		path: Uint8Array,
+		listener: bigint
+	): bigint;
 	ubrn_uniffi_maxhq_mobile_fn_func_forget_mac(
 		keeper: Uint8Array,
 		uniffi_out_err: UniffiRustCallStatus
@@ -222,6 +240,7 @@ interface NativeModuleInterface {
 		uniffi_out_err: UniffiRustCallStatus
 	): Uint8Array;
 	ubrn_uniffi_maxhq_mobile_fn_func_open_timeline(agent: Uint8Array, listener: bigint): bigint;
+	ubrn_uniffi_maxhq_mobile_fn_func_open_workflow(run: Uint8Array, listener: bigint): bigint;
 	ubrn_uniffi_maxhq_mobile_fn_func_pair(code: Uint8Array, name: Uint8Array): bigint;
 	ubrn_uniffi_maxhq_mobile_fn_func_pair_code_mac(
 		code: Uint8Array,
@@ -248,7 +267,21 @@ interface NativeModuleInterface {
 		listener: bigint,
 		uniffi_out_err: UniffiRustCallStatus
 	): void;
-	ubrn_uniffi_maxhq_mobile_fn_method_medialistener_progress(
+	ubrn_uniffi_maxhq_mobile_fn_func_upload(
+		device: Uint8Array,
+		target: Uint8Array,
+		path: Uint8Array,
+		listener: bigint
+	): bigint;
+	ubrn_uniffi_maxhq_mobile_fn_func_upload_pasted(
+		device: Uint8Array,
+		target: Uint8Array,
+		name: Uint8Array,
+		mime: Uint8Array,
+		data: Uint8Array,
+		listener: bigint
+	): bigint;
+	ubrn_uniffi_maxhq_mobile_fn_method_progresslistener_progress(
 		uniffiSelf: bigint,
 		progress: Uint8Array,
 		uniffi_out_err: UniffiRustCallStatus
@@ -270,10 +303,14 @@ interface NativeModuleInterface {
 	ubrn_ffi_maxhq_mobile_uniffi_contract_version(): number;
 	ubrn_uniffi_maxhq_mobile_checksum_func_add_device(): number;
 	ubrn_uniffi_maxhq_mobile_checksum_func_app_state(): number;
+	ubrn_uniffi_maxhq_mobile_checksum_func_attach_from_agent(): number;
+	ubrn_uniffi_maxhq_mobile_checksum_func_copy_project(): number;
+	ubrn_uniffi_maxhq_mobile_checksum_func_download(): number;
 	ubrn_uniffi_maxhq_mobile_checksum_func_forget_mac(): number;
 	ubrn_uniffi_maxhq_mobile_checksum_func_media(): number;
 	ubrn_uniffi_maxhq_mobile_checksum_func_network_changed(): number;
 	ubrn_uniffi_maxhq_mobile_checksum_func_open_timeline(): number;
+	ubrn_uniffi_maxhq_mobile_checksum_func_open_workflow(): number;
 	ubrn_uniffi_maxhq_mobile_checksum_func_pair(): number;
 	ubrn_uniffi_maxhq_mobile_checksum_func_pair_code_mac(): number;
 	ubrn_uniffi_maxhq_mobile_checksum_func_paired_macs(): number;
@@ -283,11 +320,13 @@ interface NativeModuleInterface {
 	ubrn_uniffi_maxhq_mobile_checksum_func_request(): number;
 	ubrn_uniffi_maxhq_mobile_checksum_func_start(): number;
 	ubrn_uniffi_maxhq_mobile_checksum_func_subscribe(): number;
-	ubrn_uniffi_maxhq_mobile_checksum_method_medialistener_progress(): number;
+	ubrn_uniffi_maxhq_mobile_checksum_func_upload(): number;
+	ubrn_uniffi_maxhq_mobile_checksum_func_upload_pasted(): number;
+	ubrn_uniffi_maxhq_mobile_checksum_method_progresslistener_progress(): number;
 	ubrn_uniffi_maxhq_mobile_checksum_method_timelinelistener_id(): number;
 	ubrn_uniffi_maxhq_mobile_checksum_method_timelinelistener_batch(): number;
 	ubrn_uniffi_maxhq_mobile_checksum_method_viewlistener_changed(): number;
-	ubrn_uniffi_internal_fn_method_medialistener_ffi__bless_pointer(
+	ubrn_uniffi_internal_fn_method_progresslistener_ffi__bless_pointer(
 		pointer: bigint,
 		uniffi_out_err: UniffiRustCallStatus
 	): UniffiGcObject;
@@ -317,16 +356,18 @@ export type UniffiForeignFutureDroppedCallbackStruct = {
 	handle: bigint;
 	free: UniffiForeignFutureDroppedCallback;
 };
-type UniffiCallbackInterfaceMaxhqMobileMediaListenerMethod0 = (
+type UniffiCallbackInterfaceMaxhqMobileProgressListenerMethod0 = (
 	uniffiHandle: bigint,
 	progress: Uint8Array
 ) => UniffiResult<void>;
-type UniffiCallbackInterfaceCloneMaxhqMobileMediaListener = (handle: bigint) => UniffiResult<void>;
-type UniffiCallbackInterfaceFreeMaxhqMobileMediaListener = (handle: bigint) => void;
-export type UniffiVTableCallbackInterfaceMaxhqMobileMediaListener = {
-	uniffi_free: UniffiCallbackInterfaceFreeMaxhqMobileMediaListener;
-	uniffi_clone: UniffiCallbackInterfaceCloneMaxhqMobileMediaListener;
-	progress: UniffiCallbackInterfaceMaxhqMobileMediaListenerMethod0;
+type UniffiCallbackInterfaceCloneMaxhqMobileProgressListener = (
+	handle: bigint
+) => UniffiResult<void>;
+type UniffiCallbackInterfaceFreeMaxhqMobileProgressListener = (handle: bigint) => void;
+export type UniffiVTableCallbackInterfaceMaxhqMobileProgressListener = {
+	uniffi_free: UniffiCallbackInterfaceFreeMaxhqMobileProgressListener;
+	uniffi_clone: UniffiCallbackInterfaceCloneMaxhqMobileProgressListener;
+	progress: UniffiCallbackInterfaceMaxhqMobileProgressListenerMethod0;
 };
 type UniffiCallbackInterfaceMaxhqMobileTimelineListenerMethod0 = (uniffiHandle: bigint) => number;
 type UniffiCallbackInterfaceMaxhqMobileTimelineListenerMethod1 = (
