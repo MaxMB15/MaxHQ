@@ -32,7 +32,7 @@ export const boxOf = (source: DataSource, agent: AgentId, device: DeviceId): Box
 	if (known?.device === device) return known;
 	const box: Box = {
 		device,
-		staging: createStaging(source, device),
+		staging: createStaging(source, device, agent),
 		gitPills: known?.gitPills ?? createGitPills(gitFinder(source, agent)),
 	};
 	mine.set(agent, box);

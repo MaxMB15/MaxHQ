@@ -130,7 +130,7 @@ extern "C" {
     UniffiForeignFutureResultVoid result
     );
     typedef void
-    (*UniffiCallbackInterfaceMediaListenerMethod0)(
+    (*UniffiCallbackInterfaceProgressListenerMethod0)(
     uint64_t uniffi_handle, 
     RustBuffer progress, 
     void * uniffi_out_return, RustCallStatus* rust_call_status
@@ -151,11 +151,11 @@ extern "C" {
     uint64_t uniffi_handle, 
     RustBuffer delta, 
     void * uniffi_out_return, RustCallStatus* rust_call_status
-    );typedef struct UniffiVTableCallbackInterfaceMediaListener {
+    );typedef struct UniffiVTableCallbackInterfaceProgressListener {
         UniffiCallbackInterfaceFree uniffi_free;
         UniffiCallbackInterfaceClone uniffi_clone;
-        UniffiCallbackInterfaceMediaListenerMethod0 progress;
-    } UniffiVTableCallbackInterfaceMediaListener;typedef struct UniffiVTableCallbackInterfaceTimelineListener {
+        UniffiCallbackInterfaceProgressListenerMethod0 progress;
+    } UniffiVTableCallbackInterfaceProgressListener;typedef struct UniffiVTableCallbackInterfaceTimelineListener {
         UniffiCallbackInterfaceFree uniffi_free;
         UniffiCallbackInterfaceClone uniffi_clone;
         UniffiCallbackInterfaceTimelineListenerMethod0 id;
@@ -165,18 +165,18 @@ extern "C" {
         UniffiCallbackInterfaceClone uniffi_clone;
         UniffiCallbackInterfaceViewListenerMethod0 changed;
     } UniffiVTableCallbackInterfaceViewListener;
-    /*handle*/ uint64_t uniffi_maxhq_mobile_fn_clone_medialistener(
+    /*handle*/ uint64_t uniffi_maxhq_mobile_fn_clone_progresslistener(
         /*handle*/ uint64_t handle, 
         RustCallStatus *uniffi_out_err
     );
-    void uniffi_maxhq_mobile_fn_free_medialistener(
+    void uniffi_maxhq_mobile_fn_free_progresslistener(
         /*handle*/ uint64_t handle, 
         RustCallStatus *uniffi_out_err
     );
-    void uniffi_maxhq_mobile_fn_init_callback_vtable_medialistener(
-        UniffiVTableCallbackInterfaceMediaListener * vtable
+    void uniffi_maxhq_mobile_fn_init_callback_vtable_progresslistener(
+        UniffiVTableCallbackInterfaceProgressListener * vtable
     );
-    void uniffi_maxhq_mobile_fn_method_medialistener_progress(
+    void uniffi_maxhq_mobile_fn_method_progresslistener_progress(
         /*handle*/ uint64_t ptr, 
         RustBuffer progress, 
         RustCallStatus *uniffi_out_err
@@ -227,6 +227,24 @@ extern "C" {
         RustBuffer state, 
         RustCallStatus *uniffi_out_err
     );
+    /*handle*/ uint64_t uniffi_maxhq_mobile_fn_func_attach_from_agent(
+        RustBuffer device, 
+        RustBuffer target, 
+        RustBuffer agent, 
+        RustBuffer path, 
+        /*handle*/ uint64_t listener
+    );
+    /*handle*/ uint64_t uniffi_maxhq_mobile_fn_func_copy_project(
+        RustBuffer from, 
+        RustBuffer target, 
+        RustBuffer files, 
+        /*handle*/ uint64_t listener
+    );
+    /*handle*/ uint64_t uniffi_maxhq_mobile_fn_func_download(
+        RustBuffer agent, 
+        RustBuffer path, 
+        /*handle*/ uint64_t listener
+    );
     RustBuffer uniffi_maxhq_mobile_fn_func_forget_mac(
         RustBuffer keeper, 
         RustCallStatus *uniffi_out_err
@@ -243,6 +261,10 @@ extern "C" {
     );
     /*handle*/ uint64_t uniffi_maxhq_mobile_fn_func_open_timeline(
         RustBuffer agent, 
+        /*handle*/ uint64_t listener
+    );
+    /*handle*/ uint64_t uniffi_maxhq_mobile_fn_func_open_workflow(
+        RustBuffer run, 
         /*handle*/ uint64_t listener
     );
     /*handle*/ uint64_t uniffi_maxhq_mobile_fn_func_pair(
@@ -277,6 +299,20 @@ extern "C" {
     void uniffi_maxhq_mobile_fn_func_subscribe(
         /*handle*/ uint64_t listener, 
         RustCallStatus *uniffi_out_err
+    );
+    /*handle*/ uint64_t uniffi_maxhq_mobile_fn_func_upload(
+        RustBuffer device, 
+        RustBuffer target, 
+        RustBuffer path, 
+        /*handle*/ uint64_t listener
+    );
+    /*handle*/ uint64_t uniffi_maxhq_mobile_fn_func_upload_pasted(
+        RustBuffer device, 
+        RustBuffer target, 
+        RustBuffer name, 
+        RustBuffer mime, 
+        RustBuffer data, 
+        /*handle*/ uint64_t listener
     );
     RustBuffer ffi_maxhq_mobile_rustbuffer_alloc(
         uint64_t size, 
@@ -479,6 +515,12 @@ extern "C" {
     );
     uint16_t uniffi_maxhq_mobile_checksum_func_app_state(
     );
+    uint16_t uniffi_maxhq_mobile_checksum_func_attach_from_agent(
+    );
+    uint16_t uniffi_maxhq_mobile_checksum_func_copy_project(
+    );
+    uint16_t uniffi_maxhq_mobile_checksum_func_download(
+    );
     uint16_t uniffi_maxhq_mobile_checksum_func_forget_mac(
     );
     uint16_t uniffi_maxhq_mobile_checksum_func_media(
@@ -486,6 +528,8 @@ extern "C" {
     uint16_t uniffi_maxhq_mobile_checksum_func_network_changed(
     );
     uint16_t uniffi_maxhq_mobile_checksum_func_open_timeline(
+    );
+    uint16_t uniffi_maxhq_mobile_checksum_func_open_workflow(
     );
     uint16_t uniffi_maxhq_mobile_checksum_func_pair(
     );
@@ -505,7 +549,11 @@ extern "C" {
     );
     uint16_t uniffi_maxhq_mobile_checksum_func_subscribe(
     );
-    uint16_t uniffi_maxhq_mobile_checksum_method_medialistener_progress(
+    uint16_t uniffi_maxhq_mobile_checksum_func_upload(
+    );
+    uint16_t uniffi_maxhq_mobile_checksum_func_upload_pasted(
+    );
+    uint16_t uniffi_maxhq_mobile_checksum_method_progresslistener_progress(
     );
     uint16_t uniffi_maxhq_mobile_checksum_method_timelinelistener_id(
     );
@@ -1033,7 +1081,7 @@ namespace uniffi::maxhq_mobile::cb::foreignfuturedroppedcallback {
     // Implementation of free callback function CallbackInterfaceFree
 
 
-// Callback function: uniffi::maxhq_mobile::st::vtablecallbackinterfacemedialistener::vtablecallbackinterfacemedialistener::free::UniffiCallbackInterfaceFree
+// Callback function: uniffi::maxhq_mobile::st::vtablecallbackinterfaceprogresslistener::vtablecallbackinterfaceprogresslistener::free::UniffiCallbackInterfaceFree
 //
 // We have the following constraints:
 // - we need to pass a function pointer to Rust.
@@ -1045,7 +1093,7 @@ namespace uniffi::maxhq_mobile::cb::foreignfuturedroppedcallback {
 //
 // We then give the `callback` function pointer to Rust which will call the lambda sometime in the
 // future.
-namespace uniffi::maxhq_mobile::st::vtablecallbackinterfacemedialistener::vtablecallbackinterfacemedialistener::free {
+namespace uniffi::maxhq_mobile::st::vtablecallbackinterfaceprogresslistener::vtablecallbackinterfaceprogresslistener::free {
     using namespace facebook;
 
     // We need to store a lambda in a global so we can call it from
@@ -1103,7 +1151,7 @@ namespace uniffi::maxhq_mobile::st::vtablecallbackinterfacemedialistener::vtable
     }
 
     [[maybe_unused]] static UniffiCallbackInterfaceFree
-    makeCallbackFunction( // uniffi::maxhq_mobile::st::vtablecallbackinterfacemedialistener::vtablecallbackinterfacemedialistener::free
+    makeCallbackFunction( // uniffi::maxhq_mobile::st::vtablecallbackinterfaceprogresslistener::vtablecallbackinterfaceprogresslistener::free
                     jsi::Runtime &rt,
                      std::shared_ptr<uniffi_runtime::UniffiCallInvoker> callInvoker,
                      const jsi::Value &value) {
@@ -1146,7 +1194,7 @@ namespace uniffi::maxhq_mobile::st::vtablecallbackinterfacemedialistener::vtable
         // then the pointer will no longer be left dangling.
         rsLambda = nullptr;
     }
-} // namespace uniffi::maxhq_mobile::st::vtablecallbackinterfacemedialistener::vtablecallbackinterfacemedialistener::free
+} // namespace uniffi::maxhq_mobile::st::vtablecallbackinterfaceprogresslistener::vtablecallbackinterfaceprogresslistener::free
 
 // Callback function: uniffi::maxhq_mobile::st::vtablecallbackinterfacetimelinelistener::vtablecallbackinterfacetimelinelistener::free::UniffiCallbackInterfaceFree
 //
@@ -2295,10 +2343,10 @@ template <> struct Bridging<UniffiForeignFutureCompleteVoid> {
   }
 };
 } // namespace uniffi::maxhq_mobile
-    // Implementation of CallbackInterfaceClone for vtable field uniffi_clone in VTableCallbackInterfaceMediaListener
+    // Implementation of CallbackInterfaceClone for vtable field uniffi_clone in VTableCallbackInterfaceProgressListener
 
 
-// Callback function: uniffi::maxhq_mobile::cb::callbackinterfaceclone::vtablecallbackinterfacemedialistener::UniffiCallbackInterfaceClone
+// Callback function: uniffi::maxhq_mobile::cb::callbackinterfaceclone::vtablecallbackinterfaceprogresslistener::UniffiCallbackInterfaceClone
 //
 // We have the following constraints:
 // - we need to pass a function pointer to Rust.
@@ -2310,7 +2358,7 @@ template <> struct Bridging<UniffiForeignFutureCompleteVoid> {
 //
 // We then give the `callback` function pointer to Rust which will call the lambda sometime in the
 // future.
-namespace uniffi::maxhq_mobile::cb::callbackinterfaceclone::vtablecallbackinterfacemedialistener {
+namespace uniffi::maxhq_mobile::cb::callbackinterfaceclone::vtablecallbackinterfaceprogresslistener {
     using namespace facebook;
 
     // We need to store a lambda in a global so we can call it from
@@ -2378,7 +2426,7 @@ namespace uniffi::maxhq_mobile::cb::callbackinterfaceclone::vtablecallbackinterf
     }
 
     [[maybe_unused]] static UniffiCallbackInterfaceClone
-    makeCallbackFunction( // uniffi::maxhq_mobile::cb::callbackinterfaceclone::vtablecallbackinterfacemedialistener
+    makeCallbackFunction( // uniffi::maxhq_mobile::cb::callbackinterfaceclone::vtablecallbackinterfaceprogresslistener
                     jsi::Runtime &rt,
                      std::shared_ptr<uniffi_runtime::UniffiCallInvoker> callInvoker,
                      const jsi::Value &value) {
@@ -2420,11 +2468,11 @@ namespace uniffi::maxhq_mobile::cb::callbackinterfaceclone::vtablecallbackinterf
         // then the pointer will no longer be left dangling.
         rsLambda = nullptr;
     }
-} // namespace uniffi::maxhq_mobile::cb::callbackinterfaceclone::vtablecallbackinterfacemedialistener
-    // Implementation of CallbackInterfaceMediaListenerMethod0 for vtable field progress in VTableCallbackInterfaceMediaListener
+} // namespace uniffi::maxhq_mobile::cb::callbackinterfaceclone::vtablecallbackinterfaceprogresslistener
+    // Implementation of CallbackInterfaceProgressListenerMethod0 for vtable field progress in VTableCallbackInterfaceProgressListener
 
 
-// Callback function: uniffi::maxhq_mobile::cb::callbackinterfacemedialistenermethod0::vtablecallbackinterfacemedialistener::UniffiCallbackInterfaceMediaListenerMethod0
+// Callback function: uniffi::maxhq_mobile::cb::callbackinterfaceprogresslistenermethod0::vtablecallbackinterfaceprogresslistener::UniffiCallbackInterfaceProgressListenerMethod0
 //
 // We have the following constraints:
 // - we need to pass a function pointer to Rust.
@@ -2436,7 +2484,7 @@ namespace uniffi::maxhq_mobile::cb::callbackinterfaceclone::vtablecallbackinterf
 //
 // We then give the `callback` function pointer to Rust which will call the lambda sometime in the
 // future.
-namespace uniffi::maxhq_mobile::cb::callbackinterfacemedialistenermethod0::vtablecallbackinterfacemedialistener {
+namespace uniffi::maxhq_mobile::cb::callbackinterfaceprogresslistenermethod0::vtablecallbackinterfaceprogresslistener {
     using namespace facebook;
 
     // We need to store a lambda in a global so we can call it from
@@ -2476,7 +2524,7 @@ namespace uniffi::maxhq_mobile::cb::callbackinterfacemedialistenermethod0::vtabl
 
             
         } catch (const jsi::JSError &error) {
-            std::cout << "Error in callback UniffiCallbackInterfaceMediaListenerMethod0: "
+            std::cout << "Error in callback UniffiCallbackInterfaceProgressListenerMethod0: "
                     << error.what() << std::endl;
             throw error;
         }
@@ -2504,8 +2552,8 @@ namespace uniffi::maxhq_mobile::cb::callbackinterfacemedialistenermethod0::vtabl
             rs_uniffiOutReturn, uniffi_call_status);
     }
 
-    [[maybe_unused]] static UniffiCallbackInterfaceMediaListenerMethod0
-    makeCallbackFunction( // uniffi::maxhq_mobile::cb::callbackinterfacemedialistenermethod0::vtablecallbackinterfacemedialistener
+    [[maybe_unused]] static UniffiCallbackInterfaceProgressListenerMethod0
+    makeCallbackFunction( // uniffi::maxhq_mobile::cb::callbackinterfaceprogresslistenermethod0::vtablecallbackinterfaceprogresslistener
                     jsi::Runtime &rt,
                      std::shared_ptr<uniffi_runtime::UniffiCallInvoker> callInvoker,
                      const jsi::Value &value) {
@@ -2551,35 +2599,35 @@ namespace uniffi::maxhq_mobile::cb::callbackinterfacemedialistenermethod0::vtabl
         // then the pointer will no longer be left dangling.
         rsLambda = nullptr;
     }
-} // namespace uniffi::maxhq_mobile::cb::callbackinterfacemedialistenermethod0::vtablecallbackinterfacemedialistener
+} // namespace uniffi::maxhq_mobile::cb::callbackinterfaceprogresslistenermethod0::vtablecallbackinterfaceprogresslistener
 namespace uniffi::maxhq_mobile {
 using namespace facebook;
 using CallInvoker = uniffi_runtime::UniffiCallInvoker;
 
-template <> struct Bridging<UniffiVTableCallbackInterfaceMediaListener> {
-  static UniffiVTableCallbackInterfaceMediaListener fromJs(jsi::Runtime &rt,
+template <> struct Bridging<UniffiVTableCallbackInterfaceProgressListener> {
+  static UniffiVTableCallbackInterfaceProgressListener fromJs(jsi::Runtime &rt,
     std::shared_ptr<CallInvoker> callInvoker,
     const jsi::Value &jsValue
   ) {
     // Check if the input is an object
     if (!jsValue.isObject()) {
-      throw jsi::JSError(rt, "Expected an object for UniffiVTableCallbackInterfaceMediaListener");
+      throw jsi::JSError(rt, "Expected an object for UniffiVTableCallbackInterfaceProgressListener");
     }
 
     // Get the object from the jsi::Value
     auto jsObject = jsValue.getObject(rt);
 
     // Create the vtable struct
-    UniffiVTableCallbackInterfaceMediaListener rsObject;
+    UniffiVTableCallbackInterfaceProgressListener rsObject;
 
     // Create the vtable from the js callbacks.
-    rsObject.uniffi_free = uniffi::maxhq_mobile::st::vtablecallbackinterfacemedialistener::vtablecallbackinterfacemedialistener::free::makeCallbackFunction(
+    rsObject.uniffi_free = uniffi::maxhq_mobile::st::vtablecallbackinterfaceprogresslistener::vtablecallbackinterfaceprogresslistener::free::makeCallbackFunction(
           rt, callInvoker, jsObject.getProperty(rt, "uniffi_free")
         );
-    rsObject.uniffi_clone = uniffi::maxhq_mobile::cb::callbackinterfaceclone::vtablecallbackinterfacemedialistener::makeCallbackFunction(
+    rsObject.uniffi_clone = uniffi::maxhq_mobile::cb::callbackinterfaceclone::vtablecallbackinterfaceprogresslistener::makeCallbackFunction(
           rt, callInvoker, jsObject.getProperty(rt, "uniffi_clone")
         );
-    rsObject.progress = uniffi::maxhq_mobile::cb::callbackinterfacemedialistenermethod0::vtablecallbackinterfacemedialistener::makeCallbackFunction(
+    rsObject.progress = uniffi::maxhq_mobile::cb::callbackinterfaceprogresslistenermethod0::vtablecallbackinterfaceprogresslistener::makeCallbackFunction(
           rt, callInvoker, jsObject.getProperty(rt, "progress")
         );
 
@@ -3382,36 +3430,36 @@ NativeMaxhqMobile::NativeMaxhqMobile(
             return this->cpp_uniffi_internal_fn_func_ffi__read_string_from_buffer(rt, thisVal, args, count);
         }
     );
-    props["ubrn_uniffi_maxhq_mobile_fn_clone_medialistener"] = jsi::Function::createFromHostFunction(
+    props["ubrn_uniffi_maxhq_mobile_fn_clone_progresslistener"] = jsi::Function::createFromHostFunction(
         rt,
-        jsi::PropNameID::forAscii(rt, "ubrn_uniffi_maxhq_mobile_fn_clone_medialistener"),
+        jsi::PropNameID::forAscii(rt, "ubrn_uniffi_maxhq_mobile_fn_clone_progresslistener"),
         1,
         [this](jsi::Runtime &rt, const jsi::Value &thisVal, const jsi::Value *args, size_t count) -> jsi::Value {
-            return this->cpp_uniffi_maxhq_mobile_fn_clone_medialistener(rt, thisVal, args, count);
+            return this->cpp_uniffi_maxhq_mobile_fn_clone_progresslistener(rt, thisVal, args, count);
         }
     );
-    props["ubrn_uniffi_maxhq_mobile_fn_free_medialistener"] = jsi::Function::createFromHostFunction(
+    props["ubrn_uniffi_maxhq_mobile_fn_free_progresslistener"] = jsi::Function::createFromHostFunction(
         rt,
-        jsi::PropNameID::forAscii(rt, "ubrn_uniffi_maxhq_mobile_fn_free_medialistener"),
+        jsi::PropNameID::forAscii(rt, "ubrn_uniffi_maxhq_mobile_fn_free_progresslistener"),
         1,
         [this](jsi::Runtime &rt, const jsi::Value &thisVal, const jsi::Value *args, size_t count) -> jsi::Value {
-            return this->cpp_uniffi_maxhq_mobile_fn_free_medialistener(rt, thisVal, args, count);
+            return this->cpp_uniffi_maxhq_mobile_fn_free_progresslistener(rt, thisVal, args, count);
         }
     );
-    props["ubrn_uniffi_maxhq_mobile_fn_init_callback_vtable_medialistener"] = jsi::Function::createFromHostFunction(
+    props["ubrn_uniffi_maxhq_mobile_fn_init_callback_vtable_progresslistener"] = jsi::Function::createFromHostFunction(
         rt,
-        jsi::PropNameID::forAscii(rt, "ubrn_uniffi_maxhq_mobile_fn_init_callback_vtable_medialistener"),
+        jsi::PropNameID::forAscii(rt, "ubrn_uniffi_maxhq_mobile_fn_init_callback_vtable_progresslistener"),
         1,
         [this](jsi::Runtime &rt, const jsi::Value &thisVal, const jsi::Value *args, size_t count) -> jsi::Value {
-            return this->cpp_uniffi_maxhq_mobile_fn_init_callback_vtable_medialistener(rt, thisVal, args, count);
+            return this->cpp_uniffi_maxhq_mobile_fn_init_callback_vtable_progresslistener(rt, thisVal, args, count);
         }
     );
-    props["ubrn_uniffi_maxhq_mobile_fn_method_medialistener_progress"] = jsi::Function::createFromHostFunction(
+    props["ubrn_uniffi_maxhq_mobile_fn_method_progresslistener_progress"] = jsi::Function::createFromHostFunction(
         rt,
-        jsi::PropNameID::forAscii(rt, "ubrn_uniffi_maxhq_mobile_fn_method_medialistener_progress"),
+        jsi::PropNameID::forAscii(rt, "ubrn_uniffi_maxhq_mobile_fn_method_progresslistener_progress"),
         2,
         [this](jsi::Runtime &rt, const jsi::Value &thisVal, const jsi::Value *args, size_t count) -> jsi::Value {
-            return this->cpp_uniffi_maxhq_mobile_fn_method_medialistener_progress(rt, thisVal, args, count);
+            return this->cpp_uniffi_maxhq_mobile_fn_method_progresslistener_progress(rt, thisVal, args, count);
         }
     );
     props["ubrn_uniffi_maxhq_mobile_fn_clone_timelinelistener"] = jsi::Function::createFromHostFunction(
@@ -3502,6 +3550,30 @@ NativeMaxhqMobile::NativeMaxhqMobile(
             return this->cpp_uniffi_maxhq_mobile_fn_func_app_state(rt, thisVal, args, count);
         }
     );
+    props["ubrn_uniffi_maxhq_mobile_fn_func_attach_from_agent"] = jsi::Function::createFromHostFunction(
+        rt,
+        jsi::PropNameID::forAscii(rt, "ubrn_uniffi_maxhq_mobile_fn_func_attach_from_agent"),
+        5,
+        [this](jsi::Runtime &rt, const jsi::Value &thisVal, const jsi::Value *args, size_t count) -> jsi::Value {
+            return this->cpp_uniffi_maxhq_mobile_fn_func_attach_from_agent(rt, thisVal, args, count);
+        }
+    );
+    props["ubrn_uniffi_maxhq_mobile_fn_func_copy_project"] = jsi::Function::createFromHostFunction(
+        rt,
+        jsi::PropNameID::forAscii(rt, "ubrn_uniffi_maxhq_mobile_fn_func_copy_project"),
+        4,
+        [this](jsi::Runtime &rt, const jsi::Value &thisVal, const jsi::Value *args, size_t count) -> jsi::Value {
+            return this->cpp_uniffi_maxhq_mobile_fn_func_copy_project(rt, thisVal, args, count);
+        }
+    );
+    props["ubrn_uniffi_maxhq_mobile_fn_func_download"] = jsi::Function::createFromHostFunction(
+        rt,
+        jsi::PropNameID::forAscii(rt, "ubrn_uniffi_maxhq_mobile_fn_func_download"),
+        3,
+        [this](jsi::Runtime &rt, const jsi::Value &thisVal, const jsi::Value *args, size_t count) -> jsi::Value {
+            return this->cpp_uniffi_maxhq_mobile_fn_func_download(rt, thisVal, args, count);
+        }
+    );
     props["ubrn_uniffi_maxhq_mobile_fn_func_forget_mac"] = jsi::Function::createFromHostFunction(
         rt,
         jsi::PropNameID::forAscii(rt, "ubrn_uniffi_maxhq_mobile_fn_func_forget_mac"),
@@ -3532,6 +3604,14 @@ NativeMaxhqMobile::NativeMaxhqMobile(
         2,
         [this](jsi::Runtime &rt, const jsi::Value &thisVal, const jsi::Value *args, size_t count) -> jsi::Value {
             return this->cpp_uniffi_maxhq_mobile_fn_func_open_timeline(rt, thisVal, args, count);
+        }
+    );
+    props["ubrn_uniffi_maxhq_mobile_fn_func_open_workflow"] = jsi::Function::createFromHostFunction(
+        rt,
+        jsi::PropNameID::forAscii(rt, "ubrn_uniffi_maxhq_mobile_fn_func_open_workflow"),
+        2,
+        [this](jsi::Runtime &rt, const jsi::Value &thisVal, const jsi::Value *args, size_t count) -> jsi::Value {
+            return this->cpp_uniffi_maxhq_mobile_fn_func_open_workflow(rt, thisVal, args, count);
         }
     );
     props["ubrn_uniffi_maxhq_mobile_fn_func_pair"] = jsi::Function::createFromHostFunction(
@@ -3604,6 +3684,22 @@ NativeMaxhqMobile::NativeMaxhqMobile(
         1,
         [this](jsi::Runtime &rt, const jsi::Value &thisVal, const jsi::Value *args, size_t count) -> jsi::Value {
             return this->cpp_uniffi_maxhq_mobile_fn_func_subscribe(rt, thisVal, args, count);
+        }
+    );
+    props["ubrn_uniffi_maxhq_mobile_fn_func_upload"] = jsi::Function::createFromHostFunction(
+        rt,
+        jsi::PropNameID::forAscii(rt, "ubrn_uniffi_maxhq_mobile_fn_func_upload"),
+        4,
+        [this](jsi::Runtime &rt, const jsi::Value &thisVal, const jsi::Value *args, size_t count) -> jsi::Value {
+            return this->cpp_uniffi_maxhq_mobile_fn_func_upload(rt, thisVal, args, count);
+        }
+    );
+    props["ubrn_uniffi_maxhq_mobile_fn_func_upload_pasted"] = jsi::Function::createFromHostFunction(
+        rt,
+        jsi::PropNameID::forAscii(rt, "ubrn_uniffi_maxhq_mobile_fn_func_upload_pasted"),
+        6,
+        [this](jsi::Runtime &rt, const jsi::Value &thisVal, const jsi::Value *args, size_t count) -> jsi::Value {
+            return this->cpp_uniffi_maxhq_mobile_fn_func_upload_pasted(rt, thisVal, args, count);
         }
     );
     props["ubrn_ffi_maxhq_mobile_rust_future_poll_u8"] = jsi::Function::createFromHostFunction(
@@ -4006,6 +4102,30 @@ NativeMaxhqMobile::NativeMaxhqMobile(
             return this->cpp_uniffi_maxhq_mobile_checksum_func_app_state(rt, thisVal, args, count);
         }
     );
+    props["ubrn_uniffi_maxhq_mobile_checksum_func_attach_from_agent"] = jsi::Function::createFromHostFunction(
+        rt,
+        jsi::PropNameID::forAscii(rt, "ubrn_uniffi_maxhq_mobile_checksum_func_attach_from_agent"),
+        0,
+        [this](jsi::Runtime &rt, const jsi::Value &thisVal, const jsi::Value *args, size_t count) -> jsi::Value {
+            return this->cpp_uniffi_maxhq_mobile_checksum_func_attach_from_agent(rt, thisVal, args, count);
+        }
+    );
+    props["ubrn_uniffi_maxhq_mobile_checksum_func_copy_project"] = jsi::Function::createFromHostFunction(
+        rt,
+        jsi::PropNameID::forAscii(rt, "ubrn_uniffi_maxhq_mobile_checksum_func_copy_project"),
+        0,
+        [this](jsi::Runtime &rt, const jsi::Value &thisVal, const jsi::Value *args, size_t count) -> jsi::Value {
+            return this->cpp_uniffi_maxhq_mobile_checksum_func_copy_project(rt, thisVal, args, count);
+        }
+    );
+    props["ubrn_uniffi_maxhq_mobile_checksum_func_download"] = jsi::Function::createFromHostFunction(
+        rt,
+        jsi::PropNameID::forAscii(rt, "ubrn_uniffi_maxhq_mobile_checksum_func_download"),
+        0,
+        [this](jsi::Runtime &rt, const jsi::Value &thisVal, const jsi::Value *args, size_t count) -> jsi::Value {
+            return this->cpp_uniffi_maxhq_mobile_checksum_func_download(rt, thisVal, args, count);
+        }
+    );
     props["ubrn_uniffi_maxhq_mobile_checksum_func_forget_mac"] = jsi::Function::createFromHostFunction(
         rt,
         jsi::PropNameID::forAscii(rt, "ubrn_uniffi_maxhq_mobile_checksum_func_forget_mac"),
@@ -4036,6 +4156,14 @@ NativeMaxhqMobile::NativeMaxhqMobile(
         0,
         [this](jsi::Runtime &rt, const jsi::Value &thisVal, const jsi::Value *args, size_t count) -> jsi::Value {
             return this->cpp_uniffi_maxhq_mobile_checksum_func_open_timeline(rt, thisVal, args, count);
+        }
+    );
+    props["ubrn_uniffi_maxhq_mobile_checksum_func_open_workflow"] = jsi::Function::createFromHostFunction(
+        rt,
+        jsi::PropNameID::forAscii(rt, "ubrn_uniffi_maxhq_mobile_checksum_func_open_workflow"),
+        0,
+        [this](jsi::Runtime &rt, const jsi::Value &thisVal, const jsi::Value *args, size_t count) -> jsi::Value {
+            return this->cpp_uniffi_maxhq_mobile_checksum_func_open_workflow(rt, thisVal, args, count);
         }
     );
     props["ubrn_uniffi_maxhq_mobile_checksum_func_pair"] = jsi::Function::createFromHostFunction(
@@ -4110,12 +4238,28 @@ NativeMaxhqMobile::NativeMaxhqMobile(
             return this->cpp_uniffi_maxhq_mobile_checksum_func_subscribe(rt, thisVal, args, count);
         }
     );
-    props["ubrn_uniffi_maxhq_mobile_checksum_method_medialistener_progress"] = jsi::Function::createFromHostFunction(
+    props["ubrn_uniffi_maxhq_mobile_checksum_func_upload"] = jsi::Function::createFromHostFunction(
         rt,
-        jsi::PropNameID::forAscii(rt, "ubrn_uniffi_maxhq_mobile_checksum_method_medialistener_progress"),
+        jsi::PropNameID::forAscii(rt, "ubrn_uniffi_maxhq_mobile_checksum_func_upload"),
         0,
         [this](jsi::Runtime &rt, const jsi::Value &thisVal, const jsi::Value *args, size_t count) -> jsi::Value {
-            return this->cpp_uniffi_maxhq_mobile_checksum_method_medialistener_progress(rt, thisVal, args, count);
+            return this->cpp_uniffi_maxhq_mobile_checksum_func_upload(rt, thisVal, args, count);
+        }
+    );
+    props["ubrn_uniffi_maxhq_mobile_checksum_func_upload_pasted"] = jsi::Function::createFromHostFunction(
+        rt,
+        jsi::PropNameID::forAscii(rt, "ubrn_uniffi_maxhq_mobile_checksum_func_upload_pasted"),
+        0,
+        [this](jsi::Runtime &rt, const jsi::Value &thisVal, const jsi::Value *args, size_t count) -> jsi::Value {
+            return this->cpp_uniffi_maxhq_mobile_checksum_func_upload_pasted(rt, thisVal, args, count);
+        }
+    );
+    props["ubrn_uniffi_maxhq_mobile_checksum_method_progresslistener_progress"] = jsi::Function::createFromHostFunction(
+        rt,
+        jsi::PropNameID::forAscii(rt, "ubrn_uniffi_maxhq_mobile_checksum_method_progresslistener_progress"),
+        0,
+        [this](jsi::Runtime &rt, const jsi::Value &thisVal, const jsi::Value *args, size_t count) -> jsi::Value {
+            return this->cpp_uniffi_maxhq_mobile_checksum_method_progresslistener_progress(rt, thisVal, args, count);
         }
     );
     props["ubrn_uniffi_maxhq_mobile_checksum_method_timelinelistener_id"] = jsi::Function::createFromHostFunction(
@@ -4150,12 +4294,12 @@ NativeMaxhqMobile::NativeMaxhqMobile(
             return this->cpp_ffi_maxhq_mobile_uniffi_contract_version(rt, thisVal, args, count);
         }
     );
-    props["ubrn_uniffi_internal_fn_method_medialistener_ffi__bless_pointer"] = jsi::Function::createFromHostFunction(
+    props["ubrn_uniffi_internal_fn_method_progresslistener_ffi__bless_pointer"] = jsi::Function::createFromHostFunction(
         rt,
-        jsi::PropNameID::forAscii(rt, "ubrn_uniffi_internal_fn_method_medialistener_ffi__bless_pointer"),
+        jsi::PropNameID::forAscii(rt, "ubrn_uniffi_internal_fn_method_progresslistener_ffi__bless_pointer"),
         1,
         [this](jsi::Runtime &rt, const jsi::Value &thisVal, const jsi::Value *args, size_t count) -> jsi::Value {
-            return this->cpp_uniffi_internal_fn_method_medialistener_ffi__bless_pointer(rt, thisVal, args, count);
+            return this->cpp_uniffi_internal_fn_method_progresslistener_ffi__bless_pointer(rt, thisVal, args, count);
         }
     );
     props["ubrn_uniffi_internal_fn_method_timelinelistener_ffi__bless_pointer"] = jsi::Function::createFromHostFunction(
@@ -4309,9 +4453,9 @@ uniffi::maxhq_mobile::cb::rustfuturecontinuationcallback::cleanup();
     // Cleanup for callback function ForeignFutureDroppedCallback
 uniffi::maxhq_mobile::cb::foreignfuturedroppedcallback::cleanup();
     // Cleanup for "free" callback function CallbackInterfaceFree
-uniffi::maxhq_mobile::st::vtablecallbackinterfacemedialistener::vtablecallbackinterfacemedialistener::free::cleanup();uniffi::maxhq_mobile::st::vtablecallbackinterfacetimelinelistener::vtablecallbackinterfacetimelinelistener::free::cleanup();uniffi::maxhq_mobile::st::vtablecallbackinterfaceviewlistener::vtablecallbackinterfaceviewlistener::free::cleanup();
-uniffi::maxhq_mobile::cb::callbackinterfaceclone::vtablecallbackinterfacemedialistener::cleanup();
-uniffi::maxhq_mobile::cb::callbackinterfacemedialistenermethod0::vtablecallbackinterfacemedialistener::cleanup();
+uniffi::maxhq_mobile::st::vtablecallbackinterfaceprogresslistener::vtablecallbackinterfaceprogresslistener::free::cleanup();uniffi::maxhq_mobile::st::vtablecallbackinterfacetimelinelistener::vtablecallbackinterfacetimelinelistener::free::cleanup();uniffi::maxhq_mobile::st::vtablecallbackinterfaceviewlistener::vtablecallbackinterfaceviewlistener::free::cleanup();
+uniffi::maxhq_mobile::cb::callbackinterfaceclone::vtablecallbackinterfaceprogresslistener::cleanup();
+uniffi::maxhq_mobile::cb::callbackinterfaceprogresslistenermethod0::vtablecallbackinterfaceprogresslistener::cleanup();
 uniffi::maxhq_mobile::cb::callbackinterfaceclone::vtablecallbackinterfacetimelinelistener::cleanup();
 uniffi::maxhq_mobile::cb::callbackinterfacetimelinelistenermethod0::vtablecallbackinterfacetimelinelistener::cleanup();
 uniffi::maxhq_mobile::cb::callbackinterfacetimelinelistenermethod1::vtablecallbackinterfacetimelinelistener::cleanup();
@@ -4334,11 +4478,11 @@ jsi::Value NativeMaxhqMobile::cpp_uniffi_internal_fn_func_ffi__string_from_buffe
 
 jsi::Value NativeMaxhqMobile::cpp_uniffi_internal_fn_func_ffi__read_string_from_buffer(jsi::Runtime& rt, const jsi::Value& thisVal, const jsi::Value* args, size_t count) {
     return uniffi_jsi::Bridging<std::string>::read_string_from_buffer(rt, args[0], args[1], args[2]);
-}jsi::Value NativeMaxhqMobile::cpp_uniffi_internal_fn_method_medialistener_ffi__bless_pointer(jsi::Runtime& rt, const jsi::Value& thisVal, const jsi::Value* args, size_t count) {
+}jsi::Value NativeMaxhqMobile::cpp_uniffi_internal_fn_method_progresslistener_ffi__bless_pointer(jsi::Runtime& rt, const jsi::Value& thisVal, const jsi::Value* args, size_t count) {
     auto pointer = uniffi_jsi::Bridging<uint64_t>::fromJs(rt, callInvoker, args[0]);
     auto static destructor = [](uint64_t p) {
         RustCallStatus status = {0};
-        uniffi_maxhq_mobile_fn_free_medialistener(p, &status);
+        uniffi_maxhq_mobile_fn_free_progresslistener(p, &status);
     };
     auto ptrObj = std::make_shared<uniffi_jsi::DestructibleObject>(pointer, destructor);
     auto obj = jsi::Object::createFromHostObject(rt, ptrObj);
@@ -4364,9 +4508,9 @@ jsi::Value NativeMaxhqMobile::cpp_uniffi_internal_fn_func_ffi__read_string_from_
 }
 
 // Methods calling directly into the uniffi generated C API of the Rust crate.
-jsi::Value NativeMaxhqMobile::cpp_uniffi_maxhq_mobile_fn_clone_medialistener(jsi::Runtime& rt, const jsi::Value& thisVal, const jsi::Value* args, size_t count) {
+jsi::Value NativeMaxhqMobile::cpp_uniffi_maxhq_mobile_fn_clone_progresslistener(jsi::Runtime& rt, const jsi::Value& thisVal, const jsi::Value* args, size_t count) {
         RustCallStatus status = uniffi::maxhq_mobile::Bridging<RustCallStatus>::rustSuccess(rt);
-        auto value = uniffi_maxhq_mobile_fn_clone_medialistener(uniffi_jsi::Bridging</*handle*/ uint64_t>::fromJs(rt, callInvoker, args[0]), 
+        auto value = uniffi_maxhq_mobile_fn_clone_progresslistener(uniffi_jsi::Bridging</*handle*/ uint64_t>::fromJs(rt, callInvoker, args[0]), 
             &status
         );
         uniffi::maxhq_mobile::Bridging<RustCallStatus>::copyIntoJs(rt, callInvoker, status, args[count - 1]);
@@ -4374,9 +4518,9 @@ jsi::Value NativeMaxhqMobile::cpp_uniffi_maxhq_mobile_fn_clone_medialistener(jsi
         
         return uniffi_jsi::Bridging</*handle*/ uint64_t>::toJs(rt, callInvoker, value);
 }
-jsi::Value NativeMaxhqMobile::cpp_uniffi_maxhq_mobile_fn_free_medialistener(jsi::Runtime& rt, const jsi::Value& thisVal, const jsi::Value* args, size_t count) {
+jsi::Value NativeMaxhqMobile::cpp_uniffi_maxhq_mobile_fn_free_progresslistener(jsi::Runtime& rt, const jsi::Value& thisVal, const jsi::Value* args, size_t count) {
         RustCallStatus status = uniffi::maxhq_mobile::Bridging<RustCallStatus>::rustSuccess(rt);
-        uniffi_maxhq_mobile_fn_free_medialistener(uniffi_jsi::Bridging</*handle*/ uint64_t>::fromJs(rt, callInvoker, args[0]), 
+        uniffi_maxhq_mobile_fn_free_progresslistener(uniffi_jsi::Bridging</*handle*/ uint64_t>::fromJs(rt, callInvoker, args[0]), 
             &status
         );
         uniffi::maxhq_mobile::Bridging<RustCallStatus>::copyIntoJs(rt, callInvoker, status, args[count - 1]);
@@ -4384,26 +4528,26 @@ jsi::Value NativeMaxhqMobile::cpp_uniffi_maxhq_mobile_fn_free_medialistener(jsi:
         
         return jsi::Value::undefined();
 }
-jsi::Value NativeMaxhqMobile::cpp_uniffi_maxhq_mobile_fn_init_callback_vtable_medialistener(jsi::Runtime& rt, const jsi::Value& thisVal, const jsi::Value* args, size_t count) {
+jsi::Value NativeMaxhqMobile::cpp_uniffi_maxhq_mobile_fn_init_callback_vtable_progresslistener(jsi::Runtime& rt, const jsi::Value& thisVal, const jsi::Value* args, size_t count) {
     auto vtableInstance =
-        uniffi::maxhq_mobile::Bridging<UniffiVTableCallbackInterfaceMediaListener>::fromJs(
+        uniffi::maxhq_mobile::Bridging<UniffiVTableCallbackInterfaceProgressListener>::fromJs(
             rt,
             callInvoker,
             args[0]
         );
 
     std::lock_guard<std::mutex> lock(uniffi::maxhq_mobile::registry::vtableMutex);
-    uniffi_maxhq_mobile_fn_init_callback_vtable_medialistener(
+    uniffi_maxhq_mobile_fn_init_callback_vtable_progresslistener(
         uniffi::maxhq_mobile::registry::putTable(
-            "UniffiVTableCallbackInterfaceMediaListener",
+            "UniffiVTableCallbackInterfaceProgressListener",
             vtableInstance
         )
     );
     return jsi::Value::undefined();
 }
-jsi::Value NativeMaxhqMobile::cpp_uniffi_maxhq_mobile_fn_method_medialistener_progress(jsi::Runtime& rt, const jsi::Value& thisVal, const jsi::Value* args, size_t count) {
+jsi::Value NativeMaxhqMobile::cpp_uniffi_maxhq_mobile_fn_method_progresslistener_progress(jsi::Runtime& rt, const jsi::Value& thisVal, const jsi::Value* args, size_t count) {
         RustCallStatus status = uniffi::maxhq_mobile::Bridging<RustCallStatus>::rustSuccess(rt);
-        uniffi_maxhq_mobile_fn_method_medialistener_progress(uniffi_jsi::Bridging</*handle*/ uint64_t>::fromJs(rt, callInvoker, args[0]), uniffi::maxhq_mobile::Bridging<RustBuffer>::fromJs(rt, callInvoker, args[1]), 
+        uniffi_maxhq_mobile_fn_method_progresslistener_progress(uniffi_jsi::Bridging</*handle*/ uint64_t>::fromJs(rt, callInvoker, args[0]), uniffi::maxhq_mobile::Bridging<RustBuffer>::fromJs(rt, callInvoker, args[1]), 
             &status
         );
         uniffi::maxhq_mobile::Bridging<RustCallStatus>::copyIntoJs(rt, callInvoker, status, args[count - 1]);
@@ -4535,6 +4679,27 @@ jsi::Value NativeMaxhqMobile::cpp_uniffi_maxhq_mobile_fn_func_app_state(jsi::Run
         
         return uniffi::maxhq_mobile::Bridging<RustBuffer>::toJs(rt, callInvoker, value);
 }
+jsi::Value NativeMaxhqMobile::cpp_uniffi_maxhq_mobile_fn_func_attach_from_agent(jsi::Runtime& rt, const jsi::Value& thisVal, const jsi::Value* args, size_t count) {
+        auto value = uniffi_maxhq_mobile_fn_func_attach_from_agent(uniffi::maxhq_mobile::Bridging<RustBuffer>::fromJs(rt, callInvoker, args[0]), uniffi::maxhq_mobile::Bridging<RustBuffer>::fromJs(rt, callInvoker, args[1]), uniffi::maxhq_mobile::Bridging<RustBuffer>::fromJs(rt, callInvoker, args[2]), uniffi::maxhq_mobile::Bridging<RustBuffer>::fromJs(rt, callInvoker, args[3]), uniffi_jsi::Bridging</*handle*/ uint64_t>::fromJs(rt, callInvoker, args[4])
+        );
+
+        
+        return uniffi_jsi::Bridging</*handle*/ uint64_t>::toJs(rt, callInvoker, value);
+}
+jsi::Value NativeMaxhqMobile::cpp_uniffi_maxhq_mobile_fn_func_copy_project(jsi::Runtime& rt, const jsi::Value& thisVal, const jsi::Value* args, size_t count) {
+        auto value = uniffi_maxhq_mobile_fn_func_copy_project(uniffi::maxhq_mobile::Bridging<RustBuffer>::fromJs(rt, callInvoker, args[0]), uniffi::maxhq_mobile::Bridging<RustBuffer>::fromJs(rt, callInvoker, args[1]), uniffi::maxhq_mobile::Bridging<RustBuffer>::fromJs(rt, callInvoker, args[2]), uniffi_jsi::Bridging</*handle*/ uint64_t>::fromJs(rt, callInvoker, args[3])
+        );
+
+        
+        return uniffi_jsi::Bridging</*handle*/ uint64_t>::toJs(rt, callInvoker, value);
+}
+jsi::Value NativeMaxhqMobile::cpp_uniffi_maxhq_mobile_fn_func_download(jsi::Runtime& rt, const jsi::Value& thisVal, const jsi::Value* args, size_t count) {
+        auto value = uniffi_maxhq_mobile_fn_func_download(uniffi::maxhq_mobile::Bridging<RustBuffer>::fromJs(rt, callInvoker, args[0]), uniffi::maxhq_mobile::Bridging<RustBuffer>::fromJs(rt, callInvoker, args[1]), uniffi_jsi::Bridging</*handle*/ uint64_t>::fromJs(rt, callInvoker, args[2])
+        );
+
+        
+        return uniffi_jsi::Bridging</*handle*/ uint64_t>::toJs(rt, callInvoker, value);
+}
 jsi::Value NativeMaxhqMobile::cpp_uniffi_maxhq_mobile_fn_func_forget_mac(jsi::Runtime& rt, const jsi::Value& thisVal, const jsi::Value* args, size_t count) {
         RustCallStatus status = uniffi::maxhq_mobile::Bridging<RustCallStatus>::rustSuccess(rt);
         auto value = uniffi_maxhq_mobile_fn_func_forget_mac(uniffi::maxhq_mobile::Bridging<RustBuffer>::fromJs(rt, callInvoker, args[0]), 
@@ -4564,6 +4729,13 @@ jsi::Value NativeMaxhqMobile::cpp_uniffi_maxhq_mobile_fn_func_network_changed(js
 }
 jsi::Value NativeMaxhqMobile::cpp_uniffi_maxhq_mobile_fn_func_open_timeline(jsi::Runtime& rt, const jsi::Value& thisVal, const jsi::Value* args, size_t count) {
         auto value = uniffi_maxhq_mobile_fn_func_open_timeline(uniffi::maxhq_mobile::Bridging<RustBuffer>::fromJs(rt, callInvoker, args[0]), uniffi_jsi::Bridging</*handle*/ uint64_t>::fromJs(rt, callInvoker, args[1])
+        );
+
+        
+        return uniffi_jsi::Bridging</*handle*/ uint64_t>::toJs(rt, callInvoker, value);
+}
+jsi::Value NativeMaxhqMobile::cpp_uniffi_maxhq_mobile_fn_func_open_workflow(jsi::Runtime& rt, const jsi::Value& thisVal, const jsi::Value* args, size_t count) {
+        auto value = uniffi_maxhq_mobile_fn_func_open_workflow(uniffi::maxhq_mobile::Bridging<RustBuffer>::fromJs(rt, callInvoker, args[0]), uniffi_jsi::Bridging</*handle*/ uint64_t>::fromJs(rt, callInvoker, args[1])
         );
 
         
@@ -4650,6 +4822,20 @@ jsi::Value NativeMaxhqMobile::cpp_uniffi_maxhq_mobile_fn_func_subscribe(jsi::Run
 
         
         return jsi::Value::undefined();
+}
+jsi::Value NativeMaxhqMobile::cpp_uniffi_maxhq_mobile_fn_func_upload(jsi::Runtime& rt, const jsi::Value& thisVal, const jsi::Value* args, size_t count) {
+        auto value = uniffi_maxhq_mobile_fn_func_upload(uniffi::maxhq_mobile::Bridging<RustBuffer>::fromJs(rt, callInvoker, args[0]), uniffi::maxhq_mobile::Bridging<RustBuffer>::fromJs(rt, callInvoker, args[1]), uniffi::maxhq_mobile::Bridging<RustBuffer>::fromJs(rt, callInvoker, args[2]), uniffi_jsi::Bridging</*handle*/ uint64_t>::fromJs(rt, callInvoker, args[3])
+        );
+
+        
+        return uniffi_jsi::Bridging</*handle*/ uint64_t>::toJs(rt, callInvoker, value);
+}
+jsi::Value NativeMaxhqMobile::cpp_uniffi_maxhq_mobile_fn_func_upload_pasted(jsi::Runtime& rt, const jsi::Value& thisVal, const jsi::Value* args, size_t count) {
+        auto value = uniffi_maxhq_mobile_fn_func_upload_pasted(uniffi::maxhq_mobile::Bridging<RustBuffer>::fromJs(rt, callInvoker, args[0]), uniffi::maxhq_mobile::Bridging<RustBuffer>::fromJs(rt, callInvoker, args[1]), uniffi::maxhq_mobile::Bridging<RustBuffer>::fromJs(rt, callInvoker, args[2]), uniffi::maxhq_mobile::Bridging<RustBuffer>::fromJs(rt, callInvoker, args[3]), uniffi::maxhq_mobile::Bridging<RustBuffer>::fromJs(rt, callInvoker, args[4]), uniffi_jsi::Bridging</*handle*/ uint64_t>::fromJs(rt, callInvoker, args[5])
+        );
+
+        
+        return uniffi_jsi::Bridging</*handle*/ uint64_t>::toJs(rt, callInvoker, value);
 }
 jsi::Value NativeMaxhqMobile::cpp_ffi_maxhq_mobile_rust_future_poll_u8(jsi::Runtime& rt, const jsi::Value& thisVal, const jsi::Value* args, size_t count) {
         ffi_maxhq_mobile_rust_future_poll_u8(uniffi_jsi::Bridging</*handle*/ uint64_t>::fromJs(rt, callInvoker, args[0]), uniffi::maxhq_mobile::Bridging<UniffiRustFutureContinuationCallback>::fromJs(rt, callInvoker, args[1]), uniffi_jsi::Bridging</*handle*/ uint64_t>::fromJs(rt, callInvoker, args[2])
@@ -5037,6 +5223,27 @@ jsi::Value NativeMaxhqMobile::cpp_uniffi_maxhq_mobile_checksum_func_app_state(js
         
         return uniffi_jsi::Bridging<uint16_t>::toJs(rt, callInvoker, value);
 }
+jsi::Value NativeMaxhqMobile::cpp_uniffi_maxhq_mobile_checksum_func_attach_from_agent(jsi::Runtime& rt, const jsi::Value& thisVal, const jsi::Value* args, size_t count) {
+        auto value = uniffi_maxhq_mobile_checksum_func_attach_from_agent(
+        );
+
+        
+        return uniffi_jsi::Bridging<uint16_t>::toJs(rt, callInvoker, value);
+}
+jsi::Value NativeMaxhqMobile::cpp_uniffi_maxhq_mobile_checksum_func_copy_project(jsi::Runtime& rt, const jsi::Value& thisVal, const jsi::Value* args, size_t count) {
+        auto value = uniffi_maxhq_mobile_checksum_func_copy_project(
+        );
+
+        
+        return uniffi_jsi::Bridging<uint16_t>::toJs(rt, callInvoker, value);
+}
+jsi::Value NativeMaxhqMobile::cpp_uniffi_maxhq_mobile_checksum_func_download(jsi::Runtime& rt, const jsi::Value& thisVal, const jsi::Value* args, size_t count) {
+        auto value = uniffi_maxhq_mobile_checksum_func_download(
+        );
+
+        
+        return uniffi_jsi::Bridging<uint16_t>::toJs(rt, callInvoker, value);
+}
 jsi::Value NativeMaxhqMobile::cpp_uniffi_maxhq_mobile_checksum_func_forget_mac(jsi::Runtime& rt, const jsi::Value& thisVal, const jsi::Value* args, size_t count) {
         auto value = uniffi_maxhq_mobile_checksum_func_forget_mac(
         );
@@ -5060,6 +5267,13 @@ jsi::Value NativeMaxhqMobile::cpp_uniffi_maxhq_mobile_checksum_func_network_chan
 }
 jsi::Value NativeMaxhqMobile::cpp_uniffi_maxhq_mobile_checksum_func_open_timeline(jsi::Runtime& rt, const jsi::Value& thisVal, const jsi::Value* args, size_t count) {
         auto value = uniffi_maxhq_mobile_checksum_func_open_timeline(
+        );
+
+        
+        return uniffi_jsi::Bridging<uint16_t>::toJs(rt, callInvoker, value);
+}
+jsi::Value NativeMaxhqMobile::cpp_uniffi_maxhq_mobile_checksum_func_open_workflow(jsi::Runtime& rt, const jsi::Value& thisVal, const jsi::Value* args, size_t count) {
+        auto value = uniffi_maxhq_mobile_checksum_func_open_workflow(
         );
 
         
@@ -5128,8 +5342,22 @@ jsi::Value NativeMaxhqMobile::cpp_uniffi_maxhq_mobile_checksum_func_subscribe(js
         
         return uniffi_jsi::Bridging<uint16_t>::toJs(rt, callInvoker, value);
 }
-jsi::Value NativeMaxhqMobile::cpp_uniffi_maxhq_mobile_checksum_method_medialistener_progress(jsi::Runtime& rt, const jsi::Value& thisVal, const jsi::Value* args, size_t count) {
-        auto value = uniffi_maxhq_mobile_checksum_method_medialistener_progress(
+jsi::Value NativeMaxhqMobile::cpp_uniffi_maxhq_mobile_checksum_func_upload(jsi::Runtime& rt, const jsi::Value& thisVal, const jsi::Value* args, size_t count) {
+        auto value = uniffi_maxhq_mobile_checksum_func_upload(
+        );
+
+        
+        return uniffi_jsi::Bridging<uint16_t>::toJs(rt, callInvoker, value);
+}
+jsi::Value NativeMaxhqMobile::cpp_uniffi_maxhq_mobile_checksum_func_upload_pasted(jsi::Runtime& rt, const jsi::Value& thisVal, const jsi::Value* args, size_t count) {
+        auto value = uniffi_maxhq_mobile_checksum_func_upload_pasted(
+        );
+
+        
+        return uniffi_jsi::Bridging<uint16_t>::toJs(rt, callInvoker, value);
+}
+jsi::Value NativeMaxhqMobile::cpp_uniffi_maxhq_mobile_checksum_method_progresslistener_progress(jsi::Runtime& rt, const jsi::Value& thisVal, const jsi::Value* args, size_t count) {
+        auto value = uniffi_maxhq_mobile_checksum_method_progresslistener_progress(
         );
 
         

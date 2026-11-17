@@ -7,31 +7,38 @@
 // the shared ones in request-source. Each reply comes back as a string,
 // `{"status":"ok","data":...}` or `{"status":"error","error":...}`.
 //
-// The phone has one window, so every timeline it opens shares one listener,
-// as a desktop window's share one channel. Pictures come through the media
-// cache in the core's cache folder. Other transfers, workflow runs and device
-// setup aren't on the phone yet, and say so.
+// The phone has one window, so every timeline and workflow run it opens
+// shares one listener of its kind, as a desktop window's share one channel.
+// Pictures come through the media cache in the core's cache folder, and
+// downloads land in its downloads folder. Device setup and fleet updates
+// aren't on the phone yet, and say so.
 
 import { t } from "@maxhq/shared/i18n";
 
 import type {
+	ActionOutcome,
 	AgentId,
 	CommandError,
+	CopiedProject,
 	Delta,
+	Downloaded,
 	MediaFile,
 	PhoneBook,
 	PushToken,
 	Request,
 	Response,
+	RunKey,
 	TimelineMessage,
 	TransferProgress,
+	WorkflowMessage,
 } from "@maxhq/shared/bindings";
 import {
 	asker,
-	describe,
 	orThrow,
 	requestCalls,
 	timelines,
+	toBase64,
+	workflows,
 	type Result,
 } from "@maxhq/shared/data/request-source";
 import type { DataSource, Unsubscribe } from "@maxhq/shared/data/source";
@@ -40,14 +47,17 @@ import type { PhoneNetwork } from "@maxhq/shared/status/phone-network";
 /** Gets the view's changes, each call a JSON array of `Delta` oldest first. */
 export type ViewListener = { changed: (deltas: string) => void };
 
-/** Gets one screen's timeline batches, each a JSON array of `TimelineMessage`. */
+/**
+ * Gets one screen's batches, each a JSON array of `TimelineMessage` for a
+ * timeline or of `WorkflowMessage` for a workflow run.
+ */
 export type TimelineListener = {
 	id: () => number;
 	batch: (messages: string) => boolean;
 };
 
-/** Hears how far a picture has got, each `TransferProgress` as JSON. */
-export type MediaListener = { progress: (progress: string) => void };
+/** Hears how far a transfer has got, each `TransferProgress` as JSON. */
+export type ProgressListener = { progress: (progress: string) => void };
 
 /** The core's calls, as the generated module has them. Each reply is JSON. */
 export type Bridge = {
@@ -55,7 +65,41 @@ export type Bridge = {
 	request: (json: string) => Promise<string>;
 	subscribe: (listener: ViewListener) => void;
 	openTimeline: (agent: string, listener: TimelineListener) => Promise<string>;
-	media: (agent: string, path: string, limit: number, listener: MediaListener) => Promise<string>;
+	openWorkflow: (run: string, listener: TimelineListener) => Promise<string>;
+	media: (
+		agent: string,
+		path: string,
+		limit: number,
+		listener: ProgressListener
+	) => Promise<string>;
+	upload: (
+		device: string,
+		target: string,
+		path: string,
+		listener: ProgressListener
+	) => Promise<string>;
+	uploadPasted: (
+		device: string,
+		target: string,
+		name: string,
+		mime: string,
+		data: string,
+		listener: ProgressListener
+	) => Promise<string>;
+	download: (agent: string, path: string, listener: ProgressListener) => Promise<string>;
+	attachFromAgent: (
+		device: string,
+		target: string,
+		agent: string,
+		path: string,
+		listener: ProgressListener
+	) => Promise<string>;
+	copyProject: (
+		from: string,
+		target: string,
+		files: string,
+		listener: ProgressListener
+	) => Promise<string>;
 	appState: (state: string) => string;
 	networkChanged: (kind: string) => string;
 	pushToken: (token: string) => string;
@@ -115,32 +159,25 @@ const failed = (message: string): { status: "error"; error: CommandError } => ({
 });
 
 /** What a call the phone can't make yet answers. */
-const notOnPhone = (what: string) =>
+const notOnPhone = (what: "update devices" | "set devices up") =>
 	failed(
-		t(
-			(
-				{
-					"show workflow runs": "The phone can't show workflow runs yet",
-					"copy projects": "The phone can't copy projects yet",
-					"send files": "The phone can't send files yet",
-					"download files": "The phone can't download files yet",
-					"update devices": "The phone can't update devices yet",
-					"set devices up": "The phone can't set devices up yet",
-				} as Record<string, string>
-			)[what] ?? "The phone can't {{action}} yet",
-			{ action: what }
-		)
+		what === "update devices"
+			? t("The phone can't update devices yet")
+			: t("The phone can't set devices up yet")
 	);
 
-/** Rejects, for a call that resolves with its value. */
-const refuse = async (what: string): Promise<never> => {
-	const { error } = notOnPhone(what);
-	throw new Error(describe(error), { cause: error });
-};
+/** Hands each step of a transfer to `onProgress`. */
+const progressTo = (onProgress: (progress: TransferProgress) => void): ProgressListener => ({
+	progress: (json) => onProgress(JSON.parse(json) as TransferProgress),
+});
 
 /** A `file://` URL's path, as the core opens it. */
 export const pathOf = (uri: string) =>
 	decodeURIComponent(uri.replace(/^file:\/\//, "")).replace(/\/$/, "");
+
+/** The `file://` URL of a path the core gave, such as a download's. */
+export const urlOf = (path: string) =>
+	`file://${path.split("/").map(encodeURIComponent).join("/")}`;
 
 /**
  * A file in the media cache, as an image loads it. It's worked out on each
@@ -192,19 +229,75 @@ export const nativeSource = (bridge: Bridge, cache: string): DataSource => {
 			async (agent: AgentId, listener) =>
 				readReply<null>(await bridge.openTimeline(agent, listener))
 		),
-		openWorkflow: () => refuse("show workflow runs"),
-		copyProject: () => refuse("copy projects"),
-		upload: async (_device, _target, paths) => paths.map(() => notOnPhone("send files")),
-		uploadPasted: async () => notOnPhone("send files"),
-		attachFromAgent: async () => notOnPhone("send files"),
-		download: async () => notOnPhone("download files"),
+		openWorkflow: workflows(
+			ask,
+			(deliver): TimelineListener => ({
+				id: () => screen,
+				batch: (json) => {
+					deliver(JSON.parse(json) as WorkflowMessage[]);
+					return true;
+				},
+			}),
+			async (run: RunKey, listener) =>
+				readReply<null>(await bridge.openWorkflow(JSON.stringify(run), listener))
+		),
+		copyProject: async (from, target, files, onProgress) =>
+			orThrow(
+				readReply<CopiedProject>(
+					await bridge.copyProject(
+						from,
+						JSON.stringify(target),
+						JSON.stringify(files),
+						progressTo(onProgress)
+					)
+				)
+			),
+		// One file at a time, each a path in the app's caches folder, where
+		// the pickers copy what you pick.
+		upload: async (device, target, paths, onProgress) => {
+			const results = [];
+			for (const path of paths) {
+				results.push(
+					readReply<ActionOutcome>(
+						await bridge.upload(
+							device,
+							JSON.stringify(target),
+							path,
+							progressTo(onProgress)
+						)
+					)
+				);
+			}
+			return results;
+		},
+		uploadPasted: async (device, target, name, mime, bytes, onProgress) =>
+			readReply<ActionOutcome>(
+				await bridge.uploadPasted(
+					device,
+					JSON.stringify(target),
+					name,
+					mime,
+					toBase64(bytes),
+					progressTo(onProgress)
+				)
+			),
+		attachFromAgent: async (device, target, from, path, onProgress) =>
+			readReply<ActionOutcome>(
+				await bridge.attachFromAgent(
+					device,
+					JSON.stringify(target),
+					from,
+					path,
+					progressTo(onProgress)
+				)
+			),
+		download: async (agent, path, onProgress) =>
+			readReply<Downloaded>(await bridge.download(agent, path, progressTo(onProgress))),
 		// A phone never asks for a file outside the agent's folders, so the
 		// core leaves Show anyway off whatever `anyway` says.
 		media: async (agent, path, limit, _anyway, onProgress) => {
 			const result = readReply<MediaFile>(
-				await bridge.media(agent, path, limit, {
-					progress: (json) => onProgress(JSON.parse(json) as TransferProgress),
-				})
+				await bridge.media(agent, path, limit, progressTo(onProgress))
 			);
 			if (result.status === "error") return result;
 			const file = result.data;

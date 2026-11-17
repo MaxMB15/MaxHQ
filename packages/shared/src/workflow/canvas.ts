@@ -8,7 +8,7 @@
 // or from `columnLayout` where ELK can't run. It depends only on the
 // shape, so a view lays a run out once per `shape.hash`.
 
-import { t } from "../i18n";
+import { t, formatNumber } from "../i18n";
 
 import type {
 	AgentId,
@@ -19,6 +19,8 @@ import type {
 	RunShape,
 	Tone,
 } from "../bindings";
+import { formatDuration } from "../status/format";
+import { glyphOf } from "./glyphs";
 import { loopTone } from "./layout";
 
 /** A card's size. */
@@ -405,3 +407,17 @@ export const timeline = (
 		? { rows, start: now, end: now, missing }
 		: { rows, start, end, missing };
 };
+
+/**
+ * What a timeline bar says to a screen reader, as try `index` of its node,
+ * counted from 0: how it went, how long it took, and whether it opens an
+ * agent.
+ */
+export const barLabel = (bar: TimelineBar, index: number): string =>
+	t("Try {{value1}}, {{label}}, {{value3}}{{value4}}{{value5}}", {
+		value1: formatNumber(index + 1),
+		label: glyphOf(bar.status).label,
+		value3: formatDuration(bar.end - bar.start),
+		value4: bar.running ? t(" so far") : "",
+		value5: bar.agent ? t(", opens its agent") : "",
+	});

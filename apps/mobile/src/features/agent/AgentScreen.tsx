@@ -68,6 +68,7 @@ import { promptOfEvent } from "../attention/prompt";
 import { PullChips } from "../pulls";
 import { Automations } from "../tasks";
 import { LeaseChips } from "../test-hosts/LeaseChips";
+import { RunChipBar } from "../workflow/RunChips";
 import { AgentMore } from "./AgentMore";
 import { CloneBanner } from "./CloneBanner";
 import { hasComposer } from "./compose";
@@ -291,6 +292,7 @@ const AgentBody = ({
 			<Automations agent={agent} />
 			<LeaseChips agent={agent.id} bar />
 			<SkillsChip agent={agent.id} />
+			<RunChipBar agent={agent.id} />
 			{exporting.loading ? <ExportBar /> : null}
 			<ConnectionBanner />
 			<FindProvider store={found.find.store}>

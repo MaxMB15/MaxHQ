@@ -46,6 +46,9 @@ import { LeaseScreen } from "./features/test-hosts/LeaseScreen";
 import { UsageScreen } from "./features/usage/UsageScreen";
 import { FileScreen } from "./features/viewer/FileScreen";
 import { VisualScreen } from "./features/visuals/VisualScreen";
+import { RunScreen } from "./features/workflow/RunScreen";
+import { WorkflowsScreen } from "./features/workflow/WorkflowsScreen";
+import { CopyProjectScreen } from "./features/workspaces/CopyProjectScreen";
 import { NewWorkspaceScreen } from "./features/workspaces/NewWorkspaceScreen";
 import {
 	agentPageId,
@@ -55,6 +58,7 @@ import {
 	leaseScreenId,
 	noteScreenId,
 	pullScreenId,
+	runScreenId,
 	type Screens,
 } from "./navigation";
 import { pushNavigation, PushSetup } from "./push/PushSetup";
@@ -90,8 +94,9 @@ const SCREEN = {
 // maxhq://pull/<device>/<n>?repo=<owner/repo> opens a PR, maxhq://task/<id>
 // a task's history, and maxhq://task-editor?task=<id> its editor (no task
 // makes a new one). maxhq://skills/<project> opens a project's skills,
-// maxhq://skill-library the library, and maxhq://skill-proposal/<id> a
-// proposal.
+// maxhq://skill-library the library, maxhq://skill-proposal/<id> a
+// proposal, maxhq://workflows/<project> a project's runs and
+// maxhq://run/<device>/<project>/<workflow>/<run> one run.
 // maxhq://phone is the old name for Settings. A pairing code,
 // maxhq:<code>, opens Scan with the code ready to pair.
 // Whatever a link opens sits over the inbox, so Back has somewhere to go.
@@ -138,6 +143,9 @@ const linking: LinkingOptions<Screens> = {
 			Skills: "skills/:project",
 			SkillLibrary: "skill-library",
 			SkillProposal: "skill-proposal/:proposal",
+			Workflows: "workflows/:project",
+			Run: "run/:device/:project/:workflow/:run",
+			CopyProject: "copy-project",
 		},
 	},
 };
@@ -207,6 +215,13 @@ export const App = () => {
 							getId={deviceScreenId}
 						/>
 						<Stack.Screen name="Lease" component={LeaseScreen} getId={leaseScreenId} />
+						<Stack.Screen name="Workflows" component={WorkflowsScreen} />
+						<Stack.Screen name="Run" component={RunScreen} getId={runScreenId} />
+						<Stack.Screen
+							name="CopyProject"
+							component={CopyProjectScreen}
+							options={{ presentation: "modal" }}
+						/>
 						<Stack.Screen
 							name="Licences"
 							component={LicencesScreen}

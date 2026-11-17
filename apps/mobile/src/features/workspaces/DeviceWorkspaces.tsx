@@ -3,9 +3,9 @@
 
 // A device's container workspaces on its page, as the desktop shows them:
 // a row for each one MaxHQ made, a note on the containers it leaves alone,
-// and New workspace, which opens the form. Making one needs the Mac's
-// switch for this phone. Copying a project to another device isn't on the
-// phone yet, so its button stays off.
+// New workspace, which opens the form, and Copy to another device, which
+// opens the copy form with this device to copy onto. Both need the Mac's
+// switch for this phone.
 
 import { useI18n } from "@maxhq/shared/i18n";
 
@@ -15,7 +15,7 @@ import { StyleSheet, View } from "react-native";
 
 import { useNow } from "@maxhq/shared/lib/clock";
 import { deviceWorkspaces, showsSnapshots } from "@maxhq/shared/workspaces/device";
-import { workspaceActions } from "@maxhq/shared/workspaces/state";
+import { canCopy, workspaceActions } from "@maxhq/shared/workspaces/state";
 
 import type { Screens } from "../../navigation";
 import { Button } from "../../ui/Button";
@@ -68,33 +68,30 @@ export const DeviceWorkspaces = ({ device, name, view }: SectionProps) => {
 			<CardBody>
 				{section.footer ? <Muted>{section.footer}</Muted> : null}
 				{makes ? (
-					<View>
-						<Buttons>
-							<Button
-								label={t("New workspace")}
-								tone="primary"
-								disabled={!live || !lets}
-								onPress={() => navigation.navigate("NewWorkspace", { device })}
-							/>
-						</Buttons>
-						{lets ? null : <NeedsSwitch />}
-					</View>
+					<Buttons>
+						<Button
+							label={t("New workspace")}
+							tone="primary"
+							disabled={!live || !lets}
+							onPress={() => navigation.navigate("NewWorkspace", { device })}
+						/>
+					</Buttons>
 				) : null}
 				<View style={styles.copy}>
 					<Button
 						label={t("Copy to another device…")}
-						hint={t("Not on the phone yet")}
 						small
-						disabled
-						onPress={() => undefined}
+						disabled={!live || !canCopy(view, device) || !lets}
+						onPress={() => navigation.navigate("CopyProject", { device })}
 					/>
-					<Muted>{t("Not on the phone yet")}</Muted>
 				</View>
+				{lets ? null : <NeedsSwitch />}
 			</CardBody>
 		</Card>
 	);
 };
 
 const styles = StyleSheet.create({
-	copy: { flexDirection: "row", alignItems: "center", gap: 10, flexWrap: "wrap" },
+	// A row, so the small button keeps its own width.
+	copy: { flexDirection: "row" },
 });

@@ -25,9 +25,12 @@ mod phone;
 use std::sync::{Arc, Mutex, OnceLock, PoisonError};
 
 use maxhq_app::request::{CommandError, Request};
-use maxhq_app::timeline::{Sink, TimelineMessage};
-use maxhq_protocol::ids::{AgentId, DeviceId};
+use maxhq_app::timeline::Sink;
+use maxhq_app::transfers::CopyTarget;
+use maxhq_protocol::ids::{AgentId, DeviceId, WorkspaceId};
+use maxhq_protocol::message::UploadTarget;
 use maxhq_protocol::phones::PushToken;
+use maxhq_protocol::workflow::RunKey;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -80,8 +83,9 @@ pub trait ViewListener: Send + Sync + 'static {
     fn changed(&self, delta: String);
 }
 
-/// Gets one screen's timeline batches, each a JSON array of
-/// `TimelineMessage`, the same JSON the desktop's timeline channel carries.
+/// Gets one screen's batches, each a JSON array: of `TimelineMessage` for
+/// an agent's timeline, or of `WorkflowMessage` for a workflow run, the
+/// same JSON the desktop's timeline and workflow channels carry.
 #[uniffi::export(with_foreign)]
 pub trait TimelineListener: Send + Sync + 'static {
     /// Tells screens apart. A screen that opens again uses a new one.
@@ -91,22 +95,22 @@ pub trait TimelineListener: Send + Sync + 'static {
     fn batch(&self, messages: String) -> bool;
 }
 
-/// Hears how far a picture has got, one `TransferProgress` as JSON per call,
-/// the same JSON the desktop's progress channel carries.
+/// Hears how far a transfer has got, one `TransferProgress` as JSON per
+/// call, the same JSON the desktop's progress channel carries.
 #[uniffi::export(with_foreign)]
-pub trait MediaListener: Send + Sync + 'static {
+pub trait ProgressListener: Send + Sync + 'static {
     fn progress(&self, progress: String);
 }
 
-/// A [`TimelineListener`] as the core's [`Sink`].
+/// A [`TimelineListener`] as the core's [`Sink`], for timelines and runs.
 pub struct Screen(pub Arc<dyn TimelineListener>);
 
-impl Sink for Screen {
+impl<M: Serialize> Sink<M> for Screen {
     fn id(&self) -> u32 {
         self.0.id()
     }
 
-    fn send(&self, batch: Vec<TimelineMessage>) -> bool {
+    fn send(&self, batch: Vec<M>) -> bool {
         match serde_json::to_string(&batch) {
             Ok(json) => self.0.batch(json),
             Err(_) => false,
@@ -195,12 +199,132 @@ pub async fn media(
     agent: String,
     path: String,
     limit: u32,
-    listener: Arc<dyn MediaListener>,
+    listener: Arc<dyn ProgressListener>,
 ) -> String {
     let asked =
         word::<AgentId>(&agent).and_then(|agent| Ok(core()?.media(agent, path, limit, listener)));
     match asked {
         Ok(fetched) => reply(fetched.await),
+        Err(error) => reply::<()>(Err(error)),
+    }
+}
+
+/// Opens a workflow run on one screen. `run` is a `RunKey` as JSON, and
+/// batches of `WorkflowMessage` reach `listener`, starting with a reset.
+/// Answers a reply with `data: null`. Close it with a `close_workflow`
+/// request.
+#[uniffi::export]
+pub async fn open_workflow(run: String, listener: Arc<dyn TimelineListener>) -> String {
+    let opened = read::<RunKey>(&run)
+        .and_then(|run| Ok(core()?.open_workflow(run, Arc::new(Screen(listener)))));
+    match opened {
+        Ok(opened) => reply(opened.await),
+        Err(error) => reply::<()>(Err(error)),
+    }
+}
+
+/// Uploads a file you picked to `target` on `device`, with how far it has
+/// got going to `listener`. `device` is its ID as a JSON string's
+/// contents, `target` is an `UploadTarget` as JSON, and `path` has to be in
+/// the app's caches folder, where the pickers copy what you pick. Answers a
+/// reply whose `data` is the `ActionOutcome`. Stop it with a
+/// `cancel_transfer` request.
+#[uniffi::export]
+pub async fn upload(
+    device: String,
+    target: String,
+    path: String,
+    listener: Arc<dyn ProgressListener>,
+) -> String {
+    let asked = word::<DeviceId>(&device)
+        .and_then(|device| Ok((device, read::<UploadTarget>(&target)?)))
+        .and_then(|(device, target)| Ok(core()?.upload(device, target, path, listener)));
+    match asked {
+        Ok(sent) => reply(sent.await),
+        Err(error) => reply::<()>(Err(error)),
+    }
+}
+
+/// Uploads pasted bytes to `target` on `device` as one file called
+/// `name`, with how far it has got going to `listener`. `data` is the
+/// bytes in base64, and the rest reads as [`upload`] says. Answers a reply
+/// whose `data` is the `ActionOutcome`.
+#[uniffi::export]
+pub async fn upload_pasted(
+    device: String,
+    target: String,
+    name: String,
+    mime: String,
+    data: String,
+    listener: Arc<dyn ProgressListener>,
+) -> String {
+    let asked = word::<DeviceId>(&device)
+        .and_then(|device| Ok((device, read::<UploadTarget>(&target)?)))
+        .and_then(|(device, target)| {
+            Ok(core()?.upload_pasted(device, target, name, mime, data, listener))
+        });
+    match asked {
+        Ok(sent) => reply(sent.await),
+        Err(error) => reply::<()>(Err(error)),
+    }
+}
+
+/// Fetches a file or folder `agent` can see into the cache folder's
+/// `downloads`, under a name nothing there has yet, with how far it has
+/// got going to `listener`. `agent` is its ID as a JSON string's contents.
+/// Answers a reply whose `data` is a `Downloaded`. Stop it with a
+/// `cancel_transfer` request.
+#[uniffi::export]
+pub async fn download(agent: String, path: String, listener: Arc<dyn ProgressListener>) -> String {
+    let asked =
+        word::<AgentId>(&agent).and_then(|agent| Ok(core()?.download(agent, path, listener)));
+    match asked {
+        Ok(fetched) => reply(fetched.await),
+        Err(error) => reply::<()>(Err(error)),
+    }
+}
+
+/// Readies a file or folder `agent` can see for an agent on `device`, with
+/// both legs going to `listener`. `target` is an `UploadTarget` as JSON, or
+/// `null` to stage it on `device`. Answers a reply whose `data` is the
+/// `ActionOutcome`.
+#[uniffi::export]
+pub async fn attach_from_agent(
+    device: String,
+    target: String,
+    agent: String,
+    path: String,
+    listener: Arc<dyn ProgressListener>,
+) -> String {
+    let asked = word::<DeviceId>(&device)
+        .and_then(|device| Ok((device, read::<Option<UploadTarget>>(&target)?)))
+        .and_then(|(device, target)| Ok((device, target, word::<AgentId>(&agent)?)))
+        .and_then(|(device, target, agent)| {
+            Ok(core()?.attach_from_agent(device, target, agent, path, listener))
+        });
+    match asked {
+        Ok(staged) => reply(staged.await),
+        Err(error) => reply::<()>(Err(error)),
+    }
+}
+
+/// Copies the project of workspace `from` to `target`, a `CopyTarget` as
+/// JSON, with the ignored `files` it names, a JSON array of paths, and the
+/// files' transfers going to `listener`. `from` is its ID as a JSON
+/// string's contents. Answers a reply whose `data` is a `CopiedProject`.
+#[uniffi::export]
+pub async fn copy_project(
+    from: String,
+    target: String,
+    files: String,
+    listener: Arc<dyn ProgressListener>,
+) -> String {
+    let asked = word::<WorkspaceId>(&from)
+        .and_then(|from| Ok((from, read::<CopyTarget>(&target)?)))
+        .and_then(|(from, target)| Ok((from, target, read::<Vec<String>>(&files)?)))
+        .and_then(|(from, target, files)| Ok(core()?.copy_project(from, target, files, listener)));
+    match asked {
+        Ok(copied) => reply(copied.await),
         Err(error) => reply::<()>(Err(error)),
     }
 }
@@ -352,7 +476,10 @@ mod tests {
     use std::task::{Context, Poll, Waker};
 
     use maxhq_app::pair_code::PairCode;
+    use maxhq_app::timeline::TimelineMessage;
+    use maxhq_app::workflow::WorkflowMessage;
     use maxhq_protocol::phones::{PhoneBook, PhoneBookEntry, PhoneMac, PhoneRoute};
+    use maxhq_protocol::workflow::{RunPatch, WorkflowUpdate};
     use serde_json::json;
 
     use super::*;
@@ -409,9 +536,62 @@ mod tests {
             not_started
         );
         assert_eq!(
-            parsed(now(media(agent, "shot.png".into(), 1024, recorder))),
+            parsed(now(media(
+                agent.clone(),
+                "shot.png".into(),
+                1024,
+                recorder.clone()
+            ))),
             not_started
         );
+        let device = DeviceId::derive("devbox").to_string();
+        let target = json!({ "type": "device" }).to_string();
+        for call in [
+            parsed(now(open_workflow(run().to_string(), recorder.clone()))),
+            parsed(now(upload(
+                device.clone(),
+                target.clone(),
+                "/picked/shot.png".into(),
+                recorder.clone(),
+            ))),
+            parsed(now(upload_pasted(
+                device.clone(),
+                target,
+                "shot.png".into(),
+                "image/png".into(),
+                "AAAA".into(),
+                recorder.clone(),
+            ))),
+            parsed(now(download(
+                agent.clone(),
+                "out.txt".into(),
+                recorder.clone(),
+            ))),
+            parsed(now(attach_from_agent(
+                device.clone(),
+                "null".into(),
+                agent,
+                "out.txt".into(),
+                recorder.clone(),
+            ))),
+            parsed(now(copy_project(
+                WorkspaceId::derive("workspace").to_string(),
+                json!({ "type": "container", "device": device, "name": null }).to_string(),
+                "[]".into(),
+                recorder,
+            ))),
+        ] {
+            assert_eq!(call, not_started);
+        }
+    }
+
+    fn run() -> Value {
+        json!({
+            "device": DeviceId::derive("devbox").to_string(),
+            "project": maxhq_protocol::ids::ProjectId::derive("project").to_string(),
+            "workflow": "build",
+            "run": "run-1",
+        })
     }
 
     #[test]
@@ -427,6 +607,55 @@ mod tests {
                 "nobody".into(),
                 "shot.png".into(),
                 1024,
+                Arc::new(Recorder::default()),
+            ))),
+            parsed(now(open_workflow(
+                r#"{"device":"nobody"}"#.into(),
+                Arc::new(Recorder::default()),
+            ))),
+            parsed(now(upload(
+                "nobody".into(),
+                r#"{"type":"device"}"#.into(),
+                "shot.png".into(),
+                Arc::new(Recorder::default()),
+            ))),
+            parsed(now(upload(
+                DeviceId::derive("devbox").to_string(),
+                r#"{"type":"nowhere"}"#.into(),
+                "shot.png".into(),
+                Arc::new(Recorder::default()),
+            ))),
+            parsed(now(upload_pasted(
+                DeviceId::derive("devbox").to_string(),
+                "{}".into(),
+                "shot.png".into(),
+                "image/png".into(),
+                "AAAA".into(),
+                Arc::new(Recorder::default()),
+            ))),
+            parsed(now(download(
+                "nobody".into(),
+                "out.txt".into(),
+                Arc::new(Recorder::default()),
+            ))),
+            parsed(now(attach_from_agent(
+                DeviceId::derive("devbox").to_string(),
+                "null".into(),
+                "nobody".into(),
+                "out.txt".into(),
+                Arc::new(Recorder::default()),
+            ))),
+            parsed(now(copy_project(
+                WorkspaceId::derive("workspace").to_string(),
+                r#"{"type":"folder","device":"nobody"}"#.into(),
+                "[]".into(),
+                Arc::new(Recorder::default()),
+            ))),
+            parsed(now(copy_project(
+                WorkspaceId::derive("workspace").to_string(),
+                json!({ "type": "container", "device": DeviceId::derive("devbox"), "name": null })
+                    .to_string(),
+                r#"["a", 2]"#.into(),
                 Arc::new(Recorder::default()),
             ))),
         ] {
@@ -465,7 +694,7 @@ mod tests {
         }
     }
 
-    impl MediaListener for Recorder {
+    impl ProgressListener for Recorder {
         fn progress(&self, progress: String) {
             self.0.lock().unwrap().push(progress);
         }
@@ -492,9 +721,23 @@ mod tests {
     fn a_screen_gets_batches_as_json_arrays() {
         let recorder = Arc::new(Recorder::default());
         let screen = Screen(recorder.clone());
-        assert_eq!(screen.id(), 7);
-        assert!(screen.send(Vec::new()));
-        assert_eq!(*recorder.0.lock().unwrap(), ["[]"]);
+        assert_eq!(Sink::<TimelineMessage>::id(&screen), 7);
+        assert!(Sink::<TimelineMessage>::send(&screen, Vec::new()));
+        let key: RunKey = serde_json::from_value(run()).unwrap();
+        assert!(screen.send(vec![WorkflowMessage {
+            run: key.clone(),
+            update: WorkflowUpdate::Patch(RunPatch {
+                key,
+                rev: 2,
+                nodes: Vec::new(),
+                loops: None,
+                header: None,
+            }),
+        }]));
+        let batches = recorder.0.lock().unwrap();
+        assert_eq!(batches[0], "[]");
+        let runs: Value = serde_json::from_str(&batches[1]).unwrap();
+        assert_eq!(runs[0]["run"], run());
     }
 
     /// A fresh app folder under the system temp folder, with a data folder
@@ -604,6 +847,26 @@ mod tests {
         assert!(media.join("first.png").exists());
         assert!(!media.join("second.png").exists());
         assert!(data.dir().join("maxhq.db").exists());
+    }
+
+    #[test]
+    fn the_phone_uploads_only_what_you_picked() {
+        let data = Data::new();
+        let core = data.open(Arc::new(MemoryStore::default()));
+        let db = data.dir().join("maxhq.db").to_string_lossy().into_owned();
+        let wrong = futures_lite(core.upload(
+            DeviceId::derive("devbox"),
+            UploadTarget::Device,
+            db.clone(),
+            Arc::new(Recorder::default()),
+        ))
+        .unwrap_err();
+        assert_eq!(
+            wrong,
+            CommandError::Failed {
+                message: format!("{db} wasn't dropped, pasted or picked")
+            }
+        );
     }
 
     #[test]

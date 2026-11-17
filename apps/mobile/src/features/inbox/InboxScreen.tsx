@@ -8,11 +8,13 @@
 // hidden projects and the Working, snoozed and settled shelves. A
 // project's group has a ⋯ for its menu, and ends with its Notes row, which
 // opens its notes, with a plus for a new one, while it has notes or a
-// connected device can take one. A row slides left to settle or snooze it
-// where its device keeps inboxes, and a long press opens the rest of its
-// menu. Select, under More, picks several rows for one Actions sheet.
-// Pulling the list down tries the devices again. Before the phone is
-// paired with anything, it shows how to pair instead. With several Macs
+// connected device can take one, and its Workflows row while it has runs.
+// A lead's row carries its latest run as a chip that opens it. A row
+// slides left to settle or snooze it where its device keeps inboxes, and a
+// long press opens the rest of its menu. Select, under More, picks
+// several rows for one Actions sheet. Pulling the list down tries the
+// devices again. Before the phone is paired with anything, it shows how to
+// pair instead. With several Macs
 // each row carries its Mac's tag, or a switch on top shows one Mac at a
 // time.
 
@@ -31,11 +33,11 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import type { Admission, Agent, Project, ProjectId } from "@maxhq/shared/bindings";
+import type { Admission, Agent, NodeStatus, Project, ProjectId } from "@maxhq/shared/bindings";
 import { useNow } from "@maxhq/shared/lib/clock";
 import { searchWords } from "@maxhq/shared/lib/words";
 import { agentLook } from "@maxhq/shared/status/activity";
-import { formatAgoShort } from "@maxhq/shared/status/format";
+import { formatAgoShort, plural } from "@maxhq/shared/status/format";
 import { deviceReach } from "@maxhq/shared/status/reach";
 import {
 	changeInbox,
@@ -50,6 +52,7 @@ import { inboxList, type InboxRow, swipeMenu } from "@maxhq/shared/view/inbox-li
 import { notesEntry, remoteNotesReach } from "@maxhq/shared/view/notes";
 import type { ViewState } from "@maxhq/shared/view/replica";
 import { deviceName, type NeedsYouItem } from "@maxhq/shared/view/select";
+import { chipOf, projectRuns } from "@maxhq/shared/workflow/select";
 
 import type { ScreenProps } from "../../navigation";
 import { useServices, useView } from "../../services";
@@ -78,6 +81,9 @@ import { reachSummary } from "../devices/summary";
 import { Dispatcher } from "../dispatcher/Dispatcher";
 import { NewAgentPlus, newAgentAction } from "../new-agent/NewAgentPlus";
 import { openNewNote } from "../notes/NotesScreen";
+import { NodeGlyph } from "../workflow/NodeGlyph";
+import { RowRunChip } from "../workflow/RunChips";
+import { workflowsEntry } from "../workflow/runs";
 import { UpdateBanners } from "../updates/UpdateBanners";
 import { UsageButton } from "../usage/UsageButton";
 import { CustomSnoozeHost } from "./CustomSnooze";
@@ -114,6 +120,15 @@ type Item =
 			readonly count: number;
 			/** Whether a new note can be made. */
 			readonly writable: boolean;
+	  }
+	| {
+			readonly kind: "workflows";
+			readonly key: string;
+			readonly project: ProjectId;
+			/** How many runs it has. */
+			readonly count: number;
+			/** Its liveliest run's state, or null once that's done. */
+			readonly status: NodeStatus | null;
 	  }
 	| {
 			readonly kind: "more";
@@ -159,7 +174,8 @@ const itemsOf = (
 		hidden = false
 	) => {
 		const notes = project ? notesEntry(view, project, remoteNotesReach(view, project)) : null;
-		if (rows.length + older.length === 0 && !notes) return;
+		const runs = project ? projectRuns(view, project) : [];
+		if (rows.length + older.length === 0 && !notes && runs.length === 0) return;
 		const open = filtering || !closed.has(key);
 		items.push({
 			kind: "group",
@@ -184,6 +200,9 @@ const itemsOf = (
 			if (more) for (const row of older) items.push({ kind: "row", key: row.agent.id, row });
 		}
 		if (project && notes) items.push({ kind: "notes", key: `n:${key}`, project, ...notes });
+		if (project && runs.length > 0) {
+			items.push({ kind: "workflows", key: `w:${key}`, project, ...workflowsEntry(runs) });
+		}
 	};
 	group("pinned", t("Pinned"), list.pinned, []);
 	for (const g of list.groups) group(g.key, g.name, g.rows, g.older, g.project, g.hidden);
@@ -407,6 +426,26 @@ export const InboxScreen = ({ navigation }: ScreenProps<"Inbox">) => {
 								<Plus size={13} tint={color.mutedForeground} />
 							</IconButton>
 						) : null}
+					</View>
+				);
+			}
+			case "workflows": {
+				const { project } = item;
+				return (
+					<View style={styles.notes}>
+						<Pressable
+							accessibilityRole="link"
+							accessibilityLabel={t("Workflows, {{runs}}", {
+								runs: plural(item.count, "run"),
+							})}
+							onPress={() => navigation.navigate("Workflows", { project })}
+							hitSlop={slop(LINE)}
+							style={({ pressed }) => [styles.notesOpen, pressed && styles.pressed]}
+						>
+							<Text style={styles.notesLabel}>{t("Workflows")}</Text>
+							{item.status ? <NodeGlyph status={item.status} decorative /> : null}
+							<Text style={styles.groupCount}>{formatNumber(item.count)}</Text>
+						</Pressable>
 					</View>
 				);
 			}
@@ -686,6 +725,8 @@ const AgentRow = ({
 
 	const look = agentLook(agent, now);
 	const meta = phoneRowMeta(view, agent, now);
+	// A lead's latest run, as a chip that opens it, unless selecting.
+	const chip = picked === null ? chipOf(view, agent.id) : null;
 	const content = (
 		<View style={[styles.row, { paddingLeft: 10 + level * 16 }]}>
 			{picked === null ? null : picked ? (
@@ -703,6 +744,7 @@ const AgentRow = ({
 				</Text>
 			</View>
 			{tag ? <MacTag name={tag} /> : null}
+			{chip ? <RowRunChip chip={chip} /> : null}
 			{meta.kind === "input" ? (
 				<Pill label={t("Input")} tone="ready" />
 			) : (

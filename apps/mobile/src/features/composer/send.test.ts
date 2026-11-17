@@ -54,6 +54,7 @@ const picked: PickedFile = {
 	mime: "image/jpeg",
 	size: 3,
 	preview: null,
+	path: null,
 	read: async () => new Uint8Array([1, 2, 3]),
 };
 
@@ -92,7 +93,7 @@ const setupOf = (
 	agent: AGENT,
 	device: MAC,
 	ownProject: null,
-	staging: createStaging(source as never, MAC),
+	staging: createStaging(source as never, MAC, AGENT),
 	gitPills: createGitPills(async () => null),
 	agree: () => agreeToSend(inAuto, consent, async () => choice, source as never, view),
 });
@@ -153,7 +154,7 @@ describe("sendDraft", () => {
 		consent.remember();
 		const setup = setupOf(source, consent, "auto");
 		const waits: boolean[] = [];
-		const result = setup.staging.getState().addPicked(picked);
+		const result = setup.staging.getState().addPicked(picked, false);
 		if (!("key" in result)) throw new Error("refused");
 		const draft: PhoneDraft = { segments: words.segments, loose: [result.key] };
 		const sent = await sendDraft(
@@ -181,7 +182,7 @@ describe("sendDraft", () => {
 		const consent = memory();
 		consent.remember();
 		const setup = setupOf(source, consent, "auto");
-		const result = setup.staging.getState().addPicked(picked);
+		const result = setup.staging.getState().addPicked(picked, false);
 		if (!("key" in result)) throw new Error("refused");
 		const sent = await sendDraft(setup, { segments: [], loose: [result.key] }, "queue");
 		expect(sent.sent).toBe(false);

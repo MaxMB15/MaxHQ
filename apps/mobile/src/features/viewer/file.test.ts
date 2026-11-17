@@ -17,6 +17,7 @@ import {
 	lookOf,
 	mimeOf,
 	noViewNote,
+	saveText,
 	scrollTo,
 	shownLine,
 	shownTokens,
@@ -133,6 +134,19 @@ describe("the notes for a file not drawn", () => {
 		expect(noViewNote("models/part.glb", 2000, "ios")).toBe(
 			"Can't show this file here. It's 2 KB."
 		);
+	});
+});
+
+describe("saveText", () => {
+	const going = { state: "downloading", sent: 0, total: 0, held: null } as const;
+
+	it("says how far a download has got, or that it waits", () => {
+		expect(saveText(null)).toBeNull();
+		expect(saveText({ state: "done", path: "/downloads/a.zip" })).toBeNull();
+		expect(saveText(going)).toBe("Downloading");
+		expect(saveText({ ...going, sent: 1, total: 4 })).toBe("Downloading, 25%");
+		expect(saveText({ ...going, held: "paused" })).toBe("Paused, reconnecting");
+		expect(saveText({ ...going, held: "waiting" })).toBe("Waiting for room on this phone");
 	});
 });
 

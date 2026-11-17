@@ -5,7 +5,7 @@
 // it ended, with the time it waits on you hatched amber. A bar with an
 // agent opens it. What the run doesn't record, the timeline says below.
 
-import { t, useI18n, formatNumber } from "@maxhq/shared/i18n";
+import { useI18n } from "@maxhq/shared/i18n";
 
 import { scaleTime } from "d3-scale";
 import { type KeyboardEvent, type MouseEvent, useEffect, useMemo, useRef, useState } from "react";
@@ -13,8 +13,8 @@ import { type KeyboardEvent, type MouseEvent, useEffect, useMemo, useRef, useSta
 import { holdsCommand } from "@/layout/shortcuts";
 import { cn } from "@/lib/utils";
 import type { AgentId, NodeState, RunShape, Timestamp } from "@maxhq/shared/bindings";
-import { formatClock, formatDuration } from "@maxhq/shared/status/format";
-import { type TimelineBar, timeline } from "@maxhq/shared/workflow/canvas";
+import { formatClock } from "@maxhq/shared/status/format";
+import { barLabel, timeline } from "@maxhq/shared/workflow/canvas";
 import { glyphOf } from "@maxhq/shared/workflow/glyphs";
 
 import { GLYPH_COLOR } from "./glyph";
@@ -41,15 +41,6 @@ const useWidth = () => {
 	}, []);
 	return [ref, width || WIDE] as const;
 };
-
-const spoken = (bar: TimelineBar, i: number) =>
-	t("Try {{value1}}, {{label}}, {{value3}}{{value4}}{{value5}}", {
-		value1: formatNumber(i + 1),
-		label: glyphOf(bar.status).label,
-		value3: formatDuration(bar.end - bar.start),
-		value4: bar.running ? t(" so far") : "",
-		value5: bar.agent ? t(", opens its agent") : "",
-	});
 
 export type RunTimelineProps = {
 	readonly shape: RunShape;
@@ -153,7 +144,7 @@ export const RunTimeline = ({ shape, nodes, now, onOpenAgent }: RunTimelineProps
 										key={bar.start}
 										role={bar.agent ? "button" : "img"}
 										tabIndex={bar.agent ? 0 : undefined}
-										aria-label={spoken(bar, i)}
+										aria-label={barLabel(bar, i)}
 										onClick={(e) => open(bar.agent, e)}
 										onKeyDown={(e) => {
 											if (e.key === "Enter" || e.key === " ") {
@@ -167,7 +158,7 @@ export const RunTimeline = ({ shape, nodes, now, onOpenAgent }: RunTimelineProps
 												"cursor-pointer outline-none focus-visible:opacity-80"
 										)}
 									>
-										<title>{spoken(bar, i)}</title>
+										<title>{barLabel(bar, i)}</title>
 										{solid > 0 ? (
 											<rect
 												x={left}

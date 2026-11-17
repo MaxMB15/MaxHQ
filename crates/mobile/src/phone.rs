@@ -6,33 +6,36 @@
 
 use std::collections::BTreeMap;
 use std::future::Future;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, PoisonError, RwLock};
 use std::time::Duration;
 
 use maxhq_app::devices::Devices;
 use maxhq_app::notify::LogSender;
+use maxhq_app::offered::{NotOffered, Offered};
 use maxhq_app::pair_code::PairCode;
 use maxhq_app::phone::{self, PhoneConnector, PhoneProver, PhoneShell};
 use maxhq_app::registry::Registry;
 use maxhq_app::request::{CommandError, Request, Response};
 use maxhq_app::timeline::Sink;
-use maxhq_app::transfers::{MediaFile, TransferProgress};
+use maxhq_app::transfers::{CopiedProject, CopyTarget, Downloaded, MediaFile, TransferProgress};
 use maxhq_app::view::{Emit, View};
+use maxhq_app::workflow::WorkflowMessage;
 use maxhq_app::{App, Caller};
 use maxhq_client::{Client, LinkEvent, LinkSpec, PhoneSsh, PhoneWs, Transport};
 use maxhq_core::authorized_keys;
-use maxhq_protocol::ids::{AgentId, DeviceId, IdempotencyKey, LinkId, PhoneId};
+use maxhq_protocol::ids::{AgentId, DeviceId, IdempotencyKey, LinkId, PhoneId, WorkspaceId};
 use maxhq_protocol::link::LinkState;
-use maxhq_protocol::message::{ActionOutcome, ClientMessage};
+use maxhq_protocol::message::{ActionOutcome, ClientMessage, UploadTarget};
 use maxhq_protocol::phones::{PhoneBook, PhoneBookEntry, PushToken};
+use maxhq_protocol::workflow::RunKey;
 use serde::Serialize;
 use tokio::runtime::{Handle, Runtime};
 
 use crate::keys::{self, Key, KeyStore};
 use crate::net::{self, SignIns};
-use crate::{AppState, MediaListener, Network, ViewListener};
+use crate::{AppState, Network, ProgressListener, ViewListener};
 
 /// The one window the phone's screens share, as a desktop window's label.
 /// Its timelines all go to one listener, as a desktop window's do.
@@ -89,6 +92,9 @@ pub struct PairedDevice {
 /// The running core.
 pub struct Core {
     shared: Arc<Shared>,
+    /// The app's caches folder, where the pickers copy what you pick, and
+    /// so the one folder the phone uploads from.
+    picks: PathBuf,
     /// Dropped last, once nothing on it holds the app.
     runtime: Runtime,
 }
@@ -107,10 +113,13 @@ struct Shared {
 
 impl Core {
     /// Opens the core on `dir`, with the phone's keys and tokens in
-    /// `store`. The registry is `maxhq.db` there, beside `downloads`, and
-    /// none of it goes into the phone's backups. The media cache is `media`
-    /// in `cache`, which the system may empty when space runs low, and a
-    /// picture it drops fetches again.
+    /// `store`. The registry is `maxhq.db` there, and none of it goes into
+    /// the phone's backups. The media cache is `media` in `cache` and
+    /// downloads land in `downloads` there, which the system may empty
+    /// when space runs low. A picture it drops fetches again, and a
+    /// download has gone to the share sheet by then. The phone uploads
+    /// only from the folder `cache` is in, the app's caches folder, where
+    /// the pickers copy what you pick.
     pub fn open(dir: &Path, cache: &Path, store: Arc<dyn KeyStore>) -> Result<Self, CommandError> {
         std::fs::create_dir_all(dir)
             .map_err(|error| failed(format!("Couldn't make the phone's data folder: {error}")))?;
@@ -143,7 +152,7 @@ impl Core {
             runtime.handle(),
             &seed,
             Box::new(move |device, mac, route, code| signing.route(device, mac, route, code)),
-            Some(dir.join("downloads")),
+            Some(cache.join("downloads")),
             Some(media),
         );
         let public_key = connector.public_key();
@@ -179,7 +188,11 @@ impl Core {
         });
         let open = Arc::clone(&shared);
         runtime.spawn(async move { open.app.devices().set_foreground(true).await });
-        Ok(Self { shared, runtime })
+        Ok(Self {
+            shared,
+            picks: cache.parent().unwrap_or(cache).to_owned(),
+            runtime,
+        })
     }
 
     /// Lets go of what the page before a JS reload watched.
@@ -227,16 +240,110 @@ impl Core {
         agent: AgentId,
         path: String,
         limit: u32,
-        listener: Arc<dyn MediaListener>,
+        listener: Arc<dyn ProgressListener>,
     ) -> impl Future<Output = Result<MediaFile, CommandError>> + Send + 'static {
         let shared = Arc::clone(&self.shared);
         self.run(async move {
-            let report = move |progress: TransferProgress| {
-                if let Ok(json) = serde_json::to_string(&progress) {
-                    listener.progress(json);
-                }
-            };
-            shared.app.media(agent, path, limit, false, report).await
+            (shared.app)
+                .media(agent, path, limit, false, reporter(listener))
+                .await
+        })
+    }
+
+    /// Opens a workflow run, with updates going to `sink`.
+    pub fn open_workflow(
+        &self,
+        run: RunKey,
+        sink: Arc<dyn Sink<WorkflowMessage>>,
+    ) -> impl Future<Output = Result<(), CommandError>> + Send + 'static {
+        let shared = Arc::clone(&self.shared);
+        self.run(async move { shared.app.open_workflow(WINDOW, sink, run).await })
+    }
+
+    /// Uploads a file you picked to `target` on `device`, with how far it
+    /// has got going to `listener`. Picking it handed it over, so a path
+    /// in the app's caches folder counts as offered, and any other is
+    /// refused as the desktop refuses one you never dropped.
+    pub fn upload(
+        &self,
+        device: DeviceId,
+        target: UploadTarget,
+        path: String,
+        listener: Arc<dyn ProgressListener>,
+    ) -> impl Future<Output = Result<ActionOutcome, CommandError>> + Send + 'static {
+        let shared = Arc::clone(&self.shared);
+        let picked = hand_over(shared.app.offered(), &self.picks, &path);
+        self.run(async move {
+            let path = picked?.to_string_lossy().into_owned();
+            (shared.app)
+                .upload(device, target, path, reporter(listener))
+                .await
+        })
+    }
+
+    /// Uploads pasted bytes, `data` in base64, to `target` on `device` as
+    /// one file called `name`, with how far it has got going to `listener`.
+    pub fn upload_pasted(
+        &self,
+        device: DeviceId,
+        target: UploadTarget,
+        name: String,
+        mime: String,
+        data: String,
+        listener: Arc<dyn ProgressListener>,
+    ) -> impl Future<Output = Result<ActionOutcome, CommandError>> + Send + 'static {
+        let shared = Arc::clone(&self.shared);
+        self.run(async move {
+            (shared.app)
+                .upload_pasted(device, target, name, mime, data, reporter(listener))
+                .await
+        })
+    }
+
+    /// Fetches a file or folder `agent` can see into the downloads folder,
+    /// with how far it has got going to `listener`.
+    pub fn download(
+        &self,
+        agent: AgentId,
+        path: String,
+        listener: Arc<dyn ProgressListener>,
+    ) -> impl Future<Output = Result<Downloaded, CommandError>> + Send + 'static {
+        let shared = Arc::clone(&self.shared);
+        self.run(async move { shared.app.download(agent, path, reporter(listener)).await })
+    }
+
+    /// Readies a file or folder `agent` can see for an agent on `device`,
+    /// with both legs going to `listener`.
+    pub fn attach_from_agent(
+        &self,
+        device: DeviceId,
+        target: Option<UploadTarget>,
+        agent: AgentId,
+        path: String,
+        listener: Arc<dyn ProgressListener>,
+    ) -> impl Future<Output = Result<ActionOutcome, CommandError>> + Send + 'static {
+        let shared = Arc::clone(&self.shared);
+        self.run(async move {
+            (shared.app)
+                .attach_from_agent(device, target, agent, path, reporter(listener))
+                .await
+        })
+    }
+
+    /// Copies the project of workspace `from` to `target` with the ignored
+    /// `files` chosen, with the files' transfers going to `listener`.
+    pub fn copy_project(
+        &self,
+        from: WorkspaceId,
+        target: CopyTarget,
+        files: Vec<String>,
+        listener: Arc<dyn ProgressListener>,
+    ) -> impl Future<Output = Result<CopiedProject, CommandError>> + Send + 'static {
+        let shared = Arc::clone(&self.shared);
+        self.run(async move {
+            (shared.app)
+                .copy_project(from, target, files, reporter(listener))
+                .await
         })
     }
 
@@ -598,6 +705,81 @@ fn move_old_media(dir: &Path, media: &Path) {
     }
 }
 
+/// Sends each step of a transfer to `listener` as JSON.
+fn reporter(listener: Arc<dyn ProgressListener>) -> impl Fn(TransferProgress) + Send + Sync {
+    move |progress| {
+        if let Ok(json) = serde_json::to_string(&progress) {
+            listener.progress(json);
+        }
+    }
+}
+
+/// Hands `path` over to the app as a pick, when it's a file or folder
+/// inside `picks`, and answers it as the app now has it. Anything else is
+/// refused, as a path you never dropped is on the desktop.
+pub(crate) fn hand_over(
+    offered: &Offered,
+    picks: &Path,
+    path: &str,
+) -> Result<PathBuf, CommandError> {
+    let refused = || {
+        failed(
+            NotOffered {
+                path: path.to_owned(),
+            }
+            .to_string(),
+        )
+    };
+    let (Ok(picks), Ok(found)) = (std::fs::canonicalize(picks), std::fs::canonicalize(path)) else {
+        return Err(refused());
+    };
+    if found == picks || !found.starts_with(&picks) {
+        return Err(refused());
+    }
+    offered.offer([found.clone()]);
+    Ok(found)
+}
+
 fn failed(message: String) -> CommandError {
     CommandError::Failed { message }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn only_picks_in_the_caches_folder_are_handed_over() {
+        let root = std::env::temp_dir().join(format!(
+            "maxhq-picks-{}",
+            maxhq_protocol::ids::InstanceId::generate()
+        ));
+        let picks = root.join("Library/Caches");
+        let picked = picks.join("DocumentPicker/notes.txt");
+        let kept = root.join("Documents/maxhq/maxhq.db");
+        for file in [&picked, &kept] {
+            std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+            std::fs::write(file, "x").unwrap();
+        }
+        let offered = Offered::default();
+
+        let handed = hand_over(&offered, &picks, &picked.to_string_lossy()).unwrap();
+        assert!(handed.ends_with("Library/Caches/DocumentPicker/notes.txt"));
+        assert!(offered.contains(&handed));
+
+        let escape = picks.join("../../Documents/maxhq/maxhq.db");
+        for path in [
+            kept.to_string_lossy().into_owned(),
+            escape.to_string_lossy().into_owned(),
+            picks.to_string_lossy().into_owned(),
+            picks.join("gone.txt").to_string_lossy().into_owned(),
+        ] {
+            assert_eq!(
+                hand_over(&offered, &picks, &path),
+                Err(failed(format!("{path} wasn't dropped, pasted or picked"))),
+            );
+        }
+        assert!(!offered.contains(&kept));
+        let _ = std::fs::remove_dir_all(&root);
+    }
 }
