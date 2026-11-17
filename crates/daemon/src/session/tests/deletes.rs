@@ -11,7 +11,7 @@ async fn delete(h: &mut Harness, agent: AgentId) -> ActionOutcome {
 }
 
 /// Gives the lead a sub-agent, and the lead's timeline a reply.
-async fn add_sub(h: &Harness, lead: AgentId, session: SessionId) -> Agent {
+pub(super) async fn add_sub(h: &Harness, lead: AgentId, session: SessionId) -> Agent {
     let sub = Agent {
         id: AgentId::generate(),
         parent: Some(lead),

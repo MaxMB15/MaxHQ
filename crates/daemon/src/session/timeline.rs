@@ -26,6 +26,7 @@ use maxhq_core::context;
 use maxhq_protocol::ids::{AgentId, AttachmentId, DeviceId};
 use maxhq_protocol::model::{DeviceSettings, DEFAULT_HISTORY_MIB, DEFAULT_MEMORY_ITEMS};
 use maxhq_protocol::state::Seq;
+use maxhq_protocol::time::Timestamp;
 use maxhq_protocol::timeline::{
     AttachmentRef, ItemBody, ItemId, ItemStatus, TextField, TimelineEvent, TimelineItem,
     TimelineUpdate,
@@ -99,6 +100,10 @@ pub struct Timeline {
     /// Items from before the agent moved to another vendor. They stay
     /// first, since the new vendor's history doesn't have them.
     earlier: HashSet<ItemId>,
+    /// Where each `!` run came: the item before it, or none when it came
+    /// first, and when it started. The vendor's history doesn't have runs,
+    /// so a read of it puts them back here.
+    anchors: HashMap<ItemId, (Option<ItemId>, Timestamp)>,
     /// The ordinal the next new item gets.
     next: u64,
     /// The seq of the newest event.
@@ -170,6 +175,7 @@ impl Timeline {
             ordinals: HashMap::new(),
             from_history: HashSet::new(),
             earlier: HashSet::new(),
+            anchors: HashMap::new(),
             next: 0,
             seq: base,
             floor: base,
@@ -311,6 +317,7 @@ impl Timeline {
             }
             TimelineEvent::Remove { id } => {
                 let ordinal = self.ordinals.remove(&id)?;
+                self.anchors.remove(&id);
                 self.items.remove(&ordinal);
                 self.kept.remove(&ordinal);
                 self.from_history.remove(&ordinal);
@@ -394,6 +401,7 @@ impl Timeline {
             }
         }
         order.extend(live.into_iter().flatten().map(|item| (item, false)));
+        let order = self.anchored(order);
         self.ordinals.clear();
         self.kept.clear();
         self.from_history.clear();
@@ -416,6 +424,64 @@ impl Timeline {
         }
         self.looked = 0;
         self.trim();
+    }
+
+    /// The ID of the newest item, if there is one.
+    pub fn last_id(&self) -> Option<ItemId> {
+        let (id, _) = self.ordinals.iter().max_by_key(|(_, ordinal)| **ordinal)?;
+        Some(id.clone())
+    }
+
+    /// Notes that the `!` run `id` came after the item `after`, or first
+    /// with none, at `at`, so a history read puts it back there.
+    pub fn anchor(&mut self, id: ItemId, after: Option<ItemId>, at: Timestamp) {
+        self.anchors.insert(id, (after, at));
+    }
+
+    /// Puts back the `!` runs an agent kept, each with the item it came
+    /// after and when it started. A history read then places them.
+    pub fn add_runs(&mut self, runs: Vec<(TimelineItem, Option<ItemId>, Timestamp)>) {
+        for (item, after, at) in runs {
+            self.anchor(item.id.clone(), after, at);
+            self.apply(TimelineEvent::Upsert { item });
+        }
+    }
+
+    /// `order` with each `!` run moved to just after the item it came
+    /// after, and after any run placed there that started before it. A run
+    /// whose item has gone goes before the first item that started after
+    /// it.
+    fn anchored(&self, order: Vec<(TimelineItem, bool)>) -> Vec<(TimelineItem, bool)> {
+        if self.anchors.is_empty() {
+            return order;
+        }
+        let (mut runs, mut order): (Vec<_>, Vec<_>) = order.into_iter().partition(|(item, _)| {
+            self.anchors.contains_key(&item.id) && !self.earlier.contains(&item.id)
+        });
+        runs.sort_by_key(|(item, _)| self.anchors[&item.id].1);
+        let mut placed: HashMap<ItemId, Timestamp> = HashMap::new();
+        for run in runs {
+            let (after, at) = &self.anchors[&run.0.id];
+            let mut index = match after {
+                None => (order.iter())
+                    .take_while(|(item, _)| self.earlier.contains(&item.id))
+                    .count(),
+                Some(after) => match order.iter().position(|(item, _)| item.id == *after) {
+                    Some(index) => index + 1,
+                    None => (order.iter())
+                        .position(|(item, _)| item.started_at.is_some_and(|started| started > *at))
+                        .unwrap_or(order.len()),
+                },
+            };
+            while (order.get(index))
+                .is_some_and(|(item, _)| placed.get(&item.id).is_some_and(|other| other <= at))
+            {
+                index += 1;
+            }
+            placed.insert(run.0.id.clone(), *at);
+            order.insert(index, run);
+        }
+        order
     }
 
     /// Keeps every item ahead of what any history read brings from now
@@ -639,6 +705,7 @@ impl Timeline {
             let keep = !gone.contains(ordinal);
             if !keep {
                 self.earlier.remove(id);
+                self.anchors.remove(id);
                 removed.push((*ordinal, id.clone()));
             }
             keep
@@ -953,6 +1020,69 @@ pub(crate) mod tests {
         let ordinals: Vec<u64> = timeline.items().map(|item| item.ordinal).collect();
         assert!(ordinals.windows(2).all(|pair| pair[0] < pair[1]));
         assert!(ordinals[0] >= 5, "ordinals are never reused");
+    }
+
+    /// A `!` run with this ID that started at `at`.
+    fn run(id: &str, at: u64) -> (TimelineItem, Timestamp) {
+        let mut item = message(id, id, ItemStatus::Completed);
+        item.started_at = Some(Timestamp(at));
+        (item, Timestamp(at))
+    }
+
+    fn at(mut item: TimelineItem, started: u64) -> TimelineItem {
+        item.started_at = Some(Timestamp(started));
+        item
+    }
+
+    #[test]
+    fn runs_stay_where_they_came_through_history_reads() {
+        let history = || {
+            vec![
+                at(message("m1", "m1", ItemStatus::Completed), 10),
+                at(message("m2", "m2", ItemStatus::Completed), 20),
+                at(message("m3", "m3", ItemStatus::Completed), 40),
+            ]
+        };
+        let mut timeline = Timeline::new(0);
+        timeline.replace_history(history()[..2].to_vec());
+        assert_eq!(timeline.last_id(), Some(ItemId("m2".into())));
+        // Two runs after m2, one before anything, and one after an item
+        // the history no longer has.
+        let (first, first_at) = run("run-a", 25);
+        timeline.anchor(first.id.clone(), Some(ItemId("m2".into())), first_at);
+        timeline.apply(upsert(first));
+        let (second, second_at) = run("run-b", 30);
+        timeline.anchor(second.id.clone(), timeline.last_id(), second_at);
+        timeline.apply(upsert(second));
+        let (lost, lost_at) = run("run-c", 35);
+        timeline.anchor(lost.id.clone(), Some(ItemId("gone".into())), lost_at);
+        timeline.apply(upsert(lost));
+        let (top, top_at) = run("run-0", 5);
+        timeline.anchor(top.id.clone(), None, top_at);
+        timeline.apply(upsert(top));
+        timeline.replace_history(history());
+        let order = ["run-0", "m1", "m2", "run-a", "run-b", "run-c", "m3"];
+        assert_eq!(texts(&timeline.newest(10).0), order);
+
+        // After a restart the kept runs come back in the same places.
+        let mut again = Timeline::new(100);
+        let kept: Vec<_> = timeline
+            .items()
+            .filter(|item| item.id.0.starts_with("run-"))
+            .map(|item| {
+                let (after, at) = timeline.anchors[&item.id].clone();
+                (item.into_owned(), after, at)
+            })
+            .collect();
+        again.add_runs(kept);
+        again.replace_history(history());
+        assert_eq!(texts(&again.newest(10).0), order);
+
+        // A run that's removed is forgotten.
+        again.apply(TimelineEvent::Remove {
+            id: ItemId("run-a".into()),
+        });
+        assert!(!again.anchors.contains_key(&ItemId("run-a".into())));
     }
 
     #[test]

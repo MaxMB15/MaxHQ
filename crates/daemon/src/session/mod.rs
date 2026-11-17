@@ -47,6 +47,7 @@ mod requests;
 mod restart;
 mod revive;
 mod running;
+mod runs;
 mod scheduled;
 mod skills;
 mod switch;
@@ -184,12 +185,15 @@ pub struct Config {
     pub notes: crate::notes::Notes,
     /// The workspace of the dispatcher's folder, on the Mac.
     pub dispatcher: Option<WorkspaceId>,
+    /// The terminals the manager opens for its agents.
+    pub terminals: crate::terminals::Wiring,
 }
 
 /// Starts the manager in a task of its own. It first reconnects to the
 /// holders a previous run left and brings back the agents that need it.
 pub fn start(config: Config) -> Sessions {
     let (tx, rx) = mpsc::unbounded_channel();
+    let terminals = config.terminals.terminals.clone();
     let mut manager = Manager::new(config, tx.clone(), rx);
     // The tasks, hidden projects and names are in the state before any
     // client syncs.
@@ -203,6 +207,7 @@ pub fn start(config: Config) -> Sessions {
         tx,
         next: Arc::new(AtomicU64::new(0)),
         tasks,
+        terminals,
     }
 }
 
@@ -211,6 +216,13 @@ pub fn start(config: Config) -> Sessions {
 #[cfg(test)]
 pub fn for_tests(hub: Hub, db: Db, attachments: PathBuf) -> Sessions {
     let notes = crate::notes::Notes::new(db.clone(), hub.clone());
+    let terminals = crate::terminals::Terminals::wire(
+        maxhq_hold::Terminals::new(maxhq_hold::Dirs {
+            sessions: attachments.with_file_name("terminals"),
+            sockets: attachments.with_file_name("holders"),
+        }),
+        hub.clone(),
+    );
     start(Config {
         hub,
         db,
@@ -233,8 +245,9 @@ pub fn for_tests(hub: Hub, db: Db, attachments: PathBuf) -> Sessions {
         hooks: Arc::new(crate::hooks::Installed),
         funnel: tokio::sync::watch::channel(crate::hooks::Reach::default()).1,
         workflows: crate::workflow::Shared::default(),
-        notes,
         dispatcher: None,
+        terminals,
+        notes,
     })
 }
 
@@ -255,6 +268,9 @@ pub struct Sessions {
     next: Arc<AtomicU64>,
     /// This device's tasks, as the manager last sent them.
     tasks: tokio::sync::watch::Receiver<Arc<[maxhq_protocol::tasks::Task]>>,
+    /// The terminals this device holds for its agents, or none in tests
+    /// that fake them.
+    terminals: Option<crate::terminals::Terminals>,
 }
 
 impl Sessions {
@@ -284,6 +300,13 @@ impl Sessions {
             tx: self.tx.clone(),
             rx,
         }
+    }
+
+    /// The terminals this device holds for its agents. Connections attach
+    /// to them, type into them and manage them here. Opening one goes
+    /// through [`Client::open_terminal`].
+    pub fn terminals(&self) -> Option<&crate::terminals::Terminals> {
+        self.terminals.as_ref()
     }
 
     /// Has this device's Codex app-servers stop once idle, so the next
@@ -432,6 +455,22 @@ impl Client {
         });
     }
 
+    /// Asks the manager to open the terminal `message` asks for, for a
+    /// connection allowed to, which opens it as `opener`.
+    pub fn open_terminal(&self, message: ClientMessage, opener: crate::terminals::access::Opener) {
+        let _ = self.tx.send(Input::TerminalOpen {
+            conn: self.conn,
+            opener,
+            message: Box::new(message),
+        });
+    }
+
+    /// The manager's number for this connection, which terminals know it
+    /// by.
+    pub fn conn(&self) -> u64 {
+        self.conn
+    }
+
     /// The next message for the client, or none once the manager ended.
     pub async fn recv(&mut self) -> Option<ServerMessage> {
         self.rx.recv().await
@@ -464,6 +503,14 @@ enum Input {
         conn: u64,
         message: Box<ClientMessage>,
     },
+    /// A connection the server let open a terminal asked for one.
+    TerminalOpen {
+        conn: u64,
+        opener: crate::terminals::access::Opener,
+        message: Box<ClientMessage>,
+    },
+    /// The terminals said something about one they opened or a `!` run.
+    Terminal(crate::terminals::RunNote),
     /// A connection ended.
     Gone { conn: u64 },
     /// A client that fell behind read half its line.
@@ -657,6 +704,12 @@ struct Manager {
     workflows: crate::workflow::Shared,
     /// This device's project notes, which the notes tools read and write.
     notes: crate::notes::Notes,
+    /// The terminals the manager opens for its agents.
+    terminals: Arc<dyn crate::terminals::Host>,
+    /// What the terminals tell the manager, until its loop takes it.
+    terminal_notes: Option<mpsc::UnboundedReceiver<crate::terminals::RunNote>>,
+    /// Who asked for each terminal being opened, and on which connection.
+    openers: HashMap<IdempotencyKey, (crate::terminals::access::Opener, u64)>,
 
     /// Each connection, by its number.
     clients: HashMap<u64, Viewer>,
@@ -787,6 +840,9 @@ impl Manager {
             dispatcher: dispatcher::Dispatch::new(config.dispatcher),
             workflows: config.workflows,
             notes: config.notes,
+            terminals: config.terminals.host,
+            terminal_notes: Some(config.terminals.notes),
+            openers: HashMap::new(),
             hub: config.hub,
             db: config.db,
             holders: config.holders.local(),
@@ -876,6 +932,16 @@ impl Manager {
                 }
             }
         });
+        if let Some(mut notes) = self.terminal_notes.take() {
+            let tx = self.tx.clone();
+            tokio::spawn(async move {
+                while let Some(note) = notes.recv().await {
+                    if tx.send(Input::Terminal(note)).is_err() {
+                        return;
+                    }
+                }
+            });
+        }
         let mut jobs = self.ports.jobs();
         let tx = self.tx.clone();
         tokio::spawn(async move {
@@ -1034,6 +1100,12 @@ impl Manager {
                 self.clients.insert(conn, Viewer::new(by, person, tx));
             }
             Input::Message { conn, message } => self.message(conn, *message),
+            Input::TerminalOpen {
+                conn,
+                opener,
+                message,
+            } => self.terminal_open(conn, opener, *message),
+            Input::Terminal(note) => self.run_note(note),
             Input::Gone { conn } => {
                 self.agent_tools.gone(conn);
                 self.gone_client(conn);

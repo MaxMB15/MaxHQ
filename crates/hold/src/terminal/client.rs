@@ -125,11 +125,12 @@ impl TermControl {
 }
 
 /// Reaches the holder for `terminal` in `dir`, waiting for one that's
-/// starting.
+/// starting. A quiet link gets everything but the output.
 pub(super) async fn connect(
     dir: &Path,
     terminal: TerminalId,
     after: Option<u64>,
+    quiet: bool,
 ) -> io::Result<Reached> {
     let deadline = Instant::now() + CONNECT_WAIT;
     loop {
@@ -148,7 +149,7 @@ pub(super) async fn connect(
             _ if !alive && (holder.is_some() || dir.join(LOCK).exists() || last_try) => {
                 return Ok(Reached::Ended(files::read_json(&dir.join(EXIT))?));
             }
-            Some(holder) => match attempt(dir, &holder.socket(), terminal, after).await {
+            Some(holder) => match attempt(dir, &holder.socket(), terminal, after, quiet).await {
                 Ok(link) => return Ok(Reached::Live(link)),
                 Err(err) if last_try || err.kind() == io::ErrorKind::PermissionDenied => {
                     return Err(err);
@@ -175,6 +176,7 @@ async fn attempt(
     path: &Path,
     terminal: TerminalId,
     after: Option<u64>,
+    quiet: bool,
 ) -> io::Result<TermLink> {
     let key = files::read_key(dir)?.ok_or_else(|| {
         io::Error::new(
@@ -197,6 +199,7 @@ async fn attempt(
         terminal,
         key,
         after,
+        quiet,
     };
     wire::send(&mut write, &hello).await?;
     drop(hello);

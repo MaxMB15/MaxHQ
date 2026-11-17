@@ -225,6 +225,14 @@ pub fn migrations() -> Migrations<'static> {
         // as that device last said, so auto-settle leaves them be. Until
         // it says otherwise, or says nothing for a week.
         M::up("CREATE TABLE task_targets (home TEXT PRIMARY KEY, record TEXT NOT NULL);"),
+        // The commands you ran with `!`, as their timeline items, with the
+        // item each came after and when it started, so a timeline read
+        // again from its vendor gets them back in place. Until their agent
+        // is forgotten.
+        M::up(
+            "CREATE TABLE user_runs (agent TEXT NOT NULL, item TEXT NOT NULL, after TEXT, \
+             at INTEGER NOT NULL, record TEXT NOT NULL, PRIMARY KEY (agent, item));",
+        ),
     ])
 }
 
@@ -264,6 +272,19 @@ pub struct HolderRow<T> {
     /// The seq of the line that started the turn still open then, if one
     /// was.
     pub checkpoint: Option<u64>,
+}
+
+/// A stored `!` run.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct UserRunRow<T> {
+    /// Its timeline item's ID.
+    pub item: String,
+    /// The item it came after, or none when it came first.
+    pub after: Option<String>,
+    /// When it started.
+    pub at: Timestamp,
+    /// What's stored about it.
+    pub record: T,
 }
 
 /// A handle to the database. Clones share one connection.
@@ -609,6 +630,90 @@ impl Db {
         let conn = self.lock();
         conn.execute("DELETE FROM held WHERE agent = ?1", params![id])?;
         conn.execute("DELETE FROM earlier WHERE agent = ?1", params![id])?;
+        conn.execute("DELETE FROM user_runs WHERE agent = ?1", params![id])?;
+        Ok(())
+    }
+
+    /// Every `!` run an agent kept, oldest first. A row that doesn't parse
+    /// is skipped.
+    pub fn user_runs<T: DeserializeOwned>(
+        &self,
+        agent: AgentId,
+    ) -> rusqlite::Result<Vec<UserRunRow<T>>> {
+        let conn = self.lock();
+        let mut query = conn.prepare(
+            "SELECT item, after, at, record FROM user_runs WHERE agent = ?1 ORDER BY at, rowid",
+        )?;
+        let rows = query.query_map(params![agent.to_string()], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, Option<String>>(1)?,
+                row.get::<_, i64>(2)?,
+                row.get::<_, String>(3)?,
+            ))
+        })?;
+        let mut runs = Vec::new();
+        for row in rows {
+            let (item, after, at, record) = row?;
+            match serde_json::from_str(&record) {
+                Ok(record) => runs.push(UserRunRow {
+                    item,
+                    after,
+                    at: Timestamp(u64::try_from(at).unwrap_or(0)),
+                    record,
+                }),
+                Err(err) => tracing::warn!(%agent, item, %err, "skipping a run that doesn't parse"),
+            }
+        }
+        Ok(runs)
+    }
+
+    /// One `!` run an agent kept, or none when it has no such run or it
+    /// doesn't parse.
+    pub fn user_run<T: DeserializeOwned>(
+        &self,
+        agent: AgentId,
+        item: &str,
+    ) -> Option<UserRunRow<T>> {
+        let (after, at, record): (Option<String>, i64, String) = self
+            .lock()
+            .query_row(
+                "SELECT after, at, record FROM user_runs WHERE agent = ?1 AND item = ?2",
+                params![agent.to_string(), item],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .optional()
+            .ok()??;
+        let record = serde_json::from_str(&record)
+            .inspect_err(
+                |err| tracing::warn!(%agent, item, %err, "skipping a run that doesn't parse"),
+            )
+            .ok()?;
+        Some(UserRunRow {
+            item: item.to_owned(),
+            after,
+            at: Timestamp(u64::try_from(at).unwrap_or(0)),
+            record,
+        })
+    }
+
+    /// Keeps a `!` run. A run kept before keeps its place: only its record
+    /// changes.
+    pub fn put_user_run(
+        &self,
+        agent: AgentId,
+        item: &str,
+        after: Option<&str>,
+        at: Timestamp,
+        record: &impl Serialize,
+    ) -> Result<(), RecordError> {
+        let record = serde_json::to_string(record)?;
+        let at = i64::try_from(at.0).unwrap_or(i64::MAX);
+        self.lock().execute(
+            "INSERT INTO user_runs (agent, item, after, at, record) VALUES (?1, ?2, ?3, ?4, ?5)
+             ON CONFLICT (agent, item) DO UPDATE SET record = excluded.record",
+            params![agent.to_string(), item, after, at, record],
+        )?;
         Ok(())
     }
 
@@ -1590,6 +1695,46 @@ mod tests {
         db.remove_ended_outside(gone).unwrap();
         let reopened = Db::open(&path).unwrap();
         assert_eq!(reopened.ended_outside::<String>().unwrap(), vec!["kept"]);
+    }
+
+    #[test]
+    fn runs_keep_their_place_and_go_with_their_agent() {
+        an_older_database_gains(31, "user_runs");
+        let dir = TempDir::new();
+        let path = dir.path().join(FILE);
+        let (agent, other) = (AgentId::derive("a"), AgentId::derive("b"));
+        let db = Db::open(&path).unwrap();
+        db.put_user_run(agent, "run-2", Some("m2"), Timestamp(20), &"second")
+            .unwrap();
+        db.put_user_run(agent, "run-1", None, Timestamp(10), &"first")
+            .unwrap();
+        db.put_user_run(other, "run-3", Some("m1"), Timestamp(5), &"other")
+            .unwrap();
+        // An update keeps where the run came.
+        db.put_user_run(agent, "run-1", Some("m9"), Timestamp(99), &"ended")
+            .unwrap();
+        let reopened = Db::open(&path).unwrap();
+        let row = |item: &str, after: Option<&str>, at, record: &str| UserRunRow {
+            item: item.to_owned(),
+            after: after.map(str::to_owned),
+            at: Timestamp(at),
+            record: record.to_owned(),
+        };
+        assert_eq!(
+            reopened.user_runs::<String>(agent).unwrap(),
+            [
+                row("run-1", None, 10, "ended"),
+                row("run-2", Some("m2"), 20, "second")
+            ]
+        );
+        assert_eq!(
+            reopened.user_run::<String>(agent, "run-2"),
+            Some(row("run-2", Some("m2"), 20, "second"))
+        );
+        assert_eq!(reopened.user_run::<String>(agent, "run-3"), None);
+        reopened.remove_held(agent).unwrap();
+        assert!(reopened.user_runs::<String>(agent).unwrap().is_empty());
+        assert_eq!(reopened.user_runs::<String>(other).unwrap().len(), 1);
     }
 
     #[test]

@@ -659,6 +659,11 @@ impl Holder {
         (hello, view)
     }
 
+    /// The offset just past the newest output.
+    fn end(&self) -> u64 {
+        self.lock().ring.end()
+    }
+
     /// What a connection at `cursor` sends next.
     fn next(&self, cursor: u64, view: &View) -> Next {
         let state = self.lock();
@@ -728,6 +733,7 @@ async fn serve(holder: Arc<Holder>, stream: UnixStream) {
         terminal,
         key,
         after,
+        quiet,
     }))) = hello
     else {
         return;
@@ -751,6 +757,9 @@ async fn serve(holder: Arc<Holder>, stream: UnixStream) {
     let served: io::Result<()> = async {
         loop {
             changes_seen.borrow_and_update();
+            if quiet {
+                cursor = holder.end();
+            }
             match holder.next(cursor, &view) {
                 Next::Output(offset, data) => {
                     cursor = offset + data.len() as u64;

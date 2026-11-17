@@ -402,6 +402,13 @@ impl Manager {
         let message = self.after_loading(key, message)?;
         match message {
             ClientMessage::StartAgent { spec, .. } => self.start_agent(key, spec),
+            ClientMessage::TerminalOpen {
+                agent,
+                kind,
+                cols,
+                rows,
+                ..
+            } => self.open_terminal(key, agent, kind, cols, rows),
             ClientMessage::SendInput {
                 agent, input, mode, ..
             } => {
@@ -1051,6 +1058,8 @@ impl Manager {
         let target = Target::Agent(lead);
         let action = match ask {
             Ask::Stop => {
+                // Stopping an agent ends its terminals too.
+                self.terminals.end_agent(lead);
                 if !self.stop_lead(key, lead) {
                     return Some(ActionOutcome::Done);
                 }

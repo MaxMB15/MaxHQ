@@ -674,6 +674,7 @@ impl Manager {
     /// Drops a lead agent's record, here and as stored, with its session
     /// key.
     pub(super) fn unhold(&mut self, lead: AgentId) {
+        self.terminals.end_agent(lead);
         if let Some(mut held) = self.held.remove(&lead) {
             self.drop_agent_key(&held);
             self.forget_env_card(held.workflow_env.take());

@@ -30,11 +30,14 @@ pub(crate) const CHUNK: usize = 64 * 1024;
 #[serde(tag = "type", rename_all = "snake_case")]
 pub(crate) enum ToHolder {
     /// The first message: the terminal, the holder's key, and the offset
-    /// just past the last output byte `maxd` has.
+    /// just past the last output byte `maxd` has. A quiet connection gets
+    /// everything but the output.
     Hello {
         terminal: TerminalId,
         key: Secret,
         after: Option<u64>,
+        #[serde(default)]
+        quiet: bool,
     },
     /// Bytes for the terminal to read.
     Input { data: Typed },

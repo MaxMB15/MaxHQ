@@ -19,7 +19,7 @@ use maxhq_core::prove::Challenge;
 use maxhq_protocol::agents::ClientRole;
 use maxhq_protocol::frame::{self, DecodeError, EncodeError, Frame, FrameDecoder};
 use maxhq_protocol::ids::{
-    ClientId, DeviceId, IdempotencyKey, PairId, PhoneId, StreamId, TransferId,
+    ClientId, DeviceId, IdempotencyKey, PairId, PhoneId, StreamId, TerminalId, TransferId,
 };
 use maxhq_protocol::message::{
     ActionOutcome, AttachmentSource, Capabilities, ClientHello, ErrorCode, ServerHello,
@@ -48,6 +48,7 @@ use crate::{acp_agents, codesign, secrets, workspace};
 
 mod admission;
 mod proof;
+mod terminals;
 
 /// How much a connection reads from its socket at once.
 const READ_CHUNK: usize = 64 * 1024;
@@ -58,9 +59,6 @@ const PHONE_CANT: &str = "A phone can't do that. To let this phone, turn on Let 
 /// The refusal for an update no release signed, from a phone.
 const PHONE_UNSIGNED: &str = "A phone can't send a maxd no release signed. Send it from the \
                               Mac's Update everything.";
-
-/// The refusal for a terminal request, until this `maxd` holds terminals.
-const TERMINALS_NOT_YET: &str = "Terminals aren't available on this maxd yet.";
 
 /// The answer to a request whose part of `maxd` isn't built yet.
 pub fn not_yet() -> ActionOutcome {
@@ -330,6 +328,13 @@ enum Incoming {
         /// The bytes.
         data: Vec<u8>,
     },
+    /// What the client typed into a terminal.
+    TerminalInput {
+        /// The terminal.
+        terminal: TerminalId,
+        /// The bytes, which nothing logs.
+        data: Vec<u8>,
+    },
 }
 
 /// One client's connection.
@@ -486,6 +491,9 @@ impl Connection {
     /// sends what's queued and closes the socket.
     async fn run(mut self) -> Result<(), ConnError> {
         let result = self.exchange().await;
+        if let (Some(terminals), Some(client)) = (self.sessions.terminals(), &self.client) {
+            terminals.gone(client.conn());
+        }
         if let (Ok(()), Some(device), Some(peers)) = (&result, self.peer, crate::peers::for_link())
         {
             let hello = self.server_hello().await;
@@ -568,8 +576,14 @@ impl Connection {
                         return Ok(incoming);
                     }
                 }
-                Ok(Some(Frame::TerminalInput { .. } | Frame::TerminalOutput { .. })) => {
-                    debug!("skipped a terminal frame, since this maxd holds no terminals yet");
+                Ok(Some(Frame::TerminalInput { terminal, bytes })) => {
+                    incoming.push(Incoming::TerminalInput {
+                        terminal,
+                        data: bytes.to_vec(),
+                    });
+                }
+                Ok(Some(Frame::TerminalOutput { .. })) => {
+                    debug!("skipped terminal output a client sent");
                 }
                 Ok(Some(Frame::TransferChunk {
                     transfer,
@@ -617,6 +631,13 @@ impl Connection {
                     None => debug!(%stream, "dropped tunnel bytes from before hello"),
                 }
                 return Ok(());
+            }
+            Incoming::TerminalInput { terminal, data } => {
+                if !self.greeted {
+                    debug!(%terminal, "dropped terminal input from before hello");
+                    return Ok(());
+                }
+                return self.terminal_input(terminal, data).await;
             }
         };
         let fresh = std::mem::replace(&mut self.fresh, false);
@@ -1245,8 +1266,7 @@ impl Connection {
                 Ok(())
             }
             ClientMessage::Ping { nonce } => self.send(&ServerMessage::Pong { nonce }).await,
-            // Terminals come in a later build. Until then this `maxd` says
-            // so, and its hello says it holds none.
+            // Terminals answer only the app and proven phones.
             message @ (ClientMessage::TerminalOpen { .. }
             | ClientMessage::TerminalAttach { .. }
             | ClientMessage::TerminalDetach { .. }
@@ -1254,10 +1274,7 @@ impl Connection {
             | ClientMessage::TerminalInterrupt { .. }
             | ClientMessage::TerminalClose { .. }
             | ClientMessage::TerminalRename { .. }
-            | ClientMessage::TerminalMove { .. }) => {
-                self.refuse(&message, ErrorCode::NotAllowed, TERMINALS_NOT_YET)
-                    .await
-            }
+            | ClientMessage::TerminalMove { .. }) => self.terminal(message).await,
             // Updates, tools, load and diagnostics belong to the fleet.
             message @ (ClientMessage::InstallUpdate { key, .. }
             | ClientMessage::UpdateTools { key, .. }
@@ -1780,8 +1797,8 @@ impl Connection {
                 library_moves: true,
                 proposal_targets: true,
                 peer_proofs: true,
-                // On once terminals are built.
-                terminals: false,
+                // Holds terminals in PTY holders of its own.
+                terminals: self.sessions.terminals().is_some(),
             },
             challenge: self.challenge.map(|challenge| challenge.encode()),
         }
@@ -2015,6 +2032,8 @@ pub(crate) mod tests {
         pub(crate) db: Db,
         pub(crate) socket: PathBuf,
         pub(crate) keys: AppKeys,
+        /// The terminals the server's connections reach.
+        pub(crate) terminals: crate::terminals::Terminals,
         _task: AbortOnDrop,
         _dir: TempDir,
     }
@@ -2051,6 +2070,10 @@ pub(crate) mod tests {
         let listener = bind(&socket).unwrap();
         let db = Db::open_in_memory().unwrap();
         let sessions = crate::session::for_tests(hub.clone(), db.clone(), dir.path().join("files"));
+        let terminals = sessions
+            .terminals()
+            .expect("the test sessions hold terminals")
+            .clone();
         let transfers = Transfers::new(crate::transfer::Config {
             // A CI runner's disk can be nearly full, and these tests aren't
             // about room.
@@ -2077,6 +2100,7 @@ pub(crate) mod tests {
             db,
             socket,
             keys,
+            terminals,
             _task: AbortOnDrop(task),
             _dir: dir,
         }
@@ -2175,6 +2199,13 @@ pub(crate) mod tests {
             self.stream.write_all(&out).await.unwrap();
         }
 
+        /// Sends `bytes` to a terminal, as typing does.
+        pub(super) async fn type_into(&mut self, terminal: TerminalId, bytes: &[u8]) {
+            let mut out = Vec::new();
+            frame::encode_terminal_input(&mut out, terminal, bytes);
+            self.stream.write_all(&out).await.unwrap();
+        }
+
         pub(super) async fn recv(&mut self) -> ServerMessage {
             timeout(WAIT, self.try_recv())
                 .await
@@ -2241,100 +2272,6 @@ pub(crate) mod tests {
         assert_eq!(hello.boot_id, BootId("boot-1".into()));
         assert_eq!(hello.instance, served.hub.instance());
         assert_eq!(hello.maxd_version, "0.1.0");
-    }
-
-    /// Until this `maxd` holds terminals, its hello says so and it refuses
-    /// every terminal request. An agent's tools get no further than they do
-    /// with anything else.
-    #[tokio::test]
-    async fn terminals_are_refused_until_this_maxd_holds_them() {
-        use maxhq_protocol::ids::TerminalId;
-
-        let served = serve();
-        let (mut app, server) = TestClient::greeted(&served.socket).await;
-        assert!(!server.capabilities.terminals);
-        let key = IdempotencyKey::derive;
-        let terminal = TerminalId::derive("terminal");
-        let requests = [
-            ClientMessage::TerminalOpen {
-                key: key("open"),
-                agent: AgentId::derive("a"),
-                kind: TerminalKind::Shell,
-                cols: 120,
-                rows: 32,
-            },
-            ClientMessage::TerminalAttach {
-                terminal,
-                after: None,
-            },
-            ClientMessage::TerminalDetach { terminal },
-            ClientMessage::TerminalResize {
-                terminal,
-                cols: 100,
-                rows: 30,
-            },
-            ClientMessage::TerminalInterrupt {
-                key: key("interrupt"),
-                terminal,
-            },
-            ClientMessage::TerminalClose {
-                key: key("close"),
-                terminal,
-                force: false,
-            },
-            ClientMessage::TerminalRename {
-                key: key("rename"),
-                terminal,
-                title: "dev server".into(),
-            },
-            ClientMessage::TerminalMove {
-                key: key("move"),
-                terminal,
-            },
-        ];
-        for message in &requests {
-            app.send(message).await;
-            let answer = app.recv().await;
-            let refused = match message.action_key() {
-                Some(sent) => matches!(
-                    &answer,
-                    ServerMessage::ActionResult {
-                        key,
-                        outcome: ActionOutcome::Refused { reason },
-                    } if *key == sent && reason == TERMINALS_NOT_YET
-                ),
-                None => matches!(
-                    &answer,
-                    ServerMessage::Error {
-                        code: ErrorCode::NotAllowed,
-                        message,
-                    } if message == TERMINALS_NOT_YET
-                ),
-            };
-            assert!(refused, "{message:?} got {answer:?}");
-        }
-
-        let mut tools = TestClient::connect(&served.socket).await;
-        let ClientMessage::Hello(mut greeting) = hello(ProtocolRange::OURS) else {
-            unreachable!()
-        };
-        greeting.role = ClientRole::Mcp;
-        tools.send(&ClientMessage::Hello(greeting)).await;
-        assert!(matches!(tools.recv().await, ServerMessage::Hello(_)));
-        for message in &requests {
-            tools.send(message).await;
-            let answer = tools.recv().await;
-            assert!(
-                matches!(
-                    &answer,
-                    ServerMessage::Error {
-                        code: ErrorCode::NotAllowed,
-                        message,
-                    } if message == "this connection may only call agent tools"
-                ),
-                "{message:?} got {answer:?}"
-            );
-        }
     }
 
     #[tokio::test]

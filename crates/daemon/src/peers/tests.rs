@@ -20,13 +20,14 @@ use maxhq_protocol::agents::{
 use maxhq_protocol::frame::{self, Frame, FrameDecoder};
 use maxhq_protocol::ids::{
     AgentId, BootId, ClientId, CredentialId, DeviceId, IdempotencyKey, InstanceId, NoteId,
-    PermissionId, ProjectId, TransferId,
+    PermissionId, ProjectId, TerminalId, TransferId,
 };
 use maxhq_protocol::message::{
     ActionOutcome, Capabilities, ClientHello, ClientInfo, ErrorCode, ServerHello,
 };
 use maxhq_protocol::model::Vendor;
 use maxhq_protocol::notes::VersionHash;
+use maxhq_protocol::terminal::TerminalKind;
 use maxhq_protocol::{ClientMessage, ProtocolRange, ServerMessage};
 use serde_json::json;
 use tokio::io::{AsyncReadExt, AsyncWriteExt, DuplexStream};
@@ -904,13 +905,20 @@ async fn a_peer_link_carries_only_calls_wakes_and_answers() {
             path: "/tmp/example/plan.md".into(),
             anyway: true,
         },
-    ] {
+    ]
+    .into_iter()
+    .chain(terminal_requests())
+    {
         raw.send(&refused).await;
         assert_eq!(raw.refused().await, ErrorCode::NotAllowed, "{refused:?}");
     }
     raw.send(&client_hello(ClientRole::Peer)).await;
     assert_eq!(raw.refused().await, ErrorCode::BadMessage);
 
+    // Keystrokes for a terminal go nowhere: the next answer is the pong.
+    let mut typed = Vec::new();
+    frame::encode_terminal_input(&mut typed, TerminalId::derive("shell"), b"whoami\r");
+    raw.stream.write_all(&typed).await.unwrap();
     raw.send(&ClientMessage::Ping { nonce: 7 }).await;
     assert_eq!(raw.recv().await, Some(ServerMessage::Pong { nonce: 7 }));
     let key = IdempotencyKey::generate();
@@ -931,6 +939,49 @@ async fn a_peer_link_carries_only_calls_wakes_and_answers() {
         }
         other => panic!("{other:?}"),
     }
+}
+
+/// Every request a connection makes of a terminal, for a shell.
+fn terminal_requests() -> [ClientMessage; 8] {
+    let terminal = TerminalId::derive("shell");
+    let key = IdempotencyKey::generate;
+    [
+        ClientMessage::TerminalOpen {
+            key: key(),
+            agent: AgentId::derive("lead"),
+            kind: TerminalKind::Shell,
+            cols: 80,
+            rows: 24,
+        },
+        ClientMessage::TerminalAttach {
+            terminal,
+            after: None,
+        },
+        ClientMessage::TerminalDetach { terminal },
+        ClientMessage::TerminalResize {
+            terminal,
+            cols: 100,
+            rows: 30,
+        },
+        ClientMessage::TerminalInterrupt {
+            key: key(),
+            terminal,
+        },
+        ClientMessage::TerminalClose {
+            key: key(),
+            terminal,
+            force: true,
+        },
+        ClientMessage::TerminalRename {
+            key: key(),
+            terminal,
+            title: "mine".into(),
+        },
+        ClientMessage::TerminalMove {
+            key: key(),
+            terminal,
+        },
+    ]
 }
 
 /// A connection from `a` to `b` that has said hello and proved `a`'s key.

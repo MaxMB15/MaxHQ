@@ -100,6 +100,7 @@ mod sidecar;
 mod skills;
 mod sshkey;
 mod tasks;
+mod terminals;
 mod thumbnail;
 mod tools;
 mod transfer;
@@ -733,6 +734,11 @@ async fn serve() -> Result<Stopped, RunError> {
         let notes = notes.clone();
         async move { notes.show_all().await }
     });
+    let terminals = terminals::Terminals::wire(
+        maxhq_hold::Terminals::from_env().ok_or(RunError::NoDataDir)?,
+        hub.clone(),
+    );
+    let restore = terminals.terminals.clone();
     let sessions = session::start(session::Config {
         hub: hub.clone(),
         db: db.clone(),
@@ -761,7 +767,16 @@ async fn serve() -> Result<Stopped, RunError> {
         dispatcher: cfg!(target_os = "macos")
             .then(|| session::dispatcher::home(&hub, &data))
             .flatten(),
+        terminals,
     });
+    // The terminals a previous maxd left come back once the manager runs,
+    // so it hears of the runs that ended meanwhile.
+    if let Some(terminals) = restore {
+        spawn_task(
+            "the terminals' return",
+            async move { terminals.restore().await },
+        );
+    }
     workflow::install(
         hub.clone(),
         workflows,

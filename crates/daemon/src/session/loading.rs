@@ -13,7 +13,7 @@ use std::collections::{HashMap, VecDeque};
 use maxhq_protocol::ids::{AgentId, IdempotencyKey, SessionId};
 use maxhq_protocol::message::ClientMessage;
 use maxhq_protocol::model::{Activity, Vendor};
-use maxhq_protocol::timeline::{TimelineEvent, TimelineItem};
+use maxhq_protocol::timeline::{ItemId, TimelineEvent, TimelineItem};
 use tracing::warn;
 
 use super::held::{is_busy, Reaching, Target};
@@ -53,6 +53,8 @@ pub(super) enum Later {
     FollowUp,
     /// Reading the agent's history again.
     Reseed,
+    /// Showing a `!` run as it was last kept.
+    Run(ItemId),
 }
 
 impl Loading {
@@ -147,6 +149,16 @@ impl Manager {
                     if let Some(items) = db.earlier::<TimelineItem>(agent) {
                         timeline.thaw(items);
                     }
+                    // The vendor's history doesn't have the `!` runs, so
+                    // they go back where they came.
+                    match db.user_runs::<TimelineItem>(agent) {
+                        Ok(runs) => timeline.add_runs(
+                            (runs.into_iter())
+                                .map(|run| (run.record, run.after.map(ItemId), run.at))
+                                .collect(),
+                        ),
+                        Err(err) => warn!(%err, %agent, "couldn't read the agent's runs"),
+                    }
                     match read_history(&*vendors, &*places, &source, agent, bytes) {
                         Some(Ok(items)) => timeline.replace_history(items),
                         Some(Err(err)) => warn!(%err, %agent, "couldn't read the agent's history"),
@@ -174,6 +186,10 @@ impl Manager {
     pub(super) fn loaded(&mut self, agent: AgentId, timeline: Option<Box<Timeline>>) {
         self.loading.reading = self.loading.reading.saturating_sub(1);
         let laters = self.loading.waiting.remove(&agent).unwrap_or_default();
+        // The `!` runs that changed during the read change before clients
+        // get the timeline, so none shows a run as it was.
+        let (runs, laters): (Vec<_>, Vec<_>) =
+            (laters.into_iter()).partition(|later| matches!(later, Later::Run(_)));
         if self.held.contains_key(&agent) {
             let mut timeline =
                 timeline.map_or_else(|| self.new_timeline(agent), |timeline| *timeline);
@@ -185,6 +201,12 @@ impl Manager {
                             item: item.into_owned(),
                         });
                     }
+                }
+            }
+            for later in runs {
+                let Later::Run(id) = later else { continue };
+                if let Some(row) = self.db.user_run::<TimelineItem>(agent, &id.0) {
+                    timeline.apply(TimelineEvent::Upsert { item: row.record });
                 }
             }
             self.timelines.insert(agent, timeline);
@@ -242,6 +264,7 @@ impl Manager {
             Later::Resume => self.resume_agent(agent),
             Later::FollowUp => self.follow_up(agent),
             Later::Reseed => self.reseed(agent),
+            Later::Run(id) => self.show_run(agent, &id),
         }
     }
 
@@ -307,7 +330,8 @@ fn acts_on(message: &ClientMessage) -> Option<AgentId> {
         | ClientMessage::SetModel { agent, .. }
         | ClientMessage::SetEffort { agent, .. }
         | ClientMessage::StopAgent { agent, .. }
-        | ClientMessage::DeleteAgent { agent, .. } => Some(*agent),
+        | ClientMessage::DeleteAgent { agent, .. }
+        | ClientMessage::TerminalOpen { agent, .. } => Some(*agent),
         _ => None,
     }
 }

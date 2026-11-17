@@ -286,6 +286,35 @@ pub(super) async fn the_title_and_folder_come_from_the_shell(ctx: Ctx) {
     again.control.kill(Duration::from_secs(5));
 }
 
+pub(super) async fn a_watch_gets_all_but_the_output(ctx: Ctx) {
+    let script = "stty -echo; printf '\\033]0;watched\\007'; echo loud; read line; echo louder";
+    let launch = sh(&ctx, script, false);
+    let terminals = terminals(&ctx);
+    let mut link = start(&ctx, &launch).await;
+    let mut seen = Seen::from(&link);
+    seen.until_text(&mut link, "loud").await;
+    let Reached::Live(mut watch) = terminals.watch(launch.terminal).await.unwrap() else {
+        panic!("no watch");
+    };
+    assert_eq!(watch.hello.title.as_deref(), Some("watched"));
+    assert!(link.control.input(b"go\n".to_vec()));
+    let mut exit = None;
+    while exit.is_none() {
+        match tokio::time::timeout(WAIT, watch.events.recv()).await {
+            Ok(Some(TermEvent::Output { offset, data })) => {
+                panic!("a watch got output at {offset}: {data:?}")
+            }
+            Ok(Some(TermEvent::Exit(ended))) => exit = Some(ended),
+            Ok(Some(_)) => {}
+            Ok(None) => panic!("the watch ended without the exit"),
+            Err(_) => panic!("no exit within {WAIT:?}"),
+        }
+    }
+    assert_eq!(exit.unwrap().code, Some(0));
+    seen.until_exit(&mut link).await;
+    assert!(seen.text().contains("louder"), "{}", seen.text());
+}
+
 pub(super) async fn interrupt_stops_what_the_shell_runs(ctx: Ctx) {
     let mut launch = sh(&ctx, "", false);
     launch.args = vec!["-i".into()];
