@@ -15,7 +15,9 @@ import { supportsTerminals } from "@maxhq/shared/terminal/select";
 import { commandOfBlock, isShellLanguage, runPlace } from "@maxhq/shared/terminal/shell";
 
 import { useView } from "@/app/services";
-import { MENU_ITEM, MENU_POPUP } from "@/composer";
+// From the file itself, not the composer's index: the index reaches back
+// here through the timeline, and ENTRY reads MENU_ITEM at load.
+import { MENU_ITEM, MENU_POPUP } from "@/composer/pickers";
 import { putCommand } from "@/composer/shell-mode";
 import { cn } from "@/lib/utils";
 import { useTerminalActions } from "@/terminal";
