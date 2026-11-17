@@ -196,8 +196,13 @@ export type PillRecord =
 			readonly lines?: ReactNode;
 	  }
 	| { readonly kind: "git_item"; readonly ref: GitItemRef }
-	/** A command's output, drawn plain with its command until its own look comes. */
-	| { readonly kind: "output"; readonly ref: OutputRef };
+	| {
+			readonly kind: "output";
+			/** The output as it stands now, or as it went in a sent message. */
+			readonly ref: OutputRef;
+			/** What goes to the agent, made only once the preview opens. */
+			readonly preview?: ReactNode;
+	  };
 
 export type PillContext = { readonly now: Timestamp };
 
@@ -210,6 +215,8 @@ export type PillPresentation = {
 	readonly label: string;
 	readonly aria: string;
 	readonly preview: ReactNode | null;
+	/** What follows the words, such as a command's exit code or its spinner. */
+	readonly trail?: ReactNode;
 };
 
 const ICON_CLASS = "size-[1em] shrink-0";
@@ -496,6 +503,20 @@ export const GitItemDetails = ({ item, now }: { item: GitItemRef; now: Timestamp
 	);
 };
 
+/** A command on one line, each run of spaces and line breaks as one space. */
+const oneLine = (command: string): string => command.trim().split(/\s+/).join(" ");
+
+/** Whether the command ended with an exit code other than 0. */
+export const outputFailed = (ref: OutputRef): boolean =>
+	!ref.running && !ref.lines && ref.exit_code !== null && ref.exit_code !== 0;
+
+/** What an output's pill says after the command: the lines picked from it, or how it ended. */
+export const outputState = (ref: OutputRef): string | null => {
+	if (ref.lines) return t("lines {{first}}-{{last}}", ref.lines);
+	if (ref.running) return t("running");
+	return ref.exit_code === null ? null : t("exit {{code}}", { code: ref.exit_code });
+};
+
 const percentOf = (progress: FileProgress): number | null =>
 	progress.state === "uploading" ? progress.percent : null;
 
@@ -668,15 +689,24 @@ export const pillRegistry = createPillRegistry<PillRecord, PillContext, PillPres
 			kind: "output",
 			canRender: (record) => record.kind === "output",
 			render: (record) => {
-				const { ref } = record as Extract<PillRecord, { kind: "output" }>;
+				const { ref, preview } = record as Extract<PillRecord, { kind: "output" }>;
+				const state = outputState(ref);
 				return {
-					family: "file",
+					family: outputFailed(ref) ? "output-failed" : "output",
 					state: "ready",
 					progress: null,
 					icon: <SquareTerminal aria-hidden className={ICON_CLASS} />,
-					label: middleTruncate(ref.command),
-					aria: t("Output of {{from}}", { from: ref.command }),
-					preview: null,
+					label: middleTruncate(oneLine(ref.command)),
+					trail:
+						ref.running && !ref.lines ? (
+							<LoaderCircle aria-hidden className={cn(ICON_CLASS, "pill-spin")} />
+						) : state === null ? null : (
+							<span className="pill-trail">{state}</span>
+						),
+					aria: [t("Output of {{from}}", { from: oneLine(ref.command) }), state]
+						.filter(Boolean)
+						.join(", "),
+					preview: preview ?? null,
 				};
 			},
 		},

@@ -22,6 +22,7 @@ import { PlanCard, TodosCard } from "./items/plan";
 import { QuestionCard } from "./items/question";
 import { Reasoning } from "./items/reasoning";
 import { SubAgentCard } from "./items/subagent";
+import { UserRunCard } from "./items/user-run";
 import { VisualItem } from "@/visuals/visual-item";
 import {
 	CommandRow,
@@ -114,10 +115,8 @@ export const ItemBodyView = ({ item }: { item: TimelineItem }) => {
 			return <OpenedFileRow item={item} />;
 		case "agent_visual":
 			return <VisualItem item={item} />;
-		// A command you ran with `!` shows as an item this build can't
-		// show until its card comes.
 		case "user_run":
-			return <UnknownRow item={{ ...item, kind: "unknown", native_kind: item.kind }} />;
+			return <UserRunCard item={item} />;
 		case "unknown":
 			return <UnknownRow item={item} />;
 	}

@@ -28,7 +28,10 @@ import { cn } from "@/lib/utils";
 
 import "./pills.css";
 
-/** The hue: files, quotes, agents, notes, and a pull request's or issue's state. */
+/**
+ * The hue: files, quotes, agents, notes, a pull request's or issue's state,
+ * and a command's output, red once the command failed.
+ */
 export type PillFamily =
 	| "file"
 	| "quote"
@@ -38,7 +41,9 @@ export type PillFamily =
 	| "git-open"
 	| "git-draft"
 	| "git-merged"
-	| "git-closed";
+	| "git-closed"
+	| "output"
+	| "output-failed";
 
 /** The shade. Staging and uploading fill as they go. */
 export type PillState = "ready" | "staging" | "uploading" | "failed" | "unresolved";

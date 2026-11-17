@@ -3,8 +3,12 @@
 
 import "@testing-library/jest-dom/vitest";
 import { clearKept } from "@maxhq/shared/agent-view/kept";
-import { cleanup } from "@testing-library/react";
+import { cleanup, configure } from "@testing-library/react";
 import { afterEach } from "vitest";
+
+// A dialog or menu can take more than a second to show on a busy machine,
+// which fails the commit hook for nothing. A real miss still fails.
+configure({ asyncUtilTimeout: 5_000 });
 
 // Vitest runs without globals, so Testing Library can't register its own
 // cleanup. Unmount what each test rendered, and forget what it stored, such

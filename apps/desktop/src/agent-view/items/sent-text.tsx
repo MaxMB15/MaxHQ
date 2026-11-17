@@ -33,6 +33,7 @@ import { openAgent } from "@/app/open-agent";
 import { useServices, useView } from "@/app/services";
 import { writeDraftClipboard } from "@/composer/pill-keys";
 import { NotePill } from "@/notes/pill";
+import { OutputPreview } from "@/pills/output-preview";
 import { type FileRecord, presentPill } from "@/pills/registry";
 import { ShownPill } from "@/pills/shown";
 import { ReadVisualPage } from "@/visuals/visual-preview";
@@ -225,7 +226,14 @@ const PieceView = ({
 		case "output":
 			return (
 				<ShownPill
-					presentation={presentPill({ kind: "output", ref }, { now })}
+					presentation={presentPill(
+						{
+							kind: "output",
+							ref,
+							preview: <OutputPreview output={ref} editable={false} />,
+						},
+						{ now }
+					)}
 					{...marked(index)}
 				/>
 			);

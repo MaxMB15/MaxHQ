@@ -31,6 +31,12 @@ const TOKENS: readonly (readonly [keyof TerminalPalette, string])[] = [
 	),
 ];
 
+/** One of the 16 colours, by its number, as the theme's token. */
+export const ansiToken = (index: number): string => {
+	const name = NAMED[index % 8]!;
+	return `var(--terminal-${index < 8 ? name : `bright-${name}`})`;
+};
+
 /** The palette the page's theme gives now. */
 export const readPalette = (root: Element = document.documentElement): TerminalPalette => {
 	const style = getComputedStyle(root);

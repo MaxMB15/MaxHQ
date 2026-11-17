@@ -122,6 +122,8 @@ export type PromptEditorEvents = {
 	readonly onEnter: (withModifier: boolean) => void;
 	/** Up or Down with no modifier, and where the caret is. Returns whether it did anything. */
 	readonly onHistoryKey: (direction: HistoryDirection, caret: HistoryCaret) => boolean;
+	/** `!` typed before everything in the box. Returns whether it took the key, so no `!` goes in. */
+	readonly onBang?: () => boolean;
 	/** Command or Control and U. */
 	readonly onAttach: () => void;
 	/** A paste. Returns whether it took the paste, so the text box doesn't. */
@@ -335,6 +337,13 @@ export const PromptEditor = (props: PromptEditorProps) => {
 			handleKeyDown: (view, event) => {
 				if (event.key === "Enter" && (event.isComposing || event.keyCode === 229)) {
 					event.stopPropagation();
+					return true;
+				}
+				const { selection, doc } = view.state;
+				const atStart = selection.empty && offsetOf(doc, selection.head) === 0;
+				const bang = event.key === "!" && !event.metaKey && !event.ctrlKey && atStart;
+				if (bang && !event.isComposing && latest.current.onBang?.()) {
+					event.preventDefault();
 					return true;
 				}
 				const menuKey = MENU_KEYS[event.key];

@@ -138,6 +138,8 @@ import {
 } from "./git-pills";
 import { ImageNote } from "./image-note";
 import { useComposerNative } from "./native";
+import { useOutputFill } from "./output-pill";
+import { useHeldOutputs } from "./output-pills";
 import { type PaneFile, usePaneFiles } from "./pane-files";
 import { nextPastedTextFileName, pastesAsFile } from "./paste";
 import { EffortPicker } from "./effort-picker";
@@ -150,6 +152,7 @@ import { quoteOfDrag, visualOfDrag } from "./quote-drop";
 import { quoteInbox } from "./quote-inbox";
 import { releasedFiles } from "./retained";
 import { draftsOf } from "./saved-drafts";
+import { useShellMode } from "./shell-mode";
 import { useStopKey } from "./stop-key";
 import { useTypingPrefs } from "./typing-prefs";
 import {
@@ -418,6 +421,16 @@ const ComposerBody = ({
 	const [hidden, setHidden] = useState<ReadonlySet<string>>(() => new Set());
 	const [pending, setPending] = useState<ReadonlySet<string>>(() => new Set());
 	const [error, setError] = useState<string | null>(null);
+	const shell = useShellMode({
+		agent: agent.id,
+		device,
+		timeline,
+		editor,
+		box,
+		onError: setError,
+	});
+	const fillOutputs = useOutputFill(timeline);
+	useHeldOutputs(agent.id, draft.segments, editor);
 	const [waitingForFiles, setWaitingForFiles] = useState(false);
 	const [sending, setSending] = useState(false);
 	const [over, setOver] = useState(false);
@@ -855,7 +868,7 @@ const ComposerBody = ({
 			// The space after a last pill doesn't go out.
 			const input = withExcerpts(
 				toUserInput(
-					{ segments: trimEnd(segments), gitItems },
+					{ segments: fillOutputs(trimEnd(segments)), gitItems },
 					(key): AttachmentId | null => ids.get(key) ?? null,
 					// An older maxd gets a visual as its page's file.
 					{ visuals: sendsVisuals(services.view.getState().view, device) }
@@ -1204,8 +1217,9 @@ const ComposerBody = ({
 			agentOf: (id) => view.tables.agent.get(id) ?? null,
 			deviceName: (id) => deviceName(view, id),
 			agent: agent.id,
+			timeline,
 		}),
-		[agent.id, attachments, chips, draft.segments, native, now, view]
+		[agent.id, attachments, chips, draft.segments, native, now, timeline, view]
 	);
 
 	const hasContent = !isBlank({ segments: draft.segments, gitItems: [] });
@@ -1243,6 +1257,7 @@ const ComposerBody = ({
 		canStop(turn),
 		ready,
 		waitingNote,
+		shell.mode,
 	].join("|");
 
 	return (
@@ -1258,6 +1273,7 @@ const ComposerBody = ({
 				/>
 				<div
 					ref={box}
+					data-shell={shell.mode === "message" ? undefined : shell.mode}
 					className="relative rounded-[10px] border border-input bg-subpanel focus-within:border-primary focus-within:shadow-focus"
 					onBlur={(event) => {
 						// Clicking away closes the menu, though a click in it keeps the focus.
@@ -1300,6 +1316,7 @@ const ComposerBody = ({
 							</span>
 						</div>
 					)}
+					{shell.field}
 					<PromptEditor
 						ref={editor}
 						native={native}
@@ -1312,6 +1329,7 @@ const ComposerBody = ({
 							void send(sendModeFor(turn, busySend, withModifier))
 						}
 						onHistoryKey={historyKey}
+						onBang={shell.onBang}
 						onAttach={() => void pick()}
 						onPaste={paste}
 						onDropFiles={(files) => void addFiles(files, toDrop)}
@@ -1403,16 +1421,18 @@ const ComposerBody = ({
 										}
 									/>
 								)}
-								<SendButtons
-									sends={sends}
-									pick={busySend}
-									ready={ready}
-									waiting={waitingNote}
-									stops={canStop(turn)}
-									folded={folded}
-									onSend={(mode) => void send(mode)}
-									onStop={stop}
-								/>
+								{shell.runButton ?? (
+									<SendButtons
+										sends={sends}
+										pick={busySend}
+										ready={ready}
+										waiting={waitingNote}
+										stops={canStop(turn)}
+										folded={folded}
+										onSend={(mode) => void send(mode)}
+										onStop={stop}
+									/>
+								)}
 							</>
 						)}
 					</FooterRow>

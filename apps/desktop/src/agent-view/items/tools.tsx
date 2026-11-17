@@ -23,7 +23,7 @@ import {
 	Terminal,
 	Wrench,
 } from "lucide-react";
-import type { ReactNode } from "react";
+import { type ReactNode, useMemo } from "react";
 
 import { agentToolLine, agentToolOf, viewNames } from "@maxhq/shared/agent-view/agent-tools";
 import { EDIT_VERBS, TOOL_VERBS, verbFor, WEB_VERBS } from "@maxhq/shared/agent-view/tool-line";
@@ -33,6 +33,7 @@ import { editPath, shownCounts } from "@maxhq/shared/timeline/diff";
 
 import { useView } from "@/app/services";
 import { useRow } from "@maxhq/shared/agent-view/context";
+import { AnsiLines, ansiLines } from "../ansi-text";
 import { DiffView } from "../diff-view";
 import { DownloadButton } from "../download";
 import {
@@ -80,7 +81,7 @@ const Output = ({
 }) => {
 	useI18n();
 	const [all, setAll] = useFold(`all:${id}`, id);
-	const lines = text.replace(/\n$/, "").split("\n");
+	const lines = useMemo(() => ansiLines(text), [text]);
 	const hidden = all ? 0 : Math.max(0, lines.length - TAIL);
 	return (
 		<Detail>
@@ -112,7 +113,7 @@ const Output = ({
 					data-find="plain"
 					className="overflow-x-auto px-2.5 pt-1.5 pb-[7px] font-mono text-[11.5px] leading-[19px] text-secondary-foreground"
 				>
-					{lines.slice(hidden).join("\n")}
+					<AnsiLines lines={lines.slice(hidden)} />
 				</pre>
 			)}
 			{truncated ? (

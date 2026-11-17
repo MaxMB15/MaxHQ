@@ -486,13 +486,47 @@ export const agentMarker = (title: string): string => `[Agent: ${bare(title)}]`;
 /** A note as plain text, such as `[Note: Release steps]`. */
 export const noteMarker = (title: string): string => `[Note: ${bare(noteLabel(title))}]`;
 
+/** How many characters of a command an output's marker keeps, as core's does. */
+const MARKER_CHARS = 80;
+
+/** Whether a character is a control character, which a marker reads as a space. */
+const isControl = (c: string): boolean => {
+	const code = c.codePointAt(0) ?? 0;
+	return code < 0x20 || (code >= 0x7f && code <= 0x9f);
+};
+
+/** A name with no brackets or object marks, and spaces for control characters. */
+const markerLabel = (text: string): string =>
+	[...text]
+		.filter((c) => c !== "[" && c !== "]" && c !== OBJECT_MARK)
+		.map((c) => (isControl(c) ? " " : c))
+		.join("");
+
+/** A command as its marker names it: on one line, cut short, "command" when nothing is left. */
+const markerCommand = (command: string): string => {
+	const line = [
+		...markerLabel(
+			command
+				.trim()
+				.split(/[\s\u0085]+/)
+				.join(" ")
+		),
+	];
+	const cut =
+		line.length > MARKER_CHARS ? `${line.slice(0, MARKER_CHARS).join("")}…` : line.join("");
+	return cut.trim() === "" ? "command" : cut;
+};
+
 /**
- * A command's output as plain text, such as `[Output: pnpm test, exit 1]`,
- * the way the agent's marker names it without its number.
+ * A command's output as plain text, the way the agent's marker names it,
+ * such as `[Output 1: pnpm dev, running, lines 6-8]`, or `[Output: pnpm
+ * test, exit 1]` without its number.
  */
-export const outputMarker = (ref: OutputRef): string => {
+export const outputMarker = (ref: OutputRef, number?: number): string => {
 	const end = ref.running ? ", running" : ref.exit_code === null ? "" : `, exit ${ref.exit_code}`;
-	return `[Output: ${bare(ref.command)}${end}]`;
+	const lines = ref.lines ? `, lines ${ref.lines.first}-${ref.lines.last}` : "";
+	const name = number === undefined ? "Output" : `Output ${number}`;
+	return `[${name}: ${markerCommand(ref.command)}${end}${lines}]`;
 };
 
 /** A visual as plain text, such as `[Visual: Weekly usage]`. */
