@@ -150,15 +150,18 @@ mod tests {
 
     use super::*;
 
-    /// Starts `script` under `sh` on a new pty and returns its master.
+    /// Starts `script` under `sh` on a new pty and returns its master. The
+    /// shell gets the tests' own `PATH`, since NixOS has no `stty` in
+    /// `/usr/bin` or `/bin`.
     fn start(script: &str) -> (Master, tokio::process::Child) {
         let (master, slave) = open(winsize(80, 24, 0, 0)).unwrap();
+        let path = std::env::var_os("PATH").unwrap_or_else(|| "/usr/bin:/bin".into());
         let mut process = std::process::Command::new("/bin/sh");
         process
             .arg("-c")
             .arg(script)
             .env_clear()
-            .env("PATH", "/usr/bin:/bin")
+            .env("PATH", path)
             .stdin(Stdio::from(slave.try_clone().unwrap()))
             .stdout(Stdio::from(slave.try_clone().unwrap()))
             .stderr(Stdio::from(slave));
@@ -186,13 +189,19 @@ mod tests {
 
     /// Waits for `child` to end, reading what it prints meanwhile: on macOS
     /// a process can't finish closing its terminal while output is unread.
+    /// Reading stops at the end of the output. Past it a read returns at
+    /// once, and a loop that never waits gives the runtime no turn to see
+    /// the child end, which on Linux it learns from a pidfd.
     async fn finish(master: &Master, child: &mut tokio::process::Child) {
         let mut buf = [0; 4096];
+        let mut open = true;
         let wait = tokio::time::timeout(Duration::from_secs(10), async {
             loop {
                 tokio::select! {
                     status = child.wait() => return status.unwrap(),
-                    _ = master.read(&mut buf) => {}
+                    read = master.read(&mut buf), if open => {
+                        open = matches!(read, Ok(read) if read > 0);
+                    }
                 }
             }
         });
