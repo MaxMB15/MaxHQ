@@ -96,7 +96,8 @@ describe("the terminal registry", () => {
 		vi.advanceTimersByTime(30_000);
 		expect(stream.detach).toHaveBeenCalledWith("t-1");
 		registry.place("t-1", host(), { interactive: true });
-		expect(stream.attach).toHaveBeenLastCalledWith("t-1", 5);
+		// "$ ls\n" is bytes 0 to 4, so it goes on after byte 4.
+		expect(stream.attach).toHaveBeenLastCalledWith("t-1", 4);
 		expect(views).toHaveLength(1);
 		expect(views[0]!.written.join("")).toBe("$ ls\n");
 	});

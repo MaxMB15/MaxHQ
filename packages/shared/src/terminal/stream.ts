@@ -38,6 +38,13 @@ export type TerminalStream = {
 	readonly listen: (terminal: TerminalId, listener: (event: TerminalEvent) => void) => () => void;
 };
 
+/**
+ * The offset of the last byte a view that ends at `end` shows, which an
+ * attach names to go on after it. Null when it shows none yet.
+ */
+export const lastByte = (end: number | null): number | null =>
+	end === null || end === 0 ? null : end - 1;
+
 /** What a view does with an event: clear first or not, then write `bytes`. */
 export type Step = {
 	readonly clear: boolean;

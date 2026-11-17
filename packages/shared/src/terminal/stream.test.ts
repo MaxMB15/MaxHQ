@@ -3,7 +3,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import { stepFor } from "./stream";
+import { lastByte, stepFor } from "./stream";
 
 const bytes = (text: string) => new TextEncoder().encode(text);
 const text = (step: ReturnType<typeof stepFor>) =>
@@ -47,5 +47,13 @@ describe("stepFor", () => {
 			bytes: "",
 			end: 64,
 		});
+	});
+});
+
+describe("lastByte", () => {
+	it("names the last byte a view shows, and nothing before the first", () => {
+		expect(lastByte(null)).toBeNull();
+		expect(lastByte(0)).toBeNull();
+		expect(lastByte(5)).toBe(4);
 	});
 });

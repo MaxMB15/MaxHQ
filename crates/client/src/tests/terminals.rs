@@ -117,7 +117,7 @@ async fn a_terminal_streams_takes_input_and_attaches_again_after_a_reconnect() {
         maxd.recv().await,
         Some(ClientMessage::TerminalAttach {
             terminal: shell,
-            after: Some(6)
+            after: Some(5)
         })
     );
     // The ring moved on meanwhile, so the shell starts over.

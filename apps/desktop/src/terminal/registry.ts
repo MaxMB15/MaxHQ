@@ -17,7 +17,12 @@
 
 import type { TerminalId } from "@maxhq/shared/bindings";
 import type { TerminalSize } from "@maxhq/shared/terminal/requests";
-import { stepFor, type TerminalEvent, type TerminalStream } from "@maxhq/shared/terminal/stream";
+import {
+	lastByte,
+	stepFor,
+	type TerminalEvent,
+	type TerminalStream,
+} from "@maxhq/shared/terminal/stream";
 
 import type { MakeView, TermView } from "./term-view";
 
@@ -209,7 +214,7 @@ export const createRegistry = ({
 	const attach = (entry: Entry) => {
 		if (entry.attached) return;
 		entry.attached = true;
-		stream.attach(entry.terminal, entry.end).catch((error: unknown) => {
+		stream.attach(entry.terminal, lastByte(entry.end)).catch((error: unknown) => {
 			entry.attached = false;
 			onFailure?.(entry.terminal, error instanceof Error ? error.message : String(error));
 		});

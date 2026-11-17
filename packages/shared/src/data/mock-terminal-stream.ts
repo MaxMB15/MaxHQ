@@ -425,8 +425,8 @@ export const mockTerminalStream = ({
 			if (!state || !find(id)) throw new Error("This terminal is gone.");
 			state.attached = true;
 			const first = state.chunks[0]?.offset ?? state.end;
-			const from = after === null ? first : Math.max(after, first);
-			if (after !== null && after < first) emit(state, { type: "reset", from: first });
+			const from = after === null ? first : Math.max(after + 1, first);
+			if (after !== null && after + 1 < first) emit(state, { type: "reset", from: first });
 			for (const chunk of state.chunks) {
 				const end = chunk.offset + chunk.bytes.length;
 				if (end <= from) continue;

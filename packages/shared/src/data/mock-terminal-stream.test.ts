@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { TerminalId } from "../bindings";
 import { openedTerminal, openShell, runCommand } from "../terminal/requests";
-import { type TerminalEvent, stepFor } from "../terminal/stream";
+import { lastByte, type TerminalEvent, stepFor } from "../terminal/stream";
 import { terminalById } from "../terminal/select";
 import { NOW } from "../test/build";
 import { all, applySnapshot } from "../view/replica";
@@ -132,7 +132,7 @@ describe("sample terminal stream", () => {
 		type(terminal, "ls\r");
 		expect(first.text()).not.toContain("README.md");
 
-		const again = await watch(terminal, end);
+		const again = await watch(terminal, lastByte(end));
 		expect(again.events[0]).toMatchObject({ type: "output", offset: end });
 		expect(again.text()).toContain("README.md");
 		await expect(stream.attach("terminal-gone", null)).rejects.toThrow(

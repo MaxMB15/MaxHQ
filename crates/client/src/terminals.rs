@@ -34,15 +34,15 @@ pub(crate) struct Terminals {
 
 /// One attached terminal.
 struct Attached {
-    /// Where the output handed on so far ends, which a reattach goes on
-    /// from. None until some came, unless the attach named a place.
+    /// The offset of the last output byte handed on, which a reattach goes
+    /// on after. None until some came, unless the attach named one.
     after: Option<u64>,
     sink: Arc<dyn TerminalSink>,
 }
 
 impl Terminals {
-    /// Notes a terminal as attached from `after`, with the sink its output
-    /// goes to.
+    /// Notes a terminal as attached after byte `after`, with the sink its
+    /// output goes to.
     pub(crate) fn attach(
         &self,
         terminal: TerminalId,
@@ -65,14 +65,17 @@ impl Terminals {
             let Some(one) = attached.get_mut(&terminal) else {
                 return;
             };
-            one.after = Some(offset + bytes.len() as u64);
+            if !bytes.is_empty() {
+                one.after = Some(offset + bytes.len() as u64 - 1);
+            }
             Arc::clone(&one.sink)
         };
         sink.output(terminal, offset, bytes);
     }
 
     /// Takes `maxd`'s answer to an attach. A reset goes to the sink, and
-    /// the output then starts at `from`.
+    /// the output then starts at `from`, so the last byte held is the one
+    /// before it.
     pub(crate) fn attached(&self, terminal: TerminalId, from: u64, reset: bool) {
         if !reset {
             return;
@@ -82,7 +85,7 @@ impl Terminals {
             let Some(one) = attached.get_mut(&terminal) else {
                 return;
             };
-            one.after = Some(from);
+            one.after = from.checked_sub(1);
             Arc::clone(&one.sink)
         };
         sink.reset(terminal, from);
@@ -163,7 +166,7 @@ pub(crate) mod tests {
             vec![
                 ClientMessage::TerminalAttach {
                     terminal: one,
-                    after: Some(11)
+                    after: Some(10)
                 },
                 ClientMessage::TerminalAttach {
                     terminal: two,
@@ -193,7 +196,7 @@ pub(crate) mod tests {
             terminals.replay(),
             vec![ClientMessage::TerminalAttach {
                 terminal: one,
-                after: Some(900)
+                after: Some(899)
             }]
         );
         assert!(terminals.detach(one));
