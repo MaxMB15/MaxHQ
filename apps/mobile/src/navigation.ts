@@ -11,6 +11,7 @@ import type {
 	LinkId,
 	NoteId,
 	ProjectId,
+	SkillProposalId,
 	TaskId,
 } from "@maxhq/shared/bindings";
 
@@ -61,6 +62,12 @@ export type Screens = {
 	DeviceSettings: { readonly device: DeviceId };
 	/** A project's settings on each device it's on. */
 	ProjectSettings: { readonly project: ProjectId };
+	/** A project's skills on each device that keeps them, with its proposals. */
+	Skills: { readonly project: ProjectId };
+	/** The skill library: its sources, the skills every agent gets, and each device's global skills. */
+	SkillLibrary: undefined;
+	/** One skill proposal with its diff, to approve or reject. */
+	SkillProposal: { readonly proposal: SkillProposalId };
 };
 
 /**

@@ -51,8 +51,11 @@ export const Quiet = ({ children }: { children: ReactNode }) => (
 	<Text style={styles.quiet}>{children}</Text>
 );
 
-/** One changed file with its diff, or a line saying GitHub shows none. */
-const FileRow = memo(({ file }: { file: PullFile }) => {
+/**
+ * One changed file with its diff, or a line saying there's none: GitHub's
+ * words for a PR, `noPatch` for any other diff.
+ */
+export const FileRow = memo(({ file, noPatch }: { file: PullFile; noPatch?: string }) => {
 	useI18n();
 	const changes = useMemo(() => [pullFileEdit(file)], [file]);
 	return (
@@ -67,7 +70,7 @@ const FileRow = memo(({ file }: { file: PullFile }) => {
 			{file.patch ? (
 				<PatchView changes={changes} />
 			) : (
-				<Quiet>{t("GitHub shows no diff for this file.")}</Quiet>
+				<Quiet>{noPatch ?? t("GitHub shows no diff for this file.")}</Quiet>
 			)}
 		</View>
 	);
