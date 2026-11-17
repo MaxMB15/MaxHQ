@@ -19,8 +19,9 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { cn } from "@/lib/utils";
 import { PRIMARY, SECONDARY, StatusNote } from "@/settings/controls";
 import { BACKDROP, POPUP, Title } from "@/workspaces/new-workspace";
-import type { DeviceId, GlobalsConflict, GlobalsJoin, GlobalsPlan } from "@maxhq/shared/bindings";
+import type { DeviceId, GlobalsConflict, GlobalsJoin } from "@maxhq/shared/bindings";
 import { readOf } from "@maxhq/shared/pulls/read";
+import { globalsPlanEmpty as isEmpty } from "@maxhq/shared/skills/project";
 import { deviceName } from "@maxhq/shared/view/select";
 
 import { useSkillAction } from "./look";
@@ -118,14 +119,6 @@ const Conflicts = ({
 		</section>
 	) : null;
 };
-
-const isEmpty = (plan: GlobalsPlan) =>
-	plan.moves.length +
-		plan.links.length +
-		plan.backups.length +
-		(plan.joins?.length ?? 0) +
-		(plan.conflicts?.length ?? 0) ===
-	0;
 
 const Body = ({ device, onDone }: { device: DeviceId; onDone: () => void }) => {
 	const { t } = useI18n();

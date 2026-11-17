@@ -3,7 +3,8 @@
 
 // A project's settings, as the desktop's General tab has them: what each
 // device keeps for it, each in its own card with its own Save, and the
-// commands you allowed there. The project's skills stay on the Mac.
+// commands you allowed there. A row on top opens the project's skills, as
+// the desktop's Skills tab.
 
 import { t, useI18n } from "@maxhq/shared/i18n";
 
@@ -16,6 +17,7 @@ import { projectDevices } from "@maxhq/shared/settings/project";
 import type { ScreenProps } from "../../navigation";
 import { useView } from "../../services";
 import { color } from "../../theme";
+import { Card, CardRow } from "../../ui/Card";
 import { Header } from "../../ui/Header";
 import { Muted } from "../devices/section";
 import { ProjectDevice } from "./project-device";
@@ -41,6 +43,15 @@ export const ProjectSettingsScreen = ({ navigation, route }: ScreenProps<"Projec
 				keyboardShouldPersistTaps="handled"
 				automaticallyAdjustKeyboardInsets
 			>
+				{project ? (
+					<Card label={t("Skills")}>
+						<CardRow
+							first
+							label={t("Skills")}
+							onPress={() => navigation.navigate("Skills", { project: id })}
+						/>
+					</Card>
+				) : null}
 				{!project ? (
 					<Muted>{t("That project is gone.")}</Muted>
 				) : devices.length === 0 ? (

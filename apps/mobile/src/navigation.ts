@@ -11,6 +11,7 @@ import type {
 	LinkId,
 	NoteId,
 	ProjectId,
+	SkillProposalId,
 	TaskId,
 } from "@maxhq/shared/bindings";
 
@@ -71,6 +72,12 @@ export type Screens = {
 	SubAgents: { readonly agent: AgentId };
 	/** The form that starts an agent, in `project` when one is given. */
 	NewAgent: { readonly project?: ProjectId } | undefined;
+	/** A project's skills on each device that keeps them, with its proposals. */
+	Skills: { readonly project: ProjectId };
+	/** The skill library: its sources, the skills every agent gets, and each device's global skills. */
+	SkillLibrary: undefined;
+	/** One skill proposal with its diff, to approve or reject. */
+	SkillProposal: { readonly proposal: SkillProposalId };
 };
 
 /**

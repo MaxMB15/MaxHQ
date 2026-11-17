@@ -3,8 +3,8 @@
 
 // Settings, as a short first page of cards whose rows open a page each:
 // this phone's name and language, the Macs it pairs with, About, then the
-// app's pages (the agent list, the composer, notifications, the dispatcher
-// and agent tools), the logins, each project's settings, and the devices
+// app's pages (the agent list, the composer, notifications, the dispatcher,
+// agent tools and the skill library), the logins, each project's settings, and the devices
 // with each one's settings and, by hand, the line that lets the phone into
 // a device and a form to add one. Opened from the first screen's "Add a
 // device by hand", the form starts open and in view.
@@ -59,6 +59,11 @@ const AppCard = ({ navigation }: { navigation: Navigation }) => {
 					onPress={() => navigation.navigate("SettingsPage", { page })}
 				/>
 			))}
+			<CardRow
+				label={t("Skills")}
+				note={t("The skills projects pick from, and the ones every agent gets")}
+				onPress={() => navigation.navigate("SkillLibrary")}
+			/>
 		</Card>
 	);
 };

@@ -40,6 +40,7 @@ import { DeviceSettingsScreen } from "./features/settings/DeviceSettingsScreen";
 import { ProjectSettingsScreen } from "./features/settings/ProjectSettingsScreen";
 import { SettingsPageScreen } from "./features/settings/SettingsPageScreen";
 import { SignInScreen } from "./features/settings/SignInScreen";
+import { SkillLibraryScreen, SkillProposalScreen, SkillsScreen } from "./features/skills";
 import { TaskActivityScreen, TaskEditorScreen, TasksScreen } from "./features/tasks";
 import { LeaseScreen } from "./features/test-hosts/LeaseScreen";
 import { UsageScreen } from "./features/usage/UsageScreen";
@@ -88,7 +89,9 @@ const SCREEN = {
 // agent's device at a line. maxhq://device/<link> opens a device's page.
 // maxhq://pull/<device>/<n>?repo=<owner/repo> opens a PR, maxhq://task/<id>
 // a task's history, and maxhq://task-editor?task=<id> its editor (no task
-// makes a new one).
+// makes a new one). maxhq://skills/<project> opens a project's skills,
+// maxhq://skill-library the library, and maxhq://skill-proposal/<id> a
+// proposal.
 // maxhq://phone is the old name for Settings. A pairing code,
 // maxhq:<code>, opens Scan with the code ready to pair.
 // Whatever a link opens sits over the inbox, so Back has somewhere to go.
@@ -132,6 +135,9 @@ const linking: LinkingOptions<Screens> = {
 			Running: "running/:agent",
 			SubAgents: "sub-agents/:agent",
 			NewAgent: "new-agent",
+			Skills: "skills/:project",
+			SkillLibrary: "skill-library",
+			SkillProposal: "skill-proposal/:proposal",
 		},
 	},
 };
@@ -180,6 +186,9 @@ export const App = () => {
 						<Stack.Screen name="SignIn" component={SignInScreen} />
 						<Stack.Screen name="DeviceSettings" component={DeviceSettingsScreen} />
 						<Stack.Screen name="ProjectSettings" component={ProjectSettingsScreen} />
+						<Stack.Screen name="Skills" component={SkillsScreen} />
+						<Stack.Screen name="SkillLibrary" component={SkillLibraryScreen} />
+						<Stack.Screen name="SkillProposal" component={SkillProposalScreen} />
 						<Stack.Screen name="Notes" component={NotesScreen} />
 						<Stack.Screen name="Note" component={NoteScreen} getId={noteScreenId} />
 						<Stack.Screen name="File" component={FileScreen} getId={fileScreenId} />

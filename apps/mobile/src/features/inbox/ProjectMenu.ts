@@ -4,8 +4,8 @@
 // What a project's menu offers, from the ⋯ on its group in the agent list,
 // as the desktop's project menu does: a new agent in it, its notes, a new
 // note while a device can take one, its pull requests where a GitHub App
-// reaches it, the scheduled tasks, hiding or showing it, and its settings.
-// Hiding needs no switch: it only changes what the lists show.
+// reaches it, the scheduled tasks, its skills, hiding or showing it, and its
+// settings. Hiding needs no switch: it only changes what the lists show.
 
 import { t } from "@maxhq/shared/i18n";
 
@@ -53,6 +53,10 @@ export const projectMenu = (
 		});
 	}
 	choices.push({ label: t("Scheduled tasks"), pick: () => navigation.navigate("Tasks") });
+	choices.push({
+		label: t("Skills"),
+		pick: () => navigation.navigate("Skills", { project: id }),
+	});
 	if (canHideProjects(view)) {
 		choices.push({
 			label: hidden ? t("Show project") : t("Hide project"),

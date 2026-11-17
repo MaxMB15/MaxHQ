@@ -20,16 +20,11 @@ import { cn } from "@/lib/utils";
 import { FileRow } from "@/pulls/tabs";
 import { DANGER, FIELD, Label, PRIMARY, SECONDARY, StatusNote } from "@/settings/controls";
 import { BACKDROP, POPUP, Title } from "@/workspaces/new-workspace";
-import type {
-	ProposalAction,
-	ProposalDiff,
-	ProposalSeen,
-	SkillProposal,
-} from "@maxhq/shared/bindings";
+import type { ProposalAction, ProposalDiff, SkillProposal } from "@maxhq/shared/bindings";
 import { useNow } from "@maxhq/shared/lib/clock";
 import { readOf } from "@maxhq/shared/pulls/read";
 import { skillBadges, skillLibrary } from "@maxhq/shared/skills/library";
-import { cantApprove, needsFork, proposalTitle } from "@maxhq/shared/skills/project";
+import { answerDone, proposalReview, proposalTitle } from "@maxhq/shared/skills/project";
 import { formatAgo } from "@maxhq/shared/status/format";
 import { deviceName } from "@maxhq/shared/view/select";
 
@@ -104,30 +99,15 @@ const Body = ({
 	const { note, busy, run } = useSkillAction();
 	const [fork, setFork] = useState("");
 	const library = skillLibrary(view);
-	// Once the holder has said where it goes, that's what counts.
-	const target = diff?.target ?? null;
-	const aimed = target ? { ...proposal, source: target.source } : proposal;
-	const from = library?.sources.find((s) => s.id === aimed.source);
-	const forking = needsFork(library, aimed);
-	const refusal = cantApprove(library, aimed, fork);
-	const base = target ? target.base : proposal.base;
-	const seen: ProposalSeen | undefined = diff
-		? { tree: diff.tree ?? proposal.tree, base }
-		: undefined;
+	const { from, forking, refusal, base, seen, standing } = proposalReview(
+		library,
+		proposal,
+		diff,
+		fork
+	);
 	const cantYet = busy || refusal !== null || seen === undefined;
-	const standing = !diff
-		? null
-		: base === null
-			? t("New skill")
-			: proposal.base === null
-				? t("Replaces {{name}}{{value2}}", {
-						name: proposal.name,
-						value2: from ? t(" in {{name}}", { name: from.name }) : "",
-					})
-				: null;
 	const answer = async (action: ProposalAction, push: boolean) => {
-		const done =
-			action === "reject" ? t("Rejected") : push ? t("Approved and pushed") : t("Approved");
+		const done = answerDone(action, push);
 		const named = action === "approve" && forking ? fork.trim() : undefined;
 		const told = action === "approve" ? seen : undefined;
 		const send = () => source.answerSkillProposal(proposal.id, action, push, named, told);
