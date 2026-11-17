@@ -8,32 +8,17 @@
 // only once a login of it there lists levels, and a `maxd` from before
 // effort levels can't keep one.
 
-import {
-	deviceEffortChoices,
-	deviceEffortLevel,
-	setsEffort,
-} from "@maxhq/shared/agent-view/effort";
-import type { DeviceId, Vendor } from "@maxhq/shared/bindings";
-import { t as translate, useI18n } from "@maxhq/shared/i18n";
+import type { DeviceId } from "@maxhq/shared/bindings";
+import { useI18n } from "@maxhq/shared/i18n";
+import { settingsWhy } from "@maxhq/shared/settings/device-settings";
+import { effortDefaultRows, type EffortDefaults } from "@maxhq/shared/settings/effort-defaults";
 import type { ViewState } from "@maxhq/shared/view/replica";
 import { StepSlider } from "@/components/step-slider";
 
 import { Row, StatusNote } from "./controls";
 import type { Note } from "./result";
 
-/** The device's default effort level for each vendor, null for each model's own. */
-export type EffortDefaults = {
-	readonly claude_effort: string | null;
-	readonly codex_effort: string | null;
-};
-
-const VENDORS: readonly { vendor: Vendor; field: keyof EffortDefaults }[] = [
-	{ vendor: "claude", field: "claude_effort" },
-	{ vendor: "codex", field: "codex_effort" },
-];
-
-const title = (vendor: Vendor): string =>
-	vendor === "claude" ? translate("Claude Code effort") : translate("Codex effort");
+export type { EffortDefaults };
 
 export const EffortDefaultRows = ({
 	view,
@@ -55,38 +40,19 @@ export const EffortDefaultRows = ({
 	onSave: (change: Partial<EffortDefaults>) => void;
 }) => {
 	useI18n();
-	const why = !live
-		? translate("Connect to {{name}} to change it.", { name: name })
-		: !setsEffort(view, device)
-			? translate("{{name}}'s maxd is too old for this. Update it first.", { name: name })
-			: null;
-	const rows = VENDORS.map(({ vendor, field }) => ({
-		vendor,
-		field,
-		choices: deviceEffortChoices(view, device, vendor, shown[field]),
-		level: deviceEffortLevel(view, device, vendor, shown[field]),
-	})).filter((row) => row.choices.length > 0);
-	return rows.map(({ vendor, field, choices, level }, at) => (
-		<Row
-			key={vendor}
-			title={title(vendor)}
-			sub={
-				why ??
-				(vendor === "claude"
-					? translate(
-							"New Claude Code agents here start at this effort level. Change it for one agent from its composer."
-						)
-					: translate("The same for new Codex agents."))
-			}
-		>
-			{at === 0 && <StatusNote note={note} />}
-			<StepSlider
-				label={title(vendor)}
-				stops={choices}
-				value={level ?? ""}
-				onPick={(value) => onSave({ [field]: value })}
-				disabled={why !== null}
-			/>
-		</Row>
-	));
+	const why = settingsWhy(view, device, name, live).effort;
+	return effortDefaultRows(view, device, shown).map(
+		({ vendor, field, title, sub, choices, level }, at) => (
+			<Row key={vendor} title={title} sub={why ?? sub}>
+				{at === 0 && <StatusNote note={note} />}
+				<StepSlider
+					label={title}
+					stops={choices}
+					value={level ?? ""}
+					onPick={(value) => onSave({ [field]: value })}
+					disabled={why !== null}
+				/>
+			</Row>
+		)
+	);
 };

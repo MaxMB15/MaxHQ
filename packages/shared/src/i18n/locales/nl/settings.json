@@ -1,5 +1,6 @@
 {
 	"Add the key file": "Sleutelbestand toevoegen",
+	"Click the plus button, give the key a name such as `MaxHQ pushes`, tick Apple Push Notifications service (APNs), and click Continue, then Register.": "Klik op de plusknop, geef de sleutel een naam zoals `MaxHQ pushes`, vink Apple Push Notifications service (APNs) aan en klik op Continue en daarna op Register.",
 	"Removing": "Verwijderen",
 	"Couldn't remove the ACP agent": "Kon de ACP-agent niet verwijderen",
 	"Couldn't remove it. Try again.": "Verwijderen mislukt. Probeer het opnieuw.",

@@ -3,13 +3,20 @@
 
 import { describe, expect, it } from "vitest";
 
-import type { ProjectSettings } from "../bindings";
+import type { Entity, ProjectSettings } from "../bindings";
+import { entities, link } from "../test/build";
+import { applySnapshot } from "../view/replica";
 import {
 	allowedWorkflowEnvText,
+	commandRulesOn,
+	deviceSettleDays,
 	draftOf,
 	parseMemory,
 	planProjectSettings,
+	projectCapabilities,
+	ruleKey,
 	sameDraft,
+	shownDraft,
 } from "./project";
 
 const GIB = 1024 ** 3;
@@ -81,5 +88,91 @@ describe("project memory setting", () => {
 			memory: "-1",
 		});
 		expect(plan.ok).toBe(false);
+	});
+});
+
+describe("the form a device's settings show", () => {
+	const current = draftOf(settings);
+	const start = { ...current, name: "Example Author", email: "author@example.com" };
+	const typed = { ...current, ports: "9229" };
+
+	it("keeps what you typed while the device reports the same", () => {
+		expect(shownDraft({ draft: typed, from: current }, current, start)).toBe(typed);
+	});
+
+	it("starts again once the device reports something new, or nothing was typed", () => {
+		const changed = { ...current, resume: false };
+		expect(shownDraft({ draft: typed, from: current }, changed, start)).toBe(start);
+		expect(shownDraft(null, current, start)).toBe(start);
+	});
+});
+
+describe("what a device keeps for a project", () => {
+	const view = applySnapshot({
+		seq: 1,
+		entities: [
+			...entities({
+				links: [
+					link({
+						id: "devbox",
+						device: "dev-devbox",
+						capabilities: {
+							transfers: true,
+							tunnels: true,
+							workspaces: true,
+							inbox: true,
+							pulls: true,
+						},
+					}),
+					link({ id: "old", device: "dev-old" }),
+				],
+			}),
+			{
+				entity: "device_settings",
+				device: "dev-devbox",
+				default_permission: "auto",
+				workspace_network: null,
+				workspace_pool: null,
+				auto_settle_days: 9,
+			} as Entity,
+			{
+				entity: "command_rules",
+				project: "proj-maxhq",
+				device: "dev-devbox",
+				rules: [
+					{ command: "git show", exact: false },
+					{ command: "git show", exact: true },
+				],
+			},
+		],
+	});
+
+	it("says which settings each maxd is new enough for", () => {
+		expect(projectCapabilities(view, "dev-devbox")).toEqual({
+			settle: true,
+			pulls: true,
+			workflows: false,
+			memory: false,
+		});
+		expect(projectCapabilities(view, "dev-old")).toEqual({
+			settle: false,
+			pulls: false,
+			workflows: false,
+			memory: false,
+		});
+	});
+
+	it("reads the device's settle days, or the default", () => {
+		expect(deviceSettleDays(view, "dev-devbox")).toBe(9);
+		expect(deviceSettleDays(view, "dev-old")).toBe(5);
+	});
+
+	it("lists the command rules, the same empty list when there are none", () => {
+		const rules = commandRulesOn(view, "proj-maxhq", "dev-devbox");
+		expect(rules.map(ruleKey)).toEqual(["~git show", "=git show"]);
+		expect(commandRulesOn(view, "proj-maxhq", "dev-old")).toEqual([]);
+		expect(commandRulesOn(view, "proj-maxhq", "dev-old")).toBe(
+			commandRulesOn(view, "proj-other", "dev-devbox")
+		);
 	});
 });

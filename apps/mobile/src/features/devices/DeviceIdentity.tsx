@@ -39,11 +39,12 @@ export const LinkClaimCard = ({
 	view: ViewState;
 	now: Timestamp;
 }) => {
+	const { t } = useI18n();
 	const { source } = useServices();
 	const { busy, note, run } = useAction();
 	const names = claimNames(view, link);
 	if (!names || link.claim?.state !== "asking") return null;
-	const card = claimCard(names, null, now);
+	const card = claimCard(names, null, now, t("Identity, on this device's page"));
 	return (
 		<View style={styles.claim} accessibilityLabel={card.title}>
 			<Text accessibilityRole="header" style={styles.title}>

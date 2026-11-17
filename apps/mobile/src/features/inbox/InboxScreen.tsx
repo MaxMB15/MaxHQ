@@ -4,15 +4,17 @@
 // The first screen, laid out as the desktop's projects view: the cards
 // devices raised about programs asking to get in, which you answer on the
 // Mac, then a box of the agents waiting on you with their answers, then
-// the pinned ones, then one
-// group per project, then the snoozed and settled ones. A project's group
-// ends with its Notes row, which opens its notes, with a plus for a new
-// one, while it has notes or a connected device can take one. A row slides left
-// to settle or snooze it where its device keeps inboxes, and a long press
-// opens the rest of its menu. Pulling the list down tries the devices
-// again. Before the phone is paired with anything, it shows how to pair
-// instead. With several Macs each row carries its Mac's tag, or a switch on
-// top shows one Mac at a time.
+// the filter, then the pinned ones, then one group per project, then the
+// hidden projects and the Working, snoozed and settled shelves. A
+// project's group has a ⋯ for its menu, and ends with its Notes row, which
+// opens its notes, with a plus for a new one, while it has notes or a
+// connected device can take one. A row slides left to settle or snooze it
+// where its device keeps inboxes, and a long press opens the rest of its
+// menu. Select, under More, picks several rows for one Actions sheet.
+// Pulling the list down tries the devices again. Before the phone is
+// paired with anything, it shows how to pair instead. With several Macs
+// each row carries its Mac's tag, or a switch on top shows one Mac at a
+// time.
 
 import { t, useI18n, formatNumber } from "@maxhq/shared/i18n";
 
@@ -24,12 +26,14 @@ import {
 	Pressable,
 	StyleSheet,
 	Text,
+	TextInput,
 	View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import type { Admission, Agent, ProjectId } from "@maxhq/shared/bindings";
+import type { Admission, Agent, Project, ProjectId } from "@maxhq/shared/bindings";
 import { useNow } from "@maxhq/shared/lib/clock";
+import { searchWords } from "@maxhq/shared/lib/words";
 import { agentLook } from "@maxhq/shared/status/activity";
 import { formatAgoShort } from "@maxhq/shared/status/format";
 import { deviceReach } from "@maxhq/shared/status/reach";
@@ -40,6 +44,7 @@ import {
 	watchAutoSettles,
 } from "@maxhq/shared/ui/inbox-notice";
 import { openAdmissions } from "@maxhq/shared/ui/admission";
+import { type Picked, togglePick, unpickDeleted } from "@maxhq/shared/ui/selection";
 import type { InboxStep } from "@maxhq/shared/view/inbox-actions";
 import { inboxList, type InboxRow, swipeMenu } from "@maxhq/shared/view/inbox-list";
 import { notesEntry, remoteNotesReach } from "@maxhq/shared/view/notes";
@@ -49,11 +54,13 @@ import { deviceName, type NeedsYouItem } from "@maxhq/shared/view/select";
 import type { ScreenProps } from "../../navigation";
 import { useServices, useView } from "../../services";
 import { color, radius, size, tint, TOUCH } from "../../theme";
+import { Button } from "../../ui/Button";
 import { choose } from "../../ui/choose";
 import { ConnectionBanner } from "../../ui/ConnectionBanner";
 import { ActivityDot, ConnectionDot } from "../../ui/Dot";
 import { Header, IconButton } from "../../ui/Header";
-import { Chevron, Gear, More, Plus } from "../../ui/Icon";
+import { CircleCheck } from "../../ui/glyphs";
+import { Chevron, Gear, More, Plus, Search } from "../../ui/Icon";
 import { Pill } from "../../ui/Pill";
 import { usePullToRefresh } from "../../ui/Refresh";
 import { type SwipeAction, SwipeRow } from "../../ui/SwipeRow";
@@ -72,9 +79,12 @@ import { Dispatcher } from "../dispatcher/Dispatcher";
 import { openNewNote } from "../notes/NotesScreen";
 import { UpdateBanners } from "../updates/UpdateBanners";
 import { UsageButton } from "../usage/UsageButton";
+import { CustomSnoozeHost } from "./CustomSnooze";
 import { FirstRun } from "./FirstRun";
-import { openInboxSheet } from "./InboxSheet";
+import { openInboxSheet, openSelectionSheet } from "./InboxSheet";
 import { noticesOf, useNotices } from "./notices";
+import { useInboxPrefs } from "./prefs";
+import { openHiddenProjects, openProjectMenu } from "./ProjectMenu";
 import { loudRow, phoneRowMeta, rowSubtitle } from "./rows";
 import { pickSnooze } from "./SnoozeSheet";
 
@@ -82,12 +92,17 @@ import { pickSnooze } from "./SnoozeSheet";
 type Item =
 	| { readonly kind: "admission"; readonly key: string; readonly admission: Admission }
 	| { readonly kind: "needs"; readonly key: string; readonly items: readonly NeedsYouItem[] }
+	| { readonly kind: "filter"; readonly key: string }
 	| {
 			readonly kind: "group";
 			readonly key: string;
 			readonly name: string;
 			readonly count: number;
 			readonly open: boolean;
+			/** The group's project, for its menu; null for a shelf or a group with none. */
+			readonly project: Project | null;
+			/** Whether you hid the project, which shows while an agent calls it back. */
+			readonly hidden: boolean;
 	  }
 	| { readonly kind: "row"; readonly key: string; readonly row: InboxRow }
 	| {
@@ -106,41 +121,53 @@ type Item =
 			readonly of: string;
 			readonly label: string;
 			readonly open: boolean;
-	  };
+	  }
+	| { readonly kind: "hidden"; readonly key: string; readonly projects: readonly Project[] }
+	| { readonly kind: "empty"; readonly key: string };
 
 const SETTLED = "settled";
 // How many device dots the header's button shows before it lets the count speak.
 const HEADER_DOTS = 6;
 
-/** The list's entries: the groups you closed show only their heading. */
+/**
+ * The list's entries: the groups you closed show only their heading,
+ * unless the filter has words, which opens them all.
+ */
 const itemsOf = (
 	view: ViewState,
 	now: number,
 	closed: ReadonlySet<string>,
-	shown: ReadonlySet<string>
+	shown: ReadonlySet<string>,
+	options: { readonly workingShelf: boolean; readonly words: readonly string[] }
 ): Item[] => {
-	const list = inboxList(view, now);
+	const list = inboxList(view, now, options);
+	const filtering = options.words.length > 0;
 	const items: Item[] = [];
 	for (const admission of openAdmissions(view)) {
 		items.push({ kind: "admission", key: `a:${admission.id}`, admission });
 	}
 	if (list.waiting.length > 0) items.push({ kind: "needs", key: "needs", items: list.waiting });
+	if (filtering || view.tables.agent.size > 0) items.push({ kind: "filter", key: "filter" });
+	const before = items.length;
 	const group = (
 		key: string,
 		name: string,
 		rows: readonly InboxRow[],
 		older: readonly InboxRow[],
-		project: ProjectId | null = null
+		project: ProjectId | null = null,
+		hidden = false
 	) => {
 		const notes = project ? notesEntry(view, project, remoteNotesReach(view, project)) : null;
 		if (rows.length + older.length === 0 && !notes) return;
-		const open = !closed.has(key);
+		const open = filtering || !closed.has(key);
 		items.push({
 			kind: "group",
 			key: `g:${key}`,
 			name,
 			count: rows.length + older.length,
 			open,
+			project: project ? (view.tables.project.get(project) ?? null) : null,
+			hidden,
 		});
 		if (!open) return;
 		for (const row of rows) items.push({ kind: "row", key: row.agent.id, row });
@@ -158,7 +185,11 @@ const itemsOf = (
 		if (project && notes) items.push({ kind: "notes", key: `n:${key}`, project, ...notes });
 	};
 	group("pinned", t("Pinned"), list.pinned, []);
-	for (const g of list.groups) group(g.key, g.name, g.rows, g.older, g.project);
+	for (const g of list.groups) group(g.key, g.name, g.rows, g.older, g.project, g.hidden);
+	if (list.hidden.length > 0) {
+		items.push({ kind: "hidden", key: "hidden", projects: list.hidden });
+	}
+	group("working", t("Working"), list.working, []);
 	group(
 		"snoozed",
 		t("Snoozed"),
@@ -180,6 +211,7 @@ const itemsOf = (
 			}
 		}
 	}
+	if (filtering && items.length === before) items.push({ kind: "empty", key: "empty" });
 	return items;
 };
 
@@ -201,6 +233,9 @@ export const InboxScreen = ({ navigation }: ScreenProps<"Inbox">) => {
 	const now = useNow(60_000);
 	const [closed, setClosed] = useState<ReadonlySet<string>>(new Set());
 	const [shown, setShown] = useState<ReadonlySet<string>>(new Set());
+	const workingShelf = useInboxPrefs((prefs) => prefs.workingShelf);
+	const [query, setQuery] = useState("");
+	const [picked, setPicked] = useState<Picked | null>(null);
 	const notices = noticesOf(services);
 	const insets = useSafeAreaInsets();
 	const [dialog] = useState(() => createRenameDialog(renamesOf(services)));
@@ -208,7 +243,11 @@ export const InboxScreen = ({ navigation }: ScreenProps<"Inbox">) => {
 	useEffect(() => watchAutoSettles(notices), [notices]);
 
 	const devices = deviceReach(view, now);
-	const items = itemsOf(view, now, closed, shown);
+	const items = itemsOf(view, now, closed, shown, { workingShelf, words: searchWords(query) });
+	// Selecting, the agents picked that are still there.
+	const selection = picked
+		? unpickDeleted(picked, new Set(), (id) => view.tables.agent.has(id))
+		: null;
 	const unpaired =
 		status.state !== "loading" &&
 		(view === whole ? devices : deviceReach(whole, now)).length === 0;
@@ -273,32 +312,66 @@ export const InboxScreen = ({ navigation }: ScreenProps<"Inbox">) => {
 						now={now}
 					/>
 				);
-			case "group":
+			case "filter":
+				return <FilterField value={query} onChange={setQuery} />;
+			case "empty":
+				return <Text style={styles.note}>{t("No agents match")}</Text>;
+			case "hidden":
 				return (
 					<Pressable
 						accessibilityRole="button"
-						accessibilityState={{ expanded: item.open }}
-						accessibilityLabel={
-							item.count > 0
-								? t("{{name}}, {{count}} agents", {
-										name: item.name,
-										count: item.count,
-									})
-								: item.name
-						}
-						onPress={() => setClosed((set) => toggle(set, item.key.slice(2)))}
-						hitSlop={slop(GROUP)}
-						style={styles.group}
+						onPress={() => openHiddenProjects(services, item.projects)}
+						hitSlop={slop(LINE)}
+						style={styles.more}
 					>
-						<Chevron dir={item.open ? "down" : "right"} size={12} />
-						<Text style={styles.groupName} numberOfLines={1}>
-							{item.name}
-						</Text>
-						{item.count > 0 ? (
-							<Text style={styles.groupCount}>{formatNumber(item.count)}</Text>
-						) : null}
+						<Chevron dir="right" size={12} />
+						<Text style={styles.moreLabel}>{t("Hidden projects")}</Text>
+						<Text style={styles.groupCount}>{formatNumber(item.projects.length)}</Text>
 					</Pressable>
 				);
+			case "group": {
+				const { project } = item;
+				return (
+					<View style={styles.groupLine}>
+						<Pressable
+							accessibilityRole="button"
+							accessibilityState={{ expanded: item.open }}
+							accessibilityLabel={
+								item.count > 0
+									? t("{{name}}, {{count}} agents", {
+											name: item.name,
+											count: item.count,
+										})
+									: item.name
+							}
+							onPress={() => setClosed((set) => toggle(set, item.key.slice(2)))}
+							hitSlop={slop(GROUP)}
+							style={styles.group}
+						>
+							<Chevron dir={item.open ? "down" : "right"} size={12} />
+							<Text style={styles.groupName} numberOfLines={1}>
+								{item.name}
+							</Text>
+							{item.hidden ? (
+								<Text style={styles.groupCount}>{t("Hidden")}</Text>
+							) : null}
+							{item.count > 0 ? (
+								<Text style={styles.groupCount}>{formatNumber(item.count)}</Text>
+							) : null}
+						</Pressable>
+						{project ? (
+							<IconButton
+								label={t("More for {{name}}", { name: item.name })}
+								onPress={() =>
+									openProjectMenu(services, navigation, project, item.hidden)
+								}
+							>
+								<More size={14} />
+							</IconButton>
+						) : null}
+					</View>
+				);
+			}
 			case "notes": {
 				const { project } = item;
 				return (
@@ -358,6 +431,8 @@ export const InboxScreen = ({ navigation }: ScreenProps<"Inbox">) => {
 						actions={actionsOf(agent)}
 						onOpen={open}
 						onMore={() => openInboxSheet(services, agent, dialog)}
+						picked={selection ? selection.picked.has(agent.id) : null}
+						onPick={() => setPicked((state) => state && togglePick(state, agent.id))}
 						view={view}
 						now={now}
 					/>
@@ -390,9 +465,18 @@ export const InboxScreen = ({ navigation }: ScreenProps<"Inbox">) => {
 		/>
 	);
 	// The dispatcher's bar keeps the home indicator clear when it's there.
+	const bottom = (devices.length === 0 ? insets.bottom : 0) + 12;
+	const bar = selection ? (
+		<SelectionBar
+			bottom={bottom}
+			count={selection.picked.size}
+			onActions={() => openSelectionSheet(services, [...selection.picked])}
+			onDone={() => setPicked(null)}
+		/>
+	) : null;
 	const notice = (
 		<NoticeBar
-			bottom={(devices.length === 0 ? insets.bottom : 0) + 12}
+			bottom={bottom + (bar ? BAR + 8 : 0)}
 			onUndo={() => undoNotice(notices)}
 			onDismiss={() => dismissFailures(notices)}
 		/>
@@ -452,6 +536,11 @@ export const InboxScreen = ({ navigation }: ScreenProps<"Inbox">) => {
 											label: t("Scheduled tasks"),
 											pick: () => navigation.navigate("Tasks"),
 										},
+										{
+											label: t("Select"),
+											pick: () =>
+												setPicked({ picked: new Set(), anchor: null }),
+										},
 									])
 								}
 							>
@@ -473,15 +562,20 @@ export const InboxScreen = ({ navigation }: ScreenProps<"Inbox">) => {
 			{devices.length === 0 ? (
 				<>
 					{body}
+					{bar}
 					{notice}
 				</>
 			) : (
 				<Dispatcher onOpenAgent={(agent) => navigation.navigate("Agent", { agent })}>
 					{body}
+					{bar}
 					{notice}
 				</Dispatcher>
 			)}
 			<RenameDialog dialog={dialog} />
+			<CustomSnoozeHost
+				onEditOptions={() => navigation.navigate("SettingsPage", { page: "agent-list" })}
+			/>
 		</KeyboardAvoidingView>
 	);
 };
@@ -562,6 +656,8 @@ const AgentRow = ({
 	actions,
 	onOpen,
 	onMore,
+	picked,
+	onPick,
 	view,
 	now,
 }: {
@@ -573,6 +669,9 @@ const AgentRow = ({
 	actions: readonly SwipeAction[];
 	onOpen: (agent: Agent) => void;
 	onMore: () => void;
+	/** Whether the row is picked while selecting, or null when not selecting. */
+	picked: boolean | null;
+	onPick: () => void;
 	view: ViewState;
 	now: number;
 }) => {
@@ -580,6 +679,46 @@ const AgentRow = ({
 
 	const look = agentLook(agent, now);
 	const meta = phoneRowMeta(view, agent, now);
+	const content = (
+		<View style={[styles.row, { paddingLeft: 10 + level * 16 }]}>
+			{picked === null ? null : picked ? (
+				<CircleCheck size={18} strokeWidth={1.9} color={color.primary} />
+			) : (
+				<View style={styles.ring} />
+			)}
+			<ActivityDot look={look} />
+			<View style={styles.text}>
+				<Text style={[styles.title, !loudRow(look) && styles.quiet]} numberOfLines={1}>
+					{agent.title}
+				</Text>
+				<Text style={styles.sub} numberOfLines={1}>
+					{rowSubtitle(agent.vendor, place, look)}
+				</Text>
+			</View>
+			{tag ? <MacTag name={tag} /> : null}
+			{meta.kind === "input" ? (
+				<Pill label={t("Input")} tone="ready" />
+			) : (
+				<Text style={[styles.meta, meta.kind === "asleep" && styles.asleep]}>
+					{meta.text}
+				</Text>
+			)}
+		</View>
+	);
+	// Selecting, a tap picks the row and a swipe does nothing.
+	if (picked !== null) {
+		return (
+			<Pressable
+				accessibilityRole="checkbox"
+				accessibilityState={{ checked: picked }}
+				accessibilityLabel={agent.title}
+				onPress={onPick}
+				style={({ pressed }) => [styles.pick, pressed && styles.pressed]}
+			>
+				{content}
+			</Pressable>
+		);
+	}
 	return (
 		<SwipeRow
 			actions={actions}
@@ -587,26 +726,63 @@ const AgentRow = ({
 			onLongPress={onMore}
 			label={agent.title}
 		>
-			<View style={[styles.row, { paddingLeft: 10 + level * 16 }]}>
-				<ActivityDot look={look} />
-				<View style={styles.text}>
-					<Text style={[styles.title, !loudRow(look) && styles.quiet]} numberOfLines={1}>
-						{agent.title}
-					</Text>
-					<Text style={styles.sub} numberOfLines={1}>
-						{rowSubtitle(agent.vendor, place, look)}
-					</Text>
-				</View>
-				{tag ? <MacTag name={tag} /> : null}
-				{meta.kind === "input" ? (
-					<Pill label={t("Input")} tone="ready" />
-				) : (
-					<Text style={[styles.meta, meta.kind === "asleep" && styles.asleep]}>
-						{meta.text}
-					</Text>
-				)}
-			</View>
+			{content}
 		</SwipeRow>
+	);
+};
+
+/** The filter at the top of the list, as the desktop sidebar's. */
+const FilterField = ({ value, onChange }: { value: string; onChange: (text: string) => void }) => {
+	const { t } = useI18n();
+	return (
+		<View style={styles.filter}>
+			<Search size={14} />
+			<TextInput
+				value={value}
+				onChangeText={onChange}
+				placeholder={t("Filter")}
+				placeholderTextColor={color.subtleForeground}
+				accessibilityLabel={t("Filter agents")}
+				clearButtonMode="while-editing"
+				autoCapitalize="none"
+				autoCorrect={false}
+				spellCheck={false}
+				returnKeyType="search"
+				style={styles.filterInput}
+			/>
+		</View>
+	);
+};
+
+/** While selecting: how many agents are picked, their Actions, and Done. */
+const SelectionBar = ({
+	bottom,
+	count,
+	onActions,
+	onDone,
+}: {
+	bottom: number;
+	count: number;
+	onActions: () => void;
+	onDone: () => void;
+}) => {
+	const { t } = useI18n();
+	return (
+		<View style={[styles.notice, styles.bar, { bottom }]}>
+			<Text style={styles.noticeText} accessibilityLiveRegion="polite">
+				{t("{{countText}} agents selected", { count, countText: formatNumber(count) })}
+			</Text>
+			<Button
+				label={t("Actions")}
+				tone="primary"
+				small
+				disabled={count === 0}
+				onPress={onActions}
+			/>
+			<Pressable accessibilityRole="button" onPress={onDone} style={styles.undo}>
+				<Text style={styles.undoLabel}>{t("Done")}</Text>
+			</Pressable>
+		</View>
 	);
 };
 
@@ -651,6 +827,8 @@ const NoticeBar = ({
 const ROW = 40;
 const GROUP = 30;
 const LINE = 36;
+// The selection bar's height, which the notice sits above.
+const BAR = 48;
 const slop = (height: number) => {
 	const extra = Math.max(0, (TOUCH - height) / 2);
 	return { top: extra, bottom: extra };
@@ -710,12 +888,34 @@ const styles = StyleSheet.create({
 		borderRadius: radius.sm,
 	},
 	askSub: { color: color.readyText, fontSize: size.meta },
+	// The project's ⋯ keeps its 44 pt width and overhangs the shorter line.
+	groupLine: { height: GROUP, flexDirection: "row", alignItems: "center" },
 	group: {
+		flex: 1,
 		minHeight: GROUP,
 		flexDirection: "row",
 		alignItems: "center",
 		gap: 6,
 		paddingHorizontal: 8,
+	},
+	filter: {
+		height: 36,
+		flexDirection: "row",
+		alignItems: "center",
+		gap: 6,
+		marginBottom: 6,
+		paddingHorizontal: 10,
+		borderRadius: radius.md,
+		backgroundColor: color.secondary,
+	},
+	filterInput: { flex: 1, minWidth: 0, color: color.foreground, fontSize: size.body, padding: 0 },
+	pick: { borderRadius: radius.sm },
+	ring: {
+		width: 18,
+		height: 18,
+		borderRadius: 9,
+		borderWidth: 1.5,
+		borderColor: color.mutedForeground,
 	},
 	groupName: { flex: 1, color: color.mutedForeground, fontSize: size.meta, fontWeight: "600" },
 	groupCount: { color: color.mutedForeground, fontSize: size.meta, fontWeight: "500" },
@@ -764,6 +964,7 @@ const styles = StyleSheet.create({
 		borderColor: color.input,
 		borderWidth: StyleSheet.hairlineWidth,
 	},
+	bar: { minHeight: BAR },
 	noticeText: { flex: 1, color: color.foreground, fontSize: size.small, paddingVertical: 10 },
 	undo: { minHeight: TOUCH, minWidth: TOUCH, paddingHorizontal: 10, justifyContent: "center" },
 	undoLabel: { color: color.primary, fontSize: size.small, fontWeight: "600" },

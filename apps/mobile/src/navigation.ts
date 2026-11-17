@@ -48,6 +48,19 @@ export type Screens = {
 	TaskActivity: { readonly task: TaskId };
 	/** A task to edit, or a new one on `home`, or on the device that suits it best. */
 	TaskEditor: { readonly task?: TaskId; readonly home?: DeviceId } | undefined;
+	/** A page Settings opens, as the desktop's App group has them. */
+	SettingsPage: {
+		readonly page: "agent-list" | "composer" | "notifications" | "dispatcher" | "agent-tools";
+	};
+	/** A login's page, with `device` first when it's given. */
+	SignIn: {
+		readonly login: "claude" | "codex" | "cursor" | "github" | "apns";
+		readonly device?: DeviceId;
+	};
+	/** One device's settings. */
+	DeviceSettings: { readonly device: DeviceId };
+	/** A project's settings on each device it's on. */
+	ProjectSettings: { readonly project: ProjectId };
 };
 
 /**

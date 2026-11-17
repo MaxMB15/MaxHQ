@@ -19,8 +19,10 @@ import {
 	planAcpSave,
 	probeLine,
 	runsAcpAgents,
+	scrubAll,
 	signInCommand,
 	takesImages,
+	waitingForSignIn,
 } from "./acp-agents";
 import { modeShown, startingMode, vendorHasMode } from "./permission";
 
@@ -222,6 +224,31 @@ describe("the sign-in card", () => {
 		expect(signInCommand(GEMINI)).toBe("gemini --experimental-acp");
 		expect(signInCommand({ ...GEMINI, program: "/opt/my agent/run", args: ["it's"] })).toBe(
 			`'/opt/my agent/run' 'it'\\''s'`
+		);
+	});
+
+	it("shows in the agent's settings while an agent of it waits for one", () => {
+		const stopped = (reason: string): Entity => ({
+			entity: "agent",
+			...agent({
+				id: "a1",
+				vendor: "acp",
+				account: "a-gemini",
+				activity: { state: "error", reason },
+			}),
+		});
+		expect(
+			waitingForSignIn(viewOf(true, [stopped("Gemini needs a sign-in.")]), GEMINI)?.id
+		).toBe("a-gemini");
+		expect(waitingForSignIn(viewOf(true, [stopped("exited")]), GEMINI)).toBeUndefined();
+		expect(waitingForSignIn(viewOf(true), GEMINI)).toBeUndefined();
+	});
+});
+
+describe("scrubAll", () => {
+	it("hides every value the form sent", () => {
+		expect(scrubAll("bad key k1 and k2", ["k1", "k2", ""])).toBe(
+			"bad key <secret> and <secret>"
 		);
 	});
 });
