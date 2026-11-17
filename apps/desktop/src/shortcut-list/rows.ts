@@ -142,6 +142,7 @@ const lines = (pick: BusySend): readonly Line[] => [
 	{ what: t("Maximize or restore the pane"), group: "Panes", projectsOnly: true, id: "maximize" },
 	{ what: t("Close the tab"), group: "Panes", projectsOnly: true, id: "close" },
 	{ what: t("Reopen the last closed tab"), group: "Panes", id: "reopen" },
+	{ what: t("Show or hide the terminal"), group: "Panes", projectsOnly: true, id: "terminal" },
 	{ what: t("Find in the conversation"), group: "Find", projectsOnly: true, id: "find" },
 	{
 		what: t("Next or previous match"),
@@ -196,7 +197,10 @@ const lines = (pick: BusySend): readonly Line[] => [
 ];
 
 const sameKey = (a: Shortcut, b: Shortcut): boolean =>
-	a.code === b.code && !!a.shift === !!b.shift && !!a.alt === !!b.alt;
+	a.code === b.code &&
+	!!a.shift === !!b.shift &&
+	!!a.alt === !!b.alt &&
+	!!a.control === !!b.control;
 
 // "nextTab" as "Next tab", for a shortcut with no words yet.
 const nameOf = (id: string): string => {

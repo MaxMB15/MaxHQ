@@ -5,8 +5,8 @@
 // opening an agent goes through it: a sidebar click, a notification or a new
 // agent focuses the agent's pane when it has one, and adds a tab to the
 // focused group when it doesn't. A workflow run's canvas and a project
-// note open the same way, and so does a file from an agent's device and a
-// visual.
+// note open the same way, and so does a file from an agent's device, a
+// visual and a terminal out of an agent's drawer.
 // The dockview instance attaches once it's ready, and an open that comes
 // before that waits for it. It also keeps the panes you close, so reopening
 // one puts it back where it was.
@@ -16,9 +16,11 @@ import { t } from "@maxhq/shared/i18n";
 import type { AddPanelPositionOptions, DockviewApi } from "dockview-react";
 
 import type { Services } from "@/app/services";
-import type { AgentId, NoteId, ProjectId, RunKey } from "@maxhq/shared/bindings";
+import type { AgentId, NoteId, ProjectId, RunKey, TerminalId } from "@maxhq/shared/bindings";
 import { finishedTitle } from "@maxhq/shared/agent-view/finished";
 import { fileName } from "@maxhq/shared/agent-view/viewer-files";
+import { tabTitle } from "@maxhq/shared/terminal/drawer";
+import { terminalById } from "@maxhq/shared/terminal/select";
 import { noteSummary } from "@maxhq/shared/view/notes";
 import type { VisualTransfer } from "@maxhq/shared/visuals/transfer";
 import { runAt } from "@maxhq/shared/workflow/select";
@@ -43,12 +45,16 @@ export const FILE_PANE = "file";
 /** The component every visual's pane and its tab render with. */
 export const VISUAL_PANE = "visual";
 
+/** The component every terminal's pane and its tab render with. */
+export const TERMINAL_PANE = "terminal";
+
 const COMPONENT = {
 	agent: AGENT_PANE,
 	workflow: WORKFLOW_PANE,
 	note: NOTE_PANE,
 	file: FILE_PANE,
 	visual: VISUAL_PANE,
+	terminal: TERMINAL_PANE,
 } as const;
 
 export type { PaneParams } from "./pane-id";
@@ -91,6 +97,8 @@ export type Panes = {
 	readonly openFile: (agent: AgentId, path: string, options?: FileOpenOptions) => void;
 	/** Focuses the pane that shows this visual, or opens one. */
 	readonly openVisual: (visual: VisualTransfer, options?: OpenOptions) => void;
+	/** Focuses the pane that shows a terminal out of the agent's drawer, or opens one. */
+	readonly openTerminal: (agent: AgentId, terminal: TerminalId, options?: OpenOptions) => void;
 	/** Puts the last pane you closed back where it was. Returns whether there was one. */
 	readonly reopen: () => boolean;
 	/** Whether there's a closed pane to put back. */
@@ -286,6 +294,8 @@ export const createPanes = (
 		},
 		openVisual: (visual, options) =>
 			open({ kind: "visual", key: keepVisualPage(visual), title: visual.title }, options),
+		openTerminal: (agent, terminal, options) =>
+			open({ kind: "terminal", agent, terminal }, options),
 		reopen: () => {
 			const api = current;
 			if (!api) return false;
@@ -343,6 +353,10 @@ export const panesOf = (services: Services): Panes => {
 					return noteSummary(view(), params.project, params.note)?.title ?? t("Note");
 				if (params.kind === "file") return fileName(params.path);
 				if (params.kind === "visual") return params.title || t("Visual");
+				if (params.kind === "terminal") {
+					const terminal = terminalById(view(), params.terminal);
+					return terminal ? tabTitle(terminal) : t("Terminal");
+				}
 				return runAt(view(), params.run)?.label ?? t("Workflow");
 			},
 			(params) => {
@@ -353,6 +367,8 @@ export const panesOf = (services: Services): Panes => {
 				}
 				if (params.kind === "file") return view().tables.agent.has(params.agent);
 				if (params.kind === "visual") return pageKept(params);
+				if (params.kind === "terminal")
+					return terminalById(view(), params.terminal) !== undefined;
 				return runAt(view(), params.run) !== undefined;
 			}
 		);

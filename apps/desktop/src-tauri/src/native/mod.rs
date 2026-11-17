@@ -42,6 +42,8 @@ use tauri::{AppHandle, DragDropEvent, Manager, Runtime, State, Webview, Window, 
 use tauri_plugin_dialog::DialogExt;
 use thiserror::Error;
 
+use crate::terminal_stream;
+
 pub use describe::PathInfo;
 
 /// The interface labels on the spelling menu.
@@ -411,13 +413,14 @@ async fn thumbnail(
 const RAW_COMMANDS: [&str; 2] = ["read_clipboard_image", "thumbnail"];
 
 /// Combines the generated handler with the commands that answer with raw
-/// bytes, which the generated bindings can't list.
-pub fn invoke_handler<R: Runtime>(
-    typed: impl Fn(Invoke<R>) -> bool + Send + Sync + 'static,
-) -> impl Fn(Invoke<R>) -> bool + Send + Sync + 'static {
+/// bytes and the terminal ones, which the generated bindings can't list.
+pub fn invoke_handler(
+    typed: impl Fn(Invoke) -> bool + Send + Sync + 'static,
+) -> impl Fn(Invoke) -> bool + Send + Sync + 'static {
     let raw = raw_handler();
     move |invoke| {
-        if RAW_COMMANDS.contains(&invoke.message.command()) {
+        let command = invoke.message.command();
+        if RAW_COMMANDS.contains(&command) || terminal_stream::COMMANDS.contains(&command) {
             raw(invoke)
         } else {
             typed(invoke)
@@ -425,9 +428,16 @@ pub fn invoke_handler<R: Runtime>(
     }
 }
 
-/// The handler for the commands that answer with raw bytes.
-fn raw_handler<R: Runtime>() -> impl Fn(Invoke<R>) -> bool + Send + Sync + 'static {
-    tauri::generate_handler![read_clipboard_image, thumbnail]
+/// The handler for the commands that answer with raw bytes, and the
+/// terminal ones.
+fn raw_handler() -> impl Fn(Invoke) -> bool + Send + Sync + 'static {
+    tauri::generate_handler![
+        read_clipboard_image,
+        thumbnail,
+        terminal_stream::terminal_attach,
+        terminal_stream::terminal_detach,
+        terminal_stream::terminal_input,
+    ]
 }
 
 #[cfg(test)]

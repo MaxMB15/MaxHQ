@@ -2,12 +2,13 @@
 // Copyright (c) 2026 Max Boksem
 
 // A pane's ID and what it's given, in one place. A pane shows an agent, a
-// workflow run, a project note, a file an agent can see or a visual. An agent's pane
+// workflow run, a project note, a file an agent can see, a visual or a
+// terminal you took out of an agent's drawer. An agent's pane
 // takes the agent's ID, as it always has, so saved layouts still load, and
 // the others take their key behind a prefix no agent ID has. Code that reads a pane's
 // ID goes through these calls, so the kinds never mix.
 
-import type { AgentId, NoteId, ProjectId, RunKey } from "@maxhq/shared/bindings";
+import type { AgentId, NoteId, ProjectId, RunKey, TerminalId } from "@maxhq/shared/bindings";
 
 /** What a pane is given. */
 export type PaneParams =
@@ -16,12 +17,15 @@ export type PaneParams =
 	| { readonly kind: "note"; readonly project: ProjectId; readonly note: NoteId }
 	| { readonly kind: "file"; readonly agent: AgentId; readonly path: string }
 	/** A visual by its `visualKey`. Its page stays in memory, out of the saved layout. */
-	| { readonly kind: "visual"; readonly key: string; readonly title: string };
+	| { readonly kind: "visual"; readonly key: string; readonly title: string }
+	/** A terminal out of its agent's drawer, which goes back there when the pane closes. */
+	| { readonly kind: "terminal"; readonly agent: AgentId; readonly terminal: TerminalId };
 
 const RUN = "workflow:";
 const NOTE = "note:";
 const FILE = "file:";
 const VISUAL = "visual:";
+const TERMINAL = "terminal:";
 
 const joined = (parts: readonly string[]) => parts.map(encodeURIComponent).join("/");
 const split = (rest: string) => rest.split("/").map(decodeURIComponent);
@@ -32,6 +36,7 @@ export const paneId = (params: PaneParams): string => {
 	if (params.kind === "note") return NOTE + joined([params.project, params.note]);
 	if (params.kind === "file") return FILE + joined([params.agent, params.path]);
 	if (params.kind === "visual") return VISUAL + joined([params.key, params.title]);
+	if (params.kind === "terminal") return TERMINAL + joined([params.agent, params.terminal]);
 	const { device, project, workflow, run } = params.run;
 	return RUN + joined([device, project, workflow, run]);
 };
@@ -49,6 +54,10 @@ export const paneParams = (id: string): PaneParams => {
 	if (id.startsWith(VISUAL)) {
 		const [key = "", title = ""] = split(id.slice(VISUAL.length));
 		return { kind: "visual", key, title };
+	}
+	if (id.startsWith(TERMINAL)) {
+		const [agent = "", terminal = ""] = split(id.slice(TERMINAL.length));
+		return { kind: "terminal", agent, terminal };
 	}
 	if (!id.startsWith(RUN)) return { kind: "agent", agent: id };
 	const [device = "", project = "", workflow = "", run = ""] = split(id.slice(RUN.length));

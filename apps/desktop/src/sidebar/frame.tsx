@@ -15,6 +15,7 @@ import type { KeyboardEvent, PointerEvent, ReactNode } from "react";
 import { useServices } from "@/app/services";
 import { ErrorBoundary } from "@/components/error-boundary";
 import { ariaKeys, keyHint, SHORTCUTS } from "@/layout/shortcuts";
+import { followPointer } from "@/lib/drag";
 
 import {
 	clampWidth,
@@ -41,32 +42,13 @@ const ResizeEdge = () => {
 	const onPointerDown = (e: PointerEvent<HTMLDivElement>) => {
 		if (e.button !== 0) return;
 		e.preventDefault();
-		const id = e.pointerId;
 		const from = e.clientX - width;
-		const body = document.body.style;
-		const before = { cursor: body.cursor, userSelect: body.userSelect };
-		body.cursor = "col-resize";
-		body.userSelect = "none";
-		const move = (m: globalThis.PointerEvent) => {
-			if (m.pointerId === id) show(m.clientX - from);
-		};
-		const up = (m: globalThis.PointerEvent) => {
-			if (m.pointerId === id) end();
-		};
-		const end = () => {
-			window.removeEventListener("pointermove", move, { capture: true });
-			window.removeEventListener("pointerup", up, { capture: true });
-			window.removeEventListener("pointercancel", up, { capture: true });
-			window.removeEventListener("blur", end);
-			body.cursor = before.cursor;
-			body.userSelect = before.userSelect;
-			save(prefsOf(services).getState().width);
-		};
-		// Before the panes see them, so a pane that stops the events can't lose the drag.
-		window.addEventListener("pointermove", move, { capture: true });
-		window.addEventListener("pointerup", up, { capture: true });
-		window.addEventListener("pointercancel", up, { capture: true });
-		window.addEventListener("blur", end);
+		followPointer(
+			e,
+			"col-resize",
+			(m) => show(m.clientX - from),
+			() => save(prefsOf(services).getState().width)
+		);
 	};
 
 	const onKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {

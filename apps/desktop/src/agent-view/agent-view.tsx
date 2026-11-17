@@ -29,6 +29,7 @@ import { Composer } from "@/composer";
 import { LocalMaxdNotice } from "@/main-area/local-maxd";
 import { createPaneFiles, PaneFilesContext } from "@/composer/pane-files";
 import { isRemoteDevice, PortOffers } from "@/ports";
+import { TerminalDrawer } from "@/terminal/drawer";
 import { type RowContext, RowProvider } from "@maxhq/shared/agent-view/context";
 import { subAgentLead, useKeepSubAgent } from "@maxhq/shared/agent-view/finished";
 import { CloneBanner } from "./clone-banner";
@@ -170,6 +171,7 @@ export const AgentView = ({ agent }: { agent: Agent }) => {
 						/>
 					</ErrorBoundary>
 				) : null}
+				{device ? <TerminalDrawer agent={agent.id} device={device} /> : null}
 			</section>
 		</PaneFilesContext>
 	);

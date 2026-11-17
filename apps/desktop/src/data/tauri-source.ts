@@ -31,6 +31,10 @@ import {
 	workflows,
 } from "@maxhq/shared/data/request-source";
 
+import { terminalCalls } from "@maxhq/shared/terminal/requests";
+
+import { tauriStream } from "@/terminal/tauri-stream";
+
 export { MAX_PASTE, toBase64 } from "@maxhq/shared/data/request-source";
 
 /** The scheme the app serves its media cache through. */
@@ -52,6 +56,7 @@ export const appInfo = async () => orThrow(await ask({ kind: "app_info" }));
 export const tauriSource = (): DataSource => ({
 	...requestCalls(ask),
 	kind: "tauri",
+	terminalStream: tauriStream(terminalCalls(ask).resizeTerminal),
 	subscribe: (onDelta) =>
 		events.viewChanged.listen((event) => {
 			for (const delta of event.payload) onDelta(delta);

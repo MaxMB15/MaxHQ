@@ -53,12 +53,13 @@ const dock = (): DockviewApi => {
 	return api;
 };
 
-// A pane's title: its agent, its run's ID, its note's ID or its file's path.
+// A pane's title: its agent, its run's ID, its note's ID, its file's path or its terminal.
 const named = (params: PaneParams) => {
 	if (params.kind === "agent") return params.agent;
 	if (params.kind === "workflow") return params.run.run;
 	if (params.kind === "note") return params.note;
 	if (params.kind === "visual") return params.title;
+	if (params.kind === "terminal") return params.terminal;
 	return params.path;
 };
 // Whether a pane's agent isn't `gone`.

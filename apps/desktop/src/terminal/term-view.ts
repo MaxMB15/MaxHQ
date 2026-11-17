@@ -1,0 +1,63 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026 Max Boksem
+
+// What draws one terminal. The registry and the drawer use only this, and
+// `term-view-xterm.ts` is the one file that knows the renderer, so it can
+// change behind it and tests can stand one in.
+
+import type { LineSpan } from "@maxhq/shared/bindings";
+
+/** Text you picked in a terminal, and where it sits in all it printed. */
+export type Picked = { readonly text: string; readonly lines: LineSpan };
+
+/** One terminal's screen and scrollback. */
+export type TermView = {
+	/** The element the terminal draws in, which moves between hosts. */
+	readonly element: HTMLElement;
+	/** Draws what the terminal printed. */
+	readonly write: (bytes: Uint8Array) => void;
+	/** Forgets the screen and scrollback, for output that starts over. */
+	readonly clear: () => void;
+	/** Sets the size in cells. */
+	readonly resize: (cols: number, rows: number) => void;
+	/**
+	 * Sizes the terminal to fill its element and answers with the size, or
+	 * null while the element has no size, as when it's hidden.
+	 */
+	readonly fit: () => { readonly cols: number; readonly rows: number } | null;
+	/** The size in cells. */
+	readonly size: () => { readonly cols: number; readonly rows: number };
+	/** How many rows the output takes so far, up to the cursor. */
+	readonly usedRows: () => number;
+	readonly focus: () => void;
+	/** Whether keys go to it: an interactive one shows a cursor and takes keys. */
+	readonly setInteractive: (interactive: boolean) => void;
+	/** The picked text, or null when there's none. */
+	readonly selection: () => Picked | null;
+	readonly clearSelection: () => void;
+	/**
+	 * The last `lines` lines as plain text, and how many it printed in all,
+	 * counted the way `selection` counts.
+	 */
+	readonly text: (lines: number) => { readonly text: string; readonly total: number };
+	/** Types `text` as a paste, which a shell that asks for it gets bracketed. */
+	readonly paste: (text: string) => void;
+	/** Finds `query` from the selection on, backwards with `back`. False when it isn't there. */
+	readonly find: (query: string, back: boolean) => boolean;
+	/** Draws with the GPU or without. A view that lost its GPU context stays without. */
+	readonly setGpu: (on: boolean) => void;
+	/** Calls back with what you type, as the terminal encodes it. */
+	readonly onData: (listener: (data: string) => void) => () => void;
+	/** Calls back when the shell sets the title. */
+	readonly onTitle: (listener: (title: string) => void) => () => void;
+	/** Calls back when the picked text changes. */
+	readonly onSelection: (listener: () => void) => () => void;
+	/** Calls back when it takes or loses focus. */
+	readonly onFocus: (listener: (focused: boolean) => void) => () => void;
+	/** Calls back once the GPU drops its context, after the view went back to drawing without. */
+	readonly onGpuLost: (listener: () => void) => () => void;
+	readonly dispose: () => void;
+};
+
+/** Makes the view for one terminal. */
+export type MakeView = () => TermView;

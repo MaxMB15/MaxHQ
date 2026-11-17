@@ -40,6 +40,7 @@ mod phone;
 mod proof;
 mod requests;
 mod routes;
+mod terminals;
 mod transfers;
 #[cfg(feature = "ws")]
 mod ws;

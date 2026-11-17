@@ -265,6 +265,7 @@
 	"It didn't start": "It didn't start",
 	"These notes are read-only here.": "These notes are read-only here.",
 	"Delete note \"{{title}}\"?": "Delete note \"{{title}}\"?",
+	"Deleting also stops what still runs in a terminal: {{commands}}.": "Deleting also stops what still runs in a terminal: {{commands}}.",
 	"It goes from every device. Its history stays, so it can be brought back.": "It goes from every device. Its history stays, so it can be brought back.",
 	"Read-only": "Read-only",
 	"Saved": "Saved",

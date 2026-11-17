@@ -46,6 +46,15 @@ describe("deleting agents", () => {
 		expect(deleteQuestion([a1!, b1!]).title).toBe("Delete 2 agents?");
 	});
 
+	it("names what still runs in their terminals, which the delete stops", () => {
+		const [a1] = deletableAgents(view, ["a1"]);
+		expect(deleteQuestion([a1!]).detail).not.toContain("terminal");
+		expect(deleteQuestion([a1!], ["pnpm dev", "cargo watch"]).detail).toBe(
+			"MaxHQ stops it and won't show it again. Its folder and its CLI's transcript stay. " +
+				"Deleting also stops what still runs in a terminal: pnpm dev and cargo watch."
+		);
+	});
+
 	it("deletes one after another, past a failure, and says what went wrong", async () => {
 		const asked: string[] = [];
 		const deleteAgent = vi.fn(async (id: string): Promise<ActionResult> => {

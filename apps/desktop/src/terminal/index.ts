@@ -5,9 +5,14 @@
 // ran" cards, the output pill and the code blocks' Run menu reach terminals
 // only through these, so what draws a terminal can change behind them.
 
-import type { ReactElement } from "react";
+import { createElement, type ReactElement, useMemo } from "react";
 
+import { useServices } from "@/app/services";
 import type { AgentId, DeviceId, TerminalId } from "@maxhq/shared/bindings";
+
+import { pasteIntoDrawer, showInDrawer } from "./actions";
+import { cellSize, registryOf } from "./live";
+import { LiveTerminalHost } from "./live-terminal";
 
 /** Which terminal `LiveTerminal` shows, and how. */
 export type LiveTerminalProps = {
@@ -27,7 +32,13 @@ export type LiveTerminalProps = {
  * One terminal's live output. The terminal lives on outside React, so a row
  * that scrolls away and back keeps its screen.
  */
-export const LiveTerminal: (props: LiveTerminalProps) => ReactElement | null = () => null;
+export const LiveTerminal = ({
+	terminal,
+	maxRows,
+	interactive,
+	className,
+}: LiveTerminalProps): ReactElement | null =>
+	createElement(LiveTerminalHost, { terminal, maxRows, interactive, className });
 
 /** What the chat asks of terminals. */
 export type TerminalActions = {
@@ -52,14 +63,20 @@ export type TerminalActions = {
 	readonly showInDrawer: (agent: AgentId, terminal: TerminalId) => void;
 };
 
-// Stand-ins until the terminal module fills these in.
-const STAND_INS: TerminalActions = {
-	sendInput: () => {},
-	text: () => null,
-	cellSize: () => ({ width: 8, height: 17 }),
-	pasteIntoDrawer: () => {},
-	showInDrawer: () => {},
-};
+const encoder = new TextEncoder();
 
 /** The terminal calls, for this window. */
-export const useTerminalActions = (): TerminalActions => STAND_INS;
+export const useTerminalActions = (): TerminalActions => {
+	const services = useServices();
+	return useMemo(
+		() => ({
+			sendInput: (_device, terminal, data) =>
+				services.source.terminalStream?.input(terminal, encoder.encode(data)),
+			text: (terminal, lines) => registryOf(services)?.view(terminal)?.text(lines) ?? null,
+			cellSize,
+			pasteIntoDrawer: (agent, text) => void pasteIntoDrawer(services, agent, text),
+			showInDrawer: (agent, terminal) => showInDrawer(services, agent, terminal),
+		}),
+		[services]
+	);
+};

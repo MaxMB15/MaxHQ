@@ -1,8 +1,10 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026 Max Boksem
 
-// The pane, sidebar, inbox and find shortcuts and how buttons and menus show them.
-// They hold Command on a Mac and Control elsewhere. None is a key the composer
+// The pane, sidebar, inbox, find and terminal shortcuts and how buttons and
+// menus show them. They hold Command on a Mac and Control elsewhere, but the
+// terminal drawer's holds Control everywhere, as in other apps' terminals.
+// None is a key the composer
 // edits text with or one the macOS menu bar takes, which is why closing a
 // pane is Shift+W and not W, and maximizing is Shift+M and not M. Undo is
 // the one exception: it undoes an inbox change only while its notice shows
@@ -16,6 +18,7 @@ import { toggleShortcutList } from "@/shortcut-list/store";
 import { canUndoInbox, settleAndMoveOn, togglePinChosen, undoInbox } from "@/sidebar/commands";
 import { focusFilter } from "@/sidebar/filter";
 import { toggleSidebar } from "@/sidebar/toggle";
+import { toggleDrawer } from "@/terminal/actions";
 
 import {
 	closePane,
@@ -36,6 +39,8 @@ export type Shortcut = {
 	readonly code: string;
 	readonly shift?: boolean;
 	readonly alt?: boolean;
+	/** Whether it holds Control on a Mac too, in place of Command. */
+	readonly control?: boolean;
 };
 
 const ARROWS: Record<FocusDirection, Shortcut> = {
@@ -65,17 +70,18 @@ export const SHORTCUTS = {
 	newAgent: { label: "N", code: "KeyN" },
 	stop: { label: ".", code: "Period" },
 	shortcuts: { label: "/", code: "Slash" },
+	terminal: { label: "`", code: "Backquote", control: true },
 } as const satisfies Record<string, Shortcut>;
 
 /** How a tooltip or menu writes a shortcut, such as ⇧⌘D on a Mac or Ctrl+Shift+D elsewhere. */
 export const keyHint = (s: Shortcut): string =>
 	onMac()
-		? `${s.alt ? "⌥" : ""}${s.shift ? "⇧" : ""}⌘${s.label}`
+		? `${s.alt ? "⌥" : ""}${s.shift ? "⇧" : ""}${s.control ? "⌃" : "⌘"}${s.label}`
 		: `Ctrl+${s.alt ? "Alt+" : ""}${s.shift ? "Shift+" : ""}${s.label}`;
 
 /** A shortcut in the form `aria-keyshortcuts` takes. */
 export const ariaKeys = (s: Shortcut): string =>
-	`${onMac() ? "Meta" : "Control"}+${s.alt ? "Alt+" : ""}${s.shift ? "Shift+" : ""}${s.label}`;
+	`${onMac() && !s.control ? "Meta" : "Control"}+${s.alt ? "Alt+" : ""}${s.shift ? "Shift+" : ""}${s.label}`;
 
 /**
  * Whether a key or click holds Command alone on a Mac, where Control moves
@@ -91,7 +97,8 @@ export const holdsCommand = (e: {
 // D on any Latin layout. A layout that types no Latin letter goes by where
 // the key sits, and so do the other keys.
 const matches = (e: KeyboardEvent, s: Shortcut): boolean => {
-	if (!holdsCommand(e) || !!s.shift !== e.shiftKey || !!s.alt !== e.altKey) return false;
+	const held = s.control ? e.ctrlKey && !e.metaKey : holdsCommand(e);
+	if (!held || !!s.shift !== e.shiftKey || !!s.alt !== e.altKey) return false;
 	const typed = e.key.toLowerCase();
 	if (s.code.startsWith("Key") && /^[a-z]$/.test(typed)) {
 		return typed === s.code.slice(3).toLowerCase();
@@ -155,6 +162,8 @@ const commandFor = (services: Services, e: KeyboardEvent): (() => boolean) | nul
 		const open = finderFor(document.activeElement, api.activeGroup?.element ?? null);
 		return open ? once(stay(open)) : null;
 	}
+	// The drawer opens and its tab takes the keys, or it hides and the composer does.
+	if (matches(e, SHORTCUTS.terminal)) return once(() => toggleDrawer(services));
 	for (const [direction, s] of Object.entries(ARROWS) as [FocusDirection, Shortcut][]) {
 		if (matches(e, s)) return () => focusGroup(api, direction);
 	}

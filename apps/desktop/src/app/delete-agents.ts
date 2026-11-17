@@ -2,7 +2,8 @@
 // Copyright (c) 2026 Max Boksem
 
 // Deleting agents from the sidebar's menus or an agent's header. It asks
-// first and deletes them one after another. Then it unpicks them, opens
+// first, naming what still runs in their terminals, and deletes them one
+// after another. Then it unpicks them, opens
 // the next agent in the project in place of the one you were looking at,
 // and closes the panes of the agents that went.
 
@@ -11,7 +12,9 @@ import { t } from "@maxhq/shared/i18n";
 import { requestConfirm } from "@/components/confirm";
 import { paneId } from "@/layout/pane-id";
 import { panesOf } from "@/layout/panes";
+import { drawersOf } from "@/terminal/drawer-prefs";
 import type { Agent, AgentId } from "@maxhq/shared/bindings";
+import { runningCommands } from "@maxhq/shared/terminal/drawer";
 import { agentAfterDelete, deleteAgents, deleteQuestion } from "@maxhq/shared/ui/delete-agents";
 import { all, type ViewState } from "@maxhq/shared/view/replica";
 
@@ -27,7 +30,13 @@ export const confirmAndDelete = async (
 	agents: readonly Agent[]
 ): Promise<readonly string[]> => {
 	if (agents.length === 0) return [];
-	const yes = await requestConfirm(services, { ...deleteQuestion(agents), action: t("Delete") });
+	const running = runningCommands(
+		services.view.getState().view,
+		new Set(agents.map((agent) => agent.id)),
+		drawersOf(services).getState().named
+	);
+	const question = deleteQuestion(agents, running);
+	const yes = await requestConfirm(services, { ...question, action: t("Delete") });
 	if (!yes) return [];
 	const before = services.view.getState().view;
 	const { deleted, failures } = await deleteAgents(services.source, agents);

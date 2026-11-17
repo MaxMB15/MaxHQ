@@ -18,7 +18,7 @@ import { type Find, findLabel } from "@maxhq/shared/find/store";
 import { cn } from "@/lib/utils";
 import { t as translate, useI18n } from "@maxhq/shared/i18n";
 
-const ICON_BUTTON =
+export const ICON_BUTTON =
 	"grid size-6 shrink-0 cursor-pointer place-items-center rounded-[5px] text-muted-foreground outline-none hover:bg-border hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-default disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-muted-foreground";
 
 /** The find bar of one agent view, shown while its find is open. */
