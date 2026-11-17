@@ -1201,7 +1201,10 @@ describe("footer pickers", () => {
 		const { source } = renderComposer();
 		await findTextbox();
 		const pickAuto = async () => {
-			fireEvent.click(screen.getByRole("button", { name: /^Permission mode/ }));
+			// The menu stays open behind the question, so after Cancel another
+			// click on the button would close it, not open it.
+			const button = screen.getByRole("button", { name: /^Permission mode/ });
+			if (button.getAttribute("aria-expanded") !== "true") fireEvent.click(button);
 			const auto = await screen.findByRole("menuitemradio", { name: /Auto/ });
 			expect(auto).toHaveTextContent("test, build and lint scripts without asking");
 			fireEvent.click(auto);
