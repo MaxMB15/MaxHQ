@@ -31,6 +31,10 @@ import { PhoneScreen } from "./features/phone/PhoneScreen";
 import { PullScreen, PullsScreen } from "./features/pulls";
 import { scanLinkOf } from "./features/scan/code";
 import { ScanScreen } from "./features/scan/ScanScreen";
+import { DeviceSettingsScreen } from "./features/settings/DeviceSettingsScreen";
+import { ProjectSettingsScreen } from "./features/settings/ProjectSettingsScreen";
+import { SettingsPageScreen } from "./features/settings/SettingsPageScreen";
+import { SignInScreen } from "./features/settings/SignInScreen";
 import { TaskActivityScreen, TaskEditorScreen, TasksScreen } from "./features/tasks";
 import { LeaseScreen } from "./features/test-hosts/LeaseScreen";
 import { UsageScreen } from "./features/usage/UsageScreen";
@@ -113,6 +117,10 @@ const linking: LinkingOptions<Screens> = {
 			Tasks: "tasks",
 			TaskActivity: "task/:task",
 			TaskEditor: "task-editor",
+			SettingsPage: "settings/:page",
+			SignIn: "sign-in/:login",
+			DeviceSettings: "device-settings/:device",
+			ProjectSettings: "project-settings/:project",
 		},
 	},
 };
@@ -132,6 +140,10 @@ export const App = () => {
 						<Stack.Screen name="Usage" component={UsageScreen} />
 						<Stack.Screen name="Devices" component={DevicesScreen} />
 						<Stack.Screen name="Settings" component={PhoneScreen} />
+						<Stack.Screen name="SettingsPage" component={SettingsPageScreen} />
+						<Stack.Screen name="SignIn" component={SignInScreen} />
+						<Stack.Screen name="DeviceSettings" component={DeviceSettingsScreen} />
+						<Stack.Screen name="ProjectSettings" component={ProjectSettingsScreen} />
 						<Stack.Screen name="Notes" component={NotesScreen} />
 						<Stack.Screen name="Note" component={NoteScreen} getId={noteScreenId} />
 						<Stack.Screen name="File" component={FileScreen} getId={fileScreenId} />

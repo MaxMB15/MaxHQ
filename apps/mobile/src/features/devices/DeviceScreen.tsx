@@ -538,6 +538,17 @@ export const DeviceScreen = ({ navigation, route }: ScreenProps<"Device">) => {
 						<DeviceInstalls {...section} />
 						<DeviceRegistry {...section} />
 						<DeviceTestHosts {...section} />
+						<Card>
+							<CardRow
+								first
+								label={t("Device settings")}
+								onPress={() =>
+									navigation.navigate("DeviceSettings", {
+										device: section.device,
+									})
+								}
+							/>
+						</Card>
 					</>
 				) : null}
 				<DeviceIdentity link={link} view={view} />
