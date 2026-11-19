@@ -5,7 +5,7 @@ import { act, fireEvent, render, screen, waitFor, within } from "@testing-librar
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import App from "@/App";
-import { quoteInbox } from "@/composer/quote-inbox";
+import { quoteInbox } from "@maxhq/shared/pills/quote-inbox";
 import { mockSource } from "@/data/mock-source";
 import type { FakeView } from "@/test/fake-term-view";
 import type { DataSource } from "@maxhq/shared/data/source";

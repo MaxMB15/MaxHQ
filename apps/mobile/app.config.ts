@@ -4,18 +4,24 @@
 // The Expo config. `expo prebuild` writes `ios/` and `android/` from it, so
 // neither is kept in git. APP_VARIANT picks development or production, and
 // signing comes from the git-ignored ios.local.json (see scripts/ios-config.ts).
+// The version is MaxHQ's one version, from the root Cargo.toml, and the build
+// number is native-build.json's or the release workflow's (see
+// scripts/native.ts).
 
 import type { ExpoConfig } from "expo/config";
 
+import { repoVersion } from "../../scripts/release/version.mjs";
 import { DEVICE_ENV, iosConfig, readIosLocal, resolveVariant } from "./scripts/ios-config.ts";
+import { BUILD_NUMBER_ENV, resolveBuildNumber } from "./scripts/native.ts";
 import { withPushExtension } from "./scripts/push-extension.ts";
+import { releaseExtra } from "./scripts/release-config.ts";
 import nativeBuild from "./native-build.json";
 
 const variant = resolveVariant(process.env.APP_VARIANT);
 const ios = iosConfig(variant, readIosLocal(__dirname), process.env[DEVICE_ENV] === "1");
 
-const version = "0.1.0";
-const buildNumber = String(nativeBuild.buildNumber);
+const version = repoVersion();
+const buildNumber = String(resolveBuildNumber(nativeBuild, process.env[BUILD_NUMBER_ENV]));
 
 const config: ExpoConfig = {
 	name: ios.name,
@@ -49,12 +55,23 @@ const config: ExpoConfig = {
 			"expo-camera",
 			{
 				cameraPermission:
-					"Allow MaxHQ to use the camera to scan the pairing code your Mac shows.",
+					"Allow MaxHQ to use the camera to scan the pairing code your Mac shows and to take photos you send to an agent.",
 				microphonePermission: false,
 				recordAudioAndroid: false,
 				barcodeScannerEnabled: true,
 			},
 		],
+		// Photos and files you attach to a message. Nothing is recorded.
+		[
+			"expo-image-picker",
+			{
+				photosPermission: "Allow MaxHQ to read the photos you choose to send to an agent.",
+				cameraPermission:
+					"Allow MaxHQ to use the camera to scan the pairing code your Mac shows and to take photos you send to an agent.",
+				microphonePermission: false,
+			},
+		],
+		"expo-document-picker",
 		// Push needs a signed build, which sets its own aps-environment.
 		...(ios.push ? ["expo-notifications"] : []),
 	],
@@ -63,6 +80,7 @@ const config: ExpoConfig = {
 		push: ios.push,
 		// Left out when unset, since the manifest turns null into {}.
 		...(ios.appGroup ? { appGroup: ios.appGroup } : {}),
+		...releaseExtra(process.env),
 	},
 };
 

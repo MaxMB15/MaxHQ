@@ -472,6 +472,7 @@ fn the_app_s_view_keeps_all_a_real_maxd_reports() {
             via: Vec::new(),
             capabilities: None,
             protocol: None,
+            protocol_mismatch: None,
             waiting: Vec::new(),
             claim: None,
         })),

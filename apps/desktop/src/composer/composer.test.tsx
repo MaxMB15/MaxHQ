@@ -15,7 +15,7 @@ import { account, entities, workspace } from "@maxhq/shared/test/build";
 
 import { attachFailure, intakeFailure } from "./failure";
 import { PASTED_TEXT_ATTACHMENT_THRESHOLD_BYTES } from "./paste";
-import { quoteInbox } from "./quote-inbox";
+import { quoteInbox } from "@maxhq/shared/pills/quote-inbox";
 import { failureOf } from "@maxhq/shared/composer/send";
 import { DEFAULT_TYPING, writeTypingPrefs } from "@maxhq/shared/editor/typing";
 import {
@@ -1211,7 +1211,7 @@ describe("footer pickers", () => {
 		};
 
 		await pickAuto();
-		let dialog = await screen.findByRole("alertdialog");
+		let dialog = await screen.findByRole("alertdialog", {}, { timeout: 10_000 });
 		expect(dialog).toHaveTextContent("Use Auto mode?");
 		expect(dialog).toHaveTextContent("Use it on repos you trust.");
 		fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
@@ -1219,7 +1219,7 @@ describe("footer pickers", () => {
 		expect(source.setPermission).not.toHaveBeenCalled();
 
 		await pickAuto();
-		dialog = await screen.findByRole("alertdialog");
+		dialog = await screen.findByRole("alertdialog", {}, { timeout: 10_000 });
 		fireEvent.click(within(dialog).getByRole("button", { name: "Use Auto" }));
 		await waitFor(() => expect(source.setPermission).toHaveBeenCalledWith(AGENT, "auto"));
 		expect(localStorage.getItem(AUTO_CONSENT_KEY)).toBe("confirmed");

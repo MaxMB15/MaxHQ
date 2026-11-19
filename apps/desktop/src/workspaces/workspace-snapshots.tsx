@@ -6,27 +6,22 @@
 // back, which asks first. A roll back over unsaved work says what it would
 // lose and takes a second click to throw that away.
 
-import { t, useI18n } from "@maxhq/shared/i18n";
+import { useI18n } from "@maxhq/shared/i18n";
 
 import { useState } from "react";
 
 import { useServices } from "@/app/services";
-import type { Timestamp, Workspace, WorkspaceSnapshot } from "@maxhq/shared/bindings";
-import { refreshSnapshots, restoreSnapshot, useSnapshots } from "@maxhq/shared/hosts/snapshots";
+import type { Timestamp, Workspace } from "@maxhq/shared/bindings";
+import {
+	refreshSnapshots,
+	restoreSnapshot,
+	snapshotLine,
+	useSnapshots,
+} from "@maxhq/shared/hosts/snapshots";
 import { rollbackLoses } from "@maxhq/shared/hosts/unsaved";
 import { DANGER, SECONDARY, StatusNote } from "@/settings/controls";
 import type { Note } from "@/settings/result";
-import { formatWhen, sentence } from "@maxhq/shared/status/format";
-
-/** When a snapshot was taken and how long it's kept, in words. */
-export const snapshotLine = (snapshot: WorkspaceSnapshot, now: Timestamp): string =>
-	t("Taken {{value1}}, {{value2}}", {
-		value1: formatWhen(snapshot.taken_at, now),
-		value2:
-			snapshot.expires_at === null
-				? t("kept until you delete it")
-				: t("kept until {{value1}}", { value1: formatWhen(snapshot.expires_at, now) }),
-	});
+import { sentence } from "@maxhq/shared/status/format";
 
 /** The snapshots of a container workspace, with restore and roll back. */
 export const WorkspaceSnapshots = ({

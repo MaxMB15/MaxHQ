@@ -95,6 +95,16 @@ describe("claimCard", () => {
 		expect(card.sides).toEqual([]);
 	});
 
+	it("says where this app changes the answer, unless the details say", () => {
+		const where = "Identity, on this device's page";
+		expect(claimCard(names, null, NOW, where).remember).toBe(
+			`MaxHQ keeps your answer. You can change it under ${where}.`
+		);
+		expect(
+			claimCard(names, { ...details, where_to_change: "Settings" }, NOW, where).remember
+		).toBe("MaxHQ keeps your answer. You can change it under Settings.");
+	});
+
 	it("shows both links' addresses, host keys and first-seen times", () => {
 		const card = claimCard(names, details, NOW);
 		expect(card.sides.map((s) => s.title)).toEqual(["spare", "devbox", "Kept for devbox"]);

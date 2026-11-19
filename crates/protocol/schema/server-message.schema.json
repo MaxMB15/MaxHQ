@@ -1903,6 +1903,17 @@
                 "$ref": "#/$defs/PhoneBookEntry"
               }
             },
+            "mac": {
+              "description": "The Mac that paired it, when the Mac said.",
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/PhoneMac"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
             "phone": {
               "description": "The phone's ID, for `maxd proxy --phone`.",
               "$ref": "#/$defs/PhoneId"
@@ -5076,6 +5087,17 @@
           ],
           "format": "uint32",
           "minimum": 0
+        },
+        "protocol_mismatch": {
+          "description": "The protocol versions the device's `maxd` speaks, when its last\nhello found none in common with this client's. Kept while the link\nis down, and unset once a hello agrees.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ProtocolRange"
+            },
+            {
+              "type": "null"
+            }
+          ]
         },
         "route": {
           "description": "How the client reaches it, or the route it tries first while down.",
@@ -11079,6 +11101,17 @@
             "$ref": "#/$defs/PhoneBookEntry"
           }
         },
+        "mac": {
+          "description": "The Mac that made the book, which the phone names it by. A book\nfrom an older Mac leaves it out, and the phone names the keeper.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PhoneMac"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "phone": {
           "description": "The phone.",
           "$ref": "#/$defs/PhoneId"
@@ -11136,6 +11169,24 @@
       "description": "A phone you paired, from its pairing on.",
       "type": "string",
       "format": "uuid"
+    },
+    "PhoneMac": {
+      "description": "The Mac that made a [`PhoneBook`]. It is often not the keeper, which\ncan be any device the Mac paired the phone through.",
+      "type": "object",
+      "properties": {
+        "device": {
+          "description": "The Mac's own device.",
+          "$ref": "#/$defs/DeviceId"
+        },
+        "name": {
+          "description": "Its name, such as \"Home Mac\".",
+          "type": "string"
+        }
+      },
+      "required": [
+        "device",
+        "name"
+      ]
     },
     "PhoneNetwork": {
       "description": "How a phone reaches one device of its book over the network.",

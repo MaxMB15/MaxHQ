@@ -5,10 +5,10 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import { setThemeChoice } from "@/app/theme";
 import { themeBlock, tokenValue } from "@/test/theme-tokens";
+import { diagramTheme } from "@maxhq/shared/agent-view/diagram-theme";
 import type { Theme } from "@maxhq/shared/theme/theme";
 
 import { drawDiagram, drawnDiagram } from "./diagram-render";
-import { diagramTheme } from "./diagram-theme";
 
 /** Puts a theme's tokens on the page, as its stylesheet would. */
 const showTheme = (theme: Theme) => {

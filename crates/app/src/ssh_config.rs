@@ -653,6 +653,7 @@ mod tests {
                 ..Capabilities::default()
             }),
             protocol: None,
+            protocol_mismatch: None,
             waiting: Vec::new(),
             routes: Vec::new(),
             claim: None,

@@ -114,6 +114,52 @@ describe("inboxList", () => {
 		expect(groups({ state: "idle" })).toEqual([]);
 		expect(groups({ state: "busy" })).toEqual(["notes-app"]);
 	});
+
+	it("lists hidden projects, and marks a hidden one that shows", () => {
+		const hidden = inboxList(
+			applySnapshot({
+				seq: 1,
+				entities: [
+					...entities({
+						projects: [project("p1", "notes-app"), project("p2", "api")],
+						workspaces: [
+							workspace({ id: "w1", project: "p1" }),
+							workspace({ id: "w2", project: "p2" }),
+						],
+						agents: [agent({ id: "a", workspace: "w1", activity: { state: "busy" } })],
+					}),
+					{ entity: "hidden_projects", device: "dev-mac", projects: ["p1", "p2"] },
+				],
+			}),
+			NOW
+		);
+		expect(hidden.hidden.map((p) => p.name)).toEqual(["api", "notes-app"]);
+		expect(hidden.groups.map((g) => [g.name, g.hidden])).toEqual([["notes-app", true]]);
+		expect(list.groups.every((g) => !g.hidden)).toBe(true);
+		expect(list.hidden).toEqual([]);
+	});
+
+	it("moves busy agents to the Working shelf when it's on", () => {
+		expect(list.working).toEqual([]);
+		const shelved = inboxList(view, NOW, { workingShelf: true });
+		expect(ids(shelved.working)).toEqual(["busy", "busy-old"]);
+		expect(ids(shelved.groups[1]!.rows)).toEqual(["ask-new", "done", "idle"]);
+	});
+
+	it("keeps the agents the filter's words find, and everyone waiting on you", () => {
+		const found = inboxList(view, NOW, { words: ["notes"] });
+		expect(found.groups.map((g) => g.name)).toEqual(["notes-app"]);
+		expect(ids(found.pinned)).toEqual([]);
+		expect(found.waiting.map((w) => w.agent.id)).toEqual(["ask-old", "ask-new"]);
+		const older = inboxList(view, NOW, { words: ["old"] });
+		expect(ids(older.groups.flatMap((g) => g.rows))).toEqual([
+			"ask-old",
+			"started",
+			"busy-old",
+			"old",
+		]);
+		expect(older.groups.flatMap((g) => g.older)).toEqual([]);
+	});
 });
 
 describe("swipeMenu", () => {

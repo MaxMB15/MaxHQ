@@ -4,40 +4,72 @@
 // A visual as one document that needs nothing else, for a web view with no
 // server behind it, as the phone's is. The libraries it has go into the
 // page in place of the scripts that name them, and a content policy at the
-// top keeps the page off the network. A small script ahead of the page
-// reports, through the web view's bridge, what the policy blocked, the
-// page's errors and the links the user clicked, in the frame's own words.
+// top keeps the page off the network, but for the hosts Load this time let
+// through. A small script ahead of the page reports, through the web view's
+// bridge, how tall the page is, what the policy blocked, the page's errors
+// and the links the user clicked, in the frame's own words.
 
 import type { Theme } from "../theme/theme";
 
-import { LIBRARY_PATH, LIBRARY_PREFIX, visualDocument } from "./frame";
+import { isPlainHost, LIBRARY_PATH, LIBRARY_PREFIX, MOST_HOSTS, visualDocument } from "./frame";
 
 /**
  * What a self-contained visual may load: inline scripts and styles, which
- * carry its libraries, and what it makes itself. Nothing from the network.
+ * carry its libraries, and what it makes itself. From the network, only
+ * code, styles, fonts and pictures from `hosts` over https, each a plain
+ * host and only the first few, as the desktop's frame. It never connects,
+ * frames or posts a form.
  */
-export const INLINE_VISUAL_POLICY = [
-	"default-src 'none'",
-	"script-src 'unsafe-inline' 'unsafe-eval' blob: data:",
-	"style-src 'unsafe-inline' blob: data:",
-	"img-src blob: data:",
-	"font-src data:",
-	"media-src blob: data:",
-	"connect-src 'none'",
-	"worker-src blob:",
-	"frame-src 'none'",
-	"form-action 'none'",
-	"base-uri 'none'",
-].join("; ");
+export const inlineVisualPolicy = (hosts: readonly string[]): string => {
+	const extra = hosts
+		.filter(isPlainHost)
+		.slice(0, MOST_HOSTS)
+		.map((host) => ` https://${host}`)
+		.join("");
+	return [
+		"default-src 'none'",
+		`script-src 'unsafe-inline' 'unsafe-eval' blob: data:${extra}`,
+		`style-src 'unsafe-inline' blob: data:${extra}`,
+		`img-src blob: data:${extra}`,
+		`font-src data:${extra}`,
+		"media-src blob: data:",
+		"connect-src 'none'",
+		"worker-src blob:",
+		"frame-src 'none'",
+		"form-action 'none'",
+		"base-uri 'none'",
+	].join("; ");
+};
+
+/** The policy with no hosts let through: nothing from the network. */
+export const INLINE_VISUAL_POLICY = inlineVisualPolicy([]);
 
 // Says what happens in the page through the bridge a React Native web view
-// gives it, as the desktop's frame says it with postMessage. A link within
-// the page moves there, and any other goes to the app, only for a click the
-// user made.
+// gives it, as the desktop's frame says it with postMessage. The height is
+// the content's unless the page scrolls, as one whose root is 100% tall
+// does, and goes again each time it changes. A link within the page moves
+// there, and any other goes to the app, only for a click the user made.
 const REPORTER = `(function () {
 	var tell = function (report) {
 		if (window.ReactNativeWebView) window.ReactNativeWebView.postMessage(JSON.stringify(report));
 	};
+	var last = -1;
+	var measure = function () {
+		var root = document.documentElement;
+		var height = Math.ceil(root.scrollHeight > root.clientHeight ? root.scrollHeight : root.getBoundingClientRect().height);
+		if (height === last) return;
+		last = height;
+		tell({ type: "maxhq-visual:height", height: height });
+	};
+	addEventListener("DOMContentLoaded", function () {
+		if (typeof ResizeObserver === "function") {
+			var observer = new ResizeObserver(measure);
+			observer.observe(document.documentElement);
+			if (document.body) observer.observe(document.body);
+		}
+		measure();
+	});
+	addEventListener("load", measure);
 	addEventListener("securitypolicyviolation", function (event) {
 		tell({ type: "maxhq-visual:blocked", url: event.blockedURI, what: event.effectiveDirective });
 	});
@@ -60,6 +92,11 @@ const REPORTER = `(function () {
 	});
 })();`;
 
+// The page lays out at the width of the view it's in, in the pixels the
+// view measures. Without it, a phone's web view lays the page out at a
+// desktop's width and shrinks it.
+const VIEWPORT = '<meta name="viewport" content="width=device-width, initial-scale=1">';
+
 // A script tag that loads a library the frame would serve, with whatever
 // else it says around the address.
 const LIBRARY_SCRIPT = new RegExp(
@@ -81,10 +118,10 @@ export type InlineVisual = {
 };
 
 /**
- * The document for a visual drawn with no server: the content policy and
- * the reporter first, then the page as the frame writes it, with each
- * script that loads one of `libraries` (by its file, such as `chart.js`)
- * carrying that library's text instead.
+ * The document for a visual drawn with no server: the content policy, with
+ * `hosts` let through, and the reporter first, then the page as the frame
+ * writes it, with each script that loads one of `libraries` (by its file,
+ * such as `chart.js`) carrying that library's text instead.
  */
 export const inlineVisualDocument = (
 	visual: {
@@ -92,7 +129,8 @@ export const inlineVisualDocument = (
 		readonly theme: Theme;
 		readonly variables: Readonly<Record<string, string>>;
 	},
-	libraries: ReadonlyMap<string, string>
+	libraries: ReadonlyMap<string, string>,
+	hosts: readonly string[] = []
 ): InlineVisual => {
 	const written = visualDocument(visual).replace(/^<!doctype html>/, "");
 	const left = written.replace(LIBRARY_SCRIPT, (tag, _before, _quote, name: string) =>
@@ -110,7 +148,7 @@ export const inlineVisualDocument = (
 				: `<script${before}${after}>${scriptText(text)}</script>`;
 		}
 	);
-	const head = `<meta http-equiv="Content-Security-Policy" content="${INLINE_VISUAL_POLICY}"><script>${REPORTER}</script>`;
+	const head = `<meta http-equiv="Content-Security-Policy" content="${inlineVisualPolicy(hosts)}">${VIEWPORT}<script>${REPORTER}</script>`;
 	return { document: `<!doctype html>${head}${page}`, missing };
 };
 

@@ -2,7 +2,8 @@
 // Copyright (c) 2026 Max Boksem
 
 // The line under an inbox row's title: which agent, where, and a word for
-// a state its dot alone shows. Also the words at the row's end.
+// a state its dot alone shows. Also the words at the row's end, and the
+// actions only VoiceOver offers on the row.
 
 import { t } from "@maxhq/shared/i18n";
 
@@ -12,6 +13,9 @@ import { VENDOR_NAME } from "@maxhq/shared/status/usage";
 import { inboxOf } from "@maxhq/shared/view/inbox";
 import type { ViewState } from "@maxhq/shared/view/replica";
 import { snoozeWakeLabel } from "@maxhq/shared/view/snooze";
+import type { RunChip } from "@maxhq/shared/workflow/select";
+
+import type { SpokenAction } from "../../ui/SwipeRow";
 
 const NOTE: Partial<Record<ActivityLook, string>> = {
 	done_unread: "done",
@@ -43,3 +47,13 @@ export const phoneRowMeta = (view: ViewState, agent: Agent, now: Timestamp): Row
 		? { kind: "text", text: t("Wakes {{time}}", { time: snoozeWakeLabel(until, now) }) }
 		: agentRowMeta(view, agent, now);
 };
+
+/**
+ * What VoiceOver offers on a row besides its swipe actions: Open run when
+ * the row shows a run chip, since it reads the row as one and can't reach
+ * the chip.
+ */
+export const spokenRowActions = (
+	chip: RunChip | null,
+	openRun: (chip: RunChip) => void
+): SpokenAction[] => (chip ? [{ label: t("Open run"), onPress: () => openRun(chip) }] : []);

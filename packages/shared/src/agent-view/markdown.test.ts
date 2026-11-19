@@ -5,7 +5,7 @@ import { Lexer } from "marked";
 import { describe, expect, it } from "vitest";
 
 import { countLexing, longAnswer } from "../test/replay";
-import { guardDollars, PLAIN_DOLLAR, restoreDollars, splitBlocks } from "./markdown";
+import { codeFenceOf, guardDollars, PLAIN_DOLLAR, restoreDollars, splitBlocks } from "./markdown";
 
 const dollars = (text: string) => guardDollars(text).replaceAll(PLAIN_DOLLAR, "#");
 
@@ -230,5 +230,68 @@ describe("guardDollars", () => {
 
 	it("gives back a text with no dollar as it is", () => {
 		expect(guardDollars("nothing here")).toBe("nothing here");
+	});
+});
+
+describe("codeFenceOf", () => {
+	it("reads a fence's language and code", () => {
+		expect(codeFenceOf("```ts\nconst a = 1;\n\nlet b;\n```\n")).toEqual({
+			lang: "ts",
+			code: "const a = 1;\n\nlet b;",
+			closed: true,
+		});
+		expect(codeFenceOf("~~~~ python extra words\nx = 1\n~~~~")).toEqual({
+			lang: "python",
+			code: "x = 1",
+			closed: true,
+		});
+	});
+
+	it("gives no language for a bare fence", () => {
+		expect(codeFenceOf("```\nplain\n```")).toEqual({ lang: null, code: "plain", closed: true });
+	});
+
+	it("closes only on as many of the same marks", () => {
+		expect(codeFenceOf("````\n```\n~~~~\n````")).toMatchObject({
+			code: "```\n~~~~",
+			closed: true,
+		});
+	});
+
+	it("keeps a fence that hasn't closed open, as one streaming in", () => {
+		expect(codeFenceOf("```rust\nfn main() {\n")).toEqual({
+			lang: "rust",
+			code: "fn main() {",
+			closed: false,
+		});
+		expect(codeFenceOf("```")).toEqual({ lang: null, code: "", closed: false });
+	});
+
+	it("takes the opening line's indent off each line", () => {
+		expect(codeFenceOf("  ```sh\n    ls\n ls -a\n  ```")).toMatchObject({
+			code: "  ls\nls -a",
+		});
+	});
+
+	it("matches how the lexer splits fences", () => {
+		const text = "Intro\n\n```go\nfunc main() {}\n```\n\n~~~\nplain\n~~~\n";
+		const fences = splitBlocks(text).map(codeFenceOf);
+		expect(fences).toEqual([
+			null,
+			{ lang: "go", code: "func main() {}", closed: true },
+			{ lang: null, code: "plain", closed: true },
+		]);
+	});
+
+	it("leaves anything but a lone fence alone", () => {
+		expect(codeFenceOf("text\n```\ncode\n```")).toBeNull();
+		expect(codeFenceOf("```\ncode\n```\nmore text")).toBeNull();
+		expect(codeFenceOf("    indented code")).toBeNull();
+		expect(codeFenceOf("``` a`b\ncode")).toBeNull();
+		expect(codeFenceOf("``inline``")).toBeNull();
+	});
+
+	it("reads Windows line breaks", () => {
+		expect(codeFenceOf("```js\r\na\r\n```\r\n")).toMatchObject({ lang: "js", code: "a" });
 	});
 });

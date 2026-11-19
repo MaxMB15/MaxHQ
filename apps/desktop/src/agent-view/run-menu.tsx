@@ -21,7 +21,7 @@ import { MENU_ITEM, MENU_POPUP } from "@/composer/pickers";
 import { putCommand } from "@/composer/shell-mode";
 import { cn } from "@/lib/utils";
 import { useTerminalActions } from "@/terminal";
-import { useVisualOrigin } from "@/visuals/origin";
+import { useVisualOrigin } from "@maxhq/shared/visuals/origin";
 
 const ENTRY = cn(MENU_ITEM, "justify-between gap-[18px]");
 

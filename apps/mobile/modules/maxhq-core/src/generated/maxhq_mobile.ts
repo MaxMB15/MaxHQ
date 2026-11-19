@@ -8,7 +8,7 @@ import {
 	type UniffiRustFutureContinuationCallback,
 	type UniffiForeignFutureDroppedCallback,
 	type UniffiForeignFutureDroppedCallbackStruct,
-	type UniffiVTableCallbackInterfaceMaxhqMobileMediaListener,
+	type UniffiVTableCallbackInterfaceMaxhqMobileProgressListener,
 	type UniffiVTableCallbackInterfaceMaxhqMobileTimelineListener,
 	type UniffiVTableCallbackInterfaceMaxhqMobileViewListener,
 } from "./maxhq_mobile-ffi";
@@ -94,6 +94,205 @@ export function appState(state: string): string {
 }
 
 /**
+ * Readies a file or folder `agent` can see for an agent on `device`, with
+ * both legs going to `listener`. `target` is an `UploadTarget` as JSON, or
+ * `null` to stage it on `device`. Answers a reply whose `data` is the
+ * `ActionOutcome`.
+ */
+export async function attachFromAgent(
+	device: string,
+	target: string,
+	agent: string,
+	path: string,
+	listener: ProgressListener,
+	asyncOpts_?: { signal: AbortSignal }
+): Promise<string> {
+	const __stack = uniffiIsDebug ? new Error().stack : undefined;
+	try {
+		return await uniffiRustCallAsync(
+			/*rustCaller:*/ uniffiCaller,
+			/*rustFutureFunc:*/ () => {
+				return nativeModule().ubrn_uniffi_maxhq_mobile_fn_func_attach_from_agent(
+					FfiConverterString.lower(device, nativeModule().rustbuffer_alloc),
+					FfiConverterString.lower(target, nativeModule().rustbuffer_alloc),
+					FfiConverterString.lower(agent, nativeModule().rustbuffer_alloc),
+					FfiConverterString.lower(path, nativeModule().rustbuffer_alloc),
+					FfiConverterTypeProgressListener.lower(
+						listener,
+						nativeModule().rustbuffer_alloc
+					)
+				);
+			},
+			/*pollFunc:*/ nativeModule().ubrn_ffi_maxhq_mobile_rust_future_poll_rust_buffer,
+			/*cancelFunc:*/ nativeModule().ubrn_ffi_maxhq_mobile_rust_future_cancel_rust_buffer,
+			/*completeFunc:*/ nativeModule().ubrn_ffi_maxhq_mobile_rust_future_complete_rust_buffer,
+			/*freeFunc:*/ nativeModule().ubrn_ffi_maxhq_mobile_rust_future_free_rust_buffer,
+			// Async returns always go through the JS-side converter: the
+			// FFI symbol returns the future handle (u64), and the user-level
+			// RustBuffer comes back via the shared `rust_future_complete_*`
+			// export. The bytes the runtime hands back must be deserialized
+			// here using the per-callable return-type converter.
+			// Borrowed view over foreign memory: the call site owns the free,
+			// as on the sync paths. Unconditional — a no-op where buffers are
+			// already JS-owned.
+			/*liftFunc:*/ (__rb) => {
+				try {
+					return FfiConverterString.lift(__rb);
+				} finally {
+					nativeModule().rustbuffer_free(__rb);
+				}
+			},
+			/*liftString:*/ FfiConverterString.lift.bind(FfiConverterString),
+			/*asyncOpts:*/ asyncOpts_
+		);
+	} catch (__error: any) {
+		if (uniffiIsDebug && __error instanceof Error) {
+			__error.stack = __stack;
+		}
+		throw __error;
+	}
+}
+
+/**
+ * Copies the project of workspace `from` to `target`, a `CopyTarget` as
+ * JSON, with the ignored `files` it names, a JSON array of paths, and the
+ * files' transfers going to `listener`. `from` is its ID as a JSON
+ * string's contents. Answers a reply whose `data` is a `CopiedProject`.
+ */
+export async function copyProject(
+	from: string,
+	target: string,
+	files: string,
+	listener: ProgressListener,
+	asyncOpts_?: { signal: AbortSignal }
+): Promise<string> {
+	const __stack = uniffiIsDebug ? new Error().stack : undefined;
+	try {
+		return await uniffiRustCallAsync(
+			/*rustCaller:*/ uniffiCaller,
+			/*rustFutureFunc:*/ () => {
+				return nativeModule().ubrn_uniffi_maxhq_mobile_fn_func_copy_project(
+					FfiConverterString.lower(from, nativeModule().rustbuffer_alloc),
+					FfiConverterString.lower(target, nativeModule().rustbuffer_alloc),
+					FfiConverterString.lower(files, nativeModule().rustbuffer_alloc),
+					FfiConverterTypeProgressListener.lower(
+						listener,
+						nativeModule().rustbuffer_alloc
+					)
+				);
+			},
+			/*pollFunc:*/ nativeModule().ubrn_ffi_maxhq_mobile_rust_future_poll_rust_buffer,
+			/*cancelFunc:*/ nativeModule().ubrn_ffi_maxhq_mobile_rust_future_cancel_rust_buffer,
+			/*completeFunc:*/ nativeModule().ubrn_ffi_maxhq_mobile_rust_future_complete_rust_buffer,
+			/*freeFunc:*/ nativeModule().ubrn_ffi_maxhq_mobile_rust_future_free_rust_buffer,
+			// Async returns always go through the JS-side converter: the
+			// FFI symbol returns the future handle (u64), and the user-level
+			// RustBuffer comes back via the shared `rust_future_complete_*`
+			// export. The bytes the runtime hands back must be deserialized
+			// here using the per-callable return-type converter.
+			// Borrowed view over foreign memory: the call site owns the free,
+			// as on the sync paths. Unconditional — a no-op where buffers are
+			// already JS-owned.
+			/*liftFunc:*/ (__rb) => {
+				try {
+					return FfiConverterString.lift(__rb);
+				} finally {
+					nativeModule().rustbuffer_free(__rb);
+				}
+			},
+			/*liftString:*/ FfiConverterString.lift.bind(FfiConverterString),
+			/*asyncOpts:*/ asyncOpts_
+		);
+	} catch (__error: any) {
+		if (uniffiIsDebug && __error instanceof Error) {
+			__error.stack = __stack;
+		}
+		throw __error;
+	}
+}
+
+/**
+ * Fetches a file or folder `agent` can see into the cache folder's
+ * `downloads`, under a name nothing there has yet, with how far it has
+ * got going to `listener`. `agent` is its ID as a JSON string's contents.
+ * Answers a reply whose `data` is a `Downloaded`. Stop it with a
+ * `cancel_transfer` request.
+ */
+export async function download(
+	agent: string,
+	path: string,
+	listener: ProgressListener,
+	asyncOpts_?: { signal: AbortSignal }
+): Promise<string> {
+	const __stack = uniffiIsDebug ? new Error().stack : undefined;
+	try {
+		return await uniffiRustCallAsync(
+			/*rustCaller:*/ uniffiCaller,
+			/*rustFutureFunc:*/ () => {
+				return nativeModule().ubrn_uniffi_maxhq_mobile_fn_func_download(
+					FfiConverterString.lower(agent, nativeModule().rustbuffer_alloc),
+					FfiConverterString.lower(path, nativeModule().rustbuffer_alloc),
+					FfiConverterTypeProgressListener.lower(
+						listener,
+						nativeModule().rustbuffer_alloc
+					)
+				);
+			},
+			/*pollFunc:*/ nativeModule().ubrn_ffi_maxhq_mobile_rust_future_poll_rust_buffer,
+			/*cancelFunc:*/ nativeModule().ubrn_ffi_maxhq_mobile_rust_future_cancel_rust_buffer,
+			/*completeFunc:*/ nativeModule().ubrn_ffi_maxhq_mobile_rust_future_complete_rust_buffer,
+			/*freeFunc:*/ nativeModule().ubrn_ffi_maxhq_mobile_rust_future_free_rust_buffer,
+			// Async returns always go through the JS-side converter: the
+			// FFI symbol returns the future handle (u64), and the user-level
+			// RustBuffer comes back via the shared `rust_future_complete_*`
+			// export. The bytes the runtime hands back must be deserialized
+			// here using the per-callable return-type converter.
+			// Borrowed view over foreign memory: the call site owns the free,
+			// as on the sync paths. Unconditional — a no-op where buffers are
+			// already JS-owned.
+			/*liftFunc:*/ (__rb) => {
+				try {
+					return FfiConverterString.lift(__rb);
+				} finally {
+					nativeModule().rustbuffer_free(__rb);
+				}
+			},
+			/*liftString:*/ FfiConverterString.lift.bind(FfiConverterString),
+			/*asyncOpts:*/ asyncOpts_
+		);
+	} catch (__error: any) {
+		if (uniffiIsDebug && __error instanceof Error) {
+			__error.stack = __stack;
+		}
+		throw __error;
+	}
+}
+
+/**
+ * Forgets one Mac on the phone: its book, the devices only it lists with
+ * what waited for them, and their sign-ins. `keeper` is the device that
+ * keeps its book, as [`paired_macs`] names it, as a JSON string's
+ * contents. The other Macs stay paired. Answers a reply with
+ * `data: null`.
+ */
+export function forgetMac(keeper: string): string {
+	const __rb: Uint8Array = uniffiCaller.rustCall(
+		/*caller:*/ (callStatus) => {
+			return nativeModule().ubrn_uniffi_maxhq_mobile_fn_func_forget_mac(
+				FfiConverterString.lower(keeper, nativeModule().rustbuffer_alloc),
+				callStatus
+			);
+		},
+		/*liftString:*/ FfiConverterString.lift.bind(FfiConverterString)
+	);
+	try {
+		return FfiConverterString.lift(__rb);
+	} finally {
+		nativeModule().rustbuffer_free(__rb);
+	}
+}
+
+/**
  * Fetches a picture or video `agent` can see into the media cache, unless
  * it's there already or is larger than `limit` bytes, with how far it has
  * got going to `listener`. `path` is as the timeline names it, and `agent`
@@ -105,7 +304,7 @@ export async function media(
 	agent: string,
 	path: string,
 	limit: number,
-	listener: MediaListener,
+	listener: ProgressListener,
 	asyncOpts_?: { signal: AbortSignal }
 ): Promise<string> {
 	const __stack = uniffiIsDebug ? new Error().stack : undefined;
@@ -117,7 +316,10 @@ export async function media(
 					FfiConverterString.lower(agent, nativeModule().rustbuffer_alloc),
 					FfiConverterString.lower(path, nativeModule().rustbuffer_alloc),
 					FfiConverterUInt32.lower(limit, nativeModule().rustbuffer_alloc),
-					FfiConverterTypeMediaListener.lower(listener, nativeModule().rustbuffer_alloc)
+					FfiConverterTypeProgressListener.lower(
+						listener,
+						nativeModule().rustbuffer_alloc
+					)
 				);
 			},
 			/*pollFunc:*/ nativeModule().ubrn_ffi_maxhq_mobile_rust_future_poll_rust_buffer,
@@ -226,6 +428,60 @@ export async function openTimeline(
 }
 
 /**
+ * Opens a workflow run on one screen. `run` is a `RunKey` as JSON, and
+ * batches of `WorkflowMessage` reach `listener`, starting with a reset.
+ * Answers a reply with `data: null`. Close it with a `close_workflow`
+ * request.
+ */
+export async function openWorkflow(
+	run: string,
+	listener: TimelineListener,
+	asyncOpts_?: { signal: AbortSignal }
+): Promise<string> {
+	const __stack = uniffiIsDebug ? new Error().stack : undefined;
+	try {
+		return await uniffiRustCallAsync(
+			/*rustCaller:*/ uniffiCaller,
+			/*rustFutureFunc:*/ () => {
+				return nativeModule().ubrn_uniffi_maxhq_mobile_fn_func_open_workflow(
+					FfiConverterString.lower(run, nativeModule().rustbuffer_alloc),
+					FfiConverterTypeTimelineListener.lower(
+						listener,
+						nativeModule().rustbuffer_alloc
+					)
+				);
+			},
+			/*pollFunc:*/ nativeModule().ubrn_ffi_maxhq_mobile_rust_future_poll_rust_buffer,
+			/*cancelFunc:*/ nativeModule().ubrn_ffi_maxhq_mobile_rust_future_cancel_rust_buffer,
+			/*completeFunc:*/ nativeModule().ubrn_ffi_maxhq_mobile_rust_future_complete_rust_buffer,
+			/*freeFunc:*/ nativeModule().ubrn_ffi_maxhq_mobile_rust_future_free_rust_buffer,
+			// Async returns always go through the JS-side converter: the
+			// FFI symbol returns the future handle (u64), and the user-level
+			// RustBuffer comes back via the shared `rust_future_complete_*`
+			// export. The bytes the runtime hands back must be deserialized
+			// here using the per-callable return-type converter.
+			// Borrowed view over foreign memory: the call site owns the free,
+			// as on the sync paths. Unconditional — a no-op where buffers are
+			// already JS-owned.
+			/*liftFunc:*/ (__rb) => {
+				try {
+					return FfiConverterString.lift(__rb);
+				} finally {
+					nativeModule().rustbuffer_free(__rb);
+				}
+			},
+			/*liftString:*/ FfiConverterString.lift.bind(FfiConverterString),
+			/*asyncOpts:*/ asyncOpts_
+		);
+	} catch (__error: any) {
+		if (uniffiIsDebug && __error instanceof Error) {
+			__error.stack = __stack;
+		}
+		throw __error;
+	}
+}
+
+/**
  * Pairs the phone through the device whose pairing code is `code`, the
  * text in the QR code the Mac shows, as `name`, such as the phone's own
  * name. Answers a reply whose `data` is the `PhoneBook` the phone keeps.
@@ -272,6 +528,48 @@ export async function pair(
 			__error.stack = __stack;
 		}
 		throw __error;
+	}
+}
+
+/**
+ * The name of the Mac the phone already paired with that the pairing
+ * code `code` comes from, so pairing replaces that Mac's devices.
+ * Answers a reply whose `data` is the name, or `null` for a new Mac or a
+ * code that doesn't read.
+ */
+export function pairCodeMac(code: string): string {
+	const __rb: Uint8Array = uniffiCaller.rustCall(
+		/*caller:*/ (callStatus) => {
+			return nativeModule().ubrn_uniffi_maxhq_mobile_fn_func_pair_code_mac(
+				FfiConverterString.lower(code, nativeModule().rustbuffer_alloc),
+				callStatus
+			);
+		},
+		/*liftString:*/ FfiConverterString.lift.bind(FfiConverterString)
+	);
+	try {
+		return FfiConverterString.lift(__rb);
+	} finally {
+		nativeModule().rustbuffer_free(__rb);
+	}
+}
+
+/**
+ * The Macs the phone paired with, in the order it paired. Answers a
+ * reply whose `data` is a list of [`PairedMac`], with the book of devices
+ * added by hand last when there is one.
+ */
+export function pairedMacs(): string {
+	const __rb: Uint8Array = uniffiCaller.rustCall(
+		/*caller:*/ (callStatus) => {
+			return nativeModule().ubrn_uniffi_maxhq_mobile_fn_func_paired_macs(callStatus);
+		},
+		/*liftString:*/ FfiConverterString.lift.bind(FfiConverterString)
+	);
+	try {
+		return FfiConverterString.lift(__rb);
+	} finally {
+		nativeModule().rustbuffer_free(__rb);
 	}
 }
 
@@ -427,6 +725,128 @@ export function subscribe(listener: ViewListener): void {
 	);
 }
 
+/**
+ * Uploads a file you picked to `target` on `device`, with how far it has
+ * got going to `listener`. `device` is its ID as a JSON string's
+ * contents, `target` is an `UploadTarget` as JSON, and `path` has to be in
+ * the app's caches folder, where the pickers copy what you pick. Answers a
+ * reply whose `data` is the `ActionOutcome`. Stop it with a
+ * `cancel_transfer` request.
+ */
+export async function upload(
+	device: string,
+	target: string,
+	path: string,
+	listener: ProgressListener,
+	asyncOpts_?: { signal: AbortSignal }
+): Promise<string> {
+	const __stack = uniffiIsDebug ? new Error().stack : undefined;
+	try {
+		return await uniffiRustCallAsync(
+			/*rustCaller:*/ uniffiCaller,
+			/*rustFutureFunc:*/ () => {
+				return nativeModule().ubrn_uniffi_maxhq_mobile_fn_func_upload(
+					FfiConverterString.lower(device, nativeModule().rustbuffer_alloc),
+					FfiConverterString.lower(target, nativeModule().rustbuffer_alloc),
+					FfiConverterString.lower(path, nativeModule().rustbuffer_alloc),
+					FfiConverterTypeProgressListener.lower(
+						listener,
+						nativeModule().rustbuffer_alloc
+					)
+				);
+			},
+			/*pollFunc:*/ nativeModule().ubrn_ffi_maxhq_mobile_rust_future_poll_rust_buffer,
+			/*cancelFunc:*/ nativeModule().ubrn_ffi_maxhq_mobile_rust_future_cancel_rust_buffer,
+			/*completeFunc:*/ nativeModule().ubrn_ffi_maxhq_mobile_rust_future_complete_rust_buffer,
+			/*freeFunc:*/ nativeModule().ubrn_ffi_maxhq_mobile_rust_future_free_rust_buffer,
+			// Async returns always go through the JS-side converter: the
+			// FFI symbol returns the future handle (u64), and the user-level
+			// RustBuffer comes back via the shared `rust_future_complete_*`
+			// export. The bytes the runtime hands back must be deserialized
+			// here using the per-callable return-type converter.
+			// Borrowed view over foreign memory: the call site owns the free,
+			// as on the sync paths. Unconditional — a no-op where buffers are
+			// already JS-owned.
+			/*liftFunc:*/ (__rb) => {
+				try {
+					return FfiConverterString.lift(__rb);
+				} finally {
+					nativeModule().rustbuffer_free(__rb);
+				}
+			},
+			/*liftString:*/ FfiConverterString.lift.bind(FfiConverterString),
+			/*asyncOpts:*/ asyncOpts_
+		);
+	} catch (__error: any) {
+		if (uniffiIsDebug && __error instanceof Error) {
+			__error.stack = __stack;
+		}
+		throw __error;
+	}
+}
+
+/**
+ * Uploads pasted bytes to `target` on `device` as one file called
+ * `name`, with how far it has got going to `listener`. `data` is the
+ * bytes in base64, and the rest reads as [`upload`] says. Answers a reply
+ * whose `data` is the `ActionOutcome`.
+ */
+export async function uploadPasted(
+	device: string,
+	target: string,
+	name: string,
+	mime: string,
+	data: string,
+	listener: ProgressListener,
+	asyncOpts_?: { signal: AbortSignal }
+): Promise<string> {
+	const __stack = uniffiIsDebug ? new Error().stack : undefined;
+	try {
+		return await uniffiRustCallAsync(
+			/*rustCaller:*/ uniffiCaller,
+			/*rustFutureFunc:*/ () => {
+				return nativeModule().ubrn_uniffi_maxhq_mobile_fn_func_upload_pasted(
+					FfiConverterString.lower(device, nativeModule().rustbuffer_alloc),
+					FfiConverterString.lower(target, nativeModule().rustbuffer_alloc),
+					FfiConverterString.lower(name, nativeModule().rustbuffer_alloc),
+					FfiConverterString.lower(mime, nativeModule().rustbuffer_alloc),
+					FfiConverterString.lower(data, nativeModule().rustbuffer_alloc),
+					FfiConverterTypeProgressListener.lower(
+						listener,
+						nativeModule().rustbuffer_alloc
+					)
+				);
+			},
+			/*pollFunc:*/ nativeModule().ubrn_ffi_maxhq_mobile_rust_future_poll_rust_buffer,
+			/*cancelFunc:*/ nativeModule().ubrn_ffi_maxhq_mobile_rust_future_cancel_rust_buffer,
+			/*completeFunc:*/ nativeModule().ubrn_ffi_maxhq_mobile_rust_future_complete_rust_buffer,
+			/*freeFunc:*/ nativeModule().ubrn_ffi_maxhq_mobile_rust_future_free_rust_buffer,
+			// Async returns always go through the JS-side converter: the
+			// FFI symbol returns the future handle (u64), and the user-level
+			// RustBuffer comes back via the shared `rust_future_complete_*`
+			// export. The bytes the runtime hands back must be deserialized
+			// here using the per-callable return-type converter.
+			// Borrowed view over foreign memory: the call site owns the free,
+			// as on the sync paths. Unconditional — a no-op where buffers are
+			// already JS-owned.
+			/*liftFunc:*/ (__rb) => {
+				try {
+					return FfiConverterString.lift(__rb);
+				} finally {
+					nativeModule().rustbuffer_free(__rb);
+				}
+			},
+			/*liftString:*/ FfiConverterString.lift.bind(FfiConverterString),
+			/*asyncOpts:*/ asyncOpts_
+		);
+	} catch (__error: any) {
+		if (uniffiIsDebug && __error instanceof Error) {
+			__error.stack = __stack;
+		}
+		throw __error;
+	}
+}
+
 // Hermes (React Native ≥ 0.74) ships TextEncoder and encodeInto, but not
 // TextDecoder. For single-string decode (bytesToString), we polyfill via the
 // C++ string_from_buffer helper using a duck-typed object matching the
@@ -487,33 +907,33 @@ const stringConverter = (() => {
 const FfiConverterString = uniffiCreateFfiConverterString(stringConverter);
 
 /**
- * Hears how far a picture has got, one `TransferProgress` as JSON per call,
- * the same JSON the desktop's progress channel carries.
+ * Hears how far a transfer has got, one `TransferProgress` as JSON per
+ * call, the same JSON the desktop's progress channel carries.
  */
-export interface MediaListener {
+export interface ProgressListener {
 	progress(progress: string): void;
 }
 
 /**
- * Hears how far a picture has got, one `TransferProgress` as JSON per call,
- * the same JSON the desktop's progress channel carries.
+ * Hears how far a transfer has got, one `TransferProgress` as JSON per
+ * call, the same JSON the desktop's progress channel carries.
  */
-export class MediaListenerImpl extends UniffiAbstractObject implements MediaListener {
-	readonly [uniffiTypeNameSymbol] = "MediaListenerImpl";
+export class ProgressListenerImpl extends UniffiAbstractObject implements ProgressListener {
+	readonly [uniffiTypeNameSymbol] = "ProgressListenerImpl";
 	readonly [destructorGuardSymbol]: UniffiGcObject;
 	readonly [pointerLiteralSymbol]: UniffiHandle;
 	// No primary constructor declared for this class.
 	private constructor(pointer: UniffiHandle) {
 		super();
 		this[pointerLiteralSymbol] = pointer;
-		this[destructorGuardSymbol] = uniffiTypeMediaListenerImplObjectFactory.bless(pointer);
+		this[destructorGuardSymbol] = uniffiTypeProgressListenerImplObjectFactory.bless(pointer);
 	}
 
 	progress(progress: string): void {
 		uniffiCaller.rustCall(
 			/*caller:*/ (callStatus) => {
-				nativeModule().ubrn_uniffi_maxhq_mobile_fn_method_medialistener_progress(
-					uniffiTypeMediaListenerImplObjectFactory.clonePointer(this),
+				nativeModule().ubrn_uniffi_maxhq_mobile_fn_method_progresslistener_progress(
+					uniffiTypeProgressListenerImplObjectFactory.clonePointer(this),
 					FfiConverterString.lower(progress, nativeModule().rustbuffer_alloc),
 					callStatus
 				);
@@ -525,32 +945,32 @@ export class MediaListenerImpl extends UniffiAbstractObject implements MediaList
 	uniffiDestroy(): void {
 		const ptr = (this as any)[destructorGuardSymbol];
 		if (ptr !== undefined) {
-			const pointer = uniffiTypeMediaListenerImplObjectFactory.pointer(this);
-			uniffiTypeMediaListenerImplObjectFactory.freePointer(pointer);
-			uniffiTypeMediaListenerImplObjectFactory.unbless(ptr);
+			const pointer = uniffiTypeProgressListenerImplObjectFactory.pointer(this);
+			uniffiTypeProgressListenerImplObjectFactory.freePointer(pointer);
+			uniffiTypeProgressListenerImplObjectFactory.unbless(ptr);
 			delete (this as any)[destructorGuardSymbol];
 		}
 	}
 
-	static instanceOf(obj_: any): obj_ is MediaListenerImpl {
-		return uniffiTypeMediaListenerImplObjectFactory.isConcreteType(obj_);
+	static instanceOf(obj_: any): obj_ is ProgressListenerImpl {
+		return uniffiTypeProgressListenerImplObjectFactory.isConcreteType(obj_);
 	}
 }
 
-const uniffiTypeMediaListenerImplObjectFactory: UniffiObjectFactory<MediaListener> = (() => {
+const uniffiTypeProgressListenerImplObjectFactory: UniffiObjectFactory<ProgressListener> = (() => {
 	return {
-		create(pointer: UniffiHandle): MediaListener {
-			const instance = Object.create(MediaListenerImpl.prototype);
+		create(pointer: UniffiHandle): ProgressListener {
+			const instance = Object.create(ProgressListenerImpl.prototype);
 			instance[pointerLiteralSymbol] = pointer;
 			instance[destructorGuardSymbol] = this.bless(pointer);
-			instance[uniffiTypeNameSymbol] = "MediaListenerImpl";
+			instance[uniffiTypeNameSymbol] = "ProgressListenerImpl";
 			return instance;
 		},
 
 		bless(p: UniffiHandle): UniffiGcObject {
 			return uniffiCaller.rustCall(
 				/*caller:*/ (status) =>
-					nativeModule().ubrn_uniffi_internal_fn_method_medialistener_ffi__bless_pointer(
+					nativeModule().ubrn_uniffi_internal_fn_method_progresslistener_ffi__bless_pointer(
 						p,
 						status
 					),
@@ -562,18 +982,18 @@ const uniffiTypeMediaListenerImplObjectFactory: UniffiObjectFactory<MediaListene
 			ptr_.markDestroyed();
 		},
 
-		pointer(obj_: MediaListener): UniffiHandle {
+		pointer(obj_: ProgressListener): UniffiHandle {
 			if ((obj_ as any)[destructorGuardSymbol] === undefined) {
 				throw new UniffiInternalError.UnexpectedNullPointer();
 			}
 			return (obj_ as any)[pointerLiteralSymbol];
 		},
 
-		clonePointer(obj_: MediaListener): UniffiHandle {
+		clonePointer(obj_: ProgressListener): UniffiHandle {
 			const pointer = this.pointer(obj_);
 			return uniffiCaller.rustCall(
 				/*caller:*/ (callStatus) =>
-					nativeModule().ubrn_uniffi_maxhq_mobile_fn_clone_medialistener(
+					nativeModule().ubrn_uniffi_maxhq_mobile_fn_clone_progresslistener(
 						pointer,
 						callStatus
 					),
@@ -584,7 +1004,7 @@ const uniffiTypeMediaListenerImplObjectFactory: UniffiObjectFactory<MediaListene
 		freePointer(pointer: UniffiHandle): void {
 			uniffiCaller.rustCall(
 				/*caller:*/ (callStatus) =>
-					nativeModule().ubrn_uniffi_maxhq_mobile_fn_free_medialistener(
+					nativeModule().ubrn_uniffi_maxhq_mobile_fn_free_progresslistener(
 						pointer,
 						callStatus
 					),
@@ -592,27 +1012,27 @@ const uniffiTypeMediaListenerImplObjectFactory: UniffiObjectFactory<MediaListene
 			);
 		},
 
-		isConcreteType(obj_: any): obj_ is MediaListener {
+		isConcreteType(obj_: any): obj_ is ProgressListener {
 			return (
-				obj_[destructorGuardSymbol] && obj_[uniffiTypeNameSymbol] === "MediaListenerImpl"
+				obj_[destructorGuardSymbol] && obj_[uniffiTypeNameSymbol] === "ProgressListenerImpl"
 			);
 		},
 	};
 })();
-const FfiConverterTypeMediaListener = new FfiConverterObjectWithCallbacks(
-	uniffiTypeMediaListenerImplObjectFactory
+const FfiConverterTypeProgressListener = new FfiConverterObjectWithCallbacks(
+	uniffiTypeProgressListenerImplObjectFactory
 );
 
-// Add a vtable for the callbacks that go in MediaListener.
+// Add a vtable for the callbacks that go in ProgressListener.
 
 // Put the implementation in a struct so we don't pollute the top-level namespace
-const uniffiCallbackInterfaceMediaListener: { vtable: any; register: () => void } = {
+const uniffiCallbackInterfaceProgressListener: { vtable: any; register: () => void } = {
 	// Create the VTable using a series of closures.
 	// ts automatically converts these into C callback functions.
 	vtable: {
 		progress: (uniffiHandle: bigint, progress: Uint8Array) => {
 			const uniffiMakeCall = (): void => {
-				const jsCallback = FfiConverterTypeMediaListener.lift(uniffiHandle);
+				const jsCallback = FfiConverterTypeProgressListener.lift(uniffiHandle);
 				return jsCallback.progress(FfiConverterString.lift(progress));
 			};
 			const uniffiResult = UniffiResult.ready<void>();
@@ -631,22 +1051,23 @@ const uniffiCallbackInterfaceMediaListener: { vtable: any; register: () => void 
 		},
 		uniffi_free: (uniffiHandle: UniffiHandle): void => {
 			// this will throw a stale handle error if the handle isn't found.
-			FfiConverterTypeMediaListener.drop(uniffiHandle);
+			FfiConverterTypeProgressListener.drop(uniffiHandle);
 		},
 		uniffi_clone: (uniffiHandle: UniffiHandle): UniffiHandle => {
-			return FfiConverterTypeMediaListener.clone(uniffiHandle);
+			return FfiConverterTypeProgressListener.clone(uniffiHandle);
 		},
 	},
 	register: () => {
-		nativeModule().ubrn_uniffi_maxhq_mobile_fn_init_callback_vtable_medialistener(
-			uniffiCallbackInterfaceMediaListener.vtable
+		nativeModule().ubrn_uniffi_maxhq_mobile_fn_init_callback_vtable_progresslistener(
+			uniffiCallbackInterfaceProgressListener.vtable
 		);
 	},
 };
 
 /**
- * Gets one screen's timeline batches, each a JSON array of
- * `TimelineMessage`, the same JSON the desktop's timeline channel carries.
+ * Gets one screen's batches, each a JSON array: of `TimelineMessage` for
+ * an agent's timeline, or of `WorkflowMessage` for a workflow run, the
+ * same JSON the desktop's timeline and workflow channels carry.
  */
 export interface TimelineListener {
 	/**
@@ -660,8 +1081,9 @@ export interface TimelineListener {
 }
 
 /**
- * Gets one screen's timeline batches, each a JSON array of
- * `TimelineMessage`, the same JSON the desktop's timeline channel carries.
+ * Gets one screen's batches, each a JSON array: of `TimelineMessage` for
+ * an agent's timeline, or of `WorkflowMessage` for a workflow run, the
+ * same JSON the desktop's timeline and workflow channels carry.
  */
 export class TimelineListenerImpl extends UniffiAbstractObject implements TimelineListener {
 	readonly [uniffiTypeNameSymbol] = "TimelineListenerImpl";
@@ -1048,7 +1470,27 @@ function uniffiEnsureInitialized() {
 			"uniffi_maxhq_mobile_checksum_func_app_state"
 		);
 	}
-	if (nativeModule().ubrn_uniffi_maxhq_mobile_checksum_func_media() !== 13923) {
+	if (nativeModule().ubrn_uniffi_maxhq_mobile_checksum_func_attach_from_agent() !== 35544) {
+		throw new UniffiInternalError.ApiChecksumMismatch(
+			"uniffi_maxhq_mobile_checksum_func_attach_from_agent"
+		);
+	}
+	if (nativeModule().ubrn_uniffi_maxhq_mobile_checksum_func_copy_project() !== 46385) {
+		throw new UniffiInternalError.ApiChecksumMismatch(
+			"uniffi_maxhq_mobile_checksum_func_copy_project"
+		);
+	}
+	if (nativeModule().ubrn_uniffi_maxhq_mobile_checksum_func_download() !== 47502) {
+		throw new UniffiInternalError.ApiChecksumMismatch(
+			"uniffi_maxhq_mobile_checksum_func_download"
+		);
+	}
+	if (nativeModule().ubrn_uniffi_maxhq_mobile_checksum_func_forget_mac() !== 37615) {
+		throw new UniffiInternalError.ApiChecksumMismatch(
+			"uniffi_maxhq_mobile_checksum_func_forget_mac"
+		);
+	}
+	if (nativeModule().ubrn_uniffi_maxhq_mobile_checksum_func_media() !== 55075) {
 		throw new UniffiInternalError.ApiChecksumMismatch(
 			"uniffi_maxhq_mobile_checksum_func_media"
 		);
@@ -1063,8 +1505,23 @@ function uniffiEnsureInitialized() {
 			"uniffi_maxhq_mobile_checksum_func_open_timeline"
 		);
 	}
+	if (nativeModule().ubrn_uniffi_maxhq_mobile_checksum_func_open_workflow() !== 36142) {
+		throw new UniffiInternalError.ApiChecksumMismatch(
+			"uniffi_maxhq_mobile_checksum_func_open_workflow"
+		);
+	}
 	if (nativeModule().ubrn_uniffi_maxhq_mobile_checksum_func_pair() !== 63185) {
 		throw new UniffiInternalError.ApiChecksumMismatch("uniffi_maxhq_mobile_checksum_func_pair");
+	}
+	if (nativeModule().ubrn_uniffi_maxhq_mobile_checksum_func_pair_code_mac() !== 33512) {
+		throw new UniffiInternalError.ApiChecksumMismatch(
+			"uniffi_maxhq_mobile_checksum_func_pair_code_mac"
+		);
+	}
+	if (nativeModule().ubrn_uniffi_maxhq_mobile_checksum_func_paired_macs() !== 42533) {
+		throw new UniffiInternalError.ApiChecksumMismatch(
+			"uniffi_maxhq_mobile_checksum_func_paired_macs"
+		);
 	}
 	if (nativeModule().ubrn_uniffi_maxhq_mobile_checksum_func_phone_key() !== 34682) {
 		throw new UniffiInternalError.ApiChecksumMismatch(
@@ -1096,11 +1553,21 @@ function uniffiEnsureInitialized() {
 			"uniffi_maxhq_mobile_checksum_func_subscribe"
 		);
 	}
+	if (nativeModule().ubrn_uniffi_maxhq_mobile_checksum_func_upload() !== 40842) {
+		throw new UniffiInternalError.ApiChecksumMismatch(
+			"uniffi_maxhq_mobile_checksum_func_upload"
+		);
+	}
+	if (nativeModule().ubrn_uniffi_maxhq_mobile_checksum_func_upload_pasted() !== 65370) {
+		throw new UniffiInternalError.ApiChecksumMismatch(
+			"uniffi_maxhq_mobile_checksum_func_upload_pasted"
+		);
+	}
 	if (
-		nativeModule().ubrn_uniffi_maxhq_mobile_checksum_method_medialistener_progress() !== 51358
+		nativeModule().ubrn_uniffi_maxhq_mobile_checksum_method_progresslistener_progress() !== 7729
 	) {
 		throw new UniffiInternalError.ApiChecksumMismatch(
-			"uniffi_maxhq_mobile_checksum_method_medialistener_progress"
+			"uniffi_maxhq_mobile_checksum_method_progresslistener_progress"
 		);
 	}
 	if (nativeModule().ubrn_uniffi_maxhq_mobile_checksum_method_timelinelistener_id() !== 60760) {
@@ -1121,7 +1588,7 @@ function uniffiEnsureInitialized() {
 		);
 	}
 
-	uniffiCallbackInterfaceMediaListener.register();
+	uniffiCallbackInterfaceProgressListener.register();
 	uniffiCallbackInterfaceTimelineListener.register();
 	uniffiCallbackInterfaceViewListener.register();
 }
@@ -1129,7 +1596,7 @@ function uniffiEnsureInitialized() {
 export default Object.freeze({
 	initialize: uniffiEnsureInitialized,
 	converters: {
-		FfiConverterTypeMediaListener,
+		FfiConverterTypeProgressListener,
 		FfiConverterTypeTimelineListener,
 		FfiConverterTypeViewListener,
 	},

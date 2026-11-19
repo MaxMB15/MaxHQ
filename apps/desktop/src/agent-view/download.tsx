@@ -5,132 +5,28 @@
 // of an agent on another device gets a small button that downloads it into
 // ~/Downloads/MaxHQ. The button shows how far it has got and cancels it,
 // and once the file is here it shows it in Finder. The downloads live
-// outside the rows, so one keeps going while its row scrolls away.
+// outside the rows, in a store the phone's Save uses too, so one keeps
+// going while its row scrolls away.
 
 import { Check, Download, FolderOpen, Pause, RotateCw } from "lucide-react";
-import { useStore } from "zustand";
-import { createStore } from "zustand/vanilla";
 
 import { useServices } from "@/app/services";
 import { useComposerNative } from "@/composer/native";
-import type { DataSource, DownloadResult } from "@maxhq/shared/data/source";
-import type { AgentId, TransferId } from "@maxhq/shared/bindings";
+import {
+	cancelDownload,
+	downloadPercent,
+	failDownload,
+	startDownload,
+	useDownload,
+} from "@maxhq/shared/agent-view/downloads";
 import { cn } from "@/lib/utils";
-import { errorText } from "@maxhq/shared/timeline/store";
 
 import { useRow } from "@maxhq/shared/agent-view/context";
 import { baseName } from "@maxhq/shared/agent-view/format";
 import { Spinner } from "./icons";
 import { t as translate, useI18n } from "@maxhq/shared/i18n";
 
-/** Where one download stands. */
-export type DownloadState =
-	| {
-			readonly state: "downloading";
-			readonly sent: number;
-			readonly total: number;
-			/** Why it stopped for now: the link is down, or there's no room yet. */
-			readonly held: "paused" | "waiting" | null;
-	  }
-	| {
-			readonly state: "done";
-			/** Where it landed on this Mac. */
-			readonly path: string;
-	  }
-	| { readonly state: "failed"; readonly reason: string };
-
-const store = createStore<{ downloads: ReadonlyMap<string, DownloadState> }>(() => ({
-	downloads: new Map(),
-}));
-
-const keyFor = (agent: AgentId, path: string) => `${agent}\n${path}`;
-
-const put = (key: string, state: DownloadState | null) =>
-	store.setState(({ downloads }) => {
-		const next = new Map(downloads);
-		if (state) next.set(key, state);
-		else next.delete(key);
-		return { downloads: next };
-	});
-
-// A download on its way. Cancelling marks it, so the progress and the
-// result that still come in change nothing.
-type Job = { transfer: TransferId | null; cancelled: boolean };
-
-const jobs = new Map<string, Job>();
-
-/** Downloads a file an agent can see, unless it's already on its way. */
-export const startDownload = async (
-	source: DataSource,
-	agent: AgentId,
-	path: string
-): Promise<void> => {
-	const key = keyFor(agent, path);
-	if (jobs.has(key)) return;
-	const job: Job = { transfer: null, cancelled: false };
-	jobs.set(key, job);
-	put(key, { state: "downloading", sent: 0, total: 0, held: null });
-	let result: DownloadResult;
-	try {
-		result = await source.download(agent, path, (progress) => {
-			const first = job.transfer === null;
-			job.transfer = progress.transfer;
-			// Cancelled before the transfer had a name, so it stops now.
-			if (job.cancelled) {
-				if (first) void source.cancelTransfer(progress.transfer);
-				return;
-			}
-			put(key, {
-				state: "downloading",
-				sent: progress.sent,
-				total: progress.total,
-				held:
-					progress.state === "paused" || progress.state === "waiting"
-						? progress.state
-						: null,
-			});
-		});
-	} catch (error) {
-		result = {
-			status: "error",
-			error: {
-				kind: "failed",
-				message: error instanceof Error ? error.message : String(error),
-			},
-		};
-	}
-	if (job.cancelled) return;
-	jobs.delete(key);
-	put(
-		key,
-		result.status === "ok"
-			? { state: "done", path: result.data.path }
-			: { state: "failed", reason: errorText(result.error) }
-	);
-};
-
-/** Stops a download and forgets it, so its button offers it again. */
-export const cancelDownload = (source: DataSource, agent: AgentId, path: string): void => {
-	const key = keyFor(agent, path);
-	const job = jobs.get(key);
-	if (job) {
-		job.cancelled = true;
-		jobs.delete(key);
-		if (job.transfer) void source.cancelTransfer(job.transfer);
-	}
-	put(key, null);
-};
-
-/** Where a download of this file stands, or null when there's none. */
-export const useDownload = (agent: AgentId, path: string): DownloadState | null =>
-	useStore(store, (s) => s.downloads.get(keyFor(agent, path)) ?? null);
-
-/** Forgets every download, for tests. */
-export const clearDownloads = (): void => {
-	for (const job of jobs.values()) job.cancelled = true;
-	jobs.clear();
-	store.setState({ downloads: new Map() });
-};
+export { clearDownloads } from "@maxhq/shared/agent-view/downloads";
 
 const HELD_TITLE = {
 	get active() {
@@ -143,9 +39,6 @@ const HELD_TITLE = {
 		return translate("Waiting for room on this Mac");
 	},
 } as const;
-
-const percent = (sent: number, total: number) =>
-	total > 0 ? Math.min(100, Math.floor((sent / total) * 100)) : null;
 
 /**
  * The download button for a file a remote agent can see, as a path relative
@@ -190,7 +83,7 @@ export const DownloadButton = ({
 
 	switch (download.state) {
 		case "downloading": {
-			const done = percent(download.sent, download.total);
+			const done = downloadPercent(download.sent, download.total);
 			return (
 				<button
 					type="button"
@@ -232,14 +125,15 @@ export const DownloadButton = ({
 					title={download.path}
 					onClick={() => {
 						const landed = download.path;
-						revealPath(landed).catch(() => {
-							put(keyFor(agent, path), {
-								state: "failed",
-								reason: translate("Couldn't find {{baseName}} in Downloads.", {
+						revealPath(landed).catch(() =>
+							failDownload(
+								agent,
+								path,
+								translate("Couldn't find {{baseName}} in Downloads.", {
 									baseName: baseName(landed),
-								}),
-							});
-						});
+								})
+							)
+						);
 					}}
 					className={button}
 				>

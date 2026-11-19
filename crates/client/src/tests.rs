@@ -134,6 +134,7 @@ impl Transport for Fake {
         &'a self,
         route: &'a Route,
         _config: Option<&'a SshConfig>,
+        _device: Option<DeviceId>,
     ) -> BoxFuture<'a, Result<Conn, DialError>> {
         Box::pin(async move {
             self.dials.fetch_add(1, Ordering::SeqCst);
@@ -920,10 +921,71 @@ async fn a_maxd_with_no_protocol_in_common_is_refused() {
         next_state(&mut events).await,
         connecting(ConnectStep::Handshake, 1)
     );
+    let link = next_link(&mut events).await;
     assert_eq!(
-        next_state(&mut events).await,
+        link.state,
         unreachable("maxd is newer than this app, so update the app", None)
     );
+    assert_eq!(
+        link.protocol_mismatch,
+        Some(ProtocolRange {
+            current: ahead,
+            oldest: ahead,
+        })
+    );
+}
+
+#[tokio::test]
+async fn a_maxd_that_refuses_the_protocol_names_its_range_until_a_hello_agrees() {
+    let mut rig = Rig::new(NO_RETRY, Tailnet::default(), &[]);
+    let (handle, mut events) = rig.client.link(spec(Route::Local));
+    assert_eq!(next_state(&mut events).await, LinkState::Unknown);
+    assert_eq!(
+        next_state(&mut events).await,
+        connecting(ConnectStep::Dialing, 1)
+    );
+    let mut maxd = rig.next_maxd().await;
+    let Some(ClientMessage::Hello(hello)) = maxd.recv().await else {
+        panic!("expected a hello");
+    };
+    let ahead = ProtocolRange {
+        current: ProtocolRange::OURS.current + 2,
+        oldest: ProtocolRange::OURS.current + 1,
+    };
+    maxd.send(&ServerMessage::Error {
+        code: maxhq_protocol::message::ErrorCode::UnsupportedProtocol,
+        message: ahead.refusal(hello.protocol),
+    })
+    .await;
+    assert_eq!(
+        next_state(&mut events).await,
+        connecting(ConnectStep::Handshake, 1)
+    );
+    // What the desktop shows stays as it was.
+    let link = next_link(&mut events).await;
+    assert_eq!(
+        link.state,
+        unreachable("maxd speaks a different protocol version", None)
+    );
+    assert_eq!(link.protocol_mismatch, Some(ahead));
+
+    // The device's maxd goes back to one this app speaks.
+    drop(maxd);
+    handle.refresh();
+    assert_eq!(
+        next_link(&mut events).await.protocol_mismatch,
+        Some(ahead),
+        "kept while it dials"
+    );
+    let mut maxd = rig.next_maxd().await;
+    assert_eq!(
+        next_state(&mut events).await,
+        connecting(ConnectStep::Handshake, 2)
+    );
+    maxd.accept(InstanceId::generate(), "boot-1").await;
+    let link = next_link(&mut events).await;
+    assert!(is_connected(&link.state));
+    assert_eq!(link.protocol_mismatch, None);
 }
 
 #[tokio::test]

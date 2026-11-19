@@ -15,13 +15,15 @@ import { cn } from "@/lib/utils";
 import { FIELD, PRIMARY, SECONDARY } from "@/settings/controls";
 import { BACKDROP, POPUP, Title } from "@/workspaces/new-workspace";
 import type { CheckoutSkills, SkillLibrary, SkillLock } from "@maxhq/shared/bindings";
-import { packHasUpdate, packSources, packStateText, withPack } from "@maxhq/shared/skills/pack";
+import {
+	PACK_LEFT_FILES,
+	packHasUpdate,
+	packSources,
+	packStateText,
+	withPack,
+} from "@maxhq/shared/skills/pack";
 
 const SMALL = cn(SECONDARY, "h-[26px] px-2 text-xs");
-
-/** What devflow's installer writes that taking the pack out leaves, since
- * you may have changed it. */
-export const PACK_LEFT_FILES = ["CLAUDE.md", "AGENTS.md", ".devflow/", ".mcp.json"] as const;
 
 /** Asks before the pack comes out of the checkouts. */
 const RemoveDialog = ({

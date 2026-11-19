@@ -1,25 +1,27 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026 Max Boksem
 
-// Settings, in cards as the desktop's: this phone's name and Unpair, what
-// its send button does while an agent works, which pushes it gets, the way
-// to its devices and to pairing, and, by hand, the line that lets it into a
-// device and a form to add one. Opened from the first screen's "Add a
+// Settings, as a short first page of cards whose rows open a page each:
+// this phone's name and language, the Macs it pairs with, About, then the
+// app's pages (the agent list, the composer, notifications, the dispatcher,
+// agent tools and the skill library), the logins, each project's settings, and the devices
+// with each one's settings and, by hand, the line that lets the phone into
+// a device and a form to add one. Opened from the first screen's "Add a
 // device by hand", the form starts open and in view.
 
 import { type LanguageChoice, useI18n } from "@maxhq/shared/i18n";
 
-import Constants from "expo-constants";
 import { type ComponentRef, type Ref, useRef, useState } from "react";
-import { Alert, ScrollView, Share, StyleSheet, Text, View } from "react-native";
+import { ScrollView, Share, StyleSheet, Text, View } from "react-native";
 
 import { describe } from "@maxhq/shared/data/request-source";
 import { useNow } from "@maxhq/shared/lib/clock";
+import { LOGIN_HINT, LOGIN_PAGES, LOGIN_STEPS } from "@maxhq/shared/settings/login-steps";
 import { deviceReach } from "@maxhq/shared/status/reach";
+import { all, type ViewState } from "@maxhq/shared/view/replica";
 
 import type { PhoneCalls } from "../../data/native-source";
 import type { ScreenProps } from "../../navigation";
-import { PushSection } from "../../push/PushSection";
 import { useServices, useView } from "../../services";
 import { color, font, radius, size } from "../../theme";
 import { Button } from "../../ui/Button";
@@ -27,23 +29,95 @@ import { choose } from "../../ui/choose";
 import { Card, CardRow } from "../../ui/Card";
 import { Input } from "../../ui/Field";
 import { Header } from "../../ui/Header";
-import { SendSection } from "../agent/SendSection";
-import { pairedWith, reachSummary } from "../devices/summary";
-import { DispatcherSection } from "../dispatcher/DispatcherSection";
+import { reachSummary } from "../devices/summary";
+import { phoneName, renameNote } from "../macs/macs";
+import { PairedMacsCard } from "../macs/PairedMacsCard";
+import { useMacs } from "../macs/useMacs";
+import { type SettingsPage, settingsPageTitle } from "../settings/SettingsPageScreen";
+import { AboutSection } from "../updates/AboutSection";
 
-// Shown when the device turns the unpair away. The phone can't take itself
-// out of a device's book yet, so the Mac does it.
-const UNPAIR_ON_MAC =
-	"This phone can't unpair itself yet. Remove it on the Mac, in Settings, Phones.";
+type Navigation = ScreenProps<"Settings">["navigation"];
+
+const APP_PAGES: readonly SettingsPage[] = [
+	"agent-list",
+	"composer",
+	"notifications",
+	"dispatcher",
+	"agent-tools",
+];
+
+/** The rows that open the app's pages. */
+const AppCard = ({ navigation }: { navigation: Navigation }) => {
+	const { t } = useI18n();
+	return (
+		<Card title={t("App")}>
+			{APP_PAGES.map((page, i) => (
+				<CardRow
+					key={page}
+					first={i === 0}
+					label={settingsPageTitle(t, page)}
+					onPress={() => navigation.navigate("SettingsPage", { page })}
+				/>
+			))}
+			<CardRow
+				label={t("Skills")}
+				note={t("The skills projects pick from, and the ones every agent gets")}
+				onPress={() => navigation.navigate("SkillLibrary")}
+			/>
+		</Card>
+	);
+};
+
+/** The rows that open each login's page. */
+const LoginsCard = ({ navigation }: { navigation: Navigation }) => {
+	const { t } = useI18n();
+	return (
+		<Card title={t("Logins")}>
+			{LOGIN_PAGES.map((login, i) => (
+				<CardRow
+					key={login}
+					first={i === 0}
+					label={LOGIN_STEPS[login].title}
+					note={LOGIN_HINT[login]}
+					onPress={() => navigation.navigate("SignIn", { login })}
+				/>
+			))}
+		</Card>
+	);
+};
+
+/** A row for each project, opening its settings. */
+const ProjectsCard = ({ navigation, view }: { navigation: Navigation; view: ViewState }) => {
+	const { t } = useI18n();
+	const projects = all(view, "project").sort((a, b) => a.name.localeCompare(b.name));
+	return (
+		<Card title={t("Projects")}>
+			{projects.length === 0 ? (
+				<CardRow first label={t("No projects yet")} />
+			) : (
+				projects.map((project, i) => (
+					<CardRow
+						key={project.id}
+						first={i === 0}
+						label={project.name}
+						onPress={() =>
+							navigation.navigate("ProjectSettings", { project: project.id })
+						}
+					/>
+				))
+			)}
+		</Card>
+	);
+};
 
 export const PhoneScreen = ({ navigation, route }: ScreenProps<"Settings">) => {
 	const { t } = useI18n();
 
-	const { phone, source } = useServices();
+	const { phone } = useServices();
 	const [key] = useState(() => phone?.phoneKey());
 	const id = key?.status === "ok" ? key.data.phone : null;
-	const named = useView((s) => (id ? s.view.tables.phone.get(id)?.name : undefined));
-	const [unpair, setUnpair] = useState<string | null>(null);
+	const named = useView((s) => (id ? phoneName(s.view, id) : undefined));
+	const { macs } = useMacs();
 	const [byHand, setByHand] = useState(route.params?.byHand === true);
 	const scroll = useRef<ComponentRef<typeof ScrollView>>(null);
 	const form = useRef<ComponentRef<typeof View>>(null);
@@ -51,6 +125,10 @@ export const PhoneScreen = ({ navigation, route }: ScreenProps<"Settings">) => {
 	const view = useView((s) => s.view);
 	const now = useNow(10_000);
 	const devices = deviceReach(view, now);
+	// Each paired device once, by name, for its settings.
+	const links = all(view, "device_link")
+		.filter((link) => link.device !== null && !link.claim)
+		.sort((a, b) => a.name.localeCompare(b.name));
 	const header = (
 		<Header
 			title={t("Settings")}
@@ -64,36 +142,14 @@ export const PhoneScreen = ({ navigation, route }: ScreenProps<"Settings">) => {
 				{header}
 				<ScrollView contentContainerStyle={styles.content}>
 					<Text style={styles.note}>{t("The sample data has no phone.")}</Text>
-					<LanguageSection />
-					<SendSection />
-					<DispatcherSection />
+					<Card title={t("This phone")}>
+						<LanguageRow first />
+					</Card>
+					<AppCard navigation={navigation} />
 				</ScrollView>
 			</View>
 		);
 	}
-
-	const confirmUnpair = () => {
-		if (!id) return;
-		Alert.alert(
-			t("Unpair this phone?"),
-			t("It stops reaching your devices until you pair again."),
-			[
-				{ text: t("Cancel"), style: "cancel" },
-				{
-					text: t("Unpair"),
-					style: "destructive",
-					onPress: () =>
-						void source.removePhone(id).then(
-							(result) =>
-								setUnpair(
-									result.status === "ok" ? t("Unpaired.") : t(UNPAIR_ON_MAC)
-								),
-							() => setUnpair(t(UNPAIR_ON_MAC))
-						),
-				},
-			]
-		);
-	};
 
 	// Scrolls to the form once, when the screen opened with it.
 	const toForm = () => {
@@ -103,7 +159,6 @@ export const PhoneScreen = ({ navigation, route }: ScreenProps<"Settings">) => {
 		form.current?.measureLayout(content, (_x, y) => scroll.current?.scrollTo({ y }));
 	};
 
-	const version = Constants.expoConfig?.version;
 	return (
 		<View style={styles.screen}>
 			{header}
@@ -114,34 +169,35 @@ export const PhoneScreen = ({ navigation, route }: ScreenProps<"Settings">) => {
 				automaticallyAdjustKeyboardInsets
 			>
 				<Card title={t("This phone")}>
-					<CardRow
-						label={t("Name")}
-						note={
-							named
-								? t("How your devices list this phone. Rename it on the Mac.")
-								: undefined
-						}
-					>
+					<CardRow label={t("Name")} note={named ? renameNote(macs) : undefined}>
 						<Text style={styles.value} numberOfLines={1}>
 							{named ?? t("Not paired yet")}
 						</Text>
 					</CardRow>
-					{named ? (
-						<CardRow label={t("Paired with")} note={pairedWith(devices) ?? undefined}>
-							<Button
-								label={t("Unpair")}
-								tone="danger"
-								small
-								onPress={confirmUnpair}
-							/>
-						</CardRow>
-					) : null}
-					{unpair ? <Text style={[styles.note, styles.inCard]}>{unpair}</Text> : null}
+					<LanguageRow />
 				</Card>
-				<LanguageSection />
-				<SendSection />
-				<PushSection />
-				<DispatcherSection />
+				<PairedMacsCard phone={phone} onPair={() => navigation.navigate("Scan")} />
+				<AboutSection />
+				<AppCard navigation={navigation} />
+				<LoginsCard navigation={navigation} />
+				<ProjectsCard navigation={navigation} view={view} />
+				{links.length > 0 ? (
+					<Card title={t("Device settings")}>
+						{links.map((link, i) => {
+							const device = link.device;
+							return device ? (
+								<CardRow
+									key={link.id}
+									first={i === 0}
+									label={link.name}
+									onPress={() =>
+										navigation.navigate("DeviceSettings", { device })
+									}
+								/>
+							) : null;
+						})}
+					</Card>
+				) : null}
 				<Card title={t("Devices")}>
 					<CardRow
 						label={t("Devices")}
@@ -149,19 +205,14 @@ export const PhoneScreen = ({ navigation, route }: ScreenProps<"Settings">) => {
 						onPress={() => navigation.navigate("Devices")}
 					/>
 					<CardRow
-						label={t("Pair with a device")}
-						onPress={() => navigation.navigate("Scan")}
-					/>
-					<CardRow
 						label={t("Add a device by hand")}
-						note={t("For a device without the Mac nearby")}
+						note={t("For a device without a Mac nearby")}
 						onPress={() => setByHand((open) => !open)}
 					/>
 					{byHand ? (
 						<ByHand ref={form} phone={phone} line={key} onLayout={toForm} />
 					) : null}
 				</Card>
-				{version ? <Text style={styles.version}>MaxHQ {version}</Text> : null}
 			</ScrollView>
 		</View>
 	);
@@ -176,28 +227,27 @@ const LANGUAGE_NAMES: Record<LanguageChoice, string> = {
 	es: "Español",
 };
 
-const LanguageSection = () => {
+const LanguageRow = ({ first }: { first?: boolean }) => {
 	const { t, choice, setLanguageChoice } = useI18n();
 	const label = (value: LanguageChoice) =>
 		value === "system" ? t("System") : t(LANGUAGE_NAMES[value]);
 	return (
-		<Card title={t("Language")}>
-			<CardRow
-				label={t("Interface language")}
-				onPress={() =>
-					choose(
-						t("Interface language"),
-						(Object.keys(LANGUAGE_NAMES) as LanguageChoice[]).map((value) => ({
-							label: label(value),
-							disabled: choice === value,
-							pick: () => setLanguageChoice(value),
-						}))
-					)
-				}
-			>
-				<Text style={styles.value}>{label(choice)}</Text>
-			</CardRow>
-		</Card>
+		<CardRow
+			first={first}
+			label={t("Interface language")}
+			onPress={() =>
+				choose(
+					t("Interface language"),
+					(Object.keys(LANGUAGE_NAMES) as LanguageChoice[]).map((value) => ({
+						label: label(value),
+						disabled: choice === value,
+						pick: () => setLanguageChoice(value),
+					}))
+				)
+			}
+		>
+			<Text style={styles.value}>{label(choice)}</Text>
+		</CardRow>
 	);
 };
 
@@ -290,7 +340,6 @@ const styles = StyleSheet.create({
 	screen: { flex: 1, backgroundColor: color.background },
 	content: { padding: 14, gap: 14, paddingBottom: 40 },
 	value: { maxWidth: "50%", color: color.secondaryForeground, fontSize: size.small },
-	inCard: { paddingHorizontal: 14, paddingBottom: 12 },
 	byHand: {
 		gap: 16,
 		paddingHorizontal: 14,
@@ -312,11 +361,5 @@ const styles = StyleSheet.create({
 		borderColor: color.border,
 		borderWidth: StyleSheet.hairlineWidth,
 		padding: 10,
-	},
-	version: {
-		color: color.subtleForeground,
-		fontSize: size.tiny,
-		textAlign: "center",
-		marginTop: 4,
 	},
 });

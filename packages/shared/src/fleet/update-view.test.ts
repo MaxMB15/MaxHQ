@@ -17,9 +17,11 @@ import {
 	checksSignatures,
 	isBehind,
 	isUnsigned,
+	offersUpdate,
 	planUpdate,
 	restartDevices,
 	startRun,
+	versionLine,
 } from "./update-view";
 import type { Entity, ToolInfo } from "./wire";
 
@@ -41,6 +43,28 @@ const tool = (over: Partial<ToolInfo>): ToolInfo => ({
 
 const viewOf = (entities: Entity[]) =>
 	applySnapshot({ seq: 1, entities } as Parameters<typeof applySnapshot>[0]);
+
+describe("a CLI's version", () => {
+	it("says how far behind it is and who installed it", () => {
+		expect(versionLine(tool({}))).toBe(
+			"Version 2.1.40, 2.1.42 is out. You installed it with native."
+		);
+		expect(versionLine(tool({ latest: "2.1.40", owner: "max_hq" }))).toBe(
+			"Version 2.1.40, the newest. MaxHQ installed it with native."
+		);
+		expect(versionLine(tool({ latest: null }))).toBe(
+			"Version 2.1.40. You installed it with native."
+		);
+		expect(versionLine(tool({ version: null }))).toBe(
+			"Version unknown. You installed it with native."
+		);
+	});
+
+	it("offers Update unless you or nobody updates it", () => {
+		expect(offersUpdate(tool({}))).toBe(true);
+		expect(offersUpdate(tool({ update: { type: "never" } }))).toBe(false);
+	});
+});
 
 describe("isBehind", () => {
 	it("compares the build with the one the app carries for the target", () => {

@@ -30,7 +30,7 @@ use crate::model::{
     Tool, Vendor, WorkspaceSpec,
 };
 use crate::notes::{NoteId, NoteVersion, NoteVersionInfo, VersionHash};
-use crate::phones::{PhoneBookEntry, PushToken};
+use crate::phones::{PhoneBookEntry, PhoneMac, PushToken};
 use crate::processes::{ProcessList, ProcessSignal};
 use crate::pulls::{
     ChecksState, PullAction, PullCheck, PullComment, PullDetail, PullFile, PullListState,
@@ -72,6 +72,28 @@ impl ProtocolRange {
     pub fn agree(self, other: Self) -> Option<u32> {
         let version = self.current.min(other.current);
         (version >= self.oldest.max(other.oldest)).then_some(version)
+    }
+
+    /// What `maxd`, speaking `self`, tells a client speaking `client` when
+    /// they have no version in common. [`ProtocolRange::from_refusal`] reads
+    /// `self` back out, so a client can say which side to update.
+    pub fn refusal(self, client: Self) -> String {
+        format!(
+            "this maxd speaks protocol {} to {}, and the client {} to {}",
+            self.oldest, self.current, client.oldest, client.current
+        )
+    }
+
+    /// The range `maxd` named in a [`ProtocolRange::refusal`], or none when
+    /// the message says something else.
+    pub fn from_refusal(message: &str) -> Option<Self> {
+        let rest = message.strip_prefix("this maxd speaks protocol ")?;
+        let (range, _) = rest.split_once(',')?;
+        let (oldest, current) = range.split_once(" to ")?;
+        Some(Self {
+            current: current.parse().ok()?,
+            oldest: oldest.parse().ok()?,
+        })
     }
 }
 
@@ -1797,6 +1819,10 @@ pub enum ClientMessage {
         key: IdempotencyKey,
         /// The devices the phone may reach, with their routes resolved.
         book: Vec<PhoneBookEntry>,
+        /// The Mac that pairs it, which the phone names the book by. An
+        /// older Mac leaves it out.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        mac: Option<PhoneMac>,
     },
     /// Pairs the phone on a connection a one-time key opened. `maxd` swaps
     /// that key for the phone's own and keeps the book for it. The outcome
@@ -1850,6 +1876,10 @@ pub enum ClientMessage {
         phone: PhoneId,
         /// The devices.
         book: Vec<PhoneBookEntry>,
+        /// The Mac that sends it. An older Mac leaves it out, and the
+        /// device keeps the one it has.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        mac: Option<PhoneMac>,
     },
     /// Lets a phone do what only the Mac does here, short of letting other
     /// keys in, or stops it. Only the Mac sends it.
@@ -3119,6 +3149,9 @@ pub enum ActionOutcome {
         phone: PhoneId,
         /// The devices it may reach.
         book: Vec<PhoneBookEntry>,
+        /// The Mac that paired it, when the Mac said.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        mac: Option<PhoneMac>,
     },
     /// The phone is let in, from [`ClientMessage::AddPhone`] on a device
     /// whose network access is on.
@@ -3602,6 +3635,28 @@ mod tests {
             oldest: 3,
         };
         assert_eq!(old.agree(newer), None);
+    }
+
+    #[test]
+    fn a_refusal_names_the_range_maxd_speaks() {
+        let maxd = ProtocolRange {
+            current: 46,
+            oldest: 45,
+        };
+        let message = maxd.refusal(ProtocolRange::OURS);
+        assert_eq!(
+            message,
+            format!(
+                "this maxd speaks protocol 45 to 46, and the client {} to {}",
+                OLDEST_PROTOCOL_VERSION, PROTOCOL_VERSION
+            )
+        );
+        assert_eq!(ProtocolRange::from_refusal(&message), Some(maxd));
+        assert_eq!(ProtocolRange::from_refusal("bad frame"), None);
+        assert_eq!(
+            ProtocolRange::from_refusal("this maxd speaks protocol x to 46, and"),
+            None
+        );
     }
 
     #[test]
@@ -5465,6 +5520,7 @@ mod tests {
                 ClientMessage::BeginPhonePair {
                     key: key(),
                     book: book.clone(),
+                    mac: None,
                 },
                 "begin_phone_pair",
             ),
@@ -5503,6 +5559,7 @@ mod tests {
                     key: key(),
                     phone,
                     book: book.clone(),
+                    mac: None,
                 },
                 "set_phone_book",
             ),
@@ -5556,7 +5613,14 @@ mod tests {
                 },
                 "phone_pair",
             ),
-            (ActionOutcome::PhonePaired { phone, book }, "phone_paired"),
+            (
+                ActionOutcome::PhonePaired {
+                    phone,
+                    book,
+                    mac: None,
+                },
+                "phone_paired",
+            ),
             (
                 ActionOutcome::PhoneAdded {
                     code: Secret::new("test-not-a-real-code".into()),

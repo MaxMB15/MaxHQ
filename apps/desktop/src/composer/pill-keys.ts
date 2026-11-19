@@ -7,10 +7,11 @@
 // it, and copy and cut write the pills' own clipboard type next to the plain
 // text. Right to left lines and styled Markdown are left out, since
 // the composer holds plain text. Backspace and Delete take a pill whole, and
-// Option+Backspace takes the word before it too.
+// Option+Backspace takes the word before it too. The space a pill gets
+// beside words is the shared one in @maxhq/shared/pills/spacing.
 
 import { DRAFT_CLIPBOARD_MIME, encodeClipboardHtml } from "@maxhq/shared/pills/clipboard";
-import { OBJECT_MARK, type Segment } from "@maxhq/shared/pills/draft";
+import { OBJECT_MARK } from "@maxhq/shared/pills/draft";
 import { closeHistory } from "@tiptap/pm/history";
 import type { Node as ProseNode, ResolvedPos } from "@tiptap/pm/model";
 import { type EditorState, TextSelection, type Transaction } from "@tiptap/pm/state";
@@ -59,35 +60,6 @@ export const deletePill = (
 		from -= WORD_BEFORE.exec(before)?.[0].length ?? 0;
 	}
 	return closeHistory(state.tr.delete(from, to)).scrollIntoView();
-};
-
-/** Whether text ends, or starts, with a space or a line break. */
-const spaceAtEnd = (text: string) => /\s$/u.test(text);
-const spaceAtStart = (text: string) => /^\s/u.test(text);
-
-/**
- * Segments with a space added where a pill would run into the words
- * beside it: before a pill that follows a word, and after one that ends
- * the insert. `before` and `after` are the line's text around the insert.
- * `always` adds the space after any insert, such as a picked `#123`.
- * Returns the segments, and whether the caret should step over a space
- * that was already there.
- */
-export const spaced = (
-	segments: readonly Segment[],
-	before: string,
-	after: string,
-	always = false
-): { segments: Segment[]; skipSpace: boolean } => {
-	const out = [...segments];
-	if (out[0]?.type === "pill" && before !== "" && !spaceAtEnd(before))
-		out.unshift({ type: "text", text: " " });
-	const last = out.at(-1);
-	const wantsSpace = last?.type === "pill" || (always && last !== undefined);
-	if (!wantsSpace) return { segments: out, skipSpace: false };
-	if (spaceAtStart(after)) return { segments: out, skipSpace: true };
-	out.push({ type: "text", text: " " });
-	return { segments: out, skipSpace: false };
 };
 
 /**

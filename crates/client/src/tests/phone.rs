@@ -192,10 +192,13 @@ impl PhoneRig {
     fn link(&self, entry: &PhoneBookEntry) -> (LinkHandle, mpsc::Receiver<LinkEvent>) {
         let mut routes = self.ssh.trust(entry).into_iter();
         let route = routes.next().expect("a route");
-        self.client.link(LinkSpec {
-            fallbacks: routes.collect(),
-            ..spec(route)
-        })
+        self.client.link_to(
+            LinkSpec {
+                fallbacks: routes.collect(),
+                ..spec(route)
+            },
+            entry.device,
+        )
     }
 
     /// The `maxd` behind the next session, past the `Phone` frame the

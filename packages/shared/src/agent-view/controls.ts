@@ -163,3 +163,22 @@ export const STOP_AGENT = {
 		return t("Ends its process. The conversation stays.");
 	},
 } as const;
+
+const SESSION_ID_NAME: Record<Vendor, string> = {
+	get claude() {
+		return t("session ID");
+	},
+	get codex() {
+		return t("thread ID");
+	},
+	get cursor() {
+		return t("chat ID");
+	},
+	get acp() {
+		return t("session ID");
+	},
+};
+
+/** What the agent's CLI calls the ID it resumes a session by. */
+export const sessionIdName = (agent: Pick<Agent, "vendor">): string =>
+	SESSION_ID_NAME[agent.vendor];

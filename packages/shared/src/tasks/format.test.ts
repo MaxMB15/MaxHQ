@@ -3,16 +3,22 @@
 
 import { describe, expect, it } from "vitest";
 
-import type { Task, Weekday } from "../bindings";
+import type { Task, TaskDelivery, Weekday } from "../bindings";
 import { MIN, NOW } from "../test/build";
 import {
 	addressHint,
+	addressNote,
+	deliveryFacts,
 	deliveryLabel,
 	deliveryTone,
+	fieldKind,
+	fieldsNote,
 	GITHUB_EVENTS,
 	hiddenHookUrl,
 	lastRunLine,
+	needsSecret,
 	nextRunLine,
+	ownAddressHint,
 	relativeLine,
 	triggerLine,
 	waitLine,
@@ -177,6 +183,32 @@ describe("what came of a request", () => {
 	});
 });
 
+describe("how a request came", () => {
+	it("names its method, type, size and signature", () => {
+		const delivery: TaskDelivery = {
+			id: "d",
+			task: "t",
+			received: NOW,
+			method: "POST",
+			content_type: "application/json",
+			body_bytes: 1200,
+			outcome: "accepted",
+			signature_verified: true,
+			missing_fields: [],
+			error: null,
+		};
+		expect(deliveryFacts(delivery)).toEqual([
+			"POST",
+			"application/json",
+			"1,200 bytes",
+			"signed",
+		]);
+		expect(
+			deliveryFacts({ ...delivery, content_type: null, signature_verified: false })
+		).toEqual(["POST", "1,200 bytes"]);
+	});
+});
+
 describe("the GitHub events", () => {
 	it("go by their webhook names", () => {
 		expect(GITHUB_EVENTS.map((e) => e.event)).toContain("pull_request");
@@ -197,10 +229,91 @@ describe("a webhook's address", () => {
 		);
 	});
 
+	it("says who reaches a device's webhooks, and leaves Funnel's setup to its steps", () => {
+		const off = { state: "off" } as const;
+		expect(addressNote({ funnel: off }, "devbox")).toMatch(/^Only programs on devbox/);
+		expect(
+			addressNote(
+				{
+					address: { kind: "own", base: "https://hooks.example.com" },
+					port: 41234,
+					funnel: off,
+				},
+				"devbox"
+			)
+		).toBe(
+			"Requests come in through https://hooks.example.com. maxd can't check that it reaches port 41234 on devbox."
+		);
+		expect(
+			addressNote(
+				{ address: { kind: "own", base: "https://h.example.com" }, funnel: off },
+				"devbox"
+			)
+		).toMatch(/reaches the hooks port on devbox/);
+		expect(addressNote({ address: { kind: "funnel" }, funnel: off }, "devbox")).toBe(
+			"Funnel turns on for devbox when a webhook on it does."
+		);
+		expect(
+			addressNote(
+				{
+					address: { kind: "funnel" },
+					funnel: { state: "on", url: "https://devbox.example.ts.net" },
+				},
+				"devbox"
+			)
+		).toBe("Funnel is on, so requests reach devbox.");
+		expect(
+			addressNote(
+				{ address: { kind: "funnel" }, funnel: { state: "needs_setup", steps: [] } },
+				"devbox"
+			)
+		).toBeNull();
+		expect(ownAddressHint(41234)).toMatch(/points at http:\/\/127\.0\.0\.1:41234\./);
+		expect(ownAddressHint(null)).toMatch(/points at this device's hooks port\./);
+	});
+
 	it("hides the token, and shows only the path before the address works", () => {
 		expect(hiddenHookUrl("task-1", { state: "on", url: "https://devbox.example.ts.net" })).toBe(
 			"https://devbox.example.ts.net/maxhq/task-1/••••••"
 		);
 		expect(hiddenHookUrl("task-1", { state: "off" })).toBe("/maxhq/task-1/••••••");
+	});
+});
+
+describe("needsSecret", () => {
+	const hook = (hasSecret: boolean | null) =>
+		task({
+			trigger: {
+				type: "hook",
+				on: true,
+				signature:
+					hasSecret === null
+						? null
+						: {
+								header: "x-hub-signature-256",
+								encoding: "hex",
+								prefix: "sha256=",
+								has_secret: hasSecret,
+							},
+				rules: RULES,
+				hold: false,
+			},
+		});
+
+	it("asks for a secret only for a signed webhook whose device holds none", () => {
+		expect(needsSecret(hook(false))).toBe(true);
+		expect(needsSecret(hook(true))).toBe(false);
+		expect(needsSecret(hook(null))).toBe(false);
+		expect(needsSecret(task({}))).toBe(false);
+	});
+});
+
+describe("the fields a prompt fills in", () => {
+	it("says which are free text, and how they fill in", () => {
+		expect(fieldKind({ expression: "body.title", free: true }, true)).toBe("Free text");
+		expect(fieldKind({ expression: "body", free: false }, true)).toBe("Structural parts");
+		expect(fieldKind({ expression: "body.number", free: false }, true)).toBe("Structural");
+		expect(fieldsNote(true)).toMatch(/^Numbers, logins/);
+		expect(fieldsNote(false)).toMatch(/^Every value from the request/);
 	});
 });

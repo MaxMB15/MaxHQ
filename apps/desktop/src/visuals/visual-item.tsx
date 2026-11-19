@@ -16,9 +16,9 @@ import { useView } from "@/app/services";
 import { VisualRow } from "@/agent-view/items/tools";
 import type { ItemOf } from "@/agent-view/items/types";
 import { useRow } from "@maxhq/shared/agent-view/context";
+import { type VisualOrigin, VisualOriginContext } from "@maxhq/shared/visuals/origin";
 import { replacedLine, versionLabel, visualVersions } from "@maxhq/shared/visuals/versions";
 
-import { type VisualOrigin, VisualOriginContext } from "./origin";
 import { useVisualPage } from "./pages";
 import { VisualMark } from "@/pills/registry";
 import { VisualCard } from "./visual-card";

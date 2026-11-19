@@ -17,7 +17,7 @@ import { terminalById } from "@maxhq/shared/terminal/select";
 import { runPlace } from "@maxhq/shared/terminal/shell";
 import type { ViewState } from "@maxhq/shared/view/replica";
 
-import { quoteInbox } from "./quote-inbox";
+import { quoteInbox } from "@maxhq/shared/pills/quote-inbox";
 
 /** How many rows a command's terminal has, as many as its card shows. */
 export const RUN_ROWS = 24;

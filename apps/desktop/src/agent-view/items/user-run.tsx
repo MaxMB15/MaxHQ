@@ -50,7 +50,7 @@ import { useServices, useView } from "@/app/services";
 import { CopyButton } from "@/components/copy-button";
 import { takeOutputBack, useOutputHeld } from "@/composer/output-pills";
 import { MENU_ITEM, MENU_POPUP } from "@/composer/pickers";
-import { quoteInbox } from "@/composer/quote-inbox";
+import { quoteInbox } from "@maxhq/shared/pills/quote-inbox";
 import { askedHere, firstAskHere, runSize, startRun } from "@/composer/run-command";
 import { useTypingPrefs } from "@/composer/typing-prefs";
 import { withParts } from "@/lib/parts";

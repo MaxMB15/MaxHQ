@@ -2,8 +2,7 @@
 // Copyright (c) 2026 Max Boksem
 
 // The short lines the devices list and its button show: how many devices
-// are live, connecting or not working, how many agents each runs, and
-// which devices Settings says the phone is paired with.
+// are live, connecting or not working, and how many agents each runs.
 
 import { t } from "@maxhq/shared/i18n";
 
@@ -40,20 +39,4 @@ export const agentSummary = (view: ViewState, link: string): string | null => {
 				count: asking,
 			})
 		: t("{{count}} agents", { count: agents.length });
-};
-
-// How many device names "Paired with" shows before it counts the rest.
-const NAMED = 3;
-
-/** Such as "Mac, devbox, buildbox and 3 more", or null with no devices. */
-export const pairedWith = (devices: readonly DeviceReach[]): string | null => {
-	const names = devices.map((d) => d.name);
-	const last = names.pop();
-	if (last === undefined) return null;
-	if (names.length === 0) return last;
-	if (names.length < NAMED) return t("{{names}} and {{last}}", { names: names.join(", "), last });
-	return t("{{names}} and {{count}} more", {
-		names: names.slice(0, NAMED).join(", "),
-		count: names.length + 1 - NAMED,
-	});
 };

@@ -133,10 +133,10 @@ pub trait Connector: Send + Sync + 'static {
         Vec::new()
     }
 
-    /// Lets links reach the devices in a phone's book, each trusting only
-    /// its pinned host key. It comes before their links open. Only the
-    /// phone's connector reads it.
-    fn trust_book(&self, _book: &PhoneBook) {}
+    /// Lets links reach the devices in a phone's books, one book per Mac,
+    /// each trusting only its pinned host key. It comes before their links
+    /// open. Only the phone's connector reads it.
+    fn trust_books(&self, _books: &[PhoneBook]) {}
 
     /// Has each open link that proved itself prove itself again, such as
     /// after the app made a new key.
@@ -608,8 +608,8 @@ struct Core<L> {
     links: Mutex<BTreeMap<LinkId, Open<L>>>,
     /// Opens a link, through the connector.
     dial: Dial<L>,
-    /// Hands the connector a phone's book, before its links open.
-    trust: Box<dyn Fn(&PhoneBook) + Send + Sync>,
+    /// Hands the connector a phone's books, before their links open.
+    trust: Trust,
     view: View,
     /// The devices you added, and the outbox.
     registry: Mutex<Registry>,
@@ -660,6 +660,11 @@ struct Core<L> {
     /// first pass over the phones to know it has seen them all.
     #[cfg(feature = "desktop")]
     phone_synced: Mutex<std::collections::BTreeSet<LinkId>>,
+    /// The phones' books this run has sent this Mac's name to, by phone
+    /// and the device that keeps each, so a keeper too old to keep the
+    /// name isn't sent it again and again.
+    #[cfg(feature = "desktop")]
+    phone_named: Mutex<std::collections::BTreeSet<(maxhq_protocol::ids::PhoneId, DeviceId)>>,
     /// This Mac's app key, once the shell gives it.
     #[cfg(feature = "desktop")]
     app_key: OnceLock<crate::app_keys::AppKeys>,
@@ -671,6 +676,9 @@ struct Core<L> {
 
 /// How the core opens a link.
 type Dial<L> = Box<dyn Fn(LinkSpec, Option<DeviceId>) -> (L, Receiver<LinkEvent>) + Send + Sync>;
+
+/// How the core hands the connector a phone's books.
+type Trust = Box<dyn Fn(&[PhoneBook]) + Send + Sync>;
 
 /// One open link.
 struct Open<L> {
@@ -719,8 +727,8 @@ impl<C: Connector> Devices<C> {
         connector.watch_networks(Box::new(move |now| {
             networks.update(|merge| merge.set_networks(now));
         }));
-        if let Ok(Some(book)) = registry.phone_book() {
-            connector.trust_book(&book);
+        if let Ok(books) = registry.phone_books() {
+            connector.trust_books(&books);
         }
         let connector = Arc::new(connector);
         let dialer = Arc::clone(&connector);
@@ -730,7 +738,7 @@ impl<C: Connector> Devices<C> {
             core: Arc::new(Core {
                 links: Mutex::new(BTreeMap::new()),
                 dial: Box::new(move |spec, device| dialer.open(spec, device)),
-                trust: Box::new(move |book| truster.trust_book(book)),
+                trust: Box::new(move |books| truster.trust_books(books)),
                 view,
                 registry: Mutex::new(registry),
                 turns: Mutex::new(BTreeMap::new()),
@@ -753,6 +761,8 @@ impl<C: Connector> Devices<C> {
                 phone_codes: Mutex::default(),
                 #[cfg(feature = "desktop")]
                 phone_synced: Mutex::default(),
+                #[cfg(feature = "desktop")]
+                phone_named: Mutex::default(),
                 #[cfg(feature = "desktop")]
                 app_key: OnceLock::new(),
                 push: push::Push::default(),
@@ -860,11 +870,24 @@ impl<C: Connector> Devices<C> {
         Ok(())
     }
 
-    /// Makes the phone's devices the ones in `book`, the book the phone
-    /// got when it paired. Later books come from the device it paired with.
-    pub fn set_phone_book(&self, book: &PhoneBook) -> Result<(), CommandError> {
-        self.core.take_book(book)?;
-        Ok(())
+    /// Puts `book`, the book the phone got when it paired with a Mac, in
+    /// place of the one it had from that Mac, or beside the others for a
+    /// new Mac. Later books come from the device that keeps each one.
+    /// Answers the devices no book lists any more.
+    pub fn put_phone_book(&self, book: &PhoneBook) -> Result<Vec<DeviceId>, CommandError> {
+        let book = book.clone();
+        Ok(self
+            .core
+            .change_books(|books| crate::phone::put_book(books, book))?)
+    }
+
+    /// Forgets the book `keeper` keeps, and with it each device no other
+    /// book lists, with what waited for it. The other Macs' books stay.
+    /// Answers the devices that went.
+    pub fn forget_phone_book(&self, keeper: DeviceId) -> Result<Vec<DeviceId>, CommandError> {
+        Ok(self
+            .core
+            .change_books(|books| books.retain(|book| book.device != keeper))?)
     }
 
     /// Restarts the `maxd` behind a link through its service manager, not
@@ -1572,36 +1595,63 @@ impl<L: LinkControl> Core<L> {
     }
 
     /// The book in a report, when this is a phone and the book is a newer
-    /// one of its own. Only the device that keeps the book speaks for it,
-    /// over its own link: any other device could point this phone's routes
-    /// and host keys somewhere else.
+    /// one of its own from the device that keeps it. Each Mac's book has
+    /// its own keeper, and only that device speaks for it, over its own
+    /// link: any other device could point this phone's routes and host
+    /// keys somewhere else.
     fn newer_book(&self, id: LinkId, event: &LinkEvent) -> Option<PhoneBook> {
         let found = books(event);
         if found.is_empty() {
             return None;
         }
-        let have = lock(&self.registry).phone_book().ok().flatten()?;
-        if id != crate::phone::book_link(have.device) {
-            return None;
-        }
+        let books = lock(&self.registry).phone_books().ok()?;
+        let have = books
+            .iter()
+            .find(|have| id == crate::phone::book_link(have.device))?;
         found
             .into_iter()
             .rev()
             .find(|book| book.phone == have.phone && book.device == have.device)
-            .filter(|book| **book != have)
+            .filter(|book| *book != have)
             .cloned()
     }
 
-    /// Makes the devices the ones in `book`: one that left it is closed,
-    /// one whose routes changed opens again on them, and a new one opens.
-    fn take_book(self: &Arc<Self>, book: &PhoneBook) -> Result<(), RegistryError> {
-        let (before, after) = {
+    /// Takes a newer book from the device that keeps it, in place of the
+    /// one it kept. A book forgotten since it came stays forgotten.
+    fn take_book(self: &Arc<Self>, book: PhoneBook) -> Result<Vec<DeviceId>, RegistryError> {
+        self.change_books(|books| {
+            if books.iter().any(|have| have.device == book.device) {
+                crate::phone::put_book(books, book);
+            }
+        })
+    }
+
+    /// Changes the phone's books with `change`, then makes the devices the
+    /// ones they list: one that left them is closed, one whose routes
+    /// changed opens again on them, and a new one opens. Answers the
+    /// devices no book lists any more.
+    fn change_books(
+        self: &Arc<Self>,
+        change: impl FnOnce(&mut Vec<PhoneBook>),
+    ) -> Result<Vec<DeviceId>, RegistryError> {
+        let (before, after, books, left) = {
             let registry = lock(&self.registry);
             let before = registry.list()?;
-            registry.set_phone_book(book)?;
-            (before, registry.list()?)
+            let mut books = registry.phone_books()?;
+            let had: Vec<DeviceId> = crate::phone::listed(&books)
+                .into_iter()
+                .map(|(_, entry)| entry.device)
+                .collect();
+            change(&mut books);
+            registry.set_phone_books(&books)?;
+            let listed = crate::phone::listed(&books);
+            let left: Vec<DeviceId> = had
+                .into_iter()
+                .filter(|device| listed.iter().all(|(_, entry)| entry.device != *device))
+                .collect();
+            (before, registry.list()?, books, left)
         };
-        (self.trust)(book);
+        (self.trust)(&books);
         let gone: Vec<LinkId> = before
             .iter()
             .filter(|old| {
@@ -1624,7 +1674,7 @@ impl<L: LinkControl> Core<L> {
             }
         }
         self.sync_peers();
-        Ok(())
+        Ok(left)
     }
 
     /// Subscribes a window to a timeline and opens it on a link if it's
@@ -2301,12 +2351,12 @@ async fn forward<L: LinkControl>(id: LinkId, mut events: Receiver<LinkEvent>, co
             }
             event => core.view.update(|merge| merge.link_event(id, event)),
         }
-        // A phone's devices follow its book. They change apart, since this
+        // A phone's devices follow its books. They change apart, since this
         // link may be one that closes.
         if let Some(book) = book {
             let taker = Arc::clone(&core);
             core.runtime.spawn(async move {
-                if let Err(error) = taker.take_book(&book) {
+                if let Err(error) = taker.take_book(book) {
                     tracing::warn!(%error, "couldn't take the phone's new book");
                 }
             });
@@ -3788,7 +3838,7 @@ pub(crate) mod tests {
 
         let h = harness(Registry::in_memory_phone().unwrap(), None);
         h.devices
-            .set_phone_book(&book(vec![entry("devbox", &["devbox.local"])]))
+            .put_phone_book(&book(vec![entry("devbox", &["devbox.local"])]))
             .unwrap();
         let devbox = DeviceId::derive("devbox");
         assert_eq!(
@@ -5989,7 +6039,7 @@ pub(crate) mod tests {
             entry("devbox", &["devbox.local"]),
             entry("buildbox", &["buildbox.local"]),
         ]);
-        h.devices.set_phone_book(&first).unwrap();
+        h.devices.put_phone_book(&first).unwrap();
         let devbox = book_link(DeviceId::derive("devbox"));
         let buildbox = book_link(DeviceId::derive("buildbox"));
         let opened = h.fake.record().opened.clone();
@@ -6020,8 +6070,8 @@ pub(crate) mod tests {
             "a forged book opened a link"
         );
         assert_eq!(
-            h.devices.registry().phone_book().unwrap(),
-            Some(first.clone())
+            h.devices.registry().phone_books().unwrap(),
+            std::slice::from_ref(&first)
         );
 
         // The real keeper still gets through over its own link.
@@ -6032,7 +6082,7 @@ pub(crate) mod tests {
         };
         h.report_quiet(devbox, LinkEvent::Changed(vec![change]));
         let start = Instant::now();
-        while h.devices.registry().phone_book().unwrap() != Some(real.clone()) {
+        while h.devices.registry().phone_books().unwrap() != [real.clone()] {
             assert!(
                 start.elapsed() < Duration::from_secs(5),
                 "the keeper's book never landed"
@@ -6057,7 +6107,7 @@ pub(crate) mod tests {
             entry("devbox", &["devbox.local"]),
             entry("buildbox", &["buildbox.local"]),
         ]);
-        h.devices.set_phone_book(&first).unwrap();
+        h.devices.put_phone_book(&first).unwrap();
         let devbox = book_link(DeviceId::derive("devbox"));
         let buildbox = book_link(DeviceId::derive("buildbox"));
         let opened: Vec<LinkId> = h.fake.record().opened.iter().map(|spec| spec.id).collect();
@@ -6097,6 +6147,155 @@ pub(crate) mod tests {
         assert!(record.closed.contains(&devbox));
         assert!(record.closed.contains(&buildbox));
         drop(record);
-        assert_eq!(h.devices.registry().phone_book().unwrap(), Some(second));
+        assert_eq!(h.devices.registry().phone_books().unwrap(), [second]);
+    }
+
+    /// Waits until the phone's books are `want`.
+    fn books_become(h: &Harness, want: &[PhoneBook]) {
+        let start = Instant::now();
+        while h.devices.registry().phone_books().unwrap() != want {
+            assert!(
+                start.elapsed() < Duration::from_secs(5),
+                "the books never became {want:?}"
+            );
+            std::thread::sleep(Duration::from_millis(2));
+        }
+    }
+
+    fn book_change(book: PhoneBook) -> LinkEvent {
+        LinkEvent::Changed(vec![Change::Upsert {
+            value: Entity::PhoneBook(book),
+        }])
+    }
+
+    #[test]
+    fn each_mac_speaks_only_for_its_own_book() {
+        use crate::phone::book_link;
+        use crate::phone::tests::{entry, mac_book};
+
+        let h = harness(Registry::in_memory_phone().unwrap(), None);
+        let home = mac_book("Home Mac", vec![entry("devbox", &["192.168.1.20"])]);
+        let work = mac_book("Work Mac", vec![entry("build-box", &["192.168.1.20"])]);
+        h.devices.put_phone_book(&home).unwrap();
+        h.devices.put_phone_book(&work).unwrap();
+        let link = |name: &str| book_link(DeviceId::derive(name));
+        let opened = h.fake.record().opened.clone();
+        let ids: Vec<LinkId> = opened.iter().map(|spec| spec.id).collect();
+        assert_eq!(
+            ids,
+            [
+                link("Home Mac"),
+                link("devbox"),
+                link("Work Mac"),
+                link("build-box")
+            ]
+        );
+        report_state(&h, &opened[0], "Home Mac", connected());
+        report_state(&h, &opened[2], "Work Mac", connected());
+
+        // Work Mac can't speak for Home Mac's book.
+        let mut forged = home.clone();
+        forged.devices[1] = entry("devbox", &["evil.example"]);
+        h.report_quiet(link("Work Mac"), book_change(forged));
+        assert_eq!(
+            h.devices.registry().phone_books().unwrap(),
+            [home.clone(), work.clone()]
+        );
+        assert_eq!(
+            h.fake.record().opened.len(),
+            4,
+            "a forged book opened a link"
+        );
+
+        // Each Mac's newer book takes the place of its own alone.
+        let mut newer_home = home.clone();
+        newer_home.devices[1].name = "devbox at home".into();
+        h.report_quiet(link("Home Mac"), book_change(newer_home.clone()));
+        books_become(&h, &[newer_home.clone(), work.clone()]);
+        let mut newer_work = work.clone();
+        newer_work.devices.push(entry("ci-box", &["ci-box.local"]));
+        h.report_quiet(link("Work Mac"), book_change(newer_work.clone()));
+        books_become(&h, &[newer_home, newer_work]);
+        let start = Instant::now();
+        while !h
+            .fake
+            .record()
+            .opened
+            .iter()
+            .any(|spec| spec.id == link("ci-box"))
+        {
+            assert!(
+                start.elapsed() < Duration::from_secs(5),
+                "Work Mac's new device never opened"
+            );
+            std::thread::sleep(Duration::from_millis(2));
+        }
+        assert!(h.fake.record().closed.is_empty(), "Home Mac's devices stay");
+    }
+
+    #[test]
+    fn forgetting_a_mac_closes_only_the_devices_no_other_mac_lists() {
+        use crate::phone::book_link;
+        use crate::phone::tests::{entry, mac_book};
+
+        let h = harness(Registry::in_memory_phone().unwrap(), None);
+        let home = mac_book("Home Mac", vec![entry("devbox", &["192.168.1.20"])]);
+        let work = mac_book(
+            "Work Mac",
+            vec![
+                entry("build-box", &["192.168.1.20"]),
+                entry("devbox", &["devbox.work"]),
+            ],
+        );
+        h.devices.put_phone_book(&home).unwrap();
+        h.devices.put_phone_book(&work).unwrap();
+        let device = DeviceId::derive;
+        let link = |name: &str| book_link(device(name));
+
+        // Both Macs list devbox, and it comes once, under Home Mac.
+        let ids: Vec<LinkId> = h.fake.record().opened.iter().map(|spec| spec.id).collect();
+        assert_eq!(
+            ids,
+            [
+                link("Home Mac"),
+                link("devbox"),
+                link("Work Mac"),
+                link("build-box")
+            ]
+        );
+        assert_eq!(
+            h.fake.record().opened_to[&link("devbox")],
+            Some(device("devbox"))
+        );
+
+        let gone = h.devices.forget_phone_book(device("Work Mac")).unwrap();
+        assert_eq!(gone, [device("Work Mac"), device("build-box")]);
+        let closed = h.fake.record().closed.clone();
+        assert_eq!(closed, [link("Work Mac"), link("build-box")]);
+        assert_eq!(
+            h.devices.registry().phone_books().unwrap(),
+            std::slice::from_ref(&home)
+        );
+
+        // Without Home Mac, devbox stays, on the route Work Mac gives it.
+        h.devices.put_phone_book(&work).unwrap();
+        let gone = h.devices.forget_phone_book(device("Home Mac")).unwrap();
+        assert_eq!(gone, [device("Home Mac")]);
+        let record = h.fake.record();
+        assert!(record.closed.contains(&link("Home Mac")));
+        let reopened = record
+            .opened
+            .iter()
+            .rev()
+            .find(|spec| spec.id == link("devbox"))
+            .unwrap();
+        assert_eq!(
+            reopened.route,
+            Route::Ssh {
+                host: "ssh://dev@devbox.work:22".into()
+            }
+        );
+        drop(record);
+        assert_eq!(h.devices.registry().phone_books().unwrap(), [work]);
     }
 }

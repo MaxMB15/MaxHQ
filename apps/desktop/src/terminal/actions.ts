@@ -8,7 +8,7 @@
 
 import type { Services } from "@/app/services";
 import { requestConfirm } from "@/components/confirm";
-import { quoteInbox } from "@/composer/quote-inbox";
+import { quoteInbox } from "@maxhq/shared/pills/quote-inbox";
 import { paneId, paneParams } from "@/layout/pane-id";
 import { panesOf } from "@/layout/panes";
 import { noticesOf } from "@/sidebar/notices";

@@ -2,11 +2,17 @@
 // Copyright (c) 2026 Max Boksem
 
 // The whole of an open timeline: waits for its first page, then asks for
-// older pages one at a time until there are none, for an export.
+// older pages one at a time until there are none, for an export, and an
+// agent's whole conversation as Markdown from it.
 
 import { t } from "../i18n";
 
+import type { ToolNames } from "../agent-view/agent-tools";
+import type { Agent } from "../bindings";
+import type { DataSource } from "../data/source";
 import type { TimelineState } from "./apply";
+import { conversationMarkdown } from "./export";
+import { leaseTimeline } from "./registry";
 import type { Timeline } from "./store";
 
 /**
@@ -50,3 +56,22 @@ export const loadAll = (timeline: Timeline): Promise<TimelineState> =>
 		stop = store.subscribe(step);
 		step(store.getState());
 	});
+
+/** The agent's whole conversation as Markdown, once every older page has loaded. */
+export const conversationText = async (
+	source: DataSource,
+	agent: Pick<Agent, "id" | "title" | "vendor">,
+	names: ToolNames
+): Promise<string> => {
+	const { timeline, release } = leaseTimeline(source, agent.id);
+	try {
+		const state = await loadAll(timeline);
+		const items = state.order.flatMap((id) => {
+			const item = state.items.get(id);
+			return item ? [item] : [];
+		});
+		return conversationMarkdown(items, { title: agent.title, vendor: agent.vendor, names });
+	} finally {
+		release();
+	}
+};

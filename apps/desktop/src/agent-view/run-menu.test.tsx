@@ -16,7 +16,7 @@ import { ServicesProvider } from "@/app/services";
 import { ConfirmHost } from "@/components/confirm";
 import { Composer } from "@/composer/composer";
 import { ComposerNativeProvider } from "@/composer/native";
-import { quoteInbox } from "@/composer/quote-inbox";
+import { quoteInbox } from "@maxhq/shared/pills/quote-inbox";
 import {
 	AGENT,
 	DEVICE,

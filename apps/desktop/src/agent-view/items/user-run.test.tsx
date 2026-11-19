@@ -19,7 +19,7 @@ import { type Services, ServicesProvider, useServices } from "@/app/services";
 import { ConfirmHost } from "@/components/confirm";
 import { Composer } from "@/composer/composer";
 import { ComposerNativeProvider } from "@/composer/native";
-import { quoteInbox } from "@/composer/quote-inbox";
+import { quoteInbox } from "@maxhq/shared/pills/quote-inbox";
 import { startRun } from "@/composer/run-command";
 import { draftsOf } from "@/composer/saved-drafts";
 import {

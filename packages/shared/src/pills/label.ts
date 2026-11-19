@@ -61,6 +61,9 @@ export const noteLabel = (title: string): string => (title.trim() === "" ? t("Un
 /** A visual's label, its title, or "Visual" for one with none. */
 export const visualLabel = (title: string): string => (title.trim() === "" ? t("Visual") : title);
 
+/** A command on one line, each run of spaces and line breaks as one space. */
+export const oneLine = (command: string): string => command.trim().split(/\s+/).join(" ");
+
 /** A pull request's or issue's label, such as "#123 Fix the cache". */
 export const gitItemLabel = (item: Pick<GitItemRef, "number" | "title">): string =>
 	`#${item.number} ${item.title}`;

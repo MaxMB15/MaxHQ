@@ -170,6 +170,16 @@ export const filterDrafts = (filters: readonly Filter[]): FilterDraft[] =>
 		value: test.op === "exists" ? "" : test.op === "in" ? test.values.join(", ") : test.value,
 	}));
 
+/** `filters` with the row at `index` changed to `filter`, or gone when it's null. */
+export const withFilter = (
+	filters: readonly FilterDraft[],
+	index: number,
+	filter: FilterDraft | null
+): FilterDraft[] =>
+	filter
+		? filters.map((f, i) => (i === index ? filter : f))
+		: filters.filter((_, i) => i !== index);
+
 const FILTER_PATH = /^(body|headers|query)(\.|$)/;
 
 /** The filters the rows describe, or why one of them can't be saved. */
@@ -279,6 +289,19 @@ export const promptFields = (prompt: string, github: boolean): PromptField[] => 
 	return [...seen].map((expression) => ({ expression, free: isFreeText(expression, github) }));
 };
 
+/**
+ * The free text a prompt may hold with `expression` allowed or not. A list
+ * from before the choice, null, starts from none.
+ */
+export const allowField = (
+	fields: readonly string[] | null,
+	expression: string,
+	on: boolean
+): string[] => {
+	const allowed = fields ?? [];
+	return on ? [...allowed, expression] : allowed.filter((f) => f !== expression);
+};
+
 /** Blank is "no limit", null; undefined means the text isn't a valid number. */
 const parseLimit = (text: string, min: number, max: number): number | null | undefined => {
 	const value = text.trim();
@@ -317,6 +340,18 @@ export const TRIGGER_KINDS: readonly { readonly kind: TriggerKind; readonly labe
 		},
 	},
 ];
+
+/** Whether a task of `kind` takes requests, a webhook's or GitHub's events. */
+export const takesRequests = (kind: TriggerKind): boolean =>
+	kind === "hook" || kind === "github_events";
+
+/** `set` with `item` in it, or without it when `on` is false, such as a day or an event. */
+export const toggled = <T>(set: ReadonlySet<T>, item: T, on: boolean): Set<T> => {
+	const next = new Set(set);
+	if (on) next.add(item);
+	else next.delete(item);
+	return next;
+};
 
 /** The editor's form. Numbers stay text until the save, so a field can be blank. */
 export type TaskDraft = {

@@ -24,12 +24,18 @@ import { formatAgo, plural } from "./format";
 /** What a phone's link says once a device ends its sign-in, as the client says it. */
 export const SIGN_IN_ENDED = "the device ended this phone's sign-in, so pair the phone again";
 
-/** What a phone's link says, after the device's name, once the device turns down the phone's key. */
-export const NO_LONGER_KNOWN = "no longer knows this phone. Pair it again from the Mac.";
+/**
+ * What a phone's link says once the device turns down the phone's key,
+ * between the device's name and the Mac that pairs it.
+ */
+export const NO_LONGER_KNOWN = "no longer knows this phone. Pair it again from";
+
+/** Such as "devbox no longer knows this phone. Pair it again from Home Mac." */
+const NOT_KNOWN = /^\S.* no longer knows this phone\. Pair it again from \S.*\.$/;
 
 /** Whether a link's reason says only pairing the phone again reaches its device. */
 const saysPairAgain = (reason: string): boolean =>
-	reason === SIGN_IN_ENDED || reason.endsWith(` ${NO_LONGER_KNOWN}`);
+	reason === SIGN_IN_ENDED || NOT_KNOWN.test(reason);
 
 /**
  * A route in words, such as "dev@devbox:22", "Network, 192.168.1.20" or

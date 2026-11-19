@@ -522,6 +522,7 @@ impl Client {
             via: Vec::new(),
             capabilities: None,
             protocol: None,
+            protocol_mismatch: None,
             waiting: Vec::new(),
             claim: None,
         };

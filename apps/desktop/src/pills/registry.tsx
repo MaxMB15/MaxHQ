@@ -20,6 +20,7 @@ import {
 	gitStateWords,
 	middleTruncate,
 	noteLabel,
+	oneLine,
 	quoteLabel,
 } from "@maxhq/shared/pills/label";
 import { ACTIVITY_LABEL, agentLook } from "@maxhq/shared/status/activity";
@@ -502,9 +503,6 @@ export const GitItemDetails = ({ item, now }: { item: GitItemRef; now: Timestamp
 		</div>
 	);
 };
-
-/** A command on one line, each run of spaces and line breaks as one space. */
-const oneLine = (command: string): string => command.trim().split(/\s+/).join(" ");
 
 /** Whether the command ended with an exit code other than 0. */
 export const outputFailed = (ref: OutputRef): boolean =>

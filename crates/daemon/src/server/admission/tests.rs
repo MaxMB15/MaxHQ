@@ -649,7 +649,7 @@ async fn a_phone_that_proves_its_key_drops_its_card() {
 async fn a_pairing_that_doesnt_prove_gets_no_card() {
     let served = served(QUICK, None);
     let ActionOutcome::PhonePair { pair, .. } =
-        crate::phones::for_tests().begin(crate::phones::book_for_tests())
+        crate::phones::for_tests().begin(crate::phones::book_for_tests(), None)
     else {
         panic!("expected a pairing");
     };

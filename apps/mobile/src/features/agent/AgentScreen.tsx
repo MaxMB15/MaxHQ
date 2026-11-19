@@ -9,11 +9,15 @@
 // the devices answer, an agent the view doesn't have yet shows Loading.
 // Pulling the feed down tries the devices again and reloads its newest
 // page. Scrolled up, a Latest button takes it back to the end. Find, from
-// the header or More, searches the whole feed and goes to each match.
+// the header or More, searches the whole feed and goes to each match, and
+// Your prompts, from More, jumps to a prompt you sent. The header's second
+// line opens the agent's details. Over the composer sit the clone, moved,
+// resume and port banners, as on the desktop.
 
 import { useI18n } from "@maxhq/shared/i18n";
 
-import { useIsFocused } from "@react-navigation/native";
+import { useIsFocused, useNavigation } from "@react-navigation/native";
+import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
 	FlatList,
@@ -28,6 +32,7 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useStore } from "zustand";
 
+import { canAllow } from "@maxhq/shared/agent-tools/scope";
 import { FindProvider } from "@maxhq/shared/agent-view/find-context";
 import {
 	finishedLead,
@@ -52,28 +57,38 @@ import { useTimeline } from "@maxhq/shared/timeline/use-timeline";
 import { lookAt } from "@maxhq/shared/view/seen";
 import { attentionOf, deviceName } from "@maxhq/shared/view/select";
 
-import type { ScreenProps } from "../../navigation";
+import type { ScreenProps, Screens } from "../../navigation";
 import { useAppActive, useServices, useView } from "../../services";
 import { color, size } from "../../theme";
 import { ConnectionBanner } from "../../ui/ConnectionBanner";
-import { ActivityDot } from "../../ui/Dot";
 import { Header } from "../../ui/Header";
 import { usePullToRefresh } from "../../ui/Refresh";
 import { AttentionCard } from "../attention/AttentionCard";
 import { promptOfEvent } from "../attention/prompt";
+import { PullChips } from "../pulls";
+import { Automations } from "../tasks";
+import { LeaseChips } from "../test-hosts/LeaseChips";
+import { RunChipBar } from "../workflow/RunChips";
 import { AgentMore } from "./AgentMore";
+import { CloneBanner } from "./CloneBanner";
 import { hasComposer } from "./compose";
 import { Composer } from "./Composer";
+import { ExportBar, useConversationExport } from "./ExportConversation";
 import { FeedProvider, useFeedRows } from "./feed-context";
 import { FindBar, FindButton, useFeedFind } from "./FeedFind";
 import { FeedItem } from "./FeedRow";
 import { FinishedAgent } from "./FinishedAgent";
+import { PlaceLine, SkillsChip } from "./HeaderLine";
 import { Latest } from "./Latest";
 import { MovedBanner } from "./MovedBanner";
 import { Divider } from "./Notices";
 import { feedScroll, missingAgent } from "./opening";
 import { OutsideBanner, SessionMoved } from "./OutsideBanner";
+import { loadPermissions, permissions, useHeldPermission } from "./permissions";
+import { PortOffers } from "./PortOffers";
+import { PromptsSheet } from "./PromptsSheet";
 import { useShownTitle } from "./renames";
+import { ResumeBanner } from "./ResumeBanner";
 
 // How close to the bottom counts as reading the newest rows, so new ones
 // keep the feed at the end.
@@ -171,6 +186,7 @@ const AgentBody = ({
 	const { t } = useI18n();
 
 	const { source } = useServices();
+	const navigation = useNavigation<NativeStackNavigationProp<Screens>>();
 	useLookingAt(agent);
 	const view = useView((s) => s.view);
 	// So the screen can show the history once the sub-agent finishes.
@@ -204,6 +220,14 @@ const AgentBody = ({
 	const went = useRef<AttentionId | undefined>(undefined);
 	const found = useFeedFind(agent.id, timeline, rows, list, atEnd);
 	const [away, setAway] = useState<FeedAway>(null);
+	// Your prompts, open with the row at the top of the feed as it opened.
+	const [prompts, setPrompts] = useState<{ row: string | undefined } | null>(null);
+	const exporting = useConversationExport(agent);
+	const held = useHeldPermission(agent);
+	const allows = canAllow(agent);
+	useEffect(() => {
+		if (allows) void loadPermissions(permissions, source);
+	}, [allows, source]);
 	const refreshControl = usePullToRefresh(() =>
 		Promise.all([source.refreshLinks(null), timeline.reload()])
 	);
@@ -246,21 +270,30 @@ const AgentBody = ({
 						<FindButton find={found.find} />
 						<AgentMore
 							agent={agent}
+							held={held}
 							onFind={found.find.open}
+							onPrompts={() => setPrompts({ row: found.topRow() })}
+							onExport={exporting.run}
 							onDeleted={back.onPress}
 						/>
 					</>
 				}
 				subtitle={
-					<View style={styles.place}>
-						<ActivityDot look={look} decorative />
-						<Text style={styles.placeText} numberOfLines={1}>
-							{place}
-						</Text>
-					</View>
+					<PlaceLine
+						agent={agent}
+						look={look}
+						place={place}
+						onPress={() => navigation.navigate("AgentInfo", { agent: agent.id })}
+					/>
 				}
 			/>
 			<FindBar find={found.find} />
+			<PullChips agent={agent} />
+			<Automations agent={agent} />
+			<LeaseChips agent={agent.id} bar />
+			<SkillsChip agent={agent.id} />
+			<RunChipBar agent={agent.id} />
+			{exporting.loading ? <ExportBar /> : null}
 			<ConnectionBanner />
 			<FindProvider store={found.find.store}>
 				<FeedProvider agent={agent} device={device} store={timeline.store}>
@@ -363,13 +396,27 @@ const AgentBody = ({
 						onPress={() => list.current?.scrollToEnd()}
 					/>
 				) : null}
+				<CloneBanner workspace={agent.workspace} />
 				<MovedBanner agent={agent} way="to" />
+				{observed ? null : <ResumeBanner agent={agent} />}
+				<PortOffers agent={agent} />
 				{hasComposer(agent) ? (
 					<Composer key={agent.id} agent={agent} device={device} queued={queued} />
 				) : (
 					<OutsideBanner agent={agent} device={device} />
 				)}
 			</View>
+			<PromptsSheet
+				timeline={timeline}
+				rows={rows}
+				top={prompts}
+				onClose={() => setPrompts(null)}
+				onJump={(row) => {
+					atEnd.current = row === "end";
+					if (row === "end") list.current?.scrollToEnd();
+					else list.current?.scrollToIndex({ index: row, viewPosition: 0 });
+				}}
+			/>
 		</KeyboardAvoidingView>
 	);
 };
@@ -379,8 +426,6 @@ const styles = StyleSheet.create({
 	content: { paddingHorizontal: 14, paddingVertical: 14 },
 	pending: { marginTop: 12 },
 	gone: { padding: 16 },
-	place: { flexDirection: "row", alignItems: "center", gap: 6, marginTop: 1 },
-	placeText: { flex: 1, color: color.mutedForeground, fontSize: size.meta },
 	head: { gap: 10 },
 	headed: { marginBottom: 12 },
 	olderButton: { minHeight: 44, justifyContent: "center" },

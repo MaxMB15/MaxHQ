@@ -11,21 +11,17 @@
 // whose maxd is too old says so, and one that can't be reached shows
 // nothing.
 
-import { t, useI18n, formatNumber } from "@maxhq/shared/i18n";
+import { useI18n, formatNumber } from "@maxhq/shared/i18n";
 
 import { ChevronRight } from "lucide-react";
-import { Fragment, useEffect, useRef, useState } from "react";
+import { Fragment, useState } from "react";
 
 import { useServices } from "@/app/services";
 import { cn } from "@/lib/utils";
-import type { AgentId, AgentProcess, ProcessList, ProcessSignal } from "@maxhq/shared/bindings";
-import { failureOf } from "@maxhq/shared/data/failure";
+import type { AgentId, AgentProcess } from "@maxhq/shared/bindings";
 import { formatMemory } from "@maxhq/shared/fleet/memory";
 import {
-	cpuShares,
 	formatCpu,
-	KILL_AFTER_MS,
-	PROCESS_REFRESH_MS,
 	type ProcessGroup,
 	processKey,
 	runningList,
@@ -33,139 +29,11 @@ import {
 	stopOrder,
 	turnEnded,
 } from "@maxhq/shared/ports/processes";
+import { type Stops, useProcesses, useStops } from "@maxhq/shared/ports/running";
 import { formatDuration } from "@maxhq/shared/status/format";
 import type { ViewState } from "@maxhq/shared/view/replica";
 
 import { Failure, Section, TEXT_BUTTON } from "./parts";
-
-type Read = {
-	readonly agent: AgentId;
-	readonly list: ProcessList;
-	/** Each process's share of a core since the read before. */
-	readonly cpu: ReadonlyMap<string, number>;
-};
-
-/**
- * The agent's processes, read now and every few seconds after while
- * `live`, and a way to read them again at once. A failed read shows
- * nothing until one works.
- */
-const useProcesses = (agent: AgentId, live: boolean) => {
-	const { source } = useServices();
-	const [read, setRead] = useState<Read | null>(null);
-	const [reads, setReads] = useState(0);
-	const before = useRef<readonly AgentProcess[]>([]);
-
-	useEffect(() => {
-		if (!live) return;
-		let gone = false;
-		let timer: ReturnType<typeof setTimeout> | undefined;
-		const next = () => {
-			if (!gone) timer = setTimeout(load, PROCESS_REFRESH_MS);
-		};
-		const load = () =>
-			void source.listProcesses(agent).then(
-				(result) => {
-					if (gone) return;
-					if (result.status === "error") {
-						setRead(null);
-						return next();
-					}
-					const list = result.data;
-					// A maxd too old to list them stays so until it's updated.
-					if (list.status === "too_old") return setRead({ agent, list, cpu: new Map() });
-					setRead({ agent, list, cpu: cpuShares(list.processes, before.current) });
-					before.current = list.processes;
-					next();
-				},
-				(error: unknown) => {
-					console.warn("Couldn't list the agent's processes", error);
-					if (gone) return;
-					setRead(null);
-					next();
-				}
-			);
-		load();
-		return () => {
-			gone = true;
-			clearTimeout(timer);
-		};
-	}, [source, agent, live, reads]);
-
-	return {
-		read: live && read?.agent === agent ? read : null,
-		refresh: () => setReads((n) => n + 1),
-	};
-};
-
-type Stopping = "stopping" | "kill";
-
-const put =
-	<T,>(key: string, value: T | null) =>
-	(was: ReadonlyMap<string, T>): ReadonlyMap<string, T> => {
-		const next = new Map(was);
-		if (value === null) next.delete(key);
-		else next.set(key, value);
-		return next;
-	};
-
-/**
- * Stop and Kill for the agent's processes, one row at a time: a process,
- * or a command with everything under it. A row Stop doesn't end within a
- * few seconds is offered Kill. Each row tracks why its last signal failed.
- */
-const useStops = (agent: AgentId, refresh: () => void) => {
-	const { source } = useServices();
-	const [stops, setStops] = useState<ReadonlyMap<string, Stopping>>(() => new Map());
-	const [failures, setFailures] = useState<ReadonlyMap<string, string>>(() => new Map());
-
-	const send = (process: AgentProcess, signal: ProcessSignal) =>
-		source
-			.signalProcess(agent, process.pid, process.start, signal)
-			.then(failureOf, (error: unknown) =>
-				error instanceof Error && error.message
-					? t("Couldn't stop that process: {{message}}", { message: error.message })
-					: t("Couldn't stop that process.")
-			);
-
-	/**
-	 * Sends `signal` to each of `processes` in turn, for the row `key`. It
-	 * fails only when none got it, since some may end on their own first.
-	 */
-	const signal = (key: string, processes: readonly AgentProcess[], signal: ProcessSignal) => {
-		setStops(put<Stopping>(key, "stopping"));
-		setFailures(put<string>(key, null));
-		void (async () => {
-			let sent = false;
-			let failure: string | null = null;
-			for (const process of processes) {
-				const failed = await send(process, signal);
-				if (failed === null) sent = true;
-				else failure ??= failed;
-			}
-			return sent ? null : failure;
-		})().then((failure) => {
-			refresh();
-			if (failure !== null) {
-				setStops(put<Stopping>(key, null));
-				setFailures(put(key, failure));
-				return;
-			}
-			setTimeout(
-				() => setStops((was) => (was.has(key) ? put<Stopping>(key, "kill")(was) : was)),
-				KILL_AFTER_MS
-			);
-		});
-	};
-
-	return {
-		state: (key: string) => stops.get(key),
-		failure: (key: string) => failures.get(key) ?? null,
-		signal,
-	};
-};
-
-type Stops = ReturnType<typeof useStops>;
 
 const Ports = ({ ports }: { ports: readonly number[] }) => {
 	const { t } = useI18n();
@@ -348,8 +216,9 @@ export const Running = ({
 }) => {
 	const { t } = useI18n();
 
-	const { read, refresh } = useProcesses(agent, live);
-	const stops = useStops(agent, refresh);
+	const { source } = useServices();
+	const { read, refresh } = useProcesses(source, agent, live);
+	const stops = useStops(source, agent, refresh);
 	const [open, setOpen] = useState(false);
 	const [unfolded, setUnfolded] = useState<ReadonlySet<string>>(() => new Set());
 	const toggle = (key: string) =>

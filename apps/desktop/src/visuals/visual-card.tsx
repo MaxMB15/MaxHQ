@@ -15,16 +15,15 @@ import { type ReactNode, useMemo, useState, useSyncExternalStore } from "react";
 
 import { type Services, useServicesIfAny } from "@/app/services";
 import { CopyButton } from "@/components/copy-button";
-import { quoteInbox } from "@/composer/quote-inbox";
+import { quoteInbox } from "@maxhq/shared/pills/quote-inbox";
 import { panesOf } from "@/layout/panes";
 import { cn } from "@/lib/utils";
-import { makeQuote } from "@maxhq/shared/pills/quote";
 import { toVisualFence } from "@maxhq/shared/visuals/fence";
+import { tellQuote, useVisualOrigin, type VisualOrigin } from "@maxhq/shared/visuals/origin";
 
 import { useVisualContextMenu, VisualMenu, visualActions } from "./actions";
 import { useAddToNote } from "./add-to-note";
 import { agentFrom, chatActions, copyVisual, dragVisual } from "./carry";
-import { useVisualOrigin, type VisualOrigin } from "./origin";
 import { type VisualError, VisualFrame } from "./visual-frame";
 
 const HOVER_ACTIONS =
@@ -33,33 +32,10 @@ const HOVER_ACTIONS =
 const COPY_LOOK =
 	"inline-flex h-[22px] items-center gap-1.5 rounded-[5px] px-[7px] text-[11.5px] text-muted-foreground outline-none hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring";
 
-/** What Tell the agent puts in the quote: the errors, each on its own line. */
-export const errorsQuote = (
-	title: string,
-	errors: readonly VisualError[],
-	count: number
-): string => {
-	const lines = errors.map(({ message, line }) =>
-		line === null ? message : `Line ${line}: ${message}`
-	);
-	const more = count - errors.length;
-	return [
-		`The visual${title ? ` "${title}"` : ""} showed ${count === 1 ? "an error" : `${count} errors`}:`,
-		...lines,
-		...(more > 0 ? [`and ${more} more`] : []),
-	].join("\n");
-};
-
 const tell =
 	(origin: VisualOrigin, html: string, title: string) =>
-	(errors: readonly VisualError[], count: number) => {
-		const at = origin.item.kind === "assistant_message" ? origin.item.text.indexOf(html) : -1;
-		const quote = makeQuote(origin.agent, origin.item, {
-			text: errorsQuote(title, errors, count),
-			position: Math.max(0, at),
-		});
-		quoteInbox.send(origin.agent.id, quote, true);
-	};
+	(errors: readonly VisualError[], count: number) =>
+		quoteInbox.send(origin.agent.id, tellQuote(origin, html, title, errors, count), true);
 
 const NO_CHANGES = () => () => {};
 

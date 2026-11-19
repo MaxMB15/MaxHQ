@@ -121,7 +121,16 @@ fn phone_switched(device: &str, everything: bool) -> Entity {
     })
 }
 
-/// The phone's book, kept by `device`, with each of `names`.
+/// This Mac as its own link names it in the tests.
+fn this_mac() -> PhoneMac {
+    PhoneMac {
+        device: DeviceId::derive("This Mac"),
+        name: "This Mac".into(),
+    }
+}
+
+/// The phone's book, kept by `device`, with each of `names`. It names this
+/// Mac.
 fn book_on(device: &str, names: &[&str]) -> Entity {
     Entity::PhoneBook(PhoneBook {
         phone: phone(),
@@ -136,7 +145,29 @@ fn book_on(device: &str, names: &[&str]) -> Entity {
                 network: None,
             })
             .collect(),
+        mac: Some(this_mac()),
     })
+}
+
+/// `book_on`, naming `mac`.
+fn book_naming(device: &str, names: &[&str], mac: Option<PhoneMac>) -> Entity {
+    let mut book = book_on(device, names);
+    if let Entity::PhoneBook(found) = &mut book {
+        found.mac = mac;
+    }
+    book
+}
+
+/// How many devices each book sent lists, and the Mac it names.
+fn macs_sent(h: &Harness) -> Vec<(usize, Option<PhoneMac>)> {
+    h.fake
+        .calls()
+        .into_iter()
+        .filter_map(|(_, call)| match call {
+            Call::Send(ClientMessage::SetPhoneBook { book, mac, .. }) => Some((book.len(), mac)),
+            _ => None,
+        })
+        .collect()
 }
 
 fn publish(h: &Harness, spec: &LinkSpec, entities: Vec<Entity>) {
@@ -522,6 +553,51 @@ fn a_devices_code_rides_in_the_book_until_it_lists_a_session() {
     for (_, book) in sent_books {
         assert_eq!(book[1].network, Some(network(None)));
     }
+}
+
+#[test]
+fn a_book_gets_this_macs_name_once_a_run_and_another_macs_name_stays() {
+    let names = ["devbox"];
+    let (h, specs) = devices(&names);
+    publish(
+        &h,
+        &specs[0],
+        vec![phone_on("devbox"), book_naming("devbox", &names, None)],
+    );
+    h.devices.link_peers(Facts);
+    block_on(h.devices.core.phone_pass());
+    assert_eq!(macs_sent(&h), vec![(1, Some(this_mac()))]);
+
+    // A keeper too old to keep the name still shows none, and isn't sent
+    // it again this run.
+    block_on(h.devices.core.phone_pass());
+    assert!(macs_sent(&h).is_empty());
+
+    // This Mac by an old name gets the new one; another Mac keeps its own.
+    let old = PhoneMac {
+        name: "Old name".into(),
+        ..this_mac()
+    };
+    publish(
+        &h,
+        &specs[0],
+        vec![book_naming("devbox", &names, Some(old))],
+    );
+    lock(&h.devices.core.phone_named).clear();
+    block_on(h.devices.core.phone_pass());
+    assert_eq!(macs_sent(&h), vec![(1, Some(this_mac()))]);
+    let work = PhoneMac {
+        device: DeviceId::derive("Work Mac"),
+        name: "Work Mac".into(),
+    };
+    publish(
+        &h,
+        &specs[0],
+        vec![book_naming("devbox", &names, Some(work))],
+    );
+    lock(&h.devices.core.phone_named).clear();
+    block_on(h.devices.core.phone_pass());
+    assert!(macs_sent(&h).is_empty());
 }
 
 #[test]

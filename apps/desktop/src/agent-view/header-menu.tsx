@@ -28,32 +28,16 @@ import { useServices } from "@/app/services";
 import { copyLabel, CopyStatus, useCopy } from "@/components/copy-button";
 import { MENU_ITEM, MENU_POPUP } from "@/composer";
 import { inApp } from "@/native/platform";
-import { canEnd, STOP_AGENT } from "@maxhq/shared/agent-view/controls";
+import { canEnd, sessionIdName, STOP_AGENT } from "@maxhq/shared/agent-view/controls";
 import { viewNames } from "@maxhq/shared/agent-view/agent-tools";
-import type { Agent, Vendor } from "@maxhq/shared/bindings";
+import type { Agent } from "@maxhq/shared/bindings";
 import { cn } from "@/lib/utils";
 
 import { conversationText, copyWhenReady, saveWhenReady } from "./export-conversation";
 import { Spinner } from "./icons";
 import { t as translate, useI18n } from "@maxhq/shared/i18n";
 
-/** What the agent's CLI calls the ID it resumes a session by. */
-export const sessionIdName = (agent: Agent): string => SESSION_ID_NAME[agent.vendor];
-
-const SESSION_ID_NAME: Record<Vendor, string> = {
-	get claude() {
-		return translate("session ID");
-	},
-	get codex() {
-		return translate("thread ID");
-	},
-	get cursor() {
-		return translate("chat ID");
-	},
-	get acp() {
-		return translate("session ID");
-	},
-};
+export { sessionIdName } from "@maxhq/shared/agent-view/controls";
 
 const LABEL = "text-[12.5px] font-[550]";
 const DETAIL = "text-[11px] text-muted-foreground";

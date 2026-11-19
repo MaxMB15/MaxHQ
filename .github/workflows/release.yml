@@ -6,7 +6,14 @@
 # explains the whole process.
 #
 #   prepare-release ─> linux-maxd (x86_64, aarch64) ─> release-macos (aarch64, x64)
-#                                                       ─> publish-latest-json ─> sync-dev
+#                   ─> release-ios (iPhone, a signed .ipa)
+#                            ─> release-testflight ─> publish-latest-json ─> sync-dev
+#
+# Nothing ships unless every build passes. The iPhone builds beside the Macs,
+# but release-testflight uploads it only once the Linux, Mac and iPhone builds
+# have all succeeded, and publish-latest-json publishes the draft only after
+# that upload. "Re-run failed jobs" finishes a release after a failed build or
+# upload.
 #
 # The tag's message decides whether the draft is published at the end: a line
 # that reads exactly `Publish-Release: true` publishes it. The one-click
@@ -247,16 +254,180 @@ jobs:
           gh release upload "v$VERSION" --repo "$GITHUB_REPOSITORY" --clobber \
             "$OUT/MaxHQ_$ARCH.dmg" "$archive" "$archive.sig"
 
-  # Uploads the Linux maxd and latest.json once both Macs have built, then
-  # publishes the draft when the tag asked for it.
+  # The iPhone app, archived and signed for App Store Connect. It needs only
+  # the version, so it runs beside the Linux and Mac builds. It keeps the
+  # signed .ipa as an artifact for a day; release-testflight uploads it once
+  # every build has passed. Its App Store Connect key isn't the notarizing
+  # one: that key has the Developer role, which can't make App Store
+  # distribution signing, so this one has the App Manager role.
+  release-ios:
+    needs: [prepare-release]
+    # App Store Connect takes only builds made with the iOS 26 SDK, which
+    # comes with this image's Xcode.
+    runs-on: macos-26
+    environment: macos-signing
+    permissions:
+      contents: read
+    outputs:
+      build: ${{ steps.number.outputs.build }}
+    env:
+      VERSION: ${{ needs.prepare-release.outputs.version }}
+      # CocoaPods, which prebuild runs, stops when the locale isn't UTF-8.
+      LANG: en_US.UTF-8
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # Fail before the long build, not after it, when a secret or variable
+      # is missing. Only names are printed, never values.
+      - name: Check the App Store Connect key and the app's IDs
+        env:
+          APPLE_APP_MANAGER_KEY_ID: ${{ secrets.APPLE_APP_MANAGER_KEY_ID }}
+          APPLE_APP_MANAGER_PRIVATE_KEY: ${{ secrets.APPLE_APP_MANAGER_PRIVATE_KEY }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+          IOS_TEAM_ID: ${{ vars.IOS_TEAM_ID }}
+          IOS_BUNDLE_ID: ${{ vars.IOS_BUNDLE_ID }}
+        run: |
+          set -euo pipefail
+          missing=""
+          for name in APPLE_APP_MANAGER_KEY_ID APPLE_APP_MANAGER_PRIVATE_KEY APPLE_API_ISSUER IOS_TEAM_ID IOS_BUNDLE_ID; do
+            if [[ -z "${!name}" ]]; then missing="$missing $name"; fi
+          done
+          if [[ -n "$missing" ]]; then
+            echo "::error::The iPhone build needs these, and .github/RELEASING.md says where each goes:$missing"
+            exit 1
+          fi
+          if [[ "$APPLE_APP_MANAGER_PRIVATE_KEY" != *"BEGIN PRIVATE KEY"* ]]; then
+            echo "::error::APPLE_APP_MANAGER_PRIVATE_KEY isn't the contents of an AuthKey_<id>.p8 file."
+            exit 1
+          fi
+
+      - name: Set up the frontend
+        uses: ./.github/actions/setup-frontend
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@686976e191b89faba57d3206551f0f330d8cb249 # stable
+        with:
+          toolchain: stable
+          # The core's two Apple targets, as apps/mobile/scripts/native.ts
+          # lists them.
+          targets: aarch64-apple-ios,aarch64-apple-ios-sim
+
+      # The run number only grows and each attempt adds one, so App Store
+      # Connect never sees a number twice. native.ts says why local builds
+      # stay below these.
+      - name: Number the build
+        id: number
+        run: |
+          set -euo pipefail
+          build=$(node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON apps/mobile/scripts/mobile.ts build-number)
+          echo "MaxHQ $VERSION for the iPhone, build $build."
+          echo "build=$build" >> "$GITHUB_OUTPUT"
+
+      # git ignores ios.local.json, so the job writes it. The key goes in the
+      # runner's temporary folder, readable only by the runner's user.
+      - name: Write the signing settings
+        env:
+          APPLE_APP_MANAGER_PRIVATE_KEY: ${{ secrets.APPLE_APP_MANAGER_PRIVATE_KEY }}
+          IOS_TEAM_ID: ${{ vars.IOS_TEAM_ID }}
+          IOS_BUNDLE_ID: ${{ vars.IOS_BUNDLE_ID }}
+        run: |
+          set -euo pipefail
+          umask 077
+          mkdir -p "$RUNNER_TEMP/asc"
+          printf '%s\n' "$APPLE_APP_MANAGER_PRIVATE_KEY" > "$RUNNER_TEMP/asc/AuthKey.p8"
+          node -e 'const { IOS_TEAM_ID: teamId, IOS_BUNDLE_ID: bundleId } = process.env;
+            process.stdout.write(`${JSON.stringify({ teamId, bundleId }, null, "\t")}\n`);' \
+            > apps/mobile/ios.local.json
+
+      # The core in release, prebuild, archive and export, signed by Xcode
+      # through the API key. --ipa keeps the .ipa instead of uploading it. It
+      # checks ios.local.json and the variables below before the core builds.
+      - name: Build and sign
+        env:
+          MAXHQ_BUILD_NUMBER: ${{ steps.number.outputs.build }}
+          MAXHQ_ASC_KEY_PATH: ${{ runner.temp }}/asc/AuthKey.p8
+          MAXHQ_ASC_KEY_ID: ${{ secrets.APPLE_APP_MANAGER_KEY_ID }}
+          MAXHQ_ASC_ISSUER_ID: ${{ secrets.APPLE_API_ISSUER }}
+          # Where the app looks for mobile.json, and its page in TestFlight,
+          # both written into the build.
+          MAXHQ_RELEASES_REPO: ${{ github.repository }}
+          MAXHQ_APP_STORE_ID: ${{ vars.IOS_APP_STORE_ID }}
+        run: pnpm --filter maxhq-mobile mobile:testflight --ipa
+
+      - name: Remove the key
+        if: always()
+        run: rm -rf "$RUNNER_TEMP/asc"
+
+      # Only the signed app travels to the upload job, never the key or the
+      # signing settings. apps/mobile/scripts/native.ts names this path.
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: release-ios-ipa
+          path: apps/mobile/ios/build/export/MaxHQ.ipa
+          retention-days: 1
+          if-no-files-found: error
+
+  # Uploads the iPhone build to TestFlight once the Linux, Mac and iPhone
+  # builds have all succeeded, so a failed build anywhere keeps it out of
+  # TestFlight too. The App Store Connect key stays in macos-signing, so this
+  # job waits for its own approval once the builds are done. It checks out
+  # nothing: while the key is on disk, only Apple's uploader runs.
+  release-testflight:
+    needs: [linux-maxd, release-macos, release-ios]
+    runs-on: macos-26
+    environment: macos-signing
+    permissions: {}
+    env:
+      BUILD: ${{ needs.release-ios.outputs.build }}
+    steps:
+      - name: Download the signed .ipa
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: release-ios-ipa
+          path: ipa
+
+      # altool finds the key as AuthKey_<id>.p8 in API_PRIVATE_KEYS_DIR.
+      - name: Write the App Store Connect key
+        env:
+          APPLE_APP_MANAGER_KEY_ID: ${{ secrets.APPLE_APP_MANAGER_KEY_ID }}
+          APPLE_APP_MANAGER_PRIVATE_KEY: ${{ secrets.APPLE_APP_MANAGER_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          umask 077
+          mkdir -p "$RUNNER_TEMP/asc"
+          printf '%s\n' "$APPLE_APP_MANAGER_PRIVATE_KEY" > "$RUNNER_TEMP/asc/AuthKey_$APPLE_APP_MANAGER_KEY_ID.p8"
+
+      # No retry: App Store Connect takes each build number once, so a second
+      # try after an upload that got through would only fail.
+      - name: Upload to TestFlight
+        env:
+          APPLE_APP_MANAGER_KEY_ID: ${{ secrets.APPLE_APP_MANAGER_KEY_ID }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+          API_PRIVATE_KEYS_DIR: ${{ runner.temp }}/asc
+        run: |
+          set -euo pipefail
+          echo "MaxHQ build $BUILD for the iPhone, to TestFlight."
+          xcrun altool --upload-app -f ipa/MaxHQ.ipa -t ios \
+            --apiKey "$APPLE_APP_MANAGER_KEY_ID" --apiIssuer "$APPLE_API_ISSUER"
+
+      - name: Remove the key
+        if: always()
+        run: rm -rf "$RUNNER_TEMP/asc"
+
+  # Uploads the Linux maxd, latest.json and mobile.json once every build has
+  # passed and the iPhone build is in TestFlight, then publishes the draft
+  # when the tag asked for it.
   publish-latest-json:
-    needs: [prepare-release, linux-maxd, release-macos]
+    needs: [prepare-release, linux-maxd, release-macos, release-ios, release-testflight]
     runs-on: ubuntu-24.04
     permissions:
       contents: write
     env:
       VERSION: ${{ needs.prepare-release.outputs.version }}
       PUBLISH: ${{ needs.prepare-release.outputs.publish }}
+      IOS_BUILD: ${{ needs.release-ios.outputs.build }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -303,6 +474,20 @@ jobs:
             --sig "x64=sigs/MaxHQ_${VERSION}_x64.app.tar.gz.sig"
           cat latest.json
           gh release upload "v$VERSION" --repo "$GITHUB_REPOSITORY" --clobber latest.json
+
+      # After latest.json, so the line naming the iPhone build stays out of
+      # the Mac app's What's new.
+      - name: Write and upload mobile.json
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release view "v$VERSION" --repo "$GITHUB_REPOSITORY" --json body --jq .body > notes.md
+          node scripts/release/mobile-json.mjs --version "$VERSION" --build "$IOS_BUILD" \
+            --repo "$GITHUB_REPOSITORY" --out mobile.json --notes-file notes.md
+          cat mobile.json
+          gh release upload "v$VERSION" --repo "$GITHUB_REPOSITORY" --clobber mobile.json
+          gh release edit "v$VERSION" --repo "$GITHUB_REPOSITORY" --notes-file notes.md
 
       - name: Publish the draft
         if: env.PUBLISH == 'true'

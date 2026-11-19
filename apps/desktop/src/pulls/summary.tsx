@@ -7,7 +7,7 @@
 // sign-in, or with the device holding it offline, the two become one Open on
 // GitHub button.
 
-import { t, useI18n } from "@maxhq/shared/i18n";
+import { useI18n } from "@maxhq/shared/i18n";
 
 import { Menu } from "@base-ui/react/menu";
 import { Check, ChevronDown } from "lucide-react";
@@ -19,49 +19,19 @@ import { MENU_ITEM, MENU_POPUP } from "@/composer";
 import { cn } from "@/lib/utils";
 import { PRIMARY, SECONDARY, StatusNote } from "@/settings/controls";
 import type { Note } from "@/settings/result";
-import type { MergeMethod, PullDetail, PullReview, ReviewVerdict } from "@maxhq/shared/bindings";
+import type { MergeMethod, PullDetail, PullReview } from "@maxhq/shared/bindings";
 import { useNow } from "@maxhq/shared/lib/clock";
 import { approveUnavailableReason, type PullActed } from "@maxhq/shared/pulls/act";
 import { githubSignIn } from "@maxhq/shared/pulls/devices";
 import {
 	allowedMergeMethods,
-	MERGE_CONFLICT_REASON,
 	MERGE_METHODS,
 	mergeUnavailableReason,
 } from "@maxhq/shared/pulls/merge";
+import { actedNote, latestVerdicts, mergeability, VERDICT } from "@maxhq/shared/pulls/review";
 import { pullUrl } from "@maxhq/shared/pulls/urls";
 
 import { useApprovePull, useMergePull } from "./queries";
-
-const VERDICT: Record<ReviewVerdict, string> = {
-	get approved() {
-		return t("Approved");
-	},
-	get changes_requested() {
-		return t("Asked for changes");
-	},
-	get commented() {
-		return t("Commented");
-	},
-	get dismissed() {
-		return t("Review dismissed");
-	},
-};
-
-/**
- * Each reviewer's latest verdict, in the order they first reviewed. A
- * comment after a verdict leaves the verdict standing.
- */
-export const latestVerdicts = (reviews: readonly PullReview[]): PullReview[] => {
-	const latest = new Map<string, PullReview>();
-	for (const review of reviews) {
-		const who = review.author.toLowerCase();
-		const before = latest.get(who);
-		if (review.verdict === "commented" && before && before.verdict !== "commented") continue;
-		latest.set(who, review);
-	}
-	return [...latest.values()];
-};
 
 const Heading = ({ children }: { children: string }) => {
 	useI18n();
@@ -94,40 +64,6 @@ const Reviews = ({ reviews }: { reviews: readonly PullReview[] }) => {
 		</ul>
 	);
 };
-
-/** Whether the PR merges cleanly, in words. */
-export const mergeability = (pr: PullDetail): string | null => {
-	const pull = pr.summary.pull;
-	if (pull.state !== "open") return null;
-	if (pull.mergeable === "conflicting") return MERGE_CONFLICT_REASON;
-	if (pull.mergeable === "unknown") return t("GitHub is still checking for conflicts.");
-	return t("No conflicts with {{base}}.", { base: pull.base });
-};
-
-const ACTED: Record<"merge" | "approve", Record<"done" | "queued", string>> = {
-	merge: {
-		get done() {
-			return t("Merged.");
-		},
-		get queued() {
-			return t("Queued to merge.");
-		},
-	},
-	approve: {
-		get done() {
-			return t("Approved.");
-		},
-		get queued() {
-			return t("Approved.");
-		},
-	},
-};
-
-/** What a merge or an approval came to, as a note. */
-const actedNote = (act: "merge" | "approve", acted: PullActed): Note =>
-	acted.state === "refused"
-		? { text: acted.reason, error: true }
-		: { text: ACTED[act][acted.state], error: false };
 
 const Actions = ({ pr }: { pr: PullDetail }) => {
 	const { t } = useI18n();

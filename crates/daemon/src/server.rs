@@ -755,9 +755,9 @@ impl Connection {
         // removes a credential, signs in, changes how this device is set
         // up, installs anything or reads a path on the device. So a stolen
         // phone's key can't either. Nor can it start or move agents, start
-        // tasks, make or remove workspaces, open a shell, reach a guest's
-        // shell or ports, signal a process, copy files out or change hosts,
-        // snapshots,
+        // tasks, make, clone or remove workspaces, place files in them, open
+        // a shell, reach a guest's shell or ports, signal a process, copy
+        // files out, build or reset a test host, or change hosts, snapshots,
         // moves, skills, the skill library or its sources: the phone asks
         // the dispatcher, answers and steers agents that already run.
         // Unless the Mac turned the phone's switch on, which lets it.
@@ -772,6 +772,10 @@ impl Connection {
                     | ClientMessage::InstallAcpAgent { .. }
                     | ClientMessage::CreateWorkspace { .. }
                     | ClientMessage::DeleteWorkspace { .. }
+                    | ClientMessage::CloneFolder { .. }
+                    | ClientMessage::CloneRetry { .. }
+                    | ClientMessage::CloneRemove { .. }
+                    | ClientMessage::PlaceStaged { .. }
                     | ClientMessage::GuestSshOpen { .. }
                     | ClientMessage::TerminalOpen {
                         kind: TerminalKind::Shell,
@@ -784,6 +788,8 @@ impl Connection {
                     | ClientMessage::ApplyHost { .. }
                     | ClientMessage::RestoreSnapshot { .. }
                     | ClientMessage::RunMoveStep { .. }
+                    | ClientMessage::BuildTestHost { .. }
+                    | ClientMessage::ResetTestHost { .. }
                     | ClientMessage::SkillsApply { .. }
                     | ClientMessage::SkillsSetProject { .. }
                     | ClientMessage::SkillsSetAlways { .. }
@@ -1141,8 +1147,8 @@ impl Connection {
                 self.answer_when(key, tokio::task::spawn_blocking(undo));
                 Ok(())
             }
-            ClientMessage::BeginPhonePair { key, book } => {
-                let begin = move || crate::phones::with(|phones| phones.begin(book));
+            ClientMessage::BeginPhonePair { key, book, mac } => {
+                let begin = move || crate::phones::with(|phones| phones.begin(book, mac));
                 self.answer_when(key, tokio::task::spawn_blocking(begin));
                 Ok(())
             }
@@ -1193,8 +1199,13 @@ impl Connection {
                 self.answer_when(key, tokio::task::spawn_blocking(revoke));
                 Ok(())
             }
-            ClientMessage::SetPhoneBook { key, phone, book } => {
-                let set = move || crate::phones::with(|phones| phones.set_book(phone, book));
+            ClientMessage::SetPhoneBook {
+                key,
+                phone,
+                book,
+                mac,
+            } => {
+                let set = move || crate::phones::with(|phones| phones.set_book(phone, book, mac));
                 self.answer_when(key, tokio::task::spawn_blocking(set));
                 Ok(())
             }
@@ -1722,10 +1733,7 @@ impl Connection {
     async fn hello(&mut self, hello: ClientHello) -> Result<(), ConnError> {
         let ours = ProtocolRange::OURS;
         let Some(version) = ours.agree(hello.protocol) else {
-            let message = format!(
-                "this maxd speaks protocol {} to {}, and the client {} to {}",
-                ours.oldest, ours.current, hello.protocol.oldest, hello.protocol.current
-            );
+            let message = ours.refusal(hello.protocol);
             self.error(ErrorCode::UnsupportedProtocol, message).await?;
             return Err(ConnError::Unsupported);
         };
@@ -2427,9 +2435,14 @@ pub(crate) mod tests {
             network: None,
         }];
         let (mut app, _) = TestClient::greeted(&served.socket).await;
+        let home = maxhq_protocol::phones::PhoneMac {
+            device: DeviceId::derive("Home Mac"),
+            name: "Home Mac".into(),
+        };
         app.send(&ClientMessage::BeginPhonePair {
             key: IdempotencyKey::derive("begin"),
             book: book.clone(),
+            mac: Some(home.clone()),
         })
         .await;
         let ServerMessage::ActionResult {
@@ -2473,10 +2486,16 @@ pub(crate) mod tests {
         pairing.send(&pair_phone("pair")).await;
         let phone = match pairing.recv().await {
             ServerMessage::ActionResult {
-                outcome: ActionOutcome::PhonePaired { phone, book: got },
+                outcome:
+                    ActionOutcome::PhonePaired {
+                        phone,
+                        book: got,
+                        mac,
+                    },
                 ..
             } => {
                 assert_eq!(got, book);
+                assert_eq!(mac, Some(home), "the phone hears which Mac paired it");
                 phone
             }
             other => panic!("{other:?}"),
@@ -2564,6 +2583,7 @@ pub(crate) mod tests {
             ClientMessage::BeginPhonePair {
                 key: IdempotencyKey::derive("begin-phone"),
                 book: book.clone(),
+                mac: None,
             },
             add("add-phone", 202),
             ClientMessage::AuthorizePeer {
@@ -3128,7 +3148,7 @@ pub(crate) mod tests {
         use maxhq_protocol::ids::{
             AccountId, AcpAgentId, AdmissionId, AttachmentId, CredentialId, ForwardId, KeyId,
             MoveId, PermissionId, PortId, SignInId, SkillProposalId, SkillSourceId, StreamId,
-            TaskId,
+            TaskId, TestHostId,
         };
         use maxhq_protocol::message::{AgentPlace, AgentSpec, ToolTarget, UpdateKind};
         use maxhq_protocol::model::{
@@ -3275,6 +3295,27 @@ pub(crate) mod tests {
                 workspace,
                 discard_unpushed: true,
             },
+            ClientMessage::CloneFolder {
+                key: key("clone"),
+                project: ProjectId::derive("project"),
+                device: me,
+                parent: "/home/dev/src".into(),
+                name: "stolen".into(),
+            },
+            ClientMessage::CloneRetry {
+                key: key("clone-retry"),
+                workspace,
+            },
+            ClientMessage::CloneRemove {
+                key: key("clone-remove"),
+                workspace,
+            },
+            ClientMessage::PlaceStaged {
+                key: key("place"),
+                workspace,
+                attachment: AttachmentId::derive("place"),
+                overwrite: true,
+            },
             ClientMessage::GuestSshOpen {
                 stream: StreamId::generate(),
                 workspace,
@@ -3323,6 +3364,14 @@ pub(crate) mod tests {
                 key: key("move"),
                 moving: MoveId::derive("move"),
                 step: MoveStep::Retire,
+            },
+            ClientMessage::BuildTestHost {
+                key: key("test-host-build"),
+                host: TestHostId::derive("host"),
+            },
+            ClientMessage::ResetTestHost {
+                key: key("test-host-reset"),
+                host: TestHostId::derive("host"),
             },
             ClientMessage::SkillsApply {
                 key: key("skills"),
@@ -3511,6 +3560,7 @@ pub(crate) mod tests {
             ClientMessage::BeginPhonePair {
                 key: key("pair"),
                 book: Vec::new(),
+                mac: None,
             },
             ClientMessage::AddPhone {
                 key: key("add-another"),
@@ -3565,6 +3615,7 @@ pub(crate) mod tests {
                 key: key("phone-book"),
                 phone,
                 book: Vec::new(),
+                mac: None,
             },
             ClientMessage::SetPhoneEverything {
                 key: key("everything"),
@@ -3611,7 +3662,8 @@ pub(crate) mod tests {
         }
         assert!(!phones.everything(phone), "the phone can't turn it on");
         // A sign-in the Mac began can still be read and stopped from it, and
-        // a command typed after `!` still runs.
+        // a command typed after `!` still runs, and the phone can still have
+        // this device look at what it hosts.
         let round = SignInId::derive("round");
         for message in [
             ClientMessage::CheckCliLogin {
@@ -3631,6 +3683,9 @@ pub(crate) mod tests {
                 },
                 cols: 80,
                 rows: 24,
+            },
+            ClientMessage::CheckTestHosts {
+                key: key("test-host-check"),
             },
         ] {
             own.send(&message).await;

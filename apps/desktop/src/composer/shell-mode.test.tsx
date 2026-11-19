@@ -13,7 +13,7 @@ import { startedOutput } from "@maxhq/shared/terminal/output";
 import { entities, link, workspace } from "@maxhq/shared/test/build";
 import { timelineItem } from "@maxhq/shared/timeline/build";
 
-import { quoteInbox } from "./quote-inbox";
+import { quoteInbox } from "@maxhq/shared/pills/quote-inbox";
 import { RUN_ROWS, runSize } from "./run-command";
 import { putCommand } from "./shell-mode";
 import {

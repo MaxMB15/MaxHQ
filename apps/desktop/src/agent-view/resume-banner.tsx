@@ -16,63 +16,17 @@ import { useState } from "react";
 
 import { useServices, useView } from "@/app/services";
 import { CopyButton } from "@/components/copy-button";
-import type { Account, Agent } from "@maxhq/shared/bindings";
+import type { Agent } from "@maxhq/shared/bindings";
 import { cn } from "@/lib/utils";
-import {
-	agentOfAccount,
-	historyWarning,
-	keepsHistory,
-	needsSignIn,
-	signInCommand,
-} from "@maxhq/shared/settings/acp-agents";
-import { sentence } from "@maxhq/shared/status/format";
+import { agentOfAccount, signInCommand } from "@maxhq/shared/settings/acp-agents";
 import { deviceName } from "@maxhq/shared/view/select";
 
 import { failureOf, type SendState } from "@maxhq/shared/agent-view/answer";
+import { resumeWording } from "@maxhq/shared/agent-view/resume";
 import { Spinner } from "./icons";
 import { t as translate, useI18n } from "@maxhq/shared/i18n";
 
-/** Whether an agent MaxHQ holds has stopped, so Resume can start it again. */
-export const canResume = (agent: Agent): boolean => {
-	if (agent.control === "observed" || agent.parent !== null) return false;
-	if (agent.activity.state === "paused") return true;
-	// On Resume, maxd starts a Claude CLI that exited. It doesn't do that
-	// for a Codex agent that failed, so that one gets no banner.
-	return (
-		agent.activity.state === "error" && agent.vendor === "claude" && agent.link.state === "down"
-	);
-};
-
-const wording = (agent: Agent, account: Account | undefined): { title: string; body: string } => {
-	const { title, body } = stopWording(agent);
-	return keepsHistory(account) || !account
-		? { title, body }
-		: { title, body: `${body} ${historyWarning(account.label)}` };
-};
-
-const stopWording = (agent: Agent): { title: string; body: string } => {
-	const { activity } = agent;
-	if (activity.state === "error") {
-		return {
-			title: translate("Stopped with an error"),
-			body: `${sentence(activity.reason)}. The conversation stays, and Resume starts it again.`,
-		};
-	}
-	if (activity.state === "paused" && activity.reason === "resumes_made_no_progress") {
-		return {
-			title: translate("Paused after 3 resumes"),
-			body: translate(
-				"It was resumed 3 times in a row without making progress. Look over where it got to, then resume it."
-			),
-		};
-	}
-	return {
-		title: translate("Stopped"),
-		body: translate(
-			"The conversation stays. Resume starts it again, and so does sending it a message."
-		),
-	};
-};
+export { canResume } from "@maxhq/shared/agent-view/resume";
 
 /** Over the composer of a stopped agent that MaxHQ holds, or one that needs a sign-in. */
 export const ResumeBanner = ({ agent }: { agent: Agent }) => {
@@ -84,17 +38,7 @@ export const ResumeBanner = ({ agent }: { agent: Agent }) => {
 	);
 	const definition = useView((s) => (account ? agentOfAccount(s.view, account) : undefined));
 	const where = useView((s) => (account ? deviceName(s.view, account.device) : ""));
-	const signIn = account !== undefined && needsSignIn(agent, account);
-	const { title, body } = signIn
-		? {
-				title: translate("{{label}} needs a sign-in", { label: account.label }),
-				body: translate(
-					"Sign in from a terminal on {{where}} the way {{label}} asks, then try again. MaxHQ keeps no login for it.",
-					{ where: where, label: account.label }
-				),
-			}
-		: wording(agent, account);
-	const methods = signIn ? (account.acp?.auth ?? []) : [];
+	const { signIn, title, body, methods } = resumeWording(agent, account, where);
 
 	const resume = () => {
 		setState({ state: "sending" });

@@ -10,7 +10,7 @@ use serde::{Deserialize, Serialize};
 use specta::Type;
 
 use crate::ids::{AgentId, DeviceId, LinkId, NetworkId};
-use crate::message::Capabilities;
+use crate::message::{Capabilities, ProtocolRange};
 use crate::time::Timestamp;
 
 /// A client's connection to one device's `maxd`.
@@ -47,6 +47,11 @@ pub struct DeviceLink {
     /// last hello. Unset and kept like `capabilities`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub protocol: Option<u32>,
+    /// The protocol versions the device's `maxd` speaks, when its last
+    /// hello found none in common with this client's. Kept while the link
+    /// is down, and unset once a hello agrees.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub protocol_mismatch: Option<ProtocolRange>,
     /// The agents with inbox changes waiting in the app's outbox to go out
     /// through this link, in ID order. The client leaves it empty, and the
     /// app's view fills it in.
