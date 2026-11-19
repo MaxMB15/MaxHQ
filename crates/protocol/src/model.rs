@@ -1023,6 +1023,14 @@ pub struct DeviceSettings {
     /// and always takes one.
     #[serde(default)]
     pub claude_setup_token: bool,
+    /// Whether terminals this device opens give zsh, bash and fish hooks
+    /// that mark each prompt and command, so MaxHQ can tell commands
+    /// apart. Off starts shells as their own startup files say. It applies
+    /// to shells opened after it changes. A `maxd` from before
+    /// [`crate::message::SHELL_MARKS_SINCE`] leaves it out and adds no
+    /// hooks.
+    #[serde(default = "yes")]
+    pub shell_integration: bool,
 }
 
 impl DeviceSettings {
@@ -1054,6 +1062,7 @@ impl DeviceSettings {
             memory_items,
             history_mib,
             claude_setup_token,
+            shell_integration,
         } = self;
         let differs = |same: &dyn Fn(&Self) -> bool| old.is_none_or(|old| !same(old));
         let mut changes = Vec::new();
@@ -1151,6 +1160,11 @@ impl DeviceSettings {
                 value: *claude_setup_token,
             });
         }
+        if differs(&|old| old.shell_integration == *shell_integration) {
+            changes.push(Change::ShellIntegration {
+                value: *shell_integration,
+            });
+        }
         changes
     }
 
@@ -1181,6 +1195,7 @@ impl DeviceSettings {
             DeviceSettingChange::MemoryItems { value } => self.memory_items = value,
             DeviceSettingChange::HistoryMib { value } => self.history_mib = value,
             DeviceSettingChange::ClaudeSetupToken { value } => self.claude_setup_token = value,
+            DeviceSettingChange::ShellIntegration { value } => self.shell_integration = value,
         }
     }
 
@@ -1239,6 +1254,7 @@ impl DeviceSettingChange {
         match self {
             Self::ClaudeEffort { .. } | Self::CodexEffort { .. } => crate::message::EFFORT_SINCE,
             Self::ClaudeSetupToken { .. } => crate::message::SETUP_TOKENS_SINCE,
+            Self::ShellIntegration { .. } => crate::message::SHELL_MARKS_SINCE,
             _ => 26,
         }
     }
@@ -1359,6 +1375,11 @@ pub enum DeviceSettingChange {
     },
     /// See [`DeviceSettings::claude_setup_token`].
     ClaudeSetupToken {
+        /// What it becomes.
+        value: bool,
+    },
+    /// See [`DeviceSettings::shell_integration`].
+    ShellIntegration {
         /// What it becomes.
         value: bool,
     },

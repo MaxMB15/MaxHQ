@@ -34,7 +34,7 @@ import type { ViewState } from "@maxhq/shared/view/replica";
 
 import { drawerOf, drawersOf, setActive, setDrawer, setSplit } from "./drawer-prefs";
 import { registryOf } from "./live";
-import type { Picked } from "./term-view";
+import type { CommandOutput, Picked } from "./term-view";
 
 /** The size a new tab starts at, before its view measures its place. */
 const FIRST_SIZE: TerminalSize = { cols: 100, rows: 20 };
@@ -268,13 +268,14 @@ export const popBack = (services: Services, agent: AgentId, terminal: TerminalId
 
 /**
  * Adds text picked in a terminal to an agent's composer as an Output pill,
- * with the lines it sits on. `total` is how many lines the terminal printed.
+ * with the lines it sits on, or what a command its shell marked printed.
+ * `total` is how many lines the terminal printed.
  */
 export const addPicked = (
 	services: Services,
 	to: AgentId,
 	terminal: TerminalEntity,
-	picked: Picked,
+	picked: Picked | CommandOutput,
 	total: number,
 	focus: boolean
 ): void => {

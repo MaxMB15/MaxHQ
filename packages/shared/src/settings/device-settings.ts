@@ -20,6 +20,7 @@ import { continuesAtLimit } from "./limits";
 import { DEFAULT_HISTORY_MIB, DEFAULT_MEMORY_ITEMS, keepsMemoryLimits } from "./memory";
 import { deviceDefault } from "./permission";
 import { knowsSetupTokens } from "./setup-tokens";
+import { knowsShellIntegration } from "./shell-integration";
 
 /** Every setting a save sends. */
 export type DeviceFields = Required<Omit<DeviceSettings, "device">>;
@@ -45,6 +46,7 @@ export const deviceSettingsOf = (view: ViewState, device: DeviceId): DeviceField
 		memory_items: kept?.memory_items ?? DEFAULT_MEMORY_ITEMS,
 		history_mib: kept?.history_mib ?? DEFAULT_HISTORY_MIB,
 		claude_setup_token: kept?.claude_setup_token ?? false,
+		shell_integration: kept?.shell_integration ?? true,
 		skill_library: kept?.skill_library ?? null,
 		network: kept?.network ?? {},
 		test_hosts: testHostSettingsOf(view, device),
@@ -69,6 +71,7 @@ export const sameDeviceFields = (a: DeviceFields, b: DeviceFields): boolean =>
 	a.memory_items === b.memory_items &&
 	a.history_mib === b.history_mib &&
 	a.claude_setup_token === b.claude_setup_token &&
+	a.shell_integration === b.shell_integration &&
 	a.skill_library === b.skill_library &&
 	a.network.on === b.network.on &&
 	a.network.port === b.network.port &&
@@ -154,6 +157,7 @@ export type SettingsWhy = {
 	readonly memory: string | null;
 	readonly tokens: string | null;
 	readonly effort: string | null;
+	readonly shell: string | null;
 };
 
 /** Why each part of `device`'s settings can't change, given whether it answers. */
@@ -188,5 +192,6 @@ export const settingsWhy = (
 						}
 					)),
 		effort: tooOld(setsEffort(view, device), false),
+		shell: tooOld(knowsShellIntegration(view, device), false),
 	};
 };

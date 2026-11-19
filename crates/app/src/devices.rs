@@ -4319,6 +4319,7 @@ pub(crate) mod tests {
             memory_items: 256,
             history_mib: 256,
             claude_setup_token: false,
+            shell_integration: true,
         }
     }
 
@@ -4447,6 +4448,7 @@ pub(crate) mod tests {
                 memory_items: 256,
                 history_mib: 256,
                 claude_setup_token: false,
+                shell_integration: true,
             },
         };
         act(settings("nl")).unwrap();

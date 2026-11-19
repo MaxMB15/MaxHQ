@@ -801,6 +801,7 @@ fn hold_terminal(
         cols: 80,
         rows: 24,
         run: matches!(kind, TerminalKind::Run { .. }),
+        nonce: None,
     };
     let held = Held(terminals.dirs().sessions.join(launch.terminal.to_string()));
     let runtime = tokio::runtime::Builder::new_current_thread()

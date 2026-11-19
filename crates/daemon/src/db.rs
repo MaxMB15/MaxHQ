@@ -1993,6 +1993,7 @@ mod tests {
             memory_items: 256,
             history_mib: 256,
             claude_setup_token: false,
+            shell_integration: true,
         };
         Db::open(&path)
             .unwrap()

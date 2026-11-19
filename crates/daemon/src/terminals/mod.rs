@@ -8,7 +8,10 @@
 //!
 //! [`Terminals`] publishes each one as a `Terminal` entity and keeps it
 //! current from a quiet link to its holder: whether it runs, its title and
-//! folder, whether it waits for a password and its size. It sends each
+//! folder, whether it waits for a password and its size. A drawer shell
+//! that marks its prompts and commands, as zsh, bash and fish do while the
+//! device's shell integration is on, is busy from a command's start to its
+//! end, and `maxd` keeps where each command's output starts and ends. It sends each
 //! connection that attached the output from where that connection asked,
 //! and passes on what it types. What anyone types goes to the holder and
 //! nowhere else: never a log, a store or an agent.
@@ -26,7 +29,9 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::Duration;
 
-use maxhq_hold::{Reached, TermControl, TermEvent, TermExit, TermHello, TermLaunch, TermLink};
+use maxhq_hold::{
+    Commands, Reached, TermControl, TermEvent, TermExit, TermHello, TermLaunch, TermLink,
+};
 use maxhq_protocol::frame::{self, MAX_TERMINAL_CHUNK};
 use maxhq_protocol::ids::{AgentId, DeviceId, IdempotencyKey, TerminalId};
 use maxhq_protocol::message::{ActionOutcome, ErrorCode, ServerMessage};
@@ -200,6 +205,8 @@ struct Open {
     pumps: HashMap<u64, AbortHandle>,
     /// Whether you closed it, or its agent ended, so it goes once it ends.
     closing: bool,
+    /// The commands its shell marked, as the quiet link heard them.
+    commands: Commands,
 }
 
 impl Open {
@@ -227,6 +234,7 @@ impl Open {
             sizes: HashMap::new(),
             pumps: HashMap::new(),
             closing: false,
+            commands: Commands::default(),
         };
         if let Some(hello) = hello {
             open.hello(hello);
@@ -235,8 +243,10 @@ impl Open {
         open
     }
 
-    /// Takes in what a holder said as a link came up.
+    /// Takes in what a holder said as a link came up. The link sends
+    /// every mark the holder keeps again.
     fn hello(&mut self, hello: &TermHello) {
+        self.commands = Commands::default();
         self.entity.password_prompt = hello.password;
         self.entity.cols = hello.cols;
         self.entity.rows = hello.rows;
@@ -511,12 +521,13 @@ impl Terminals {
     ) -> Result<(Terminal, mpsc::Receiver<TermEvent>), String> {
         let terminal = TerminalId::generate();
         let (cols, rows) = (request.cols.max(1), request.rows.max(1));
-        let launch = match &request.kind {
+        let mut launch = match &request.kind {
             TerminalKind::Shell => TermLaunch::shell(terminal, request.cwd.clone(), cols, rows),
             TerminalKind::Run { command, .. } => {
                 TermLaunch::run(terminal, request.cwd.clone(), command, cols, rows)
             }
         };
+        self.integrate(&mut launch);
         if let Err(err) = self.inner.holds.spawn(&launch).await {
             warn!(%err, agent = %request.agent, "couldn't start a terminal");
             return Err(format!("Couldn't start the terminal: {err}"));
@@ -545,9 +556,24 @@ impl Terminals {
         Ok(self.hold(terminal, note, link, Some(request.conn)))
     }
 
+    /// Gives a drawer shell hooks that mark its prompts and commands,
+    /// unless the device's shell integration is off. A shell it can't give
+    /// them starts as it would without.
+    fn integrate(&self, launch: &mut TermLaunch) {
+        let key = EntityKey::DeviceSettings(self.inner.device);
+        if let Some(Entity::DeviceSettings(settings)) = self.inner.hub.get(&key)
+            && !settings.shell_integration
+        {
+            return;
+        }
+        if let Err(err) = self.inner.holds.integrate(launch) {
+            warn!(%err, "couldn't write the shell integration scripts");
+        }
+    }
+
     /// Follows a terminal's quiet link: its password prompt, whether it's
-    /// busy, its title, folder and exit. When the link drops before the exit,
-    /// it reaches the holder again.
+    /// busy, its title, folder, marks and exit. When the link drops before
+    /// the exit, it reaches the holder again.
     async fn follow(self, terminal: TerminalId, mut events: mpsc::Receiver<TermEvent>) {
         let mut exited = false;
         loop {
@@ -559,9 +585,20 @@ impl Terminals {
                         open.entity.password_prompt = on;
                         changed
                     }),
+                    // Once its shell marks commands, the marks say when
+                    // it's busy.
                     TermEvent::Busy(on) => self.update(terminal, |open| {
-                        let changed = open.entity.busy != on;
+                        if open.commands.marked() || open.entity.busy == on {
+                            return false;
+                        }
                         open.entity.busy = on;
+                        true
+                    }),
+                    TermEvent::Mark { offset, at, mark } => self.update(terminal, |open| {
+                        open.commands.mark(offset, at, &mark);
+                        let busy = open.running() && open.commands.running();
+                        let changed = open.entity.busy != busy;
+                        open.entity.busy = busy;
                         changed
                     }),
                     TermEvent::Title(title) => self.update(terminal, |open| {

@@ -1060,5 +1060,9 @@
 	"This copy was built from source, so it doesn't update itself. Build the new version the same way.": "Cette copie a été compilée depuis les sources, elle ne se met donc pas à jour seule. Compilez la nouvelle version de la même façon.",
 	"MaxHQ is running from its disk image. Drag it to Applications and open it from there to get updates.": "MaxHQ s'exécute depuis son image disque. Faites-le glisser dans Applications et ouvrez-le depuis là pour recevoir les mises à jour.",
 	"macOS is running a temporary copy of MaxHQ, since it was opened where it was downloaded. Move it to Applications and open it from there to get updates.": "macOS exécute une copie temporaire de MaxHQ, car il a été ouvert là où il a été téléchargé. Déplacez-le dans Applications et ouvrez-le depuis là pour recevoir les mises à jour.",
-	"MaxHQ updates itself only from the Applications folder. Move it there to get updates.": "MaxHQ ne se met à jour que depuis le dossier Applications. Déplacez-le là pour recevoir les mises à jour."
+	"MaxHQ updates itself only from the Applications folder. Move it there to get updates.": "MaxHQ ne se met à jour que depuis le dossier Applications. Déplacez-le là pour recevoir les mises à jour.",
+	"Terminals on {{name}}": "Terminaux sur {{name}}",
+	"Shell integration on by default": "Intégration du shell activée par défaut",
+	"Shell integration": "Intégration du shell",
+	"MaxHQ adds hooks to zsh, bash and fish so it can tell commands apart. Off starts shells exactly as your startup files say. Applies to terminals opened after the change.": "MaxHQ ajoute des hooks à zsh, bash et fish pour distinguer les commandes. Désactivée, les shells démarrent exactement comme vos fichiers de démarrage l'indiquent. S'applique aux terminaux ouverts après la modification."
 }

@@ -3,12 +3,15 @@
 
 //! Tests of real terminal holders running `/bin/sh` on a pty.
 //!
-//! The scripts run with `sh -c`, or `sh -i`, bash or zsh with `HOME`, `ENV`
-//! and `ZDOTDIR` pointed at the test's own folder, so no shell reads
-//! anyone's startup files.
+//! The scripts run with `sh -c`, or `sh -i`, bash, zsh or fish with `HOME`,
+//! `ENV`, `ZDOTDIR` and the XDG folders pointed at the test's own folder,
+//! so no shell reads anyone's startup files.
 
-use maxhq_hold::{Reached, TermEvent, TermExit, TermLaunch, TermLink, Terminals};
+use maxhq_hold::{
+    Commands, Mark, Reached, ShellCommand, TermEvent, TermExit, TermLaunch, TermLink, Terminals,
+};
 use maxhq_protocol::ids::TerminalId;
+use maxhq_protocol::time::Timestamp;
 
 use super::*;
 
@@ -37,6 +40,7 @@ fn sh(ctx: &Ctx, script: &str, run: bool) -> TermLaunch {
         cols: 80,
         rows: 24,
         run,
+        nonce: None,
     }
 }
 
@@ -72,6 +76,7 @@ struct Seen {
     busy: bool,
     title: Option<String>,
     cwd: Option<String>,
+    marks: Vec<(u64, Mark)>,
 }
 
 /// The state with only the end of the output, which can run to megabytes.
@@ -86,6 +91,7 @@ impl std::fmt::Debug for Seen {
             .field("busy", &self.busy)
             .field("title", &self.title)
             .field("cwd", &self.cwd)
+            .field("marks", &self.marks)
             .finish()
     }
 }
@@ -100,6 +106,7 @@ impl Seen {
             busy: link.hello.busy,
             title: link.hello.title.clone(),
             cwd: link.hello.cwd.clone(),
+            marks: Vec::new(),
         }
     }
 
@@ -129,6 +136,7 @@ impl Seen {
                 TermEvent::Busy(on) => self.busy = on,
                 TermEvent::Title(title) => self.title = Some(title),
                 TermEvent::Cwd(cwd) => self.cwd = Some(cwd),
+                TermEvent::Mark { offset, mark, .. } => self.marks.push((offset, mark)),
                 TermEvent::Exit(exit) => {
                     assert!(self.exit.is_none(), "two exits");
                     self.exit = Some(exit);
@@ -579,6 +587,284 @@ pub(super) async fn a_run_whose_startup_asks_for_something_shows_it(ctx: Ctx) {
     }
 }
 
+/// A mark as the holder passes it on.
+fn plain(mark: &Mark) -> String {
+    match mark {
+        Mark::Prompt => "\x1b]133;A\x07".into(),
+        Mark::Input => "\x1b]133;B\x07".into(),
+        Mark::Command { .. } => "\x1b]133;C\x07".into(),
+        Mark::Done { exit: Some(exit) } => format!("\x1b]133;D;{exit}\x07"),
+        Mark::Done { exit: None } => "\x1b]133;D\x07".into(),
+    }
+}
+
+/// Checks each of `marks` is where it says in `bytes`, the output from its
+/// start, and no other 133 got through.
+fn assert_marks_in_place(bytes: &[u8], marks: &[(u64, Mark)]) {
+    for (offset, mark) in marks {
+        let rest = &bytes[usize::try_from(*offset).unwrap()..];
+        assert!(
+            rest.starts_with(plain(mark).as_bytes()),
+            "{mark:?} at {offset}: {:?}",
+            String::from_utf8_lossy(&rest[..rest.len().min(40)])
+        );
+    }
+    let all = bytes.windows(6).filter(|w| *w == b"\x1b]133;").count();
+    assert_eq!(all, marks.len(), "{:?}", String::from_utf8_lossy(bytes));
+}
+
+fn commands_of(marks: &[(u64, Mark)]) -> Commands {
+    let mut commands = Commands::default();
+    for (offset, mark) in marks {
+        commands.mark(*offset, Timestamp::now(), mark);
+    }
+    commands
+}
+
+pub(super) async fn a_shell_mark_needs_its_nonce_and_may_come_in_pieces(ctx: Ctx) {
+    let nonce = "0123456789abcdef0123456789abcdef";
+    // The D mark comes in three reads, the last split inside its ST. The
+    // ESC ends it, as it does in the terminal, and the `ESC \` it starts
+    // goes on.
+    let script = format!(
+        "stty -echo; printf 'one\\033]133;A;maxhq={nonce}\\007two'; \
+         printf '\\033]133;B;maxhq=wrong\\007\\033]133;C\\007\\033]133;B;maxhq={nonce}0\\007'; \
+         printf '\\033]7;file://devbox/tmp/x\\007\\033]13'; sleep 0.3; \
+         printf '3;D;7;maxhq={nonce}\\033'; sleep 0.3; \
+         printf '\\\\three\\033]133;C;maxhq={nonce}\\007'; read wait"
+    );
+    let terminals = terminals(&ctx);
+    for nonce in [Some(nonce), None] {
+        let mut launch = sh(&ctx, &script, false);
+        // sh gets nothing of MaxHQ's.
+        assert!(!terminals.integrate(&mut launch).unwrap());
+        launch.nonce = nonce.map(str::to_owned);
+        let mut link = start(&ctx, &launch).await;
+        let Reached::Live(mut watch) = terminals.watch(launch.terminal).await.unwrap() else {
+            panic!("no watch");
+        };
+        let osc7 = "\x1b]7;file://devbox/tmp/x\x07";
+        let expected = match nonce {
+            Some(_) => {
+                format!("one\x1b]133;A\x07two{osc7}\x1b]133;D;7\x07\x1b\\three\x1b]133;C\x07")
+            }
+            None => format!("onetwo{osc7}\x1b\\three"),
+        };
+        let mut seen = Seen::from(&link);
+        seen.until(&mut link, false, |seen| seen.bytes.len() >= expected.len())
+            .await;
+        assert_eq!(seen.text(), expected);
+        assert!(link.control.input(b"\n".to_vec()));
+        seen.until_exit(&mut link).await;
+        // A link for the output gets no marks.
+        assert_eq!(seen.marks, []);
+        let mut watched = Seen::from(&watch);
+        watched.until_exit(&mut watch).await;
+        let at = |text: &str| u64::try_from(expected.find(text).unwrap()).unwrap();
+        let marks = match nonce {
+            Some(_) => vec![
+                (3, Mark::Prompt),
+                (at("\x1b]133;D"), Mark::Done { exit: Some(7) }),
+                (
+                    at("\x1b]133;C"),
+                    Mark::Command {
+                        cwd: Some("/tmp/x".into()),
+                    },
+                ),
+            ],
+            None => Vec::new(),
+        };
+        assert_eq!(watched.marks, marks);
+        assert_marks_in_place(&seen.bytes, &watched.marks);
+        // One that comes later gets them all again.
+        let Reached::Live(mut later) = terminals.watch(launch.terminal).await.unwrap() else {
+            panic!("no second watch");
+        };
+        let mut again = Seen::from(&later);
+        again.until_exit(&mut later).await;
+        assert_eq!(again.marks, marks);
+    }
+}
+
+/// Every program called `name` on the PATH, once each.
+fn on_path(name: &str) -> Vec<PathBuf> {
+    let mut found = Vec::new();
+    let mut real = Vec::new();
+    for dir in std::env::split_paths(&std::env::var_os("PATH").unwrap_or_default()) {
+        let path = dir.join(name);
+        let Ok(canonical) = fs::canonicalize(&path) else {
+            continue;
+        };
+        if path.is_file() && !real.contains(&canonical) {
+            real.push(canonical);
+            found.push(path);
+        }
+    }
+    if found.is_empty() {
+        eprintln!("note: no {name} on the PATH, so its shell integration goes untested");
+    }
+    found
+}
+
+pub(super) async fn zsh_bash_and_fish_mark_their_commands(ctx: Ctx) {
+    let shells: Vec<_> = ["zsh", "bash", "fish"]
+        .into_iter()
+        .flat_map(on_path)
+        .collect();
+    for program in &shells {
+        a_shell_marks_its_commands(&ctx, program).await;
+    }
+    // One folder for them all, and nothing else in it, history included.
+    let folders: Vec<_> = (fs::read_dir(&ctx.dirs.sessions).unwrap())
+        .map(|entry| entry.unwrap().path())
+        .filter(|path| {
+            path.file_name()
+                .unwrap()
+                .to_string_lossy()
+                .starts_with("shell-")
+        })
+        .collect();
+    assert_eq!(folders.len(), usize::from(!shells.is_empty()));
+    for folder in folders {
+        let mut names: Vec<_> = (fs::read_dir(folder).unwrap())
+            .map(|entry| entry.unwrap().file_name())
+            .collect();
+        names.sort();
+        let all = [
+            ".zlogin",
+            ".zprofile",
+            ".zshenv",
+            ".zshrc",
+            "bash.sh",
+            "fish.fish",
+        ];
+        assert_eq!(names, all);
+    }
+}
+
+/// Waits until the shell has run `done` commands and shows its prompt for
+/// the next.
+async fn ready(watch: &mut TermLink, watched: &mut Seen, done: usize) {
+    watched
+        .until(watch, false, |seen| {
+            let commands = commands_of(&seen.marks);
+            let list = commands.list();
+            list.len() == done + 1
+                && list.iter().take(done).all(|command| command.end.is_some())
+                && list.back().is_some_and(|last| last.input.is_some())
+        })
+        .await;
+}
+
+async fn a_shell_marks_its_commands(ctx: &Ctx, program: &Path) {
+    let shell = program.file_name().unwrap().to_str().unwrap();
+    let shown = program.display();
+    let terminals = terminals(ctx);
+    let home = ctx.root.join(format!("home-{shell}"));
+    let zdot = home.join("zdot");
+    let config = home.join("config");
+    fs::create_dir_all(&zdot).unwrap();
+    fs::create_dir_all(config.join("fish")).unwrap();
+    fs::create_dir_all(ctx.root.join("a b%c")).unwrap();
+    // Each startup file says it ran. The prompt is the user's own, and so
+    // are hooks at the prompt and before a command, which still run.
+    let fish = "set -gx RC config\n\
+                function fish_prompt; printf 'ready> '; end\n\
+                function hooked --on-event fish_prompt; set -gx HOOKED yes; end\n\
+                function trapped --on-event fish_preexec; set -gx TRAPPED yes; end\n";
+    for (path, text) in [
+        (zdot.join(".zshenv"), "export RC=env"),
+        (zdot.join(".zprofile"), "RC=${RC}:profile"),
+        (
+            zdot.join(".zshrc"),
+            "RC=${RC}:rc; PS1='ready> '\n\
+             precmd() { export HOOKED=yes }\n\
+             preexec() { export TRAPPED=yes }",
+        ),
+        (zdot.join(".zlogin"), "RC=${RC}:login"),
+        (
+            home.join(".bash_profile"),
+            "export RC=profile; PS1='ready> '\n\
+             PROMPT_COMMAND='export HOOKED=yes'\n\
+             trap 'export TRAPPED=yes' DEBUG",
+        ),
+        (home.join(".bashrc"), "export RC=bashrc"),
+        (config.join("fish/config.fish"), fish),
+    ] {
+        fs::write(path, text).unwrap();
+    }
+    let rc = match shell {
+        "zsh" => "env:profile:rc:login",
+        "bash" => "profile",
+        _ => "config",
+    };
+    // Wide, so no line the test types wraps.
+    let mut launch = TermLaunch::shell(TerminalId::generate(), ctx.root.clone(), 200, 24);
+    launch.program = program.into();
+    launch.env.extend(
+        [
+            ("HOME", home.clone()),
+            ("ZDOTDIR", zdot.clone()),
+            ("XDG_CONFIG_HOME", config),
+            ("XDG_DATA_HOME", home.join("data")),
+            ("XDG_CACHE_HOME", home.join("cache")),
+        ]
+        .map(|(key, value)| (key.into(), value.into())),
+    );
+    assert!(terminals.integrate(&mut launch).unwrap(), "{shown}");
+    let nonce = launch.nonce.clone().unwrap();
+    let mut link = start(ctx, &launch).await;
+    let Reached::Live(mut watch) = terminals.watch(launch.terminal).await.unwrap() else {
+        panic!("no watch for {shown}");
+    };
+    let mut watched = Seen::from(&watch);
+    let typed = [
+        "sh -c 'echo \"rc:$RC:$ZDOTDIR:${MAXHQ_SHELL_NONCE-gone}:$HOOKED:$TRAPPED\"'",
+        "cd 'a b%c'",
+        "env printf '\\033]133;D;1;maxhq=wrong\\007\\033]133;A\\007'; sh -c 'exit 3'",
+    ];
+    for (done, line) in typed.iter().enumerate() {
+        ready(&mut watch, &mut watched, done).await;
+        assert!(link.control.input(format!("{line}\n").into_bytes()));
+    }
+    ready(&mut watch, &mut watched, typed.len()).await;
+    assert!(link.control.input(b"exit 0\n".to_vec()));
+    let mut seen = Seen::from(&link);
+    let exit = seen.until_exit(&mut link).await;
+    assert_eq!(exit.code, Some(0), "{shown}: {seen:?}");
+    watched.until_exit(&mut watch).await;
+
+    assert_marks_in_place(&seen.bytes, &watched.marks);
+    assert!(!holds_bytes(&seen.bytes, nonce.as_bytes()), "{shown}");
+    let commands = commands_of(&watched.marks);
+    let list: Vec<_> = commands.list().iter().take(typed.len()).collect();
+    let exits: Vec<_> = list.iter().map(|command| command.exit).collect();
+    assert_eq!(exits, [Some(0), Some(0), Some(3)], "{shown}: {watched:?}");
+    let text = |from: Option<u64>, to: Option<u64>| {
+        let range = usize::try_from(from.unwrap()).unwrap()..usize::try_from(to.unwrap()).unwrap();
+        String::from_utf8_lossy(&seen.bytes[range]).into_owned()
+    };
+    let output = text(list[0].start, list[0].end);
+    let rc_line = format!("rc:{rc}:{}:gone:yes:yes", zdot.display());
+    assert!(output.contains(&rc_line), "{shown}: {output:?}");
+    // What the shell echoed between its prompt and the command is the
+    // command. fish colors it as you type.
+    if shell != "fish" {
+        for (command, line) in list.iter().zip(typed) {
+            let echoed = text(command.input, command.start);
+            assert!(echoed.contains(line), "{shown}: {echoed:?}");
+        }
+    }
+    let root = ctx.root.file_name().unwrap();
+    let cwd = |command: &ShellCommand| PathBuf::from(command.cwd.clone().unwrap());
+    assert!(cwd(list[0]).ends_with(root), "{shown}: {list:?}");
+    assert!(
+        cwd(list[2]).ends_with(Path::new(root).join("a b%c")),
+        "{shown}"
+    );
+    assert!(seen.cwd.unwrap().ends_with("/a b%c"), "{shown}");
+}
+
 pub(super) async fn a_terminal_outlives_its_spawner(ctx: Ctx) {
     let terminal = TerminalId::generate();
     let mut command = Command::new(exe());
@@ -645,6 +931,7 @@ pub(super) fn spawner(sessions: &Path, sockets: &Path, terminal: &str, cwd: &Pat
         cols: 80,
         rows: 24,
         run: false,
+        nonce: None,
     };
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()

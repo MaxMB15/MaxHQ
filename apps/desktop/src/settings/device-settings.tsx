@@ -5,7 +5,8 @@
 // when its idle agents settle and whether agents that stop at a usage limit
 // snooze, how readily new agents go there when you don't pick a device,
 // how long an idle agent keeps its CLI running, how much of each agent's
-// timeline its `maxd` keeps, whether it takes Claude setup-tokens, and,
+// timeline its `maxd` keeps, whether its terminals mark commands, whether
+// it takes Claude setup-tokens, and,
 // on a Mac, when its `maxd` keeps it awake, and, on a device with Incus,
 // the network and storage pool new workspaces get, and whether phones reach
 // it over the network. Its `maxd` keeps them and reports them, and a save
@@ -52,6 +53,7 @@ import {
 	settingsWhy,
 } from "@maxhq/shared/settings/device-settings";
 import { knowsSetupTokens, setupTokenQuestion } from "@maxhq/shared/settings/setup-tokens";
+import { knowsShellIntegration } from "@maxhq/shared/settings/shell-integration";
 import { offersSkills, skillLibrary } from "@maxhq/shared/skills/library";
 import { isThisMac, listsAppKeys } from "@maxhq/shared/settings/app-keys";
 import { deviceName } from "@maxhq/shared/view/select";
@@ -81,6 +83,7 @@ type Part =
 	| "awake"
 	| "library"
 	| "network"
+	| "shell"
 	| "tokens";
 
 /**
@@ -201,6 +204,7 @@ export const deviceCards = (view: ViewState, device: DeviceId): readonly DeviceC
 				translate("History kept per agent"),
 			],
 		},
+		{ id: "terminals", terms: [translate("Terminals"), translate("Shell integration")] },
 		{
 			id: "setup-tokens",
 			terms: [translate("Claude setup-tokens"), translate("Take setup-tokens")],
@@ -571,6 +575,30 @@ export const DeviceSettings = ({
 						wrapDetails
 						onChange={(mib) => void save("history", { history_mib: Number(mib) })}
 						disabled={why.memory !== null}
+					/>
+				</Row>
+			</Section>
+			<Section
+				title={translate("Terminals")}
+				id={cardId("terminals")}
+				label={translate("Terminals on {{name}}", { name: name })}
+				hint={translate("Shell integration on by default")}
+			>
+				<Row
+					title={translate("Shell integration")}
+					sub={
+						why.shell ??
+						translate(
+							"MaxHQ adds hooks to zsh, bash and fish so it can tell commands apart. Off starts shells exactly as your startup files say. Applies to terminals opened after the change."
+						)
+					}
+				>
+					<StatusNote note={noteFor("shell")} />
+					<Switch
+						aria-label={translate("Shell integration")}
+						checked={knowsShellIntegration(view, device) && shown.shell_integration}
+						disabled={why.shell !== null}
+						onCheckedChange={(on) => void save("shell", { shell_integration: on })}
 					/>
 				</Row>
 			</Section>

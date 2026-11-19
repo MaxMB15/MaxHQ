@@ -2763,6 +2763,12 @@ pub const FINISHED_SUB_AGENTS_SINCE: u32 = 44;
 /// [`Capabilities::terminals`] is false.
 pub const TERMINALS_SINCE: u32 = 45;
 
+/// The protocol version whose `maxd` first keeps the switch for shell
+/// integration, [`DeviceSettingChange::ShellIntegration`], and adds hooks to
+/// the zsh, bash and fish it starts in terminals. An older one adds none,
+/// so the app hides the switch.
+pub const SHELL_MARKS_SINCE: u32 = 47;
+
 /// When [`ClientMessage::TakeOver`] stops the terminal's CLI.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, Type, JsonSchema)]
 #[serde(rename_all = "snake_case")]
@@ -4245,6 +4251,7 @@ mod tests {
                         memory_items: 256,
                         history_mib: 256,
                         claude_setup_token: false,
+                        shell_integration: true,
                     },
                 },
             ),
@@ -5437,6 +5444,13 @@ mod tests {
         assert!(switch.reaches(Some(SETUP_TOKENS_SINCE)));
         let pool = update(vec![DeviceSettingChange::WorkspacePool { value: None }]);
         assert_eq!(pool.since(), 26);
+        let shells = update(vec![DeviceSettingChange::ShellIntegration { value: false }]);
+        assert_eq!(
+            round_trip(&shells)["changes"][0],
+            json!({ "field": "shell_integration", "value": false })
+        );
+        assert_eq!(shells.since(), SHELL_MARKS_SINCE);
+        const { assert!(SHELL_MARKS_SINCE <= crate::PROTOCOL_VERSION) };
     }
 
     #[test]
@@ -5464,6 +5478,7 @@ mod tests {
             memory_items: 256,
             history_mib: 256,
             claude_setup_token: false,
+            shell_integration: true,
         };
         assert_eq!(old.changes_from(Some(&old)), []);
         let new = DeviceSettings {

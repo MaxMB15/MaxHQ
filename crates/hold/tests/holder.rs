@@ -46,11 +46,12 @@ use self::terminal::{
     a_reader_past_the_ring_starts_over_at_a_whole_line, a_run_keeps_what_it_showed,
     a_run_shows_nothing_its_shell_printed_before_the_command,
     a_run_whose_startup_asks_for_something_shows_it,
+    a_shell_mark_needs_its_nonce_and_may_come_in_pieces,
     a_terminal_holder_refuses_a_client_without_its_key, a_terminal_outlives_its_spawner,
     a_terminal_replays_from_an_offset_without_a_gap, a_watch_gets_all_but_the_output,
     an_ended_terminal_leaves_its_exit_when_nobody_says_goodbye,
     interrupt_stops_what_the_shell_runs, kill_escalates_to_sigkill, kill_hangs_up_the_whole_group,
-    the_title_and_folder_come_from_the_shell,
+    the_title_and_folder_come_from_the_shell, zsh_bash_and_fish_mark_their_commands,
 };
 
 #[path = "holder/terminal.rs"]
@@ -142,6 +143,8 @@ const TESTS: &[(&str, TestFn)] = tests![
     a_run_shows_nothing_its_shell_printed_before_the_command,
     a_run_whose_startup_asks_for_something_shows_it,
     a_terminal_outlives_its_spawner,
+    a_shell_mark_needs_its_nonce_and_may_come_in_pieces,
+    zsh_bash_and_fish_mark_their_commands,
 ];
 
 /// Tests that need root, systemd or a running `maxd`, each with why. They

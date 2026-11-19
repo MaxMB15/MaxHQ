@@ -8,7 +8,9 @@
 // log line every second until Ctrl-C, and `sudo true` asks for a password
 // the way a real prompt does, with the terminal in password mode until you
 // send a line, which it never echoes or keeps. A command you ran with `!`
-// keeps what it printed, which its card shows once it ends.
+// keeps what it printed, which its card shows once it ends. A shell on a
+// device with Shell integration on marks its prompts and commands, OSC
+// 133, as `maxd` passes them on.
 
 import type { Terminal, TerminalId, Timestamp } from "../bindings";
 import { utf8 } from "../notes/merge";
@@ -21,6 +23,8 @@ export type MockStreamHooks = {
 	readonly now: () => Timestamp;
 	/** A command you ran with `!` ended, with its status already set. */
 	readonly exited?: (terminal: TerminalId) => void;
+	/** Whether a shell it starts marks its prompts and commands. */
+	readonly marks?: (terminal: Terminal) => boolean;
 };
 
 /** What a command you ran with `!` printed, as its card keeps it. */
@@ -179,6 +183,8 @@ type State = {
 	text: string;
 	/** Whether `text` lost its start to the limit. */
 	dropped: boolean;
+	/** Whether it marks its prompts and commands. */
+	readonly marks: boolean;
 };
 
 /** Escape sequences other than colors and styles, which a card leaves out. */
@@ -215,6 +221,7 @@ export const mockTerminalStream = ({
 	edit,
 	now,
 	exited,
+	marks,
 }: MockStreamHooks): MockTerminalStream => {
 	const states = new Map<TerminalId, State>();
 
@@ -241,8 +248,14 @@ export const mockTerminalStream = ({
 		emit(state, { type: "output", ...chunk });
 	};
 
+	/** A mark, OSC 133, in a shell that prints them. */
+	const mark = (state: State, body: string) => (state.marks ? `\x1b]133;${body}\x07` : "");
+
 	const prompt = (state: State) =>
-		print(state, `${CYAN}${BOLD}${baseName(state.cwd)}${OFF} ${DIM}%${OFF} `);
+		print(
+			state,
+			`${mark(state, "A")}${CYAN}${BOLD}${baseName(state.cwd)}${OFF} ${DIM}%${OFF} ${mark(state, "B")}`
+		);
 
 	/**
 	 * Sets what runs, or nothing at the prompt, so the terminal says it's
@@ -262,6 +275,7 @@ export const mockTerminalStream = ({
 		state.secret = null;
 		if (state.shell) {
 			foreground(state, null);
+			print(state, mark(state, `D;${code ?? ""}`));
 			prompt(state);
 			return;
 		}
@@ -333,6 +347,8 @@ export const mockTerminalStream = ({
 			if (!state.shell) return finish(state, null, SIGINT);
 			state.secret = null;
 			foreground(state, null);
+			// A shell says what Ctrl-C stopped exited with 128 and the signal.
+			print(state, mark(state, `D;${128 + SIGINT}`));
 		}
 		prompt(state);
 	};
@@ -341,8 +357,9 @@ export const mockTerminalStream = ({
 		const line = state.line;
 		state.line = "";
 		print(state, "\r\n");
-		if (line.trim()) run(state, line.trim());
-		else prompt(state);
+		if (!line.trim()) return prompt(state);
+		print(state, mark(state, "C"));
+		run(state, line.trim());
 	};
 
 	// Escape sequences, such as the arrow keys and the markers around a
@@ -403,6 +420,7 @@ export const mockTerminalStream = ({
 				named: false,
 				text: "",
 				dropped: false,
+				marks: terminal.kind.type === "shell" && (marks?.(terminal) ?? false),
 			};
 			states.set(terminal.id, state);
 			if (terminal.kind.type === "shell") prompt(state);

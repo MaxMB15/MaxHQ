@@ -6,9 +6,19 @@
 // change behind it and tests can stand one in.
 
 import type { LineSpan } from "@maxhq/shared/bindings";
+import type { CommandMark } from "@maxhq/shared/terminal/marks";
 
 /** Text you picked in a terminal, and where it sits in all it printed. */
 export type Picked = { readonly text: string; readonly lines: LineSpan };
+
+/** A command its shell marked, while the view holds it. */
+export type MarkedCommand = CommandMark & {
+	/** Names it in the view, counting up from 1. */
+	readonly id: number;
+};
+
+/** What a marked command printed, and the lines that takes, with what its marks say. */
+export type CommandOutput = Picked & { readonly mark: CommandMark };
 
 /** One terminal's screen and scrollback. */
 export type TermView = {
@@ -56,6 +66,20 @@ export type TermView = {
 	readonly onFocus: (listener: (focused: boolean) => void) => () => void;
 	/** Calls back once the GPU drops its context, after the view went back to drawing without. */
 	readonly onGpuLost: (listener: () => void) => () => void;
+	/**
+	 * The commands its shell marked that the view still holds, oldest first.
+	 * A shell without marks has none.
+	 */
+	readonly commands: () => readonly MarkedCommand[];
+	/** What a marked command printed so far, or null once the view let it go. */
+	readonly output: (id: number) => CommandOutput | null;
+	/**
+	 * Scrolls to the command before the one it showed last, or after it with
+	 * `back` false, and to the end past the last. False when there's none.
+	 */
+	readonly jump: (back: boolean) => boolean;
+	/** Calls back when you click a command's mark, with the mark to place a menu by. */
+	readonly onMark: (listener: (id: number, anchor: Element) => void) => () => void;
 	readonly dispose: () => void;
 };
 

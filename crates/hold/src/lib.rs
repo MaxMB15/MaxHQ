@@ -67,8 +67,8 @@ pub use crate::scope::unit_name;
 pub use crate::secret::Secret;
 pub use crate::spawn::DETACH_ENV;
 pub use crate::terminal::{
-    login_shell, Reached, RunOutput, TermControl, TermEvent, TermExit, TermHello, TermLaunch,
-    TermLink, Terminals,
+    login_shell, Commands, Mark, Reached, RunOutput, ShellCommand, TermControl, TermEvent,
+    TermExit, TermHello, TermLaunch, TermLink, Terminals,
 };
 
 mod client;
