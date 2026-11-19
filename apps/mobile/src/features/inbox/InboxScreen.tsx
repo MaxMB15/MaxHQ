@@ -82,7 +82,7 @@ import { Dispatcher } from "../dispatcher/Dispatcher";
 import { NewAgentPlus, newAgentAction } from "../new-agent/NewAgentPlus";
 import { openNewNote } from "../notes/NotesScreen";
 import { NodeGlyph } from "../workflow/NodeGlyph";
-import { RowRunChip } from "../workflow/RunChips";
+import { RowRunChip, useOpenRun } from "../workflow/RunChips";
 import { workflowsEntry } from "../workflow/runs";
 import { UpdateBanners } from "../updates/UpdateBanners";
 import { UsageButton } from "../usage/UsageButton";
@@ -92,7 +92,7 @@ import { openInboxSheet, openSelectionSheet } from "./InboxSheet";
 import { noticesOf, useNotices } from "./notices";
 import { useInboxPrefs } from "./prefs";
 import { openHiddenProjects, openProjectMenu } from "./ProjectMenu";
-import { loudRow, phoneRowMeta, rowSubtitle } from "./rows";
+import { loudRow, phoneRowMeta, rowSubtitle, spokenRowActions } from "./rows";
 import { pickSnooze } from "./SnoozeSheet";
 
 /** One entry of the list, top to bottom. */
@@ -727,6 +727,7 @@ const AgentRow = ({
 	const meta = phoneRowMeta(view, agent, now);
 	// A lead's latest run, as a chip that opens it, unless selecting.
 	const chip = picked === null ? chipOf(view, agent.id) : null;
+	const openRun = useOpenRun();
 	const content = (
 		<View style={[styles.row, { paddingLeft: 10 + level * 16 }]}>
 			{picked === null ? null : picked ? (
@@ -771,6 +772,7 @@ const AgentRow = ({
 	return (
 		<SwipeRow
 			actions={actions}
+			spoken={spokenRowActions(chip, openRun)}
 			onPress={() => onOpen(agent)}
 			onLongPress={onMore}
 			label={agent.title}

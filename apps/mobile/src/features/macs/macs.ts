@@ -300,7 +300,11 @@ export const macRowNote = (mac: PairedMac): string => {
 	return `${count} · ${listed}`;
 };
 
-/** What Forget asks before it forgets `mac`: what goes, what stays. */
+/**
+ * What Forget asks before it forgets `mac`: what goes, what stays, and
+ * where on the Mac to remove this phone too, since the Mac still lets its
+ * key in until then.
+ */
 export const forgetWords = (
 	mac: PairedMac,
 	macs: readonly PairedMac[]
@@ -326,6 +330,14 @@ export const forgetWords = (
 	}
 	if (macs.some((other) => other.keeper !== mac.keeper && !other.by_hand)) {
 		lines.push(t("Your other Macs stay paired."));
+	}
+	if (!mac.by_hand) {
+		lines.push(
+			t(
+				"To end this phone's access there too, remove it on {{mac}} in Settings, under Phones.",
+				{ mac: name }
+			)
+		);
 	}
 	return {
 		title: mac.by_hand

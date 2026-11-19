@@ -5,10 +5,10 @@ import { describe, expect, it } from "vitest";
 
 import type { CredentialKind, Project } from "@maxhq/shared/bindings";
 import { agent, device, entities, link, NOW, project, workspace } from "@maxhq/shared/test/build";
-import { credential, pullLink, snapshot } from "@maxhq/shared/test/pulls";
+import { credential, detail, pullLink, snapshot } from "@maxhq/shared/test/pulls";
 import { applySnapshot } from "@maxhq/shared/view/replica";
 
-import { agentDevice, chipActions, pullId, pullProjects } from "./pulls";
+import { agentDevice, chipActions, mergeQuestion, pullId, pullProjects } from "./pulls";
 
 const APP: CredentialKind = {
 	type: "github_app",
@@ -89,5 +89,17 @@ describe("chipActions", () => {
 			"unlink",
 			"link",
 		]);
+	});
+});
+
+describe("mergeQuestion", () => {
+	it("names the PR, where it goes and the method, which its button says too", () => {
+		const pr = detail(1234, { title: "Fix the header", base: "main" });
+		expect(mergeQuestion(pr, "squash")).toEqual({
+			title: "Merge pull request #1234?",
+			detail: "Squash and merge: Fix the header, into main in owner/repo. You can't undo a merge.",
+			action: "Squash and merge",
+		});
+		expect(mergeQuestion(pr, "merge").action).toBe("Create a merge commit");
 	});
 });

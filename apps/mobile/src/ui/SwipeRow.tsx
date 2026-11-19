@@ -2,8 +2,9 @@
 // Copyright (c) 2026 Max Boksem
 
 // A list row that slides left to show its actions: a short swipe snaps it open, a tap on the row closes it. The same
-// actions are offered to VoiceOver, which can't swipe. A long press can
-// open more. The phone taps lightly as the row snaps open.
+// actions are offered to VoiceOver, which can't swipe, with any the row
+// offers only to VoiceOver. A long press can open more. The phone taps
+// lightly as the row snaps open.
 
 import * as Haptics from "expo-haptics";
 import { type ReactNode, useEffect, useState } from "react";
@@ -11,11 +12,15 @@ import { Animated, PanResponder, Pressable, StyleSheet, Text, View } from "react
 
 import { color, size } from "../theme";
 
-/** One button behind the row. */
-export type SwipeAction = {
+/** One action VoiceOver offers on the row, by its label. */
+export type SpokenAction = {
 	readonly label: string;
-	readonly tone: "primary" | "secondary";
 	readonly onPress: () => void;
+};
+
+/** One button behind the row. */
+export type SwipeAction = SpokenAction & {
+	readonly tone: "primary" | "secondary";
 };
 
 // Each action is 58 wide, and the row opens once it's
@@ -23,6 +28,7 @@ export type SwipeAction = {
 const ACTION_WIDTH = 58;
 const OPEN_AT = 0.42;
 const SPRING = { damping: 26, mass: 0.7, stiffness: 330, overshootClamping: true };
+const NONE: readonly SpokenAction[] = [];
 
 // The row's slide, kept outside React: where it is, whether it's open, and
 // the gesture that moves it.
@@ -57,12 +63,19 @@ const createSlide = () => {
 
 export const SwipeRow = ({
 	actions,
+	spoken = NONE,
 	onPress,
 	onLongPress,
 	label,
 	children,
 }: {
 	actions: readonly SwipeAction[];
+	/**
+	 * Actions only VoiceOver offers, after the swipe actions, such as one
+	 * for a button inside the row, which it can't reach since it reads the
+	 * row as one.
+	 */
+	spoken?: readonly SpokenAction[];
 	onPress: () => void;
 	onLongPress?: () => void;
 	/** What VoiceOver reads for the row. */
@@ -71,6 +84,7 @@ export const SwipeRow = ({
 }) => {
 	const [slide] = useState(createSlide);
 	const width = actions.length * ACTION_WIDTH;
+	const offered = [...actions, ...spoken];
 	useEffect(() => slide.setWidth(width), [slide, width]);
 
 	const press = () => (slide.isOpen() ? slide.snap(0) : onPress());
@@ -116,9 +130,9 @@ export const SwipeRow = ({
 				<Pressable
 					accessibilityRole="button"
 					accessibilityLabel={label}
-					accessibilityActions={actions.map((a) => ({ name: a.label, label: a.label }))}
+					accessibilityActions={offered.map((a) => ({ name: a.label, label: a.label }))}
 					onAccessibilityAction={(event) =>
-						actions.find((a) => a.label === event.nativeEvent.actionName)?.onPress()
+						offered.find((a) => a.label === event.nativeEvent.actionName)?.onPress()
 					}
 					onPress={press}
 					onLongPress={onLongPress}

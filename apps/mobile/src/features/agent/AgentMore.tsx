@@ -5,8 +5,8 @@
 // feed and the list of your prompts, renames the agent in a small dialog,
 // picks its permission mode and model in sheets of their own and its effort
 // level in a small dialog, as the desktop's composer does, links a pull
-// request to it in a sheet, opens its sub-agents and its ports and
-// processes, copies its session ID and exports the conversation, revokes
+// request to it in a sheet, opens its details, its sub-agents and its ports
+// and processes, copies its session ID and exports the conversation, revokes
 // its permission to run agents, opens the Move sheet, and stops it or
 // deletes one MaxHQ holds after asking. The screen goes back to the agents
 // once it's gone, and a control that fails says why in an alert.
@@ -156,6 +156,7 @@ export const AgentMore = ({
 				),
 			effort: () => setEffort(effortPick(view, now)),
 			link: () => setLinking(true),
+			details: () => navigation.navigate("AgentInfo", { agent: now.id }),
 			subAgents: () => navigation.navigate("SubAgents", { agent: now.id }),
 			running: () => navigation.navigate("Running", { agent: now.id }),
 			copyOut: () => copyOut(now),
