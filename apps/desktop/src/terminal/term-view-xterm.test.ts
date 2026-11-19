@@ -19,7 +19,7 @@ const ran = (command: string, output: string, exit: number | null) =>
 	`${mark("A")}$ ${mark("B")}${command}\r\n${mark("C")}${output}` +
 	(exit === null ? "" : mark(`D;${exit}`));
 
-const make = () => {
+const make = ({ marks = true } = {}) => {
 	const loads = vi.spyOn(Terminal.prototype, "loadAddon");
 	const real = Terminal.prototype.registerDecoration;
 	// Each mark's draw call, as xterm would make it once the line shows.
@@ -42,6 +42,7 @@ const make = () => {
 		return decoration;
 	});
 	const view = xtermView();
+	view.setMarks(marks);
 	const terminal = loads.mock.contexts[0] as Terminal;
 	const scrolls = vi.spyOn(terminal, "scrollToLine");
 	/** Prints `text` and waits for xterm to take it in. */
@@ -157,6 +158,37 @@ describe("a terminal view whose shell marks its commands", () => {
 		expect(dots.some((dot) => dot.hasAttribute("data-current"))).toBe(false);
 	});
 
+	it("jumps to a command's output once the scrollback dropped its prompt", async () => {
+		const { view, terminal, print, decorations, scrolls } = make();
+		view.resize(40, 4);
+		terminal.options.scrollback = 4;
+		await print(ran("one", "a\r\n", 0) + ran("two", "b\r\n", 0) + `${mark("A")}$ `);
+		// Only the first command's prompt line goes.
+		for (let lines = 0; !decorations[0]!.isDisposed && lines < 50; lines++) await print("\r\n");
+		expect(decorations[0]!.isDisposed).toBe(true);
+		expect(view.commands().map((command) => command.command)).toEqual(["one", "two"]);
+
+		expect(view.jump(true)).toBe(true);
+		expect(view.jump(true)).toBe(true);
+		// Its output's first line is now the buffer's first.
+		expect(scrolls).toHaveBeenLastCalledWith(0);
+		expect(view.output(view.commands()[0]!.id)?.text).toBe("a");
+	});
+
+	it("leaves a right prompt out of what was typed", async () => {
+		const { view, print } = make();
+		view.resize(40, 4);
+		// zsh draws the right prompt after the left, then goes back to type.
+		const right = (command: string) =>
+			`${mark("A")}$ ${mark("B")}\x1b[36Gmain\x1b[3G${command}\r\n${mark("C")}ok\r\n${mark("D;0")}`;
+		await print(right("pnpm test") + right("echo a    b") + ran("echo c    d", "", 0));
+		expect(view.commands().map((command) => command.command)).toEqual([
+			"pnpm test",
+			"echo a    b",
+			"echo c    d",
+		]);
+	});
+
 	it("starts over on clear and takes the marks back from a replay", async () => {
 		const { view, print, decorations } = make();
 		const bytes = ran("pnpm test", "1 failed\r\n", 1);
@@ -171,6 +203,18 @@ describe("a terminal view whose shell marks its commands", () => {
 		expect(view.commands()).toEqual([
 			{ id: expect.any(Number), command: "pnpm test", exit: 1, running: false },
 		]);
+	});
+
+	it("takes no marks, and shows none, unless its holder keeps to the shell's own", async () => {
+		const { view, print, decorations } = make({ marks: false });
+		await print(ran("pnpm test", "ok\r\n", 0) + mark("D;1;ignored"));
+		expect(view.commands()).toEqual([]);
+		expect(decorations).toEqual([]);
+		expect(view.text(10).text).toBe("$ pnpm test\nok");
+
+		view.setMarks(true);
+		await print(ran("ls", "", 0));
+		expect(view.commands()).toMatchObject([{ command: "ls", exit: 0 }]);
 	});
 
 	it("works as before for a shell that marks nothing", async () => {

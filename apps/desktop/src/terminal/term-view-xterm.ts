@@ -14,14 +14,15 @@
 // A shell that marks its prompts and commands, OSC 133, gets a dot in the
 // margin at each command's first line, which opens the command's menu.
 // Marks sit on xterm markers, which move with the scrollback and go with
-// the lines it drops.
+// the lines it drops. The view takes them only once the device says its
+// holder lets through just the shell's own.
 
 import { FitAddon } from "@xterm/addon-fit";
 import { SearchAddon } from "@xterm/addon-search";
 import { Unicode11Addon } from "@xterm/addon-unicode11";
 import { WebLinksAddon } from "@xterm/addon-web-links";
 import { WebglAddon } from "@xterm/addon-webgl";
-import { type IDecoration, type IMarker, Terminal } from "@xterm/xterm";
+import { type IBufferCell, type IDecoration, type IMarker, Terminal } from "@xterm/xterm";
 import "@xterm/xterm/css/xterm.css";
 
 import {
@@ -152,6 +153,8 @@ export const xtermView: MakeView = () => {
 	let held: Held[] = [];
 	let shown: Held | null = null;
 	let lastId = 0;
+	// Whether the OSC 133 it reads are its shell's own marks.
+	let marks = false;
 
 	const stopPalette = watchPalette((palette) => {
 		terminal.options.theme = palette;
@@ -243,9 +246,15 @@ export const xtermView: MakeView = () => {
 	/** The commands that ran, while the scrollback still holds where they start. */
 	const ran = () => held.filter((command) => command.start && !command.start.marker.isDisposed);
 
-	/** The line a command's mark sits on. */
+	/**
+	 * The line a command starts on: its first place the scrollback still
+	 * holds, which is where its mark sits until its prompt's line goes. -1
+	 * once none is left.
+	 */
 	const lineOf = (command: Held) =>
-		(command.prompt ?? command.input ?? command.start)?.marker.line ?? -1;
+		[command.prompt, command.input, command.start].find(
+			(spot) => spot && !spot.marker.isDisposed
+		)?.marker.line ?? -1;
 
 	const markOf = (command: Held): CommandMark => ({
 		command: command.command,
@@ -285,10 +294,57 @@ export const xtermView: MakeView = () => {
 		paint(command);
 	};
 
+	/** Whether a cell shows nothing, which the second half of a wide one doesn't. */
+	const blank = (cell: IBufferCell | undefined) =>
+		cell !== undefined && cell.getWidth() !== 0 && cell.getChars().trim() === "";
+
+	/**
+	 * Where text set to the right of row `y` starts, as a right prompt is:
+	 * past three blank cells or more, and ending in the row's last cell or
+	 * the one before. Null when there's none past column `from`, or when the
+	 * row wraps on, as a typed line long enough to reach the edge does.
+	 */
+	const rightPromptAt = (y: number, from: number): number | null => {
+		const line = buffer().getLine(y);
+		if (!line || buffer().getLine(y + 1)?.isWrapped) return null;
+		const cell = buffer().getNullCell();
+		const at = (x: number) => line.getCell(x, cell);
+		let end = line.length - 1;
+		while (end >= from && blank(at(end))) end--;
+		if (end < from || end < line.length - 2) return null;
+		let run = 0;
+		for (let x = end; x >= from; x--) {
+			if (!blank(at(x))) {
+				run = 0;
+				continue;
+			}
+			run++;
+			if (run < 3) continue;
+			let start = x;
+			while (start > from && blank(at(start - 1))) start--;
+			return start;
+		}
+		return null;
+	};
+
+	/**
+	 * What was typed from `input` to where the command's output starts,
+	 * without a right prompt on the first row. A prompt's further rows, as
+	 * for a line that goes on, stay in.
+	 */
+	const typed = (input: Spot, start: Spot): string => {
+		const from = placeOf(input);
+		const to = placeOf(start);
+		const right = to.y > from.y ? rightPromptAt(from.y, from.x ?? 0) : null;
+		if (right === null) return textBetween(from, to).trim();
+		const first = textBetween(from, { y: from.y, x: right });
+		return `${first}\n${textBetween({ y: from.y + 1 }, to)}`.trim();
+	};
+
 	/** Reads what you typed and puts the command's mark in the margin. */
 	const begin = (command: Held) => {
 		const { input, start } = command;
-		command.command = input && start ? textBetween(placeOf(input), placeOf(start)).trim() : "";
+		command.command = input && start ? typed(input, start) : "";
 		const anchor = command.prompt ?? input ?? start;
 		if (!anchor) return;
 		command.decoration = terminal.registerDecoration({ marker: anchor.marker }) ?? null;
@@ -303,9 +359,11 @@ export const xtermView: MakeView = () => {
 		}
 	};
 
+	// Every 133 stops here. Only one a holder that keeps to the shell's own
+	// marks let through makes a mark, as any program may print the rest.
 	terminal.parser.registerOscHandler(OSC_MARKS, (body) => {
-		const mark = readMark(body);
-		if (!mark) return false;
+		const mark = marks ? readMark(body) : null;
+		if (!mark) return true;
 		const at: Spot = { marker: terminal.registerMarker(0), x: buffer().cursorX };
 		const fresh = (): Held => ({
 			id: ++lastId,
@@ -431,6 +489,9 @@ export const xtermView: MakeView = () => {
 			gpuLost.add(listener);
 			return () => gpuLost.delete(listener);
 		},
+		setMarks: (on) => {
+			marks = on;
+		},
 		commands: () =>
 			ran().map((command): MarkedCommand => ({ id: command.id, ...markOf(command) })),
 		output: (id) => {
@@ -448,7 +509,7 @@ export const xtermView: MakeView = () => {
 			return { text, lines: { first, last: numberOf(to.y) }, mark };
 		},
 		jump: (back) => {
-			const commands = ran();
+			const commands = ran().filter((command) => lineOf(command) >= 0);
 			const top = buffer().viewportY;
 			const bottom = buffer().baseY;
 			// From the command it showed last while the screen still shows it,

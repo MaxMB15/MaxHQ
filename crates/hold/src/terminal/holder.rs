@@ -745,6 +745,7 @@ impl Holder {
             busy: view.busy,
             title: view.title.clone(),
             cwd: view.cwd.clone(),
+            marks: true,
         };
         (hello, view, first_mark)
     }

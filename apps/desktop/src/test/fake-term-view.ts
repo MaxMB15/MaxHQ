@@ -25,6 +25,8 @@ export type FakeView = TermView & {
 	readonly clickMark: (id: number, anchor: Element) => void;
 	/** Each jump asked for, true going back. */
 	readonly jumps: boolean[];
+	/** Whether it was told to take its shell's marks. */
+	readonly takesMarks: () => boolean;
 };
 
 export const fakeView = (): FakeView => {
@@ -40,6 +42,7 @@ export const fakeView = (): FakeView => {
 	let commands: readonly (MarkedCommand & { readonly output: CommandOutput })[] = [];
 	let cleared = 0;
 	let gpu = false;
+	let takesMarks = false;
 	let disposed = false;
 	let picked: Picked | null = null;
 	let size = { cols: 80, rows: 24 };
@@ -73,6 +76,7 @@ export const fakeView = (): FakeView => {
 			for (const listener of marks) listener(id, anchor);
 		},
 		jumps,
+		takesMarks: () => takesMarks,
 		write: (bytes) => written.push(decoder.decode(bytes)),
 		clear: () => {
 			cleared++;
@@ -112,6 +116,9 @@ export const fakeView = (): FakeView => {
 		onGpuLost: (listener) => {
 			lost.add(listener);
 			return () => lost.delete(listener);
+		},
+		setMarks: (on) => {
+			takesMarks = on;
 		},
 		commands: () =>
 			commands.map(({ id, command, exit, running }) => ({ id, command, exit, running })),

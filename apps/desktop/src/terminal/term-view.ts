@@ -67,6 +67,12 @@ export type TermView = {
 	/** Calls back once the GPU drops its context, after the view went back to drawing without. */
 	readonly onGpuLost: (listener: () => void) => () => void;
 	/**
+	 * Whether it takes the OSC 133 in its output as its shell's marks, as it
+	 * may once the device says its holder lets only those through. Without,
+	 * it takes none. Either way it drops them, so they draw nothing.
+	 */
+	readonly setMarks: (on: boolean) => void;
+	/**
 	 * The commands its shell marked that the view still holds, oldest first.
 	 * A shell without marks has none.
 	 */

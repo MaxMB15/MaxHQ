@@ -640,6 +640,8 @@ pub(super) async fn a_shell_mark_needs_its_nonce_and_may_come_in_pieces(ctx: Ctx
         assert!(!terminals.integrate(&mut launch).unwrap());
         launch.nonce = nonce.map(str::to_owned);
         let mut link = start(&ctx, &launch).await;
+        // It keeps to the nonce, or lets none through, and says so.
+        assert!(link.hello.marks);
         let Reached::Live(mut watch) = terminals.watch(launch.terminal).await.unwrap() else {
             panic!("no watch");
         };
@@ -706,7 +708,10 @@ fn on_path(name: &str) -> Vec<PathBuf> {
     found
 }
 
-pub(super) async fn zsh_bash_and_fish_mark_their_commands(ctx: Ctx) {
+/// Each zsh, bash and fish on the PATH. A shell that isn't there is skipped
+/// with only a note on stderr, so a run on a machine without fish passes
+/// without testing it.
+pub(super) async fn zsh_bash_and_fish_on_the_path_mark_their_commands(ctx: Ctx) {
     let shells: Vec<_> = ["zsh", "bash", "fish"]
         .into_iter()
         .flat_map(on_path)
@@ -736,10 +741,94 @@ pub(super) async fn zsh_bash_and_fish_mark_their_commands(ctx: Ctx) {
             ".zshenv",
             ".zshrc",
             "bash.sh",
+            "fish",
             "fish.fish",
         ];
         assert_eq!(names, all);
     }
+}
+
+/// bash with no DEBUG trap of the user's, so with MaxHQ's own alone, and
+/// with functrace on and a command in PS1: commands see `$_` and `$?` as
+/// they would, extdebug runs every command, and neither the prompt nor a
+/// subshell marks a command. A subshell is busy all the same, and a line
+/// that starts with `exec` marks none, as nothing would end it. Skipped
+/// with only a note on stderr when there's no bash on the PATH.
+pub(super) async fn bash_on_its_own_keeps_what_its_commands_see(ctx: Ctx) {
+    for program in on_path("bash") {
+        bash_keeps_what_its_commands_see(&ctx, &program).await;
+    }
+}
+
+async fn bash_keeps_what_its_commands_see(ctx: &Ctx, program: &Path) {
+    let shown = program.display();
+    let terminals = terminals(ctx);
+    let home = ctx.root.join("home-bash-alone");
+    fs::create_dir_all(&home).unwrap();
+    fs::write(
+        home.join(".bash_profile"),
+        "PS1='$(printf ready)> '\nset -T\n",
+    )
+    .unwrap();
+    let mut launch = TermLaunch::shell(TerminalId::generate(), ctx.root.clone(), 200, 24);
+    launch.program = program.into();
+    launch.env.push(("HOME".into(), home.into()));
+    assert!(terminals.integrate(&mut launch).unwrap(), "{shown}");
+    let mut link = start(ctx, &launch).await;
+    let Reached::Live(mut watch) = terminals.watch(launch.terminal).await.unwrap() else {
+        panic!("no watch for {shown}");
+    };
+    let mut watched = Seen::from(&watch);
+    let typed = [
+        "mkdir -p made-here && echo \"[$_]\"",
+        "shopt -s extdebug; false; echo \"ran:$?\"",
+    ];
+    for (done, line) in typed.iter().enumerate() {
+        ready(&mut watch, &mut watched, done).await;
+        assert!(link.control.input(format!("{line}\n").into_bytes()));
+    }
+    ready(&mut watch, &mut watched, typed.len()).await;
+    let prompts = |seen: &Seen| {
+        (seen.marks.iter())
+            .filter(|(_, mark)| *mark == Mark::Prompt)
+            .count()
+    };
+    let before = prompts(&watched);
+    assert!(link.control.input(b"( sleep 2 )\n".to_vec()));
+    watched.until(&mut watch, false, |seen| seen.busy).await;
+    watched
+        .until(&mut watch, false, |seen| {
+            !seen.busy
+                && prompts(seen) > before
+                && seen
+                    .marks
+                    .last()
+                    .is_some_and(|(_, mark)| *mark == Mark::Input)
+        })
+        .await;
+    assert!(link.control.input(b"exec /bin/sh -c 'exit 4'\n".to_vec()));
+    let mut seen = Seen::from(&link);
+    let exit = seen.until_exit(&mut link).await;
+    assert_eq!(exit.code, Some(4), "{shown}: {seen:?}");
+    watched.until_exit(&mut watch).await;
+
+    assert_marks_in_place(&seen.bytes, &watched.marks);
+    let letters: String = (watched.marks.iter())
+        .map(|(_, mark)| match mark {
+            Mark::Prompt => 'A',
+            Mark::Input => 'B',
+            Mark::Command { .. } => 'C',
+            Mark::Done { .. } => 'D',
+        })
+        .collect();
+    assert_eq!(letters, "ABCDABCDABAB", "{shown}: {watched:?}");
+    let commands = commands_of(&watched.marks);
+    assert!(!commands.running(), "{shown}");
+    let exits: Vec<_> = commands.list().iter().map(|command| command.exit).collect();
+    assert_eq!(exits, [Some(0), Some(0), None], "{shown}");
+    let text = seen.text();
+    assert!(text.contains("[made-here]"), "{shown}: {text:?}");
+    assert!(text.contains("ran:1"), "{shown}: {text:?}");
 }
 
 /// Waits until the shell has run `done` commands and shows its prompt for
@@ -768,12 +857,16 @@ async fn a_shell_marks_its_commands(ctx: &Ctx, program: &Path) {
     fs::create_dir_all(ctx.root.join("a b%c")).unwrap();
     // Each startup file says it ran. The prompt is the user's own, and so
     // are hooks at the prompt and before a command, which still run.
-    let fish = "set -gx RC config\n\
+    // No startup file sees the nonce.
+    let fish = "if set -q MAXHQ_SHELL_NONCE; set -gx RC leaked; else; set -gx RC config; end\n\
                 function fish_prompt; printf 'ready> '; end\n\
                 function hooked --on-event fish_prompt; set -gx HOOKED yes; end\n\
                 function trapped --on-event fish_preexec; set -gx TRAPPED yes; end\n";
     for (path, text) in [
-        (zdot.join(".zshenv"), "export RC=env"),
+        (
+            zdot.join(".zshenv"),
+            "export RC=env${MAXHQ_SHELL_NONCE+:leaked}",
+        ),
         (zdot.join(".zprofile"), "RC=${RC}:profile"),
         (
             zdot.join(".zshrc"),
@@ -784,7 +877,7 @@ async fn a_shell_marks_its_commands(ctx: &Ctx, program: &Path) {
         (zdot.join(".zlogin"), "RC=${RC}:login"),
         (
             home.join(".bash_profile"),
-            "export RC=profile; PS1='ready> '\n\
+            "export RC=profile${MAXHQ_SHELL_NONCE+:leaked}; PS1='ready> '\n\
              PROMPT_COMMAND='export HOOKED=yes'\n\
              trap 'export TRAPPED=yes' DEBUG",
         ),
@@ -808,6 +901,7 @@ async fn a_shell_marks_its_commands(ctx: &Ctx, program: &Path) {
             ("XDG_CONFIG_HOME", config),
             ("XDG_DATA_HOME", home.join("data")),
             ("XDG_CACHE_HOME", home.join("cache")),
+            ("XDG_DATA_DIRS", PathBuf::from("/opt/share")),
         ]
         .map(|(key, value)| (key.into(), value.into())),
     );
@@ -819,7 +913,7 @@ async fn a_shell_marks_its_commands(ctx: &Ctx, program: &Path) {
     };
     let mut watched = Seen::from(&watch);
     let typed = [
-        "sh -c 'echo \"rc:$RC:$ZDOTDIR:${MAXHQ_SHELL_NONCE-gone}:$HOOKED:$TRAPPED\"'",
+        "sh -c 'echo \"rc:$RC:$ZDOTDIR:${MAXHQ_SHELL_NONCE-gone}:$HOOKED:$TRAPPED:$XDG_DATA_DIRS\"'",
         "cd 'a b%c'",
         "env printf '\\033]133;D;1;maxhq=wrong\\007\\033]133;A\\007'; sh -c 'exit 3'",
     ];
@@ -845,7 +939,9 @@ async fn a_shell_marks_its_commands(ctx: &Ctx, program: &Path) {
         String::from_utf8_lossy(&seen.bytes[range]).into_owned()
     };
     let output = text(list[0].start, list[0].end);
-    let rc_line = format!("rc:{rc}:{}:gone:yes:yes", zdot.display());
+    // Each startup file ran without the nonce, and the user's own ZDOTDIR
+    // and XDG_DATA_DIRS are back.
+    let rc_line = format!("rc:{rc}:{}:gone:yes:yes:/opt/share", zdot.display());
     assert!(output.contains(&rc_line), "{shown}: {output:?}");
     // What the shell echoed between its prompt and the command is the
     // command. fish colors it as you type.

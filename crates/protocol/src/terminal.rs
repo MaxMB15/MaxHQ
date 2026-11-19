@@ -76,11 +76,18 @@ pub struct Terminal {
     /// Whether it still runs.
     pub status: TerminalStatus,
     /// Whether a command runs in it: a program other than the shell holds
-    /// its foreground, or a `!` run hasn't ended. False while a shell waits
-    /// at its prompt, whatever title it sets there, and when the device
-    /// doesn't say.
+    /// its foreground, its shell marked a command that hasn't ended, or a
+    /// `!` run hasn't ended. False while a shell waits at its prompt,
+    /// whatever title it sets there, and when the device doesn't say.
     #[serde(default)]
     pub busy: bool,
+    /// Whether the OSC 133 in its output are its shell's marks: its holder
+    /// lets through only those with the terminal's nonce, in the plain
+    /// form, and drops any other. False from a holder or device before
+    /// protocol 47, whose output can carry any program's 133, so a client
+    /// takes none as a mark.
+    #[serde(default)]
+    pub marks: bool,
     /// Whether it waits for a password at a prompt that hides what you
     /// type, so clients offer a secure field.
     pub password_prompt: bool,
@@ -264,6 +271,7 @@ mod tests {
             cwd: "~/code/example-app".into(),
             status: TerminalStatus::Running,
             busy: true,
+            marks: true,
             password_prompt: false,
             started_at: Timestamp(1_793_368_920_000),
             cols: 120,
@@ -280,17 +288,24 @@ mod tests {
             "cwd": "~/code/example-app",
             "status": { "state": "running" },
             "busy": true,
+            "marks": true,
             "password_prompt": false,
             "started_at": 1_793_368_920_000u64,
             "cols": 120,
             "rows": 32,
         });
         assert_eq!(round_trip(&entity), wire);
-        // A device that doesn't say whether it's busy leaves it false.
+        // A device that doesn't say whether it's busy, or whether its
+        // holder keeps to the shell's marks, leaves both false.
         wire.as_object_mut().unwrap().remove("busy");
+        wire.as_object_mut().unwrap().remove("marks");
         assert!(matches!(
             serde_json::from_value(wire).unwrap(),
-            Entity::Terminal(Terminal { busy: false, .. })
+            Entity::Terminal(Terminal {
+                busy: false,
+                marks: false,
+                ..
+            })
         ));
         assert_eq!(entity.key(), EntityKey::Terminal(terminal()));
         assert_eq!(

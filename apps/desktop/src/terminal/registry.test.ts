@@ -31,7 +31,13 @@ const fakeStream = () => {
 	return { stream, emit, output };
 };
 
-const setup = (over: { exists?: (terminal: TerminalId) => boolean; gpuBudget?: number } = {}) => {
+const setup = (
+	over: {
+		exists?: (terminal: TerminalId) => boolean;
+		marksOf?: (terminal: TerminalId) => boolean;
+		gpuBudget?: number;
+	} = {}
+) => {
 	const { stream, emit, output } = fakeStream();
 	const views: FakeView[] = [];
 	const registry = createRegistry({
@@ -43,6 +49,7 @@ const setup = (over: { exists?: (terminal: TerminalId) => boolean; gpuBudget?: n
 		},
 		sizeOf: () => ({ cols: 120, rows: 32 }),
 		exists: over.exists ?? (() => true),
+		marksOf: over.marksOf,
 		detachAfter: 30_000,
 		gpuBudget: over.gpuBudget,
 	});
@@ -115,6 +122,19 @@ describe("the terminal registry", () => {
 		output("t-1", 200, "four\n");
 		expect(views[0]!.cleared()).toBe(2);
 		expect(views[0]!.written.join("")).toBe("four\n");
+	});
+
+	it("lets a view take its shell's marks only as the device says", () => {
+		const trusted = new Set<TerminalId>(["t-1"]);
+		const { registry, output, views } = setup({ marksOf: (terminal) => trusted.has(terminal) });
+		registry.place("t-1", host(), { interactive: true });
+		registry.place("t-2", host(), { interactive: true });
+		output("t-1", 0, "$ ");
+		output("t-2", 0, "$ ");
+		expect(views.map((view) => view.takesMarks())).toEqual([true, false]);
+		trusted.delete("t-1");
+		output("t-1", 2, "ls\n");
+		expect(views[0]!.takesMarks()).toBe(false);
 	});
 
 	it("drops the view of a terminal that's gone, instead of only detaching", () => {

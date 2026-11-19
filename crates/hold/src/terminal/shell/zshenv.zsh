@@ -86,11 +86,18 @@ _maxhq_prompt() {
 }
 
 # Last before a command runs: gives PS1 back as it was, keeps the prompt
-# hooks first and last, and marks where the command starts.
+# hooks first and last, and marks where the command starts. A command
+# that starts with exec gets no mark: a shell that takes this one's place
+# never marks its end, so the command would seem to run for good.
 _maxhq_preexec() {
   emulate -L zsh
   [[ $PS1 == "$_maxhq_ps1" ]] && PS1=$_maxhq_user_ps1
   precmd_functions=(_maxhq_precmd ${precmd_functions:#_maxhq_(precmd|prompt)} _maxhq_prompt)
+  local line=${1:-$3}
+  line=${line#"${line%%[![:space:]]*}"}
+  case $line in
+    exec | exec[[:space:]]*) return 0 ;;
+  esac
   _maxhq_ran=1
   _maxhq_mark C
 }

@@ -579,6 +579,7 @@ mod tests {
             cwd: "~/code/example-app".into(),
             status: crate::terminal::TerminalStatus::Running,
             busy: false,
+            marks: false,
             password_prompt: false,
             started_at: crate::time::Timestamp(1_793_368_920_000),
             cols: 120,

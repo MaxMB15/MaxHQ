@@ -216,6 +216,11 @@ pub struct TermHello {
     pub title: Option<String>,
     /// The working folder the shell said last.
     pub cwd: Option<String>,
+    /// Whether the holder takes out every OSC 133 but the shell's own
+    /// marks, as one since protocol 47 does. One from before doesn't say,
+    /// and its output passes on any 133 a program prints.
+    #[serde(default)]
+    pub marks: bool,
 }
 
 /// `launch.json` for a terminal.
@@ -298,6 +303,12 @@ impl Terminals {
     /// it's zsh, bash or fish, as `shell.rs` says. Returns whether it will.
     pub fn integrate(&self, launch: &mut TermLaunch) -> io::Result<bool> {
         shell::integrate(launch, &self.dirs.sessions)
+    }
+
+    /// Deletes what writing the shell integration files left when a `maxd`
+    /// stopped part way, as `maxd` does when it starts.
+    pub fn sweep(&self) -> io::Result<()> {
+        shell::sweep(&self.dirs.sessions)
     }
 
     /// Starts a detached holder for `launch` and returns once its socket

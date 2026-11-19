@@ -151,6 +151,8 @@ export const mockTerminals = (
 				cwd: place.cwd,
 				status: { state: "running" },
 				busy: false,
+				// The mock lets through only the marks it adds itself.
+				marks: true,
 				password_prompt: false,
 				started_at: now(),
 				cols,

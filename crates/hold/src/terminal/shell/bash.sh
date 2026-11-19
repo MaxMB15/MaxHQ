@@ -59,27 +59,44 @@ _maxhq_prompt_end() {
 }
 
 # Where the command starts, before the first thing bash runs from what you
-# typed, and PS1 back as it was. It passes on the status it gets.
+# typed, and PS1 back as it was. A command that starts with exec gets no
+# mark: a shell that takes this one's place never marks its end, so the
+# command would seem to run for good.
 _maxhq_command() {
+  local line=${1-}
   _maxhq_waiting=0
   if [ "$PS1" = "$_maxhq_ps1" ]; then
     PS1=$_maxhq_user_ps1
   fi
+  line=${line#"${line%%[![:space:]]*}"}
+  case $line in
+    exec | exec[[:space:]]*) return 0 ;;
+  esac
   _maxhq_ran=1
   _maxhq_mark C
 }
 
 # The DEBUG trap's part: bash runs it before every command, so it skips
-# all but the first from a line you typed. Completion, key bindings and
-# functions (with set -T) run commands too.
+# all but the first from a line you typed. Completion, key bindings,
+# functions and, with set -T, subshells and $(...) in PS1 run commands
+# too. It returns its first argument, which with extdebug says whether
+# the command runs. It keeps $_ as it was, its second.
 _maxhq_debug() {
-  if [ "$_maxhq_waiting" = 1 ] && [ "${FUNCNAME[1]-main}" = main ] &&
+  _maxhq_last=${2-}
+  if [ "$_maxhq_waiting" = 1 ] && [ "${BASH_SUBSHELL-0}" = 0 ] &&
+    [ "${FUNCNAME[1]-main}" = main ] &&
     [ -z "${COMP_LINE-}" ] && [ -z "${READLINE_LINE-}" ]; then
     case $BASH_COMMAND in
       _maxhq_prompt_*) ;;
-      *) _maxhq_command ;;
+      *) _maxhq_command "$BASH_COMMAND" ;;
     esac
   fi
+  return "$1"
+}
+
+# Returns its first argument. Called last in the trap with $_ as it was
+# last, it gives that back to the command.
+_maxhq_status() {
   return "$1"
 }
 
@@ -109,10 +126,15 @@ if [ -n "$_maxhq_nonce" ]; then
       eval "_maxhq_take${_maxhq_trap#trap}"
     fi
     unset _maxhq_trap
+    # Each ends with $_ as it was as its last argument, so the command
+    # sees it unchanged. bash gives the command $? as it was before the
+    # trap, and the user's trap gets it too. With extdebug, what the trap
+    # returns says whether the command runs: the user's trap decides, and
+    # without one every command runs.
     if [ -n "$_maxhq_user_debug" ]; then
-      trap '_maxhq_debug "$?" "$_"; eval "$_maxhq_user_debug"' DEBUG
+      trap '_maxhq_debug "$?" "$_"; eval "$_maxhq_user_debug"; _maxhq_status "$?" "$_maxhq_last"' DEBUG
     else
-      trap '_maxhq_debug "$?"' DEBUG
+      trap '_maxhq_debug 0 "$_"' DEBUG
     fi
   fi
 fi
