@@ -37,6 +37,8 @@ pub mod request;
 #[cfg(feature = "desktop")]
 pub mod restart;
 #[cfg(feature = "desktop")]
+pub mod screen;
+#[cfg(feature = "desktop")]
 pub mod setup;
 #[cfg(feature = "desktop")]
 pub mod signin;
