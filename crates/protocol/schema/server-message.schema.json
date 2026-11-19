@@ -2018,7 +2018,7 @@
           ]
         },
         {
-          "description": "A terminal is open, for [`ClientMessage::TerminalOpen`].",
+          "description": "A terminal is open, for [`ClientMessage::TerminalOpen`]. For\n[`ClientMessage::SessionRun`], the command runs in this fresh shell,\nwhose `UserRun` card says why. For [`ClientMessage::SessionCd`], the\nsession opened in the folder.",
           "type": "object",
           "properties": {
             "status": {
@@ -2033,6 +2033,36 @@
           "required": [
             "status",
             "terminal"
+          ]
+        },
+        {
+          "description": "A command went to the agent's session as a block in its open card,\nfor [`ClientMessage::SessionRun`] and [`ClientMessage::SessionCd`].",
+          "type": "object",
+          "properties": {
+            "block": {
+              "description": "The block's ID in the card.",
+              "type": "integer",
+              "format": "uint32",
+              "minimum": 0
+            },
+            "item": {
+              "description": "The card.",
+              "$ref": "#/$defs/ItemId"
+            },
+            "status": {
+              "type": "string",
+              "const": "session_ran"
+            },
+            "terminal": {
+              "description": "The session's terminal.",
+              "$ref": "#/$defs/TerminalId"
+            }
+          },
+          "required": [
+            "status",
+            "terminal",
+            "item",
+            "block"
           ]
         },
         {
@@ -7304,6 +7334,41 @@
       "type": "string",
       "format": "uuid"
     },
+    "FreshReason": {
+      "description": "Why a command you ran with `!` ran in a fresh shell rather than the\nagent's session. Since protocol 48.",
+      "oneOf": [
+        {
+          "description": "You asked for one, with ⌥↩.",
+          "type": "string",
+          "const": "asked"
+        },
+        {
+          "description": "A command still ran in the session, or you had typed into it since\nits prompt.",
+          "type": "string",
+          "const": "busy"
+        },
+        {
+          "description": "The command spans lines, which the session would run as separate\ncommands, or holds another control character, such as a tab, that\nthe shell would take as a key.",
+          "type": "string",
+          "const": "lines"
+        },
+        {
+          "description": "The command starts with `exec`, which would take the session\nshell's place.",
+          "type": "string",
+          "const": "exec"
+        },
+        {
+          "description": "Shell integration is off on the device, so its shells report no\ncommands.",
+          "type": "string",
+          "const": "integration_off"
+        },
+        {
+          "description": "The session's shell reported no commands: it isn't zsh, bash or\nfish, or it showed no marked prompt in time.",
+          "type": "string",
+          "const": "no_marks"
+        }
+      ]
+    },
     "FunnelState": {
       "description": "Whether a device's webhooks can be reached, at the address it picked.",
       "oneOf": [
@@ -8559,6 +8624,44 @@
             "ran_at",
             "lines_total",
             "text"
+          ]
+        },
+        {
+          "description": "The commands you ran in an agent's session, from one card: the\nblocks you shared, in order, each with its last lines as plain text.\nA client sends it only to a `maxd` at\n[`crate::message::SESSIONS_SINCE`] or later. Since protocol 48.",
+          "type": "object",
+          "properties": {
+            "blocks": {
+              "description": "The shared blocks. A private one isn't here.",
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/SessionRefBlock"
+              }
+            },
+            "device_name": {
+              "description": "The name of the device the session runs on, such as \"Mac\".",
+              "type": "string"
+            },
+            "item": {
+              "description": "The card it came from, so `maxd` marks the card as sent with\nthe message. Agents never see it, so it reads back as none.",
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/ItemId"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "type": {
+              "type": "string",
+              "const": "session"
+            }
+          },
+          "required": [
+            "type",
+            "device_name",
+            "blocks"
           ]
         },
         {
@@ -13563,10 +13666,159 @@
         "capabilities"
       ]
     },
+    "SessionBlock": {
+      "description": "One command you ran in an agent's session, as a block in its card. It\nhas the fields of a `UserRun` card, so the app shows it the same way.",
+      "type": "object",
+      "properties": {
+        "command": {
+          "description": "The command line, as typed after the `!`.",
+          "type": "string"
+        },
+        "cwd": {
+          "description": "The folder it started in, as the device writes it.",
+          "type": "string"
+        },
+        "cwd_after": {
+          "description": "The folder the shell was in once it ended, when the command moved\nit, as the device writes it.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "duration_ms": {
+          "description": "How long it ran, once it ended.",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint64",
+          "minimum": 0
+        },
+        "id": {
+          "description": "The block's ID. A session counts its commands from 1 across all\nits cards, so no two of its blocks share one.",
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "lines": {
+          "description": "How many lines it wrote, once it ended.",
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "output": {
+          "description": "What it wrote, once it ended, styled as a `UserRun`'s output is. A\npassword you sent at a prompt shows as the prompt followed by\n` 🔒 sent`, never as what you typed.",
+          "type": "string"
+        },
+        "output_truncated": {
+          "description": "Whether `output` holds only the last part of what it wrote, or the\nterminal no longer held its start.",
+          "type": "boolean"
+        },
+        "private": {
+          "description": "Whether it's kept from the agent: you ran it with `!!`, or switched\nit to private.",
+          "type": "boolean"
+        },
+        "process": {
+          "description": "Whether it still runs, and its exit code once it ended. A session\nreports no signals, and a command it lost track of, such as one\nrunning when its shell ended, ends with no code.",
+          "$ref": "#/$defs/TerminalStatus"
+        },
+        "secret_prompts": {
+          "description": "How many passwords you sent at prompts that hid what you typed.",
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "start": {
+          "description": "The offset of its output's first byte in all the session's terminal\nprinted, so a client can follow it live with\n[`crate::ClientMessage::TerminalAttach`], whose `after` is then one\nless. None until the shell marks the command's start.",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint64",
+          "minimum": 0
+        },
+        "started_at": {
+          "description": "When it started.",
+          "$ref": "#/$defs/Timestamp"
+        }
+      },
+      "required": [
+        "id",
+        "command",
+        "cwd",
+        "private",
+        "process",
+        "started_at",
+        "lines",
+        "output",
+        "output_truncated",
+        "secret_prompts"
+      ]
+    },
     "SessionId": {
       "description": "A process kept alive by `maxd hold`.",
       "type": "string",
       "format": "uuid"
+    },
+    "SessionRefBlock": {
+      "description": "One command in an [`InlineRef::Session`].",
+      "type": "object",
+      "properties": {
+        "command": {
+          "description": "The command line, as typed after the `!`.",
+          "type": "string"
+        },
+        "cwd": {
+          "description": "The folder it started in, as the device writes it.",
+          "type": "string"
+        },
+        "cwd_after": {
+          "description": "The folder the shell was in once it ended, when the command moved\nit.",
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null
+        },
+        "duration_ms": {
+          "description": "How long it ran, or has run so far, if known.",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint64",
+          "minimum": 0
+        },
+        "exit_code": {
+          "description": "Its exit code, or none while it runs or when the session lost track\nof it.",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "int32"
+        },
+        "lines_total": {
+          "description": "How many lines it wrote in all, which may be more than `text` holds.",
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "running": {
+          "description": "Whether it still ran when the message went.",
+          "type": "boolean"
+        },
+        "text": {
+          "description": "Its last lines, as plain text.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "command",
+        "cwd",
+        "running",
+        "lines_total",
+        "text"
+      ]
     },
     "Settled": {
       "description": "When and why an agent was settled.",
@@ -14527,6 +14779,19 @@
             "type",
             "command",
             "private"
+          ]
+        },
+        {
+          "description": "The agent's session: the one shell its `!` commands share, so `cd`\nand `export` carry over. A tab first in the drawer, titled\n\"Session\". An agent has one at most. Since protocol 48: an older\nclient leaves the whole terminal out.",
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "session"
+            }
+          },
+          "required": [
+            "type"
           ]
         }
       ]
@@ -15918,6 +16183,18 @@
               "format": "uint64",
               "minimum": 0
             },
+            "fresh": {
+              "description": "Why it ran in a fresh shell rather than the agent's session.\nNone from a `maxd` before protocol 48, which had no sessions.",
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/FreshReason"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
             "kind": {
               "type": "string",
               "const": "user_run"
@@ -15965,6 +16242,47 @@
             "output",
             "output_truncated",
             "moved"
+          ]
+        },
+        {
+          "description": "The commands you ran with `!` in the agent's session between two of\nyour messages, as one card with a block for each. The item runs\nwhile a block does, and is completed otherwise. Since protocol 48.",
+          "type": "object",
+          "properties": {
+            "blocks": {
+              "description": "The commands, in the order they ran.",
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/SessionBlock"
+              }
+            },
+            "device": {
+              "description": "The device it runs on.",
+              "$ref": "#/$defs/DeviceId"
+            },
+            "kind": {
+              "type": "string",
+              "const": "user_session"
+            },
+            "sealed": {
+              "description": "Whether a message you sent closed the card, so its blocks can't\nchange between shared and private and the next command starts\na new card.",
+              "type": "boolean"
+            },
+            "sent": {
+              "description": "Whether the message that sealed the card took its session pill\nalong. False while the card is open.",
+              "type": "boolean"
+            },
+            "terminal": {
+              "description": "The session's terminal.",
+              "$ref": "#/$defs/TerminalId"
+            }
+          },
+          "required": [
+            "kind",
+            "terminal",
+            "device",
+            "blocks",
+            "sealed",
+            "sent"
           ]
         },
         {

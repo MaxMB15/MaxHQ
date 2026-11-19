@@ -423,8 +423,8 @@ export const mockTerminalStream = ({
 				marks: terminal.kind.type === "shell" && (marks?.(terminal) ?? false),
 			};
 			states.set(terminal.id, state);
-			if (terminal.kind.type === "shell") prompt(state);
-			else run(state, terminal.kind.command);
+			if (terminal.kind.type === "run") run(state, terminal.kind.command);
+			else prompt(state);
 		},
 		interrupt: (id) => {
 			const state = stateOf(id);

@@ -379,7 +379,11 @@ impl Manager {
             | ClientMessage::TerminalRename { .. }
             | ClientMessage::TerminalMove { .. }
             | ClientMessage::ListFolder { .. }
-            | ClientMessage::MakeFolder { .. } => return,
+            | ClientMessage::MakeFolder { .. }
+            | ClientMessage::SessionRun { .. }
+            | ClientMessage::SessionShare { .. }
+            | ClientMessage::SessionCd { .. }
+            | ClientMessage::SessionEnd { .. } => return,
         };
         match self.keys.begin(key, conn) {
             Seen::New => {}

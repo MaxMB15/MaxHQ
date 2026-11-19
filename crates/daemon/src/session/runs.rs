@@ -167,6 +167,7 @@ impl Manager {
                 output: String::new(),
                 output_truncated: false,
                 moved: false,
+                fresh: None,
             },
         };
         let timeline = self.timeline_mut(agent);
@@ -287,6 +288,7 @@ mod tests {
                 output: String::new(),
                 output_truncated: false,
                 moved: false,
+                fresh: None,
             },
         }
     }

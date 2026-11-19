@@ -57,7 +57,7 @@ const runItem = (terminal: TerminalId): ItemId => `run-${terminal}`;
 
 /** The tab's name until the shell or you set one. */
 const defaultTitle = (terminal: Pick<Terminal, "kind">) =>
-	terminal.kind.type === "shell" ? "zsh" : terminal.kind.command;
+	terminal.kind.type === "run" ? terminal.kind.command : "zsh";
 
 /**
  * The terminal calls over the sample entities, and their bytes. With

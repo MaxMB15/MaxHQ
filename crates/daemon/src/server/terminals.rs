@@ -8,6 +8,7 @@
 
 use maxhq_protocol::ids::TerminalId;
 use maxhq_protocol::message::ErrorCode;
+use maxhq_protocol::terminal::TerminalKind;
 use maxhq_protocol::ClientMessage;
 use tracing::debug;
 
@@ -23,6 +24,9 @@ pub(super) const NOT_FOR_TERMINALS: &str = "Terminals answer only the MaxHQ app 
 
 /// The refusal for a terminal request to a `maxd` that holds none.
 const NO_TERMINALS: &str = "This maxd holds no terminals.";
+
+/// The refusal for a session request while sessions are being built.
+pub(super) const SESSIONS_NOT_READY: &str = "Sessions aren't ready yet.";
 
 impl Connection {
     /// Who asks, when this connection may reach terminals at all: the app,
@@ -60,6 +64,17 @@ impl Connection {
             Err(reason) => return self.refuse(&message, ErrorCode::NotAllowed, reason).await,
         };
         match message {
+            ClientMessage::TerminalOpen {
+                kind: TerminalKind::Session,
+                ..
+            }
+            | ClientMessage::SessionRun { .. }
+            | ClientMessage::SessionShare { .. }
+            | ClientMessage::SessionCd { .. }
+            | ClientMessage::SessionEnd { .. } => {
+                self.refuse(&message, ErrorCode::NotAllowed, SESSIONS_NOT_READY)
+                    .await
+            }
             ClientMessage::TerminalOpen { ref kind, .. } => {
                 if let Err(reason) = access::check(caller, Act::Open, kind, caller.opener()) {
                     return self.refuse(&message, ErrorCode::NotAllowed, reason).await;

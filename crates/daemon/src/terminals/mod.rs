@@ -288,10 +288,12 @@ impl Open {
                     .filter(|title| !title.trim().is_empty())
             })
             .unwrap_or_else(|| match &self.note.kind {
-                TerminalKind::Shell => maxhq_hold::login_shell().file_name().map_or_else(
-                    || "shell".to_owned(),
-                    |name| name.to_string_lossy().into_owned(),
-                ),
+                TerminalKind::Shell | TerminalKind::Session => {
+                    maxhq_hold::login_shell().file_name().map_or_else(
+                        || "shell".to_owned(),
+                        |name| name.to_string_lossy().into_owned(),
+                    )
+                }
                 TerminalKind::Run { command, .. } => command.clone(),
             });
     }
@@ -546,7 +548,9 @@ impl Terminals {
         let terminal = TerminalId::generate();
         let (cols, rows) = (request.cols.max(1), request.rows.max(1));
         let mut launch = match &request.kind {
-            TerminalKind::Shell => TermLaunch::shell(terminal, request.cwd.clone(), cols, rows),
+            TerminalKind::Shell | TerminalKind::Session => {
+                TermLaunch::shell(terminal, request.cwd.clone(), cols, rows)
+            }
             TerminalKind::Run { command, .. } => {
                 TermLaunch::run(terminal, request.cwd.clone(), command, cols, rows)
             }

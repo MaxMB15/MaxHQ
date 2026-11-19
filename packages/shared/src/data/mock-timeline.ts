@@ -200,6 +200,33 @@ const ranByYou = (
 	moved: false,
 });
 
+/** Commands you ran with `!` in one shell from `cwd`, each ended with its code. */
+const sessionByYou = (
+	cwd: string,
+	runs: readonly (readonly [command: string, output: string, code: number, took: number])[]
+): ItemBody => ({
+	kind: "user_session",
+	terminal: `0199a7c2-0000-7000-8000-5e5510${runs.length.toString(16).padStart(6, "0")}`,
+	device: MAC,
+	blocks: runs.map(([command, output, code, took], index) => ({
+		id: index + 1,
+		command,
+		cwd,
+		cwd_after: null,
+		private: false,
+		process: { state: "exited", code, signal: null },
+		started_at: 0,
+		duration_ms: took,
+		lines: output.split("\n").length,
+		output,
+		output_truncated: false,
+		secret_prompts: 0,
+		start: null,
+	})),
+	sealed: false,
+	sent: false,
+});
+
 const read = (path: string, lines: string | null = null): ItemBody => ({
 	kind: "file_read",
 	path,
@@ -714,6 +741,13 @@ const usagePopover = (now: Timestamp): TimelineItem[] => {
 	s.add(ranByYou("git status --short", MAXHQ_FOLDER, " M src/usage/popover.tsx", 0, 140), {
 		took: 140,
 	});
+	s.add(
+		sessionByYou(MAXHQ_FOLDER, [
+			["git diff --stat", " src/usage/popover.tsx | 4 ++--", 0, 90],
+			["pnpm test usage", "Tests: 12 passed, 12 total", 0, 3_400],
+		]),
+		{ took: 3_490 }
+	);
 	s.turn(MIN);
 	s.add(you("How did usage move this week?"));
 	s.add(visual("Weekly usage by vendor", "visual-weekly-usage-by-vendor.html", 6_240));
@@ -935,6 +969,7 @@ const hdrToneMapping = (now: Timestamp): TimelineItem[] => {
 		took: 1_900,
 		status: "failed",
 	});
+	s.add(sessionByYou(COMET_FOLDER, [["cargo fmt", "", 0, 700]]), { took: 700 });
 	s.add(summary(7 * MIN + 4 * SEC, 151_000));
 	s.turn(MIN);
 	s.add(you("Keep going, the peak test is fine to loosen for this sample."));
