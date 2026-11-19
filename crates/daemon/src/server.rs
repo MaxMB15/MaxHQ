@@ -60,6 +60,11 @@ const PHONE_CANT: &str = "A phone can't do that. To let this phone, turn on Let 
 const PHONE_UNSIGNED: &str = "A phone can't send a maxd no release signed. Send it from the \
                               Mac's Update everything.";
 
+/// The refusal for a folder request from a connection that isn't the app
+/// or a proven phone.
+const NOT_FOR_FOLDERS: &str = "Only the MaxHQ app and phones that proved their keys may list \
+                               or make folders on this device.";
+
 /// The answer to a request whose part of `maxd` isn't built yet.
 pub fn not_yet() -> ActionOutcome {
     ActionOutcome::Refused {
@@ -753,14 +758,15 @@ impl Connection {
         }
         // A phone is easier to lose than a Mac, and it never stores or
         // removes a credential, signs in, changes how this device is set
-        // up, installs anything or reads a path on the device. So a stolen
-        // phone's key can't either. Nor can it start or move agents, start
-        // tasks, make, clone or remove workspaces, place files in them, open
-        // a shell, reach a guest's shell or ports, signal a process, copy
-        // files out, build or reset a test host, or change hosts, snapshots,
-        // moves, skills, the skill library or its sources: the phone asks
-        // the dispatcher, answers and steers agents that already run.
-        // Unless the Mac turned the phone's switch on, which lets it.
+        // up or installs anything. So a stolen phone's key can't either.
+        // Nor can it read a file by its path on the device, list or make
+        // folders, start or move agents, start tasks, make, clone or remove
+        // workspaces, place files in them, open a shell, reach a guest's
+        // shell or ports, signal a process, copy files out, build or reset
+        // a test host, or change hosts, snapshots, moves, skills, the skill
+        // library or its sources: the phone asks the dispatcher, answers
+        // and steers agents that already run. Unless the Mac turned the
+        // phone's switch on, which lets it do all of these.
         if self.phone.is_some()
             && matches!(
                 message,
@@ -776,6 +782,8 @@ impl Connection {
                     | ClientMessage::CloneRetry { .. }
                     | ClientMessage::CloneRemove { .. }
                     | ClientMessage::PlaceStaged { .. }
+                    | ClientMessage::ListFolder { .. }
+                    | ClientMessage::MakeFolder { .. }
                     | ClientMessage::GuestSshOpen { .. }
                     | ClientMessage::TerminalOpen {
                         kind: TerminalKind::Shell,
@@ -1286,6 +1294,28 @@ impl Connection {
             | ClientMessage::TerminalClose { .. }
             | ClientMessage::TerminalRename { .. }
             | ClientMessage::TerminalMove { .. }) => self.terminal(message).await,
+            // Folders answer the app and proven phones, as terminals do.
+            ClientMessage::ListFolder {
+                key,
+                device,
+                path,
+                files,
+                hidden,
+            } if self.terminal_caller().is_some() => {
+                let me = self.hub.device().id;
+                let list = crate::folders::list(me, device, path, files, hidden);
+                self.answer_when(key, tokio::spawn(list));
+                Ok(())
+            }
+            ClientMessage::MakeFolder { key, device, path } if self.terminal_caller().is_some() => {
+                let make = crate::folders::make(self.hub.device().id, device, path);
+                self.answer_when(key, tokio::spawn(make));
+                Ok(())
+            }
+            message @ (ClientMessage::ListFolder { .. } | ClientMessage::MakeFolder { .. }) => {
+                self.refuse(&message, ErrorCode::NotAllowed, NOT_FOR_FOLDERS)
+                    .await
+            }
             // Updates, tools, load and diagnostics belong to the fleet.
             message @ (ClientMessage::InstallUpdate { key, .. }
             | ClientMessage::UpdateTools { key, .. }
@@ -3045,6 +3075,68 @@ pub(crate) mod tests {
     }
 
     #[tokio::test]
+    async fn folders_answer_the_app_and_never_agents_tools() {
+        let served = serve();
+        let me = served.hub.device().id;
+        let dir = TempDir::new();
+        fs::create_dir(dir.path().join("example-app")).unwrap();
+        let list = ClientMessage::ListFolder {
+            key: IdempotencyKey::derive("list"),
+            device: me,
+            path: dir.path().display().to_string(),
+            files: false,
+            hidden: false,
+        };
+        let make = ClientMessage::MakeFolder {
+            key: IdempotencyKey::derive("make"),
+            device: me,
+            path: dir.path().join("new").display().to_string(),
+        };
+
+        let mut tools = TestClient::connect(&served.socket).await;
+        let ClientMessage::Hello(mut hello) = hello(ProtocolRange::OURS) else {
+            unreachable!()
+        };
+        hello.role = ClientRole::Mcp;
+        tools.send(&ClientMessage::Hello(hello)).await;
+        assert!(matches!(tools.recv().await, ServerMessage::Hello(_)));
+        for message in [&list, &make] {
+            tools.send(message).await;
+            assert!(matches!(
+                tools.recv().await,
+                ServerMessage::Error {
+                    code: ErrorCode::NotAllowed,
+                    ..
+                }
+            ));
+        }
+        assert!(!dir.path().join("new").exists());
+
+        let (mut app, _) = TestClient::greeted(&served.socket).await;
+        app.send(&list).await;
+        match app.recv().await {
+            ServerMessage::ActionResult {
+                outcome: ActionOutcome::FolderListed { listing },
+                ..
+            } => {
+                assert!(listing.exists);
+                assert_eq!(listing.entries.len(), 1);
+                assert_eq!(listing.entries[0].name, "example-app");
+            }
+            other => panic!("{other:?}"),
+        }
+        app.send(&make).await;
+        assert!(matches!(
+            app.recv().await,
+            ServerMessage::ActionResult {
+                outcome: ActionOutcome::Done,
+                ..
+            }
+        ));
+        assert!(dir.path().join("new").is_dir());
+    }
+
+    #[tokio::test]
     async fn only_the_app_may_set_or_delete_acp_agents() {
         let served = serve();
         let id = maxhq_protocol::ids::AcpAgentId::derive("gemini");
@@ -3315,6 +3407,18 @@ pub(crate) mod tests {
                 workspace,
                 attachment: AttachmentId::derive("place"),
                 overwrite: true,
+            },
+            ClientMessage::ListFolder {
+                key: key("list-folder"),
+                device: me,
+                path: dir.path().display().to_string(),
+                files: true,
+                hidden: true,
+            },
+            ClientMessage::MakeFolder {
+                key: key("make-folder"),
+                device: me,
+                path: dir.path().join("stolen").display().to_string(),
             },
             ClientMessage::GuestSshOpen {
                 stream: StreamId::generate(),
@@ -3763,6 +3867,35 @@ pub(crate) mod tests {
             own.recv().await,
             ServerMessage::ActionResult {
                 outcome: ActionOutcome::Staged { .. },
+                ..
+            }
+        ));
+        // And list and make folders, as it may start an agent in one.
+        own.send(&ClientMessage::ListFolder {
+            key: IdempotencyKey::generate(),
+            device: me,
+            path: dir.path().display().to_string(),
+            files: true,
+            hidden: false,
+        })
+        .await;
+        assert!(matches!(
+            own.recv().await,
+            ServerMessage::ActionResult {
+                outcome: ActionOutcome::FolderListed { .. },
+                ..
+            }
+        ));
+        own.send(&ClientMessage::MakeFolder {
+            key: IdempotencyKey::generate(),
+            device: me,
+            path: dir.path().join("made").display().to_string(),
+        })
+        .await;
+        assert!(matches!(
+            own.recv().await,
+            ServerMessage::ActionResult {
+                outcome: ActionOutcome::Done,
                 ..
             }
         ));

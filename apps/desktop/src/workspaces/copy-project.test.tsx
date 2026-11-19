@@ -172,6 +172,7 @@ describe("copy to another device", () => {
 		fireEvent.change(within(dialog).getByRole("textbox", { name: "Parent folder" }), {
 			target: { value: "/home/dev/code" },
 		});
+		expect(within(dialog).getByRole("button", { name: "Browse…" })).toBeInTheDocument();
 		expect(within(dialog).getByRole("textbox", { name: "Folder name" })).toHaveValue("comet");
 		fireEvent.click(within(dialog).getByRole("button", { name: "Copy" }));
 

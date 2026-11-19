@@ -16,6 +16,7 @@ use maxhq_protocol::agents::{AccessKey, MoveTo, Permission};
 use maxhq_protocol::attention::AttentionAnswer;
 use maxhq_protocol::context::InlineRef;
 use maxhq_protocol::find::{AgentExcerpt, GitItemSearch, PathMatch};
+use maxhq_protocol::folders::FolderList;
 use maxhq_protocol::hosts::MoveStep;
 use maxhq_protocol::ids::{
     AccountId, AcpAgentId, AgentId, AttentionId, CredentialId, DeviceId, ForwardId, IdempotencyKey,
@@ -866,6 +867,19 @@ pub enum Request {
     TerminalRename { terminal: TerminalId, title: String },
     /// Moves a command you ran with `!` to the agent's terminal drawer.
     TerminalMove { terminal: TerminalId },
+    /// What a folder on `device` holds, for a path field's suggestions and
+    /// the folder browser. A `~` at the start of `path` is that device's
+    /// home. A `maxd` too old to list folders answers `too_old` rather
+    /// than failing.
+    ListFolder {
+        device: DeviceId,
+        path: String,
+        files: bool,
+        hidden: bool,
+    },
+    /// Makes one folder on `device`, in a folder that's there, for the
+    /// folder browser's New folder.
+    MakeFolder { device: DeviceId, path: String },
 }
 
 /// The answer to a [`Request`], of the same kind. A request that only
@@ -1077,6 +1091,8 @@ pub enum Response {
     TerminalClose(ActionOutcome),
     TerminalRename(ActionOutcome),
     TerminalMove(ActionOutcome),
+    ListFolder(FolderList),
+    MakeFolder(ActionOutcome),
 }
 
 impl Request {
@@ -1281,6 +1297,8 @@ impl Request {
             Self::TerminalClose { .. } => "terminal_close",
             Self::TerminalRename { .. } => "terminal_rename",
             Self::TerminalMove { .. } => "terminal_move",
+            Self::ListFolder { .. } => "list_folder",
+            Self::MakeFolder { .. } => "make_folder",
         }
     }
 }
@@ -1487,6 +1505,8 @@ impl Response {
             Self::TerminalClose(_) => "terminal_close",
             Self::TerminalRename(_) => "terminal_rename",
             Self::TerminalMove(_) => "terminal_move",
+            Self::ListFolder(_) => "list_folder",
+            Self::MakeFolder(_) => "make_folder",
         }
     }
 }
@@ -2613,6 +2633,31 @@ impl<C: Connector> App<C> {
                 let action = ClientMessage::TerminalMove { key, terminal };
                 Response::TerminalMove(devices.act(action).await?)
             }
+            Request::ListFolder {
+                device,
+                path,
+                files,
+                hidden,
+            } => {
+                let action = ClientMessage::ListFolder {
+                    key,
+                    device,
+                    path,
+                    files,
+                    hidden,
+                };
+                match devices.act_unless_old(action).await? {
+                    None => Response::ListFolder(FolderList::TooOld),
+                    Some(ActionOutcome::FolderListed { listing }) => {
+                        Response::ListFolder(FolderList::Listed { listing })
+                    }
+                    Some(other) => return Err(lookup_failed(other)),
+                }
+            }
+            Request::MakeFolder { device, path } => {
+                let action = ClientMessage::MakeFolder { key, device, path };
+                Response::MakeFolder(devices.act(action).await?)
+            }
         })
     }
 
@@ -3518,6 +3563,14 @@ mod tests {
             json!({"kind": "terminal_close", "terminal": terminal}),
             json!({"kind": "terminal_rename", "terminal": terminal, "title": "dev server"}),
             json!({"kind": "terminal_move", "terminal": terminal}),
+            json!({
+                "kind": "list_folder",
+                "device": mac,
+                "path": "~/code",
+                "files": false,
+                "hidden": false,
+            }),
+            json!({"kind": "make_folder", "device": mac, "path": "/Users/dev/code/new"}),
         ]
         .into_iter()
         .chain(skill_requests(mac))
@@ -4358,7 +4411,7 @@ mod tests {
                 }
             }
         }
-        assert_eq!(kinds.len() + mac_only.len(), 158);
+        assert_eq!(kinds.len() + mac_only.len(), 160);
         // The harness has no maxd to install or uninstall, no timeline open, no
         // listening port, no setup waiting on a host key, no GitHub
         // sign-in to merge with, no skill proposal, no link or card waiting

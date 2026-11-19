@@ -377,7 +377,9 @@ impl Manager {
             | ClientMessage::TerminalInterrupt { .. }
             | ClientMessage::TerminalClose { .. }
             | ClientMessage::TerminalRename { .. }
-            | ClientMessage::TerminalMove { .. } => return,
+            | ClientMessage::TerminalMove { .. }
+            | ClientMessage::ListFolder { .. }
+            | ClientMessage::MakeFolder { .. } => return,
         };
         match self.keys.begin(key, conn) {
             Seen::New => {}

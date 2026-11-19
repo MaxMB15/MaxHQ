@@ -1255,5 +1255,19 @@
 	"Sub-agent finished": "Sub-agent finished",
 	"Open lead": "Open lead",
 	"Finished, read only": "Finished, read only",
-	"MaxHQ found no history for this sub-agent.": "MaxHQ found no history for this sub-agent."
+	"MaxHQ found no history for this sub-agent.": "MaxHQ found no history for this sub-agent.",
+	"A folder can't be called . or ..": "A folder can't be called . or ..",
+	"A folder's name can't have a slash.": "A folder's name can't have a slash.",
+	"Couldn't find a folder to open.": "Couldn't find a folder to open.",
+	"Drop a file here, not a folder.": "Drop a file here, not a folder.",
+	"Drop to use this file": "Drop to use this file",
+	"Drop to use this folder": "Drop to use this folder",
+	"git · {{branch}}": "git · {{branch}}",
+	"Name the new folder.": "Name the new folder.",
+	"That file is on this Mac.": "That file is on this Mac.",
+	"That folder is on this Mac.": "That folder is on this Mac.",
+	"This device's maxd can't list folders yet.": "This device's maxd can't list folders yet.",
+	"Update maxd on {{device}} to browse its folders": "Update maxd on {{device}} to browse its folders",
+	"Uses the folder it's in, {{folder}}": "Uses the folder it's in, {{folder}}",
+	"Wait for the folder to load.": "Wait for the folder to load."
 }

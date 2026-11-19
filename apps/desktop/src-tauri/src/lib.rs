@@ -86,6 +86,7 @@ pub fn specta_builder() -> Builder<tauri::Wry> {
             native::trash_offered,
             native::reveal_download,
             native::save_export,
+            native::pick_path,
             notify::notification_prefs,
             notify::set_notification_prefs,
             notify::notification_permission,
@@ -154,6 +155,7 @@ pub fn specta_builder() -> Builder<tauri::Wry> {
             maxhq_protocol::message::FINISHED_SUB_AGENTS_SINCE,
         )
         .constant("TERMINALS_SINCE", maxhq_protocol::message::TERMINALS_SINCE)
+        .constant("FOLDERS_SINCE", maxhq_protocol::message::FOLDERS_SINCE)
 }
 
 /// The exporter settings for the generated file.

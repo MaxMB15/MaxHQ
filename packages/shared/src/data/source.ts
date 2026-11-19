@@ -117,6 +117,7 @@ import type {
 	ToolTarget,
 } from "../fleet/wire";
 import { DEPTH } from "../bindings";
+import type { FolderCalls } from "../folders/requests";
 import type { GitItemRef } from "../pills/draft";
 import type { TerminalCalls } from "../terminal/requests";
 import type { TerminalStream } from "../terminal/stream";
@@ -329,11 +330,14 @@ export type MockControls = {
 	readonly setScenario: (id: string) => void;
 };
 
+/** The calls that live with their own helpers, the terminal's and the folders'. */
+type HelperCalls = TerminalCalls & FolderCalls;
+
 /**
  * One place the view comes from, with the commands that act on it. The
- * terminal calls live with the terminal helpers.
+ * terminal and folder calls live with their helpers.
  */
-export type DataSource = TerminalCalls & {
+export type DataSource = HelperCalls & {
 	/** Which implementation this is. */
 	readonly kind: "tauri" | "native" | "mock";
 	/** Terminals' bytes both ways, where this source carries them. */

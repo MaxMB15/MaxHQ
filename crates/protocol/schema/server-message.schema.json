@@ -2036,6 +2036,24 @@
           ]
         },
         {
+          "description": "What a folder holds, for [`ClientMessage::ListFolder`].",
+          "type": "object",
+          "properties": {
+            "listing": {
+              "description": "The listing.",
+              "$ref": "#/$defs/FolderListing"
+            },
+            "status": {
+              "type": "string",
+              "const": "folder_listed"
+            }
+          },
+          "required": [
+            "status",
+            "listing"
+          ]
+        },
+        {
           "description": "An outcome from a newer `maxd`. The action went through, and what\nit came to needs a newer app to show.",
           "type": "object",
           "properties": {
@@ -7151,6 +7169,91 @@
       "required": [
         "item",
         "occurrence"
+      ]
+    },
+    "FolderCheckout": {
+      "description": "A git checkout a [`FolderEntry`] is the top of.",
+      "type": "object",
+      "properties": {
+        "branch": {
+          "description": "The branch it has checked out, or none on a detached HEAD.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "project": {
+          "description": "Its project, as the device names it, the same on every device for\ncheckouts of one remote.",
+          "$ref": "#/$defs/ProjectId"
+        }
+      },
+      "required": [
+        "project"
+      ]
+    },
+    "FolderEntry": {
+      "description": "One entry of a [`FolderListing`].",
+      "type": "object",
+      "properties": {
+        "checkout": {
+          "description": "The checkout, when it's the top folder of one.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/FolderCheckout"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "folder": {
+          "description": "Whether it's a folder, or a link to one.",
+          "type": "boolean"
+        },
+        "name": {
+          "description": "Its name in the folder.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "folder"
+      ]
+    },
+    "FolderListing": {
+      "description": "What [`crate::ClientMessage::ListFolder`] found. A folder that isn't\nthere is an answer too, with no entries, so a field can suggest a parent\nfolder that doesn't exist yet.",
+      "type": "object",
+      "properties": {
+        "entries": {
+          "description": "What it holds, folders first, each group by name ignoring case.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/FolderEntry"
+          }
+        },
+        "exists": {
+          "description": "Whether the folder is there.",
+          "type": "boolean"
+        },
+        "home": {
+          "description": "The device's home folder, which a typed `~` stands for.",
+          "type": "string"
+        },
+        "path": {
+          "description": "The folder's absolute path, with `~` expanded and its links\nresolved when it's there.",
+          "type": "string"
+        },
+        "truncated": {
+          "description": "Whether it holds more than the entries say, or took too long to\nread to the end.",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "path",
+        "home",
+        "exists",
+        "entries",
+        "truncated"
       ]
     },
     "Forward": {

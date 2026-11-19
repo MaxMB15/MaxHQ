@@ -4926,6 +4926,72 @@
         "key",
         "terminal"
       ]
+    },
+    {
+      "description": "Lists one folder on a device, for a path field's suggestions and the\nfolder browser. The outcome is [`ActionOutcome::FolderListed`], for\na folder that isn't there too.",
+      "type": "object",
+      "properties": {
+        "device": {
+          "description": "The device the folder is on.",
+          "$ref": "#/$defs/DeviceId"
+        },
+        "files": {
+          "description": "Whether to list files too, not only folders.",
+          "type": "boolean"
+        },
+        "hidden": {
+          "description": "Whether to list the names that start with a dot.",
+          "type": "boolean"
+        },
+        "key": {
+          "description": "Makes a resend after a dropped connection safe.",
+          "$ref": "#/$defs/IdempotencyKey"
+        },
+        "path": {
+          "description": "The folder's absolute path. A leading `~` is the device's home\nfolder.",
+          "type": "string"
+        },
+        "type": {
+          "type": "string",
+          "const": "list_folder"
+        }
+      },
+      "required": [
+        "type",
+        "key",
+        "device",
+        "path",
+        "files",
+        "hidden"
+      ]
+    },
+    {
+      "description": "Makes one folder on a device, for the folder browser's New folder.\nIts parent must be there already.",
+      "type": "object",
+      "properties": {
+        "device": {
+          "description": "The device the folder goes on.",
+          "$ref": "#/$defs/DeviceId"
+        },
+        "key": {
+          "description": "Makes a resend after a dropped connection safe.",
+          "$ref": "#/$defs/IdempotencyKey"
+        },
+        "path": {
+          "description": "The new folder's absolute path.",
+          "type": "string"
+        },
+        "type": {
+          "type": "string",
+          "const": "make_folder"
+        }
+      },
+      "required": [
+        "type",
+        "key",
+        "device",
+        "path"
+      ]
     }
   ],
   "$defs": {
@@ -6327,6 +6393,24 @@
           "required": [
             "status",
             "terminal"
+          ]
+        },
+        {
+          "description": "What a folder holds, for [`ClientMessage::ListFolder`].",
+          "type": "object",
+          "properties": {
+            "listing": {
+              "description": "The listing.",
+              "$ref": "#/$defs/FolderListing"
+            },
+            "status": {
+              "type": "string",
+              "const": "folder_listed"
+            }
+          },
+          "required": [
+            "status",
+            "listing"
           ]
         },
         {
@@ -8396,6 +8480,91 @@
       "required": [
         "item",
         "occurrence"
+      ]
+    },
+    "FolderCheckout": {
+      "description": "A git checkout a [`FolderEntry`] is the top of.",
+      "type": "object",
+      "properties": {
+        "branch": {
+          "description": "The branch it has checked out, or none on a detached HEAD.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "project": {
+          "description": "Its project, as the device names it, the same on every device for\ncheckouts of one remote.",
+          "$ref": "#/$defs/ProjectId"
+        }
+      },
+      "required": [
+        "project"
+      ]
+    },
+    "FolderEntry": {
+      "description": "One entry of a [`FolderListing`].",
+      "type": "object",
+      "properties": {
+        "checkout": {
+          "description": "The checkout, when it's the top folder of one.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/FolderCheckout"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "folder": {
+          "description": "Whether it's a folder, or a link to one.",
+          "type": "boolean"
+        },
+        "name": {
+          "description": "Its name in the folder.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "folder"
+      ]
+    },
+    "FolderListing": {
+      "description": "What [`crate::ClientMessage::ListFolder`] found. A folder that isn't\nthere is an answer too, with no entries, so a field can suggest a parent\nfolder that doesn't exist yet.",
+      "type": "object",
+      "properties": {
+        "entries": {
+          "description": "What it holds, folders first, each group by name ignoring case.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/FolderEntry"
+          }
+        },
+        "exists": {
+          "description": "Whether the folder is there.",
+          "type": "boolean"
+        },
+        "home": {
+          "description": "The device's home folder, which a typed `~` stands for.",
+          "type": "string"
+        },
+        "path": {
+          "description": "The folder's absolute path, with `~` expanded and its links\nresolved when it's there.",
+          "type": "string"
+        },
+        "truncated": {
+          "description": "Whether it holds more than the entries say, or took too long to\nread to the end.",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "path",
+        "home",
+        "exists",
+        "entries",
+        "truncated"
       ]
     },
     "ForwardId": {

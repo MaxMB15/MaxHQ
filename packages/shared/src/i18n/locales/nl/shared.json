@@ -1255,5 +1255,19 @@
 	"Sub-agent finished": "Subagent klaar",
 	"Open lead": "Hoofdagent openen",
 	"Finished, read only": "Klaar, alleen-lezen",
-	"MaxHQ found no history for this sub-agent.": "MaxHQ vond geen geschiedenis voor deze subagent."
+	"MaxHQ found no history for this sub-agent.": "MaxHQ vond geen geschiedenis voor deze subagent.",
+	"A folder can't be called . or ..": "Een map kan niet . of .. heten.",
+	"A folder's name can't have a slash.": "De naam van een map mag geen schuine streep bevatten.",
+	"Couldn't find a folder to open.": "Geen map gevonden om te openen.",
+	"Drop a file here, not a folder.": "Zet hier een bestand neer, geen map.",
+	"Drop to use this file": "Zet neer om dit bestand te gebruiken",
+	"Drop to use this folder": "Zet neer om deze map te gebruiken",
+	"git · {{branch}}": "git · {{branch}}",
+	"Name the new folder.": "Geef de nieuwe map een naam.",
+	"That file is on this Mac.": "Dat bestand staat op deze Mac.",
+	"That folder is on this Mac.": "Die map staat op deze Mac.",
+	"This device's maxd can't list folders yet.": "De maxd van dit apparaat kan nog geen mappen tonen.",
+	"Update maxd on {{device}} to browse its folders": "Werk maxd op {{device}} bij om de mappen te bekijken",
+	"Uses the folder it's in, {{folder}}": "Gebruikt de map waarin het staat, {{folder}}",
+	"Wait for the folder to load.": "Wacht tot de map geladen is."
 }
