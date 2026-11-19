@@ -7,7 +7,9 @@
 // is, up to most of the screen, and scrolls inside past that. Save as .html
 // goes through the share sheet on iOS, where Save to Files is, and into a
 // folder you pick on Android, whose share sheet takes no files. Add to note
-// is there in an agent's feed, for the notes of the agent's project.
+// is there in an agent's feed, for the notes of the agent's project. Tell
+// the agent, on the error bar, quotes the page's errors into the agent's
+// box, only for a card in that agent's own feed while the box shows.
 
 import { t, useI18n } from "@maxhq/shared/i18n";
 
@@ -36,8 +38,10 @@ import {
 	takeOutOfHead,
 } from "@maxhq/shared/notes/add-visual";
 import type { Placed } from "@maxhq/shared/notes/visuals";
+import { quoteInbox } from "@maxhq/shared/pills/quote-inbox";
 import { notesOf, remoteNotesReach, untitled } from "@maxhq/shared/view/notes";
 import type { Visual } from "@maxhq/shared/visuals/fence";
+import { tellQuote, useVisualOrigin } from "@maxhq/shared/visuals/origin";
 import { visualFileName } from "@maxhq/shared/visuals/visual";
 
 import type { Screens } from "../../navigation";
@@ -48,7 +52,7 @@ import { More } from "../../ui/Icon";
 import { useFeed } from "../agent/feed-context";
 import { cardCap, cardHeight, heightKey, knownHeight, sameVisual } from "./card";
 import { openVisual, type VisualToOpen, visualName } from "./visual";
-import { NoPage, type NoPageWhy, useDeviceHtml, VisualPage } from "./VisualPage";
+import { NoPage, type NoPageWhy, type Tell, useDeviceHtml, VisualPage } from "./VisualPage";
 
 const HEADER = 32;
 
@@ -165,6 +169,20 @@ const Card = ({
 	const cap = cardCap(screen);
 	const card = useMemo(() => ({ cap, mark }), [cap, mark]);
 
+	const origin = useVisualOrigin();
+	const onTell = useMemo<Tell | undefined>(
+		() =>
+			origin && html !== null
+				? (errors, count) =>
+						quoteInbox.send(
+							origin.agent.id,
+							tellQuote(origin, html, visual.title, errors, count),
+							true
+						)
+				: undefined,
+		[origin, html, visual.title]
+	);
+
 	const go: Go = (project, note, made) => navigation.navigate("Note", { project, note, made });
 	// The sheet reads the view as it is when you tap, so Add to note offers the notes there now.
 	const more = () => {
@@ -233,7 +251,7 @@ const Card = ({
 			{html === null ? (
 				<NoPage why={why} height={height} />
 			) : laid ? (
-				<VisualPage html={html} card={card} runs={runs} />
+				<VisualPage html={html} card={card} runs={runs} onTell={onTell} />
 			) : (
 				<View style={{ height }} />
 			)}

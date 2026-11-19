@@ -3,7 +3,8 @@
 
 // A drawing in the feed: its shown page in a web view at the drawing's size,
 // which scrolls sideways when it's wider than the feed. The web view takes no
-// touches, so the feed and the row scroll over it.
+// touches, so the feed and the row scroll over it, and a diagram shown whole
+// zooms it.
 
 import { useMemo } from "react";
 import { ScrollView, StyleSheet, View } from "react-native";
@@ -27,54 +28,59 @@ export const LOCKED: WebViewProps = {
 	incognito: true,
 };
 
-/** A drawing's body at `width` by `height`, read out as `label`. */
-export const DrawingView = ({
-	body,
-	width,
-	height,
-	label,
-	inset,
-}: {
+type Drawn = {
 	body: string;
 	width: number;
 	height: number;
 	label: string;
-	/** Room around the drawing, inside the sideways scroll. */
-	inset: { readonly horizontal: number; readonly vertical: number };
-}) => {
+};
+
+/** A drawing's body in a web view at `width` by `height`, read out as `label`. It takes no touches. */
+export const DrawnPage = ({ body, width, height, label }: Drawn) => {
 	const source = useMemo(() => ({ html: shownPage(body) }), [body]);
 	return (
-		<ScrollView
-			horizontal
-			showsHorizontalScrollIndicator={false}
-			contentContainerStyle={[
-				styles.row,
-				{ paddingHorizontal: inset.horizontal, paddingVertical: inset.vertical },
-			]}
+		<View
+			accessible
+			accessibilityRole="image"
+			accessibilityLabel={label}
+			pointerEvents="none"
+			style={{ width, height }}
 		>
-			<View
-				accessible
-				accessibilityRole="image"
-				accessibilityLabel={label}
-				pointerEvents="none"
-				style={{ width, height }}
-			>
-				<WebView
-					{...LOCKED}
-					source={source}
-					javaScriptEnabled={false}
-					scrollEnabled={false}
-					bounces={false}
-					overScrollMode="never"
-					textInteractionEnabled={false}
-					showsHorizontalScrollIndicator={false}
-					showsVerticalScrollIndicator={false}
-					style={styles.web}
-				/>
-			</View>
-		</ScrollView>
+			<WebView
+				{...LOCKED}
+				source={source}
+				javaScriptEnabled={false}
+				scrollEnabled={false}
+				bounces={false}
+				overScrollMode="never"
+				textInteractionEnabled={false}
+				showsHorizontalScrollIndicator={false}
+				showsVerticalScrollIndicator={false}
+				style={styles.web}
+			/>
+		</View>
 	);
 };
+
+/** A drawing's body at `width` by `height`, read out as `label`. */
+export const DrawingView = ({
+	inset,
+	...drawn
+}: Drawn & {
+	/** Room around the drawing, inside the sideways scroll. */
+	inset: { readonly horizontal: number; readonly vertical: number };
+}) => (
+	<ScrollView
+		horizontal
+		showsHorizontalScrollIndicator={false}
+		contentContainerStyle={[
+			styles.row,
+			{ paddingHorizontal: inset.horizontal, paddingVertical: inset.vertical },
+		]}
+	>
+		<DrawnPage {...drawn} />
+	</ScrollView>
+);
 
 const styles = StyleSheet.create({
 	row: { flexGrow: 1, justifyContent: "center" },

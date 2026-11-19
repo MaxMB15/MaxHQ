@@ -4,8 +4,8 @@
 // The first screen, laid out as the desktop's projects view: the cards
 // devices raised about programs asking to get in, which you answer on the
 // Mac, then a box of the agents waiting on you with their answers, then
-// the filter, then the pinned ones, then one group per project, then the
-// hidden projects and the Working, snoozed and settled shelves. A
+// the skill changes waiting for you, then the filter, then the pinned
+// ones, then one group per project, then the hidden projects and the Working, snoozed and settled shelves. A
 // project's group has a ⋯ for its menu, and ends with its Notes row, which
 // opens its notes, with a plus for a new one, while it has notes or a
 // connected device can take one, and its Workflows row while it has runs.
@@ -33,9 +33,17 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import type { Admission, Agent, NodeStatus, Project, ProjectId } from "@maxhq/shared/bindings";
+import type {
+	Admission,
+	Agent,
+	NodeStatus,
+	Project,
+	ProjectId,
+	SkillProposal,
+} from "@maxhq/shared/bindings";
 import { useNow } from "@maxhq/shared/lib/clock";
 import { searchWords } from "@maxhq/shared/lib/words";
+import { skillProposals } from "@maxhq/shared/skills/library";
 import { agentLook } from "@maxhq/shared/status/activity";
 import { formatAgoShort, plural } from "@maxhq/shared/status/format";
 import { deviceReach } from "@maxhq/shared/status/reach";
@@ -81,6 +89,7 @@ import { reachSummary } from "../devices/summary";
 import { Dispatcher } from "../dispatcher/Dispatcher";
 import { NewAgentPlus, newAgentAction } from "../new-agent/NewAgentPlus";
 import { openNewNote } from "../notes/NotesScreen";
+import { SkillChanges } from "../skills/SkillChanges";
 import { NodeGlyph } from "../workflow/NodeGlyph";
 import { RowRunChip, useOpenRun } from "../workflow/RunChips";
 import { workflowsEntry } from "../workflow/runs";
@@ -99,6 +108,11 @@ import { pickSnooze } from "./SnoozeSheet";
 type Item =
 	| { readonly kind: "admission"; readonly key: string; readonly admission: Admission }
 	| { readonly kind: "needs"; readonly key: string; readonly items: readonly NeedsYouItem[] }
+	| {
+			readonly kind: "skills";
+			readonly key: string;
+			readonly proposals: readonly SkillProposal[];
+	  }
 	| { readonly kind: "filter"; readonly key: string }
 	| {
 			readonly kind: "group";
@@ -163,6 +177,8 @@ const itemsOf = (
 		items.push({ kind: "admission", key: `a:${admission.id}`, admission });
 	}
 	if (list.waiting.length > 0) items.push({ kind: "needs", key: "needs", items: list.waiting });
+	const proposals = skillProposals(view);
+	if (proposals.length > 0) items.push({ kind: "skills", key: "skills", proposals });
 	if (filtering || view.tables.agent.size > 0) items.push({ kind: "filter", key: "filter" });
 	const before = items.length;
 	const group = (
@@ -330,6 +346,14 @@ export const InboxScreen = ({ navigation }: ScreenProps<"Inbox">) => {
 						tagOf={tagFor}
 						onOpen={open}
 						now={now}
+					/>
+				);
+			case "skills":
+				return (
+					<SkillChanges
+						view={view}
+						proposals={item.proposals}
+						onOpen={(proposal) => navigation.navigate("SkillProposal", { proposal })}
 					/>
 				);
 			case "filter":

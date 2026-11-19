@@ -32,6 +32,7 @@ import { quoteInbox } from "@maxhq/shared/pills/quote-inbox";
 import { makeQuote } from "@maxhq/shared/pills/quote";
 import { sentMessage } from "@maxhq/shared/pills/sent";
 import { formatClock } from "@maxhq/shared/status/format";
+import { VisualOriginContext } from "@maxhq/shared/visuals/origin";
 
 import type { Screens } from "../../navigation";
 import { useView } from "../../services";
@@ -41,9 +42,9 @@ import { opensInBrowser, withCaret } from "../../ui/markdown";
 import { MarkdownText } from "../../ui/MarkdownText";
 import { useReduceMotion } from "../../ui/motion";
 import { PictureThumbs, showPicture } from "../../ui/Picture";
-import { useBoxShown } from "../composer/open-boxes";
 import { quoteOfSelection } from "../composer/quote";
 import { sentMarkdown } from "../composer/sent-markdown";
+import { useFeedOrigin } from "../visuals/feed-origin";
 import { openVisual, visualOfItem } from "../visuals/visual";
 import { useFeed } from "./feed-context";
 
@@ -226,27 +227,30 @@ const CopyReply = ({ text }: { text: string }) => {
 /**
  * The agent's reply, and once it has finished, a button that copies its
  * Markdown. While the agent's box shows, words you select in it can go
- * there as a quote.
+ * there as a quote, and so can a visual's errors.
  */
 export const AssistantMessage = ({ item }: { item: ItemOf<"assistant_message"> }) => {
-	const { agent, readOnly } = useFeed();
-	const title = useView((state) => state.view.tables.agent.get(agent)?.title ?? "");
-	const boxShown = useBoxShown(agent);
+	const { agent } = useFeed();
+	const origin = useFeedOrigin(item);
 	const onQuote = useCallback(
 		(selected: string) => {
 			const anchor = quoteOfSelection(item.text, selected);
-			if (anchor) quoteInbox.send(agent, makeQuote({ id: agent, title }, item, anchor), true);
+			if (origin && anchor) {
+				quoteInbox.send(agent, makeQuote(origin.agent, item, anchor), true);
+			}
 		},
-		[agent, item, title]
+		[agent, item, origin]
 	);
 	if (item.text === "" && item.streaming) return <Writing />;
 	return (
 		<View style={styles.reply}>
-			<MarkdownText
-				text={item.streaming ? withCaret(item.text) : item.text}
-				agent={agent}
-				onQuote={!readOnly && boxShown && !item.streaming ? onQuote : undefined}
-			/>
+			<VisualOriginContext value={origin}>
+				<MarkdownText
+					text={item.streaming ? withCaret(item.text) : item.text}
+					agent={agent}
+					onQuote={origin ? onQuote : undefined}
+				/>
+			</VisualOriginContext>
 			{!item.streaming && item.text.trim() !== "" ? <CopyReply text={item.text} /> : null}
 		</View>
 	);

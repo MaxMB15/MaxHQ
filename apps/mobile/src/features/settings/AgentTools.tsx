@@ -12,6 +12,12 @@ import { t, useI18n } from "@maxhq/shared/i18n";
 import { memo, useCallback, useMemo } from "react";
 import { StyleSheet, Text } from "react-native";
 
+import {
+	type AgentGrantRow,
+	agentRows,
+	type KeyGrantRow,
+	keyRows,
+} from "@maxhq/shared/agent-tools/grants";
 import type { AccessKey, Permission, PermissionId } from "@maxhq/shared/bindings";
 import type { KeysResult, PermissionsResult } from "@maxhq/shared/data/source";
 import { useNow } from "@maxhq/shared/lib/clock";
@@ -24,7 +30,6 @@ import { Card, CardRow } from "../../ui/Card";
 import { confirm } from "../../ui/choose";
 import { Buttons, CardBody, CopyTextButton, NoteLine, useAction } from "../devices/section";
 import { useRead } from "../pulls/read";
-import { type AgentGrantRow, agentRows, type KeyGrantRow, keyRows } from "./agent-tools";
 
 const listed = async <T,>(result: Promise<PermissionsResult | KeysResult>): Promise<T[]> => {
 	const answer = await result;

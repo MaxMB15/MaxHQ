@@ -350,7 +350,7 @@
 	"Global on each device, so projects can't take them": "Global auf jedem Gerät, damit Projekte sie nicht übernehmen",
 	"Global skills": "Globale Skills",
 	"Graph": "Graph",
-	"Held by {{value1}}": "Belegt von {{value1}}",
+	"Held by {{value1}}": "Gespeichert auf {{value1}}",
 	"Held by {{value2}} on {{where}}. {{value6}}.": "Belegt von {{value2}} auf {{where}}. {{value6}}.",
 	"Hidden projects": "Ausgeblendete Projekte",
 	"Hide project": "Projekt ausblenden",

@@ -3,18 +3,20 @@
 
 // A Mermaid diagram in the feed, as on the desktop: its source while the
 // text is still coming in and while it draws, then the picture with its
-// source a tap away. One that won't draw shows its source and why. The
-// drawing happens on a hidden page (see DiagramRenderer.tsx).
+// source a tap away. A tap on the picture shows it whole, where a pinch
+// zooms it. One that won't draw shows its source and why. The drawing
+// happens on a hidden page (see DiagramRenderer.tsx).
 
 import { useI18n } from "@maxhq/shared/i18n";
 
 import { useState } from "react";
-import { StyleSheet, Text, View } from "react-native";
+import { Pressable, StyleSheet, Text, View } from "react-native";
 
 import { color, size } from "../../theme";
 import { CodeCard, CodeText, CopyButton, cardStyles, HeaderButton } from "../../ui/CodeCard";
 import { Spinner } from "../../ui/Dot";
-import { type Drawing, useDrawing } from "./drawings";
+import { DiagramWhole, type DrawnDrawing } from "./DiagramWhole";
+import { useDrawing } from "./drawings";
 import { DrawingView } from "./DrawingView";
 
 /** The tallest a diagram shows in the feed, as on the desktop. */
@@ -22,23 +24,31 @@ const TALLEST = 560;
 
 const INSET = { horizontal: 12, vertical: 12 } as const;
 
-// At its own size, or smaller to stay under the tallest.
-const Picture = ({
-	drawing,
-	source,
-}: {
-	drawing: Extract<Drawing, { state: "drawn" }>;
-	source: string;
-}) => {
+// At its own size, or smaller to stay under the tallest. A tap shows it whole.
+const Picture = ({ drawing, source }: { drawing: DrawnDrawing; source: string }) => {
+	const { t } = useI18n();
+	const [whole, setWhole] = useState(false);
 	const scale = Math.min(1, TALLEST / drawing.height);
 	return (
-		<DrawingView
-			body={drawing.body}
-			width={Math.round(drawing.width * scale)}
-			height={Math.round(drawing.height * scale)}
-			label={source}
-			inset={INSET}
-		/>
+		<>
+			<Pressable
+				accessibilityRole="imagebutton"
+				accessibilityLabel={source}
+				accessibilityHint={t("Opens it full screen")}
+				onPress={() => setWhole(true)}
+			>
+				<DrawingView
+					body={drawing.body}
+					width={Math.round(drawing.width * scale)}
+					height={Math.round(drawing.height * scale)}
+					label={source}
+					inset={INSET}
+				/>
+			</Pressable>
+			{whole ? (
+				<DiagramWhole drawing={drawing} label={source} onClose={() => setWhole(false)} />
+			) : null}
+		</>
 	);
 };
 
