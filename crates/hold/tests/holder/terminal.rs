@@ -3,8 +3,9 @@
 
 //! Tests of real terminal holders running `/bin/sh` on a pty.
 //!
-//! The scripts run with `sh -c`, or `sh -i` with `HOME` and `ENV` pointed
-//! at the test's own folder, so no shell reads anyone's startup files.
+//! The scripts run with `sh -c`, or `sh -i`, bash or zsh with `HOME`, `ENV`
+//! and `ZDOTDIR` pointed at the test's own folder, so no shell reads
+//! anyone's startup files.
 
 use maxhq_hold::{Reached, TermEvent, TermExit, TermLaunch, TermLink, Terminals};
 use maxhq_protocol::ids::TerminalId;
@@ -497,6 +498,85 @@ pub(super) async fn a_run_keeps_what_it_showed(ctx: Ctx) {
         output.text,
         format!("before\nafter\n{}", maxhq_term::FULL_SCREEN)
     );
+}
+
+/// Startup files that run `script`, in a home folder of their own named
+/// `name`, and the variables that point `sh` (`ENV`), bash (`HOME`) and
+/// zsh (`ZDOTDIR`) at them.
+fn startup(ctx: &Ctx, name: &str, script: &str) -> Vec<(OsString, OsString)> {
+    let home = ctx.root.join(name);
+    fs::create_dir_all(&home).unwrap();
+    for file in [".shrc", ".bash_profile", ".zshrc"] {
+        fs::write(home.join(file), script).unwrap();
+    }
+    vec![
+        ("HOME".into(), home.clone().into()),
+        ("ZDOTDIR".into(), home.clone().into()),
+        ("ENV".into(), home.join(".shrc").into()),
+    ]
+}
+
+/// A `!` run of `command` by `shell`, whose startup runs `script`.
+fn run_after_startup(ctx: &Ctx, shell: &str, script: &str, command: &str) -> TermLaunch {
+    let terminal = TerminalId::generate();
+    let mut launch = TermLaunch::run(terminal, ctx.root.clone(), command, 80, 24);
+    launch.program = shell.into();
+    let name = format!("home-{}", terminal.0.simple());
+    launch.env.extend(startup(ctx, &name, script));
+    launch
+}
+
+pub(super) async fn a_run_shows_nothing_its_shell_printed_before_the_command(ctx: Ctx) {
+    let terminals = terminals(&ctx);
+    let banner = "printf '\\033]0;rc title\\007'; echo 'Welcome to devbox'; : > \"$HOME/started\"";
+    let shells = ["/bin/sh", "/bin/bash", "/bin/zsh"];
+    for shell in shells.into_iter().filter(|shell| Path::new(shell).exists()) {
+        let launch = run_after_startup(&ctx, shell, banner, "echo from the command");
+        let mut link = start(&ctx, &launch).await;
+        assert_eq!(link.hello.from, 0);
+        let mut seen = Seen::from(&link);
+        let exit = seen.until_exit(&mut link).await;
+        assert_eq!(exit.code, Some(0), "{shell}");
+        assert_eq!(seen.text(), "from the command\r\n", "{shell}");
+        assert_eq!(exit.output.unwrap().text, "from the command", "{shell}");
+        assert_eq!(seen.title, None, "{shell}");
+        // The startup did run.
+        let home = launch.env.iter().find(|(key, _)| key == "HOME").unwrap();
+        assert!(Path::new(&home.1).join("started").exists(), "{shell}");
+        // A client that comes later starts at the command's first byte too.
+        let mut later = live(&terminals, launch.terminal, None).await;
+        assert_eq!((later.hello.from, later.hello.reset), (0, false));
+        let mut again = Seen::from(&later);
+        again.until_exit(&mut later).await;
+        assert_eq!(again.text(), seen.text(), "{shell}");
+    }
+}
+
+pub(super) async fn a_run_whose_startup_asks_for_something_shows_it(ctx: Ctx) {
+    let asks = [
+        (
+            "Update now? [y/n] ",
+            "stty -icanon; read -r answer; stty icanon; echo",
+        ),
+        (
+            "Passphrase: ",
+            "stty -echo; read -r answer; stty echo; echo",
+        ),
+    ];
+    for (prompt, then) in asks {
+        let script = format!("printf '{prompt}'; {then}");
+        let launch = run_after_startup(&ctx, "/bin/sh", &script, "echo from the command");
+        let mut link = start(&ctx, &launch).await;
+        let mut seen = Seen::from(&link);
+        seen.until_text(&mut link, prompt).await;
+        assert!(link.control.input(b"y\n".to_vec()));
+        let exit = seen.until_exit(&mut link).await;
+        assert_eq!(exit.code, Some(0), "{prompt}");
+        assert!(seen.text().ends_with("from the command\r\n"), "{prompt}");
+        let output = exit.output.unwrap().text;
+        assert!(output.starts_with(prompt.trim_end()), "{output:?}");
+        assert!(output.ends_with("\nfrom the command"), "{output:?}");
+    }
 }
 
 pub(super) async fn a_terminal_outlives_its_spawner(ctx: Ctx) {

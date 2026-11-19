@@ -14,6 +14,8 @@
 //! logs it or keeps it, not even its length. Output is kept: for a `!` run
 //! the holder also feeds a headless terminal, so the run's exit carries
 //! the lines it showed, with a password sent at a prompt as ` 🔒 sent`.
+//! What a run's shell prints before its command, from its startup files,
+//! goes nowhere (`marker.rs`).
 //!
 //! Each terminal has a folder named by its ID, under a folder of its own
 //! rather than the agents' one:
@@ -48,6 +50,7 @@ pub use self::client::{Reached, TermControl, TermEvent, TermLink};
 
 mod client;
 mod holder;
+mod marker;
 mod osc;
 mod ring;
 mod wire;
@@ -91,9 +94,10 @@ impl TermLaunch {
 
     /// A `!` run: `command` in a fresh interactive login shell,
     /// `$SHELL -ilc <command>`, so it finds what the user's own terminal
-    /// would.
+    /// would. A marker goes first, so the holder drops what the shell's
+    /// startup printed, as `marker.rs` says.
     pub fn run(terminal: TerminalId, cwd: PathBuf, command: &str, cols: u16, rows: u16) -> Self {
-        let args = vec!["-ilc".into(), command.into()];
+        let args = vec!["-ilc".into(), marker::after_marker(command).into()];
         Self::new(terminal, args, cwd, cols, rows, true)
     }
 
@@ -430,7 +434,13 @@ mod tests {
     fn a_run_is_an_interactive_login_shell_with_the_command() {
         let terminal = TerminalId::generate();
         let launch = TermLaunch::run(terminal, "/tmp".into(), "ls -la", 80, 24);
-        assert_eq!(launch.args, [OsString::from("-ilc"), "ls -la".into()]);
+        assert_eq!(
+            launch.args,
+            [
+                OsString::from("-ilc"),
+                r"printf '\033]7346;maxhq-run\007'; ls -la".into()
+            ]
+        );
         assert!(launch.run);
         assert!(launch.program.is_absolute());
         let shell = TermLaunch::shell(terminal, "/tmp".into(), 80, 24);

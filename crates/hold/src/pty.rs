@@ -78,6 +78,14 @@ pub fn password_mode(fd: impl AsFd) -> bool {
     })
 }
 
+/// Whether the program at the pty reads each key as it comes rather than
+/// a line, as a shell's line editor, `tmux` or a full-screen program does.
+/// False when the terminal's modes can't be read.
+pub fn key_mode(fd: impl AsFd) -> bool {
+    rustix::termios::tcgetattr(fd)
+        .is_ok_and(|modes| !modes.local_modes.contains(LocalModes::ICANON))
+}
+
 /// The process group in the pty's foreground, if any. A shell at its
 /// prompt is its own foreground group, and a command it runs takes the
 /// foreground while it runs.
@@ -135,6 +143,11 @@ impl Master {
     /// [`password_mode`] says.
     pub fn password_mode(&self) -> bool {
         password_mode(self.0.get_ref())
+    }
+
+    /// Whether the program at the pty reads keys, as [`key_mode`] says.
+    pub fn key_mode(&self) -> bool {
+        key_mode(self.0.get_ref())
     }
 
     /// The process group in the pty's foreground, as [`foreground`] says.
@@ -221,6 +234,20 @@ mod tests {
         master.write_all(b"two\n").await.unwrap();
         read_until(&master, "done").await;
         assert!(!master.password_mode());
+        finish(&master, &mut child).await;
+    }
+
+    #[tokio::test]
+    async fn a_program_reading_keys_is_key_mode() {
+        let (master, mut child) =
+            start("echo lines; read a; stty -icanon; echo keys; read b; stty icanon");
+        read_until(&master, "lines").await;
+        assert!(!master.key_mode());
+        master.write_all(b"one\n").await.unwrap();
+        read_until(&master, "keys").await;
+        assert!(master.key_mode());
+        assert!(!master.password_mode());
+        master.write_all(b"two\n").await.unwrap();
         finish(&master, &mut child).await;
     }
 
