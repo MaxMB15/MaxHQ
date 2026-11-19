@@ -1,15 +1,16 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026 Max Boksem
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
-import type { Entity } from "../bindings";
+import type { Entity, FolderEntry } from "../bindings";
 import { mockFolders } from "../data/mock-folders";
 import { MAC } from "../data/mock-view";
 import { entities, project, workspace } from "../test/build";
 import { applySnapshot } from "../view/replica";
 
 import { checkoutProject, dropHint, dropOutcome, sameRepoFolder } from "./drop";
+import type { FolderCalls } from "./requests";
 
 const HOME = "/Users/me";
 
@@ -77,6 +78,41 @@ describe("checkoutProject", () => {
 		);
 		expect(await checkoutProject(calls, MAC, `${HOME}/Desktop`)).toBeNull();
 		expect(await checkoutProject(calls, MAC, "/")).toBeNull();
+	});
+
+	it("asks for the dropped folder by name, so one past where a big listing ends still comes", async () => {
+		const shop: FolderEntry = {
+			name: "shop",
+			folder: true,
+			checkout: { project: "proj-shop", branch: "main" },
+		};
+		// A folder too big to list whole: only a filter reaches "shop".
+		const listFolder = vi.fn<FolderCalls["listFolder"]>(async (_device, path, options) => ({
+			status: "ok",
+			data: {
+				status: "listed",
+				listing: {
+					path,
+					home: HOME,
+					exists: true,
+					entries: options.filter === "shop" ? [shop] : [],
+					truncated: options.filter !== "shop",
+				},
+			},
+		}));
+		expect(await checkoutProject({ listFolder }, MAC, `${HOME}/code/shop`)).toBe("proj-shop");
+		expect(listFolder).toHaveBeenCalledWith(MAC, `${HOME}/code`, {
+			files: false,
+			hidden: true,
+			filter: "shop",
+		});
+	});
+
+	it("knows no project when the listing fails, and never throws", async () => {
+		const listFolder = vi.fn<FolderCalls["listFolder"]>(() =>
+			Promise.reject(new Error("gone"))
+		);
+		expect(await checkoutProject({ listFolder }, MAC, `${HOME}/code/shop`)).toBeNull();
 	});
 });
 

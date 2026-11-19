@@ -7230,7 +7230,7 @@
       "type": "object",
       "properties": {
         "entries": {
-          "description": "What it holds, folders first, each group by name ignoring case.",
+          "description": "What it holds, folders first, each group by name ignoring case.\nWith a filter, the names that start with it come before the rest.",
           "type": "array",
           "items": {
             "$ref": "#/$defs/FolderEntry"
@@ -7241,21 +7241,23 @@
           "type": "boolean"
         },
         "home": {
-          "description": "The device's home folder, which a typed `~` stands for.",
-          "type": "string"
+          "description": "The device's home folder, which a typed `~` stands for, or none\nwhen `maxd` can't tell it. A client then leaves `~` as it is.",
+          "type": [
+            "string",
+            "null"
+          ]
         },
         "path": {
-          "description": "The folder's absolute path, with `~` expanded and its links\nresolved when it's there.",
+          "description": "The folder's absolute path as asked for, with `~` expanded, `.`\ndropped and each `..` read as the folder above. Links in it stay as\nthey are, so the path matches what you navigated and what the\ndevice's workspaces name.",
           "type": "string"
         },
         "truncated": {
-          "description": "Whether it holds more than the entries say, or took too long to\nread to the end.",
+          "description": "Whether it holds more than the entries say, or took too long to\nread to the end, the checkouts' tags included.",
           "type": "boolean"
         }
       },
       "required": [
         "path",
-        "home",
         "exists",
         "entries",
         "truncated"

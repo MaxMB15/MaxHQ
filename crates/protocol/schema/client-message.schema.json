@@ -4939,6 +4939,13 @@
           "description": "Whether to list files too, not only folders.",
           "type": "boolean"
         },
+        "filter": {
+          "description": "Lists only the names that hold this, ignoring case, those that\nstart with it first. The device filters before it cuts a big\nfolder's listing short, so a field finds any name you type. Left\nout, every name lists.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "hidden": {
           "description": "Whether to list the names that start with a dot.",
           "type": "boolean"
@@ -4966,7 +4973,7 @@
       ]
     },
     {
-      "description": "Makes one folder on a device, for the folder browser's New folder.\nIts parent must be there already.",
+      "description": "Makes one folder on a device, for the folder browser's New folder.\nIts parent must be there already. A resend under the same key gets\nthe first answer, so a folder made before the connection dropped\nisn't reported as there already.",
       "type": "object",
       "properties": {
         "device": {
@@ -8559,7 +8566,7 @@
       "type": "object",
       "properties": {
         "entries": {
-          "description": "What it holds, folders first, each group by name ignoring case.",
+          "description": "What it holds, folders first, each group by name ignoring case.\nWith a filter, the names that start with it come before the rest.",
           "type": "array",
           "items": {
             "$ref": "#/$defs/FolderEntry"
@@ -8570,21 +8577,23 @@
           "type": "boolean"
         },
         "home": {
-          "description": "The device's home folder, which a typed `~` stands for.",
-          "type": "string"
+          "description": "The device's home folder, which a typed `~` stands for, or none\nwhen `maxd` can't tell it. A client then leaves `~` as it is.",
+          "type": [
+            "string",
+            "null"
+          ]
         },
         "path": {
-          "description": "The folder's absolute path, with `~` expanded and its links\nresolved when it's there.",
+          "description": "The folder's absolute path as asked for, with `~` expanded, `.`\ndropped and each `..` read as the folder above. Links in it stay as\nthey are, so the path matches what you navigated and what the\ndevice's workspaces name.",
           "type": "string"
         },
         "truncated": {
-          "description": "Whether it holds more than the entries say, or took too long to\nread to the end.",
+          "description": "Whether it holds more than the entries say, or took too long to\nread to the end, the checkouts' tags included.",
           "type": "boolean"
         }
       },
       "required": [
         "path",
-        "home",
         "exists",
         "entries",
         "truncated"

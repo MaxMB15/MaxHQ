@@ -16,6 +16,13 @@ export type ListOptions = {
 	readonly files: boolean;
 	/** Whether names that start with a dot show. */
 	readonly hidden: boolean;
+	/**
+	 * Lists only the names that hold this, ignoring case, those that start
+	 * with it first. The device keeps them before it cuts a big folder
+	 * short, so a name far down the folder still comes. Empty or left out,
+	 * every name lists.
+	 */
+	readonly filter?: string;
 };
 
 /** The folder calls of a data source. */
@@ -35,7 +42,7 @@ export type FolderCalls = {
 
 /** The folder calls, each one request over `ask`. */
 export const folderCalls = (ask: Ask): FolderCalls => ({
-	listFolder: (device, path, { files, hidden }) =>
-		ask({ kind: "list_folder", device, path, files, hidden }),
+	listFolder: (device, path, { files, hidden, filter }) =>
+		ask({ kind: "list_folder", device, path, files, hidden, filter: filter || null }),
 	makeFolder: (device, path) => ask({ kind: "make_folder", device, path }),
 });

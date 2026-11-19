@@ -3287,7 +3287,7 @@ pub(crate) mod tests {
                         .or(Some(ActionOutcome::FolderListed {
                             listing: maxhq_protocol::folders::FolderListing {
                                 path: path.clone(),
-                                home: "/home/dev".to_owned(),
+                                home: Some("/home/dev".to_owned()),
                                 exists: false,
                                 entries: Vec::new(),
                                 truncated: false,
@@ -4668,6 +4668,7 @@ pub(crate) mod tests {
             path: "~/code".into(),
             files: false,
             hidden: false,
+            filter: None,
         };
         assert!(matches!(
             block_on(h.devices.act_unless_old(list())),

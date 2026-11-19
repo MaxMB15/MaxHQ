@@ -226,6 +226,7 @@
 	"Couldn't read the requests": "Impossible de lire les requêtes",
 	"Couldn't read the runs": "Impossible de lire les exécutions",
 	"Couldn't read the {{what}}. {{message}}": "Impossible de lire {{what}}. {{message}}",
+	"Couldn't read what you dropped. Try again.": "Impossible de lire ce que vous avez déposé. Réessayez.",
 	"Couldn't read {{name}}'s history. Try again.": "Impossible de lire l'historique de {{name}}. Réessayez.",
 	"Couldn't read {{name}}. {{reason}}": "Impossible de lire {{name}}. {{reason}}",
 	"Couldn't restart maxd. Try again.": "Impossible de redémarrer maxd. Réessayez.",

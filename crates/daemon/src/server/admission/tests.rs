@@ -21,7 +21,9 @@ use crate::app_keys::testing;
 use crate::server::proof::unproven;
 use crate::server::terminals::NOT_FOR_TERMINALS;
 use crate::server::tests::{hello, serve, Served, TestClient, WAIT};
+use crate::server::NOT_FOR_FOLDERS;
 use crate::terminals::access::Opener;
+use crate::testing::TempDir;
 
 /// Another app key's seed.
 const NEW: [u8; 32] = [9; 32];
@@ -721,4 +723,33 @@ async fn a_program_or_phone_let_in_from_its_card_still_cant_reach_a_terminal() {
         };
         assert_eq!(ask(client, close).await, refused(NOT_FOR_TERMINALS));
     }
+}
+
+#[tokio::test]
+async fn a_program_let_in_from_its_card_still_cant_reach_folders() {
+    let served = served(QUICK, None);
+    let (mut app, _) = TestClient::greeted(&served.socket).await;
+    let mut other = stranger(&served).await;
+    let card = until_cards(&served, 1).await.remove(0);
+    assert_eq!(answer(&mut app, card.id, true).await, ActionOutcome::Done);
+    assert!(may_sync(&mut other).await);
+
+    let dir = TempDir::new();
+    let me = served.hub.device().id;
+    let list = ClientMessage::ListFolder {
+        key: IdempotencyKey::generate(),
+        device: me,
+        path: dir.path().display().to_string(),
+        files: true,
+        hidden: true,
+        filter: None,
+    };
+    assert_eq!(ask(&mut other, list).await, refused(NOT_FOR_FOLDERS));
+    let make = ClientMessage::MakeFolder {
+        key: IdempotencyKey::generate(),
+        device: me,
+        path: dir.path().join("new").display().to_string(),
+    };
+    assert_eq!(ask(&mut other, make).await, refused(NOT_FOR_FOLDERS));
+    assert!(!dir.path().join("new").exists());
 }

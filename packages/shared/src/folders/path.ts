@@ -22,16 +22,16 @@ export const isPathText = (text: string): boolean =>
 
 /**
  * `text` with a leading `~` read as `home`. Anything else, or any text
- * while the home folder isn't known, comes back as it is.
+ * while the home folder isn't known, null or empty, comes back as it is.
  */
 export const expandHome = (text: string, home: string | null): string => {
-	if (home === null || !(text === "~" || text.startsWith("~/"))) return text;
+	if (!home || !(text === "~" || text.startsWith("~/"))) return text;
 	return home === "/" && text !== "~" ? text.slice(1) : home + text.slice(1);
 };
 
 /** `path` with the home folder shown as `~`, for a sentence. */
 export const contractHome = (path: string, home: string | null): string => {
-	if (home === null || home === "/") return path;
+	if (!home || home === "/") return path;
 	if (path === home) return "~";
 	return path.startsWith(`${home}/`) ? `~${path.slice(home.length)}` : path;
 };

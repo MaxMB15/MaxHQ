@@ -1301,14 +1301,15 @@ impl Connection {
                 path,
                 files,
                 hidden,
+                filter,
             } if self.terminal_caller().is_some() => {
                 let me = self.hub.device().id;
-                let list = crate::folders::list(me, device, path, files, hidden);
+                let list = crate::folders::list(me, device, path, files, hidden, filter);
                 self.answer_when(key, tokio::spawn(list));
                 Ok(())
             }
             ClientMessage::MakeFolder { key, device, path } if self.terminal_caller().is_some() => {
-                let make = crate::folders::make(self.hub.device().id, device, path);
+                let make = crate::folders::make(self.hub.device().id, device, key, path);
                 self.answer_when(key, tokio::spawn(make));
                 Ok(())
             }
@@ -3086,6 +3087,7 @@ pub(crate) mod tests {
             path: dir.path().display().to_string(),
             files: false,
             hidden: false,
+            filter: None,
         };
         let make = ClientMessage::MakeFolder {
             key: IdempotencyKey::derive("make"),
@@ -3414,6 +3416,7 @@ pub(crate) mod tests {
                 path: dir.path().display().to_string(),
                 files: true,
                 hidden: true,
+                filter: None,
             },
             ClientMessage::MakeFolder {
                 key: key("make-folder"),
@@ -3877,6 +3880,7 @@ pub(crate) mod tests {
             path: dir.path().display().to_string(),
             files: true,
             hidden: false,
+            filter: None,
         })
         .await;
         assert!(matches!(

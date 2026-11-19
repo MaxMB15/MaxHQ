@@ -21,6 +21,7 @@ const native = vi.hoisted(() => ({
 	inApp: false,
 	picked: null as string | null,
 	pickPath: vi.fn(),
+	describePaths: vi.fn(),
 	over: false,
 	drop: null as ((paths: string[]) => void) | null,
 }));
@@ -32,7 +33,14 @@ vi.mock("@/native/platform", async (original) => ({
 
 vi.mock("@/data/tauri-commands", async (original) => {
 	const real = await original<typeof import("@/data/tauri-commands")>();
-	return { ...real, commands: { ...real.commands, pickPath: native.pickPath } };
+	return {
+		...real,
+		commands: {
+			...real.commands,
+			pickPath: native.pickPath,
+			describePaths: native.describePaths,
+		},
+	};
 });
 
 vi.mock("@/native/drop", () => ({
@@ -49,6 +57,7 @@ beforeEach(() => {
 	native.drop = null;
 	native.pickPath.mockReset();
 	native.pickPath.mockImplementation(async () => ({ status: "ok", data: native.picked }));
+	native.describePaths.mockReset();
 });
 afterEach(cleanup);
 
@@ -156,6 +165,9 @@ describe("the path field's suggestions", () => {
 		await ready();
 		type(box, "~/code/");
 		const list = await screen.findByRole("listbox", { name: "Suggestions" });
+		// With no name typed, nothing is marked until you move.
+		expect(box).not.toHaveAttribute("aria-activedescendant");
+		fireEvent.keyDown(box, { key: "ArrowDown" });
 		fireEvent.keyDown(box, { key: "ArrowDown" });
 		const second = within(list).getAllByRole("option")[1];
 		expect(second).toHaveAttribute("aria-selected", "true");
@@ -178,6 +190,96 @@ describe("the path field's suggestions", () => {
 		expect(screen.queryByRole("listbox")).toBeNull();
 		// Esc closes the list, not the dialog around the field.
 		expect(outer).not.toHaveBeenCalledWith(expect.objectContaining({ key: "Escape" }));
+	});
+
+	it("keeps what you typed on ↩ when no suggestion starts with it, until you move to one", async () => {
+		const { box, changes, outer } = show({ device: DEVBOX });
+		await ready();
+		type(box, "~/code/osa");
+		const list = await screen.findByRole("listbox");
+		expect(optionsOf(list)).toEqual(["~/code/Mosaicgit · main"]);
+		expect(box).not.toHaveAttribute("aria-activedescendant");
+		// The ↩ isn't taken, so the form around the field gets it.
+		expect(fireEvent.keyDown(box, { key: "Enter" })).toBe(true);
+		expect(outer).toHaveBeenCalledWith(expect.objectContaining({ key: "Enter" }));
+		expect(box).toHaveValue("~/code/osa");
+		expect(screen.queryByRole("listbox")).toBeNull();
+		await waitFor(() => expect(changes).toHaveBeenLastCalledWith("/home/dev/code/osa"));
+
+		type(box, "~/code/os");
+		await screen.findByRole("listbox");
+		fireEvent.keyDown(box, { key: "ArrowDown" });
+		expect(fireEvent.keyDown(box, { key: "Enter" })).toBe(false);
+		expect(box).toHaveValue("~/code/Mosaic");
+	});
+
+	it("asks the device only for the name you type, and narrows a whole answer without asking again", async () => {
+		const source = sourceWith();
+		const listFolder = vi.spyOn(source, "listFolder");
+		const { box } = show({ device: DEVBOX, source });
+		await ready();
+		type(box, "~/code/D");
+		const list = await screen.findByRole("listbox");
+		expect(optionsOf(list)).toEqual(["~/code/DuskToolsgit · dev"]);
+		expect(listFolder).toHaveBeenLastCalledWith(DEVBOX, "~/code", {
+			files: false,
+			hidden: true,
+			filter: "d",
+		});
+		const asked = listFolder.mock.calls.length;
+		type(box, "~/code/Du");
+		await act(() => new Promise((done) => setTimeout(done, 300)));
+		expect(optionsOf(screen.getByRole("listbox"))).toEqual(["~/code/DuskToolsgit · dev"]);
+		expect(listFolder).toHaveBeenCalledTimes(asked);
+	});
+
+	it("asks again where a file goes, since a folder's listing left the files out", async () => {
+		const source = sourceWith();
+		const ui = createUiStore();
+		const field = (wants: PathWants) => (
+			<ServicesProvider source={source} ui={ui}>
+				<PathField
+					device={DEVBOX}
+					value="~/bin/"
+					onChange={() => {}}
+					label="Path"
+					title="Choose the agent"
+					wants={wants}
+					className="h-8"
+				/>
+			</ServicesProvider>
+		);
+		const listFolder = vi.spyOn(source, "listFolder");
+		const { rerender } = render(field("folder"));
+		await ready();
+		act(() => screen.getByRole("textbox", { name: "Path" }).focus());
+		await waitFor(() => expect(listFolder).toHaveBeenCalled());
+		expect(screen.queryByRole("listbox")).toBeNull();
+		rerender(field("file"));
+		expect(optionsOf(await screen.findByRole("listbox"))).toEqual(["~/bin/agent-cli"]);
+	});
+
+	it("asks again after the folder browser closes, so a folder made there shows", async () => {
+		const { box } = show({ device: DEVBOX });
+		await ready();
+		type(box, "~/code/");
+		await screen.findByRole("listbox");
+		fireEvent.click(browse());
+		const dialog = within(await screen.findByRole("dialog"));
+		await dialog.findByRole("option", { name: "notes" });
+		fireEvent.click(dialog.getByRole("button", { name: "New folder" }));
+		const name = dialog.getByRole("textbox", { name: "New folder's name" });
+		fireEvent.change(name, { target: { value: "fresh" } });
+		fireEvent.keyDown(name, { key: "Enter" });
+		await dialog.findByRole("option", { name: "fresh" });
+		fireEvent.click(dialog.getByRole("button", { name: "Cancel" }));
+		await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+
+		act(() => box.focus());
+		await waitFor(() =>
+			expect(optionsOf(screen.getByRole("listbox"))).toContain("~/code/fresh")
+		);
+		expect(box).toHaveValue("~/code/");
 	});
 
 	it("lists files where a file goes, and leaves a name on PATH as typed", async () => {
@@ -347,6 +449,23 @@ describe("drops from Finder", () => {
 		expect(screen.getByRole("status")).toHaveTextContent(
 			"Uses the folder it's in, ~/code/shop"
 		);
+	});
+
+	it("says when it can't read a drop, and keeps what the field held", async () => {
+		native.inApp = true;
+		native.describePaths.mockResolvedValue({
+			status: "error",
+			error: { kind: "not_offered", path: "/Users/me/code/shop" },
+		});
+		const { box } = show({ device: MAC, start: "/Users/me/Code" });
+		await ready();
+		await drop("/Users/me/code/shop/");
+		expect(await screen.findByRole("alert")).toHaveTextContent(
+			"Couldn't read what you dropped. Try again."
+		);
+		expect(box).toHaveValue("/Users/me/Code");
+		type(box, "/Users/me/Cod");
+		expect(screen.queryByRole("alert")).toBeNull();
 	});
 
 	it("takes a file where a file goes, and refuses a folder there", async () => {

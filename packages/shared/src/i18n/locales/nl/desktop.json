@@ -230,6 +230,7 @@
 	"Couldn't read the requests": "De verzoeken lezen is mislukt",
 	"Couldn't read the runs": "De uitvoeringen lezen is mislukt",
 	"Couldn't read the {{what}}. {{message}}": "{{what}} lezen is mislukt. {{message}}",
+	"Couldn't read what you dropped. Try again.": "Lezen wat je neerzette is mislukt. Probeer het opnieuw.",
 	"Couldn't read {{name}}'s history. Try again.": "De geschiedenis van {{name}} lezen is mislukt. Probeer het opnieuw.",
 	"Couldn't read {{name}}. {{reason}}": "{{name}} lezen is mislukt. {{reason}}",
 	"Couldn't restart maxd. Try again.": "maxd herstarten is mislukt. Probeer het opnieuw.",

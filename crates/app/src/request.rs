@@ -869,13 +869,16 @@ pub enum Request {
     TerminalMove { terminal: TerminalId },
     /// What a folder on `device` holds, for a path field's suggestions and
     /// the folder browser. A `~` at the start of `path` is that device's
-    /// home. A `maxd` too old to list folders answers `too_old` rather
+    /// home. With `filter`, only the names that hold it list, ignoring
+    /// case. A `maxd` too old to list folders answers `too_old` rather
     /// than failing.
     ListFolder {
         device: DeviceId,
         path: String,
         files: bool,
         hidden: bool,
+        #[serde(default)]
+        filter: Option<String>,
     },
     /// Makes one folder on `device`, in a folder that's there, for the
     /// folder browser's New folder.
@@ -2638,6 +2641,7 @@ impl<C: Connector> App<C> {
                 path,
                 files,
                 hidden,
+                filter,
             } => {
                 let action = ClientMessage::ListFolder {
                     key,
@@ -2645,6 +2649,7 @@ impl<C: Connector> App<C> {
                     path,
                     files,
                     hidden,
+                    filter,
                 };
                 match devices.act_unless_old(action).await? {
                     None => Response::ListFolder(FolderList::TooOld),
@@ -3569,6 +3574,7 @@ mod tests {
                 "path": "~/code",
                 "files": false,
                 "hidden": false,
+                "filter": "ex",
             }),
             json!({"kind": "make_folder", "device": mac, "path": "/Users/dev/code/new"}),
         ]
