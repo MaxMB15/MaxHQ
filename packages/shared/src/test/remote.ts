@@ -21,6 +21,7 @@ import { noPulls } from "../data/mock-pulls";
 import { noSkills } from "../data/mock-skills";
 import { noTasks } from "../data/mock-tasks";
 import { noTerminals } from "../data/mock-terminals";
+import { noFolders } from "../data/mock-folders";
 import { noTestHosts } from "../data/mock-test-hosts";
 
 type RemoteCalls = Pick<
@@ -119,6 +120,7 @@ type RemoteCalls = Pick<
 	| keyof typeof noHosts
 	| keyof typeof noCliLogins
 	| keyof typeof noTerminals
+	| keyof typeof noFolders
 >;
 
 const DONE: ActionResult = { status: "ok", data: { status: "done" } };
@@ -249,4 +251,5 @@ export const remoteCalls = (): RemoteCalls => ({
 	...noHosts,
 	...noCliLogins,
 	...noTerminals,
+	...noFolders,
 });

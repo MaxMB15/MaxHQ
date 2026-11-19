@@ -21,21 +21,29 @@ pub struct Checkout {
 
 /// The checkout that holds `folder`, if any.
 pub fn find_checkout(folder: &Path) -> Option<Checkout> {
-    let mut dir = Some(folder);
-    while let Some(current) = dir {
-        let dot_git = current.join(".git");
-        if let Some(common) = common_dir(&dot_git, current) {
-            let remote = fs::read_to_string(common.join("config"))
-                .ok()
-                .and_then(|config| remote_url(&config));
-            return Some(Checkout {
-                root: current.to_path_buf(),
-                remote,
-            });
-        }
-        dir = current.parent();
-    }
-    None
+    folder.ancestors().find_map(checkout_at)
+}
+
+/// The checkout whose top folder is `root`, if `root` is the top of one.
+pub fn checkout_at(root: &Path) -> Option<Checkout> {
+    let common = common_dir(&root.join(".git"), root)?;
+    let remote = fs::read_to_string(common.join("config"))
+        .ok()
+        .and_then(|config| remote_url(&config));
+    Some(Checkout {
+        root: root.to_path_buf(),
+        remote,
+    })
+}
+
+/// The branch the checkout at `root` has checked out, read from its own
+/// HEAD. None on a detached HEAD, or when `root` isn't the top of a
+/// checkout.
+pub fn head_branch(root: &Path) -> Option<String> {
+    let head = fs::read_to_string(git_dir(&root.join(".git"), root)?.join("HEAD")).ok()?;
+    head.trim()
+        .strip_prefix("ref: refs/heads/")
+        .map(str::to_owned)
 }
 
 /// The main checkout behind the linked worktree at `root`, or none when
@@ -52,16 +60,25 @@ pub fn main_checkout(root: &Path) -> Option<PathBuf> {
     common.parent().map(Path::to_path_buf)
 }
 
-/// The folder that holds the repository's config. A main checkout has it in
-/// `.git`. A linked worktree has a `.git` file pointing at its own git dir,
-/// which in turn names the shared one in `commondir`.
-fn common_dir(dot_git: &Path, checkout: &Path) -> Option<PathBuf> {
+/// The checkout's own git dir, which holds its HEAD. A main checkout has
+/// it in `.git`. A linked worktree has a `.git` file pointing at it.
+fn git_dir(dot_git: &Path, checkout: &Path) -> Option<PathBuf> {
     let meta = fs::metadata(dot_git).ok()?;
     if meta.is_dir() {
         return Some(dot_git.to_path_buf());
     }
     let pointer = fs::read_to_string(dot_git).ok()?;
-    let git_dir = checkout.join(pointer.strip_prefix("gitdir:")?.trim());
+    Some(checkout.join(pointer.strip_prefix("gitdir:")?.trim()))
+}
+
+/// The folder that holds the repository's config. A main checkout has it in
+/// `.git`. A linked worktree's own git dir names the shared one in
+/// `commondir`.
+fn common_dir(dot_git: &Path, checkout: &Path) -> Option<PathBuf> {
+    let git_dir = git_dir(dot_git, checkout)?;
+    if git_dir == dot_git {
+        return Some(git_dir);
+    }
     match fs::read_to_string(git_dir.join("commondir")) {
         Ok(common) => Some(git_dir.join(common.trim())),
         Err(_) => Some(git_dir),
@@ -239,6 +256,41 @@ mod tests {
         assert_eq!(linked.remote, found.remote);
         assert_eq!(main_checkout(&wt), Some(fs::canonicalize(&main).unwrap()));
         assert_eq!(main_checkout(&main), None);
+        assert_eq!(checkout_at(&main), Some(found));
+        assert_eq!(checkout_at(&deep), None, "only the top folder counts");
+
+        fs::remove_dir_all(&tmp).unwrap();
+    }
+
+    #[test]
+    fn reads_the_branch_from_head() {
+        let tmp = std::env::temp_dir().join(format!("maxhq-git-head-{}", std::process::id()));
+        let main = tmp.join("main");
+        fs::create_dir_all(main.join(".git/worktrees/wt")).unwrap();
+        fs::write(main.join(".git/HEAD"), "ref: refs/heads/feat/login\n").unwrap();
+        let wt = tmp.join("wt");
+        fs::create_dir_all(&wt).unwrap();
+        fs::write(
+            wt.join(".git"),
+            format!("gitdir: {}\n", main.join(".git/worktrees/wt").display()),
+        )
+        .unwrap();
+        fs::write(main.join(".git/worktrees/wt/commondir"), "../..\n").unwrap();
+        fs::write(
+            main.join(".git/worktrees/wt/HEAD"),
+            "0123456789abcdef0123456789abcdef01234567\n",
+        )
+        .unwrap();
+
+        assert_eq!(head_branch(&main).as_deref(), Some("feat/login"));
+        assert_eq!(
+            head_branch(&wt),
+            None,
+            "the worktree's own HEAD is detached"
+        );
+        fs::write(main.join(".git/worktrees/wt/HEAD"), "ref: refs/heads/fix\n").unwrap();
+        assert_eq!(head_branch(&wt).as_deref(), Some("fix"));
+        assert_eq!(head_branch(&tmp), None, "not a checkout");
 
         fs::remove_dir_all(&tmp).unwrap();
     }

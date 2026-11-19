@@ -2592,7 +2592,9 @@ fn action_targets(merge: &Merge, action: &ClientMessage) -> Result<Vec<Target>, 
             ..
         } => agent_targets(merge, *agent),
         ClientMessage::CreateWorkspace { spec, .. } => device_targets(merge, spec.device),
-        ClientMessage::CloneFolder { device, .. } => device_targets(merge, *device),
+        ClientMessage::CloneFolder { device, .. }
+        | ClientMessage::ListFolder { device, .. }
+        | ClientMessage::MakeFolder { device, .. } => device_targets(merge, *device),
         ClientMessage::StartWorkspace { workspace, .. }
         | ClientMessage::StopWorkspace { workspace, .. }
         | ClientMessage::DeleteWorkspace { workspace, .. }
@@ -3276,6 +3278,21 @@ pub(crate) mod tests {
                             processes: Vec::new(),
                         },
                     })),
+                    false,
+                ),
+                ClientMessage::ListFolder { path, .. } => (
+                    record
+                        .acts
+                        .pop_front()
+                        .or(Some(ActionOutcome::FolderListed {
+                            listing: maxhq_protocol::folders::FolderListing {
+                                path: path.clone(),
+                                home: "/home/dev".to_owned(),
+                                exists: false,
+                                entries: Vec::new(),
+                                truncated: false,
+                            },
+                        })),
                     false,
                 ),
                 // A note reads back as an empty one, and a save as what
@@ -4637,6 +4654,33 @@ pub(crate) mod tests {
         let paths = vec![".env".to_owned()];
         block_on(h.devices.copy_files(w_nl, paths.clone(), quiet)).unwrap();
         assert_eq!(h.fake.calls(), [(nl.id, Call::CopyFiles(w_nl, paths))]);
+    }
+
+    #[test]
+    fn folder_requests_go_to_the_device_they_name_and_an_old_maxd_lists_none() {
+        let (h, local, nl) = two_devices();
+        let key = IdempotencyKey::generate;
+        let list = || ClientMessage::ListFolder {
+            key: key(),
+            device: DeviceId::derive("nl"),
+            path: "~/code".into(),
+            files: false,
+            hidden: false,
+        };
+        assert!(matches!(
+            block_on(h.devices.act_unless_old(list())),
+            Ok(Some(ActionOutcome::FolderListed { .. }))
+        ));
+        block_on(h.devices.act(ClientMessage::MakeFolder {
+            key: key(),
+            device: DeviceId::derive("mac"),
+            path: "/Users/dev/code/new".into(),
+        }))
+        .unwrap();
+        assert_eq!(went_through(&h), [nl.id, local.id]);
+
+        h.fake.record().old.insert(nl.id);
+        assert_eq!(block_on(h.devices.act_unless_old(list())), Ok(None));
     }
 
     #[test]

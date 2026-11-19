@@ -18,6 +18,7 @@ use crate::attention::{AnswerOutcome, AttentionAnswer};
 use crate::context::InlineRef;
 use crate::dispatch::PlanOutcome;
 use crate::find::{AgentExcerpt, GitItemSearch, PathMatch};
+use crate::folders::FolderListing;
 use crate::hosts::{MoveStep, WorkspaceSnapshot};
 use crate::ids::{
     AccountId, AcpAgentId, AdmissionId, AgentId, AttachmentId, AttentionId, BootId, ClientId,
@@ -2114,6 +2115,35 @@ pub enum ClientMessage {
         /// The terminal.
         terminal: TerminalId,
     },
+
+    // Folders, since [`FOLDERS_SINCE`]. Only the app and phones may send
+    // these, never a link from another device or an agent's tools.
+    /// Lists one folder on a device, for a path field's suggestions and the
+    /// folder browser. The outcome is [`ActionOutcome::FolderListed`], for
+    /// a folder that isn't there too.
+    ListFolder {
+        /// Makes a resend after a dropped connection safe.
+        key: IdempotencyKey,
+        /// The device the folder is on.
+        device: DeviceId,
+        /// The folder's absolute path. A leading `~` is the device's home
+        /// folder.
+        path: String,
+        /// Whether to list files too, not only folders.
+        files: bool,
+        /// Whether to list the names that start with a dot.
+        hidden: bool,
+    },
+    /// Makes one folder on a device, for the folder browser's New folder.
+    /// Its parent must be there already.
+    MakeFolder {
+        /// Makes a resend after a dropped connection safe.
+        key: IdempotencyKey,
+        /// The device the folder goes on.
+        device: DeviceId,
+        /// The new folder's absolute path.
+        path: String,
+    },
 }
 
 impl ClientMessage {
@@ -2174,6 +2204,7 @@ impl ClientMessage {
             | Self::TerminalClose { .. }
             | Self::TerminalRename { .. }
             | Self::TerminalMove { .. } => TERMINALS_SINCE,
+            Self::ListFolder { .. } | Self::MakeFolder { .. } => FOLDERS_SINCE,
             _ => OLDEST_PROTOCOL_VERSION,
         }
     }
@@ -2345,7 +2376,9 @@ impl ClientMessage {
             | Self::TerminalInterrupt { key, .. }
             | Self::TerminalClose { key, .. }
             | Self::TerminalRename { key, .. }
-            | Self::TerminalMove { key, .. } => Some(*key),
+            | Self::TerminalMove { key, .. }
+            | Self::ListFolder { key, .. }
+            | Self::MakeFolder { key, .. } => Some(*key),
             Self::Hello(_)
             | Self::Phone { .. }
             | Self::Pair { .. }
@@ -2762,6 +2795,13 @@ pub const FINISHED_SUB_AGENTS_SINCE: u32 = 44;
 /// terminal drawer and shell mode. A `maxd` at this version may still say
 /// [`Capabilities::terminals`] is false.
 pub const TERMINALS_SINCE: u32 = 45;
+
+/// The protocol version whose `maxd` first lists and makes folders for the
+/// path fields and the folder browser: [`ClientMessage::ListFolder`] and
+/// [`ClientMessage::MakeFolder`]. An older one refuses both, so the app
+/// suggests nothing there and browses that device's folders only on this
+/// Mac, in the system picker.
+pub const FOLDERS_SINCE: u32 = 46;
 
 /// When [`ClientMessage::TakeOver`] stops the terminal's CLI.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, Type, JsonSchema)]
@@ -3197,6 +3237,13 @@ pub enum ActionOutcome {
     TerminalOpened {
         /// The new terminal.
         terminal: TerminalId,
+    },
+
+    // Folders.
+    /// What a folder holds, for [`ClientMessage::ListFolder`].
+    FolderListed {
+        /// The listing.
+        listing: FolderListing,
     },
 
     /// An outcome from a newer `maxd`. The action went through, and what

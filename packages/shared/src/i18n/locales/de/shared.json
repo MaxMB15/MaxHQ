@@ -1254,5 +1254,19 @@
 	"Sub-agent finished": "Unteragent abgeschlossen",
 	"Open lead": "Leitagent öffnen",
 	"Finished, read only": "Abgeschlossen, nur lesen",
-	"MaxHQ found no history for this sub-agent.": "MaxHQ hat keinen Verlauf für diesen Unteragenten gefunden."
+	"MaxHQ found no history for this sub-agent.": "MaxHQ hat keinen Verlauf für diesen Unteragenten gefunden.",
+	"A folder can't be called . or ..": "Ein Ordner kann nicht . oder .. heißen.",
+	"A folder's name can't have a slash.": "Ein Ordnername darf keinen Schrägstrich enthalten.",
+	"Couldn't find a folder to open.": "Kein Ordner zum Öffnen gefunden.",
+	"Drop a file here, not a folder.": "Leg hier eine Datei ab, keinen Ordner.",
+	"Drop to use this file": "Ablegen, um diese Datei zu verwenden",
+	"Drop to use this folder": "Ablegen, um diesen Ordner zu verwenden",
+	"git · {{branch}}": "git · {{branch}}",
+	"Name the new folder.": "Gib dem neuen Ordner einen Namen.",
+	"That file is on this Mac.": "Diese Datei liegt auf diesem Mac.",
+	"That folder is on this Mac.": "Dieser Ordner liegt auf diesem Mac.",
+	"This device's maxd can't list folders yet.": "Der maxd dieses Geräts kann noch keine Ordner auflisten.",
+	"Update maxd on {{device}} to browse its folders": "Aktualisiere maxd auf {{device}}, um seine Ordner zu durchsuchen",
+	"Uses the folder it's in, {{folder}}": "Verwendet den Ordner, in dem sie liegt, {{folder}}",
+	"Wait for the folder to load.": "Warte, bis der Ordner geladen ist."
 }

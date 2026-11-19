@@ -80,6 +80,7 @@ import { mockAgents } from "./mock-agents";
 import { mockAppKeyEntities, mockAppKeys } from "./mock-app-keys";
 import { mockClaims } from "./mock-claims";
 import { mockTerminals } from "./mock-terminals";
+import { mockFolders } from "./mock-folders";
 import { mockLinks } from "./mock-links";
 import { mockNetworkAccess, mockPhone, mockPhones } from "./mock-phones";
 import { type FleetContext, mockFleet, mockTools } from "./mock-fleet";
@@ -1605,6 +1606,7 @@ export const mockSource = (options: MockOptions = {}): MockSource => {
 		...mockFleet(fleet),
 		...mockClaims(fleet),
 		...mockTerminals(fleet, timelines),
+		...mockFolders(),
 		...mockHostCalls(fleet),
 		...mockAgents(now),
 		...mockLinks(),
