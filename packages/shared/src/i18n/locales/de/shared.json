@@ -424,6 +424,8 @@
 	"{{count, number}} branch with no upstream_other": "{{count, number}} Branches ohne Upstream",
 	"{{count, number}} model_one": "{{count, number}} Modell",
 	"{{count, number}} model_other": "{{count, number}} Modelle",
+	"{{countText}} files weren't copied_one": "{{countText}} Datei wurde nicht kopiert",
+	"{{countText}} files weren't copied_other": "{{countText}} Dateien wurden nicht kopiert",
 	"{{count, number}} sub-agent_one": "{{count, number}} Unteragent",
 	"{{count, number}} sub-agent_other": "{{count, number}} Unteragenten",
 	"{{count, number}} device_one": "{{count, number}} Gerät",

@@ -557,7 +557,6 @@
 	"Clone cancelled": "Klonen abgebrochen",
 	"Retry runs it again, and Remove forgets the folder.": "Erneut versuchen startet es neu. Entfernen vergisst den Ordner.",
 	"Files not copied": "Dateien nicht kopiert",
-	"{{plural}} {{value2}} copied": "{{plural}} nicht kopiert{{value2}}",
 	"Dismiss": "Schließen",
 	"Clone": "Klon",
 	"Couldn't cancel the clone.": "Klonen konnte nicht abgebrochen werden.",

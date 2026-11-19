@@ -5,16 +5,19 @@
 // photo from the camera, or any file from the system's file picker. Each
 // comes back as a picked file the box stages, and nothing when you cancel.
 // The pickers copy what you pick into the app's caches folder, so the box
-// can upload it from there, or read its bytes only once it stages.
+// can upload it from there, or read its bytes only once it stages. The box
+// deletes such a copy once it isn't needed, and never a file the app
+// didn't copy, as picked-copies.ts tells.
 
 import { t } from "@maxhq/shared/i18n";
 
 import type { PickedFile } from "@maxhq/shared/composer/staging";
 import * as DocumentPicker from "expo-document-picker";
-import { File } from "expo-file-system";
+import { File, Paths } from "expo-file-system";
 import * as ImagePicker from "expo-image-picker";
 
-import { pathOf } from "../../data/native-source";
+import { pathOf, urlOf } from "../../data/native-source";
+import { discarder } from "./picked-copies";
 
 /** Where the paperclip takes a file from. */
 export type PickFrom = "library" | "camera" | "files";
@@ -24,20 +27,34 @@ export type Picked = { readonly files: PickedFile[] } | { readonly failure: stri
 
 const lastPart = (uri: string): string => decodeURIComponent(uri.split("/").pop() ?? "");
 
+// Deletes a picker's copy, which may have gone already with the rest of the cache.
+const removeCopy = (path: string) => {
+	try {
+		const file = new File(urlOf(path));
+		if (file.exists) file.delete();
+	} catch (error) {
+		console.warn("Couldn't delete a picked file's copy", error);
+	}
+};
+
 const pickedOf = (asset: {
 	readonly uri: string;
 	readonly name: string;
 	readonly mime: string;
 	readonly size: number | null;
 	readonly picture: boolean;
-}): PickedFile => ({
-	name: asset.name,
-	mime: asset.mime,
-	size: asset.size,
-	preview: asset.picture ? asset.uri : null,
-	path: asset.uri.startsWith("file://") ? pathOf(asset.uri) : null,
-	read: () => new File(asset.uri).bytes(),
-});
+}): PickedFile => {
+	const path = asset.uri.startsWith("file://") ? pathOf(asset.uri) : null;
+	return {
+		name: asset.name,
+		mime: asset.mime,
+		size: asset.size,
+		preview: asset.picture ? asset.uri : null,
+		path,
+		read: () => new File(asset.uri).bytes(),
+		discard: discarder(path, pathOf(Paths.cache.uri), removeCopy),
+	};
+};
 
 const pictures = (result: ImagePicker.ImagePickerResult): PickedFile[] =>
 	result.canceled

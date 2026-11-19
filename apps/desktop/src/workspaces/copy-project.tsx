@@ -64,9 +64,10 @@ import {
 	transferText,
 	withTick,
 } from "@maxhq/shared/workspaces/copy-form";
+import { keepMissed } from "@maxhq/shared/workspaces/missed";
 import { cloneOf, isLive } from "@maxhq/shared/workspaces/state";
 
-import { closeCopyProject, type CopyRequest, noteMissed, useCopy } from "./copy-store";
+import { closeCopyProject, type CopyRequest, useCopy } from "./copy-store";
 import { BACKDROP, CreationSteps, POPUP, Title } from "./new-workspace";
 
 /** One ignored file you can tick, with its size. */
@@ -293,10 +294,7 @@ const Form = ({ request }: { request: CopyRequest }) => {
 				? () => sendFirstSettings(services, plan.project, plan.target.device)
 				: undefined
 		);
-		const landed = placed && copyLanded(services.view.getState().view, plan, before);
-		if (placed && landed && placed.failed.length > 0) {
-			noteMissed(services, landed.id, placed.failed);
-		}
+		keepMissed(services.source, services.view.getState().view, plan, before, placed);
 	};
 
 	return (

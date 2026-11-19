@@ -12,10 +12,12 @@ import {
 	columnsOf,
 	fileNote,
 	fileRoute,
+	headerSaveText,
 	LONGEST,
 	lineBlocks,
 	lookOf,
 	mimeOf,
+	noteInPlace,
 	noViewNote,
 	saveText,
 	scrollTo,
@@ -147,6 +149,33 @@ describe("saveText", () => {
 		expect(saveText({ ...going, sent: 1, total: 4 })).toBe("Downloading, 25%");
 		expect(saveText({ ...going, held: "paused" })).toBe("Paused, reconnecting");
 		expect(saveText({ ...going, held: "waiting" })).toBe("Waiting for room on this phone");
+	});
+});
+
+describe("where Save's progress shows", () => {
+	const going = { state: "downloading", sent: 3, total: 4, held: null } as const;
+	const ready = { state: "ready", url: "file:///cache/a", size: 10 } as const;
+
+	it("puts a note in the file's place until the phone draws it", () => {
+		expect(noteInPlace("src/app.ts", null, "ios")).toBe(true);
+		expect(noteInPlace("src/app.ts", { state: "loading", sent: 0, total: 0 }, "ios")).toBe(
+			true
+		);
+		expect(noteInPlace("big.log", { state: "large", size: 9e9 }, "ios")).toBe(true);
+		expect(noteInPlace("models/part.glb", ready, "ios")).toBe(true);
+		expect(noteInPlace("specs/report.pdf", ready, "android")).toBe(true);
+		expect(noteInPlace("specs/report.pdf", ready, "ios")).toBe(false);
+		expect(noteInPlace("src/app.ts", ready, "android")).toBe(false);
+	});
+
+	it("says it under the name only while the file itself shows", () => {
+		expect(headerSaveText("src/app.ts", ready, going, "ios")).toBe("Downloading, 75%");
+		expect(headerSaveText("src/app.ts", ready, { ...going, held: "paused" }, "ios")).toBe(
+			"Paused, reconnecting"
+		);
+		expect(headerSaveText("src/app.ts", ready, null, "ios")).toBeNull();
+		expect(headerSaveText("big.log", { state: "large", size: 9e9 }, going, "ios")).toBeNull();
+		expect(headerSaveText("models/part.glb", ready, going, "ios")).toBeNull();
 	});
 });
 

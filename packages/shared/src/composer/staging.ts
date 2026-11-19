@@ -8,7 +8,10 @@
 // bytes instead, up to the 8 MiB maxd takes in one message. A file the `@`
 // menu found stages from the agent's own folder. A draft that comes back
 // brings its files' staged copies with it while maxd still keeps them, and
-// stages a found file again once its copy has gone.
+// stages a found file again once its copy has gone. A picked file's copy
+// in the caches folder goes once the file is ready on the device, once it
+// leaves the box, or once the box turns it away, so a copy only ever stays
+// for a file that failed until you take it out.
 
 import { createStore, type StoreApi } from "zustand/vanilla";
 
@@ -79,6 +82,11 @@ export type PickedFile = {
 	/** Its path in the phone's caches folder, which can upload, or null when only its bytes can go. */
 	readonly path: string | null;
 	readonly read: () => Promise<Uint8Array>;
+	/**
+	 * Deletes the copy the picker made of it, which the box calls once the
+	 * copy isn't needed. Absent for a file the app didn't copy, which stays.
+	 */
+	readonly discard?: () => void;
 };
 
 export type StagingState = {
@@ -177,6 +185,15 @@ export const createStaging = (
 	createStore<StagingState>()((set, get) => {
 		const find = (target: string) => get().files.find((file) => file.key === target);
 
+		// The picker's copy of each picked file, by key, until it's deleted.
+		const copies = new Map<string, () => void>();
+		const discard = (target: string) => {
+			const copy = copies.get(target);
+			if (!copy) return;
+			copies.delete(target);
+			copy();
+		};
+
 		const patch = (target: string, change: (file: StagedFile) => StagedFile) =>
 			set({
 				files: get().files.map((file) => (file.key === target ? change(file) : file)),
@@ -190,24 +207,30 @@ export const createStaging = (
 			source.cancelTransfer(transfer).catch(() => undefined);
 		};
 
-		/** Stops the uploads of these files, which are leaving the box. */
+		/** Stops the uploads of these files, which are leaving the box, and deletes their copies. */
 		const stopAll = (leaving: readonly StagedFile[]) => {
-			for (const file of leaving)
+			for (const file of leaving) {
 				if (file.state === "staging" && file.upload?.transfer) stop(file.upload.transfer);
+				discard(file.key);
+			}
 		};
 
 		const settle = (target: string, result: ActionResult | undefined) => {
 			if (result?.status === "ok" && result.data.status === "staged") {
 				const ref = result.data.attachment;
+				// The picture came from the picker's copy, which goes now the device has the file.
+				const copied = copies.has(target);
 				patch(target, (file) => ({
 					...file,
 					name: ref.name,
 					kind: ref.kind,
 					bytes: ref.bytes,
+					preview: copied ? null : file.preview,
 					state: "ready",
 					ref,
 					error: null,
 				}));
+				discard(target);
 				return;
 			}
 			const error = (result && failureOf(result)) || couldntReady();
@@ -271,7 +294,11 @@ export const createStaging = (
 			files: [],
 			addPicked: (picked, uploads) => {
 				const path = uploads ? picked.path : null;
-				if (path === null && tooLarge(picked.size)) return { refused: tooLargeText() };
+				const refuse = (refused: string) => {
+					picked.discard?.();
+					return { refused };
+				};
+				if (path === null && tooLarge(picked.size)) return refuse(tooLargeText());
 				const target = key();
 				const file: StagedFile = {
 					key: target,
@@ -296,11 +323,13 @@ export const createStaging = (
 				if (path !== null) {
 					// The picker's size lets the limits turn a file away before any of it copies.
 					const over = overLimit(countedOf([...get().files, file]), target);
-					if (over) return { refused: over };
+					if (over) return refuse(over);
+					if (picked.discard) copies.set(target, picked.discard);
 					add(file);
 					upload(target, path);
 					return { key: target };
 				}
+				if (picked.discard) copies.set(target, picked.discard);
 				add(file);
 				picked
 					.read()

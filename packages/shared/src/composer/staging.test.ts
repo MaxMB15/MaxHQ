@@ -333,6 +333,100 @@ describe("createStaging, to a device that takes uploads", () => {
 	});
 });
 
+describe("createStaging, with the picker's copies", () => {
+	/** A picked file whose copy counts how often it's deleted. */
+	const copied = (size: number | null, path: string | null = "/caches/photo.jpg") => {
+		const deleted = { count: 0 };
+		const file: PickedFile = {
+			...picked(size, undefined, path),
+			discard: () => deleted.count++,
+		};
+		return { file, deleted };
+	};
+
+	it("deletes the copy once the upload succeeds, and drops the picture it drew", async () => {
+		const { source, calls } = fakeSource();
+		const staging = createStaging(source, DEVICE, AGENT, keys);
+		const { file, deleted } = copied(100);
+		staging.getState().addPicked(file, true);
+		calls.uploads[0]?.progress(50, 100);
+		expect(deleted.count).toBe(0);
+		calls.uploads[0]?.finish(staged(ref("u1", "photo.jpg", "image")));
+		const [ready] = await settled(staging);
+		expect(ready).toMatchObject({ state: "ready", preview: null });
+		expect(deleted.count).toBe(1);
+		staging.getState().clear();
+		expect(deleted.count).toBe(1);
+	});
+
+	it("deletes the copy once its bytes are staged", async () => {
+		const { source } = fakeSource();
+		const staging = createStaging(source, DEVICE, AGENT, keys);
+		const { file, deleted } = copied(3);
+		staging.getState().addPicked(file, false);
+		await settled(staging);
+		expect(deleted.count).toBe(1);
+	});
+
+	it("keeps the picture of a file the app didn't copy", async () => {
+		const { source, calls } = fakeSource();
+		const staging = createStaging(source, DEVICE, AGENT, keys);
+		staging.getState().addPicked(picked(100), true);
+		calls.uploads[0]?.finish(staged(ref("u1", "photo.jpg", "image")));
+		const [ready] = await settled(staging);
+		expect(ready?.preview).toBe("file:///photo.jpg");
+	});
+
+	it("keeps a failed file's copy until it leaves the box", async () => {
+		const { source, calls } = fakeSource();
+		const staging = createStaging(source, DEVICE, AGENT, keys);
+		const { file, deleted } = copied(100);
+		const result = staging.getState().addPicked(file, true);
+		if (!("key" in result)) throw new Error("refused");
+		calls.uploads[0]?.finish(refused("disk full"));
+		await settled(staging);
+		expect(deleted.count).toBe(0);
+		staging.getState().remove(result.key);
+		expect(deleted.count).toBe(1);
+	});
+
+	it("deletes the copy of a file taken out, or dropped from the text, while it uploads", async () => {
+		const { source, calls } = fakeSource();
+		const staging = createStaging(source, DEVICE, AGENT, keys);
+		const one = copied(100);
+		const two = copied(100);
+		const three = copied(100);
+		const first = staging.getState().addPicked(one.file, true);
+		const second = staging.getState().addPicked(two.file, true);
+		staging.getState().addPicked(three.file, true);
+		if (!("key" in first) || !("key" in second)) throw new Error("refused");
+		staging.getState().remove(first.key);
+		expect([one.deleted.count, two.deleted.count, three.deleted.count]).toEqual([1, 0, 0]);
+		staging.getState().keepOnly(new Set([second.key]));
+		expect([one.deleted.count, two.deleted.count, three.deleted.count]).toEqual([1, 0, 1]);
+		staging.getState().clear();
+		expect([one.deleted.count, two.deleted.count, three.deleted.count]).toEqual([1, 1, 1]);
+		// An upload that ends after its file left doesn't delete it again.
+		for (const going of calls.uploads) going.finish(staged(ref("u", "photo.jpg")));
+		await tick();
+		expect([one.deleted.count, two.deleted.count, three.deleted.count]).toEqual([1, 1, 1]);
+	});
+
+	it("deletes the copy of a file the box turns away", () => {
+		const { source } = fakeSource();
+		const staging = createStaging(source, DEVICE, AGENT, keys);
+		const big = copied(MAX_PHONE_FILE + 1);
+		expect(staging.getState().addPicked(big.file, false)).toEqual({
+			refused: tooLargeText(),
+		});
+		expect(big.deleted.count).toBe(1);
+		staging.getState().addPicked(picked(MAX_BYTES - 10), true);
+		const over = copied(20);
+		expect(staging.getState().addPicked(over.file, true)).toEqual({ refused: TOO_LARGE });
+		expect(over.deleted.count).toBe(1);
+	});
+});
+
 describe("clipboardFileOf", () => {
 	it("keeps the staged copy with its device", async () => {
 		const { source } = fakeSource();

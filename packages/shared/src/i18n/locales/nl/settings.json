@@ -557,7 +557,6 @@
 	"Clone cancelled": "Klonen geannuleerd",
 	"Retry runs it again, and Remove forgets the folder.": "Opnieuw proberen start het opnieuw. Verwijderen vergeet de map.",
 	"Files not copied": "Bestanden niet gekopieerd",
-	"{{plural}} {{value2}} copied": "{{plural}} niet gekopieerd{{value2}}",
 	"Dismiss": "Sluiten",
 	"Clone": "Kloon",
 	"Couldn't cancel the clone.": "Kon het klonen niet annuleren.",

@@ -24,9 +24,9 @@ import type {
 import { FixedNow } from "@maxhq/shared/lib/clock";
 import { device, entities, link, NOW, project, workspace } from "@maxhq/shared/test/build";
 import { remoteCalls } from "@maxhq/shared/test/remote";
+import { noteMissed } from "@maxhq/shared/workspaces/missed";
 
 import { CopyProjectHost } from "./copy-project";
-import { noteMissed } from "./copy-store";
 import { ProjectWorkspaces } from "./workspace-list";
 
 const DONE: ActionResult = { status: "ok", data: { status: "done" } };
@@ -338,12 +338,12 @@ describe("copy to another device", () => {
 
 // Notes the missed files the way a finished copy does, once mounted.
 const Missed = () => {
-	const services = useServices();
+	const { source } = useServices();
 	return (
 		<button
 			type="button"
 			onClick={() =>
-				noteMissed(services, "ws-clone", [{ path: ".env", reason: "no space left" }])
+				noteMissed(source, "ws-clone", [{ path: ".env", reason: "no space left" }])
 			}
 		>
 			Note missed

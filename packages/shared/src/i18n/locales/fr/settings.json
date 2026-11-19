@@ -558,7 +558,6 @@
 	"Clone cancelled": "Clonage annulé",
 	"Retry runs it again, and Remove forgets the folder.": "Réessayer le relance. Supprimer oublie le dossier.",
 	"Files not copied": "Fichiers non copiés",
-	"{{plural}} {{value2}} copied": "{{plural}} non copiés{{value2}}",
 	"Dismiss": "Ignorer",
 	"Clone": "Clone",
 	"Couldn't cancel the clone.": "Impossible d'annuler le clonage.",
