@@ -3,7 +3,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import type { Task } from "../bindings";
+import type { Task, Weekday } from "../bindings";
 import { mockTasks } from "../data/mock-tasks";
 import { DEVBOX, DEVBOX_CODEX, MAC, mockEntities } from "../data/mock-view";
 import { NOW } from "../test/build";
@@ -18,6 +18,7 @@ import {
 	isFreeText,
 	isKeyTemplate,
 	NO_PERMISSION,
+	onClock,
 	parseFilters,
 	promptFields,
 	promptFor,
@@ -472,5 +473,152 @@ describe("editing the form", () => {
 		const changed = { ...rows[1]!, path: "body.action" };
 		expect(withFilter(rows, 1, changed)).toEqual([rows[0], changed]);
 		expect(withFilter(rows, 0, null)).toEqual([rows[1]]);
+	});
+});
+
+describe("a task's time on another clock", () => {
+	const JUNE = new Date("2026-06-10T12:00:00Z");
+	const at = (time: string, ...days: Weekday[]) => ({ time, days: new Set(days) });
+	const ALL: Weekday[] = [
+		"monday",
+		"tuesday",
+		"wednesday",
+		"thursday",
+		"friday",
+		"saturday",
+		"sunday",
+	];
+
+	it("moves the time ahead for a zone ahead of the task's", () => {
+		expect(
+			onClock(
+				at("09:00", "monday", "wednesday"),
+				"America/New_York",
+				"Europe/Amsterdam",
+				JUNE
+			)
+		).toEqual(at("15:00", "monday", "wednesday"));
+	});
+
+	it("moves the time back for a zone behind the task's", () => {
+		expect(
+			onClock(
+				at("09:00", "monday", "wednesday"),
+				"Europe/Amsterdam",
+				"America/New_York",
+				JUNE
+			)
+		).toEqual(at("03:00", "monday", "wednesday"));
+	});
+
+	it("moves the days on when the time crosses midnight forward", () => {
+		expect(
+			onClock(at("23:00", "monday", "sunday"), "Europe/Amsterdam", "Asia/Tokyo", JUNE)
+		).toEqual(at("06:00", "tuesday", "monday"));
+	});
+
+	it("moves the days back when the time crosses midnight backward", () => {
+		expect(
+			onClock(at("06:00", "tuesday", "monday"), "Asia/Tokyo", "Europe/Amsterdam", JUNE)
+		).toEqual(at("23:00", "monday", "sunday"));
+		expect(
+			onClock(at("01:00", "monday"), "Europe/Amsterdam", "America/New_York", JUNE)
+		).toEqual(at("19:00", "sunday"));
+	});
+
+	it("keeps every day as every day", () => {
+		expect(onClock(at("23:00"), "Europe/Amsterdam", "Asia/Tokyo", JUNE)).toEqual(at("06:00"));
+		expect(onClock(at("23:00", ...ALL), "Europe/Amsterdam", "Asia/Tokyo", JUNE)).toEqual(
+			at("06:00", ...ALL)
+		);
+	});
+
+	it("reads the gap on the day, when only one zone has moved to summer time", () => {
+		// New York moves on 2026-03-08, Amsterdam on 2026-03-29.
+		const between = new Date("2026-03-20T12:00:00Z");
+		expect(onClock(at("09:00"), "Europe/Amsterdam", "America/New_York", between)).toEqual(
+			at("04:00")
+		);
+		expect(
+			onClock(
+				at("09:00"),
+				"Europe/Amsterdam",
+				"America/New_York",
+				new Date("2026-04-01T12:00:00Z")
+			)
+		).toEqual(at("03:00"));
+		// Amsterdam moves back on 2026-10-25, New York on 2026-11-01.
+		expect(
+			onClock(
+				at("09:00"),
+				"Europe/Amsterdam",
+				"America/New_York",
+				new Date("2026-10-28T12:00:00Z")
+			)
+		).toEqual(at("04:00"));
+		expect(onClock(at("04:00"), "America/New_York", "Europe/Amsterdam", between)).toEqual(
+			at("09:00")
+		);
+	});
+
+	it("takes half hours and gaps of more than a day", () => {
+		expect(onClock(at("00:15", "monday"), "Asia/Kolkata", "Europe/Amsterdam", JUNE)).toEqual(
+			at("20:45", "sunday")
+		);
+		// Kiritimati is 14 hours ahead of UTC and Pago Pago 11 behind.
+		expect(
+			onClock(at("00:30", "monday"), "Pacific/Kiritimati", "Pacific/Pago_Pago", JUNE)
+		).toEqual(at("23:30", "saturday"));
+		expect(
+			onClock(at("23:30", "saturday"), "Pacific/Pago_Pago", "Pacific/Kiritimati", JUNE)
+		).toEqual(at("00:30", "monday"));
+	});
+
+	it("comes back as it was", () => {
+		const zones = [
+			"Europe/Amsterdam",
+			"Asia/Kolkata",
+			"America/Los_Angeles",
+			"Pacific/Kiritimati",
+		];
+		for (const from of zones)
+			for (const to of zones)
+				for (const time of ["00:00", "06:15", "12:30", "23:59"]) {
+					const kept = at(time, "monday", "friday", "sunday");
+					expect(onClock(onClock(kept, from, to, JUNE), to, from, JUNE)).toEqual(kept);
+				}
+	});
+
+	it("leaves the same clock, a zone it doesn't know and a time that isn't one alone", () => {
+		const kept = at("09:00", "monday");
+		expect(onClock(kept, "Europe/Amsterdam", "Europe/Amsterdam", JUNE)).toEqual(kept);
+		expect(
+			onClock(
+				kept,
+				"Mars/Olympus_Mons",
+				Intl.DateTimeFormat().resolvedOptions().timeZone,
+				JUNE
+			)
+		).toEqual(kept);
+		const blank = at("", "monday");
+		expect(onClock(blank, "Europe/Amsterdam", "Asia/Tokyo", JUNE)).toEqual(blank);
+	});
+
+	it("gives back just the time and days", () => {
+		const editing = draft({ kind: "at" });
+		expect(Object.keys(onClock(editing, editing.zone, editing.zone, JUNE)).sort()).toEqual([
+			"days",
+			"time",
+		]);
+	});
+
+	it("saves an untouched task as it was, after showing it on another clock", () => {
+		const editing = taskToDraft(view, saved("task-morning"), "Asia/Tokyo");
+		const shown = onClock(editing, editing.zone, "Asia/Tokyo", JUNE);
+		const back = onClock(shown, "Asia/Tokyo", editing.zone, JUNE);
+		expect(taskFromDraft(view, { ...editing, ...back }, "unused")).toEqual({
+			ok: true,
+			task: saved("task-morning"),
+		});
 	});
 });

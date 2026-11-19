@@ -23,6 +23,7 @@ import {
 	triggerLine,
 	waitLine,
 	webhookLine,
+	zoneHint,
 } from "./format";
 
 const RULES = {
@@ -69,6 +70,26 @@ describe("what makes a task run", () => {
 		).toBe("Weekdays at 09:05");
 		expect(triggerLine(at(["wednesday", "monday"]), "UTC")).toBe(
 			"Mon, Wed at 09:05 Europe/Amsterdam"
+		);
+	});
+
+	it("says when a task runs in its zone under a picker on another clock", () => {
+		const morning = {
+			time: "23:00",
+			days: new Set<Weekday>(["wednesday", "monday"]),
+			zone: "Europe/Amsterdam",
+		};
+		expect(zoneHint(morning, "Europe/Amsterdam")).toBe(
+			"In Europe/Amsterdam. No days picked runs it every day."
+		);
+		expect(zoneHint(morning, "America/New_York")).toBe(
+			"In Europe/Amsterdam: Mon, Wed at 23:00. No days picked runs it every day."
+		);
+		expect(zoneHint({ ...morning, days: new Set() }, "Asia/Tokyo")).toBe(
+			"In Europe/Amsterdam: Daily at 23:00. No days picked runs it every day."
+		);
+		expect(zoneHint({ ...morning, time: "" }, "Asia/Tokyo")).toBe(
+			"In Europe/Amsterdam. No days picked runs it every day."
 		);
 	});
 

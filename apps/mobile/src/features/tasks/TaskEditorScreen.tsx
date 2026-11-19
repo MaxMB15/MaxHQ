@@ -3,11 +3,13 @@
 
 // The sheet that makes or edits a scheduled task, as the desktop's: its
 // name and prompt, what makes it run, the agent it reaches and the device
-// it lives on. A new webhook's URL shows once, after the save, and a
-// signing secret goes to the device on its own call, never into the task.
-// Saving needs the Mac's switch for this phone on the task's device, so
-// Save stays in view, off, until the Mac turns it on. A new URL for a
-// webhook comes from the Mac only.
+// it lives on. An At task's time and days show on the phone's clock, and
+// the hint under them says when it runs in its own zone when that's
+// another; a pick goes back to the task's zone. A new webhook's URL shows
+// once, after the save, and a signing secret goes to the device on its own
+// call, never into the task. Saving needs the Mac's switch for this phone
+// on the task's device, so Save stays in view, off, until the Mac turns it
+// on. A new URL for a webhook comes from the Mac only.
 
 import { useI18n } from "@maxhq/shared/i18n";
 
@@ -21,7 +23,10 @@ import { newUuid } from "@maxhq/shared/lib/uuid";
 import { resolve } from "@maxhq/shared/new-agent/spec";
 import { saveDraft } from "@maxhq/shared/tasks/actions";
 import {
+	type DayTime,
 	emptyDraft,
+	localZone,
+	onClock,
 	promptFor,
 	takesRequests,
 	type TaskDraft,
@@ -31,6 +36,7 @@ import {
 	type TriggerKind,
 	WEEKDAYS,
 } from "@maxhq/shared/tasks/draft";
+import { zoneHint } from "@maxhq/shared/tasks/format";
 import {
 	draftHome,
 	githubRepos,
@@ -113,6 +119,15 @@ const Form = ({
 	const edit = (patch: Partial<TaskDraft>) => {
 		setDraft((d) => ({ ...d, ...patch }));
 		setNote(null);
+	};
+	// An At task's time and days on the phone's clock. Both ways read the
+	// clocks at the same moment, so a task you don't touch saves as it was.
+	const here = localZone();
+	const at = new Date(now);
+	const shown = onClock(draft, draft.zone, here, at);
+	const setShown = (next: DayTime) => {
+		const { time, days } = onClock(next, here, draft.zone, at);
+		edit({ time, days });
 	};
 
 	const save = async () => {
@@ -216,26 +231,26 @@ const Form = ({
 							<DateTimeField
 								label={t("Time")}
 								mode="time"
-								value={dateAtTime(draft.time, draft.zone, new Date(now))}
-								zone={draft.zone}
-								onChange={(picked) => edit({ time: timeOfDay(picked, draft.zone) })}
+								value={dateAtTime(shown.time, here, at)}
+								onChange={(picked) =>
+									setShown({ ...shown, time: timeOfDay(picked, here) })
+								}
 							/>
 							<Chips
 								label={t("Days")}
 								chips={WEEKDAYS.map(({ day, label }) => ({
 									key: day,
 									label,
-									on: draft.days.has(day),
+									on: shown.days.has(day),
 								}))}
 								onToggle={(day, on) =>
-									edit({ days: toggled(draft.days, day as Weekday, on) })
+									setShown({
+										...shown,
+										days: toggled(shown.days, day as Weekday, on),
+									})
 								}
 							/>
-							<Hint>
-								{t("In {{zone}}. No days picked runs it every day.", {
-									zone: draft.zone,
-								})}
-							</Hint>
+							<Hint>{zoneHint(draft, here)}</Hint>
 						</>
 					) : null}
 					{draft.kind === "github_events" ? (

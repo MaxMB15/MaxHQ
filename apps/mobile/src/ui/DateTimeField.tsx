@@ -1,17 +1,17 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026 Max Boksem
 
-// A labelled date or time field with the phone's own picker: on iOS the
-// compact picker, which opens its calendar or clock in place; on Android a
-// box with the value that opens the system's dialog. Given a zone, it shows
-// and sets the time on that zone's clock rather than the phone's.
+// A labelled date or time field with the phone's own picker, on the
+// phone's clock: on iOS the compact picker, which opens its calendar or
+// clock in place and names months and days in MaxHQ's language with the
+// phone's region; on Android a box with the value in MaxHQ's language that
+// opens the system's dialog, which Android draws in the phone's language.
 
-import { formatDate } from "@maxhq/shared/i18n";
+import { formatDate, regionalLocale, useI18n } from "@maxhq/shared/i18n";
 
 import DateTimePicker, { DateTimePickerAndroid } from "@react-native-community/datetimepicker";
+import { useLocales } from "expo-localization";
 import { Platform, Pressable, StyleSheet, Text, View } from "react-native";
-
-import { knownZone } from "@maxhq/shared/lib/zoned-time";
 
 import { color, radius, size, TOUCH } from "../theme";
 
@@ -20,7 +20,6 @@ export const DateTimeField = ({
 	mode,
 	value,
 	onChange,
-	zone,
 	minimumDate,
 }: {
 	label: string;
@@ -28,11 +27,11 @@ export const DateTimeField = ({
 	value: Date;
 	/** Takes the picked moment: a new day at the same time, or a new time on the same day. */
 	onChange: (value: Date) => void;
-	/** The zone whose clock it shows, such as `Europe/Amsterdam`; the phone's when left out. */
-	zone?: string;
 	minimumDate?: Date;
 }) => {
-	const timeZoneName = zone === undefined ? undefined : knownZone(zone);
+	const { language } = useI18n();
+	// The Region setting, which can differ from the region of the phone's language.
+	const region = useLocales()[0].regionCode;
 	const field =
 		Platform.OS === "ios" ? (
 			<DateTimePicker
@@ -40,7 +39,7 @@ export const DateTimeField = ({
 				value={value}
 				mode={mode}
 				display="compact"
-				timeZoneName={timeZoneName}
+				locale={regionalLocale(language, region)}
 				minimumDate={minimumDate}
 				themeVariant="dark"
 				accentColor={color.primary}
@@ -54,7 +53,6 @@ export const DateTimeField = ({
 					DateTimePickerAndroid.open({
 						value,
 						mode,
-						timeZoneName,
 						minimumDate,
 						onValueChange: (_, picked) => onChange(picked),
 					})
@@ -65,13 +63,8 @@ export const DateTimeField = ({
 					{formatDate(
 						value,
 						mode === "date"
-							? {
-									day: "numeric",
-									month: "short",
-									year: "numeric",
-									timeZone: timeZoneName,
-								}
-							: { hour: "numeric", minute: "2-digit", timeZone: timeZoneName }
+							? { day: "numeric", month: "short", year: "numeric" }
+							: { hour: "numeric", minute: "2-digit" }
 					)}
 				</Text>
 			</Pressable>

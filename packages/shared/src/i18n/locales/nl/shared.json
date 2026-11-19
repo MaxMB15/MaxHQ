@@ -1111,6 +1111,7 @@
 	" at {{value1}}": " om {{value1}}",
 	"{{value1}} {{value2}} used{{value3}}": "{{value1}} {{value2}} gebruikt{{value3}}",
 	"{{value1}} at {{value2}}{{value3}}": "{{value1}} om {{value2}}{{value3}}",
+	"In {{zone}}: {{schedule}}. No days picked runs it every day.": "In {{zone}}: {{schedule}}. Zonder geselecteerde dagen wordt dit elke dag uitgevoerd.",
 	"{{value1}} min": "{{value1}} min",
 	"{{value1}}. Last delivery {{value2}}": "{{value1}}. Laatst ontvangen {{value2}}",
 	"{{value1}} GB disk, {{value2}} GB memory": "{{value1}} GB schijf, {{value2}} GB geheugen",

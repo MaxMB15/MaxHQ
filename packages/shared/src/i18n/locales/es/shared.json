@@ -1112,6 +1112,7 @@
 	" at {{value1}}": " a las {{value1}}",
 	"{{value1}} {{value2}} used{{value3}}": "{{value1}} {{value2}} utilizado{{value3}}",
 	"{{value1}} at {{value2}}{{value3}}": "{{value1}} a las {{value2}}{{value3}}",
+	"In {{zone}}: {{schedule}}. No days picked runs it every day.": "En {{zone}}: {{schedule}}. Si no eliges días, se ejecuta todos los días.",
 	"{{value1}} min": "{{value1}} min",
 	"{{value1}}. Last delivery {{value2}}": "{{value1}}. Última entrega {{value2}}",
 	"{{value1}} GB disk, {{value2}} GB memory": "{{value1}} GB de disco, {{value2}} GB de memoria",

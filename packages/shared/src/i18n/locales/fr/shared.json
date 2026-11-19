@@ -1112,6 +1112,7 @@
 	" at {{value1}}": " à {{value1}}",
 	"{{value1}} {{value2}} used{{value3}}": "{{value1}} {{value2}} utilisé{{value3}}",
 	"{{value1}} at {{value2}}{{value3}}": "{{value1}} à {{value2}}{{value3}}",
+	"In {{zone}}: {{schedule}}. No days picked runs it every day.": "Dans {{zone}} : {{schedule}}. Si aucun jour n'est choisi, l'exécution est quotidienne.",
 	"{{value1}} min": "{{value1}} min",
 	"{{value1}}. Last delivery {{value2}}": "{{value1}}. Dernière réception {{value2}}",
 	"{{value1}} GB disk, {{value2}} GB memory": "{{value1}} Go de disque, {{value2}} Go de mémoire",

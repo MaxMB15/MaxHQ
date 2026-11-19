@@ -25,6 +25,7 @@ import {
 	type Trigger,
 	type Weekday,
 } from "../bindings";
+import { clockGap, parseTime } from "../lib/zoned-time";
 import { type Choices, emptyChoices, planStart, resolve } from "../new-agent/spec";
 import type { ViewState } from "../view/replica";
 
@@ -408,6 +409,42 @@ const REPO_PEOPLE = ["OWNER", "MEMBER", "COLLABORATOR"];
 /** The zone this device's clock is in, such as `Europe/Amsterdam`. */
 export const localZone = (): string => Intl.DateTimeFormat().resolvedOptions().timeZone;
 
+/** A task's time of day and the days it runs on, as one clock shows them. */
+export type DayTime = {
+	/** "HH:MM". */
+	readonly time: string;
+	/** None and all seven both mean every day. */
+	readonly days: ReadonlySet<Weekday>;
+};
+
+const DAY_MINUTES = 24 * 60;
+
+const pad = (n: number) => String(n).padStart(2, "0");
+
+/**
+ * `at`, kept on the clocks in `from`, as the clocks in `to` show it: the
+ * time moves by how far apart they are, and the days with it when that
+ * crosses midnight. Both clocks are read at `now`, so there and back gives
+ * `at` as it was. A time that isn't one stays as it is.
+ */
+export const onClock = (at: DayTime, from: string, to: string, now: Date): DayTime => {
+	const parsed = parseTime(at.time);
+	const gap = clockGap(from, to, now);
+	if (!parsed || gap === 0) return { time: at.time, days: at.days };
+	const minutes = parsed.hour * 60 + parsed.minute + gap;
+	const moved = Math.floor(minutes / DAY_MINUTES);
+	const time = minutes - moved * DAY_MINUTES;
+	const order = WEEKDAYS.map((w) => w.day);
+	const shift = (day: Weekday) => {
+		const index = order.indexOf(day) + moved;
+		return order[((index % order.length) + order.length) % order.length] ?? day;
+	};
+	return {
+		time: `${pad(Math.floor(time / 60))}:${pad(time % 60)}`,
+		days: new Set([...at.days].map(shift)),
+	};
+};
+
 /** A blank draft, with the defaults: every 15 minutes, or 09:00 on workdays. */
 export const emptyDraft = (zone: string = localZone()): TaskDraft => ({
 	saved: null,
@@ -451,8 +488,6 @@ export const promptFor = (kind: TriggerKind, prompt: string): string => {
 	if (kind === "github_events") return DEFAULT_GITHUB_PROMPT;
 	return "";
 };
-
-const pad = (n: number) => String(n).padStart(2, "0");
 
 const rulesOf = (trigger: Trigger): HookRules | null =>
 	trigger.type === "hook" || trigger.type === "github_events" ? trigger.rules : null;
@@ -615,14 +650,12 @@ const triggerFrom = (draft: TaskDraft): Trigger | string => {
 			return minutes ? { type: "every", minutes } : t("Run it every 1 minute or more.");
 		}
 		case "at": {
-			const match = /^(\d{1,2}):(\d{2})$/.exec(draft.time.trim());
-			const hour = Number(match?.[1]);
-			const minute = Number(match?.[2]);
-			if (!match || hour > 23 || minute > 59) return t("Pick a time of day.");
+			const time = parseTime(draft.time);
+			if (!time) return t("Pick a time of day.");
 			const everyDay = draft.days.size === 0 || draft.days.size === WEEKDAYS.length;
 			return {
 				type: "at",
-				time: { hour, minute },
+				time,
 				days: everyDay ? [] : WEEKDAYS.map((w) => w.day).filter((d) => draft.days.has(d)),
 				zone: draft.zone,
 			};

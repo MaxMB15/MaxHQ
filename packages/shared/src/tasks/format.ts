@@ -25,7 +25,9 @@ import type {
 	TaskId,
 	Timestamp,
 	Trigger,
+	Weekday,
 } from "../bindings";
+import { parseTime } from "../lib/zoned-time";
 import { formatAgo, listInWords } from "../status/format";
 import { COALESCE_SECS, MAX_WAIT_SECS, type PromptField, WEEKDAYS } from "./draft";
 
@@ -76,6 +78,24 @@ export const triggerLine = (trigger: Trigger, zone?: string): string => {
 				"event"
 			);
 	}
+};
+
+/**
+ * The hint under an At task's time picker, which shows the clock `here` is
+ * on: the zone the task runs in, and when it runs there once that isn't
+ * `here`, such as "In Europe/Amsterdam: Mon at 23:00".
+ */
+export const zoneHint = (
+	at: { readonly time: string; readonly days: ReadonlySet<Weekday>; readonly zone: string },
+	here: string
+): string => {
+	const time = parseTime(at.time);
+	if (at.zone === here || !time)
+		return t("In {{zone}}. No days picked runs it every day.", { zone: at.zone });
+	return t("In {{zone}}: {{schedule}}. No days picked runs it every day.", {
+		zone: at.zone,
+		schedule: triggerLine({ type: "at", time, days: [...at.days], zone: at.zone }),
+	});
 };
 
 /** Seconds in a few words, such as "15 min" or "2 h". */

@@ -4,12 +4,13 @@
 // The More button in an agent's header. Its sheet opens find over the
 // feed and the list of your prompts, renames the agent in a small dialog,
 // picks its permission mode and model in sheets of their own and its effort
-// level in a small dialog, as the desktop's composer does, links a pull
-// request to it in a sheet, opens its details, its sub-agents and its ports
-// and processes, copies its session ID and exports the conversation, revokes
-// its permission to run agents, opens the Move sheet, and stops it or
-// deletes one MaxHQ holds after asking. The screen goes back to the agents
-// once it's gone, and a control that fails says why in an alert.
+// level on a slider in a small dialog, as the desktop's composer does,
+// links a pull request to it in a sheet, opens its details, its sub-agents
+// and its ports and processes, copies its session ID and exports the
+// conversation, revokes its permission to run agents, opens the Move sheet,
+// and stops it or deletes one MaxHQ holds after asking. The screen goes back
+// to the agents once it's gone, and a control that fails says why in an
+// alert.
 
 import { t, useI18n } from "@maxhq/shared/i18n";
 
@@ -39,7 +40,6 @@ import {
 	createRenameDialog,
 	MORE_LABEL,
 	type MoreChoice,
-	type EffortPick,
 	effortPick,
 	modelSheet,
 	moreChoices,
@@ -90,7 +90,7 @@ export const AgentMore = ({
 	const services = useServices();
 	const { source } = services;
 	const [dialog] = useState(() => createRenameDialog(renamesOf(services)));
-	const [effort, setEffort] = useState<EffortPick | null>(null);
+	const [effortOpen, setEffortOpen] = useState(false);
 	const [linking, setLinking] = useState(false);
 	const title = useShownTitle(agent);
 
@@ -154,7 +154,7 @@ export const AgentMore = ({
 						show
 					)
 				),
-			effort: () => setEffort(effortPick(view, now)),
+			effort: () => setEffortOpen(true),
 			link: () => setLinking(true),
 			details: () => navigation.navigate("AgentInfo", { agent: now.id }),
 			subAgents: () => navigation.navigate("SubAgents", { agent: now.id }),
@@ -183,11 +183,11 @@ export const AgentMore = ({
 			<RenameDialog dialog={dialog} />
 			<LinkPullSheet agent={agent} open={linking} onClose={() => setLinking(false)} />
 			<EffortDialog
-				pick={effort}
+				pick={effortOpen ? effortPick(services.view.getState().view, agent) : null}
 				onPick={(level) =>
 					run("change the effort level", () => source.setEffort(agent.id, level))
 				}
-				close={() => setEffort(null)}
+				close={() => setEffortOpen(false)}
 			/>
 		</>
 	);

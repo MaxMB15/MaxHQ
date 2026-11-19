@@ -8,6 +8,7 @@ import {
 	formatNumber,
 	i18n,
 	languageFor,
+	regionalLocale,
 	setLanguageChoice,
 	t,
 } from "./i18n";
@@ -25,6 +26,48 @@ describe("interface language", () => {
 		expect(languageFor("system", ["ja-JP", "nl"])).toBe("en");
 		expect(languageFor("de", ["nl"])).toBe("de");
 		expect(languageFor("invalid", ["es"])).toBe("es");
+	});
+	it("takes the system's first language when MaxHQ has it, and English otherwise", () => {
+		expect(languageFor("system", ["pt-BR"])).toBe("en");
+		expect(languageFor("system", ["pt-BR", "nl-NL"])).toBe("en");
+		expect(languageFor("system", ["nl_NL"])).toBe("nl");
+		expect(languageFor("system", ["NL"])).toBe("nl");
+		expect(languageFor("system", ["tlh"])).toBe("en");
+		expect(languageFor("system", ["not a tag"])).toBe("en");
+		expect(languageFor("system", [])).toBe("en");
+	});
+	it("falls back to English when the platform can't say its languages", () => {
+		configureLanguage({
+			read: () => "system",
+			write: () => {},
+			systemLanguages: () => {
+				throw Error("no locale");
+			},
+		});
+		expect(i18n.language).toBe("en");
+		configureLanguage({
+			read: () => "system",
+			write: () => {},
+			systemLanguages: () => ["pt-BR"],
+		});
+		expect(i18n.language).toBe("en");
+		configureLanguage({
+			read: () => "system",
+			write: () => {},
+			systemLanguages: () => ["de-CH"],
+		});
+		expect(i18n.language).toBe("de");
+	});
+	it("gives a native picker MaxHQ's language in the platform's region", () => {
+		expect(regionalLocale("nl", "US")).toBe("nl-US");
+		expect(regionalLocale("de", "NL")).toBe("de-NL");
+		expect(regionalLocale("fr", "ca")).toBe("fr-CA");
+		expect(regionalLocale("es", "419")).toBe("es-419");
+		expect(regionalLocale("en", null)).toBe("en");
+		expect(regionalLocale("en", undefined)).toBe("en");
+		expect(regionalLocale("nl", "")).toBe("nl");
+		expect(regionalLocale("nl", "en-US")).toBe("nl");
+		expect(regionalLocale("nl", "USA")).toBe("nl");
 	});
 	it("loads and persists a language choice independently of agent configuration", () => {
 		const writes: string[] = [];
