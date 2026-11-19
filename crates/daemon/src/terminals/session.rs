@@ -52,6 +52,16 @@ const UNMARKED_GRACE: Duration = Duration::from_millis(300);
 /// How long a block that ended waits for the prompt after it.
 const PROMPT_WAIT: Duration = Duration::from_secs(1);
 
+/// How long a block's line has to start, with the shell holding the
+/// foreground, before `maxd` takes it that the shell waits for more of
+/// it, such as a closing quote, and cancels it.
+const CONTINUATION_WAIT: Duration = Duration::from_secs(3);
+
+/// How long a line you sent while something ran has to start once the
+/// shell shows its prompt. Past it, `maxd` takes it that what ran read
+/// the line.
+const AHEAD_WAIT: Duration = Duration::from_millis(500);
+
 /// How long a block waits after the prompt for the last of what comes
 /// with it, such as the folder.
 const SETTLE: Duration = Duration::from_millis(50);
@@ -76,6 +86,8 @@ const NO_FIRST_PROMPT: &str = "Your shell didn't report its commands, so the ses
 const BUSY_UNNAMED: &str = "The session is busy. Wait for what runs in it to finish, or stop it.";
 const TYPED: &str = "The session's prompt has something you typed. Run it or clear it with \
                      Ctrl-C, then try again.";
+const CANCELLED: &str =
+    "The shell waited for more input, such as a closing quote, so MaxHQ cancelled it.";
 
 /// Something you asked an agent's session to do.
 #[derive(Clone, Debug)]
@@ -187,6 +199,9 @@ pub(super) struct SessionNote {
     /// The block that runs, until it's kept.
     #[serde(default)]
     pub(super) current: Option<BlockNote>,
+    /// Whether its shell has shown a marked prompt.
+    #[serde(default)]
+    pub(super) prompted: bool,
 }
 
 /// A block that runs, as its note keeps it.
@@ -211,36 +226,81 @@ pub(super) struct BlockNote {
 
 /// What you typed into a session's terminal, as far as whether a command
 /// may go in: never the bytes, only whether they sent a line and whether
-/// some sit at the prompt.
+/// some sit at the prompt or wait for it.
+///
+/// Keys you type while something runs wait in the terminal for the shell,
+/// unless what runs reads them, and the shell takes them at its next
+/// prompt: a line you ended runs then, and the rest sits at the prompt.
 #[derive(Debug, Default)]
 pub(super) struct Typed {
     /// You sent a line, or Ctrl-C or Ctrl-D, since the last prompt.
     sent: bool,
-    /// Something you typed may sit at the prompt.
+    /// Something you typed may sit at the prompt, or wait for it.
     line: bool,
+    /// Lines you sent while the shell wasn't reading, which its next
+    /// prompts may read.
+    ahead: u32,
+    /// When the shell showed a prompt that may read a line you sent
+    /// ahead, until a command starts.
+    queued_at: Option<Instant>,
 }
 
 impl Typed {
-    /// Takes in keys typed while the session waited at its prompt.
-    pub(super) fn keys(&mut self, data: &[u8]) {
+    /// Takes in keys you typed. `busy` says whether something ran, so the
+    /// shell wasn't reading them.
+    pub(super) fn keys(&mut self, data: &[u8], busy: bool) {
         if replies_only(data) {
             return;
         }
-        match data
-            .iter()
-            .rposition(|byte| matches!(byte, b'\r' | b'\n' | 0x03 | 0x04))
-        {
-            Some(at) => {
+        let mut data = data;
+        // A line you sent before has yet to reach a prompt, so the shell
+        // isn't reading either.
+        let ahead = busy || self.sent;
+        if ahead && let Some(at) = data.iter().rposition(|byte| *byte == 0x03) {
+            // Ctrl-C while something runs: the terminal drops what waits
+            // for the shell.
+            self.sent = true;
+            self.line = false;
+            self.ahead = 0;
+            data = &data[at + 1..];
+        }
+        for byte in data {
+            if matches!(byte, b'\r' | b'\n' | 0x03 | 0x04) {
+                if busy || self.sent {
+                    self.ahead = self.ahead.saturating_add(1);
+                }
                 self.sent = true;
-                self.line = at + 1 < data.len();
+                self.line = false;
+            } else {
+                self.line = true;
             }
-            None => self.line = true,
         }
     }
 
-    /// Notes that the shell showed a prompt, so what you sent has run.
+    /// Notes that the shell showed a prompt, so what you sent has run. It
+    /// may read a line you sent ahead next.
     pub(super) fn prompt(&mut self) {
         self.sent = false;
+        if self.queued_at.is_some_and(|at| at.elapsed() >= AHEAD_WAIT) {
+            // The last prompt started nothing in time: what ran read the
+            // lines you sent.
+            self.ahead = 0;
+        }
+        self.queued_at = None;
+        if self.ahead > 0 {
+            self.ahead -= 1;
+            self.queued_at = Some(Instant::now());
+        }
+    }
+
+    /// Notes that the shell started a command.
+    pub(super) fn started(&mut self) {
+        self.queued_at = None;
+    }
+
+    /// Whether the shell may start a line you sent ahead any moment.
+    fn queued(&self) -> bool {
+        self.queued_at.is_some_and(|at| at.elapsed() < AHEAD_WAIT)
     }
 }
 
@@ -343,8 +403,9 @@ impl NotNow {
 /// Where a session stands for a command that waits for it.
 enum Look {
     Ready,
-    /// It hasn't shown its first prompt since it started then.
-    FirstPrompt(Timestamp),
+    /// It hasn't shown its first prompt since `maxd` began following it
+    /// then.
+    FirstPrompt(Instant),
     /// Something runs, which may end in a moment.
     Busy(NotNow),
     /// A block ends, its shell back at its prompt.
@@ -462,7 +523,10 @@ impl Terminals {
                 return Step::Answer(SessionResult::Refused(NO_FOLDER_GIVEN.to_owned()));
             }
         };
-        self.write_block(terminal, request, &line, command, private)
+        match self.write_block(terminal, request, &line, command, private) {
+            Ok(step) => step,
+            Err(why) => self.not_now(request, here, why),
+        }
     }
 
     /// What a request the session can't take comes to: a fresh shell for
@@ -542,9 +606,8 @@ impl Terminals {
             match self.idle_state(terminal) {
                 Look::Ready => return Ok(()),
                 Look::Stop(why) => return Err(why),
-                Look::FirstPrompt(started) => {
-                    let waited = Timestamp::now().0.saturating_sub(started.0);
-                    if Duration::from_millis(waited) >= FIRST_PROMPT_WAIT {
+                Look::FirstPrompt(followed) => {
+                    if followed.elapsed() >= FIRST_PROMPT_WAIT {
                         self.give_up(terminal);
                         return Err(NotNow::NoFirstPrompt);
                     }
@@ -558,43 +621,7 @@ impl Terminals {
     }
 
     fn idle_state(&self, terminal: TerminalId) -> Look {
-        let opens = self.lock();
-        let Some(open) = opens.get(&terminal) else {
-            return Look::Stop(NotNow::Gone);
-        };
-        if !open.running() || open.closing {
-            return Look::Stop(NotNow::Gone);
-        }
-        if open.control.is_none() {
-            return Look::Busy(NotNow::Busy(None));
-        }
-        if !open.entity.marks {
-            return Look::Stop(NotNow::NoMarks);
-        }
-        let Some(last) = open.commands.list().back() else {
-            return Look::FirstPrompt(open.entity.started_at);
-        };
-        let current = (open.note.session.as_ref()).and_then(|session| session.current.as_ref());
-        if let Some(block) = current.filter(|block| !block.done) {
-            let busy = NotNow::Busy(Some(block.command.clone()));
-            // The shell showed a new prompt with nothing started: the
-            // block ends in a moment, with no code.
-            let ending =
-                last.prompt.is_some_and(|prompt| prompt > block.after) && last.start.is_none();
-            return if ending {
-                Look::Ending(busy)
-            } else {
-                Look::Busy(busy)
-            };
-        }
-        let at_prompt = last.prompt.is_some() && last.start.is_none();
-        if !at_prompt || open.foreground || open.keys.sent {
-            return Look::Busy(NotNow::Busy(None));
-        }
-        if open.keys.line {
-            return Look::Stop(NotNow::Typed);
-        }
-        Look::Ready
+        (self.lock().get(&terminal)).map_or(Look::Stop(NotNow::Gone), Open::look)
     }
 
     /// Ends a session whose shell never showed a marked prompt.
@@ -608,7 +635,9 @@ impl Terminals {
         }
     }
 
-    /// Types `line` into the session as a new block, and follows it.
+    /// Types `line` into the session as a new block, and follows it. It
+    /// looks once more whether the session takes it under the same lock,
+    /// so nothing you type comes in between.
     fn write_block(
         &self,
         terminal: TerminalId,
@@ -616,21 +645,23 @@ impl Terminals {
         line: &str,
         command: String,
         private: bool,
-    ) -> Step {
+    ) -> Result<Step, NotNow> {
         let mut opens = self.lock();
-        let Some(open) = opens.get_mut(&terminal) else {
-            return Step::Answer(SessionResult::Refused(SESSION_ENDED.to_owned()));
-        };
-        let Some(control) = open.control.clone() else {
-            return Step::Answer(SessionResult::Refused(UNREACHABLE.to_owned()));
-        };
+        let open = opens.get_mut(&terminal).ok_or(NotNow::Gone)?;
+        match open.look() {
+            Look::Ready => {}
+            Look::FirstPrompt(_) => return Err(NotNow::Busy(None)),
+            Look::Busy(why) | Look::Ending(why) | Look::Stop(why) => return Err(why),
+        }
+        let control = open.control.clone().ok_or(NotNow::Busy(None))?;
         let after = (open.commands.list().back())
             .and_then(|last| last.prompt)
             .unwrap_or(0);
         let cwd = open.entity.cwd.clone();
-        let Some(session) = open.note.session.as_mut() else {
-            return Step::Answer(SessionResult::Refused(SESSION_ENDED.to_owned()));
-        };
+        let session = open.note.session.as_mut().ok_or(NotNow::Gone)?;
+        // The line takes the prompt: what you sent before has run, or what
+        // ran read it.
+        open.keys = Typed::default();
         session.blocks += 1;
         let at = Timestamp::now();
         let block = BlockNote {
@@ -671,7 +702,7 @@ impl Terminals {
             cols,
             rows,
         ));
-        Step::Noted
+        Ok(Step::Noted)
     }
 
     /// Follows a block that went in again, after a restart.
@@ -716,14 +747,14 @@ impl Terminals {
                 let _control = control;
                 tracked = hello.cwd;
                 let mut timer: Option<tokio::time::Instant> = None;
+                // When to look whether the shell waits for more of the line.
+                // An `exec` line never comes here: the manager sends it
+                // fresh.
+                let mut more = cutter
+                    .waiting_for_more()
+                    .then(|| tokio::time::Instant::now() + CONTINUATION_WAIT);
                 let mut secrets_open = true;
                 loop {
-                    let wake = async {
-                        match timer {
-                            Some(when) => tokio::time::sleep_until(when).await,
-                            None => std::future::pending().await,
-                        }
-                    };
                     tokio::select! {
                         event = events.recv() => {
                             let Some(event) = event else { break };
@@ -753,7 +784,8 @@ impl Terminals {
                                             });
                                         }
                                         Cut::Grace => {
-                                            timer.get_or_insert(now + UNMARKED_GRACE);
+                                            let soon = now + UNMARKED_GRACE;
+                                            timer = Some(timer.map_or(soon, |when| when.min(soon)));
                                         }
                                         Cut::Ended { prompt } => {
                                             let exit = cutter.exit();
@@ -780,7 +812,21 @@ impl Terminals {
                             Some(()) => cutter.secret(),
                             None => secrets_open = false,
                         },
-                        () = wake => {
+                        () = until(more) => {
+                            more = None;
+                            if !cutter.waiting_for_more() {
+                                continue;
+                            }
+                            let now = tokio::time::Instant::now();
+                            if self.cancel_line(terminal, block.id, block.after) {
+                                cutter.cancel();
+                                let soon = now + PROMPT_WAIT;
+                                timer = Some(timer.map_or(soon, |when| when.min(soon)));
+                            } else {
+                                more = Some(now + CONTINUATION_WAIT);
+                            }
+                        }
+                        () = until(timer) => {
                             if cutter.grace_over() {
                                 let exit = cutter.exit();
                                 self.keep_block(terminal, block.id, |kept| {
@@ -851,6 +897,29 @@ impl Terminals {
         self.save(terminal, &open.note);
     }
 
+    /// Sends Ctrl-C to a session whose shell waits for more of block `id`'s
+    /// line, as for a closing quote: the block runs, the shell holds the
+    /// foreground and has marked neither a start nor a prompt since the
+    /// line went in after `after`. Returns whether it did.
+    fn cancel_line(&self, terminal: TerminalId, id: u32, after: u64) -> bool {
+        let opens = self.lock();
+        let Some(open) = opens.get(&terminal) else {
+            return false;
+        };
+        let ours = (open.block.as_ref()).is_some_and(|(block, _)| *block == id);
+        let waits = (open.commands.list().back()).is_some_and(|last| {
+            last.start.is_none() && last.prompt.is_none_or(|prompt| prompt <= after)
+        });
+        let shell = open.running() && !open.foreground && !open.entity.password_prompt;
+        match &open.control {
+            Some(control) if ours && waits && shell => {
+                control.input(vec![0x03]);
+                true
+            }
+            _ => false,
+        }
+    }
+
     /// Reads a session's note.
     fn with_session<T>(
         &self,
@@ -917,6 +986,98 @@ impl Open {
     fn is_session_of(&self, agent: AgentId) -> bool {
         self.note.agent == agent && matches!(self.note.kind, TerminalKind::Session)
     }
+
+    /// Where the session stands for a command that waits for it.
+    fn look(&self) -> Look {
+        if !self.running() || self.closing {
+            return Look::Stop(NotNow::Gone);
+        }
+        if self.control.is_none() {
+            return Look::Busy(NotNow::Busy(None));
+        }
+        if !self.entity.marks {
+            return Look::Stop(NotNow::NoMarks);
+        }
+        self.shell_look()
+    }
+
+    /// Where the session's shell stands, from its marks and what you
+    /// typed.
+    fn shell_look(&self) -> Look {
+        let session = self.note.session.as_ref();
+        let last = self.commands.list().back();
+        if let Some(block) =
+            (session.and_then(|session| session.current.as_ref())).filter(|block| !block.done)
+        {
+            let busy = NotNow::Busy(Some(block.command.clone()));
+            // The shell showed a new prompt with nothing started: the
+            // block ends in a moment, with no code.
+            let ending = last.is_some_and(|last| {
+                last.prompt.is_some_and(|prompt| prompt > block.after) && last.start.is_none()
+            });
+            return if ending {
+                Look::Ending(busy)
+            } else {
+                Look::Busy(busy)
+            };
+        }
+        let Some(last) = last else {
+            // No marks to go by. A new shell has yet to show its first
+            // prompt. One that did may run something whose marks the
+            // holder no longer keeps, or they come again after a restart.
+            let new = session.is_some_and(|session| session.blocks == 0 && !session.prompted);
+            return if new && !self.foreground {
+                Look::FirstPrompt(self.followed)
+            } else {
+                Look::Busy(NotNow::Busy(None))
+            };
+        };
+        let at_prompt = last.prompt.is_some() && last.start.is_none();
+        if !at_prompt || self.foreground || self.keys.sent {
+            return Look::Busy(NotNow::Busy(None));
+        }
+        if self.keys.line {
+            return Look::Stop(NotNow::Typed);
+        }
+        if self.keys.queued() {
+            // The shell may start a line you sent while something ran.
+            return Look::Ending(NotNow::Busy(None));
+        }
+        Look::Ready
+    }
+
+    /// Takes in a mark the shell made. Returns whether the terminal
+    /// changed, and whether its note did.
+    pub(super) fn marked(&mut self, offset: u64, at: Timestamp, mark: &Mark) -> (bool, bool) {
+        let mut keep = false;
+        match mark {
+            Mark::Prompt => {
+                self.keys.prompt();
+                if let Some(session) = self.note.session.as_mut() {
+                    keep = !session.prompted;
+                    session.prompted = true;
+                }
+            }
+            Mark::Command { .. } => self.keys.started(),
+            Mark::Input | Mark::Done { .. } => {}
+        }
+        self.commands.mark(offset, at, mark);
+        (self.rebusy(), keep)
+    }
+
+    /// Takes in keys you typed into the session, as far as what they leave
+    /// at its prompt, or that a password went when one waited. Keys typed
+    /// while something runs count too: the shell reads them next.
+    pub(super) fn heard_keys(&mut self, data: &[u8]) {
+        if self.entity.password_prompt {
+            if let Some((_, secrets)) = &self.block {
+                let _ = secrets.send(());
+            }
+            return;
+        }
+        let busy = self.entity.busy || self.block.is_some();
+        self.keys.keys(data, busy);
+    }
 }
 
 /// `maxd`'s home folder.
@@ -932,6 +1093,14 @@ pub(super) fn expand(shown: &str) -> PathBuf {
         ("~", Some(home)) => home,
         (shown, Some(home)) if shown.starts_with("~/") => home.join(&shown[2..]),
         (shown, _) => PathBuf::from(shown),
+    }
+}
+
+/// Waits until `when`, or forever without one.
+async fn until(when: Option<tokio::time::Instant>) {
+    match when {
+        Some(when) => tokio::time::sleep_until(when).await,
+        None => std::future::pending().await,
     }
 }
 
@@ -1058,6 +1227,8 @@ struct Cutter {
     input_at: Option<u64>,
     /// Where a prompt after the line, with no command started, starts.
     prompt_at: Option<u64>,
+    /// Whether `maxd` cancelled the line, as the shell waited for more.
+    cancelled: bool,
 }
 
 impl Cutter {
@@ -1081,6 +1252,7 @@ impl Cutter {
             secrets: 0,
             input_at: None,
             prompt_at: None,
+            cancelled: false,
         }
     }
 
@@ -1132,6 +1304,7 @@ impl Cutter {
             (Phase::Waiting, Mark::Command { cwd }) if offset > self.after => {
                 self.skip_to(offset);
                 self.phase = Phase::Running { start: offset };
+                self.cancelled = false;
                 Cut::Started {
                     start: offset,
                     at,
@@ -1214,6 +1387,16 @@ impl Cutter {
         }
     }
 
+    /// Whether the line went in with neither a start nor a prompt since.
+    fn waiting_for_more(&self) -> bool {
+        self.phase == Phase::Waiting && self.prompt_at.is_none() && !self.cancelled
+    }
+
+    /// Notes that `maxd` cancelled the line.
+    fn cancel(&mut self) {
+        self.cancelled = true;
+    }
+
     fn password_off(&mut self) {
         self.noted = false;
     }
@@ -1285,6 +1468,14 @@ impl Cutter {
             Phase::Ended { exit, at, .. } => (exit, at),
             _ => (None, now),
         };
+        if self.cancelled {
+            let output = Transcript {
+                text: CANCELLED.to_owned(),
+                lines: 1,
+                truncated: false,
+            };
+            return (None, at, output, self.secrets);
+        }
         let mut output = self.emulator.transcript();
         output.truncated |= self.cut;
         (exit, at, output, self.secrets)

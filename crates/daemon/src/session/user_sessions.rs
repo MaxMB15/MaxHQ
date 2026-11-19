@@ -22,6 +22,7 @@ use std::collections::HashSet;
 use maxhq_protocol::context::InlineRef;
 use maxhq_protocol::ids::{AgentId, IdempotencyKey, TerminalId};
 use maxhq_protocol::message::ActionOutcome;
+use maxhq_protocol::state::{Entity, EntityKey};
 use maxhq_protocol::terminal::{FreshReason, SessionBlock, TerminalStatus};
 use maxhq_protocol::time::Timestamp;
 use maxhq_protocol::timeline::{ItemBody, ItemId, ItemStatus, TimelineEvent, TimelineItem};
@@ -243,7 +244,7 @@ impl Manager {
                 item
             }
         };
-        self.blocks.insert((terminal, id), item.clone());
+        self.blocks.insert((terminal, id), (agent, item.clone()));
         item
     }
 
@@ -261,6 +262,9 @@ impl Manager {
         };
         if matches!(change, BlockChange::Ended { .. }) {
             self.blocks.remove(&(terminal, block));
+            if !self.session_runs(terminal) {
+                self.blocks.retain(|(kept, _), _| *kept != terminal);
+            }
         }
         self.change_kept(agent, &item, |card| {
             change_block(card, block, change);
@@ -271,7 +275,7 @@ impl Manager {
     /// The card that holds a session's block: the one it went into in
     /// this run of `maxd`, or the one kept with it.
     fn block_card(&self, agent: AgentId, terminal: TerminalId, block: u32) -> Option<ItemId> {
-        if let Some(item) = self.blocks.get(&(terminal, block)) {
+        if let Some((_, item)) = self.blocks.get(&(terminal, block)) {
             return Some(item.clone());
         }
         let prefix = format!("{CARD}{terminal}-");
@@ -333,12 +337,16 @@ impl Manager {
             return;
         }
         let mut still = Vec::new();
+        let mut gone = Vec::new();
         for row in self.open_cards(agent) {
             let item = ItemId(row.item);
             let took = carried.contains(&item);
             if !every && !took {
                 still.push(item);
                 continue;
+            }
+            if card_terminal(&row.record).is_some_and(|terminal| !self.session_runs(terminal)) {
+                gone.push(item.clone());
             }
             self.change_kept(agent, &item, |card| {
                 if let ItemBody::UserSession { sealed, sent, .. } = &mut card.body {
@@ -348,6 +356,35 @@ impl Manager {
             });
         }
         self.open_cards.insert(agent, still);
+        // A sealed card whose session ended gets no more blocks. One that
+        // ends late finds it kept.
+        self.blocks.retain(|_, (_, item)| !gone.contains(item));
+    }
+
+    /// Lets go of what this `maxd` remembers of an agent's cards, as the
+    /// agent goes.
+    pub(super) fn forget_cards(&mut self, agent: AgentId) {
+        self.open_cards.remove(&agent);
+        self.blocks.retain(|_, (owner, _)| *owner != agent);
+    }
+
+    /// How many of an agent's open cards this `maxd` knows, once read, and
+    /// how many of its blocks that run.
+    #[cfg(test)]
+    pub(super) fn remembered(&self, agent: AgentId) -> (Option<usize>, usize) {
+        let open = self.open_cards.get(&agent).map(Vec::len);
+        let blocks = (self.blocks.values())
+            .filter(|(owner, _)| *owner == agent)
+            .count();
+        (open, blocks)
+    }
+
+    /// Whether a session's shell still runs, as the hub has it.
+    fn session_runs(&self, terminal: TerminalId) -> bool {
+        matches!(
+            self.hub.get(&EntityKey::Terminal(terminal)),
+            Some(Entity::Terminal(kept)) if kept.status == TerminalStatus::Running
+        )
     }
 
     /// Leaves each session pill in `refs` only the blocks its card still

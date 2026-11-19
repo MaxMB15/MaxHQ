@@ -859,3 +859,67 @@ async fn a_command_that_goes_in_after_its_agent_went_ends_the_session() {
     assert_eq!(h.fakes.terminals.ended(), [agent, agent]);
     assert!(h.db.user_runs::<TimelineItem>(agent).unwrap().is_empty());
 }
+
+/// Waits until the manager remembers `want` of `agent`'s cards: how many
+/// open ones, once read, and how many blocks that run.
+async fn remembers(h: &Harness, agent: AgentId, want: (Option<usize>, usize)) {
+    let deadline = tokio::time::Instant::now() + WAIT;
+    loop {
+        let now = h.sessions.remembered(agent).await;
+        if now == want {
+            return;
+        }
+        assert!(
+            tokio::time::Instant::now() < deadline,
+            "the manager remembers {now:?}, not {want:?}"
+        );
+        tokio::time::sleep(Duration::from_millis(5)).await;
+    }
+}
+
+#[tokio::test]
+async fn the_manager_lets_go_of_cards_and_blocks_it_no_longer_needs() {
+    let mut h = Harness::new();
+    let (agent, _) = h.start_claude(None).await;
+    reset(h.open(agent, None, 50).await);
+
+    // A sealed card's block whose session runs stays until it ends.
+    let live = opened(&h, agent, TerminalKind::Session);
+    h.hub.apply([Change::Upsert {
+        value: Entity::Terminal(live.clone()),
+    }]);
+    h.wrote(agent, live.id, 1, "pnpm dev", false).await;
+    remembers(&h, agent, (Some(1), 1)).await;
+    let outcome = h
+        .send_refs(agent, "Thanks", Vec::new(), SendMode::Queue)
+        .await;
+    assert_eq!(outcome, ActionOutcome::Done);
+    remembers(&h, agent, (Some(0), 1)).await;
+    h.block_ended(agent, live.id, 1, Timestamp::now(), "ready");
+    remembers(&h, agent, (Some(0), 0)).await;
+
+    // One whose session ended goes as its card is sealed, and still ends
+    // in that card when the end comes late.
+    let gone = TerminalId::generate();
+    let item = h.wrote(agent, gone, 1, "make", false).await;
+    remembers(&h, agent, (Some(1), 1)).await;
+    let outcome = h
+        .send_refs(agent, "And now?", Vec::new(), SendMode::Queue)
+        .await;
+    assert_eq!(outcome, ActionOutcome::Done);
+    remembers(&h, agent, (Some(0), 0)).await;
+    h.block_ended(agent, gone, 1, Timestamp::now(), "built");
+    eventually("the late end in the sealed card", || {
+        let card = h.session_card(agent, &item);
+        let (blocks, sealed, _) = card_of(&card);
+        sealed && matches!(blocks[0].process, TerminalStatus::Exited { .. })
+    })
+    .await;
+
+    // Deleting the agent lets go of its open cards and blocks.
+    h.wrote(agent, live.id, 2, "ls", false).await;
+    remembers(&h, agent, (Some(1), 1)).await;
+    let outcome = h.act(|key| ClientMessage::DeleteAgent { key, agent }).await;
+    assert_eq!(outcome, ActionOutcome::Done);
+    remembers(&h, agent, (None, 0)).await;
+}

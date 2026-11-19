@@ -36,10 +36,10 @@ pub use session::{BlockChange, SessionAsk, SessionRequest, SessionResult};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, MutexGuard};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use maxhq_hold::{
-    Commands, Mark, Reached, TermControl, TermEvent, TermExit, TermHello, TermLaunch, TermLink,
+    Commands, Reached, TermControl, TermEvent, TermExit, TermHello, TermLaunch, TermLink,
 };
 use maxhq_protocol::frame::{self, MAX_TERMINAL_CHUNK};
 use maxhq_protocol::ids::{AgentId, DeviceId, IdempotencyKey, TerminalId};
@@ -252,6 +252,8 @@ struct Open {
     /// For a session, the block that runs, and where to say you sent a
     /// password while it waited for one.
     block: Option<(u32, mpsc::UnboundedSender<()>)>,
+    /// When this `maxd` began following it.
+    followed: Instant,
 }
 
 impl Open {
@@ -284,6 +286,7 @@ impl Open {
             foreground: false,
             keys: session::Typed::default(),
             block: None,
+            followed: Instant::now(),
         };
         if let Some(hello) = hello {
             open.hello(hello);
@@ -750,11 +753,11 @@ impl Terminals {
                         open.rebusy()
                     }),
                     TermEvent::Mark { offset, at, mark } => self.update(terminal, |open| {
-                        if matches!(mark, Mark::Prompt) {
-                            open.keys.prompt();
+                        let (changed, keep) = open.marked(offset, at, &mark);
+                        if keep {
+                            self.save(terminal, &open.note);
                         }
-                        open.commands.mark(offset, at, &mark);
-                        open.rebusy()
+                        changed
                     }),
                     TermEvent::Title(title) => self.update(terminal, |open| {
                         open.shell_title = Some(title);
@@ -987,13 +990,7 @@ impl Terminals {
             return Err(Refusal::unreachable());
         };
         if matches!(open.note.kind, TerminalKind::Session) {
-            match &open.block {
-                Some((_, secrets)) if open.entity.password_prompt => {
-                    let _ = secrets.send(());
-                }
-                _ if !open.entity.busy => open.keys.keys(&data),
-                _ => {}
-            }
+            open.heard_keys(&data);
         }
         control.input(data);
         if open.typed(conn) {

@@ -360,6 +360,15 @@ impl Sessions {
             let _ = wait.await;
         }
     }
+
+    /// What the manager remembers of an agent's session cards: how many
+    /// open ones it knows, once read, and how many blocks that run.
+    #[cfg(test)]
+    pub async fn remembered(&self, agent: AgentId) -> (Option<usize>, usize) {
+        let (done, wait) = oneshot::channel();
+        let _ = self.tx.send(Input::Remembered { agent, done });
+        wait.await.unwrap_or_default()
+    }
 }
 
 impl Sessions {
@@ -646,6 +655,12 @@ enum Input {
         from: DeviceId,
         agents: Vec<AgentId>,
     },
+    /// A test asks what the manager remembers of an agent's session cards.
+    #[cfg(test)]
+    Remembered {
+        agent: AgentId,
+        done: oneshot::Sender<(Option<usize>, usize)>,
+    },
 }
 
 /// The manager's state, owned by its task.
@@ -719,9 +734,9 @@ struct Manager {
     yours: HashSet<IdempotencyKey>,
     /// Each agent's session cards no message has sealed yet, once read.
     open_cards: HashMap<AgentId, Vec<ItemId>>,
-    /// The card each session block that runs went into, by its session
-    /// and ID.
-    blocks: HashMap<(maxhq_protocol::ids::TerminalId, u32), ItemId>,
+    /// The agent and card of each session block that runs, by its
+    /// session and ID.
+    blocks: HashMap<(maxhq_protocol::ids::TerminalId, u32), (AgentId, ItemId)>,
 
     /// Each connection, by its number.
     clients: HashMap<u64, Viewer>,
@@ -1222,6 +1237,10 @@ impl Manager {
                 let _ = done.send(());
             }
             Input::TaskTargets { from, agents } => self.heard_task_targets(from, agents),
+            #[cfg(test)]
+            Input::Remembered { agent, done } => {
+                let _ = done.send(self.remembered(agent));
+            }
         }
     }
 

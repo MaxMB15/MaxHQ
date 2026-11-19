@@ -100,6 +100,24 @@ fn fixture(shell: &str) -> Fixture {
     fixture_with(shell, None)
 }
 
+/// The first `name` on the PATH, where some systems, such as NixOS, keep
+/// their only shells. Without one it says so and gives none, and the test
+/// that needs it is skipped.
+fn shell(name: &str) -> Option<String> {
+    let found = std::env::split_paths(&std::env::var_os("PATH").unwrap_or_default())
+        .map(|dir| dir.join(name))
+        .find(|path| path.is_file());
+    if found.is_none() {
+        eprintln!("note: no {name} on the PATH, so its session tests are skipped");
+    }
+    found.map(|path| path.to_string_lossy().into_owned())
+}
+
+/// A fixture whose shell is the first `name` on the PATH, or none.
+fn fixture_on_path(name: &str) -> Option<Fixture> {
+    shell(name).map(|shell| fixture(&shell))
+}
+
 fn fixture_with(shell: &str, session: Option<&str>) -> Fixture {
     let dir = TempDir::new();
     let root = fs::canonicalize(dir.path()).expect("the folder is there");
@@ -281,13 +299,10 @@ struct Ran {
     secret_prompts: u32,
 }
 
-/// Whether this machine has zsh, which the zsh tests need.
-fn has_zsh() -> bool {
-    Path::new("/bin/zsh").exists()
-}
-
-async fn cd_and_export_carry(shell: &str) {
-    let mut f = fixture(shell);
+async fn cd_and_export_carry(name: &str) {
+    let Some(mut f) = fixture_on_path(name) else {
+        return;
+    };
     let first = f.block("cd sub && export GREETING=hello").await;
     assert_eq!(first.exit, Some(0), "{first:?}");
     let sub = f.work.join("sub");
@@ -321,20 +336,20 @@ async fn cd_and_export_carry(shell: &str) {
 
 #[tokio::test]
 async fn commands_share_one_shell_so_cd_and_export_carry() {
-    cd_and_export_carry("/bin/bash").await;
+    cd_and_export_carry("bash").await;
 }
 
 #[tokio::test]
 async fn commands_share_one_zsh_so_cd_and_export_carry() {
-    if has_zsh() {
-        cd_and_export_carry("/bin/zsh").await;
-    }
+    cd_and_export_carry("zsh").await;
 }
 
 /// Checks that a block's start is where hold says the command started, and
 /// that what clients get from there starts with the command's mark.
-async fn start_is_the_shells_mark(shell: &str) {
-    let mut f = fixture(shell);
+async fn start_is_the_shells_mark(name: &str) {
+    let Some(mut f) = fixture_on_path(name) else {
+        return;
+    };
     let ran = f.block("printf 'one\\ntwo\\n'").await;
     let start = ran.start.expect("the shell marked the start");
     assert_eq!(ran.exit, Some(0));
@@ -400,19 +415,19 @@ async fn start_is_the_shells_mark(shell: &str) {
 
 #[tokio::test]
 async fn a_block_starts_where_hold_says_its_command_started() {
-    start_is_the_shells_mark("/bin/bash").await;
+    start_is_the_shells_mark("bash").await;
 }
 
 #[tokio::test]
 async fn a_zsh_block_starts_where_hold_says_its_command_started() {
-    if has_zsh() {
-        start_is_the_shells_mark("/bin/zsh").await;
-    }
+    start_is_the_shells_mark("zsh").await;
 }
 
 #[tokio::test]
 async fn a_busy_session_sends_a_command_fresh_and_asks_before_it_ends() {
-    let mut f = fixture("/bin/bash");
+    let Some(mut f) = fixture_on_path("bash") else {
+        return;
+    };
     let key = f.run("sleep 30");
     let SessionResult::Wrote {
         terminal, block, ..
@@ -462,7 +477,9 @@ async fn a_busy_session_sends_a_command_fresh_and_asks_before_it_ends() {
 
 #[tokio::test]
 async fn text_typed_at_the_prompt_sends_a_command_fresh_until_cleared() {
-    let mut f = fixture("/bin/bash");
+    let Some(mut f) = fixture_on_path("bash") else {
+        return;
+    };
     let ran = f.block("true").await;
     let terminal = ran.terminal;
     f.terminals
@@ -496,7 +513,9 @@ async fn text_typed_at_the_prompt_sends_a_command_fresh_until_cleared() {
 
 #[tokio::test]
 async fn sessions_need_shell_integration() {
-    let mut f = fixture("/bin/bash");
+    let Some(mut f) = fixture_on_path("bash") else {
+        return;
+    };
     let key = EntityKey::DeviceSettings(f.hub.device().id);
     let Some(Entity::DeviceSettings(settings)) = f.hub.get(&key) else {
         panic!("a new hub has settings");
@@ -542,7 +561,9 @@ async fn a_shell_that_marks_nothing_sends_commands_fresh() {
 
 #[tokio::test]
 async fn a_folder_opens_the_session_there_or_moves_it() {
-    let mut f = fixture("/bin/bash");
+    let Some(mut f) = fixture_on_path("bash") else {
+        return;
+    };
     let key = f.ask(SessionAsk::Cd { path: "sub".into() });
     let SessionResult::Opened(session) = f.answer(key).await else {
         panic!("no session opened");
@@ -588,9 +609,12 @@ fn a_block_that_runs_as_maxd_restarts_ends_in_the_next() {
             .build()
             .expect("a runtime")
     };
+    let Some(bash) = shell("bash") else {
+        return;
+    };
     let first = runtime();
     let (f, terminal, block) = first.block_on(async {
-        let mut f = fixture("/bin/bash");
+        let mut f = fixture(&bash);
         let key = f.run("sleep 1; echo done");
         let SessionResult::Wrote {
             terminal, block, ..
@@ -645,7 +669,9 @@ async fn a_password_counts_and_goes_nowhere() {
         .finish();
     let _logging = tracing::subscriber::set_default(subscriber);
 
-    let mut f = fixture("/bin/bash");
+    let Some(mut f) = fixture_on_path("bash") else {
+        return;
+    };
     let key = f.run("read -rs -p 'Password: ' pw; echo; echo got ${#pw}");
     let SessionResult::Wrote {
         terminal, block, ..
@@ -703,6 +729,228 @@ async fn a_password_counts_and_goes_nowhere() {
             .any(|at| at == CANARY.as_bytes());
         assert!(!found, "{} has the password", file.display());
     }
+    f.end().await;
+}
+
+/// Waits until the terminal's output shows `text`.
+async fn shows(holds: &maxhq_hold::Terminals, terminal: TerminalId, text: &str) {
+    let Ok(Reached::Live(link)) = holds.connect(terminal, None).await else {
+        panic!("the holder runs");
+    };
+    let TermLink {
+        mut events,
+        control,
+        ..
+    } = link;
+    let _control = control;
+    let mut tail = Vec::new();
+    timeout(WAIT, async {
+        while let Some(event) = events.recv().await {
+            if let TermEvent::Output { data, .. } = event {
+                tail.extend_from_slice(&data);
+                if tail.windows(text.len()).any(|at| at == text.as_bytes()) {
+                    return;
+                }
+                tail.drain(..tail.len().saturating_sub(text.len()));
+            }
+        }
+        panic!("the terminal ended before it showed {text}");
+    })
+    .await
+    .expect("the output came in time");
+}
+
+#[test]
+fn a_session_whose_marks_are_gone_after_a_restart_lives_on() {
+    let runtime = || {
+        tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("a runtime")
+    };
+    let Some(bash) = shell("bash") else {
+        return;
+    };
+    let first = runtime();
+    let (f, terminal, block) = first.block_on(async {
+        let mut f = fixture(&bash);
+        // More output than the holder keeps, so the block's marks go with
+        // it, and then something that runs on.
+        let key =
+            f.run("head -c 2200000 /dev/zero | tr '\\0' x; echo; echo big-$((1+1)); sleep 30");
+        let SessionResult::Wrote {
+            terminal, block, ..
+        } = f.answer(key).await
+        else {
+            panic!("the command didn't go into the session");
+        };
+        f.started(block).await;
+        shows(&f.terminals.inner.holds, terminal, "big-2").await;
+        (f, terminal, block)
+    });
+    drop(first);
+    let Fixture {
+        terminals,
+        notes,
+        hub,
+        agent,
+        work,
+        dir,
+    } = f;
+    drop((terminals, notes));
+
+    let second = runtime();
+    second.block_on(async {
+        let wiring = Terminals::wire(holds(dir.path()), hub.clone());
+        let terminals = wiring.terminals.expect("real terminals");
+        terminals.restoring().await;
+        let mut f = Fixture {
+            terminals,
+            notes: wiring.notes,
+            hub,
+            agent,
+            work,
+            dir,
+        };
+        f.until(terminal, |open| {
+            open.is_some_and(|open| open.control.is_some())
+        })
+        .await;
+        tokio::time::sleep(Duration::from_millis(300)).await;
+        assert!(
+            (f.terminals.lock().get(&terminal)).is_some_and(|open| open.commands.list().is_empty()),
+            "the holder still has the block's marks"
+        );
+        // Long after the shell started, with no marks to go by: the
+        // command goes fresh, and the session and what runs in it live on.
+        let key = f.run("echo hi");
+        assert!(matches!(
+            f.answer(key).await,
+            SessionResult::Fresh(FreshReason::Busy)
+        ));
+        {
+            let opens = f.terminals.lock();
+            let open = opens.get(&terminal).expect("the session is there");
+            assert!(open.running() && !open.closing, "the session ended");
+            let current = (open.note.session.as_ref()).and_then(|session| session.current.as_ref());
+            assert!(
+                current.is_some_and(|current| current.id == block && !current.done),
+                "the block ended"
+            );
+        }
+        f.end().await;
+    });
+}
+
+#[tokio::test]
+async fn keys_typed_while_a_command_runs_count_at_the_next_prompt() {
+    let Some(mut f) = fixture_on_path("bash") else {
+        return;
+    };
+    // Typed with no Enter while something runs: the shell shows it at its
+    // next prompt, so a command goes fresh until it's cleared.
+    let key = f.run("sleep 1");
+    let SessionResult::Wrote {
+        terminal, block, ..
+    } = f.answer(key).await
+    else {
+        panic!("sleep didn't go into the session");
+    };
+    f.started(block).await;
+    f.terminals
+        .input(1, Caller::App, terminal, b"echo half".to_vec())
+        .expect("you may type");
+    let ran = f.ended(terminal, block).await;
+    assert_eq!(ran.exit, Some(0), "{ran:?}");
+    let key = f.run("echo next");
+    assert!(matches!(
+        f.answer(key).await,
+        SessionResult::Fresh(FreshReason::Busy)
+    ));
+    f.terminals
+        .input(1, Caller::App, terminal, vec![0x03])
+        .expect("you may type");
+    f.until(terminal, |open| {
+        open.is_some_and(|open| !open.keys.sent && !open.keys.line)
+    })
+    .await;
+    let ran = f.block("echo next").await;
+    assert_eq!(ran.terminal, terminal);
+    assert_eq!(ran.output.text.trim(), "next", "{ran:?}");
+
+    // A line sent while something runs: the shell runs it at its next
+    // prompt, on its own, and the next command waits for it.
+    let key = f.run("sleep 1");
+    let SessionResult::Wrote { block, .. } = f.answer(key).await else {
+        panic!("sleep didn't go into the session");
+    };
+    f.started(block).await;
+    f.terminals
+        .input(1, Caller::App, terminal, b"echo ahead-$((2+3))\r".to_vec())
+        .expect("you may type");
+    f.until(terminal, |open| {
+        open.is_some_and(|open| open.keys.ahead == 1)
+    })
+    .await;
+    let ran = f.ended(terminal, block).await;
+    assert!(!ran.output.text.contains("ahead-5"), "{ran:?}");
+    let ran = f.block("echo next").await;
+    assert_eq!(ran.terminal, terminal);
+    assert_eq!(ran.output.text.trim(), "next", "{ran:?}");
+    f.end().await;
+}
+
+#[tokio::test]
+async fn a_line_the_shell_waits_for_more_of_is_cancelled() {
+    let Some(mut f) = fixture_on_path("bash") else {
+        return;
+    };
+    let ran = f.block("echo don't").await;
+    assert_eq!(ran.exit, None, "{ran:?}");
+    assert_eq!(ran.output.text, CANCELLED);
+    let terminal = ran.terminal;
+    let ran = f.block("echo ok").await;
+    assert_eq!(ran.terminal, terminal, "the same session");
+    assert_eq!(ran.exit, Some(0), "{ran:?}");
+    assert_eq!(ran.output.text.trim(), "ok", "{ran:?}");
+    f.end().await;
+}
+
+#[tokio::test]
+async fn a_block_looks_once_more_as_it_goes_in() {
+    let Some(mut f) = fixture_on_path("bash") else {
+        return;
+    };
+    let terminal = f.block("true").await.terminal;
+    // You type after the session looked ready, before the line went in.
+    f.terminals
+        .input(1, Caller::App, terminal, b"echo half".to_vec())
+        .expect("you may type");
+    f.until(terminal, |open| open.is_some_and(|open| open.keys.line))
+        .await;
+    let request = SessionRequest {
+        key: IdempotencyKey::generate(),
+        agent: f.agent,
+        ask: SessionAsk::Run {
+            command: "echo next".into(),
+            private: false,
+            fresh: None,
+        },
+        cwd: f.work.clone(),
+        cols: 80,
+        rows: 24,
+        opener: Opener::App,
+        conn: 1,
+    };
+    let wrote = f
+        .terminals
+        .write_block(terminal, &request, "echo next", "echo next".into(), false);
+    assert!(matches!(wrote, Err(NotNow::Typed)));
+    let blocks = f.terminals.with_session(terminal, |session| session.blocks);
+    assert_eq!(blocks, Some(1), "no block went in");
+    f.terminals
+        .input(1, Caller::App, terminal, vec![0x03])
+        .expect("you may type");
     f.end().await;
 }
 
@@ -855,25 +1103,27 @@ fn a_cutter_notes_one_password_per_prompt() {
 #[test]
 fn keys_at_the_prompt_say_whether_a_line_waits() {
     let mut typed = Typed::default();
-    typed
-        .keys(b"\x1b[3;1R\x1b[I\x1b[O\x1b]11;rgb:0000/0000/0000\x1b\\\x1b[?1;2c\x1bP>|xterm\x1b\\");
+    typed.keys(
+        b"\x1b[3;1R\x1b[I\x1b[O\x1b]11;rgb:0000/0000/0000\x1b\\\x1b[?1;2c\x1bP>|xterm\x1b\\",
+        false,
+    );
     assert!(
         !typed.sent && !typed.line,
         "a terminal's answers aren't keys"
     );
-    typed.keys(b"ls");
+    typed.keys(b"ls", false);
     assert!(!typed.sent && typed.line);
-    typed.keys(b"\r");
+    typed.keys(b"\r", false);
     assert!(typed.sent && !typed.line);
     typed.prompt();
     assert!(!typed.sent && !typed.line);
-    typed.keys(b"make\rgit st");
+    typed.keys(b"make\rgit st", false);
     assert!(typed.sent && typed.line, "what follows the line waits");
     typed.prompt();
-    typed.keys(&[0x03]);
+    typed.keys(&[0x03], false);
     assert!(typed.sent && !typed.line, "Ctrl-C clears the line");
     typed.prompt();
-    typed.keys(b"\x1b[A");
+    typed.keys(b"\x1b[A", false);
     assert!(typed.line, "the up arrow brings a line back");
 }
 
@@ -930,4 +1180,157 @@ fn a_busy_refusal_names_the_command_short() {
     assert_eq!(NotNow::Typed.fresh(), Ok(FreshReason::Busy));
     assert_eq!(NotNow::Gone.fresh(), Ok(FreshReason::NoMarks));
     assert_eq!(NotNow::Failed("no".into()).fresh(), Err("no".into()));
+}
+
+/// A session as a `maxd` that just began following it holds it, with
+/// `blocks` run and a prompt shown before when `prompted`.
+fn session_open(blocks: u32, prompted: bool) -> Open {
+    let note = Note {
+        agent: AgentId::generate(),
+        kind: TerminalKind::Session,
+        cwd: "~".into(),
+        // Long ago, as for a session that ran through a restart.
+        started_at: Timestamp(1),
+        opener: Opener::App,
+        moved: false,
+        name: None,
+        session: Some(SessionNote {
+            blocks,
+            prompted,
+            ..SessionNote::default()
+        }),
+    };
+    Open::new(note, None, DeviceId::generate(), TerminalId::generate())
+}
+
+/// Gives `open` the shell's marks, each at its offset.
+fn marks(open: &mut Open, marks: &[(u64, Mark)]) {
+    for (offset, mark) in marks {
+        open.marked(*offset, Timestamp(2), mark);
+    }
+}
+
+const COMMAND: Mark = Mark::Command { cwd: None };
+const DONE: Mark = Mark::Done { exit: Some(0) };
+
+#[test]
+fn only_a_new_session_waits_for_its_first_prompt() {
+    // The wait counts from when this maxd began following it.
+    let open = session_open(0, false);
+    assert!(matches!(
+        open.shell_look(),
+        Look::FirstPrompt(followed) if followed.elapsed() < FIRST_PROMPT_WAIT
+    ));
+    // With no marks to go by, as after a restart until they come again or
+    // when the holder dropped them, one that ran a block or showed a
+    // prompt is busy, never given up on.
+    for (blocks, prompted) in [(1, false), (0, true), (3, true)] {
+        let open = session_open(blocks, prompted);
+        assert!(
+            matches!(open.shell_look(), Look::Busy(NotNow::Busy(None))),
+            "{blocks} blocks, prompted {prompted}"
+        );
+    }
+    let mut open = session_open(1, true);
+    if let Some(session) = open.note.session.as_mut() {
+        session.current = Some(note(0, Some(10)));
+    }
+    assert!(matches!(
+        open.shell_look(),
+        Look::Busy(NotNow::Busy(Some(command))) if command == "echo hi"
+    ));
+
+    let mut open = session_open(0, false);
+    assert!(open.marked(0, Timestamp(2), &Mark::Prompt).1, "kept once");
+    assert!(!open.marked(5, Timestamp(2), &Mark::Prompt).1);
+    assert!(open
+        .note
+        .session
+        .as_ref()
+        .is_some_and(|session| session.prompted));
+}
+
+#[test]
+fn keys_typed_while_something_runs_count_at_the_next_prompt() {
+    let ran = [(0, Mark::Prompt), (2, Mark::Input), (10, COMMAND)];
+    let next = [(20, DONE), (22, Mark::Prompt), (24, Mark::Input)];
+
+    // No Enter: the shell shows it at the next prompt.
+    let mut open = session_open(1, true);
+    marks(&mut open, &ran);
+    open.heard_keys(b"rm -rf /tmp/x");
+    marks(&mut open, &next);
+    assert!(matches!(open.shell_look(), Look::Stop(NotNow::Typed)));
+
+    // With Enter: the next prompt runs it, so the session waits for it.
+    let mut open = session_open(1, true);
+    marks(&mut open, &ran);
+    open.heard_keys(b"echo ahead\r");
+    marks(&mut open, &next);
+    assert!(matches!(
+        open.shell_look(),
+        Look::Ending(NotNow::Busy(None))
+    ));
+    marks(&mut open, &[(30, COMMAND)]);
+    assert!(matches!(open.shell_look(), Look::Busy(NotNow::Busy(None))));
+    marks(
+        &mut open,
+        &[(40, DONE), (42, Mark::Prompt), (44, Mark::Input)],
+    );
+    assert!(matches!(open.shell_look(), Look::Ready));
+
+    // What ran read it instead: nothing starts, and the wait runs out.
+    let mut open = session_open(1, true);
+    marks(&mut open, &ran);
+    open.heard_keys(b"y\r");
+    marks(&mut open, &next);
+    assert!(matches!(open.shell_look(), Look::Ending(_)));
+    open.keys.queued_at = (open.keys.queued_at).and_then(|at| at.checked_sub(AHEAD_WAIT));
+    assert!(matches!(open.shell_look(), Look::Ready));
+    marks(&mut open, &[(30, Mark::Prompt)]);
+    assert_eq!(open.keys.ahead, 0);
+
+    // Ctrl-C while something runs drops what waits.
+    let mut open = session_open(1, true);
+    marks(&mut open, &ran);
+    open.heard_keys(b"ls\rgit st");
+    open.heard_keys(&[0x03]);
+    marks(&mut open, &next);
+    assert!(matches!(open.shell_look(), Look::Ready));
+
+    // A password isn't a line.
+    let mut open = session_open(1, true);
+    marks(&mut open, &ran);
+    open.entity.password_prompt = true;
+    open.heard_keys(b"hunter2\r");
+    assert!(!open.keys.sent && !open.keys.line && open.keys.ahead == 0);
+}
+
+#[test]
+fn a_line_the_shell_waits_for_more_of_ends_cancelled() {
+    let mut cutter = Cutter::new(&note(10, None), 80, 24);
+    let input = feed(&mut cutter, 10, b"\x1b]133;A\x07$ \x1b]133;B\x07");
+    let more = feed(&mut cutter, input, b"echo don't\r\n> ");
+    let at = Timestamp(5);
+    assert_eq!(cutter.mark(10, at, &Mark::Prompt), Cut::None);
+    assert_eq!(cutter.mark(input, at, &Mark::Input), Cut::None);
+    assert!(cutter.waiting_for_more(), "no start and no prompt yet");
+    cutter.cancel();
+    assert!(!cutter.waiting_for_more(), "cancelled once");
+    let prompt = feed(&mut cutter, more, b"^C\r\n");
+    feed(&mut cutter, prompt, b"\x1b]133;A\x07$ ");
+    assert_eq!(cutter.mark(prompt, at, &Mark::Prompt), Cut::Grace);
+    assert!(cutter.grace_over());
+    let (exit, _, output, _) = cutter.finish();
+    assert_eq!(exit, None);
+    assert_eq!(output.text, CANCELLED);
+
+    // A line that starts doesn't wait for more.
+    let mut cutter = Cutter::new(&note(10, None), 80, 24);
+    let start = feed(&mut cutter, 10, b"\x1b]133;A\x07$ echo hi\r\n");
+    assert!(matches!(
+        cutter.mark(start, at, &COMMAND),
+        Cut::Started { .. }
+    ));
+    assert!(!cutter.waiting_for_more());
 }
