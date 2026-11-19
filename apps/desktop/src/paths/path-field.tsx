@@ -16,7 +16,7 @@ import { useServices, useView } from "@/app/services";
 import { Tooltip } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import { useDropTarget } from "@/native/drop";
-import { describePaths, pickPath } from "@/native/files";
+import { describePaths, type PathInfo, pickPath } from "@/native/files";
 import { inApp } from "@/native/platform";
 import { SECONDARY } from "@/settings/controls";
 import type { DeviceId } from "@maxhq/shared/bindings";
@@ -97,10 +97,13 @@ export const PathField = ({
 	const field = usePathField({ calls: services.source, device, lists, value, onChange, wants });
 	const [focused, setFocused] = useState(false);
 	const [closed, setClosed] = useState(false);
-	const [active, setActive] = useState(0);
+	/** The suggestion you moved to with the arrows or the pointer. */
+	const [active, setActive] = useState<number | null>(null);
 	const [browsing, setBrowsing] = useState(false);
 	const [landed, setLanded] = useState<Landed | null>(null);
 	const [twin, setTwin] = useState<Twin | null>(null);
+	/** The device's field a drop couldn't be read on. */
+	const [unread, setUnread] = useState<DeviceId | null>(null);
 
 	const here = device !== null && isThisMac(view, device);
 	const way = device === null ? null : browseWay(view, device, inApp());
@@ -111,42 +114,56 @@ export const PathField = ({
 
 	const { typed, entries } = field;
 	const menu = focused && !closed && !disabled && typed !== null && entries.length > 0;
-	const at = Math.min(active, entries.length - 1);
+	// Until you move to one, the suggestion marked is the first whose name
+	// starts with exactly what you typed, and none when no name does.
+	const starts = typed?.name ? entries.findIndex((e) => e.name.startsWith(typed.name)) : -1;
+	const at = active !== null && active < entries.length ? active : starts < 0 ? null : starts;
 	const optionId = (index: number) => `${list}-${index}`;
 
 	useEffect(() => {
-		if (menu) document.getElementById(`${list}-${at}`)?.scrollIntoView?.({ block: "nearest" });
+		if (menu && at !== null)
+			document.getElementById(`${list}-${at}`)?.scrollIntoView?.({ block: "nearest" });
 	}, [menu, list, at]);
 
 	/** Puts a path you picked, chose or dropped in the field. */
 	const put = (path: string, close = true) => {
 		field.change(path);
-		setActive(0);
+		setActive(null);
 		setClosed(close);
 		setLanded(null);
+		setUnread(null);
 	};
 
 	const keys = (event: KeyboardEvent<HTMLInputElement>) => {
 		if (!menu || typed === null) return;
-		const entry = entries[at];
-		if (!entry) return;
+		const last = entries.length - 1;
 		switch (event.key) {
 			case "ArrowDown":
-				setActive((at + 1) % entries.length);
+				setActive(at === null || at === last ? 0 : at + 1);
 				break;
 			case "ArrowUp":
-				setActive((at - 1 + entries.length) % entries.length);
+				setActive(at === null || at === 0 ? last : at - 1);
 				break;
 			case "Tab": {
+				const entry = entries[at ?? 0];
 				// A Tab with nothing left to complete moves on, as Tab does.
-				const next = pickText(typed, entry, true);
+				const next = entry ? pickText(typed, entry, true) : field.text;
 				if (event.shiftKey || next === field.text) return;
 				put(next, false);
 				break;
 			}
-			case "Enter":
-				put(pickText(typed, entry, false));
+			case "Enter": {
+				// ↩ picks the suggestion marked. With none, or one the field
+				// already holds, the text stays and the form gets the ↩.
+				const entry = at === null ? undefined : entries[at];
+				const next = entry ? pickText(typed, entry, false) : field.text;
+				if (next === field.text) {
+					setClosed(true);
+					return;
+				}
+				put(next);
 				break;
+			}
 			case "Escape":
 				// Closes the list, not the dialog the field is in.
 				event.stopPropagation();
@@ -177,7 +194,17 @@ export const PathField = ({
 	const drop = async (paths: string[]) => {
 		const first = paths[0];
 		if (first === undefined || device === null || disabled) return;
-		const [info] = await describePaths([first]);
+		let info: PathInfo | undefined;
+		try {
+			[info] = await describePaths([first]);
+		} catch {
+			// The field keeps what it held and says the drop didn't take.
+			setLanded(null);
+			setTwin(null);
+			setUnread(device);
+			return;
+		}
+		setUnread(null);
 		const dropped: Dropped = {
 			path: trimmed(info?.path ?? first),
 			folder: info?.kind === "folder",
@@ -217,6 +244,8 @@ export const PathField = ({
 	/** What the line under the field says, and how. */
 	const line = ((): { text: string; tone: "muted" | "error" } | null => {
 		if (over) return { text: dropHint(wants, here), tone: here ? "muted" : "error" };
+		if (unread !== null && unread === device)
+			return { text: translate("Couldn't read what you dropped. Try again."), tone: "error" };
 		if (outcome?.kind === "use")
 			return outcome.note ? { text: outcome.note, tone: "muted" } : null;
 		if (outcome?.kind === "refuse") return { text: outcome.why, tone: "error" };
@@ -242,9 +271,10 @@ export const PathField = ({
 						value={field.text}
 						onChange={(e) => {
 							field.change(e.target.value);
-							setActive(0);
+							setActive(null);
 							setClosed(false);
 							setLanded(null);
+							setUnread(null);
 						}}
 						onKeyDown={keys}
 						onFocus={() => setFocused(true)}
@@ -257,7 +287,7 @@ export const PathField = ({
 						autoCapitalize="off"
 						aria-autocomplete="list"
 						aria-controls={menu ? list : undefined}
-						aria-activedescendant={menu ? optionId(at) : undefined}
+						aria-activedescendant={menu && at !== null ? optionId(at) : undefined}
 						className={cn(
 							className,
 							"font-mono text-xs",
@@ -333,7 +363,11 @@ export const PathField = ({
 					start={startOf(field.text)}
 					wants={wants}
 					open
-					onOpenChange={setBrowsing}
+					onOpenChange={(open) => {
+						setBrowsing(open);
+						// A folder made there shows in the suggestions after.
+						if (!open) field.reload();
+					}}
 					onChoose={(path) => put(path)}
 				/>
 			) : null}

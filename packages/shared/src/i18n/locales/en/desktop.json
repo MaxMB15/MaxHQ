@@ -229,6 +229,7 @@
 	"Couldn't read the requests": "Couldn't read the requests",
 	"Couldn't read the runs": "Couldn't read the runs",
 	"Couldn't read the {{what}}. {{message}}": "Couldn't read the {{what}}. {{message}}",
+	"Couldn't read what you dropped. Try again.": "Couldn't read what you dropped. Try again.",
 	"Couldn't read {{name}}'s history. Try again.": "Couldn't read {{name}}'s history. Try again.",
 	"Couldn't read {{name}}. {{reason}}": "Couldn't read {{name}}. {{reason}}",
 	"Couldn't restart maxd. Try again.": "Couldn't restart maxd. Try again.",

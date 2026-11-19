@@ -78,9 +78,12 @@ export const checkoutProject = async (
 ): Promise<ProjectId | null> => {
 	const parent = parentOf(path);
 	if (parent === null) return null;
-	const result = await calls.listFolder(mac, parent, { files: false, hidden: true });
-	if (result.status !== "ok" || result.data.status !== "listed") return null;
 	const name = baseName(path);
+	// Asked by name, so a folder past where a big listing ends still comes.
+	const result = await calls
+		.listFolder(mac, parent, { files: false, hidden: true, filter: name })
+		.catch(() => null);
+	if (result?.status !== "ok" || result.data.status !== "listed") return null;
 	return result.data.listing.entries.find((e) => e.name === name)?.checkout?.project ?? null;
 };
 

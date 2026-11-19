@@ -225,6 +225,7 @@
 	"Couldn't read the requests": "No se pudieron leer las solicitudes",
 	"Couldn't read the runs": "No se pudieron leer las ejecuciones",
 	"Couldn't read the {{what}}. {{message}}": "No se pudo leer {{what}}. {{message}}",
+	"Couldn't read what you dropped. Try again.": "No se pudo leer lo que soltaste. Inténtalo de nuevo.",
 	"Couldn't read {{name}}'s history. Try again.": "No se pudo leer el historial de {{name}}. Inténtalo de nuevo.",
 	"Couldn't read {{name}}. {{reason}}": "No se pudo leer {{name}}. {{reason}}",
 	"Couldn't restart maxd. Try again.": "No se pudo reiniciar maxd. Inténtalo de nuevo.",

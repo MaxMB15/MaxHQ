@@ -229,6 +229,7 @@
 	"Couldn't read the requests": "Die Anfragen konnten nicht gelesen werden",
 	"Couldn't read the runs": "Die Läufe konnten nicht gelesen werden",
 	"Couldn't read the {{what}}. {{message}}": "{{what}} konnte nicht gelesen werden. {{message}}",
+	"Couldn't read what you dropped. Try again.": "Das Abgelegte konnte nicht gelesen werden. Versuche es erneut.",
 	"Couldn't read {{name}}'s history. Try again.": "Der Verlauf von {{name}} konnte nicht gelesen werden. Versuche es erneut.",
 	"Couldn't read {{name}}. {{reason}}": "{{name}} konnte nicht gelesen werden. {{reason}}",
 	"Couldn't restart maxd. Try again.": "maxd konnte nicht neu gestartet werden. Versuche es erneut.",
