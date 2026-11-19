@@ -169,7 +169,7 @@ const PHONE_BOOKS: &str = "phone_books";
 const PENDING_REVOKES: &str = "pending_revokes";
 
 /// What the local device is called until you rename it.
-const LOCAL_NAME: &str = if cfg!(target_os = "macos") {
+pub(crate) const LOCAL_NAME: &str = if cfg!(target_os = "macos") {
     "This Mac"
 } else {
     "This computer"

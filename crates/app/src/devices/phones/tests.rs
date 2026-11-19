@@ -123,9 +123,11 @@ fn phone_switched(device: &str, everything: bool) -> Entity {
 
 /// This Mac as its own link names it in the tests.
 fn this_mac() -> PhoneMac {
+    // The local link's name, which isn't "This Mac" on Linux.
+    let name = crate::registry::LOCAL_NAME;
     PhoneMac {
-        device: DeviceId::derive("This Mac"),
-        name: "This Mac".into(),
+        device: DeviceId::derive(name),
+        name: name.into(),
     }
 }
 
