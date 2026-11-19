@@ -12,7 +12,6 @@ import { t } from "@maxhq/shared/i18n";
 import { requestConfirm } from "@/components/confirm";
 import { paneId } from "@/layout/pane-id";
 import { panesOf } from "@/layout/panes";
-import { drawersOf } from "@/terminal/drawer-prefs";
 import type { Agent, AgentId } from "@maxhq/shared/bindings";
 import { runningCommands } from "@maxhq/shared/terminal/drawer";
 import { agentAfterDelete, deleteAgents, deleteQuestion } from "@maxhq/shared/ui/delete-agents";
@@ -32,8 +31,7 @@ export const confirmAndDelete = async (
 	if (agents.length === 0) return [];
 	const running = runningCommands(
 		services.view.getState().view,
-		new Set(agents.map((agent) => agent.id)),
-		drawersOf(services).getState().named
+		new Set(agents.map((agent) => agent.id))
 	);
 	const question = deleteQuestion(agents, running);
 	const yes = await requestConfirm(services, { ...question, action: t("Delete") });

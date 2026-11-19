@@ -9412,6 +9412,13 @@ export type Terminal = {
 	/**  Whether it still runs. */
 	status: TerminalStatus,
 	/**
+	 *  Whether a command runs in it: a program other than the shell holds
+	 *  its foreground, or a `!` run hasn't ended. False while a shell waits
+	 *  at its prompt, whatever title it sets there, and when the device
+	 *  doesn't say.
+	 */
+	busy?: boolean,
+	/**
 	 *  Whether it waits for a password at a prompt that hides what you
 	 *  type, so clients offer a secure field.
 	 */

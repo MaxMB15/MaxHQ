@@ -75,6 +75,12 @@ pub struct Terminal {
     pub cwd: String,
     /// Whether it still runs.
     pub status: TerminalStatus,
+    /// Whether a command runs in it: a program other than the shell holds
+    /// its foreground, or a `!` run hasn't ended. False while a shell waits
+    /// at its prompt, whatever title it sets there, and when the device
+    /// doesn't say.
+    #[serde(default)]
+    pub busy: bool,
     /// Whether it waits for a password at a prompt that hides what you
     /// type, so clients offer a secure field.
     pub password_prompt: bool,
@@ -254,32 +260,38 @@ mod tests {
             device: DEVICE.parse().unwrap(),
             kind: TerminalKind::Shell,
             moved: false,
-            title: "zsh".into(),
+            title: "pnpm dev".into(),
             cwd: "~/code/example-app".into(),
             status: TerminalStatus::Running,
+            busy: true,
             password_prompt: false,
             started_at: Timestamp(1_793_368_920_000),
             cols: 120,
             rows: 32,
         });
-        assert_eq!(
-            round_trip(&entity),
-            json!({
-                "entity": "terminal",
-                "id": TERMINAL,
-                "agent": AGENT,
-                "device": DEVICE,
-                "kind": { "type": "shell" },
-                "moved": false,
-                "title": "zsh",
-                "cwd": "~/code/example-app",
-                "status": { "state": "running" },
-                "password_prompt": false,
-                "started_at": 1_793_368_920_000u64,
-                "cols": 120,
-                "rows": 32,
-            })
-        );
+        let mut wire = json!({
+            "entity": "terminal",
+            "id": TERMINAL,
+            "agent": AGENT,
+            "device": DEVICE,
+            "kind": { "type": "shell" },
+            "moved": false,
+            "title": "pnpm dev",
+            "cwd": "~/code/example-app",
+            "status": { "state": "running" },
+            "busy": true,
+            "password_prompt": false,
+            "started_at": 1_793_368_920_000u64,
+            "cols": 120,
+            "rows": 32,
+        });
+        assert_eq!(round_trip(&entity), wire);
+        // A device that doesn't say whether it's busy leaves it false.
+        wire.as_object_mut().unwrap().remove("busy");
+        assert!(matches!(
+            serde_json::from_value(wire).unwrap(),
+            Entity::Terminal(Terminal { busy: false, .. })
+        ));
         assert_eq!(entity.key(), EntityKey::Terminal(terminal()));
         assert_eq!(
             round_trip(&entity.key()),

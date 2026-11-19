@@ -7,7 +7,7 @@ import type { Terminal } from "../bindings";
 import { agent, entities, MIN, NOW } from "../test/build";
 import { applySnapshot } from "../view/replica";
 
-import { pickedOutput, runningCommand, runningCommands, tabTitle } from "./drawer";
+import { pickedOutput, runningCommand, runningCommands, runsCommand, tabTitle } from "./drawer";
 import type { TerminalEntity } from "./select";
 
 const terminal = (over: Partial<Terminal> = {}): TerminalEntity => ({
@@ -20,6 +20,7 @@ const terminal = (over: Partial<Terminal> = {}): TerminalEntity => ({
 	title: "zsh",
 	cwd: "~/code/example-app",
 	status: { state: "running" },
+	busy: false,
 	password_prompt: false,
 	started_at: NOW - 10 * MIN,
 	cols: 120,
@@ -27,35 +28,43 @@ const terminal = (over: Partial<Terminal> = {}): TerminalEntity => ({
 	...over,
 });
 
+const run = (over: Partial<Terminal> = {}) =>
+	terminal({ kind: { type: "run", command: "pnpm test", private: false }, ...over });
+
+const exited = { state: "exited", code: 0, signal: null } as const;
+
+describe("runsCommand", () => {
+	it("says a shell runs a command while it's busy, whatever its title", () => {
+		for (const title of ["zsh", "pnpm dev", "~/code/example-app", "server", ""]) {
+			expect(runsCommand(terminal({ title }))).toBe(false);
+			expect(runsCommand(terminal({ title, busy: true }))).toBe(true);
+		}
+		// A device that doesn't say reads as waiting at the prompt.
+		expect(runsCommand({ kind: { type: "shell" }, status: { state: "running" } })).toBe(false);
+	});
+
+	it("says a command you ran runs until it exits, busy or not", () => {
+		expect(runsCommand(run())).toBe(true);
+		expect(runsCommand(run({ busy: true }))).toBe(true);
+		expect(runsCommand(run({ busy: true, status: exited }))).toBe(false);
+		expect(runsCommand(terminal({ busy: true, status: exited }))).toBe(false);
+	});
+});
+
 describe("runningCommand", () => {
-	it("reads a shell at its prompt as waiting, whatever title it sets there", () => {
-		for (const title of [
-			"zsh",
-			"-bash",
-			"/bin/fish",
-			"~/code/example-app",
-			"you@devbox: ~",
-			"",
-		])
-			expect(runningCommand(terminal({ title }))).toBeNull();
+	it("names what a busy shell runs by its tab, and what you ran by its command", () => {
+		expect(runningCommand(terminal({ title: "pnpm dev", busy: true }))).toBe("pnpm dev");
+		expect(runningCommand(terminal({ title: "server", busy: true }))).toBe("server");
+		expect(runningCommand(terminal({ title: "", busy: true }))).toBe("example-app");
+		expect(runningCommand(run({ title: "vitest" }))).toBe("pnpm test");
 	});
 
-	it("names what a shell runs, and what a command you ran runs", () => {
-		expect(runningCommand(terminal({ title: "pnpm dev" }))).toBe("pnpm dev");
-		const run = terminal({
-			kind: { type: "run", command: "pnpm test", private: false },
-			title: "vitest",
-		});
-		expect(runningCommand(run)).toBe("pnpm test");
-	});
-
-	it("names nothing once it exits, or for a name you gave the tab", () => {
-		const exited = terminal({
-			title: "pnpm dev",
-			status: { state: "exited", code: 0, signal: null },
-		});
-		expect(runningCommand(exited)).toBeNull();
-		expect(runningCommand(terminal({ title: "server" }), "server")).toBeNull();
+	it("names nothing while a shell waits, or once it exits", () => {
+		expect(runningCommand(terminal({ title: "pnpm dev" }))).toBeNull();
+		expect(
+			runningCommand(terminal({ title: "pnpm dev", busy: true, status: exited }))
+		).toBeNull();
+		expect(runningCommand(run({ status: exited }))).toBeNull();
 	});
 });
 
@@ -70,16 +79,12 @@ describe("runningCommands", () => {
 					agent({ id: "other" }),
 				],
 			}),
-			terminal({ id: "t-dev", agent: "lead", title: "pnpm dev" }),
-			terminal({ id: "t-idle", agent: "lead", title: "zsh" }),
-			terminal({
-				id: "t-sub",
-				agent: "sub",
-				kind: { type: "run", command: "pnpm test", private: false },
-			}),
-			terminal({ id: "t-again", agent: "sub", title: "pnpm dev" }),
-			terminal({ id: "t-named", agent: "lead", title: "server" }),
-			terminal({ id: "t-other", agent: "other", title: "cargo watch" }),
+			terminal({ id: "t-dev", agent: "lead", title: "pnpm dev", busy: true }),
+			terminal({ id: "t-idle", agent: "lead", title: "cargo watch" }),
+			run({ id: "t-sub", agent: "sub" }),
+			terminal({ id: "t-again", agent: "sub", title: "pnpm dev", busy: true }),
+			terminal({ id: "t-named", agent: "lead", title: "server", busy: true }),
+			terminal({ id: "t-other", agent: "other", title: "cargo watch", busy: true }),
 		],
 	});
 
@@ -89,10 +94,6 @@ describe("runningCommands", () => {
 			"pnpm test",
 			"server",
 		]);
-		expect(runningCommands(view, new Set(["lead"]), { "t-named": "server" })).toEqual([
-			"pnpm dev",
-			"pnpm test",
-		]);
 		expect(runningCommands(view, new Set(["gone"]))).toEqual([]);
 	});
 });
@@ -100,20 +101,22 @@ describe("runningCommands", () => {
 describe("pickedOutput", () => {
 	it("makes an Output pill with the picked lines and the terminal it came from", () => {
 		const picked = { text: "served stale=true\nshowing banner", lines: { first: 6, last: 7 } };
-		expect(pickedOutput(terminal({ title: "pnpm dev" }), "Mac", picked, 9)).toEqual({
-			type: "output",
-			command: "pnpm dev",
-			device_name: "Mac",
-			cwd: "~/code/example-app",
-			exit_code: null,
-			running: true,
-			ran_at: NOW - 10 * MIN,
-			duration_ms: null,
-			lines_total: 9,
-			text: picked.text,
-			terminal: "t-1",
-			lines: { first: 6, last: 7 },
-		});
+		expect(pickedOutput(terminal({ title: "pnpm dev", busy: true }), "Mac", picked, 9)).toEqual(
+			{
+				type: "output",
+				command: "pnpm dev",
+				device_name: "Mac",
+				cwd: "~/code/example-app",
+				exit_code: null,
+				running: true,
+				ran_at: NOW - 10 * MIN,
+				duration_ms: null,
+				lines_total: 9,
+				text: picked.text,
+				terminal: "t-1",
+				lines: { first: 6, last: 7 },
+			}
+		);
 	});
 
 	it("says how a finished terminal exited, and names a shell by its tab", () => {

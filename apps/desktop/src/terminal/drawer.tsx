@@ -28,7 +28,7 @@ import { followPointer } from "@/lib/drag";
 import { cn } from "@/lib/utils";
 import type { AgentId, DeviceId, TerminalId } from "@maxhq/shared/bindings";
 import { t as translate, useI18n } from "@maxhq/shared/i18n";
-import { runningCommand, tabTitle } from "@maxhq/shared/terminal/drawer";
+import { runsCommand, tabTitle } from "@maxhq/shared/terminal/drawer";
 import { supportsTerminals, type TerminalEntity, terminalsOf } from "@maxhq/shared/terminal/select";
 import { deviceName } from "@maxhq/shared/view/select";
 
@@ -210,10 +210,9 @@ const Tab = ({
 }) => {
 	useI18n();
 	const services = useServices();
-	const named = useDrawers((s) => s.named[terminal.id]);
 	const [renaming, setRenaming] = useState(false);
 	const title = tabTitle(terminal);
-	const running = runningCommand(terminal, named) !== null;
+	const running = runsCommand(terminal);
 	const Icon = terminal.password_prompt ? Lock : SquareTerminal;
 
 	const pick = () => {

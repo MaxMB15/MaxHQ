@@ -32,7 +32,7 @@ import { showFailure } from "@maxhq/shared/ui/inbox-notice";
 import { deviceName } from "@maxhq/shared/view/select";
 import type { ViewState } from "@maxhq/shared/view/replica";
 
-import { drawerOf, drawersOf, setActive, setDrawer, setNamed, setSplit } from "./drawer-prefs";
+import { drawerOf, drawersOf, setActive, setDrawer, setSplit } from "./drawer-prefs";
 import { registryOf } from "./live";
 import type { Picked } from "./term-view";
 
@@ -136,8 +136,7 @@ export const toggleSplit = async (
  * tab. Resolves with whether it closed.
  */
 export const closeTab = async (services: Services, terminal: TerminalEntity): Promise<boolean> => {
-	const named = drawersOf(services).getState().named[terminal.id];
-	const command = runningCommand(terminal, named);
+	const command = runningCommand(terminal);
 	const ask = (detail: string) =>
 		requestConfirm(services, {
 			title: command
@@ -170,8 +169,7 @@ export const closeTab = async (services: Services, terminal: TerminalEntity): Pr
 /** Renames a tab, or gives it back the shell's own title when `name` is empty. */
 export const renameTab = async (services: Services, terminal: TerminalId, name: string) => {
 	const failure = failureOf(await services.source.renameTerminal(terminal, name));
-	if (failure) return fail(services, failure);
-	setNamed(services, terminal, name);
+	if (failure) fail(services, failure);
 };
 
 /**

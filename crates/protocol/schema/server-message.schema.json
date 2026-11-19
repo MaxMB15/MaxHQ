@@ -14248,6 +14248,11 @@
           "description": "The agent whose folder it runs in.",
           "$ref": "#/$defs/AgentId"
         },
+        "busy": {
+          "description": "Whether a command runs in it: a program other than the shell holds\nits foreground, or a `!` run hasn't ended. False while a shell waits\nat its prompt, whatever title it sets there, and when the device\ndoesn't say.",
+          "type": "boolean",
+          "default": false
+        },
         "cols": {
           "description": "Its width in cells.",
           "type": "integer",

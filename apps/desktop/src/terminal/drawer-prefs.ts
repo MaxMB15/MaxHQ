@@ -2,10 +2,10 @@
 // Copyright (c) 2026 Max Boksem
 
 // Each agent's terminal drawer in this window: whether it shows and how
-// tall, which this Mac keeps in localStorage, and its active tab, the tab
-// split beside it and the names you gave tabs, which last as long as the
-// window. localStorage can throw or hold anything, so every read checks
-// what it got and falls back to the defaults.
+// tall, which this Mac keeps in localStorage, and its active tab and the
+// tab split beside it, which last as long as the window. localStorage can
+// throw or hold anything, so every read checks what it got and falls back
+// to the defaults.
 
 import { useStore } from "zustand";
 import { createStore, type StoreApi } from "zustand/vanilla";
@@ -46,8 +46,6 @@ export type DrawersState = {
 	readonly active: Readonly<Record<AgentId, TerminalId>>;
 	/** The tab each drawer shows beside its active one. */
 	readonly split: Readonly<Record<AgentId, TerminalId>>;
-	/** The names you gave tabs in this window, which say nothing of what runs. */
-	readonly named: Readonly<Record<TerminalId, string>>;
 	/** The agent whose drawer takes focus once its active tab shows. */
 	readonly focusing: AgentId | null;
 };
@@ -106,7 +104,6 @@ export const drawersOf = (services: Services): StoreApi<DrawersState> => {
 			saved: load(),
 			active: {},
 			split: {},
-			named: {},
 			focusing: null,
 		}));
 		stores.set(services, store);
@@ -157,12 +154,6 @@ const withKey = (record: Readonly<Record<string, string>>, key: string, value: s
 export const setSplit = (services: Services, agent: AgentId, terminal: TerminalId | null): void => {
 	const store = drawersOf(services);
 	store.setState({ split: withKey(store.getState().split, agent, terminal) });
-};
-
-/** Notes the name you gave a tab, or that you cleared it. */
-export const setNamed = (services: Services, terminal: TerminalId, name: string): void => {
-	const store = drawersOf(services);
-	store.setState({ named: withKey(store.getState().named, terminal, name === "" ? null : name) });
 };
 
 /** Reads the window's drawers. */
