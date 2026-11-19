@@ -18,6 +18,7 @@ import {
 const local = { teamId: "ABCDE12345", bundleId: "com.example.maxhq" };
 const infoPlist = {
 	NSLocalNetworkUsageDescription: "MaxHQ reaches your Mac and other devices on your network.",
+	NSAppTransportSecurity: { NSAllowsLocalNetworking: true },
 };
 
 describe("parseIosLocal", () => {
@@ -118,6 +119,18 @@ describe("iosConfig", () => {
 		expect(development.bundleIdentifier).toBe("com.example.maxhq.dev");
 		expect(development.entitlements["aps-environment"]).toBe("development");
 		expect(development.appGroup).toBe("group.com.example.maxhq.dev");
+	});
+
+	it("lets plain http through to local addresses only, signed or not", () => {
+		for (const config of [
+			iosConfig("production", null, false),
+			iosConfig("development", local, true),
+			iosConfig("production", local, true),
+		]) {
+			expect(config.infoPlist.NSAppTransportSecurity).toEqual({
+				NSAllowsLocalNetworking: true,
+			});
+		}
 	});
 
 	it("uses the local file on the simulator too when it's there", () => {

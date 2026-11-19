@@ -3,8 +3,10 @@
 
 // The strips over the agent list about updates: a newer MaxHQ in
 // TestFlight, which you open or dismiss for that version, and each device
-// whose maxd speaks only protocols newer than this app's. The phone looks
-// for the newest build from here, when the app opens and comes back.
+// whose maxd shares no protocol with this app. When the app is the older
+// side, its strip opens TestFlight; when the device is, it says to update
+// MaxHQ there. The phone looks for the newest build from here, when the app
+// opens and comes back.
 
 import { useI18n } from "@maxhq/shared/i18n";
 
@@ -18,19 +20,22 @@ import { useAppActive, useView } from "../../services";
 import { color, radius, size, tint } from "../../theme";
 import { Button } from "../../ui/Button";
 import { checkIfDue, dismiss, openTestflight, thisBuild, updates } from "./store";
-import { appTooOld, offeredVersion } from "./updates";
+import { mismatches, offeredVersion } from "./updates";
 
 const Banner = ({
 	hue,
 	text,
 	title,
 	body,
+	note,
 	children,
 }: {
 	hue: string;
 	text: string;
 	title: string;
 	body: string;
+	/** A line under the body, such as what to do about it. */
+	note?: string;
 	children?: ReactNode;
 }) => (
 	<View
@@ -40,6 +45,7 @@ const Banner = ({
 		<View style={styles.words}>
 			<Text style={[styles.title, { color: text }]}>{title}</Text>
 			<Text style={styles.body}>{body}</Text>
+			{note ? <Text style={styles.body}>{note}</Text> : null}
 		</View>
 		{children}
 	</View>
@@ -50,7 +56,7 @@ export const UpdateBanners = () => {
 
 	const offered = useStore(updates, (state) => offeredVersion(state, thisBuild.version));
 	const view = useView((s) => s.view);
-	const tooNew = useMemo(() => appTooOld(view), [view]);
+	const mismatched = useMemo(() => mismatches(view), [view]);
 	const active = useAppActive();
 	useEffect(() => {
 		if (active) checkIfDue();
@@ -74,18 +80,36 @@ export const UpdateBanners = () => {
 					/>
 				</Banner>
 			) : null}
-			{tooNew.map((device) => (
-				<Banner
-					key={device.link}
-					hue={color.connecting}
-					text={color.connectingText}
-					title={t("{{name}} needs a newer app", { name: device.name })}
-					body={t("Its maxd speaks protocol {{theirs}}; this app speaks {{ours}}", {
-						theirs: device.theirs,
-						ours: PROTOCOL_VERSION,
-					})}
-				/>
-			))}
+			{mismatched.map((device) => {
+				const body = t("Its maxd speaks protocol {{theirs}}; this app speaks {{ours}}", {
+					theirs: device.theirs,
+					ours: PROTOCOL_VERSION,
+				});
+				return device.older === "app" ? (
+					<Banner
+						key={device.link}
+						hue={color.connecting}
+						text={color.connectingText}
+						title={t("{{name}} needs a newer app", { name: device.name })}
+						body={body}
+					>
+						<Button
+							label={t("Open TestFlight")}
+							small
+							onPress={() => void openTestflight()}
+						/>
+					</Banner>
+				) : (
+					<Banner
+						key={device.link}
+						hue={color.connecting}
+						text={color.connectingText}
+						title={t("{{name}} runs an older MaxHQ", { name: device.name })}
+						body={body}
+						note={t("Update MaxHQ on {{name}}.", { name: device.name })}
+					/>
+				);
+			})}
 		</>
 	);
 };

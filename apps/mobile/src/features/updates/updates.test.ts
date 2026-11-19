@@ -3,25 +3,25 @@
 
 import { describe, expect, it } from "vitest";
 
-import { PROTOCOL_VERSION } from "@maxhq/shared/bindings";
+import { OLDEST_PROTOCOL_VERSION, PROTOCOL_VERSION } from "@maxhq/shared/bindings";
 import { entities, link } from "@maxhq/shared/test/build";
 import { applySnapshot } from "@maxhq/shared/view/replica";
 
 import {
 	afterCheck,
-	appTooOld,
 	CHECK_EVERY,
 	DEFAULT_PREFS,
 	dueForCheck,
 	isNewer,
 	manifestUrl,
+	mismatches,
 	newestNote,
 	offeredVersion,
+	olderSide,
 	outcomeOf,
 	parseManifest,
 	readPrefs,
 	testflightLinks,
-	tooNewFor,
 	type UpdatePrefs,
 } from "./updates";
 
@@ -194,19 +194,34 @@ describe("testflightLinks", () => {
 
 describe("the protocol check", () => {
 	const ahead = { current: PROTOCOL_VERSION + 1, oldest: PROTOCOL_VERSION + 1 };
-	const behind = { current: 19, oldest: 10 };
+	const behind = { current: OLDEST_PROTOCOL_VERSION - 1, oldest: 10 };
 
-	it("finds a maxd that speaks only newer protocols", () => {
-		expect(tooNewFor(link({ id: "mac", protocol_mismatch: ahead }))).toBe(true);
+	it("calls the app older when the maxd speaks only newer protocols", () => {
+		expect(olderSide(link({ id: "mac", protocol_mismatch: ahead }))).toBe("app");
 	});
 
-	it("leaves out an older maxd and a link without a mismatch", () => {
-		expect(tooNewFor(link({ id: "old", protocol_mismatch: behind }))).toBe(false);
-		expect(tooNewFor(link({ id: "fine" }))).toBe(false);
-		expect(tooNewFor(link({ id: "fine", protocol_mismatch: null }))).toBe(false);
+	it("calls the maxd older when it speaks only protocols this app dropped", () => {
+		expect(olderSide(link({ id: "old", protocol_mismatch: behind }))).toBe("maxd");
 	});
 
-	it("names each such device with the protocol its maxd speaks", () => {
+	it("finds no older side without a mismatch or with a range in common", () => {
+		expect(olderSide(link({ id: "fine" }))).toBeNull();
+		expect(olderSide(link({ id: "fine", protocol_mismatch: null }))).toBeNull();
+		const shared = { current: PROTOCOL_VERSION + 2, oldest: PROTOCOL_VERSION };
+		expect(olderSide(link({ id: "stale", protocol_mismatch: shared }))).toBeNull();
+	});
+
+	it("compares with the range it's given", () => {
+		const ours = { current: 30, oldest: 25 };
+		const theirs = (current: number, oldest: number) =>
+			link({ id: "mac", protocol_mismatch: { current, oldest } });
+		expect(olderSide(theirs(32, 31), ours)).toBe("app");
+		expect(olderSide(theirs(24, 20), ours)).toBe("maxd");
+		expect(olderSide(theirs(30, 30), ours)).toBeNull();
+		expect(olderSide(theirs(25, 20), ours)).toBeNull();
+	});
+
+	it("names each such device with its maxd's protocol and the older side", () => {
 		const view = applySnapshot({
 			seq: 1,
 			entities: entities({
@@ -217,8 +232,9 @@ describe("the protocol check", () => {
 				],
 			}),
 		});
-		expect(appTooOld(view)).toEqual([
-			{ link: "work", name: "Work Mac", theirs: PROTOCOL_VERSION + 1 },
+		expect(mismatches(view)).toEqual([
+			{ link: "box", name: "devbox", theirs: OLDEST_PROTOCOL_VERSION - 1, older: "maxd" },
+			{ link: "work", name: "Work Mac", theirs: PROTOCOL_VERSION + 1, older: "app" },
 		]);
 	});
 });
