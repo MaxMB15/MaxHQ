@@ -422,17 +422,17 @@ async fn a_terminal_that_fails_to_open_says_why_and_adds_nothing() {
 }
 
 #[tokio::test]
-async fn stopping_or_deleting_an_agent_ends_its_terminals() {
+async fn stopping_an_agent_keeps_its_terminals_and_deleting_it_ends_them() {
     let mut h = Harness::new();
     let (agent, session) = h.start_claude(None).await;
     let outcome = h.act(|key| ClientMessage::StopAgent { key, agent }).await;
     assert_eq!(outcome, ActionOutcome::Done);
-    assert_eq!(h.fakes.terminals.ended(), [agent]);
     eventually("the holder's files going", || h.holders.forgotten(session)).await;
+    assert!(h.fakes.terminals.ended().is_empty());
 
     let outcome = h.act(|key| ClientMessage::DeleteAgent { key, agent }).await;
     assert_eq!(outcome, ActionOutcome::Done);
-    assert_eq!(h.fakes.terminals.ended(), [agent, agent]);
+    assert_eq!(h.fakes.terminals.ended(), [agent]);
 }
 
 #[tokio::test]
@@ -469,6 +469,7 @@ async fn a_terminal_that_opens_after_its_agent_went_ends() {
     });
     let outcome = h.phone.result(key).await;
     assert!(reason(&outcome).contains("agent ended"), "{outcome:?}");
-    assert_eq!(terminals.ended(), [agent, agent, agent]);
+    // Once for the delete, once for the terminal that opened after it.
+    assert_eq!(terminals.ended(), [agent, agent]);
     assert!(h.db.user_runs::<TimelineItem>(agent).unwrap().is_empty());
 }

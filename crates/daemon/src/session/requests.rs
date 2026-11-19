@@ -1058,8 +1058,9 @@ impl Manager {
         let target = Target::Agent(lead);
         let action = match ask {
             Ask::Stop => {
-                // Stopping an agent ends its terminals too.
-                self.terminals.end_agent(lead);
+                // Its terminals keep running: a stopped agent comes back
+                // with its next message, and a dev server it started
+                // shouldn't go down meanwhile. Deleting it ends them.
                 if !self.stop_lead(key, lead) {
                     return Some(ActionOutcome::Done);
                 }
