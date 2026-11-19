@@ -758,15 +758,15 @@ impl Connection {
         }
         // A phone is easier to lose than a Mac, and it never stores or
         // removes a credential, signs in, changes how this device is set
-        // up, installs anything or reads a path on the device. So a stolen
-        // phone's key can't either. Nor can it start or move agents, start
-        // tasks, make, clone or remove workspaces, place files in them, list
-        // or make folders, open a shell, reach a guest's shell or ports,
-        // signal a process, copy files out, build or reset a test host, or
-        // change hosts, snapshots, moves, skills, the skill library or its
-        // sources: the phone asks the dispatcher, answers and steers agents
-        // that already run. Unless the Mac turned the phone's switch on,
-        // which lets it.
+        // up or installs anything. So a stolen phone's key can't either.
+        // Nor can it read a file by its path on the device, list or make
+        // folders, start or move agents, start tasks, make, clone or remove
+        // workspaces, place files in them, open a shell, reach a guest's
+        // shell or ports, signal a process, copy files out, build or reset
+        // a test host, or change hosts, snapshots, moves, skills, the skill
+        // library or its sources: the phone asks the dispatcher, answers
+        // and steers agents that already run. Unless the Mac turned the
+        // phone's switch on, which lets it do all of these.
         if self.phone.is_some()
             && matches!(
                 message,

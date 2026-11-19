@@ -20,6 +20,7 @@ import {
 import type { ViewState } from "@maxhq/shared/view/replica";
 import { useServices } from "@/app/services";
 import { cn } from "@/lib/utils";
+import { PathField } from "@/paths/path-field";
 import { pickMode } from "@/settings/auto-consent";
 
 import { Picker } from "./picker";
@@ -115,19 +116,15 @@ export const AgentPickers = ({
 			</div>
 			{children}
 			{folder ? (
-				<label className="flex flex-col gap-1.5">
-					<span className="text-[11.5px] font-[550] text-secondary-foreground">
-						{translate("Folder")}
-					</span>
-					<input
-						value={choices.path}
-						onChange={(e) => onPick({ path: e.target.value })}
-						placeholder={translate("/Users/you/code/project")}
-						spellCheck={false}
-						autoComplete="off"
-						className={cn(AGENT_FIELD, "h-8 font-mono text-xs")}
-					/>
-				</label>
+				<PathField
+					device={r.device}
+					value={choices.path}
+					onChange={(path) => onPick({ path })}
+					label={translate("Folder")}
+					title={translate("Choose the agent's folder")}
+					placeholder={translate("/Users/you/code/project")}
+					className={cn(AGENT_FIELD, "h-8")}
+				/>
 			) : null}
 		</>
 	);

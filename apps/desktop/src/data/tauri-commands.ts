@@ -135,6 +135,13 @@ export const commands = {
 	 *  dialog is ever written, so the page can't write anywhere else.
 	 */
 	saveExport: (text: string, name: string, folder: string | null) => typedError<SavedExport | null, NativeError>(__TAURI_INVOKE("save_export", { text, name, folder })),
+	/**
+	 *  Asks for a folder, or a file when `file` is set, on this Mac in the
+	 *  system picker, titled `title` and opening at `start` when it's given.
+	 *  Resolves with the chosen path, or none if you cancel. The path only
+	 *  fills a field, so it isn't offered for attaching.
+	 */
+	pickPath: (title: string, start: string | null, file: boolean) => typedError<string | null, NativeError>(__TAURI_INVOKE("pick_path", { title, start, file })),
 	/**  The notification settings now. */
 	notificationPrefs: () => __TAURI_INVOKE<NotificationPrefs>("notification_prefs"),
 	/**

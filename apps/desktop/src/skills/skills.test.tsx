@@ -71,6 +71,7 @@ describe("the skills library page", () => {
 		const page = await openSettings("App", "Skills");
 		const form = within(page.getByRole("form", { name: "Add a source" }));
 		const where = form.getByPlaceholderText(/owner\/repo/);
+		expect(form.getByRole("button", { name: "Browse…" })).toBeInTheDocument();
 		fireEvent.change(where, { target: { value: "example/devflow" } });
 		expect(
 			form.getByText("The library already has a source called example/devflow.")

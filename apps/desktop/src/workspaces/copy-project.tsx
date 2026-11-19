@@ -23,6 +23,7 @@ import type { CopiedProject, IgnoredFile } from "@maxhq/shared/data/source";
 import { useNow } from "@maxhq/shared/lib/clock";
 import { cn } from "@/lib/utils";
 import { Picker } from "@/new-agent/picker";
+import { PathField } from "@/paths/path-field";
 import { FIELD, Label, PRIMARY, SECONDARY } from "@/settings/controls";
 import { sendFirstSettings } from "@/settings/project";
 import { sentence } from "@maxhq/shared/status/format";
@@ -393,17 +394,15 @@ const Form = ({ request }: { request: CopyRequest }) => {
 				</label>
 			) : (
 				<div className="grid grid-cols-[minmax(0,1fr)_minmax(0,0.6fr)] gap-2">
-					<label className="flex min-w-0 flex-col gap-1.5">
-						<Label>{t("Parent folder")}</Label>
-						<input
-							value={choices.parent}
-							onChange={(e) => set({ parent: e.target.value })}
-							placeholder="/home/you/code"
-							spellCheck={false}
-							autoComplete="off"
-							className={cn(FIELD, "font-mono text-xs")}
-						/>
-					</label>
+					<PathField
+						device={choices.device}
+						value={choices.parent}
+						onChange={(parent) => set({ parent })}
+						label={t("Parent folder")}
+						title={t("Choose the folder to copy into")}
+						placeholder="/home/you/code"
+						className={FIELD}
+					/>
 					<label className="flex min-w-0 flex-col gap-1.5">
 						<Label>{t("Folder name")}</Label>
 						<input

@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026 Max Boksem
 
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 import App from "@/App";
 import { mockSource } from "@/data/mock-source";
-import { MOVE_AGENT_SINCE } from "@maxhq/shared/bindings";
+import { FOLDERS_SINCE, MOVE_AGENT_SINCE } from "@maxhq/shared/bindings";
 import { DEVBOX, DEVBOX_CLAUDE, MAC, MHQ_WORKSPACE } from "@maxhq/shared/data/mock-view";
 import type { DataSource } from "@maxhq/shared/data/source";
 import { FixedNow } from "@maxhq/shared/lib/clock";
@@ -50,6 +50,17 @@ const moveItem = async () => {
 const openMove = async (title: string) => {
 	fireEvent.click(await moveItem());
 	return within(await screen.findByRole("dialog", { name: `Move ${title} to another device` }));
+};
+
+/** Picks Another folder… in the move form, and gives its path field. */
+const anotherFolder = async (dialog: ReturnType<typeof within>) => {
+	fireEvent.click(dialog.getByRole("combobox", { name: /^Folder,/ }));
+	const options = await screen.findAllByRole("option");
+	const another = options.find((o) => o.textContent?.includes("Another folder…"));
+	if (!another) throw new Error("No Another folder… option");
+	fireEvent.pointerDown(another, { pointerType: "mouse" });
+	fireEvent.click(another);
+	return dialog.findByRole("textbox", { name: "Folder" });
 };
 
 describe("moving an agent", () => {
@@ -104,6 +115,32 @@ describe("moving an agent", () => {
 		expect(screen.queryByRole("button", { name: "Resume" })).not.toBeInTheDocument();
 		fireEvent.click(within(banner).getByRole("button", { name: "Open" }));
 		expect(await screen.findByRole("note", { name: "Moved from Mac" })).toBeInTheDocument();
+	});
+
+	it("suggests folders on the device it moves to, and browses them", async () => {
+		renderApp(FOLDERS_SINCE);
+		await openAgent("Comet", /Seek bar thumbnails/);
+		const dialog = await openMove("Seek bar thumbnails");
+		const field = await anotherFolder(dialog);
+		act(() => field.focus());
+		fireEvent.change(field, { target: { value: "~/code/m" } });
+		const list = await dialog.findByRole("listbox", { name: "Suggestions" });
+		expect(within(list).getByRole("option")).toHaveTextContent("~/code/Mosaicgit · main");
+		fireEvent.click(dialog.getByRole("button", { name: "Browse…" }));
+		expect(
+			await screen.findByRole("dialog", { name: "Choose a folder on devbox" })
+		).toBeInTheDocument();
+	});
+
+	it("can't browse a device whose maxd doesn't list folders", async () => {
+		renderApp(FOLDERS_SINCE - 1);
+		await openAgent("Comet", /Seek bar thumbnails/);
+		const dialog = await openMove("Seek bar thumbnails");
+		await anotherFolder(dialog);
+		const browse = dialog.getByRole("button", { name: "Browse…" });
+		expect(browse).toHaveAttribute("aria-disabled", "true");
+		fireEvent.click(browse);
+		expect(screen.queryByRole("dialog", { name: /Choose a folder/ })).toBeNull();
 	});
 
 	it("says a maxd too old to move it needs updating", async () => {
