@@ -24,7 +24,7 @@ fn backend_label(backend: TestHostBackend) -> &'static str {
     match backend {
         TestHostBackend::IncusTest => "test container",
         TestHostBackend::MacVm => "Mac VM",
-        TestHostBackend::MacHost => "this Mac",
+        TestHostBackend::MacHost => "Mac itself",
         TestHostBackend::HostEmulator => "emulator",
     }
 }

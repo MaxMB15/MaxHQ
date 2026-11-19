@@ -62,9 +62,11 @@ const MAX_SIMCTL_OUTPUT: usize = 4 * 1024 * 1024;
 /// The Seatbelt profile agent-device runs in on the Mac. Everything else
 /// stays as it is, but your home folder is closed except for what
 /// agent-device, `simctl` and `xcodebuild` need: its own state folder, the
-/// developer folders that hold Simulators and Xcode's build products, and
-/// read access to the installed CLI and Node. Names and sizes under your
-/// home folder stay visible, so paths resolve.
+/// `~/.agent-device` folder it keeps device claims, logs and its iOS
+/// runner's builds in whatever its state folder is, the developer folders
+/// that hold Simulators and Xcode's build products, and read access to the
+/// installed CLI and Node. Names and sizes under your home folder stay
+/// visible, so paths resolve.
 ///
 /// `sandbox-exec` fills the parameters in: `HOME`, `STATE`, `TOOLS` and
 /// `NODE`, each a real path.
@@ -74,6 +76,7 @@ pub const SEATBELT_PROFILE: &str = r#"(version 1)
 (allow file-read-metadata (subpath (param "HOME")))
 (allow file-read* file-write*
   (subpath (param "STATE"))
+  (subpath (string-append (param "HOME") "/.agent-device"))
   (subpath (string-append (param "HOME") "/Library/Developer"))
   (subpath (string-append (param "HOME") "/Library/Caches/com.apple.dt.xcodebuild"))
   (subpath (string-append (param "HOME") "/Library/Logs/CoreSimulator")))

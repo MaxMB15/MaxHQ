@@ -173,6 +173,7 @@ fn the_profile_closes_the_home_folder_but_what_agent_device_needs() {
         opened,
         [
             r#"(subpath (param "STATE"))"#,
+            r#"(subpath (string-append (param "HOME") "/.agent-device"))"#,
             r#"(subpath (string-append (param "HOME") "/Library/Developer"))"#,
             r#"(subpath (string-append (param "HOME") "/Library/Caches/com.apple.dt.xcodebuild"))"#,
             r#"(subpath (string-append (param "HOME") "/Library/Logs/CoreSimulator")))"#,
