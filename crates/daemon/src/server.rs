@@ -735,11 +735,11 @@ impl Connection {
         // up, installs anything or reads a path on the device. So a stolen
         // phone's key can't either. Nor can it start or move agents, start
         // tasks, make, clone or remove workspaces, place files in them,
-        // reach a guest's shell or ports, signal a process, copy files out
-        // or change hosts, snapshots, moves, skills, the skill library or
-        // its sources: the phone asks the dispatcher, answers and steers
-        // agents that already run. Unless the Mac turned the phone's switch
-        // on, which lets it.
+        // reach a guest's shell or ports, signal a process, copy files out,
+        // build or reset a test host, or change hosts, snapshots, moves,
+        // skills, the skill library or its sources: the phone asks the
+        // dispatcher, answers and steers agents that already run. Unless
+        // the Mac turned the phone's switch on, which lets it.
         if self.phone.is_some()
             && matches!(
                 message,
@@ -763,6 +763,8 @@ impl Connection {
                     | ClientMessage::ApplyHost { .. }
                     | ClientMessage::RestoreSnapshot { .. }
                     | ClientMessage::RunMoveStep { .. }
+                    | ClientMessage::BuildTestHost { .. }
+                    | ClientMessage::ResetTestHost { .. }
                     | ClientMessage::SkillsApply { .. }
                     | ClientMessage::SkillsSetProject { .. }
                     | ClientMessage::SkillsSetAlways { .. }
@@ -3096,7 +3098,7 @@ pub(crate) mod tests {
         use maxhq_protocol::ids::{
             AccountId, AcpAgentId, AdmissionId, AttachmentId, CredentialId, ForwardId, KeyId,
             MoveId, PermissionId, PortId, SignInId, SkillProposalId, SkillSourceId, StreamId,
-            TaskId,
+            TaskId, TestHostId,
         };
         use maxhq_protocol::message::{AgentPlace, AgentSpec, ToolTarget, UpdateKind};
         use maxhq_protocol::model::{
@@ -3305,6 +3307,14 @@ pub(crate) mod tests {
                 key: key("move"),
                 moving: MoveId::derive("move"),
                 step: MoveStep::Retire,
+            },
+            ClientMessage::BuildTestHost {
+                key: key("test-host-build"),
+                host: TestHostId::derive("host"),
+            },
+            ClientMessage::ResetTestHost {
+                key: key("test-host-reset"),
+                host: TestHostId::derive("host"),
             },
             ClientMessage::SkillsApply {
                 key: key("skills"),
@@ -3594,7 +3604,8 @@ pub(crate) mod tests {
             );
         }
         assert!(!phones.everything(phone), "the phone can't turn it on");
-        // A sign-in the Mac began can still be read and stopped from it.
+        // A sign-in the Mac began can still be read and stopped from it, and
+        // the phone can still have this device look at what it hosts.
         let round = SignInId::derive("round");
         for message in [
             ClientMessage::CheckCliLogin {
@@ -3604,6 +3615,9 @@ pub(crate) mod tests {
             ClientMessage::CancelCliLogin {
                 key: key("cli-cancel"),
                 sign_in: round,
+            },
+            ClientMessage::CheckTestHosts {
+                key: key("test-host-check"),
             },
         ] {
             own.send(&message).await;

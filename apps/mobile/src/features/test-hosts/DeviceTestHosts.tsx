@@ -5,9 +5,10 @@
 // again, each kind it could host with its switch and, once on, each host
 // with Build and Reset, how long leases last, and the leases it grants now,
 // each opening its own screen. Changing which kinds it hosts, the limits
-// and the Mac's own Simulator saves the device's settings, which the Mac
-// lets this phone do only with its switch on. Hidden when the device's
-// `maxd` doesn't offer test hosts.
+// and the Mac's own Simulator saves the device's settings, and Build
+// installs software while Reset wipes the machine, so the Mac lets this
+// phone do those only with its switch on. Check again stays open. Hidden
+// when the device's `maxd` doesn't offer test hosts.
 
 import { useI18n } from "@maxhq/shared/i18n";
 
@@ -86,13 +87,24 @@ const CheckAgain = ({ device, name, live }: { device: DeviceId; name: string; li
 	);
 };
 
-const HostBlock = ({ host, name, live }: { host: TestHost; name: string; live: boolean }) => {
+const HostBlock = ({
+	host,
+	name,
+	live,
+	lets,
+}: {
+	host: TestHost;
+	name: string;
+	live: boolean;
+	lets: boolean;
+}) => {
 	const { t } = useI18n();
 
 	const { source } = useServices();
 	const now = useNow(60_000);
 	const { busy, note, run } = useAction();
 	const can = hostActions(host);
+	const off = !live || !lets || busy;
 	const state = HOST_STATE[host.state];
 	const label = t("{{value1}} on {{name}}", { value1: backendLabel(host.backend), name: name });
 	const reset = () => void run(t("Resetting"), () => source.resetTestHost(host.device, host.id));
@@ -115,7 +127,7 @@ const HostBlock = ({ host, name, live }: { host: TestHost; name: string; live: b
 							small
 							label={t("Build")}
 							hint={t("Build {{label}}", { label: label })}
-							disabled={!live || busy}
+							disabled={off}
 							onPress={() =>
 								void run(t("Building"), () =>
 									source.buildTestHost(host.device, host.id)
@@ -128,7 +140,7 @@ const HostBlock = ({ host, name, live }: { host: TestHost; name: string; live: b
 							small
 							label={t("Reset")}
 							hint={t("Reset {{label}}", { label: label })}
-							disabled={!live || busy}
+							disabled={off}
 							onPress={() =>
 								host.state === "leased"
 									? confirm(
@@ -232,6 +244,7 @@ const PlaceRows = ({
 									host={host}
 									name={place.name}
 									live={live}
+									lets={lets}
 								/>
 							))
 						: null}
