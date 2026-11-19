@@ -9,7 +9,8 @@
 //! `ready`.
 //!
 //! One task reads the master into the ring, and for a `!` run into a
-//! headless terminal too. One task writes input, in the order it came.
+//! headless terminal too, once the run's marker has come (`marker.rs`).
+//! One task writes input, in the order it came.
 //! Every 150 ms the holder looks at the pty's modes and its foreground
 //! group, and tells clients when the program starts or stops waiting for
 //! a password or the shell starts or stops running something.
@@ -36,6 +37,7 @@ use tokio::net::UnixStream;
 use tokio::signal::unix::{signal, SignalKind};
 use tokio::sync::{mpsc, watch};
 
+use super::marker::Cutoff;
 use super::osc::{Scanner, Set};
 use super::ring::{Ring, RING_BYTES};
 use super::wire::{self, FromHolder, ToHolder, Typed, CHUNK};
@@ -141,6 +143,7 @@ impl Started {
             input: input_tx,
             state: Mutex::new(State {
                 ring: Ring::new(RING_BYTES),
+                cutoff: launch.run.then(Cutoff::new),
                 emulator: launch
                     .run
                     .then(|| maxhq_term::emulator(launch.cols, launch.rows)),
@@ -260,6 +263,8 @@ enum Phase {
 
 struct State {
     ring: Ring,
+    /// A `!` run's output while it waits for the marker.
+    cutoff: Option<Cutoff>,
     /// The headless terminal a `!` run's transcript comes from.
     emulator: Option<Box<dyn Emulator>>,
     scanner: Scanner,
@@ -276,6 +281,40 @@ struct State {
     /// The holder should go once the program has ended: a client said
     /// goodbye or the holder was told to quit.
     ending: bool,
+}
+
+impl State {
+    /// Keeps output clients see, and the title and folder it sets.
+    fn keep(&mut self, bytes: &[u8]) {
+        if bytes.is_empty() {
+            return;
+        }
+        self.ring.push(bytes);
+        if let Some(emulator) = &mut self.emulator {
+            emulator.feed(bytes);
+        }
+        let Self {
+            scanner,
+            title,
+            cwd,
+            ..
+        } = self;
+        scanner.feed(bytes, |set| match set {
+            Set::Title(set) => *title = Some(set),
+            Set::Cwd(set) => *cwd = Some(set),
+        });
+        // A prompt that hides input prints nothing while it's answered, so
+        // any output means the next password is a new one.
+        self.noted = false;
+    }
+
+    /// Stops waiting for a run's marker and keeps what waited for it.
+    /// Returns whether anything did.
+    fn release(&mut self) -> bool {
+        let held = self.cutoff.take().map(Cutoff::release).unwrap_or_default();
+        self.keep(&held);
+        !held.is_empty()
+    }
 }
 
 /// What a connection has told its client, so it sends only changes.
@@ -346,33 +385,20 @@ impl Holder {
         self.bump();
     }
 
-    /// Keeps output, and the title and folder it sets.
+    /// Keeps output, once a run's marker has come.
     fn record(&self, bytes: &[u8]) {
         let mut state = self.lock();
-        let State {
-            ring,
-            emulator,
-            scanner,
-            title,
-            cwd,
-            noted,
-            phase,
-            ..
-        } = &mut *state;
-        if matches!(phase, Phase::Exited(_)) {
+        if matches!(state.phase, Phase::Exited(_)) {
             return;
         }
-        ring.push(bytes);
-        if let Some(emulator) = emulator {
-            emulator.feed(bytes);
+        match state.cutoff.as_mut().map(|cutoff| cutoff.feed(bytes)) {
+            None => state.keep(bytes),
+            Some(None) => return,
+            Some(Some(shown)) => {
+                state.cutoff = None;
+                state.keep(&shown);
+            }
         }
-        scanner.feed(bytes, |set| match set {
-            Set::Title(set) => *title = Some(set),
-            Set::Cwd(set) => *cwd = Some(set),
-        });
-        // A prompt that hides input prints nothing while it's answered, so
-        // any output means the next password is a new one.
-        *noted = false;
         drop(state);
         self.bump();
     }
@@ -396,6 +422,8 @@ impl Holder {
         if state.noted {
             return;
         }
+        // The prompt goes in first, even when it came before the marker.
+        state.release();
         state.noted = true;
         if let Some(emulator) = state.emulator.as_mut() {
             emulator.note(maxhq_term::SECRET_SENT);
@@ -425,7 +453,9 @@ impl Holder {
     }
 
     /// Looks at the pty's modes and foreground group, and bumps when the
-    /// password prompt or the busy shell changed.
+    /// password prompt or the busy shell changed. A run that waits for
+    /// input before its marker shows what it held, since a startup file
+    /// asks for something.
     async fn poll(self: Arc<Self>) {
         let mut tick = tokio::time::interval(POLL);
         loop {
@@ -442,7 +472,9 @@ impl Holder {
             } else {
                 running && foreground.is_some_and(|group| group != self.child_pid)
             };
-            let changed = (state.password, state.busy) != (password, busy);
+            let released =
+                state.cutoff.is_some() && (password || self.master.key_mode()) && state.release();
+            let changed = released || (state.password, state.busy) != (password, busy);
             state.password = password;
             state.busy = busy;
             if !password {
@@ -521,6 +553,8 @@ impl Holder {
         let Phase::Reaped { code, signal, at } = state.phase else {
             return;
         };
+        // A run that never printed its marker shows all it printed.
+        state.release();
         let output = (state.emulator.as_mut())
             .map(|emulator| RunOutput::from_transcript(emulator.transcript()));
         let exit = TermExit {
