@@ -2997,6 +2997,7 @@ dependencies = [
  "maxhq-hold",
  "maxhq-mobile",
  "maxhq-protocol",
+ "maxhq-term",
  "maxhq-transfer",
  "maxhq-vm",
  "maxhq-wire",

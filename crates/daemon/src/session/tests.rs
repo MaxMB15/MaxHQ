@@ -80,6 +80,7 @@ mod switch;
 mod take_over;
 mod tasks;
 mod terminals;
+mod user_sessions;
 mod workflow_env;
 
 /// The client most tests act as.

@@ -405,14 +405,24 @@ impl Terminals {
     /// carries on live with no gap. With `after` empty it replays all the
     /// holder keeps. A holder that has gone gives the exit it left.
     pub async fn connect(&self, terminal: TerminalId, after: Option<u64>) -> io::Result<Reached> {
-        client::connect(&self.dir(terminal), terminal, after, false).await
+        client::connect(&self.dir(terminal), terminal, after, false, false).await
+    }
+
+    /// Reaches a terminal's holder like [`Terminals::connect`], with the
+    /// shell's marks among the output, each where it fell in it.
+    pub async fn connect_marked(
+        &self,
+        terminal: TerminalId,
+        after: Option<u64>,
+    ) -> io::Result<Reached> {
+        client::connect(&self.dir(terminal), terminal, after, false, true).await
     }
 
     /// Reaches a terminal's holder for everything but the output: whether
     /// it waits for a password or runs something, its title and folder, and
     /// its exit. It costs nothing however much the terminal prints.
     pub async fn watch(&self, terminal: TerminalId) -> io::Result<Reached> {
-        client::connect(&self.dir(terminal), terminal, None, true).await
+        client::connect(&self.dir(terminal), terminal, None, true, true).await
     }
 
     /// Deletes the folder of a terminal whose holder has gone. Returns

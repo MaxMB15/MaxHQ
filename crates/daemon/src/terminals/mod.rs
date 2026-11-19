@@ -18,13 +18,20 @@
 //! asked, and passes on what it types. What anyone types goes to the
 //! holder and nowhere else: never a log, a store or an agent.
 //!
+//! An agent's session is one shell its `!` commands share, so `cd` and
+//! `export` carry from one to the next. Each command it runs is a block
+//! whose output `maxd` cuts from the shell's marks (see `session`).
+//!
 //! The session manager opens terminals, since it knows where an agent runs
 //! and keeps the `!` runs' items in its timeline. It hears back through
 //! [`RunNote`]s: a terminal opened or didn't, a run ended or moved to the
-//! drawer. When it has kept a run's end, it lets go with
-//! [`Host::release`], and the holder goes.
+//! drawer, a session took a command or a block ended. When it has kept a
+//! run's end, it lets go with [`Host::release`], and the holder goes.
 
 pub mod access;
+mod session;
+
+pub use session::{BlockChange, SessionAsk, SessionRequest, SessionResult};
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -32,7 +39,7 @@ use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::Duration;
 
 use maxhq_hold::{
-    Commands, Reached, TermControl, TermEvent, TermExit, TermHello, TermLaunch, TermLink,
+    Commands, Mark, Reached, TermControl, TermEvent, TermExit, TermHello, TermLaunch, TermLink,
 };
 use maxhq_protocol::frame::{self, MAX_TERMINAL_CHUNK};
 use maxhq_protocol::ids::{AgentId, DeviceId, IdempotencyKey, TerminalId};
@@ -107,6 +114,10 @@ pub trait Host: Send + Sync {
     fn release(&self, terminal: TerminalId);
     /// Ends every terminal of an agent that stopped or was deleted.
     fn end_agent(&self, agent: AgentId);
+    /// Does what you asked of an agent's session. The answer comes back
+    /// as [`RunNote::Session`], and a fresh shell's as [`RunNote::Opened`]
+    /// after it.
+    fn session(&self, request: SessionRequest);
 }
 
 /// A terminal to open for an agent.
@@ -160,6 +171,26 @@ pub enum RunNote {
         /// The terminal.
         terminal: TerminalId,
     },
+    /// What came of a request to an agent's session.
+    Session {
+        /// The request's key.
+        key: IdempotencyKey,
+        /// The agent whose session it is.
+        agent: AgentId,
+        /// What came of it.
+        result: SessionResult,
+    },
+    /// A command a session runs started or ended.
+    Block {
+        /// The agent whose session it is.
+        agent: AgentId,
+        /// The session's terminal.
+        terminal: TerminalId,
+        /// The block's ID in the session.
+        block: u32,
+        /// What happened.
+        change: BlockChange,
+    },
 }
 
 /// How the terminals and the session manager reach each other.
@@ -188,6 +219,9 @@ struct Note {
     /// What you renamed it to.
     #[serde(default)]
     name: Option<String>,
+    /// A session's blocks.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    session: Option<session::SessionNote>,
 }
 
 /// A terminal this `maxd` holds.
@@ -212,6 +246,12 @@ struct Open {
     /// Whether the holder last said a program other than the shell holds
     /// the foreground, or a `!` run hasn't ended.
     foreground: bool,
+    /// For a session, whether what you typed may have left something at
+    /// its prompt.
+    keys: session::Typed,
+    /// For a session, the block that runs, and where to say you sent a
+    /// password while it waited for one.
+    block: Option<(u32, mpsc::UnboundedSender<()>)>,
 }
 
 impl Open {
@@ -242,6 +282,8 @@ impl Open {
             closing: false,
             commands: Commands::default(),
             foreground: false,
+            keys: session::Typed::default(),
+            block: None,
         };
         if let Some(hello) = hello {
             open.hello(hello);
@@ -370,7 +412,16 @@ struct Inner {
     notes: mpsc::UnboundedSender<RunNote>,
     /// False while the terminals a previous `maxd` left come back.
     restored: watch::Sender<bool>,
+    /// One for each agent, so its session takes one request at a time.
+    locks: Mutex<HashMap<AgentId, Arc<tokio::sync::Mutex<()>>>>,
+    /// What tests change in each launch, such as the shell.
+    #[cfg(test)]
+    hook: Mutex<Option<LaunchHook>>,
 }
+
+/// Changes a launch, for tests.
+#[cfg(test)]
+pub(crate) type LaunchHook = Arc<dyn Fn(&mut TermLaunch) + Send + Sync>;
 
 impl Terminals {
     /// Terminals in `holds`'s folders, published on `hub`. Call
@@ -386,6 +437,9 @@ impl Terminals {
                 open: Mutex::new(HashMap::new()),
                 notes,
                 restored: watch::Sender::new(true),
+                locks: Mutex::new(HashMap::new()),
+                #[cfg(test)]
+                hook: Mutex::new(None),
             }),
         };
         Wiring {
@@ -467,8 +521,13 @@ impl Terminals {
             };
             match (note, reached) {
                 (Some(note), Reached::Live(link)) => {
-                    let (_, events) = self.hold(terminal, note, link, None);
+                    let block = (note.session.as_ref()).and_then(|session| session.current.clone());
+                    let (entity, events) = self.hold(terminal, note, link, None);
                     tokio::spawn(self.clone().follow(terminal, events));
+                    // A command a session ran while no `maxd` did.
+                    if let Some(block) = block {
+                        self.resume_block(terminal, &entity, block);
+                    }
                 }
                 (Some(note), Reached::Ended(exit)) => {
                     let open = Open::new(note, None, self.inner.device, terminal);
@@ -546,18 +605,80 @@ impl Terminals {
         request: OpenRequest,
     ) -> Result<(Terminal, mpsc::Receiver<TermEvent>), String> {
         let terminal = TerminalId::generate();
-        let (cols, rows) = (request.cols.max(1), request.rows.max(1));
-        let mut launch = match &request.kind {
+        let mut launch = self.launch(
+            terminal,
+            &request.kind,
+            request.cwd.clone(),
+            request.cols,
+            request.rows,
+        );
+        self.integrate(&mut launch);
+        self.spawn_launch(
+            &launch,
+            request.agent,
+            request.kind,
+            request.opener,
+            request.conn,
+            None,
+        )
+        .await
+    }
+
+    /// What starts a terminal of `kind` in `cwd`.
+    fn launch(
+        &self,
+        terminal: TerminalId,
+        kind: &TerminalKind,
+        cwd: PathBuf,
+        cols: u16,
+        rows: u16,
+    ) -> TermLaunch {
+        let (cols, rows) = (cols.max(1), rows.max(1));
+        let mut launch = match kind {
             TerminalKind::Shell | TerminalKind::Session => {
-                TermLaunch::shell(terminal, request.cwd.clone(), cols, rows)
+                TermLaunch::shell(terminal, cwd, cols, rows)
             }
             TerminalKind::Run { command, .. } => {
-                TermLaunch::run(terminal, request.cwd.clone(), command, cols, rows)
+                TermLaunch::run(terminal, cwd, command, cols, rows)
             }
         };
-        self.integrate(&mut launch);
-        if let Err(err) = self.inner.holds.spawn(&launch).await {
-            warn!(%err, agent = %request.agent, "couldn't start a terminal");
+        self.tweak(&mut launch);
+        launch
+    }
+
+    #[cfg(test)]
+    fn tweak(&self, launch: &mut TermLaunch) {
+        let hook = (self.inner.hook.lock())
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .clone();
+        if let Some(hook) = hook {
+            hook(launch);
+        }
+    }
+
+    #[cfg(not(test))]
+    #[allow(clippy::unused_self)]
+    fn tweak(&self, _launch: &mut TermLaunch) {}
+
+    /// Sets what tests change in each launch.
+    #[cfg(test)]
+    pub(crate) fn set_launch_hook(&self, hook: LaunchHook) {
+        *(self.inner.hook.lock()).unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(hook);
+    }
+
+    /// Starts `launch` for an agent, and keeps and publishes the terminal.
+    async fn spawn_launch(
+        &self,
+        launch: &TermLaunch,
+        agent: AgentId,
+        kind: TerminalKind,
+        opener: Opener,
+        conn: u64,
+        session: Option<session::SessionNote>,
+    ) -> Result<(Terminal, mpsc::Receiver<TermEvent>), String> {
+        let terminal = launch.terminal;
+        if let Err(err) = self.inner.holds.spawn(launch).await {
+            warn!(%err, %agent, "couldn't start a terminal");
             return Err(format!("Couldn't start the terminal: {err}"));
         }
         let link = match self.inner.holds.watch(terminal).await {
@@ -572,30 +693,41 @@ impl Terminals {
             }
         };
         let note = Note {
-            agent: request.agent,
-            kind: request.kind,
-            cwd: shown(&request.cwd),
+            agent,
+            kind,
+            cwd: shown(&launch.cwd),
             started_at: link.hello.started_at,
-            opener: request.opener,
+            opener,
             moved: false,
             name: None,
+            session,
         };
         self.save(terminal, &note);
-        Ok(self.hold(terminal, note, link, Some(request.conn)))
+        Ok(self.hold(terminal, note, link, Some(conn)))
+    }
+
+    /// Whether the device's shell integration is on.
+    fn integration_on(&self) -> bool {
+        let key = EntityKey::DeviceSettings(self.inner.device);
+        !matches!(
+            self.inner.hub.get(&key),
+            Some(Entity::DeviceSettings(settings)) if !settings.shell_integration
+        )
     }
 
     /// Gives a drawer shell hooks that mark its prompts and commands,
     /// unless the device's shell integration is off. A shell it can't give
-    /// them starts as it would without.
-    fn integrate(&self, launch: &mut TermLaunch) {
-        let key = EntityKey::DeviceSettings(self.inner.device);
-        if let Some(Entity::DeviceSettings(settings)) = self.inner.hub.get(&key)
-            && !settings.shell_integration
-        {
-            return;
+    /// them starts as it would without. Returns whether it has them.
+    fn integrate(&self, launch: &mut TermLaunch) -> bool {
+        if !self.integration_on() {
+            return false;
         }
-        if let Err(err) = self.inner.holds.integrate(launch) {
-            warn!(%err, "couldn't write the shell integration scripts");
+        match self.inner.holds.integrate(launch) {
+            Ok(integrated) => integrated,
+            Err(err) => {
+                warn!(%err, "couldn't write the shell integration scripts");
+                false
+            }
         }
     }
 
@@ -618,6 +750,9 @@ impl Terminals {
                         open.rebusy()
                     }),
                     TermEvent::Mark { offset, at, mark } => self.update(terminal, |open| {
+                        if matches!(mark, Mark::Prompt) {
+                            open.keys.prompt();
+                        }
                         open.commands.mark(offset, at, &mark);
                         open.rebusy()
                     }),
@@ -691,7 +826,8 @@ impl Terminals {
 
     /// Marks a terminal ended. A run's end goes to the manager, which
     /// releases it once kept. A shell stays as a tab that says it ended
-    /// until you close it.
+    /// until you close it. A session's block that nothing follows ends
+    /// with it.
     fn ended(&self, terminal: TerminalId, exit: Option<TermExit>) {
         let mut opens = self.lock();
         let Some(open) = opens.get_mut(&terminal) else {
@@ -712,7 +848,36 @@ impl Terminals {
             matches!(open.note.kind, TerminalKind::Run { .. }),
             open.closing,
         );
+        // A block whose follower went with a `maxd` that stopped, and
+        // whose shell ended before this one followed it again.
+        let orphan = if open.block.is_none() {
+            let current = (open.note.session.as_mut()).and_then(|session| session.current.take());
+            if current.is_some() {
+                self.save(terminal, &open.note);
+            }
+            current
+        } else {
+            None
+        };
         drop(opens);
+        if let Some(block) = orphan {
+            self.note(RunNote::Block {
+                agent,
+                terminal,
+                block: block.id,
+                change: BlockChange::Ended {
+                    exit: if block.done { block.exit } else { None },
+                    at: Timestamp::now(),
+                    cwd_after: None,
+                    output: maxhq_term::Transcript {
+                        text: String::new(),
+                        lines: 0,
+                        truncated: true,
+                    },
+                    secret_prompts: 0,
+                },
+            });
+        }
         if run {
             self.note(RunNote::Ended {
                 agent,
@@ -805,7 +970,9 @@ impl Terminals {
     }
 
     /// Types `data` into a terminal. The connection then owns its size.
-    /// The bytes go to the holder and nowhere else.
+    /// The bytes go to the holder and nowhere else. In a session, `maxd`
+    /// notes only whether they may have left something at its prompt, and
+    /// that a password went when one waited.
     pub fn input(
         &self,
         conn: u64,
@@ -816,9 +983,18 @@ impl Terminals {
         let mut opens = self.lock();
         let open = opens.get_mut(&terminal).ok_or_else(Refusal::unknown)?;
         open.check(caller, Act::Type).map_err(Refusal::NotAllowed)?;
-        let Some(control) = &open.control else {
+        let Some(control) = open.control.clone() else {
             return Err(Refusal::unreachable());
         };
+        if matches!(open.note.kind, TerminalKind::Session) {
+            match &open.block {
+                Some((_, secrets)) if open.entity.password_prompt => {
+                    let _ = secrets.send(());
+                }
+                _ if !open.entity.busy => open.keys.keys(&data),
+                _ => {}
+            }
+        }
         control.input(data);
         if open.typed(conn) {
             self.publish(open);
@@ -952,6 +1128,7 @@ impl Terminals {
             opener,
             moved: false,
             name: None,
+            session: None,
         };
         let open = Open::new(note, None, self.inner.device, terminal);
         self.publish(&open);
@@ -984,6 +1161,9 @@ impl Host for Terminals {
     }
 
     fn end_agent(&self, agent: AgentId) {
+        (self.inner.locks.lock())
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .remove(&agent);
         let mut ended = Vec::new();
         for (terminal, open) in self.lock().iter_mut() {
             if open.note.agent != agent {
@@ -1000,6 +1180,10 @@ impl Host for Terminals {
         for terminal in ended {
             self.finish(terminal);
         }
+    }
+
+    fn session(&self, request: SessionRequest) {
+        self.serve_session(request);
     }
 }
 

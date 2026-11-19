@@ -214,6 +214,7 @@ fn the_opener_sizes_a_terminal_until_someone_types_then_the_last_to_type_does() 
         opener: Opener::App,
         moved: false,
         name: None,
+        session: None,
     };
     let mut open = Open::new(note, None, DeviceId::derive("host"), TerminalId::generate());
     let size = |open: &Open| (open.entity.cols, open.entity.rows);
@@ -312,6 +313,7 @@ fn a_tab_says_whether_its_holder_keeps_to_the_shells_marks() {
         opener: Opener::App,
         moved: false,
         name: None,
+        session: None,
     };
     // A holder from before protocol 47 doesn't say, so it reads false.
     for marks in [false, true] {
@@ -401,7 +403,7 @@ async fn the_shell_integration_switch_decides_whether_shells_get_hooks() {
         launch
     };
     let mut on = zsh();
-    f.terminals.integrate(&mut on);
+    assert!(f.terminals.integrate(&mut on));
     assert!(on.nonce.is_some());
     assert!(on.env.iter().any(|(key, _)| key == "ZDOTDIR"));
     let key = EntityKey::DeviceSettings(f.hub.device().id);
@@ -416,7 +418,7 @@ async fn the_shell_integration_switch_decides_whether_shells_get_hooks() {
         }),
     }]);
     let mut off = zsh();
-    f.terminals.integrate(&mut off);
+    assert!(!f.terminals.integrate(&mut off));
     let plain = zsh();
     assert_eq!(off.nonce, None);
     assert_eq!((off.args, off.env), (plain.args, plain.env));

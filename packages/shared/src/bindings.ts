@@ -9303,8 +9303,9 @@ export type SessionBlock = {
 	/**  How many passwords you sent at prompts that hid what you typed. */
 	secret_prompts: number,
 	/**
-	 *  The offset of its output's first byte in all the session's terminal
-	 *  printed, so a client can follow it live with
+	 *  Where the shell's mark for the command's start begins, with its
+	 *  output right after, as an offset in all the session's terminal
+	 *  printed. A client follows the block live from there with
 	 *  [`crate::ClientMessage::TerminalAttach`], whose `after` is then one
 	 *  less. None until the shell marks the command's start.
 	 */

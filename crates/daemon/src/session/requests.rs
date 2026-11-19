@@ -393,6 +393,13 @@ impl Manager {
                 return;
             }
         }
+        // A message a person sent seals its agent's session cards once it
+        // goes; one from an agent's tools doesn't.
+        if matches!(message, ClientMessage::SendInput { .. })
+            && self.clients.get(&conn).is_some_and(|viewer| viewer.person)
+        {
+            self.yours.insert(key);
+        }
         if let Some(outcome) = self.action(key, message) {
             self.finish(key, Outcome::Action(outcome));
         }
@@ -415,6 +422,23 @@ impl Manager {
                 rows,
                 ..
             } => self.open_terminal(key, agent, kind, cols, rows),
+            ClientMessage::SessionRun {
+                agent,
+                command,
+                private,
+                fresh,
+                cols,
+                rows,
+                ..
+            } => self.session_run(key, agent, (command, private, fresh), (cols, rows)),
+            ClientMessage::SessionCd { agent, path, .. } => self.session_cd(key, agent, path),
+            ClientMessage::SessionShare {
+                agent,
+                item,
+                block,
+                private,
+                ..
+            } => Some(self.share_block(agent, &item, block, private)),
             ClientMessage::SendInput {
                 agent, input, mode, ..
             } => {
@@ -527,6 +551,7 @@ impl Manager {
                 }
             }
         } else if let Some(open) = self.attention.get(&event) {
+            let agent = open.agent;
             if open.expires_at.is_some_and(|at| at <= self.clock.wall()) {
                 AnswerOutcome::Expired
             } else if self.is_folder_card(event) {
@@ -546,10 +571,15 @@ impl Manager {
                 self.close_attention(event);
                 AnswerOutcome::Accepted
             } else {
-                let agent = open.agent;
+                let mut refs = refs.to_vec();
+                self.keep_shared(&mut refs);
+                // An answer that took a session pill along seals its card.
+                if self.clients.get(&conn).is_some_and(|viewer| viewer.person) {
+                    self.seal_cards(self.lead_of(agent), &refs, false);
+                }
                 // A plan can hand on the pills you answered the dispatcher with.
                 if self.is_dispatcher(agent) {
-                    self.dispatcher.carried.keep(refs);
+                    self.dispatcher.carried.keep(&refs);
                 }
                 self.answering.insert(key, (event, by));
                 self.work.push_back((
@@ -557,7 +587,7 @@ impl Manager {
                     Action::Answer {
                         key,
                         event,
-                        answer: pill_text::answer(answer, refs, agent),
+                        answer: pill_text::answer(answer, &refs, agent),
                         by,
                     },
                 ));
@@ -572,7 +602,10 @@ impl Manager {
     /// Starts a new agent. A Claude agent exists once its holder is up. A
     /// Codex agent exists once the app-server makes its thread. A folder is
     /// looked up off the loop first, since that reads its checkout.
-    fn start_agent(&mut self, key: IdempotencyKey, spec: AgentSpec) -> Option<ActionOutcome> {
+    fn start_agent(&mut self, key: IdempotencyKey, mut spec: AgentSpec) -> Option<ActionOutcome> {
+        if let Some(first) = &mut spec.first {
+            self.keep_shared(&mut first.refs);
+        }
         if let Err(reason) = self.account_dir(&spec) {
             return Some(refused(reason));
         }
@@ -1247,11 +1280,26 @@ impl Manager {
     /// Sends your message to a held agent. One that's paused or whose CLI
     /// is down comes back for it, and one waiting for its limit to reset
     /// stops waiting.
-    fn send_input(&mut self, key: IdempotencyKey, lead: AgentId, message: Message, mode: SendMode) {
+    fn send_input(
+        &mut self,
+        key: IdempotencyKey,
+        lead: AgentId,
+        mut message: Message,
+        mode: SendMode,
+    ) {
         // A restart flag left from a wind-down is stale once you write, and
         // so is a carry-on owed for a limit.
         self.drop_flag(lead);
         self.drop_carry_on(lead);
+        if !self.held.contains_key(&lead) {
+            return;
+        }
+        // A session pill keeps only what its card shares, and a message
+        // you sent seals the cards as it goes, queued or not.
+        self.keep_shared(&mut message.refs);
+        if self.yours.remove(&key) {
+            self.seal_cards(lead, &message.refs, true);
+        }
         let Some(held) = self.held.get(&lead) else {
             return;
         };

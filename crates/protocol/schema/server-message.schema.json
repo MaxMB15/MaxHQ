@@ -13729,7 +13729,7 @@
           "minimum": 0
         },
         "start": {
-          "description": "The offset of its output's first byte in all the session's terminal\nprinted, so a client can follow it live with\n[`crate::ClientMessage::TerminalAttach`], whose `after` is then one\nless. None until the shell marks the command's start.",
+          "description": "Where the shell's mark for the command's start begins, with its\noutput right after, as an offset in all the session's terminal\nprinted. A client follows the block live from there with\n[`crate::ClientMessage::TerminalAttach`], whose `after` is then one\nless. None until the shell marks the command's start.",
           "type": [
             "integer",
             "null"

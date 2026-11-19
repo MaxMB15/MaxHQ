@@ -13,10 +13,12 @@
 //! vendor's history doesn't have them, so a timeline read again from it
 //! gets them back in place.
 
+use std::path::PathBuf;
+
 use maxhq_hold::TermExit;
 use maxhq_protocol::ids::{AgentId, IdempotencyKey, TerminalId};
 use maxhq_protocol::message::{ActionOutcome, ClientMessage};
-use maxhq_protocol::terminal::{Terminal, TerminalKind, TerminalStatus};
+use maxhq_protocol::terminal::{FreshReason, Terminal, TerminalKind, TerminalStatus};
 use maxhq_protocol::time::Timestamp;
 use maxhq_protocol::timeline::{ItemBody, ItemId, ItemStatus, TimelineEvent, TimelineItem};
 use tracing::warn;
@@ -46,13 +48,16 @@ pub(super) fn run_item(terminal: TerminalId) -> ItemId {
 }
 
 impl Manager {
-    /// Takes a request to open a terminal from a connection the server let
-    /// do so, as `opener`.
+    /// Takes a request to open a terminal, or one for an agent's session,
+    /// from a connection the server let make it, as `opener`.
     pub(super) fn terminal_open(&mut self, conn: u64, opener: Opener, message: ClientMessage) {
-        let ClientMessage::TerminalOpen { key, .. } = &message else {
-            return;
+        let key = match &message {
+            ClientMessage::TerminalOpen { key, .. }
+            | ClientMessage::SessionRun { key, .. }
+            | ClientMessage::SessionShare { key, .. }
+            | ClientMessage::SessionCd { key, .. } => *key,
+            _ => return,
         };
-        let key = *key;
         match self.keys.begin(key, conn) {
             Seen::New => {}
             Seen::Running => return,
@@ -78,28 +83,37 @@ impl Manager {
         rows: u16,
     ) -> Option<ActionOutcome> {
         let (opener, conn) = self.openers.remove(&key).unwrap_or((Opener::App, u64::MAX));
-        let Some(held) = self.held.get(&agent) else {
-            let reason = if self.parents.contains_key(&agent) {
-                SUB_AGENT
-            } else {
-                NOT_HELD
-            };
-            return Some(refused(reason));
+        let cwd = match self.terminal_folder(agent) {
+            Ok(cwd) => cwd,
+            Err(reason) => return Some(refused(reason)),
         };
-        if held.guest.is_some() {
-            return Some(refused(IN_GUEST));
-        }
         self.terminals.open(OpenRequest {
             key,
             agent,
             kind,
-            cwd: held.cwd.clone(),
+            cwd,
             cols,
             rows,
             opener,
             conn,
         });
         None
+    }
+
+    /// The folder an agent's terminals open in, or why none open for it:
+    /// only a lead this device runs, outside a container, has them.
+    pub(super) fn terminal_folder(&self, agent: AgentId) -> Result<PathBuf, &'static str> {
+        let Some(held) = self.held.get(&agent) else {
+            return Err(if self.parents.contains_key(&agent) {
+                SUB_AGENT
+            } else {
+                NOT_HELD
+            });
+        };
+        if held.guest.is_some() {
+            return Err(IN_GUEST);
+        }
+        Ok(held.cwd.clone())
     }
 
     /// Takes in what the terminals said.
@@ -113,7 +127,8 @@ impl Manager {
                         refused(AGENT_GONE)
                     }
                     Ok(terminal) => {
-                        self.add_run(&terminal);
+                        let fresh = self.fresh.remove(&key);
+                        self.add_run(&terminal, fresh);
                         ActionOutcome::TerminalOpened {
                             terminal: terminal.id,
                         }
@@ -136,12 +151,20 @@ impl Manager {
                     }
                 });
             }
+            RunNote::Session { key, agent, result } => self.session_note(key, agent, result),
+            RunNote::Block {
+                agent,
+                terminal,
+                block,
+                change,
+            } => self.block_note(agent, terminal, block, change),
         }
     }
 
     /// Adds a `!` run that started to its agent's timeline, after the item
-    /// that was newest, and keeps it.
-    fn add_run(&mut self, terminal: &Terminal) {
+    /// that was newest, and keeps it. `fresh` says why it runs in a fresh
+    /// shell rather than the agent's session, when it went there first.
+    fn add_run(&mut self, terminal: &Terminal, fresh: Option<FreshReason>) {
         let TerminalKind::Run { command, private } = &terminal.kind else {
             return;
         };
@@ -167,23 +190,10 @@ impl Manager {
                 output: String::new(),
                 output_truncated: false,
                 moved: false,
-                fresh: None,
+                fresh,
             },
         };
-        let timeline = self.timeline_mut(agent);
-        let after = timeline.last_id();
-        timeline.anchor(item.id.clone(), after.clone(), terminal.started_at);
-        let after = after.map(|ItemId(id)| id);
-        if let Err(err) = (self.db).put_user_run(
-            agent,
-            &item.id.0,
-            after.as_deref(),
-            terminal.started_at,
-            &item,
-        ) {
-            warn!(%err, %agent, "couldn't keep a run");
-        }
-        self.timeline_events(vec![(agent, TimelineEvent::Upsert { item })]);
+        self.add_kept(item, terminal.started_at);
     }
 
     /// Changes a kept `!` run with `change`, keeps it, and shows it once
@@ -194,7 +204,17 @@ impl Manager {
         terminal: TerminalId,
         change: impl FnOnce(&mut TimelineItem),
     ) {
-        let id = run_item(terminal);
+        self.change_kept(agent, &run_item(terminal), change);
+    }
+
+    /// Changes a kept `!` run or session card with `change`, keeps it, and
+    /// shows it once its agent's timeline is in.
+    pub(super) fn change_kept(
+        &mut self,
+        agent: AgentId,
+        id: &ItemId,
+        change: impl FnOnce(&mut TimelineItem),
+    ) {
         let Some(row) = self.db.user_run::<TimelineItem>(agent, &id.0) else {
             return;
         };
@@ -204,7 +224,7 @@ impl Manager {
         {
             warn!(%err, %agent, "couldn't keep a run");
         }
-        self.show_run(agent, &id);
+        self.show_run(agent, id);
     }
 
     /// Shows a `!` run as it was last kept, once its agent's timeline is
