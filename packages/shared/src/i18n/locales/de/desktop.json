@@ -1106,7 +1106,7 @@
 	"{{countText}} files to copy once it's ready._one": "{{countText}} Datei wird kopiert, sobald alles bereit ist.",
 	"{{countText}} files to copy once it's ready._other": "{{countText}} Dateien werden kopiert, sobald alles bereit ist.",
 	"{{countText}} files weren't copied:_one": "{{countText}} Datei wurde nicht kopiert:",
-	"{{countText}} files weren't copied:_other": "{{countText}} Dateien wurden niet kopiert:",
+	"{{countText}} files weren't copied:_other": "{{countText}} Dateien wurden nicht kopiert:",
 	"{{countText}} forwarded ports_one": "{{countText}} weitergeleiteter Port",
 	"{{countText}} forwarded ports_other": "{{countText}} weitergeleitete Ports",
 	"{{countText}} hidden tabs need you_one": "{{countText}} ausgeblendeter Tab braucht dich",
