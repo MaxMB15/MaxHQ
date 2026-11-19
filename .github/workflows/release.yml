@@ -6,8 +6,14 @@
 # explains the whole process.
 #
 #   prepare-release ─> linux-maxd (x86_64, aarch64) ─> release-macos (aarch64, x64)
-#                   ─> release-ios (iPhone, to TestFlight)
-#                                                       ─> publish-latest-json ─> sync-dev
+#                   ─> release-ios (iPhone, a signed .ipa)
+#                            ─> release-testflight ─> publish-latest-json ─> sync-dev
+#
+# Nothing ships unless every build passes. The iPhone builds beside the Macs,
+# but release-testflight uploads it only once the Linux, Mac and iPhone builds
+# have all succeeded, and publish-latest-json publishes the draft only after
+# that upload. "Re-run failed jobs" finishes a release after a failed build or
+# upload.
 #
 # The tag's message decides whether the draft is published at the end: a line
 # that reads exactly `Publish-Release: true` publishes it. The one-click
@@ -248,11 +254,12 @@ jobs:
           gh release upload "v$VERSION" --repo "$GITHUB_REPOSITORY" --clobber \
             "$OUT/MaxHQ_$ARCH.dmg" "$archive" "$archive.sig"
 
-  # The iPhone app, archived and uploaded to TestFlight. It needs only the
-  # version, so it runs beside the Linux and Mac builds. Its App Store Connect
-  # key isn't the notarizing one: that key has the Developer role, which can't
-  # make App Store distribution signing, so this one has the App Manager role.
-  # The release doesn't hang on this job; publish-latest-json says how.
+  # The iPhone app, archived and signed for App Store Connect. It needs only
+  # the version, so it runs beside the Linux and Mac builds. It keeps the
+  # signed .ipa as an artifact for a day; release-testflight uploads it once
+  # every build has passed. Its App Store Connect key isn't the notarizing
+  # one: that key has the Developer role, which can't make App Store
+  # distribution signing, so this one has the App Manager role.
   release-ios:
     needs: [prepare-release]
     # App Store Connect takes only builds made with the iOS 26 SDK, which
@@ -334,10 +341,10 @@ jobs:
             process.stdout.write(`${JSON.stringify({ teamId, bundleId }, null, "\t")}\n`);' \
             > apps/mobile/ios.local.json
 
-      # The core in release, prebuild, archive and upload, signed by Xcode
-      # through the API key. It checks ios.local.json and the variables below
-      # before the core builds.
-      - name: Build and upload to TestFlight
+      # The core in release, prebuild, archive and export, signed by Xcode
+      # through the API key. --ipa keeps the .ipa instead of uploading it. It
+      # checks ios.local.json and the variables below before the core builds.
+      - name: Build and sign
         env:
           MAXHQ_BUILD_NUMBER: ${{ steps.number.outputs.build }}
           MAXHQ_ASC_KEY_PATH: ${{ runner.temp }}/asc/AuthKey.p8
@@ -347,34 +354,80 @@ jobs:
           # both written into the build.
           MAXHQ_RELEASES_REPO: ${{ github.repository }}
           MAXHQ_APP_STORE_ID: ${{ vars.IOS_APP_STORE_ID }}
-        run: pnpm --filter maxhq-mobile mobile:testflight
+        run: pnpm --filter maxhq-mobile mobile:testflight --ipa
 
       - name: Remove the key
         if: always()
         run: rm -rf "$RUNNER_TEMP/asc"
 
-  # Uploads the Linux maxd, latest.json and mobile.json once both Macs and the
-  # iPhone have built, then publishes the draft when the tag asked for it.
-  #
-  # It waits for release-ios so mobile.json is in the release before phones
-  # can see it, but it doesn't need that job to succeed: when the iPhone
-  # build fails or its approval is turned down, the Mac release still ships,
-  # without mobile.json and without the iPhone line in its notes, phones keep
-  # the build they have, and the run ends with a warning. The Linux and Mac
-  # builds still have to succeed.
+      # Only the signed app travels to the upload job, never the key or the
+      # signing settings. apps/mobile/scripts/native.ts names this path.
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: release-ios-ipa
+          path: apps/mobile/ios/build/export/MaxHQ.ipa
+          retention-days: 1
+          if-no-files-found: error
+
+  # Uploads the iPhone build to TestFlight once the Linux, Mac and iPhone
+  # builds have all succeeded, so a failed build anywhere keeps it out of
+  # TestFlight too. The App Store Connect key stays in macos-signing, so this
+  # job waits for its own approval once the builds are done. It checks out
+  # nothing: while the key is on disk, only Apple's uploader runs.
+  release-testflight:
+    needs: [linux-maxd, release-macos, release-ios]
+    runs-on: macos-26
+    environment: macos-signing
+    permissions: {}
+    env:
+      BUILD: ${{ needs.release-ios.outputs.build }}
+    steps:
+      - name: Download the signed .ipa
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: release-ios-ipa
+          path: ipa
+
+      # altool finds the key as AuthKey_<id>.p8 in API_PRIVATE_KEYS_DIR.
+      - name: Write the App Store Connect key
+        env:
+          APPLE_APP_MANAGER_KEY_ID: ${{ secrets.APPLE_APP_MANAGER_KEY_ID }}
+          APPLE_APP_MANAGER_PRIVATE_KEY: ${{ secrets.APPLE_APP_MANAGER_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          umask 077
+          mkdir -p "$RUNNER_TEMP/asc"
+          printf '%s\n' "$APPLE_APP_MANAGER_PRIVATE_KEY" > "$RUNNER_TEMP/asc/AuthKey_$APPLE_APP_MANAGER_KEY_ID.p8"
+
+      # No retry: App Store Connect takes each build number once, so a second
+      # try after an upload that got through would only fail.
+      - name: Upload to TestFlight
+        env:
+          APPLE_APP_MANAGER_KEY_ID: ${{ secrets.APPLE_APP_MANAGER_KEY_ID }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+          API_PRIVATE_KEYS_DIR: ${{ runner.temp }}/asc
+        run: |
+          set -euo pipefail
+          echo "MaxHQ build $BUILD for the iPhone, to TestFlight."
+          xcrun altool --upload-app -f ipa/MaxHQ.ipa -t ios \
+            --apiKey "$APPLE_APP_MANAGER_KEY_ID" --apiIssuer "$APPLE_API_ISSUER"
+
+      - name: Remove the key
+        if: always()
+        run: rm -rf "$RUNNER_TEMP/asc"
+
+  # Uploads the Linux maxd, latest.json and mobile.json once every build has
+  # passed and the iPhone build is in TestFlight, then publishes the draft
+  # when the tag asked for it.
   publish-latest-json:
-    needs: [prepare-release, linux-maxd, release-macos, release-ios]
-    if: >-
-      ${{ !cancelled() && needs.prepare-release.result == 'success'
-      && needs.linux-maxd.result == 'success' && needs.release-macos.result == 'success' }}
+    needs: [prepare-release, linux-maxd, release-macos, release-ios, release-testflight]
     runs-on: ubuntu-24.04
     permissions:
       contents: write
     env:
       VERSION: ${{ needs.prepare-release.outputs.version }}
       PUBLISH: ${{ needs.prepare-release.outputs.publish }}
-      # Empty when the iPhone build didn't reach TestFlight.
-      IOS_BUILD: ${{ needs.release-ios.result == 'success' && needs.release-ios.outputs.build || '' }}
+      IOS_BUILD: ${{ needs.release-ios.outputs.build }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -425,7 +478,6 @@ jobs:
       # After latest.json, so the line naming the iPhone build stays out of
       # the Mac app's What's new.
       - name: Write and upload mobile.json
-        if: env.IOS_BUILD != ''
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -436,15 +488,6 @@ jobs:
           cat mobile.json
           gh release upload "v$VERSION" --repo "$GITHUB_REPOSITORY" --clobber mobile.json
           gh release edit "v$VERSION" --repo "$GITHUB_REPOSITORY" --notes-file notes.md
-
-      - name: Note the missing iPhone build
-        if: env.IOS_BUILD == ''
-        run: |
-          echo "::warning::The iPhone build didn't reach TestFlight, so v$VERSION has no mobile.json and phones keep the build they have."
-          {
-            echo "### v$VERSION has no iPhone build"
-            echo "release-ios failed or wasn't approved. Rerun it from this run to add the iPhone build and mobile.json."
-          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Publish the draft
         if: env.PUBLISH == 'true'
@@ -465,9 +508,6 @@ jobs:
   # Brings the version bump on main back into dev.
   sync-dev:
     needs: [publish-latest-json]
-    # Spelled out, since a failed release-ios further up would otherwise skip
-    # this job even when publish-latest-json ran.
-    if: ${{ !cancelled() && needs.publish-latest-json.result == 'success' }}
     runs-on: ubuntu-24.04
     permissions:
       contents: write
