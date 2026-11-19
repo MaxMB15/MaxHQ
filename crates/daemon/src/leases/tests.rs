@@ -815,6 +815,15 @@ async fn ios_prefers_a_vm_and_the_mac_itself_needs_your_yes() {
         settings.mac_host = true;
     });
     fx.built(&mac).await;
+    let list = text(
+        fx.store
+            .run(caller("three"), LeaseCall::ListTestHosts)
+            .await,
+    );
+    assert!(
+        list.contains("\n- iOS Simulator on the Mac itself: ready"),
+        "{list}"
+    );
     text(
         fx.store
             .run(caller("three"), open(TestKind::IosSimulator, 0))
