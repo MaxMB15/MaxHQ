@@ -55,25 +55,17 @@ impl Power for NoPower {
 
 #[cfg(target_os = "macos")]
 mod mac {
-    use std::ffi::{c_char, c_void, CStr};
+    use std::ffi::CStr;
     use std::sync::{Arc, Mutex, PoisonError};
     use std::time::Duration;
 
+    use maxhq_core::power::{Assertion, Prevent};
     use maxhq_protocol::model::KeepAwake;
     use tokio::sync::watch;
     use tracing::{debug, warn};
 
     use super::{should_hold, Power};
 
-    type CfStringRef = *const c_void;
-    type AssertionId = u32;
-
-    /// `kCFStringEncodingUTF8`.
-    const UTF8: u32 = 0x0800_0100;
-    /// `kIOPMAssertionLevelOn`.
-    const LEVEL_ON: u32 = 255;
-    /// `kIOPMAssertPreventUserIdleSystemSleep`.
-    const PREVENT_IDLE_SLEEP: &CStr = c"PreventUserIdleSystemSleep";
     /// What Activity Monitor and `pmset -g assertions` show.
     const REASON: &CStr = c"MaxHQ is keeping this Mac awake";
     /// `kIOPSTimeRemainingUnlimited`, the estimate on external power and on
@@ -83,26 +75,8 @@ mod mac {
     const CHECK_EVERY: Duration = Duration::from_secs(15);
 
     #[allow(unsafe_code)]
-    #[link(name = "CoreFoundation", kind = "framework")]
-    unsafe extern "C" {
-        fn CFStringCreateWithCString(
-            alloc: *const c_void,
-            text: *const c_char,
-            encoding: u32,
-        ) -> CfStringRef;
-        fn CFRelease(value: *const c_void);
-    }
-
-    #[allow(unsafe_code)]
     #[link(name = "IOKit", kind = "framework")]
     unsafe extern "C" {
-        fn IOPMAssertionCreateWithName(
-            kind: CfStringRef,
-            level: u32,
-            name: CfStringRef,
-            id: *mut AssertionId,
-        ) -> i32;
-        fn IOPMAssertionRelease(id: AssertionId) -> i32;
         fn IOPSGetTimeRemainingEstimate() -> f64;
     }
 
@@ -115,12 +89,12 @@ mod mac {
     }
 
     /// What the answer depends on besides the mode, and the assertion it
-    /// gave.
+    /// gave, which dropping lets go.
     #[derive(Default)]
     struct State {
         busy: bool,
         on_charger: bool,
-        held: Option<AssertionId>,
+        held: Option<Assertion>,
     }
 
     impl Awake {
@@ -151,11 +125,11 @@ mod mac {
             let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
             change(&mut state);
             let hold = should_hold(*self.mode.borrow(), state.busy, state.on_charger);
-            match (hold, state.held) {
-                (true, None) => state.held = create(),
-                (false, Some(id)) => {
-                    release(id);
+            match (hold, &state.held) {
+                (true, None) => state.held = take(),
+                (false, Some(_)) => {
                     state.held = None;
+                    debug!("the Mac may sleep again");
                 }
                 _ => {}
             }
@@ -170,15 +144,6 @@ mod mac {
 
         fn set_busy(&self, busy: bool) {
             self.update(|state| state.busy = busy);
-        }
-    }
-
-    impl Drop for Awake {
-        fn drop(&mut self) {
-            let state = self.state.get_mut().unwrap_or_else(PoisonError::into_inner);
-            if let Some(id) = state.held.take() {
-                release(id);
-            }
         }
     }
 
@@ -213,54 +178,17 @@ mod mac {
         estimate == UNLIMITED
     }
 
-    /// A CoreFoundation string, released when dropped.
-    struct CfString(CfStringRef);
-
-    impl CfString {
-        #[allow(unsafe_code)]
-        fn new(text: &CStr) -> Option<Self> {
-            // SAFETY: `text` ends in a zero byte, and a null allocator
-            // means the default one.
-            let value = unsafe { CFStringCreateWithCString(std::ptr::null(), text.as_ptr(), UTF8) };
-            (!value.is_null()).then_some(Self(value))
-        }
-    }
-
-    impl Drop for CfString {
-        #[allow(unsafe_code)]
-        fn drop(&mut self) {
-            // SAFETY: the string came from a create call and is released
-            // once.
-            unsafe { CFRelease(self.0) };
-        }
-    }
-
-    /// Takes the assertion, or none when IOKit refuses.
-    #[allow(unsafe_code)]
-    fn create() -> Option<AssertionId> {
-        let kind = CfString::new(PREVENT_IDLE_SLEEP)?;
-        let name = CfString::new(REASON)?;
-        let mut id: AssertionId = 0;
-        // SAFETY: both strings live until after the call, and `id` is a
-        // valid place for the result.
-        let code = unsafe { IOPMAssertionCreateWithName(kind.0, LEVEL_ON, name.0, &mut id) };
-        if code != 0 {
-            warn!(code, "macOS refused to keep the Mac awake");
-            return None;
-        }
-        debug!("keeping the Mac awake");
-        Some(id)
-    }
-
-    /// Lets the assertion go.
-    #[allow(unsafe_code)]
-    fn release(id: AssertionId) {
-        // SAFETY: `id` came from a create call and is released once.
-        let code = unsafe { IOPMAssertionRelease(id) };
-        if code != 0 {
-            warn!(code, "couldn't let the Mac sleep again");
-        } else {
-            debug!("the Mac may sleep again");
+    /// Takes the assertion, or none when macOS refuses.
+    fn take() -> Option<Assertion> {
+        match Assertion::take(Prevent::IdleSleep, REASON) {
+            Ok(held) => {
+                debug!("keeping the Mac awake");
+                Some(held)
+            }
+            Err(error) => {
+                warn!(%error, "macOS refused to keep the Mac awake");
+                None
+            }
         }
     }
 
@@ -270,8 +198,8 @@ mod mac {
 
         use super::*;
 
-        fn held(awake: &Awake) -> Option<AssertionId> {
-            awake.state.lock().unwrap().held
+        fn held(awake: &Awake) -> Option<u32> {
+            awake.state.lock().unwrap().held.as_ref().map(Assertion::id)
         }
 
         #[test]
