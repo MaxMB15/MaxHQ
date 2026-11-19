@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026 Max Boksem
 
-// The custom snooze dialog, as the desktop has it: a date and time, or a
-// duration, for when snoozed agents come back. The snooze sheet asks for a
+// The custom snooze dialog, as the desktop has it: a date and time, picked
+// with the phone's own pickers, or a duration, for when snoozed agents come
+// back. The snooze sheet asks for a
 // time with `requestCustomSnooze`, and the agent list draws the dialog.
 // Edit snooze options opens the list's settings, where the sheet's choices
 // change.
@@ -23,6 +24,7 @@ import {
 
 import { color, radius, size } from "../../theme";
 import { Button } from "../../ui/Button";
+import { DateTimeField } from "../../ui/DateTimeField";
 import { Tabs } from "../pulls/Tabs";
 import { TextField } from "../tasks/fields";
 
@@ -50,10 +52,9 @@ type Unit = "minutes" | "hours" | "days";
 
 const Form = ({ onEditOptions }: { onEditOptions: () => void }) => {
 	const { t } = useI18n();
-	const [initial] = useState(() => new Date(Date.now() + 3_600_000));
+	const [opened] = useState(() => new Date());
 	const [mode, setMode] = useState<Mode>("date");
-	const [date, setDate] = useState(localSnoozeDate(initial));
-	const [time, setTime] = useState(localSnoozeTime(initial));
+	const [when, setWhen] = useState(() => new Date(opened.getTime() + 3_600_000));
 	const [amount, setAmount] = useState("2");
 	const [unit, setUnit] = useState<Unit>("hours");
 	const [error, setError] = useState<string | null>(null);
@@ -66,7 +67,9 @@ const Form = ({ onEditOptions }: { onEditOptions: () => void }) => {
 
 	const snooze = () => {
 		const input: CustomSnoozeInput =
-			mode === "date" ? { mode, date, time } : { mode, amount, unit };
+			mode === "date"
+				? { mode, date: localSnoozeDate(when), time: localSnoozeTime(when) }
+				: { mode, amount, unit };
 		const until = resolveCustomSnooze(input, new Date());
 		if (until === null) {
 			setError(
@@ -100,21 +103,20 @@ const Form = ({ onEditOptions }: { onEditOptions: () => void }) => {
 			{mode === "date" ? (
 				<View style={styles.pair}>
 					<View style={styles.half}>
-						<TextField
+						<DateTimeField
 							label={t("Date")}
-							value={date}
-							onChange={edit(setDate)}
-							placeholder="2026-12-31"
-							keyboardType="numbers-and-punctuation"
+							mode="date"
+							value={when}
+							minimumDate={opened}
+							onChange={edit(setWhen)}
 						/>
 					</View>
 					<View style={styles.half}>
-						<TextField
+						<DateTimeField
 							label={t("Time")}
-							value={time}
-							onChange={edit(setTime)}
-							placeholder="09:00"
-							keyboardType="numbers-and-punctuation"
+							mode="time"
+							value={when}
+							onChange={edit(setWhen)}
 						/>
 					</View>
 				</View>

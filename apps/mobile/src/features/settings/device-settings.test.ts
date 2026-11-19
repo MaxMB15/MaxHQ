@@ -5,11 +5,10 @@ import { describe, expect, it } from "vitest";
 
 import type { Entity } from "@maxhq/shared/bindings";
 import { deviceSettingsOf } from "@maxhq/shared/settings/device-settings";
-import type { EffortDefaultRow } from "@maxhq/shared/settings/effort-defaults";
 import { device, entities, link } from "@maxhq/shared/test/build";
 import { applySnapshot } from "@maxhq/shared/view/replica";
 
-import { draftOf, effortValue, shownFields, someCards } from "./device-settings";
+import { draftOf, shownFields, someCards } from "./device-settings";
 
 const view = applySnapshot({
 	seq: 1,
@@ -67,26 +66,6 @@ describe("draftOf", () => {
 		expect(draftOf({ text: "12", from: 5 }, 5)).toBe("12");
 		expect(draftOf({ text: "12", from: 5 }, 7)).toBeNull();
 		expect(draftOf(null, 5)).toBeNull();
-	});
-});
-
-describe("effortValue", () => {
-	const row = (level: string | null): EffortDefaultRow => ({
-		vendor: "claude",
-		field: "claude_effort",
-		title: "Claude Code effort",
-		sub: "",
-		choices: [
-			{ value: "medium", label: "Medium", isDefault: false },
-			{ value: "high", label: "High", isDefault: true },
-		],
-		level,
-	});
-
-	it("names the level, and marks the default", () => {
-		expect(effortValue(row("medium"))).toBe("Medium");
-		expect(effortValue(row("high"))).toBe("High (default)");
-		expect(effortValue(row(null))).toBe("");
 	});
 });
 

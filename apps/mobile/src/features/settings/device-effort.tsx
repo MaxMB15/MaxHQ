@@ -2,25 +2,20 @@
 // Copyright (c) 2026 Max Boksem
 
 // The effort level new Claude Code and Codex agents on a device start at,
-// in its New agents card. Each row opens the effort dialog an agent's own
-// level uses, over the levels the device's logins list. A vendor shows
-// only once a login of it there lists levels.
+// in its New agents card, on a slider over the levels its logins list, as
+// the desktop has it. Until one is picked, each agent starts at the level
+// its model runs at when told none, and the slider shows the default
+// model's. A vendor shows only once a login of it there lists levels.
 
-import { useState } from "react";
-import { StyleSheet, Text } from "react-native";
+import { StyleSheet, Text, View } from "react-native";
 
 import type { DeviceId } from "@maxhq/shared/bindings";
-import {
-	effortDefaultRows,
-	type EffortDefaultRow,
-	type EffortDefaults,
-} from "@maxhq/shared/settings/effort-defaults";
+import { effortDefaultRows, type EffortDefaults } from "@maxhq/shared/settings/effort-defaults";
 import type { ViewState } from "@maxhq/shared/view/replica";
 
 import { color, size } from "../../theme";
-import { CardRow } from "../../ui/Card";
-import { EffortDialog } from "../agent/EffortDialog";
-import { effortValue } from "./device-settings";
+import { StepSlider } from "../../ui/StepSlider";
+import { CardBody } from "../devices/section";
 
 export const EffortRows = ({
 	view,
@@ -37,32 +32,25 @@ export const EffortRows = ({
 	off: boolean;
 	shown: EffortDefaults;
 	onSave: (change: Partial<EffortDefaults>) => void;
-}) => {
-	const [open, setOpen] = useState<EffortDefaultRow | null>(null);
-	return (
-		<>
-			{effortDefaultRows(view, device, shown).map((row) => (
-				<CardRow
-					key={row.vendor}
-					label={row.title}
-					note={why ?? row.sub}
-					onPress={off ? undefined : () => setOpen(row)}
-				>
-					<Text style={[styles.value, off && styles.dim]}>{effortValue(row)}</Text>
-				</CardRow>
-			))}
-			<EffortDialog
-				pick={open && { message: open.title, levels: open.choices, current: open.level }}
-				onPick={(level) => {
-					if (open) onSave({ [open.field]: level });
-				}}
-				close={() => setOpen(null)}
+}) =>
+	effortDefaultRows(view, device, shown).map(({ vendor, field, title, sub, choices, level }) => (
+		<CardBody key={vendor}>
+			<View style={styles.text}>
+				<Text style={styles.title}>{title}</Text>
+				<Text style={styles.sub}>{why ?? sub}</Text>
+			</View>
+			<StepSlider
+				label={title}
+				stops={choices}
+				value={level ?? ""}
+				onPick={(value) => onSave({ [field]: value })}
+				disabled={off}
 			/>
-		</>
-	);
-};
+		</CardBody>
+	));
 
 const styles = StyleSheet.create({
-	value: { color: color.secondaryForeground, fontSize: size.small },
-	dim: { opacity: 0.5 },
+	text: { gap: 1 },
+	title: { color: color.foreground, fontSize: size.small },
+	sub: { color: color.mutedForeground, fontSize: size.meta },
 });

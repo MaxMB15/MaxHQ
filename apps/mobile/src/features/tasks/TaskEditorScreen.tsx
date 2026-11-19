@@ -16,6 +16,7 @@ import { Platform, ScrollView, StyleSheet, Text, View } from "react-native";
 
 import type { DeviceId, Task, Weekday } from "@maxhq/shared/bindings";
 import { useNow } from "@maxhq/shared/lib/clock";
+import { dateAtTime, timeOfDay } from "@maxhq/shared/lib/zoned-time";
 import { newUuid } from "@maxhq/shared/lib/uuid";
 import { resolve } from "@maxhq/shared/new-agent/spec";
 import { saveDraft } from "@maxhq/shared/tasks/actions";
@@ -47,6 +48,7 @@ import { useServices, useView } from "../../services";
 import { color, size } from "../../theme";
 import { Button } from "../../ui/Button";
 import { confirm } from "../../ui/choose";
+import { DateTimeField } from "../../ui/DateTimeField";
 import { Header } from "../../ui/Header";
 import { NeedsSwitch, useLetsPhone } from "../phone/everything";
 import { useTaskActions } from "./actions";
@@ -211,12 +213,12 @@ const Form = ({
 					) : null}
 					{draft.kind === "at" ? (
 						<>
-							<TextField
+							<DateTimeField
 								label={t("Time")}
-								value={draft.time}
-								onChange={(time) => edit({ time })}
-								placeholder="09:00"
-								keyboardType="numbers-and-punctuation"
+								mode="time"
+								value={dateAtTime(draft.time, draft.zone, new Date(now))}
+								zone={draft.zone}
+								onChange={(picked) => edit({ time: timeOfDay(picked, draft.zone) })}
 							/>
 							<Chips
 								label={t("Days")}
