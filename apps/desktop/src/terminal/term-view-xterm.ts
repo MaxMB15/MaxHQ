@@ -83,6 +83,11 @@ const NEWLINE = 0x0a;
 /** The OSC that marks a shell's prompts and commands. */
 const OSC_MARKS = 133;
 
+const ESC = 0x1b;
+
+/** How a command mark starts, ESC ] 133 ; C, as the holder writes each one. */
+const COMMAND_MARK = [ESC, 0x5d, 0x31, 0x33, 0x33, 0x3b, 0x43];
+
 /** Where a mark sits: on its line, which moves with the scrollback, and in its column. */
 type Spot = { readonly marker: IMarker; readonly x: number };
 
@@ -91,6 +96,8 @@ type Held = CommandSpots<Spot> & {
 	readonly id: number;
 	/** What you typed, read when it starts. */
 	command: string;
+	/** Where its command mark starts in all the terminal printed, when known. */
+	offset: number | null;
 	/** Its mark in the margin, once it started. */
 	decoration: IDecoration | null;
 	/** The mark's element, once it drew. */
@@ -155,6 +162,10 @@ export const xtermView: MakeView = () => {
 	let lastId = 0;
 	// Whether the OSC 133 it reads are its shell's own marks.
 	let marks = false;
+	// Where each command mark written but not yet parsed starts, in order,
+	// and the last bytes written, which may hold the start of the next one.
+	let markOffsets: (number | null)[] = [];
+	let carry = new Uint8Array(0);
 
 	const stopPalette = watchPalette((palette) => {
 		terminal.options.theme = palette;
@@ -359,9 +370,27 @@ export const xtermView: MakeView = () => {
 		}
 	};
 
+	/** Notes where each command mark in `bytes` starts, for the parser to take in order. */
+	const findMarks = (bytes: Uint8Array, offset: number | undefined) => {
+		let seen = bytes;
+		if (carry.length > 0) {
+			seen = new Uint8Array(carry.length + bytes.length);
+			seen.set(carry);
+			seen.set(bytes, carry.length);
+		}
+		const last = seen.length - COMMAND_MARK.length;
+		for (let at = seen.indexOf(ESC); at !== -1 && at <= last; at = seen.indexOf(ESC, at + 1)) {
+			if (COMMAND_MARK.every((byte, index) => seen[at + index] === byte))
+				markOffsets.push(offset === undefined ? null : offset - carry.length + at);
+		}
+		carry = seen.slice(Math.max(0, last + 1));
+	};
+
 	// Every 133 stops here. Only one a holder that keeps to the shell's own
 	// marks let through makes a mark, as any program may print the rest.
 	terminal.parser.registerOscHandler(OSC_MARKS, (body) => {
+		// Each command mark the writes found comes here, taken or not, in order.
+		const offset = body.startsWith("C") ? (markOffsets.shift() ?? null) : null;
 		const mark = marks ? readMark(body) : null;
 		if (!mark) return true;
 		const at: Spot = { marker: terminal.registerMarker(0), x: buffer().cursorX };
@@ -373,6 +402,7 @@ export const xtermView: MakeView = () => {
 			end: null,
 			exit: null,
 			command: "",
+			offset: null,
 			decoration: null,
 			dot: null,
 		});
@@ -384,7 +414,10 @@ export const xtermView: MakeView = () => {
 		if (!change.kept) at.marker.dispose();
 		// The prompt it lets go of may be where the command before it ended.
 		if (change.dropped) forget(change.dropped, held.at(-2)?.end ?? null);
-		if (change.started) begin(change.started);
+		if (change.started) {
+			change.started.offset = offset;
+			begin(change.started);
+		}
 		if (change.ended) paint(change.ended);
 		return true;
 	});
@@ -398,12 +431,15 @@ export const xtermView: MakeView = () => {
 
 	const view: TermView = {
 		element,
-		write: (bytes) => {
+		write: (bytes, offset) => {
 			for (const byte of bytes) if (byte === NEWLINE) newlines++;
+			findMarks(bytes, offset);
 			terminal.write(bytes);
 		},
 		clear: () => {
 			newlines = 0;
+			markOffsets = [];
+			carry = new Uint8Array(0);
 			for (const command of held) forget(command);
 			held = [];
 			shown = null;
@@ -493,7 +529,11 @@ export const xtermView: MakeView = () => {
 			marks = on;
 		},
 		commands: () =>
-			ran().map((command): MarkedCommand => ({ id: command.id, ...markOf(command) })),
+			ran().map((command): MarkedCommand => ({
+				id: command.id,
+				offset: command.offset,
+				...markOf(command),
+			})),
 		output: (id) => {
 			const command = ran().find((held) => held.id === id);
 			if (!command?.start) return null;

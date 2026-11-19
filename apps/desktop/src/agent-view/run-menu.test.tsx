@@ -41,6 +41,7 @@ vi.mock("@/terminal", () => ({
 	useTerminalActions: () => ({
 		sendInput: () => {},
 		text: () => null,
+		runningText: () => null,
 		cellSize: () => ({ width: 8, height: 17 }),
 		pasteIntoDrawer: seam.pasteIntoDrawer,
 		showInDrawer: () => {},

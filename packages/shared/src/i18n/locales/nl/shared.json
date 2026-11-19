@@ -1269,5 +1269,13 @@
 	"This device's maxd can't list folders yet.": "De maxd van dit apparaat kan nog geen mappen tonen.",
 	"Update maxd on {{device}} to browse its folders": "Werk maxd op {{device}} bij om de mappen te bekijken",
 	"Uses the folder it's in, {{folder}}": "Gebruikt de map waarin het staat, {{folder}}",
-	"Wait for the folder to load.": "Wacht tot de map geladen is."
+	"Wait for the folder to load.": "Wacht tot de map geladen is.",
+	"Session": "Sessie",
+	"Sessions need {{setting}}, which is off on {{device}}.": "Sessies hebben {{setting}} nodig, en die staat uit op {{device}}.",
+	"Shell session · {{total}}": "Shell-sessie · {{total}}",
+	"Shell session · {{total}} · {{failed}} failed": "Shell-sessie · {{total}} · {{failed}} mislukt",
+	"The session was busy, so this ran on its own.": "De sessie was bezig, dus dit draaide apart.",
+	"This spans more than one line, so it ran on its own.": "Dit beslaat meer dan één regel, dus het draaide apart.",
+	"This starts with exec, so it ran on its own.": "Dit begint met exec, dus het draaide apart.",
+	"Your shell didn't report its commands, so this ran on its own.": "Je shell gaf zijn opdrachten niet door, dus dit draaide apart."
 }

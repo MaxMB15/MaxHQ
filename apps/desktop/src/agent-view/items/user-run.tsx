@@ -29,11 +29,17 @@ import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { useRow } from "@maxhq/shared/agent-view/context";
 import { useFold } from "@maxhq/shared/agent-view/find-context";
 import { formatTook } from "@maxhq/shared/agent-view/format";
-import type { TerminalStatus, Timestamp } from "@maxhq/shared/bindings";
-import { attempt, failureOf, sendModeFor, turnOf } from "@maxhq/shared/composer/send";
+import type { Agent, TerminalStatus, Timestamp } from "@maxhq/shared/bindings";
+import {
+	attempt,
+	type BusySend,
+	failureOf,
+	sendModeFor,
+	turnOf,
+} from "@maxhq/shared/composer/send";
 import type { ActionResult } from "@maxhq/shared/data/source";
 import { t, useI18n } from "@maxhq/shared/i18n";
-import { type OutputRef, toUserInput } from "@maxhq/shared/pills/draft";
+import { type OutputRef, type Segment, toUserInput } from "@maxhq/shared/pills/draft";
 import { stripAnsi } from "@maxhq/shared/timeline/ansi";
 import {
 	fillOutput,
@@ -43,12 +49,13 @@ import {
 	type UserRunItem,
 } from "@maxhq/shared/terminal/output";
 import { type TerminalEntity, terminalById } from "@maxhq/shared/terminal/select";
+import { freshNote } from "@maxhq/shared/terminal/session";
 import { homeShort, programOf } from "@maxhq/shared/terminal/shell";
-import { deviceName } from "@maxhq/shared/view/select";
+import { deviceName, linkForDevice } from "@maxhq/shared/view/select";
 
-import { useServices, useView } from "@/app/services";
+import { type Services, useServices, useView } from "@/app/services";
 import { CopyButton } from "@/components/copy-button";
-import { takeOutputBack, useOutputHeld } from "@/composer/output-pills";
+import { takeOutputBack, useOutputHeld } from "@/composer/held-pills";
 import { MENU_ITEM, MENU_POPUP } from "@/composer/pickers";
 import { quoteInbox } from "@maxhq/shared/pills/quote-inbox";
 import { askedHere, firstAskHere, runSize, startRun } from "@/composer/run-command";
@@ -56,6 +63,7 @@ import { useTypingPrefs } from "@/composer/typing-prefs";
 import { withParts } from "@/lib/parts";
 import { cn } from "@/lib/utils";
 import { agreedSend } from "@/settings/auto-consent";
+import { showDeviceCard } from "@/settings/store";
 import { LiveTerminal, useTerminalActions } from "@/terminal";
 
 import { AnsiLines, ansiLines } from "../ansi-text";
@@ -67,18 +75,18 @@ import { InputRow, PasswordField } from "./run-input";
 export const FOLDED_LINES = 20;
 
 /** The rows the live terminal takes at most. */
-const LIVE_ROWS = 24;
+export const LIVE_ROWS = 24;
 
-const BUTTON =
+export const BUTTON =
 	"inline-flex h-[22px] shrink-0 cursor-pointer items-center gap-[5px] rounded-md border border-transparent px-2 text-xs whitespace-nowrap text-muted-foreground outline-none hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-default disabled:opacity-60";
 
-const BOXED = cn(BUTTON, "border-border");
+export const BOXED = cn(BUTTON, "border-border");
 
 const KBD =
 	"rounded-[4px] border border-border px-1 font-mono text-[10.5px] text-subtle-foreground";
 
 /** A running clock, such as "0:08" or "1:02:03". */
-const runClock = (ms: number): string => {
+export const runClock = (ms: number): string => {
 	const total = Math.max(0, Math.floor(ms / 1000));
 	const hours = Math.floor(total / 3600);
 	const minutes = Math.floor((total % 3600) / 60);
@@ -89,7 +97,10 @@ const runClock = (ms: number): string => {
 };
 
 /** How a command ended, such as "exit 1 · 4.2 s". */
-const endedText = (status: Extract<TerminalStatus, { state: "exited" }>, took: number | null) => {
+export const endedText = (
+	status: Extract<TerminalStatus, { state: "exited" }>,
+	took: number | null
+) => {
 	const how = status.code !== null ? t("exit {{code}}", { code: status.code }) : t("Stopped");
 	return took === null ? how : `${how} · ${formatTook(took)}`;
 };
@@ -132,6 +143,29 @@ const outputOf = (
 		}),
 		{ item, terminal, live, now: Date.now() }
 	);
+
+/** How a message a card sent on its own ended: whether it went, and the error to show. */
+export type SentAlone = { readonly sent: boolean; readonly error: string | null };
+
+/**
+ * Sends a message of its own to the agent once you agree to it, holding
+ * the segments `segments` gives then, so live output is as fresh as it
+ * gets. `word` says why the device refused it.
+ */
+export const sendAlone = async (
+	services: Services,
+	agent: Agent,
+	busySend: BusySend,
+	segments: () => Segment[],
+	word: (result: ActionResult) => string | null
+): Promise<SentAlone> => {
+	const agreed = await agreedSend(services, agent);
+	if (!agreed.go) return { sent: false, error: agreed.failure };
+	const input = toUserInput({ segments: segments(), gitItems: [] }, () => null);
+	const mode = sendModeFor(turnOf(agent.activity), busySend, false);
+	const error = word(await attempt(() => services.source.sendInput(agent.id, input, mode)));
+	return { sent: error === null, error };
+};
 
 /** The card for a command you ran with `!`. */
 export const UserRunCard = ({ item }: { item: UserRunItem }) => {
@@ -241,29 +275,19 @@ const RunCard = ({
 		setBusy(true);
 		setError(null);
 		try {
-			const agreed = await agreedSend(services, agent);
-			if (!agreed.go) {
-				setError(agreed.failure);
-				return;
-			}
-			const input = toUserInput(
-				{
-					segments: [
-						{ type: "text", text: `${t("Look at this output.")} ` },
-						{ type: "pill", pill: pill() },
-					],
-					gitItems: [],
-				},
-				() => null
+			const { sent, error } = await sendAlone(
+				services,
+				agent,
+				busySend,
+				() => [
+					{ type: "text", text: `${t("Look at this output.")} ` },
+					{ type: "pill", pill: pill() },
+				],
+				(result) => failureOf(result, "send")
 			);
-			const mode = sendModeFor(turnOf(agent.activity), busySend, false);
-			const failure = failureOf(
-				await attempt(() => services.source.sendInput(row.agent, input, mode)),
-				"send"
-			);
-			if (failure !== null) setError(failure);
+			setError(error);
 			// It went with this message, so the next one doesn't take it again.
-			else takeOutputBack(row.agent, item.terminal);
+			if (sent) takeOutputBack(row.agent, item.terminal);
 		} finally {
 			setBusy(false);
 		}
@@ -441,6 +465,7 @@ const RunCard = ({
 			<div className="-mt-1 pr-3 pb-[7px] pl-[34px] font-mono text-[11.5px] text-subtle-foreground">
 				{homeShort(item.cwd)} · {device}
 			</div>
+			<FreshLine item={item} device={device} />
 			{shown && running ? (
 				<div className="border-t border-border bg-subpanel px-3 py-2 empty:hidden">
 					<LiveTerminal
@@ -500,8 +525,41 @@ const RunCard = ({
 	);
 };
 
+/**
+ * Why a command ran in a shell of its own rather than the agent's session,
+ * in one quiet line. Shell integration being off links to its setting.
+ */
+const FreshLine = ({ item, device }: { item: UserRunItem; device: string }) => {
+	useI18n();
+	const services = useServices();
+	const view = useView((state) => state.view);
+	const note = freshNote(item.fresh);
+	if (!note) return null;
+	const link = linkForDevice(view, item.device);
+	const setting =
+		link === undefined ? (
+			t("Shell integration")
+		) : (
+			<button
+				type="button"
+				className="cursor-pointer text-muted-foreground underline underline-offset-2 hover:text-foreground"
+				onClick={() => showDeviceCard(services, link.id, "terminals")}
+			>
+				{t("Shell integration")}
+			</button>
+		);
+	return (
+		<p
+			data-fresh={item.fresh}
+			className="-mt-1 pr-3 pb-[7px] pl-[34px] text-[11.5px] text-subtle-foreground"
+		>
+			{note.setting ? withParts(note.key, { setting, device }) : t(note.key)}
+		</p>
+	);
+};
+
 /** A finished command's output, its last lines until you ask for all. */
-const FinishedOutput = ({
+export const FinishedOutput = ({
 	output,
 	truncated,
 	all,

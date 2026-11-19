@@ -79,6 +79,7 @@ import { findMockGitItems, findMockPaths } from "./mock-find";
 import { mockAgents } from "./mock-agents";
 import { mockAppKeyEntities, mockAppKeys } from "./mock-app-keys";
 import { mockClaims } from "./mock-claims";
+import { sampleSessionTerminal } from "./mock-sessions";
 import { mockTerminals } from "./mock-terminals";
 import { mockFolders } from "./mock-folders";
 import { mockLinks } from "./mock-links";
@@ -361,6 +362,7 @@ export const mockSource = (options: MockOptions = {}): MockSource => {
 		...mockHosts(now()),
 		...mockWorkflowRuns(now()),
 		...dispatcherEntities(),
+		{ entity: "terminal", ...sampleSessionTerminal(now()) },
 	];
 	// The sample tasks publish each device's list as it changes.
 	const tasks = mockTasks({
@@ -1325,6 +1327,8 @@ export const mockSource = (options: MockOptions = {}): MockSource => {
 		},
 		stepMs,
 	};
+	// A message you send tells the sessions, so their open cards close.
+	const { sealSessions, ...terminalCalls } = mockTerminals(fleet, timelines);
 	return {
 		kind: "mock",
 		mock,
@@ -1390,7 +1394,11 @@ export const mockSource = (options: MockOptions = {}): MockSource => {
 			return { status: "ok", data: { lists } };
 		},
 		startAgent,
-		sendInput: done,
+		sendInput: async (agent, input) => {
+			// A message closes the cards of commands you ran before it.
+			sealSessions(agent, input);
+			return DONE;
+		},
 		findPaths: async (_agent, query) => findMockPaths(query),
 		findGitItems: async (agent, query, repo) =>
 			findMockGitItems(repo ?? repoOf(agent), query, now()),
@@ -1607,7 +1615,7 @@ export const mockSource = (options: MockOptions = {}): MockSource => {
 		}),
 		...mockFleet(fleet),
 		...mockClaims(fleet),
-		...mockTerminals(fleet, timelines),
+		...terminalCalls,
 		...mockFolders(),
 		...mockHostCalls(fleet),
 		...mockAgents(now),

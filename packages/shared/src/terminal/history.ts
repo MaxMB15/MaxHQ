@@ -2,8 +2,8 @@
 // Copyright (c) 2026 Max Boksem
 
 // ↑ and ↓ in shell mode: the commands you ran with `!` in this agent's
-// timeline, newest first and each once. No shell's own history file is
-// read.
+// timeline, in a fresh shell or in its session, newest first and each
+// once. No shell's own history file is read.
 
 import type { TimelineState } from "../timeline/apply";
 
@@ -13,11 +13,18 @@ export const runHistory = (state: Pick<TimelineState, "items" | "order">): strin
 	const commands: string[] = [];
 	for (let index = state.order.length - 1; index >= 0; index -= 1) {
 		const item = state.items.get(state.order[index]!);
-		if (item?.kind !== "user_run") continue;
-		const command = item.command.trim();
-		if (command === "" || seen.has(command)) continue;
-		seen.add(command);
-		commands.push(command);
+		const ran =
+			item?.kind === "user_run"
+				? [item.command]
+				: item?.kind === "user_session"
+					? item.blocks.map((block) => block.command).reverse()
+					: [];
+		for (const typed of ran) {
+			const command = typed.trim();
+			if (command === "" || seen.has(command)) continue;
+			seen.add(command);
+			commands.push(command);
+		}
 	}
 	return commands;
 };

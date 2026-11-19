@@ -319,3 +319,25 @@ describe("a terminal whose shell marks its commands", () => {
 		expect(view.jumps).toEqual([true, false]);
 	});
 });
+
+describe("the agent's session", () => {
+	it("is the drawer's first tab, titled Session, and a shell you open goes after it", async () => {
+		renderApp();
+		fireEvent.click(await within(nav()).findByRole("option", { name: /Usage meter popover/ }));
+		await screen.findAllByRole("region", { name: "Usage meter popover" });
+
+		toggle();
+
+		const [session] = await tabs();
+		expect(session).toHaveTextContent("Session");
+		expect(session).toHaveAttribute("aria-selected", "true");
+		await waitFor(() => expect(viewIn(panels()[0]!).written.join("")).toContain("pnpm test"));
+
+		// A shell you open goes after it.
+		fireEvent.click(screen.getByRole("button", { name: "New terminal" }));
+		await waitFor(async () => expect(await tabs()).toHaveLength(2));
+		const [first, second] = await tabs();
+		expect(first).toHaveTextContent("Session");
+		expect(second).toHaveAttribute("aria-selected", "true");
+	});
+});

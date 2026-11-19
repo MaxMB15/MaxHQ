@@ -1269,5 +1269,13 @@
 	"This device's maxd can't list folders yet.": "Der maxd dieses Geräts kann noch keine Ordner auflisten.",
 	"Update maxd on {{device}} to browse its folders": "Aktualisiere maxd auf {{device}}, um seine Ordner zu durchsuchen",
 	"Uses the folder it's in, {{folder}}": "Verwendet den Ordner, in dem sie liegt, {{folder}}",
-	"Wait for the folder to load.": "Warte, bis der Ordner geladen ist."
+	"Wait for the folder to load.": "Warte, bis der Ordner geladen ist.",
+	"Session": "Sitzung",
+	"Sessions need {{setting}}, which is off on {{device}}.": "Sitzungen brauchen die {{setting}}, die auf {{device}} aus ist.",
+	"Shell session · {{total}}": "Shell-Sitzung · {{total}}",
+	"Shell session · {{total}} · {{failed}} failed": "Shell-Sitzung · {{total}} · {{failed}} fehlgeschlagen",
+	"The session was busy, so this ran on its own.": "Die Sitzung war beschäftigt, daher lief dies separat.",
+	"This spans more than one line, so it ran on its own.": "Dies umfasst mehr als eine Zeile, daher lief es separat.",
+	"This starts with exec, so it ran on its own.": "Dies beginnt mit exec, daher lief es separat.",
+	"Your shell didn't report its commands, so this ran on its own.": "Deine Shell hat ihre Befehle nicht gemeldet, daher lief dies separat."
 }

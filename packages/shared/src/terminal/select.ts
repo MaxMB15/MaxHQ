@@ -12,18 +12,23 @@ import { linkForDevice } from "../view/select";
 export type TerminalEntity = EntityOf<"terminal">;
 
 /**
- * Whether the terminal is a tab in its agent's drawer: a shell, or a command
- * you ran with `!` and moved there. Any other command is a card in the
- * timeline.
+ * Whether the terminal is a tab in its agent's drawer: a shell, the
+ * session your `!` commands share, or a command you ran with `!` and moved
+ * there. Any other command is a card in the timeline.
  */
 export const inDrawer = (terminal: TerminalEntity): boolean =>
-	terminal.kind.type === "shell" || terminal.moved;
+	terminal.kind.type === "shell" || terminal.kind.type === "session" || terminal.moved;
 
-/** The agent's drawer tabs, in the order they started. */
+/** The agent's drawer tabs: its session first, then the rest in the order they started. */
 export const terminalsOf = (view: ViewState, agent: AgentId): TerminalEntity[] =>
 	all(view, "terminal")
 		.filter((terminal) => terminal.agent === agent && inDrawer(terminal))
-		.sort((a, b) => a.started_at - b.started_at || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+		.sort(
+			(a, b) =>
+				Number(b.kind.type === "session") - Number(a.kind.type === "session") ||
+				a.started_at - b.started_at ||
+				(a.id < b.id ? -1 : a.id > b.id ? 1 : 0)
+		);
 
 /** The terminal with this id, if the view has it. */
 export const terminalById = (view: ViewState, id: TerminalId): TerminalEntity | undefined =>

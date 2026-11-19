@@ -50,6 +50,8 @@ export const tokensOf = (
 				return middleTruncate(noteLabel(pill.title));
 			case "output":
 				return middleTruncate(oneLine(pill.command));
+			case "session":
+				return t("Shell session");
 		}
 	};
 };

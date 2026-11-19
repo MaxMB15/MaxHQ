@@ -22,6 +22,7 @@ import { ComposerNativeProvider } from "@/composer/native";
 import { quoteInbox } from "@maxhq/shared/pills/quote-inbox";
 import { startRun } from "@/composer/run-command";
 import { draftsOf } from "@/composer/saved-drafts";
+import { settingsOf } from "@/settings/store";
 import {
 	AGENT,
 	DEVICE,
@@ -58,6 +59,7 @@ vi.mock("@/terminal", () => ({
 	useTerminalActions: () => ({
 		sendInput: seam.sendInput,
 		text: seam.text,
+		runningText: () => null,
 		cellSize: () => ({ width: 8, height: 17 }),
 		pasteIntoDrawer: seam.pasteIntoDrawer,
 		showInDrawer: seam.showInDrawer,
@@ -720,5 +722,48 @@ describe("a command moved to the terminal", () => {
 		const card = await findCard();
 
 		expect(card).toHaveTextContent("exit 1 · 4.2 s");
+	});
+});
+
+describe("a command that ran in a shell of its own", () => {
+	it("says Shell integration is off, and its link opens that setting", async () => {
+		const { services } = renderCard(ran({ fresh: "integration_off" }));
+		const card = await findCard();
+
+		expect(card.querySelector("[data-fresh]")).toHaveTextContent(
+			"Sessions need Shell integration, which is off on Mac."
+		);
+		fireEvent.click(button(card, "Shell integration"));
+
+		expect(services().ui.getState().selectedLink).toBe("mac");
+		expect(settingsOf(services()).getState().reveal).toBe("terminals");
+	});
+
+	it("says quietly why the session couldn't take it", async () => {
+		for (const [fresh, note] of [
+			["no_marks", "Your shell didn't report its commands, so this ran on its own."],
+			["busy", "The session was busy, so this ran on its own."],
+			["lines", "This spans more than one line, so it ran on its own."],
+			["exec", "This starts with exec, so it ran on its own."],
+		] as const) {
+			renderCard(ran({ fresh }));
+			const card = await findCard();
+
+			expect(card.querySelector("[data-fresh]")).toHaveTextContent(note);
+			expect(within(card).queryByRole("button", { name: "Shell integration" })).toBeNull();
+			cleanup();
+			clearKept();
+		}
+	});
+
+	it("says nothing when you asked for a fresh shell, or the session wasn't there", async () => {
+		for (const fresh of ["asked", null] as const) {
+			renderCard(ran({ fresh }));
+			const card = await findCard();
+
+			expect(card.querySelector("[data-fresh]")).toBeNull();
+			cleanup();
+			clearKept();
+		}
 	});
 });

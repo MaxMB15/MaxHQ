@@ -8,6 +8,7 @@
 import { type IDecoration, type IDecorationOptions, Terminal } from "@xterm/xterm";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { commandText } from "./term-view";
 import { xtermView } from "./term-view-xterm";
 
 const encode = (text: string) => new TextEncoder().encode(text);
@@ -75,6 +76,7 @@ describe("a terminal view whose shell marks its commands", () => {
 			command: "pnpm test",
 			exit: 1,
 			running: false,
+			offset: null,
 		});
 		expect(running).toMatchObject({ command: "sleep 9", exit: null, running: true });
 		expect(view.output(failed!.id)).toEqual({
@@ -201,7 +203,7 @@ describe("a terminal view whose shell marks its commands", () => {
 
 		await print(bytes);
 		expect(view.commands()).toEqual([
-			{ id: expect.any(Number), command: "pnpm test", exit: 1, running: false },
+			{ id: expect.any(Number), command: "pnpm test", exit: 1, running: false, offset: null },
 		]);
 	});
 
@@ -215,6 +217,29 @@ describe("a terminal view whose shell marks its commands", () => {
 		view.setMarks(true);
 		await print(ran("ls", "", 0));
 		expect(view.commands()).toMatchObject([{ command: "ls", exit: 0 }]);
+	});
+
+	it("knows where each command's mark starts, even split across writes", async () => {
+		const { view, terminal } = make();
+		// A shell started inside a command marks its own commands after it.
+		const outer = ran("nix develop", "entering\r\n", null);
+		const inner = ran("pnpm test", "ok\r\n", null);
+		const bytes = encode(outer + inner);
+		const cut = outer.length + inner.indexOf(mark("C")) + 3;
+		view.write(bytes.subarray(0, cut), 100);
+		view.write(bytes.subarray(cut), 100 + cut);
+		await new Promise<void>((done) => terminal.write("", done));
+
+		const outerStart = 100 + outer.indexOf(mark("C"));
+		const innerStart = 100 + outer.length + inner.indexOf(mark("C"));
+		expect(view.commands().map(({ command, offset }) => [command, offset])).toEqual([
+			["nix develop", outerStart],
+			["pnpm test", innerStart],
+		]);
+		// The outer command's text is its own, not the nested shell's last command.
+		expect(commandText(view, outerStart)).toEqual({ text: "entering", total: 1 });
+		expect(commandText(view, innerStart)).toEqual({ text: "ok", total: 1 });
+		expect(commandText(view, innerStart + 1)).toBeNull();
 	});
 
 	it("works as before for a shell that marks nothing", async () => {

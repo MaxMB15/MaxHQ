@@ -1269,5 +1269,13 @@
 	"This device's maxd can't list folders yet.": "This device's maxd can't list folders yet.",
 	"Update maxd on {{device}} to browse its folders": "Update maxd on {{device}} to browse its folders",
 	"Uses the folder it's in, {{folder}}": "Uses the folder it's in, {{folder}}",
-	"Wait for the folder to load.": "Wait for the folder to load."
+	"Wait for the folder to load.": "Wait for the folder to load.",
+	"Session": "Session",
+	"Sessions need {{setting}}, which is off on {{device}}.": "Sessions need {{setting}}, which is off on {{device}}.",
+	"Shell session · {{total}}": "Shell session · {{total}}",
+	"Shell session · {{total}} · {{failed}} failed": "Shell session · {{total}} · {{failed}} failed",
+	"The session was busy, so this ran on its own.": "The session was busy, so this ran on its own.",
+	"This spans more than one line, so it ran on its own.": "This spans more than one line, so it ran on its own.",
+	"This starts with exec, so it ran on its own.": "This starts with exec, so it ran on its own.",
+	"Your shell didn't report its commands, so this ran on its own.": "Your shell didn't report its commands, so this ran on its own."
 }

@@ -10,8 +10,12 @@
 //
 // The message you were writing stays in the text box, hidden, unless it
 // was one line of plain text: that becomes the command.
+//
+// On a device with sessions, ↩ runs the command in the agent's session and
+// ⌥↩ in a fresh shell. The folder chip shows where the session is, or the
+// agent's folder before there's one, and picks another.
 
-import { ArrowRight, LockKeyhole, SquareTerminal } from "lucide-react";
+import { ArrowRight, ChevronDown, Folder, LockKeyhole, SquareTerminal } from "lucide-react";
 import {
 	type KeyboardEvent,
 	type ReactNode,
@@ -21,23 +25,39 @@ import {
 	useMemo,
 	useRef,
 	useState,
+	useSyncExternalStore,
 } from "react";
 
 import { useKept } from "@maxhq/shared/agent-view/kept";
 import type { AgentId, DeviceId } from "@maxhq/shared/bindings";
+import { attempt, failureOf } from "@maxhq/shared/composer/send";
 import { t, useI18n } from "@maxhq/shared/i18n";
 import { isBlank } from "@maxhq/shared/pills/draft";
 import { runHistory, type RunWalk, walkRuns } from "@maxhq/shared/terminal/history";
 import { supportsTerminals } from "@maxhq/shared/terminal/select";
-import { bangStep, backStep, runPlace, type ShellMode } from "@maxhq/shared/terminal/shell";
+import {
+	openCardOf,
+	sessionFolder,
+	sessionTerminalOf,
+	supportsSessions,
+} from "@maxhq/shared/terminal/session";
+import {
+	bangStep,
+	backStep,
+	homeShort,
+	runPlace,
+	type ShellMode,
+} from "@maxhq/shared/terminal/shell";
 import type { TimelineStore } from "@maxhq/shared/timeline/store";
+import type { ViewState } from "@maxhq/shared/view/replica";
 
 import { useServices, useView } from "@/app/services";
 import { withParts } from "@/lib/parts";
+import { FolderBrowserDialog } from "@/paths/folder-browser";
 import { useTerminalActions } from "@/terminal";
 
 import type { PromptEditorHandle } from "./editor";
-import { runSize, startRun } from "./run-command";
+import { runSize, startRun, startSessionRun } from "./run-command";
 import "./shell-mode.css";
 
 /** The composer's mode and the command it holds. */
@@ -72,6 +92,12 @@ const takeCommand = (agent: AgentId): ShellState | undefined => {
 	const put = waiting.get(agent);
 	waiting.delete(agent);
 	return put;
+};
+
+/** The agent's own folder, where its session opens. */
+const agentFolder = (view: ViewState, agent: AgentId): string | null => {
+	const record = view.tables.agent.get(agent);
+	return (record && view.tables.workspace.get(record.workspace)?.location.path) ?? null;
 };
 
 /** Where the caret goes once the mode changes: the command field at an offset, or the text box. */
@@ -113,7 +139,17 @@ export const useShellMode = ({
 	const actions = useTerminalActions();
 	const view = useView((state) => state.view);
 	const supported = supportsTerminals(view, device);
+	const sessions = supported && supportsSessions(view, device);
 	const place = useMemo(() => runPlace(view, agent), [view, agent]);
+	const session = sessions ? sessionTerminalOf(view, agent) : undefined;
+	// The card the next command goes in, and where the session is.
+	const card = useSyncExternalStore(timeline.subscribe, () =>
+		sessions ? openCardOf(timeline.getState()) : undefined
+	);
+	const sessionAt = useSyncExternalStore(timeline.subscribe, () =>
+		sessionFolder(session, timeline.getState())
+	);
+	const [browsing, setBrowsing] = useState(false);
 	const [state, setState] = useKept<ShellState>(`shell:${agent}`, OFF);
 	const [running, setRunning] = useState(false);
 	const field = useRef<HTMLTextAreaElement>(null);
@@ -190,24 +226,47 @@ export const useShellMode = ({
 		change(OFF, { to: "editor" });
 	};
 
-	const run = async () => {
+	/** Runs the command, in the session unless `fresh` asks for a shell of its own. */
+	const run = async (fresh = false) => {
 		const { command } = state;
 		if (running || command.trim() === "") return;
 		const privately = mode === "private";
 		setRunning(true);
 		onError(null);
-		const started = await startRun(services.source, () => services.view.getState().view, {
-			agent,
-			command,
-			private: privately,
-			size: runSize(box.current?.clientWidth ?? 0, actions.cellSize().width),
-		});
+		const current = () => services.view.getState().view;
+		const size = runSize(box.current?.clientWidth ?? 0, actions.cellSize().width);
+		const started = sessions
+			? await startSessionRun(services.source, current, {
+					agent,
+					command,
+					private: privately,
+					fresh,
+					size,
+				})
+			: await startRun(services.source, current, {
+					agent,
+					command,
+					private: privately,
+					size,
+				});
 		setRunning(false);
 		if (started.error !== undefined) {
 			onError(started.error);
 			return;
 		}
 		change(OFF, { to: "editor" });
+	};
+
+	/** Moves the session to a folder you picked, or opens it there. */
+	const moveTo = async (path: string) => {
+		onError(null);
+		const reason = failureOf(await attempt(() => services.source.sessionCd(agent, path)));
+		if (reason !== null)
+			onError(
+				reason
+					? t("Couldn't move the session. {{reason}}.", { reason })
+					: t("Couldn't move the session.")
+			);
 	};
 
 	const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
@@ -234,6 +293,11 @@ export const useShellMode = ({
 			void run();
 			return;
 		}
+		if (event.key === "Enter" && event.altKey && sessions && !event.shiftKey) {
+			event.preventDefault();
+			void run(true);
+			return;
+		}
 		const up = event.key === "ArrowUp";
 		if ((up || event.key === "ArrowDown") && plainKey && !event.shiftKey) {
 			const before = input.value.slice(0, input.selectionStart);
@@ -258,6 +322,58 @@ export const useShellMode = ({
 		return { mode, onBang: supported ? onBang : undefined, field: null, runButton: null };
 
 	const privately = mode === "private";
+	const folder = sessionAt ?? agentFolder(view, agent);
+	const sessionWhere = place && (
+		<div className="shell-hint shell-where">
+			<button
+				type="button"
+				className="shell-chip"
+				aria-label={t("Pick the folder the session runs in")}
+				title={folder ?? undefined}
+				onClick={() => setBrowsing(true)}
+			>
+				<Folder aria-hidden className="size-3 shrink-0" strokeWidth={2} />
+				<span className="shell-folder">{folder ? homeShort(folder) : place.folder}</span>
+				<ChevronDown aria-hidden className="size-3 shrink-0" strokeWidth={2} />
+			</button>
+			<span>{withParts("on {{device}}", { device: <b>{place.deviceName}</b> })}</span>
+			{card ? (
+				<span className="shell-count">
+					{t("Session · {{count, number}} commands", { count: card.blocks.length })}
+				</span>
+			) : null}
+			<FolderBrowserDialog
+				device={place.device}
+				start={folder ?? "~"}
+				open={browsing}
+				onOpenChange={setBrowsing}
+				onChoose={(path) => void moveTo(path)}
+			/>
+		</div>
+	);
+	const sessionHint = (
+		<div className="shell-hint">
+			<span>
+				{withParts("{{key}} run in the session", {
+					key: <kbd className="shell-key">↩</kbd>,
+				})}
+			</span>
+			<span>
+				{withParts("{{key}} run in a fresh shell", {
+					key: <kbd className="shell-key">⌥↩</kbd>,
+				})}
+			</span>
+			{privately ? (
+				<span>{t("The agent won't see the output")}</span>
+			) : (
+				<span>
+					{withParts("{{bangs}} keeps this one private", {
+						bangs: <span className="font-mono">!!</span>,
+					})}
+				</span>
+			)}
+		</div>
+	);
 	const where = place && (
 		<span>
 			{withParts(
@@ -303,26 +419,33 @@ export const useShellMode = ({
 						onKeyDown={onKeyDown}
 					/>
 				</div>
-				<div className="shell-hint">
-					{where}
-					{privately ? (
-						<span>{t("The agent won't see the output")}</span>
-					) : (
-						<>
-							<span>{t("Output goes with your next message")}</span>
-							<span>
-								{withParts("{{bangs}} keeps it private", {
-									bangs: <span className="font-mono">!!</span>,
-								})}
-							</span>
-							<span>
-								{withParts("{{key}} earlier commands", {
-									key: <kbd className="shell-key">↑</kbd>,
-								})}
-							</span>
-						</>
-					)}
-				</div>
+				{sessions ? (
+					<>
+						{sessionWhere}
+						{sessionHint}
+					</>
+				) : (
+					<div className="shell-hint">
+						{where}
+						{privately ? (
+							<span>{t("The agent won't see the output")}</span>
+						) : (
+							<>
+								<span>{t("Output goes with your next message")}</span>
+								<span>
+									{withParts("{{bangs}} keeps it private", {
+										bangs: <span className="font-mono">!!</span>,
+									})}
+								</span>
+								<span>
+									{withParts("{{key}} earlier commands", {
+										key: <kbd className="shell-key">↑</kbd>,
+									})}
+								</span>
+							</>
+						)}
+					</div>
+				)}
 			</div>
 		),
 		runButton: (
