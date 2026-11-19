@@ -5,8 +5,8 @@
 //!
 //! A message's text holds U+FFFC, the object replacement character, where
 //! each [`InlineRef::Attachment`], [`InlineRef::Quote`], [`InlineRef::Agent`],
-//! [`InlineRef::Note`], [`InlineRef::Visual`] and [`InlineRef::Output`]
-//! sits, one for one in the order of its refs. A [`InlineRef::GitItem`] has
+//! [`InlineRef::Note`], [`InlineRef::Visual`], [`InlineRef::Output`] and
+//! [`InlineRef::Session`] sits, one for one in the order of its refs. A [`InlineRef::GitItem`] has
 //! no U+FFFC: the text keeps `#123` as typed, and the ref says which number
 //! resolved.
 
@@ -128,6 +128,20 @@ pub enum InlineRef {
         #[serde(default)]
         lines: Option<LineSpan>,
     },
+    /// The commands you ran in an agent's session, from one card: the
+    /// blocks you shared, in order, each with its last lines as plain text.
+    /// A client sends it only to a `maxd` at
+    /// [`crate::message::SESSIONS_SINCE`] or later. Since protocol 48.
+    Session {
+        /// The name of the device the session runs on, such as "Mac".
+        device_name: String,
+        /// The shared blocks. A private one isn't here.
+        blocks: Vec<SessionRefBlock>,
+        /// The card it came from, so `maxd` marks the card as sent with
+        /// the message. Agents never see it, so it reads back as none.
+        #[serde(default)]
+        item: Option<ItemId>,
+    },
     /// A pull request or issue, checked when picked.
     GitItem {
         /// "owner/name".
@@ -158,6 +172,31 @@ impl InlineRef {
     pub fn is_placed(&self) -> bool {
         !matches!(self, Self::GitItem { .. })
     }
+}
+
+/// One command in an [`InlineRef::Session`].
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, Type, JsonSchema)]
+pub struct SessionRefBlock {
+    /// The command line, as typed after the `!`.
+    pub command: String,
+    /// The folder it started in, as the device writes it.
+    pub cwd: String,
+    /// The folder the shell was in once it ended, when the command moved
+    /// it.
+    #[serde(default)]
+    pub cwd_after: Option<String>,
+    /// Its exit code, or none while it runs or when the session lost track
+    /// of it.
+    pub exit_code: Option<i32>,
+    /// Whether it still ran when the message went.
+    pub running: bool,
+    /// How long it ran, or has run so far, if known.
+    #[specta(type = Option<specta_typescript::Number>)]
+    pub duration_ms: Option<u64>,
+    /// How many lines it wrote in all, which may be more than `text` holds.
+    pub lines_total: u32,
+    /// Its last lines, as plain text.
+    pub text: String,
 }
 
 /// What kind of item a quote is from.
@@ -270,6 +309,32 @@ mod tests {
                 terminal: None,
                 lines: Some(LineSpan { first: 6, last: 8 }),
             },
+            InlineRef::Session {
+                device_name: "devbox".into(),
+                blocks: vec![
+                    SessionRefBlock {
+                        command: "cd apps/web".into(),
+                        cwd: "~/code/example-app".into(),
+                        cwd_after: Some("~/code/example-app/apps/web".into()),
+                        exit_code: Some(0),
+                        running: false,
+                        duration_ms: Some(3),
+                        lines_total: 0,
+                        text: String::new(),
+                    },
+                    SessionRefBlock {
+                        command: "pnpm test".into(),
+                        cwd: "~/code/example-app/apps/web".into(),
+                        cwd_after: None,
+                        exit_code: None,
+                        running: true,
+                        duration_ms: Some(9_100),
+                        lines_total: 41,
+                        text: "Tests: 1 failed, 37 passed".into(),
+                    },
+                ],
+                item: Some(ItemId("session:1".into())),
+            },
         ]
     }
 
@@ -333,6 +398,36 @@ mod tests {
                 "lines": { "first": 6, "last": 8 },
             })
         );
+        assert_eq!(
+            values[7],
+            json!({
+                "type": "session",
+                "device_name": "devbox",
+                "blocks": [
+                    {
+                        "command": "cd apps/web",
+                        "cwd": "~/code/example-app",
+                        "cwd_after": "~/code/example-app/apps/web",
+                        "exit_code": 0,
+                        "running": false,
+                        "duration_ms": 3,
+                        "lines_total": 0,
+                        "text": "",
+                    },
+                    {
+                        "command": "pnpm test",
+                        "cwd": "~/code/example-app/apps/web",
+                        "cwd_after": null,
+                        "exit_code": null,
+                        "running": true,
+                        "duration_ms": 9_100,
+                        "lines_total": 41,
+                        "text": "Tests: 1 failed, 37 passed",
+                    },
+                ],
+                "item": "session:1",
+            })
+        );
     }
 
     #[test]
@@ -347,8 +442,39 @@ mod tests {
     }
 
     #[test]
+    fn a_session_read_back_from_an_agent_names_no_card() {
+        let parsed: InlineRef = serde_json::from_value(json!({
+            "type": "session",
+            "device_name": "devbox",
+            "blocks": [{
+                "command": "ls",
+                "cwd": "~",
+                "exit_code": 0,
+                "running": false,
+                "duration_ms": null,
+                "lines_total": 1,
+                "text": "README.md",
+            }],
+        }))
+        .unwrap();
+        let InlineRef::Session { blocks, item, .. } = parsed else {
+            panic!("not a session: {parsed:?}");
+        };
+        assert_eq!(item, None);
+        assert_eq!(blocks[0].cwd_after, None);
+        assert_eq!(
+            crate::message::refs_since(&[InlineRef::Session {
+                device_name: "devbox".into(),
+                blocks,
+                item,
+            }]),
+            crate::message::SESSIONS_SINCE
+        );
+    }
+
+    #[test]
     fn only_git_items_sit_outside_the_text() {
         let placed: Vec<_> = all().iter().map(InlineRef::is_placed).collect();
-        assert_eq!(placed, [true, true, true, true, false, true, true]);
+        assert_eq!(placed, [true, true, true, true, false, true, true, true]);
     }
 }

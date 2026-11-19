@@ -30,13 +30,15 @@ import {
 	type PlacedRef,
 	type ReceivedInput,
 	type Segment,
+	type SessionRef,
+	sessionMarker,
 	visualMarker,
 } from "./draft";
 
 /** One run of text, one placed pill, or a `#123` that resolved. */
 export type SentPiece =
 	| { readonly type: "text"; readonly text: string }
-	| { readonly type: "pill"; readonly ref: PlacedRef }
+	| { readonly type: "pill"; readonly ref: Exclude<PlacedRef, SessionRef> }
 	/** The `#123` as typed, with the pull request or issue it names. */
 	| { readonly type: "git"; readonly text: string; readonly ref: GitItemRef };
 
@@ -45,7 +47,8 @@ export type SentPiece =
  * with none drops out. A ref with no mark goes at the end, the way a draft
  * made from the message puts it. Each `#N` outside code whose number has a
  * pull request or issue becomes that one, and so does each `owner/repo#N`
- * with one in that repo. A message with no refs is one run of text.
+ * with one in that repo. A message with no refs is one run of text. A shell
+ * session shows as its marker's text for now.
  */
 export const sentPieces = ({ text, refs = [] }: Pick<ReceivedInput, "text" | "refs">) => {
 	const placed = refs.filter(isPlaced);
@@ -61,11 +64,15 @@ export const sentPieces = ({ text, refs = [] }: Pick<ReceivedInput, "text" | "re
 			pieces[pieces.length - 1] = { type: "text", text: last.text + run };
 		else pieces.push({ type: "text", text: run });
 	};
+	const pushPill = (ref: PlacedRef) => {
+		if (ref.type === "session") pushText(sessionMarker(ref));
+		else pieces.push({ type: "pill", ref });
+	};
 	let next = 0;
 	const cut = (chunk: string) =>
 		chunk.split(OBJECT_MARK).forEach((run, index) => {
 			const ref = index > 0 ? placed[next++] : undefined;
-			if (ref) pieces.push({ type: "pill", ref });
+			if (ref) pushPill(ref);
 			pushText(run);
 		});
 	let at = 0;
@@ -80,7 +87,7 @@ export const sentPieces = ({ text, refs = [] }: Pick<ReceivedInput, "text" | "re
 	for (const ref of placed.slice(next)) {
 		const last = pieces.at(-1);
 		if (last && !(last.type === "text" && /\s$/.test(last.text))) pushText(" ");
-		pieces.push({ type: "pill", ref });
+		pushPill(ref);
 	}
 	return pieces;
 };

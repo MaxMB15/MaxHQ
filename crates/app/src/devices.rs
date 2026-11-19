@@ -2576,7 +2576,11 @@ fn action_targets(merge: &Merge, action: &ClientMessage) -> Result<Vec<Target>, 
         | ClientMessage::FindGitItems { agent, .. }
         | ClientMessage::ExcerptAgent { agent, .. }
         | ClientMessage::FindInTimeline { agent, .. }
-        | ClientMessage::TerminalOpen { agent, .. } => agent_targets(merge, *agent),
+        | ClientMessage::TerminalOpen { agent, .. }
+        | ClientMessage::SessionRun { agent, .. }
+        | ClientMessage::SessionShare { agent, .. }
+        | ClientMessage::SessionCd { agent, .. }
+        | ClientMessage::SessionEnd { agent, .. } => agent_targets(merge, *agent),
         // A terminal runs where its agent does.
         ClientMessage::TerminalInterrupt { terminal, .. }
         | ClientMessage::TerminalClose { terminal, .. }

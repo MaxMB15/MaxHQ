@@ -318,6 +318,17 @@ const SAMPLES: Record<ItemBody["kind"], [ItemBody, string | RegExp, ItemStatus?]
 		"pnpm test",
 		"failed",
 	],
+	user_session: [
+		{
+			kind: "user_session",
+			terminal: "terminal-2",
+			device: "device-1",
+			blocks: [],
+			sealed: false,
+			sent: false,
+		},
+		"user_session",
+	],
 	unknown: [{ kind: "unknown", native_kind: "hook_progress" }, "hook_progress"],
 };
 

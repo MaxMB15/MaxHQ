@@ -883,6 +883,39 @@ pub enum Request {
     /// Makes one folder on `device`, in a folder that's there, for the
     /// folder browser's New folder.
     MakeFolder { device: DeviceId, path: String },
+    // Sessions. Each goes to the device of the agent it's for, and a
+    // `maxd` before protocol 48 refuses it.
+    /// Runs a command typed after `!` in the agent's session, or with
+    /// `fresh` (⌥↩) in a shell of its own. Answers with where it went:
+    /// `session_ran` for a block in the session's card, or
+    /// `terminal_opened` for a fresh shell, whose `UserRun` card says why.
+    SessionRun {
+        agent: AgentId,
+        command: String,
+        private: bool,
+        fresh: bool,
+        cols: u16,
+        rows: u16,
+    },
+    /// Keeps a block of the agent's open session card from the agent, or
+    /// shares it again. Refused once the card is sealed.
+    SessionShare {
+        agent: AgentId,
+        item: ItemId,
+        block: u32,
+        private: bool,
+    },
+    /// Moves the agent's session to a folder on its device, for the folder
+    /// chip: opens the session there (`terminal_opened`), or runs `cd` in
+    /// it as a shared block (`session_ran`). A busy session refuses.
+    SessionCd { agent: AgentId, path: String },
+    /// Ends the agent's session. Without `force`, one with a command
+    /// running refuses, so you're asked first.
+    SessionEnd {
+        agent: AgentId,
+        #[serde(default)]
+        force: bool,
+    },
 }
 
 /// The answer to a [`Request`], of the same kind. A request that only
@@ -1096,6 +1129,10 @@ pub enum Response {
     TerminalMove(ActionOutcome),
     ListFolder(FolderList),
     MakeFolder(ActionOutcome),
+    SessionRun(ActionOutcome),
+    SessionShare(ActionOutcome),
+    SessionCd(ActionOutcome),
+    SessionEnd(ActionOutcome),
 }
 
 impl Request {
@@ -1302,6 +1339,10 @@ impl Request {
             Self::TerminalMove { .. } => "terminal_move",
             Self::ListFolder { .. } => "list_folder",
             Self::MakeFolder { .. } => "make_folder",
+            Self::SessionRun { .. } => "session_run",
+            Self::SessionShare { .. } => "session_share",
+            Self::SessionCd { .. } => "session_cd",
+            Self::SessionEnd { .. } => "session_end",
         }
     }
 }
@@ -1510,6 +1551,10 @@ impl Response {
             Self::TerminalMove(_) => "terminal_move",
             Self::ListFolder(_) => "list_folder",
             Self::MakeFolder(_) => "make_folder",
+            Self::SessionRun(_) => "session_run",
+            Self::SessionShare(_) => "session_share",
+            Self::SessionCd(_) => "session_cd",
+            Self::SessionEnd(_) => "session_end",
         }
     }
 }
@@ -2662,6 +2707,48 @@ impl<C: Connector> App<C> {
             Request::MakeFolder { device, path } => {
                 let action = ClientMessage::MakeFolder { key, device, path };
                 Response::MakeFolder(devices.act(action).await?)
+            }
+            Request::SessionRun {
+                agent,
+                command,
+                private,
+                fresh,
+                cols,
+                rows,
+            } => {
+                let action = ClientMessage::SessionRun {
+                    key,
+                    agent,
+                    command,
+                    private,
+                    fresh,
+                    cols,
+                    rows,
+                };
+                Response::SessionRun(devices.act(action).await?)
+            }
+            Request::SessionShare {
+                agent,
+                item,
+                block,
+                private,
+            } => {
+                let action = ClientMessage::SessionShare {
+                    key,
+                    agent,
+                    item,
+                    block,
+                    private,
+                };
+                Response::SessionShare(devices.act(action).await?)
+            }
+            Request::SessionCd { agent, path } => {
+                let action = ClientMessage::SessionCd { key, agent, path };
+                Response::SessionCd(devices.act(action).await?)
+            }
+            Request::SessionEnd { agent, force } => {
+                let action = ClientMessage::SessionEnd { key, agent, force };
+                Response::SessionEnd(devices.act(action).await?)
             }
         })
     }

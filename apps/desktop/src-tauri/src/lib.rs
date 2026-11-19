@@ -156,6 +156,7 @@ pub fn specta_builder() -> Builder<tauri::Wry> {
         )
         .constant("TERMINALS_SINCE", maxhq_protocol::message::TERMINALS_SINCE)
         .constant("FOLDERS_SINCE", maxhq_protocol::message::FOLDERS_SINCE)
+        .constant("SESSIONS_SINCE", maxhq_protocol::message::SESSIONS_SINCE)
 }
 
 /// The exporter settings for the generated file.

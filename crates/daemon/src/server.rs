@@ -1293,7 +1293,11 @@ impl Connection {
             | ClientMessage::TerminalInterrupt { .. }
             | ClientMessage::TerminalClose { .. }
             | ClientMessage::TerminalRename { .. }
-            | ClientMessage::TerminalMove { .. }) => self.terminal(message).await,
+            | ClientMessage::TerminalMove { .. }
+            | ClientMessage::SessionRun { .. }
+            | ClientMessage::SessionShare { .. }
+            | ClientMessage::SessionCd { .. }
+            | ClientMessage::SessionEnd { .. }) => self.terminal(message).await,
             // Folders answer the app and proven phones, as terminals do.
             ClientMessage::ListFolder {
                 key,

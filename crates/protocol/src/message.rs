@@ -2152,6 +2152,70 @@ pub enum ClientMessage {
         /// The new folder's absolute path.
         path: String,
     },
+
+    // Sessions, since [`SESSIONS_SINCE`]. Only the app and phones may send
+    // these, never a link from another device or an agent's tools.
+    /// Runs a command you typed after `!` in the agent's session, the one
+    /// shell its commands share, and opens the session first when there's
+    /// none. A command that can't go there runs in a fresh shell in the
+    /// session's folder, with a `UserRun` card that says why. The outcome
+    /// is [`ActionOutcome::SessionRan`] for a block in the session's card,
+    /// or [`ActionOutcome::TerminalOpened`] for a fresh shell.
+    SessionRun {
+        /// Makes a resend after a dropped connection safe.
+        key: IdempotencyKey,
+        /// The agent whose session it runs in.
+        agent: AgentId,
+        /// The command line, as typed after the `!`.
+        command: String,
+        /// Whether you ran it with `!!`, so its block starts private.
+        private: bool,
+        /// Whether to run it in a fresh shell rather than the session.
+        fresh: bool,
+        /// The width in cells of a terminal it opens.
+        cols: u16,
+        /// The height in cells of a terminal it opens.
+        rows: u16,
+    },
+    /// Keeps one block of a session card from the agent, or shares it
+    /// again. Refused once the card is sealed.
+    SessionShare {
+        /// Makes a resend after a dropped connection safe.
+        key: IdempotencyKey,
+        /// The agent whose card it is.
+        agent: AgentId,
+        /// The card.
+        item: ItemId,
+        /// The block's ID in the card.
+        block: u32,
+        /// Whether the block is private.
+        private: bool,
+    },
+    /// Moves the agent's session to a folder, for the folder chip. With no
+    /// session yet, it opens one there, and the outcome is
+    /// [`ActionOutcome::TerminalOpened`]. With an idle session, it runs
+    /// `cd` there as a shared block, and the outcome is
+    /// [`ActionOutcome::SessionRan`]. A busy session refuses.
+    SessionCd {
+        /// Makes a resend after a dropped connection safe.
+        key: IdempotencyKey,
+        /// The agent whose session it is.
+        agent: AgentId,
+        /// The folder, as the device writes it. A leading `~` is the
+        /// device's home folder.
+        path: String,
+    },
+    /// Ends the agent's session: hangs up its shell, then forgets it. Its
+    /// cards stay in the timeline.
+    SessionEnd {
+        /// Makes a resend after a dropped connection safe.
+        key: IdempotencyKey,
+        /// The agent whose session it is.
+        agent: AgentId,
+        /// Whether to kill a command that still runs. Without it, a session
+        /// with a command running refuses, so you're asked first.
+        force: bool,
+    },
 }
 
 impl ClientMessage {
@@ -2204,6 +2268,14 @@ impl ClientMessage {
                 .as_ref()
                 .map_or(OLDEST_PROTOCOL_VERSION, UserInput::since),
             Self::MoveAgent { .. } => MOVE_AGENT_SINCE,
+            Self::TerminalOpen {
+                kind: TerminalKind::Session,
+                ..
+            }
+            | Self::SessionRun { .. }
+            | Self::SessionShare { .. }
+            | Self::SessionCd { .. }
+            | Self::SessionEnd { .. } => SESSIONS_SINCE,
             Self::TerminalOpen { .. }
             | Self::TerminalAttach { .. }
             | Self::TerminalDetach { .. }
@@ -2386,7 +2458,11 @@ impl ClientMessage {
             | Self::TerminalRename { key, .. }
             | Self::TerminalMove { key, .. }
             | Self::ListFolder { key, .. }
-            | Self::MakeFolder { key, .. } => Some(*key),
+            | Self::MakeFolder { key, .. }
+            | Self::SessionRun { key, .. }
+            | Self::SessionShare { key, .. }
+            | Self::SessionCd { key, .. }
+            | Self::SessionEnd { key, .. } => Some(*key),
             Self::Hello(_)
             | Self::Phone { .. }
             | Self::Pair { .. }
@@ -2701,6 +2777,7 @@ pub fn refs_since(refs: &[InlineRef]) -> u32 {
             InlineRef::Note { .. } => NOTE_PILLS_SINCE,
             InlineRef::Visual { .. } => VISUALS_SINCE,
             InlineRef::Output { .. } => TERMINALS_SINCE,
+            InlineRef::Session { .. } => SESSIONS_SINCE,
             _ => OLDEST_PROTOCOL_VERSION,
         })
         .max()
@@ -2816,6 +2893,14 @@ pub const FOLDERS_SINCE: u32 = 46;
 /// the zsh, bash and fish it starts in terminals. An older one adds none,
 /// so the app hides the switch.
 pub const SHELL_MARKS_SINCE: u32 = 47;
+
+/// The protocol version whose `maxd` first keeps a session for each agent,
+/// the one shell its `!` commands share: the requests from
+/// [`ClientMessage::SessionRun`] to [`ClientMessage::SessionEnd`], the
+/// [`crate::terminal::TerminalKind::Session`] terminal, the `UserSession`
+/// timeline item and the session pill. An older one refuses each, so the
+/// app runs every `!` in a terminal of its own, as before.
+pub const SESSIONS_SINCE: u32 = 48;
 
 /// When [`ClientMessage::TakeOver`] stops the terminal's CLI.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, Type, JsonSchema)]
@@ -3247,10 +3332,25 @@ pub enum ActionOutcome {
     },
 
     // Terminals.
-    /// A terminal is open, for [`ClientMessage::TerminalOpen`].
+    /// A terminal is open, for [`ClientMessage::TerminalOpen`]. For
+    /// [`ClientMessage::SessionRun`], the command runs in this fresh shell,
+    /// whose `UserRun` card says why. For [`ClientMessage::SessionCd`], the
+    /// session opened in the folder.
     TerminalOpened {
         /// The new terminal.
         terminal: TerminalId,
+    },
+
+    // Sessions.
+    /// A command went to the agent's session as a block in its open card,
+    /// for [`ClientMessage::SessionRun`] and [`ClientMessage::SessionCd`].
+    SessionRan {
+        /// The session's terminal.
+        terminal: TerminalId,
+        /// The card.
+        item: ItemId,
+        /// The block's ID in the card.
+        block: u32,
     },
 
     // Folders.

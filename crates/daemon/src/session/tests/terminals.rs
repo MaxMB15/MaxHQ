@@ -15,13 +15,14 @@ use super::deletes::add_sub;
 use super::restarts::server;
 use super::*;
 use crate::terminals::access::Opener;
-use crate::terminals::{Host, OpenRequest, RunNote, Wiring};
+use crate::terminals::{Host, OpenRequest, RunNote, SessionRequest, Wiring};
 
 #[derive(Default)]
 struct Calls {
     opens: Vec<OpenRequest>,
     released: Vec<TerminalId>,
     ended: Vec<AgentId>,
+    sessions: Vec<SessionRequest>,
     /// Where notes go to the manager that runs now.
     notes: Option<mpsc::UnboundedSender<RunNote>>,
 }
@@ -51,13 +52,13 @@ impl FakeTerminals {
             .unwrap_or_else(|poisoned| poisoned.into_inner())
     }
 
-    fn note(&self, note: RunNote) {
+    pub(super) fn note(&self, note: RunNote) {
         let calls = self.lock();
         let notes = calls.notes.as_ref().expect("a manager is wired");
         notes.send(note).expect("the manager listens");
     }
 
-    fn opens(&self) -> Vec<OpenRequest> {
+    pub(super) fn opens(&self) -> Vec<OpenRequest> {
         self.lock().opens.clone()
     }
 
@@ -65,8 +66,12 @@ impl FakeTerminals {
         self.lock().released.clone()
     }
 
-    fn ended(&self) -> Vec<AgentId> {
+    pub(super) fn ended(&self) -> Vec<AgentId> {
         self.lock().ended.clone()
+    }
+
+    pub(super) fn sessions(&self) -> Vec<SessionRequest> {
+        self.lock().sessions.clone()
     }
 }
 
@@ -81,6 +86,10 @@ impl Host for FakeTerminals {
 
     fn end_agent(&self, agent: AgentId) {
         self.lock().ended.push(agent);
+    }
+
+    fn session(&self, request: SessionRequest) {
+        self.lock().sessions.push(request);
     }
 }
 

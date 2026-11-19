@@ -9,9 +9,10 @@ use maxhq_protocol::ids::{AgentId, IdempotencyKey, PhoneId, TerminalId};
 use maxhq_protocol::message::{ActionOutcome, ErrorCode};
 use maxhq_protocol::state::{Entity, EntityKey};
 use maxhq_protocol::terminal::{Terminal, TerminalKind};
+use maxhq_protocol::timeline::ItemId;
 use maxhq_protocol::{ClientMessage, ProtocolRange, ServerMessage};
 
-use super::NOT_FOR_TERMINALS;
+use super::{NOT_FOR_TERMINALS, SESSION_THROUGH_RUNS};
 use crate::server::proof::unproven;
 use crate::server::tests::{hello, serve, Served, TestClient};
 use crate::server::PHONE_CANT;
@@ -51,7 +52,7 @@ fn published(served: &Served, terminal: TerminalId) -> Terminal {
 }
 
 /// Every request a connection makes of `terminal`, opening one for `agent`
-/// first.
+/// first, then of `agent`'s session.
 fn requests(agent: AgentId, terminal: TerminalId) -> Vec<ClientMessage> {
     let key = IdempotencyKey::generate;
     vec![
@@ -90,7 +91,54 @@ fn requests(agent: AgentId, terminal: TerminalId) -> Vec<ClientMessage> {
             key: key(),
             terminal,
         },
+        ClientMessage::SessionRun {
+            key: key(),
+            agent,
+            command: "whoami".into(),
+            private: false,
+            fresh: false,
+            cols: 80,
+            rows: 24,
+        },
+        ClientMessage::SessionShare {
+            key: key(),
+            agent,
+            item: ItemId(format!("session-{terminal}-1")),
+            block: 1,
+            private: false,
+        },
+        ClientMessage::SessionCd {
+            key: key(),
+            agent,
+            path: "~/code/example-app".into(),
+        },
+        ClientMessage::SessionEnd {
+            key: key(),
+            agent,
+            force: true,
+        },
     ]
+}
+
+/// A `!` command for `agent`'s session, under a new key.
+fn session_run(agent: AgentId) -> ClientMessage {
+    ClientMessage::SessionRun {
+        key: IdempotencyKey::generate(),
+        agent,
+        command: "ls".into(),
+        private: false,
+        fresh: false,
+        cols: 80,
+        rows: 24,
+    }
+}
+
+fn session_end(agent: AgentId, force: bool) -> ClientMessage {
+    ClientMessage::SessionEnd {
+        key: IdempotencyKey::generate(),
+        agent,
+        force,
+    }
 }
 
 /// Sends a keyed request and gives its outcome.
@@ -118,6 +166,42 @@ async fn the_app_reaches_terminals_and_hears_why_a_request_fails() {
     assert!(
         matches!(&opened, ActionOutcome::Refused { reason } if reason.contains("agents MaxHQ runs on this device")),
         "{opened:?}"
+    );
+
+    // So does a session, which opens through `!` and the folder chip, not
+    // as a terminal of its own.
+    let nobody = AgentId::derive("nobody");
+    let open_session = ClientMessage::TerminalOpen {
+        key: IdempotencyKey::generate(),
+        agent: nobody,
+        kind: TerminalKind::Session,
+        cols: 80,
+        rows: 24,
+    };
+    assert_eq!(
+        ask(&mut app, open_session).await,
+        refused(SESSION_THROUGH_RUNS)
+    );
+    let ran = ask(&mut app, session_run(nobody)).await;
+    assert!(
+        matches!(&ran, ActionOutcome::Refused { reason } if reason.contains("agents MaxHQ runs on this device")),
+        "{ran:?}"
+    );
+    let share = ClientMessage::SessionShare {
+        key: IdempotencyKey::generate(),
+        agent: nobody,
+        item: ItemId("session-nowhere-1".into()),
+        block: 1,
+        private: true,
+    };
+    assert_eq!(
+        ask(&mut app, share).await,
+        refused("No session card here has that block.")
+    );
+    // Ending a session that isn't there finds what it asked for.
+    assert_eq!(
+        ask(&mut app, session_end(nobody, false)).await,
+        ActionOutcome::Done
     );
 
     // One nobody holds is a bad ID, whatever the request.
@@ -362,6 +446,17 @@ async fn a_phone_types_only_into_its_own_runs_until_its_switch_is_on() {
         rows: 24,
     };
     assert_eq!(ask(&mut own, open_shell()).await, refused(PHONE_CANT));
+    // It runs `!` commands as it opens runs, and gets as far as the agent,
+    // which isn't here. It ends a session only once its switch is on.
+    let ran = ask(&mut own, session_run(agent)).await;
+    assert!(
+        matches!(&ran, ActionOutcome::Refused { reason } if reason.contains("agents MaxHQ runs on this device")),
+        "{ran:?}"
+    );
+    assert_eq!(
+        ask(&mut own, session_end(agent, true)).await,
+        refused(PHONE_NOT_ITS_OWN)
+    );
 
     // The Mac turns its switch on, and the phone may use every terminal.
     let switch = |everything: bool| ClientMessage::SetPhoneEverything {
@@ -377,6 +472,10 @@ async fn a_phone_types_only_into_its_own_runs_until_its_switch_is_on() {
     }
     let opened = ask(&mut own, open_shell()).await;
     assert_ne!(opened, refused(PHONE_CANT));
+    assert_eq!(
+        ask(&mut own, session_end(agent, true)).await,
+        ActionOutcome::Done
+    );
 
     // Off again, it's back to its own runs.
     assert_eq!(ask(&mut app, switch(false)).await, ActionOutcome::Done);
