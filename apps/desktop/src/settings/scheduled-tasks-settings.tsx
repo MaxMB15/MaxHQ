@@ -24,6 +24,7 @@ import {
 	addressOf,
 	hiddenHookUrl,
 	lastRunLine,
+	needsSecret,
 	nextRunLine,
 	triggerLine,
 	webhookLine,
@@ -34,12 +35,6 @@ import { deviceName } from "@maxhq/shared/view/select";
 import { ConfirmButton, PRIMARY, Row, SECONDARY, Section, StatusNote } from "./controls";
 import type { Note } from "./result";
 import { t as translate, useI18n } from "@maxhq/shared/i18n";
-
-/** Whether a task's webhook waits on a signing secret its device doesn't hold. */
-export const needsSecret = (task: Task): boolean =>
-	task.trigger.type === "hook" &&
-	task.trigger.signature !== null &&
-	!task.trigger.signature.has_secret;
 
 const TaskRow = ({
 	task,

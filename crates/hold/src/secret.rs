@@ -63,6 +63,11 @@ pub(crate) fn new_key() -> io::Result<Secret> {
     Ok(Secret::new(text))
 }
 
+/// A new nonce for a shell's marks: 32 hex digits.
+pub(crate) fn new_nonce() -> io::Result<String> {
+    new_key().map(|key| key.expose()[..32].to_owned())
+}
+
 /// Whether `shown` is `key`. It takes as long however much of the two
 /// match, so a client can't find the key a byte at a time.
 pub(crate) fn key_matches(key: &Secret, shown: &Secret) -> bool {

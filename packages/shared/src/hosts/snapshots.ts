@@ -10,16 +10,29 @@ import { useEffect } from "react";
 import { useStore } from "zustand";
 import { createStore } from "zustand/vanilla";
 
-import type { DeviceId, WorkspaceId, WorkspaceSnapshot } from "../bindings";
+import { t } from "../i18n";
+
+import type { DeviceId, Timestamp, WorkspaceId, WorkspaceSnapshot } from "../bindings";
 import { failureOf } from "../agent-view/answer";
 import type { DataSource } from "../data/source";
 import { readOf } from "../pulls/read";
+import { formatWhen } from "../status/format";
 import type { ViewState } from "../view/replica";
 import { linkForDevice } from "../view/select";
 
 /** Whether a device's `maxd` lists and restores workspace snapshots. */
 export const offersSnapshots = (view: ViewState, device: DeviceId): boolean =>
 	linkForDevice(view, device)?.capabilities?.snapshots === true;
+
+/** When a snapshot was taken and how long it's kept, in words. */
+export const snapshotLine = (snapshot: WorkspaceSnapshot, now: Timestamp): string =>
+	t("Taken {{value1}}, {{value2}}", {
+		value1: formatWhen(snapshot.taken_at, now),
+		value2:
+			snapshot.expires_at === null
+				? t("kept until you delete it")
+				: t("kept until {{value1}}", { value1: formatWhen(snapshot.expires_at, now) }),
+	});
 
 /** Where one workspace's list stands. */
 export type SnapshotList =

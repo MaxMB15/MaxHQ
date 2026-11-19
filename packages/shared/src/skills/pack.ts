@@ -15,6 +15,12 @@ import type {
 	SkillSourceId,
 } from "../bindings";
 
+/**
+ * What devflow's installer writes that taking the pack out leaves, since
+ * you may have changed it.
+ */
+export const PACK_LEFT_FILES = ["CLAUDE.md", "AGENTS.md", ".devflow/", ".mcp.json"] as const;
+
 /** The library sources a project can use as its pack, by name. */
 export const packSources = (library: SkillLibrary): SkillSource[] =>
 	library.sources

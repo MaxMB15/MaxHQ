@@ -4129,6 +4129,17 @@
           "description": "Makes a resend after a dropped connection safe.",
           "$ref": "#/$defs/IdempotencyKey"
         },
+        "mac": {
+          "description": "The Mac that pairs it, which the phone names the book by. An\nolder Mac leaves it out.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PhoneMac"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "type": {
           "type": "string",
           "const": "begin_phone_pair"
@@ -4271,6 +4282,17 @@
         "key": {
           "description": "Makes a resend after a dropped connection safe.",
           "$ref": "#/$defs/IdempotencyKey"
+        },
+        "mac": {
+          "description": "The Mac that sends it. An older Mac leaves it out, and the\ndevice keeps the one it has.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PhoneMac"
+            },
+            {
+              "type": "null"
+            }
+          ]
         },
         "phone": {
           "description": "The phone.",
@@ -4903,6 +4925,229 @@
         "type",
         "key",
         "terminal"
+      ]
+    },
+    {
+      "description": "Lists one folder on a device, for a path field's suggestions and the\nfolder browser. The outcome is [`ActionOutcome::FolderListed`], for\na folder that isn't there too.",
+      "type": "object",
+      "properties": {
+        "device": {
+          "description": "The device the folder is on.",
+          "$ref": "#/$defs/DeviceId"
+        },
+        "files": {
+          "description": "Whether to list files too, not only folders.",
+          "type": "boolean"
+        },
+        "filter": {
+          "description": "Lists only the names that hold this, ignoring case, those that\nstart with it first. The device filters before it cuts a big\nfolder's listing short, so a field finds any name you type. Left\nout, every name lists.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "hidden": {
+          "description": "Whether to list the names that start with a dot.",
+          "type": "boolean"
+        },
+        "key": {
+          "description": "Makes a resend after a dropped connection safe.",
+          "$ref": "#/$defs/IdempotencyKey"
+        },
+        "path": {
+          "description": "The folder's absolute path. A leading `~` is the device's home\nfolder.",
+          "type": "string"
+        },
+        "type": {
+          "type": "string",
+          "const": "list_folder"
+        }
+      },
+      "required": [
+        "type",
+        "key",
+        "device",
+        "path",
+        "files",
+        "hidden"
+      ]
+    },
+    {
+      "description": "Makes one folder on a device, for the folder browser's New folder.\nIts parent must be there already. A resend under the same key gets\nthe first answer, so a folder made before the connection dropped\nisn't reported as there already.",
+      "type": "object",
+      "properties": {
+        "device": {
+          "description": "The device the folder goes on.",
+          "$ref": "#/$defs/DeviceId"
+        },
+        "key": {
+          "description": "Makes a resend after a dropped connection safe.",
+          "$ref": "#/$defs/IdempotencyKey"
+        },
+        "path": {
+          "description": "The new folder's absolute path.",
+          "type": "string"
+        },
+        "type": {
+          "type": "string",
+          "const": "make_folder"
+        }
+      },
+      "required": [
+        "type",
+        "key",
+        "device",
+        "path"
+      ]
+    },
+    {
+      "description": "Runs a command you typed after `!` in the agent's session, the one\nshell its commands share, and opens the session first when there's\nnone. A command that can't go there runs in a fresh shell in the\nsession's folder, with a `UserRun` card that says why. The outcome\nis [`ActionOutcome::SessionRan`] for a block in the session's card,\nor [`ActionOutcome::TerminalOpened`] for a fresh shell.",
+      "type": "object",
+      "properties": {
+        "agent": {
+          "description": "The agent whose session it runs in.",
+          "$ref": "#/$defs/AgentId"
+        },
+        "cols": {
+          "description": "The width in cells of a terminal it opens.",
+          "type": "integer",
+          "format": "uint16",
+          "maximum": 65535,
+          "minimum": 0
+        },
+        "command": {
+          "description": "The command line, as typed after the `!`.",
+          "type": "string"
+        },
+        "fresh": {
+          "description": "Whether to run it in a fresh shell rather than the session.",
+          "type": "boolean"
+        },
+        "key": {
+          "description": "Makes a resend after a dropped connection safe.",
+          "$ref": "#/$defs/IdempotencyKey"
+        },
+        "private": {
+          "description": "Whether you ran it with `!!`, so its block starts private.",
+          "type": "boolean"
+        },
+        "rows": {
+          "description": "The height in cells of a terminal it opens.",
+          "type": "integer",
+          "format": "uint16",
+          "maximum": 65535,
+          "minimum": 0
+        },
+        "type": {
+          "type": "string",
+          "const": "session_run"
+        }
+      },
+      "required": [
+        "type",
+        "key",
+        "agent",
+        "command",
+        "private",
+        "fresh",
+        "cols",
+        "rows"
+      ]
+    },
+    {
+      "description": "Keeps one block of a session card from the agent, or shares it\nagain. Refused once the card is sealed.",
+      "type": "object",
+      "properties": {
+        "agent": {
+          "description": "The agent whose card it is.",
+          "$ref": "#/$defs/AgentId"
+        },
+        "block": {
+          "description": "The block's ID in the card.",
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "item": {
+          "description": "The card.",
+          "$ref": "#/$defs/ItemId"
+        },
+        "key": {
+          "description": "Makes a resend after a dropped connection safe.",
+          "$ref": "#/$defs/IdempotencyKey"
+        },
+        "private": {
+          "description": "Whether the block is private.",
+          "type": "boolean"
+        },
+        "type": {
+          "type": "string",
+          "const": "session_share"
+        }
+      },
+      "required": [
+        "type",
+        "key",
+        "agent",
+        "item",
+        "block",
+        "private"
+      ]
+    },
+    {
+      "description": "Moves the agent's session to a folder, for the folder chip. With no\nsession yet, it opens one there, and the outcome is\n[`ActionOutcome::TerminalOpened`]. With an idle session, it runs\n`cd` there as a shared block, and the outcome is\n[`ActionOutcome::SessionRan`]. A busy session refuses.",
+      "type": "object",
+      "properties": {
+        "agent": {
+          "description": "The agent whose session it is.",
+          "$ref": "#/$defs/AgentId"
+        },
+        "key": {
+          "description": "Makes a resend after a dropped connection safe.",
+          "$ref": "#/$defs/IdempotencyKey"
+        },
+        "path": {
+          "description": "The folder, as the device writes it. A leading `~` is the\ndevice's home folder.",
+          "type": "string"
+        },
+        "type": {
+          "type": "string",
+          "const": "session_cd"
+        }
+      },
+      "required": [
+        "type",
+        "key",
+        "agent",
+        "path"
+      ]
+    },
+    {
+      "description": "Ends the agent's session: hangs up its shell, then forgets it. Its\ncards stay in the timeline.",
+      "type": "object",
+      "properties": {
+        "agent": {
+          "description": "The agent whose session it is.",
+          "$ref": "#/$defs/AgentId"
+        },
+        "force": {
+          "description": "Whether to kill a command that still runs. Without it, a session\nwith a command running refuses, so you're asked first.",
+          "type": "boolean"
+        },
+        "key": {
+          "description": "Makes a resend after a dropped connection safe.",
+          "$ref": "#/$defs/IdempotencyKey"
+        },
+        "type": {
+          "type": "string",
+          "const": "session_end"
+        }
+      },
+      "required": [
+        "type",
+        "key",
+        "agent",
+        "force"
       ]
     }
   ],
@@ -6175,6 +6420,17 @@
                 "$ref": "#/$defs/PhoneBookEntry"
               }
             },
+            "mac": {
+              "description": "The Mac that paired it, when the Mac said.",
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/PhoneMac"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
             "phone": {
               "description": "The phone's ID, for `maxd proxy --phone`.",
               "$ref": "#/$defs/PhoneId"
@@ -6279,7 +6535,7 @@
           ]
         },
         {
-          "description": "A terminal is open, for [`ClientMessage::TerminalOpen`].",
+          "description": "A terminal is open, for [`ClientMessage::TerminalOpen`]. For\n[`ClientMessage::SessionRun`], the command runs in this fresh shell,\nwhose `UserRun` card says why. For [`ClientMessage::SessionCd`], the\nsession opened in the folder.",
           "type": "object",
           "properties": {
             "status": {
@@ -6294,6 +6550,54 @@
           "required": [
             "status",
             "terminal"
+          ]
+        },
+        {
+          "description": "A command went to the agent's session as a block in its open card,\nfor [`ClientMessage::SessionRun`] and [`ClientMessage::SessionCd`].",
+          "type": "object",
+          "properties": {
+            "block": {
+              "description": "The block's ID in the card.",
+              "type": "integer",
+              "format": "uint32",
+              "minimum": 0
+            },
+            "item": {
+              "description": "The card.",
+              "$ref": "#/$defs/ItemId"
+            },
+            "status": {
+              "type": "string",
+              "const": "session_ran"
+            },
+            "terminal": {
+              "description": "The session's terminal.",
+              "$ref": "#/$defs/TerminalId"
+            }
+          },
+          "required": [
+            "status",
+            "terminal",
+            "item",
+            "block"
+          ]
+        },
+        {
+          "description": "What a folder holds, for [`ClientMessage::ListFolder`].",
+          "type": "object",
+          "properties": {
+            "listing": {
+              "description": "The listing.",
+              "$ref": "#/$defs/FolderListing"
+            },
+            "status": {
+              "type": "string",
+              "const": "folder_listed"
+            }
+          },
+          "required": [
+            "status",
+            "listing"
           ]
         },
         {
@@ -7857,6 +8161,24 @@
             "field",
             "value"
           ]
+        },
+        {
+          "description": "See [`DeviceSettings::shell_integration`].",
+          "type": "object",
+          "properties": {
+            "field": {
+              "type": "string",
+              "const": "shell_integration"
+            },
+            "value": {
+              "description": "What it becomes.",
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "field",
+            "value"
+          ]
         }
       ]
     },
@@ -7955,6 +8277,11 @@
           "description": "How readily new agents go to this device when you don't pick one.",
           "$ref": "#/$defs/Placement",
           "default": "normal"
+        },
+        "shell_integration": {
+          "description": "Whether terminals this device opens give zsh, bash and fish hooks\nthat mark each prompt and command, so MaxHQ can tell commands\napart. Off starts shells as their own startup files say. It applies\nto shells opened after it changes. A `maxd` from before\n[`crate::message::SHELL_MARKS_SINCE`] leaves it out and adds no\nhooks.",
+          "type": "boolean",
+          "default": true
         },
         "skill_library": {
           "description": "Whether this device keeps the skill library. None leaves it to the\ndefault, which is that a Mac keeps it and other devices don't.",
@@ -8363,6 +8690,93 @@
       "required": [
         "item",
         "occurrence"
+      ]
+    },
+    "FolderCheckout": {
+      "description": "A git checkout a [`FolderEntry`] is the top of.",
+      "type": "object",
+      "properties": {
+        "branch": {
+          "description": "The branch it has checked out, or none on a detached HEAD.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "project": {
+          "description": "Its project, as the device names it, the same on every device for\ncheckouts of one remote.",
+          "$ref": "#/$defs/ProjectId"
+        }
+      },
+      "required": [
+        "project"
+      ]
+    },
+    "FolderEntry": {
+      "description": "One entry of a [`FolderListing`].",
+      "type": "object",
+      "properties": {
+        "checkout": {
+          "description": "The checkout, when it's the top folder of one.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/FolderCheckout"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "folder": {
+          "description": "Whether it's a folder, or a link to one.",
+          "type": "boolean"
+        },
+        "name": {
+          "description": "Its name in the folder.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "folder"
+      ]
+    },
+    "FolderListing": {
+      "description": "What [`crate::ClientMessage::ListFolder`] found. A folder that isn't\nthere is an answer too, with no entries, so a field can suggest a parent\nfolder that doesn't exist yet.",
+      "type": "object",
+      "properties": {
+        "entries": {
+          "description": "What it holds, folders first, each group by name ignoring case.\nWith a filter, the names that start with it come before the rest.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/FolderEntry"
+          }
+        },
+        "exists": {
+          "description": "Whether the folder is there.",
+          "type": "boolean"
+        },
+        "home": {
+          "description": "The device's home folder, which a typed `~` stands for, or none\nwhen `maxd` can't tell it. A client then leaves `~` as it is.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "path": {
+          "description": "The folder's absolute path as asked for, with `~` expanded, `.`\ndropped and each `..` read as the folder above. Links in it stay as\nthey are, so the path matches what you navigated and what the\ndevice's workspaces name.",
+          "type": "string"
+        },
+        "truncated": {
+          "description": "Whether it holds more than the entries say, or took too long to\nread to the end, the checkouts' tags included.",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "path",
+        "exists",
+        "entries",
+        "truncated"
       ]
     },
     "ForwardId": {
@@ -9365,6 +9779,44 @@
             "ran_at",
             "lines_total",
             "text"
+          ]
+        },
+        {
+          "description": "The commands you ran in an agent's session, from one card: the\nblocks you shared, in order, each with its last lines as plain text.\nA client sends it only to a `maxd` at\n[`crate::message::SESSIONS_SINCE`] or later. Since protocol 48.",
+          "type": "object",
+          "properties": {
+            "blocks": {
+              "description": "The shared blocks. A private one isn't here.",
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/SessionRefBlock"
+              }
+            },
+            "device_name": {
+              "description": "The name of the device the session runs on, such as \"Mac\".",
+              "type": "string"
+            },
+            "item": {
+              "description": "The card it came from, so `maxd` marks the card as sent with\nthe message. Agents never see it, so it reads back as none.",
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/ItemId"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "type": {
+              "type": "string",
+              "const": "session"
+            }
+          },
+          "required": [
+            "type",
+            "device_name",
+            "blocks"
           ]
         },
         {
@@ -10562,6 +11014,24 @@
       "description": "A phone you paired, from its pairing on.",
       "type": "string",
       "format": "uuid"
+    },
+    "PhoneMac": {
+      "description": "The Mac that made a [`PhoneBook`]. It is often not the keeper, which\ncan be any device the Mac paired the phone through.",
+      "type": "object",
+      "properties": {
+        "device": {
+          "description": "The Mac's own device.",
+          "$ref": "#/$defs/DeviceId"
+        },
+        "name": {
+          "description": "Its name, such as \"Home Mac\".",
+          "type": "string"
+        }
+      },
+      "required": [
+        "device",
+        "name"
+      ]
     },
     "PhoneNetwork": {
       "description": "How a phone reaches one device of its book over the network.",
@@ -11941,6 +12411,66 @@
       "format": "uint64",
       "minimum": 0
     },
+    "SessionRefBlock": {
+      "description": "One command in an [`InlineRef::Session`].",
+      "type": "object",
+      "properties": {
+        "command": {
+          "description": "The command line, as typed after the `!`.",
+          "type": "string"
+        },
+        "cwd": {
+          "description": "The folder it started in, as the device writes it.",
+          "type": "string"
+        },
+        "cwd_after": {
+          "description": "The folder the shell was in once it ended, when the command moved\nit.",
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null
+        },
+        "duration_ms": {
+          "description": "How long it ran, or has run so far, if known.",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint64",
+          "minimum": 0
+        },
+        "exit_code": {
+          "description": "Its exit code, or none while it runs or when the session lost track\nof it.",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "int32"
+        },
+        "lines_total": {
+          "description": "How many lines it wrote in all, which may be more than `text` holds.",
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "running": {
+          "description": "Whether it still ran when the message went.",
+          "type": "boolean"
+        },
+        "text": {
+          "description": "Its last lines, as plain text.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "command",
+        "cwd",
+        "running",
+        "lines_total",
+        "text"
+      ]
+    },
     "Settled": {
       "description": "When and why an agent was settled.",
       "type": "object",
@@ -12741,6 +13271,19 @@
             "type",
             "command",
             "private"
+          ]
+        },
+        {
+          "description": "The agent's session: the one shell its `!` commands share, so `cd`\nand `export` carry over. A tab first in the drawer, titled\n\"Session\". An agent has one at most. Since protocol 48: an older\nclient leaves the whole terminal out.",
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "session"
+            }
+          },
+          "required": [
+            "type"
           ]
         }
       ]

@@ -17,10 +17,17 @@ import type { PluginFunc } from "dayjs";
 
 import { currentTheme } from "@/app/theme";
 import { hangGuard } from "@/lib/hang-guard";
+import { diagramTheme } from "@maxhq/shared/agent-view/diagram-theme";
+import {
+	drawingSize,
+	failureReason,
+	mermaidSettings,
+	STAGE_WIDTH_PX,
+	svgUrl,
+} from "@maxhq/shared/agent-view/drawing";
 import { fnv1a } from "@maxhq/shared/lib/fnv";
 import type { Theme } from "@maxhq/shared/theme/theme";
 
-import { DIAGRAM_CSS, diagramTheme } from "./diagram-theme";
 import { t as translate } from "@maxhq/shared/i18n";
 
 /** A diagram as a picture, or why it couldn't be drawn. */
@@ -41,18 +48,12 @@ export type Drawing =
 			readonly heldBack?: boolean;
 	  };
 
-// Mermaid sizes a diagram such as a Gantt chart to what holds it, so this is
-// the same width wherever it shows, and the picture scales from there.
-const STAGE_WIDTH_PX = 760;
-
 // How wide a picture is when seen whole, unless that would take it past 4x.
 const WHOLE_WIDTH_PX = 1600;
 const WHOLE_MOST = 4;
 
 // A long session's diagrams are kept for scrolling back, up to this many.
 const KEPT = 200;
-
-const REASON_LENGTH = 160;
 
 // A Gantt chart with `excludes` walks each task a day at a time, so a task of
 // 250000 years would never finish. Each step adds to a date, and a diagram
@@ -96,30 +97,9 @@ const load = async (): Promise<Tools> => {
 		if (look === theme) return;
 		look = theme;
 		const styles = getComputedStyle(document.documentElement);
-		mermaid.initialize({
-			startOnLoad: false,
-			securityLevel: "strict",
-			suppressErrorRendering: true,
-			htmlLabels: false,
-			flowchart: { htmlLabels: false },
-			theme: "base",
-			themeVariables: diagramTheme((name) => styles.getPropertyValue(name).trim(), theme),
-			themeCSS: DIAGRAM_CSS,
-			// What a diagram's own `%%{init}%%` can't change.
-			secure: [
-				"secure",
-				"securityLevel",
-				"startOnLoad",
-				"maxTextSize",
-				"maxEdges",
-				"suppressErrorRendering",
-				"theme",
-				"themeCSS",
-				"fontFamily",
-				"altFontFamily",
-				"htmlLabels",
-			],
-		});
+		mermaid.initialize(
+			mermaidSettings(diagramTheme((name) => styles.getPropertyValue(name).trim(), theme))
+		);
 	};
 	return {
 		render: (id, text, holder) => {
@@ -151,24 +131,15 @@ const stageElement = (): HTMLElement => {
 	return stage;
 };
 
-const svgUrl = (svg: string, width: number, height: number): string =>
-	`data:image/svg+xml;charset=utf-8,${encodeURIComponent(
-		svg.replace(/^<svg /, `<svg width="${width}" height="${height}" `)
-	)}`;
-
 /** The picture of a cleaned drawing, sized from what Mermaid gave its root. */
 export const pictureOf = (root: SVGSVGElement): Drawing => {
-	const box = (root.getAttribute("viewBox") ?? "").split(/[\s,]+/).map(Number);
-	const attribute = root.getAttribute("width") ?? "";
-	const wide =
-		Number.parseFloat(root.style.maxWidth) ||
-		(attribute.endsWith("%") ? 0 : Number.parseFloat(attribute)) ||
-		box[2];
-	const [boxWidth, boxHeight] = [box[2], box[3]];
-	if (!wide || !boxWidth || !boxHeight)
-		return { state: "failed", reason: translate("The drawing has no size.") };
-	const width = Math.ceil(wide);
-	const height = Math.ceil((wide * boxHeight) / boxWidth);
+	const size = drawingSize({
+		maxWidth: root.style.maxWidth,
+		width: root.getAttribute("width"),
+		viewBox: root.getAttribute("viewBox"),
+	});
+	if (!size) return { state: "failed", reason: translate("The drawing has no size.") };
+	const { width, height } = size;
 	root.removeAttribute("width");
 	root.removeAttribute("height");
 	root.style.maxWidth = "";
@@ -197,8 +168,7 @@ const draw = async (source: string): Promise<Drawing> => {
 			? pictureOf(root)
 			: { state: "failed", reason: translate("The drawing came out empty.") };
 	} catch (error) {
-		const message = error instanceof Error ? error.message : String(error);
-		return { state: "failed", reason: (message.split("\n")[0] ?? "").slice(0, REASON_LENGTH) };
+		return { state: "failed", reason: failureReason(error) };
 	} finally {
 		stepsLeft = Number.POSITIVE_INFINITY;
 		guard.finish(mark);

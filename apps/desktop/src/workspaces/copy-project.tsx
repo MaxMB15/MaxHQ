@@ -9,7 +9,7 @@
 // cross over maxd links, and the form follows the copy until it lands, then
 // says which files didn't make it.
 
-import { t, useI18n, formatNumber } from "@maxhq/shared/i18n";
+import { useI18n, formatNumber } from "@maxhq/shared/i18n";
 
 import { Dialog } from "@base-ui/react/dialog";
 import { useEffect, useState } from "react";
@@ -18,12 +18,12 @@ import { useServices, useView } from "@/app/services";
 import { Bar, CloneBanner } from "@/agent-view/clone-banner";
 import { formatBytes } from "@maxhq/shared/agent-view/format";
 import { Checkbox } from "@/components/ui/checkbox";
-import type { WorkspaceId } from "@maxhq/shared/bindings";
-import { copySize, defaultTicks } from "@maxhq/shared/copy/defaults";
-import type { CopiedProject, IgnoredFile, TransferProgress } from "@maxhq/shared/data/source";
+import { copySize } from "@maxhq/shared/copy/defaults";
+import type { CopiedProject, IgnoredFile } from "@maxhq/shared/data/source";
 import { useNow } from "@maxhq/shared/lib/clock";
 import { cn } from "@/lib/utils";
 import { Picker } from "@/new-agent/picker";
+import { PathField } from "@/paths/path-field";
 import { FIELD, Label, PRIMARY, SECONDARY } from "@/settings/controls";
 import { sendFirstSettings } from "@/settings/project";
 import { sentence } from "@maxhq/shared/status/format";
@@ -33,7 +33,6 @@ import {
 	checkoutOf,
 	containerHint,
 	type CopyChoices,
-	type CopyPlan,
 	copyLanded,
 	firstChoices,
 	planCopy,
@@ -41,66 +40,36 @@ import {
 	sourceChoices,
 	targetChoices,
 } from "@maxhq/shared/workspaces/copy";
-import { canCopy, cloneOf, isLive } from "@maxhq/shared/workspaces/state";
+import {
+	allOrNone,
+	allTicked,
+	COPY_KINDS,
+	copyBlocked,
+	type CopyFormChoices,
+	type CopyRun,
+	copyTitle,
+	kindLabel,
+	listedFiles,
+	listsIgnored,
+	type ListingFor,
+	loadListing,
+	openingChoices,
+	runCopy,
+	type StartedCopy,
+	shownListing,
+	tickedFor,
+	tickedPaths,
+	tickedText,
+	type TicksFor,
+	transferPercent,
+	transferText,
+	withTick,
+} from "@maxhq/shared/workspaces/copy-form";
+import { keepMissed } from "@maxhq/shared/workspaces/missed";
+import { cloneOf, isLive } from "@maxhq/shared/workspaces/state";
 
-import { closeCopyProject, type CopyRequest, noteMissed, useCopy } from "./copy-store";
+import { closeCopyProject, type CopyRequest, useCopy } from "./copy-store";
 import { BACKDROP, CreationSteps, POPUP, Title } from "./new-workspace";
-
-type Planned = Extract<CopyPlan, { ok: true }>;
-
-// The ignored files of the checkout picked, once its device lists them.
-type Listing =
-	| { readonly state: "loading" }
-	| { readonly state: "listed"; readonly files: IgnoredFile[]; readonly truncated: boolean }
-	| { readonly state: "failed"; readonly reason: string }
-	| { readonly state: "unlisted"; readonly why: string };
-
-// Where a copy is once it starts. `before` holds the workspaces there were,
-// so the one it makes can be told apart.
-type Run =
-	| { readonly phase: "copying"; readonly transfer: TransferProgress | null }
-	| { readonly phase: "done"; readonly placed: CopiedProject }
-	| { readonly phase: "failed"; readonly reason: string };
-
-type Started = {
-	readonly plan: Planned;
-	readonly before: ReadonlySet<WorkspaceId>;
-	readonly files: number;
-	readonly run: Run;
-};
-
-const KINDS: { kind: CopyChoices["kind"]; label: string }[] = [
-	{
-		kind: "container",
-		get label() {
-			return t("New container");
-		},
-	},
-	{
-		kind: "folder",
-		get label() {
-			return t("Folder");
-		},
-	},
-];
-
-const TRANSFER_STATE: Record<TransferProgress["state"], string> = {
-	get uploading() {
-		return t("Copying files");
-	},
-	get waiting() {
-		return t("Waiting for room on the device");
-	},
-	get paused() {
-		return t("Paused while the link is down");
-	},
-	get done() {
-		return t("Files copied");
-	},
-	get failed() {
-		return t("The files didn't copy");
-	},
-};
 
 /** One ignored file you can tick, with its size. */
 const FileRow = ({
@@ -127,7 +96,7 @@ const FileRow = ({
 };
 
 /** The copy on its way: the new workspace being made or cloned, then the files. */
-const Copying = ({ started }: { started: Started }) => {
+const Copying = ({ started }: { started: StartedCopy }) => {
 	const { t } = useI18n();
 
 	const { plan, before, files, run } = started;
@@ -156,26 +125,10 @@ const Copying = ({ started }: { started: Started }) => {
 			{files > 0 ? (
 				<div className="flex flex-col gap-2">
 					<span className="text-[12.5px] text-foreground">
-						{transfer
-							? t("{{value1}}: {{value2}} of {{value3}}", {
-									value1: TRANSFER_STATE[transfer.state],
-									value2: formatBytes(transfer.sent),
-									value3: formatBytes(transfer.total),
-								})
-							: t("{{countText}} files to copy once it's ready.", {
-									count: files,
-									countText: formatNumber(files),
-								})}
+						{transferText(transfer, files)}
 					</span>
 					{transfer ? (
-						<Bar
-							label={t("Files")}
-							percent={
-								transfer.total > 0
-									? Math.round((transfer.sent / transfer.total) * 100)
-									: null
-							}
-						/>
+						<Bar label={t("Files")} percent={transferPercent(transfer)} />
 					) : null}
 				</div>
 			) : null}
@@ -233,19 +186,12 @@ const Result = ({ placed, files }: { placed: CopiedProject; files: number }) => 
 };
 
 /** The copy once it started, from the first step to how it ended. */
-const Progress = ({ started, onBack }: { started: Started; onBack: () => void }) => {
+const Progress = ({ started, onBack }: { started: StartedCopy; onBack: () => void }) => {
 	const { t } = useI18n();
 
 	const view = useView((s) => s.view);
 	const { plan, run } = started;
-	const project = view.tables.project.get(plan.project)?.name ?? plan.project;
-	const where = deviceName(view, plan.target.device);
-	const title =
-		run.phase === "done"
-			? t("Copied {{project}} to {{where}}", { project: project, where: where })
-			: run.phase === "failed"
-				? t("The copy didn't finish")
-				: t("Copying {{project}} to {{where}}", { project: project, where: where });
+	const title = copyTitle(view, plan, run);
 	return (
 		<div className="flex flex-col gap-4">
 			<div className="flex flex-col gap-1">
@@ -290,40 +236,18 @@ const Form = ({ request }: { request: CopyRequest }) => {
 	const view = useView((s) => s.view);
 	const now = useNow(5000);
 	const live = (id: string) => isLive(view, id, now);
-	const [choices, setChoices] = useState<CopyChoices & { project: string | null }>(() => {
-		const from = request.from ? view.tables.workspace.get(request.from) : undefined;
-		const project =
-			request.project ??
-			from?.project ??
-			projectsToCopy(view).find((o) => !o.disabled)?.value ??
-			null;
-		return {
-			project,
-			...(project
-				? firstChoices(view, project, request, live)
-				: {
-						from: null,
-						device: request.device ?? null,
-						kind: "folder",
-						container: "",
-						parent: "",
-						folder: "",
-					}),
-		};
-	});
-	const [listing, setListing] = useState<{ for: string | null; listing: Listing }>({
+	const [choices, setChoices] = useState<CopyFormChoices>(() =>
+		openingChoices(view, request, live)
+	);
+	const [listing, setListing] = useState<ListingFor>({
 		for: null,
 		listing: { state: "loading" },
 	});
-	const [ticks, setTicks] = useState<{ for: string | null; ticked: ReadonlySet<string> }>({
-		for: null,
-		ticked: new Set(),
-	});
-	const [started, setStarted] = useState<Started | null>(null);
+	const [ticks, setTicks] = useState<TicksFor>({ for: null, ticked: new Set() });
+	const [started, setStarted] = useState<StartedCopy | null>(null);
 
 	const from = choices.from ? view.tables.workspace.get(choices.from) : undefined;
-	const fromDevice = from?.device ?? null;
-	const lists = fromDevice !== null && canCopy(view, fromDevice);
+	const lists = listsIgnored(view, choices.from);
 
 	// The list follows the checkout picked. A device whose maxd predates
 	// copies can't list, so only the repo goes.
@@ -331,95 +255,47 @@ const Form = ({ request }: { request: CopyRequest }) => {
 		const id = choices.from;
 		if (!id || !lists) return;
 		let current = true;
-		services.source.listIgnoredFiles(id).then(
-			(found) => {
-				if (current) setListing({ for: id, listing: { state: "listed", ...found } });
-			},
-			(error: unknown) => {
-				if (!current) return;
-				setListing({
-					for: id,
-					listing: {
-						state: "failed",
-						reason:
-							error instanceof Error
-								? error.message
-								: t("Couldn't list the ignored files"),
-					},
-				});
-			}
-		);
+		void loadListing(services.source, id).then((listing) => {
+			if (current) setListing({ for: id, listing });
+		});
 		return () => {
 			current = false;
 		};
-	}, [services, choices.from, lists, t]);
+	}, [services, choices.from, lists]);
 
 	if (started) {
 		return <Progress started={started} onBack={() => setStarted(null)} />;
 	}
 
-	const shown: Listing = !choices.from
-		? { state: "unlisted", why: "" }
-		: !lists
-			? {
-					state: "unlisted",
-					why: t(
-						"The maxd on {{value1}} can't list ignored files yet, so only the repo is cloned.",
-						{ value1: deviceName(view, fromDevice ?? "") }
-					),
-				}
-			: listing.for === choices.from
-				? listing.listing
-				: { state: "loading" };
-	const files = shown.state === "listed" ? shown.files : [];
-	const ticked = ticks.for === choices.from ? ticks.ticked : defaultTicks(files);
+	const shown = shownListing(view, choices.from, listing);
+	const files = listedFiles(shown);
+	const ticked = tickedFor(choices.from, ticks, files);
 	const size = copySize(files, ticked);
 	const plan = planCopy(view, choices, live);
-	const blocked = !plan.ok
-		? plan.reason
-		: shown.state === "loading"
-			? t("Listing the ignored files.")
-			: size.look === "too_large"
-				? t("That's more than one copy carries, 2 GB or 20,000 files. Untick some.")
-				: null;
+	const blocked = copyBlocked(plan, shown, size);
 
 	const set = (change: Partial<CopyChoices>) => setChoices((c) => ({ ...c, ...change }));
-	const tick = (path: string, on: boolean) => {
-		const next = new Set(ticked);
-		if (on) next.add(path);
-		else next.delete(path);
-		setTicks({ for: choices.from, ticked: next });
-	};
+	const tick = (path: string, on: boolean) =>
+		setTicks({ for: choices.from, ticked: withTick(ticked, path, on) });
 
 	const start = async () => {
 		if (!plan.ok || blocked || !choices.from) return;
-		const paths = files.filter((f) => ticked.has(f.path)).map((f) => f.path);
+		const paths = tickedPaths(files, ticked);
 		const before = new Set(all(view, "workspace").map((w) => w.id));
-		const begun: Omit<Started, "run"> = { plan, before, files: paths.length };
-		const show = (run: Run) => setStarted({ ...begun, run });
-		show({ phase: "copying", transfer: null });
-		try {
+		const begun: Omit<StartedCopy, "run"> = { plan, before, files: paths.length };
+		const placed = await runCopy(
+			services.source,
+			choices.from,
+			plan,
+			paths,
+			(run: CopyRun) => setStarted({ ...begun, run }),
 			// Sent first, so the clone in a new container already commits as
 			// this Mac's git identity.
-			if (plan.target.type === "container") {
-				await sendFirstSettings(services, plan.project, plan.target.device);
-			}
-			const placed = await services.source.copyProject(
-				choices.from,
-				plan.target,
-				paths,
-				(transfer) => show({ phase: "copying", transfer })
-			);
-			const landed = copyLanded(services.view.getState().view, plan, before);
-			if (landed && placed.failed.length > 0) noteMissed(services, landed.id, placed.failed);
-			show({ phase: "done", placed });
-		} catch (error) {
-			console.warn("Couldn't copy the project", error);
-			show({
-				phase: "failed",
-				reason: error instanceof Error ? error.message : t("Couldn't reach the device"),
-			});
-		}
+			plan.target.type === "container"
+				? () => sendFirstSettings(services, plan.project, plan.target.device)
+				: undefined
+		);
+		keepMissed(services.source, services.view.getState().view, plan, before, placed);
 	};
 
 	return (
@@ -479,20 +355,20 @@ const Form = ({ request }: { request: CopyRequest }) => {
 					aria-label={t("Copy into")}
 					className="flex gap-0.5 rounded-[7px] border border-sidebar-border bg-background p-0.5"
 				>
-					{KINDS.map((k) => (
+					{COPY_KINDS.map((kind) => (
 						<button
-							key={k.kind}
+							key={kind}
 							type="button"
-							aria-pressed={choices.kind === k.kind}
-							onClick={() => set({ kind: k.kind })}
+							aria-pressed={choices.kind === kind}
+							onClick={() => set({ kind })}
 							className={cn(
 								"h-6 flex-1 rounded-[5px] text-xs",
-								choices.kind === k.kind
+								choices.kind === kind
 									? "bg-border font-[550] text-foreground"
 									: "text-muted-foreground hover:text-secondary-foreground"
 							)}
 						>
-							{k.label}
+							{kindLabel(kind)}
 						</button>
 					))}
 				</div>
@@ -518,17 +394,15 @@ const Form = ({ request }: { request: CopyRequest }) => {
 				</label>
 			) : (
 				<div className="grid grid-cols-[minmax(0,1fr)_minmax(0,0.6fr)] gap-2">
-					<label className="flex min-w-0 flex-col gap-1.5">
-						<Label>{t("Parent folder")}</Label>
-						<input
-							value={choices.parent}
-							onChange={(e) => set({ parent: e.target.value })}
-							placeholder="/home/you/code"
-							spellCheck={false}
-							autoComplete="off"
-							className={cn(FIELD, "font-mono text-xs")}
-						/>
-					</label>
+					<PathField
+						device={choices.device}
+						value={choices.parent}
+						onChange={(parent) => set({ parent })}
+						label={t("Parent folder")}
+						title={t("Choose the folder to copy into")}
+						placeholder="/home/you/code"
+						className={FIELD}
+					/>
 					<label className="flex min-w-0 flex-col gap-1.5">
 						<Label>{t("Folder name")}</Label>
 						<input
@@ -550,26 +424,16 @@ const Form = ({ request }: { request: CopyRequest }) => {
 					{files.length > 0 ? (
 						<>
 							<span className="text-xs text-muted-foreground tabular-nums">
-								{t("{{files}} of {{length}}{{value3}}", {
-									files: formatNumber(size.files),
-									length: formatNumber(files.length),
-									value3: size.bytes > 0 ? `, ${formatBytes(size.bytes)}` : "",
-								})}
+								{tickedText(size, files.length)}
 							</span>
 							<button
 								type="button"
 								className="rounded-[5px] px-1.5 text-xs text-secondary-foreground hover:bg-accent"
 								onClick={() =>
-									setTicks({
-										for: choices.from,
-										ticked:
-											size.files === files.length
-												? new Set()
-												: new Set(files.map((f) => f.path)),
-									})
+									setTicks({ for: choices.from, ticked: allOrNone(files, size) })
 								}
 							>
-								{size.files === files.length ? t("None") : t("All")}
+								{allTicked(files, size) ? t("None") : t("All")}
 							</button>
 						</>
 					) : null}

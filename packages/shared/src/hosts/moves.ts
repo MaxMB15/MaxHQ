@@ -61,6 +61,25 @@ export const moveOf = (view: ViewState, device: DeviceId, instance: string): Mov
 /** How one step stands on a card. */
 export type StepStatus = "done" | "ready" | "running" | "failed" | "todo";
 
+/** How each step stands, in words. */
+export const STEP_STATUS_LABEL: Readonly<Record<StepStatus, string>> = {
+	get done() {
+		return t("Done");
+	},
+	get ready() {
+		return t("Waiting for you");
+	},
+	get running() {
+		return t("Running");
+	},
+	get failed() {
+		return t("Failed");
+	},
+	get todo() {
+		return t("Not yet");
+	},
+};
+
 /** One step's line on a card. */
 export type StepView = {
 	readonly step: MoveStep;

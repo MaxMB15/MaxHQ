@@ -3,10 +3,11 @@
 
 //! What the phone build of the app has that the desktop's doesn't: a shell
 //! that opens web links through the host app, and the links to the devices
-//! in the book it paired with.
+//! in the books it paired with, one book per Mac.
 //!
-//! Each device in the book gets one link, derived from the device's ID so
-//! it stays the same from one book to the next. Its routes are its network
+//! Each device in the books gets one link, derived from the device's ID so
+//! it stays the same from one book to the next. A device two Macs both list
+//! gets one link, under the first Mac that listed it. Its routes are its network
 //! access first, `wss://host:port`, and then SSH URLs,
 //! `ssh://user@host:port`, since the phone has no SSH config to resolve an
 //! alias with. [`parse_route`] reads an SSH one back for the transport, and
@@ -15,7 +16,8 @@
 //! A device that asks has each connection prove it holds the phone's key,
 //! with [`PhoneProver`], as the app proves its own.
 
-use std::sync::Arc;
+use std::collections::BTreeMap;
+use std::sync::{Arc, PoisonError, RwLock};
 
 use futures::future::BoxFuture;
 use maxhq_client::proof::{Kind, Prover, Proving, Verdict};
@@ -82,11 +84,13 @@ impl Shell for PhoneShell {
 
 /// Signs the phone in to one network route of a device: the headers each
 /// request on it carries, and what to do when the device ends the sign-in.
-/// It gets the device's one-time code while the book still has one.
+/// It gets the name of the Mac whose book lists the device, and the
+/// device's one-time code while the book still has one.
 #[cfg(feature = "phone")]
 pub type SignIn = Box<
     dyn Fn(
             DeviceId,
+            &str,
             &maxhq_client::WsRoute,
             Option<&Secret>,
         ) -> (maxhq_client::Headers, maxhq_client::Ended)
@@ -103,6 +107,7 @@ pub struct PhoneConnector {
     ssh: maxhq_client::PhoneSsh,
     ws: maxhq_client::PhoneWs,
     sign_in: SignIn,
+    macs: MacNames,
 }
 
 #[cfg(feature = "phone")]
@@ -120,13 +125,15 @@ impl PhoneConnector {
     ) -> Self {
         let ssh = maxhq_client::PhoneSsh::new(seed);
         let ws = maxhq_client::PhoneWs::new();
+        let macs = MacNames::default();
+        let naming = macs.clone();
         let transport = maxhq_client::Transport::Phone {
             ssh: ssh.clone(),
             ws: ws.clone(),
         };
         let client = crate::devices::start_client(
             runtime,
-            || maxhq_client::Client::app(transport).proving(PhoneProver::phone(seed)),
+            || maxhq_client::Client::app(transport).proving(PhoneProver::naming(seed, naming)),
             downloads,
             media,
         );
@@ -135,6 +142,7 @@ impl PhoneConnector {
             ssh,
             ws,
             sign_in,
+            macs,
         }
     }
 
@@ -171,13 +179,15 @@ impl crate::devices::Connector for PhoneConnector {
         crate::devices::Connector::watch_networks(&*self.client, on_change);
     }
 
-    fn trust_book(&self, book: &PhoneBook) {
-        for entry in &book.devices {
+    fn trust_books(&self, books: &[PhoneBook]) {
+        self.macs.keep(books);
+        for (at, entry) in listed(books) {
+            let mac = mac_name(&books[at]);
             if let Some(network) = &entry.network {
                 for route in ws_routes(network) {
                     let (headers, ended) =
-                        (self.sign_in)(entry.device, &route, network.code.as_ref());
-                    self.ws.trust(&[route], &headers, &ended);
+                        (self.sign_in)(entry.device, &mac, &route, network.code.as_ref());
+                    self.ws.trust(entry.device, &[route], &headers, &ended);
                 }
             }
             self.ssh.trust(entry);
@@ -199,32 +209,126 @@ pub fn ws_routes(network: &PhoneNetwork) -> Vec<maxhq_client::WsRoute> {
         .collect()
 }
 
-/// What the phone says, after a device's name, once the device turns down
-/// the phone's key. The shared view reads it to offer pairing again.
-pub const NO_LONGER_KNOWN: &str = "no longer knows this phone. Pair it again from the Mac.";
+/// What the phone says between a device's name and the Mac's, once the
+/// device turns down the phone's key, as [`no_longer_known`] puts them.
+/// The shared view reads it to offer pairing again.
+pub const NO_LONGER_KNOWN: &str = "no longer knows this phone. Pair it again from";
+
+/// What the phone says once `name` turns down its key: to pair again from
+/// `mac`, the Mac whose book lists it.
+pub fn no_longer_known(name: &str, mac: &str) -> String {
+    format!("{name} {NO_LONGER_KNOWN} {mac}.")
+}
+
+/// What the phone calls a Mac that didn't name itself.
+pub const SOME_MAC: &str = "the Mac";
+
+/// The keeper of the book the phone makes for the devices you add by hand.
+/// No device has this ID, so no report ever speaks for that book.
+pub fn by_hand() -> DeviceId {
+    DeviceId::derive("phone-by-hand")
+}
+
+/// Each device the books list, once, with where the first book that lists
+/// it is, in the books' order.
+pub fn listed(books: &[PhoneBook]) -> Vec<(usize, &PhoneBookEntry)> {
+    let mut found: Vec<(usize, &PhoneBookEntry)> = Vec::new();
+    for (at, book) in books.iter().enumerate() {
+        for entry in &book.devices {
+            if found.iter().all(|(_, have)| have.device != entry.device) {
+                found.push((at, entry));
+            }
+        }
+    }
+    found
+}
+
+/// Whether `a` and `b` are books from the same Mac: one keeper, or one Mac
+/// that paired again through another keeper.
+pub fn same_mac(a: &PhoneBook, b: &PhoneBook) -> bool {
+    a.device == b.device || matches!((&a.mac, &b.mac), (Some(a), Some(b)) if a.device == b.device)
+}
+
+/// Puts `book` in `books` in place of the ones from its Mac, or else last.
+pub fn put_book(books: &mut Vec<PhoneBook>, book: PhoneBook) {
+    let at = books.iter().position(|have| same_mac(have, &book));
+    books.retain(|have| !same_mac(have, &book));
+    // Nothing before the first one left, so it's still in its place.
+    books.insert(at.unwrap_or(books.len()), book);
+}
+
+/// The name of the Mac that made `book`: the one it gave, or for a book
+/// from an older Mac its keeper's name in the book, or else "the Mac".
+pub fn mac_name(book: &PhoneBook) -> String {
+    book.mac
+        .as_ref()
+        .map(|mac| mac.name.clone())
+        .or_else(|| {
+            book.devices
+                .iter()
+                .find(|entry| entry.device == book.device)
+                .map(|entry| entry.name.clone())
+        })
+        .filter(|name| !name.trim().is_empty())
+        .unwrap_or_else(|| SOME_MAC.to_owned())
+}
+
+/// The name of the Mac each device's book came from, for what the phone
+/// says about the device. Clones share it.
+#[derive(Clone, Default)]
+pub struct MacNames(Arc<RwLock<BTreeMap<DeviceId, String>>>);
+
+impl MacNames {
+    /// Names each device in `books` by the first book that lists it.
+    pub fn keep(&self, books: &[PhoneBook]) {
+        let names = listed(books)
+            .into_iter()
+            .map(|(at, entry)| (entry.device, mac_name(&books[at])))
+            .collect();
+        *self.0.write().unwrap_or_else(PoisonError::into_inner) = names;
+    }
+
+    /// The Mac whose book lists `device`, or "the Mac" for one no book does.
+    pub fn of(&self, device: DeviceId) -> String {
+        self.0
+            .read()
+            .unwrap_or_else(PoisonError::into_inner)
+            .get(&device)
+            .cloned()
+            .unwrap_or_else(|| SOME_MAC.to_owned())
+    }
+}
 
 /// Proves the phone's connections with one key: the phone's own SSH key,
 /// or while it pairs, the code's one-time key.
 pub struct PhoneProver {
     kind: Kind,
     seed: Zeroizing<[u8; 32]>,
+    macs: MacNames,
 }
 
 impl PhoneProver {
     /// Proves the phone with its SSH key, made from `seed`.
     pub fn phone(seed: &[u8; 32]) -> Arc<dyn Prover> {
-        Self::with_key(Kind::Phone, seed)
+        Self::naming(seed, MacNames::default())
+    }
+
+    /// Proves the phone with its SSH key, made from `seed`, and names the
+    /// Mac to pair again from with `macs`.
+    pub fn naming(seed: &[u8; 32], macs: MacNames) -> Arc<dyn Prover> {
+        Arc::new(Self {
+            kind: Kind::Phone,
+            seed: Zeroizing::new(*seed),
+            macs,
+        })
     }
 
     /// Proves a pairing with the code's one-time key, made from `seed`.
     pub fn pairing(seed: &[u8; 32]) -> Arc<dyn Prover> {
-        Self::with_key(Kind::Pair, seed)
-    }
-
-    fn with_key(kind: Kind, seed: &[u8; 32]) -> Arc<dyn Prover> {
         Arc::new(Self {
-            kind,
+            kind: Kind::Pair,
             seed: Zeroizing::new(*seed),
+            macs: MacNames::default(),
         })
     }
 }
@@ -236,17 +340,19 @@ impl Prover for PhoneProver {
 
     fn prove(&self, proving: Proving) -> BoxFuture<'static, Verdict> {
         let (kind, seed) = (self.kind, self.seed.clone());
+        let mac = self.macs.of(proving.device());
         Box::pin(async move {
             // A device knows the phone it paired with, so the Sync goes
             // right behind. A pairing syncs nothing.
             let answer = proving.prove(&seed, kind == Kind::Phone).await;
-            verdict(kind, proving.name(), answer)
+            verdict(kind, proving.name(), &mac, answer)
         })
     }
 }
 
-/// What the phone makes of `name`'s answer to its proof.
-fn verdict(kind: Kind, name: &str, answer: Result<ActionOutcome, LinkError>) -> Verdict {
+/// What the phone makes of `name`'s answer to its proof, where `mac` is the
+/// Mac whose book lists it.
+fn verdict(kind: Kind, name: &str, mac: &str, answer: Result<ActionOutcome, LinkError>) -> Verdict {
     match answer {
         Ok(ActionOutcome::Done) => Verdict::Proven,
         Ok(refused) if kind == Kind::Pair => Verdict::Refused(format!(
@@ -254,7 +360,7 @@ fn verdict(kind: Kind, name: &str, answer: Result<ActionOutcome, LinkError>) -> 
             reason_of(refused)
         )),
         Ok(ActionOutcome::Refused { reason }) if reason.starts_with(UNKNOWN_KEY) => {
-            Verdict::Refused(format!("{name} {NO_LONGER_KNOWN}"))
+            Verdict::Refused(no_longer_known(name, mac))
         }
         Ok(refused) => Verdict::Refused(format!(
             "{name} didn't take this phone's proof: {}",
@@ -322,12 +428,12 @@ pub fn parse_route(host: &str) -> Option<PhoneRoute> {
     })
 }
 
-/// The host key the book pins for the device on `link`.
-pub fn host_key(book: &PhoneBook, link: LinkId) -> Option<&str> {
-    book.devices
-        .iter()
-        .find(|entry| book_link(entry.device) == link)
-        .map(|entry| entry.host_key.as_str())
+/// The host key the books pin for the device on `link`.
+pub fn host_key(books: &[PhoneBook], link: LinkId) -> Option<&str> {
+    listed(books)
+        .into_iter()
+        .find(|(_, entry)| book_link(entry.device) == link)
+        .map(|(_, entry)| entry.host_key.as_str())
 }
 
 #[cfg(test)]
@@ -366,6 +472,20 @@ pub(crate) mod tests {
                 .first()
                 .map_or(DeviceId::derive("none"), |entry| entry.device),
             devices,
+            mac: None,
+        }
+    }
+
+    /// The test phone's book from the Mac `name`, which lists itself first.
+    pub(crate) fn mac_book(name: &str, devices: Vec<PhoneBookEntry>) -> PhoneBook {
+        let mut all = vec![entry(name, &[&format!("{name}.local")])];
+        all.extend(devices);
+        PhoneBook {
+            mac: Some(maxhq_protocol::phones::PhoneMac {
+                device: DeviceId::derive(name),
+                name: name.into(),
+            }),
+            ..book(all)
         }
     }
 
@@ -399,12 +519,75 @@ pub(crate) mod tests {
     #[test]
     fn the_book_pins_each_link_its_host_key() {
         let devbox = DeviceId::derive("devbox");
-        let book = book(vec![entry("devbox", &["devbox.local"])]);
+        let books = [book(vec![entry("devbox", &["devbox.local"])])];
         assert_eq!(
-            host_key(&book, book_link(devbox)),
+            host_key(&books, book_link(devbox)),
             Some("ssh-ed25519 AAAAexample")
         );
-        assert_eq!(host_key(&book, book_link(DeviceId::derive("other"))), None);
+        assert_eq!(host_key(&books, book_link(DeviceId::derive("other"))), None);
+    }
+
+    #[test]
+    fn each_device_comes_once_under_the_first_mac_that_lists_it() {
+        let home = mac_book("Home Mac", vec![entry("devbox", &["192.168.1.20"])]);
+        let work = mac_book(
+            "Work Mac",
+            vec![
+                entry("devbox", &["devbox.work"]),
+                entry("build-box", &["192.168.1.20"]),
+            ],
+        );
+        let books = [home, work];
+        let found: Vec<(usize, &str)> = listed(&books)
+            .into_iter()
+            .map(|(at, entry)| (at, entry.name.as_str()))
+            .collect();
+        assert_eq!(
+            found,
+            [
+                (0, "Home Mac"),
+                (0, "devbox"),
+                (1, "Work Mac"),
+                (1, "build-box")
+            ]
+        );
+        let macs = MacNames::default();
+        macs.keep(&books);
+        assert_eq!(macs.of(DeviceId::derive("devbox")), "Home Mac");
+        assert_eq!(macs.of(DeviceId::derive("build-box")), "Work Mac");
+        assert_eq!(macs.of(DeviceId::derive("other")), "the Mac");
+    }
+
+    #[test]
+    fn a_book_takes_the_place_of_the_one_from_its_mac() {
+        let mut books = Vec::new();
+        put_book(&mut books, mac_book("Home Mac", Vec::new()));
+        put_book(&mut books, mac_book("Work Mac", Vec::new()));
+        let again = mac_book("Home Mac", vec![entry("devbox", &["devbox.local"])]);
+        put_book(&mut books, again.clone());
+        assert_eq!(books.len(), 2);
+        assert_eq!(books[0], again);
+
+        // The same Mac paired again through another keeper.
+        let through = PhoneBook {
+            device: DeviceId::derive("devbox"),
+            ..again
+        };
+        put_book(&mut books, through.clone());
+        assert_eq!(books.len(), 2);
+        assert_eq!(books[0], through);
+        assert_eq!(mac_name(&books[1]), "Work Mac");
+    }
+
+    #[test]
+    fn a_book_from_an_older_mac_is_named_by_its_keeper() {
+        let older = book(vec![entry("Home Mac", &["home.local"])]);
+        assert_eq!(mac_name(&older), "Home Mac");
+        let keeperless = PhoneBook {
+            device: DeviceId::derive("elsewhere"),
+            ..older
+        };
+        assert_eq!(mac_name(&keeperless), "the Mac");
     }
 
     #[test]
@@ -415,17 +598,18 @@ pub(crate) mod tests {
             })
         };
         assert_eq!(
-            verdict(Kind::Phone, "devbox", Ok(ActionOutcome::Done)),
+            verdict(Kind::Phone, "devbox", "Home Mac", Ok(ActionOutcome::Done)),
             Verdict::Proven
         );
         assert_eq!(
             verdict(
                 Kind::Phone,
                 "devbox",
+                "Home Mac",
                 refused("Unknown key: devbox doesn't know this phone's key.")
             ),
             Verdict::Refused(
-                "devbox no longer knows this phone. Pair it again from the Mac.".into()
+                "devbox no longer knows this phone. Pair it again from Home Mac.".into()
             )
         );
         // Any other refusal shows the device's reason, without the prefix
@@ -434,6 +618,7 @@ pub(crate) mod tests {
             verdict(
                 Kind::Phone,
                 "devbox",
+                "Home Mac",
                 refused("Bad proof: the signature doesn't match.")
             ),
             Verdict::Refused(
@@ -444,6 +629,7 @@ pub(crate) mod tests {
             verdict(
                 Kind::Pair,
                 "the device",
+                "the Mac",
                 refused("Unknown key: that isn't this pairing's key.")
             ),
             Verdict::Refused(
@@ -453,7 +639,12 @@ pub(crate) mod tests {
             )
         );
         assert_eq!(
-            verdict(Kind::Phone, "devbox", Err(LinkError::NotConnected)),
+            verdict(
+                Kind::Phone,
+                "devbox",
+                "Home Mac",
+                Err(LinkError::NotConnected)
+            ),
             Verdict::Lost
         );
     }

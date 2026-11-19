@@ -6,16 +6,34 @@
 // change behind it and tests can stand one in.
 
 import type { LineSpan } from "@maxhq/shared/bindings";
+import type { CommandMark } from "@maxhq/shared/terminal/marks";
 
 /** Text you picked in a terminal, and where it sits in all it printed. */
 export type Picked = { readonly text: string; readonly lines: LineSpan };
+
+/** A command its shell marked, while the view holds it. */
+export type MarkedCommand = CommandMark & {
+	/** Names it in the view, counting up from 1. */
+	readonly id: number;
+	/**
+	 * Where its command mark starts in all the terminal printed, as the
+	 * device counts it, or null when the writes didn't say.
+	 */
+	readonly offset: number | null;
+};
+
+/** What a marked command printed, and the lines that takes, with what its marks say. */
+export type CommandOutput = Picked & { readonly mark: CommandMark };
 
 /** One terminal's screen and scrollback. */
 export type TermView = {
 	/** The element the terminal draws in, which moves between hosts. */
 	readonly element: HTMLElement;
-	/** Draws what the terminal printed. */
-	readonly write: (bytes: Uint8Array) => void;
+	/**
+	 * Draws what the terminal printed, with where those bytes start in all
+	 * it printed when that's known.
+	 */
+	readonly write: (bytes: Uint8Array, offset?: number) => void;
 	/** Forgets the screen and scrollback, for output that starts over. */
 	readonly clear: () => void;
 	/** Sets the size in cells. */
@@ -56,8 +74,44 @@ export type TermView = {
 	readonly onFocus: (listener: (focused: boolean) => void) => () => void;
 	/** Calls back once the GPU drops its context, after the view went back to drawing without. */
 	readonly onGpuLost: (listener: () => void) => () => void;
+	/**
+	 * Whether it takes the OSC 133 in its output as its shell's marks, as it
+	 * may once the device says its holder lets only those through. Without,
+	 * it takes none. Either way it drops them, so they draw nothing.
+	 */
+	readonly setMarks: (on: boolean) => void;
+	/**
+	 * The commands its shell marked that the view still holds, oldest first.
+	 * A shell without marks has none.
+	 */
+	readonly commands: () => readonly MarkedCommand[];
+	/** What a marked command printed so far, or null once the view let it go. */
+	readonly output: (id: number) => CommandOutput | null;
+	/**
+	 * Scrolls to the command before the one it showed last, or after it with
+	 * `back` false, and to the end past the last. False when there's none.
+	 */
+	readonly jump: (back: boolean) => boolean;
+	/** Calls back when you click a command's mark, with the mark to place a menu by. */
+	readonly onMark: (listener: (id: number, anchor: Element) => void) => () => void;
 	readonly dispose: () => void;
 };
 
 /** Makes the view for one terminal. */
 export type MakeView = () => TermView;
+
+/**
+ * What the command whose mark starts at `start` printed so far, and how
+ * many lines that is, or null when the view holds no such command. A shell
+ * started inside it marks its own commands after it, so the last command
+ * the view holds may be another.
+ */
+export const commandText = (
+	view: Pick<TermView, "commands" | "output">,
+	start: number
+): { readonly text: string; readonly total: number } | null => {
+	const command = view.commands().find((each) => each.offset === start);
+	const shown = command ? view.output(command.id) : null;
+	if (!shown) return null;
+	return { text: shown.text, total: shown.text === "" ? 0 : shown.text.split("\n").length };
+};

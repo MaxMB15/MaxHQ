@@ -54,6 +54,7 @@ const KINDS: Record<ItemBody["kind"], true> = {
 	agent_opened_file: true,
 	agent_visual: true,
 	user_run: true,
+	user_session: true,
 	unknown: true,
 };
 

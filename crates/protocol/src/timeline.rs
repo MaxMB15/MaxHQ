@@ -17,7 +17,7 @@ use crate::context::InlineRef;
 use crate::ids::{AccountId, AgentId, AttachmentId, AttentionId, ClientId, DeviceId, TerminalId};
 use crate::model::Vendor;
 use crate::state::Seq;
-use crate::terminal::TerminalStatus;
+use crate::terminal::{FreshReason, SessionBlock, TerminalStatus};
 use crate::time::Timestamp;
 
 /// One entry in an agent's conversation. `<vendor>:<native id>` when the
@@ -363,6 +363,28 @@ pub enum ItemBody {
         /// Whether you moved it to the terminal drawer, where it goes on as
         /// a tab.
         moved: bool,
+        /// Why it ran in a fresh shell rather than the agent's session.
+        /// None from a `maxd` before protocol 48, which had no sessions.
+        #[serde(default)]
+        fresh: Option<FreshReason>,
+    },
+    /// The commands you ran with `!` in the agent's session between two of
+    /// your messages, as one card with a block for each. The item runs
+    /// while a block does, and is completed otherwise. Since protocol 48.
+    UserSession {
+        /// The session's terminal.
+        terminal: TerminalId,
+        /// The device it runs on.
+        device: DeviceId,
+        /// The commands, in the order they ran.
+        blocks: Vec<SessionBlock>,
+        /// Whether a message you sent closed the card, so its blocks can't
+        /// change between shared and private and the next command starts
+        /// a new card.
+        sealed: bool,
+        /// Whether the message that sealed the card took its session pill
+        /// along. False while the card is open.
+        sent: bool,
     },
     /// Something the driver doesn't know how to show yet.
     Unknown {

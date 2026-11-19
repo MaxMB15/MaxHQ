@@ -14,9 +14,9 @@ import { useServices, useView } from "@/app/services";
 import type { WorkspaceId } from "@maxhq/shared/bindings";
 import type { ActionResult, CloneState, PlaceFailure } from "@maxhq/shared/data/source";
 import { cn } from "@/lib/utils";
-import { plural, sentence } from "@maxhq/shared/status/format";
-import { dismissMissed, useCopy } from "@/workspaces/copy-store";
-import { cloneLabel, cloneOf } from "@maxhq/shared/workspaces/state";
+import { sentence } from "@maxhq/shared/status/format";
+import { dismissMissed, missedTitle, useMissed } from "@maxhq/shared/workspaces/missed";
+import { cloneOf, cloneWording } from "@maxhq/shared/workspaces/state";
 
 import { failureOf, type SendState } from "@maxhq/shared/agent-view/answer";
 import { Spinner } from "./icons";
@@ -29,38 +29,6 @@ const LOUD = cn(
 	BUTTON,
 	"bg-primary font-semibold text-primary-foreground shadow-lit hover:bg-primary/90"
 );
-
-const wording = (clone: CloneState): { title: string; body: string } => {
-	switch (clone.state) {
-		case "cloning":
-			return clone.stalled
-				? {
-						title: translate("Clone stalled{{value1}}", {
-							value1:
-								clone.percent === null
-									? ""
-									: translate(" at {{percent}}%", { percent: clone.percent }),
-						}),
-						body: translate(
-							"git has said nothing for a while. A slow link can do that, or you can cancel it."
-						),
-					}
-				: {
-						title: cloneLabel(clone) ?? translate("Cloning"),
-						body: translate("Agents can start in this folder once git is done."),
-					};
-		case "failed":
-			return {
-				title: translate("Clone failed"),
-				body: `${sentence(clone.reason)}. Retry runs it again, and Remove forgets the folder.`,
-			};
-		case "cancelled":
-			return {
-				title: translate("Clone cancelled"),
-				body: translate("Retry runs it again, and Remove forgets the folder."),
-			};
-	}
-};
 
 /** A bar for how far something has got, out of 100. */
 export const Bar = ({ label, percent }: { label: string; percent: number | null }) => {
@@ -136,21 +104,18 @@ const Missed = ({
 	failed: readonly PlaceFailure[];
 }) => {
 	useI18n();
-	const services = useServices();
+	const { source } = useServices();
 	return (
 		<Frame
 			label={translate("Files not copied")}
 			icon={<FileX size={13} strokeWidth={2.2} />}
-			title={translate("{{plural}} {{value2}} copied", {
-				plural: plural(failed.length, "file"),
-				value2: failed.length === 1 ? "wasn't" : "weren't",
-			})}
+			title={missedTitle(failed.length)}
 			failure={null}
 			actions={
 				<button
 					type="button"
 					className={QUIET}
-					onClick={() => dismissMissed(services, workspace)}
+					onClick={() => dismissMissed(source, workspace)}
 				>
 					{translate("Dismiss")}
 				</button>
@@ -181,7 +146,7 @@ const Clone = ({ workspace, clone }: { workspace: WorkspaceId; clone: CloneState
 	const { source } = useServices();
 	const [state, setState] = useState<SendState>({ state: "idle" });
 	const busy = state.state === "sending";
-	const { title, body } = wording(clone);
+	const { title, body } = cloneWording(clone);
 
 	const run = (action: (id: WorkspaceId) => Promise<ActionResult>, fallback: string) => {
 		setState({ state: "sending" });
@@ -268,16 +233,17 @@ export const CloneBanner = ({
 	className?: string;
 }) => {
 	useI18n();
+	const { source } = useServices();
 	const clone = useView((s) => {
 		const found = s.view.tables.workspace.get(workspace);
 		return found ? cloneOf(found) : null;
 	});
-	const missed = useCopy((s) => s.missed.get(workspace));
-	if (!clone && !missed?.length) return null;
+	const missed = useMissed(source, workspace);
+	if (!clone && missed.length === 0) return null;
 	return (
 		<div className={cn("flex flex-col gap-2", className)}>
 			{clone ? <Clone workspace={workspace} clone={clone} /> : null}
-			{missed?.length ? <Missed workspace={workspace} failed={missed} /> : null}
+			{missed.length > 0 ? <Missed workspace={workspace} failed={missed} /> : null}
 		</div>
 	);
 };

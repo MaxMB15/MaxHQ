@@ -35,6 +35,7 @@ import { withText } from "../timeline/apply";
 import { BINARY_SAMPLE, OUTSIDE_SAMPLE } from "./mock-files";
 import { callerCalls } from "./mock-started";
 import { CHECKLIST, NOTES_PROJECT } from "./mock-notes";
+import { SAMPLE_SESSION, sampleSessionCard } from "./mock-sessions";
 import { CLAUDE, CODEX, DEVBOX, MAC } from "./mock-view";
 import type { CommandResult } from "./source";
 
@@ -200,6 +201,45 @@ const ranByYou = (
 	moved: false,
 });
 
+/**
+ * Commands you ran with `!` in one shell from `cwd`, each ended with its
+ * code, in a card the message after it closed, taking it along when
+ * `sent`. Each block starts when the one before it ended.
+ */
+const sessionByYou = (
+	cwd: string,
+	runs: readonly (readonly [command: string, output: string, code: number, took: number])[],
+	sent: boolean
+): ItemBody => {
+	let at = 0;
+	return {
+		kind: "user_session",
+		terminal: `0199a7c2-0000-7000-8000-5e5510${runs.length.toString(16).padStart(6, "0")}`,
+		device: MAC,
+		blocks: runs.map(([command, output, code, took], index) => {
+			const started_at = at;
+			at += took;
+			return {
+				id: index + 1,
+				command,
+				cwd,
+				cwd_after: null,
+				private: false,
+				process: { state: "exited", code, signal: null },
+				started_at,
+				duration_ms: took,
+				lines: output.split("\n").length,
+				output,
+				output_truncated: false,
+				secret_prompts: 0,
+				start: null,
+			};
+		}),
+		sealed: true,
+		sent,
+	};
+};
+
 const read = (path: string, lines: string | null = null): ItemBody => ({
 	kind: "file_read",
 	path,
@@ -288,11 +328,23 @@ const story = (agent: AgentId) => {
 		},
 		end: (at: Timestamp): TimelineItem[] => {
 			const shift = at - clock;
-			return items.map((item) => ({
-				...item,
-				started_at: item.started_at === null ? null : item.started_at + shift,
-				completed_at: item.completed_at === null ? null : item.completed_at + shift,
-			}));
+			return items.map((item) => {
+				const started_at = item.started_at === null ? null : item.started_at + shift;
+				const moved = {
+					...item,
+					started_at,
+					completed_at: item.completed_at === null ? null : item.completed_at + shift,
+				};
+				// A session's blocks count their starts from the card's.
+				if (moved.kind !== "user_session") return moved;
+				return {
+					...moved,
+					blocks: moved.blocks.map((block) => ({
+						...block,
+						started_at: (started_at ?? 0) + block.started_at,
+					})),
+				};
+			});
 		},
 	};
 };
@@ -714,10 +766,23 @@ const usagePopover = (now: Timestamp): TimelineItem[] => {
 	s.add(ranByYou("git status --short", MAXHQ_FOLDER, " M src/usage/popover.tsx", 0, 140), {
 		took: 140,
 	});
+	s.add(
+		sessionByYou(
+			MAXHQ_FOLDER,
+			[
+				["git diff --stat", " src/usage/popover.tsx | 4 ++--", 0, 90],
+				["pnpm test usage", "Tests: 12 passed, 12 total", 0, 3_400],
+			],
+			true
+		),
+		{ took: 3_490 }
+	);
 	s.turn(MIN);
 	s.add(you("How did usage move this week?"));
 	s.add(visual("Weekly usage by vendor", "visual-weekly-usage-by-vendor.html", 6_240));
 	s.add(say("Claude climbed through Thursday, then eased off once the limit reset."));
+	// What you ran since, which your next message can take along.
+	s.add(sampleSessionCard(), { gap: 2 * MIN, took: 43_100, id: SAMPLE_SESSION.item });
 	return s.end(now - 4 * MIN);
 };
 
@@ -935,6 +1000,7 @@ const hdrToneMapping = (now: Timestamp): TimelineItem[] => {
 		took: 1_900,
 		status: "failed",
 	});
+	s.add(sessionByYou(COMET_FOLDER, [["cargo fmt", "", 0, 700]], false), { took: 700 });
 	s.add(summary(7 * MIN + 4 * SEC, 151_000));
 	s.turn(MIN);
 	s.add(you("Keep going, the peak test is fine to loosen for this sample."));

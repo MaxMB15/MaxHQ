@@ -3,7 +3,8 @@
 
 // What the Phones settings work from: each phone you paired with the
 // devices that have it and whether each lets it do everything, which
-// devices Add phone ticks, and the one it pairs through.
+// devices Add phone ticks, the one it pairs through, and which of a new
+// phone's devices can't push to it yet.
 
 import type { DeviceId, PhoneDevice, PhoneId, Timestamp } from "../bindings";
 import { alwaysOn } from "../tasks/place";
@@ -58,6 +59,28 @@ export const pairedPhones = (view: ViewState): PairedPhone[] => {
 			everything: phone.devices.some((d) => d.everything),
 		}))
 		.sort((a, b) => a.name.localeCompare(b.name) || a.id.localeCompare(b.id));
+};
+
+/**
+ * Whether `device` lets the phone `phone` do everything, so its maxd takes
+ * the requests a phone can't make on its own, such as starting an agent.
+ */
+export const letsPhone = (view: ViewState, phone: PhoneId, device: DeviceId): boolean =>
+	all(view, "phone").some(
+		(p) => p.id === phone && p.device === device && (p.everything ?? false)
+	);
+
+/**
+ * The devices that let `phone` in but hold no APNs key, by name. Each
+ * device pushes on its own, so these can't push to the phone yet.
+ */
+export const withoutPushKey = (view: ViewState, phone: PairedPhone): string[] => {
+	const keyed = new Set(
+		all(view, "credential")
+			.filter((credential) => credential.kind.type === "apns")
+			.map((credential) => credential.device)
+	);
+	return phone.devices.filter((d) => !keyed.has(d.device)).map((d) => d.name);
 };
 
 /** The devices Add phone ticks first: each one a phone can reach. */

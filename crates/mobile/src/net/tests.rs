@@ -7,7 +7,7 @@ use std::time::Duration;
 use maxhq_client::PhoneSsh;
 use maxhq_core::dpop::{self, Expected};
 use maxhq_protocol::ids::{PairId, PhoneId, PhoneSessionId};
-use maxhq_protocol::phones::PhoneBookEntry;
+use maxhq_protocol::phones::{PhoneBookEntry, PhoneMac};
 use serde_json::{json, Value};
 
 use super::*;
@@ -154,7 +154,7 @@ async fn the_link_carries_the_token_and_a_proof_for_the_url_it_names() {
     let (post, seen) = device(Vec::new());
     let (sign_ins, store) = signing(post);
     holding(&*store, HELD, 20);
-    let (headers, _) = sign_ins.route(devbox(), &route(), None);
+    let (headers, _) = sign_ins.route(devbox(), "Home Mac", &route(), None);
     let url = "wss://192.168.1.20:7466/link";
     let first = headers("GET", url.to_owned()).await.unwrap();
     assert_signed(&first, "GET", url, Some(HELD));
@@ -169,7 +169,7 @@ async fn the_first_link_trades_the_code_and_keeps_the_token() {
     let (post, seen) = device(vec![Ok((200, token(FRESH, 30)))]);
     let (sign_ins, store) = signing(post);
     let code = Secret::new(CODE.to_owned());
-    let (headers, _) = sign_ins.route(devbox(), &route(), Some(&code));
+    let (headers, _) = sign_ins.route(devbox(), "Home Mac", &route(), Some(&code));
     let url = "wss://192.168.1.20:7466/link";
     let link = headers("GET", url.to_owned()).await.unwrap();
     assert_signed(&link, "GET", url, Some(FRESH));
@@ -192,7 +192,7 @@ async fn a_token_with_under_15_days_left_is_refreshed_on_connect() {
     let (post, seen) = device(vec![Ok((200, token(FRESH, 30)))]);
     let (sign_ins, store) = signing(post);
     holding(&*store, HELD, 14);
-    let (headers, _) = sign_ins.route(devbox(), &route(), None);
+    let (headers, _) = sign_ins.route(devbox(), "Home Mac", &route(), None);
     let url = "wss://192.168.1.20:7466/link";
     let link = headers("GET", url.to_owned()).await.unwrap();
     assert_signed(&link, "GET", url, Some(FRESH));
@@ -208,7 +208,7 @@ async fn a_refresh_that_cant_reach_the_device_keeps_the_token_while_it_lasts() {
     let (post, _) = device(vec![Err("the device didn't answer")]);
     let (sign_ins, store) = signing(post);
     holding(&*store, HELD, 3);
-    let (headers, _) = sign_ins.route(devbox(), &route(), None);
+    let (headers, _) = sign_ins.route(devbox(), "Home Mac", &route(), None);
     let link = headers("GET", "wss://192.168.1.20:7466/link".into()).await;
     assert_eq!(link.unwrap()[1].1, format!("DPoP {HELD}"));
     assert_eq!(held(&*store).as_deref(), Some(HELD));
@@ -220,7 +220,7 @@ async fn an_ended_sign_in_forgets_the_token_and_says_pair_again() {
         let (post, _) = device(vec![refused(error)]);
         let (sign_ins, store) = signing(post);
         holding(&*store, HELD, 1);
-        let (headers, _) = sign_ins.route(devbox(), &route(), None);
+        let (headers, _) = sign_ins.route(devbox(), "Home Mac", &route(), None);
         let link = headers("GET", "wss://192.168.1.20:7466/link".into()).await;
         assert_eq!(link.unwrap_err(), SIGN_IN_ENDED, "{error:?}");
         assert_eq!(held(&*store), None, "{error:?}");
@@ -230,10 +230,10 @@ async fn an_ended_sign_in_forgets_the_token_and_says_pair_again() {
     let (post, _) = device(vec![refused(NetError::BadCode)]);
     let (sign_ins, store) = signing(post);
     let code = Secret::new(CODE.to_owned());
-    let (headers, _) = sign_ins.route(devbox(), &route(), Some(&code));
+    let (headers, _) = sign_ins.route(devbox(), "Home Mac", &route(), Some(&code));
     let link = headers("GET", "wss://192.168.1.20:7466/link".into()).await;
     assert_eq!(link.unwrap_err(), SIGN_IN_ENDED);
-    let (headers, _) = sign_ins.route(devbox(), &route(), None);
+    let (headers, _) = sign_ins.route(devbox(), "Home Mac", &route(), None);
     let link = headers("GET", "wss://192.168.1.20:7466/link".into()).await;
     assert_eq!(link.unwrap_err(), SIGN_IN_ENDED);
     assert_eq!(held(&*store), None);
@@ -241,14 +241,14 @@ async fn an_ended_sign_in_forgets_the_token_and_says_pair_again() {
     // A code that ran out says to make a new one, not to pair again.
     let (post, _) = device(vec![refused(NetError::Expired)]);
     let (sign_ins, store) = signing(post);
-    let (headers, _) = sign_ins.route(devbox(), &route(), Some(&code));
+    let (headers, _) = sign_ins.route(devbox(), "Home Mac", &route(), Some(&code));
     let link = headers("GET", "wss://192.168.1.20:7466/link".into()).await;
-    assert_eq!(link.unwrap_err(), CODE_RAN_OUT);
+    assert_eq!(link.unwrap_err(), code_ran_out("Home Mac"));
     assert_eq!(held(&*store), None);
 
     // The link's refusal forgets it too.
     holding(&*store, HELD, 20);
-    let (_, ended) = sign_ins.route(devbox(), &route(), None);
+    let (_, ended) = sign_ins.route(devbox(), "Home Mac", &route(), None);
     ended();
     assert_eq!(held(&*store), None);
 }
@@ -284,10 +284,15 @@ async fn pairing_posts_to_the_devices_network_access_and_keeps_the_token() {
         host_key: String::new(),
         network: None,
     };
+    let home = PhoneMac {
+        device: DeviceId::derive("Home Mac"),
+        name: "Home Mac".into(),
+    };
     let paired = json!(NetPaired {
         phone: key.phone,
         book: vec![entry.clone()],
         token: serde_json::from_value(token(FRESH, 30)).unwrap(),
+        mac: Some(home.clone()),
     });
     // The first host doesn't answer, so the second pairs.
     let (post, seen) = device(vec![Err("the device didn't answer"), Ok((200, paired))]);
@@ -306,6 +311,11 @@ async fn pairing_posts_to_the_devices_network_access_and_keeps_the_token() {
     assert_eq!(book.phone, key.phone);
     assert_eq!(book.device, devbox());
     assert_eq!(book.devices, [entry]);
+    assert_eq!(
+        book.mac,
+        Some(home),
+        "the book names the Mac that paired it"
+    );
     assert_eq!(held(&*store).as_deref(), Some(FRESH));
     let seen = seen.lock().unwrap();
     let urls: Vec<&str> = seen.iter().map(|asked| asked.url.as_str()).collect();
@@ -389,7 +399,7 @@ async fn signing_in_logs_no_token_code_seed_or_proof() {
     ]);
     let (sign_ins, _) = signing(post);
     let code = Secret::new(CODE.to_owned());
-    let (headers, _) = sign_ins.route(devbox(), &route(), Some(&code));
+    let (headers, _) = sign_ins.route(devbox(), "Home Mac", &route(), Some(&code));
     let mut proofs = Vec::new();
     for _ in 0..3 {
         if let Ok(signed) = headers("GET", "wss://192.168.1.20:7466/link".into()).await {

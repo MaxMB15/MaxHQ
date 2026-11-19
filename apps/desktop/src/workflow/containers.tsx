@@ -16,7 +16,7 @@ import { panesOf } from "@/layout/panes";
 import { useServices, useUi, useView } from "@/app/services";
 import { useRunHeader, useRunLoad, useRunLoops, useRunNodes, useRunShape } from "@/app/use-run";
 import { MenuItem } from "@/sidebar/project-menu";
-import { SlideOut, slideOutWidth, SubAgentList, subAgentsSubtitle } from "@/sidebar/sub-agents";
+import { SlideOut, slideOutWidth, SubAgentList } from "@/sidebar/sub-agents";
 import type {
 	Agent,
 	AgentId,
@@ -27,6 +27,7 @@ import type {
 	WorkflowRun,
 	WorkflowRunId,
 } from "@maxhq/shared/bindings";
+import { subAgentsSubtitle } from "@maxhq/shared/status/sub-agents";
 import { all } from "@maxhq/shared/view/replica";
 import { childrenOf } from "@maxhq/shared/view/select";
 import { finishedLead, nameSubAgent } from "@maxhq/shared/agent-view/finished";

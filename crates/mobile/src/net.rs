@@ -32,9 +32,11 @@ use crate::keys::{self, KeyStore, Token};
 use crate::phone::PhoneKey;
 
 /// Why the phone can't sign in to a device whose one-time code ran out
-/// before the phone traded it. The Mac makes a new one when asked.
-pub(crate) const CODE_RAN_OUT: &str =
-    "the code for this device ran out, so make a new one in the Mac's Phones settings";
+/// before the phone traded it. `mac`, the Mac whose book lists the device,
+/// makes a new one when asked.
+pub(crate) fn code_ran_out(mac: &str) -> String {
+    format!("the code for this device ran out, so make a new one in {mac}'s Phones settings")
+}
 
 /// Posts a JSON body to a path on a route and answers what came back:
 /// [`PhoneWs::post`] on the phone, a fake in tests.
@@ -119,29 +121,34 @@ impl SignIns {
                 phone: paired.phone,
                 device: code.device,
                 devices: paired.book,
+                mac: paired.mac,
             });
         }
         Err(format!("Couldn't reach the device: {reason}"))
     }
 
     /// The headers for each request on `route`, one of `device`'s, and
-    /// what forgets its token when the device ends the sign-in. `code` is
-    /// the device's one-time code while the book has one.
+    /// what forgets its token when the device ends the sign-in. `mac` is
+    /// the Mac whose book lists the device, and `code` the device's
+    /// one-time code while the book has one.
     pub(crate) fn route(
         self: &Arc<Self>,
         device: DeviceId,
+        mac: &str,
         route: &WsRoute,
         code: Option<&Secret>,
     ) -> (Headers, Ended) {
         let me = Arc::clone(self);
+        let mac = mac.to_owned();
         let route = route.clone();
         let code = code.cloned();
         let headers: Headers = Arc::new(move |method, url| {
             let me = Arc::clone(&me);
+            let mac = mac.clone();
             let route = route.clone();
             let code = code.clone();
             Box::pin(async move {
-                let token = me.token(device, &route, code.as_ref()).await?;
+                let token = me.token(device, &mac, &route, code.as_ref()).await?;
                 me.signed(method, &url, Some(&token), &route.pin)
             })
         });
@@ -153,14 +160,22 @@ impl SignIns {
         (headers, ended)
     }
 
+    /// Forgets `device`'s token, for a device the phone no longer has.
+    pub(crate) fn forget(&self, device: DeviceId) {
+        if let Err(error) = keys::forget_token(&*self.store, device) {
+            tracing::warn!(%error, "couldn't forget a device's sign-in");
+        }
+    }
+
     /// `device`'s token, traded for with `code` the first time and
     /// refreshed on `route` once less than [`REFRESH_WITHIN`] is left. A
     /// device that ended the sign-in gets its token forgotten, and the
     /// error says to pair again, or to make a new code when the code ran
-    /// out first.
+    /// out first, in `mac`'s Phones settings.
     async fn token(
         self: &Arc<Self>,
         device: DeviceId,
+        mac: &str,
         route: &WsRoute,
         code: Option<&Secret>,
     ) -> Result<Zeroizing<String>, String> {
@@ -193,7 +208,7 @@ impl SignIns {
         .await;
         let failed = match posted.map(read::<NetToken>) {
             Ok(Ok(token)) => return keep(&*self.store, device, &token),
-            Ok(Err(Some(NetError::Expired))) if by_code => return Err(CODE_RAN_OUT.to_owned()),
+            Ok(Err(Some(NetError::Expired))) if by_code => return Err(code_ran_out(mac)),
             Ok(Err(Some(error))) if ends(error) => {
                 keys::forget_token(&*self.store, device)?;
                 return Err(SIGN_IN_ENDED.to_owned());

@@ -31,14 +31,14 @@ import {
 } from "lucide-react";
 import { type ReactElement, type ReactNode, useRef, useState } from "react";
 
-import { CopyItem, sessionIdName } from "@/agent-view/header-menu";
+import { CopyItem } from "@/agent-view/header-menu";
 import { type EditorChoice, OpenInItem, OpenInSetup } from "@/agent-view/open-in";
 import { confirmAndDelete } from "@/app/delete-agents";
 import { useServices, useUi, useView } from "@/app/services";
 import { MENU_ITEM, MENU_POPUP } from "@/composer";
 import { keyHint, SHORTCUTS } from "@/layout/shortcuts";
 import { cn } from "@/lib/utils";
-import type { Agent, AgentId, Timestamp } from "@maxhq/shared/bindings";
+import type { AgentId, Timestamp } from "@maxhq/shared/bindings";
 import { formatClock, formatWhen } from "@maxhq/shared/status/format";
 import { deletableAgents } from "@maxhq/shared/ui/delete-agents";
 import { showFailure } from "@maxhq/shared/ui/inbox-notice";
@@ -48,6 +48,7 @@ import {
 	limitSnoozedText,
 	type InboxStep,
 } from "@maxhq/shared/view/inbox-actions";
+import { sessionIdLabel } from "@maxhq/shared/view/copy-agent";
 import { pickSnoozePreset, resolveSnoozePresets } from "@maxhq/shared/view/snooze";
 
 import { runChoice, runSteps } from "./commands";
@@ -340,12 +341,6 @@ export const InboxMenuItems = ({
 	);
 };
 
-/** What the agent's CLI calls its session ID, starting with a capital. */
-const sessionIdLabel = (agent: Agent): string => {
-	const name = sessionIdName(agent);
-	return name.charAt(0).toUpperCase() + name.slice(1);
-};
-
 // Open in, and the Copy submenu, for one agent.
 const AgentItems = ({
 	agent,
@@ -380,7 +375,9 @@ const AgentItems = ({
 				>
 					{path ? <CopyItem label={t("Folder path")} text={path} /> : null}
 					{found.branch ? <CopyItem label={t("Branch")} text={found.branch} /> : null}
-					{session ? <CopyItem label={sessionIdLabel(found)} text={session} /> : null}
+					{session ? (
+						<CopyItem label={sessionIdLabel(found.vendor)} text={session} />
+					) : null}
 				</Submenu>
 			) : null}
 		</>

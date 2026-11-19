@@ -13,6 +13,7 @@ import { useState } from "react";
 import { useServices, useView } from "@/app/services";
 import { useNow } from "@maxhq/shared/lib/clock";
 import { cn } from "@/lib/utils";
+import { apnsLine } from "@maxhq/shared/settings/login-parts";
 import { isLive } from "@maxhq/shared/workspaces/state";
 
 import { FIELD, Label, PRIMARY, Section, StatusNote } from "./controls";
@@ -202,12 +203,7 @@ export const ApnsLogin = () => {
 					live={(device) => isLive(view, device, now)}
 					what={translate("the APNs key")}
 					empty={translate("No device holds an APNs key yet.")}
-					describe={(c) =>
-						translate("Key {{key_id}}, team {{team_id}}.", {
-							key_id: c.kind.key_id,
-							team_id: c.kind.team_id,
-						})
-					}
+					describe={apnsLine}
 				/>
 			</Section>
 		</div>

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026 Max Boksem
 
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import App from "@/App";
@@ -175,6 +175,27 @@ describe("the new-agent form", () => {
 				first: { text: "Look around", attachments: [] },
 			})
 		);
+	});
+
+	it("suggests the device's folders as you type one, and offers Browse…", async () => {
+		renderApp();
+		fireEvent.keyDown(window, { key: "n", metaKey: true });
+		await screen.findByRole("dialog", { name: "New agent" });
+		press(await option("Project", "Use a local folder"));
+		const folder = within(form()).getByRole("textbox", { name: "Folder" });
+		expect(within(form()).getByRole("button", { name: "Browse…" })).toBeInTheDocument();
+		act(() => folder.focus());
+		fireEvent.change(folder, { target: { value: "/Users/me/Code/" } });
+		const list = await within(form()).findByRole("listbox", { name: "Suggestions" });
+		expect(
+			within(list)
+				.getAllByRole("option")
+				.map((o) => o.textContent)
+		).toEqual(["/Users/me/Code/Github", "/Users/me/Code/scratch"]);
+		// Esc closes the suggestions and leaves the form open.
+		fireEvent.keyDown(folder, { key: "Escape" });
+		expect(within(form()).queryByRole("listbox")).toBeNull();
+		expect(form()).toBeInTheDocument();
 	});
 
 	it("gives a container's device this Mac's git identity before the agent starts", async () => {

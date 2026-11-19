@@ -30,6 +30,7 @@ export type QuoteRef = Extract<InlineRef, { type: "quote" }>;
 export type AgentRef = Extract<InlineRef, { type: "agent" }>;
 export type NoteRef = Extract<InlineRef, { type: "note" }>;
 export type OutputRef = Extract<InlineRef, { type: "output" }>;
+export type SessionRef = Extract<InlineRef, { type: "session" }>;
 export type GitItemRef = Extract<InlineRef, { type: "git_item" }>;
 
 /**
@@ -52,7 +53,8 @@ export type PlacedPill =
 	| QuoteRef
 	| AgentRef
 	| NoteRef
-	| OutputRef;
+	| OutputRef
+	| SessionRef;
 
 /** The key of the staged file a pill stands for, or null when it stands for none. */
 export const fileKeyOf = (pill: PlacedPill): string | null =>
@@ -102,6 +104,10 @@ export const markedText = (segments: readonly Segment[]): string =>
 /** Whether a draft has nothing to send: no pill, and only blank text. */
 export const isBlank = (draft: Draft): boolean =>
 	draft.segments.every((segment) => segment.type === "text" && segment.text.trim() === "");
+
+/** Whether the text holds a note's pill. */
+export const hasNote = (segments: readonly Segment[]): boolean =>
+	segments.some((segment) => segment.type === "pill" && segment.pill.type === "note");
 
 /** The keys of the files placed in a draft, each visual's page too, in order, once each. */
 export const fileKeys = (segments: readonly Segment[]): string[] => [
@@ -372,8 +378,10 @@ export const fromUserInput = (
 ): Draft => {
 	const refs = input.refs ?? [];
 	const excerpts = excerptIds(refs);
-	const placed = refs.flatMap((ref): PlacedPill[] => {
+	const placed = refs.flatMap((ref): (PlacedPill | null)[] => {
 		if (ref.type === "git_item") return [];
+		// A shell session doesn't go back into a draft, so its mark drops out.
+		if (ref.type === "session") return [null];
 		if (ref.type === "attachment") return [{ type: "attachment", key: keyOf(ref.id) }];
 		if (ref.type === "agent") return [{ ...ref, excerpt: null }];
 		if (ref.type === "note") return [{ ...ref, copy: null }];
@@ -398,7 +406,9 @@ export const fromUserInput = (
 		})
 	);
 	const trailing = [
-		...placed.slice(Math.max(0, pieces.length - 1)),
+		...placed
+			.slice(Math.max(0, pieces.length - 1))
+			.filter((pill): pill is PlacedPill => pill !== null),
 		...input.attachments
 			.filter((id) => !placedIds.has(id) && !excerpts.has(id))
 			.map((id): PlacedPill => ({ type: "attachment", key: keyOf(id) })),
@@ -529,6 +539,23 @@ export const outputMarker = (ref: OutputRef, number?: number): string => {
 	return `[${name}: ${markerCommand(ref.command)}${end}${lines}]`;
 };
 
+/**
+ * A shell session as plain text, the way the agent's marker names it,
+ * such as `[Shell session 1: 4 commands, 1 failed]`, or `[Shell session:
+ * 2 commands, running]` without its number.
+ */
+export const sessionMarker = (ref: SessionRef, number?: number): string => {
+	const count = ref.blocks.length === 1 ? "1 command" : `${ref.blocks.length} commands`;
+	const failed = ref.blocks.filter(
+		(block) => !block.running && block.exit_code !== null && block.exit_code !== 0
+	).length;
+	const end =
+		(failed > 0 ? `, ${failed} failed` : "") +
+		(ref.blocks.some((block) => block.running) ? ", running" : "");
+	const name = number === undefined ? "Shell session" : `Shell session ${number}`;
+	return `[${name}: ${count}${end}]`;
+};
+
 /** A visual as plain text, such as `[Visual: Weekly usage]`. */
 export const visualMarker = (title: string): string => `[Visual: ${bare(visualLabel(title))}]`;
 
@@ -581,6 +608,9 @@ export const plainText = (
 				return;
 			case "note":
 				out += noteMarker(pill.title);
+				return;
+			case "session":
+				out += sessionMarker(pill);
 				return;
 			case "visual": {
 				const html = pageOf(pill.key);

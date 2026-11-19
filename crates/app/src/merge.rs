@@ -177,6 +177,7 @@ impl Merge {
                 via: Vec::new(),
                 capabilities: None,
                 protocol: None,
+                protocol_mismatch: None,
                 waiting: waiting_for(&self.waiting, spec.id),
                 claim: None,
             },
@@ -702,6 +703,7 @@ pub(crate) mod tests {
             via: Vec::new(),
             capabilities: None,
             protocol: None,
+            protocol_mismatch: None,
             waiting: Vec::new(),
             claim: None,
         }))

@@ -10,6 +10,7 @@ import { useState } from "react";
 import { useServices, useView } from "@/app/services";
 import type { DeviceId } from "@maxhq/shared/bindings";
 import { useNow } from "@maxhq/shared/lib/clock";
+import { codexStatus, sessionLine } from "@maxhq/shared/settings/login-parts";
 import { sentence } from "@maxhq/shared/status/format";
 import { isLive } from "@maxhq/shared/workspaces/state";
 
@@ -17,12 +18,9 @@ import { SignInAgain } from "./cli-sign-in";
 import { Row, SECONDARY, Section, StatusNote } from "./controls";
 import { type ForgetWords, HeldList } from "./login-parts";
 import { Steps } from "./login-steps";
-import { heldOf, loginTargets } from "./logins";
+import { CODEX_USAGE_URL, heldOf, loginTargets } from "./logins";
 import { failureOf, type Note } from "./result";
 import { t as translate, useI18n } from "@maxhq/shared/i18n";
-
-/** Where ChatGPT shows how much of the plan's limits you've used. */
-const USAGE_URL = "https://chatgpt.com/#settings/Usage";
 
 const SIGN_OUT: ForgetWords = {
 	get label() {
@@ -86,23 +84,7 @@ const SignIn = () => {
 				targets.map((t) => {
 					const session = held.find((c) => c.device === t.device);
 					return (
-						<Row
-							key={t.device}
-							title={t.name}
-							sub={
-								!t.live
-									? translate("Connect to {{name}} to sign in.", { name: t.name })
-									: session
-										? translate("Signed in{{value1}}", {
-												value1: session.kind.email
-													? translate(" as {{email}}", {
-															email: session.kind.email,
-														})
-													: "",
-											})
-										: translate("Not signed in")
-							}
-						>
+						<Row key={t.device} title={t.name} sub={codexStatus(t, session)}>
 							<StatusNote note={notes.get(t.device) ?? null} />
 							<button
 								type="button"
@@ -153,14 +135,10 @@ export const CodexLogin = () => {
 					live={(device) => isLive(view, device, now)}
 					what={translate("the Codex session")}
 					empty={translate("No device has signed in yet.")}
-					describe={(c) =>
-						c.kind.email
-							? translate("Codex, {{email}}", { email: c.kind.email })
-							: "Codex"
-					}
+					describe={sessionLine}
 					actions={() => (
 						<a
-							href={USAGE_URL}
+							href={CODEX_USAGE_URL}
 							target="_blank"
 							rel="noreferrer"
 							className="text-xs text-primary hover:underline"

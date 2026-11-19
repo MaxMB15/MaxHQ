@@ -216,13 +216,16 @@ impl Manager {
     fn ask_dispatcher(
         &mut self,
         key: IdempotencyKey,
-        input: UserInput,
+        mut input: UserInput,
         account: AccountId,
         new: bool,
     ) -> Option<ActionOutcome> {
         let Some(home) = self.dispatcher.home() else {
             return Some(refused("The dispatcher runs on the Mac."));
         };
+        // The plans it makes hand these pills on, so a session pill keeps
+        // only what its card shares from here.
+        self.keep_shared(&mut input.refs);
         if input.text.trim().is_empty() {
             return Some(refused("Type a request first."));
         }

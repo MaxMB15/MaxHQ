@@ -87,6 +87,26 @@ export const mayUpdate = (tool: AgentToolInfo, ticked: readonly Tool[]): boolean
 	}
 };
 
+/** A CLI's version, the newest one, and who installed it how. */
+export const versionLine = (tool: ToolInfo): string => {
+	const who = tool.owner === "max_hq" ? t("MaxHQ installed it") : t("You installed it");
+	const how = t("{{who}} with {{method}}.", { who: who, method: tool.method });
+	if (tool.version === null) return t("Version unknown. {{how}}", { how: how });
+	if (tool.latest === null)
+		return t("Version {{version}}. {{how}}", { version: tool.version, how: how });
+	return hasNewer(tool)
+		? t("Version {{version}}, {{latest}} is out. {{how}}", {
+				version: tool.version,
+				latest: tool.latest,
+				how: how,
+			})
+		: t("Version {{version}}, the newest. {{how}}", { version: tool.version, how: how });
+};
+
+/** Whether a CLI's row offers Update: not when you or nobody updates it. */
+export const offersUpdate = (tool: ToolInfo): boolean =>
+	tool.update.type !== "manual" && tool.update.type !== "never";
+
 /** The CLI and the place it's in, to send to `updateTools`. */
 export const targetOf = (tool: AgentToolInfo): ToolTarget => ({
 	tool: tool.kind.tool,

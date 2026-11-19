@@ -54,6 +54,7 @@ mod switch;
 mod take_over;
 mod timeline;
 mod tools;
+mod user_sessions;
 pub mod vendors;
 mod workflow_env;
 
@@ -359,6 +360,15 @@ impl Sessions {
             let _ = wait.await;
         }
     }
+
+    /// What the manager remembers of an agent's session cards: how many
+    /// open ones it knows, once read, and how many blocks that run.
+    #[cfg(test)]
+    pub async fn remembered(&self, agent: AgentId) -> (Option<usize>, usize) {
+        let (done, wait) = oneshot::channel();
+        let _ = self.tx.send(Input::Remembered { agent, done });
+        wait.await.unwrap_or_default()
+    }
 }
 
 impl Sessions {
@@ -645,6 +655,12 @@ enum Input {
         from: DeviceId,
         agents: Vec<AgentId>,
     },
+    /// A test asks what the manager remembers of an agent's session cards.
+    #[cfg(test)]
+    Remembered {
+        agent: AgentId,
+        done: oneshot::Sender<(Option<usize>, usize)>,
+    },
 }
 
 /// The manager's state, owned by its task.
@@ -710,6 +726,17 @@ struct Manager {
     terminal_notes: Option<mpsc::UnboundedReceiver<crate::terminals::RunNote>>,
     /// Who asked for each terminal being opened, and on which connection.
     openers: HashMap<IdempotencyKey, (crate::terminals::access::Opener, u64)>,
+    /// Why each `!` run that went to a fresh shell rather than the agent's
+    /// session went there, until its terminal opens.
+    fresh: HashMap<IdempotencyKey, maxhq_protocol::terminal::FreshReason>,
+    /// The messages a person sent, rather than an agent's tools, until
+    /// they go to their agent and seal its session cards.
+    yours: HashSet<IdempotencyKey>,
+    /// Each agent's session cards no message has sealed yet, once read.
+    open_cards: HashMap<AgentId, Vec<ItemId>>,
+    /// The agent and card of each session block that runs, by its
+    /// session and ID.
+    blocks: HashMap<(maxhq_protocol::ids::TerminalId, u32), (AgentId, ItemId)>,
 
     /// Each connection, by its number.
     clients: HashMap<u64, Viewer>,
@@ -843,6 +870,10 @@ impl Manager {
             terminals: config.terminals.host,
             terminal_notes: Some(config.terminals.notes),
             openers: HashMap::new(),
+            fresh: HashMap::new(),
+            yours: HashSet::new(),
+            open_cards: HashMap::new(),
+            blocks: HashMap::new(),
             hub: config.hub,
             db: config.db,
             holders: config.holders.local(),
@@ -1206,6 +1237,10 @@ impl Manager {
                 let _ = done.send(());
             }
             Input::TaskTargets { from, agents } => self.heard_task_targets(from, agents),
+            #[cfg(test)]
+            Input::Remembered { agent, done } => {
+                let _ = done.send(self.remembered(agent));
+            }
         }
     }
 
@@ -1276,6 +1311,9 @@ impl Manager {
 
     /// Tells every waiter on a key how it ended.
     fn finish(&mut self, key: IdempotencyKey, outcome: Outcome) {
+        self.openers.remove(&key);
+        self.fresh.remove(&key);
+        self.yours.remove(&key);
         self.agent_action_done(key, &outcome);
         self.moved_done(key, &outcome);
         self.move_done(key, &outcome);

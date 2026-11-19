@@ -23,14 +23,14 @@ import {
 	Section,
 	StatusNote,
 } from "@/settings/controls";
+import { PathField } from "@/paths/path-field";
 import { Badge } from "@/tasks/activity";
 import type { DeviceId, SkillLibrary, SkillSource } from "@maxhq/shared/bindings";
 import { useNow } from "@maxhq/shared/lib/clock";
-import { skillBadges, skillLibrary, sourceWhere } from "@maxhq/shared/skills/library";
+import { skillBadges, skillLibrary, sourceFacts } from "@maxhq/shared/skills/library";
 import { devicesWithSkills } from "@maxhq/shared/skills/project";
 import { EMPTY_SOURCE, planSource, type SourceDraft } from "@maxhq/shared/skills/source-form";
 import { readOf } from "@maxhq/shared/pulls/read";
-import { formatAgo } from "@maxhq/shared/status/format";
 import { deviceName } from "@maxhq/shared/view/select";
 
 import { SkillBadges, useSkillAction } from "./look";
@@ -42,17 +42,7 @@ const SourceBlock = ({ library, source }: { library: SkillLibrary; source: Skill
 	const { source: data } = useServices();
 	const now = useNow(60_000);
 	const { note, busy, run } = useSkillAction();
-	const where = sourceWhere(source.kind);
-	const parts = [
-		source.default_ref
-			? t("{{where}} at {{default_ref}}", { where: where, default_ref: source.default_ref })
-			: where,
-		source.commit,
-		source.fetched_at
-			? t("fetched {{value1}}", { value1: formatAgo(source.fetched_at, now) })
-			: t("not fetched yet"),
-		source.unpushed ? t("not pushed") : null,
-	].filter(Boolean);
+	const parts = sourceFacts(source, now);
 	return (
 		<div
 			role="group"
@@ -170,15 +160,15 @@ const AddSource = ({ library }: { library: SkillLibrary }) => {
 				void add();
 			}}
 		>
-			<label className="flex flex-col gap-1">
-				<Label>{t("Repo or folder")}</Label>
-				<input
-					className={FIELD}
-					value={draft.where}
-					placeholder={t("owner/repo, a git URL, or /path/to/skills")}
-					onChange={(e) => set({ where: e.target.value })}
-				/>
-			</label>
+			<PathField
+				device={library.device}
+				value={draft.where}
+				onChange={(where) => set({ where })}
+				label={t("Repo or folder")}
+				title={t("Choose the skills folder")}
+				placeholder={t("owner/repo, a git URL, or /path/to/skills")}
+				className={FIELD}
+			/>
 			<div className="flex gap-3">
 				<label className="flex flex-1 flex-col gap-1">
 					<Label>{t("Name")}</Label>

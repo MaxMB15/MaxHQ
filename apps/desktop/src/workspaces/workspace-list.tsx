@@ -5,26 +5,19 @@
 // project's settings, with the buttons that make another and copy a project
 // there.
 
-import { useI18n, formatNumber } from "@maxhq/shared/i18n";
+import { useI18n } from "@maxhq/shared/i18n";
 
 import { useServices, useView } from "@/app/services";
 import type { DeviceId, ProjectId } from "@maxhq/shared/bindings";
 import { useNow } from "@maxhq/shared/lib/clock";
 import { SECONDARY, Section } from "@/settings/controls";
-import { all } from "@maxhq/shared/view/replica";
 import { deviceName } from "@maxhq/shared/view/select";
 
 import { type CopyRequest, openCopyProject } from "./copy-store";
 import { NewWorkspaceButton } from "./new-workspace";
 import { copySources } from "@maxhq/shared/workspaces/copy";
-import {
-	canCopy,
-	isLive,
-	isMade,
-	madeWorkspaces,
-	makesWorkspaces,
-	workspaceHosts,
-} from "@maxhq/shared/workspaces/state";
+import { deviceWorkspaces } from "@maxhq/shared/workspaces/device";
+import { canCopy, madeWorkspaces, workspaceHosts } from "@maxhq/shared/workspaces/state";
 import { WorkspaceCard } from "./workspace-card";
 
 /** Opens the copy form for a project or onto a device. */
@@ -50,27 +43,15 @@ export const DeviceWorkspaces = ({ device }: { device: DeviceId }) => {
 
 	const view = useView((s) => s.view);
 	const now = useNow(5000);
+	const section = deviceWorkspaces(view, device, now);
+	if (!section) return null;
 	const name = deviceName(view, device);
-	const made = madeWorkspaces(view, { device });
-	const others = all(view, "workspace").filter(
-		(w) => w.device === device && w.location.type === "container" && !isMade(w)
-	).length;
-	const host = view.tables.device.get(device)?.workspace_host ?? null;
-	if (!host && made.length === 0) return null;
-	const live = isLive(view, device, now);
-	// A device whose `maxd` says it makes no workspaces gets no New workspace.
-	const makes = host !== null && makesWorkspaces(view, device);
+	const { made, makes, live } = section;
 	return (
 		<Section
 			title={t("Workspaces on {{name}}", { name: name })}
 			label={t("Workspaces on {{name}}", { name: name })}
-			hint={
-				!host
-					? t("{{name}} has no Incus", { name: name })
-					: makes
-						? t("Containers MaxHQ makes and runs")
-						: t("{{name}} doesn't make workspaces now", { name: name })
-			}
+			hint={section.hint}
 		>
 			{made.length > 0 ? (
 				<div>
@@ -87,14 +68,7 @@ export const DeviceWorkspaces = ({ device }: { device: DeviceId }) => {
 			)}
 			<div className="flex items-center gap-3 border-t border-sidebar-border px-4 py-3">
 				<span className="min-w-0 flex-1 text-xs text-muted-foreground">
-					{others > 0
-						? t(
-								"MaxHQ didn't make the other {{countText}} containers here, so it leaves them alone.",
-								{ count: others, countText: formatNumber(others) }
-							)
-						: live || !makes
-							? ""
-							: t("Connect to {{name}} to make one.", { name: name })}
+					{section.footer}
 				</span>
 				<CopyButton request={{ device }} disabled={!live || !canCopy(view, device)} />
 				{makes ? <NewWorkspaceButton device={device} disabled={!live} /> : null}

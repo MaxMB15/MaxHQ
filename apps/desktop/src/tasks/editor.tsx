@@ -18,28 +18,31 @@ import { cn } from "@/lib/utils";
 import { AGENT_FIELD, AgentPickers } from "@/new-agent/agent-pickers";
 import { Picker } from "@/new-agent/picker";
 import { ConfirmButton, Label, PRIMARY, SECONDARY, StatusNote } from "@/settings/controls";
-import { failureOf, type Note, scrub } from "@/settings/result";
+import type { Note } from "@/settings/result";
 import type { DeviceId, Task } from "@maxhq/shared/bindings";
 import { useNow } from "@maxhq/shared/lib/clock";
 import { resolve } from "@maxhq/shared/new-agent/spec";
 import {
 	emptyDraft,
 	promptFor,
+	takesRequests,
 	type TaskDraft,
-	taskFromDraft,
 	taskToDraft,
-	targetFrom,
+	toggled,
 	TRIGGER_KINDS,
 	type TriggerKind,
 	WEEKDAYS,
 } from "@maxhq/shared/tasks/draft";
 import {
-	agentOptions,
-	defaultHome,
+	draftHome,
 	githubRepos,
 	homeOptions,
 	sleepWarning,
+	targetOptions,
+	targetPatch,
+	targetValue,
 } from "@maxhq/shared/tasks/place";
+import { saveDraft } from "@maxhq/shared/tasks/actions";
 import { deviceName } from "@maxhq/shared/view/select";
 
 import { useTaskActions } from "./actions";
@@ -54,9 +57,6 @@ import {
 	SignatureFields,
 	TextField,
 } from "./hook-fields";
-
-// The target picker's entry for a new agent, which no agent ID can match.
-const NEW = "*new";
 
 const Form = ({
 	saved,
@@ -89,15 +89,7 @@ const Form = ({
 	const [made, setMade] = useState(false);
 
 	const r = resolve(view, draft.choices);
-	const target = targetFrom(view, draft);
-	const home =
-		picked ??
-		defaultHome(
-			view,
-			draft.kind,
-			typeof target === "string" ? null : target.device,
-			draft.repo
-		);
+	const home = picked ?? draftHome(view, draft);
 	const reach = home ? view.tables.device_tasks.get(home) : undefined;
 	const warning = sleepWarning(view, draft.kind, home);
 	const repos = [...new Set(githubRepos(view).map((g) => g.repo))];
@@ -112,46 +104,21 @@ const Form = ({
 	};
 
 	const save = async () => {
-		const built = taskFromDraft(view, draft, crypto.randomUUID());
-		if (!built.ok) return setNote({ text: built.reason, error: true });
-		if (!home) return setNote({ text: t("Pick the device it lives on."), error: true });
 		setBusy(true);
 		setNote({ text: t("Saving"), error: false });
-		const secret = draft.signed ? draft.secret.trim() : "";
 		try {
-			const result = await source.saveTask(home, built.task);
-			const failure = failureOf(result);
-			if (failure) return setNote({ text: failure, error: true });
-			const answer =
-				result.status === "ok" && result.data.status === "task_saved" ? result.data : null;
-			const task = answer?.task ?? built.task;
-			const problems: string[] = [];
-			if (task.trigger.type === "hook") {
-				if (secret) {
-					const sent = failureOf(await source.setHookSecret(task.id, secret));
-					if (sent) problems.push(scrub(sent, secret));
-				}
-				if (task.trigger.on !== listen) {
-					const turned = failureOf(await source.setHookOn(task.id, listen));
-					if (turned) problems.push(turned);
-				}
+			const saving = await saveDraft(source, view, draft, home, listen, crypto.randomUUID());
+			if (saving.state === "refused") return setNote({ text: saving.reason, error: true });
+			if (saving.state === "partly") {
+				setDraft((d) => ({ ...d, saved: saving.task, secret: "" }));
+				return setNote({ text: saving.reason, error: true });
 			}
-			if (problems.length > 0) {
-				setDraft((d) => ({ ...d, saved: task, secret: "" }));
-				return setNote({
-					text: t("Saved, but {{value1}}", { value1: problems.join(" ") }),
-					error: true,
-				});
-			}
-			if (answer?.hook_url) {
-				setUrl(answer.hook_url);
+			if (saving.hookUrl) {
+				setUrl(saving.hookUrl);
 				setMade(true);
 				return;
 			}
 			onDone();
-		} catch (error) {
-			console.warn("Couldn't save the task", error);
-			setNote({ text: t("Couldn't save it. Try again."), error: true });
 		} finally {
 			setBusy(false);
 		}
@@ -165,14 +132,9 @@ const Form = ({
 
 	const remove = async () => {
 		if (!saved) return;
-		try {
-			const failure = failureOf(await source.deleteTask(saved.id));
-			if (failure) return setNote({ text: failure, error: true });
-			onDone();
-		} catch (error) {
-			console.warn("Couldn't delete the task", error);
-			setNote({ text: t("Couldn't delete it. Try again."), error: true });
-		}
+		const failure = await actions.remove(saved);
+		if (failure) return setNote({ text: failure, error: true });
+		onDone();
 	};
 
 	if (made && url) {
@@ -194,7 +156,7 @@ const Form = ({
 		);
 	}
 
-	const requests = draft.kind === "hook" || draft.kind === "github_events";
+	const requests = takesRequests(draft.kind);
 
 	return (
 		<form
@@ -273,12 +235,9 @@ const Form = ({
 											key={day}
 											type="button"
 											aria-pressed={on}
-											onClick={() => {
-												const days = new Set(draft.days);
-												if (on) days.delete(day);
-												else days.add(day);
-												edit({ days });
-											}}
+											onClick={() =>
+												edit({ days: toggled(draft.days, day, !on) })
+											}
 											className={cn(
 												"h-8 w-[42px] rounded-[7px] border text-[12px]",
 												on
@@ -367,20 +326,9 @@ const Form = ({
 				<div className="flex flex-wrap gap-2">
 					<Picker
 						label={t("Sends to")}
-						value={draft.target === "new" ? NEW : (draft.agent ?? "")}
-						options={[
-							{
-								value: NEW,
-								label: t("A new agent"),
-								detail: t("Started for each run"),
-							},
-							...agentOptions(view, kept),
-						]}
-						onChange={(value) =>
-							value === NEW
-								? edit({ target: "new" })
-								: edit({ target: "agent", agent: value })
-						}
+						value={targetValue(draft)}
+						options={targetOptions(view, kept)}
+						onChange={(value) => edit(targetPatch(value))}
 					/>
 					<Picker
 						label={t("Lives on")}

@@ -7,6 +7,7 @@
 // WebAssembly. Each grammar loads the first time a block in its language
 // asks for it.
 
+import { CODE_THEME, codeColors } from "@maxhq/shared/agent-view/highlight";
 import type { HighlighterCore, LanguageRegistration } from "shiki/core";
 
 import type { HighlightJob, HighlightReply, Language, Lines } from "./highlight";
@@ -45,24 +46,9 @@ export const GRAMMARS = {
 	yaml: () => import("shiki/langs/yaml.mjs"),
 } satisfies Record<Language, Grammar>;
 
-const THEME = "github-dark-default";
-
-// The theme's colours each stand for one of the app's `--code-*` tokens, so
-// highlighted code takes the app's theme, and a new theme needs no new pass.
-// The near white and near black ones mark text that's otherwise plain.
-export const CODE_COLORS: Readonly<Record<string, string>> = {
-	"#e6edf3": "var(--code-text)",
-	"#f0f6fc": "var(--code-text)",
-	"#161b22": "var(--code-text)",
-	"#8b949e": "var(--code-comment)",
-	"#ff7b72": "var(--code-keyword)",
-	"#79c0ff": "var(--code-constant)",
-	"#ffa657": "var(--code-variable)",
-	"#d2a8ff": "var(--code-function)",
-	"#7ee787": "var(--code-tag)",
-	"#a5d6ff": "var(--code-string)",
-	"#ffa198": "var(--code-invalid)",
-};
+// The theme's colours as the app's `--code-*` tokens, so highlighted code
+// takes the app's theme.
+export const CODE_COLORS = codeColors((name) => `var(--code-${name})`);
 
 // Shiki stops a line after 500 ms by default and leaves the rest of it plain.
 // A grammar's regexes compile the first time they run, and in WebKit that
@@ -110,7 +96,7 @@ export const tokenize = async ({ code, lang }: HighlightJob): Promise<Lines | nu
 		return shiki
 			.codeToTokensBase(code, {
 				lang,
-				theme: THEME,
+				theme: CODE_THEME,
 				colorReplacements: CODE_COLORS,
 				tokenizeTimeLimit: LINE_TIME_LIMIT,
 			})

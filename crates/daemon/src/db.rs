@@ -634,17 +634,28 @@ impl Db {
         Ok(())
     }
 
-    /// Every `!` run an agent kept, oldest first. A row that doesn't parse
-    /// is skipped.
+    /// Every `!` run and session card an agent kept, oldest first. A row
+    /// that doesn't parse is skipped.
     pub fn user_runs<T: DeserializeOwned>(
         &self,
         agent: AgentId,
     ) -> rusqlite::Result<Vec<UserRunRow<T>>> {
+        self.user_runs_starting(agent, "")
+    }
+
+    /// The `!` runs and session cards an agent kept whose item IDs start
+    /// with `prefix`, oldest first. A row that doesn't parse is skipped.
+    pub fn user_runs_starting<T: DeserializeOwned>(
+        &self,
+        agent: AgentId,
+        prefix: &str,
+    ) -> rusqlite::Result<Vec<UserRunRow<T>>> {
         let conn = self.lock();
         let mut query = conn.prepare(
-            "SELECT item, after, at, record FROM user_runs WHERE agent = ?1 ORDER BY at, rowid",
+            "SELECT item, after, at, record FROM user_runs
+             WHERE agent = ?1 AND substr(item, 1, length(?2)) = ?2 ORDER BY at, rowid",
         )?;
-        let rows = query.query_map(params![agent.to_string()], |row| {
+        let rows = query.query_map(params![agent.to_string(), prefix], |row| {
             Ok((
                 row.get::<_, String>(0)?,
                 row.get::<_, Option<String>>(1)?,
@@ -695,6 +706,26 @@ impl Db {
             at: Timestamp(u64::try_from(at).unwrap_or(0)),
             record,
         })
+    }
+
+    /// The agent that kept the item `item`, and the item, found by its ID
+    /// alone, since no two agents' runs or cards share one. None when no
+    /// agent has it or it doesn't parse.
+    pub fn user_run_anywhere<T: DeserializeOwned>(
+        &self,
+        item: &str,
+    ) -> Option<(AgentId, UserRunRow<T>)> {
+        let agent: String = self
+            .lock()
+            .query_row(
+                "SELECT agent FROM user_runs WHERE item = ?1 LIMIT 1",
+                params![item],
+                |row| row.get(0),
+            )
+            .optional()
+            .ok()??;
+        let agent: AgentId = agent.parse().ok()?;
+        Some((agent, self.user_run(agent, item)?))
     }
 
     /// Keeps a `!` run. A run kept before keeps its place: only its record
@@ -1993,6 +2024,7 @@ mod tests {
             memory_items: 256,
             history_mib: 256,
             claude_setup_token: false,
+            shell_integration: true,
         };
         Db::open(&path)
             .unwrap()

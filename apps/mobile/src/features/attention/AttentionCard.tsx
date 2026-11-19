@@ -12,7 +12,7 @@
 import { useI18n } from "@maxhq/shared/i18n";
 
 import * as Haptics from "expo-haptics";
-import { useCallback, useEffect, useState } from "react";
+import { type ReactNode, useCallback, useEffect, useState } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 
 import {
@@ -53,6 +53,7 @@ export const AttentionCard = ({
 	vendor,
 	title,
 	place,
+	tag,
 	onOpen,
 	changes,
 	dismiss,
@@ -63,6 +64,8 @@ export const AttentionCard = ({
 	title?: string;
 	/** The device the agent runs on. */
 	place?: string;
+	/** The tag naming the agent's Mac, while several Macs show together. */
+	tag?: ReactNode;
 	onOpen?: () => void;
 	/** The edit it asks about, when it asks to change files. */
 	changes?: readonly FileEdit[] | null;
@@ -134,6 +137,7 @@ export const AttentionCard = ({
 					<Text style={styles.title} numberOfLines={inbox ? 1 : 2}>
 						{title ?? prompt.title}
 					</Text>
+					{tag}
 					{open ? <Text style={styles.waiting}>{waiting}</Text> : null}
 				</View>
 				{inbox && prompt.detail === null ? (

@@ -22,6 +22,7 @@ maxhq-client = { workspace = true, features = ["system-ssh", "tailscale"] }
 maxhq-core.workspace = true
 maxhq-hold.workspace = true
 maxhq-protocol.workspace = true
+maxhq-term.workspace = true
 maxhq-workflow.workspace = true
 maxhq-transfer.workspace = true
 maxhq-vm.workspace = true

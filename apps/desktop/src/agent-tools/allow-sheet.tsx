@@ -27,13 +27,7 @@ import { all } from "@maxhq/shared/view/replica";
 import { useAgentDefaults, usePermissions, useRefreshAgentTools } from "./queries";
 import { ScopeFields } from "./scope-fields";
 
-/**
- * Whether an agent can hold a permission: one MaxHQ runs, which gets the
- * tools over its pipe, and not a sub-agent. One watched in a terminal
- * can't call them as itself.
- */
-export const canAllow = (agent: Agent): boolean =>
-	agent.control === "held" && agent.parent === null;
+export { canAllow } from "@maxhq/shared/agent-tools/scope";
 
 /** The permission an agent holds, once the permissions are read. */
 export const useHeld = (agent: Agent): Permission | undefined => {

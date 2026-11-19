@@ -9,34 +9,12 @@
 // write at once with the text still to come, and the loading finishes
 // after.
 
-import type { Agent } from "@maxhq/shared/bindings";
-import type { ToolNames } from "@maxhq/shared/agent-view/agent-tools";
-import type { DataSource } from "@maxhq/shared/data/source";
-import { conversationMarkdown, exportFileName } from "@maxhq/shared/timeline/export";
-import { leaseTimeline } from "@maxhq/shared/timeline/registry";
-import { loadAll } from "@maxhq/shared/timeline/whole";
+import { exportFileName } from "@maxhq/shared/timeline/export";
 
 import { saveExport } from "@/native";
 import { t as translate } from "@maxhq/shared/i18n";
 
-/** The agent's whole conversation as Markdown, once every older page has loaded. */
-export const conversationText = async (
-	source: DataSource,
-	agent: Pick<Agent, "id" | "title" | "vendor">,
-	names: ToolNames
-): Promise<string> => {
-	const { timeline, release } = leaseTimeline(source, agent.id);
-	try {
-		const state = await loadAll(timeline);
-		const items = state.order.flatMap((id) => {
-			const item = state.items.get(id);
-			return item ? [item] : [];
-		});
-		return conversationMarkdown(items, { title: agent.title, vendor: agent.vendor, names });
-	} finally {
-		release();
-	}
-};
+export { conversationText } from "@maxhq/shared/timeline/whole";
 
 // Starts a clipboard write now for text that comes later. A webview with
 // no `ClipboardItem` writes once the text is in, which only works where

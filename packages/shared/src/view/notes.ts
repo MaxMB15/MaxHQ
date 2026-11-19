@@ -20,10 +20,14 @@ import {
 	type NoteAuthor,
 	type NoteId,
 	type NoteSummary,
+	type NoteVersion,
+	type NoteVersionInfo,
 	type ProjectId,
+	type Timestamp,
 } from "../bindings";
 import type { NoteRef } from "../pills/draft";
 import { noteLabel } from "../pills/label";
+import { formatWhen } from "../status/format";
 import { newestNotes, projectsWithNotes, reportsOf } from "./note-heads";
 import { all, type ViewState } from "./replica";
 import { deviceName, linkForDevice } from "./select";
@@ -200,6 +204,19 @@ export const savedBy = (view: ViewState, by: NoteAuthor | null): string => {
 
 /** A note's title to show, or "Untitled" when it has none. */
 export const shownTitle = noteLabel;
+
+/**
+ * A version's line in a note's history: when it was saved, and whether it's
+ * the current one or a deleted one. The history lists newest first, so the
+ * first is current.
+ */
+export const versionWhen = (version: NoteVersionInfo, current: boolean, now: Timestamp): string =>
+	formatWhen(version.at, now) +
+	(current ? t(" · Current") : version.deleted ? t(" · Deleted") : "");
+
+/** What an old version shown read-only is: its title and when it was saved. */
+export const versionHeading = (version: NoteVersion, now: Timestamp): string =>
+	t('"{{title}}" from {{value2}}', { title: version.title, value2: formatWhen(version.at, now) });
 
 /**
  * Why a note can't go as a pill to an agent on `device`, or null when it

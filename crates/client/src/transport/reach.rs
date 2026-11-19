@@ -14,6 +14,7 @@ use std::sync::{Arc, PoisonError, RwLock};
 use std::time::Duration;
 
 use futures::future::BoxFuture;
+use maxhq_protocol::ids::DeviceId;
 use maxhq_protocol::link::Route;
 use tokio::io::{AsyncRead, AsyncWrite};
 
@@ -47,10 +48,11 @@ pub(crate) fn tcp() -> Connect {
     })
 }
 
-/// The routes a transport may dial, by the route host that names each.
-/// Clones share them, so the caller can keep one to add devices as the
-/// book changes.
-pub(crate) struct Logins<T>(Arc<RwLock<HashMap<String, T>>>);
+/// The routes a transport may dial, by the device and the route host that
+/// names each. Two networks can have the same private address, so a route
+/// alone never picks a login. Clones share them, so the caller can keep one
+/// to add devices as the books change.
+pub(crate) struct Logins<T>(Arc<RwLock<HashMap<(DeviceId, String), T>>>);
 
 impl<T> Clone for Logins<T> {
     fn clone(&self) -> Self {
@@ -65,36 +67,45 @@ impl<T> Default for Logins<T> {
 }
 
 impl<T: Clone> Logins<T> {
-    /// The login for the route `name`, or a refusal when there's none.
-    pub fn get(&self, name: &str) -> Result<T, DialError> {
+    /// The login for the route `name` to `device`, or a refusal when there's
+    /// none or the link doesn't know its device yet.
+    pub fn get(&self, device: Option<DeviceId>, name: &str) -> Result<T, DialError> {
+        let refused = || DialError::refused("that route isn't in this phone's device book");
+        let device = device.ok_or_else(refused)?;
         self.0
             .read()
             .unwrap_or_else(PoisonError::into_inner)
-            .get(name)
+            .get(&(device, name.to_owned()))
             .cloned()
-            .ok_or_else(|| DialError::refused("that route isn't in this phone's device book"))
+            .ok_or_else(refused)
     }
 
-    /// Keeps `logins`, each in place of any login its route had, and
-    /// returns their routes in their order.
-    pub fn trust(&self, logins: impl IntoIterator<Item = (String, T)>) -> Vec<Route> {
+    /// Keeps `logins` for `device`, each in place of any login its route
+    /// had there, and returns their routes in their order.
+    pub fn trust(
+        &self,
+        device: DeviceId,
+        logins: impl IntoIterator<Item = (String, T)>,
+    ) -> Vec<Route> {
         let mut map = self.0.write().unwrap_or_else(PoisonError::into_inner);
         logins
             .into_iter()
             .map(|(name, login)| {
-                map.insert(name.clone(), login);
+                map.insert((device, name.clone()), login);
                 Route::Ssh { host: name }
             })
             .collect()
     }
 
-    /// Whether it has a login for the route `name`.
+    /// Whether it has a login for the route `name` to `device`.
     #[cfg(all(feature = "russh", feature = "ws"))]
-    pub fn knows(&self, name: &str) -> bool {
-        self.0
-            .read()
-            .unwrap_or_else(PoisonError::into_inner)
-            .contains_key(name)
+    pub fn knows(&self, device: Option<DeviceId>, name: &str) -> bool {
+        device.is_some_and(|device| {
+            self.0
+                .read()
+                .unwrap_or_else(PoisonError::into_inner)
+                .contains_key(&(device, name.to_owned()))
+        })
     }
 
     /// The routes it knows, sorted, for a `Debug` that shows nothing else.
@@ -104,7 +115,7 @@ impl<T: Clone> Logins<T> {
             .read()
             .unwrap_or_else(PoisonError::into_inner)
             .keys()
-            .cloned()
+            .map(|(_, name)| name.clone())
             .collect();
         names.sort();
         names
@@ -172,10 +183,13 @@ impl Transport for Both {
         &'a self,
         route: &'a Route,
         config: Option<&'a SshConfig>,
+        device: Option<DeviceId>,
     ) -> BoxFuture<'a, Result<Conn, DialError>> {
         match route {
-            Route::Ssh { host } if self.ws.knows(host) => self.ws.dial(route, config),
-            _ => self.ssh.dial(route, config),
+            Route::Ssh { host } if self.ws.knows(device, host) => {
+                self.ws.dial(route, config, device)
+            }
+            _ => self.ssh.dial(route, config, device),
         }
     }
 

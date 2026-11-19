@@ -7,7 +7,9 @@
 // or shows the code to enter for Codex. Cursor needs neither. It asks the
 // device every 2 s until the CLI stored the login, and closing it while it
 // waits stops the CLI.
-// Any other login is sent from Settings on the Mac.
+// Any other login is sent from Settings on the Mac. Signing in is one of
+// the requests a device takes from the phone only with its switch on, so
+// the button stays off without it, with the line that says where it is.
 
 import { useI18n } from "@maxhq/shared/i18n";
 
@@ -44,6 +46,7 @@ import { Button } from "../../ui/Button";
 import { Spinner } from "../../ui/Dot";
 import { Input } from "../../ui/Field";
 import { opensInBrowser } from "../../ui/markdown";
+import { NeedsSwitch, useLetsPhone } from "../phone/everything";
 
 /** What the error says for a login the phone can't sign in again. */
 export const FROM_THE_MAC = "Sign in from Settings on your Mac.";
@@ -243,7 +246,7 @@ const Round = ({ account, close }: { account: Account; close: () => void }) => {
 };
 
 /** The sheet for one round, open while it's mounted. */
-const SignInSheet = ({ id, close }: { id: AccountId; close: () => void }) => {
+export const SignInSheet = ({ id, close }: { id: AccountId; close: () => void }) => {
 	const account = useView((s) => s.view.tables.account.get(id));
 	return (
 		<Modal visible transparent animationType="slide" onRequestClose={close}>
@@ -262,14 +265,25 @@ export const SignInAgain = ({ account }: { account: AccountId }) => {
 	const view = useView((s) => s.view);
 	const [open, setOpen] = useState(false);
 	const action = signInAction(view, account);
+	const lets = useLetsPhone(action?.kind === "login" ? action.account.device : null);
 	if (!action) return null;
 	if (action.kind === "settings") {
 		return <Text style={styles.muted}>{action.why ?? t(FROM_THE_MAC)}</Text>;
 	}
 	return (
-		<View style={styles.row}>
-			<Button label={t("Sign in again")} small onPress={() => setOpen(true)} />
-			{open ? <SignInSheet id={action.account.id} close={() => setOpen(false)} /> : null}
+		<View>
+			<View style={styles.row}>
+				<Button
+					label={t("Sign in again")}
+					small
+					disabled={!lets}
+					onPress={() => setOpen(true)}
+				/>
+			</View>
+			{lets ? null : <NeedsSwitch />}
+			{open && lets ? (
+				<SignInSheet id={action.account.id} close={() => setOpen(false)} />
+			) : null}
 		</View>
 	);
 };

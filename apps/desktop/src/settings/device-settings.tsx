@@ -5,7 +5,8 @@
 // when its idle agents settle and whether agents that stop at a usage limit
 // snooze, how readily new agents go there when you don't pick a device,
 // how long an idle agent keeps its CLI running, how much of each agent's
-// timeline its `maxd` keeps, whether it takes Claude setup-tokens, and,
+// timeline its `maxd` keeps, whether its terminals mark commands, whether
+// it takes Claude setup-tokens, and,
 // on a Mac, when its `maxd` keeps it awake, and, on a device with Incus,
 // the network and storage pool new workspaces get, and whether phones reach
 // it over the network. Its `maxd` keeps them and reports them, and a save
@@ -25,15 +26,13 @@ import type { DeviceId, PermissionMode } from "@maxhq/shared/bindings";
 import { useNow } from "@maxhq/shared/lib/clock";
 import type { KeepAwake, Placement } from "@maxhq/shared/fleet/wire";
 import { Picker } from "@/new-agent/picker";
-import { modeOptions, type Option } from "@maxhq/shared/new-agent/spec";
+import { modeOptions } from "@maxhq/shared/new-agent/spec";
 import type { ViewState } from "@maxhq/shared/view/replica";
 import { cn } from "@/lib/utils";
-import { keepsInboxes, parseSettleDays } from "@maxhq/shared/settings/inbox";
-import { idleReleaseOptions, releasesIdle } from "@maxhq/shared/settings/idle-release";
-import { continuesAtLimit } from "@maxhq/shared/settings/limits";
+import { parseSettleDays } from "@maxhq/shared/settings/inbox";
+import { idleReleaseOptions } from "@maxhq/shared/settings/idle-release";
 import {
 	historyOptions,
-	keepsMemoryLimits,
 	memoryItemsOptions,
 	NO_LIMIT_WARNING,
 } from "@maxhq/shared/settings/memory";
@@ -47,9 +46,14 @@ import {
 import {
 	type DeviceFields as Fields,
 	deviceSettingsOf,
+	KEEP_AWAKE_OPTIONS,
+	nameOptions,
+	PLACEMENT_OPTIONS,
+	sameDeviceFields as same,
+	settingsWhy,
 } from "@maxhq/shared/settings/device-settings";
 import { knowsSetupTokens, setupTokenQuestion } from "@maxhq/shared/settings/setup-tokens";
-import { sameTestHostSettings } from "@maxhq/shared/test-hosts/hosts";
+import { knowsShellIntegration } from "@maxhq/shared/settings/shell-integration";
 import { offersSkills, skillLibrary } from "@maxhq/shared/skills/library";
 import { isThisMac, listsAppKeys } from "@maxhq/shared/settings/app-keys";
 import { deviceName } from "@maxhq/shared/view/select";
@@ -79,95 +83,8 @@ type Part =
 	| "awake"
 	| "library"
 	| "network"
+	| "shell"
 	| "tokens";
-
-const same = (a: Fields, b: Fields) =>
-	a.default_permission === b.default_permission &&
-	a.workspace_network === b.workspace_network &&
-	a.workspace_pool === b.workspace_pool &&
-	a.auto_settle_days === b.auto_settle_days &&
-	a.snooze_at_limit === b.snooze_at_limit &&
-	a.continue_claude_at_limit === b.continue_claude_at_limit &&
-	a.continue_codex_at_limit === b.continue_codex_at_limit &&
-	a.claude_effort === b.claude_effort &&
-	a.codex_effort === b.codex_effort &&
-	a.placement === b.placement &&
-	a.cursor_usage === b.cursor_usage &&
-	a.keep_awake === b.keep_awake &&
-	a.idle_release_minutes === b.idle_release_minutes &&
-	a.memory_items === b.memory_items &&
-	a.history_mib === b.history_mib &&
-	a.claude_setup_token === b.claude_setup_token &&
-	a.skill_library === b.skill_library &&
-	a.network.on === b.network.on &&
-	a.network.port === b.network.port &&
-	a.tool_updates.length === b.tool_updates.length &&
-	a.tool_updates.every((t) => b.tool_updates.includes(t)) &&
-	sameTestHostSettings(a.test_hosts, b.test_hosts);
-
-const PLACEMENTS: Option[] = [
-	{
-		value: "prefer",
-		get label() {
-			return translate("Prefer");
-		},
-		get detail() {
-			return translate("Counts twice when MaxHQ weighs devices");
-		},
-	},
-	{
-		value: "normal",
-		get label() {
-			return translate("Normal");
-		},
-	},
-];
-
-const KEEP_AWAKE: Option[] = [
-	{
-		value: "charger",
-		get label() {
-			return translate("On the charger");
-		},
-		get detail() {
-			return translate(
-				"Awake whenever it's plugged in. On battery, only while an agent is working."
-			);
-		},
-	},
-	{
-		value: "always",
-		get label() {
-			return translate("Always");
-		},
-		get detail() {
-			return translate(
-				"Awake whenever maxd runs, on battery too. A Mac left unplugged runs until its battery is low."
-			);
-		},
-	},
-	{
-		value: "working",
-		get label() {
-			return translate("While agents work");
-		},
-		get detail() {
-			return translate("Awake only while an agent on this Mac is working.");
-		},
-	},
-	{
-		value: "off",
-		get label() {
-			return translate("Off");
-		},
-		get detail() {
-			return translate("MaxHQ never keeps this Mac awake, even while an agent works.");
-		},
-	},
-];
-
-const choices = (names: readonly string[]): Option[] =>
-	names.map((name) => ({ value: name, label: name }));
 
 /**
  * A number field. What you type stays here until you leave the field or
@@ -287,6 +204,7 @@ export const deviceCards = (view: ViewState, device: DeviceId): readonly DeviceC
 				translate("History kept per agent"),
 			],
 		},
+		{ id: "terminals", terms: [translate("Terminals"), translate("Shell integration")] },
 		{
 			id: "setup-tokens",
 			terms: [translate("Claude setup-tokens"), translate("Take setup-tokens")],
@@ -359,8 +277,6 @@ export const DeviceSettings = ({
 	// The Cursor CLI keeps its login in the Keychain, so only a Mac can read it,
 	// and only a Mac sleeps under its `maxd`.
 	const mac = view.tables.device.get(device)?.os === "macos";
-	// A maxd from before inboxes has nowhere to keep them.
-	const inbox = keepsInboxes(view, device);
 	// A maxd from before network access publishes none.
 	const access = view.tables.network_access.get(device);
 
@@ -408,37 +324,7 @@ export const DeviceSettings = ({
 	const noteFor = (part: Part) => (note?.part === part ? note.note : null);
 	const reject = (part: Part, reason: string) =>
 		setNote({ part, note: { text: reason, error: true } });
-	const offline = translate("Connect to {{name}} to change it.", { name: name });
-	const inboxWhy = !live
-		? offline
-		: !inbox
-			? translate("{{name}}'s maxd is too old for these. Update it first.", { name: name })
-			: null;
-	const limitsWhy = !live
-		? offline
-		: !continuesAtLimit(view, device)
-			? translate("{{name}}'s maxd is too old for this. Update it first.", { name: name })
-			: null;
-	const idleWhy = !live
-		? offline
-		: !releasesIdle(view, device)
-			? translate("{{name}}'s maxd is too old for this. Update it first.", { name: name })
-			: null;
-	const memoryWhy = !live
-		? offline
-		: !keepsMemoryLimits(view, device)
-			? translate("{{name}}'s maxd is too old for these. Update it first.", { name: name })
-			: null;
-	const tokensWhy = !live
-		? offline
-		: !knowsSetupTokens(view, device)
-			? translate(
-					"{{name}}'s maxd is too old for this, and takes setup-tokens. Update it first.",
-					{
-						name: name,
-					}
-				)
-			: null;
+	const why = settingsWhy(view, device, name, live);
 	// Turning setup-tokens on says what that means first.
 	const takeTokens = async (on: boolean) => {
 		if (on && !(await requestConfirm(services, setupTokenQuestion(name)))) return;
@@ -464,11 +350,10 @@ export const DeviceSettings = ({
 				<Row
 					title={translate("Default mode")}
 					sub={
-						live
-							? translate(
-									"New agents here start in this mode unless you pick another. Running agents keep theirs."
-								)
-							: offline
+						why.offline ??
+						translate(
+							"New agents here start in this mode unless you pick another. Running agents keep theirs."
+						)
 					}
 				>
 					<StatusNote note={noteFor("mode")} />
@@ -506,7 +391,7 @@ export const DeviceSettings = ({
 				<Row
 					title={translate("Auto-settle after")}
 					sub={
-						inboxWhy ??
+						why.inbox ??
 						translate(
 							"Agents here with no activity for this many days settle on their own, and any new activity brings them back. 0 never settles them."
 						)
@@ -517,7 +402,7 @@ export const DeviceSettings = ({
 						label={translate("Auto-settle after")}
 						value={shown.auto_settle_days}
 						unit="days"
-						disabled={inboxWhy !== null}
+						disabled={why.inbox !== null}
 						onCommit={(text) => {
 							const parsed = parseSettleDays(text);
 							if (parsed.ok) void save("inbox", { auto_settle_days: parsed.days });
@@ -528,7 +413,7 @@ export const DeviceSettings = ({
 				<Row
 					title={translate("Snooze at the limit")}
 					sub={
-						inboxWhy ??
+						why.inbox ??
 						translate(
 							"Agents that stop at a usage limit snooze until the limit resets, then come back."
 						)
@@ -537,7 +422,7 @@ export const DeviceSettings = ({
 					<Switch
 						aria-label={translate("Snooze at the limit")}
 						checked={shown.snooze_at_limit}
-						disabled={inboxWhy !== null}
+						disabled={why.inbox !== null}
 						onCheckedChange={(on) => void save("inbox", { snooze_at_limit: on })}
 					/>
 				</Row>
@@ -551,7 +436,7 @@ export const DeviceSettings = ({
 				<Row
 					title={translate("Claude Code agents continue")}
 					sub={
-						limitsWhy ??
+						why.limits ??
 						translate(
 							"An agent that a usage limit stops mid-turn gets a message to carry on once the limit resets. This is the default; turn it on or off for one agent from its menu in the sidebar."
 						)
@@ -561,7 +446,7 @@ export const DeviceSettings = ({
 					<Switch
 						aria-label={translate("Claude Code agents continue after the limit")}
 						checked={shown.continue_claude_at_limit}
-						disabled={limitsWhy !== null}
+						disabled={why.limits !== null}
 						onCheckedChange={(on) =>
 							void save("limits", { continue_claude_at_limit: on })
 						}
@@ -570,7 +455,7 @@ export const DeviceSettings = ({
 				<Row
 					title={translate("Codex agents continue")}
 					sub={
-						limitsWhy ??
+						why.limits ??
 						translate(
 							"The same for Codex. Cursor agents wait for you, since Cursor doesn't say when a limit resets."
 						)
@@ -579,7 +464,7 @@ export const DeviceSettings = ({
 					<Switch
 						aria-label={translate("Codex agents continue after the limit")}
 						checked={shown.continue_codex_at_limit}
-						disabled={limitsWhy !== null}
+						disabled={why.limits !== null}
 						onCheckedChange={(on) =>
 							void save("limits", { continue_codex_at_limit: on })
 						}
@@ -595,19 +480,18 @@ export const DeviceSettings = ({
 				<Row
 					title={translate("New agents you don't place")}
 					sub={
-						live
-							? translate(
-									"When more than one device could run a new agent, MaxHQ picks the one with the most free CPU and memory. Prefer makes {{name}} count twice.",
-									{ name: name }
-								)
-							: offline
+						why.offline ??
+						translate(
+							"When more than one device could run a new agent, MaxHQ picks the one with the most free CPU and memory. Prefer makes {{name}} count twice.",
+							{ name: name }
+						)
 					}
 				>
 					<StatusNote note={noteFor("placement")} />
 					<Picker
 						label={translate("Placement")}
 						value={shown.placement}
-						options={PLACEMENTS}
+						options={PLACEMENT_OPTIONS}
 						onChange={(placement) =>
 							void save("placement", { placement: placement as Placement })
 						}
@@ -624,7 +508,7 @@ export const DeviceSettings = ({
 				<Row
 					title={translate("Stop idle CLIs after")}
 					sub={
-						idleWhy ??
+						why.idle ??
 						translate(
 							"maxd stops the CLI of an agent idle this long to free its memory. The agent stays as it is and starts again with your next message."
 						)
@@ -638,7 +522,7 @@ export const DeviceSettings = ({
 						onChange={(minutes) =>
 							void save("idle", { idle_release_minutes: Number(minutes) })
 						}
-						disabled={idleWhy !== null}
+						disabled={why.idle !== null}
 					/>
 				</Row>
 			</Section>
@@ -651,7 +535,7 @@ export const DeviceSettings = ({
 				<Row
 					title={translate("Recent items kept in memory per agent")}
 					sub={
-						memoryWhy ??
+						why.memory ??
 						translate(
 							"maxd keeps this many of each agent's newest items in memory, and the rest on disk until a client scrolls back. More uses more memory per agent."
 						)
@@ -663,13 +547,13 @@ export const DeviceSettings = ({
 						value={String(shown.memory_items)}
 						options={memoryItemsOptions(shown.memory_items)}
 						onChange={(items) => void save("memory", { memory_items: Number(items) })}
-						disabled={memoryWhy !== null}
+						disabled={why.memory !== null}
 					/>
 				</Row>
 				<Row
 					title={translate("History kept per agent")}
 					sub={
-						memoryWhy ?? (
+						why.memory ?? (
 							<>
 								{translate(
 									"Past this, an agent's oldest items leave its timeline on this device. They stay in the agent's own history."
@@ -690,7 +574,31 @@ export const DeviceSettings = ({
 						options={historyOptions(shown.history_mib)}
 						wrapDetails
 						onChange={(mib) => void save("history", { history_mib: Number(mib) })}
-						disabled={memoryWhy !== null}
+						disabled={why.memory !== null}
+					/>
+				</Row>
+			</Section>
+			<Section
+				title={translate("Terminals")}
+				id={cardId("terminals")}
+				label={translate("Terminals on {{name}}", { name: name })}
+				hint={translate("Shell integration on by default")}
+			>
+				<Row
+					title={translate("Shell integration")}
+					sub={
+						why.shell ??
+						translate(
+							"MaxHQ adds hooks to zsh, bash and fish so it can tell commands apart. Off starts shells exactly as your startup files say. Applies to terminals opened after the change."
+						)
+					}
+				>
+					<StatusNote note={noteFor("shell")} />
+					<Switch
+						aria-label={translate("Shell integration")}
+						checked={knowsShellIntegration(view, device) && shown.shell_integration}
+						disabled={why.shell !== null}
+						onCheckedChange={(on) => void save("shell", { shell_integration: on })}
 					/>
 				</Row>
 			</Section>
@@ -703,7 +611,7 @@ export const DeviceSettings = ({
 				<Row
 					title={translate("Take setup-tokens")}
 					sub={
-						tokensWhy ??
+						why.tokens ??
 						translate(
 							"Stores the Claude setup-token you send here and gives it to Claude Code agents when they start. Without it, sign in with claude on this device."
 						)
@@ -713,7 +621,7 @@ export const DeviceSettings = ({
 					<Switch
 						aria-label={translate("Take setup-tokens")}
 						checked={knowsSetupTokens(view, device) ? shown.claude_setup_token : true}
-						disabled={tokensWhy !== null}
+						disabled={why.tokens !== null}
 						onCheckedChange={(on) => void takeTokens(on)}
 					/>
 				</Row>
@@ -729,18 +637,17 @@ export const DeviceSettings = ({
 						<Row
 							title={translate("Keep this Mac awake")}
 							sub={
-								live
-									? translate(
-											"A sleeping Mac stops maxd, so your phone, webhooks and scheduled tasks can't reach it. The display still turns off. Closing the lid still sleeps the Mac."
-										)
-									: offline
+								why.offline ??
+								translate(
+									"A sleeping Mac stops maxd, so your phone, webhooks and scheduled tasks can't reach it. The display still turns off. Closing the lid still sleeps the Mac."
+								)
 							}
 						>
 							<StatusNote note={noteFor("awake")} />
 							<Picker
 								label={translate("Keep awake")}
 								value={shown.keep_awake}
-								options={KEEP_AWAKE}
+								options={KEEP_AWAKE_OPTIONS}
 								wrapDetails
 								onChange={(mode) =>
 									void save("awake", { keep_awake: mode as KeepAwake })
@@ -758,11 +665,10 @@ export const DeviceSettings = ({
 						<Row
 							title={translate("Enable Cursor usage")}
 							sub={
-								live
-									? translate(
-											"maxd reads the Cursor CLI's saved login from the Keychain, and macOS asks you once to allow it. It then asks Cursor for this month's usage through an endpoint Cursor doesn't document, so it may stop working."
-										)
-									: offline
+								why.offline ??
+								translate(
+									"maxd reads the Cursor CLI's saved login from the Keychain, and macOS asks you once to allow it. It then asks Cursor for this month's usage through an endpoint Cursor doesn't document, so it may stop working."
+								)
 							}
 						>
 							<StatusNote note={noteFor("cursor")} />
@@ -786,17 +692,16 @@ export const DeviceSettings = ({
 					<Row
 						title={translate("Network")}
 						sub={
-							live
-								? translate(
-										"The Incus network new workspaces join. Pick one with a guard that keeps containers off your network."
-									)
-								: offline
+							why.offline ??
+							translate(
+								"The Incus network new workspaces join. Pick one with a guard that keeps containers off your network."
+							)
 						}
 					>
 						<Picker
 							label={translate("Network")}
 							value={shown.workspace_network ?? ""}
-							options={choices(host.networks)}
+							options={nameOptions(host.networks)}
 							onChange={(network) =>
 								void save("workspace", { workspace_network: network })
 							}
@@ -806,15 +711,14 @@ export const DeviceSettings = ({
 					<Row
 						title={translate("Storage pool")}
 						sub={
-							live
-								? translate("The Incus storage pool new workspaces live on.")
-								: offline
+							why.offline ??
+							translate("The Incus storage pool new workspaces live on.")
 						}
 					>
 						<Picker
 							label={translate("Storage pool")}
 							value={shown.workspace_pool ?? ""}
-							options={choices(host.pools)}
+							options={nameOptions(host.pools)}
 							onChange={(pool) => void save("workspace", { workspace_pool: pool })}
 							disabled={!live}
 						/>
@@ -841,8 +745,8 @@ export const DeviceSettings = ({
 										"{{name}} holds the skill library. To move it, turn this on for another device.",
 										{ name: name }
 									)
-								: !live
-									? offline
+								: why.offline
+									? why.offline
 									: holder
 										? translate(
 												"{{deviceName}} holds it now. Turning this on moves it and its sources to {{name}}.",
@@ -878,12 +782,11 @@ export const DeviceSettings = ({
 						sub={
 							<>
 								<span className="block">
-									{live
-										? translate(
-												"Phones on the same network or tailnet can reach {{name}} while it's on.",
-												{ name: name }
-											)
-										: offline}
+									{why.offline ??
+										translate(
+											"Phones on the same network or tailnet can reach {{name}} while it's on.",
+											{ name: name }
+										)}
 								</span>
 								{access.problem ? (
 									<span className="block text-status-busy-text">
@@ -906,12 +809,11 @@ export const DeviceSettings = ({
 					<Row
 						title={translate("Port")}
 						sub={
-							live
-								? translate(
-										"The port phones reach {{name}} on. {{DEFAULT_PORT}} by default.",
-										{ name: name, DEFAULT_PORT: DEFAULT_PORT }
-									)
-								: offline
+							why.offline ??
+							translate(
+								"The port phones reach {{name}} on. {{DEFAULT_PORT}} by default.",
+								{ name: name, DEFAULT_PORT: DEFAULT_PORT }
+							)
 						}
 					>
 						<NumberField

@@ -3,7 +3,9 @@
 
 // One terminal in the drawer or in a pane of its own: the lock bar while it
 // asks for a password, its live screen with find, the Add to chat button
-// over a selection and the menu on it, and how it exited, with Restart.
+// over a selection and the menu on it, the menu on a command's mark, and
+// how it exited, with Restart. Command, or Control and Shift off a Mac,
+// with Up or Down jumps between the commands its shell marked.
 
 import { ChevronDown, ChevronUp, Copy, Lock, MessageSquarePlus, RotateCcw, X } from "lucide-react";
 import {
@@ -21,11 +23,13 @@ import { otherAgents } from "@/agent-view/quotes";
 import { useServices, useView } from "@/app/services";
 import { type MenuEntry, useComposerNative } from "@/composer/native";
 import { cn } from "@/lib/utils";
+import { onMac } from "@/native/platform";
 import type { AgentId } from "@maxhq/shared/bindings";
 import { t as translate, useI18n } from "@maxhq/shared/i18n";
 import type { TerminalEntity } from "@maxhq/shared/terminal/select";
 
 import { addPicked, restartTab } from "./actions";
+import { CommandMenu, type MarkedAt } from "./command-menu";
 import { LiveTerminalHost } from "./live-terminal";
 import { registryOf } from "./live";
 
@@ -160,6 +164,15 @@ const FindBar = ({
 	);
 };
 
+/** Which way a key jumps between marked commands: Command and Up or Down, or Control and Shift off a Mac. */
+export const jumpKey = (e: KeyboardEvent<HTMLElement>): "up" | "down" | null => {
+	const held = onMac()
+		? e.metaKey && !e.ctrlKey && !e.shiftKey
+		: e.ctrlKey && e.shiftKey && !e.metaKey;
+	if (!held || e.altKey) return null;
+	return e.key === "ArrowUp" ? "up" : e.key === "ArrowDown" ? "down" : null;
+};
+
 const FLOAT_BUTTON =
 	"inline-flex h-6 cursor-pointer items-center gap-1.5 rounded-[5px] px-2 text-[12px] text-foreground outline-none hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring";
 
@@ -183,6 +196,7 @@ export const TerminalBody = ({
 	// Where the Add to chat button shows, while there's picked text.
 	const [float, setFloat] = useState<{ x: number; y: number } | null>(null);
 	const [finding, setFinding] = useState(0);
+	const [marked, setMarked] = useState<MarkedAt | null>(null);
 	const id = terminal.id;
 
 	const view = () => registryOf(services)?.view(id) ?? null;
@@ -199,6 +213,14 @@ export const TerminalBody = ({
 			if (!shown.selection()) setFloat(null);
 		});
 	}, [services, id]);
+
+	useEffect(
+		() =>
+			registryOf(services)
+				?.view(id)
+				?.onMark((mark, anchor) => setMarked({ id: mark, anchor })),
+		[services, id]
+	);
 
 	const add = (to: AgentId, focus: boolean) => {
 		const shown = view();
@@ -225,6 +247,13 @@ export const TerminalBody = ({
 			x: Math.max(4, Math.min(x, box.width - 170)),
 			y: y + 44 > box.height ? Math.max(4, y - 36) : y + 10,
 		});
+	};
+
+	const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+		const way = jumpKey(event);
+		if (!way || event.nativeEvent.isComposing) return;
+		event.preventDefault();
+		view()?.jump(way === "up");
 	};
 
 	const onContextMenu = (event: MouseEvent<HTMLDivElement>) => {
@@ -257,6 +286,7 @@ export const TerminalBody = ({
 			className={cn("relative flex min-h-0 min-w-0 flex-col", className)}
 			onPointerUp={onPointerUp}
 			onContextMenu={onContextMenu}
+			onKeyDown={onKeyDown}
 		>
 			{terminal.password_prompt ? <LockBar /> : null}
 			<LiveTerminalHost terminal={id} interactive className="min-h-0 flex-1" />
@@ -297,6 +327,15 @@ export const TerminalBody = ({
 						view()?.clearSelection();
 						view()?.focus();
 					}}
+				/>
+			) : null}
+			{marked ? (
+				<CommandMenu
+					key={marked.id}
+					terminal={terminal}
+					marked={marked}
+					own={own}
+					close={() => setMarked(null)}
 				/>
 			) : null}
 			<ExitBar terminal={terminal} />

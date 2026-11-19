@@ -60,6 +60,7 @@ mod drive;
 mod find;
 mod fleet;
 mod folder_trust;
+mod folders;
 mod github_events;
 mod guest;
 mod guestlink;

@@ -905,6 +905,19 @@ async fn a_peer_link_carries_only_calls_wakes_and_answers() {
             path: "/tmp/example/plan.md".into(),
             anyway: true,
         },
+        ClientMessage::ListFolder {
+            key: IdempotencyKey::generate(),
+            device: b.id,
+            path: "/".into(),
+            files: true,
+            hidden: true,
+            filter: None,
+        },
+        ClientMessage::MakeFolder {
+            key: IdempotencyKey::generate(),
+            device: b.id,
+            path: "/tmp/example/new".into(),
+        },
     ]
     .into_iter()
     .chain(terminal_requests())

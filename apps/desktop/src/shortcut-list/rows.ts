@@ -143,6 +143,13 @@ const lines = (pick: BusySend): readonly Line[] => [
 	{ what: t("Close the tab"), group: "Panes", projectsOnly: true, id: "close" },
 	{ what: t("Reopen the last closed tab"), group: "Panes", id: "reopen" },
 	{ what: t("Show or hide the terminal"), group: "Panes", projectsOnly: true, id: "terminal" },
+	{
+		what: t("Jump to the previous or next command, in a terminal"),
+		group: "Panes",
+		projectsOnly: true,
+		// Control alone with an arrow goes to the shell off a Mac.
+		keys: [command(UP, { shift: !onMac() }), command(DOWN, { shift: !onMac() })],
+	},
 	{ what: t("Find in the conversation"), group: "Find", projectsOnly: true, id: "find" },
 	{
 		what: t("Next or previous match"),

@@ -4,6 +4,8 @@
 // The desktop app's dark colors, from its globals.css, under the same names,
 // and the type the phone's screens use. The phone is dark only.
 
+import type { CodeColor } from "@maxhq/shared/agent-view/highlight";
+
 export const color = {
 	background: "#0f1217",
 	foreground: "#e8ecf2",
@@ -40,6 +42,19 @@ export const color = {
 	errorText: "#f4a3aa",
 	findActiveBg: "#eea52b",
 } as const;
+
+/** Highlighted code's colors, the desktop's dark `--code-*` ones. */
+export const codeColor: Readonly<Record<CodeColor, string>> = {
+	text: "#e6edf3",
+	comment: "#8b949e",
+	keyword: "#ff7b72",
+	constant: "#79c0ff",
+	variable: "#ffa657",
+	function: "#d2a8ff",
+	tag: "#7ee787",
+	string: "#a5d6ff",
+	invalid: "#ffa198",
+};
 
 /** A `#rrggbb` color at an opacity from 0 to 1, as the desktop's tinted fills. */
 export const tint = (hex: string, alpha: number): string => {

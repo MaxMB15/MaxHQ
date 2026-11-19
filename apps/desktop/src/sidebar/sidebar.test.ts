@@ -5,13 +5,12 @@ import { describe, expect, it } from "vitest";
 
 import { mockSource } from "@/data/mock-source";
 import { DEVBOX_LINK } from "@maxhq/shared/data/mock-view";
-import type { Activity, LinkState } from "@maxhq/shared/bindings";
+import type { LinkState } from "@maxhq/shared/bindings";
 import { NOW } from "@maxhq/shared/test/build";
 import { applySnapshot, type ViewState } from "@maxhq/shared/view/replica";
 import { type DeviceNode, deviceGroups } from "@maxhq/shared/view/select";
 
 import { deviceRowStatus, shownDevice } from "./devices";
-import { leadStatus, subAgentsSubtitle } from "./sub-agents";
 
 const load = async (scenario?: string): Promise<ViewState> =>
 	applySnapshot(await mockSource({ now: () => NOW, tick: false, scenario }).snapshot());
@@ -83,27 +82,5 @@ describe("device rows", () => {
 		const offline = nodes(await load("peer_offline"));
 		expect(shownDevice(offline, null)?.link.name).toBe("devbox");
 		expect(shownDevice([], null)).toBeUndefined();
-	});
-});
-
-describe("sub-agent panel", () => {
-	it("says whose login the lead runs on, where and how many sub-agents it has", async () => {
-		const view = await load();
-		const lead = [...view.tables.agent.values()].find(
-			(a) => a.title === "M1 observe milestone"
-		)!;
-		expect(subAgentsSubtitle(view, lead, 7)).toBe("Claude Max on Mac, 7 sub-agents");
-		expect(subAgentsSubtitle(view, lead, 1)).toBe("Claude Max on Mac, 1 sub-agent");
-	});
-
-	it("says what the lead itself is doing", () => {
-		const cases: [Activity, string][] = [
-			[{ state: "busy_in_subagents" }, "Waiting"],
-			[{ state: "done_unread" }, "Idle"],
-			[{ state: "idle_cache_warm", warm_until: NOW }, "Idle"],
-			[{ state: "busy" }, "Working"],
-			[{ state: "needs_input", attention: "att-1" }, "Needs input"],
-		];
-		for (const [activity, text] of cases) expect(leadStatus(activity)).toBe(text);
 	});
 });

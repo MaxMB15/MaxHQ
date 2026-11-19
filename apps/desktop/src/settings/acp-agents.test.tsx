@@ -100,6 +100,7 @@ describe("ACP agents settings", () => {
 		const add = await form();
 		fireEvent.change(within(add).getByLabelText("Name"), { target: { value: "Goose" } });
 		fireEvent.change(within(add).getByLabelText("Program"), { target: { value: "goose" } });
+		expect(within(add).getByRole("button", { name: "Browse…" })).toBeInTheDocument();
 		fireEvent.click(within(add).getByRole("button", { name: "Add argument" }));
 		fireEvent.click(within(add).getByRole("button", { name: "Add argument" }));
 		fireEvent.change(within(add).getByLabelText("Argument 1"), { target: { value: "acp" } });

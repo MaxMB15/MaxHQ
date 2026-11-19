@@ -331,7 +331,10 @@ fn acts_on(message: &ClientMessage) -> Option<AgentId> {
         | ClientMessage::SetEffort { agent, .. }
         | ClientMessage::StopAgent { agent, .. }
         | ClientMessage::DeleteAgent { agent, .. }
-        | ClientMessage::TerminalOpen { agent, .. } => Some(*agent),
+        | ClientMessage::TerminalOpen { agent, .. }
+        | ClientMessage::SessionRun { agent, .. }
+        | ClientMessage::SessionShare { agent, .. }
+        | ClientMessage::SessionCd { agent, .. } => Some(*agent),
         _ => None,
     }
 }

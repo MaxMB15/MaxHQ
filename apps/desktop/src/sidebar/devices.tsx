@@ -163,7 +163,7 @@ const DeviceRow = ({
 					key={ws.workspace.id}
 					type="button"
 					onClick={() => selectLink(node.link.id)}
-					className="flex h-[26px] shrink-0 items-center gap-2 rounded-md pr-2 pl-[26px] text-left text-xs text-secondary-foreground hover:bg-accent"
+					className="flex h-6 shrink-0 items-center gap-2 rounded-md pr-2 pl-[26px] text-left text-xs text-secondary-foreground hover:bg-accent"
 				>
 					<ConnectionDot look={ws.worst ?? node.look} size={8} decorative />
 					<span className="min-w-0 flex-1 truncate">{ws.name}</span>
@@ -190,11 +190,8 @@ const Group = ({
 }) => {
 	const { t } = useI18n();
 	return (
-		<section
-			aria-label={group.name}
-			className={cn("flex flex-col gap-0.5", !first && "mt-2.5")}
-		>
-			<div className="flex h-6 shrink-0 items-center gap-1.5 px-2 text-xs font-semibold text-terminal">
+		<section aria-label={group.name} className={cn("flex flex-col gap-px", !first && "mt-1.5")}>
+			<div className="flex h-[22px] shrink-0 items-center gap-1.5 px-2 text-xs font-semibold text-terminal">
 				<span className="min-w-0 truncate">{group.name}</span>
 				{group.network?.kind.type === "tailscale" ? (
 					<span

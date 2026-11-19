@@ -927,6 +927,7 @@ pub fn default_settings(device: &Device) -> DeviceSettings {
         memory_items: DEFAULT_MEMORY_ITEMS,
         history_mib: DEFAULT_HISTORY_MIB,
         claude_setup_token: false,
+        shell_integration: true,
     }
 }
 

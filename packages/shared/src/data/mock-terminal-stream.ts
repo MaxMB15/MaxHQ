@@ -8,7 +8,11 @@
 // log line every second until Ctrl-C, and `sudo true` asks for a password
 // the way a real prompt does, with the terminal in password mode until you
 // send a line, which it never echoes or keeps. A command you ran with `!`
-// keeps what it printed, which its card shows once it ends.
+// keeps what it printed, which its card shows once it ends. A shell on a
+// device with Shell integration on marks its prompts and commands, OSC
+// 133, as `maxd` passes them on. An agent's session is a shell that takes
+// the commands you run with `!` as `maxd` writes them in, and tells how
+// each ended with what it printed between its marks, as a block.
 
 import type { Terminal, TerminalId, Timestamp } from "../bindings";
 import { utf8 } from "../notes/merge";
@@ -21,6 +25,8 @@ export type MockStreamHooks = {
 	readonly now: () => Timestamp;
 	/** A command you ran with `!` ended, with its status already set. */
 	readonly exited?: (terminal: TerminalId) => void;
+	/** Whether a shell it starts marks its prompts and commands. */
+	readonly marks?: (terminal: Terminal) => boolean;
 };
 
 /** What a command you ran with `!` printed, as its card keeps it. */
@@ -32,10 +38,35 @@ export type Printed = {
 	readonly truncated: boolean;
 };
 
+/** How a command the session ran ended, as its block keeps it. */
+export type BlockEnd = {
+	/** Its exit code, or null when the shell lost it. */
+	readonly code: number | null;
+	readonly printed: Printed;
+	/** How many passwords went in at prompts that hid them. */
+	readonly secrets: number;
+	/** The shell's folder once it ended. */
+	readonly cwd: string;
+};
+
 /** The sample stream, and what the terminal calls tell it. */
 export type MockTerminalStream = TerminalStream & {
-	/** Starts what a terminal runs, once it opened. */
-	readonly start: (terminal: Terminal) => void;
+	/** Starts what a terminal runs, once it opened, after `replay` when a shell had a past. */
+	readonly start: (terminal: Terminal, replay?: string) => void;
+	/**
+	 * Writes a command into a session's shell at its prompt, as `maxd`
+	 * does, and tells `ended` how it went. Answers the offset its output
+	 * starts at, or null when the shell isn't there.
+	 */
+	readonly command: (
+		terminal: TerminalId,
+		line: string,
+		ended: (end: BlockEnd) => void
+	) => number | null;
+	/** Whether a shell waits at its prompt with nothing typed, so it can take a command. */
+	readonly idle: (terminal: TerminalId) => boolean;
+	/** The folder a shell is in now. */
+	readonly cwd: (terminal: TerminalId) => string | undefined;
 	/** Sends Ctrl-C, the way an interrupt does. */
 	readonly interrupt: (terminal: TerminalId) => void;
 	/** Ends it and forgets what it printed. */
@@ -72,7 +103,8 @@ type Script = {
 type Plan =
 	| ({ readonly type: "script" } & Script)
 	| { readonly type: "forever"; readonly head: string; readonly line: (n: number) => string }
-	| { readonly type: "password" }
+	| { readonly type: "password"; readonly prompt: string }
+	| { readonly type: "cd"; readonly to: string }
 	| { readonly type: "exit" }
 	| { readonly type: "clear" };
 
@@ -84,6 +116,26 @@ const header = (project: string, script: string, command: string) =>
 	`\r\n${DIM}> ${project}@0.1.0 ${script}${OFF}\r\n${DIM}> ${command}${OFF}\r\n\r\n`;
 
 const HMR = ["/src/App.tsx", "/src/routes/home.tsx", "/src/styles.css", "/src/api/cache.ts"];
+
+/** Where `cd` goes from `cwd`: home, a path from the root or home, or one under `cwd`. */
+const cdTarget = (cwd: string, to: string | undefined): string => {
+	if (!to || to === "~") return "~";
+	const start = to.startsWith("/") || to.startsWith("~") ? [] : cwd.split("/");
+	const parts = [...start];
+	for (const part of to.split("/")) {
+		if (part === "" && parts.length > 0) continue;
+		if (part === ".") continue;
+		if (part === "..") {
+			if (parts.length > 1) parts.pop();
+			continue;
+		}
+		parts.push(part);
+	}
+	return parts.join("/") || "/";
+};
+
+/** A word with the quotes `maxd` puts around a folder taken off. */
+const unquoted = (word: string) => word.replace(/^'(.*)'$/, "$1");
 
 const planFor = (command: string, cwd: string, now: () => Timestamp): Plan => {
 	const project = baseName(cwd);
@@ -130,7 +182,17 @@ const planFor = (command: string, cwd: string, now: () => Timestamp): Plan => {
 					`${DIM}${clock(now())}${OFF} ${CYAN}${BOLD}[vite]${OFF} ${GREEN}hmr update${OFF} ${DIM}${HMR[n % HMR.length]}${OFF}\r\n`,
 			};
 		case "sudo true":
-			return { type: "password" };
+			return { type: "password", prompt: "Password:" };
+		case "pnpm install":
+			return {
+				type: "script",
+				exit: 0,
+				lines: [
+					[0, `Lockfile is up to date, resolution step is skipped\r\n`],
+					[900, `Already up to date\r\n`],
+					[2400, `\r\n${DIM}Done in 4.2s${OFF}\r\n`],
+				],
+			};
 		case "exit":
 			return { type: "exit" };
 		case "clear":
@@ -149,6 +211,12 @@ const planFor = (command: string, cwd: string, now: () => Timestamp): Plan => {
 		case "pwd":
 			return { type: "script", exit: 0, lines: [[0, `${cwd}\r\n`]] };
 	}
+	if (words[0] === "cd") {
+		// `maxd` writes `cd -- <folder>` for the folder chip.
+		const to = words[1] === "--" ? words.slice(2) : words.slice(1);
+		return { type: "cd", to: cdTarget(cwd, to.length ? unquoted(to.join(" ")) : undefined) };
+	}
+	if (words[0] === "sudo") return { type: "password", prompt: "[sudo] password for me:" };
 	if (words[0] === "echo")
 		return { type: "script", exit: 0, lines: [[0, `${words.slice(1).join(" ")}\r\n`]] };
 	return {
@@ -161,10 +229,17 @@ const planFor = (command: string, cwd: string, now: () => Timestamp): Plan => {
 /** A command that runs, and how to stop it. */
 type Job = { readonly command: string; readonly stop: () => void };
 
+/** A session's command while it runs: what it printed so far, and who hears how it ends. */
+type Block = {
+	text: string;
+	secrets: number;
+	readonly ended: (end: BlockEnd) => void;
+};
+
 type State = {
 	readonly id: TerminalId;
 	readonly shell: boolean;
-	readonly cwd: string;
+	cwd: string;
 	readonly chunks: { offset: number; bytes: Uint8Array }[];
 	end: number;
 	attached: boolean;
@@ -179,6 +254,10 @@ type State = {
 	text: string;
 	/** Whether `text` lost its start to the limit. */
 	dropped: boolean;
+	/** Whether it marks its prompts and commands. */
+	readonly marks: boolean;
+	/** The session's command that runs, between its C and D marks. */
+	block: Block | null;
 };
 
 /** Escape sequences other than colors and styles, which a card leaves out. */
@@ -215,6 +294,7 @@ export const mockTerminalStream = ({
 	edit,
 	now,
 	exited,
+	marks,
 }: MockStreamHooks): MockTerminalStream => {
 	const states = new Map<TerminalId, State>();
 
@@ -233,6 +313,7 @@ export const mockTerminalStream = ({
 				state.dropped = true;
 			}
 		}
+		if (state.block) state.block.text += text;
 		const chunk = { offset: state.end, bytes };
 		state.chunks.push(chunk);
 		state.end += bytes.length;
@@ -241,8 +322,14 @@ export const mockTerminalStream = ({
 		emit(state, { type: "output", ...chunk });
 	};
 
+	/** A mark, OSC 133, in a shell that prints them. */
+	const mark = (state: State, body: string) => (state.marks ? `\x1b]133;${body}\x07` : "");
+
 	const prompt = (state: State) =>
-		print(state, `${CYAN}${BOLD}${baseName(state.cwd)}${OFF} ${DIM}%${OFF} `);
+		print(
+			state,
+			`${mark(state, "A")}${CYAN}${BOLD}${baseName(state.cwd)}${OFF} ${DIM}%${OFF} ${mark(state, "B")}`
+		);
 
 	/**
 	 * Sets what runs, or nothing at the prompt, so the terminal says it's
@@ -257,11 +344,21 @@ export const mockTerminalStream = ({
 		}));
 	};
 
+	/** Tells a session's block how it ended, before the D mark, so the mark isn't in its text. */
+	const endBlock = (state: State, code: number | null) => {
+		const block = state.block;
+		if (!block) return;
+		state.block = null;
+		block.ended({ code, printed: shown(block.text), secrets: block.secrets, cwd: state.cwd });
+	};
+
 	/** The command ended with `code`, or a signal when null. */
 	const finish = (state: State, code: number | null, signal: number | null = null) => {
 		state.secret = null;
 		if (state.shell) {
 			foreground(state, null);
+			endBlock(state, code);
+			print(state, mark(state, `D;${code ?? ""}`));
 			prompt(state);
 			return;
 		}
@@ -292,11 +389,15 @@ export const mockTerminalStream = ({
 					...terminal,
 					status: { state: "exited", code: 0, signal: null },
 				}));
+			case "cd":
+				state.cwd = plan.to;
+				return finish(state, 0);
 			case "password":
-				print(state, "Password:");
+				print(state, plan.prompt);
 				edit(state.id, (terminal) => ({ ...terminal, password_prompt: true }));
 				state.secret = () => {
 					edit(state.id, (terminal) => ({ ...terminal, password_prompt: false }));
+					if (state.block) state.block.secrets += 1;
 					print(state, " 🔒 sent\r\n");
 					finish(state, 0);
 				};
@@ -333,6 +434,9 @@ export const mockTerminalStream = ({
 			if (!state.shell) return finish(state, null, SIGINT);
 			state.secret = null;
 			foreground(state, null);
+			endBlock(state, 128 + SIGINT);
+			// A shell says what Ctrl-C stopped exited with 128 and the signal.
+			print(state, mark(state, `D;${128 + SIGINT}`));
 		}
 		prompt(state);
 	};
@@ -341,8 +445,9 @@ export const mockTerminalStream = ({
 		const line = state.line;
 		state.line = "";
 		print(state, "\r\n");
-		if (line.trim()) run(state, line.trim());
-		else prompt(state);
+		if (!line.trim()) return prompt(state);
+		print(state, mark(state, "C"));
+		run(state, line.trim());
 	};
 
 	// Escape sequences, such as the arrow keys and the markers around a
@@ -388,10 +493,11 @@ export const mockTerminalStream = ({
 	const stateOf = (id: TerminalId) => states.get(id);
 
 	return {
-		start: (terminal) => {
+		start: (terminal, replay) => {
+			const shell = terminal.kind.type === "shell" || terminal.kind.type === "session";
 			const state: State = {
 				id: terminal.id,
-				shell: terminal.kind.type === "shell",
+				shell,
 				cwd: terminal.cwd,
 				chunks: [],
 				end: 0,
@@ -403,11 +509,37 @@ export const mockTerminalStream = ({
 				named: false,
 				text: "",
 				dropped: false,
+				marks: shell && (marks?.(terminal) ?? false),
+				block: null,
 			};
 			states.set(terminal.id, state);
-			if (terminal.kind.type === "shell") prompt(state);
-			else run(state, terminal.kind.command);
+			if (terminal.kind.type === "run") run(state, terminal.kind.command);
+			else {
+				if (replay) print(state, replay);
+				prompt(state);
+			}
 		},
+		command: (id, line, ended) => {
+			const state = stateOf(id);
+			if (!state?.shell) return null;
+			// The shell echoes the line `maxd` writes, and marks where its output starts.
+			print(state, `${line}\r\n${mark(state, "C")}`);
+			const start = state.end;
+			state.block = { text: "", secrets: 0, ended };
+			run(state, line.trim());
+			return start;
+		},
+		idle: (id) => {
+			const state = stateOf(id);
+			return (
+				state !== undefined &&
+				state.shell &&
+				!state.job &&
+				!state.secret &&
+				state.line === ""
+			);
+		},
+		cwd: (id) => stateOf(id)?.cwd,
 		interrupt: (id) => {
 			const state = stateOf(id);
 			if (state) interrupt(state);

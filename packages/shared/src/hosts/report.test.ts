@@ -14,6 +14,7 @@ import {
 	hostProblems,
 	hostReportOf,
 	offersHostSpec,
+	rootParts,
 	sourceText,
 	terminalLine,
 } from "./report";
@@ -50,6 +51,19 @@ describe("host report", () => {
 		expect(terminalLine(view, "dev-gone", ROOT_FIX)).toBeNull();
 		const zram = hostGroups(view, hostReportOf(view, DEVBOX)!)[1]!.items[1]!;
 		expect(zram.fix).toEqual({ kind: "terminal", line: `ssh -t dev@devbox '${ROOT_FIX}'` });
+	});
+
+	it("shows each root command once, with the items it fixes", async () => {
+		const view = await load();
+		const parts = rootParts(hostGroups(view, hostReportOf(view, DEVBOX)!));
+		expect(parts).toEqual([
+			{
+				line: `ssh -t dev@devbox '${ROOT_FIX}'`,
+				item: "caps.zram",
+				labels: ["Compressed swap"],
+			},
+		]);
+		expect(rootParts(hostGroups(view, hostReportOf(view, MAC)!))).toEqual([]);
 	});
 
 	it("knows which devices check their host", async () => {

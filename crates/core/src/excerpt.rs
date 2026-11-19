@@ -32,6 +32,7 @@ use maxhq_protocol::timeline::{
 };
 
 use crate::attached::clean_name;
+use crate::context::command_count;
 use crate::quote_span::{Quote, Shown};
 
 /// The most characters one entry shows. A longer one keeps its start and
@@ -350,6 +351,9 @@ fn request(text: &str, attachments: &[AttachmentRef], refs: &[InlineRef]) -> Str
             Some(InlineRef::Output { command, .. }) => {
                 out.push_str(&format!("[Output: {}]", one_line(command, MAX_TITLE)));
             }
+            Some(InlineRef::Session { blocks, .. }) => {
+                out.push_str(&format!("[Shell session: {}]", command_count(blocks.len())));
+            }
             // A mark with no ref left to fill it is dropped.
             Some(InlineRef::GitItem { .. }) | None => {}
         }
@@ -571,6 +575,7 @@ fn steps_of(body: &ItemBody) -> Vec<String> {
         // A command you ran stays out until excerpts know which ones are
         // private.
         | ItemBody::UserRun { .. }
+        | ItemBody::UserSession { .. }
         | ItemBody::Unknown { .. } => Vec::new(),
     }
 }

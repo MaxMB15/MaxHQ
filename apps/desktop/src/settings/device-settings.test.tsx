@@ -116,6 +116,7 @@ describe("device settings", () => {
 			memory_items: 256,
 			history_mib: 256,
 			claude_setup_token: false,
+			shell_integration: true,
 			skill_library: null,
 			network: {},
 			test_hosts: MOCK_TEST_HOST_SETTINGS[MAC],
@@ -143,6 +144,7 @@ describe("device settings", () => {
 			memory_items: 256,
 			history_mib: 256,
 			claude_setup_token: false,
+			shell_integration: true,
 			skill_library: null,
 			network: {},
 			test_hosts: MOCK_TEST_HOST_SETTINGS[MAC],
@@ -194,6 +196,7 @@ describe("device settings", () => {
 			memory_items: 256,
 			history_mib: 256,
 			claude_setup_token: true,
+			shell_integration: true,
 			skill_library: null,
 			network: {},
 			test_hosts: MOCK_TEST_HOST_SETTINGS[DEVBOX],
@@ -258,6 +261,7 @@ describe("device settings", () => {
 			memory_items: 256,
 			history_mib: 256,
 			claude_setup_token: true,
+			shell_integration: true,
 			skill_library: null,
 			network: {},
 			test_hosts: MOCK_TEST_HOST_SETTINGS[DEVBOX],
@@ -290,6 +294,7 @@ describe("device settings", () => {
 			memory_items: 256,
 			history_mib: 256,
 			claude_setup_token: true,
+			shell_integration: true,
 			skill_library: null,
 			network: {},
 			test_hosts: MOCK_TEST_HOST_SETTINGS[DEVBOX],
@@ -336,6 +341,7 @@ describe("device settings", () => {
 			memory_items: 256,
 			history_mib: 256,
 			claude_setup_token: true,
+			shell_integration: true,
 			skill_library: null,
 			network: {},
 			test_hosts: MOCK_TEST_HOST_SETTINGS[DEVBOX],
@@ -393,6 +399,7 @@ describe("device settings", () => {
 			memory_items: 256,
 			history_mib: 256,
 			claude_setup_token: false,
+			shell_integration: true,
 			skill_library: null,
 			network: {},
 			test_hosts: MOCK_TEST_HOST_SETTINGS[MAC],
@@ -757,6 +764,65 @@ describe("memory", () => {
 		expect(await history("devbox")).toBeDisabled();
 		const region = await memory("devbox");
 		expect(within(region).getAllByText("Connect to devbox to change it.")).toHaveLength(2);
+	});
+});
+
+describe("terminals", () => {
+	const terminals = (name: string) =>
+		screen.findByRole("region", { name: `Terminals on ${name}` });
+	const shell = async (name: string) =>
+		within(await terminals(name)).getByRole("switch", { name: "Shell integration" });
+
+	// The mock source with devbox's maxd from before the setting.
+	const before = (source: DataSource): DataSource => ({
+		...source,
+		snapshot: async () => {
+			const snapshot = await source.snapshot();
+			const entities = snapshot.entities.map((e): Entity => {
+				if (e.entity !== "device_settings" || e.device !== "dev-devbox") return e;
+				const rest = { ...e };
+				delete rest.shell_integration;
+				return rest;
+			});
+			return { ...snapshot, entities };
+		},
+	});
+
+	it("is on by default, with what it does", async () => {
+		renderDevice("link-devbox");
+		expect(await shell("devbox")).toBeChecked();
+		expect(
+			within(await terminals("devbox")).getByText(/^MaxHQ adds hooks to zsh, bash and fish/)
+		).toBeInTheDocument();
+	});
+
+	it("saves it off, keeping the other settings", async () => {
+		const { source } = renderDevice("link-mac");
+		const save = vi.spyOn(source, "setDeviceSettings");
+		fireEvent.click(await shell("Mac"));
+
+		expect(save).toHaveBeenCalledWith(
+			expect.objectContaining({
+				device: "dev-mac",
+				shell_integration: false,
+				memory_items: 256,
+				default_permission: "auto",
+			})
+		);
+		expect(await within(await terminals("Mac")).findByText("Saved")).toBeInTheDocument();
+		expect(await shell("Mac")).not.toBeChecked();
+	});
+
+	it("can't change on a maxd from before the setting, which adds no hooks", async () => {
+		renderDevice("link-devbox", "connected", before);
+		const toggle = await shell("devbox");
+		expect(toggle).toHaveAttribute("aria-disabled", "true");
+		expect(toggle).not.toBeChecked();
+		expect(
+			within(await terminals("devbox")).getByText(
+				"devbox's maxd is too old for this. Update it first."
+			)
+		).toBeInTheDocument();
 	});
 });
 

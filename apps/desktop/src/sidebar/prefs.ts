@@ -13,8 +13,7 @@ import { createStore, type StoreApi } from "zustand/vanilla";
 import { type Services, useServices } from "@/app/services";
 import {
 	DEFAULT_SNOOZE_PRESETS,
-	isSnoozePresetSetting,
-	MAX_SNOOZE_PRESETS,
+	isSnoozePresetList,
 	type SnoozePresetSetting,
 } from "@maxhq/shared/view/snooze";
 
@@ -74,12 +73,9 @@ export const readPrefs = (raw: string | null): SidebarPrefs => {
 	const { workingShelf, snoozePresets, open, width } = saved;
 	return {
 		workingShelf: typeof workingShelf === "boolean" ? workingShelf : DEFAULT_PREFS.workingShelf,
-		snoozePresets:
-			Array.isArray(snoozePresets) &&
-			snoozePresets.length <= MAX_SNOOZE_PRESETS &&
-			snoozePresets.every(isSnoozePresetSetting)
-				? snoozePresets
-				: DEFAULT_PREFS.snoozePresets,
+		snoozePresets: isSnoozePresetList(snoozePresets)
+			? snoozePresets
+			: DEFAULT_PREFS.snoozePresets,
 		open: typeof open === "boolean" ? open : DEFAULT_PREFS.open,
 		width:
 			typeof width === "number" && Number.isFinite(width)
