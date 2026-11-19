@@ -6,6 +6,7 @@ import { createRoot } from "react-dom/client";
 import App from "./App";
 import { watchLanguage } from "./app/language";
 import { watchTheme } from "./app/theme";
+import { watchWindowScroll } from "./app/window-scroll";
 import { ComposerNativeProvider } from "./composer";
 import * as native from "./native";
 import { watchContextMenu } from "./native/context-guard";
@@ -14,6 +15,7 @@ import "./styles/globals.css";
 watchTheme();
 watchLanguage();
 watchContextMenu();
+watchWindowScroll();
 
 createRoot(document.getElementById("root")!).render(
 	<StrictMode>
