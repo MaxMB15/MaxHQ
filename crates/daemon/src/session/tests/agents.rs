@@ -983,6 +983,9 @@ async fn a_cursor_agent_calls_the_agent_tools_as_itself_with_its_session_key() {
 
     // A relaunch keeps the same key.
     let session = h.agent(agent).session.expect("the agent has a holder");
+    // A line the CLI prints before the restarted `maxd` reconnects comes
+    // as a replay, not live.
+    eventually("the agent back", || h.holders.connects(session).len() > 1).await;
     let idle = Say {
         agents: vec![Agent {
             vendor_session_id: Some("acp-1".into()),

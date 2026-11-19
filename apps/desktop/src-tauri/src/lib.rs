@@ -10,6 +10,7 @@ pub mod bindings;
 mod commands;
 mod native;
 mod notify;
+mod screen;
 mod terminal;
 mod terminal_stream;
 mod updater;
@@ -26,6 +27,7 @@ use maxhq_app::editors;
 use maxhq_app::media::{self, Served};
 use maxhq_app::notify::NotificationPrefs;
 use maxhq_app::registry::Registry;
+use maxhq_app::screen::ScreenOn;
 use maxhq_app::view::{Emit, View};
 use maxhq_app::viewer;
 use maxhq_app::{App, Opening, Shell};
@@ -92,6 +94,8 @@ pub fn specta_builder() -> Builder<tauri::Wry> {
             notify::notification_permission,
             notify::send_test_notification,
             notify::open_notification_settings,
+            screen::screen_on,
+            screen::set_screen_on,
             updater::app_update,
             updater::check_for_update,
             updater::install_update,
@@ -203,6 +207,7 @@ pub fn run() {
             );
             app.manage(notifications);
             app.manage(updater::Updates::new(UpdatePrefs::load(&registry)));
+            app.manage(ScreenOn::start(&registry));
             let view = View::new(emit, sender);
             let downloads = app.path().download_dir().ok();
             let media = media_folder(app.handle());

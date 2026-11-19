@@ -32,6 +32,8 @@ pub mod notes;
 pub mod notify;
 pub mod paths;
 pub mod pill_text;
+#[cfg(target_os = "macos")]
+pub mod power;
 pub mod prove;
 pub mod pulls;
 pub mod quote_span;

@@ -161,6 +161,13 @@ export const commands = {
 	sendTestNotification: () => typedError<null, NativeError>(__TAURI_INVOKE("send_test_notification")),
 	/**  Opens this app's page under Notifications in System Settings. */
 	openNotificationSettings: () => typedError<null, NativeError>(__TAURI_INVOKE("open_notification_settings")),
+	/**
+	 *  Whether the sun is on, or nothing where the system can't keep its
+	 *  screen on, so the header leaves it out.
+	 */
+	screenOn: () => __TAURI_INVOKE<boolean | null>("screen_on"),
+	/**  Turns the sun on or off. It lasts across restarts. */
+	setScreenOn: (on: boolean) => typedError<null, NativeError>(__TAURI_INVOKE("set_screen_on", { on })),
 	/**  This app's version, where its update stands and your settings for it. */
 	appUpdate: () => __TAURI_INVOKE<AppUpdate>("app_update"),
 	/**  Looks for a newer version now, whatever the setting says. */
