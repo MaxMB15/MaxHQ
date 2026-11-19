@@ -45,13 +45,11 @@ impl ShellCommand {
 #[derive(Clone, Debug, Default)]
 pub struct Commands {
     list: VecDeque<ShellCommand>,
-    marked: bool,
 }
 
 impl Commands {
     /// Takes in a mark the shell made at `offset`.
     pub fn mark(&mut self, offset: u64, at: Timestamp, mark: &Mark) {
-        self.marked = true;
         match mark {
             Mark::Prompt => {
                 self.close(offset);
@@ -105,12 +103,6 @@ impl Commands {
         self.list.push_back(command);
     }
 
-    /// Whether the shell has marked anything, so its marks say when it's
-    /// busy.
-    pub fn marked(&self) -> bool {
-        self.marked
-    }
-
     /// Whether a command runs now.
     pub fn running(&self) -> bool {
         self.list.back().is_some_and(ShellCommand::running)
@@ -141,9 +133,7 @@ mod tests {
     #[test]
     fn commands_go_from_prompt_to_done() {
         let mut commands = Commands::default();
-        assert!(!commands.marked());
         feed(&mut commands, &[(0, Mark::Prompt), (10, Mark::Input)]);
-        assert!(commands.marked());
         assert!(!commands.running());
         feed(&mut commands, &[(15, command("/tmp"))]);
         assert!(commands.running());

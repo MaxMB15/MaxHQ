@@ -169,6 +169,8 @@ describe("sample terminal stream", () => {
 		const { source, agent, watch, type, view } = await setup();
 		const terminal = openedTerminal(await openShell(source, agent, SIZE));
 		if (!terminal) throw new Error("no terminal opened");
+		// Its holder lets through only the marks it adds.
+		expect(terminalById(await view(), terminal)?.marks).toBe(true);
 		const out = await watch(terminal);
 		type(terminal, "ls\r\r");
 		type(terminal, "pnpm dev\r");

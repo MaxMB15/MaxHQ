@@ -4544,6 +4544,7 @@ pub(crate) mod tests {
             cwd: "~/code/example-app".into(),
             status: TerminalStatus::Running,
             busy: false,
+            marks: false,
             password_prompt: false,
             started_at: Timestamp(1_793_368_920_000),
             cols: 80,

@@ -8,13 +8,15 @@
 //!
 //! [`Terminals`] publishes each one as a `Terminal` entity and keeps it
 //! current from a quiet link to its holder: whether it runs, its title and
-//! folder, whether it waits for a password and its size. A drawer shell
-//! that marks its prompts and commands, as zsh, bash and fish do while the
-//! device's shell integration is on, is busy from a command's start to its
-//! end, and `maxd` keeps where each command's output starts and ends. It sends each
-//! connection that attached the output from where that connection asked,
-//! and passes on what it types. What anyone types goes to the holder and
-//! nowhere else: never a log, a store or an agent.
+//! folder, whether it waits for a password and its size. It's busy while a
+//! program other than its shell holds the foreground and, for a drawer
+//! shell that marks its prompts and commands, as zsh, bash and fish do
+//! while the device's shell integration is on, from a command's start to
+//! its end. `maxd` keeps where each command's output starts and ends, and
+//! whether its holder lets through only the shell's own marks. It sends
+//! each connection that attached the output from where that connection
+//! asked, and passes on what it types. What anyone types goes to the
+//! holder and nowhere else: never a log, a store or an agent.
 //!
 //! The session manager opens terminals, since it knows where an agent runs
 //! and keeps the `!` runs' items in its timeline. It hears back through
@@ -207,6 +209,9 @@ struct Open {
     closing: bool,
     /// The commands its shell marked, as the quiet link heard them.
     commands: Commands,
+    /// Whether the holder last said a program other than the shell holds
+    /// the foreground, or a `!` run hasn't ended.
+    foreground: bool,
 }
 
 impl Open {
@@ -222,6 +227,7 @@ impl Open {
                 cwd: note.cwd.clone(),
                 status: TerminalStatus::Running,
                 busy: false,
+                marks: false,
                 password_prompt: false,
                 started_at: note.started_at,
                 cols: 80,
@@ -235,6 +241,7 @@ impl Open {
             pumps: HashMap::new(),
             closing: false,
             commands: Commands::default(),
+            foreground: false,
         };
         if let Some(hello) = hello {
             open.hello(hello);
@@ -250,12 +257,26 @@ impl Open {
         self.entity.password_prompt = hello.password;
         self.entity.cols = hello.cols;
         self.entity.rows = hello.rows;
-        self.entity.busy = hello.busy;
+        self.entity.marks = hello.marks;
+        self.foreground = hello.busy;
+        self.rebusy();
         self.shell_title = hello.title.clone();
         if let Some(cwd) = &hello.cwd {
             self.entity.cwd = shown(Path::new(cwd));
         }
         self.retitle();
+    }
+
+    /// Works out whether it's busy: a command its shell marked hasn't
+    /// ended, or the foreground says so. Either alone misses some: a
+    /// subshell, or a shell that took this one's place with exec, marks
+    /// nothing, and a builtin like `read` holds no foreground. Returns
+    /// whether it changed.
+    fn rebusy(&mut self) -> bool {
+        let busy = self.running() && (self.foreground || self.commands.running());
+        let changed = self.entity.busy != busy;
+        self.entity.busy = busy;
+        changed
     }
 
     /// The name you gave it, or the title its shell set, or what it runs.
@@ -417,6 +438,9 @@ impl Terminals {
     /// Publishes again the terminals a previous `maxd` left running, and
     /// tells the manager about the runs that ended while none ran.
     async fn restore(&self) {
+        if let Err(err) = self.inner.holds.sweep() {
+            warn!(%err, "couldn't clear what a previous maxd left writing shell scripts");
+        }
         let terminals = match self.inner.holds.list() {
             Ok(terminals) => terminals,
             Err(err) => {
@@ -585,21 +609,13 @@ impl Terminals {
                         open.entity.password_prompt = on;
                         changed
                     }),
-                    // Once its shell marks commands, the marks say when
-                    // it's busy.
                     TermEvent::Busy(on) => self.update(terminal, |open| {
-                        if open.commands.marked() || open.entity.busy == on {
-                            return false;
-                        }
-                        open.entity.busy = on;
-                        true
+                        open.foreground = on;
+                        open.rebusy()
                     }),
                     TermEvent::Mark { offset, at, mark } => self.update(terminal, |open| {
                         open.commands.mark(offset, at, &mark);
-                        let busy = open.running() && open.commands.running();
-                        let changed = open.entity.busy != busy;
-                        open.entity.busy = busy;
-                        changed
+                        open.rebusy()
                     }),
                     TermEvent::Title(title) => self.update(terminal, |open| {
                         open.shell_title = Some(title);

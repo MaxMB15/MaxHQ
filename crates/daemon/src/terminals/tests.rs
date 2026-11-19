@@ -302,8 +302,46 @@ async fn a_shell_says_whether_it_runs_something() {
     assert!(!busy());
 }
 
+#[test]
+fn a_tab_says_whether_its_holder_keeps_to_the_shells_marks() {
+    let note = Note {
+        agent: AgentId::derive("a"),
+        kind: TerminalKind::Shell,
+        cwd: "~".to_owned(),
+        started_at: Timestamp(1),
+        opener: Opener::App,
+        moved: false,
+        name: None,
+    };
+    // A holder from before protocol 47 doesn't say, so it reads false.
+    for marks in [false, true] {
+        let hello = TermHello {
+            holder_pid: 10,
+            child_pid: 11,
+            started_at: Timestamp(1),
+            from: 0,
+            reset: false,
+            cols: 80,
+            rows: 24,
+            password: false,
+            busy: true,
+            title: None,
+            cwd: None,
+            marks,
+        };
+        let open = Open::new(
+            note.clone(),
+            Some(&hello),
+            DeviceId::derive("d"),
+            TerminalId::generate(),
+        );
+        assert_eq!(open.entity.marks, marks);
+        assert!(open.entity.busy, "the foreground says");
+    }
+}
+
 #[tokio::test]
-async fn a_shell_that_marks_its_commands_is_busy_from_start_to_end() {
+async fn a_shell_that_marks_its_commands_is_busy_from_start_to_end_or_while_the_foreground_says() {
     let f = fixture();
     let shell = f
         .terminals
@@ -314,13 +352,10 @@ async fn a_shell_that_marks_its_commands_is_busy_from_start_to_end() {
         at: Timestamp(offset),
         mark,
     };
-    // Until its first mark, the holder says.
-    heard(&f.terminals, shell, vec![TermEvent::Busy(true)]).await;
-    assert!(busy());
     let prompt = vec![mark(0, Mark::Prompt), mark(7, Mark::Input)];
     heard(&f.terminals, shell, prompt).await;
     assert!(!busy());
-    // From then on the marks do, whatever the holder thinks.
+    // A builtin such as `read` holds no foreground, but the marks say.
     let cwd = Some("/tmp/example-app".to_owned());
     let command = vec![
         mark(12, Mark::Command { cwd: cwd.clone() }),
@@ -330,10 +365,15 @@ async fn a_shell_that_marks_its_commands_is_busy_from_start_to_end() {
     assert!(busy());
     let done = vec![
         mark(40, Mark::Done { exit: Some(2) }),
-        TermEvent::Busy(true),
         mark(44, Mark::Prompt),
     ];
     heard(&f.terminals, shell, done).await;
+    assert!(!busy());
+    // A subshell marks nothing, and neither does a shell that took this
+    // one's place with exec, but the foreground says.
+    heard(&f.terminals, shell, vec![TermEvent::Busy(true)]).await;
+    assert!(busy());
+    heard(&f.terminals, shell, vec![TermEvent::Busy(false)]).await;
     assert!(!busy());
     let kept = f.terminals.lock()[&shell].commands.list().clone();
     assert_eq!(

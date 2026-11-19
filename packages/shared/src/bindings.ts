@@ -9580,11 +9580,19 @@ export type Terminal = {
 	status: TerminalStatus,
 	/**
 	 *  Whether a command runs in it: a program other than the shell holds
-	 *  its foreground, or a `!` run hasn't ended. False while a shell waits
-	 *  at its prompt, whatever title it sets there, and when the device
-	 *  doesn't say.
+	 *  its foreground, its shell marked a command that hasn't ended, or a
+	 *  `!` run hasn't ended. False while a shell waits at its prompt,
+	 *  whatever title it sets there, and when the device doesn't say.
 	 */
 	busy?: boolean,
+	/**
+	 *  Whether the OSC 133 in its output are its shell's marks: its holder
+	 *  lets through only those with the terminal's nonce, in the plain
+	 *  form, and drops any other. False from a holder or device before
+	 *  protocol 47, whose output can carry any program's 133, so a client
+	 *  takes none as a mark.
+	 */
+	marks?: boolean,
 	/**
 	 *  Whether it waits for a password at a prompt that hides what you
 	 *  type, so clients offer a secure field.

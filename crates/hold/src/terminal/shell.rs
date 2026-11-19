@@ -14,17 +14,24 @@
 //!   `~/.bash_login` and `~/.profile`, then puts the hooks in
 //!   `PROMPT_COMMAND` and the DEBUG trap around the user's.
 //! - fish starts as `fish -l --init-command 'source <file>'`, which runs
-//!   after the user's config.
+//!   after the user's config. A snippet in the folder's
+//!   `fish/vendor_conf.d`, which fish finds through XDG_DATA_DIRS, runs
+//!   before the user's `config.fish` and puts XDG_DATA_DIRS back.
 //!
 //! The marks carry a nonce for the terminal, which the shell gets in its
-//! environment and keeps in a variable, out of what it starts. The files
-//! go in a folder named by what they hold, so a new `maxd` never changes
-//! the files a running shell reads.
+//! environment and keeps in a variable, out of what it starts. The user's
+//! startup files run without it but for `/etc/zshenv` and fish's `conf.d`
+//! snippets. It stays where the shell's first environment shows, as
+//! `/proc/<pid>/environ` and `ps eww` do, and bash's PS1 holds it. The
+//! files go in a folder named by what they hold, so a new `maxd` never
+//! changes the files a running shell reads, and one that finds a file in it
+//! changed puts it back.
 
-use std::ffi::OsString;
+use std::ffi::{OsStr, OsString};
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
+use std::time::Duration;
 
 use super::TermLaunch;
 use crate::{files, secret};
@@ -35,7 +42,17 @@ const NONCE: &str = "MAXHQ_SHELL_NONCE";
 /// The variable that gives zsh the user's own ZDOTDIR.
 const USER_ZDOTDIR: &str = "MAXHQ_USER_ZDOTDIR";
 
-/// The files, by name.
+/// Where fish looks for vendor snippets, among other folders.
+const XDG_DATA_DIRS: &str = "XDG_DATA_DIRS";
+
+/// The variable that gives fish the user's own XDG_DATA_DIRS, empty when
+/// it had none.
+const USER_XDG_DATA_DIRS: &str = "MAXHQ_USER_XDG_DATA_DIRS";
+
+/// What XDG_DATA_DIRS means when it isn't set.
+const XDG_DEFAULT: &str = "/usr/local/share:/usr/share";
+
+/// The files, by path in the folder.
 const FILES: &[(&str, &str)] = &[
     (".zshenv", include_str!("shell/zshenv.zsh")),
     (".zprofile", include_str!("shell/zprofile.zsh")),
@@ -43,7 +60,19 @@ const FILES: &[(&str, &str)] = &[
     (".zlogin", include_str!("shell/zlogin.zsh")),
     ("bash.sh", include_str!("shell/bash.sh")),
     ("fish.fish", include_str!("shell/fish.fish")),
+    (
+        "fish/vendor_conf.d/maxhq-shell-integration.fish",
+        include_str!("shell/fish-vendor.fish"),
+    ),
 ];
+
+/// How a folder or file being written is named until it's done. One a
+/// `maxd` that stopped part way left goes in [`sweep`].
+const TEMP: &str = ".shell-";
+
+/// How old a leftover is before [`sweep`] takes it, so it never takes one
+/// a write is still at.
+const LEFTOVER_AGE: Duration = Duration::from_secs(60);
 
 #[derive(Clone, Copy)]
 enum Shell {
@@ -86,6 +115,18 @@ pub(super) fn integrate(launch: &mut TermLaunch, dir: &Path) -> io::Result<bool>
             let Some(file) = folder.join("fish.fish").to_str().map(fish_quoted) else {
                 return Ok(false);
             };
+            // A folder with a colon can't go in a list of them, so then the
+            // nonce waits for the init command.
+            if !folder.as_os_str().to_string_lossy().contains(':') {
+                let user = env_value(launch, XDG_DATA_DIRS).filter(|dirs| !dirs.is_empty());
+                let mut dirs = folder.clone().into_os_string();
+                dirs.push(":");
+                dirs.push(user.as_deref().unwrap_or(OsStr::new(XDG_DEFAULT)));
+                launch
+                    .env
+                    .push((USER_XDG_DATA_DIRS.into(), user.unwrap_or_default()));
+                launch.env.push((XDG_DATA_DIRS.into(), dirs));
+            }
             launch.args = vec![
                 "-l".into(),
                 "--init-command".into(),
@@ -112,9 +153,8 @@ fn fish_quoted(text: &str) -> String {
     format!("'{}'", text.replace('\\', r"\\").replace('\'', r"\'"))
 }
 
-/// The folder with the files under `dir`, written when it isn't there
-/// yet.
-fn write_files(dir: &Path) -> io::Result<PathBuf> {
+/// The folder for the files under `dir`, named by them.
+fn folder_in(dir: &Path) -> PathBuf {
     // FNV-1a over the names and contents.
     let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
     for (name, text) in FILES {
@@ -122,16 +162,29 @@ fn write_files(dir: &Path) -> io::Result<PathBuf> {
             hash = (hash ^ u64::from(byte)).wrapping_mul(0x0100_0000_01b3);
         }
     }
-    let folder = dir.join(format!("shell-{hash:016x}"));
-    if folder.is_dir() {
-        return Ok(folder);
+    dir.join(format!("shell-{hash:016x}"))
+}
+
+/// The folder with the files under `dir`: written whole when it isn't
+/// there yet, and with any file in it that isn't as written put back.
+fn write_files(dir: &Path) -> io::Result<PathBuf> {
+    let folder = folder_in(dir);
+    match fs::symlink_metadata(&folder) {
+        Ok(meta) if meta.is_dir() => {
+            mend(dir, &folder)?;
+            return Ok(folder);
+        }
+        // Nothing of MaxHQ's but the folder goes there.
+        Ok(_) => fs::remove_file(&folder)?,
+        Err(err) if err.kind() == io::ErrorKind::NotFound => {}
+        Err(err) => return Err(err),
     }
     files::private_dir_all(dir)?;
-    let temp = dir.join(format!(".shell-{hash:016x}-{}", secret::new_nonce()?));
+    let temp = temp_in(dir)?;
     files::private_dir(&temp)?;
     let written = FILES
         .iter()
-        .try_for_each(|(name, text)| fs::write(temp.join(name), text))
+        .try_for_each(|(name, text)| write_file(&temp.join(name), text))
         .and_then(|()| fs::rename(&temp, &folder));
     match written {
         Ok(()) => Ok(folder),
@@ -139,12 +192,87 @@ fn write_files(dir: &Path) -> io::Result<PathBuf> {
             let _ = fs::remove_dir_all(&temp);
             // Another shell starting at the same time put it there first.
             if folder.is_dir() {
+                mend(dir, &folder)?;
                 Ok(folder)
             } else {
                 Err(err)
             }
         }
     }
+}
+
+/// A new name under `dir` for something being written.
+fn temp_in(dir: &Path) -> io::Result<PathBuf> {
+    Ok(dir.join(format!("{TEMP}{}", secret::new_nonce()?)))
+}
+
+/// Writes `text` to `path`, making the folders it goes in.
+fn write_file(path: &Path, text: &str) -> io::Result<()> {
+    if let Some(parent) = path.parent() {
+        files::private_dir_all(parent)?;
+    }
+    fs::write(path, text)
+}
+
+/// Puts back each file in `folder` that isn't as written, as one cut short
+/// or changed: written whole under `dir` first, then renamed over it, so a
+/// shell starting meanwhile reads the old file or the new one.
+fn mend(dir: &Path, folder: &Path) -> io::Result<()> {
+    for (name, text) in FILES {
+        let path = folder.join(name);
+        if fs::read(&path).is_ok_and(|bytes| bytes == text.as_bytes()) {
+            continue;
+        }
+        let temp = temp_in(dir)?;
+        let put = write_file(&temp, text).and_then(|()| {
+            if let Some(parent) = path.parent() {
+                files::private_dir_all(parent)?;
+            }
+            fs::rename(&temp, &path)
+        });
+        if put.is_err() {
+            let _ = fs::remove_file(&temp);
+        }
+        put?;
+    }
+    Ok(())
+}
+
+/// Deletes what a write under `dir` left when its `maxd` stopped part way,
+/// once it's a minute old. The folders of earlier files stay, as a shell
+/// that started with them may read them yet.
+pub(super) fn sweep(dir: &Path) -> io::Result<()> {
+    sweep_older(dir, LEFTOVER_AGE)
+}
+
+fn sweep_older(dir: &Path, age: Duration) -> io::Result<()> {
+    let entries = match fs::read_dir(dir) {
+        Ok(entries) => entries,
+        Err(err) if err.kind() == io::ErrorKind::NotFound => return Ok(()),
+        Err(err) => return Err(err),
+    };
+    for entry in entries {
+        let entry = entry?;
+        if !entry.file_name().to_string_lossy().starts_with(TEMP) {
+            continue;
+        }
+        // Of the entry itself, not what a link points at.
+        let Ok(meta) = entry.metadata() else {
+            continue;
+        };
+        let old = (meta.modified().ok())
+            .and_then(|at| at.elapsed().ok())
+            .is_some_and(|elapsed| elapsed >= age);
+        if old {
+            let path = entry.path();
+            let _ = if meta.is_dir() {
+                fs::remove_dir_all(&path)
+            } else {
+                fs::remove_file(&path)
+            };
+        }
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -196,14 +324,74 @@ mod tests {
         assert_ne!(bash.nonce, zsh.nonce);
 
         let mut fish = launch("fish");
+        fish.env.push((XDG_DATA_DIRS.into(), "/opt/share".into()));
         assert!(integrate(&mut fish, &dir).unwrap());
         let source = format!("source '{}'", folder.join("fish.fish").display());
         assert_eq!(
             fish.args,
             [OsString::from("-l"), "--init-command".into(), source.into()]
         );
+        // fish finds the snippet first, which puts back the user's folders.
+        let dirs = format!("{}:/opt/share", folder.display());
+        assert_eq!(env_value(&fish, XDG_DATA_DIRS), Some(dirs.into()));
+        assert_eq!(env(&fish, USER_XDG_DATA_DIRS), Some(&"/opt/share".into()));
+        let mut bare = launch("/usr/bin/fish");
+        bare.env.push((XDG_DATA_DIRS.into(), "".into()));
+        assert!(integrate(&mut bare, &dir).unwrap());
+        let dirs = format!("{}:{XDG_DEFAULT}", folder.display());
+        assert_eq!(env_value(&bare, XDG_DATA_DIRS), Some(dirs.into()));
+        assert_eq!(env(&bare, USER_XDG_DATA_DIRS), Some(&"".into()));
         // One folder, written once.
         assert_eq!(fs::read_dir(&dir).unwrap().count(), 1);
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn a_file_that_isnt_as_written_is_put_back() {
+        let dir = scratch("mend");
+        let folder = write_files(&dir).unwrap();
+        let rc = folder.join(".zshrc");
+        let snippet = folder.join(FILES[6].0);
+        fs::write(&rc, "cut sho").unwrap();
+        fs::remove_file(&snippet).unwrap();
+        fs::remove_dir(snippet.parent().unwrap()).unwrap();
+        assert_eq!(write_files(&dir).unwrap(), folder);
+        for (name, text) in FILES {
+            assert_eq!(fs::read_to_string(folder.join(name)).unwrap(), *text);
+        }
+        // Nothing it wrote along the way stays.
+        assert_eq!(fs::read_dir(&dir).unwrap().count(), 1);
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn a_sweep_takes_only_old_leftovers() {
+        let dir = scratch("sweep");
+        let folder = write_files(&dir).unwrap();
+        let earlier = dir.join("shell-0123456789abcdef");
+        files::private_dir(&earlier).unwrap();
+        let half = dir.join(format!("{TEMP}half"));
+        files::private_dir(&half).unwrap();
+        fs::write(half.join(".zshrc"), "cut sho").unwrap();
+        fs::write(dir.join(format!("{TEMP}file")), "cut sho").unwrap();
+        let names = || {
+            let mut names: Vec<_> = (fs::read_dir(&dir).unwrap())
+                .map(|entry| entry.unwrap().file_name().into_string().unwrap())
+                .collect();
+            names.sort();
+            names
+        };
+        let mut kept = vec![
+            "shell-0123456789abcdef".to_owned(),
+            folder.file_name().unwrap().to_str().unwrap().to_owned(),
+        ];
+        kept.sort();
+        // A fresh one may be a write still going on.
+        sweep(&dir).unwrap();
+        assert_eq!(names().len(), 4);
+        sweep_older(&dir, Duration::ZERO).unwrap();
+        assert_eq!(names(), kept);
+        sweep(&scratch("nothing")).unwrap();
         fs::remove_dir_all(&dir).unwrap();
     }
 

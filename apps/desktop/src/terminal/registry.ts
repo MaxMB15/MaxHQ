@@ -51,6 +51,11 @@ export type RegistryOptions = {
 	readonly sizeOf: (terminal: TerminalId) => TerminalSize | null;
 	/** Whether the terminal is still there, so a view of one that closed goes. */
 	readonly exists: (terminal: TerminalId) => boolean;
+	/**
+	 * Whether the OSC 133 in the terminal's output are its shell's marks, as
+	 * the device says. With none, no view takes any.
+	 */
+	readonly marksOf?: (terminal: TerminalId) => boolean;
 	/** Hears that an attach failed, with a sentence to show. */
 	readonly onFailure?: (terminal: TerminalId, message: string) => void;
 	readonly detachAfter?: number;
@@ -115,6 +120,7 @@ export const createRegistry = ({
 	makeView,
 	sizeOf,
 	exists,
+	marksOf = () => false,
 	onFailure,
 	detachAfter = DETACH_AFTER,
 	gpuBudget = GPU_BUDGET,
@@ -167,6 +173,7 @@ export const createRegistry = ({
 		const step = stepFor(entry.end, event);
 		if (!step) return;
 		if (step.clear) entry.view.clear();
+		entry.view.setMarks(marksOf(entry.terminal));
 		if (step.bytes.length > 0) entry.view.write(step.bytes);
 		entry.end = step.end;
 		if (top(entry)?.placement.maxRows !== undefined) layout(entry);

@@ -14410,7 +14410,7 @@
           "$ref": "#/$defs/AgentId"
         },
         "busy": {
-          "description": "Whether a command runs in it: a program other than the shell holds\nits foreground, or a `!` run hasn't ended. False while a shell waits\nat its prompt, whatever title it sets there, and when the device\ndoesn't say.",
+          "description": "Whether a command runs in it: a program other than the shell holds\nits foreground, its shell marked a command that hasn't ended, or a\n`!` run hasn't ended. False while a shell waits at its prompt,\nwhatever title it sets there, and when the device doesn't say.",
           "type": "boolean",
           "default": false
         },
@@ -14436,6 +14436,11 @@
         "kind": {
           "description": "What it runs.",
           "$ref": "#/$defs/TerminalKind"
+        },
+        "marks": {
+          "description": "Whether the OSC 133 in its output are its shell's marks: its holder\nlets through only those with the terminal's nonce, in the plain\nform, and drops any other. False from a holder or device before\nprotocol 47, whose output can carry any program's 133, so a client\ntakes none as a mark.",
+          "type": "boolean",
+          "default": false
         },
         "moved": {
           "description": "Whether you moved this run from the timeline to the drawer, where it\ngoes on as a tab. A shell is always a tab there, so it's false.",
