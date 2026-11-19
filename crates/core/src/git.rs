@@ -6,7 +6,14 @@
 //! every poll.
 
 use std::fs;
+use std::io::Read;
 use std::path::{Path, PathBuf};
+
+/// The most of a `.git` pointer, `commondir` or HEAD file that's read.
+const SMALL: u64 = 16 * 1024;
+
+/// The most of a repository's config that's read.
+const CONFIG_MOST: u64 = 1024 * 1024;
 
 /// A checkout found on disk.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -27,9 +34,8 @@ pub fn find_checkout(folder: &Path) -> Option<Checkout> {
 /// The checkout whose top folder is `root`, if `root` is the top of one.
 pub fn checkout_at(root: &Path) -> Option<Checkout> {
     let common = common_dir(&root.join(".git"), root)?;
-    let remote = fs::read_to_string(common.join("config"))
-        .ok()
-        .and_then(|config| remote_url(&config));
+    let remote =
+        read_small(&common.join("config"), CONFIG_MOST).and_then(|config| remote_url(&config));
     Some(Checkout {
         root: root.to_path_buf(),
         remote,
@@ -40,7 +46,7 @@ pub fn checkout_at(root: &Path) -> Option<Checkout> {
 /// HEAD. None on a detached HEAD, or when `root` isn't the top of a
 /// checkout.
 pub fn head_branch(root: &Path) -> Option<String> {
-    let head = fs::read_to_string(git_dir(&root.join(".git"), root)?.join("HEAD")).ok()?;
+    let head = read_small(&git_dir(&root.join(".git"), root)?.join("HEAD"), SMALL)?;
     head.trim()
         .strip_prefix("ref: refs/heads/")
         .map(str::to_owned)
@@ -67,7 +73,7 @@ fn git_dir(dot_git: &Path, checkout: &Path) -> Option<PathBuf> {
     if meta.is_dir() {
         return Some(dot_git.to_path_buf());
     }
-    let pointer = fs::read_to_string(dot_git).ok()?;
+    let pointer = read_small(dot_git, SMALL)?;
     Some(checkout.join(pointer.strip_prefix("gitdir:")?.trim()))
 }
 
@@ -79,10 +85,27 @@ fn common_dir(dot_git: &Path, checkout: &Path) -> Option<PathBuf> {
     if git_dir == dot_git {
         return Some(git_dir);
     }
-    match fs::read_to_string(git_dir.join("commondir")) {
-        Ok(common) => Some(git_dir.join(common.trim())),
-        Err(_) => Some(git_dir),
+    match read_small(&git_dir.join("commondir"), SMALL) {
+        Some(common) => Some(git_dir.join(common.trim())),
+        None => Some(git_dir),
     }
+}
+
+/// The text of the plain file at `path`, when it holds at most `most`
+/// bytes. A pipe, a device or a folder isn't opened, so a folder someone
+/// planted one in can't hang whoever looks at it.
+fn read_small(path: &Path, most: u64) -> Option<String> {
+    let meta = fs::metadata(path).ok()?;
+    if !meta.is_file() || meta.len() > most {
+        return None;
+    }
+    let mut text = String::new();
+    fs::File::open(path)
+        .ok()?
+        .take(most)
+        .read_to_string(&mut text)
+        .ok()?;
+    Some(text)
 }
 
 /// The remote URL a git config names, preferring `origin`.
@@ -291,6 +314,57 @@ mod tests {
         fs::write(main.join(".git/worktrees/wt/HEAD"), "ref: refs/heads/fix\n").unwrap();
         assert_eq!(head_branch(&wt).as_deref(), Some("fix"));
         assert_eq!(head_branch(&tmp), None, "not a checkout");
+
+        fs::remove_dir_all(&tmp).unwrap();
+    }
+
+    #[test]
+    fn a_big_config_or_a_pipe_is_left_unread() {
+        let tmp = std::env::temp_dir().join(format!("maxhq-git-pipe-{}", std::process::id()));
+        let big = tmp.join("big");
+        fs::create_dir_all(big.join(".git")).unwrap();
+        let mut config = "[remote \"origin\"]\n\turl = git@github.com:owner/repo.git\n".to_owned();
+        config.push_str(&"#".repeat(CONFIG_MOST as usize));
+        fs::write(big.join(".git/config"), config).unwrap();
+        fs::write(big.join(".git/HEAD"), "ref: refs/heads/main\n").unwrap();
+        assert_eq!(checkout_at(&big).map(|found| found.remote), Some(None));
+        assert_eq!(head_branch(&big).as_deref(), Some("main"));
+
+        let piped = tmp.join("piped");
+        fs::create_dir_all(piped.join(".git")).unwrap();
+        let pointed = tmp.join("pointed");
+        fs::create_dir_all(&pointed).unwrap();
+        for pipe in [
+            piped.join(".git/HEAD"),
+            piped.join(".git/config"),
+            pointed.join(".git"),
+        ] {
+            let made = std::process::Command::new("mkfifo")
+                .arg(&pipe)
+                .status()
+                .unwrap();
+            assert!(made.success());
+        }
+        // Opening a pipe for reading waits for a writer, so look on
+        // another thread and fail rather than hang.
+        let (tx, rx) = std::sync::mpsc::channel();
+        let (p, q) = (piped.clone(), pointed.clone());
+        std::thread::spawn(move || {
+            let _ = tx.send((
+                checkout_at(&p),
+                head_branch(&p),
+                checkout_at(&q),
+                head_branch(&q),
+            ));
+        });
+        let found = rx
+            .recv_timeout(std::time::Duration::from_secs(5))
+            .expect("a pipe hung the reader");
+        let checkout = Some(Checkout {
+            root: piped,
+            remote: None,
+        });
+        assert_eq!(found, (checkout, None, None, None));
 
         fs::remove_dir_all(&tmp).unwrap();
     }

@@ -911,6 +911,7 @@ async fn a_peer_link_carries_only_calls_wakes_and_answers() {
             path: "/".into(),
             files: true,
             hidden: true,
+            filter: None,
         },
         ClientMessage::MakeFolder {
             key: IdempotencyKey::generate(),

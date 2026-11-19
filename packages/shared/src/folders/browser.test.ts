@@ -40,9 +40,25 @@ describe("folder calls", () => {
 			status: "ok",
 			data: { status: "too_old" },
 		});
+		await calls.listFolder(DEVBOX, "~/code", { files: false, hidden: true, filter: "sh" });
 		await calls.makeFolder(DEVBOX, "/home/dev/code/new");
 		expect(sent).toEqual([
-			{ kind: "list_folder", device: DEVBOX, path: "~/code", files: true, hidden: false },
+			{
+				kind: "list_folder",
+				device: DEVBOX,
+				path: "~/code",
+				files: true,
+				hidden: false,
+				filter: null,
+			},
+			{
+				kind: "list_folder",
+				device: DEVBOX,
+				path: "~/code",
+				files: false,
+				hidden: true,
+				filter: "sh",
+			},
 			{ kind: "make_folder", device: DEVBOX, path: "/home/dev/code/new" },
 		]);
 	});

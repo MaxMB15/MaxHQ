@@ -45,6 +45,9 @@ describe("path text", () => {
 		expect(expandHome("~/code", "/home/dev")).toBe("/home/dev/code");
 		expect(expandHome("~/code", "/")).toBe("/code");
 		expect(expandHome("~/code", null)).toBe("~/code");
+		// A device that can't tell its home leaves ~ as typed, never "/code".
+		expect(expandHome("~/code", "")).toBe("~/code");
+		expect(expandHome("~", "")).toBe("~");
 		expect(expandHome("~other/code", "/home/dev")).toBe("~other/code");
 		expect(expandHome("/srv", "/home/dev")).toBe("/srv");
 	});
@@ -54,6 +57,7 @@ describe("path text", () => {
 		expect(contractHome("/Users/me", "/Users/me")).toBe("~");
 		expect(contractHome("/Users/meg/code", "/Users/me")).toBe("/Users/meg/code");
 		expect(contractHome("/Users/me/code", null)).toBe("/Users/me/code");
+		expect(contractHome("/Users/me/code", "")).toBe("/Users/me/code");
 	});
 
 	it("names a path's folder, last name and children", () => {

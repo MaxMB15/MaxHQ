@@ -3,12 +3,14 @@
 
 // A path field as you type in it. It shows what you typed and hands the
 // form the path with `~` read as the device's home folder, which it learns
-// from the first listing. It lists the folder you're typing in after a
-// short pause, as the composer's `@` menu waits, drops an answer for a
-// folder you've since left, and narrows the listing to the name you type
-// without asking again.
+// from the first listing that names one. It lists the folder you're typing
+// in after a short pause, as the composer's `@` menu waits, and asks only
+// for the names that hold the name you type, so one far down a big folder
+// still comes. It drops an answer for a folder you've since left, and
+// narrows a listing that came whole to more of the name without asking
+// again.
 
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 
 import type { DeviceId, FolderEntry, FolderListing } from "../bindings";
 import { MENU_DELAY_MS } from "../composer/menu";
@@ -27,13 +29,31 @@ export type PathField = {
 	readonly entries: readonly FolderEntry[];
 	/** The device's home folder, once a listing told it. */
 	readonly home: string | null;
+	/** Asks again for what the field shows, as after a folder was made. */
+	readonly reload: () => void;
 };
 
 /** One folder's listing on one device, or none when it didn't come. */
-type Found = {
+export type Found = {
 	readonly device: DeviceId;
 	readonly folder: string;
+	/** Whether it lists files too. */
+	readonly files: boolean;
+	/** The name it was asked to hold, in lower case. */
+	readonly filter: string;
+	/** The reload it came after. */
+	readonly round: number;
 	readonly listing: FolderListing | null;
+};
+
+/**
+ * Whether `found` answers for `name` as well: it was asked for that name,
+ * or for part of it and came whole, so it holds every name that does.
+ */
+export const covers = (found: Found, name: string): boolean => {
+	const lower = name.toLowerCase();
+	if (found.filter === lower) return true;
+	return found.listing !== null && !found.listing.truncated && lower.includes(found.filter);
 };
 
 /**
@@ -59,6 +79,7 @@ export const usePathField = ({
 	const [text, setText] = useState(value);
 	const [seen, setSeen] = useState(value);
 	const [found, setFound] = useState<Found | null>(null);
+	const [round, setRound] = useState(0);
 	const [home, setHome] = useState<{ device: DeviceId; home: string } | null>(null);
 	const asked = useRef(0);
 	const latest = useRef({ value, onChange });
@@ -84,35 +105,49 @@ export const usePathField = ({
 	const typed = lists && device !== null ? splitTyped(text) : null;
 	const folder = typed?.folder ?? null;
 	const files = wants === "file";
+	// The listing found is for this folder, and still answers for the name.
+	const here =
+		found !== null &&
+		found.device === device &&
+		found.folder === folder &&
+		found.files === files;
+	const answers = here && found.round === round && covers(found, typed?.name ?? "");
+	// The name to ask for, or null while what was found answers.
+	const filter = typed !== null && !answers ? typed.name.toLowerCase() : null;
 	useEffect(() => {
-		if (device === null || folder === null) return;
+		if (device === null || folder === null || filter === null) return;
 		const ask = ++asked.current;
+		const done = (listing: FolderListing | null) =>
+			setFound({ device, folder, files, filter, round, listing });
 		const timer = setTimeout(() => {
-			calls.listFolder(device, folder, { files, hidden: true }).then(
+			calls.listFolder(device, folder, { files, hidden: true, filter }).then(
 				(result) => {
 					if (asked.current !== ask) return;
 					const listing =
 						result.status === "ok" && result.data.status === "listed"
 							? result.data.listing
 							: null;
-					setFound({ device, folder, listing });
-					if (listing) setHome({ device, home: listing.home });
+					done(listing);
+					// A device that can't tell its home leaves ~ as typed.
+					if (listing?.home) setHome({ device, home: listing.home });
 				},
 				() => {
-					if (asked.current === ask) setFound({ device, folder, listing: null });
+					if (asked.current === ask) done(null);
 				}
 			);
 		}, MENU_DELAY_MS);
 		return () => clearTimeout(timer);
-	}, [calls, device, files, folder]);
+	}, [calls, device, files, folder, filter, round]);
 
-	const listing =
-		found !== null && found.device === device && found.folder === folder ? found.listing : null;
+	// Until a new answer comes, the last one for this folder narrows to
+	// what you type.
+	const listing = here ? found.listing : null;
 	return {
 		text,
 		change: setText,
 		typed,
 		entries: typed && listing?.exists ? fitting(listing.entries, typed.name, wants) : [],
 		home: known,
+		reload: useCallback(() => setRound((n) => n + 1), []),
 	};
 };

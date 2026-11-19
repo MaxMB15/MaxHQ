@@ -2133,9 +2133,17 @@ pub enum ClientMessage {
         files: bool,
         /// Whether to list the names that start with a dot.
         hidden: bool,
+        /// Lists only the names that hold this, ignoring case, those that
+        /// start with it first. The device filters before it cuts a big
+        /// folder's listing short, so a field finds any name you type. Left
+        /// out, every name lists.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        filter: Option<String>,
     },
     /// Makes one folder on a device, for the folder browser's New folder.
-    /// Its parent must be there already.
+    /// Its parent must be there already. A resend under the same key gets
+    /// the first answer, so a folder made before the connection dropped
+    /// isn't reported as there already.
     MakeFolder {
         /// Makes a resend after a dropped connection safe.
         key: IdempotencyKey,

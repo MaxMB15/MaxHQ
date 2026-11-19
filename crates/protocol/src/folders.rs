@@ -19,17 +19,21 @@ use crate::ids::ProjectId;
 /// folder that doesn't exist yet.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, Type, JsonSchema)]
 pub struct FolderListing {
-    /// The folder's absolute path, with `~` expanded and its links
-    /// resolved when it's there.
+    /// The folder's absolute path as asked for, with `~` expanded, `.`
+    /// dropped and each `..` read as the folder above. Links in it stay as
+    /// they are, so the path matches what you navigated and what the
+    /// device's workspaces name.
     pub path: String,
-    /// The device's home folder, which a typed `~` stands for.
-    pub home: String,
+    /// The device's home folder, which a typed `~` stands for, or none
+    /// when `maxd` can't tell it. A client then leaves `~` as it is.
+    pub home: Option<String>,
     /// Whether the folder is there.
     pub exists: bool,
     /// What it holds, folders first, each group by name ignoring case.
+    /// With a filter, the names that start with it come before the rest.
     pub entries: Vec<FolderEntry>,
     /// Whether it holds more than the entries say, or took too long to
-    /// read to the end.
+    /// read to the end, the checkouts' tags included.
     pub truncated: bool,
 }
 
@@ -92,6 +96,7 @@ mod tests {
                     path: "~/code".into(),
                     files: false,
                     hidden: true,
+                    filter: Some("ex".into()),
                 },
                 json!({
                     "type": "list_folder",
@@ -100,6 +105,7 @@ mod tests {
                     "path": "~/code",
                     "files": false,
                     "hidden": true,
+                    "filter": "ex",
                 }),
             ),
             (
@@ -128,6 +134,18 @@ mod tests {
             assert!(message.reaches(Some(46)));
             assert_eq!(message.action_key(), Some(key));
         }
+        let every_name = json!({
+            "type": "list_folder",
+            "key": KEY,
+            "device": DEVICE,
+            "path": "/",
+            "files": true,
+            "hidden": false,
+        });
+        assert!(matches!(
+            serde_json::from_value::<ClientMessage>(every_name).unwrap(),
+            ClientMessage::ListFolder { filter: None, .. }
+        ));
     }
 
     #[test]
@@ -135,7 +153,7 @@ mod tests {
         let outcome = ActionOutcome::FolderListed {
             listing: FolderListing {
                 path: "/home/dev/code".into(),
-                home: "/home/dev".into(),
+                home: Some("/home/dev".into()),
                 exists: true,
                 entries: vec![
                     FolderEntry {

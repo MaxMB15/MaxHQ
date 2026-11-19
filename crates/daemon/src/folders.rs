@@ -5,35 +5,62 @@
 //! the app's path fields and folder browser, and a new folder from the
 //! browser. The server lets only the app and proven phones ask.
 
+use std::collections::VecDeque;
 use std::fs;
 use std::io;
 use std::path::{Component, Path, PathBuf};
+use std::sync::{Arc, LazyLock, Mutex, PoisonError};
 use std::time::{Duration, Instant};
 
 use maxhq_core::{git, names};
 use maxhq_protocol::folders::{FolderCheckout, FolderEntry, FolderListing};
-use maxhq_protocol::ids::DeviceId;
+use maxhq_protocol::ids::{DeviceId, IdempotencyKey};
 use maxhq_protocol::message::ActionOutcome;
+use tokio::sync::{OnceCell, Semaphore};
 
-/// The most entries a listing holds. A field filters by what you type, so
-/// the rest of a bigger folder shows once you type more of a name.
+/// The most entries a listing holds. The device keeps the names that match
+/// a field's filter before it cuts the listing short, so any name you type
+/// shows, however far down the folder it sorts.
 const MOST: usize = 500;
 
 /// The most entries read from one folder, kept or not.
 const READ_MOST: usize = 10_000;
 
-/// How long reading one folder may take before the listing ends with what
-/// it has.
+/// How long reading one folder, its checkouts' tags included, may take
+/// before the listing ends with what it has.
 const READ_FOR: Duration = Duration::from_secs(2);
 
 /// How long the answer waits for a folder whose opening alone hangs, as on
 /// a network disk that went away.
 const ANSWER_IN: Duration = Duration::from_secs(5);
 
+/// How many folder reads and makes run at once. One that hangs keeps its
+/// thread until the disk answers, so this many hung ones at most.
+const AT_ONCE: usize = 4;
+
+/// How long a request waits for one of the others to end before it's
+/// turned away.
+const WAIT_TURN: Duration = Duration::from_millis(500);
+
+/// How many `MakeFolder` answers are kept for resends.
+const MADE_KEPT: usize = 64;
+
 const OTHER_DEVICE: &str = "That folder is for another device.";
 const NOT_ABSOLUTE: &str = "Give the folder as a full path, starting with / or ~.";
 const NO_HOME: &str = "maxd can't tell your home folder.";
 const TOO_LONG: &str = "That folder took too long to read.";
+const MAKE_TOO_LONG: &str = "Making that folder took too long.";
+const BUSY: &str = "maxd is still reading other folders. Try again in a moment.";
+
+/// The turns the folder requests take on blocking threads.
+static TURNS: LazyLock<Arc<Semaphore>> = LazyLock::new(|| Arc::new(Semaphore::new(AT_ONCE)));
+
+/// The `MakeFolder` answers kept, by key.
+type Made = VecDeque<(IdempotencyKey, Arc<OnceCell<ActionOutcome>>)>;
+
+/// The last `MakeFolder` answers by key, so a resend after a dropped
+/// connection gets the first one instead of "there already".
+static MADE: LazyLock<Mutex<Made>> = LazyLock::new(Mutex::default);
 
 /// Answers `ListFolder` for this device, `me`.
 pub async fn list(
@@ -42,52 +69,104 @@ pub async fn list(
     path: String,
     files: bool,
     hidden: bool,
+    filter: Option<String>,
 ) -> ActionOutcome {
     if device != me {
         return refused(OTHER_DEVICE);
     }
     let home = std::env::home_dir();
-    let read = tokio::task::spawn_blocking(move || read(me, home.as_deref(), &path, files, hidden));
-    match tokio::time::timeout(ANSWER_IN, read).await {
-        Ok(Ok(Ok(listing))) => ActionOutcome::FolderListed { listing },
-        Ok(Ok(Err(reason))) => refused(reason),
-        Ok(Err(_)) | Err(_) => refused(TOO_LONG),
+    let listing = move || read(me, home.as_deref(), &path, files, hidden, filter.as_deref());
+    match in_turn(&TURNS, ANSWER_IN, TOO_LONG, listing).await {
+        Ok(listing) => ActionOutcome::FolderListed { listing },
+        Err(reason) => refused(reason),
     }
 }
 
-/// Answers `MakeFolder` for this device, `me`.
-pub async fn make(me: DeviceId, device: DeviceId, path: String) -> ActionOutcome {
+/// Answers `MakeFolder` for this device, `me`. A resend under the same
+/// `key` gets the first answer.
+pub async fn make(
+    me: DeviceId,
+    device: DeviceId,
+    key: IdempotencyKey,
+    path: String,
+) -> ActionOutcome {
     if device != me {
         return refused(OTHER_DEVICE);
     }
-    let home = std::env::home_dir();
-    let made = tokio::task::spawn_blocking(move || make_at(home.as_deref(), &path));
-    match tokio::time::timeout(ANSWER_IN, made).await {
-        Ok(Ok(Ok(()))) => ActionOutcome::Done,
-        Ok(Ok(Err(reason))) => refused(reason),
-        Ok(Err(_)) | Err(_) => refused("Making that folder took too long."),
+    let answer = answer_for(key);
+    let made = answer.get_or_try_init(|| async move {
+        let home = std::env::home_dir();
+        let made = move || Ok(make_at(home.as_deref(), &path));
+        match in_turn(&TURNS, ANSWER_IN, MAKE_TOO_LONG, made).await {
+            Ok(Ok(())) => Ok(ActionOutcome::Done),
+            Ok(Err(reason)) => Ok(refused(reason)),
+            // Not kept, so a resend tries again.
+            Err(reason) => Err(refused(reason)),
+        }
+    });
+    match made.await {
+        Ok(answer) => answer.clone(),
+        Err(answer) => answer,
+    }
+}
+
+/// Where the answer to the `MakeFolder` under `key` is kept, new or the
+/// one an earlier send made.
+fn answer_for(key: IdempotencyKey) -> Arc<OnceCell<ActionOutcome>> {
+    let mut made = MADE.lock().unwrap_or_else(PoisonError::into_inner);
+    if let Some((_, answer)) = made.iter().find(|(kept, _)| *kept == key) {
+        return Arc::clone(answer);
+    }
+    if made.len() == MADE_KEPT {
+        made.pop_front();
+    }
+    let answer = Arc::new(OnceCell::new());
+    made.push_back((key, Arc::clone(&answer)));
+    answer
+}
+
+/// Runs `work` on a blocking thread once one of `turns` is free, and waits
+/// `answer_in` for it. A request that finds every turn taken for a moment
+/// is turned away, and a thread that outlives its answer keeps its turn
+/// until it ends, so a hung disk ties up a few threads, not all of them.
+async fn in_turn<T: Send + 'static>(
+    turns: &Arc<Semaphore>,
+    answer_in: Duration,
+    too_long: &str,
+    work: impl FnOnce() -> Result<T, String> + Send + 'static,
+) -> Result<T, String> {
+    let turn = match tokio::time::timeout(WAIT_TURN, Arc::clone(turns).acquire_owned()).await {
+        Ok(Ok(turn)) => turn,
+        Ok(Err(_)) | Err(_) => return Err(BUSY.to_owned()),
+    };
+    let run = tokio::task::spawn_blocking(move || {
+        let _turn = turn;
+        work()
+    });
+    match tokio::time::timeout(answer_in, run).await {
+        Ok(Ok(done)) => done,
+        Ok(Err(_)) | Err(_) => Err(too_long.to_owned()),
     }
 }
 
 /// Lists the folder at `path`. A folder that isn't there, or a file, lists
-/// as not there. One that can't be read lists as empty.
+/// as not there. One that can't be read lists as empty. With `filter`,
+/// only the names that hold it list, ignoring case, those that start with
+/// it first.
 fn read(
     me: DeviceId,
     home: Option<&Path>,
     path: &str,
     files: bool,
     hidden: bool,
+    filter: Option<&str>,
 ) -> Result<FolderListing, String> {
-    let path = expand(path, home)?;
-    let (path, exists) = match fs::canonicalize(&path) {
-        Ok(real) if real.is_dir() => (real, true),
-        _ => (path, false),
-    };
+    let deadline = Instant::now() + READ_FOR;
+    let path = normalize(&expand(path, home)?);
+    let exists = fs::metadata(&path).is_ok_and(|meta| meta.is_dir());
     let mut listing = FolderListing {
         path: path.to_string_lossy().into_owned(),
-        home: home
-            .map(|home| home.to_string_lossy().into_owned())
-            .unwrap_or_default(),
+        home: home.map(|home| home.to_string_lossy().into_owned()),
         exists,
         entries: Vec::new(),
         truncated: false,
@@ -95,7 +174,12 @@ fn read(
     let Some(dir) = exists.then(|| fs::read_dir(&path).ok()).flatten() else {
         return Ok(listing);
     };
-    let deadline = Instant::now() + READ_FOR;
+    let filter = filter
+        .map(str::to_lowercase)
+        .filter(|filter| !filter.is_empty());
+    // Each kept entry with whether it starts with the filter, and its name
+    // in lower case to sort by.
+    let mut kept = Vec::new();
     for (seen, entry) in dir.enumerate() {
         if seen == READ_MOST || Instant::now() > deadline {
             listing.truncated = true;
@@ -110,6 +194,13 @@ fn read(
         if !hidden && name.starts_with('.') {
             continue;
         }
+        let lower = name.to_lowercase();
+        let starts = match &filter {
+            None => true,
+            Some(filter) if lower.starts_with(filter.as_str()) => true,
+            Some(filter) if lower.contains(filter.as_str()) => false,
+            Some(_) => continue,
+        };
         let Ok(kind) = entry.file_type() else {
             continue;
         };
@@ -122,24 +213,41 @@ fn read(
             kind.is_dir()
         };
         if folder || files {
-            listing.entries.push(FolderEntry {
+            let entry = FolderEntry {
                 name,
                 folder,
                 checkout: None,
-            });
+            };
+            kept.push((!starts, !folder, lower, entry));
         }
     }
-    listing
-        .entries
-        .sort_by_cached_key(|entry| (!entry.folder, entry.name.to_lowercase()));
-    if listing.entries.len() > MOST {
-        listing.entries.truncate(MOST);
+    kept.sort_unstable_by(|a, b| (a.0, a.1, &a.2).cmp(&(b.0, b.1, &b.2)));
+    if kept.len() > MOST {
+        kept.truncate(MOST);
         listing.truncated = true;
     }
-    for entry in listing.entries.iter_mut().filter(|entry| entry.folder) {
-        entry.checkout = checkout(me, &path.join(&entry.name));
+    listing.entries = kept.into_iter().map(|(.., entry)| entry).collect();
+    if !tag_checkouts(me, &path, &mut listing.entries, deadline) {
+        listing.truncated = true;
     }
     Ok(listing)
+}
+
+/// Tags each folder in `entries` that's the top of a checkout with its
+/// branch and project, until `deadline`. Whether it got to the end.
+fn tag_checkouts(
+    me: DeviceId,
+    folder: &Path,
+    entries: &mut [FolderEntry],
+    deadline: Instant,
+) -> bool {
+    for entry in entries.iter_mut().filter(|entry| entry.folder) {
+        if Instant::now() > deadline {
+            return false;
+        }
+        entry.checkout = checkout(me, &folder.join(&entry.name));
+    }
+    true
 }
 
 /// The checkout whose top folder is `root`, with its branch and project.
@@ -191,6 +299,23 @@ fn expand(path: &str, home: Option<&Path>) -> Result<PathBuf, String> {
     }
 }
 
+/// `path` with each `.` dropped and each `..` taking off the name before
+/// it, read as written. Links in it stay links, so a folder reached through
+/// one keeps the path you took to it.
+fn normalize(path: &Path) -> PathBuf {
+    let mut normal = PathBuf::new();
+    for part in path.components() {
+        match part {
+            Component::CurDir => {}
+            Component::ParentDir => {
+                normal.pop();
+            }
+            part => normal.push(part),
+        }
+    }
+    normal
+}
+
 fn refused(reason: impl Into<String>) -> ActionOutcome {
     ActionOutcome::Refused {
         reason: reason.into(),
@@ -200,6 +325,7 @@ fn refused(reason: impl Into<String>) -> ActionOutcome {
 #[cfg(test)]
 mod tests {
     use std::os::unix::fs::symlink;
+    use std::sync::mpsc;
 
     use super::*;
     use crate::testing::TempDir;
@@ -236,13 +362,9 @@ mod tests {
     fn folders_come_first_by_name_and_links_count_as_what_they_reach() {
         let tmp = tree();
         let path = tmp.path().to_string_lossy();
-        let listing = read(me(), None, &path, true, false).unwrap();
+        let listing = read(me(), None, &path, true, false, None).unwrap();
         assert!(listing.exists);
         assert!(!listing.truncated);
-        assert_eq!(
-            listing.path,
-            fs::canonicalize(tmp.path()).unwrap().to_string_lossy()
-        );
         assert_eq!(
             names(&listing),
             [
@@ -259,10 +381,25 @@ mod tests {
     }
 
     #[test]
+    fn a_path_stays_as_you_took_it() {
+        let tmp = tree();
+        let linked = tmp.path().join("linked");
+        // The temporary folder is itself under a link on macOS, and
+        // "linked" is one everywhere.
+        let listing = read(me(), None, &linked.to_string_lossy(), true, false, None).unwrap();
+        assert!(listing.exists);
+        assert_eq!(listing.path, linked.to_string_lossy());
+        let roundabout = format!("{}/./b-app/../linked/", tmp.path().display());
+        let listing = read(me(), None, &roundabout, true, false, None).unwrap();
+        assert_eq!(listing.path, linked.to_string_lossy());
+        assert_eq!(normalize(Path::new("/../a/./b/..")), Path::new("/a"));
+    }
+
+    #[test]
     fn hidden_names_and_files_show_when_asked() {
         let tmp = tree();
         let path = tmp.path().to_string_lossy();
-        let folders = read(me(), None, &path, false, false).unwrap();
+        let folders = read(me(), None, &path, false, false, None).unwrap();
         assert_eq!(
             names(&folders),
             [
@@ -272,7 +409,7 @@ mod tests {
                 ("shared", true)
             ]
         );
-        let hidden = read(me(), None, &path, false, true).unwrap();
+        let hidden = read(me(), None, &path, false, true, None).unwrap();
         assert_eq!(names(&hidden)[0], (".cache", true));
         assert_eq!(hidden.entries.len(), 5);
     }
@@ -283,45 +420,85 @@ mod tests {
         for n in 0..MOST + 3 {
             fs::create_dir(tmp.path().join(format!("f{n:04}"))).unwrap();
         }
-        let listing = read(me(), None, &tmp.path().to_string_lossy(), false, false).unwrap();
+        let path = tmp.path().to_string_lossy();
+        let listing = read(me(), None, &path, false, false, None).unwrap();
         assert_eq!(listing.entries.len(), MOST);
         assert!(listing.truncated);
         assert_eq!(listing.entries[0].name, "f0000");
     }
 
     #[test]
+    fn a_filter_finds_names_past_the_cut_those_that_start_with_it_first() {
+        let tmp = TempDir::new();
+        for n in 0..MOST + 3 {
+            fs::create_dir(tmp.path().join(format!("f{n:04}"))).unwrap();
+        }
+        fs::create_dir(tmp.path().join("old-f0502")).unwrap();
+        fs::write(tmp.path().join("F0502.txt"), "").unwrap();
+        let path = tmp.path().to_string_lossy();
+        let listing = read(me(), None, &path, true, false, Some("F0502")).unwrap();
+        assert!(!listing.truncated);
+        assert_eq!(
+            names(&listing),
+            [("f0502", true), ("F0502.txt", false), ("old-f0502", true)]
+        );
+        let every = read(me(), None, &path, true, false, Some("")).unwrap();
+        assert_eq!(
+            every.entries.len(),
+            MOST,
+            "an empty filter lists every name"
+        );
+    }
+
+    #[test]
     fn a_missing_folder_or_a_file_is_an_answer() {
         let tmp = tree();
         let home = tmp.path();
-        let missing = read(me(), Some(home), "~/new/place", true, false).unwrap();
+        let missing = read(me(), Some(home), "~/new/place", true, false, None).unwrap();
         assert!(!missing.exists);
         assert!(missing.entries.is_empty());
         assert_eq!(missing.path, home.join("new/place").to_string_lossy());
-        assert_eq!(missing.home, home.to_string_lossy());
-        let file = read(me(), Some(home), "~/c.txt", true, false).unwrap();
+        assert_eq!(missing.home.as_deref(), Some(&*home.to_string_lossy()));
+        let file = read(me(), Some(home), "~/c.txt", true, false, None).unwrap();
         assert!(!file.exists);
-        let at_home = read(me(), Some(home), "~", false, false).unwrap();
+        let at_home = read(me(), Some(home), "~", false, false, None).unwrap();
         assert!(at_home.exists);
         assert_eq!(at_home.entries.len(), 4);
+    }
+
+    #[test]
+    fn an_unknown_home_is_left_out() {
+        let tmp = tree();
+        let listing = read(
+            me(),
+            None,
+            &tmp.path().to_string_lossy(),
+            false,
+            false,
+            None,
+        )
+        .unwrap();
+        assert_eq!(listing.home, None);
     }
 
     #[test]
     fn only_a_full_path_or_one_from_home_lists() {
         for path in ["code", "./code", "~other/code", ""] {
             assert_eq!(
-                read(me(), Some(Path::new("/home/dev")), path, false, false),
+                read(me(), Some(Path::new("/home/dev")), path, false, false, None),
                 Err(NOT_ABSOLUTE.to_owned()),
                 "{path}"
             );
         }
         assert_eq!(
-            read(me(), None, "~/code", false, false),
+            read(me(), None, "~/code", false, false, None),
             Err(NO_HOME.to_owned())
         );
     }
 
-    #[test]
-    fn checkouts_say_their_branch_and_project() {
+    /// A folder holding a checkout with a remote, a detached one with none
+    /// and a plain folder.
+    fn checkouts() -> TempDir {
         let tmp = TempDir::new();
         let repo = tmp.path().join("example-app");
         fs::create_dir_all(repo.join(".git")).unwrap();
@@ -335,8 +512,14 @@ mod tests {
         fs::create_dir_all(loose.join(".git")).unwrap();
         fs::write(loose.join(".git/HEAD"), "0123456789abcdef\n").unwrap();
         fs::create_dir(tmp.path().join("plain")).unwrap();
+        tmp
+    }
 
-        let listing = read(me(), None, &tmp.path().to_string_lossy(), false, false).unwrap();
+    #[test]
+    fn checkouts_say_their_branch_and_project() {
+        let tmp = checkouts();
+        let path = tmp.path().to_string_lossy();
+        let listing = read(me(), None, &path, false, false, None).unwrap();
         let [app, plain, scratch] = &listing.entries[..] else {
             panic!("{listing:?}");
         };
@@ -350,15 +533,31 @@ mod tests {
             "the same project as the repo's checkouts on every device"
         );
         assert_eq!(plain.checkout, None);
-        let root = fs::canonicalize(tmp.path()).unwrap().join("scratch");
+        let root = tmp.path().join("scratch");
         assert_eq!(
             scratch.checkout,
             Some(FolderCheckout {
                 branch: None,
                 project: names::project(me(), &root.to_string_lossy(), None).id,
             }),
-            "a detached checkout with no remote"
+            "a detached checkout with no remote, named by the path as given"
         );
+    }
+
+    #[test]
+    fn checkouts_past_the_deadline_stay_untagged() {
+        let tmp = checkouts();
+        let path = tmp.path().to_string_lossy();
+        let mut entries = read(me(), None, &path, false, false, None).unwrap().entries;
+        for entry in &mut entries {
+            entry.checkout = None;
+        }
+        let gone = Instant::now() - Duration::from_millis(1);
+        assert!(!tag_checkouts(me(), tmp.path(), &mut entries, gone));
+        assert!(entries.iter().all(|entry| entry.checkout.is_none()));
+        let later = Instant::now() + READ_FOR;
+        assert!(tag_checkouts(me(), tmp.path(), &mut entries, later));
+        assert!(entries[0].checkout.is_some());
     }
 
     #[test]
@@ -382,15 +581,58 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn a_resent_make_gets_the_first_answer() {
+        let tmp = TempDir::new();
+        let path = tmp.path().join("new").display().to_string();
+        let key = IdempotencyKey::generate();
+        assert_eq!(
+            make(me(), me(), key, path.clone()).await,
+            ActionOutcome::Done
+        );
+        assert_eq!(
+            make(me(), me(), key, path.clone()).await,
+            ActionOutcome::Done,
+            "the resend of a make whose answer was lost"
+        );
+        assert!(matches!(
+            make(me(), me(), IdempotencyKey::generate(), path).await,
+            ActionOutcome::Refused { reason } if reason.ends_with("is there already.")
+        ));
+    }
+
+    #[tokio::test]
+    async fn a_hung_read_keeps_its_turn_and_the_next_waits_then_gives_up() {
+        let turns = Arc::new(Semaphore::new(1));
+        let (release, hung) = mpsc::channel::<()>();
+        let stuck = in_turn(&turns, Duration::from_millis(50), TOO_LONG, move || {
+            hung.recv().map_err(|_| "released".to_owned())
+        });
+        assert_eq!(stuck.await, Err(TOO_LONG.to_owned()));
+        let next = in_turn(&turns, ANSWER_IN, TOO_LONG, || Ok(()));
+        assert_eq!(
+            next.await,
+            Err(BUSY.to_owned()),
+            "the hung read still holds the turn"
+        );
+        release.send(()).unwrap();
+        let after = in_turn(&turns, ANSWER_IN, TOO_LONG, || Ok(7));
+        assert_eq!(after.await, Ok(7), "the turn comes back once the read ends");
+    }
+
+    #[tokio::test]
     async fn a_folder_for_another_device_is_refused() {
         let other: DeviceId = "0199a7c2-0000-7000-8000-000000000008".parse().unwrap();
         let refused = ActionOutcome::Refused {
             reason: OTHER_DEVICE.to_owned(),
         };
-        assert_eq!(list(me(), other, "/".into(), false, false).await, refused);
-        assert_eq!(make(me(), other, "/tmp/x".into()).await, refused);
+        let key = IdempotencyKey::generate();
+        assert_eq!(
+            list(me(), other, "/".into(), false, false, None).await,
+            refused
+        );
+        assert_eq!(make(me(), other, key, "/tmp/x".into()).await, refused);
         assert!(matches!(
-            list(me(), me(), "/".into(), false, false).await,
+            list(me(), me(), "/".into(), false, false, None).await,
             ActionOutcome::FolderListed { .. }
         ));
     }

@@ -5,12 +5,13 @@
 // each have a small made-up home folder with a few checkouts in it, which
 // the path fields suggest from and the folder browser walks. A new folder
 // stays until the app reloads. Folders are listed as `maxd` lists them:
-// folders first, each group by name ignoring case, and a folder that
+// folders first, each group by name ignoring case, with a filter the names
+// that start with it before those that only hold it, and a folder that
 // isn't there answers with no entries.
 
 import type { DeviceId, FolderCheckout, FolderEntry, ProjectId } from "../bindings";
 import { baseName, expandHome, joinPath, parentOf } from "../folders/path";
-import type { FolderCalls } from "../folders/requests";
+import type { FolderCalls, ListOptions } from "../folders/requests";
 import { DEVBOX, MAC } from "./mock-view";
 
 /** The folder calls of a `maxd` from before folders. */
@@ -90,16 +91,31 @@ const sampleDisks = (): Map<DeviceId, Disk> =>
 		],
 	]);
 
-/** Folders first, each group by name ignoring case. */
-const ordered = (names: Map<string, Node>, files: boolean, hidden: boolean): FolderEntry[] =>
-	[...names]
-		.filter(([name, node]) => (files || node.folder) && (hidden || !name.startsWith(".")))
+/**
+ * Folders first, each group by name ignoring case. With `filter`, only the
+ * names that hold it, those that start with it first.
+ */
+const ordered = (
+	names: Map<string, Node>,
+	{ files, hidden, filter }: ListOptions
+): FolderEntry[] => {
+	const lower = filter?.toLowerCase() ?? "";
+	const starts = (name: string) => Number(name.toLowerCase().startsWith(lower));
+	return [...names]
+		.filter(
+			([name, node]) =>
+				(files || node.folder) &&
+				(hidden || !name.startsWith(".")) &&
+				name.toLowerCase().includes(lower)
+		)
 		.map(([name, node]) => ({ name, ...node }))
 		.sort(
 			(a, b) =>
+				starts(b.name) - starts(a.name) ||
 				Number(b.folder) - Number(a.folder) ||
 				a.name.localeCompare(b.name, undefined, { sensitivity: "base" })
 		);
+};
 
 const unknownDevice = (device: DeviceId) => ({
 	status: "error" as const,
@@ -115,7 +131,7 @@ export const mockFolders = (): FolderCalls => {
 		return read.length > 1 ? read.replace(/\/+$/u, "") : read;
 	};
 	return {
-		listFolder: async (device, path, { files, hidden }) => {
+		listFolder: async (device, path, options) => {
 			const disk = disks.get(device);
 			if (!disk) return unknownDevice(device);
 			const at = full(disk, path);
@@ -128,7 +144,7 @@ export const mockFolders = (): FolderCalls => {
 						path: at,
 						home: disk.home,
 						exists: names !== undefined,
-						entries: names ? ordered(names, files, hidden) : [],
+						entries: names ? ordered(names, options) : [],
 						truncated: false,
 					},
 				},
