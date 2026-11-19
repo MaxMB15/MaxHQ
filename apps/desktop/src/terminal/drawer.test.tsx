@@ -226,3 +226,96 @@ describe("the terminal drawer", () => {
 		await waitFor(async () => expect(await running()).toBeNull());
 	});
 });
+
+describe("a terminal whose shell marks its commands", () => {
+	const failed = { command: "pnpm test", exit: 1, running: false };
+	const output = { text: "1 failed", lines: { first: 3, last: 4 }, mark: failed };
+
+	/** Clicks command 1's mark and answers with its menu. */
+	const openMenu = async (view: FakeView) => {
+		const dot = view.element.appendChild(document.createElement("div"));
+		act(() => view.clickMark(1, dot));
+		return screen.findByRole("menu");
+	};
+
+	it("opens a command's menu from its mark, which adds what it printed to the chat or copies it", async () => {
+		const send = vi.spyOn(quoteInbox, "send");
+		const writeText = vi.fn().mockResolvedValue(undefined);
+		Object.defineProperty(navigator, "clipboard", { value: { writeText }, configurable: true });
+		renderApp();
+		const view = await openAndRun();
+		view.mark([{ id: 1, ...failed, output }]);
+
+		let menu = await openMenu(view);
+		expect(menu).toHaveTextContent("pnpm test");
+		expect(menu).toHaveTextContent("Exit 1");
+		fireEvent.click(within(menu).getByRole("menuitem", { name: "Copy output" }));
+		expect(writeText).toHaveBeenLastCalledWith("1 failed");
+		await waitFor(() => expect(screen.queryByRole("menu")).toBeNull());
+
+		menu = await openMenu(view);
+		fireEvent.click(within(menu).getByRole("menuitem", { name: "Copy command" }));
+		expect(writeText).toHaveBeenLastCalledWith("pnpm test");
+		await waitFor(() => expect(screen.queryByRole("menu")).toBeNull());
+
+		menu = await openMenu(view);
+		fireEvent.click(within(menu).getByRole("menuitem", { name: "Add to chat" }));
+		expect(send).toHaveBeenCalledWith(
+			AGENT,
+			expect.objectContaining({
+				type: "output",
+				command: "pnpm test",
+				device_name: "Mac",
+				cwd: FOLDER,
+				text: "1 failed",
+				lines: { first: 3, last: 4 },
+				running: false,
+				exit_code: 1,
+			}),
+			true
+		);
+	});
+
+	it("can't copy the output of a command that printed nothing yet", async () => {
+		renderApp();
+		const view = await openAndRun();
+		const running = { command: "sleep 5", exit: null, running: true };
+		view.mark([
+			{
+				id: 1,
+				...running,
+				output: { text: "", lines: { first: 5, last: 5 }, mark: running },
+			},
+		]);
+		const menu = await openMenu(view);
+		expect(menu).toHaveTextContent("Running");
+		expect(within(menu).getByRole("menuitem", { name: "Copy output" })).toHaveAttribute(
+			"aria-disabled",
+			"true"
+		);
+	});
+
+	it("jumps between commands on Control+Shift and Up or Down off a Mac", async () => {
+		renderApp();
+		const view = await openAndRun();
+		fireEvent.keyDown(view.element, { key: "ArrowUp", ctrlKey: true, shiftKey: true });
+		fireEvent.keyDown(view.element, { key: "ArrowDown", ctrlKey: true, shiftKey: true });
+		// Control alone with an arrow is the shell's, and so is Command.
+		fireEvent.keyDown(view.element, { key: "ArrowUp", ctrlKey: true });
+		fireEvent.keyDown(view.element, { key: "ArrowUp", metaKey: true });
+		expect(view.jumps).toEqual([true, false]);
+	});
+
+	it("jumps between commands on Command and Up or Down on a Mac", async () => {
+		vi.spyOn(navigator, "userAgent", "get").mockReturnValue(
+			"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)"
+		);
+		renderApp();
+		const view = await openAndRun();
+		fireEvent.keyDown(view.element, { key: "ArrowUp", metaKey: true });
+		fireEvent.keyDown(view.element, { key: "ArrowDown", metaKey: true });
+		fireEvent.keyDown(view.element, { key: "ArrowUp", ctrlKey: true, shiftKey: true });
+		fireEvent.keyDown(view.element, { key: "ArrowUp", metaKey: true, altKey: true });
+		expect(view.jumps).toEqual([true, false]);
+	});
+});

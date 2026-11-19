@@ -126,6 +126,14 @@ export const mockTerminals = (
 			const terminal = find(id);
 			if (terminal) endRun(terminal, terminal.status);
 		},
+		// A maxd that doesn't say adds no hooks.
+		marks: (terminal) => {
+			for (const e of context.entities()) {
+				if (e.entity === "device_settings" && e.device === terminal.device)
+					return e.shell_integration === true;
+			}
+			return false;
+		},
 	});
 	return {
 		terminalStream,

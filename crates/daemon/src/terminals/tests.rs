@@ -4,7 +4,7 @@
 use std::time::Duration;
 
 use maxhq_core::tools::Tool;
-use maxhq_hold::Dirs;
+use maxhq_hold::{Dirs, Mark, ShellCommand};
 use maxhq_protocol::frame::{Frame, FrameDecoder};
 use maxhq_protocol::ids::PhoneId;
 use tokio::io::AsyncReadExt;
@@ -300,6 +300,86 @@ async fn a_shell_says_whether_it_runs_something() {
     )
     .await;
     assert!(!busy());
+}
+
+#[tokio::test]
+async fn a_shell_that_marks_its_commands_is_busy_from_start_to_end() {
+    let f = fixture();
+    let shell = f
+        .terminals
+        .plant(AgentId::derive("a"), TerminalKind::Shell, Opener::App);
+    let busy = || published(&f.hub, shell).expect("a tab").busy;
+    let mark = |offset, mark| TermEvent::Mark {
+        offset,
+        at: Timestamp(offset),
+        mark,
+    };
+    // Until its first mark, the holder says.
+    heard(&f.terminals, shell, vec![TermEvent::Busy(true)]).await;
+    assert!(busy());
+    let prompt = vec![mark(0, Mark::Prompt), mark(7, Mark::Input)];
+    heard(&f.terminals, shell, prompt).await;
+    assert!(!busy());
+    // From then on the marks do, whatever the holder thinks.
+    let cwd = Some("/tmp/example-app".to_owned());
+    let command = vec![
+        mark(12, Mark::Command { cwd: cwd.clone() }),
+        TermEvent::Busy(false),
+    ];
+    heard(&f.terminals, shell, command).await;
+    assert!(busy());
+    let done = vec![
+        mark(40, Mark::Done { exit: Some(2) }),
+        TermEvent::Busy(true),
+        mark(44, Mark::Prompt),
+    ];
+    heard(&f.terminals, shell, done).await;
+    assert!(!busy());
+    let kept = f.terminals.lock()[&shell].commands.list().clone();
+    assert_eq!(
+        kept.front(),
+        Some(&ShellCommand {
+            prompt: Some(0),
+            input: Some(7),
+            start: Some(12),
+            started_at: Some(Timestamp(12)),
+            end: Some(40),
+            ended_at: Some(Timestamp(40)),
+            exit: Some(2),
+            cwd,
+        })
+    );
+    assert_eq!(kept.len(), 2, "and the prompt after it");
+}
+
+#[tokio::test]
+async fn the_shell_integration_switch_decides_whether_shells_get_hooks() {
+    let f = fixture();
+    let zsh = || {
+        let mut launch = TermLaunch::shell(TerminalId::generate(), "/".into(), 80, 24);
+        launch.program = "/bin/zsh".into();
+        launch
+    };
+    let mut on = zsh();
+    f.terminals.integrate(&mut on);
+    assert!(on.nonce.is_some());
+    assert!(on.env.iter().any(|(key, _)| key == "ZDOTDIR"));
+    let key = EntityKey::DeviceSettings(f.hub.device().id);
+    let Some(Entity::DeviceSettings(settings)) = f.hub.get(&key) else {
+        panic!("a new hub has settings");
+    };
+    assert!(settings.shell_integration, "on unless you turn it off");
+    f.hub.apply([Change::Upsert {
+        value: Entity::DeviceSettings(maxhq_protocol::model::DeviceSettings {
+            shell_integration: false,
+            ..settings
+        }),
+    }]);
+    let mut off = zsh();
+    f.terminals.integrate(&mut off);
+    let plain = zsh();
+    assert_eq!(off.nonce, None);
+    assert_eq!((off.args, off.env), (plain.args, plain.env));
 }
 
 #[tokio::test]

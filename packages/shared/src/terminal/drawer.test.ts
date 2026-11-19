@@ -125,4 +125,18 @@ describe("pickedOutput", () => {
 		expect(ref).toMatchObject({ command: "zsh", exit_code: 1, running: false, lines_total: 2 });
 		expect(tabTitle(terminal({ title: "" }))).toBe("example-app");
 	});
+
+	it("names a marked command and how it exited, while the shell runs on", () => {
+		const mark = { command: "pnpm test", exit: 1, running: false };
+		const lines = { first: 3, last: 4 };
+		const ref = pickedOutput(terminal(), "Mac", { text: "1 failed", lines, mark }, 9);
+		expect(ref).toMatchObject({ command: "pnpm test", exit_code: 1, running: false });
+		// A command the shell didn't echo goes by the tab.
+		const blank = { ...mark, command: "", exit: null, running: true };
+		expect(pickedOutput(terminal(), "Mac", { text: "", lines, mark: blank }, 9)).toMatchObject({
+			command: "zsh",
+			exit_code: null,
+			running: true,
+		});
+	});
 });

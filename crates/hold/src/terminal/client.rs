@@ -9,12 +9,14 @@ use std::path::Path;
 use std::time::Duration;
 
 use maxhq_protocol::ids::TerminalId;
+use maxhq_protocol::time::Timestamp;
 use tokio::io::BufReader;
 use tokio::net::unix::{OwnedReadHalf, OwnedWriteHalf};
 use tokio::net::UnixStream;
 use tokio::sync::mpsc;
 use tokio::time::Instant;
 
+use super::marks::Mark;
 use super::wire::{self, FromHolder, ToHolder, Typed};
 use super::{TermExit, TermHello};
 use crate::files::{self, HolderFile, EXIT, HOLDER, LOCK};
@@ -75,6 +77,16 @@ pub enum TermEvent {
     Title(String),
     /// The shell said its working folder.
     Cwd(String),
+    /// The shell marked its prompt or a command, which starts at `offset`
+    /// in the output. Only a quiet link gets these.
+    Mark {
+        /// Where the mark is in everything the terminal printed.
+        offset: u64,
+        /// When the holder read it.
+        at: Timestamp,
+        /// What it marks.
+        mark: Mark,
+    },
     /// The program ended.
     Exit(TermExit),
 }
@@ -125,7 +137,8 @@ impl TermControl {
 }
 
 /// Reaches the holder for `terminal` in `dir`, waiting for one that's
-/// starting. A quiet link gets everything but the output.
+/// starting. A quiet link gets everything but the output, and the shell's
+/// marks.
 pub(super) async fn connect(
     dir: &Path,
     terminal: TerminalId,
@@ -200,6 +213,7 @@ async fn attempt(
         key,
         after,
         quiet,
+        marks: quiet,
     };
     wire::send(&mut write, &hello).await?;
     drop(hello);
@@ -247,6 +261,7 @@ async fn read_holder(mut read: BufReader<OwnedReadHalf>, events: mpsc::Sender<Te
             FromHolder::Busy { on } => TermEvent::Busy(on),
             FromHolder::Title { title } => TermEvent::Title(title),
             FromHolder::Cwd { cwd } => TermEvent::Cwd(cwd),
+            FromHolder::Mark { offset, at, mark } => TermEvent::Mark { offset, at, mark },
             FromHolder::Exit(exit) => TermEvent::Exit(exit),
             FromHolder::Hello(_) | FromHolder::Refused { .. } => continue,
         };

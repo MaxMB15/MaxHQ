@@ -28,6 +28,11 @@
 //!   It stays when the holder ends without a goodbye.
 //! - `note.json` is for `maxd`, which keeps what it knows about the
 //!   terminal there, so it goes with the folder.
+//!
+//! A drawer shell that's zsh, bash or fish can mark its prompts and
+//! commands (`shell.rs`), with startup files in a `shell-*` folder beside
+//! the terminals' ones. The holder passes on the marks it trusts and drops
+//! the rest (`marks.rs`).
 
 use std::ffi::OsString;
 use std::fs;
@@ -47,12 +52,17 @@ use crate::spawn::{self, Run};
 use crate::{client as agent_client, secret, Detach, Dirs, SpawnError};
 
 pub use self::client::{Reached, TermControl, TermEvent, TermLink};
+pub use self::commands::{Commands, ShellCommand};
+pub use self::marks::Mark;
 
 mod client;
+mod commands;
 mod holder;
 mod marker;
+mod marks;
 mod osc;
 mod ring;
+mod shell;
 mod wire;
 
 /// `maxd`'s own file in a terminal's folder.
@@ -84,6 +94,9 @@ pub struct TermLaunch {
     pub rows: u16,
     /// Whether it's a `!` run, whose exit carries what it showed.
     pub run: bool,
+    /// What the shell's marks carry to show they're its own, once
+    /// [`Terminals::integrate`] has set it up. Others are dropped.
+    pub nonce: Option<String>,
 }
 
 impl TermLaunch {
@@ -118,6 +131,7 @@ impl TermLaunch {
             cols,
             rows,
             run,
+            nonce: None,
         }
     }
 }
@@ -215,6 +229,8 @@ struct LaunchFile {
     cols: u16,
     rows: u16,
     run: bool,
+    #[serde(default)]
+    nonce: Option<String>,
     sockets: OsBytes,
     linger_ms: u64,
 }
@@ -278,6 +294,12 @@ impl Terminals {
         self.dirs.sessions.join(terminal.to_string())
     }
 
+    /// Makes `launch`, a drawer shell, mark its prompts and commands when
+    /// it's zsh, bash or fish, as `shell.rs` says. Returns whether it will.
+    pub fn integrate(&self, launch: &mut TermLaunch) -> io::Result<bool> {
+        shell::integrate(launch, &self.dirs.sessions)
+    }
+
     /// Starts a detached holder for `launch` and returns once its socket
     /// takes connections. It fails when the terminal already has a folder,
     /// or with what the holder said when the program didn't start.
@@ -312,6 +334,7 @@ impl Terminals {
             cols: launch.cols,
             rows: launch.rows,
             run: launch.run,
+            nonce: launch.nonce.clone(),
             sockets: sockets.as_path().into(),
             linger_ms: u64::try_from(self.linger.as_millis()).unwrap_or(u64::MAX),
         };

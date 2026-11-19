@@ -762,6 +762,7 @@ mod tests {
             memory_items: 256,
             history_mib: 256,
             claude_setup_token: false,
+            shell_integration: true,
         });
         assert_eq!(settings.key(), EntityKey::DeviceSettings(id));
         assert_eq!(
@@ -793,8 +794,13 @@ mod tests {
                 "memory_items": 256,
                 "history_mib": 256,
                 "claude_setup_token": false,
+                "shell_integration": true,
             })
         );
+        // A `maxd` from before the switch leaves it out, which reads as on.
+        let mut old = serde_json::to_value(&settings).unwrap();
+        old.as_object_mut().unwrap().remove("shell_integration");
+        assert_eq!(serde_json::from_value::<Entity>(old).unwrap(), settings);
     }
 
     #[test]

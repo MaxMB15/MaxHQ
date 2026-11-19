@@ -30,7 +30,7 @@ export const NOTE_PILLS_SINCE = 28 as const;
 
 export const OLDEST_PROTOCOL_VERSION = 20 as const;
 
-export const PROTOCOL_VERSION = 46 as const;
+export const PROTOCOL_VERSION = 47 as const;
 
 export const SHOW_ANYWAY_SINCE = 29 as const;
 
@@ -4137,6 +4137,10 @@ value: number } |
 /**  See [`DeviceSettings::claude_setup_token`]. */
 { field: "claude_setup_token"; 
 /**  What it becomes. */
+value: boolean } | 
+/**  See [`DeviceSettings::shell_integration`]. */
+{ field: "shell_integration"; 
+/**  What it becomes. */
 value: boolean };
 
 /**  Settings `maxd` keeps for its device. */
@@ -4237,6 +4241,15 @@ export type DeviceSettings = {
 	 *  and always takes one.
 	 */
 	claude_setup_token?: boolean,
+	/**
+	 *  Whether terminals this device opens give zsh, bash and fish hooks
+	 *  that mark each prompt and command, so MaxHQ can tell commands
+	 *  apart. Off starts shells as their own startup files say. It applies
+	 *  to shells opened after it changes. A `maxd` from before
+	 *  [`crate::message::SHELL_MARKS_SINCE`] leaves it out and adds no
+	 *  hooks.
+	 */
+	shell_integration?: boolean,
 };
 
 /**  The tasks a device holds, and whether its webhooks can be reached. */

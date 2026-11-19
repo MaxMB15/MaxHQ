@@ -10,19 +10,31 @@
 // app's shortcuts and the drawer's find, and Command C and V, which copy
 // and paste here. What you type leaves through `onData` and nothing here
 // keeps it.
+//
+// A shell that marks its prompts and commands, OSC 133, gets a dot in the
+// margin at each command's first line, which opens the command's menu.
+// Marks sit on xterm markers, which move with the scrollback and go with
+// the lines it drops.
 
 import { FitAddon } from "@xterm/addon-fit";
 import { SearchAddon } from "@xterm/addon-search";
 import { Unicode11Addon } from "@xterm/addon-unicode11";
 import { WebLinksAddon } from "@xterm/addon-web-links";
 import { WebglAddon } from "@xterm/addon-webgl";
-import { Terminal } from "@xterm/xterm";
+import { type IDecoration, type IMarker, Terminal } from "@xterm/xterm";
 import "@xterm/xterm/css/xterm.css";
+
+import {
+	type CommandMark,
+	type CommandSpots,
+	readMark,
+	takeMark,
+} from "@maxhq/shared/terminal/marks";
 
 import { onMac } from "@/native/platform";
 
 import { readPalette, watchPalette } from "./palette";
-import type { MakeView, Picked, TermView } from "./term-view";
+import type { MakeView, MarkedCommand, Picked, TermView } from "./term-view";
 
 /** The app's code size. */
 export const FONT_SIZE = 12;
@@ -67,6 +79,34 @@ export const keyForApp = (e: KeyboardEvent): boolean => {
 
 const NEWLINE = 0x0a;
 
+/** The OSC that marks a shell's prompts and commands. */
+const OSC_MARKS = 133;
+
+/** Where a mark sits: on its line, which moves with the scrollback, and in its column. */
+type Spot = { readonly marker: IMarker; readonly x: number };
+
+/** A command its shell marked, as the view holds it. */
+type Held = CommandSpots<Spot> & {
+	readonly id: number;
+	/** What you typed, read when it starts. */
+	command: string;
+	/** Its mark in the margin, once it started. */
+	decoration: IDecoration | null;
+	/** The mark's element, once it drew. */
+	dot: HTMLElement | null;
+};
+
+/** A row and a column in the buffer, with no column meaning the row's end or start. */
+type Place = { readonly y: number; readonly x?: number };
+
+// The mark fills the space left of the text, and its dot shows how the
+// command stands: a ring while it runs, grey once it ended well and red
+// once it failed.
+const MARK =
+	"group pointer-events-auto absolute top-0 -left-[10px] flex h-full w-[10px] cursor-pointer items-center justify-center";
+const DOT =
+	"size-[6px] rounded-full bg-subtle-foreground transition-transform group-hover:scale-150 group-data-current:scale-150 group-data-[state=failed]:bg-status-error group-data-[state=running]:bg-transparent group-data-[state=running]:ring-1 group-data-[state=running]:ring-subtle-foreground";
+
 /** A terminal view on xterm.js. */
 export const xtermView: MakeView = () => {
 	const element = document.createElement("div");
@@ -107,6 +147,11 @@ export const xtermView: MakeView = () => {
 	let newlines = 0;
 	const gpuLost = new Set<() => void>();
 	const focusListeners = new Set<(focused: boolean) => void>();
+	const markListeners = new Set<(id: number, anchor: Element) => void>();
+	// The commands the shell marked, oldest first, and the one a jump showed last.
+	let held: Held[] = [];
+	let shown: Held | null = null;
+	let lastId = 0;
 
 	const stopPalette = watchPalette((palette) => {
 		terminal.options.theme = palette;
@@ -174,6 +219,118 @@ export const xtermView: MakeView = () => {
 	/** The number, in all it printed, of the buffer's first line. */
 	const firstNumber = () => Math.max(1, newlines + 1 - linesThrough(lastRow()) + 1);
 
+	/** The number, in all it printed, of the line `row` is on. */
+	const numberOf = (row: number) => firstNumber() + linesThrough(row) - 1;
+
+	/** The text from one place to another, with each row a wrap continues joined to its line. */
+	const textBetween = (from: Place, to: Place): string => {
+		const lines: string[] = [];
+		for (let y = from.y; y <= to.y; y++) {
+			const line = buffer().getLine(y);
+			// A row a wrap continues keeps its spaces, which the wrap may need.
+			const wraps = y < to.y && buffer().getLine(y + 1)?.isWrapped === true;
+			const start = y === from.y ? (from.x ?? 0) : 0;
+			const text =
+				line?.translateToString(!wraps, start, y === to.y ? to.x : undefined) ?? "";
+			if (y > from.y && line?.isWrapped) lines.push(`${lines.pop() ?? ""}${text}`);
+			else lines.push(text);
+		}
+		return lines.join("\n");
+	};
+
+	const placeOf = (spot: Spot): Place => ({ y: spot.marker.line, x: spot.x });
+
+	/** The commands that ran, while the scrollback still holds where they start. */
+	const ran = () => held.filter((command) => command.start && !command.start.marker.isDisposed);
+
+	/** The line a command's mark sits on. */
+	const lineOf = (command: Held) =>
+		(command.prompt ?? command.input ?? command.start)?.marker.line ?? -1;
+
+	const markOf = (command: Held): CommandMark => ({
+		command: command.command,
+		exit: command.exit,
+		running: command.start !== null && command.end === null,
+	});
+
+	/** Shows how a command stands on its mark. */
+	const paint = (command: Held) => {
+		const dot = command.dot;
+		if (!dot) return;
+		const { running, exit } = markOf(command);
+		dot.dataset.state = running ? "running" : exit ? "failed" : "done";
+		dot.toggleAttribute("data-current", command === shown);
+		dot.title = command.command;
+	};
+
+	/** Draws a command's mark in the element xterm keeps for it, once. */
+	const draw = (command: Held, element: HTMLElement) => {
+		if (command.dot?.parentElement === element) return;
+		// Text under the element stays yours to pick.
+		element.style.pointerEvents = "none";
+		const dot = document.createElement("div");
+		dot.className = MARK;
+		dot.append(Object.assign(document.createElement("span"), { className: DOT }));
+		// A press on the mark doesn't start picking text.
+		dot.addEventListener("mousedown", (event) => {
+			event.preventDefault();
+			event.stopPropagation();
+		});
+		dot.addEventListener("click", (event) => {
+			event.stopPropagation();
+			for (const listener of [...markListeners]) listener(command.id, dot);
+		});
+		element.replaceChildren(dot);
+		command.dot = dot;
+		paint(command);
+	};
+
+	/** Reads what you typed and puts the command's mark in the margin. */
+	const begin = (command: Held) => {
+		const { input, start } = command;
+		command.command = input && start ? textBetween(placeOf(input), placeOf(start)).trim() : "";
+		const anchor = command.prompt ?? input ?? start;
+		if (!anchor) return;
+		command.decoration = terminal.registerDecoration({ marker: anchor.marker }) ?? null;
+		command.decoration?.onRender((element) => draw(command, element));
+	};
+
+	/** Lets go of a command's mark and places, but for `keep`, which another holds. */
+	const forget = (command: Held, keep: Spot | null = null) => {
+		command.decoration?.dispose();
+		for (const spot of [command.prompt, command.input, command.start, command.end]) {
+			if (spot !== keep) spot?.marker.dispose();
+		}
+	};
+
+	terminal.parser.registerOscHandler(OSC_MARKS, (body) => {
+		const mark = readMark(body);
+		if (!mark) return false;
+		const at: Spot = { marker: terminal.registerMarker(0), x: buffer().cursorX };
+		const fresh = (): Held => ({
+			id: ++lastId,
+			prompt: null,
+			input: null,
+			start: null,
+			end: null,
+			exit: null,
+			command: "",
+			decoration: null,
+			dot: null,
+		});
+		// Commands whose start the scrollback dropped go, oldest first.
+		while (held[0] && (held[0].start ?? held[0].prompt)?.marker.isDisposed) {
+			forget(held.shift()!);
+		}
+		const change = takeMark(held, mark, at, fresh);
+		if (!change.kept) at.marker.dispose();
+		// The prompt it lets go of may be where the command before it ended.
+		if (change.dropped) forget(change.dropped, held.at(-2)?.end ?? null);
+		if (change.started) begin(change.started);
+		if (change.ended) paint(change.ended);
+		return true;
+	});
+
 	const listen =
 		<T>(event: (listener: (value: T) => void) => { dispose: () => void }) =>
 		(listener: (value: T) => void) => {
@@ -189,6 +346,9 @@ export const xtermView: MakeView = () => {
 		},
 		clear: () => {
 			newlines = 0;
+			for (const command of held) forget(command);
+			held = [];
+			shown = null;
 			terminal.reset();
 		},
 		resize: (cols, rows) => {
@@ -230,19 +390,15 @@ export const xtermView: MakeView = () => {
 		},
 		clearSelection: () => terminal.clearSelection(),
 		text: (count) => {
-			const lines: string[] = [];
-			// The rows below that continue the line being read.
-			let tail = "";
-			for (let y = lastRow(); y >= 0 && lines.length < count; y--) {
-				const line = buffer().getLine(y);
-				// A row a wrap continues keeps its spaces, which the wrap may need.
-				tail = (line?.translateToString(tail === "") ?? "") + tail;
-				if (line?.isWrapped) continue;
-				lines.unshift(tail);
-				tail = "";
+			const last = lastRow();
+			// The row the first of the last `count` lines starts on.
+			let from = last + 1;
+			for (let lines = 0; lines < count && from > 0;) {
+				from -= 1;
+				if (!buffer().getLine(from)?.isWrapped) lines += 1;
 			}
-			const total = firstNumber() + linesThrough(lastRow()) - 1;
-			return { text: lines.join("\n").replace(/\s+$/, ""), total };
+			const text = textBetween({ y: from }, { y: last }).replace(/\s+$/, "");
+			return { text, total: numberOf(last) };
 		},
 		paste: (text) => {
 			terminal.paste(text);
@@ -274,6 +430,50 @@ export const xtermView: MakeView = () => {
 		onGpuLost: (listener) => {
 			gpuLost.add(listener);
 			return () => gpuLost.delete(listener);
+		},
+		commands: () =>
+			ran().map((command): MarkedCommand => ({ id: command.id, ...markOf(command) })),
+		output: (id) => {
+			const command = ran().find((held) => held.id === id);
+			if (!command?.start) return null;
+			const start = placeOf(command.start);
+			// It ends where its end mark sits, or at the cursor while it runs,
+			// and a line it ended on with nothing printed isn't its.
+			const end = command.end ? placeOf(command.end) : { y: lastRow(), x: buffer().cursorX };
+			const to: Place = end.x ? end : { y: end.y - 1 };
+			const first = numberOf(start.y);
+			const mark = markOf(command);
+			if (to.y < start.y) return { text: "", lines: { first, last: first }, mark };
+			const text = textBetween(start, to).replace(/\s+$/, "");
+			return { text, lines: { first, last: numberOf(to.y) }, mark };
+		},
+		jump: (back) => {
+			const commands = ran();
+			const top = buffer().viewportY;
+			const bottom = buffer().baseY;
+			// From the command it showed last while the screen still shows it,
+			// from the end when back at the end, and from the top otherwise.
+			const from =
+				shown && commands.includes(shown) && top === Math.min(lineOf(shown), bottom)
+					? lineOf(shown)
+					: back && top === bottom
+						? Infinity
+						: top;
+			const next = back
+				? commands.findLast((command) => lineOf(command) < from)
+				: commands.find((command) => lineOf(command) > from);
+			const was = shown;
+			shown = next ?? null;
+			if (was) paint(was);
+			if (next) {
+				paint(next);
+				terminal.scrollToLine(lineOf(next));
+			} else if (!back) terminal.scrollToBottom();
+			return next !== undefined;
+		},
+		onMark: (listener) => {
+			markListeners.add(listener);
+			return () => markListeners.delete(listener);
 		},
 		dispose: () => {
 			stopPalette();

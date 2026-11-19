@@ -10,6 +10,8 @@
 //!
 //! One task reads the master into the ring, and for a `!` run into a
 //! headless terminal too, once the run's marker has come (`marker.rs`).
+//! On the way it takes out the shell's marks (`marks.rs`), and keeps where
+//! each was for clients that ask for them.
 //! One task writes input, in the order it came.
 //! Every 150 ms the holder looks at the pty's modes and its foreground
 //! group, and tells clients when the program starts or stops waiting for
@@ -20,6 +22,7 @@
 //! folder and ends the holder. Without one, the holder ends after its
 //! linger and leaves the folder for `maxd` to find.
 
+use std::collections::VecDeque;
 use std::fs::File;
 use std::io;
 use std::path::{Path, PathBuf};
@@ -38,6 +41,7 @@ use tokio::signal::unix::{signal, SignalKind};
 use tokio::sync::{mpsc, watch};
 
 use super::marker::Cutoff;
+use super::marks::{Filter, Mark};
 use super::osc::{Scanner, Set};
 use super::ring::{Ring, RING_BYTES};
 use super::wire::{self, FromHolder, ToHolder, Typed, CHUNK};
@@ -56,6 +60,10 @@ const POLL: Duration = Duration::from_millis(150);
 
 /// How much output the holder reads at once.
 const READ_SIZE: usize = 64 * 1024;
+
+/// The most marks the holder keeps, newest last. It also drops those whose
+/// output has left the ring.
+const MAX_MARKS: usize = 4096;
 
 /// What the second step sets up before saying it's ready.
 pub(super) struct Started {
@@ -148,6 +156,9 @@ impl Started {
                     .run
                     .then(|| maxhq_term::emulator(launch.cols, launch.rows)),
                 scanner: Scanner::new(),
+                filter: Filter::new(launch.nonce.as_deref()),
+                marks: VecDeque::new(),
+                marks_gone: 0,
                 title: None,
                 cwd: None,
                 password: false,
@@ -268,6 +279,11 @@ struct State {
     /// The headless terminal a `!` run's transcript comes from.
     emulator: Option<Box<dyn Emulator>>,
     scanner: Scanner,
+    filter: Filter,
+    marks: VecDeque<Placed>,
+    /// How many marks have left the front of `marks`, so a connection
+    /// knows which it has sent.
+    marks_gone: u64,
     title: Option<String>,
     cwd: Option<String>,
     password: bool,
@@ -284,15 +300,48 @@ struct State {
 }
 
 impl State {
-    /// Keeps output clients see, and the title and folder it sets.
+    /// Keeps output clients see, and the title, folder and marks it sets.
     fn keep(&mut self, bytes: &[u8]) {
-        if bytes.is_empty() {
+        let mut shown = Vec::with_capacity(bytes.len());
+        let mut found = Vec::new();
+        self.filter.feed(bytes, &mut shown, &mut found);
+        if shown.is_empty() {
             return;
         }
-        self.ring.push(bytes);
+        let start = self.ring.end();
+        self.ring.push(&shown);
         if let Some(emulator) = &mut self.emulator {
-            emulator.feed(bytes);
+            emulator.feed(&shown);
         }
+        // A command starts in the folder the shell said before it.
+        let mut scanned = 0;
+        for (at, kind) in found {
+            self.scan(&shown[scanned..at]);
+            scanned = at;
+            self.marks.push_back(Placed {
+                offset: start + at as u64,
+                at: Timestamp::now(),
+                mark: kind.mark(self.cwd.as_deref()),
+            });
+        }
+        self.scan(&shown[scanned..]);
+        let kept = self.ring.start();
+        while self.marks.len() > MAX_MARKS
+            || self
+                .marks
+                .front()
+                .is_some_and(|placed| placed.offset < kept)
+        {
+            self.marks.pop_front();
+            self.marks_gone += 1;
+        }
+        // A prompt that hides input prints nothing while it's answered, so
+        // any output means the next password is a new one.
+        self.noted = false;
+    }
+
+    /// Notes the title and folder `bytes` set.
+    fn scan(&mut self, bytes: &[u8]) {
         let Self {
             scanner,
             title,
@@ -303,9 +352,6 @@ impl State {
             Set::Title(set) => *title = Some(set),
             Set::Cwd(set) => *cwd = Some(set),
         });
-        // A prompt that hides input prints nothing while it's answered, so
-        // any output means the next password is a new one.
-        self.noted = false;
     }
 
     /// Stops waiting for a run's marker and keeps what waited for it.
@@ -315,6 +361,14 @@ impl State {
         self.keep(&held);
         !held.is_empty()
     }
+}
+
+/// A mark and where it is in the output.
+#[derive(Clone)]
+struct Placed {
+    offset: u64,
+    at: Timestamp,
+    mark: Mark,
 }
 
 /// What a connection has told its client, so it sends only changes.
@@ -666,11 +720,13 @@ impl Holder {
         self.bump();
     }
 
-    /// The hello for a client that has everything before `after`, and where
-    /// its output starts.
-    fn hello(&self, after: Option<u64>) -> (TermHello, View) {
+    /// The hello for a client that has everything before `after`, where
+    /// its output starts, and the first mark it gets, counting those gone.
+    fn hello(&self, after: Option<u64>) -> (TermHello, View, u64) {
         let state = self.lock();
         let (from, reset) = state.ring.resume(after);
+        let before = state.marks.iter().take_while(|placed| placed.offset < from);
+        let first_mark = state.marks_gone + before.count() as u64;
         let view = View {
             password: state.password,
             busy: state.busy,
@@ -690,18 +746,17 @@ impl Holder {
             title: view.title.clone(),
             cwd: view.cwd.clone(),
         };
-        (hello, view)
+        (hello, view, first_mark)
     }
 
-    /// The offset just past the newest output.
-    fn end(&self) -> u64 {
-        self.lock().ring.end()
-    }
-
-    /// What a connection at `cursor` sends next.
-    fn next(&self, cursor: u64, view: &View) -> Next {
+    /// What a connection at `cursor` sends next, with no output for a
+    /// quiet one at `None`. One that asks for marks gets the one numbered
+    /// `mark` once the output before it has gone.
+    fn next(&self, cursor: Option<u64>, mark: Option<u64>, view: &View) -> Next {
         let state = self.lock();
-        if cursor < state.ring.end() {
+        if let Some(cursor) = cursor
+            && cursor < state.ring.end()
+        {
             return match state.ring.read(cursor, CHUNK) {
                 Some(data) => Next::Output(cursor, data),
                 // The connection fell behind the ring, so it starts over
@@ -711,6 +766,14 @@ impl Holder {
                     Next::Output(from, state.ring.read(from, CHUNK).unwrap_or_default())
                 }
             };
+        }
+        if let Some(mark) = mark {
+            // A connection that fell behind skips the marks that went.
+            let mark = mark.max(state.marks_gone);
+            let index = usize::try_from(mark - state.marks_gone).unwrap_or(usize::MAX);
+            if let Some(placed) = state.marks.get(index) {
+                return Next::Mark(mark, placed.clone());
+            }
         }
         let now = View {
             password: state.password,
@@ -731,6 +794,8 @@ impl Holder {
 /// What a connection sends next.
 enum Next {
     Output(u64, Vec<u8>),
+    /// The mark with this number.
+    Mark(u64, Placed),
     View(View),
     /// Nothing new, with the exit once there is one.
     Idle(Option<TermExit>),
@@ -768,6 +833,7 @@ async fn serve(holder: Arc<Holder>, stream: UnixStream) {
         key,
         after,
         quiet,
+        marks,
     }))) = hello
     else {
         return;
@@ -777,8 +843,9 @@ async fn serve(holder: Arc<Holder>, stream: UnixStream) {
         return;
     }
     drop(key);
-    let (hello, mut view) = holder.hello(after);
-    let mut cursor = hello.from;
+    let (hello, mut view, first_mark) = holder.hello(after);
+    let mut cursor = (!quiet).then_some(hello.from);
+    let mut mark = marks.then_some(first_mark);
     if wire::send(&mut write, &FromHolder::Hello(hello))
         .await
         .is_err()
@@ -791,13 +858,15 @@ async fn serve(holder: Arc<Holder>, stream: UnixStream) {
     let served: io::Result<()> = async {
         loop {
             changes_seen.borrow_and_update();
-            if quiet {
-                cursor = holder.end();
-            }
-            match holder.next(cursor, &view) {
+            match holder.next(cursor, mark, &view) {
                 Next::Output(offset, data) => {
-                    cursor = offset + data.len() as u64;
+                    cursor = Some(offset + data.len() as u64);
                     wire::send(&mut write, &FromHolder::Output { offset, data }).await?;
+                }
+                Next::Mark(sent, placed) => {
+                    mark = Some(sent + 1);
+                    let Placed { offset, at, mark } = placed;
+                    wire::send(&mut write, &FromHolder::Mark { offset, at, mark }).await?;
                 }
                 Next::View(now) => {
                     for message in changes(&view, &now) {

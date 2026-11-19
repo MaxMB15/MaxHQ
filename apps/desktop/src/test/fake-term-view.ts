@@ -2,10 +2,10 @@
 // Copyright (c) 2026 Max Boksem
 
 // A terminal view for tests, which jsdom can't draw: it keeps what was
-// written and pasted, and lets a test type, pick text, focus it and drop
-// its GPU context.
+// written and pasted, and lets a test type, pick text, focus it, drop its
+// GPU context, mark commands and click their marks.
 
-import type { Picked, TermView } from "@/terminal/term-view";
+import type { CommandOutput, MarkedCommand, Picked, TermView } from "@/terminal/term-view";
 
 export type FakeView = TermView & {
 	readonly written: string[];
@@ -17,6 +17,14 @@ export type FakeView = TermView & {
 	readonly loseGpu: () => void;
 	readonly disposed: () => boolean;
 	readonly pasted: string[];
+	/** Sets the commands it marked, with what each printed. */
+	readonly mark: (
+		commands: readonly (MarkedCommand & { readonly output: CommandOutput })[]
+	) => void;
+	/** Clicks a command's mark, by `anchor`. */
+	readonly clickMark: (id: number, anchor: Element) => void;
+	/** Each jump asked for, true going back. */
+	readonly jumps: boolean[];
 };
 
 export const fakeView = (): FakeView => {
@@ -27,6 +35,9 @@ export const fakeView = (): FakeView => {
 	const focus = new Set<(focused: boolean) => void>();
 	const lost = new Set<() => void>();
 	const picks = new Set<() => void>();
+	const marks = new Set<(id: number, anchor: Element) => void>();
+	const jumps: boolean[] = [];
+	let commands: readonly (MarkedCommand & { readonly output: CommandOutput })[] = [];
 	let cleared = 0;
 	let gpu = false;
 	let disposed = false;
@@ -55,6 +66,13 @@ export const fakeView = (): FakeView => {
 			gpu = false;
 			for (const listener of lost) listener();
 		},
+		mark: (next) => {
+			commands = next;
+		},
+		clickMark: (id, anchor) => {
+			for (const listener of marks) listener(id, anchor);
+		},
+		jumps,
 		write: (bytes) => written.push(decoder.decode(bytes)),
 		clear: () => {
 			cleared++;
@@ -94,6 +112,17 @@ export const fakeView = (): FakeView => {
 		onGpuLost: (listener) => {
 			lost.add(listener);
 			return () => lost.delete(listener);
+		},
+		commands: () =>
+			commands.map(({ id, command, exit, running }) => ({ id, command, exit, running })),
+		output: (id) => commands.find((command) => command.id === id)?.output ?? null,
+		jump: (back) => {
+			jumps.push(back);
+			return commands.length > 0;
+		},
+		onMark: (listener) => {
+			marks.add(listener);
+			return () => marks.delete(listener);
 		},
 		dispose: () => {
 			disposed = true;

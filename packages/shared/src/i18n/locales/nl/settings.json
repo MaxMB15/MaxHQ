@@ -1058,5 +1058,9 @@
 	"This copy was built from source, so it doesn't update itself. Build the new version the same way.": "Deze kopie is uit de broncode gebouwd en werkt zichzelf dus niet bij. Bouw de nieuwe versie op dezelfde manier.",
 	"MaxHQ is running from its disk image. Drag it to Applications and open it from there to get updates.": "MaxHQ draait vanaf de schijfkopie. Sleep het naar Apps en open het daar om updates te krijgen.",
 	"macOS is running a temporary copy of MaxHQ, since it was opened where it was downloaded. Move it to Applications and open it from there to get updates.": "macOS draait een tijdelijke kopie van MaxHQ, omdat het werd geopend waar het is gedownload. Zet het in Apps en open het daar om updates te krijgen.",
-	"MaxHQ updates itself only from the Applications folder. Move it there to get updates.": "MaxHQ werkt zichzelf alleen bij vanuit de map Apps. Zet het daar om updates te krijgen."
+	"MaxHQ updates itself only from the Applications folder. Move it there to get updates.": "MaxHQ werkt zichzelf alleen bij vanuit de map Apps. Zet het daar om updates te krijgen.",
+	"Terminals on {{name}}": "Terminals op {{name}}",
+	"Shell integration on by default": "Shell-integratie standaard aan",
+	"Shell integration": "Shell-integratie",
+	"MaxHQ adds hooks to zsh, bash and fish so it can tell commands apart. Off starts shells exactly as your startup files say. Applies to terminals opened after the change.": "MaxHQ voegt hooks toe aan zsh, bash en fish, zodat het opdrachten uit elkaar kan houden. Uit start shells precies zoals je opstartbestanden zeggen. Geldt voor terminals die na de wijziging openen."
 }
