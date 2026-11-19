@@ -153,6 +153,7 @@ describe("the More sheet", () => {
 			"Permission",
 			"Model",
 			"Link a pull request",
+			"Details",
 			"Ports and processes",
 			"Copy and export…",
 			"Move to…",
@@ -165,6 +166,7 @@ describe("the More sheet", () => {
 			"prompts",
 			"rename",
 			"link",
+			"details",
 			"running",
 			"copyOut",
 		]);
@@ -232,6 +234,7 @@ describe("the More sheet", () => {
 			"permission",
 			"model",
 			"link",
+			"details",
 			"running",
 			"copyOut",
 			"move",

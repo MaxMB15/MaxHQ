@@ -21,7 +21,8 @@ import { color, radius, size, TOUCH } from "../../theme";
 import { Workflow } from "../../ui/glyphs";
 import { chipLook } from "./runs";
 
-const useOpenRun = () => {
+/** Opens a chip's run. */
+export const useOpenRun = () => {
 	const navigation = useNavigation<NativeStackNavigationProp<Screens>>();
 	return (chip: RunChip) => navigation.navigate("Run", chip.run);
 };
@@ -35,8 +36,8 @@ const slopOf = (height: number, width = TOUCH) => {
 
 /**
  * The chip on an agent's row. A tap on it opens the run, and a tap on the
- * rest of the row opens the agent. VoiceOver reads the row as one, so it
- * reaches the run through the agent screen's chip.
+ * rest of the row opens the agent. VoiceOver reads the row as one, so the
+ * row offers Open run as one of its actions instead.
  */
 export const RowRunChip = ({ chip }: { chip: RunChip }) => {
 	const { t } = useI18n();

@@ -1,13 +1,14 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026 Max Boksem
 
-// An agent's details, which the second line of its header opens: what the
-// desktop's agent header shows beside the title, laid out as rows. Its
-// account and model, how full its context window is, its folder and branch,
-// the ID its CLI resumes the session by, who started it, where it moved,
-// whether it runs in a terminal, whether changed skills restart it, and
-// whether it may run agents, which the phone can revoke but only the Mac
-// can allow. Its sub-agents and its ports and processes open from here too.
+// An agent's details, which the second line of its header and Details under
+// More open: what the desktop's agent header shows beside the title, laid
+// out as rows. Its account and model, how full its context window is, its
+// folder and branch, the ID its CLI resumes the session by, who started it,
+// where it moved, whether it runs in a terminal, whether changed skills
+// restart it, and whether it may run agents, which the phone can revoke but
+// only the Mac can allow. Its sub-agents and its ports and processes open
+// from here too.
 
 import { formatNumber, t, useI18n } from "@maxhq/shared/i18n";
 

@@ -4,7 +4,8 @@
 // A PR's Summary tab, as on the desktop: its description, each reviewer's
 // latest verdict, whether it merges cleanly, and Merge and Approve as you.
 // Each action is disabled with its reason on a line under the buttons, and
-// the merge method is picked from a sheet. With no sign-in, or with the
+// the merge method is picked from a sheet. Merge asks first, since it
+// can't be undone; Approve doesn't. With no sign-in, or with the
 // device holding it offline, the two become one Open on GitHub button. A
 // merge or an approval drops what was read of every PR, so it reads again.
 
@@ -33,10 +34,11 @@ import { pullUrl } from "@maxhq/shared/pulls/urls";
 import { useServices, useView } from "../../services";
 import { color, size } from "../../theme";
 import { Button } from "../../ui/Button";
-import { choose } from "../../ui/choose";
+import { choose, confirm } from "../../ui/choose";
 import { ChevronDown } from "../../ui/glyphs";
 import { MarkdownText } from "../../ui/MarkdownText";
 import { openOut } from "./look";
+import { mergeQuestion } from "./pulls";
 import { dropPulls } from "./read";
 
 const Section = ({ title, children }: { title: string; children: ReactNode }) => (
@@ -114,8 +116,11 @@ const Actions = ({ pr }: { pr: PullDetail }) => {
 	};
 	const merge = () => {
 		if (!method) return;
-		run("merge", () =>
-			mergePull(services.source, services.view.getState().view, Date.now(), at, method)
+		const question = mergeQuestion(pr, method);
+		confirm(question, question.action, () =>
+			run("merge", () =>
+				mergePull(services.source, services.view.getState().view, Date.now(), at, method)
+			)
 		);
 	};
 	const approve = () =>

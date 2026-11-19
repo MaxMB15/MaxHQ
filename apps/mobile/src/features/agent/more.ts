@@ -59,6 +59,7 @@ export type MoreChoice =
 	| "model"
 	| "effort"
 	| "link"
+	| "details"
 	| "subAgents"
 	| "running"
 	| "copyOut"
@@ -76,6 +77,7 @@ export const MORE_LABEL: Record<MoreChoice, string> = {
 	model: "Model",
 	effort: "Effort",
 	link: "Link a pull request",
+	details: "Details",
 	subAgents: "Sub-agents",
 	running: "Ports and processes",
 	copyOut: "Copy and export…",
@@ -88,12 +90,12 @@ export const MORE_LABEL: Record<MoreChoice, string> = {
 /**
  * The More sheet's choices: Find, Your prompts and Rename for every agent,
  * Permission, Model and Effort where the desktop's composer can change them,
- * Link a pull request while none is linked, Sub-agents for a lead that has
- * some, Ports and processes once its folder is known, Copy and export,
- * Allowed to run agents while it `holds` a permission, which the phone can
- * revoke, Move for one that can move, Stop agent while MaxHQ can end its
- * process, and Delete for one MaxHQ holds. The rest of the desktop's header
- * is on the details screen, which the header's second line opens.
+ * Link a pull request while none is linked, Details, which the header's
+ * second line also opens and holds the rest of the desktop's header,
+ * Sub-agents for a lead that has some, Ports and processes once its folder
+ * is known, Copy and export, Allowed to run agents while it `holds` a
+ * permission, which the phone can revoke, Move for one that can move, Stop
+ * agent while MaxHQ can end its process, and Delete for one MaxHQ holds.
  */
 export const moreChoices = (view: ViewState, agent: Agent, holds = false): MoreChoice[] => {
 	const account = agent.account ? view.tables.account.get(agent.account) : undefined;
@@ -103,6 +105,7 @@ export const moreChoices = (view: ViewState, agent: Agent, holds = false): MoreC
 	if (account && canSetEffort(view, agent, account.device, modelsOf(view, account)))
 		choices.push("effort");
 	if (shownPulls(agent).length === 0) choices.push("link");
+	choices.push("details");
 	if (hasSubAgents(view, agent.id)) choices.push("subAgents");
 	if (showsPorts(view, agent)) choices.push("running");
 	choices.push("copyOut");

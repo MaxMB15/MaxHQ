@@ -241,12 +241,19 @@ describe("Paired Macs", () => {
 			title: "Forget Home Mac?",
 			detail:
 				"This phone forgets mac and devbox and signs out of them. " +
-				"shared stays, since another Mac lists it. Your other Macs stay paired.",
+				"shared stays, since another Mac lists it. Your other Macs stay paired. " +
+				"To end this phone's access there too, remove it on Home Mac in Settings, under Phones.",
 		});
 		expect(forgetWords(WORK, [WORK]).detail).toBe(
-			"This phone forgets build and signs out of it."
+			"This phone forgets build and signs out of it. " +
+				"To end this phone's access there too, remove it on Work Mac in Settings, under Phones."
 		);
-		expect(forgetWords(BY_HAND, [BY_HAND]).title).toBe("Forget the devices added by hand?");
+	});
+
+	it("leaves out removing the phone on a Mac for the devices added by hand", () => {
+		const words = forgetWords(BY_HAND, [BY_HAND]);
+		expect(words.title).toBe("Forget the devices added by hand?");
+		expect(words.detail).not.toContain("Settings");
 	});
 
 	it("tells a code that adds a Mac from one that replaces a paired Mac's devices", () => {
