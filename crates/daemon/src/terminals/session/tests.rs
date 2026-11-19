@@ -482,6 +482,13 @@ async fn text_typed_at_the_prompt_sends_a_command_fresh_until_cleared() {
     };
     let ran = f.block("true").await;
     let terminal = ran.terminal;
+    let clear = |open: Option<&Open>| open.is_some_and(|open| !open.keys.sent && !open.keys.line);
+    // A terminal's own answers aren't keys. The shell takes them as text,
+    // which the Ctrl-C below clears.
+    f.terminals
+        .input(1, Caller::App, terminal, b"\x1b[12;40R\x1b[I".to_vec())
+        .expect("you may type");
+    assert!(clear(f.terminals.lock().get(&terminal)));
     f.terminals
         .input(1, Caller::App, terminal, b"echo half".to_vec())
         .expect("you may type");
@@ -490,18 +497,13 @@ async fn text_typed_at_the_prompt_sends_a_command_fresh_until_cleared() {
         f.answer(key).await,
         SessionResult::Fresh(FreshReason::Busy)
     ));
-    // Ctrl-C clears the line, and the shell shows its prompt again.
+    // Ctrl-C clears the line, and the shell shows its prompt again. Nothing
+    // follows it until then: bash 5 keeps the line when more keys come
+    // before it took the Ctrl-C in.
     f.terminals
         .input(1, Caller::App, terminal, vec![0x03])
         .expect("you may type");
-    // A terminal's own answers aren't keys.
-    f.terminals
-        .input(1, Caller::App, terminal, b"\x1b[12;40R\x1b[I".to_vec())
-        .expect("you may type");
-    f.until(terminal, |open| {
-        open.is_some_and(|open| !open.keys.sent && !open.keys.line)
-    })
-    .await;
+    f.until(terminal, clear).await;
     let key = f.run("echo next");
     let answer = f.answer(key).await;
     assert!(
