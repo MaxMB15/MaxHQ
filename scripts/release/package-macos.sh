@@ -233,8 +233,14 @@ assemble() {
 	ditto "$app" "$stage/MaxHQ.app"
 	ln -s /Applications "$stage/Applications"
 	rm -f "$dmg"
-	# hdiutil fails now and then with "Resource busy" on hosted runners.
-	retry 3 10 hdiutil create -quiet -volname MaxHQ -srcfolder "$stage" -ov -format UDZO "$dmg"
+	# hdiutil fails now and then with "Resource busy" on hosted runners,
+	# where XProtect scans the image as it's made. Those runners are thrown
+	# away after the job, so it's stopped there; never on your own Mac.
+	if [ "${GITHUB_ACTIONS:-}" = true ]; then
+		sudo pkill -9 XProtect >/dev/null 2>&1 || true
+	fi
+	# Not -quiet, so the log shows why a try failed.
+	retry 5 20 hdiutil create -volname MaxHQ -srcfolder "$stage" -ov -format UDZO "$dmg"
 	rm -rf "$stage"
 	if [ "$identity" != - ]; then
 		sign "$dmg"
