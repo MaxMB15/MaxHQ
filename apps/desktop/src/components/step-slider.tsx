@@ -10,15 +10,19 @@
 import { type KeyboardEvent, type PointerEvent, type RefObject, useRef, useState } from "react";
 
 import { t as translate, useI18n } from "@maxhq/shared/i18n";
+import {
+	type Picked,
+	shownValue,
+	type Stop,
+	stopAt,
+	stopCenter,
+	stopIndex,
+	stopText,
+	stopToPick,
+} from "@maxhq/shared/ui/step-slider";
 import { cn } from "@/lib/utils";
 
-/** One stop on the slider. */
-export type Stop = {
-	readonly value: string;
-	readonly label: string;
-	/** Whether it's the one used when nothing is picked. */
-	readonly isDefault?: boolean;
-};
+export type { Stop };
 
 /** How wide each stop's column is, in pixels, so its name fits under it. */
 const COLUMN = 58;
@@ -34,7 +38,7 @@ const STEP: Record<string, (at: number, last: number) => number> = {
 };
 
 /** Where a stop's center sits, as a share of the slider's width. */
-const center = (index: number, count: number): string => `${((index + 0.5) / count) * 100}%`;
+const center = (index: number, count: number): string => `${stopCenter(index, count) * 100}%`;
 
 export const StepSlider = ({
 	label,
@@ -62,25 +66,18 @@ export const StepSlider = ({
 	const track = useRef<HTMLDivElement>(null);
 	const own = useRef<HTMLDivElement>(null);
 	const thumb = thumbRef ?? own;
-	// The stop picked here, until `value` moves away from what it was then,
-	// so the thumb doesn't jump back while the pick is on its way.
-	const [picked, setPicked] = useState<{ from: string; to: string } | null>(null);
+	const [picked, setPicked] = useState<Picked | null>(null);
 	const [dragging, setDragging] = useState<number | null>(null);
-	const shown = picked !== null && picked.from === value ? picked.to : value;
+	const shown = shownValue(picked, value);
 	const count = stops.length;
 	const last = count - 1;
-	const at =
-		dragging ??
-		Math.max(
-			0,
-			stops.findIndex((stop) => stop.value === shown)
-		);
+	const at = dragging ?? stopIndex(stops, shown);
 	const current = stops[at];
 	const marked = stops.some((stop) => stop.isDefault);
 
 	const pick = (index: number) => {
-		const stop = stops[Math.min(Math.max(index, 0), last)];
-		if (!stop || stop.value === shown) return;
+		const stop = stopToPick(stops, index, shown);
+		if (!stop) return;
 		setPicked({ from: value, to: stop.value });
 		onPick(stop.value);
 	};
@@ -89,8 +86,7 @@ export const StepSlider = ({
 	const indexAt = (x: number): number => {
 		const box = track.current?.getBoundingClientRect();
 		if (!box || box.width <= 0) return at;
-		const inside = Math.min(Math.max(x - box.left, 0), box.width - 1);
-		return Math.floor((inside / box.width) * count);
+		return stopAt(x - box.left, box.width, count);
 	};
 
 	const onPointerDown = (event: PointerEvent<HTMLDivElement>) => {
@@ -165,11 +161,7 @@ export const StepSlider = ({
 					aria-valuemin={0}
 					aria-valuemax={last}
 					aria-valuenow={at}
-					aria-valuetext={
-						current?.isDefault
-							? translate("{{level}} (default)", { level: current.label })
-							: current?.label
-					}
+					aria-valuetext={current && stopText(current)}
 					aria-disabled={disabled || undefined}
 					aria-orientation="horizontal"
 					className={cn(

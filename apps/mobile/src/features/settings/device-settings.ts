@@ -3,15 +3,11 @@
 
 // What a device's settings page works out without React Native: what it
 // shows while a save is on its way, what a number field holds while you
-// type, how an effort row names its level, and which cards the device gets
-// besides the ones every device has.
-
-import { t } from "@maxhq/shared/i18n";
+// type, and which cards the device gets besides the ones every device has.
 
 import type { DeviceId } from "@maxhq/shared/bindings";
 import { isThisMac, listsAppKeys } from "@maxhq/shared/settings/app-keys";
 import { type DeviceFields, sameDeviceFields } from "@maxhq/shared/settings/device-settings";
-import type { EffortDefaultRow } from "@maxhq/shared/settings/effort-defaults";
 import { offersSkills } from "@maxhq/shared/skills/library";
 import type { ViewState } from "@maxhq/shared/view/replica";
 
@@ -31,13 +27,6 @@ export type Typed = { readonly text: string; readonly from: number };
  */
 export const draftOf = (typed: Typed | null, value: number): string | null =>
 	typed && typed.from === value ? typed.text : null;
-
-/** An effort row's level by name, marked when it's what the model runs at untold. */
-export const effortValue = (row: EffortDefaultRow): string => {
-	const choice = row.choices.find((c) => c.value === row.level);
-	if (!choice) return row.level ?? "";
-	return choice.isDefault ? t("{{level}} (default)", { level: choice.label }) : choice.label;
-};
 
 /** The cards only some devices get. */
 export type SomeCards = {
