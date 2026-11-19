@@ -20,11 +20,13 @@ import { ConfirmHost } from "@/components/confirm";
 import { Composer } from "@/composer/composer";
 import { ComposerNativeProvider } from "@/composer/native";
 import { quoteInbox } from "@/composer/quote-inbox";
+import { startRun } from "@/composer/run-command";
 import { draftsOf } from "@/composer/saved-drafts";
 import {
 	AGENT,
 	DEVICE,
 	DONE,
+	editorOf,
 	fakeNative,
 	fakeSource,
 	findTextbox,
@@ -362,13 +364,105 @@ describe("a running command", () => {
 });
 
 describe("a command asking for a password", () => {
-	const sudo = () =>
-		renderCard(running({ command: "sudo apt upgrade" }), {
-			terminal: terminalOf({
-				kind: { type: "run", command: "sudo apt upgrade", private: false },
-				password_prompt: true,
-			}),
+	/** The terminal `sudo apt upgrade` runs in, asking for a password or not. */
+	const sudoTerminal = (asking: boolean) =>
+		terminalOf({
+			kind: { type: "run", command: "sudo apt upgrade", private: false },
+			password_prompt: asking,
 		});
+	const sudo = () =>
+		renderCard(running({ command: "sudo apt upgrade" }), { terminal: sudoTerminal(true) });
+
+	/** Starts `sudo apt upgrade` in `terminal` from this window, as the composer does. */
+	const startHere = async (terminal: string) => {
+		const opened: ActionResult = {
+			status: "ok",
+			data: { status: "terminal_opened", terminal },
+		};
+		const started = await startRun(
+			{ openTerminal: async () => opened },
+			() => {
+				throw new Error("A private run doesn't read the view");
+			},
+			{
+				agent: AGENT,
+				command: "sudo apt upgrade",
+				private: true,
+				size: { cols: 80, rows: 24 },
+			}
+		);
+		expect(started).toEqual({ terminal });
+	};
+
+	/** Puts focus in the composer's text box, and waits until it's there. */
+	const focusComposer = async () => {
+		const message = await findTextbox();
+		act(() => {
+			editorOf(message).commands.focus();
+		});
+		await waitFor(() => expect(message).toHaveFocus());
+		return message;
+	};
+
+	it("takes focus from the composer the first time a command run here asks, and gives it back after", async () => {
+		await startHere("t1");
+		const rendered = renderCard(running({ command: "sudo apt upgrade" }), {
+			terminal: sudoTerminal(false),
+		});
+		const card = await findCard("sudo apt upgrade");
+		const message = await focusComposer();
+
+		rendered.upsert([sudoTerminal(true)]);
+		const field = await within(card).findByLabelText<HTMLInputElement>(
+			"Password for sudo on Mac"
+		);
+		expect(field).toHaveFocus();
+
+		// A wrong password asks again, in a fresh field that keeps focus.
+		fireEvent.change(field, { target: { value: "wrong" } });
+		fireEvent.keyDown(field, { key: "Enter" });
+		const fresh = within(card).getByLabelText<HTMLInputElement>("Password for sudo on Mac");
+		expect(fresh).not.toBe(field);
+		await waitFor(() => expect(fresh).toHaveFocus());
+
+		rendered.upsert([sudoTerminal(false)]);
+		expect(within(card).queryByLabelText("Password for sudo on Mac")).toBeNull();
+		expect(message).toHaveFocus();
+		expect(textIn(message)).toBe("");
+
+		// A later ask leaves focus where it is.
+		rendered.upsert([sudoTerminal(true)]);
+		await within(card).findByLabelText("Password for sudo on Mac");
+		expect(message).toHaveFocus();
+	});
+
+	it("leaves focus alone for a command run elsewhere, or while you type in another field", async () => {
+		const other = document.createElement("input");
+		document.body.append(other);
+		try {
+			const elsewhere = renderCard(running({ command: "sudo apt upgrade" }), {
+				terminal: sudoTerminal(false),
+			});
+			const card = await findCard("sudo apt upgrade");
+			const message = await focusComposer();
+			elsewhere.upsert([sudoTerminal(true)]);
+			await within(card).findByLabelText("Password for sudo on Mac");
+			expect(message).toHaveFocus();
+			cleanup();
+
+			await startHere("t1");
+			const here = renderCard(running({ command: "sudo apt upgrade" }), {
+				terminal: sudoTerminal(false),
+			});
+			const again = await findCard("sudo apt upgrade");
+			act(() => other.focus());
+			here.upsert([sudoTerminal(true)]);
+			await within(again).findByLabelText("Password for sudo on Mac");
+			expect(other).toHaveFocus();
+		} finally {
+			other.remove();
+		}
+	});
 
 	it("swaps the input line for a secure field, with only Stop", async () => {
 		sudo();

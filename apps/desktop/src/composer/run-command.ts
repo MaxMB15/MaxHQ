@@ -34,6 +34,21 @@ export const runSize = (width: number, cellWidth: number): TerminalSize => ({
 	rows: RUN_ROWS,
 });
 
+/**
+ * The commands this window started that haven't asked for a password yet.
+ * The first time one does, its secure field takes focus, so a password
+ * typed straight after the command goes to it and not to the composer.
+ */
+const startedHere = new Set<TerminalId>();
+
+/** Whether this window started the command in `terminal` and it hasn't asked for a password yet. */
+export const firstAskHere = (terminal: TerminalId): boolean => startedHere.has(terminal);
+
+/** The command in `terminal` asked for a password, so later asks don't take focus. */
+export const askedHere = (terminal: TerminalId): void => {
+	startedHere.delete(terminal);
+};
+
 /** What starting a command came to: its terminal, or why it didn't start. */
 export type Started =
 	| { readonly terminal: TerminalId; readonly error?: undefined }
@@ -65,6 +80,7 @@ export const startRun = async (
 				: t("Couldn't run the command."),
 		};
 	}
+	startedHere.add(terminal);
 	if (!run.private) {
 		const state = view();
 		const place = runPlace(state, run.agent);

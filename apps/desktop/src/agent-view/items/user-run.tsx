@@ -7,7 +7,9 @@
 // field instead. Once it ends it shows the output, folded to its last
 // lines, with Ask about this and Run again. A command run privately with
 // `!!` starts folded and reaches the agent only once you attach it. Moved
-// to the terminal, it shrinks to a line that links to its tab.
+// to the terminal, it shrinks to a line that links to its tab. The first
+// time a command this window started asks for a password, its secure field
+// takes focus from the composer.
 
 import { Menu } from "@base-ui/react/menu";
 import {
@@ -22,7 +24,7 @@ import {
 	Square,
 	SquareTerminal,
 } from "lucide-react";
-import { type ReactNode, useMemo, useRef, useState } from "react";
+import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 
 import { useRow } from "@maxhq/shared/agent-view/context";
 import { useFold } from "@maxhq/shared/agent-view/find-context";
@@ -49,7 +51,7 @@ import { CopyButton } from "@/components/copy-button";
 import { takeOutputBack, useOutputHeld } from "@/composer/output-pills";
 import { MENU_ITEM, MENU_POPUP } from "@/composer/pickers";
 import { quoteInbox } from "@/composer/quote-inbox";
-import { runSize, startRun } from "@/composer/run-command";
+import { askedHere, firstAskHere, runSize, startRun } from "@/composer/run-command";
 import { useTypingPrefs } from "@/composer/typing-prefs";
 import { withParts } from "@/lib/parts";
 import { cn } from "@/lib/utils";
@@ -201,6 +203,11 @@ const RunCard = ({
 	// When the card first drew, for a command that hasn't said when it started.
 	const [drawn] = useState<Timestamp>(() => Date.now());
 	const started: Timestamp = terminal?.started_at ?? item.started_at ?? drawn;
+	// The field takes focus as it shows, and only for the command's first ask.
+	const takeFocus = asking && firstAskHere(item.terminal);
+	useEffect(() => {
+		if (asking) askedHere(item.terminal);
+	}, [asking, item.terminal]);
 
 	/** Runs an action, and says why when it doesn't go. */
 	const act = async (action: () => Promise<ActionResult>, failed: Failed) => {
@@ -465,6 +472,7 @@ const RunCard = ({
 						device,
 					})}
 					onSend={(data) => actions.sendInput(item.device, item.terminal, data)}
+					takeFocus={takeFocus}
 				/>
 			) : null}
 			{acts && !running && held ? (

@@ -4,10 +4,12 @@
 // What you type into a command you ran with `!`: a line of input, or a
 // password when the command stops echoing. Neither field holds what you
 // type anywhere but the page: no state, store, draft or log gets it. Enter
-// sends it straight to the command and the field empties at once.
+// sends it straight to the command and the field empties at once. The
+// password field can take focus from the composer, so a password typed
+// straight after its command never reaches the agent.
 
 import { CornerDownLeft, LockKeyhole } from "lucide-react";
-import { type KeyboardEvent, useRef, useState } from "react";
+import { type KeyboardEvent, useEffect, useLayoutEffect, useRef, useState } from "react";
 
 import { t, useI18n } from "@maxhq/shared/i18n";
 
@@ -81,29 +83,74 @@ export const InputRow = ({
 };
 
 /**
+ * Where focus is, when it's somewhere a password typed now would go
+ * astray: a composer, or `null` for nowhere. `undefined` when it's
+ * anywhere else, such as another field you're typing in.
+ */
+const strayFocus = (): HTMLElement | null | undefined => {
+	const at = document.activeElement;
+	if (!(at instanceof HTMLElement) || at === document.body) return null;
+	return at.closest(".composer-editor") ? at : undefined;
+};
+
+/**
  * The secure field a command asking for a password gets in place of the
  * input row. It's uncontrolled and no form holds it, so the browser and
  * password managers leave it alone, and after Send a new element takes
- * its place.
+ * its place, with focus when the old one had it. With `takeFocus` it
+ * takes focus from a composer or from nowhere when it shows, and hands it
+ * back once the command stops asking.
  */
 export const PasswordField = ({
 	label,
 	onSend,
+	takeFocus = false,
 }: {
 	/** What the field asks for, such as "Password for sudo on devbox". */
 	label: string;
 	/** Types the password and its Enter into the command. */
 	onSend: (data: string) => void;
+	/** Whether it takes focus when it shows, for a command this window started. */
+	takeFocus?: boolean;
 }) => {
 	useI18n();
 	const field = useRef<HTMLInputElement>(null);
 	// Counts the passwords sent, so each one gets a fresh element.
 	const [round, setRound] = useState(0);
+	// Whether the field had focus when a password went, so the fresh one takes it.
+	const kept = useRef(false);
+	// Where focus was before the field took it.
+	const back = useRef<HTMLElement | null>(null);
+
+	useEffect(() => {
+		if (!takeFocus) return;
+		const at = strayFocus();
+		if (at === undefined) return;
+		back.current = at;
+		field.current?.focus();
+	}, [takeFocus]);
+
+	useEffect(() => {
+		if (!kept.current) return;
+		kept.current = false;
+		field.current?.focus();
+	}, [round]);
+
+	// It runs before the field leaves the page, while it still has focus.
+	useLayoutEffect(() => {
+		const current = field;
+		return () => {
+			const to = back.current;
+			if (document.activeElement === current.current && to?.isConnected) to.focus();
+		};
+	}, []);
+
 	const send = () => {
 		const input = field.current;
 		if (!input) return;
 		onSend(`${input.value}\r`);
 		input.value = "";
+		kept.current = document.activeElement === input;
 		setRound((sent) => sent + 1);
 	};
 	return (
