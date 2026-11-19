@@ -170,9 +170,10 @@ pub(super) async fn a_terminal_replays_from_an_offset_without_a_gap(ctx: Ctx) {
     assert!(link.control.input(b"two\n".to_vec()));
     drop(link);
 
+    // The holder may greet the next client before it has read the old
+    // one's last messages, so the new size shows once the output does.
     let mut again = live(&terminals, launch.terminal, Some(first)).await;
     assert_eq!((again.hello.from, again.hello.reset), (first, false));
-    assert_eq!((again.hello.cols, again.hello.rows), (100, 30));
     let mut rest = Seen::from(&again);
     rest.until_text(&mut again, "30 100").await;
     assert!(rest.text().contains("got:two"), "{}", rest.text());
@@ -181,6 +182,7 @@ pub(super) async fn a_terminal_replays_from_an_offset_without_a_gap(ctx: Ctx) {
     // With nothing, a client gets all the holder keeps.
     let mut whole = live(&terminals, launch.terminal, None).await;
     assert_eq!((whole.hello.from, whole.hello.reset), (0, false));
+    assert_eq!((whole.hello.cols, whole.hello.rows), (100, 30));
     let mut all = Seen::from(&whole);
     all.until(&mut whole, false, |seen| seen.end >= rest.end)
         .await;
