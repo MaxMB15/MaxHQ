@@ -7,8 +7,10 @@
 // for Show anyway. What it draws as is in file.ts. More holds Copy path, and
 // Share on iOS, where Save to Files is, or Save on Android, which puts it in
 // a folder you pick, as a visual's Save as .html does. A file the viewer
-// hasn't fetched whole, such as one too large to show, downloads first,
-// with how far it has got in its note and a way to cancel it.
+// hasn't fetched whole, such as one too large to show, downloads first.
+// How far it has got shows in the note in the file's place, or under the
+// file's name once the file itself shows, as after Show anyway, and Cancel
+// is in the note or in More.
 
 import { t, useI18n } from "@maxhq/shared/i18n";
 
@@ -48,7 +50,7 @@ import { Header, IconButton } from "../../ui/Header";
 import { More } from "../../ui/Icon";
 import { MarkdownText } from "../../ui/MarkdownText";
 import { CodeLines } from "./CodeLines";
-import { binaryNote, fileNote, lookOf, mimeOf, noViewNote, saveText } from "./file";
+import { binaryNote, fileNote, headerSaveText, lookOf, mimeOf, noViewNote, saveText } from "./file";
 
 // The words of an error something threw.
 const said = (error: unknown): string => (error instanceof Error ? error.message : String(error));
@@ -409,7 +411,7 @@ const Body = ({
 			return <PdfFile key={url} path={path} url={url} />;
 		case "none":
 			return (
-				<Note text={noViewNote(path, size, Platform.OS)}>
+				<Note text={noViewNote(path, size, Platform.OS)} saving={saving}>
 					<SaveAction save={save} />
 				</Note>
 			);
@@ -429,11 +431,9 @@ export const FileScreen = ({ navigation, route }: ScreenProps<"File">) => {
 	const more = () =>
 		choose(name, [
 			{ label: t("Copy path"), pick: () => copy(path) },
-			{
-				label: saveLabel(),
-				disabled: save.download?.state === "downloading",
-				pick: () => void save.save(),
-			},
+			save.download?.state === "downloading"
+				? { label: t("Cancel downloading {{name}}", { name }), pick: save.cancel }
+				: { label: saveLabel(), pick: () => void save.save() },
 		]);
 	return (
 		<View style={styles.screen}>
@@ -446,7 +446,10 @@ export const FileScreen = ({ navigation, route }: ScreenProps<"File">) => {
 						ellipsizeMode="head"
 						style={styles.path}
 					>
-						{copyLabel(copied, path)}
+						{copyLabel(
+							copied,
+							headerSaveText(path, media, save.download, Platform.OS) ?? path
+						)}
 					</Text>
 				}
 				back={{ label: t("Back"), onPress: () => navigation.goBack() }}

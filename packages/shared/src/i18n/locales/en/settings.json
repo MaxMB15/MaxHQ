@@ -557,7 +557,6 @@
 	"Clone cancelled": "Clone cancelled",
 	"Retry runs it again, and Remove forgets the folder.": "Retry runs it again, and Remove forgets the folder.",
 	"Files not copied": "Files not copied",
-	"{{plural}} {{value2}} copied": "{{plural}} {{value2}} copied",
 	"Dismiss": "Dismiss",
 	"Clone": "Clone",
 	"Couldn't cancel the clone.": "Couldn't cancel the clone.",

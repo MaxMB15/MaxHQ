@@ -14,8 +14,8 @@ import { useServices, useView } from "@/app/services";
 import type { WorkspaceId } from "@maxhq/shared/bindings";
 import type { ActionResult, CloneState, PlaceFailure } from "@maxhq/shared/data/source";
 import { cn } from "@/lib/utils";
-import { plural, sentence } from "@maxhq/shared/status/format";
-import { dismissMissed, useCopy } from "@/workspaces/copy-store";
+import { sentence } from "@maxhq/shared/status/format";
+import { dismissMissed, missedTitle, useMissed } from "@maxhq/shared/workspaces/missed";
 import { cloneOf, cloneWording } from "@maxhq/shared/workspaces/state";
 
 import { failureOf, type SendState } from "@maxhq/shared/agent-view/answer";
@@ -104,21 +104,18 @@ const Missed = ({
 	failed: readonly PlaceFailure[];
 }) => {
 	useI18n();
-	const services = useServices();
+	const { source } = useServices();
 	return (
 		<Frame
 			label={translate("Files not copied")}
 			icon={<FileX size={13} strokeWidth={2.2} />}
-			title={translate("{{plural}} {{value2}} copied", {
-				plural: plural(failed.length, "file"),
-				value2: failed.length === 1 ? "wasn't" : "weren't",
-			})}
+			title={missedTitle(failed.length)}
 			failure={null}
 			actions={
 				<button
 					type="button"
 					className={QUIET}
-					onClick={() => dismissMissed(services, workspace)}
+					onClick={() => dismissMissed(source, workspace)}
 				>
 					{translate("Dismiss")}
 				</button>
@@ -236,16 +233,17 @@ export const CloneBanner = ({
 	className?: string;
 }) => {
 	useI18n();
+	const { source } = useServices();
 	const clone = useView((s) => {
 		const found = s.view.tables.workspace.get(workspace);
 		return found ? cloneOf(found) : null;
 	});
-	const missed = useCopy((s) => s.missed.get(workspace));
-	if (!clone && !missed?.length) return null;
+	const missed = useMissed(source, workspace);
+	if (!clone && missed.length === 0) return null;
 	return (
 		<div className={cn("flex flex-col gap-2", className)}>
 			{clone ? <Clone workspace={workspace} clone={clone} /> : null}
-			{missed?.length ? <Missed workspace={workspace} failed={missed} /> : null}
+			{missed.length > 0 ? <Missed workspace={workspace} failed={missed} /> : null}
 		</div>
 	);
 };

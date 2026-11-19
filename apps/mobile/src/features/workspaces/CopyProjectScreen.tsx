@@ -5,7 +5,8 @@
 // the project, the checkout it comes from, the device it goes to, a new
 // container or a folder there, and the files git ignores to bring along.
 // Once it starts, it follows the new workspace and the files until the copy
-// ends, with the files it couldn't place. The device it goes to must let
+// ends, with the files it couldn't place, which the new workspace's clone
+// banner keeps until you dismiss them. The device it goes to must let
 // this phone do everything, and so must the one it comes from once any
 // file is ticked. The Mac sends its git identity before a copy into a new
 // container; the phone has none to send, so the clone commits as the
@@ -61,6 +62,7 @@ import {
 	transferText,
 	withTick,
 } from "@maxhq/shared/workspaces/copy-form";
+import { keepMissed } from "@maxhq/shared/workspaces/missed";
 import { cloneOf, isLive } from "@maxhq/shared/workspaces/state";
 
 import type { ScreenProps } from "../../navigation";
@@ -265,7 +267,8 @@ const Progress = ({
 const Form = ({ request, close }: { request: CopyRequest; close: () => void }) => {
 	const { t } = useI18n();
 
-	const { source } = useServices();
+	const services = useServices();
+	const { source } = services;
 	const view = useView((s) => s.view);
 	const now = useNow(5000);
 	const live = (id: DeviceId) => isLive(view, id, now);
@@ -369,9 +372,10 @@ const Form = ({ request, close }: { request: CopyRequest; close: () => void }) =
 		const paths = tickedPaths(files, ticked);
 		const before = new Set(all(view, "workspace").map((w) => w.id));
 		const begun: Omit<StartedCopy, "run"> = { plan, before, files: paths.length };
-		await runCopy(source, choices.from, plan, paths, (run: CopyRun) =>
+		const placed = await runCopy(source, choices.from, plan, paths, (run: CopyRun) =>
 			setStarted({ ...begun, run })
 		);
+		keepMissed(source, services.view.getState().view, plan, before, placed);
 	};
 
 	return (

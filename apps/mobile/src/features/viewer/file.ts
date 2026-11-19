@@ -9,7 +9,8 @@
 // PDF in a web view, and Android, whose web view can't, says so. Models and
 // Office documents only give their size, and Save or Share hands them on.
 // Save downloads a file the viewer hasn't fetched whole, of any size, and
-// says how far it has got.
+// says how far it has got: in the note in the file's place, or under the
+// file's name once the file itself shows.
 //
 // The phone can't use Show anyway: it fetches only from the agent's folders,
 // so a file outside them says to show it on the Mac.
@@ -141,6 +142,25 @@ export const saveText = (download: DownloadState | null): string | null => {
 	const percent = downloadPercent(download.sent, download.total);
 	return percent === null ? t("Downloading") : t("Downloading, {{percent}}%", { percent });
 };
+
+/**
+ * Whether a note stands in the file's place, as while it's read or when
+ * the phone can't draw it. That note says how far Save has got.
+ */
+export const noteInPlace = (path: string, media: MediaState | null, os: string): boolean =>
+	media?.state !== "ready" || lookOf(path, os) === "none";
+
+/**
+ * What the header says of Save under the file's name: how far it has got
+ * while the file itself shows, such as a save started before Show anyway,
+ * since no note is there to say it. Null otherwise.
+ */
+export const headerSaveText = (
+	path: string,
+	media: MediaState | null,
+	download: DownloadState | null,
+	os: string
+): string | null => (noteInPlace(path, media, os) ? null : saveText(download));
 
 /** Lines in each block of the list. */
 export const BLOCK = 200;

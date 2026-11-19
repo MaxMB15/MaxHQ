@@ -937,6 +937,8 @@
 	"{{count, number}} unpushed commit_other": "{{count, number}} unpushed commits",
 	"{{count, number}} model_one": "{{count, number}} model",
 	"{{count, number}} model_other": "{{count, number}} models",
+	"{{countText}} files weren't copied_one": "{{countText}} file wasn't copied",
+	"{{countText}} files weren't copied_other": "{{countText}} files weren't copied",
 	"{{count, number}} sub-agent_one": "{{count, number}} sub-agent",
 	"{{count, number}} sub-agent_other": "{{count, number}} sub-agents",
 	"{{days, number}} d {{hours, number}} h": "{{days, number}} d {{hours, number}} h",
