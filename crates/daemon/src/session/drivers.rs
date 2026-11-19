@@ -610,6 +610,7 @@ impl Manager {
             self.parents.remove(agent);
             self.subs.remove(agent);
             self.pace.forget(*agent);
+            self.forget_cards(*agent);
         }
         self.unhold(lead);
         self.adopting.remove(&lead);
