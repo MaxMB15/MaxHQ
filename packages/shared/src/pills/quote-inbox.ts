@@ -8,12 +8,12 @@
 // right away when it's mounted, or when it mounts.
 
 import type { AgentId } from "../bindings";
-import type { OutputRef, QuoteRef } from "./draft";
+import type { OutputRef, QuoteRef, SessionRef } from "./draft";
 import type { VisualTransfer } from "../visuals/transfer";
 
 /** One quote, output or visual for a composer. */
 export type InboundQuote = (
-	| { readonly quote: QuoteRef | OutputRef; readonly visual?: undefined }
+	| { readonly quote: QuoteRef | OutputRef | SessionRef; readonly visual?: undefined }
 	| { readonly visual: VisualTransfer; readonly quote?: undefined }
 ) & {
 	/** Whether the composer takes the focus as it adds the pill. */
@@ -22,8 +22,12 @@ export type InboundQuote = (
 
 /** The quotes and visuals waiting for each agent's composer. */
 export type QuoteInbox = {
-	/** Queues a quote or a command's output for an agent's composer, and tells it. */
-	readonly send: (agent: AgentId, quote: QuoteRef | OutputRef, focus: boolean) => void;
+	/** Queues a quote, a command's output or a session for an agent's composer, and tells it. */
+	readonly send: (
+		agent: AgentId,
+		quote: QuoteRef | OutputRef | SessionRef,
+		focus: boolean
+	) => void;
 	/** Queues a visual for an agent's composer, and tells it. */
 	readonly sendVisual: (agent: AgentId, visual: VisualTransfer, focus: boolean) => void;
 	/** Takes the quotes waiting for an agent, oldest first. */

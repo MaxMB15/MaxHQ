@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026 Max Boksem
 
-import { act, cleanup, fireEvent, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { clearKept } from "@maxhq/shared/agent-view/kept";
@@ -38,6 +38,7 @@ vi.mock("@/terminal", () => ({
 	useTerminalActions: () => ({
 		sendInput: () => {},
 		text: () => seam.live,
+		runningText: () => null,
 		cellSize: () => ({ width: 8, height: 17 }),
 		pasteIntoDrawer: () => {},
 		showInDrawer: () => {},
@@ -513,5 +514,248 @@ describe("output going with a message", () => {
 				text: "Compiled\nwatching for changes",
 			}),
 		]);
+	});
+});
+
+describe("on a device with sessions", () => {
+	const FOLDER = "/Users/dev/code/example-app";
+
+	const RAN: ActionResult = {
+		status: "ok",
+		data: { status: "session_ran", terminal: "s1", item: "card-1", block: 1 },
+	};
+
+	/** The composer of an agent whose Mac's maxd has sessions. */
+	const renderSession = (over: Parameters<typeof renderShell>[0] = {}) => {
+		const rendered = renderShell({ links: [macLink({ protocol: 48 })], ...over });
+		const sessionRun = vi.fn<DataSource["sessionRun"]>(async () => RAN);
+		const sessionCd = vi.fn<DataSource["sessionCd"]>(async () => OPENED);
+		const listFolder = vi.fn<DataSource["listFolder"]>(async (_device, path) => ({
+			status: "ok",
+			data: {
+				status: "listed",
+				listing: { path, home: "/Users/dev", exists: true, entries: [], truncated: false },
+			},
+		}));
+		Object.assign(rendered.source, { sessionRun, sessionCd, listFolder });
+		return { ...rendered, sessionRun, sessionCd, listFolder };
+	};
+
+	const chip = () => screen.getByRole("button", { name: "Pick the folder the session runs in" });
+
+	/** The session's terminal, in the folder it started in. */
+	const sessionTerminal: Entity = {
+		entity: "terminal",
+		id: "s1",
+		agent: AGENT,
+		device: DEVICE,
+		kind: { type: "session" },
+		moved: false,
+		title: "zsh",
+		cwd: FOLDER,
+		status: { state: "running" },
+		busy: false,
+		marks: true,
+		password_prompt: false,
+		started_at: Date.now() - 60_000,
+		cols: 100,
+		rows: 24,
+	};
+
+	/** The open card, its two commands having moved the session to apps/web. */
+	const openCard = timelineItem(
+		{
+			kind: "user_session",
+			terminal: "s1",
+			device: DEVICE,
+			blocks: [1, 2].map((id) => ({
+				id,
+				command: id === 1 ? "cd apps/web" : "pnpm install",
+				cwd: id === 1 ? FOLDER : `${FOLDER}/apps/web`,
+				cwd_after: id === 1 ? `${FOLDER}/apps/web` : null,
+				private: false,
+				process: { state: "exited", code: 0, signal: null } as const,
+				started_at: Date.now() - 30_000,
+				duration_ms: 100,
+				lines: 0,
+				output: "",
+				output_truncated: false,
+				secret_prompts: 0,
+				start: null,
+			})),
+			sealed: false,
+			sent: false,
+		},
+		{ id: "card-1", agent: AGENT, ordinal: 1 }
+	);
+
+	it("shows the agent's folder in a chip, the device, and the session's keys", async () => {
+		renderSession();
+		bang(await findTextbox());
+		await commandField();
+
+		expect(chip()).toHaveTextContent("~/code/example-app");
+		expect(chip().parentElement).toHaveTextContent(/^~\/code\/example-appon Mac$/);
+		expect(screen.getByText(/run in the session$/)).toHaveTextContent("↩ run in the session");
+		expect(screen.getByText(/run in a fresh shell$/)).toHaveTextContent(
+			"⌥↩ run in a fresh shell"
+		);
+		expect(screen.getByText(/keeps this one private$/)).toHaveTextContent(
+			"!! keeps this one private"
+		);
+		expect(screen.queryByText(/^Runs in/)).toBeNull();
+		expect(screen.queryByText(/^Session · /)).toBeNull();
+	});
+
+	it("runs on ↩ in the session, and on ⌥↩ in a fresh shell", async () => {
+		const { sessionRun, openTerminal } = renderSession();
+		const textbox = await findTextbox();
+		bang(textbox);
+		typeCommand(await commandField(), "pnpm test");
+
+		fireEvent.keyDown(await commandField(), { key: "Enter" });
+
+		await waitFor(() =>
+			expect(sessionRun).toHaveBeenCalledExactlyOnceWith(AGENT, "pnpm test", {
+				private: false,
+				fresh: false,
+				size: { cols: 20, rows: RUN_ROWS },
+			})
+		);
+		await waitFor(() =>
+			expect(screen.queryByRole("textbox", { name: "Command to run" })).toBeNull()
+		);
+		// The session's pill stands for its commands, so none of the command's own.
+		expect(pillsIn(textbox)).toEqual([]);
+
+		bang(textbox);
+		typeCommand(await commandField(), "pnpm dev");
+		fireEvent.keyDown(await commandField(), { key: "Enter", altKey: true });
+
+		await waitFor(() => expect(sessionRun).toHaveBeenCalledTimes(2));
+		expect(sessionRun).toHaveBeenLastCalledWith(AGENT, "pnpm dev", {
+			private: false,
+			fresh: true,
+			size: { cols: 20, rows: RUN_ROWS },
+		});
+		expect(openTerminal).not.toHaveBeenCalled();
+	});
+
+	it("sends a private command as private", async () => {
+		const { sessionRun } = renderSession();
+		bang(await findTextbox());
+		const field = await commandField();
+		typeCommand(field, "cat .env");
+		keyAtStart(field, "!");
+		const secret = await screen.findByRole<HTMLTextAreaElement>("textbox", {
+			name: "Command to run privately",
+		});
+		expect(screen.getByText("The agent won't see the output")).toBeInTheDocument();
+
+		fireEvent.keyDown(secret, { key: "Enter" });
+
+		await waitFor(() =>
+			expect(sessionRun).toHaveBeenCalledWith(
+				AGENT,
+				"cat .env",
+				expect.objectContaining({ private: true, fresh: false })
+			)
+		);
+	});
+
+	it("holds a fresh shell's output pill, as a command of its own does", async () => {
+		const { sessionRun } = renderSession();
+		sessionRun.mockResolvedValue(OPENED);
+		const textbox = await findTextbox();
+		bang(textbox);
+		typeCommand(await commandField(), "pnpm test");
+
+		fireEvent.keyDown(await commandField(), { key: "Enter", altKey: true });
+
+		await waitFor(() => expect(pillsIn(textbox)).toEqual(["Output of pnpm test, running"]));
+	});
+
+	it("keeps the command and says why when the session doesn't take it", async () => {
+		const { sessionRun } = renderSession();
+		sessionRun.mockResolvedValue({
+			status: "ok",
+			data: { status: "refused", reason: "Sessions aren't ready yet." },
+		});
+		bang(await findTextbox());
+		typeCommand(await commandField(), "pnpm test");
+
+		fireEvent.keyDown(await commandField(), { key: "Enter" });
+
+		expect(await screen.findByRole("alert")).toHaveTextContent(
+			"Couldn't run the command. Sessions aren't ready yet."
+		);
+		expect((await commandField()).value).toBe("pnpm test");
+	});
+
+	it("counts the open card's commands, and shows the folder the session is in now", async () => {
+		renderSession({
+			sent: [openCard],
+			more: [...entities({ workspaces: [home()] }), sessionTerminal],
+		});
+		bang(await findTextbox());
+		await commandField();
+
+		expect(chip()).toHaveTextContent("~/code/example-app/apps/web");
+		expect(screen.getByText(/^Session · /)).toHaveTextContent("Session · 2 commands");
+	});
+
+	it("moves the session to the folder you choose on the agent's device", async () => {
+		const { sessionCd, listFolder } = renderSession();
+		bang(await findTextbox());
+		await commandField();
+
+		fireEvent.click(chip());
+
+		const dialog = await screen.findByRole("dialog", { name: "Choose a folder on Mac" });
+		await waitFor(() => expect(listFolder).toHaveBeenCalled());
+		expect(listFolder.mock.calls[0]!.slice(0, 2)).toEqual([DEVICE, FOLDER]);
+		fireEvent.click(within(dialog).getByRole("button", { name: "Choose" }));
+
+		await waitFor(() => expect(sessionCd).toHaveBeenCalledExactlyOnceWith(AGENT, FOLDER));
+		expect(screen.queryByRole("alert")).toBeNull();
+	});
+
+	it("says why the session didn't move", async () => {
+		const { sessionCd } = renderSession();
+		sessionCd.mockResolvedValue({
+			status: "ok",
+			data: { status: "refused", reason: "A command still runs in the session" },
+		});
+		bang(await findTextbox());
+		await commandField();
+		fireEvent.click(chip());
+		const dialog = await screen.findByRole("dialog", { name: "Choose a folder on Mac" });
+
+		await waitFor(() =>
+			expect(within(dialog).getByRole("button", { name: "Choose" })).toBeEnabled()
+		);
+		fireEvent.click(within(dialog).getByRole("button", { name: "Choose" }));
+
+		expect(await screen.findByRole("alert")).toHaveTextContent(
+			"Couldn't move the session. A command still runs in the session."
+		);
+	});
+
+	it("stays as before, with no chip, on a maxd before sessions", async () => {
+		const { sessionRun, openTerminal } = renderSession({ links: [macLink({ protocol: 47 })] });
+		bang(await findTextbox());
+		const field = await commandField();
+
+		expect(
+			screen.queryByRole("button", { name: "Pick the folder the session runs in" })
+		).toBeNull();
+		expect(screen.getByText(/^Runs in/)).toHaveTextContent("Runs in ~/code/example-app on Mac");
+		expect(screen.queryByText(/run in a fresh shell$/)).toBeNull();
+		typeCommand(field, "pnpm test");
+
+		fireEvent.keyDown(field, { key: "Enter" });
+
+		await waitFor(() => expect(openTerminal).toHaveBeenCalledOnce());
+		expect(sessionRun).not.toHaveBeenCalled();
 	});
 });

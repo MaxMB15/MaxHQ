@@ -51,7 +51,23 @@ describe("runsCommand", () => {
 	});
 });
 
+describe("tabTitle", () => {
+	it("calls the session Session, whatever its shell sets", () => {
+		expect(tabTitle(terminal({ kind: { type: "session" }, title: "pnpm dev" }))).toBe(
+			"Session"
+		);
+		expect(tabTitle(terminal({ title: "" }))).toBe("example-app");
+	});
+});
+
 describe("runningCommand", () => {
+	it("names what a busy session runs by its shell's title, or Session", () => {
+		const session = { kind: { type: "session" } as const, busy: true };
+		expect(runningCommand(terminal({ ...session, title: "pnpm test" }))).toBe("pnpm test");
+		expect(runningCommand(terminal({ ...session, title: "" }))).toBe("Session");
+		expect(runningCommand(terminal({ ...session, busy: false }))).toBeNull();
+	});
+
 	it("names what a busy shell runs by its tab, and what you ran by its command", () => {
 		expect(runningCommand(terminal({ title: "pnpm dev", busy: true }))).toBe("pnpm dev");
 		expect(runningCommand(terminal({ title: "server", busy: true }))).toBe("server");

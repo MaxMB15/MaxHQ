@@ -53,7 +53,8 @@ export type PlacedPill =
 	| QuoteRef
 	| AgentRef
 	| NoteRef
-	| OutputRef;
+	| OutputRef
+	| SessionRef;
 
 /** The key of the staged file a pill stands for, or null when it stands for none. */
 export const fileKeyOf = (pill: PlacedPill): string | null =>
@@ -607,6 +608,9 @@ export const plainText = (
 				return;
 			case "note":
 				out += noteMarker(pill.title);
+				return;
+			case "session":
+				out += sessionMarker(pill);
 				return;
 			case "visual": {
 				const html = pageOf(pill.key);

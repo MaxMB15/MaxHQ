@@ -141,6 +141,7 @@ import { ImageNote } from "./image-note";
 import { useComposerNative } from "./native";
 import { useOutputFill } from "./output-pill";
 import { useHeldOutputs } from "./output-pills";
+import { useSessionFill, useSessionPills } from "./session-pill";
 import { type PaneFile, usePaneFiles } from "./pane-files";
 import { nextPastedTextFileName, pastesAsFile } from "./paste";
 import { EffortPicker } from "./effort-picker";
@@ -425,6 +426,8 @@ const ComposerBody = ({
 	});
 	const fillOutputs = useOutputFill(timeline);
 	useHeldOutputs(agent.id, draft.segments, editor);
+	const fillSessions = useSessionFill(timeline);
+	useSessionPills(agent.id, timeline, draft.segments, editor, where);
 	const [waitingForFiles, setWaitingForFiles] = useState(false);
 	const [sending, setSending] = useState(false);
 	const [over, setOver] = useState(false);
@@ -862,7 +865,7 @@ const ComposerBody = ({
 			// The space after a last pill doesn't go out.
 			const input = withExcerpts(
 				toUserInput(
-					{ segments: fillOutputs(trimEnd(segments)), gitItems },
+					{ segments: fillSessions(fillOutputs(trimEnd(segments))), gitItems },
 					(key): AttachmentId | null => ids.get(key) ?? null,
 					// An older maxd gets a visual as its page's file.
 					{ visuals: sendsVisuals(services.view.getState().view, device) }

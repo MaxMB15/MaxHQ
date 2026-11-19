@@ -6,13 +6,24 @@
 // command behind it (see `mock-terminal-stream.ts`), and an interrupt sends
 // it Ctrl-C. A command you ran with `!` adds a "You ran" card to the
 // agent's timeline, which gets how it ended and what it printed, as `maxd`
-// does.
+// does. The session calls (see `mock-sessions.ts`) run in the same
+// terminals.
 
-import type { AgentId, ItemId, Terminal, TerminalId, TerminalStatus } from "../bindings";
+import type {
+	AgentId,
+	DeviceId,
+	FreshReason,
+	ItemId,
+	Terminal,
+	TerminalId,
+	TerminalKind,
+	TerminalStatus,
+} from "../bindings";
 import { runsCommand } from "../terminal/drawer";
-import type { TerminalCalls } from "../terminal/requests";
+import type { TerminalCalls, TerminalSize } from "../terminal/requests";
 import type { TerminalStream } from "../terminal/stream";
 import type { FleetContext } from "./mock-fleet";
+import { type MockSessionCalls, mockSessionCalls, SAMPLE_SESSION } from "./mock-sessions";
 import { mockTerminalStream } from "./mock-terminal-stream";
 import type { MockTimelines } from "./mock-timeline";
 import type { ActionResult, CommandResult } from "./source";
@@ -59,14 +70,19 @@ const runItem = (terminal: TerminalId): ItemId => `run-${terminal}`;
 const defaultTitle = (terminal: Pick<Terminal, "kind">) =>
 	terminal.kind.type === "run" ? terminal.kind.command : "zsh";
 
+/** The mock terminal calls, with the session calls and what tells them a message went. */
+export type MockTerminalCalls = TerminalCalls &
+	Omit<MockSessionCalls, "sessionClosed"> & { readonly terminalStream: TerminalStream };
+
 /**
  * The terminal calls over the sample entities, and their bytes. With
- * `runs`, a `!` run shows as a card in its agent's timeline.
+ * `runs`, a `!` run shows as a card in its agent's timeline, and a
+ * session's commands as blocks in its card.
  */
 export const mockTerminals = (
 	context: FleetContext,
 	runs?: Pick<MockTimelines, "post" | "amend">
-): TerminalCalls & { readonly terminalStream: TerminalStream } => {
+): MockTerminalCalls => {
 	const { now, change } = context;
 	let opened = 0;
 	const find = (id: TerminalId): Terminal | undefined => {
@@ -90,6 +106,14 @@ export const mockTerminals = (
 				return { device: e.device, cwd: e.location.path };
 		}
 		return undefined;
+	};
+	/** Whether Shell integration is on for a device. A maxd that doesn't say adds no hooks. */
+	const deviceMarks = (device: DeviceId) => {
+		for (const e of context.entities()) {
+			if (e.entity === "device_settings" && e.device === device)
+				return e.shell_integration === true;
+		}
+		return false;
 	};
 	/** Ends a `!` run's card as `process` says, with what it printed. */
 	const endRun = (terminal: Terminal, process: TerminalStatus) => {
@@ -118,70 +142,104 @@ export const mockTerminals = (
 			const terminal = find(id);
 			return terminal ? act(terminal, ...args) : notFound(`terminal ${id}`);
 		};
-	const { start, interrupt, end, named, printed, ...terminalStream } = mockTerminalStream({
-		find,
-		edit,
+	const { start, interrupt, end, named, printed, command, idle, cwd, ...terminalStream } =
+		mockTerminalStream({
+			find,
+			edit,
+			now,
+			exited: (id) => {
+				const terminal = find(id);
+				if (terminal) endRun(terminal, terminal.status);
+			},
+			marks: (terminal) => deviceMarks(terminal.device),
+		});
+	/** Opens a terminal in `cwd`, or the agent's folder, and a `!` run's card. */
+	const open = (
+		agent: AgentId,
+		kind: TerminalKind,
+		{ cols, rows }: TerminalSize,
+		{ cwd: folder, fresh }: { readonly cwd?: string; readonly fresh?: FreshReason } = {}
+	): ActionResult => {
+		const place = placeOf(agent);
+		if (!place) return notFound(`agent ${agent}`);
+		const where = folder ?? place.cwd;
+		opened += 1;
+		const terminal: Terminal = {
+			id: `0199a7c2-0000-7000-8000-${opened.toString(16).padStart(12, "0")}`,
+			agent,
+			device: place.device,
+			kind,
+			moved: false,
+			title: defaultTitle({ kind }),
+			cwd: where,
+			status: { state: "running" },
+			busy: false,
+			// The mock lets through only the marks it adds itself.
+			marks: true,
+			password_prompt: false,
+			started_at: now(),
+			cols,
+			rows,
+		};
+		change((base) => [...base, { entity: "terminal", ...terminal }]);
+		if (kind.type === "run")
+			runs?.post(
+				agent,
+				{
+					kind: "user_run",
+					terminal: terminal.id,
+					command: kind.command,
+					cwd: where,
+					device: place.device,
+					private: kind.private,
+					process: { state: "running" },
+					duration_ms: null,
+					lines: 0,
+					output: "",
+					output_truncated: false,
+					moved: false,
+					...(fresh ? { fresh } : {}),
+				},
+				"running",
+				runItem(terminal.id)
+			);
+		start(terminal);
+		return { status: "ok", data: { status: "terminal_opened", terminal: terminal.id } };
+	};
+	/** Closes a terminal for good, hanging up what runs in it. */
+	const close = (terminal: Terminal) => {
+		if (terminal.status.state === "running")
+			endRun(terminal, { state: "exited", code: null, signal: SIGHUP });
+		if (terminal.kind.type === "session") sessionClosed(terminal.id);
+		end(terminal.id);
+		change((base) => base.filter((e) => !(e.entity === "terminal" && e.id === terminal.id)));
+	};
+	const { sessionClosed, ...sessionCalls } = mockSessionCalls({
 		now,
-		exited: (id) => {
+		find,
+		placeOf,
+		open,
+		close: (id) => {
 			const terminal = find(id);
-			if (terminal) endRun(terminal, terminal.status);
+			if (terminal) close(terminal);
 		},
-		// A maxd that doesn't say adds no hooks.
-		marks: (terminal) => {
-			for (const e of context.entities()) {
-				if (e.entity === "device_settings" && e.device === terminal.device)
-					return e.shell_integration === true;
-			}
-			return false;
-		},
+		stream: { command, idle, cwd },
+		marks: deviceMarks,
+		stillRunning: STILL_RUNNING,
+		runs,
 	});
+	// The sample's sessions ran before the app opened.
+	for (const e of context.entities()) {
+		if (e.entity !== "terminal" || e.kind.type !== "session" || e.status.state !== "running")
+			continue;
+		if (e.id === SAMPLE_SESSION.terminal)
+			start({ ...e, cwd: SAMPLE_SESSION.cwd }, SAMPLE_SESSION.replay);
+		else start(e);
+	}
 	return {
 		terminalStream,
-		openTerminal: async (agent, kind, { cols, rows }) => {
-			const place = placeOf(agent);
-			if (!place) return notFound(`agent ${agent}`);
-			opened += 1;
-			const terminal: Terminal = {
-				id: `0199a7c2-0000-7000-8000-${opened.toString(16).padStart(12, "0")}`,
-				agent,
-				device: place.device,
-				kind,
-				moved: false,
-				title: defaultTitle({ kind }),
-				cwd: place.cwd,
-				status: { state: "running" },
-				busy: false,
-				// The mock lets through only the marks it adds itself.
-				marks: true,
-				password_prompt: false,
-				started_at: now(),
-				cols,
-				rows,
-			};
-			change((base) => [...base, { entity: "terminal", ...terminal }]);
-			if (kind.type === "run")
-				runs?.post(
-					agent,
-					{
-						kind: "user_run",
-						terminal: terminal.id,
-						command: kind.command,
-						cwd: place.cwd,
-						device: place.device,
-						private: kind.private,
-						process: { state: "running" },
-						duration_ms: null,
-						lines: 0,
-						output: "",
-						output_truncated: false,
-						moved: false,
-					},
-					"running",
-					runItem(terminal.id)
-				);
-			start(terminal);
-			return { status: "ok", data: { status: "terminal_opened", terminal: terminal.id } };
-		},
+		...sessionCalls,
+		openTerminal: async (agent, kind, size) => open(agent, kind, size),
 		attachTerminal: async (id) => (find(id) ? OK : notFound(`terminal ${id}`)),
 		detachTerminal: async () => OK,
 		resizeTerminal: async (id, size) => {
@@ -196,12 +254,7 @@ export const mockTerminals = (
 		}),
 		closeTerminal: withTerminal((terminal, force = false) => {
 			if (!force && runsCommand(terminal)) return refused(STILL_RUNNING);
-			if (terminal.status.state === "running")
-				endRun(terminal, { state: "exited", code: null, signal: SIGHUP });
-			end(terminal.id);
-			change((base) =>
-				base.filter((e) => !(e.entity === "terminal" && e.id === terminal.id))
-			);
+			close(terminal);
 			return DONE;
 		}),
 		renameTerminal: withTerminal((terminal, title: string) => {
@@ -211,6 +264,8 @@ export const mockTerminals = (
 		}),
 		moveTerminal: withTerminal((terminal) => {
 			if (terminal.kind.type === "shell") return refused("A shell is already in the drawer.");
+			if (terminal.kind.type === "session")
+				return refused("The session is already in the drawer.");
 			if (terminal.moved) return refused("This command is already in the drawer.");
 			edit(terminal.id, (t) => ({ ...t, moved: true }));
 			runs?.amend(terminal.agent, runItem(terminal.id), (item) =>

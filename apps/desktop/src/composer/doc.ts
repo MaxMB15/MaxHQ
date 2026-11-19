@@ -18,6 +18,7 @@ export const PILL_NODES = {
 	agent: "agentPill",
 	note: "notePill",
 	output: "outputPill",
+	session: "sessionPill",
 } as const satisfies Record<PlacedPill["type"], string>;
 
 /** The staged file a node's pill stands for, or null when it stands for none. */
@@ -56,6 +57,7 @@ export const pillOf = (node: ProseNode): PlacedPill | null => {
 		case PILL_NODES.agent:
 		case PILL_NODES.note:
 		case PILL_NODES.output:
+		case PILL_NODES.session:
 			return node.attrs.ref as PlacedPill;
 		default:
 			return null;

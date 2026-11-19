@@ -173,8 +173,8 @@ export const renameTab = async (services: Services, terminal: TerminalId, name: 
 };
 
 /**
- * Starts an exited tab over: a new shell, or the same command moved to the
- * drawer, in its place.
+ * Starts an exited tab over: a new shell, the same command moved to the
+ * drawer, or a new session in the folder the last one ended in, in its place.
  */
 export const restartTab = async (services: Services, terminal: TerminalEntity): Promise<void> => {
 	const { agent, kind } = terminal;
@@ -185,7 +185,9 @@ export const restartTab = async (services: Services, terminal: TerminalEntity): 
 					private: kind.private,
 					size,
 				})
-			: await openShell(services.source, agent, size);
+			: kind.type === "session"
+				? await services.source.sessionCd(agent, terminal.cwd)
+				: await openShell(services.source, agent, size);
 	const next = openedTerminal(result);
 	if (!next) return fail(services, failureOf(result) ?? t("Couldn't open a terminal."));
 	if (kind.type === "run") await services.source.moveTerminal(next);

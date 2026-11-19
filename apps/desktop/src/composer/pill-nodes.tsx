@@ -2,7 +2,7 @@
 // Copyright (c) 2026 Max Boksem
 
 // The pills that take a place in the text: a file, a visual, a quote, an
-// agent, a note and a command's output.
+// agent, a note, a command's output and a shell session's commands.
 // Each is one atom that reads as one object mark, so the draft's offsets,
 // spell check and the sent text all count it as one character. The nodes
 // keep only what names the pill. A file's state lives in the composer's
@@ -15,6 +15,7 @@ import {
 	OBJECT_MARK,
 	type OutputRef,
 	type QuoteRef,
+	type SessionRef,
 	type VisualPill as VisualPillRef,
 } from "@maxhq/shared/pills/draft";
 import { visualBytes } from "@maxhq/shared/visuals/visual";
@@ -35,6 +36,7 @@ import { type AttachmentsStore, type Chip, chipDetail } from "./attachments";
 import { PILL_NAMES, PILL_NODES } from "./doc";
 import type { ComposerNative } from "./native";
 import { useOutputPill } from "./output-pill";
+import { useSessionPill } from "./session-pill";
 import { useThumbnail } from "./thumbnail";
 import { t as translate, useI18n } from "@maxhq/shared/i18n";
 
@@ -269,6 +271,17 @@ const OutputPillView = ({ node, selected }: ReactNodeViewProps) => {
 	);
 };
 
+const SessionPillView = ({ node, selected }: ReactNodeViewProps) => {
+	useI18n();
+	const { now, timeline, agent } = usePills();
+	const presentation = useSessionPill(node.attrs.ref as SessionRef, timeline, agent, now);
+	return (
+		<NodeViewWrapper as="span" className="pill-node" contentEditable={false}>
+			<ShownPill presentation={presentation} selected={selected} />
+		</NodeViewWrapper>
+	);
+};
+
 const pillNode = (
 	name: string,
 	attribute: "key" | "ref",
@@ -302,6 +315,7 @@ export const QuotePill = pillNode(PILL_NODES.quote, "ref", QuotePillView);
 export const AgentPill = pillNode(PILL_NODES.agent, "ref", AgentPillView);
 export const NotePill = pillNode(PILL_NODES.note, "ref", NotePillView);
 export const OutputPill = pillNode(PILL_NODES.output, "ref", OutputPillView);
+export const SessionPill = pillNode(PILL_NODES.session, "ref", SessionPillView);
 
 /**
  * Makes each pill read as one object mark wherever ProseMirror turns the
@@ -322,5 +336,6 @@ export const PILL_EXTENSIONS = [
 	AgentPill,
 	NotePill,
 	OutputPill,
+	SessionPill,
 	PillText,
 ];

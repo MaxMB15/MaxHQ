@@ -52,6 +52,14 @@ export type TerminalActions = {
 		terminal: TerminalId,
 		lines: number
 	) => { readonly text: string; readonly total: number } | null;
+	/**
+	 * What the command running in a terminal printed so far, by its shell's
+	 * marks, and how many lines that is, or null when this window doesn't
+	 * hold it or nothing marked runs.
+	 */
+	readonly runningText: (
+		terminal: TerminalId
+	) => { readonly text: string; readonly total: number } | null;
 	/** One cell of the terminal font, in CSS pixels. */
 	readonly cellSize: () => { readonly width: number; readonly height: number };
 	/**
@@ -73,6 +81,16 @@ export const useTerminalActions = (): TerminalActions => {
 			sendInput: (_device, terminal, data) =>
 				services.source.terminalStream?.input(terminal, encoder.encode(data)),
 			text: (terminal, lines) => registryOf(services)?.view(terminal)?.text(lines) ?? null,
+			runningText: (terminal) => {
+				const view = registryOf(services)?.view(terminal);
+				const last = view?.commands().at(-1);
+				const shown = last?.running ? view?.output(last.id) : null;
+				if (!shown) return null;
+				return {
+					text: shown.text,
+					total: shown.text === "" ? 0 : shown.text.split("\n").length,
+				};
+			},
 			cellSize,
 			pasteIntoDrawer: (agent, text) => void pasteIntoDrawer(services, agent, text),
 			showInDrawer: (agent, terminal) => showInDrawer(services, agent, terminal),

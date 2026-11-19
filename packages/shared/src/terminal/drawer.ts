@@ -12,16 +12,21 @@
 // shell or its theme may set any title at the prompt, and you may rename it.
 
 import type { AgentId, LineSpan } from "../bindings";
+import { t } from "../i18n";
 import type { OutputRef } from "../pills/draft";
 import { all, type ViewState } from "../view/replica";
 
 import type { CommandMark } from "./marks";
 import type { TerminalEntity } from "./select";
 
-/** What a tab shows: its title, or the command it was opened for. */
+/** What a tab shows: "Session" for the session, else its title, or the command it was opened for. */
 export const tabTitle = (terminal: TerminalEntity): string =>
-	terminal.title.trim() ||
-	(terminal.kind.type === "run" ? terminal.kind.command : terminal.cwd.split("/").pop() || "~");
+	terminal.kind.type === "session"
+		? t("Session")
+		: terminal.title.trim() ||
+			(terminal.kind.type === "run"
+				? terminal.kind.command
+				: terminal.cwd.split("/").pop() || "~");
 
 /** Whether a command runs in the terminal now. */
 export const runsCommand = (terminal: Pick<TerminalEntity, "kind" | "status" | "busy">): boolean =>
@@ -33,7 +38,10 @@ export const runsCommand = (terminal: Pick<TerminalEntity, "kind" | "status" | "
  */
 export const runningCommand = (terminal: TerminalEntity): string | null => {
 	if (!runsCommand(terminal)) return null;
-	return terminal.kind.type === "run" ? terminal.kind.command : tabTitle(terminal);
+	if (terminal.kind.type === "run") return terminal.kind.command;
+	// A session's shell names the command it runs, as a shell may.
+	if (terminal.kind.type === "session") return terminal.title.trim() || tabTitle(terminal);
+	return tabTitle(terminal);
 };
 
 /**
