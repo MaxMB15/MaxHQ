@@ -14,6 +14,7 @@ import {
 	devBuildSteps,
 	exportOptions,
 	installSteps,
+	ipaPath,
 	needsDevBuild,
 	NO_PHONE,
 	onlyPhone,
@@ -148,6 +149,17 @@ describe("testflightSteps", () => {
 		}
 		expect(archive!.args.at(-1)).toBe("archive");
 		expect(testflightSteps(local)[1]!.args).not.toContain("-authenticationKeyPath");
+	});
+
+	it("keeps the same build as an .ipa for the release workflow to upload later", () => {
+		const plist = exportOptions(local.teamId, "ipa");
+		expect(plist).toContain("<key>method</key>\n\t<string>app-store-connect</string>");
+		expect(plist).toContain("<key>destination</key>\n\t<string>export</string>");
+		expect(plist).toContain("<key>manageAppVersionAndBuildNumber</key>\n\t<false/>");
+		expect(plist).toContain("<key>signingStyle</key>\n\t<string>automatic</string>");
+		expect(plist).toContain("<key>teamID</key>\n\t<string>ABCDE12345</string>");
+		// .github/workflows/release.yml keeps the artifact from this path.
+		expect(ipaPath(local)).toBe("ios/build/export/MaxHQ.ipa");
 	});
 });
 

@@ -9,8 +9,9 @@
 //   core [--release]                  the Rust core for both Apple targets
 //   dev [--simulator] [--rebuild]     the core, a new dev build when the
 //                                     fingerprint changed, then Metro
-//   testflight                        the core in release, the check, archive
-//                                     and upload
+//   testflight [--ipa]                the core in release, the check, archive
+//                                     and upload, or with --ipa the signed
+//                                     .ipa kept instead of uploaded
 //   install                           the core in release, then the
 //                                     production app archived, signed ad hoc
 //                                     and installed on the paired iPhone
@@ -19,7 +20,9 @@
 //                                     number for this run and attempt
 //
 // With MAXHQ_BUILD_NUMBER set, as the release workflow sets it, testflight
-// uploads under that number and leaves native-build.json alone.
+// numbers the build with it and leaves native-build.json alone. --ipa needs
+// that number: the workflow keeps the .ipa and uploads it in a later job,
+// once every build of the release has passed.
 //
 // --dry-run prints the commands instead of running them and writes nothing.
 
@@ -42,6 +45,7 @@ import {
 	EXPORT_OPTIONS_FILE,
 	exportOptions,
 	installSteps,
+	ipaPath,
 	metroStep,
 	NATIVE_BUILD_FILE,
 	needsDevBuild,
@@ -173,6 +177,9 @@ const release = (steps: Step[], teamId: string, kind: ExportKind) => {
 };
 
 const testflight = async () => {
+	const keep = flags.includes("--ipa");
+	if (keep && !process.env[BUILD_NUMBER_ENV])
+		fail(`--ipa is for the release workflow, which sets ${BUILD_NUMBER_ENV}.`);
 	const local = readIosLocal(appDir) ?? fail(MISSING_LOCAL);
 	const key = apiKeyFromEnv(process.env);
 	if (key && !dryRun && !existsSync(key.path)) fail("The API key file isn't there.");
@@ -190,8 +197,13 @@ const testflight = async () => {
 		const buildNumber = resolveBuildNumber(record, numbered);
 		run(coreSteps(true));
 		console.log(`Build ${buildNumber}, numbered by ${BUILD_NUMBER_ENV}.`);
-		release(testflightSteps(local, key), local.teamId, "testflight");
-		if (!dryRun) console.log(`Build ${buildNumber} is on its way to TestFlight.`);
+		release(testflightSteps(local, key), local.teamId, keep ? "ipa" : "testflight");
+		if (!dryRun)
+			console.log(
+				keep
+					? `Build ${buildNumber} is signed for TestFlight in apps/mobile/${ipaPath(local)}.`
+					: `Build ${buildNumber} is on its way to TestFlight.`
+			);
 		return;
 	}
 	run(coreSteps(true));

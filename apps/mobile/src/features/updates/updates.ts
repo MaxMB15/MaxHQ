@@ -5,11 +5,17 @@
 // build in mobile.json, next to the Mac's latest.json; the phone reads it
 // from the newest release, offers a newer version in TestFlight, and
 // remembers the version whose banner you dismissed. It also finds the
-// devices whose maxd speaks only protocols newer than this app's.
+// devices whose maxd shares no protocol with this app, and which side is
+// older.
 
 import { t } from "@maxhq/shared/i18n";
 
-import { type DeviceLink, PROTOCOL_VERSION } from "@maxhq/shared/bindings";
+import {
+	type DeviceLink,
+	OLDEST_PROTOCOL_VERSION,
+	PROTOCOL_VERSION,
+	type ProtocolRange,
+} from "@maxhq/shared/bindings";
 import { formatAgo } from "@maxhq/shared/status/format";
 import { all, type ViewState } from "@maxhq/shared/view/replica";
 
@@ -113,8 +119,9 @@ export type CheckOutcome =
 	| { readonly kind: "failed"; readonly reason: string };
 
 /**
- * A check's answer from mobile.json's HTTP status and text. A release
- * whose iPhone build failed has no mobile.json, so GitHub answers 404.
+ * A check's answer from mobile.json's HTTP status and text. A release made
+ * before the iPhone build joined the release has no mobile.json, so GitHub
+ * answers 404.
  */
 export const outcomeOf = (status: number, text: string): CheckOutcome => {
 	if (status === 404) return { kind: "none" };
@@ -179,27 +186,49 @@ export const testflightLinks = (appStoreId: string | null): string[] => [
 	"itms-beta://",
 ];
 
-/** A device whose maxd speaks only protocols newer than this app's. */
-export type TooNew = {
+/** The protocols this app speaks. */
+const OURS: ProtocolRange = { current: PROTOCOL_VERSION, oldest: OLDEST_PROTOCOL_VERSION };
+
+/** Which side of a protocol mismatch is older, so which one to update. */
+export type OlderSide = "app" | "maxd";
+
+/**
+ * The older side when a link's last hello found no protocol in common, or
+ * null when it found one or the device didn't say which it speaks.
+ */
+export const olderSide = (link: DeviceLink, ours: ProtocolRange = OURS): OlderSide | null => {
+	const theirs = link.protocol_mismatch;
+	if (!theirs) return null;
+	if (theirs.oldest > ours.current) return "app";
+	if (theirs.current < ours.oldest) return "maxd";
+	return null;
+};
+
+/** A device whose maxd and this app share no protocol. */
+export type Mismatch = {
 	readonly link: string;
 	readonly name: string;
 	/** The newest protocol its maxd speaks. */
 	readonly theirs: number;
+	readonly older: OlderSide;
 };
 
-/** Whether a link's last hello found its maxd too new for this app. */
-export const tooNewFor = (link: DeviceLink, ours: number = PROTOCOL_VERSION): boolean =>
-	(link.protocol_mismatch?.oldest ?? 0) > ours;
-
-/** The devices whose maxd this app is too old to talk to, by name. */
-export const appTooOld = (view: ViewState, ours: number = PROTOCOL_VERSION): TooNew[] =>
+/** The devices this app can't talk to for their protocol, by name. */
+export const mismatches = (view: ViewState, ours: ProtocolRange = OURS): Mismatch[] =>
 	all(view, "device_link")
-		.filter((link) => tooNewFor(link, ours))
-		.map((link) => ({
-			link: link.id,
-			name: link.name,
-			theirs: link.protocol_mismatch!.current,
-		}))
+		.flatMap((link): Mismatch[] => {
+			const older = olderSide(link, ours);
+			return older
+				? [
+						{
+							link: link.id,
+							name: link.name,
+							theirs: link.protocol_mismatch!.current,
+							older,
+						},
+					]
+				: [];
+		})
 		.sort((a, b) => a.name.localeCompare(b.name));
 
 /** An error's words, for "Couldn't check for updates: …". */

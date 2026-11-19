@@ -69,15 +69,18 @@ export type IosConfig = {
 	bundleIdentifier: string;
 	appleTeamId?: string;
 	entitlements: Record<string, unknown>;
-	infoPlist: Record<string, string>;
+	infoPlist: Record<string, unknown>;
 	push: boolean;
 	appGroup: string | null;
 };
 
 // iOS asks once before the app reaches a device's network access on the
-// local network, and shows this line.
+// local network, and shows this line. App Transport Security lets plain
+// http through to local addresses only, such as a page on a forwarded port
+// at 127.0.0.1; everything else still needs https.
 const INFO_PLIST = {
 	NSLocalNetworkUsageDescription: "MaxHQ reaches your Mac and other devices on your network.",
+	NSAppTransportSecurity: { NSAllowsLocalNetworking: true },
 };
 
 // The signed build gets push, an app group and a Keychain access group, all

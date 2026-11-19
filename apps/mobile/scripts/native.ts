@@ -184,13 +184,20 @@ ${Object.entries(entries)
 `;
 
 // How an archive leaves the Mac. TestFlight's goes straight to App Store
-// Connect. An install's is an .ipa signed ad hoc for the phones registered
-// with the team, which keeps the production aps-environment, so the app gets
+// Connect. The release workflow's is the same build kept as an .ipa, which
+// a later job uploads once every build of the release has passed. An
+// install's is an .ipa signed ad hoc for the phones registered with the
+// team, which keeps the production aps-environment, so the app gets
 // production pushes.
 const EXPORTS = {
 	testflight: {
 		method: "app-store-connect",
 		destination: "upload",
+		manageAppVersionAndBuildNumber: false,
+	},
+	ipa: {
+		method: "app-store-connect",
+		destination: "export",
 		manageAppVersionAndBuildNumber: false,
 	},
 	install: { method: "release-testing", destination: "export" },
@@ -203,6 +210,12 @@ export const exportOptions = (teamId: string, kind: ExportKind) =>
 
 export const EXPORT_OPTIONS_FILE = "ios/build/ExportOptions.plist";
 const EXPORT_PATH = "ios/build/export";
+
+const productionName = (local: IosLocal) => projectName(iosConfig("production", local, true).name);
+
+// The exported .ipa, from the app's folder. The release workflow keeps it
+// from this path as an artifact.
+export const ipaPath = (local: IosLocal) => `${EXPORT_PATH}/${productionName(local)}.ipa`;
 
 // An App Store Connect API key, which xcodebuild signs and uploads with in
 // place of the account signed in to Xcode. The release workflow has no such
@@ -252,7 +265,7 @@ const signedWith = (key: ApiKey | null): Pick<Step, "args" | "hide"> =>
 // options file between prebuild and archive, since prebuild clears ios/.
 const releaseSteps = (local: IosLocal, key: ApiKey | null = null) => {
 	const auth = signedWith(key);
-	const name = projectName(iosConfig("production", local, true).name);
+	const name = productionName(local);
 	const archive = `ios/build/${name}.xcarchive`;
 	const steps: Step[] = [
 		expo(["prebuild", "--clean", "--platform", "ios"], expoEnv("production", true)),
@@ -306,7 +319,7 @@ export const installSteps = (local: IosLocal, phone: string | undefined): Step[]
 	const { name, steps } = releaseSteps(local);
 	return [
 		...steps,
-		{ cmd: "ditto", args: ["-x", "-k", `${EXPORT_PATH}/${name}.ipa`, EXPORT_PATH], cwd: "app" },
+		{ cmd: "ditto", args: ["-x", "-k", ipaPath(local), EXPORT_PATH], cwd: "app" },
 		phoneInstall(phone, `${EXPORT_PATH}/Payload/${name}.app`),
 	];
 };
