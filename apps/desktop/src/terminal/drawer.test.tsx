@@ -193,4 +193,36 @@ describe("the terminal drawer", () => {
 			"Deleting also stops what still runs in a terminal: pnpm dev."
 		);
 	});
+
+	it("marks a tab you named while a command runs in it, and not by its name", async () => {
+		renderApp();
+		const view = await openAndRun();
+		fireEvent.doubleClick((await tabs())[0]!);
+		const name = screen.getByRole("textbox", { name: "Rename" });
+		fireEvent.change(name, { target: { value: "server" } });
+		fireEvent.keyDown(name, { key: "Enter" });
+		const running = async () => {
+			const [tab] = await tabs();
+			expect(tab).toHaveTextContent("server");
+			return within(tab!).queryByRole("img", { name: "Running" });
+		};
+		await waitFor(async () => expect((await tabs())[0]).toHaveTextContent("server"));
+		expect(await running()).toBeNull();
+
+		await type(view, "pnpm dev\r");
+		await waitFor(async () => expect(await running()).not.toBeNull());
+		fireEvent.contextMenu(await row());
+		fireEvent.click(
+			within(await screen.findByRole("menu")).getByRole("menuitem", { name: "Delete" })
+		);
+		const dialog = await screen.findByRole("alertdialog");
+		expect(dialog).toHaveTextContent(
+			"Deleting also stops what still runs in a terminal: server."
+		);
+		fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
+		await waitFor(() => expect(screen.queryByRole("alertdialog")).toBeNull());
+
+		await type(view, "\x03");
+		await waitFor(async () => expect(await running()).toBeNull());
+	});
 });

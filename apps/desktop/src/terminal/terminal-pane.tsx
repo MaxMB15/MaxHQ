@@ -10,13 +10,12 @@ import { PanelBottom, SquareTerminal } from "lucide-react";
 import { useServices, useView } from "@/app/services";
 import type { AgentId, TerminalId } from "@maxhq/shared/bindings";
 import { t as translate, useI18n } from "@maxhq/shared/i18n";
-import { runningCommand, tabTitle } from "@maxhq/shared/terminal/drawer";
+import { runsCommand, tabTitle } from "@maxhq/shared/terminal/drawer";
 import { terminalById } from "@maxhq/shared/terminal/select";
 import { deviceName } from "@maxhq/shared/view/select";
 
 import { popBack } from "./actions";
 import { whereLine } from "./drawer";
-import { useDrawers } from "./drawer-prefs";
 import { TerminalBody } from "./terminal-body";
 
 /** What a terminal's pane tab shows: its title, and whether a command runs in it. */
@@ -24,10 +23,9 @@ export const useTerminalTab = (
 	terminal: TerminalId
 ): { readonly title: string | null; readonly running: boolean } => {
 	const entity = useView((s) => terminalById(s.view, terminal));
-	const named = useDrawers((s) => s.named[terminal]);
 	return {
 		title: entity ? tabTitle(entity) : null,
-		running: entity ? runningCommand(entity, named) !== null : false,
+		running: entity ? runsCommand(entity) : false,
 	};
 };
 

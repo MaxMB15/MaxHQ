@@ -262,19 +262,62 @@ fn a_connection_that_goes_no_longer_sizes_a_terminal() {
     assert_eq!(size(), (40, 20));
 }
 
-#[test]
-fn closing_a_terminal_that_runs_something_asks_first() {
+/// Hands a terminal `events` as its quiet link would, then drops the link.
+async fn heard(terminals: &Terminals, terminal: TerminalId, events: Vec<TermEvent>) {
+    let (tx, rx) = mpsc::channel(events.len().max(1));
+    for event in events {
+        tx.send(event).await.unwrap();
+    }
+    drop(tx);
+    timeout(WAIT, terminals.clone().follow(terminal, rx))
+        .await
+        .expect("the link followed in time");
+}
+
+#[tokio::test]
+async fn a_shell_says_whether_it_runs_something() {
+    let f = fixture();
+    let shell = f
+        .terminals
+        .plant(AgentId::derive("a"), TerminalKind::Shell, Opener::App);
+    let busy = || published(&f.hub, shell).expect("a tab").busy;
+    assert!(!busy());
+    heard(&f.terminals, shell, vec![TermEvent::Busy(true)]).await;
+    assert!(busy());
+    heard(&f.terminals, shell, vec![TermEvent::Busy(false)]).await;
+    assert!(!busy());
+    // One that ended runs nothing, whatever it said last.
+    let exit = TermExit {
+        code: Some(0),
+        signal: None,
+        at: Timestamp(2),
+        output: None,
+    };
+    heard(
+        &f.terminals,
+        shell,
+        vec![TermEvent::Busy(true), TermEvent::Exit(exit)],
+    )
+    .await;
+    assert!(!busy());
+}
+
+#[tokio::test]
+async fn closing_a_terminal_that_runs_something_asks_first() {
     let f = fixture();
     let agent = AgentId::derive("a");
     let app = Caller::App;
     let ran = f.terminals.plant(agent, run(), Opener::App);
     assert_eq!(f.terminals.close(app, ran, false), refused(STILL_RUNNING));
     let shell = f.terminals.plant(agent, TerminalKind::Shell, Opener::App);
-    f.terminals.lock().get_mut(&shell).expect("held").busy = true;
+    heard(&f.terminals, shell, vec![TermEvent::Busy(true)]).await;
     assert_eq!(f.terminals.close(app, shell, false), refused(STILL_RUNNING));
     // Told to go ahead, it kills it, but this one's holder can't be
     // reached.
     assert_eq!(f.terminals.close(app, shell, true), refused(UNREACHABLE));
+    // Back at its prompt, it doesn't ask.
+    heard(&f.terminals, shell, vec![TermEvent::Busy(false)]).await;
+    assert_eq!(f.terminals.close(app, shell, false), refused(UNREACHABLE));
     assert!(published(&f.hub, shell).is_some());
 }
 

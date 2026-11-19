@@ -189,8 +189,6 @@ struct Open {
     note: Note,
     /// The quiet link's control, while it's up.
     control: Option<TermControl>,
-    /// Whether the shell runs something rather than waiting at its prompt.
-    busy: bool,
     /// The title the shell set last.
     shell_title: Option<String>,
     /// The connection whose size applies: the last one to type, or the
@@ -216,6 +214,7 @@ impl Open {
                 title: String::new(),
                 cwd: note.cwd.clone(),
                 status: TerminalStatus::Running,
+                busy: false,
                 password_prompt: false,
                 started_at: note.started_at,
                 cols: 80,
@@ -223,7 +222,6 @@ impl Open {
             },
             note,
             control: None,
-            busy: false,
             shell_title: None,
             sizer: None,
             sizes: HashMap::new(),
@@ -242,7 +240,7 @@ impl Open {
         self.entity.password_prompt = hello.password;
         self.entity.cols = hello.cols;
         self.entity.rows = hello.rows;
-        self.busy = hello.busy;
+        self.entity.busy = hello.busy;
         self.shell_title = hello.title.clone();
         if let Some(cwd) = &hello.cwd {
             self.entity.cwd = shown(Path::new(cwd));
@@ -547,9 +545,9 @@ impl Terminals {
         Ok(self.hold(terminal, note, link, Some(request.conn)))
     }
 
-    /// Follows a terminal's quiet link: its password prompt, title, folder
-    /// and exit. When the link drops before the exit, it reaches the
-    /// holder again.
+    /// Follows a terminal's quiet link: its password prompt, whether it's
+    /// busy, its title, folder and exit. When the link drops before the exit,
+    /// it reaches the holder again.
     async fn follow(self, terminal: TerminalId, mut events: mpsc::Receiver<TermEvent>) {
         let mut exited = false;
         loop {
@@ -562,8 +560,9 @@ impl Terminals {
                         changed
                     }),
                     TermEvent::Busy(on) => self.update(terminal, |open| {
-                        open.busy = on;
-                        false
+                        let changed = open.entity.busy != on;
+                        open.entity.busy = on;
+                        changed
                     }),
                     TermEvent::Title(title) => self.update(terminal, |open| {
                         open.shell_title = Some(title);
@@ -649,6 +648,7 @@ impl Terminals {
             signal: exit.as_ref().and_then(|exit| exit.signal),
         };
         open.entity.password_prompt = false;
+        open.entity.busy = false;
         self.publish(open);
         let (agent, run, closing) = (
             open.note.agent,
@@ -817,7 +817,7 @@ impl Terminals {
             return ActionOutcome::Done;
         }
         let run = matches!(open.entity.kind, TerminalKind::Run { .. });
-        if !force && (run || open.busy) {
+        if !force && (run || open.entity.busy) {
             return ActionOutcome::Refused {
                 reason: STILL_RUNNING.to_owned(),
             };

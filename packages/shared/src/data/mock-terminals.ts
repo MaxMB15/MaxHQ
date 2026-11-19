@@ -9,6 +9,7 @@
 // does.
 
 import type { AgentId, ItemId, Terminal, TerminalId, TerminalStatus } from "../bindings";
+import { runsCommand } from "../terminal/drawer";
 import type { TerminalCalls } from "../terminal/requests";
 import type { TerminalStream } from "../terminal/stream";
 import type { FleetContext } from "./mock-fleet";
@@ -117,7 +118,7 @@ export const mockTerminals = (
 			const terminal = find(id);
 			return terminal ? act(terminal, ...args) : notFound(`terminal ${id}`);
 		};
-	const { start, interrupt, busy, end, named, printed, ...terminalStream } = mockTerminalStream({
+	const { start, interrupt, end, named, printed, ...terminalStream } = mockTerminalStream({
 		find,
 		edit,
 		now,
@@ -141,6 +142,7 @@ export const mockTerminals = (
 				title: defaultTitle({ kind }),
 				cwd: place.cwd,
 				status: { state: "running" },
+				busy: false,
 				password_prompt: false,
 				started_at: now(),
 				cols,
@@ -183,7 +185,7 @@ export const mockTerminals = (
 			return DONE;
 		}),
 		closeTerminal: withTerminal((terminal, force = false) => {
-			if (!force && busy(terminal.id)) return refused(STILL_RUNNING);
+			if (!force && runsCommand(terminal)) return refused(STILL_RUNNING);
 			if (terminal.status.state === "running")
 				endRun(terminal, { state: "exited", code: null, signal: SIGHUP });
 			end(terminal.id);

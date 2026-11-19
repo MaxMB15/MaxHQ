@@ -4305,6 +4305,7 @@ mod tests {
             title: "zsh".into(),
             cwd: "~/code/example-app".into(),
             status: maxhq_protocol::terminal::TerminalStatus::Running,
+            busy: false,
             password_prompt: false,
             started_at: Timestamp(1_793_368_920_000),
             cols: 80,

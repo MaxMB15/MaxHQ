@@ -69,13 +69,16 @@ describe("sample terminal stream", () => {
 		expect(out.text()).toBe(`${folder} % ecko\b \b\b \bho hi\r\nhi\r\n${folder} % `);
 	});
 
-	it("runs pnpm test over a few seconds, names the tab after it, and fails", async () => {
+	it("runs pnpm test over a few seconds, busy and named after it, and fails", async () => {
 		const { source, agent, watch, type, view } = await setup();
 		const terminal = openedTerminal(await openShell(source, agent, SIZE));
 		if (!terminal) throw new Error("no terminal opened");
 		const out = await watch(terminal);
 		type(terminal, "pnpm test\r");
-		expect(terminalById(await view(), terminal)?.title).toBe("pnpm test");
+		expect(terminalById(await view(), terminal)).toMatchObject({
+			title: "pnpm test",
+			busy: true,
+		});
 		expect(await source.closeTerminal(terminal)).toEqual({
 			status: "ok",
 			data: { status: "refused", reason: STILL_RUNNING },
@@ -84,7 +87,26 @@ describe("sample terminal stream", () => {
 
 		await vi.advanceTimersByTimeAsync(4_000);
 		expect(out.text()).toContain("Test Files  1 failed | 2 passed (3)");
-		expect(terminalById(await view(), terminal)?.title).toBe("zsh");
+		expect(terminalById(await view(), terminal)).toMatchObject({ title: "zsh", busy: false });
+		expect(await source.closeTerminal(terminal)).toMatchObject({ data: { status: "done" } });
+	});
+
+	it("says a shell you named is busy while pnpm dev runs, until Ctrl-C", async () => {
+		const { source, agent, type, view } = await setup();
+		const terminal = openedTerminal(await openShell(source, agent, SIZE));
+		if (!terminal) throw new Error("no terminal opened");
+		await source.renameTerminal(terminal, "server");
+		expect(terminalById(await view(), terminal)?.busy).toBe(false);
+
+		type(terminal, "pnpm dev\r");
+		await vi.advanceTimersByTimeAsync(2_000);
+		expect(terminalById(await view(), terminal)).toMatchObject({ title: "server", busy: true });
+
+		type(terminal, "\x03");
+		expect(terminalById(await view(), terminal)).toMatchObject({
+			title: "server",
+			busy: false,
+		});
 		expect(await source.closeTerminal(terminal)).toMatchObject({ data: { status: "done" } });
 	});
 
@@ -111,14 +133,14 @@ describe("sample terminal stream", () => {
 		const lines = () => out.text().split("[vite] hmr update").length - 1;
 		await vi.advanceTimersByTimeAsync(3_000);
 		expect(lines()).toBe(3);
+		expect(terminalById(await view(), terminal)?.busy).toBe(true);
 
 		await source.interruptTerminal(terminal);
 		await vi.advanceTimersByTimeAsync(3_000);
 		expect(lines()).toBe(3);
-		expect(terminalById(await view(), terminal)?.status).toEqual({
-			state: "exited",
-			code: null,
-			signal: 2,
+		expect(terminalById(await view(), terminal)).toMatchObject({
+			status: { state: "exited", code: null, signal: 2 },
+			busy: false,
 		});
 	});
 

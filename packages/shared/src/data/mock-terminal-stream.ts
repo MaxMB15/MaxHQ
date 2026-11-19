@@ -38,8 +38,6 @@ export type MockTerminalStream = TerminalStream & {
 	readonly start: (terminal: Terminal) => void;
 	/** Sends Ctrl-C, the way an interrupt does. */
 	readonly interrupt: (terminal: TerminalId) => void;
-	/** Whether a command runs in it, which a close without force refuses. */
-	readonly busy: (terminal: TerminalId) => boolean;
 	/** Ends it and forgets what it printed. */
 	readonly end: (terminal: TerminalId) => void;
 	/** Whether you named it, so commands no longer change its title. */
@@ -246,21 +244,31 @@ export const mockTerminalStream = ({
 	const prompt = (state: State) =>
 		print(state, `${CYAN}${BOLD}${baseName(state.cwd)}${OFF} ${DIM}%${OFF} `);
 
-	const retitle = (state: State, title: string) => {
-		if (!state.named) edit(state.id, (terminal) => ({ ...terminal, title }));
+	/**
+	 * Sets what runs, or nothing at the prompt, so the terminal says it's
+	 * busy, and a shell you didn't name takes the command as its title.
+	 */
+	const foreground = (state: State, job: Job | null) => {
+		state.job = job;
+		edit(state.id, (terminal) => ({
+			...terminal,
+			busy: job !== null,
+			title: state.shell && !state.named ? (job?.command ?? "zsh") : terminal.title,
+		}));
 	};
 
 	/** The command ended with `code`, or a signal when null. */
 	const finish = (state: State, code: number | null, signal: number | null = null) => {
-		state.job = null;
 		state.secret = null;
 		if (state.shell) {
-			retitle(state, "zsh");
+			foreground(state, null);
 			prompt(state);
 			return;
 		}
+		state.job = null;
 		edit(state.id, (terminal) => ({
 			...terminal,
+			busy: false,
 			password_prompt: false,
 			status: { state: "exited", code, signal },
 		}));
@@ -312,8 +320,7 @@ export const mockTerminalStream = ({
 				break;
 			}
 		}
-		state.job = { command, stop };
-		if (state.shell) retitle(state, command);
+		foreground(state, { command, stop });
 	};
 
 	const interrupt = (state: State) => {
@@ -324,9 +331,8 @@ export const mockTerminalStream = ({
 			if (state.secret)
 				edit(state.id, (terminal) => ({ ...terminal, password_prompt: false }));
 			if (!state.shell) return finish(state, null, SIGINT);
-			state.job = null;
 			state.secret = null;
-			retitle(state, "zsh");
+			foreground(state, null);
 		}
 		prompt(state);
 	};
@@ -406,7 +412,6 @@ export const mockTerminalStream = ({
 			const state = stateOf(id);
 			if (state) interrupt(state);
 		},
-		busy: (id) => stateOf(id)?.job != null,
 		end: (id) => {
 			stateOf(id)?.job?.stop();
 			states.delete(id);

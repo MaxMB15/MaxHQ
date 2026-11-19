@@ -16,7 +16,6 @@ import {
 	readDrawers,
 	setActive,
 	setDrawer,
-	setNamed,
 	setSplit,
 } from "./drawer-prefs";
 
@@ -99,13 +98,5 @@ describe("changing a drawer", () => {
 		expect(store.getState()).toMatchObject({ active: { a: "t-3" }, split: { a: "t-1" } });
 		setSplit(window, "a", null);
 		expect(store.getState().split).toEqual({});
-	});
-
-	it("notes the names you gave tabs, and forgets one you cleared", () => {
-		const window = services();
-		setNamed(window, "t-1", "server");
-		setNamed(window, "t-2", "tests");
-		setNamed(window, "t-1", "");
-		expect(drawersOf(window).getState().named).toEqual({ "t-2": "tests" });
 	});
 });
