@@ -27,10 +27,10 @@ import {
 import type { Placed } from "@maxhq/shared/notes/visuals";
 import { noteSummary, notesOf, notesReach, untitled } from "@maxhq/shared/view/notes";
 import type { Visual } from "@maxhq/shared/visuals/fence";
+import { useVisualOrigin } from "@maxhq/shared/visuals/origin";
 
 import type { VisualAction } from "./actions";
 import { showAdded } from "./added-toast";
-import { useVisualOrigin } from "./origin";
 
 /** The note a visual's card is drawn in. */
 export const VisualNoteContext = createContext<{

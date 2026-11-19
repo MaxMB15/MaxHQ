@@ -42,6 +42,7 @@ export { default as Pencil } from "lucide-react-native/icons/pencil";
 export { default as RefreshCw } from "lucide-react-native/icons/refresh-cw";
 export { default as Search } from "lucide-react-native/icons/search";
 export { default as Shrink } from "lucide-react-native/icons/shrink";
+export { default as Sparkles } from "lucide-react-native/icons/sparkles";
 export { default as Terminal } from "lucide-react-native/icons/terminal";
 export { default as TriangleAlert } from "lucide-react-native/icons/triangle-alert";
 export { default as Unlink } from "lucide-react-native/icons/unlink";

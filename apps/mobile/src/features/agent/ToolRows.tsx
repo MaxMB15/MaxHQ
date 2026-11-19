@@ -41,6 +41,7 @@ import type {
 } from "@maxhq/shared/bindings";
 
 import { editPath } from "@maxhq/shared/timeline/diff";
+import { VisualOriginContext } from "@maxhq/shared/visuals/origin";
 
 import type { Screens } from "../../navigation";
 import { useView } from "../../services";
@@ -66,6 +67,7 @@ import {
 } from "../../ui/glyphs";
 import { PictureThumbs } from "../../ui/Picture";
 import { fileRoute } from "../viewer/file";
+import { useFeedOrigin } from "../visuals/feed-origin";
 import { visualOfItem } from "../visuals/visual";
 import { VisualOpenRow } from "../visuals/VisualOpenRow";
 import { useFeed } from "./feed-context";
@@ -479,8 +481,13 @@ export const OpenedFileRow = ({ item }: { item: ItemOf<"agent_opened_file"> }) =
 export const VisualRow = ({ item }: { item: ItemOf<"agent_visual"> }) => {
 	const { t } = useI18n();
 	const { agent } = useFeed();
+	const origin = useFeedOrigin(item);
 	const visual = useMemo(() => visualOfItem(agent, item), [agent, item]);
-	return <VisualOpenRow visual={visual} meta={item.replaces ? t("New version") : null} />;
+	return (
+		<VisualOriginContext value={origin}>
+			<VisualOpenRow visual={visual} meta={item.replaces ? t("New version") : null} />
+		</VisualOriginContext>
+	);
 };
 
 /** A search through files. */

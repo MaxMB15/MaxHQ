@@ -8,7 +8,8 @@
 // never leaves its first address, and a link the user taps opens in the
 // browser after the same checks as the desktop's. One on an agent's
 // device comes through the media cache, as a picture does. Bars say what
-// the page asked for that it can't have, and its first error.
+// the page asked for that it can't have, and its first error, with Tell the
+// agent when the card has an agent to tell.
 
 import { useI18n } from "@maxhq/shared/i18n";
 
@@ -27,7 +28,7 @@ import {
 	readFrameReport,
 } from "@maxhq/shared/visuals/frame";
 import { inlineVisualDocument, readBridgeReport } from "@maxhq/shared/visuals/inline";
-import { addReport, NO_REPORTS, withHosts } from "@maxhq/shared/visuals/reports";
+import { addReport, NO_REPORTS, type VisualError, withHosts } from "@maxhq/shared/visuals/reports";
 import { MAX_VISUAL_BYTES } from "@maxhq/shared/visuals/visual";
 
 import { useServices } from "../../services";
@@ -76,17 +77,22 @@ const Bar = ({
 /** Where a card's page draws: at most `cap` tall, its height kept under `mark`. */
 export type InCard = { readonly cap: number; readonly mark: string };
 
+/** Puts the page's errors in the box of the agent that showed it. */
+export type Tell = (errors: readonly VisualError[], count: number) => void;
+
 // One run of the page. New hosts or a Reload make a new one.
 const Run = ({
 	html,
 	card,
 	hosts,
 	onLoad,
+	onTell,
 }: {
 	html: string;
 	card: InCard | undefined;
 	hosts: readonly string[];
 	onLoad: (hosts: readonly string[]) => void;
+	onTell: Tell | undefined;
 }) => {
 	const { t } = useI18n();
 	const { document, missing } = useMemo(
@@ -132,7 +138,20 @@ const Run = ({
 	const sized = card ? cardHeight(track?.height ?? knownHeight(card.mark), card.cap) : null;
 	return (
 		<>
-			{first ? <Bar look="error" text={errorText(first, reports.errorCount)} /> : null}
+			{first ? (
+				<Bar
+					look="error"
+					text={errorText(first, reports.errorCount)}
+					action={
+						onTell
+							? {
+									label: t("Tell the agent"),
+									run: () => onTell(reports.errors, reports.errorCount),
+								}
+							: null
+					}
+				/>
+			) : null}
 			{blocked ? (
 				<Bar
 					look="blocked"
@@ -172,15 +191,18 @@ const Run = ({
 /**
  * A visual's page with its bars: in a card when `card` says where, else
  * filling its place. `runs` counts Reload, each of which runs it again.
+ * The error bar offers Tell the agent only when given `onTell`.
  */
 export const VisualPage = ({
 	html,
 	card,
 	runs = 0,
+	onTell,
 }: {
 	html: string;
 	card?: InCard;
 	runs?: number;
+	onTell?: Tell;
 }) => {
 	// The hosts Load this time let through, which a Reload keeps.
 	const [hosts, setHosts] = useState<readonly string[]>([]);
@@ -191,6 +213,7 @@ export const VisualPage = ({
 			card={card}
 			hosts={hosts}
 			onLoad={(more) => setHosts((was) => withHosts(was, more))}
+			onTell={onTell}
 		/>
 	);
 };
