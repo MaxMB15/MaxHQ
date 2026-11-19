@@ -239,6 +239,80 @@ describe("saved drafts", () => {
 	});
 });
 
+describe("the session cards each composer placed", () => {
+	it("come back in the next run, and stay when the draft empties", () => {
+		const { storage } = memory();
+		const saved = drafts(storage);
+		saved.save("agent-a", withFile());
+		saved.setPlaced("agent-a", new Set(["card-1"]));
+		expect(saved.placed("agent-a")).toEqual(new Set(["card-1"]));
+		vi.advanceTimersByTime(300);
+
+		saved.save("agent-a", null);
+		const next = drafts(storage);
+		expect(next.get("agent-a")).toBeNull();
+		expect(next.placed("agent-a")).toEqual(new Set(["card-1"]));
+		expect(next.placed("agent-b")).toEqual(new Set());
+	});
+
+	it("go with the agent, and after 30 days", () => {
+		const { held, storage } = memory();
+		const saved = drafts(storage);
+		saved.setPlaced("agent-a", new Set(["card-1"]));
+		saved.setPlaced("agent-b", new Set(["card-2"]));
+		saved.flush();
+
+		drafts(storage).drop(["agent-a"]);
+		expect(drafts(storage).placed("agent-a")).toEqual(new Set());
+		expect(drafts(storage).placed("agent-b")).toEqual(new Set(["card-2"]));
+
+		clock += SAVED_FOR_MS + 1;
+		expect(drafts(storage).placed("agent-b")).toEqual(new Set());
+		const later = drafts(storage);
+		later.setPlaced("agent-c", new Set(["card-3"]));
+		later.flush();
+		expect(held.text).not.toContain("card-2");
+	});
+
+	it("keep only the last few, and none once emptied", () => {
+		const { held, storage } = memory();
+		const saved = drafts(storage);
+		const cards = Array.from({ length: 20 }, (_, index) => `card-${index}`);
+		saved.setPlaced("agent-a", new Set(cards));
+		saved.flush();
+		expect([...drafts(storage).placed("agent-a")]).toEqual(cards.slice(-16));
+
+		saved.setPlaced("agent-a", new Set());
+		saved.flush();
+		expect(held.text).not.toContain("agent-a");
+	});
+
+	it("keep the ones another window placed, and read garbled ones as none", () => {
+		const { storage } = memory();
+		const one = drafts(storage);
+		const two = drafts(storage);
+		one.setPlaced("agent-a", new Set(["card-1"]));
+		two.save("agent-b", withFile());
+		vi.advanceTimersByTime(300);
+		expect(drafts(storage).placed("agent-a")).toEqual(new Set(["card-1"]));
+		expect(drafts(storage).get("agent-b")).toEqual(withFile());
+
+		const mixed = JSON.stringify({
+			version: 1,
+			placed: {
+				"agent-a": { at: NOW, items: ["card-1"] },
+				"agent-b": { at: NOW, items: [7] },
+				"agent-c": { at: "now", items: ["card-3"] },
+			},
+		});
+		const saved = drafts(memory(mixed).storage);
+		expect(saved.placed("agent-a")).toEqual(new Set(["card-1"]));
+		expect(saved.placed("agent-b")).toEqual(new Set());
+		expect(saved.placed("agent-c")).toEqual(new Set());
+		expect(saved.get("agent-a")).toBeNull();
+	});
+});
+
 describe("the drafts of deleted agents", () => {
 	const loaded = (seq: number, ...ids: string[]) =>
 		applySnapshot({ seq, entities: entities({ agents: ids.map((id) => agent({ id })) }) });

@@ -3,7 +3,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import type { ItemBody, TimelineItem } from "../bindings";
+import type { ItemBody, SessionBlock, TimelineItem } from "../bindings";
 
 import { runHistory, walkRuns } from "./history";
 
@@ -35,6 +35,32 @@ const ran = (id: string, command: string): TimelineItem =>
 		moved: false,
 	});
 
+const block = (id: number, command: string): SessionBlock => ({
+	id,
+	command,
+	cwd: "~/code/example-app",
+	cwd_after: null,
+	private: false,
+	process: { state: "exited", code: 0, signal: null },
+	started_at: 0,
+	duration_ms: 100,
+	lines: 0,
+	output: "",
+	output_truncated: false,
+	secret_prompts: 0,
+	start: null,
+});
+
+const session = (id: string, commands: string[]): TimelineItem =>
+	item(id, {
+		kind: "user_session",
+		terminal: "s1",
+		device: "dev-mac",
+		blocks: commands.map((command, index) => block(index + 1, command)),
+		sealed: false,
+		sent: false,
+	});
+
 const timeline = (items: TimelineItem[]) => ({
 	items: new Map(items.map((each) => [each.id, each])),
 	order: items.map((each) => each.id),
@@ -50,6 +76,15 @@ describe("runHistory", () => {
 			ran("i5", "   "),
 		]);
 		expect(runHistory(state)).toEqual(["pnpm test", "pnpm lint"]);
+	});
+
+	it("takes the commands you ran in the session too, the last of each card first", () => {
+		const state = timeline([
+			session("i1", ["cd apps/web", "pnpm test"]),
+			ran("i2", "git status"),
+			session("i3", ["pnpm lint", "pnpm test", "  "]),
+		]);
+		expect(runHistory(state)).toEqual(["pnpm test", "pnpm lint", "git status", "cd apps/web"]);
 	});
 
 	it("is empty with no commands", () => {

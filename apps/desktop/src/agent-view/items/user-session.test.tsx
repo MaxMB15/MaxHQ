@@ -329,7 +329,7 @@ describe("an open session card", () => {
 	});
 
 	it("ends the session, asking first while a command runs", async () => {
-		const { sessionEnd } = renderCard(card());
+		const { sessionEnd } = renderCard(card(), { terminal: sessionTerminal({ busy: true }) });
 		const found = await findCard();
 		sessionEnd.mockResolvedValueOnce(refused("A command still runs in the session"));
 
@@ -343,6 +343,53 @@ describe("an open session card", () => {
 		expect(sessionEnd.mock.calls[0]).toEqual([AGENT]);
 		expect(sessionEnd.mock.calls[1]).toEqual([AGENT, true]);
 		expect(within(found).queryByRole("alert")).toBeNull();
+	});
+
+	it("asks first while one of its commands runs, too", async () => {
+		const running = block(5, { command: "pnpm dev", process: { state: "running" } });
+		const { sessionEnd } = renderCard(card({ blocks: [...BLOCKS, running] }));
+		const found = await findCard();
+		sessionEnd.mockResolvedValueOnce(refused("A command still runs in the session"));
+
+		fireEvent.click(button(found, "End session"));
+
+		fireEvent.click(
+			within(await screen.findByRole("alertdialog")).getByRole("button", {
+				name: "End session",
+			})
+		);
+		await waitFor(() => expect(sessionEnd).toHaveBeenLastCalledWith(AGENT, true));
+	});
+
+	it("only says why it couldn't end the session when nothing runs", async () => {
+		const { sessionEnd } = renderCard(card());
+		const found = await findCard();
+		sessionEnd.mockResolvedValueOnce(refused("No session to end"));
+
+		fireEvent.click(button(found, "End session"));
+
+		expect(await within(found).findByRole("alert")).toHaveTextContent(
+			"Couldn't end the session. No session to end."
+		);
+		expect(screen.queryByRole("alertdialog")).toBeNull();
+		expect(sessionEnd).toHaveBeenCalledExactlyOnceWith(AGENT);
+	});
+
+	it("doesn't ask when the device is away, even while a command runs", async () => {
+		const { sessionEnd } = renderCard(card(), { terminal: sessionTerminal({ busy: true }) });
+		const found = await findCard();
+		sessionEnd.mockResolvedValueOnce({
+			status: "error",
+			error: { kind: "failed", message: "The device is offline" },
+		});
+
+		fireEvent.click(button(found, "End session"));
+
+		expect(await within(found).findByRole("alert")).toHaveTextContent(
+			"Couldn't end the session. The device is offline."
+		);
+		expect(screen.queryByRole("alertdialog")).toBeNull();
+		expect(sessionEnd).toHaveBeenCalledExactlyOnceWith(AGENT);
 	});
 
 	it("sends the shared commands on their own, as a message holding only the pill", async () => {
@@ -377,6 +424,37 @@ describe("an open session card", () => {
 		]);
 		expect(JSON.stringify(input)).not.toContain("tok_example_123");
 		expect(JSON.stringify(input)).not.toContain("printenv");
+	});
+
+	it("takes its pill out of the composer once it sent them, so the next message doesn't too", async () => {
+		const { source } = renderCard(card());
+		const found = await findCard();
+		const textbox = await findTextbox();
+		await waitFor(() => expect(pillsIn(textbox)).toHaveLength(1));
+
+		fireEvent.click(button(found, "Send to agent"));
+
+		await waitFor(() => expect(source.sendInput).toHaveBeenCalledOnce());
+		await waitFor(() => expect(pillsIn(textbox)).toEqual([]));
+		// The composer has had its chance to put it back.
+		await act(async () => {});
+		expect(pillsIn(textbox)).toEqual([]);
+		expect(found).toHaveTextContent("Not in your next message");
+	});
+
+	it("keeps its pill in the composer when sending them failed", async () => {
+		const { source } = renderCard(card());
+		const found = await findCard();
+		const textbox = await findTextbox();
+		await waitFor(() => expect(pillsIn(textbox)).toHaveLength(1));
+		source.sendInput.mockResolvedValueOnce(refused("The agent is gone"));
+
+		fireEvent.click(button(found, "Send to agent"));
+
+		expect(await within(found).findByRole("alert")).toHaveTextContent(
+			"Couldn't send the commands. The agent is gone."
+		);
+		expect(pillsIn(textbox)).toHaveLength(1);
 	});
 
 	it("can't send when every command is private", async () => {

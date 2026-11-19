@@ -1,22 +1,35 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026 Max Boksem
 
-import { act, cleanup, fireEvent, screen, waitFor, within } from "@testing-library/react";
+import {
+	act,
+	cleanup,
+	fireEvent,
+	renderHook,
+	screen,
+	waitFor,
+	within,
+} from "@testing-library/react";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 
+import { clearKept } from "@maxhq/shared/agent-view/kept";
 import type { DeviceLink, Entity, SessionBlock, Workspace } from "@maxhq/shared/bindings";
 import type { DataSource } from "@maxhq/shared/data/source";
 import { OBJECT_MARK as MARK } from "@maxhq/shared/pills/draft";
 import { quoteInbox } from "@maxhq/shared/pills/quote-inbox";
-import type { UserSessionItem } from "@maxhq/shared/terminal/session";
+import { sessionPill, type UserSessionItem } from "@maxhq/shared/terminal/session";
 import { entities, link, workspace } from "@maxhq/shared/test/build";
-import { applyUpdate } from "@maxhq/shared/timeline/apply";
+import { applyUpdate, EMPTY_TIMELINE } from "@maxhq/shared/timeline/apply";
 import { timelineItem } from "@maxhq/shared/timeline/build";
+import { createTimelineStore } from "@maxhq/shared/timeline/store";
+
+import { useSessionFill } from "./session-pill";
 
 import {
 	AGENT,
 	DEVICE,
 	DONE,
+	editorOf,
 	findTextbox,
 	installBrowserFakes,
 	pillsIn,
@@ -26,7 +39,9 @@ import {
 
 // The terminal module, as the composer reaches it.
 const seam = vi.hoisted(() => ({
-	runningText: vi.fn<(terminal: string) => { text: string; total: number } | null>(() => null),
+	runningText: vi.fn<
+		(terminal: string, start: number | null) => { text: string; total: number } | null
+	>(() => null),
 }));
 
 vi.mock("@/terminal", () => ({
@@ -44,6 +59,7 @@ vi.mock("@/terminal", () => ({
 beforeAll(installBrowserFakes);
 afterEach(() => {
 	cleanup();
+	clearKept();
 	quoteInbox.take(AGENT);
 	seam.runningText.mockReset();
 	seam.runningText.mockReturnValue(null);
@@ -186,6 +202,51 @@ describe("the session pill", () => {
 
 		amend({ ...item, blocks: [{ ...INSTALL, private: true }, SECRET] });
 		await waitFor(() => expect(pillsIn(textbox)).toEqual([]));
+
+		// Shared again, it comes back.
+		amend(item);
+		await waitFor(() => expect(pillsIn(textbox)).toHaveLength(1));
+	});
+
+	it("stays out once you removed it, through a restart too", async () => {
+		const item = card([INSTALL, TEST]);
+		renderWith(item);
+		let textbox = await findTextbox();
+		await waitFor(() => expect(pillsIn(textbox)).toHaveLength(1));
+
+		act(() => {
+			editorOf(textbox).commands.clearContent(true);
+		});
+		await act(async () => {});
+		expect(pillsIn(textbox)).toEqual([]);
+
+		cleanup();
+		clearKept();
+		renderWith(item);
+		textbox = await findTextbox();
+		// The composer has had its chance to put it back.
+		await act(async () => {});
+		await act(async () => {});
+		expect(pillsIn(textbox)).toEqual([]);
+	});
+
+	it("waits for its card while the timeline loads, and leaves once the loaded one lacks it", async () => {
+		const { timeline } = renderWith(card([INSTALL], { sealed: true, sent: true }));
+		const textbox = await findTextbox();
+		act(() => timeline.setState(EMPTY_TIMELINE, true));
+
+		act(() => quoteInbox.send(AGENT, sessionPill({ id: "card-gone" }, "Mac"), false));
+		await waitFor(() => expect(pillsIn(textbox)).toHaveLength(1));
+		await act(async () => {});
+		expect(pillsIn(textbox)).toHaveLength(1);
+
+		act(() =>
+			timeline.setState(
+				applyUpdate(EMPTY_TIMELINE, { type: "reset", seq: 2, items: [], has_older: false }),
+				true
+			)
+		);
+		await waitFor(() => expect(pillsIn(textbox)).toEqual([]));
 	});
 
 	it("leaves once a message closed its card", async () => {
@@ -269,5 +330,47 @@ describe("the session pill", () => {
 			},
 		]);
 		expect(JSON.stringify(input)).not.toContain("tok_example_123");
+	});
+});
+
+describe("filling session pills for a message", () => {
+	const fillWith = (items: UserSessionItem[]) => {
+		const timeline = createTimelineStore();
+		timeline.setState(
+			applyUpdate(EMPTY_TIMELINE, { type: "reset", seq: 1, items, has_older: false }),
+			true
+		);
+		return renderHook(() => useSessionFill(timeline)).result.current;
+	};
+
+	it("drops a pill whose card the timeline doesn't hold, so no empty ref goes", () => {
+		const fill = fillWith([card([INSTALL])]);
+
+		const segments = fill([
+			{ type: "pill", pill: sessionPill({ id: "card-gone" }, "Mac") },
+			{ type: "text", text: " Why?" },
+		]);
+
+		expect(segments).toEqual([{ type: "text", text: " Why?" }]);
+	});
+
+	it("reads a running command's live text by where its output starts", () => {
+		const running = block(4, "nix develop", {
+			process: { state: "running" },
+			duration_ms: null,
+			output: "",
+			lines: 0,
+			start: 120,
+		});
+		const item = card([INSTALL, running]);
+		seam.runningText.mockReturnValue({ text: "entering", total: 1 });
+		const fill = fillWith([item]);
+
+		const [segment] = fill([{ type: "pill", pill: sessionPill(item, "Mac") }]);
+
+		expect(seam.runningText).toHaveBeenCalledExactlyOnceWith("s1", 120);
+		expect(segment).toMatchObject({
+			pill: { blocks: [{}, { command: "nix develop", running: true, text: "entering" }] },
+		});
 	});
 });

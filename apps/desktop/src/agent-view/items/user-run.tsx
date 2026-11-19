@@ -29,11 +29,17 @@ import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { useRow } from "@maxhq/shared/agent-view/context";
 import { useFold } from "@maxhq/shared/agent-view/find-context";
 import { formatTook } from "@maxhq/shared/agent-view/format";
-import type { TerminalStatus, Timestamp } from "@maxhq/shared/bindings";
-import { attempt, failureOf, sendModeFor, turnOf } from "@maxhq/shared/composer/send";
+import type { Agent, TerminalStatus, Timestamp } from "@maxhq/shared/bindings";
+import {
+	attempt,
+	type BusySend,
+	failureOf,
+	sendModeFor,
+	turnOf,
+} from "@maxhq/shared/composer/send";
 import type { ActionResult } from "@maxhq/shared/data/source";
 import { t, useI18n } from "@maxhq/shared/i18n";
-import { type OutputRef, toUserInput } from "@maxhq/shared/pills/draft";
+import { type OutputRef, type Segment, toUserInput } from "@maxhq/shared/pills/draft";
 import { stripAnsi } from "@maxhq/shared/timeline/ansi";
 import {
 	fillOutput,
@@ -47,9 +53,9 @@ import { freshNote } from "@maxhq/shared/terminal/session";
 import { homeShort, programOf } from "@maxhq/shared/terminal/shell";
 import { deviceName, linkForDevice } from "@maxhq/shared/view/select";
 
-import { useServices, useView } from "@/app/services";
+import { type Services, useServices, useView } from "@/app/services";
 import { CopyButton } from "@/components/copy-button";
-import { takeOutputBack, useOutputHeld } from "@/composer/output-pills";
+import { takeOutputBack, useOutputHeld } from "@/composer/held-pills";
 import { MENU_ITEM, MENU_POPUP } from "@/composer/pickers";
 import { quoteInbox } from "@maxhq/shared/pills/quote-inbox";
 import { askedHere, firstAskHere, runSize, startRun } from "@/composer/run-command";
@@ -137,6 +143,29 @@ const outputOf = (
 		}),
 		{ item, terminal, live, now: Date.now() }
 	);
+
+/** How a message a card sent on its own ended: whether it went, and the error to show. */
+export type SentAlone = { readonly sent: boolean; readonly error: string | null };
+
+/**
+ * Sends a message of its own to the agent once you agree to it, holding
+ * the segments `segments` gives then, so live output is as fresh as it
+ * gets. `word` says why the device refused it.
+ */
+export const sendAlone = async (
+	services: Services,
+	agent: Agent,
+	busySend: BusySend,
+	segments: () => Segment[],
+	word: (result: ActionResult) => string | null
+): Promise<SentAlone> => {
+	const agreed = await agreedSend(services, agent);
+	if (!agreed.go) return { sent: false, error: agreed.failure };
+	const input = toUserInput({ segments: segments(), gitItems: [] }, () => null);
+	const mode = sendModeFor(turnOf(agent.activity), busySend, false);
+	const error = word(await attempt(() => services.source.sendInput(agent.id, input, mode)));
+	return { sent: error === null, error };
+};
 
 /** The card for a command you ran with `!`. */
 export const UserRunCard = ({ item }: { item: UserRunItem }) => {
@@ -246,29 +275,19 @@ const RunCard = ({
 		setBusy(true);
 		setError(null);
 		try {
-			const agreed = await agreedSend(services, agent);
-			if (!agreed.go) {
-				setError(agreed.failure);
-				return;
-			}
-			const input = toUserInput(
-				{
-					segments: [
-						{ type: "text", text: `${t("Look at this output.")} ` },
-						{ type: "pill", pill: pill() },
-					],
-					gitItems: [],
-				},
-				() => null
+			const { sent, error } = await sendAlone(
+				services,
+				agent,
+				busySend,
+				() => [
+					{ type: "text", text: `${t("Look at this output.")} ` },
+					{ type: "pill", pill: pill() },
+				],
+				(result) => failureOf(result, "send")
 			);
-			const mode = sendModeFor(turnOf(agent.activity), busySend, false);
-			const failure = failureOf(
-				await attempt(() => services.source.sendInput(row.agent, input, mode)),
-				"send"
-			);
-			if (failure !== null) setError(failure);
+			setError(error);
 			// It went with this message, so the next one doesn't take it again.
-			else takeOutputBack(row.agent, item.terminal);
+			if (sent) takeOutputBack(row.agent, item.terminal);
 		} finally {
 			setBusy(false);
 		}

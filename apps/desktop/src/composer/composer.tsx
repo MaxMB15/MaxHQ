@@ -140,7 +140,7 @@ import { GitPillPreview, useGitHover } from "./git-pills";
 import { ImageNote } from "./image-note";
 import { useComposerNative } from "./native";
 import { useOutputFill } from "./output-pill";
-import { useHeldOutputs } from "./output-pills";
+import { useHeldOutputs } from "./held-pills";
 import { useSessionFill, useSessionPills } from "./session-pill";
 import { type PaneFile, usePaneFiles } from "./pane-files";
 import { nextPastedTextFileName, pastesAsFile } from "./paste";

@@ -7,6 +7,12 @@
 
 import type { CommandOutput, MarkedCommand, Picked, TermView } from "@/terminal/term-view";
 
+/** A command a test marks, with what it printed and, when it says, where its mark starts. */
+type FakeCommand = Omit<MarkedCommand, "offset"> & {
+	readonly offset?: number | null;
+	readonly output: CommandOutput;
+};
+
 export type FakeView = TermView & {
 	readonly written: string[];
 	readonly cleared: () => number;
@@ -18,9 +24,7 @@ export type FakeView = TermView & {
 	readonly disposed: () => boolean;
 	readonly pasted: string[];
 	/** Sets the commands it marked, with what each printed. */
-	readonly mark: (
-		commands: readonly (MarkedCommand & { readonly output: CommandOutput })[]
-	) => void;
+	readonly mark: (commands: readonly FakeCommand[]) => void;
 	/** Clicks a command's mark, by `anchor`. */
 	readonly clickMark: (id: number, anchor: Element) => void;
 	/** Each jump asked for, true going back. */
@@ -39,7 +43,7 @@ export const fakeView = (): FakeView => {
 	const picks = new Set<() => void>();
 	const marks = new Set<(id: number, anchor: Element) => void>();
 	const jumps: boolean[] = [];
-	let commands: readonly (MarkedCommand & { readonly output: CommandOutput })[] = [];
+	let commands: readonly FakeCommand[] = [];
 	let cleared = 0;
 	let gpu = false;
 	let takesMarks = false;
@@ -121,7 +125,13 @@ export const fakeView = (): FakeView => {
 			takesMarks = on;
 		},
 		commands: () =>
-			commands.map(({ id, command, exit, running }) => ({ id, command, exit, running })),
+			commands.map(({ id, command, exit, running, offset = null }) => ({
+				id,
+				command,
+				exit,
+				running,
+				offset,
+			})),
 		output: (id) => commands.find((command) => command.id === id)?.output ?? null,
 		jump: (back) => {
 			jumps.push(back);

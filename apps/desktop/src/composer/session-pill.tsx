@@ -4,14 +4,16 @@
 // The session's pill in the composer: one pill for the open card's
 // commands, which goes in by itself once the card holds a command the
 // agent may see, and leaves once a message closed the card or none is
-// shared. One you removed stays out for that card. Its preview lists the
-// commands with ticks, and unticking one keeps it from the agent. When
-// the message goes, the pill takes the shared commands' last lines.
+// shared. One you removed stays out for that card, through a restart
+// too. Its preview lists the commands with ticks, and unticking one keeps
+// it from the agent. When the message goes, the pill takes the shared
+// commands' last lines.
 
 import { Check } from "lucide-react";
 import { type RefObject, useCallback, useEffect, useSyncExternalStore } from "react";
 
 import type { AgentId, ItemId, SessionBlock, Timestamp } from "@maxhq/shared/bindings";
+import type { SavedDrafts } from "@maxhq/shared/composer/saved-drafts";
 import { attempt, failureOf } from "@maxhq/shared/composer/send";
 import type { DataSource } from "@maxhq/shared/data/source";
 import { t, useI18n } from "@maxhq/shared/i18n";
@@ -31,74 +33,35 @@ import {
 } from "@maxhq/shared/terminal/session";
 import type { TimelineStore } from "@maxhq/shared/timeline/store";
 
-import { useServicesIfAny } from "@/app/services";
+import { useServices, useServicesIfAny } from "@/app/services";
 import { cn } from "@/lib/utils";
 import { type PillPresentation, presentPill } from "@/pills/registry";
 import { useTerminalActions } from "@/terminal";
 
 import type { PromptEditorHandle } from "./editor";
+import { isSessionOf, removePill, sessionItems, useHeldSessions } from "./held-pills";
+import { draftsOf } from "./saved-drafts";
 
 const NO_STORE = () => () => {};
 
-/** The cards whose pill went in each agent's composer, so one you removed stays out. */
-const placed = new Map<AgentId, Set<ItemId>>();
-
-/** The cards whose pill each agent's composer holds now, for the cards to say so. */
-let held = new Map<AgentId, ReadonlySet<ItemId>>();
-const heldListeners = new Set<() => void>();
-
-const setHeld = (agent: AgentId, items: ReadonlySet<ItemId>) => {
-	const before = held.get(agent);
-	if (before && before.size === items.size && [...items].every((item) => before.has(item)))
-		return;
-	held = new Map(held).set(agent, items);
-	for (const listener of [...heldListeners]) listener();
+/**
+ * Notes that this card's pill went in the agent's composer, kept with the
+ * saved draft, so once you removed it, it stays out after a restart too.
+ */
+export const markPlaced = (drafts: SavedDrafts, agent: AgentId, item: ItemId) => {
+	const placed = drafts.placed(agent);
+	if (!placed.has(item)) drafts.setPlaced(agent, new Set(placed).add(item));
 };
-
-const watchHeld = (listener: () => void) => {
-	heldListeners.add(listener);
-	return () => {
-		heldListeners.delete(listener);
-	};
-};
-
-/** Whether the agent's composer holds this card's pill. */
-export const useSessionHeld = (agent: AgentId, item: ItemId): boolean =>
-	useSyncExternalStore(watchHeld, () => held.get(agent)?.has(item) ?? false);
 
 /** Puts a card's pill back in the agent's composer after you removed it. */
 export const addSessionPill = (
+	drafts: SavedDrafts,
 	agent: AgentId,
 	card: Pick<UserSessionItem, "id">,
 	deviceName: string
 ) => {
-	const done = placed.get(agent) ?? new Set<ItemId>();
-	placed.set(agent, done);
-	done.add(card.id);
+	markPlaced(drafts, agent, card.id);
 	quoteInbox.send(agent, sessionPill(card, deviceName), true);
-};
-
-/** The cards whose session pills are in these segments. */
-export const sessionItems = (segments: readonly Segment[]): Set<ItemId> => {
-	const items = new Set<ItemId>();
-	for (const segment of segments)
-		if (segment.type === "pill" && segment.pill.type === "session" && segment.pill.item)
-			items.add(segment.pill.item);
-	return items;
-};
-
-/** Where in the text the pill of this card sits, or null when it's not there. */
-const sessionOffset = (segments: readonly Segment[], item: ItemId): number | null => {
-	let offset = 0;
-	for (const segment of segments) {
-		if (segment.type === "text") {
-			offset += segment.text.length;
-			continue;
-		}
-		if (segment.pill.type === "session" && segment.pill.item === item) return offset;
-		offset += 1;
-	}
-	return null;
 };
 
 /** The card with this ID, while the timeline holds it. */
@@ -110,7 +73,8 @@ const useCard = (timeline: TimelineStore | undefined, item: ItemId | null | unde
 /**
  * Keeps the open card's pill in the agent's composer: in once the card
  * holds a shared command, unless you removed it, and out once a message
- * closed the card or nothing in it is shared.
+ * closed the card or nothing in it is shared. A pill whose card the
+ * loaded timeline doesn't hold goes too.
  */
 export const useSessionPills = (
 	agent: AgentId,
@@ -119,35 +83,45 @@ export const useSessionPills = (
 	editor: RefObject<PromptEditorHandle | null>,
 	deviceName: string
 ) => {
+	const drafts = draftsOf(useServices());
+	useHeldSessions(agent, segments, editor);
 	const open = useSyncExternalStore(timeline.subscribe, () => openCardOf(timeline.getState()));
+	const ready = useSyncExternalStore(
+		timeline.subscribe,
+		() => timeline.getState().status === "ready"
+	);
 	useEffect(() => {
+		const before = drafts.placed(agent);
+		let placed = before;
 		const holds = sessionItems(segments);
-		const done = placed.get(agent) ?? new Set<ItemId>();
-		placed.set(agent, done);
 		for (const item of [...holds]) {
 			const card = sessionCardOf(timeline.getState(), item);
-			if (!card || wantsPill(card)) continue;
-			const handle = editor.current;
-			const at = handle ? sessionOffset(handle.segments(), item) : null;
-			if (handle && at !== null) handle.replaceRange(at, at + 1, []);
+			// A pill restored with the draft waits for its card while the timeline loads.
+			if (card ? wantsPill(card) : !ready) continue;
+			removePill(editor.current, isSessionOf(item));
 			holds.delete(item);
 			// Shared again, its pill comes back.
-			if (!card.sealed) done.delete(item);
+			if (card && !card.sealed && placed.has(item)) {
+				const next = new Set(placed);
+				next.delete(item);
+				placed = next;
+			}
 		}
-		setHeld(agent, holds);
-		if (open && wantsPill(open) && !holds.has(open.id) && !done.has(open.id)) {
-			done.add(open.id);
+		if (open && wantsPill(open) && !holds.has(open.id) && !placed.has(open.id)) {
+			placed = new Set(placed).add(open.id);
 			const pill = sessionPill(open, deviceName);
 			// The pill's view renders as it goes in, which React won't do from an effect.
 			queueMicrotask(() => quoteInbox.send(agent, pill, false));
 		}
-	}, [agent, open, segments, editor, timeline, deviceName]);
+		if (placed !== before) drafts.setPlaced(agent, placed);
+	}, [agent, open, ready, segments, editor, timeline, deviceName, drafts]);
 };
 
 /**
  * Fills each session pill in a message with what goes to the agent: its
  * card's shared commands, each with its last lines, from the live
- * terminal while one runs. A second pill for the same card goes.
+ * terminal while one runs. A second pill for the same card goes, and so
+ * does one whose card this timeline doesn't hold.
  */
 export const useSessionFill = (timeline: TimelineStore) => {
 	const actions = useTerminalActions();
@@ -161,10 +135,10 @@ export const useSessionFill = (timeline: TimelineStore) => {
 				if (seen.has(id)) return [];
 				seen.add(id);
 				const card = sessionCardOf(timeline.getState(), id);
-				if (!card) return [segment];
+				if (!card) return [];
 				const pill = fillSession(segment.pill, card, {
 					now: Date.now(),
-					live: () => actions.runningText(card.terminal),
+					live: (block) => actions.runningText(card.terminal, block.start),
 				});
 				return [{ type: "pill", pill }];
 			});

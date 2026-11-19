@@ -15,6 +15,11 @@ export type Picked = { readonly text: string; readonly lines: LineSpan };
 export type MarkedCommand = CommandMark & {
 	/** Names it in the view, counting up from 1. */
 	readonly id: number;
+	/**
+	 * Where its command mark starts in all the terminal printed, as the
+	 * device counts it, or null when the writes didn't say.
+	 */
+	readonly offset: number | null;
 };
 
 /** What a marked command printed, and the lines that takes, with what its marks say. */
@@ -24,8 +29,11 @@ export type CommandOutput = Picked & { readonly mark: CommandMark };
 export type TermView = {
 	/** The element the terminal draws in, which moves between hosts. */
 	readonly element: HTMLElement;
-	/** Draws what the terminal printed. */
-	readonly write: (bytes: Uint8Array) => void;
+	/**
+	 * Draws what the terminal printed, with where those bytes start in all
+	 * it printed when that's known.
+	 */
+	readonly write: (bytes: Uint8Array, offset?: number) => void;
 	/** Forgets the screen and scrollback, for output that starts over. */
 	readonly clear: () => void;
 	/** Sets the size in cells. */
@@ -91,3 +99,19 @@ export type TermView = {
 
 /** Makes the view for one terminal. */
 export type MakeView = () => TermView;
+
+/**
+ * What the command whose mark starts at `start` printed so far, and how
+ * many lines that is, or null when the view holds no such command. A shell
+ * started inside it marks its own commands after it, so the last command
+ * the view holds may be another.
+ */
+export const commandText = (
+	view: Pick<TermView, "commands" | "output">,
+	start: number
+): { readonly text: string; readonly total: number } | null => {
+	const command = view.commands().find((each) => each.offset === start);
+	const shown = command ? view.output(command.id) : null;
+	if (!shown) return null;
+	return { text: shown.text, total: shown.text === "" ? 0 : shown.text.split("\n").length };
+};

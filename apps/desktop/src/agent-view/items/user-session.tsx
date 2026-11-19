@@ -25,9 +25,8 @@ import { useRow } from "@maxhq/shared/agent-view/context";
 import { useFold } from "@maxhq/shared/agent-view/find-context";
 import { formatTook } from "@maxhq/shared/agent-view/format";
 import type { SessionBlock } from "@maxhq/shared/bindings";
-import { attempt, failureOf, sendModeFor, turnOf } from "@maxhq/shared/composer/send";
+import { attempt, failureOf } from "@maxhq/shared/composer/send";
 import { t, useI18n } from "@maxhq/shared/i18n";
-import { toUserInput } from "@maxhq/shared/pills/draft";
 import { type TerminalEntity, terminalById } from "@maxhq/shared/terminal/select";
 import {
 	blockRunning,
@@ -41,18 +40,27 @@ import { deviceName } from "@maxhq/shared/view/select";
 
 import { useServices, useView } from "@/app/services";
 import { requestConfirm } from "@/components/confirm";
+import { takeSessionBack, useSessionHeld } from "@/composer/held-pills";
 import { askedHere, firstAskHere } from "@/composer/run-command";
-import { addSessionPill, shareBlock, useSessionHeld } from "@/composer/session-pill";
+import { draftsOf } from "@/composer/saved-drafts";
+import { addSessionPill, markPlaced, shareBlock } from "@/composer/session-pill";
 import { useTypingPrefs } from "@/composer/typing-prefs";
 import { withParts } from "@/lib/parts";
 import { cn } from "@/lib/utils";
-import { agreedSend } from "@/settings/auto-consent";
 import { LiveTerminal, useTerminalActions } from "@/terminal";
 
 import { Elapsed } from "../elapsed";
 import { Spinner } from "../icons";
 import { InputRow, PasswordField } from "./run-input";
-import { BOXED, BUTTON, endedText, FinishedOutput, LIVE_ROWS, runClock } from "./user-run";
+import {
+	BOXED,
+	BUTTON,
+	endedText,
+	FinishedOutput,
+	LIVE_ROWS,
+	runClock,
+	sendAlone,
+} from "./user-run";
 
 /** Why a card's button didn't go, with the reason when there is one. */
 const failed = (what: "end" | "send" | "share", reason: string): string => {
@@ -90,9 +98,13 @@ export const UserSessionCard = ({ item }: { item: UserSessionItem }) => {
 
 	const end = async () => {
 		setError(null);
-		let reason = failureOf(await attempt(() => services.source.sessionEnd(row.agent)));
-		// A command still runs, so the device asks first.
-		if (reason) {
+		const result = await attempt(() => services.source.sessionEnd(row.agent));
+		let reason = failureOf(result);
+		// The device refuses while a command runs, so you're asked first. Any
+		// other failure, such as the device being away, only says so.
+		const refused = result.status === "ok" && result.data.status === "refused";
+		const runs = item.blocks.some(blockRunning) || terminal?.busy === true;
+		if (reason !== null && refused && runs) {
 			const sure = await requestConfirm(services, {
 				title: t("End the session?"),
 				detail: reason,
@@ -111,24 +123,28 @@ export const UserSessionCard = ({ item }: { item: UserSessionItem }) => {
 		setBusy(true);
 		setError(null);
 		try {
-			const agreed = await agreedSend(services, agent);
-			if (!agreed.go) {
-				setError(agreed.failure);
-				return;
+			const pill = () =>
+				fillSession(sessionPill(item, device), item, {
+					now: Date.now(),
+					live: (block) => actions.runningText(item.terminal, block.start),
+				});
+			const { sent, error } = await sendAlone(
+				services,
+				agent,
+				busySend,
+				() => [{ type: "pill", pill: pill() }],
+				(result) => {
+					const reason = failureOf(result);
+					return reason === null ? null : failed("send", reason);
+				}
+			);
+			setError(error);
+			if (sent) {
+				// It went, so the next message doesn't take these commands again,
+				// even before the device closes the card.
+				markPlaced(draftsOf(services), row.agent, item.id);
+				takeSessionBack(row.agent, item.id);
 			}
-			const pill = fillSession(sessionPill(item, device), item, {
-				now: Date.now(),
-				live: () => actions.runningText(item.terminal),
-			});
-			const input = toUserInput(
-				{ segments: [{ type: "pill", pill }], gitItems: [] },
-				() => null
-			);
-			const mode = sendModeFor(turnOf(agent.activity), busySend, false);
-			const failure = failureOf(
-				await attempt(() => services.source.sendInput(row.agent, input, mode))
-			);
-			if (failure !== null) setError(failed("send", failure));
 		} finally {
 			setBusy(false);
 		}
@@ -150,7 +166,9 @@ export const UserSessionCard = ({ item }: { item: UserSessionItem }) => {
 						<button
 							type="button"
 							className={BUTTON}
-							onClick={() => addSessionPill(row.agent, item, device)}
+							onClick={() =>
+								addSessionPill(draftsOf(services), row.agent, item, device)
+							}
 						>
 							{t("Add to next message")}
 						</button>
