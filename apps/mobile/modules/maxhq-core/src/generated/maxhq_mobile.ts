@@ -293,6 +293,29 @@ export function forgetMac(keeper: string): string {
 }
 
 /**
+ * `text` with the secrets it holds masked, such as tokens and keys a
+ * command printed, as the desktop masks a command's output before it
+ * goes to an agent. It needs no core, so it answers the text itself, not
+ * a reply.
+ */
+export function maskText(text: string): string {
+	const __rb: Uint8Array = uniffiCaller.rustCall(
+		/*caller:*/ (callStatus) => {
+			return nativeModule().ubrn_uniffi_maxhq_mobile_fn_func_mask_text(
+				FfiConverterString.lower(text, nativeModule().rustbuffer_alloc),
+				callStatus
+			);
+		},
+		/*liftString:*/ FfiConverterString.lift.bind(FfiConverterString)
+	);
+	try {
+		return FfiConverterString.lift(__rb);
+	} finally {
+		nativeModule().rustbuffer_free(__rb);
+	}
+}
+
+/**
  * Fetches a picture or video `agent` can see into the media cache, unless
  * it's there already or is larger than `limit` bytes, with how far it has
  * got going to `listener`. `path` is as the timeline names it, and `agent`
@@ -1488,6 +1511,11 @@ function uniffiEnsureInitialized() {
 	if (nativeModule().ubrn_uniffi_maxhq_mobile_checksum_func_forget_mac() !== 37615) {
 		throw new UniffiInternalError.ApiChecksumMismatch(
 			"uniffi_maxhq_mobile_checksum_func_forget_mac"
+		);
+	}
+	if (nativeModule().ubrn_uniffi_maxhq_mobile_checksum_func_mask_text() !== 49435) {
+		throw new UniffiInternalError.ApiChecksumMismatch(
+			"uniffi_maxhq_mobile_checksum_func_mask_text"
 		);
 	}
 	if (nativeModule().ubrn_uniffi_maxhq_mobile_checksum_func_media() !== 55075) {

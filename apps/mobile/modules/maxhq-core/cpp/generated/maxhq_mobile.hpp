@@ -41,6 +41,7 @@ class NativeMaxhqMobile : public jsi::HostObject {
     jsi::Value cpp_uniffi_maxhq_mobile_fn_func_copy_project(jsi::Runtime& rt, const jsi::Value& thisVal, const jsi::Value* args, size_t count);
     jsi::Value cpp_uniffi_maxhq_mobile_fn_func_download(jsi::Runtime& rt, const jsi::Value& thisVal, const jsi::Value* args, size_t count);
     jsi::Value cpp_uniffi_maxhq_mobile_fn_func_forget_mac(jsi::Runtime& rt, const jsi::Value& thisVal, const jsi::Value* args, size_t count);
+    jsi::Value cpp_uniffi_maxhq_mobile_fn_func_mask_text(jsi::Runtime& rt, const jsi::Value& thisVal, const jsi::Value* args, size_t count);
     jsi::Value cpp_uniffi_maxhq_mobile_fn_func_media(jsi::Runtime& rt, const jsi::Value& thisVal, const jsi::Value* args, size_t count);
     jsi::Value cpp_uniffi_maxhq_mobile_fn_func_network_changed(jsi::Runtime& rt, const jsi::Value& thisVal, const jsi::Value* args, size_t count);
     jsi::Value cpp_uniffi_maxhq_mobile_fn_func_open_timeline(jsi::Runtime& rt, const jsi::Value& thisVal, const jsi::Value* args, size_t count);
@@ -110,6 +111,7 @@ class NativeMaxhqMobile : public jsi::HostObject {
     jsi::Value cpp_uniffi_maxhq_mobile_checksum_func_copy_project(jsi::Runtime& rt, const jsi::Value& thisVal, const jsi::Value* args, size_t count);
     jsi::Value cpp_uniffi_maxhq_mobile_checksum_func_download(jsi::Runtime& rt, const jsi::Value& thisVal, const jsi::Value* args, size_t count);
     jsi::Value cpp_uniffi_maxhq_mobile_checksum_func_forget_mac(jsi::Runtime& rt, const jsi::Value& thisVal, const jsi::Value* args, size_t count);
+    jsi::Value cpp_uniffi_maxhq_mobile_checksum_func_mask_text(jsi::Runtime& rt, const jsi::Value& thisVal, const jsi::Value* args, size_t count);
     jsi::Value cpp_uniffi_maxhq_mobile_checksum_func_media(jsi::Runtime& rt, const jsi::Value& thisVal, const jsi::Value* args, size_t count);
     jsi::Value cpp_uniffi_maxhq_mobile_checksum_func_network_changed(jsi::Runtime& rt, const jsi::Value& thisVal, const jsi::Value* args, size_t count);
     jsi::Value cpp_uniffi_maxhq_mobile_checksum_func_open_timeline(jsi::Runtime& rt, const jsi::Value& thisVal, const jsi::Value* args, size_t count);

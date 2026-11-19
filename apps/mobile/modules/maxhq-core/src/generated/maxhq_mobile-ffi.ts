@@ -229,6 +229,10 @@ interface NativeModuleInterface {
 		keeper: Uint8Array,
 		uniffi_out_err: UniffiRustCallStatus
 	): Uint8Array;
+	ubrn_uniffi_maxhq_mobile_fn_func_mask_text(
+		text: Uint8Array,
+		uniffi_out_err: UniffiRustCallStatus
+	): Uint8Array;
 	ubrn_uniffi_maxhq_mobile_fn_func_media(
 		agent: Uint8Array,
 		path: Uint8Array,
@@ -307,6 +311,7 @@ interface NativeModuleInterface {
 	ubrn_uniffi_maxhq_mobile_checksum_func_copy_project(): number;
 	ubrn_uniffi_maxhq_mobile_checksum_func_download(): number;
 	ubrn_uniffi_maxhq_mobile_checksum_func_forget_mac(): number;
+	ubrn_uniffi_maxhq_mobile_checksum_func_mask_text(): number;
 	ubrn_uniffi_maxhq_mobile_checksum_func_media(): number;
 	ubrn_uniffi_maxhq_mobile_checksum_func_network_changed(): number;
 	ubrn_uniffi_maxhq_mobile_checksum_func_open_timeline(): number;
