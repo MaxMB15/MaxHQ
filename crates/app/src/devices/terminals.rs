@@ -231,14 +231,17 @@ mod tests {
         holds(&h, nl.id);
         let (old, new) = (Recorder::<Vec<u8>>::new(1), Recorder::<Vec<u8>>::new(2));
         block_on(h.devices.attach_terminal("main", old, shell(), None)).unwrap();
-        // The page reloads and attaches again before the release goes out.
-        let release = h.devices.release_window("main");
+        // The page reloads and attaches again before the release takes its
+        // turn. `release_window` takes that turn on a task of its own, which
+        // may go first, so the test takes its steps itself.
+        let released = h.devices.core.terminals.release("main");
+        assert_eq!(released, [(shell(), nl.id)]);
         block_on(
             h.devices
                 .attach_terminal("main", new.clone(), shell(), None),
         )
         .unwrap();
-        block_on(release).unwrap();
+        block_on(h.devices.core.detach_terminals(released));
         let calls = h.fake.calls();
         assert!(
             !calls
