@@ -276,7 +276,6 @@
 	"Phones on the same network or tailnet can reach {{name}} while it's on.": "Telefone im selben Netzwerk oder Tailnet erreichen {{name}}, solange dies aktiv ist.",
 	"The port phones reach {{name}} on. {{DEFAULT_PORT}} by default.": "Der Port, über den Telefone {{name}} erreichen. Standardmäßig {{DEFAULT_PORT}}.",
 	"Runs as": "Ausführen als",
-	"The dispatcher reads your projects and agents and proposes a plan. It can't change files or start anything until you confirm. Without a pick it takes the first Claude account, else the first Codex one.": "Der Dispatcher liest Projekte und Agents und schlägt einen Plan vor. Änderungen oder Starts erfordern deine Bestätigung. Ohne Auswahl nutzt er das erste Claude-Konto, sonst das erste Codex-Konto.",
 	"Sign in to Claude or Codex on this Mac first": "Melde dich zuerst bei Claude oder Codex auf diesem Mac an",
 	"Open in": "Öffnen in",
 	"Default editor": "Standardeditor",
@@ -1062,5 +1061,9 @@
 	"Terminals on {{name}}": "Terminals auf {{name}}",
 	"Shell integration on by default": "Shell-Integration standardmäßig an",
 	"Shell integration": "Shell-Integration",
-	"MaxHQ adds hooks to zsh, bash and fish so it can tell commands apart. Off starts shells exactly as your startup files say. Applies to terminals opened after the change.": "MaxHQ fügt zsh, bash und fish Hooks hinzu, damit es Befehle auseinanderhalten kann. Aus startet Shells genau so, wie deine Startdateien es sagen. Gilt für Terminals, die nach der Änderung geöffnet werden."
+	"MaxHQ adds hooks to zsh, bash and fish so it can tell commands apart. Off starts shells exactly as your startup files say. Applies to terminals opened after the change.": "MaxHQ fügt zsh, bash und fish Hooks hinzu, damit es Befehle auseinanderhalten kann. Aus startet Shells genau so, wie deine Startdateien es sagen. Gilt für Terminals, die nach der Änderung geöffnet werden.",
+	"Act directly": "Direkt handeln",
+	"Changes": "Änderungen",
+	"The dispatcher changes settings, agents and tasks without asking first. Deleting, stopping busy agents and granting permissions still ask.": "Der Dispatcher ändert Einstellungen, Agents und Aufgaben, ohne vorher zu fragen. Vor dem Löschen, dem Stoppen beschäftigter Agents und dem Erteilen von Berechtigungen fragt er weiterhin.",
+	"The dispatcher reads your projects and agents, and can't change files. Without a pick it takes the first Claude account, else the first Codex one.": "Der Dispatcher liest Projekte und Agents und kann keine Dateien ändern. Ohne Auswahl nutzt er das erste Claude-Konto, sonst das erste Codex-Konto."
 }

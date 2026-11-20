@@ -55,6 +55,7 @@ const KINDS: Record<ItemBody["kind"], true> = {
 	agent_visual: true,
 	user_run: true,
 	user_session: true,
+	dispatcher_action: true,
 	unknown: true,
 };
 

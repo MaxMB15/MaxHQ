@@ -276,7 +276,6 @@
 	"Phones on the same network or tailnet can reach {{name}} while it's on.": "Phones on the same network or tailnet can reach {{name}} while it's on.",
 	"The port phones reach {{name}} on. {{DEFAULT_PORT}} by default.": "The port phones reach {{name}} on. {{DEFAULT_PORT}} by default.",
 	"Runs as": "Runs as",
-	"The dispatcher reads your projects and agents and proposes a plan. It can't change files or start anything until you confirm. Without a pick it takes the first Claude account, else the first Codex one.": "The dispatcher reads your projects and agents and proposes a plan. It can't change files or start anything until you confirm. Without a pick it takes the first Claude account, else the first Codex one.",
 	"Sign in to Claude or Codex on this Mac first": "Sign in to Claude or Codex on this Mac first",
 	"Open in": "Open in",
 	"Default editor": "Default editor",
@@ -1062,5 +1061,9 @@
 	"Terminals on {{name}}": "Terminals on {{name}}",
 	"Shell integration on by default": "Shell integration on by default",
 	"Shell integration": "Shell integration",
-	"MaxHQ adds hooks to zsh, bash and fish so it can tell commands apart. Off starts shells exactly as your startup files say. Applies to terminals opened after the change.": "MaxHQ adds hooks to zsh, bash and fish so it can tell commands apart. Off starts shells exactly as your startup files say. Applies to terminals opened after the change."
+	"MaxHQ adds hooks to zsh, bash and fish so it can tell commands apart. Off starts shells exactly as your startup files say. Applies to terminals opened after the change.": "MaxHQ adds hooks to zsh, bash and fish so it can tell commands apart. Off starts shells exactly as your startup files say. Applies to terminals opened after the change.",
+	"Act directly": "Act directly",
+	"Changes": "Changes",
+	"The dispatcher changes settings, agents and tasks without asking first. Deleting, stopping busy agents and granting permissions still ask.": "The dispatcher changes settings, agents and tasks without asking first. Deleting, stopping busy agents and granting permissions still ask.",
+	"The dispatcher reads your projects and agents, and can't change files. Without a pick it takes the first Claude account, else the first Codex one.": "The dispatcher reads your projects and agents, and can't change files. Without a pick it takes the first Claude account, else the first Codex one."
 }

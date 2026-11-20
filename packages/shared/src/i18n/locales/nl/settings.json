@@ -276,7 +276,6 @@
 	"Phones on the same network or tailnet can reach {{name}} while it's on.": "Telefoons op hetzelfde netwerk of tailnet kunnen {{name}} bereiken zolang dit aanstaat.",
 	"The port phones reach {{name}} on. {{DEFAULT_PORT}} by default.": "De poort waarop telefoons {{name}} bereiken. Standaard {{DEFAULT_PORT}}.",
 	"Runs as": "Uitvoeren als",
-	"The dispatcher reads your projects and agents and proposes a plan. It can't change files or start anything until you confirm. Without a pick it takes the first Claude account, else the first Codex one.": "De dispatcher leest je projecten en agents en stelt een plan voor. Pas na je bevestiging kan hij bestanden wijzigen of iets starten. Zonder keuze gebruikt hij het eerste Claude-account, anders het eerste Codex-account.",
 	"Sign in to Claude or Codex on this Mac first": "Meld je eerst aan bij Claude of Codex op deze Mac",
 	"Open in": "Openen in",
 	"Default editor": "Standaardeditor",
@@ -1062,5 +1061,9 @@
 	"Terminals on {{name}}": "Terminals op {{name}}",
 	"Shell integration on by default": "Shell-integratie standaard aan",
 	"Shell integration": "Shell-integratie",
-	"MaxHQ adds hooks to zsh, bash and fish so it can tell commands apart. Off starts shells exactly as your startup files say. Applies to terminals opened after the change.": "MaxHQ voegt hooks toe aan zsh, bash en fish, zodat het opdrachten uit elkaar kan houden. Uit start shells precies zoals je opstartbestanden zeggen. Geldt voor terminals die na de wijziging openen."
+	"MaxHQ adds hooks to zsh, bash and fish so it can tell commands apart. Off starts shells exactly as your startup files say. Applies to terminals opened after the change.": "MaxHQ voegt hooks toe aan zsh, bash en fish, zodat het opdrachten uit elkaar kan houden. Uit start shells precies zoals je opstartbestanden zeggen. Geldt voor terminals die na de wijziging openen.",
+	"Act directly": "Direct handelen",
+	"Changes": "Wijzigingen",
+	"The dispatcher changes settings, agents and tasks without asking first. Deleting, stopping busy agents and granting permissions still ask.": "De dispatcher wijzigt instellingen, agents en taken zonder eerst te vragen. Voor verwijderen, bezige agents stoppen en rechten geven vraagt hij nog steeds.",
+	"The dispatcher reads your projects and agents, and can't change files. Without a pick it takes the first Claude account, else the first Codex one.": "De dispatcher leest je projecten en agents en kan geen bestanden wijzigen. Zonder keuze gebruikt hij het eerste Claude-account, anders het eerste Codex-account."
 }

@@ -1344,5 +1344,10 @@
 	"Suggestions": "Vorschläge",
 	"Tab completes · ↩ picks · on {{device}}": "Tab ergänzt · ↩ wählt · auf {{device}}",
 	"This folder holds more than shows here. Type the path to reach the rest.": "Dieser Ordner enthält mehr, als hier steht. Gib den Pfad ein, um den Rest zu erreichen.",
-	"Use that": "Diesen verwenden"
+	"Use that": "Diesen verwenden",
+	"Couldn't undo it. Try again.": "Rückgängigmachen fehlgeschlagen. Versuche es erneut.",
+	"Couldn't undo the dispatcher's change": "Die Änderung des Dispatchers konnte nicht rückgängig gemacht werden",
+	"On {{device}}": "Auf {{device}}",
+	"This change can't be undone any more": "Diese Änderung lässt sich nicht mehr rückgängig machen",
+	"Undone": "Rückgängig gemacht"
 }

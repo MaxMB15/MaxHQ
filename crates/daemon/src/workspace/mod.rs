@@ -35,6 +35,7 @@ use std::time::Duration;
 
 use futures::future::BoxFuture;
 use futures::FutureExt;
+use maxhq_protocol::dispatch::ProjectSettingChange;
 use maxhq_protocol::guest::GuestUnsaved;
 use maxhq_protocol::ids::{ProjectId, WorkspaceId};
 use maxhq_protocol::message::ActionOutcome;
@@ -204,6 +205,20 @@ pub async fn restore_snapshot(
 /// Answers `SetProjectSettings`.
 pub async fn set_project_settings(settings: ProjectSettings) -> ActionOutcome {
     answer(|manager| async move { manager.set_project_settings(settings).await }).await
+}
+
+/// Makes some changes to a project's settings on this device, for the
+/// dispatcher.
+pub async fn change_project_settings(
+    project: ProjectId,
+    changes: Vec<ProjectSettingChange>,
+) -> ActionOutcome {
+    answer(|manager| async move {
+        let mut settings = manager.project_settings(project);
+        maxhq_core::tools::admin::apply_project(&mut settings, &changes);
+        manager.set_project_settings(settings).await
+    })
+    .await
 }
 
 /// `maxd guest probe TARGETS.json`: tries each target from inside a

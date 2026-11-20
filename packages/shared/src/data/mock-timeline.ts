@@ -179,6 +179,15 @@ const visual = (title: string, name: string, bytes: number): ItemBody => ({
 	replaces: null,
 });
 
+/** A rename the dispatcher made at once, as its card, with no Undo left. */
+const renamed = (agent: AgentId, from: string, title: string): ItemBody => ({
+	kind: "dispatcher_action",
+	device: MAC,
+	action: { action: "rename_agent", agent, title },
+	target: from,
+	undo: null,
+});
+
 /** A command you ran with `!` in the composer, ended with `code`. */
 const ranByYou = (
 	command: string,
@@ -780,6 +789,7 @@ const usagePopover = (now: Timestamp): TimelineItem[] => {
 	s.turn(MIN);
 	s.add(you("How did usage move this week?"));
 	s.add(visual("Weekly usage by vendor", "visual-weekly-usage-by-vendor.html", 6_240));
+	s.add(renamed("agent-usage-popover", "Usage popover", "Usage meter popover"));
 	s.add(say("Claude climbed through Thursday, then eased off once the limit reset."));
 	// What you ran since, which your next message can take along.
 	s.add(sampleSessionCard(), { gap: 2 * MIN, took: 43_100, id: SAMPLE_SESSION.item });
@@ -996,6 +1006,7 @@ const hdrToneMapping = (now: Timestamp): TimelineItem[] => {
 	s.add({ kind: "interrupted" });
 	s.add(opened(`${COMET_FOLDER}/docs/hdr-tone-mapping.md`));
 	s.add(visual("Tone curve by mode", "visual-tone-curve-by-mode.html", 8_120));
+	s.add(renamed("agent-hdr", "HDR", "HDR tone mapping"));
 	s.add(ranByYou("cargo fmt --check", COMET_FOLDER, "Diff in src/tone.rs at line 88", 1, 1_900), {
 		took: 1_900,
 		status: "failed",

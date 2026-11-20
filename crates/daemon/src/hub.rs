@@ -763,6 +763,14 @@ impl Hub {
         }
     }
 
+    /// The name the user gave an agent, if any.
+    pub fn given_name(&self, agent: AgentId) -> Option<String> {
+        self.lock()
+            .names
+            .get(&agent)
+            .map(|named| named.name.clone())
+    }
+
     /// Shows `name` over the agent's reported title from now on, or with
     /// none, the reported title again.
     pub fn set_name(&self, agent: AgentId, name: Option<String>) {
@@ -928,6 +936,7 @@ pub fn default_settings(device: &Device) -> DeviceSettings {
         history_mib: DEFAULT_HISTORY_MIB,
         claude_setup_token: false,
         shell_integration: true,
+        dispatcher_acts: true,
     }
 }
 

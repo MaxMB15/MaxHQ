@@ -1362,5 +1362,10 @@
 	"Suggestions": "Sugerencias",
 	"Tab completes · ↩ picks · on {{device}}": "Tab completa · ↩ elige · en {{device}}",
 	"This folder holds more than shows here. Type the path to reach the rest.": "Esta carpeta tiene más de lo que se ve aquí. Escribe la ruta para llegar al resto.",
-	"Use that": "Usar ese"
+	"Use that": "Usar ese",
+	"Couldn't undo it. Try again.": "No se pudo deshacer. Inténtalo de nuevo.",
+	"Couldn't undo the dispatcher's change": "No se pudo deshacer el cambio del coordinador",
+	"On {{device}}": "En {{device}}",
+	"This change can't be undone any more": "Este cambio ya no se puede deshacer",
+	"Undone": "Deshecho"
 }

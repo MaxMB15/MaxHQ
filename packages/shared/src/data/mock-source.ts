@@ -231,6 +231,7 @@ const SETTINGS: Entity[] = [
 		history_mib: 256,
 		claude_setup_token: false,
 		shell_integration: true,
+		dispatcher_acts: true,
 		test_hosts: MOCK_TEST_HOST_SETTINGS[MAC],
 	},
 	{
@@ -250,6 +251,7 @@ const SETTINGS: Entity[] = [
 		// devbox holds a setup-token, so it takes them.
 		claude_setup_token: true,
 		shell_integration: true,
+		dispatcher_acts: true,
 		test_hosts: MOCK_TEST_HOST_SETTINGS[DEVBOX],
 	},
 	mockNetworkAccess(MAC),

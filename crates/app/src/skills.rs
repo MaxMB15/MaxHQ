@@ -429,6 +429,7 @@ mod tests {
             history_mib: 256,
             claude_setup_token: false,
             shell_integration: true,
+            dispatcher_acts: true,
         }
     }
 

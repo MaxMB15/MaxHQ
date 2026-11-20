@@ -633,6 +633,10 @@ impl Manager {
         done: oneshot::Sender<ToolAnswer>,
     ) {
         let reply = Reply::Peer(done);
+        // A change from the home's dispatcher, which holds no permission.
+        if call.call.tool == super::dispatcher_admin::ACT_THERE {
+            return self.peer_act(from, call.call.arguments, reply);
+        }
         let home = self
             .agent_tools
             .permissions
@@ -746,7 +750,8 @@ impl Manager {
             | Call::OpenFile(_)
             | Call::ShowVisual(_)
             | Call::ListRepoPullRequests(_)
-            | Call::SubmitPlan(_) => {
+            | Call::SubmitPlan(_)
+            | Call::Admin(_) => {
                 self.reply_now(reply, Err(NOT_ALLOWED.into()));
             }
             Call::ScheduleTask(asked) => {

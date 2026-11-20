@@ -220,7 +220,10 @@ impl Manager {
             | ClientMessage::ListRuns { .. } => return self.task_message(conn, message),
             ClientMessage::AskDispatcher { .. }
             | ClientMessage::ConfirmPlan { .. }
-            | ClientMessage::DismissPlan { .. } => return self.dispatcher_message(conn, message),
+            | ClientMessage::DismissPlan { .. }
+            | ClientMessage::UndoDispatcherAction { .. } => {
+                return self.dispatcher_message(conn, message)
+            }
             ClientMessage::MoveAgent { .. } => return self.move_message(conn, message),
             ClientMessage::StartAgent { key, .. }
             | ClientMessage::SendInput { key, .. }

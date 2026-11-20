@@ -25,6 +25,7 @@ import { SubAgentCard } from "./items/subagent";
 import { UserRunCard } from "./items/user-run";
 import { UserSessionCard } from "./items/user-session";
 import { VisualItem } from "@/visuals/visual-item";
+import { DispatcherActionCard } from "@/header/dispatcher/action-card";
 import {
 	CommandRow,
 	FileChangeRow,
@@ -120,6 +121,8 @@ export const ItemBodyView = ({ item }: { item: TimelineItem }) => {
 			return <UserRunCard item={item} />;
 		case "user_session":
 			return <UserSessionCard item={item} />;
+		case "dispatcher_action":
+			return <DispatcherActionCard item={item} />;
 		case "unknown":
 			return <UnknownRow item={item} />;
 	}

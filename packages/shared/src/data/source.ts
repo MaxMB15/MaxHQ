@@ -911,6 +911,11 @@ export type DataSource = HelperCalls & {
 	readonly confirmPlan: (device: DeviceId, plan: number) => Promise<ActionResult>;
 	/** Drops the plan `device`'s dispatcher shows, so nothing in it runs. */
 	readonly dismissPlan: (device: DeviceId, plan: number) => Promise<ActionResult>;
+	/**
+	 * Puts back a change `device`'s dispatcher made at once, by the key on
+	 * its card. It's refused once that change can't be undone any more.
+	 */
+	readonly undoDispatcherAction: (device: DeviceId, action: string) => Promise<ActionResult>;
 	/** A project's PRs on one tab, read on the project's device. */
 	readonly listPulls: (project: ProjectId, state: PullListState) => Promise<ActionResult>;
 	/** A project's repository's branches, read on the project's device, as `branches`. */

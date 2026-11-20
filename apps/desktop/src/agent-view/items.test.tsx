@@ -329,6 +329,16 @@ const SAMPLES: Record<ItemBody["kind"], [ItemBody, string | RegExp, ItemStatus?]
 		},
 		"Send to agent",
 	],
+	dispatcher_action: [
+		{
+			kind: "dispatcher_action",
+			device: "device-1",
+			action: { action: "rename_agent", agent: "agent-1", title: "Auth fix" },
+			target: "Fix login",
+			undo: null,
+		},
+		"Renamed Fix login to Auth fix",
+	],
 	unknown: [{ kind: "unknown", native_kind: "hook_progress" }, "hook_progress"],
 };
 

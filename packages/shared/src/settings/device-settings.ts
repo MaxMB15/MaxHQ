@@ -47,6 +47,7 @@ export const deviceSettingsOf = (view: ViewState, device: DeviceId): DeviceField
 		history_mib: kept?.history_mib ?? DEFAULT_HISTORY_MIB,
 		claude_setup_token: kept?.claude_setup_token ?? false,
 		shell_integration: kept?.shell_integration ?? true,
+		dispatcher_acts: kept?.dispatcher_acts ?? true,
 		skill_library: kept?.skill_library ?? null,
 		network: kept?.network ?? {},
 		test_hosts: testHostSettingsOf(view, device),
@@ -72,6 +73,7 @@ export const sameDeviceFields = (a: DeviceFields, b: DeviceFields): boolean =>
 	a.history_mib === b.history_mib &&
 	a.claude_setup_token === b.claude_setup_token &&
 	a.shell_integration === b.shell_integration &&
+	a.dispatcher_acts === b.dispatcher_acts &&
 	a.skill_library === b.skill_library &&
 	a.network.on === b.network.on &&
 	a.network.port === b.network.port &&

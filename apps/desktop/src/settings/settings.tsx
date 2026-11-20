@@ -76,7 +76,7 @@ const LOGIN_TERMS: Record<LoginPage, readonly string[]> = {
 };
 
 // The dispatcher's page keeps its own file; these are its headings and labels.
-const DISPATCHER_TERMS: readonly string[] = ["Account", "Runs as"];
+const DISPATCHER_TERMS: readonly string[] = ["Account", "Runs as", "Changes", "Act directly"];
 
 /** A page in the App group. */
 type AppPage = {

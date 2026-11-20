@@ -1031,6 +1031,14 @@ pub struct DeviceSettings {
     /// hooks.
     #[serde(default = "yes")]
     pub shell_integration: bool,
+    /// Whether the dispatcher makes safe changes at once, such as renaming
+    /// an agent or turning a task off. Off makes every change a plan item
+    /// you confirm. Deleting, stopping a busy agent and granting a
+    /// permission ask either way. A `maxd` from before
+    /// [`crate::message::DISPATCHER_ADMIN_SINCE`] leaves it out, and its
+    /// dispatcher only plans.
+    #[serde(default = "yes")]
+    pub dispatcher_acts: bool,
 }
 
 impl DeviceSettings {
@@ -1063,6 +1071,7 @@ impl DeviceSettings {
             history_mib,
             claude_setup_token,
             shell_integration,
+            dispatcher_acts,
         } = self;
         let differs = |same: &dyn Fn(&Self) -> bool| old.is_none_or(|old| !same(old));
         let mut changes = Vec::new();
@@ -1165,6 +1174,11 @@ impl DeviceSettings {
                 value: *shell_integration,
             });
         }
+        if differs(&|old| old.dispatcher_acts == *dispatcher_acts) {
+            changes.push(Change::DispatcherActs {
+                value: *dispatcher_acts,
+            });
+        }
         changes
     }
 
@@ -1196,6 +1210,7 @@ impl DeviceSettings {
             DeviceSettingChange::HistoryMib { value } => self.history_mib = value,
             DeviceSettingChange::ClaudeSetupToken { value } => self.claude_setup_token = value,
             DeviceSettingChange::ShellIntegration { value } => self.shell_integration = value,
+            DeviceSettingChange::DispatcherActs { value } => self.dispatcher_acts = value,
         }
     }
 
@@ -1255,6 +1270,7 @@ impl DeviceSettingChange {
             Self::ClaudeEffort { .. } | Self::CodexEffort { .. } => crate::message::EFFORT_SINCE,
             Self::ClaudeSetupToken { .. } => crate::message::SETUP_TOKENS_SINCE,
             Self::ShellIntegration { .. } => crate::message::SHELL_MARKS_SINCE,
+            Self::DispatcherActs { .. } => crate::message::DISPATCHER_ADMIN_SINCE,
             _ => 26,
         }
     }
@@ -1380,6 +1396,11 @@ pub enum DeviceSettingChange {
     },
     /// See [`DeviceSettings::shell_integration`].
     ShellIntegration {
+        /// What it becomes.
+        value: bool,
+    },
+    /// See [`DeviceSettings::dispatcher_acts`].
+    DispatcherActs {
         /// What it becomes.
         value: bool,
     },

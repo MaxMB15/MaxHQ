@@ -1344,5 +1344,10 @@
 	"Suggestions": "Suggestions",
 	"Tab completes · ↩ picks · on {{device}}": "Tab completes · ↩ picks · on {{device}}",
 	"This folder holds more than shows here. Type the path to reach the rest.": "This folder holds more than shows here. Type the path to reach the rest.",
-	"Use that": "Use that"
+	"Use that": "Use that",
+	"Couldn't undo it. Try again.": "Couldn't undo it. Try again.",
+	"Couldn't undo the dispatcher's change": "Couldn't undo the dispatcher's change",
+	"On {{device}}": "On {{device}}",
+	"This change can't be undone any more": "This change can't be undone any more",
+	"Undone": "Undone"
 }
