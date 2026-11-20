@@ -5149,6 +5149,34 @@
         "agent",
         "force"
       ]
+    },
+    {
+      "description": "Lists, marks read or clears a device's notification log, since\n[`NOTICES_SINCE`]. Only the app and phones may send it.",
+      "type": "object",
+      "properties": {
+        "call": {
+          "description": "What to do with it.",
+          "$ref": "#/$defs/NoticeCall"
+        },
+        "device": {
+          "description": "The device whose log it is.",
+          "$ref": "#/$defs/DeviceId"
+        },
+        "key": {
+          "description": "Makes a resend after a dropped connection safe.",
+          "$ref": "#/$defs/IdempotencyKey"
+        },
+        "type": {
+          "type": "string",
+          "const": "notices"
+        }
+      },
+      "required": [
+        "type",
+        "key",
+        "device",
+        "call"
+      ]
     }
   ],
   "$defs": {
@@ -6598,6 +6626,24 @@
           "required": [
             "status",
             "listing"
+          ]
+        },
+        {
+          "description": "A page of the notification log, for [`ClientMessage::Notices`].",
+          "type": "object",
+          "properties": {
+            "page": {
+              "description": "The page.",
+              "$ref": "#/$defs/NoticePage"
+            },
+            "status": {
+              "type": "string",
+              "const": "notices"
+            }
+          },
+          "required": [
+            "status",
+            "page"
           ]
         },
         {
@@ -10476,6 +10522,203 @@
         "deleted",
         "at",
         "size"
+      ]
+    },
+    "Notice": {
+      "description": "One alert a device raised.",
+      "type": "object",
+      "properties": {
+        "agent": {
+          "description": "The agent it was about, which may be gone since.",
+          "$ref": "#/$defs/AgentId"
+        },
+        "at": {
+          "description": "When it was raised.",
+          "$ref": "#/$defs/Timestamp"
+        },
+        "device": {
+          "description": "The device that raised it.",
+          "$ref": "#/$defs/DeviceId"
+        },
+        "id": {
+          "description": "Its number on its device, newer ones higher.",
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "kind": {
+          "description": "What it was about.",
+          "$ref": "#/$defs/NoticeKind"
+        },
+        "project": {
+          "description": "The agent's project then, if it had one.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "read_at": {
+          "description": "When you read it, or none while it's unread.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Timestamp"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "summary": {
+          "description": "What the prompt said, for a prompt that said something.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "title": {
+          "description": "The agent's title then.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "device",
+        "agent",
+        "kind",
+        "title",
+        "at"
+      ]
+    },
+    "NoticeCall": {
+      "description": "What [`crate::ClientMessage::Notices`] asks of a device's log.",
+      "oneOf": [
+        {
+          "description": "The newest notices, at most `limit`. The outcome is\n[`crate::message::ActionOutcome::Notices`].",
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "list"
+            },
+            "limit": {
+              "description": "How many to send.",
+              "type": "integer",
+              "format": "uint32",
+              "minimum": 0
+            }
+          },
+          "required": [
+            "kind",
+            "limit"
+          ]
+        },
+        {
+          "description": "Marks the agent's notices read, or every notice when there's no\nagent.",
+          "type": "object",
+          "properties": {
+            "agent": {
+              "description": "The agent you opened.",
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/AgentId"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "kind": {
+              "type": "string",
+              "const": "read"
+            }
+          },
+          "required": [
+            "kind"
+          ]
+        },
+        {
+          "description": "Forgets every notice.",
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "clear"
+            }
+          },
+          "required": [
+            "kind"
+          ]
+        }
+      ]
+    },
+    "NoticeKind": {
+      "description": "What a notice was about.",
+      "oneOf": [
+        {
+          "description": "The agent asked you a question.",
+          "type": "string",
+          "const": "question"
+        },
+        {
+          "description": "The agent asked for your permission.",
+          "type": "string",
+          "const": "permission"
+        },
+        {
+          "description": "The agent needed some other input.",
+          "type": "string",
+          "const": "input"
+        },
+        {
+          "description": "A prompt reported an error.",
+          "type": "string",
+          "const": "error"
+        },
+        {
+          "description": "The agent finished a turn.",
+          "type": "string",
+          "const": "finished"
+        },
+        {
+          "description": "The agent hit a usage limit.",
+          "type": "string",
+          "const": "limit"
+        },
+        {
+          "description": "The usage limit reset and the agent went on.",
+          "type": "string",
+          "const": "resumed"
+        }
+      ]
+    },
+    "NoticePage": {
+      "description": "A page of a log, newest first.",
+      "type": "object",
+      "properties": {
+        "notices": {
+          "description": "The newest notices.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Notice"
+          }
+        },
+        "total": {
+          "description": "How many the log holds, these included.",
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "unread": {
+          "description": "How many of those are unread.",
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "notices",
+        "total",
+        "unread"
       ]
     },
     "PairId": {

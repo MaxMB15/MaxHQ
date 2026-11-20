@@ -19,7 +19,7 @@
 mod apns;
 mod seal;
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;
 mod tokens;
 
 use std::collections::HashMap;

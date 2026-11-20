@@ -151,11 +151,11 @@ fn phone(name: &str) -> PhoneId {
     PhoneId::derive(name)
 }
 
-fn agent_id() -> AgentId {
+pub(crate) fn agent_id() -> AgentId {
     AgentId::derive("a")
 }
 
-fn attention_id() -> AttentionId {
+pub(crate) fn attention_id() -> AttentionId {
     AttentionId::derive("prompt")
 }
 
@@ -253,7 +253,7 @@ fn agent(activity: Activity) -> Change {
     agent_titled(activity, TITLE_TEXT)
 }
 
-fn agent_titled(activity: Activity, title: &str) -> Change {
+pub(crate) fn agent_titled(activity: Activity, title: &str) -> Change {
     Change::Upsert {
         value: Entity::Agent(Agent {
             id: agent_id(),
@@ -286,7 +286,11 @@ fn agent_titled(activity: Activity, title: &str) -> Change {
     }
 }
 
-fn prompt(kind: AttentionKind, summary: &str, options: Vec<AttentionOption>) -> Vec<Change> {
+pub(crate) fn prompt(
+    kind: AttentionKind,
+    summary: &str,
+    options: Vec<AttentionOption>,
+) -> Vec<Change> {
     vec![
         Change::Upsert {
             value: Entity::Attention(AttentionEvent {

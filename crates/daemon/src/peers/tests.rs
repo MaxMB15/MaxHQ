@@ -918,6 +918,11 @@ async fn a_peer_link_carries_only_calls_wakes_and_answers() {
             device: b.id,
             path: "/tmp/example/new".into(),
         },
+        ClientMessage::Notices {
+            key: IdempotencyKey::generate(),
+            device: b.id,
+            call: maxhq_protocol::notices::NoticeCall::Clear,
+        },
     ]
     .into_iter()
     .chain(terminal_requests())
