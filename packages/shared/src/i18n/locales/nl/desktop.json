@@ -1370,5 +1370,10 @@
 	"Suggestions": "Suggesties",
 	"Tab completes · ↩ picks · on {{device}}": "Tab vult aan · ↩ kiest · op {{device}}",
 	"This folder holds more than shows here. Type the path to reach the rest.": "Deze map bevat meer dan hier staat. Typ het pad om de rest te bereiken.",
-	"Use that": "Die gebruiken"
+	"Use that": "Die gebruiken",
+	"Couldn't undo it. Try again.": "Ongedaan maken mislukt. Probeer het opnieuw.",
+	"Couldn't undo the dispatcher's change": "Kon de wijziging van de dispatcher niet ongedaan maken",
+	"On {{device}}": "Op {{device}}",
+	"This change can't be undone any more": "Deze wijziging kan niet meer ongedaan worden gemaakt",
+	"Undone": "Ongedaan gemaakt"
 }

@@ -111,6 +111,7 @@ type RemoteCalls = Pick<
 	| "askDispatcher"
 	| "confirmPlan"
 	| "dismissPlan"
+	| "undoDispatcherAction"
 	| "answerLinkClaim"
 	| "askLinkClaimAgain"
 	| "forgetLinkIdentity"
@@ -241,6 +242,7 @@ export const remoteCalls = (): RemoteCalls => ({
 	askDispatcher: done,
 	confirmPlan: done,
 	dismissPlan: done,
+	undoDispatcherAction: done,
 	answerLinkClaim: async () => OK,
 	askLinkClaimAgain: async () => OK,
 	forgetLinkIdentity: async () => OK,

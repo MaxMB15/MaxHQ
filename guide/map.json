@@ -59,7 +59,9 @@
       "link": "maxhq://settings/dispatcher",
       "terms": [
         "Account",
-        "Runs as"
+        "Runs as",
+        "Changes",
+        "Act directly"
       ],
       "title": "Dispatcher"
     },
@@ -895,7 +897,7 @@
     {
       "agents": true,
       "description": "Starts a new MaxHQ agent with a task and returns its id.",
-      "dispatcher": false,
+      "dispatcher": true,
       "id": "tool/start_agent",
       "link": "maxhq://settings/agent-tools",
       "name": "start_agent",
@@ -904,7 +906,7 @@
     {
       "agents": true,
       "description": "Sends a message to a MaxHQ agent.",
-      "dispatcher": false,
+      "dispatcher": true,
       "id": "tool/send_agent",
       "link": "maxhq://settings/agent-tools",
       "name": "send_agent",
@@ -922,7 +924,7 @@
     {
       "agents": true,
       "description": "Stops a MaxHQ agent's turn.",
-      "dispatcher": false,
+      "dispatcher": true,
       "id": "tool/interrupt_agent",
       "link": "maxhq://settings/agent-tools",
       "name": "interrupt_agent",
@@ -931,7 +933,7 @@
     {
       "agents": true,
       "description": "Moves a MaxHQ agent to another device, once the user approves it in MaxHQ.",
-      "dispatcher": false,
+      "dispatcher": true,
       "id": "tool/move_agent",
       "link": "maxhq://settings/agent-tools",
       "name": "move_agent",
@@ -940,7 +942,7 @@
     {
       "agents": true,
       "description": "Makes a scheduled task, which runs a prompt with nobody watching: on a timer, when a webhook gets a request or when a GitHub repository has new events.",
-      "dispatcher": false,
+      "dispatcher": true,
       "id": "tool/schedule_task",
       "link": "maxhq://settings/agent-tools",
       "name": "schedule_task",
@@ -958,7 +960,7 @@
     {
       "agents": true,
       "description": "Deletes a scheduled task by its id.",
-      "dispatcher": false,
+      "dispatcher": true,
       "id": "tool/delete_task",
       "link": "maxhq://settings/agent-tools",
       "name": "delete_task",
@@ -967,7 +969,7 @@
     {
       "agents": true,
       "description": "Runs a scheduled task now, whatever its schedule, once the user approved it and it's on.",
-      "dispatcher": false,
+      "dispatcher": true,
       "id": "tool/run_task_now",
       "link": "maxhq://settings/agent-tools",
       "name": "run_task_now",
@@ -1125,6 +1127,60 @@
       "link": "maxhq://settings/dispatcher",
       "name": "submit_plan",
       "title": "Submit a plan"
+    },
+    {
+      "agents": false,
+      "description": "Changes an agent, by the id list_agents gives: rename it, snooze it for some minutes, wake, settle or unsettle it, mark it read, set its permission mode, model or effort, or stop or delete it.",
+      "dispatcher": true,
+      "id": "tool/manage_agent",
+      "link": "maxhq://settings/dispatcher",
+      "name": "manage_agent",
+      "title": "Manage an agent"
+    },
+    {
+      "agents": false,
+      "description": "Hides a project from the sidebar or shows it, or changes its settings on a device: whether its agents resume after a restart, whether an agent settles once its PR merges, its auto-settle days, and the ports it doesn't offer to forward.",
+      "dispatcher": true,
+      "id": "tool/manage_project",
+      "link": "maxhq://settings/dispatcher",
+      "name": "manage_project",
+      "title": "Manage a project"
+    },
+    {
+      "agents": false,
+      "description": "Starts or stops a container workspace.",
+      "dispatcher": true,
+      "id": "tool/manage_workspace",
+      "link": "maxhq://settings/dispatcher",
+      "name": "manage_workspace",
+      "title": "Manage a workspace"
+    },
+    {
+      "agents": false,
+      "description": "Turns a scheduled task on or off.",
+      "dispatcher": true,
+      "id": "tool/manage_task",
+      "link": "maxhq://settings/dispatcher",
+      "name": "manage_task",
+      "title": "Manage a scheduled task"
+    },
+    {
+      "agents": false,
+      "description": "Changes a device's settings, as Settings shows them, or updates its agent CLIs on the device and in its workspaces.",
+      "dispatcher": true,
+      "id": "tool/manage_device",
+      "link": "maxhq://settings/dispatcher",
+      "name": "manage_device",
+      "title": "Manage a device"
+    },
+    {
+      "agents": false,
+      "description": "Lets an agent start, message and stop other agents on its own device, or takes that back.",
+      "dispatcher": true,
+      "id": "tool/manage_permission",
+      "link": "maxhq://settings/dispatcher",
+      "name": "manage_permission",
+      "title": "Manage what an agent may run"
     },
     {
       "agents": false,

@@ -1977,6 +1977,15 @@ pub enum ClientMessage {
         /// The plan.
         plan: u32,
     },
+    /// Puts back a change the dispatcher made without asking, once. `maxd`
+    /// refuses it after a restart, or when something else changed the same
+    /// thing since.
+    UndoDispatcherAction {
+        /// Makes a resend after a dropped connection safe.
+        key: IdempotencyKey,
+        /// The key on the change's card.
+        action: IdempotencyKey,
+    },
 
     // Proving who connects.
     /// Proves this connection holds `public_key`, with a signature over the
@@ -2280,6 +2289,7 @@ impl ClientMessage {
                 .as_ref()
                 .map_or(OLDEST_PROTOCOL_VERSION, UserInput::since),
             Self::MoveAgent { .. } => MOVE_AGENT_SINCE,
+            Self::UndoDispatcherAction { .. } => DISPATCHER_ADMIN_SINCE,
             Self::TerminalOpen {
                 kind: TerminalKind::Session,
                 ..
@@ -2460,6 +2470,7 @@ impl ClientMessage {
             | Self::AskDispatcher { key, .. }
             | Self::ConfirmPlan { key, .. }
             | Self::DismissPlan { key, .. }
+            | Self::UndoDispatcherAction { key, .. }
             | Self::Prove { key, .. }
             | Self::EnrollAppKey { key, .. }
             | Self::RemoveAppKey { key, .. }
@@ -2926,6 +2937,13 @@ pub const SESSIONS_SINCE: u32 = 48;
 /// [`ClientMessage::Notices`]. An older one refuses it, so the app lists
 /// nothing earlier from that device.
 pub const NOTICES_SINCE: u32 = 49;
+/// The protocol version whose `maxd` first lets the dispatcher act: it
+/// makes safe changes at once and plans the rest, with
+/// [`crate::dispatch::PlanStep::Admin`], the `DispatcherAction` timeline
+/// item, [`ClientMessage::UndoDispatcherAction`] and
+/// [`crate::model::DeviceSettingChange::DispatcherActs`]. An older one
+/// only plans, so the app hides the switch.
+pub const DISPATCHER_ADMIN_SINCE: u32 = 52;
 
 /// When [`ClientMessage::TakeOver`] stops the terminal's CLI.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, Type, JsonSchema)]
@@ -4439,6 +4457,7 @@ mod tests {
                         claude_setup_token: false,
                         shell_integration: true,
                         read_other_agents: true,
+                        dispatcher_acts: true,
                     },
                 },
             ),
@@ -5675,6 +5694,7 @@ mod tests {
             claude_setup_token: false,
             shell_integration: true,
             read_other_agents: true,
+            dispatcher_acts: true,
         };
         assert_eq!(old.changes_from(Some(&old)), []);
         let new = DeviceSettings {
@@ -5888,6 +5908,13 @@ mod tests {
                 },
                 "dismiss_plan",
             ),
+            (
+                ClientMessage::UndoDispatcherAction {
+                    key: key(),
+                    action: key(),
+                },
+                "undo_dispatcher_action",
+            ),
         ] {
             assert_eq!(round_trip(&message)["type"], json!(kind));
         }
@@ -5957,11 +5984,27 @@ mod tests {
                             target: PlanTarget::Item { item: 0 },
                         },
                     },
+                    PlanItem {
+                        reason: "You asked to rename it".into(),
+                        step: PlanStep::Admin {
+                            device,
+                            action: crate::dispatch::AdminAction::RenameAgent {
+                                agent: agent(),
+                                title: "Auth fix".into(),
+                            },
+                        },
+                    },
                 ],
             }),
+            undo: vec![key()],
         });
         let value = round_trip(&entity);
         assert_eq!(value["entity"], json!("dispatcher"));
+        assert_eq!(value["plan"]["items"][2]["step"]["type"], json!("admin"));
+        assert_eq!(
+            value["plan"]["items"][2]["step"]["action"]["action"],
+            json!("rename_agent")
+        );
         assert_eq!(
             value["plan"]["items"][0]["step"]["type"],
             json!("start_agent")

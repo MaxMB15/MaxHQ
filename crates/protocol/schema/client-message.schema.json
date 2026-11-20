@@ -4563,6 +4563,29 @@
       ]
     },
     {
+      "description": "Puts back a change the dispatcher made without asking, once. `maxd`\nrefuses it after a restart, or when something else changed the same\nthing since.",
+      "type": "object",
+      "properties": {
+        "action": {
+          "description": "The key on the change's card.",
+          "$ref": "#/$defs/IdempotencyKey"
+        },
+        "key": {
+          "description": "Makes a resend after a dropped connection safe.",
+          "$ref": "#/$defs/IdempotencyKey"
+        },
+        "type": {
+          "type": "string",
+          "const": "undo_dispatcher_action"
+        }
+      },
+      "required": [
+        "type",
+        "key",
+        "action"
+      ]
+    },
+    {
       "description": "Proves this connection holds `public_key`, with a signature over the\nhello's [`ServerHello::challenge`] and what names the connection, as\nthe `prove` module in `crates/core` lays them out. Sent right after\nthe hello, before the sync. Answered with Done, or Refused for a key\nthe device doesn't trust or a bad signature.",
       "type": "object",
       "properties": {
@@ -8243,6 +8266,24 @@
             "field",
             "value"
           ]
+        },
+        {
+          "description": "See [`DeviceSettings::dispatcher_acts`].",
+          "type": "object",
+          "properties": {
+            "field": {
+              "type": "string",
+              "const": "dispatcher_acts"
+            },
+            "value": {
+              "description": "What it becomes.",
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "field",
+            "value"
+          ]
         }
       ]
     },
@@ -8299,6 +8340,11 @@
         "device": {
           "description": "The device these settings are for.",
           "$ref": "#/$defs/DeviceId"
+        },
+        "dispatcher_acts": {
+          "description": "Whether the dispatcher makes safe changes at once, such as renaming\nan agent or turning a task off. Off makes every change a plan item\nyou confirm. Deleting, stopping a busy agent and granting a\npermission ask either way. A `maxd` from before\n[`crate::message::DISPATCHER_ADMIN_SINCE`] leaves it out, and its\ndispatcher only plans.",
+          "type": "boolean",
+          "default": true
         },
         "history_mib": {
           "description": "How much of each agent's history `maxd` keeps, in MiB from\n[`HISTORY_MIB`], or 0 for no limit. Past it the oldest items leave\nthe agent's timeline on this device, though the CLI's own history\nkeeps them. A `maxd` from before this leaves it out.",
@@ -11476,6 +11522,19 @@
           "required": [
             "type",
             "task"
+          ]
+        },
+        {
+          "description": "The change was made.",
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "done"
+            }
+          },
+          "required": [
+            "type"
           ]
         },
         {

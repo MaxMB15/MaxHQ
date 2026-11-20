@@ -5,14 +5,14 @@ Copyright (c) 2026 Max Boksem
 
 # The dispatcher
 
-The box at the top of the window takes a request in plain words and turns it into a plan you confirm, or answers a question about MaxHQ from this guide.
+The box at the top of the window takes a request in plain words and carries it out, with risky changes in a plan you confirm, or answers a question about MaxHQ from this guide.
 
 ## What the dispatcher is
 <!-- id: dispatcher/what-it-is -->
 
-The dispatcher is an agent on your Mac that turns a request into a plan. It can read your projects and agents, but it can't change files or start anything itself.
+The dispatcher is an agent on your Mac that runs MaxHQ for you. It reads your projects and agents, makes the changes you ask for, and asks first for risky ones. It can't change your files.
 
-You type a request in **Ask the dispatcher** at the top of the window, such as "Start an agent in example-app to fix the failing login test". The dispatcher reads what it needs, asks you about anything the request leaves open, then shows a plan under the box. **Nothing runs until you confirm.**
+You type a request in **Ask the dispatcher** at the top of the window, such as "Start an agent in example-app to fix the failing login test". The dispatcher reads what it needs, asks you about anything the request leaves open, then does it or shows a plan under the box. Nothing in a plan runs until you confirm.
 
 It also answers questions about MaxHQ itself, such as where a setting lives, from this guide.
 
@@ -21,12 +21,12 @@ On a phone, the box uses the dispatcher of the Mac it's paired with.
 ## Ask the dispatcher to do something
 <!-- id: dispatcher/ask -->
 
-Describe the work in the box at the top, and the dispatcher plans it.
+Describe the work in the box at the top, and the dispatcher does it or plans it.
 
 1. Click the box at the top that reads "Ask anything, or describe a task for any project".
 2. Type what you want, such as "Ask the agent on devbox to rebase on main", and press Enter. Shift-Enter starts a new line.
 3. If it asks which project, account or person you mean, pick an answer in the panel.
-4. Read the plan it shows, then confirm or dismiss it.
+4. Read what it did, or the plan it shows, then confirm or dismiss the plan.
 
 Add context as pills: `@` picks an agent on any device and `#` a pull request or issue, and you can drag an agent or a quote onto the box. The dispatcher passes them on to the agents it starts, so they get the same context. It can't read notes itself, and a note only reaches an agent in the note's project.
 
@@ -36,12 +36,52 @@ Add context as pills: `@` picks an agent on any device and `#` a pull request or
 
 A plan lists what the dispatcher would do, one line per item, and waits for you. The dispatcher hands it over with **Submit a plan**.
 
-An item can start an agent, message an agent, make a scheduled task, or move an agent to another device. Each line says why, and how the agent would run, such as "Runs in Auto". Click an item to see its details, such as the first message or a task's schedule.
+An item can start an agent, message an agent, make a scheduled task, move an agent to another device, or make a change that needs your say, such as deleting an agent. Each line says why, and how the agent would run, such as "Runs in Auto". Click an item to see its details, such as the first message or a task's schedule.
 
 - Click **Confirm**, or press Enter in the empty box, to run the plan.
 - Click **Dismiss**, or press Esc, to drop it and start over.
 
 **Plan results** then says how each item went, with **Open agent** or **Open task** to go to what it made. Items run in order, and when one fails, the plan stops there.
+
+## Changes the dispatcher makes itself
+<!-- id: dispatcher/acts -->
+<!-- covers: tool/manage_agent tool/manage_project tool/manage_workspace tool/manage_task tool/manage_device tool/manage_permission -->
+
+Ask for a change and the dispatcher makes it at once when it's safe, such as renaming an agent, snoozing it, changing an idle agent's model, hiding a project or turning a scheduled task off. It also starts and messages agents and makes scheduled tasks on this Mac when you ask. A card under its answer says what it did, such as "Renamed Fix login to Auth fix", and names the device when the change was on another one.
+
+These wait in a plan for you to confirm, even when you asked for them:
+
+- deleting an agent or a scheduled task
+- stopping an agent that's busy, or stopping a workspace
+- letting an agent run other agents, or taking that back
+- updating the agent CLIs
+- moving an agent, or giving one full access
+- a change you didn't ask for
+- more than five changes for one request
+
+Sign-ins, network access, Cursor usage and the **Act directly** switch stay with you, and the dispatcher never touches access keys or tokens.
+
+It makes its changes with **Manage an agent**, **Manage a project**, **Manage a workspace**, **Manage a scheduled task**, **Manage a device** and **Manage what an agent may run**.
+
+## Undo a change the dispatcher made
+<!-- id: dispatcher/undo -->
+
+Click **Undo** on the card to put the change back. It works once, and the card then says **Undone**.
+
+- Undo works for renaming an agent, inbox changes such as snoozing or settling, an agent's mode, model and effort, hiding a project, a project's settings, turning a task on or off, and device settings.
+- Starting, messaging, stopping or deleting, running a task now, workspaces, permissions and updates have no Undo.
+- Undo greys out once maxd restarts or once something else changed the same thing since. Hover it to see "This change can't be undone any more". It reaches back over the dispatcher's last 50 changes.
+
+## Turn off Act directly
+<!-- id: dispatcher/act-directly -->
+<!-- covers: settings/dispatcher -->
+
+Act directly is on by default. Turn it off and every change waits in a plan until you confirm it.
+
+1. Open Settings (⌘,) and pick **Dispatcher**.
+2. Under **Changes**, turn off **Act directly**.
+
+With it on, deleting, stopping busy agents and granting permissions still ask. This Mac's maxd keeps the switch. An older maxd greys it out and says to update it first.
 
 ## Ask how to do something in MaxHQ
 <!-- id: dispatcher/how-to -->

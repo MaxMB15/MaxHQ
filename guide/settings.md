@@ -59,15 +59,16 @@ The Editor page picks the editor workspaces and files open in, how spelling is c
 - While an agent works, Enter: Queue waits until the agent finishes, then sends. Steer sends at once, and the agent reads it between steps. `⌘⏎` does the other one.
 - Conversation, Port prompts: offers to forward or open a port an agent starts listening on, at the top of its view. Off, ports still show in each agent's header. See [Ports and forwards](ports.md).
 
-## Dispatcher: the account it runs as
+## Dispatcher: its account and whether it acts directly
 <!-- id: settings/dispatcher -->
 <!-- covers: settings/dispatcher -->
 
-The Dispatcher page picks which Claude or Codex account answers the box at the top of the window. It's kept on this Mac.
+The Dispatcher page picks which Claude or Codex account answers the box at the top of the window, and whether the dispatcher makes changes without asking. It's kept on this Mac.
 
 - Account, Runs as: pick one of this Mac's Claude or Codex accounts. Without a pick, the dispatcher takes the first Claude account, else the first Codex one.
 - With no account on this Mac, the page says to sign in to Claude or Codex first.
-- The dispatcher reads your projects and agents and proposes a plan. It can't change files or start anything until you confirm.
+- Changes, Act directly: the dispatcher changes settings, agents and tasks without asking first. Deleting, stopping busy agents and granting permissions still ask. Off, every change waits in a plan you confirm. See [The dispatcher](dispatcher.md).
+- The dispatcher reads your projects and agents, and can't change your files.
 
 ## Agent tools: limits, allowed agents and access keys
 <!-- id: settings/agent-tools -->

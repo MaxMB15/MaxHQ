@@ -2354,6 +2354,438 @@
         }
       ]
     },
+    "AdminAction": {
+      "description": "A change the dispatcher makes to MaxHQ itself, as a plan item or at\nonce. Each one is a request the app already sends.",
+      "oneOf": [
+        {
+          "description": "Renames an agent.",
+          "type": "object",
+          "properties": {
+            "action": {
+              "type": "string",
+              "const": "rename_agent"
+            },
+            "agent": {
+              "description": "The agent.",
+              "$ref": "#/$defs/AgentId"
+            },
+            "title": {
+              "description": "Its new title.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "action",
+            "agent",
+            "title"
+          ]
+        },
+        {
+          "description": "Snoozes, wakes, settles or unsettles an agent, or puts its inbox\nback as it was.",
+          "type": "object",
+          "properties": {
+            "action": {
+              "type": "string",
+              "const": "set_inbox"
+            },
+            "agent": {
+              "description": "The agent.",
+              "$ref": "#/$defs/AgentId"
+            },
+            "change": {
+              "description": "The change.",
+              "$ref": "#/$defs/InboxChange"
+            }
+          },
+          "required": [
+            "action",
+            "agent",
+            "change"
+          ]
+        },
+        {
+          "description": "Marks what an agent did as read.",
+          "type": "object",
+          "properties": {
+            "action": {
+              "type": "string",
+              "const": "mark_read"
+            },
+            "agent": {
+              "description": "The agent.",
+              "$ref": "#/$defs/AgentId"
+            }
+          },
+          "required": [
+            "action",
+            "agent"
+          ]
+        },
+        {
+          "description": "Sets an agent's permission mode.",
+          "type": "object",
+          "properties": {
+            "action": {
+              "type": "string",
+              "const": "set_mode"
+            },
+            "agent": {
+              "description": "The agent.",
+              "$ref": "#/$defs/AgentId"
+            },
+            "mode": {
+              "description": "The mode.",
+              "$ref": "#/$defs/PermissionMode"
+            }
+          },
+          "required": [
+            "action",
+            "agent",
+            "mode"
+          ]
+        },
+        {
+          "description": "Sets an agent's model.",
+          "type": "object",
+          "properties": {
+            "action": {
+              "type": "string",
+              "const": "set_model"
+            },
+            "agent": {
+              "description": "The agent.",
+              "$ref": "#/$defs/AgentId"
+            },
+            "model": {
+              "description": "The model.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "action",
+            "agent",
+            "model"
+          ]
+        },
+        {
+          "description": "Sets an agent's effort level.",
+          "type": "object",
+          "properties": {
+            "action": {
+              "type": "string",
+              "const": "set_effort"
+            },
+            "agent": {
+              "description": "The agent.",
+              "$ref": "#/$defs/AgentId"
+            },
+            "effort": {
+              "description": "The level, or none for its model's default.",
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "action",
+            "agent"
+          ]
+        },
+        {
+          "description": "Stops an agent's turn.",
+          "type": "object",
+          "properties": {
+            "action": {
+              "type": "string",
+              "const": "interrupt"
+            },
+            "agent": {
+              "description": "The agent.",
+              "$ref": "#/$defs/AgentId"
+            }
+          },
+          "required": [
+            "action",
+            "agent"
+          ]
+        },
+        {
+          "description": "Stops an agent.",
+          "type": "object",
+          "properties": {
+            "action": {
+              "type": "string",
+              "const": "stop_agent"
+            },
+            "agent": {
+              "description": "The agent.",
+              "$ref": "#/$defs/AgentId"
+            }
+          },
+          "required": [
+            "action",
+            "agent"
+          ]
+        },
+        {
+          "description": "Deletes an agent and its timeline.",
+          "type": "object",
+          "properties": {
+            "action": {
+              "type": "string",
+              "const": "delete_agent"
+            },
+            "agent": {
+              "description": "The agent.",
+              "$ref": "#/$defs/AgentId"
+            }
+          },
+          "required": [
+            "action",
+            "agent"
+          ]
+        },
+        {
+          "description": "Hides a project from the sidebar, or shows it again.",
+          "type": "object",
+          "properties": {
+            "action": {
+              "type": "string",
+              "const": "hide_project"
+            },
+            "hidden": {
+              "description": "Whether it's hidden.",
+              "type": "boolean"
+            },
+            "project": {
+              "description": "The project.",
+              "$ref": "#/$defs/ProjectId"
+            }
+          },
+          "required": [
+            "action",
+            "project",
+            "hidden"
+          ]
+        },
+        {
+          "description": "Changes some of a project's settings on the device.",
+          "type": "object",
+          "properties": {
+            "action": {
+              "type": "string",
+              "const": "set_project"
+            },
+            "changes": {
+              "description": "The settings to change.",
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/ProjectSettingChange"
+              }
+            },
+            "project": {
+              "description": "The project.",
+              "$ref": "#/$defs/ProjectId"
+            }
+          },
+          "required": [
+            "action",
+            "project",
+            "changes"
+          ]
+        },
+        {
+          "description": "Starts a workspace.",
+          "type": "object",
+          "properties": {
+            "action": {
+              "type": "string",
+              "const": "start_workspace"
+            },
+            "workspace": {
+              "description": "The workspace.",
+              "$ref": "#/$defs/WorkspaceId"
+            }
+          },
+          "required": [
+            "action",
+            "workspace"
+          ]
+        },
+        {
+          "description": "Stops a workspace.",
+          "type": "object",
+          "properties": {
+            "action": {
+              "type": "string",
+              "const": "stop_workspace"
+            },
+            "workspace": {
+              "description": "The workspace.",
+              "$ref": "#/$defs/WorkspaceId"
+            }
+          },
+          "required": [
+            "action",
+            "workspace"
+          ]
+        },
+        {
+          "description": "Turns a scheduled task on or off.",
+          "type": "object",
+          "properties": {
+            "action": {
+              "type": "string",
+              "const": "set_task"
+            },
+            "enabled": {
+              "description": "Whether it runs.",
+              "type": "boolean"
+            },
+            "task": {
+              "description": "The task.",
+              "$ref": "#/$defs/TaskId"
+            }
+          },
+          "required": [
+            "action",
+            "task",
+            "enabled"
+          ]
+        },
+        {
+          "description": "Runs a scheduled task now.",
+          "type": "object",
+          "properties": {
+            "action": {
+              "type": "string",
+              "const": "run_task"
+            },
+            "task": {
+              "description": "The task.",
+              "$ref": "#/$defs/TaskId"
+            }
+          },
+          "required": [
+            "action",
+            "task"
+          ]
+        },
+        {
+          "description": "Deletes a scheduled task.",
+          "type": "object",
+          "properties": {
+            "action": {
+              "type": "string",
+              "const": "delete_task"
+            },
+            "task": {
+              "description": "The task.",
+              "$ref": "#/$defs/TaskId"
+            }
+          },
+          "required": [
+            "action",
+            "task"
+          ]
+        },
+        {
+          "description": "Changes some of the device's settings.",
+          "type": "object",
+          "properties": {
+            "action": {
+              "type": "string",
+              "const": "change_settings"
+            },
+            "changes": {
+              "description": "The settings to change.",
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/DeviceSettingChange"
+              }
+            }
+          },
+          "required": [
+            "action",
+            "changes"
+          ]
+        },
+        {
+          "description": "Updates agent CLIs on the device and in its workspaces.",
+          "type": "object",
+          "properties": {
+            "action": {
+              "type": "string",
+              "const": "update_tools"
+            },
+            "tools": {
+              "description": "The CLIs and where.",
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/ToolTarget"
+              }
+            }
+          },
+          "required": [
+            "action",
+            "tools"
+          ]
+        },
+        {
+          "description": "Lets an agent start, message and stop agents.",
+          "type": "object",
+          "properties": {
+            "action": {
+              "type": "string",
+              "const": "grant_permission"
+            },
+            "agent": {
+              "description": "The agent.",
+              "$ref": "#/$defs/AgentId"
+            },
+            "depth": {
+              "description": "How many levels of agents may run below it.",
+              "type": "integer",
+              "format": "uint8",
+              "maximum": 255,
+              "minimum": 0
+            },
+            "devices": {
+              "description": "The devices it may run agents on.",
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/DeviceId"
+              }
+            }
+          },
+          "required": [
+            "action",
+            "agent",
+            "devices",
+            "depth"
+          ]
+        },
+        {
+          "description": "Takes back what an agent was allowed to run.",
+          "type": "object",
+          "properties": {
+            "action": {
+              "type": "string",
+              "const": "revoke_permission"
+            },
+            "agent": {
+              "description": "The agent.",
+              "$ref": "#/$defs/AgentId"
+            }
+          },
+          "required": [
+            "action",
+            "agent"
+          ]
+        }
+      ]
+    },
     "Admission": {
       "description": "A card that asks whether to let in a program that connected without a\nkey the device trusts, and asked for more than such a connection may\ndo. A proven desktop app answers it with\n[`crate::ClientMessage::AnswerAdmission`]. A yes lasts until the program\ndisconnects.",
       "type": "object",
@@ -5205,6 +5637,450 @@
         "waiting"
       ]
     },
+    "DeviceSettingChange": {
+      "description": "One setting to change in a device's [`DeviceSettings`], which leaves the\nothers as the device has them.",
+      "oneOf": [
+        {
+          "description": "See [`DeviceSettings::default_permission`].",
+          "type": "object",
+          "properties": {
+            "field": {
+              "type": "string",
+              "const": "default_permission"
+            },
+            "value": {
+              "description": "What it becomes.",
+              "$ref": "#/$defs/PermissionMode"
+            }
+          },
+          "required": [
+            "field",
+            "value"
+          ]
+        },
+        {
+          "description": "See [`DeviceSettings::workspace_network`].",
+          "type": "object",
+          "properties": {
+            "field": {
+              "type": "string",
+              "const": "workspace_network"
+            },
+            "value": {
+              "description": "What it becomes.",
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "field"
+          ]
+        },
+        {
+          "description": "See [`DeviceSettings::workspace_pool`].",
+          "type": "object",
+          "properties": {
+            "field": {
+              "type": "string",
+              "const": "workspace_pool"
+            },
+            "value": {
+              "description": "What it becomes.",
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "field"
+          ]
+        },
+        {
+          "description": "See [`DeviceSettings::auto_settle_days`].",
+          "type": "object",
+          "properties": {
+            "field": {
+              "type": "string",
+              "const": "auto_settle_days"
+            },
+            "value": {
+              "description": "What it becomes.",
+              "type": "integer",
+              "format": "uint16",
+              "maximum": 65535,
+              "minimum": 0
+            }
+          },
+          "required": [
+            "field",
+            "value"
+          ]
+        },
+        {
+          "description": "See [`DeviceSettings::snooze_at_limit`].",
+          "type": "object",
+          "properties": {
+            "field": {
+              "type": "string",
+              "const": "snooze_at_limit"
+            },
+            "value": {
+              "description": "What it becomes.",
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "field",
+            "value"
+          ]
+        },
+        {
+          "description": "See [`DeviceSettings::continue_claude_at_limit`].",
+          "type": "object",
+          "properties": {
+            "field": {
+              "type": "string",
+              "const": "continue_claude_at_limit"
+            },
+            "value": {
+              "description": "What it becomes.",
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "field",
+            "value"
+          ]
+        },
+        {
+          "description": "See [`DeviceSettings::continue_codex_at_limit`].",
+          "type": "object",
+          "properties": {
+            "field": {
+              "type": "string",
+              "const": "continue_codex_at_limit"
+            },
+            "value": {
+              "description": "What it becomes.",
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "field",
+            "value"
+          ]
+        },
+        {
+          "description": "See [`DeviceSettings::claude_effort`].",
+          "type": "object",
+          "properties": {
+            "field": {
+              "type": "string",
+              "const": "claude_effort"
+            },
+            "value": {
+              "description": "What it becomes.",
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "field"
+          ]
+        },
+        {
+          "description": "See [`DeviceSettings::codex_effort`].",
+          "type": "object",
+          "properties": {
+            "field": {
+              "type": "string",
+              "const": "codex_effort"
+            },
+            "value": {
+              "description": "What it becomes.",
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "field"
+          ]
+        },
+        {
+          "description": "See [`DeviceSettings::placement`].",
+          "type": "object",
+          "properties": {
+            "field": {
+              "type": "string",
+              "const": "placement"
+            },
+            "value": {
+              "description": "What it becomes.",
+              "$ref": "#/$defs/Placement"
+            }
+          },
+          "required": [
+            "field",
+            "value"
+          ]
+        },
+        {
+          "description": "See [`DeviceSettings::tool_updates`].",
+          "type": "object",
+          "properties": {
+            "field": {
+              "type": "string",
+              "const": "tool_updates"
+            },
+            "value": {
+              "description": "What it becomes.",
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/Tool"
+              }
+            }
+          },
+          "required": [
+            "field",
+            "value"
+          ]
+        },
+        {
+          "description": "See [`DeviceSettings::cursor_usage`].",
+          "type": "object",
+          "properties": {
+            "field": {
+              "type": "string",
+              "const": "cursor_usage"
+            },
+            "value": {
+              "description": "What it becomes.",
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "field",
+            "value"
+          ]
+        },
+        {
+          "description": "See [`DeviceSettings::keep_awake`].",
+          "type": "object",
+          "properties": {
+            "field": {
+              "type": "string",
+              "const": "keep_awake"
+            },
+            "value": {
+              "description": "What it becomes.",
+              "$ref": "#/$defs/KeepAwake"
+            }
+          },
+          "required": [
+            "field",
+            "value"
+          ]
+        },
+        {
+          "description": "See [`DeviceSettings::test_hosts`].",
+          "type": "object",
+          "properties": {
+            "field": {
+              "type": "string",
+              "const": "test_hosts"
+            },
+            "value": {
+              "description": "What it becomes.",
+              "$ref": "#/$defs/TestHostSettings"
+            }
+          },
+          "required": [
+            "field",
+            "value"
+          ]
+        },
+        {
+          "description": "See [`DeviceSettings::skill_library`].",
+          "type": "object",
+          "properties": {
+            "field": {
+              "type": "string",
+              "const": "skill_library"
+            },
+            "value": {
+              "description": "What it becomes.",
+              "type": [
+                "boolean",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "field"
+          ]
+        },
+        {
+          "description": "See [`DeviceSettings::network`].",
+          "type": "object",
+          "properties": {
+            "field": {
+              "type": "string",
+              "const": "network"
+            },
+            "value": {
+              "description": "What it becomes.",
+              "$ref": "#/$defs/NetworkAccessSettings"
+            }
+          },
+          "required": [
+            "field",
+            "value"
+          ]
+        },
+        {
+          "description": "See [`DeviceSettings::idle_release_minutes`].",
+          "type": "object",
+          "properties": {
+            "field": {
+              "type": "string",
+              "const": "idle_release_minutes"
+            },
+            "value": {
+              "description": "What it becomes.",
+              "type": "integer",
+              "format": "uint16",
+              "maximum": 65535,
+              "minimum": 0
+            }
+          },
+          "required": [
+            "field",
+            "value"
+          ]
+        },
+        {
+          "description": "See [`DeviceSettings::memory_items`].",
+          "type": "object",
+          "properties": {
+            "field": {
+              "type": "string",
+              "const": "memory_items"
+            },
+            "value": {
+              "description": "What it becomes.",
+              "type": "integer",
+              "format": "uint16",
+              "maximum": 65535,
+              "minimum": 0
+            }
+          },
+          "required": [
+            "field",
+            "value"
+          ]
+        },
+        {
+          "description": "See [`DeviceSettings::history_mib`].",
+          "type": "object",
+          "properties": {
+            "field": {
+              "type": "string",
+              "const": "history_mib"
+            },
+            "value": {
+              "description": "What it becomes.",
+              "type": "integer",
+              "format": "uint16",
+              "maximum": 65535,
+              "minimum": 0
+            }
+          },
+          "required": [
+            "field",
+            "value"
+          ]
+        },
+        {
+          "description": "See [`DeviceSettings::claude_setup_token`].",
+          "type": "object",
+          "properties": {
+            "field": {
+              "type": "string",
+              "const": "claude_setup_token"
+            },
+            "value": {
+              "description": "What it becomes.",
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "field",
+            "value"
+          ]
+        },
+        {
+          "description": "See [`DeviceSettings::shell_integration`].",
+          "type": "object",
+          "properties": {
+            "field": {
+              "type": "string",
+              "const": "shell_integration"
+            },
+            "value": {
+              "description": "What it becomes.",
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "field",
+            "value"
+          ]
+        },
+        {
+          "description": "See [`DeviceSettings::read_other_agents`].",
+          "type": "object",
+          "properties": {
+            "field": {
+              "type": "string",
+              "const": "read_other_agents"
+            },
+            "value": {
+              "description": "What it becomes.",
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "field",
+            "value"
+          ]
+        },
+        {
+          "description": "See [`DeviceSettings::dispatcher_acts`].",
+          "type": "object",
+          "properties": {
+            "field": {
+              "type": "string",
+              "const": "dispatcher_acts"
+            },
+            "value": {
+              "description": "What it becomes.",
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "field",
+            "value"
+          ]
+        }
+      ]
+    },
     "DeviceSettings": {
       "description": "Settings `maxd` keeps for its device.",
       "type": "object",
@@ -5258,6 +6134,11 @@
         "device": {
           "description": "The device these settings are for.",
           "$ref": "#/$defs/DeviceId"
+        },
+        "dispatcher_acts": {
+          "description": "Whether the dispatcher makes safe changes at once, such as renaming\nan agent or turning a task off. Off makes every change a plan item\nyou confirm. Deleting, stopping a busy agent and granting a\npermission ask either way. A `maxd` from before\n[`crate::message::DISPATCHER_ADMIN_SINCE`] leaves it out, and its\ndispatcher only plans.",
+          "type": "boolean",
+          "default": true
         },
         "history_mib": {
           "description": "How much of each agent's history `maxd` keeps, in MiB from\n[`HISTORY_MIB`], or 0 for no limit. Past it the oldest items leave\nthe agent's timeline on this device, though the CLI's own history\nkeeps them. A `maxd` from before this leaves it out.",
@@ -5488,6 +6369,14 @@
               "type": "null"
             }
           ]
+        },
+        "undo": {
+          "description": "The changes it made at once that Undo may still put back, by the\nkey on each one's card. An older `maxd` leaves it out, which reads\nas none.",
+          "type": "array",
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/IdempotencyKey"
+          }
         },
         "workspace": {
           "description": "The workspace of its own folder. Its agents run there, and clients\nleave them out of the sidebar.",
@@ -8369,6 +9258,166 @@
       "required": [
         "kept_active",
         "auto_settle_off"
+      ]
+    },
+    "InboxChange": {
+      "description": "A change to an agent's [`Inbox`], sent with\n[`crate::ClientMessage::SetInbox`].",
+      "oneOf": [
+        {
+          "description": "Settles the agent, which also unpins it and ends its snooze. An agent\nMaxHQ holds has its process stopped; an observed one only leaves the\nlist. Refused while the agent needs input, works or has a message\nqueued.",
+          "type": "object",
+          "properties": {
+            "change": {
+              "type": "string",
+              "const": "settle"
+            }
+          },
+          "required": [
+            "change"
+          ]
+        },
+        {
+          "description": "Brings a settled agent back, and keeps auto-settle off it until you\nnext send it a message. Its process stays stopped until then.",
+          "type": "object",
+          "properties": {
+            "change": {
+              "type": "string",
+              "const": "unsettle"
+            }
+          },
+          "required": [
+            "change"
+          ]
+        },
+        {
+          "description": "Snoozes the agent until a time in the future.",
+          "type": "object",
+          "properties": {
+            "change": {
+              "type": "string",
+              "const": "snooze"
+            },
+            "until": {
+              "description": "When it comes back.",
+              "$ref": "#/$defs/Timestamp"
+            }
+          },
+          "required": [
+            "change",
+            "until"
+          ]
+        },
+        {
+          "description": "Ends the snooze now.",
+          "type": "object",
+          "properties": {
+            "change": {
+              "type": "string",
+              "const": "wake"
+            }
+          },
+          "required": [
+            "change"
+          ]
+        },
+        {
+          "description": "Clears the marker a snooze that ended by itself leaves.",
+          "type": "object",
+          "properties": {
+            "change": {
+              "type": "string",
+              "const": "dismiss_woke"
+            }
+          },
+          "required": [
+            "change"
+          ]
+        },
+        {
+          "description": "Pins the agent, which also unsettles it and ends its snooze.",
+          "type": "object",
+          "properties": {
+            "change": {
+              "type": "string",
+              "const": "pin"
+            },
+            "key": {
+              "description": "Its place among the pins, as [`Pin::key`] describes.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "change",
+            "key"
+          ]
+        },
+        {
+          "description": "Unpins the agent.",
+          "type": "object",
+          "properties": {
+            "change": {
+              "type": "string",
+              "const": "unpin"
+            }
+          },
+          "required": [
+            "change"
+          ]
+        },
+        {
+          "description": "Turns auto-settle on or off for this agent.",
+          "type": "object",
+          "properties": {
+            "change": {
+              "type": "string",
+              "const": "auto_settle"
+            },
+            "on": {
+              "description": "Whether auto-settle may settle it.",
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "change",
+            "on"
+          ]
+        },
+        {
+          "description": "Sets whether the agent carries on after a usage limit, over its\ndevice's default. A `maxd` before\n[`crate::message::CONTINUE_AT_LIMIT_SINCE`] refuses it.",
+          "type": "object",
+          "properties": {
+            "change": {
+              "type": "string",
+              "const": "continue_at_limit"
+            },
+            "on": {
+              "description": "Whether it carries on.",
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "change",
+            "on"
+          ]
+        },
+        {
+          "description": "Puts back the inbox an undo restores. A snooze that has ended since\nstays ended, and restoring a settled inbox settles the agent as\n[`InboxChange::Settle`] does.",
+          "type": "object",
+          "properties": {
+            "change": {
+              "type": "string",
+              "const": "restore"
+            },
+            "inbox": {
+              "description": "The inbox to put back.",
+              "$ref": "#/$defs/Inbox"
+            }
+          },
+          "required": [
+            "change",
+            "inbox"
+          ]
+        }
       ]
     },
     "InlineRef": {
@@ -11824,6 +12873,19 @@
           ]
         },
         {
+          "description": "The change was made.",
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "done"
+            }
+          },
+          "required": [
+            "type"
+          ]
+        },
+        {
           "description": "The item didn't go, and the items after it didn't run.",
           "type": "object",
           "properties": {
@@ -11974,6 +13036,29 @@
             "device",
             "agent",
             "to"
+          ]
+        },
+        {
+          "description": "Changes MaxHQ itself: an agent's name, inbox or mode, a project, a\nworkspace, a task, the device's settings or tools, or a permission.\nA `maxd` from before [`crate::message::DISPATCHER_ADMIN_SINCE`]\nnever plans one.",
+          "type": "object",
+          "properties": {
+            "action": {
+              "description": "What it does.",
+              "$ref": "#/$defs/AdminAction"
+            },
+            "device": {
+              "description": "The device it changes.",
+              "$ref": "#/$defs/DeviceId"
+            },
+            "type": {
+              "type": "string",
+              "const": "admin"
+            }
+          },
+          "required": [
+            "type",
+            "device",
+            "action"
           ]
         }
       ]
@@ -12294,6 +13379,94 @@
         "device",
         "project",
         "notes"
+      ]
+    },
+    "ProjectSettingChange": {
+      "description": "One of a project's settings on a device, for\n[`AdminAction::SetProject`].",
+      "oneOf": [
+        {
+          "description": "Whether its agents start again after a restart.",
+          "type": "object",
+          "properties": {
+            "field": {
+              "type": "string",
+              "const": "resume_on_restart"
+            },
+            "value": {
+              "description": "The new value.",
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "field",
+            "value"
+          ]
+        },
+        {
+          "description": "Whether an agent settles once its PR merges.",
+          "type": "object",
+          "properties": {
+            "field": {
+              "type": "string",
+              "const": "settle_on_merge"
+            },
+            "value": {
+              "description": "The new value.",
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "field",
+            "value"
+          ]
+        },
+        {
+          "description": "The days after which an idle agent settles, or none for the\ndevice's own.",
+          "type": "object",
+          "properties": {
+            "field": {
+              "type": "string",
+              "const": "auto_settle_days"
+            },
+            "value": {
+              "description": "The new value.",
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "uint16",
+              "maximum": 65535,
+              "minimum": 0
+            }
+          },
+          "required": [
+            "field"
+          ]
+        },
+        {
+          "description": "The ports its workspaces don't offer to forward.",
+          "type": "object",
+          "properties": {
+            "field": {
+              "type": "string",
+              "const": "ignored_ports"
+            },
+            "value": {
+              "description": "The new value.",
+              "type": "array",
+              "items": {
+                "type": "integer",
+                "format": "uint16",
+                "maximum": 65535,
+                "minimum": 0
+              }
+            }
+          },
+          "required": [
+            "field",
+            "value"
+          ]
+        }
       ]
     },
     "ProjectSettings": {
@@ -16317,6 +17490,45 @@
           ]
         },
         {
+          "description": "A change the dispatcher made without asking, as a card on its own\ntimeline. Since protocol 52.",
+          "type": "object",
+          "properties": {
+            "action": {
+              "description": "What it did.",
+              "$ref": "#/$defs/AdminAction"
+            },
+            "device": {
+              "description": "The device it changed.",
+              "$ref": "#/$defs/DeviceId"
+            },
+            "kind": {
+              "type": "string",
+              "const": "dispatcher_action"
+            },
+            "target": {
+              "description": "What it changed, by name as it was before, such as the agent's\nold title.",
+              "type": "string"
+            },
+            "undo": {
+              "description": "What [`crate::message::ClientMessage::UndoDispatcherAction`]\nnames to put it back, when it has an inverse.\n[`crate::dispatch::Dispatcher::undo`] says whether it still may.",
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/IdempotencyKey"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          "required": [
+            "kind",
+            "device",
+            "action",
+            "target"
+          ]
+        },
+        {
           "description": "A command you ran with `!` in the composer, as a card. The command\nruns in a terminal of its own, and the card shows it live until it\nends. Since protocol 45.",
           "type": "object",
           "properties": {
@@ -17015,6 +18227,24 @@
             "reason"
           ]
         }
+      ]
+    },
+    "ToolTarget": {
+      "description": "One CLI in one place, for [`ClientMessage::UpdateTools`].",
+      "type": "object",
+      "properties": {
+        "place": {
+          "description": "Where it's installed.",
+          "$ref": "#/$defs/ToolPlace"
+        },
+        "tool": {
+          "description": "Which CLI.",
+          "$ref": "#/$defs/Tool"
+        }
+      },
+      "required": [
+        "tool",
+        "place"
       ]
     },
     "ToolUpdate": {

@@ -4352,6 +4352,7 @@ pub(crate) mod tests {
             claude_setup_token: false,
             shell_integration: true,
             read_other_agents: true,
+            dispatcher_acts: true,
         }
     }
 
@@ -4482,6 +4483,7 @@ pub(crate) mod tests {
                 claude_setup_token: false,
                 shell_integration: true,
                 read_other_agents: true,
+                dispatcher_acts: true,
             },
         };
         act(settings("nl")).unwrap();

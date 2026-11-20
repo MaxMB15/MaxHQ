@@ -51,7 +51,10 @@ export const dispatcherEntities = (): Entity[] => [
 ];
 
 /** The dispatcher calls of a data source. */
-export type DispatcherCalls = Pick<DataSource, "askDispatcher" | "confirmPlan" | "dismissPlan">;
+export type DispatcherCalls = Pick<
+	DataSource,
+	"askDispatcher" | "confirmPlan" | "dismissPlan" | "undoDispatcherAction"
+>;
 
 /** The sample dispatcher. */
 export type MockDispatcher = {
@@ -300,6 +303,8 @@ export const mockDispatcher = (ctx: DispatcherContext): MockDispatcher => {
 					? { type: "started", agent: result.data.agent }
 					: { type: "failed", reason: why(result, "The agent didn't move.") };
 			}
+			case "admin":
+				return { type: "failed", reason: "The sample dispatcher doesn't change MaxHQ." };
 		}
 	};
 
@@ -372,6 +377,13 @@ export const mockDispatcher = (ctx: DispatcherContext): MockDispatcher => {
 			setState((d) => ({ ...d, plan: null }));
 			return DONE;
 		},
+		// The sample dispatcher makes no change at once, so nothing has an Undo.
+		undoDispatcherAction: async (device) =>
+			refused(
+				device === MAC
+					? "That change can't be undone any more."
+					: "The dispatcher runs on the Mac."
+			),
 	};
 
 	return {

@@ -1176,6 +1176,11 @@ impl Manager {
         self.tasks.tasks.get(&task).map(|task| task.name.clone())
     }
 
+    /// Whether a task is on, while it's here.
+    pub(super) fn task_enabled(&self, task: TaskId) -> Option<bool> {
+        self.tasks.tasks.get(&task).map(|task| task.enabled)
+    }
+
     /// Whether the caller made the task, sits above whoever made it, or is
     /// a run of the task itself, all under the permission it was made with.
     /// Another agent under that permission may not touch it.

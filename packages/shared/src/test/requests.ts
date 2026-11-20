@@ -383,6 +383,11 @@ export const ACTIONS: Case[] = [
 		(s) => s.dismissPlan("device-1", 3),
 		{ kind: "dismiss_plan", device: "device-1", plan: 3 },
 	],
+	[
+		"undoDispatcherAction",
+		(s) => s.undoDispatcherAction("device-1", "key-1"),
+		{ kind: "undo_dispatcher_action", device: "device-1", action: "key-1" },
+	],
 	["deleteTask", (s) => s.deleteTask("task-1"), { kind: "delete_task", task: "task-1" }],
 	["runTaskNow", (s) => s.runTaskNow("task-1"), { kind: "run_task_now", task: "task-1" }],
 	[

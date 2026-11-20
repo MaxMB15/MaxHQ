@@ -24,7 +24,7 @@ use crate::session::move_tool::{APPROVE, DECLINE, DECLINED, QUESTION, UNANSWERED
 const WORKING: &str = "The agent is working. Wait for its turn to end, or stop it and move it.";
 
 /// The device agents move to.
-fn devbox() -> Device {
+pub(super) fn devbox() -> Device {
     Device {
         id: DeviceId::derive("devbox"),
         name: "devbox".into(),

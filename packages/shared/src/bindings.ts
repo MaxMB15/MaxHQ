@@ -30,7 +30,7 @@ export const NOTE_PILLS_SINCE = 28 as const;
 
 export const OLDEST_PROTOCOL_VERSION = 20 as const;
 
-export const PROTOCOL_VERSION = 51 as const;
+export const PROTOCOL_VERSION = 52 as const;
 
 export const SESSIONS_SINCE = 48 as const;
 
@@ -647,6 +647,115 @@ key: KeyId } |
 { kind: "task"; 
 /**  The task. */
 task: TaskId };
+
+/**
+ *  A change the dispatcher makes to MaxHQ itself, as a plan item or at
+ *  once. Each one is a request the app already sends.
+ */
+export type AdminAction = 
+/**  Renames an agent. */
+{ action: "rename_agent"; 
+/**  The agent. */
+agent: AgentId; 
+/**  Its new title. */
+title: string } | 
+/**
+ *  Snoozes, wakes, settles or unsettles an agent, or puts its inbox
+ *  back as it was.
+ */
+{ action: "set_inbox"; 
+/**  The agent. */
+agent: AgentId; 
+/**  The change. */
+change: InboxChange } | 
+/**  Marks what an agent did as read. */
+{ action: "mark_read"; 
+/**  The agent. */
+agent: AgentId } | 
+/**  Sets an agent's permission mode. */
+{ action: "set_mode"; 
+/**  The agent. */
+agent: AgentId; 
+/**  The mode. */
+mode: PermissionMode } | 
+/**  Sets an agent's model. */
+{ action: "set_model"; 
+/**  The agent. */
+agent: AgentId; 
+/**  The model. */
+model: string } | 
+/**  Sets an agent's effort level. */
+{ action: "set_effort"; 
+/**  The agent. */
+agent: AgentId; 
+/**  The level, or none for its model's default. */
+effort: string | null } | 
+/**  Stops an agent's turn. */
+{ action: "interrupt"; 
+/**  The agent. */
+agent: AgentId } | 
+/**  Stops an agent. */
+{ action: "stop_agent"; 
+/**  The agent. */
+agent: AgentId } | 
+/**  Deletes an agent and its timeline. */
+{ action: "delete_agent"; 
+/**  The agent. */
+agent: AgentId } | 
+/**  Hides a project from the sidebar, or shows it again. */
+{ action: "hide_project"; 
+/**  The project. */
+project: ProjectId; 
+/**  Whether it's hidden. */
+hidden: boolean } | 
+/**  Changes some of a project's settings on the device. */
+{ action: "set_project"; 
+/**  The project. */
+project: ProjectId; 
+/**  The settings to change. */
+changes: ProjectSettingChange[] } | 
+/**  Starts a workspace. */
+{ action: "start_workspace"; 
+/**  The workspace. */
+workspace: WorkspaceId } | 
+/**  Stops a workspace. */
+{ action: "stop_workspace"; 
+/**  The workspace. */
+workspace: WorkspaceId } | 
+/**  Turns a scheduled task on or off. */
+{ action: "set_task"; 
+/**  The task. */
+task: TaskId; 
+/**  Whether it runs. */
+enabled: boolean } | 
+/**  Runs a scheduled task now. */
+{ action: "run_task"; 
+/**  The task. */
+task: TaskId } | 
+/**  Deletes a scheduled task. */
+{ action: "delete_task"; 
+/**  The task. */
+task: TaskId } | 
+/**  Changes some of the device's settings. */
+{ action: "change_settings"; 
+/**  The settings to change. */
+changes: DeviceSettingChange[] } | 
+/**  Updates agent CLIs on the device and in its workspaces. */
+{ action: "update_tools"; 
+/**  The CLIs and where. */
+tools: ToolTarget[] } | 
+/**  Lets an agent start, message and stop agents. */
+{ action: "grant_permission"; 
+/**  The agent. */
+agent: AgentId; 
+/**  The devices it may run agents on. */
+devices: DeviceId[]; 
+/**  How many levels of agents may run below it. */
+depth: number } | 
+/**  Takes back what an agent was allowed to run. */
+{ action: "revoke_permission"; 
+/**  The agent. */
+agent: AgentId };
 
 /**
  *  A card that asks whether to let in a program that connected without a
@@ -3410,6 +3519,16 @@ key: IdempotencyKey;
 /**  The plan. */
 plan: number }) & { account?: never; action?: never; address?: never; admission?: never; after?: never; agent?: never; allow?: never; answer?: never; anyway?: never; app_id?: never; as_new?: never; at?: never; attachment?: never; base?: never; before?: never; block?: never; body?: never; book?: never; bucket_secs?: never; budget?: never; call?: never; change?: never; changes?: never; client_id?: never; code?: never; cols?: never; command?: never; committed?: never; confirm_unchecked?: never; credential?: never; default_ref?: never; deleted?: never; device?: never; device_code?: never; discard_unpushed?: never; discard_unsaved?: never; effort?: never; elsewhere?: never; enabled?: never; env?: never; event?: never; everything?: never; expect_sha?: never; files?: never; filter?: never; force?: never; fork?: never; forward?: never; fresh?: never; from?: never; granted?: never; hashes?: never; hidden?: never; host?: never; how?: never; id?: never; idempotency_key?: never; input?: never; instance?: never; item?: never; items?: never; key_id?: never; kind?: never; label?: never; lead?: never; lease?: never; licence?: never; limit?: never; local_port?: never; lock?: never; mac?: never; mode?: never; model?: never; moving?: never; name?: never; new?: never; node?: never; nonce?: never; note?: never; number?: never; on?: never; origin?: never; outcome?: never; overwrite?: never; page?: never; pair?: never; parent?: never; path?: never; paths?: never; permission?: never; phone?: never; picks?: never; pid?: never; place?: never; plan_hash?: never; port?: never; private?: never; private_key?: never; project?: never; proposal?: never; public_key?: never; push?: never; push_public?: never; query?: never; refs?: never; release?: never; repo?: never; request?: never; rows?: never; rule?: never; run?: never; secret?: never; seen?: never; session?: never; settings?: never; sha256?: never; sign_in?: never; signal?: never; signature?: never; since?: never; skills?: never; snapshot?: never; source?: never; sources?: never; spec?: never; ssh_public?: never; staged?: never; start?: never; state?: never; step?: never; stop?: never; stream?: never; target?: never; task?: never; team_id?: never; terminal?: never; text?: never; text_sha256?: never; title?: never; to?: never; token?: never; tool?: never; tools?: never; transfer?: never; tree?: never; trust?: never; unsigned?: never; version?: never; versions?: never; window_end?: never; window_secs?: never; workspace?: never } | 
 /**
+ *  Puts back a change the dispatcher made without asking, once. `maxd`
+ *  refuses it after a restart, or when something else changed the same
+ *  thing since.
+ */
+({ type: "undo_dispatcher_action"; 
+/**  Makes a resend after a dropped connection safe. */
+key: IdempotencyKey; 
+/**  The key on the change's card. */
+action: IdempotencyKey }) & { account?: never; address?: never; admission?: never; after?: never; agent?: never; allow?: never; answer?: never; anyway?: never; app_id?: never; as_new?: never; at?: never; attachment?: never; base?: never; before?: never; block?: never; body?: never; book?: never; bucket_secs?: never; budget?: never; call?: never; change?: never; changes?: never; client_id?: never; code?: never; cols?: never; command?: never; committed?: never; confirm_unchecked?: never; credential?: never; default_ref?: never; deleted?: never; device?: never; device_code?: never; discard_unpushed?: never; discard_unsaved?: never; effort?: never; elsewhere?: never; enabled?: never; env?: never; event?: never; everything?: never; expect_sha?: never; files?: never; filter?: never; force?: never; fork?: never; forward?: never; fresh?: never; from?: never; granted?: never; hashes?: never; hidden?: never; host?: never; how?: never; id?: never; idempotency_key?: never; input?: never; instance?: never; item?: never; items?: never; key_id?: never; kind?: never; label?: never; lead?: never; lease?: never; licence?: never; limit?: never; local_port?: never; lock?: never; mac?: never; mode?: never; model?: never; moving?: never; name?: never; new?: never; node?: never; nonce?: never; note?: never; number?: never; on?: never; origin?: never; outcome?: never; overwrite?: never; page?: never; pair?: never; parent?: never; path?: never; paths?: never; permission?: never; phone?: never; picks?: never; pid?: never; place?: never; plan?: never; plan_hash?: never; port?: never; private?: never; private_key?: never; project?: never; proposal?: never; public_key?: never; push?: never; push_public?: never; query?: never; refs?: never; release?: never; repo?: never; request?: never; rows?: never; rule?: never; run?: never; secret?: never; seen?: never; session?: never; settings?: never; sha256?: never; sign_in?: never; signal?: never; signature?: never; since?: never; skills?: never; snapshot?: never; source?: never; sources?: never; spec?: never; ssh_public?: never; staged?: never; start?: never; state?: never; step?: never; stop?: never; stream?: never; target?: never; task?: never; team_id?: never; terminal?: never; text?: never; text_sha256?: never; title?: never; to?: never; token?: never; tool?: never; tools?: never; transfer?: never; tree?: never; trust?: never; unsigned?: never; version?: never; versions?: never; window_end?: never; window_secs?: never; workspace?: never } | 
+/**
  *  Proves this connection holds `public_key`, with a signature over the
  *  hello's [`ServerHello::challenge`] and what names the connection, as
  *  the `prove` module in `crates/core` lays them out. Sent right after
@@ -4256,6 +4375,10 @@ value: boolean } |
 /**  See [`DeviceSettings::read_other_agents`]. */
 { field: "read_other_agents"; 
 /**  What it becomes. */
+value: boolean } | 
+/**  See [`DeviceSettings::dispatcher_acts`]. */
+{ field: "dispatcher_acts"; 
+/**  What it becomes. */
 value: boolean };
 
 /**  Settings `maxd` keeps for its device. */
@@ -4374,6 +4497,15 @@ export type DeviceSettings = {
 	 *  it out and lets agents read only what they're allowed.
 	 */
 	read_other_agents?: boolean,
+	/**
+	 *  Whether the dispatcher makes safe changes at once, such as renaming
+	 *  an agent or turning a task off. Off makes every change a plan item
+	 *  you confirm. Deleting, stopping a busy agent and granting a
+	 *  permission ask either way. A `maxd` from before
+	 *  [`crate::message::DISPATCHER_ADMIN_SINCE`] leaves it out, and its
+	 *  dispatcher only plans.
+	 */
+	dispatcher_acts?: boolean,
 };
 
 /**  The tasks a device holds, and whether its webhooks can be reached. */
@@ -4441,6 +4573,12 @@ export type Dispatcher = {
 	agent: AgentId | null,
 	/**  The plan it submitted, until you confirm or dismiss it. */
 	plan: Plan | null,
+	/**
+	 *  The changes it made at once that Undo may still put back, by the
+	 *  key on each one's card. An older `maxd` leaves it out, which reads
+	 *  as none.
+	 */
+	undo?: IdempotencyKey[],
 };
 
 /**  Where a download landed. */
@@ -5979,6 +6117,26 @@ attachment: AttachmentRef;
  *  none.
  */
 replaces?: ItemId | null } | 
+/**
+ *  A change the dispatcher made without asking, as a card on its own
+ *  timeline. Since protocol 52.
+ */
+{ kind: "dispatcher_action"; 
+/**  The device it changed. */
+device: DeviceId; 
+/**  What it did. */
+action: AdminAction; 
+/**
+ *  What it changed, by name as it was before, such as the agent's
+ *  old title.
+ */
+target: string; 
+/**
+ *  What [`crate::message::ClientMessage::UndoDispatcherAction`]
+ *  names to put it back, when it has an inverse.
+ *  [`crate::dispatch::Dispatcher::undo`] says whether it still may.
+ */
+undo: IdempotencyKey | null } | 
 /**
  *  A command you ran with `!` in the composer, as a card. The command
  *  runs in a terminal of its own, and the card shows it live until it
@@ -7622,6 +7780,8 @@ agent: AgentId } |
 { type: "task_saved"; 
 /**  The new task. */
 task: TaskId } | 
+/**  The change was made. */
+{ type: "done" } | 
 /**  The item didn't go, and the items after it didn't run. */
 { type: "failed"; 
 /**  Why, for a person to read. */
@@ -7670,7 +7830,18 @@ device: DeviceId;
 /**  The agent. */
 agent: AgentId; 
 /**  Where it goes. */
-to: MoveTo };
+to: MoveTo } | 
+/**
+ *  Changes MaxHQ itself: an agent's name, inbox or mode, a project, a
+ *  workspace, a task, the device's settings or tools, or a permission.
+ *  A `maxd` from before [`crate::message::DISPATCHER_ADMIN_SINCE`]
+ *  never plans one.
+ */
+{ type: "admin"; 
+/**  The device it changes. */
+device: DeviceId; 
+/**  What it does. */
+action: AdminAction };
 
 /**  The agent a planned task's runs reach. */
 export type PlanTarget = 
@@ -7788,6 +7959,31 @@ export type ProjectNotes = {
 	/**  Each note at its head. */
 	notes: NoteSummary[],
 };
+
+/**
+ *  One of a project's settings on a device, for
+ *  [`AdminAction::SetProject`].
+ */
+export type ProjectSettingChange = 
+/**  Whether its agents start again after a restart. */
+{ field: "resume_on_restart"; 
+/**  The new value. */
+value: boolean } | 
+/**  Whether an agent settles once its PR merges. */
+{ field: "settle_on_merge"; 
+/**  The new value. */
+value: boolean } | 
+/**
+ *  The days after which an idle agent settles, or none for the
+ *  device's own.
+ */
+{ field: "auto_settle_days"; 
+/**  The new value. */
+value: number | null } | 
+/**  The ports its workspaces don't offer to forward. */
+{ field: "ignored_ports"; 
+/**  The new value. */
+value: number[] };
 
 /**  One project's settings on one device. */
 export type ProjectSettings = {
@@ -8855,6 +9051,11 @@ seen?: ProposalSeen | null } |
 /**  Drops the plan the dispatcher shows. */
 { kind: "dismiss_plan"; device: DeviceId; plan: number } | 
 /**
+ *  Puts back a change the dispatcher made at once, by the key on its
+ *  card.
+ */
+{ kind: "undo_dispatcher_action"; device: DeviceId; action: IdempotencyKey } | 
+/**
  *  Moves an agent on `from` to another device, through the `maxd` on
  *  `device`, the one the app runs with. `stop` stops a turn that runs
  *  or a prompt that waits first.
@@ -8946,7 +9147,7 @@ export type Response = { kind: "app_info"; value: AppInfo } | { kind: "view_snap
 /**  The devices that didn't take the switch, by name. */
 { kind: "set_phone_everything"; value: string[] } | 
 /**  The devices that didn't get a new code, by name. */
-{ kind: "renew_phone_codes"; value: string[] } | { kind: "set_phone_address" } | { kind: "revoke_phone_session"; value: ActionOutcome } | { kind: "app_key"; value: AppKeyState } | { kind: "remove_app_key"; value: ActionOutcome } | { kind: "rotate_app_key" } | { kind: "answer_admission"; value: ActionOutcome } | { kind: "agent_defaults"; value: AgentDefaults } | { kind: "set_agent_defaults" } | { kind: "list_tasks"; value: Task[] } | { kind: "save_task"; value: ActionOutcome } | { kind: "set_task_enabled"; value: ActionOutcome } | { kind: "delete_task"; value: ActionOutcome } | { kind: "run_task_now"; value: ActionOutcome } | { kind: "set_hook_on"; value: ActionOutcome } | { kind: "rotate_hook_token"; value: ActionOutcome } | { kind: "set_hook_secret"; value: ActionOutcome } | { kind: "set_hook_address"; value: ActionOutcome } | { kind: "list_runs"; value: Run[] } | { kind: "list_deliveries"; value: TaskDelivery[] } | { kind: "funnel_state"; value: FunnelState } | { kind: "check_test_hosts"; value: ActionOutcome } | { kind: "build_test_host"; value: ActionOutcome } | { kind: "reset_test_host"; value: ActionOutcome } | { kind: "end_lease"; value: ActionOutcome } | { kind: "read_lease_screen"; value: ActionOutcome } | { kind: "skill_source_add"; value: ActionOutcome } | { kind: "skill_source_fetch"; value: ActionOutcome } | { kind: "skill_source_remove"; value: ActionOutcome } | { kind: "skills_set_project"; value: ActionOutcome } | { kind: "skills_apply"; value: ActionOutcome } | { kind: "skills_scan"; value: ActionOutcome } | { kind: "skills_trees_needed"; value: ActionOutcome } | { kind: "skill_proposal_action"; value: ActionOutcome } | { kind: "skill_proposal_diff"; value: ActionOutcome } | { kind: "skills_globals_plan"; value: ActionOutcome } | { kind: "skills_globals_apply"; value: ActionOutcome } | { kind: "skills_globals_undo"; value: ActionOutcome } | { kind: "move_skill_library"; value: ActionOutcome } | { kind: "skill_source_push"; value: ActionOutcome } | { kind: "check_host"; value: ActionOutcome } | { kind: "apply_host"; value: ActionOutcome } | { kind: "install_tool"; value: ActionOutcome } | { kind: "remove_tool"; value: ActionOutcome } | { kind: "list_snapshots"; value: ActionOutcome } | { kind: "restore_snapshot"; value: ActionOutcome } | { kind: "plan_move"; value: ActionOutcome } | { kind: "run_move_step"; value: ActionOutcome } | { kind: "move_back"; value: ActionOutcome } | { kind: "retire_move"; value: ActionOutcome } | { kind: "install_acp_agent"; value: ActionOutcome } | { kind: "accept_licence"; value: ActionOutcome } | { kind: "ask_dispatcher"; value: ActionOutcome } | { kind: "confirm_plan"; value: ActionOutcome } | { kind: "dismiss_plan"; value: ActionOutcome } | { kind: "move_agent"; value: ActionOutcome } | { kind: "terminal_open"; value: ActionOutcome } | { kind: "terminal_attach" } | { kind: "terminal_detach" } | { kind: "terminal_resize" } | { kind: "terminal_interrupt"; value: ActionOutcome } | { kind: "terminal_close"; value: ActionOutcome } | { kind: "terminal_rename"; value: ActionOutcome } | { kind: "terminal_move"; value: ActionOutcome } | { kind: "list_folder"; value: FolderList } | { kind: "make_folder"; value: ActionOutcome } | { kind: "session_run"; value: ActionOutcome } | { kind: "session_share"; value: ActionOutcome } | { kind: "session_cd"; value: ActionOutcome } | { kind: "session_end"; value: ActionOutcome } | { kind: "list_notices"; value: NoticePage } | { kind: "read_notices" } | { kind: "clear_notices" };
+{ kind: "renew_phone_codes"; value: string[] } | { kind: "set_phone_address" } | { kind: "revoke_phone_session"; value: ActionOutcome } | { kind: "app_key"; value: AppKeyState } | { kind: "remove_app_key"; value: ActionOutcome } | { kind: "rotate_app_key" } | { kind: "answer_admission"; value: ActionOutcome } | { kind: "agent_defaults"; value: AgentDefaults } | { kind: "set_agent_defaults" } | { kind: "list_tasks"; value: Task[] } | { kind: "save_task"; value: ActionOutcome } | { kind: "set_task_enabled"; value: ActionOutcome } | { kind: "delete_task"; value: ActionOutcome } | { kind: "run_task_now"; value: ActionOutcome } | { kind: "set_hook_on"; value: ActionOutcome } | { kind: "rotate_hook_token"; value: ActionOutcome } | { kind: "set_hook_secret"; value: ActionOutcome } | { kind: "set_hook_address"; value: ActionOutcome } | { kind: "list_runs"; value: Run[] } | { kind: "list_deliveries"; value: TaskDelivery[] } | { kind: "funnel_state"; value: FunnelState } | { kind: "check_test_hosts"; value: ActionOutcome } | { kind: "build_test_host"; value: ActionOutcome } | { kind: "reset_test_host"; value: ActionOutcome } | { kind: "end_lease"; value: ActionOutcome } | { kind: "read_lease_screen"; value: ActionOutcome } | { kind: "skill_source_add"; value: ActionOutcome } | { kind: "skill_source_fetch"; value: ActionOutcome } | { kind: "skill_source_remove"; value: ActionOutcome } | { kind: "skills_set_project"; value: ActionOutcome } | { kind: "skills_apply"; value: ActionOutcome } | { kind: "skills_scan"; value: ActionOutcome } | { kind: "skills_trees_needed"; value: ActionOutcome } | { kind: "skill_proposal_action"; value: ActionOutcome } | { kind: "skill_proposal_diff"; value: ActionOutcome } | { kind: "skills_globals_plan"; value: ActionOutcome } | { kind: "skills_globals_apply"; value: ActionOutcome } | { kind: "skills_globals_undo"; value: ActionOutcome } | { kind: "move_skill_library"; value: ActionOutcome } | { kind: "skill_source_push"; value: ActionOutcome } | { kind: "check_host"; value: ActionOutcome } | { kind: "apply_host"; value: ActionOutcome } | { kind: "install_tool"; value: ActionOutcome } | { kind: "remove_tool"; value: ActionOutcome } | { kind: "list_snapshots"; value: ActionOutcome } | { kind: "restore_snapshot"; value: ActionOutcome } | { kind: "plan_move"; value: ActionOutcome } | { kind: "run_move_step"; value: ActionOutcome } | { kind: "move_back"; value: ActionOutcome } | { kind: "retire_move"; value: ActionOutcome } | { kind: "install_acp_agent"; value: ActionOutcome } | { kind: "accept_licence"; value: ActionOutcome } | { kind: "ask_dispatcher"; value: ActionOutcome } | { kind: "confirm_plan"; value: ActionOutcome } | { kind: "dismiss_plan"; value: ActionOutcome } | { kind: "undo_dispatcher_action"; value: ActionOutcome } | { kind: "move_agent"; value: ActionOutcome } | { kind: "terminal_open"; value: ActionOutcome } | { kind: "terminal_attach" } | { kind: "terminal_detach" } | { kind: "terminal_resize" } | { kind: "terminal_interrupt"; value: ActionOutcome } | { kind: "terminal_close"; value: ActionOutcome } | { kind: "terminal_rename"; value: ActionOutcome } | { kind: "terminal_move"; value: ActionOutcome } | { kind: "list_folder"; value: FolderList } | { kind: "make_folder"; value: ActionOutcome } | { kind: "session_run"; value: ActionOutcome } | { kind: "session_share"; value: ActionOutcome } | { kind: "session_cd"; value: ActionOutcome } | { kind: "session_end"; value: ActionOutcome } | { kind: "list_notices"; value: NoticePage } | { kind: "read_notices" } | { kind: "clear_notices" };
 
 /**  Where a PR's reviews leave it. */
 export type ReviewState = 

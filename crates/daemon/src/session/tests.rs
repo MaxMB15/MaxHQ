@@ -2283,6 +2283,7 @@ async fn device_settings_are_stored_and_published() {
         claude_setup_token: false,
         shell_integration: true,
         read_other_agents: true,
+        dispatcher_acts: true,
     };
     let outcome = h
         .act(|key| ClientMessage::SetDeviceSettings {

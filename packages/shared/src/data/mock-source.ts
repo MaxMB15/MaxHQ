@@ -233,6 +233,7 @@ const SETTINGS: Entity[] = [
 		claude_setup_token: false,
 		shell_integration: true,
 		read_other_agents: true,
+		dispatcher_acts: true,
 		test_hosts: MOCK_TEST_HOST_SETTINGS[MAC],
 	},
 	{
@@ -253,6 +254,7 @@ const SETTINGS: Entity[] = [
 		claude_setup_token: true,
 		shell_integration: true,
 		read_other_agents: true,
+		dispatcher_acts: true,
 		test_hosts: MOCK_TEST_HOST_SETTINGS[DEVBOX],
 	},
 	mockNetworkAccess(MAC),

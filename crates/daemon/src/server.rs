@@ -1417,7 +1417,8 @@ impl Connection {
             // And the dispatcher, whose plans run through its requests.
             message @ (ClientMessage::AskDispatcher { .. }
             | ClientMessage::ConfirmPlan { .. }
-            | ClientMessage::DismissPlan { .. }) => {
+            | ClientMessage::DismissPlan { .. }
+            | ClientMessage::UndoDispatcherAction { .. }) => {
                 if let Some(client) = &self.client {
                     client.send(message);
                 }

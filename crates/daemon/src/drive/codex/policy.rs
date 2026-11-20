@@ -3,7 +3,9 @@
 
 //! How each permission mode reads as Codex's approval policy, reviewer and
 //! sandbox, and back. Every mode but full access keeps the sandbox to the
-//! workspace with no network.
+//! workspace with no network. The dispatcher runs in auto mode, so its
+//! sandbox writes only its own folder and Codex's reviewer judges each
+//! command that wants out of it.
 
 use maxhq_protocol::model::PermissionMode;
 use serde_json::{json, Map, Value};
@@ -19,18 +21,15 @@ pub struct Policy {
     pub reviewer: &'static str,
     /// Whether the sandbox is off.
     pub full_access: bool,
-    /// Whether the sandbox lets nothing be written.
-    pub read_only: bool,
 }
 
-/// The dispatcher's settings, whatever its mode: a sandbox that writes
-/// nothing and reaches no network, with nothing to approve, so no command
-/// runs outside it.
-pub const READ_ONLY: Policy = Policy {
-    approval: "never",
-    reviewer: "user",
+/// The dispatcher's settings, whatever its mode: auto mode's. It reads
+/// anywhere, writes only in its folder, which is its thread's `cwd`, and
+/// runs a command outside the sandbox only when Codex's reviewer allows it.
+pub const DISPATCHER: Policy = Policy {
+    approval: "on-request",
+    reviewer: "auto_review",
     full_access: false,
-    read_only: true,
 };
 
 /// The settings for `mode`, or `None` for plan mode, which Codex lacks.
@@ -46,7 +45,6 @@ pub fn policy(mode: PermissionMode) -> Option<Policy> {
         approval,
         reviewer,
         full_access,
-        read_only: false,
     })
 }
 
@@ -55,9 +53,6 @@ impl Policy {
     pub fn sandbox_policy(&self) -> Value {
         if self.full_access {
             return json!({ "type": "dangerFullAccess" });
-        }
-        if self.read_only {
-            return json!({ "type": "readOnly", "networkAccess": false });
         }
         json!({
             "type": "workspaceWrite",
@@ -72,8 +67,6 @@ impl Policy {
     pub fn sandbox_mode(&self) -> &'static str {
         if self.full_access {
             "danger-full-access"
-        } else if self.read_only {
-            "read-only"
         } else {
             "workspace-write"
         }
@@ -157,17 +150,21 @@ mod tests {
     }
 
     #[test]
-    fn the_dispatcher_reads_only() {
+    fn the_dispatcher_writes_only_its_folder_and_asks_the_reviewer() {
         let mut turn = Map::new();
-        READ_ONLY.add_to_turn(&mut turn);
+        DISPATCHER.add_to_turn(&mut turn);
+        assert_eq!(turn["sandboxPolicy"]["type"], "workspaceWrite");
+        assert_eq!(turn["sandboxPolicy"]["writableRoots"], json!([]));
+        assert_eq!(turn["sandboxPolicy"]["networkAccess"], false);
+        assert_eq!(turn["approvalPolicy"], "on-request");
+        assert_eq!(turn["approvalsReviewer"], "auto_review");
         assert_eq!(
-            turn["sandboxPolicy"],
-            json!({"type": "readOnly", "networkAccess": false})
+            effective_in(&Value::Object(turn)),
+            Some(PermissionMode::Auto)
         );
-        assert_eq!(turn["approvalPolicy"], "never");
         let mut thread = Map::new();
-        READ_ONLY.add_to_thread(&mut thread);
-        assert_eq!(thread["sandbox"], "read-only");
+        DISPATCHER.add_to_thread(&mut thread);
+        assert_eq!(thread["sandbox"], "workspace-write");
     }
 
     #[test]

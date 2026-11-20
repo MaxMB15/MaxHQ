@@ -14,7 +14,7 @@ Each page covers one part of MaxHQ in short, task-shaped sections. Start with Ge
 
 - [Getting started](getting-started.md): what MaxHQ does, a tour of its window, and your first agent.
 - [Agents and the composer](agents-composer.md): starting agents, talking to them, answering them and keeping track of many.
-- [The dispatcher](dispatcher.md): asking for work in plain words, plans you confirm, and how-to questions.
+- [The dispatcher](dispatcher.md): asking for work in plain words, changes it makes and can undo, plans you confirm, and how-to questions.
 - [Projects and workspaces](projects.md): projects, their settings, workspaces in containers and pull requests.
 - [Devices and links](devices.md): adding devices, maxd, links between devices and each device's settings.
 - [Phones](phones.md): pairing an iPhone, what the phone app does and how pushes reach it.

@@ -10,18 +10,6 @@ use serde_json::{json, Value};
 use super::agents::text;
 use super::{fields, Call, Tool};
 
-/// What the dispatcher reads about the guide, after its main
-/// instructions.
-pub const INSTRUCTIONS: &str = "The user may also ask how to do something in MaxHQ or \
-    where to find something, such as a setting. Answer from MaxHQ's guide, not from memory: \
-    call search_guide with the user's words, then read_guide on the section that fits when \
-    its excerpt isn't enough. Answer in a few short steps in the guide's words, and end \
-    with the section's link as a Markdown link, such as \
-    [Open the Editor settings](maxhq://settings/editor), which opens that view when the user \
-    clicks it. Fill a link's braces, such as {project} in maxhq://project/{project}, with \
-    the id list_targets or list_agents gives, or leave that link out. When the guide has \
-    nothing on it, say so rather than guess. A question needs no plan.";
-
 /// The longest search the guide takes, in characters.
 pub const MAX_QUERY: usize = 200;
 

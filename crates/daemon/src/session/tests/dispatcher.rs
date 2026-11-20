@@ -2,23 +2,43 @@
 // Copyright (c) 2026 Max Boksem
 
 //! The dispatcher: the tools it gets and the ones it's refused, the plan
-//! it submits, and the confirm only a client sends.
+//! it submits, the confirm only a client sends, and the changes it makes
+//! at once, waits on or never makes.
 
 use maxhq_core::tools::Tool;
-use maxhq_protocol::agents::{Actor, LeaveContainer, Limits, Permission, DEPTH};
-use maxhq_protocol::dispatch::{Dispatcher, PlanOutcome, PlanStep, PlanTarget};
+use maxhq_protocol::agents::{
+    Actor, LeaveContainer, Limits, PeerBook, PeerEntry, Permission, DEPTH,
+};
+use maxhq_protocol::dispatch::{AdminAction, Dispatcher, PlanOutcome, PlanStep, PlanTarget};
 use maxhq_protocol::ids::{PermissionId, ProjectId, WorkspaceId};
-use maxhq_protocol::model::Project;
+use maxhq_protocol::model::{DeviceSettingChange, Project};
 use maxhq_protocol::tasks::{FilterTest, TaskTarget, Trigger};
 use serde_json::{json, Value};
 
+use super::moves::devbox;
 use super::*;
 use crate::pulls::source::fake::FakePulls;
 use crate::pulls::source::{Pull, User};
 use crate::secrets::RepoName;
 
-/// What the dispatcher answers a tool it doesn't get.
-const ONLY_READS: &str = "The dispatcher only reads and proposes plans.";
+/// What the dispatcher hears for a change made at once that Undo puts
+/// back.
+const UNDOABLE: &str = "Done. The user can undo it from the card under your answer.";
+
+/// What the dispatcher hears for a change that waits for the user.
+const ASKS_FIRST: &str = "It waits in the plan under the bar until the user confirms it.";
+
+/// What the dispatcher hears for a change it never makes.
+const NEVER: &str = "The user changes that in Settings, not you.";
+
+/// A change the dispatcher made at once, as its card shows it.
+#[derive(Debug, PartialEq)]
+struct Card {
+    device: DeviceId,
+    action: AdminAction,
+    target: String,
+    undo: Option<IdempotencyKey>,
+}
 
 impl Harness {
     /// A harness whose manager has a dispatcher, as on the Mac.
@@ -82,6 +102,42 @@ impl Harness {
         }));
         (project, workspace)
     }
+
+    /// The cards on the dispatcher's timeline. Opens it, so call it once.
+    async fn action_cards(&mut self, dispatcher: AgentId) -> Vec<Card> {
+        let (_, items, _) = reset(self.open(dispatcher, None, 50).await);
+        items
+            .into_iter()
+            .filter_map(|item| match item.body {
+                ItemBody::DispatcherAction {
+                    device,
+                    action,
+                    target,
+                    undo,
+                } => Some(Card {
+                    device,
+                    action: *action,
+                    target,
+                    undo,
+                }),
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// Puts back the change on the card `action` names.
+    async fn undo(&mut self, action: IdempotencyKey) -> ActionOutcome {
+        self.act(|key| ClientMessage::UndoDispatcherAction { key, action })
+            .await
+    }
+
+    /// This device's settings as clients see them.
+    fn settings_now(&self) -> DeviceSettings {
+        match self.hub.get(&EntityKey::DeviceSettings(self.host.id)) {
+            Some(Entity::DeviceSettings(settings)) => settings,
+            _ => hub::default_settings(&self.host),
+        }
+    }
 }
 
 /// The test request's plan: an idle Cursor agent in `folder`, and a task
@@ -103,52 +159,40 @@ fn review_plan(folder: &Path) -> Value {
 }
 
 #[tokio::test]
-async fn the_dispatcher_gets_only_tools_that_read_or_propose() {
+async fn the_dispatcher_gets_its_tools_and_no_others() {
     let mut h = Harness::with_dispatcher().await;
     let (dispatcher, session) = h.dispatch("What runs now?").await;
     assert_eq!(h.dispatcher().agent, Some(dispatcher));
 
-    // Its CLI is served the dispatcher's tools, none of which acts.
+    // Its CLI is served the dispatcher's tools, which read, plan and act,
+    // and no lease tools.
     let place = h.vendors.claude_places().pop().expect("a Claude session");
     assert!(place.dispatcher);
     assert_eq!(place.tools(), &Tool::DISPATCHER);
-    for tool in [
-        Tool::StartAgent,
-        Tool::SendAgent,
-        Tool::InterruptAgent,
-        Tool::ScheduleTask,
-        Tool::DeleteTask,
-        Tool::RunTaskNow,
-        Tool::LeaseOpen,
-    ] {
-        assert!(!place.tools().contains(&tool), "{tool:?}");
-    }
+    assert!(!place.tools().contains(&Tool::LeaseOpen));
 
-    // A call to one anyway is refused where it's called, with no
+    // A call to another tool anyway is refused where it's called, with no
     // permission asked for.
-    let folder = h.folder.display().to_string();
-    for (key, tool, arguments) in [
-        (
+    let answer = h
+        .call(
+            session,
+            dispatcher,
             "s1",
-            "start_agent",
-            json!({"request_id": "s1", "task": "t", "vendor": "claude", "folder": folder}),
-        ),
-        (
-            "s2",
-            "send_agent",
-            json!({"request_id": "s2", "agent": dispatcher.to_string(), "text": "hi"}),
-        ),
-        (
-            "s3",
-            "schedule_task",
-            json!({"request_id": "s3", "prompt": "p", "schedule": {"type": "interval", "everyMs": 3600000}}),
-        ),
-        ("s4", "send_attachments", json!({"paths": ["a.txt"]})),
-    ] {
-        let answer = h.call(session, dispatcher, key, tool, arguments).await;
-        assert_eq!(answer, Err(ONLY_READS.into()), "{tool}");
-    }
-    assert!(h.agents_now().len() == 1, "nothing started");
+            "send_attachments",
+            json!({"paths": ["a.txt"]}),
+        )
+        .await;
+    assert_eq!(answer, Err("The dispatcher doesn't get that tool.".into()));
+    // It doesn't change itself either.
+    let itself =
+        json!({"action": "rename", "agent": dispatcher.to_string(), "title": "Me", "asked": true});
+    let answer = h
+        .call(session, dispatcher, "s2", "manage_agent", itself)
+        .await;
+    assert_eq!(
+        answer,
+        Err(format!("There's no agent here with id {dispatcher}."))
+    );
 
     // Its mode stays as it is.
     let outcome = h
@@ -166,7 +210,290 @@ async fn the_dispatcher_gets_only_tools_that_read_or_propose() {
         .call(held, other, "p1", "submit_plan", review_plan(&h.folder))
         .await;
     assert!(answer.is_err(), "{answer:?}");
+    let rename =
+        json!({"action": "rename", "agent": other.to_string(), "title": "Mine", "asked": true});
+    let answer = h.call(held, other, "m1", "manage_agent", rename).await;
+    assert!(answer.is_err(), "{answer:?}");
+    assert_ne!(h.agent(other).title, "Mine");
     assert_eq!(h.dispatcher().plan, None);
+}
+
+#[tokio::test]
+async fn a_safe_change_the_user_asked_for_runs_at_once_and_undo_puts_it_back() {
+    let mut h = Harness::with_dispatcher().await;
+    let (agent, _) = h.start_claude(None).await;
+    let before = h.agent(agent).title;
+    let (dispatcher, session) = h
+        .dispatch("Call my agent Auth fix, settle after 3 days")
+        .await;
+
+    let rename =
+        json!({"action": "rename", "agent": agent.to_string(), "title": "Auth fix", "asked": true});
+    let answer = h
+        .call(session, dispatcher, "a1", "manage_agent", rename)
+        .await;
+    assert_eq!(answer, Ok(UNDOABLE.into()));
+    assert_eq!(h.agent(agent).title, "Auth fix");
+    let settle = json!({"action": "settings", "changes": [{"field": "auto_settle_days", "value": 3}], "asked": true});
+    let was = h.settings_now().auto_settle_days;
+    let answer = h
+        .call(session, dispatcher, "a2", "manage_device", settle)
+        .await;
+    assert_eq!(answer, Ok(UNDOABLE.into()));
+    assert_eq!(h.settings_now().auto_settle_days, 3);
+    assert_eq!(h.dispatcher().plan, None, "nothing waits");
+
+    // Each shows as a card under the answer, with an Undo clients list.
+    let cards = h.action_cards(dispatcher).await;
+    let [renamed, settled] = &cards[..] else {
+        panic!("not two cards: {cards:?}");
+    };
+    assert_eq!(
+        (renamed.device, &renamed.action, renamed.target.as_str()),
+        (
+            h.host.id,
+            &AdminAction::RenameAgent {
+                agent,
+                title: "Auth fix".into()
+            },
+            before.as_str()
+        )
+    );
+    let (renamed, settled) = (
+        renamed.undo.expect("an undo"),
+        settled.undo.expect("an undo"),
+    );
+    assert_eq!(h.dispatcher().undo, vec![renamed, settled]);
+
+    // Undo puts each back, once.
+    assert_eq!(h.undo(renamed).await, ActionOutcome::Done);
+    assert_eq!(h.agent(agent).title, before);
+    assert_eq!(h.undo(settled).await, ActionOutcome::Done);
+    assert_eq!(h.settings_now().auto_settle_days, was);
+    assert_eq!(h.dispatcher().undo, Vec::new());
+    assert_eq!(
+        reason(&h.undo(renamed).await),
+        "That change can't be undone any more."
+    );
+}
+
+#[tokio::test]
+async fn undo_refuses_once_something_else_changed_it() {
+    let mut h = Harness::with_dispatcher().await;
+    let (agent, _) = h.start_claude(None).await;
+    let (dispatcher, session) = h.dispatch("Call my agent Auth fix").await;
+    let rename =
+        json!({"action": "rename", "agent": agent.to_string(), "title": "Auth fix", "asked": true});
+    h.call(session, dispatcher, "a1", "manage_agent", rename)
+        .await
+        .expect("renamed");
+    let [undo] = h.dispatcher().undo[..] else {
+        panic!("no undo");
+    };
+
+    let title = "Mine".to_owned();
+    let outcome = h
+        .act(|key| ClientMessage::RenameAgent { key, agent, title })
+        .await;
+    assert_eq!(outcome, ActionOutcome::Done);
+    assert_eq!(
+        reason(&h.undo(undo).await),
+        "It changed since, so it can't be undone."
+    );
+    assert_eq!(h.agent(agent).title, "Mine");
+    assert_eq!(h.dispatcher().undo, Vec::new());
+}
+
+#[tokio::test]
+async fn a_risky_change_or_one_the_user_did_not_ask_for_waits_in_the_plan() {
+    let mut h = Harness::with_dispatcher().await;
+    let (agent, _) = h.start_claude(None).await;
+    let before = h.agent(agent).title;
+    let (dispatcher, session) = h.dispatch("Clean up my agents").await;
+
+    // A safe change it only suggests waits for the user.
+    let rename =
+        json!({"action": "rename", "agent": agent.to_string(), "title": "Old", "asked": false});
+    let answer = h
+        .call(session, dispatcher, "a1", "manage_agent", rename)
+        .await;
+    assert_eq!(answer, Ok(ASKS_FIRST.into()));
+    assert_eq!(h.agent(agent).title, before);
+    let first = h.dispatcher().plan.expect("the plan");
+    assert_eq!(first.items.len(), 1);
+    assert_eq!(first.items[0].reason, "The dispatcher suggests it.");
+
+    // Deleting asks first even when the user asked for it, in the same
+    // plan, which a new number shows changed.
+    let delete = json!({"action": "delete", "agent": agent.to_string(), "asked": true});
+    let answer = h
+        .call(session, dispatcher, "a2", "manage_agent", delete)
+        .await;
+    assert_eq!(answer, Ok(ASKS_FIRST.into()));
+    let plan = h.dispatcher().plan.expect("the plan");
+    assert!(plan.id > first.id);
+    assert_eq!(plan.items.len(), 2);
+    assert_eq!(plan.items[1].reason, "It asks first.");
+    assert_eq!(
+        plan.items[1].step,
+        PlanStep::Admin {
+            device: h.host.id,
+            action: AdminAction::DeleteAgent { agent }
+        }
+    );
+    assert!(h.agents_now().contains(&agent));
+    assert_eq!(h.dispatcher().undo, Vec::new());
+    let stale = h
+        .act(|key| ClientMessage::ConfirmPlan {
+            key,
+            plan: first.id,
+        })
+        .await;
+    assert_eq!(reason(&stale), "That plan isn't the one shown any more.");
+
+    // Confirmed, each runs.
+    let outcome = h
+        .act(|key| ClientMessage::ConfirmPlan { key, plan: plan.id })
+        .await;
+    assert_eq!(
+        outcome,
+        ActionOutcome::PlanRan {
+            results: vec![PlanOutcome::Done, PlanOutcome::Done]
+        }
+    );
+    eventually("the agent is gone", || !h.agents_now().contains(&agent)).await;
+}
+
+#[tokio::test]
+async fn the_dispatcher_never_changes_sign_ins_the_network_or_its_own_switch() {
+    let mut h = Harness::with_dispatcher().await;
+    let (dispatcher, session) = h.dispatch("Let yourself ask less").await;
+    for (key, field) in [
+        ("n1", "dispatcher_acts"),
+        ("n2", "cursor_usage"),
+        ("n3", "claude_setup_token"),
+    ] {
+        let change = json!({"action": "settings", "changes": [{"field": field, "value": true}], "asked": true});
+        let answer = h
+            .call(session, dispatcher, key, "manage_device", change)
+            .await;
+        assert_eq!(answer, Err(NEVER.into()), "{field}");
+    }
+    // Not with a safe change beside it either.
+    let change = json!({"action": "settings", "changes": [
+        {"field": "auto_settle_days", "value": 3},
+        {"field": "dispatcher_acts", "value": false},
+    ], "asked": true});
+    let answer = h
+        .call(session, dispatcher, "n4", "manage_device", change)
+        .await;
+    assert_eq!(answer, Err(NEVER.into()));
+    let settings = h.settings_now();
+    assert!(settings.dispatcher_acts);
+    assert_ne!(settings.auto_settle_days, 3);
+    assert_eq!(h.dispatcher().plan, None);
+}
+
+#[tokio::test]
+async fn with_act_directly_off_every_change_waits_in_the_plan() {
+    let mut h = Harness::with_dispatcher().await;
+    let (agent, _) = h.start_claude(None).await;
+    let before = h.agent(agent).title;
+    let device = h.host.id;
+    let outcome = h
+        .act(|key| ClientMessage::UpdateDeviceSettings {
+            key,
+            device,
+            changes: vec![DeviceSettingChange::DispatcherActs { value: false }],
+        })
+        .await;
+    assert_eq!(outcome, ActionOutcome::Done);
+    let (dispatcher, session) = h.dispatch("Call my agent Auth fix and start another").await;
+
+    let rename =
+        json!({"action": "rename", "agent": agent.to_string(), "title": "Auth fix", "asked": true});
+    let answer = h
+        .call(session, dispatcher, "a1", "manage_agent", rename)
+        .await;
+    assert_eq!(answer, Ok(ASKS_FIRST.into()));
+    let start = json!({"request_id": "a2", "task": "Fix the login page", "vendor": "claude",
+        "folder": h.folder.display().to_string(), "asked": true});
+    let answer = h
+        .call(session, dispatcher, "a2", "start_agent", start)
+        .await;
+    assert_eq!(answer, Ok(ASKS_FIRST.into()));
+
+    let plan = h.dispatcher().plan.expect("the plan");
+    assert_eq!(plan.items.len(), 2);
+    for item in &plan.items {
+        assert_eq!(
+            item.reason,
+            "Act directly is off in the dispatcher's settings."
+        );
+    }
+    assert!(matches!(plan.items[1].step, PlanStep::StartAgent { .. }));
+    assert_eq!(h.agent(agent).title, before);
+    assert_eq!(h.agents_now().len(), 2, "nothing started");
+    assert_eq!(h.dispatcher().undo, Vec::new());
+}
+
+#[tokio::test]
+async fn a_change_on_another_device_goes_there_as_a_peer_call() {
+    let mut mac = Harness::with_dispatcher().await;
+    let mut devbox = Harness::on(devbox());
+    mac.fakes.peers.answer_with(&devbox.sessions, mac.host.id);
+    devbox.fakes.peers.set_home(mac.host.id);
+    let book = PeerBook {
+        ssh: true,
+        peers: vec![PeerEntry {
+            device: devbox.host.id,
+            name: "devbox".into(),
+            routes: Vec::new(),
+            host_key: String::new(),
+            test_kinds: Vec::new(),
+            home: false,
+        }],
+    };
+    mac.db.set_peer_book(&book).expect("the book is kept");
+    let (agent, _) = devbox.start_claude(None).await;
+    let before = devbox.agent(agent).title;
+    let (dispatcher, session) = mac.dispatch("Call devbox's agent Auth fix").await;
+
+    let rename = json!({"action": "rename", "agent": agent.to_string(), "title": "Auth fix",
+        "device": devbox.host.id.to_string(), "asked": true});
+    let answer = mac
+        .call(session, dispatcher, "a1", "manage_agent", rename.clone())
+        .await;
+    assert_eq!(answer, Ok(UNDOABLE.into()));
+    assert_eq!(devbox.agent(agent).title, "Auth fix");
+    let calls = mac.fakes.peers.calls();
+    assert_eq!(calls.len(), 1);
+    assert_eq!(
+        (calls[0].0, calls[0].1.call.tool.as_str()),
+        (devbox.host.id, "dispatcher_act")
+    );
+
+    // Its card names the agent as devbox had it, and Undo goes there too.
+    let cards = mac.action_cards(dispatcher).await;
+    let [card] = &cards[..] else {
+        panic!("not one card: {cards:?}");
+    };
+    assert_eq!(
+        (card.device, card.target.as_str()),
+        (devbox.host.id, before.as_str())
+    );
+    let undo = card.undo.expect("an undo");
+    assert_eq!(mac.undo(undo).await, ActionOutcome::Done);
+    assert_eq!(devbox.agent(agent).title, before);
+    assert_eq!(mac.fakes.peers.calls().len(), 2);
+
+    // devbox takes changes only from its home.
+    devbox.fakes.peers.set_home(DeviceId::derive("elsewhere"));
+    let answer = mac
+        .call(session, dispatcher, "a2", "manage_agent", rename)
+        .await;
+    assert!(answer.is_err(), "{answer:?}");
+    assert_eq!(devbox.agent(agent).title, before);
 }
 
 #[tokio::test]

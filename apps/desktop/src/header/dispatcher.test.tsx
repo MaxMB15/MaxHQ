@@ -268,6 +268,27 @@ describe("the dispatcher settings", () => {
 		ask(input, REQUEST);
 		expect(await (await panel()).findByText(/^Dispatcher, as Codex/)).toBeInTheDocument();
 	});
+
+	it("acts directly by default, and saves the switch off on the Mac", async () => {
+		const { services, view } = await renderBox(<DispatcherSettingsPage />);
+		const save = vi.spyOn(services.source, "setDeviceSettings");
+		const acts = screen.getByRole("switch", { name: "Act directly" });
+		expect(acts).toBeChecked();
+		expect(
+			screen.getByText(/^The dispatcher changes settings, agents and tasks/)
+		).toBeVisible();
+
+		fireEvent.click(acts);
+		await waitFor(() =>
+			expect(save).toHaveBeenCalledWith(
+				expect.objectContaining({ device: MAC, dispatcher_acts: false })
+			)
+		);
+		await waitFor(() =>
+			expect(view().tables.device_settings.get(MAC)?.dispatcher_acts).toBe(false)
+		);
+		expect(acts).not.toBeChecked();
+	});
 });
 
 describe("pills in a request", () => {

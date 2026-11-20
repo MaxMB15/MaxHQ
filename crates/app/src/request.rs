@@ -815,6 +815,12 @@ pub enum Request {
     ConfirmPlan { device: DeviceId, plan: u32 },
     /// Drops the plan the dispatcher shows.
     DismissPlan { device: DeviceId, plan: u32 },
+    /// Puts back a change the dispatcher made at once, by the key on its
+    /// card.
+    UndoDispatcherAction {
+        device: DeviceId,
+        action: IdempotencyKey,
+    },
     /// Moves an agent on `from` to another device, through the `maxd` on
     /// `device`, the one the app runs with. `stop` stops a turn that runs
     /// or a prompt that waits first.
@@ -1127,6 +1133,7 @@ pub enum Response {
     AskDispatcher(ActionOutcome),
     ConfirmPlan(ActionOutcome),
     DismissPlan(ActionOutcome),
+    UndoDispatcherAction(ActionOutcome),
     MoveAgent(ActionOutcome),
     TerminalOpen(ActionOutcome),
     TerminalAttach,
@@ -1340,6 +1347,7 @@ impl Request {
             Self::AskDispatcher { .. } => "ask_dispatcher",
             Self::ConfirmPlan { .. } => "confirm_plan",
             Self::DismissPlan { .. } => "dismiss_plan",
+            Self::UndoDispatcherAction { .. } => "undo_dispatcher_action",
             Self::MoveAgent { .. } => "move_agent",
             Self::TerminalOpen { .. } => "terminal_open",
             Self::TerminalAttach { .. } => "terminal_attach",
@@ -1555,6 +1563,7 @@ impl Response {
             Self::AskDispatcher(_) => "ask_dispatcher",
             Self::ConfirmPlan(_) => "confirm_plan",
             Self::DismissPlan(_) => "dismiss_plan",
+            Self::UndoDispatcherAction(_) => "undo_dispatcher_action",
             Self::MoveAgent(_) => "move_agent",
             Self::TerminalOpen(_) => "terminal_open",
             Self::TerminalAttach => "terminal_attach",
@@ -2618,6 +2627,10 @@ impl<C: Connector> App<C> {
             Request::DismissPlan { device, plan } => {
                 let action = ClientMessage::DismissPlan { key, plan };
                 Response::DismissPlan(devices.act_on(device, action).await?)
+            }
+            Request::UndoDispatcherAction { device, action } => {
+                let action = ClientMessage::UndoDispatcherAction { key, action };
+                Response::UndoDispatcherAction(devices.act_on(device, action).await?)
             }
             Request::MoveAgent {
                 device,

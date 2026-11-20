@@ -329,6 +329,21 @@ pub enum ItemBody {
         #[serde(default)]
         replaces: Option<ItemId>,
     },
+    /// A change the dispatcher made without asking, as a card on its own
+    /// timeline. Since protocol 52.
+    DispatcherAction {
+        /// The device it changed.
+        device: DeviceId,
+        /// What it did.
+        action: Box<crate::dispatch::AdminAction>,
+        /// What it changed, by name as it was before, such as the agent's
+        /// old title.
+        target: String,
+        /// What [`crate::message::ClientMessage::UndoDispatcherAction`]
+        /// names to put it back, when it has an inverse.
+        /// [`crate::dispatch::Dispatcher::undo`] says whether it still may.
+        undo: Option<crate::ids::IdempotencyKey>,
+    },
     /// A command you ran with `!` in the composer, as a card. The command
     /// runs in a terminal of its own, and the card shows it live until it
     /// ends. Since protocol 45.
