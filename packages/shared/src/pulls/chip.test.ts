@@ -1,13 +1,22 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026 Max Boksem
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { i18n, setLanguageChoice } from "../i18n";
 
 import type { PullSnapshot } from "../bindings";
+import type { ActionResult } from "../data/source";
 import { pullLink, REPO, snapshot } from "../test/pulls";
 
-import { chipChecks, chipLabel, chipState, foldChips, pullPrompts } from "./chip";
+import {
+	chipChecks,
+	chipLabel,
+	chipState,
+	foldChips,
+	linkPullNumber,
+	parsePullNumber,
+	pullPrompts,
+} from "./chip";
 import { pullUrl } from "./urls";
 
 const read = (over: Partial<PullSnapshot> = {}) => ({
@@ -96,6 +105,37 @@ describe("pullPrompts", () => {
 		for (const prompt of pullPrompts(read({ checks: "failing", mergeable: "conflicting" }))) {
 			expect(prompt.text).toContain(`pull request #7 in ${REPO}`);
 		}
+	});
+});
+
+describe("parsePullNumber", () => {
+	it("takes a whole number above 0, with or without #", () => {
+		expect(parsePullNumber("142")).toBe(142);
+		expect(parsePullNumber(" #7 ")).toBe(7);
+		expect(parsePullNumber("0")).toBeNull();
+		expect(parsePullNumber("1.5")).toBeNull();
+		expect(parsePullNumber("abc")).toBeNull();
+		expect(parsePullNumber("")).toBeNull();
+	});
+});
+
+describe("linkPullNumber", () => {
+	it("links the PR, and says why the device refused it or the call failed", async () => {
+		const linkPull = vi.fn(async (): Promise<ActionResult> => ({
+			status: "ok",
+			data: { status: "done" },
+		}));
+		expect(await linkPullNumber({ linkPull }, "a1", 142)).toBeNull();
+		expect(linkPull).toHaveBeenCalledWith("a1", 142);
+		linkPull.mockResolvedValueOnce({
+			status: "ok",
+			data: { status: "refused", reason: "No such PR." },
+		});
+		expect(await linkPullNumber({ linkPull }, "a1", 9)).toBe("Couldn't link #9. No such PR.");
+		linkPull.mockRejectedValueOnce(new Error("gone"));
+		const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+		expect(await linkPullNumber({ linkPull }, "a1", 9)).toBe("Couldn't link #9. Try again.");
+		warn.mockRestore();
 	});
 });
 

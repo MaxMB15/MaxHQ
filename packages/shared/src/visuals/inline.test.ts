@@ -3,9 +3,11 @@
 
 import { describe, expect, it } from "vitest";
 
+import { MOST_HOSTS } from "./frame";
 import {
 	INLINE_VISUAL_POLICY,
 	inlineVisualDocument,
+	inlineVisualPolicy,
 	opensFromVisual,
 	readBridgeReport,
 } from "./inline";
@@ -15,10 +17,11 @@ const LIBRARIES = new Map([
 	["d3.js", "window.d3 = '</script>';"],
 ]);
 
-const make = (html: string) =>
+const make = (html: string, hosts?: readonly string[]) =>
 	inlineVisualDocument(
 		{ html, theme: "dark", variables: { "--background": "#0f1217", "--chart-1": "#4692f6" } },
-		LIBRARIES
+		LIBRARIES,
+		hosts
 	);
 
 describe("a visual drawn with no server", () => {
@@ -34,6 +37,43 @@ describe("a visual drawn with no server", () => {
 		// The policy and the reporter come before anything of the page's.
 		expect(document.indexOf("Content-Security-Policy")).toBeLessThan(document.indexOf("<p>hi"));
 		expect(document.indexOf("ReactNativeWebView")).toBeLessThan(document.indexOf("<p>hi"));
+	});
+
+	it("lets through code, styles, fonts and pictures from the hosts it's given, and no more", () => {
+		const policy = inlineVisualPolicy(["cdn.example.com", "fonts.example.org:8443"]);
+		const directives = policy.split("; ");
+		for (const kind of ["script-src", "style-src", "img-src", "font-src"]) {
+			const directive = directives.find((d) => d.startsWith(`${kind} `)) ?? "";
+			expect(directive).toContain(" https://cdn.example.com");
+			expect(directive).toContain(" https://fonts.example.org:8443");
+		}
+		for (const kind of ["connect-src", "frame-src", "media-src", "worker-src", "default-src"])
+			expect(directives.find((d) => d.startsWith(`${kind} `))).not.toMatch(/https?:/);
+		expect(make("<p>hi</p>", ["cdn.example.com"]).document).toContain(
+			`content="${inlineVisualPolicy(["cdn.example.com"])}"`
+		);
+	});
+
+	it("takes only plain hosts, and only the first few", () => {
+		expect(inlineVisualPolicy([])).toBe(INLINE_VISUAL_POLICY);
+		expect(
+			inlineVisualPolicy(["localhost", "127.0.0.1", "*.example.com", "a.example.com; x"])
+		).toBe(INLINE_VISUAL_POLICY);
+		const many = ["a.example.com", "b.example.com", "c.example.com", "d.example.com"];
+		const policy = inlineVisualPolicy([...many, "e.example.com"]);
+		expect(policy).toContain("https://d.example.com");
+		expect(policy).not.toContain("e.example.com");
+		expect(MOST_HOSTS).toBe(many.length);
+	});
+
+	it("reports how tall the page is, at the view's width", () => {
+		const { document } = make("<p>hi</p>");
+		expect(document).toContain(
+			'<meta name="viewport" content="width=device-width, initial-scale=1">'
+		);
+		expect(document.indexOf('name="viewport"')).toBeLessThan(document.indexOf("<p>hi"));
+		expect(document).toContain('type: "maxhq-visual:height"');
+		expect(document.indexOf("maxhq-visual:height")).toBeLessThan(document.indexOf("<p>hi"));
 	});
 
 	it("draws in the theme it's given", () => {

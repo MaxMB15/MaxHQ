@@ -20,6 +20,7 @@ import {
 	type DeviceId,
 	MOVE_AGENT_SINCE,
 	type MoveTo,
+	type ProjectId,
 	type Vendor,
 	type Workspace,
 	type WorkspaceId,
@@ -196,6 +197,24 @@ const repoKey = (repo: string): string =>
 		.replace(/\/+$/, "");
 
 /**
+ * The one of `places` that checks out the same repository as `project`:
+ * that project's checkout first, then one with the same remote.
+ */
+export const sameRepoIn = (
+	view: ViewState,
+	project: ProjectId,
+	places: readonly Workspace[]
+): Workspace | undefined => {
+	const repo = view.tables.project.get(project)?.repo;
+	const key = repo ? repoKey(repo) : null;
+	const sameRemote = (w: Workspace) => {
+		const theirs = projectOf(view, w)?.repo;
+		return key !== null && theirs != null && repoKey(theirs) === key;
+	};
+	return places.find((w) => w.project === project) ?? places.find(sameRemote);
+};
+
+/**
  * The folder on `device` that checks out the same repository as the
  * agent's folder: the same project's checkout first, then one with the
  * same remote. Null when there's none.
@@ -212,12 +231,7 @@ export const sameRepoPlace = (
 		const w = view.tables.workspace.get(option.value);
 		return w ? [w] : [];
 	});
-	const key = project.repo ? repoKey(project.repo) : null;
-	const sameRemote = (w: Workspace) => {
-		const repo = projectOf(view, w)?.repo;
-		return key !== null && repo != null && repoKey(repo) === key;
-	};
-	return places.find((w) => w.project === project.id)?.id ?? places.find(sameRemote)?.id ?? null;
+	return sameRepoIn(view, project.id, places)?.id ?? null;
 };
 
 /** The tasks that follow a moved agent: the ones the Mac that moves it keeps. */

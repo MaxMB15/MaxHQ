@@ -18,6 +18,7 @@ use crate::attention::{AnswerOutcome, AttentionAnswer};
 use crate::context::InlineRef;
 use crate::dispatch::PlanOutcome;
 use crate::find::{AgentExcerpt, GitItemSearch, PathMatch};
+use crate::folders::FolderListing;
 use crate::hosts::{MoveStep, WorkspaceSnapshot};
 use crate::ids::{
     AccountId, AcpAgentId, AdmissionId, AgentId, AttachmentId, AttentionId, BootId, ClientId,
@@ -30,7 +31,7 @@ use crate::model::{
     Tool, Vendor, WorkspaceSpec,
 };
 use crate::notes::{NoteId, NoteVersion, NoteVersionInfo, VersionHash};
-use crate::phones::{PhoneBookEntry, PushToken};
+use crate::phones::{PhoneBookEntry, PhoneMac, PushToken};
 use crate::processes::{ProcessList, ProcessSignal};
 use crate::pulls::{
     ChecksState, PullAction, PullCheck, PullComment, PullDetail, PullFile, PullListState,
@@ -72,6 +73,28 @@ impl ProtocolRange {
     pub fn agree(self, other: Self) -> Option<u32> {
         let version = self.current.min(other.current);
         (version >= self.oldest.max(other.oldest)).then_some(version)
+    }
+
+    /// What `maxd`, speaking `self`, tells a client speaking `client` when
+    /// they have no version in common. [`ProtocolRange::from_refusal`] reads
+    /// `self` back out, so a client can say which side to update.
+    pub fn refusal(self, client: Self) -> String {
+        format!(
+            "this maxd speaks protocol {} to {}, and the client {} to {}",
+            self.oldest, self.current, client.oldest, client.current
+        )
+    }
+
+    /// The range `maxd` named in a [`ProtocolRange::refusal`], or none when
+    /// the message says something else.
+    pub fn from_refusal(message: &str) -> Option<Self> {
+        let rest = message.strip_prefix("this maxd speaks protocol ")?;
+        let (range, _) = rest.split_once(',')?;
+        let (oldest, current) = range.split_once(" to ")?;
+        Some(Self {
+            current: current.parse().ok()?,
+            oldest: oldest.parse().ok()?,
+        })
     }
 }
 
@@ -1797,6 +1820,10 @@ pub enum ClientMessage {
         key: IdempotencyKey,
         /// The devices the phone may reach, with their routes resolved.
         book: Vec<PhoneBookEntry>,
+        /// The Mac that pairs it, which the phone names the book by. An
+        /// older Mac leaves it out.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        mac: Option<PhoneMac>,
     },
     /// Pairs the phone on a connection a one-time key opened. `maxd` swaps
     /// that key for the phone's own and keeps the book for it. The outcome
@@ -1850,6 +1877,10 @@ pub enum ClientMessage {
         phone: PhoneId,
         /// The devices.
         book: Vec<PhoneBookEntry>,
+        /// The Mac that sends it. An older Mac leaves it out, and the
+        /// device keeps the one it has.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        mac: Option<PhoneMac>,
     },
     /// Lets a phone do what only the Mac does here, short of letting other
     /// keys in, or stops it. Only the Mac sends it.
@@ -2084,6 +2115,107 @@ pub enum ClientMessage {
         /// The terminal.
         terminal: TerminalId,
     },
+
+    // Folders, since [`FOLDERS_SINCE`]. Only the app and phones may send
+    // these, never a link from another device or an agent's tools.
+    /// Lists one folder on a device, for a path field's suggestions and the
+    /// folder browser. The outcome is [`ActionOutcome::FolderListed`], for
+    /// a folder that isn't there too.
+    ListFolder {
+        /// Makes a resend after a dropped connection safe.
+        key: IdempotencyKey,
+        /// The device the folder is on.
+        device: DeviceId,
+        /// The folder's absolute path. A leading `~` is the device's home
+        /// folder.
+        path: String,
+        /// Whether to list files too, not only folders.
+        files: bool,
+        /// Whether to list the names that start with a dot.
+        hidden: bool,
+        /// Lists only the names that hold this, ignoring case, those that
+        /// start with it first. The device filters before it cuts a big
+        /// folder's listing short, so a field finds any name you type. Left
+        /// out, every name lists.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        filter: Option<String>,
+    },
+    /// Makes one folder on a device, for the folder browser's New folder.
+    /// Its parent must be there already. A resend under the same key gets
+    /// the first answer, so a folder made before the connection dropped
+    /// isn't reported as there already.
+    MakeFolder {
+        /// Makes a resend after a dropped connection safe.
+        key: IdempotencyKey,
+        /// The device the folder goes on.
+        device: DeviceId,
+        /// The new folder's absolute path.
+        path: String,
+    },
+
+    // Sessions, since [`SESSIONS_SINCE`]. Only the app and phones may send
+    // these, never a link from another device or an agent's tools.
+    /// Runs a command you typed after `!` in the agent's session, the one
+    /// shell its commands share, and opens the session first when there's
+    /// none. A command that can't go there runs in a fresh shell in the
+    /// session's folder, with a `UserRun` card that says why. The outcome
+    /// is [`ActionOutcome::SessionRan`] for a block in the session's card,
+    /// or [`ActionOutcome::TerminalOpened`] for a fresh shell.
+    SessionRun {
+        /// Makes a resend after a dropped connection safe.
+        key: IdempotencyKey,
+        /// The agent whose session it runs in.
+        agent: AgentId,
+        /// The command line, as typed after the `!`.
+        command: String,
+        /// Whether you ran it with `!!`, so its block starts private.
+        private: bool,
+        /// Whether to run it in a fresh shell rather than the session.
+        fresh: bool,
+        /// The width in cells of a terminal it opens.
+        cols: u16,
+        /// The height in cells of a terminal it opens.
+        rows: u16,
+    },
+    /// Keeps one block of a session card from the agent, or shares it
+    /// again. Refused once the card is sealed.
+    SessionShare {
+        /// Makes a resend after a dropped connection safe.
+        key: IdempotencyKey,
+        /// The agent whose card it is.
+        agent: AgentId,
+        /// The card.
+        item: ItemId,
+        /// The block's ID in the card.
+        block: u32,
+        /// Whether the block is private.
+        private: bool,
+    },
+    /// Moves the agent's session to a folder, for the folder chip. With no
+    /// session yet, it opens one there, and the outcome is
+    /// [`ActionOutcome::TerminalOpened`]. With an idle session, it runs
+    /// `cd` there as a shared block, and the outcome is
+    /// [`ActionOutcome::SessionRan`]. A busy session refuses.
+    SessionCd {
+        /// Makes a resend after a dropped connection safe.
+        key: IdempotencyKey,
+        /// The agent whose session it is.
+        agent: AgentId,
+        /// The folder, as the device writes it. A leading `~` is the
+        /// device's home folder.
+        path: String,
+    },
+    /// Ends the agent's session: hangs up its shell, then forgets it. Its
+    /// cards stay in the timeline.
+    SessionEnd {
+        /// Makes a resend after a dropped connection safe.
+        key: IdempotencyKey,
+        /// The agent whose session it is.
+        agent: AgentId,
+        /// Whether to kill a command that still runs. Without it, a session
+        /// with a command running refuses, so you're asked first.
+        force: bool,
+    },
 }
 
 impl ClientMessage {
@@ -2136,6 +2268,14 @@ impl ClientMessage {
                 .as_ref()
                 .map_or(OLDEST_PROTOCOL_VERSION, UserInput::since),
             Self::MoveAgent { .. } => MOVE_AGENT_SINCE,
+            Self::TerminalOpen {
+                kind: TerminalKind::Session,
+                ..
+            }
+            | Self::SessionRun { .. }
+            | Self::SessionShare { .. }
+            | Self::SessionCd { .. }
+            | Self::SessionEnd { .. } => SESSIONS_SINCE,
             Self::TerminalOpen { .. }
             | Self::TerminalAttach { .. }
             | Self::TerminalDetach { .. }
@@ -2144,6 +2284,7 @@ impl ClientMessage {
             | Self::TerminalClose { .. }
             | Self::TerminalRename { .. }
             | Self::TerminalMove { .. } => TERMINALS_SINCE,
+            Self::ListFolder { .. } | Self::MakeFolder { .. } => FOLDERS_SINCE,
             _ => OLDEST_PROTOCOL_VERSION,
         }
     }
@@ -2315,7 +2456,13 @@ impl ClientMessage {
             | Self::TerminalInterrupt { key, .. }
             | Self::TerminalClose { key, .. }
             | Self::TerminalRename { key, .. }
-            | Self::TerminalMove { key, .. } => Some(*key),
+            | Self::TerminalMove { key, .. }
+            | Self::ListFolder { key, .. }
+            | Self::MakeFolder { key, .. }
+            | Self::SessionRun { key, .. }
+            | Self::SessionShare { key, .. }
+            | Self::SessionCd { key, .. }
+            | Self::SessionEnd { key, .. } => Some(*key),
             Self::Hello(_)
             | Self::Phone { .. }
             | Self::Pair { .. }
@@ -2630,6 +2777,7 @@ pub fn refs_since(refs: &[InlineRef]) -> u32 {
             InlineRef::Note { .. } => NOTE_PILLS_SINCE,
             InlineRef::Visual { .. } => VISUALS_SINCE,
             InlineRef::Output { .. } => TERMINALS_SINCE,
+            InlineRef::Session { .. } => SESSIONS_SINCE,
             _ => OLDEST_PROTOCOL_VERSION,
         })
         .max()
@@ -2732,6 +2880,27 @@ pub const FINISHED_SUB_AGENTS_SINCE: u32 = 44;
 /// terminal drawer and shell mode. A `maxd` at this version may still say
 /// [`Capabilities::terminals`] is false.
 pub const TERMINALS_SINCE: u32 = 45;
+
+/// The protocol version whose `maxd` first lists and makes folders for the
+/// path fields and the folder browser: [`ClientMessage::ListFolder`] and
+/// [`ClientMessage::MakeFolder`]. An older one refuses both, so the app
+/// suggests nothing there and browses that device's folders only on this
+/// Mac, in the system picker.
+pub const FOLDERS_SINCE: u32 = 46;
+
+/// The protocol version whose `maxd` first keeps the switch for shell
+/// integration, [`DeviceSettingChange::ShellIntegration`], and adds hooks to
+/// the zsh, bash and fish it starts in terminals. An older one adds none,
+/// so the app hides the switch.
+pub const SHELL_MARKS_SINCE: u32 = 47;
+
+/// The protocol version whose `maxd` first keeps a session for each agent,
+/// the one shell its `!` commands share: the requests from
+/// [`ClientMessage::SessionRun`] to [`ClientMessage::SessionEnd`], the
+/// [`crate::terminal::TerminalKind::Session`] terminal, the `UserSession`
+/// timeline item and the session pill. An older one refuses each, so the
+/// app runs every `!` in a terminal of its own, as before.
+pub const SESSIONS_SINCE: u32 = 48;
 
 /// When [`ClientMessage::TakeOver`] stops the terminal's CLI.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, Type, JsonSchema)]
@@ -3119,6 +3288,9 @@ pub enum ActionOutcome {
         phone: PhoneId,
         /// The devices it may reach.
         book: Vec<PhoneBookEntry>,
+        /// The Mac that paired it, when the Mac said.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        mac: Option<PhoneMac>,
     },
     /// The phone is let in, from [`ClientMessage::AddPhone`] on a device
     /// whose network access is on.
@@ -3160,10 +3332,32 @@ pub enum ActionOutcome {
     },
 
     // Terminals.
-    /// A terminal is open, for [`ClientMessage::TerminalOpen`].
+    /// A terminal is open, for [`ClientMessage::TerminalOpen`]. For
+    /// [`ClientMessage::SessionRun`], the command runs in this fresh shell,
+    /// whose `UserRun` card says why. For [`ClientMessage::SessionCd`], the
+    /// session opened in the folder.
     TerminalOpened {
         /// The new terminal.
         terminal: TerminalId,
+    },
+
+    // Sessions.
+    /// A command went to the agent's session as a block in its open card,
+    /// for [`ClientMessage::SessionRun`] and [`ClientMessage::SessionCd`].
+    SessionRan {
+        /// The session's terminal.
+        terminal: TerminalId,
+        /// The card.
+        item: ItemId,
+        /// The block's ID in the card.
+        block: u32,
+    },
+
+    // Folders.
+    /// What a folder holds, for [`ClientMessage::ListFolder`].
+    FolderListed {
+        /// The listing.
+        listing: FolderListing,
     },
 
     /// An outcome from a newer `maxd`. The action went through, and what
@@ -3602,6 +3796,28 @@ mod tests {
             oldest: 3,
         };
         assert_eq!(old.agree(newer), None);
+    }
+
+    #[test]
+    fn a_refusal_names_the_range_maxd_speaks() {
+        let maxd = ProtocolRange {
+            current: 46,
+            oldest: 45,
+        };
+        let message = maxd.refusal(ProtocolRange::OURS);
+        assert_eq!(
+            message,
+            format!(
+                "this maxd speaks protocol 45 to 46, and the client {} to {}",
+                OLDEST_PROTOCOL_VERSION, PROTOCOL_VERSION
+            )
+        );
+        assert_eq!(ProtocolRange::from_refusal(&message), Some(maxd));
+        assert_eq!(ProtocolRange::from_refusal("bad frame"), None);
+        assert_eq!(
+            ProtocolRange::from_refusal("this maxd speaks protocol x to 46, and"),
+            None
+        );
     }
 
     #[test]
@@ -4190,6 +4406,7 @@ mod tests {
                         memory_items: 256,
                         history_mib: 256,
                         claude_setup_token: false,
+                        shell_integration: true,
                     },
                 },
             ),
@@ -5382,6 +5599,13 @@ mod tests {
         assert!(switch.reaches(Some(SETUP_TOKENS_SINCE)));
         let pool = update(vec![DeviceSettingChange::WorkspacePool { value: None }]);
         assert_eq!(pool.since(), 26);
+        let shells = update(vec![DeviceSettingChange::ShellIntegration { value: false }]);
+        assert_eq!(
+            round_trip(&shells)["changes"][0],
+            json!({ "field": "shell_integration", "value": false })
+        );
+        assert_eq!(shells.since(), SHELL_MARKS_SINCE);
+        const { assert!(SHELL_MARKS_SINCE <= crate::PROTOCOL_VERSION) };
     }
 
     #[test]
@@ -5409,6 +5633,7 @@ mod tests {
             memory_items: 256,
             history_mib: 256,
             claude_setup_token: false,
+            shell_integration: true,
         };
         assert_eq!(old.changes_from(Some(&old)), []);
         let new = DeviceSettings {
@@ -5465,6 +5690,7 @@ mod tests {
                 ClientMessage::BeginPhonePair {
                     key: key(),
                     book: book.clone(),
+                    mac: None,
                 },
                 "begin_phone_pair",
             ),
@@ -5503,6 +5729,7 @@ mod tests {
                     key: key(),
                     phone,
                     book: book.clone(),
+                    mac: None,
                 },
                 "set_phone_book",
             ),
@@ -5556,7 +5783,14 @@ mod tests {
                 },
                 "phone_pair",
             ),
-            (ActionOutcome::PhonePaired { phone, book }, "phone_paired"),
+            (
+                ActionOutcome::PhonePaired {
+                    phone,
+                    book,
+                    mac: None,
+                },
+                "phone_paired",
+            ),
             (
                 ActionOutcome::PhoneAdded {
                     code: Secret::new("test-not-a-real-code".into()),

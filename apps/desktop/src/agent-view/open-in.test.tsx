@@ -21,7 +21,6 @@ import { clearKept } from "@maxhq/shared/agent-view/kept";
 import { AgentHeader } from "./header";
 import { ItemBodyView } from "./item-row";
 import { DEFAULT_EDITOR_KEY, LAST_EDITOR_KEY } from "./editor-prefs";
-import { editLine, readLine } from "./open-in";
 
 afterEach(() => {
 	localStorage.clear();
@@ -564,22 +563,6 @@ describe("a file row for a file the viewer shows", () => {
 		setDefault({ kind: "none" });
 		showRead(fakeSource(), "docs/plan.md");
 		expect(await screen.findByRole("button", { name: "Show plan.md" })).toBeInTheDocument();
-	});
-});
-
-describe("the line a file opens at", () => {
-	it("comes from the first hunk of a diff", () => {
-		expect(editLine("@@ -1 +1 @@\n-a\n+b\n")).toBe(1);
-		expect(editLine("@@ -3,4 +5,6 @@ fn main\n")).toBe(5);
-		expect(editLine(null)).toBeUndefined();
-		expect(editLine("no hunks here")).toBeUndefined();
-	});
-
-	it("comes from the start of a read's span", () => {
-		expect(readLine("10-40")).toBe(10);
-		expect(readLine("7")).toBe(7);
-		expect(readLine(null)).toBeUndefined();
-		expect(readLine("all")).toBeUndefined();
 	});
 });
 

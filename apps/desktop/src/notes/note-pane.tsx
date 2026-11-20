@@ -30,8 +30,7 @@ import { SECONDARY } from "@/settings/controls";
 import { VisualNoteContext } from "@/visuals/add-to-note";
 import type { NoteId, NoteVersion, NoteVersionInfo, ProjectId } from "@maxhq/shared/bindings";
 import { useNow } from "@maxhq/shared/lib/clock";
-import { formatWhen } from "@maxhq/shared/status/format";
-import { noteOn, notesReach, savedBy } from "@maxhq/shared/view/notes";
+import { noteOn, notesReach, savedBy, versionHeading, versionWhen } from "@maxhq/shared/view/notes";
 
 import { deleteNoteQuestion } from "@maxhq/shared/notes/actions";
 import { type Autosave, createAutosave, saveText } from "@maxhq/shared/notes/autosave";
@@ -102,8 +101,7 @@ const HistoryList = ({
 							)}
 						>
 							<span className="text-[12.5px] text-foreground tabular-nums">
-								{formatWhen(version.at, now)}
-								{current ? t(" · Current") : version.deleted ? t(" · Deleted") : ""}
+								{versionWhen(version, current, now)}
 							</span>
 							<span className="max-w-full truncate text-[11.5px] text-muted-foreground">
 								{savedBy(view, version.by)}
@@ -142,12 +140,7 @@ const Preview = ({
 		<div className="flex min-h-0 flex-1 flex-col">
 			<div className="flex shrink-0 items-center gap-2 border-b border-border bg-subpanel px-5 py-2 text-[12.5px] text-secondary-foreground">
 				<span className="min-w-0 flex-1 truncate">
-					{version.data
-						? t('"{{title}}" from {{value2}}', {
-								title: version.data.title,
-								value2: formatWhen(version.data.at, now),
-							})
-						: t("Reading the version…")}
+					{version.data ? versionHeading(version.data, now) : t("Reading the version…")}
 				</span>
 				<button type="button" className={SECONDARY} onClick={onBack}>
 					{t("Back to current")}

@@ -135,6 +135,13 @@ export const commands = {
 	 *  dialog is ever written, so the page can't write anywhere else.
 	 */
 	saveExport: (text: string, name: string, folder: string | null) => typedError<SavedExport | null, NativeError>(__TAURI_INVOKE("save_export", { text, name, folder })),
+	/**
+	 *  Asks for a folder, or a file when `file` is set, on this Mac in the
+	 *  system picker, titled `title` and opening at `start` when it's given.
+	 *  Resolves with the chosen path, or none if you cancel. The path only
+	 *  fills a field, so it isn't offered for attaching.
+	 */
+	pickPath: (title: string, start: string | null, file: boolean) => typedError<string | null, NativeError>(__TAURI_INVOKE("pick_path", { title, start, file })),
 	/**  The notification settings now. */
 	notificationPrefs: () => __TAURI_INVOKE<NotificationPrefs>("notification_prefs"),
 	/**
@@ -154,6 +161,13 @@ export const commands = {
 	sendTestNotification: () => typedError<null, NativeError>(__TAURI_INVOKE("send_test_notification")),
 	/**  Opens this app's page under Notifications in System Settings. */
 	openNotificationSettings: () => typedError<null, NativeError>(__TAURI_INVOKE("open_notification_settings")),
+	/**
+	 *  Whether the sun is on, or nothing where the system can't keep its
+	 *  screen on, so the header leaves it out.
+	 */
+	screenOn: () => __TAURI_INVOKE<boolean | null>("screen_on"),
+	/**  Turns the sun on or off. It lasts across restarts. */
+	setScreenOn: (on: boolean) => typedError<null, NativeError>(__TAURI_INVOKE("set_screen_on", { on })),
 	/**  This app's version, where its update stands and your settings for it. */
 	appUpdate: () => __TAURI_INVOKE<AppUpdate>("app_update"),
 	/**  Looks for a newer version now, whatever the setting says. */

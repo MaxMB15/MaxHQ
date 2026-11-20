@@ -8,50 +8,20 @@
 // sub-agent card's "Show in panel" scrolls to that sub-agent's row and
 // rings it.
 
-import { t, useI18n, formatNumber } from "@maxhq/shared/i18n";
+import { t, useI18n } from "@maxhq/shared/i18n";
 
 import { type CSSProperties, type ReactNode, type Ref, useCallback, useMemo } from "react";
 
 import { useUi, useView } from "@/app/services";
 import { AgentActivityDot } from "@/components/status/agent-dots";
-import type { Activity, Agent, Timestamp } from "@maxhq/shared/bindings";
+import type { Agent, Timestamp } from "@maxhq/shared/bindings";
 import { cn } from "@/lib/utils";
 import { subAgentStatus } from "@maxhq/shared/status/activity";
 import { formatContext } from "@maxhq/shared/status/format";
-import { accountName, VENDOR_NAME } from "@maxhq/shared/status/usage";
+import { contextShare, leadStatus } from "@maxhq/shared/status/sub-agents";
 import type { ViewState } from "@maxhq/shared/view/replica";
 import { spotOf } from "@maxhq/shared/ui/store";
-import { childrenOf, deviceName } from "@maxhq/shared/view/select";
-
-/** The panel's second line, such as "Claude Max on devbox, 4 sub-agents". */
-export const subAgentsSubtitle = (view: ViewState, lead: Agent, count: number): string => {
-	const account = lead.account ? view.tables.account.get(lead.account) : undefined;
-	const login = account ? accountName(account) : VENDOR_NAME[lead.vendor];
-	const workspace = view.tables.workspace.get(lead.workspace);
-	const where = workspace
-		? t(" on {{value1}}", { value1: deviceName(view, workspace.device) })
-		: "";
-	return t("{{login}}{{where}}, {{countText}} sub-agents", {
-		login,
-		where,
-		count,
-		countText: formatNumber(count),
-	});
-};
-
-/** What the lead's row says on its right: what the lead itself is doing. */
-export const leadStatus = (activity: Activity): string => {
-	switch (activity.state) {
-		case "busy_in_subagents":
-			return t("Waiting");
-		case "done_unread":
-		case "idle":
-		case "idle_cache_warm":
-			return t("Idle");
-		default:
-			return subAgentStatus(activity);
-	}
-};
+import { childrenOf } from "@maxhq/shared/view/select";
 
 const Row = ({
 	agent,
@@ -85,7 +55,7 @@ const Row = ({
 			data-spotted={spotted || undefined}
 			onClick={onOpen}
 			className={cn(
-				"flex h-7 w-full shrink-0 items-center gap-2 rounded-md px-1.5 text-left",
+				"flex h-6 w-full shrink-0 items-center gap-2 rounded-md px-1.5 text-left",
 				selected
 					? "bg-selected shadow-[inset_0_0_0_1px_var(--selected-ring)]"
 					: spotted
@@ -131,10 +101,7 @@ export const SubAgentList = ({ lead, now }: { lead: Agent; now: Timestamp }) => 
 	}, []);
 	const children = useMemo(() => childrenOf(view, lead.id), [view, lead.id]);
 	const context = lead.context;
-	const percent =
-		context && context.window_tokens > 0
-			? Math.min(100, (context.used_tokens / context.window_tokens) * 100)
-			: null;
+	const percent = contextShare(context);
 
 	return (
 		<>
@@ -226,7 +193,7 @@ export const SlideOut = ({
 	return (
 		<aside
 			aria-label={label}
-			className="flex shrink-0 animate-slide-in flex-col gap-0.5 overflow-y-auto border-r border-sidebar-border bg-subpanel px-2 py-2.5 shadow-side"
+			className="flex shrink-0 animate-slide-in flex-col gap-px overflow-y-auto border-r border-sidebar-border bg-subpanel px-2 py-2.5 shadow-side"
 			style={{ width, "--dot-surface": "var(--subpanel)" } as CSSProperties}
 		>
 			<div className="flex items-start gap-1.5 px-1.5 pb-2">
@@ -284,7 +251,7 @@ export const SlideOut = ({
 				<div
 					role="tabpanel"
 					aria-label={TAB_NAMES[tab ?? "agents"]}
-					className="flex flex-col gap-0.5"
+					className="flex flex-col gap-px"
 				>
 					{children}
 				</div>

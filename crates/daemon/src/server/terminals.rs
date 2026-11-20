@@ -7,7 +7,8 @@
 //! [`access::check`] lets it.
 
 use maxhq_protocol::ids::TerminalId;
-use maxhq_protocol::message::ErrorCode;
+use maxhq_protocol::message::{ActionOutcome, ErrorCode};
+use maxhq_protocol::terminal::TerminalKind;
 use maxhq_protocol::ClientMessage;
 use tracing::debug;
 
@@ -23,6 +24,19 @@ pub(super) const NOT_FOR_TERMINALS: &str = "Terminals answer only the MaxHQ app 
 
 /// The refusal for a terminal request to a `maxd` that holds none.
 const NO_TERMINALS: &str = "This maxd holds no terminals.";
+
+/// The refusal for a session opened as a terminal of its own, rather than
+/// through what you run in it.
+pub(super) const SESSION_THROUGH_RUNS: &str = "Sessions open through ! and the folder chip.";
+
+/// What a session request asks of the terminals, as far as who may ask
+/// goes: the same as a `!` run.
+fn session_kind() -> TerminalKind {
+    TerminalKind::Run {
+        command: String::new(),
+        private: false,
+    }
+}
 
 impl Connection {
     /// Who asks, when this connection may reach terminals at all: the app,
@@ -60,6 +74,40 @@ impl Connection {
             Err(reason) => return self.refuse(&message, ErrorCode::NotAllowed, reason).await,
         };
         match message {
+            ClientMessage::TerminalOpen {
+                kind: TerminalKind::Session,
+                ..
+            } => {
+                self.refuse(&message, ErrorCode::NotAllowed, SESSION_THROUGH_RUNS)
+                    .await
+            }
+            ClientMessage::SessionRun { .. }
+            | ClientMessage::SessionShare { .. }
+            | ClientMessage::SessionCd { .. } => {
+                let kind = session_kind();
+                if let Err(reason) = access::check(caller, Act::Open, &kind, caller.opener()) {
+                    return self.refuse(&message, ErrorCode::NotAllowed, reason).await;
+                }
+                if let Some(client) = &self.client {
+                    client.open_terminal(message, caller.opener());
+                }
+                Ok(())
+            }
+            ClientMessage::SessionEnd { key, agent, force } => {
+                // Ending the session is closing its terminal.
+                let kind = TerminalKind::Session;
+                if let Err(reason) = access::check(caller, Act::Manage, &kind, caller.opener()) {
+                    return self
+                        .outcome(
+                            key,
+                            ActionOutcome::Refused {
+                                reason: reason.to_owned(),
+                            },
+                        )
+                        .await;
+                }
+                self.outcome(key, terminals.end_session(agent, force)).await
+            }
             ClientMessage::TerminalOpen { ref kind, .. } => {
                 if let Err(reason) = access::check(caller, Act::Open, kind, caller.opener()) {
                     return self.refuse(&message, ErrorCode::NotAllowed, reason).await;

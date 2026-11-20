@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { TerminalId } from "../bindings";
 import { openedTerminal, openShell, runCommand } from "../terminal/requests";
 import { lastByte, type TerminalEvent, stepFor } from "../terminal/stream";
+import { deviceSettingsOf } from "../settings/device-settings";
 import { terminalById } from "../terminal/select";
 import { NOW } from "../test/build";
 import { all, applySnapshot } from "../view/replica";
@@ -15,10 +16,10 @@ import { STILL_RUNNING } from "./mock-terminals";
 
 const SIZE = { cols: 120, rows: 32 };
 
-// Strips colors but keeps line ends and backspaces, so the checks read the
-// bytes a person sees.
+// Strips colors and shell marks but keeps line ends and backspaces, so the
+// checks read the bytes a person sees.
 // eslint-disable-next-line no-control-regex
-const plain = (text: string) => text.replace(/\x1b\[[0-9;]*[A-Za-z]/g, "");
+const plain = (text: string) => text.replace(/\x1b\[[0-9;]*[A-Za-z]|\x1b\]133;[^\x07]*\x07/g, "");
 
 const setup = async () => {
 	const source = mockSource({ now: () => NOW, tick: false });
@@ -44,6 +45,8 @@ const setup = async () => {
 		return {
 			events,
 			text: () => plain(text),
+			// eslint-disable-next-line no-control-regex
+			marks: () => [...text.matchAll(/\x1b\]133;([^\x07]*)\x07/g)].map((found) => found[1]),
 			end: () => end,
 		};
 	};
@@ -160,5 +163,42 @@ describe("sample terminal stream", () => {
 		await expect(stream.attach("terminal-gone", null)).rejects.toThrow(
 			"This terminal is gone."
 		);
+	});
+
+	it("marks a shell's prompts and commands while its device's Shell integration is on", async () => {
+		const { source, agent, watch, type, view } = await setup();
+		const terminal = openedTerminal(await openShell(source, agent, SIZE));
+		if (!terminal) throw new Error("no terminal opened");
+		// Its holder lets through only the marks it adds.
+		expect(terminalById(await view(), terminal)?.marks).toBe(true);
+		const out = await watch(terminal);
+		type(terminal, "ls\r\r");
+		type(terminal, "pnpm dev\r");
+		type(terminal, "\x03");
+		expect(out.marks()).toEqual([
+			"A",
+			"B",
+			"C",
+			"D;0",
+			"A",
+			"B",
+			"A",
+			"B",
+			"C",
+			"D;130",
+			"A",
+			"B",
+		]);
+
+		// Off, a shell opened after the change prints none.
+		const device = terminalById(await view(), terminal)?.device ?? "";
+		const settings = deviceSettingsOf(await view(), device);
+		await source.setDeviceSettings({ device, ...settings, shell_integration: false });
+		const plainShell = openedTerminal(await openShell(source, agent, SIZE));
+		if (!plainShell) throw new Error("no terminal opened");
+		const quiet = await watch(plainShell);
+		type(plainShell, "ls\r");
+		expect(quiet.text()).toContain("README.md");
+		expect(quiet.marks()).toEqual([]);
 	});
 });

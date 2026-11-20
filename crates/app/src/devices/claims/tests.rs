@@ -184,6 +184,7 @@ fn a_link_you_say_is_a_different_device_stays_held_until_you_ask_again() {
     let (h, victim, hostile) = victim_and_hostile();
     hello_as(&h, &victim, "victim", None);
     hello_as(&h, &hostile, "victim", None);
+    until(&h, hostile.id, |line| line.claim.is_some());
 
     h.devices.answer_claim(hostile.id, false).unwrap();
     assert_eq!(h.fake.record().opened_to[&hostile.id], None);

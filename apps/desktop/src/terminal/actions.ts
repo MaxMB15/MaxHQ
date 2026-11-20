@@ -8,7 +8,7 @@
 
 import type { Services } from "@/app/services";
 import { requestConfirm } from "@/components/confirm";
-import { quoteInbox } from "@/composer/quote-inbox";
+import { quoteInbox } from "@maxhq/shared/pills/quote-inbox";
 import { paneId, paneParams } from "@/layout/pane-id";
 import { panesOf } from "@/layout/panes";
 import { noticesOf } from "@/sidebar/notices";
@@ -22,19 +22,21 @@ import {
 	runCommand,
 	type TerminalSize,
 } from "@maxhq/shared/terminal/requests";
+import { sessionFolder, sessionTerminalOf } from "@maxhq/shared/terminal/session";
 import {
 	supportsTerminals,
 	type TerminalEntity,
 	terminalById,
 	terminalsOf,
 } from "@maxhq/shared/terminal/select";
+import { sharedTimeline } from "@maxhq/shared/timeline/registry";
 import { showFailure } from "@maxhq/shared/ui/inbox-notice";
 import { deviceName } from "@maxhq/shared/view/select";
 import type { ViewState } from "@maxhq/shared/view/replica";
 
 import { drawerOf, drawersOf, setActive, setDrawer, setSplit } from "./drawer-prefs";
 import { registryOf } from "./live";
-import type { Picked } from "./term-view";
+import type { CommandOutput, Picked } from "./term-view";
 
 /** The size a new tab starts at, before its view measures its place. */
 const FIRST_SIZE: TerminalSize = { cols: 100, rows: 20 };
@@ -173,25 +175,46 @@ export const renameTab = async (services: Services, terminal: TerminalId, name: 
 };
 
 /**
- * Starts an exited tab over: a new shell, or the same command moved to the
- * drawer, in its place.
+ * Starts an exited tab over in its place: a new shell, the same command
+ * moved to the drawer, or a new session in the folder the last one's
+ * commands left it in. The agent keeps one session, so while another runs
+ * that one takes the tab's place and the focus.
  */
 export const restartTab = async (services: Services, terminal: TerminalEntity): Promise<void> => {
 	const { agent, kind } = terminal;
 	const size = { cols: terminal.cols, rows: terminal.rows };
-	const result =
-		kind.type === "run"
-			? await runCommand(services.source, agent, kind.command, {
-					private: kind.private,
-					size,
-				})
-			: await openShell(services.source, agent, size);
-	const next = openedTerminal(result);
-	if (!next) return fail(services, failureOf(result) ?? t("Couldn't open a terminal."));
-	if (kind.type === "run") await services.source.moveTerminal(next);
-	const { split } = drawersOf(services).getState();
-	if (split[agent] === terminal.id) setSplit(services, agent, next);
-	setActive(services, agent, next);
+	const live =
+		kind.type === "session"
+			? sessionTerminalOf(services.view.getState().view, agent)
+			: undefined;
+	if (live) {
+		// The tab shown beside the active one goes, so the drawer shows one again.
+		if (drawersOf(services).getState().split[agent] === terminal.id)
+			setSplit(services, agent, null);
+		showInDrawer(services, agent, live.id);
+	} else {
+		const result =
+			kind.type === "run"
+				? await runCommand(services.source, agent, kind.command, {
+						private: kind.private,
+						size,
+					})
+				: kind.type === "session"
+					? await services.source.sessionCd(
+							agent,
+							sessionFolder(
+								terminal,
+								sharedTimeline(services.source, agent).store.getState()
+							) ?? terminal.cwd
+						)
+					: await openShell(services.source, agent, size);
+		const next = openedTerminal(result);
+		if (!next) return fail(services, failureOf(result) ?? t("Couldn't open a terminal."));
+		if (kind.type === "run") await services.source.moveTerminal(next);
+		const { split } = drawersOf(services).getState();
+		if (split[agent] === terminal.id) setSplit(services, agent, next);
+		setActive(services, agent, next);
+	}
 	await services.source.closeTerminal(terminal.id, true);
 	registryOf(services)?.forget(terminal.id);
 };
@@ -268,13 +291,14 @@ export const popBack = (services: Services, agent: AgentId, terminal: TerminalId
 
 /**
  * Adds text picked in a terminal to an agent's composer as an Output pill,
- * with the lines it sits on. `total` is how many lines the terminal printed.
+ * with the lines it sits on, or what a command its shell marked printed.
+ * `total` is how many lines the terminal printed.
  */
 export const addPicked = (
 	services: Services,
 	to: AgentId,
 	terminal: TerminalEntity,
-	picked: Picked,
+	picked: Picked | CommandOutput,
 	total: number,
 	focus: boolean
 ): void => {

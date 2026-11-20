@@ -25,20 +25,12 @@ import {
 } from "@/agent-view/highlight";
 import { Empty } from "@/main-area/empty";
 import { cn } from "@/lib/utils";
+import { colourable, looksBinary, textLines } from "@maxhq/shared/agent-view/code-text";
 import { extensionOf, fileName } from "@maxhq/shared/agent-view/viewer-files";
 import type { AgentId } from "@maxhq/shared/bindings";
 
 import { readBytes } from "./load";
 import { useReveal } from "./reveal";
-
-/** How far into a file a zero byte marks it as binary. */
-export const BINARY_SNIFF = 8 * 1024;
-
-/** A file larger than this shows without colours. */
-export const HIGHLIGHT_BYTES = 512 * 1024;
-
-/** A file with more lines than this shows without colours. */
-export const HIGHLIGHT_LINES = 10_000;
 
 /** Each line's height, in pixels. */
 const LINE = 20;
@@ -61,16 +53,10 @@ export type Read =
  */
 export const readText = (bytes: ArrayBuffer): Read => {
 	const view = new Uint8Array(bytes);
-	if (view.subarray(0, BINARY_SNIFF).includes(0)) return { kind: "binary" };
-	const text = new TextDecoder("utf-8").decode(view);
-	const lines = text.split(/\r\n|\r|\n/);
-	if (lines.length > 1 && lines[lines.length - 1] === "") lines.pop();
+	if (looksBinary(view)) return { kind: "binary" };
+	const lines = textLines(new TextDecoder("utf-8").decode(view));
 	return { kind: "text", lines, bytes: bytes.byteLength };
 };
-
-/** Whether a file this long takes colours. */
-export const colourable = (read: { lines: readonly string[]; bytes: number }): boolean =>
-	read.bytes <= HIGHLIGHT_BYTES && read.lines.length <= HIGHLIGHT_LINES;
 
 /** What the pane says for a file it won't draw as text. */
 export const binaryNote = (path: string): string =>

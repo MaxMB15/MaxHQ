@@ -11,7 +11,7 @@
 
 import { useI18n } from "@maxhq/shared/i18n";
 
-import { useMemo, useState } from "react";
+import { useState } from "react";
 
 import { useServices, useView } from "@/app/services";
 import { Switch } from "@/components/ui/switch";
@@ -50,7 +50,7 @@ import {
 	EMPTY_LOCK,
 	hasUpdates,
 	hideHint,
-	libraryCopy,
+	lockedWhere,
 	needsApply,
 	otherLocks,
 	pinSkill,
@@ -63,7 +63,7 @@ import {
 	updateOf,
 	withoutSkill,
 } from "@maxhq/shared/skills/project";
-import { rescanSkills, useSkillScan } from "@maxhq/shared/skills/scan";
+import { rescanSkills, useSkillScan, useSteadyPlace } from "@maxhq/shared/skills/scan";
 import { formatAgo, listInWords } from "@maxhq/shared/status/format";
 import { deviceName } from "@maxhq/shared/view/select";
 
@@ -406,19 +406,7 @@ const OnDevice = ({
 	const { note, busy, run } = useSkillAction();
 	const skills = projectSkillsOn(view, project, device);
 	const lock = skills?.lock ?? EMPTY_LOCK;
-	const scanAt = scanPlaceOf(view, project, device);
-	const kind = scanAt?.type ?? null;
-	const at = scanAt?.type === "workspace" ? scanAt.workspace : (scanAt?.path ?? "");
-	// One object per place, so the scan's hook asks only when the place changes.
-	const place = useMemo(
-		(): AgentPlace | null =>
-			kind === "workspace"
-				? { type: "workspace", workspace: at }
-				: kind === "folder"
-					? { type: "folder", path: at }
-					: null,
-		[kind, at]
-	);
+	const place = useSteadyPlace(scanPlaceOf(view, project, device));
 	const scan = useSkillScan(source, place ? device : null, place);
 	const pushed = scan?.skills ? pushedOut(view, project, library, lock, scan.skills) : [];
 	const others = otherLocks(view, project, device);
@@ -452,8 +440,6 @@ const OnDevice = ({
 						<ul aria-label={t("Project skills")} className="flex flex-col py-2">
 							{lock.skills.map((locked) => {
 								const update = updateOf(library, locked);
-								const from = library.sources.find((s) => s.id === locked.source);
-								const gone = !libraryCopy(library, locked);
 								return (
 									<li
 										key={locked.name}
@@ -468,9 +454,7 @@ const OnDevice = ({
 											) : null}
 										</span>
 										<span className="truncate text-xs text-muted-foreground">
-											{gone
-												? t("Its source no longer has it")
-												: `${from?.name ?? locked.source}${locked.commit ? t(" at {{commit}}", { commit: locked.commit }) : ""}`}
+											{lockedWhere(library, locked)}
 										</span>
 										<span className="flex gap-1.5">
 											{update ? (

@@ -58,7 +58,8 @@ fn known(seed: &[u8; 32]) -> PhoneId {
 
 /// A pairing, and its one-time key's seed, as the Mac's code carries them.
 fn pairing() -> (PairId, [u8; 32]) {
-    let ActionOutcome::PhonePair { pair, seed, .. } = for_tests().begin(book_for_tests()) else {
+    let ActionOutcome::PhonePair { pair, seed, .. } = for_tests().begin(book_for_tests(), None)
+    else {
         panic!("expected a pairing");
     };
     let seed = STANDARD.decode(seed.expose()).unwrap().try_into().unwrap();
@@ -195,7 +196,7 @@ async fn a_pair_frame_alone_may_only_prove_and_then_pair() {
         ActionOutcome::Done
     );
     let paired = ask(&mut client, pair_phone(&PAIRS)).await;
-    let ActionOutcome::PhonePaired { phone, book } = paired else {
+    let ActionOutcome::PhonePaired { phone, book, .. } = paired else {
         panic!("expected the phone paired, got {paired:?}");
     };
     assert_eq!(phone, PhoneId::derive(&openssh_for_tests(&PAIRS)));
@@ -264,7 +265,7 @@ async fn the_phones_client_proves_its_key_or_says_to_pair_again() {
             break reason;
         }
     };
-    assert_eq!(reason, format!("mac {NO_LONGER_KNOWN}"));
+    assert_eq!(reason, format!("mac {NO_LONGER_KNOWN} the Mac."));
 
     // Its own key gets it past the gate.
     let mut own = phone_app(&served, &first, PhoneProver::phone(&OWN));

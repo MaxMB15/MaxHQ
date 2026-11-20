@@ -15,6 +15,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use futures::future::BoxFuture;
+use maxhq_protocol::ids::DeviceId;
 use maxhq_protocol::link::Route;
 use maxhq_protocol::phones::PhoneBookEntry;
 use russh::client::{self, Handle, Msg};
@@ -93,15 +94,18 @@ impl PhoneSsh {
     /// host key, and returns its routes in their order, for a
     /// [`crate::LinkSpec`]. A device trusted again replaces what it had.
     pub fn trust(&self, entry: &PhoneBookEntry) -> Vec<Route> {
-        self.logins.trust(entry.routes.iter().map(|route| {
-            let login = Login {
-                user: route.user.clone(),
-                host: route.host.clone(),
-                port: route.port,
-                host_key: entry.host_key.clone(),
-            };
-            (super::phone_route_host(route), login)
-        }))
+        self.logins.trust(
+            entry.device,
+            entry.routes.iter().map(|route| {
+                let login = Login {
+                    user: route.user.clone(),
+                    host: route.host.clone(),
+                    port: route.port,
+                    host_key: entry.host_key.clone(),
+                };
+                (super::phone_route_host(route), login)
+            }),
+        )
     }
 
     /// Reaches hosts through `connect` in place of TCP.
@@ -111,9 +115,9 @@ impl PhoneSsh {
         self
     }
 
-    /// Logs in on the route `name` and starts `maxd proxy`.
-    async fn open(&self, name: &str) -> Result<Conn, DialError> {
-        let login = self.logins.get(name)?;
+    /// Logs in on the route `name` to `device` and starts `maxd proxy`.
+    async fn open(&self, device: Option<DeviceId>, name: &str) -> Result<Conn, DialError> {
+        let login = self.logins.get(device, name)?;
         let pin = PublicKey::from_openssh(&login.host_key)
             .map_err(|_| DialError::refused("the device's host key pin doesn't read"))?;
         let stream = reach::open(&self.connect, &login.host, login.port, &REASONS).await?;
@@ -169,12 +173,13 @@ impl Transport for PhoneSsh {
         &'a self,
         route: &'a Route,
         _config: Option<&'a SshConfig>,
+        device: Option<DeviceId>,
     ) -> BoxFuture<'a, Result<Conn, DialError>> {
         Box::pin(async move {
             let Route::Ssh { host } = route else {
                 return Err(DialError::refused("the phone reaches devices over SSH"));
             };
-            self.open(host).await
+            self.open(device, host).await
         })
     }
 

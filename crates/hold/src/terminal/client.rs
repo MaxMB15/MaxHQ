@@ -9,12 +9,14 @@ use std::path::Path;
 use std::time::Duration;
 
 use maxhq_protocol::ids::TerminalId;
+use maxhq_protocol::time::Timestamp;
 use tokio::io::BufReader;
 use tokio::net::unix::{OwnedReadHalf, OwnedWriteHalf};
 use tokio::net::UnixStream;
 use tokio::sync::mpsc;
 use tokio::time::Instant;
 
+use super::marks::Mark;
 use super::wire::{self, FromHolder, ToHolder, Typed};
 use super::{TermExit, TermHello};
 use crate::files::{self, HolderFile, EXIT, HOLDER, LOCK};
@@ -75,6 +77,17 @@ pub enum TermEvent {
     Title(String),
     /// The shell said its working folder.
     Cwd(String),
+    /// The shell marked its prompt or a command, which starts at `offset`
+    /// in the output. A quiet link gets these, and so does one that asked
+    /// for them with [`super::Terminals::connect_marked`].
+    Mark {
+        /// Where the mark is in everything the terminal printed.
+        offset: u64,
+        /// When the holder read it.
+        at: Timestamp,
+        /// What it marks.
+        mark: Mark,
+    },
     /// The program ended.
     Exit(TermExit),
 }
@@ -125,12 +138,14 @@ impl TermControl {
 }
 
 /// Reaches the holder for `terminal` in `dir`, waiting for one that's
-/// starting. A quiet link gets everything but the output.
+/// starting. A quiet link gets everything but the output. A link with
+/// `marks` gets the shell's marks too.
 pub(super) async fn connect(
     dir: &Path,
     terminal: TerminalId,
     after: Option<u64>,
     quiet: bool,
+    marks: bool,
 ) -> io::Result<Reached> {
     let deadline = Instant::now() + CONNECT_WAIT;
     loop {
@@ -149,13 +164,15 @@ pub(super) async fn connect(
             _ if !alive && (holder.is_some() || dir.join(LOCK).exists() || last_try) => {
                 return Ok(Reached::Ended(files::read_json(&dir.join(EXIT))?));
             }
-            Some(holder) => match attempt(dir, &holder.socket(), terminal, after, quiet).await {
-                Ok(link) => return Ok(Reached::Live(link)),
-                Err(err) if last_try || err.kind() == io::ErrorKind::PermissionDenied => {
-                    return Err(err);
+            Some(holder) => {
+                match attempt(dir, &holder.socket(), terminal, after, quiet, marks).await {
+                    Ok(link) => return Ok(Reached::Live(link)),
+                    Err(err) if last_try || err.kind() == io::ErrorKind::PermissionDenied => {
+                        return Err(err);
+                    }
+                    Err(_) => {}
                 }
-                Err(_) => {}
-            },
+            }
             // The holder hasn't written `holder.json` yet.
             None if last_try => {
                 return Err(io::Error::new(
@@ -177,6 +194,7 @@ async fn attempt(
     terminal: TerminalId,
     after: Option<u64>,
     quiet: bool,
+    marks: bool,
 ) -> io::Result<TermLink> {
     let key = files::read_key(dir)?.ok_or_else(|| {
         io::Error::new(
@@ -200,6 +218,7 @@ async fn attempt(
         key,
         after,
         quiet,
+        marks,
     };
     wire::send(&mut write, &hello).await?;
     drop(hello);
@@ -247,6 +266,7 @@ async fn read_holder(mut read: BufReader<OwnedReadHalf>, events: mpsc::Sender<Te
             FromHolder::Busy { on } => TermEvent::Busy(on),
             FromHolder::Title { title } => TermEvent::Title(title),
             FromHolder::Cwd { cwd } => TermEvent::Cwd(cwd),
+            FromHolder::Mark { offset, at, mark } => TermEvent::Mark { offset, at, mark },
             FromHolder::Exit(exit) => TermEvent::Exit(exit),
             FromHolder::Hello(_) | FromHolder::Refused { .. } => continue,
         };

@@ -3,8 +3,8 @@
 
 // The title bar. The window draws its own, so the header leaves room for the
 // traffic lights and lets you drag the window by its empty parts. The
-// button beside them hides and shows the sidebar, and the box in the
-// middle asks the dispatcher.
+// button beside them hides and shows the sidebar, the sun after the title
+// keeps the screen on, and the box in the middle asks the dispatcher.
 
 import { t, useI18n, formatNumber } from "@maxhq/shared/i18n";
 
@@ -19,6 +19,7 @@ import { SidebarToggle, useSidebarWidth } from "@/sidebar/frame";
 import { needsYou } from "@maxhq/shared/view/select";
 
 import { DispatchBox } from "./dispatcher";
+import { ScreenToggle } from "./screen-toggle";
 import { UsageMeter } from "./usage";
 
 /** What the bell's screen reader label says. */
@@ -98,6 +99,8 @@ const Start = () => {
 			>
 				MaxHQ
 			</span>
+			<span data-tauri-drag-region aria-hidden className="w-1 shrink-0" />
+			<ScreenToggle />
 		</div>
 	);
 };

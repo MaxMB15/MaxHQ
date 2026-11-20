@@ -26,7 +26,6 @@ impl Ring {
     }
 
     /// The offset of the oldest byte kept.
-    #[cfg(test)]
     pub fn start(&self) -> u64 {
         self.start
     }

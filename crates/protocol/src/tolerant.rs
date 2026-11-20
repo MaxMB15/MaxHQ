@@ -535,6 +535,7 @@ mod tests {
             output: String::new(),
             output_truncated: false,
             moved: false,
+            fresh: None,
         })
         .unwrap();
         assert_eq!(run["kind"], "user_run");
@@ -543,6 +544,42 @@ mod tests {
             read,
             Older::Unknown {
                 native_kind: "user_run".into()
+            }
+        );
+    }
+
+    #[test]
+    fn a_session_card_stands_in_as_unknown_on_an_older_build() {
+        // A build before protocol 48 knew a command you ran but not the
+        // card of a session.
+        #[derive(Debug, PartialEq, serde::Deserialize)]
+        #[serde(tag = "kind", rename_all = "snake_case")]
+        enum Older {
+            UserRun { command: String },
+            Unknown { native_kind: String },
+        }
+        impl super::Unknown for Older {
+            fn unknown(kind: &str) -> Self {
+                Self::Unknown {
+                    native_kind: kind.to_owned(),
+                }
+            }
+        }
+
+        let card = serde_json::to_value(ItemBody::UserSession {
+            terminal: ONE.parse().unwrap(),
+            device: TWO.parse().unwrap(),
+            blocks: Vec::new(),
+            sealed: false,
+            sent: false,
+        })
+        .unwrap();
+        assert_eq!(card["kind"], "user_session");
+        let read: Older = super::stand_in(card);
+        assert_eq!(
+            read,
+            Older::Unknown {
+                native_kind: "user_session".into()
             }
         );
     }
@@ -579,6 +616,7 @@ mod tests {
             cwd: "~/code/example-app".into(),
             status: crate::terminal::TerminalStatus::Running,
             busy: false,
+            marks: false,
             password_prompt: false,
             started_at: crate::time::Timestamp(1_793_368_920_000),
             cols: 120,

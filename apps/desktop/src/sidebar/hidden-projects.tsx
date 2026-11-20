@@ -5,30 +5,21 @@
 // only while one of its agents calls it back, and the Hidden projects entry
 // under the groups lists each one with a way to show it again.
 
-import { t, useI18n, formatNumber } from "@maxhq/shared/i18n";
+import { useI18n, formatNumber } from "@maxhq/shared/i18n";
 
 import { EyeOff } from "lucide-react";
 import { useState } from "react";
 
 import { type Services, useServices } from "@/app/services";
-import { failureOf } from "@/settings/result";
 import type { Project } from "@maxhq/shared/bindings";
-import { sentence } from "@maxhq/shared/status/format";
-import { showFailure } from "@maxhq/shared/ui/inbox-notice";
+import { setProjectHidden } from "@maxhq/shared/ui/hide-project";
 
 import { Chevron } from "./agent-row";
 import { noticesOf } from "./notices";
 
 /** Hides the project on every device, or shows it again, saying what went wrong. */
-export const setHidden = async (services: Services, project: Project, hidden: boolean) => {
-	const failure = failureOf(await services.source.setProjectHidden(project.id, hidden));
-	if (failure === null) return;
-	const tried = t("Couldn't {{value1}} {{name}}", {
-		value1: hidden ? "hide" : "show",
-		name: project.name,
-	});
-	showFailure(noticesOf(services), `${tried}. ${sentence(failure)}.`);
-};
+export const setHidden = (services: Services, project: Project, hidden: boolean) =>
+	setProjectHidden(noticesOf(services), project, hidden);
 
 /** The Hidden projects entry, closed at first. Absent while none are hidden. */
 export const HiddenProjects = ({ projects }: { projects: readonly Project[] }) => {
@@ -38,12 +29,12 @@ export const HiddenProjects = ({ projects }: { projects: readonly Project[] }) =
 	const [open, setOpen] = useState(false);
 	if (projects.length === 0) return null;
 	return (
-		<section aria-label={t("Hidden projects")} className="mt-2 flex flex-col gap-0.5">
+		<section aria-label={t("Hidden projects")} className="mt-1.5 flex flex-col gap-px">
 			<button
 				type="button"
 				aria-expanded={open}
 				onClick={() => setOpen(!open)}
-				className="flex h-[26px] shrink-0 items-center gap-1.5 rounded-md px-2 text-left text-xs font-semibold text-muted-foreground hover:text-secondary-foreground"
+				className="flex h-[22px] shrink-0 items-center gap-1.5 rounded-md px-2 text-left text-xs font-semibold text-muted-foreground hover:text-secondary-foreground"
 			>
 				<Chevron closed={!open} />
 				<EyeOff aria-hidden size={11} strokeWidth={2.2} className="shrink-0" />
@@ -56,7 +47,7 @@ export const HiddenProjects = ({ projects }: { projects: readonly Project[] }) =
 				? projects.map((project) => (
 						<div
 							key={project.id}
-							className="flex h-6 shrink-0 items-center gap-2 rounded-md pr-1 pl-[22px] text-[12px] text-secondary-foreground"
+							className="flex h-[22px] shrink-0 items-center gap-2 rounded-md pr-1 pl-[22px] text-[12px] text-secondary-foreground"
 						>
 							<span className="min-w-0 flex-1 truncate">{project.name}</span>
 							<button

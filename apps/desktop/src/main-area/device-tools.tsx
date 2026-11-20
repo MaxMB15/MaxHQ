@@ -6,7 +6,7 @@
 // updates the ones it installed. The host's own CLIs wait until you tick
 // them, and the ones it can't update show the command to run yourself.
 
-import { t, useI18n } from "@maxhq/shared/i18n";
+import { useI18n } from "@maxhq/shared/i18n";
 
 import { useState } from "react";
 
@@ -22,31 +22,14 @@ import {
 	type AgentToolInfo,
 	hasNewer,
 	mayUpdate,
+	offersUpdate,
 	targetOf,
 	TOOL_NAME,
 	toolLabel,
+	versionLine,
 } from "@maxhq/shared/fleet/update-view";
-import type { Tool, ToolInfo } from "@maxhq/shared/fleet/wire";
+import type { Tool } from "@maxhq/shared/fleet/wire";
 import type { ViewState } from "@maxhq/shared/view/replica";
-
-const versionLine = (tool: ToolInfo): string => {
-	const who = tool.owner === "max_hq" ? t("MaxHQ installed it") : t("You installed it");
-	const how = t("{{who}} with {{method}}.", { who: who, method: tool.method });
-	if (tool.version === null) return t("Version unknown. {{how}}", { how: how });
-	if (tool.latest === null)
-		return t("Version {{version}}. {{how}}", { version: tool.version, how: how });
-	return hasNewer(tool)
-		? t("Version {{version}}, {{latest}} is out. {{how}}", {
-				version: tool.version,
-				latest: tool.latest,
-				how: how,
-			})
-		: t("Version {{version}}, the newest. {{how}}", { version: tool.version, how: how });
-};
-
-/** Whether a row offers Update: not when you or nobody updates it. */
-const offersUpdate = (tool: ToolInfo): boolean =>
-	tool.update.type !== "manual" && tool.update.type !== "never";
 
 const ToolRow = ({
 	device,

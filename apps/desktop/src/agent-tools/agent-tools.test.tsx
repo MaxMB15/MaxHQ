@@ -189,6 +189,21 @@ describe("the agent tools settings", () => {
 		expect(listed.status === "ok" && listed.data.map((k) => k.name)).toEqual(["raycast"]);
 	});
 
+	it("lists the agents allowed to run agents and revokes one once you confirm", async () => {
+		const source = renderApp();
+		await openAgentTools();
+		const agents = within(screen.getByRole("region", { name: "Agents allowed to run agents" }));
+		const row = (await agents.findByText("Release checklist")).closest("div")!.parentElement!;
+		expect(row).toHaveTextContent(/On .+\. No limits/);
+		fireEvent.click(within(row).getByRole("button", { name: "Revoke" }));
+		expect(within(row).getByText("It can't start agents after this.")).toBeInTheDocument();
+		expect(await held(source, "agent-release")).toBeDefined();
+		fireEvent.click(within(row).getByRole("button", { name: "Revoke" }));
+		await waitFor(() => expect(agents.queryByText("Release checklist")).toBeNull());
+		expect(await agents.findByText("None yet.")).toBeInTheDocument();
+		expect(await held(source, "agent-release")).toBeUndefined();
+	});
+
 	it("saves the depth new permissions start with", async () => {
 		const source = renderApp();
 		await openAgentTools();

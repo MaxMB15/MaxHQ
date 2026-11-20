@@ -11,10 +11,12 @@ use std::io;
 use base64::engine::general_purpose::STANDARD;
 use base64::Engine as _;
 use maxhq_protocol::ids::TerminalId;
+use maxhq_protocol::time::Timestamp;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use tokio::io::{AsyncBufRead, AsyncWrite, AsyncWriteExt};
 
+use super::marks::Mark;
 use super::{RunOutput, TermExit, TermHello};
 use crate::secret::{zero, Secret};
 
@@ -31,13 +33,16 @@ pub(crate) const CHUNK: usize = 64 * 1024;
 pub(crate) enum ToHolder {
     /// The first message: the terminal, the holder's key, and the offset
     /// just past the last output byte `maxd` has. A quiet connection gets
-    /// everything but the output.
+    /// everything but the output. One that asks for marks gets the shell's
+    /// marks too, which a client before them can't read.
     Hello {
         terminal: TerminalId,
         key: Secret,
         after: Option<u64>,
         #[serde(default)]
         quiet: bool,
+        #[serde(default)]
+        marks: bool,
     },
     /// Bytes for the terminal to read.
     Input { data: Typed },
@@ -78,6 +83,12 @@ pub(crate) enum FromHolder {
     Title { title: String },
     /// The shell set its working folder.
     Cwd { cwd: String },
+    /// The shell marked its prompt or a command at `offset`.
+    Mark {
+        offset: u64,
+        at: Timestamp,
+        mark: Mark,
+    },
     /// The terminal's process ended. Nothing but output before it comes
     /// after.
     Exit(TermExit),

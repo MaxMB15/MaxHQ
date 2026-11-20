@@ -5,7 +5,7 @@
 // run names the agent it reached, which opens it and closes the settings. A
 // timed task takes no requests, so it opens on its runs.
 
-import { useI18n, formatNumber } from "@maxhq/shared/i18n";
+import { useI18n } from "@maxhq/shared/i18n";
 
 import { Dialog } from "@base-ui/react/dialog";
 import { Tabs } from "@base-ui/react/tabs";
@@ -19,7 +19,9 @@ import { closeSettings } from "@/settings/store";
 import type { Run, Task, TaskDelivery } from "@maxhq/shared/bindings";
 import { useNow } from "@maxhq/shared/lib/clock";
 import { formatWhen } from "@maxhq/shared/status/format";
+import { takesRequests } from "@maxhq/shared/tasks/draft";
 import {
+	deliveryFacts,
 	deliveryLabel,
 	deliveryTone,
 	RUN_CAUSE,
@@ -100,12 +102,7 @@ const DeliveryRow = ({ delivery }: { delivery: TaskDelivery }) => {
 	const { t } = useI18n();
 
 	const now = useNow(60_000);
-	const facts = [
-		delivery.method,
-		delivery.content_type,
-		t("{{value1}} bytes", { value1: formatNumber(delivery.body_bytes) }),
-		delivery.signature_verified ? "signed" : null,
-	].filter(Boolean);
+	const facts = deliveryFacts(delivery);
 	return (
 		<li className="flex items-center gap-3 border-t border-sidebar-border py-2.5 first:border-t-0">
 			<Badge tone={deliveryTone(delivery.outcome)}>{deliveryLabel(delivery.outcome)}</Badge>
@@ -186,7 +183,7 @@ export const TaskActivity = ({ task, onClose }: { task: Task | null; onClose: ()
 	const { t } = useI18n();
 
 	const refresh = useRefreshActivity();
-	const takesRequests = task?.trigger.type === "hook" || task?.trigger.type === "github_events";
+	const requests = task ? takesRequests(task.trigger.type) : false;
 	return (
 		<Dialog.Root
 			open={task !== null}
@@ -199,7 +196,7 @@ export const TaskActivity = ({ task, onClose }: { task: Task | null; onClose: ()
 				<Dialog.Popup className="fixed top-1/2 left-1/2 z-[121] flex max-h-[calc(100vh-64px)] w-[min(600px,calc(100vw-32px))] -translate-x-1/2 -translate-y-1/2 flex-col gap-3 overflow-hidden rounded-xl border border-input bg-card p-5 shadow-popup outline-none">
 					{task ? (
 						<Tabs.Root
-							defaultValue={takesRequests ? "requests" : "runs"}
+							defaultValue={requests ? "requests" : "runs"}
 							className="flex min-h-0 flex-col gap-3"
 						>
 							<div className="flex items-center gap-3">

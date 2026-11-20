@@ -17,7 +17,7 @@ import { FIELD, PRIMARY, Row, SECONDARY, StatusNote } from "@/settings/controls"
 import { failureOf, type Note } from "@/settings/result";
 import { cn } from "@/lib/utils";
 import type { DeviceTasks, HookAddress } from "@maxhq/shared/bindings";
-import { ADDRESS_LABEL, addressOf } from "@maxhq/shared/tasks/format";
+import { ADDRESS_LABEL, addressOf, ownAddressHint } from "@maxhq/shared/tasks/format";
 
 import { AddressNote } from "./hook-fields";
 
@@ -107,17 +107,7 @@ export const AddressRow = ({ reach, name }: { reach: DeviceTasks; name: string }
 					own === null ? (
 						<AddressNote reach={reach} device={name} />
 					) : (
-						<span className="block">
-							{t(
-								"Paste the address of a tunnel or proxy that points at{{value2}}{{value4}}. It needs https, or http on this device. maxd can't check that it works.",
-								{
-									value2: " ",
-									value4: reach.port
-										? `http://127.0.0.1:${reach.port}`
-										: t("this device's hooks port"),
-								}
-							)}
-						</span>
+						<span className="block">{ownAddressHint(reach.port)}</span>
 					)
 				}
 			>

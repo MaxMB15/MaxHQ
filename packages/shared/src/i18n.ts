@@ -132,6 +132,18 @@ export const setLanguageChoice = (value: LanguageChoice): void => {
 };
 
 export const refreshLanguage = (): void => apply();
+
+/**
+ * MaxHQ's `language` in the platform's `region`, such as "nl-US" for Dutch
+ * on a phone set to the United States, for a native picker that names
+ * months and days in MaxHQ's language and keeps the region's ways, such as
+ * a 12 or 24 hour clock. Just the language when there's no region.
+ */
+export const regionalLocale = (language: Language, region: string | null | undefined): string =>
+	region && /^(?:[A-Za-z]{2}|\d{3})$/.test(region)
+		? `${language}-${region.toUpperCase()}`
+		: language;
+
 export const useI18n = () => {
 	const revision = useSyncExternalStore(subscribe, snapshot, snapshot);
 	const translate = useMemo(() => {

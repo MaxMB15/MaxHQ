@@ -13,6 +13,8 @@ import { t } from "@maxhq/shared/i18n";
 import { Lexer, type Token, type Tokens } from "marked";
 import type { MarkdownStyle } from "react-native-enriched-markdown";
 
+import { mathSegments } from "@maxhq/shared/agent-view/display-math";
+import { splitBlocks } from "@maxhq/shared/agent-view/markdown";
 import { type MediaSource, resolveMediaSource } from "@maxhq/shared/agent-view/media-source";
 
 import { color, font, radius, size, tint } from "../theme";
@@ -202,13 +204,31 @@ export const safeBlock = (source: string): SafeBlock => {
 
 /**
  * Text still streaming in, with a bar after its last word. A bar would turn a
- * closing fence or a table row into something else, so those go without.
+ * closing fence, a table row or the `$$` line closing math into something
+ * else, so those go without.
  */
 export const withCaret = (text: string): string => {
 	const trimmed = text.trimEnd();
 	const last = trimmed.slice(trimmed.lastIndexOf("\n") + 1);
-	return /^\s*(```|~~~|\|)/.test(last) ? trimmed : `${trimmed} ▍`;
+	return /^\s*(```|~~~|\||\$\$)/.test(last) ? trimmed : `${trimmed} ▍`;
 };
+
+/**
+ * A piece of a Markdown text as the phone draws it: a top-level block for
+ * the native view, or display math, which the native view can't draw.
+ * `live` is set for math whose closing line hasn't come.
+ */
+export type MarkdownPiece =
+	| { readonly kind: "block"; readonly source: string }
+	| { readonly kind: "math"; readonly tex: string; readonly live: boolean };
+
+/** `text` as its top-level blocks, with each `$$` block cut out on its own. */
+export const markdownPieces = (text: string): MarkdownPiece[] =>
+	mathSegments(text).flatMap((segment): MarkdownPiece[] =>
+		segment.kind === "math"
+			? [{ kind: "math", tex: segment.tex, live: !segment.closed }]
+			: splitBlocks(segment.text).map((source) => ({ kind: "block", source }))
+	);
 
 /**
  * The phone's theme as Markdown styles: for a reply, or for your own message

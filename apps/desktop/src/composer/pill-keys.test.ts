@@ -14,7 +14,7 @@ import { OBJECT_MARK as MARK, type Segment } from "@maxhq/shared/pills/draft";
 
 import { markedTextOf, paragraphsFor, segmentsOf } from "./doc";
 import { PILL_EXTENSIONS } from "./pill-nodes";
-import { deletePill, spaced, stepOverPill, writeDraftClipboard } from "./pill-keys";
+import { deletePill, stepOverPill, writeDraftClipboard } from "./pill-keys";
 import { heldFileKeys, releasedFiles } from "./retained";
 
 const schema = getSchema([Document, Paragraph, Text, ...PILL_EXTENSIONS]);
@@ -62,30 +62,6 @@ describe("deleting a pill", () => {
 	it("does nothing with no pill beside the caret", () => {
 		const state = stateOf([text("fix "), file("k1")], 2);
 		expect(deletePill(state, -1)).toBeNull();
-	});
-});
-
-describe("spacing an inserted pill", () => {
-	it("adds a space before a pill that follows a word, and after the last pill", () => {
-		expect(spaced([file("k1")], "look", "")).toEqual({
-			segments: [text(" "), file("k1"), text(" ")],
-			skipSpace: false,
-		});
-	});
-
-	it("steps over a space that's already there", () => {
-		expect(spaced([file("k1")], "look ", " here")).toEqual({
-			segments: [file("k1")],
-			skipSpace: true,
-		});
-	});
-
-	it("leaves text alone unless asked", () => {
-		expect(spaced([text("#412")], "see ", "").segments).toEqual([text("#412")]);
-		expect(spaced([text("#412")], "see ", "", true).segments).toEqual([
-			text("#412"),
-			text(" "),
-		]);
 	});
 });
 

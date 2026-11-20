@@ -13,6 +13,7 @@ import type { AgentId, DeviceId, TerminalId } from "@maxhq/shared/bindings";
 import { pasteIntoDrawer, showInDrawer } from "./actions";
 import { cellSize, registryOf } from "./live";
 import { LiveTerminalHost } from "./live-terminal";
+import { commandText } from "./term-view";
 
 /** Which terminal `LiveTerminal` shows, and how. */
 export type LiveTerminalProps = {
@@ -52,6 +53,16 @@ export type TerminalActions = {
 		terminal: TerminalId,
 		lines: number
 	) => { readonly text: string; readonly total: number } | null;
+	/**
+	 * What the command whose output starts at `start` in a terminal printed
+	 * so far, by its shell's marks, and how many lines that is. Null when
+	 * this window doesn't hold the terminal or that command, or the device
+	 * hasn't placed its start.
+	 */
+	readonly runningText: (
+		terminal: TerminalId,
+		start: number | null
+	) => { readonly text: string; readonly total: number } | null;
 	/** One cell of the terminal font, in CSS pixels. */
 	readonly cellSize: () => { readonly width: number; readonly height: number };
 	/**
@@ -73,6 +84,10 @@ export const useTerminalActions = (): TerminalActions => {
 			sendInput: (_device, terminal, data) =>
 				services.source.terminalStream?.input(terminal, encoder.encode(data)),
 			text: (terminal, lines) => registryOf(services)?.view(terminal)?.text(lines) ?? null,
+			runningText: (terminal, start) => {
+				const view = start === null ? undefined : registryOf(services)?.view(terminal);
+				return view && start !== null ? commandText(view, start) : null;
+			},
 			cellSize,
 			pasteIntoDrawer: (agent, text) => void pasteIntoDrawer(services, agent, text),
 			showInDrawer: (agent, terminal) => showInDrawer(services, agent, terminal),

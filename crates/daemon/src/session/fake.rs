@@ -693,6 +693,8 @@ impl ReadGate {
 struct Script {
     /// What the drivers were asked to do, in order.
     log: Vec<String>,
+    /// The pills each message a driver sent carried, by agent.
+    sent_refs: Vec<(AgentId, Vec<maxhq_protocol::context::InlineRef>)>,
     /// Each Claude launch: its session UUID and whether it resumes.
     launches: Vec<(Uuid, bool)>,
     /// Where each Claude session's driver was made for.
@@ -728,6 +730,11 @@ impl FakeVendors {
     /// What the drivers were asked to do, in order.
     pub fn log(&self) -> Vec<String> {
         lock(&self.state).log.clone()
+    }
+
+    /// The pills each message a driver sent carried, by agent, in order.
+    pub fn sent_refs(&self) -> Vec<(AgentId, Vec<maxhq_protocol::context::InlineRef>)> {
+        lock(&self.state).sent_refs.clone()
     }
 
     /// Each Claude launch: its session UUID and whether it resumes.
@@ -1125,9 +1132,14 @@ impl Driver for Scripted {
                 return;
             }
             Action::Send {
-                text, attachments, ..
+                agent,
+                text,
+                refs,
+                attachments,
+                ..
             } => {
                 self.log(format!("send {text}"));
+                lock(&self.state).sent_refs.push((agent, refs));
                 let paths: Vec<String> = attachments
                     .iter()
                     .map(|staged| staged.path.display().to_string())

@@ -17,6 +17,7 @@ import { useServices, useView } from "@/app/services";
 import { cn } from "@/lib/utils";
 import { AGENT_FIELD } from "@/new-agent/agent-pickers";
 import { Picker } from "@/new-agent/picker";
+import { PathField } from "@/paths/path-field";
 import { PRIMARY, SECONDARY } from "@/settings/controls";
 import { openSettings } from "@/settings/store";
 import { failureOf } from "@maxhq/shared/agent-view/answer";
@@ -133,20 +134,16 @@ const Form = ({ agent, onDone }: { agent: Agent; onDone: () => void }) => {
 				/>
 			</div>
 			{form.place === MOVE_FOLDER ? (
-				<label className="flex flex-col gap-1.5">
-					<span className="text-[11.5px] font-[550] text-secondary-foreground">
-						{translate("Folder")}
-					</span>
-					<input
-						value={choices.path}
-						onChange={(e) => pick({ path: e.target.value })}
-						placeholder={translate("/Users/you/code/project")}
-						spellCheck={false}
-						autoComplete="off"
-						disabled={busy}
-						className={cn(AGENT_FIELD, "h-8 font-mono text-xs")}
-					/>
-				</label>
+				<PathField
+					device={form.device}
+					value={choices.path}
+					onChange={(path) => pick({ path })}
+					label={translate("Folder")}
+					title={translate("Choose the agent's folder")}
+					placeholder={translate("/Users/you/code/project")}
+					disabled={busy}
+					className={cn(AGENT_FIELD, "h-8")}
+				/>
 			) : null}
 			{form.missing.length > 0 && form.device !== null ? (
 				<div className="flex flex-wrap items-center gap-2">

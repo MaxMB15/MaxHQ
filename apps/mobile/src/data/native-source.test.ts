@@ -2,7 +2,14 @@
 // Copyright (c) 2026 Max Boksem
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { PhoneBook, Request, TimelineMessage, TimelineUpdate } from "@maxhq/shared/bindings";
+import type {
+	PhoneBook,
+	Request,
+	RunKey,
+	TimelineMessage,
+	TimelineUpdate,
+	WorkflowMessage,
+} from "@maxhq/shared/bindings";
 import {
 	ACTIONS,
 	answered,
@@ -17,11 +24,16 @@ import {
 import {
 	type Bridge,
 	nativeSource,
+	type PairedMac,
 	pathOf,
 	phoneCalls,
 	type TimelineListener,
+	urlOf,
 	type ViewListener,
 } from "./native-source";
+
+/** One step of a transfer's progress. */
+const STEP = { transfer: "t-1", sent: 5, total: 10, file: "shot.png", state: "uploading" };
 
 /** The data folder the core opens on. */
 const CACHE = "/phone/Library/Caches/maxhq";
@@ -29,10 +41,21 @@ const CACHE = "/phone/Library/Caches/maxhq";
 /** The book a pairing answers. */
 const BOOK: PhoneBook = { phone: "phone-1", device: "device-1", devices: [] };
 
+/** The Macs the core says the phone paired with. */
+const MACS: PairedMac[] = [
+	{
+		keeper: "home-mac",
+		name: "Home Mac",
+		by_hand: false,
+		devices: [{ device: "devbox", link: "link-devbox", name: "devbox", elsewhere: false }],
+	},
+];
+
 /** A bridge that answers each request with a response of its kind. */
 const fakeBridge = () => {
 	const sent: Request[] = [];
 	const timelines: TimelineListener[] = [];
+	const runs: TimelineListener[] = [];
 	const viewers: ViewListener[] = [];
 	let answer = (request: Request): unknown => answered(request.kind);
 	const json = (value: unknown) => JSON.stringify(value);
@@ -48,7 +71,23 @@ const fakeBridge = () => {
 			timelines.push(listener);
 			return json(OK);
 		},
+		openWorkflow: vi.fn(async (_run: string, listener: TimelineListener) => {
+			runs.push(listener);
+			return json(OK);
+		}),
 		media: vi.fn(async () => json({ status: "ok", data: { kind: "too_large", size: 9 } })),
+		upload: vi.fn(async (_device, _target, path: string, listener) => {
+			listener.progress(json({ ...STEP, file: path }));
+			return json({ status: "ok", data: { status: "done" } });
+		}),
+		uploadPasted: vi.fn(async () => json({ status: "ok", data: { status: "done" } })),
+		download: vi.fn(async () =>
+			json({ status: "ok", data: { path: "/cache/downloads/a.txt" } })
+		),
+		attachFromAgent: vi.fn(async () => json({ status: "ok", data: { status: "done" } })),
+		copyProject: vi.fn(async () =>
+			json({ status: "ok", data: { workspace: "w-2", written: 1, failed: [] } })
+		),
 		appState: vi.fn(() => json(OK)),
 		networkChanged: vi.fn(() => json(OK)),
 		pushToken: vi.fn(() => json(OK)),
@@ -60,9 +99,12 @@ const fakeBridge = () => {
 			}),
 		addDevice: vi.fn(() => json(OK)),
 		pair: vi.fn(async () => json({ status: "ok", data: BOOK })),
+		pairedMacs: () => json({ status: "ok", data: MACS }),
+		forgetMac: vi.fn(() => json(OK)),
+		pairCodeMac: vi.fn(() => json({ status: "ok", data: "Home Mac" })),
 	};
 	const answerWith = (next: (request: Request) => unknown) => (answer = next);
-	return { bridge, sent, timelines, viewers, answerWith };
+	return { bridge, sent, timelines, runs, viewers, answerWith };
 };
 
 let fake: ReturnType<typeof fakeBridge>;
@@ -149,16 +191,128 @@ describe("native source", () => {
 
 	it("says plainly what the phone can't do yet", async () => {
 		const source = nativeSource(fake.bridge, CACHE);
-		const refused = { status: "error", error: { kind: "failed", message: expect.any(String) } };
-		const target = { type: "agent", agent: "agent-1" } as const;
-		await expect(source.download("agent-1", "/a", () => undefined)).resolves.toEqual(refused);
-		await expect(
-			source.upload("devbox", target, ["/a", "/b"], () => undefined)
-		).resolves.toEqual([refused, refused]);
-		await expect(
-			source.openWorkflow({ device: "devbox", run: "run-1" } as never, () => undefined)
-		).rejects.toThrow("The phone can't show workflow runs yet");
+		await expect(source.updateFleet([], false, false, () => undefined)).resolves.toEqual({
+			status: "error",
+			error: { kind: "failed", message: "The phone can't update devices yet" },
+		});
 		expect(fake.sent).toEqual([]);
+	});
+});
+
+describe("native source transfers", () => {
+	const target = { type: "agent", agent: "agent-1" } as const;
+
+	it("sends each picked file in turn, with the target as JSON and its progress", async () => {
+		const heard = vi.fn();
+		const done = { status: "ok", data: { status: "done" } };
+		await expect(
+			nativeSource(fake.bridge, CACHE).upload("devbox", target, ["/a.png", "/b.png"], heard)
+		).resolves.toEqual([done, done]);
+		expect(vi.mocked(fake.bridge.upload).mock.calls.map((call) => call.slice(0, 3))).toEqual([
+			["devbox", JSON.stringify(target), "/a.png"],
+			["devbox", JSON.stringify(target), "/b.png"],
+		]);
+		expect(heard.mock.calls).toEqual([
+			[{ ...STEP, file: "/a.png" }],
+			[{ ...STEP, file: "/b.png" }],
+		]);
+	});
+
+	it("sends pasted bytes as base64 and a file from another agent with no target as null", async () => {
+		const source = nativeSource(fake.bridge, CACHE);
+		await source.uploadPasted(
+			"devbox",
+			target,
+			"a.txt",
+			"text/plain",
+			new Uint8Array([104, 105]),
+			() => undefined
+		);
+		expect(fake.bridge.uploadPasted).toHaveBeenCalledWith(
+			"devbox",
+			JSON.stringify(target),
+			"a.txt",
+			"text/plain",
+			"aGk=",
+			expect.anything()
+		);
+		await source.attachFromAgent("devbox", null, "agent-2", "out.png", () => undefined);
+		expect(fake.bridge.attachFromAgent).toHaveBeenCalledWith(
+			"devbox",
+			"null",
+			"agent-2",
+			"out.png",
+			expect.anything()
+		);
+	});
+
+	it("answers where a download landed", async () => {
+		await expect(
+			nativeSource(fake.bridge, CACHE).download("agent-1", "a.txt", () => undefined)
+		).resolves.toEqual({ status: "ok", data: { path: "/cache/downloads/a.txt" } });
+	});
+
+	it("copies a project with the target and files as JSON, and throws why one can't go", async () => {
+		const source = nativeSource(fake.bridge, CACHE);
+		const into = { type: "container", device: "devbox", name: null } as const;
+		await expect(source.copyProject("w-1", into, [".env"], () => undefined)).resolves.toEqual({
+			workspace: "w-2",
+			written: 1,
+			failed: [],
+		});
+		expect(fake.bridge.copyProject).toHaveBeenCalledWith(
+			"w-1",
+			JSON.stringify(into),
+			'[".env"]',
+			expect.anything()
+		);
+		vi.mocked(fake.bridge.copyProject).mockResolvedValueOnce(
+			JSON.stringify({ status: "error", error: { kind: "failed", message: "No room" } })
+		);
+		await expect(source.copyProject("w-1", into, [], () => undefined)).rejects.toThrow(
+			"No room"
+		);
+	});
+});
+
+describe("native source workflow runs", () => {
+	const run = (name: string): RunKey => ({
+		device: "devbox",
+		project: "project-1",
+		workflow: "build",
+		run: name,
+	});
+	const reset = (key: RunKey) =>
+		({ kind: "reset", run: { key, rev: 1 } }) as unknown as WorkflowMessage["update"];
+
+	it("opens every run over the phone's one listener and routes by run", async () => {
+		const source = nativeSource(fake.bridge, CACHE);
+		const one: unknown[] = [];
+		const two: unknown[] = [];
+		await source.openWorkflow(run("run-1"), (update) => one.push(update));
+		await source.openWorkflow(run("run-2"), (update) => two.push(update));
+		expect(fake.bridge.openWorkflow).toHaveBeenCalledWith(
+			JSON.stringify(run("run-1")),
+			expect.anything()
+		);
+		const [first, second] = fake.runs;
+		expect(first).toBe(second);
+		const batch: WorkflowMessage[] = [{ run: run("run-2"), update: reset(run("run-2")) }];
+		expect(first?.batch(JSON.stringify(batch))).toBe(true);
+		expect(one).toEqual([]);
+		expect(two).toEqual([reset(run("run-2"))]);
+	});
+
+	it("closes once for each open", async () => {
+		const close = await nativeSource(fake.bridge, CACHE).openWorkflow(
+			run("run-1"),
+			() => undefined
+		);
+		fake.sent.length = 0;
+		close();
+		close();
+		await Promise.resolve();
+		expect(fake.sent).toEqual([{ kind: "close_workflow", run: run("run-1") }]);
 	});
 });
 
@@ -203,7 +357,7 @@ describe("native source pictures", () => {
 	});
 
 	it("reads each step of progress", async () => {
-		const step = { transfer: "t-1", sent: 5, total: 10, file: "shot.png", state: "running" };
+		const step = STEP;
 		vi.mocked(fake.bridge.media).mockImplementationOnce(
 			async (_agent, _path, _limit, listener) => {
 				listener.progress(JSON.stringify(step));
@@ -266,6 +420,12 @@ describe("phone calls", () => {
 		);
 	});
 
+	it("gives a download's path back as a file URL", () => {
+		const path = "/var/mobile/Caches/maxhq/downloads/notes #2?.md";
+		expect(urlOf(path)).toBe("file:///var/mobile/Caches/maxhq/downloads/notes%20%232%3F.md");
+		expect(pathOf(urlOf(path))).toBe(path);
+	});
+
 	it("starts on the data and cache folders and passes the app's state and network on", () => {
 		const phone = phoneCalls(fake.bridge);
 		expect(phone.start("/data", "/cache")).toBeNull();
@@ -319,5 +479,14 @@ describe("phone calls", () => {
 			data: BOOK,
 		});
 		expect(fake.bridge.pair).toHaveBeenCalledWith("maxhq:AQ", "iPhone");
+	});
+
+	it("lists the Macs, forgets one by its keeper and names a code's Mac", () => {
+		const phone = phoneCalls(fake.bridge);
+		expect(phone.pairedMacs()).toEqual({ status: "ok", data: MACS });
+		expect(phone.forgetMac("home-mac")).toEqual(OK);
+		expect(fake.bridge.forgetMac).toHaveBeenCalledWith("home-mac");
+		expect(phone.pairCodeMac("maxhq:AQ")).toEqual({ status: "ok", data: "Home Mac" });
+		expect(fake.bridge.pairCodeMac).toHaveBeenCalledWith("maxhq:AQ");
 	});
 });

@@ -104,6 +104,41 @@ export const cloneLabel = (clone: CloneState | null): string | null => {
 	}
 };
 
+/** What a clone's banner says: its state, and what you can do about it. */
+export const cloneWording = (clone: CloneState): { title: string; body: string } => {
+	switch (clone.state) {
+		case "cloning":
+			return clone.stalled
+				? {
+						title: t("Clone stalled{{value1}}", {
+							value1:
+								clone.percent === null
+									? ""
+									: t(" at {{percent}}%", { percent: clone.percent }),
+						}),
+						body: t(
+							"git has said nothing for a while. A slow link can do that, or you can cancel it."
+						),
+					}
+				: {
+						title: cloneLabel(clone) ?? t("Cloning"),
+						body: t("Agents can start in this folder once git is done."),
+					};
+		case "failed":
+			return {
+				title: t("Clone failed"),
+				body: t("{{reason}}. Retry runs it again, and Remove forgets the folder.", {
+					reason: sentence(clone.reason),
+				}),
+			};
+		case "cancelled":
+			return {
+				title: t("Clone cancelled"),
+				body: t("Retry runs it again, and Remove forgets the folder."),
+			};
+	}
+};
+
 type Made = {
 	readonly managed: ManagedWorkspace;
 	readonly location: Extract<Workspace["location"], { type: "container" }>;
@@ -266,6 +301,32 @@ export const workspaceActions = (state: WorkspaceState): WorkspaceAction[] => {
 		default:
 			return [];
 	}
+};
+
+/** What each action's button says. */
+export const ACTION_LABEL: Readonly<Record<WorkspaceAction, string>> = {
+	get start() {
+		return t("Start");
+	},
+	get stop() {
+		return t("Stop");
+	},
+	get delete() {
+		return t("Delete");
+	},
+};
+
+/** What a workspace's note says while an action runs. */
+export const ACTION_NOTE: Readonly<Record<WorkspaceAction, string>> = {
+	get start() {
+		return t("Starting");
+	},
+	get stop() {
+		return t("Stopping");
+	},
+	get delete() {
+		return t("Deleting");
+	},
 };
 
 /** What you pick for a new workspace. */

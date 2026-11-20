@@ -29,6 +29,7 @@ import {
 	canHideProjects,
 	childrenOf,
 	deviceGroups,
+	deviceNode,
 	fullestContexts,
 	hiddenProjectList,
 	inboxSections,
@@ -385,6 +386,13 @@ describe("deviceGroups", () => {
 		expect(deviceGroups(extra, NOW).map((g) => [g.name, g.devices[0]?.look])).toEqual([
 			["Over SSH", "unknown"],
 		]);
+	});
+});
+
+describe("deviceNode", () => {
+	it("is the device as its group lists it", () => {
+		const listed = deviceGroups(view, NOW)[1]!.devices[0]!;
+		expect(deviceNode(view, listed.link, NOW)).toEqual(listed);
 	});
 });
 

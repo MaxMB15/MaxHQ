@@ -5,7 +5,7 @@
 // review as marks with their words, its size, a link out to GitHub, and
 // the banner for checks the GitHub App can't read yet.
 
-import { t, useI18n, formatNumber } from "@maxhq/shared/i18n";
+import { useI18n, formatNumber } from "@maxhq/shared/i18n";
 
 import {
 	CircleCheck,
@@ -27,7 +27,7 @@ import { cn } from "@/lib/utils";
 import { Badge } from "@/tasks/activity";
 import type { ChecksState, DeviceId, PullSnapshot, ReviewState } from "@maxhq/shared/bindings";
 import { appInstallUrl, githubAppOn } from "@maxhq/shared/pulls/app";
-import type { Tone } from "@maxhq/shared/tasks/format";
+import { checksLabel, PULL_STATE, pullStateKey, reviewLabel } from "@maxhq/shared/pulls/look";
 
 /** A link that opens in the browser, as the Markdown renderer's do. */
 export const OutLink = ({
@@ -56,112 +56,37 @@ export const OutLink = ({
 	);
 };
 
-const STATE: Record<"open" | "draft" | "merged" | "closed", { label: string; tone: Tone }> = {
-	open: {
-		get label() {
-			return t("Open");
-		},
-		tone: "good",
-	},
-	draft: {
-		get label() {
-			return t("Draft");
-		},
-		tone: "plain",
-	},
-	merged: {
-		get label() {
-			return t("Merged");
-		},
-		tone: "info",
-	},
-	closed: {
-		get label() {
-			return t("Closed");
-		},
-		tone: "bad",
-	},
-};
-
 /** Open, draft, merged or closed. */
 export const PullStateBadge = ({ pull }: { pull: PullSnapshot }) => {
 	useI18n();
 
-	const look = STATE[pull.state === "open" && pull.draft ? "draft" : pull.state];
+	const look = PULL_STATE[pullStateKey(pull)];
 	return <Badge tone={look.tone}>{look.label}</Badge>;
 };
 
-type Mark = { icon: LucideIcon; label: string; color: string };
+type Mark = { icon: LucideIcon; color: string };
 
 const CHECKS: Record<ChecksState, Mark> = {
-	passing: {
-		icon: CircleCheck,
-		get label() {
-			return t("Checks passing");
-		},
-		color: "text-status-ready-text",
-	},
-	failing: {
-		icon: CircleX,
-		get label() {
-			return t("Checks failing");
-		},
-		color: "text-status-error-text",
-	},
-	pending: {
-		icon: CircleDot,
-		get label() {
-			return t("Checks running");
-		},
-		color: "text-status-busy-text",
-	},
-	none: {
-		icon: CircleDashed,
-		get label() {
-			return t("No checks");
-		},
-		color: "text-subtle-foreground",
-	},
-	unknown: {
-		icon: CircleQuestionMark,
-		get label() {
-			return t("Checks unknown");
-		},
-		color: "text-muted-foreground",
-	},
+	passing: { icon: CircleCheck, color: "text-status-ready-text" },
+	failing: { icon: CircleX, color: "text-status-error-text" },
+	pending: { icon: CircleDot, color: "text-status-busy-text" },
+	none: { icon: CircleDashed, color: "text-subtle-foreground" },
+	unknown: { icon: CircleQuestionMark, color: "text-muted-foreground" },
 };
 
 const REVIEW: Record<ReviewState, Mark> = {
-	approved: {
-		icon: UserCheck,
-		get label() {
-			return t("Approved");
-		},
-		color: "text-status-ready-text",
-	},
-	changes_requested: {
-		icon: UserRoundX,
-		get label() {
-			return t("Changes requested");
-		},
-		color: "text-status-busy-text",
-	},
-	none: {
-		icon: UserRound,
-		get label() {
-			return t("No review yet");
-		},
-		color: "text-subtle-foreground",
-	},
+	approved: { icon: UserCheck, color: "text-status-ready-text" },
+	changes_requested: { icon: UserRoundX, color: "text-status-busy-text" },
+	none: { icon: UserRound, color: "text-subtle-foreground" },
 };
 
-const MarkIcon = ({ mark }: { mark: Mark }) => {
+const MarkIcon = ({ mark, label }: { mark: Mark; label: string }) => {
 	useI18n();
 	return (
-		<span title={mark.label} className="inline-flex shrink-0">
+		<span title={label} className="inline-flex shrink-0">
 			<mark.icon
 				role="img"
-				aria-label={mark.label}
+				aria-label={label}
 				size={14}
 				strokeWidth={2.1}
 				className={mark.color}
@@ -173,16 +98,13 @@ const MarkIcon = ({ mark }: { mark: Mark }) => {
 /** How the PR's checks stand, as an icon. */
 export const ChecksMark = ({ state }: { state: ChecksState }) => {
 	useI18n();
-	return <MarkIcon mark={CHECKS[state]} />;
+	return <MarkIcon mark={CHECKS[state]} label={checksLabel(state)} />;
 };
-
-/** The words for how the PR's checks stand. */
-export const checksLabel = (state: ChecksState): string => CHECKS[state].label;
 
 /** Where the PR's reviews leave it, as an icon. */
 export const ReviewMark = ({ state }: { state: ReviewState }) => {
 	useI18n();
-	return <MarkIcon mark={REVIEW[state]} />;
+	return <MarkIcon mark={REVIEW[state]} label={reviewLabel(state)} />;
 };
 
 /** Lines added and deleted, or nothing while they aren't measured yet. */

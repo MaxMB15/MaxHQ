@@ -5,7 +5,14 @@ import { Lexer, type Token } from "marked";
 import { describe, expect, it } from "vitest";
 
 import { color, font } from "../theme";
-import { markdownStyle, opensInBrowser, safeBlock as blockOf, WEB, withCaret } from "./markdown";
+import {
+	markdownPieces,
+	markdownStyle,
+	opensInBrowser,
+	safeBlock as blockOf,
+	WEB,
+	withCaret,
+} from "./markdown";
 
 // What the native view gets.
 const safeBlock = (source: string) => blockOf(source).markdown;
@@ -228,6 +235,39 @@ describe("withCaret", () => {
 		expect(withCaret("| a | b |\n| - | - |\n| 1 | 2 |")).toBe(
 			"| a | b |\n| - | - |\n| 1 | 2 |"
 		);
+		expect(withCaret("$$\nx^2\n$$\n")).toBe("$$\nx^2\n$$");
+	});
+});
+
+describe("markdownPieces", () => {
+	it("gives a text's blocks, each fence whole", () => {
+		expect(markdownPieces("# Title\n\nText.\n\n```ts\nconst a = 1;\n\nlet b;\n```\n")).toEqual([
+			{ kind: "block", source: "# Title" },
+			{ kind: "block", source: "Text." },
+			{ kind: "block", source: "```ts\nconst a = 1;\n\nlet b;\n```\n" },
+		]);
+	});
+
+	it("cuts display math out between the blocks around it", () => {
+		expect(markdownPieces("Before.\n\nMore.\n\n$$\na\n\nb\n$$\n\nAfter.")).toEqual([
+			{ kind: "block", source: "Before." },
+			{ kind: "block", source: "More.\n" },
+			{ kind: "math", tex: "a\n\nb", live: false },
+			{ kind: "block", source: "After." },
+		]);
+	});
+
+	it("keeps math that hasn't closed live, to the end", () => {
+		expect(markdownPieces("Then:\n\n$$\nx^2 +")).toEqual([
+			{ kind: "block", source: "Then:\n" },
+			{ kind: "math", tex: "x^2 +", live: true },
+		]);
+	});
+
+	it("leaves `$$` in a fence as code", () => {
+		expect(markdownPieces("```\n$$\nx\n$$\n```")).toEqual([
+			{ kind: "block", source: "```\n$$\nx\n$$\n```" },
+		]);
 	});
 });
 

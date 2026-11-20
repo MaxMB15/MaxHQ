@@ -12,6 +12,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use futures::future::BoxFuture;
+use maxhq_protocol::ids::DeviceId;
 use maxhq_protocol::link::Route;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite};
 use tokio::task::JoinHandle;
@@ -218,11 +219,14 @@ pub(crate) trait Transport: Send + Sync + 'static {
     /// The addresses a host name resolves to, or none.
     fn lookup(&self, host: &str) -> BoxFuture<'static, Vec<IpAddr>>;
 
-    /// Opens a stream to the `maxd` behind a route.
+    /// Opens a stream to the `maxd` behind a route, on a link to `device`
+    /// once the link knows it. The phone's logins go by both, since two
+    /// networks can have the same private address.
     fn dial<'a>(
         &'a self,
         route: &'a Route,
         config: Option<&'a SshConfig>,
+        device: Option<DeviceId>,
     ) -> BoxFuture<'a, Result<Conn, DialError>>;
 
     /// Drops the SSH master for a host after its connection went quiet,
@@ -268,6 +272,7 @@ impl Transport for Dialed {
         &'a self,
         route: &'a Route,
         _config: Option<&'a SshConfig>,
+        _device: Option<DeviceId>,
     ) -> BoxFuture<'a, Result<Conn, DialError>> {
         Box::pin(async move {
             let Route::Ssh { host } = route else {

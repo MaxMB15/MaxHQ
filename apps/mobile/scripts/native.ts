@@ -12,6 +12,8 @@ export type Step = {
 	args: string[];
 	env?: Record<string, string>;
 	cwd?: "repo" | "app" | "core";
+	// Values in `args` the printed command shows as ***.
+	hide?: string[];
 };
 
 // The two Apple targets the core is built for.
@@ -182,13 +184,20 @@ ${Object.entries(entries)
 `;
 
 // How an archive leaves the Mac. TestFlight's goes straight to App Store
-// Connect. An install's is an .ipa signed ad hoc for the phones registered
-// with the team, which keeps the production aps-environment, so the app gets
+// Connect. The release workflow's is the same build kept as an .ipa, which
+// a later job uploads once every build of the release has passed. An
+// install's is an .ipa signed ad hoc for the phones registered with the
+// team, which keeps the production aps-environment, so the app gets
 // production pushes.
 const EXPORTS = {
 	testflight: {
 		method: "app-store-connect",
 		destination: "upload",
+		manageAppVersionAndBuildNumber: false,
+	},
+	ipa: {
+		method: "app-store-connect",
+		destination: "export",
 		manageAppVersionAndBuildNumber: false,
 	},
 	install: { method: "release-testing", destination: "export" },
@@ -202,12 +211,61 @@ export const exportOptions = (teamId: string, kind: ExportKind) =>
 export const EXPORT_OPTIONS_FILE = "ios/build/ExportOptions.plist";
 const EXPORT_PATH = "ios/build/export";
 
+const productionName = (local: IosLocal) => projectName(iosConfig("production", local, true).name);
+
+// The exported .ipa, from the app's folder. The release workflow keeps it
+// from this path as an artifact.
+export const ipaPath = (local: IosLocal) => `${EXPORT_PATH}/${productionName(local)}.ipa`;
+
+// An App Store Connect API key, which xcodebuild signs and uploads with in
+// place of the account signed in to Xcode. The release workflow has no such
+// account, so it sets all three variables; a Mac may set them too.
+export type ApiKey = { path: string; id: string; issuer: string };
+
+export const API_KEY_ENV = {
+	path: "MAXHQ_ASC_KEY_PATH",
+	id: "MAXHQ_ASC_KEY_ID",
+	issuer: "MAXHQ_ASC_ISSUER_ID",
+} as const;
+
+// The key the environment names, or null when it names none. Half a key is
+// an error that names what's missing and never echoes what's set.
+export const apiKeyFromEnv = (env: Record<string, string | undefined>): ApiKey | null => {
+	const names = Object.values(API_KEY_ENV);
+	const missing = names.filter((name) => !env[name]);
+	if (missing.length === names.length) return null;
+	if (missing.length > 0) {
+		throw new Error(`An API key needs ${names.join(", ")}; ${missing.join(", ")} isn't set.`);
+	}
+	return {
+		path: env[API_KEY_ENV.path]!,
+		id: env[API_KEY_ENV.id]!,
+		issuer: env[API_KEY_ENV.issuer]!,
+	};
+};
+
+const signedWith = (key: ApiKey | null): Pick<Step, "args" | "hide"> =>
+	key
+		? {
+				args: [
+					"-authenticationKeyPath",
+					key.path,
+					"-authenticationKeyID",
+					key.id,
+					"-authenticationKeyIssuerID",
+					key.issuer,
+				],
+				hide: [key.id, key.issuer],
+			}
+		: { args: [] };
+
 // Prebuild production from clean, archive it in Release and export it with
-// the account signed in to Xcode, for TestFlight and an install alike.
-// scripts/mobile.ts writes the export options file between prebuild and
-// archive, since prebuild clears ios/.
-const releaseSteps = (local: IosLocal) => {
-	const name = projectName(iosConfig("production", local, true).name);
+// the account signed in to Xcode, or with `key` when there is one, for
+// TestFlight and an install alike. scripts/mobile.ts writes the export
+// options file between prebuild and archive, since prebuild clears ios/.
+const releaseSteps = (local: IosLocal, key: ApiKey | null = null) => {
+	const auth = signedWith(key);
+	const name = productionName(local);
 	const archive = `ios/build/${name}.xcarchive`;
 	const steps: Step[] = [
 		expo(["prebuild", "--clean", "--platform", "ios"], expoEnv("production", true)),
@@ -225,10 +283,12 @@ const releaseSteps = (local: IosLocal) => {
 				"-archivePath",
 				archive,
 				"-allowProvisioningUpdates",
+				...auth.args,
 				`DEVELOPMENT_TEAM=${local.teamId}`,
 				"archive",
 			],
 			cwd: "app",
+			...(auth.hide ? { hide: auth.hide } : {}),
 		},
 		{
 			cmd: "xcodebuild",
@@ -241,14 +301,17 @@ const releaseSteps = (local: IosLocal) => {
 				"-exportPath",
 				EXPORT_PATH,
 				"-allowProvisioningUpdates",
+				...auth.args,
 			],
 			cwd: "app",
+			...(auth.hide ? { hide: auth.hide } : {}),
 		},
 	];
 	return { name, steps };
 };
 
-export const testflightSteps = (local: IosLocal): Step[] => releaseSteps(local).steps;
+export const testflightSteps = (local: IosLocal, key: ApiKey | null = null): Step[] =>
+	releaseSteps(local, key).steps;
 
 // The production app on the phone, next to the dev build: the release steps,
 // then the app out of the exported .ipa and onto the phone.
@@ -256,7 +319,7 @@ export const installSteps = (local: IosLocal, phone: string | undefined): Step[]
 	const { name, steps } = releaseSteps(local);
 	return [
 		...steps,
-		{ cmd: "ditto", args: ["-x", "-k", `${EXPORT_PATH}/${name}.ipa`, EXPORT_PATH], cwd: "app" },
+		{ cmd: "ditto", args: ["-x", "-k", ipaPath(local), EXPORT_PATH], cwd: "app" },
 		phoneInstall(phone, `${EXPORT_PATH}/Payload/${name}.app`),
 	];
 };
@@ -264,6 +327,47 @@ export const installSteps = (local: IosLocal, phone: string | undefined): Step[]
 export type NativeBuild = {
 	buildNumber: number;
 	lastUpload: { buildNumber: number; fingerprint: string } | null;
+};
+
+// App Store Connect takes each build number once per version, and builds
+// reach it from two places: `pnpm mobile:testflight` on a Mac, numbered by
+// buildNumber in native-build.json, and the release workflow, which sets
+// MAXHQ_BUILD_NUMBER. The two never share a number: checkNativeBuild keeps
+// local numbers below PIPELINE_BUILD_FLOOR, and the workflow's start above
+// it and only grow.
+export const BUILD_NUMBER_ENV = "MAXHQ_BUILD_NUMBER";
+export const PIPELINE_BUILD_FLOOR = 10_000;
+
+// Attempts per run the numbering leaves room for. GitHub stops re-runs at
+// 50 attempts.
+const ATTEMPTS = 100;
+
+// The workflow's build number for a run and its attempt: run 7, attempt 2 is
+// 10702. A re-run keeps its run number, so the attempt keeps each upload
+// apart, and run numbers only grow, so a later run uploads a higher number.
+export const pipelineBuildNumber = (run: number, attempt: number): number => {
+	if (!Number.isSafeInteger(run) || run < 1) {
+		throw new Error(`The run number ${run} isn't a whole number from 1.`);
+	}
+	if (!Number.isSafeInteger(attempt) || attempt < 1 || attempt >= ATTEMPTS) {
+		throw new Error(
+			`The run attempt ${attempt} isn't a whole number from 1 to ${ATTEMPTS - 1}.`
+		);
+	}
+	return PIPELINE_BUILD_FLOOR + run * ATTEMPTS + attempt;
+};
+
+// The build number a build gets: the workflow's when it set one, else
+// native-build.json's.
+export const resolveBuildNumber = (record: NativeBuild, fromEnv: string | undefined): number => {
+	if (fromEnv === undefined || fromEnv === "") return record.buildNumber;
+	const number = /^[1-9][0-9]*$/.test(fromEnv) ? Number(fromEnv) : Number.NaN;
+	if (!(number > PIPELINE_BUILD_FLOOR)) {
+		throw new Error(
+			`${BUILD_NUMBER_ENV} is "${fromEnv}", but the release workflow's build numbers are whole numbers above ${PIPELINE_BUILD_FLOOR}.`
+		);
+	}
+	return number;
 };
 
 // Why a build can't go to TestFlight, or null when it can. A native change
@@ -274,6 +378,9 @@ export const checkNativeBuild = (
 	fingerprint: string,
 	upload: boolean
 ): string | null => {
+	if (record.buildNumber >= PIPELINE_BUILD_FLOOR) {
+		return `Build ${record.buildNumber} is in the release workflow's range; keep buildNumber in ${NATIVE_BUILD_FILE} below ${PIPELINE_BUILD_FLOOR}.`;
+	}
 	const last = record.lastUpload;
 	if (!last) return null;
 	const raise = `raise buildNumber in ${NATIVE_BUILD_FILE}`;

@@ -23,6 +23,14 @@ fn push_key() -> String {
     STANDARD.encode([7u8; 32])
 }
 
+/// The Mac that makes the test phone's book.
+fn home() -> PhoneMac {
+    PhoneMac {
+        device: DeviceId::derive("Home Mac"),
+        name: "Home Mac".into(),
+    }
+}
+
 fn entry(device: DeviceId, name: &str) -> PhoneBookEntry {
     PhoneBookEntry {
         device,
@@ -70,7 +78,7 @@ impl Harness {
     }
 
     fn begin(&self) -> (PairId, String) {
-        match self.phones.begin(self.book()) {
+        match self.phones.begin(self.book(), Some(home())) {
             ActionOutcome::PhonePair {
                 pair,
                 seed,
@@ -90,8 +98,9 @@ impl Harness {
         let (pair, _) = self.begin();
         let pairing = self.phones.take(pair).unwrap();
         match self.phones.pair(pairing, "iPhone", &key(n), &push_key()) {
-            ActionOutcome::PhonePaired { phone, book } => {
+            ActionOutcome::PhonePaired { phone, book, mac } => {
                 assert_eq!(book, self.book());
+                assert_eq!(mac, Some(home()));
                 phone
             }
             other => panic!("{other:?}"),
@@ -137,8 +146,9 @@ fn a_pairing_key_works_once_and_gives_way_to_the_phones_own() {
     assert!(h.phones.take(pair).is_err());
 
     let phone = match h.phones.pair(pairing, " iPhone ", &key(1), &push_key()) {
-        ActionOutcome::PhonePaired { phone, book } => {
+        ActionOutcome::PhonePaired { phone, book, mac } => {
             assert_eq!(book, h.book());
+            assert_eq!(mac, Some(home()), "the phone hears which Mac paired it");
             phone
         }
         other => panic!("{other:?}"),
@@ -161,7 +171,7 @@ fn a_pairing_key_works_once_and_gives_way_to_the_phones_own() {
     assert!(published.push.is_empty());
     assert!(matches!(
         h.hub.get(&EntityKey::PhoneBook(phone)),
-        Some(Entity::PhoneBook(book)) if book.devices == h.book()
+        Some(Entity::PhoneBook(book)) if book.devices == h.book() && book.mac == Some(home())
     ));
 
     // After a restart the phone and its book are published again.
@@ -203,7 +213,7 @@ fn a_pairing_from_before_a_restart_is_taken_out() {
 #[test]
 fn a_book_must_hold_this_device_and_plain_addresses() {
     let h = Harness::new();
-    let refused_with = |book: Vec<PhoneBookEntry>| match h.phones.begin(book) {
+    let refused_with = |book: Vec<PhoneBookEntry>| match h.phones.begin(book, None) {
         ActionOutcome::Refused { reason } => reason,
         other => panic!("{other:?}"),
     };
@@ -232,13 +242,13 @@ fn network_access_alone_is_a_way_in() {
     let mut mac = entry(h.hub.device().id, "devbox");
     mac.routes.clear();
     mac.host_key = String::new();
-    let refused = |entry: &PhoneBookEntry| match h.phones.begin(vec![entry.clone()]) {
+    let refused = |entry: &PhoneBookEntry| match h.phones.begin(vec![entry.clone()], None) {
         ActionOutcome::Refused { reason } => reason,
         other => panic!("{other:?}"),
     };
     assert!(refused(&mac).contains("no address"));
     mac.network = Some(network.clone());
-    match h.phones.begin(vec![mac.clone()]) {
+    match h.phones.begin(vec![mac.clone()], None) {
         ActionOutcome::PhonePair { host_key, .. } => assert_eq!(host_key, ""),
         other => panic!("{other:?}"),
     }
@@ -269,7 +279,7 @@ fn only_a_few_pairings_wait_at_once() {
         h.begin();
     }
     assert!(matches!(
-        h.phones.begin(h.book()),
+        h.phones.begin(h.book(), None),
         ActionOutcome::Refused { .. }
     ));
 }
@@ -303,7 +313,7 @@ fn a_phone_added_from_another_device_has_no_book_here() {
     assert!(h.keys().contains(&format!("--phone {phone}")));
     assert!(h.hub.get(&EntityKey::PhoneBook(phone)).is_none());
     assert!(matches!(
-        h.phones.set_book(phone, h.book()),
+        h.phones.set_book(phone, h.book(), None),
         ActionOutcome::Refused { .. }
     ));
     // Adding it again keeps the one line.
@@ -342,10 +352,40 @@ fn a_book_changes_for_a_phone_that_paired_here() {
     let h = Harness::new();
     let phone = h.paired(1);
     let book = vec![entry(h.hub.device().id, "devbox")];
-    assert_eq!(h.phones.set_book(phone, book.clone()), ActionOutcome::Done);
+    assert_eq!(
+        h.phones.set_book(phone, book.clone(), None),
+        ActionOutcome::Done
+    );
+    assert!(
+        matches!(
+            h.hub.get(&EntityKey::PhoneBook(phone)),
+            Some(Entity::PhoneBook(published))
+                if published.devices == book && published.mac == Some(home())
+        ),
+        "a book that names no Mac keeps the one before"
+    );
+
+    // A Mac that took a new name gives it, and a restart keeps it. A
+    // blank one changes nothing.
+    let renamed = PhoneMac {
+        name: "Studio Mac".into(),
+        ..home()
+    };
+    let blank = PhoneMac {
+        name: " ".into(),
+        ..home()
+    };
+    for mac in [renamed.clone(), blank] {
+        assert_eq!(
+            h.phones.set_book(phone, book.clone(), Some(mac)),
+            ActionOutcome::Done
+        );
+    }
+    let hub = hub_for("devbox");
+    let _again = open(&h.temp, &hub, &h.clock);
     assert!(matches!(
-        h.hub.get(&EntityKey::PhoneBook(phone)),
-        Some(Entity::PhoneBook(published)) if published.devices == book
+        hub.get(&EntityKey::PhoneBook(phone)),
+        Some(Entity::PhoneBook(published)) if published.mac == Some(renamed)
     ));
 }
 

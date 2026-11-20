@@ -9,9 +9,8 @@
 import { useState } from "react";
 
 import { useServices, useView } from "@/app/services";
-import type { Account, DeviceId } from "@maxhq/shared/bindings";
+import type { DeviceId } from "@maxhq/shared/bindings";
 import { useNow } from "@maxhq/shared/lib/clock";
-import { loggedOut } from "@maxhq/shared/settings/cli-sign-in";
 import { accountName, CURSOR_USAGE_URL } from "@maxhq/shared/status/usage";
 import { isLive } from "@maxhq/shared/workspaces/state";
 
@@ -26,7 +25,7 @@ import {
 	useTicks,
 } from "./login-parts";
 import { Steps, StepText } from "./login-steps";
-import { heldOf, loginTargets, macAccounts } from "./logins";
+import { heldOf, loginTargets, macAccounts, signedInAs } from "./logins";
 import { t as translate, useI18n } from "@maxhq/shared/i18n";
 
 const ManageUsage = () => {
@@ -41,14 +40,6 @@ const ManageUsage = () => {
 			{translate("Manage usage")}
 		</a>
 	);
-};
-
-// Who the Mac's CLI is signed in as, or that it's signed out.
-const signedInAs = (account: Account): string => {
-	if (loggedOut(account)) return translate("Signed out");
-	return account.email
-		? translate("Signed in as {{email}}", { email: account.email })
-		: translate("Signed in");
 };
 
 const OnTheMac = () => {

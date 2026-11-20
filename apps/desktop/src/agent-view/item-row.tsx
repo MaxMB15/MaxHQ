@@ -23,6 +23,7 @@ import { QuestionCard } from "./items/question";
 import { Reasoning } from "./items/reasoning";
 import { SubAgentCard } from "./items/subagent";
 import { UserRunCard } from "./items/user-run";
+import { UserSessionCard } from "./items/user-session";
 import { VisualItem } from "@/visuals/visual-item";
 import {
 	CommandRow,
@@ -117,6 +118,8 @@ export const ItemBodyView = ({ item }: { item: TimelineItem }) => {
 			return <VisualItem item={item} />;
 		case "user_run":
 			return <UserRunCard item={item} />;
+		case "user_session":
+			return <UserSessionCard item={item} />;
 		case "unknown":
 			return <UnknownRow item={item} />;
 	}

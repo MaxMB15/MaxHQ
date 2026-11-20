@@ -472,6 +472,7 @@ fn the_app_s_view_keeps_all_a_real_maxd_reports() {
             via: Vec::new(),
             capabilities: None,
             protocol: None,
+            protocol_mismatch: None,
             waiting: Vec::new(),
             claim: None,
         })),
@@ -800,6 +801,7 @@ fn hold_terminal(
         cols: 80,
         rows: 24,
         run: matches!(kind, TerminalKind::Run { .. }),
+        nonce: None,
     };
     let held = Held(terminals.dirs().sessions.join(launch.terminal.to_string()));
     let runtime = tokio::runtime::Builder::new_current_thread()

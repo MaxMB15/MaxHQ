@@ -16,6 +16,7 @@ use maxhq_protocol::agents::{AccessKey, MoveTo, Permission};
 use maxhq_protocol::attention::AttentionAnswer;
 use maxhq_protocol::context::InlineRef;
 use maxhq_protocol::find::{AgentExcerpt, GitItemSearch, PathMatch};
+use maxhq_protocol::folders::FolderList;
 use maxhq_protocol::hosts::MoveStep;
 use maxhq_protocol::ids::{
     AccountId, AcpAgentId, AgentId, AttentionId, CredentialId, DeviceId, ForwardId, IdempotencyKey,
@@ -866,6 +867,55 @@ pub enum Request {
     TerminalRename { terminal: TerminalId, title: String },
     /// Moves a command you ran with `!` to the agent's terminal drawer.
     TerminalMove { terminal: TerminalId },
+    /// What a folder on `device` holds, for a path field's suggestions and
+    /// the folder browser. A `~` at the start of `path` is that device's
+    /// home. With `filter`, only the names that hold it list, ignoring
+    /// case. A `maxd` too old to list folders answers `too_old` rather
+    /// than failing.
+    ListFolder {
+        device: DeviceId,
+        path: String,
+        files: bool,
+        hidden: bool,
+        #[serde(default)]
+        filter: Option<String>,
+    },
+    /// Makes one folder on `device`, in a folder that's there, for the
+    /// folder browser's New folder.
+    MakeFolder { device: DeviceId, path: String },
+    // Sessions. Each goes to the device of the agent it's for, and a
+    // `maxd` before protocol 48 refuses it.
+    /// Runs a command typed after `!` in the agent's session, or with
+    /// `fresh` (⌥↩) in a shell of its own. Answers with where it went:
+    /// `session_ran` for a block in the session's card, or
+    /// `terminal_opened` for a fresh shell, whose `UserRun` card says why.
+    SessionRun {
+        agent: AgentId,
+        command: String,
+        private: bool,
+        fresh: bool,
+        cols: u16,
+        rows: u16,
+    },
+    /// Keeps a block of the agent's open session card from the agent, or
+    /// shares it again. Refused once the card is sealed.
+    SessionShare {
+        agent: AgentId,
+        item: ItemId,
+        block: u32,
+        private: bool,
+    },
+    /// Moves the agent's session to a folder on its device, for the folder
+    /// chip: opens the session there (`terminal_opened`), or runs `cd` in
+    /// it as a shared block (`session_ran`). A busy session refuses.
+    SessionCd { agent: AgentId, path: String },
+    /// Ends the agent's session. Without `force`, one with a command
+    /// running refuses, so you're asked first.
+    SessionEnd {
+        agent: AgentId,
+        #[serde(default)]
+        force: bool,
+    },
 }
 
 /// The answer to a [`Request`], of the same kind. A request that only
@@ -1077,6 +1127,12 @@ pub enum Response {
     TerminalClose(ActionOutcome),
     TerminalRename(ActionOutcome),
     TerminalMove(ActionOutcome),
+    ListFolder(FolderList),
+    MakeFolder(ActionOutcome),
+    SessionRun(ActionOutcome),
+    SessionShare(ActionOutcome),
+    SessionCd(ActionOutcome),
+    SessionEnd(ActionOutcome),
 }
 
 impl Request {
@@ -1281,6 +1337,12 @@ impl Request {
             Self::TerminalClose { .. } => "terminal_close",
             Self::TerminalRename { .. } => "terminal_rename",
             Self::TerminalMove { .. } => "terminal_move",
+            Self::ListFolder { .. } => "list_folder",
+            Self::MakeFolder { .. } => "make_folder",
+            Self::SessionRun { .. } => "session_run",
+            Self::SessionShare { .. } => "session_share",
+            Self::SessionCd { .. } => "session_cd",
+            Self::SessionEnd { .. } => "session_end",
         }
     }
 }
@@ -1487,6 +1549,12 @@ impl Response {
             Self::TerminalClose(_) => "terminal_close",
             Self::TerminalRename(_) => "terminal_rename",
             Self::TerminalMove(_) => "terminal_move",
+            Self::ListFolder(_) => "list_folder",
+            Self::MakeFolder(_) => "make_folder",
+            Self::SessionRun(_) => "session_run",
+            Self::SessionShare(_) => "session_share",
+            Self::SessionCd(_) => "session_cd",
+            Self::SessionEnd(_) => "session_end",
         }
     }
 }
@@ -2613,6 +2681,75 @@ impl<C: Connector> App<C> {
                 let action = ClientMessage::TerminalMove { key, terminal };
                 Response::TerminalMove(devices.act(action).await?)
             }
+            Request::ListFolder {
+                device,
+                path,
+                files,
+                hidden,
+                filter,
+            } => {
+                let action = ClientMessage::ListFolder {
+                    key,
+                    device,
+                    path,
+                    files,
+                    hidden,
+                    filter,
+                };
+                match devices.act_unless_old(action).await? {
+                    None => Response::ListFolder(FolderList::TooOld),
+                    Some(ActionOutcome::FolderListed { listing }) => {
+                        Response::ListFolder(FolderList::Listed { listing })
+                    }
+                    Some(other) => return Err(lookup_failed(other)),
+                }
+            }
+            Request::MakeFolder { device, path } => {
+                let action = ClientMessage::MakeFolder { key, device, path };
+                Response::MakeFolder(devices.act(action).await?)
+            }
+            Request::SessionRun {
+                agent,
+                command,
+                private,
+                fresh,
+                cols,
+                rows,
+            } => {
+                let action = ClientMessage::SessionRun {
+                    key,
+                    agent,
+                    command,
+                    private,
+                    fresh,
+                    cols,
+                    rows,
+                };
+                Response::SessionRun(devices.act(action).await?)
+            }
+            Request::SessionShare {
+                agent,
+                item,
+                block,
+                private,
+            } => {
+                let action = ClientMessage::SessionShare {
+                    key,
+                    agent,
+                    item,
+                    block,
+                    private,
+                };
+                Response::SessionShare(devices.act(action).await?)
+            }
+            Request::SessionCd { agent, path } => {
+                let action = ClientMessage::SessionCd { key, agent, path };
+                Response::SessionCd(devices.act(action).await?)
+            }
+            Request::SessionEnd { agent, force } => {
+                let action = ClientMessage::SessionEnd { key, agent, force };
+                Response::SessionEnd(devices.act(action).await?)
+            }
         })
     }
 
@@ -3518,6 +3655,15 @@ mod tests {
             json!({"kind": "terminal_close", "terminal": terminal}),
             json!({"kind": "terminal_rename", "terminal": terminal, "title": "dev server"}),
             json!({"kind": "terminal_move", "terminal": terminal}),
+            json!({
+                "kind": "list_folder",
+                "device": mac,
+                "path": "~/code",
+                "files": false,
+                "hidden": false,
+                "filter": "ex",
+            }),
+            json!({"kind": "make_folder", "device": mac, "path": "/Users/dev/code/new"}),
         ]
         .into_iter()
         .chain(skill_requests(mac))
@@ -4306,6 +4452,7 @@ mod tests {
             cwd: "~/code/example-app".into(),
             status: maxhq_protocol::terminal::TerminalStatus::Running,
             busy: false,
+            marks: false,
             password_prompt: false,
             started_at: Timestamp(1_793_368_920_000),
             cols: 80,
@@ -4358,7 +4505,7 @@ mod tests {
                 }
             }
         }
-        assert_eq!(kinds.len() + mac_only.len(), 158);
+        assert_eq!(kinds.len() + mac_only.len(), 160);
         // The harness has no maxd to install or uninstall, no timeline open, no
         // listening port, no setup waiting on a host key, no GitHub
         // sign-in to merge with, no skill proposal, no link or card waiting

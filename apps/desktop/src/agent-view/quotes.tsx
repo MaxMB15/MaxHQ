@@ -9,7 +9,7 @@
 import { useCallback, useEffect } from "react";
 
 import { type Services, useServices } from "@/app/services";
-import { quoteInbox } from "@/composer/quote-inbox";
+import { quoteInbox } from "@maxhq/shared/pills/quote-inbox";
 import { type MenuEntry, useComposerNative } from "@/composer/native";
 import { paneAgent } from "@/layout/pane-id";
 import { panesOf } from "@/layout/panes";

@@ -17,8 +17,8 @@ import { sentMessage } from "@maxhq/shared/pills/sent";
 import { useView } from "@/app/services";
 import { CopyButton } from "@/components/copy-button";
 import { cn } from "@/lib/utils";
-import { type VisualOrigin, VisualOriginContext } from "@/visuals/origin";
 import { formatClock } from "@maxhq/shared/status/format";
+import { type VisualOrigin, VisualOriginContext } from "@maxhq/shared/visuals/origin";
 import { visualVersions } from "@maxhq/shared/visuals/versions";
 
 import { useRow } from "@maxhq/shared/agent-view/context";

@@ -23,7 +23,6 @@ import { ChipStrip } from "@/components/chip-strip";
 import { Popover, PopoverPopup, PopoverTitle } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
 import { agreedSend } from "@/settings/auto-consent";
-import { failureOf } from "@maxhq/shared/agent-view/answer";
 import type { Agent, PullLink } from "@maxhq/shared/bindings";
 import type { ActionResult } from "@maxhq/shared/data/source";
 import {
@@ -33,6 +32,8 @@ import {
 	type ChipState,
 	chipState,
 	foldChips,
+	linkPullNumber,
+	parsePullNumber,
 	pullPrompts,
 } from "@maxhq/shared/pulls/chip";
 import { shownPulls } from "@maxhq/shared/pulls/links";
@@ -378,14 +379,6 @@ export const SmallPullChips = ({ agent }: { agent: Agent }) => {
 	);
 };
 
-/** A PR number as typed, or null unless it's a whole number above 0. */
-export const parsePullNumber = (text: string): number | null => {
-	const trimmed = text.trim().replace(/^#/, "");
-	if (!/^\d{1,9}$/.test(trimmed)) return null;
-	const number = Number(trimmed);
-	return number > 0 ? number : null;
-};
-
 /** The field that links a PR to the agent by its number. */
 const LinkPullForm = ({ agent, onDone }: { agent: Agent; onDone: () => void }) => {
 	const { t } = useI18n();
@@ -401,12 +394,9 @@ const LinkPullForm = ({ agent, onDone }: { agent: Agent; onDone: () => void }) =
 		setBusy(true);
 		setFailure(null);
 		try {
-			const why = failureOf(await source.linkPull(agent.id, number));
-			if (why) setFailure(`Couldn't link #${number}. ${why}`);
+			const why = await linkPullNumber(source, agent.id, number);
+			if (why) setFailure(why);
 			else onDone();
-		} catch (error) {
-			console.warn("Couldn't link the PR", error);
-			setFailure(`Couldn't link #${number}. Try again.`);
 		} finally {
 			setBusy(false);
 		}

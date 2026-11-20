@@ -6,33 +6,36 @@
 
 use std::collections::BTreeMap;
 use std::future::Future;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, PoisonError, RwLock};
 use std::time::Duration;
 
 use maxhq_app::devices::Devices;
 use maxhq_app::notify::LogSender;
+use maxhq_app::offered::{NotOffered, Offered};
 use maxhq_app::pair_code::PairCode;
 use maxhq_app::phone::{self, PhoneConnector, PhoneProver, PhoneShell};
 use maxhq_app::registry::Registry;
 use maxhq_app::request::{CommandError, Request, Response};
 use maxhq_app::timeline::Sink;
-use maxhq_app::transfers::{MediaFile, TransferProgress};
+use maxhq_app::transfers::{CopiedProject, CopyTarget, Downloaded, MediaFile, TransferProgress};
 use maxhq_app::view::{Emit, View};
+use maxhq_app::workflow::WorkflowMessage;
 use maxhq_app::{App, Caller};
 use maxhq_client::{Client, LinkEvent, LinkSpec, PhoneSsh, PhoneWs, Transport};
 use maxhq_core::authorized_keys;
-use maxhq_protocol::ids::{AgentId, DeviceId, IdempotencyKey, PhoneId};
+use maxhq_protocol::ids::{AgentId, DeviceId, IdempotencyKey, LinkId, PhoneId, WorkspaceId};
 use maxhq_protocol::link::LinkState;
-use maxhq_protocol::message::{ActionOutcome, ClientMessage};
+use maxhq_protocol::message::{ActionOutcome, ClientMessage, UploadTarget};
 use maxhq_protocol::phones::{PhoneBook, PhoneBookEntry, PushToken};
+use maxhq_protocol::workflow::RunKey;
 use serde::Serialize;
 use tokio::runtime::{Handle, Runtime};
 
 use crate::keys::{self, Key, KeyStore};
 use crate::net::{self, SignIns};
-use crate::{AppState, MediaListener, Network, ViewListener};
+use crate::{AppState, Network, ProgressListener, ViewListener};
 
 /// The one window the phone's screens share, as a desktop window's label.
 /// Its timelines all go to one listener, as a desktop window's do.
@@ -59,9 +62,39 @@ pub struct PhoneKey {
     pub push_public: String,
 }
 
+/// A Mac the phone paired with, as Settings lists it: the book it keeps
+/// and the devices the phone has from it.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+pub struct PairedMac {
+    /// The device that keeps the book, which forgetting the Mac names.
+    pub keeper: DeviceId,
+    /// The Mac's name, as it gave it or else as its book has it.
+    pub name: String,
+    /// Whether it's the book of devices you added by hand.
+    pub by_hand: bool,
+    /// The devices the phone has from this Mac, in its book's order. A
+    /// device an earlier book lists too shows there instead.
+    pub devices: Vec<PairedDevice>,
+}
+
+/// A device the phone has from a Mac.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+pub struct PairedDevice {
+    pub device: DeviceId,
+    /// The link the phone reaches it on.
+    pub link: LinkId,
+    pub name: String,
+    /// Whether another Mac's book lists it too, so it stays when this Mac
+    /// goes.
+    pub elsewhere: bool,
+}
+
 /// The running core.
 pub struct Core {
     shared: Arc<Shared>,
+    /// The app's caches folder, where the pickers copy what you pick, and
+    /// so the one folder the phone uploads from.
+    picks: PathBuf,
     /// Dropped last, once nothing on it holds the app.
     runtime: Runtime,
 }
@@ -80,10 +113,13 @@ struct Shared {
 
 impl Core {
     /// Opens the core on `dir`, with the phone's keys and tokens in
-    /// `store`. The registry is `maxhq.db` there, beside `downloads`, and
-    /// none of it goes into the phone's backups. The media cache is `media`
-    /// in `cache`, which the system may empty when space runs low, and a
-    /// picture it drops fetches again.
+    /// `store`. The registry is `maxhq.db` there, and none of it goes into
+    /// the phone's backups. The media cache is `media` in `cache` and
+    /// downloads land in `downloads` there, which the system may empty
+    /// when space runs low. A picture it drops fetches again, and a
+    /// download has gone to the share sheet by then. The phone uploads
+    /// only from the folder `cache` is in, the app's caches folder, where
+    /// the pickers copy what you pick.
     pub fn open(dir: &Path, cache: &Path, store: Arc<dyn KeyStore>) -> Result<Self, CommandError> {
         std::fs::create_dir_all(dir)
             .map_err(|error| failed(format!("Couldn't make the phone's data folder: {error}")))?;
@@ -95,9 +131,9 @@ impl Core {
         move_old_media(dir, &media);
         let registry = Registry::open_phone(&dir.join("maxhq.db"))
             .map_err(|error| failed(format!("Couldn't open the phone's data: {error}")))?;
-        let book = registry
-            .phone_book()
-            .map_err(|error| failed(format!("Couldn't read the phone's book: {error}")))?;
+        let books = registry
+            .phone_books()
+            .map_err(|error| failed(format!("Couldn't read the phone's books: {error}")))?;
         let seed = keys::seed(&*store, Key::Ssh).map_err(failed)?;
         let push_public = keys::push_public(&*keys::seed(&*store, Key::Push).map_err(failed)?);
         let runtime = tokio::runtime::Builder::new_multi_thread()
@@ -115,12 +151,14 @@ impl Core {
         let connector = PhoneConnector::new(
             runtime.handle(),
             &seed,
-            Box::new(move |device, route, code| signing.route(device, route, code)),
-            Some(dir.join("downloads")),
+            Box::new(move |device, mac, route, code| signing.route(device, mac, route, code)),
+            Some(cache.join("downloads")),
             Some(media),
         );
         let public_key = connector.public_key();
-        let phone = book.map_or_else(|| PhoneId::derive(&public_key), |book| book.phone);
+        let phone = books
+            .first()
+            .map_or_else(|| PhoneId::derive(&public_key), |book| book.phone);
         let line = authorized_keys::phone_line(&public_key, &phone.to_string()).map_err(failed)?;
         let client = connector.client();
         let listener: Listener = Arc::default();
@@ -150,7 +188,11 @@ impl Core {
         });
         let open = Arc::clone(&shared);
         runtime.spawn(async move { open.app.devices().set_foreground(true).await });
-        Ok(Self { shared, runtime })
+        Ok(Self {
+            shared,
+            picks: cache.parent().unwrap_or(cache).to_owned(),
+            runtime,
+        })
     }
 
     /// Lets go of what the page before a JS reload watched.
@@ -198,16 +240,110 @@ impl Core {
         agent: AgentId,
         path: String,
         limit: u32,
-        listener: Arc<dyn MediaListener>,
+        listener: Arc<dyn ProgressListener>,
     ) -> impl Future<Output = Result<MediaFile, CommandError>> + Send + 'static {
         let shared = Arc::clone(&self.shared);
         self.run(async move {
-            let report = move |progress: TransferProgress| {
-                if let Ok(json) = serde_json::to_string(&progress) {
-                    listener.progress(json);
-                }
-            };
-            shared.app.media(agent, path, limit, false, report).await
+            (shared.app)
+                .media(agent, path, limit, false, reporter(listener))
+                .await
+        })
+    }
+
+    /// Opens a workflow run, with updates going to `sink`.
+    pub fn open_workflow(
+        &self,
+        run: RunKey,
+        sink: Arc<dyn Sink<WorkflowMessage>>,
+    ) -> impl Future<Output = Result<(), CommandError>> + Send + 'static {
+        let shared = Arc::clone(&self.shared);
+        self.run(async move { shared.app.open_workflow(WINDOW, sink, run).await })
+    }
+
+    /// Uploads a file you picked to `target` on `device`, with how far it
+    /// has got going to `listener`. Picking it handed it over, so a path
+    /// in the app's caches folder counts as offered, and any other is
+    /// refused as the desktop refuses one you never dropped.
+    pub fn upload(
+        &self,
+        device: DeviceId,
+        target: UploadTarget,
+        path: String,
+        listener: Arc<dyn ProgressListener>,
+    ) -> impl Future<Output = Result<ActionOutcome, CommandError>> + Send + 'static {
+        let shared = Arc::clone(&self.shared);
+        let picked = hand_over(shared.app.offered(), &self.picks, &path);
+        self.run(async move {
+            let path = picked?.to_string_lossy().into_owned();
+            (shared.app)
+                .upload(device, target, path, reporter(listener))
+                .await
+        })
+    }
+
+    /// Uploads pasted bytes, `data` in base64, to `target` on `device` as
+    /// one file called `name`, with how far it has got going to `listener`.
+    pub fn upload_pasted(
+        &self,
+        device: DeviceId,
+        target: UploadTarget,
+        name: String,
+        mime: String,
+        data: String,
+        listener: Arc<dyn ProgressListener>,
+    ) -> impl Future<Output = Result<ActionOutcome, CommandError>> + Send + 'static {
+        let shared = Arc::clone(&self.shared);
+        self.run(async move {
+            (shared.app)
+                .upload_pasted(device, target, name, mime, data, reporter(listener))
+                .await
+        })
+    }
+
+    /// Fetches a file or folder `agent` can see into the downloads folder,
+    /// with how far it has got going to `listener`.
+    pub fn download(
+        &self,
+        agent: AgentId,
+        path: String,
+        listener: Arc<dyn ProgressListener>,
+    ) -> impl Future<Output = Result<Downloaded, CommandError>> + Send + 'static {
+        let shared = Arc::clone(&self.shared);
+        self.run(async move { shared.app.download(agent, path, reporter(listener)).await })
+    }
+
+    /// Readies a file or folder `agent` can see for an agent on `device`,
+    /// with both legs going to `listener`.
+    pub fn attach_from_agent(
+        &self,
+        device: DeviceId,
+        target: Option<UploadTarget>,
+        agent: AgentId,
+        path: String,
+        listener: Arc<dyn ProgressListener>,
+    ) -> impl Future<Output = Result<ActionOutcome, CommandError>> + Send + 'static {
+        let shared = Arc::clone(&self.shared);
+        self.run(async move {
+            (shared.app)
+                .attach_from_agent(device, target, agent, path, reporter(listener))
+                .await
+        })
+    }
+
+    /// Copies the project of workspace `from` to `target` with the ignored
+    /// `files` chosen, with the files' transfers going to `listener`.
+    pub fn copy_project(
+        &self,
+        from: WorkspaceId,
+        target: CopyTarget,
+        files: Vec<String>,
+        listener: Arc<dyn ProgressListener>,
+    ) -> impl Future<Output = Result<CopiedProject, CommandError>> + Send + 'static {
+        let shared = Arc::clone(&self.shared);
+        self.run(async move {
+            (shared.app)
+                .copy_project(from, target, files, reporter(listener))
+                .await
         })
     }
 
@@ -260,7 +396,8 @@ impl Core {
         self.shared.key.clone()
     }
 
-    /// Adds a device to the book by hand, or replaces the one of that name.
+    /// Adds a device by hand, or replaces the one of that name, in a book
+    /// of its own beside the Macs' books.
     pub fn add_device(&self, name: &str, route: &str, host_key: &str) -> Result<(), CommandError> {
         let name = name.trim();
         if name.is_empty() {
@@ -280,27 +417,83 @@ impl Core {
             network: None,
         };
         let devices = self.shared.app.devices();
-        let kept = devices
-            .registry()
-            .phone_book()
-            .map_err(|error| failed(format!("Couldn't read the phone's book: {error}")))?;
-        let mut book = kept.unwrap_or_else(|| PhoneBook {
-            phone: self.shared.key.phone,
-            device: entry.device,
-            devices: Vec::new(),
-        });
+        let mut book = self
+            .books()?
+            .into_iter()
+            .find(|book| book.device == phone::by_hand())
+            .unwrap_or_else(|| PhoneBook {
+                phone: self.shared.key.phone,
+                device: phone::by_hand(),
+                devices: Vec::new(),
+                mac: None,
+            });
         book.devices.retain(|each| each.device != entry.device);
         book.devices.push(entry);
         let _entered = self.runtime.enter();
-        devices.set_phone_book(&book)
+        devices.put_phone_book(&book)?;
+        Ok(())
+    }
+
+    /// The Macs the phone paired with, in the order it paired, and the
+    /// book of devices added by hand last when there is one.
+    pub fn paired_macs(&self) -> Result<Vec<PairedMac>, CommandError> {
+        let mut macs = paired(&self.books()?);
+        macs.sort_by_key(|mac| mac.by_hand);
+        Ok(macs)
+    }
+
+    /// Forgets the Mac whose book `keeper` keeps: its book, each device
+    /// only it lists with what waited for it, and their sign-ins. The
+    /// other Macs stay paired.
+    pub fn forget_mac(&self, keeper: DeviceId) -> Result<(), CommandError> {
+        if self.books()?.iter().all(|book| book.device != keeper) {
+            return Err(failed("This phone isn't paired with that Mac".to_owned()));
+        }
+        let _entered = self.runtime.enter();
+        let gone = self.shared.app.devices().forget_phone_book(keeper)?;
+        for device in gone {
+            self.shared.sign_ins.forget(device);
+        }
+        Ok(())
+    }
+
+    /// The name of the Mac the phone already has a book from that `code`
+    /// pairs through, so pairing replaces that Mac's devices, or `None`
+    /// for a new Mac or a code that doesn't read.
+    pub fn pair_code_mac(&self, code: &str) -> Result<Option<String>, CommandError> {
+        let Ok(code) = PairCode::decode(code) else {
+            return Ok(None);
+        };
+        Ok(self
+            .books()?
+            .iter()
+            .find(|book| {
+                book.device == code.device
+                    || book
+                        .mac
+                        .as_ref()
+                        .is_some_and(|mac| mac.device == code.device)
+            })
+            .map(phone::mac_name))
+    }
+
+    /// The phone's books, one per Mac.
+    fn books(&self) -> Result<Vec<PhoneBook>, CommandError> {
+        self.shared
+            .app
+            .devices()
+            .registry()
+            .phone_books()
+            .map_err(|error| failed(format!("Couldn't read the phone's books: {error}")))
     }
 
     /// Pairs the phone through the device whose pairing code is `code`,
     /// as the Mac shows it, giving it `name` to show, and keeps the book
-    /// the device answers with. A code with the device's network access
-    /// pairs through it, and the phone keeps the token it gets. Else the
-    /// phone logs in over SSH with the code's one-time key, which the
-    /// device swaps for the phone's own.
+    /// the device answers with: beside the other Macs' books for a new
+    /// Mac, or in place of the one it had from the same Mac. A code with
+    /// the device's network access pairs through it, and the phone keeps
+    /// the token it gets. Else the phone logs in over SSH with the code's
+    /// one-time key, which the device swaps for the phone's own.
     pub fn pair(
         &self,
         code: &str,
@@ -332,21 +525,25 @@ impl Core {
                         .to_owned(),
                 )
             })??;
-            shared.app.devices().set_phone_book(&book)?;
+            // A device the Mac's new book leaves out goes with its sign-in.
+            for device in shared.app.devices().put_phone_book(&book)? {
+                shared.sign_ins.forget(device);
+            }
             Ok(book)
         })
     }
 
-    /// The book the phone has now.
+    /// The books the phone has now.
     #[cfg(test)]
-    pub(crate) fn shared_book(&self) -> PhoneBook {
-        self.shared
-            .app
-            .devices()
-            .registry()
-            .phone_book()
-            .unwrap()
-            .unwrap()
+    pub(crate) fn shared_books(&self) -> Vec<PhoneBook> {
+        self.books().unwrap()
+    }
+
+    /// Keeps `book` as pairing with its Mac does.
+    #[cfg(test)]
+    pub(crate) fn put_book(&self, book: &PhoneBook) {
+        let _entered = self.runtime.enter();
+        self.shared.app.devices().put_phone_book(book).unwrap();
     }
 
     /// Runs `task` on the core's runtime, for a caller on any thread.
@@ -431,10 +628,11 @@ async fn pair_through(
         .await
         .map_err(|error| failed(format!("The device didn't pair the phone: {error}")))?;
     match outcome {
-        ActionOutcome::PhonePaired { phone, book } if phone == key.phone => Ok(PhoneBook {
+        ActionOutcome::PhonePaired { phone, book, mac } if phone == key.phone => Ok(PhoneBook {
             phone,
             device: code.device,
             devices: book,
+            mac,
         }),
         ActionOutcome::PhonePaired { .. } => Err(failed(
             "The device knows this phone by another name. Scan a new code.".to_owned(),
@@ -444,6 +642,32 @@ async fn pair_through(
             "The device answered something other than a pairing".to_owned(),
         )),
     }
+}
+
+/// The Macs `books` come from, each with the devices the phone has from it.
+fn paired(books: &[PhoneBook]) -> Vec<PairedMac> {
+    let listed = phone::listed(books);
+    books
+        .iter()
+        .enumerate()
+        .map(|(at, book)| PairedMac {
+            keeper: book.device,
+            name: phone::mac_name(book),
+            by_hand: book.device == phone::by_hand(),
+            devices: listed
+                .iter()
+                .filter(|(from, _)| *from == at)
+                .map(|(_, entry)| PairedDevice {
+                    device: entry.device,
+                    link: phone::book_link(entry.device),
+                    name: entry.name.clone(),
+                    elsewhere: books.iter().enumerate().any(|(other, book)| {
+                        other != at && book.devices.iter().any(|each| each.device == entry.device)
+                    }),
+                })
+                .collect(),
+        })
+        .collect()
 }
 
 /// Sends each batch of the view's changes to the listener, as one JSON array.
@@ -481,6 +705,81 @@ fn move_old_media(dir: &Path, media: &Path) {
     }
 }
 
+/// Sends each step of a transfer to `listener` as JSON.
+fn reporter(listener: Arc<dyn ProgressListener>) -> impl Fn(TransferProgress) + Send + Sync {
+    move |progress| {
+        if let Ok(json) = serde_json::to_string(&progress) {
+            listener.progress(json);
+        }
+    }
+}
+
+/// Hands `path` over to the app as a pick, when it's a file or folder
+/// inside `picks`, and answers it as the app now has it. Anything else is
+/// refused, as a path you never dropped is on the desktop.
+pub(crate) fn hand_over(
+    offered: &Offered,
+    picks: &Path,
+    path: &str,
+) -> Result<PathBuf, CommandError> {
+    let refused = || {
+        failed(
+            NotOffered {
+                path: path.to_owned(),
+            }
+            .to_string(),
+        )
+    };
+    let (Ok(picks), Ok(found)) = (std::fs::canonicalize(picks), std::fs::canonicalize(path)) else {
+        return Err(refused());
+    };
+    if found == picks || !found.starts_with(&picks) {
+        return Err(refused());
+    }
+    offered.offer([found.clone()]);
+    Ok(found)
+}
+
 fn failed(message: String) -> CommandError {
     CommandError::Failed { message }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn only_picks_in_the_caches_folder_are_handed_over() {
+        let root = std::env::temp_dir().join(format!(
+            "maxhq-picks-{}",
+            maxhq_protocol::ids::InstanceId::generate()
+        ));
+        let picks = root.join("Library/Caches");
+        let picked = picks.join("DocumentPicker/notes.txt");
+        let kept = root.join("Documents/maxhq/maxhq.db");
+        for file in [&picked, &kept] {
+            std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+            std::fs::write(file, "x").unwrap();
+        }
+        let offered = Offered::default();
+
+        let handed = hand_over(&offered, &picks, &picked.to_string_lossy()).unwrap();
+        assert!(handed.ends_with("Library/Caches/DocumentPicker/notes.txt"));
+        assert!(offered.contains(&handed));
+
+        let escape = picks.join("../../Documents/maxhq/maxhq.db");
+        for path in [
+            kept.to_string_lossy().into_owned(),
+            escape.to_string_lossy().into_owned(),
+            picks.to_string_lossy().into_owned(),
+            picks.join("gone.txt").to_string_lossy().into_owned(),
+        ] {
+            assert_eq!(
+                hand_over(&offered, &picks, &path),
+                Err(failed(format!("{path} wasn't dropped, pasted or picked"))),
+            );
+        }
+        assert!(!offered.contains(&kept));
+        let _ = std::fs::remove_dir_all(&root);
+    }
 }

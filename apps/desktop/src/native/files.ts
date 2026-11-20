@@ -78,6 +78,18 @@ export const saveExport = (
 ): Promise<SavedExport | null> =>
 	inApp() ? unwrap(commands.saveExport(text, name, folder)) : Promise.resolve(null);
 
+/**
+ * Asks for one folder, or one file when `file` is set, in the system
+ * picker titled `title`, opening at `start`. Resolves with the path, or
+ * null when you cancel or outside the app.
+ */
+export const pickPath = (
+	title: string,
+	start: string | null,
+	file: boolean
+): Promise<string | null> =>
+	inApp() ? unwrap(commands.pickPath(title, start, file)) : Promise.resolve(null);
+
 const IMAGE = /\.(png|jpe?g|gif|webp|heic|tiff?|bmp)$/i;
 
 /** A description from the name alone, for the browser build. */

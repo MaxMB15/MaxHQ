@@ -71,6 +71,16 @@ const showWhole = (whole: Whole) => shown.setState({ whole });
 
 const closeWhole = () => shown.setState({ whole: null });
 
+/** Shows a picture an agent has whole, as a tap on its thumbnail does. */
+export const showPicture = (agent: AgentId, file: AttachmentRef): void =>
+	showWhole({
+		kind: "device",
+		agent,
+		path: file.path,
+		name: file.name,
+		thumbnail: previewOf(file),
+	});
+
 const percent = (sent: number, total: number) =>
 	total > 0 ? Math.min(100, Math.floor((sent / total) * 100)) : null;
 

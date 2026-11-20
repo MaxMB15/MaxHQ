@@ -14,18 +14,15 @@ import { type KeyboardEvent, useEffect, useMemo, useState } from "react";
 
 import { openAgent } from "@/app/open-agent";
 import { useServices, useView } from "@/app/services";
-import type { DeviceId, ProjectId } from "@maxhq/shared/bindings";
-import type { DeviceLoad } from "@maxhq/shared/data/source";
+import type { ProjectId } from "@maxhq/shared/bindings";
 import { useNow } from "@maxhq/shared/lib/clock";
 import { CloneBanner } from "@/agent-view/clone-banner";
 import { keyHint, type Shortcut } from "@/layout/shortcuts";
 import { useFieldTyping } from "@/composer/typing-prefs";
 import { cn } from "@/lib/utils";
 import { LocalMaxdNotice } from "@/main-area/local-maxd";
-import { deviceDefault, MODE_LABEL } from "@maxhq/shared/settings/permission";
 import { agreedMode } from "@/settings/auto-consent";
 import { sendFirstSettingsFor } from "@/settings/project";
-import { deviceName } from "@maxhq/shared/view/select";
 
 import { AGENT_FIELD, AgentPickers } from "./agent-pickers";
 import { BranchField } from "./branch-field";
@@ -40,8 +37,8 @@ import {
 	planStart,
 	projectOptions,
 	resolve,
-	startFailure,
 } from "@maxhq/shared/new-agent/spec";
+import { modeNote, startNewAgent, useLoads } from "@maxhq/shared/new-agent/start";
 import { closeNewAgent, newAgentOf, openNewAgent, useNewAgent } from "./store";
 import { t as translate, useI18n } from "@maxhq/shared/i18n";
 
@@ -50,38 +47,8 @@ const Label = ({ children }: { children: string }) => {
 	return <span className="text-[11.5px] font-[550] text-secondary-foreground">{children}</span>;
 };
 
-/** How often the form reads the candidates' load. */
-const LOAD_POLL_MS = 5000;
-
 /** The key that starts the agent from anywhere in the form. */
 const START: Shortcut = { label: "↵", code: "Enter" };
-
-/** The latest load of each device in `devices`, read again every 5 seconds. */
-const useLoads = (devices: readonly DeviceId[]): DeviceLoad[] => {
-	const { source } = useServices();
-	const [loads, setLoads] = useState<DeviceLoad[]>([]);
-	const key = devices.join(",");
-	useEffect(() => {
-		if (key === "") return;
-		const asked = key.split(",");
-		let live = true;
-		const read = () =>
-			source.readLoad(asked).then(
-				(next) => {
-					if (live) setLoads(next);
-				},
-				(error: unknown) =>
-					console.warn(translate("Couldn't read the devices' load"), error)
-			);
-		void read();
-		const timer = setInterval(() => void read(), LOAD_POLL_MS);
-		return () => {
-			live = false;
-			clearInterval(timer);
-		};
-	}, [source, key]);
-	return loads;
-};
 
 const Form = ({ project }: { project: ProjectId | null }) => {
 	useI18n();
@@ -99,7 +66,7 @@ const Form = ({ project }: { project: ProjectId | null }) => {
 	const [failure, setFailure] = useState<string | null>(null);
 
 	const candidates = useMemo(() => balanceCandidates(view, choices), [view, choices]);
-	const loads = useLoads(candidates);
+	const loads = useLoads(services.source, candidates);
 	// The clock here moves every 30 seconds, so a sample just in counts as now.
 	const balanced = useMemo(
 		() =>
@@ -123,30 +90,19 @@ const Form = ({ project }: { project: ProjectId | null }) => {
 		if (!plan.ok || busy || !r.device) return;
 		setBusy(true);
 		setFailure(null);
-		try {
-			// An Auto you didn't pick, as the device's default, asks first.
-			const mode = plan.spec.permission ?? r.mode;
-			const agreed = await agreedMode(services, mode, r.device);
-			if (agreed.mode === null) {
-				setFailure(agreed.failure);
-				setBusy(false);
-				return;
-			}
-			if (agreed.failure) console.warn(agreed.failure);
-			const spec =
-				agreed.mode === mode ? plan.spec : { ...plan.spec, permission: agreed.mode };
-			await sendFirstSettingsFor(services, spec);
-			const result = await services.source.startAgent(spec);
-			if (result.status === "ok" && result.data.status === "started") {
-				closeNewAgent(services);
-				openAgent(services, result.data.agent);
-				return;
-			}
-			setFailure(startFailure(result));
-		} catch (error) {
-			console.warn(translate("Couldn't start the agent"), error);
-			setFailure(translate("It didn't start. Try again."));
+		const device = r.device;
+		// An Auto you didn't pick, as the device's default, asks first.
+		const outcome = await startNewAgent(plan.spec, r.mode, {
+			agree: (mode) => agreedMode(services, mode, device),
+			before: (spec) => sendFirstSettingsFor(services, spec),
+			start: (spec) => services.source.startAgent(spec),
+		});
+		if ("agent" in outcome) {
+			closeNewAgent(services);
+			openAgent(services, outcome.agent);
+			return;
 		}
+		setFailure(outcome.failure);
 		setBusy(false);
 	};
 
@@ -158,16 +114,7 @@ const Form = ({ project }: { project: ProjectId | null }) => {
 	};
 
 	// Says where the mode came from until you pick one.
-	let modeNote: string | null = null;
-	if (choices.mode === null && r.device) {
-		modeNote =
-			r.mode === deviceDefault(view, r.device)
-				? translate("{{value1}} is the default on {{deviceName}}.", {
-						value1: MODE_LABEL[r.mode],
-						deviceName: deviceName(view, r.device),
-					})
-				: translate("Codex has no plan mode, so it asks first.");
-	}
+	const note = modeNote(view, choices, r);
 
 	return (
 		<form
@@ -193,9 +140,7 @@ const Form = ({ project }: { project: ProjectId | null }) => {
 						{translate(". Pick a place to choose yourself.")}
 					</p>
 				) : null}
-				{modeNote ? (
-					<p className="-mt-2 text-[11.5px] text-muted-foreground">{modeNote}</p>
-				) : null}
+				{note ? <p className="-mt-2 text-[11.5px] text-muted-foreground">{note}</p> : null}
 				{r.workspace ? <CloneBanner workspace={r.workspace.id} /> : null}
 				<LocalMaxdNotice device={r.device} onOpen={() => closeNewAgent(services)} />
 			</AgentPickers>

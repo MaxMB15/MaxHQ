@@ -24,12 +24,14 @@ import {
 	planAcpSave,
 	probeLine,
 	runsAcpAgents,
+	scrubAll,
 	sendsValue,
 	type VariableRow,
 } from "@maxhq/shared/settings/acp-agents";
 import { sentence } from "@maxhq/shared/status/format";
 import type { ViewState } from "@maxhq/shared/view/replica";
 import { cn } from "@/lib/utils";
+import { PathField } from "@/paths/path-field";
 
 import {
 	ConfirmButton,
@@ -42,11 +44,8 @@ import {
 	Section,
 	StatusNote,
 } from "./controls";
-import { failureOf, type Note, scrub } from "./result";
+import { failureOf, type Note } from "./result";
 import { t as translate, useI18n } from "@maxhq/shared/i18n";
-
-const scrubAll = (text: string, values: readonly string[]): string =>
-	values.reduce((shown, value) => scrub(shown, value), text);
 
 /** The ACP agents section, or nothing when the device's `maxd` doesn't run them. */
 export const AcpAgents = ({
@@ -289,21 +288,17 @@ const AgentForm = ({
 						className={FIELD}
 					/>
 				</label>
-				<label className="flex flex-col gap-1.5">
-					<Label>{translate("Program")}</Label>
-					<input
-						aria-label={translate("Program")}
-						value={draft.program}
-						placeholder={translate("A name on PATH, or a full path")}
-						onChange={(e) => change({ program: e.target.value })}
-						disabled={off}
-						autoComplete="off"
-						spellCheck={false}
-						autoCorrect="off"
-						autoCapitalize="off"
-						className={cn(FIELD, "font-mono text-xs")}
-					/>
-				</label>
+				<PathField
+					device={device}
+					value={draft.program}
+					onChange={(program) => change({ program })}
+					label={translate("Program")}
+					title={translate("Choose the agent's program")}
+					wants="file"
+					placeholder={translate("A name on PATH, or a full path")}
+					disabled={off}
+					className={FIELD}
+				/>
 			</div>
 
 			<div role="group" aria-label={translate("Arguments")} className="flex flex-col gap-1.5">

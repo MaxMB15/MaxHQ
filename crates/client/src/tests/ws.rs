@@ -198,11 +198,12 @@ async fn socket() -> (
     let (headers, asked) = signing();
     let ws = PhoneWs::new();
     let routes = ws.trust(
+        device(),
         &[route("127.0.0.1", port, &cert.pin)],
         &headers,
         &ending().0,
     );
-    let (conn, server) = tokio::join!(ws.dial(&routes[0], None), async {
+    let (conn, server) = tokio::join!(ws.dial(&routes[0], None, Some(device())), async {
         let tls = accepted(&mut streams).await;
         let mut upgrade = None;
         let server = tokio_tungstenite::accept_hdr_async(tls, |request: &Request, response| {
@@ -447,6 +448,7 @@ async fn a_dead_route_gives_way_to_the_next_and_the_live_one_is_remembered() {
     client.set_network(Some("wifi".into()));
     let mut routes = ws
         .trust(
+            device(),
             &[
                 route("127.0.0.1", dead, &cert.pin),
                 route("127.0.0.1", port, &cert.pin),
@@ -456,10 +458,13 @@ async fn a_dead_route_gives_way_to_the_next_and_the_live_one_is_remembered() {
         )
         .into_iter();
     let first = routes.next().unwrap();
-    let (_handle, mut events) = client.link(LinkSpec {
-        fallbacks: routes.collect(),
-        ..spec(first)
-    });
+    let (_handle, mut events) = client.link_to(
+        LinkSpec {
+            fallbacks: routes.collect(),
+            ..spec(first)
+        },
+        device(),
+    );
     // The dead route takes far longer than this to time out.
     let mut maxd = FakeMaxd::new(accepted(&mut maxds).await);
     maxd.accept(InstanceId::generate(), "boot-1").await;
@@ -479,11 +484,12 @@ async fn a_route_showing_another_certificate_is_refused() {
     let (headers, asked) = signing();
     let client = Client::app(crate::Transport::Ws(ws.clone())).timed(FAST);
     let routes = ws.trust(
+        device(),
         &[route("127.0.0.1", port, &cert("devbox.lan").pin)],
         &headers,
         &ending().0,
     );
-    let (_handle, mut events) = client.link(spec(routes[0].clone()));
+    let (_handle, mut events) = client.link_to(spec(routes[0].clone()), device());
     assert_eq!(
         refused_with(&mut events).await,
         "the device showed a different certificate"
@@ -493,10 +499,44 @@ async fn a_route_showing_another_certificate_is_refused() {
 }
 
 #[tokio::test]
+async fn the_same_address_on_two_networks_keeps_each_devices_pin() {
+    let ours_cert = cert("devbox.lan");
+    let (port, mut maxds) = device_server(&ours_cert).await;
+    let ws = PhoneWs::new();
+    let (headers, _) = signing();
+    // Another Mac's device, at the same private address on its own network.
+    let other = DeviceId::derive("other-device");
+    let theirs = ws.trust(
+        other,
+        &[route("127.0.0.1", port, &cert("build-box.lan").pin)],
+        &headers,
+        &ending().0,
+    );
+    let ours = ws.trust(
+        device(),
+        &[route("127.0.0.1", port, &ours_cert.pin)],
+        &headers,
+        &ending().0,
+    );
+    assert_eq!(theirs, ours, "one route name for both");
+    ws.dial(&ours[0], None, Some(device())).await.unwrap();
+    accepted(&mut maxds).await;
+    let err = failure(ws.dial(&theirs[0], None, Some(other)).await);
+    assert_eq!(err.reason, "the device showed a different certificate");
+    let err = failure(ws.dial(&ours[0], None, None).await);
+    assert_eq!(err.reason, "that route isn't in this phone's device book");
+}
+
+#[tokio::test]
 async fn the_debug_view_shows_routes_and_never_headers() {
     let ws = PhoneWs::new();
     let (headers, _) = signing();
-    ws.trust(&[route("192.168.1.20", 7466, "pin")], &headers, &ending().0);
+    ws.trust(
+        device(),
+        &[route("192.168.1.20", 7466, "pin")],
+        &headers,
+        &ending().0,
+    );
     let shown = format!("{ws:?}");
     assert_eq!(shown, r#"PhoneWs { routes: ["wss://192.168.1.20:7466"] }"#);
 }
@@ -514,6 +554,7 @@ async fn both_send_each_route_to_the_transport_that_knows_it() {
     let ssh = crate::PhoneSsh::new(&[1; 32]);
     let (headers, _) = signing();
     let network = ws.trust(
+        device(),
         &[route("127.0.0.1", port, &cert.pin)],
         &headers,
         &ending().0,
@@ -531,18 +572,23 @@ async fn both_send_each_route_to_the_transport_that_knows_it() {
         network: None,
     });
     let both = crate::transport::Both { ssh, ws };
-    both.dial(&network[0], None).await.unwrap();
+    both.dial(&network[0], None, Some(device())).await.unwrap();
     accepted(&mut maxds).await;
-    let err = failure(both.dial(&over_ssh[0], None).await);
+    let err = failure(both.dial(&over_ssh[0], None, Some(device())).await);
     assert_eq!(err.reason, "the device's host key pin doesn't read");
     // The network access knows its own routes, whatever a name looks like.
-    assert!(both.ws.knows(&ws_route_host("127.0.0.1", port)));
-    assert!(!both.ws.knows("wss://192.168.1.20:7466"));
-    assert!(!both.ws.knows(&phone_route_host(&PhoneRoute {
-        user: "dev".into(),
-        host: "127.0.0.1".into(),
-        port: 22,
-    })));
+    assert!(both
+        .ws
+        .knows(Some(device()), &ws_route_host("127.0.0.1", port)));
+    assert!(!both.ws.knows(Some(device()), "wss://192.168.1.20:7466"));
+    assert!(!both.ws.knows(
+        Some(device()),
+        &phone_route_host(&PhoneRoute {
+            user: "dev".into(),
+            host: "127.0.0.1".into(),
+            port: 22,
+        })
+    ));
 }
 
 /// A device whose upgrades answer `status` with `body`.
@@ -588,8 +634,8 @@ async fn an_ended_sign_in_says_pair_again_and_tells_the_caller() {
         let ws = PhoneWs::new();
         let (headers, _) = signing();
         let (ended, count) = ending();
-        let routes = ws.trust(&[route], &headers, &ended);
-        let err = failure(ws.dial(&routes[0], None).await);
+        let routes = ws.trust(device(), &[route], &headers, &ended);
+        let err = failure(ws.dial(&routes[0], None, Some(device())).await);
         assert_eq!(err.reason, reason, "{body}");
         assert_eq!(*count.lock().unwrap(), ends, "{body}");
     }
@@ -641,6 +687,7 @@ async fn a_link_tries_network_routes_first_and_then_ssh_after_the_stagger() {
     let (headers, _) = signing();
     let pin = URL_SAFE_NO_PAD.encode([7; 32]);
     let mut routes = ws.trust(
+        device(),
         &[route("127.0.0.1", network_port, &pin)],
         &headers,
         &ending().0,
@@ -649,10 +696,13 @@ async fn a_link_tries_network_routes_first_and_then_ssh_after_the_stagger() {
     let client = Client::app(crate::Transport::Phone { ssh, ws }).timed(FAST);
     let mut routes = routes.into_iter();
     let first = routes.next().unwrap();
-    let (_handle, _events) = client.link(LinkSpec {
-        fallbacks: routes.collect(),
-        ..spec(first)
-    });
+    let (_handle, _events) = client.link_to(
+        LinkSpec {
+            fallbacks: routes.collect(),
+            ..spec(first)
+        },
+        device(),
+    );
     let first = accepted(&mut network).await;
     let then = accepted(&mut over_ssh).await;
     // The stagger is 300 ms; the network route never answers, so SSH
@@ -678,6 +728,7 @@ async fn an_ended_sign_in_outranks_a_route_that_doesnt_answer() {
         .unwrap()
         .port();
     let mut routes = ws.trust(
+        device(),
         &[refusing(401, r#"{"error":"revoked"}"#).await],
         &headers,
         &ended,
@@ -686,10 +737,13 @@ async fn an_ended_sign_in_outranks_a_route_that_doesnt_answer() {
     let client = Client::app(crate::Transport::Phone { ssh, ws }).timed(FAST);
     let mut routes = routes.into_iter();
     let first = routes.next().unwrap();
-    let (_handle, mut events) = client.link(LinkSpec {
-        fallbacks: routes.collect(),
-        ..spec(first)
-    });
+    let (_handle, mut events) = client.link_to(
+        LinkSpec {
+            fallbacks: routes.collect(),
+            ..spec(first)
+        },
+        device(),
+    );
     assert_eq!(refused_with(&mut events).await, SIGN_IN_ENDED);
     assert!(*count.lock().unwrap() >= 1);
 }

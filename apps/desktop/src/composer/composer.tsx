@@ -49,6 +49,12 @@ import {
 	readFragment,
 } from "@maxhq/shared/pills/clipboard";
 import {
+	createGitPills,
+	gitFinder,
+	type GitPillsStore,
+	shownItems,
+} from "@maxhq/shared/pills/git-pills";
+import {
 	type AgentRef,
 	excerptIds,
 	farAgents,
@@ -63,6 +69,7 @@ import {
 	gitNumbers,
 	type GitTarget,
 	gitTargetOf,
+	hasNote,
 	isBlank,
 	keyedGitItems,
 	markedText,
@@ -127,19 +134,14 @@ import {
 	type ExcerptFailure,
 	intakeFailure,
 } from "./failure";
+import { EXCERPT_BUDGET } from "@maxhq/shared/composer/copies";
 import { isOver, timelineFileOf } from "./file-drop";
-import {
-	createGitPills,
-	gitFinder,
-	GitPillPreview,
-	type GitPillsStore,
-	shownItems,
-	useGitHover,
-} from "./git-pills";
+import { GitPillPreview, useGitHover } from "./git-pills";
 import { ImageNote } from "./image-note";
 import { useComposerNative } from "./native";
 import { useOutputFill } from "./output-pill";
-import { useHeldOutputs } from "./output-pills";
+import { useHeldOutputs } from "./held-pills";
+import { useSessionFill, useSessionPills } from "./session-pill";
 import { type PaneFile, usePaneFiles } from "./pane-files";
 import { nextPastedTextFileName, pastesAsFile } from "./paste";
 import { EffortPicker } from "./effort-picker";
@@ -149,7 +151,7 @@ import { usePillMenu } from "./pill-menu";
 import { PILL_CLOCK_MS, PillsContext, type PillsContextValue } from "./pill-nodes";
 import { QueuedList } from "./queued";
 import { quoteOfDrag, visualOfDrag } from "./quote-drop";
-import { quoteInbox } from "./quote-inbox";
+import { quoteInbox } from "@maxhq/shared/pills/quote-inbox";
 import { releasedFiles } from "./retained";
 import { draftsOf } from "./saved-drafts";
 import { useShellMode } from "./shell-mode";
@@ -227,15 +229,8 @@ const walkKey = (agent: AgentId) => `history:${agent}`;
 /** Every word that opens a menu, as the composer's text box has them all. */
 const ALL_TRIGGERS: readonly TriggerKind[] = ["path", "git-item", "skill"];
 
-/** How much of an agent on another device its excerpt holds, in characters. */
-const EXCERPT_BUDGET = 40_000;
-
 /** An agent's excerpt a send took: its chip, or why it couldn't be taken. */
 type Excerpt = { readonly key: string } | { readonly error: string | null };
-
-/** Whether the text holds a note's pill. */
-const hasNote = (segments: readonly Segment[]): boolean =>
-	segments.some((segment) => segment.type === "pill" && segment.pill.type === "note");
 
 /** Where a piece of a draft goes: a composer's files and pills, and where its files stage. */
 type Placing = {
@@ -431,6 +426,8 @@ const ComposerBody = ({
 	});
 	const fillOutputs = useOutputFill(timeline);
 	useHeldOutputs(agent.id, draft.segments, editor);
+	const fillSessions = useSessionFill(timeline);
+	useSessionPills(agent.id, timeline, draft.segments, editor, where);
 	const [waitingForFiles, setWaitingForFiles] = useState(false);
 	const [sending, setSending] = useState(false);
 	const [over, setOver] = useState(false);
@@ -868,7 +865,7 @@ const ComposerBody = ({
 			// The space after a last pill doesn't go out.
 			const input = withExcerpts(
 				toUserInput(
-					{ segments: fillOutputs(trimEnd(segments)), gitItems },
+					{ segments: fillSessions(fillOutputs(trimEnd(segments))), gitItems },
 					(key): AttachmentId | null => ids.get(key) ?? null,
 					// An older maxd gets a visual as its page's file.
 					{ visuals: sendsVisuals(services.view.getState().view, device) }

@@ -13,13 +13,14 @@ import { DiffView } from "@/agent-view/diff-view";
 import { Markdown } from "@/agent-view/markdown";
 import { cn } from "@/lib/utils";
 import { SECONDARY } from "@/settings/controls";
-import type { CheckState, PullCheck, PullFile, PullFileStatus } from "@maxhq/shared/bindings";
+import type { PullCheck, PullFile } from "@maxhq/shared/bindings";
 import { useNow } from "@maxhq/shared/lib/clock";
+import { CHECK_GROUPS, CHECK_STATE, checksLabel, FILE_STATUS } from "@maxhq/shared/pulls/look";
 import { pullUrl } from "@maxhq/shared/pulls/urls";
 import { formatWhen } from "@maxhq/shared/status/format";
 import type { ShownPull } from "@maxhq/shared/ui/store";
 
-import { checksLabel, ChecksMark, OutLink, PullSize, UnknownChecksBanner } from "./look";
+import { ChecksMark, OutLink, PullSize, UnknownChecksBanner } from "./look";
 import { usePullChecks, usePullComments, usePullFiles } from "./queries";
 
 /** A tab's loading line, or its failure in words. */
@@ -39,30 +40,6 @@ const Status = ({ error, what }: { error: Error | null; what: string }) => {
 const Quiet = ({ children }: { children: ReactNode }) => {
 	useI18n();
 	return <p className="text-[12.5px] text-muted-foreground">{children}</p>;
-};
-
-const FILE_STATUS: Record<PullFileStatus, string> = {
-	get added() {
-		return t("Added");
-	},
-	get removed() {
-		return t("Deleted");
-	},
-	get modified() {
-		return t("Changed");
-	},
-	get renamed() {
-		return t("Renamed");
-	},
-	get copied() {
-		return t("Copied");
-	},
-	get changed() {
-		return t("Mode changed");
-	},
-	get unchanged() {
-		return t("Unchanged");
-	},
 };
 
 /**
@@ -146,48 +123,6 @@ export const PullFilesTab = ({ shown }: { shown: ShownPull }) => {
 	);
 };
 
-const GROUPS: readonly { state: CheckState; title: string }[] = [
-	{
-		state: "failing",
-		get title() {
-			return t("Failing");
-		},
-	},
-	{
-		state: "pending",
-		get title() {
-			return t("Pending");
-		},
-	},
-	{
-		state: "passing",
-		get title() {
-			return t("Passing");
-		},
-	},
-	{
-		state: "skipped",
-		get title() {
-			return t("Skipped");
-		},
-	},
-];
-
-const CHECK_STATE: Record<CheckState, string> = {
-	get failing() {
-		return t("Failed");
-	},
-	get pending() {
-		return t("Running");
-	},
-	get passing() {
-		return t("Passed");
-	},
-	get skipped() {
-		return t("Skipped");
-	},
-};
-
 const CheckRow = ({ check }: { check: PullCheck }) => {
 	const { t } = useI18n();
 	return (
@@ -226,7 +161,7 @@ export const PullChecksTab = ({ shown }: { shown: ShownPull }) => {
 				<ChecksMark state={state} />
 				{checksLabel(state)}
 			</p>
-			{GROUPS.map(({ state: group, title }) => {
+			{CHECK_GROUPS.map(({ state: group, title }) => {
 				const inGroup = all.filter((check) => check.state === group);
 				if (inGroup.length === 0) return null;
 				return (

@@ -102,38 +102,159 @@ export const changeTotals = (
 /** How many patch lines a feed shows before "Show all", about a phone screen. */
 export const PATCH_LINES = 40;
 
+/** How many more patch lines each "Show more" shows. */
+export const PATCH_PAGE = 400;
+
+/** The most lines in one chunk of a patch. */
+export const PATCH_CHUNK = 200;
+
+/**
+ * A patch's lines in chunks to draw and highlight on their own: one for
+ * each hunk, its header first, and a long hunk cut every `most` lines. A
+ * hunk is one stretch of each file, so highlighting it alone loses nothing.
+ */
+export const patchChunks = (
+	lines: readonly PatchLine[],
+	most: number = PATCH_CHUNK
+): PatchLine[][] => {
+	const chunks: PatchLine[][] = [];
+	let chunk: PatchLine[] = [];
+	for (const line of lines) {
+		if (chunk.length > 0 && (line.type === "hunk" || chunk.length >= most)) {
+			chunks.push(chunk);
+			chunk = [];
+		}
+		chunk.push(line);
+	}
+	if (chunk.length > 0) chunks.push(chunk);
+	return chunks;
+};
+
 /** One file of a change, ready to draw. */
 export type PatchFile = {
 	readonly change: FileEdit;
-	/** Its lines, or null when the CLI sent no diff for it. */
-	readonly lines: readonly PatchLine[] | null;
+	/** Its lines in chunks, or null when the CLI sent no diff for it. */
+	readonly chunks: readonly (readonly PatchLine[])[] | null;
 };
 
-/** What a change shows: its files, and whether the cap left anything out. */
+/** Each file of a change, its patch read into chunks. */
+export const patchFiles = (changes: readonly FileEdit[]): PatchFile[] =>
+	changes.map((change) => ({
+		change,
+		chunks: change.patch === null ? null : patchChunks(patchLines(change.patch)),
+	}));
+
+/** What a change shows: its files, whether the cap left anything out, and how many lines. */
 export type ShownPatch = {
 	readonly files: readonly PatchFile[];
 	readonly more: boolean;
+	/** The patch lines left out. */
+	readonly hidden: number;
 };
 
+const lineCount = (file: PatchFile): number =>
+	file.chunks?.reduce((sum, chunk) => sum + chunk.length, 0) ?? 0;
+
 /**
- * The files of a change and their lines, up to `limit` lines in all. The
- * files past the limit are left out. With no limit it shows everything.
+ * The files of a change and their chunks, up to `limit` lines in all. The
+ * files past the limit are left out, and the chunk the limit falls in is
+ * cut. Every chunk shown whole is the one `files` holds, so a view drawn
+ * from it stays as it was when more shows. With no limit it shows everything.
  */
 export const shownPatch = (
-	changes: readonly FileEdit[],
+	files: readonly PatchFile[],
 	limit: number | null = PATCH_LINES
 ): ShownPatch => {
-	const files: PatchFile[] = [];
-	let left = limit ?? Infinity;
-	for (const change of changes) {
-		if (left <= 0) return { files, more: true };
-		const lines = change.patch === null ? null : patchLines(change.patch);
-		if (lines && lines.length > left) {
-			files.push({ change, lines: lines.slice(0, left) });
-			return { files, more: true };
+	if (limit === null) return { files, more: false, hidden: 0 };
+	const shown: PatchFile[] = [];
+	let left = limit;
+	for (const [at, file] of files.entries()) {
+		const count = lineCount(file);
+		if (left <= 0 || count > left) {
+			const rest = files.slice(at).reduce((sum, next) => sum + lineCount(next), 0);
+			if (left > 0) shown.push({ ...file, chunks: cut(file.chunks ?? [], left) });
+			return { files: shown, more: true, hidden: rest - Math.max(0, left) };
 		}
-		files.push({ change, lines });
-		left -= lines?.length ?? 0;
+		shown.push(file);
+		left -= count;
 	}
-	return { files, more: false };
+	return { files: shown, more: false, hidden: 0 };
+};
+
+// The first `count` lines of `chunks`, the chunks shown whole as they are.
+const cut = (
+	chunks: readonly (readonly PatchLine[])[],
+	count: number
+): (readonly PatchLine[])[] => {
+	const kept: (readonly PatchLine[])[] = [];
+	let left = count;
+	for (const chunk of chunks) {
+		if (left <= 0) break;
+		kept.push(chunk.length > left ? chunk.slice(0, left) : chunk);
+		left -= chunk.length;
+	}
+	return kept;
+};
+
+/** Where a patch line's colours come from: a line of one side's code. */
+export type PatchSpot = { readonly side: "old" | "new"; readonly line: number };
+
+/**
+ * A chunk of a patch as the code of each side, to highlight as a whole: the
+ * old side's context and removed lines, and the new side's context and
+ * added lines, each null when it has none. `spots` says where each patch
+ * line's colours come from, null for a hunk header. A context line takes
+ * the new side's.
+ */
+export type PatchSides = {
+	readonly old: string | null;
+	readonly new: string | null;
+	readonly spots: readonly (PatchSpot | null)[];
+};
+
+/** A chunk of a patch as the code of each side. */
+export const patchSides = (lines: readonly PatchLine[]): PatchSides => {
+	const before: string[] = [];
+	const after: string[] = [];
+	const spots: (PatchSpot | null)[] = [];
+	for (const line of lines) {
+		// A lone carriage return would split a line in two.
+		const text = line.text.includes("\r") ? line.text.replaceAll("\r", "") : line.text;
+		if (line.type === "hunk") {
+			spots.push(null);
+		} else if (line.type === "remove") {
+			spots.push({ side: "old", line: before.length });
+			before.push(text);
+		} else {
+			spots.push({ side: "new", line: after.length });
+			if (line.type === "context") before.push(text);
+			after.push(text);
+		}
+	}
+	return {
+		old: before.length > 0 ? before.join("\n") : null,
+		new: after.length > 0 ? after.join("\n") : null,
+		spots,
+	};
+};
+
+/** A run of lines of one kind in a chunk, from `start` up to `end`. */
+export type PatchRun = {
+	readonly type: PatchLine["type"];
+	readonly start: number;
+	readonly end: number;
+};
+
+/** A chunk's lines in runs of one kind, each at most `most` lines. */
+export const patchRuns = (lines: readonly PatchLine[], most: number): PatchRun[] => {
+	const runs: PatchRun[] = [];
+	let start = 0;
+	for (let at = 1; at <= lines.length; at++) {
+		const type = lines[start]!.type;
+		if (at === lines.length || lines[at]!.type !== type || at - start >= most) {
+			runs.push({ type, start, end: at });
+			start = at;
+		}
+	}
+	return runs;
 };

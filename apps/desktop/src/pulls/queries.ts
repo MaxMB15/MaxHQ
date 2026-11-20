@@ -9,8 +9,6 @@
 // merge or an approval drops what was read of the PR and the lists, so
 // they're read again.
 
-import { t } from "@maxhq/shared/i18n";
-
 import {
 	type QueryClient,
 	useInfiniteQuery,
@@ -18,7 +16,6 @@ import {
 	useQuery,
 	useQueryClient,
 } from "@tanstack/react-query";
-import { useEffect, useState } from "react";
 
 import { useServices, useView } from "@/app/services";
 import type {
@@ -27,14 +24,12 @@ import type {
 	ProjectId,
 	PullKey,
 	PullListState,
-	SignInId,
-	Timestamp,
 } from "@maxhq/shared/bindings";
-import { useNow } from "@maxhq/shared/lib/clock";
 import { approvePull, mergePull, type PullActed, type PullAt } from "@maxhq/shared/pulls/act";
-import { githubLoginOn } from "@maxhq/shared/pulls/devices";
 import { readOf } from "@maxhq/shared/pulls/read";
-import { errorText } from "@maxhq/shared/timeline/store";
+import { useGithubSignIn as useGithubSignInOn } from "@maxhq/shared/settings/github-sign-in";
+
+export { type GithubSignInState, SIGN_IN_CHECK_MS } from "@maxhq/shared/settings/github-sign-in";
 
 const PULLS = "pulls";
 
@@ -156,132 +151,14 @@ export const useApprovePull = () => {
 	});
 };
 
-const GITHUB_PAGES = "https://github.com/";
-
-/** A code waiting to be entered on GitHub. */
-type Waiting = {
-	readonly device: DeviceId;
-	readonly signIn: SignInId;
-	readonly userCode: string;
-	readonly verificationUri: string;
-	readonly expiresAt: Timestamp;
-	/** When the device stored the login it held before, if it held one. */
-	readonly before: Timestamp | null;
-};
-
-/** Where a GitHub sign-in stands, for the dialog. */
-export type GithubSignInState =
-	| { readonly state: "idle" }
-	| { readonly state: "starting"; readonly device: DeviceId }
-	/** Waiting for you to enter `userCode` at `verificationUri`. */
-	| {
-			readonly state: "waiting";
-			readonly device: DeviceId;
-			readonly userCode: string;
-			readonly verificationUri: string;
-			readonly expiresAt: Timestamp;
-	  }
-	/** The device holds your sign-in now. */
-	| { readonly state: "done"; readonly device: DeviceId; readonly login: string }
-	/** The code ran out with no sign-in. Begin again to retry. */
-	| { readonly state: "expired"; readonly device: DeviceId }
-	/** The device wouldn't start one, or GitHub turned it down. */
-	| { readonly state: "failed"; readonly device: DeviceId; readonly reason: string };
-
-type Started =
-	| { readonly state: "idle" }
-	| { readonly state: "starting"; readonly device: DeviceId }
-	| { readonly state: "waiting"; readonly code: Waiting }
-	| { readonly state: "failed"; readonly device: DeviceId; readonly reason: string };
-
-/** How often a waiting sign-in asks its device whether GitHub refused it. */
-export const SIGN_IN_CHECK_MS = 2000;
-
 /**
  * Signs you in to GitHub on a device you pick. `begin` asks it for a code
  * to enter on GitHub, and the sign-in is done once that device's
- * `github_user` login shows up on the state stream. While it waits, the
- * device is asked now and then, so a code GitHub turned down says why.
- * A device too old to answer says nothing, and its code shows as expired
- * once its time runs out.
+ * `github_user` login shows up on the state stream. The phone runs the
+ * same, so it lives in the shared package.
  */
 export const useGithubSignIn = () => {
 	const { source } = useServices();
 	const view = useView((s) => s.view);
-	const [started, setStarted] = useState<Started>({ state: "idle" });
-	const now = useNow(1000);
-
-	const begin = async (device: DeviceId) => {
-		const before = githubLoginOn(view, device)?.storedAt ?? null;
-		setStarted({ state: "starting", device });
-		const result = await source.beginGithubSignIn(device, null);
-		if (result.status === "error") {
-			setStarted({ state: "failed", device, reason: errorText(result.error) });
-		} else if (result.data.status === "device_code") {
-			const code = result.data;
-			// The device names this page and the app opens it for you, so it has to be GitHub's.
-			if (!code.verification_uri.startsWith(GITHUB_PAGES)) {
-				setStarted({
-					state: "failed",
-					device,
-					reason: t("The device named a sign-in page that isn't on GitHub."),
-				});
-				return;
-			}
-			setStarted({
-				state: "waiting",
-				code: {
-					device,
-					signIn: code.sign_in,
-					userCode: code.user_code,
-					verificationUri: code.verification_uri,
-					expiresAt: code.expires_at,
-					before,
-				},
-			});
-		} else {
-			const reason =
-				result.data.status === "refused"
-					? result.data.reason
-					: t("The device didn't give a code.");
-			setStarted({ state: "failed", device, reason });
-		}
-	};
-
-	const waitingOn = started.state === "waiting" ? started.code : null;
-	useEffect(() => {
-		if (!waitingOn) return;
-		const { device, signIn } = waitingOn;
-		const timer = setInterval(() => {
-			void source.checkGithubSignIn(device, signIn).then((result) => {
-				if (result.status !== "ok" || result.data.status !== "refused") return;
-				const reason = result.data.reason;
-				setStarted((now) =>
-					now.state === "waiting" && now.code.signIn === signIn
-						? { state: "failed", device, reason }
-						: now
-				);
-			});
-		}, SIGN_IN_CHECK_MS);
-		return () => clearInterval(timer);
-	}, [source, waitingOn]);
-
-	/** Stops waiting for the code, and has the device forget it. */
-	const cancel = async () => {
-		if (started.state === "waiting") {
-			await source.cancelGithubSignIn(started.code.device, started.code.signIn);
-		}
-		setStarted({ state: "idle" });
-	};
-
-	const state = ((): GithubSignInState => {
-		if (started.state !== "waiting") return started;
-		const { device, userCode, verificationUri, expiresAt, before } = started.code;
-		const held = githubLoginOn(view, device);
-		if (held && held.storedAt !== before) return { state: "done", device, login: held.login };
-		if (now >= expiresAt) return { state: "expired", device };
-		return { state: "waiting", device, userCode, verificationUri, expiresAt };
-	})();
-
-	return { state, begin, cancel };
+	return useGithubSignInOn(source, view);
 };

@@ -12,6 +12,7 @@
 import { t } from "../i18n";
 
 import type {
+	CommandRule,
 	DeviceId,
 	GitAuthor,
 	GitIdentity,
@@ -20,9 +21,9 @@ import type {
 	Timestamp,
 } from "../bindings";
 import { formatAgo } from "../status/format";
-import { MAX_SETTLE_DAYS, parseSettleDays } from "./inbox";
+import { DEFAULT_SETTLE_DAYS, keepsInboxes, MAX_SETTLE_DAYS, parseSettleDays } from "./inbox";
 import { all, type ViewState } from "../view/replica";
-import { deviceName } from "../view/select";
+import { deviceName, linkForDevice } from "../view/select";
 import { workspaceHosts } from "../workspaces/state";
 
 /** What the form holds, as typed. */
@@ -124,6 +125,19 @@ export const draftOf = (settings: ProjectSettings): ProjectDraft => ({
 	memory:
 		settings.memory_soft == null ? "" : String(Number((settings.memory_soft / GIB).toFixed(2))),
 });
+
+/** What you typed, and what the device reported when you started. */
+export type ProjectEdit = { readonly draft: ProjectDraft; readonly from: ProjectDraft };
+
+/**
+ * What the form shows: what you typed, kept until the device reports
+ * something new, else `start`.
+ */
+export const shownDraft = (
+	edit: ProjectEdit | null,
+	current: ProjectDraft,
+	start: ProjectDraft
+): ProjectDraft => (edit && sameDraft(edit.from, current) ? edit.draft : start);
 
 /** Whether two drafts say the same. */
 export const sameDraft = (a: ProjectDraft, b: ProjectDraft): boolean =>
@@ -238,3 +252,47 @@ export const projectDevices = (view: ViewState, project: ProjectId): DeviceId[] 
 	}
 	return [...devices].sort((a, b) => deviceName(view, a).localeCompare(deviceName(view, b)));
 };
+
+/** Which of a project's settings a device's `maxd` is new enough to keep. */
+export type ProjectCapabilities = {
+	/** Idle days before auto-settle. A maxd from before inboxes doesn't settle agents. */
+	readonly settle: boolean;
+	/** Settling an agent when its PR merges. A maxd from before PRs doesn't. */
+	readonly pulls: boolean;
+	/** Giving agents the workflow's variables. */
+	readonly workflows: boolean;
+	/** Each container's soft memory limit. A maxd from before host setup doesn't cap one. */
+	readonly memory: boolean;
+};
+
+/** Which of a project's settings a device keeps, as its hello said. */
+export const projectCapabilities = (view: ViewState, device: DeviceId): ProjectCapabilities => {
+	const capabilities = linkForDevice(view, device)?.capabilities;
+	return {
+		settle: keepsInboxes(view, device),
+		pulls: capabilities?.pulls === true,
+		workflows: capabilities?.workflows === true,
+		memory: capabilities?.host_spec === true,
+	};
+};
+
+/** The idle days a device settles agents after, which an empty project field leaves. */
+export const deviceSettleDays = (view: ViewState, device: DeviceId): number =>
+	view.tables.device_settings.get(device)?.auto_settle_days ?? DEFAULT_SETTLE_DAYS;
+
+const NO_RULES: readonly CommandRule[] = [];
+
+/**
+ * The commands you answered "Always allow" for that a device keeps for a
+ * project, in the order they were saved. The same empty list each time it
+ * keeps none, so a store selector can return it.
+ */
+export const commandRulesOn = (
+	view: ViewState,
+	project: ProjectId,
+	device: DeviceId
+): readonly CommandRule[] =>
+	view.tables.command_rules.get(`${project}/${device}`)?.rules ?? NO_RULES;
+
+/** A rule's key in a list: an exact rule and a prefix one for the same words differ. */
+export const ruleKey = (rule: CommandRule): string => `${rule.exact ? "=" : "~"}${rule.command}`;

@@ -3,8 +3,14 @@
 
 import { describe, expect, it } from "vitest";
 
-import type { EffectiveSkill, SkillLibrary, SkillProposal } from "../bindings";
-import { GIT_FLOW_PROPOSAL, THIRD_PARTY } from "../data/mock-skills";
+import type {
+	EffectiveSkill,
+	GlobalsPlan,
+	ProposalDiff,
+	SkillLibrary,
+	SkillProposal,
+} from "../bindings";
+import { AGENT_SKILLS, GIT_FLOW_PROPOSAL, THIRD_PARTY } from "../data/mock-skills";
 import { mockSource } from "../data/mock-source";
 import { DEVBOX, MAC } from "../data/mock-view";
 import { NOW } from "../test/build";
@@ -13,17 +19,21 @@ import { applySnapshot, type ViewState } from "../view/replica";
 import { skillLibrary, skillProposals } from "./library";
 import {
 	afterApply,
+	answerDone,
 	budgetsOf,
 	cantApprove,
 	devicesWithSkills,
 	EMPTY_LOCK,
+	globalsPlanEmpty,
 	hasUpdates,
 	hideHint,
+	lockedWhere,
 	needsApply,
 	otherLocks,
 	pinSkill,
 	projectSkillsOn,
 	proposalFrom,
+	proposalReview,
 	proposalTitle,
 	pushedOut,
 	scanPlaceOf,
@@ -83,6 +93,18 @@ describe("the project's skills", () => {
 		]);
 		expect(pinSkill(lock, "git-flow", true).skills[0]!.pinned).toBe(true);
 		expect(EMPTY_LOCK.skills).toEqual([]);
+	});
+
+	it("says where a locked skill comes from", async () => {
+		const view = await load();
+		const library = libraryOf(view);
+		const [locked] = projectSkillsOn(view, "proj-maxhq", MAC)!.lock.skills;
+		const from = library.sources.find((s) => s.id === locked!.source)!;
+		expect(lockedWhere(library, locked!)).toBe(`${from.name} at ${locked!.commit}`);
+		expect(lockedWhere(library, { ...locked!, commit: null })).toBe(from.name);
+		expect(lockedWhere(library, { ...locked!, name: "gone" })).toBe(
+			"Its source no longer has it"
+		);
 	});
 
 	it("moves unpinned skills to their source's newest copy and leaves pinned ones", async () => {
@@ -192,6 +214,53 @@ describe("the project's skills", () => {
 		expect(cantApprove(libraryOf(view), theirs, "git-flow")).toMatch(/name of its own/);
 		expect(cantApprove(libraryOf(view), theirs, "my-git-flow")).toBeNull();
 	});
+
+	it("works out what a proposal's viewer shows before and after its diff", async () => {
+		const view = await load("skills_proposal");
+		const library = libraryOf(view);
+		const [proposal] = skillProposals(view, "proj-maxhq");
+		const before = proposalReview(library, proposal!, undefined, "");
+		expect(before).toMatchObject({ forking: false, refusal: null, standing: null });
+		expect(before.seen).toBeUndefined();
+		expect(before.from?.id).toBe(AGENT_SKILLS);
+		const diff: ProposalDiff = {
+			files: [],
+			flags: { scripts: false, hooks: false, allowed_tools: false },
+		};
+		expect(proposalReview(library, proposal!, diff, "").seen).toEqual({
+			tree: proposal!.tree,
+			base: proposal!.base,
+		});
+		const aimed: ProposalDiff = {
+			...diff,
+			tree: "tree-shown",
+			target: { name: proposal!.name, source: THIRD_PARTY, base: null },
+		};
+		const forked = proposalReview(library, proposal!, aimed, "");
+		expect(forked).toMatchObject({
+			forking: true,
+			base: null,
+			standing: "New skill",
+			seen: { tree: "tree-shown", base: null },
+		});
+		expect(forked.refusal).toMatch(/Name a fork/);
+		expect(proposalReview(library, proposal!, aimed, "my-git-flow").refusal).toBeNull();
+		const fresh: SkillProposal = { ...proposal!, base: null };
+		expect(proposalReview(library, fresh, diff, "").standing).toBe("New skill");
+		const taken = proposalReview(
+			library,
+			fresh,
+			{ ...diff, target: { name: fresh.name, source: AGENT_SKILLS, base: "tree-git-flow" } },
+			""
+		);
+		expect(taken.standing).toBe(`Replaces git-flow in ${taken.from!.name}`);
+	});
+
+	it("says what an answer did", () => {
+		expect(answerDone("reject", false)).toBe("Rejected");
+		expect(answerDone("approve", true)).toBe("Approved and pushed");
+		expect(answerDone("approve", false)).toBe("Approved");
+	});
 });
 
 describe("the library page's devices", () => {
@@ -201,6 +270,16 @@ describe("the library page's devices", () => {
 		expect(hideHint("codex")).toContain("config.toml");
 		expect(hideHint("claude")).toContain("skillOverrides");
 		expect(hideHint("cursor")).toBeNull();
+	});
+
+	it("says when tidying a device would do nothing", () => {
+		const plan: GlobalsPlan = { hash: "h", moves: [], links: [], backups: [] };
+		expect(globalsPlanEmpty(plan)).toBe(true);
+		expect(globalsPlanEmpty({ ...plan, undo: true })).toBe(true);
+		expect(globalsPlanEmpty({ ...plan, links: ["~/.claude/skills/a"] })).toBe(false);
+		expect(globalsPlanEmpty({ ...plan, conflicts: [{ name: "a", paths: ["x", "y"] }] })).toBe(
+			false
+		);
 	});
 });
 

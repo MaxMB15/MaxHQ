@@ -35,7 +35,7 @@ import { noticesOf } from "./notices";
 import { MenuItem, NewNoteItem, RightClickMenu } from "./project-menu";
 
 const ROW =
-	"flex h-[26px] w-full shrink-0 items-center gap-2 rounded-md pr-2 text-left text-[12.5px] text-secondary-foreground hover:bg-accent hover:text-foreground";
+	"flex h-6 w-full shrink-0 items-center gap-2 rounded-md pr-2 text-left text-[12.5px] text-secondary-foreground hover:bg-accent hover:text-foreground";
 
 /** Shows why a change to a note failed, under the sidebar's list. */
 const reportFailure = (services: Services, failure: string | null) => {
@@ -104,7 +104,7 @@ const NoteItem = ({
 					label={t("Note title")}
 					onCommit={rename}
 					onCancel={() => setRenaming(false)}
-					className="h-[22px] text-[12.5px]"
+					className="h-5 text-[12.5px]"
 				/>
 			</div>
 		);

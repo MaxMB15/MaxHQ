@@ -6,7 +6,7 @@
 // Once the device takes it, the form follows the workspace step by step
 // until it runs or fails, with the egress result and what answered.
 
-import { t, useI18n } from "@maxhq/shared/i18n";
+import { useI18n } from "@maxhq/shared/i18n";
 
 import { Dialog } from "@base-ui/react/dialog";
 import { useState } from "react";
@@ -14,16 +14,23 @@ import { useState } from "react";
 import { useServices, useView } from "@/app/services";
 import { ConnectionDot } from "@/components/status/dots";
 import { Switch } from "@/components/ui/switch";
-import type { DeviceId, ProjectId, Workspace, WorkspaceId } from "@maxhq/shared/bindings";
+import type { DeviceId, ProjectId, WorkspaceId } from "@maxhq/shared/bindings";
 import { useNow } from "@maxhq/shared/lib/clock";
 import { cn } from "@/lib/utils";
 import { Picker } from "@/new-agent/picker";
 import { FIELD, Label, PRIMARY, SECONDARY } from "@/settings/controls";
 import { sendFirstSettings } from "@/settings/project";
 import { failureOf } from "@/settings/result";
-import type { ConnectionLook } from "@maxhq/shared/status/connection";
 import { plural, sentence } from "@maxhq/shared/status/format";
 
+import {
+	creationSteps,
+	madeInstance,
+	madeOrFailed,
+	type SeenSteps,
+	seeStep,
+	stepsLeft,
+} from "@maxhq/shared/workspaces/creation";
 import {
 	defaultName,
 	egressText,
@@ -58,43 +65,6 @@ export const BACKDROP =
 export const POPUP =
 	"fixed top-[12vh] left-1/2 z-[131] w-[min(520px,calc(100vw-32px))] -translate-x-1/2 rounded-xl border border-input bg-card p-5 shadow-popup outline-none";
 
-type StepLook = { readonly look: ConnectionLook; readonly label: string };
-
-const DONE: StepLook = {
-	look: "live",
-	get label() {
-		return t("Done");
-	},
-};
-const RUNNING: StepLook = {
-	look: "connecting",
-	get label() {
-		return t("Running");
-	},
-};
-const FAILED: StepLook = {
-	look: "unreachable",
-	get label() {
-		return t("Failed");
-	},
-};
-const UNKNOWN: StepLook = {
-	look: "unknown",
-	get label() {
-		return t("Unknown");
-	},
-};
-
-/** The name a workspace being made goes by: the device's, once it gives one. */
-const instanceOf = (workspace: Workspace | undefined, planned: string) =>
-	workspace?.location.type === "container" ? workspace.location.instance : planned;
-
-/** Whether the device has finished making the workspace, one way or the other. */
-export const madeOrFailed = (workspace: Workspace | undefined): boolean => {
-	const state = workspace?.managed?.state;
-	return !state || state.state === "running" || state.state === "failed";
-};
-
 /** A workspace being made, step by step, then its state, guest and egress. */
 export const CreationSteps = ({ id, planned }: { id: WorkspaceId; planned: string }) => {
 	const { t } = useI18n();
@@ -102,41 +72,26 @@ export const CreationSteps = ({ id, planned }: { id: WorkspaceId; planned: strin
 	const workspace = useView((s) => s.view.tables.workspace.get(id));
 	const now = useNow(5000);
 	// The device names the container, so its name wins over the one planned.
-	const instance = instanceOf(workspace, planned);
+	const instance = madeInstance(workspace, planned);
 	const managed = workspace?.managed ?? undefined;
 	const state = managed?.state;
 	// The device names only the step it's on, so the steps already seen are
 	// kept here by their place.
-	const [seen, setSeen] = useState<ReadonlyMap<number, string>>(() => new Map());
-	const step = state?.state === "creating" ? state.step : null;
-	const done = state?.state === "creating" ? state.done : null;
-	if (step !== null && done !== null && seen.get(done) !== step) {
-		setSeen(new Map(seen).set(done, step));
-	}
-
-	const steps = [...seen].sort(([a], [b]) => a - b);
-	const last = steps[steps.length - 1]?.[0];
-	const lookOf = (i: number): StepLook => {
-		switch (state?.state) {
-			case "creating":
-				return i < state.done ? DONE : RUNNING;
-			case "running":
-				return DONE;
-			case "failed":
-				return i === last ? FAILED : DONE;
-			default:
-				return UNKNOWN;
-		}
-	};
-	const left = state?.state === "creating" ? Math.max(0, state.of - state.done - 1) : 0;
+	const [seen, setSeen] = useState<SeenSteps>(() => new Map());
+	const next = seeStep(seen, state);
+	if (next !== seen) setSeen(next);
+	const left = stepsLeft(state);
 
 	return (
 		<>
 			<ol aria-label={t("Steps")} className="flex flex-col gap-2">
-				{steps.map(([i, text]) => (
-					<li key={i} className="flex items-center gap-2.5 text-[12.5px] text-foreground">
-						<ConnectionDot size={8} {...lookOf(i)} />
-						<span>{text}</span>
+				{creationSteps(next, state).map((step) => (
+					<li
+						key={step.at}
+						className="flex items-center gap-2.5 text-[12.5px] text-foreground"
+					>
+						<ConnectionDot size={8} look={step.look} label={step.label} />
+						<span>{step.text}</span>
 					</li>
 				))}
 				{left > 0 ? (
@@ -182,7 +137,9 @@ const Progress = ({ id, planned }: { id: WorkspaceId; planned: string }) => {
 	return (
 		<div className="flex flex-col gap-4">
 			<div className="flex flex-col gap-1">
-				<Title>{t("Making {{value1}}", { value1: instanceOf(workspace, planned) })}</Title>
+				<Title>
+					{t("Making {{value1}}", { value1: madeInstance(workspace, planned) })}
+				</Title>
 				<Dialog.Description className="text-[12.5px] text-muted-foreground">
 					{ended
 						? t("The device has finished.")

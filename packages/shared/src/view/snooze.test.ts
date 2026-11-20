@@ -9,6 +9,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
 	DEFAULT_SNOOZE_PRESETS,
+	isSnoozePresetList,
 	isSnoozePresetSetting,
 	nextSnoozeCandidate,
 	pickSnoozePreset,
@@ -221,6 +222,15 @@ describe("the options editor", () => {
 		expect(isSnoozePresetSetting({ kind: "at", day: "someday", time: "17:00" })).toBe(false);
 		expect(isSnoozePresetSetting({ kind: "at", day: "today", time: "25:00" })).toBe(false);
 		expect(isSnoozePresetSetting(null)).toBe(false);
+	});
+
+	it("only takes a whole menu of good options, eight at most", () => {
+		expect(isSnoozePresetList(DEFAULT_SNOOZE_PRESETS)).toBe(true);
+		expect(isSnoozePresetList([])).toBe(true);
+		const nine = Array.from({ length: 9 }, (_, i) => ({ kind: "after", minutes: i + 1 }));
+		expect(isSnoozePresetList(nine)).toBe(false);
+		expect(isSnoozePresetList([{ kind: "after", minutes: 60 }, { kind: "after" }])).toBe(false);
+		expect(isSnoozePresetList({ kind: "after", minutes: 60 })).toBe(false);
 	});
 });
 

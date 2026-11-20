@@ -18,14 +18,14 @@ import { CopyIcon } from "@/components/copy-field";
 import { useGithubSignIn } from "@/pulls/queries";
 import type { DeviceId } from "@maxhq/shared/bindings";
 import { useNow } from "@maxhq/shared/lib/clock";
+import { type GithubSignIn, githubSignIn, signInDevices } from "@maxhq/shared/pulls/devices";
 import {
-	type GithubSignIn,
-	githubSignIn,
-	type SignInDevice,
-	signInDevices,
-} from "@maxhq/shared/pulls/devices";
+	appSettingsUrl,
+	appSlugOn,
+	AUTHORIZED_APPS_URL,
+	defaultHolder,
+} from "@maxhq/shared/settings/github-sign-in";
 import { sentence } from "@maxhq/shared/status/format";
-import type { ViewState } from "@maxhq/shared/view/replica";
 import { deviceName } from "@maxhq/shared/view/select";
 
 import { PRIMARY, Row, SECONDARY, Section, StatusNote } from "./controls";
@@ -34,11 +34,7 @@ import { heldOf } from "./logins";
 import { Pick } from "./snooze-presets";
 import { t as translate, useI18n } from "@maxhq/shared/i18n";
 
-/** Where GitHub lists the Apps you authorized, to revoke one there. */
-const AUTHORIZED_APPS_URL = "https://github.com/settings/apps/authorizations";
-
-/** A GitHub App's settings page, where Enable Device Flow is ticked. */
-export const appSettingsUrl = (slug: string): string => `https://github.com/settings/apps/${slug}`;
+export { appSettingsUrl, defaultHolder };
 
 const SIGN_OUT: ForgetWords = {
 	get label() {
@@ -50,23 +46,6 @@ const SIGN_OUT: ForgetWords = {
 };
 
 const LINK = "text-xs text-primary hover:underline";
-
-/** The slug of the GitHub App a device holds, if it holds one GitHub named. */
-const appSlugOn = (view: ViewState, device: DeviceId): string | null =>
-	heldOf(view, "github_app").find((c) => c.device === device)?.kind.slug ?? null;
-
-/**
- * The device the picker starts on: the first that holds a GitHub App, since
- * it signs in through its own, else the first there is.
- */
-export const defaultHolder = (
-	view: ViewState,
-	devices: readonly SignInDevice[]
-): DeviceId | undefined =>
-	(
-		devices.find((d) => heldOf(view, "github_app").some((c) => c.device === d.device)) ??
-		devices[0]
-	)?.device;
 
 const SignedIn = ({ signIn }: { signIn: Exclude<GithubSignIn, { state: "none" }> }) => {
 	useI18n();

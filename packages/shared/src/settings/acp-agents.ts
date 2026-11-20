@@ -11,6 +11,7 @@ import { t } from "../i18n";
 
 import type { Account, AcpAgent, AcpAgentId, AcpEnvValue, Agent, DeviceId } from "../bindings";
 import { shellQuote } from "../agent-tools/scope";
+import { scrub } from "../data/failure";
 import { plural, sentence } from "../status/format";
 import { all, type ViewState } from "../view/replica";
 import { deviceName, linkForDevice } from "../view/select";
@@ -237,3 +238,19 @@ export const needsSignIn = (agent: Agent, account: Account | undefined): boolean
 /** The agent's program and arguments as one line for a shell, to sign in from. */
 export const signInCommand = (agent: AcpAgent): string =>
 	[agent.program, ...(agent.args ?? [])].map(shellQuote).join(" ");
+
+/**
+ * The account of an ACP agent when an agent running on it stopped because
+ * it needs a sign-in, so its settings can say how to sign in.
+ */
+export const waitingForSignIn = (view: ViewState, agent: AcpAgent): Account | undefined => {
+	const account = accountOfAgent(view, agent);
+	if (!account) return undefined;
+	return all(view, "agent").some((a) => a.account === account.id && needsSignIn(a, account))
+		? account
+		: undefined;
+};
+
+/** A reply with each value the form sent replaced by `<secret>`. */
+export const scrubAll = (text: string, values: readonly string[]): string =>
+	values.reduce((shown, value) => scrub(shown, value), text);

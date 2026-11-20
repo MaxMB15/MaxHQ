@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ServicesProvider } from "@/app/services";
 import { browserNative, type ComposerNative, ComposerNativeProvider } from "@/composer/native";
-import { quoteInbox } from "@/composer/quote-inbox";
+import { quoteInbox } from "@maxhq/shared/pills/quote-inbox";
 import { fakeSource } from "@/composer/testing";
 import type { Agent } from "@maxhq/shared/bindings";
 import { QUOTE_MIME } from "@maxhq/shared/pills/quote";

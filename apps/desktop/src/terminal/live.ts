@@ -31,6 +31,7 @@ export const registryOf = (services: Services): Registry | null => {
 					return found ? { cols: found.cols, rows: found.rows } : null;
 				},
 				exists: (terminal) => entity(terminal) !== undefined,
+				marksOf: (terminal) => entity(terminal)?.marks === true,
 				onFailure: (_terminal, message) => showFailure(noticesOf(services), message),
 			})
 		: null;

@@ -4,20 +4,23 @@
 // Running a command you typed after `!`, from the composer or a card's Run
 // again. The card it makes takes the timeline's width, so the terminal
 // opens that many columns wide. Unless it runs privately, its output pill
-// goes in the composer at once and follows the command from there.
+// goes in the composer at once and follows the command from there. On a
+// device with sessions it runs in the agent's session instead, whose pill
+// stands for all its commands.
 
 import { t } from "@maxhq/shared/i18n";
 
 import type { AgentId, TerminalId } from "@maxhq/shared/bindings";
 import { attempt, failureOf } from "@maxhq/shared/composer/send";
-import type { DataSource } from "@maxhq/shared/data/source";
+import type { ActionResult, DataSource } from "@maxhq/shared/data/source";
 import { runCommand, openedTerminal, type TerminalSize } from "@maxhq/shared/terminal/requests";
 import { startedOutput } from "@maxhq/shared/terminal/output";
+import { type SessionRan, sessionRanOf } from "@maxhq/shared/terminal/session";
 import { terminalById } from "@maxhq/shared/terminal/select";
 import { runPlace } from "@maxhq/shared/terminal/shell";
 import type { ViewState } from "@maxhq/shared/view/replica";
 
-import { quoteInbox } from "./quote-inbox";
+import { quoteInbox } from "@maxhq/shared/pills/quote-inbox";
 
 /** How many rows a command's terminal has, as many as its card shows. */
 export const RUN_ROWS = 24;
@@ -54,6 +57,22 @@ export type Started =
 	| { readonly terminal: TerminalId; readonly error?: undefined }
 	| { readonly error: string; readonly terminal?: undefined };
 
+/** A command to run for an agent. */
+type Run = {
+	readonly agent: AgentId;
+	readonly command: string;
+	readonly private: boolean;
+	readonly size: TerminalSize;
+};
+
+/** Why a command didn't run. */
+const notRun = (result: ActionResult): string => {
+	const reason = failureOf(result);
+	return reason
+		? t("Couldn't run the command. {{reason}}.", { reason })
+		: t("Couldn't run the command.");
+};
+
 /**
  * Runs `command` for the agent. Unless it runs privately, its output pill
  * goes to the agent's composer, which takes it now or when it opens.
@@ -61,25 +80,52 @@ export type Started =
 export const startRun = async (
 	source: Pick<DataSource, "openTerminal">,
 	view: () => ViewState,
-	run: {
-		readonly agent: AgentId;
-		readonly command: string;
-		readonly private: boolean;
-		readonly size: TerminalSize;
-	}
+	run: Run
 ): Promise<Started> => {
 	const result = await attempt(() =>
 		runCommand(source, run.agent, run.command, { private: run.private, size: run.size })
 	);
 	const terminal = openedTerminal(result);
-	if (terminal === null) {
-		const reason = failureOf(result);
-		return {
-			error: reason
-				? t("Couldn't run the command. {{reason}}.", { reason })
-				: t("Couldn't run the command."),
-		};
+	if (terminal === null) return { error: notRun(result) };
+	follow(view, run, terminal);
+	return { terminal };
+};
+
+/** What running a command in the session came to: its block, a fresh shell, or why it didn't run. */
+export type SessionStarted = Started | { readonly ran: SessionRan; readonly error?: undefined };
+
+/**
+ * Runs `command` in the agent's session, or in a fresh shell with `fresh`
+ * or when the session can't take it. A block's pill is the session's,
+ * which the composer keeps; a fresh shell's output pill goes in as
+ * `startRun`'s does.
+ */
+export const startSessionRun = async (
+	source: Pick<DataSource, "sessionRun">,
+	view: () => ViewState,
+	run: Run & { readonly fresh: boolean }
+): Promise<SessionStarted> => {
+	const result = await attempt(() =>
+		source.sessionRun(run.agent, run.command, {
+			private: run.private,
+			fresh: run.fresh,
+			size: run.size,
+		})
+	);
+	const ran = sessionRanOf(result);
+	if (ran) {
+		// Each command's first ask for a password takes focus.
+		startedHere.add(ran.terminal);
+		return { ran };
 	}
+	const terminal = openedTerminal(result);
+	if (terminal === null) return { error: notRun(result) };
+	follow(view, run, terminal);
+	return { terminal };
+};
+
+/** Notes that this window started the command, and puts its output pill in unless it's private. */
+const follow = (view: () => ViewState, run: Run, terminal: TerminalId) => {
 	startedHere.add(terminal);
 	if (!run.private) {
 		const state = view();
@@ -96,5 +142,4 @@ export const startRun = async (
 			false
 		);
 	}
-	return { terminal };
 };

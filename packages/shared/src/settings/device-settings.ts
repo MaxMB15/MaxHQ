@@ -3,16 +3,24 @@
 
 // A device's settings as its `maxd` keeps them, with the defaults filled in
 // for any it doesn't report. A save sends them all, so a client that
-// changes one setting sends the rest as the device has them.
+// changes one setting sends the rest as the device has them. Also what a
+// device's settings page shares between apps: whether two sets are the
+// same, the placement and keep-awake choices, and why a part can't change.
 
+import { setsEffort } from "../agent-view/effort";
 import type { DeviceId } from "../bindings";
 import type { DeviceSettings } from "../fleet/wire";
-import { testHostSettingsOf } from "../test-hosts/hosts";
+import { t } from "../i18n";
+import type { Option } from "../new-agent/spec";
+import { sameTestHostSettings, testHostSettingsOf } from "../test-hosts/hosts";
 import type { ViewState } from "../view/replica";
-import { DEFAULT_IDLE_RELEASE_MINUTES } from "./idle-release";
-import { DEFAULT_SETTLE_DAYS } from "./inbox";
-import { DEFAULT_HISTORY_MIB, DEFAULT_MEMORY_ITEMS } from "./memory";
+import { DEFAULT_IDLE_RELEASE_MINUTES, releasesIdle } from "./idle-release";
+import { DEFAULT_SETTLE_DAYS, keepsInboxes } from "./inbox";
+import { continuesAtLimit } from "./limits";
+import { DEFAULT_HISTORY_MIB, DEFAULT_MEMORY_ITEMS, keepsMemoryLimits } from "./memory";
 import { deviceDefault } from "./permission";
+import { knowsSetupTokens } from "./setup-tokens";
+import { knowsShellIntegration } from "./shell-integration";
 
 /** Every setting a save sends. */
 export type DeviceFields = Required<Omit<DeviceSettings, "device">>;
@@ -38,8 +46,152 @@ export const deviceSettingsOf = (view: ViewState, device: DeviceId): DeviceField
 		memory_items: kept?.memory_items ?? DEFAULT_MEMORY_ITEMS,
 		history_mib: kept?.history_mib ?? DEFAULT_HISTORY_MIB,
 		claude_setup_token: kept?.claude_setup_token ?? false,
+		shell_integration: kept?.shell_integration ?? true,
 		skill_library: kept?.skill_library ?? null,
 		network: kept?.network ?? {},
 		test_hosts: testHostSettingsOf(view, device),
+	};
+};
+
+/** Whether two sets of settings say the same, tool updates in any order. */
+export const sameDeviceFields = (a: DeviceFields, b: DeviceFields): boolean =>
+	a.default_permission === b.default_permission &&
+	a.workspace_network === b.workspace_network &&
+	a.workspace_pool === b.workspace_pool &&
+	a.auto_settle_days === b.auto_settle_days &&
+	a.snooze_at_limit === b.snooze_at_limit &&
+	a.continue_claude_at_limit === b.continue_claude_at_limit &&
+	a.continue_codex_at_limit === b.continue_codex_at_limit &&
+	a.claude_effort === b.claude_effort &&
+	a.codex_effort === b.codex_effort &&
+	a.placement === b.placement &&
+	a.cursor_usage === b.cursor_usage &&
+	a.keep_awake === b.keep_awake &&
+	a.idle_release_minutes === b.idle_release_minutes &&
+	a.memory_items === b.memory_items &&
+	a.history_mib === b.history_mib &&
+	a.claude_setup_token === b.claude_setup_token &&
+	a.shell_integration === b.shell_integration &&
+	a.skill_library === b.skill_library &&
+	a.network.on === b.network.on &&
+	a.network.port === b.network.port &&
+	a.tool_updates.length === b.tool_updates.length &&
+	a.tool_updates.every((tool) => b.tool_updates.includes(tool)) &&
+	sameTestHostSettings(a.test_hosts, b.test_hosts);
+
+/** How readily new agents you don't place go to the device. */
+export const PLACEMENT_OPTIONS: readonly Option[] = [
+	{
+		value: "prefer",
+		get label() {
+			return t("Prefer");
+		},
+		get detail() {
+			return t("Counts twice when MaxHQ weighs devices");
+		},
+	},
+	{
+		value: "normal",
+		get label() {
+			return t("Normal");
+		},
+	},
+];
+
+/** When a Mac's `maxd` keeps it awake. */
+export const KEEP_AWAKE_OPTIONS: readonly Option[] = [
+	{
+		value: "charger",
+		get label() {
+			return t("On the charger");
+		},
+		get detail() {
+			return t("Awake whenever it's plugged in. On battery, only while an agent is working.");
+		},
+	},
+	{
+		value: "always",
+		get label() {
+			return t("Always");
+		},
+		get detail() {
+			return t(
+				"Awake whenever maxd runs, on battery too. A Mac left unplugged runs until its battery is low."
+			);
+		},
+	},
+	{
+		value: "working",
+		get label() {
+			return t("While agents work");
+		},
+		get detail() {
+			return t("Awake only while an agent on this Mac is working.");
+		},
+	},
+	{
+		value: "off",
+		get label() {
+			return t("Off");
+		},
+		get detail() {
+			return t("MaxHQ never keeps this Mac awake, even while an agent works.");
+		},
+	},
+];
+
+/** Names to pick from, such as a host's Incus networks, each its own label. */
+export const nameOptions = (names: readonly string[]): Option[] =>
+	names.map((name) => ({ value: name, label: name }));
+
+/**
+ * Why each part of a device's settings can't change now, or null where it
+ * can. `offline` says the device doesn't answer, which keeps every part
+ * from changing; the others add a `maxd` too old for that part.
+ */
+export type SettingsWhy = {
+	readonly offline: string | null;
+	readonly inbox: string | null;
+	readonly limits: string | null;
+	readonly idle: string | null;
+	readonly memory: string | null;
+	readonly tokens: string | null;
+	readonly effort: string | null;
+	readonly shell: string | null;
+};
+
+/** Why each part of `device`'s settings can't change, given whether it answers. */
+export const settingsWhy = (
+	view: ViewState,
+	device: DeviceId,
+	name: string,
+	live: boolean
+): SettingsWhy => {
+	const offline = live ? null : t("Connect to {{name}} to change it.", { name });
+	const tooOld = (knows: boolean, these: boolean) =>
+		offline ??
+		(knows
+			? null
+			: these
+				? t("{{name}}'s maxd is too old for these. Update it first.", { name })
+				: t("{{name}}'s maxd is too old for this. Update it first.", { name }));
+	return {
+		offline,
+		inbox: tooOld(keepsInboxes(view, device), true),
+		limits: tooOld(continuesAtLimit(view, device), false),
+		idle: tooOld(releasesIdle(view, device), false),
+		memory: tooOld(keepsMemoryLimits(view, device), true),
+		tokens:
+			offline ??
+			(knowsSetupTokens(view, device)
+				? null
+				: t(
+						"{{name}}'s maxd is too old for this, and takes setup-tokens. Update it first.",
+						{
+							name,
+						}
+					)),
+		effort: tooOld(setsEffort(view, device), false),
+		shell: tooOld(knowsShellIntegration(view, device), false),
 	};
 };

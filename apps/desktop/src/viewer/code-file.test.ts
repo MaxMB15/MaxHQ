@@ -1,17 +1,10 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026 Max Boksem
 
+import { BINARY_SNIFF } from "@maxhq/shared/agent-view/code-text";
 import { describe, expect, it } from "vitest";
 
-import {
-	BINARY_SNIFF,
-	binaryNote,
-	colourable,
-	HIGHLIGHT_BYTES,
-	HIGHLIGHT_LINES,
-	readText,
-	tooBigNote,
-} from "./code-file";
+import { binaryNote, readText, tooBigNote } from "./code-file";
 
 const bytes = (...parts: (string | number[])[]): ArrayBuffer => {
 	const all = parts.flatMap((part) =>
@@ -39,14 +32,6 @@ describe("reading a file as text", () => {
 		expect(readText(bytes("ok", [0], "more"))).toEqual({ kind: "binary" });
 		const late = bytes("x".repeat(BINARY_SNIFF), [0]);
 		expect(readText(late).kind).toBe("text");
-	});
-
-	it("leaves a long file without colours", () => {
-		expect(colourable({ lines: ["a"], bytes: HIGHLIGHT_BYTES })).toBe(true);
-		expect(colourable({ lines: ["a"], bytes: HIGHLIGHT_BYTES + 1 })).toBe(false);
-		const many = Array.from({ length: HIGHLIGHT_LINES + 1 }, () => "");
-		expect(colourable({ lines: many, bytes: many.length })).toBe(false);
-		expect(colourable({ lines: many.slice(1), bytes: many.length })).toBe(true);
 	});
 
 	it("says in plain words why a file isn't shown", () => {

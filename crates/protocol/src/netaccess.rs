@@ -26,7 +26,7 @@ use serde::{Deserialize, Serialize};
 use specta::Type;
 
 use crate::ids::{DeviceId, PairId, PhoneId, PhoneSessionId};
-use crate::phones::PhoneBookEntry;
+use crate::phones::{PhoneBookEntry, PhoneMac};
 use crate::secret::Secret;
 use crate::time::Timestamp;
 
@@ -154,6 +154,9 @@ pub struct NetPaired {
     pub book: Vec<PhoneBookEntry>,
     /// Its token for this device.
     pub token: NetToken,
+    /// The Mac that paired it, when the Mac said.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mac: Option<PhoneMac>,
 }
 
 /// The body of `POST /token`.

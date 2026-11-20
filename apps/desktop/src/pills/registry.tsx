@@ -10,7 +10,14 @@
 import { t, useI18n, formatNumber } from "@maxhq/shared/i18n";
 
 import type { Agent, AttachmentKind, NoteSummary, Timestamp } from "@maxhq/shared/bindings";
-import type { AgentRef, GitItemRef, NoteRef, OutputRef, QuoteRef } from "@maxhq/shared/pills/draft";
+import type {
+	AgentRef,
+	GitItemRef,
+	NoteRef,
+	OutputRef,
+	QuoteRef,
+	SessionRef,
+} from "@maxhq/shared/pills/draft";
 import {
 	type FileProgress,
 	fileAria,
@@ -20,11 +27,13 @@ import {
 	gitStateWords,
 	middleTruncate,
 	noteLabel,
+	oneLine,
 	quoteLabel,
 } from "@maxhq/shared/pills/label";
 import { ACTIVITY_LABEL, agentLook } from "@maxhq/shared/status/activity";
 import { formatAgo } from "@maxhq/shared/status/format";
 import { VENDOR_NAME } from "@maxhq/shared/status/usage";
+import { type SessionPillLook, sessionPillLabel } from "@maxhq/shared/terminal/session";
 import {
 	ArrowRight,
 	CircleAlert,
@@ -55,6 +64,7 @@ export const PILL_KINDS = [
 	"note",
 	"git_item",
 	"output",
+	"session",
 ] as const;
 
 export type PillKind = (typeof PILL_KINDS)[number];
@@ -77,6 +87,7 @@ const DEFINITIONS = [
 	{ kind: "note", capabilities: { details: "popover" } },
 	{ kind: "git_item", capabilities: { details: "popover" } },
 	{ kind: "output", capabilities: { details: "none" } },
+	{ kind: "session", capabilities: { details: "popover" } },
 ] as const satisfies readonly PillDefinition[];
 
 const buildDefinitions = (
@@ -201,6 +212,14 @@ export type PillRecord =
 			/** The output as it stands now, or as it went in a sent message. */
 			readonly ref: OutputRef;
 			/** What goes to the agent, made only once the preview opens. */
+			readonly preview?: ReactNode;
+	  }
+	| {
+			readonly kind: "session";
+			readonly ref: SessionRef;
+			/** How its card's commands stand, or null once the card is gone. */
+			readonly look: SessionPillLook | null;
+			/** Its card's commands, with ticks while you may change them. */
 			readonly preview?: ReactNode;
 	  };
 
@@ -503,9 +522,6 @@ export const GitItemDetails = ({ item, now }: { item: GitItemRef; now: Timestamp
 	);
 };
 
-/** A command on one line, each run of spaces and line breaks as one space. */
-const oneLine = (command: string): string => command.trim().split(/\s+/).join(" ");
-
 /** Whether the command ended with an exit code other than 0. */
 export const outputFailed = (ref: OutputRef): boolean =>
 	!ref.running && !ref.lines && ref.exit_code !== null && ref.exit_code !== 0;
@@ -704,6 +720,31 @@ export const pillRegistry = createPillRegistry<PillRecord, PillContext, PillPres
 							<span className="pill-trail">{state}</span>
 						),
 					aria: [t("Output of {{from}}", { from: oneLine(ref.command) }), state]
+						.filter(Boolean)
+						.join(", "),
+					preview: preview ?? null,
+				};
+			},
+		},
+		{
+			kind: "session",
+			canRender: (record) => record.kind === "session",
+			render: (record) => {
+				const { ref, look, preview } = record as Extract<PillRecord, { kind: "session" }>;
+				const label = look ? sessionPillLabel(look) : t("Shell session");
+				return {
+					family: look?.tone === "failed" ? "output-failed" : "output",
+					state: look ? "ready" : "unresolved",
+					progress: null,
+					icon: <SquareTerminal aria-hidden className={ICON_CLASS} />,
+					label,
+					trail: look?.running ? (
+						<LoaderCircle aria-hidden className={cn(ICON_CLASS, "pill-spin")} />
+					) : null,
+					aria: [
+						t("{{label}} on {{device}}", { label, device: ref.device_name }),
+						look?.running ? t("running") : null,
+					]
 						.filter(Boolean)
 						.join(", "),
 					preview: preview ?? null,

@@ -7,8 +7,9 @@ import type { Agent } from "@maxhq/shared/bindings";
 import { agent, entities, link, MIN, NOW, workspace } from "@maxhq/shared/test/build";
 import { DEFAULT_INBOX } from "@maxhq/shared/view/inbox";
 import { applySnapshot } from "@maxhq/shared/view/replica";
+import type { RunChip } from "@maxhq/shared/workflow/select";
 
-import { loudRow, phoneRowMeta, rowSubtitle } from "./rows";
+import { loudRow, phoneRowMeta, rowSubtitle, spokenRowActions } from "./rows";
 
 describe("rowSubtitle", () => {
 	it("names the agent and its device, and a state its dot alone shows", () => {
@@ -49,5 +50,18 @@ describe("phoneRowMeta", () => {
 	it("says when a snoozed agent wakes before anything else", () => {
 		const inbox = { ...DEFAULT_INBOX, snoozed_until: NOW + 60 * MIN };
 		expect(metaOf({ asleep: true, inbox })).toEqual({ kind: "text", text: "Wakes 1h" });
+	});
+});
+
+describe("spokenRowActions", () => {
+	const chip = { run: { device: "dev-devbox", run: "run-1" } } as unknown as RunChip;
+
+	it("offers Open run, which opens the row's run, only when the row shows a chip", () => {
+		const opened: RunChip[] = [];
+		const actions = spokenRowActions(chip, (run) => opened.push(run));
+		expect(actions.map((a) => a.label)).toEqual(["Open run"]);
+		actions[0]?.onPress();
+		expect(opened).toEqual([chip]);
+		expect(spokenRowActions(null, () => undefined)).toEqual([]);
 	});
 });

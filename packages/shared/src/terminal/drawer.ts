@@ -3,8 +3,8 @@
 
 // What the drawer reads from a terminal: whether a command runs in it and
 // the name it goes by, which a tab's dot and the questions before closing a
-// tab or deleting its agent show, and the Output pill that text picked in it
-// makes.
+// tab or deleting its agent show, and the Output pill that text picked in it,
+// or a command its shell marked, makes.
 //
 // A command you ran with `!` runs until it exits: a shell may run it in its
 // own place, so nothing else ever takes the foreground. A shell runs one
@@ -12,15 +12,21 @@
 // shell or its theme may set any title at the prompt, and you may rename it.
 
 import type { AgentId, LineSpan } from "../bindings";
+import { t } from "../i18n";
 import type { OutputRef } from "../pills/draft";
 import { all, type ViewState } from "../view/replica";
 
+import type { CommandMark } from "./marks";
 import type { TerminalEntity } from "./select";
 
-/** What a tab shows: its title, or the command it was opened for. */
+/** What a tab shows: "Session" for the session, else its title, or the command it was opened for. */
 export const tabTitle = (terminal: TerminalEntity): string =>
-	terminal.title.trim() ||
-	(terminal.kind.type === "run" ? terminal.kind.command : terminal.cwd.split("/").pop() || "~");
+	terminal.kind.type === "session"
+		? t("Session")
+		: terminal.title.trim() ||
+			(terminal.kind.type === "run"
+				? terminal.kind.command
+				: terminal.cwd.split("/").pop() || "~");
 
 /** Whether a command runs in the terminal now. */
 export const runsCommand = (terminal: Pick<TerminalEntity, "kind" | "status" | "busy">): boolean =>
@@ -32,7 +38,10 @@ export const runsCommand = (terminal: Pick<TerminalEntity, "kind" | "status" | "
  */
 export const runningCommand = (terminal: TerminalEntity): string | null => {
 	if (!runsCommand(terminal)) return null;
-	return terminal.kind.type === "run" ? terminal.kind.command : tabTitle(terminal);
+	if (terminal.kind.type === "run") return terminal.kind.command;
+	// A session's shell names the command it runs, as a shell may.
+	if (terminal.kind.type === "session") return terminal.title.trim() || tabTitle(terminal);
+	return tabTitle(terminal);
 };
 
 /**
@@ -51,20 +60,25 @@ export const runningCommands = (view: ViewState, agents: ReadonlySet<AgentId>): 
 /**
  * The Output pill for text picked in a terminal: the lines it sits on in
  * all the terminal printed, and whether the terminal still runs or how it
- * exited. `total` is how many lines it printed in all.
+ * exited. A command's output its shell marked goes with what the marks
+ * say of it instead. `total` is how many lines the terminal printed in all.
  */
 export const pickedOutput = (
 	terminal: TerminalEntity,
 	deviceName: string,
-	picked: { readonly text: string; readonly lines: LineSpan },
+	picked: { readonly text: string; readonly lines: LineSpan; readonly mark?: CommandMark },
 	total: number
 ): OutputRef => ({
 	type: "output",
-	command: runningCommand(terminal) ?? tabTitle(terminal),
+	command: picked.mark?.command || (runningCommand(terminal) ?? tabTitle(terminal)),
 	device_name: deviceName,
 	cwd: terminal.cwd,
-	exit_code: terminal.status.state === "exited" ? terminal.status.code : null,
-	running: terminal.status.state === "running",
+	exit_code: picked.mark
+		? picked.mark.exit
+		: terminal.status.state === "exited"
+			? terminal.status.code
+			: null,
+	running: picked.mark?.running ?? terminal.status.state === "running",
 	ran_at: terminal.started_at,
 	duration_ms: null,
 	lines_total: Math.max(total, picked.lines.last),

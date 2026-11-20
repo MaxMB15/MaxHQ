@@ -16,8 +16,8 @@ import { Switch } from "@/components/ui/switch";
 import type { CommandRule, DeviceId, ProjectId } from "@maxhq/shared/bindings";
 import { useNow } from "@maxhq/shared/lib/clock";
 import { cn } from "@/lib/utils";
-import { DEFAULT_SETTLE_DAYS, keepsInboxes, settleDaysText } from "@maxhq/shared/settings/inbox";
-import { deviceName, linkForDevice } from "@maxhq/shared/view/select";
+import { settleDaysText } from "@maxhq/shared/settings/inbox";
+import { deviceName } from "@maxhq/shared/view/select";
 import { isLive } from "@maxhq/shared/workspaces/state";
 import { ProjectSkillsTab } from "@/skills/skills-tab";
 import { ProjectWorkspaces } from "@/workspaces/workspace-list";
@@ -25,13 +25,19 @@ import { ProjectWorkspaces } from "@/workspaces/workspace-list";
 import { FIELD, Label, PRIMARY, Row, SECONDARY, Section, StatusNote } from "./controls";
 import {
 	allowedWorkflowEnvText,
+	commandRulesOn,
+	deviceSettleDays,
 	draftOf,
 	firstSettingsOn,
 	planProjectSettings,
+	projectCapabilities,
 	type ProjectDraft,
 	projectDevices,
+	type ProjectEdit,
 	projectSettingsOn,
+	ruleKey,
 	sameDraft,
+	shownDraft,
 } from "./project";
 import { failureOf, type Note } from "./result";
 import type { ProjectTab } from "./store";
@@ -52,9 +58,7 @@ const CommandRules = ({
 }) => {
 	useI18n();
 	const { source } = useServices();
-	const rules = useView(
-		(s) => s.view.tables.command_rules.get(`${project}/${device}`)?.rules ?? NO_RULES
-	);
+	const rules = useView((s) => commandRulesOn(s.view, project, device));
 	const [note, setNote] = useState<Note | null>(null);
 	const [busy, setBusy] = useState(false);
 
@@ -90,10 +94,7 @@ const CommandRules = ({
 			) : (
 				<ul aria-label={translate("Allowed commands")} className="flex flex-col gap-1.5">
 					{rules.map((rule) => (
-						<li
-							key={`${rule.exact ? "=" : "~"}${rule.command}`}
-							className="flex items-center gap-2"
-						>
+						<li key={ruleKey(rule)} className="flex items-center gap-2">
 							<span className="flex min-w-0 flex-1 items-center gap-0.5">
 								<code
 									title={rule.command}
@@ -132,8 +133,6 @@ const CommandRules = ({
 	);
 };
 
-const NO_RULES: readonly CommandRule[] = [];
-
 const OnDevice = ({ project, device }: { project: ProjectId; device: DeviceId }) => {
 	useI18n();
 	const { source } = useServices();
@@ -154,10 +153,10 @@ const OnDevice = ({ project, device }: { project: ProjectId; device: DeviceId })
 	const suggested = first?.git_author ?? null;
 	const start = first ? draftOf(first) : current;
 	// What you typed, kept until the device reports something new.
-	const [edit, setEdit] = useState<{ draft: ProjectDraft; from: ProjectDraft } | null>(null);
+	const [edit, setEdit] = useState<ProjectEdit | null>(null);
 	const [note, setNote] = useState<Note | null>(null);
 	const [busy, setBusy] = useState(false);
-	const draft = edit && sameDraft(edit.from, current) ? edit.draft : start;
+	const draft = shownDraft(edit, current, start);
 	const fromGit =
 		suggested !== null && draft.name === suggested.name && draft.email === suggested.email;
 	const set = (change: Partial<ProjectDraft>) => {
@@ -165,16 +164,9 @@ const OnDevice = ({ project, device }: { project: ProjectId; device: DeviceId })
 		setEdit({ draft: { ...draft, ...change }, from: current });
 	};
 	const plan = planProjectSettings(project, device, draft);
-	const deviceDays =
-		view.tables.device_settings.get(device)?.auto_settle_days ?? DEFAULT_SETTLE_DAYS;
-	// A maxd from before inboxes doesn't settle agents, so it has no use for days.
-	const inbox = keepsInboxes(view, device);
-	// Nor does one from before PRs settle agents when theirs merge.
-	const capabilities = linkForDevice(view, device)?.capabilities;
-	const pulls = capabilities?.pulls === true;
-	const workflows = capabilities?.workflows === true;
-	// Nor does one from before host setup cap a container's memory.
-	const caps = capabilities?.host_spec === true;
+	const deviceDays = deviceSettleDays(view, device);
+	// What this device's maxd is new enough to keep. One that isn't has no use for the field.
+	const { settle: inbox, pulls, workflows, memory: caps } = projectCapabilities(view, device);
 	const changed = !sameDraft(draft, current);
 
 	const save = async () => {

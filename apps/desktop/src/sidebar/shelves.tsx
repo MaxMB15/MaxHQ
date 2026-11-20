@@ -40,8 +40,8 @@ export const PinnedList = ({
 	const lookingAt = useLookingAt();
 	if (agents.length === 0) return null;
 	return (
-		<section aria-label={t("Pinned")} className="mb-2 flex flex-col gap-0.5">
-			<div className="flex h-[26px] shrink-0 items-center gap-1.5 px-2 text-xs font-semibold text-muted-foreground">
+		<section aria-label={t("Pinned")} className="mb-1.5 flex flex-col gap-px">
+			<div className="flex h-[22px] shrink-0 items-center gap-1.5 px-2 text-xs font-semibold text-muted-foreground">
 				<Pin {...ICON} />
 				<span className="min-w-0 flex-1 truncate text-terminal">{t("Pinned")}</span>
 			</div>
@@ -95,12 +95,12 @@ const ShelfSection = ({
 	});
 	const hidden = open ? agents.length - rows.length : 0;
 	return (
-		<section aria-label={label} className="flex flex-col gap-0.5">
+		<section aria-label={label} className="flex flex-col gap-px">
 			<button
 				type="button"
 				aria-expanded={open}
 				onClick={toggle}
-				className="flex h-[26px] shrink-0 items-center gap-1.5 rounded-md px-2 text-left text-xs font-semibold text-muted-foreground hover:text-secondary-foreground"
+				className="flex h-[22px] shrink-0 items-center gap-1.5 rounded-md px-2 text-left text-xs font-semibold text-muted-foreground hover:text-secondary-foreground"
 			>
 				<Chevron closed={!open} />
 				{icon}
@@ -122,7 +122,7 @@ const ShelfSection = ({
 				<button
 					type="button"
 					onClick={showMoreSettled}
-					className="flex h-6 shrink-0 items-center rounded-md pr-2 pl-[22px] text-left text-[11.5px] text-muted-foreground hover:text-secondary-foreground"
+					className="flex h-[22px] shrink-0 items-center rounded-md pr-2 pl-[22px] text-left text-[11.5px] text-muted-foreground hover:text-secondary-foreground"
 				>
 					{t("Show {{value2}} more", {
 						value2: formatNumber(Math.min(hidden, SETTLED_PAGE)),
@@ -148,7 +148,7 @@ export const Shelves = ({
 	const { working, snoozed, settled } = sections;
 	if (working.length + snoozed.length + settled.length === 0) return null;
 	return (
-		<div className="mt-auto flex shrink-0 flex-col gap-0.5 pt-3">
+		<div className="mt-auto flex shrink-0 flex-col gap-px pt-2">
 			<ShelfSection
 				shelf="working"
 				label={t("Working")}

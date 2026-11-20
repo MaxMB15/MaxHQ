@@ -2,9 +2,9 @@
 // Copyright (c) 2026 Max Boksem
 
 // The agent tools page: the depth and limits a new permission starts with,
-// and the access keys that let tools outside MaxHQ run agents. A key's
-// file stays on its device, so the page shows where it is and the command
-// that uses it, never the key.
+// the agents allowed to run agents, and the access keys that let tools
+// outside MaxHQ run agents. A key's file stays on its device, so the page
+// shows where it is and the command that uses it, never the key.
 
 import { useState } from "react";
 
@@ -19,14 +19,18 @@ import { LimitFields, ScopeFields } from "@/agent-tools/scope-fields";
 import { CopyButton } from "@/components/copy-button";
 import { CopyIcon } from "@/components/copy-field";
 import { Picker } from "@/new-agent/picker";
-import { type AccessKey, type AgentDefaults, DEPTH, type Permission } from "@maxhq/shared/bindings";
+import { type AgentDefaults, DEPTH, type PermissionId } from "@maxhq/shared/bindings";
 import {
-	commandLine,
+	type AgentGrantRow,
+	agentRows,
+	type KeyGrantRow,
+	keyRows,
+} from "@maxhq/shared/agent-tools/grants";
+import {
 	depthFrom,
 	keyNameError,
 	limitsDraft,
 	limitsFrom,
-	limitsLine,
 	offeredOnly,
 	permissionFrom,
 	scopeDraft,
@@ -34,7 +38,6 @@ import {
 } from "@maxhq/shared/agent-tools/scope";
 import { useNow } from "@maxhq/shared/lib/clock";
 import { all } from "@maxhq/shared/view/replica";
-import { deviceName } from "@maxhq/shared/view/select";
 
 import {
 	ConfirmButton,
@@ -106,39 +109,55 @@ const DefaultsForm = ({ saved }: { saved: AgentDefaults }) => {
 	);
 };
 
-const KeyRow = ({ accessKey, permission }: { accessKey: AccessKey; permission?: Permission }) => {
-	useI18n();
+/** Takes a permission off every device, then reads the lists again. Says why when it can't. */
+const useRevoke = (permission: PermissionId) => {
 	const { source } = useServices();
-	const view = useView((s) => s.view);
-	const now = useNow(60_000);
 	const refresh = useRefreshAgentTools();
 	const [note, setNote] = useState<Note | null>(null);
 	const revoke = async () => {
 		try {
-			const failure = failureOf(await source.revokePermission(accessKey.permission));
+			const failure = failureOf(await source.revokePermission(permission));
 			if (failure) setNote({ text: failure, error: true });
 			await refresh();
 		} catch (error) {
-			console.warn(translate("Couldn't revoke the key"), error);
+			console.warn(translate("Couldn't revoke the permission"), error);
 			setNote({ text: translate("Couldn't revoke it. Try again."), error: true });
 		}
 	};
+	return { note, revoke };
+};
+
+const AgentRow = ({ row }: { row: AgentGrantRow }) => {
+	useI18n();
+	const { note, revoke } = useRevoke(row.permission);
+	return (
+		<Row title={row.title} sub={row.line}>
+			<StatusNote note={note} />
+			<ConfirmButton
+				label={translate("Revoke")}
+				question={translate("It can't start agents after this.")}
+				confirm={translate("Revoke")}
+				onConfirm={() => void revoke()}
+			/>
+		</Row>
+	);
+};
+
+const KeyRow = ({ row }: { row: KeyGrantRow }) => {
+	useI18n();
+	const { note, revoke } = useRevoke(row.permission);
 	return (
 		<Row
-			title={accessKey.name}
+			title={row.name}
 			sub={
 				<>
-					<span className="block">
-						{translate("On ")}
-						{deviceName(view, accessKey.device)}.{" "}
-						{permission ? limitsLine(permission.limits, now) : null}
-					</span>
+					<span className="block">{row.line}</span>
 					<span className="flex min-w-0 items-center gap-0.5">
-						<span title={accessKey.path} className="min-w-0 truncate font-mono">
-							{accessKey.path}
+						<span title={row.path} className="min-w-0 truncate font-mono">
+							{row.path}
 						</span>
 						<CopyIcon
-							text={accessKey.path}
+							text={row.path}
 							label={translate("Copy path")}
 							className="size-[18px]"
 						/>
@@ -148,13 +167,13 @@ const KeyRow = ({ accessKey, permission }: { accessKey: AccessKey; permission?: 
 		>
 			<StatusNote note={note} />
 			<CopyButton
-				text={commandLine(accessKey.command)}
+				text={row.command}
 				label={translate("Copy MCP command")}
 				className={SECONDARY}
 			/>
 			<ConfirmButton
 				label={translate("Revoke")}
-				question="Tools using it stop working."
+				question={translate("Tools using it stop working.")}
 				confirm={translate("Revoke")}
 				onConfirm={() => void revoke()}
 			/>
@@ -283,6 +302,7 @@ export const AGENT_TOOLS_TERMS: readonly string[] = [
 	"Accounts",
 	"Places",
 	"Test hosts",
+	"Agents allowed to run agents",
 	"Access keys",
 	"For tools outside MaxHQ, such as a bot",
 	"New access key",
@@ -294,13 +314,15 @@ export const AGENT_TOOLS_TERMS: readonly string[] = [
 /** The Agent tools page. */
 export const AgentToolsSettingsPage = () => {
 	useI18n();
+	const view = useView((s) => s.view);
+	const now = useNow(60_000);
 	const defaults = useAgentDefaults();
 	const keys = useKeys();
 	const permissions = usePermissions();
-	const byId = new Map(
-		(permissions.data?.status === "ok" ? permissions.data.data : []).map((p) => [p.id, p])
-	);
-	const listed = keys.data?.status === "ok" ? keys.data.data : null;
+	const held = permissions.data?.status === "ok" ? permissions.data.data : null;
+	const agents = held ? agentRows(view, held, now) : null;
+	const listed =
+		keys.data?.status === "ok" ? keyRows(view, keys.data.data, held ?? [], now) : null;
 	return (
 		<>
 			<Section
@@ -320,6 +342,24 @@ export const AgentToolsSettingsPage = () => {
 				)}
 			</Section>
 			<Section
+				title={translate("Agents allowed to run agents")}
+				hint={translate("Allow one from the agent's menu")}
+			>
+				{agents === null ? (
+					<Row
+						title={
+							permissions.data?.status === "error" || permissions.error
+								? translate("Couldn't read the permissions. Try again.")
+								: translate("Reading permissions")
+						}
+					/>
+				) : agents.length === 0 ? (
+					<Row title={translate("None yet.")} />
+				) : (
+					agents.map((row) => <AgentRow key={row.permission} row={row} />)
+				)}
+			</Section>
+			<Section
 				title={translate("Access keys")}
 				hint={translate("For tools outside MaxHQ, such as a bot")}
 			>
@@ -334,9 +374,7 @@ export const AgentToolsSettingsPage = () => {
 				) : listed.length === 0 ? (
 					<Row title={translate("No keys yet")} />
 				) : (
-					listed.map((k) => (
-						<KeyRow key={k.id} accessKey={k} permission={byId.get(k.permission)} />
-					))
+					listed.map((row) => <KeyRow key={row.id} row={row} />)
 				)}
 				{defaults.data ? <MintForm defaults={defaults.data} /> : null}
 			</Section>

@@ -3,7 +3,8 @@
 
 // Pairing: what to open on the Mac, a name for this phone, then the camera
 // on the Mac's code, or the code pasted when the camera can't be used. The
-// core does the rest and answers the devices this phone may now reach.
+// core does the rest and answers the devices this phone may now reach. A
+// code adds a Mac, or replaces the devices of a Mac the phone pairs with.
 // A code pairs only on a tap on Pair, since a sticker can show one and a web
 // page can open one as a link: a scanned code asks first, and one opened from
 // the Camera app lands in the paste box.
@@ -12,12 +13,13 @@ import { useI18n } from "@maxhq/shared/i18n";
 
 import { CameraView, useCameraPermissions } from "expo-camera";
 import * as Haptics from "expo-haptics";
-import { useRef, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { Linking, Platform, ScrollView, StyleSheet, Text, View } from "react-native";
 
 import type { PhoneBook } from "@maxhq/shared/bindings";
 import { describe } from "@maxhq/shared/data/request-source";
 
+import type { PairedMac, PhoneCalls } from "../../data/native-source";
 import type { ScreenProps } from "../../navigation";
 import { askToNotify } from "../../push/permission";
 import { useServices } from "../../services";
@@ -28,6 +30,8 @@ import { Input } from "../../ui/Field";
 import { Header } from "../../ui/Header";
 import { Corners } from "../../ui/Icon";
 import { Steps } from "../../ui/Steps";
+import { pairNote } from "../macs/macs";
+import { refreshMacs, useMacs } from "../macs/useMacs";
 import { afterScan, NOT_A_CODE, pairCodeOf } from "./code";
 
 type Step =
@@ -56,6 +60,7 @@ export const ScanScreen = ({ navigation, route }: ScreenProps<"Scan">) => {
 	}
 	// A code reads many times a second, so only the first one pairs.
 	const busy = useRef(false);
+	const { macs } = useMacs();
 	// On iOS the modal is a sheet below the status bar; elsewhere it fills the screen.
 	const header = (
 		<Header
@@ -110,6 +115,7 @@ export const ScanScreen = ({ navigation, route }: ScreenProps<"Scan">) => {
 				: { step: "failed", message: describe(result.error) }
 		);
 		busy.current = false;
+		refreshMacs(phone);
 		if (result.status !== "ok") return;
 		void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
 		askToNotify();
@@ -120,7 +126,11 @@ export const ScanScreen = ({ navigation, route }: ScreenProps<"Scan">) => {
 			<View style={styles.screen}>
 				{header}
 				<ScrollView contentContainerStyle={styles.content}>
-					<Text style={styles.heading}>{t("Paired")}</Text>
+					<Text style={styles.heading}>
+						{step.book.mac
+							? t("Paired with {{mac}}", { mac: step.book.mac.name })
+							: t("Paired")}
+					</Text>
 					<Text style={styles.body}>{t("This phone can now reach:")}</Text>
 					<Card label={t("Devices")}>
 						{step.book.devices.map((device, i) => (
@@ -177,6 +187,7 @@ export const ScanScreen = ({ navigation, route }: ScreenProps<"Scan">) => {
 									"Pair only if you just chose Add phone on your own Mac. A code from anywhere else would connect this phone to someone else's devices."
 								)}
 							</Text>
+							<PairNote phone={phone} code={step.code} macs={macs} />
 							<Button
 								label={t("Pair this phone")}
 								tone="primary"
@@ -246,6 +257,7 @@ export const ScanScreen = ({ navigation, route }: ScreenProps<"Scan">) => {
 					autoCorrect={false}
 					editable={step.step !== "pairing"}
 				/>
+				<PairNote phone={phone} code={pairCodeOf(pasted)} macs={macs} />
 				<Button
 					label={t("Pair")}
 					disabled={step.step === "pairing" || pasted.trim() === ""}
@@ -254,6 +266,24 @@ export const ScanScreen = ({ navigation, route }: ScreenProps<"Scan">) => {
 			</ScrollView>
 		</View>
 	);
+};
+
+/** Says whether a code adds a Mac or replaces a paired Mac's devices. */
+const PairNote = ({
+	phone,
+	code,
+	macs,
+}: {
+	phone: PhoneCalls;
+	code: string | null;
+	macs: readonly PairedMac[];
+}) => {
+	const note = useMemo(() => {
+		if (!code) return null;
+		const from = phone.pairCodeMac(code);
+		return pairNote(from.status === "ok" ? from.data : null, macs);
+	}, [phone, code, macs]);
+	return note ? <Text style={styles.note}>{note}</Text> : null;
 };
 
 const styles = StyleSheet.create({

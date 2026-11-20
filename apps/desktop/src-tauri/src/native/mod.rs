@@ -373,6 +373,43 @@ fn write_export(path: &Path, text: &str) -> Result<SavedExport, NativeError> {
     })
 }
 
+/// Asks for a folder, or a file when `file` is set, on this Mac in the
+/// system picker, titled `title` and opening at `start` when it's given.
+/// Resolves with the chosen path, or none if you cancel. The path only
+/// fills a field, so it isn't offered for attaching.
+#[tauri::command]
+#[specta::specta]
+pub async fn pick_path(
+    window: Window,
+    title: String,
+    start: Option<String>,
+    file: bool,
+) -> Result<Option<String>, NativeError> {
+    let (send, answer) = tokio::sync::oneshot::channel();
+    let dialog = window.dialog().file().set_parent(&window).set_title(title);
+    let dialog = match start {
+        Some(start) => dialog.set_directory(start),
+        None => dialog,
+    };
+    let picked = move |path| {
+        let _ = send.send(path);
+    };
+    if file {
+        dialog.pick_file(picked);
+    } else {
+        dialog.pick_folder(picked);
+    }
+    let chosen = answer
+        .await
+        .map_err(|_| NativeError::failed("the picker closed without an answer"))?;
+    chosen
+        .map(|chosen| {
+            let path = chosen.into_path().map_err(NativeError::failed)?;
+            Ok(path.to_string_lossy().into_owned())
+        })
+        .transpose()
+}
+
 /// The image on the clipboard as PNG bytes, or an empty body when there's
 /// none. A clipboard holding files counts as having no image, since Finder
 /// puts the files' icons there too.

@@ -22,6 +22,7 @@ import {
 	StyleSheet,
 	Text,
 	TextInput,
+	type TextInputInstance,
 	View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -54,6 +55,7 @@ import {
 	resultRows,
 	resultsTitle,
 } from "@maxhq/shared/dispatch/plan";
+import { ANY_PLACE, takesAnswerPills, type Typed } from "@maxhq/shared/pills/answer";
 import { sentence } from "@maxhq/shared/status/format";
 import { feedIndexOf } from "@maxhq/shared/timeline/output";
 import { useTimeline } from "@maxhq/shared/timeline/use-timeline";
@@ -67,6 +69,7 @@ import { useReduceMotion } from "../../ui/motion";
 import { FeedProvider, useFeedRows } from "../agent/feed-context";
 import { FeedItem } from "../agent/FeedRow";
 import { AttentionCard } from "../attention/AttentionCard";
+import { useTypedField } from "../composer/typed-field";
 import { promptOfEvent } from "../attention/prompt";
 import { ASK_PLACEHOLDER, type DispatcherBar, dispatcherBar, resultLine, sheetOpens } from "./bar";
 import { dispatcherPrefs } from "./prefs";
@@ -196,7 +199,9 @@ export const Dispatcher = ({
 		if (!bar.canSend) return;
 		Keyboard.dismiss();
 		setOpen(true);
-		void ask(flow, { device: bar.reach.device, account: bar.reach.account?.id ?? null });
+		const { device } = bar.reach;
+		const pills = device !== null && takesAnswerPills(view, device);
+		void ask(flow, { device, account: bar.reach.account?.id ?? null, pills });
 	};
 
 	const openAgent = (agent: AgentId) => {
@@ -261,7 +266,7 @@ export const Dispatcher = ({
 					) : null}
 				</Pressable>
 				{bar.shows === "bar" ? (
-					<Box flow={flow} text={state.text} bar={bar} onSend={send} />
+					<Box flow={flow} text={state.text} refs={state.refs} bar={bar} onSend={send} />
 				) : null}
 			</View>
 		</>
@@ -280,15 +285,27 @@ const FIELD_PADDING = 8;
 const Box = ({
 	flow,
 	text,
+	refs,
 	bar,
 	onSend,
 }: {
 	flow: DispatchFlow;
 	text: string;
+	refs: Typed["refs"];
 	bar: DispatcherBar;
 	onSend: () => void;
 }) => {
 	const { t } = useI18n();
+	// `@` names an agent, as in the desktop's box.
+	const input = useRef<TextInputInstance>(null);
+	const field = useTypedField({
+		ref: input,
+		text,
+		refs,
+		onChange: (typed) => setDraft(flow, typed.text, typed.refs),
+		place: ANY_PLACE,
+		device: bar.reach.device,
+	});
 
 	const { off } = bar.reach;
 	const [focused, setFocused] = useState(false);
@@ -298,41 +315,47 @@ const Box = ({
 		setFocused(on);
 	};
 	return (
-		<View
-			style={[styles.box, focused && styles.boxFocused]}
-			accessibilityState={{ disabled: off !== null }}
-		>
-			{off ? (
-				<Text style={styles.off} numberOfLines={2}>
-					{off}
-				</Text>
-			) : (
-				<TextInput
-					style={[styles.input, focused ? styles.inputOpen : styles.inputShut]}
-					value={text}
-					onChangeText={(t) => setDraft(flow, t)}
-					onSubmitEditing={onSend}
-					onFocus={() => focus(true)}
-					onBlur={() => focus(false)}
-					multiline
-					scrollEnabled={focused}
-					submitBehavior="submit"
-					returnKeyType="send"
-					spellCheck
-					autoCorrect
-					placeholder={t(ASK_PLACEHOLDER)}
-					placeholderTextColor={color.subtleForeground}
-					accessibilityLabel={t("Ask the dispatcher")}
+		<>
+			{field.menu}
+			<View
+				style={[styles.box, focused && styles.boxFocused]}
+				accessibilityState={{ disabled: off !== null }}
+			>
+				{off ? (
+					<Text style={styles.off} numberOfLines={2}>
+						{off}
+					</Text>
+				) : (
+					<TextInput
+						ref={input}
+						style={[styles.input, focused ? styles.inputOpen : styles.inputShut]}
+						onChangeText={field.input.onChangeText}
+						onSelectionChange={field.input.onSelectionChange}
+						onSubmitEditing={onSend}
+						onFocus={() => focus(true)}
+						onBlur={() => focus(false)}
+						multiline
+						scrollEnabled={focused}
+						submitBehavior="submit"
+						returnKeyType="send"
+						spellCheck
+						autoCorrect
+						placeholder={t(ASK_PLACEHOLDER)}
+						placeholderTextColor={color.subtleForeground}
+						accessibilityLabel={t("Ask the dispatcher")}
+					>
+						{field.input.children}
+					</TextInput>
+				)}
+				<Button
+					label={t("Send")}
+					tone="primary"
+					small
+					disabled={!bar.canSend}
+					onPress={onSend}
 				/>
-			)}
-			<Button
-				label={t("Send")}
-				tone="primary"
-				small
-				disabled={!bar.canSend}
-				onPress={onSend}
-			/>
-		</View>
+			</View>
+		</>
 	);
 };
 

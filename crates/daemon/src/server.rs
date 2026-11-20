@@ -60,6 +60,11 @@ const PHONE_CANT: &str = "A phone can't do that. To let this phone, turn on Let 
 const PHONE_UNSIGNED: &str = "A phone can't send a maxd no release signed. Send it from the \
                               Mac's Update everything.";
 
+/// The refusal for a folder request from a connection that isn't the app
+/// or a proven phone.
+const NOT_FOR_FOLDERS: &str = "Only the MaxHQ app and phones that proved their keys may list \
+                               or make folders on this device.";
+
 /// The answer to a request whose part of `maxd` isn't built yet.
 pub fn not_yet() -> ActionOutcome {
     ActionOutcome::Refused {
@@ -753,14 +758,15 @@ impl Connection {
         }
         // A phone is easier to lose than a Mac, and it never stores or
         // removes a credential, signs in, changes how this device is set
-        // up, installs anything or reads a path on the device. So a stolen
-        // phone's key can't either. Nor can it start or move agents, start
-        // tasks, make or remove workspaces, open a shell, reach a guest's
-        // shell or ports, signal a process, copy files out or change hosts,
-        // snapshots,
-        // moves, skills, the skill library or its sources: the phone asks
-        // the dispatcher, answers and steers agents that already run.
-        // Unless the Mac turned the phone's switch on, which lets it.
+        // up or installs anything. So a stolen phone's key can't either.
+        // Nor can it read a file by its path on the device, list or make
+        // folders, start or move agents, start tasks, make, clone or remove
+        // workspaces, place files in them, open a shell, reach a guest's
+        // shell or ports, signal a process, copy files out, build or reset
+        // a test host, or change hosts, snapshots, moves, skills, the skill
+        // library or its sources: the phone asks the dispatcher, answers
+        // and steers agents that already run. Unless the Mac turned the
+        // phone's switch on, which lets it do all of these.
         if self.phone.is_some()
             && matches!(
                 message,
@@ -772,6 +778,12 @@ impl Connection {
                     | ClientMessage::InstallAcpAgent { .. }
                     | ClientMessage::CreateWorkspace { .. }
                     | ClientMessage::DeleteWorkspace { .. }
+                    | ClientMessage::CloneFolder { .. }
+                    | ClientMessage::CloneRetry { .. }
+                    | ClientMessage::CloneRemove { .. }
+                    | ClientMessage::PlaceStaged { .. }
+                    | ClientMessage::ListFolder { .. }
+                    | ClientMessage::MakeFolder { .. }
                     | ClientMessage::GuestSshOpen { .. }
                     | ClientMessage::TerminalOpen {
                         kind: TerminalKind::Shell,
@@ -784,6 +796,8 @@ impl Connection {
                     | ClientMessage::ApplyHost { .. }
                     | ClientMessage::RestoreSnapshot { .. }
                     | ClientMessage::RunMoveStep { .. }
+                    | ClientMessage::BuildTestHost { .. }
+                    | ClientMessage::ResetTestHost { .. }
                     | ClientMessage::SkillsApply { .. }
                     | ClientMessage::SkillsSetProject { .. }
                     | ClientMessage::SkillsSetAlways { .. }
@@ -1141,8 +1155,8 @@ impl Connection {
                 self.answer_when(key, tokio::task::spawn_blocking(undo));
                 Ok(())
             }
-            ClientMessage::BeginPhonePair { key, book } => {
-                let begin = move || crate::phones::with(|phones| phones.begin(book));
+            ClientMessage::BeginPhonePair { key, book, mac } => {
+                let begin = move || crate::phones::with(|phones| phones.begin(book, mac));
                 self.answer_when(key, tokio::task::spawn_blocking(begin));
                 Ok(())
             }
@@ -1193,8 +1207,13 @@ impl Connection {
                 self.answer_when(key, tokio::task::spawn_blocking(revoke));
                 Ok(())
             }
-            ClientMessage::SetPhoneBook { key, phone, book } => {
-                let set = move || crate::phones::with(|phones| phones.set_book(phone, book));
+            ClientMessage::SetPhoneBook {
+                key,
+                phone,
+                book,
+                mac,
+            } => {
+                let set = move || crate::phones::with(|phones| phones.set_book(phone, book, mac));
                 self.answer_when(key, tokio::task::spawn_blocking(set));
                 Ok(())
             }
@@ -1274,7 +1293,34 @@ impl Connection {
             | ClientMessage::TerminalInterrupt { .. }
             | ClientMessage::TerminalClose { .. }
             | ClientMessage::TerminalRename { .. }
-            | ClientMessage::TerminalMove { .. }) => self.terminal(message).await,
+            | ClientMessage::TerminalMove { .. }
+            | ClientMessage::SessionRun { .. }
+            | ClientMessage::SessionShare { .. }
+            | ClientMessage::SessionCd { .. }
+            | ClientMessage::SessionEnd { .. }) => self.terminal(message).await,
+            // Folders answer the app and proven phones, as terminals do.
+            ClientMessage::ListFolder {
+                key,
+                device,
+                path,
+                files,
+                hidden,
+                filter,
+            } if self.terminal_caller().is_some() => {
+                let me = self.hub.device().id;
+                let list = crate::folders::list(me, device, path, files, hidden, filter);
+                self.answer_when(key, tokio::spawn(list));
+                Ok(())
+            }
+            ClientMessage::MakeFolder { key, device, path } if self.terminal_caller().is_some() => {
+                let make = crate::folders::make(self.hub.device().id, device, key, path);
+                self.answer_when(key, tokio::spawn(make));
+                Ok(())
+            }
+            message @ (ClientMessage::ListFolder { .. } | ClientMessage::MakeFolder { .. }) => {
+                self.refuse(&message, ErrorCode::NotAllowed, NOT_FOR_FOLDERS)
+                    .await
+            }
             // Updates, tools, load and diagnostics belong to the fleet.
             message @ (ClientMessage::InstallUpdate { key, .. }
             | ClientMessage::UpdateTools { key, .. }
@@ -1722,10 +1768,7 @@ impl Connection {
     async fn hello(&mut self, hello: ClientHello) -> Result<(), ConnError> {
         let ours = ProtocolRange::OURS;
         let Some(version) = ours.agree(hello.protocol) else {
-            let message = format!(
-                "this maxd speaks protocol {} to {}, and the client {} to {}",
-                ours.oldest, ours.current, hello.protocol.oldest, hello.protocol.current
-            );
+            let message = ours.refusal(hello.protocol);
             self.error(ErrorCode::UnsupportedProtocol, message).await?;
             return Err(ConnError::Unsupported);
         };
@@ -2427,9 +2470,14 @@ pub(crate) mod tests {
             network: None,
         }];
         let (mut app, _) = TestClient::greeted(&served.socket).await;
+        let home = maxhq_protocol::phones::PhoneMac {
+            device: DeviceId::derive("Home Mac"),
+            name: "Home Mac".into(),
+        };
         app.send(&ClientMessage::BeginPhonePair {
             key: IdempotencyKey::derive("begin"),
             book: book.clone(),
+            mac: Some(home.clone()),
         })
         .await;
         let ServerMessage::ActionResult {
@@ -2473,10 +2521,16 @@ pub(crate) mod tests {
         pairing.send(&pair_phone("pair")).await;
         let phone = match pairing.recv().await {
             ServerMessage::ActionResult {
-                outcome: ActionOutcome::PhonePaired { phone, book: got },
+                outcome:
+                    ActionOutcome::PhonePaired {
+                        phone,
+                        book: got,
+                        mac,
+                    },
                 ..
             } => {
                 assert_eq!(got, book);
+                assert_eq!(mac, Some(home), "the phone hears which Mac paired it");
                 phone
             }
             other => panic!("{other:?}"),
@@ -2564,6 +2618,7 @@ pub(crate) mod tests {
             ClientMessage::BeginPhonePair {
                 key: IdempotencyKey::derive("begin-phone"),
                 book: book.clone(),
+                mac: None,
             },
             add("add-phone", 202),
             ClientMessage::AuthorizePeer {
@@ -3025,6 +3080,69 @@ pub(crate) mod tests {
     }
 
     #[tokio::test]
+    async fn folders_answer_the_app_and_never_agents_tools() {
+        let served = serve();
+        let me = served.hub.device().id;
+        let dir = TempDir::new();
+        fs::create_dir(dir.path().join("example-app")).unwrap();
+        let list = ClientMessage::ListFolder {
+            key: IdempotencyKey::derive("list"),
+            device: me,
+            path: dir.path().display().to_string(),
+            files: false,
+            hidden: false,
+            filter: None,
+        };
+        let make = ClientMessage::MakeFolder {
+            key: IdempotencyKey::derive("make"),
+            device: me,
+            path: dir.path().join("new").display().to_string(),
+        };
+
+        let mut tools = TestClient::connect(&served.socket).await;
+        let ClientMessage::Hello(mut hello) = hello(ProtocolRange::OURS) else {
+            unreachable!()
+        };
+        hello.role = ClientRole::Mcp;
+        tools.send(&ClientMessage::Hello(hello)).await;
+        assert!(matches!(tools.recv().await, ServerMessage::Hello(_)));
+        for message in [&list, &make] {
+            tools.send(message).await;
+            assert!(matches!(
+                tools.recv().await,
+                ServerMessage::Error {
+                    code: ErrorCode::NotAllowed,
+                    ..
+                }
+            ));
+        }
+        assert!(!dir.path().join("new").exists());
+
+        let (mut app, _) = TestClient::greeted(&served.socket).await;
+        app.send(&list).await;
+        match app.recv().await {
+            ServerMessage::ActionResult {
+                outcome: ActionOutcome::FolderListed { listing },
+                ..
+            } => {
+                assert!(listing.exists);
+                assert_eq!(listing.entries.len(), 1);
+                assert_eq!(listing.entries[0].name, "example-app");
+            }
+            other => panic!("{other:?}"),
+        }
+        app.send(&make).await;
+        assert!(matches!(
+            app.recv().await,
+            ServerMessage::ActionResult {
+                outcome: ActionOutcome::Done,
+                ..
+            }
+        ));
+        assert!(dir.path().join("new").is_dir());
+    }
+
+    #[tokio::test]
     async fn only_the_app_may_set_or_delete_acp_agents() {
         let served = serve();
         let id = maxhq_protocol::ids::AcpAgentId::derive("gemini");
@@ -3128,7 +3246,7 @@ pub(crate) mod tests {
         use maxhq_protocol::ids::{
             AccountId, AcpAgentId, AdmissionId, AttachmentId, CredentialId, ForwardId, KeyId,
             MoveId, PermissionId, PortId, SignInId, SkillProposalId, SkillSourceId, StreamId,
-            TaskId,
+            TaskId, TestHostId,
         };
         use maxhq_protocol::message::{AgentPlace, AgentSpec, ToolTarget, UpdateKind};
         use maxhq_protocol::model::{
@@ -3275,6 +3393,40 @@ pub(crate) mod tests {
                 workspace,
                 discard_unpushed: true,
             },
+            ClientMessage::CloneFolder {
+                key: key("clone"),
+                project: ProjectId::derive("project"),
+                device: me,
+                parent: "/home/dev/src".into(),
+                name: "stolen".into(),
+            },
+            ClientMessage::CloneRetry {
+                key: key("clone-retry"),
+                workspace,
+            },
+            ClientMessage::CloneRemove {
+                key: key("clone-remove"),
+                workspace,
+            },
+            ClientMessage::PlaceStaged {
+                key: key("place"),
+                workspace,
+                attachment: AttachmentId::derive("place"),
+                overwrite: true,
+            },
+            ClientMessage::ListFolder {
+                key: key("list-folder"),
+                device: me,
+                path: dir.path().display().to_string(),
+                files: true,
+                hidden: true,
+                filter: None,
+            },
+            ClientMessage::MakeFolder {
+                key: key("make-folder"),
+                device: me,
+                path: dir.path().join("stolen").display().to_string(),
+            },
             ClientMessage::GuestSshOpen {
                 stream: StreamId::generate(),
                 workspace,
@@ -3323,6 +3475,14 @@ pub(crate) mod tests {
                 key: key("move"),
                 moving: MoveId::derive("move"),
                 step: MoveStep::Retire,
+            },
+            ClientMessage::BuildTestHost {
+                key: key("test-host-build"),
+                host: TestHostId::derive("host"),
+            },
+            ClientMessage::ResetTestHost {
+                key: key("test-host-reset"),
+                host: TestHostId::derive("host"),
             },
             ClientMessage::SkillsApply {
                 key: key("skills"),
@@ -3511,6 +3671,7 @@ pub(crate) mod tests {
             ClientMessage::BeginPhonePair {
                 key: key("pair"),
                 book: Vec::new(),
+                mac: None,
             },
             ClientMessage::AddPhone {
                 key: key("add-another"),
@@ -3565,6 +3726,7 @@ pub(crate) mod tests {
                 key: key("phone-book"),
                 phone,
                 book: Vec::new(),
+                mac: None,
             },
             ClientMessage::SetPhoneEverything {
                 key: key("everything"),
@@ -3611,7 +3773,8 @@ pub(crate) mod tests {
         }
         assert!(!phones.everything(phone), "the phone can't turn it on");
         // A sign-in the Mac began can still be read and stopped from it, and
-        // a command typed after `!` still runs.
+        // a command typed after `!` still runs, and the phone can still have
+        // this device look at what it hosts.
         let round = SignInId::derive("round");
         for message in [
             ClientMessage::CheckCliLogin {
@@ -3631,6 +3794,9 @@ pub(crate) mod tests {
                 },
                 cols: 80,
                 rows: 24,
+            },
+            ClientMessage::CheckTestHosts {
+                key: key("test-host-check"),
             },
         ] {
             own.send(&message).await;
@@ -3708,6 +3874,36 @@ pub(crate) mod tests {
             own.recv().await,
             ServerMessage::ActionResult {
                 outcome: ActionOutcome::Staged { .. },
+                ..
+            }
+        ));
+        // And list and make folders, as it may start an agent in one.
+        own.send(&ClientMessage::ListFolder {
+            key: IdempotencyKey::generate(),
+            device: me,
+            path: dir.path().display().to_string(),
+            files: true,
+            hidden: false,
+            filter: None,
+        })
+        .await;
+        assert!(matches!(
+            own.recv().await,
+            ServerMessage::ActionResult {
+                outcome: ActionOutcome::FolderListed { .. },
+                ..
+            }
+        ));
+        own.send(&ClientMessage::MakeFolder {
+            key: IdempotencyKey::generate(),
+            device: me,
+            path: dir.path().join("made").display().to_string(),
+        })
+        .await;
+        assert!(matches!(
+            own.recv().await,
+            ServerMessage::ActionResult {
+                outcome: ActionOutcome::Done,
                 ..
             }
         ));

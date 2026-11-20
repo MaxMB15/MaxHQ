@@ -31,7 +31,7 @@ use base64::Engine;
 use maxhq_core::authorized_keys;
 use maxhq_protocol::ids::{DeviceId, PairId, PhoneId};
 use maxhq_protocol::message::ActionOutcome;
-use maxhq_protocol::phones::{Phone, PhoneBook, PhoneBookEntry, PushToken};
+use maxhq_protocol::phones::{Phone, PhoneBook, PhoneBookEntry, PhoneMac, PushToken};
 use maxhq_protocol::state::{Change, Entity, EntityKey};
 use maxhq_protocol::Secret;
 use ring::rand::{SecureRandom, SystemRandom};
@@ -103,11 +103,15 @@ struct Kept {
     phone: Phone,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     book: Option<Vec<PhoneBookEntry>>,
+    /// The Mac that made the book, when it said.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    mac: Option<PhoneMac>,
 }
 
 /// A pairing that waits for its phone.
 struct Waiting {
     book: Vec<PhoneBookEntry>,
+    mac: Option<PhoneMac>,
     until: Instant,
     /// The one-time key's public half, which a seed must derive.
     public: [u8; 32],
@@ -117,6 +121,7 @@ struct Waiting {
 #[derive(Debug)]
 pub struct Pairing {
     book: Vec<PhoneBookEntry>,
+    mac: Option<PhoneMac>,
 }
 
 impl Phones {
@@ -177,12 +182,14 @@ impl Phones {
         self.0.hub.device().id
     }
 
-    /// Answers `BeginPhonePair`: a one-time key for a phone with `book`.
-    pub fn begin(&self, book: Vec<PhoneBookEntry>) -> ActionOutcome {
+    /// Answers `BeginPhonePair`: a one-time key for a phone with `book`,
+    /// which `mac` made.
+    pub fn begin(&self, book: Vec<PhoneBookEntry>, mac: Option<PhoneMac>) -> ActionOutcome {
         let book = match check_book(book) {
             Ok(book) => book,
             Err(reason) => return refused(reason),
         };
+        let mac = check_mac(mac);
         let me = self.me();
         let Some(host_key) = book
             .iter()
@@ -221,6 +228,7 @@ impl Phones {
             pair,
             Waiting {
                 book,
+                mac,
                 until,
                 public: key.0,
             },
@@ -276,9 +284,10 @@ impl Phones {
         let waiting = self.lock().pairs.remove(&pair);
         self.drop_key(pair);
         match waiting {
-            Some(waiting) if waiting.until > self.0.clock.now() => {
-                Ok(Pairing { book: waiting.book })
-            }
+            Some(waiting) if waiting.until > self.0.clock.now() => Ok(Pairing {
+                book: waiting.book,
+                mac: waiting.mac,
+            }),
             _ => Err(PAIR_OVER),
         }
     }
@@ -313,11 +322,12 @@ impl Phones {
             return refused("The phone's key isn't an ed25519 key.");
         };
         let phone = PhoneId::derive(&ssh_public);
-        let book = pairing.book;
-        match self.let_in(phone, name, ssh_public, push_public, Some(book.clone())) {
+        let Pairing { book, mac } = pairing;
+        let kept = Some(book.clone());
+        match self.let_in(phone, name, ssh_public, push_public, kept, mac.clone()) {
             ActionOutcome::Done => {
                 info!(%phone, "a phone paired");
-                ActionOutcome::PhonePaired { phone, book }
+                ActionOutcome::PhonePaired { phone, book, mac }
             }
             other => other,
         }
@@ -338,20 +348,21 @@ impl Phones {
         if phone != PhoneId::derive(&ssh_public) {
             return refused("The phone's ID doesn't match its key.");
         }
-        let book = self
+        let (book, mac) = self
             .lock()
             .phones
             .get(&phone)
-            .and_then(|kept| kept.book.clone());
-        match self.let_in(phone, name, ssh_public, push_public, book) {
+            .map(|kept| (kept.book.clone(), kept.mac.clone()))
+            .unwrap_or_default();
+        match self.let_in(phone, name, ssh_public, push_public, book, mac) {
             // With network access on, the phone gets a code for it too.
             ActionOutcome::Done => crate::netaccess::added(phone),
             other => other,
         }
     }
 
-    /// Writes the phone's line and keeps it, with its book when it has
-    /// one here.
+    /// Writes the phone's line and keeps it, with its book and the Mac that
+    /// made it when it has one here.
     fn let_in(
         &self,
         phone: PhoneId,
@@ -359,6 +370,7 @@ impl Phones {
         ssh_public: String,
         push_public: &str,
         book: Option<Vec<PhoneBookEntry>>,
+        mac: Option<PhoneMac>,
     ) -> ActionOutcome {
         let name = name.trim();
         if name.is_empty() || name.len() > NAME_MAX || name.chars().any(char::is_control) {
@@ -400,6 +412,7 @@ impl Phones {
                 everything: before.as_ref().is_some_and(|b| b.phone.everything),
             },
             book,
+            mac,
         };
         state.phones.insert(phone, kept.clone());
         if let Err(err) = save(&self.0.folder, &state.phones) {
@@ -417,8 +430,14 @@ impl Phones {
         ActionOutcome::Done
     }
 
-    /// Answers `SetPhoneBook`, for a phone that paired here.
-    pub fn set_book(&self, phone: PhoneId, book: Vec<PhoneBookEntry>) -> ActionOutcome {
+    /// Answers `SetPhoneBook`, for a phone that paired here. A book that
+    /// doesn't name its Mac keeps the one before.
+    pub fn set_book(
+        &self,
+        phone: PhoneId,
+        book: Vec<PhoneBookEntry>,
+        mac: Option<PhoneMac>,
+    ) -> ActionOutcome {
         let book = match check_book(book) {
             Ok(book) => book,
             Err(reason) => return refused(reason),
@@ -428,11 +447,14 @@ impl Phones {
         let Some(kept) = state.phones.get_mut(&phone).filter(|k| k.book.is_some()) else {
             return refused("That phone didn't pair through this device.");
         };
-        let before = kept.book.replace(book);
+        let before = (kept.book.replace(book), kept.mac.clone());
+        if let Some(mac) = check_mac(mac) {
+            kept.mac = Some(mac);
+        }
         let changed = kept.clone();
         if let Err(err) = save(&self.0.folder, &state.phones) {
             if let Some(kept) = state.phones.get_mut(&phone) {
-                kept.book = before;
+                (kept.book, kept.mac) = before;
             }
             return refused(format!("This device couldn't keep the book: {err}"));
         }
@@ -574,6 +596,7 @@ fn entities(kept: &Kept, me: DeviceId) -> Vec<Change> {
                 phone: kept.phone.id,
                 device: me,
                 devices: devices.clone(),
+                mac: kept.mac.clone(),
             }),
         });
     }
@@ -644,6 +667,18 @@ fn check_book(mut book: Vec<PhoneBookEntry>) -> Result<Vec<PhoneBookEntry>, Stri
         }
     }
     Ok(book)
+}
+
+/// The Mac's name, trimmed, or none when it isn't a short one, since the
+/// phone then names the book by its keeper.
+fn check_mac(mac: Option<PhoneMac>) -> Option<PhoneMac> {
+    let mut mac = mac?;
+    let name = mac.name.trim();
+    if name.is_empty() || name.len() > NAME_MAX || name.chars().any(char::is_control) {
+        return None;
+    }
+    mac.name = name.to_owned();
+    Some(mac)
 }
 
 fn refused(reason: impl Into<String>) -> ActionOutcome {

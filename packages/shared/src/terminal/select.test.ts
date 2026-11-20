@@ -63,6 +63,14 @@ describe("terminalsOf", () => {
 		expect(terminalsOf(view, "agent-3")).toEqual([]);
 	});
 
+	it("puts the session first, whenever it started", () => {
+		const view = viewOf([
+			terminal({ id: "t-early", started_at: NOW - 20 * MIN }),
+			terminal({ id: "t-session", kind: { type: "session" }, started_at: NOW - MIN }),
+		]);
+		expect(ids(terminalsOf(view, "agent-1"))).toEqual(["t-session", "t-early"]);
+	});
+
 	it("keeps tabs that started at once in a steady order", () => {
 		const view = viewOf([terminal({ id: "t-b" }), terminal({ id: "t-a" })]);
 		expect(ids(terminalsOf(view, "agent-1"))).toEqual(["t-a", "t-b"]);
@@ -71,13 +79,18 @@ describe("terminalsOf", () => {
 
 describe("inDrawer", () => {
 	it("puts a shell and a moved command in the drawer, and leaves a run in the timeline", () => {
-		const view = viewOf([terminal({ id: "s" }), run("r"), run("m", { moved: true })]);
+		const view = viewOf([
+			terminal({ id: "s" }),
+			run("r"),
+			run("m", { moved: true }),
+			terminal({ id: "x", kind: { type: "session" } }),
+		]);
 		const at = (id: string) => {
 			const found = terminalById(view, id);
 			if (!found) throw new Error(`no terminal ${id}`);
 			return inDrawer(found);
 		};
-		expect([at("s"), at("r"), at("m")]).toEqual([true, false, true]);
+		expect([at("s"), at("r"), at("m"), at("x")]).toEqual([true, false, true, true]);
 	});
 });
 
