@@ -259,7 +259,10 @@ jobs:
   # signed .ipa as an artifact for a day; release-testflight uploads it once
   # every build has passed. Its App Store Connect key isn't the notarizing
   # one: that key has the Developer role, which can't make App Store
-  # distribution signing, so this one has the App Manager role.
+  # distribution signing. Xcode makes the distribution certificate in
+  # Apple's cloud through this key, which Apple allows only for the Admin
+  # role (App Manager fails with "Cloud signing permission error"). The
+  # secrets keep their APPLE_APP_MANAGER_ names.
   release-ios:
     needs: [prepare-release]
     # App Store Connect takes only builds made with the iOS 26 SDK, which
