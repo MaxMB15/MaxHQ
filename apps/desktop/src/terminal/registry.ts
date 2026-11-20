@@ -174,9 +174,13 @@ export const createRegistry = ({
 		if (!step) return;
 		if (step.clear) entry.view.clear();
 		entry.view.setMarks(marksOf(entry.terminal));
-		if (step.bytes.length > 0) entry.view.write(step.bytes, step.end - step.bytes.length);
+		// A card grows with what it shows, once the view has taken it in.
+		const grow = () => {
+			if (top(entry)?.placement.maxRows !== undefined) layout(entry);
+		};
+		if (step.bytes.length > 0) entry.view.write(step.bytes, step.end - step.bytes.length, grow);
+		else grow();
 		entry.end = step.end;
-		if (top(entry)?.placement.maxRows !== undefined) layout(entry);
 		flushPastes(entry);
 	};
 

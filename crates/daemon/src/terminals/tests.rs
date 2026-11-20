@@ -548,6 +548,13 @@ async fn pumped(from: u64, reset: bool, events: Vec<TermEvent>) -> Vec<Sent> {
 
     let mut decoder = FrameDecoder::new();
     decoder.push(&bytes);
+    let sent = decoded(&mut decoder, terminal);
+    assert_eq!(decoder.buffered(), 0);
+    sent
+}
+
+/// The whole frames `decoder` holds for `terminal`, decoded.
+fn decoded(decoder: &mut FrameDecoder, terminal: TerminalId) -> Vec<Sent> {
     let mut sent = Vec::new();
     while let Some(frame) = decoder.next_frame().unwrap() {
         match frame {
@@ -577,8 +584,45 @@ async fn pumped(from: u64, reset: bool, events: Vec<TermEvent>) -> Vec<Sent> {
             other => panic!("expected terminal output, got {other:?}"),
         }
     }
-    assert_eq!(decoder.buffered(), 0);
     sent
+}
+
+#[tokio::test]
+async fn output_reaches_the_connection_while_the_terminal_runs() {
+    let terminal = TerminalId::derive("pumped");
+    let (writer, mut reader) = tokio::io::duplex(1 << 20);
+    let (wire, _writing) = maxhq_wire::spawn(writer);
+    let (tx, rx) = mpsc::channel(4);
+    let _pumping = tokio::spawn(pump(terminal, 0, false, rx, wire));
+    let mut decoder = FrameDecoder::new();
+    let mut next = async |want: Sent| {
+        let mut buf = [0; 4096];
+        let mut sent = Vec::new();
+        while sent.is_empty() {
+            let read = timeout(WAIT, reader.read(&mut buf)).await;
+            decoder.push(&buf[..read.expect("a frame in time").unwrap()]);
+            sent = decoded(&mut decoder, terminal);
+        }
+        assert_eq!(sent, [want]);
+    };
+    next(Sent::Attached {
+        from: 0,
+        reset: false,
+    })
+    .await;
+    // The holder's link stays open all along, as it does while the
+    // command runs, and each piece goes out on its own.
+    let mut offset = 0;
+    for piece in [&b"line\r\n"[..], b"\r10%", b"\r20%"] {
+        let data = piece.to_vec();
+        tx.send(TermEvent::Output { offset, data }).await.unwrap();
+        next(Sent::Output {
+            offset,
+            bytes: piece.to_vec(),
+        })
+        .await;
+        offset += piece.len() as u64;
+    }
 }
 
 #[tokio::test]

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026 Max Boksem
 
+import { Terminal } from "@xterm/xterm";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { type FakeView, fakeView } from "@/test/fake-term-view";
@@ -8,6 +9,7 @@ import type { TerminalId } from "@maxhq/shared/bindings";
 import type { TerminalEvent, TerminalStream } from "@maxhq/shared/terminal/stream";
 
 import { createRegistry } from "./registry";
+import { xtermView } from "./term-view-xterm";
 
 const fakeStream = () => {
 	const listeners = new Map<TerminalId, Set<(event: TerminalEvent) => void>>();
@@ -197,5 +199,56 @@ describe("the terminal registry", () => {
 		expect(views[0]!.gpu()).toBe(true);
 		leave();
 		expect(views[0]!.gpu()).toBe(false);
+	});
+});
+
+describe("a card's terminal on a real xterm", () => {
+	afterEach(() => {
+		vi.restoreAllMocks();
+	});
+
+	// xterm takes writes in a moment later, so a card sized right after a
+	// write showed the rows from before it, and a command's first line
+	// didn't show until more came.
+	it("shows each line and each redraw as it comes", async () => {
+		const loads = vi.spyOn(Terminal.prototype, "loadAddon");
+		const { stream, output } = fakeStream();
+		const registry = createRegistry({
+			stream,
+			makeView: xtermView,
+			sizeOf: () => ({ cols: 80, rows: 24 }),
+			exists: () => true,
+		});
+		// jsdom can't open a terminal, so the host stays out of the page.
+		registry.place("t-1", document.createElement("div"), {
+			interactive: false,
+			maxRows: 4,
+		});
+		const terminal = loads.mock.contexts[0] as Terminal;
+		const shown = () => {
+			const buffer = terminal.buffer.active;
+			const rows: string[] = [];
+			for (let y = buffer.viewportY; y < buffer.viewportY + terminal.rows; y++)
+				rows.push(buffer.getLine(y)?.translateToString(true) ?? "");
+			return rows;
+		};
+		let offset = 0;
+		const print = async (text: string) => {
+			output("t-1", offset, text);
+			offset += new TextEncoder().encode(text).length;
+			await new Promise<void>((done) => terminal.write("", done));
+		};
+
+		await print("1\r\n");
+		expect(shown()).toEqual(["1", ""]);
+		await print("2\r\n");
+		expect(shown()).toEqual(["1", "2", ""]);
+		await print("3\r\n4\r\n5\r\n");
+		expect(shown()).toEqual(["3", "4", "5", ""]);
+		// A progress bar redraws its line instead of adding lines.
+		await print("\r10%");
+		await print("\r20%");
+		expect(shown()).toEqual(["3", "4", "5", "20%"]);
+		registry.dispose();
 	});
 });

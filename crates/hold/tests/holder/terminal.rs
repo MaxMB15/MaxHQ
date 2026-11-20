@@ -510,6 +510,25 @@ pub(super) async fn a_run_keeps_what_it_showed(ctx: Ctx) {
     );
 }
 
+pub(super) async fn a_run_streams_each_piece_as_it_prints(ctx: Ctx) {
+    // Each piece waits for a line from us, so it can only show while the
+    // run goes on: a whole line, a redraw with no line break, and stderr.
+    let command = "echo line; read _; printf '\\r10%%'; read _; printf '\\r20%%'; read _; \
+                   echo oops >&2; read _";
+    let mut launch = TermLaunch::run(TerminalId::generate(), ctx.root.clone(), command, 80, 24);
+    launch.program = "/bin/sh".into();
+    launch.env.extend(quiet_env(&ctx).into_iter().skip(1));
+    let mut link = start(&ctx, &launch).await;
+    let mut seen = Seen::from(&link);
+    for piece in ["line\r\n", "\r10%", "\r20%", "oops\r\n"] {
+        seen.until_text(&mut link, piece).await;
+        assert!(seen.exit.is_none(), "{piece:?} came only at the end");
+        assert!(link.control.input(b"\n".to_vec()));
+    }
+    let exit = seen.until_exit(&mut link).await;
+    assert_eq!(exit.code, Some(0));
+}
+
 /// Startup files that run `script`, in a home folder of their own named
 /// `name`, and the variables that point `sh` (`ENV`), bash (`HOME`) and
 /// zsh (`ZDOTDIR`) at them.
