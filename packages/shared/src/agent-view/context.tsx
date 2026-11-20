@@ -48,6 +48,9 @@ export const RowProvider = ({ value, children }: { value: RowContext; children: 
 	<Context value={value}>{children}</Context>
 );
 
+/** The shared values from the nearest `RowProvider`, or null outside one. */
+export const useRowIfAny = (): RowContext | null => useContext(Context);
+
 /** The shared values from the nearest `RowProvider`. */
 export const useRow = (): RowContext => {
 	const value = useContext(Context);

@@ -16,6 +16,7 @@ import { t, useI18n } from "@maxhq/shared/i18n";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import { Markdown } from "@/agent-view/markdown";
+import { LinkFolder } from "@/agent-view/markdown-link";
 import { OpenInButton } from "@/agent-view/open-in";
 import { useTimeline } from "@/agent-view/use-timeline";
 import { ZoomPicture } from "@/agent-view/zoom-picture";
@@ -25,6 +26,7 @@ import { Empty } from "@/main-area/empty";
 import { SECONDARY } from "@/settings/controls";
 import { type RowContext, RowProvider } from "@maxhq/shared/agent-view/context";
 import { formatBytes } from "@maxhq/shared/agent-view/format";
+import { folderOf } from "@maxhq/shared/agent-view/link-target";
 import { loadMedia, useMedia } from "@maxhq/shared/agent-view/media";
 import {
 	extensionOf,
@@ -45,7 +47,17 @@ import { FRAME_SANDBOX, type OpenFile, isFromFrame } from "./messages";
 const noSubAgents = () => {};
 
 /** A Markdown file, drawn as the timeline draws a reply, HTML included. */
-const MarkdownFile = ({ agent, url, size }: { agent: AgentId; url: string; size: number }) => {
+const MarkdownFile = ({
+	agent,
+	path,
+	url,
+	size,
+}: {
+	agent: AgentId;
+	path: string;
+	url: string;
+	size: number;
+}) => {
 	const { t } = useI18n();
 
 	const { source } = useServices();
@@ -90,7 +102,10 @@ const MarkdownFile = ({ agent, url, size }: { agent: AgentId; url: string; size:
 	return (
 		<div className="h-full overflow-y-auto">
 			<RowProvider value={row}>
-				<Markdown text={text} className="mx-auto max-w-[780px] px-8 py-6" />
+				{/* Its links read from its own folder, as they would on a code host. */}
+				<LinkFolder value={folderOf(path)}>
+					<Markdown text={text} className="mx-auto max-w-[780px] px-8 py-6" />
+				</LinkFolder>
 			</RowProvider>
 		</div>
 	);
@@ -359,6 +374,7 @@ const Body = ({ agent, path }: { agent: AgentId; path: string }) => {
 						<MarkdownFile
 							key={media.url}
 							agent={agent}
+							path={path}
 							url={media.url}
 							size={media.size}
 						/>
