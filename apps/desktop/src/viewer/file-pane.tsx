@@ -5,7 +5,8 @@
 // through the media cache, the way the timeline's pictures do. Markdown
 // draws with the app's own Markdown, and code and plain text draw as
 // read-only text with the chat's colours. An HTML page draws as a visual,
-// with its source a click away. Every other kind goes to the
+// with its source a click away, and a picture zooms and pans as the
+// picture viewer's does. Every other kind goes to the
 // viewer frame, a sandboxed page on an opaque origin with no network, which gets
 // the bytes in a message and draws them. The header names the file and
 // opens it in an editor.
@@ -17,6 +18,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Markdown } from "@/agent-view/markdown";
 import { OpenInButton } from "@/agent-view/open-in";
 import { useTimeline } from "@/agent-view/use-timeline";
+import { ZoomPicture } from "@/agent-view/zoom-picture";
 import { useServices, useView } from "@/app/services";
 import { useTheme } from "@/app/theme";
 import { Empty } from "@/main-area/empty";
@@ -246,6 +248,34 @@ const FramedFile = ({
 	);
 };
 
+/**
+ * A picture, zoomed and panned as in the picture viewer. One the webview
+ * can't draw goes to the viewer frame instead.
+ */
+const PictureFile = ({
+	url,
+	size,
+	path,
+	theme,
+}: {
+	url: string;
+	size: number;
+	path: string;
+	theme: Theme;
+}) => {
+	const [framed, setFramed] = useState(false);
+	if (framed) return <FramedFile key={theme} url={url} size={size} path={path} theme={theme} />;
+	return (
+		<ZoomPicture
+			src={url}
+			alt={fileName(path)}
+			keys="focus"
+			onError={() => setFramed(true)}
+			className="size-full"
+		/>
+	);
+};
+
 /** What the pane shows below its header, as the file's fetch stands. */
 const Body = ({ agent, path }: { agent: AgentId; path: string }) => {
 	const { t } = useI18n();
@@ -351,6 +381,16 @@ const Body = ({ agent, path }: { agent: AgentId; path: string }) => {
 							path={path}
 							url={media.url}
 							size={media.size}
+						/>
+					);
+				case "image":
+					return (
+						<PictureFile
+							key={media.url}
+							url={media.url}
+							size={media.size}
+							path={path}
+							theme={theme}
 						/>
 					);
 				default:
