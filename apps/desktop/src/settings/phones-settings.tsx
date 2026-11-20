@@ -132,7 +132,7 @@ const AddPhone = ({ devices }: { devices: readonly PhoneDevice[] }) => {
 					away={null}
 				/>
 				{unreachable.map((d) => (
-					<span key={d.device} className="text-xs text-muted-foreground">
+					<span key={d.device} className="selectable text-xs text-muted-foreground">
 						{d.name}: {d.note}
 					</span>
 				))}
@@ -160,7 +160,7 @@ const AddPhone = ({ devices }: { devices: readonly PhoneDevice[] }) => {
 				</span>
 				{paired ? (
 					<div className="flex flex-col gap-2">
-						<span role="status" className="text-[12.5px] text-foreground">
+						<span role="status" className="selectable text-[12.5px] text-foreground">
 							{paired.name} {translate(" is paired.")}
 						</span>
 						<NoPushKey names={withoutPushKey(view, paired)} />
@@ -338,7 +338,7 @@ const Phones = () => {
 				phones.map((phone) => (
 					<Fragment key={phone.id}>
 						<Row
-							title={phone.name}
+							title={<span className="selectable">{phone.name}</span>}
 							sub={
 								<>
 									<span className="block">
@@ -366,9 +366,13 @@ const Phones = () => {
 						{waits.get(phone.id) ? (
 							<Row
 								className="pl-8"
-								title={translate("Not signed in on {{names}}", {
-									names: waits.get(phone.id),
-								})}
+								title={
+									<span className="selectable">
+										{translate("Not signed in on {{names}}", {
+											names: waits.get(phone.id),
+										})}
+									</span>
+								}
 								sub={translate("A new code works for {{minutes}} minutes.", {
 									minutes: CODE_MINUTES,
 								})}

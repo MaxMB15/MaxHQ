@@ -62,7 +62,11 @@ export const DeviceLinks = ({ device, name }: { device: DeviceId; name: string }
 				<Row title={translate("Device links")} sub={failureOf(result)} />
 			) : (
 				result.data.map((link) => (
-					<Row key={link.peer} title={link.name} sub={linkSub(link)}>
+					<Row
+						key={link.peer}
+						title={<span className="selectable">{link.name}</span>}
+						sub={linkSub(link)}
+					>
 						<StatusNote note={note?.peer === link.peer ? note.note : null} />
 						<button
 							type="button"

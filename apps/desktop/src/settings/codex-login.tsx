@@ -84,7 +84,11 @@ const SignIn = () => {
 				targets.map((t) => {
 					const session = held.find((c) => c.device === t.device);
 					return (
-						<Row key={t.device} title={t.name} sub={codexStatus(t, session)}>
+						<Row
+							key={t.device}
+							title={<span className="selectable">{t.name}</span>}
+							sub={codexStatus(t, session)}
+						>
 							<StatusNote note={notes.get(t.device) ?? null} />
 							<button
 								type="button"

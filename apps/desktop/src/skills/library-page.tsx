@@ -12,6 +12,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 
 import { useServices, useView } from "@/app/services";
+import { CopyIcon } from "@/components/copy-field";
 import { Switch } from "@/components/ui/switch";
 import {
 	ConfirmButton,
@@ -27,7 +28,7 @@ import { PathField } from "@/paths/path-field";
 import { Badge } from "@/tasks/activity";
 import type { DeviceId, SkillLibrary, SkillSource } from "@maxhq/shared/bindings";
 import { useNow } from "@maxhq/shared/lib/clock";
-import { skillBadges, skillLibrary, sourceFacts } from "@maxhq/shared/skills/library";
+import { skillBadges, skillLibrary, sourceFacts, sourceWhere } from "@maxhq/shared/skills/library";
 import { devicesWithSkills } from "@maxhq/shared/skills/project";
 import { EMPTY_SOURCE, planSource, type SourceDraft } from "@maxhq/shared/skills/source-form";
 import { readOf } from "@maxhq/shared/pulls/read";
@@ -52,16 +53,30 @@ const SourceBlock = ({ library, source }: { library: SkillLibrary; source: Skill
 			<div className="flex items-center gap-4 px-4 py-3">
 				<div className="flex min-w-0 flex-1 flex-col gap-0.5">
 					<span className="flex items-center gap-2 text-[12.5px] text-foreground">
-						<span className="truncate font-[600]">{source.name}</span>
+						<span title={source.name} className="selectable truncate font-[600]">
+							{source.name}
+						</span>
 						<Badge tone={source.trust === "own" ? "good" : "plain"}>
 							{source.trust === "own" ? t("Yours") : t("Third party")}
 						</Badge>
 					</span>
-					<span className="truncate font-mono text-xs text-muted-foreground">
-						{parts.join(" · ")}
+					<span className="flex min-w-0 items-center gap-0.5">
+						<span
+							title={parts.join(" · ")}
+							className="selectable min-w-0 truncate font-mono text-xs text-muted-foreground"
+						>
+							{parts.join(" · ")}
+						</span>
+						<CopyIcon
+							text={sourceWhere(source.kind)}
+							label={source.kind.kind === "git" ? t("Copy URL") : t("Copy path")}
+							className="size-[18px]"
+						/>
 					</span>
 					{source.problem ? (
-						<span className="text-xs text-status-error-text">{source.problem}</span>
+						<span className="selectable text-xs text-status-error-text">
+							{source.problem}
+						</span>
 					) : null}
 					<StatusNote note={note} />
 				</div>
@@ -117,10 +132,13 @@ const SourceBlock = ({ library, source }: { library: SkillLibrary; source: Skill
 					{source.skills.map((skill) => (
 						<li key={skill.name} className="flex items-start gap-3 px-4 py-1.5">
 							<div className="flex min-w-0 flex-1 flex-col">
-								<span className="font-mono text-[12px] text-foreground">
+								<span className="selectable font-mono text-[12px] text-foreground">
 									{skill.name}
 								</span>
-								<span className="truncate text-xs text-muted-foreground">
+								<span
+									title={skill.description}
+									className="selectable truncate text-xs text-muted-foreground"
+								>
 									{skill.description}
 								</span>
 							</div>
@@ -201,7 +219,7 @@ const AddSource = ({ library }: { library: SkillLibrary }) => {
 			</div>
 			<div className="flex items-center justify-end gap-2.5">
 				{!plan.ok && draft.where.trim() ? (
-					<span className="mr-auto text-[11.5px] text-muted-foreground">
+					<span className="selectable mr-auto text-[11.5px] text-muted-foreground">
 						{plan.reason}
 					</span>
 				) : (
@@ -237,7 +255,10 @@ const DeviceTidy = ({ device, onTidy }: { device: DeviceId; onTidy: () => void }
 		}
 	};
 	return (
-		<Row title={name} sub={note ? <StatusNote note={note} /> : undefined}>
+		<Row
+			title={<span className="selectable">{name}</span>}
+			sub={note ? <StatusNote note={note} /> : undefined}
+		>
 			{plan.data?.undo ? (
 				<button
 					type="button"
@@ -314,7 +335,7 @@ export const SkillsSettingsPage = () => {
 						{library.always.map((name) => (
 							<li
 								key={name}
-								className="rounded-[6px] border border-track bg-secondary px-2 py-0.5 font-mono text-[12px] text-foreground"
+								className="selectable rounded-[6px] border border-track bg-secondary px-2 py-0.5 font-mono text-[12px] text-foreground"
 							>
 								{name}
 							</li>
@@ -330,7 +351,10 @@ export const SkillsSettingsPage = () => {
 					<DeviceTidy key={device} device={device} onTidy={() => setTidying(device)} />
 				))}
 				{tidied ? (
-					<p role="status" className="px-4 pb-3 text-[11.5px] text-muted-foreground">
+					<p
+						role="status"
+						className="selectable px-4 pb-3 text-[11.5px] text-muted-foreground"
+					>
 						{tidied}
 					</p>
 				) : null}

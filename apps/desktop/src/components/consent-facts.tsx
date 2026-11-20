@@ -14,7 +14,7 @@ export const ConsentFacts = ({ facts }: { facts: readonly ConsentFact[] }) => (
 			// and the list doesn't change, so its place is its identity.
 			<div key={i} className="contents">
 				<dt className="text-muted-foreground">{fact.label}</dt>
-				<dd className="min-w-0 font-mono break-all text-secondary-foreground select-text">
+				<dd className="selectable min-w-0 font-mono break-all text-secondary-foreground">
 					{fact.value}
 				</dd>
 			</div>

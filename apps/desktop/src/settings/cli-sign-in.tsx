@@ -158,7 +158,7 @@ const FinishThere = ({ page }: { page: SignInPage }) => {
 						{translate("Open the sign-in page and enter this code")}
 					</p>
 					<div className="flex items-center gap-3">
-						<span className="font-mono text-[24px] font-[650] tracking-[0.12em] text-foreground-strong">
+						<span className="selectable font-mono text-[24px] font-[650] tracking-[0.12em] text-foreground-strong">
 							{page.userCode}
 						</span>
 						<CopyButton text={page.userCode} className={SECONDARY} />
@@ -197,7 +197,7 @@ const Round = ({ account }: { account: Account }) => {
 				<Dialog.Title className="text-[15px] font-[650] text-foreground-strong">
 					{signInTitle(account.vendor)}
 				</Dialog.Title>
-				<Dialog.Description className="text-[12.5px] text-muted-foreground">
+				<Dialog.Description className="selectable text-[12.5px] text-muted-foreground">
 					{account.label} {translate(" on ")}
 					{device}
 				</Dialog.Description>
@@ -220,7 +220,7 @@ const Round = ({ account }: { account: Account }) => {
 			) : null}
 			{state.step === "signed_in" ? (
 				<div className="flex flex-col gap-3">
-					<p role="status" className="text-[12.5px] text-foreground">
+					<p role="status" className="selectable text-[12.5px] text-foreground">
 						{signedInText(account)} {SEND_AGAIN}
 					</p>
 					<div className="flex justify-end">
@@ -231,7 +231,7 @@ const Round = ({ account }: { account: Account }) => {
 			{state.step === "failed" ? (
 				<div className="flex flex-col gap-3">
 					<p role="status" className="text-[12.5px] text-status-error-text">
-						{state.message}
+						<span className="selectable">{state.message}</span>
 						<ErrorCopy text={state.message} />
 					</p>
 					<div className="flex justify-end gap-2">
@@ -296,10 +296,14 @@ export const SignInAgain = ({ vendor }: { vendor: "claude" | "codex" | "cursor" 
 				return (
 					<Row
 						key={account.id}
-						title={translate("{{label}} on {{name}}", {
-							label: account.label,
-							name: name,
-						})}
+						title={
+							<span className="selectable">
+								{translate("{{label}} on {{name}}", {
+									label: account.label,
+									name: name,
+								})}
+							</span>
+						}
 						sub={blocked ?? account.email ?? undefined}
 					>
 						<StatusNote

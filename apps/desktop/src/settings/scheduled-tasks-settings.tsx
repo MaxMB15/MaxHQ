@@ -67,7 +67,7 @@ const TaskRow = ({
 	const heard = webhookLine(task, { webhooks }, now);
 	return (
 		<Row
-			title={task.name}
+			title={<span className="selectable">{task.name}</span>}
 			sub={
 				<>
 					<span className="block">
@@ -101,7 +101,7 @@ const TaskRow = ({
 						</span>
 					) : null}
 					{task.trigger.type === "hook" && url === null ? (
-						<span className="block truncate font-mono">
+						<span className="block truncate font-mono select-none">
 							{hiddenHookUrl(task.id, funnel)}
 						</span>
 					) : null}

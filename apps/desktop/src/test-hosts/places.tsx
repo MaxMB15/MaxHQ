@@ -110,14 +110,16 @@ const HostRow = ({ host, name, live }: { host: TestHost; name: string; live: boo
 				<span
 					className={
 						host.state === "failed"
-							? "text-xs text-status-error-text"
-							: "text-xs text-muted-foreground"
+							? "selectable text-xs text-status-error-text"
+							: "selectable text-xs text-muted-foreground"
 					}
 				>
 					{hostLine(host, now)}
 				</span>
 				{host.vm ? (
-					<span className="text-xs text-muted-foreground">{vmLine(host.vm)}</span>
+					<span className="selectable text-xs text-muted-foreground">
+						{vmLine(host.vm)}
+					</span>
 				) : null}
 			</div>
 			<div className="flex shrink-0 items-center gap-2">

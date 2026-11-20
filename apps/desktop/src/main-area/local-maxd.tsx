@@ -101,7 +101,7 @@ export const LocalMaxdNotice = ({
 				<h3 className="text-[12.5px] font-[650] text-foreground-strong">
 					{t("Can't reach maxd on this Mac")}
 				</h3>
-				<p className="text-xs text-muted-foreground">
+				<p className="selectable text-xs text-muted-foreground">
 					{t("{{reason}}. Start it to run agents on this Mac.", {
 						reason: sentence(link.state.reason),
 					})}

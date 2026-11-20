@@ -74,7 +74,7 @@ const RunRow = ({ run, onLeave }: { run: Run; onLeave: () => void }) => {
 					{RUN_CAUSE[run.cause]}, {formatWhen(run.started, now)}
 				</span>
 				{run.error ? (
-					<span className="text-xs text-status-error-text">{run.error}</span>
+					<span className="selectable text-xs text-status-error-text">{run.error}</span>
 				) : null}
 			</div>
 			{run.agent ? (
@@ -109,22 +109,26 @@ const DeliveryRow = ({ delivery }: { delivery: TaskDelivery }) => {
 			<div className="flex min-w-0 flex-1 flex-col gap-0.5">
 				<span className="text-[12.5px] text-foreground">
 					{formatWhen(delivery.received, now)}
-					<span className="text-muted-foreground">, {facts.join(", ")}</span>
+					<span className="text-muted-foreground">
+						, <span className="selectable">{facts.join(", ")}</span>
+					</span>
 				</span>
 				{delivery.missing_fields.length > 0 ? (
-					<span className="text-xs text-muted-foreground">
+					<span className="selectable text-xs text-muted-foreground">
 						{t("Missing {{value2}}", { value2: delivery.missing_fields.join(", ") })}
 					</span>
 				) : null}
 				{delivery.refused_fields?.length ? (
-					<span className="text-xs text-muted-foreground">
+					<span className="selectable text-xs text-muted-foreground">
 						{t("Left out free text {{value2}}", {
 							value2: delivery.refused_fields.join(", "),
 						})}
 					</span>
 				) : null}
 				{delivery.error ? (
-					<span className="text-xs text-status-error-text">{delivery.error}</span>
+					<span className="selectable text-xs text-status-error-text">
+						{delivery.error}
+					</span>
 				) : null}
 			</div>
 		</li>
@@ -200,7 +204,10 @@ export const TaskActivity = ({ task, onClose }: { task: Task | null; onClose: ()
 							className="flex min-h-0 flex-col gap-3"
 						>
 							<div className="flex items-center gap-3">
-								<Dialog.Title className="min-w-0 flex-1 truncate text-[15px] font-[650] text-foreground-strong">
+								<Dialog.Title
+									title={task.name}
+									className="min-w-0 flex-1 truncate text-[15px] font-[650] text-foreground-strong"
+								>
 									{task.name}
 								</Dialog.Title>
 								<button

@@ -972,6 +972,19 @@ describe("network access", () => {
 		expect(within(section).getByRole("switch", { name: "Network access" })).toBeChecked();
 	});
 
+	it("lets the addresses be selected, but not their label", async () => {
+		renderDevice(
+			"link-devbox",
+			"connected",
+			devboxAccess({ on: true, hosts: ["192.168.1.30", "devbox.example.net"] })
+		);
+		const section = await region("devbox");
+		expect(await within(section).findByText("192.168.1.30, devbox.example.net")).toHaveClass(
+			"selectable"
+		);
+		expect(within(section).getByText("Addresses for phones").closest(".selectable")).toBeNull();
+	});
+
 	it("saves a new port and says why it won't take one that isn't", async () => {
 		const { source } = renderDevice("link-devbox");
 		const save = vi.spyOn(source, "setDeviceSettings");

@@ -131,11 +131,17 @@ export const WorkspaceCard = ({
 		>
 			<div className="flex items-center gap-2.5">
 				<ConnectionDot look={look} size={8} label={state} />
-				<span className="min-w-0 truncate font-mono text-[12.5px] text-foreground-strong">
+				<span
+					title={location.instance}
+					className="selectable min-w-0 truncate font-mono text-[12.5px] text-foreground-strong"
+				>
 					{location.instance}
 				</span>
 				{meta ? (
-					<span className="min-w-0 truncate text-[11.5px] text-muted-foreground">
+					<span
+						title={meta}
+						className="selectable min-w-0 truncate text-[11.5px] text-muted-foreground"
+					>
 						{meta}
 					</span>
 				) : null}
@@ -193,18 +199,23 @@ export const WorkspaceCard = ({
 
 			<ul className="flex flex-col gap-0.5 pl-[18px] text-xs text-muted-foreground">
 				{managed.state.state === "creating" ? null : (
-					<li>{guestText(managed.guest, now)}</li>
+					<li className="selectable">{guestText(managed.guest, now)}</li>
 				)}
-				<li className={cn(managed.egress.state === "failed" && "text-status-error-text")}>
+				<li
+					className={cn(
+						"selectable",
+						managed.egress.state === "failed" && "text-status-error-text"
+					)}
+				>
 					{egressText(managed.egress, now)}
 				</li>
-				<li>{bootLine(workspace, where)}</li>
+				<li className="selectable">{bootLine(workspace, where)}</li>
 				{unsaved ? (
 					<li className={cn(unsaved.any && !unsaved.old && "text-secondary-foreground")}>
 						{`${unsaved.text}. ${unsaved.readAt}.`}
 					</li>
 				) : null}
-				<li className="font-mono text-[11.5px]">{location.path}</li>
+				<li className="selectable font-mono text-[11.5px]">{location.path}</li>
 			</ul>
 
 			{snapshots && showSnapshots ? (
@@ -260,7 +271,7 @@ export const WorkspaceCard = ({
 					role="alert"
 					className="ml-[18px] flex flex-col gap-2 rounded-lg border border-status-error/45 bg-status-error/10 px-3 py-2.5"
 				>
-					<span className="text-xs font-[600] text-status-error-text">
+					<span className="selectable text-xs font-[600] text-status-error-text">
 						{`${sentence(deleting.reason)}.`}
 					</span>
 					<span className="text-xs text-secondary-foreground">

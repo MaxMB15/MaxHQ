@@ -251,7 +251,7 @@ const Form = ({
 								})}
 							</div>
 						</div>
-						<span className="text-[11.5px] text-muted-foreground">
+						<span className="selectable text-[11.5px] text-muted-foreground">
 							{t("In {{zone}}. No days picked runs it every day.", {
 								zone: draft.zone,
 							})}
@@ -342,7 +342,9 @@ const Form = ({
 					/>
 				</div>
 				{warning ? (
-					<span className="text-[11.5px] text-status-busy-text">{warning}</span>
+					<span className="selectable text-[11.5px] text-status-busy-text">
+						{warning}
+					</span>
 				) : null}
 				{draft.target === "new" ? (
 					<AgentPickers

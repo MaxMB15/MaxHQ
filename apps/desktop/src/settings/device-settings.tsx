@@ -150,7 +150,10 @@ const PhoneSessionRow = ({ signed }: { signed: SignedIn }) => {
 		}
 	};
 	return (
-		<Row title={signed.name} sub={sessionLine(signed.session, now)}>
+		<Row
+			title={<span className="selectable">{signed.name}</span>}
+			sub={sessionLine(signed.session, now)}
+		>
 			<StatusNote note={note} />
 			<ConfirmButton
 				label={translate("Revoke")}

@@ -92,7 +92,9 @@ export const HoverCardBody = ({ card, dot }: { card: HoverCard; dot: ReactNode }
 				<p className="text-[13px] font-semibold text-foreground-strong">{card.title}</p>
 			</div>
 			{card.body ? (
-				<p className="text-xs leading-normal text-secondary-foreground">{card.body}</p>
+				<p className="selectable text-xs leading-normal text-secondary-foreground">
+					{card.body}
+				</p>
 			) : null}
 			{card.checks && card.checks.length > 0 ? <CheckBar checks={card.checks} /> : null}
 			{card.facts.length > 0 ? (
@@ -100,7 +102,7 @@ export const HoverCardBody = ({ card, dot }: { card: HoverCard; dot: ReactNode }
 					{card.facts.map((f) => (
 						<div key={f.label} className="contents">
 							<dt className="text-muted-foreground">{f.label}</dt>
-							<dd className="min-w-0 text-terminal">{f.value}</dd>
+							<dd className="selectable min-w-0 text-terminal">{f.value}</dd>
 						</div>
 					))}
 				</dl>
@@ -147,7 +149,7 @@ export const StatusHover = ({
 				side="right"
 				align="start"
 				sideOffset={10}
-				className="w-[300px] select-text rounded-[10px] border-hover-card-border bg-hover-card px-3.5 py-3 shadow-hover"
+				className="w-[300px] rounded-[10px] border-hover-card-border bg-hover-card px-3.5 py-3 shadow-hover"
 			>
 				<LiveCard card={card} dot={dot} />
 			</PreviewCardPopup>

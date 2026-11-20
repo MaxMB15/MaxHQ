@@ -15,6 +15,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 
 import { useServices, useView } from "@/app/services";
+import { ClippedValue, CopyIcon } from "@/components/copy-field";
 import { Checkbox } from "@/components/ui/checkbox";
 import { cn } from "@/lib/utils";
 import { PRIMARY, SECONDARY, StatusNote } from "@/settings/controls";
@@ -27,14 +28,14 @@ import { deviceName } from "@maxhq/shared/view/select";
 import { useSkillAction } from "./look";
 
 const List = ({ title, paths }: { title: string; paths: readonly string[] }) => {
-	useI18n();
+	const { t } = useI18n();
 	return paths.length > 0 ? (
 		<section aria-label={title} className="flex flex-col gap-1">
 			<h3 className="text-[11.5px] font-[600] text-secondary-foreground">{title}</h3>
 			<ul className="flex flex-col gap-0.5 rounded-[7px] border border-border bg-subpanel px-2.5 py-2">
 				{paths.map((path) => (
-					<li key={path} className="truncate font-mono text-[11.5px] text-foreground">
-						{path}
+					<li key={path} className="font-mono text-[11.5px] text-foreground">
+						<ClippedValue value={path} label={t("Copy path")} />
 					</li>
 				))}
 			</ul>
@@ -53,18 +54,25 @@ const Joins = ({ joins }: { joins: readonly GlobalsJoin[] }) => {
 				{joins.map((join) => (
 					<li key={join.url} className="flex flex-col gap-0.5">
 						<span className="text-[12px] text-foreground">
-							{join.name}{" "}
-							<span className="text-muted-foreground">
-								{t("from {{url}}", { url: join.url })}
+							<span className="selectable">
+								{join.name}{" "}
+								<span className="text-muted-foreground">
+									{t("from {{url}}", { url: join.url })}
+								</span>
 							</span>
+							<CopyIcon
+								text={join.url}
+								label={t("Copy URL")}
+								className="-my-1 ml-0.5 size-[18px]"
+							/>
 						</span>
 						{join.paths.map((path) => (
-							<span
+							<ClippedValue
 								key={path}
-								className="truncate font-mono text-[11.5px] text-muted-foreground"
-							>
-								{path}
-							</span>
+								value={path}
+								label={t("Copy path")}
+								className="font-mono text-[11.5px] text-muted-foreground"
+							/>
 						))}
 					</li>
 				))}
@@ -158,11 +166,11 @@ const Body = ({ device, onDone }: { device: DeviceId; onDone: () => void }) => {
 					{t("Reading the global folders")}
 				</p>
 			) : plan.isError ? (
-				<p role="alert" className="text-[12.5px] text-status-error-text">
+				<p role="alert" className="selectable text-[12.5px] text-status-error-text">
 					{plan.error.message}
 				</p>
 			) : isEmpty(plan.data) ? (
-				<p className="text-[12.5px] text-muted-foreground">
+				<p className="selectable text-[12.5px] text-muted-foreground">
 					{t("There's nothing to tidy on {{name}}.", { name: name })}
 				</p>
 			) : (

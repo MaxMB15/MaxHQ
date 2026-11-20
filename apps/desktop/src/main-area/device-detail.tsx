@@ -157,11 +157,18 @@ const CheckRow = ({ check, first }: { check: Check; first: boolean }) => {
 				{check.title}
 			</span>
 			<span className={cn("min-w-0 text-xs", failed ? "py-2" : "truncate")}>
-				<span className={failed ? "text-status-error-text" : "text-muted-foreground"}>
+				<span
+					className={cn(
+						"selectable",
+						failed ? "text-status-error-text" : "text-muted-foreground"
+					)}
+				>
 					{main}
 				</span>
 				{sub ? (
-					<span className="block text-[11.5px] text-muted-foreground">{sub}</span>
+					<span className="selectable block text-[11.5px] text-muted-foreground">
+						{sub}
+					</span>
 				) : null}
 			</span>
 		</div>
@@ -500,25 +507,27 @@ export const DeviceDetail = ({ node, view }: { node: DeviceNode; view: ViewState
 			<div className="flex max-w-[760px] flex-col gap-[22px]">
 				<div className="flex items-start gap-4">
 					<div className="flex min-w-0 flex-1 flex-col gap-2">
-						<h1 className="truncate text-[22px] font-[650] tracking-[-0.015em] text-foreground-strong select-text">
+						<h1 className="truncate text-[22px] font-[650] tracking-[-0.015em] text-foreground-strong selectable">
 							{link.name}
 						</h1>
 						<p className={cn("text-[13px]", tone)}>
 							<span className="font-semibold">{connection.card.title}.</span>{" "}
-							{connection.card.body}
+							<span className="selectable">{connection.card.body}</span>
 						</p>
 						<div className="flex flex-wrap gap-1.5">
 							{deviceChips(node).map((chip) => (
 								<span
 									key={chip}
-									className="inline-flex h-5 items-center rounded-[5px] border border-track bg-secondary px-[7px] text-[11.5px] text-secondary-foreground"
+									className="selectable inline-flex h-5 items-center rounded-[5px] border border-track bg-secondary px-[7px] text-[11.5px] text-secondary-foreground"
 								>
 									{chip}
 								</span>
 							))}
 						</div>
 						{version ? (
-							<p className="text-[12px] text-muted-foreground">{version}</p>
+							<p className="selectable text-[12px] text-muted-foreground">
+								{version}
+							</p>
 						) : null}
 					</div>
 					<Actions node={node} />

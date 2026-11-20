@@ -45,9 +45,13 @@ export const UpdatesSettingsPage = () => {
 		<Section title={translate("Updates")}>
 			<Row
 				title={
-					update
-						? translate("Version {{version}}", { version: update.version })
-						: translate("Version")
+					update ? (
+						<span className="selectable">
+							{translate("Version {{version}}", { version: update.version })}
+						</span>
+					) : (
+						translate("Version")
+					)
 				}
 				sub={
 					<>

@@ -56,7 +56,11 @@ const OnTheMac = () => {
 				</p>
 			) : (
 				logins.map((a) => (
-					<Row key={a.id} title={accountName(a)} sub={signedInAs(a)}>
+					<Row
+						key={a.id}
+						title={<span className="selectable">{accountName(a)}</span>}
+						sub={signedInAs(a)}
+					>
 						<ManageUsage />
 					</Row>
 				))

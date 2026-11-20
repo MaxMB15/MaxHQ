@@ -319,7 +319,7 @@ const Running = ({
 						className="flex items-center gap-2.5 text-[12.5px] text-foreground"
 					>
 						<ConnectionDot size={8} {...lookOf(state, step)} />
-						<span>{message}</span>
+						<span className="selectable">{message}</span>
 					</li>
 				))}
 				{!ended && left > 0 ? (
@@ -338,11 +338,11 @@ const Running = ({
 					aria-label={t("Host key")}
 					className="flex flex-col gap-2 rounded-lg border border-status-connecting/40 bg-status-connecting/10 p-3"
 				>
-					<span className="text-[12.5px] text-foreground">
+					<span className="selectable text-[12.5px] text-foreground">
 						{`${state.hostKey.host} shows this ${state.hostKey.key_type} key. Check it matches the one the machine prints for ssh-keygen -lf on its host key.`}
 					</span>
 					<div className="flex items-start gap-1">
-						<code className="min-w-0 flex-1 font-mono text-xs break-all text-foreground-strong select-text">
+						<code className="selectable min-w-0 flex-1 font-mono text-xs break-all text-foreground-strong">
 							{state.hostKey.fingerprint}
 						</code>
 						<CopyIcon text={state.hostKey.fingerprint} />
@@ -360,9 +360,14 @@ const Running = ({
 
 			{state.hint ? (
 				<div className="flex flex-col gap-2 rounded-lg border border-sidebar-border bg-subpanel p-3">
-					<span className="text-[12.5px] text-foreground">{state.hint.text}</span>
+					<span className="selectable text-[12.5px] text-foreground">
+						{state.hint.text}
+					</span>
 					<div className="flex items-center gap-2">
-						<code className="min-w-0 flex-1 truncate font-mono text-xs text-foreground-strong select-text">
+						<code
+							title={state.hint.command}
+							className="selectable min-w-0 flex-1 truncate font-mono text-xs text-foreground-strong"
+						>
 							{state.hint.command}
 						</code>
 						<CopyButton
@@ -376,7 +381,7 @@ const Running = ({
 			) : null}
 
 			{state.failed ? (
-				<p role="alert" className="text-xs text-status-error-text">
+				<p role="alert" className="selectable text-xs text-status-error-text">
 					{state.failed.reason}
 				</p>
 			) : null}

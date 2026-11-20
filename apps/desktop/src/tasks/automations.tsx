@@ -85,7 +85,7 @@ const Automation = ({
 				/>
 			</div>
 			{failure ? (
-				<span role="status" className="text-status-error-text">
+				<span role="status" className="selectable text-status-error-text">
 					{failure}
 				</span>
 			) : run === "started" ? (
