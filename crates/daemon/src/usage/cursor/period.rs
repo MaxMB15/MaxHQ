@@ -91,6 +91,7 @@ pub fn usage(body: &Value, checked_at: Timestamp) -> Option<Usage> {
         .map(|end| Timestamp(end as u64));
     let window = |scope: Option<&str>, used_percent: f64, spend| UsageWindow {
         scope: scope.map(str::to_owned),
+        name: None,
         window_minutes: 0,
         period: UsagePeriod::BillingCycle,
         used_percent: used_percent.clamp(0.0, 100.0),

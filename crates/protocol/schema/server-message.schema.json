@@ -17209,6 +17209,14 @@
       "description": "One usage limit, such as a 5-hour or a weekly window, or a month of a\nplan's billing cycle.",
       "type": "object",
       "properties": {
+        "name": {
+          "description": "What the vendor calls the limit a scope names, such as Codex's\n\"Codex Mini\". Unset when the vendor gives it no name, and left out by\na `maxd` from before protocol 56.",
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null
+        },
         "period": {
           "description": "Whether the window rolls or follows the billing cycle. A `maxd` from\nbefore billing cycles leaves this out.",
           "$ref": "#/$defs/UsagePeriod",

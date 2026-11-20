@@ -4,14 +4,15 @@
 // The plan usage meter in the header and the popover it opens. The meter
 // shows each vendor's 5-hour window, with the week as a lighter fill under
 // it. The popover shows every account's own windows with their reset times,
-// and the agents whose context windows are fullest. A window at 99% or more
+// each model's limits under them, and the agents whose context windows are
+// fullest. A window at 99% or more
 // reads as used up, and a used-up week leaves nothing in the 5-hour window.
 // Cursor shows its month meters once a Mac turns Cursor usage on, and a
 // link to its dashboard otherwise.
 
 import { useI18n } from "@maxhq/shared/i18n";
 
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 
 import { useServices, useView } from "@/app/services";
 import { Popover, PopoverPopup, PopoverTitle, PopoverTrigger } from "@/components/ui/popover";
@@ -28,6 +29,10 @@ import {
 	cycleWindows,
 	type MeterRow,
 	meterRows,
+	modelRows,
+	type ModelUsage,
+	modelUsage,
+	windowShort,
 } from "@maxhq/shared/status/usage";
 import { type Subscription, subscriptions } from "@maxhq/shared/status/subscriptions";
 import {
@@ -35,6 +40,7 @@ import {
 	meterRowLabel,
 	planNote,
 	resetText,
+	resetTitle,
 	weekNote,
 } from "@maxhq/shared/status/usage-text";
 import type { ViewState } from "@maxhq/shared/view/replica";
@@ -123,7 +129,71 @@ const Meter = ({ rows }: { rows: readonly MeterRow[] }) => {
 	);
 };
 
-const AccountSection = ({
+/** The columns of a window row: name, bar, percent and reset, the same in every section. */
+const ROW_GRID =
+	"grid grid-cols-[84px_minmax(0,1fr)_34px_132px] items-center gap-x-2 gap-y-[7px] text-[11.5px] text-secondary-foreground";
+
+/** The windows of the account's per-model limits, folded past four rows. */
+const ModelSection = ({ models, now }: { models: readonly ModelUsage[]; now: Timestamp }) => {
+	const { t } = useI18n();
+
+	const [all, setAll] = useState(false);
+	const { rows, folded } = modelRows(models, all);
+	if (rows.length === 0) return null;
+	return (
+		<div className="flex flex-col gap-[7px]">
+			<span className="text-[11px] text-muted-foreground">{t("By model")}</span>
+			<div className={ROW_GRID}>
+				{rows.map(({ scope, label, window: w }) => (
+					<div key={`${scope}:${w.minutes}`} className="contents">
+						<span className="flex min-w-0 items-baseline gap-1">
+							<span className="truncate" title={label}>
+								{label}
+							</span>
+							<span className="shrink-0 text-[10.5px] text-muted-foreground">
+								{windowShort(w.minutes)}
+							</span>
+						</span>
+						<Bar
+							percent={w.percent}
+							full={w.usedUp}
+							className="h-[3px] rounded-[2px]"
+						/>
+						<span
+							className={cn(
+								"text-right tabular-nums",
+								w.usedUp && "text-status-busy"
+							)}
+						>
+							{w.percent === null ? "" : formatPercent(w.percent)}
+						</span>
+						<span
+							title={resetTitle(w)}
+							className={cn(
+								"truncate",
+								w.usedUp ? "text-status-busy-text" : "text-muted-foreground"
+							)}
+						>
+							{resetText(w, now)}
+						</span>
+					</div>
+				))}
+			</div>
+			{folded > 0 || all ? (
+				<button
+					type="button"
+					aria-expanded={all}
+					onClick={() => setAll(!all)}
+					className="self-start text-[11px] text-primary hover:underline"
+				>
+					{all ? t("Show less") : t("Show all")}
+				</button>
+			) : null}
+		</div>
+	);
+};
+
+export const AccountSection = ({
 	plan,
 	view,
 	now,
@@ -165,7 +235,7 @@ const AccountSection = ({
 				</span>
 			</div>
 			{windows.length > 0 ? (
-				<div className="grid grid-cols-[74px_minmax(0,1fr)_34px_104px] items-center gap-x-2 gap-y-[7px] text-[11.5px] text-secondary-foreground">
+				<div className={ROW_GRID}>
 					{windows.map((w) => (
 						<div key={w.label} className="contents">
 							<span>{w.label}</span>
@@ -183,6 +253,7 @@ const AccountSection = ({
 								{w.percent === null ? "" : formatPercent(w.percent)}
 							</span>
 							<span
+								title={resetTitle(w)}
 								className={cn(
 									"truncate",
 									blocking?.label === w.label
@@ -197,6 +268,7 @@ const AccountSection = ({
 				</div>
 			) : null}
 			{note ? <p className="text-[11px] text-status-busy-text">{note}</p> : null}
+			<ModelSection models={modelUsage(account)} now={now} />
 			{failureNote ? (
 				<p className="text-[11px] text-muted-foreground">{failureNote}</p>
 			) : null}
@@ -344,7 +416,7 @@ export const UsageMeter = () => {
 				side="bottom"
 				align="end"
 				sideOffset={6}
-				className="w-[352px] rounded-xl border-input shadow-large"
+				className="w-[376px] rounded-xl border-input shadow-large"
 			>
 				<UsageDetails view={view} />
 			</PopoverPopup>

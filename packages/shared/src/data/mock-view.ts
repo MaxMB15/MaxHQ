@@ -319,6 +319,19 @@ const accounts = (now: Timestamp): Account[] => [
 					used_percent: 45,
 					resets_at: at(now, 9, 0, 4),
 				},
+				{
+					scope: "opus",
+					window_minutes: 10080,
+					used_percent: 58,
+					resets_at: at(now, 9, 0, 4),
+				},
+				{
+					scope: "fable",
+					name: "Fable",
+					window_minutes: 10080,
+					used_percent: 12,
+					resets_at: at(now, 9, 0, 4),
+				},
 			],
 		},
 		usage_failure: null,
@@ -344,6 +357,22 @@ const accounts = (now: Timestamp): Account[] => [
 					scope: null,
 					window_minutes: 10080,
 					used_percent: 64,
+					resets_at: at(now, 8, 30, 3),
+				},
+				// Codex Mini frees up first, but the account's own 5 hours
+				// still hold it until they reset.
+				{
+					scope: "codex_mini",
+					name: "Codex Mini",
+					window_minutes: 300,
+					used_percent: 100,
+					resets_at: now + HOUR + 5 * MIN,
+				},
+				{
+					scope: "codex_mini",
+					name: "Codex Mini",
+					window_minutes: 10080,
+					used_percent: 31,
 					resets_at: at(now, 8, 30, 3),
 				},
 			],

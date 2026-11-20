@@ -1563,6 +1563,11 @@ pub struct UsageWindow {
     /// of it, such as one model's weekly limit or a Codex limit other than
     /// `codex`. A billing cycle's parts are `auto`, `api` and `on_demand`.
     pub scope: Option<String>,
+    /// What the vendor calls the limit a scope names, such as Codex's
+    /// "Codex Mini". Unset when the vendor gives it no name, and left out by
+    /// a `maxd` from before protocol 56.
+    #[serde(default)]
+    pub name: Option<String>,
     /// The window's length. 300 is the 5-hour window and 10080 the weekly
     /// one. A billing cycle has no fixed length and sends 0.
     pub window_minutes: u32,

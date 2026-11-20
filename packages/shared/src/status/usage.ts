@@ -6,7 +6,8 @@
 // up, and once the weekly window is used up the 5-hour window has nothing
 // left either, whatever its own figure says. Cursor's month meters follow the
 // billing cycle instead, and show beside the rolling windows without either
-// rule.
+// rule. A limit that covers one model lists under the account, with the same
+// rules among its own windows.
 
 import { t } from "../i18n";
 
@@ -75,15 +76,9 @@ export const windowNoun = (minutes: number): string => {
 /** Whether a window follows the billing cycle rather than rolling. */
 const isCycle = (w: UsageWindow): boolean => w.period === "billing_cycle";
 
-/**
- * The account's own rolling windows, shortest first, with the two rules
- * applied. Windows that cover only part of the account, such as one model's
- * limit, and billing cycle meters are left out.
- */
-export const accountWindows = (account: Pick<Account, "usage">): WindowView[] => {
-	const own = (account.usage?.windows ?? [])
-		.filter((w) => w.scope === null && !isCycle(w))
-		.sort((a, b) => a.window_minutes - b.window_minutes);
+/** Rolling windows of one limit, shortest first, with the two rules applied among them. */
+const rollingViews = (windows: readonly UsageWindow[]): WindowView[] => {
+	const own = [...windows].sort((a, b) => a.window_minutes - b.window_minutes);
 	const week = own.find((w) => w.window_minutes >= WEEK && isUsedUp(w));
 	return own.map((w) => {
 		const blockedByWeek = week !== undefined && w.window_minutes < week.window_minutes;
@@ -98,6 +93,14 @@ export const accountWindows = (account: Pick<Account, "usage">): WindowView[] =>
 		};
 	});
 };
+
+/**
+ * The account's own rolling windows, shortest first, with the two rules
+ * applied. Windows that cover only part of the account, such as one model's
+ * limit, and billing cycle meters are left out.
+ */
+export const accountWindows = (account: Pick<Account, "usage">): WindowView[] =>
+	rollingViews((account.usage?.windows ?? []).filter((w) => w.scope === null && !isCycle(w)));
 
 /** What each part of a billing cycle is called. The whole plan has no scope. */
 const CYCLE_LABEL: Record<string, string> = {
@@ -144,6 +147,81 @@ export const blockingWindow = (account: Pick<Account, "usage">): WindowView | un
 		.filter((w) => w.usedUp)
 		.sort((a, b) => b.minutes - a.minutes)[0];
 
+/** One model's limit under an account, such as Claude's Opus week or Codex Mini. */
+export type ModelUsage = {
+	/** The scope `maxd` sent, such as "opus" or "codex_mini". */
+	readonly scope: string;
+	/** What the model goes by, such as "Opus" or "Codex Mini". */
+	readonly label: string;
+	/** Its rolling windows, shortest first, with the two rules applied. */
+	readonly windows: readonly WindowView[];
+};
+
+/** Words split on underscores and spaces, each starting with a capital. */
+const titleWords = (text: string): string =>
+	text
+		.split(/[_\s]+/)
+		.filter(Boolean)
+		.map((w) => w[0]!.toUpperCase() + w.slice(1))
+		.join(" ");
+
+/**
+ * The account's limits that cover one model each, in the order `maxd` sent
+ * them. A model is named as the vendor names it, or from its ID, such as
+ * "Opus" from `opus`. A model with no figure at all is left out. When the
+ * account is used up too, a used-up model frees up at the later of the two
+ * resets.
+ */
+export const modelUsage = (account: Pick<Account, "usage">): ModelUsage[] => {
+	const scoped = (account.usage?.windows ?? []).filter((w) => w.scope !== null && !isCycle(w));
+	const scopes = [...new Set(scoped.map((w) => w.scope!))];
+	const accountReset = blockingWindow(account)?.resetsAt ?? null;
+	return scopes.flatMap((scope) => {
+		const own = scoped.filter((w) => w.scope === scope);
+		if (own.every((w) => w.used_percent === null)) return [];
+		const windows = rollingViews(own).map((view) =>
+			view.usedUp && view.resetsAt !== null && accountReset !== null
+				? { ...view, resetsAt: Math.max(view.resetsAt, accountReset) }
+				: view
+		);
+		const name = own.find((w) => w.name)?.name;
+		return [{ scope, label: name ?? titleWords(scope), windows }];
+	});
+};
+
+/** One row of the models list: one window of one model. */
+export type ModelRow = {
+	/** The model's scope, which keys the row with the window's length. */
+	readonly scope: string;
+	/** What the model goes by. */
+	readonly label: string;
+	/** The window. */
+	readonly window: WindowView;
+};
+
+/** How many model rows show before the list folds. */
+export const MODEL_ROWS_SHOWN = 4;
+
+/**
+ * The model rows to draw. More than four fold to the three fullest, kept in
+ * order, unless `all` is set; `folded` counts the ones left out.
+ */
+export const modelRows = (
+	models: readonly ModelUsage[],
+	all: boolean
+): { rows: ModelRow[]; folded: number } => {
+	const rows = models.flatMap((m) =>
+		m.windows.map((window) => ({ scope: m.scope, label: m.label, window }))
+	);
+	if (all || rows.length <= MODEL_ROWS_SHOWN) return { rows, folded: 0 };
+	const fullest = new Set(
+		[...rows]
+			.sort((a, b) => (b.window.percent ?? -1) - (a.window.percent ?? -1))
+			.slice(0, MODEL_ROWS_SHOWN - 1)
+	);
+	return { rows: rows.filter((r) => fullest.has(r)), folded: rows.length - fullest.size };
+};
+
 /** What the vendor's CLI is called, in the header meter and elsewhere. */
 export const VENDOR_NAME: Record<Vendor, string> = {
 	claude: "Claude",
@@ -163,11 +241,7 @@ export const accountName = (account: Pick<Account, "vendor" | "plan" | "label">)
 	if (account.vendor === "acp") return account.label;
 	const plan = account.plan?.trim();
 	if (!plan) return VENDOR_NAME[account.vendor];
-	const words = plan
-		.split(/[_\s]+/)
-		.filter(Boolean)
-		.map((w) => w[0]!.toUpperCase() + w.slice(1));
-	return `${VENDOR_NAME[account.vendor]} ${words.join(" ")}`;
+	return `${VENDOR_NAME[account.vendor]} ${titleWords(plan)}`;
 };
 
 /** One row of the header meter. */

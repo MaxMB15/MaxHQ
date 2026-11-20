@@ -1019,6 +1019,7 @@
 	"The week is used up, so the {{windowNoun_blocked_minutes}} has nothing left{{until}}.": "Le budget de la semaine est épuisé, il ne reste donc rien pour la {{windowNoun_blocked_minutes}}{{until}}.",
 	"Not reported": "Non communiqué",
 	"resets {{formatWhen_window_resetsAt__now}}": "réinitialisation le {{formatWhen_window_resetsAt__now}}",
+	"resets in {{span}}, {{time}}": "réinitialisation dans {{span}}, à {{time}}",
 	"Turn on Cursor usage in a Mac's device settings to see this month here.": "Active l'utilisation de Cursor dans les réglages d'appareil d'un Mac pour voir ce mois-ci ici.",
 	"Doesn't report usage.": "Ne communique pas l'utilisation.",
 	"Not checked yet.": "Pas encore vérifié.",

@@ -13,7 +13,20 @@ import { errorText } from "../timeline/store";
 import type { ViewState } from "../view/replica";
 import { accounts, agentsOnAccount, deviceName, waitingOnAccount } from "../view/select";
 
-import { formatAgo, formatDollars, formatPercent, formatWhen, plural, sentence } from "./format";
+import {
+	formatAgo,
+	formatClock,
+	formatDollars,
+	formatFullWhen,
+	formatPercent,
+	formatSpanShort,
+	formatWhen,
+	plural,
+	sentence,
+} from "./format";
+
+/** A day in milliseconds. */
+const DAY = 24 * 60 * 60 * 1000;
 import { type Subscription, subscriptions } from "./subscriptions";
 import { atLimit, type MeterRow, type WindowView, windowNoun } from "./usage";
 
@@ -62,7 +75,11 @@ export const weekNote = (windows: readonly WindowView[], now: Timestamp): string
 	);
 };
 
-/** What the reset column says for a window. */
+/**
+ * What the reset column says for a window: how long until it resets and the
+ * clock time when that's under a day, such as "resets in 2h, 15:30", and the
+ * day and time further out, such as "resets Thu 02:00".
+ */
 export const resetText = (window: WindowView, now: Timestamp): string => {
 	if (window.spend) {
 		return t("{{value1}} of {{value2}}", {
@@ -72,10 +89,20 @@ export const resetText = (window: WindowView, now: Timestamp): string => {
 	}
 	if (window.percent === null) return t("Not reported");
 	if (window.resetsAt === null) return "";
+	const left = window.resetsAt - now;
+	if (left > 0 && left < DAY)
+		return t("resets in {{span}}, {{time}}", {
+			span: formatSpanShort(left),
+			time: formatClock(window.resetsAt),
+		});
 	return t("resets {{formatWhen_window_resetsAt__now}}", {
 		formatWhen_window_resetsAt__now: formatWhen(window.resetsAt, now),
 	});
 };
+
+/** The full day and time a window resets, for the reset column's tooltip. */
+export const resetTitle = (window: WindowView): string | undefined =>
+	window.spend || window.resetsAt === null ? undefined : formatFullWhen(window.resetsAt);
 
 /** The line about a failed check, when the newest check failed, or about no check yet. */
 export const usageFailureNote = (account: Account, now: Timestamp): string | undefined => {

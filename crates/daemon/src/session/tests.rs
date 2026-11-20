@@ -1443,6 +1443,7 @@ async fn every_effect_a_driver_reports_is_carried_out() {
         source: UsageSource::ClaudeProbe,
         windows: vec![UsageWindow {
             scope: None,
+            name: None,
             window_minutes: 300,
             used_percent: 12.5,
             resets_at: None,
