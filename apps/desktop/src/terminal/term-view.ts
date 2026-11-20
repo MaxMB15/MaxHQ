@@ -31,9 +31,10 @@ export type TermView = {
 	readonly element: HTMLElement;
 	/**
 	 * Draws what the terminal printed, with where those bytes start in all
-	 * it printed when that's known.
+	 * it printed when that's known. The screen takes them in a moment
+	 * later, and then `done` runs.
 	 */
-	readonly write: (bytes: Uint8Array, offset?: number) => void;
+	readonly write: (bytes: Uint8Array, offset?: number, done?: () => void) => void;
 	/** Forgets the screen and scrollback, for output that starts over. */
 	readonly clear: () => void;
 	/** Sets the size in cells. */
