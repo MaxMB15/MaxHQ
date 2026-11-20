@@ -1344,5 +1344,14 @@
 	"Suggestions": "Suggestions",
 	"Tab completes · ↩ picks · on {{device}}": "Tab completes · ↩ picks · on {{device}}",
 	"This folder holds more than shows here. Type the path to reach the rest.": "This folder holds more than shows here. Type the path to reach the rest.",
-	"Use that": "Use that"
+	"Use that": "Use that",
+	"Archive": "Archive",
+	"Chats": "Chats",
+	"No chats match": "No chats match",
+	"No chats yet": "No chats yet",
+	"Rename chat": "Rename chat",
+	"Save to Notes": "Save to Notes",
+	"Saving to Notes": "Saving to Notes",
+	"Search chats": "Search chats",
+	"Unarchive": "Unarchive"
 }

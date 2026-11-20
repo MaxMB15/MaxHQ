@@ -1315,5 +1315,15 @@
 	"The session was busy, so this ran on its own.": "La session était occupée, donc ceci s'est exécuté à part.",
 	"This spans more than one line, so it ran on its own.": "Ceci tient sur plusieurs lignes, donc cela s'est exécuté à part.",
 	"This starts with exec, so it ran on its own.": "Ceci commence par exec, donc cela s'est exécuté à part.",
-	"Your shell didn't report its commands, so this ran on its own.": "Votre shell n'a pas signalé ses commandes, donc ceci s'est exécuté à part."
+	"Your shell didn't report its commands, so this ran on its own.": "Votre shell n'a pas signalé ses commandes, donc ceci s'est exécuté à part.",
+	"Archived": "Archivées",
+	"Chat {{number}}": "Discussion {{number}}",
+	"Delete chat \"{{title}}\"?": "Supprimer la discussion « {{title}} » ?",
+	"Earlier": "Plus anciennes",
+	"Keep here": "Garder ici",
+	"Matches": "Résultats",
+	"MaxHQ stops it, and the dispatcher won't list or find it again. Its CLI's transcript stays.": "MaxHQ l'arrête, et le dispatcher ne l'affichera ni ne la retrouvera plus. Le journal de sa CLI est conservé.",
+	"Moved your message here from {{title}}": "Votre message a été déplacé ici depuis {{title}}",
+	"Moved your message to {{title}}": "Votre message a été déplacé vers {{title}}",
+	"This week": "Cette semaine"
 }

@@ -1277,5 +1277,15 @@
 	"The session was busy, so this ran on its own.": "The session was busy, so this ran on its own.",
 	"This spans more than one line, so it ran on its own.": "This spans more than one line, so it ran on its own.",
 	"This starts with exec, so it ran on its own.": "This starts with exec, so it ran on its own.",
-	"Your shell didn't report its commands, so this ran on its own.": "Your shell didn't report its commands, so this ran on its own."
+	"Your shell didn't report its commands, so this ran on its own.": "Your shell didn't report its commands, so this ran on its own.",
+	"Archived": "Archived",
+	"Chat {{number}}": "Chat {{number}}",
+	"Delete chat \"{{title}}\"?": "Delete chat \"{{title}}\"?",
+	"Earlier": "Earlier",
+	"Keep here": "Keep here",
+	"Matches": "Matches",
+	"MaxHQ stops it, and the dispatcher won't list or find it again. Its CLI's transcript stays.": "MaxHQ stops it, and the dispatcher won't list or find it again. Its CLI's transcript stays.",
+	"Moved your message here from {{title}}": "Moved your message here from {{title}}",
+	"Moved your message to {{title}}": "Moved your message to {{title}}",
+	"This week": "This week"
 }

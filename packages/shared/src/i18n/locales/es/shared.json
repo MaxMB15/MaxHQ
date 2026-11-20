@@ -1315,5 +1315,15 @@
 	"The session was busy, so this ran on its own.": "La sesión estaba ocupada, así que esto se ejecutó aparte.",
 	"This spans more than one line, so it ran on its own.": "Esto ocupa más de una línea, así que se ejecutó aparte.",
 	"This starts with exec, so it ran on its own.": "Esto empieza con exec, así que se ejecutó aparte.",
-	"Your shell didn't report its commands, so this ran on its own.": "Tu shell no informó de sus comandos, así que esto se ejecutó aparte."
+	"Your shell didn't report its commands, so this ran on its own.": "Tu shell no informó de sus comandos, así que esto se ejecutó aparte.",
+	"Archived": "Archivados",
+	"Chat {{number}}": "Chat {{number}}",
+	"Delete chat \"{{title}}\"?": "¿Eliminar el chat «{{title}}»?",
+	"Earlier": "Anteriores",
+	"Keep here": "Mantener aquí",
+	"Matches": "Resultados",
+	"MaxHQ stops it, and the dispatcher won't list or find it again. Its CLI's transcript stays.": "MaxHQ lo detiene, y el dispatcher ya no lo mostrará ni lo encontrará. Se conserva el registro de su CLI.",
+	"Moved your message here from {{title}}": "Tu mensaje se movió aquí desde {{title}}",
+	"Moved your message to {{title}}": "Tu mensaje se movió a {{title}}",
+	"This week": "Esta semana"
 }

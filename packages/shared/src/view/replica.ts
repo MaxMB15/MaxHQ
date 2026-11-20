@@ -28,7 +28,8 @@ const settingsId = (project: string, device: string): string => `${project}/${de
  * skill library, the host report, the ACP registry, network access, hidden
  * projects and the dispatcher use their device's ID, project settings,
  * skills, command rules and notes their project's and device's together, a
- * phone its own and its device's, and a phone book its phone's.
+ * phone its own and its device's, a phone book its phone's, and a
+ * dispatcher's chat its agent's.
  */
 export const idOf = (entity: Entity): string => {
 	switch (entity.entity) {
@@ -51,6 +52,8 @@ export const idOf = (entity: Entity): string => {
 			return settingsId(entity.id, entity.device);
 		case "phone_book":
 			return entity.phone;
+		case "dispatcher_chat":
+			return entity.agent;
 		default:
 			return entity.id;
 	}
@@ -141,6 +144,7 @@ const KINDS: readonly EntityKind[] = [
 	"phone_session",
 	"hidden_projects",
 	"dispatcher",
+	"dispatcher_chat",
 	"command_rules",
 	"project_notes",
 	"app_key",

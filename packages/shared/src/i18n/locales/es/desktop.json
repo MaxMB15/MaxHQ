@@ -1362,5 +1362,14 @@
 	"Suggestions": "Sugerencias",
 	"Tab completes · ↩ picks · on {{device}}": "Tab completa · ↩ elige · en {{device}}",
 	"This folder holds more than shows here. Type the path to reach the rest.": "Esta carpeta tiene más de lo que se ve aquí. Escribe la ruta para llegar al resto.",
-	"Use that": "Usar ese"
+	"Use that": "Usar ese",
+	"Archive": "Archivar",
+	"Chats": "Chats",
+	"No chats match": "Ningún chat coincide",
+	"No chats yet": "Todavía no hay chats",
+	"Rename chat": "Renombrar chat",
+	"Save to Notes": "Guardar en Notas",
+	"Saving to Notes": "Guardando en Notas",
+	"Search chats": "Buscar chats",
+	"Unarchive": "Desarchivar"
 }

@@ -1277,5 +1277,15 @@
 	"The session was busy, so this ran on its own.": "De sessie was bezig, dus dit draaide apart.",
 	"This spans more than one line, so it ran on its own.": "Dit beslaat meer dan één regel, dus het draaide apart.",
 	"This starts with exec, so it ran on its own.": "Dit begint met exec, dus het draaide apart.",
-	"Your shell didn't report its commands, so this ran on its own.": "Je shell gaf zijn opdrachten niet door, dus dit draaide apart."
+	"Your shell didn't report its commands, so this ran on its own.": "Je shell gaf zijn opdrachten niet door, dus dit draaide apart.",
+	"Archived": "Gearchiveerd",
+	"Chat {{number}}": "Chat {{number}}",
+	"Delete chat \"{{title}}\"?": "Chat \"{{title}}\" verwijderen?",
+	"Earlier": "Eerder",
+	"Keep here": "Hier houden",
+	"Matches": "Resultaten",
+	"MaxHQ stops it, and the dispatcher won't list or find it again. Its CLI's transcript stays.": "MaxHQ stopt de chat, en de dispatcher toont of vindt die niet meer. Het CLI-transcript blijft bewaard.",
+	"Moved your message here from {{title}}": "Je bericht is hierheen verplaatst vanuit {{title}}",
+	"Moved your message to {{title}}": "Je bericht is verplaatst naar {{title}}",
+	"This week": "Deze week"
 }

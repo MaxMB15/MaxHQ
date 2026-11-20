@@ -361,7 +361,7 @@ export const mockSource = (options: MockOptions = {}): MockSource => {
 		...mockTools(),
 		...mockHosts(now()),
 		...mockWorkflowRuns(now()),
-		...dispatcherEntities(),
+		...dispatcherEntities(now()),
 		{ entity: "terminal", ...sampleSessionTerminal(now()) },
 	];
 	// The sample tasks publish each device's list as it changes.
@@ -635,6 +635,7 @@ export const mockSource = (options: MockOptions = {}): MockSource => {
 	// Deletes a lead agent the way maxd does, with its sub-agents and its
 	// prompts. One from your own terminal, or a sub-agent, is refused.
 	const deleteAgent = async (id: AgentId) => {
+		dispatcher.wake(id);
 		const agent = current.get(`agent:${id}`);
 		if (agent?.entity !== "agent") return missing(`agent ${id}`);
 		if (agent.control === "observed") return refused(OUTSIDE);
@@ -644,7 +645,8 @@ export const mockSource = (options: MockOptions = {}): MockSource => {
 		base = base.filter(
 			(e) =>
 				!(e.entity === "agent" && (e.id === id || e.parent === id)) &&
-				!(e.entity === "attention" && e.agent === id)
+				!(e.entity === "attention" && e.agent === id) &&
+				!(e.entity === "dispatcher_chat" && e.agent === id)
 		);
 		commit();
 		return DONE;
@@ -833,6 +835,7 @@ export const mockSource = (options: MockOptions = {}): MockSource => {
 		startAgent,
 		saveTask: tasks.calls.saveTask,
 		moveAgent,
+		writeNote: notes.write,
 	});
 
 	// Container workspaces, which move through their states a step at a time.

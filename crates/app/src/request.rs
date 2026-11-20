@@ -15,6 +15,7 @@ use maxhq_protocol::acp::{AcpAgent, AcpEnvValue};
 use maxhq_protocol::agents::{AccessKey, MoveTo, Permission};
 use maxhq_protocol::attention::AttentionAnswer;
 use maxhq_protocol::context::InlineRef;
+use maxhq_protocol::dispatch::ChatAct;
 use maxhq_protocol::find::{AgentExcerpt, GitItemSearch, PathMatch};
 use maxhq_protocol::folders::FolderList;
 use maxhq_protocol::hosts::MoveStep;
@@ -814,6 +815,13 @@ pub enum Request {
     ConfirmPlan { device: DeviceId, plan: u32 },
     /// Drops the plan the dispatcher shows.
     DismissPlan { device: DeviceId, plan: u32 },
+    /// Picks, renames, archives or saves one dispatcher chat, or keeps a
+    /// moved message in it.
+    ActOnChat {
+        device: DeviceId,
+        agent: AgentId,
+        action: ChatAct,
+    },
     /// Moves an agent on `from` to another device, through the `maxd` on
     /// `device`, the one the app runs with. `stop` stops a turn that runs
     /// or a prompt that waits first.
@@ -1118,6 +1126,7 @@ pub enum Response {
     AskDispatcher(ActionOutcome),
     ConfirmPlan(ActionOutcome),
     DismissPlan(ActionOutcome),
+    ActOnChat(ActionOutcome),
     MoveAgent(ActionOutcome),
     TerminalOpen(ActionOutcome),
     TerminalAttach,
@@ -1328,6 +1337,7 @@ impl Request {
             Self::AskDispatcher { .. } => "ask_dispatcher",
             Self::ConfirmPlan { .. } => "confirm_plan",
             Self::DismissPlan { .. } => "dismiss_plan",
+            Self::ActOnChat { .. } => "act_on_chat",
             Self::MoveAgent { .. } => "move_agent",
             Self::TerminalOpen { .. } => "terminal_open",
             Self::TerminalAttach { .. } => "terminal_attach",
@@ -1540,6 +1550,7 @@ impl Response {
             Self::AskDispatcher(_) => "ask_dispatcher",
             Self::ConfirmPlan(_) => "confirm_plan",
             Self::DismissPlan(_) => "dismiss_plan",
+            Self::ActOnChat(_) => "act_on_chat",
             Self::MoveAgent(_) => "move_agent",
             Self::TerminalOpen(_) => "terminal_open",
             Self::TerminalAttach => "terminal_attach",
@@ -2600,6 +2611,14 @@ impl<C: Connector> App<C> {
             Request::DismissPlan { device, plan } => {
                 let action = ClientMessage::DismissPlan { key, plan };
                 Response::DismissPlan(devices.act_on(device, action).await?)
+            }
+            Request::ActOnChat {
+                device,
+                agent,
+                action,
+            } => {
+                let action = ClientMessage::ActOnChat { key, agent, action };
+                Response::ActOnChat(devices.act_on(device, action).await?)
             }
             Request::MoveAgent {
                 device,

@@ -33,6 +33,8 @@ export type MockNotes = {
 	readonly calls: NoteCalls;
 	/** Each device's `project_notes` entity for each project with notes. */
 	readonly entities: () => Entity[];
+	/** Writes a new note in the sample project, as an agent's `create_note` does. */
+	readonly write: (note: NoteId, title: string, body: string, by: NoteAuthor) => void;
 };
 
 const MIN = 60_000;
@@ -269,5 +271,10 @@ export const mockNotes = ({
 					notes,
 				}));
 			}),
+		write: (note, title, body, by) => {
+			createdOn.set(note, by.device);
+			sample(note, null, title, body, now(), by);
+			changed();
+		},
 	};
 };
