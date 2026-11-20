@@ -15,7 +15,7 @@ use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 use maxhq_core::names;
-use maxhq_core::tools::{dispatch, Tool};
+use maxhq_core::tools::{chats, Tool};
 use maxhq_protocol::attention::{AttentionAnswer, AttentionEvent, AttentionKind};
 use maxhq_protocol::context::{InlineRef, QuoteSource};
 use maxhq_protocol::ids::{
@@ -814,7 +814,10 @@ fn the_dispatcher_thread_reads_only_and_gets_its_own_tools() {
     let params = sent_once(&fx, "thread/start")["params"].clone();
     assert_eq!(params["sandbox"], "read-only");
     assert_eq!(params["approvalPolicy"], "never");
-    assert_eq!(params["developerInstructions"], dispatch::INSTRUCTIONS);
+    assert_eq!(
+        params["developerInstructions"],
+        chats::dispatcher_instructions()
+    );
     let names: Vec<&str> = params["dynamicTools"]
         .as_array()
         .unwrap()

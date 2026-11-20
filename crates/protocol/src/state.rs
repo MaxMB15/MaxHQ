@@ -15,7 +15,7 @@ use thiserror::Error;
 use crate::acp::AcpAgent;
 use crate::admission::{Admission, AppKey};
 use crate::attention::AttentionEvent;
-use crate::dispatch::Dispatcher;
+use crate::dispatch::{Dispatcher, DispatcherChat};
 use crate::hosts::{AcpRegistry, HostReport, Move, PendingLicence};
 use crate::ids::{
     AccountId, AcpAgentId, AdmissionId, AgentId, AppKeyId, AttentionId, CredentialId, DeviceId,
@@ -142,6 +142,8 @@ pub enum Entity {
     /// A terminal a device holds for an agent: a shell in its drawer or a
     /// command you ran with `!`. Since protocol 45.
     Terminal(Terminal),
+    /// One conversation with a device's dispatcher. Since protocol 54.
+    DispatcherChat(DispatcherChat),
 }
 
 /// Names one entity, for removal and lookup.
@@ -258,6 +260,8 @@ pub enum EntityKey {
     Admission(AdmissionId),
     /// A terminal.
     Terminal(TerminalId),
+    /// A dispatcher chat, named by its agent.
+    DispatcherChat(AgentId),
 }
 
 impl Entity {
@@ -315,6 +319,7 @@ impl Entity {
             Self::AppKey(key) => EntityKey::AppKey(key.id),
             Self::Admission(admission) => EntityKey::Admission(admission.id),
             Self::Terminal(terminal) => EntityKey::Terminal(terminal.id),
+            Self::DispatcherChat(chat) => EntityKey::DispatcherChat(chat.agent),
         }
     }
 }

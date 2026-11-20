@@ -9,6 +9,7 @@
 //! only selects again. Both are bounded, and the work runs off the loop.
 
 use std::collections::{HashMap, HashSet, VecDeque};
+use std::future::Future;
 use std::sync::{Arc, Mutex, PoisonError};
 
 use maxhq_core::timeline_find::{self, Searchable, MAX_QUERY};
@@ -213,6 +214,45 @@ impl Manager {
             answer(outcome);
         });
     }
+
+    /// How often each of `words`, already folded, shows in an agent's
+    /// timeline as its rows show it, added up and worked out off the loop.
+    /// An agent whose timeline can't be read has none.
+    pub(super) fn matches_in(
+        &self,
+        agent: AgentId,
+        words: Vec<String>,
+    ) -> impl Future<Output = u32> + Send + 'static {
+        let found = match self.timeline_at(agent) {
+            Ok((_, Located::Kept(timeline))) => {
+                Some(Ok(to_count(timeline, self.finds.shown(agent))))
+            }
+            Ok((_, Located::History(source))) => Some(Err(source)),
+            Err(_) => None,
+        };
+        let (vendors, places) = (self.vendors.clone(), self.places.clone());
+        async move {
+            let items = match found {
+                Some(Ok(items)) => items,
+                Some(Err(source)) => match history(vendors, places, source, agent).await {
+                    Ok(items) => items
+                        .into_iter()
+                        .map(|item| ToCount::Body(item.id, item.body))
+                        .collect(),
+                    Err(_) => return 0,
+                },
+                None => return 0,
+            };
+            let work = tokio::task::spawn_blocking(move || {
+                items
+                    .into_iter()
+                    .filter_map(searchable)
+                    .map(|(_, shown)| words.iter().map(|word| shown.count(word)).sum::<u32>())
+                    .sum()
+            });
+            work.await.unwrap_or(0)
+        }
+    }
 }
 
 /// The items to count in, oldest first, with what each shows where it's
@@ -262,18 +302,7 @@ async fn counted(
     let work = tokio::task::spawn_blocking(move || {
         let mut shown = ShownItems::with_capacity(items.len());
         let mut counts = Vec::with_capacity(items.len());
-        for item in items {
-            let (id, searchable) = match item {
-                ToCount::Kept(id, searchable) => (id, searchable),
-                ToCount::Body(id, body) => (id, Arc::new(Searchable::of(&body))),
-                ToCount::Spilled(ordinal, spilled) => match spilled.load() {
-                    Ok(item) => (item.id, Arc::new(Searchable::of(&item.body))),
-                    Err(err) => {
-                        warn!(%err, ordinal, "couldn't read a timeline item back to find in");
-                        continue;
-                    }
-                },
-            };
+        for (id, searchable) in items.into_iter().filter_map(searchable) {
             counts.push((id.clone(), searchable.count(&query)));
             shown.insert(id, searchable);
         }
@@ -283,5 +312,21 @@ async fn counted(
     match work.await {
         Ok((find, shown, counts)) => (ActionOutcome::TimelineFind { find }, Some((shown, counts))),
         Err(err) => (refused(format!("The find stopped: {err}")), None),
+    }
+}
+
+/// What an item to count in shows, worked out unless it's kept. An item
+/// on disk that can't be read back has none.
+fn searchable(item: ToCount) -> Option<(ItemId, Arc<Searchable>)> {
+    match item {
+        ToCount::Kept(id, searchable) => Some((id, searchable)),
+        ToCount::Body(id, body) => Some((id, Arc::new(Searchable::of(&body)))),
+        ToCount::Spilled(ordinal, spilled) => match spilled.load() {
+            Ok(item) => Some((item.id, Arc::new(Searchable::of(&item.body)))),
+            Err(err) => {
+                warn!(%err, ordinal, "couldn't read a timeline item back to find in");
+                None
+            }
+        },
     }
 }

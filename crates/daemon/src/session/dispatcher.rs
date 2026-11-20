@@ -78,11 +78,11 @@ pub(super) struct Dispatch {
     /// The workspace of its folder. None on a device with no dispatcher.
     workspace: Option<WorkspaceId>,
     /// The agent of the conversation now.
-    agent: Option<AgentId>,
+    pub(super) agent: Option<AgentId>,
     /// The request that starts a new conversation, until it's done.
-    starting: Option<IdempotencyKey>,
+    pub(super) starting: Option<IdempotencyKey>,
     /// The plan shown, until it's confirmed or dismissed.
-    plan: Option<Plan>,
+    pub(super) plan: Option<Plan>,
     /// The last plan's number.
     plans: u32,
     /// The confirmed plan that runs now.
@@ -91,6 +91,8 @@ pub(super) struct Dispatch {
     pub(super) carried: Carried,
     /// Where a project's PRs are read.
     pub(super) pulls: Option<Arc<dyn PullSource>>,
+    /// Its conversations, each a chat.
+    pub(super) chats: super::dispatcher_chats::Chats,
 }
 
 impl Dispatch {
@@ -141,7 +143,7 @@ impl Manager {
     }
 
     /// Shows the dispatcher as it is now.
-    fn publish_dispatcher(&self) {
+    pub(super) fn publish_dispatcher(&self) {
         let Some(workspace) = self.dispatcher.home() else {
             return;
         };
@@ -213,7 +215,7 @@ impl Manager {
     /// Sends the conversation a request, or starts a new one under
     /// `account` with it: when asked, or when the account changed. The
     /// conversation keeps the request's pills for its plans.
-    fn ask_dispatcher(
+    pub(super) fn ask_dispatcher(
         &mut self,
         key: IdempotencyKey,
         mut input: UserInput,
@@ -253,6 +255,7 @@ impl Manager {
                 .get(agent)
                 .is_some_and(|held| held.account == account)
         });
+        let new = self.route_chat(key, &input, current, new);
         if let Some(agent) = current.filter(|_| !new) {
             self.dispatcher.carried.keep(&input.refs);
             let send = ClientMessage::SendInput {

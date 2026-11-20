@@ -12,6 +12,8 @@ export const DEPTH = 3 as const;
 
 export const DISMISS_SINCE = 42 as const;
 
+export const DISPATCHER_CHATS_SINCE = 54 as const;
+
 export const EFFORT_SINCE = 41 as const;
 
 export const FINISHED_SUB_AGENTS_SINCE = 44 as const;
@@ -30,7 +32,7 @@ export const NOTE_PILLS_SINCE = 28 as const;
 
 export const OLDEST_PROTOCOL_VERSION = 20 as const;
 
-export const PROTOCOL_VERSION = 48 as const;
+export const PROTOCOL_VERSION = 54 as const;
 
 export const SESSIONS_SINCE = 48 as const;
 
@@ -1576,6 +1578,29 @@ value: Entity } |
 { op: "remove"; 
 /**  The entity to remove. */
 key: EntityKey };
+
+/**  What you do to one dispatcher chat. Delete one with `DeleteAgent`. */
+export type ChatAct = 
+/**  Makes it the conversation now. */
+{ type: "pick" } | 
+/**  Gives it your own title, which the dispatcher then keeps. */
+{ type: "rename"; 
+/**  The new title. */
+title: string } | 
+/**  Archives it, or brings it back. */
+{ type: "archive"; 
+/**  Whether it's archived. */
+archived: boolean } | 
+/**
+ *  Moves the message the dispatcher moved out of this chat back here,
+ *  and has this chat answer it.
+ */
+{ type: "keep_here" } | 
+/**
+ *  Makes it the conversation now and asks its agent to save it to
+ *  Notes.
+ */
+{ type: "save_note" };
 
 /**  How one check stands. */
 export type CheckState = 
@@ -3406,6 +3431,17 @@ key: IdempotencyKey;
 /**  The plan. */
 plan: number }) & { account?: never; action?: never; address?: never; admission?: never; after?: never; agent?: never; allow?: never; answer?: never; anyway?: never; app_id?: never; as_new?: never; at?: never; attachment?: never; base?: never; before?: never; block?: never; body?: never; book?: never; bucket_secs?: never; budget?: never; call?: never; change?: never; changes?: never; client_id?: never; code?: never; cols?: never; command?: never; committed?: never; confirm_unchecked?: never; credential?: never; default_ref?: never; deleted?: never; device?: never; device_code?: never; discard_unpushed?: never; discard_unsaved?: never; effort?: never; elsewhere?: never; enabled?: never; env?: never; event?: never; everything?: never; expect_sha?: never; files?: never; filter?: never; force?: never; fork?: never; forward?: never; fresh?: never; from?: never; granted?: never; hashes?: never; hidden?: never; host?: never; how?: never; id?: never; idempotency_key?: never; input?: never; instance?: never; item?: never; items?: never; key_id?: never; kind?: never; label?: never; lead?: never; lease?: never; licence?: never; limit?: never; local_port?: never; lock?: never; mac?: never; mode?: never; model?: never; moving?: never; name?: never; new?: never; node?: never; nonce?: never; note?: never; number?: never; on?: never; origin?: never; outcome?: never; overwrite?: never; page?: never; pair?: never; parent?: never; path?: never; paths?: never; permission?: never; phone?: never; picks?: never; pid?: never; place?: never; plan_hash?: never; port?: never; private?: never; private_key?: never; project?: never; proposal?: never; public_key?: never; push?: never; push_public?: never; query?: never; refs?: never; release?: never; repo?: never; request?: never; rows?: never; rule?: never; run?: never; secret?: never; seen?: never; session?: never; settings?: never; sha256?: never; sign_in?: never; signal?: never; signature?: never; since?: never; skills?: never; snapshot?: never; source?: never; sources?: never; spec?: never; ssh_public?: never; staged?: never; start?: never; state?: never; step?: never; stop?: never; stream?: never; target?: never; task?: never; team_id?: never; terminal?: never; text?: never; text_sha256?: never; title?: never; to?: never; token?: never; tool?: never; tools?: never; transfer?: never; tree?: never; trust?: never; unsigned?: never; version?: never; versions?: never; window_end?: never; window_secs?: never; workspace?: never } | 
 /**
+ *  Acts on one dispatcher chat, since [`DISPATCHER_CHATS_SINCE`].
+ *  Answered with Done, or Refused for a chat the device doesn't hold.
+ */
+({ type: "act_on_chat"; 
+/**  Makes a resend after a dropped connection safe. */
+key: IdempotencyKey; 
+/**  The chat's agent. */
+agent: AgentId; 
+/**  What to do. */
+action: ChatAct }) & { account?: never; address?: never; admission?: never; after?: never; allow?: never; answer?: never; anyway?: never; app_id?: never; as_new?: never; at?: never; attachment?: never; base?: never; before?: never; block?: never; body?: never; book?: never; bucket_secs?: never; budget?: never; call?: never; change?: never; changes?: never; client_id?: never; code?: never; cols?: never; command?: never; committed?: never; confirm_unchecked?: never; credential?: never; default_ref?: never; deleted?: never; device?: never; device_code?: never; discard_unpushed?: never; discard_unsaved?: never; effort?: never; elsewhere?: never; enabled?: never; env?: never; event?: never; everything?: never; expect_sha?: never; files?: never; filter?: never; force?: never; fork?: never; forward?: never; fresh?: never; from?: never; granted?: never; hashes?: never; hidden?: never; host?: never; how?: never; id?: never; idempotency_key?: never; input?: never; instance?: never; item?: never; items?: never; key_id?: never; kind?: never; label?: never; lead?: never; lease?: never; licence?: never; limit?: never; local_port?: never; lock?: never; mac?: never; mode?: never; model?: never; moving?: never; name?: never; new?: never; node?: never; nonce?: never; note?: never; number?: never; on?: never; origin?: never; outcome?: never; overwrite?: never; page?: never; pair?: never; parent?: never; path?: never; paths?: never; permission?: never; phone?: never; picks?: never; pid?: never; place?: never; plan?: never; plan_hash?: never; port?: never; private?: never; private_key?: never; project?: never; proposal?: never; public_key?: never; push?: never; push_public?: never; query?: never; refs?: never; release?: never; repo?: never; request?: never; rows?: never; rule?: never; run?: never; secret?: never; seen?: never; session?: never; settings?: never; sha256?: never; sign_in?: never; signal?: never; signature?: never; since?: never; skills?: never; snapshot?: never; source?: never; sources?: never; spec?: never; ssh_public?: never; staged?: never; start?: never; state?: never; step?: never; stop?: never; stream?: never; target?: never; task?: never; team_id?: never; terminal?: never; text?: never; text_sha256?: never; title?: never; to?: never; token?: never; tool?: never; tools?: never; transfer?: never; tree?: never; trust?: never; unsigned?: never; version?: never; versions?: never; window_end?: never; window_secs?: never; workspace?: never } | 
+/**
  *  Proves this connection holds `public_key`, with a signature over the
  *  hello's [`ServerHello::challenge`] and what names the connection, as
  *  the `prove` module in `crates/core` lays them out. Sent right after
@@ -4415,6 +4451,41 @@ export type Dispatcher = {
 	plan: Plan | null,
 };
 
+/**
+ *  One conversation with a device's dispatcher. Each runs its own agent, so
+ *  a chat you pick or the dispatcher moves a message to resumes where it
+ *  stopped. Since protocol 54.
+ */
+export type DispatcherChat = {
+	/**  The agent that holds the conversation, which also names the chat. */
+	agent: AgentId,
+	/**  The device the dispatcher runs on. */
+	device: DeviceId,
+	/**
+	 *  Counts the device's chats from 1, so the dispatcher can name one in
+	 *  a tool call.
+	 */
+	number: number,
+	/**  Its title. Empty until the dispatcher names it or you rename it. */
+	title: string,
+	/**  What it's about, in one line. */
+	summary: string,
+	/**  The project it's about, if one. Save to Notes writes there. */
+	project: ProjectId | null,
+	/**  When you last wrote in it or picked it. */
+	active_at: Timestamp,
+	/**
+	 *  Whether you archived it. Clients also show one untouched for a week
+	 *  as archived.
+	 */
+	archived: boolean,
+	/**
+	 *  The chat the dispatcher moved your last message to, until you write
+	 *  again. Keep here moves it back.
+	 */
+	moved_to: AgentId | null,
+};
+
 /**  Where a download landed. */
 export type Downloaded = {
 	/**  The file or folder on this machine, under `~/Downloads/MaxHQ`. */
@@ -4642,7 +4713,11 @@ export type Entity =
  */
 {
 	entity: "terminal",
-} & Terminal;
+} & Terminal | 
+/**  One conversation with a device's dispatcher. Since protocol 54. */
+{
+	entity: "dispatcher_chat",
+} & DispatcherChat;
 
 /**  Names one entity, for removal and lookup. */
 export type EntityKey = 
@@ -4742,7 +4817,9 @@ export type EntityKey =
 /**  An admission card. */
 { entity: "admission"; id: AdmissionId } | 
 /**  A terminal. */
-{ entity: "terminal"; id: TerminalId };
+{ entity: "terminal"; id: TerminalId } | 
+/**  A dispatcher chat, named by its agent. */
+{ entity: "dispatcher_chat"; id: AgentId };
 
 /**  What a [`ManifestEntry`] is. */
 export type EntryKind = 
@@ -8759,6 +8836,11 @@ seen?: ProposalSeen | null } |
 /**  Drops the plan the dispatcher shows. */
 { kind: "dismiss_plan"; device: DeviceId; plan: number } | 
 /**
+ *  Picks, renames, archives or saves one dispatcher chat, or keeps a
+ *  moved message in it.
+ */
+{ kind: "act_on_chat"; device: DeviceId; agent: AgentId; action: ChatAct } | 
+/**
  *  Moves an agent on `from` to another device, through the `maxd` on
  *  `device`, the one the app runs with. `stop` stops a turn that runs
  *  or a prompt that waits first.
@@ -8844,7 +8926,7 @@ export type Response = { kind: "app_info"; value: AppInfo } | { kind: "view_snap
 /**  The devices that didn't take the switch, by name. */
 { kind: "set_phone_everything"; value: string[] } | 
 /**  The devices that didn't get a new code, by name. */
-{ kind: "renew_phone_codes"; value: string[] } | { kind: "set_phone_address" } | { kind: "revoke_phone_session"; value: ActionOutcome } | { kind: "app_key"; value: AppKeyState } | { kind: "remove_app_key"; value: ActionOutcome } | { kind: "rotate_app_key" } | { kind: "answer_admission"; value: ActionOutcome } | { kind: "agent_defaults"; value: AgentDefaults } | { kind: "set_agent_defaults" } | { kind: "list_tasks"; value: Task[] } | { kind: "save_task"; value: ActionOutcome } | { kind: "set_task_enabled"; value: ActionOutcome } | { kind: "delete_task"; value: ActionOutcome } | { kind: "run_task_now"; value: ActionOutcome } | { kind: "set_hook_on"; value: ActionOutcome } | { kind: "rotate_hook_token"; value: ActionOutcome } | { kind: "set_hook_secret"; value: ActionOutcome } | { kind: "set_hook_address"; value: ActionOutcome } | { kind: "list_runs"; value: Run[] } | { kind: "list_deliveries"; value: TaskDelivery[] } | { kind: "funnel_state"; value: FunnelState } | { kind: "check_test_hosts"; value: ActionOutcome } | { kind: "build_test_host"; value: ActionOutcome } | { kind: "reset_test_host"; value: ActionOutcome } | { kind: "end_lease"; value: ActionOutcome } | { kind: "read_lease_screen"; value: ActionOutcome } | { kind: "skill_source_add"; value: ActionOutcome } | { kind: "skill_source_fetch"; value: ActionOutcome } | { kind: "skill_source_remove"; value: ActionOutcome } | { kind: "skills_set_project"; value: ActionOutcome } | { kind: "skills_apply"; value: ActionOutcome } | { kind: "skills_scan"; value: ActionOutcome } | { kind: "skills_trees_needed"; value: ActionOutcome } | { kind: "skill_proposal_action"; value: ActionOutcome } | { kind: "skill_proposal_diff"; value: ActionOutcome } | { kind: "skills_globals_plan"; value: ActionOutcome } | { kind: "skills_globals_apply"; value: ActionOutcome } | { kind: "skills_globals_undo"; value: ActionOutcome } | { kind: "move_skill_library"; value: ActionOutcome } | { kind: "skill_source_push"; value: ActionOutcome } | { kind: "check_host"; value: ActionOutcome } | { kind: "apply_host"; value: ActionOutcome } | { kind: "install_tool"; value: ActionOutcome } | { kind: "remove_tool"; value: ActionOutcome } | { kind: "list_snapshots"; value: ActionOutcome } | { kind: "restore_snapshot"; value: ActionOutcome } | { kind: "plan_move"; value: ActionOutcome } | { kind: "run_move_step"; value: ActionOutcome } | { kind: "move_back"; value: ActionOutcome } | { kind: "retire_move"; value: ActionOutcome } | { kind: "install_acp_agent"; value: ActionOutcome } | { kind: "accept_licence"; value: ActionOutcome } | { kind: "ask_dispatcher"; value: ActionOutcome } | { kind: "confirm_plan"; value: ActionOutcome } | { kind: "dismiss_plan"; value: ActionOutcome } | { kind: "move_agent"; value: ActionOutcome } | { kind: "terminal_open"; value: ActionOutcome } | { kind: "terminal_attach" } | { kind: "terminal_detach" } | { kind: "terminal_resize" } | { kind: "terminal_interrupt"; value: ActionOutcome } | { kind: "terminal_close"; value: ActionOutcome } | { kind: "terminal_rename"; value: ActionOutcome } | { kind: "terminal_move"; value: ActionOutcome } | { kind: "list_folder"; value: FolderList } | { kind: "make_folder"; value: ActionOutcome } | { kind: "session_run"; value: ActionOutcome } | { kind: "session_share"; value: ActionOutcome } | { kind: "session_cd"; value: ActionOutcome } | { kind: "session_end"; value: ActionOutcome };
+{ kind: "renew_phone_codes"; value: string[] } | { kind: "set_phone_address" } | { kind: "revoke_phone_session"; value: ActionOutcome } | { kind: "app_key"; value: AppKeyState } | { kind: "remove_app_key"; value: ActionOutcome } | { kind: "rotate_app_key" } | { kind: "answer_admission"; value: ActionOutcome } | { kind: "agent_defaults"; value: AgentDefaults } | { kind: "set_agent_defaults" } | { kind: "list_tasks"; value: Task[] } | { kind: "save_task"; value: ActionOutcome } | { kind: "set_task_enabled"; value: ActionOutcome } | { kind: "delete_task"; value: ActionOutcome } | { kind: "run_task_now"; value: ActionOutcome } | { kind: "set_hook_on"; value: ActionOutcome } | { kind: "rotate_hook_token"; value: ActionOutcome } | { kind: "set_hook_secret"; value: ActionOutcome } | { kind: "set_hook_address"; value: ActionOutcome } | { kind: "list_runs"; value: Run[] } | { kind: "list_deliveries"; value: TaskDelivery[] } | { kind: "funnel_state"; value: FunnelState } | { kind: "check_test_hosts"; value: ActionOutcome } | { kind: "build_test_host"; value: ActionOutcome } | { kind: "reset_test_host"; value: ActionOutcome } | { kind: "end_lease"; value: ActionOutcome } | { kind: "read_lease_screen"; value: ActionOutcome } | { kind: "skill_source_add"; value: ActionOutcome } | { kind: "skill_source_fetch"; value: ActionOutcome } | { kind: "skill_source_remove"; value: ActionOutcome } | { kind: "skills_set_project"; value: ActionOutcome } | { kind: "skills_apply"; value: ActionOutcome } | { kind: "skills_scan"; value: ActionOutcome } | { kind: "skills_trees_needed"; value: ActionOutcome } | { kind: "skill_proposal_action"; value: ActionOutcome } | { kind: "skill_proposal_diff"; value: ActionOutcome } | { kind: "skills_globals_plan"; value: ActionOutcome } | { kind: "skills_globals_apply"; value: ActionOutcome } | { kind: "skills_globals_undo"; value: ActionOutcome } | { kind: "move_skill_library"; value: ActionOutcome } | { kind: "skill_source_push"; value: ActionOutcome } | { kind: "check_host"; value: ActionOutcome } | { kind: "apply_host"; value: ActionOutcome } | { kind: "install_tool"; value: ActionOutcome } | { kind: "remove_tool"; value: ActionOutcome } | { kind: "list_snapshots"; value: ActionOutcome } | { kind: "restore_snapshot"; value: ActionOutcome } | { kind: "plan_move"; value: ActionOutcome } | { kind: "run_move_step"; value: ActionOutcome } | { kind: "move_back"; value: ActionOutcome } | { kind: "retire_move"; value: ActionOutcome } | { kind: "install_acp_agent"; value: ActionOutcome } | { kind: "accept_licence"; value: ActionOutcome } | { kind: "ask_dispatcher"; value: ActionOutcome } | { kind: "confirm_plan"; value: ActionOutcome } | { kind: "dismiss_plan"; value: ActionOutcome } | { kind: "act_on_chat"; value: ActionOutcome } | { kind: "move_agent"; value: ActionOutcome } | { kind: "terminal_open"; value: ActionOutcome } | { kind: "terminal_attach" } | { kind: "terminal_detach" } | { kind: "terminal_resize" } | { kind: "terminal_interrupt"; value: ActionOutcome } | { kind: "terminal_close"; value: ActionOutcome } | { kind: "terminal_rename"; value: ActionOutcome } | { kind: "terminal_move"; value: ActionOutcome } | { kind: "list_folder"; value: FolderList } | { kind: "make_folder"; value: ActionOutcome } | { kind: "session_run"; value: ActionOutcome } | { kind: "session_share"; value: ActionOutcome } | { kind: "session_cd"; value: ActionOutcome } | { kind: "session_end"; value: ActionOutcome };
 
 /**  Where a PR's reviews leave it. */
 export type ReviewState = 

@@ -7,7 +7,7 @@
 use std::time::{Duration, Instant};
 
 use maxhq_core::names;
-use maxhq_core::tools::dispatch;
+use maxhq_core::tools::chats;
 use maxhq_protocol::ids::{AgentId, IdempotencyKey};
 use maxhq_protocol::message::{ActionOutcome, AgentSpec, SendMode};
 use maxhq_protocol::model::{AgentLink, ModelChoice, PermissionMode, Vendor};
@@ -1261,7 +1261,7 @@ fn add_instructions(place: Option<&Place>, params: &mut Map<String, Value>) {
     if place.is_some_and(|place| place.dispatcher) {
         params.insert(
             "developerInstructions".into(),
-            dispatch::INSTRUCTIONS.into(),
+            chats::dispatcher_instructions().into(),
         );
     }
 }

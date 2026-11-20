@@ -221,6 +221,7 @@ impl Manager {
             ClientMessage::AskDispatcher { .. }
             | ClientMessage::ConfirmPlan { .. }
             | ClientMessage::DismissPlan { .. } => return self.dispatcher_message(conn, message),
+            ClientMessage::ActOnChat { .. } => return self.chat_message(conn, message),
             ClientMessage::MoveAgent { .. } => return self.move_message(conn, message),
             ClientMessage::StartAgent { key, .. }
             | ClientMessage::SendInput { key, .. }
@@ -686,7 +687,7 @@ impl Manager {
         let first = match spec.first.take() {
             Some(first) => match self.move_attachments(&found, &place.attachments) {
                 Ok(staged) => Some(Message {
-                    text: first.text,
+                    text: self.chat_index_for(key, first.text),
                     refs: first.refs,
                     attachments: staged,
                 }),

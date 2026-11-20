@@ -10,7 +10,7 @@ use std::fs;
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 
-use maxhq_core::tools::dispatch;
+use maxhq_core::tools::chats;
 use maxhq_protocol::model::PermissionMode;
 use uuid::Uuid;
 
@@ -166,7 +166,7 @@ pub(super) fn command(
         args.push("--disallowedTools".into());
         args.push(DISPATCHER_DENIED.into());
         args.push("--append-system-prompt".into());
-        args.push(dispatch::INSTRUCTIONS.into());
+        args.push(chats::dispatcher_instructions().into());
     }
     args.push("--add-dir".into());
     args.push(place.attachments.clone().into());
@@ -413,7 +413,10 @@ mod tests {
             "Bash,Edit,Write,MultiEdit,NotebookEdit"
         );
         let prompt = args.iter().position(|arg| *arg == "--append-system-prompt");
-        assert_eq!(args[prompt.unwrap() + 1], dispatch::INSTRUCTIONS);
+        assert_eq!(
+            args[prompt.unwrap() + 1],
+            chats::dispatcher_instructions().as_str()
+        );
         assert!(!args.contains(&"--allow-dangerously-skip-permissions"));
     }
 

@@ -233,6 +233,9 @@ pub fn migrations() -> Migrations<'static> {
             "CREATE TABLE user_runs (agent TEXT NOT NULL, item TEXT NOT NULL, after TEXT, \
              at INTEGER NOT NULL, record TEXT NOT NULL, PRIMARY KEY (agent, item));",
         ),
+        // The dispatcher's chats: each one's number, title, summary and
+        // when you last wrote in it. Until its agent is forgotten.
+        M::up("CREATE TABLE dispatcher_chats (agent TEXT PRIMARY KEY, record TEXT NOT NULL);"),
     ])
 }
 
@@ -553,6 +556,50 @@ impl Db {
     pub fn remove_ended_outside(&self, agent: AgentId) -> rusqlite::Result<()> {
         self.lock().execute(
             "DELETE FROM ended_outside WHERE agent = ?1",
+            params![agent.to_string()],
+        )?;
+        Ok(())
+    }
+
+    /// Every dispatcher chat kept. A row that doesn't parse is skipped.
+    pub fn dispatcher_chats<T: DeserializeOwned>(&self) -> rusqlite::Result<Vec<T>> {
+        let conn = self.lock();
+        let mut query = conn.prepare("SELECT agent, record FROM dispatcher_chats")?;
+        let rows = query.query_map([], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        })?;
+        let mut chats = Vec::new();
+        for row in rows {
+            let (agent, record) = row?;
+            match serde_json::from_str(&record) {
+                Ok(record) => chats.push(record),
+                Err(err) => {
+                    tracing::warn!(agent, %err, "skipping a dispatcher chat that doesn't parse")
+                }
+            }
+        }
+        Ok(chats)
+    }
+
+    /// Keeps a dispatcher chat.
+    pub fn put_dispatcher_chat(
+        &self,
+        agent: AgentId,
+        record: &impl Serialize,
+    ) -> Result<(), RecordError> {
+        let record = serde_json::to_string(record)?;
+        self.lock().execute(
+            "INSERT INTO dispatcher_chats (agent, record) VALUES (?1, ?2)
+             ON CONFLICT (agent) DO UPDATE SET record = excluded.record",
+            params![agent.to_string(), record],
+        )?;
+        Ok(())
+    }
+
+    /// Forgets a dispatcher chat.
+    pub fn remove_dispatcher_chat(&self, agent: AgentId) -> rusqlite::Result<()> {
+        self.lock().execute(
+            "DELETE FROM dispatcher_chats WHERE agent = ?1",
             params![agent.to_string()],
         )?;
         Ok(())
@@ -1726,6 +1773,24 @@ mod tests {
         db.remove_ended_outside(gone).unwrap();
         let reopened = Db::open(&path).unwrap();
         assert_eq!(reopened.ended_outside::<String>().unwrap(), vec!["kept"]);
+    }
+
+    #[test]
+    fn dispatcher_chats_survive_a_reopen_until_forgotten() {
+        an_older_database_gains(32, "dispatcher_chats");
+        let dir = TempDir::new();
+        let path = dir.path().join(FILE);
+        let (gone, kept) = (AgentId::derive("gone"), AgentId::derive("kept"));
+        let db = Db::open(&path).unwrap();
+        db.put_dispatcher_chat(gone, &"first").unwrap();
+        db.put_dispatcher_chat(kept, &"first").unwrap();
+        db.put_dispatcher_chat(kept, &"renamed").unwrap();
+        db.remove_dispatcher_chat(gone).unwrap();
+        let reopened = Db::open(&path).unwrap();
+        assert_eq!(
+            reopened.dispatcher_chats::<String>().unwrap(),
+            vec!["renamed"]
+        );
     }
 
     #[test]
