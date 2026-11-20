@@ -122,6 +122,20 @@ describe("a file pane", () => {
 		expect(screen.queryByText("Opening meter-stand.glb…")).toBeNull();
 	});
 
+	it("draws a picture itself, to zoom and pan", async () => {
+		show("design/popover.png");
+		const picture = await screen.findByRole("img", { name: "popover.png" });
+		fireEvent.load(picture);
+		expect(screen.getByRole("button", { name: "Zoom in" })).toBeInTheDocument();
+		expect(document.querySelector("iframe")).toBeNull();
+	});
+
+	it("hands a picture the webview can't draw to the frame", async () => {
+		show("design/popover.png");
+		fireEvent.error(await screen.findByRole("img", { name: "popover.png" }));
+		await framed();
+	});
+
 	it("says why when the frame couldn't draw the file", async () => {
 		show("design/usage-samples.csv");
 		const frame = await framed();

@@ -5,7 +5,8 @@
 // through the media cache, the way the timeline's pictures do. Markdown
 // draws with the app's own Markdown, and code and plain text draw as
 // read-only text with the chat's colours. An HTML page draws as a visual,
-// with its source a click away. Every other kind goes to the
+// with its source a click away, and a picture zooms and pans as the
+// picture viewer's does. Every other kind goes to the
 // viewer frame, a sandboxed page on an opaque origin with no network, which gets
 // the bytes in a message and draws them. The header names the file and
 // opens it in an editor.
@@ -15,14 +16,17 @@ import { t, useI18n } from "@maxhq/shared/i18n";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import { Markdown } from "@/agent-view/markdown";
+import { LinkFolder } from "@/agent-view/markdown-link";
 import { OpenInButton } from "@/agent-view/open-in";
 import { useTimeline } from "@/agent-view/use-timeline";
+import { ZoomPicture } from "@/agent-view/zoom-picture";
 import { useServices, useView } from "@/app/services";
 import { useTheme } from "@/app/theme";
 import { Empty } from "@/main-area/empty";
 import { SECONDARY } from "@/settings/controls";
 import { type RowContext, RowProvider } from "@maxhq/shared/agent-view/context";
 import { formatBytes } from "@maxhq/shared/agent-view/format";
+import { folderOf } from "@maxhq/shared/agent-view/link-target";
 import { loadMedia, useMedia } from "@maxhq/shared/agent-view/media";
 import {
 	extensionOf,
@@ -43,7 +47,17 @@ import { FRAME_SANDBOX, type OpenFile, isFromFrame } from "./messages";
 const noSubAgents = () => {};
 
 /** A Markdown file, drawn as the timeline draws a reply, HTML included. */
-const MarkdownFile = ({ agent, url, size }: { agent: AgentId; url: string; size: number }) => {
+const MarkdownFile = ({
+	agent,
+	path,
+	url,
+	size,
+}: {
+	agent: AgentId;
+	path: string;
+	url: string;
+	size: number;
+}) => {
 	const { t } = useI18n();
 
 	const { source } = useServices();
@@ -88,7 +102,10 @@ const MarkdownFile = ({ agent, url, size }: { agent: AgentId; url: string; size:
 	return (
 		<div className="h-full overflow-y-auto">
 			<RowProvider value={row}>
-				<Markdown text={text} className="mx-auto max-w-[780px] px-8 py-6" />
+				{/* Its links read from its own folder, as they would on a code host. */}
+				<LinkFolder value={folderOf(path)}>
+					<Markdown text={text} className="mx-auto max-w-[780px] px-8 py-6" />
+				</LinkFolder>
 			</RowProvider>
 		</div>
 	);
@@ -246,6 +263,34 @@ const FramedFile = ({
 	);
 };
 
+/**
+ * A picture, zoomed and panned as in the picture viewer. One the webview
+ * can't draw goes to the viewer frame instead.
+ */
+const PictureFile = ({
+	url,
+	size,
+	path,
+	theme,
+}: {
+	url: string;
+	size: number;
+	path: string;
+	theme: Theme;
+}) => {
+	const [framed, setFramed] = useState(false);
+	if (framed) return <FramedFile key={theme} url={url} size={size} path={path} theme={theme} />;
+	return (
+		<ZoomPicture
+			src={url}
+			alt={fileName(path)}
+			keys="focus"
+			onError={() => setFramed(true)}
+			className="size-full"
+		/>
+	);
+};
+
 /** What the pane shows below its header, as the file's fetch stands. */
 const Body = ({ agent, path }: { agent: AgentId; path: string }) => {
 	const { t } = useI18n();
@@ -329,6 +374,7 @@ const Body = ({ agent, path }: { agent: AgentId; path: string }) => {
 						<MarkdownFile
 							key={media.url}
 							agent={agent}
+							path={path}
 							url={media.url}
 							size={media.size}
 						/>
@@ -351,6 +397,16 @@ const Body = ({ agent, path }: { agent: AgentId; path: string }) => {
 							path={path}
 							url={media.url}
 							size={media.size}
+						/>
+					);
+				case "image":
+					return (
+						<PictureFile
+							key={media.url}
+							url={media.url}
+							size={media.size}
+							path={path}
+							theme={theme}
 						/>
 					);
 				default:

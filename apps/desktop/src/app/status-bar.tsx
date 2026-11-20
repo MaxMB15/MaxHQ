@@ -1,9 +1,10 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026 Max Boksem
 
-// The thin bar at the bottom: which build this is and whether its backend
-// answers. On the sample data it also switches devbox between setups, so
-// every connection state can be looked at.
+// The thin bar at the bottom: which build this is, whether its backend
+// answers, and a button to check for an update or install one. On the
+// sample data it also switches devbox between setups, so every connection
+// state can be looked at.
 
 import { t, useI18n, formatNumber } from "@maxhq/shared/i18n";
 
@@ -12,6 +13,8 @@ import { useState } from "react";
 
 import type { AppInfo } from "@maxhq/shared/bindings";
 import type { DataSource, MockControls } from "@maxhq/shared/data/source";
+
+import { UpdateButton } from "@/updates/update-button";
 
 import { useServices } from "./services";
 
@@ -83,7 +86,10 @@ export const StatusBar = () => {
 	const info = useQuery({ queryKey: ["app-info"], queryFn: () => source.appInfo() });
 	return (
 		<footer className="flex h-6 shrink-0 items-center gap-3 border-t border-border bg-card px-3 text-[11px] text-muted-foreground">
-			<span role="status">{backendText(info, source.kind)}</span>
+			<span className="flex items-center gap-2">
+				<span role="status">{backendText(info, source.kind)}</span>
+				<UpdateButton />
+			</span>
 			{source.mock ? <ScenarioPicker mock={source.mock} /> : null}
 		</footer>
 	);
