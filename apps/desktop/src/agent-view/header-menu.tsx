@@ -31,6 +31,7 @@ import { inApp } from "@/native/platform";
 import { canEnd, sessionIdName, STOP_AGENT } from "@maxhq/shared/agent-view/controls";
 import { viewNames } from "@maxhq/shared/agent-view/agent-tools";
 import type { Agent } from "@maxhq/shared/bindings";
+import { agentKind } from "@maxhq/shared/status/agent-kind";
 import { cn } from "@/lib/utils";
 
 import { conversationText, copyWhenReady, saveWhenReady } from "./export-conversation";
@@ -131,8 +132,14 @@ const ExportItem = ({ agent, to }: { agent: Agent; to: "save" | "copy" }) => {
 	const run = () => {
 		if (state.step === "loading" || state.step === "saving") return;
 		setState({ step: "loading" });
-		const names = viewNames(services.view.getState().view);
-		const text = conversationText(services.source, agent, names);
+		const view = services.view.getState().view;
+		const names = viewNames(view);
+		const text = conversationText(
+			services.source,
+			agent,
+			names,
+			agentKind(agent, view.tables.account)
+		);
 		if (to === "copy") {
 			void copyWhenReady(text).then((result) =>
 				setState(

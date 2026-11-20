@@ -44,7 +44,7 @@ export const MAC_SERVER = "srv-mac-llama";
 /** The Ollama server devbox reaches at a URL. */
 export const OLLAMA_SERVER = "srv-devbox-ollama";
 /** The Ollama server's URL, on a placeholder host. */
-export const OLLAMA_URL = "http://gpu-box.example.ts.net:11434";
+export const OLLAMA_URL = "http://gpu-box.example.com:11434";
 /** The Mac's local account, on its own server. */
 export const MAC_LOCAL = "acct-local-mac";
 /** devbox's local account on the Mac's server, over the link. */

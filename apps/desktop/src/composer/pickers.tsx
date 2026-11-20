@@ -15,9 +15,11 @@ import {
 	Bot,
 	Check,
 	ChevronDown,
+	Cpu,
 	Hexagon,
 	type LucideIcon,
 	MousePointer2,
+	Settings2,
 	Shield,
 } from "lucide-react";
 import { Fragment, type ReactNode } from "react";
@@ -43,16 +45,43 @@ import type {
 } from "@maxhq/shared/bindings";
 import { Tooltip } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
+import { TONE } from "@/tasks/activity";
+import type { ModelTag } from "@maxhq/shared/local-models/picker";
+import { accountKind, type AgentKind } from "@maxhq/shared/status/agent-kind";
 import { accountName } from "@maxhq/shared/status/usage";
 import type { Move } from "@maxhq/shared/view/select";
 import { t as translate, useI18n } from "@maxhq/shared/i18n";
 
-const MODEL_ICON: Record<Vendor, LucideIcon> = {
+const MODEL_ICON: Record<AgentKind, LucideIcon> = {
 	claude: Asterisk,
 	codex: Hexagon,
 	cursor: MousePointer2,
+	local: Cpu,
 	acp: Bot,
 };
+
+/** What the model picker shows for local models. `useLocalMenu` makes one. */
+export type LocalMenu = {
+	/** What a local account's models are listed under, such as "This Mac". */
+	readonly group: (account: Account) => string;
+	/** The tag beside a local account's model, such as a green "Fits", or null. */
+	readonly tag: (account: Account, model: string) => ModelTag | null;
+	/** Opens the Local models settings. */
+	readonly onSetup: () => void;
+};
+
+/** A model's tag in a menu, such as a green "Fits". */
+const TagPill = ({ tag }: { tag: ModelTag | null }) =>
+	tag && (
+		<span
+			className={cn(
+				"h-[18px] shrink-0 rounded-[4px] px-1.5 text-[10.5px] leading-[18px] font-[600]",
+				TONE[tag.tone]
+			)}
+		>
+			{tag.label}
+		</span>
+	);
 
 /** The look of a footer picker's button. */
 export const TRIGGER =
@@ -163,21 +192,34 @@ export const Tick = () => {
 
 export const GROUP_LABEL = "px-2 pt-[5px] pb-1 text-[11px] text-muted-foreground";
 
-/** A model under another account, which moves the agent there. */
+/**
+ * A model under another account, which moves the agent there. A local
+ * account's models name their server, such as "Move to Local, This Mac".
+ */
 const MoveGroup = ({
 	move,
+	local,
 	onPick,
 }: {
 	move: Move;
+	local: LocalMenu | undefined;
 	onPick: (model: string, account: AccountId) => void;
 }) => {
 	useI18n();
-	const Icon = MODEL_ICON[move.account.vendor];
+	const kind = accountKind(move.account);
+	const Icon = MODEL_ICON[kind];
+	const server = kind === "local" ? local?.group(move.account) : undefined;
 	return (
 		<Menu.Group>
 			<Menu.GroupLabel className={GROUP_LABEL}>
-				{translate("Move to ")}
-				{accountName(move.account)}
+				{server ? (
+					translate("Move to Local, {{server}}", { server })
+				) : (
+					<>
+						{translate("Move to ")}
+						{accountName(move.account)}
+					</>
+				)}
 			</Menu.GroupLabel>
 			{moveModels(move).map((choice) => (
 				<Menu.Item
@@ -187,9 +229,26 @@ const MoveGroup = ({
 				>
 					<Icon aria-hidden className="size-3 text-muted-foreground" strokeWidth={2.4} />
 					<span className="flex-1 text-[12.5px] font-[550]">{choice.label}</span>
+					{kind === "local" && (
+						<TagPill tag={local?.tag(move.account, choice.id) ?? null} />
+					)}
 				</Menu.Item>
 			))}
 		</Menu.Group>
+	);
+};
+
+/** The item that opens the Local models settings, after a separator. */
+const SetupItem = ({ onSetup }: { onSetup: () => void }) => {
+	useI18n();
+	return (
+		<>
+			<Menu.Separator className="mx-1 my-[5px] h-px bg-border" />
+			<Menu.Item className={MENU_ITEM} onClick={onSetup}>
+				<Settings2 aria-hidden className="size-3 text-muted-foreground" strokeWidth={2.4} />
+				<span className="flex-1 text-[12.5px]">{translate("Set up local models…")}</span>
+			</Menu.Item>
+		</>
 	);
 };
 
@@ -198,29 +257,38 @@ const MoveGroup = ({
  * `modelsOf`), or a model of one of `moves`, which moves the agent to that
  * account with its conversation.
  * Without a list to pick from, or with `onPick` left out, it only names
- * the model. `folded`, in a narrow footer, cuts its name short.
+ * the model. `folded`, in a narrow footer, cuts its name short. `local`
+ * lists a local agent's models under their server with a fit tag, and adds
+ * a last item that opens the Local models settings.
  */
 export const ModelPicker = ({
-	vendor,
+	kind,
 	model,
 	account,
 	choices,
 	moves = [],
 	place = "footer",
 	folded = false,
+	local,
 	onPick,
 }: {
-	vendor: Vendor;
+	kind: AgentKind;
 	model: string | null;
 	account: Account | undefined;
 	choices: readonly ModelChoice[];
 	moves?: readonly Move[];
 	place?: PickerPlace;
 	folded?: boolean;
+	local?: LocalMenu;
 	onPick?: (model: string, account?: AccountId) => void;
 }) => {
 	useI18n();
-	const Icon = MODEL_ICON[vendor];
+	const Icon = MODEL_ICON[kind];
+	const ownLocal = kind === "local" && account !== undefined ? local : undefined;
+	const setup =
+		local && (ownLocal || moves.some((m) => accountKind(m.account) === "local"))
+			? local.onSetup
+			: null;
 	const label = modelLabel(model, choices);
 	// A name cut short keeps four letters' width, so a shorter one stays whole.
 	const cut = folded && label.length > 4;
@@ -279,8 +347,14 @@ export const ModelPicker = ({
 					}}
 				>
 					<Menu.GroupLabel className={GROUP_LABEL}>
-						{translate("Model, ")}
-						{accountName(account)}
+						{ownLocal ? (
+							ownLocal.group(account)
+						) : (
+							<>
+								{translate("Model, ")}
+								{accountName(account)}
+							</>
+						)}
 					</Menu.GroupLabel>
 					{choices.map((choice) => (
 						<Menu.RadioItem key={choice.id} value={choice.id} className={MENU_ITEM}>
@@ -292,6 +366,7 @@ export const ModelPicker = ({
 									{translate("Default")}
 								</span>
 							)}
+							{ownLocal && <TagPill tag={ownLocal.tag(account, choice.id)} />}
 							<Tick />
 						</Menu.RadioItem>
 					))}
@@ -302,9 +377,10 @@ export const ModelPicker = ({
 					{(choices.length > 0 || at > 0) && (
 						<Menu.Separator className="mx-1 my-[5px] h-px bg-border" />
 					)}
-					<MoveGroup move={move} onPick={onPick} />
+					<MoveGroup move={move} local={local} onPick={onPick} />
 				</Fragment>
 			))}
+			{setup && <SetupItem onSetup={setup} />}
 		</Picker>
 	);
 };

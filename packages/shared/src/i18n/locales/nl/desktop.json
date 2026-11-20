@@ -1344,5 +1344,6 @@
 	"Suggestions": "Suggesties",
 	"Tab completes · ↩ picks · on {{device}}": "Tab vult aan · ↩ kiest · op {{device}}",
 	"This folder holds more than shows here. Type the path to reach the rest.": "Deze map bevat meer dan hier staat. Typ het pad om de rest te bereiken.",
-	"Use that": "Die gebruiken"
+	"Use that": "Die gebruiken",
+	"Move to Local, {{server}}": "Verplaatsen naar Lokaal, {{server}}"
 }

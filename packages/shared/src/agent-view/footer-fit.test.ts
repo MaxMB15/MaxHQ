@@ -26,4 +26,18 @@ describe("footer folds", () => {
 		).toEqual(["keys", "permission", "model", "send"]);
 		expect(footerSteps({ ...everything, sized: false })).not.toContain("size");
 	});
+
+	it("folds a local agent's speed line after the key hints", () => {
+		expect(footerSteps({ ...everything, speed: true })).toEqual([
+			"size",
+			"count",
+			"keys",
+			"speed",
+			"permission",
+			"effort",
+			"model",
+			"send",
+		]);
+		expect(footerSteps(everything)).not.toContain("speed");
+	});
 });

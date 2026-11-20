@@ -27,7 +27,7 @@ import {
 	toggled,
 	useSend,
 } from "@maxhq/shared/agent-view/answer";
-import { useRow } from "@maxhq/shared/agent-view/context";
+import { rowKind, useRow } from "@maxhq/shared/agent-view/context";
 import {
 	DISMISS,
 	dismissBlocked,
@@ -272,7 +272,8 @@ const OneQuestion = ({
 
 const LiveQuestion = ({ item }: { item: ItemOf<"question"> }) => {
 	useI18n();
-	const { agent, vendor, readOnly, answer } = useRow();
+	const { agent, readOnly, answer } = useRow();
+	const kind = rowKind(useRow());
 	const [choices, setChoices] = useKept<Readonly<Record<string, Choice>>>(
 		`choices:${item.attention}`,
 		{}
@@ -358,7 +359,7 @@ const LiveQuestion = ({ item }: { item: ItemOf<"question"> }) => {
 					? translate("{{length}} questions for you", { length: item.questions.length })
 					: translate("A question for you")
 			}
-			vendor={vendor}
+			kind={kind}
 			since={item.started_at}
 			onKeyDown={onKeyDown}
 		>
@@ -405,7 +406,7 @@ const LiveQuestion = ({ item }: { item: ItemOf<"question"> }) => {
 						) : null}
 					</div>
 				)}
-				<SendNote state={state} vendor={vendor} dismissed={skipping} />
+				<SendNote state={state} kind={kind} dismissed={skipping} />
 			</form>
 		</WaitingCard>
 	);

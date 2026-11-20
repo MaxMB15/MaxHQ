@@ -4,7 +4,7 @@
 import { describe, expect, it } from "vitest";
 
 import type { Agent, Entity, Inbox } from "../bindings";
-import { agent, entities, workspace } from "../test/build";
+import { account, agent, entities, workspace } from "../test/build";
 import { DEFAULT_INBOX } from "../view/inbox";
 import { applySnapshot, type ViewState } from "../view/replica";
 
@@ -64,6 +64,22 @@ describe("continuing after a usage limit", () => {
 		expect(canContinueAtLimit(view, get("observed"))).toBe(false);
 		expect(canContinueAtLimit(view, get("sub"))).toBe(false);
 		expect(canContinueAtLimit(view, get("old"))).toBe(false);
+	});
+
+	it("never applies to a local agent, which has no limit", () => {
+		const local = viewOf(
+			[held({ id: "local", account: "l" })],
+			[
+				settings("dev-mac", true, true),
+				{
+					entity: "account",
+					...account({ id: "l", login: "model_server", model_server: "srv" }),
+				},
+			]
+		);
+		const agent = local.tables.agent.get("local")!;
+		expect(canContinueAtLimit(local, agent)).toBe(false);
+		expect(continuesAfterLimit(local, agent)).toBe(false);
 	});
 
 	it("follows the device's default for the agent's vendor", () => {

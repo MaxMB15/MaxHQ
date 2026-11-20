@@ -24,6 +24,7 @@ import { scrub } from "@/settings/result";
 import type { AccountId, DeviceId, LinkId } from "@maxhq/shared/bindings";
 import type { SetupHost, SetupProgress, SetupSecret, SetupStep } from "@maxhq/shared/fleet/wire";
 import type { ConnectionLook } from "@maxhq/shared/status/connection";
+import { isLocalAccount } from "@maxhq/shared/status/agent-kind";
 import { accountName } from "@maxhq/shared/status/usage";
 
 /** What each step after the pick is called in the list. */
@@ -418,7 +419,7 @@ const Wizard = ({ onClose }: { onClose: () => void }) => {
 	const [token, setToken] = useState("");
 	const [run, setRun] = useState<RunState>(START);
 	const accounts = [...view.tables.account.values()]
-		.filter((a) => a.vendor === "claude")
+		.filter((a) => a.vendor === "claude" && !isLocalAccount(a))
 		.map((a) => ({ id: a.id, label: accountName(a) }));
 	const [account, setAccount] = useState<AccountId | null>(accounts[0]?.id ?? null);
 

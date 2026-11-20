@@ -6,6 +6,7 @@
 // agent or the device.
 
 import type { Agent, Timestamp } from "@maxhq/shared/bindings";
+import { agentKindLabel } from "@maxhq/shared/local-models/select";
 import { activityCard, agentLook } from "@maxhq/shared/status/activity";
 import {
 	type LinkContext,
@@ -39,6 +40,7 @@ export const AgentActivityDot = ({
 				activityCard({
 					agent,
 					account: agent.account ? view.tables.account.get(agent.account) : undefined,
+					localLabel: agentKindLabel(view, agent),
 					attention: attentionOf(view, agent),
 					children: childrenOf(view, agent.id),
 					now: at,

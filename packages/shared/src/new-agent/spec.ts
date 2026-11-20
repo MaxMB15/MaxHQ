@@ -46,6 +46,7 @@ import {
 } from "../local-models/select";
 import { isLocalAccount } from "../status/agent-kind";
 import { formatClock, plural } from "../status/format";
+import type { Tone } from "../tasks/format";
 import { accountName, accountWindows, blockingWindow, type WindowView } from "../status/usage";
 import { all, type ViewState } from "../view/replica";
 import { deviceName, linkForDevice, modelsOf } from "../view/select";
@@ -81,6 +82,8 @@ export type Option = {
 	readonly warn?: boolean;
 	/** A short tag on the right, such as "Not in Codex". */
 	readonly tag?: string;
+	/** The tag's color, such as green for a local model that fits. Plain when not set. */
+	readonly tone?: Tone;
 	readonly disabled?: boolean;
 	/** The heading of the group the entry sits under. */
 	readonly group?: string;

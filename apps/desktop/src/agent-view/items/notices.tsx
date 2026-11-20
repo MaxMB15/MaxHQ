@@ -21,10 +21,10 @@ import { cn } from "@/lib/utils";
 import { openCliSignIn } from "@/settings/cli-sign-in";
 import { openSettings } from "@/settings/store";
 import type { AccountId, Vendor } from "@maxhq/shared/bindings";
-import { handoffEnd, handoffTitle, isOpen } from "@maxhq/shared/agent-view/format";
+import { handoffTitle, isOpen } from "@maxhq/shared/agent-view/format";
 import { signInAction } from "@maxhq/shared/settings/cli-sign-in";
 import { formatDuration, formatTokens } from "@maxhq/shared/status/format";
-import { modelName } from "@maxhq/shared/view/select";
+import { handoffEndText } from "@maxhq/shared/local-models/handoff";
 
 import { Spinner } from "../icons";
 import { SecondaryButton } from "./card";
@@ -190,10 +190,8 @@ export const NoticeRow = ({ item }: { item: ItemOf<"notice"> }) => {
 /** One end of a move, with the model by its label. */
 const HandoffEnd = ({ vendor, model }: { vendor: Vendor; model: string | null }) => {
 	useI18n();
-	const name = useView((s) => (model ? modelName(s.view, vendor, model) : null));
-	return (
-		<span className="font-medium text-secondary-foreground">{handoffEnd(vendor, name)}</span>
-	);
+	const text = useView((s) => handoffEndText(s.view, vendor, model));
+	return <span className="font-medium text-secondary-foreground">{text}</span>;
 };
 
 /**

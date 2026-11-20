@@ -194,7 +194,7 @@ describe("agent header", () => {
 		expect(groups).toEqual([
 			"Move to Codex Plus",
 			"Move to Cursor Pro",
-			"Move to Local",
+			"Move to Local, This Mac",
 			"Move to Gemini",
 		]);
 		const codex = within(menu).getByRole("group", { name: "Move to Codex Plus" });

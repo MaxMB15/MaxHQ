@@ -1344,5 +1344,6 @@
 	"Suggestions": "Vorschläge",
 	"Tab completes · ↩ picks · on {{device}}": "Tab ergänzt · ↩ wählt · auf {{device}}",
 	"This folder holds more than shows here. Type the path to reach the rest.": "Dieser Ordner enthält mehr, als hier steht. Gib den Pfad ein, um den Rest zu erreichen.",
-	"Use that": "Diesen verwenden"
+	"Use that": "Diesen verwenden",
+	"Move to Local, {{server}}": "Zu Lokal, {{server}} verschieben"
 }

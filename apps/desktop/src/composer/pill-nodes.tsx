@@ -26,6 +26,7 @@ import { NodeViewWrapper, ReactNodeViewRenderer, type ReactNodeViewProps } from 
 import { createContext, type ComponentType, use } from "react";
 import { useStore } from "zustand";
 
+import { useAgentKind } from "@/agent-view/icons";
 import { jumpToQuote } from "@/agent-view/jump";
 import { NotePill as NotePillShown } from "@/notes/pill";
 import { type FileRecord, presentPill } from "@/pills/registry";
@@ -239,8 +240,10 @@ const AgentPillView = ({ node, selected }: ReactNodeViewProps) => {
 	useI18n();
 	const { now, agentOf, deviceName } = usePills();
 	const ref = node.attrs.ref as AgentRef;
+	const agent = agentOf(ref.agent);
+	const kind = useAgentKind(agent ?? { vendor: ref.vendor, account: null, local: null });
 	const presentation = presentPill(
-		{ kind: "agent", ref, agent: agentOf(ref.agent), deviceName: deviceName(ref.device) },
+		{ kind: "agent", ref, agent, deviceName: deviceName(ref.device), agentKind: kind },
 		{ now }
 	);
 	return (

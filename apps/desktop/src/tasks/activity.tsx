@@ -32,7 +32,7 @@ import {
 
 import { useDeliveries, useRefreshActivity, useRuns } from "./queries";
 
-const TONE: Record<Tone, string> = {
+export const TONE: Record<Tone, string> = {
 	good: "bg-status-ready/15 text-status-ready-text",
 	warn: "bg-status-busy/15 text-status-busy-text",
 	bad: "bg-status-error/15 text-status-error-text",

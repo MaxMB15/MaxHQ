@@ -278,6 +278,35 @@ describe("the new-agent form", () => {
 		]);
 	});
 
+	it("offers Local as an agent of its own, its models by server, and their setup", async () => {
+		renderApp();
+		fireEvent.click(await screen.findByRole("button", { name: "New agent in MaxHQ" }));
+		press(await option("Agent", "Qwen3.6-35B-A3B on MacBook Pro"));
+		expect(picker("Agent")).toHaveTextContent("Local");
+		expect(picker("Agent")).not.toHaveTextContent("Claude");
+		expect(picker("Model")).toHaveTextContent("Qwen3.6-35B-A3B");
+
+		const qwen = await option("Model", "The default, Loaded");
+		expect(qwen).toHaveTextContent("Fits");
+		const list = qwen.closest<HTMLElement>("[role=listbox]")!;
+		expect(within(list).getByText("This Mac")).toBeInTheDocument();
+		const later = (await screen.findAllByRole("option")).find((o) =>
+			o.textContent?.includes("Qwen3.8-27B")
+		)!;
+		expect(later).toHaveTextContent("Not downloaded");
+		expect(later).toHaveTextContent("Downloading, 41%");
+
+		press(
+			(await screen.findAllByRole("option")).find(
+				(o) => o.textContent === "Set up local models…"
+			)!
+		);
+		const settings = await screen.findByRole("dialog", { name: "Settings" });
+		expect(
+			await within(settings).findByRole("heading", { name: "Local models", level: 2 })
+		).toBeInTheDocument();
+	});
+
 	it("puts the agent on the freer device until you pick one", async () => {
 		const { source } = renderApp();
 		const GIB = 1024 ** 3;

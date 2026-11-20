@@ -112,6 +112,17 @@ describe("subscriptions", () => {
 			["other", ["other"]],
 		]);
 	});
+
+	it("leaves out a local model's login, which has no plan or usage", () => {
+		const local = account({
+			id: "local",
+			login: "model_server",
+			model_server: "srv",
+			usage: reading(10),
+		});
+		expect(ids([mac, local])).toEqual([["mac", ["mac"]]]);
+		expect(meterRows([local])).toEqual([]);
+	});
 });
 
 describe("meterRows", () => {

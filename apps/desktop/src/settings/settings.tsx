@@ -3,7 +3,7 @@
 
 // The settings window: the header's gear opens it, and so does Cmd+, or
 // Ctrl+, off a Mac. A list on the left picks the page: first the app's own
-// appearance, sidebar, editor, agent tools, scheduled tasks, test hosts,
+// appearance, sidebar, editor, agent tools, local models, scheduled tasks, test hosts,
 // skills library, notifications, phones and keyboard shortcuts, then the
 // logins workspaces use and each project. A field above the list
 // narrows it to the pages that have the words you type, in their titles,
@@ -42,6 +42,7 @@ import { EDITOR_TERMS, EditorSettingsPage } from "./editor-settings";
 import { GITHUB_LOGIN_TERMS, GithubLogin } from "./github-login";
 import { LOGIN_HINT, LOGIN_PAGES } from "@maxhq/shared/settings/login-steps";
 
+import { LOCAL_MODELS_TERMS, LocalModelsSettingsPage } from "./local-models-settings";
 import { LOGIN_STEPS } from "./login-steps";
 import { NOTIFICATIONS_TERMS, NotificationsSettingsPage } from "./notifications-settings";
 import { PHONES_TERMS, PhonesSettingsPage } from "./phones-settings";
@@ -133,6 +134,15 @@ const appPages = (): readonly AppPage[] => [
 		hint: translate("What agents and tools may do when they run agents through MaxHQ"),
 		terms: AGENT_TOOLS_TERMS,
 		Body: AgentToolsSettingsPage,
+	},
+	{
+		kind: "local-models",
+		title: translate("Local models"),
+		hint: translate(
+			"Models each device runs with llama.cpp, and servers such as Ollama it reaches by URL"
+		),
+		terms: LOCAL_MODELS_TERMS,
+		Body: LocalModelsSettingsPage,
 	},
 	{
 		kind: "scheduled-tasks",

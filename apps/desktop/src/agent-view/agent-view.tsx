@@ -8,7 +8,8 @@
 // to, and a local ACP agent that needs a sign-in gets its sign-in card
 // there. So does a folder still cloning or missing files a copy brought,
 // and the ports its processes listen on sit just above it, under a notice
-// while this Mac's maxd, which runs it, can't be reached. A file dropped or
+// while this Mac's maxd, which runs it, can't be reached. A local agent
+// shows Loading model there while its model loads. A file dropped or
 // pasted on an answer field goes to the composer. It fills its parent and
 // scrolls on its own, and any number can be open side by side.
 
@@ -38,11 +39,13 @@ import { FindProvider } from "@maxhq/shared/agent-view/find-context";
 import { useFind } from "./find/use-find";
 import { AgentHeader } from "./header";
 import type { JumpTarget } from "./jump";
+import { LoadingModel } from "./loading-model";
 import { OutsideBanner } from "./outside-banner";
 import { TimelineQuotes } from "./quotes";
 import { MovedBanner, movedAway } from "./moved-banner";
 import { canResume, ResumeBanner } from "./resume-banner";
 import { needsSignIn } from "@maxhq/shared/settings/acp-agents";
+import { agentKind } from "@maxhq/shared/status/agent-kind";
 import { slideLead, spotOf } from "@maxhq/shared/ui/store";
 import { TimelineList } from "./timeline-list";
 import { useAutoOpen } from "./auto-open";
@@ -56,6 +59,7 @@ export const AgentView = ({ agent }: { agent: Agent }) => {
 	const queued = useStore(timeline.store, (s) => s.queued);
 	const device = useView((s) => s.view.tables.workspace.get(agent.workspace)?.device);
 	const remote = useView((s) => (device ? isRemoteDevice(s.view, device) : false));
+	const kind = useView((s) => agentKind(agent, s.view.tables.account));
 	// So the pane can show the history once the sub-agent finishes.
 	useKeepSubAgent(
 		agent,
@@ -94,6 +98,7 @@ export const AgentView = ({ agent }: { agent: Agent }) => {
 		() => ({
 			agent: agent.id,
 			vendor: agent.vendor,
+			kind,
 			timeline: timeline.store,
 			readOnly: observed,
 			remote,
@@ -105,6 +110,7 @@ export const AgentView = ({ agent }: { agent: Agent }) => {
 		[
 			agent.id,
 			agent.vendor,
+			kind,
 			timeline.store,
 			observed,
 			remote,
@@ -160,6 +166,7 @@ export const AgentView = ({ agent }: { agent: Agent }) => {
 						<LocalMaxdNotice device={device} className="mx-auto max-w-[744px]" />
 					</div>
 				) : null}
+				<LoadingModel agent={agent} />
 				{device ? (
 					<ErrorBoundary key={`${agent.id}:composer`} part="composer" look="strip">
 						<Composer

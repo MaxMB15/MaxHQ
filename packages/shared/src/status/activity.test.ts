@@ -104,6 +104,19 @@ describe("activity hover", () => {
 		});
 	});
 
+	it("names a local agent Local with its model, not by a login", () => {
+		const local = account({ id: "l", login: "model_server", model_server: "srv" });
+		const card = activityCard({
+			agent: agent({ id: "a", account: "l", local: {}, activity: { state: "busy" } }),
+			account: local,
+			localLabel: "Local · Qwen3.6-35B-A3B",
+			now: NOW,
+		});
+		expect(card.facts).toContainEqual({ label: "Agent", value: "Local · Qwen3.6-35B-A3B" });
+		expect(card.facts.map((f) => f.label)).not.toContain("Account");
+		expect(JSON.stringify(card)).not.toContain("Claude");
+	});
+
 	it("names the prompt and where to answer it", () => {
 		const card = activityCard({
 			agent: agent({ id: "a", activity: { state: "needs_input", attention: "p1" } }),
