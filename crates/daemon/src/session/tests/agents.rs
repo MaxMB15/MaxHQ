@@ -181,8 +181,87 @@ fn child_of(answer: &str) -> AgentId {
 }
 
 #[tokio::test]
-async fn without_a_permission_the_agent_tools_refuse() {
+async fn without_a_permission_an_agent_reads_every_agent_but_runs_none() {
     let mut h = Harness::new();
+    let (lead, session) = h.start_claude(Some("Plan it")).await;
+    let (other, theirs) = h.start_claude(Some("Build it")).await;
+    let listed: Value = serde_json::from_str(
+        &h.call(session, lead, "r1", "list_agents", json!({}))
+            .await
+            .unwrap(),
+    )
+    .unwrap();
+    let ids: Vec<&str> = listed["agents"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|card| card["agent"].as_str().unwrap())
+        .collect();
+    assert!(ids.contains(&other.to_string().as_str()), "{listed}");
+    let outside = h.outside_with_history("outside-r");
+    let read = h
+        .call(
+            session,
+            lead,
+            "r2",
+            "read_agent",
+            json!({"agent": outside.to_string()}),
+        )
+        .await
+        .unwrap();
+    assert!(read.contains("Rework the API"), "{read}");
+    let targets: Value = serde_json::from_str(
+        &h.call(session, lead, "r3", "list_targets", json!({}))
+            .await
+            .unwrap(),
+    )
+    .unwrap();
+    assert_eq!(targets["vendors"], json!([]));
+    assert!(targets["note"].as_str().unwrap().contains("not start"));
+    let waited = h
+        .call(
+            session,
+            lead,
+            "r4",
+            "wait_agent",
+            json!({"agents": [outside.to_string()], "timeout_seconds": 1}),
+        )
+        .await
+        .unwrap();
+    assert!(waited.contains("\"timed_out\":false"), "{waited}");
+    let hosts = h
+        .call(session, lead, "r5", "list_test_hosts", json!({}))
+        .await;
+    assert!(hosts.is_ok(), "{hosts:?}");
+    let open = json!({"kind": "linux"});
+    let refused = h.call(session, lead, "w0", "lease_open", open).await;
+    assert_eq!(refused, Err(maxhq_core::agents::NO_LEASES.to_owned()));
+
+    let not_allowed = Err(maxhq_core::agents::NOT_ALLOWED.to_owned());
+    let send = json!({"request_id": "w1", "agent": other, "text": "Stop that"});
+    assert_eq!(
+        h.call(session, lead, "w1", "send_agent", send).await,
+        not_allowed
+    );
+    let start =
+        json!({"request_id": "w2", "vendor": "claude", "folder": "/tmp/example", "task": "Go"});
+    assert_eq!(
+        h.call(session, lead, "w2", "start_agent", start).await,
+        not_allowed
+    );
+    let stop = json!({"request_id": "w3", "agent": other, "stop": true});
+    assert_eq!(
+        h.call(session, lead, "w3", "interrupt_agent", stop).await,
+        not_allowed
+    );
+    assert!(!h.sent(theirs).iter().any(|text| text.contains("Stop that")));
+    assert!(h.agent(other).session.is_some(), "it still runs");
+}
+
+#[tokio::test]
+async fn with_reading_off_and_no_permission_the_agent_tools_refuse() {
+    let mut h = Harness::new();
+    h.read_others(false).await;
     let (lead, session) = h.start_claude(Some("Plan it")).await;
     let answer = h.call(session, lead, "t1", "list_targets", json!({})).await;
     assert_eq!(answer, Err(maxhq_core::agents::NOT_ALLOWED.to_owned()));
@@ -693,10 +772,28 @@ async fn a_call_for_another_device_goes_over_the_line_to_it() {
     assert_eq!(calls[0].0, devbox());
     assert_eq!(calls[0].1.by, Actor::Agent { agent: lead });
 
+    // A device the permission doesn't name is still read under the read
+    // right, which the other device checks again; a start there isn't.
     let elsewhere = json!({"device": DeviceId::derive("elsewhere")});
-    let refused = h.call(session, lead, "l2", "list_agents", elsewhere).await;
+    h.call(session, lead, "l2", "list_agents", elsewhere.clone())
+        .await
+        .unwrap();
+    let calls = h.fakes.peers.calls();
+    assert_eq!(calls.len(), 2);
+    assert_eq!(calls[1].1.permission, maxhq_core::agents::read_right_id());
+    let start = json!({
+        "request_id": "s1",
+        "device": DeviceId::derive("elsewhere"),
+        "vendor": "claude",
+        "folder": "/tmp/example",
+        "task": "Go",
+    });
+    let refused = h.call(session, lead, "l3", "start_agent", start).await;
     assert!(refused.unwrap_err().contains("that device"));
-    assert_eq!(h.fakes.peers.calls().len(), 1, "a refused call stays here");
+    h.read_others(false).await;
+    let refused = h.call(session, lead, "l4", "list_agents", elsewhere).await;
+    assert!(refused.unwrap_err().contains("that device"));
+    assert_eq!(h.fakes.peers.calls().len(), 2, "a refused call stays here");
 }
 
 #[tokio::test]
@@ -964,10 +1061,14 @@ async fn a_cursor_agent_calls_the_agent_tools_as_itself_with_its_session_key() {
     let outcome = h.act(|key| ClientMessage::ListKeys { key }).await;
     assert_eq!(outcome, ActionOutcome::Keys { keys: vec![] });
 
-    // Signed in, it calls as the agent: refused until the agent holds a
-    // permission, then allowed.
+    // Signed in, it calls as the agent: it lists agents with no
+    // permission, like every agent, but lists nothing once the switch is
+    // off until it holds a permission.
     let mut cli = Inbox::new(&h.sessions, ClientId::derive("cursor mcp"));
     assert_eq!(sign_in(&mut cli, secret.clone()).await, ActionOutcome::Done);
+    let answer = call_tool(&mut cli, "list_agents").await;
+    assert!(!answer.failed, "{}", answer.text);
+    h.read_others(false).await;
     let answer = call_tool(&mut cli, "list_agents").await;
     assert!(answer.failed);
     assert_eq!(answer.text, maxhq_core::agents::NOT_ALLOWED);
@@ -1131,4 +1232,54 @@ async fn another_device_cant_lease_here() {
     assert!(answer.failed);
     assert_ne!(answer.text, maxhq_core::agents::NOT_ALLOWED);
     assert!(h.fakes.leases.calls().is_empty());
+}
+
+#[tokio::test]
+async fn an_agent_on_another_device_reads_here_while_the_switch_is_on() {
+    let mut h = Harness::new();
+    let (target, _) = h.start_claude(Some("Build it")).await;
+    let peer = |by: Actor, tool: &str, arguments: Value| maxhq_protocol::agents::PeerCall {
+        by,
+        permission: maxhq_core::agents::read_right_id(),
+        level: 0,
+        call: ToolCall {
+            tool: tool.into(),
+            arguments,
+        },
+    };
+    let caller = Actor::Agent {
+        agent: AgentId::derive("elsewhere"),
+    };
+    let answer = h
+        .sessions
+        .peer_call(devbox(), peer(caller, "list_agents", json!({})))
+        .await;
+    assert!(!answer.failed, "{}", answer.text);
+    assert!(answer.text.contains(&target.to_string()), "{}", answer.text);
+
+    // Writes need a permission this device keeps for that device.
+    let send = json!({"request_id": "m1", "agent": target, "text": "Push it"});
+    let answer = h
+        .sessions
+        .peer_call(devbox(), peer(caller, "send_agent", send))
+        .await;
+    assert!(answer.failed);
+    assert_eq!(answer.text, maxhq_core::agents::NOT_ALLOWED);
+    // A key is no agent, so it gets no read right.
+    let key = Actor::Key {
+        key: maxhq_protocol::ids::KeyId::derive("k"),
+    };
+    let answer = h
+        .sessions
+        .peer_call(devbox(), peer(key, "list_agents", json!({})))
+        .await;
+    assert!(answer.failed);
+
+    h.read_others(false).await;
+    let answer = h
+        .sessions
+        .peer_call(devbox(), peer(caller, "list_agents", json!({})))
+        .await;
+    assert!(answer.failed);
+    assert_eq!(answer.text, maxhq_core::agents::NOT_ALLOWED);
 }

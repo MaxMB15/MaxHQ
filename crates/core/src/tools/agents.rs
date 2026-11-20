@@ -226,15 +226,15 @@ pub(super) fn description(tool: Tool) -> &'static str {
             "Lists what you may start agents with and where: the devices, vendors, accounts, \
              workspaces and models you're allowed, how many levels of agents you may still \
              start, and any limits on you. Give a `device` to list what that device has, \
-             its accounts, models and workspaces. Only works once the user allows you to run \
-             other agents. Call it before start_agent or move_agent."
+             its accounts, models and workspaces. Starting or moving agents only works once \
+             the user allows you to run other agents. Call it before start_agent or \
+             move_agent."
         }
         Tool::ListAgents => {
-            "Lists the MaxHQ agents on the devices you're allowed, newest activity first, one \
+            "Lists the MaxHQ agents on this device, or on `device`, newest activity first, one \
              line each: id, title, vendor, device, state, context used and the last reply. \
              Set `mine` to list only the agents you started. Pages hold 50 by default and 100 \
-             at most: pass the `next` cursor a page gives to read on. Only works once the user \
-             allows you to run other agents."
+             at most: pass the `next` cursor a page gives to read on."
         }
         Tool::StartAgent => {
             "Starts a new MaxHQ agent with a task and returns its id. Give a vendor, and a \
@@ -256,8 +256,7 @@ pub(super) fn description(tool: Tool) -> &'static str {
         Tool::WaitAgent => {
             "Waits until each of the agents you name finishes its turn, needs input or stops, \
              up to `timeout_seconds`, 600 by default and 3600 at most. Returns each one's \
-             state and last reply, and whether the wait timed out. Only works once the user \
-             allows you to run other agents."
+             state and last reply, and whether the wait timed out."
         }
         Tool::InterruptAgent => {
             "Stops a MaxHQ agent's turn. With `stop` set, stops the agent itself, and every \

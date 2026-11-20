@@ -2894,6 +2894,12 @@ pub const FOLDERS_SINCE: u32 = 46;
 /// so the app hides the switch.
 pub const SHELL_MARKS_SINCE: u32 = 47;
 
+/// The protocol version whose `maxd` first lets every agent list and read
+/// other agents without a permission, and keeps the switch for it,
+/// [`DeviceSettingChange::ReadOtherAgents`]. An older one lets agents read
+/// only what they're allowed, so the app hides the switch.
+pub const READ_RIGHTS_SINCE: u32 = 50;
+
 /// The protocol version whose `maxd` first keeps a session for each agent,
 /// the one shell its `!` commands share: the requests from
 /// [`ClientMessage::SessionRun`] to [`ClientMessage::SessionEnd`], the
@@ -4407,6 +4413,7 @@ mod tests {
                         history_mib: 256,
                         claude_setup_token: false,
                         shell_integration: true,
+                        read_other_agents: true,
                     },
                 },
             ),
@@ -5606,6 +5613,14 @@ mod tests {
         );
         assert_eq!(shells.since(), SHELL_MARKS_SINCE);
         const { assert!(SHELL_MARKS_SINCE <= crate::PROTOCOL_VERSION) };
+        let reads = update(vec![DeviceSettingChange::ReadOtherAgents { value: false }]);
+        assert_eq!(
+            round_trip(&reads)["changes"][0],
+            json!({ "field": "read_other_agents", "value": false })
+        );
+        assert_eq!(reads.since(), READ_RIGHTS_SINCE);
+        assert!(!reads.reaches(Some(READ_RIGHTS_SINCE - 1)));
+        const { assert!(READ_RIGHTS_SINCE <= crate::PROTOCOL_VERSION) };
     }
 
     #[test]
@@ -5634,6 +5649,7 @@ mod tests {
             history_mib: 256,
             claude_setup_token: false,
             shell_integration: true,
+            read_other_agents: true,
         };
         assert_eq!(old.changes_from(Some(&old)), []);
         let new = DeviceSettings {

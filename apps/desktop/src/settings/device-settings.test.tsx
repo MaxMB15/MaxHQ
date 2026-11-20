@@ -117,6 +117,7 @@ describe("device settings", () => {
 			history_mib: 256,
 			claude_setup_token: false,
 			shell_integration: true,
+			read_other_agents: true,
 			skill_library: null,
 			network: {},
 			test_hosts: MOCK_TEST_HOST_SETTINGS[MAC],
@@ -145,6 +146,7 @@ describe("device settings", () => {
 			history_mib: 256,
 			claude_setup_token: false,
 			shell_integration: true,
+			read_other_agents: true,
 			skill_library: null,
 			network: {},
 			test_hosts: MOCK_TEST_HOST_SETTINGS[MAC],
@@ -197,6 +199,7 @@ describe("device settings", () => {
 			history_mib: 256,
 			claude_setup_token: true,
 			shell_integration: true,
+			read_other_agents: true,
 			skill_library: null,
 			network: {},
 			test_hosts: MOCK_TEST_HOST_SETTINGS[DEVBOX],
@@ -262,6 +265,7 @@ describe("device settings", () => {
 			history_mib: 256,
 			claude_setup_token: true,
 			shell_integration: true,
+			read_other_agents: true,
 			skill_library: null,
 			network: {},
 			test_hosts: MOCK_TEST_HOST_SETTINGS[DEVBOX],
@@ -295,6 +299,7 @@ describe("device settings", () => {
 			history_mib: 256,
 			claude_setup_token: true,
 			shell_integration: true,
+			read_other_agents: true,
 			skill_library: null,
 			network: {},
 			test_hosts: MOCK_TEST_HOST_SETTINGS[DEVBOX],
@@ -342,6 +347,7 @@ describe("device settings", () => {
 			history_mib: 256,
 			claude_setup_token: true,
 			shell_integration: true,
+			read_other_agents: true,
 			skill_library: null,
 			network: {},
 			test_hosts: MOCK_TEST_HOST_SETTINGS[DEVBOX],
@@ -400,6 +406,7 @@ describe("device settings", () => {
 			history_mib: 256,
 			claude_setup_token: false,
 			shell_integration: true,
+			read_other_agents: true,
 			skill_library: null,
 			network: {},
 			test_hosts: MOCK_TEST_HOST_SETTINGS[MAC],
@@ -820,6 +827,66 @@ describe("terminals", () => {
 		expect(toggle).not.toBeChecked();
 		expect(
 			within(await terminals("devbox")).getByText(
+				"devbox's maxd is too old for this. Update it first."
+			)
+		).toBeInTheDocument();
+	});
+});
+
+describe("other agents", () => {
+	const card = (name: string) => screen.findByRole("region", { name: `Other agents on ${name}` });
+	const reads = async (name: string) =>
+		within(await card(name)).getByRole("switch", { name: "Agents can read other agents" });
+
+	// The mock source with devbox's maxd from before the setting.
+	const before = (source: DataSource): DataSource => ({
+		...source,
+		snapshot: async () => {
+			const snapshot = await source.snapshot();
+			const entities = snapshot.entities.map((e): Entity => {
+				if (e.entity !== "device_settings" || e.device !== "dev-devbox") return e;
+				const rest = { ...e };
+				delete rest.read_other_agents;
+				return rest;
+			});
+			return { ...snapshot, entities };
+		},
+	});
+
+	it("is on by default, and says what agents can see", async () => {
+		renderDevice("link-devbox");
+		expect(await reads("devbox")).toBeChecked();
+		expect(
+			within(await card("devbox")).getByText(
+				/^Any agent can list and read any other agent's conversation, which may hold code, paths and command output\./
+			)
+		).toBeInTheDocument();
+	});
+
+	it("saves it off, keeping the other settings", async () => {
+		const { source } = renderDevice("link-mac");
+		const save = vi.spyOn(source, "setDeviceSettings");
+		fireEvent.click(await reads("Mac"));
+
+		expect(save).toHaveBeenCalledWith(
+			expect.objectContaining({
+				device: "dev-mac",
+				read_other_agents: false,
+				shell_integration: true,
+				default_permission: "auto",
+			})
+		);
+		expect(await within(await card("Mac")).findByText("Saved")).toBeInTheDocument();
+		expect(await reads("Mac")).not.toBeChecked();
+	});
+
+	it("can't change on a maxd from before the setting", async () => {
+		renderDevice("link-devbox", "connected", before);
+		const toggle = await reads("devbox");
+		expect(toggle).toHaveAttribute("aria-disabled", "true");
+		expect(toggle).not.toBeChecked();
+		expect(
+			within(await card("devbox")).getByText(
 				"devbox's maxd is too old for this. Update it first."
 			)
 		).toBeInTheDocument();

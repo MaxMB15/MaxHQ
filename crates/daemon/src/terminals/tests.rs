@@ -414,6 +414,7 @@ async fn the_shell_integration_switch_decides_whether_shells_get_hooks() {
     f.hub.apply([Change::Upsert {
         value: Entity::DeviceSettings(maxhq_protocol::model::DeviceSettings {
             shell_integration: false,
+            read_other_agents: true,
             ..settings
         }),
     }]);

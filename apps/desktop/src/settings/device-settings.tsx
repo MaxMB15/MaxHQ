@@ -52,6 +52,7 @@ import {
 	sameDeviceFields as same,
 	settingsWhy,
 } from "@maxhq/shared/settings/device-settings";
+import { knowsReadRights } from "@maxhq/shared/settings/read-rights";
 import { knowsSetupTokens, setupTokenQuestion } from "@maxhq/shared/settings/setup-tokens";
 import { knowsShellIntegration } from "@maxhq/shared/settings/shell-integration";
 import { offersSkills, skillLibrary } from "@maxhq/shared/skills/library";
@@ -84,6 +85,7 @@ type Part =
 	| "library"
 	| "network"
 	| "shell"
+	| "reads"
 	| "tokens";
 
 /**
@@ -181,6 +183,10 @@ export const deviceCards = (view: ViewState, device: DeviceId): readonly DeviceC
 		{
 			id: "new-agents",
 			terms: [translate("New agents"), translate("Default mode"), translate("Effort")],
+		},
+		{
+			id: "other-agents",
+			terms: [translate("Other agents"), translate("Agents can read other agents")],
 		},
 		{
 			id: "inbox",
@@ -381,6 +387,30 @@ export const DeviceSettings = ({
 					note={noteFor("effort")}
 					onSave={(change) => void save("effort", change)}
 				/>
+			</Section>
+			<Section
+				title={translate("Other agents")}
+				id={cardId("other-agents")}
+				label={translate("Other agents on {{name}}", { name: name })}
+				hint={translate("Reading on by default")}
+			>
+				<Row
+					title={translate("Agents can read other agents")}
+					sub={
+						why.reads ??
+						translate(
+							"Any agent can list and read any other agent's conversation, which may hold code, paths and command output. Off lets agents read only the agents you attach or quote. Starting, messaging or stopping agents still needs your permission."
+						)
+					}
+				>
+					<StatusNote note={noteFor("reads")} />
+					<Switch
+						aria-label={translate("Agents can read other agents")}
+						checked={knowsReadRights(view, device) && shown.read_other_agents}
+						disabled={why.reads !== null}
+						onCheckedChange={(on) => void save("reads", { read_other_agents: on })}
+					/>
+				</Row>
 			</Section>
 			<Section
 				title={translate("Inbox")}

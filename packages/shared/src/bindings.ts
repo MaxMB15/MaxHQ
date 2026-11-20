@@ -30,7 +30,7 @@ export const NOTE_PILLS_SINCE = 28 as const;
 
 export const OLDEST_PROTOCOL_VERSION = 20 as const;
 
-export const PROTOCOL_VERSION = 48 as const;
+export const PROTOCOL_VERSION = 50 as const;
 
 export const SESSIONS_SINCE = 48 as const;
 
@@ -4237,6 +4237,10 @@ value: boolean } |
 /**  See [`DeviceSettings::shell_integration`]. */
 { field: "shell_integration"; 
 /**  What it becomes. */
+value: boolean } | 
+/**  See [`DeviceSettings::read_other_agents`]. */
+{ field: "read_other_agents"; 
+/**  What it becomes. */
 value: boolean };
 
 /**  Settings `maxd` keeps for its device. */
@@ -4346,6 +4350,15 @@ export type DeviceSettings = {
 	 *  hooks.
 	 */
 	shell_integration?: boolean,
+	/**
+	 *  Whether agents on this device may list and read other agents, here
+	 *  and on linked devices, without a permission. Starting, messaging,
+	 *  stopping and moving agents still need one. Off, an agent reads only
+	 *  agents you attached or quoted, unless its permission reaches them.
+	 *  A `maxd` from before [`crate::message::READ_RIGHTS_SINCE`] leaves
+	 *  it out and lets agents read only what they're allowed.
+	 */
+	read_other_agents?: boolean,
 };
 
 /**  The tasks a device holds, and whether its webhooks can be reached. */

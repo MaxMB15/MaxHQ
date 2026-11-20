@@ -928,6 +928,7 @@ pub fn default_settings(device: &Device) -> DeviceSettings {
         history_mib: DEFAULT_HISTORY_MIB,
         claude_setup_token: false,
         shell_integration: true,
+        read_other_agents: true,
     }
 }
 
