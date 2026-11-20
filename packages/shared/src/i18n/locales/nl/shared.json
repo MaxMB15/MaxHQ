@@ -1023,6 +1023,7 @@
 	"The week is used up, so the {{windowNoun_blocked_minutes}} has nothing left{{until}}.": "Het weekbudget is op, dus er is niets meer over voor het {{windowNoun_blocked_minutes}}{{until}}.",
 	"Not reported": "Niet gemeld",
 	"resets {{formatWhen_window_resetsAt__now}}": "wordt hersteld op {{formatWhen_window_resetsAt__now}}",
+	"resets in {{span}}, {{time}}": "wordt hersteld over {{span}}, om {{time}}",
 	"Turn on Cursor usage in a Mac's device settings to see this month here.": "Schakel Cursor-gebruik in bij de apparaatinstellingen van een Mac om deze maand hier te zien.",
 	"Doesn't report usage.": "Rapporteert geen gebruik.",
 	"Not checked yet.": "Nog niet gecontroleerd.",

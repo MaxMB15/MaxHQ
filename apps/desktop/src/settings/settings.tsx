@@ -303,7 +303,7 @@ const PageHeader = ({
 						: "text-[12.5px] text-muted-foreground"
 				}
 			>
-				{hint}
+				{mono ? <span className="selectable">{hint}</span> : hint}
 				{copy ? <CopyIcon text={copy} className="-my-1 ml-1 size-[18px]" /> : null}
 			</p>
 		</header>

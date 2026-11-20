@@ -51,14 +51,34 @@ describe("the settings list", () => {
 });
 
 describe("the settings pages", () => {
-	it("keep their text from selecting, like the rest of the app's chrome", async () => {
+	it("let values select, but never a heading, a label, a button or a hidden secret", async () => {
 		const { nav, dialog } = await openSettings();
+		const chrome = "h1, h2, h3, label, legend, button, summary, [role=option], [role=switch]";
 		for (const page of within(nav).getAllByRole("button")) {
 			fireEvent.click(page);
-			const selectable = dialog.querySelectorAll(".select-text, .select-all");
+			const name = page.textContent ?? "";
+			// One class marks a value, so selection looks the same everywhere.
+			const other = dialog.querySelectorAll(".select-text, .select-all");
 			expect(
-				Array.from(selectable, (element) => element.textContent),
-				page.textContent ?? ""
+				Array.from(other, (element) => element.textContent),
+				name
+			).toEqual([]);
+			const values = Array.from(dialog.querySelectorAll(".selectable"));
+			const inChrome = values.filter((value) => value.closest(chrome) !== null);
+			expect(
+				inChrome.map((value) => value.textContent),
+				name
+			).toEqual([]);
+			// Dots stand in for a secret, and stay out of a selection.
+			const masked = Array.from(dialog.querySelectorAll("*")).filter(
+				(element) =>
+					element.children.length === 0 &&
+					element.textContent?.includes("•") &&
+					element.closest(".selectable, .select-none")?.classList.contains("selectable")
+			);
+			expect(
+				masked.map((element) => element.textContent),
+				name
 			).toEqual([]);
 		}
 	});

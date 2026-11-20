@@ -38,7 +38,7 @@ const WHILE_MOVING_MS = 3000;
 /** A warning at the top of the list. */
 const Warning = ({ text }: { text: string }) => {
 	useI18n();
-	return <Row title={<span className="text-status-error-text">{text}</span>} />;
+	return <Row title={<span className="selectable text-status-error-text">{text}</span>} />;
 };
 
 /** The app keys section, or nothing when the device lists none and has nothing to say. */
@@ -113,9 +113,11 @@ export const AppKeys = ({
 			{refusal ? <Warning text={refusal} /> : null}
 			{foreign ? <Warning text={foreign} /> : null}
 			{first?.warning ? <Warning text={first.text} /> : null}
-			{first && !first.warning ? <Row title={first.text} /> : null}
+			{first && !first.warning ? (
+				<Row title={<span className="selectable">{first.text}</span>} />
+			) : null}
 			{rows.map(({ key, own, sub }) => (
-				<Row key={key.id} title={key.label} sub={sub}>
+				<Row key={key.id} title={<span className="selectable">{key.label}</span>} sub={sub}>
 					<StatusNote note={note?.key === key.id ? note.note : null} />
 					{own ? null : (
 						<ConfirmButton

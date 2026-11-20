@@ -617,6 +617,7 @@
 	"The week is used up, so the {{windowNoun_blocked_minutes}} has nothing left{{until}}.": "The week is used up, so the {{windowNoun_blocked_minutes}} has nothing left{{until}}.",
 	"Not reported": "Not reported",
 	"resets {{formatWhen_window_resetsAt__now}}": "resets {{formatWhen_window_resetsAt__now}}",
+	"resets in {{span}}, {{time}}": "resets in {{span}}, {{time}}",
 	"Turn on Cursor usage in a Mac's device settings to see this month here.": "Turn on Cursor usage in a Mac's device settings to see this month here.",
 	"Doesn't report usage.": "Doesn't report usage.",
 	"Not checked yet.": "Not checked yet.",

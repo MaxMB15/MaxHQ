@@ -11,6 +11,7 @@ import { useI18n } from "@maxhq/shared/i18n";
 import { Dialog } from "@base-ui/react/dialog";
 import { useState } from "react";
 
+import { ClippedValue } from "@/components/copy-field";
 import { cn } from "@/lib/utils";
 import { FIELD, PRIMARY, SECONDARY } from "@/settings/controls";
 import { BACKDROP, POPUP, Title } from "@/workspaces/new-workspace";
@@ -53,7 +54,10 @@ const RemoveDialog = ({
 							className="flex flex-col gap-0.5 rounded-[7px] border border-border bg-subpanel px-2.5 py-2"
 						>
 							{PACK_LEFT_FILES.map((path) => (
-								<li key={path} className="font-mono text-[11.5px] text-foreground">
+								<li
+									key={path}
+									className="selectable font-mono text-[11.5px] text-foreground"
+								>
 									{path}
 								</li>
 							))}
@@ -142,12 +146,14 @@ export const PackRow = ({
 				<ul aria-label={t("Pack in the checkouts")} className="flex flex-col gap-1.5">
 					{shown.map((checkout) => (
 						<li key={checkout.path} className="flex flex-col gap-1">
-							<span className="truncate font-mono text-[11px] text-muted-foreground">
-								{checkout.path}
-							</span>
+							<ClippedValue
+								value={checkout.path}
+								label={t("Copy path")}
+								className="font-mono text-[11px] text-muted-foreground"
+							/>
 							<span
 								className={cn(
-									"text-xs",
+									"selectable text-xs",
 									checkout.pack?.state === "failed"
 										? "text-status-busy-text"
 										: "text-secondary-foreground"
@@ -157,7 +163,7 @@ export const PackRow = ({
 							</span>
 							{checkout.pack?.state === "failed" ? (
 								<>
-									<pre className="max-h-32 overflow-auto rounded bg-muted px-2 py-1 font-mono text-[11px] whitespace-pre-wrap text-muted-foreground">
+									<pre className="selectable max-h-32 overflow-auto rounded bg-muted px-2 py-1 font-mono text-[11px] whitespace-pre-wrap text-muted-foreground">
 										{checkout.pack.lines.join("\n")}
 									</pre>
 									<button

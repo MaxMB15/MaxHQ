@@ -54,11 +54,15 @@ const SignedIn = ({ signIn }: { signIn: Exclude<GithubSignIn, { state: "none" }>
 	const offline = signIn.state === "offline";
 	return (
 		<Row
-			title={translate("Signed in as @{{login}} on {{name}}{{value3}}", {
-				login: signIn.login,
-				name: signIn.name,
-				value3: offline ? translate(", which is offline") : "",
-			})}
+			title={
+				<span className="selectable">
+					{translate("Signed in as @{{login}} on {{name}}{{value3}}", {
+						login: signIn.login,
+						name: signIn.name,
+						value3: offline ? translate(", which is offline") : "",
+					})}
+				</span>
+			}
 			sub={
 				<>
 					{translate("Merges and approvals go through ")}
@@ -119,7 +123,7 @@ const SignInFlow = () => {
 					{translate("Enter this code on GitHub, then press Authorize.")}
 				</span>
 				<div className="flex items-center gap-3">
-					<span className="font-mono text-[24px] font-[650] tracking-[0.12em] text-foreground-strong">
+					<span className="selectable font-mono text-[24px] font-[650] tracking-[0.12em] text-foreground-strong">
 						{waiting.userCode}
 					</span>
 					<CopyButton text={waiting.userCode} className={SECONDARY} />

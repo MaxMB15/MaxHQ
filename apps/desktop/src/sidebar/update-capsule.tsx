@@ -56,7 +56,7 @@ const AppLine = ({ info }: { info: AppInfo | null | undefined }) => {
 	return (
 		<div className="flex items-center justify-between gap-3">
 			<span>{t("This app")}</span>
-			<span className="text-muted-foreground">{appSlot(info)}</span>
+			<span className="selectable text-muted-foreground">{appSlot(info)}</span>
 		</div>
 	);
 };
@@ -220,10 +220,12 @@ const Running = ({
 					{run.devices.map((d) => (
 						<div key={d.device} className="flex min-w-0 flex-col">
 							<div className="flex items-center justify-between gap-3">
-								<span className="truncate">{d.label}</span>
+								<span title={d.label} className="selectable truncate">
+									{d.label}
+								</span>
 								<span
 									className={cn(
-										"shrink-0 truncate tabular-nums",
+										"selectable shrink-0 truncate tabular-nums",
 										d.status.status === "failed"
 											? "text-status-error-text"
 											: "text-muted-foreground"
@@ -233,7 +235,7 @@ const Running = ({
 								</span>
 							</div>
 							{d.status.status === "failed" ? (
-								<span className="break-words text-muted-foreground">
+								<span className="selectable break-words text-muted-foreground">
 									{d.status.reason}
 								</span>
 							) : null}

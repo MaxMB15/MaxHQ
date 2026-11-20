@@ -15,6 +15,8 @@ import {
 	cycleWindows,
 	isUsedUp,
 	meterRows,
+	modelRows,
+	modelUsage,
 	shortWindow,
 	windowShort,
 } from "./usage";
@@ -125,6 +127,153 @@ describe("cycleWindows", () => {
 
 	it("leaves rolling windows to accountWindows", () => {
 		expect(cycleWindows(withWindows("a", [win(300, 10)]))).toEqual([]);
+	});
+});
+
+/** A window of one model's limit. */
+const model = (
+	scope: string,
+	window_minutes: number,
+	used_percent: number | null,
+	resets_at: number | null = null,
+	name?: string
+): UsageWindow => ({ ...win(window_minutes, used_percent, resets_at), scope, name });
+
+/** Each model's label with its windows as [minutes, percent, used up, reset]. */
+const summary = (a: Parameters<typeof modelUsage>[0]) =>
+	modelUsage(a).map((m) => [
+		m.label,
+		m.windows.map((w) => [w.minutes, w.percent, w.usedUp, w.resetsAt]),
+	]);
+
+describe("modelUsage", () => {
+	it("lists Claude's model limits by name in the order maxd sent them", () => {
+		const claude = withWindows("c", [
+			win(300, 22, NOW + HOUR),
+			win(10080, 45, NOW + 90 * HOUR),
+			model("opus", 10080, 58, NOW + 90 * HOUR),
+			model("sonnet", 10080, null),
+			model("fable", 10080, 12, NOW + 90 * HOUR, "Fable"),
+			model("haiku", 10080, 3, NOW + 90 * HOUR),
+		]);
+		expect(summary(claude)).toEqual([
+			["Opus", [[10080, 58, false, NOW + 90 * HOUR]]],
+			// Sonnet has no figure, so it's left out.
+			["Fable", [[10080, 12, false, NOW + 90 * HOUR]]],
+			["Haiku", [[10080, 3, false, NOW + 90 * HOUR]]],
+		]);
+	});
+
+	it("uses Codex's own limit names and reads an ID without one", () => {
+		const codex = withWindows(
+			"x",
+			[
+				win(300, 40, NOW + HOUR),
+				model("codex_mini", 10080, 31, NOW + 90 * HOUR, "Codex Mini"),
+				model("codex_mini", 300, 8, NOW + 2 * HOUR, "Codex Mini"),
+				model("codex_spark", 300, 70, NOW + 3 * HOUR),
+				model("premium", 300, null),
+				model("premium", 10080, null),
+			],
+			"codex"
+		);
+		expect(modelUsage(codex).map((m) => [m.scope, m.label])).toEqual([
+			["codex_mini", "Codex Mini"],
+			["codex_spark", "Codex Spark"],
+		]);
+		expect(summary(codex)[0]).toEqual([
+			"Codex Mini",
+			[
+				[300, 8, false, NOW + 2 * HOUR],
+				[10080, 31, false, NOW + 90 * HOUR],
+			],
+		]);
+	});
+
+	it("leaves nothing in a model's 5 hours once its own week is used up", () => {
+		const codex = withWindows(
+			"x",
+			[
+				win(300, 40, NOW + HOUR),
+				model("codex_mini", 300, 20, NOW + 2 * HOUR, "Codex Mini"),
+				model("codex_mini", 10080, 100, NOW + 50 * HOUR, "Codex Mini"),
+			],
+			"codex"
+		);
+		const [mini] = modelUsage(codex);
+		expect(
+			mini!.windows.map((w) => [w.percent, w.usedUp, w.blockedByWeek, w.resetsAt])
+		).toEqual([
+			[100, true, true, NOW + 50 * HOUR],
+			[100, true, false, NOW + 50 * HOUR],
+		]);
+		expect(atLimit(codex)).toBe(false);
+	});
+
+	it("frees a used-up model at the later reset when the account is used up too", () => {
+		const codex = withWindows(
+			"x",
+			[
+				win(300, 100, NOW + 2 * HOUR),
+				win(10080, 64, NOW + 90 * HOUR),
+				model("codex_mini", 300, 100, NOW + HOUR, "Codex Mini"),
+				model("codex_spark", 300, 100, NOW + 4 * HOUR),
+				model("codex_other", 300, 30, NOW + HOUR),
+			],
+			"codex"
+		);
+		expect(modelUsage(codex).map((m) => m.windows[0]!.resetsAt)).toEqual([
+			NOW + 2 * HOUR,
+			NOW + 4 * HOUR,
+			NOW + HOUR,
+		]);
+		// Once the account frees up, the model keeps its own reset.
+		const fine = withWindows("y", [win(300, 50), model("codex_mini", 300, 100, NOW + HOUR)]);
+		expect(modelUsage(fine)[0]!.windows[0]!.resetsAt).toBe(NOW + HOUR);
+	});
+
+	it("shows nothing for an account without model limits or a reading", () => {
+		expect(modelUsage(withWindows("a", [win(300, 10), win(10080, 20)]))).toEqual([]);
+		expect(modelUsage(account({ id: "n", usage: null }))).toEqual([]);
+	});
+});
+
+describe("modelRows", () => {
+	const five = withWindows("c", [
+		model("opus", 10080, 58),
+		model("sonnet", 10080, 12),
+		model("haiku", 10080, 3),
+		model("fable", 10080, 71),
+		model("codex_mini", 300, 40),
+	]);
+
+	it("shows up to four rows as they are", () => {
+		const four = withWindows("c", [
+			model("opus", 10080, 58),
+			model("codex_mini", 300, 40),
+			model("codex_mini", 10080, 5),
+			model("fable", 10080, 71),
+		]);
+		const { rows, folded } = modelRows(modelUsage(four), false);
+		expect(rows.map((r) => [r.label, r.window.minutes])).toEqual([
+			["Opus", 10080],
+			["Codex Mini", 300],
+			["Codex Mini", 10080],
+			["Fable", 10080],
+		]);
+		expect(folded).toBe(0);
+	});
+
+	it("folds more than four to the three fullest, in their usual order", () => {
+		const { rows, folded } = modelRows(modelUsage(five), false);
+		expect(rows.map((r) => r.label)).toEqual(["Opus", "Fable", "Codex Mini"]);
+		expect(folded).toBe(2);
+	});
+
+	it("shows every row when asked", () => {
+		const { rows, folded } = modelRows(modelUsage(five), true);
+		expect(rows).toHaveLength(5);
+		expect(folded).toBe(0);
 	});
 });
 

@@ -107,7 +107,7 @@ export const HookUrl = ({ url }: { url: string }) => {
 			<span className="text-[12px] font-[600] text-foreground">{t("Webhook URL")}</span>
 			<div className="flex items-center gap-2">
 				<code
-					className="min-w-0 flex-1 truncate font-mono text-xs text-foreground"
+					className="selectable min-w-0 flex-1 truncate font-mono text-xs text-foreground"
 					title={url}
 				>
 					{url}
@@ -130,7 +130,12 @@ export const AddressNote = ({
 	const { t } = useI18n();
 
 	const note = addressNote(reach, device);
-	if (note !== null) return <Hint>{note}</Hint>;
+	if (note !== null)
+		return (
+			<Hint>
+				<span className="selectable">{note}</span>
+			</Hint>
+		);
 	const { funnel } = reach;
 	if (funnel.state !== "needs_setup") return null;
 	return (
@@ -147,10 +152,13 @@ export const AddressNote = ({
 						key={step.reason}
 						className="flex flex-col gap-1 text-[11.5px] text-secondary-foreground"
 					>
-						<span>{step.reason}</span>
+						<span className="selectable">{step.reason}</span>
 						{step.command ? (
 							<span className="flex items-center gap-2">
-								<code className="min-w-0 flex-1 truncate font-mono text-xs text-foreground">
+								<code
+									title={step.command}
+									className="selectable min-w-0 flex-1 truncate font-mono text-xs text-foreground"
+								>
 									{step.command}
 								</code>
 								<CopyButton
@@ -357,7 +365,10 @@ export const PromptFields = ({ draft, edit }: { draft: TaskDraft; edit: Edit }) 
 										onCheckedChange={(on) => allow(expression, on)}
 									/>
 								) : null}
-								<code className="min-w-0 truncate font-mono text-xs text-foreground">
+								<code
+									title={expression}
+									className="selectable min-w-0 truncate font-mono text-xs text-foreground"
+								>
 									{expression}
 								</code>
 								<span

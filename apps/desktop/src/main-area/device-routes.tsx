@@ -78,7 +78,7 @@ export const DeviceRoutes = ({ link, view }: { link: LinkId; view: ViewState }) 
 						className="border-t border-sidebar-border first:border-t-0"
 					>
 						<Row
-							title={<code className="font-mono">{route.host}</code>}
+							title={<code className="selectable font-mono">{route.host}</code>}
 							sub={route.good ? undefined : i === 0 ? t("Tried first") : undefined}
 						>
 							{route.good ? (

@@ -22,23 +22,59 @@ const MODELS: [&str; 4] = ["opus", "sonnet", "haiku", "fable"];
 
 /// The windows in a `rate_limits` object: the 5-hour and weekly ones first,
 /// then each model's weekly one. A key that's null, missing or has no number
-/// for its percent gives no window.
+/// for its percent gives no window. A model's weekly limit can also come in
+/// the `limits` list, under the model's own name, and counts once.
 pub fn windows(rate_limits: &Value) -> Vec<UsageWindow> {
     let own = [("five_hour", FIVE_HOURS), ("seven_day", WEEK)]
         .into_iter()
-        .filter_map(|(key, minutes)| window(rate_limits.get(key)?, None, minutes));
+        .filter_map(|(key, minutes)| window(rate_limits.get(key)?, UTILIZATION, None, minutes));
     let models = MODELS.into_iter().filter_map(|model| {
         let limit = rate_limits.get(format!("seven_day_{model}"))?;
-        window(limit, Some(model), WEEK)
+        window(limit, UTILIZATION, Some(model), WEEK)
     });
-    own.chain(models).collect()
+    let mut windows: Vec<UsageWindow> = own.chain(models).collect();
+    for listed in listed_models(rate_limits) {
+        if !windows.iter().any(|w| w.scope == listed.scope) {
+            windows.push(listed);
+        }
+    }
+    windows
 }
 
-/// One window from a limit such as `{"utilization": 22, "resets_at": ...}`.
-fn window(limit: &Value, scope: Option<&str>, window_minutes: u32) -> Option<UsageWindow> {
-    let used = limit.get("utilization")?.as_f64()?;
+/// Where a `seven_day` style limit keeps its percent.
+const UTILIZATION: &str = "utilization";
+
+/// The weekly limits in the `limits` list that cover one model, such as
+/// `{"kind": "weekly_scoped", "percent": 0, "scope": {"model": {"id": null,
+/// "display_name": "Fable"}}}`. The scope is the model's ID, or its name in
+/// lower case when it has none, and the window carries the name.
+fn listed_models(rate_limits: &Value) -> impl Iterator<Item = UsageWindow> + '_ {
+    let list = rate_limits.get("limits").and_then(Value::as_array);
+    list.into_iter().flatten().filter_map(|limit| {
+        if limit.get("kind")?.as_str()? != "weekly_scoped" {
+            return None;
+        }
+        let model = limit.get("scope")?.get("model")?;
+        let name = model.get("display_name").and_then(Value::as_str);
+        let scope = model.get("id").and_then(Value::as_str).or(name)?;
+        let mut window = window(limit, "percent", Some(&scope.to_lowercase()), WEEK)?;
+        window.name = name.map(str::to_owned);
+        Some(window)
+    })
+}
+
+/// One window from a limit such as `{"utilization": 22, "resets_at": ...}`,
+/// with its percent under `used`.
+fn window(
+    limit: &Value,
+    used: &str,
+    scope: Option<&str>,
+    window_minutes: u32,
+) -> Option<UsageWindow> {
+    let used = limit.get(used)?.as_f64()?;
     Some(UsageWindow {
         scope: scope.map(str::to_owned),
+        name: None,
         window_minutes,
         used_percent: used.clamp(0.0, 100.0),
         resets_at: limit
@@ -101,5 +137,38 @@ mod tests {
         assert_eq!(windows[1].scope.as_deref(), Some("fable"));
         assert_eq!(windows[1].used_percent, 0.0);
         assert!(super::windows(&json!(null)).is_empty());
+    }
+
+    #[test]
+    fn reads_a_model_limit_from_the_list_with_its_name() {
+        let limits = json!({
+            "seven_day": {"utilization": 31, "resets_at": "2026-11-26T02:00:00+00:00"},
+            "seven_day_opus": {"utilization": 40, "resets_at": "2026-11-26T02:00:00+00:00"},
+            "limits": [
+                {"kind": "weekly_all", "percent": 31, "resets_at": "2026-11-26T02:00:00+00:00", "scope": null},
+                {"kind": "weekly_scoped", "percent": 18, "resets_at": "2026-11-26T02:00:00+00:00",
+                 "scope": {"model": {"id": null, "display_name": "Fable"}, "surface": null}},
+                {"kind": "weekly_scoped", "percent": 55,
+                 "scope": {"model": {"id": "opus", "display_name": "Opus"}}},
+                {"kind": "weekly_scoped", "percent": 9, "scope": {"model": {"id": null, "display_name": null}}}
+            ]
+        });
+        let windows = windows(&limits);
+        let summary: Vec<_> = windows
+            .iter()
+            .map(|w| (w.scope.as_deref(), w.name.as_deref(), w.used_percent))
+            .collect();
+        assert_eq!(
+            summary,
+            [
+                (None, None, 31.0),
+                // The `seven_day_opus` key came first, so the list's Opus
+                // entry doesn't add a second one.
+                (Some("opus"), None, 40.0),
+                (Some("fable"), Some("Fable"), 18.0),
+            ]
+        );
+        assert_eq!(windows[2].window_minutes, 10_080);
+        assert_eq!(windows[2].resets_at, parse_iso8601("2026-11-26T02:00:00Z"));
     }
 }

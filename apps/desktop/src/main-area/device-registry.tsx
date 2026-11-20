@@ -136,7 +136,7 @@ export const DeviceRegistry = ({
 					onChange={(event) => setQuery(event.target.value)}
 				/>
 				{registry?.problem ? (
-					<p role="status" className="text-xs text-status-error-text">
+					<p role="status" className="selectable text-xs text-status-error-text">
 						{registry.problem}
 					</p>
 				) : null}
