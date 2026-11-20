@@ -597,6 +597,7 @@ impl Manager {
             agent: None,
             device: None,
             container: container.map(|workspace| (self.device, workspace)),
+            reads: false,
         };
         let call = match &found.target {
             TaskTarget::Agent { device, agent } => Call::SendAgent(Message {

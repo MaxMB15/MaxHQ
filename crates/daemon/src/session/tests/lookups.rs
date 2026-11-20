@@ -411,7 +411,7 @@ impl Harness {
     }
 
     /// An outside session with a request and a reply in its history.
-    fn outside_with_history(&self, session: &str) -> AgentId {
+    pub(super) fn outside_with_history(&self, session: &str) -> AgentId {
         let agent = self.outside(session, Activity::Idle);
         self.vendors.set_history(
             session,
@@ -490,6 +490,7 @@ async fn an_excerpt_of_an_outside_session_reads_its_history() {
 #[tokio::test]
 async fn the_read_tool_reads_only_an_agent_the_user_attached() {
     let mut h = Harness::new();
+    h.read_others(false).await;
     let (lead, session) = h.start_claude(None).await;
     let other = h.outside_with_history("outside-2");
     let say = Say {
@@ -600,6 +601,7 @@ async fn the_read_tool_reads_only_an_agent_the_user_attached() {
 #[tokio::test]
 async fn the_read_tool_reads_only_the_items_the_user_quoted() {
     let mut h = Harness::new();
+    h.read_others(false).await;
     let (lead, session) = h.start_claude(None).await;
     let (other, theirs) = h.start_claude(None).await;
     let say = Say {
@@ -729,6 +731,7 @@ async fn the_read_tool_reads_only_the_items_the_user_quoted() {
 #[tokio::test]
 async fn a_sub_agent_reads_what_its_leads_user_attached() {
     let mut h = Harness::new();
+    h.read_others(false).await;
     let (lead, session) = h.start_claude(None).await;
     let sub = Agent {
         id: AgentId::generate(),

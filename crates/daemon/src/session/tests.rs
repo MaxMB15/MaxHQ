@@ -524,6 +524,18 @@ impl Harness {
         self.phone.result(key).await
     }
 
+    /// Turns this device's "Agents can read other agents" switch on or off.
+    async fn read_others(&mut self, on: bool) {
+        let settings = DeviceSettings {
+            read_other_agents: on,
+            ..hub::default_settings(&device())
+        };
+        let outcome = self
+            .act(|key| ClientMessage::SetDeviceSettings { key, settings })
+            .await;
+        assert_eq!(outcome, ActionOutcome::Done);
+    }
+
     async fn send(&mut self, agent: AgentId, text: &str) -> ActionOutcome {
         self.send_with(agent, text, Vec::new(), SendMode::Queue)
             .await
@@ -2269,6 +2281,7 @@ async fn device_settings_are_stored_and_published() {
         history_mib: 256,
         claude_setup_token: false,
         shell_integration: true,
+        read_other_agents: true,
     };
     let outcome = h
         .act(|key| ClientMessage::SetDeviceSettings {

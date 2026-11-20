@@ -763,6 +763,7 @@ mod tests {
             history_mib: 256,
             claude_setup_token: false,
             shell_integration: true,
+            read_other_agents: true,
         });
         assert_eq!(settings.key(), EntityKey::DeviceSettings(id));
         assert_eq!(
@@ -795,11 +796,13 @@ mod tests {
                 "history_mib": 256,
                 "claude_setup_token": false,
                 "shell_integration": true,
+                "read_other_agents": true,
             })
         );
         // A `maxd` from before the switch leaves it out, which reads as on.
         let mut old = serde_json::to_value(&settings).unwrap();
         old.as_object_mut().unwrap().remove("shell_integration");
+        old.as_object_mut().unwrap().remove("read_other_agents");
         assert_eq!(serde_json::from_value::<Entity>(old).unwrap(), settings);
     }
 

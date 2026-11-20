@@ -546,6 +546,42 @@ pub fn task_permission(task: &Task, home: DeviceId) -> Permission {
     }
 }
 
+/// The ID every read right carries. It's never stored, so nothing is kept
+/// on it.
+pub fn read_right_id() -> PermissionId {
+    PermissionId::derive("read-right")
+}
+
+/// What every agent may do without a permission while its device lets
+/// agents read other agents: act on `home` and `device` with the tools
+/// that only look, start nothing, and lease nothing. A caller in a
+/// container still asks before it reads outside it, unless `leave` says
+/// otherwise.
+pub fn read_right(
+    holder: Actor,
+    home: DeviceId,
+    device: DeviceId,
+    leave: LeaveContainer,
+) -> Permission {
+    let mut devices = vec![home];
+    if device != home {
+        devices.push(device);
+    }
+    Permission {
+        id: read_right_id(),
+        holder,
+        home,
+        devices,
+        vendors: Vec::new(),
+        accounts: Some(Vec::new()),
+        places: Some(Vec::new()),
+        depth: 0,
+        limits: Limits::default(),
+        test_kinds: Vec::new(),
+        leave_container: leave,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -614,6 +650,56 @@ mod tests {
 
     fn checked(permission: &Permission, caller: Caller, start: Start) -> Result<(), Refusal> {
         check(Some(permission), caller, &Ask::Start(start), NOW).map(|_| ())
+    }
+
+    #[test]
+    fn a_read_right_acts_on_its_devices_but_starts_and_leases_nothing() {
+        let there = DeviceId::derive("there");
+        let holder_actor = Actor::Agent {
+            agent: AgentId::derive("reader"),
+        };
+        let right = read_right(holder_actor, here(), there, LeaveContainer::Ask);
+        assert_eq!(right.devices, [here(), there]);
+        assert_eq!(
+            read_right(holder_actor, here(), here(), LeaveContainer::Ask).devices,
+            [here()]
+        );
+        for device in [here(), there] {
+            assert_eq!(
+                check(Some(&right), holder(), &Ask::Act { device }, NOW),
+                Ok(None)
+            );
+        }
+        assert_eq!(
+            check(
+                Some(&right),
+                holder(),
+                &Ask::Act {
+                    device: DeviceId::derive("elsewhere")
+                },
+                NOW
+            ),
+            Err(Refusal::Device)
+        );
+        let place = folder("/tmp/example");
+        assert_eq!(
+            checked(&right, holder(), start(&place)),
+            Err(Refusal::Vendor(Vendor::Codex))
+        );
+        assert_eq!(
+            check_lease(Some(&right), here(), None, NOW),
+            Err(Refusal::NoLeases)
+        );
+        // A caller in a container asks before it reads outside it.
+        assert_eq!(
+            check_reach(&right, boxed(), there, None),
+            Err(Refusal::NeedsConsent)
+        );
+        let never = read_right(holder_actor, here(), there, LeaveContainer::Never);
+        assert_eq!(
+            check_reach(&never, boxed(), there, None),
+            Err(Refusal::LeavesContainer)
+        );
     }
 
     #[test]

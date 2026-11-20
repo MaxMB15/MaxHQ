@@ -27,8 +27,8 @@ use maxhq_core::leases::{LeaseCall, MAX_INSTALL_BYTES};
 use maxhq_core::tools::agents::{List, Message, Start, Stop, Wait};
 use maxhq_core::tools::{Call, Read, Tool};
 use maxhq_protocol::agents::{
-    AccessKey, Actor, AgentOrigin, McpCommand, PeerCall, PeerWake, Permission, ToolAnswer,
-    ToolCall, WakeTurn,
+    AccessKey, Actor, AgentOrigin, LeaveContainer, McpCommand, PeerCall, PeerWake, Permission,
+    ToolAnswer, ToolCall, WakeTurn,
 };
 use maxhq_protocol::ids::{
     AgentId, AttachmentId, DeviceId, IdempotencyKey, KeyId, PermissionId, SessionId, WorkspaceId,
@@ -230,6 +230,9 @@ pub(super) struct Calling {
     pub(super) device: Option<DeviceId>,
     /// The device and container workspace an agent runs in, if it's in one.
     pub(super) container: Option<(DeviceId, WorkspaceId)>,
+    /// Whether it's an agent, which may use the tools that only look
+    /// without a permission while the device lets agents read others.
+    pub(super) reads: bool,
 }
 
 impl Calling {
@@ -283,10 +286,18 @@ impl Manager {
         self.run_agent_call(reply, caller, call.call, raw, false);
     }
 
-    /// Whether an agent's reads go by its permission, not by what the user
-    /// attached.
+    /// Whether an agent's reads go by its permission or the device's read
+    /// right, not only by what the user attached.
     pub(super) fn reads_widely(&self, agent: AgentId, read: &Read) -> bool {
-        read.device.is_some() || self.agent_caller(agent).permission.is_some()
+        read.device.is_some()
+            || self.reads_others()
+            || self.agent_caller(agent).permission.is_some()
+    }
+
+    /// Whether this device lets agents list and read other agents without
+    /// a permission.
+    pub(super) fn reads_others(&self) -> bool {
+        self.device_settings().read_other_agents
     }
 
     /// Handles the agent tools' messages from a connection.
@@ -483,6 +494,7 @@ impl Manager {
             container: held
                 .and_then(|held| held.guest)
                 .map(|workspace| (self.device, workspace)),
+            reads: true,
         }
     }
 
@@ -533,6 +545,7 @@ impl Manager {
                 agent: None,
                 device: None,
                 container: None,
+                reads: false,
             },
             // So does an agent whose key went with it.
             Signed::Agent(lead) => {
@@ -543,6 +556,7 @@ impl Manager {
                     .is_none_or(|held| held.tools_key.is_none())
                 {
                     caller.permission = None;
+                    caller.reads = false;
                 }
                 caller
             }
@@ -625,7 +639,8 @@ impl Manager {
 
     /// Runs a call another device sent for a caller on it. Only that
     /// caller's home may send it, and this device's copy of the permission
-    /// decides.
+    /// decides. An agent with no permission here may still use the tools
+    /// that only look, while this device lets agents read others.
     async fn peer_call(
         &mut self,
         from: DeviceId,
@@ -638,17 +653,19 @@ impl Manager {
             .permissions
             .get(&call.permission)
             .map(|permission| permission.home);
-        if home != Some(from) {
+        let reads = matches!(call.by, Actor::Agent { .. });
+        if home != Some(from) && !reads {
             return self.reply_now(reply, Err(NOT_ALLOWED.into()));
         }
         let caller = Calling {
             actor: call.by,
-            permission: Some(call.permission),
+            permission: (home == Some(from)).then_some(call.permission),
             level: call.level,
             mode: None,
             agent: None,
             device: Some(from),
             container: None,
+            reads,
         };
         // Leases stay on the device that hosts them: an agent elsewhere
         // starts an agent here to lease. Moves run on the caller's home.
@@ -677,25 +694,40 @@ impl Manager {
         if let Call::Note(call) = call {
             return self.note_tool(reply, caller, call);
         }
-        let permission = caller
+        let held = caller
             .permission
             .and_then(|id| self.agent_tools.permissions.get(&id))
             .cloned();
-        let Some(permission) = permission else {
-            let reason = if call.tool().leases() {
-                NO_LEASES
-            } else {
-                NOT_ALLOWED
-            };
-            return self.reply_now(reply, Err(reason.into()));
-        };
         let device = if here {
             self.device
         } else {
             call.device().unwrap_or(self.device)
         };
         let now = self.clock.wall();
-        let act = rules::check(Some(&permission), caller.rules(), &Ask::Act { device }, now);
+        let acts = |permission: &Permission| {
+            rules::check(Some(permission), caller.rules(), &Ask::Act { device }, now)
+        };
+        // A tool that only looks runs under the agent's own permission when
+        // that reaches the device, and else under the device's read right.
+        let reads = call.tool().only_reads() && caller.reads && self.reads_others();
+        let permission = match held {
+            Some(held) if !reads || acts(&held).is_ok() => held,
+            held if reads => rules::read_right(
+                caller.actor,
+                self.device,
+                device,
+                held.map_or(LeaveContainer::Ask, |held| held.leave_container),
+            ),
+            _ => {
+                let reason = if call.tool().leases() {
+                    NO_LEASES
+                } else {
+                    NOT_ALLOWED
+                };
+                return self.reply_now(reply, Err(reason.into()));
+            }
+        };
+        let act = acts(&permission);
         if let Err(refusal) = act {
             return self.reply_now(reply, Err(refusal.to_string()));
         }
@@ -706,6 +738,8 @@ impl Manager {
             Call::SendAgent(message) => Some(self.container_of(device, message.agent)),
             Call::InterruptAgent(stop) => Some(self.container_of(device, stop.agent)),
             Call::WaitAgent(wait) => Some(self.common_container(device, &wait.agents)),
+            // Under the read right, a list's last replies are a read too.
+            Call::ListAgents(_) if permission.id == rules::read_right_id() => Some(None),
             Call::ReadAgent(_) if device != self.device => Some(None),
             Call::ReadAgent(read) => self
                 .read_by_id(caller.agent, read)
@@ -799,7 +833,10 @@ impl Manager {
             }
         };
         let now = self.clock.wall();
-        if let Err(refusal) = rules::check_lease(Some(permission), self.device, kind, now) {
+        // Listing test hosts only looks, so the read right covers it.
+        let looks = matches!(call, LeaseCall::ListTestHosts) && caller.reads && self.reads_others();
+        if !looks && let Err(refusal) = rules::check_lease(Some(permission), self.device, kind, now)
+        {
             return self.reply_now(reply, Err(refusal.to_string()));
         }
         let place = match &call {
@@ -847,9 +884,7 @@ impl Manager {
         call: Call,
         mut raw: ToolCall,
     ) {
-        let Some(permission_id) = caller.permission else {
-            return self.reply_now(reply, Err(NOT_ALLOWED.into()));
-        };
+        let permission_id = permission.id;
         let mut release = None;
         if let Call::StartAgent(start) = &call {
             // The account and place are the other device's to check.
@@ -963,8 +998,13 @@ impl Manager {
             "depth_left": permission.depth.saturating_sub(caller.level.saturating_add(1)),
             "limits": permission.limits,
             "started": started,
-            "note": "Other devices' accounts and workspaces show once you call \
-                     list_targets with that `device`.",
+            "note": if permission.id == rules::read_right_id() {
+                "You may list and read agents, but not start, message, stop or move them. \
+                 Ask the user to allow you to run other agents."
+            } else {
+                "Other devices' accounts and workspaces show once you call \
+                 list_targets with that `device`."
+            },
         })
         .to_string()
     }

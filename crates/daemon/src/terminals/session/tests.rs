@@ -525,6 +525,7 @@ async fn sessions_need_shell_integration() {
     f.hub.apply([Change::Upsert {
         value: Entity::DeviceSettings(maxhq_protocol::model::DeviceSettings {
             shell_integration: false,
+            read_other_agents: true,
             ..settings
         }),
     }]);

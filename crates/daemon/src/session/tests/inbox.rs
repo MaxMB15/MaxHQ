@@ -697,6 +697,7 @@ async fn an_agent_waiting_for_its_limit_snoozes_until_the_reset_when_the_device_
         history_mib: 256,
         claude_setup_token: false,
         shell_integration: true,
+        read_other_agents: true,
     };
     let outcome = h
         .act(|key| ClientMessage::SetDeviceSettings { key, settings })

@@ -1066,5 +1066,10 @@
 	"Terminals on {{name}}": "Terminals on {{name}}",
 	"Shell integration on by default": "Shell integration on by default",
 	"Shell integration": "Shell integration",
-	"MaxHQ adds hooks to zsh, bash and fish so it can tell commands apart. Off starts shells exactly as your startup files say. Applies to terminals opened after the change.": "MaxHQ adds hooks to zsh, bash and fish so it can tell commands apart. Off starts shells exactly as your startup files say. Applies to terminals opened after the change."
+	"MaxHQ adds hooks to zsh, bash and fish so it can tell commands apart. Off starts shells exactly as your startup files say. Applies to terminals opened after the change.": "MaxHQ adds hooks to zsh, bash and fish so it can tell commands apart. Off starts shells exactly as your startup files say. Applies to terminals opened after the change.",
+	"Agents can read other agents": "Agents can read other agents",
+	"Any agent can list and read any other agent's conversation, which may hold code, paths and command output. Off lets agents read only the agents you attach or quote. Starting, messaging or stopping agents still needs your permission.": "Any agent can list and read any other agent's conversation, which may hold code, paths and command output. Off lets agents read only the agents you attach or quote. Starting, messaging or stopping agents still needs your permission.",
+	"Other agents": "Other agents",
+	"Other agents on {{name}}": "Other agents on {{name}}",
+	"Reading on by default": "Reading on by default"
 }

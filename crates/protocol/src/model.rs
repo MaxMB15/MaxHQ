@@ -1031,6 +1031,14 @@ pub struct DeviceSettings {
     /// hooks.
     #[serde(default = "yes")]
     pub shell_integration: bool,
+    /// Whether agents on this device may list and read other agents, here
+    /// and on linked devices, without a permission. Starting, messaging,
+    /// stopping and moving agents still need one. Off, an agent reads only
+    /// agents you attached or quoted, unless its permission reaches them.
+    /// A `maxd` from before [`crate::message::READ_RIGHTS_SINCE`] leaves
+    /// it out and lets agents read only what they're allowed.
+    #[serde(default = "yes")]
+    pub read_other_agents: bool,
 }
 
 impl DeviceSettings {
@@ -1063,6 +1071,7 @@ impl DeviceSettings {
             history_mib,
             claude_setup_token,
             shell_integration,
+            read_other_agents,
         } = self;
         let differs = |same: &dyn Fn(&Self) -> bool| old.is_none_or(|old| !same(old));
         let mut changes = Vec::new();
@@ -1165,6 +1174,11 @@ impl DeviceSettings {
                 value: *shell_integration,
             });
         }
+        if differs(&|old| old.read_other_agents == *read_other_agents) {
+            changes.push(Change::ReadOtherAgents {
+                value: *read_other_agents,
+            });
+        }
         changes
     }
 
@@ -1196,6 +1210,7 @@ impl DeviceSettings {
             DeviceSettingChange::HistoryMib { value } => self.history_mib = value,
             DeviceSettingChange::ClaudeSetupToken { value } => self.claude_setup_token = value,
             DeviceSettingChange::ShellIntegration { value } => self.shell_integration = value,
+            DeviceSettingChange::ReadOtherAgents { value } => self.read_other_agents = value,
         }
     }
 
@@ -1255,6 +1270,7 @@ impl DeviceSettingChange {
             Self::ClaudeEffort { .. } | Self::CodexEffort { .. } => crate::message::EFFORT_SINCE,
             Self::ClaudeSetupToken { .. } => crate::message::SETUP_TOKENS_SINCE,
             Self::ShellIntegration { .. } => crate::message::SHELL_MARKS_SINCE,
+            Self::ReadOtherAgents { .. } => crate::message::READ_RIGHTS_SINCE,
             _ => 26,
         }
     }
@@ -1380,6 +1396,11 @@ pub enum DeviceSettingChange {
     },
     /// See [`DeviceSettings::shell_integration`].
     ShellIntegration {
+        /// What it becomes.
+        value: bool,
+    },
+    /// See [`DeviceSettings::read_other_agents`].
+    ReadOtherAgents {
         /// What it becomes.
         value: bool,
     },

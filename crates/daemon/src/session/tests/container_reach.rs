@@ -685,3 +685,75 @@ async fn a_task_made_in_a_container_asks_when_it_runs_and_fails_unanswered() {
         "the prompt never reached the host"
     );
 }
+
+#[tokio::test]
+async fn an_agent_with_no_permission_asks_before_it_reads_outside_and_keeps_nothing() {
+    let mut h = Harness::on(server());
+    h.container(None);
+    let (lead, session) = h.start_boxed_claude(Some("Plan it")).await;
+    let (on_host, host_session) = h.start_claude(Some("On the host")).await;
+    h.moves(host_session, on_host, Activity::Idle).await;
+    let reads = [
+        (
+            "read_agent",
+            json!({"agent": on_host}),
+            "read the conversation",
+        ),
+        (
+            "read_agent",
+            json!({"agent": on_host, "device": devbox()}),
+            "read the conversation",
+        ),
+        ("list_agents", json!({}), "list the agents"),
+        ("wait_agent", json!({"agents": [on_host]}), "wait on"),
+    ];
+    for (n, (tool, arguments, wants)) in reads.into_iter().enumerate() {
+        let key = format!("deny-{n}");
+        h.ask_in(session, lead, &key, tool, arguments.clone()).await;
+        let card = h.reach_card().await;
+        assert_eq!(card.agent, lead);
+        let question = h.reach_question(lead).await;
+        assert!(question.text.contains(wants), "{}", question.text);
+        let consent = question.consent.expect("the card says the risk");
+        assert!(
+            consent.risk.contains("prompt injection"),
+            "{}",
+            consent.risk
+        );
+        assert!(consent.remember.is_none(), "nothing to keep it on");
+        // A ticked box keeps nothing anywhere.
+        assert_eq!(
+            h.pick_reach(card.id, DENY, true).await,
+            AnswerOutcome::Accepted
+        );
+        let reason = h.answer(&key).await.expect_err("Deny refuses");
+        assert!(reason.contains(SAID_NO), "{tool}: {reason}");
+        eventually("the card closes", || h.reach_cards().is_empty()).await;
+
+        let key = format!("allow-{n}");
+        h.ask_in(session, lead, &key, tool, arguments).await;
+        let card = h.reach_card().await;
+        assert_eq!(
+            h.pick_reach(card.id, ALLOW, false).await,
+            AnswerOutcome::Accepted
+        );
+        let answer = h.answer(&key).await;
+        assert!(
+            !answer.as_ref().is_err_and(
+                |reason| reason.contains(SAID_NO) || reason == maxhq_core::agents::NOT_ALLOWED
+            ),
+            "{tool}: {answer:?}"
+        );
+        eventually("the card closes", || h.reach_cards().is_empty()).await;
+    }
+    let calls = h.fakes.peers.calls();
+    assert_eq!(calls.len(), 1, "only the allowed read went to devbox");
+    assert_eq!(calls[0].1.permission, maxhq_core::agents::read_right_id());
+    assert!(h.db.permissions().unwrap().is_empty(), "nothing was kept");
+
+    // Writes still need a permission, so they're refused before any card.
+    let send = json!({"agent": on_host, "text": "hello"});
+    let answer = h.call_in(session, lead, "send", "send_agent", send).await;
+    assert_eq!(answer, Err(maxhq_core::agents::NOT_ALLOWED.to_owned()));
+    assert!(h.reach_cards().is_empty());
+}
