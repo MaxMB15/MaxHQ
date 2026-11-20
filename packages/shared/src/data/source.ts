@@ -118,6 +118,7 @@ import type {
 } from "../fleet/wire";
 import { DEPTH } from "../bindings";
 import type { FolderCalls } from "../folders/requests";
+import type { NoticeCalls } from "../notices/requests";
 import type { GitItemRef } from "../pills/draft";
 import type { TerminalCalls } from "../terminal/requests";
 import type { SessionCalls } from "../terminal/session";
@@ -332,7 +333,7 @@ export type MockControls = {
 };
 
 /** The calls that live with their own helpers: the terminal's, the session's and the folders'. */
-type HelperCalls = TerminalCalls & SessionCalls & FolderCalls;
+type HelperCalls = TerminalCalls & SessionCalls & FolderCalls & NoticeCalls;
 
 /**
  * One place the view comes from, with the commands that act on it. The

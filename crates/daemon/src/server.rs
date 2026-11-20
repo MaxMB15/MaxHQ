@@ -65,6 +65,11 @@ const PHONE_UNSIGNED: &str = "A phone can't send a maxd no release signed. Send 
 const NOT_FOR_FOLDERS: &str = "Only the MaxHQ app and phones that proved their keys may list \
                                or make folders on this device.";
 
+/// The refusal for a notification log request from a connection that
+/// isn't the app or a proven phone.
+const NOT_FOR_NOTICES: &str = "Only the MaxHQ app and phones that proved their keys may read \
+                               this device's notifications.";
+
 /// The answer to a request whose part of `maxd` isn't built yet.
 pub fn not_yet() -> ActionOutcome {
     ActionOutcome::Refused {
@@ -1319,6 +1324,17 @@ impl Connection {
             }
             message @ (ClientMessage::ListFolder { .. } | ClientMessage::MakeFolder { .. }) => {
                 self.refuse(&message, ErrorCode::NotAllowed, NOT_FOR_FOLDERS)
+                    .await
+            }
+            // The notification log answers the app and proven phones too.
+            ClientMessage::Notices { key, device, call } if self.terminal_caller().is_some() => {
+                let me = self.hub.device().id;
+                let call = crate::notices::answer(self.db.clone(), me, device, call);
+                self.answer_when(key, tokio::spawn(call));
+                Ok(())
+            }
+            message @ ClientMessage::Notices { .. } => {
+                self.refuse(&message, ErrorCode::NotAllowed, NOT_FOR_NOTICES)
                     .await
             }
             // Updates, tools, load and diagnostics belong to the fleet.

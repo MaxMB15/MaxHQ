@@ -31,6 +31,7 @@ use crate::model::{
     Tool, Vendor, WorkspaceSpec,
 };
 use crate::notes::{NoteId, NoteVersion, NoteVersionInfo, VersionHash};
+use crate::notices::{NoticeCall, NoticePage};
 use crate::phones::{PhoneBookEntry, PhoneMac, PushToken};
 use crate::processes::{ProcessList, ProcessSignal};
 use crate::pulls::{
@@ -2216,6 +2217,17 @@ pub enum ClientMessage {
         /// with a command running refuses, so you're asked first.
         force: bool,
     },
+
+    /// Lists, marks read or clears a device's notification log, since
+    /// [`NOTICES_SINCE`]. Only the app and phones may send it.
+    Notices {
+        /// Makes a resend after a dropped connection safe.
+        key: IdempotencyKey,
+        /// The device whose log it is.
+        device: DeviceId,
+        /// What to do with it.
+        call: NoticeCall,
+    },
 }
 
 impl ClientMessage {
@@ -2285,6 +2297,7 @@ impl ClientMessage {
             | Self::TerminalRename { .. }
             | Self::TerminalMove { .. } => TERMINALS_SINCE,
             Self::ListFolder { .. } | Self::MakeFolder { .. } => FOLDERS_SINCE,
+            Self::Notices { .. } => NOTICES_SINCE,
             _ => OLDEST_PROTOCOL_VERSION,
         }
     }
@@ -2462,7 +2475,8 @@ impl ClientMessage {
             | Self::SessionRun { key, .. }
             | Self::SessionShare { key, .. }
             | Self::SessionCd { key, .. }
-            | Self::SessionEnd { key, .. } => Some(*key),
+            | Self::SessionEnd { key, .. }
+            | Self::Notices { key, .. } => Some(*key),
             Self::Hello(_)
             | Self::Phone { .. }
             | Self::Pair { .. }
@@ -2901,6 +2915,11 @@ pub const SHELL_MARKS_SINCE: u32 = 47;
 /// timeline item and the session pill. An older one refuses each, so the
 /// app runs every `!` in a terminal of its own, as before.
 pub const SESSIONS_SINCE: u32 = 48;
+
+/// The protocol version whose `maxd` first keeps a notification log, for
+/// [`ClientMessage::Notices`]. An older one refuses it, so the app lists
+/// nothing earlier from that device.
+pub const NOTICES_SINCE: u32 = 49;
 
 /// When [`ClientMessage::TakeOver`] stops the terminal's CLI.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, Type, JsonSchema)]
@@ -3358,6 +3377,12 @@ pub enum ActionOutcome {
     FolderListed {
         /// The listing.
         listing: FolderListing,
+    },
+
+    /// A page of the notification log, for [`ClientMessage::Notices`].
+    Notices {
+        /// The page.
+        page: NoticePage,
     },
 
     /// An outcome from a newer `maxd`. The action went through, and what

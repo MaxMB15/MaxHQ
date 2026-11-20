@@ -117,20 +117,49 @@ export const badgeReason = (view: ViewState, agent: Agent): BadgeReason | null =
 	}
 };
 
-/** How many agents count, or 0 when the badge is off. */
-export const badgeCount = (view: ViewState, now: Timestamp, prefs: BadgePrefs): number => {
-	if (!prefs.show || prefs.counts.length === 0) return 0;
-	const hidden = hiddenProjects(view);
-	return all(view, "agent").filter((agent) => {
-		if (agent.parent !== null) return false;
-		const reason = badgeReason(view, agent);
-		if (reason === null || !prefs.counts.includes(reason)) return false;
-		const inbox = inboxOf(agent);
-		if (inbox.settled !== null || isSnoozed(inbox, now)) return false;
-		const project = view.tables.workspace.get(agent.workspace)?.project;
-		return !(project && hidden.has(project));
-	}).length;
+/** One agent that counts on the badge. */
+export type BadgeItem = {
+	/** The agent. */
+	readonly agent: Agent;
+	/** The first reason it counts for. */
+	readonly reason: BadgeReason;
+	/** When it started to count: its prompt's time, or its last activity. */
+	readonly since: Timestamp;
 };
+
+/**
+ * Every agent that counts for one of `counts`, the newest first. The badge
+ * and the bell's Now list both read this, so they always agree.
+ */
+export const badgeItems = (
+	view: ViewState,
+	now: Timestamp,
+	counts: readonly BadgeReason[]
+): BadgeItem[] => {
+	if (counts.length === 0) return [];
+	const hidden = hiddenProjects(view);
+	const items: BadgeItem[] = [];
+	for (const agent of all(view, "agent")) {
+		if (agent.parent !== null) continue;
+		const reason = badgeReason(view, agent);
+		if (reason === null || !counts.includes(reason)) continue;
+		const inbox = inboxOf(agent);
+		if (inbox.settled !== null || isSnoozed(inbox, now)) continue;
+		const project = view.tables.workspace.get(agent.workspace)?.project;
+		if (project && hidden.has(project)) continue;
+		const { activity } = agent;
+		const asked =
+			activity.state === "needs_input"
+				? view.tables.attention.get(activity.attention)?.created_at
+				: undefined;
+		items.push({ agent, reason, since: asked ?? agent.last_activity_at });
+	}
+	return items.sort((a, b) => b.since - a.since || a.agent.id.localeCompare(b.agent.id));
+};
+
+/** How many agents count, or 0 when the badge is off. */
+export const badgeCount = (view: ViewState, now: Timestamp, prefs: BadgePrefs): number =>
+	prefs.show ? badgeItems(view, now, prefs.counts).length : 0;
 
 /** How often the count looks again with no change, for a snooze that ran out. */
 export const BADGE_RECHECK_MS = 60_000;

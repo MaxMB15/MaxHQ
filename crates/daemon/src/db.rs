@@ -233,6 +233,12 @@ pub fn migrations() -> Migrations<'static> {
             "CREATE TABLE user_runs (agent TEXT NOT NULL, item TEXT NOT NULL, after TEXT, \
              at INTEGER NOT NULL, record TEXT NOT NULL, PRIMARY KEY (agent, item));",
         ),
+        // The alerts this device raised, for the app's inbox. The newest
+        // 500 stay; Clear empties it.
+        M::up(
+            "CREATE TABLE notices (id INTEGER PRIMARY KEY AUTOINCREMENT, agent TEXT NOT NULL, \
+             at INTEGER NOT NULL, read_at INTEGER, record TEXT NOT NULL);",
+        ),
     ])
 }
 
@@ -1633,6 +1639,11 @@ mod tests {
     #[test]
     fn an_older_database_gains_pull_links_and_keeps_its_rows() {
         an_older_database_gains(13, "pull_links");
+    }
+
+    #[test]
+    fn an_older_database_gains_notices_and_keeps_its_rows() {
+        an_older_database_gains(32, "notices");
     }
 
     #[test]

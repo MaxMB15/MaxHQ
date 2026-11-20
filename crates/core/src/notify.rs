@@ -288,18 +288,25 @@ pub fn title(agent: &Agent) -> String {
     }
 }
 
+/// The name of the agent's project, as far as the view knows it.
+pub fn project_name(agent: &Agent, store: &Store) -> Option<String> {
+    let Some(Entity::Workspace(workspace)) = store.get(&EntityKey::Workspace(agent.workspace))
+    else {
+        return None;
+    };
+    match store.get(&EntityKey::Project(workspace.project?)) {
+        Some(Entity::Project(project)) => Some(project.name.clone()),
+        _ => None,
+    }
+}
+
 /// The agent's project and device, as far as the view knows them.
 pub fn place(agent: &Agent, store: &Store) -> Option<String> {
     let Some(Entity::Workspace(workspace)) = store.get(&EntityKey::Workspace(agent.workspace))
     else {
         return None;
     };
-    let project = workspace
-        .project
-        .and_then(|id| match store.get(&EntityKey::Project(id)) {
-            Some(Entity::Project(project)) => Some(project.name.clone()),
-            _ => None,
-        });
+    let project = project_name(agent, store);
     let device = match store.get(&EntityKey::Device(workspace.device)) {
         Some(Entity::Device(device)) => Some(device.name.clone()),
         _ => None,

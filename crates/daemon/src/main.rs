@@ -75,6 +75,7 @@ mod leases;
 mod moves;
 mod netaccess;
 mod notes;
+mod notices;
 mod observe;
 mod peers;
 mod phones;
@@ -552,6 +553,10 @@ async fn serve() -> Result<Stopped, RunError> {
     secrets::install(secrets.clone());
     spawn_task("the GitHub App check", secrets.clone().run());
     start_push(&hub, &data);
+    spawn_task(
+        "the notification log",
+        notices::watch(hub.clone(), db.clone()),
+    );
     start_phones(&hub, &db, &data);
     start_network_access(&hub, &db, &data, &socket);
     let acp_store = acp_agents::AcpAgents::open(hub.clone(), db.clone(), secrets.clone());

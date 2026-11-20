@@ -5,7 +5,7 @@
 // or its pane takes focus, and a sub-agent opens with its lead's panel,
 // even once it finished.
 // Looking at it marks it seen and clears its Woke marker, by the rule the
-// phone shares.
+// phone shares, and marks its notifications read.
 
 import { askForRequest } from "@/agent-view/request";
 import { type OpenOptions, panesOf } from "@/layout/panes";
@@ -29,8 +29,8 @@ export const markSeenIfLooking = (services: Services, id: AgentId | null): void 
 
 /**
  * Opens an agent's pane or focuses it, selects the agent, opens its
- * slide-out when it has one, marks it seen and clears its Woke
- * marker.
+ * slide-out when it has one, marks it seen, clears its Woke marker and
+ * marks its notifications read.
  */
 export const openAgent = (services: Services, id: AgentId, options?: OpenOptions): void => {
 	// The pane opens first, so a split lands before the selection asks for a tab.
@@ -51,6 +51,7 @@ export const openAgent = (services: Services, id: AgentId, options?: OpenOptions
 	}
 	// Opening it is looking at it, whatever the window's focus says.
 	lookAt(services, id, true);
+	void services.source.readNotices(id);
 };
 
 /**

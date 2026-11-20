@@ -1,6 +1,11 @@
 {
 	"Agents started must be a whole number above 0.": "Agents started must be a whole number above 0.",
 	"Agents at once must be a whole number above 0.": "Agents at once must be a whole number above 0.",
+	"Finished its turn": "Finished its turn",
+	"Hit a usage limit": "Hit a usage limit",
+	"Reported an error": "Reported an error",
+	"Stays until it runs again": "Stays until it runs again",
+	"Stays until you answer it": "Stays until you answer it",
 	"The usage cap must be a percent from 1 to 100.": "The usage cap must be a percent from 1 to 100.",
 	"Days until it expires must be a whole number above 0.": "Days until it expires must be a whole number above 0.",
 	"Depth must be a whole number from 1 to {{MAX_DEPTH}}.": "Depth must be a whole number from 1 to {{MAX_DEPTH}}.",

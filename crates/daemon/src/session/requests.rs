@@ -380,6 +380,7 @@ impl Manager {
             | ClientMessage::TerminalMove { .. }
             | ClientMessage::ListFolder { .. }
             | ClientMessage::MakeFolder { .. }
+            | ClientMessage::Notices { .. }
             | ClientMessage::SessionRun { .. }
             | ClientMessage::SessionShare { .. }
             | ClientMessage::SessionCd { .. }
