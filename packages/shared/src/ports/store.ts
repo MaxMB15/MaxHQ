@@ -30,14 +30,23 @@ const sameNotice = (a: ClosedForward, b: { agent: AgentId; port: number }) =>
 /** Reads what the window remembers about ports. */
 export const usePorts = <T>(selector: (state: PortsState) => T): T => useStore(store, selector);
 
-/** Hides a port's offer. A port that opens again gets a new ID and a new offer. */
-export const dismissPort = (port: PortId) =>
-	store.setState((state) => ({ dismissed: new Set(state.dismissed).add(port) }));
+/** Hides ports' offers. A port that opens again gets a new ID and a new offer. */
+export const dismissPorts = (ports: readonly PortId[]) =>
+	store.setState((state) => ({ dismissed: new Set([...state.dismissed, ...ports]) }));
+
+/** Hides a port's offer. */
+export const dismissPort = (port: PortId) => dismissPorts([port]);
 
 /** Clears the notice that an agent's forward on a port stopped. */
 export const dismissClosed = (agent: AgentId, port: number) =>
 	store.setState((state) => ({
 		closed: state.closed.filter((notice) => !sameNotice(notice, { agent, port })),
+	}));
+
+/** Clears every notice about an agent's forwards that stopped. */
+export const dismissAgentClosed = (agent: AgentId) =>
+	store.setState((state) => ({
+		closed: state.closed.filter((notice) => notice.agent !== agent),
 	}));
 
 /** Remembers forwards that stopped, one notice per agent and port number. */

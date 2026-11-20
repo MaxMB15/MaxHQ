@@ -154,6 +154,21 @@ describe("agent view", () => {
 			await screen.findByText("No messages yet. Send one below to start.")
 		).toBeInTheDocument();
 	});
+
+	it("puts the port prompts under the header, above the conversation", async () => {
+		const agent = sample("agent-gtfs", { control: "held" });
+		show(agent);
+		const ports = await screen.findByRole("region", { name: "Ports" });
+		expect(ports).toHaveTextContent("6 more ports");
+		const header = screen.getByRole("heading", { level: 1 });
+		const conversation = screen.getByRole("region", { name: "Conversation" });
+		const composer = await screen.findByRole("textbox", { name: `Message ${agent.title}` });
+		const follows = (a: Element, b: Element) =>
+			(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0;
+		expect(follows(header, ports)).toBe(true);
+		expect(follows(ports, conversation)).toBe(true);
+		expect(follows(conversation, composer)).toBe(true);
+	});
 });
 
 describe("agent header", () => {

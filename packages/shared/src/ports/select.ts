@@ -53,11 +53,13 @@ export const isUnreachable = (view: ViewState, device: DeviceId, now: Timestamp)
 /** Whether a port still listens, rather than lingering after it closed. */
 export const isOpen = (port: ListeningPort): boolean => port.gone_since === null;
 
+/** The ports an agent's processes listen on, in the order maxd first listed them. */
+export const listedPorts = (view: ViewState, agent: AgentId): ListeningPort[] =>
+	all(view, "listening_port").filter((port) => port.agent === agent && isOpen(port));
+
 /** The ports an agent's processes listen on, lowest first. */
 export const agentPorts = (view: ViewState, agent: AgentId): ListeningPort[] =>
-	all(view, "listening_port")
-		.filter((port) => port.agent === agent && isOpen(port))
-		.sort(byNumber);
+	listedPorts(view, agent).sort(byNumber);
 
 /** Every port that listens in a workspace, lowest first. */
 export const workspacePorts = (view: ViewState, workspace: WorkspaceId): ListeningPort[] =>

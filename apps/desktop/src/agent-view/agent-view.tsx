@@ -2,15 +2,15 @@
 // Copyright (c) 2026 Max Boksem
 
 // One agent's conversation, the same for Claude and Codex: the header, the
-// timeline with its find bar, and the composer or, for a session in a
-// terminal, the banner that says why there's none. A stopped agent gets a
-// Resume banner over its composer, or one that opens the agent it moved
-// to, and a local ACP agent that needs a sign-in gets its sign-in card
-// there. So does a folder still cloning or missing files a copy brought,
-// and the ports its processes listen on sit just above it, under a notice
-// while this Mac's maxd, which runs it, can't be reached. A file dropped or
-// pasted on an answer field goes to the composer. It fills its parent and
-// scrolls on its own, and any number can be open side by side.
+// prompts for the ports its processes listen on, the timeline with its find
+// bar, and the composer or, for a session in a terminal, the banner that
+// says why there's none. A stopped agent gets a Resume banner over its
+// composer, or one that opens the agent it moved to, and a local ACP agent
+// that needs a sign-in gets its sign-in card there. So does a folder still
+// cloning or missing files a copy brought, and a notice while this Mac's
+// maxd, which runs it, can't be reached. A file dropped or pasted on an
+// answer field goes to the composer. It fills its parent and scrolls on its
+// own, and any number can be open side by side.
 
 import { useCallback, useMemo, useState } from "react";
 import { useStore } from "zustand";
@@ -123,6 +123,7 @@ export const AgentView = ({ agent }: { agent: Agent }) => {
 				className="flex h-full min-h-0 w-full min-w-0 flex-col bg-background"
 			>
 				<AgentHeader agent={agent} />
+				<PortOffers agent={agent} />
 				<div className="relative flex min-h-0 flex-1 flex-col">
 					<ErrorBoundary
 						key={`${agent.id}:timeline`}
@@ -154,7 +155,6 @@ export const AgentView = ({ agent }: { agent: Agent }) => {
 				) : canResume(agent) || signIn ? (
 					<ResumeBanner agent={agent} />
 				) : null}
-				<PortOffers agent={agent} />
 				{device ? (
 					<div className="shrink-0 px-7 pb-3.5 empty:hidden">
 						<LocalMaxdNotice device={device} className="mx-auto max-w-[744px]" />
