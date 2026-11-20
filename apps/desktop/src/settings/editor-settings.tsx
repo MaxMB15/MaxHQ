@@ -3,8 +3,9 @@
 
 // The editor settings, kept on this Mac since editors belong to it: which
 // editor the Open in button and file rows' buttons use, or none, how the
-// boxes you type prompts and notes in check spelling, and what Enter does
-// while an agent works. Each change saves as you make it.
+// boxes you type prompts and notes in check spelling, what Enter does
+// while an agent works, and whether agent views offer the ports agents
+// open. Each change saves as you make it.
 
 import { useServices } from "@/app/services";
 import { setDefaultEditor, useDefaultEditor } from "@/agent-view/editor-prefs";
@@ -16,6 +17,7 @@ import { setTypingPrefs, useTypingPrefs } from "@/composer/typing-prefs";
 import { BUSY_SEND_WORDS, type BusySend } from "@maxhq/shared/composer/send";
 
 import { Row, Section } from "./controls";
+import { PORT_PROMPTS_TERMS, PortPromptsSection } from "./port-prompts-settings";
 import { type Choice, Pick as Picker } from "./snooze-presets";
 import { t as translate, useI18n } from "@maxhq/shared/i18n";
 
@@ -42,6 +44,7 @@ export const EDITOR_TERMS: readonly string[] = [
 	"While an agent works, Enter",
 	"Queue",
 	"Steer",
+	...PORT_PROMPTS_TERMS,
 ];
 
 /** The Editor page. */
@@ -77,6 +80,7 @@ export const EditorSettingsPage = () => {
 				</Row>
 			</Section>
 			<TypingSection />
+			<PortPromptsSection />
 		</>
 	);
 };

@@ -5,9 +5,10 @@
 // work that lives as long as the window: keeping the view current, opening
 // an agent when a notification asks, telling the backend what the panes
 // show, noticing auto-settles, saving which shelves are open, keeping the
-// drafts saved, taking up sidebar, editor, typing and dispatcher settings
-// other windows save, giving every plain field the typing settings, handing
-// a run to its lead once one binds it, and keeping the Dock badge's count.
+// drafts saved, taking up sidebar, editor, typing, port prompt and
+// dispatcher settings other windows save, giving every plain field the
+// typing settings, handing a run to its lead once one binds it, and keeping
+// the Dock badge's count.
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { createContext, type ReactNode, useContext, useEffect, useState } from "react";
@@ -21,6 +22,7 @@ import { watchDrafts } from "@/composer/saved-drafts";
 import { watchDispatcherPrefs } from "@/header/dispatcher-prefs";
 import { watchShown } from "@/layout/shown";
 import { watchDockBadge } from "@/native/dock-badge";
+import { watchPortPrompts } from "@/ports/prompts-prefs";
 import { noticesOf } from "@/sidebar/notices";
 import { loadShelves, watchShelves } from "@/sidebar/open-shelves";
 import { watchPrefs } from "@/sidebar/prefs";
@@ -93,6 +95,8 @@ export const ServicesProvider = ({
 	useEffect(() => watchEditorPrefs(services), [services]);
 
 	useEffect(() => watchTypingPrefs(services), [services]);
+
+	useEffect(() => watchPortPrompts(services), [services]);
 
 	const nativeSpelling = useComposerNative().hasNativeSpelling();
 	useEffect(() => watchDocumentTyping(services, nativeSpelling), [services, nativeSpelling]);

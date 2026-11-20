@@ -734,8 +734,30 @@ const attention = (now: Timestamp): AttentionEvent[] => [
 	},
 ];
 
-// The transit map's dev server, which the GTFS agent started, and a
-// database nothing in MaxHQ started, both in the transit container.
+// A server the GTFS agent started in the transit container, seen `ago` ms
+// before the sample view was made.
+const transitPort = (
+	now: Timestamp,
+	port: number,
+	pid: number,
+	name: string,
+	command: string,
+	ago: number
+): ListeningPort => ({
+	id: `port-transit-${port}`,
+	workspace: "ws-alpha",
+	agent: "agent-gtfs",
+	port,
+	bind: { type: "any" },
+	process: { pid, name, command },
+	url_hint: null,
+	first_seen: now - ago,
+	gone_since: null,
+});
+
+// The transit map's dev server and six more servers the GTFS agent started,
+// enough to stack its port prompts, and a database nothing in MaxHQ
+// started, all in the transit container.
 const ports = (now: Timestamp): ListeningPort[] => [
 	{
 		id: "port-transit-vite",
@@ -748,6 +770,12 @@ const ports = (now: Timestamp): ListeningPort[] => [
 		first_seen: now - 4 * MIN,
 		gone_since: null,
 	},
+	transitPort(now, 4000, 2230, "node", "node server/api.js", 5 * MIN),
+	transitPort(now, 8080, 2236, "python3", "python3 -m http.server 8080", 3 * MIN),
+	transitPort(now, 9229, 2242, "node", "node --inspect server/tiles.js", 2 * MIN + 30_000),
+	transitPort(now, 3000, 2248, "node", "node server/tiles.js", 2 * MIN),
+	transitPort(now, 5174, 2254, "node", "vite --host --port 5174", MIN),
+	transitPort(now, 6006, 2260, "storybook", "storybook dev -p 6006", 20_000),
 	{
 		id: "port-transit-postgres",
 		workspace: "ws-alpha",
