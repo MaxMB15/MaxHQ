@@ -1,0 +1,1175 @@
+{
+  "settings": [
+    {
+      "hint": "Light, dark or the Mac's own, kept on this Mac",
+      "id": "settings/appearance",
+      "link": "maxhq://settings/appearance",
+      "terms": [
+        "Colors",
+        "Theme",
+        "System",
+        "Light",
+        "Dark",
+        "Language",
+        "Interface language",
+        "English",
+        "Nederlands",
+        "Deutsch",
+        "Français",
+        "Español"
+      ],
+      "title": "Appearance"
+    },
+    {
+      "hint": "How the sidebar lists agents, kept on this Mac",
+      "id": "settings/sidebar",
+      "link": "maxhq://settings/sidebar",
+      "terms": [
+        "Shelves",
+        "Working shelf",
+        "Fold busy agents into a Working shelf",
+        "Snooze options"
+      ],
+      "title": "Sidebar"
+    },
+    {
+      "hint": "Where workspaces and files open, kept on this Mac",
+      "id": "settings/editor",
+      "link": "maxhq://settings/editor",
+      "terms": [
+        "Open in",
+        "Default editor",
+        "Last used",
+        "Cursor",
+        "VS Code",
+        "Typing",
+        "Check spelling",
+        "Correct spelling automatically",
+        "While an agent works, Enter",
+        "Queue",
+        "Steer"
+      ],
+      "title": "Editor"
+    },
+    {
+      "hint": "Which account answers the box at the top, kept on this Mac",
+      "id": "settings/dispatcher",
+      "link": "maxhq://settings/dispatcher",
+      "terms": [
+        "Account",
+        "Runs as"
+      ],
+      "title": "Dispatcher"
+    },
+    {
+      "hint": "What agents and tools may do when they run agents through MaxHQ",
+      "id": "settings/agent-tools",
+      "link": "maxhq://settings/agent-tools",
+      "terms": [
+        "New permissions",
+        "Depth",
+        "Agents started",
+        "Agents at once",
+        "Usage cap",
+        "Expires after",
+        "Devices",
+        "Vendors",
+        "Accounts",
+        "Places",
+        "Test hosts",
+        "Agents allowed to run agents",
+        "Access keys",
+        "For tools outside MaxHQ, such as a bot",
+        "New access key",
+        "Key name",
+        "Copy MCP command",
+        "Revoke"
+      ],
+      "title": "Agent tools"
+    },
+    {
+      "hint": "Prompts each device sends to an agent on a timer, a webhook or GitHub events",
+      "id": "settings/scheduled-tasks",
+      "link": "maxhq://settings/scheduled-tasks",
+      "terms": [
+        "New task",
+        "Prompt",
+        "When it runs",
+        "Webhook",
+        "Rotate URL",
+        "Requests it takes",
+        "Where it goes",
+        "History"
+      ],
+      "title": "Scheduled tasks"
+    },
+    {
+      "hint": "Which devices run each kind of test machine for the agents there",
+      "id": "settings/test-hosts",
+      "link": "maxhq://settings/test-hosts",
+      "terms": [
+        "iOS Simulator",
+        "Android emulator",
+        "Linux",
+        "macOS VM"
+      ],
+      "title": "Test hosts"
+    },
+    {
+      "hint": "The skills projects pick from, and the ones every agent gets",
+      "id": "settings/skills",
+      "link": "maxhq://settings/skills",
+      "terms": [
+        "Sources",
+        "Add a source",
+        "Repo or folder",
+        "Branch or tag",
+        "A third party's skills",
+        "Every agent",
+        "Skills every agent gets",
+        "Global skills"
+      ],
+      "title": "Skills"
+    },
+    {
+      "hint": "Which alerts this Mac shows, and which of them play a sound",
+      "id": "settings/notifications",
+      "link": "maxhq://settings/notifications",
+      "terms": [
+        "Show notifications",
+        "Send a test notification",
+        "System Settings",
+        "Alerts",
+        "Needs input",
+        "Error",
+        "Finished",
+        "Limit",
+        "Sounds",
+        "Prompts",
+        "Other alerts",
+        "Dock badge",
+        "Show the badge",
+        "Waiting on you",
+        "Finished",
+        "Failed or stopped with an error"
+      ],
+      "title": "Notifications"
+    },
+    {
+      "hint": "This app's version, and when it looks for a newer one",
+      "id": "settings/updates",
+      "link": "maxhq://settings/updates",
+      "terms": [
+        "Check for updates automatically",
+        "Check now",
+        "Update now",
+        "Version"
+      ],
+      "title": "Updates"
+    },
+    {
+      "hint": "The phones that reach your devices, and a code to pair a new one",
+      "id": "settings/phones",
+      "link": "maxhq://settings/phones",
+      "terms": [
+        "Add phone",
+        "Scan the code with MaxHQ on the phone",
+        "Pairing code",
+        "Devices the phone can reach",
+        "Pair through",
+        "Address for the phone",
+        "Let this phone do everything",
+        "New code"
+      ],
+      "title": "Phones"
+    },
+    {
+      "hint": "The keys MaxHQ listens for. ⌘/ shows them over any view.",
+      "id": "settings/shortcuts",
+      "link": "maxhq://settings/shortcuts",
+      "terms": [
+        "General",
+        "Agents",
+        "Sidebar",
+        "Inbox",
+        "Panes",
+        "Find",
+        "Composer",
+        "Notes",
+        "Other",
+        "Show keyboard shortcuts",
+        "Open settings",
+        "New agent",
+        "Open the next agent waiting on you",
+        "Start the agent, in the New agent form",
+        "Pick the main option, on an approval card with focus",
+        "Pick that option, on a question card with focus",
+        "Show or hide the sidebar",
+        "Filter the agents",
+        "Open the first agent the filter shows",
+        "Clear the filter, then leave it",
+        "Resize the sidebar, on its edge with focus",
+        "Move between the agents, on an agent with focus",
+        "Open the agent, on an agent with focus",
+        "Settle and go to the next agent waiting, or settle the picked ones",
+        "Pin or unpin the chosen agents",
+        "Undo the last change, while its notice shows",
+        "Move to the pane on that side",
+        "Next tab",
+        "Previous tab",
+        "Show the tab at that place, 9 for the last",
+        "Split right",
+        "Split down",
+        "Maximize or restore the pane",
+        "Close the tab",
+        "Reopen the last closed tab",
+        "Show or hide the terminal",
+        "Jump to the previous or next command, in a terminal",
+        "Find in the conversation",
+        "Next or previous match",
+        "Close find",
+        "Send, or queue while the agent works",
+        "Send at once to steer the agent",
+        "New line",
+        "Edit the last queued message, from an empty composer",
+        "Bring back an earlier message, with the caret at the start",
+        "Stop the agent's turn",
+        "Attach files",
+        "Move the lines up or down, in a note",
+        "Copy the lines up or down, in a note"
+      ],
+      "title": "Keyboard shortcuts"
+    },
+    {
+      "hint": "A setup-token from a Mac login, for Claude Code in containers",
+      "id": "settings/claude",
+      "link": "maxhq://settings/claude",
+      "terms": [
+        "Sign in again",
+        "Send a token",
+        "Mac login",
+        "Account",
+        "Run this in Terminal on the Mac",
+        "Setup-token",
+        "Tokens devices hold"
+      ],
+      "title": "Claude in workspaces"
+    },
+    {
+      "hint": "Each device's own Codex sign-in, for Codex in containers",
+      "id": "settings/codex",
+      "link": "maxhq://settings/codex",
+      "terms": [
+        "Sign in again",
+        "Sign in",
+        "Continue with ChatGPT",
+        "Sessions devices hold",
+        "Sign out"
+      ],
+      "title": "Codex in workspaces"
+    },
+    {
+      "hint": "The Mac's own Cursor login, and an API key for Cursor in containers",
+      "id": "settings/cursor",
+      "link": "maxhq://settings/cursor",
+      "terms": [
+        "Sign in again",
+        "On the Mac",
+        "Send an API key",
+        "API key",
+        "Keys devices hold"
+      ],
+      "title": "Cursor in workspaces"
+    },
+    {
+      "hint": "The App for pushes from workspaces and # lookups, and the repos it reaches",
+      "id": "settings/github",
+      "link": "maxhq://settings/github",
+      "terms": [
+        "Send the App",
+        "App ID",
+        "Private key",
+        "Apps devices hold",
+        "Merge and approve as you",
+        "Sign in to GitHub"
+      ],
+      "title": "GitHub App"
+    },
+    {
+      "hint": "The Apple key each device signs its pushes to your phones with",
+      "id": "settings/apns",
+      "link": "maxhq://settings/apns",
+      "terms": [
+        "Send the key",
+        "Key ID",
+        "Team ID",
+        "Private key",
+        "Push keys devices hold"
+      ],
+      "title": "Phone pushes"
+    },
+    {
+      "id": "settings/project",
+      "link": "maxhq://project/{project}",
+      "terms": [
+        "General",
+        "Workspaces",
+        "Resume after a restart",
+        "Ports never offered",
+        "Auto-settle after",
+        "Settle an agent when its PR merges",
+        "Give agents the workflow's variables",
+        "Memory per container",
+        "Commit author",
+        "Allowed commands"
+      ],
+      "title": "A project's settings"
+    },
+    {
+      "id": "settings/project-skills",
+      "link": "maxhq://project/{project}/skills",
+      "terms": [
+        "Skills",
+        "Proposals",
+        "Library",
+        "What each CLI sees",
+        "This project",
+        "Devflow pack",
+        "Add from project",
+        "Commit the skills"
+      ],
+      "title": "A project's skills"
+    },
+    {
+      "id": "settings/device/new-agents",
+      "link": "maxhq://device/{device}/new-agents",
+      "terms": [
+        "Default mode",
+        "Effort"
+      ],
+      "title": "New agents"
+    },
+    {
+      "id": "settings/device/inbox",
+      "link": "maxhq://device/{device}/inbox",
+      "terms": [
+        "Auto-settle after",
+        "Snooze at the limit"
+      ],
+      "title": "Inbox"
+    },
+    {
+      "id": "settings/device/limits",
+      "link": "maxhq://device/{device}/limits",
+      "terms": [
+        "Continue after the limit"
+      ],
+      "title": "Usage limits"
+    },
+    {
+      "id": "settings/device/placement",
+      "link": "maxhq://device/{device}/placement",
+      "terms": [
+        "New agents you don't place"
+      ],
+      "title": "Placement"
+    },
+    {
+      "id": "settings/device/idle",
+      "link": "maxhq://device/{device}/idle",
+      "terms": [
+        "Stop idle CLIs after"
+      ],
+      "title": "Idle agents"
+    },
+    {
+      "id": "settings/device/memory",
+      "link": "maxhq://device/{device}/memory",
+      "terms": [
+        "Recent items kept in memory per agent",
+        "History kept per agent"
+      ],
+      "title": "Memory"
+    },
+    {
+      "id": "settings/device/terminals",
+      "link": "maxhq://device/{device}/terminals",
+      "terms": [
+        "Shell integration"
+      ],
+      "title": "Terminals"
+    },
+    {
+      "id": "settings/device/setup-tokens",
+      "link": "maxhq://device/{device}/setup-tokens",
+      "terms": [
+        "Take setup-tokens"
+      ],
+      "title": "Claude setup-tokens"
+    },
+    {
+      "id": "settings/device/sleep",
+      "link": "maxhq://device/{device}/sleep",
+      "terms": [
+        "Keep this Mac awake"
+      ],
+      "title": "Sleep"
+    },
+    {
+      "id": "settings/device/cursor",
+      "link": "maxhq://device/{device}/cursor",
+      "terms": [
+        "Enable Cursor usage"
+      ],
+      "title": "Cursor usage"
+    },
+    {
+      "id": "settings/device/workspaces",
+      "link": "maxhq://device/{device}/workspaces",
+      "terms": [
+        "Network",
+        "Storage pool"
+      ],
+      "title": "New workspaces"
+    },
+    {
+      "id": "settings/device/library",
+      "link": "maxhq://device/{device}/library",
+      "terms": [
+        "Holds the skill library"
+      ],
+      "title": "Skill library"
+    },
+    {
+      "id": "settings/device/network",
+      "link": "maxhq://device/{device}/network",
+      "terms": [
+        "Port",
+        "Addresses for phones"
+      ],
+      "title": "Network access"
+    },
+    {
+      "id": "settings/device/app-keys",
+      "link": "maxhq://device/{device}/app-keys",
+      "terms": [
+        "This Mac's app key",
+        "Make a new app key"
+      ],
+      "title": "App keys"
+    }
+  ],
+  "shortcuts": [
+    {
+      "group": "General",
+      "id": "shortcut/show-keyboard-shortcuts",
+      "keys": [
+        "⌘/"
+      ],
+      "link": "maxhq://settings/shortcuts",
+      "title": "Show keyboard shortcuts"
+    },
+    {
+      "group": "General",
+      "id": "shortcut/open-settings",
+      "keys": [
+        "⌘,"
+      ],
+      "link": "maxhq://settings/shortcuts",
+      "title": "Open settings"
+    },
+    {
+      "group": "Agents",
+      "id": "shortcut/new-agent",
+      "keys": [
+        "⌘N"
+      ],
+      "link": "maxhq://settings/shortcuts",
+      "title": "New agent"
+    },
+    {
+      "group": "Agents",
+      "id": "shortcut/open-the-next-agent-waiting-on-you",
+      "keys": [
+        "⌘J"
+      ],
+      "link": "maxhq://settings/shortcuts",
+      "title": "Open the next agent waiting on you"
+    },
+    {
+      "group": "Agents",
+      "id": "shortcut/start-the-agent-in-the-new-agent-form",
+      "keys": [
+        "⌘⏎"
+      ],
+      "link": "maxhq://settings/shortcuts",
+      "title": "Start the agent, in the New agent form"
+    },
+    {
+      "group": "Agents",
+      "id": "shortcut/pick-the-main-option-on-an-approval-card-with-focus",
+      "keys": [
+        "⏎"
+      ],
+      "link": "maxhq://settings/shortcuts",
+      "title": "Pick the main option, on an approval card with focus"
+    },
+    {
+      "group": "Agents",
+      "id": "shortcut/pick-that-option-on-a-question-card-with-focus",
+      "keys": [
+        "1–9"
+      ],
+      "link": "maxhq://settings/shortcuts",
+      "title": "Pick that option, on a question card with focus"
+    },
+    {
+      "group": "Sidebar",
+      "id": "shortcut/show-or-hide-the-sidebar",
+      "keys": [
+        "⌘B"
+      ],
+      "link": "maxhq://settings/shortcuts",
+      "title": "Show or hide the sidebar"
+    },
+    {
+      "group": "Sidebar",
+      "id": "shortcut/filter-the-agents",
+      "keys": [
+        "⌥⌘F"
+      ],
+      "link": "maxhq://settings/shortcuts",
+      "title": "Filter the agents"
+    },
+    {
+      "group": "Sidebar",
+      "id": "shortcut/open-the-first-agent-the-filter-shows",
+      "keys": [
+        "⏎"
+      ],
+      "link": "maxhq://settings/shortcuts",
+      "title": "Open the first agent the filter shows"
+    },
+    {
+      "group": "Sidebar",
+      "id": "shortcut/clear-the-filter-then-leave-it",
+      "keys": [
+        "Esc"
+      ],
+      "link": "maxhq://settings/shortcuts",
+      "title": "Clear the filter, then leave it"
+    },
+    {
+      "group": "Sidebar",
+      "id": "shortcut/resize-the-sidebar-on-its-edge-with-focus",
+      "keys": [
+        "←→"
+      ],
+      "link": "maxhq://settings/shortcuts",
+      "title": "Resize the sidebar, on its edge with focus"
+    },
+    {
+      "group": "Sidebar",
+      "id": "shortcut/move-between-the-agents-on-an-agent-with-focus",
+      "keys": [
+        "↑↓"
+      ],
+      "link": "maxhq://settings/shortcuts",
+      "title": "Move between the agents, on an agent with focus"
+    },
+    {
+      "group": "Sidebar",
+      "id": "shortcut/open-the-agent-on-an-agent-with-focus",
+      "keys": [
+        "⏎"
+      ],
+      "link": "maxhq://settings/shortcuts",
+      "title": "Open the agent, on an agent with focus"
+    },
+    {
+      "group": "Inbox",
+      "id": "shortcut/settle-and-go-to-the-next-agent-waiting-or-settle-the-picked-ones",
+      "keys": [
+        "⇧⌘S"
+      ],
+      "link": "maxhq://settings/shortcuts",
+      "title": "Settle and go to the next agent waiting, or settle the picked ones"
+    },
+    {
+      "group": "Inbox",
+      "id": "shortcut/pin-or-unpin-the-chosen-agents",
+      "keys": [
+        "⇧⌘P"
+      ],
+      "link": "maxhq://settings/shortcuts",
+      "title": "Pin or unpin the chosen agents"
+    },
+    {
+      "group": "Inbox",
+      "id": "shortcut/undo-the-last-change-while-its-notice-shows",
+      "keys": [
+        "⌘Z"
+      ],
+      "link": "maxhq://settings/shortcuts",
+      "title": "Undo the last change, while its notice shows"
+    },
+    {
+      "group": "Panes",
+      "id": "shortcut/move-to-the-pane-on-that-side",
+      "keys": [
+        "⌥⌘←→↑↓"
+      ],
+      "link": "maxhq://settings/shortcuts",
+      "title": "Move to the pane on that side"
+    },
+    {
+      "group": "Panes",
+      "id": "shortcut/next-tab",
+      "keys": [
+        "⇧⌘]"
+      ],
+      "link": "maxhq://settings/shortcuts",
+      "title": "Next tab"
+    },
+    {
+      "group": "Panes",
+      "id": "shortcut/previous-tab",
+      "keys": [
+        "⇧⌘["
+      ],
+      "link": "maxhq://settings/shortcuts",
+      "title": "Previous tab"
+    },
+    {
+      "group": "Panes",
+      "id": "shortcut/show-the-tab-at-that-place-9-for-the-last",
+      "keys": [
+        "⌘1–9"
+      ],
+      "link": "maxhq://settings/shortcuts",
+      "title": "Show the tab at that place, 9 for the last"
+    },
+    {
+      "group": "Panes",
+      "id": "shortcut/split-right",
+      "keys": [
+        "⌘D"
+      ],
+      "link": "maxhq://settings/shortcuts",
+      "title": "Split right"
+    },
+    {
+      "group": "Panes",
+      "id": "shortcut/split-down",
+      "keys": [
+        "⇧⌘D"
+      ],
+      "link": "maxhq://settings/shortcuts",
+      "title": "Split down"
+    },
+    {
+      "group": "Panes",
+      "id": "shortcut/maximize-or-restore-the-pane",
+      "keys": [
+        "⇧⌘M"
+      ],
+      "link": "maxhq://settings/shortcuts",
+      "title": "Maximize or restore the pane"
+    },
+    {
+      "group": "Panes",
+      "id": "shortcut/close-the-tab",
+      "keys": [
+        "⇧⌘W"
+      ],
+      "link": "maxhq://settings/shortcuts",
+      "title": "Close the tab"
+    },
+    {
+      "group": "Panes",
+      "id": "shortcut/reopen-the-last-closed-tab",
+      "keys": [
+        "⇧⌘T"
+      ],
+      "link": "maxhq://settings/shortcuts",
+      "title": "Reopen the last closed tab"
+    },
+    {
+      "group": "Panes",
+      "id": "shortcut/show-or-hide-the-terminal",
+      "keys": [
+        "⌃`"
+      ],
+      "link": "maxhq://settings/shortcuts",
+      "title": "Show or hide the terminal"
+    },
+    {
+      "group": "Panes",
+      "id": "shortcut/jump-to-the-previous-or-next-command-in-a-terminal",
+      "keys": [
+        "⌘↑",
+        "⌘↓"
+      ],
+      "link": "maxhq://settings/shortcuts",
+      "title": "Jump to the previous or next command, in a terminal"
+    },
+    {
+      "group": "Find",
+      "id": "shortcut/find-in-the-conversation",
+      "keys": [
+        "⌘F"
+      ],
+      "link": "maxhq://settings/shortcuts",
+      "title": "Find in the conversation"
+    },
+    {
+      "group": "Find",
+      "id": "shortcut/next-or-previous-match",
+      "keys": [
+        "⏎",
+        "⇧⏎"
+      ],
+      "link": "maxhq://settings/shortcuts",
+      "title": "Next or previous match"
+    },
+    {
+      "group": "Find",
+      "id": "shortcut/close-find",
+      "keys": [
+        "Esc"
+      ],
+      "link": "maxhq://settings/shortcuts",
+      "title": "Close find"
+    },
+    {
+      "group": "Composer",
+      "id": "shortcut/send-or-queue-while-the-agent-works",
+      "keys": [
+        "⏎"
+      ],
+      "link": "maxhq://settings/shortcuts",
+      "title": "Send, or queue while the agent works"
+    },
+    {
+      "group": "Composer",
+      "id": "shortcut/send-at-once-to-steer-the-agent",
+      "keys": [
+        "⌘⏎"
+      ],
+      "link": "maxhq://settings/shortcuts",
+      "title": "Send at once to steer the agent"
+    },
+    {
+      "group": "Composer",
+      "id": "shortcut/new-line",
+      "keys": [
+        "⇧⏎",
+        "⌥⏎"
+      ],
+      "link": "maxhq://settings/shortcuts",
+      "title": "New line"
+    },
+    {
+      "group": "Composer",
+      "id": "shortcut/edit-the-last-queued-message-from-an-empty-composer",
+      "keys": [
+        "↑"
+      ],
+      "link": "maxhq://settings/shortcuts",
+      "title": "Edit the last queued message, from an empty composer"
+    },
+    {
+      "group": "Composer",
+      "id": "shortcut/bring-back-an-earlier-message-with-the-caret-at-the-start",
+      "keys": [
+        "↑",
+        "↓"
+      ],
+      "link": "maxhq://settings/shortcuts",
+      "title": "Bring back an earlier message, with the caret at the start"
+    },
+    {
+      "group": "Composer",
+      "id": "shortcut/stop-the-agent-s-turn",
+      "keys": [
+        "⌘."
+      ],
+      "link": "maxhq://settings/shortcuts",
+      "title": "Stop the agent's turn"
+    },
+    {
+      "group": "Composer",
+      "id": "shortcut/attach-files",
+      "keys": [
+        "⌘U"
+      ],
+      "link": "maxhq://settings/shortcuts",
+      "title": "Attach files"
+    },
+    {
+      "group": "Notes",
+      "id": "shortcut/move-the-lines-up-or-down-in-a-note",
+      "keys": [
+        "⌥↑",
+        "⌥↓"
+      ],
+      "link": "maxhq://settings/shortcuts",
+      "title": "Move the lines up or down, in a note"
+    },
+    {
+      "group": "Notes",
+      "id": "shortcut/copy-the-lines-up-or-down-in-a-note",
+      "keys": [
+        "⌥⇧↑",
+        "⌥⇧↓"
+      ],
+      "link": "maxhq://settings/shortcuts",
+      "title": "Copy the lines up or down, in a note"
+    }
+  ],
+  "tools": [
+    {
+      "agents": true,
+      "description": "Show files to the user.",
+      "dispatcher": false,
+      "id": "tool/send_attachments",
+      "link": "maxhq://settings/agent-tools",
+      "name": "send_attachments",
+      "title": "Send attachments"
+    },
+    {
+      "agents": true,
+      "description": "Open a file in MaxHQ's file viewer for the user.",
+      "dispatcher": false,
+      "id": "tool/open_file",
+      "link": "maxhq://settings/agent-tools",
+      "name": "open_file",
+      "title": "Open a file"
+    },
+    {
+      "agents": true,
+      "description": "Show the user a web page you made, such as a chart, diagram or mockup.",
+      "dispatcher": false,
+      "id": "tool/show_visual",
+      "link": "maxhq://settings/agent-tools",
+      "name": "show_visual",
+      "title": "Show a visual"
+    },
+    {
+      "agents": true,
+      "description": "Read the conversation of another MaxHQ agent the user attached to one of your messages, as an [Agent: title] entry.",
+      "dispatcher": true,
+      "id": "tool/read_agent",
+      "link": "maxhq://settings/agent-tools",
+      "name": "read_agent",
+      "title": "Read an agent"
+    },
+    {
+      "agents": true,
+      "description": "Lists what you may start agents with and where: the devices, vendors, accounts, workspaces and models you're allowed, how many levels of agents you may still start, and any limits on you.",
+      "dispatcher": true,
+      "id": "tool/list_targets",
+      "link": "maxhq://settings/agent-tools",
+      "name": "list_targets",
+      "title": "List where agents can start"
+    },
+    {
+      "agents": true,
+      "description": "Lists the MaxHQ agents on the devices you're allowed, newest activity first, one line each: id, title, vendor, device, state, context used and the last reply.",
+      "dispatcher": true,
+      "id": "tool/list_agents",
+      "link": "maxhq://settings/agent-tools",
+      "name": "list_agents",
+      "title": "List agents"
+    },
+    {
+      "agents": true,
+      "description": "Starts a new MaxHQ agent with a task and returns its id.",
+      "dispatcher": false,
+      "id": "tool/start_agent",
+      "link": "maxhq://settings/agent-tools",
+      "name": "start_agent",
+      "title": "Start an agent"
+    },
+    {
+      "agents": true,
+      "description": "Sends a message to a MaxHQ agent.",
+      "dispatcher": false,
+      "id": "tool/send_agent",
+      "link": "maxhq://settings/agent-tools",
+      "name": "send_agent",
+      "title": "Message an agent"
+    },
+    {
+      "agents": true,
+      "description": "Waits until each of the agents you name finishes its turn, needs input or stops, up to `timeout_seconds`, 600 by default and 3600 at most.",
+      "dispatcher": false,
+      "id": "tool/wait_agent",
+      "link": "maxhq://settings/agent-tools",
+      "name": "wait_agent",
+      "title": "Wait for agents"
+    },
+    {
+      "agents": true,
+      "description": "Stops a MaxHQ agent's turn.",
+      "dispatcher": false,
+      "id": "tool/interrupt_agent",
+      "link": "maxhq://settings/agent-tools",
+      "name": "interrupt_agent",
+      "title": "Stop an agent"
+    },
+    {
+      "agents": true,
+      "description": "Moves a MaxHQ agent to another device, once the user approves it in MaxHQ.",
+      "dispatcher": false,
+      "id": "tool/move_agent",
+      "link": "maxhq://settings/agent-tools",
+      "name": "move_agent",
+      "title": "Move an agent to another device"
+    },
+    {
+      "agents": true,
+      "description": "Makes a scheduled task, which runs a prompt with nobody watching: on a timer, when a webhook gets a request or when a GitHub repository has new events.",
+      "dispatcher": false,
+      "id": "tool/schedule_task",
+      "link": "maxhq://settings/agent-tools",
+      "name": "schedule_task",
+      "title": "Schedule a task"
+    },
+    {
+      "agents": true,
+      "description": "Lists the scheduled tasks on the devices you're allowed, with each one's id, schedule, next run and last run.",
+      "dispatcher": true,
+      "id": "tool/list_tasks",
+      "link": "maxhq://settings/agent-tools",
+      "name": "list_tasks",
+      "title": "List scheduled tasks"
+    },
+    {
+      "agents": true,
+      "description": "Deletes a scheduled task by its id.",
+      "dispatcher": false,
+      "id": "tool/delete_task",
+      "link": "maxhq://settings/agent-tools",
+      "name": "delete_task",
+      "title": "Delete a scheduled task"
+    },
+    {
+      "agents": true,
+      "description": "Runs a scheduled task now, whatever its schedule, once the user approved it and it's on.",
+      "dispatcher": false,
+      "id": "tool/run_task_now",
+      "link": "maxhq://settings/agent-tools",
+      "name": "run_task_now",
+      "title": "Run a scheduled task now"
+    },
+    {
+      "agents": true,
+      "description": "Links a pull request in your repository to you by its number, so the user sees it with you.",
+      "dispatcher": false,
+      "id": "tool/link_pull_request",
+      "link": "maxhq://settings/agent-tools",
+      "name": "link_pull_request",
+      "title": "Link a pull request"
+    },
+    {
+      "agents": true,
+      "description": "Unlinks a pull request from you by its number.",
+      "dispatcher": false,
+      "id": "tool/unlink_pull_request",
+      "link": "maxhq://settings/agent-tools",
+      "name": "unlink_pull_request",
+      "title": "Unlink a pull request"
+    },
+    {
+      "agents": true,
+      "description": "Lists the pull requests linked to you, with each one's state and checks.",
+      "dispatcher": false,
+      "id": "tool/list_pull_requests",
+      "link": "maxhq://settings/agent-tools",
+      "name": "list_pull_requests",
+      "title": "List your pull requests"
+    },
+    {
+      "agents": true,
+      "description": "MaxHQ wakes you when checks fail, every check passes, new comments or reviews arrive, or the PR conflicts.",
+      "dispatcher": false,
+      "id": "tool/watch_pull_request",
+      "link": "maxhq://settings/agent-tools",
+      "name": "watch_pull_request",
+      "title": "Watch a pull request"
+    },
+    {
+      "agents": true,
+      "description": "Stops waking you for a pull request.",
+      "dispatcher": false,
+      "id": "tool/unwatch_pull_request",
+      "link": "maxhq://settings/agent-tools",
+      "name": "unwatch_pull_request",
+      "title": "Stop watching a pull request"
+    },
+    {
+      "agents": true,
+      "description": "Lists the test machines this device hosts: iOS Simulators, Android emulators, Linux containers and macOS VMs, with whether each is ready, what it lacks, and how many wait for it.",
+      "dispatcher": false,
+      "id": "tool/list_test_hosts",
+      "link": "maxhq://settings/agent-tools",
+      "name": "list_test_hosts",
+      "title": "List test hosts"
+    },
+    {
+      "agents": true,
+      "description": "Leases a test machine of one kind on this device for you alone, waiting in line while it's busy.",
+      "dispatcher": false,
+      "id": "tool/lease_open",
+      "link": "maxhq://settings/agent-tools",
+      "name": "lease_open",
+      "title": "Lease a test machine"
+    },
+    {
+      "agents": true,
+      "description": "Runs one command on a leased machine and answers its exit code and output.",
+      "dispatcher": false,
+      "id": "tool/lease_run",
+      "link": "maxhq://settings/agent-tools",
+      "name": "lease_run",
+      "title": "Run a command on a leased machine"
+    },
+    {
+      "agents": true,
+      "description": "Takes a PNG of a leased machine's screen, scaled to at most 1280 pixels on its long edge, and shows it to you.",
+      "dispatcher": false,
+      "id": "tool/lease_screenshot",
+      "link": "maxhq://settings/agent-tools",
+      "name": "lease_screenshot",
+      "title": "Screenshot a leased machine"
+    },
+    {
+      "agents": true,
+      "description": "Installs an app on a leased machine from your working folder: a .app folder or .ipa for a Simulator, an .apk for an emulator, or any file or folder for a Linux container, up to 4 GiB.",
+      "dispatcher": false,
+      "id": "tool/lease_install",
+      "link": "maxhq://settings/agent-tools",
+      "name": "lease_install",
+      "title": "Install an app on a leased machine"
+    },
+    {
+      "agents": true,
+      "description": "Ends one of your leases and frees the machine for the next caller.",
+      "dispatcher": false,
+      "id": "tool/lease_close",
+      "link": "maxhq://settings/agent-tools",
+      "name": "lease_close",
+      "title": "End a lease"
+    },
+    {
+      "agents": true,
+      "description": "Lists your project's notes: each one's id, title and size, and when and by whom it last changed.",
+      "dispatcher": false,
+      "id": "tool/list_notes",
+      "link": "maxhq://settings/agent-tools",
+      "name": "list_notes",
+      "title": "List notes"
+    },
+    {
+      "agents": true,
+      "description": "Reads one of your project's notes in Markdown.",
+      "dispatcher": false,
+      "id": "tool/read_note",
+      "link": "maxhq://settings/agent-tools",
+      "name": "read_note",
+      "title": "Read a note"
+    },
+    {
+      "agents": true,
+      "description": "Makes a note in your project with a title and a Markdown body, and gives its id.",
+      "dispatcher": false,
+      "id": "tool/create_note",
+      "link": "maxhq://settings/agent-tools",
+      "name": "create_note",
+      "title": "Create a note"
+    },
+    {
+      "agents": true,
+      "description": "Changes one of your project's notes: replaces `old_string` with `new_string` in its body.",
+      "dispatcher": false,
+      "id": "tool/edit_note",
+      "link": "maxhq://settings/agent-tools",
+      "name": "edit_note",
+      "title": "Edit a note"
+    },
+    {
+      "agents": false,
+      "description": "Lists the open pull requests in a project's GitHub repository: each one's number, title, author's login, whether it's a draft, when it last changed and its link, then each author once.",
+      "dispatcher": true,
+      "id": "tool/list_repo_pull_requests",
+      "link": "maxhq://settings/dispatcher",
+      "name": "list_repo_pull_requests",
+      "title": "List a project's pull requests"
+    },
+    {
+      "agents": false,
+      "description": "Shows the user a plan under the bar, with one line for each item.",
+      "dispatcher": true,
+      "id": "tool/submit_plan",
+      "link": "maxhq://settings/dispatcher",
+      "name": "submit_plan",
+      "title": "Submit a plan"
+    },
+    {
+      "agents": false,
+      "description": "Searches MaxHQ's guide, the manual for this version, for how to do something or where something is.",
+      "dispatcher": true,
+      "id": "tool/search_guide",
+      "link": "maxhq://settings/dispatcher",
+      "name": "search_guide",
+      "title": "Search the guide"
+    },
+    {
+      "agents": false,
+      "description": "Reads one section of MaxHQ's guide, by the id search_guide gives: its whole text and the links that open its views in the app.",
+      "dispatcher": true,
+      "id": "tool/read_guide",
+      "link": "maxhq://settings/dispatcher",
+      "name": "read_guide",
+      "title": "Read a guide section"
+    }
+  ],
+  "views": [
+    {
+      "id": "view/projects",
+      "link": "maxhq://view/projects",
+      "title": "Projects"
+    },
+    {
+      "id": "view/devices",
+      "link": "maxhq://view/devices",
+      "title": "Devices"
+    },
+    {
+      "id": "view/agent",
+      "link": "maxhq://agent/{agent}",
+      "title": "An agent"
+    },
+    {
+      "id": "view/pulls",
+      "link": "maxhq://project/{project}/pulls",
+      "title": "A project's pull requests"
+    },
+    {
+      "id": "view/note",
+      "link": "maxhq://note/{project}/{note}",
+      "title": "A note"
+    },
+    {
+      "id": "view/device",
+      "link": "maxhq://device/{device}",
+      "title": "A device's page"
+    },
+    {
+      "id": "view/settings",
+      "link": "maxhq://settings",
+      "title": "Settings"
+    }
+  ]
+}

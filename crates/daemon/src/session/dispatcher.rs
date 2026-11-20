@@ -32,6 +32,7 @@ use tracing::warn;
 use super::agent_tools::{
     account_card, failure, no_account, workspace_card, Later, Reply, NO_CONN, NO_PLACE,
 };
+use super::dispatcher_guide;
 use super::idem::{Outcome, Seen};
 use super::move_agent::ALREADY_THERE;
 use super::scheduled::system_zone;
@@ -478,6 +479,8 @@ impl Manager {
             Call::ListTasks => Ok(self.task_list(|_| true)),
             Call::ListRepoPullRequests(repo) => return self.repo_pulls(reply, repo),
             Call::SubmitPlan(submit) => self.submit_plan(lead, submit),
+            Call::SearchGuide(query) => Ok(dispatcher_guide::search(&query)),
+            Call::ReadGuide(id) => dispatcher_guide::read(&id),
             _ => Err(ONLY_READS.to_owned()),
         };
         self.reply_now(reply, text);

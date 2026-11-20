@@ -18,6 +18,7 @@ pub mod clock;
 mod command_rules;
 mod consent;
 pub mod dispatcher;
+mod dispatcher_guide;
 mod drivers;
 mod finds;
 mod folders;

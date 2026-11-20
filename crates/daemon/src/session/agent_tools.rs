@@ -746,7 +746,9 @@ impl Manager {
             | Call::OpenFile(_)
             | Call::ShowVisual(_)
             | Call::ListRepoPullRequests(_)
-            | Call::SubmitPlan(_) => {
+            | Call::SubmitPlan(_)
+            | Call::SearchGuide(_)
+            | Call::ReadGuide(_) => {
                 self.reply_now(reply, Err(NOT_ALLOWED.into()));
             }
             Call::ScheduleTask(asked) => {

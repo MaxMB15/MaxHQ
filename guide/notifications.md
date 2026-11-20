@@ -1,0 +1,71 @@
+<!--
+SPDX-License-Identifier: MIT
+Copyright (c) 2026 Max Boksem
+-->
+
+# Notifications
+
+How MaxHQ tells you an agent needs you: alerts in Notification Center, sounds, the Dock badge, and pushes to your phones.
+
+## Turn on notifications
+<!-- id: notifications/turn-on -->
+<!-- covers: settings/notifications -->
+
+Turn on Show notifications in Settings › Notifications to get alerts from your agents in Notification Center. macOS has to allow them too.
+
+1. Open Settings and pick Notifications.
+2. Turn on Show notifications.
+3. Click Send a test notification. The first time, macOS asks whether MaxHQ may notify you.
+4. If the page says macOS turned them off, click Open System Settings and allow MaxHQ there.
+
+The test shows one notification whichever alert kinds are on.
+
+## Pick which alerts you get
+<!-- id: notifications/alerts -->
+<!-- covers: settings/notifications -->
+
+The Alerts section of Settings › Notifications picks the kinds you get. They are the same kinds your phones get.
+
+- Needs input: an agent asks for a permission, an answer or a secret. It alerts at once, unless that agent's pane has focus.
+- Error: an agent stopped on an error.
+- Finished: a turn ended while you were away.
+- Limit: an agent waits for a usage limit to reset.
+
+Finished and Limit alert only when no pane shows that agent. Each alert shows once and goes away when the agent's state clears. Click one to open the agent's pane.
+
+## Choose alert sounds
+<!-- id: notifications/sounds -->
+<!-- covers: settings/notifications -->
+
+Under Sounds in Settings › Notifications, Prompts plays a sound for alerts that wait on you, and Other alerts plays one for the rest.
+
+- Prompts covers Needs input and Error. It's on by default.
+- Other alerts covers Finished and Limit. It's off by default.
+
+Sounds follow the alert kinds you picked, so a kind that's off makes no sound either.
+
+## Show a count on the Dock icon
+<!-- id: notifications/dock-badge -->
+<!-- covers: settings/notifications shortcut/open-the-next-agent-waiting-on-you -->
+
+Turn on Show the badge under Dock badge in Settings › Notifications to see how many agents need you on MaxHQ's Dock icon. Each agent counts once.
+
+Pick what counts:
+
+- Waiting on you: a permission, a question or a consent card.
+- Finished: a turn ended and you haven't opened it.
+- Failed or stopped with an error.
+
+macOS hides the badge when notifications or badges for MaxHQ are off in System Settings. To work through the agents the badge counts, press ⌘J to open the next agent waiting on you.
+
+## Get alerts on your phone
+<!-- id: notifications/phone -->
+
+Every paired device pushes the same alert kinds to your phones, so you hear about an agent with your Mac closed. The pushes need a key set up once, in Settings › Phone pushes.
+
+1. Pair the phone in Settings › Phones.
+2. Set up the key in Settings › Phone pushes. Each device then holds it and sends pushes itself.
+3. On the phone, open Settings › Notifications and tap Turn on. iOS asks once.
+4. Pick the kinds the phone gets on the same page.
+
+No push arrives for the agent the phone has on screen.

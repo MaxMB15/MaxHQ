@@ -26,6 +26,8 @@ import remarkMath from "remark-math";
 import type { PluggableList } from "unified";
 
 import { guardDollars, splitBlocks } from "@maxhq/shared/agent-view/markdown";
+import { isViewLink } from "@maxhq/shared/guide/view-link";
+import { ViewLinkAnchor } from "@/app/view-link";
 import { ErrorBoundary } from "@/components/error-boundary";
 import { cn } from "@/lib/utils";
 import { VisualCard } from "@/visuals/visual-card";
@@ -118,9 +120,14 @@ const LOOK: Components = {
 				{children}
 			</code>
 		),
-	// A link within the message, as to a footnote, moves to it there.
+	// A link within the message, as to a footnote, moves to it there, and
+	// one to a view of the app opens it.
 	a: ({ href, children, ...props }) =>
-		href?.startsWith("#") ? (
+		isViewLink(href) ? (
+			<ViewLinkAnchor {...attributes(props)} href={href} className={LINK}>
+				{children}
+			</ViewLinkAnchor>
+		) : href?.startsWith("#") ? (
 			<a
 				{...attributes(props)}
 				href={href}
@@ -299,10 +306,11 @@ const MAY_HOLD_HTML = /<[a-zA-Z!/]/;
 const TOO_DEEP = /^(?:[ \t]*>){100}/m;
 
 // An image's target goes to MarkdownMedia as written, which shows only what
-// it can vouch for, such as a path or a data picture the default drops.
-// Every other URL keeps the default's check.
+// it can vouch for, such as a path or a data picture the default drops. A
+// link to a view of the app keeps its target too. Every other URL keeps the
+// default's check.
 const urlTransform: UrlTransform = (url, key, node) =>
-	node.tagName === "img" && key === "src" ? url : defaultUrlTransform(url);
+	(node.tagName === "img" && key === "src") || isViewLink(url) ? url : defaultUrlTransform(url);
 
 const Block = memo(
 	({
