@@ -103,6 +103,47 @@ export const updateNow = async (): Promise<void> => {
 /** Hides the prompt for this version until MaxHQ starts again. */
 export const later = (version: string): void => updates.setState({ later: version });
 
+/** Shows the prompt again for the version on offer, after Later. */
+export const showPrompt = (): void => updates.setState({ later: null });
+
+/** What the button beside the version in the status bar does. */
+export type VersionButton =
+	/** This copy doesn't update itself, for the reason in `tip`. */
+	| { readonly kind: "off"; readonly tip: string }
+	/** No update is known, so a click checks. */
+	| { readonly kind: "check"; readonly checking: boolean }
+	/** `version` is on offer, or on its way in. */
+	| { readonly kind: "update"; readonly version: string };
+
+/** The status bar's update button, or null until the app has said. */
+export const versionButton = (state: UpdateState): VersionButton | null => {
+	const status = state.update?.status;
+	if (!status) return null;
+	switch (status.state) {
+		case "unavailable":
+			return {
+				kind: "off",
+				tip:
+					status.reason === "from_source"
+						? t("Updates come with release builds. This copy was built from source.")
+						: unavailableText(status.reason),
+			};
+		case "checking":
+			return { kind: "check", checking: true };
+		case "available":
+		case "downloading":
+		case "installing":
+			return { kind: "update", version: status.version };
+		case "failed":
+			return status.version === null
+				? { kind: "check", checking: false }
+				: { kind: "update", version: status.version };
+		case "idle":
+		case "up_to_date":
+			return { kind: "check", checking: false };
+	}
+};
+
 /** Turns looking for updates on its own on or off. */
 export const setAutoCheck = async (on: boolean): Promise<void> => {
 	const update = updates.getState().update;
