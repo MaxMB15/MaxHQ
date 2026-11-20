@@ -117,8 +117,9 @@ const LOOK: Components = {
 				{children}
 			</code>
 		),
-	// A web link opens in the browser, a file link in the viewer, and one
-	// within the message, as to a footnote, moves to it there.
+	// A web link opens in the browser, a file link in the viewer, a link to
+	// a view of the app opens it, and one within the message, as to a
+	// footnote, moves to it there.
 	a: ({ href, children, ...props }) => (
 		<MarkdownLink {...attributes(props)} href={href}>
 			{children}
@@ -286,9 +287,9 @@ const TOO_DEEP = /^(?:[ \t]*>){100}/m;
 // An image's target goes to MarkdownMedia as written, which shows only what
 // it can vouch for, such as a path or a data picture the default drops.
 // A link's target goes to MarkdownLink as written too, since the default
-// drops `file:` and reads `main.rs:12` as a scheme, and MarkdownLink opens
-// only web, file and in-message links. Every other URL keeps the default's
-// check.
+// drops `file:` and `maxhq:` and reads `main.rs:12` as a scheme, and
+// MarkdownLink opens only web, file, view and in-message links. Every other
+// URL keeps the default's check.
 const urlTransform: UrlTransform = (url, key, node) =>
 	(node.tagName === "img" && key === "src") || (node.tagName === "a" && key === "href")
 		? url

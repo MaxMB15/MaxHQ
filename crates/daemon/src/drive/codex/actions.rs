@@ -1261,7 +1261,7 @@ fn add_instructions(place: Option<&Place>, params: &mut Map<String, Value>) {
     if place.is_some_and(|place| place.dispatcher) {
         params.insert(
             "developerInstructions".into(),
-            dispatch::INSTRUCTIONS.into(),
+            dispatch::instructions().into(),
         );
     }
 }

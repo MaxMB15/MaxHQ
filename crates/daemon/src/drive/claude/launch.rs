@@ -166,7 +166,7 @@ pub(super) fn command(
         args.push("--disallowedTools".into());
         args.push(DISPATCHER_DENIED.into());
         args.push("--append-system-prompt".into());
-        args.push(dispatch::INSTRUCTIONS.into());
+        args.push(dispatch::instructions().into());
     }
     args.push("--add-dir".into());
     args.push(place.attachments.clone().into());
@@ -413,7 +413,7 @@ mod tests {
             "Bash,Edit,Write,MultiEdit,NotebookEdit"
         );
         let prompt = args.iter().position(|arg| *arg == "--append-system-prompt");
-        assert_eq!(args[prompt.unwrap() + 1], dispatch::INSTRUCTIONS);
+        assert_eq!(args[prompt.unwrap() + 1], dispatch::instructions());
         assert!(!args.contains(&"--allow-dangerously-skip-permissions"));
     }
 

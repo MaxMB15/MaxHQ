@@ -3,7 +3,8 @@
 
 // A link in Markdown. A web link opens in the browser. A file link opens
 // the file in MaxHQ's viewer, read on the agent's device and at its line.
-// A link within the message moves to its target there. A link that can't
+// A link to a view of the app, such as maxhq://settings/editor, opens that
+// view. A link within the message moves to its target there. A link that can't
 // go anywhere shows as plain text and says why on hover, rather than
 // looking like a link that does nothing.
 
@@ -18,9 +19,11 @@ import {
 } from "react";
 
 import { useServicesIfAny } from "@/app/services";
+import { ViewLinkAnchor } from "@/app/view-link";
 import { panesOf } from "@/layout/panes";
 import { useRowIfAny } from "@maxhq/shared/agent-view/context";
 import { headingSlug, linkTarget, pathFrom } from "@maxhq/shared/agent-view/link-target";
+import { isViewLink } from "@maxhq/shared/guide/view-link";
 import { formatNumber, useI18n } from "@maxhq/shared/i18n";
 
 const LINK = "text-primary hover:underline";
@@ -137,6 +140,12 @@ export const MarkdownLink = ({
 	const row = useRowIfAny();
 	const services = useServicesIfAny();
 	const folder = use(LinkFolder);
+	if (isViewLink(href))
+		return (
+			<ViewLinkAnchor {...attributes} href={href} className={LINK}>
+				{children}
+			</ViewLinkAnchor>
+		);
 	const target = linkTarget(href);
 	switch (target.kind) {
 		case "web":

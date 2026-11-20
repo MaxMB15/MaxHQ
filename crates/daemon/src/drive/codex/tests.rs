@@ -814,7 +814,7 @@ fn the_dispatcher_thread_reads_only_and_gets_its_own_tools() {
     let params = sent_once(&fx, "thread/start")["params"].clone();
     assert_eq!(params["sandbox"], "read-only");
     assert_eq!(params["approvalPolicy"], "never");
-    assert_eq!(params["developerInstructions"], dispatch::INSTRUCTIONS);
+    assert_eq!(params["developerInstructions"], dispatch::instructions());
     let names: Vec<&str> = params["dynamicTools"]
         .as_array()
         .unwrap()
