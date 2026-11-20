@@ -4,6 +4,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Activity, Delta, TimelineUpdate } from "../bindings";
 
+import { isLocalAccount } from "../status/agent-kind";
 import { agentConnection, type ConnectionLook } from "../status/connection";
 import { all, applyDelta, applySnapshot, idOf, type ViewState } from "../view/replica";
 import { DEFAULT_INBOX, inboxOf } from "../view/inbox";
@@ -74,7 +75,7 @@ describe("mock source", () => {
 
 	it("has Claude Max, Codex Plus and Cursor Pro logins, metered except Cursor", async () => {
 		const logins = all(await load(), "account").filter(
-			(a) => a.origin === null && a.vendor !== "acp"
+			(a) => a.origin === null && a.vendor !== "acp" && !isLocalAccount(a)
 		);
 		expect(logins.map((a) => [a.vendor, a.plan])).toEqual([
 			["claude", "max"],
@@ -85,6 +86,20 @@ describe("mock source", () => {
 			const windows = account.vendor === "cursor" ? undefined : [300, 10080];
 			expect(account.usage?.windows.map((w) => w.window_minutes)).toEqual(windows);
 			expect(account.email).toMatch(/@example\.(com|net)$/);
+		}
+	});
+
+	it("has three local logins, none metered, two of them on the Mac's server", async () => {
+		const local = all(await load(), "account").filter(isLocalAccount);
+		expect(local.map((a) => [a.device, a.model_server]).sort()).toEqual([
+			[DEVBOX, "srv-devbox-ollama"],
+			[DEVBOX, "srv-mac-llama"],
+			[MAC, "srv-mac-llama"],
+		]);
+		for (const account of local) {
+			expect(account.vendor).toBe("claude");
+			expect(account.usage).toBeNull();
+			expect(account.plan).toBeNull();
 		}
 	});
 

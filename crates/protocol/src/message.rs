@@ -22,10 +22,12 @@ use crate::folders::FolderListing;
 use crate::hosts::{MoveStep, WorkspaceSnapshot};
 use crate::ids::{
     AccountId, AcpAgentId, AdmissionId, AgentId, AttachmentId, AttentionId, BootId, ClientId,
-    CredentialId, DeviceId, ForwardId, IdempotencyKey, InstanceId, KeyId, LeaseId, MoveId, PairId,
-    PermissionId, PhoneId, PhoneSessionId, PortId, ProjectId, SignInId, SkillProposalId,
-    SkillSourceId, StreamId, TaskId, TerminalId, TestHostId, TransferId, WorkspaceId,
+    CredentialId, DeviceId, ForwardId, IdempotencyKey, InstanceId, KeyId, LeaseId, ModelServerId,
+    MoveId, PairId, PermissionId, PhoneId, PhoneSessionId, PortId, ProjectId, SignInId,
+    SkillProposalId, SkillSourceId, StreamId, TaskId, TerminalId, TestHostId, TransferId,
+    WorkspaceId,
 };
+use crate::local_models::ModelAction;
 use crate::model::{
     CommandRule, DeviceSettingChange, DeviceSettings, InboxChange, PermissionMode, ProjectSettings,
     Tool, Vendor, WorkspaceSpec,
@@ -293,6 +295,13 @@ pub struct Capabilities {
     /// frames. A `maxd` from before it leaves this out, and reads as false.
     #[serde(default)]
     pub terminals: bool,
+    /// Runs or reaches model servers for local agents, publishes
+    /// [`crate::local_models::ModelServer`] and
+    /// [`crate::local_models::LocalModels`], and takes
+    /// [`ClientMessage::ModelAction`]. A `maxd` from before it leaves this
+    /// out, and reads as false.
+    #[serde(default)]
+    pub local_models: bool,
 }
 
 /// A message from a client to `maxd`.
@@ -2216,6 +2225,21 @@ pub enum ClientMessage {
         /// with a command running refuses, so you're asked first.
         force: bool,
     },
+
+    // Local models.
+    /// Acts on the device's local models: adds, tests or removes a server
+    /// URL, downloads, pauses, resumes or deletes a model file, or loads or
+    /// unloads a model. Adding a server answers
+    /// [`ActionOutcome::ModelServerAdded`], the rest
+    /// [`ActionOutcome::Done`]. The default model is a device setting,
+    /// [`crate::model::DeviceSettings::local_models`]. Since
+    /// [`LOCAL_MODELS_SINCE`].
+    ModelAction {
+        /// Makes a resend after a dropped connection safe.
+        key: IdempotencyKey,
+        /// What to do.
+        action: ModelAction,
+    },
 }
 
 impl ClientMessage {
@@ -2285,6 +2309,7 @@ impl ClientMessage {
             | Self::TerminalRename { .. }
             | Self::TerminalMove { .. } => TERMINALS_SINCE,
             Self::ListFolder { .. } | Self::MakeFolder { .. } => FOLDERS_SINCE,
+            Self::ModelAction { .. } => LOCAL_MODELS_SINCE,
             _ => OLDEST_PROTOCOL_VERSION,
         }
     }
@@ -2462,7 +2487,8 @@ impl ClientMessage {
             | Self::SessionRun { key, .. }
             | Self::SessionShare { key, .. }
             | Self::SessionCd { key, .. }
-            | Self::SessionEnd { key, .. } => Some(*key),
+            | Self::SessionEnd { key, .. }
+            | Self::ModelAction { key, .. } => Some(*key),
             Self::Hello(_)
             | Self::Phone { .. }
             | Self::Pair { .. }
@@ -2901,6 +2927,15 @@ pub const SHELL_MARKS_SINCE: u32 = 47;
 /// timeline item and the session pill. An older one refuses each, so the
 /// app runs every `!` in a terminal of its own, as before.
 pub const SESSIONS_SINCE: u32 = 48;
+
+/// The protocol version whose `maxd` first runs local models: the
+/// [`crate::local_models::ModelServer`] and
+/// [`crate::local_models::LocalModels`] entities,
+/// [`crate::model::LoginKind::ModelServer`] accounts, the local models
+/// device setting and [`ClientMessage::ModelAction`]. An older one refuses
+/// the action, and an older client leaves the entities and the accounts
+/// out.
+pub const LOCAL_MODELS_SINCE: u32 = 58;
 
 /// When [`ClientMessage::TakeOver`] stops the terminal's CLI.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, Type, JsonSchema)]
@@ -3358,6 +3393,14 @@ pub enum ActionOutcome {
     FolderListed {
         /// The listing.
         listing: FolderListing,
+    },
+
+    // Local models.
+    /// The server a [`ModelAction::AddServer`] added, which its probe fills
+    /// in.
+    ModelServerAdded {
+        /// The new server.
+        server: ModelServerId,
     },
 
     /// An outcome from a newer `maxd`. The action went through, and what
@@ -4407,6 +4450,7 @@ mod tests {
                         history_mib: 256,
                         claude_setup_token: false,
                         shell_integration: true,
+                        local_models: Default::default(),
                     },
                 },
             ),
@@ -5229,6 +5273,7 @@ mod tests {
                 proposal_targets: false,
                 peer_proofs: false,
                 terminals: false,
+                local_models: false,
             },
             challenge: None,
         });
@@ -5264,6 +5309,7 @@ mod tests {
                 "proposal_targets": false,
                 "peer_proofs": false,
                 "terminals": false,
+                "local_models": false,
             })
         );
         assert_eq!(value["build"], json!("0123456789abcdef"));
@@ -5634,6 +5680,7 @@ mod tests {
             history_mib: 256,
             claude_setup_token: false,
             shell_integration: true,
+            local_models: Default::default(),
         };
         assert_eq!(old.changes_from(Some(&old)), []);
         let new = DeviceSettings {

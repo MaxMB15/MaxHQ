@@ -24,10 +24,11 @@ use specta::Type;
 use crate::acp::AcpFeatures;
 use crate::agents::AgentOrigin;
 use crate::ids::{
-    AccountId, AgentId, AttentionId, BootId, ClientId, CredentialId, DeviceId, ForwardId, PortId,
-    ProjectId, SessionId, WorkspaceId,
+    AccountId, AgentId, AttentionId, BootId, ClientId, CredentialId, DeviceId, ForwardId,
+    ModelServerId, PortId, ProjectId, SessionId, WorkspaceId,
 };
 use crate::leases::TestHostSettings;
+use crate::local_models::{LocalModelSettings, LocalRun};
 use crate::netaccess::NetworkAccessSettings;
 use crate::pulls::{PullKey, PullLink};
 use crate::time::Timestamp;
@@ -646,6 +647,11 @@ pub struct Agent {
     /// Where the agent moved between devices, if it did.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub moved: Option<Box<crate::agents::Moved>>,
+    /// What its model server is doing for a local agent: loading, and
+    /// prompt and decode speed. Unset for every other agent, and from a
+    /// `maxd` from before [`crate::message::LOCAL_MODELS_SINCE`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub local: Option<Box<LocalRun>>,
 }
 
 /// Where a lead agent sits in the sidebar. The agent's own `maxd` keeps it,
@@ -1031,6 +1037,12 @@ pub struct DeviceSettings {
     /// hooks.
     #[serde(default = "yes")]
     pub shell_integration: bool,
+    /// The device's choices for local models: idle unload, KV cache type,
+    /// context size, fewer tools and the default model. A `maxd` from
+    /// before [`crate::message::LOCAL_MODELS_SINCE`] leaves it out, and
+    /// reads as the defaults.
+    #[serde(default)]
+    pub local_models: Box<LocalModelSettings>,
 }
 
 impl DeviceSettings {
@@ -1063,6 +1075,7 @@ impl DeviceSettings {
             history_mib,
             claude_setup_token,
             shell_integration,
+            local_models,
         } = self;
         let differs = |same: &dyn Fn(&Self) -> bool| old.is_none_or(|old| !same(old));
         let mut changes = Vec::new();
@@ -1165,6 +1178,11 @@ impl DeviceSettings {
                 value: *shell_integration,
             });
         }
+        if differs(&|old| old.local_models == *local_models) {
+            changes.push(Change::LocalModels {
+                value: local_models.clone(),
+            });
+        }
         changes
     }
 
@@ -1196,6 +1214,7 @@ impl DeviceSettings {
             DeviceSettingChange::HistoryMib { value } => self.history_mib = value,
             DeviceSettingChange::ClaudeSetupToken { value } => self.claude_setup_token = value,
             DeviceSettingChange::ShellIntegration { value } => self.shell_integration = value,
+            DeviceSettingChange::LocalModels { value } => self.local_models = value,
         }
     }
 
@@ -1255,6 +1274,7 @@ impl DeviceSettingChange {
             Self::ClaudeEffort { .. } | Self::CodexEffort { .. } => crate::message::EFFORT_SINCE,
             Self::ClaudeSetupToken { .. } => crate::message::SETUP_TOKENS_SINCE,
             Self::ShellIntegration { .. } => crate::message::SHELL_MARKS_SINCE,
+            Self::LocalModels { .. } => crate::message::LOCAL_MODELS_SINCE,
             _ => 26,
         }
     }
@@ -1383,6 +1403,11 @@ pub enum DeviceSettingChange {
         /// What it becomes.
         value: bool,
     },
+    /// See [`DeviceSettings::local_models`].
+    LocalModels {
+        /// What it becomes.
+        value: Box<LocalModelSettings>,
+    },
 }
 
 /// How readily new agents go to a device when you don't pick one.
@@ -1447,7 +1472,7 @@ pub const DEFAULT_HISTORY_MIB: u16 = 256;
 pub const HISTORY_MIB: (u16, u16) = (32, 4096);
 
 /// True, for a setting that's on unless you turn it off.
-fn yes() -> bool {
+pub(crate) fn yes() -> bool {
     true
 }
 
@@ -1507,6 +1532,11 @@ pub struct Account {
     /// Unset for every other account.
     #[serde(default)]
     pub acp: Option<AcpFeatures>,
+    /// The model server a [`LoginKind::ModelServer`] account runs on.
+    /// Unset for every other account, and from a `maxd` from before
+    /// [`crate::message::LOCAL_MODELS_SINCE`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model_server: Option<ModelServerId>,
 }
 
 /// How an account logs in.
@@ -1525,6 +1555,13 @@ pub enum LoginKind {
     CursorApiKey,
     /// A local ACP command, which signs in through its own CLI.
     AcpCommand,
+    /// A model server, local or at a URL, that Claude Code runs on with
+    /// no Claude login, quota or sign-in. Its account names the server in
+    /// [`Account::model_server`], and every client shows its agents as
+    /// Local, never as Claude. Since
+    /// [`crate::message::LOCAL_MODELS_SINCE`]: an older client leaves the
+    /// whole account out.
+    ModelServer,
 }
 
 /// An account's rate limits as the vendor last reported them.

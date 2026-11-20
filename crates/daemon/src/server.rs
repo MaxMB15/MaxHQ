@@ -21,6 +21,7 @@ use maxhq_protocol::frame::{self, DecodeError, EncodeError, Frame, FrameDecoder}
 use maxhq_protocol::ids::{
     ClientId, DeviceId, IdempotencyKey, PairId, PhoneId, StreamId, TerminalId, TransferId,
 };
+use maxhq_protocol::local_models::ModelAction;
 use maxhq_protocol::message::{
     ActionOutcome, AttachmentSource, Capabilities, ClientHello, ErrorCode, ServerHello,
     UploadSource,
@@ -64,6 +65,9 @@ const PHONE_UNSIGNED: &str = "A phone can't send a maxd no release signed. Send 
 /// or a proven phone.
 const NOT_FOR_FOLDERS: &str = "Only the MaxHQ app and phones that proved their keys may list \
                                or make folders on this device.";
+
+/// The refusal for a local models action, until this `maxd` runs them.
+const NO_LOCAL_MODELS: &str = "Local models aren't available on this maxd yet.";
 
 /// The answer to a request whose part of `maxd` isn't built yet.
 pub fn not_yet() -> ActionOutcome {
@@ -836,6 +840,14 @@ impl Connection {
                         ..
                     }
                     | ClientMessage::FetchBegin { anyway: true, .. }
+                    | ClientMessage::ModelAction {
+                        action: ModelAction::AddServer { .. }
+                            | ModelAction::RemoveServer { .. }
+                            | ModelAction::Download { .. }
+                            | ModelAction::ResumeDownload { .. }
+                            | ModelAction::DeleteModel { .. },
+                        ..
+                    }
             )
             && !self.may_do_everything()
         {
@@ -1319,6 +1331,12 @@ impl Connection {
             }
             message @ (ClientMessage::ListFolder { .. } | ClientMessage::MakeFolder { .. }) => {
                 self.refuse(&message, ErrorCode::NotAllowed, NOT_FOR_FOLDERS)
+                    .await
+            }
+            // Local models come in the next step. Until then this `maxd`
+            // says so, and its hello leaves the capability off.
+            message @ ClientMessage::ModelAction { .. } => {
+                self.refuse(&message, ErrorCode::NotAllowed, NO_LOCAL_MODELS)
                     .await
             }
             // Updates, tools, load and diagnostics belong to the fleet.
@@ -1842,6 +1860,8 @@ impl Connection {
                 peer_proofs: true,
                 // Holds terminals in PTY holders of its own.
                 terminals: self.sessions.terminals().is_some(),
+                // Refuses local models actions until it runs them.
+                local_models: false,
             },
             challenge: self.challenge.map(|challenge| challenge.encode()),
         }
@@ -2062,6 +2082,7 @@ pub(crate) mod tests {
             effort: None,
             running: None,
             moved: None,
+            local: None,
         })
     }
 

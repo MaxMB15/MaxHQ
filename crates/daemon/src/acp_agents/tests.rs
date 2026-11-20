@@ -321,6 +321,7 @@ fn agent_on(account: AccountId, activity: Activity) -> Entity {
         effort: None,
         running: None,
         moved: None,
+        local: None,
     })
 }
 

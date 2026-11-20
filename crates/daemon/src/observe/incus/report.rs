@@ -180,6 +180,7 @@ pub fn report(
         effort: None,
         running: None,
         moved: None,
+        local: None,
     };
     Some(Report {
         project,

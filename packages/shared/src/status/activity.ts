@@ -25,7 +25,8 @@ import {
 	showHidden,
 } from "./format";
 import { agentWait, idleExtra, jobsFact, jobsSentence, waitWords } from "./running";
-import { accountName, accountSummary, blockingWindow, VENDOR_NAME } from "./usage";
+import { agentKind, kindName } from "./agent-kind";
+import { accountName, accountSummary, blockingWindow } from "./usage";
 
 /** How the activity dot looks. One per state, with a warm cache past its time shown as idle. */
 export type ActivityLook =
@@ -290,8 +291,9 @@ export const activityCard = (ctx: ActivityContext): HoverCard => {
 		case "idle_cache_warm": {
 			const left = activity.warm_until - now;
 			if (left <= 0) return idleCard(ctx);
-			// Only Claude reports its cache.
-			const estimate = agent.vendor !== "claude";
+			// Only Claude reports its cache; a local model's server doesn't.
+			const kind = agentKind(agent, ctx.account ? [ctx.account] : []);
+			const estimate = kind !== "claude";
 			const until = t("{{value1}}, in {{value2}}", {
 				value1: formatWhen(activity.warm_until, now),
 				value2: formatDuration(left),
@@ -301,7 +303,10 @@ export const activityCard = (ctx: ActivityContext): HoverCard => {
 				body: estimate
 					? t(
 							"The cache is probably warm until {{until}}. {{VENDOR_NAME_agent_vendor}} doesn't report its cache, so this is an estimate from when the last turn finished.",
-							{ until: until, VENDOR_NAME_agent_vendor: VENDOR_NAME[agent.vendor] }
+							{
+								until: until,
+								VENDOR_NAME_agent_vendor: kindName(kind),
+							}
 						)
 					: t(
 							"The cache stays warm until {{until}}, so the next message is cheap and fast.",

@@ -6,9 +6,9 @@
 
 import { t, formatNumber } from "../i18n";
 
-import type { AttachmentRef, ItemStatus, TimelineItem, Vendor } from "../bindings";
+import type { AttachmentRef, ItemStatus, TimelineItem } from "../bindings";
 import { formatDuration, plural } from "../status/format";
-import { VENDOR_NAME } from "../status/usage";
+import { kindName, type AgentKind } from "../status/agent-kind";
 
 /** Whether an item's status means it's still going. */
 export const isOpen = (status: ItemStatus): boolean =>
@@ -188,9 +188,9 @@ export const handoffTitle = (status: ItemStatus): string =>
 			? t("Context handoff skipped")
 			: t("Context handoff");
 
-/** One end of a move: the vendor, then the model when one was set. */
-export const handoffEnd = (vendor: Vendor, model: string | null): string =>
-	model ? `${VENDOR_NAME[vendor]} ${model}` : VENDOR_NAME[vendor];
+/** One end of a move: the kind, such as Codex or Local, then the model when one was set. */
+export const handoffEnd = (kind: AgentKind, model: string | null): string =>
+	model ? `${kindName(kind)} ${model}` : kindName(kind);
 
 /** A move's marker as one line, such as "Context handoff, Claude opus to Codex". */
 export const handoffLine = (item: Extract<TimelineItem, { kind: "handoff" }>): string =>

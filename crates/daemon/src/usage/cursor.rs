@@ -308,6 +308,7 @@ fn account(device: DeviceId, config_dir: &Path, login: Login) -> Account {
         usage: None,
         usage_failure: None,
         acp: None,
+        model_server: None,
     }
 }
 

@@ -48,6 +48,7 @@ import type {
 	LinkClaimDetails,
 	LinkId,
 	McpCommand,
+	ModelAction,
 	MoveId,
 	MoveStep,
 	MoveTo,
@@ -138,6 +139,7 @@ export type {
 	IgnoredFile,
 	IgnoredFiles,
 	McpCommand,
+	ModelAction,
 	PathMatch,
 	PlaceFailure,
 	SshIncludeState,
@@ -626,6 +628,13 @@ export type DataSource = HelperCalls & {
 	) => Promise<ActionResult>;
 	/** Removes a local ACP agent and its values from a device. */
 	readonly deleteAcpAgent: (device: DeviceId, id: AcpAgentId) => Promise<ActionResult>;
+	/**
+	 * Acts on a device's local models: adds, tests or removes a server URL,
+	 * downloads, pauses, resumes or deletes a model file, or loads or
+	 * unloads a model. Adding a server answers with the new server's ID. The
+	 * default model is a device setting, saved with `setDeviceSettings`.
+	 */
+	readonly modelAction: (device: DeviceId, action: ModelAction) => Promise<ActionResult>;
 	/** Sends files or folders on this Mac to a device, one result for each path. */
 	readonly upload: (
 		device: DeviceId,

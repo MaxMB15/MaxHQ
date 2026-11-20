@@ -353,6 +353,7 @@ export const requestCalls = (ask: Ask): Omit<DataSource, PlatformCalls> => ({
 	// The values go straight to the backend, and nothing here keeps them.
 	setAcpAgent: (device, agent, env) => ask({ kind: "set_acp_agent", device, agent, env }),
 	deleteAcpAgent: (device, id) => ask({ kind: "delete_acp_agent", device, id }),
+	modelAction: (device, action) => ask({ kind: "model_action", device, action }),
 	gitIdentity: async () => orThrow(await ask({ kind: "git_identity" })),
 	cancelTransfer: async (transfer) => {
 		orThrow(await ask({ kind: "cancel_transfer", transfer }));

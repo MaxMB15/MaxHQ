@@ -87,6 +87,7 @@ import { mockNetworkAccess, mockPhone, mockPhones } from "./mock-phones";
 import { type FleetContext, mockFleet, mockTools } from "./mock-fleet";
 import { mockHostCalls } from "./mock-host-calls";
 import { mockHosts } from "./mock-hosts";
+import { LOADED_MODEL, MAC_SERVER, mockLocalEntities, mockLocalModels } from "./mock-local-models";
 import { OUTSIDE_SAMPLE, sampleFile } from "./mock-files";
 
 /** Settings for tests. */
@@ -231,6 +232,13 @@ const SETTINGS: Entity[] = [
 		history_mib: 256,
 		claude_setup_token: false,
 		shell_integration: true,
+		local_models: {
+			idle_unload_minutes: 15,
+			kv_type: "f16",
+			context: 65_536,
+			fewer_tools: true,
+			default_model: { server: MAC_SERVER, model: LOADED_MODEL },
+		},
 		test_hosts: MOCK_TEST_HOST_SETTINGS[MAC],
 	},
 	{
@@ -354,6 +362,7 @@ export const mockSource = (options: MockOptions = {}): MockSource => {
 	const stepMs = options.stepMs ?? STEP_MS;
 	let base: Entity[] = [
 		...mockEntities(now()),
+		...mockLocalEntities(now()),
 		...mockStarted(now()),
 		...SETTINGS,
 		mockPhone(now()),
@@ -1618,6 +1627,7 @@ export const mockSource = (options: MockOptions = {}): MockSource => {
 		...terminalCalls,
 		...mockFolders(),
 		...mockHostCalls(fleet),
+		...mockLocalModels(fleet),
 		...mockAgents(now),
 		...mockLinks(),
 		...mockAppKeys(now, {

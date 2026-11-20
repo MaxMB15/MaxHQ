@@ -42,7 +42,8 @@ export type SignInRoute = "login" | { readonly settings: LoginSection } | null;
  * What Sign in again does for `account`. A login in a config folder signs
  * in again in the app. A token, a Codex session or a Cursor key is sent
  * from Settings, Logins. A local ACP command signs in through its own CLI,
- * and an account MaxHQ doesn't know has nothing to sign in.
+ * a local model's account has no login, and an account MaxHQ doesn't know
+ * has nothing to sign in.
  */
 export const signInRoute = (account: Account | undefined): SignInRoute => {
 	if (!account) return null;
@@ -56,6 +57,7 @@ export const signInRoute = (account: Account | undefined): SignInRoute => {
 		case "cursor_api_key":
 			return { settings: "cursor" };
 		case "acp_command":
+		case "model_server":
 			return null;
 	}
 };

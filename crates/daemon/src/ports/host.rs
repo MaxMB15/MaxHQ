@@ -630,6 +630,7 @@ mod tests {
                 effort: None,
                 running: None,
                 moved: None,
+                local: None,
             }),
         }]);
         ports.report(world.container, vec![cli, port(3000, Some("a"))]);

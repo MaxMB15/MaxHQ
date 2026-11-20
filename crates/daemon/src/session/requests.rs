@@ -383,7 +383,8 @@ impl Manager {
             | ClientMessage::SessionRun { .. }
             | ClientMessage::SessionShare { .. }
             | ClientMessage::SessionCd { .. }
-            | ClientMessage::SessionEnd { .. } => return,
+            | ClientMessage::SessionEnd { .. }
+            | ClientMessage::ModelAction { .. } => return,
         };
         match self.keys.begin(key, conn) {
             Seen::New => {}

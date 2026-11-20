@@ -33,6 +33,7 @@ pub mod hosts;
 pub mod ids;
 pub mod leases;
 pub mod link;
+pub mod local_models;
 pub mod message;
 pub mod model;
 pub mod netaccess;
@@ -73,7 +74,7 @@ pub use secret::Secret;
 
 /// Protocol version this build speaks. Bump it for any change a peer on the
 /// previous version can't read.
-pub const PROTOCOL_VERSION: u32 = 48;
+pub const PROTOCOL_VERSION: u32 = 58;
 
 /// Oldest protocol version this build still speaks.
 pub const OLDEST_PROTOCOL_VERSION: u32 = 20;

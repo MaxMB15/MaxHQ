@@ -8,6 +8,7 @@
 // one, with the numbers of the login that read them last. A login that knows
 // nothing yet stays out once the vendor has a plan that does.
 
+import { isLocalAccount } from "./agent-kind";
 import type { Account, LoginKind } from "../bindings";
 
 /** One plan, with every login that uses it. */
@@ -68,12 +69,14 @@ const knowsNothing = (logins: readonly Account[]): boolean =>
 /**
  * The plans `accounts` sign in to, in the order of their first login. A plan
  * whose logins know nothing, such as a config folder nobody signed in to, is
- * left out once the same vendor has a plan that knows something.
+ * left out once the same vendor has a plan that knows something. A local
+ * model's account has no plan and no usage, so it's never one.
  */
 export const subscriptions = (accounts: readonly Account[]): Subscription[] => {
 	const byId = new Map(accounts.map((a) => [a.id, a]));
 	const groups = new Map<string, Account[]>();
 	for (const account of accounts) {
+		if (isLocalAccount(account)) continue;
 		const key = planKey(account, byId);
 		const group = groups.get(key);
 		if (group) group.push(account);

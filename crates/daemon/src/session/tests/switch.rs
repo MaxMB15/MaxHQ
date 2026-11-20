@@ -352,6 +352,7 @@ async fn a_move_the_agent_cant_make_is_refused() {
         acp: None,
         login: LoginKind::ConfigDir,
         origin: None,
+        model_server: None,
     }));
     let outcome = h.pick(agent, elsewhere, "").await;
     assert_eq!(reason(&outcome), "that account isn't on the agent's device");

@@ -456,6 +456,7 @@ fn agent_named(id: AgentId) -> Agent {
         effort: None,
         running: None,
         moved: None,
+        local: None,
     }
 }
 

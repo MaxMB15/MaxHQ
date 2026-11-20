@@ -9,21 +9,21 @@
 // the vendor it ran on at that point. The file it's saved in is named
 // after the agent and the day.
 
-import type { AttachmentId, TimelineItem, Vendor } from "../bindings";
+import type { AttachmentId, TimelineItem } from "../bindings";
 import type { ToolNames } from "../agent-view/agent-tools";
 import { handoffLine } from "../agent-view/format";
 import { inlineCode, toolLines } from "../agent-view/tool-line";
 import { excerptIds } from "../pills/draft";
 import { sentPieces, sentText } from "../pills/sent";
 import { sentence } from "../status/format";
-import { VENDOR_NAME } from "../status/usage";
+import { kindName, type AgentKind } from "../status/agent-kind";
 
 /** What the export needs beyond the items. */
 export type ExportOptions = {
 	/** The agent's title, which heads the document. */
 	readonly title?: string;
-	/** The vendor the agent runs on now. */
-	readonly vendor: Vendor;
+	/** What the agent runs as now: its vendor, or Local. */
+	readonly vendor: AgentKind;
 	/** Names the agents and devices an agent tool acted on. */
 	readonly names?: ToolNames;
 };
@@ -71,7 +71,7 @@ export const conversationMarkdown = (
 	const names = options.names ?? NO_NAMES;
 	const subAgents = new Set(items.flatMap((item) => (item.kind === "subagent" ? [item.id] : [])));
 	const firstMove = items.find((item) => item.kind === "handoff");
-	let vendor = firstMove?.kind === "handoff" ? firstMove.from_vendor : options.vendor;
+	let vendor: AgentKind = firstMove?.kind === "handoff" ? firstMove.from_vendor : options.vendor;
 
 	const blocks: string[] = options.title ? [`# ${oneLine(options.title)}`] : [];
 	let speaker: string | null = null;
@@ -94,7 +94,7 @@ export const conversationMarkdown = (
 		flushSteps();
 		blocks.push(block);
 	};
-	const agentSays = (block: string) => say(VENDOR_NAME[vendor], block);
+	const agentSays = (block: string) => say(kindName(vendor), block);
 
 	for (const item of items) {
 		if (item.parent !== null && subAgents.has(item.parent)) continue;
@@ -130,7 +130,7 @@ export const conversationMarkdown = (
 				if (!item.retrying) agentSays(`*Error: ${oneLine(item.message)}*`);
 				break;
 			case "agent_opened_file": {
-				heading(VENDOR_NAME[vendor]);
+				heading(kindName(vendor));
 				const at = item.line != null ? ` at line ${item.line}` : "";
 				steps.push(`Opened ${inlineCode(item.path)}${at} for you`);
 				break;
@@ -148,7 +148,7 @@ export const conversationMarkdown = (
 			default: {
 				const lines = toolLines(item, names);
 				if (lines.length === 0) break;
-				heading(VENDOR_NAME[vendor]);
+				heading(kindName(vendor));
 				steps.push(...lines);
 			}
 		}

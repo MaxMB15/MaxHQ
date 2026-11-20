@@ -3799,6 +3799,7 @@ pub(crate) mod tests {
             acp: None,
             login: LoginKind::ConfigDir,
             origin: None,
+            model_server: None,
         })
     }
 
@@ -4341,6 +4342,7 @@ pub(crate) mod tests {
             history_mib: 256,
             claude_setup_token: false,
             shell_integration: true,
+            local_models: Default::default(),
         }
     }
 
@@ -4470,6 +4472,7 @@ pub(crate) mod tests {
                 history_mib: 256,
                 claude_setup_token: false,
                 shell_integration: true,
+                local_models: Default::default(),
             },
         };
         act(settings("nl")).unwrap();

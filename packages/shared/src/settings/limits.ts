@@ -7,6 +7,7 @@
 // before the switch doesn't report the defaults.
 
 import type { Agent, DeviceId } from "../bindings";
+import { agentKind } from "../status/agent-kind";
 import { inboxOf } from "../view/inbox";
 import type { ViewState } from "../view/replica";
 
@@ -21,11 +22,13 @@ const deviceOf = (view: ViewState, agent: Agent): DeviceId | undefined =>
 /**
  * Whether the switch applies to an agent: a lead Claude Code or Codex agent
  * MaxHQ holds, on a `maxd` that has it. Cursor doesn't say when a limit
- * resets, and an agent in your own terminal can't be sent anything.
+ * resets, an agent in your own terminal can't be sent anything, and a local
+ * model has no limit to wait for.
  */
 export const canContinueAtLimit = (view: ViewState, agent: Agent): boolean => {
 	if (agent.parent !== null || agent.control !== "held") return false;
-	if (agent.vendor !== "claude" && agent.vendor !== "codex") return false;
+	const kind = agentKind(agent, view.tables.account);
+	if (kind !== "claude" && kind !== "codex") return false;
 	const device = deviceOf(view, agent);
 	return device !== undefined && continuesAtLimit(view, device);
 };

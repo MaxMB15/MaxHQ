@@ -66,6 +66,7 @@ pub fn initial(home: &Home, hub: &Hub) -> Account {
         acp: None,
         login: LoginKind::ConfigDir,
         origin: None,
+        model_server: None,
     }
 }
 

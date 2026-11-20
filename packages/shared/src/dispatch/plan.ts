@@ -27,14 +27,18 @@ import type {
 import { labeledText } from "../pills/draft";
 import { MODE_LABEL, startingMode } from "../settings/permission";
 import { listInWords, plural, sentence } from "../status/format";
-import { accountName, VENDOR_NAME } from "../status/usage";
+import { agentKindName } from "../status/agent-kind";
+import { accountName } from "../status/usage";
 import { FILTER_OPS } from "../tasks/draft";
 import { triggerLine } from "../tasks/format";
 import { tasksTargeting } from "../tasks/place";
 import type { ViewState } from "../view/replica";
 import { accounts, deviceName, workspaceName } from "../view/select";
 
-/** The accounts on `device` the dispatcher can run as: Claude first, then Codex. */
+/**
+ * The accounts on `device` the dispatcher can run as: Claude first, then
+ * Codex, then local models, which it never picks unless you do.
+ */
 export const dispatcherAccounts = (view: ViewState, device: DeviceId | null): Account[] =>
 	accounts(view).filter(
 		(a) => a.device === device && (a.vendor === "claude" || a.vendor === "codex")
@@ -170,7 +174,7 @@ export const itemPhrase = (view: ViewState, item: PlanItem): string => {
 			const who =
 				spec.vendor === "acp"
 					? (view.tables.account.get(spec.account)?.label ?? "local")
-					: VENDOR_NAME[spec.vendor];
+					: agentKindName(spec, view.tables.account);
 			return t(
 				"a {{who}} agent in {{placeName_view__step_device__spec_place}} on {{deviceName_view__step_device}}{{access}}",
 				{
@@ -277,7 +281,7 @@ const targetLine = (view: ViewState, plan: Plan, target: PlanTarget): string => 
 	if (aim.type === "agent") return agentTitle(view, aim.agent);
 	const where = placeName(view, aim.device, aim.spec.place);
 	return t("A new {{VENDOR_NAME_aim_spec_vendor}} agent for each run, in {{where}}", {
-		VENDOR_NAME_aim_spec_vendor: VENDOR_NAME[aim.spec.vendor],
+		VENDOR_NAME_aim_spec_vendor: agentKindName(aim.spec, view.tables.account),
 		where: where,
 	});
 };
@@ -294,7 +298,10 @@ export const itemLines = (view: ViewState, plan: Plan, index: number): ItemLine[
 			const { spec } = step;
 			const account = view.tables.account.get(spec.account);
 			return [
-				{ label: t("Account"), value: account?.label ?? VENDOR_NAME[spec.vendor] },
+				{
+					label: t("Account"),
+					value: account?.label ?? agentKindName(spec, view.tables.account),
+				},
 				{ label: t("Device"), value: deviceName(view, step.device) },
 				{ label: t("Where"), value: whereLine(view, step.device, spec.place) },
 				{ label: t("Model"), value: spec.model ?? t("Default") },

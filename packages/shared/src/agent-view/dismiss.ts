@@ -10,8 +10,8 @@
 // dismiss a card, though it still stops the turn for Send now.
 
 import { t } from "../i18n";
-import { type AttentionAnswer, DISMISS_SINCE, type DeviceId, type Vendor } from "../bindings";
-import { VENDOR_NAME } from "../status/usage";
+import { type AttentionAnswer, DISMISS_SINCE, type DeviceId } from "../bindings";
+import { kindName, type AgentKind } from "../status/agent-kind";
 import type { FeedCard } from "../timeline/output";
 import type { ViewState } from "../view/replica";
 import { deviceName, linkForDevice } from "../view/select";
@@ -43,8 +43,8 @@ export const wasDismissed = (card: FeedCard): boolean =>
  * What a card says once its Dismiss went through, until maxd closes it as
  * dismissed: the agent's turn is on its way to a stop.
  */
-export const dismissSent = (vendor: Vendor): string =>
-	t("Dismissed. Stopping {{vendor}}'s turn.", { vendor: VENDOR_NAME[vendor] });
+export const dismissSent = (kind: AgentKind): string =>
+	t("Dismissed. Stopping {{vendor}}'s turn.", { vendor: kindName(kind) });
 
 /** The words for Dismiss and Send now, in the interface's language. */
 export const SKIP_WORDS = {

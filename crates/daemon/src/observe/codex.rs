@@ -323,6 +323,7 @@ impl Watcher {
             effort: None,
             running: None,
             moved: None,
+            local: None,
         })
     }
 
@@ -572,6 +573,7 @@ mod tests {
             effort: None,
             running: None,
             moved: None,
+            local: None,
         };
         hub.apply([Change::Upsert {
             value: Entity::Agent(other.clone()),

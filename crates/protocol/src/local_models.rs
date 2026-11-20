@@ -1,0 +1,804 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026 Max Boksem
+
+//! Local models, since [`crate::message::LOCAL_MODELS_SINCE`]: a model a
+//! device runs itself, or one on a server URL you gave it, driving the
+//! Claude Code loop with no Claude account, quota or sign-in.
+//!
+//! On the wire a local agent is vendor Claude with an account whose login is
+//! [`crate::model::LoginKind::ModelServer`] and whose
+//! [`crate::model::Account::model_server`] names its server. Every client
+//! shows it as Local, never as Claude. An older client drops the account,
+//! since it can't read the login kind, and drops both entities here.
+//!
+//! The view carries:
+//!
+//! - a [`ModelServer`] entity per server a device runs or reaches: the
+//!   llama-server its `maxd` manages, or a URL you gave it, with what the
+//!   last probe found and the models it serves;
+//! - a [`LocalModels`] entity per device: its hardware for the fit
+//!   estimate, the curated catalog, the model files on disk or on the way,
+//!   and whether it can run a managed server at all.
+//!
+//! You act on them with [`crate::ClientMessage::ModelAction`]. A device's
+//! choices (idle unload, KV cache type, context size, fewer tools and the
+//! default model) are [`LocalModelSettings`] in its device settings.
+//!
+//! A server's token never leaves the device. `maxd` keeps it in its secrets
+//! store, and the entity says only whether there is one.
+
+use schemars::JsonSchema;
+use serde::{Deserialize, Serialize};
+use specta::Type;
+
+use crate::ids::{DeviceId, ModelServerId};
+use crate::secret::Secret;
+use crate::state::{ToolPhase, ToolState};
+use crate::time::Timestamp;
+
+/// A model server a device's `maxd` runs or reaches.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Type, JsonSchema)]
+pub struct ModelServer {
+    /// The server's ID.
+    pub id: ModelServerId,
+    /// The device whose `maxd` runs or reaches it. Agents on other devices
+    /// reach a managed server through this device's `maxd` link.
+    pub device: DeviceId,
+    /// Whether `maxd` runs it or it's a URL you gave.
+    pub kind: ModelServerKind,
+    /// Your name for it, or the device's name for a managed one.
+    pub label: String,
+    /// Where it answers, such as `http://devbox:11434`. None for a managed
+    /// server, which listens on a loopback port `maxd` picks each start.
+    pub base_url: Option<String>,
+    /// Whether `maxd` holds a token for it. The token itself stays in
+    /// `maxd`'s secrets store and is never sent.
+    #[serde(default)]
+    pub token: bool,
+    /// What the last probe found, or none before the first.
+    pub probe: Option<ServerProbe>,
+    /// The models it serves. For a managed server, the model files ready
+    /// on its device; for a URL, what its model list returned. One this
+    /// build can't read is left out.
+    #[serde(deserialize_with = "crate::tolerant::list")]
+    #[specta(type = Vec<ServerModel>)]
+    pub models: Vec<ServerModel>,
+}
+
+/// Whether `maxd` runs a server or reaches it at a URL.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, Type, JsonSchema)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum ModelServerKind {
+    /// llama-server, which `maxd` installs, starts on 127.0.0.1 with a key
+    /// of its own, and stops when idle.
+    Managed,
+    /// A server URL you gave.
+    External {
+        /// What the probe says answers there.
+        flavor: ServerFlavor,
+    },
+}
+
+/// What kind of server answers at a URL.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, Type, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum ServerFlavor {
+    /// llama.cpp's llama-server.
+    LlamaCpp,
+    /// Ollama.
+    Ollama,
+    /// LM Studio.
+    LmStudio,
+    /// vLLM.
+    Vllm,
+    /// Something else, or not yet probed.
+    Other,
+}
+
+/// What a probe of a server found.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, Type, JsonSchema)]
+pub struct ServerProbe {
+    /// When it ran.
+    pub at: Timestamp,
+    /// Which APIs answered.
+    pub apis: ServerApis,
+    /// The context size the server runs with, in tokens, when it says.
+    pub context: Option<u32>,
+    /// Why the probe failed, for a person to read. None when the server
+    /// answered.
+    pub error: Option<String>,
+}
+
+/// Which APIs a server answered on. Only a server with the Anthropic
+/// Messages API can run a local agent.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, Type, JsonSchema)]
+pub struct ServerApis {
+    /// `/v1/messages`, the Anthropic Messages API Claude Code talks.
+    #[serde(default)]
+    pub messages: bool,
+    /// `/v1/chat/completions`.
+    #[serde(default)]
+    pub chat: bool,
+    /// `/v1/responses`.
+    #[serde(default)]
+    pub responses: bool,
+}
+
+/// One model a server serves.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, Type, JsonSchema)]
+pub struct ServerModel {
+    /// The ID the server takes in a request, such as `qwen3.6:35b`.
+    pub id: String,
+    /// The name to show.
+    pub label: String,
+    /// The catalog entry and file it runs, for a managed server's model or
+    /// a URL's model `maxd` recognized.
+    pub catalog: Option<CatalogRef>,
+    /// The context size it runs with, in tokens, when known.
+    pub context: Option<u32>,
+    /// Whether it's in memory. None when the server doesn't say, as with
+    /// most URLs.
+    pub load: Option<ModelLoad>,
+}
+
+/// One file of one catalog model.
+#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, Type, JsonSchema)]
+pub struct CatalogRef {
+    /// The catalog model's ID.
+    pub model: String,
+    /// The file's name.
+    pub file: String,
+}
+
+/// Whether a model is in memory.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, Type, JsonSchema)]
+#[serde(tag = "state", rename_all = "snake_case")]
+pub enum ModelLoad {
+    /// Not loaded. A local agent's turn loads it.
+    Unloaded,
+    /// Loading into memory.
+    Loading,
+    /// Loaded and serving.
+    Loaded {
+        /// How many requests it serves at once, each with its own KV cache.
+        slots: u8,
+        /// The context size of each slot, in tokens.
+        context: u32,
+        /// When it finished loading.
+        since: Timestamp,
+    },
+    /// The last load failed.
+    Failed {
+        /// Why, for a person to read.
+        reason: String,
+    },
+}
+
+/// What one device knows for local models: its hardware, the catalog and
+/// the model files it holds.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Type, JsonSchema)]
+pub struct LocalModels {
+    /// The device.
+    pub device: DeviceId,
+    /// Its hardware, for the fit estimate.
+    pub hardware: DeviceHardware,
+    /// Where model files go, as an absolute path on the device, such as
+    /// `~/.local/share/maxhq/models` expanded.
+    pub models_dir: String,
+    /// Free bytes on the disk that holds `models_dir`.
+    #[specta(type = specta_typescript::Number)]
+    pub disk_free: u64,
+    /// Whether it can run a managed server, and that server's install.
+    pub runtime: ModelRuntime,
+    /// The curated models it offers.
+    pub catalog: ModelCatalog,
+    /// The model files on disk or on their way. One this build can't read
+    /// is left out.
+    #[serde(deserialize_with = "crate::tolerant::list")]
+    #[specta(type = Vec<ModelFile>)]
+    pub files: Vec<ModelFile>,
+}
+
+/// A device's hardware, as far as it matters for running a model.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, Type, JsonSchema)]
+pub struct DeviceHardware {
+    /// The chip, such as "Apple M4 Max", when known.
+    pub chip: Option<String>,
+    /// The GPU's core count, when known.
+    pub gpu_cores: Option<u16>,
+    /// Memory in bytes.
+    #[specta(type = specta_typescript::Number)]
+    pub ram: u64,
+    /// The memory a GPU can use for a model. None for a device without a
+    /// GPU `maxd` can use, which is too slow for agents.
+    pub gpu: Option<GpuMemory>,
+}
+
+/// How much memory a GPU can give a model.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, Type, JsonSchema)]
+pub struct GpuMemory {
+    /// The budget in bytes.
+    #[specta(type = specta_typescript::Number)]
+    pub budget: u64,
+    /// Where the figure came from.
+    pub source: GpuBudgetSource,
+}
+
+/// Where a GPU memory budget came from.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, Type, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum GpuBudgetSource {
+    /// Metal's recommended working set size.
+    Metal,
+    /// The `iogpu.wired_limit_mb` limit someone set on the Mac.
+    WiredLimit,
+    /// macOS's default share of memory, estimated from the memory size.
+    Estimate,
+}
+
+/// Whether a device can run a managed model server.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, Type, JsonSchema)]
+pub struct ModelRuntime {
+    /// What the device supports.
+    pub support: RuntimeSupport,
+    /// The installed llama-server's version, or none before an install.
+    pub version: Option<String>,
+    /// What its install or update is doing.
+    pub state: ToolState,
+}
+
+/// What a device supports for local models.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, Type, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum RuntimeSupport {
+    /// A managed server and the catalog, as on an Apple silicon Mac.
+    Managed,
+    /// No GPU `maxd` can use: too slow for agents, so only server URLs.
+    NoGpu,
+    /// A GPU, but `maxd` doesn't manage a server here yet: server URLs
+    /// only.
+    UrlOnly,
+}
+
+/// The curated models a device offers.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Type, JsonSchema)]
+pub struct ModelCatalog {
+    /// When the catalog was last refreshed, or when the shipped one was
+    /// made.
+    pub updated_at: Timestamp,
+    /// The models, best pick first. One this build can't read is left out.
+    #[serde(deserialize_with = "crate::tolerant::list")]
+    #[specta(type = Vec<CatalogModel>)]
+    pub models: Vec<CatalogModel>,
+}
+
+/// One curated model.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Type, JsonSchema)]
+pub struct CatalogModel {
+    /// The catalog's ID for it, such as `qwen3.6-35b-a3b`.
+    pub id: String,
+    /// The name to show, such as "Qwen3.6-35B-A3B".
+    pub name: String,
+    /// The Hugging Face repo the files come from, as `org/repo`.
+    pub repo: String,
+    /// The repo commit the files are pinned to.
+    pub commit: String,
+    /// The licence, such as "Apache-2.0".
+    pub license: String,
+    /// When the model came out, as `YYYY-MM-DD`.
+    pub released: String,
+    /// Parameters in billions.
+    pub params_b: f32,
+    /// Parameters active per token in billions, less than `params_b` for a
+    /// mixture of experts.
+    pub active_params_b: f32,
+    /// The files to pick from, one per quantization.
+    pub files: Vec<CatalogFile>,
+    /// What the KV cache needs per token.
+    pub kv: KvShape,
+    /// The longest context the model takes, in tokens.
+    pub native_context: u32,
+    /// A line or two on what it's good at, in English.
+    pub notes: String,
+    /// Published benchmark scores.
+    pub scores: Vec<ModelScore>,
+}
+
+/// One quantized file of a catalog model.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, Type, JsonSchema)]
+pub struct CatalogFile {
+    /// The file's name in the repo.
+    pub name: String,
+    /// The quantization, such as "Q4_K_M".
+    pub quant: String,
+    /// Its size in bytes.
+    #[specta(type = specta_typescript::Number)]
+    pub bytes: u64,
+    /// Its SHA-256, in hex.
+    pub sha256: String,
+    /// Whether it's the file to pick for this model.
+    #[serde(default)]
+    pub recommended: bool,
+}
+
+/// What a model's KV cache needs, to estimate its size for a context.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, Type, JsonSchema)]
+pub struct KvShape {
+    /// Layers whose attention covers the whole context.
+    pub full_layers: u16,
+    /// KV heads per layer.
+    pub kv_heads: u16,
+    /// Each head's size.
+    pub head_dim: u16,
+    /// Layers whose attention covers only a sliding window.
+    #[serde(default)]
+    pub swa_layers: u16,
+    /// The sliding window in tokens, for `swa_layers`.
+    #[serde(default)]
+    pub swa_window: u32,
+}
+
+/// A published benchmark score.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Type, JsonSchema)]
+pub struct ModelScore {
+    /// The benchmark, such as "SWE-bench Verified".
+    pub benchmark: String,
+    /// The score, in percent.
+    pub value: f32,
+    /// The agent harness it ran in, such as "Claude Code", when known.
+    pub harness: Option<String>,
+    /// Who reported it.
+    pub source: ScoreSource,
+    /// Where it was reported.
+    pub url: String,
+    /// When, as `YYYY-MM-DD`.
+    pub date: String,
+}
+
+/// Who reported a score.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, Type, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum ScoreSource {
+    /// The model's maker.
+    Vendor,
+    /// Someone else.
+    Independent,
+}
+
+/// A model file on a device's disk or on its way.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, Type, JsonSchema)]
+pub struct ModelFile {
+    /// The catalog model's ID.
+    pub model: String,
+    /// The file's name.
+    pub file: String,
+    /// Where it is, as an absolute path on the device:
+    /// `<models_dir>/<org>/<repo>/<file>`.
+    pub path: String,
+    /// Bytes on disk so far.
+    #[specta(type = specta_typescript::Number)]
+    pub bytes_done: u64,
+    /// The whole file's size in bytes.
+    #[specta(type = specta_typescript::Number)]
+    pub bytes_total: u64,
+    /// Where it stands.
+    pub state: ModelFileState,
+}
+
+/// Where a model file stands.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, Type, JsonSchema)]
+#[serde(tag = "state", rename_all = "snake_case")]
+pub enum ModelFileState {
+    /// Downloading, or checking what came down.
+    Downloading {
+        /// Downloading or verifying.
+        phase: ToolPhase,
+    },
+    /// Paused, keeping what came down so far.
+    Paused,
+    /// On disk and checked, ready to load.
+    Ready,
+    /// The download failed, keeping what came down when it can resume.
+    Failed {
+        /// Why, for a person to read.
+        reason: String,
+    },
+}
+
+/// A device's choices for local models, in its device settings.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, Type, JsonSchema)]
+pub struct LocalModelSettings {
+    /// Minutes with no local agent turn running before a managed server
+    /// unloads its model. 0 keeps it loaded.
+    #[serde(default = "default_idle_unload_minutes")]
+    pub idle_unload_minutes: u16,
+    /// How a managed server stores its KV cache.
+    #[serde(default)]
+    pub kv_type: KvCacheType,
+    /// The context size a managed server loads a model with, in tokens.
+    #[serde(default = "default_context")]
+    pub context: u32,
+    /// Whether local agents get a lean set of MaxHQ tools, which leaves
+    /// more of a small context for the work.
+    #[serde(default = "crate::model::yes")]
+    pub fewer_tools: bool,
+    /// The model a new local agent on this device starts with, or none to
+    /// use the catalog's default once it's ready.
+    #[serde(default)]
+    pub default_model: Option<LocalModelPick>,
+}
+
+/// The idle unload default, in minutes.
+pub const DEFAULT_IDLE_UNLOAD_MINUTES: u16 = 15;
+
+/// The context size default, in tokens.
+pub const DEFAULT_CONTEXT: u32 = 65_536;
+
+fn default_idle_unload_minutes() -> u16 {
+    DEFAULT_IDLE_UNLOAD_MINUTES
+}
+
+fn default_context() -> u32 {
+    DEFAULT_CONTEXT
+}
+
+impl Default for LocalModelSettings {
+    fn default() -> Self {
+        Self {
+            idle_unload_minutes: DEFAULT_IDLE_UNLOAD_MINUTES,
+            kv_type: KvCacheType::default(),
+            context: DEFAULT_CONTEXT,
+            fewer_tools: true,
+            default_model: None,
+        }
+    }
+}
+
+/// How a managed server stores its KV cache.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, Type, JsonSchema)]
+pub enum KvCacheType {
+    /// 16-bit floats, the exact cache.
+    #[default]
+    #[serde(rename = "f16")]
+    F16,
+    /// 8-bit, about half the memory for a small loss.
+    #[serde(rename = "q8_0")]
+    Q8_0,
+}
+
+/// One model on one server.
+#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, Type, JsonSchema)]
+pub struct LocalModelPick {
+    /// The server.
+    pub server: ModelServerId,
+    /// The model's ID on that server.
+    pub model: String,
+}
+
+/// Something to do with a device's local models, in
+/// [`crate::ClientMessage::ModelAction`].
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, Type, JsonSchema)]
+#[serde(tag = "action", rename_all = "snake_case")]
+pub enum ModelAction {
+    /// Adds a server URL and probes it. Answers
+    /// [`crate::message::ActionOutcome::ModelServerAdded`].
+    AddServer {
+        /// Your name for it.
+        label: String,
+        /// Its base URL, such as `http://devbox:11434`.
+        url: String,
+        /// A token it wants, which `maxd` keeps in its secrets store.
+        #[serde(default)]
+        token: Option<Secret>,
+    },
+    /// Probes a server again.
+    TestServer {
+        /// The server.
+        server: ModelServerId,
+    },
+    /// Removes a server URL, with its account and token. A managed server
+    /// can't be removed.
+    RemoveServer {
+        /// The server.
+        server: ModelServerId,
+    },
+    /// Downloads one file of a catalog model.
+    Download {
+        /// The catalog model's ID.
+        model: String,
+        /// The file's name.
+        file: String,
+    },
+    /// Pauses a download.
+    PauseDownload {
+        /// The catalog model's ID.
+        model: String,
+        /// The file's name.
+        file: String,
+    },
+    /// Resumes a paused or failed download.
+    ResumeDownload {
+        /// The catalog model's ID.
+        model: String,
+        /// The file's name.
+        file: String,
+    },
+    /// Deletes a model file, or stops its download and deletes what came
+    /// down.
+    DeleteModel {
+        /// The catalog model's ID.
+        model: String,
+        /// The file's name.
+        file: String,
+    },
+    /// Loads a model on a managed server now, rather than at the next
+    /// local agent turn.
+    Load {
+        /// The server.
+        server: ModelServerId,
+        /// The model's ID on that server.
+        model: String,
+    },
+    /// Unloads a model from a managed server.
+    Unload {
+        /// The server.
+        server: ModelServerId,
+        /// The model's ID on that server.
+        model: String,
+    },
+}
+
+/// What a local agent's server is doing for it, in its live state.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize, Type, JsonSchema)]
+pub struct LocalRun {
+    /// Whether its model is loading, so the turn waits.
+    #[serde(default)]
+    pub loading: bool,
+    /// Prompt tokens read per second in the current or last turn.
+    #[serde(default)]
+    pub prompt_per_second: Option<f32>,
+    /// Tokens written per second in the current or last turn.
+    #[serde(default)]
+    pub decode_per_second: Option<f32>,
+    /// Tokens of the server's context in use.
+    #[serde(default)]
+    pub context_used: Option<u32>,
+    /// The server's context size in tokens.
+    #[serde(default)]
+    pub context_size: Option<u32>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::ids::IdempotencyKey;
+    use crate::message::{ActionOutcome, ClientMessage, LOCAL_MODELS_SINCE};
+    use crate::state::{Entity, EntityKey};
+
+    fn device() -> DeviceId {
+        DeviceId::derive("device:example")
+    }
+
+    fn server() -> ModelServer {
+        ModelServer {
+            id: ModelServerId::derive("server:example"),
+            device: device(),
+            kind: ModelServerKind::External {
+                flavor: ServerFlavor::Ollama,
+            },
+            label: "Ollama on devbox".into(),
+            base_url: Some("http://devbox:11434".into()),
+            token: true,
+            probe: Some(ServerProbe {
+                at: Timestamp(1_000),
+                apis: ServerApis {
+                    messages: true,
+                    chat: true,
+                    responses: false,
+                },
+                context: Some(32_768),
+                error: None,
+            }),
+            models: vec![ServerModel {
+                id: "qwen3.6:35b".into(),
+                label: "qwen3.6:35b".into(),
+                catalog: None,
+                context: Some(32_768),
+                load: Some(ModelLoad::Loaded {
+                    slots: 1,
+                    context: 32_768,
+                    since: Timestamp(900),
+                }),
+            }],
+        }
+    }
+
+    fn local_models() -> LocalModels {
+        LocalModels {
+            device: device(),
+            hardware: DeviceHardware {
+                chip: Some("Apple M4 Max".into()),
+                gpu_cores: Some(32),
+                ram: 36 * (1 << 30),
+                gpu: Some(GpuMemory {
+                    budget: 27 * (1 << 30),
+                    source: GpuBudgetSource::Metal,
+                }),
+            },
+            models_dir: "/Users/example/.local/share/maxhq/models".into(),
+            disk_free: 200_000_000_000,
+            runtime: ModelRuntime {
+                support: RuntimeSupport::Managed,
+                version: Some("b7000".into()),
+                state: ToolState::Idle,
+            },
+            catalog: ModelCatalog {
+                updated_at: Timestamp(500),
+                models: vec![CatalogModel {
+                    id: "qwen3.6-35b-a3b".into(),
+                    name: "Qwen3.6-35B-A3B".into(),
+                    repo: "example-org/Qwen3.6-35B-A3B-GGUF".into(),
+                    commit: "0123456789abcdef0123456789abcdef01234567".into(),
+                    license: "Apache-2.0".into(),
+                    released: "2026-04-16".into(),
+                    params_b: 35.0,
+                    active_params_b: 3.0,
+                    files: vec![CatalogFile {
+                        name: "model-Q4.gguf".into(),
+                        quant: "Q4_K_M".into(),
+                        bytes: 22_400_000_000,
+                        sha256: "ab".repeat(32),
+                        recommended: true,
+                    }],
+                    kv: KvShape {
+                        full_layers: 10,
+                        kv_heads: 2,
+                        head_dim: 256,
+                        swa_layers: 0,
+                        swa_window: 0,
+                    },
+                    native_context: 262_144,
+                    notes: "The default.".into(),
+                    scores: vec![ModelScore {
+                        benchmark: "SWE-bench Verified".into(),
+                        value: 73.4,
+                        harness: None,
+                        source: ScoreSource::Vendor,
+                        url: "https://example.com/model".into(),
+                        date: "2026-04-16".into(),
+                    }],
+                }],
+            },
+            files: vec![ModelFile {
+                model: "qwen3.6-35b-a3b".into(),
+                file: "model-Q4.gguf".into(),
+                path: "/Users/example/.local/share/maxhq/models/example-org/Qwen3.6-35B-A3B-GGUF/model-Q4.gguf".into(),
+                bytes_done: 1_000,
+                bytes_total: 22_400_000_000,
+                state: ModelFileState::Downloading {
+                    phase: ToolPhase::Downloading,
+                },
+            }],
+        }
+    }
+
+    fn round_trip<T>(value: &T) -> T
+    where
+        T: Serialize + serde::de::DeserializeOwned,
+    {
+        serde_json::from_str(&serde_json::to_string(value).unwrap()).unwrap()
+    }
+
+    #[test]
+    fn entities_round_trip_with_their_keys() {
+        let server = Entity::ModelServer(server());
+        assert_eq!(round_trip(&server), server);
+        assert_eq!(
+            server.key(),
+            EntityKey::ModelServer(ModelServerId::derive("server:example"))
+        );
+        let models = Entity::LocalModels(local_models());
+        assert_eq!(round_trip(&models), models);
+        assert_eq!(models.key(), EntityKey::LocalModels(device()));
+        let json = serde_json::to_value(&models).unwrap();
+        assert_eq!(json["entity"], "local_models");
+        assert_eq!(json["files"][0]["state"]["state"], "downloading");
+    }
+
+    #[test]
+    fn a_server_entry_this_build_cant_read_is_left_out() {
+        let mut json = serde_json::to_value(server()).unwrap();
+        json["models"]
+            .as_array_mut()
+            .unwrap()
+            .push(serde_json::json!({ "id": "x", "load": { "state": "newer" } }));
+        let read: ModelServer = serde_json::from_value(json).unwrap();
+        assert_eq!(read.models.len(), 1);
+    }
+
+    #[test]
+    fn settings_default_to_the_owner_picks() {
+        let read: LocalModelSettings = serde_json::from_str("{}").unwrap();
+        assert_eq!(read, LocalModelSettings::default());
+        assert_eq!(read.idle_unload_minutes, 15);
+        assert_eq!(read.context, 65_536);
+        assert_eq!(read.kv_type, KvCacheType::F16);
+        assert!(read.fewer_tools);
+        assert_eq!(
+            serde_json::to_string(&KvCacheType::Q8_0).unwrap(),
+            "\"q8_0\""
+        );
+    }
+
+    #[test]
+    fn model_actions_round_trip_since_local_models() {
+        assert_eq!(LOCAL_MODELS_SINCE, 58);
+        let server = ModelServerId::derive("server:example");
+        let actions = [
+            ModelAction::AddServer {
+                label: "Ollama on devbox".into(),
+                url: "http://devbox:11434".into(),
+                token: Some(Secret::new("example-token".into())),
+            },
+            ModelAction::TestServer { server },
+            ModelAction::RemoveServer { server },
+            ModelAction::Download {
+                model: "qwen3.6-35b-a3b".into(),
+                file: "model-Q4.gguf".into(),
+            },
+            ModelAction::PauseDownload {
+                model: "qwen3.6-35b-a3b".into(),
+                file: "model-Q4.gguf".into(),
+            },
+            ModelAction::ResumeDownload {
+                model: "qwen3.6-35b-a3b".into(),
+                file: "model-Q4.gguf".into(),
+            },
+            ModelAction::DeleteModel {
+                model: "qwen3.6-35b-a3b".into(),
+                file: "model-Q4.gguf".into(),
+            },
+            ModelAction::Load {
+                server,
+                model: "qwen3.6-35b-a3b".into(),
+            },
+            ModelAction::Unload {
+                server,
+                model: "qwen3.6-35b-a3b".into(),
+            },
+        ];
+        for action in actions {
+            let key = IdempotencyKey::generate();
+            let message = ClientMessage::ModelAction {
+                key,
+                action: action.clone(),
+            };
+            assert_eq!(round_trip(&message), message);
+            assert_eq!(message.since(), LOCAL_MODELS_SINCE);
+            assert_eq!(message.action_key(), Some(key));
+        }
+        let added = ActionOutcome::ModelServerAdded { server };
+        assert_eq!(round_trip(&added), added);
+    }
+
+    #[test]
+    fn a_server_token_stays_out_of_logs() {
+        let message = ClientMessage::ModelAction {
+            key: IdempotencyKey::derive("key"),
+            action: ModelAction::AddServer {
+                label: "devbox".into(),
+                url: "http://devbox:11434".into(),
+                token: Some(Secret::new("example-token".into())),
+            },
+        };
+        assert!(!format!("{message:?}").contains("example-token"));
+        let json = serde_json::to_value(server()).unwrap();
+        assert_eq!(json["token"], true);
+    }
+
+    #[test]
+    fn a_local_run_reads_with_fields_left_out() {
+        let read: LocalRun = serde_json::from_str("{}").unwrap();
+        assert_eq!(read, LocalRun::default());
+    }
+}

@@ -873,6 +873,8 @@ pub(crate) enum Needs {
     ToolInstalls,
     /// Phones, and the APNs key that pushes to them.
     Phones,
+    /// Local models: model servers, downloads and loads.
+    LocalModels,
 }
 
 /// Refuses in words a request a device's `maxd` is too old for, since it
@@ -898,6 +900,7 @@ pub(crate) fn check_can(merge: &Merge, device: DeviceId, needs: Needs) -> Result
         Needs::Moves => (does.moves, "move workspaces"),
         Needs::ToolInstalls => (does.tool_installs, "install tools"),
         Needs::Phones => (does.phones, "push to phones"),
+        Needs::LocalModels => (does.local_models, "run local models"),
     };
     if can {
         Ok(())

@@ -11,6 +11,8 @@ import { setsEffort } from "../agent-view/effort";
 import type { DeviceId } from "../bindings";
 import type { DeviceSettings } from "../fleet/wire";
 import { t } from "../i18n";
+import { localSettingsOf, sameLocalSettings } from "../local-models/models";
+import { runsLocalModels } from "../local-models/select";
 import type { Option } from "../new-agent/spec";
 import { sameTestHostSettings, testHostSettingsOf } from "../test-hosts/hosts";
 import type { ViewState } from "../view/replica";
@@ -47,6 +49,7 @@ export const deviceSettingsOf = (view: ViewState, device: DeviceId): DeviceField
 		history_mib: kept?.history_mib ?? DEFAULT_HISTORY_MIB,
 		claude_setup_token: kept?.claude_setup_token ?? false,
 		shell_integration: kept?.shell_integration ?? true,
+		local_models: localSettingsOf(kept?.local_models),
 		skill_library: kept?.skill_library ?? null,
 		network: kept?.network ?? {},
 		test_hosts: testHostSettingsOf(view, device),
@@ -72,6 +75,7 @@ export const sameDeviceFields = (a: DeviceFields, b: DeviceFields): boolean =>
 	a.history_mib === b.history_mib &&
 	a.claude_setup_token === b.claude_setup_token &&
 	a.shell_integration === b.shell_integration &&
+	sameLocalSettings(a.local_models, b.local_models) &&
 	a.skill_library === b.skill_library &&
 	a.network.on === b.network.on &&
 	a.network.port === b.network.port &&
@@ -158,6 +162,8 @@ export type SettingsWhy = {
 	readonly tokens: string | null;
 	readonly effort: string | null;
 	readonly shell: string | null;
+	/** The local model settings, which need a `maxd` that runs local models. */
+	readonly local: string | null;
 };
 
 /** Why each part of `device`'s settings can't change, given whether it answers. */
@@ -193,5 +199,6 @@ export const settingsWhy = (
 					)),
 		effort: tooOld(setsEffort(view, device), false),
 		shell: tooOld(knowsShellIntegration(view, device), false),
+		local: tooOld(runsLocalModels(view, device), true),
 	};
 };

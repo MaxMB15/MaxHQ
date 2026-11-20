@@ -23,6 +23,7 @@ use maxhq_protocol::ids::{
     LeaseId, LinkId, MoveId, PermissionId, PortId, ProjectId, SignInId, SkillProposalId,
     SkillSourceId, TaskId, TerminalId, TestHostId, TransferId, WorkspaceId,
 };
+use maxhq_protocol::local_models::ModelAction;
 use maxhq_protocol::message::{
     ActionOutcome, AgentPlace, AgentSpec, AttachmentSource, HostLoad, IgnoredFile, SendMode,
     TakeOverMode, ToolTarget, UserInput,
@@ -916,6 +917,14 @@ pub enum Request {
         #[serde(default)]
         force: bool,
     },
+    /// Acts on `device`'s local models: adds, tests or removes a server
+    /// URL, downloads, pauses, resumes or deletes a model file, or loads or
+    /// unloads a model. The default model is a device setting, saved with
+    /// `set_device_settings`.
+    ModelAction {
+        device: DeviceId,
+        action: ModelAction,
+    },
 }
 
 /// The answer to a [`Request`], of the same kind. A request that only
@@ -1133,6 +1142,7 @@ pub enum Response {
     SessionShare(ActionOutcome),
     SessionCd(ActionOutcome),
     SessionEnd(ActionOutcome),
+    ModelAction(ActionOutcome),
 }
 
 impl Request {
@@ -1343,6 +1353,7 @@ impl Request {
             Self::SessionShare { .. } => "session_share",
             Self::SessionCd { .. } => "session_cd",
             Self::SessionEnd { .. } => "session_end",
+            Self::ModelAction { .. } => "model_action",
         }
     }
 }
@@ -1555,6 +1566,7 @@ impl Response {
             Self::SessionShare(_) => "session_share",
             Self::SessionCd(_) => "session_cd",
             Self::SessionEnd(_) => "session_end",
+            Self::ModelAction(_) => "model_action",
         }
     }
 }
@@ -2750,6 +2762,10 @@ impl<C: Connector> App<C> {
                 let action = ClientMessage::SessionEnd { key, agent, force };
                 Response::SessionEnd(devices.act(action).await?)
             }
+            Request::ModelAction { device, action } => {
+                let act = |key| ClientMessage::ModelAction { key, action };
+                Response::ModelAction(self.act_needing(device, Needs::LocalModels, act).await?)
+            }
         })
     }
 
@@ -3664,6 +3680,11 @@ mod tests {
                 "filter": "ex",
             }),
             json!({"kind": "make_folder", "device": mac, "path": "/Users/dev/code/new"}),
+            json!({
+                "kind": "model_action",
+                "device": mac,
+                "action": {"action": "download", "model": "qwen3.6-35b-a3b", "file": "model-Q4.gguf"},
+            }),
         ]
         .into_iter()
         .chain(skill_requests(mac))
@@ -4505,7 +4526,7 @@ mod tests {
                 }
             }
         }
-        assert_eq!(kinds.len() + mac_only.len(), 160);
+        assert_eq!(kinds.len() + mac_only.len(), 161);
         // The harness has no maxd to install or uninstall, no timeline open, no
         // listening port, no setup waiting on a host key, no GitHub
         // sign-in to merge with, no skill proposal, no link or card waiting

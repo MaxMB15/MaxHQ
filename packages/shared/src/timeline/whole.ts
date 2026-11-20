@@ -10,6 +10,7 @@ import { t } from "../i18n";
 import type { ToolNames } from "../agent-view/agent-tools";
 import type { Agent } from "../bindings";
 import type { DataSource } from "../data/source";
+import { ownKind } from "../status/agent-kind";
 import type { TimelineState } from "./apply";
 import { conversationMarkdown } from "./export";
 import { leaseTimeline } from "./registry";
@@ -60,7 +61,7 @@ export const loadAll = (timeline: Timeline): Promise<TimelineState> =>
 /** The agent's whole conversation as Markdown, once every older page has loaded. */
 export const conversationText = async (
 	source: DataSource,
-	agent: Pick<Agent, "id" | "title" | "vendor">,
+	agent: Pick<Agent, "id" | "title" | "vendor" | "local">,
 	names: ToolNames
 ): Promise<string> => {
 	const { timeline, release } = leaseTimeline(source, agent.id);
@@ -70,7 +71,7 @@ export const conversationText = async (
 			const item = state.items.get(id);
 			return item ? [item] : [];
 		});
-		return conversationMarkdown(items, { title: agent.title, vendor: agent.vendor, names });
+		return conversationMarkdown(items, { title: agent.title, vendor: ownKind(agent), names });
 	} finally {
 		release();
 	}

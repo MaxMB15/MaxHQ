@@ -126,6 +126,7 @@ fn make_hub(dir: &Path, db: &Db, host: &Device) -> Hub {
             acp: None,
             login: LoginKind::ConfigDir,
             origin: None,
+            model_server: None,
         }),
     }));
     hub
@@ -711,6 +712,7 @@ impl Harness {
             acp: None,
             login,
             origin: None,
+            model_server: None,
         }));
         id
     }
@@ -749,6 +751,7 @@ impl Harness {
             acp: None,
             login: LoginKind::AcpCommand,
             origin: None,
+            model_server: None,
         }));
         account
     }
@@ -782,6 +785,7 @@ impl Harness {
             effort: None,
             running: None,
             moved: None,
+            local: None,
         }
     }
 
@@ -945,6 +949,7 @@ impl Harness {
             effort: None,
             running: None,
             moved: None,
+            local: None,
         };
         self.hub.apply([Change::Upsert {
             value: Entity::Agent(agent),
@@ -2269,6 +2274,7 @@ async fn device_settings_are_stored_and_published() {
         history_mib: 256,
         claude_setup_token: false,
         shell_integration: true,
+        local_models: Default::default(),
     };
     let outcome = h
         .act(|key| ClientMessage::SetDeviceSettings {

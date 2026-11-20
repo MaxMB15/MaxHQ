@@ -26,7 +26,7 @@ const settingsId = (project: string, device: string): string => `${project}/${de
 /**
  * The ID an entity is keyed by. Device settings, tools and tasks, the
  * skill library, the host report, the ACP registry, network access, hidden
- * projects and the dispatcher use their device's ID, project settings,
+ * projects, the dispatcher and local models use their device's ID, project settings,
  * skills, command rules and notes their project's and device's together, a
  * phone its own and its device's, and a phone book its phone's.
  */
@@ -41,6 +41,7 @@ export const idOf = (entity: Entity): string => {
 		case "network_access":
 		case "hidden_projects":
 		case "dispatcher":
+		case "local_models":
 			return entity.device;
 		case "project_settings":
 		case "project_skills":
@@ -146,6 +147,8 @@ const KINDS: readonly EntityKind[] = [
 	"app_key",
 	"admission",
 	"terminal",
+	"model_server",
+	"local_models",
 ];
 
 const HELD: ReadonlySet<string> = new Set(KINDS);

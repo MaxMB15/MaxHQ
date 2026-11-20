@@ -19,11 +19,12 @@ use crate::dispatch::Dispatcher;
 use crate::hosts::{AcpRegistry, HostReport, Move, PendingLicence};
 use crate::ids::{
     AccountId, AcpAgentId, AdmissionId, AgentId, AppKeyId, AttentionId, CredentialId, DeviceId,
-    ForwardId, LeaseId, LinkId, MoveId, NetworkId, PhoneId, PhoneSessionId, PortId, ProjectId,
-    SkillProposalId, TerminalId, TestHostId, WorkflowRunId, WorkspaceId,
+    ForwardId, LeaseId, LinkId, ModelServerId, MoveId, NetworkId, PhoneId, PhoneSessionId, PortId,
+    ProjectId, SkillProposalId, TerminalId, TestHostId, WorkflowRunId, WorkspaceId,
 };
 use crate::leases::{TestHost, TestLease};
 use crate::link::{DeviceLink, Network};
+use crate::local_models::{LocalModels, ModelServer};
 use crate::model::{
     Account, Agent, CommandRules, Credential, Device, DeviceSettings, Forward, HiddenProjects,
     ListeningPort, Project, ProjectSettings, Tool, Workspace,
@@ -142,6 +143,12 @@ pub enum Entity {
     /// A terminal a device holds for an agent: a shell in its drawer or a
     /// command you ran with `!`. Since protocol 45.
     Terminal(Terminal),
+    /// A model server a device runs or reaches. Since
+    /// [`crate::message::LOCAL_MODELS_SINCE`].
+    ModelServer(ModelServer),
+    /// A device's hardware, model catalog and model files. Since
+    /// [`crate::message::LOCAL_MODELS_SINCE`].
+    LocalModels(LocalModels),
 }
 
 /// Names one entity, for removal and lookup.
@@ -258,6 +265,10 @@ pub enum EntityKey {
     Admission(AdmissionId),
     /// A terminal.
     Terminal(TerminalId),
+    /// A model server.
+    ModelServer(ModelServerId),
+    /// A device's local models, named by the device.
+    LocalModels(DeviceId),
 }
 
 impl Entity {
@@ -315,6 +326,8 @@ impl Entity {
             Self::AppKey(key) => EntityKey::AppKey(key.id),
             Self::Admission(admission) => EntityKey::Admission(admission.id),
             Self::Terminal(terminal) => EntityKey::Terminal(terminal.id),
+            Self::ModelServer(server) => EntityKey::ModelServer(server.id),
+            Self::LocalModels(models) => EntityKey::LocalModels(models.device),
         }
     }
 }
@@ -763,6 +776,7 @@ mod tests {
             history_mib: 256,
             claude_setup_token: false,
             shell_integration: true,
+            local_models: Default::default(),
         });
         assert_eq!(settings.key(), EntityKey::DeviceSettings(id));
         assert_eq!(
@@ -795,11 +809,20 @@ mod tests {
                 "history_mib": 256,
                 "claude_setup_token": false,
                 "shell_integration": true,
+                "local_models": {
+                    "idle_unload_minutes": 15,
+                    "kv_type": "f16",
+                    "context": 65536,
+                    "fewer_tools": true,
+                    "default_model": null,
+                },
             })
         );
         // A `maxd` from before the switch leaves it out, which reads as on.
         let mut old = serde_json::to_value(&settings).unwrap();
         old.as_object_mut().unwrap().remove("shell_integration");
+        // One from before local models reads as their defaults.
+        old.as_object_mut().unwrap().remove("local_models");
         assert_eq!(serde_json::from_value::<Entity>(old).unwrap(), settings);
     }
 
@@ -1194,6 +1217,7 @@ mod tests {
                     usage: None,
                     usage_failure: None,
                     acp: None,
+                    model_server: None,
                 }),
             ),
         ];
@@ -1275,6 +1299,7 @@ mod tests {
                 images: true,
                 ..AcpFeatures::default()
             }),
+            model_server: None,
         });
         let value = round_trip(&account);
         assert_eq!(value["vendor"], "acp");
