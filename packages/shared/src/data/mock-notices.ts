@@ -3,8 +3,10 @@
 
 // The notification log calls of the sample data and of tests. The Mac and
 // devbox each keep a made-up log of the alerts their agents raised over
-// the last day, one of them about an agent that's gone since. Reads and
-// Clear last until the app reloads.
+// the last half day, one of them about an agent that's gone since. The
+// newest two are the prompts the sample agents still wait on, logged when
+// they asked, as a device logs them. Reads and Clear last until the app
+// reloads.
 
 import type { AgentId, DeviceId, Notice, NoticeKind, Timestamp } from "../bindings";
 import type { NoticeCalls } from "../notices/requests";
@@ -33,11 +35,14 @@ const SAMPLES: readonly Sample[] = [
 	["agent-gone-migration", "Schema migration dry run", DEVBOX, "Mosaic", "finished"],
 ];
 
-/** The sample logs: 27 notices, the newest few unread. */
+/**
+ * The sample logs: 27 notices, the newest few unread. The newest two are 2
+ * and 6 minutes old, when the sample view's agents asked.
+ */
 const sampleNotices = (now: Timestamp): Notice[] =>
 	Array.from({ length: 27 }, (_, n) => {
 		const [agent, title, device, project, kind] = SAMPLES[n % SAMPLES.length] as Sample;
-		const at = now - (n + 1) * (n + 1) * 2 * MIN;
+		const at = now - (n + 1) * (n + 2) * MIN;
 		return {
 			id: 100 - n,
 			device,

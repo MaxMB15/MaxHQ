@@ -135,7 +135,10 @@ export const NotificationBell = () => {
 	const [open, setOpen] = useState(false);
 
 	const current = useMemo(() => nowRows(view, now, counts), [view, now, counts]);
-	const earlier = useMemo(() => earlierRows(view, page?.notices ?? []), [view, page]);
+	const earlier = useMemo(
+		() => earlierRows(view, page?.notices ?? [], now, counts),
+		[view, page, now, counts]
+	);
 	const count = bellCount(current, prefs);
 
 	const onOpenChange = (next: boolean) => {

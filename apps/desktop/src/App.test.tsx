@@ -96,9 +96,11 @@ describe("App", () => {
 			name: /Schema migration dry run/,
 		});
 		expect(gone).toHaveTextContent("This agent is gone");
-		expect(within(earlier).getAllByRole("listitem")).toHaveLength(20);
+		// The first page holds 20 notices, and the newest two are the prompts
+		// Now shows, so Earlier leaves them out.
+		expect(within(earlier).getAllByRole("listitem")).toHaveLength(18);
 		fireEvent.click(within(popup).getByRole("button", { name: "Show more" }));
-		await waitFor(() => expect(within(earlier).getAllByRole("listitem")).toHaveLength(27));
+		await waitFor(() => expect(within(earlier).getAllByRole("listitem")).toHaveLength(25));
 
 		fireEvent.click(within(now).getByRole("button", { name: /Release checklist/ }));
 		expect(ui.getState().selectedAgent).toBe("agent-release");

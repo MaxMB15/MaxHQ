@@ -4,7 +4,8 @@
 // The bell's inbox. Now is what the badge counts, read from the same
 // selector, so the two always agree, and the bell's count follows Show the
 // badge as the Dock's does. Earlier is the notification log the
-// devices keep, newest first, a page at a time. Mark all as read marks
+// devices keep, newest first, a page at a time, less the notices about
+// what an agent in Now still wants, which Now shows. Mark all as read marks
 // every notice read and settles what's only unseen, while a prompt stays
 // in Now until you answer it. Opening an agent marks its notices read
 // through the source, wherever it opens.
@@ -58,21 +59,22 @@ export const NOTICE_TEXT: Record<NoticeKind, () => string> = {
 	resumed: () => t("Waited for the usage limit to reset"),
 };
 
+/**
+ * The kind of notice the device logged when the agent began to count, or
+ * null when it logged none, as for a CLI that exited.
+ */
+const noticeKindOf = (view: ViewState, { agent, reason }: BadgeItem): NoticeKind | null => {
+	if (reason === "finished") return "finished";
+	if (agent.activity.state === "error") return null;
+	const kind = attentionOf(view, agent)?.kind;
+	return kind === "permission" || kind === "question" || kind === "error" ? kind : "input";
+};
+
 /** What a Now row says it wants, in the words its activity card uses. */
-const nowText = (view: ViewState, { agent, reason }: BadgeItem): string => {
-	if (reason === "finished") return t("Done, not opened yet");
-	if (agent.activity.state === "error") return t("Stopped with an error");
-	const attention = attentionOf(view, agent);
-	switch (attention?.kind) {
-		case "permission":
-			return NOTICE_TEXT.permission();
-		case "question":
-			return NOTICE_TEXT.question();
-		case "error":
-			return NOTICE_TEXT.error();
-		default:
-			return NOTICE_TEXT.input();
-	}
+const nowText = (view: ViewState, item: BadgeItem): string => {
+	if (item.reason === "finished") return t("Done, not opened yet");
+	const kind = noticeKindOf(view, item);
+	return kind ? NOTICE_TEXT[kind]() : t("Stopped with an error");
 };
 
 /** Why a reason outlasts Mark all as read. */
@@ -117,18 +119,47 @@ export const nowRows = (
 export const bellCount = (rows: readonly InboxRow[], prefs: BadgePrefs): number | null =>
 	prefs.show ? rows.length : null;
 
-/** The Earlier rows, one for each notice. */
-export const earlierRows = (view: ViewState, notices: readonly Notice[]): InboxRow[] =>
-	notices.map((notice) => ({
-		key: `${notice.device}-${notice.id}`,
-		agent: notice.agent,
-		title: notice.title,
-		place: placeOf(view, notice.project, notice.device),
-		what: notice.summary || NOTICE_TEXT[notice.kind](),
-		at: notice.at,
-		unread: notice.read_at === null,
-		gone: !view.tables.agent.has(notice.agent),
-	}));
+/**
+ * Whether a notice is about what an agent in `items` still wants: of the
+ * kind it logged then, logged since it began to count.
+ */
+const stillWanted = (view: ViewState, items: readonly BadgeItem[]) => {
+	const live = new Map(items.map((item) => [item.agent.id, item]));
+	return (notice: Notice): boolean => {
+		const item = live.get(notice.agent);
+		return (
+			item !== undefined &&
+			notice.at >= item.since &&
+			notice.kind === noticeKindOf(view, item)
+		);
+	};
+};
+
+/**
+ * The Earlier rows, one for each notice that's past. A notice about what
+ * an agent in Now, for `counts`, still wants shows only there, so a prompt
+ * waiting on you doesn't show twice.
+ */
+export const earlierRows = (
+	view: ViewState,
+	notices: readonly Notice[],
+	now: Timestamp,
+	counts: readonly BadgeReason[]
+): InboxRow[] => {
+	const live = stillWanted(view, badgeItems(view, now, counts));
+	return notices
+		.filter((notice) => !live(notice))
+		.map((notice) => ({
+			key: `${notice.device}-${notice.id}`,
+			agent: notice.agent,
+			title: notice.title,
+			place: placeOf(view, notice.project, notice.device),
+			what: notice.summary || NOTICE_TEXT[notice.kind](),
+			at: notice.at,
+			unread: notice.read_at === null,
+			gone: !view.tables.agent.has(notice.agent),
+		}));
+};
 
 /** Whether the log holds notices past the page. */
 export const hasMore = (page: NoticePage): boolean => page.total > page.notices.length;
