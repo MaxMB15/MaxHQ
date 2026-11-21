@@ -40,6 +40,8 @@ pub enum Route {
     /// A file, served whole or from a `Range: bytes=N-`. With `cut`, the
     /// next answer stops after that many bytes and closes, once.
     File { body: Vec<u8>, cut: Option<usize> },
+    /// A redirect to another URL.
+    Redirect(String),
 }
 
 /// One request the fake took.
@@ -175,6 +177,12 @@ impl Fake {
                 let reply = format!(
                     "HTTP/1.1 {status} X\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}",
                     body.len()
+                );
+                let _ = stream.write_all(reply.as_bytes()).await;
+            }
+            Some(Route::Redirect(to)) => {
+                let reply = format!(
+                    "HTTP/1.1 307 Temporary Redirect\r\nlocation: {to}\r\ncontent-length: 0\r\nconnection: close\r\n\r\n"
                 );
                 let _ = stream.write_all(reply.as_bytes()).await;
             }

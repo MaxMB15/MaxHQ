@@ -64,6 +64,8 @@ pub async fn probe(
     if let (Err(Fail::Refused(status)), None) = (&listed, &ollama) {
         let error = if *status == 401 || *status == 403 {
             "The server wants a token, or a different one.".to_owned()
+        } else if (300..400).contains(status) {
+            "The server redirects to another address. Enter that address as its URL, because the token never follows a redirect.".to_owned()
         } else {
             format!("The server answered {status} for its model list.")
         };
@@ -280,7 +282,7 @@ async fn post(base: &str, path: &str, token: Option<&Secret>, body: &Value) -> O
 
 #[cfg(test)]
 mod tests {
-    use super::super::tests::Fake;
+    use super::super::tests::{Fake, Route};
     use super::*;
 
     fn catalog() -> ModelCatalog {
@@ -396,6 +398,22 @@ mod tests {
         let found = probe(&fake.base, None, &catalog(), false).await;
         assert!(found.probe.error.unwrap().contains("token"));
         assert!(found.models.is_empty());
+    }
+
+    #[tokio::test]
+    async fn the_token_never_follows_a_redirect() {
+        let fake = Fake::start().await;
+        let elsewhere = Fake::start().await;
+        for path in ["/v1/models", "/api/tags"] {
+            fake.route(path, Route::Redirect(format!("{}{path}", elsewhere.base)));
+        }
+        let token = Secret::new("server-token-0123".to_owned());
+        let found = probe(&fake.base, Some(&token), &catalog(), false).await;
+        assert!(found.probe.error.unwrap().contains("another address"));
+        assert!(
+            elsewhere.seen().is_empty(),
+            "nothing reached the other host"
+        );
     }
 
     #[tokio::test]

@@ -41,6 +41,10 @@ use super::hardware;
 /// the whole conversation.
 pub(super) const MAX_BODY: usize = 64 << 20;
 
+/// The largest tools and system prompt a model keeps to warm its next
+/// load with.
+const MAX_PREFIX: usize = 4 << 20;
+
 /// How long a model may take to load.
 const LOAD_FOR: Duration = Duration::from_secs(300);
 
@@ -516,10 +520,12 @@ impl Runner {
         let service = hyper::service::service_fn(move |request| {
             let runner = runner.clone();
             async move {
-                let response = if linked {
+                let response = if !linked {
+                    runner.handle(request).await
+                } else if linked_route(request.method(), request.uri().path()) {
                     runner.answer(request).await
                 } else {
-                    runner.handle(request).await
+                    nothing_here()
                 };
                 Ok::<_, Infallible>(response)
             }
@@ -562,7 +568,7 @@ impl Runner {
             if request.uri().path() == "/v1/models" {
                 return self.list();
             }
-            return error(StatusCode::NOT_FOUND, "not_found_error", "Nothing is here.");
+            return nothing_here();
         }
         let (parts, body) = request.into_parts();
         let Ok(body) = Limited::new(body, MAX_BODY).collect().await else {
@@ -573,15 +579,9 @@ impl Runner {
             );
         };
         let body = body.to_bytes();
-        let Some(model) = serde_json::from_slice::<Value>(&body)
+        let Some((model, json)) = serde_json::from_slice::<Value>(&body)
             .ok()
-            .and_then(|json| {
-                let model = json.get("model")?.as_str()?.to_owned();
-                if parts.uri.path() == "/v1/messages" {
-                    self.remember(&model, &json);
-                }
-                Some(model)
-            })
+            .and_then(|json| Some((json.get("model")?.as_str()?.to_owned(), json)))
         else {
             return error(
                 StatusCode::BAD_REQUEST,
@@ -596,6 +596,12 @@ impl Runner {
                 &format!("No model {model} is ready on this Mac."),
             );
         }
+        // Only a model that is ready keeps a prefix, so made-up names keep
+        // nothing.
+        if parts.uri.path() == "/v1/messages" {
+            self.remember(&model, &json, body.len());
+        }
+        drop(json);
         let busy = Busy::new(&self, &model);
         let port = match self.ensure(&model).await {
             Ok(port) => port,
@@ -631,8 +637,9 @@ impl Runner {
         )
     }
 
-    /// Keeps the tools and system prompt of a full request.
-    fn remember(&self, model: &str, json: &Value) {
+    /// Keeps the tools and system prompt of a full request of `size`
+    /// bytes, unless they come to more than [`MAX_PREFIX`].
+    fn remember(&self, model: &str, json: &Value, size: usize) {
         let tools = json.get("tools").and_then(Value::as_array);
         if tools.is_none_or(Vec::is_empty) {
             return;
@@ -641,6 +648,11 @@ impl Runner {
             "system": json.get("system").cloned().unwrap_or(Value::Null),
             "tools": tools.cloned().unwrap_or_default(),
         });
+        if size > MAX_PREFIX
+            && serde_json::to_vec(&prefix).map_or(true, |bytes| bytes.len() > MAX_PREFIX)
+        {
+            return;
+        }
         self.lock()
             .entry(model.to_owned())
             .or_insert_with(Slot::new)
@@ -650,6 +662,20 @@ impl Runner {
 
 /// The proxy's answers.
 pub type Body = UnsyncBoxBody<Bytes, hyper::Error>;
+
+/// Whether a linked device may use a route: the ones its local agent
+/// sends. The model server's other routes stay this Mac's own.
+fn linked_route(method: &Method, path: &str) -> bool {
+    match path {
+        "/v1/models" => method == Method::GET,
+        "/v1/messages" | "/v1/messages/count_tokens" => method == Method::POST,
+        _ => false,
+    }
+}
+
+fn nothing_here() -> Response<Body> {
+    error(StatusCode::NOT_FOUND, "not_found_error", "Nothing is here.")
+}
 
 /// Counts a request to a model while it runs, and when it last did
 /// anything.
@@ -1511,6 +1537,75 @@ pub(crate) mod tests {
             Some(format!("Bearer {KEY}").as_str()),
             "llama-server still gets this Mac's key"
         );
+    }
+
+    #[tokio::test]
+    async fn a_linked_device_reaches_only_the_routes_its_agent_uses() {
+        let (runner, host, _base) = runner().await;
+        let (near, far) = tokio::io::duplex(1 << 16);
+        runner.clone().serve_linked(far);
+        let (mut sender, connection) = hyper::client::conn::http1::handshake(TokioIo::new(near))
+            .await
+            .unwrap();
+        tokio::spawn(connection);
+        for (method, path) in [
+            (Method::POST, "/slots/0?action=erase"),
+            (Method::POST, "/lora-adapters"),
+            (Method::POST, "/v1/chat/completions"),
+            (Method::GET, "/metrics"),
+            (Method::GET, "/v1/messages"),
+        ] {
+            let request = Request::builder()
+                .method(method)
+                .uri(path)
+                .header(HOST, "localhost")
+                .body(Full::new(Bytes::from(turn())))
+                .unwrap();
+            let answer = sender.send_request(request).await.unwrap();
+            assert_eq!(answer.status(), 404, "{path}");
+            answer.into_body().collect().await.unwrap();
+        }
+        assert_eq!(host.starts.load(Ordering::SeqCst), 0, "nothing loads");
+        assert!(host.backend.seen().is_empty(), "nothing reaches the server");
+        assert!(runner.lock().is_empty(), "nothing is kept");
+
+        let listed = Request::get("/v1/models")
+            .header(HOST, "localhost")
+            .body(Full::new(Bytes::new()))
+            .unwrap();
+        assert_eq!(sender.send_request(listed).await.unwrap().status(), 200);
+    }
+
+    #[tokio::test]
+    async fn only_a_ready_model_keeps_a_prefix() {
+        let (runner, host, base) = runner().await;
+        let made_up = json!({
+            "model": "made-up@q4",
+            "tools": [{"name": "Read", "input_schema": {"type": "object"}}],
+            "messages": [],
+        });
+        let answer = reqwest::Client::new()
+            .post(format!("{base}/v1/messages"))
+            .bearer_auth(KEY)
+            .body(made_up.to_string())
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(answer.status(), 404);
+        assert!(runner.lock().is_empty(), "a made-up name keeps nothing");
+        assert_eq!(host.starts.load(Ordering::SeqCst), 0);
+
+        // A prefix past the cap isn't kept either.
+        let huge = json!({
+            "model": MODEL,
+            "tools": [{"name": "Read", "description": "x".repeat(MAX_PREFIX)}],
+        });
+        let size = huge.to_string().len();
+        runner.remember(MODEL, &huge, size);
+        assert!(runner.lock().is_empty());
+        let turn: Value = serde_json::from_str(&turn()).unwrap();
+        runner.remember(MODEL, &turn, size);
+        assert!(runner.lock()[MODEL].prefix.is_some());
     }
 
     #[tokio::test]

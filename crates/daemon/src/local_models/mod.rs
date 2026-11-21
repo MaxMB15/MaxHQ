@@ -8,7 +8,7 @@
 //! agents of the devices it links to, over the `maxd` link.
 
 use std::path::Path;
-use std::sync::{Arc, OnceLock};
+use std::sync::{Arc, LazyLock, OnceLock};
 
 use maxhq_protocol::ids::{AccountId, DeviceId, ModelServerId};
 use maxhq_protocol::local_models::{LocalRun, ModelAction};
@@ -148,7 +148,15 @@ impl crate::peers::Models for Shares {
     }
 }
 
-/// The HTTP client local models use, shared with the tool downloads.
+/// The HTTP client local models use. Every request it sends carries a
+/// server's key, so it follows no redirects and the key never goes on to
+/// another host.
 pub fn http() -> &'static reqwest::Client {
-    crate::tools::install::fetch::client()
+    static CLIENT: LazyLock<reqwest::Client> = LazyLock::new(|| {
+        crate::tools::install::fetch::builder()
+            .redirect(reqwest::redirect::Policy::none())
+            .build()
+            .unwrap_or_default()
+    });
+    &CLIENT
 }
