@@ -1,20 +1,28 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026 Max Boksem
 
+import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
 import { createFingerprintAsync } from "expo/fingerprint";
 import { describe, expect, it } from "vitest";
 
 import {
+	AD_HOC_SIGNING,
 	API_KEY_ENV,
 	apiKeyFromEnv,
+	appInIpa,
+	archivedApp,
+	archivePath,
 	checkNativeBuild,
 	coreSteps,
 	devBuildSteps,
 	exportOptions,
+	exportSteps,
 	installSteps,
 	ipaPath,
+	keylessArchiveSteps,
+	missingEntitlements,
 	needsDevBuild,
 	NO_PHONE,
 	onlyPhone,
@@ -160,6 +168,94 @@ describe("testflightSteps", () => {
 		expect(plist).toContain("<key>teamID</key>\n\t<string>ABCDE12345</string>");
 		// .github/workflows/release.yml keeps the artifact from this path.
 		expect(ipaPath(local)).toBe("ios/build/export/MaxHQ.ipa");
+	});
+});
+
+describe("the release workflow's archive and export", () => {
+	const key = { path: "/tmp/AuthKey.p8", id: "KEY1234567", issuer: "issuer-uuid" };
+
+	it("archives the same app as TestFlight, signed ad hoc with no key or account", () => {
+		const [prebuild, archive, ...rest] = keylessArchiveSteps(local);
+		expect(rest).toEqual([]);
+		expect(prebuild).toEqual(testflightSteps(local)[0]);
+		expect(line(archive!)).toContain(
+			"-workspace ios/MaxHQ.xcworkspace -scheme MaxHQ -configuration Release"
+		);
+		expect(archive!.args).toEqual(expect.arrayContaining(AD_HOC_SIGNING));
+		expect(archive!.args).toContain("DEVELOPMENT_TEAM=ABCDE12345");
+		expect(archive!.args).not.toContain("-allowProvisioningUpdates");
+		expect(archive!.args.join(" ")).not.toMatch(/-authentication/);
+		expect(archive!.args.at(-1)).toBe("archive");
+		expect(archivePath(local)).toBe("ios/build/MaxHQ.xcarchive");
+		expect(line(archive!)).toContain(`-archivePath ${archivePath(local)}`);
+		expect(archivedApp(local)).toBe(
+			"ios/build/MaxHQ.xcarchive/Products/Applications/MaxHQ.app"
+		);
+	});
+
+	it("exports that archive as an .ipa with the key, and hides its IDs", () => {
+		const [exported, ...rest] = exportSteps(local, key);
+		expect(rest).toEqual([]);
+		expect(exported).toEqual(testflightSteps(local, key)[2]);
+		expect(line(exported!)).toContain(`-exportArchive -archivePath ${archivePath(local)}`);
+		expect(line(exported!)).toContain(
+			"-allowProvisioningUpdates -authenticationKeyPath /tmp/AuthKey.p8"
+		);
+		expect(exported!.hide).toEqual(["KEY1234567", "issuer-uuid"]);
+		expect(appInIpa(local)).toBe("Payload/MaxHQ.app");
+	});
+
+	describe("missingEntitlements", () => {
+		const signed = {
+			"aps-environment": "production",
+			"com.apple.security.application-groups": ["group.com.example.maxhq"],
+			"keychain-access-groups": ["ABCDE12345.com.example.maxhq"],
+			"com.apple.developer.usernotifications.time-sensitive": true,
+		};
+
+		it("passes an app that carries push, the app group, the Keychain group and time-sensitive prompts", () => {
+			expect(missingEntitlements(local, signed, true)).toEqual([]);
+			expect(missingEntitlements(local, signed, false)).toEqual([]);
+		});
+
+		it("names each entitlement an app signed without them lost", () => {
+			expect(missingEntitlements(local, {}, false)).toEqual([
+				"aps-environment",
+				"com.apple.security.application-groups",
+				"keychain-access-groups",
+				"com.apple.developer.usernotifications.time-sensitive",
+			]);
+			const otherGroup = {
+				...signed,
+				"com.apple.security.application-groups": ["group.com.example.other"],
+			};
+			expect(missingEntitlements(local, otherGroup, true)).toEqual([
+				"com.apple.security.application-groups",
+			]);
+		});
+
+		it("asks for production push only from the exported app", () => {
+			const development = { ...signed, "aps-environment": "development" };
+			expect(missingEntitlements(local, development, false)).toEqual([]);
+			expect(missingEntitlements(local, development, true)).toEqual(["aps-environment"]);
+		});
+	});
+
+	// The upload job runs export with no packages installed, so mobile.ts and
+	// what it loads at start name only Node's modules and each other.
+	it("loads nothing at start but Node's modules and the scripts beside it", () => {
+		const importsOf = (file: string) =>
+			[
+				...readFileSync(resolve(import.meta.dirname, file), "utf8").matchAll(
+					/^import\s(?:[^;]*?from\s+)?"([^"]+)"/gms
+				),
+			].map((match) => match[1]);
+		expect(importsOf("mobile.ts")).toEqual(
+			expect.arrayContaining(["node:child_process", "./native.ts", "./ios-config.ts"])
+		);
+		for (const file of ["mobile.ts", "native.ts", "ios-config.ts", "release-config.ts"]) {
+			for (const name of importsOf(file)) expect(name).toMatch(/^(node:|\.\/)/);
+		}
 	});
 });
 

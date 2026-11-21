@@ -8,28 +8,33 @@
 # - a Mac binary in the app has no code for this Mac's CPU
 # - a Mac binary links a library from Homebrew, MacPorts or /usr/local by its
 #   full path, which a user's Mac won't have
-# - Contents/MacOS/maxd doesn't print its version
+# - Contents/MacOS/maxd doesn't print its version, unless --no-run
 # - a Linux maxd isn't listed in SHA256SUMS with its own sum, or isn't in
 #   maxd-release.json with it
-# - with --require-updates, the app has no update endpoint
+# - with --require-updates, the app has no update endpoint for
+#   $MAXHQ_UPDATE_MANIFEST (default latest.json)
+# - with MAXHQ_UPDATE_PUBKEY set, the app or its maxd doesn't hold that key
 # - the Mac maxd's sum isn't the one maxd-release.json lists
 #
-# It doesn't start the app.
+# It doesn't start the app. With --no-run it runs nothing from the bundle,
+# for the release's signing job, which mustn't run code it signs.
 #
-#   sh scripts/release/smoke-test.sh path/to/MaxHQ.app [--require-linux] [--require-sig] [--require-updates]
+#   sh scripts/release/smoke-test.sh path/to/MaxHQ.app [--require-linux] [--require-sig] [--require-updates] [--no-run]
 
 set -eu
 
-app=${1:?usage: smoke-test.sh <MaxHQ.app> [--require-linux] [--require-sig] [--require-updates]}
+app=${1:?usage: smoke-test.sh <MaxHQ.app> [--require-linux] [--require-sig] [--require-updates] [--no-run]}
 shift
 require_linux=0
 require_sig=0
 require_updates=0
+run=1
 for flag in "$@"; do
 	case "$flag" in
 	--require-linux) require_linux=1 ;;
 	--require-sig) require_sig=1 ;;
 	--require-updates) require_updates=1 ;;
+	--no-run) run=0 ;;
 	*)
 		echo "smoke-test.sh: unknown argument $flag" >&2
 		exit 2
@@ -61,8 +66,15 @@ if [ "$require_sig" = 1 ] && [ ! -s "$manifest.sig" ]; then
 fi
 # The updater's endpoint goes in at build time (MAXHQ_RELEASES_REPO), and
 # without it the app never looks for an update.
-if [ "$require_updates" = 1 ] && ! grep -aq '/releases/latest/download/latest.json' "$macos/maxhq-desktop"; then
-	fail "the app has no update endpoint; build it with MAXHQ_RELEASES_REPO set"
+updates=${MAXHQ_UPDATE_MANIFEST:-latest.json}
+if [ "$require_updates" = 1 ] && ! grep -aqF "/releases/latest/download/$updates" "$macos/maxhq-desktop"; then
+	fail "the app has no update endpoint for $updates; build it with MAXHQ_RELEASES_REPO set"
+fi
+# During a key change the app's updater and maxd both hold the next key.
+if [ -n "${MAXHQ_UPDATE_PUBKEY:-}" ]; then
+	for f in maxhq-desktop maxd; do
+		grep -aqF "$MAXHQ_UPDATE_PUBKEY" "$macos/$f" || fail "Contents/MacOS/$f doesn't hold MAXHQ_UPDATE_PUBKEY"
+	done
 fi
 
 # Each Mach-O binary in the bundle, one path per line. The bundle's paths
@@ -86,7 +98,7 @@ done <<EOF
 $machos
 EOF
 
-if [ -x "$macos/maxd" ]; then
+if [ "$run" = 1 ] && [ -x "$macos/maxd" ]; then
 	if version=$(env -u DYLD_LIBRARY_PATH -u DYLD_FALLBACK_LIBRARY_PATH "$macos/maxd" --version); then
 		echo "maxd --version: $version"
 	else

@@ -8,7 +8,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
-import { latestJson } from "./latest-json.mjs";
+import { latestJson, signatureKeyId } from "./latest-json.mjs";
 import { fleetManifest, sha256 } from "./maxd-release.mjs";
 import { mobileJson, phoneLine, readProtocol, withPhoneLine } from "./mobile-json.mjs";
 
@@ -111,6 +111,44 @@ test("latest.json refuses empty signatures and unknown arches", () => {
 	assert.throws(
 		() => latestJson({ ...base, repo: "not a repo", signatures: { x64: "x" } }),
 		/owner/
+	);
+});
+
+// A .sig file's text and a public key, as far as their key IDs go.
+const box = (magic, id, size) =>
+	Buffer.concat([Buffer.from(magic), id, Buffer.alloc(size)]).toString("base64");
+const fakeSig = (id) =>
+	Buffer.from(`untrusted comment: x\n${box("ED", id, 64)}\ntrusted comment: t\ng\n`).toString(
+		"base64"
+	);
+const fakePub = (id) =>
+	Buffer.from(`untrusted comment: minisign public key\n${box("Ed", id, 32)}\n`).toString(
+		"base64"
+	);
+
+test("latest.json takes only signatures made with --key", () => {
+	const current = Buffer.from("0102030405060708", "hex");
+	const next = Buffer.from("1112131415161718", "hex");
+	const base = { version: "0.2.0", repo: "owner/MaxHQ" };
+	const both = { aarch64: fakeSig(next), x64: fakeSig(next) };
+	assert.deepEqual(signatureKeyId(fakeSig(next)), next);
+	assert.doesNotThrow(() => latestJson({ ...base, signatures: both, key: fakePub(next) }));
+	assert.throws(
+		() =>
+			latestJson({
+				...base,
+				signatures: { ...both, x64: fakeSig(current) },
+				key: fakePub(next),
+			}),
+		/x64 signature is by key 0807060504030201, not 1817161514131211/
+	);
+	assert.throws(
+		() => latestJson({ ...base, signatures: { x64: "c2lnLWludGVs" }, key: fakePub(next) }),
+		/isn't a minisign signature/
+	);
+	assert.throws(
+		() => latestJson({ ...base, signatures: both, key: "not a key" }),
+		/not a minisign public key/
 	);
 });
 

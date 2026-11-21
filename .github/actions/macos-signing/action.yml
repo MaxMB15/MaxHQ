@@ -49,6 +49,9 @@ runs:
         API_PRIVATE_KEY: ${{ inputs.api-private-key }}
       run: |
         set -euo pipefail
+        # The certificate, the API key and the keychain it writes are for the
+        # runner's user only. The workflow deletes them in an always() step.
+        umask 077
         # Check the secrets before anything else, so a half-finished setup fails
         # instead of quietly making an unsigned release.
         api_key_set="$API_KEY_ID$API_ISSUER$API_PRIVATE_KEY"

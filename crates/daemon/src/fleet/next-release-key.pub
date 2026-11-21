@@ -1,0 +1,8 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Max Boksem
+#
+# The next release key, for a change of the update key. Empty until the
+# owner starts one: then the line under these comments is the contents of
+# the .pub file `tauri signer generate` wrote for the new key, as is. While
+# it is set, maxd trusts releases signed with either key, and the release
+# workflow runs the change. The steps are in .github/RELEASING.md.

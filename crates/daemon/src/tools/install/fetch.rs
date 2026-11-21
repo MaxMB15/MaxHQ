@@ -51,17 +51,35 @@ pub fn builder() -> reqwest::ClientBuilder {
 
 /// Reads a small text file, such as a checksum list or a release's JSON.
 pub async fn text(url: &str) -> Result<String, String> {
-    let response = client()
+    text_up_to(url, MOST).await
+}
+
+/// Reads a text file of at most `most` bytes. A bigger one is refused
+/// before it's all read.
+pub async fn text_up_to(url: &str, most: u64) -> Result<String, String> {
+    let couldnt = |err: &reqwest::Error| format!("couldn't read {}: {}", short(url), plain(err));
+    let too_big = || format!("{} is bigger than its {most} bytes", short(url));
+    let mut response = client()
         .get(url)
         .header("accept", "application/json, text/plain, */*")
         .send()
         .await
         .and_then(reqwest::Response::error_for_status)
-        .map_err(|err| format!("couldn't read {}: {}", short(url), plain(&err)))?;
-    response
-        .text()
-        .await
-        .map_err(|err| format!("couldn't read {}: {}", short(url), plain(&err)))
+        .map_err(|err| couldnt(&err))?;
+    if response
+        .content_length()
+        .is_some_and(|length| length > most)
+    {
+        return Err(too_big());
+    }
+    let mut body = Vec::new();
+    while let Some(bytes) = response.chunk().await.map_err(|err| couldnt(&err))? {
+        if (body.len() + bytes.len()) as u64 > most {
+            return Err(too_big());
+        }
+        body.extend_from_slice(&bytes);
+    }
+    String::from_utf8(body).map_err(|_| format!("{} isn't text", short(url)))
 }
 
 /// Downloads `url` to `path` in the place as `user`, telling `progress` as

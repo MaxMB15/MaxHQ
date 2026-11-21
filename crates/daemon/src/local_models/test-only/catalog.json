@@ -1,0 +1,66 @@
+{
+  "updated_at": 4102444800000,
+  "models": [
+    {
+      "id": "qwen3.6-35b-a3b",
+      "name": "Qwen3.6 35B-A3B",
+      "repo": "unsloth/Qwen3.6-35B-A3B-GGUF",
+      "commit": "a483e9e6cbd595906af30beda3187c2663a1118c",
+      "license": "apache-2.0",
+      "released": "2026-04-15",
+      "params_b": 35,
+      "active_params_b": 3,
+      "files": [
+        {
+          "name": "Qwen3.6-35B-A3B-UD-Q4_K_XL.gguf",
+          "quant": "UD-Q4_K_XL",
+          "bytes": 22360456160,
+          "sha256": "707a55a8a4397ecde44de0c499d3e68c1ad1d240d1da65826b4949d1043f4450",
+          "recommended": true
+        },
+        {
+          "name": "Qwen3.6-35B-A3B-UD-IQ4_XS.gguf",
+          "quant": "UD-IQ4_XS",
+          "bytes": 17730509792,
+          "sha256": "649d7508507b84638732c4f52c24c8b15843c6dca2f3ff793ae07c14a67ebbb3",
+          "recommended": false
+        }
+      ],
+      "kv": {
+        "full_layers": 10,
+        "kv_heads": 2,
+        "head_dim": 256,
+        "swa_layers": 0,
+        "swa_window": 0
+      },
+      "native_context": 262144,
+      "notes": "MoE with 3B active. Only 10 of its 40 layers keep a KV cache, so full context costs about 5.4 GB at f16. Q4_K_XL fits a 36 GB Mac at full context with little to spare; IQ4_XS leaves more room.",
+      "scores": [
+        {
+          "benchmark": "SWE-bench Verified",
+          "value": 73.4,
+          "harness": "Internal agent scaffold",
+          "source": "vendor",
+          "url": "https://huggingface.co/Qwen/Qwen3.6-35B-A3B",
+          "date": "2026-04-15"
+        },
+        {
+          "benchmark": "SWE-bench Pro",
+          "value": 49.5,
+          "harness": "Internal agent scaffold",
+          "source": "vendor",
+          "url": "https://huggingface.co/Qwen/Qwen3.6-35B-A3B",
+          "date": "2026-04-15"
+        },
+        {
+          "benchmark": "Terminal-Bench 2.0",
+          "value": 51.5,
+          "harness": "Terminus-2",
+          "source": "vendor",
+          "url": "https://huggingface.co/Qwen/Qwen3.6-35B-A3B",
+          "date": "2026-04-15"
+        }
+      ]
+    }
+  ]
+}
