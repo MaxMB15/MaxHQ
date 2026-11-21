@@ -8,15 +8,16 @@
 //! sha256 of each `maxd-<target>`, and `maxd-release.json.sig`, a minisign
 //! signature over it made with the release key. The app sends both with
 //! the upload. [`vouch`] checks, in order: the upload's checksum against
-//! the one the app sent, the manifest's signature against
-//! [`RELEASE_PUBLIC_KEY`], that the manifest's version isn't older than
-//! this maxd's, and that the manifest lists the upload's sha256 under the
-//! entry for this device's target. A build from source has no manifest, so
-//! it goes through only when you chose to send it on the Mac, which marks
-//! the upload unsigned.
+//! the one the app sent, the manifest's signature against the release keys
+//! ([`release_keys`]), that the manifest's version isn't older than this
+//! maxd's, and that the manifest lists the upload's sha256 under the entry
+//! for this device's target. A build from source has no manifest, so it
+//! goes through only when you chose to send it on the Mac, which marks the
+//! upload unsigned.
 
 use std::collections::BTreeMap;
 use std::path::Path;
+use std::sync::LazyLock;
 
 use base64::Engine;
 use maxhq_protocol::message::{SignedRelease, UpdateKind};
@@ -32,12 +33,39 @@ use super::update::{self, Refusal};
 /// since one key signs both the app's own updates and the fleet manifest.
 pub const RELEASE_PUBLIC_KEY: &str = "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEY2NkZENzhDMUZBQzU5NUMKUldSY1dhd2ZqTmR2OWs3dStvNGt1RE05K0RtTjYvMk16MnhXUis1ZXhpTG1kMjF1YkFIQUR1bzUK";
 
-/// What an upload is checked against: this maxd's own release key, target
+/// `next-release-key.pub`: the next release key during a change of the
+/// update key, in the same form, under comment lines. Only comments until
+/// a change starts.
+const NEXT_RELEASE_KEY_FILE: &str = include_str!("next-release-key.pub");
+
+/// The key in a key file: its first line that isn't blank or a `#`
+/// comment, or nothing.
+pub fn key_in(file: &str) -> &str {
+    file.lines()
+        .map(str::trim)
+        .find(|line| !line.is_empty() && !line.starts_with('#'))
+        .unwrap_or("")
+}
+
+/// The keys a release may be signed with: [`RELEASE_PUBLIC_KEY`], and the
+/// next key while a change of the update key runs, so a device takes a
+/// release signed with either.
+pub fn release_keys() -> &'static [&'static str] {
+    static KEYS: LazyLock<Vec<&'static str>> = LazyLock::new(|| {
+        let next = key_in(NEXT_RELEASE_KEY_FILE);
+        std::iter::once(RELEASE_PUBLIC_KEY)
+            .chain((!next.is_empty()).then_some(next))
+            .collect()
+    });
+    &KEYS
+}
+
+/// What an upload is checked against: this maxd's own release keys, target
 /// and version.
 #[derive(Clone, Copy, Debug)]
 pub struct Trust<'a> {
-    /// The release key, as [`RELEASE_PUBLIC_KEY`] gives it.
-    pub key: &'a str,
+    /// The release keys, as [`release_keys`] gives them.
+    pub keys: &'a [&'a str],
     /// The Rust target this maxd was built for.
     pub target: &'a str,
     /// This maxd's version, which a release mustn't be older than.
@@ -45,13 +73,49 @@ pub struct Trust<'a> {
 }
 
 impl Trust<'static> {
-    /// This maxd's own: the release key, its target and its version.
+    /// This maxd's own: the release keys, its target and its version.
     pub fn own() -> Self {
         Self {
-            key: RELEASE_PUBLIC_KEY,
+            keys: release_keys(),
             target: crate::identity::TARGET,
             version: env!("CARGO_PKG_VERSION"),
         }
+    }
+}
+
+/// Why a signature didn't check out.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
+pub enum BadSignature {
+    /// A key it's checked against doesn't read.
+    #[error("this maxd's release key doesn't read")]
+    Key,
+    /// The signature doesn't read.
+    #[error("the signature doesn't read")]
+    Unreadable,
+    /// None of the keys made it, or what it signed has changed since.
+    #[error("no release key signed it")]
+    Wrong,
+}
+
+/// Checks that `signature`, base64 as a `.sig` file holds it, signs `data`
+/// with one of `keys`, as `tauri signer sign` and the release make them.
+pub fn signed_by(data: &[u8], signature: &str, keys: &[&str]) -> Result<(), BadSignature> {
+    let keys = keys
+        .iter()
+        .map(|key| decode_text(key).and_then(|text| PublicKey::decode(&text).ok()))
+        .collect::<Option<Vec<_>>>()
+        .filter(|keys| !keys.is_empty())
+        .ok_or(BadSignature::Key)?;
+    let signature = decode_text(signature)
+        .and_then(|text| Signature::decode(&text).ok())
+        .ok_or(BadSignature::Unreadable)?;
+    if keys
+        .iter()
+        .any(|key| key.verify(data, &signature, false).is_ok())
+    {
+        Ok(())
+    } else {
+        Err(BadSignature::Wrong)
     }
 }
 
@@ -103,7 +167,7 @@ pub fn vouch(
     }
 }
 
-/// Checks that `release` is signed with the release key, that its version
+/// Checks that `release` is signed with a release key, that its version
 /// isn't older than this maxd's, and that it lists `sha256` under `entry`.
 pub fn check(
     release: &SignedRelease,
@@ -111,14 +175,12 @@ pub fn check(
     entry: &str,
     trust: Trust<'_>,
 ) -> Result<(), Refusal> {
-    let key = decode_text(trust.key)
-        .and_then(|text| PublicKey::decode(&text).ok())
-        .ok_or_else(|| Refusal::Manifest("this maxd's release key doesn't read".to_owned()))?;
-    let signature = decode_text(&release.signature)
-        .and_then(|text| Signature::decode(&text).ok())
-        .ok_or(Refusal::Signature)?;
-    key.verify(release.manifest.as_bytes(), &signature, false)
-        .map_err(|_| Refusal::Signature)?;
+    signed_by(release.manifest.as_bytes(), &release.signature, trust.keys).map_err(
+        |bad| match bad {
+            BadSignature::Key => Refusal::Manifest(bad.to_string()),
+            BadSignature::Unreadable | BadSignature::Wrong => Refusal::Signature,
+        },
+    )?;
     let manifest: Manifest = serde_json::from_str(&release.manifest)
         .map_err(|err| Refusal::Manifest(err.to_string()))?;
     let released = semver::Version::parse(manifest.version.trim())

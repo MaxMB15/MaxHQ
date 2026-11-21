@@ -6,10 +6,21 @@
 //! the last one read is kept on disk for when the device is offline. Each
 //! file's size and SHA-256 were checked against Hugging Face at a pinned
 //! commit, so a download is checked against them.
+//!
+//! The release signs its catalog with the release key, as it signs fleet
+//! updates, in `<catalog>.sig`. A catalog from the release, or the copy
+//! kept on disk, counts only while that signature checks out against
+//! [`release::release_keys`]; otherwise maxd keeps the one it shipped with
+//! and logs why.
 
 use std::path::Path;
 
 use maxhq_protocol::local_models::{CatalogModel, CatalogRef, ModelCatalog};
+use maxhq_protocol::time::Timestamp;
+use tracing::warn;
+
+use crate::fleet::release::{self, BadSignature};
+use crate::tools::install::fetch;
 
 /// The catalog this build shipped with.
 const BUILTIN: &str = include_str!("catalog.json");
@@ -19,6 +30,35 @@ pub const REFRESH_URL: Option<&str> = option_env!("MAXHQ_CATALOG_URL");
 
 /// The file the last catalog read is kept in, in `maxd`'s data folder.
 pub const CACHE_FILE: &str = "model-catalog.json";
+
+/// The file the kept catalog's signature is kept in, beside it.
+pub const CACHE_SIGNATURE: &str = "model-catalog.json.sig";
+
+/// The most a catalog from the release may be. The shipped one is about
+/// 12 KB.
+const MOST: u64 = 1024 * 1024;
+
+/// The most its signature may be. One is about 400 bytes.
+const MOST_SIGNATURE: u64 = 4 * 1024;
+
+/// How far ahead of this device's clock a catalog may be dated, in
+/// milliseconds. A newer catalog replaces the one kept only when it's
+/// dated later, so one dated years ahead would stay for good.
+const AHEAD: u64 = 24 * 60 * 60 * 1000;
+
+/// Why a catalog wasn't used.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
+pub enum Refused {
+    /// Its signature didn't check out.
+    #[error("{0}")]
+    Signature(BadSignature),
+    /// It doesn't read, or lists a file that can't be checked.
+    #[error("it doesn't read, or lists a file that can't be checked")]
+    Unreadable,
+    /// It's dated more than a day ahead of this device's clock.
+    #[error("it's dated ahead of this device's clock")]
+    Ahead,
+}
 
 /// The catalog this build shipped with.
 pub fn builtin() -> ModelCatalog {
@@ -47,29 +87,98 @@ pub fn read(text: &str) -> Option<ModelCatalog> {
     checked.then_some(catalog)
 }
 
-/// The newer of the shipped catalog and the one kept on disk.
+/// A catalog from its JSON and `signature`, when one of `keys` signed it,
+/// every file in it can be checked, and it isn't dated more than a day
+/// after `now`.
+pub fn verified(
+    text: &str,
+    signature: &str,
+    keys: &[&str],
+    now: Timestamp,
+) -> Result<ModelCatalog, Refused> {
+    release::signed_by(text.as_bytes(), signature, keys).map_err(Refused::Signature)?;
+    let catalog = read(text).ok_or(Refused::Unreadable)?;
+    if catalog.updated_at.0 > now.0.saturating_add(AHEAD) {
+        return Err(Refused::Ahead);
+    }
+    Ok(catalog)
+}
+
+/// The newer of the shipped catalog and the one kept on disk, while the
+/// kept one's signature checks out.
 pub fn current(data: &Path) -> ModelCatalog {
+    current_with(data, release::release_keys(), Timestamp::now())
+}
+
+fn current_with(data: &Path, keys: &[&str], now: Timestamp) -> ModelCatalog {
     let shipped = builtin();
-    match std::fs::read_to_string(data.join(CACHE_FILE))
-        .ok()
-        .and_then(|text| read(&text))
-    {
-        Some(kept) if kept.updated_at > shipped.updated_at => kept,
-        _ => shipped,
+    let Ok(text) = std::fs::read_to_string(data.join(CACHE_FILE)) else {
+        return shipped;
+    };
+    let signature = std::fs::read_to_string(data.join(CACHE_SIGNATURE)).unwrap_or_default();
+    match verified(&text, &signature, keys, now) {
+        Ok(kept) if kept.updated_at > shipped.updated_at => kept,
+        Ok(_) => shipped,
+        Err(why) => {
+            warn!(%why, "not using the model catalog kept on disk; using the one maxd shipped with");
+            shipped
+        }
     }
 }
 
-/// Reads the catalog from the build's release and keeps it, when it's
-/// newer than `have`. None when the build names no URL, the device is
-/// offline, or the catalog there is no newer.
+/// Reads the catalog from the build's release and keeps it, when its
+/// signature checks out and it's newer than `have`. None when the build
+/// names no URL, the device is offline, or the catalog there is unsigned
+/// or no newer.
 pub async fn refresh(data: &Path, have: &ModelCatalog) -> Option<ModelCatalog> {
-    let url = REFRESH_URL?;
-    let text = crate::tools::install::fetch::text(url).await.ok()?;
-    let fresh = read(&text)?;
+    refresh_from(
+        REFRESH_URL?,
+        data,
+        have,
+        release::release_keys(),
+        Timestamp::now(),
+    )
+    .await
+}
+
+async fn refresh_from(
+    url: &str,
+    data: &Path,
+    have: &ModelCatalog,
+    keys: &[&str],
+    now: Timestamp,
+) -> Option<ModelCatalog> {
+    let text = match fetch::text_up_to(url, MOST).await {
+        Ok(text) => text,
+        Err(err) => {
+            tracing::debug!(%err, "couldn't read the release's model catalog");
+            return None;
+        }
+    };
+    let signature = match fetch::text_up_to(&format!("{url}.sig"), MOST_SIGNATURE).await {
+        Ok(signature) => signature,
+        Err(err) => {
+            warn!(%err, "the release's model catalog has no signature to read, so maxd keeps its own");
+            return None;
+        }
+    };
+    let fresh = match verified(&text, &signature, keys, now) {
+        Ok(fresh) => fresh,
+        Err(why) => {
+            warn!(%why, "not using the release's model catalog; maxd keeps its own");
+            return None;
+        }
+    };
     if fresh.updated_at <= have.updated_at {
         return None;
     }
-    let _ = std::fs::write(data.join(CACHE_FILE), text);
+    // A kept catalog counts only beside its own signature, so a write that
+    // fails halfway leaves maxd on the one it shipped with.
+    let kept = std::fs::write(data.join(CACHE_SIGNATURE), &signature)
+        .and_then(|()| std::fs::write(data.join(CACHE_FILE), &text));
+    if let Err(err) = kept {
+        warn!(%err, "couldn't keep the model catalog on disk");
+    }
     Some(fresh)
 }
 
@@ -123,7 +232,179 @@ fn squash(id: &str) -> String {
 
 #[cfg(test)]
 mod tests {
+    //! The fixtures in `test-only/` were signed with a throwaway key made
+    //! for these tests alone, through `scripts/release/sign.mjs` as the
+    //! release signs, and its private half was thrown away.
+
     use super::*;
+    use crate::tools::install::tests::{Answer, Fixture};
+
+    /// The throwaway key's public half. Test only.
+    const TEST_ONLY_KEY: &str = include_str!("test-only/key.pub");
+    /// The shipped catalog's first model, dated 2100-01-01. Test only.
+    const TEST_ONLY_CATALOG: &str = include_str!("test-only/catalog.json");
+    /// Its signature. Test only.
+    const TEST_ONLY_SIGNATURE: &str = include_str!("test-only/catalog.json.sig");
+
+    /// The fixture's date, as a clock that reads it.
+    fn then() -> Timestamp {
+        read(TEST_ONLY_CATALOG).unwrap().updated_at
+    }
+
+    #[test]
+    fn a_signed_catalog_is_verified_against_the_release_keys() {
+        let keys = [TEST_ONLY_KEY];
+        let catalog = verified(TEST_ONLY_CATALOG, TEST_ONLY_SIGNATURE, &keys, then()).unwrap();
+        assert_eq!(catalog.models.len(), 1);
+        // Either key of a change of the update key will do.
+        assert!(verified(
+            TEST_ONLY_CATALOG,
+            TEST_ONLY_SIGNATURE,
+            &[release::RELEASE_PUBLIC_KEY, TEST_ONLY_KEY],
+            then()
+        )
+        .is_ok());
+        assert_eq!(
+            verified(
+                TEST_ONLY_CATALOG,
+                TEST_ONLY_SIGNATURE,
+                &[release::RELEASE_PUBLIC_KEY],
+                then()
+            ),
+            Err(Refused::Signature(BadSignature::Wrong))
+        );
+        let changed = TEST_ONLY_CATALOG.replace("\"bytes\": 2", "\"bytes\": 3");
+        assert_ne!(changed, TEST_ONLY_CATALOG);
+        assert_eq!(
+            verified(&changed, TEST_ONLY_SIGNATURE, &keys, then()),
+            Err(Refused::Signature(BadSignature::Wrong))
+        );
+        assert_eq!(
+            verified(TEST_ONLY_CATALOG, "", &keys, then()),
+            Err(Refused::Signature(BadSignature::Unreadable))
+        );
+    }
+
+    #[test]
+    fn a_catalog_dated_more_than_a_day_ahead_is_refused() {
+        let keys = [TEST_ONLY_KEY];
+        let day_before = Timestamp(then().0 - AHEAD);
+        assert!(verified(TEST_ONLY_CATALOG, TEST_ONLY_SIGNATURE, &keys, day_before).is_ok());
+        assert_eq!(
+            verified(
+                TEST_ONLY_CATALOG,
+                TEST_ONLY_SIGNATURE,
+                &keys,
+                Timestamp(day_before.0 - 1)
+            ),
+            Err(Refused::Ahead)
+        );
+    }
+
+    #[test]
+    fn a_kept_catalog_counts_only_with_its_signature_and_when_its_newer() {
+        let dir = super::super::tests::Scratch::new();
+        let keys = [TEST_ONLY_KEY];
+        let kept = |dir: &Path| current_with(dir, &keys, then()).models.len();
+        // Nothing kept.
+        assert_eq!(kept(dir.path()), 6);
+        std::fs::write(dir.path().join(CACHE_FILE), TEST_ONLY_CATALOG).unwrap();
+        // Kept without a signature, as a maxd before signed catalogs did.
+        assert_eq!(kept(dir.path()), 6);
+        std::fs::write(dir.path().join(CACHE_SIGNATURE), TEST_ONLY_SIGNATURE).unwrap();
+        assert_eq!(kept(dir.path()), 1);
+        // Signed by a key this maxd doesn't trust.
+        assert_eq!(
+            current_with(dir.path(), &[release::RELEASE_PUBLIC_KEY], then())
+                .models
+                .len(),
+            6
+        );
+        // Changed on disk after it was kept.
+        std::fs::write(
+            dir.path().join(CACHE_FILE),
+            TEST_ONLY_CATALOG.replace("4102444800000", "4102444800001"),
+        )
+        .unwrap();
+        assert_eq!(kept(dir.path()), 6);
+    }
+
+    #[tokio::test]
+    async fn a_refreshed_catalog_is_kept_only_when_signed_and_newer() {
+        let server = Fixture::start().await;
+        let dir = super::super::tests::Scratch::new();
+        let keys = [TEST_ONLY_KEY];
+        let shipped = builtin();
+        let url = server.serve(
+            "/model-catalog.json",
+            Answer::Body(TEST_ONLY_CATALOG.into()),
+        );
+
+        // No signature beside it.
+        assert!(refresh_from(&url, dir.path(), &shipped, &keys, then())
+            .await
+            .is_none());
+        assert!(!dir.path().join(CACHE_FILE).exists());
+
+        // Signed with a key this maxd doesn't trust.
+        server.serve(
+            "/model-catalog.json.sig",
+            Answer::Body(TEST_ONLY_SIGNATURE.into()),
+        );
+        assert!(refresh_from(
+            &url,
+            dir.path(),
+            &shipped,
+            &[release::RELEASE_PUBLIC_KEY],
+            then()
+        )
+        .await
+        .is_none());
+        assert!(!dir.path().join(CACHE_FILE).exists());
+
+        // Signed, and newer than what maxd has.
+        let fresh = refresh_from(&url, dir.path(), &shipped, &keys, then())
+            .await
+            .expect("a signed, newer catalog is taken");
+        assert_eq!(fresh.models.len(), 1);
+        assert_eq!(current_with(dir.path(), &keys, then()), fresh);
+
+        // No newer than what maxd has.
+        assert!(refresh_from(&url, dir.path(), &fresh, &keys, then())
+            .await
+            .is_none());
+    }
+
+    #[tokio::test]
+    async fn a_catalog_or_signature_past_its_size_is_refused() {
+        let server = Fixture::start().await;
+        let dir = super::super::tests::Scratch::new();
+        let url = server.serve("/big.json", Answer::Body(vec![b' '; MOST as usize + 1]));
+        server.serve("/big.json.sig", Answer::Body(TEST_ONLY_SIGNATURE.into()));
+        assert!(
+            refresh_from(&url, dir.path(), &builtin(), &[TEST_ONLY_KEY], then())
+                .await
+                .is_none()
+        );
+        let url = server.serve(
+            "/model-catalog.json",
+            Answer::Body(TEST_ONLY_CATALOG.into()),
+        );
+        server.serve(
+            "/model-catalog.json.sig",
+            Answer::Body(vec![b'A'; MOST_SIGNATURE as usize + 1]),
+        );
+        assert!(
+            refresh_from(&url, dir.path(), &builtin(), &[TEST_ONLY_KEY], then())
+                .await
+                .is_none()
+        );
+        assert!(!dir.path().join(CACHE_FILE).exists());
+        assert!(fetch::text_up_to(&url, 10)
+            .await
+            .unwrap_err()
+            .contains("bigger"));
+    }
 
     #[test]
     fn the_shipped_catalog_reads_and_names_six_checked_models() {
@@ -151,28 +432,6 @@ mod tests {
         catalog = builtin();
         catalog.models[0].files[0].name = "../escape.gguf".to_owned();
         assert!(read(&serde_json::to_string(&catalog).unwrap()).is_none());
-    }
-
-    #[test]
-    fn a_kept_catalog_counts_only_when_its_newer() {
-        let dir = super::super::tests::Scratch::new();
-        let mut older = builtin();
-        older.updated_at = maxhq_protocol::time::Timestamp(1);
-        older.models.truncate(1);
-        std::fs::write(
-            dir.path().join(CACHE_FILE),
-            serde_json::to_string(&older).unwrap(),
-        )
-        .unwrap();
-        assert_eq!(current(dir.path()).models.len(), 6);
-        let mut newer = older;
-        newer.updated_at = maxhq_protocol::time::Timestamp(builtin().updated_at.0 + 1);
-        std::fs::write(
-            dir.path().join(CACHE_FILE),
-            serde_json::to_string(&newer).unwrap(),
-        )
-        .unwrap();
-        assert_eq!(current(dir.path()).models.len(), 1);
     }
 
     #[test]

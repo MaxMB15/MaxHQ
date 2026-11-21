@@ -22,7 +22,7 @@ const LINUX: &str = "x86_64-unknown-linux-musl";
 
 fn trust(target: &'static str, version: &'static str) -> Trust<'static> {
     Trust {
-        key: TEST_ONLY_KEY,
+        keys: &[TEST_ONLY_KEY],
         target,
         version,
     }
@@ -137,7 +137,7 @@ fn a_manifest_signed_with_another_key_is_refused() {
     let (staged, sha) = stage(&dir, LINUX);
     // The real release key never signed the test manifest.
     let release_key = Trust {
-        key: RELEASE_PUBLIC_KEY,
+        keys: &[RELEASE_PUBLIC_KEY],
         target: LINUX,
         version: "0.1.0",
     };
@@ -282,12 +282,114 @@ fn an_unsigned_upload_needs_its_mark() {
 #[test]
 fn this_maxd_trusts_the_release_key_and_reads_its_own_version() {
     let own = Trust::own();
-    assert_eq!(own.key, RELEASE_PUBLIC_KEY);
+    assert_eq!(own.keys.first(), Some(&RELEASE_PUBLIC_KEY));
+    assert_eq!(own.keys, release_keys());
     assert!(decode_text(RELEASE_PUBLIC_KEY)
         .and_then(|text| PublicKey::decode(&text).ok())
         .is_some());
     assert!(semver::Version::parse(own.version).is_ok());
     assert_ne!(TEST_ONLY_KEY.trim(), RELEASE_PUBLIC_KEY);
+}
+
+#[test]
+fn the_next_release_key_is_empty_or_a_key_other_than_the_release_key() {
+    let next = key_in(NEXT_RELEASE_KEY_FILE);
+    if next.is_empty() {
+        assert_eq!(release_keys(), [RELEASE_PUBLIC_KEY]);
+        return;
+    }
+    assert!(
+        decode_text(next)
+            .and_then(|text| PublicKey::decode(&text).ok())
+            .is_some(),
+        "next-release-key.pub holds a line that isn't a minisign public key"
+    );
+    assert_ne!(next, RELEASE_PUBLIC_KEY);
+    assert_eq!(release_keys(), [RELEASE_PUBLIC_KEY, next]);
+}
+
+#[test]
+fn a_key_file_gives_its_first_line_that_isnt_a_comment() {
+    assert_eq!(key_in(""), "");
+    assert_eq!(key_in("# only\n#  comments\n\n"), "");
+    assert_eq!(key_in("# a comment\n\n  abc=  \nlater\n"), "abc=");
+    assert_eq!(key_in(TEST_ONLY_KEY), TEST_ONLY_KEY.trim());
+}
+
+#[test]
+fn a_release_signed_with_either_trusted_key_is_accepted() {
+    let dir = TempDir::new();
+    let (staged, sha) = stage(&dir, LINUX);
+    for keys in [
+        [RELEASE_PUBLIC_KEY, TEST_ONLY_KEY],
+        [TEST_ONLY_KEY, RELEASE_PUBLIC_KEY],
+    ] {
+        let both = Trust {
+            keys: &keys,
+            target: LINUX,
+            version: "0.1.0",
+        };
+        assert_eq!(
+            vouch(
+                &staged,
+                &sha,
+                UpdateKind::Maxd,
+                Some(&signed()),
+                false,
+                both
+            ),
+            Ok(())
+        );
+    }
+}
+
+#[test]
+fn a_key_list_with_a_key_that_doesnt_read_takes_nothing() {
+    let dir = TempDir::new();
+    let (staged, sha) = stage(&dir, LINUX);
+    for keys in [&[][..], &[TEST_ONLY_KEY, "not a key"][..]] {
+        let broken = Trust {
+            keys,
+            target: LINUX,
+            version: "0.1.0",
+        };
+        assert!(matches!(
+            vouch(
+                &staged,
+                &sha,
+                UpdateKind::Maxd,
+                Some(&signed()),
+                false,
+                broken
+            ),
+            Err(Refusal::Manifest(_))
+        ));
+    }
+}
+
+#[test]
+fn signed_by_says_why_a_signature_doesnt_check_out() {
+    let manifest = TEST_ONLY_MANIFEST.as_bytes();
+    assert_eq!(
+        signed_by(manifest, TEST_ONLY_SIGNATURE, &[TEST_ONLY_KEY]),
+        Ok(())
+    );
+    assert_eq!(
+        signed_by(b"something else", TEST_ONLY_SIGNATURE, &[TEST_ONLY_KEY]),
+        Err(BadSignature::Wrong)
+    );
+    assert_eq!(
+        signed_by(manifest, TEST_ONLY_SIGNATURE, &[RELEASE_PUBLIC_KEY]),
+        Err(BadSignature::Wrong)
+    );
+    assert_eq!(
+        signed_by(manifest, "", &[TEST_ONLY_KEY]),
+        Err(BadSignature::Unreadable)
+    );
+    assert_eq!(
+        signed_by(manifest, TEST_ONLY_SIGNATURE, &["", TEST_ONLY_KEY]),
+        Err(BadSignature::Key)
+    );
 }
 
 #[test]
