@@ -4,7 +4,8 @@
 // What a local agent shows while it runs: "Loading model" while its turn
 // waits for the model to load into memory, and the composer footer's speed
 // line with how fast the server reads the prompt and writes, and how full
-// its context is. The line stays, dimmed, after the turn.
+// its context is. The line stays, dimmed, after the turn. An agent on
+// another device's server takes the speeds that server last measured.
 
 import type { Activity, Agent, ModelServer, ServerModel } from "../bindings";
 import { formatNumber, t } from "../i18n";
@@ -86,13 +87,22 @@ const perSecond = (value: number): string => formatNumber(Math.round(value));
 /**
  * The speed line from what the agent's model server reports: prompt and
  * writing speeds in tokens per second, and the context used against the
- * server's context size. Null until the server reports any of them.
+ * server's context size. Null until the server reports any of them. An
+ * agent whose `maxd` doesn't measure the speeds, because the model runs on
+ * another device's server, takes the speeds that server last measured for
+ * the model.
  */
-export const localSpeed = (agent: Pick<Agent, "local" | "activity">): SpeedLine | null => {
+export const localSpeed = (
+	view: ViewState,
+	agent: Pick<Agent, "account" | "model" | "local" | "activity">
+): SpeedLine | null => {
 	const run = agent.local;
 	if (!run) return null;
-	const prompt = run.prompt_per_second ?? null;
-	const decode = run.decode_per_second ?? null;
+	const running = runningModel(view, agent);
+	const device = agent.account ? view.tables.account.get(agent.account)?.device : undefined;
+	const measured = running?.server.device !== device ? running?.model.speed : undefined;
+	const prompt = run.prompt_per_second ?? measured?.prompt_per_second ?? null;
+	const decode = run.decode_per_second ?? measured?.decode_per_second ?? null;
 	const used = run.context_used ?? null;
 	const size = run.context_size ?? null;
 

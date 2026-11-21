@@ -22,11 +22,13 @@ use maxhq_protocol::ids::{
     AgentId, BootId, ClientId, CredentialId, DeviceId, IdempotencyKey, InstanceId, NoteId,
     PermissionId, ProjectId, TerminalId, TransferId,
 };
+use maxhq_protocol::local_models::{ModelLoad, ServerModel};
 use maxhq_protocol::message::{
     ActionOutcome, Capabilities, ClientHello, ClientInfo, ErrorCode, ServerHello,
 };
 use maxhq_protocol::model::Vendor;
 use maxhq_protocol::notes::VersionHash;
+use maxhq_protocol::secret::Secret;
 use maxhq_protocol::terminal::TerminalKind;
 use maxhq_protocol::{ClientMessage, ProtocolRange, ServerMessage};
 use serde_json::json;
@@ -35,6 +37,9 @@ use tokio::sync::Notify;
 use tokio::task::JoinHandle;
 
 use super::*;
+use crate::local_models::linked;
+use crate::local_models::runner::tests::{self as runner_tests, KEY, MODEL};
+use crate::local_models::runner::Runner;
 use crate::notes::tests as note_tests;
 use crate::session::clock::FakeClock;
 
@@ -315,6 +320,8 @@ impl Device {
                 host_key: HOST_KEY.into(),
                 test_kinds: Vec::new(),
                 home: false,
+                model_server: None,
+                models_from: Vec::new(),
             })
             .collect();
         self.peers.set_book(PeerBook { ssh, peers }).unwrap();
@@ -691,6 +698,8 @@ async fn the_book_writes_pinned_host_keys_and_refuses_a_bad_one() {
             host_key: "ssh-rsa AAAAnope".into(),
             test_kinds: Vec::new(),
             home: false,
+            model_server: None,
+            models_from: Vec::new(),
         }],
     });
     assert!(refused.is_err());
@@ -715,6 +724,8 @@ async fn a_device_with_no_routes_needs_no_host_key() {
             host_key: String::new(),
             test_kinds: Vec::new(),
             home: false,
+            model_server: None,
+            models_from: Vec::new(),
         }],
     };
     a.peers.set_book(book(Vec::new())).expect("taken");
@@ -1399,4 +1410,283 @@ async fn a_failed_swap_tries_again() {
     assert!(at_b.hashes(project).await.unwrap().is_empty());
     net.0.devices.lock().unwrap().insert(b.id, away);
     holds("the save on b", &at_b, project, &saved.hash).await;
+}
+
+/// What a Mac serves linked devices' model streams with: its runner, on
+/// a fake host, behind its switch.
+struct Shares {
+    runner: Arc<Runner>,
+    server: ModelServerId,
+    /// Why it refuses, while its switch is off.
+    off: Mutex<Option<String>>,
+    holds: Mutex<Vec<(DeviceId, Vec<String>)>>,
+}
+
+impl Shares {
+    fn lets(&self, server: ModelServerId) -> Result<(), String> {
+        if server != self.server {
+            return Err(NO_MODELS.into());
+        }
+        self.off.lock().unwrap().clone().map_or(Ok(()), Err)
+    }
+}
+
+impl Models for Shares {
+    fn serve(
+        &self,
+        _from: DeviceId,
+        server: ModelServerId,
+        socket: DuplexStream,
+    ) -> Result<(), String> {
+        self.lets(server)?;
+        self.runner.clone().serve_linked(socket);
+        Ok(())
+    }
+
+    fn hold(&self, from: DeviceId, server: ModelServerId, models: &[String]) -> Result<(), String> {
+        self.lets(server)?;
+        self.holds.lock().unwrap().push((from, models.to_vec()));
+        self.runner.hold(models);
+        Ok(())
+    }
+}
+
+/// The key a devbox's local agents reach its linked listener with.
+const DEVBOX_KEY: &str = "devbox-linked-key-0123456789";
+
+/// A devbox whose local agents use a Mac's managed models, through the
+/// devbox's own listener on 127.0.0.1.
+struct Sharing {
+    net: Net,
+    devbox: Device,
+    mac: Device,
+    shares: Arc<Shares>,
+    host: Arc<runner_tests::Fakes>,
+    /// Where a local agent on the devbox sends its turns.
+    url: String,
+}
+
+impl Sharing {
+    /// The two devices, the Mac taking SSH logins when `mac_dials` says
+    /// so. Otherwise it holds a link to the devbox, whose agents use its
+    /// models.
+    async fn new(mac_dials: bool) -> Self {
+        let net = Net::default();
+        let devbox = Device::new(&net, "devbox");
+        let mac = Device::new(&net, "mac");
+        let (runner, host, _base) = runner_tests::runner().await;
+        let server = ModelServerId::derive("model-server:mac:managed");
+        let shares = Arc::new(Shares {
+            runner,
+            server,
+            off: Mutex::default(),
+            holds: Mutex::default(),
+        });
+        mac.peers.models_with(shares.clone());
+        devbox.knows(true, &[(&mac, mac_dials)]);
+        mac.knows(mac_dials, &[(&devbox, true)]);
+
+        let mut book = devbox.peers.lock().book.clone();
+        book.peers[0].model_server = Some(LinkedModels {
+            server,
+            label: "Mac".into(),
+            models: vec![ServerModel {
+                id: MODEL.into(),
+                label: "Qwen".into(),
+                catalog: None,
+                context: Some(32_768),
+                load: None,
+                speed: None,
+            }],
+        });
+        devbox.peers.set_book(book).unwrap();
+        let mut book = mac.peers.lock().book.clone();
+        book.peers[0].models_from = vec![mac.id];
+        mac.peers.set_book(book).unwrap();
+
+        let listener = tokio::net::TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, 0))
+            .await
+            .unwrap();
+        let url = format!(
+            "http://{}{}{server}/v1/messages?beta=true",
+            listener.local_addr().unwrap(),
+            linked::PREFIX
+        );
+        let listen = linked::Linked::new(
+            Secret::new(DEVBOX_KEY.into()),
+            Arc::new(linked::OverPeers(Some(devbox.peers.clone()))),
+        );
+        tokio::spawn(listen.serve(listener));
+        Self {
+            net,
+            devbox,
+            mac,
+            shares,
+            host,
+            url,
+        }
+    }
+
+    /// Sends a turn as a local agent on the devbox does, and gives the
+    /// status, whether to retry, and the body.
+    async fn turn(&self) -> (u16, Option<String>, serde_json::Value) {
+        turn_at(self.url.clone()).await
+    }
+
+    /// Asks the Mac to keep the model loaded, as the devbox does while
+    /// its agent works between requests.
+    async fn hold(&self) -> Result<(), String> {
+        within(
+            "the hold",
+            self.devbox
+                .peers
+                .hold_models(self.mac.id, self.shares.server, vec![MODEL.into()]),
+        )
+        .await
+    }
+}
+
+/// Sends a turn to `url` with the devbox's key, and gives the status,
+/// whether to retry, and the body.
+async fn turn_at(url: String) -> (u16, Option<String>, serde_json::Value) {
+    let answer = crate::secrets::http::client(false)
+        .unwrap()
+        .post(&url)
+        .header("x-api-key", DEVBOX_KEY)
+        .header("anthropic-version", "2023-06-01")
+        .body(runner_tests::turn())
+        .send()
+        .await
+        .unwrap();
+    let status = answer.status().as_u16();
+    let retry = answer
+        .headers()
+        .get("x-should-retry")
+        .map(|value| value.to_str().unwrap().to_owned());
+    let body = serde_json::from_slice(&answer.bytes().await.unwrap()).unwrap();
+    (status, retry, body)
+}
+
+/// What a refused turn says.
+fn reason(body: &serde_json::Value) -> &str {
+    body["error"]["message"].as_str().unwrap()
+}
+
+#[tokio::test]
+async fn a_devbox_agents_turn_crosses_the_link_to_the_macs_model() {
+    let sharing = Sharing::new(true).await;
+    let (status, _, body) = within("the turn", sharing.turn()).await;
+    assert_eq!(status, 200, "{body}");
+    assert_eq!(body["content"][0]["text"], "hi");
+    // The Mac loaded the model for it.
+    assert_eq!(sharing.host.starts.load(Ordering::SeqCst), 1);
+    let runner = &sharing.shares.runner;
+    assert!(matches!(runner.load_of(MODEL), ModelLoad::Loaded { .. }));
+    // llama-server got the Mac's own key, which never left the Mac, and
+    // nothing of the devbox's.
+    let seen = sharing.host.backend.seen();
+    let sent = seen.last().unwrap();
+    assert_eq!(sent.path, "/v1/messages?beta=true");
+    assert_eq!(
+        sent.header("authorization"),
+        Some(format!("Bearer {KEY}").as_str())
+    );
+    assert_ne!(KEY, DEVBOX_KEY);
+    assert_eq!(sent.header("x-api-key"), None);
+    assert!(!sent.body.contains(DEVBOX_KEY));
+
+    // A devbox agent still at work holds the model off its idle unload.
+    let used = runner.last_used(MODEL);
+    tokio::time::sleep(Duration::from_millis(20)).await;
+    sharing.hold().await.unwrap();
+    assert_eq!(
+        *sharing.shares.holds.lock().unwrap(),
+        [(sharing.devbox.id, vec![MODEL.to_owned()])]
+    );
+    assert!(runner.last_used(MODEL) > used);
+    let idle = used + Duration::from_secs(15 * 60);
+    assert!(!runner.sweep(idle), "the hold counts as use");
+    assert!(matches!(runner.load_of(MODEL), ModelLoad::Loaded { .. }));
+    assert!(runner.sweep(idle + Duration::from_secs(60)));
+    assert_eq!(runner.load_of(MODEL), ModelLoad::Unloaded);
+}
+
+#[tokio::test]
+async fn a_mac_that_takes_no_ssh_serves_its_models_over_the_link_it_holds() {
+    let sharing = Sharing::new(false).await;
+    let (devbox, mac) = (&sharing.devbox, &sharing.mac);
+    within("the held link", async {
+        while !devbox.peers.lock().incoming.contains_key(&mac.id) {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await;
+    let (status, _, body) = within("the turn", sharing.turn()).await;
+    assert_eq!(status, 200, "{body}");
+    assert_eq!(body["content"][0]["text"], "hi");
+    assert_eq!(sharing.host.starts.load(Ordering::SeqCst), 1);
+    sharing.hold().await.unwrap();
+    assert_eq!(sharing.shares.holds.lock().unwrap().len(), 1);
+    // The link stays up while the devbox's agents use the Mac's models.
+    mac.clock.advance(IDLE * 3);
+    mac.peers.sweep();
+    assert_eq!(mac.outgoing(), 1);
+}
+
+#[tokio::test]
+async fn with_the_macs_switch_off_a_turn_is_refused_with_its_reason() {
+    let sharing = Sharing::new(true).await;
+    let off = "Mac doesn't let linked devices use its models.";
+    *sharing.shares.off.lock().unwrap() = Some(off.into());
+    let (status, retry, body) = within("the turn", sharing.turn()).await;
+    assert_eq!(status, 502);
+    assert_eq!(
+        retry.as_deref(),
+        Some("false"),
+        "Claude Code doesn't try again"
+    );
+    assert_eq!(reason(&body), off);
+    assert_eq!(
+        sharing.host.starts.load(Ordering::SeqCst),
+        0,
+        "nothing loads"
+    );
+    assert_eq!(sharing.hold().await, Err(off.to_owned()));
+    assert!(sharing.shares.holds.lock().unwrap().is_empty());
+
+    // Turned back on, the next turn goes through.
+    *sharing.shares.off.lock().unwrap() = None;
+    let (status, _, body) = within("the next turn", sharing.turn()).await;
+    assert_eq!(status, 200, "{body}");
+}
+
+#[tokio::test]
+async fn a_turn_whose_link_drops_fails_with_a_plain_reason() {
+    let sharing = Sharing::new(true).await;
+    // The model takes a while to load, so the turn is still out when the
+    // link goes.
+    *sharing.host.halfway.lock().unwrap() = Some(Duration::from_secs(120));
+    let turning = tokio::spawn(turn_at(sharing.url.clone()));
+    within("the load to start", async {
+        while sharing.host.starts.load(Ordering::SeqCst) == 0 {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await;
+    let mac = sharing.mac.id;
+    let away = sharing.net.0.devices.lock().unwrap().remove(&mac).unwrap();
+    sharing.net.cut();
+    let (status, retry, body) = within("the failed turn", turning).await.unwrap();
+    assert_eq!(status, 502);
+    assert_eq!(retry.as_deref(), Some("false"));
+    assert_eq!(reason(&body), format!("Lost the link to device {mac}."));
+
+    // With the Mac still away, the next turn fails soon, and says why.
+    let started = Instant::now();
+    let (status, retry, body) = within("the next turn", sharing.turn()).await;
+    assert_eq!(status, 502);
+    assert_eq!(retry.as_deref(), Some("false"));
+    assert_eq!(reason(&body), format!("Can't reach device {mac}."));
+    assert!(started.elapsed() < STREAM_WITHIN + Duration::from_secs(5));
+    drop(away);
 }

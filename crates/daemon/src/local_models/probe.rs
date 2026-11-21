@@ -161,6 +161,7 @@ pub async fn probe(
             catalog: catalog::recognize(catalog, &id),
             context: ctx.or(context),
             load: None,
+            speed: None,
             id,
         })
         .collect();

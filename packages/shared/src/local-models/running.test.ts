@@ -4,10 +4,10 @@
 import { describe, expect, it } from "vitest";
 
 import type { Agent, Entity, ModelLoad } from "../bindings";
-import { MAC_LOCAL_AGENT, MAC_SERVER } from "../data/mock-local-models";
+import { DEVBOX_LOCAL_AGENT, MAC_LOCAL_AGENT, MAC_SERVER } from "../data/mock-local-models";
 import { mockSource } from "../data/mock-source";
 import { agent, NOW } from "../test/build";
-import { applySnapshot, type ViewState } from "../view/replica";
+import { applySnapshot, EMPTY_VIEW, type ViewState } from "../view/replica";
 
 import { localLoading, localSpeed, turnRuns } from "./running";
 
@@ -80,7 +80,7 @@ describe("Loading model", () => {
 describe("the speed line", () => {
 	it("reads the prompt and writing speeds and the context while the turn runs", async () => {
 		const view = await load();
-		expect(localSpeed(parser(view))).toEqual({
+		expect(localSpeed(view, parser(view))).toEqual({
 			text: "1,180 / 74 tok/s · 31k of 66k",
 			short: "74 tok/s",
 			full: "Reads the prompt at 1,180 tokens/s · Writes 74 tokens/s · Context 31k of 66k in use",
@@ -90,7 +90,7 @@ describe("the speed line", () => {
 
 	it("keeps the last turn's numbers after it, as the last turn", async () => {
 		const view = await load();
-		const done = localSpeed(parser(view, { activity: { state: "done_unread" } }))!;
+		const done = localSpeed(view, parser(view, { activity: { state: "done_unread" } }))!;
 		expect(done.live).toBe(false);
 		expect(done.text).toBe("1,180 / 74 tok/s · 31k of 66k");
 		expect(done.full).toMatch(/^Last turn: Reads the prompt at 1,180 tokens\/s/);
@@ -98,7 +98,7 @@ describe("the speed line", () => {
 
 	it("shows what the server reported, and nothing before it reports", () => {
 		const only = (local: Agent["local"]) =>
-			localSpeed(agent({ id: "x", activity: { state: "busy" }, local }));
+			localSpeed(EMPTY_VIEW, agent({ id: "x", activity: { state: "busy" }, local }));
 		expect(only({ decode_per_second: 61.6 })).toMatchObject({
 			text: "62 tok/s",
 			short: "62 tok/s",
@@ -109,6 +109,23 @@ describe("the speed line", () => {
 		});
 		expect(only({ loading: true })).toBeNull();
 		expect(only(null)).toBeNull();
+	});
+
+	it("takes the speeds of the Mac's server for an agent on another device", async () => {
+		const view = await load();
+		const remote = {
+			...view.tables.agent.get(DEVBOX_LOCAL_AGENT)!,
+			activity: { state: "busy" as const },
+		};
+		// devbox's maxd knows only the context; the Mac measured the speeds.
+		expect(remote.local?.decode_per_second ?? null).toBeNull();
+		expect(localSpeed(view, remote)?.text).toBe("1,180 / 74 tok/s · 23k of 66k");
+		// What the agent's own maxd measured comes first.
+		const measured = { ...remote, local: { ...remote.local, decode_per_second: 50 } };
+		expect(localSpeed(view, measured)?.short).toBe("50 tok/s");
+		// An agent on its own device's server never takes another agent's speeds.
+		const fresh = parser(view, { local: { context_used: 900, context_size: 65_536 } });
+		expect(localSpeed(view, fresh)?.text).toBe("900 of 66k");
 	});
 
 	it("counts a starting turn as running", () => {

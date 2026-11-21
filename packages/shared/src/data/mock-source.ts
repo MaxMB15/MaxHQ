@@ -237,6 +237,7 @@ const SETTINGS: Entity[] = [
 			kv_type: "f16",
 			context: 65_536,
 			fewer_tools: true,
+			linked_devices: true,
 			default_model: { server: MAC_SERVER, model: LOADED_MODEL },
 		},
 		test_hosts: MOCK_TEST_HOST_SETTINGS[MAC],

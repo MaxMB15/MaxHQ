@@ -8373,7 +8373,8 @@
             "default_model": null,
             "fewer_tools": true,
             "idle_unload_minutes": 15,
-            "kv_type": "f16"
+            "kv_type": "f16",
+            "linked_devices": true
           }
         },
         "memory_items": {
@@ -10150,6 +10151,32 @@
         "last"
       ]
     },
+    "LinkedModels": {
+      "description": "A Mac's managed model server, as the devices it links to see it in\ntheir peer book, so their local agents can use it over the `maxd`\nlink. Its load and speed stay in the Mac's own entity.",
+      "type": "object",
+      "properties": {
+        "label": {
+          "description": "Its name, the Mac's.",
+          "type": "string"
+        },
+        "models": {
+          "description": "The models it serves, with no load or speed. One this build can't\nread is left out.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ServerModel"
+          }
+        },
+        "server": {
+          "description": "The server.",
+          "$ref": "#/$defs/ModelServerId"
+        }
+      },
+      "required": [
+        "server",
+        "label",
+        "models"
+      ]
+    },
     "LocalModelPick": {
       "description": "One model on one server.",
       "type": "object",
@@ -10208,6 +10235,11 @@
           "description": "How a managed server stores its KV cache.",
           "$ref": "#/$defs/KvCacheType",
           "default": "f16"
+        },
+        "linked_devices": {
+          "description": "Whether local agents on the devices this one links to may use its\nmanaged server over the `maxd` link. Only this device changes it.\nAn older `maxd` reads it as on, and doesn't share either way.",
+          "type": "boolean",
+          "default": true
         }
       }
     },
@@ -10726,6 +10758,32 @@
       "type": "string",
       "format": "uuid"
     },
+    "ModelSpeed": {
+      "description": "How fast a model ran, in whole tokens per second.",
+      "type": "object",
+      "properties": {
+        "decode_per_second": {
+          "description": "Tokens written per second.",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint32",
+          "default": null,
+          "minimum": 0
+        },
+        "prompt_per_second": {
+          "description": "Prompt tokens read per second.",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint32",
+          "default": null,
+          "minimum": 0
+        }
+      }
+    },
     "MoveCheck": {
       "description": "What the device an agent moves to says it will run as there.",
       "type": "object",
@@ -11120,6 +11178,24 @@
           "description": "Its SSH host key, as `ssh-ed25519 <base64>`. Empty for a device\nwith no routes, which is never dialed.",
           "type": "string"
         },
+        "model_server": {
+          "description": "Its managed model server, which local agents on this device may use\nover the link. Since [`crate::message::LOCAL_MODELS_SINCE`]; an\nolder `maxd` ignores it.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/LinkedModels"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "models_from": {
+          "description": "The devices whose managed models its local agents use. One of them\nthat takes no SSH logins keeps a link up to it, so those agents\nreach it. Since [`crate::message::LOCAL_MODELS_SINCE`]; an older\n`maxd` ignores it.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/DeviceId"
+          }
+        },
         "name": {
           "description": "Its name.",
           "type": "string"
@@ -11293,6 +11369,55 @@
           "required": [
             "kind",
             "step"
+          ]
+        },
+        {
+          "description": "Opens a tunnel stream to the asked device's managed model server,\nfor a local agent on the asking device. The device that opened the\nlink carries the stream's client end, as with a port forward. The\noutcome is [`crate::message::ActionOutcome::Done`] once the stream\nis ready, or `Refused` with why, such as the asked device's switch\nbeing off. Since [`crate::message::LOCAL_MODELS_SINCE`]; an older\n`maxd` reads [`PeerRequest::Unknown`] and refuses.",
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "model_stream"
+            },
+            "server": {
+              "description": "The server.",
+              "$ref": "#/$defs/ModelServerId"
+            },
+            "stream": {
+              "description": "The stream, named by the asking device.",
+              "$ref": "#/$defs/StreamId"
+            }
+          },
+          "required": [
+            "kind",
+            "stream",
+            "server"
+          ]
+        },
+        {
+          "description": "Keeps models on the asked device's managed server from idling out,\nwhile the asking device's local agents on them work. The outcome is\n[`crate::message::ActionOutcome::Done`]. Since\n[`crate::message::LOCAL_MODELS_SINCE`].",
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "model_hold"
+            },
+            "models": {
+              "description": "The models, by id.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "server": {
+              "description": "The server.",
+              "$ref": "#/$defs/ModelServerId"
+            }
+          },
+          "required": [
+            "kind",
+            "server",
+            "models"
           ]
         },
         {
@@ -13035,6 +13160,17 @@
           "anyOf": [
             {
               "$ref": "#/$defs/ModelLoad"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "speed": {
+          "description": "How fast a managed server ran it in its last turn, so a local agent\non another device shows its speed line too. Since\n[`crate::message::LOCAL_MODELS_SINCE`]; an older client reads none.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ModelSpeed"
             },
             {
               "type": "null"

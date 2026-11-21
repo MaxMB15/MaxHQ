@@ -14,6 +14,11 @@
 //! home of each permission that names it, so calls reach it the other way
 //! over that link. If both sides dial, the link the lower device id
 //! dialed wins, and the other closes once nothing uses it.
+//!
+//! A link also carries model streams: a local agent here whose model is
+//! on a Mac's managed server asks that Mac for a stream with
+//! [`PeerRequest::ModelStream`], and the stream's bytes then travel in
+//! tunnel frames over the same link, with credit, as a port forward's do.
 
 mod key;
 mod proof;
@@ -35,11 +40,13 @@ use maxhq_protocol::agents::{
     AgentMoveStep, PeerBook, PeerCall, PeerEntry, PeerRequest, PeerWake, ToolAnswer,
 };
 use maxhq_protocol::frame;
-use maxhq_protocol::ids::{AgentId, DeviceId, IdempotencyKey, LinkId};
+use maxhq_protocol::ids::{AgentId, DeviceId, IdempotencyKey, LinkId, ModelServerId, StreamId};
 use maxhq_protocol::link::{LinkState, Route};
-use maxhq_protocol::message::ActionOutcome;
+use maxhq_protocol::local_models::LinkedModels;
+use maxhq_protocol::message::{ActionOutcome, TunnelEnd};
 use maxhq_protocol::{ClientMessage, ServerMessage};
 use maxhq_wire::Queue;
+use tokio::io::DuplexStream;
 use tokio::sync::{oneshot, watch, Semaphore};
 use tracing::{debug, info, warn};
 
@@ -48,6 +55,7 @@ use crate::db::Db;
 use crate::secrets::files::Folder;
 use crate::session::clock::Clock;
 use crate::session::Sessions;
+use crate::tunnel;
 
 pub use serve::serve;
 
@@ -79,6 +87,44 @@ const MAX_REQUESTS: usize = 1024;
 
 /// The file under the SSH folder that holds the other devices' host keys.
 const KNOWN_HOSTS: &str = "known_hosts";
+
+/// How long opening a model stream waits for its link and the answer,
+/// so a turn whose Mac is gone fails soon instead of hanging. Tests wait
+/// less, so a dropped link's test doesn't take as long.
+const STREAM_WITHIN: Duration = Duration::from_secs(if cfg!(test) { 5 } else { 15 });
+
+/// How many bytes a model stream's pipe holds each way.
+const PIPE: usize = 64 * 1024;
+
+/// What a model stream is refused with on a device that shares no models.
+const NO_MODELS: &str = "This device shares no models.";
+
+/// What serves the model streams other devices open to this one.
+pub trait Models: Send + Sync + 'static {
+    /// Serves the model server `server` on `socket` for a local agent on
+    /// `from`, or says why it won't.
+    fn serve(
+        &self,
+        from: DeviceId,
+        server: ModelServerId,
+        socket: DuplexStream,
+    ) -> Result<(), String>;
+    /// Keeps `models` on `server` loaded for agents on `from` that still
+    /// work between their requests.
+    fn hold(&self, from: DeviceId, server: ModelServerId, models: &[String]) -> Result<(), String>;
+}
+
+/// A model server another device lets this one's local agents use, as
+/// the book says.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SharedModels {
+    /// The device that runs it.
+    pub device: DeviceId,
+    /// That device's name.
+    pub name: String,
+    /// The server and its models.
+    pub models: LinkedModels,
+}
 
 /// What runs a request another device sent.
 pub trait Serve: Send + Sync + 'static {
@@ -152,9 +198,13 @@ struct Inner {
     serve: OnceLock<Arc<dyn Serve>>,
     /// The notes other devices' note requests read and write.
     notes: OnceLock<crate::notes::Notes>,
+    /// What serves other devices' model streams.
+    models: OnceLock<Arc<dyn Models>>,
     state: Mutex<State>,
     /// The devices a link is up to, either way.
     links: watch::Sender<BTreeSet<DeviceId>>,
+    /// The model servers other devices share with this one.
+    shared: watch::Sender<Vec<SharedModels>>,
 }
 
 #[derive(Default)]
@@ -176,6 +226,17 @@ struct State {
     /// Tells incoming links apart, so an old one's end doesn't drop a new
     /// one.
     serial: u64,
+    /// The model streams on links other devices opened.
+    streams: HashMap<StreamId, Carried>,
+}
+
+/// A model stream on a link another device opened, whichever side asked
+/// for it.
+struct Carried {
+    device: DeviceId,
+    /// The link's serial: the stream ends with it.
+    serial: u64,
+    end: tunnel::End,
 }
 
 struct Out {
@@ -190,6 +251,8 @@ struct Out {
 struct Incoming {
     wire: maxhq_wire::Sender,
     serial: u64,
+    /// Where its model streams send, behind everything sent before.
+    sink: Arc<dyn tunnel::Sink<ServerMessage>>,
 }
 
 struct Pending {
@@ -202,6 +265,19 @@ struct Pending {
 enum Way {
     Out(Arc<LinkHandle>),
     Incoming,
+}
+
+/// The link a request came in on, which a model stream it opens goes back
+/// over.
+#[derive(Clone)]
+pub(crate) enum Via {
+    /// A link the sender opened, by its serial.
+    Incoming(u64),
+    /// A link this device opened.
+    Out(Weak<LinkHandle>),
+    /// Neither, as for a request a test makes.
+    #[cfg(test)]
+    Nowhere,
 }
 
 impl Peers {
@@ -227,8 +303,10 @@ impl Peers {
             pins,
             serve: OnceLock::new(),
             notes: OnceLock::new(),
+            models: OnceLock::new(),
             state: Mutex::new(State::default()),
             links: watch::Sender::new(BTreeSet::new()),
+            shared: watch::Sender::new(Vec::new()),
         }));
         match peers.0.db.peer_book() {
             Ok(Some(book)) => peers.take_book(book),
@@ -250,6 +328,18 @@ impl Peers {
         if self.0.notes.set(notes.clone()).is_ok() {
             notes.sync_with(self.clone());
         }
+    }
+
+    /// Has other devices' model streams served by `models`. Only the
+    /// first call counts.
+    pub fn models_with(&self, models: Arc<dyn Models>) {
+        let _ = self.0.models.set(models);
+    }
+
+    /// The model servers other devices share with this one, which change
+    /// with the book.
+    pub fn shared_models(&self) -> watch::Receiver<Vec<SharedModels>> {
+        self.0.shared.subscribe()
     }
 
     /// The devices notes go to: those with routes to dial, and those with
@@ -350,6 +440,7 @@ impl Peers {
         if let Some(incoming) = state.incoming.remove(&device) {
             incoming.wire.close();
         }
+        state.streams.retain(|_, carried| carried.device != device);
         info!(%device, "took out a device's key");
         Ok(())
     }
@@ -372,7 +463,42 @@ impl Peers {
             .set_peer_book(&book)
             .map_err(|err| format!("Couldn't store the peer book: {err}"))?;
         self.take_book(book);
+        self.hold_for_models();
         Ok(())
+    }
+
+    /// The devices whose local agents use this one's models, which it
+    /// keeps a link up to when they can't dial it.
+    fn model_users(&self, state: &State) -> BTreeSet<DeviceId> {
+        if state.book.ssh {
+            return BTreeSet::new();
+        }
+        let me = self.0.me;
+        state
+            .book
+            .peers
+            .iter()
+            .filter(|peer| peer.models_from.contains(&me) && !peer.routes.is_empty())
+            .map(|peer| peer.device)
+            .collect()
+    }
+
+    /// Dials the devices whose local agents use this one's models, so a
+    /// new agent's first turn doesn't wait for the next sweep.
+    fn hold_for_models(&self) {
+        let mut state = self.lock();
+        let users = self.model_users(&state);
+        let mut dialed = false;
+        for device in users {
+            if !state.out.contains_key(&device) && !state.incoming.contains_key(&device) {
+                let out = self.dial(&mut state, device);
+                state.out.insert(device, out);
+                dialed = true;
+            }
+        }
+        if dialed {
+            self.relink(&state);
+        }
     }
 
     /// Uses `book`: its host keys go to `known_hosts`, its routes become
@@ -407,12 +533,32 @@ impl Peers {
             warn!(%err, "couldn't write the peers' host keys");
         }
         self.0.pins.set(pins);
+        let shared: Vec<SharedModels> = book
+            .peers
+            .iter()
+            .filter_map(|peer| {
+                Some(SharedModels {
+                    device: peer.device,
+                    name: peer.name.clone(),
+                    models: peer.model_server.clone()?,
+                })
+            })
+            .collect();
         let mut state = self.lock();
         let kept: BTreeSet<DeviceId> = book.peers.iter().map(|peer| peer.device).collect();
         // A changed route or host key takes a new link.
         state.out.clear();
         state.incoming.retain(|device, _| kept.contains(device));
+        state
+            .streams
+            .retain(|_, carried| kept.contains(&carried.device));
         state.book = book;
+        drop(state);
+        self.0.shared.send_if_modified(|now| {
+            let changed = *now != shared;
+            *now = shared;
+            changed
+        });
     }
 
     /// Sends `request` to `device` and waits for what came of it.
@@ -424,13 +570,244 @@ impl Peers {
         let key = IdempotencyKey::generate();
         match self.way(device, CONNECT_WITHIN).await? {
             Way::Out(handle) => {
-                let _open = Open::new(self, device);
+                let _open = Open::new(self.clone(), device);
                 handle
                     .act(ClientMessage::PeerRequest { key, request })
                     .await
                     .map_err(|err| self.unreachable(device, &err))
             }
-            Way::Incoming => self.ask_back(device, key, request).await,
+            Way::Incoming => self.ask_back(device, key, request, ANSWER_WITHIN).await,
+        }
+    }
+
+    /// Opens a stream to `server`, a model server on `device`, for a local
+    /// agent here. It gives the near end of a pipe whose far end goes over
+    /// the link, and what keeps the link up while the stream is in use.
+    /// It fails within [`STREAM_WITHIN`] when the device can't be reached,
+    /// and with the device's reason when it refuses.
+    pub(crate) async fn model_stream(
+        &self,
+        device: DeviceId,
+        server: ModelServerId,
+    ) -> Result<(DuplexStream, Open), String> {
+        let stream = StreamId::generate();
+        let key = IdempotencyKey::generate();
+        let request = PeerRequest::ModelStream { stream, server };
+        let (near, far) = tokio::io::duplex(PIPE);
+        let cant = || cant_reach(&self.name(device));
+        // A device that takes no SSH logins dials this one once it hears
+        // that agents here use its models, so wait a little for that.
+        let waits = {
+            let state = self.lock();
+            !state.incoming.contains_key(&device)
+                && state
+                    .book
+                    .peers
+                    .iter()
+                    .any(|peer| peer.device == device && peer.routes.is_empty())
+        };
+        if waits {
+            let mut links = self.links();
+            let came =
+                tokio::time::timeout(STREAM_WITHIN, links.wait_for(|up| up.contains(&device)))
+                    .await;
+            if !matches!(came, Ok(Ok(_))) {
+                return Err(cant());
+            }
+        }
+        match self.way(device, STREAM_WITHIN).await.map_err(|err| err.0)? {
+            Way::Out(handle) => {
+                let up = self.lock().out.get(&device).map(|out| out.up.clone());
+                let Some(mut up) = up else {
+                    return Err(cant());
+                };
+                handle.attach_stream(stream, far)?;
+                let open = Open::new(self.clone(), device);
+                let asked = tokio::select! {
+                    asked = handle.act(ClientMessage::PeerRequest { key, request }) => {
+                        asked.map_err(|err| self.unreachable(device, &err).0)
+                    }
+                    () = tokio::time::sleep(STREAM_WITHIN) => Err(cant()),
+                    _ = up.wait_for(|up| !*up) => Err(cant()),
+                };
+                match asked.and_then(|outcome| self.opened(device, outcome)) {
+                    Ok(()) => Ok((near, open)),
+                    Err(reason) => {
+                        handle.forget_stream(stream);
+                        Err(reason)
+                    }
+                }
+            }
+            Way::Incoming => {
+                let serial = self
+                    .lock()
+                    .incoming
+                    .get(&device)
+                    .map(|incoming| incoming.serial);
+                let Some(serial) = serial else {
+                    return Err(cant());
+                };
+                let (open, opened) = oneshot::channel::<DuplexStream>();
+                self.carry(device, serial, stream, async move {
+                    opened
+                        .await
+                        .map_err(|_| "the stream wasn't opened".to_owned())
+                })?;
+                let mut links = self.links();
+                let asked = tokio::select! {
+                    asked = self.ask_back(device, key, request, STREAM_WITHIN) => {
+                        asked.map_err(|_| cant())
+                    }
+                    _ = links.wait_for(|up| !up.contains(&device)) => Err(cant()),
+                };
+                match asked.and_then(|outcome| self.opened(device, outcome)) {
+                    Ok(()) => {
+                        let _ = open.send(far);
+                        Ok((near, Open::new(self.clone(), device)))
+                    }
+                    Err(reason) => {
+                        // Gone before the pipe is, so the stream ends
+                        // quietly instead of refusing.
+                        self.lock().streams.remove(&stream);
+                        drop(open);
+                        Err(reason)
+                    }
+                }
+            }
+        }
+    }
+
+    /// Whether a model stream's answer opened it, or why not.
+    fn opened(&self, device: DeviceId, outcome: ActionOutcome) -> Result<(), String> {
+        match outcome {
+            ActionOutcome::Done => Ok(()),
+            ActionOutcome::Refused { reason } => Err(reason),
+            other => Err(format!("{} answered oddly: {other:?}", self.name(device))),
+        }
+    }
+
+    /// Asks `device` to keep `models` on `server` loaded, for local agents
+    /// here that still work between their requests.
+    pub(crate) async fn hold_models(
+        &self,
+        device: DeviceId,
+        server: ModelServerId,
+        models: Vec<String>,
+    ) -> Result<(), String> {
+        let request = PeerRequest::ModelHold { server, models };
+        match self.request(device, request).await.map_err(|err| err.0)? {
+            ActionOutcome::Refused { reason } => Err(reason),
+            _ => Ok(()),
+        }
+    }
+
+    /// Pumps a model stream on the link `device` opened with `serial`,
+    /// once `socket` gives the pipe.
+    fn carry(
+        &self,
+        device: DeviceId,
+        serial: u64,
+        stream: StreamId,
+        socket: impl std::future::Future<Output = Result<DuplexStream, String>> + Send + 'static,
+    ) -> Result<(), String> {
+        let mut state = self.lock();
+        let sink = state
+            .incoming
+            .get(&device)
+            .filter(|incoming| incoming.serial == serial)
+            .map(|incoming| Arc::clone(&incoming.sink))
+            .ok_or_else(|| format!("The link to {} closed.", self.name_in(&state, device)))?;
+        if state.streams.contains_key(&stream) {
+            return Err("That stream is already open.".into());
+        }
+        let open = state
+            .streams
+            .values()
+            .filter(|carried| carried.device == device)
+            .count();
+        if open >= tunnel::MAX_STREAMS_PER_CLIENT {
+            return Err("Too many streams are open on this link.".into());
+        }
+        let inner = Arc::downgrade(&self.0);
+        let ended = Box::new(move || {
+            let Some(inner) = inner.upgrade() else {
+                return;
+            };
+            let mut state = inner.state.lock().expect("peers lock");
+            if state
+                .streams
+                .get(&stream)
+                .is_some_and(|carried| carried.device == device && carried.serial == serial)
+            {
+                state.streams.remove(&stream);
+            }
+        });
+        let end = tunnel::open::<tunnel::ToClient, DuplexStream>(stream, socket, sink, ended);
+        state.streams.insert(
+            stream,
+            Carried {
+                device,
+                serial,
+                end,
+            },
+        );
+        Ok(())
+    }
+
+    /// Takes a model stream's bytes from the link `device` opened. Bytes
+    /// past the credit reset the stream.
+    fn tunnel_data(&self, device: DeviceId, serial: u64, stream: StreamId, data: &[u8]) {
+        let mut state = self.lock();
+        let Some(carried) = state
+            .streams
+            .get(&stream)
+            .filter(|carried| carried.device == device && carried.serial == serial)
+        else {
+            debug!(%stream, "dropped bytes for a model stream that isn't open");
+            return;
+        };
+        if carried.end.data(data) {
+            return;
+        }
+        debug!(%stream, %device, "reset a model stream a peer sent too much on");
+        state.streams.remove(&stream);
+        if let Some(incoming) = state.incoming.get(&device) {
+            let _ = incoming
+                .sink
+                .send(tunnel::Out::Message(ServerMessage::TunnelClose {
+                    stream,
+                    how: TunnelEnd::Reset,
+                }));
+        }
+    }
+
+    /// The far side of a model stream may send more.
+    fn tunnel_credit(&self, device: DeviceId, serial: u64, stream: StreamId, granted: u64) {
+        let state = self.lock();
+        if let Some(carried) = state
+            .streams
+            .get(&stream)
+            .filter(|carried| carried.device == device && carried.serial == serial)
+        {
+            carried.end.credit(granted);
+        }
+    }
+
+    /// The far side of a model stream closed its half, or reset it.
+    fn tunnel_close(&self, device: DeviceId, serial: u64, stream: StreamId, how: TunnelEnd) {
+        let mut state = self.lock();
+        let ours = state
+            .streams
+            .get(&stream)
+            .is_some_and(|carried| carried.device == device && carried.serial == serial);
+        if !ours {
+            return;
+        }
+        match how {
+            TunnelEnd::Reset => {
+                state.streams.remove(&stream);
+            }
+            TunnelEnd::Write => state.streams[&stream].end.close(TunnelEnd::Write),
         }
     }
 
@@ -472,8 +849,7 @@ impl Peers {
         match tokio::time::timeout(within, up.wait_for(|up| *up)).await {
             Ok(Ok(_)) => {}
             _ => {
-                let name = self.name(device);
-                return Err(Unreachable(format!("Couldn't reach {name}.")));
+                return Err(Unreachable(cant_reach(&self.name(device))));
             }
         }
         let state = self.lock();
@@ -552,10 +928,16 @@ impl Peers {
                         self.drop_link(device, &handle);
                         break;
                     };
+                    // A request back over the link counts as using it.
+                    let now = self.0.clock.now();
+                    if let Some(out) = self.lock().out.get_mut(&device) {
+                        out.used = now;
+                    }
                     let peers = self.clone();
                     let handle = handle.clone();
                     tokio::spawn(async move {
-                        let outcome = peers.answer(device, key, request).await;
+                        let via = Via::Out(handle.clone());
+                        let outcome = peers.answer_on(device, key, request, via).await;
                         if let Some(handle) = handle.upgrade() {
                             // A lost answer is asked for again on the next
                             // connect, and comes from the kept answers.
@@ -595,6 +977,7 @@ impl Peers {
         device: DeviceId,
         key: IdempotencyKey,
         request: PeerRequest,
+        within: Duration,
     ) -> Result<ActionOutcome, Unreachable> {
         let (done, answer) = oneshot::channel();
         {
@@ -617,7 +1000,7 @@ impl Peers {
                 },
             );
         }
-        let answered = tokio::time::timeout(ANSWER_WITHIN, answer).await;
+        let answered = tokio::time::timeout(within, answer).await;
         self.lock().pending.remove(&key);
         match answered {
             Ok(Ok(outcome)) => Ok(outcome),
@@ -641,11 +1024,24 @@ impl Peers {
     /// Runs a request `from` sent, once per key. A key only finds what the
     /// same device sent, so no device reads another's answer by naming its
     /// key.
+    #[cfg(test)]
     pub async fn answer(
         &self,
         from: DeviceId,
         key: IdempotencyKey,
         request: PeerRequest,
+    ) -> ActionOutcome {
+        self.answer_on(from, key, request, Via::Nowhere).await
+    }
+
+    /// [`Peers::answer`], for a request that came in `via` a link, which a
+    /// model stream it opens goes back over.
+    pub(crate) async fn answer_on(
+        &self,
+        from: DeviceId,
+        key: IdempotencyKey,
+        request: PeerRequest,
+        via: Via,
     ) -> ActionOutcome {
         let key = (from, key);
         let done = {
@@ -672,7 +1068,7 @@ impl Peers {
                 };
             }
         };
-        let outcome = self.serve(from, request).await;
+        let outcome = self.serve(from, request, via).await;
         let mut state = self.lock();
         state.running.remove(&key);
         if state.answered.len() == ANSWERS_KEPT {
@@ -684,7 +1080,20 @@ impl Peers {
     }
 
     /// Runs a request `from` sent.
-    async fn serve(&self, from: DeviceId, request: PeerRequest) -> ActionOutcome {
+    async fn serve(&self, from: DeviceId, request: PeerRequest, via: Via) -> ActionOutcome {
+        match request {
+            PeerRequest::ModelStream { stream, server } => {
+                return self.serve_stream(from, stream, server, via);
+            }
+            PeerRequest::ModelHold { server, models } => {
+                let held = match self.0.models.get() {
+                    Some(serves) => serves.hold(from, server, &models),
+                    None => Err(NO_MODELS.into()),
+                };
+                return done(held);
+            }
+            _ => {}
+        }
         if let PeerRequest::NoteHashes { .. }
         | PeerRequest::NoteVersions { .. }
         | PeerRequest::PutNoteVersions { .. } = request
@@ -715,7 +1124,9 @@ impl Peers {
             },
             PeerRequest::NoteHashes { .. }
             | PeerRequest::NoteVersions { .. }
-            | PeerRequest::PutNoteVersions { .. } => unreachable!("served above"),
+            | PeerRequest::PutNoteVersions { .. }
+            | PeerRequest::ModelStream { .. }
+            | PeerRequest::ModelHold { .. } => unreachable!("served above"),
             PeerRequest::TaskTargets { agents } => match serve.task_targets(from, agents) {
                 Ok(()) => ActionOutcome::Done,
                 Err(reason) => ActionOutcome::Refused { reason },
@@ -724,6 +1135,39 @@ impl Peers {
                 reason: "This maxd is too old for that; update it.".into(),
             },
         }
+    }
+
+    /// Opens a model stream `from` asked for on `server`, whose bytes go
+    /// back over the link the request came `via`.
+    fn serve_stream(
+        &self,
+        from: DeviceId,
+        stream: StreamId,
+        server: ModelServerId,
+        via: Via,
+    ) -> ActionOutcome {
+        let Some(serves) = self.0.models.get() else {
+            return done(Err(NO_MODELS.into()));
+        };
+        #[cfg(test)]
+        if matches!(via, Via::Nowhere) {
+            return done(Err("A model stream needs a link.".into()));
+        }
+        let (near, far) = tokio::io::duplex(PIPE);
+        if let Err(reason) = serves.serve(from, server, near) {
+            return done(Err(reason));
+        }
+        // When the stream can't be carried, `far` drops and the server's
+        // end closes.
+        done(match via {
+            Via::Incoming(serial) => self.carry(from, serial, stream, async { Ok(far) }),
+            Via::Out(handle) => match handle.upgrade() {
+                Some(handle) => handle.attach_stream(stream, far),
+                None => Err(format!("The link to {} closed.", self.name(from))),
+            },
+            #[cfg(test)]
+            Via::Nowhere => unreachable!("refused above"),
+        })
     }
 
     /// Records a link `device` opened, and sends it the requests that
@@ -744,14 +1188,23 @@ impl Peers {
                 );
             }
         }
-        state.incoming.insert(device, Incoming { wire, serial });
+        let sink: Arc<dyn tunnel::Sink<ServerMessage>> =
+            Arc::new(tunnel::Queue::spawn(crate::server::ToClient(wire.clone())));
+        state.streams.retain(|_, carried| carried.device != device);
+        state
+            .incoming
+            .insert(device, Incoming { wire, serial, sink });
         self.relink(&state);
         serial
     }
 
-    /// Forgets a link `device` opened, unless a newer one took its place.
+    /// Forgets a link `device` opened, unless a newer one took its place,
+    /// and ends the model streams on it.
     fn detach(&self, device: DeviceId, serial: u64) {
         let mut state = self.lock();
+        state
+            .streams
+            .retain(|_, carried| carried.device != device || carried.serial != serial);
         if state
             .incoming
             .get(&device)
@@ -808,13 +1261,18 @@ impl Peers {
     }
 
     /// The devices this one keeps a link up to: when it takes no SSH
-    /// logins, the home of each permission that names it.
+    /// logins, the home of each permission that names it, and each device
+    /// whose local agents use its models.
     fn held(&self) -> BTreeSet<DeviceId> {
-        if self.lock().book.ssh {
-            return BTreeSet::new();
-        }
+        let users = {
+            let state = self.lock();
+            if state.book.ssh {
+                return BTreeSet::new();
+            }
+            self.model_users(&state)
+        };
         let me = self.0.me;
-        match self.0.db.permissions() {
+        let mut held = match self.0.db.permissions() {
             Ok(permissions) => permissions
                 .into_iter()
                 .map(|(permission, _)| permission)
@@ -825,7 +1283,9 @@ impl Peers {
                 warn!(%err, "couldn't read the permissions");
                 BTreeSet::new()
             }
-        }
+        };
+        held.extend(users);
+        held
     }
 
     fn name(&self, device: DeviceId) -> String {
@@ -846,14 +1306,20 @@ impl Peers {
     }
 }
 
-/// A call or wait open on a link, which keeps it from closing as idle.
-struct Open<'a> {
-    peers: &'a Peers,
+/// What a request to a device that can't be reached fails with.
+fn cant_reach(name: &str) -> String {
+    format!("Can't reach {name}.")
+}
+
+/// A call, wait or model stream open on a link, which keeps it from
+/// closing as idle.
+pub(crate) struct Open {
+    peers: Peers,
     device: DeviceId,
 }
 
-impl<'a> Open<'a> {
-    fn new(peers: &'a Peers, device: DeviceId) -> Self {
+impl Open {
+    fn new(peers: Peers, device: DeviceId) -> Self {
         if let Some(out) = peers.lock().out.get_mut(&device) {
             out.open += 1;
         }
@@ -861,7 +1327,7 @@ impl<'a> Open<'a> {
     }
 }
 
-impl Drop for Open<'_> {
+impl Drop for Open {
     fn drop(&mut self) {
         let now = self.peers.0.clock.now();
         if let Some(out) = self.peers.lock().out.get_mut(&self.device) {

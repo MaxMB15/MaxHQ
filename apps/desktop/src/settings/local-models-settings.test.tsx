@@ -188,6 +188,37 @@ describe("the Local models page", () => {
 		).toBeInTheDocument();
 	});
 
+	it("lets the Mac keep its models from linked devices, on by default", async () => {
+		const source = renderPage();
+		const save = vi.spyOn(source, "setDeviceSettings");
+		const servers = within(await screen.findByRole("region", { name: "Servers" }));
+		const sharing = servers.getByRole("switch", {
+			name: "Linked devices can use this Mac's models",
+		});
+		expect(sharing).toBeChecked();
+		expect(servers.getByText(/over the maxd link\. Nothing listens/)).toBeInTheDocument();
+		fireEvent.click(sharing);
+		await waitFor(() =>
+			expect(save).toHaveBeenLastCalledWith(
+				expect.objectContaining({
+					device: MAC,
+					local_models: expect.objectContaining({
+						linked_devices: false,
+						fewer_tools: true,
+					}),
+				})
+			)
+		);
+		await waitFor(() => expect(sharing).not.toBeChecked());
+
+		// devbox runs no server of its own, so it has nothing to share.
+		await showDevbox();
+		await screen.findByRole("region", { name: "Hardware of devbox" });
+		expect(
+			screen.queryByRole("switch", { name: "Linked devices can use this Mac's models" })
+		).toBeNull();
+	});
+
 	it("says devbox is too slow for agents and points to a server URL", async () => {
 		renderPage();
 		await showDevbox();

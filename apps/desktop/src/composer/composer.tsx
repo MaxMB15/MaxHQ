@@ -1247,7 +1247,7 @@ const ComposerBody = ({
 			: translate("Sends when the files are ready")
 		: null;
 	// A local agent's speeds and context, live while its turn runs, then dimmed.
-	const speed = kind === "local" ? localSpeed(agent) : null;
+	const speed = kind === "local" ? localSpeed(view, agent) : null;
 	// What the footer shows, so it measures itself again when that changes.
 	const footerContent = [
 		language,

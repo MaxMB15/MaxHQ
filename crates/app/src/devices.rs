@@ -2321,6 +2321,14 @@ async fn forward<L: LinkControl>(id: LinkId, mut events: Receiver<LinkEvent>, co
         let was_up = moved && core.view.read(|merge| connected(merge, id));
         let hosted = (synced || changes(&event, |key| matches!(key, EntityKey::TestHost(_))))
             .then(|| core.view.read(peers::test_kinds));
+        let shared = (synced || changes(&event, |key| matches!(key, EntityKey::ModelServer(_))))
+            .then(|| core.view.read(peers::shared_models));
+        // Agents change often, so only an added or removed one, or a
+        // changed account, looks again at whose models they use.
+        let using = (synced
+            || changes(&event, |key| matches!(key, EntityKey::Account(_)))
+            || core.view.read(|merge| reaccounts(merge, &event)))
+        .then(|| core.view.read(peers::models_from));
         let book = core.newer_book(id, &event);
         let noted = notes::touched(&event);
         #[cfg(feature = "desktop")]
@@ -2394,8 +2402,11 @@ async fn forward<L: LinkControl>(id: LinkId, mut events: Receiver<LinkEvent>, co
         if !held {
             core.relay_notes(if came_up { notes::Touched::All } else { noted });
         }
-        // The other devices' books say which kinds each one hosts.
-        let rehosted = hosted.is_some_and(|before| before != core.view.read(peers::test_kinds));
+        // The other devices' books say which kinds each one hosts, and
+        // which managed model server each one has.
+        let rehosted = hosted.is_some_and(|before| before != core.view.read(peers::test_kinds))
+            || shared.is_some_and(|before| before != core.view.read(peers::shared_models))
+            || using.is_some_and(|before| before != core.view.read(peers::models_from));
         if rehosted || came_up && core.view.read(|merge| links_peers(merge, id)) {
             core.sync_peers();
         }
@@ -2488,6 +2499,26 @@ fn changes(event: &LinkEvent, is: fn(&EntityKey) -> bool) -> bool {
     changes.iter().any(|change| match change {
         Change::Upsert { value } => is(&value.key()),
         Change::Remove { key } => is(key),
+    })
+}
+
+/// Whether `event` adds or removes an agent, or moves one to another
+/// account, as the view held before it.
+fn reaccounts(merge: &Merge, event: &LinkEvent) -> bool {
+    let LinkEvent::Changed(changes) = event else {
+        return false;
+    };
+    changes.iter().any(|change| match change {
+        Change::Upsert {
+            value: Entity::Agent(agent),
+        } => match merge.store().get(&EntityKey::Agent(agent.id)) {
+            Some(Entity::Agent(before)) => before.account != agent.account,
+            _ => true,
+        },
+        Change::Remove {
+            key: EntityKey::Agent(_),
+        } => true,
+        _ => false,
     })
 }
 

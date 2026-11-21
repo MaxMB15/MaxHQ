@@ -1953,7 +1953,7 @@ impl Connection {
 /// Writes what the tunnels send a client, on the bulk queue behind the
 /// state, so a stream's bytes never hold up a pong or a delta. A stream's
 /// messages go the same way as its bytes, so a close never passes them.
-struct ToClient(Sender);
+pub(crate) struct ToClient(pub(crate) Sender);
 
 impl Writer<ServerMessage> for ToClient {
     async fn write(&mut self, out: Out<ServerMessage>) -> Result<(), Gone> {

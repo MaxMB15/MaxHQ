@@ -5,7 +5,8 @@
 //! added and their tokens, downloads catalog models, runs the managed
 //! server on a Mac that can, and publishes it all as entities. Each server
 //! with models to run shows as an account, so a local agent starts on it
-//! like any other.
+//! like any other. So does each managed server a linked device shares,
+//! whose agents reach it over the `maxd` link through [`linked`].
 
 use std::collections::HashMap;
 use std::io;
@@ -18,7 +19,7 @@ use futures::future::BoxFuture;
 use maxhq_core::names;
 use maxhq_protocol::ids::{AccountId, ModelServerId};
 use maxhq_protocol::local_models::{
-    managed_model_id, CatalogFile, CatalogModel, CatalogRef, DeviceHardware, KvShape,
+    managed_model_id, CatalogFile, CatalogModel, CatalogRef, DeviceHardware, KvShape, LinkedModels,
     LocalModelSettings, LocalModels, LocalRun, ModelAction, ModelCatalog, ModelFile,
     ModelFileState, ModelLoad, ModelRuntime, ModelServer, ModelServerKind, RuntimeSupport,
     ServerApis, ServerModel, ServerProbe,
@@ -29,14 +30,18 @@ use maxhq_protocol::secret::Secret;
 use maxhq_protocol::state::{Entity, EntityKey, ToolPhase, ToolState};
 use maxhq_protocol::time::Timestamp;
 use ring::rand::{SecureRandom, SystemRandom};
+use tokio::io::DuplexStream;
 use tokio::net::TcpListener;
+use tokio::sync::watch;
 use tokio::task::AbortHandle;
 
+use super::linked::{self, Linked, OverPeers};
 use super::runner::{self, Backend, Host, LoadProgress, Runner, Spec};
 use super::{catalog, download, hardware, probe, runtime};
 use crate::db::Db;
 use crate::drive::ServerLogin;
 use crate::hub::Hub;
+use crate::peers::SharedModels;
 use crate::secrets::files::Folder;
 
 /// The managed server's key, in the keys folder. llama-server reads it
@@ -46,6 +51,19 @@ const MANAGED_KEY: &str = "managed-key";
 /// The file that keeps the proxy's port, so local agents find it after a
 /// restart.
 const PORT_FILE: &str = "proxy-port";
+
+/// The key local agents here reach the servers linked devices share
+/// with, in the keys folder. It never leaves this device, and it isn't
+/// the managed server's.
+const LINKED_KEY: &str = "linked-key";
+
+/// The file that keeps the linked listener's port.
+const LINKED_PORT_FILE: &str = "linked-port";
+
+/// How often this device asks the devices whose servers its agents use
+/// to keep those agents' models loaded while they work. Well under the
+/// shortest idle unload, a minute.
+const HOLD_EVERY: Duration = Duration::from_secs(30);
 
 /// What a local agent sends a server that wants no token. Claude Code
 /// needs one to skip its sign-in.
@@ -71,6 +89,7 @@ const BAD_URL: &str = "That isn't a server URL. Give one like http://host:8080."
 const SAME_URL: &str = "That server is already added.";
 const NOT_IN_CATALOG: &str = "That model file isn't in the catalog.";
 const NO_RUNTIME: &str = "llama-server isn't installed on this Mac.";
+const SHARES_NONE: &str = "This device shares no models.";
 
 /// A catalog model's ID and a file's name.
 type FileKey = (String, String);
@@ -126,6 +145,10 @@ struct State {
     tested_at: Timestamp,
     shown_at: Option<Instant>,
     runs: u64,
+    /// The managed servers linked devices share, as the book says.
+    linked: Vec<SharedModels>,
+    /// When this device last asked them to keep its agents' models.
+    held_at: Option<Instant>,
 }
 
 /// The local models service of one `maxd`.
@@ -138,12 +161,18 @@ pub struct Service {
     keys: Folder,
     key_file: PathBuf,
     key: Secret,
+    linked_key: Secret,
     hardware: DeviceHardware,
     support: RuntimeSupport,
     files_from: String,
     install_runtime: bool,
     runner: Arc<Runner>,
     proxy: Mutex<Option<u16>>,
+    /// The linked listener's port.
+    linked: Mutex<Option<u16>>,
+    /// The servers the book says linked devices share, once the links
+    /// are installed.
+    shared: Mutex<Option<watch::Receiver<Vec<SharedModels>>>>,
     installing: tokio::sync::Mutex<()>,
     state: Mutex<State>,
 }
@@ -155,16 +184,8 @@ impl Service {
         std::fs::create_dir_all(&setup.dir)?;
         let keys_dir = setup.dir.join("keys");
         let keys = Folder::open(keys_dir.clone())?;
-        let key = match keys.read(MANAGED_KEY)? {
-            Some(key) if key.expose().trim().len() >= 32 => {
-                Secret::new(key.expose().trim().to_owned())
-            }
-            _ => {
-                let key = new_key()?;
-                keys.write(MANAGED_KEY, key.expose().as_bytes())?;
-                key
-            }
-        };
+        let key = kept_key(&keys, MANAGED_KEY)?;
+        let linked_key = kept_key(&keys, LINKED_KEY)?;
         let device = hub.device().id;
         let records = db.model_servers().unwrap_or_else(|err| {
             tracing::warn!(%err, "couldn't read the model servers you added");
@@ -190,6 +211,8 @@ impl Service {
             tested_at: Timestamp::now(),
             shown_at: None,
             runs: 0,
+            linked: Vec::new(),
+            held_at: None,
         };
         Ok(Arc::new_cyclic(|weak: &Weak<Self>| Self {
             runner: Runner::new(Arc::new(Link(weak.clone())), key.clone()),
@@ -201,11 +224,14 @@ impl Service {
             keys,
             key_file: keys_dir.join(MANAGED_KEY),
             key,
+            linked_key,
             hardware: setup.hardware,
             support: setup.support,
             files_from: setup.files_from,
             install_runtime: setup.install_runtime,
             proxy: Mutex::new(None),
+            linked: Mutex::new(None),
+            shared: Mutex::new(None),
             installing: tokio::sync::Mutex::new(()),
             state: Mutex::new(state),
         }))
@@ -369,43 +395,71 @@ impl Service {
                         catalog: Some(ready.reference.clone()),
                         context: Some(state.settings.context.min(ready.native_context)),
                         load: Some(self.runner.load_of(&ready.id)),
+                        speed: self.runner.speed_of(&ready.id).whole(),
                     })
                     .collect(),
             };
             if !server.models.is_empty() {
-                entities.push(Entity::Account(self.account(&server, &state.settings)));
+                entities.push(Entity::Account(self.account(
+                    id,
+                    &server.label,
+                    &server.models,
+                    &state.settings,
+                )));
             }
             entities.push(Entity::ModelServer(server));
         }
         let mut servers: Vec<&ModelServer> = state.servers.values().collect();
         servers.sort_by_key(|server| server.id);
         for server in servers {
-            entities.push(Entity::Account(self.account(server, &state.settings)));
+            entities.push(Entity::Account(self.account(
+                server.id,
+                &server.label,
+                &server.models,
+                &state.settings,
+            )));
             entities.push(Entity::ModelServer(server.clone()));
+        }
+        for shared in &state.linked {
+            let linked = &shared.models;
+            if !linked.models.is_empty() {
+                entities.push(Entity::Account(self.account(
+                    linked.server,
+                    &linked.label,
+                    &linked.models,
+                    &state.settings,
+                )));
+            }
         }
         entities
     }
 
-    /// The account local agents on `server` run as.
-    fn account(&self, server: &ModelServer, settings: &LocalModelSettings) -> Account {
-        let dir = self.config_dir(server.id);
+    /// The account local agents here run as on `server`, which may be a
+    /// linked device's.
+    fn account(
+        &self,
+        server: ModelServerId,
+        label: &str,
+        models: &[ServerModel],
+        settings: &LocalModelSettings,
+    ) -> Account {
+        let dir = self.config_dir(server);
         if !dir.is_dir() {
             let _ = std::fs::create_dir_all(&dir);
         }
-        let picked = pick(settings, server.id, &server.models);
+        let picked = pick(settings, server, models);
         Account {
-            id: self.account_of(server.id),
-            device: server.device,
+            id: self.account_of(server),
+            device: self.hub.device().id,
             vendor: Vendor::Claude,
-            label: server.label.clone(),
+            label: label.to_owned(),
             login: LoginKind::ModelServer,
             origin: None,
             config_dir: dir.to_string_lossy().into_owned(),
             email: None,
             organization: None,
             plan: None,
-            models: server
-                .models
+            models: models
                 .iter()
                 .map(|model| ModelChoice {
                     id: model.id.clone(),
@@ -419,7 +473,7 @@ impl Service {
             usage: None,
             usage_failure: None,
             acp: None,
-            model_server: Some(server.id),
+            model_server: Some(server),
         }
     }
 
@@ -486,6 +540,24 @@ impl Service {
                 lean: state.settings.fewer_tools,
             });
         }
+        if let Some(linked) = self.linked_of(&state, account) {
+            // The agent reaches the linked device's server through this
+            // maxd's listener, with this device's key. The linked device's
+            // own key never leaves it.
+            let port = (*self.linked.lock().unwrap_or_else(PoisonError::into_inner))?;
+            let model = pick(&state.settings, linked.server, &linked.models).cloned();
+            let context = model
+                .as_deref()
+                .and_then(|id| linked.models.iter().find(|m| m.id == id))
+                .and_then(|m| m.context);
+            return Some(ServerLogin {
+                base_url: format!("http://127.0.0.1:{port}{}{}", linked::PREFIX, linked.server),
+                token: self.linked_key.clone(),
+                context,
+                model,
+                lean: state.settings.fewer_tools,
+            });
+        }
         let server = state
             .servers
             .values()
@@ -544,6 +616,19 @@ impl Service {
             });
         }
         let state = self.lock();
+        if let Some(linked) = self.linked_of(&state, account) {
+            let context = model
+                .or_else(|| {
+                    pick(&state.settings, linked.server, &linked.models).map(String::as_str)
+                })
+                .and_then(|model| linked.models.iter().find(|m| m.id == model))
+                .and_then(|m| m.context);
+            return Some(LocalRun {
+                context_used: used,
+                context_size: context,
+                ..LocalRun::default()
+            });
+        }
         let server = state
             .servers
             .values()
@@ -571,13 +656,25 @@ impl Service {
             .or_else(|| state.ready.first())
     }
 
-    /// The accounts of every server here.
+    /// The linked device's server and models a local agent on `account`
+    /// uses, when it's one of theirs.
+    fn linked_of<'a>(&self, state: &'a State, account: AccountId) -> Option<&'a LinkedModels> {
+        state
+            .linked
+            .iter()
+            .map(|shared| &shared.models)
+            .find(|linked| self.account_of(linked.server) == account)
+    }
+
+    /// The accounts of every server here, linked devices' included.
     fn accounts(&self) -> Vec<AccountId> {
         let state = self.lock();
         let mut accounts: Vec<AccountId> = state
             .servers
             .keys()
-            .map(|server| self.account_of(*server))
+            .copied()
+            .chain(state.linked.iter().map(|shared| shared.models.server))
+            .map(|server| self.account_of(server))
             .collect();
         if self.managed() {
             accounts.push(self.account_of(self.managed_id()));
@@ -925,22 +1022,38 @@ impl Service {
     }
 
     /// Stops what an earlier `maxd` left running and takes the proxy's
-    /// port, before any local agent asks for it. None when this device
-    /// runs no managed server or the port can't be had.
-    pub fn prepare(&self) -> Option<std::net::TcpListener> {
-        if !self.managed() {
-            return None;
-        }
-        runner::stop_leftovers(&self.dir.join("logs"));
-        self.bind()
-            .inspect_err(|err| tracing::warn!(%err, "couldn't start the model proxy"))
-            .ok()
+    /// port, and the linked listener's, before any local agent asks for
+    /// them. The proxy is None when this device runs no managed server,
+    /// and either is None when its port can't be had.
+    pub fn prepare(&self) -> Listeners {
+        let proxy = if self.managed() {
+            runner::stop_leftovers(&self.dir.join("logs"));
+            self.bind()
+                .inspect_err(|err| tracing::warn!(%err, "couldn't start the model proxy"))
+                .ok()
+        } else {
+            None
+        };
+        let linked = self
+            .bind_linked()
+            .inspect_err(|err| tracing::warn!(%err, "couldn't start the linked model listener"))
+            .ok();
+        Listeners { proxy, linked }
     }
 
-    /// Runs the service until `maxd` stops: the proxy on `listener`, the
-    /// catalog refresh when `online`, and the tick.
-    pub async fn run(self: Arc<Self>, online: bool, listener: Option<std::net::TcpListener>) {
-        if let Some(listener) = listener {
+    /// Runs the service until `maxd` stops: the proxy and the linked
+    /// listener, the catalog refresh when `online`, and the tick.
+    pub async fn run(self: Arc<Self>, online: bool, listeners: Listeners) {
+        if let Some(listener) = listeners.linked {
+            match TcpListener::from_std(listener) {
+                Ok(listener) => {
+                    let linked = Linked::new(self.linked_key.clone(), Arc::new(OverPeers(None)));
+                    tokio::spawn(linked.serve(listener));
+                }
+                Err(err) => tracing::warn!(%err, "couldn't start the linked model listener"),
+            }
+        }
+        if let Some(listener) = listeners.proxy {
             match TcpListener::from_std(listener) {
                 Ok(listener) => {
                     tokio::spawn(self.runner.clone().serve(listener));
@@ -974,7 +1087,19 @@ impl Service {
 
     /// Binds the proxy on 127.0.0.1, on the port it had before when it can.
     fn bind(&self) -> io::Result<std::net::TcpListener> {
-        let file = self.dir.join(PORT_FILE);
+        self.bind_on(PORT_FILE, &self.proxy)
+    }
+
+    /// Binds the linked listener on 127.0.0.1, on the port it had before
+    /// when it can.
+    fn bind_linked(&self) -> io::Result<std::net::TcpListener> {
+        self.bind_on(LINKED_PORT_FILE, &self.linked)
+    }
+
+    /// Binds on 127.0.0.1, on the port `name` kept when it can, and keeps
+    /// the port in `name` and in `slot`.
+    fn bind_on(&self, name: &str, slot: &Mutex<Option<u16>>) -> io::Result<std::net::TcpListener> {
+        let file = self.dir.join(name);
         let kept = std::fs::read_to_string(&file)
             .ok()
             .and_then(|text| text.trim().parse::<u16>().ok())
@@ -984,7 +1109,7 @@ impl Service {
             Some(port) => match std::net::TcpListener::bind((Ipv4Addr::LOCALHOST, port)) {
                 Ok(listener) => listener,
                 Err(err) => {
-                    tracing::warn!(port, %err, "the model proxy's port is taken; it moves");
+                    tracing::warn!(port, %err, name, "a local model port is taken; it moves");
                     any()?
                 }
             },
@@ -995,7 +1120,7 @@ impl Service {
         if kept != Some(port) {
             std::fs::write(&file, port.to_string())?;
         }
-        *self.proxy.lock().unwrap_or_else(PoisonError::into_inner) = Some(port);
+        *slot.lock().unwrap_or_else(PoisonError::into_inner) = Some(port);
         Ok(listener)
     }
 
@@ -1004,12 +1129,143 @@ impl Service {
             self.runner.tick().await;
         }
         let settings = settings_of(&self.hub);
-        let changed = self.lock().settings != settings;
+        let linked = self.linked_now();
+        let changed = {
+            let mut state = self.lock();
+            let relinked = linked.is_some_and(|linked| {
+                let relinked = linked != state.linked;
+                state.linked = linked;
+                relinked
+            });
+            relinked || state.settings != settings
+        };
         if changed {
             self.publish();
             self.ran_all();
         }
+        self.hold_linked();
     }
+
+    /// The managed servers other devices share with this one now, as the
+    /// book says, or None before the links are installed.
+    fn linked_now(&self) -> Option<Vec<SharedModels>> {
+        let mut shared = self.shared.lock().unwrap_or_else(PoisonError::into_inner);
+        if shared.is_none() {
+            *shared = crate::peers::for_link().map(|peers| peers.shared_models());
+        }
+        let me = self.hub.device().id;
+        let shared = shared.as_ref()?.borrow();
+        Some(
+            shared
+                .iter()
+                .filter(|shared| shared.device != me)
+                .cloned()
+                .collect(),
+        )
+    }
+
+    /// Asks the devices whose servers local agents here use to keep the
+    /// models those agents run loaded while they work, every
+    /// [`HOLD_EVERY`]. A turn's own requests already count, so this is for
+    /// the time an agent spends on tools between them.
+    fn hold_linked(&self) {
+        let holds = {
+            let mut state = self.lock();
+            if state.linked.is_empty() || state.held_at.is_some_and(|at| at.elapsed() < HOLD_EVERY)
+            {
+                return;
+            }
+            state.held_at = Some(Instant::now());
+            state
+                .linked
+                .iter()
+                .map(|shared| {
+                    let linked = &shared.models;
+                    let picked = pick(&state.settings, linked.server, &linked.models).cloned();
+                    (shared.device, linked.server, picked)
+                })
+                .collect::<Vec<_>>()
+        };
+        let Some(peers) = crate::peers::for_link() else {
+            return;
+        };
+        for (device, server, picked) in holds {
+            let models = self.working(self.account_of(server), picked.as_deref());
+            if models.is_empty() {
+                continue;
+            }
+            let peers = peers.clone();
+            tokio::spawn(async move {
+                let held =
+                    tokio::time::timeout(HOLD_EVERY, peers.hold_models(device, server, models));
+                match held.await {
+                    Ok(Ok(())) => {}
+                    Ok(Err(reason)) => {
+                        tracing::debug!(%reason, "a linked device didn't hold models")
+                    }
+                    Err(_) => tracing::debug!("a linked device didn't answer a hold in time"),
+                }
+            });
+        }
+    }
+
+    /// The models local agents on `account` run while they work, each
+    /// once; an agent with no model of its own runs `picked`.
+    fn working(&self, account: AccountId, picked: Option<&str>) -> Vec<String> {
+        let mut models: Vec<String> = self.hub.pick(|entity| match entity {
+            Entity::Agent(agent)
+                if agent.account == Some(account)
+                    && matches!(
+                        agent.activity,
+                        Activity::Starting | Activity::Busy | Activity::BusyInSubagents
+                    ) =>
+            {
+                agent.model.clone().or_else(|| picked.map(str::to_owned))
+            }
+            _ => None,
+        });
+        models.sort();
+        models.dedup();
+        models
+    }
+
+    // Serving other devices.
+
+    /// Serves this device's managed server on `socket` for a local agent
+    /// on a linked device, when the settings let linked devices use it.
+    pub fn serve_linked(&self, server: ModelServerId, socket: DuplexStream) -> Result<(), String> {
+        self.shares(server)?;
+        self.runner.clone().serve_linked(socket);
+        Ok(())
+    }
+
+    /// Keeps `models` loaded for local agents on a linked device that
+    /// still work, when the settings let linked devices use them.
+    pub fn hold(&self, server: ModelServerId, models: &[String]) -> Result<(), String> {
+        self.shares(server)?;
+        self.runner.hold(models);
+        Ok(())
+    }
+
+    /// Whether linked devices may use `server` here, or why not.
+    fn shares(&self, server: ModelServerId) -> Result<(), String> {
+        if !self.managed() || server != self.managed_id() {
+            return Err(SHARES_NONE.to_owned());
+        }
+        if !settings_of(&self.hub).linked_devices {
+            return Err(format!(
+                "{} doesn't let linked devices use its models. Turn on \"Linked devices can use this Mac's models\" in its Local models settings.",
+                self.hub.device().name
+            ));
+        }
+        Ok(())
+    }
+}
+
+/// The listeners [`Service::prepare`] takes for [`Service::run`].
+pub struct Listeners {
+    proxy: Option<std::net::TcpListener>,
+    linked: Option<std::net::TcpListener>,
 }
 
 /// Downloads one file, then shows how it ended.
@@ -1193,7 +1449,22 @@ fn size(path: &Path) -> Option<u64> {
         .map(|meta| meta.len())
 }
 
-/// A new managed key: 32 random bytes, in hex.
+/// The key kept in `name`, or a new one kept there when it has none or
+/// one too short.
+fn kept_key(keys: &Folder, name: &str) -> io::Result<Secret> {
+    match keys.read(name)? {
+        Some(key) if key.expose().trim().len() >= 32 => {
+            Ok(Secret::new(key.expose().trim().to_owned()))
+        }
+        _ => {
+            let key = new_key()?;
+            keys.write(name, key.expose().as_bytes())?;
+            Ok(key)
+        }
+    }
+}
+
+/// A new key: 32 random bytes, in hex.
 fn new_key() -> io::Result<Secret> {
     let mut bytes = [0u8; 32];
     SystemRandom::new()

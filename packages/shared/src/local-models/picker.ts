@@ -10,7 +10,7 @@
 import { t } from "../i18n";
 
 import { estimate, recommendedFile, type Fit } from "./fit";
-import { catalogEntry, localAccountsOn, localModelsOf, serverOf } from "./models";
+import { catalogEntry, localAccountsOn, localModelsOf, serverOf, sharingOff } from "./models";
 import {
 	catalogRows,
 	LOCAL_SETUP_VALUE,
@@ -22,7 +22,13 @@ import {
 	runsLocalModels,
 	serversOf,
 } from "./select";
-import { fileStateText, fitLabel, formatFileSize, notEncrypted } from "./wording";
+import {
+	fileStateText,
+	fitLabel,
+	formatFileSize,
+	linkedDevicesLabel,
+	notEncrypted,
+} from "./wording";
 import type { Account, DeviceId, ModelServer, ServerModel } from "../bindings";
 import { accountOptions, type Option } from "../new-agent/spec";
 import { isThisMac } from "../settings/app-keys";
@@ -116,6 +122,19 @@ export const opensLocalSetup = (
 	return { device: device || fallback };
 };
 
+/**
+ * The row under a Mac's models when its switch keeps this device's agents
+ * off them. Picking it opens that Mac's Local models settings, where the
+ * switch is.
+ */
+const turnOnOption = (view: ViewState, mac: DeviceId, group: string): Option => ({
+	value: [LOCAL_SETUP_VALUE, mac].join(SETUP_BAR),
+	label: t("Open {{name}}'s Local models settings…", { name: deviceName(view, mac) }),
+	detail: t('Turn on "{{switch}}" there', { switch: linkedDevicesLabel() }),
+	warn: true,
+	group,
+});
+
 /** The row that opens the Local models settings. */
 export const localSetupOption = (): Option => ({
 	value: LOCAL_SETUP_VALUE,
@@ -195,7 +214,8 @@ const notDownloaded = (view: ViewState, device: DeviceId): Option[] => {
  * The model picker's entries for a local agent on a device: each server's
  * models under "This Mac" or the server's name, with a fit tag where it's
  * known; the catalog models not downloaded yet; and a row that opens the
- * Local models settings. `modelChoice` reads a model's value back, and
+ * Local models settings. A Mac whose switch keeps this device's agents off
+ * its models shows them turned off, with a row that opens its settings. `modelChoice` reads a model's value back, and
  * `opensLocalSetup` the others.
  */
 export const localPickerOptions = (view: ViewState, device: DeviceId): Option[] => {
@@ -206,7 +226,7 @@ export const localPickerOptions = (view: ViewState, device: DeviceId): Option[] 
 		if (!server) return [];
 		const group = serverGroup(view, server);
 		const prefix = localModelKey(account.id, "");
-		return listed
+		const rows = listed
 			.filter((option) => option.value.startsWith(prefix))
 			.map((option) => {
 				const id = parseLocalModelKey(option.value)?.model;
@@ -218,6 +238,9 @@ export const localPickerOptions = (view: ViewState, device: DeviceId): Option[] 
 					...(tag ? { tag: tag.label, tone: tag.tone } : {}),
 				};
 			});
+		return sharingOff(view, device, server)
+			? [...rows, turnOnOption(view, server.device, group)]
+			: rows;
 	});
 	// The catalogs to offer: the device's own, and those of the Macs whose
 	// servers its local agents reach.
@@ -226,7 +249,9 @@ export const localPickerOptions = (view: ViewState, device: DeviceId): Option[] 
 			device,
 			...accounts
 				.map((account) => serverOf(view, account))
-				.filter((server) => server?.kind.type === "managed")
+				.filter(
+					(server) => server?.kind.type === "managed" && !sharingOff(view, device, server)
+				)
 				.map((server) => server!.device),
 		]),
 	];

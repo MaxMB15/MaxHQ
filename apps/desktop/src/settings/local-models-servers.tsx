@@ -10,10 +10,13 @@
 // into the test or the add, and Add clears it; no state, log or note keeps
 // it, and a reply that echoes it shows `<secret>`. Plain http to another
 // machine is still allowed, with the risk named on the row and in the form.
+// Under the managed server, a switch says whether linked devices' Local
+// agents may use its models over their maxd link.
 
-import { useRef, useState } from "react";
+import { Fragment, useRef, useState } from "react";
 
 import { useServices } from "@/app/services";
+import { Switch } from "@/components/ui/switch";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/tasks/activity";
 import type { DeviceId, ModelServer } from "@maxhq/shared/bindings";
@@ -34,10 +37,25 @@ import {
 	serverUrlProblem,
 	typedNotEncrypted,
 } from "@maxhq/shared/local-models/settings-page";
-import { flavorName, notEncrypted, notEncryptedText } from "@maxhq/shared/local-models/wording";
+import {
+	flavorName,
+	linkedDevicesHelp,
+	linkedDevicesLabel,
+	notEncrypted,
+	notEncryptedText,
+} from "@maxhq/shared/local-models/wording";
 import type { ViewState } from "@maxhq/shared/view/replica";
 
-import { ConfirmButton, FIELD, Label, PRIMARY, SECONDARY, Section, StatusNote } from "./controls";
+import {
+	ConfirmButton,
+	FIELD,
+	Label,
+	PRIMARY,
+	Row,
+	SECONDARY,
+	Section,
+	StatusNote,
+} from "./controls";
 import { useModelAction } from "./local-models-catalog";
 import { SecretField } from "./login-parts";
 import { failureOf, type Note, scrub } from "./result";
@@ -348,9 +366,32 @@ const AddServerForm = ({ device, onClose }: { device: DeviceId; onClose: () => v
 	);
 };
 
+/** The switch that lets linked devices use the managed server's models, as the page saves it. */
+export type SharingSwitch = {
+	readonly on: boolean;
+	readonly note: Note | null;
+	readonly onChange: (on: boolean) => void;
+};
+
+/** Whether linked devices' Local agents may use the managed server's models. */
+const SharingRow = ({ sharing, disabled }: { sharing: SharingSwitch; disabled: string | null }) => {
+	useI18n();
+	return (
+		<Row title={linkedDevicesLabel()} sub={disabled ?? linkedDevicesHelp()}>
+			<StatusNote note={sharing.note} />
+			<Switch
+				aria-label={linkedDevicesLabel()}
+				checked={sharing.on}
+				disabled={disabled !== null}
+				onCheckedChange={sharing.onChange}
+			/>
+		</Row>
+	);
+};
+
 /**
- * The Servers card: the server MaxHQ runs on the device, the server URLs
- * it reaches, and the form that adds one.
+ * The Servers card: the server MaxHQ runs on the device with the switch
+ * that shares it, the server URLs it reaches, and the form that adds one.
  */
 export const ServersSection = ({
 	device,
@@ -358,6 +399,7 @@ export const ServersSection = ({
 	disabled,
 	adding,
 	onAdding,
+	sharing,
 }: {
 	device: DeviceId;
 	view: ViewState;
@@ -366,6 +408,8 @@ export const ServersSection = ({
 	/** Whether the form that adds a server URL is open. */
 	adding: boolean;
 	onAdding: (adding: boolean) => void;
+	/** The switch under the managed server, on a device that runs one. */
+	sharing: SharingSwitch | null;
 }) => {
 	useI18n();
 	const servers = serversOf(view, device);
@@ -373,13 +417,15 @@ export const ServersSection = ({
 		<Section title={translate("Servers")} hint={translate("Local agents run on these")}>
 			{servers.map((server) =>
 				server.kind.type === "managed" ? (
-					<ManagedRow
-						key={server.id}
-						device={device}
-						view={view}
-						server={server}
-						disabled={disabled}
-					/>
+					<Fragment key={server.id}>
+						<ManagedRow
+							device={device}
+							view={view}
+							server={server}
+							disabled={disabled}
+						/>
+						{sharing ? <SharingRow sharing={sharing} disabled={disabled} /> : null}
+					</Fragment>
 				) : (
 					<ExternalRow
 						key={server.id}

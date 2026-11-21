@@ -49,6 +49,7 @@ import {
 	shownLocalModel,
 	withDefaultLocalModel,
 } from "./select";
+import { sameLocalSettings, sharingOff } from "./models";
 
 const load = async (): Promise<ViewState> =>
 	applySnapshot(await mockSource({ now: () => NOW, tick: false }).snapshot());
@@ -66,6 +67,34 @@ describe("servers and models per device", () => {
 		expect(serversOf(view, DEVBOX).map((s) => s.id)).toEqual([OLLAMA_SERVER]);
 		expect(serverUsers(view, view.tables.model_server.get(MAC_SERVER)!)).toEqual([DEVBOX]);
 		expect(runsLocalModels(view, MAC)).toBe(true);
+	});
+
+	it("keeps other devices' agents off a Mac's server only while its switch is off", async () => {
+		const off = (linked: boolean) =>
+			edited((entities) =>
+				entities.map((e) =>
+					e.entity === "device_settings" && e.device === MAC
+						? { ...e, local_models: { ...e.local_models, linked_devices: linked } }
+						: e
+				)
+			);
+		const mac = (view: ViewState) => view.tables.model_server.get(MAC_SERVER)!;
+		const ollama = (view: ViewState) => view.tables.model_server.get(OLLAMA_SERVER)!;
+		const shared = await off(true);
+		expect(sharingOff(shared, DEVBOX, mac(shared))).toBe(false);
+		const kept = await off(false);
+		expect(sharingOff(kept, DEVBOX, mac(kept))).toBe(true);
+		// Never for the Mac's own agents, nor for a server at a URL.
+		expect(sharingOff(kept, MAC, mac(kept))).toBe(false);
+		expect(sharingOff(kept, MAC, ollama(kept))).toBe(false);
+		const rows = localModelOptions(kept, DEVBOX).filter((o) =>
+			o.value.startsWith(localModelKey(DEVBOX_LOCAL, ""))
+		);
+		expect(rows.map((o) => [o.disabled, o.warn, o.detail])).toEqual([
+			[true, true, "Turned off on Mac"],
+			[true, true, "Turned off on Mac"],
+			[true, true, "Turned off on Mac"],
+		]);
 	});
 
 	it("lists the local accounts own servers first, then the ones over the link", async () => {
@@ -96,6 +125,9 @@ describe("servers and models per device", () => {
 	it("fills in the settings a device hasn't saved", async () => {
 		const view = await load();
 		expect(localSettingsOn(view, DEVBOX)).toEqual(LOCAL_MODEL_DEFAULTS);
+		expect(LOCAL_MODEL_DEFAULTS.linked_devices).toBe(true);
+		expect(sameLocalSettings({}, { linked_devices: true })).toBe(true);
+		expect(sameLocalSettings({}, { linked_devices: false })).toBe(false);
 		expect(localSettingsOn(view, MAC).default_model).toEqual({
 			server: MAC_SERVER,
 			model: LOADED_MODEL,

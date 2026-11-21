@@ -19,6 +19,7 @@ import {
 	localSettingsOf,
 	serverModelName,
 	serverOf,
+	sharingOff,
 	usableServer,
 	type LocalPick,
 	type LocalSettings,
@@ -30,10 +31,11 @@ import {
 	notEncrypted,
 	notEncryptedText,
 	serverProblemText,
+	sharingOffText,
 } from "./wording";
 import { agentKind, kindName, type AccountLookup } from "../status/agent-kind";
 import { all, type ViewState } from "../view/replica";
-import { linkForDevice } from "../view/select";
+import { deviceName, linkForDevice } from "../view/select";
 import type {
 	Account,
 	AccountId,
@@ -57,6 +59,7 @@ export {
 	LOCAL_MODEL_DEFAULTS,
 	managedModelId,
 	serverOf,
+	sharingOff,
 	usableServer,
 	type LocalPick,
 	type LocalSettings,
@@ -267,15 +270,19 @@ export const localAccountOption = (
 /**
  * The models every local account on a device offers, grouped by server,
  * each value naming its account and model. A server that can't run a Local
- * agent shows its models turned off, with why.
+ * agent shows its models turned off, with why, as does a Mac's server whose
+ * switch keeps the device's agents off it.
  */
 export const localModelOptions = (view: ViewState, device: DeviceId): PickerOption[] => {
 	const pick = defaultLocalPick(view, device);
 	return localAccountsOn(view, device).flatMap((account): PickerOption[] => {
 		const server = serverOf(view, account);
 		if (!server) return [];
-		const problem = serverProblemText(server);
-		const usable = usableServer(server);
+		const off = sharingOff(view, device, server);
+		const problem = off
+			? sharingOffText(deviceName(view, server.device))
+			: serverProblemText(server);
+		const usable = !off && usableServer(server);
 		const group = notEncrypted(server)
 			? t("{{server}} (not encrypted)", { server: server.label })
 			: server.label;

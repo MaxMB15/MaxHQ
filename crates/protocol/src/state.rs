@@ -815,6 +815,7 @@ mod tests {
                     "context": 65536,
                     "fewer_tools": true,
                     "default_model": null,
+                    "linked_devices": true,
                 },
             })
         );

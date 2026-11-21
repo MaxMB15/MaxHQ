@@ -21,6 +21,7 @@ use maxhq_protocol::agents::{PeerBook, PeerEntry, PeerRoute};
 use maxhq_protocol::ids::{DeviceId, IdempotencyKey, LinkId};
 use maxhq_protocol::leases::{TestHostState, TestKind};
 use maxhq_protocol::link::{LinkState, Route};
+use maxhq_protocol::local_models::{LinkedModels, ModelServerKind, ServerModel};
 use maxhq_protocol::message::ActionOutcome;
 use maxhq_protocol::state::{Entity, EntityKey};
 use maxhq_protocol::ClientMessage;
@@ -167,6 +168,10 @@ pub(super) struct Found {
     pub(super) host_key: Option<String>,
     /// The kinds of test machine it hosts.
     test_kinds: Vec<TestKind>,
+    /// Its managed model server, for the others' local agents.
+    pub(super) model_server: Option<LinkedModels>,
+    /// The devices whose managed models its local agents use.
+    pub(super) models_from: Vec<DeviceId>,
     /// Whether it's this machine, which runs the app and so may move
     /// agents on the others.
     pub(super) home: bool,
@@ -326,11 +331,15 @@ impl<L: LinkControl> Core<L> {
             self.ask_key(device, &mut kept).await;
         }
         let mut hosted = self.view.read(test_kinds);
+        let mut shared = self.view.read(shared_models);
+        let mut using = self.view.read(models_from);
         let mut found = BTreeMap::new();
         for (&device, known) in &kept.devices {
             let kinds = hosted.remove(&device).unwrap_or_default();
             let mut one = find(facts.as_ref(), device, known, &specs, kinds).await;
             one.home = self.view.read(|merge| super::is_local(merge, device));
+            one.model_server = shared.remove(&device);
+            one.models_from = using.remove(&device).unwrap_or_default();
             found.insert(device, one);
         }
         for device in connected {
@@ -596,6 +605,8 @@ pub(super) async fn find(
             facts.host_key(device)
         },
         test_kinds,
+        model_server: None,
+        models_from: Vec::new(),
         home: false,
     }
 }
@@ -640,6 +651,8 @@ fn entry(device: DeviceId, found: &Found) -> Option<PeerEntry> {
         host_key,
         test_kinds: found.test_kinds.clone(),
         home: found.home,
+        model_server: found.model_server.clone(),
+        models_from: found.models_from.clone(),
     })
 }
 
@@ -730,6 +743,68 @@ pub(super) fn test_kinds(merge: &crate::merge::Merge) -> BTreeMap<DeviceId, Vec<
         hosted.sort_by_key(|kind| TestKind::ALL.iter().position(|each| each == kind));
     }
     kinds
+}
+
+/// Each device's managed model server, as the others' books carry it:
+/// its models with no load or speed, so a model loading or a turn's speed
+/// sends no book. A device whose switch is off still has one; it says no
+/// when asked, and the others' pickers show why.
+pub(super) fn shared_models(merge: &crate::merge::Merge) -> BTreeMap<DeviceId, LinkedModels> {
+    merge
+        .store()
+        .entities()
+        .filter_map(|entity| match entity {
+            Entity::ModelServer(server) if server.kind == ModelServerKind::Managed => Some((
+                server.device,
+                LinkedModels {
+                    server: server.id,
+                    label: server.label.clone(),
+                    models: server
+                        .models
+                        .iter()
+                        .map(|model| ServerModel {
+                            load: None,
+                            speed: None,
+                            ..model.clone()
+                        })
+                        .collect(),
+                },
+            )),
+            _ => None,
+        })
+        .collect()
+}
+
+/// For each device, the others whose managed models its agents use, so
+/// one that takes no SSH logins keeps a link up for them.
+pub(super) fn models_from(merge: &crate::merge::Merge) -> BTreeMap<DeviceId, Vec<DeviceId>> {
+    let store = merge.store();
+    let mut using: BTreeMap<DeviceId, Vec<DeviceId>> = BTreeMap::new();
+    for entity in store.entities() {
+        let Entity::Agent(agent) = entity else {
+            continue;
+        };
+        let Some(Entity::Account(account)) = agent
+            .account
+            .and_then(|account| store.get(&EntityKey::Account(account)))
+        else {
+            continue;
+        };
+        let Some(Entity::ModelServer(server)) = account
+            .model_server
+            .and_then(|server| store.get(&EntityKey::ModelServer(server)))
+        else {
+            continue;
+        };
+        if server.device != account.device {
+            let from = using.entry(account.device).or_default();
+            if !from.contains(&server.device) {
+                from.push(server.device);
+                from.sort();
+            }
+        }
+    }
+    using
 }
 
 #[cfg(test)]

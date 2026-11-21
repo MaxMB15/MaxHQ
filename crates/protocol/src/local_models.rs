@@ -139,6 +139,38 @@ pub struct ServerModel {
     /// Whether it's in memory. None when the server doesn't say, as with
     /// most URLs.
     pub load: Option<ModelLoad>,
+    /// How fast a managed server ran it in its last turn, so a local agent
+    /// on another device shows its speed line too. Since
+    /// [`crate::message::LOCAL_MODELS_SINCE`]; an older client reads none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub speed: Option<ModelSpeed>,
+}
+
+/// How fast a model ran, in whole tokens per second.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, Type, JsonSchema)]
+pub struct ModelSpeed {
+    /// Prompt tokens read per second.
+    #[serde(default)]
+    pub prompt_per_second: Option<u32>,
+    /// Tokens written per second.
+    #[serde(default)]
+    pub decode_per_second: Option<u32>,
+}
+
+/// A Mac's managed model server, as the devices it links to see it in
+/// their peer book, so their local agents can use it over the `maxd`
+/// link. Its load and speed stay in the Mac's own entity.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, Type, JsonSchema)]
+pub struct LinkedModels {
+    /// The server.
+    pub server: ModelServerId,
+    /// Its name, the Mac's.
+    pub label: String,
+    /// The models it serves, with no load or speed. One this build can't
+    /// read is left out.
+    #[serde(deserialize_with = "crate::tolerant::list")]
+    #[specta(type = Vec<ServerModel>)]
+    pub models: Vec<ServerModel>,
 }
 
 /// A catalog file's model ID on a managed server, `<catalog id>@<quant>`
@@ -442,6 +474,11 @@ pub struct LocalModelSettings {
     /// use the catalog's default once it's ready.
     #[serde(default)]
     pub default_model: Option<LocalModelPick>,
+    /// Whether local agents on the devices this one links to may use its
+    /// managed server over the `maxd` link. Only this device changes it.
+    /// An older `maxd` reads it as on, and doesn't share either way.
+    #[serde(default = "crate::model::yes")]
+    pub linked_devices: bool,
 }
 
 /// The idle unload default, in minutes.
@@ -466,6 +503,7 @@ impl Default for LocalModelSettings {
             context: DEFAULT_CONTEXT,
             fewer_tools: true,
             default_model: None,
+            linked_devices: true,
         }
     }
 }
@@ -646,6 +684,10 @@ mod tests {
                     slots: 1,
                     context: 32_768,
                     since: Timestamp(900),
+                }),
+                speed: Some(ModelSpeed {
+                    prompt_per_second: Some(1_180),
+                    decode_per_second: Some(74),
                 }),
             }],
         }
@@ -839,6 +881,7 @@ mod tests {
                 catalog: None,
                 context: Some(32_768),
                 load: None,
+                speed: None,
             }],
         };
         assert_eq!(round_trip(&probed), probed);
@@ -877,5 +920,53 @@ mod tests {
     fn a_local_run_reads_with_fields_left_out() {
         let read: LocalRun = serde_json::from_str("{}").unwrap();
         assert_eq!(read, LocalRun::default());
+    }
+
+    #[test]
+    fn linked_devices_may_use_a_mac_s_models_unless_it_says_no() {
+        use crate::agents::{PeerEntry, PeerRequest};
+        use crate::ids::StreamId;
+        // A device saved before the switch reads it as on.
+        assert!(LocalModelSettings::default().linked_devices);
+        let read: LocalModelSettings = serde_json::from_str(r#"{"fewer_tools":false}"#).unwrap();
+        assert!(read.linked_devices);
+        // A peer entry from before reads with no shared server.
+        let entry: PeerEntry = serde_json::from_value(serde_json::json!({
+            "device": device(),
+            "name": "Home Mac",
+            "routes": [],
+            "host_key": "",
+        }))
+        .unwrap();
+        assert_eq!(entry.model_server, None);
+        let shared = PeerEntry {
+            model_server: Some(LinkedModels {
+                server: ModelServerId::derive("server:example"),
+                label: "Home Mac".into(),
+                models: server().models,
+            }),
+            ..entry
+        };
+        assert_eq!(round_trip(&shared), shared);
+        let requests = [
+            PeerRequest::ModelStream {
+                stream: StreamId::derive("stream:example"),
+                server: ModelServerId::derive("server:example"),
+            },
+            PeerRequest::ModelHold {
+                server: ModelServerId::derive("server:example"),
+                models: vec!["qwen3.6:35b".into()],
+            },
+        ];
+        for request in requests {
+            assert_eq!(round_trip(&request), request);
+        }
+        // A model that never said how fast it ran writes no speed.
+        let json = serde_json::to_value(ServerModel {
+            speed: None,
+            ..server().models.remove(0)
+        })
+        .unwrap();
+        assert!(json.get("speed").is_none());
     }
 }

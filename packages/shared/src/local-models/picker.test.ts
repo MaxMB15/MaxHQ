@@ -17,6 +17,7 @@ import { NOW } from "../test/build";
 import { applySnapshot, type ViewState } from "../view/replica";
 
 import { agentOptions, localPickerOptions, localModelTag, opensLocalSetup } from "./picker";
+import { defaultLocalPick, localPicksOn } from "./models";
 import { LOCAL_SETUP_VALUE, localModelKey, modelChoice } from "./select";
 
 /** The sample view, with its entities changed by `edit`. */
@@ -86,6 +87,37 @@ describe("the local model picker", () => {
 			options.filter((o) => o.value.startsWith(localModelKey(DEVBOX_LOCAL, ""))).length
 		).toBe(3);
 		expect(options.at(-1)?.value).toBe(LOCAL_SETUP_VALUE);
+	});
+
+	it("shows a Mac's models turned off where its switch keeps them to itself", async () => {
+		const view = await load((entities) =>
+			entities.map((e) =>
+				e.entity === "device_settings" && e.device === MAC
+					? { ...e, local_models: { ...e.local_models, linked_devices: false } }
+					: e
+			)
+		);
+		const options = localPickerOptions(view, DEVBOX);
+		const mac = options.filter((o) => o.group === "This Mac");
+		expect(mac.map((o) => [o.label, o.disabled, o.detail])).toEqual([
+			["Qwen3.6-35B-A3B", true, "Turned off on Mac"],
+			["gpt-oss-20b", true, "Turned off on Mac"],
+			["Ornith-1.5-9B", true, "Turned off on Mac"],
+			[
+				"Open Mac's Local models settings…",
+				undefined,
+				'Turn on "Linked devices can use this Mac\'s models" there',
+			],
+		]);
+		// No fit tags, nor the Mac's catalog to download from.
+		expect(mac.every((o) => o.tag === undefined)).toBe(true);
+		expect(mac.every((o) => o.warn)).toBe(true);
+		// The last row opens the Mac's page, where the switch is.
+		expect(opensLocalSetup(mac.at(-1)!.value, DEVBOX)).toEqual({ device: MAC });
+		// devbox's default moves off the Mac; the Mac's own picker stays as it was.
+		expect(defaultLocalPick(view, DEVBOX)?.account.id).toBe(OLLAMA_LOCAL);
+		expect(localPicksOn(view, DEVBOX).some((p) => p.account.id === DEVBOX_LOCAL)).toBe(false);
+		expect(localPickerOptions(view, MAC).filter((o) => o.disabled)).toEqual([]);
 	});
 
 	it("tags a model too large for the GPU", async () => {

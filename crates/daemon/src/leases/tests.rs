@@ -234,6 +234,8 @@ async fn a_kind_this_device_doesnt_offer_names_the_devices_that_do() {
                 host_key: String::new(),
                 test_kinds: vec![TestKind::Linux],
                 home: false,
+                model_server: None,
+                models_from: Vec::new(),
             }],
         })
         .expect("a peer book");

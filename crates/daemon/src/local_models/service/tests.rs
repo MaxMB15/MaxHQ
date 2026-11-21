@@ -1,7 +1,10 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026 Max Boksem
 
+use maxhq_protocol::ids::{AgentId, DeviceId, WorkspaceId};
 use maxhq_protocol::local_models::ServerFlavor;
+use maxhq_protocol::model::{Agent, AgentLink, Control, Inbox};
+use maxhq_protocol::state::Change;
 use serde_json::json;
 
 use super::super::tests::{Fake, Route, Scratch};
@@ -333,11 +336,12 @@ async fn a_probe_says_what_answers_and_keeps_nothing() {
 
     assert!(world.service.lock().servers.is_empty());
     assert!(world.db.model_servers().unwrap().is_empty());
-    let kept: Vec<_> = std::fs::read_dir(world.service.dir.join("keys"))
+    let mut kept: Vec<_> = std::fs::read_dir(world.service.dir.join("keys"))
         .unwrap()
         .map(|entry| entry.unwrap().file_name().into_string().unwrap())
         .collect();
-    assert_eq!(kept, [MANAGED_KEY], "no token kept");
+    kept.sort();
+    assert_eq!(kept, [LINKED_KEY, MANAGED_KEY], "no token kept");
 
     let bad = world
         .act(ModelAction::ProbeServer {
@@ -682,4 +686,197 @@ async fn a_restart_keeps_the_servers_their_tokens_the_key_and_the_port() {
         port.to_string()
     );
     assert_eq!(*again.proxy.lock().unwrap(), Some(port));
+}
+
+/// Turns "Linked devices can use this Mac's models" on or off.
+fn let_linked(hub: &Hub, on: bool) {
+    let Some(Entity::DeviceSettings(mut settings)) =
+        hub.get(&EntityKey::DeviceSettings(hub.device().id))
+    else {
+        panic!("a hub has settings");
+    };
+    settings.local_models.linked_devices = on;
+    hub.apply([Change::Upsert {
+        value: Entity::DeviceSettings(settings),
+    }]);
+}
+
+#[tokio::test]
+async fn linked_devices_use_this_macs_models_only_while_the_switch_is_on() {
+    let world = World::new(RuntimeSupport::Managed).await;
+    let own = world.service.managed_id();
+    let (socket, _far) = tokio::io::duplex(1024);
+    assert_eq!(world.service.serve_linked(own, socket), Ok(()));
+    assert_eq!(world.service.hold(own, &[world.model_id()]), Ok(()));
+
+    let other = ModelServerId::derive("some other server");
+    let (socket, _far) = tokio::io::duplex(1024);
+    assert_eq!(
+        world.service.serve_linked(other, socket),
+        Err(SHARES_NONE.to_owned())
+    );
+
+    let_linked(&world.hub, false);
+    let (socket, _far) = tokio::io::duplex(1024);
+    let off = world.service.serve_linked(own, socket).unwrap_err();
+    assert_eq!(
+        off,
+        "host doesn't let linked devices use its models. Turn on \"Linked devices can use this Mac's models\" in its Local models settings."
+    );
+    assert_eq!(world.service.hold(own, &[world.model_id()]), Err(off));
+
+    // A device that runs no models of its own shares none.
+    let devbox = World::new(RuntimeSupport::NoGpu).await;
+    let (socket, _far) = tokio::io::duplex(1024);
+    assert_eq!(
+        devbox
+            .service
+            .serve_linked(devbox.service.managed_id(), socket),
+        Err(SHARES_NONE.to_owned())
+    );
+}
+
+/// The Mac's managed server, with one model, as the book shares it.
+fn shared_mac(model: &str) -> SharedModels {
+    SharedModels {
+        device: DeviceId::derive("home mac"),
+        name: "Home Mac".to_owned(),
+        models: LinkedModels {
+            server: ModelServerId::derive("model-server:home mac:managed"),
+            label: "Home Mac".to_owned(),
+            models: vec![ServerModel {
+                id: model.to_owned(),
+                label: "Qwen".to_owned(),
+                catalog: None,
+                context: Some(32_768),
+                load: None,
+                speed: None,
+            }],
+        },
+    }
+}
+
+fn agent_on(account: AccountId, name: &str, activity: Activity, model: Option<&str>) -> Agent {
+    Agent {
+        id: AgentId::derive(name),
+        workspace: WorkspaceId::derive("workspace"),
+        branch: None,
+        parent: None,
+        vendor: Vendor::Claude,
+        account: Some(account),
+        model: model.map(str::to_owned),
+        permission: None,
+        session: None,
+        vendor_session_id: None,
+        control: Control::Held,
+        pid: None,
+        link: AgentLink::Live,
+        title: name.to_owned(),
+        activity,
+        context: None,
+        started_at: Timestamp(1),
+        last_activity_at: Timestamp(1),
+        inbox: Inbox::default(),
+        origin: None,
+        pulls: Vec::new(),
+        taking_over: false,
+        asleep: false,
+        effort: None,
+        running: None,
+        moved: None,
+        local: None,
+    }
+}
+
+#[tokio::test]
+async fn a_linked_macs_server_is_an_account_here_reached_with_this_devices_own_key() {
+    let world = World::new(RuntimeSupport::NoGpu).await;
+    let model = "qwen3.6-35b-a3b@ud-q4_k_xl";
+    let mac = shared_mac(model);
+    let server = mac.models.server;
+    world.service.lock().linked = vec![mac];
+    world.service.publish();
+
+    let account_id = world.service.account_of(server);
+    let account = world
+        .account(account_id)
+        .expect("an account for the Mac's models");
+    assert_eq!(account.device, world.hub.device().id, "the agents run here");
+    assert_eq!(account.model_server, Some(server));
+    assert_eq!(account.label, "Home Mac");
+    assert_eq!(account.models[0].id, model);
+    assert!(world.service.accounts().contains(&account_id));
+
+    assert!(world.service.login(account_id).is_none(), "no listener yet");
+    *world.service.linked.lock().unwrap() = Some(40_200);
+    let login = world.service.login(account_id).unwrap();
+    assert_eq!(
+        login.base_url,
+        format!("http://127.0.0.1:40200/linked/{server}")
+    );
+    let own = world.service.keys.read(LINKED_KEY).unwrap().unwrap();
+    assert_eq!(login.token.expose(), own.expose());
+    assert!(login.token.expose().len() >= 32);
+    let managed = world.service.keys.read(MANAGED_KEY).unwrap().unwrap();
+    assert_ne!(login.token.expose(), managed.expose());
+    assert_eq!(login.context, Some(32_768));
+    assert_eq!(login.model.as_deref(), Some(model));
+    assert!(login.lean);
+    let run = world.service.run_of(account_id, None, Some(500)).unwrap();
+    assert_eq!(run.context_size, Some(32_768));
+    assert_eq!(run.context_used, Some(500));
+    assert!(!run.loading);
+
+    // Once the book stops sharing it, the account goes.
+    world.service.lock().linked.clear();
+    world.service.publish();
+    assert!(world.account(account_id).is_none());
+    assert!(world.service.login(account_id).is_none());
+}
+
+#[tokio::test]
+async fn only_working_agents_ask_the_mac_to_keep_their_models() {
+    let world = World::new(RuntimeSupport::NoGpu).await;
+    let mac = shared_mac("qwen@q4");
+    let account = world.service.account_of(mac.models.server);
+    let other = AccountId::derive("another account");
+    world.hub.apply(
+        [
+            agent_on(account, "busy", Activity::Busy, None),
+            agent_on(account, "starting", Activity::Starting, Some("other@q8")),
+            agent_on(account, "idle", Activity::Idle, Some("idle@q4")),
+            agent_on(other, "elsewhere", Activity::Busy, Some("elsewhere@q4")),
+        ]
+        .map(|agent| Change::Upsert {
+            value: Entity::Agent(agent),
+        }),
+    );
+    assert_eq!(
+        world.service.working(account, Some("qwen@q4")),
+        ["other@q8", "qwen@q4"]
+    );
+}
+
+#[tokio::test]
+async fn the_linked_listener_keeps_its_port_and_its_own_key() {
+    let world = World::new(RuntimeSupport::NoGpu).await;
+    let listener = world.service.bind_linked().unwrap();
+    let address = listener.local_addr().unwrap();
+    assert!(address.ip().is_loopback());
+    drop(listener);
+    let key = world.service.linked_key.expose().to_owned();
+    assert_ne!(key, world.service.key.expose());
+
+    let again = World::open(
+        &world.scratch,
+        &world.hub,
+        &world.db,
+        &world.files,
+        RuntimeSupport::NoGpu,
+    );
+    assert_eq!(again.linked_key.expose(), key);
+    let listener = again.bind_linked().unwrap();
+    assert_eq!(listener.local_addr().unwrap().port(), address.port());
+    assert_eq!(*again.linked.lock().unwrap(), Some(address.port()));
+    assert_eq!(*again.proxy.lock().unwrap(), None);
 }

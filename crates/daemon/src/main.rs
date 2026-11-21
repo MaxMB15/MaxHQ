@@ -813,6 +813,7 @@ async fn serve() -> Result<Stopped, RunError> {
     if let Some(peers) = peers {
         peers.serve_with(Arc::new(sessions.clone()));
         peers.notes_with(notes);
+        peers.models_with(Arc::new(local_models::Shares));
         tasks::targets::tell(
             Arc::new(peers.clone()),
             tasks::Tasks::watch(&sessions),

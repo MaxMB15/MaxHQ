@@ -280,7 +280,12 @@ const fileState = (
 };
 
 /** A catalog file on a managed server, with the ID `maxd` gives it. */
-const managedModel = (id: string, name: string, load: ModelLoad): ServerModel => {
+const managedModel = (
+	id: string,
+	name: string,
+	load: ModelLoad,
+	speed: ServerModel["speed"] = null
+): ServerModel => {
 	const model = catalogModel(id);
 	const quant = model?.files.find((f) => f.name === name)?.quant ?? name;
 	return {
@@ -289,6 +294,7 @@ const managedModel = (id: string, name: string, load: ModelLoad): ServerModel =>
 		catalog: { model: id, file: name },
 		context: CONTEXT,
 		load,
+		speed,
 	};
 };
 
@@ -330,12 +336,12 @@ const servers = (now: Timestamp): ModelServer[] => [
 		base_url: null,
 		probe: probed(now - 40 * MIN, "llama_cpp", CONTEXT),
 		models: [
-			managedModel(LOADED_CATALOG_MODEL, "Qwen3.6-35B-A3B-UD-Q4_K_XL.gguf", {
-				state: "loaded",
-				slots: 1,
-				context: CONTEXT,
-				since: now - 40 * MIN,
-			}),
+			managedModel(
+				LOADED_CATALOG_MODEL,
+				"Qwen3.6-35B-A3B-UD-Q4_K_XL.gguf",
+				{ state: "loaded", slots: 1, context: CONTEXT, since: now - 40 * MIN },
+				{ prompt_per_second: 1_180, decode_per_second: 74 }
+			),
 			managedModel("gpt-oss-20b", "gpt-oss-20b-mxfp4.gguf", { state: "unloaded" }),
 			managedModel("ornith-1.5-9b", "Ornith-1.5-9B-Q4_K_M.gguf", { state: "unloaded" }),
 		],
@@ -439,9 +445,9 @@ const agents = (now: Timestamp): Agent[] => [
 		pid: 9_144,
 		activity: { state: "done_unread" },
 		context: { used_tokens: 22_800, window_tokens: CONTEXT },
+		// Its model runs on the Mac, which measures the speeds: devbox's maxd
+		// knows only the context.
 		local: {
-			prompt_per_second: 1_020,
-			decode_per_second: 61,
 			context_used: 22_800,
 			context_size: CONTEXT,
 		},

@@ -56,6 +56,7 @@ export const LOCAL_MODELS_TERMS: readonly string[] = [
 	"Models",
 	"Download",
 	"Servers",
+	"Linked devices can use this Mac's models",
 	"Add server URL",
 	"Token, if the server asks for one",
 	"Local agent settings",
@@ -65,7 +66,7 @@ export const LOCAL_MODELS_TERMS: readonly string[] = [
 	"Fewer tools for local agents",
 ];
 
-type Part = "default" | "idle" | "kv" | "context" | "tools";
+type Part = "default" | "linked" | "idle" | "kv" | "context" | "tools";
 
 /**
  * A device's settings as the page shows them, and a save that sends them
@@ -203,6 +204,15 @@ const DeviceBody = ({ device, view }: { device: DeviceId; view: ViewState }) => 
 				disabled={why.local}
 				adding={adding}
 				onAdding={setAdding}
+				sharing={
+					managed
+						? {
+								on: settings.linked_devices,
+								note: noteFor("linked"),
+								onChange: (on) => void saveLocal("linked", { linked_devices: on }),
+							}
+						: null
+				}
 			/>
 			<Section
 				title={translate("Local agent settings")}

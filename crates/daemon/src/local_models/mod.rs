@@ -4,14 +4,16 @@
 //! Local models: the catalog `maxd` offers, the model files it downloads,
 //! the llama-server it runs for them on an Apple silicon Mac, and the
 //! model servers you add by URL. A local agent is Claude Code pointed at
-//! one of these servers.
+//! one of these servers. A Mac's managed server also serves the local
+//! agents of the devices it links to, over the `maxd` link.
 
 use std::path::Path;
 use std::sync::{Arc, OnceLock};
 
-use maxhq_protocol::ids::AccountId;
+use maxhq_protocol::ids::{AccountId, DeviceId, ModelServerId};
 use maxhq_protocol::local_models::{LocalRun, ModelAction};
 use maxhq_protocol::message::ActionOutcome;
+use tokio::io::DuplexStream;
 
 use crate::db::Db;
 use crate::drive::ServerLogin;
@@ -20,12 +22,13 @@ use crate::hub::Hub;
 mod catalog;
 mod download;
 mod hardware;
+pub(crate) mod linked;
 mod probe;
-mod runner;
+pub(crate) mod runner;
 mod runtime;
 mod service;
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;
 
 use service::{Service, Setup};
 
@@ -68,9 +71,9 @@ pub fn start(hub: Hub, db: Db, data: &Path, online: bool) {
         }
     };
     if SERVICE.set(service.clone()).is_ok() {
-        let listener = service.prepare();
+        let listeners = service.prepare();
         service.publish();
-        tokio::spawn(service.run(online, listener));
+        tokio::spawn(service.run(online, listeners));
     }
 }
 
@@ -108,8 +111,40 @@ pub async fn act(action: ModelAction) -> ActionOutcome {
     match SERVICE.get() {
         Some(service) => service.act(action).await,
         None => ActionOutcome::Refused {
-            reason: "Local models aren't running on this maxd.".to_owned(),
+            reason: NOT_RUNNING.to_owned(),
         },
+    }
+}
+
+const NOT_RUNNING: &str = "Local models aren't running on this maxd.";
+
+/// Serves this device's managed server to the local agents of linked
+/// devices, for the peer links.
+pub struct Shares;
+
+impl crate::peers::Models for Shares {
+    fn serve(
+        &self,
+        _from: DeviceId,
+        server: ModelServerId,
+        socket: DuplexStream,
+    ) -> Result<(), String> {
+        SERVICE
+            .get()
+            .ok_or_else(|| NOT_RUNNING.to_owned())?
+            .serve_linked(server, socket)
+    }
+
+    fn hold(
+        &self,
+        _from: DeviceId,
+        server: ModelServerId,
+        models: &[String],
+    ) -> Result<(), String> {
+        SERVICE
+            .get()
+            .ok_or_else(|| NOT_RUNNING.to_owned())?
+            .hold(server, models)
     }
 }
 

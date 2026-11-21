@@ -194,6 +194,18 @@ export const serverProblemText = (server: Pick<ModelServer, "probe">): string | 
 	return null;
 };
 
+/** The switch on a Mac's Local models page that lets its linked devices use its models. */
+export const linkedDevicesLabel = (): string => t("Linked devices can use this Mac's models");
+
+/** What that switch allows, in one line. */
+export const linkedDevicesHelp = (): string =>
+	t(
+		"Local agents on your other devices can run on these models over the maxd link. Nothing listens on the network."
+	);
+
+/** Why a server's models are turned off for another device's agents: its Mac's switch is off. */
+export const sharingOffText = (name: string): string => t("Turned off on {{name}}", { name });
+
 /**
  * The percent at which a load has the whole file in memory and waits for the
  * server to answer. `maxd` holds it there until the server serves.

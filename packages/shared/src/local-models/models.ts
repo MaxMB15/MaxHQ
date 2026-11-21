@@ -44,6 +44,7 @@ export const LOCAL_MODEL_DEFAULTS: LocalSettings = {
 	kv_type: "f16",
 	context: 65_536,
 	fewer_tools: true,
+	linked_devices: true,
 	default_model: null,
 };
 
@@ -53,6 +54,7 @@ export const localSettingsOf = (kept: LocalModelSettings | undefined): LocalSett
 	kv_type: kept?.kv_type ?? LOCAL_MODEL_DEFAULTS.kv_type,
 	context: kept?.context ?? LOCAL_MODEL_DEFAULTS.context,
 	fewer_tools: kept?.fewer_tools ?? LOCAL_MODEL_DEFAULTS.fewer_tools,
+	linked_devices: kept?.linked_devices ?? LOCAL_MODEL_DEFAULTS.linked_devices,
 	default_model: kept?.default_model ?? null,
 });
 
@@ -65,6 +67,7 @@ export const sameLocalSettings = (a: LocalModelSettings, b: LocalModelSettings):
 		x.kv_type === y.kv_type &&
 		x.context === y.context &&
 		x.fewer_tools === y.fewer_tools &&
+		x.linked_devices === y.linked_devices &&
 		x.default_model?.server === y.default_model?.server &&
 		x.default_model?.model === y.default_model?.model
 	);
@@ -107,6 +110,20 @@ export const usableServer = (server: Pick<ModelServer, "probe">): boolean =>
 	server.probe === null || (server.probe.error === null && server.probe.apis.messages === true);
 
 /**
+ * Whether a device's local agents can't use a server because it's another
+ * device's managed server and that device turned off "Linked devices can
+ * use this Mac's models". Its `maxd` refuses their turns then.
+ */
+export const sharingOff = (
+	view: ViewState,
+	device: DeviceId,
+	server: Pick<ModelServer, "device" | "kind">
+): boolean =>
+	server.device !== device &&
+	server.kind.type === "managed" &&
+	!localSettingsOf(view.tables.device_settings.get(server.device)?.local_models).linked_devices;
+
+/**
  * The local accounts on a device: the ones on its own servers first, a
  * managed one before URLs, then the ones that reach another device's
  * server, each by label.
@@ -136,11 +153,14 @@ export type LocalPick = {
 	readonly model: ServerModel;
 };
 
-/** Every model a device's local agents can start on, by account and then as the server lists them. */
+/**
+ * Every model a device's local agents can start on, by account and then as
+ * the server lists them. A Mac's server whose switch is off has none.
+ */
 export const localPicksOn = (view: ViewState, device: DeviceId): LocalPick[] =>
 	localAccountsOn(view, device).flatMap((account) => {
 		const server = serverOf(view, account);
-		if (!server || !usableServer(server)) return [];
+		if (!server || !usableServer(server) || sharingOff(view, device, server)) return [];
 		return server.models.map((model) => ({ account, server, model }));
 	});
 

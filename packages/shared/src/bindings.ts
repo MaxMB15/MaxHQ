@@ -6453,6 +6453,23 @@ last_seen: Timestamp | null } |
 /**  The client hasn't tried yet, or can't tell. */
 { state: "unknown" };
 
+/**
+ *  A Mac's managed model server, as the devices it links to see it in
+ *  their peer book, so their local agents can use it over the `maxd`
+ *  link. Its load and speed stay in the Mac's own entity.
+ */
+export type LinkedModels = {
+	/**  The server. */
+	server: ModelServerId,
+	/**  Its name, the Mac's. */
+	label: string,
+	/**
+	 *  The models it serves, with no load or speed. One this build can't
+	 *  read is left out.
+	 */
+	models: ServerModel[],
+};
+
 /**  A port a process in a workspace listens on, per N-6. */
 export type ListeningPort = {
 	/**  Stable while the port stays open. */
@@ -6504,6 +6521,12 @@ export type LocalModelSettings = {
 	 *  use the catalog's default once it's ready.
 	 */
 	default_model?: LocalModelPick | null,
+	/**
+	 *  Whether local agents on the devices this one links to may use its
+	 *  managed server over the `maxd` link. Only this device changes it.
+	 *  An older `maxd` reads it as on, and doesn't share either way.
+	 */
+	linked_devices?: boolean,
 };
 
 /**
@@ -6985,6 +7008,14 @@ export type ModelServerKind =
 { type: "external"; 
 /**  What the probe says answers there. */
 flavor: ServerFlavor };
+
+/**  How fast a model ran, in whole tokens per second. */
+export type ModelSpeed = {
+	/**  Prompt tokens read per second. */
+	prompt_per_second?: number | null,
+	/**  Tokens written per second. */
+	decode_per_second?: number | null,
+};
 
 /**
  *  A workspace the old scripts made, moving into MaxHQ one approved step
@@ -7620,6 +7651,19 @@ export type PeerEntry = {
 	 *  move agents on this one.
 	 */
 	home?: boolean,
+	/**
+	 *  Its managed model server, which local agents on this device may use
+	 *  over the link. Since [`crate::message::LOCAL_MODELS_SINCE`]; an
+	 *  older `maxd` ignores it.
+	 */
+	model_server?: LinkedModels | null,
+	/**
+	 *  The devices whose managed models its local agents use. One of them
+	 *  that takes no SSH logins keeps a link up to it, so those agents
+	 *  reach it. Since [`crate::message::LOCAL_MODELS_SINCE`]; an older
+	 *  `maxd` ignores it.
+	 */
+	models_from?: DeviceId[],
 };
 
 /**  One other device, as a device's settings list it. */
@@ -7715,6 +7759,31 @@ agents: AgentId[] } |
 { kind: "move"; 
 /**  The step. */
 step: AgentMoveStep } | 
+/**
+ *  Opens a tunnel stream to the asked device's managed model server,
+ *  for a local agent on the asking device. The device that opened the
+ *  link carries the stream's client end, as with a port forward. The
+ *  outcome is [`crate::message::ActionOutcome::Done`] once the stream
+ *  is ready, or `Refused` with why, such as the asked device's switch
+ *  being off. Since [`crate::message::LOCAL_MODELS_SINCE`]; an older
+ *  `maxd` reads [`PeerRequest::Unknown`] and refuses.
+ */
+{ kind: "model_stream"; 
+/**  The stream, named by the asking device. */
+stream: StreamId; 
+/**  The server. */
+server: ModelServerId } | 
+/**
+ *  Keeps models on the asked device's managed server from idling out,
+ *  while the asking device's local agents on them work. The outcome is
+ *  [`crate::message::ActionOutcome::Done`]. Since
+ *  [`crate::message::LOCAL_MODELS_SINCE`].
+ */
+{ kind: "model_hold"; 
+/**  The server. */
+server: ModelServerId; 
+/**  The models, by id. */
+models: string[] } | 
 /**  A request from a newer `maxd`, which this one refuses. */
 { kind: "unknown" };
 
@@ -9832,6 +9901,12 @@ export type ServerModel = {
 	 *  most URLs.
 	 */
 	load: ModelLoad | null,
+	/**
+	 *  How fast a managed server ran it in its last turn, so a local agent
+	 *  on another device shows its speed line too. Since
+	 *  [`crate::message::LOCAL_MODELS_SINCE`]; an older client reads none.
+	 */
+	speed?: ModelSpeed | null,
 };
 
 /**  What a probe of a server found. */

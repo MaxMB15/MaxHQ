@@ -39,7 +39,7 @@ use super::hardware;
 
 /// The largest request body the proxy takes: Claude Code's requests carry
 /// the whole conversation.
-const MAX_BODY: usize = 64 << 20;
+pub(super) const MAX_BODY: usize = 64 << 20;
 
 /// How long a model may take to load.
 const LOAD_FOR: Duration = Duration::from_secs(300);
@@ -48,7 +48,7 @@ const LOAD_FOR: Duration = Duration::from_secs(300);
 const POLL: Duration = Duration::from_millis(250);
 
 /// The headers the proxy sets itself or that belong to one connection.
-const DROPPED: [&str; 7] = [
+pub(super) const DROPPED: [&str; 7] = [
     "host",
     "authorization",
     "x-api-key",
@@ -126,6 +126,20 @@ pub struct Speed {
     pub prompt: Option<f32>,
     /// Writing.
     pub decode: Option<f32>,
+}
+
+impl Speed {
+    /// The speeds in whole tokens per second, as a server's model shows
+    /// them, or None before the model ran a turn.
+    pub fn whole(self) -> Option<maxhq_protocol::local_models::ModelSpeed> {
+        let round = |v: f32| v.max(0.0).round() as u32;
+        (self.prompt.is_some() || self.decode.is_some()).then(|| {
+            maxhq_protocol::local_models::ModelSpeed {
+                prompt_per_second: self.prompt.map(round),
+                decode_per_second: self.decode.map(round),
+            }
+        })
+    }
 }
 
 /// llama-server's running totals, from `/metrics`.
@@ -479,20 +493,54 @@ impl Runner {
                     continue;
                 }
             };
-            let runner = self.clone();
-            tokio::spawn(async move {
-                let service = hyper::service::service_fn(move |request| {
-                    let runner = runner.clone();
-                    async move { Ok::<_, Infallible>(runner.handle(request).await) }
-                });
-                let served = hyper::server::conn::http1::Builder::new()
-                    .timer(TokioTimer::new())
-                    .serve_connection(TokioIo::new(stream), service)
-                    .await;
-                if let Err(err) = served {
-                    tracing::debug!(%err, "a model proxy connection ended early");
-                }
-            });
+            tokio::spawn(self.clone().connection(stream, false));
+        }
+    }
+
+    /// Serves a connection from another device's `maxd`, which a linked
+    /// device's local agent made over the link. The link proved that
+    /// device's key and this Mac lets linked devices use its models, so
+    /// it takes no key of its own. Its turns load models and count as use
+    /// the same as this Mac's own.
+    pub fn serve_linked(self: Arc<Self>, socket: tokio::io::DuplexStream) {
+        tokio::spawn(self.connection(socket, true));
+    }
+
+    /// Serves one connection until it closes. One that isn't `linked`
+    /// wants the key on every request.
+    async fn connection<IO>(self: Arc<Self>, io: IO, linked: bool)
+    where
+        IO: tokio::io::AsyncRead + tokio::io::AsyncWrite + Send + Unpin + 'static,
+    {
+        let runner = self;
+        let service = hyper::service::service_fn(move |request| {
+            let runner = runner.clone();
+            async move {
+                let response = if linked {
+                    runner.answer(request).await
+                } else {
+                    runner.handle(request).await
+                };
+                Ok::<_, Infallible>(response)
+            }
+        });
+        let served = hyper::server::conn::http1::Builder::new()
+            .timer(TokioTimer::new())
+            .serve_connection(TokioIo::new(io), service)
+            .await;
+        if let Err(err) = served {
+            tracing::debug!(%err, "a model proxy connection ended early");
+        }
+    }
+
+    /// Keeps `models` loaded as if a turn had just used them: a linked
+    /// device's agent that still works between its requests says so.
+    pub fn hold(&self, models: &[String]) {
+        let now = Instant::now();
+        for model in models {
+            if let Some(slot) = self.lock().get_mut(model) {
+                slot.last_used = now;
+            }
         }
     }
 
@@ -505,6 +553,11 @@ impl Runner {
                 "This model server wants its key.",
             );
         }
+        self.answer(request).await
+    }
+
+    /// Answers one request the key let in.
+    async fn answer(self: Arc<Self>, request: Request<Incoming>) -> Response<Body> {
         if request.method() == Method::GET {
             if request.uri().path() == "/v1/models" {
                 return self.list();
@@ -560,21 +613,9 @@ impl Runner {
         }
     }
 
-    /// Whether a request carries the key, as `x-api-key` or a bearer token.
+    /// Whether a request carries the key.
     fn allowed(&self, headers: &hyper::HeaderMap) -> bool {
-        let key = self.key.expose().as_bytes();
-        let given = headers
-            .get("x-api-key")
-            .and_then(|value| value.to_str().ok())
-            .map(str::trim)
-            .or_else(|| {
-                headers
-                    .get(AUTHORIZATION)
-                    .and_then(|value| value.to_str().ok())
-                    .and_then(|value| value.strip_prefix("Bearer "))
-                    .map(str::trim)
-            });
-        given.is_some_and(|given| crate::agents::same_hash(given.as_bytes(), key))
+        carries(headers, &self.key)
     }
 
     fn list(&self) -> Response<Body> {
@@ -1019,6 +1060,23 @@ async fn warm(port: u16, key: &Secret, model: &str, prefix: Value) -> Result<(),
     }
 }
 
+/// Whether a request carries `key`, as `x-api-key` or a bearer token.
+pub(super) fn carries(headers: &hyper::HeaderMap, key: &Secret) -> bool {
+    let key = key.expose().as_bytes();
+    let given = headers
+        .get("x-api-key")
+        .and_then(|value| value.to_str().ok())
+        .map(str::trim)
+        .or_else(|| {
+            headers
+                .get(AUTHORIZATION)
+                .and_then(|value| value.to_str().ok())
+                .and_then(|value| value.strip_prefix("Bearer "))
+                .map(str::trim)
+        });
+    given.is_some_and(|given| crate::agents::same_hash(given.as_bytes(), key))
+}
+
 /// Sends a request on to the server on `port`, with the key.
 async fn forward(
     port: u16,
@@ -1029,36 +1087,56 @@ async fn forward(
     let stream = TcpStream::connect((Ipv4Addr::LOCALHOST, port))
         .await
         .map_err(|err| format!("couldn't reach llama-server: {err}"))?;
-    let (mut sender, connection) = hyper::client::conn::http1::handshake(TokioIo::new(stream))
+    let host = format!("127.0.0.1:{port}");
+    send_on(stream, "llama-server", &host, Some(key), parts, body).await
+}
+
+/// Sends a request on over `io`, to `name` at `host`, with `key` when
+/// there is one, and with none of the headers that belong to the one it
+/// came in on.
+pub(super) async fn send_on<IO>(
+    io: IO,
+    name: &str,
+    host: &str,
+    key: Option<&Secret>,
+    parts: &hyper::http::request::Parts,
+    body: Bytes,
+) -> Result<Response<Incoming>, String>
+where
+    IO: tokio::io::AsyncRead + tokio::io::AsyncWrite + Send + Unpin + 'static,
+{
+    let (mut sender, connection) = hyper::client::conn::http1::handshake(TokioIo::new(io))
         .await
-        .map_err(|err| format!("couldn't reach llama-server: {err}"))?;
+        .map_err(|err| format!("couldn't reach {name}: {err}"))?;
     tokio::spawn(async move {
         let _ = connection.await;
     });
     let target = parts.uri.path_and_query().map_or("/", |path| path.as_str());
     let mut request = Request::builder().method(parts.method.clone()).uri(target);
-    for (name, value) in &parts.headers {
-        if !DROPPED.contains(&name.as_str()) {
-            request = request.header(name, value);
+    for (header, value) in &parts.headers {
+        if !DROPPED.contains(&header.as_str()) {
+            request = request.header(header, value);
         }
     }
+    request = request.header(HOST, host);
+    if let Some(key) = key {
+        request = request.header(AUTHORIZATION, format!("Bearer {}", key.expose()));
+    }
     let request = request
-        .header(HOST, format!("127.0.0.1:{port}"))
-        .header(AUTHORIZATION, format!("Bearer {}", key.expose()))
         .header(CONTENT_LENGTH, body.len())
         .body(Full::new(body))
         .map_err(|err| err.to_string())?;
     let mut response = sender
         .send_request(request)
         .await
-        .map_err(|err| format!("llama-server ended the request: {err}"))?;
+        .map_err(|err| format!("{name} ended the request: {err}"))?;
     for name in ["connection", "keep-alive", "transfer-encoding"] {
         response.headers_mut().remove(HeaderName::from_static(name));
     }
     Ok(response)
 }
 
-fn reply(status: StatusCode, body: &Value) -> Response<Body> {
+pub(super) fn reply(status: StatusCode, body: &Value) -> Response<Body> {
     let mut response = Response::new(
         Full::new(Bytes::from(body.to_string()))
             .map_err(|never| match never {})
@@ -1072,7 +1150,7 @@ fn reply(status: StatusCode, body: &Value) -> Response<Body> {
 }
 
 /// An error in the Messages API's shape.
-fn error(status: StatusCode, kind: &str, message: &str) -> Response<Body> {
+pub(super) fn error(status: StatusCode, kind: &str, message: &str) -> Response<Body> {
     reply(
         status,
         &json!({"type": "error", "error": {"type": kind, "message": message}}),
@@ -1080,24 +1158,26 @@ fn error(status: StatusCode, kind: &str, message: &str) -> Response<Body> {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use std::sync::atomic::{AtomicUsize, Ordering};
 
     use super::*;
     use crate::local_models::tests::Fake;
 
-    const KEY: &str = "test-key-0123456789";
-    const MODEL: &str = "qwen3.6-35b-a3b@ud-q4_k_xl";
+    /// The key the runner's proxy and its servers take.
+    pub(crate) const KEY: &str = "test-key-0123456789";
+    /// The one model the fake host has.
+    pub(crate) const MODEL: &str = "qwen3.6-35b-a3b@ud-q4_k_xl";
 
     /// A host whose servers are fakes on 127.0.0.1.
-    struct Fakes {
-        backend: Fake,
-        starts: AtomicUsize,
+    pub(crate) struct Fakes {
+        pub(crate) backend: Fake,
+        pub(crate) starts: AtomicUsize,
         changes: AtomicUsize,
         busy: Mutex<bool>,
         fail: Mutex<Option<String>>,
         /// Stops at 40 percent this long before the load ends.
-        halfway: Mutex<Option<Duration>>,
+        pub(crate) halfway: Mutex<Option<Duration>>,
     }
 
     impl Host for Fakes {
@@ -1161,7 +1241,9 @@ mod tests {
         }
     }
 
-    async fn runner() -> (Arc<Runner>, Arc<Fakes>, String) {
+    /// A runner on a fake host, with its proxy on 127.0.0.1 at the
+    /// address it gives.
+    pub(crate) async fn runner() -> (Arc<Runner>, Arc<Fakes>, String) {
         let backend = Fake::start().await;
         backend.json(
             "POST /v1/messages?beta=true",
@@ -1183,7 +1265,8 @@ mod tests {
         (runner, host, base)
     }
 
-    fn turn() -> String {
+    /// A turn for [`MODEL`], as Claude Code sends one.
+    pub(crate) fn turn() -> String {
         json!({
             "model": MODEL,
             "max_tokens": 100,
@@ -1192,6 +1275,13 @@ mod tests {
             "messages": [{"role": "user", "content": "Hello"}],
         })
         .to_string()
+    }
+
+    impl Runner {
+        /// When `model` was last used.
+        pub(crate) fn last_used(&self, model: &str) -> Instant {
+            self.lock()[model].last_used
+        }
     }
 
     #[tokio::test]
@@ -1391,6 +1481,51 @@ mod tests {
             "the turn's end starts the count again"
         );
         assert!(runner.sweep(at(32)), "16 minutes after the turn it goes");
+        assert_eq!(runner.load_of(MODEL), ModelLoad::Unloaded);
+    }
+
+    #[tokio::test]
+    async fn a_linked_devices_turn_loads_its_model_with_no_key_of_its_own() {
+        let (runner, host, _base) = runner().await;
+        let (near, far) = tokio::io::duplex(1 << 16);
+        runner.clone().serve_linked(far);
+        let (mut sender, connection) = hyper::client::conn::http1::handshake(TokioIo::new(near))
+            .await
+            .unwrap();
+        tokio::spawn(connection);
+        let request = Request::post("/v1/messages?beta=true")
+            .header(HOST, "localhost")
+            .header("anthropic-version", "2023-06-01")
+            .body(Full::new(Bytes::from(turn())))
+            .unwrap();
+        let answer = sender.send_request(request).await.unwrap();
+        assert_eq!(answer.status(), 200);
+        let body = answer.into_body().collect().await.unwrap().to_bytes();
+        let body: Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(body["content"][0]["text"], "hi");
+        assert_eq!(host.starts.load(Ordering::SeqCst), 1, "loaded on demand");
+        assert!(matches!(runner.load_of(MODEL), ModelLoad::Loaded { .. }));
+        let seen = host.backend.seen();
+        assert_eq!(
+            seen.last().unwrap().header("authorization"),
+            Some(format!("Bearer {KEY}").as_str()),
+            "llama-server still gets this Mac's key"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_hold_from_a_linked_device_keeps_a_model_loaded() {
+        let (runner, _host, _base) = runner().await;
+        runner.ensure(MODEL).await.unwrap();
+        let used = runner.lock()[MODEL].last_used;
+        // 15 minutes after its last request, the model would go, but the
+        // linked device's agent still works on tools and says so.
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        runner.hold(&[MODEL.to_owned(), "unknown@q4".to_owned()]);
+        let fifteen = used + Duration::from_secs(15 * 60);
+        assert!(!runner.sweep(fifteen), "the hold counts as use");
+        assert!(matches!(runner.load_of(MODEL), ModelLoad::Loaded { .. }));
+        assert!(runner.sweep(fifteen + Duration::from_secs(60)));
         assert_eq!(runner.load_of(MODEL), ModelLoad::Unloaded);
     }
 
