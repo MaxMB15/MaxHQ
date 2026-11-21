@@ -208,8 +208,12 @@ impl ClaudeSession {
                 self.send_request(effort_body(effort.as_deref()), Ours::Effort { key }, fx);
             }
             Action::Answer {
-                event, answer, by, ..
-            } => self.answer(key, event, answer, by, fx),
+                event,
+                answer,
+                by,
+                held_back,
+                ..
+            } => self.answer(key, event, answer, by, held_back, fx),
             Action::Stop { agent, .. } => {
                 if agent == self.lead() {
                     self.stopping = true;

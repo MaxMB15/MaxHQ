@@ -285,11 +285,15 @@ impl CodexServer {
                 }
                 self.change_settings(&id, key, fx);
             }
+            // Each answer Codex offers approves one request or grants what
+            // the request names. None changes its approval policy or
+            // sandbox mode, so a phone's answer needs no check here.
             Action::Answer {
                 key,
                 event,
                 answer,
                 by,
+                ..
             } => self.answer(key, event, answer, by, fx),
             Action::Stop { key, agent } => {
                 let Some(id) = self.thread_for(agent, key, fx) else {

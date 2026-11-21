@@ -382,6 +382,9 @@ pub enum Action {
         answer: AttentionAnswer,
         /// The client that sent it.
         by: ClientId,
+        /// Whether it came from a phone whose switch is off, so it can't
+        /// put the agent in a mode that needs the switch.
+        held_back: bool,
     },
     /// Ends the agent. For Claude this stops the holder too.
     Stop {

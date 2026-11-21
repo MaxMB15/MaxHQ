@@ -607,6 +607,7 @@ fn recorded_tools_and_a_permission() {
             id: "allow-once".into(),
         },
         by: client(),
+        held_back: false,
     });
     let fx = run.take();
     let reply = answers(&fx).pop().expect("an answer");
@@ -817,6 +818,7 @@ fn proposed_plan() {
             id: "accept".into(),
         },
         by: client(),
+        held_back: false,
     });
     let fx = run.take();
     assert_eq!(outcome(&fx, key(2)), ActionOutcome::Done);
@@ -929,6 +931,7 @@ fn a_respawn_loads_the_same_items_it_showed_live() {
                     id: "allow-once".into(),
                 },
                 by: client(),
+                held_back: false,
             });
         }
     }
@@ -1052,6 +1055,7 @@ fn a_permission_allowed() {
             id: "allow-once".into(),
         },
         by: client(),
+        held_back: false,
     });
     let fx = run.take();
     let reply = answers(&fx).pop().expect("an answer");
@@ -1077,6 +1081,7 @@ fn a_permission_allowed() {
             id: "allow-once".into(),
         },
         by: client(),
+        held_back: false,
     });
     let fx = run.take();
     assert!(fx.writes.is_empty());
@@ -1111,6 +1116,7 @@ fn a_permission_denied() {
             id: "reject-once".into(),
         },
         by: client(),
+        held_back: false,
     });
     let fx = run.take();
     let reply = answers(&fx).pop().unwrap();
@@ -1206,6 +1212,7 @@ fn always_allow_saves_rules_that_answer_later_prompts() {
             id: "allow-always".into(),
         },
         by: client(),
+        held_back: false,
     });
     let fx = run.take();
     // MaxHQ keeps the rules, and the CLI hears "once", so its own allowlist
@@ -1248,6 +1255,7 @@ fn allow_once_saves_no_rule() {
             id: "allow-once".into(),
         },
         by: client(),
+        held_back: false,
     });
     assert!(run.take().command_rules.is_empty());
 }
@@ -1281,6 +1289,7 @@ fn a_permission_answered_with_words_declines_and_sends_them_next() {
             text: "Only remove build/tmp".into(),
         },
         by: client(),
+        held_back: false,
     });
     let fx = run.take();
     assert_eq!(
@@ -1356,6 +1365,7 @@ fn ask_question() {
             }],
         },
         by: client(),
+        held_back: false,
     });
     let fx = run.take();
     let reply = answers(&fx).pop().unwrap();
@@ -1390,6 +1400,7 @@ fn dismissing_a_question_cancels_the_turn_and_the_queued_message_goes_next() {
         event: event.id,
         answer: AttentionAnswer::Dismiss,
         by: client(),
+        held_back: false,
     });
     let fx = run.take();
     assert_eq!(outcome(&fx, key(3)), ActionOutcome::Done);
@@ -1494,6 +1505,7 @@ fn a_reconnect_with_a_pending_request_answers_it_once() {
             id: "allow-once".into(),
         },
         by: client(),
+        held_back: false,
     });
     let fx = run.take();
     assert_eq!(answers(&fx).len(), 1);
@@ -2362,6 +2374,7 @@ fn the_recorded_mcp_call_is_a_maxhq_tool_that_still_asks() {
             id: "allow-once".into(),
         },
         by: client(),
+        held_back: false,
     });
     let permission = lines
         .iter()
@@ -2377,6 +2390,74 @@ fn another_servers_permission_is_still_asked() {
     let fx = calling(&mcp_call_to("other", "list_agents")).take();
     assert_eq!(opened(&fx).len(), 1);
     assert!(answers(&fx).is_empty());
+}
+
+/// A request to leave plan, as Claude's ACP adapter asks it, with an
+/// option for each mode it can go to and one with a name MaxHQ doesn't
+/// know.
+fn leave_plan_prompt(id: u32) -> Vec<String> {
+    let options = json!([
+        {"optionId": "bypassPermissions", "name": "Yes, and bypass permissions", "kind": "allow_always"},
+        {"optionId": "yolo", "name": "Yes, and allow everything", "kind": "allow_always"},
+        {"optionId": "acceptEdits", "name": "Yes, and auto-accept edits", "kind": "allow_always"},
+        {"optionId": "default", "name": "Yes, and manually approve edits", "kind": "allow_once"},
+        {"optionId": "plan", "name": "No, keep planning", "kind": "reject_once"},
+    ]);
+    vec![format!(
+        r#"{{"jsonrpc":"2.0","id":{id},"method":"session/request_permission","params":{{"sessionId":"{SESSION}","toolCall":{{"toolCallId":"call-{id}","title":"Ready to code","kind":"switch_mode","status":"pending"}},"options":{options}}}}}"#
+    )]
+}
+
+/// What picking `option` on a waiting prompt does, from a phone whose
+/// switch is off when `held_back`.
+fn pick_on_prompt(lines: &[String], option: &str, held_back: bool) -> Effects {
+    let mut run = turning_in(PermissionMode::Ask);
+    run.feed_all(lines);
+    let event = opened(&run.take()).pop().expect("a prompt");
+    run.act(Action::Answer {
+        key: key(3),
+        event: event.id,
+        answer: AttentionAnswer::Option { id: option.into() },
+        by: client(),
+        held_back,
+    });
+    run.take()
+}
+
+#[test]
+fn a_held_back_phone_cant_leave_plan_for_a_mode_past_the_switch() {
+    let lines = leave_plan_prompt(0);
+    for option in ["bypassPermissions", "yolo"] {
+        let fx = pick_on_prompt(&lines, option, true);
+        assert!(answers(&fx).is_empty(), "{option}");
+        assert_eq!(
+            fx.results,
+            [(
+                key(3),
+                ActionOutcome::Refused {
+                    reason: crate::phones::PHONE_CANT.to_owned()
+                }
+            )],
+            "{option}"
+        );
+    }
+    for option in ["acceptEdits", "default", "plan"] {
+        let fx = pick_on_prompt(&lines, option, true);
+        let reply = answers(&fx).pop().expect(option);
+        assert_eq!(reply["result"]["outcome"]["optionId"], option);
+        assert_eq!(fx.results, [(key(3), ActionOutcome::Done)], "{option}");
+    }
+    // The Mac's answer goes through as it came.
+    for option in ["bypassPermissions", "yolo"] {
+        let fx = pick_on_prompt(&lines, option, false);
+        let reply = answers(&fx).pop().expect(option);
+        assert_eq!(reply["result"]["outcome"]["optionId"], option);
+        assert_eq!(fx.results, [(key(3), ActionOutcome::Done)], "{option}");
+    }
+    // A call that doesn't switch the mode passes from the phone too.
+    let fx = pick_on_prompt(&tool_prompt("Edit it", "edit", 0, ""), "allow-once", true);
+    let reply = answers(&fx).pop().expect("an answer");
+    assert_eq!(reply["result"]["outcome"]["optionId"], "allow-once");
 }
 
 /// A permission request for a call with `title` and `kind`, plus whatever
@@ -2635,6 +2716,7 @@ fn answer_edit(run: &mut Run, event: AttentionId, pick: &str, keep: bool) -> Eff
         event,
         answer: AttentionAnswer::Questions { answers },
         by: client(),
+        held_back: false,
     });
     run.take()
 }
@@ -2814,6 +2896,7 @@ fn deny_turns_the_change_down_and_the_next_one_asks_again() {
             text: "Leave the hooks alone".into(),
         },
         by: client(),
+        held_back: false,
     });
     let reply = answers(&run.take()).pop().expect("an answer");
     assert_eq!(reply["result"]["outcome"]["optionId"], "reject-once");

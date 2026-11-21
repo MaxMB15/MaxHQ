@@ -97,7 +97,8 @@ impl AcpSession {
                 event,
                 answer,
                 by,
-            } => self.answer(key, event, answer, by, fx),
+                held_back,
+            } => self.answer(key, event, answer, by, held_back, fx),
             Action::Stop { key, .. } => {
                 self.stopping = true;
                 fx.stop = true;

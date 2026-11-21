@@ -29,7 +29,7 @@ mod tests;
 
 use std::path::Path;
 
-pub(crate) use wire::clip;
+pub(crate) use wire::{clip, mode_from};
 
 pub use history::{subagent_ids, History};
 pub use launch::{add_effort, launch, login_launch, OAUTH_TOKEN, STRIPPED_PREFIXES};
