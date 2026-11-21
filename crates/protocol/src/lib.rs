@@ -77,7 +77,7 @@ pub use secret::Secret;
 
 /// Protocol version this build speaks. Bump it for any change a peer on the
 /// previous version can't read.
-pub const PROTOCOL_VERSION: u32 = 56;
+pub const PROTOCOL_VERSION: u32 = 57;
 
 /// Oldest protocol version this build still speaks.
 pub const OLDEST_PROTOCOL_VERSION: u32 = 20;
