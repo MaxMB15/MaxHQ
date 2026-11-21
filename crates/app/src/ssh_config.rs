@@ -64,8 +64,8 @@ const REMOTE_START: &str =
 const REMOTE_END: &str = "'";
 
 /// The host name an editor reaches a running container workspace by, such
-/// as `mhq-devbox.1a2b3c4d.maxhq`: the container's instance name, then the
-/// end of its device's ID. None for any other workspace, and for one whose
+/// as `mhq-devbox.<device>.maxhq`: the container's instance name, then its
+/// device's whole ID in hex. None for any other workspace, and for one whose
 /// guest hasn't reported its host key yet.
 pub fn alias(workspace: &Workspace) -> Option<String> {
     checked(workspace).ok().map(|(alias, _)| alias)
@@ -439,11 +439,11 @@ fn instance_name(instance: &str) -> Option<String> {
     fits.then(|| instance.to_ascii_lowercase())
 }
 
-/// The last eight hex digits of the device's ID, which tell apart
-/// containers of the same name on different devices.
+/// The device's whole ID in hex, which tells apart containers of the same
+/// name on different devices. A device can't pick an ID that ends like
+/// another's and so take its alias.
 fn device_slug(device: DeviceId) -> String {
-    let simple = device.0.simple().to_string();
-    simple[simple.len() - 8..].to_owned()
+    device.0.simple().to_string()
 }
 
 /// The name `known_hosts` keeps the workspace's host key under.
@@ -688,10 +688,25 @@ mod tests {
     }
 
     #[test]
+    fn devices_whose_ids_end_alike_get_their_own_aliases() {
+        let mut one = container("web");
+        let mut two = container("web");
+        one.device = DeviceId(uuid::Uuid::from_u128(
+            0x1111_0000_0000_0000_0000_0000_1a2b_3c4d,
+        ));
+        two.device = DeviceId(uuid::Uuid::from_u128(
+            0x2222_0000_0000_0000_0000_0000_1a2b_3c4d,
+        ));
+        let (one, two) = (alias(&one).unwrap(), alias(&two).unwrap());
+        assert_ne!(one, two);
+        assert!(one.ends_with("00000000000000001a2b3c4d.maxhq"), "{one}");
+    }
+
+    #[test]
     fn a_running_container_with_a_host_key_has_an_alias() {
         let workspace = container("Web-1");
         let slug = device_slug(device());
-        assert_eq!(slug.len(), 8);
+        assert_eq!(slug.len(), 32);
         assert_eq!(alias(&workspace), Some(format!("mhq-web-1.{slug}.maxhq")));
 
         let mut stopped = workspace.clone();
