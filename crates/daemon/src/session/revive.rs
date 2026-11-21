@@ -1785,6 +1785,9 @@ impl Manager {
         // their agents' timelines, so a CLI that died while `maxd` was down
         // is cut off from its whole timeline.
         self.load_timelines();
+        // Before the holders, whose places say which agent is the
+        // dispatcher.
+        self.restore_chats();
 
         let rows: Vec<HolderRow<HoldRecord>> = self.db.holders().unwrap_or_else(|err| {
             warn!(%err, "couldn't read the holders");

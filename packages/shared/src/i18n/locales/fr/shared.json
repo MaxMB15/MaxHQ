@@ -1481,5 +1481,9 @@
 	"turning off the task {{name}}": "désactiver la tâche {{name}}",
 	"turning on the task {{name}}": "activer la tâche {{name}}",
 	"updating the agent CLIs on {{name}}": "mettre à jour les CLI des agents sur {{name}}",
-	"waking {{name}}": "réafficher {{name}}"
+	"waking {{name}}": "réafficher {{name}}",
+	"Made by an agent": "Créée par un agent",
+	"Made by the dispatcher": "Créée par le dispatcher",
+	"Scheduled {{name}}, {{what}}": "{{name}} planifiée, {{what}}",
+	"Started {{what}}": "Démarré : {{what}}"
 }

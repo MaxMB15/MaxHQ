@@ -62,6 +62,7 @@ mod container_reach;
 mod deletes;
 mod dispatcher;
 mod dispatcher_chats;
+mod dispatcher_guards;
 mod finds;
 mod folders;
 mod idle;

@@ -24,6 +24,7 @@ import {
 	addressOf,
 	hiddenHookUrl,
 	lastRunLine,
+	makerLine,
 	needsSecret,
 	nextRunLine,
 	triggerLine,
@@ -75,6 +76,7 @@ const TaskRow = ({
 	const answer = (failure: string | null) =>
 		setNote(failure ? { text: failure, error: true } : null);
 	const heard = webhookLine(task, { webhooks }, now);
+	const maker = makerLine(task);
 	return (
 		<Row
 			title={<span className="selectable">{task.name}</span>}
@@ -85,6 +87,7 @@ const TaskRow = ({
 						{lastRunLine(task.last_run, now)}.
 					</span>
 					{heard ? <span className="block">{heard}.</span> : null}
+					{maker ? <span className="block">{maker}.</span> : null}
 					{needsSecret(task) ? (
 						<span className="block text-status-busy-text">
 							{translate(

@@ -83,7 +83,12 @@ impl Harness {
     async fn got(&self, agent: AgentId, text: &str) -> (String, SessionId) {
         let mut got = None;
         eventually(&format!("{text:?} at {agent}"), || {
+            // A resumed chat's new session is stored a moment before its
+            // holder starts, so wait for the holder too.
             got = self.stored(agent).session.and_then(|session| {
+                if !self.holders.sessions().contains(&session) {
+                    return None;
+                }
                 let mut sent = self.sent(session).into_iter();
                 let found = sent.rfind(|sent| sent.ends_with(text))?;
                 Some((found, session))

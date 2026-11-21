@@ -139,6 +139,12 @@ export const relativeLine = (at: Timestamp, now: Timestamp): string => {
 	return t("in {{Math_round_hours___24}}d", { Math_round_hours___24: Math.round(hours / 24) });
 };
 
+/** Who made a task when it wasn't you: the dispatcher at once, or an agent. */
+export const makerLine = (task: Task): string | null => {
+	if (task.made_by.type === "tools") return t("Made by an agent");
+	return task.by_dispatcher ? t("Made by the dispatcher") : null;
+};
+
 /** When a task runs next, or why it waits, such as "Next run in 5m" or "Paused". */
 export const nextRunLine = (task: Task, now: Timestamp): string => {
 	if (task.approval_asked) return t("Waits for your approval");

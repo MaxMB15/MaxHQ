@@ -8,8 +8,10 @@
 
 import type {
 	AdminAction,
+	AgentId,
 	DeviceId,
 	DeviceSettingChange,
+	IdempotencyKey,
 	InboxChange,
 	ProjectSettingChange,
 	TimelineItem,
@@ -248,19 +250,34 @@ export type ActionCard = {
 	readonly undo: "ready" | "gone" | null;
 };
 
-/** The card for a change the dispatcher made at once. */
-export const actionCard = (view: ViewState, item: ActionItem): ActionCard => {
+/**
+ * The device whose dispatcher made a card's change in the chat `agent`,
+ * and whether the card's Undo can still put it back.
+ */
+export const cardUndo = (
+	view: ViewState,
+	agent: AgentId,
+	undo: IdempotencyKey | null
+): Pick<ActionCard, "home" | "undo"> => {
 	// The card's chat names the dispatcher, even when you're in another chat now.
-	const device = view.tables.dispatcher_chat.get(item.agent)?.device;
+	const device = view.tables.dispatcher_chat.get(agent)?.device;
 	const dispatcher =
 		(device === undefined ? undefined : view.tables.dispatcher.get(device)) ??
-		all(view, "dispatcher").find((d) => d.agent === item.agent);
-	const home = dispatcher?.device ?? null;
-	const undoable = item.undo !== null && (dispatcher?.undo ?? []).includes(item.undo);
+		all(view, "dispatcher").find((d) => d.agent === agent);
+	const undoable = undo !== null && (dispatcher?.undo ?? []).includes(undo);
+	return {
+		home: dispatcher?.device ?? null,
+		undo: undo === null ? null : undoable ? "ready" : "gone",
+	};
+};
+
+/** The card for a change the dispatcher made at once. */
+export const actionCard = (view: ViewState, item: ActionItem): ActionCard => {
+	const { home, undo } = cardUndo(view, item.agent, item.undo);
 	return {
 		line: doneLine(item.action, item.target || actionSubject(view, item.device, item.action)),
 		elsewhere: home !== null && home !== item.device ? deviceName(view, item.device) : null,
 		home,
-		undo: item.undo === null ? null : undoable ? "ready" : "gone",
+		undo,
 	};
 };

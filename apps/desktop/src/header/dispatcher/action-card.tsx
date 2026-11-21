@@ -2,9 +2,10 @@
 // Copyright (c) 2026 Max Boksem
 
 // The card for a change the dispatcher made without asking, such as
-// "Renamed Fix login to Auth fix", with its Undo. Undo puts the change back
-// once. It greys out after `maxd` restarts or once something else changed
-// the same thing, and `maxd` checks again when you press it.
+// "Renamed Fix login to Auth fix", or an agent or a task it started, with
+// its Undo. Undo puts the change back once, or stops the agent or deletes
+// the task. It greys out after `maxd` restarts or once something else
+// changed the same thing, and `maxd` checks again when you press it.
 
 import { Check } from "lucide-react";
 import { useState } from "react";
@@ -14,14 +15,19 @@ import { SecondaryButton } from "@/agent-view/items/card";
 import type { ItemOf } from "@/agent-view/items/types";
 import { failureOf } from "@maxhq/shared/data/failure";
 import { actionCard } from "@maxhq/shared/dispatch/action";
+import { stepCard } from "@maxhq/shared/dispatch/plan";
 import { t as translate, useI18n } from "@maxhq/shared/i18n";
 
 /** A change the dispatcher made at once, with Undo while it can still be undone. */
-export const DispatcherActionCard = ({ item }: { item: ItemOf<"dispatcher_action"> }) => {
+export const DispatcherActionCard = ({
+	item,
+}: {
+	item: ItemOf<"dispatcher_action"> | ItemOf<"dispatcher_step">;
+}) => {
 	useI18n();
 	const { source } = useServices();
 	const view = useView((s) => s.view);
-	const card = actionCard(view, item);
+	const card = item.kind === "dispatcher_action" ? actionCard(view, item) : stepCard(view, item);
 	const [undo, setUndo] = useState<{ step: "idle" | "busy" | "done"; error: string | null }>({
 		step: "idle",
 		error: null,

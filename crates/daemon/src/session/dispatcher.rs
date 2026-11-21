@@ -48,6 +48,9 @@ use crate::secrets::RepoName;
 /// The dispatcher's folder, in `maxd`'s data directory.
 pub const DIR: &str = "dispatcher";
 
+/// Why an agent can't start in the dispatcher's folder.
+pub(super) const OWN_FOLDER: &str = "An agent can't run in the dispatcher's own folder.";
+
 /// Why a plan can't name another device yet.
 const MAC_ONLY: &str = "This version of the dispatcher plans on this Mac only, except a move.";
 
@@ -151,8 +154,10 @@ pub(super) fn plan_message(
             (message, Waited::Start)
         }
         PlanStep::SendMessage { agent, text, .. } => {
+            // It reads as the dispatcher's, sent for you, so the agent
+            // doesn't take what it says as your own words.
             let input = UserInput {
-                text,
+                text: super::agent_tools::mark(super::agent_tools::FOR_YOU, &text),
                 attachments: Vec::new(),
                 refs: Vec::new(),
             };
@@ -194,6 +199,7 @@ pub(super) fn plan_message(
                 next_run: None,
                 last_run: None,
                 approval_asked: None,
+                by_dispatcher: false,
             };
             let message = ClientMessage::SaveTask {
                 key,
@@ -216,14 +222,37 @@ pub(super) fn plan_message(
 }
 
 impl Manager {
-    /// Whether an agent is a conversation with the dispatcher.
+    /// Whether an agent is a conversation with the dispatcher: the one now,
+    /// or one of its chats, that runs in its folder. Only a request of
+    /// yours starts one, so any other agent in that folder isn't one.
     pub(super) fn is_dispatcher(&self, agent: AgentId) -> bool {
+        let lead = self.lead_of(agent);
+        (self.dispatcher.agent == Some(lead) || self.is_chat(lead)) && self.in_home(lead)
+    }
+
+    /// Whether an agent this device holds runs in the dispatcher's folder.
+    pub(super) fn in_home(&self, agent: AgentId) -> bool {
         let home = self.dispatcher.home();
         home.is_some()
             && self
                 .held
-                .get(&self.lead_of(agent))
+                .get(&agent)
                 .is_some_and(|held| held.guest.is_none() && Some(held.agent.workspace) == home)
+    }
+
+    /// Whether a start in `workspace` and `cwd` runs in the dispatcher's
+    /// folder.
+    pub(super) fn in_dispatcher_folder(
+        &self,
+        workspace: WorkspaceId,
+        guest: Option<WorkspaceId>,
+        cwd: &Path,
+    ) -> bool {
+        guest.is_none()
+            && (Some(workspace) == self.dispatcher.home()
+                || self
+                    .dispatcher_folder()
+                    .is_some_and(|own| cwd.starts_with(own)))
     }
 
     /// Shows the dispatcher as it is now.
@@ -240,21 +269,6 @@ impl Manager {
                 undo: self.undoable(),
             }),
         }]);
-    }
-
-    /// Takes up the newest conversation the last run held.
-    pub(super) fn restore_dispatcher(&mut self) {
-        let home = self.dispatcher.home();
-        if home.is_none() {
-            return;
-        }
-        self.dispatcher.agent = self
-            .held
-            .values()
-            .filter(|held| held.guest.is_none() && Some(held.agent.workspace) == home)
-            .max_by_key(|held| held.agent.started_at)
-            .map(|held| held.agent.id);
-        self.publish_dispatcher();
     }
 
     /// Handles the dispatcher's messages from a client.
@@ -282,6 +296,9 @@ impl Manager {
                 refs,
                 ..
             } => {
+                if self.clients.get(&conn).is_some_and(|viewer| viewer.person) {
+                    self.owner_words.sent(key, &text);
+                }
                 let input = UserInput {
                     text,
                     attachments: Vec::new(),
@@ -465,6 +482,7 @@ impl Manager {
             self.dispatcher.starting = None;
             if let Outcome::Action(ActionOutcome::Started { agent }) = outcome {
                 self.dispatcher.agent = Some(*agent);
+                self.owner_words.reached(key, *agent);
             }
             return self.publish_dispatcher();
         }
@@ -500,7 +518,10 @@ impl Manager {
             session,
             key: call.key,
         };
-        let asked = admin::asked(&call.arguments);
+        let asked = (
+            admin::asked(&call.arguments),
+            admin::user_words(&call.arguments),
+        );
         let text = match call.call {
             Call::ListTargets(Some(device)) if device != self.device => {
                 return self.targets_there(reply, device);
@@ -510,7 +531,7 @@ impl Manager {
                 targets["other_devices"] = self.other_devices();
                 Ok(targets.to_string())
             }
-            Call::ListAgents(list) => Ok(self.list(self.agent_caller(lead), &list)),
+            Call::ListAgents(list) => Ok(self.list(self.agent_caller(lead), None, &list)),
             Call::ReadAgent(read) if read.device.is_none_or(|device| device == self.device) => {
                 return self.read_agent(reply, Some(lead), read, true);
             }
@@ -658,7 +679,7 @@ impl Manager {
             id: self.dispatcher.plans,
             items,
         });
-        self.dispatcher.agent = Some(lead);
+        self.adopt_chat(lead);
         self.publish_dispatcher();
         Ok(PLAN_SHOWN.into())
     }
@@ -792,7 +813,7 @@ impl Manager {
                     .dispatcher_folder()
                     .is_some_and(|own| path.starts_with(own))
                 {
-                    return Err("An agent can't run in the dispatcher's own folder.".into());
+                    return Err(OWN_FOLDER.into());
                 }
             }
         }
@@ -812,7 +833,7 @@ impl Manager {
     }
 
     /// The dispatcher's own folder.
-    fn dispatcher_folder(&self) -> Option<PathBuf> {
+    pub(super) fn dispatcher_folder(&self) -> Option<PathBuf> {
         match self.hub.get(&EntityKey::Workspace(self.dispatcher.home()?)) {
             Some(Entity::Workspace(workspace)) => match workspace.location {
                 WorkspaceLocation::Folder { path } => Some(PathBuf::from(path)),

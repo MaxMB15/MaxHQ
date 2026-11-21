@@ -87,7 +87,7 @@ export const ActsDirectlyRow = ({ device }: { device: DeviceId }) => {
 				known === null
 					? tooOld(view, device)
 					: translate(
-							"The dispatcher changes settings, agents and tasks without asking first. Deleting, stopping busy agents and granting permissions still ask."
+							"The dispatcher changes settings, agents and tasks without asking first. It still asks before deleting, stopping a busy agent, granting permissions, turning on a task that waits for approval, or starting an agent in a mode above this device's default that you didn't name."
 						)
 			}
 		>

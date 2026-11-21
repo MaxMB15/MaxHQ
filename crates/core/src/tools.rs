@@ -699,11 +699,15 @@ impl Tool {
     }
 
     /// The schema a caller with `tools` sees. The dispatcher's copy of a
-    /// tool that changes something also takes `asked`.
+    /// tool that changes something also takes `asked`, and its copy of one
+    /// that starts an agent `user_words`.
     fn schema_for(self, tools: &[Tool]) -> Value {
         let mut schema = self.input_schema();
         if admin::SHARED.contains(&self) && tools.contains(&Tool::SubmitPlan) {
             admin::add_asked(&mut schema);
+            if matches!(self, Tool::StartAgent | Tool::ScheduleTask) {
+                admin::add_user_words(&mut schema);
+            }
         }
         schema
     }

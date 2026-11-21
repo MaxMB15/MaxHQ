@@ -1441,5 +1441,9 @@
 	"turning off the task {{name}}": "taak {{name}} uitzetten",
 	"turning on the task {{name}}": "taak {{name}} aanzetten",
 	"updating the agent CLIs on {{name}}": "agent-CLI's op {{name}} bijwerken",
-	"waking {{name}}": "{{name}} weer tonen"
+	"waking {{name}}": "{{name}} weer tonen",
+	"Made by an agent": "Gemaakt door een agent",
+	"Made by the dispatcher": "Gemaakt door de dispatcher",
+	"Scheduled {{name}}, {{what}}": "{{name}} ingepland, {{what}}",
+	"Started {{what}}": "Gestart: {{what}}"
 }

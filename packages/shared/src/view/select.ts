@@ -183,7 +183,7 @@ export const childrenOf = (view: ViewState, agent: string): Agent[] =>
 const holdsStarted = (view: ViewState, caller: Agent, now: Timestamp): boolean => {
 	const place = placeOf(caller, now, NO_SHELF);
 	if (place !== "active" && place !== "pinned") return false;
-	if (dispatcherHomes(view).has(caller.workspace)) return false;
+	if (isDispatcher(dispatcherHomes(view), caller)) return false;
 	return place === "pinned" || !liveRunAgents(view).has(caller.id);
 };
 
@@ -399,6 +399,14 @@ export const callsBack = (agent: Agent): boolean =>
 export const dispatcherHomes = (view: ViewState): ReadonlySet<string> =>
 	new Set(all(view, "dispatcher").map((d) => d.workspace));
 
+/**
+ * Whether the agent is a dispatcher's: it runs in a dispatcher's home and
+ * no agent started it. One an agent started there is an ordinary agent,
+ * so the sidebar lists it, and what it starts, as an agent's.
+ */
+const isDispatcher = (homes: ReadonlySet<string>, agent: Agent): boolean =>
+	homes.has(agent.workspace) && !agent.origin;
+
 /** One project in the sidebar. */
 export type ProjectGroup = {
 	/** The project's ID, or "none" for agents in workspaces without one. */
@@ -451,7 +459,7 @@ export const projectGroups = (
 	const inRuns = liveRunAgents(view);
 	for (const agent of all(view, "agent")) {
 		if (agent.parent !== null || placeOf(agent, now, options) !== "active") continue;
-		if (callerOf(view, agent, now) || homes.has(agent.workspace)) continue;
+		if (callerOf(view, agent, now) || isDispatcher(homes, agent)) continue;
 		if (inRuns.has(agent.id)) continue;
 		const workspace = view.tables.workspace.get(agent.workspace);
 		const key = workspace?.project ?? NO_PROJECT;
@@ -557,7 +565,7 @@ export const inboxSections = (
 	};
 	const homes = dispatcherHomes(view);
 	for (const agent of all(view, "agent")) {
-		if (agent.parent === null && !callerOf(view, agent, now) && !homes.has(agent.workspace)) {
+		if (agent.parent === null && !callerOf(view, agent, now) && !isDispatcher(homes, agent)) {
 			lists[placeOf(agent, now, options)].push(agent);
 		}
 	}
@@ -662,7 +670,7 @@ export const workspaceName = (workspace: Workspace): string => {
 // The top-level agents a device page counts, leaving out a dispatcher's.
 const deviceAgents = (view: ViewState): Agent[] => {
 	const homes = dispatcherHomes(view);
-	return all(view, "agent").filter((a) => a.parent === null && !homes.has(a.workspace));
+	return all(view, "agent").filter((a) => a.parent === null && !isDispatcher(homes, a));
 };
 
 // One device from the agents `deviceAgents` gave.

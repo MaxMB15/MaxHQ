@@ -6405,6 +6405,21 @@ target: string;
  */
 undo: IdempotencyKey | null } | 
 /**
+ *  An agent or a task the dispatcher started or saved without asking,
+ *  as a card on its own timeline. An older app shows it as an item it
+ *  doesn't know.
+ */
+{ kind: "dispatcher_step"; 
+/**  What it did: a start or a task. */
+step: PlanStep; 
+/**  How it went: the agent it started or the task it saved. */
+outcome: PlanOutcome; 
+/**
+ *  What [`crate::message::ClientMessage::UndoDispatcherAction`]
+ *  names to stop the agent or delete the task, while it may.
+ */
+undo: IdempotencyKey | null } | 
+/**
  *  A command you ran with `!` in the composer, as a card. The command
  *  runs in a terminal of its own, and the card shows it live until it
  *  ends. Since protocol 45.
@@ -10822,6 +10837,12 @@ export type Task = {
 	 *  that leaves this out has none.
 	 */
 	approval_asked?: Timestamp | null,
+	/**
+	 *  Set by `maxd` for a task you made that the dispatcher saved at
+	 *  once, for a request of yours, without a plan you confirmed. Its
+	 *  runs say the dispatcher made it. One from an older `maxd` has none.
+	 */
+	by_dispatcher?: boolean,
 };
 
 /**  One request to a webhook, or one GitHub event, and what came of it. */

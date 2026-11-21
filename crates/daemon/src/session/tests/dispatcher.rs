@@ -27,7 +27,8 @@ use crate::secrets::RepoName;
 const UNDOABLE: &str = "Done. The user can undo it from the card under your answer.";
 
 /// What the dispatcher hears for a change that waits for the user.
-const ASKS_FIRST: &str = "It waits in the plan under the bar until the user confirms it.";
+pub(super) const ASKS_FIRST: &str =
+    "It waits in the plan under the bar until the user confirms it.";
 
 /// What the dispatcher hears for a change it never makes.
 const NEVER: &str = "The user changes that in Settings, not you.";
@@ -80,7 +81,7 @@ impl Harness {
     }
 
     /// The agents clients see.
-    fn agents_now(&self) -> Vec<AgentId> {
+    pub(super) fn agents_now(&self) -> Vec<AgentId> {
         self.hub.pick(|entity| match entity {
             Entity::Agent(agent) => Some(agent.id),
             _ => None,
@@ -127,7 +128,7 @@ impl Harness {
     }
 
     /// Puts back the change on the card `action` names.
-    async fn undo(&mut self, action: IdempotencyKey) -> ActionOutcome {
+    pub(super) async fn undo(&mut self, action: IdempotencyKey) -> ActionOutcome {
         self.act(|key| ClientMessage::UndoDispatcherAction { key, action })
             .await
     }

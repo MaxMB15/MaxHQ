@@ -35,6 +35,7 @@ fn task(name: &str, enabled: bool, device: DeviceId, agent: AgentId) -> Task {
         next_run: None,
         last_run: None,
         approval_asked: None,
+        by_dispatcher: false,
     }
 }
 

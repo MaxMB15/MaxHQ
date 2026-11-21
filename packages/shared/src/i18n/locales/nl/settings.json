@@ -103,7 +103,7 @@
 	"Sends a token": "Stuurt een token mee",
 	"Servers": "Servers",
 	"Testing": "Bezig met testen",
-	"The dispatcher changes settings, agents and tasks without asking first. Deleting, stopping busy agents and granting permissions still ask.": "De dispatcher wijzigt instellingen, agents en taken zonder eerst te vragen. Voor verwijderen, bezige agents stoppen en rechten geven vraagt hij nog steeds.",
+	"The dispatcher changes settings, agents and tasks without asking first. It still asks before deleting, stopping a busy agent, granting permissions, turning on a task that waits for approval, or starting an agent in a mode above this device's default that you didn't name.": "De dispatcher wijzigt instellingen, agents en taken zonder eerst te vragen. Hij vraagt nog steeds voor verwijderen, een bezige agent stoppen, rechten geven, een taak aanzetten die op goedkeuring wacht, of een agent starten in een modus boven de standaard van dit apparaat die je niet noemde.",
 	"The dispatcher reads your projects and agents, and can't change files. Without a pick it takes the first Claude account, else the first Codex one.": "De dispatcher leest je projecten en agents en kan geen bestanden wijzigen. Zonder keuze gebruikt hij het eerste Claude-account, anders het eerste Codex-account.",
 	"Token, if the server asks for one": "Token, als de server erom vraagt",
 	"URL": "URL",

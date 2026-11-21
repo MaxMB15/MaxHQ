@@ -8,7 +8,7 @@ import { agent, device, entities, project } from "../test/build";
 import { applySnapshot } from "../view/replica";
 
 import { actionCard, actsDirectly, adminPhrase, settingLines, type ActionItem } from "./action";
-import { itemLines, itemPreview, outcomeLine, planSummary } from "./plan";
+import { itemLines, itemPreview, outcomeLine, planSummary, stepCard, type StepItem } from "./plan";
 
 const view = (acts?: boolean) =>
 	applySnapshot({
@@ -114,6 +114,69 @@ describe("a change the dispatcher made at once", () => {
 			elsewhere: "devbox",
 			home: "dev-mac",
 		});
+	});
+});
+
+describe("an agent or a task the dispatcher started at once", () => {
+	const step = (over: Partial<StepItem>): StepItem => ({
+		id: "item-2",
+		agent: "a-dispatcher",
+		turn: null,
+		parent: null,
+		ordinal: 4,
+		status: "completed",
+		started_at: null,
+		completed_at: null,
+		kind: "dispatcher_step",
+		step: {
+			type: "schedule_task",
+			device: "dev-mac",
+			name: "Nightly build",
+			prompt: "Build it",
+			trigger: { type: "every", minutes: 60 },
+			target: {
+				type: "task",
+				target: { type: "agent", device: "dev-mac", agent: "a-login" },
+			},
+		},
+		outcome: { type: "task_saved", task: "task-1" },
+		undo: "key-ready",
+		...over,
+	});
+
+	it("says what it saved, with Undo while maxd holds it", () => {
+		expect(stepCard(view(), step({}))).toEqual({
+			line: "Scheduled Nightly build, a task that runs every hour",
+			elsewhere: null,
+			home: "dev-mac",
+			undo: "ready",
+		});
+		expect(stepCard(view(), step({ undo: "key-old" })).undo).toBe("gone");
+	});
+
+	it("says what it started and where", () => {
+		const started = step({
+			step: {
+				type: "start_agent",
+				device: "dev-box",
+				spec: {
+					vendor: "claude",
+					account: "acc",
+					place: { type: "workspace", workspace: "ws-box" },
+					first: null,
+					permission: "full_access",
+					model: null,
+					effort: null,
+					title: null,
+					branch: null,
+					origin: null,
+				},
+			},
+			outcome: { type: "started", agent: "a-new" },
+		});
+		const card = stepCard(view(), started);
+		expect(card.line).toMatch(/^Started a .* agent in .* on devbox, with Full access$/);
+		expect(card.elsewhere).toBeNull();
 	});
 });
 

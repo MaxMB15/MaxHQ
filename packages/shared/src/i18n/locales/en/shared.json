@@ -1441,5 +1441,9 @@
 	"turning off the task {{name}}": "turning off the task {{name}}",
 	"turning on the task {{name}}": "turning on the task {{name}}",
 	"updating the agent CLIs on {{name}}": "updating the agent CLIs on {{name}}",
-	"waking {{name}}": "waking {{name}}"
+	"waking {{name}}": "waking {{name}}",
+	"Made by an agent": "Made by an agent",
+	"Made by the dispatcher": "Made by the dispatcher",
+	"Scheduled {{name}}, {{what}}": "Scheduled {{name}}, {{what}}",
+	"Started {{what}}": "Started {{what}}"
 }

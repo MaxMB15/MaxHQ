@@ -578,6 +578,7 @@ fn steps_of(body: &ItemBody) -> Vec<String> {
         | ItemBody::TurnSummary { .. }
         | ItemBody::Notice { .. }
         | ItemBody::DispatcherAction { .. }
+        | ItemBody::DispatcherStep { .. }
         // A command you ran stays out until excerpts know which ones are
         // private.
         | ItemBody::UserRun { .. }
