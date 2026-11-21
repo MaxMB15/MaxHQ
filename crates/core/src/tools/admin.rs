@@ -22,7 +22,7 @@ use serde_json::{json, Map, Value};
 use super::agents::{flag, id, named, number, text, MAX_TITLE};
 use super::dispatch::{self, Start, Step};
 use super::{fields, tasks, Call, Tool};
-use crate::agents::mode_rank;
+use crate::agents::{self, mode_rank};
 
 /// The most things one change touches, and the most changes one request
 /// makes without asking, before the dispatcher asks first.
@@ -197,6 +197,38 @@ pub fn raised(step: &PlanStep, default: PermissionMode) -> Option<PermissionMode
     };
     let mode = spec.permission?;
     (mode == PermissionMode::FullAccess || mode_rank(mode) > mode_rank(default)).then_some(mode)
+}
+
+/// Whether a step names a mode only the Mac, or a phone whose switch it
+/// turned on, may give: a start's, a new agent's for a task, a move's, an
+/// agent's new mode or the device's new default. A start that names no
+/// mode runs in the default the Mac set, so it doesn't count.
+pub fn needs_switch(step: &PlanStep) -> bool {
+    let named = match step {
+        PlanStep::StartAgent { spec, .. }
+        | PlanStep::ScheduleTask {
+            target:
+                PlanTarget::Task {
+                    target: TaskTarget::New { spec, .. },
+                },
+            ..
+        } => spec.permission,
+        PlanStep::MoveAgent { to, .. } => to.mode,
+        PlanStep::Admin {
+            action: AdminAction::SetMode { mode, .. },
+            ..
+        } => Some(*mode),
+        PlanStep::Admin {
+            action: AdminAction::ChangeSettings { changes },
+            ..
+        } => {
+            return changes.iter().any(|change| {
+                matches!(change, DeviceSettingChange::DefaultPermission { value } if agents::needs_switch(*value))
+            });
+        }
+        _ => None,
+    };
+    named.is_some_and(agents::needs_switch)
 }
 
 /// The risk class of one change, before the switch and `asked` have their
@@ -1301,5 +1333,76 @@ mod tests {
         )
         .expect_err("refused");
         assert!(refused.contains("`target`"), "{refused}");
+    }
+
+    #[test]
+    fn steps_that_name_auto_or_full_access_need_the_switch() {
+        use maxhq_protocol::ids::AccountId;
+        use maxhq_protocol::message::{AgentPlace, AgentSpec};
+        use maxhq_protocol::model::Vendor;
+        use maxhq_protocol::tasks::Trigger;
+
+        let device = DeviceId::derive("mac");
+        let agent = AgentId::derive("a");
+        let spec = |permission| {
+            Box::new(AgentSpec {
+                effort: None,
+                vendor: Vendor::Claude,
+                account: AccountId::derive("claude"),
+                place: AgentPlace::Folder {
+                    path: "/work".into(),
+                },
+                model: None,
+                permission,
+                title: None,
+                first: None,
+                branch: None,
+                origin: None,
+            })
+        };
+        let start = |permission| PlanStep::StartAgent {
+            device,
+            spec: spec(permission),
+        };
+        let task = |permission| PlanStep::ScheduleTask {
+            device,
+            name: "nightly".into(),
+            prompt: "p".into(),
+            trigger: Box::new(Trigger::Every { minutes: 60 }),
+            target: PlanTarget::Task {
+                target: TaskTarget::New {
+                    device,
+                    spec: spec(permission),
+                },
+            },
+        };
+        let mode = |mode| admin(AdminAction::SetMode { agent, mode });
+        let default = |value| {
+            admin(AdminAction::ChangeSettings {
+                changes: vec![
+                    DeviceSettingChange::AutoSettleDays { value: 3 },
+                    DeviceSettingChange::DefaultPermission { value },
+                ],
+            })
+        };
+        for high in [PermissionMode::Auto, PermissionMode::FullAccess] {
+            assert!(needs_switch(&start(Some(high))), "{high:?}");
+            assert!(needs_switch(&task(Some(high))), "{high:?}");
+            assert!(needs_switch(&mode(high)), "{high:?}");
+            assert!(needs_switch(&default(high)), "{high:?}");
+        }
+        for low in [
+            PermissionMode::Plan,
+            PermissionMode::Ask,
+            PermissionMode::AcceptEdits,
+        ] {
+            assert!(!needs_switch(&start(Some(low))), "{low:?}");
+            assert!(!needs_switch(&task(Some(low))), "{low:?}");
+            assert!(!needs_switch(&mode(low)), "{low:?}");
+            assert!(!needs_switch(&default(low)), "{low:?}");
+        }
+        // A start that names no mode runs in the default the Mac set.
+        assert!(!needs_switch(&start(None)));
+        assert!(!needs_switch(&admin(AdminAction::StopAgent { agent })));
     }
 }

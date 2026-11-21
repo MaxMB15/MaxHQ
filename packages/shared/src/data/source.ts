@@ -564,6 +564,11 @@ export type DataSource = HelperCalls & {
 	 */
 	readonly restartMaxd: (link: LinkId) => Promise<CommandResult>;
 	/**
+	 * Forgets a device you added and closes its link. Every other device
+	 * takes out its key and cuts its link to it. This Mac stays. Mac only.
+	 */
+	readonly removeDevice: (link: LinkId) => Promise<CommandResult>;
+	/**
 	 * Installs this Mac's `maxd` as a login service and starts it, then
 	 * connects to it. Mac only.
 	 */

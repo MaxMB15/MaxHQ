@@ -8,6 +8,7 @@ use std::path::Path;
 
 use maxhq_protocol::attention::{AttentionAnswer, AttentionOption};
 use maxhq_protocol::ids::AttentionId;
+use maxhq_protocol::model::PermissionMode;
 use maxhq_protocol::timeline::{
     ApprovalKind, FileEdit, FileOp, ItemBody, ItemStatus, Question, QuestionAnswer, QuestionOption,
     Todo, TodoState, WebAction,
@@ -446,6 +447,16 @@ pub fn tool_options(session: bool) -> Vec<AttentionOption> {
     }
     options.push(option("deny", "Deny"));
     options
+}
+
+/// The mode a plan's option starts in.
+pub fn plan_mode(option: &str) -> Option<PermissionMode> {
+    match option {
+        "accept_edits" => Some(PermissionMode::AcceptEdits),
+        "accept" => Some(PermissionMode::Ask),
+        "auto" => Some(PermissionMode::Auto),
+        _ => None,
+    }
 }
 
 /// The options a finished plan offers.

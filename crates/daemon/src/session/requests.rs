@@ -9,8 +9,9 @@
 use std::borrow::Cow;
 use std::path::{Path, PathBuf};
 
+use maxhq_core::agents::needs_switch;
 use maxhq_core::{context, names, pill_text};
-use maxhq_protocol::attention::{AnswerOutcome, AttentionAnswer};
+use maxhq_protocol::attention::{AnswerOutcome, AttentionAnswer, AttentionKind};
 use maxhq_protocol::context::InlineRef;
 use maxhq_protocol::guest::Worktree;
 use maxhq_protocol::ids::{
@@ -42,7 +43,7 @@ use super::revive::{AgentSpawn, Cli};
 use super::timeline::MAX_PAGE;
 use super::vendors::{full_access_relaunches, speaks_acp, takes_effort};
 use super::{is_queued, refused, Input, Manager};
-use crate::drive::{acp, Action, Message, Place, PlaceHost, Staged};
+use crate::drive::{acp, claude, Action, Message, Place, PlaceHost, Staged};
 use crate::hub::{Command, Hub};
 use crate::recipe;
 use crate::secrets;
@@ -406,7 +407,8 @@ impl Manager {
             && self.clients.get(&conn).is_some_and(|viewer| viewer.person)
         {
             self.yours.insert(key);
-            self.owner_words.sent(key, &input.text);
+            self.owner_words
+                .sent(key, &input.text, self.held_back(conn));
         }
         if let Some(outcome) = self.action(key, message) {
             self.finish(key, Outcome::Action(outcome));
@@ -572,6 +574,8 @@ impl Manager {
                 self.answer_task_card(conn, key, event, &answer, by)
             } else if self.is_move_card(event) {
                 self.answer_move_card(conn, key, event, &answer, by)
+            } else if self.needs_switch_answer(conn, agent, event, &answer) {
+                AnswerOutcome::UnknownEvent
             } else if open.ours {
                 // MaxHQ's own events only tell you something, so answering
                 // one dismisses it.
@@ -605,6 +609,30 @@ impl Manager {
             AnswerOutcome::UnknownEvent
         };
         self.finish(key, Outcome::Answer(outcome));
+    }
+
+    /// Whether an answer from a phone whose switch is off would put a
+    /// Claude agent in Auto or Full access, as a plan's option can.
+    fn needs_switch_answer(
+        &self,
+        conn: u64,
+        agent: AgentId,
+        event: AttentionId,
+        answer: &AttentionAnswer,
+    ) -> bool {
+        let AttentionAnswer::Option { id } = answer else {
+            return false;
+        };
+        self.held_back(conn)
+            && self
+                .held
+                .get(&self.lead_of(agent))
+                .is_some_and(|held| held.vendor() == Vendor::Claude)
+            && matches!(
+                self.hub.get(&EntityKey::Attention(event)),
+                Some(Entity::Attention(open)) if open.kind == AttentionKind::Permission
+            )
+            && claude::plan_mode(id).is_some_and(needs_switch)
     }
 
     /// Starts a new agent. A Claude agent exists once its holder is up. A

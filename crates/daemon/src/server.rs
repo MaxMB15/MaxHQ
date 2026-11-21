@@ -44,6 +44,7 @@ use tracing::{debug, info, warn};
 use crate::app_keys::AppKeys;
 use crate::db::Db;
 use crate::hub::{Command, Hub, Start, Subscription};
+use crate::phones::PHONE_CANT;
 use crate::session::{Client, Sessions};
 use crate::transfer::{Route, Transfers};
 use crate::tunnel::{self, ClientTunnels, Gone, Out, Tunnels, Writer};
@@ -55,9 +56,6 @@ mod terminals;
 
 /// How much a connection reads from its socket at once.
 const READ_CHUNK: usize = 64 * 1024;
-/// The refusal for what only the Mac does, to a phone whose switch is off.
-const PHONE_CANT: &str = "A phone can't do that. To let this phone, turn on Let this phone do \
-                          everything for it in the Mac's Settings, under Phones.";
 
 /// The refusal for an update no release signed, from a phone.
 const PHONE_UNSIGNED: &str = "A phone can't send a maxd no release signed. Send it from the \
@@ -1824,9 +1822,7 @@ impl Connection {
     /// Whether this is a phone whose switch the Mac turned on, so it may
     /// do what only the Mac does here, short of letting other keys in.
     fn may_do_everything(&self) -> bool {
-        self.phone.is_some_and(|phone| {
-            crate::phones::installed().is_some_and(|phones| phones.everything(phone))
-        })
+        self.phone.is_some_and(crate::phones::lets)
     }
 
     /// Agrees a protocol version, or turns the client away.
@@ -1848,10 +1844,10 @@ impl Connection {
         self.seat.hello(&hello.client.name, &hello.client.version);
         self.route = self.route.clone().speaking(version);
         self.mcp = hello.role == ClientRole::Mcp;
-        self.client = Some(if self.mcp {
-            self.sessions.tool_client(hello.client_id)
-        } else {
-            self.sessions.client(hello.client_id)
+        self.client = Some(match self.phone {
+            _ if self.mcp => self.sessions.tool_client(hello.client_id),
+            Some(phone) => self.sessions.phone_client(hello.client_id, phone),
+            None => self.sessions.client(hello.client_id),
         });
         let to_client = tunnel::Queue::spawn(ToClient(self.wire.clone()));
         self.link = Some(self.tunnels.attach(hello.client_id, Arc::new(to_client)));

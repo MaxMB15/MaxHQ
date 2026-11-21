@@ -99,7 +99,7 @@ impl Manager {
         self.inbox.heard.insert(home, said);
     }
 
-    fn forget_task_targets(&mut self, home: DeviceId) {
+    pub(in crate::session) fn forget_task_targets(&mut self, home: DeviceId) {
         self.inbox.heard.remove(&home);
         if let Err(err) = self.db.remove_task_targets(home) {
             warn!(%err, %home, "couldn't forget what the device's tasks reach here");

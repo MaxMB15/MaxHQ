@@ -61,6 +61,7 @@ struct Served {
     moves: Mutex<Vec<(DeviceId, AgentMoveStep)>>,
     gate: Mutex<Option<Arc<Notify>>>,
     targets: Mutex<Vec<(DeviceId, Vec<AgentId>)>>,
+    cut: Mutex<Vec<DeviceId>>,
 }
 
 impl Serve for Served {
@@ -92,6 +93,10 @@ impl Serve for Served {
     fn move_step(&self, from: DeviceId, step: AgentMoveStep) -> BoxFuture<'_, ActionOutcome> {
         self.moves.lock().unwrap().push((from, step));
         Box::pin(async { ActionOutcome::Done })
+    }
+
+    fn cut_off(&self, device: DeviceId) {
+        self.cut.lock().unwrap().push(device);
     }
 }
 
@@ -1196,6 +1201,87 @@ async fn a_device_proves_only_to_a_maxd_that_takes_peer_proofs() {
     let answer = within("the call", a.peers.call(b.id, call("list_agents"))).await;
     assert_eq!(answer.unwrap().text, "answered without a proof");
     assert_eq!(proofs.load(Ordering::SeqCst), 0);
+}
+
+#[tokio::test]
+async fn a_device_whose_key_went_is_neither_served_nor_reached_and_what_it_started_stops() {
+    let net = Net::default();
+    let a = Device::new(&net, "a");
+    let b = Device::new(&net, "b");
+    let c = Device::new(&net, "c");
+    a.knows(true, &[(&b, true)]);
+    c.knows(true, &[(&b, true)]);
+    let mut raw = greeted(&a, &b).await;
+    b.knows(true, &[(&a, true), (&c, true)]);
+    let both = b.peers.lock().book.clone();
+
+    // A call b sent back over the link a opened ends with the revoke.
+    let waiting = tokio::spawn({
+        let peers = b.peers.clone();
+        let to = a.id;
+        async move { peers.call(to, call("read_agent")).await }
+    });
+    loop {
+        match raw.recv().await {
+            Some(ServerMessage::PeerRequest { .. }) => break,
+            Some(_) => {}
+            None => panic!("the link closed"),
+        }
+    }
+    b.peers.revoke(a.id).unwrap();
+    let ended = within("the waiting call", waiting).await.unwrap();
+    assert!(matches!(ended, Err(Unreachable(reason)) if reason.contains("didn't answer")));
+
+    // b takes no request from a, by any link, and sends it none.
+    let request = PeerRequest::Call {
+        call: call("read_agent"),
+    };
+    let refused = ActionOutcome::Refused {
+        reason: NOT_LINKED.into(),
+    };
+    let key = IdempotencyKey::generate();
+    assert_eq!(b.peers.answer(a.id, key, request).await, refused);
+    let answer = within("the call", b.peers.call(a.id, call("list_agents"))).await;
+    assert_eq!(answer, Err(Unreachable(NOT_LINKED.into())));
+    // a's own key opens no new link.
+    let mut raw = Raw::open(&b, a.id);
+    raw.send(&client_hello(ClientRole::Peer)).await;
+    assert!(matches!(raw.recv().await, Some(ServerMessage::Hello(_))));
+    let proved = raw.prove(&a.seed(), Kind::Peer).await;
+    assert!(
+        matches!(proved, ActionOutcome::Refused { .. }),
+        "{proved:?}"
+    );
+    assert_eq!(b.served.calls.load(Ordering::SeqCst), 0);
+
+    // Once a book leaves a out, what a started on b stops, once.
+    let mut without = both.clone();
+    without.peers.retain(|peer| peer.device != a.id);
+    b.peers.set_book(without.clone()).unwrap();
+    b.peers.set_book(without).unwrap();
+    assert_eq!(*b.served.cut.lock().unwrap(), vec![a.id]);
+    within("c's call", b.peers.call(c.id, call("list_agents")))
+        .await
+        .unwrap();
+
+    // A key that goes while the book keeps its device, as when b stops
+    // taking SSH logins, stops nothing.
+    b.peers.revoke(c.id).unwrap();
+    let mut kept = b.peers.lock().book.clone();
+    kept.ssh = false;
+    b.peers.set_book(kept).unwrap();
+    assert_eq!(*b.served.cut.lock().unwrap(), vec![a.id]);
+    let key = IdempotencyKey::generate();
+    let request = PeerRequest::Call {
+        call: call("read_agent"),
+    };
+    assert_ne!(b.peers.answer(c.id, key, request).await, refused);
+
+    // Let in again, a is served.
+    b.knows(true, &[(&a, true), (&c, true)]);
+    within("a's call again", b.peers.call(a.id, call("list_agents")))
+        .await
+        .unwrap();
 }
 
 fn a_request() -> ClientMessage {

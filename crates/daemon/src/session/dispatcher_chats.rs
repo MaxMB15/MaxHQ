@@ -589,7 +589,8 @@ impl Manager {
         self.dispatcher.chats.starting.insert(key, starting);
         // The chat the request leaves runs on to end its turn.
         self.dispatcher.agent = None;
-        self.owner_words.sent(key, &input.text);
+        let held_back = self.owner_words.phoned(source);
+        self.owner_words.sent(key, &input.text, held_back);
         if let Some(outcome) = self.ask_dispatcher(key, input, account, true) {
             self.finish(key, Outcome::Action(outcome));
         }
@@ -660,7 +661,8 @@ impl Manager {
         };
         self.edit_chat(source, |row| row.moved = Some(moved));
         self.publish_dispatcher();
-        self.owner_words.sent(key, &input.text);
+        let held_back = self.owner_words.phoned(source);
+        self.owner_words.sent(key, &input.text, held_back);
         let send = ClientMessage::SendInput {
             key,
             agent: target,

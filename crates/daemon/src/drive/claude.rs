@@ -34,6 +34,7 @@ pub(crate) use wire::clip;
 pub use history::{subagent_ids, History};
 pub use launch::{add_effort, launch, login_launch, OAUTH_TOKEN, STRIPPED_PREFIXES};
 pub use session::ClaudeSession;
+pub use tools::plan_mode;
 
 use crate::observe::claude::process::Processes;
 use crate::observe::claude::session as sessions;

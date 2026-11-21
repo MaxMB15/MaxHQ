@@ -1552,6 +1552,16 @@ export const mockSource = (options: MockOptions = {}): MockSource => {
 			retry(link);
 			return OK;
 		},
+		// The app forgets the device, and its link leaves the view. This Mac stays.
+		removeDevice: async (link) => {
+			const e = current.get(`device_link:${link}`);
+			if (e?.entity !== "device_link" || e.route.type === "local") {
+				return notFound(`device ${link}`);
+			}
+			base = base.filter((x) => !(x.entity === "device_link" && x.id === link));
+			commit();
+			return OK;
+		},
 		// This Mac's link comes back through the same steps a retry shows.
 		startLocalMaxd: async () => {
 			for (const e of current.values()) {

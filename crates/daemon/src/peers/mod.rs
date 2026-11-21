@@ -105,6 +105,10 @@ const PIPE: usize = 64 * 1024;
 /// What a model stream is refused with on a device that shares no models.
 const NO_MODELS: &str = "This device shares no models.";
 
+/// Why a device this one doesn't link to gets nothing from it.
+const NOT_LINKED: &str =
+    "That device isn't one this device links to. Open MaxHQ to update its devices.";
+
 /// What serves the model streams other devices open to this one.
 pub trait Models: Send + Sync + 'static {
     /// Serves the model server `server` on `socket` for a local agent on
@@ -144,6 +148,9 @@ pub trait Serve: Send + Sync + 'static {
     /// Runs a step of moving an agent that `from`, the device that runs
     /// the MaxHQ app, asked for.
     fn move_step(&self, from: DeviceId, step: AgentMoveStep) -> BoxFuture<'_, ActionOutcome>;
+    /// Stops what `device` started here, now that this device no longer
+    /// links to it.
+    fn cut_off(&self, _device: DeviceId) {}
 }
 
 impl Serve for Sessions {
@@ -161,6 +168,10 @@ impl Serve for Sessions {
 
     fn move_step(&self, from: DeviceId, step: AgentMoveStep) -> BoxFuture<'_, ActionOutcome> {
         Box::pin(self.peer_move(from, step))
+    }
+
+    fn cut_off(&self, device: DeviceId) {
+        Sessions::cut_off(self, device);
     }
 }
 
@@ -234,6 +245,10 @@ struct State {
     serial: u64,
     /// The model streams on links other devices opened.
     streams: HashMap<StreamId, Carried>,
+    /// The devices whose key [`Peers::revoke`] took out, which this one
+    /// neither serves nor dials until it lets them in again or a new book
+    /// still has them.
+    cut: BTreeSet<DeviceId>,
 }
 
 /// A model stream on a link another device opened, whichever side asked
@@ -422,8 +437,11 @@ impl Peers {
         let tag = authorized_keys::peer_tag(&device.to_string());
         let kept =
             authorized_keys::remove(&file, &tag).and_then(|_| authorized_keys::add(&file, &line));
-        kept.map(|_| info!(%device, "let a device's key in"))
-            .map_err(|err| format!("Couldn't write authorized_keys: {err}"))
+        kept.map(|_| {
+            self.lock().cut.remove(&device);
+            info!(%device, "let a device's key in");
+        })
+        .map_err(|err| format!("Couldn't write authorized_keys: {err}"))
     }
 
     /// Whether `key` is one `device` may log in with, as its lines in
@@ -436,17 +454,22 @@ impl Peers {
             .any(|line| crate::sshkey::ed25519_key(line) == Some(key)))
     }
 
-    /// Takes out `device`'s key and closes its links.
+    /// Takes out `device`'s key and closes its links. Until it's let in
+    /// again or a new book still has it, this device takes no request
+    /// from it and sends it none, and what waits on its answers ends. Once
+    /// a book leaves it out, what it started here stops.
     pub fn revoke(&self, device: DeviceId) -> Result<(), String> {
         let tag = authorized_keys::peer_tag(&device.to_string());
         authorized_keys::remove(&self.0.files.authorized_keys(), &tag)
             .map_err(|err| format!("Couldn't write authorized_keys: {err}"))?;
         let mut state = self.lock();
+        state.cut.insert(device);
         state.out.remove(&device);
         if let Some(incoming) = state.incoming.remove(&device) {
             incoming.control.wire.close();
         }
         state.streams.retain(|_, carried| carried.device != device);
+        state.pending.retain(|_, pending| pending.device != device);
         info!(%device, "took out a device's key");
         Ok(())
     }
@@ -558,8 +581,22 @@ impl Peers {
         state
             .streams
             .retain(|_, carried| kept.contains(&carried.device));
+        // A device whose key went before it left the book is cut off.
+        let gone: Vec<DeviceId> = state
+            .cut
+            .iter()
+            .copied()
+            .filter(|device| !kept.contains(device))
+            .filter(|device| state.book.peers.iter().any(|peer| peer.device == *device))
+            .collect();
+        state.cut.retain(|device| !kept.contains(device));
         state.book = book;
         drop(state);
+        if let Some(serve) = self.0.serve.get() {
+            for device in gone {
+                serve.cut_off(device);
+            }
+        }
         self.0.shared.send_if_modified(|now| {
             let changed = *now != shared;
             *now = shared;
@@ -822,11 +859,9 @@ impl Peers {
     async fn way(&self, device: DeviceId, within: Duration) -> Result<Way, Unreachable> {
         let mut up = {
             let mut state = self.lock();
-            let Some(peer) = state.book.peers.iter().find(|peer| peer.device == device) else {
-                return Err(Unreachable(
-                    "That device isn't one this device links to. Open MaxHQ to update its devices."
-                        .into(),
-                ));
+            let booked = state.book.peers.iter().find(|peer| peer.device == device);
+            let Some(peer) = booked.filter(|_| !state.cut.contains(&device)) else {
+                return Err(Unreachable(NOT_LINKED.into()));
             };
             let name = peer.name.clone();
             let dials = !peer.routes.is_empty();
@@ -1049,6 +1084,11 @@ impl Peers {
         let key = (from, key);
         let done = {
             let mut state = self.lock();
+            if state.cut.contains(&from) {
+                return ActionOutcome::Refused {
+                    reason: NOT_LINKED.into(),
+                };
+            }
             if let Some((_, outcome)) = state.answered.iter().find(|(seen, _)| *seen == key) {
                 return outcome.clone();
             }
@@ -1257,7 +1297,8 @@ impl Peers {
                 .book
                 .peers
                 .iter()
-                .any(|peer| peer.device == device && !peer.routes.is_empty());
+                .any(|peer| peer.device == device && !peer.routes.is_empty())
+                && !state.cut.contains(&device);
             if known && !state.out.contains_key(&device) && !state.incoming.contains_key(&device) {
                 let link = self.dial(&mut state, device);
                 state.out.insert(device, link);

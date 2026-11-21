@@ -5,13 +5,16 @@
 //! you asked for from text that only claims you did. A message counts when
 //! a person sent it in MaxHQ: to an agent, or to the dispatcher. One an
 //! agent, a task or another device sends ends the turn's words, and what
-//! a tool reads never reaches here.
+//! a tool reads never reaches here. Words from a phone whose switch is off
+//! never ask for Auto or Full access.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
+use maxhq_core::agents::needs_switch;
 use maxhq_protocol::ids::{AgentId, IdempotencyKey};
 use maxhq_protocol::model::PermissionMode;
 
+use super::held::Viewer;
 use super::Manager;
 
 /// The messages you sent and what each agent heard from you last.
@@ -19,24 +22,41 @@ use super::Manager;
 pub(super) struct OwnerWords {
     /// Each message you sent, by its request's key, until it reaches its
     /// agent.
-    sent: HashMap<IdempotencyKey, String>,
+    sent: HashMap<IdempotencyKey, Sent>,
     /// What you last said to each lead agent, until anything else reaches
     /// it.
     said: HashMap<AgentId, String>,
+    /// The lead agents you last sent to from a phone whose switch is off,
+    /// until you send to them from elsewhere.
+    phoned: HashSet<AgentId>,
+}
+
+/// A message you sent.
+struct Sent {
+    text: String,
+    /// Whether it came from a phone whose switch is off.
+    held_back: bool,
 }
 
 impl OwnerWords {
-    /// Notes a message you sent, under its request's key.
-    pub(super) fn sent(&mut self, key: IdempotencyKey, text: &str) {
-        self.sent.insert(key, text.to_owned());
+    /// Notes a message you sent, under its request's key, and whether it
+    /// came from a phone whose switch is off.
+    pub(super) fn sent(&mut self, key: IdempotencyKey, text: &str, held_back: bool) {
+        let text = text.to_owned();
+        self.sent.insert(key, Sent { text, held_back });
     }
 
     /// Hears that the message under `key` reached `agent`: your words for
     /// its turn now, or from anyone else, the end of them.
     pub(super) fn reached(&mut self, key: IdempotencyKey, agent: AgentId) {
         match self.sent.remove(&key) {
-            Some(text) => {
-                self.said.insert(agent, text);
+            Some(sent) => {
+                self.said.insert(agent, sent.text);
+                if sent.held_back {
+                    self.phoned.insert(agent);
+                } else {
+                    self.phoned.remove(&agent);
+                }
             }
             None => {
                 self.said.remove(&agent);
@@ -52,11 +72,20 @@ impl OwnerWords {
     /// Forgets an agent that's gone.
     pub(super) fn forget(&mut self, agent: AgentId) {
         self.said.remove(&agent);
+        self.phoned.remove(&agent);
+    }
+
+    /// Whether you last sent to `agent` from a phone whose switch is off.
+    pub(super) fn phoned(&self, agent: AgentId) -> bool {
+        self.phoned.contains(&agent)
     }
 
     /// Whether what you said to `agent` holds `quote`, and `quote` names
     /// `mode`.
     fn asked_for(&self, agent: AgentId, quote: &str, mode: PermissionMode) -> bool {
+        if needs_switch(mode) && self.phoned(agent) {
+            return false;
+        }
         let quote = plain(quote);
         if quote.is_empty() || !names_of(mode).iter().any(|name| names(&quote, name)) {
             return false;
@@ -80,6 +109,17 @@ impl Manager {
         mode: PermissionMode,
     ) -> bool {
         self.owner_words.asked_for(self.lead_of(agent), quote, mode)
+    }
+
+    /// Whether you last sent to `agent` from a phone whose switch is off,
+    /// so a step to Auto or Full access waits for the Mac's confirm.
+    pub(super) fn phone_asked(&self, agent: AgentId) -> bool {
+        self.owner_words.phoned(self.lead_of(agent))
+    }
+
+    /// Whether the connection `conn` is a phone whose switch is off.
+    pub(super) fn held_back(&self, conn: u64) -> bool {
+        self.clients.get(&conn).is_some_and(Viewer::held_back)
     }
 }
 
@@ -189,7 +229,7 @@ mod tests {
     fn heard(text: &str) -> (OwnerWords, AgentId) {
         let mut words = OwnerWords::default();
         let (key, agent) = (IdempotencyKey::generate(), AgentId::generate());
-        words.sent(key, text);
+        words.sent(key, text, false);
         words.reached(key, agent);
         (words, agent)
     }
@@ -222,6 +262,27 @@ mod tests {
         assert!(!words.asked_for(agent, "autopilot", PermissionMode::Auto));
         // Nobody said anything to another agent.
         assert!(!words.asked_for(AgentId::generate(), "with full access", mode));
+    }
+
+    #[test]
+    fn a_phone_whose_switch_is_off_asks_for_no_auto_or_full_access() {
+        let mut words = OwnerWords::default();
+        let (key, agent) = (IdempotencyKey::generate(), AgentId::generate());
+        words.sent(key, "Set it to full access and auto, then ask first", true);
+        words.reached(key, agent);
+        assert!(words.phoned(agent));
+        assert!(!words.asked_for(agent, "full access", PermissionMode::FullAccess));
+        assert!(!words.asked_for(agent, "auto", PermissionMode::Auto));
+        assert!(words.asked_for(agent, "ask first", PermissionMode::Ask));
+        // A message from an agent or a task leaves the phone's mark.
+        words.reached(IdempotencyKey::generate(), agent);
+        assert!(words.phoned(agent));
+        // One you send from elsewhere clears it.
+        let key = IdempotencyKey::generate();
+        words.sent(key, "Now full access", false);
+        words.reached(key, agent);
+        assert!(!words.phoned(agent));
+        assert!(words.asked_for(agent, "full access", PermissionMode::FullAccess));
     }
 
     #[test]

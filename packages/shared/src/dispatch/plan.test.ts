@@ -3,7 +3,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import type { PermissionMode, Plan, PlanItem } from "../bindings";
+import type { PermissionMode, Plan, PlanItem, PlanStep } from "../bindings";
 import { mockTasks } from "../data/mock-tasks";
 import { DEVBOX, DEVBOX_CLAUDE, MAC, mockEntities } from "../data/mock-view";
 import { account, agent, device, entities, link, NOW, project, workspace } from "../test/build";
@@ -19,6 +19,7 @@ import {
 	outcomeLine,
 	planSummary,
 	resultRows,
+	stepNeedsSwitch,
 } from "./plan";
 
 const view = applySnapshot({
@@ -396,5 +397,39 @@ describe("a planned grant", () => {
 			{ label: "Depth", value: "3 levels of agents below it" },
 			{ label: "Limits", value: "No limits" },
 		]);
+	});
+});
+
+describe("a step a phone needs the switch for", () => {
+	const start = plan.items[0]!.step;
+	const admin = (action: Extract<PlanStep, { type: "admin" }>["action"]): PlanStep => ({
+		type: "admin",
+		device: "dev-mac",
+		action,
+	});
+
+	it("names Auto or Full access", () => {
+		if (start.type !== "start_agent") throw new Error("not a start");
+		const full = { ...start, spec: { ...start.spec, permission: "full_access" as const } };
+		expect(stepNeedsSwitch(full)).toBe(true);
+		expect(
+			stepNeedsSwitch(admin({ action: "set_mode", agent: "reviewer", mode: "auto" }))
+		).toBe(true);
+		const settings = admin({
+			action: "change_settings",
+			changes: [{ field: "default_permission", value: "full_access" }],
+		});
+		expect(stepNeedsSwitch(settings)).toBe(true);
+	});
+
+	it("doesn't for a lower mode or none", () => {
+		expect(stepNeedsSwitch(start)).toBe(false);
+		expect(stepNeedsSwitch(plan.items[1]!.step)).toBe(false);
+		expect(stepNeedsSwitch(admin({ action: "set_mode", agent: "reviewer", mode: "ask" }))).toBe(
+			false
+		);
+		expect(
+			stepNeedsSwitch(admin({ action: "rename_agent", agent: "reviewer", title: "R" }))
+		).toBe(false);
 	});
 });

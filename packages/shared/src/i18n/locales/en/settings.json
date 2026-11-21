@@ -1144,6 +1144,7 @@
 	"MaxHQ adds hooks to zsh, bash and fish so it can tell commands apart. Off starts shells exactly as your startup files say. Applies to terminals opened after the change.": "MaxHQ adds hooks to zsh, bash and fish so it can tell commands apart. Off starts shells exactly as your startup files say. Applies to terminals opened after the change.",
 	"Agents can read other agents": "Agents can read other agents",
 	"Any agent can list and read any other agent's conversation, which may hold code, paths and command output. Off lets agents read only the agents you attach or quote. Starting, messaging or stopping agents still needs your permission.": "Any agent can list and read any other agent's conversation, which may hold code, paths and command output. Off lets agents read only the agents you attach or quote. Starting, messaging or stopping agents still needs your permission.",
+	"If a device may be compromised, remove it under Devices, which cuts its link on every device.": "If a device may be compromised, remove it under Devices, which cuts its link on every device.",
 	"Other agents": "Other agents",
 	"Reading on by default": "Reading on by default",
 	"claude.ai pages": "claude.ai pages",

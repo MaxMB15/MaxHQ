@@ -20,7 +20,7 @@ import type { Agent, DeviceId, DeviceLink, LinkState, Timestamp } from "@maxhq/s
 import { useNow } from "@maxhq/shared/lib/clock";
 import { cn } from "@/lib/utils";
 import { Picker } from "@/new-agent/picker";
-import { PRIMARY, Row, SECONDARY, Section, StatusNote } from "@/settings/controls";
+import { ConfirmButton, PRIMARY, Row, SECONDARY, Section, StatusNote } from "@/settings/controls";
 import { AcpAgents } from "@/settings/acp-agents";
 import { DeviceLinks } from "@/settings/device-links";
 import { failureOf, type Note } from "@/settings/result";
@@ -47,7 +47,7 @@ import { DeviceMoves } from "@/workspaces/device-moves";
 import { DeviceWorkspaces } from "@/workspaces/workspace-list";
 
 import { AdmissionCards } from "./admission-cards";
-import { DeviceIdentity, LinkClaimCard } from "./device-identity";
+import { DeviceIdentity, LinkClaimCard, useAnswer } from "./device-identity";
 import { DeviceInstalls } from "./device-installs";
 import { DeviceLoad } from "./device-load";
 import { DeviceRegistry } from "./device-registry";
@@ -496,6 +496,35 @@ const Restart = ({
 	);
 };
 
+/** Forgets a device you added, which cuts its link on every device. */
+const RemoveDevice = ({ link }: { link: DeviceLink }) => {
+	const { t } = useI18n();
+	const { source } = useServices();
+	const { busy, note, run } = useAnswer();
+	return (
+		<Section title={t("Remove")} label={t("Remove {{name}}", { name: link.name })}>
+			<Row
+				title={t("Remove device")}
+				sub={t(
+					"MaxHQ forgets {{name}} and closes its link. Your other devices each take out {{name}}'s key, cut their link to it and stop what it started on them, as soon as MaxHQ reaches them. Nothing on {{name}} is deleted.",
+					{ name: link.name }
+				)}
+			>
+				<StatusNote note={note} />
+				<ConfirmButton
+					label={t("Remove device")}
+					question={t("Remove {{name}} and cut its link on every device?", {
+						name: link.name,
+					})}
+					confirm={t("Remove")}
+					disabled={busy}
+					onConfirm={() => void run(() => source.removeDevice(link.id))}
+				/>
+			</Row>
+		</Section>
+	);
+};
+
 /** The main area for one device. */
 export const DeviceDetail = ({ node, view }: { node: DeviceNode; view: ViewState }) => {
 	const { t } = useI18n();
@@ -638,6 +667,7 @@ export const DeviceDetail = ({ node, view }: { node: DeviceNode; view: ViewState
 
 				<Restart link={link} live={live} winding={until !== null && until > now} />
 				{link.route.type === "local" ? <LocalMaxd link={link} /> : null}
+				{link.route.type === "ssh" ? <RemoveDevice link={link} /> : null}
 
 				<section
 					aria-label={t("Agents on {{name}}", { name: link.name })}

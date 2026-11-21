@@ -12,7 +12,8 @@ use std::time::Instant;
 
 use maxhq_protocol::agents::{AgentOrigin, Moved};
 use maxhq_protocol::ids::{
-    AccountId, AgentId, AttentionId, BootId, ClientId, IdempotencyKey, SessionId, WorkspaceId,
+    AccountId, AgentId, AttentionId, BootId, ClientId, IdempotencyKey, PhoneId, SessionId,
+    WorkspaceId,
 };
 use maxhq_protocol::message::ServerMessage;
 use maxhq_protocol::model::{
@@ -605,6 +606,8 @@ pub struct Viewer {
     pub by: ClientId,
     /// Whether a person is behind it, rather than an agent's tool calls.
     pub person: bool,
+    /// The phone it comes from, if one.
+    pub phone: Option<PhoneId>,
     /// Its messages. The line holds only so many, so a client that stops
     /// reading falls behind.
     pub tx: mpsc::Sender<ServerMessage>,
@@ -625,14 +628,26 @@ pub struct Behind {
 
 impl Viewer {
     /// A client that has nothing open yet.
-    pub fn new(by: ClientId, person: bool, tx: mpsc::Sender<ServerMessage>) -> Self {
+    pub fn new(
+        by: ClientId,
+        person: bool,
+        phone: Option<PhoneId>,
+        tx: mpsc::Sender<ServerMessage>,
+    ) -> Self {
         Self {
             by,
             person,
+            phone,
             tx,
             open: HashMap::new(),
             behind: None,
         }
+    }
+
+    /// Whether it comes from a phone whose switch is off, so it can't put
+    /// an agent in Auto or Full access.
+    pub fn held_back(&self) -> bool {
+        self.phone.is_some_and(|phone| !crate::phones::lets(phone))
     }
 
     /// Sends the client a message. While it's behind, a timeline update is

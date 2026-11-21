@@ -973,9 +973,18 @@ export const OtherAgentsCard = () => {
 		<Section title={translate("Other agents")} hint={translate("Reading on by default")}>
 			<Row
 				title={translate("Agents can read other agents")}
-				sub={translate(
-					"Any agent can list and read any other agent's conversation, which may hold code, paths and command output. Off lets agents read only the agents you attach or quote. Starting, messaging or stopping agents still needs your permission."
-				)}
+				sub={
+					<>
+						{translate(
+							"Any agent can list and read any other agent's conversation, which may hold code, paths and command output. Off lets agents read only the agents you attach or quote. Starting, messaging or stopping agents still needs your permission."
+						)}
+						<span className="mt-1 block">
+							{translate(
+								"If a device may be compromised, remove it under Devices, which cuts its link on every device."
+							)}
+						</span>
+					</>
+				}
 			/>
 			{accountDevices(view).map(({ device, name }) => (
 				<ReadsRow key={device} device={device} name={name} view={view} />

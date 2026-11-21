@@ -35,6 +35,7 @@ use super::agent_tools::{failure, Reply, NO_CONN};
 use super::dispatcher::Waited;
 use super::idem::Outcome;
 use super::{refused, Input, Manager};
+use crate::phones::PHONE_CANT;
 
 /// How many changes Undo may still put back, newest kept.
 const KEEP_UNDO: usize = 50;
@@ -63,6 +64,10 @@ pub(super) const UNDO_STEP: &str = "The user can undo it from the card under you
 
 /// Why a start above the device's default mode waits for the user.
 pub(super) const RAISED: &str = "It runs an agent in a mode above this device's default.";
+
+/// Why Auto or Full access a phone asked for waits for the Mac.
+pub(super) const PHONE_ASKED: &str =
+    "A phone asked for Auto or Full access, so it waits for the Mac's confirm.";
 
 /// What the dispatcher keeps of the changes it makes at once.
 #[derive(Default)]
@@ -181,7 +186,8 @@ impl Manager {
     /// safe, `asked` says the user asked for it and the switch lets it,
     /// into the plan when the user should confirm it, or not at all. A
     /// start above the device's default mode waits too, unless `words`
-    /// are the user's own and name that mode.
+    /// are the user's own and name that mode, and so does Auto or Full
+    /// access a phone whose switch is off asked for.
     pub(super) fn dispatcher_act(
         &mut self,
         lead: AgentId,
@@ -209,8 +215,9 @@ impl Manager {
                 .as_deref()
                 .is_some_and(|words| self.owner_asked_for(lead, words, *mode))
         });
+        let phoned = admin::needs_switch(&step) && self.phone_asked(lead);
         let risk = match admin::risk(&step, busy) {
-            Risk::Direct if raised.is_some() => Risk::Confirm,
+            Risk::Direct if raised.is_some() || phoned => Risk::Confirm,
             risk => risk,
         };
         let acts = settings.dispatcher_acts;
@@ -224,6 +231,8 @@ impl Manager {
                     "The dispatcher suggests it."
                 } else if made >= admin::MAX_AT_ONCE {
                     "One request made enough changes at once."
+                } else if phoned {
+                    PHONE_ASKED
                 } else if raised.is_some() {
                     RAISED
                 } else {
@@ -827,7 +836,8 @@ impl Manager {
 
     /// Answers `UndoDispatcherAction`: puts back the change on the card
     /// `action` names, once, unless something else changed it since. Only
-    /// a person in MaxHQ may.
+    /// a person in MaxHQ may, and a phone whose switch is off can't put
+    /// back Auto or Full access.
     pub(super) fn undo_action(
         &mut self,
         conn: u64,
@@ -838,6 +848,18 @@ impl Manager {
             return Some(refused(
                 "Only you can undo the dispatcher's changes, in MaxHQ.",
             ));
+        }
+        let raises = |record: &Undo| {
+            let (device, action) = (record.device, record.inverse.clone());
+            admin::needs_switch(&PlanStep::Admin { device, action })
+        };
+        let undo = &self.dispatcher.admin.undo;
+        if self.held_back(conn)
+            && undo
+                .iter()
+                .any(|record| record.key == action && raises(record))
+        {
+            return Some(refused(PHONE_CANT));
         }
         let undo = &mut self.dispatcher.admin.undo;
         let Some(record) = undo

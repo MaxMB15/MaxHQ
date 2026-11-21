@@ -43,6 +43,12 @@ pub fn mode_rank(mode: PermissionMode) -> u8 {
     }
 }
 
+/// Whether only the Mac, or a phone whose switch it turned on, may put an
+/// agent in `mode`: Auto and Full access.
+pub fn needs_switch(mode: PermissionMode) -> bool {
+    mode_rank(mode) >= mode_rank(PermissionMode::Auto)
+}
+
 /// Whether a vendor's CLI runs in a mode. Codex has no plan mode.
 pub fn offers(vendor: Vendor, mode: PermissionMode) -> bool {
     !(vendor == Vendor::Codex && mode == PermissionMode::Plan)

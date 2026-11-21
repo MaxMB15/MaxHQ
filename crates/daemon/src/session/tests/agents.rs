@@ -1280,6 +1280,45 @@ async fn another_device_cant_lease_here() {
 }
 
 #[tokio::test]
+async fn what_a_device_this_one_no_longer_links_to_started_here_stops() {
+    let mut h = Harness::new();
+    let (own, _) = h.start_claude(Some("Plan it")).await;
+    let caller = AgentId::derive("caller");
+    let given = h
+        .give(Permission {
+            home: devbox(),
+            ..permission(Actor::Agent { agent: caller }, Limits::default())
+        })
+        .await;
+    let start = json!({
+        "request_id": "s1",
+        "task": "task s1",
+        "vendor": "claude",
+        "folder": h.folder.display().to_string(),
+    });
+    let call = maxhq_protocol::agents::PeerCall {
+        by: Actor::Agent { agent: caller },
+        permission: given.id,
+        level: 0,
+        call: ToolCall {
+            tool: "start_agent".into(),
+            arguments: start,
+        },
+    };
+    let answer = h.sessions.peer_call(devbox(), call).await;
+    assert!(!answer.failed, "{}", answer.text);
+    let started = child_of(&answer.text);
+    assert_eq!(h.agent(started).origin.unwrap().device, devbox());
+
+    h.sessions.cut_off(devbox());
+    let paused = Activity::Paused {
+        reason: PauseReason::ByYou,
+    };
+    eventually("it stopped", || h.activity(started) == paused).await;
+    assert_ne!(h.activity(own), paused, "the Mac's own agent runs on");
+}
+
+#[tokio::test]
 async fn an_agent_on_another_device_reads_here_while_the_switch_is_on() {
     let mut h = Harness::new();
     let (target, _) = h.start_claude(Some("Build it")).await;

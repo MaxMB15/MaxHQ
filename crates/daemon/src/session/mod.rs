@@ -77,8 +77,8 @@ use std::time::{Duration, Instant};
 use futures::StreamExt;
 use maxhq_protocol::context::InlineRef;
 use maxhq_protocol::ids::{
-    AccountId, AgentId, AttachmentId, AttentionId, ClientId, DeviceId, IdempotencyKey, SessionId,
-    WorkspaceId,
+    AccountId, AgentId, AttachmentId, AttentionId, ClientId, DeviceId, IdempotencyKey, PhoneId,
+    SessionId, WorkspaceId,
 };
 use maxhq_protocol::message::{ActionOutcome, AgentSpec, ClientMessage, SendMode, ServerMessage};
 use maxhq_protocol::model::{
@@ -282,22 +282,29 @@ impl Sessions {
     /// A new client of the manager, for a connection whose client said
     /// hello as `by`.
     pub fn client(&self, by: ClientId) -> Client {
-        self.join(by, true)
+        self.join(by, true, None)
     }
 
     /// A new client for a connection that only carries an agent's tool
     /// calls, so no person is behind what it sends.
     pub fn tool_client(&self, by: ClientId) -> Client {
-        self.join(by, false)
+        self.join(by, false, None)
     }
 
-    fn join(&self, by: ClientId, person: bool) -> Client {
+    /// A new client for a phone's connection. Its switch decides what the
+    /// manager does for it.
+    pub fn phone_client(&self, by: ClientId, phone: PhoneId) -> Client {
+        self.join(by, true, Some(phone))
+    }
+
+    fn join(&self, by: ClientId, person: bool, phone: Option<PhoneId>) -> Client {
         let conn = self.next.fetch_add(1, Ordering::Relaxed);
         let (tx, rx) = mpsc::channel(CLIENT_BACKLOG);
         let _ = self.tx.send(Input::Join {
             conn,
             by,
             person,
+            phone,
             tx,
         });
         Client {
@@ -360,6 +367,12 @@ impl Sessions {
             return Err(stopping().text);
         }
         answer.await.unwrap_or_else(|_| Err(stopping().text))
+    }
+
+    /// Stops what `device` started here, now that this device no longer
+    /// links to it. Device links call it.
+    pub fn cut_off(&self, device: DeviceId) {
+        let _ = self.tx.send(Input::CutOff(device));
     }
 
     /// Stores what's waiting to be stored and ends the manager. Holders
@@ -516,6 +529,7 @@ enum Input {
         conn: u64,
         by: ClientId,
         person: bool,
+        phone: Option<PhoneId>,
         tx: mpsc::Sender<ServerMessage>,
     },
     /// A connection sent a message.
@@ -681,6 +695,8 @@ enum Input {
         from: DeviceId,
         agents: Vec<AgentId>,
     },
+    /// This device stopped linking to another.
+    CutOff(DeviceId),
     /// A test asks what the manager remembers of an agent's session cards.
     #[cfg(test)]
     Remembered {
@@ -1155,9 +1171,11 @@ impl Manager {
                 conn,
                 by,
                 person,
+                phone,
                 tx,
             } => {
-                self.clients.insert(conn, Viewer::new(by, person, tx));
+                self.clients
+                    .insert(conn, Viewer::new(by, person, phone, tx));
             }
             Input::Message { conn, message } => self.message(conn, *message),
             Input::TerminalOpen {
@@ -1274,6 +1292,7 @@ impl Manager {
                 let _ = done.send(());
             }
             Input::TaskTargets { from, agents } => self.heard_task_targets(from, agents),
+            Input::CutOff(device) => self.cut_off(device),
             #[cfg(test)]
             Input::Remembered { agent, done } => {
                 let _ = done.send(self.remembered(agent));

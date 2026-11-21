@@ -920,6 +920,11 @@ describe("other agents", () => {
 				/^Any agent can list and read any other agent's conversation, which may hold code, paths and command output\./
 			)
 		).toBeInTheDocument();
+		expect(
+			within(await card()).getByText(
+				"If a device may be compromised, remove it under Devices, which cuts its link on every device."
+			)
+		).toBeInTheDocument();
 	});
 
 	it("saves it off, keeping the other settings", async () => {
