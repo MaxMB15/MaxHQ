@@ -1616,14 +1616,10 @@ impl<L: LinkControl> Core<L> {
             .cloned()
     }
 
-    /// Takes a newer book from the device that keeps it, in place of the
-    /// one it kept. A book forgotten since it came stays forgotten.
+    /// Takes a newer book from the device that keeps it, as
+    /// [`crate::phone::take_newer`] says.
     fn take_book(self: &Arc<Self>, book: PhoneBook) -> Result<Vec<DeviceId>, RegistryError> {
-        self.change_books(|books| {
-            if books.iter().any(|have| have.device == book.device) {
-                crate::phone::put_book(books, book);
-            }
-        })
+        self.change_books(|books| crate::phone::take_newer(books, book))
     }
 
     /// Changes the phone's books with `change`, then makes the devices the

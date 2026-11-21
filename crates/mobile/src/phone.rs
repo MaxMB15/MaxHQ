@@ -490,10 +490,11 @@ impl Core {
     /// Pairs the phone through the device whose pairing code is `code`,
     /// as the Mac shows it, giving it `name` to show, and keeps the book
     /// the device answers with: beside the other Macs' books for a new
-    /// Mac, or in place of the one it had from the same Mac. A code with
-    /// the device's network access pairs through it, and the phone keeps
-    /// the token it gets. Else the phone logs in over SSH with the code's
-    /// one-time key, which the device swaps for the phone's own.
+    /// Mac, or in place of the one it had from the same Mac, as
+    /// [`phone::may_keep`] allows. A code with the device's network access
+    /// pairs through it, and the phone keeps the token it gets. Else the
+    /// phone logs in over SSH with the code's one-time key, which the
+    /// device swaps for the phone's own.
     pub fn pair(
         &self,
         code: &str,
@@ -506,15 +507,21 @@ impl Core {
             "" => "iPhone".to_owned(),
             name => name.to_owned(),
         };
+        let books = self.books();
         self.run(async move {
             let code = code?;
+            let books = books?;
             let pairing = async {
                 match &code.network {
                     Some(network) => (shared.sign_ins)
-                        .pair(&code, network, &name, &shared.key)
+                        .pair(&code, network, &name, &shared.key, &books)
                         .await
                         .map_err(failed),
-                    None => pair_through(&runtime, &code, &name, &shared.key).await,
+                    None => {
+                        let book = pair_through(&runtime, &code, &name, &shared.key).await?;
+                        phone::may_keep(&books, &code, &book).map_err(failed)?;
+                        Ok(book)
+                    }
                 }
             };
             let book = tokio::time::timeout(PAIR_TIMEOUT, pairing)

@@ -14,7 +14,7 @@ use base64::engine::general_purpose::{STANDARD, URL_SAFE_NO_PAD};
 use base64::Engine;
 use futures::future::BoxFuture;
 use maxhq_app::pair_code::PairCode;
-use maxhq_app::phone::ws_routes;
+use maxhq_app::phone::{may_keep, ws_routes};
 use maxhq_client::{Ended, Headers, PhoneWs, Posted, WsRoute, SIGN_IN_ENDED};
 use maxhq_core::dpop;
 use maxhq_protocol::ids::DeviceId;
@@ -78,13 +78,15 @@ impl SignIns {
 
     /// Pairs through `network`, the network access in `code`, trying each
     /// of its hosts in turn. Keeps the token the device answers, and
-    /// answers the book. The error is a sentence for the phone to show.
+    /// answers the book, unless `books`, the ones the phone has, can't take
+    /// it beside them. The error is a sentence for the phone to show.
     pub(crate) async fn pair(
         self: &Arc<Self>,
         code: &PairCode,
         network: &PhoneNetwork,
         name: &str,
         key: &PhoneKey,
+        books: &[PhoneBook],
     ) -> Result<PhoneBook, String> {
         let pairing = NetPair {
             pair: code.pair,
@@ -116,13 +118,15 @@ impl SignIns {
                     "The device knows this phone by another name. Scan a new code.".to_owned(),
                 );
             }
-            keep(&*self.store, code.device, &paired.token)?;
-            return Ok(PhoneBook {
+            let book = PhoneBook {
                 phone: paired.phone,
                 device: code.device,
                 devices: paired.book,
                 mac: paired.mac,
-            });
+            };
+            may_keep(books, code, &book)?;
+            keep(&*self.store, code.device, &paired.token)?;
+            return Ok(book);
         }
         Err(format!("Couldn't reach the device: {reason}"))
     }

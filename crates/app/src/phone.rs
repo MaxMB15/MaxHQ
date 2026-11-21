@@ -32,6 +32,7 @@ use maxhq_protocol::Secret;
 use zeroize::Zeroizing;
 
 use crate::app_keys::{reason_of, UNKNOWN_KEY};
+use crate::pair_code::PairCode;
 use crate::{Opening, Shell};
 
 /// Opens a link through the host app, which on iOS hands it to the system.
@@ -255,6 +256,67 @@ pub fn put_book(books: &mut Vec<PhoneBook>, book: PhoneBook) {
     books.retain(|have| !same_mac(have, &book));
     // Nothing before the first one left, so it's still in its place.
     books.insert(at.unwrap_or(books.len()), book);
+}
+
+/// Puts `book`, a newer one from the device that keeps it, in place of the
+/// one that device keeps. A book forgotten since it came stays forgotten,
+/// and so does one that names another book's Mac: only pairing through
+/// that Mac's devices replaces its book.
+pub fn take_newer(books: &mut Vec<PhoneBook>, book: PhoneBook) {
+    let keeps = |have: &PhoneBook| have.device == book.device;
+    if books.iter().any(keeps)
+        && books
+            .iter()
+            .all(|have| keeps(have) || !same_mac(have, &book))
+    {
+        put_book(books, book);
+    }
+}
+
+/// Whether the phone may keep `book`, which it got by pairing through
+/// `code`, beside `books`, the ones it has. A device the books list must
+/// be the one that answered, at the pin or host key they know, so a code
+/// can't take its place or its sign-in. And a book takes the place of
+/// another Mac's only when it came through a device that Mac's book lists.
+/// The error says why not, and how to pair anyway.
+pub fn may_keep(books: &[PhoneBook], code: &PairCode, book: &PhoneBook) -> Result<(), String> {
+    for have in books {
+        let mac = mac_name(have);
+        let anyway = format!(
+            "If you trust the code, forget {mac} in Settings, under Paired Macs, then scan a new code."
+        );
+        match have
+            .devices
+            .iter()
+            .find(|entry| entry.device == code.device)
+        {
+            Some(entry) if !answered(code, entry) => {
+                return Err(format!(
+                    "{mac} gave this phone {}, but another device answered this code. {anyway}",
+                    entry.name
+                ));
+            }
+            None if same_mac(have, book) => {
+                return Err(format!(
+                    "The device that answered says it pairs for {mac}, but it isn't one {mac} gave this phone. {anyway}"
+                ));
+            }
+            _ => {}
+        }
+    }
+    Ok(())
+}
+
+/// Whether the device that answered `code` is `entry`'s: the one with its
+/// TLS pin when the phone paired over the network, else its SSH host key.
+fn answered(code: &PairCode, entry: &PhoneBookEntry) -> bool {
+    match &code.network {
+        Some(network) => entry
+            .network
+            .as_ref()
+            .is_some_and(|known| known.pin == network.pin),
+        None => !code.host_key.is_empty() && entry.host_key == code.host_key,
+    }
 }
 
 /// The name of the Mac that made `book`: the one it gave, or for a book
@@ -577,6 +639,112 @@ pub(crate) mod tests {
         assert_eq!(books.len(), 2);
         assert_eq!(books[0], through);
         assert_eq!(mac_name(&books[1]), "Work Mac");
+    }
+
+    /// A code through `device` at `host_key`, over the network at `pin`
+    /// when there is one.
+    fn code(device: &str, host_key: &str, pin: Option<&str>) -> PairCode {
+        PairCode {
+            pair: maxhq_protocol::ids::PairId::derive("pairing"),
+            seed: Zeroizing::new([9; 32]),
+            device: DeviceId::derive(device),
+            host_key: host_key.into(),
+            routes: Vec::new(),
+            network: pin.map(|pin| maxhq_protocol::netaccess::PhoneNetwork {
+                hosts: vec!["192.0.2.7".into()],
+                port: 7466,
+                pin: pin.into(),
+                code: None,
+            }),
+        }
+    }
+
+    /// The book pairing through `code` answers, naming `mac`.
+    fn answer(code: &PairCode, mac: &str) -> PhoneBook {
+        PhoneBook {
+            device: code.device,
+            ..mac_book(mac, Vec::new())
+        }
+    }
+
+    #[test]
+    fn a_code_cant_pass_for_a_paired_mac_or_its_devices() {
+        let mut devbox = entry("devbox", &["devbox.local"]);
+        devbox.network = Some(maxhq_protocol::netaccess::PhoneNetwork {
+            hosts: vec!["192.0.2.7".into()],
+            port: 7466,
+            pin: "devbox-pin".into(),
+            code: None,
+        });
+        let books = vec![mac_book("Home Mac", vec![devbox])];
+        let key = "ssh-ed25519 AAAAexample";
+        let refused = |code: &PairCode, mac: &str| may_keep(&books, code, &answer(code, mac));
+
+        // A new Mac, and the same Mac again through any device it listed.
+        assert_eq!(refused(&code("stranger", key, None), "Work Mac"), Ok(()));
+        assert_eq!(refused(&code("devbox", key, None), "Home Mac"), Ok(()));
+        assert_eq!(refused(&code("Home Mac", key, None), "Home Mac"), Ok(()));
+        assert_eq!(
+            refused(&code("devbox", "", Some("devbox-pin")), "Home Mac"),
+            Ok(())
+        );
+
+        // A device the Mac never listed can't answer for it.
+        assert_eq!(
+            refused(&code("stranger", key, None), "Home Mac"),
+            Err(
+                "The device that answered says it pairs for Home Mac, but it isn't one Home Mac \
+                 gave this phone. If you trust the code, forget Home Mac in Settings, under \
+                 Paired Macs, then scan a new code."
+                    .into()
+            )
+        );
+        // Nor can another device take a listed one's name, by its host key
+        // or its pin, whichever Mac it says it pairs for.
+        let posing = |name: &str| {
+            Err(format!(
+                "Home Mac gave this phone {name}, but another device answered this code. If \
+                 you trust the code, forget Home Mac in Settings, under Paired Macs, then scan \
+                 a new code."
+            ))
+        };
+        for mac in ["Home Mac", "Work Mac"] {
+            for (code, name) in [
+                (code("devbox", "ssh-ed25519 AAAAother", None), "devbox"),
+                (code("devbox", key, Some("other-pin")), "devbox"),
+                // The Mac's entry has no network part to match a pin.
+                (code("Home Mac", key, Some("devbox-pin")), "Home Mac"),
+            ] {
+                assert_eq!(refused(&code, mac), posing(name), "{name} for {mac}");
+            }
+        }
+    }
+
+    #[test]
+    fn a_keepers_newer_book_cant_take_another_macs_place() {
+        let home = mac_book("Home Mac", Vec::new());
+        let work = mac_book("Work Mac", Vec::new());
+        let mut books = vec![home.clone(), work.clone()];
+
+        // Work Mac's keeper says its book is Home Mac's.
+        let posing = PhoneBook {
+            device: work.device,
+            ..mac_book("Home Mac", vec![entry("devbox", &["devbox.local"])])
+        };
+        take_newer(&mut books, posing);
+        assert_eq!(books, [home.clone(), work.clone()]);
+
+        // A device that keeps no book has none to give.
+        take_newer(
+            &mut books,
+            mac_book("devbox", vec![entry("build-box", &["build-box.local"])]),
+        );
+        assert_eq!(books, [home.clone(), work.clone()]);
+
+        // Its own book, newer, takes its place.
+        let newer = mac_book("Work Mac", vec![entry("devbox", &["devbox.local"])]);
+        take_newer(&mut books, newer.clone());
+        assert_eq!(books, [home, newer]);
     }
 
     #[test]
