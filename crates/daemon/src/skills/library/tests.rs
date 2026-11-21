@@ -287,7 +287,7 @@ async fn a_committed_folder_lands_in_the_source_and_its_repo() {
 }
 
 #[tokio::test]
-async fn a_commit_lands_the_stores_copy_and_leaves_it_editable() {
+async fn a_commit_lands_what_was_hashed_and_leaves_it_editable() {
     use std::os::unix::fs::PermissionsExt;
 
     let rig = Rig::on("macos");
@@ -305,8 +305,8 @@ async fn a_commit_lands_the_stores_copy_and_leaves_it_editable() {
         .await
         .unwrap();
 
-    // The store's copy differing from the folder stands for a folder that
-    // changed once it was hashed.
+    // What lands comes from the read that was hashed, not from the store's
+    // copy, so a changed store copy doesn't reach the source.
     let kept = rig
         .library
         .store()
@@ -326,7 +326,8 @@ async fn a_commit_lands_the_stores_copy_and_leaves_it_editable() {
         .path()
         .join("data/skills/personal/mine")
         .join(SKILL_FILE);
-    assert!(fs::read_to_string(&landed).unwrap().contains("Kept"));
+    let text = fs::read_to_string(&landed).unwrap();
+    assert!(text.contains("One") && !text.contains("Kept"), "{text}");
     assert!(!fs::metadata(&landed).unwrap().permissions().readonly());
 }
 

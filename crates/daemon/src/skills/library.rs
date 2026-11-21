@@ -15,7 +15,6 @@
 
 use std::collections::HashSet;
 use std::fs;
-use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::time::{Duration, UNIX_EPOCH};
@@ -33,6 +32,7 @@ use maxhq_protocol::state::{Change, Entity, EntityKey};
 use tokio::sync::broadcast::error::RecvError;
 use tracing::warn;
 
+use super::held::Held;
 use super::sources;
 use super::store::SkillStore;
 use crate::db::Db;
@@ -463,13 +463,10 @@ impl Library {
         let (from, message) = (folder.to_path_buf(), message.to_owned());
         let at = path.clone();
         self.blocking(move || {
-            // Hashing first refuses a folder with links before it's copied.
-            let (found, entries) = store.copy_in(&from)?;
-            // The store's copy is what was hashed, whatever the folder holds by now.
-            let kept = store
-                .path(&found)
-                .ok_or("The skill didn't reach the store.")?;
-            put(&root, &at, &kept, &entries)?;
+            // The folder is read once, refusing links, and what goes into
+            // the source is what was hashed, whatever the folder holds by now.
+            let (_, held) = store.copy_in(&from)?;
+            put(&root, &at, &held)?;
             commit(&root, &at, &message)
         })
         .await?;
@@ -532,8 +529,8 @@ impl Library {
                 let tree = store
                     .path(&skill.tree)
                     .ok_or_else(|| format!("{} didn't reach this device.", skill.name))?;
-                let (_, entries) = store.copy_in(&tree)?;
-                put(&made, &skill.path, &tree, &entries)?;
+                let (_, held) = store.copy_in(&tree)?;
+                put(&made, &skill.path, &held)?;
             }
             commit(&made, ".", &message)
         })
@@ -721,13 +718,9 @@ fn made_personal(dir: &Path) -> Result<(), String> {
     Ok(())
 }
 
-/// Puts the files of `from` at `path` in `root`, in place of what's there.
-fn put(
-    root: &Path,
-    path: &str,
-    from: &Path,
-    entries: &[maxhq_protocol::message::ManifestEntry],
-) -> Result<(), String> {
+/// Puts the files `held` read at `path` in `root`, in place of what's
+/// there. A store copy is read-only, and a source stays editable.
+fn put(root: &Path, path: &str, held: &Held) -> Result<(), String> {
     let failed = |err: std::io::Error| format!("couldn't write the skill: {err}");
     let target = root.join(path);
     let parent = target.parent().ok_or("The skill has no folder to go in.")?;
@@ -736,19 +729,7 @@ fn put(
     let new = parent.join(format!(".maxhq-new-{id}"));
     let old = parent.join(format!(".maxhq-old-{id}"));
     let written = (|| {
-        fs::create_dir_all(&new)?;
-        for entry in entries {
-            let to = new.join(&entry.path);
-            match entry.kind {
-                maxhq_protocol::message::EntryKind::Dir => fs::create_dir_all(&to)?,
-                _ => {
-                    fs::copy(from.join(&entry.path), &to)?;
-                    // A store copy is read-only, and a source stays editable.
-                    let mode = if entry.executable { 0o755 } else { 0o644 };
-                    fs::set_permissions(&to, fs::Permissions::from_mode(mode))?;
-                }
-            }
-        }
+        held.write(&new)?;
         if target.exists() {
             fs::rename(&target, &old)?;
         }

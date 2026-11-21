@@ -11,7 +11,8 @@
 
 use std::fs::{self, DirBuilder, File, OpenOptions};
 use std::io::{self, Read};
-use std::os::unix::fs::{lchown, DirBuilderExt, OpenOptionsExt};
+use std::os::unix::ffi::OsStrExt;
+use std::os::unix::fs::{lchown, DirBuilderExt, OpenOptionsExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
@@ -24,6 +25,7 @@ use maxhq_protocol::skills::{PackState, TreeHash};
 
 use super::apply;
 use maxhq_hold::RunAs;
+use maxhq_transfer::beneath::{Dir, FileType};
 use serde::{Deserialize, Serialize};
 
 /// How long the installer may run, under the guest's request wait.
@@ -40,6 +42,14 @@ const MARKER_LIMIT: u64 = 1024 * 1024;
 
 /// The folder the uv installer puts its tools in, from a home.
 const LOCAL_BIN: &str = ".local/bin";
+
+/// The python environment the installer makes in the copy.
+const VENV: &str = ".venv";
+
+/// The most entries and bytes [`venv_hash`] reads. A bigger `.venv` isn't
+/// carried over, so the installer makes it again.
+const VENV_ENTRIES: usize = 200_000;
+const VENV_BYTES: u64 = 1 << 30;
 
 /// One checkout's pack, as [`land`] puts it in.
 pub struct Landing<'a> {
@@ -89,10 +99,12 @@ pub fn land(landing: &Landing, installing: impl FnOnce()) -> PackState {
         tree: landing.tree.clone(),
         lines: vec![err],
     };
-    match pack::next(vendored, ours.as_ref(), landing.tree, landing.retry) {
+    let marked = ours.as_ref().map(|note| &note.marker);
+    match pack::next(vendored, marked, landing.tree, landing.retry) {
         Next::Leave(state) => return state,
         Next::Copy => {
-            if let Err(err) = copy(landing, &vendor, ours.is_some()) {
+            let venv = ours.as_ref().and_then(|note| note.venv.as_deref());
+            if let Err(err) = copy(landing, &vendor, venv) {
                 return failed(format!("couldn't copy the pack: {err}"));
             }
         }
@@ -102,11 +114,14 @@ pub fn land(landing: &Landing, installing: impl FnOnce()) -> PackState {
         ran: Ran::Pending,
         lines: Vec::new(),
     };
-    if let Err(err) = write_note(landing.logs, landing.root, &pending) {
+    if let Err(err) = write_note(landing.logs, landing.root, &pending, None) {
         return failed(format!("couldn't note the install: {err}"));
     }
     installing();
     let ran = install(landing);
+    // What the installer left in `.venv`, so that the next copy carries it
+    // over only while nothing else has changed it.
+    let venv = venv_hash(&vendor);
     let marker = Marker {
         tree: landing.tree.clone(),
         ran: if ran.is_ok() {
@@ -118,7 +133,7 @@ pub fn land(landing: &Landing, installing: impl FnOnce()) -> PackState {
     };
     // Only the note hears how it went. The installer had the checkout for its
     // whole run, so `vendor` could lead anywhere by now.
-    match write_note(landing.logs, landing.root, &marker) {
+    match write_note(landing.logs, landing.root, &marker, venv) {
         Ok(()) => marker.state(),
         Err(err) => failed(format!("couldn't note the install: {err}")),
     }
@@ -264,6 +279,10 @@ struct Note {
     /// The tree it copied and how its install went.
     #[serde(flatten)]
     marker: Marker,
+    /// The hash of the `.venv` the install left, from [`venv_hash`]. An older
+    /// maxd's note has none, so its `.venv` is made again once.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    venv: Option<String>,
 }
 
 /// Where the note for the checkout at `root` goes, beside its log.
@@ -272,17 +291,18 @@ fn note_path(logs: &Path, root: &Path) -> PathBuf {
 }
 
 /// What maxd last landed in the checkout at `root`, if it has.
-fn noted(logs: &Path, root: &Path) -> Option<Marker> {
+fn noted(logs: &Path, root: &Path) -> Option<Note> {
     let text = fs::read_to_string(note_path(logs, root)).ok()?;
     let note: Note = serde_json::from_str(&text).ok()?;
-    (note.root == root.display().to_string()).then_some(note.marker)
+    (note.root == root.display().to_string()).then_some(note)
 }
 
-fn write_note(logs: &Path, root: &Path, marker: &Marker) -> io::Result<()> {
+fn write_note(logs: &Path, root: &Path, marker: &Marker, venv: Option<String>) -> io::Result<()> {
     fs::create_dir_all(logs)?;
     let note = Note {
         root: root.display().to_string(),
         marker: marker.clone(),
+        venv,
     };
     let text = serde_json::to_vec_pretty(&note).map_err(io::Error::other)?;
     write_atomic(&note_path(logs, root), &text, Atomic::PLAIN)
@@ -298,17 +318,19 @@ fn clear_note(logs: &Path, root: &Path) -> io::Result<()> {
 /// Builds the copy in a folder only maxd can enter, checks its tree, hands it
 /// to its owner there and renames it into place last, marked pending. Root
 /// walks the copy by path, so the agent can't get at it until that's done.
-/// `ours` carries the old copy's `.venv` over, for a real folder that maxd's
-/// note says it made. Any other `.venv` stays out, since the installer runs
-/// the python it finds there. Whatever else is at `vendor`, a link too, goes
-/// without being followed.
-fn copy(landing: &Landing, vendor: &Path, ours: bool) -> io::Result<()> {
+/// The old copy's `.venv` comes over only while it's a real folder whose hash
+/// is still `venv`, the one maxd's note kept when its install ended. Any other
+/// `.venv` stays out, since the installer runs the python it finds there, and
+/// an agent in the checkout could have rewritten it since. Whatever else is at
+/// `vendor`, a link too, goes without being followed.
+fn copy(landing: &Landing, vendor: &Path, venv: Option<&str>) -> io::Result<()> {
     let hold = hold(landing, vendor)?;
     let temp = hold.join("copy");
     let landed = build(landing, &temp).and_then(|()| {
-        let venv = vendor.join(".venv");
         let real = |path: &Path| path.symlink_metadata().is_ok_and(|meta| meta.is_dir());
-        let carry = ours && real(vendor) && real(&venv);
+        let carry = venv
+            .is_some_and(|noted| real(vendor) && venv_hash(vendor).is_some_and(|now| now == noted));
+        let venv = vendor.join(VENV);
         let old = apply::beside(vendor, "old");
         let there = vendor.symlink_metadata().is_ok();
         if there {
@@ -321,7 +343,7 @@ fn copy(landing: &Landing, vendor: &Path, ours: bool) -> io::Result<()> {
             return Err(err);
         }
         let carried = match carry {
-            true => fs::rename(old.join(".venv"), &venv),
+            true => fs::rename(old.join(VENV), &venv),
             false => Ok(()),
         };
         let cleared = apply::clear(&old);
@@ -329,6 +351,70 @@ fn copy(landing: &Landing, vendor: &Path, ours: bool) -> io::Result<()> {
     });
     let cleared = apply::clear(&hold);
     landed.and(cleared)
+}
+
+/// A hash of the `.venv` in the copy at `vendor`: each path, what it is, a
+/// file's mode and bytes and a link's target, read through open folders
+/// without following a link. None when it's missing, holds anything else,
+/// has a name that isn't UTF-8 or is too big to read.
+fn venv_hash(vendor: &Path) -> Option<String> {
+    use ring::digest::{Context, SHA256};
+
+    let venv = Dir::open(vendor).ok()?.dir(&[VENV.to_owned()]).ok()?;
+    let mut sum = Context::new(&SHA256);
+    let (mut entries, mut bytes) = (0usize, 0u64);
+    let mut todo = vec![Vec::<String>::new()];
+    while let Some(parts) = todo.pop() {
+        // Each folder opens from `.venv` again, refusing a link on the way.
+        let here = venv.dir(&parts).ok()?;
+        let mut names = Vec::new();
+        for name in here.raw_names().ok()? {
+            names.push(name.into_string().ok()?);
+        }
+        names.sort_unstable();
+        for name in names {
+            entries += 1;
+            if entries > VENV_ENTRIES {
+                return None;
+            }
+            let path = [parts.as_slice(), std::slice::from_ref(&name)].concat();
+            let shown = path.join("/");
+            match here.kind(&name).ok()?? {
+                FileType::Directory => {
+                    sum.update(format!("d\0{shown}\0").as_bytes());
+                    todo.push(path);
+                }
+                FileType::RegularFile => {
+                    let mut file = here.read_regular(&name).ok()?;
+                    let mode = file.metadata().ok()?.permissions().mode() & 0o7777;
+                    let mut content = Context::new(&SHA256);
+                    let mut buf = vec![0u8; 64 * 1024];
+                    loop {
+                        let read = file.read(&mut buf).ok()?;
+                        if read == 0 {
+                            break;
+                        }
+                        bytes += read as u64;
+                        if bytes > VENV_BYTES {
+                            return None;
+                        }
+                        content.update(&buf[..read]);
+                    }
+                    sum.update(format!("f\0{shown}\0{mode:o}\0").as_bytes());
+                    sum.update(content.finish().as_ref());
+                }
+                FileType::Symlink => {
+                    let target = here.read_link(&name).ok()?;
+                    sum.update(format!("l\0{shown}\0").as_bytes());
+                    sum.update(target.as_bytes());
+                    sum.update(b"\0");
+                }
+                _ => return None,
+            }
+        }
+    }
+    let hash = sum.finish();
+    Some(hash.as_ref().iter().map(|b| format!("{b:02x}")).collect())
 }
 
 /// Makes the folder a copy is built in, which only maxd can enter. In a

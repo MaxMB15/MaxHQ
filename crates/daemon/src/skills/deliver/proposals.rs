@@ -39,9 +39,11 @@ use maxhq_protocol::skills::{
 };
 use maxhq_protocol::state::{Change, Entity, EntityKey};
 use maxhq_protocol::time::Timestamp;
+use maxhq_transfer::beneath::Dir;
 use tracing::{debug, warn};
 
 use super::{Delivery, DELIVERY};
+use crate::skills::held::Held;
 use crate::skills::Library;
 
 /// A checkout whose proposals are read: a folder on this device, or one
@@ -190,6 +192,42 @@ impl Delivery {
             .join(SkillProposalId::derive(&at.path).to_string()))
     }
 
+    /// The proposals folder of `at`, open, or none when it isn't there.
+    /// Everything read or removed in it goes through this, so a link put
+    /// in place of `.maxhq` or `.maxhq/proposals` after the look above
+    /// fails the open instead of leading somewhere else.
+    pub(super) fn open_proposals(&self, at: &Checkout) -> Result<Option<Dir>, String> {
+        let dir = self.proposals_dir(at)?;
+        let opened = match at.guest {
+            Some(_) => Dir::open(&dir),
+            None => open_checkout(Path::new(&at.path)),
+        };
+        match opened {
+            Ok(dir) => Ok(Some(dir)),
+            Err(err)
+                if matches!(
+                    err.kind(),
+                    io::ErrorKind::NotFound | io::ErrorKind::NotADirectory
+                ) =>
+            {
+                Ok(None)
+            }
+            Err(err) => Err(format!("The proposals folder can't be read: {err}.")),
+        }
+    }
+
+    /// The files of a kept proposal, read once through the open folder.
+    fn read_kept(&self, kept: &Kept) -> Result<Held, String> {
+        let unread = |err: &dyn std::fmt::Display| format!("The proposal can't be read: {err}.");
+        let dir = self
+            .open_proposals(&kept.at)?
+            .ok_or_else(|| unread(&"its folder isn't there any more"))?;
+        let folder = dir
+            .dir(std::slice::from_ref(&kept.folder))
+            .map_err(|err| unread(&err))?;
+        Held::read(&folder).map_err(|err| unread(&err))
+    }
+
     /// `<data>/skills/proposals`, beside the container sets.
     fn mirror(&self) -> PathBuf {
         self.sets.with_file_name("proposals")
@@ -200,14 +238,14 @@ impl Delivery {
     /// names `agent`; one seen before keeps what it had.
     pub(super) fn found(&self, project: ProjectId, at: &Checkout, agent: Option<AgentId>) {
         // No folder to read lists nothing, so what it showed goes away.
-        let dir = self.proposals_dir(at).unwrap_or_default();
+        let dir = self.open_proposals(at).ok().flatten();
         let device = self.hub.device().id;
         let lock = self.lock().locks.get(&project).cloned().unwrap_or_default();
         let mut changes = Vec::new();
         let mut now = HashMap::new();
-        for folder in folders(&dir) {
+        for (folder, open) in dir.as_ref().map(folders).unwrap_or_default() {
             let id = id_of(at, &folder);
-            let Some(made) = build(&dir.join(&folder), &lock) else {
+            let Some(made) = build(&open, &folder, &lock) else {
                 continue;
             };
             let was = match self.hub.get(&EntityKey::SkillProposal(id)) {
@@ -388,13 +426,15 @@ impl Delivery {
         sources: Option<Vec<SkillSource>>,
     ) -> Result<ProposalDiff, String> {
         let (proposal, kept) = self.clone().kept(id).await?;
-        let folder = self.proposals_dir(&kept.at)?.join(&kept.folder);
+        self.proposals_dir(&kept.at)?;
         let delivery = self.clone();
-        let held = proposal.clone();
+        let (held, at) = (proposal.clone(), kept.clone());
         let shown = tokio::task::spawn_blocking(move || {
             // Kept in the store, the tree can be copied to the holder, and
             // the diff shows that copy, which can't change under it.
-            delivery.keep(&held.tree, &folder)?;
+            if !delivery.store.has(&held.tree) {
+                delivery.keep(&held.tree, &delivery.read_kept(&at)?)?;
+            }
             delivery.shown(&held, sources.as_deref())
         })
         .await
@@ -463,11 +503,9 @@ impl Delivery {
 
     /// Whether the folder of a kept proposal no longer holds its tree.
     fn has_changed(&self, proposal: &SkillProposal, kept: &Kept) -> bool {
-        // A folder that can't be named safely any more counts as changed.
-        let Ok(dir) = self.proposals_dir(&kept.at) else {
-            return true;
-        };
-        tree::of(&DiskFs, &dir.join(&kept.folder)).map_or(true, |now| now != proposal.tree)
+        // A folder that can't be read safely any more counts as changed.
+        let now = self.read_kept(kept).ok().and_then(|held| held.tree().ok());
+        now.is_none_or(|now| now != proposal.tree)
     }
 
     async fn answer(
@@ -492,20 +530,29 @@ impl Delivery {
         let (proposal, kept) = self.clone().kept(answer.proposal).await?;
         if answer.action == ProposalAction::Approve {
             let library = library.ok_or(crate::skills::NOT_YET)?;
-            let folder = self.proposals_dir(&kept.at)?.join(&kept.folder);
-            // The check and the commit both use this copy, so a change to the
-            // folder after the check can't be what lands.
-            let copy = self.private_copy(&folder)?;
-            let now = tree::of(&DiskFs, &copy)
-                .map_err(|err| format!("The proposal can't be read: {err}."));
-            if !now.as_ref().is_ok_and(|now| *now == proposal.tree) {
-                let _ = maxhq_transfer::remove_tree(&copy);
-                now?;
+            // The folder is read once. What's checked is those bytes, and
+            // the copy they make in the store is what's committed, so a
+            // change to the folder after the check can't be what lands.
+            let delivery = self.clone();
+            let (at, tree) = (kept.clone(), proposal.tree.clone());
+            let checked = tokio::task::spawn_blocking(move || {
+                let held = delivery.read_kept(&at)?;
+                let now = held
+                    .tree()
+                    .map_err(|err| format!("The proposal can't be read: {err}."))?;
+                if now != tree {
+                    return Ok(false);
+                }
+                delivery.keep(&tree, &held).map(|()| true)
+            })
+            .await
+            .map_err(|err| format!("the approve stopped: {err}"))??;
+            if !checked {
                 self.clone().look(kept.project, kept.at, None).await;
                 return Err(CHANGED.into());
             }
-            // The copy in the store is what was checked, and can't change.
-            self.keep(&proposal.tree, &folder)?;
+            // The store's copy stays: it's the store's, and other
+            // proposals or skills can share its tree.
             let copy = self
                 .store
                 .path(&proposal.tree)
@@ -514,7 +561,6 @@ impl Delivery {
             let committed = self
                 .commit(library, &proposal, &copy, answer.fork, answer.push, seen)
                 .await;
-            let _ = maxhq_transfer::remove_tree(&copy);
             // A push that didn't go through still leaves the change in.
             if committed
                 .as_ref()
@@ -605,35 +651,21 @@ impl Delivery {
         Ok(())
     }
 
-    /// Puts a copy of the proposal at `folder` in the store as `tree`,
-    /// leaving the folder where it is.
-    fn keep(&self, tree: &maxhq_protocol::skills::TreeHash, folder: &Path) -> Result<(), String> {
+    /// Puts the proposal files `held` in the store as `tree`. The store
+    /// hashes what lands, so files that aren't `tree` don't.
+    fn keep(&self, tree: &maxhq_protocol::skills::TreeHash, held: &Held) -> Result<(), String> {
         if self.store.has(tree) {
             return Ok(());
         }
-        let files = tree::read(&DiskFs, folder)
-            .map_err(|err| format!("The proposal can't be read: {err}."))?;
         let to = self.scratch();
-        let landed = copy_files(folder, &to, &files)
+        let landed = held
+            .write(&to)
             .map_err(|err| format!("couldn't copy the proposal: {err}"))
             .and_then(|()| self.store.land(tree, &to));
         if landed.is_err() {
             let _ = maxhq_transfer::remove_tree(&to);
         }
         landed.map(drop)
-    }
-
-    /// A copy of the proposal at `folder` beside the mirror, out of the
-    /// checkout's reach.
-    fn private_copy(&self, folder: &Path) -> Result<PathBuf, String> {
-        let files = tree::read(&DiskFs, folder)
-            .map_err(|err| format!("The proposal can't be read: {err}."))?;
-        let to = self.scratch();
-        if let Err(err) = copy_files(folder, &to, &files) {
-            let _ = maxhq_transfer::remove_tree(&to);
-            return Err(format!("couldn't copy the proposal: {err}"));
-        }
-        Ok(to)
     }
 
     /// A new folder name beside the mirror, on the store's disk.
@@ -645,30 +677,35 @@ impl Delivery {
     /// A copy of `folder` whose `SKILL.md` is named `name`, for a fork.
     fn renamed(&self, folder: &Path, name: &str) -> Result<PathBuf, String> {
         let failed = |err: io::Error| format!("couldn't copy the skill for its fork: {err}");
-        let files = tree::read(&DiskFs, folder)
-            .map_err(|err| format!("The proposal can't be read: {err}."))?;
+        let held = Held::at(folder).map_err(|err| format!("The proposal can't be read: {err}."))?;
         let to = self.scratch();
-        copy_files(folder, &to, &files).map_err(failed)?;
         let skill = to.join(SKILL_FILE);
-        let text = fs::read_to_string(&skill).map_err(failed)?;
-        fs::write(&skill, with_name(&text, name)).map_err(failed)?;
+        let made = held.write(&to).and_then(|()| {
+            let text = fs::read_to_string(&skill)?;
+            fs::write(&skill, with_name(&text, name))
+        });
+        if let Err(err) = made {
+            let _ = maxhq_transfer::remove_tree(&to);
+            return Err(failed(err));
+        }
         Ok(to)
     }
 
     /// Removes a proposal's folder, then the proposal.
     async fn remove(self: Arc<Self>, id: SkillProposalId, kept: Kept) -> Result<(), String> {
-        let folder = self.proposals_dir(&kept.at)?.join(&kept.folder);
         match kept.at.guest {
             Some(_) => {
                 self.clone()
                     .read_guest(&kept.at, Some(kept.folder.clone()))
                     .await?
             }
-            None => match maxhq_transfer::remove_tree(&folder) {
-                Ok(()) => {}
-                Err(err) if err.kind() == io::ErrorKind::NotFound => {}
-                Err(err) => return Err(format!("Couldn't remove the proposal's folder: {err}")),
-            },
+            None => {
+                let delivery = self.clone();
+                let at = kept.clone();
+                tokio::task::spawn_blocking(move || delivery.remove_folder(&at))
+                    .await
+                    .map_err(|err| format!("removing the proposal stopped: {err}"))??
+            }
         }
         self.lock().proposals.remove(&id);
         self.hub.apply([Change::Remove {
@@ -676,6 +713,24 @@ impl Delivery {
         }]);
         Ok(())
     }
+
+    /// Removes a kept proposal's folder on this device through the open
+    /// proposals folder, so nothing outside it can be what goes.
+    fn remove_folder(&self, kept: &Kept) -> Result<(), String> {
+        let Some(dir) = self.open_proposals(&kept.at)? else {
+            return Ok(());
+        };
+        dir.remove_tree(&kept.folder)
+            .map_err(|err| format!("Couldn't remove the proposal's folder: {err}"))
+    }
+}
+
+/// The proposals folder of the checkout at `root` on this device, opened
+/// one part at a time without following a link. The checkout itself may
+/// be reached through one.
+fn open_checkout(root: &Path) -> io::Result<Dir> {
+    let parts: Vec<String> = PROPOSALS_DIR.split('/').map(str::to_owned).collect();
+    Dir::open(&fs::canonicalize(root)?)?.dir(&parts)
 }
 
 /// How a commit whose push failed starts its answer.
@@ -690,20 +745,19 @@ fn id_of(at: &Checkout, folder: &str) -> SkillProposalId {
     SkillProposalId::derive(&format!("{guest}\n{}\n{folder}", at.path))
 }
 
-/// The proposal folders in `dir`, by name. Dot folders and links are
-/// passed over.
-fn folders(dir: &Path) -> Vec<String> {
-    let Ok(entries) = fs::read_dir(dir) else {
-        return Vec::new();
-    };
-    let mut names: Vec<String> = entries
-        .filter_map(Result::ok)
-        .filter(|entry| entry.file_type().is_ok_and(|kind| kind.is_dir()))
-        .filter_map(|entry| entry.file_name().into_string().ok())
-        .filter(|name| !name.starts_with('.'))
-        .collect();
+/// The proposal folders in `dir`, by name, each open. Dot folders, links
+/// and files are passed over.
+fn folders(dir: &Dir) -> Vec<(String, Dir)> {
+    let mut names = dir.names().unwrap_or_default();
+    names.retain(|name| !name.starts_with('.'));
     names.sort();
     names
+        .into_iter()
+        .filter_map(|name| {
+            let open = dir.dir(std::slice::from_ref(&name)).ok()?;
+            Some((name, open))
+        })
+        .collect()
 }
 
 /// Where approving `proposal` goes, from the library's `sources` and the
@@ -761,34 +815,35 @@ fn target(
     })
 }
 
-/// The proposal the folder at `folder` makes, named by its `SKILL.md` or
-/// else by the folder, with its base and source from `lock`. The fields
-/// that say where it is are left for the caller.
-pub(super) fn build(folder: &Path, lock: &SkillLock) -> Option<SkillProposal> {
-    let files = match tree::read(&DiskFs, folder) {
-        Ok(files) => files,
+/// The proposal the folder `named`, open at `folder`, makes: named by its
+/// `SKILL.md` or else by the folder, with its base and source from `lock`.
+/// The fields that say where it is are left for the caller.
+pub(super) fn build(folder: &Dir, named: &str, lock: &SkillLock) -> Option<SkillProposal> {
+    let held = match Held::read(folder) {
+        Ok(held) => held,
         Err(err) => {
-            warn!(%err, folder = %folder.display(), "passed over a skill proposal that can't be hashed");
+            warn!(%err, folder = named, "passed over a skill proposal that can't be hashed");
             return None;
         }
     };
-    let tree = tree::hash(&files).ok()?;
-    let doc = maxhq_core::fs::read_text(&folder.join(SKILL_FILE), tree::MAX_BYTES)
-        .ok()
-        .and_then(|text| frontmatter::parse(&text).ok());
+    let tree = held.tree().ok()?;
+    let doc = held
+        .file(SKILL_FILE)
+        .and_then(|text| std::str::from_utf8(text).ok())
+        .and_then(|text| frontmatter::parse(text).ok());
+    let files = &held.entries;
     let name = doc
         .as_ref()
         .and_then(|doc| doc.name())
         .filter(|name| frontmatter::check_name(name).is_ok())
-        .map(str::to_owned)
-        .or_else(|| Some(folder.file_name()?.to_str()?.to_owned()))?;
+        .map_or_else(|| named.to_owned(), str::to_owned);
     let locked = lock.skills.iter().find(|skill| skill.name == name);
     Some(SkillProposal {
         id: SkillProposalId::derive(""),
         device: maxhq_protocol::ids::DeviceId::derive(""),
         project: ProjectId::derive(""),
         agent: None,
-        flags: doc.map_or_else(SkillFlags::default, |doc| frontmatter::flags(&doc, &files)),
+        flags: doc.map_or_else(SkillFlags::default, |doc| frontmatter::flags(&doc, files)),
         base: locked.map(|skill| skill.tree.clone()),
         source: locked.map(|skill| skill.source),
         name,
@@ -837,24 +892,6 @@ fn plain(path: &str) -> bool {
         && Path::new(path)
             .components()
             .all(|part| matches!(part, Component::Normal(_)))
-}
-
-/// Copies the files of a manifest read from `from` into a new `to`.
-fn copy_files(from: &Path, to: &Path, files: &[ManifestEntry]) -> io::Result<()> {
-    fs::create_dir_all(to)?;
-    for entry in files {
-        let target = to.join(&entry.path);
-        match entry.kind {
-            EntryKind::Dir => fs::create_dir_all(&target)?,
-            _ => {
-                fs::copy(from.join(&entry.path), &target)?;
-                // A store copy is read-only, and the rename writes it.
-                let mode = if entry.executable { 0o755 } else { 0o644 };
-                fs::set_permissions(&target, fs::Permissions::from_mode(mode))?;
-            }
-        }
-    }
-    Ok(())
 }
 
 /// A `SKILL.md` whose frontmatter names `name`.

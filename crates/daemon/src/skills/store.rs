@@ -13,12 +13,11 @@ use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime};
 
-use maxhq_core::skills::disk::DiskFs;
 use maxhq_core::skills::store::{well_formed, FolderStore, TreeStore};
-use maxhq_core::skills::tree;
-use maxhq_protocol::message::{EntryKind, ManifestEntry};
 use maxhq_protocol::skills::TreeHash;
 use tracing::warn;
+
+use super::held::Held;
 
 /// How long a tree stays once no lock or set names it.
 pub const KEEP_FOR: Duration = Duration::from_secs(30 * 24 * 60 * 60);
@@ -42,20 +41,24 @@ impl SkillStore {
     }
 
     /// Copies the skill folder at `folder` into the store and gives its
-    /// tree and files. The folder itself is left as it was.
-    pub fn copy_in(&self, folder: &Path) -> Result<(TreeHash, Vec<ManifestEntry>), String> {
-        let entries = tree::read(&DiskFs, folder).map_err(|err| err.to_string())?;
-        let found = tree::hash(&entries).map_err(|err| err.to_string())?;
+    /// tree and what was read. The folder itself is left as it was. The
+    /// folder is read once, so what's stored is what was hashed.
+    pub fn copy_in(&self, folder: &Path) -> Result<(TreeHash, Held), String> {
+        let held = Held::at(folder).map_err(|err| err.to_string())?;
+        let found = held.tree().map_err(|err| err.to_string())?;
         if self.has(&found) {
             touch(&self.folders.root().join(&found.0));
-            return Ok((found, entries));
+            return Ok((found, held));
         }
         let to = self.scratch.join(uuid::Uuid::now_v7().simple().to_string());
-        let copied = copy(folder, &to, &entries).and_then(|()| self.land(&found, &to));
+        let copied = held
+            .write(&to)
+            .map_err(|err| format!("couldn't copy the skill: {err}"))
+            .and_then(|()| self.land(&found, &to));
         if copied.is_err() {
             let _ = fs::remove_dir_all(&to);
         }
-        copied.map(|_| (found, entries))
+        copied.map(|_| (found, held))
     }
 
     /// Removes each tree not in `keep` that nothing kept for
@@ -112,26 +115,6 @@ impl TreeStore for SkillStore {
         }
         Ok(to)
     }
-}
-
-/// Copies `entries`, read from `from`, into a new folder `to`.
-fn copy(from: &Path, to: &Path, entries: &[ManifestEntry]) -> Result<(), String> {
-    let failed = |err: io::Error| format!("couldn't copy the skill: {err}");
-    fs::create_dir_all(to).map_err(failed)?;
-    for entry in entries {
-        let target = to.join(&entry.path);
-        match entry.kind {
-            EntryKind::Dir => fs::create_dir_all(&target).map_err(failed)?,
-            EntryKind::File => {
-                fs::copy(from.join(&entry.path), &target).map_err(failed)?;
-                let mode = if entry.executable { 0o755 } else { 0o644 };
-                fs::set_permissions(&target, fs::Permissions::from_mode(mode)).map_err(failed)?;
-            }
-            // `tree::read` refuses links.
-            EntryKind::Symlink { .. } => {}
-        }
-    }
-    Ok(())
 }
 
 /// Makes every file and folder under `dir` read-only, keeping each
@@ -194,6 +177,9 @@ impl SkillStore {
 
 #[cfg(test)]
 mod tests {
+    use maxhq_core::skills::disk::DiskFs;
+    use maxhq_core::skills::tree;
+
     use super::*;
     use crate::testing::TempDir;
 
@@ -215,9 +201,9 @@ mod tests {
         let store = SkillStore::under(dir.path());
         let from = skill(&dir.path().join("mine"), "---\nname: mine\n---\n");
 
-        let (tree, entries) = store.copy_in(&from).unwrap();
+        let (tree, held) = store.copy_in(&from).unwrap();
         assert_eq!(tree, tree::of(&DiskFs, &from).unwrap());
-        assert_eq!(entries.len(), 3);
+        assert_eq!(held.entries.len(), 3);
         assert!(from.join("SKILL.md").is_file());
 
         let landed = store.path(&tree).unwrap();

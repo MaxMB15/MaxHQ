@@ -646,13 +646,14 @@ pub(super) async fn a_shell_mark_needs_its_nonce_and_may_come_in_pieces(ctx: Ctx
     let nonce = "0123456789abcdef0123456789abcdef";
     // The D mark comes in three reads, the last split inside its ST. The
     // ESC ends it, as it does in the terminal, and the `ESC \` it starts
-    // goes on.
+    // goes on. The folder said before the first mark and after the D
+    // counts. The one printed while the first command runs doesn't.
     let script = format!(
-        "stty -echo; printf 'one\\033]133;A;maxhq={nonce}\\007two'; \
+        "stty -echo; printf '\\033]7;file://devbox/tmp/x\\007one\\033]133;A;maxhq={nonce}\\007two'; \
          printf '\\033]133;B;maxhq=wrong\\007\\033]133;C\\007\\033]133;B;maxhq={nonce}0\\007'; \
-         printf '\\033]7;file://devbox/tmp/x\\007\\033]13'; sleep 0.3; \
+         printf '\\033]133;C;maxhq={nonce}\\007\\033]7;file://devbox/tmp/printed\\007\\033]13'; sleep 0.3; \
          printf '3;D;7;maxhq={nonce}\\033'; sleep 0.3; \
-         printf '\\\\three\\033]133;C;maxhq={nonce}\\007'; read wait"
+         printf '\\\\three\\033]7;file://devbox/tmp/y\\007\\033]133;C;maxhq={nonce}\\007'; read wait"
     );
     let terminals = terminals(&ctx);
     for nonce in [Some(nonce), None] {
@@ -666,12 +667,13 @@ pub(super) async fn a_shell_mark_needs_its_nonce_and_may_come_in_pieces(ctx: Ctx
         let Reached::Live(mut watch) = terminals.watch(launch.terminal).await.unwrap() else {
             panic!("no watch");
         };
-        let osc7 = "\x1b]7;file://devbox/tmp/x\x07";
+        let folder = |path: &str| format!("\x1b]7;file://devbox{path}\x07");
+        let (x, printed, y) = (folder("/tmp/x"), folder("/tmp/printed"), folder("/tmp/y"));
         let expected = match nonce {
-            Some(_) => {
-                format!("one\x1b]133;A\x07two{osc7}\x1b]133;D;7\x07\x1b\\three\x1b]133;C\x07")
-            }
-            None => format!("onetwo{osc7}\x1b\\three"),
+            Some(_) => format!(
+                "{x}one\x1b]133;A\x07two\x1b]133;C\x07{printed}\x1b]133;D;7\x07\x1b\\three{y}\x1b]133;C\x07"
+            ),
+            None => format!("{x}onetwo{printed}\x1b\\three{y}"),
         };
         let mut seen = Seen::from(&link);
         seen.until(&mut link, false, |seen| seen.bytes.len() >= expected.len())
@@ -684,14 +686,21 @@ pub(super) async fn a_shell_mark_needs_its_nonce_and_may_come_in_pieces(ctx: Ctx
         let mut watched = Seen::from(&watch);
         watched.until_exit(&mut watch).await;
         let at = |text: &str| u64::try_from(expected.find(text).unwrap()).unwrap();
+        let last = |text: &str| u64::try_from(expected.rfind(text).unwrap()).unwrap();
         let marks = match nonce {
             Some(_) => vec![
-                (3, Mark::Prompt),
-                (at("\x1b]133;D"), Mark::Done { exit: Some(7) }),
+                (at("\x1b]133;A"), Mark::Prompt),
                 (
                     at("\x1b]133;C"),
                     Mark::Command {
                         cwd: Some("/tmp/x".into()),
+                    },
+                ),
+                (at("\x1b]133;D"), Mark::Done { exit: Some(7) }),
+                (
+                    last("\x1b]133;C"),
+                    Mark::Command {
+                        cwd: Some("/tmp/y".into()),
                     },
                 ),
             ],

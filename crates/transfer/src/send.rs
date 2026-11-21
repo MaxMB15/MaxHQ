@@ -171,6 +171,22 @@ impl Beneath {
             bytes: None,
         }
     }
+
+    /// Reads the files this walk found through a second handle on its
+    /// folder, so a copy that has to start over can take a fresh one.
+    pub fn reader(&self) -> io::Result<Source> {
+        let held = Held {
+            top: self.held.top.dir(&[])?,
+            owner: self.held.owner,
+        };
+        Ok(Source {
+            layout: Layout::of(&self.walk.entries),
+            paths: self.walk.sources.clone(),
+            held: Some(held),
+            open: None,
+            bytes: None,
+        })
+    }
 }
 
 /// An open folder, and whose files may have a second name in it.
@@ -1372,6 +1388,20 @@ mod tests {
         std::fs::remove_file(pick.join("file")).unwrap();
         symlink("../secret", pick.join("file")).unwrap();
         assert!(held.source().read(0, 5).is_err());
+    }
+
+    #[test]
+    fn a_second_reader_reads_the_same_and_stops_at_a_link() {
+        let dir = TempDir::new();
+        let pick = dir.path().join("pick");
+        write(&pick.join("file"), b"mine!", 0o644);
+        write(&dir.path().join("secret"), b"other", 0o600);
+        let held = beneath(dir.path(), None).unwrap();
+        assert_eq!(held.reader().unwrap().read(0, 5).unwrap(), b"mine!");
+        assert_eq!(held.reader().unwrap().read(0, 5).unwrap(), b"mine!");
+        std::fs::remove_file(pick.join("file")).unwrap();
+        symlink("../secret", pick.join("file")).unwrap();
+        assert!(held.reader().unwrap().read(0, 5).is_err());
     }
 
     #[test]

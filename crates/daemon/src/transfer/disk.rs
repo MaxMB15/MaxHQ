@@ -247,7 +247,7 @@ pub async fn walk_files(root: PathBuf, paths: Vec<String>) -> Result<Walk, Failu
     blocking(move || maxhq_transfer::send::walk_files(&root, &paths)).await
 }
 
-/// A path found below one of a guest's folders, with that folder open.
+/// A path found below one of an agent's folders, with that folder open.
 pub struct Inside {
     /// The folder the path is under, which stays open.
     pub top: Dir,
@@ -372,21 +372,52 @@ pub fn one_top(entries: &[ManifestEntry]) -> Result<Vec<manifest::Entry>, Failur
 /// with links in the roots themselves resolved, and a relative one is from
 /// the first.
 pub fn resolve(roots: &[PathBuf], path: &str) -> Result<PathBuf, Failure> {
+    let (root, _, parts) = looked(roots, path)?;
+    Ok(parts.iter().fold(root, |path, part| path.join(part)))
+}
+
+/// [`resolve`], keeping open the folder in `roots` the path is under. An
+/// agent can change its folders at any moment, so what's read next starts
+/// from that folder and follows no link: a name swapped for a link after
+/// this look is refused rather than followed.
+pub fn opened(roots: &[PathBuf], path: &str) -> Result<Inside, Failure> {
+    let (root, top, parts) = looked(roots, path)?;
+    let name = match parts.last() {
+        Some(leaf) => leaf.clone(),
+        None => root
+            .file_name()
+            .and_then(std::ffi::OsStr::to_str)
+            .ok_or_else(|| Failure::new(ErrorCode::BadPath, None, "the name isn't text"))?
+            .to_owned(),
+    };
+    let path = parts.iter().fold(root, |path, part| path.join(part));
+    Ok(Inside {
+        top,
+        parts,
+        name,
+        path,
+    })
+}
+
+/// The root in `roots` that `path` is under with links in it resolved, that
+/// root open, and the parts below it, once the last part is there and
+/// isn't a link.
+fn looked(roots: &[PathBuf], path: &str) -> Result<(PathBuf, Dir, Vec<String>), Failure> {
     let bad = |message: &str| Failure::new(ErrorCode::BadPath, None, message);
     let io = |err: std::io::Error| Failure::io(&err, None);
     let (root, parts) = below(roots, path)?;
     let root = root.canonicalize().map_err(io)?;
-    let Some((leaf, parent)) = parts.split_last() else {
-        return Ok(root);
-    };
-    let dir = Dir::open(&root)
-        .and_then(|dir| dir.dir(parent))
-        .map_err(io)?;
-    match dir.kind(leaf).map_err(io)? {
-        None => Err(bad("nothing is at that path")),
-        Some(kind) if kind.is_symlink() => Err(bad("the path is a link, which MaxHQ won't follow")),
-        Some(_) => Ok(parts.iter().fold(root, |path, part| path.join(part))),
+    let top = Dir::open(&root).map_err(io)?;
+    if let Some((leaf, parent)) = parts.split_last() {
+        match top.dir(parent).and_then(|dir| dir.kind(leaf)).map_err(io)? {
+            None => return Err(bad("nothing is at that path")),
+            Some(kind) if kind.is_symlink() => {
+                return Err(bad("the path is a link, which MaxHQ won't follow"));
+            }
+            Some(_) => {}
+        }
     }
+    Ok((root, top, parts))
 }
 
 /// Finds the file at `path` for Show anyway, wherever it is, since you
