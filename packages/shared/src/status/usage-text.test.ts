@@ -65,7 +65,7 @@ describe("meter", () => {
 		const view = await load();
 		const [claude, codex] = usagePlans(view);
 		expect(accountStatus(view, codex!)).toBe("At limit, 1 agent waiting");
-		expect(accountStatus(view, claude!)).toBe("15 agents");
+		expect(accountStatus(view, claude!)).toBe("22 agents");
 	});
 
 	it("counts the agents of every login on the plan", async () => {

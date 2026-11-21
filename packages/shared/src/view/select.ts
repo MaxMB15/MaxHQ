@@ -6,7 +6,7 @@
 // settled, and how devices group under their networks (N-5). Nothing here
 // changes the view.
 
-import { t } from "../i18n";
+import { formatNumber, t } from "../i18n";
 
 import type {
 	Account,
@@ -176,22 +176,58 @@ export const childrenOf = (view: ViewState, agent: string): Agent[] =>
 		.sort((a, b) => a.started_at - b.started_at || a.id.localeCompare(b.id));
 
 /**
+ * Whether the sidebar shows the agent as a row the agents it started can
+ * sit under: it's in the active list or pinned, and not a dispatcher's or
+ * bound to a live workflow run, which the sidebar leaves out.
+ */
+const holdsStarted = (view: ViewState, caller: Agent, now: Timestamp): boolean => {
+	const place = placeOf(caller, now, NO_SHELF);
+	if (place !== "active" && place !== "pinned") return false;
+	if (dispatcherHomes(view).has(caller.workspace)) return false;
+	return place === "pinned" || !liveRunAgents(view).has(caller.id);
+};
+
+/**
+ * Whether the agent settled along with its caller: both sit among the
+ * settled, by the same settle. `maxd` gives each started agent that goes
+ * along its caller's own record, so the two match exactly.
+ */
+export const settledWith = (agent: Agent, caller: Agent, now: Timestamp): boolean => {
+	const own = inboxOf(agent).settled;
+	const theirs = inboxOf(caller).settled;
+	return (
+		own !== null &&
+		theirs !== null &&
+		placeOf(agent, now, NO_SHELF) === "settled" &&
+		placeOf(caller, now, NO_SHELF) === "settled" &&
+		own.at === theirs.at &&
+		JSON.stringify(own.by) === JSON.stringify(theirs.by)
+	);
+};
+
+/**
  * The agent that started this one through the agent tools, when the
- * sidebar shows it under that agent: the caller is in the view and is a
- * row itself, and you haven't pinned, snoozed or settled the started one.
- * Otherwise it stays in the lists, so it's never out of reach.
+ * sidebar shows it under that agent. While you haven't pinned, snoozed or
+ * settled the started one, it sits under a caller that's a row in the
+ * active list or the pins. One that settled along with its caller sits
+ * under it among the settled. Otherwise it stays in the lists at the top
+ * level, so it's never out of reach: a settled or snoozed caller doesn't
+ * hide a started agent that's still active.
  */
 export const callerOf = (view: ViewState, agent: Agent, now: Timestamp): Agent | undefined => {
 	const by = agent.origin?.by;
 	if (by?.kind !== "agent" || agent.parent !== null) return undefined;
 	const caller = view.tables.agent.get(by.agent);
 	if (caller === undefined || caller.parent !== null || caller.id === agent.id) return undefined;
-	return placeOf(agent, now, NO_SHELF) === "active" ? caller : undefined;
+	const place = placeOf(agent, now, NO_SHELF);
+	if (place === "settled") return settledWith(agent, caller, now) ? caller : undefined;
+	return place === "active" && holdsStarted(view, caller, now) ? caller : undefined;
 };
 
 /** The agents shown under this one because it started them, oldest first. */
 export const startedBy = (view: ViewState, agent: string, now: Timestamp): Agent[] =>
 	all(view, "agent")
+		.filter((a) => a.origin?.by.kind === "agent" && a.origin.by.agent === agent)
 		.filter((a) => callerOf(view, a, now)?.id === agent)
 		.sort((a, b) => a.started_at - b.started_at || a.id.localeCompare(b.id));
 
@@ -215,6 +251,81 @@ export const startedRows = (view: ViewState, agent: string, now: Timestamp): Sta
 	};
 	walk(agent, 1);
 	return rows;
+};
+
+/** Above this many rows under a caller, at every level, they collapse into one. */
+export const STARTED_FOLD_ABOVE = 2;
+
+/**
+ * The key in the window's folds that says a caller's started rows are
+ * open. They're collapsed by default, so only an open one is kept.
+ */
+export const startedOpenKey = (caller: string): string => `started-open:${caller}`;
+
+/**
+ * Whether a started agent keeps its own row while the rest are collapsed,
+ * as it needs you: it needs input or has failed.
+ */
+export const keepsRow = (agent: Agent): boolean =>
+	agent.activity.state === "needs_input" || agent.activity.state === "error";
+
+/** The one row a caller's started rows collapse into. */
+export type StartedSummary = {
+	/** How many started agents it stands for, at every level. */
+	readonly count: number;
+	/** How many of them are working. */
+	readonly working: number;
+	/** What it says, such as "6 started, 1 working". */
+	readonly text: string;
+};
+
+/** The rows under a caller as the sidebar shows them. */
+export type StartedFold = {
+	/** The summary row, which comes first, when there are enough to collapse. */
+	readonly summary: StartedSummary | undefined;
+	/** The rows that show: every one while open, or else those kept out of the fold. */
+	readonly rows: readonly StartedRow[];
+};
+
+const summaryOf = (rows: readonly StartedRow[]): StartedSummary => {
+	const count = rows.length;
+	const working = rows.filter((row) => WORKING.has(row.agent.activity.state)).length;
+	const text =
+		working > 0
+			? t("{{started}} started, {{working}} working", {
+					started: formatNumber(count),
+					working: formatNumber(working),
+				})
+			: t("{{started}} started", { started: formatNumber(count) });
+	return { count, working, text };
+};
+
+/**
+ * How a caller's started rows show. Up to two show as they are. More
+ * collapse into one summary row, and `open` shows every row below it.
+ * While collapsed, a started agent that needs input or has failed still
+ * shows, as do those `keep` names, such as the one you're looking at or
+ * the ones you picked. A kept row sits one level in for each kept row
+ * above it in the tree, so it shows under the kept agent that started it.
+ */
+export const foldStarted = (
+	rows: readonly StartedRow[],
+	open: boolean,
+	keep: (agent: Agent) => boolean = () => false
+): StartedFold => {
+	if (rows.length <= STARTED_FOLD_ABOVE) return { summary: undefined, rows };
+	const summary = summaryOf(rows);
+	if (open) return { summary, rows };
+	const kept: StartedRow[] = [];
+	// Whether each row on the way down to this one is kept, from level 1.
+	const path: boolean[] = [];
+	for (const row of rows) {
+		path.length = row.level - 1;
+		const keeps = keepsRow(row.agent) || keep(row.agent);
+		if (keeps) kept.push({ agent: row.agent, level: 1 + path.filter(Boolean).length });
+		path.push(keeps);
+	}
+	return { summary, rows: kept };
 };
 
 /** Who acted, in words: an agent's title, "an access key" or "the task Nightly". */
@@ -359,10 +470,16 @@ export const projectGroups = (
 	const hidden = hiddenProjects(view);
 	const shown = (agent: Agent) =>
 		callsBack(agent) || startedRows(view, agent.id, now).some((row) => callsBack(row.agent));
+	// A caller folds only along with every agent under it, so the older row
+	// never hides one that's working or waiting on you.
+	const folds = (agent: Agent) =>
+		isFolded(agent, now) &&
+		startedRows(view, agent.id, now).every((row) => isFolded(row.agent, now));
 	const groups = [...buckets].flatMap(([key, agents]): ProjectGroup[] => {
 		if (hidden.has(key) && !agents.some(shown)) return [];
 		const project = key === NO_PROJECT ? undefined : view.tables.project.get(key);
 		const sorted = agents.sort(byRank);
+		const older = new Set(sorted.filter(folds));
 		return [
 			{
 				key,
@@ -370,8 +487,8 @@ export const projectGroups = (
 				hidden: hidden.has(key),
 				name: project?.name ?? t("No project"),
 				devices: devicesOf(view, sorted),
-				agents: sorted.filter((a) => !isFolded(a, now)),
-				older: sorted.filter((a) => isFolded(a, now)),
+				agents: sorted.filter((a) => !older.has(a)),
+				older: sorted.filter((a) => older.has(a)),
 			},
 		];
 	});

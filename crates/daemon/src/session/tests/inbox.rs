@@ -3,10 +3,14 @@
 
 //! Settling, snoozing and pinning agents, per decision U-8: your changes
 //! and when they're refused, the stop that comes with settling a held
-//! agent, the wakes, auto-settle, the snooze at the usage limit and the
-//! inboxes of agents that are gone.
+//! agent, the wakes, auto-settle, the snooze at the usage limit, the
+//! inboxes of agents that are gone and the started agents that settle
+//! along with the agent that started them.
 
+use maxhq_protocol::agents::{Actor, AgentOrigin, Limits};
+use maxhq_protocol::ids::PermissionId;
 use maxhq_protocol::model::{self, InboxChange, ProjectSettings, Settled, Settler};
+use serde_json::json;
 
 use super::*;
 use crate::session::holders::Checkout;
@@ -936,4 +940,154 @@ async fn no_inbox_goes_while_its_unknown_which_agents_are_held() {
         .unwrap();
     h.clock.advance(SWEEP_EVERY);
     eventually("the inbox going", || h.kept_inbox(agent).is_none()).await;
+}
+
+/// The origin of an agent `caller` started on `device` through the agent
+/// tools.
+fn by(caller: AgentId, device: DeviceId) -> AgentOrigin {
+    AgentOrigin {
+        permission: PermissionId::derive("permission"),
+        by: Actor::Agent { agent: caller },
+        device,
+        level: 1,
+        wake: false,
+        container: None,
+    }
+}
+
+/// An outside agent `caller` started on `device` through the agent tools.
+fn started(
+    h: &Harness,
+    session: &str,
+    caller: AgentId,
+    device: DeviceId,
+    activity: Activity,
+) -> AgentId {
+    let agent = h.outside(session, activity);
+    h.report(agent, |agent| agent.origin = Some(by(caller, device)));
+    agent
+}
+
+#[tokio::test]
+async fn settling_an_agent_settles_the_done_agents_it_started_and_theirs() {
+    let mut h = Harness::new();
+    h.fakes.unsaved.answer(h.checkout(), Some(false));
+    let here = device().id;
+    let caller = h.outside("caller", Activity::Idle);
+    let done = started(&h, "done", caller, here, Activity::Idle);
+    let below = started(&h, "below", done, here, Activity::Idle);
+    let busy = started(&h, "busy", caller, here, Activity::Busy);
+    let asking = started(&h, "asking", caller, here, needs_input());
+    let pinned = started(&h, "pinned", caller, here, Activity::Idle);
+    pin(&mut h, &[pinned]).await;
+    let other_device = DeviceId::derive("other");
+    let elsewhere = started(&h, "elsewhere", caller, other_device, Activity::Idle);
+    let unsaved = started(&h, "unsaved", caller, here, Activity::Idle);
+    let other = h.folder.with_file_name("other");
+    fs::create_dir_all(&other).expect("the other folder can be made");
+    let workspace = h.hub.locate_folder(&other);
+    h.report(unsaved, |agent| agent.workspace = workspace);
+    h.fakes.unsaved.answer(Checkout::Folder(other), Some(true));
+    // One you kept in view goes along, and one you settled before keeps
+    // its own settle.
+    assert_eq!(h.file(done, InboxChange::Settle).await, ActionOutcome::Done);
+    assert_eq!(
+        h.file(done, InboxChange::Unsettle).await,
+        ActionOutcome::Done
+    );
+    let before = started(&h, "before", caller, here, Activity::Idle);
+    assert_eq!(
+        h.file(before, InboxChange::Settle).await,
+        ActionOutcome::Done
+    );
+    let own = h.inbox(before).settled;
+    h.clock.advance(Duration::from_secs(60));
+
+    assert_eq!(
+        h.file(caller, InboxChange::Settle).await,
+        ActionOutcome::Done
+    );
+    let settled = h.inbox(caller).settled;
+    assert_ne!(settled, own);
+    eventually("the started agents settling along", || {
+        h.inbox(done).settled == settled && h.inbox(below).settled == settled
+    })
+    .await;
+    assert_eq!(h.kept_inbox(below).and_then(|inbox| inbox.settled), settled);
+    tokio::time::sleep(QUIET).await;
+    for agent in [busy, asking, pinned, elsewhere, unsaved] {
+        assert_eq!(h.inbox(agent).settled, None, "{agent}");
+    }
+    assert_eq!(h.inbox(before).settled, own);
+
+    // Bringing the caller back brings back only the ones that went along.
+    assert_eq!(
+        h.file(caller, InboxChange::Unsettle).await,
+        ActionOutcome::Done
+    );
+    for agent in [done, below] {
+        assert_eq!(h.inbox(agent).settled, None, "{agent}");
+        assert!(h.inbox(agent).kept_active, "{agent}");
+    }
+    assert_eq!(h.inbox(before).settled, own);
+}
+
+#[tokio::test]
+async fn auto_settle_takes_the_agents_an_agent_started_along_with_it() {
+    let mut h = Harness::new();
+    h.fakes.unsaved.answer(h.checkout(), Some(false));
+    let here = device().id;
+    let caller = h.outside("caller", Activity::Idle);
+    let child = started(&h, "child", caller, here, Activity::Idle);
+    let off = started(&h, "off", caller, here, Activity::Idle);
+    let auto_off = InboxChange::AutoSettle { on: false };
+    assert_eq!(h.file(off, auto_off).await, ActionOutcome::Done);
+    // Both worked later than their caller, too recently to settle alone.
+    h.clock.advance(4 * DAY);
+    let later = after(h.epoch, 4 * DAY);
+    for agent in [child, off] {
+        h.report(agent, |agent| agent.last_activity_at = later);
+    }
+
+    h.clock.advance(DAY + SWEEP_EVERY);
+    eventually("the caller settling", || h.inbox(caller).settled.is_some()).await;
+    let settled = Some(Settled {
+        at: h.epoch,
+        by: Settler::Auto,
+    });
+    assert_eq!(h.inbox(caller).settled, settled);
+    eventually("the child settling along", || {
+        h.inbox(child).settled == settled
+    })
+    .await;
+    tokio::time::sleep(QUIET).await;
+    assert_eq!(
+        h.inbox(off).settled,
+        None,
+        "you turned auto-settle off for it"
+    );
+}
+
+#[tokio::test]
+async fn an_agent_maxhq_holds_stops_when_it_settles_along() {
+    let mut h = Harness::new();
+    h.fakes.unsaved.answer(h.checkout(), Some(false));
+    let (caller, session) = h.start_claude(Some("Plan it")).await;
+    h.moves(session, caller, Activity::Idle).await;
+    h.grant(Actor::Agent { agent: caller }, Limits::default())
+        .await;
+    let (child, holder) = h.start_child(session, caller, "s1", json!({})).await;
+    h.moves(holder, child, Activity::Idle).await;
+
+    assert_eq!(
+        h.file(caller, InboxChange::Settle).await,
+        ActionOutcome::Done
+    );
+    let settled = h.inbox(caller).settled;
+    eventually("the child settling along", || {
+        h.inbox(child).settled == settled
+    })
+    .await;
+    eventually("the pause", || h.activity(child) == paused()).await;
+    eventually("the stop", || h.holders.stops(holder) == [STOP_GRACE]).await;
 }

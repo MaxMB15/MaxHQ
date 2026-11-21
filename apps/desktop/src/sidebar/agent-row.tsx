@@ -13,7 +13,10 @@
 // among the panes, or among the pins when it's pinned. A quote dragged
 // onto it goes to its composer. A double-click on its title, or Rename in
 // its menu, turns the title into a field. The agents it started through
-// the agent tools sit indented under it.
+// the agent tools sit indented under it, a faint line beside them for each
+// level. More than two collapse into one summary row, which a click, Enter
+// or Space opens and closes. While it's closed, the ones that need input,
+// have failed, are open or are picked keep their own rows.
 
 import { useI18n } from "@maxhq/shared/i18n";
 
@@ -36,15 +39,15 @@ import { loadingText } from "@maxhq/shared/local-models/wording";
 import { agentLook, agentRowMeta } from "@maxhq/shared/status/activity";
 import { showFailure } from "@maxhq/shared/ui/inbox-notice";
 import { renameAgent } from "@maxhq/shared/ui/rename-agent";
-import { shownRows } from "@maxhq/shared/ui/rows";
+import { foldKey, shownRows } from "@maxhq/shared/ui/rows";
 import { inboxOf, isSnoozed } from "@maxhq/shared/view/inbox";
 import type { ViewState } from "@maxhq/shared/view/replica";
 import { slideLead } from "@maxhq/shared/ui/store";
-import { startedRows, waitingFor } from "@maxhq/shared/view/select";
+import { foldStarted, startedOpenKey, startedRows, waitingFor } from "@maxhq/shared/view/select";
 import { snoozeWakeLabel } from "@maxhq/shared/view/snooze";
 
 import { pressAgent } from "./drag";
-import { rowsFilter } from "./filter";
+import { rowsFilter, useFilterFold } from "./filter";
 import { RowMenu } from "./inbox-menu";
 import { noticesOf } from "./notices";
 import { prefsOf } from "./prefs";
@@ -82,6 +85,9 @@ export const useLookingAt = (): ((agent: Agent) => boolean) => {
 /** How far each level of started agents sits in from its caller. */
 const LEVEL_INDENT = 14;
 
+/** Where the first level's guide line runs: under the middle of the caller's dot. */
+const GUIDE_AT = 25;
+
 const ROW = "relative flex h-6 w-full shrink-0 items-center gap-2 rounded-md pr-2 pl-[22px]";
 
 /** One agent in a project group, the pins or a shelf, and the agents it started. */
@@ -96,11 +102,36 @@ export const AgentRow = (props: {
 	useI18n();
 
 	const lookingAt = useLookingAt();
-	const started = startedRows(props.view, props.agent.id, props.now);
+	const picked = useUi((s) => s.picked);
+	const openKey = startedOpenKey(props.agent.id);
+	const stored = useUi((s) => s.collapsed.has(openKey));
+	const toggleFold = useUi((s) => s.toggleProject);
+	const [open, toggle] = useFilterFold(foldKey("started", props.agent.id), stored, () =>
+		toggleFold(openKey)
+	);
+	const fold = foldStarted(
+		startedRows(props.view, props.agent.id, props.now),
+		open,
+		(agent) => lookingAt(agent) || picked.has(agent.id)
+	);
 	return (
 		<>
 			<Row {...props} />
-			{started.map(({ agent, level }) => (
+			{fold.summary ? (
+				<button
+					type="button"
+					aria-expanded={open}
+					data-started-row={props.agent.id}
+					onClick={toggle}
+					style={{ paddingLeft: 22 + LEVEL_INDENT }}
+					className="relative flex h-[22px] w-full shrink-0 items-center gap-1.5 rounded-md pr-2 text-left text-[11.5px] text-muted-foreground hover:text-secondary-foreground focus-visible:-outline-offset-2"
+				>
+					<Guides level={1} />
+					<Chevron closed={!open} />
+					<span className="min-w-0 flex-1 truncate">{fold.summary.text}</span>
+				</button>
+			) : null}
+			{fold.rows.map(({ agent, level }) => (
 				<Row
 					key={agent.id}
 					agent={agent}
@@ -113,6 +144,21 @@ export const AgentRow = (props: {
 		</>
 	);
 };
+
+/**
+ * The faint lines beside a started row, one for each level it sits below
+ * its caller, under the dot of the row each level hangs from.
+ */
+const Guides = ({ level }: { level: number }) =>
+	Array.from({ length: level }, (_, i) => (
+		<span
+			// One line per level, which never reorder.
+			key={i}
+			aria-hidden
+			className="pointer-events-none absolute -top-px bottom-0 w-px bg-border"
+			style={{ left: GUIDE_AT + i * LEVEL_INDENT }}
+		/>
+	));
 
 const Row = ({
 	agent,
@@ -178,6 +224,7 @@ const Row = ({
 	if (renaming)
 		return (
 			<div style={indent} className={cn(ROW, "bg-accent")}>
+				<Guides level={level} />
 				<AgentActivityDot agent={agent} view={view} now={now} />
 				<RenameInput
 					title={title}
@@ -220,6 +267,7 @@ const Row = ({
 							: "group-hover/agent-row:bg-accent"
 				)}
 			>
+				<Guides level={level} />
 				{picked ? (
 					<Check
 						aria-hidden

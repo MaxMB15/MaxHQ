@@ -13,6 +13,12 @@
 //! MaxHQ never signals a process it didn't start. A turn you start in its
 //! terminal brings it back, as a message sent through MaxHQ does.
 //!
+//! The agents a lead agent started through the agent tools settle along
+//! with it, at every level below, once each one is done and its worktree
+//! holds nothing unsaved; the rest stay in view. Each takes its caller's
+//! own settle record, so the app shows it under its caller, and when the
+//! caller leaves the settled list, those that went along come back.
+//!
 //! A held agent's inbox goes when MaxHQ stops holding it. One you started
 //! yourself goes once it's gone for good: no observer has reported it for
 //! 30 days, counted across restarts, and every observer has reported what
@@ -25,7 +31,7 @@ use maxhq_core::inbox;
 use maxhq_protocol::ids::{AgentId, IdempotencyKey, WorkspaceId};
 use maxhq_protocol::message::ActionOutcome;
 use maxhq_protocol::model::{
-    Activity, Agent, Control, DeviceSettings, Inbox, InboxChange, ProjectSettings,
+    Activity, Agent, Control, DeviceSettings, Inbox, InboxChange, ProjectSettings, Settled,
     WorkspaceLocation,
 };
 use maxhq_protocol::state::{Entity, EntityKey};
@@ -224,9 +230,11 @@ impl Manager {
     }
 
     /// Stores an agent's inbox and shows it. An inbox that didn't change
-    /// is left alone.
+    /// is left alone. The agents it started follow a settle, and come
+    /// back with it when it leaves the settled list.
     pub(super) fn write_inbox(&mut self, agent: AgentId, inbox: Inbox) {
-        if self.hub.inbox(agent) == inbox {
+        let before = self.hub.inbox(agent);
+        if before == inbox {
             return;
         }
         match inbox.snoozed_until {
@@ -237,7 +245,104 @@ impl Manager {
             warn!(%err, %agent, "couldn't store the agent's inbox");
         }
         self.send_waiting(agent);
+        let settled = inbox.settled.clone();
         self.hub.set_inbox(agent, inbox);
+        match (before.settled, settled) {
+            (None, Some(settled)) => self.settle_along(agent, &settled),
+            (Some(settled), None) => self.unsettle_along(agent, &settled),
+            _ => {}
+        }
+    }
+
+    /// The lead agents `caller` started here through the agent tools.
+    fn started_leads(&self, caller: AgentId) -> Vec<Agent> {
+        self.hub
+            .leads()
+            .into_iter()
+            .filter(|agent| inbox::started_by(agent, caller, self.device))
+            .collect()
+    }
+
+    /// Starts settling along with a lead agent the agents it started that
+    /// are done. Each one's worktree is checked first, off the loop, as
+    /// auto-settle checks one. Every level below follows, as each one that
+    /// settles takes the agents it started along in turn.
+    fn settle_along(&mut self, caller: AgentId, settled: &Settled) {
+        let now = self.clock.wall();
+        for agent in self.started_leads(caller) {
+            if !self.may_go_along(&agent, settled, Some(false), now) {
+                continue;
+            }
+            let Some(checkout) = self.checkout(&agent) else {
+                continue;
+            };
+            let (unsaved, tx, settled) = (self.unsaved.clone(), self.tx.clone(), settled.clone());
+            let id = agent.id;
+            tokio::spawn(async move {
+                let unsaved = unsaved.unsaved(checkout).await;
+                let _ = tx.send(Input::Along {
+                    caller,
+                    settled: Box::new(settled),
+                    agent: id,
+                    unsaved,
+                });
+            });
+        }
+    }
+
+    /// Settles a started agent whose worktree was checked, under its
+    /// caller's own record, if the caller is still settled by that settle
+    /// and the agent may still go along. Sharing the record is what marks
+    /// it as settled with its caller, for the app and for an unsettle.
+    pub(super) fn along_checked(
+        &mut self,
+        caller: AgentId,
+        settled: Settled,
+        id: AgentId,
+        unsaved: Option<bool>,
+    ) {
+        if self.hub.inbox(caller).settled.as_ref() != Some(&settled) {
+            return;
+        }
+        let Some(agent) = self.hub.reported(id) else {
+            return;
+        };
+        if !inbox::started_by(&agent, caller, self.device)
+            || !self.may_go_along(&agent, &settled, unsaved, self.clock.wall())
+        {
+            return;
+        }
+        let mut next = self.hub.inbox(id);
+        inbox::settle(&mut next, settled);
+        self.write_inbox(id, next);
+        self.stop_settled(id);
+    }
+
+    /// Whether a started agent settles along with its caller now. On top
+    /// of the shared rules, one with a message waiting, a sub-agent at work
+    /// or an enabled task that reaches it stays, as auto-settle leaves it.
+    fn may_go_along(
+        &self,
+        agent: &Agent,
+        settled: &Settled,
+        unsaved: Option<bool>,
+        now: Timestamp,
+    ) -> bool {
+        inbox::goes_along(agent, settled, unsaved, now)
+            && self.busy(agent).is_none()
+            && !self.automated(agent.id)
+    }
+
+    /// Brings back the agents that settled along with a lead agent that
+    /// left the settled list, and only those, as an unsettle of each would.
+    fn unsettle_along(&mut self, caller: AgentId, settled: &Settled) {
+        let now = self.clock.wall();
+        for agent in self.started_leads(caller) {
+            if inbox::settled_with(&agent, settled) {
+                let next = inbox::apply(&self.hub.inbox(agent.id), &InboxChange::Unsettle, now);
+                self.write_inbox(agent.id, next);
+            }
+        }
     }
 
     /// Stops a settled agent's process, if MaxHQ holds it. A failed stop is

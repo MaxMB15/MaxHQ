@@ -109,6 +109,7 @@ describe("agent panes", () => {
 				.map((b) => b.textContent);
 		expect(list("Needs you")).toEqual([
 			"Subtitle sync driftQuestion",
+			"Tag the releaseAllow?",
 			"Release checklistAllow?",
 		]);
 		expect(screen.queryByRole("region", { name: "Recently closed" })).not.toBeInTheDocument();
@@ -227,8 +228,13 @@ describe("pane shortcuts", () => {
 		const first = heading().textContent;
 		press("KeyJ", "j");
 		const second = heading().textContent;
-		expect(second).not.toBe(first);
-		expect([first, second].sort()).toEqual(["Release checklist", "Subtitle sync drift"]);
+		press("KeyJ", "j");
+		const third = heading().textContent;
+		expect([first, second, third].sort()).toEqual([
+			"Release checklist",
+			"Subtitle sync drift",
+			"Tag the release",
+		]);
 		press("KeyJ", "j");
 		expect(heading().textContent).toBe(first);
 	});

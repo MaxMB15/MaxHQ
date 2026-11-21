@@ -55,7 +55,10 @@ export type InboxList = {
 	readonly working: readonly InboxRow[];
 	/** Snoozed, the soonest to wake first. */
 	readonly snoozed: readonly Agent[];
-	/** Settled, the most recently settled first. */
+	/**
+	 * Settled, the most recently settled first, each followed by the agents
+	 * that settled along with it.
+	 */
 	readonly settled: readonly Agent[];
 	/** The projects you hid, by name, for the Hidden projects entry. */
 	readonly hidden: readonly Project[];
@@ -112,7 +115,7 @@ export const inboxList = (
 		})),
 		working: withStarted(view, working, now),
 		snoozed,
-		settled,
+		settled: withStarted(view, settled, now).map((row) => row.agent),
 		hidden: lists.hidden,
 	};
 };

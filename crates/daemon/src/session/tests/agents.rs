@@ -40,7 +40,7 @@ fn permission(holder: Actor, limits: Limits) -> Permission {
 
 impl Harness {
     /// Gives `holder` a permission.
-    async fn grant(&mut self, holder: Actor, limits: Limits) -> Permission {
+    pub(super) async fn grant(&mut self, holder: Actor, limits: Limits) -> Permission {
         self.give(permission(holder, limits)).await
     }
 
@@ -120,7 +120,7 @@ impl Harness {
 
     /// `lead` starts a Claude agent in the project folder. Gives it and
     /// its holder once its first message reached the CLI.
-    async fn start_child(
+    pub(super) async fn start_child(
         &self,
         session: SessionId,
         lead: AgentId,

@@ -141,6 +141,31 @@ describe("the sidebar's rows for the keyboard", () => {
 		expect(document.body).toHaveFocus();
 	});
 
+	it("count a started agents' summary row as a row, and follow it when it moves", async () => {
+		const { root, first, second, row } = list();
+		const summary = document.createElement("button");
+		summary.dataset.startedRow = "a";
+		row("a").after(summary);
+		await settle();
+		row("a").focus();
+		fireEvent.keyDown(row("a"), { key: "ArrowDown" });
+		expect(summary).toHaveFocus();
+		fireEvent.keyDown(summary, { key: "ArrowDown" });
+		expect(row("b")).toHaveFocus();
+		fireEvent.keyDown(row("b"), { key: "ArrowUp" });
+		expect(summary).toHaveFocus();
+
+		// Its caller settles, so the summary row goes with it to another section.
+		summary.remove();
+		const moved = second.appendChild(document.createElement("button"));
+		moved.dataset.startedRow = "a";
+		await settle();
+		expect(moved).toHaveFocus();
+		expect(first.contains(moved)).toBe(false);
+		const rows = root.querySelectorAll<HTMLElement>("[data-agent-row], [data-started-row]");
+		expect([...rows].filter((each) => each.tabIndex === 0)).toEqual([moved]);
+	});
+
 	it("stop listening once stopped", () => {
 		const { row } = list();
 		stop?.();

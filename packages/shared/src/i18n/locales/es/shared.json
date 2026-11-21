@@ -424,6 +424,8 @@
 	"the task {{task_name}}": "la tarea {{task_name}}",
 	"a scheduled task": "una tarea programada",
 	"Started by {{actorName_view__origin_by}} on {{deviceName_view__origin_device}}": "Iniciado por {{actorName_view__origin_by}} en {{deviceName_view__origin_device}}",
+	"{{started}} started": "{{started}} iniciados",
+	"{{started}} started, {{working}} working": "{{started}} iniciados, {{working}} en curso",
 	"No project": "Sin proyecto",
 	"Allow?": "¿Permitir?",
 	"Question": "Pregunta",
