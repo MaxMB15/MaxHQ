@@ -79,11 +79,16 @@ Tailscale is optional. Your own address works without it.
 Requests it takes, in a webhook task's editor, decides which requests run the task. Every request runs it until you add a filter.
 
 - Filters: click Add filter, name a field, and pick a test such as equals or starts with. All filters must match.
-- Replay key: a value seen once in the last 7 days makes a repeat a duplicate.
-- Coalesce key with Coalesce window, seconds: requests with the same value inside the window make one run.
+- Replay key: a placeholder such as {{headers.x-github-delivery}}. A request whose key MaxHQ saw in the last 7 days doesn't run, and History lists it as Duplicate. A run that fails lets the same key run again.
+- Coalesce key: requests whose key fills in the same, such as {{body.pull_request.number}}, wait for one run, and the prompt gets each of them. A key with no placeholder, such as all, puts every request in one window. A request without the key's field runs on its own.
+- Coalesce window, seconds: how long the window stays open, 120 by default, from 10 to 3600. It counts from the first request.
+- Restart the window with each request: counts from the last request instead, up to Longest wait, seconds after the first, 7200 by default and 24 hours at most.
+- A task holds up to 20 open windows. Past that, a new key's request shows as Queue full and doesn't run.
 - Skip requests older than, minutes, and Runs a day cap stale requests and daily runs.
 
-Under Fields in the prompt, free text from a request stays out of the prompt until you allow it, and then fills in marked as untrusted data. Use the safe default resets that list.
+Fields in the prompt lists each placeholder the prompt uses, marked Free text, Structural or Structural parts. Numbers, logins, actions and addresses fill in as they are. Free text, such as a title or a comment, comes from whoever wrote it, so it fills in empty until you tick it. A ticked one fills in between `<webhook-data-…>` tags, with a note that it's untrusted data.
+
+A webhook made before this list fills in every field, and says "This prompt fills in every field of a request". Use the safe default turns that into the list, with free text left out.
 
 ## Run a task on GitHub events
 <!-- id: scheduled-tasks/github -->
@@ -121,7 +126,7 @@ Click History on a task's row to see its runs and, for webhooks, every request i
 2. Click History on the task.
 3. Read the Runs tab, and the Deliveries tab for a webhook or GitHub task. Click Refresh for the newest.
 
-A delivery that didn't run says why: Duplicate, Coalesced, Bad signature, Task paused or Rate limited.
+A delivery that didn't run says why: Duplicate, Coalesced, Queue full, Bad signature, Task paused or Rate limited.
 
 ## Approve a task an agent made
 <!-- id: scheduled-tasks/approve -->

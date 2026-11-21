@@ -151,11 +151,11 @@ The Phones page pairs a new phone with a code, and lists the phones that reach y
 
 1. Under Add phone, tick the Devices the phone can reach.
 2. With more than one ticked, pick the one to Pair through.
-3. Click Show the code. Scan the code with MaxHQ on the phone: on the phone, choose Scan the code. The pairing code works once, for a few minutes.
+3. Click Show the code. Scan the code with MaxHQ on the phone: on the phone, choose Scan the code. The pairing code works once, for 10 minutes. A new code doesn't cancel the one before.
 
 - A device without the APNs key says so, since it can't push to the phone. Add the key file opens Phone pushes.
 - Each paired phone shows the devices that let it in, with Remove.
-- New code: for the devices a phone hasn't signed in to over the network yet. Open MaxHQ on the phone before it runs out.
+- New code: for the devices a phone hasn't signed in to over the network yet. Open MaxHQ on the phone within 10 minutes.
 - Let this phone do everything: off by default, and it asks first. Anyone holding the phone could then start agents that run commands on your devices, change settings, store or remove sign-ins, and copy files out. Adding keys or other phones still needs this Mac.
 - Address for the phone: on each device's page, where a phone dials it, such as `devbox.example.net:22`. Left empty, the phone uses the one the Mac uses.
 
@@ -216,13 +216,24 @@ On the Mac, Cursor agents run as the Cursor CLI's own login. For containers, sen
 
 The GitHub App lets workspaces push, and lets `#` in the composer find pull requests and issues. Make the App on GitHub, then send its App ID and private key to your devices.
 
-1. On GitHub, make a new GitHub App, follow the page's steps for its name and permissions, and click Create GitHub App.
-2. Copy the App ID from the top of the App's page into MaxHQ.
-3. Under Private keys, click Generate a private key. The browser saves a `.private-key.pem` file.
-4. Under Send the App, choose or drop that file as the Private key, tick the devices and click Send. Then Move to Trash removes the downloaded file.
-5. On the App's GitHub page, click Install App and pick the repos your projects use.
+The page's Steps card has these steps, with links and copy buttons. You do them once.
+
+1. Open https://github.com/settings/apps/new, signed in to the account that owns your repos. For an organization's repos, open the organization's Settings, Developer settings, GitHub Apps instead.
+2. GitHub App name: `MaxHQ-<your GitHub login>`. No other app may use the name.
+3. Homepage URL: `https://github.com/<your GitHub login>`.
+4. Leave Callback URL empty. Leave "Request user authorization (OAuth) during installation" and "Enable Device Flow" unticked.
+5. Under Webhook, untick Active.
+6. Under Repository permissions, set Contents, Issues and Pull requests to "Read and write". Metadata turns "Read-only" by itself. Leave every other permission at "No access".
+7. Under "Where can this GitHub App be installed?", choose "Only on this account".
+8. Click Create GitHub App. Copy the App ID from the top of the App's page into MaxHQ.
+9. Under Private keys, click Generate a private key. The browser saves a file ending in `.private-key.pem`.
+10. Under Send the App, choose or drop that file as the Private key, and tick the devices: each one that hosts workspaces, and any other whose agents look things up with `#`. Click Send. Then Move to Trash removes the downloaded file. The Mac keeps no copy.
+11. On the App's GitHub page, click Install App, choose your account, choose "Only select repositories" and pick the repos your projects use. Add more later on the same page. MaxHQ finds the installation itself.
+12. MaxHQ checks the setup. Each device lists the repos the App reaches.
 
 - Apps devices hold: the repos each device's App reaches, with Check again and Forget.
+- Workspaces never see the key. A device hands a session only a one-hour token for one repo of its project.
+- An App made before MaxHQ asked for Issues still works, and the check says so. To add it, set Issues to "Read and write" on the App's Permissions & events page, then accept the request under Settings, Applications, Installed GitHub Apps, Configure.
 - Merge and approve as you: Sign in to GitHub on one device, enter the code GitHub shows and press Authorize. Merges and approvals then go through your own sign-in. Sign out has that device forget it.
 - A device without the App still finds pull requests and issues for `#` through `gh`, once `gh auth login` runs there.
 
@@ -232,10 +243,14 @@ The GitHub App lets workspaces push, and lets `#` in the composer find pull requ
 
 Phone pushes sends an Apple APNs key to each device, so it can push alerts to your phones. One key works for every device and every phone.
 
-1. In your Apple developer account, make a key with Apple Push Notifications service (APNs) ticked.
-2. Copy its Key ID into MaxHQ, and download the `AuthKey_<Key ID>.p8` file. Apple lets you download it only once.
-3. Copy your Team ID into MaxHQ. It's under Membership details.
-4. Under Send the key, choose or drop the `.p8` file as the Private key, tick the devices and click Send.
+The page's Steps card has these steps, with links and copy buttons.
+
+1. Open https://developer.apple.com/account/resources/authkeys/list, signed in to the Apple developer account the MaxHQ phone app is built with.
+2. Click the plus button, name the key, such as `MaxHQ pushes`, tick Apple Push Notifications service (APNs), and click Continue, then Register.
+3. Copy the Key ID from the key's page into MaxHQ. It's 10 letters and digits.
+4. Click Download. The browser saves `AuthKey_<Key ID>.p8`. Apple lets you download it only once.
+5. Copy your Team ID into MaxHQ. It's at the top right of the developer account, or under Membership details.
+6. Under Send the key, choose or drop the `.p8` file as the Private key, tick the devices that push to phones and click Send. Then Move to Trash removes the downloaded file. The Mac keeps no copy.
 
 - Push keys devices hold: a device holds one key, so sending another replaces it. Forget deletes it, and that device stops pushing.
 - What a push says is sealed to the phone's own key, so Apple can't read it.

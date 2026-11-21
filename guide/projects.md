@@ -18,7 +18,17 @@ A project is a repository. MaxHQ adds one the first time an agent works in a fol
 3. Pick the Device, then type the path in Folder, such as ~/code/example-app, or click Browse….
 4. Click Start agent, or press `⌘⏎`.
 
-From then on the project shows under Projects in the sidebar. A folder outside any git checkout becomes a project of its own. An agent you start yourself in a terminal shows up too, in the project of the folder it runs in.
+From then on the project shows under Projects in the sidebar. An agent you start yourself in a terminal shows up too, in the project of the folder it runs in.
+
+How MaxHQ tells projects apart:
+
+- A git checkout belongs to the project of its origin remote, or its first remote when it has no origin.
+- The SSH and HTTPS addresses of one repository count as the same, so git@github.com:owner/repo.git and https://github.com/owner/repo share a project, on every device.
+- The project is named after the last part of the remote's address, in lower case, such as repo.
+- A checkout with no remote, or whose remote is a folder on disk, is a project of its own on that device, named after its folder.
+- A folder outside any git checkout is a project of its own too.
+
+A project can't be renamed.
 
 ## Find a project in the sidebar
 <!-- id: projects/sidebar -->
@@ -30,6 +40,21 @@ The switch at the top of the sidebar reads Projects and Devices. Projects lists 
 - ⋯ (More), or a right-click on the project, opens its menu: New note, New agent, Pull requests, Copy to another device…, Hide project and Project settings….
 - Hide project takes the project out of the sidebar. It still shows while one of its agents works, needs you, has news or hit an error.
 - To bring a hidden project back, open Hidden projects under the groups and click Show project.
+
+## Follow a project's workflow runs
+<!-- id: projects/workflows -->
+<!-- covers: view/projects -->
+
+A workflow runs work in steps, such as a build pipeline or an agent that starts other agents. When a run writes its progress the way MaxHQ reads it, MaxHQ draws it under its project. MaxHQ never runs a workflow itself.
+
+- Under a project in the sidebar, a Workflows row counts its runs and folds open to list them. Each run shows how far it got, such as 11/18, or how long ago it ended. A project with no runs has no such row.
+- An agent running a workflow carries a chip on its sidebar row and in its header, such as "pipeline 11/18".
+- In the agent's view, the Sub-agents and Workflow tabs slide out from the side. Open canvas puts the run in a pane of its own, where Show the run as picks Graph or Timeline, and Show possible loops marks steps that can repeat.
+- Right-click the Workflows row for Collapse all and Expand all. Right-click a run for Stop run… and Copy run ID.
+
+A workflow describes itself in a file under .maxhq/workflows in the project, or in a folder directly under it, such as a tool cloned into the project. Without one, MaxHQ shows an agent and its sub-agents as a run of its own.
+
+maxd follows the runs in agents' folders and in open projects. It checks them every second and looks for new ones every 30 seconds. A run quiet for 6 hours rests, and is then checked every 30 seconds only. On a phone, a project's menu has Workflows, with each run's steps.
 
 ## Open a project's settings
 <!-- id: projects/settings -->
@@ -143,3 +168,11 @@ An agent's pull requests show as chips in its header and in its sidebar row. Cli
 - In a narrow header the first chip stays and the rest fold into +N.
 
 With Settle an agent when its PR merges on in the project's settings, the agent settles once its linked PR merges.
+
+MaxHQ also links a pull request to an agent by itself, in a repository on GitHub. It does this for agents, not their sub-agents:
+
+- When the agent runs gh pr create in its project's repository and the output gives the new PR's address.
+- When an open PR's branch, in the repository itself rather than a fork, is the branch the agent works on. A push alone links nothing until the PR is open.
+
+MaxHQ looks for these while the agent is active, or settled less than 24 hours ago, and reads the repository's open pull requests every 2 minutes. A PR you unlink stays unlinked.
+<!-- check: does linking by branch need a GitHub App that reaches the repository? The watcher reads through MaxHQ's stored GitHub sign-ins, not confirmed which one. -->

@@ -5,7 +5,7 @@ Copyright (c) 2026 Max Boksem
 
 # Troubleshooting
 
-What to do when a device won't connect, a sign-in runs out, an agent waits on a usage limit or seems stuck, and what the agent states mean.
+What to do when a device won't connect, a sign-in runs out, an agent waits on a usage limit or seems stuck, what the agent states mean, and where maxd's log is.
 
 ## Fix a device that won't connect
 <!-- id: troubleshooting/device-wont-connect -->
@@ -33,11 +33,17 @@ The banner also says when the device last answered. Open the device's page to se
 ## Let a new app connect to a device
 <!-- id: troubleshooting/waiting-approval -->
 
-"Waiting for approval" on a device's page means that device doesn't know this app's key yet. Allow it from a device where MaxHQ is already open.
+"Waiting for approval on devbox" means devbox doesn't know this app's key yet. Allow it from MaxHQ on a Mac that already connects to devbox.
 
-1. On a Mac that already connects to the device, open MaxHQ.
-2. Find the card asking to let the new app in, and allow it.
-3. Back on the new Mac, the device connects by itself.
+1. On that Mac, open MaxHQ. The sidebar lists each program asking to get in, such as "Let this program control devbox?". Click it to open the device's page.
+2. Read the card: what the device knows about the program, such as how it reached maxd and its key.
+3. Click Trust its key. As the card says, "A yes adds the key to App keys in devbox's settings, until you remove it." Don't allow, the first button, keeps it out.
+4. Back on the new Mac, the device connects by itself.
+
+- The card shows once a program has waited 10 seconds without proving a key the device trusts. One nobody answers in 10 minutes counts as Don't allow.
+- A program with no app key gets Allow until it disconnects instead. Then nothing is kept, and it asks again next time.
+- A Mac with no MaxHQ app connected shows the card as a macOS alert from maxd, with Don't allow as its default button.
+- A phone shows the card too, but says "Answer this on the Mac".
 
 ## Start maxd on this Mac
 <!-- id: troubleshooting/mac-maxd -->
@@ -79,7 +85,7 @@ The Limit alert in Settings › Notifications tells you when an agent starts wai
 
 Asleep means the device stopped the agent's CLI after it sat idle. Your next message starts it again, with nothing lost.
 
-To change how long a CLI may sit idle, open the device in Settings and set Stop idle CLIs after on its Idle agents card.
+To change how long a CLI may sit idle, open the device's page from the Devices view of the sidebar and set Stop idle CLIs after on its Idle agents card.
 
 Other states on the agent's dot:
 
@@ -109,3 +115,15 @@ A feature that says its device's maxd is too old works once that maxd is updated
 2. Click Update everything.
 
 A device's page also says when its maxd is older than the app, or newer, in which case update the app instead. See [Updates](updates.md).
+
+## Find maxd's log
+<!-- id: troubleshooting/logs -->
+
+maxd writes what it does to a log on each device. On a Mac it's the file ~/Library/Logs/MaxHQ/maxd.log. On Linux, read it with `journalctl --user -u maxd.service`.
+
+- When maxd is installed on a Mac, it says "maxd runs now and at every login, and logs to" that file.
+- When maxd starts and the file is over 16 MiB, it moves it to maxd.log.1, over the one before, and starts a fresh one. On Linux the journal trims itself.
+- RUST_LOG sets how much maxd logs when you run `maxd run` yourself, such as RUST_LOG=debug.
+- MaxHQ has no log viewer. Open the file in Console or a text editor.
+- The MaxHQ app keeps no log file of its own.
+- `maxd service uninstall --delete-data` removes the logs along with maxd's data.

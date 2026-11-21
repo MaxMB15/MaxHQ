@@ -39,11 +39,13 @@ Each device sets the **Default mode** for new agents in its **New agents** card.
 <!-- id: agents-composer/effort -->
 <!-- covers: settings/device/new-agents -->
 
-For Claude Code and Codex agents whose model has effort levels, the composer's footer shows **Effort**. Drag its slider to pick a level; the model's default is marked.
+For Claude Code and Codex agents whose model has effort levels, the composer's footer shows the current level, such as **High**. Click it for **Effort** and drag the slider to pick a level; **Default** marks the model's own.
 
-A change applies from the next message you send.
+The levels come from the CLI, for each model, so not every model has every one. From lowest to highest they read **None**, **Minimal**, **Low**, **Medium**, **High**, **Extra high** and **Max**. A level MaxHQ doesn't know yet shows under the CLI's own name.
 
-New agents start at the level their device sets. To change that, open the device's page in Settings and use **Claude Code effort** or **Codex effort** in its **New agents** card.
+A change applies from the next message you send. Only agents MaxHQ holds have it, not sub-agents or sessions started in a terminal.
+
+New agents start at the level their device sets. To change that, open the device's page (pick **Devices** at the top of the sidebar and click the device) and use **Claude Code effort** or **Codex effort** in its **New agents** card.
 
 ## Send a message
 <!-- id: agents-composer/send -->
@@ -145,7 +147,7 @@ When Claude Code proposes a plan, it shows as a **Proposed plan** card.
 
 To stop what an agent is doing right now, click the stop button in the composer, **Stop this turn**, or press ⌘.. The agent keeps its conversation and waits for your next message.
 
-To end the agent's process, open the **More** menu in its header and pick **Stop agent**. The conversation stays, and a new message starts it again.
+To end the agent's process, open the **More** menu in its header and pick **Stop agent**. Its pane then reads **Stopped**: "The conversation stays. Resume starts it again, and so does sending it a message." Click **Resume**, or just send a message. Its terminals keep running, and the sidebar marks it **Paused** until it starts again.
 
 The same menu can copy the session ID, **Export as Markdown…** or **Copy as Markdown**, and **Delete agent**.
 
@@ -160,6 +162,8 @@ The sidebar works as an inbox: agents that need you rise to **Needs you**, and t
 
 A settled agent moves to the **Settled** shelf and MaxHQ stops its process. New activity brings it back. Press ⇧⌘P to pin an agent to the top. ⌘Z undoes the last change while its notice shows.
 
+**Needs you** holds only agents waiting on an answer, such as an approval card or a question. An agent that finished a turn you haven't read stays under its project, marked **Done, unread**, and ⌘J skips it. The bell and the Dock badge still count it while **Finished** is picked under **Dock badge** in Settings, under **Notifications**, as it is at first. Opening the agent clears it.
+
 Right-click an agent, or click its **⋯**, for **Settle**, **Snooze**, **Pin**, **Rename** and more. Select several to act on them at once.
 
 Agents with no activity settle on their own after **Auto-settle after** days, set per device in its **Inbox** card. The switch **Auto-settle when idle** turns that off for one agent.
@@ -171,11 +175,20 @@ Agents with no activity settle on their own after **Auto-settle after** days, se
 Snooze an agent to hide it until later. It returns to your inbox at the time you pick.
 
 1. Right-click the agent and pick **Snooze**.
-2. Pick an option, such as **Tomorrow** or **Next week**, or **Custom…** to set a date and time.
+2. Pick an option, or **Custom…** to set a date and time or a duration, then click **Snooze**.
+
+The options at first, each with its time on a 24-hour clock:
+
+- **In 1 hour** and **In 3 hours**, such as "In 1 hour (14:30)".
+- **This evening (18:00)**.
+- **Tomorrow (09:00)**.
+- **Next week (Mon 09:00)**.
+
+An option for later today, such as **This evening**, hides once its time has passed. When the agent's account is at its usage limit, the menu also offers **Until the limit resets**.
 
 Snoozed agents wait on the **Snoozed** shelf. **Wake** brings one back early.
 
-To change the options, open Settings, then **Sidebar**, and edit **Snooze options** under **Shelves**. On the same page, **Working shelf** decides whether to **Fold busy agents into a Working shelf**; they come back to the top when they need you.
+To change the options, open Settings, then **Sidebar**, and edit **Snooze options** under **Shelves**. Each option is a time from now, up to 30 days, or a time of day today, tomorrow or on a weekday, which means the next one after today. The menu holds up to eight. **Add option** adds one and **Reset to defaults** brings back the list above. On the same page, **Working shelf** decides whether to **Fold busy agents into a Working shelf**; they come back to the top when they need you.
 
 ## Keep going after a usage limit
 <!-- id: agents-composer/limit -->
