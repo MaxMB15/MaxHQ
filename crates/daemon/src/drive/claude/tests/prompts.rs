@@ -73,6 +73,100 @@ fn allow_for_the_session_keeps_the_rule_for_the_session_only() {
     assert_eq!(closed(&fx), [approval(WRITE_A_ASK)]);
 }
 
+/// Picks an option from a phone whose switch is off.
+fn pick_held_back(run: &mut Run, name: &str, event: AttentionId, option: &str) -> Effects {
+    run.act(Action::Answer {
+        key: key(name),
+        event,
+        answer: AttentionAnswer::Option {
+            id: option.to_owned(),
+        },
+        by: phone(),
+        held_back: true,
+    })
+}
+
+/// A run asking to run `rm -rf build`, with `suggestions` to keep.
+fn asked_with(suggestions: Value) -> Run {
+    let mut run = mid_turn();
+    let input = json!({"command": "rm -rf build", "description": "Remove the build"});
+    run.feed(tool_use("toolu_rm", "Bash", input.clone()));
+    run.feed(can_use_tool(
+        "req-rm",
+        "toolu_rm",
+        "Bash",
+        input,
+        suggestions,
+    ));
+    run
+}
+
+/// The rule Claude suggests for `rm -rf build`.
+fn rm_rule(destination: &str) -> Value {
+    json!({
+        "type": "addRules",
+        "rules": [{"toolName": "Bash", "ruleContent": "rm -rf build"}],
+        "behavior": "allow",
+        "destination": destination,
+    })
+}
+
+#[test]
+fn a_held_back_phone_keeps_the_rules_but_no_mode_past_the_switch() {
+    let suggestions = json!([
+        rm_rule("localSettings"),
+        {"type": "setMode", "mode": "bypassPermissions", "destination": "session"},
+        {"type": "setMode", "mode": "auto", "destination": "session"},
+        {"type": "setMode", "mode": "aModeFromLater", "destination": "session"},
+        {"type": "setMode", "mode": "acceptEdits", "destination": "session"},
+        {"type": "setMode", "mode": "plan", "destination": "session"},
+        {"type": "setMode", "mode": "default", "destination": "session"},
+    ]);
+    let mut run = asked_with(suggestions.clone());
+    let fx = pick_held_back(&mut run, "session", approval("req-rm"), "allow_session");
+    assert_eq!(
+        answer_body(&fx)["updatedPermissions"],
+        json!([
+            rm_rule("session"),
+            {"type": "setMode", "mode": "acceptEdits", "destination": "session"},
+            {"type": "setMode", "mode": "plan", "destination": "session"},
+            {"type": "setMode", "mode": "default", "destination": "session"},
+        ])
+    );
+    assert_eq!(fx.results, [(key("session"), ActionOutcome::Done)]);
+    // The Mac's answer keeps every rule.
+    let mut run = asked_with(suggestions);
+    let fx = run.pick("session", approval("req-rm"), "allow_session");
+    let kept = answer_body(&fx)["updatedPermissions"].clone();
+    assert_eq!(kept.as_array().map(Vec::len), Some(7));
+    assert_eq!(
+        kept[1],
+        json!({"type": "setMode", "mode": "bypassPermissions", "destination": "session"})
+    );
+    assert_eq!(fx.results, [(key("session"), ActionOutcome::Done)]);
+}
+
+#[test]
+fn a_held_back_phone_cant_keep_only_a_mode_past_the_switch() {
+    let suggestions =
+        json!([{"type": "setMode", "mode": "bypassPermissions", "destination": "session"}]);
+    let mut run = asked_with(suggestions);
+    let event = approval("req-rm");
+    let fx = pick_held_back(&mut run, "session", event, "allow_session");
+    assert!(fx.writes.is_empty());
+    assert_eq!(
+        fx.results,
+        [(key("session"), refused(crate::phones::PHONE_CANT))]
+    );
+    // The request stays open, and the Mac can still keep the mode.
+    let fx = run.pick("mac", event, "allow_session");
+    assert_eq!(
+        answer_body(&fx)["updatedPermissions"],
+        json!([{"type": "setMode", "mode": "bypassPermissions", "destination": "session"}])
+    );
+    assert_eq!(fx.results, [(key("mac"), ActionOutcome::Done)]);
+}
+
 #[test]
 fn deny_tells_the_model_and_declines_the_call() {
     let mut run = asked();

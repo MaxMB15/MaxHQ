@@ -430,6 +430,7 @@ fn answer(key: IdempotencyKey, event: AttentionId, option: &str) -> Action {
         event,
         answer: AttentionAnswer::Option { id: option.into() },
         by: client(),
+        held_back: false,
     }
 }
 
@@ -1412,6 +1413,7 @@ fn a_typed_answer_declines_and_steers_what_you_typed() {
             text: "use mktemp instead".into(),
         },
         by: client(),
+        held_back: false,
     });
     let fx = run.take();
     assert_eq!(
@@ -1658,6 +1660,7 @@ fn questions_take_answers_and_expire_on_their_own() {
             }],
         },
         by: client(),
+        held_back: false,
     });
     let fx = run.take();
     assert_eq!(
@@ -1706,6 +1709,7 @@ fn dismissing_a_question_answers_it_empty_and_stops_the_turn() {
         event: event.id,
         answer: AttentionAnswer::Dismiss,
         by: client(),
+        held_back: false,
     });
     let fx = run.take();
     // Codex can't decline a question, so it gets the empty answer and the

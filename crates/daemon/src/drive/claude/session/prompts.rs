@@ -9,6 +9,7 @@
 //! `control_cancel_request` when something else decided it, and the item
 //! then shows as decided elsewhere.
 
+use maxhq_core::agents::needs_switch;
 use maxhq_core::names;
 use maxhq_protocol::attention::{AttentionAnswer, AttentionEvent, AttentionKind, AttentionOption};
 use maxhq_protocol::ids::{AttentionId, ClientId, IdempotencyKey};
@@ -28,6 +29,7 @@ use crate::drive::claude::tools::{
 };
 use crate::drive::claude::wire::{self, clip, text};
 use crate::drive::{AttentionChange, Effects, Write};
+use crate::phones::PHONE_CANT;
 
 /// What a prompt waits on.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -329,13 +331,15 @@ impl ClaudeSession {
         id
     }
 
-    /// Answers a prompt.
+    /// Answers a prompt. One `held_back` from a phone whose switch is off
+    /// can't put the session in a mode that needs the switch.
     pub(super) fn answer(
         &mut self,
         key: IdempotencyKey,
         event: AttentionId,
         answer: AttentionAnswer,
         by: ClientId,
+        held_back: bool,
         fx: &mut Effects,
     ) {
         let Some(prompt) = self.prompts.get(&event).cloned() else {
@@ -347,7 +351,7 @@ impl ClaudeSession {
             ));
             return;
         };
-        let outcome = match self.resolve(&prompt, answer, Some(by), fx) {
+        let outcome = match self.resolve(&prompt, answer, Some(by), held_back, fx) {
             Ok(()) => ActionOutcome::Done,
             Err(reason) => ActionOutcome::Refused { reason },
         };
@@ -368,7 +372,7 @@ impl ClaudeSession {
         open.sort_by_key(|prompt| prompt.event.created_at);
         for prompt in open {
             // A dismissal always fits, so nothing refuses it.
-            let _ = self.resolve(&prompt, AttentionAnswer::Dismiss, None, fx);
+            let _ = self.resolve(&prompt, AttentionAnswer::Dismiss, None, false, fx);
         }
     }
 
@@ -379,10 +383,11 @@ impl ClaudeSession {
         prompt: &Prompt,
         answer: AttentionAnswer,
         by: Option<ClientId>,
+        held_back: bool,
         fx: &mut Effects,
     ) -> Result<(), String> {
         let reply = match prompt.kind {
-            Kind::Tool => tool_reply(prompt, &answer),
+            Kind::Tool => tool_reply(prompt, &answer, held_back),
             Kind::Plan => plan_reply(prompt, &answer),
             Kind::Questions => self.questions_reply(prompt, &answer),
         }?;
@@ -593,7 +598,7 @@ impl ClaudeSession {
 }
 
 /// The answer to a permission prompt.
-fn tool_reply(prompt: &Prompt, answer: &AttentionAnswer) -> Result<Reply, String> {
+fn tool_reply(prompt: &Prompt, answer: &AttentionAnswer, held_back: bool) -> Result<Reply, String> {
     let (mut body, allowed) = match answer {
         AttentionAnswer::Dismiss => return Ok(dismissal(prompt)),
         AttentionAnswer::Option { id } => match id.as_str() {
@@ -610,9 +615,12 @@ fn tool_reply(prompt: &Prompt, answer: &AttentionAnswer) -> Result<Reply, String
                     return Err("This request has no rule to keep for the session.".to_owned());
                 }
                 // Only the session's own rules change, never a settings file.
+                // From a phone whose switch is off, a rule that raises the
+                // mode drops out and the rest stay.
                 let rules: Vec<Value> = prompt
                     .suggestions
                     .iter()
+                    .filter(|rule| !held_back || !raises_mode(rule))
                     .cloned()
                     .map(|mut rule| {
                         if let Value::Object(fields) = &mut rule {
@@ -621,6 +629,9 @@ fn tool_reply(prompt: &Prompt, answer: &AttentionAnswer) -> Result<Reply, String
                         rule
                     })
                     .collect();
+                if rules.is_empty() {
+                    return Err(PHONE_CANT.to_owned());
+                }
                 (
                     json!({
                         "behavior": "allow",
@@ -646,6 +657,15 @@ fn tool_reply(prompt: &Prompt, answer: &AttentionAnswer) -> Result<Reply, String
         answers: None,
         mode: None,
     })
+}
+
+/// Whether a rule the CLI suggests puts the session in a mode that needs
+/// the switch, or in one MaxHQ has no name for.
+fn raises_mode(rule: &Value) -> bool {
+    text(rule, "type") == Some("setMode")
+        && text(rule, "mode")
+            .and_then(wire::mode_from)
+            .is_none_or(needs_switch)
 }
 
 /// The answer to a finished plan. Starting on it switches the session's

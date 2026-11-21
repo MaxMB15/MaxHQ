@@ -32,6 +32,7 @@
 //! later, as [`commands::Folders::may_change`] reads them. One that names no
 //! path asks, including through what its call's updates said.
 
+use maxhq_core::agents::needs_switch;
 use maxhq_protocol::attention::{AttentionAnswer, AttentionEvent, AttentionKind, AttentionOption};
 use maxhq_protocol::ids::{AgentId, AttentionId, ClientId, IdempotencyKey};
 use maxhq_protocol::model::PermissionMode;
@@ -45,7 +46,8 @@ use serde_json::{json, Value};
 use super::events::{self, Out};
 use super::rpc::{self, text};
 use super::{close_attention, done, refused, AcpSession, Asked, ExtPrompt, Plan};
-use crate::drive::{commands, AttentionChange, Effects, Write};
+use crate::drive::{claude, commands, AttentionChange, Effects, Write};
+use crate::phones::PHONE_CANT;
 
 /// The option that starts on a plan.
 const ACCEPT: &str = "accept";
@@ -71,9 +73,10 @@ pub struct Prompt {
 /// What a prompt asks.
 #[derive(Clone, Debug)]
 pub enum Kind {
-    /// To run a tool, with the CLI's options as ID and kind, and the
-    /// command line when the tool runs one.
-    Permission(Vec<(String, String)>, Option<String>),
+    /// To run a tool, with the CLI's options as ID and kind, the command
+    /// line when the tool runs one, and whether the tool switches the
+    /// session's mode, where an option's ID names the mode it goes to.
+    Permission(Vec<(String, String)>, Option<String>, bool),
     /// To start on a plan.
     Plan,
     /// Questions, each with its ID and its options as ID and label.
@@ -414,6 +417,7 @@ impl AcpSession {
                 .map(|(id, kind, _)| (id, kind))
                 .collect(),
             command,
+            tool_kind == "switch_mode",
         );
         Some((kind, item, event, call))
     }
@@ -486,13 +490,15 @@ impl AcpSession {
         (Kind::Plan, item, event, call)
     }
 
-    /// Answers a prompt you settled.
+    /// Answers a prompt you settled. One `held_back` from a phone whose
+    /// switch is off can't put the session in a mode that needs the switch.
     pub(super) fn answer(
         &mut self,
         key: IdempotencyKey,
         event: AttentionId,
         answer: AttentionAnswer,
         by: ClientId,
+        held_back: bool,
         fx: &mut Effects,
     ) {
         let Some(prompt) = self.prompts.get(&event) else {
@@ -506,8 +512,16 @@ impl AcpSession {
         }
         let mut follow_up = None;
         let reply = match (&prompt.kind, &answer) {
-            (Kind::Permission(options, command), AttentionAnswer::Option { id }) => {
+            (Kind::Permission(options, command, switches), AttentionAnswer::Option { id }) => {
                 let picked = options.iter().find(|(option, _)| option == id);
+                if held_back
+                    && *switches
+                    && picked.is_some_and(|(_, kind)| kind.starts_with("allow"))
+                    && !self.below_switch(id)
+                {
+                    refused(fx, key, PHONE_CANT);
+                    return;
+                }
                 let mut sent = id;
                 // MaxHQ keeps the rule, which covers the command for every
                 // agent in the project, after a restart too, and reads where
@@ -524,7 +538,7 @@ impl AcpSession {
                 }
                 picked.map(|_| (rpc::selected(sent), declines(options, id)))
             }
-            (Kind::Permission(options, _), AttentionAnswer::Text { text }) => {
+            (Kind::Permission(options, ..), AttentionAnswer::Text { text }) => {
                 let reject = options
                     .iter()
                     .find(|(_, kind)| kind == "reject_once")
@@ -607,6 +621,12 @@ impl AcpSession {
         if let Some(text) = follow_up {
             self.follow_up(key, text, fx);
         }
+    }
+
+    /// Whether the CLI's mode `id` is plan, or one with a name MaxHQ knows
+    /// for a mode below the switch. Any other mode might not be.
+    fn below_switch(&self, id: &str) -> bool {
+        self.is_plan(id) || claude::mode_from(id).is_some_and(|mode| !needs_switch(mode))
     }
 
     /// Answers a prompt and closes it.

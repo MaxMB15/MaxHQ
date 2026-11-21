@@ -271,3 +271,30 @@ async fn a_phone_whose_switch_is_off_cant_answer_a_plan_into_auto() {
         AnswerOutcome::Accepted
     );
 }
+
+#[tokio::test]
+async fn a_phone_whose_switch_is_off_answers_held_back() {
+    let mut h = Harness::new();
+    let (agent, session) = h.start_claude(None).await;
+    let mut phone = Inbox::from_phone(&h.sessions, switched_off());
+
+    // The driver hears it, so a rule kept for the session can't raise the
+    // mode.
+    let asked = h.prompt(agent, "Run the tests?");
+    h.ask(session, &asked).await;
+    assert_eq!(
+        pick(&mut phone, asked.id, "allow_session").await,
+        AnswerOutcome::Accepted
+    );
+    h.logged(&format!("held back {}", asked.id)).await;
+
+    // The Mac's answer isn't.
+    let asked = h.prompt(agent, "Build it?");
+    h.ask(session, &asked).await;
+    assert_eq!(
+        pick(&mut h.phone, asked.id, "allow_session").await,
+        AnswerOutcome::Accepted
+    );
+    h.logged(&format!("answer {}", asked.id)).await;
+    assert_eq!(h.count(&format!("held back {}", asked.id)), 0);
+}

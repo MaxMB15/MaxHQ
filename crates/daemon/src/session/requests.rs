@@ -593,6 +593,7 @@ impl Manager {
                     self.dispatcher.carried.keep(&refs);
                 }
                 self.answering.insert(key, (event, by));
+                let held_back = self.held_back(conn);
                 self.work.push_back((
                     Target::Agent(agent),
                     Action::Answer {
@@ -600,6 +601,7 @@ impl Manager {
                         event,
                         answer: pill_text::answer(answer, &refs, agent),
                         by,
+                        held_back,
                     },
                 ));
                 return;

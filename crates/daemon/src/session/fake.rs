@@ -1164,8 +1164,16 @@ impl Driver for Scripted {
                     answers: None,
                 });
             }
-            Action::Answer { event, answer, .. } => {
+            Action::Answer {
+                event,
+                answer,
+                held_back,
+                ..
+            } => {
                 self.log(format!("answer {event}"));
+                if held_back {
+                    self.log(format!("held back {event}"));
+                }
                 self.log(format!("answered {}", serde_json::json!(answer)));
                 let line = serde_json::json!({ "answer": event.to_string() });
                 fx.writes.push(Write {

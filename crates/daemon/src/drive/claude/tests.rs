@@ -825,6 +825,7 @@ impl Run {
             event,
             answer,
             by: phone(),
+            held_back: false,
         })
     }
 
@@ -937,6 +938,7 @@ impl Run {
                     event: approval(request),
                     answer,
                     by: phone(),
+                    held_back: false,
                 })
             }
             Some("user") => {
