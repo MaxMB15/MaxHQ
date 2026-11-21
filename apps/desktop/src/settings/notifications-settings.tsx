@@ -2,13 +2,13 @@
 // Copyright (c) 2026 Max Boksem
 
 // The Mac's notifications: whether they show at all, which kinds of alert
-// do, which ones play a sound, a test one to try them out, and the Dock
-// badge. The kinds
+// do, which ones play a sound, a test one to try them out, and the badge
+// on the bell and in the Dock. The kinds
 // are the phone's switches. The app keeps the settings and applies each
 // change as you make it. The line at the top says what macOS allows, and
 // reads again whenever the window comes back to the front, since that's
-// changed in System Settings. The Dock badge's card hears the same read,
-// since macOS hides the badge with notifications off or badges off.
+// changed in System Settings. The badge's card hears the same read, since
+// macOS hides the Dock badge with notifications off or badges off.
 
 import { useCallback, useEffect, useState } from "react";
 

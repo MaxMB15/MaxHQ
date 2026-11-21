@@ -13,5 +13,7 @@ describe("header", () => {
 		expect(bellLabel(0)).toBe("No agent needs you");
 		expect(bellLabel(1)).toBe("1 agent needs you");
 		expect(bellLabel(3)).toBe("3 agents need you");
+		// With Show the badge off the bell has no count to say.
+		expect(bellLabel(null)).toBe("Notifications");
 	});
 });

@@ -17,7 +17,7 @@ The bell in the title bar counts the agents that need you, the same ones the Doc
 - Mark all as read marks every notification read, and Clear forgets the ones under Earlier.
 - Notification settings opens Settings › Notifications.
 
-Opening an agent anywhere marks its notifications read. The bell counts even with the Dock badge off, and ⌘J still opens the next agent waiting on you.
+Opening an agent anywhere marks its notifications read. Turn off Show the badge and the bell shows no count, but a click still opens it. ⌘J still opens the next agent waiting on you.
 
 ## Turn on notifications
 <!-- id: notifications/turn-on -->
@@ -56,19 +56,19 @@ Under Sounds in Settings › Notifications, Prompts plays a sound for alerts tha
 
 Sounds follow the alert kinds you picked, so a kind that's off makes no sound either.
 
-## Show a count on the Dock icon
+## Show a count on the bell and the Dock icon
 <!-- id: notifications/dock-badge -->
 <!-- covers: settings/notifications shortcut/open-the-next-agent-waiting-on-you -->
 
-Turn on Show the badge under Dock badge in Settings › Notifications to see how many agents need you on MaxHQ's Dock icon. Each agent counts once.
+Show the badge, under Badge in Settings › Notifications, puts how many agents need you on the bell and on MaxHQ's Dock icon. It's on at first. Turn it off and neither shows a count, though the bell still opens its lists. Each agent counts once.
 
-Pick what counts:
+Pick what counts, for the bell and the Dock badge alike:
 
 - Waiting on you: a permission, a question or a consent card.
 - Finished: a turn ended and you haven't opened it.
 - Failed or stopped with an error.
 
-macOS hides the badge when notifications or badges for MaxHQ are off in System Settings. To work through the agents the badge counts, press ⌘J to open the next agent waiting on you.
+macOS hides the Dock badge when notifications or badges for MaxHQ are off in System Settings, and the bell still counts. To work through the agents the badge counts, press ⌘J to open the next agent waiting on you.
 
 ## Get alerts on your phone
 <!-- id: notifications/phone -->

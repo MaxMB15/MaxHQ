@@ -9,9 +9,11 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { NotificationAccess, NotificationPrefs } from "@maxhq/shared/bindings";
 import { setBadgePrefs } from "@/native/dock-badge";
 import { DEFAULT_NOTIFICATION_PREFS } from "@/native/notifications";
+import { searchWords } from "@maxhq/shared/lib/words";
 import { DEFAULT_BADGE_PREFS } from "@maxhq/shared/view/badge";
 
-import { NotificationsSettingsPage } from "./notifications-settings";
+import { NOTIFICATIONS_TERMS, NotificationsSettingsPage } from "./notifications-settings";
+import { findIn } from "./search";
 
 const app = globalThis as { isTauri?: boolean };
 
@@ -146,25 +148,25 @@ describe("the Notifications page", () => {
 	});
 });
 
-describe("the Dock badge card", () => {
-	const HIDDEN = /macOS hides the (badge|count)/;
+describe("the badge card", () => {
+	const HIDDEN = /macOS hides the (Dock badge|count in the Dock)/;
 
 	it("says nothing more while macOS shows the badge", async () => {
 		await renderPage();
 		await screen.findByText("macOS shows MaxHQ's notifications.");
-		expect(card("Dock badge").queryByText(HIDDEN)).toBeNull();
-		expect(card("Dock badge").queryByRole("button")).toBeNull();
+		expect(card("Badge").queryByText(HIDDEN)).toBeNull();
+		expect(card("Badge").queryByRole("button")).toBeNull();
 	});
 
 	it("says when badges are off, and opens System Settings", async () => {
 		access = { permission: "allowed", badge: false };
 		await renderPage();
 		expect(
-			await card("Dock badge").findByText(
-				"Badges are turned off for MaxHQ in System Settings, so macOS hides the count."
+			await card("Badge").findByText(
+				"Badges are turned off for MaxHQ in System Settings, so macOS hides the count in the Dock."
 			)
 		).toBeInTheDocument();
-		fireEvent.click(card("Dock badge").getByRole("button", { name: "Open System Settings" }));
+		fireEvent.click(card("Badge").getByRole("button", { name: "Open System Settings" }));
 		await waitFor(() => expect(sent("open_notification_settings")).toHaveLength(1));
 	});
 
@@ -174,13 +176,11 @@ describe("the Dock badge card", () => {
 			access = { permission, badge: false };
 			await renderPage();
 			expect(
-				await card("Dock badge").findByText(
-					"macOS hides the badge until MaxHQ's notifications are allowed."
+				await card("Badge").findByText(
+					"macOS hides the Dock badge until MaxHQ's notifications are allowed."
 				)
 			).toBeInTheDocument();
-			fireEvent.click(
-				card("Dock badge").getByRole("button", { name: "Open System Settings" })
-			);
+			fireEvent.click(card("Badge").getByRole("button", { name: "Open System Settings" }));
 			await waitFor(() => expect(sent("open_notification_settings")).toHaveLength(1));
 		}
 	);
@@ -190,18 +190,28 @@ describe("the Dock badge card", () => {
 		setBadgePrefs({ show: false });
 		await renderPage();
 		await screen.findByText("macOS shows MaxHQ's notifications.");
-		expect(card("Dock badge").queryByText(HIDDEN)).toBeNull();
+		expect(card("Badge").queryByText(HIDDEN)).toBeNull();
 	});
 
 	it("drops the line once badges are back on in System Settings", async () => {
 		access = { permission: "allowed", badge: false };
 		await renderPage();
-		await card("Dock badge").findByText(HIDDEN);
+		await card("Badge").findByText(HIDDEN);
 		access = { permission: "allowed", badge: true };
 		act(() => {
 			window.dispatchEvent(new Event("focus"));
 		});
-		await waitFor(() => expect(card("Dock badge").queryByText(HIDDEN)).toBeNull());
+		await waitFor(() => expect(card("Badge").queryByText(HIDDEN)).toBeNull());
+	});
+
+	it("comes up in the search by its title, and still by Dock badge", () => {
+		const page = { title: "Notifications", terms: NOTIFICATIONS_TERMS };
+		expect(findIn(page, searchWords("badge"))?.term).toEqual([{ text: "Badge", hit: true }]);
+		expect(findIn(page, searchWords("dock badge"))?.term).toEqual([
+			{ text: "Dock", hit: true },
+			{ text: " ", hit: false },
+			{ text: "badge", hit: true },
+		]);
 	});
 });
 
