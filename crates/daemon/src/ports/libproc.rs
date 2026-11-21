@@ -15,7 +15,6 @@
 //! The Running list walks the same trees, with the same memory, so a
 //! server launchd took still shows under its agent.
 
-use std::borrow::Cow;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::ffi::{c_char, c_int};
 use std::mem::{size_of, MaybeUninit};
@@ -29,6 +28,7 @@ use maxhq_protocol::processes::AgentProcess;
 
 use super::processes::{oldest_first, Seen};
 use super::{merge, port_numbers, process, Found, Scanner};
+use crate::diagnostics::mask::masked_args;
 
 /// The most processes one poll looks at, over every tree.
 const MAX_TREE: usize = 4096;
@@ -639,19 +639,18 @@ fn arguments(pid: u32) -> Option<Vec<u8>> {
     Some(raw)
 }
 
-/// The arguments from a `KERN_PROCARGS2`, joined by spaces. The
-/// environment after them is left alone.
+/// The arguments from a `KERN_PROCARGS2`, joined by spaces with any
+/// credential in them taken out. The environment after them is left alone.
 fn parse_arguments(raw: &[u8]) -> Option<String> {
     let argc = usize::try_from(i32::from_ne_bytes(raw.get(..4)?.try_into().ok()?)).ok()?;
     let rest = raw.get(4..)?;
     let path_end = rest.iter().position(|byte| *byte == 0)?;
     let start = path_end + rest[path_end..].iter().position(|byte| *byte != 0)?;
-    let args: Vec<Cow<'_, str>> = rest[start..]
+    let args = rest[start..]
         .split(|byte| *byte == 0)
         .take(argc)
-        .map(String::from_utf8_lossy)
-        .collect();
-    Some(args.join(" "))
+        .map(String::from_utf8_lossy);
+    Some(masked_args(args))
 }
 
 /// A NUL-ended name.
@@ -931,6 +930,16 @@ mod tests {
             Some("node vite --port 5173")
         );
         assert_eq!(parse_arguments(b"\x01"), None);
+    }
+
+    #[test]
+    fn a_credential_in_the_arguments_is_taken_out() {
+        let mut raw = 4i32.to_ne_bytes().to_vec();
+        raw.extend(b"/usr/bin/tool\0\0tool\0serve\0--token\0abc123\0");
+        assert_eq!(
+            parse_arguments(&raw).as_deref(),
+            Some("tool serve --token [hidden]")
+        );
     }
 
     /// Named in [`HELPER`]'s environment, the folder a helper reports to.

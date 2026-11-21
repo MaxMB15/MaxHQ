@@ -40,22 +40,73 @@ enum Next {
     Value,
     /// It's a value if it holds this mark.
     Login(char),
+    /// It's inside a value that a quote opened, up to the word that closes
+    /// it. `shown` says whether the mark already stands for that value.
+    Quoted { quote: char, shown: bool },
+}
+
+impl Next {
+    /// Whether `word` is the value this says comes next.
+    fn takes(&self, word: &str) -> bool {
+        match *self {
+            // `--no-auth --port 5173` names no value, as a long flag follows it.
+            Next::Value => !word.trim_start_matches(['\'', '"']).starts_with("--"),
+            Next::Login(mark) => word.contains(mark),
+            Next::Plain | Next::Quoted { .. } => false,
+        }
+    }
+}
+
+/// The program the words belong to, for the ones that take a password as
+/// `-p`.
+#[derive(Clone, Copy, Default, PartialEq, Eq)]
+enum Program {
+    #[default]
+    Other,
+    /// `sshpass -p secret ssh host`, up to the command it runs.
+    Sshpass,
+    /// `mysql -psecret db`, where a bare `-p` asks for it instead.
+    Mysql,
+}
+
+/// Where the masking stands from one word to the next.
+#[derive(Default)]
+struct Words {
+    next: Next,
+    program: Program,
 }
 
 /// `command` with each word that looks like a credential taken out, and any
-/// user, password or query in a URL. It goes word by word, so a value inside
-/// a word it can't name, such as a field in JSON, stays.
+/// user, password or query in a URL. It goes word by word, so an unquoted
+/// value of several words loses only its first; [`masked_args`] knows
+/// where each argument ends.
 pub fn masked(command: &str) -> String {
-    let command = redact(command);
-    let mut next = Next::Plain;
-    command
-        .split_inclusive(char::is_whitespace)
-        .map(|piece| {
-            let word = piece.trim_end_matches(char::is_whitespace);
-            let gap = &piece[word.len()..];
-            masked_word(word, &mut next) + gap
-        })
-        .collect()
+    Words::default().line(&redact(command))
+}
+
+/// A process's arguments as one command line, masked as [`masked`] does.
+/// An argument with spaces in it that a flag before it gives a value to
+/// is hidden whole.
+pub fn masked_args<S: AsRef<str>>(args: impl IntoIterator<Item = S>) -> String {
+    let mut words = Words::default();
+    let mut line = String::new();
+    for arg in args {
+        let arg = redact(arg.as_ref());
+        if !line.is_empty() {
+            line.push(' ');
+        }
+        if arg.contains(char::is_whitespace) && words.next.takes(&arg) {
+            line.push_str(MASK);
+            words.next = Next::Plain;
+        } else {
+            line.push_str(&words.line(&arg));
+            // A quote inside one argument ends with it.
+            if matches!(words.next, Next::Quoted { .. }) {
+                words.next = Next::Plain;
+            }
+        }
+    }
+    line
 }
 
 /// Whether a variable named `name` with `value` looks like it holds a
@@ -64,69 +115,190 @@ pub fn looks_secret(name: &str, value: &str) -> bool {
     names_credential(name) || masked(value) != value
 }
 
-/// `word`, or what replaces it. `next` says what the word before named, and
-/// this sets it for the word after.
-fn masked_word(word: &str, next: &mut Next) -> String {
-    if word.is_empty() {
-        return String::new();
-    }
-    let unquoted = word.trim_start_matches(['\'', '"']);
-    let bare = word.trim_start_matches(|c: char| !c.is_ascii_alphanumeric());
-    let is_value = match std::mem::take(next) {
-        // `--no-auth --port 5173` names no value, as a long flag follows it.
-        Next::Value => !unquoted.starts_with("--"),
-        Next::Login(mark) => word.contains(mark),
-        Next::Plain => false,
-    };
-    if is_value {
-        if is_scheme(bare) {
-            *next = Next::Value;
+impl Words {
+    /// `text` with its credentials taken out, word by word.
+    fn line(&mut self, text: &str) -> String {
+        let mut out = String::with_capacity(text.len());
+        for piece in text.split_inclusive(char::is_whitespace) {
+            let word = piece.trim_end_matches(char::is_whitespace);
+            let gap = &piece[word.len()..];
+            if let Next::Quoted { quote, shown } = self.next {
+                self.next = if word.contains(quote) {
+                    Next::Plain
+                } else {
+                    Next::Quoted { quote, shown: true }
+                };
+                // One mark stands for the whole value.
+                if !shown {
+                    out.push_str(MASK);
+                    out.push_str(gap);
+                }
+                continue;
+            }
+            out.push_str(&self.word(word));
+            out.push_str(gap);
+            if word.ends_with([';', '|', '&']) {
+                self.program = Program::Other;
+            }
         }
-        return MASK.to_owned();
+        out
     }
-    if starts_like_token(bare) {
-        return MASK.to_owned();
-    }
-    // A header, with its value in this word or the next.
-    if let Some((name, value)) = word.split_once(':')
-        && is_header_name(name)
-        && names_credential(name)
-    {
-        if value.is_empty() || is_scheme(value) {
-            *next = Next::Value;
+
+    /// `word`, or what replaces it. What the words before named says what
+    /// it is, and this sets that for the word after.
+    fn word(&mut self, word: &str) -> String {
+        if word.is_empty() {
+            return String::new();
+        }
+        let unquoted = word.trim_start_matches(['\'', '"']);
+        let bare = word.trim_start_matches(|c: char| !c.is_ascii_alphanumeric());
+        // The first word that isn't a flag is the command sshpass runs.
+        if self.program == Program::Sshpass && !unquoted.starts_with('-') {
+            self.program = Program::Other;
+        }
+        if std::mem::take(&mut self.next).takes(word) {
+            self.next = if is_scheme(bare) {
+                Next::Value
+            } else {
+                after_value(word)
+            };
+            return MASK.to_owned();
+        }
+        if starts_like_token(bare) {
+            return MASK.to_owned();
+        }
+        if let Some((fields, next)) = masked_fields(word) {
+            self.next = next;
+            return fields;
+        }
+        // A header, with its value in this word or the next.
+        if let Some((name, value)) = word.split_once(':')
+            && is_header_name(name)
+            && names_credential(name)
+        {
+            if value.is_empty() || is_scheme(value) {
+                // `"Cookie: a=1; b=2"` hides up to its closing quote.
+                self.next = opens(word).map_or(Next::Value, |quote| Next::Quoted {
+                    quote,
+                    shown: false,
+                });
+                return word.to_owned();
+            }
+            self.next = after_value(word);
+            return format!("{name}:{MASK}");
+        }
+        if let Some((name, value)) = word.split_once('=')
+            && (names_credential(name)
+                || starts_like_token(value.trim_start_matches(['\'', '"']))
+                || login_mark(name).is_some_and(|mark| value.contains(mark)))
+        {
+            self.next = after_value(word);
+            return format!("{name}={MASK}");
+        }
+        // `-ualice:s3cret`. A `=` makes it some other flag's value.
+        if let Some(value) = unquoted
+            .strip_prefix("-u")
+            .or_else(|| unquoted.strip_prefix("-U"))
+            && value.contains(':')
+            && !value.contains('=')
+        {
+            return format!("{}{MASK}", &unquoted[..2]);
+        }
+        // `sshpass -p secret`, and `-psecret` for either program.
+        if self.program != Program::Other
+            && let Some(value) = unquoted.strip_prefix("-p")
+        {
+            if !value.is_empty() {
+                return format!("-p{MASK}");
+            }
+            if self.program == Program::Sshpass {
+                self.next = Next::Value;
+            }
             return word.to_owned();
         }
-        return format!("{name}:{MASK}");
+        if let Some(mark) = login_mark(unquoted) {
+            self.next = Next::Login(mark);
+            return word.to_owned();
+        }
+        let flag = unquoted.starts_with('-') && names_credential(bare);
+        let bearer = bare
+            .rsplit(':')
+            .next()
+            .is_some_and(|last| last.eq_ignore_ascii_case("bearer"));
+        if flag || bearer {
+            self.next = Next::Value;
+        }
+        if let Some(program) = program(unquoted) {
+            self.program = program;
+        }
+        word.to_owned()
     }
-    if let Some((name, value)) = word.split_once('=')
-        && (names_credential(name)
-            || starts_like_token(value.trim_start_matches(['\'', '"']))
-            || login_mark(name).is_some_and(|mark| value.contains(mark)))
-    {
-        return format!("{name}={MASK}");
+}
+
+/// What follows a value that was just hidden: the rest of a quote it
+/// opened, or the next pair of a cookie such as `a=1; session=abc`.
+fn after_value(word: &str) -> Next {
+    if let Some(quote) = opens(word) {
+        Next::Quoted { quote, shown: true }
+    } else if word.ends_with(';') && word.contains('=') {
+        Next::Login('=')
+    } else {
+        Next::Plain
     }
-    // `-ualice:s3cret`. A `=` makes it some other flag's value.
-    if let Some(value) = unquoted
-        .strip_prefix("-u")
-        .or_else(|| unquoted.strip_prefix("-U"))
-        && value.contains(':')
-        && !value.contains('=')
-    {
-        return format!("{}{MASK}", &unquoted[..2]);
+}
+
+/// The quote `word` opens and leaves open, as `"correct` does and
+/// `abc"` and `"abc"` don't.
+fn opens(word: &str) -> Option<char> {
+    if word.ends_with(['\'', '"']) {
+        return None;
     }
-    if let Some(mark) = login_mark(unquoted) {
-        *next = Next::Login(mark);
-        return word.to_owned();
+    let quote = word.chars().find(|c| matches!(c, '\'' | '"'))?;
+    (word.matches(quote).count() % 2 == 1).then_some(quote)
+}
+
+/// `word` with the value of each JSON field that names a credential taken
+/// out, as in `{"token":"abc"}`, and what that says about the next word.
+fn masked_fields(word: &str) -> Option<(String, Next)> {
+    if !word.contains("\":") {
+        return None;
     }
-    let flag = unquoted.starts_with('-') && names_credential(bare);
-    let bearer = bare
-        .rsplit(':')
-        .next()
-        .is_some_and(|last| last.eq_ignore_ascii_case("bearer"));
-    if flag || bearer {
-        *next = Next::Value;
+    // Split at the quotes, what's inside them sits at the odd places.
+    let mut parts: Vec<&str> = word.split('"').collect();
+    let mut next = Next::Plain;
+    let mut found = false;
+    for at in (1..parts.len().saturating_sub(1)).step_by(2) {
+        if parts[at + 1].trim_matches('\\') != ":" || !names_credential(parts[at]) {
+            continue;
+        }
+        found = true;
+        match parts.len() - at {
+            // `{"token":` with its value in the next word.
+            2 => next = Next::Value,
+            // `{"password":"correct`, whose value goes on past this word.
+            3 => {
+                parts[at + 2] = MASK;
+                next = Next::Quoted {
+                    quote: '"',
+                    shown: true,
+                };
+            }
+            _ => parts[at + 2] = MASK,
+        }
     }
-    word.to_owned()
+    found.then(|| (parts.join("\""), next))
+}
+
+/// Which of the programs that take a password as `-p` `word` runs.
+fn program(word: &str) -> Option<Program> {
+    let name = word.rsplit('/').next()?;
+    if name == "sshpass" {
+        Some(Program::Sshpass)
+    } else if name.starts_with("mysql") || name.starts_with("mariadb") {
+        Some(Program::Mysql)
+    } else {
+        None
+    }
 }
 
 /// Whether `name` looks like it holds a credential, whatever marks a flag or
@@ -375,5 +547,130 @@ mod tests {
             masked("tool --no-auth --token abc"),
             "tool --no-auth --token [hidden]"
         );
+    }
+
+    /// The commands that `masked` gives back other than `kept` says.
+    fn missed<'a>(cases: &[(&'a str, &'a str)]) -> Vec<(&'a str, String)> {
+        cases
+            .iter()
+            .filter(|(command, kept)| masked(command) != *kept)
+            .map(|(command, _)| (*command, masked(command)))
+            .collect()
+    }
+
+    #[test]
+    fn a_password_after_sshpass_or_mysql_dash_p_is_taken_out() {
+        let kept = missed(&[
+            (
+                "sshpass -p s3cretpw ssh host",
+                "sshpass -p [hidden] ssh host",
+            ),
+            (
+                "sshpass -p s3cretpw ssh -p 22 host",
+                "sshpass -p [hidden] ssh -p 22 host",
+            ),
+            ("sshpass -ps3cretpw ssh host", "sshpass -p[hidden] ssh host"),
+            ("mysql -ps3cretpw db", "mysql -p[hidden] db"),
+            (
+                "/usr/bin/mysqldump -u root -ps3cretpw db",
+                "/usr/bin/mysqldump -u root -p[hidden] db",
+            ),
+            (
+                "sh -c 'mariadb -ps3cretpw db'",
+                "sh -c 'mariadb -p[hidden] db'",
+            ),
+            // A bare `-p` asks for the password, and other programs' `-p`
+            // means something else.
+            ("mysql -u root -p db", "mysql -u root -p db"),
+            ("ssh -p 22 host", "ssh -p 22 host"),
+            (
+                "sshpass -f pw.txt ssh -p 22 host",
+                "sshpass -f pw.txt ssh -p 22 host",
+            ),
+            ("mysql -p db && cp -p a b", "mysql -p db && cp -p a b"),
+        ]);
+        assert!(kept.is_empty(), "{kept:#?}");
+    }
+
+    #[test]
+    fn a_password_of_several_words_is_hidden_whole() {
+        assert_eq!(
+            masked_args(["tool", "--password", "correct horse battery", "go"]),
+            "tool --password [hidden] go"
+        );
+        // A script with spaces is no value, so only its credential goes.
+        assert_eq!(
+            masked_args(["sh", "-c", "tool --token abc123 go"]),
+            "sh -c tool --token [hidden] go"
+        );
+        let kept = missed(&[
+            (
+                "sh -c 'tool --password \"correct horse battery\" go'",
+                "sh -c 'tool --password [hidden] go'",
+            ),
+            (
+                "tool --password=\"correct horse battery\" go",
+                "tool --password=[hidden] go",
+            ),
+        ]);
+        assert!(kept.is_empty(), "{kept:#?}");
+    }
+
+    #[test]
+    fn every_pair_of_a_cookie_is_hidden() {
+        assert_eq!(
+            masked_args([
+                "curl",
+                "-H",
+                "Cookie: a=1; session=s3cretcookie",
+                "https://x"
+            ]),
+            "curl -H Cookie: [hidden] [hidden] https://x"
+        );
+        let kept = missed(&[
+            (
+                "curl -H Cookie: a=1; session=s3cretcookie https://x",
+                "curl -H Cookie: [hidden] [hidden] https://x",
+            ),
+            (
+                "curl -H Cookie:a=1; session=s3cretcookie",
+                "curl -H Cookie:[hidden] [hidden]",
+            ),
+            (
+                "curl -b a=1; session=s3cretcookie",
+                "curl -b [hidden] [hidden]",
+            ),
+            (
+                "sh -c 'curl -H \"Cookie: a=1; session=s3cretcookie\" https://x'",
+                "sh -c 'curl -H \"Cookie: [hidden] https://x'",
+            ),
+        ]);
+        assert!(kept.is_empty(), "{kept:#?}");
+    }
+
+    #[test]
+    fn a_json_field_that_names_a_credential_is_hidden() {
+        let kept = missed(&[
+            (r#"{"token":"s3crettoken"}"#, r#"{"token":"[hidden]"}"#),
+            (
+                r#"curl -d {"user":"me","password":"s3cret"} https://x"#,
+                r#"curl -d {"user":"me","password":"[hidden]"} https://x"#,
+            ),
+            (
+                r#"curl -d '{"token": "s3crettoken"}'"#,
+                r#"curl -d '{"token": [hidden]"#,
+            ),
+            (
+                r#"tool {"password":"correct horse"} go"#,
+                r#"tool {"password":"[hidden] go"#,
+            ),
+            (
+                r#"curl -d {"name":"app","port":5173}"#,
+                r#"curl -d {"name":"app","port":5173}"#,
+            ),
+        ]);
+        assert!(kept.is_empty(), "{kept:#?}");
+        let escaped = masked(r#"sh -c "curl -d {\"token\":\"s3crettoken\"}""#);
+        assert!(!escaped.contains("s3crettoken"), "{escaped}");
     }
 }

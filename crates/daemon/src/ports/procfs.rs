@@ -28,6 +28,7 @@ use maxhq_protocol::processes::AgentProcess;
 
 use super::processes::{oldest_first, Seen};
 use super::{merge, port_numbers, process, Found, Scanner};
+use crate::diagnostics::mask::masked_args;
 
 /// The state `/proc/net/tcp` gives a listening socket.
 const LISTEN: &str = "0A";
@@ -262,11 +263,12 @@ impl Procfs {
 
     fn command(&self, pid: u32) -> String {
         let raw = fs::read(self.root.join(pid.to_string()).join("cmdline")).unwrap_or_default();
-        raw.split(|byte| *byte == 0)
-            .filter(|arg| !arg.is_empty())
-            .map(String::from_utf8_lossy)
-            .collect::<Vec<_>>()
-            .join(" ")
+        // A token in the arguments stays on this machine.
+        masked_args(
+            raw.split(|byte| *byte == 0)
+                .filter(|arg| !arg.is_empty())
+                .map(String::from_utf8_lossy),
+        )
     }
 }
 
@@ -638,6 +640,31 @@ mod tests {
         assert_eq!(vite.name, "node (vite)");
         assert_eq!(vite.command, "node vite --port 5173");
         assert_eq!(ports[1].session, Some(SessionId::derive("s")));
+    }
+
+    #[test]
+    fn a_credential_in_the_arguments_is_taken_out() {
+        let f = fixture();
+        fs::write(
+            f.dir.path().join("70/cmdline"),
+            [
+                "python3",
+                "serve.py",
+                "--password",
+                "correct horse",
+                "--port",
+                "3000",
+                "",
+            ]
+            .join("\0"),
+        )
+        .unwrap();
+        let ports = f.scanner(false).scan(&[holder()]);
+        let server = ports[0].process.as_ref().unwrap();
+        assert_eq!(
+            server.command,
+            "python3 serve.py --password [hidden] --port 3000"
+        );
     }
 
     #[test]
