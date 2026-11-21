@@ -70,6 +70,13 @@ test("rejects sections without an id, ids from another page, repeats and unknown
 	]);
 });
 
+test("doesn't count a term that only a check mark names", () => {
+	const page = EDITOR.replace("Open in picks", "<!-- check: Open in -->\nIt picks");
+	assert.deepEqual(guideErrors(MAP, [["settings", page]]), [
+		'settings/editor: no section that covers it mentions "Open in"',
+	]);
+});
+
 test("keeps markers and headings inside code blocks as text", () => {
 	const { sections } = pageSections(
 		"settings",

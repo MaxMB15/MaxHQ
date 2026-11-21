@@ -15,6 +15,9 @@ import { resolve } from "node:path";
 
 const ID = /^<!--\s*id:\s*(\S+)\s*-->$/;
 const COVERS = /^<!--\s*covers:\s*(.*?)\s*-->$/;
+// A question for the guide's writers, such as <!-- check: the button's label -->,
+// kept out of the section's text.
+const CHECK = /^<!--\s*check:.*-->$/;
 
 /** Text without case, accents or runs of whitespace, for finding a term. */
 export const fold = (text) =>
@@ -43,7 +46,7 @@ export const pageSections = (name, text) => {
 		const covers = !fenced && trimmed.match(COVERS);
 		if (id) section.id = id[1];
 		else if (covers) section.covers.push(...covers[1].split(/\s+/).filter(Boolean));
-		else section.lines.push(line);
+		else if (fenced || !CHECK.test(trimmed)) section.lines.push(line);
 	}
 	for (const each of sections) {
 		if (!each.id)

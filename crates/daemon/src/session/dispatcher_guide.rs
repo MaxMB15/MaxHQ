@@ -258,6 +258,8 @@ fn parse_page(text: &str, sections: &mut Vec<Section>) -> String {
         match (!fenced).then(|| marker(trimmed)).flatten() {
             Some(("id", value)) => draft.id = Some(value),
             Some(("covers", value)) => draft.covers.extend(value.split_whitespace()),
+            // A question for the guide's writers, not part of the answer.
+            Some(("check", _)) => {}
             _ => draft.lines.push(line),
         }
     }
@@ -438,6 +440,30 @@ An agent can open a port, and you can forward that port to this Mac.
             ])
         );
         assert!(guide.read("ports/gone").unwrap_err().contains("ports/gone"));
+    }
+
+    #[test]
+    fn a_check_mark_stays_out_of_the_answer() {
+        let page = "# Phones
+
+## Pair a phone
+<!-- id: phones/pair -->
+<!-- check: how long the code lasts -->
+
+The code works once.
+
+<!-- check: the button's label -->
+Click Show the code.
+";
+        let guide = Guide::new(&[("phones", page)], MAP);
+        let section = guide.read("phones/pair").unwrap();
+        assert_eq!(
+            section["text"],
+            "The code works once.\n\nClick Show the code."
+        );
+        let found = guide.search("pair a phone");
+        assert_eq!(found["sections"][0]["excerpt"], "The code works once.");
+        assert_eq!(guide.search("lasts label")["sections"], json!([]));
     }
 
     #[test]
