@@ -1382,6 +1382,7 @@
 	"This spans more than one line, so it ran on its own.": "This spans more than one line, so it ran on its own.",
 	"This starts with exec, so it ran on its own.": "This starts with exec, so it ran on its own.",
 	"Your shell didn't report its commands, so this ran on its own.": "Your shell didn't report its commands, so this ran on its own.",
+	"Any folder or workspace": "Any folder or workspace",
 	"Brought {{name}} back": "Brought {{name}} back",
 	"Change": "Change",
 	"Changed the settings of {{name}}": "Changed the settings of {{name}}",
@@ -1392,6 +1393,7 @@
 	"Deleted {{name}}": "Deleted {{name}}",
 	"Hid {{name}} from the sidebar": "Hid {{name}} from the sidebar",
 	"Let {{name}} run agents": "Let {{name}} run agents",
+	"Lets it": "Lets it",
 	"Marked {{name}} as read": "Marked {{name}} as read",
 	"Ran the task {{name}}": "Ran the task {{name}}",
 	"Renamed {{name}} to {{title}}": "Renamed {{name}} to {{title}}",
@@ -1403,6 +1405,7 @@
 	"Settled {{name}}": "Settled {{name}}",
 	"Showed {{name}} in the sidebar again": "Showed {{name}} in the sidebar again",
 	"Snoozed {{name}}": "Snoozed {{name}}",
+	"Start, message and stop agents": "Start, message and stop agents",
 	"Started the workspace {{name}}": "Started the workspace {{name}}",
 	"Stopped the turn of {{name}}": "Stopped the turn of {{name}}",
 	"Stopped the workspace {{name}}": "Stopped the workspace {{name}}",
@@ -1441,5 +1444,7 @@
 	"turning off the task {{name}}": "turning off the task {{name}}",
 	"turning on the task {{name}}": "turning on the task {{name}}",
 	"updating the agent CLIs on {{name}}": "updating the agent CLIs on {{name}}",
-	"waking {{name}}": "waking {{name}}"
+	"waking {{name}}": "waking {{name}}",
+	"{{count, number}} levels of agents below it_one": "{{count, number}} level of agents below it",
+	"{{count, number}} levels of agents below it_other": "{{count, number}} levels of agents below it"
 }

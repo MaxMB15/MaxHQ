@@ -15,7 +15,7 @@ use serde_json::{json, Value};
 
 use super::restarts::{server, workspace};
 use super::*;
-use crate::session::consent::{ALLOW, DENY, QUESTION, REMEMBER};
+use crate::session::consent::{ALLOW, DENY, QUESTION, REMEMBER, REMEMBER_LABEL};
 
 /// What a call Never refuses reads, in part.
 const KEPT_IN: &str = "doesn't let you reach outside it";
@@ -71,6 +71,11 @@ fn outside(h: &Harness, on_host: AgentId) -> Vec<(&'static str, Value)> {
         (
             "start_agent",
             json!({"task": "t", "vendor": "claude", "device": devbox(), "workspace": workspace()}),
+        ),
+        // A start in its own container that reads an agent outside it.
+        (
+            "start_agent",
+            json!({"task": "t", "vendor": "claude", "context_from": on_host}),
         ),
         ("send_agent", json!({"agent": on_host, "text": "hello"})),
         (
@@ -185,7 +190,7 @@ impl Harness {
         if remember {
             answers.push(QuestionAnswer {
                 id: REMEMBER.into(),
-                values: vec!["Remember for this permission".into()],
+                values: vec![REMEMBER_LABEL.into()],
             });
         }
         self.phone.send(ClientMessage::Answer {
@@ -270,6 +275,11 @@ async fn never_refuses_every_call_that_leaves_and_keeps_the_ones_inside() {
     h.call_in(session, lead, "in-start", "start_agent", start)
         .await
         .expect("a start inside goes");
+    let briefed = json!({"task": "t", "vendor": "claude", "context_from": beside});
+    let briefed = h
+        .call_in(session, lead, "in-brief", "start_agent", briefed)
+        .await;
+    assert!(!briefed.is_err_and(|reason| reason.contains(KEPT_IN)));
     let read = json!({"agent": beside});
     let read = h
         .call_in(session, lead, "in-read", "read_agent", read)
@@ -418,6 +428,13 @@ async fn remember_keeps_the_answer_on_the_permission() {
     assert_eq!(fact("Call"), Some("send_agent"), "{:#?}", consent.facts);
     let remember = consent.remember.as_ref().expect("the card offers its box");
     assert_eq!(remember.id, REMEMBER);
+    // It says the answer covers every later call, not only this target.
+    assert!(remember.label.contains("every call"), "{}", remember.label);
+    assert!(
+        remember.settings.contains("every later call"),
+        "{}",
+        remember.settings
+    );
     assert!(
         remember.settings.contains("Change what it can run"),
         "{}",
@@ -443,7 +460,7 @@ async fn remember_keeps_the_answer_on_the_permission() {
     let item = h.reach_item(lead).await;
     assert!(
         matches!(&item.body, ItemBody::Question { answers: Some(answers), .. }
-            if answers[0].values == [ALLOW, "Remember for this permission"]),
+            if answers[0].values == [ALLOW, REMEMBER_LABEL]),
         "{item:#?}"
     );
     h.call_in(session, lead, "r2", "send_agent", send.clone())
@@ -578,6 +595,45 @@ async fn a_card_nobody_answers_refuses_its_call_once_the_wait_runs_out() {
 }
 
 #[tokio::test]
+async fn a_start_in_its_container_with_context_from_outside_asks_to_read_it() {
+    let Boxed {
+        mut h,
+        lead,
+        session,
+        on_host,
+        ..
+    } = boxed_lead(LeaveContainer::Ask).await;
+    let briefed = json!({"task": "t", "vendor": "claude", "context_from": on_host});
+    h.ask_in(session, lead, "c1", "start_agent", briefed).await;
+    let card = h.reach_card().await;
+    let question = h.reach_question(lead).await;
+    assert!(
+        question.text.contains("as its context"),
+        "{}",
+        question.text
+    );
+    assert!(
+        question
+            .text
+            .contains("its conversation can hold your files"),
+        "the card warns about the read, not a start outside: {}",
+        question.text
+    );
+    let consent = question.consent.expect("a consent card");
+    assert!(
+        consent.facts.iter().any(|fact| fact.label == "Reaches"),
+        "{:#?}",
+        consent.facts
+    );
+    assert_eq!(
+        h.pick_reach(card.id, DENY, false).await,
+        AnswerOutcome::Accepted
+    );
+    let reason = h.answer("c1").await.expect_err("Deny refuses");
+    assert!(reason.contains(SAID_NO), "{reason}");
+}
+
+#[tokio::test]
 async fn a_sub_agent_calls_from_its_leads_container_and_asks_in_its_feed() {
     let Boxed {
         mut h,
@@ -683,6 +739,53 @@ async fn a_task_made_in_a_container_asks_when_it_runs_and_fails_unanswered() {
             .iter()
             .any(|text| text.contains("Check in")),
         "the prompt never reached the host"
+    );
+}
+
+#[tokio::test]
+async fn a_run_let_through_after_its_task_is_deleted_still_says_who_sent_it() {
+    let Boxed {
+        mut h,
+        lead,
+        session,
+        on_host,
+        host_session,
+    } = boxed_lead(LeaveContainer::Ask).await;
+    let hourly = json!({"type": "interval", "everyMs": 3_600_000});
+    let aimed = json!({"prompt": "Check in", "schedule": hourly,
+                       "target": {"type": "agent", "agent": on_host}});
+    let made = h
+        .call_in(session, lead, "k1", "schedule_task", aimed)
+        .await
+        .expect("Ask makes the task");
+    let made: Value = serde_json::from_str(&made).unwrap();
+    let task: TaskId = serde_json::from_value(made["task"].clone()).unwrap();
+    let run = h.act(|key| ClientMessage::RunTaskNow { key, task }).await;
+    assert_eq!(run, ActionOutcome::Done);
+    let card = h.reach_card().await;
+
+    let deleted = h.act(|key| ClientMessage::DeleteTask { key, task }).await;
+    assert_eq!(deleted, ActionOutcome::Done);
+    assert_eq!(
+        h.pick_reach(card.id, ALLOW, false).await,
+        AnswerOutcome::Accepted
+    );
+    eventually("the run's message", || {
+        h.sent(host_session)
+            .iter()
+            .any(|text| text.ends_with("Check in"))
+    })
+    .await;
+    let sent = h.sent(host_session);
+    let text = sent
+        .iter()
+        .find(|text| text.ends_with("Check in"))
+        .expect("it went");
+    assert!(
+        text.starts_with(&format!(
+            "[MaxHQ] Not from your user. Sent by scheduled task {task}, deleted since."
+        )),
+        "{text}"
     );
 }
 

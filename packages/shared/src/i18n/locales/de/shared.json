@@ -1382,6 +1382,7 @@
 	"This spans more than one line, so it ran on its own.": "Dies umfasst mehr als eine Zeile, daher lief es separat.",
 	"This starts with exec, so it ran on its own.": "Dies beginnt mit exec, daher lief es separat.",
 	"Your shell didn't report its commands, so this ran on its own.": "Deine Shell hat ihre Befehle nicht gemeldet, daher lief dies separat.",
+	"Any folder or workspace": "Beliebiger Ordner oder Arbeitsbereich",
 	"Brought {{name}} back": "{{name}} wieder geöffnet",
 	"Change": "Änderung",
 	"Changed the settings of {{name}}": "Einstellungen von {{name}} geändert",
@@ -1392,6 +1393,7 @@
 	"Deleted {{name}}": "{{name}} gelöscht",
 	"Hid {{name}} from the sidebar": "{{name}} in der Seitenleiste ausgeblendet",
 	"Let {{name}} run agents": "{{name}} darf jetzt Agents ausführen",
+	"Lets it": "Darf",
 	"Marked {{name}} as read": "{{name}} als gelesen markiert",
 	"Ran the task {{name}}": "Aufgabe {{name}} ausgeführt",
 	"Renamed {{name}} to {{title}}": "{{name}} in {{title}} umbenannt",
@@ -1403,6 +1405,7 @@
 	"Settled {{name}}": "{{name}} erledigt",
 	"Showed {{name}} in the sidebar again": "{{name}} wieder in der Seitenleiste angezeigt",
 	"Snoozed {{name}}": "{{name}} zurückgestellt",
+	"Start, message and stop agents": "Agents starten, ihnen schreiben und sie stoppen",
 	"Started the workspace {{name}}": "Arbeitsbereich {{name}} gestartet",
 	"Stopped the turn of {{name}}": "Schritt von {{name}} gestoppt",
 	"Stopped the workspace {{name}}": "Arbeitsbereich {{name}} gestoppt",
@@ -1441,5 +1444,7 @@
 	"turning off the task {{name}}": "Aufgabe {{name}} ausschalten",
 	"turning on the task {{name}}": "Aufgabe {{name}} einschalten",
 	"updating the agent CLIs on {{name}}": "Agenten-CLIs auf {{name}} aktualisieren",
-	"waking {{name}}": "{{name}} wieder anzeigen"
+	"waking {{name}}": "{{name}} wieder anzeigen",
+	"{{count, number}} levels of agents below it_one": "{{count, number}} Ebene von Agents darunter",
+	"{{count, number}} levels of agents below it_other": "{{count, number}} Ebenen von Agents darunter"
 }

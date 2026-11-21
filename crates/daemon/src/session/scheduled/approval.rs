@@ -8,6 +8,7 @@
 //! after a restart for as long as the task waits. With no feed to show it
 //! in, the task waits in Settings, where turning it on approves it.
 
+use maxhq_core::agents::mode_name;
 use maxhq_protocol::attention::{AnswerOutcome, AttentionAnswer, AttentionEvent, AttentionKind};
 use maxhq_protocol::ids::{AgentId, AttentionId, ClientId, IdempotencyKey};
 use maxhq_protocol::tasks::{Days, Maker, Task, TaskTarget, Trigger, Weekday};
@@ -31,8 +32,6 @@ pub const APPROVE: &str = "Approve";
 pub const DECLINE: &str = "Decline";
 
 const TITLE: &str = "Approve this scheduled task?";
-/// How much of the prompt the card shows.
-const PROMPT_SHOWN: usize = 600;
 
 /// What the agent's tool reads about a task that waits.
 pub const WAITS: &str =
@@ -204,21 +203,30 @@ impl Manager {
         let name = visible(&task.name);
         let runs = runs(&task.trigger);
         let reaches = self.reaches(&task.target, feed);
-        let mut prompt: String = task.prompt.chars().take(PROMPT_SHOWN).collect();
-        if prompt.len() < task.prompt.len() {
-            prompt.push('…');
-        }
-        let prompt = visible(&prompt);
         let risk = format!(
             "{maker} made a task that runs by itself, with what this agent may do. It stays \
              off until you approve it."
         );
-        let facts = vec![
-            ("Task", name.clone()),
-            ("Runs", runs),
-            ("Reaches", reaches),
-            ("Prompt", prompt),
-        ];
+        let mut facts = vec![("Task", name.clone()), ("Runs", runs), ("Reaches", reaches)];
+        if let TaskTarget::New { device, spec } = &task.target {
+            facts.push(("Vendor", spec.vendor.name().to_owned()));
+            facts.push(self.place_fact(&spec.place));
+            let mode = match spec.permission {
+                Some(mode) => {
+                    let mut name = mode_name(mode).to_owned();
+                    name[..1].make_ascii_uppercase();
+                    name
+                }
+                None => format!(
+                    "The default on {}",
+                    visible(&device_name(&self.hub, *device))
+                ),
+            };
+            facts.push(("Mode", mode));
+        }
+        // The whole prompt, each line kept, since it's what runs.
+        let prompt = task.prompt.split('\n').map(visible).collect::<Vec<_>>();
+        facts.push(("Prompt", prompt.join("\n")));
         let mut text = risk.clone();
         text.push('\n');
         for (label, value) in &facts {

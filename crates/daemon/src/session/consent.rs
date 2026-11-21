@@ -48,7 +48,9 @@ pub const DENY: &str = "Deny";
 /// The box that keeps the answer on the permission, sent back as its own
 /// answer.
 pub const REMEMBER: &str = "container-reach-remember";
-const REMEMBER_LABEL: &str = "Remember for this permission";
+/// The box's words. The permission keeps one answer for every call that
+/// leaves, so they say so rather than seem to cover only this call's target.
+pub const REMEMBER_LABEL: &str = "Remember for every call outside the container";
 /// What the card asks for.
 const TITLE: &str = "Reach outside the container";
 
@@ -342,7 +344,7 @@ impl Manager {
             || "a container".to_owned(),
             |(_, ws)| self.workspace_name(ws),
         );
-        let reach = self.call_reach(&pending.call, device);
+        let reach = self.call_reach(&pending.call, device, pending.caller.container);
         let tool = pending.call.tool().name();
         let (who, opening, mut details) = match pending.caller.actor {
             Actor::Task { task } => {
@@ -377,8 +379,9 @@ impl Manager {
             id: REMEMBER.to_owned(),
             label: REMEMBER_LABEL.to_owned(),
             settings: format!(
-                "Kept on the permission. To change it later, open the menu in {}, pick Change \
-                 what it can run, and set Containers.",
+                "Kept on the permission, so it answers every later call that reaches outside \
+                 the container, to any agent, device or test machine. To change it later, open \
+                 the menu in {}, pick Change what it can run, and set Containers.",
                 self.holder_header(feed, permission.holder)
             ),
         });
@@ -420,8 +423,13 @@ impl Manager {
         (summary, question)
     }
 
-    /// What a call reaches, said for the card.
-    fn call_reach(&self, call: &Call, device: DeviceId) -> Reach {
+    /// What a call reaches, said for the card, from a caller in `container`.
+    fn call_reach(
+        &self,
+        call: &Call,
+        device: DeviceId,
+        container: Option<(DeviceId, WorkspaceId)>,
+    ) -> Reach {
         let on = format!("on {}", visible(&device_name(&self.hub, device)));
         let mut details = vec![("Device", visible(&device_name(&self.hub, device)))];
         let runs = |subject: &str| {
@@ -436,24 +444,33 @@ impl Manager {
         );
         let (wants, risk) = match call {
             Call::StartAgent(start) => {
-                let place = match &start.place {
-                    Some(AgentPlace::Folder { path }) => {
-                        let path = visible(path);
-                        details.push(("Folder", path.clone()));
-                        format!(" in the folder {path}")
-                    }
-                    Some(AgentPlace::Workspace { workspace }) => {
-                        let name = self.workspace_name(*workspace);
-                        details.push(("Workspace", name.clone()));
-                        format!(" in the workspace {name}")
-                    }
-                    None => String::new(),
-                };
+                let place = start.place.as_ref().map_or_else(String::new, |place| {
+                    let (label, name) = self.place_fact(place);
+                    details.push((label, name.clone()));
+                    format!(" in the {} {name}", label.to_lowercase())
+                });
                 let vendor = start.vendor.name();
                 details.push(("Vendor", vendor.to_owned()));
+                // A start into the caller's own container reaches out only
+                // for the agent whose conversation it takes as context.
+                let leaves = match &start.place {
+                    Some(AgentPlace::Folder { .. }) => true,
+                    Some(AgentPlace::Workspace { workspace }) => {
+                        container != Some((device, *workspace))
+                    }
+                    None => false,
+                };
+                let context = start.context_from.map_or_else(String::new, |from| {
+                    let named = self.agents_reached(device, &[from], &mut details);
+                    format!(" with the conversation of {named} as its context")
+                });
                 (
-                    format!("start a {vendor} agent{place} {on}"),
-                    runs("The new agent"),
+                    format!("start a {vendor} agent{place} {on}{context}"),
+                    if leaves || context.is_empty() {
+                        runs("The new agent")
+                    } else {
+                        reads
+                    },
                 )
             }
             Call::SendAgent(message) => (
@@ -580,6 +597,15 @@ impl Manager {
     pub(super) fn agent_title(&self, agent: AgentId) -> String {
         self.agent_now(agent)
             .map_or_else(|| "An agent".to_owned(), |found| visible(&found.title))
+    }
+
+    /// Where a new agent runs, as a card's fact: its folder, or its
+    /// workspace by name.
+    pub(super) fn place_fact(&self, place: &AgentPlace) -> (&'static str, String) {
+        match place {
+            AgentPlace::Folder { path } => ("Folder", visible(path)),
+            AgentPlace::Workspace { workspace } => ("Workspace", self.workspace_name(*workspace)),
+        }
     }
 
     /// A workspace's name: its container, or its folder's.

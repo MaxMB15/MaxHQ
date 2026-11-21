@@ -80,7 +80,7 @@ The Mac app reads and saves notes through this Mac's maxd. While that's down, a 
 ## Share a note with an agent
 <!-- id: notes/agents -->
 
-Agents can read and write the notes of the project they work in, with no permission needed.
+Agents can read and write the notes of the project they work in, with no permission needed. An agent in Plan only mode reads them but can't change them.
 
 - To point an agent at a note, type `@` in its composer and pick the note. It goes in as a pill.
 - An agent can list, read, create and edit its project's notes on its own. See [Let an agent keep notes](agents-composer.md).

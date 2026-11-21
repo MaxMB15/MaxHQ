@@ -20,11 +20,12 @@ import {
 	Terminal,
 	Wrench,
 } from "lucide-react";
-import { type ReactNode, useCallback, useLayoutEffect, useRef, useState } from "react";
+import { type ReactNode, useCallback } from "react";
 import { useStore } from "zustand";
 
 import { useView } from "@/app/services";
 import { AnswerField, useAnswerPlace } from "@/composer/answer-field";
+import { useMoreBelow } from "@/lib/use-more-below";
 import type { ApprovalKind, AttentionAnswer, Decided } from "@maxhq/shared/bindings";
 import {
 	NOTHING_TYPED,
@@ -89,26 +90,6 @@ const useDeviceName = (): string | null => {
 	});
 };
 
-// A box and whether more of its text sits below what it shows, kept up as it
-// scrolls and resizes.
-const useMoreBelow = (text: string | null) => {
-	const ref = useRef<HTMLPreElement>(null);
-	const [more, setMore] = useState(false);
-	const measure = useCallback(() => {
-		const box = ref.current;
-		setMore(box !== null && box.scrollHeight - box.clientHeight - box.scrollTop > 1);
-	}, []);
-	useLayoutEffect(() => {
-		measure();
-		const box = ref.current;
-		if (box === null) return;
-		const observer = new ResizeObserver(measure);
-		observer.observe(box);
-		return () => observer.disconnect();
-	}, [measure, text]);
-	return { ref, more, measure };
-};
-
 // What the detail box shows: a command after a prompt sign, anything else
 // as it came, and the folder it runs in. A long one says there's more, so what
 // sits past the fold can't go unread.
@@ -116,7 +97,7 @@ const Detail = ({ item }: { item: ItemOf<"approval"> }) => {
 	useI18n();
 	const working = useWorkingFolder(item);
 	const device = useDeviceName();
-	const { ref, more, measure } = useMoreBelow(item.detail);
+	const { ref, more, measure } = useMoreBelow<HTMLPreElement>(item.detail);
 	const folder = working === null ? null : showHidden(working);
 	if (!item.detail && folder === null) return null;
 	const command = item.approval_kind === "command";

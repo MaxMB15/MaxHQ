@@ -35,7 +35,7 @@ import { tasksTargeting } from "../tasks/place";
 import type { ViewState } from "../view/replica";
 import { accounts, deviceName, workspaceName } from "../view/select";
 
-import { adminPhrase, settingLines } from "./action";
+import { adminPhrase, grantLines, settingLines } from "./action";
 
 /**
  * The accounts on `device` the dispatcher can run as: Claude first, then
@@ -363,6 +363,7 @@ export const itemLines = (view: ViewState, plan: Plan, index: number): ItemLine[
 					value: sentence(adminPhrase(view, step.device, step.action)),
 				},
 				...settingLines(step.action).map((value) => ({ label: t("Setting"), value })),
+				...grantLines(view, step.action),
 			];
 	}
 };

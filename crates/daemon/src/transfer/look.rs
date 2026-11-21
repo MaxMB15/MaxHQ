@@ -3,11 +3,12 @@
 
 //! Checks the file an agent opens with MaxHQ's open tool, before its card
 //! goes on the timeline. The file must be there, be a regular file of a
-//! kind the viewer opens, and be no larger than the viewer takes. Nothing
-//! here reads the file's bytes. A file in a container is checked from the
+//! kind the viewer opens, and be no larger than the viewer takes. A path
+//! outside the agent's folders is checked only by its name, until the user
+//! picks Show anyway. Nothing here reads the file's bytes. A file in a container is checked from the
 //! manifest its guest sends for a download, which is then cancelled.
 
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 
 use maxhq_client::media;
 use maxhq_protocol::guest::HostToGuest;
@@ -126,15 +127,15 @@ impl Transfers {
 /// first of `roots`. An absolute one outside all of them is allowed, since
 /// the user asked for it, but is flagged so the app asks before showing it.
 pub fn look_local(roots: &[PathBuf], path: &str) -> Result<Looked, String> {
-    let named = match roots.first() {
-        Some(first) if Path::new(path).is_relative() => first.join(path),
-        _ => PathBuf::from(path),
+    // A folder on the way that isn't there.
+    let gone = || {
+        let named = match roots.first() {
+            Some(first) if Path::new(path).is_relative() => first.join(path),
+            _ => PathBuf::from(path),
+        };
+        std::fs::symlink_metadata(named)
+            .is_err_and(|err| err.kind() == std::io::ErrorKind::NotFound)
     };
-    if std::fs::symlink_metadata(&named)
-        .is_err_and(|err| err.kind() == std::io::ErrorKind::NotFound)
-    {
-        return Err(missing(path));
-    }
     match disk::resolve(roots, path) {
         Ok(found) => {
             check_file(path, &found)?;
@@ -143,20 +144,24 @@ pub fn look_local(roots: &[PathBuf], path: &str) -> Result<Looked, String> {
                 outside: false,
             })
         }
+        // A path outside isn't looked at, so the agent hears the same
+        // whatever is there and learns nothing of the disk past its
+        // folders. Show anyway checks the file once the user asks.
         Err(failure) if failure.code == ErrorCode::Outside => {
-            let found = Path::new(path)
-                .canonicalize()
-                .map_err(|err| match err.kind() {
-                    std::io::ErrorKind::NotFound => missing(path),
-                    _ => format!("{path}: {err}."),
-                })?;
-            check_file(path, &found)?;
+            if Path::new(path)
+                .components()
+                .any(|part| part == Component::ParentDir)
+            {
+                return Err(format!("{path}: the path has a `..` part."));
+            }
+            kind_shown(path)?;
             Ok(Looked {
-                path: found.display().to_string(),
+                path: path.to_owned(),
                 outside: true,
             })
         }
         Err(failure) if failure.message == "nothing is at that path" => Err(missing(path)),
+        Err(failure) if failure.code == ErrorCode::Internal && gone() => Err(missing(path)),
         Err(failure) => Err(format!("{path}: {}.", failure.message)),
     }
 }
@@ -269,31 +274,36 @@ mod tests {
     }
 
     #[test]
-    fn an_absolute_path_outside_the_folders_is_flagged() {
+    fn an_absolute_path_outside_the_folders_is_flagged_whatever_is_there() {
         let (_dir, roots, outside) = folders();
-        let path = outside.join("chart.png");
-        let looked = look_local(&roots, path.to_str().unwrap()).unwrap();
-        assert_eq!(
-            looked,
-            Looked {
-                path: path.display().to_string(),
-                outside: true,
-            }
-        );
+        fs::create_dir_all(outside.join("album.png")).unwrap();
+        for name in ["chart.png", "gone.png", "album.png"] {
+            let path = outside.join(name);
+            let looked = look_local(&roots, path.to_str().unwrap()).unwrap();
+            assert_eq!(
+                looked,
+                Looked {
+                    path: path.display().to_string(),
+                    outside: true,
+                }
+            );
+        }
+        let refused = |path: PathBuf| look_local(&roots, path.to_str().unwrap()).unwrap_err();
+        assert!(refused(outside.join("main.exe")).contains("doesn't open that kind of file"));
+        assert!(refused(outside.join("../elsewhere/chart.png")).contains(".."));
     }
 
     #[test]
     fn a_missing_file_a_folder_a_link_and_an_unshown_kind_are_refused() {
-        let (_dir, roots, outside) = folders();
+        let (_dir, roots, _) = folders();
         let refused = |path: &str| look_local(&roots, path).expect_err(path);
         assert!(refused("docs/gone.md").starts_with("There's no file at docs/gone.md"));
         assert!(refused("nowhere/gone.md").starts_with("There's no file"));
-        let gone = outside.join("gone.png");
-        assert!(refused(gone.to_str().unwrap()).starts_with("There's no file"));
         assert!(refused("docs/pictures.png").contains("is a folder"));
         assert!(refused("docs").contains("is a folder"));
         assert!(refused("main.exe").contains("doesn't open that kind of file"));
         assert!(refused("linked.md").contains("is a link"));
         assert!(refused("../elsewhere/chart.png").contains(".."));
+        assert!(refused("../elsewhere/gone.png").contains(".."));
     }
 }
