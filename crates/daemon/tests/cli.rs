@@ -23,6 +23,7 @@ use maxhq_client::{LinkEvent, LinkSpec, TerminalSink, Transport};
 use maxhq_core::prove::{self, Challenge, Kind, Statement};
 use maxhq_hold::{Detach, Dirs, Event, Framing, Holds, Launch, TermLaunch, WriteOutcome};
 use maxhq_protocol::agents::ClientRole;
+use maxhq_protocol::cursor_rules::{CursorRuleCall, CursorRules};
 use maxhq_protocol::frame::{self, Frame, FrameDecoder};
 use maxhq_protocol::ids::{AgentId, ClientId, IdempotencyKey, LinkId, SessionId, TerminalId};
 use maxhq_protocol::link::{DeviceLink, LinkState, Route};
@@ -72,6 +73,7 @@ impl World {
             .env("HOME", self.0.join("home"))
             .env("XDG_DATA_HOME", self.0.join("data"))
             .env("XDG_CONFIG_HOME", self.0.join("config"))
+            .env_remove("CURSOR_CONFIG_DIR")
             .env("MAXD_NO_OBSERVERS", "1")
             .env("RUST_LOG", "info")
             .stdin(Stdio::null());
@@ -481,6 +483,70 @@ fn the_app_s_view_keeps_all_a_real_maxd_reports() {
     for entity in &entities {
         assert_eq!(merge.store().get(&entity.key()), Some(entity));
     }
+}
+
+/// The Cursor CLI's settings in this world's config folder, where Cursor
+/// finds them when `XDG_CONFIG_HOME` is set.
+#[test]
+fn the_app_lists_and_removes_the_shell_rules_cursor_saved() {
+    let world = World::new();
+    let file = world.0.join("config/cursor/cli-config.json");
+    fs::create_dir_all(file.parent().unwrap()).unwrap();
+    let before = r#"{
+  "version": 1,
+  "permissions": {
+    "allow": [
+      "Shell(git status)",
+      "Read(src/**)",
+      "Shell(ls)"
+    ],
+    "deny": [
+      "Shell(rm)"
+    ]
+  }
+}
+"#;
+    fs::write(&file, before).unwrap();
+    let _maxd = world.start();
+    let mut client = Client::connect(&world.socket());
+    let hello = client.hello();
+    let rules = |list: &[&str]| ActionOutcome::CursorRules {
+        rules: CursorRules {
+            path: file.display().to_string(),
+            rules: list.iter().map(|rule| (*rule).to_owned()).collect(),
+        },
+    };
+
+    let listed = client.act(ClientMessage::CursorRules {
+        key: IdempotencyKey::generate(),
+        device: hello.device,
+        call: CursorRuleCall::List,
+    });
+    assert_eq!(listed, rules(&["Shell(git status)", "Shell(ls)"]));
+    assert_eq!(fs::read_to_string(&file).unwrap(), before);
+
+    let removed = client.act(ClientMessage::CursorRules {
+        key: IdempotencyKey::generate(),
+        device: hello.device,
+        call: CursorRuleCall::Remove {
+            rule: "Shell(git status)".into(),
+        },
+    });
+    assert_eq!(removed, rules(&["Shell(ls)"]));
+    let after = r#"{
+  "version": 1,
+  "permissions": {
+    "allow": [
+      "Read(src/**)",
+      "Shell(ls)"
+    ],
+    "deny": [
+      "Shell(rm)"
+    ]
+  }
+}
+"#;
+    assert_eq!(fs::read_to_string(&file).unwrap(), after);
 }
 
 #[test]

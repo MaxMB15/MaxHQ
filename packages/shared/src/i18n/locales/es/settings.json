@@ -1151,5 +1151,16 @@
 	"claude.ai pages": "Páginas de claude.ai",
 	"On by default": "Activado de forma predeterminada",
 	"Claude agents can use claude.ai artifacts": "Los agentes de Claude pueden usar artifacts de claude.ai",
-	"Claude Code can publish pages to your claude.ai account, read pages you or others share, and change their data and comments. It asks you before it reads someone else's page, deletes one or changes who can open it. Off removes these tools from Claude agents on this device. Agents pick up a change when their CLI next starts.": "Claude Code puede publicar páginas en tu cuenta de claude.ai, leer páginas que tú u otras personas compartan, y cambiar sus datos y comentarios. Te pregunta antes de leer la página de otra persona, eliminar una o cambiar quién puede abrirla. Desactivado, quita estas herramientas a los agentes de Claude en este dispositivo. Los agentes aplican un cambio la próxima vez que se inicie su CLI."
+	"Claude Code can publish pages to your claude.ai account, read pages you or others share, and change their data and comments. It asks you before it reads someone else's page, deletes one or changes who can open it. Off removes these tools from Claude agents on this device. Agents pick up a change when their CLI next starts.": "Claude Code puede publicar páginas en tu cuenta de claude.ai, leer páginas que tú u otras personas compartan, y cambiar sus datos y comentarios. Te pregunta antes de leer la página de otra persona, eliminar una o cambiar quién puede abrirla. Desactivado, quita estas herramientas a los agentes de Claude en este dispositivo. Los agentes aplican un cambio la próxima vez que se inicie su CLI.",
+	"Couldn't change Cursor's settings.": "No se pudo cambiar la configuración de Cursor.",
+	"Couldn't read Cursor's settings.": "No se pudo leer la configuración de Cursor.",
+	"Cursor runs commands that start with these words without asking MaxHQ, in every project on this device. Always allow in an earlier MaxHQ saved them; MaxHQ now keeps those rules itself.": "Cursor ejecuta los comandos que empiezan con estas palabras sin preguntar a MaxHQ, en todos los proyectos de este dispositivo. Permitir siempre en una versión anterior de MaxHQ las guardó; MaxHQ ahora gestiona esas reglas por sí mismo.",
+	"Cursor saved no shell rules here.": "Cursor no guardó reglas de shell aquí.",
+	"No device reports the Cursor CLI yet.": "Ningún dispositivo informa todavía de la CLI de Cursor.",
+	"Reading Cursor's settings": "Leyendo la configuración de Cursor",
+	"Remove makes Cursor ask again": "Al quitarla, Cursor vuelve a preguntar",
+	"Remove {{rule}} on {{deviceName}}": "Quitar {{rule}} en {{deviceName}}",
+	"Removed. Cursor agents running now keep it until they start again.": "Quitada. Los agentes de Cursor en marcha la mantienen hasta que vuelvan a iniciarse.",
+	"Shell rules Cursor saved": "Reglas de shell que guardó Cursor",
+	"Update maxd on {{deviceName}} to see the rules Cursor saved there.": "Actualiza maxd en {{deviceName}} para ver las reglas que Cursor guardó allí."
 }

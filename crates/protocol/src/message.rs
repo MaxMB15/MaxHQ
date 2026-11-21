@@ -16,6 +16,7 @@ use crate::agents::{
 };
 use crate::attention::{AnswerOutcome, AttentionAnswer};
 use crate::context::InlineRef;
+use crate::cursor_rules::{CursorRuleCall, CursorRules};
 use crate::dispatch::{ChatAct, PlanOutcome};
 use crate::find::{AgentExcerpt, GitItemSearch, PathMatch};
 use crate::folders::FolderListing;
@@ -2257,6 +2258,19 @@ pub enum ClientMessage {
         call: NoticeCall,
     },
 
+    /// Lists the `Shell(...)` entries Cursor saved in its own allow list
+    /// on a device, or removes one. The outcome is
+    /// [`ActionOutcome::CursorRules`]. Only the app and phones may send it.
+    /// Since protocol 57, [`CURSOR_RULES_SINCE`].
+    CursorRules {
+        /// Makes a resend after a dropped connection safe.
+        key: IdempotencyKey,
+        /// The device whose Cursor settings they are.
+        device: DeviceId,
+        /// What to do.
+        call: CursorRuleCall,
+    },
+
     // Local models.
     /// Acts on the device's local models: probes, adds, tests or removes a
     /// server URL, downloads, pauses, resumes or deletes a model file, or
@@ -2350,6 +2364,7 @@ impl ClientMessage {
             | Self::TerminalMove { .. } => TERMINALS_SINCE,
             Self::ListFolder { .. } | Self::MakeFolder { .. } => FOLDERS_SINCE,
             Self::Notices { .. } => NOTICES_SINCE,
+            Self::CursorRules { .. } => CURSOR_RULES_SINCE,
             Self::ActOnChat { .. } => DISPATCHER_CHATS_SINCE,
             Self::ModelAction { .. } => LOCAL_MODELS_SINCE,
             _ => OLDEST_PROTOCOL_VERSION,
@@ -2533,6 +2548,7 @@ impl ClientMessage {
             | Self::SessionCd { key, .. }
             | Self::SessionEnd { key, .. }
             | Self::Notices { key, .. }
+            | Self::CursorRules { key, .. }
             | Self::ModelAction { key, .. } => Some(*key),
             Self::Hello(_)
             | Self::Phone { .. }
@@ -3014,6 +3030,12 @@ pub const LOCAL_MODELS_SINCE: u32 = 54;
 /// them, so the app hides the switch.
 pub const ARTIFACTS_SINCE: u32 = 55;
 
+/// The protocol version whose `maxd` first lists and removes the shell
+/// rules Cursor saved, for [`ClientMessage::CursorRules`]. An older one
+/// refuses it, so Settings says that device needs a newer `maxd`. Since
+/// protocol 57.
+pub const CURSOR_RULES_SINCE: u32 = 57;
+
 /// When [`ClientMessage::TakeOver`] stops the terminal's CLI.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, Type, JsonSchema)]
 #[serde(rename_all = "snake_case")]
@@ -3476,6 +3498,13 @@ pub enum ActionOutcome {
     Notices {
         /// The page.
         page: NoticePage,
+    },
+
+    /// A device's Cursor rules, for [`ClientMessage::CursorRules`]. Since
+    /// protocol 57.
+    CursorRules {
+        /// The entries.
+        rules: CursorRules,
     },
 
     // Local models.

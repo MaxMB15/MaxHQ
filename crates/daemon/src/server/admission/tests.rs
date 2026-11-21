@@ -7,7 +7,8 @@ use std::time::Duration;
 use base64::Engine;
 use maxhq_core::prove::Kind;
 use maxhq_protocol::admission::{Admission, AppKeyOrigin};
-use maxhq_protocol::ids::{AdmissionId, AgentId, ClientId, IdempotencyKey, PhoneId};
+use maxhq_protocol::cursor_rules::CursorRuleCall;
+use maxhq_protocol::ids::{AdmissionId, AgentId, ClientId, DeviceId, IdempotencyKey, PhoneId};
 use maxhq_protocol::message::{ActionOutcome, ErrorCode, ServerHello};
 use maxhq_protocol::state::Entity;
 use maxhq_protocol::terminal::TerminalKind;
@@ -21,7 +22,7 @@ use crate::app_keys::testing;
 use crate::server::proof::unproven;
 use crate::server::terminals::NOT_FOR_TERMINALS;
 use crate::server::tests::{hello, serve, Served, TestClient, WAIT};
-use crate::server::NOT_FOR_FOLDERS;
+use crate::server::{NOT_FOR_CURSOR_RULES, NOT_FOR_FOLDERS};
 use crate::terminals::access::Opener;
 use crate::testing::TempDir;
 
@@ -752,4 +753,30 @@ async fn a_program_let_in_from_its_card_still_cant_reach_folders() {
     };
     assert_eq!(ask(&mut other, make).await, refused(NOT_FOR_FOLDERS));
     assert!(!dir.path().join("new").exists());
+}
+
+// Another device's rules, so a gate that let it through answers with a
+// different refusal and never reads this home folder.
+#[tokio::test]
+async fn a_program_let_in_from_its_card_still_cant_reach_cursor_rules() {
+    let served = served(QUICK, None);
+    let (mut app, _) = TestClient::greeted(&served.socket).await;
+    let mut other = stranger(&served).await;
+    let card = until_cards(&served, 1).await.remove(0);
+    assert_eq!(answer(&mut app, card.id, true).await, ActionOutcome::Done);
+    assert!(may_sync(&mut other).await);
+
+    for call in [
+        CursorRuleCall::List,
+        CursorRuleCall::Remove {
+            rule: "Shell(git status)".into(),
+        },
+    ] {
+        let rules = ClientMessage::CursorRules {
+            key: IdempotencyKey::generate(),
+            device: DeviceId::derive("devbox"),
+            call,
+        };
+        assert_eq!(ask(&mut other, rules).await, refused(NOT_FOR_CURSOR_RULES));
+    }
 }

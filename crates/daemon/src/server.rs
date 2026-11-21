@@ -17,6 +17,7 @@ use std::time::Duration;
 
 use maxhq_core::prove::Challenge;
 use maxhq_protocol::agents::ClientRole;
+use maxhq_protocol::cursor_rules::CursorRuleCall;
 use maxhq_protocol::frame::{self, DecodeError, EncodeError, Frame, FrameDecoder};
 use maxhq_protocol::ids::{
     ClientId, DeviceId, IdempotencyKey, PairId, PhoneId, StreamId, TerminalId, TransferId,
@@ -71,6 +72,11 @@ const NOT_FOR_FOLDERS: &str = "Only the MaxHQ app and phones that proved their k
 /// isn't the app or a proven phone.
 const NOT_FOR_NOTICES: &str = "Only the MaxHQ app and phones that proved their keys may read \
                                this device's notifications.";
+
+/// The refusal for a Cursor rules request from a connection that isn't
+/// the app or a proven phone.
+const NOT_FOR_CURSOR_RULES: &str = "Only the MaxHQ app and phones that proved their keys may \
+                                    read or change Cursor's rules on this device.";
 
 /// The answer to a request whose part of `maxd` isn't built yet.
 pub fn not_yet() -> ActionOutcome {
@@ -772,11 +778,11 @@ impl Connection {
         // them, open a shell, reach a guest's shell or ports, signal a
         // process, copy files out, download models, build or reset a test
         // host, or change hosts, snapshots, moves, skills, the skill
-        // library or its sources. Nor, as `terminals::access` says, run a
-        // `!` command, type into a terminal or watch a shell. The phone
-        // asks the dispatcher, answers and steers agents that already run.
-        // Unless the Mac turned the phone's switch on, which lets it do all
-        // of these.
+        // library or its sources, or Cursor's saved rules. Nor, as
+        // `terminals::access` says, run a `!` command, type into a
+        // terminal or watch a shell. The phone asks the dispatcher,
+        // answers and steers agents that already run. Unless the Mac
+        // turned the phone's switch on, which lets it do all of these.
         if self.phone.is_some()
             && matches!(
                 message,
@@ -850,6 +856,10 @@ impl Connection {
                         ..
                     }
                     | ClientMessage::FetchBegin { anyway: true, .. }
+                    | ClientMessage::CursorRules {
+                        call: CursorRuleCall::Remove { .. },
+                        ..
+                    }
                     | ClientMessage::ModelAction {
                         action: ModelAction::AddServer { .. }
                             | ModelAction::ProbeServer { .. }
@@ -1353,6 +1363,19 @@ impl Connection {
             }
             message @ ClientMessage::Notices { .. } => {
                 self.refuse(&message, ErrorCode::NotAllowed, NOT_FOR_NOTICES)
+                    .await
+            }
+            // So do the rules Cursor saved.
+            ClientMessage::CursorRules { key, device, call }
+                if self.terminal_caller().is_some() =>
+            {
+                let me = self.hub.device().id;
+                let call = crate::drive::cursor::rules::answer(me, device, call);
+                self.answer_when(key, tokio::spawn(call));
+                Ok(())
+            }
+            message @ ClientMessage::CursorRules { .. } => {
+                self.refuse(&message, ErrorCode::NotAllowed, NOT_FOR_CURSOR_RULES)
                     .await
             }
             // A phone without its switch on never gets here for the actions
@@ -3187,6 +3210,56 @@ pub(crate) mod tests {
         assert!(dir.path().join("new").is_dir());
     }
 
+    // The rules on this device come from the real home folder, so this test
+    // asks for another device's, and the command-line tests read this one's.
+    #[tokio::test]
+    async fn cursor_rules_answer_the_app_and_never_agents_tools() {
+        let served = serve();
+        let devbox = DeviceId::derive("devbox");
+        let list = ClientMessage::CursorRules {
+            key: IdempotencyKey::derive("list"),
+            device: devbox,
+            call: CursorRuleCall::List,
+        };
+        let remove = ClientMessage::CursorRules {
+            key: IdempotencyKey::derive("remove"),
+            device: devbox,
+            call: CursorRuleCall::Remove {
+                rule: "Shell(git status)".into(),
+            },
+        };
+
+        let mut tools = TestClient::connect(&served.socket).await;
+        let ClientMessage::Hello(mut hello) = hello(ProtocolRange::OURS) else {
+            unreachable!()
+        };
+        hello.role = ClientRole::Mcp;
+        tools.send(&ClientMessage::Hello(hello)).await;
+        assert!(matches!(tools.recv().await, ServerMessage::Hello(_)));
+        for message in [&list, &remove] {
+            tools.send(message).await;
+            assert!(matches!(
+                tools.recv().await,
+                ServerMessage::Error {
+                    code: ErrorCode::NotAllowed,
+                    ..
+                }
+            ));
+        }
+
+        let (mut app, _) = TestClient::greeted(&served.socket).await;
+        for message in [&list, &remove] {
+            app.send(message).await;
+            assert!(matches!(
+                app.recv().await,
+                ServerMessage::ActionResult {
+                    outcome: ActionOutcome::Refused { .. },
+                    ..
+                }
+            ));
+        }
+    }
+
     #[tokio::test]
     async fn only_the_app_may_set_or_delete_acp_agents() {
         let served = serve();
@@ -3767,6 +3840,14 @@ pub(crate) mod tests {
                 agent: AgentId::derive("a"),
                 mode: PermissionMode::FullAccess,
             },
+            // Removing a rule Cursor saved changes what it runs unasked.
+            ClientMessage::CursorRules {
+                key: key("cursor-rule-remove"),
+                device: DeviceId::derive("devbox"),
+                call: CursorRuleCall::Remove {
+                    rule: "Shell(git status)".into(),
+                },
+            },
         ];
         // What hands out access, which a phone's switch never lifts.
         let handed_out = [
@@ -3928,6 +4009,13 @@ pub(crate) mod tests {
                     model: "qwen3.6-35b-a3b".into(),
                     file: "Qwen3.6-35B-A3B-UD-Q4_K_XL.gguf".into(),
                 },
+            },
+            // It may read the rules Cursor saved. Another device's, so this
+            // home folder stays unread.
+            ClientMessage::CursorRules {
+                key: key("cursor-rule-list"),
+                device: DeviceId::derive("devbox"),
+                call: CursorRuleCall::List,
             },
         ] {
             own.send(&message).await;

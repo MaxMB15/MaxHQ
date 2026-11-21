@@ -15,6 +15,7 @@ use maxhq_protocol::acp::{AcpAgent, AcpEnvValue};
 use maxhq_protocol::agents::{AccessKey, MoveTo, Permission};
 use maxhq_protocol::attention::AttentionAnswer;
 use maxhq_protocol::context::InlineRef;
+use maxhq_protocol::cursor_rules::{CursorRuleCall, CursorRuleList};
 use maxhq_protocol::dispatch::ChatAct;
 use maxhq_protocol::find::{AgentExcerpt, GitItemSearch, PathMatch};
 use maxhq_protocol::folders::FolderList;
@@ -948,6 +949,13 @@ pub enum Request {
         device: DeviceId,
         action: ModelAction,
     },
+    /// Lists the `Shell(...)` rules Cursor saved in its own settings on
+    /// `device`, or removes one and lists the rest. A `maxd` too old to
+    /// read them answers `too_old` rather than failing.
+    CursorRules {
+        device: DeviceId,
+        call: CursorRuleCall,
+    },
 }
 
 /// The answer to a [`Request`], of the same kind. A request that only
@@ -1171,6 +1179,7 @@ pub enum Response {
     ReadNotices,
     ClearNotices,
     ModelAction(ActionOutcome),
+    CursorRules(CursorRuleList),
 }
 
 impl Request {
@@ -1387,6 +1396,7 @@ impl Request {
             Self::ReadNotices { .. } => "read_notices",
             Self::ClearNotices => "clear_notices",
             Self::ModelAction { .. } => "model_action",
+            Self::CursorRules { .. } => "cursor_rules",
         }
     }
 }
@@ -1605,6 +1615,7 @@ impl Response {
             Self::ReadNotices => "read_notices",
             Self::ClearNotices => "clear_notices",
             Self::ModelAction(_) => "model_action",
+            Self::CursorRules(_) => "cursor_rules",
         }
     }
 }
@@ -2825,6 +2836,16 @@ impl<C: Connector> App<C> {
                 let act = |key| ClientMessage::ModelAction { key, action };
                 Response::ModelAction(self.act_needing(device, Needs::LocalModels, act).await?)
             }
+            Request::CursorRules { device, call } => {
+                let action = ClientMessage::CursorRules { key, device, call };
+                match devices.act_unless_old(action).await? {
+                    None => Response::CursorRules(CursorRuleList::TooOld),
+                    Some(ActionOutcome::CursorRules { rules }) => {
+                        Response::CursorRules(CursorRuleList::Listed { rules })
+                    }
+                    Some(other) => return Err(lookup_failed(other)),
+                }
+            }
         })
     }
 
@@ -3324,6 +3345,7 @@ mod tests {
     use std::collections::BTreeSet;
     use std::path::PathBuf;
 
+    use maxhq_protocol::cursor_rules::CursorRules;
     use maxhq_protocol::ids::{AdmissionId, AttachmentId};
     use maxhq_protocol::model::HiddenProjects;
     use maxhq_protocol::tasks::DeviceTasks;
@@ -3747,6 +3769,7 @@ mod tests {
                 "device": mac,
                 "action": {"action": "download", "model": "qwen3.6-35b-a3b", "file": "model-Q4.gguf"},
             }),
+            json!({"kind": "cursor_rules", "device": mac, "call": {"kind": "list"}}),
         ]
         .into_iter()
         .chain(skill_requests(mac))
@@ -4588,7 +4611,7 @@ mod tests {
                 }
             }
         }
-        assert_eq!(kinds.len() + mac_only.len(), 164);
+        assert_eq!(kinds.len() + mac_only.len(), 165);
         // The harness has no maxd to install or uninstall, no timeline open, no
         // listening port, no setup waiting on a host key, no GitHub
         // sign-in to merge with, no skill proposal, no link or card waiting
@@ -4681,6 +4704,58 @@ mod tests {
             lookup_failed(ActionOutcome::Done),
             CommandError::Failed { .. }
         ));
+    }
+
+    #[test]
+    fn cursor_rules_come_from_the_device_named_and_an_old_maxd_lists_none() {
+        let (h, _, nl) = two_devices();
+        let app = App::new(h.view.clone(), h.devices, FakeShell::default());
+        let caller = Caller {
+            window: "main".into(),
+            on_screen: true,
+        };
+        let ask = |call| Request::CursorRules {
+            device: DeviceId::derive("nl"),
+            call,
+        };
+        let rules = CursorRules {
+            path: "~/.cursor/cli-config.json".into(),
+            rules: vec!["Shell(ls)".into()],
+        };
+        h.fake.record().acts.push_back(ActionOutcome::CursorRules {
+            rules: rules.clone(),
+        });
+        let remove = CursorRuleCall::Remove {
+            rule: "Shell(git status)".into(),
+        };
+        assert_eq!(
+            block_on(app.request(&caller, ask(remove.clone()))),
+            Ok(Response::CursorRules(CursorRuleList::Listed { rules }))
+        );
+        let calls = h.fake.calls();
+        let [(link, Call::Send(ClientMessage::CursorRules { device, call, .. }))] = &calls[..]
+        else {
+            panic!("{calls:?}");
+        };
+        assert_eq!(
+            (*link, *device, call),
+            (nl.id, DeviceId::derive("nl"), &remove)
+        );
+
+        let reason = "Cursor's settings file isn't in a shape maxd knows.";
+        h.fake.record().acts.push_back(ActionOutcome::Refused {
+            reason: reason.into(),
+        });
+        assert_eq!(
+            block_on(app.request(&caller, ask(CursorRuleCall::List))),
+            Err(failed(reason))
+        );
+
+        h.fake.record().old.insert(nl.id);
+        assert_eq!(
+            block_on(app.request(&caller, ask(CursorRuleCall::List))),
+            Ok(Response::CursorRules(CursorRuleList::TooOld))
+        );
     }
 
     #[test]

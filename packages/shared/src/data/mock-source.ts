@@ -84,6 +84,7 @@ import { sampleSessionTerminal } from "./mock-sessions";
 import { mockTerminals } from "./mock-terminals";
 import { mockFolders } from "./mock-folders";
 import { mockNotices } from "./mock-notices";
+import { mockCursorRules } from "./mock-cursor-rules";
 import { mockLinks } from "./mock-links";
 import { mockNetworkAccess, mockPhone, mockPhones } from "./mock-phones";
 import { type FleetContext, mockFleet, mockTools } from "./mock-fleet";
@@ -1653,6 +1654,7 @@ export const mockSource = (options: MockOptions = {}): MockSource => {
 		...terminalCalls,
 		...mockFolders(),
 		...mockNotices(now),
+		...mockCursorRules(),
 		...mockHostCalls(fleet),
 		...mockLocalModels(fleet),
 		...mockAgents(now),

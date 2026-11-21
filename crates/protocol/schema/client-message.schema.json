@@ -5230,6 +5230,34 @@
       ]
     },
     {
+      "description": "Lists the `Shell(...)` entries Cursor saved in its own allow list\non a device, or removes one. The outcome is\n[`ActionOutcome::CursorRules`]. Only the app and phones may send it.\nSince protocol 57, [`CURSOR_RULES_SINCE`].",
+      "type": "object",
+      "properties": {
+        "call": {
+          "description": "What to do.",
+          "$ref": "#/$defs/CursorRuleCall"
+        },
+        "device": {
+          "description": "The device whose Cursor settings they are.",
+          "$ref": "#/$defs/DeviceId"
+        },
+        "key": {
+          "description": "Makes a resend after a dropped connection safe.",
+          "$ref": "#/$defs/IdempotencyKey"
+        },
+        "type": {
+          "type": "string",
+          "const": "cursor_rules"
+        }
+      },
+      "required": [
+        "type",
+        "key",
+        "device",
+        "call"
+      ]
+    },
+    {
       "description": "Acts on the device's local models: probes, adds, tests or removes a\nserver URL, downloads, pauses, resumes or deletes a model file, or\nloads or unloads a model. Probing a URL answers\n[`ActionOutcome::ServerProbed`], adding a server\n[`ActionOutcome::ModelServerAdded`], the rest\n[`ActionOutcome::Done`]. The default model is a device setting,\n[`crate::model::DeviceSettings::local_models`]. Since\n[`LOCAL_MODELS_SINCE`].",
       "type": "object",
       "properties": {
@@ -6721,6 +6749,24 @@
           ]
         },
         {
+          "description": "A device's Cursor rules, for [`ClientMessage::CursorRules`]. Since\nprotocol 57.",
+          "type": "object",
+          "properties": {
+            "rules": {
+              "description": "The entries.",
+              "$ref": "#/$defs/CursorRules"
+            },
+            "status": {
+              "type": "string",
+              "const": "cursor_rules"
+            }
+          },
+          "required": [
+            "status",
+            "rules"
+          ]
+        },
+        {
           "description": "The server a [`ModelAction::AddServer`] added, which its probe fills\nin.",
           "type": "object",
           "properties": {
@@ -7900,6 +7946,63 @@
       "description": "A login or key a device holds.",
       "type": "string",
       "format": "uuid"
+    },
+    "CursorRuleCall": {
+      "description": "What [`crate::ClientMessage::CursorRules`] asks of a device. Since\nprotocol 57.",
+      "oneOf": [
+        {
+          "description": "The device's `Shell(...)` entries.",
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "list"
+            }
+          },
+          "required": [
+            "kind"
+          ]
+        },
+        {
+          "description": "Takes one `Shell(...)` entry out of the allow list, each copy of it,\nand lists what's left. One that isn't there lists what is.",
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "remove"
+            },
+            "rule": {
+              "description": "The entry as the list gave it, such as `Shell(git status)`.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "rule"
+          ]
+        }
+      ]
+    },
+    "CursorRules": {
+      "description": "The `Shell(...)` entries in Cursor's allow list on a device, for\n[`crate::message::ActionOutcome::CursorRules`]. Since protocol 57.",
+      "type": "object",
+      "properties": {
+        "path": {
+          "description": "The settings file the device read, with `~` for its home folder.",
+          "type": "string"
+        },
+        "rules": {
+          "description": "The entries as written, such as `Shell(git status)`, in the file's\norder. Empty when the file isn't there.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "required": [
+        "path",
+        "rules"
+      ]
     },
     "Days": {
       "description": "The days of the week a task runs on. None means every day.",
