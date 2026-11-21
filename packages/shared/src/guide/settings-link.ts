@@ -40,6 +40,7 @@ export const PAGE_CARDS = [
 	"other-agents",
 	"grants",
 	"new-permissions",
+	"claude-artifacts",
 	"access-keys",
 	"app-keys",
 	"remembered-answers",

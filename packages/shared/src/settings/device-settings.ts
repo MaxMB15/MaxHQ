@@ -17,6 +17,7 @@ import type { Option } from "../new-agent/spec";
 import { sameTestHostSettings, testHostSettingsOf } from "../test-hosts/hosts";
 import type { ViewState } from "../view/replica";
 import { DEFAULT_CHAT_GAP_MINUTES } from "./chat-gap";
+import { knowsClaudeArtifacts } from "./claude-artifacts";
 import { DEFAULT_IDLE_RELEASE_MINUTES, releasesIdle } from "./idle-release";
 import { DEFAULT_SETTLE_DAYS, keepsInboxes } from "./inbox";
 import { continuesAtLimit } from "./limits";
@@ -82,6 +83,7 @@ export const sameDeviceFields = (a: DeviceFields, b: DeviceFields): boolean =>
 	a.claude_setup_token === b.claude_setup_token &&
 	a.shell_integration === b.shell_integration &&
 	a.read_other_agents === b.read_other_agents &&
+	a.claude_artifacts === b.claude_artifacts &&
 	a.dispatcher_acts === b.dispatcher_acts &&
 	a.chat_gap_minutes === b.chat_gap_minutes &&
 	sameLocalSettings(a.local_models, b.local_models) &&
@@ -172,6 +174,8 @@ export type SettingsWhy = {
 	readonly effort: string | null;
 	readonly shell: string | null;
 	readonly reads: string | null;
+	/** Whether Claude agents may use their tools for claude.ai pages. */
+	readonly artifacts: string | null;
 	/** The local model settings, which need a `maxd` that runs local models. */
 	readonly local: string | null;
 };
@@ -210,6 +214,7 @@ export const settingsWhy = (
 		effort: tooOld(setsEffort(view, device), false),
 		shell: tooOld(knowsShellIntegration(view, device), false),
 		reads: tooOld(knowsReadRights(view, device), false),
+		artifacts: tooOld(knowsClaudeArtifacts(view, device), false),
 		local: tooOld(runsLocalModels(view, device), true),
 	};
 };

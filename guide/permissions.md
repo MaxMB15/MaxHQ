@@ -111,6 +111,20 @@ Usage cap is a percent from 1 to 100 of the account's limit. MaxHQ compares it w
 
 Limits count agents and usage. They don't fence off files, so keep an agent away from your files by running it in a container.
 
+## Let Claude agents use claude.ai pages
+<!-- id: permissions/claude-artifacts -->
+<!-- covers: settings/claude-artifacts -->
+
+A Claude agent can publish pages to your claude.ai account, read pages you or others share, and change their data and comments with its Artifacts tools. Each call shows in the agent's feed as one row, such as Published Weekly report, v2. A page someone else owns says someone else's.
+
+- Click a row to see the call's details. Open in the browser opens the page, and Copy link copies its link. MaxHQ opens a link only when you click it, and only a link on claude.ai.
+- The agent asks before it reads someone else's page, deletes a page or changes who can open one. The card names the page and links to it.
+- When turning it down is the safe answer, such as for a delete, Deny takes the blue button and Return picks it. Allow moves to a plain button.
+- Why it asks, above the request's details, says what made Claude Code ask, such as a safety check it tripped. Scroll a long reason to read it all, or tap it on a phone.
+- A phone notification never offers Allow for these. Open MaxHQ to answer.
+
+The claude.ai pages card in Settings › Permissions has a row for each device with Claude agents can use claude.ai artifacts, on by default. Off removes these tools from Claude agents on that device. Agents pick up a change when their CLI next starts. A device whose maxd is too old for it says to update it first.
+
 ## Give an outside tool an access key
 <!-- id: permissions/access-keys -->
 <!-- covers: settings/access-keys -->
