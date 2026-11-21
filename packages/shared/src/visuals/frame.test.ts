@@ -9,10 +9,12 @@ import {
 	type HeightTrack,
 	isPlainHost,
 	nextHeight,
+	NO_PEERS,
 	readFrameReport,
 	readShowVisual,
 	visualDocument,
 	visualFrameQuery,
+	withoutWarmUps,
 } from "./frame";
 
 const follow = (heights: number[], track: HeightTrack = HEIGHT_START): HeightTrack =>
@@ -81,12 +83,68 @@ describe("the visual's document", () => {
 				"--other": "x",
 			},
 		});
-		expect(document.startsWith("<!doctype html><style>:root{color-scheme:dark;")).toBe(true);
+		expect(document).toContain("<style>:root{color-scheme:dark;");
 		expect(document).toContain("--foreground:red/style");
 		expect(document).toContain("--chart-1:#4692f6");
 		expect(document).not.toContain("--other");
 		expect(document).toContain('<html><script src="/visual-lib/chart.js">');
 		expect(document).not.toContain("<!DOCTYPE");
+	});
+
+	it("turns off name lookups and takes peer connections away before the page runs", () => {
+		const document = visualDocument({
+			html: "<script>new RTCPeerConnection()</script>",
+			theme: "light",
+			variables: {},
+		});
+		expect(
+			document.startsWith(
+				`<!doctype html><meta http-equiv="x-dns-prefetch-control" content="off"><script>${NO_PEERS}</script>`
+			)
+		).toBe(true);
+		const page = {
+			RTCPeerConnection: 1,
+			webkitRTCPeerConnection: 2,
+			RTCDataChannel: 3,
+			fetch: 4,
+		};
+		new Function("window", NO_PEERS)(page);
+		expect(page).toEqual({ fetch: 4 });
+		// A name it can't take away doesn't stop the rest.
+		const locked = Object.defineProperty({ RTCDataChannel: 3 }, "RTCPeerConnection", {
+			value: 1,
+		});
+		new Function("window", `"use strict";${NO_PEERS}`)(locked);
+		expect(locked).toEqual({});
+		expect("RTCPeerConnection" in locked).toBe(true);
+	});
+
+	it("drops the links that would reach out ahead of a load", () => {
+		const page = [
+			'<link rel="stylesheet" href="/visual-lib/x.css">',
+			'<link rel="preconnect" href="https://a.example.com">',
+			"<LINK REL=dns-prefetch HREF=//b.example.com>",
+			"<link/rel=prefetch href=https://c.example.com/>",
+			"<link rel='prerender' href='https://d.example.com'>",
+			'<link title="a > b" rel="preconnect" href="https://e.example.com">',
+			'<link rel="pre&#99;onnect" href="https://f.example.com">',
+			"<linkbox>preconnect</linkbox>",
+			"<p>prefetch</p>",
+		].join("");
+		expect(withoutWarmUps(page)).toBe(
+			'<link rel="stylesheet" href="/visual-lib/x.css"><linkbox>preconnect</linkbox><p>prefetch</p>'
+		);
+		// One left open runs to the end of the page.
+		expect(withoutWarmUps('<p>a</p><link rel="preconnect" href="https://g.example.com"')).toBe(
+			"<p>a</p>"
+		);
+		expect(
+			visualDocument({
+				html: '<link rel="preconnect" href="https://a.example.com"><p>hi</p>',
+				theme: "dark",
+				variables: {},
+			})
+		).not.toContain("a.example.com");
 	});
 });
 

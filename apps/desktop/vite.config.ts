@@ -160,7 +160,7 @@ const visualFrame = (): Plugin => ({
 						.replace(/<script type="module" src="\/@vite\/client"><\/script>\s*/, "")
 						.replace(
 							"<head>",
-							`<head>\n\t\t<meta http-equiv="Content-Security-Policy" content="${devVisualPolicy(hostsOf(originalUrl))}" />`
+							`<head>\n\t\t<meta http-equiv="Content-Security-Policy" content="${devVisualPolicy(hostsOf(originalUrl))}" />\n\t\t<meta http-equiv="x-dns-prefetch-control" content="off" />`
 						)
 				: html,
 	},

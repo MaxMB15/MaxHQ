@@ -251,7 +251,13 @@ const Card = ({
 			{html === null ? (
 				<NoPage why={why} height={height} />
 			) : laid ? (
-				<VisualPage html={html} card={card} runs={runs} onTell={onTell} />
+				<VisualPage
+					html={html}
+					card={card}
+					runs={runs}
+					from={origin?.agent.title ?? null}
+					onTell={onTell}
+				/>
 			) : (
 				<View style={{ height }} />
 			)}

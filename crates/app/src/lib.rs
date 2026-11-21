@@ -21,11 +21,15 @@ pub mod devices;
 pub mod editors;
 pub mod fleet;
 pub mod forwards;
+#[cfg(feature = "desktop")]
+pub mod hang_watch;
 pub mod hidden;
 pub mod host_fix;
 pub mod keys;
 pub mod media;
 pub mod merge;
+#[cfg(feature = "desktop")]
+pub mod navigation;
 pub mod notices;
 pub mod notify;
 pub mod offered;
