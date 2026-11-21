@@ -9,6 +9,8 @@
 // device, the account, the model and the folder there, with a checkout of
 // the same repository picked first, and the banners on both agents point
 // at each other. A maxd from before `MOVE_AGENT_SINCE` can't take part.
+// The agent runs there in the lower of its mode now and that device's
+// default, unless you pick the higher one.
 
 import { t } from "../i18n";
 
@@ -20,6 +22,7 @@ import {
 	type DeviceId,
 	MOVE_AGENT_SINCE,
 	type MoveTo,
+	type PermissionMode,
 	type ProjectId,
 	type Vendor,
 	type Workspace,
@@ -36,6 +39,7 @@ import {
 	workspaceWhere,
 } from "../new-agent/spec";
 import { resolveLocal, shownLocalModel } from "../local-models/select";
+import { agentMode, MODE_LABEL, movedModes, runnable, startingMode } from "../settings/permission";
 import { accountKind, agentKind, isLocalAccount, kindName } from "../status/agent-kind";
 import { tasksTargeting } from "../tasks/place";
 import { all, type ViewState } from "../view/replica";
@@ -250,6 +254,30 @@ export const followingTasks = (view: ViewState, agent: Agent): number => {
 	return tasksTargeting(view, agent.id).filter((task) => task.home === home).length;
 };
 
+// The picks for `modes` on `device` under `vendor`, each saying where it
+// comes from: `ran`, the agent's mode now, or the device's default.
+const modeOptions = (
+	view: ViewState,
+	device: DeviceId,
+	vendor: Vendor,
+	ran: PermissionMode,
+	modes: readonly PermissionMode[]
+): Option[] => {
+	const now = runnable(vendor, ran);
+	const there = startingMode(view, device, vendor);
+	const name = deviceName(view, device);
+	return modes.map((mode) => ({
+		value: mode,
+		label: MODE_LABEL[mode],
+		detail:
+			mode === now && mode === there
+				? t("Its mode now and {{device}}'s default", { device: name })
+				: mode === now
+					? t("Its mode now")
+					: t("{{device}}'s default", { device: name }),
+	}));
+};
+
 /** What you picked in the Move dialog. Unset fields take their default. */
 export type MoveChoices = {
 	readonly device: DeviceId | null;
@@ -260,6 +288,8 @@ export type MoveChoices = {
 	readonly place: string | null;
 	/** The folder's absolute path, for `MOVE_FOLDER`. */
 	readonly path: string;
+	/** Unset takes the lower of its mode now and the device's default. */
+	readonly mode: PermissionMode | null;
 };
 
 /** The Move dialog before you pick anything. */
@@ -269,6 +299,7 @@ export const NO_MOVE_CHOICES: MoveChoices = {
 	model: null,
 	place: null,
 	path: "",
+	mode: null,
 };
 
 /** The Move dialog as it stands. */
@@ -285,6 +316,10 @@ export type MoveForm = {
 	readonly places: readonly Option[];
 	/** The workspace or `MOVE_FOLDER` picked, or null before there's one. */
 	readonly place: string | null;
+	/** The modes it can run in there, the lower first. */
+	readonly modes: readonly Option[];
+	/** The mode it runs in there, or null before there's an account. */
+	readonly mode: PermissionMode | null;
 	/** What the move does, a sentence each. */
 	readonly lines: readonly string[];
 	/** Whether a turn runs that the move stops first. */
@@ -372,6 +407,9 @@ export const moveForm = (
 			? null
 			: sameRepoPlace(view, agent, device);
 	const path = choices.path.trim();
+	const ran = agentMode(view, agent, agentDevice(view, agent));
+	const modes = device === null || !account ? [] : movedModes(view, device, account.vendor, ran);
+	const mode = modes.find((m) => m === choices.mode) ?? modes[0] ?? null;
 	const stop = inTurn(agent);
 	const name = device === null ? "" : deviceName(view, device);
 	const problem =
@@ -395,6 +433,7 @@ export const moveForm = (
 						place === MOVE_FOLDER
 							? { type: "folder", path }
 							: { type: "workspace", workspace: place },
+					mode,
 				}
 			: null;
 	return {
@@ -409,6 +448,11 @@ export const moveForm = (
 			: (model ?? listed.find((m) => m.default)?.id ?? listed[0]?.id ?? ""),
 		places,
 		place,
+		modes:
+			device === null || !account
+				? []
+				: modeOptions(view, device, account.vendor, ran, modes),
+		mode,
 		lines: moveLines(view, agent, device, account),
 		stop,
 		action: stop ? t("Stop and move") : t("Move"),

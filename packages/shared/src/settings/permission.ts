@@ -9,7 +9,7 @@
 
 import { t } from "../i18n";
 
-import type { AcpFeatures, DeviceId, PermissionMode, Vendor } from "../bindings";
+import type { AcpFeatures, Agent, DeviceId, PermissionMode, Vendor } from "../bindings";
 import type { ViewState } from "../view/replica";
 
 /** The modes in menu order, from the most careful to the least. */
@@ -101,4 +101,74 @@ export const startingMode = (
 	const mode = deviceDefault(view, device);
 	if (vendorHasMode(vendor, mode, acp)) return mode;
 	return vendor === "acp" && mode === "auto" ? "accept_edits" : "ask";
+};
+
+/**
+ * The mode an agent runs in: the one it asked for, or else the mode its
+ * `device`, when known, starts the vendor's agents in.
+ */
+export const agentMode = (view: ViewState, agent: Agent, device: DeviceId | null): PermissionMode =>
+	agent.permission?.requested ??
+	(device === null ? "ask" : startingMode(view, device, agent.vendor));
+
+/** How far each mode lets an agent go, from Plan, which changes nothing. */
+const REACH: Record<PermissionMode, number> = {
+	plan: 0,
+	ask: 1,
+	accept_edits: 2,
+	auto: 3,
+	full_access: 4,
+};
+
+/** The narrower of two modes. */
+export const narrower = (one: PermissionMode, other: PermissionMode): PermissionMode =>
+	REACH[one] <= REACH[other] ? one : other;
+
+/** The mode, or asking first when the vendor lacks it, as its `maxd` does. */
+export const runnable = (vendor: Vendor, mode: PermissionMode): PermissionMode =>
+	vendorHasMode(vendor, mode) ? mode : "ask";
+
+// The lower and the higher of `ran` and the mode `device` starts the
+// vendor's agents in.
+const moveBounds = (
+	view: ViewState,
+	device: DeviceId,
+	vendor: Vendor,
+	ran: PermissionMode
+): [PermissionMode, PermissionMode] => {
+	const there = startingMode(view, device, vendor);
+	const lower = narrower(ran, there);
+	return [lower, lower === ran ? there : ran];
+};
+
+/**
+ * The modes an agent that ran in `ran` may start in when it moves to
+ * `device` under `vendor`, lower first. That device's maxd decides: it
+ * takes the lower of `ran` and its own default, and the higher only when
+ * you pick it. One mode when they're the same.
+ */
+export const movedModes = (
+	view: ViewState,
+	device: DeviceId,
+	vendor: Vendor,
+	ran: PermissionMode
+): PermissionMode[] => {
+	const [low, high] = moveBounds(view, device, vendor, ran);
+	const [lower, higher] = [runnable(vendor, low), runnable(vendor, high)];
+	return lower === higher ? [lower] : [lower, higher];
+};
+
+/**
+ * The mode a moved agent starts in on `device`: the lower of `ran` and
+ * that device's default, or `chosen` up to the higher of the two.
+ */
+export const movedMode = (
+	view: ViewState,
+	device: DeviceId,
+	vendor: Vendor,
+	ran: PermissionMode,
+	chosen?: PermissionMode | null
+): PermissionMode => {
+	const [lower, higher] = moveBounds(view, device, vendor, ran);
+	return runnable(vendor, chosen ? narrower(chosen, higher) : lower);
 };

@@ -104,6 +104,7 @@ describe("moving an agent", () => {
 					account: DEVBOX_CLAUDE,
 					model: null,
 					place: { type: "workspace", workspace: MHQ_WORKSPACE },
+					mode: "auto",
 				},
 				true
 			)
@@ -116,6 +117,31 @@ describe("moving an agent", () => {
 		expect(screen.queryByRole("button", { name: "Resume" })).not.toBeInTheDocument();
 		fireEvent.click(within(banner).getByRole("button", { name: "Open" }));
 		expect(await screen.findByRole("note", { name: "Moved from Mac" })).toBeInTheDocument();
+	});
+
+	it("runs it in the lower mode unless you pick the higher one", async () => {
+		const source = renderApp();
+		const move = vi.spyOn(source, "moveAgent");
+		await openAgent("MaxHQ", /Release checklist/);
+		const dialog = await openMove("Release checklist");
+		// Auto on the Mac, Full access by default on devbox.
+		fireEvent.click(dialog.getByRole("combobox", { name: "Runs in, Auto" }));
+		const options = await screen.findAllByRole("option");
+		const full = options.find((o) => o.textContent?.includes("Full access"));
+		if (!full) throw new Error("No Full access option");
+		expect(full).toHaveTextContent("devbox's default");
+		fireEvent.pointerDown(full, { pointerType: "mouse" });
+		fireEvent.click(full);
+		fireEvent.click(dialog.getByRole("button", { name: "Stop and move" }));
+		await waitFor(() =>
+			expect(move).toHaveBeenCalledWith(
+				MAC,
+				"agent-release",
+				MAC,
+				expect.objectContaining({ mode: "full_access" }),
+				true
+			)
+		);
 	});
 
 	it("suggests folders on the device it moves to, and browses them", async () => {

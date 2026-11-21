@@ -1124,7 +1124,7 @@
 	"Skips events older than {{plural_rules_max_age_minutes___min____min}}": "Skips events older than {{plural_rules_max_age_minutes___min____min}}",
 	"Each day": "Each day",
 	"At most {{plural_rules_daily_runs___run}}": "At most {{plural_rules_daily_runs___run}}",
-	"a move of {{agent}} to {{device}}": "a move of {{agent}} to {{device}}",
+	"a move of {{agent}} to {{device}}{{access}}": "a move of {{agent}} to {{device}}{{access}}",
 	"An account there": "An account there",
 	"Carries over": "Carries over",
 	"Only a summary of the conversation": "Only a summary of the conversation",
@@ -1391,6 +1391,8 @@
 	"Deleted the task {{name}}": "Deleted the task {{name}}",
 	"Deleted {{name}}": "Deleted {{name}}",
 	"Hid {{name}} from the sidebar": "Hid {{name}} from the sidebar",
+	"Its mode now": "Its mode now",
+	"Its mode now and {{device}}'s default": "Its mode now and {{device}}'s default",
 	"Let {{name}} run agents": "Let {{name}} run agents",
 	"Marked {{name}} as read": "Marked {{name}} as read",
 	"Ran the task {{name}}": "Ran the task {{name}}",
@@ -1441,5 +1443,6 @@
 	"turning off the task {{name}}": "turning off the task {{name}}",
 	"turning on the task {{name}}": "turning on the task {{name}}",
 	"updating the agent CLIs on {{name}}": "updating the agent CLIs on {{name}}",
-	"waking {{name}}": "waking {{name}}"
+	"waking {{name}}": "waking {{name}}",
+	"{{device}}'s default": "{{device}}'s default"
 }

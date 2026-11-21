@@ -5,8 +5,9 @@
 // agent to, the account there, its own vendor first, the model, and the
 // folder there, a checkout of the same repository picked first. A vendor
 // not signed in there gets a button that opens its sign-in in Settings.
-// It says what carries over and what stays, and while a turn runs its
-// button reads Stop and move. The Mac that runs MaxHQ moves the agent, and
+// It says what carries over and what stays, and the mode it runs in there:
+// the lower of its mode now and that device's default, or the higher one
+// you pick. While a turn runs its button reads Stop and move. The Mac that runs MaxHQ moves the agent, and
 // the new one opens once it starts.
 
 import { Dialog } from "@base-ui/react/dialog";
@@ -28,7 +29,7 @@ import {
 	moveForm,
 	NO_MOVE_CHOICES,
 } from "@maxhq/shared/agent-view/move-agent";
-import type { Agent } from "@maxhq/shared/bindings";
+import type { Agent, PermissionMode } from "@maxhq/shared/bindings";
 import { dispatcherDevice } from "@maxhq/shared/dispatch/reach";
 import { t as translate, useI18n } from "@maxhq/shared/i18n";
 import { useNow } from "@maxhq/shared/lib/clock";
@@ -107,14 +108,14 @@ const Form = ({ agent, onDone }: { agent: Agent; onDone: () => void }) => {
 					label={translate("Device")}
 					value={form.device ?? ""}
 					options={form.devices}
-					onChange={(device) => pick({ device, account: null, place: null })}
+					onChange={(device) => pick({ device, account: null, place: null, mode: null })}
 					disabled={busy}
 				/>
 				<Picker
 					label={translate("Account")}
 					value={form.account?.id ?? ""}
 					options={form.accounts}
-					onChange={(account) => pick({ account, model: null })}
+					onChange={(account) => pick({ account, model: null, mode: null })}
 					disabled={busy || form.device === null}
 				/>
 				<Picker
@@ -131,6 +132,13 @@ const Form = ({ agent, onDone }: { agent: Agent; onDone: () => void }) => {
 					onChange={(place) => pick({ place })}
 					disabled={busy || form.device === null}
 					wrapDetails
+				/>
+				<Picker
+					label={translate("Runs in")}
+					value={form.mode ?? ""}
+					options={form.modes}
+					onChange={(mode) => pick({ mode: mode as PermissionMode })}
+					disabled={busy || form.modes.length < 2}
 				/>
 			</div>
 			{form.place === MOVE_FOLDER ? (

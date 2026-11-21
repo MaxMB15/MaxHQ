@@ -1390,6 +1390,7 @@
 	"Couldn't undo it. Try again.": "Ongedaan maken mislukt. Probeer het opnieuw.",
 	"Couldn't undo the dispatcher's change": "Kon de wijziging van de dispatcher niet ongedaan maken",
 	"On {{device}}": "Op {{device}}",
+	"Runs in": "Draait in",
 	"This change can't be undone any more": "Deze wijziging kan niet meer ongedaan worden gemaakt",
 	"Undone": "Ongedaan gemaakt"
 }

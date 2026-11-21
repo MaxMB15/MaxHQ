@@ -89,6 +89,54 @@ pub fn child_mode(
         })
 }
 
+/// The narrower of two modes.
+pub fn narrower(one: PermissionMode, other: PermissionMode) -> PermissionMode {
+    if mode_rank(one) <= mode_rank(other) {
+        one
+    } else {
+        other
+    }
+}
+
+/// `mode`, or asking first when the vendor lacks it, as a switch does.
+pub fn runnable(vendor: Vendor, mode: PermissionMode) -> PermissionMode {
+    if offers(vendor, mode) {
+        mode
+    } else {
+        PermissionMode::Ask
+    }
+}
+
+/// The two modes an agent that moves may start in where it goes: the
+/// lower and the higher of `ran`, the one it ran in, and `default`, the
+/// one that device starts its vendor in.
+pub fn move_modes(
+    ran: PermissionMode,
+    default: PermissionMode,
+) -> (PermissionMode, PermissionMode) {
+    let lower = narrower(ran, default);
+    let higher = if lower == ran { default } else { ran };
+    (lower, higher)
+}
+
+/// The mode a moved agent starts in, which the device it goes to decides
+/// from `default`, its own for the vendor: the lower of that and `ran`,
+/// the mode the agent ran in, or the one you chose, which goes no higher
+/// than the higher of the two. The device it left reports `ran`, so it
+/// alone can't raise the agent above that default.
+pub fn arrival_mode(
+    ran: PermissionMode,
+    default: PermissionMode,
+    chosen: Option<PermissionMode>,
+    vendor: Vendor,
+) -> PermissionMode {
+    let (lower, higher) = move_modes(ran, default);
+    runnable(
+        vendor,
+        chosen.map_or(lower, |chosen| narrower(chosen, higher)),
+    )
+}
+
 /// Every mode, narrowest first.
 const ALL_MODES: [PermissionMode; 5] = [
     PermissionMode::Plan,
@@ -302,6 +350,15 @@ pub fn mode_name(mode: PermissionMode) -> &'static str {
     }
 }
 
+/// A mode's name to start a line or a label with, such as Full access.
+pub fn mode_title(mode: PermissionMode) -> String {
+    let name = mode_name(mode);
+    let mut chars = name.chars();
+    chars.next().map_or_else(String::new, |first| {
+        first.to_ascii_uppercase().to_string() + chars.as_str()
+    })
+}
+
 /// Checks one call under a permission. A start gives the mode the new
 /// agent runs at, or none for the device's default.
 pub fn check(
@@ -375,15 +432,17 @@ pub fn check(
 }
 
 /// Checks that a caller may move an agent off `from`, to start again as
-/// `start` says. The user approves each move, so a caller in a container
-/// may ask for one unless its permission never lets it reach outside.
+/// `start` says, and gives the broadest mode it may start in there: the
+/// caller's own, or none for a caller with no mode. The user approves each
+/// move, so a caller in a container may ask for one unless its permission
+/// never lets it reach outside, and the card says it crosses.
 pub fn check_move(
     permission: &Permission,
     caller: Caller,
     from: DeviceId,
     start: Start,
     now: Timestamp,
-) -> Result<(), Refusal> {
+) -> Result<Option<PermissionMode>, Refusal> {
     check(Some(permission), caller, &Ask::Act { device: from }, now)?;
     if caller.container.is_some() && permission.leave_container == LeaveContainer::Never {
         return Err(Refusal::LeavesContainer);
@@ -397,7 +456,7 @@ pub fn check_move(
         counts: None,
         ..start
     };
-    check(Some(permission), caller, &Ask::Start(start), now).map(|_| ())
+    check(Some(permission), caller, &Ask::Start(start), now)
 }
 
 /// Checks one lease tool call under a permission, on the device that runs
@@ -715,7 +774,8 @@ mod tests {
         let moved = |permission: &Permission, caller: Caller, from: DeviceId| {
             check_move(permission, caller, from, there.clone(), NOW)
         };
-        assert_eq!(moved(&both, holder(), here()), Ok(()));
+        let full = Ok(Some(PermissionMode::FullAccess));
+        assert_eq!(moved(&both, holder(), here()), full);
         assert_eq!(moved(&permission(), holder(), here()), Err(Refusal::Device));
         assert_eq!(
             moved(&both, holder(), DeviceId::derive("other")),
@@ -728,13 +788,64 @@ mod tests {
             Err(Refusal::Vendor(Vendor::Codex))
         );
         // The user approves the move, so a container's Ask needs no more.
-        assert_eq!(moved(&both, boxed(), here()), Ok(()));
+        assert_eq!(moved(&both, boxed(), here()), full);
         let mut never = both;
         never.leave_container = LeaveContainer::Never;
         assert_eq!(
             moved(&never, boxed(), here()),
             Err(Refusal::LeavesContainer)
         );
+    }
+
+    #[test]
+    fn a_move_goes_no_higher_than_its_caller() {
+        let devbox = DeviceId::derive("devbox");
+        let place = folder("/work/app");
+        let there = Start {
+            device: devbox,
+            ..start(&place)
+        };
+        let mut both = permission();
+        both.devices.push(devbox);
+        let asking = Caller {
+            mode: Some(PermissionMode::Ask),
+            ..holder()
+        };
+        assert_eq!(
+            check_move(&both, asking, here(), there.clone(), NOW),
+            Ok(Some(PermissionMode::Ask))
+        );
+        // A key has no mode of its own, so it caps nothing.
+        let key = Caller {
+            mode: None,
+            ..holder()
+        };
+        assert_eq!(check_move(&both, key, here(), there, NOW), Ok(None));
+    }
+
+    #[test]
+    fn a_moved_agent_starts_in_the_lower_mode_unless_you_chose_the_higher() {
+        use PermissionMode::{Ask, Auto, FullAccess, Plan};
+        // The device it leaves says Full access, the one it goes to asks.
+        assert_eq!(arrival_mode(FullAccess, Ask, None, Vendor::Claude), Ask);
+        // An honest Full access agent from a device that defaults to it
+        // takes the Mac's Auto, unless you chose Full access.
+        assert_eq!(arrival_mode(FullAccess, Auto, None, Vendor::Claude), Auto);
+        assert_eq!(
+            arrival_mode(FullAccess, Auto, Some(FullAccess), Vendor::Claude),
+            FullAccess
+        );
+        // A choice goes no higher than the higher of the two.
+        assert_eq!(
+            arrival_mode(Ask, Auto, Some(FullAccess), Vendor::Claude),
+            Auto
+        );
+        assert_eq!(arrival_mode(Auto, Ask, Some(Ask), Vendor::Claude), Ask);
+        // A mode the vendor lacks asks first.
+        assert_eq!(arrival_mode(Plan, Auto, None, Vendor::Codex), Ask);
+        assert_eq!(move_modes(FullAccess, Ask), (Ask, FullAccess));
+        assert_eq!(move_modes(Ask, Ask), (Ask, Ask));
+        assert_eq!(mode_title(FullAccess), "Full access");
     }
 
     #[test]

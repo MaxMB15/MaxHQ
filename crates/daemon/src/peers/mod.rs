@@ -1293,17 +1293,22 @@ impl Peers {
     }
 
     fn name_in(&self, state: &State, device: DeviceId) -> String {
-        state
-            .book
-            .peers
-            .iter()
-            .find(|peer| peer.device == device)
-            .map_or_else(|| device.to_string(), |peer| peer.name.clone())
+        booked_name(state, device).unwrap_or_else(|| device.to_string())
     }
 
     fn unreachable(&self, device: DeviceId, err: &LinkError) -> Unreachable {
         Unreachable(format!("{} didn't answer: {err}.", self.name(device)))
     }
+}
+
+/// The name `device` has in the link book, if it's in there.
+fn booked_name(state: &State, device: DeviceId) -> Option<String> {
+    state
+        .book
+        .peers
+        .iter()
+        .find(|peer| peer.device == device)
+        .map(|peer| peer.name.clone())
 }
 
 /// What a request to a device that can't be reached fails with.
@@ -1378,6 +1383,10 @@ impl PeerCalls for Peers {
             .iter()
             .find(|peer| peer.home)
             .map(|peer| peer.device)
+    }
+
+    fn name_of(&self, device: DeviceId) -> Option<String> {
+        booked_name(&self.lock(), device)
     }
 
     fn wake(&self, device: DeviceId, wake: PeerWake) -> Woken<'_> {

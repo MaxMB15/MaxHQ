@@ -507,6 +507,7 @@ pub(super) fn move_to(args: &Map<String, Value>) -> Result<MoveTo, String> {
         account: id(args, "account")?.ok_or("Give an `account`.")?,
         model: text(args, "model")?,
         place: place(args)?.ok_or("Give a `workspace` or a `folder` there.")?,
+        mode: None,
     })
 }
 
@@ -691,6 +692,7 @@ mod tests {
             place: AgentPlace::Folder {
                 path: "/work/app".into(),
             },
+            mode: None,
         };
         assert_eq!(
             call,

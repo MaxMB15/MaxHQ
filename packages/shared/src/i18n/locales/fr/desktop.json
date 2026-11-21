@@ -1409,6 +1409,7 @@
 	"Couldn't undo it. Try again.": "Annulation impossible. Réessayez.",
 	"Couldn't undo the dispatcher's change": "Impossible d'annuler la modification du dispatcher",
 	"On {{device}}": "Sur {{device}}",
+	"Runs in": "S'exécute en",
 	"This change can't be undone any more": "Cette modification ne peut plus être annulée",
 	"Undone": "Annulé"
 }

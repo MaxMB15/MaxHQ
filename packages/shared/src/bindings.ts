@@ -4303,6 +4303,11 @@ export type Departure = {
 	 *  none when there was nothing to carry.
 	 */
 	brief?: string | null,
+	/**
+	 *  The container it ran in, by name, if it ran in one. A device from
+	 *  before this field leaves it out.
+	 */
+	container?: string | null,
 };
 
 /**  One list in a node's detail, such as the files it touched. */
@@ -7347,6 +7352,17 @@ export type MoveCheck = {
 	place: string,
 	/**  The workspace that folder belongs to. */
 	workspace: WorkspaceId,
+	/**
+	 *  The mode an agent of that vendor starts in there unless you choose
+	 *  one. A device from before this field leaves it out, and starts a
+	 *  moved agent in the mode it ran in.
+	 */
+	mode?: PermissionMode | null,
+	/**
+	 *  The container it runs in there, by name, if it runs in one. A
+	 *  device from before this field leaves it out.
+	 */
+	container?: string | null,
 };
 
 /**  One move of a workspace the old scripts made into MaxHQ. */
@@ -7427,6 +7443,13 @@ export type MoveTo = {
 	model?: string | null,
 	/**  The folder there. */
 	place: AgentPlace,
+	/**
+	 *  The permission mode you chose for it there. The device it goes to
+	 *  takes it up to the higher of the mode it ran in and that device's
+	 *  own default. None, as from a peer before this field, means the
+	 *  lower of the two.
+	 */
+	mode?: PermissionMode | null,
 };
 
 /**

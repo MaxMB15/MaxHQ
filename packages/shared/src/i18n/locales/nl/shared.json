@@ -621,7 +621,7 @@
 	"Skips events older than {{plural_rules_max_age_minutes___min____min}}": "Slaat gebeurtenissen ouder dan {{plural_rules_max_age_minutes___min____min}} over",
 	"Each day": "Per dag",
 	"At most {{plural_rules_daily_runs___run}}": "Maximaal {{plural_rules_daily_runs___run}}",
-	"a move of {{agent}} to {{device}}": "een verplaatsing van {{agent}} naar {{device}}",
+	"a move of {{agent}} to {{device}}{{access}}": "een verplaatsing van {{agent}} naar {{device}}{{access}}",
 	"An account there": "Een account daar",
 	"Carries over": "Gaat mee",
 	"Only a summary of the conversation": "Alleen een samenvatting van het gesprek",
@@ -1391,6 +1391,8 @@
 	"Deleted the task {{name}}": "Taak {{name}} verwijderd",
 	"Deleted {{name}}": "{{name}} verwijderd",
 	"Hid {{name}} from the sidebar": "{{name}} verborgen in de zijbalk",
+	"Its mode now": "Zijn huidige modus",
+	"Its mode now and {{device}}'s default": "Zijn huidige modus en de standaard van {{device}}",
 	"Let {{name}} run agents": "{{name}} mag nu agents uitvoeren",
 	"Marked {{name}} as read": "{{name}} als gelezen gemarkeerd",
 	"Ran the task {{name}}": "Taak {{name}} uitgevoerd",
@@ -1441,5 +1443,6 @@
 	"turning off the task {{name}}": "taak {{name}} uitzetten",
 	"turning on the task {{name}}": "taak {{name}} aanzetten",
 	"updating the agent CLIs on {{name}}": "agent-CLI's op {{name}} bijwerken",
-	"waking {{name}}": "{{name}} weer tonen"
+	"waking {{name}}": "{{name}} weer tonen",
+	"{{device}}'s default": "Standaard van {{device}}"
 }

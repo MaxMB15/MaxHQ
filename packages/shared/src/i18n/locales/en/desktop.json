@@ -1390,6 +1390,7 @@
 	"Couldn't undo it. Try again.": "Couldn't undo it. Try again.",
 	"Couldn't undo the dispatcher's change": "Couldn't undo the dispatcher's change",
 	"On {{device}}": "On {{device}}",
+	"Runs in": "Runs in",
 	"This change can't be undone any more": "This change can't be undone any more",
 	"Undone": "Undone"
 }

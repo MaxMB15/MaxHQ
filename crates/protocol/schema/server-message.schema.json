@@ -5599,6 +5599,13 @@
             "null"
           ]
         },
+        "container": {
+          "description": "The container it ran in, by name, if it ran in one. A device from\nbefore this field leaves it out.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "device": {
           "description": "The name of the device it leaves.",
           "type": "string"
@@ -11959,9 +11966,27 @@
           "description": "The account's name.",
           "type": "string"
         },
+        "container": {
+          "description": "The container it runs in there, by name, if it runs in one. A\ndevice from before this field leaves it out.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "device": {
           "description": "The device's name.",
           "type": "string"
+        },
+        "mode": {
+          "description": "The mode an agent of that vendor starts in there unless you choose\none. A device from before this field leaves it out, and starts a\nmoved agent in the mode it ran in.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PermissionMode"
+            },
+            {
+              "type": "null"
+            }
+          ]
         },
         "model": {
           "description": "The model, or the words for the account's default.",
@@ -12222,6 +12247,17 @@
         "device": {
           "description": "The device.",
           "$ref": "#/$defs/DeviceId"
+        },
+        "mode": {
+          "description": "The permission mode you chose for it there. The device it goes to\ntakes it up to the higher of the mode it ran in and that device's\nown default. None, as from a peer before this field, means the\nlower of the two.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PermissionMode"
+            },
+            {
+              "type": "null"
+            }
+          ]
         },
         "model": {
           "description": "The model there, or none for the account's default.",

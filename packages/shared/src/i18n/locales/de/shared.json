@@ -621,7 +621,7 @@
 	"Skips events older than {{plural_rules_max_age_minutes___min____min}}": "Überspringt Ereignisse, die älter als {{plural_rules_max_age_minutes___min____min}} sind",
 	"Each day": "Pro Tag",
 	"At most {{plural_rules_daily_runs___run}}": "Höchstens {{plural_rules_daily_runs___run}}",
-	"a move of {{agent}} to {{device}}": "eine Verschiebung von {{agent}} nach {{device}}",
+	"a move of {{agent}} to {{device}}{{access}}": "eine Verschiebung von {{agent}} nach {{device}}{{access}}",
 	"An account there": "Ein Konto dort",
 	"Carries over": "Wird übernommen",
 	"Only a summary of the conversation": "Nur eine Zusammenfassung der Unterhaltung",
@@ -1391,6 +1391,8 @@
 	"Deleted the task {{name}}": "Aufgabe {{name}} gelöscht",
 	"Deleted {{name}}": "{{name}} gelöscht",
 	"Hid {{name}} from the sidebar": "{{name}} in der Seitenleiste ausgeblendet",
+	"Its mode now": "Sein aktueller Modus",
+	"Its mode now and {{device}}'s default": "Sein aktueller Modus und der Standard von {{device}}",
 	"Let {{name}} run agents": "{{name}} darf jetzt Agents ausführen",
 	"Marked {{name}} as read": "{{name}} als gelesen markiert",
 	"Ran the task {{name}}": "Aufgabe {{name}} ausgeführt",
@@ -1441,5 +1443,6 @@
 	"turning off the task {{name}}": "Aufgabe {{name}} ausschalten",
 	"turning on the task {{name}}": "Aufgabe {{name}} einschalten",
 	"updating the agent CLIs on {{name}}": "Agenten-CLIs auf {{name}} aktualisieren",
-	"waking {{name}}": "{{name}} wieder anzeigen"
+	"waking {{name}}": "{{name}} wieder anzeigen",
+	"{{device}}'s default": "Standard von {{device}}"
 }

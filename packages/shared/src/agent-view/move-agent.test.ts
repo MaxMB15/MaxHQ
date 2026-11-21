@@ -165,6 +165,7 @@ describe("the folder there", () => {
 			account: "box-claude",
 			model: null,
 			place: { type: "workspace", workspace: "w-there" },
+			mode: "auto",
 		});
 	});
 
@@ -202,6 +203,7 @@ describe("what the move says and sends", () => {
 			account: DEVBOX_CLAUDE,
 			model: null,
 			place: { type: "workspace", workspace: MHQ_WORKSPACE },
+			mode: "auto",
 		});
 	});
 
@@ -223,6 +225,79 @@ describe("what the move says and sends", () => {
 	it("doesn't take an account from a vendor not signed in there", () => {
 		const picked = { ...NO_MOVE_CHOICES, account: "sign-in:cursor" };
 		expect(moveForm(view, seek, picked, NOW).account?.id).toBe(DEVBOX_CLAUDE);
+	});
+});
+
+describe("the mode it runs in there", () => {
+	// Runs on devbox, which starts agents in Full access.
+	const gtfs = { ...agentIn(view, "agent-gtfs"), control: "held" as const };
+
+	it("takes the lower of its mode now and the default there, and offers the higher", () => {
+		// The Mac starts agents in Auto, below devbox's Full access.
+		const form = moveForm(view, release, NO_MOVE_CHOICES, NOW);
+		expect(form.mode).toBe("auto");
+		expect(form.modes).toEqual([
+			{ value: "auto", label: "Auto", detail: "Its mode now" },
+			{ value: "full_access", label: "Full access", detail: "devbox's default" },
+		]);
+		const higher = moveForm(view, release, { ...NO_MOVE_CHOICES, mode: "full_access" }, NOW);
+		expect(higher.to?.mode).toBe("full_access");
+	});
+
+	it("takes the default there when that's the lower one", () => {
+		const form = moveForm(view, gtfs, NO_MOVE_CHOICES, NOW);
+		expect(form.device).toBe(MAC);
+		expect(form.mode).toBe("auto");
+		expect(form.modes.map((o) => [o.value, o.detail])).toEqual([
+			["auto", "Mac's default"],
+			["full_access", "Its mode now"],
+		]);
+	});
+
+	it("offers one mode when both are the same, and never one it can't run", () => {
+		const full = {
+			...release,
+			permission: { requested: "full_access" as const, effective: null },
+		};
+		expect(moveForm(view, full, NO_MOVE_CHOICES, NOW).modes).toEqual([
+			{
+				value: "full_access",
+				label: "Full access",
+				detail: "Its mode now and devbox's default",
+			},
+		]);
+		const planning = {
+			...release,
+			permission: { requested: "plan" as const, effective: null },
+		};
+		const codex = { ...NO_MOVE_CHOICES, account: DEVBOX_CODEX };
+		// Codex has no Plan mode, so it asks first.
+		expect(moveForm(view, planning, codex, NOW).modes.map((o) => [o.value, o.detail])).toEqual([
+			["ask", "Its mode now"],
+			["full_access", "devbox's default"],
+		]);
+	});
+
+	it("falls back to the lower mode when the pick isn't offered", () => {
+		const form = moveForm(view, gtfs, { ...NO_MOVE_CHOICES, mode: "plan" }, NOW);
+		expect(form.mode).toBe("auto");
+		// devbox set to Accept edits: Full access is above both, so it's never offered.
+		const careful = applySnapshot({
+			seq: 1,
+			entities: [
+				...mockEntities(NOW),
+				{
+					entity: "device_settings",
+					device: DEVBOX,
+					default_permission: "accept_edits",
+					workspace_network: null,
+					workspace_pool: null,
+				},
+			],
+		});
+		const asked = moveForm(careful, release, { ...NO_MOVE_CHOICES, mode: "full_access" }, NOW);
+		expect(asked.modes.map((o) => o.value)).toEqual(["accept_edits", "auto"]);
+		expect(asked.to?.mode).toBe("accept_edits");
 	});
 });
 

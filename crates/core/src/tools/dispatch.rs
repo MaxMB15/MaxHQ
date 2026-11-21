@@ -9,7 +9,7 @@ use maxhq_protocol::agents::MoveTo;
 use maxhq_protocol::ids::{AgentId, DeviceId, ProjectId};
 use serde_json::{json, Map, Value};
 
-use super::agents::{id, message, move_to, number, text, MAX_TITLE};
+use super::agents::{id, message, move_to, named, number, text, MAX_TITLE};
 use super::tasks::{new_agent, NewAgent, MAX_NAME};
 use super::{fields, Call, Tool, MAX_MESSAGE};
 
@@ -224,7 +224,7 @@ pub(super) fn input_schema(tool: Tool) -> Value {
                 "workspace": {"type": "string", "description": "start_agent, move_agent: the workspace's id, as list_targets gives it. Give this or `folder`."},
                 "folder": {"type": "string", "description": "start_agent, move_agent: an absolute folder, as list_targets gives it. Give this or `workspace`."},
                 "model": {"type": "string", "description": "start_agent, move_agent: the model, as list_targets names it. Leave it out for the account's default."},
-                "mode": {"type": "string", "enum": ["ask", "accept_edits", "auto", "plan", "full_access"], "description": "start_agent: the permission mode. Leave it out for the vendor's default."},
+                "mode": {"type": "string", "enum": ["ask", "accept_edits", "auto", "plan", "full_access"], "description": "start_agent: the permission mode. Leave it out for the vendor's default. move_agent: give it only when the user asked for a mode there. It goes no higher than the higher of the agent's mode and that device's default; left out, it runs in the lower."},
             })
             .as_object()
             .cloned()
@@ -326,7 +326,10 @@ fn proposed(item: &Value, earlier: &[Proposed]) -> Result<Proposed, String> {
         Some("move_agent") => Step::Move {
             device: id(&args, "device")?,
             agent: id(&args, "agent")?.ok_or("Give an `agent`.")?,
-            to: move_to(&args)?,
+            to: MoveTo {
+                mode: named(&args, "mode")?,
+                ..move_to(&args)?
+            },
         },
         _ => {
             return Err(
@@ -381,7 +384,7 @@ mod tests {
 
     use maxhq_protocol::ids::{AccountId, WorkspaceId};
     use maxhq_protocol::message::AgentPlace;
-    use maxhq_protocol::model::Vendor;
+    use maxhq_protocol::model::{PermissionMode, Vendor};
 
     #[test]
     fn a_plan_reads_each_kind_of_item() {
@@ -399,7 +402,8 @@ mod tests {
              "schedule": {"type": "interval", "everyMs": 3600000},
              "target": {"type": "new_agent", "vendor": "claude", "workspace": workspace.to_string()}},
             {"type": "move_agent", "reason": "Runs on devbox", "agent": agent.to_string(),
-             "to_device": devbox.to_string(), "account": account.to_string(), "folder": "/work/repo"},
+             "to_device": devbox.to_string(), "account": account.to_string(), "folder": "/work/repo",
+             "mode": "full_access"},
         ]})) else {
             panic!("the plan parses");
         };
@@ -451,6 +455,7 @@ mod tests {
                     place: AgentPlace::Folder {
                         path: "/work/repo".into()
                     },
+                    mode: Some(PermissionMode::FullAccess),
                 },
             }
         );
