@@ -201,6 +201,7 @@ async fn before_proofs(
 ) {
     let mut said = hello(device);
     said.capabilities.peer_proofs = false;
+    let control = Control::new(wire.clone());
     let mut decoder = FrameDecoder::new();
     let mut buf = vec![0; 4096];
     loop {
@@ -228,7 +229,7 @@ async fn before_proofs(
                 },
                 _ => continue,
             };
-            send(&wire, &reply);
+            control.send(&reply);
         }
         match reader.read(&mut buf).await {
             Ok(0) | Err(_) => break,
@@ -831,7 +832,7 @@ impl Raw {
         }
     }
 
-    async fn send(&mut self, message: &ClientMessage) {
+    async fn send(&mut self, message: &impl serde::Serialize) {
         let mut out = Vec::new();
         frame::encode_message(&mut out, message).unwrap();
         self.stream.write_all(&out).await.unwrap();
@@ -1071,6 +1072,55 @@ async fn a_peer_frame_without_a_proof_starts_no_agent_and_makes_no_link() {
 }
 
 #[tokio::test]
+async fn a_large_message_before_the_proof_is_refused_unread() {
+    let net = Net::default();
+    let a = Device::new(&net, "a");
+    let b = Device::new(&net, "b");
+    b.knows(true, &[(&a, true)]);
+    let mut raw = Raw::open(&b, a.id);
+    raw.send(&client_hello(ClientRole::Peer)).await;
+    assert!(matches!(raw.recv().await, Some(ServerMessage::Hello(_))));
+
+    let pad = "x".repeat(serve::MAX_UNPROVEN);
+    raw.send(&json!({ "type": "ping", "nonce": 1, "pad": pad }))
+        .await;
+    assert_eq!(raw.refused().await, ErrorCode::BadMessage);
+    // A large call from a `maxd` from before proofs still hears why.
+    let key = IdempotencyKey::generate();
+    let call =
+        json!({ "type": "peer_request", "key": key, "request": { "kind": "call", "pad": pad } });
+    raw.send(&call).await;
+    assert_eq!(
+        raw.recv().await,
+        Some(ServerMessage::ActionResult {
+            key,
+            outcome: ActionOutcome::Refused {
+                reason: serve::UNPROVEN.into()
+            },
+        })
+    );
+
+    // The link still proves its key, and then reads more.
+    assert_eq!(raw.prove(&a.seed(), Kind::Peer).await, ActionOutcome::Done);
+    raw.send(&json!({ "type": "ping", "nonce": 2, "pad": pad }))
+        .await;
+    assert_eq!(raw.recv().await, Some(ServerMessage::Pong { nonce: 2 }));
+    assert_eq!(b.served.calls.load(Ordering::SeqCst), 0);
+}
+
+#[tokio::test]
+async fn a_link_this_device_stops_trusting_takes_no_more_calls() {
+    let net = Net::default();
+    let a = Device::new(&net, "a");
+    let b = Device::new(&net, "b");
+    let mut raw = greeted(&a, &b).await;
+    b.peers.revoke(a.id).unwrap();
+    raw.send(&a_request()).await;
+    assert_eq!(raw.recv().await, None);
+    assert_eq!(b.served.calls.load(Ordering::SeqCst), 0);
+}
+
+#[tokio::test]
 async fn only_a_proof_with_the_devices_own_key_opens_its_link() {
     let net = Net::default();
     let a = Device::new(&net, "a");
@@ -1266,13 +1316,13 @@ async fn a_link_with_too_many_requests_sent_back_closes() {
 
     let gate = Arc::new(Notify::new());
     *a.served.gate.lock().unwrap() = Some(gate.clone());
-    let wire = b.peers.lock().incoming[&a.id].wire.clone();
+    let control = b.peers.lock().incoming[&a.id].control.clone();
     let request = || ServerMessage::PeerRequest {
         key: IdempotencyKey::generate(),
         request: PeerRequest::Call { call: call("wait") },
     };
     for _ in 0..MAX_REQUESTS {
-        send(&wire, &request());
+        control.send(&request());
     }
     within("the requests to run", async {
         while a.served.calls.load(Ordering::SeqCst) < MAX_REQUESTS {
@@ -1282,7 +1332,7 @@ async fn a_link_with_too_many_requests_sent_back_closes() {
     .await;
     assert_eq!(a.outgoing(), 1, "that many running at once is still fine");
 
-    send(&wire, &request());
+    control.send(&request());
     within("the link to close", async {
         while a.outgoing() == 1 {
             tokio::time::sleep(Duration::from_millis(5)).await;
@@ -1291,6 +1341,34 @@ async fn a_link_with_too_many_requests_sent_back_closes() {
     .await;
     assert_eq!(a.served.calls.load(Ordering::SeqCst), MAX_REQUESTS);
     gate.notify_waiters();
+}
+
+#[tokio::test]
+async fn control_messages_a_peer_never_reads_close_its_link() {
+    // The far end never reads, so the link's queues fill and stay full.
+    let (writer, _far) = tokio::io::duplex(64 * 1024);
+    let (wire, _) = maxhq_wire::spawn(writer);
+    let control = Control::new(wire.clone());
+    let big = || ServerMessage::Error {
+        code: ErrorCode::BadMessage,
+        message: "x".repeat(1024 * 1024),
+    };
+    let mut sent = 0;
+    while !wire.is_closed() {
+        assert!(sent < 64, "{sent} big messages queued with nobody reading");
+        control.send(&big());
+        sent += 1;
+        assert!(control.waiting.load(Ordering::Acquire) <= MAX_WAITING);
+    }
+    // Room for the queue's own budget plus what may wait behind it.
+    assert!(
+        sent > MAX_WAITING / (1024 * 1024),
+        "closed after only {sent}"
+    );
+    // Once closed, more messages are dropped, not held.
+    let held = control.waiting.load(Ordering::Acquire);
+    control.send(&big());
+    assert_eq!(control.waiting.load(Ordering::Acquire), held);
 }
 
 #[tokio::test]

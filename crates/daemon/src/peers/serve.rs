@@ -16,12 +16,13 @@
 use std::sync::Arc;
 
 use maxhq_core::prove::{self, Challenge, Kind, Statement};
-use maxhq_protocol::agents::ClientRole;
+use maxhq_protocol::agents::{ClientRole, PeerRequest};
 use maxhq_protocol::frame::{self, Frame, FrameDecoder};
-use maxhq_protocol::ids::{ClientId, DeviceId};
+use maxhq_protocol::ids::{ClientId, DeviceId, IdempotencyKey};
 use maxhq_protocol::message::{ActionOutcome, ErrorCode, ServerHello};
 use maxhq_protocol::{ClientMessage, ProtocolRange, ServerMessage};
 use maxhq_wire::{Queue, Sender};
+use serde::Deserialize;
 use tokio::io::{AsyncRead, AsyncReadExt};
 use tokio::sync::Semaphore;
 use tracing::{debug, info, warn};
@@ -30,6 +31,10 @@ use super::{Peers, Via, MAX_REQUESTS};
 
 /// How much is read from the socket at once.
 const READ_CHUNK: usize = 64 * 1024;
+
+/// The most a message before the proof may take. A hello and a proof take
+/// a few hundred bytes.
+pub(super) const MAX_UNPROVEN: usize = 64 * 1024;
 
 /// What a peer connection is refused for anything but its own messages.
 const ONLY_PEER: &str = "a link from another device carries only agent calls and wakes";
@@ -67,9 +72,19 @@ pub async fn serve(
     let running = Arc::new(Semaphore::new(MAX_REQUESTS));
     'read: loop {
         loop {
+            // A link that closed, such as one this device stopped trusting,
+            // takes nothing more.
+            if wire.is_closed() {
+                break 'read;
+            }
             let message = match decoder.next_frame() {
                 Ok(None) => break,
-                Ok(Some(Frame::Message(json))) => serde_json::from_slice::<ClientMessage>(json),
+                Ok(Some(Frame::Message(json))) => match stage {
+                    Stage::Linked(..) => {
+                        ClientMessage::read_peer(json).map_err(|err| err.to_string())
+                    }
+                    _ => unproven(json),
+                },
                 Ok(Some(Frame::TunnelData { stream, data })) => {
                     if let Stage::Linked(_, serial) = stage {
                         peers.tunnel_data(device, serial, stream, data);
@@ -85,7 +100,7 @@ pub async fn serve(
             let message = match message {
                 Ok(message) => message,
                 Err(err) => {
-                    refuse(&wire, ErrorCode::BadMessage, err.to_string()).await;
+                    refuse(&wire, ErrorCode::BadMessage, err).await;
                     continue;
                 }
             };
@@ -128,6 +143,42 @@ pub async fn serve(
         peers.detach(device, serial);
     }
     wire.close();
+}
+
+/// Reads a message from a link that hasn't proved its key. A large one is
+/// read only for its kind and key, so a call from a `maxd` from before peer
+/// proofs still gets its refusal, and any other is refused unread.
+fn unproven(json: &[u8]) -> Result<ClientMessage, String> {
+    #[derive(Deserialize)]
+    struct Named<'a> {
+        #[serde(borrow, rename = "type")]
+        kind: Option<&'a str>,
+        key: Option<IdempotencyKey>,
+    }
+    if json.len() <= MAX_UNPROVEN {
+        return serde_json::from_slice(json).map_err(|err| err.to_string());
+    }
+    if let Ok(Named {
+        kind,
+        key: Some(key),
+    }) = serde_json::from_slice(json)
+    {
+        match kind {
+            Some("peer_request") => {
+                let request = PeerRequest::Unknown;
+                return Ok(ClientMessage::PeerRequest { key, request });
+            }
+            Some("peer_answer") => {
+                let outcome = ActionOutcome::Unknown;
+                return Ok(ClientMessage::PeerAnswer { key, outcome });
+            }
+            _ => {}
+        }
+    }
+    let most = MAX_UNPROVEN / 1024;
+    Err(format!(
+        "a message before the proof may take at most {most} KiB"
+    ))
 }
 
 enum Greeted {
