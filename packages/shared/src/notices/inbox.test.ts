@@ -10,6 +10,7 @@ import { BADGE_REASONS, badgeCount, DEFAULT_BADGE_PREFS } from "../view/badge";
 import { applySnapshot, type ViewState } from "../view/replica";
 
 import {
+	bellCount,
 	createNoticeLog,
 	earlierRows,
 	finishedAgents,
@@ -104,6 +105,15 @@ describe("the Now list", () => {
 			stays: "Stays until it runs again",
 		});
 		expect(finishedAgents(view, NOW, BADGE_REASONS)).toEqual(["done"]);
+	});
+
+	it("gives the bell a count only while Show the badge is on", () => {
+		const rows = nowRows(view, NOW, BADGE_REASONS);
+		expect(bellCount(rows, DEFAULT_BADGE_PREFS)).toBe(4);
+		expect(bellCount([], DEFAULT_BADGE_PREFS)).toBe(0);
+		// Off, the bell can't say a number, nor that nothing needs you.
+		expect(bellCount(rows, { ...DEFAULT_BADGE_PREFS, show: false })).toBeNull();
+		expect(bellCount([], { ...DEFAULT_BADGE_PREFS, show: false })).toBeNull();
 	});
 });
 

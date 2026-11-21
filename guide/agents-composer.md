@@ -162,7 +162,7 @@ The sidebar works as an inbox: agents that need you rise to **Needs you**, and t
 
 A settled agent moves to the **Settled** shelf and MaxHQ stops its process. New activity brings it back. Press ⇧⌘P to pin an agent to the top. ⌘Z undoes the last change while its notice shows.
 
-**Needs you** holds only agents waiting on an answer, such as an approval card or a question. An agent that finished a turn you haven't read stays under its project, marked **Done, unread**, and ⌘J skips it. The bell and the Dock badge still count it while **Finished** is picked under **Dock badge** in Settings, under **Notifications**, as it is at first. Opening the agent clears it.
+**Needs you** holds only agents waiting on an answer, such as an approval card or a question. An agent that finished a turn you haven't read stays under its project, marked **Done, unread**, and ⌘J skips it. The bell and the Dock badge still count it while **Finished** is picked under **Badge** in Settings, under **Notifications**, as it is at first. Opening the agent clears it.
 
 Right-click an agent, or click its **⋯**, for **Settle**, **Snooze**, **Pin**, **Rename** and more. Select several to act on them at once.
 

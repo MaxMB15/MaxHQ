@@ -2,7 +2,8 @@
 // Copyright (c) 2026 Max Boksem
 
 // The bell's inbox. Now is what the badge counts, read from the same
-// selector, so the two always agree. Earlier is the notification log the
+// selector, so the two always agree, and the bell's count follows Show the
+// badge as the Dock's does. Earlier is the notification log the
 // devices keep, newest first, a page at a time. Mark all as read marks
 // every notice read and settles what's only unseen, while a prompt stays
 // in Now until you answer it. Opening an agent marks its notices read
@@ -15,7 +16,7 @@ import { createStore, type StoreApi } from "zustand/vanilla";
 import type { AgentId, Notice, NoticeKind, NoticePage, Timestamp } from "../bindings";
 import { describe } from "../data/request-source";
 import type { CommandResult, DataSource } from "../data/source";
-import { type BadgeItem, type BadgeReason, badgeItems } from "../view/badge";
+import { type BadgeItem, type BadgePrefs, type BadgeReason, badgeItems } from "../view/badge";
 import type { ViewState } from "../view/replica";
 import { attentionOf, deviceName } from "../view/select";
 
@@ -107,6 +108,14 @@ export const nowRows = (
 			gone: false,
 		};
 	});
+
+/**
+ * The number on the bell: how many Now rows there are, or null while Show
+ * the badge is off, as the bell then shows no count and can't claim that
+ * nothing needs you.
+ */
+export const bellCount = (rows: readonly InboxRow[], prefs: BadgePrefs): number | null =>
+	prefs.show ? rows.length : null;
 
 /** The Earlier rows, one for each notice. */
 export const earlierRows = (view: ViewState, notices: readonly Notice[]): InboxRow[] =>

@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026 Max Boksem
 
-// The Dock badge's card on the Notifications page: whether MaxHQ's icon
-// shows how many agents need you, and what counts. Each change applies and
-// saves as you make it. macOS hides the badge of an app whose
-// notifications or badges are off in System Settings, so the card says
-// so, from the page's read of what macOS allows, and links there.
+// The badge's card on the Notifications page: whether the bell and MaxHQ's
+// icon in the Dock show how many agents need you, and what counts. Each
+// change applies and saves as you make it. macOS hides the Dock badge of an
+// app whose notifications or badges are off in System Settings, so the card
+// says so, from the page's read of what macOS allows, and links there.
 
 import { Switch } from "@/components/ui/switch";
 import { setBadgePrefs, useBadgePrefs } from "@/native/dock-badge";
@@ -17,25 +17,26 @@ import { Row, SECONDARY, Section } from "./controls";
 
 /** The card's headings and labels, for the settings search. */
 export const DOCK_BADGE_TERMS: readonly string[] = [
+	"Badge",
 	"Dock badge",
 	"Show the badge",
 	...BADGE_REASONS.map((reason) => BADGE_REASON_TEXT[reason].label),
 ];
 
-/** Why macOS hides the badge, or null when nothing does or it isn't known yet. */
+/** Why macOS hides the Dock badge, or null when nothing does or it isn't known yet. */
 const hiddenBecause = (access: NotificationAccess | null): string | null => {
 	if (access?.permission === "denied" || access?.permission === "not_decided") {
-		return translate("macOS hides the badge until MaxHQ's notifications are allowed.");
+		return translate("macOS hides the Dock badge until MaxHQ's notifications are allowed.");
 	}
 	if (access && !access.badge) {
 		return translate(
-			"Badges are turned off for MaxHQ in System Settings, so macOS hides the count."
+			"Badges are turned off for MaxHQ in System Settings, so macOS hides the count in the Dock."
 		);
 	}
 	return null;
 };
 
-/** The Dock badge card. */
+/** The badge card. */
 export const DockBadgeSection = ({
 	access,
 	onOpenSettings,
@@ -50,10 +51,12 @@ export const DockBadgeSection = ({
 	// It only matters while MaxHQ would show a badge.
 	const hidden = show ? hiddenBecause(access) : null;
 	return (
-		<Section title={translate("Dock badge")} hint={translate("Each agent counts once")}>
+		<Section title={translate("Badge")} hint={translate("Each agent counts once")}>
 			<Row
 				title={translate("Show the badge")}
-				sub={translate("The number of agents that need you, on MaxHQ's icon in the Dock")}
+				sub={translate(
+					"How many agents need you, on the bell and on MaxHQ's icon in the Dock"
+				)}
 			>
 				<Switch
 					aria-label={translate("Show the badge")}

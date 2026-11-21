@@ -2,7 +2,8 @@
 // Copyright (c) 2026 Max Boksem
 
 // The bell in the header and the inbox it opens. The bell counts what the
-// Dock badge counts, and Now lists exactly those agents. Earlier is the log
+// Dock badge counts, and Now lists exactly those agents. With Show the badge
+// off the bell shows no count, though Now still lists them. Earlier is the log
 // of past notifications from every device, newest first. Opening the
 // popover marks nothing read; opening an agent does, as Mark all as read
 // does for every notification.
@@ -22,6 +23,7 @@ import { openSettings } from "@/settings/store";
 import type { Timestamp } from "@maxhq/shared/bindings";
 import { useNow } from "@maxhq/shared/lib/clock";
 import {
+	bellCount,
 	createNoticeLog,
 	earlierRows,
 	finishedAgents,
@@ -31,11 +33,12 @@ import {
 } from "@maxhq/shared/notices/inbox";
 import { formatAgoShort } from "@maxhq/shared/status/format";
 
-/** What the bell's screen reader label says. */
-export const bellLabel = (count: number): string =>
-	count === 0
-		? t("No agent needs you")
-		: t("{{countText}} agents need you", { count, countText: formatNumber(count) });
+/** What the bell's screen reader label says, with no count while the badge is off. */
+export const bellLabel = (count: number | null): string => {
+	if (count === null) return t("Notifications");
+	if (count === 0) return t("No agent needs you");
+	return t("{{countText}} agents need you", { count, countText: formatNumber(count) });
+};
 
 const BellIcon = () => (
 	<svg
@@ -124,7 +127,8 @@ export const NotificationBell = () => {
 
 	const services = useServices();
 	const view = useView((s) => s.view);
-	const counts = useBadgePrefs((p) => p.counts);
+	const prefs = useBadgePrefs((p) => p);
+	const { counts } = prefs;
 	const now = useNow(30_000);
 	const log = useMemo(() => createNoticeLog(services.source), [services.source]);
 	const { page, failed } = useStore(log.store);
@@ -132,7 +136,7 @@ export const NotificationBell = () => {
 
 	const current = useMemo(() => nowRows(view, now, counts), [view, now, counts]);
 	const earlier = useMemo(() => earlierRows(view, page?.notices ?? []), [view, page]);
-	const count = current.length;
+	const count = bellCount(current, prefs);
 
 	const onOpenChange = (next: boolean) => {
 		setOpen(next);
@@ -156,7 +160,7 @@ export const NotificationBell = () => {
 				className="relative grid size-[30px] place-items-center rounded-[7px] text-secondary-foreground hover:bg-secondary data-popup-open:bg-secondary"
 			>
 				<BellIcon />
-				{count > 0 ? (
+				{count ? (
 					<span
 						aria-hidden
 						className="absolute top-[3px] right-0.5 h-[15px] min-w-[15px] rounded-lg bg-status-ready px-1 text-center text-[10px] leading-[15px] font-bold text-status-ready-foreground"

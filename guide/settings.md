@@ -23,7 +23,7 @@ Click the gear at the top of the window, or press `⌘,` (`Ctrl+,` off a Mac). T
 
 A page whose line says "kept on this Mac" saves on this Mac only. The other pages change what your devices do, and each change goes to the devices it names.
 
-- Kept on this Mac: Appearance, Sidebar, Editor and Dispatcher, plus Notifications and the Dock badge.
+- Kept on this Mac: Appearance, Sidebar, Editor and Dispatcher, plus Notifications and the badge.
 - On your devices: Agent tools, Scheduled tasks, Test hosts, Skills, Phones and every login page.
 - A device's own settings, such as idle agents, memory, sleep and network access, are on that device's page. See [Devices and links](devices.md).
 - A project's settings and its skills are on the project's page under Projects. See [Projects and workspaces](projects.md).
@@ -119,18 +119,18 @@ The Skills page holds the skill library: the sources projects pick skills from, 
 - Global skills: Tidy global skills moves your own global skills into the library, device by device. Undo puts them back.
 - A project picks its own skills on its Skills tab. See [Projects and workspaces](projects.md).
 
-## Notifications: alerts, sounds and the Dock badge
+## Notifications: alerts, sounds and the badge
 <!-- id: settings/notifications -->
 <!-- covers: settings/notifications -->
 
-The Notifications page sets which alerts this Mac shows, which of them play a sound, and what the Dock badge counts.
+The Notifications page sets which alerts this Mac shows, which of them play a sound, and what the badge on the bell and in the Dock counts.
 
 - The top line says what macOS allows. When MaxHQ's notifications are off there, Open System Settings takes you to them.
 - Show notifications: alerts from your agents, in Notification Center. Send a test notification shows one, whichever kinds are on. The first test makes macOS ask.
 - Alerts, the same kinds as on your phones: Needs input (a permission, a question or a secret), Error (an agent stopped on an error), Finished (a turn ended while you were away) and Limit (an agent waits for a usage limit to reset).
 - Sounds: Prompts plays one for an alert that waits on you, needs input or an error. Other alerts plays one for Finished and Limit.
-- Dock badge: Show the badge puts the number of agents that need you on MaxHQ's icon. Each agent counts once. Pick what counts: Waiting on you, Finished, and Failed or stopped with an error.
-- macOS hides the badge while MaxHQ's notifications or badges are off in System Settings.
+- Badge: Show the badge puts the number of agents that need you on the bell and on MaxHQ's icon in the Dock. Each agent counts once. Pick what counts: Waiting on you, Finished, and Failed or stopped with an error.
+- macOS hides the Dock badge while MaxHQ's notifications or badges are off in System Settings. The bell still counts.
 
 ## Updates: version and checking for updates
 <!-- id: settings/updates -->
