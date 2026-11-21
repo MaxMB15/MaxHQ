@@ -1515,5 +1515,17 @@
 	"Package manager hooks": "Package manager hooks",
 	"Package manager hooks run as you when packages install.": "Package manager hooks run as you when packages install.",
 	"Remember for this project": "Remember for this project",
-	"The dev container sets what runs when it builds and starts, with your files.": "The dev container sets what runs when it builds and starts, with your files."
+	"The dev container sets what runs when it builds and starts, with your files.": "The dev container sets what runs when it builds and starts, with your files.",
+	"Couldn't use a reset. {{reason}}.": "Couldn't use a reset. {{reason}}.",
+	"No limit needs a reset right now, so nothing was spent.": "No limit needs a reset right now, so nothing was spent.",
+	"No resets left.": "No resets left.",
+	"Reset used. This account's Codex limits start over now.": "Reset used. This account's Codex limits start over now.",
+	"The device gave an answer MaxHQ doesn't know. Check the count before trying again.": "The device gave an answer MaxHQ doesn't know. Check the count before trying again.",
+	"This spends 1 of your {{count, number}} banked resets and resets this account's Codex limits now. It can't be undone._one": "This spends your only banked reset and resets this account's Codex limits now. It can't be undone.",
+	"This spends 1 of your {{count, number}} banked resets and resets this account's Codex limits now. It can't be undone._other": "This spends 1 of your {{count, number}} banked resets and resets this account's Codex limits now. It can't be undone.",
+	"Use a Codex reset?": "Use a Codex reset?",
+	"Use reset": "Use reset",
+	"Using a reset…": "Using a reset…",
+	"{{count, number}} reset banked_one": "{{count, number}} reset banked",
+	"{{count, number}} reset banked_other": "{{count, number}} resets banked"
 }

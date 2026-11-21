@@ -1515,5 +1515,17 @@
 	"Package manager hooks": "Paketmanager-Hooks",
 	"Package manager hooks run as you when packages install.": "Paketmanager-Hooks laufen unter deinem Konto, wenn Pakete installiert werden.",
 	"Remember for this project": "Für dieses Projekt merken",
-	"The dev container sets what runs when it builds and starts, with your files.": "Der Dev-Container legt fest, was beim Bauen und Starten läuft, mit deinen Dateien."
+	"The dev container sets what runs when it builds and starts, with your files.": "Der Dev-Container legt fest, was beim Bauen und Starten läuft, mit deinen Dateien.",
+	"Couldn't use a reset. {{reason}}.": "Reset konnte nicht genutzt werden. {{reason}}.",
+	"No limit needs a reset right now, so nothing was spent.": "Gerade braucht kein Limit einen Reset, daher wurde nichts verbraucht.",
+	"No resets left.": "Keine Resets mehr übrig.",
+	"Reset used. This account's Codex limits start over now.": "Reset genutzt. Die Codex-Limits dieses Kontos beginnen jetzt von vorn.",
+	"The device gave an answer MaxHQ doesn't know. Check the count before trying again.": "Das Gerät hat eine Antwort gegeben, die MaxHQ nicht kennt. Prüfe die Anzahl, bevor du es noch einmal versuchst.",
+	"This spends 1 of your {{count, number}} banked resets and resets this account's Codex limits now. It can't be undone._one": "Damit verbrauchst du deinen einzigen angesparten Reset, und die Codex-Limits dieses Kontos beginnen jetzt von vorn. Das lässt sich nicht rückgängig machen.",
+	"This spends 1 of your {{count, number}} banked resets and resets this account's Codex limits now. It can't be undone._other": "Damit verbrauchst du 1 deiner {{count, number}} angesparten Resets, und die Codex-Limits dieses Kontos beginnen jetzt von vorn. Das lässt sich nicht rückgängig machen.",
+	"Use a Codex reset?": "Einen Codex-Reset nutzen?",
+	"Use reset": "Reset nutzen",
+	"Using a reset…": "Reset wird genutzt…",
+	"{{count, number}} reset banked_one": "{{count, number}} Reset angespart",
+	"{{count, number}} reset banked_other": "{{count, number}} Resets angespart"
 }

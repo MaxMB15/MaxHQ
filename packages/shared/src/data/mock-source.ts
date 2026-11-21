@@ -85,6 +85,7 @@ import { mockTerminals } from "./mock-terminals";
 import { mockFolders } from "./mock-folders";
 import { mockNotices } from "./mock-notices";
 import { mockCursorRules } from "./mock-cursor-rules";
+import { mockResetCredits } from "./mock-reset-credits";
 import { mockLinks } from "./mock-links";
 import { mockNetworkAccess, mockPhone, mockPhones } from "./mock-phones";
 import { type FleetContext, mockFleet, mockTools } from "./mock-fleet";
@@ -1677,6 +1678,18 @@ export const mockSource = (options: MockOptions = {}): MockSource => {
 		...mockFolders(),
 		...mockNotices(now),
 		...mockCursorRules(),
+		...mockResetCredits({
+			get: (id) => {
+				const e = current.get(`account:${id}`);
+				return e?.entity === "account" ? e : undefined;
+			},
+			set: (account) =>
+				update((e) =>
+					e.entity === "account" && e.id === account.id
+						? { entity: "account", ...account }
+						: e
+				),
+		}),
 		...mockHostCalls(fleet),
 		...mockLocalModels(fleet),
 		...mockAgents(now),

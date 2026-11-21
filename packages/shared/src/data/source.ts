@@ -122,6 +122,7 @@ import type {
 import { DEPTH } from "../bindings";
 import type { FolderCalls } from "../folders/requests";
 import type { CursorRuleCalls } from "../settings/cursor-rules";
+import type { ResetCreditCalls } from "../status/reset-credits";
 import type { NoticeCalls } from "../notices/requests";
 import type { GitItemRef } from "../pills/draft";
 import type { TerminalCalls } from "../terminal/requests";
@@ -339,9 +340,15 @@ export type MockControls = {
 
 /**
  * The calls that live with their own helpers: the terminal's, the
- * session's, the folders', the notices' and Cursor's rules'.
+ * session's, the folders', the notices', Cursor's rules' and the banked
+ * resets'.
  */
-type HelperCalls = TerminalCalls & SessionCalls & FolderCalls & NoticeCalls & CursorRuleCalls;
+type HelperCalls = TerminalCalls &
+	SessionCalls &
+	FolderCalls &
+	NoticeCalls &
+	CursorRuleCalls &
+	ResetCreditCalls;
 
 /**
  * One place the view comes from, with the commands that act on it. The

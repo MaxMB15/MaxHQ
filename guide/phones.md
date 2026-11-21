@@ -31,7 +31,7 @@ The app opens on Agents, the inbox, with the agents that need you first, then ea
 - Tap an agent to read its conversation, answer its prompts and send messages. From there, open Details, Sub-agents, Ports and processes, or Move to… for another device.
 - A project's menu has New agent, Notes, New note, Pull requests, Workflows, Scheduled tasks, Skills, Copy to another device…, Hide project and Project settings….
 - Devices lists each device. Tap one for its page, with its workspaces, New workspace, test machine leases and licences to accept.
-- Usage shows your plans' limits.
+- Usage shows your plans' limits and any banked Codex resets. Only the desktop app can use one.
 - Settings has This phone, Paired Macs, About, App, Logins, Projects, Device settings and Devices.
 
 The phone reaches each device through maxd, the same service the Mac uses. Some of these need Let this phone do everything; see below.

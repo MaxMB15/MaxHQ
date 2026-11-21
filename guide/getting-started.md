@@ -46,6 +46,21 @@ The usage meter in the title bar shows how much of each vendor's plan you've use
 
 A window at 99% or more reads as used up. Only the account's own windows mark its agents as at the limit, not a model's. Cursor shows its month meters once a Mac turns Cursor usage on, and a link to its dashboard otherwise. A Local agent has no plan, so it has no meter; see [Local models](local-models.md).
 
+## Use a banked Codex reset
+<!-- id: getting-started/codex-resets -->
+
+A banked reset is one Codex has given an account to use later. Using it starts that account's Codex limits over now, so its agents can carry on before the window resets on its own. **Plan usage** shows the count under the account, such as "2 resets banked".
+
+1. Click the usage meter in the title bar for **Plan usage**.
+2. Under the Codex account, click **Use reset**.
+3. **Use a Codex reset?** says how many you have. Click **Use reset** to spend one, or **Cancel** to keep it.
+
+A line under the account then says what came of it. A spent reset can't be undone. When no limit needs a reset, nothing is spent.
+
+- Only the desktop app can use a reset. Phones show the count without the button, and agents, the dispatcher and linked devices can't spend one.
+- Codex makes the request itself, with its own sign-in on the device that holds the login, the same way it reads the limits.
+- **Use reset** shows once the device's maxd is new enough to spend one, for logins the Codex CLI holds itself.
+
 ## See your agents by project
 <!-- id: getting-started/projects -->
 <!-- covers: view/projects shortcut/filter-the-agents shortcut/open-the-first-agent-the-filter-shows shortcut/clear-the-filter-then-leave-it shortcut/move-between-the-agents-on-an-agent-with-focus shortcut/open-the-agent-on-an-agent-with-focus -->

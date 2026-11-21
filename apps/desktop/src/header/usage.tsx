@@ -8,18 +8,32 @@
 // fullest. A window at 99% or more
 // reads as used up, and a used-up week leaves nothing in the 5-hour window.
 // Cursor shows its month meters once a Mac turns Cursor usage on, and a
-// link to its dashboard otherwise.
+// link to its dashboard otherwise. A Codex account says how many resets it
+// has banked, and Use reset spends one once you confirm.
 
 import { useI18n } from "@maxhq/shared/i18n";
 
 import { useMemo, useState } from "react";
+import { useStore } from "zustand";
+import { createStore } from "zustand/vanilla";
 
-import { useServices, useView } from "@/app/services";
+import { type Services, useServices, useServicesIfAny, useView } from "@/app/services";
+import { requestConfirm } from "@/components/confirm";
 import { Popover, PopoverPopup, PopoverTitle, PopoverTrigger } from "@/components/ui/popover";
-import type { Agent, Timestamp } from "@maxhq/shared/bindings";
+import type { Account, Agent, Timestamp } from "@maxhq/shared/bindings";
 import { useNow } from "@maxhq/shared/lib/clock";
 import { cn } from "@/lib/utils";
 import { formatAgo, formatContext, formatPercent } from "@maxhq/shared/status/format";
+import {
+	canUseReset,
+	resetCredits,
+	resetCreditsLine,
+	type ResetLine,
+	resetQuestion,
+	resetRunning,
+	type ResetSpends,
+	resetSpends,
+} from "@maxhq/shared/status/reset-credits";
 import {
 	accountName,
 	accountWindows,
@@ -193,6 +207,76 @@ const ModelSection = ({ models, now }: { models: readonly ModelUsage[]; now: Tim
 	);
 };
 
+/** Each window's reset spends, kept with its services so a line outlives the popover. */
+const spends = new WeakMap<Services, ReturnType<typeof resetSpends>>();
+
+const spendsOf = (services: Services) => {
+	let found = spends.get(services);
+	if (!found) {
+		found = resetSpends(services.source);
+		spends.set(services, found);
+	}
+	return found;
+};
+
+/** No spends, for a section shown without services. */
+const NO_SPENDS = createStore<ResetSpends>(() => ({ spends: new Map() }));
+
+/** The color of the line a spend leaves. */
+const TONE: Record<ResetLine["tone"], string> = {
+	done: "text-status-ready-text",
+	quiet: "text-muted-foreground",
+	failed: "text-status-error-text",
+};
+
+/**
+ * A Codex account's banked resets, with Use reset where its device can
+ * spend one. It asks first, since a reset can't be undone.
+ */
+const ResetCredits = ({ account, view }: { account: Account; view: ViewState }) => {
+	const { t } = useI18n();
+
+	const services = useServicesIfAny();
+	const spender = services ? spendsOf(services) : null;
+	const spend = useStore(spender?.store ?? NO_SPENDS, (s) => s.spends.get(account.id));
+	const count = resetCredits(account);
+	const banked = resetCreditsLine(account);
+	const usable = spender !== null && canUseReset(view, account);
+	const running = spend?.state === "running";
+	if (!banked && !spend) return null;
+
+	const use = async () => {
+		if (!services || !spender || spender.running(account.id) || count === null) return;
+		if (!(await requestConfirm(services, resetQuestion(count)))) return;
+		await spender.spend(account.id);
+	};
+	return (
+		<div className="flex flex-col gap-1">
+			{banked || usable || running ? (
+				<div className="flex min-h-[22px] items-center justify-between gap-2">
+					<span className="text-[11px] text-muted-foreground">{banked}</span>
+					{usable || running ? (
+						<button
+							type="button"
+							disabled={running}
+							aria-busy={running}
+							onClick={() => void use()}
+							className="h-[22px] shrink-0 rounded-[5px] border border-input bg-secondary px-2 text-[11px] whitespace-nowrap text-foreground enabled:hover:bg-accent disabled:opacity-60"
+						>
+							{running ? resetRunning() : t("Use reset")}
+						</button>
+					) : null}
+				</div>
+			) : null}
+			{spend?.state === "done" ? (
+				<p role="status" className={cn("text-[11px]", TONE[spend.line.tone])}>
+					{spend.line.text}
+				</p>
+			) : null}
+		</div>
+	);
+};
+
 export const AccountSection = ({
 	plan,
 	view,
@@ -269,6 +353,7 @@ export const AccountSection = ({
 			) : null}
 			{note ? <p className="text-[11px] text-status-busy-text">{note}</p> : null}
 			<ModelSection models={modelUsage(account)} now={now} />
+			<ResetCredits account={account} view={view} />
 			{failureNote ? (
 				<p className="text-[11px] text-muted-foreground">{failureNote}</p>
 			) : null}
