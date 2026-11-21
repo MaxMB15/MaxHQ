@@ -235,6 +235,7 @@ const SETTINGS: Entity[] = [
 		claude_setup_token: false,
 		shell_integration: true,
 		read_other_agents: true,
+		claude_artifacts: true,
 		dispatcher_acts: true,
 		chat_gap_minutes: 30,
 		local_models: {
@@ -265,6 +266,7 @@ const SETTINGS: Entity[] = [
 		claude_setup_token: true,
 		shell_integration: true,
 		read_other_agents: true,
+		claude_artifacts: true,
 		dispatcher_acts: true,
 		chat_gap_minutes: 30,
 		local_models: {

@@ -403,6 +403,8 @@ impl AcpSession {
                 options: choices.clone(),
                 decided: None,
                 saves,
+                deny_first: false,
+                reason: None,
             },
         );
         let event = event(agent, AttentionKind::Permission, title, choices, at);
@@ -476,6 +478,8 @@ impl AcpSession {
                 options: options.clone(),
                 decided: None,
                 saves: Vec::new(),
+                deny_first: false,
+                reason: None,
             },
         );
         let event = event(agent, AttentionKind::Permission, title, options, at);

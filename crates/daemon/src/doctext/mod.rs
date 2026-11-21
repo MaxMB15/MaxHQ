@@ -31,7 +31,7 @@ mod rtf;
 mod xml;
 mod zip;
 
-pub use extract::EXTENSIONS;
+pub use extract::{strip_vt, EXTENSIONS};
 
 /// The hidden subcommand the child runs.
 pub const SUBCOMMAND: &str = "__document-text";

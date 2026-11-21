@@ -2114,7 +2114,44 @@ mod tests {
             Db::open(&path).unwrap().device_settings(device).unwrap(),
             None
         );
-        let settings = DeviceSettings {
+        let settings = settings(device);
+        Db::open(&path)
+            .unwrap()
+            .set_device_settings(&settings)
+            .unwrap();
+        let reopened = Db::open(&path).unwrap();
+        assert_eq!(reopened.device_settings(device).unwrap(), Some(settings));
+    }
+
+    #[test]
+    fn claude_page_tools_stay_on_for_a_row_from_before_the_switch() {
+        let db = Db::open_in_memory().unwrap();
+        let device = DeviceId::derive("d");
+        let off = DeviceSettings {
+            claude_artifacts: false,
+            ..settings(device)
+        };
+        db.set_device_settings(&off).unwrap();
+        assert_eq!(db.device_settings(device).unwrap(), Some(off.clone()));
+        assert!(db.settings_name(device, "claude_artifacts").unwrap());
+
+        // An older maxd stored the row without the field.
+        let mut older = serde_json::to_value(&off).unwrap();
+        older.as_object_mut().unwrap().remove("claude_artifacts");
+        db.lock()
+            .execute(
+                "UPDATE device_settings SET record = ?1 WHERE device = ?2",
+                params![older.to_string(), device.to_string()],
+            )
+            .unwrap();
+        let read = db.device_settings(device).unwrap().unwrap();
+        assert!(read.claude_artifacts);
+        assert!(!db.settings_name(device, "claude_artifacts").unwrap());
+    }
+
+    /// Settings that differ from the defaults here and there.
+    fn settings(device: DeviceId) -> DeviceSettings {
+        DeviceSettings {
             device,
             default_permission: PermissionMode::Ask,
             workspace_network: None,
@@ -2141,13 +2178,8 @@ mod tests {
             dispatcher_acts: true,
             chat_gap_minutes: 30,
             local_models: Default::default(),
-        };
-        Db::open(&path)
-            .unwrap()
-            .set_device_settings(&settings)
-            .unwrap();
-        let reopened = Db::open(&path).unwrap();
-        assert_eq!(reopened.device_settings(device).unwrap(), Some(settings));
+            claude_artifacts: true,
+        }
     }
 
     #[test]

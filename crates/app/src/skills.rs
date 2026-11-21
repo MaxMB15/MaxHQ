@@ -433,6 +433,7 @@ mod tests {
             dispatcher_acts: true,
             chat_gap_minutes: 30,
             local_models: Default::default(),
+            claude_artifacts: true,
         }
     }
 

@@ -343,6 +343,7 @@ async fn drift_and_a_scan_make_one_proposal_that_comes_back_after_a_restart() {
         host: crate::drive::PlaceHost::Local,
         dispatcher: false,
         trust: None,
+        claude_artifacts: true,
     };
     rig.delivery.ensure(&place).unwrap();
     let copy = repo.join(".maxhq/skills/git-flow");

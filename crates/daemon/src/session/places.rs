@@ -366,6 +366,7 @@ impl Manager {
             host,
             dispatcher: dispatcher && guest.is_none() && self.dispatcher.home() == Some(workspace),
             trust: None,
+            claude_artifacts: self.device_settings().claude_artifacts,
         }
     }
 

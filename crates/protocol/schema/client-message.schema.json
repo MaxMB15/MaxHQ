@@ -7990,7 +7990,7 @@
           ]
         },
         "container": {
-          "description": "The container it ran in, by name, if it ran in one. A device from\nbefore this field leaves it out. Since protocol 55.",
+          "description": "The container it ran in, by name, if it ran in one. A device from\nbefore this field leaves it out. Since protocol 56.",
           "type": [
             "string",
             "null"
@@ -8491,6 +8491,24 @@
           ]
         },
         {
+          "description": "See [`DeviceSettings::claude_artifacts`].",
+          "type": "object",
+          "properties": {
+            "field": {
+              "type": "string",
+              "const": "claude_artifacts"
+            },
+            "value": {
+              "description": "What it becomes.",
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "field",
+            "value"
+          ]
+        },
+        {
           "description": "See [`DeviceSettings::chat_gap_minutes`].",
           "type": "object",
           "properties": {
@@ -8550,6 +8568,11 @@
           "default": 30,
           "maximum": 65535,
           "minimum": 0
+        },
+        "claude_artifacts": {
+          "description": "Whether Claude Code agents on this device may use the claude.ai\nartifact tools, which publish, read and change pages on your\nclaude.ai account. It applies to agents whose CLI starts after it\nchanges. A `maxd` from before [`crate::message::ARTIFACTS_SINCE`]\nleaves it out and always lets them.",
+          "type": "boolean",
+          "default": true
         },
         "claude_effort": {
           "description": "The effort level new Claude Code agents start at, or none for each\nmodel's [`ModelChoice::default_effort`]. A `maxd` from before\n[`crate::message::EFFORT_SINCE`] leaves it out.",
@@ -11052,7 +11075,7 @@
           "type": "string"
         },
         "container": {
-          "description": "The container it runs in there, by name, if it runs in one. A\ndevice from before this field leaves it out. Since protocol 55.",
+          "description": "The container it runs in there, by name, if it runs in one. A\ndevice from before this field leaves it out. Since protocol 56.",
           "type": [
             "string",
             "null"
@@ -11063,7 +11086,7 @@
           "type": "string"
         },
         "mode": {
-          "description": "The mode an agent of that vendor starts in there unless you choose\none. A device from before this field leaves it out, and starts a\nmoved agent in the mode it ran in. Since protocol 55.",
+          "description": "The mode an agent of that vendor starts in there unless you choose\none. A device from before this field leaves it out, and starts a\nmoved agent in the mode it ran in. Since protocol 56.",
           "anyOf": [
             {
               "$ref": "#/$defs/PermissionMode"
@@ -11152,7 +11175,7 @@
           "$ref": "#/$defs/DeviceId"
         },
         "mode": {
-          "description": "The permission mode you chose for it there. The device it goes to\ntakes it up to the higher of the mode it ran in and that device's\nown default. None, as from a peer before this field, means the\nlower of the two. Since protocol 55.",
+          "description": "The permission mode you chose for it there. The device it goes to\ntakes it up to the higher of the mode it ran in and that device's\nown default. None, as from a peer before this field, means the\nlower of the two. Since protocol 56.",
           "anyOf": [
             {
               "$ref": "#/$defs/PermissionMode"
@@ -14337,7 +14360,7 @@
           "default": null
         },
         "by_dispatcher": {
-          "description": "Set by `maxd` for a task you made that the dispatcher saved at\nonce, for a request of yours, without a plan you confirmed. Its\nruns say the dispatcher made it. One from an older `maxd` has none.\nSince protocol 55.",
+          "description": "Set by `maxd` for a task you made that the dispatcher saved at\nonce, for a request of yours, without a plan you confirmed. Its\nruns say the dispatcher made it. One from an older `maxd` has none.\nSince protocol 56.",
           "type": "boolean"
         },
         "enabled": {

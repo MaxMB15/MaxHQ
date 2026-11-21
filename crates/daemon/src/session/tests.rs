@@ -2293,6 +2293,7 @@ async fn device_settings_are_stored_and_published() {
         dispatcher_acts: true,
         chat_gap_minutes: 30,
         local_models: Default::default(),
+        claude_artifacts: true,
     };
     let outcome = h
         .act(|key| ClientMessage::SetDeviceSettings {
@@ -3772,6 +3773,7 @@ fn showing(agent: AgentId, id: &AttachmentId, status: ItemStatus) -> TimelineIte
         input: None,
         output: None,
         images: vec![image],
+        artifact: None,
     };
     item(agent, "shot", status, body)
 }

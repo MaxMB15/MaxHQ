@@ -145,7 +145,7 @@ impl Finds {
 /// to work it out from.
 enum ToCount {
     Kept(ItemId, Arc<Searchable>),
-    Body(ItemId, ItemBody),
+    Body(ItemId, Box<ItemBody>),
     /// An item on disk with its ordinal, read back off the loop.
     Spilled(u64, Spilled),
 }
@@ -187,7 +187,7 @@ impl Manager {
                         Ok(items) => {
                             let items = items
                                 .into_iter()
-                                .map(|item| ToCount::Body(item.id, item.body))
+                                .map(|item| ToCount::Body(item.id, Box::new(item.body)))
                                 .collect();
                             counted(items, query, at).await.0
                         }
@@ -237,7 +237,7 @@ impl Manager {
                 Some(Err(source)) => match history(vendors, places, source, agent).await {
                     Ok(items) => items
                         .into_iter()
-                        .map(|item| ToCount::Body(item.id, item.body))
+                        .map(|item| ToCount::Body(item.id, Box::new(item.body)))
                         .collect(),
                     Err(_) => return 0,
                 },
@@ -284,7 +284,9 @@ fn to_count(timeline: &Timeline, kept: Option<(Seq, Arc<ShownItems>)>) -> Vec<To
             });
             match (reused, stored) {
                 (Some((id, shown)), _) => ToCount::Kept(id, shown),
-                (None, Stored::Kept(item)) => ToCount::Body(item.id.clone(), item.body.clone()),
+                (None, Stored::Kept(item)) => {
+                    ToCount::Body(item.id.clone(), Box::new(item.body.clone()))
+                }
                 (None, Stored::Spilled(ordinal, spilled)) => ToCount::Spilled(ordinal, spilled),
             }
         })

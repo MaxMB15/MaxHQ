@@ -4,6 +4,8 @@
 /* Constants */
 export const ANSWER_PILLS_SINCE = 31 as const;
 
+export const ARTIFACTS_SINCE = 55 as const;
+
 export const CLI_LOGIN_SINCE = 35 as const;
 
 export const CURSOR_LOGIN_SINCE = 36 as const;
@@ -32,7 +34,7 @@ export const NOTE_PILLS_SINCE = 28 as const;
 
 export const OLDEST_PROTOCOL_VERSION = 20 as const;
 
-export const PROTOCOL_VERSION = 55 as const;
+export const PROTOCOL_VERSION = 56 as const;
 
 export const SESSIONS_SINCE = 48 as const;
 
@@ -1341,6 +1343,28 @@ export type Arrival = {
 	 *  keeps.
 	 */
 	grants?: Permission[],
+};
+
+/**  What one of Claude Code's artifact tools did with a claude.ai page. */
+export type ArtifactCall = {
+	/**
+	 *  What it did, as the tool's `action` names it, such as `publish`,
+	 *  `read`, `list`, `delete`, `reply` or `set`.
+	 */
+	action: string,
+	/**  The page's title, once the input or the result names one. */
+	title?: string | null,
+	/**  The page's link. Set only for an https link on claude.ai. */
+	url?: string | null,
+	/**
+	 *  One more thing the call named, such as the file it read, the
+	 *  collection it changed or the kind of page it started.
+	 */
+	detail?: string | null,
+	/**  The page's version after the call, when the result says. */
+	version?: string | null,
+	/**  Whether the page is yours, when the result says. */
+	owned?: boolean | null,
 };
 
 /**  A file or folder staged to send to an agent. */
@@ -4305,7 +4329,7 @@ export type Departure = {
 	brief?: string | null,
 	/**
 	 *  The container it ran in, by name, if it ran in one. A device from
-	 *  before this field leaves it out. Since protocol 55.
+	 *  before this field leaves it out. Since protocol 56.
 	 */
 	container?: string | null,
 };
@@ -4541,6 +4565,10 @@ value: boolean } |
 { field: "dispatcher_acts"; 
 /**  What it becomes. */
 value: boolean } | 
+/**  See [`DeviceSettings::claude_artifacts`]. */
+{ field: "claude_artifacts"; 
+/**  What it becomes. */
+value: boolean } | 
 /**  See [`DeviceSettings::chat_gap_minutes`]. */
 { field: "chat_gap_minutes"; 
 /**  What it becomes. */
@@ -4682,6 +4710,14 @@ export type DeviceSettings = {
 	 *  [`crate::message::DISPATCHER_CHATS_SINCE`] leaves it out.
 	 */
 	chat_gap_minutes?: number,
+	/**
+	 *  Whether Claude Code agents on this device may use the claude.ai
+	 *  artifact tools, which publish, read and change pages on your
+	 *  claude.ai account. It applies to agents whose CLI starts after it
+	 *  changes. A `maxd` from before [`crate::message::ARTIFACTS_SINCE`]
+	 *  leaves it out and always lets them.
+	 */
+	claude_artifacts?: boolean,
 	/**
 	 *  The device's choices for local models: idle unload, KV cache type,
 	 *  context size, fewer tools and the default model. A `maxd` from
@@ -6226,7 +6262,14 @@ output: string | null;
  *  The pictures in the result, kept where the device can serve
  *  them. A `maxd` from before leaves this out.
  */
-images?: AttachmentRef[] } | 
+images?: AttachmentRef[]; 
+/**
+ *  What the call did with a claude.ai page, for Claude Code's
+ *  artifact tools. A `maxd` from before
+ *  [`crate::message::ARTIFACTS_SINCE`] leaves it out, which reads
+ *  as a plain tool call.
+ */
+artifact?: ArtifactCall | null } | 
 /**  A sub-agent the agent started. */
 { kind: "subagent"; 
 /**
@@ -6275,9 +6318,22 @@ decided: Decided | null;
 /**
  *  The rules "Always allow" saves for a command, as their words, when
  *  MaxHQ keeps them. An older `maxd` leaves it out, which reads as
- *  none. Since protocol 55.
+ *  none. Since protocol 56.
  */
-saves?: string[] } | 
+saves?: string[]; 
+/**
+ *  Whether turning it down is the default, so a stray Enter can't
+ *  allow it, as for a call only a person may approve. A `maxd` from
+ *  before [`crate::message::ARTIFACTS_SINCE`] leaves it out, which
+ *  reads as no.
+ */
+deny_first?: boolean; 
+/**
+ *  Why the agent's CLI asks instead of going ahead, such as a
+ *  safety check the call tripped, when it says. A `maxd` from
+ *  before [`crate::message::ARTIFACTS_SINCE`] leaves it out.
+ */
+reason?: string | null } | 
 /**  The agent asked you one or more questions. */
 { kind: "question"; 
 /**  The attention event you answer. */
@@ -6418,7 +6474,7 @@ undo: IdempotencyKey | null } |
 /**
  *  An agent or a task the dispatcher started or saved without asking,
  *  as a card on its own timeline. An older app shows it as an item it
- *  doesn't know. Since protocol 55.
+ *  doesn't know. Since protocol 56.
  */
 { kind: "dispatcher_step"; 
 /**  What it did: a start or a task. */
@@ -7376,12 +7432,12 @@ export type MoveCheck = {
 	/**
 	 *  The mode an agent of that vendor starts in there unless you choose
 	 *  one. A device from before this field leaves it out, and starts a
-	 *  moved agent in the mode it ran in. Since protocol 55.
+	 *  moved agent in the mode it ran in. Since protocol 56.
 	 */
 	mode?: PermissionMode | null,
 	/**
 	 *  The container it runs in there, by name, if it runs in one. A
-	 *  device from before this field leaves it out. Since protocol 55.
+	 *  device from before this field leaves it out. Since protocol 56.
 	 */
 	container?: string | null,
 };
@@ -7468,7 +7524,7 @@ export type MoveTo = {
 	 *  The permission mode you chose for it there. The device it goes to
 	 *  takes it up to the higher of the mode it ran in and that device's
 	 *  own default. None, as from a peer before this field, means the
-	 *  lower of the two. Since protocol 55.
+	 *  lower of the two. Since protocol 56.
 	 */
 	mode?: PermissionMode | null,
 };
@@ -10880,7 +10936,7 @@ export type Task = {
 	 *  Set by `maxd` for a task you made that the dispatcher saved at
 	 *  once, for a request of yours, without a plan you confirmed. Its
 	 *  runs say the dispatcher made it. One from an older `maxd` has none.
-	 *  Since protocol 55.
+	 *  Since protocol 56.
 	 */
 	by_dispatcher?: boolean,
 };

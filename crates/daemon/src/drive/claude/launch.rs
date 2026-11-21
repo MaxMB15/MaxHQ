@@ -14,6 +14,7 @@ use maxhq_core::tools::dispatch;
 use maxhq_protocol::model::PermissionMode;
 use uuid::Uuid;
 
+use super::artifacts;
 use super::entrypoint;
 use super::wire::mode_name;
 use crate::drive::{Framing, Launch, Login, LoginAuth, Place, PlaceHost, ServerLogin};
@@ -54,8 +55,10 @@ const DISPATCHER_SETTINGS: &str =
 pub const SERVER_TOKEN: &str = "ANTHROPIC_AUTH_TOKEN";
 
 /// The Claude Code built-in tools a local agent goes without while Fewer
-/// tools is on, so a small model has less to read.
-const LEAN_DENIED: &str = "Workflow,ScheduleWakeup,ReportFindings";
+/// tools is on, so a small model has less to read. The tools for claude.ai
+/// pages, `artifacts::TOOLS`, are among them.
+const LEAN_DENIED: &str =
+    "Workflow,ScheduleWakeup,ReportFindings,Artifact,ArtifactComments,ArtifactData,ArtifactCheck";
 
 /// The command line for a Claude session in `place` under `login`.
 /// `resume` continues the session with ID `session`, and otherwise starts
@@ -190,9 +193,19 @@ pub(super) fn command(
         args.push(DISPATCHER_SETTINGS.into());
         args.push("--append-system-prompt".into());
         args.push(dispatch::instructions().into());
-    } else if matches!(&login.auth, LoginAuth::ModelServer(server) if server.lean) {
+    }
+    // A lean local agent goes without Fewer tools' list, and any other
+    // without the claude.ai page tools while the device turned them off.
+    let lean =
+        !place.dispatcher && matches!(&login.auth, LoginAuth::ModelServer(server) if server.lean);
+    let denied = if lean {
+        Some(LEAN_DENIED)
+    } else {
+        (!place.claude_artifacts).then_some(artifacts::TOOLS)
+    };
+    if let Some(denied) = denied {
         args.push("--disallowedTools".into());
-        args.push(LEAN_DENIED.into());
+        args.push(denied.into());
     }
     args.push("--add-dir".into());
     args.push(place.attachments.clone().into());
@@ -375,6 +388,7 @@ mod tests {
             host: PlaceHost::Local,
             dispatcher: false,
             trust: None,
+            claude_artifacts: true,
         }
     }
 
@@ -890,18 +904,21 @@ mod tests {
         assert_eq!(env_value(&launch, "CLAUDE_CODE_MAX_CONTEXT_TOKENS"), None);
     }
 
-    /// What a launch under `login` turns off with the CLI's disallow flag.
-    fn denied(login: &Login) -> Option<String> {
+    /// What a launch under `login` in `place` turns off with the CLI's
+    /// disallow flag, which it passes once at most.
+    fn denied(login: &Login, place: &Place) -> Option<String> {
         let launch = command(
             &host(),
             login,
-            &place(),
+            place,
             Uuid::from_u128(1),
             false,
             None,
             PermissionMode::Ask,
         );
         let args = strings(&launch.args);
+        let flags = args.iter().filter(|arg| **arg == "--disallowedTools");
+        assert!(flags.count() <= 1, "{args:?}");
         let at = args.iter().position(|arg| *arg == "--disallowedTools")?;
         Some(args[at + 1].to_owned())
     }
@@ -910,8 +927,11 @@ mod tests {
     fn fewer_tools_turns_off_the_cli_s_heavy_built_in_tools() {
         let lean = server_login(None, None);
         assert_eq!(
-            denied(&lean).as_deref(),
-            Some("Workflow,ScheduleWakeup,ReportFindings")
+            denied(&lean, &place()).as_deref(),
+            Some(
+                "Workflow,ScheduleWakeup,ReportFindings,\
+                 Artifact,ArtifactComments,ArtifactData,ArtifactCheck"
+            )
         );
 
         let LoginAuth::ModelServer(server) = &lean.auth else {
@@ -923,9 +943,39 @@ mod tests {
             auth: LoginAuth::ModelServer(std::sync::Arc::new(full)),
             ..lean.clone()
         };
-        assert_eq!(denied(&full), None);
+        assert_eq!(denied(&full, &place()), None);
 
         // An account's own sign-in keeps every tool.
-        assert_eq!(denied(&login("/home/me/.claude")), None);
+        assert_eq!(denied(&login("/home/me/.claude"), &place()), None);
+    }
+
+    #[test]
+    fn the_device_switch_turns_off_the_claude_ai_page_tools() {
+        let pages = Some("Artifact,ArtifactComments,ArtifactData,ArtifactCheck");
+        let on = place();
+        let off = Place {
+            claude_artifacts: false,
+            ..place()
+        };
+        let account = login("/home/me/.claude");
+        assert_eq!(denied(&account, &on), None);
+        assert_eq!(denied(&account, &off).as_deref(), pages);
+
+        // The dispatcher goes without them too.
+        let dispatcher = |claude_artifacts| Place {
+            dispatcher: true,
+            claude_artifacts,
+            ..place()
+        };
+        assert_eq!(denied(&account, &dispatcher(true)), None);
+        assert_eq!(denied(&account, &dispatcher(false)).as_deref(), pages);
+
+        // A lean local agent goes without them either way, in one list.
+        let lean = server_login(None, None);
+        assert_eq!(denied(&lean, &on).as_deref(), Some(LEAN_DENIED));
+        assert_eq!(denied(&lean, &off).as_deref(), Some(LEAN_DENIED));
+        for tool in artifacts::TOOLS.split(',') {
+            assert!(LEAN_DENIED.split(',').any(|lean| lean == tool), "{tool}");
+        }
     }
 }

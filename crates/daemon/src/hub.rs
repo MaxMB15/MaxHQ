@@ -941,6 +941,7 @@ pub fn default_settings(device: &Device) -> DeviceSettings {
         dispatcher_acts: true,
         chat_gap_minutes: DEFAULT_CHAT_GAP_MINUTES,
         local_models: Default::default(),
+        claude_artifacts: true,
     }
 }
 

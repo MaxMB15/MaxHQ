@@ -623,7 +623,8 @@ export const OpenInSetup = ({
 	);
 };
 
-const ROW_BUTTON =
+/** A small square button at the end of a timeline row. */
+export const ROW_BUTTON =
 	"inline-flex size-[22px] shrink-0 cursor-pointer items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground";
 
 /**

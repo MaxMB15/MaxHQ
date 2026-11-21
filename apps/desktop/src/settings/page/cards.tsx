@@ -35,6 +35,8 @@ import { CLAUDE_LOGIN_TERMS } from "../claude-login";
 import { CODEX_LOGIN_TERMS } from "../codex-login";
 import { CURSOR_LOGIN_TERMS } from "../cursor-login";
 import {
+	CLAUDE_ARTIFACTS_TERMS,
+	ClaudeArtifactsCard,
 	CURSOR_USAGE_TERMS,
 	CursorUsageCard,
 	deviceCards,
@@ -221,6 +223,15 @@ export const PAGE: readonly PageEntry[] = [
 		terms: NEW_PERMISSIONS_TERMS,
 		under: "Between agents",
 		Body: NewPermissionsCard,
+	},
+	{
+		card: "claude-artifacts",
+		group: "permissions",
+		title: "claude.ai pages",
+		scope: "every",
+		terms: CLAUDE_ARTIFACTS_TERMS,
+		under: "Outside tools",
+		Body: ClaudeArtifactsCard,
 	},
 	{
 		card: "access-keys",

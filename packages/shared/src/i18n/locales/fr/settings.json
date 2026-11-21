@@ -1147,5 +1147,9 @@
 	"Agents can read other agents": "Les agents peuvent lire les autres agents",
 	"Any agent can list and read any other agent's conversation, which may hold code, paths and command output. Off lets agents read only the agents you attach or quote. Starting, messaging or stopping agents still needs your permission.": "Tout agent peut lister et lire la conversation de tout autre agent, qui peut contenir du code, des chemins et la sortie de commandes. Désactivé, les agents ne lisent que les agents que vous joignez ou citez. Démarrer, contacter ou arrêter des agents demande toujours votre autorisation.",
 	"Other agents": "Autres agents",
-	"Reading on by default": "Lecture activée par défaut"
+	"Reading on by default": "Lecture activée par défaut",
+	"claude.ai pages": "Pages claude.ai",
+	"On by default": "Activé par défaut",
+	"Claude agents can use claude.ai artifacts": "Les agents Claude peuvent utiliser les artifacts claude.ai",
+	"Claude Code can publish pages to your claude.ai account, read pages you or others share, and change their data and comments. It asks you before it reads someone else's page, deletes one or changes who can open it. Off removes these tools from Claude agents on this device. Agents pick up a change when their CLI next starts.": "Claude Code peut publier des pages sur votre compte claude.ai, lire les pages que vous ou d'autres partagez, et modifier leurs données et leurs commentaires. Il vous demande avant de lire la page de quelqu'un d'autre, d'en supprimer une ou de changer qui peut l'ouvrir. Désactivé, ces outils sont retirés des agents Claude sur cet appareil. Les agents prennent en compte un changement au prochain démarrage de leur CLI."
 }

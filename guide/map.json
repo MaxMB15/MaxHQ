@@ -178,6 +178,14 @@
       "title": "New permissions"
     },
     {
+      "id": "settings/claude-artifacts",
+      "link": "maxhq://settings/claude-artifacts",
+      "terms": [
+        "Claude agents can use claude.ai artifacts"
+      ],
+      "title": "claude.ai pages"
+    },
+    {
       "id": "settings/access-keys",
       "link": "maxhq://settings/access-keys",
       "terms": [

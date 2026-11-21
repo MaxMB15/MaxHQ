@@ -812,3 +812,257 @@ fn a_message_sent_now_dismisses_what_waits_then_goes() {
         "dismissing a plan keeps the mode"
     );
 }
+
+/// A made-up claude.ai page's link.
+const PAGE_LINK: &str = "https://claude.ai/artifact/EXAMPLE1";
+
+/// A `can_use_tool` request with `fields` added to the request, offering
+/// a rule to keep.
+fn asking(request: &str, call: &str, name: &str, input: Value, fields: Value) -> Value {
+    let rule = json!([{
+        "type": "addRules",
+        "rules": [{"toolName": name}],
+        "behavior": "allow",
+        "destination": "session",
+    }]);
+    let mut line = can_use_tool(request, call, name, input, rule);
+    line["request"] = with(line["request"].take(), fields);
+    line
+}
+
+/// The parts of an approval item these tests look at.
+fn approval_parts(item: &TimelineItem) -> (ApprovalKind, &str, Option<&str>, bool, Option<&str>) {
+    let ItemBody::Approval {
+        approval_kind,
+        title,
+        detail,
+        deny_first,
+        reason,
+        ..
+    } = &item.body
+    else {
+        panic!("not an approval: {:?}", item.body);
+    };
+    (
+        *approval_kind,
+        title,
+        detail.as_deref(),
+        *deny_first,
+        reason.as_deref(),
+    )
+}
+
+#[test]
+fn a_page_ask_shows_its_question_and_the_reply_keeps_the_input_whole() {
+    let mut run = mid_turn();
+    run.feed(tool_use(
+        "toolu_del",
+        "Artifact",
+        json!({"action": "delete", "url": PAGE_LINK}),
+    ));
+    let tool = run.screen.item("claude:toolu_del");
+    let ItemBody::ToolCall {
+        title, artifact, ..
+    } = &tool.body
+    else {
+        panic!("{:?}", tool.body);
+    };
+    assert_eq!(title.as_deref(), Some("Delete a claude.ai page"));
+    assert_eq!(
+        artifact.as_ref().and_then(|call| call.url.as_deref()),
+        Some(PAGE_LINK)
+    );
+
+    // The CLI adds its ask to the input it asks about.
+    let input = json!({
+        "action": "delete",
+        "url": PAGE_LINK,
+        "__artifactAsk": {
+            "class": "delete", "remember": "none", "slug": "EXAMPLE1", "url": PAGE_LINK,
+            "title": "Old draft", "reachable": true, "askedIn": "main",
+        },
+    });
+    let question = "Permanently delete \"Old draft\"?";
+    let fx = run.feed(asking(
+        "req-del",
+        "toolu_del",
+        "Artifact",
+        input.clone(),
+        json!({
+            "title": "Claude wants to delete an artifact",
+            "display_name": "Artifact",
+            "decision_reason": question,
+            "decision_reason_type": "other",
+            "default_to_no": true,
+            "suppress_always_allow_rule": true,
+        }),
+    ));
+    let shown = opened(&fx);
+    assert_eq!(shown[0].summary, question);
+    // A request that may not keep a rule offers none, even with one.
+    assert_eq!(option_ids(&shown[0]), ["allow", "deny"]);
+    let ask = run.screen.item("claude:toolu_del:approval");
+    assert_eq!(
+        approval_parts(ask),
+        (
+            ApprovalKind::Network,
+            question,
+            Some(PAGE_LINK),
+            true,
+            // Its reason only said the question again.
+            None
+        )
+    );
+    let event = approval("req-del");
+    let fx = run.pick("session", event, "allow_session");
+    assert!(fx.writes.is_empty());
+    assert_eq!(
+        fx.results,
+        [(
+            key("session"),
+            refused("This request has no rule to keep for the session.")
+        )]
+    );
+    let fx = run.pick("allow", event, "allow");
+    assert_eq!(
+        answer_body(&fx),
+        json!({
+            "behavior": "allow",
+            "updatedInput": input,
+            "decisionClassification": "user_temporary",
+            "toolUseID": "toolu_del",
+        })
+    );
+
+    let result = json!({"deleted": true, "url": PAGE_LINK, "title": "Old draft"});
+    run.feed(tool_result("toolu_del", "Deleted.", result));
+    let tool = run.screen.item("claude:toolu_del");
+    let ItemBody::ToolCall { title, .. } = &tool.body else {
+        panic!("{:?}", tool.body);
+    };
+    assert_eq!(title.as_deref(), Some("Deleted \"Old draft\""));
+}
+
+#[test]
+fn a_person_only_ask_offers_no_buttons_but_its_card_answers_it() {
+    let mut run = mid_turn();
+    let input = json!({
+        "action": "read",
+        "url": PAGE_LINK,
+        "prompt": "the open questions",
+        "__artifactAsk": [
+            {"class": "foreign_read", "remember": "artifact", "slug": "EXAMPLE1",
+             "url": PAGE_LINK, "title": "Launch checklist", "about": "someone_else"},
+            {"class": "something_new", "slug": "EXAMPLE1", "url": PAGE_LINK},
+        ],
+    });
+    run.feed(tool_use(
+        "toolu_read",
+        "Artifact",
+        json!({"action": "read", "url": PAGE_LINK}),
+    ));
+    let fx = run.feed(asking(
+        "req-read",
+        "toolu_read",
+        "Artifact",
+        input.clone(),
+        json!({
+            "description": "Read a page made by someone else",
+            "decision_reason": "\u{1b}[33mThe page\u{1b}[0m is\nsomeone else's",
+            "requires_user_interaction": true,
+        }),
+    ));
+    let shown = opened(&fx);
+    assert!(shown[0].options.is_empty(), "{:?}", shown[0].options);
+    assert!(shown[0].accepts_text);
+    let first = "\"Launch checklist\" was made by someone else. \
+                 Let Claude read it for the rest of this conversation?";
+    assert_eq!(shown[0].summary, format!("{first} (and 1 more)"));
+    let ask = run.screen.item("claude:toolu_read:approval");
+    let (kind, _, detail, deny_first, reason) = approval_parts(ask);
+    assert_eq!(kind, ApprovalKind::Network);
+    assert_eq!(
+        detail,
+        Some(&*format!(
+            "{first}\nRead a page made by someone else\n{PAGE_LINK}\n\
+             Looking for: the open questions"
+        ))
+    );
+    assert!(!deny_first);
+    assert_eq!(reason, Some("The page is someone else's"));
+    // The card keeps every option.
+    let ItemBody::Approval { options, .. } = &ask.body else {
+        unreachable!()
+    };
+    let ids: Vec<&str> = options.iter().map(|option| option.id.as_str()).collect();
+    assert_eq!(ids, ["allow", "allow_session", "deny"]);
+
+    let fx = run.pick("card", approval("req-read"), "allow_session");
+    assert_eq!(fx.results, [(key("card"), ActionOutcome::Done)]);
+    let body = answer_body(&fx);
+    assert_eq!(body["behavior"], "allow");
+    assert_eq!(body["updatedInput"], input);
+    assert_eq!(
+        body["updatedInput"]["__artifactAsk"],
+        input["__artifactAsk"]
+    );
+}
+
+#[test]
+fn a_tool_maxhq_has_no_words_for_asks_with_the_requests_own_title() {
+    let mut run = mid_turn();
+    let input = json!({"script": "steps.js"});
+    run.feed(tool_use("toolu_wf", "Workflow", input.clone()));
+    let fx = run.feed(asking(
+        "req-wf",
+        "toolu_wf",
+        "Workflow",
+        input,
+        json!({
+            "title": "Claude wants to run\n\u{1b}[1ma workflow\u{1b}[0m",
+            "decision_reason": "Workflows always ask",
+        }),
+    ));
+    assert_eq!(opened(&fx)[0].summary, "Claude wants to run a workflow");
+    let ask = run.screen.item("claude:toolu_wf:approval");
+    assert_eq!(
+        approval_parts(ask),
+        (
+            ApprovalKind::Tool,
+            "Claude wants to run a workflow",
+            Some(r#"{"script":"steps.js"}"#),
+            false,
+            Some("Workflows always ask")
+        )
+    );
+}
+
+#[test]
+fn a_page_call_answered_while_maxd_was_away_names_its_page() {
+    let mut run = mid_turn();
+    let input = json!({"action": "set", "url": PAGE_LINK, "collection": "notes", "doc_id": "a"});
+    run.feed(tool_use("toolu_set", "ArtifactData", input.clone()));
+    let request = can_use_tool("req-set", "toolu_set", "ArtifactData", input, json!([]));
+    run.feed_with(request, true);
+    let meta = json!({"tool_result_meta": [{"id": "toolu_set",
+        "permission_decision": {"decision": "accept", "source": "user_temporary"}}]});
+    let result = json!({"written": {"url": PAGE_LINK}, "owned": true});
+    run.feed(with(tool_result("toolu_set", "Saved.", result), meta));
+    let ask = run.screen.item("claude:toolu_set:approval");
+    let title = format!("Write to notes in {PAGE_LINK}?");
+    assert_eq!(
+        approval_parts(ask),
+        (
+            ApprovalKind::Network,
+            &*title,
+            Some("Data: notes/a"),
+            false,
+            None
+        )
+    );
+    let tool = run.screen.item("claude:toolu_set");
+    let ItemBody::ToolCall { title, .. } = &tool.body else {
+        panic!("{:?}", tool.body);
+    };
+    assert_eq!(title.as_deref(), Some("Wrote to notes in a claude.ai page"));
+}

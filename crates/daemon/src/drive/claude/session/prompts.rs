@@ -21,6 +21,7 @@ use maxhq_protocol::timeline::{
 use serde_json::{json, Map, Value};
 
 use super::ClaudeSession;
+use crate::drive::claude::artifacts::Asked;
 use crate::drive::claude::convo::{self, Owner};
 use crate::drive::claude::tools::{
     self, plan_options, tool_options, DENIED, DISMISSED, KEEP_PLANNING,
@@ -166,9 +167,12 @@ impl ClaudeSession {
             .cloned()
             .unwrap_or_else(|| Value::Object(Map::new()));
         let tool_use_id = text(body, "tool_use_id").map(str::to_owned);
+        let asked = Asked::read(body);
+        // A request that may not keep a rule offers none to keep.
         let suggestions: Vec<Value> = body
             .get("permission_suggestions")
             .and_then(Value::as_array)
+            .filter(|_| !asked.no_rule)
             .cloned()
             .unwrap_or_default();
         let owner = self.prompt_owner(body, tool_use_id.as_deref());
@@ -223,7 +227,7 @@ impl ClaudeSession {
                 } else {
                     tool_options(!suggestions.is_empty())
                 };
-                let title = tools::approval_title(&name, &input, &self.place.cwd);
+                let card = tools::approval_card(&name, &input, &self.place.cwd, &asked);
                 let body = ItemBody::Approval {
                     attention,
                     approval_kind: if plan {
@@ -231,12 +235,14 @@ impl ClaudeSession {
                     } else {
                         tools::approval_kind(&name)
                     },
-                    title: title.clone(),
-                    detail: tools::approval_detail(&name, &input, &self.place.cwd),
+                    title: card.title.clone(),
+                    detail: card.detail,
                     cwd: tools::approval_cwd(&input, &self.place.cwd),
                     options: options.clone(),
                     decided: None,
                     saves: Vec::new(),
+                    deny_first: asked.deny_first,
+                    reason: card.reason,
                 };
                 // The approval is named after its call, as a transcript can
                 // name it too. A second request for the same call keeps its
@@ -262,8 +268,14 @@ impl ClaudeSession {
                     id: attention,
                     agent: owner.agent,
                     kind: AttentionKind::Permission,
-                    summary: title,
-                    options,
+                    summary: card.title,
+                    // Only the card may answer a request for a person's
+                    // own answer, so a notification offers no buttons.
+                    options: if asked.person_only {
+                        Vec::new()
+                    } else {
+                        options
+                    },
                     accepts_text: true,
                     created_at: at,
                     expires_at: None,
@@ -318,7 +330,7 @@ impl ClaudeSession {
     fn question_item(&mut self, call: &str, input: &Value, owner: &Owner, at: Timestamp) -> ItemId {
         let id = convo::item_id(call);
         if !self.convo.book.contains(&id) {
-            let body = tools::start("AskUserQuestion", call, input);
+            let body = tools::start("AskUserQuestion", call, input, &self.place.cwd);
             let mut item = self.convo.item(id.clone(), owner, at, body);
             item.status = ItemStatus::Running;
             item.completed_at = None;

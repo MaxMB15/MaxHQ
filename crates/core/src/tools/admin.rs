@@ -293,6 +293,7 @@ fn setting(change: &DeviceSettingChange) -> Risk {
         | S::SkillLibrary { .. }
         | S::ShellIntegration { .. }
         | S::ReadOtherAgents { .. }
+        | S::ClaudeArtifacts { .. }
         // Its linked devices switch lets other devices use this one's models.
         | S::LocalModels { .. } => Risk::Confirm,
         S::CursorUsage { .. }

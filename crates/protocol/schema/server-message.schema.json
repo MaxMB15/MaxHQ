@@ -3966,6 +3966,54 @@
         "departure"
       ]
     },
+    "ArtifactCall": {
+      "description": "What one of Claude Code's artifact tools did with a claude.ai page.",
+      "type": "object",
+      "properties": {
+        "action": {
+          "description": "What it did, as the tool's `action` names it, such as `publish`,\n`read`, `list`, `delete`, `reply` or `set`.",
+          "type": "string"
+        },
+        "detail": {
+          "description": "One more thing the call named, such as the file it read, the\ncollection it changed or the kind of page it started.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "owned": {
+          "description": "Whether the page is yours, when the result says.",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "title": {
+          "description": "The page's title, once the input or the result names one.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "url": {
+          "description": "The page's link. Set only for an https link on claude.ai.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "version": {
+          "description": "The page's version after the call, when the result says.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "action"
+      ]
+    },
     "AttachmentId": {
       "description": "A file or folder staged to send to an agent.",
       "type": "string",
@@ -5600,7 +5648,7 @@
           ]
         },
         "container": {
-          "description": "The container it ran in, by name, if it ran in one. A device from\nbefore this field leaves it out. Since protocol 55.",
+          "description": "The container it ran in, by name, if it ran in one. A device from\nbefore this field leaves it out. Since protocol 56.",
           "type": [
             "string",
             "null"
@@ -6342,6 +6390,24 @@
           ]
         },
         {
+          "description": "See [`DeviceSettings::claude_artifacts`].",
+          "type": "object",
+          "properties": {
+            "field": {
+              "type": "string",
+              "const": "claude_artifacts"
+            },
+            "value": {
+              "description": "What it becomes.",
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "field",
+            "value"
+          ]
+        },
+        {
           "description": "See [`DeviceSettings::chat_gap_minutes`].",
           "type": "object",
           "properties": {
@@ -6401,6 +6467,11 @@
           "default": 30,
           "maximum": 65535,
           "minimum": 0
+        },
+        "claude_artifacts": {
+          "description": "Whether Claude Code agents on this device may use the claude.ai\nartifact tools, which publish, read and change pages on your\nclaude.ai account. It applies to agents whose CLI starts after it\nchanges. A `maxd` from before [`crate::message::ARTIFACTS_SINCE`]\nleaves it out and always lets them.",
+          "type": "boolean",
+          "default": true
         },
         "claude_effort": {
           "description": "The effort level new Claude Code agents start at, or none for each\nmodel's [`ModelChoice::default_effort`]. A `maxd` from before\n[`crate::message::EFFORT_SINCE`] leaves it out.",
@@ -11967,7 +12038,7 @@
           "type": "string"
         },
         "container": {
-          "description": "The container it runs in there, by name, if it runs in one. A\ndevice from before this field leaves it out. Since protocol 55.",
+          "description": "The container it runs in there, by name, if it runs in one. A\ndevice from before this field leaves it out. Since protocol 56.",
           "type": [
             "string",
             "null"
@@ -11978,7 +12049,7 @@
           "type": "string"
         },
         "mode": {
-          "description": "The mode an agent of that vendor starts in there unless you choose\none. A device from before this field leaves it out, and starts a\nmoved agent in the mode it ran in. Since protocol 55.",
+          "description": "The mode an agent of that vendor starts in there unless you choose\none. A device from before this field leaves it out, and starts a\nmoved agent in the mode it ran in. Since protocol 56.",
           "anyOf": [
             {
               "$ref": "#/$defs/PermissionMode"
@@ -12249,7 +12320,7 @@
           "$ref": "#/$defs/DeviceId"
         },
         "mode": {
-          "description": "The permission mode you chose for it there. The device it goes to\ntakes it up to the higher of the mode it ran in and that device's\nown default. None, as from a peer before this field, means the\nlower of the two. Since protocol 55.",
+          "description": "The permission mode you chose for it there. The device it goes to\ntakes it up to the higher of the mode it ran in and that device's\nown default. None, as from a peer before this field, means the\nlower of the two. Since protocol 56.",
           "anyOf": [
             {
               "$ref": "#/$defs/PermissionMode"
@@ -17156,7 +17227,7 @@
           "default": null
         },
         "by_dispatcher": {
-          "description": "Set by `maxd` for a task you made that the dispatcher saved at\nonce, for a request of yours, without a plan you confirmed. Its\nruns say the dispatcher made it. One from an older `maxd` has none.\nSince protocol 55.",
+          "description": "Set by `maxd` for a task you made that the dispatcher saved at\nonce, for a request of yours, without a plan you confirmed. Its\nruns say the dispatcher made it. One from an older `maxd` has none.\nSince protocol 56.",
           "type": "boolean"
         },
         "enabled": {
@@ -18379,6 +18450,17 @@
           "description": "A tool that has no kind of its own here, such as one from an MCP server.",
           "type": "object",
           "properties": {
+            "artifact": {
+              "description": "What the call did with a claude.ai page, for Claude Code's\nartifact tools. A `maxd` from before\n[`crate::message::ARTIFACTS_SINCE`] leaves it out, which reads\nas a plain tool call.",
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/ArtifactCall"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
             "images": {
               "description": "The pictures in the result, kept where the device can serve\nthem. A `maxd` from before leaves this out.",
               "type": "array",
@@ -18546,6 +18628,10 @@
                 }
               ]
             },
+            "deny_first": {
+              "description": "Whether turning it down is the default, so a stray Enter can't\nallow it, as for a call only a person may approve. A `maxd` from\nbefore [`crate::message::ARTIFACTS_SINCE`] leaves it out, which\nreads as no.",
+              "type": "boolean"
+            },
             "detail": {
               "description": "More to show, such as the full command or the diff.",
               "type": [
@@ -18564,8 +18650,15 @@
                 "$ref": "#/$defs/AttentionOption"
               }
             },
+            "reason": {
+              "description": "Why the agent's CLI asks instead of going ahead, such as a\nsafety check the call tripped, when it says. A `maxd` from\nbefore [`crate::message::ARTIFACTS_SINCE`] leaves it out.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
             "saves": {
-              "description": "The rules \"Always allow\" saves for a command, as their words, when\nMaxHQ keeps them. An older `maxd` leaves it out, which reads as\nnone. Since protocol 55.",
+              "description": "The rules \"Always allow\" saves for a command, as their words, when\nMaxHQ keeps them. An older `maxd` leaves it out, which reads as\nnone. Since protocol 56.",
               "type": "array",
               "items": {
                 "type": "string"
@@ -18971,7 +19064,7 @@
           ]
         },
         {
-          "description": "An agent or a task the dispatcher started or saved without asking,\nas a card on its own timeline. An older app shows it as an item it\ndoesn't know. Since protocol 55.",
+          "description": "An agent or a task the dispatcher started or saved without asking,\nas a card on its own timeline. An older app shows it as an item it\ndoesn't know. Since protocol 56.",
           "type": "object",
           "properties": {
             "kind": {

@@ -79,6 +79,13 @@ describe("promptOfEvent", () => {
 		expect(prompt.clipped).toBe(false);
 	});
 
+	it("offers no answer for a permission only its card may answer", () => {
+		const prompt = promptOfEvent(
+			attention({ id: "e1", agent: "a", kind: "permission", options: [], accepts_text: true })
+		);
+		expect([prompt.buttons, prompt.deny, prompt.acceptsText]).toEqual([[], null, false]);
+	});
+
 	it("says when maxd cut the summary short", () => {
 		const event = attention({
 			id: "e1",
@@ -98,6 +105,20 @@ describe("promptOfItem", () => {
 			undefined
 		);
 		expect(decided.decided).toMatch(/^Deny, in the terminal at /);
+	});
+
+	it("says why it asks and puts the no first when the agent wants that", () => {
+		const prompt = promptOfItem(
+			approval({ deny_first: true, reason: "Deleting ‮a page" }),
+			undefined
+		);
+		expect(prompt.reason).toBe("Deleting [U+202E]a page");
+		expect(prompt.buttons.map((b) => [b.option.id, b.tone])).toEqual([
+			["deny", "primary"],
+			["allow", "secondary"],
+			["session", "secondary"],
+		]);
+		expect(promptOfItem(approval(), undefined).reason).toBeNull();
 	});
 
 	it("lists the questions and their answers", () => {

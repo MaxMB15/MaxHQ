@@ -14,10 +14,11 @@
 // the skill library is a move of its own, since only one device holds it.
 // The phones signed in over the network each have a Revoke.
 //
-// Two settings every device has show on the page instead, a row for each
-// device: whether its agents read other agents, in Permissions, and on a
-// Mac whether it reads Cursor usage, in Accounts. Settings search finds
-// the cards by their headings and labels.
+// Three settings every device has show on the page instead, a row for each
+// device: whether its agents read other agents and whether its Claude
+// agents use claude.ai pages, in Permissions, and on a Mac whether it
+// reads Cursor usage, in Accounts. Settings search finds the cards by
+// their headings and labels.
 
 import { type KeyboardEvent, useState } from "react";
 
@@ -57,6 +58,7 @@ import {
 	sameDeviceFields as same,
 	settingsWhy,
 } from "@maxhq/shared/settings/device-settings";
+import { knowsClaudeArtifacts } from "@maxhq/shared/settings/claude-artifacts";
 import { knowsReadRights } from "@maxhq/shared/settings/read-rights";
 import { knowsSetupTokens, setupTokenQuestion } from "@maxhq/shared/settings/setup-tokens";
 import { knowsShellIntegration } from "@maxhq/shared/settings/shell-integration";
@@ -99,6 +101,7 @@ type Part =
 	| "network"
 	| "shell"
 	| "reads"
+	| "artifacts"
 	| "tokens";
 
 /**
@@ -976,6 +979,60 @@ export const OtherAgentsCard = () => {
 			/>
 			{accountDevices(view).map(({ device, name }) => (
 				<ReadsRow key={device} device={device} name={name} view={view} />
+			))}
+		</Section>
+	);
+};
+
+/** A device's row in the claude.ai pages card. */
+const ArtifactsRow = ({
+	device,
+	name,
+	view,
+}: {
+	device: DeviceId;
+	name: string;
+	view: ViewState;
+}) => {
+	useI18n();
+	const now = useNow(5000);
+	const live = deviceLive(view, device, now);
+	const { shown, save, noteFor, why } = useDeviceFields(view, device, name, live);
+	return (
+		<Row title={<span className="selectable">{name}</span>} sub={why.artifacts}>
+			<StatusNote note={noteFor("artifacts")} />
+			<Switch
+				aria-label={translate("{{value1}} on {{name}}", {
+					value1: translate("Claude agents can use claude.ai artifacts"),
+					name,
+				})}
+				checked={knowsClaudeArtifacts(view, device) && shown.claude_artifacts}
+				disabled={why.artifacts !== null}
+				onCheckedChange={(on) => void save("artifacts", { claude_artifacts: on })}
+			/>
+		</Row>
+	);
+};
+
+/** The claude.ai pages card's labels, for the settings search. */
+export const CLAUDE_ARTIFACTS_TERMS: readonly string[] = [
+	"Claude agents can use claude.ai artifacts",
+];
+
+/** The claude.ai pages card: whether Claude agents on each device use Claude Code's Artifacts tools. */
+export const ClaudeArtifactsCard = () => {
+	useI18n();
+	const view = useViewOf(EVERY_DEVICE);
+	return (
+		<Section title={translate("claude.ai pages")} hint={translate("On by default")}>
+			<Row
+				title={translate("Claude agents can use claude.ai artifacts")}
+				sub={translate(
+					"Claude Code can publish pages to your claude.ai account, read pages you or others share, and change their data and comments. It asks you before it reads someone else's page, deletes one or changes who can open it. Off removes these tools from Claude agents on this device. Agents pick up a change when their CLI next starts."
+				)}
+			/>
+			{accountDevices(view).map(({ device, name }) => (
+				<ArtifactsRow key={device} device={device} name={name} view={view} />
 			))}
 		</Section>
 	);

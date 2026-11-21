@@ -986,6 +986,7 @@ mod tests {
             dispatcher_acts: true,
             chat_gap_minutes: 30,
             local_models: Default::default(),
+            claude_artifacts: true,
         });
         assert_eq!(settings.key(), EntityKey::DeviceSettings(id));
         assert_eq!(
@@ -1021,6 +1022,7 @@ mod tests {
                 "read_other_agents": true,
                 "dispatcher_acts": true,
                 "chat_gap_minutes": 30,
+                "claude_artifacts": true,
                 "local_models": {
                     "idle_unload_minutes": 15,
                     "kv_type": "f16",

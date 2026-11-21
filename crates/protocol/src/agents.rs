@@ -439,7 +439,7 @@ pub struct MoveTo {
     /// The permission mode you chose for it there. The device it goes to
     /// takes it up to the higher of the mode it ran in and that device's
     /// own default. None, as from a peer before this field, means the
-    /// lower of the two. Since protocol 55.
+    /// lower of the two. Since protocol 56.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub mode: Option<PermissionMode>,
 }
@@ -461,11 +461,11 @@ pub struct MoveCheck {
     pub workspace: WorkspaceId,
     /// The mode an agent of that vendor starts in there unless you choose
     /// one. A device from before this field leaves it out, and starts a
-    /// moved agent in the mode it ran in. Since protocol 55.
+    /// moved agent in the mode it ran in. Since protocol 56.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub mode: Option<PermissionMode>,
     /// The container it runs in there, by name, if it runs in one. A
-    /// device from before this field leaves it out. Since protocol 55.
+    /// device from before this field leaves it out. Since protocol 56.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub container: Option<String>,
 }
@@ -487,7 +487,7 @@ pub struct Departure {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub brief: Option<String>,
     /// The container it ran in, by name, if it ran in one. A device from
-    /// before this field leaves it out. Since protocol 55.
+    /// before this field leaves it out. Since protocol 56.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub container: Option<String>,
 }
