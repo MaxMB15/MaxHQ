@@ -94,7 +94,7 @@ pub fn map_tools() -> Value {
             "agents": agents,
             "dispatcher": Tool::DISPATCHER.contains(&tool),
             "link": if agents {
-                "maxhq://settings/agent-tools"
+                "maxhq://settings/permissions"
             } else {
                 "maxhq://settings/dispatcher"
             },

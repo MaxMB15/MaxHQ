@@ -9,7 +9,7 @@ How to start an agent, talk to it, answer what it asks, and keep track of many a
 
 ## Start an agent
 <!-- id: agents-composer/start -->
-<!-- covers: view/agent shortcut/new-agent shortcut/start-the-agent-in-the-new-agent-form settings/device/placement -->
+<!-- covers: view/agent shortcut/new-agent shortcut/start-the-agent-in-the-new-agent-form settings/device/new-agents -->
 
 Press ⌘N, or click **New agent** at the foot of the sidebar or in a project's menu. MaxHQ starts the agent and holds it, and its pane opens once it's up.
 
@@ -19,7 +19,7 @@ Press ⌘N, or click **New agent** at the foot of the sidebar or in a project's 
 4. Give it a **Title** and a **First message** if you like. Without a title, the CLI or the first message names it.
 5. Click **Start agent**, or press ⌘Enter.
 
-When you leave the place open, MaxHQ picks the device with the most free CPU and memory. A device's **New agents you don't place** setting can make it preferred.
+When you leave the place open, MaxHQ picks the device with the most free CPU and memory. A device's **New agents you don't place** setting, under **Placement** in its **New agents** card, can make it preferred.
 
 ## Pick a mode
 <!-- id: agents-composer/modes -->
@@ -45,15 +45,15 @@ The levels come from the CLI, for each model, so not every model has every one. 
 
 A change applies from the next message you send. Only agents MaxHQ holds have it, not sub-agents or sessions started in a terminal.
 
-New agents start at the level their device sets. To change that, open the device's page (pick **Devices** at the top of the sidebar and click the device) and use **Claude Code effort** or **Codex effort** in its **New agents** card.
+New agents start at the level their device sets. To change that, open the device's tab in Settings, under **Devices and phones**, and use **Claude Code effort** or **Codex effort** in its **New agents** card. **Settings** on the device's page opens the same tab.
 
 ## Send a message
 <!-- id: agents-composer/send -->
-<!-- covers: shortcut/send-or-queue-while-the-agent-works shortcut/send-at-once-to-steer-the-agent shortcut/new-line shortcut/bring-back-an-earlier-message-with-the-caret-at-the-start settings/editor -->
+<!-- covers: shortcut/send-or-queue-while-the-agent-works shortcut/send-at-once-to-steer-the-agent shortcut/new-line shortcut/bring-back-an-earlier-message-with-the-caret-at-the-start settings/composer -->
 
 Type in the composer at the bottom of an agent's pane and press Enter. Shift-Enter or Option-Enter starts a new line.
 
-While the agent works, Enter does what **While an agent works, Enter** says in Settings, under **Editor**:
+While the agent works, Enter does what **While an agent works, Enter** says in the **Composer** card, under **Chat and agents** in Settings:
 
 - **Queue** waits until the agent finishes, then sends.
 - **Steer** sends at once, and the agent reads it between steps.
@@ -188,11 +188,11 @@ An option for later today, such as **This evening**, hides once its time has pas
 
 Snoozed agents wait on the **Snoozed** shelf. **Wake** brings one back early.
 
-To change the options, open Settings, then **Sidebar**, and edit **Snooze options** under **Shelves**. Each option is a time from now, up to 30 days, or a time of day today, tomorrow or on a weekday, which means the next one after today. The menu holds up to eight. **Add option** adds one and **Reset to defaults** brings back the list above. On the same page, **Working shelf** decides whether to **Fold busy agents into a Working shelf**; they come back to the top when they need you.
+To change the options, open Settings, then **Chat and agents**, and in the **Sidebar** card edit **Snooze options** under **Shelves**. Each option is a time from now, up to 30 days, or a time of day today, tomorrow or on a weekday, which means the next one after today. The menu holds up to eight. **Add option** adds one and **Reset to defaults** brings back the list above. In the same card, **Working shelf** decides whether to **Fold busy agents into a Working shelf**; they come back to the top when they need you.
 
 ## Keep going after a usage limit
 <!-- id: agents-composer/limit -->
-<!-- covers: settings/device/limits settings/device/inbox -->
+<!-- covers: settings/device/new-agents settings/device/inbox -->
 
 When an account hits its usage limit, MaxHQ can resume the agent once the limit resets. This works for Claude Code and Codex agents MaxHQ holds, not Cursor or terminal sessions.
 
@@ -200,7 +200,7 @@ When an account hits its usage limit, MaxHQ can resume the agent once the limit 
 2. When the limit hits, the agent shows "Waiting for usage limit reset" with the time it resumes.
 3. To go on now with another account, pick **Move to** that account. **Don't resume** cancels the wait.
 
-Each device sets the default per vendor in its **Usage limits** card. It's off by default. The **Inbox** card's **Snooze at the limit** snoozes agents that stop at a limit until it resets.
+Each device sets the default per vendor under **Usage limits** in its **New agents** card. It's off by default. The **Inbox** card's **Snooze at the limit** snoozes agents that stop at a limit until it resets.
 
 While an agent waits, the composer reads "Queue a message for when the limit resets".
 
@@ -255,11 +255,11 @@ The **Next match** and **Previous match** buttons beside the field do the same a
 
 ## Open an agent's folder in an editor
 <!-- id: agents-composer/open-in -->
-<!-- covers: settings/editor -->
+<!-- covers: settings/open-in -->
 
 Open the folder an agent works in with **Open in** in its header's **More** menu. MaxHQ opens it in Cursor or VS Code, even in a container on another device.
 
-To choose the editor, open Settings, then **Editor**, and pick a **Default editor** under **Open in**:
+To choose the editor, open Settings, then **Chat and agents**, and pick a **Default editor** in the **Open in** card:
 
 - **Last used** opens the one you used last.
 - **Cursor** or **VS Code** always opens that one.
@@ -294,13 +294,13 @@ With the permission, the agent gets these tools:
 - **Stop an agent**.
 - **Move an agent to another device**, once you approve the move.
 
-**List where agents can start**, **List agents** and **Wait for agents** only read, so they need no permission while the device's **Other agents** card allows reading, as it does by default.
+**List where agents can start**, **List agents** and **Wait for agents** only read, so they need no permission while the **Other agents** card in Settings, under **Permissions**, allows reading for the device, as it does by default.
 
 In the sidebar, the agents an agent starts sit under it, one step further in for each level, with a faint line down the side. Once it has started more than two, they fold into one row such as **6 started, 1 working**. Click that row, or press Return or Space on it, to open or close it. An agent that needs you, has failed, or that you have open or picked keeps its own row.
 
 Settling an agent also settles the agents it started, and the ones they started, whether you settle it or **Auto-settle after** does. MaxHQ leaves out any that is working, needs you, has failed, is pinned or snoozed, or has work in its worktree that isn't saved yet. Those stay in the inbox. Unsettling the agent brings back only the ones that settled with it.
 
-Settings, then **Agent tools**, sets what new permissions allow, such as how deep agents may nest and how many run at once.
+Settings, then **Permissions**, sets what new permissions allow, such as how deep agents may nest and how many run at once.
 
 ## Let an agent schedule tasks
 <!-- id: agents-composer/tools-tasks -->
@@ -313,7 +313,7 @@ An agent allowed to run agents can also set up work that starts later on its own
 - **Delete a scheduled task** removes one.
 - **Run a scheduled task now** starts one at once.
 
-You can see and change scheduled tasks in Settings, under **Scheduled tasks**.
+You can see and change scheduled tasks in Settings, under **Their own views**, in **Scheduled tasks**.
 
 ## Let an agent work with pull requests
 <!-- id: agents-composer/tools-pull-requests -->

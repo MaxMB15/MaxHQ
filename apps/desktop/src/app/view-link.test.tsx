@@ -37,7 +37,7 @@ const answer = async (links: string) => {
 const click = (name: string) => fireEvent.click(screen.getByRole("link", { name }));
 
 describe("a link to a view of the app", () => {
-	it("opens a Settings page, a sign-in or a project's tab in Settings", async () => {
+	it("opens where an old Settings page went, a sign-in or a project's tab", async () => {
 		const services = await answer(
 			"[Editor](maxhq://settings/editor) [Codex](maxhq://settings/codex) " +
 				"[Skills](maxhq://project/p1/skills) [Last](maxhq://settings)"
@@ -47,13 +47,17 @@ describe("a link to a view of the app", () => {
 		expect(editor).toHaveAttribute("href", "maxhq://settings/editor");
 		expect(editor).not.toHaveAttribute("target");
 		click("Editor");
-		expect(settings()).toMatchObject({ open: true, page: { kind: "editor" } });
+		expect(settings()).toMatchObject({
+			open: true,
+			detail: null,
+			reveal: "settings-card-open-in",
+		});
 		click("Codex");
-		expect(settings().page).toEqual({ kind: "login", login: "codex" });
+		expect(settings().detail).toEqual({ kind: "login", login: "codex" });
 		click("Skills");
-		expect(settings().page).toEqual({ kind: "project", project: "p1", tab: "skills" });
+		expect(settings().detail).toEqual({ kind: "project", project: "p1", tab: "skills" });
 		click("Last");
-		expect(settings().page).toEqual({ kind: "project", project: "p1", tab: "skills" });
+		expect(settings().detail).toEqual({ kind: "project", project: "p1", tab: "skills" });
 	});
 
 	it("opens an agent, a note or a project's pull requests", async () => {
@@ -73,17 +77,24 @@ describe("a link to a view of the app", () => {
 		expect(services.ui.getState()).toMatchObject({ pullsOf: null, mode: "projects" });
 	});
 
-	it("opens a device's page at a card, and the devices view", async () => {
+	it("opens a device's tab in Settings at a card, its page, and the devices view", async () => {
 		const services = await answer(
-			`[Memory](maxhq://device/${DEVBOX}/memory) [Devices](maxhq://view/devices) ` +
-				"[Gone](maxhq://device/gone/memory)"
+			`[Memory](maxhq://device/${DEVBOX}/memory) [Page](maxhq://device/${DEVBOX}) ` +
+				"[Devices](maxhq://view/devices) [Gone](maxhq://device/gone/memory)"
 		);
 		click("Memory");
+		expect(settingsOf(services).getState()).toMatchObject({
+			open: true,
+			detail: null,
+			tab: DEVBOX,
+			reveal: "device-card-resources",
+		});
+		settingsOf(services).setState({ open: false });
+		click("Page");
 		expect(services.ui.getState()).toMatchObject({
 			selectedLink: DEVBOX_LINK,
 			mode: "devices",
 		});
-		expect(settingsOf(services).getState()).toMatchObject({ open: false, reveal: "memory" });
 		services.ui.getState().setMode("projects");
 		click("Gone");
 		expect(services.ui.getState().mode).toBe("devices");

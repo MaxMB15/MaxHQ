@@ -75,7 +75,7 @@ macOS hides the Dock badge when notifications or badges for MaxHQ are off in Sys
 
 Every paired device pushes the same alert kinds to your phones, so you hear about an agent with your Mac closed. The pushes need a key set up once, in Settings › Phone pushes.
 
-1. Pair the phone in Settings › Phones.
+1. Pair the phone on the Phones tab of Settings › Devices and phones.
 2. Set up the key in Settings › Phone pushes. Each device then holds it and sends pushes itself.
 3. On the phone, open Settings › Notifications and tap Turn on. iOS asks once.
 4. Pick the kinds the phone gets on the same page.

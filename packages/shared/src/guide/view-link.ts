@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026 Max Boksem
 
-// The links that open a view of the app, such as maxhq://settings/editor in
+// The links that open a view of the app, such as maxhq://settings/open-in in
 // a dispatcher's answer. VIEWS lists the views a link reaches, and the
 // guide's map is made from it, so a new kind of link needs a guide section.
 

@@ -13,7 +13,7 @@ How to pair an iPhone with your devices, what the phone app does, how it reaches
 
 Pair a phone from the Mac's Settings with a code you scan in MaxHQ on the phone. The code works once, for 10 minutes.
 
-1. On the Mac, open Settings, then Phones.
+1. On the Mac, open Settings, then Devices and phones, and pick the Phones tab.
 2. Under Add phone, tick the Devices the phone can reach.
 3. With more than one ticked, pick the one to Pair through.
 4. Click Show the code. The Pairing code shows.
@@ -40,22 +40,22 @@ The phone reaches each device through maxd, the same service the Mac uses. Some 
 <!-- id: phones/network-access -->
 <!-- covers: settings/device/network -->
 
-By default the phone reaches a device over SSH. Turn on Network access on a device's page to let phones on the same network or tailnet reach it directly, over a connection pinned at pairing.
+By default the phone reaches a device over SSH. Turn on Network access on a device's tab in Settings to let phones on the same network or tailnet reach it directly, over a connection pinned at pairing.
 
-1. Open the device's page and find the Network access card.
+1. In Settings, open the device's tab under Devices and phones and find the Network access card.
 2. Turn on Network access. The Port is 7466 by default.
 3. The card lists the Addresses for phones the device gives out.
-4. A phone paired earlier shows Not signed in on that device in Settings, Phones. Click New code, then open MaxHQ on the phone within 10 minutes.
+4. A phone paired earlier shows Not signed in on that device in the Phones card, on the Phones tab of Settings. Click New code, then open MaxHQ on the phone within 10 minutes.
 
 Each signed-in phone has Revoke on the card. The phone has to pair again to reach that device.
 
 ## Set the address a phone dials
 <!-- id: phones/address -->
-<!-- covers: settings/phones -->
+<!-- covers: settings/device/connection -->
 
 When the phone reaches a device over SSH, it dials the same address the Mac uses. Set another one when the phone can't reach that address, such as a name only the Mac's SSH config knows.
 
-1. Open the device's page and find Phones.
+1. In Settings, open the device's tab under Devices and phones and find Connection.
 2. Under Address for the phone, type where a phone dials it, such as devbox.example.com:22.
 3. Leave it empty to use the one the Mac uses.
 
@@ -65,12 +65,12 @@ When the phone reaches a device over SSH, it dials the same address the Mac uses
 
 Each device pushes to your phone itself, with your own Apple APNs key. Until a device holds the key, it can't push to the phone.
 
-1. On the Mac, open Settings, then Phone pushes.
+1. On the Mac, open Settings, then Devices and phones, and find Phone pushes on the Phones tab.
 2. Fill in the Key ID and Team ID, choose the Private key file, tick the devices and send it under Send the key.
 3. Push keys devices hold lists which device holds which key.
 4. On the phone, turn on Notifications in MaxHQ's settings. iOS asks once.
 
-After pairing, the Phones page names any device without the key, with Add the key file. Every paired device sends pushes. What a push says is sealed to the phone's own key. See [Settings](settings.md).
+After pairing, the Phones card names any device without the key, with Add the key file. Every paired device sends pushes. What a push says is sealed to the phone's own key. See [Settings](settings.md).
 
 ## Choose which pushes arrive and answer them
 <!-- id: phones/notifications -->
@@ -88,9 +88,9 @@ None arrive for the agent on screen. A permission push has a Deny button that an
 <!-- id: phones/everything -->
 <!-- covers: settings/phones -->
 
-Let this phone do everything is a switch on each phone's row in the Mac's Settings, Phones. It's off by default.
+Let this phone do everything is a switch on each phone's row in the Phones card, on the Phones tab of the Mac's Settings. It's off by default.
 
-1. Open Settings, then Phones, and find the phone.
+1. Open Settings, then Devices and phones, pick the Phones tab and find the phone.
 2. Turn on Let this phone do everything.
 3. Read what it allows, then choose Let it do everything, or Keep it off.
 
@@ -110,7 +110,7 @@ It can't start or move agents, save a scheduled task, change a device's settings
 <!-- id: phones/remove -->
 <!-- covers: settings/phones -->
 
-Each phone on the Mac's Phones page shows the devices that let it in, with Remove and, where it needs one, New code.
+Each phone in the Phones card, on the Phones tab of the Mac's Settings, shows the devices that let it in, with Remove and, where it needs one, New code.
 
 - Remove takes the phone off every device. It has to pair again to reach them.
 - Not signed in on a device means the phone hasn't signed in there over the network yet. Click New code, then open MaxHQ on the phone within 10 minutes.
@@ -124,7 +124,7 @@ On the phone, Paired Macs has Forget, which makes the phone forget that Mac's de
 A phone can pair with several Macs, each with its own devices.
 
 1. On the phone, open Paired Macs and choose Pair with another Mac.
-2. Scan the code from the other Mac's Settings, Phones. This code adds a Mac, and your other Macs stay paired.
+2. Scan the code from the Phones tab in the other Mac's Settings. This code adds a Mac, and your other Macs stay paired.
 3. Under Show your Macs, pick Together to mix every Mac's agents, or One at a time to show one Mac's agents, devices and cards.
 
 Forget on one Mac leaves the others paired. A device that another Mac also lists stays.

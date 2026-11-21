@@ -485,7 +485,7 @@ Click Show the code.
         assert!(
             found["sections"][0]["links"]
                 .to_string()
-                .contains("maxhq://settings/editor"),
+                .contains("maxhq://settings/composer"),
             "{found}"
         );
         assert!(read("index/pages").unwrap().contains("guide page settings"));

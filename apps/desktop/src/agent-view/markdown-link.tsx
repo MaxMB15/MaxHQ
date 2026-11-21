@@ -3,7 +3,7 @@
 
 // A link in Markdown. A web link opens in the browser. A file link opens
 // the file in MaxHQ's viewer, read on the agent's device and at its line.
-// A link to a view of the app, such as maxhq://settings/editor, opens that
+// A link to a view of the app, such as maxhq://settings/open-in, opens that
 // view. A link within the message moves to its target there. A link that can't
 // go anywhere shows as plain text and says why on hover, rather than
 // looking like a link that does nothing.

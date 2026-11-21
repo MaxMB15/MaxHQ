@@ -18,7 +18,7 @@ The permission mode sets what an agent does without asking. Pick it in the compo
 - Plan only: reads and plans, changes nothing. Codex has no plan mode.
 - Full access: never asks. Use it in a workspace container.
 
-New agents on a device start in that device's Default mode, on the New agents card of the device's settings. Local ACP agents don't offer Auto.
+New agents on a device start in that device's Default mode, on the New agents card of the device's tab in Settings. Local ACP agents don't offer Auto.
 
 ## Use Auto mode
 <!-- id: permissions/auto -->
@@ -28,7 +28,7 @@ Auto lets an agent run what looks safe without asking: commands that only read, 
 1. Open the permission picker in the composer's footer and pick Auto.
 2. The first time, a dialog explains it. Click Use Auto.
 
-An agent can also be in Auto because its device's Default mode is Auto. Its first start or message then asks the same once. Ask first instead switches the agent and the device's default to Ask first. The app remembers your answer.
+An agent can also be in Auto because its device's Default mode is Auto. Its first start or message then asks the same once. Ask first instead switches the agent and the device's default to Ask first. The app remembers your answer. Forget, under Remembered answers in Settings › Permissions, makes it ask again.
 
 ## Answer a permission request
 <!-- id: permissions/approval-card -->
@@ -82,11 +82,11 @@ A card nobody answers in time refuses the call. To change a remembered answer, o
 
 ## Let an agent run other agents
 <!-- id: permissions/allow-agent -->
-<!-- covers: settings/agent-tools settings/test-hosts -->
+<!-- covers: settings/grants settings/new-permissions -->
 
 An agent can start, message and stop other agents once you allow it. Open its header's ⋯ menu and pick Allow to run agents.
 
-Reading other agents needs no permission while the device's Other agents card allows it, as it does by default. See [Devices and links](devices.md).
+Reading other agents needs no permission while the Other agents card in Settings › Permissions allows it for the device, as it does by default. See [Devices and links](devices.md).
 
 1. In the sheet, tick the Devices, Vendors, Accounts and Places it may use. Any account and Anywhere leave them open.
 2. Under Test hosts, tick the kinds it may lease: iOS Simulator, Android emulator, Linux or macOS VM.
@@ -94,15 +94,15 @@ Reading other agents needs no permission while the device's Other agents card al
 4. Set Depth and the limits: Agents started, Agents at once, Usage cap and Expires after.
 5. Click Allow.
 
-The agent then shows under Agents allowed to run agents in Settings › Agent tools, where Revoke takes the permission back.
+The agent then shows under Agents allowed to run agents, in the Grants card in Settings › Permissions, where Revoke takes the permission back.
 
 ## Set the default limits for agents that run agents
 <!-- id: permissions/defaults -->
-<!-- covers: settings/agent-tools -->
+<!-- covers: settings/new-permissions -->
 
-New permissions, in Settings › Agent tools, sets the depth and limits a new permission starts with. By default it's 3 levels deep with no limits.
+New permissions, in Settings › Permissions, sets the depth and limits a new permission starts with. By default it's 3 levels deep with no limits.
 
-1. Open Settings and pick Agent tools.
+1. Open Settings and pick Permissions.
 2. Under New permissions, set Depth: how many levels of agents may sit below the one that holds the permission.
 3. Fill in Agents started, Agents at once and Usage cap. Leave one empty for no limit.
 4. Click Save defaults.
@@ -113,9 +113,9 @@ Limits count agents and usage. They don't fence off files, so keep an agent away
 
 ## Give an outside tool an access key
 <!-- id: permissions/access-keys -->
-<!-- covers: settings/agent-tools -->
+<!-- covers: settings/access-keys -->
 
-Access keys let tools outside MaxHQ, such as a bot, run agents within limits you set. Make one under Access keys in Settings › Agent tools.
+Access keys let tools outside MaxHQ, such as a bot, run agents within limits you set. Make one under Access keys in Settings › Permissions.
 
 1. Under New access key, type a Key name, such as slack-bot.
 2. In Kept on, pick the device that keeps the key.
