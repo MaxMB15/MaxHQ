@@ -236,6 +236,8 @@ impl ClaudeSession {
                     cwd: tools::approval_cwd(&input, &self.place.cwd),
                     options: options.clone(),
                     decided: None,
+                    deny_first: false,
+                    reason: None,
                 };
                 // The approval is named after its call, as a transcript can
                 // name it too. A second request for the same call keeps its

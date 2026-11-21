@@ -52,6 +52,7 @@ export const deviceSettingsOf = (view: ViewState, device: DeviceId): DeviceField
 		claude_setup_token: kept?.claude_setup_token ?? false,
 		shell_integration: kept?.shell_integration ?? true,
 		read_other_agents: kept?.read_other_agents ?? true,
+		claude_artifacts: kept?.claude_artifacts ?? true,
 		dispatcher_acts: kept?.dispatcher_acts ?? true,
 		chat_gap_minutes: kept?.chat_gap_minutes ?? DEFAULT_CHAT_GAP_MINUTES,
 		local_models: localSettingsOf(kept?.local_models),

@@ -164,6 +164,7 @@ fn each_kind_of_tool_call_shows_as_its_own_item() {
             input: Some(r#"{"query":"is:open label:bug"}"#.to_owned()),
             output: Some("2 issues".to_owned()),
             images: Vec::new(),
+            artifact: None,
         }
     );
     let todo = |text: &str, state| Todo {
@@ -189,6 +190,7 @@ fn each_kind_of_tool_call_shows_as_its_own_item() {
             input: Some(r#"{"skill":"pdf"}"#.to_owned()),
             output: Some("Launching skill: pdf".to_owned()),
             images: Vec::new(),
+            artifact: None,
         }
     );
     for (call, ..) in calls {

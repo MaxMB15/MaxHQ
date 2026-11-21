@@ -165,6 +165,7 @@ pub fn specta_builder() -> Builder<tauri::Wry> {
             "DISPATCHER_CHATS_SINCE",
             maxhq_protocol::message::DISPATCHER_CHATS_SINCE,
         )
+        .constant("ARTIFACTS_SINCE", maxhq_protocol::message::ARTIFACTS_SINCE)
 }
 
 /// The exporter settings for the generated file.

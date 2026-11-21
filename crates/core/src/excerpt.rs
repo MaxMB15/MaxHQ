@@ -1554,6 +1554,7 @@ mod tests {
                     input: Some("select token".into()),
                     output: Some("token=abc123".into()),
                     images: Vec::new(),
+                    artifact: None,
                 },
             ),
             item(
@@ -1585,6 +1586,8 @@ mod tests {
                         by: None,
                         at: Timestamp(1),
                     }),
+                    deny_first: false,
+                    reason: None,
                 },
             ),
         ];

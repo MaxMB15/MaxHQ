@@ -114,6 +114,7 @@ pub fn start(name: &str, id: &str, input: &Value) -> ItemBody {
                 input,
                 output: None,
                 images: Vec::new(),
+                artifact: None,
             }
         }
     }
@@ -838,6 +839,7 @@ mod tests {
                 input: Some(r#"{"libraryName":"serde"}"#.into()),
                 output: Some("Found serde".into()),
                 images: Vec::new(),
+                artifact: None,
             }
         );
         assert_eq!(

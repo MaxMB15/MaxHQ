@@ -3966,6 +3966,54 @@
         "departure"
       ]
     },
+    "ArtifactCall": {
+      "description": "What one of Claude Code's artifact tools did with a claude.ai page.",
+      "type": "object",
+      "properties": {
+        "action": {
+          "description": "What it did, as the tool's `action` names it, such as `publish`,\n`read`, `list`, `delete`, `reply` or `set`.",
+          "type": "string"
+        },
+        "detail": {
+          "description": "One more thing the call named, such as the file it read, the\ncollection it changed or the kind of page it started.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "owned": {
+          "description": "Whether the page is yours, when the result says.",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "title": {
+          "description": "The page's title, once the input or the result names one.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "url": {
+          "description": "The page's link. Set only for an https link on claude.ai.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "version": {
+          "description": "The page's version after the call, when the result says.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "action"
+      ]
+    },
     "AttachmentId": {
       "description": "A file or folder staged to send to an agent.",
       "type": "string",
@@ -6335,6 +6383,24 @@
           ]
         },
         {
+          "description": "See [`DeviceSettings::claude_artifacts`].",
+          "type": "object",
+          "properties": {
+            "field": {
+              "type": "string",
+              "const": "claude_artifacts"
+            },
+            "value": {
+              "description": "What it becomes.",
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "field",
+            "value"
+          ]
+        },
+        {
           "description": "See [`DeviceSettings::chat_gap_minutes`].",
           "type": "object",
           "properties": {
@@ -6394,6 +6460,11 @@
           "default": 30,
           "maximum": 65535,
           "minimum": 0
+        },
+        "claude_artifacts": {
+          "description": "Whether Claude Code agents on this device may use the claude.ai\nartifact tools, which publish, read and change pages on your\nclaude.ai account. It applies to agents whose CLI starts after it\nchanges. A `maxd` from before [`crate::message::ARTIFACTS_SINCE`]\nleaves it out and always lets them.",
+          "type": "boolean",
+          "default": true
         },
         "claude_effort": {
           "description": "The effort level new Claude Code agents start at, or none for each\nmodel's [`ModelChoice::default_effort`]. A `maxd` from before\n[`crate::message::EFFORT_SINCE`] leaves it out.",
@@ -18339,6 +18410,17 @@
           "description": "A tool that has no kind of its own here, such as one from an MCP server.",
           "type": "object",
           "properties": {
+            "artifact": {
+              "description": "What the call did with a claude.ai page, for Claude Code's\nartifact tools. A `maxd` from before\n[`crate::message::ARTIFACTS_SINCE`] leaves it out, which reads\nas a plain tool call.",
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/ArtifactCall"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
             "images": {
               "description": "The pictures in the result, kept where the device can serve\nthem. A `maxd` from before leaves this out.",
               "type": "array",
@@ -18506,6 +18588,10 @@
                 }
               ]
             },
+            "deny_first": {
+              "description": "Whether turning it down is the default, so a stray Enter can't\nallow it, as for a call only a person may approve. A `maxd` from\nbefore [`crate::message::ARTIFACTS_SINCE`] leaves it out, which\nreads as no.",
+              "type": "boolean"
+            },
             "detail": {
               "description": "More to show, such as the full command or the diff.",
               "type": [
@@ -18523,6 +18609,13 @@
               "items": {
                 "$ref": "#/$defs/AttentionOption"
               }
+            },
+            "reason": {
+              "description": "Why the agent's CLI asks instead of going ahead, such as a\nsafety check the call tripped, when it says. A `maxd` from\nbefore [`crate::message::ARTIFACTS_SINCE`] leaves it out.",
+              "type": [
+                "string",
+                "null"
+              ]
             },
             "title": {
               "description": "One line to show.",

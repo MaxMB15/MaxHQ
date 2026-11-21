@@ -8484,6 +8484,24 @@
           ]
         },
         {
+          "description": "See [`DeviceSettings::claude_artifacts`].",
+          "type": "object",
+          "properties": {
+            "field": {
+              "type": "string",
+              "const": "claude_artifacts"
+            },
+            "value": {
+              "description": "What it becomes.",
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "field",
+            "value"
+          ]
+        },
+        {
           "description": "See [`DeviceSettings::chat_gap_minutes`].",
           "type": "object",
           "properties": {
@@ -8543,6 +8561,11 @@
           "default": 30,
           "maximum": 65535,
           "minimum": 0
+        },
+        "claude_artifacts": {
+          "description": "Whether Claude Code agents on this device may use the claude.ai\nartifact tools, which publish, read and change pages on your\nclaude.ai account. It applies to agents whose CLI starts after it\nchanges. A `maxd` from before [`crate::message::ARTIFACTS_SINCE`]\nleaves it out and always lets them.",
+          "type": "boolean",
+          "default": true
         },
         "claude_effort": {
           "description": "The effort level new Claude Code agents start at, or none for each\nmodel's [`ModelChoice::default_effort`]. A `maxd` from before\n[`crate::message::EFFORT_SINCE`] leaves it out.",

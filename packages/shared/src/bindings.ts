@@ -4,6 +4,8 @@
 /* Constants */
 export const ANSWER_PILLS_SINCE = 31 as const;
 
+export const ARTIFACTS_SINCE = 55 as const;
+
 export const CLI_LOGIN_SINCE = 35 as const;
 
 export const CURSOR_LOGIN_SINCE = 36 as const;
@@ -32,7 +34,7 @@ export const NOTE_PILLS_SINCE = 28 as const;
 
 export const OLDEST_PROTOCOL_VERSION = 20 as const;
 
-export const PROTOCOL_VERSION = 54 as const;
+export const PROTOCOL_VERSION = 55 as const;
 
 export const SESSIONS_SINCE = 48 as const;
 
@@ -1341,6 +1343,28 @@ export type Arrival = {
 	 *  keeps.
 	 */
 	grants?: Permission[],
+};
+
+/**  What one of Claude Code's artifact tools did with a claude.ai page. */
+export type ArtifactCall = {
+	/**
+	 *  What it did, as the tool's `action` names it, such as `publish`,
+	 *  `read`, `list`, `delete`, `reply` or `set`.
+	 */
+	action: string,
+	/**  The page's title, once the input or the result names one. */
+	title?: string | null,
+	/**  The page's link. Set only for an https link on claude.ai. */
+	url?: string | null,
+	/**
+	 *  One more thing the call named, such as the file it read, the
+	 *  collection it changed or the kind of page it started.
+	 */
+	detail?: string | null,
+	/**  The page's version after the call, when the result says. */
+	version?: string | null,
+	/**  Whether the page is yours, when the result says. */
+	owned?: boolean | null,
 };
 
 /**  A file or folder staged to send to an agent. */
@@ -4536,6 +4560,10 @@ value: boolean } |
 { field: "dispatcher_acts"; 
 /**  What it becomes. */
 value: boolean } | 
+/**  See [`DeviceSettings::claude_artifacts`]. */
+{ field: "claude_artifacts"; 
+/**  What it becomes. */
+value: boolean } | 
 /**  See [`DeviceSettings::chat_gap_minutes`]. */
 { field: "chat_gap_minutes"; 
 /**  What it becomes. */
@@ -4677,6 +4705,14 @@ export type DeviceSettings = {
 	 *  [`crate::message::DISPATCHER_CHATS_SINCE`] leaves it out.
 	 */
 	chat_gap_minutes?: number,
+	/**
+	 *  Whether Claude Code agents on this device may use the claude.ai
+	 *  artifact tools, which publish, read and change pages on your
+	 *  claude.ai account. It applies to agents whose CLI starts after it
+	 *  changes. A `maxd` from before [`crate::message::ARTIFACTS_SINCE`]
+	 *  leaves it out and always lets them.
+	 */
+	claude_artifacts?: boolean,
 	/**
 	 *  The device's choices for local models: idle unload, KV cache type,
 	 *  context size, fewer tools and the default model. A `maxd` from
@@ -6221,7 +6257,14 @@ output: string | null;
  *  The pictures in the result, kept where the device can serve
  *  them. A `maxd` from before leaves this out.
  */
-images?: AttachmentRef[] } | 
+images?: AttachmentRef[]; 
+/**
+ *  What the call did with a claude.ai page, for Claude Code's
+ *  artifact tools. A `maxd` from before
+ *  [`crate::message::ARTIFACTS_SINCE`] leaves it out, which reads
+ *  as a plain tool call.
+ */
+artifact?: ArtifactCall | null } | 
 /**  A sub-agent the agent started. */
 { kind: "subagent"; 
 /**
@@ -6266,7 +6309,20 @@ cwd: string | null;
 /**  The answers you can pick, in order. */
 options: AttentionOption[]; 
 /**  How it ended, once it has. */
-decided: Decided | null } | 
+decided: Decided | null; 
+/**
+ *  Whether turning it down is the default, so a stray Enter can't
+ *  allow it, as for a call only a person may approve. A `maxd` from
+ *  before [`crate::message::ARTIFACTS_SINCE`] leaves it out, which
+ *  reads as no.
+ */
+deny_first?: boolean; 
+/**
+ *  Why the agent's CLI asks instead of going ahead, such as a
+ *  safety check the call tripped, when it says. A `maxd` from
+ *  before [`crate::message::ARTIFACTS_SINCE`] leaves it out.
+ */
+reason?: string | null } | 
 /**  The agent asked you one or more questions. */
 { kind: "question"; 
 /**  The attention event you answer. */

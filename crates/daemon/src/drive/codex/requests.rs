@@ -255,6 +255,8 @@ impl CodexServer {
                 cwd,
                 options: options.clone(),
                 decided: None,
+                deny_first: false,
+                reason: None,
             };
             let event = AttentionEvent {
                 id: attention,

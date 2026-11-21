@@ -313,6 +313,7 @@ mod tests {
             input: Some("{\"q\": \"Needle\"}".to_owned()),
             output: Some("needle found".to_owned()),
             images: Vec::new(),
+            artifact: None,
         };
         assert_eq!(
             Searchable::of(&tool).lines,

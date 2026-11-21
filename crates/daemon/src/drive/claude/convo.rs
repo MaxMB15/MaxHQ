@@ -1016,6 +1016,8 @@ impl Convo {
                 by: None,
                 at,
             }),
+            deny_first: false,
+            reason: None,
         };
         let owner = Owner {
             agent: tool.agent,

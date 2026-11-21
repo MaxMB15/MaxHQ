@@ -391,6 +391,8 @@ impl AcpSession {
                 cwd: Some(self.cwd()),
                 options: choices.clone(),
                 decided: None,
+                deny_first: false,
+                reason: None,
             },
         );
         let event = event(agent, AttentionKind::Permission, title, choices, at);
@@ -463,6 +465,8 @@ impl AcpSession {
                 cwd: Some(self.cwd()),
                 options: options.clone(),
                 decided: None,
+                deny_first: false,
+                reason: None,
             },
         );
         let event = event(agent, AttentionKind::Permission, title, options, at);

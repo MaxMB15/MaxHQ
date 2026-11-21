@@ -536,6 +536,7 @@ pub fn body_of(raw: &Map<String, Value>) -> ItemBody {
                         .map(Value::to_string)
                 }),
                 images: Vec::new(),
+                artifact: None,
             }
         }
     }

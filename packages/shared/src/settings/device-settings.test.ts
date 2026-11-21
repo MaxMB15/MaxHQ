@@ -28,6 +28,7 @@ const NEW_SETTINGS = {
 	claude_setup_token: false,
 	shell_integration: true,
 	read_other_agents: true,
+	claude_artifacts: true,
 } as Entity;
 
 const view = applySnapshot({
