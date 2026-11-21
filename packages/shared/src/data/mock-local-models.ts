@@ -29,6 +29,7 @@ import type {
 	ServerProbe,
 	Timestamp,
 } from "../bindings";
+import { managedModelId } from "../local-models/models";
 import { urlParts, type UrlParts } from "../local-models/wording";
 import type { FleetContext } from "./mock-fleet";
 import { DEVBOX, MAC, seed } from "./mock-view";
@@ -44,15 +45,17 @@ export const MAC_SERVER = "srv-mac-llama";
 /** The Ollama server devbox reaches at a URL. */
 export const OLLAMA_SERVER = "srv-devbox-ollama";
 /** The Ollama server's URL, on a placeholder host. */
-export const OLLAMA_URL = "http://gpu-box.example.ts.net:11434";
+export const OLLAMA_URL = "http://gpu-box.example.com:11434";
 /** The Mac's local account, on its own server. */
 export const MAC_LOCAL = "acct-local-mac";
 /** devbox's local account on the Mac's server, over the link. */
 export const DEVBOX_LOCAL = "acct-local-devbox-mac";
 /** devbox's local account on the Ollama server. */
 export const OLLAMA_LOCAL = "acct-local-devbox-ollama";
-/** The model the Mac has loaded, the catalog's default. */
-export const LOADED_MODEL = "qwen3.6-35b-a3b";
+/** The catalog model the Mac has loaded, the catalog's default. */
+export const LOADED_CATALOG_MODEL = "qwen3.6-35b-a3b";
+/** Its ID on the Mac's managed server, from the file it loaded. */
+export const LOADED_MODEL = "qwen3.6-35b-a3b@ud-q4_k_xl";
 /** The model the Mac is downloading. */
 export const DOWNLOADING_MODEL = "qwen3.8-27b";
 /** The Mac's Local agent. */
@@ -274,14 +277,18 @@ const fileState = (
 	};
 };
 
-/** A model on a managed server, as its catalog names it. */
-const managedModel = (id: string, name: string, load: ModelLoad): ServerModel => ({
-	id,
-	label: catalogModel(id)?.name ?? id,
-	catalog: { model: id, file: name },
-	context: CONTEXT,
-	load,
-});
+/** A catalog file on a managed server, with the ID `maxd` gives it. */
+const managedModel = (id: string, name: string, load: ModelLoad): ServerModel => {
+	const model = catalogModel(id);
+	const quant = model?.files.find((f) => f.name === name)?.quant ?? name;
+	return {
+		id: managedModelId(id, quant),
+		label: model?.name ?? id,
+		catalog: { model: id, file: name },
+		context: CONTEXT,
+		load,
+	};
+};
 
 const localAccount = (id: string, device: DeviceId, label: string, server: string): Account => ({
 	id,
@@ -321,7 +328,7 @@ const servers = (now: Timestamp): ModelServer[] => [
 		base_url: null,
 		probe: probed(now - 40 * MIN, "llama_cpp", CONTEXT),
 		models: [
-			managedModel(LOADED_MODEL, "Qwen3.6-35B-A3B-UD-Q4_K_XL.gguf", {
+			managedModel(LOADED_CATALOG_MODEL, "Qwen3.6-35B-A3B-UD-Q4_K_XL.gguf", {
 				state: "loaded",
 				slots: 1,
 				context: CONTEXT,
@@ -372,7 +379,7 @@ const localModels = (now: Timestamp): LocalModels[] => [
 		runtime: { support: "managed", version: "b7412", state: { type: "idle" } },
 		catalog: { updated_at: now - 6 * DAY, models: mockCatalog() },
 		files: [
-			fileState(MAC, LOADED_MODEL, "Qwen3.6-35B-A3B-UD-Q4_K_XL.gguf", null, {
+			fileState(MAC, LOADED_CATALOG_MODEL, "Qwen3.6-35B-A3B-UD-Q4_K_XL.gguf", null, {
 				state: "ready",
 			}),
 			fileState(MAC, "gpt-oss-20b", "gpt-oss-20b-mxfp4.gguf", null, { state: "ready" }),
@@ -479,6 +486,16 @@ const flavorOf = (url: UrlParts): ServerFlavor => {
 	if (url.port === "1234") return "lm_studio";
 	if (url.port === "8000") return "vllm";
 	return "llama_cpp";
+};
+
+/** A server URL's parts, or why it isn't one. */
+const serverUrl = (url: string): UrlParts | string => {
+	const parsed = urlParts(url);
+	if (!parsed) return "That isn't a URL. Give one such as http://devbox:11434.";
+	if (parsed.scheme !== "http" && parsed.scheme !== "https") {
+		return "A server URL starts with http:// or https://.";
+	}
+	return parsed;
 };
 
 /** What a probed URL serves: one sample model, named the way its kind of server names them. */
@@ -614,7 +631,9 @@ export const mockLocalModels = (context: FleetContext): LocalModelCalls => {
 				if (fileOf(device, model, name)?.state.state !== "downloading") return;
 				setFile(device, model, name, { state: { state: "ready" } });
 				const server = managedOn(device);
-				if (server && !server.models.some((m) => m.id === model)) {
+				const served = (m: ServerModel) =>
+					m.catalog?.model === model && m.catalog.file === name;
+				if (server && !server.models.some(served)) {
 					const entry: ServerModel = {
 						...managedModel(model, name, { state: "unloaded" }),
 						context: contextOn(device),
@@ -634,11 +653,8 @@ export const mockLocalModels = (context: FleetContext): LocalModelCalls => {
 		url: string,
 		token: string | null | undefined
 	): ActionResult => {
-		const parsed = urlParts(url);
-		if (!parsed) return refused("That isn't a URL. Give one such as http://devbox:11434.");
-		if (parsed.scheme !== "http" && parsed.scheme !== "https") {
-			return refused("A server URL starts with http:// or https://.");
-		}
+		const parsed = serverUrl(url);
+		if (typeof parsed === "string") return refused(parsed);
 		added += 1;
 		const id = `srv-${device}-${added}`;
 		const server: ModelServer = {
@@ -665,6 +681,23 @@ export const mockLocalModels = (context: FleetContext): LocalModelCalls => {
 		switch (action.action) {
 			case "add_server":
 				return addServer(device, action.label, action.url, action.token);
+			case "probe_server": {
+				// What answers at a URL, keeping nothing.
+				const url = serverUrl(action.url);
+				if (typeof url === "string") return refused(url);
+				const flavor = url.host.endsWith(".invalid") ? "other" : flavorOf(url);
+				const probe: ServerProbe =
+					flavor === "other"
+						? {
+								at: now(),
+								apis: {},
+								context: null,
+								error: `Nothing answered at ${action.url}`,
+							}
+						: probed(now(), flavor, flavor === "ollama" ? null : CONTEXT);
+				const models = flavor === "other" ? [] : urlModels(flavor);
+				return ok({ status: "server_probed", flavor, probe, models });
+			}
 			case "test_server": {
 				const server = serverOn(device, action.server);
 				if (!server) return gone("That server");
@@ -777,14 +810,18 @@ export const mockLocalModels = (context: FleetContext): LocalModelCalls => {
 								: m
 					),
 				}));
-				void pause(stepMs).then(() =>
-					setLoad(server.id, model.id, {
-						state: "loaded",
-						slots: 1,
-						context: contextOn(device),
-						since: now(),
-					})
-				);
+				// Halfway in memory, then serving.
+				void pause(stepMs / 2)
+					.then(() => setLoad(server.id, model.id, { state: "loading", percent: 50 }))
+					.then(() => pause(stepMs / 2))
+					.then(() =>
+						setLoad(server.id, model.id, {
+							state: "loaded",
+							slots: 1,
+							context: contextOn(device),
+							since: now(),
+						})
+					);
 				return DONE;
 			}
 			case "unload": {

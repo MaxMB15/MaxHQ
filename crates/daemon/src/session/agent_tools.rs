@@ -1430,19 +1430,41 @@ impl Manager {
         })
     }
 
-    /// The first account of `vendor` on `device` the permission allows.
+    /// The accounts of `vendor` on `device` an agent gets when none is
+    /// named: a local model runs only when you pick it.
+    pub(super) fn default_accounts(
+        &self,
+        vendor: Vendor,
+        device: DeviceId,
+    ) -> Vec<maxhq_protocol::ids::AccountId> {
+        self.hub.pick(|entity| match entity {
+            Entity::Account(account)
+                if account.vendor == vendor
+                    && account.device == device
+                    && account.login != maxhq_protocol::model::LoginKind::ModelServer =>
+            {
+                Some(account.id)
+            }
+            _ => None,
+        })
+    }
+
+    /// The first account of `vendor` on `device` the permission allows,
+    /// when none is named.
     pub(super) fn first_account(
         &self,
         permission: &Permission,
         vendor: Vendor,
         device: DeviceId,
     ) -> Option<maxhq_protocol::ids::AccountId> {
-        self.accounts(vendor, device).into_iter().find(|account| {
-            permission
-                .accounts
-                .as_ref()
-                .is_none_or(|allowed| allowed.contains(account))
-        })
+        self.default_accounts(vendor, device)
+            .into_iter()
+            .find(|account| {
+                permission
+                    .accounts
+                    .as_ref()
+                    .is_none_or(|allowed| allowed.contains(account))
+            })
     }
 
     /// What the permission's limits count, when this is its home and any
@@ -1779,14 +1801,19 @@ fn used_percent(account: &maxhq_protocol::model::Account) -> Option<f64> {
 
 /// An account as `list_targets` shows it.
 pub(super) fn account_card(account: &maxhq_protocol::model::Account) -> Value {
-    json!({
+    let mut card = json!({
         "account": account.id,
         "device": account.device,
         "vendor": account.vendor,
         "label": account.label,
         "models": account.models.iter().map(|m| &m.id).collect::<Vec<_>>(),
         "used_percent": used_percent(account),
-    })
+    });
+    // A local model: Claude Code on a model server, picked only by its id.
+    if account.login == maxhq_protocol::model::LoginKind::ModelServer {
+        card["local"] = json!(true);
+    }
+    card
 }
 
 /// A workspace as `list_targets` shows it.

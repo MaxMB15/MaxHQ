@@ -399,6 +399,11 @@ pub trait Credentials: Send + Sync + 'static {
     fn cursor_key(&self, account: AccountId) -> Option<Secret>;
     /// The values stored for a local ACP agent's variables.
     fn acp_env(&self, agent: AcpAgentId) -> Vec<AcpEnvValue>;
+    /// How a local agent on a model server account reaches its server,
+    /// from this device's local models.
+    fn model_server(&self, account: AccountId) -> Option<crate::drive::ServerLogin> {
+        crate::local_models::login(account)
+    }
 }
 
 /// An empty store, which every device has before XH and XI.

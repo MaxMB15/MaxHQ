@@ -78,7 +78,7 @@ use maxhq_protocol::ids::{
 };
 use maxhq_protocol::message::{ActionOutcome, AgentSpec, ClientMessage, SendMode, ServerMessage};
 use maxhq_protocol::model::{
-    Activity, Agent, AgentLink, AgentPermission, Control, DeviceSettings, ModelChoice,
+    Activity, Agent, AgentLink, AgentPermission, Control, DeviceSettings, LoginKind, ModelChoice,
     PermissionMode, Vendor,
 };
 use maxhq_protocol::state::{Change, Entity, EntityKey};
@@ -320,6 +320,12 @@ impl Sessions {
     /// signed in to it again, so each starts again on the new login.
     pub fn signed_in(&self, account: AccountId) {
         let _ = self.tx.send(Input::SignedIn(account));
+    }
+
+    /// Shows the agents on a local model account what their server does
+    /// now: loading, its speed and its context size.
+    pub fn local_run(&self, account: AccountId) {
+        let _ = self.tx.send(Input::LocalRun(account));
     }
 
     /// Runs a call another device's `maxd` sent for a caller whose home is
@@ -634,6 +640,8 @@ enum Input {
     RecycleCodex,
     /// You signed in to this account again, so its idle CLIs stop.
     SignedIn(AccountId),
+    /// A local model account's server changed what it shows its agents.
+    LocalRun(AccountId),
     /// The skills in these checkouts changed.
     SkillsChanged(Vec<crate::skills::deliver::Changed>),
     /// A move's switch resumes its agent in the copy.
@@ -1228,6 +1236,7 @@ impl Manager {
             Input::Jobs(jobs) => self.jobs_changed(jobs),
             Input::RecycleCodex => self.recycle_codex(),
             Input::SignedIn(account) => self.signed_in(account).await,
+            Input::LocalRun(account) => self.local_run(account),
             Input::SkillsChanged(changed) => self.skills_changed(changed).await,
             Input::ResumeMoved { resume, done } => self.resume_moved(resume, done),
             Input::StopIn { workspace, done } => self.stop_in(workspace, done),
@@ -1484,7 +1493,25 @@ impl Manager {
             // Nothing runs it while its container is stopped.
             agent.activity = Activity::NotAccessible;
         }
+        if held.login == LoginKind::ModelServer {
+            let used = agent.context.as_ref().map(|context| context.used_tokens);
+            agent.local = crate::local_models::run_of(held.account, agent.model.as_deref(), used)
+                .map(Box::new);
+        }
         Some(agent)
+    }
+
+    /// Shows the agents on `account` what their model server does now.
+    fn local_run(&mut self, account: AccountId) {
+        let leads: Vec<AgentId> = self
+            .held
+            .iter()
+            .filter(|(_, held)| held.account == account)
+            .map(|(lead, _)| *lead)
+            .collect();
+        for lead in leads {
+            self.publish(lead);
+        }
     }
 
     /// Publishes a lead and its sub-agents as clients see them, at the

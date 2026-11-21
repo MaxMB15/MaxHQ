@@ -1022,3 +1022,50 @@ async fn a_mac_bundle_unpacks_from_its_home_without_links() {
     assert!(!Path::new(&format!("{}/Info.plist", installed.root)).exists());
     assert!(!Path::new(&format!("{}/java", layout.bin())).exists());
 }
+
+#[tokio::test]
+async fn links_in_an_archive_survive_the_unpack() {
+    // llama.cpp's Mac build holds its libraries as chains of links, such as
+    // libllama.dylib to libllama.1.dylib to libllama.1.0.0.dylib, and its
+    // programs load them by the shorter names.
+    let fixture = Fixture::start().await;
+    let temp = Temp::new();
+    let layout = host(&temp);
+    let source = temp.0.join("in/tool-1");
+    std::fs::create_dir_all(&source).unwrap();
+    std::fs::write(source.join("libx.1.0.0.dylib"), "library").unwrap();
+    std::os::unix::fs::symlink("libx.1.0.0.dylib", source.join("libx.1.dylib")).unwrap();
+    std::os::unix::fs::symlink("libx.1.dylib", source.join("libx.dylib")).unwrap();
+    let entry = source.join("tool");
+    std::fs::write(&entry, program("1")).unwrap();
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::set_permissions(&entry, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let out = temp.0.join("out.tar.gz");
+    let status = std::process::Command::new("tar")
+        .arg("-czf")
+        .arg(&out)
+        .arg("-C")
+        .arg(temp.0.join("in"))
+        .arg("tool-1")
+        .status()
+        .unwrap();
+    assert!(status.success());
+    let bytes = std::fs::read(out).unwrap();
+    let url = fixture.serve("/tool-1.tar.gz", Answer::Body(bytes.clone()));
+    let def = archive_def(&url, Some(sha(&bytes)), Some(bytes.len() as u64));
+    let installed = install(&layout, &def, "1").await.unwrap();
+
+    assert_eq!(run(&installed.path), "tool 1");
+    let dir = Path::new(&installed.root);
+    assert_eq!(
+        std::fs::read_to_string(dir.join("libx.dylib")).unwrap(),
+        "library"
+    );
+    assert_eq!(
+        std::fs::read_link(dir.join("libx.dylib")).unwrap(),
+        Path::new("libx.1.dylib")
+    );
+    assert!(std::fs::symlink_metadata(dir.join("libx.1.dylib"))
+        .unwrap()
+        .is_symlink());
+}

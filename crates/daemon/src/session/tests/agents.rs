@@ -1132,3 +1132,45 @@ async fn another_device_cant_lease_here() {
     assert_ne!(answer.text, maxhq_core::agents::NOT_ALLOWED);
     assert!(h.fakes.leases.calls().is_empty());
 }
+
+#[tokio::test]
+async fn a_local_model_is_listed_as_local_and_only_starts_when_named() {
+    let mut h = Harness::new();
+    let local = h.local_account();
+    let (lead, session) = h.start_claude(Some("Plan it")).await;
+    h.grant(Actor::Agent { agent: lead }, Limits::default())
+        .await;
+
+    let targets: Value = serde_json::from_str(
+        &h.call(session, lead, "t1", "list_targets", json!({}))
+            .await
+            .unwrap(),
+    )
+    .unwrap();
+    let local_cards: Vec<&Value> = targets["accounts"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|card| card["local"] == true)
+        .collect();
+    assert_eq!(local_cards.len(), 1);
+    assert_eq!(local_cards[0]["account"], json!(local));
+
+    // Without an account the start takes Claude's own, never the local one.
+    let (child, _) = h.start_child(session, lead, "s1", json!({})).await;
+    assert_eq!(h.agent(child).account, Some(h.claude));
+    assert_eq!(
+        h.vendors.claude_logins().last(),
+        Some(&LoginKind::ConfigDir)
+    );
+
+    // Named, it starts on the model server.
+    let (named, _) = h
+        .start_child(session, lead, "s2", json!({ "account": local }))
+        .await;
+    assert_eq!(h.agent(named).account, Some(local));
+    assert_eq!(
+        h.vendors.claude_logins().last(),
+        Some(&LoginKind::ModelServer)
+    );
+}

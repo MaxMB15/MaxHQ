@@ -141,6 +141,15 @@ pub struct ServerModel {
     pub load: Option<ModelLoad>,
 }
 
+/// A catalog file's model ID on a managed server, `<catalog id>@<quant>`
+/// in lowercase, such as `qwen3.6-35b-a3b@ud-q4_k_xl`. `maxd` gives it to
+/// llama-server as its alias, so the server reports the same ID. A URL's
+/// models keep the IDs their server gives them.
+#[must_use]
+pub fn managed_model_id(model: &str, quant: &str) -> String {
+    format!("{model}@{quant}").to_lowercase()
+}
+
 /// One file of one catalog model.
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, Type, JsonSchema)]
 pub struct CatalogRef {
@@ -157,7 +166,14 @@ pub enum ModelLoad {
     /// Not loaded. A local agent's turn loads it.
     Unloaded,
     /// Loading into memory.
-    Loading,
+    Loading {
+        /// How much of the model file is in memory, from 0 to 99 percent,
+        /// when `maxd` can tell. It stays below 100 until the server
+        /// serves. Since [`crate::message::LOCAL_MODELS_SINCE`], filled in
+        /// after the first protocol 58 builds.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        percent: Option<u8>,
+    },
     /// Loaded and serving.
     Loaded {
         /// How many requests it serves at once, each with its own KV cache.
@@ -491,6 +507,16 @@ pub enum ModelAction {
         #[serde(default)]
         token: Option<Secret>,
     },
+    /// Probes a URL without adding it, to see what answers there before
+    /// it's added. Answers
+    /// [`crate::message::ActionOutcome::ServerProbed`].
+    ProbeServer {
+        /// Its base URL, such as `http://devbox:11434`.
+        url: String,
+        /// A token it wants. `maxd` keeps nothing of it.
+        #[serde(default)]
+        token: Option<Secret>,
+    },
     /// Probes a server again.
     TestServer {
         /// The server.
@@ -577,6 +603,18 @@ mod tests {
 
     fn device() -> DeviceId {
         DeviceId::derive("device:example")
+    }
+
+    #[test]
+    fn a_managed_model_is_named_by_its_catalog_id_and_quant_in_lowercase() {
+        assert_eq!(
+            managed_model_id("qwen3.6-35b-a3b", "UD-Q4_K_XL"),
+            "qwen3.6-35b-a3b@ud-q4_k_xl"
+        );
+        assert_eq!(
+            managed_model_id("gpt-oss-20b", "MXFP4"),
+            "gpt-oss-20b@mxfp4"
+        );
     }
 
     fn server() -> ModelServer {
@@ -740,6 +778,10 @@ mod tests {
                 url: "http://devbox:11434".into(),
                 token: Some(Secret::new("example-token".into())),
             },
+            ModelAction::ProbeServer {
+                url: "http://devbox:11434".into(),
+                token: None,
+            },
             ModelAction::TestServer { server },
             ModelAction::RemoveServer { server },
             ModelAction::Download {
@@ -779,6 +821,41 @@ mod tests {
         }
         let added = ActionOutcome::ModelServerAdded { server };
         assert_eq!(round_trip(&added), added);
+        let probed = ActionOutcome::ServerProbed {
+            flavor: ServerFlavor::Ollama,
+            probe: ServerProbe {
+                at: Timestamp(1_000),
+                apis: ServerApis {
+                    messages: true,
+                    chat: true,
+                    responses: false,
+                },
+                context: Some(32_768),
+                error: None,
+            },
+            models: vec![ServerModel {
+                id: "qwen3.6:35b-a3b".into(),
+                label: "qwen3.6:35b-a3b".into(),
+                catalog: None,
+                context: Some(32_768),
+                load: None,
+            }],
+        };
+        assert_eq!(round_trip(&probed), probed);
+    }
+
+    #[test]
+    fn a_load_says_how_far_it_got_only_when_it_knows() {
+        let quiet = serde_json::to_value(ModelLoad::Loading { percent: None }).unwrap();
+        assert_eq!(quiet, serde_json::json!({"state": "loading"}));
+        let read: ModelLoad = serde_json::from_value(quiet).unwrap();
+        assert_eq!(read, ModelLoad::Loading { percent: None });
+        let half = ModelLoad::Loading { percent: Some(50) };
+        assert_eq!(
+            serde_json::to_value(&half).unwrap(),
+            serde_json::json!({"state": "loading", "percent": 50})
+        );
+        assert_eq!(round_trip(&half), half);
     }
 
     #[test]

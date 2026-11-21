@@ -5151,7 +5151,7 @@
       ]
     },
     {
-      "description": "Acts on the device's local models: adds, tests or removes a server\nURL, downloads, pauses, resumes or deletes a model file, or loads or\nunloads a model. Adding a server answers\n[`ActionOutcome::ModelServerAdded`], the rest\n[`ActionOutcome::Done`]. The default model is a device setting,\n[`crate::model::DeviceSettings::local_models`]. Since\n[`LOCAL_MODELS_SINCE`].",
+      "description": "Acts on the device's local models: probes, adds, tests or removes a\nserver URL, downloads, pauses, resumes or deletes a model file, or\nloads or unloads a model. Probing a URL answers\n[`ActionOutcome::ServerProbed`], adding a server\n[`ActionOutcome::ModelServerAdded`], the rest\n[`ActionOutcome::Done`]. The default model is a device setting,\n[`crate::model::DeviceSettings::local_models`]. Since\n[`LOCAL_MODELS_SINCE`].",
       "type": "object",
       "properties": {
         "action": {
@@ -6642,6 +6642,37 @@
           ]
         },
         {
+          "description": "What a [`ModelAction::ProbeServer`] found at a URL it didn't add.",
+          "type": "object",
+          "properties": {
+            "flavor": {
+              "description": "What kind of server answered.",
+              "$ref": "#/$defs/ServerFlavor"
+            },
+            "models": {
+              "description": "The models it serves.",
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/ServerModel"
+              }
+            },
+            "probe": {
+              "description": "Which APIs answered, or why nothing did.",
+              "$ref": "#/$defs/ServerProbe"
+            },
+            "status": {
+              "type": "string",
+              "const": "server_probed"
+            }
+          },
+          "required": [
+            "status",
+            "flavor",
+            "probe",
+            "models"
+          ]
+        },
+        {
           "description": "An outcome from a newer `maxd`. The action went through, and what\nit came to needs a newer app to show.",
           "type": "object",
           "properties": {
@@ -7449,6 +7480,24 @@
       "description": "Something an agent needs from you, such as a permission prompt.",
       "type": "string",
       "format": "uuid"
+    },
+    "CatalogRef": {
+      "description": "One file of one catalog model.",
+      "type": "object",
+      "properties": {
+        "file": {
+          "description": "The file's name.",
+          "type": "string"
+        },
+        "model": {
+          "description": "The catalog model's ID.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "model",
+        "file"
+      ]
     },
     "CheckState": {
       "description": "How one check stands.",
@@ -10375,6 +10424,36 @@
           ]
         },
         {
+          "description": "Probes a URL without adding it, to see what answers there before\nit's added. Answers\n[`crate::message::ActionOutcome::ServerProbed`].",
+          "type": "object",
+          "properties": {
+            "action": {
+              "type": "string",
+              "const": "probe_server"
+            },
+            "token": {
+              "description": "A token it wants. `maxd` keeps nothing of it.",
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/Secret"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "url": {
+              "description": "Its base URL, such as `http://devbox:11434`.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "action",
+            "url"
+          ]
+        },
+        {
           "description": "Probes a server again.",
           "type": "object",
           "properties": {
@@ -10546,6 +10625,98 @@
             "action",
             "server",
             "model"
+          ]
+        }
+      ]
+    },
+    "ModelLoad": {
+      "description": "Whether a model is in memory.",
+      "oneOf": [
+        {
+          "description": "Not loaded. A local agent's turn loads it.",
+          "type": "object",
+          "properties": {
+            "state": {
+              "type": "string",
+              "const": "unloaded"
+            }
+          },
+          "required": [
+            "state"
+          ]
+        },
+        {
+          "description": "Loading into memory.",
+          "type": "object",
+          "properties": {
+            "percent": {
+              "description": "How much of the model file is in memory, from 0 to 99 percent,\nwhen `maxd` can tell. It stays below 100 until the server\nserves. Since [`crate::message::LOCAL_MODELS_SINCE`], filled in\nafter the first protocol 58 builds.",
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "uint8",
+              "maximum": 255,
+              "minimum": 0
+            },
+            "state": {
+              "type": "string",
+              "const": "loading"
+            }
+          },
+          "required": [
+            "state"
+          ]
+        },
+        {
+          "description": "Loaded and serving.",
+          "type": "object",
+          "properties": {
+            "context": {
+              "description": "The context size of each slot, in tokens.",
+              "type": "integer",
+              "format": "uint32",
+              "minimum": 0
+            },
+            "since": {
+              "description": "When it finished loading.",
+              "$ref": "#/$defs/Timestamp"
+            },
+            "slots": {
+              "description": "How many requests it serves at once, each with its own KV cache.",
+              "type": "integer",
+              "format": "uint8",
+              "maximum": 255,
+              "minimum": 0
+            },
+            "state": {
+              "type": "string",
+              "const": "loaded"
+            }
+          },
+          "required": [
+            "state",
+            "slots",
+            "context",
+            "since"
+          ]
+        },
+        {
+          "description": "The last load failed.",
+          "type": "object",
+          "properties": {
+            "reason": {
+              "description": "Why, for a person to read.",
+              "type": "string"
+            },
+            "state": {
+              "type": "string",
+              "const": "failed"
+            }
+          },
+          "required": [
+            "state",
+            "reason"
           ]
         }
       ]
@@ -12775,6 +12946,140 @@
       "type": "integer",
       "format": "uint64",
       "minimum": 0
+    },
+    "ServerApis": {
+      "description": "Which APIs a server answered on. Only a server with the Anthropic\nMessages API can run a local agent.",
+      "type": "object",
+      "properties": {
+        "chat": {
+          "description": "`/v1/chat/completions`.",
+          "type": "boolean",
+          "default": false
+        },
+        "messages": {
+          "description": "`/v1/messages`, the Anthropic Messages API Claude Code talks.",
+          "type": "boolean",
+          "default": false
+        },
+        "responses": {
+          "description": "`/v1/responses`.",
+          "type": "boolean",
+          "default": false
+        }
+      }
+    },
+    "ServerFlavor": {
+      "description": "What kind of server answers at a URL.",
+      "oneOf": [
+        {
+          "description": "llama.cpp's llama-server.",
+          "type": "string",
+          "const": "llama_cpp"
+        },
+        {
+          "description": "Ollama.",
+          "type": "string",
+          "const": "ollama"
+        },
+        {
+          "description": "LM Studio.",
+          "type": "string",
+          "const": "lm_studio"
+        },
+        {
+          "description": "vLLM.",
+          "type": "string",
+          "const": "vllm"
+        },
+        {
+          "description": "Something else, or not yet probed.",
+          "type": "string",
+          "const": "other"
+        }
+      ]
+    },
+    "ServerModel": {
+      "description": "One model a server serves.",
+      "type": "object",
+      "properties": {
+        "catalog": {
+          "description": "The catalog entry and file it runs, for a managed server's model or\na URL's model `maxd` recognized.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CatalogRef"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "context": {
+          "description": "The context size it runs with, in tokens, when known.",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint32",
+          "minimum": 0
+        },
+        "id": {
+          "description": "The ID the server takes in a request, such as `qwen3.6:35b`.",
+          "type": "string"
+        },
+        "label": {
+          "description": "The name to show.",
+          "type": "string"
+        },
+        "load": {
+          "description": "Whether it's in memory. None when the server doesn't say, as with\nmost URLs.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ModelLoad"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "id",
+        "label"
+      ]
+    },
+    "ServerProbe": {
+      "description": "What a probe of a server found.",
+      "type": "object",
+      "properties": {
+        "apis": {
+          "description": "Which APIs answered.",
+          "$ref": "#/$defs/ServerApis"
+        },
+        "at": {
+          "description": "When it ran.",
+          "$ref": "#/$defs/Timestamp"
+        },
+        "context": {
+          "description": "The context size the server runs with, in tokens, when it says.",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint32",
+          "minimum": 0
+        },
+        "error": {
+          "description": "Why the probe failed, for a person to read. None when the server\nanswered.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "at",
+        "apis"
+      ]
     },
     "SessionRefBlock": {
       "description": "One command in an [`InlineRef::Session`].",

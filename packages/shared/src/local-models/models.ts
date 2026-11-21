@@ -24,6 +24,17 @@ import type {
 /** The catalog model a device picks when nothing else says. */
 export const DEFAULT_CATALOG_MODEL = "qwen3.6-35b-a3b";
 
+/**
+ * A catalog file's model ID on a managed server, `<catalog id>@<quant>` in
+ * lowercase, such as `qwen3.6-35b-a3b@ud-q4_k_xl`. `maxd` gives it to
+ * llama-server as the alias, so the server reports the same ID.
+ */
+export const managedModelId = (model: string, quant: string): string =>
+	`${model}@${quant}`.toLowerCase();
+
+/** The catalog ID in a managed server's model ID, or the ID itself. */
+export const catalogIdOf = (id: string): string => id.split("@", 1)[0] ?? id;
+
 /** A device's local model settings with every field filled in. */
 export type LocalSettings = Required<LocalModelSettings>;
 

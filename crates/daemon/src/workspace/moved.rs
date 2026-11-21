@@ -10,7 +10,7 @@ use futures::future::BoxFuture;
 use maxhq_core::names;
 use maxhq_protocol::ids::{AccountId, ProjectId, WorkspaceId};
 use maxhq_protocol::model::{
-    EgressCheck, GuestState, PermissionMode, Vendor, WorkspaceLocation, WorkspaceState,
+    EgressCheck, GuestState, LoginKind, PermissionMode, Vendor, WorkspaceLocation, WorkspaceState,
 };
 use maxhq_protocol::state::{Entity, EntityKey};
 use maxhq_protocol::time::Timestamp;
@@ -445,7 +445,12 @@ impl MoveHost {
             .entities
             .into_iter()
             .filter_map(|entity| match entity {
-                Entity::Account(login) if login.device == device && login.vendor == vendor => {
+                // A local model's session stays on its own server.
+                Entity::Account(login)
+                    if login.device == device
+                        && login.vendor == vendor
+                        && login.login != LoginKind::ModelServer =>
+                {
                     Some(login.id)
                 }
                 _ => None,
@@ -509,7 +514,11 @@ impl Host for MoveHost {
             .entities
             .into_iter()
             .filter_map(|entity| match entity {
-                Entity::Account(login) if login.device == device.id && login.vendor == vendor => {
+                Entity::Account(login)
+                    if login.device == device.id
+                        && login.vendor == vendor
+                        && login.login != LoginKind::ModelServer =>
+                {
                     Some(login.label)
                 }
                 _ => None,

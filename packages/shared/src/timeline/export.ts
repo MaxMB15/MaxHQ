@@ -11,7 +11,7 @@
 
 import type { AttachmentId, TimelineItem } from "../bindings";
 import type { ToolNames } from "../agent-view/agent-tools";
-import { handoffLine } from "../agent-view/format";
+import { handoffKinds, handoffLine } from "../agent-view/format";
 import { inlineCode, toolLines } from "../agent-view/tool-line";
 import { excerptIds } from "../pills/draft";
 import { sentPieces, sentText } from "../pills/sent";
@@ -71,7 +71,8 @@ export const conversationMarkdown = (
 	const names = options.names ?? NO_NAMES;
 	const subAgents = new Set(items.flatMap((item) => (item.kind === "subagent" ? [item.id] : [])));
 	const firstMove = items.find((item) => item.kind === "handoff");
-	let vendor: AgentKind = firstMove?.kind === "handoff" ? firstMove.from_vendor : options.vendor;
+	let vendor: AgentKind =
+		firstMove?.kind === "handoff" ? handoffKinds(firstMove).from : options.vendor;
 
 	const blocks: string[] = options.title ? [`# ${oneLine(options.title)}`] : [];
 	let speaker: string | null = null;
@@ -143,7 +144,7 @@ export const conversationMarkdown = (
 			case "handoff":
 				flushSteps();
 				blocks.push(`*${handoffLine(item)}*`);
-				if (item.status !== "cancelled") vendor = item.to_vendor;
+				if (item.status !== "cancelled") vendor = handoffKinds(item).to;
 				break;
 			default: {
 				const lines = toolLines(item, names);

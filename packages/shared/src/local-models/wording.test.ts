@@ -31,9 +31,9 @@ const file = (state: ModelFile["state"], done = 5e9, total = 20e9): ModelFile =>
 
 describe("server URLs", () => {
 	it("reads the scheme, host and port", () => {
-		expect(urlParts("http://gpu-box.example.ts.net:11434/v1")).toEqual({
+		expect(urlParts("http://gpu-box.example.com:11434/v1")).toEqual({
 			scheme: "http",
-			host: "gpu-box.example.ts.net",
+			host: "gpu-box.example.com",
 			port: "11434",
 		});
 		expect(urlParts(" HTTPS://user:secret@Devbox ")).toEqual({
@@ -48,9 +48,9 @@ describe("server URLs", () => {
 
 	it("calls plain HTTP to another machine not encrypted, and nothing else", () => {
 		const is = (base_url: string | null) => notEncrypted({ base_url });
-		expect(is("http://gpu-box.example.ts.net:11434")).toBe(true);
+		expect(is("http://gpu-box.example.com:11434")).toBe(true);
 		expect(is("http://192.168.1.20:8080")).toBe(true);
-		expect(is("https://gpu-box.example.ts.net")).toBe(false);
+		expect(is("https://gpu-box.example.com")).toBe(false);
 		expect(is("http://127.0.0.1:8080")).toBe(false);
 		expect(is("http://localhost:1234")).toBe(false);
 		expect(is("http://[::1]:8080")).toBe(false);

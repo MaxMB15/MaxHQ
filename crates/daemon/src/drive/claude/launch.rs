@@ -16,7 +16,7 @@ use uuid::Uuid;
 
 use super::entrypoint;
 use super::wire::mode_name;
-use crate::drive::{Framing, Launch, Login, LoginAuth, Place, PlaceHost};
+use crate::drive::{Framing, Launch, Login, LoginAuth, Place, PlaceHost, ServerLogin};
 
 /// Where installers put `claude` under the home folder, tried after `PATH`.
 const HOME_PLACES: &[&str] = &[
@@ -42,6 +42,9 @@ pub const STRIPPED_PREFIXES: &[&str] = &["CLAUDE", "ANTHROPIC"];
 
 /// The variable a setup-token reaches the CLI in, per W-5.
 pub const OAUTH_TOKEN: &str = "CLAUDE_CODE_OAUTH_TOKEN";
+
+/// The variable a model server's token reaches a local agent's CLI in.
+pub const SERVER_TOKEN: &str = "ANTHROPIC_AUTH_TOKEN";
 
 /// The Claude Code tools the dispatcher's session doesn't have, so it
 /// can't run commands or change files in any mode.
@@ -156,6 +159,12 @@ pub(super) fn command(
     if !place.dispatcher {
         args.push("--allow-dangerously-skip-permissions".into());
     }
+    // A local agent runs the model its server serves: the one asked for,
+    // else the server's own pick.
+    let model = match &login.auth {
+        LoginAuth::ModelServer(server) => model.or(server.model.as_deref()),
+        _ => model,
+    };
     if let Some(model) = model {
         args.push("--model".into());
         args.push(model.into());
@@ -170,18 +179,67 @@ pub(super) fn command(
     }
     args.push("--add-dir".into());
     args.push(place.attachments.clone().into());
-    under(host, login, args, place.cwd.clone())
+    under(host, login, args, place.cwd.clone(), model)
 }
 
 /// Builds `claude auth login` from `host`, run in the login's folder.
 pub(super) fn login_command(host: &Host, login: &Login) -> Launch {
     let args = vec!["auth".into(), "login".into()];
-    under(host, login, args, login.config_dir.clone())
+    under(host, login, args, login.config_dir.clone(), None)
+}
+
+/// The output cap a local agent's turns run with. A small context can't
+/// spare Claude Code's own 32,000 for one answer.
+const LOCAL_OUTPUT_TOKENS: u32 = 4096;
+
+/// The variables that point Claude Code at a model server instead of
+/// Anthropic, with `model` for every model it would pick on its own, and
+/// the server's context size so it compacts before the server overflows.
+fn server_env(server: &ServerLogin, model: Option<&str>) -> Vec<(OsString, OsString)> {
+    let mut env: Vec<(OsString, OsString)> = vec![
+        ("ANTHROPIC_BASE_URL".into(), server.base_url.clone().into()),
+        // An empty key, so no key from anywhere wins over the token.
+        ("ANTHROPIC_API_KEY".into(), OsString::new()),
+        ("CLAUDE_CODE_ATTRIBUTION_HEADER".into(), "0".into()),
+        (
+            "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC".into(),
+            "1".into(),
+        ),
+        (
+            "CLAUDE_CODE_MAX_OUTPUT_TOKENS".into(),
+            LOCAL_OUTPUT_TOKENS.to_string().into(),
+        ),
+    ];
+    if let Some(context) = server.context {
+        env.push((
+            "CLAUDE_CODE_MAX_CONTEXT_TOKENS".into(),
+            context.to_string().into(),
+        ));
+    }
+    if let Some(model) = model {
+        for name in [
+            "ANTHROPIC_MODEL",
+            "ANTHROPIC_DEFAULT_OPUS_MODEL",
+            "ANTHROPIC_DEFAULT_SONNET_MODEL",
+            "ANTHROPIC_DEFAULT_HAIKU_MODEL",
+            "CLAUDE_CODE_SUBAGENT_MODEL",
+        ] {
+            env.push((name.into(), model.into()));
+        }
+    }
+    env
 }
 
 /// `host`'s `claude` with `args` in `cwd`, under `login`'s folder and
-/// with the variables MaxHQ sets and scrubs.
-fn under(host: &Host, login: &Login, args: Vec<OsString>, cwd: PathBuf) -> Launch {
+/// with the variables MaxHQ sets and scrubs. `model` is the model a local
+/// agent runs.
+fn under(
+    host: &Host,
+    login: &Login,
+    args: Vec<OsString>,
+    cwd: PathBuf,
+    model: Option<&str>,
+) -> Launch {
     let mut env: Vec<(OsString, OsString)> = Vec::new();
     let default_dir = host.home.as_ref().map(|home| home.join(".claude"));
     if default_dir.as_deref() != Some(login.config_dir.as_path()) {
@@ -206,6 +264,11 @@ fn under(host: &Host, login: &Login, args: Vec<OsString>, cwd: PathBuf) -> Launc
     let mut env_remove: Vec<OsString> = vec!["NODE_OPTIONS".into()];
     match &login.auth {
         LoginAuth::SetupToken(token) => secret_env.push((OAUTH_TOKEN.into(), token.clone())),
+        LoginAuth::ModelServer(server) => {
+            env.extend(server_env(server, model));
+            secret_env.push((SERVER_TOKEN.into(), server.token.clone()));
+            env_remove.push(OAUTH_TOKEN.into());
+        }
         _ => env_remove.push(OAUTH_TOKEN.into()),
     }
     for name in &host.inherited {
@@ -671,5 +734,131 @@ mod tests {
         let default = login_command(&host(), &login("/home/me/.claude"));
         assert_eq!(env_value(&default, "CLAUDE_CONFIG_DIR"), None);
         assert!(strings(&default.env_remove).contains(&"CLAUDE_CONFIG_DIR"));
+    }
+
+    /// A local agent's login, pointed at a server on this device.
+    fn server_login(model: Option<&str>, context: Option<u32>) -> Login {
+        Login {
+            account: AccountId::derive("local"),
+            config_dir: PathBuf::from("/data/maxd/local-claude/server"),
+            auth: LoginAuth::ModelServer(std::sync::Arc::new(ServerLogin {
+                base_url: "http://127.0.0.1:41234".into(),
+                token: Secret::new("test-server-key".into()),
+                context,
+                model: model.map(str::to_owned),
+                lean: true,
+            })),
+        }
+    }
+
+    #[test]
+    fn a_local_agent_talks_to_its_model_server_and_nothing_else() {
+        let mut host = host();
+        for name in [
+            "ANTHROPIC_BASE_URL",
+            "ANTHROPIC_MODEL",
+            "ANTHROPIC_AUTH_TOKEN",
+            "ANTHROPIC_SMALL_FAST_MODEL",
+            OAUTH_TOKEN,
+        ] {
+            host.inherited.push(name.into());
+        }
+        let launch = command(
+            &host,
+            &server_login(Some("qwen3.6-35b-a3b@ud-q4_k_xl"), Some(65_536)),
+            &place(),
+            Uuid::from_u128(1),
+            false,
+            None,
+            PermissionMode::Ask,
+        );
+
+        assert_eq!(
+            env_value(&launch, "ANTHROPIC_BASE_URL"),
+            Some("http://127.0.0.1:41234")
+        );
+        assert_eq!(env_value(&launch, "ANTHROPIC_API_KEY"), Some(""));
+        for name in [
+            "ANTHROPIC_MODEL",
+            "ANTHROPIC_DEFAULT_OPUS_MODEL",
+            "ANTHROPIC_DEFAULT_SONNET_MODEL",
+            "ANTHROPIC_DEFAULT_HAIKU_MODEL",
+            "CLAUDE_CODE_SUBAGENT_MODEL",
+        ] {
+            assert_eq!(
+                env_value(&launch, name),
+                Some("qwen3.6-35b-a3b@ud-q4_k_xl"),
+                "{name}"
+            );
+        }
+        assert_eq!(
+            env_value(&launch, "CLAUDE_CODE_ATTRIBUTION_HEADER"),
+            Some("0")
+        );
+        assert_eq!(
+            env_value(&launch, "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC"),
+            Some("1")
+        );
+        assert_eq!(
+            env_value(&launch, "CLAUDE_CODE_MAX_CONTEXT_TOKENS"),
+            Some("65536")
+        );
+        assert_eq!(
+            env_value(&launch, "CLAUDE_CODE_MAX_OUTPUT_TOKENS"),
+            Some("4096")
+        );
+        let args = strings(&launch.args);
+        let model = args.iter().position(|arg| *arg == "--model").unwrap();
+        assert_eq!(args[model + 1], "qwen3.6-35b-a3b@ud-q4_k_xl");
+
+        // The key goes on the holder's pipe, never in the plain variables.
+        let [(name, token)] = &launch.secret_env[..] else {
+            panic!("one secret variable");
+        };
+        assert_eq!(name, SERVER_TOKEN);
+        assert_eq!(token.expose(), "test-server-key");
+        assert!(!format!("{launch:?}").contains("test-server-key"));
+
+        // Whatever `maxd` inherited is gone, unless set here.
+        let removed = strings(&launch.env_remove);
+        for name in [
+            "ANTHROPIC_SMALL_FAST_MODEL",
+            "CLAUDECODE",
+            "NODE_OPTIONS",
+            OAUTH_TOKEN,
+        ] {
+            assert!(removed.contains(&name), "{name} should be removed");
+        }
+        for name in [
+            "ANTHROPIC_BASE_URL",
+            "ANTHROPIC_MODEL",
+            "ANTHROPIC_API_KEY",
+            SERVER_TOKEN,
+        ] {
+            assert!(!removed.contains(&name), "{name} is set, not removed");
+        }
+
+        // Its own folder, never the user's.
+        assert_eq!(
+            env_value(&launch, "CLAUDE_CONFIG_DIR"),
+            Some("/data/maxd/local-claude/server")
+        );
+        assert!(!removed.contains(&"CLAUDE_CONFIG_DIR"));
+    }
+
+    #[test]
+    fn a_local_agent_s_chosen_model_wins_over_the_server_s_pick() {
+        let launch = command(
+            &host(),
+            &server_login(Some("default@q4"), None),
+            &place(),
+            Uuid::from_u128(1),
+            true,
+            Some("other@q8_0"),
+            PermissionMode::Ask,
+        );
+        assert_eq!(env_value(&launch, "ANTHROPIC_MODEL"), Some("other@q8_0"));
+        // A server that reported no context leaves Claude Code its own.
+        assert_eq!(env_value(&launch, "CLAUDE_CODE_MAX_CONTEXT_TOKENS"), None);
     }
 }

@@ -72,6 +72,7 @@ mod identity;
 mod incus;
 mod later;
 mod leases;
+mod local_models;
 mod moves;
 mod netaccess;
 mod notes;
@@ -653,6 +654,7 @@ async fn serve() -> Result<Stopped, RunError> {
     acp_registry::install(registry.clone());
     if watched {
         spawn_task("the ACP registry", registry.watch());
+        local_models::start(hub.clone(), db.clone(), &data, true);
     }
     skills::deliver::install(skills::deliver::Delivery::open(
         hub.clone(),
@@ -822,6 +824,10 @@ async fn serve() -> Result<Stopped, RunError> {
     {
         let sessions = sessions.clone();
         secrets.on_signed_in(move |account| sessions.signed_in(account));
+    }
+    {
+        let sessions = sessions.clone();
+        local_models::on_run(move |account| sessions.local_run(account));
     }
     github_events::install(github_events::Wiring {
         sessions: &sessions,

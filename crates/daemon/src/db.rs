@@ -27,7 +27,7 @@ use maxhq_core::db::{self, OpenError};
 use maxhq_protocol::guest::ScannedFile;
 use maxhq_protocol::ids::{
     AccountId, AcpAgentId, AgentId, AttentionId, ClientId, DeviceId, IdempotencyKey, LeaseId,
-    MoveId, ProjectId, SessionId, SkillSourceId, TestHostId, WorkspaceId,
+    ModelServerId, MoveId, ProjectId, SessionId, SkillSourceId, TestHostId, WorkspaceId,
 };
 use maxhq_protocol::leases::{TestHost, TestLease};
 use maxhq_protocol::model::{CommandRule, DeviceSettings, Inbox, ModelChoice, ProjectSettings};
@@ -233,6 +233,10 @@ pub fn migrations() -> Migrations<'static> {
             "CREATE TABLE user_runs (agent TEXT NOT NULL, item TEXT NOT NULL, after TEXT, \
              at INTEGER NOT NULL, record TEXT NOT NULL, PRIMARY KEY (agent, item));",
         ),
+        // The model server URLs you added, each with what its last probe
+        // found. Until you remove one. Their tokens are in the secrets
+        // store.
+        M::up("CREATE TABLE model_servers (id TEXT PRIMARY KEY, record TEXT NOT NULL);"),
     ])
 }
 
@@ -1404,6 +1408,33 @@ impl Db {
     pub fn remove_acp_agent(&self, id: AcpAgentId) -> rusqlite::Result<()> {
         self.lock().execute(
             "DELETE FROM acp_agents WHERE id = ?1",
+            params![id.to_string()],
+        )?;
+        Ok(())
+    }
+
+    /// The model server URLs you added, as their records were stored.
+    pub fn model_servers(&self) -> rusqlite::Result<Vec<String>> {
+        let conn = self.lock();
+        let mut query = conn.prepare("SELECT record FROM model_servers ORDER BY id")?;
+        let rows = query.query_map([], |row| row.get::<_, String>(0))?;
+        rows.collect()
+    }
+
+    /// Stores a model server's record, in place of the one it had.
+    pub fn put_model_server(&self, id: ModelServerId, record: &str) -> rusqlite::Result<()> {
+        self.lock().execute(
+            "INSERT INTO model_servers (id, record) VALUES (?1, ?2)
+             ON CONFLICT (id) DO UPDATE SET record = excluded.record",
+            params![id.to_string(), record],
+        )?;
+        Ok(())
+    }
+
+    /// Forgets a model server.
+    pub fn remove_model_server(&self, id: ModelServerId) -> rusqlite::Result<()> {
+        self.lock().execute(
+            "DELETE FROM model_servers WHERE id = ?1",
             params![id.to_string()],
         )?;
         Ok(())

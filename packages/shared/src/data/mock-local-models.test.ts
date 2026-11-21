@@ -7,6 +7,7 @@ import { NOW } from "../test/build";
 import { applySnapshot } from "../view/replica";
 import {
 	DOWNLOADING_MODEL,
+	LOADED_CATALOG_MODEL,
 	LOADED_MODEL,
 	MAC_SERVER,
 	mockCatalog,
@@ -25,7 +26,7 @@ describe("mock local models", () => {
 	it("has six catalog models, the default first, each pinned with checksums", () => {
 		const catalog = mockCatalog();
 		expect(catalog).toHaveLength(6);
-		expect(catalog[0]?.id).toBe(LOADED_MODEL);
+		expect(catalog[0]?.id).toBe(LOADED_CATALOG_MODEL);
 		for (const model of catalog) {
 			expect(model.commit).toMatch(/^[0-9a-f]{40}$/);
 			for (const file of model.files) expect(file.sha256).toMatch(/^[0-9a-f]{64}$/);
@@ -58,6 +59,32 @@ describe("mock local models", () => {
 			probe: { apis: { messages: false } },
 		});
 		expect([...after.tables.account.values()].some((a) => a.model_server === id)).toBe(true);
+	});
+
+	it("probes a URL without adding it", async () => {
+		const mock = source();
+		const before = (await view(mock)).tables.model_server.size;
+		expect(
+			await mock.modelAction(DEVBOX, { action: "probe_server", url: "http://devbox:11434" })
+		).toMatchObject({
+			status: "ok",
+			data: {
+				status: "server_probed",
+				flavor: "ollama",
+				probe: { error: null },
+				models: [{ id: "qwen3.6:35b" }],
+			},
+		});
+		expect(
+			await mock.modelAction(DEVBOX, {
+				action: "probe_server",
+				url: "http://gone.invalid:8080",
+			})
+		).toMatchObject({ data: { status: "server_probed", probe: { apis: {} }, models: [] } });
+		expect(
+			await mock.modelAction(DEVBOX, { action: "probe_server", url: "devbox:11434" })
+		).toMatchObject({ data: { status: "refused" } });
+		expect((await view(mock)).tables.model_server.size).toBe(before);
 	});
 
 	it("refuses what isn't a server URL, and removing the managed server", async () => {
@@ -101,8 +128,13 @@ describe("mock local models", () => {
 			done.tables.local_models.get(MAC)!.files.find((f) => f.model === DOWNLOADING_MODEL)
 		).toMatchObject({ state: { state: "ready" } });
 		expect(
-			done.tables.model_server.get(MAC_SERVER)!.models.find((m) => m.id === DOWNLOADING_MODEL)
-		).toMatchObject({ load: { state: "unloaded" } });
+			done.tables.model_server
+				.get(MAC_SERVER)!
+				.models.find((m) => m.id === `${DOWNLOADING_MODEL}@ud-q4_k_xl`)
+		).toMatchObject({
+			catalog: { model: DOWNLOADING_MODEL, file },
+			load: { state: "unloaded" },
+		});
 	});
 
 	it("refuses a download on a device without a GPU", async () => {
@@ -123,17 +155,24 @@ describe("mock local models", () => {
 		expect(
 			await mock.modelAction(MAC, {
 				action: "delete_model",
-				model: LOADED_MODEL,
+				model: LOADED_CATALOG_MODEL,
 				file: "Qwen3.6-35B-A3B-UD-Q4_K_XL.gguf",
 			})
 		).toMatchObject({ data: { status: "refused" } });
-		await mock.modelAction(MAC, { action: "load", server: MAC_SERVER, model: "gpt-oss-20b" });
+		const gptOss = "gpt-oss-20b@mxfp4";
+		await mock.modelAction(MAC, { action: "load", server: MAC_SERVER, model: gptOss });
 		const loading = (await view(mock)).tables.model_server.get(MAC_SERVER)!.models;
-		expect(loading.find((m) => m.id === "gpt-oss-20b")?.load?.state).toBe("loading");
+		expect(loading.find((m) => m.id === gptOss)?.load?.state).toBe("loading");
 		expect(loading.find((m) => m.id === LOADED_MODEL)?.load?.state).toBe("unloaded");
+		await vi.advanceTimersByTimeAsync(6);
+		const halfway = (await view(mock)).tables.model_server.get(MAC_SERVER)!.models;
+		expect(halfway.find((m) => m.id === gptOss)?.load).toEqual({
+			state: "loading",
+			percent: 50,
+		});
 		await vi.runAllTimersAsync();
 		const loaded = (await view(mock)).tables.model_server.get(MAC_SERVER)!.models;
-		expect(loaded.find((m) => m.id === "gpt-oss-20b")?.load).toMatchObject({
+		expect(loaded.find((m) => m.id === gptOss)?.load).toMatchObject({
 			state: "loaded",
 			context: 65_536,
 		});

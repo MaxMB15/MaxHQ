@@ -403,3 +403,140 @@ async fn a_model_under_the_agents_own_account_stays_a_model_change() {
     assert_eq!(h.agent(agent).vendor, Vendor::Claude);
     assert!(marker(&h.items(agent).await).is_empty());
 }
+
+/// A local model's ID on this Mac's own server.
+const LOCAL_MODEL: &str = "qwen3.6-35b-a3b@ud-q4_k_xl";
+
+/// Where the agent moved to and from Local, from what the phone holds.
+fn local_marker(items: &[TimelineItem]) -> Vec<(bool, bool, ItemStatus)> {
+    items
+        .iter()
+        .filter_map(|item| match &item.body {
+            ItemBody::Handoff {
+                from_vendor,
+                to_vendor,
+                from_local,
+                to_local,
+                ..
+            } => {
+                assert_eq!((*from_vendor, *to_vendor), (Vendor::Claude, Vendor::Claude));
+                Some((*from_local, *to_local, item.status))
+            }
+            _ => None,
+        })
+        .collect()
+}
+
+impl Harness {
+    /// A local model account: Claude Code on a model server, with a Claude
+    /// config folder of its own.
+    pub(super) fn local_account(&mut self) -> AccountId {
+        let id = AccountId::derive("local");
+        self.keep(Entity::Account(Account {
+            id,
+            device: self.host.id,
+            vendor: Vendor::Claude,
+            label: "This Mac".into(),
+            config_dir: self.dir.path().join("local").display().to_string(),
+            email: None,
+            organization: None,
+            plan: None,
+            models: vec![ModelChoice {
+                id: LOCAL_MODEL.into(),
+                label: "Qwen3.6 35B A3B".into(),
+                default: true,
+                efforts: Vec::new(),
+                default_effort: None,
+                no_images: true,
+            }],
+            usage: None,
+            usage_failure: None,
+            acp: None,
+            login: LoginKind::ModelServer,
+            origin: None,
+            model_server: Some(maxhq_protocol::ids::ModelServerId::derive("server")),
+        }));
+        self.fakes.credentials.set_model_server(
+            id,
+            crate::drive::ServerLogin {
+                base_url: "http://127.0.0.1:40123".into(),
+                token: maxhq_protocol::secret::Secret::new("local-key".into()),
+                context: Some(65_536),
+                model: Some(LOCAL_MODEL.into()),
+                lean: true,
+            },
+        );
+        id
+    }
+}
+
+#[tokio::test]
+async fn a_claude_agent_hands_off_to_local_and_back_since_neither_resumes_the_other() {
+    let mut h = Harness::new();
+    let (agent, claude_session) = h.claude_after_a_turn().await;
+    let (first, _) = h.vendors.launches()[0];
+    let (claude, local) = (h.claude, h.local_account());
+    let holders = h.holders.sessions().len();
+
+    // To Local: a new session in the local account's own config folder,
+    // with the conversation handed over.
+    assert_eq!(h.pick(agent, local, LOCAL_MODEL).await, ActionOutcome::Done);
+    let shown = h.agent(agent);
+    assert_eq!(
+        (shown.vendor, shown.account, shown.model.as_deref()),
+        (Vendor::Claude, Some(local), Some(LOCAL_MODEL))
+    );
+    eventually("the Claude CLI stopping", || {
+        h.holders.stops(claude_session) == [STOP_GRACE]
+    })
+    .await;
+    eventually("a local CLI", || h.vendors.launches().len() == 2).await;
+    let (uuid, resume) = h.vendors.launches()[1];
+    assert!(!resume);
+    assert_ne!(uuid, first);
+    assert_eq!(
+        h.vendors.claude_logins(),
+        [LoginKind::ConfigDir, LoginKind::ModelServer]
+    );
+    eventually("its holder", || h.holders.sessions().len() > holders).await;
+    let on_local = h.holders.last();
+    assert_eq!(h.send(agent, "Ship it").await, ActionOutcome::Done);
+    eventually("the message", || !h.sent(on_local).is_empty()).await;
+    let sent = h.sent(on_local);
+    assert!(sent[0].starts_with("<maxhq_handoff>\n"), "{}", sent[0]);
+    assert!(sent[0].contains("Built it"), "{}", sent[0]);
+    assert!(sent[0].ends_with("User message:\nShip it"), "{}", sent[0]);
+    let say = Say {
+        timeline: vec![upsert(
+            agent,
+            reply(agent, "l1", "Shipped it", ItemStatus::Completed),
+        )],
+        ..Say::default()
+    };
+    h.say(on_local, &say).await;
+
+    // And back: Claude resumes its own session with what it missed.
+    let holders = h.holders.sessions().len();
+    assert_eq!(h.pick(agent, claude, "").await, ActionOutcome::Done);
+    eventually("the Claude session resumed", || {
+        h.vendors.launches().len() == 3
+    })
+    .await;
+    assert_eq!(h.vendors.launches()[2], (first, true));
+    assert_eq!(h.vendors.claude_logins()[2], LoginKind::ConfigDir);
+    eventually("its holder", || h.holders.sessions().len() > holders).await;
+    let resumed = h.holders.last();
+    assert_eq!(h.send(agent, "Thanks").await, ActionOutcome::Done);
+    eventually("the message", || !h.sent(resumed).is_empty()).await;
+    let sent = h.sent(resumed);
+    assert!(sent[0].contains("Shipped it"), "{}", sent[0]);
+    assert!(!sent[0].contains("Built it"), "{}", sent[0]);
+    let items = h.items(agent).await;
+    assert_eq!(
+        local_marker(&items),
+        [
+            (false, true, ItemStatus::Completed),
+            (true, false, ItemStatus::Completed),
+        ]
+    );
+}

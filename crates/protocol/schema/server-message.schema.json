@@ -2113,6 +2113,37 @@
           ]
         },
         {
+          "description": "What a [`ModelAction::ProbeServer`] found at a URL it didn't add.",
+          "type": "object",
+          "properties": {
+            "flavor": {
+              "description": "What kind of server answered.",
+              "$ref": "#/$defs/ServerFlavor"
+            },
+            "models": {
+              "description": "The models it serves.",
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/ServerModel"
+              }
+            },
+            "probe": {
+              "description": "Which APIs answered, or why nothing did.",
+              "$ref": "#/$defs/ServerProbe"
+            },
+            "status": {
+              "type": "string",
+              "const": "server_probed"
+            }
+          },
+          "required": [
+            "status",
+            "flavor",
+            "probe",
+            "models"
+          ]
+        },
+        {
           "description": "An outcome from a newer `maxd`. The action went through, and what\nit came to needs a newer app to show.",
           "type": "object",
           "properties": {
@@ -10341,6 +10372,16 @@
           "description": "Loading into memory.",
           "type": "object",
           "properties": {
+            "percent": {
+              "description": "How much of the model file is in memory, from 0 to 99 percent,\nwhen `maxd` can tell. It stays below 100 until the server\nserves. Since [`crate::message::LOCAL_MODELS_SINCE`], filled in\nafter the first protocol 58 builds.",
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "uint8",
+              "maximum": 255,
+              "minimum": 0
+            },
             "state": {
               "type": "string",
               "const": "loading"
@@ -17137,9 +17178,13 @@
           ]
         },
         {
-          "description": "The agent moved to another vendor here, carrying the conversation\nover. Pending until the next message takes the conversation to the\nnew vendor, and cancelled if the agent moves again first.",
+          "description": "The agent moved to another vendor here, carrying the conversation\nover. Pending until the next message takes the conversation to the\nnew vendor, and cancelled if the agent moves again first. A move\nbetween Claude and a local model is one too, since a local agent\nruns Claude Code with its own config folder.",
           "type": "object",
           "properties": {
+            "from_local": {
+              "description": "Whether the agent left a local model, which runs as\n[`Vendor::Claude`]: show that end as Local. Since\n[`crate::message::LOCAL_MODELS_SINCE`].",
+              "type": "boolean"
+            },
             "from_model": {
               "description": "The model it ran there, if it had one set.",
               "type": [
@@ -17154,6 +17199,10 @@
             "kind": {
               "type": "string",
               "const": "handoff"
+            },
+            "to_local": {
+              "description": "Whether the agent moved to a local model. Since\n[`crate::message::LOCAL_MODELS_SINCE`].",
+              "type": "boolean"
             },
             "to_model": {
               "description": "The model it runs there, if you picked one.",

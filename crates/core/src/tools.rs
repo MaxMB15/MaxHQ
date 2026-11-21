@@ -222,6 +222,18 @@ impl Tool {
         Tool::SubmitPlan,
     ];
 
+    /// A local agent's tools when it asks for fewer: what shows the user
+    /// its work and reads what the user points it at. Every definition is
+    /// in each request, and a small context can't spare the rest.
+    pub const LEAN: [Tool; 6] = [
+        Tool::SendAttachments,
+        Tool::OpenFile,
+        Tool::ShowVisual,
+        Tool::ReadAgent,
+        Tool::ListNotes,
+        Tool::ReadNote,
+    ];
+
     /// Whether it's one only the dispatcher gets.
     fn dispatches(self) -> bool {
         matches!(self, Tool::ListRepoPullRequests | Tool::SubmitPlan)

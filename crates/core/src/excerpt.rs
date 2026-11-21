@@ -559,12 +559,17 @@ fn steps_of(body: &ItemBody) -> Vec<String> {
         ItemBody::Handoff {
             from_vendor,
             to_vendor,
+            from_local,
+            to_local,
             ..
-        } => line(format!(
-            "Moved from {} to {}, carrying the conversation over.",
-            from_vendor.name(),
-            to_vendor.name()
-        )),
+        } => {
+            let name = |vendor: &Vendor, local: bool| if local { "Local" } else { vendor.name() };
+            line(format!(
+                "Moved from {} to {}, carrying the conversation over.",
+                name(from_vendor, *from_local),
+                name(to_vendor, *to_local)
+            ))
+        }
         ItemBody::UserMessage { .. }
         | ItemBody::AssistantMessage { .. }
         | ItemBody::Plan { .. }

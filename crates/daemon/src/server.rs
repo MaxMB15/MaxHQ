@@ -66,9 +66,6 @@ const PHONE_UNSIGNED: &str = "A phone can't send a maxd no release signed. Send 
 const NOT_FOR_FOLDERS: &str = "Only the MaxHQ app and phones that proved their keys may list \
                                or make folders on this device.";
 
-/// The refusal for a local models action, until this `maxd` runs them.
-const NO_LOCAL_MODELS: &str = "Local models aren't available on this maxd yet.";
-
 /// The answer to a request whose part of `maxd` isn't built yet.
 pub fn not_yet() -> ActionOutcome {
     ActionOutcome::Refused {
@@ -842,9 +839,9 @@ impl Connection {
                     | ClientMessage::FetchBegin { anyway: true, .. }
                     | ClientMessage::ModelAction {
                         action: ModelAction::AddServer { .. }
+                            | ModelAction::ProbeServer { .. }
                             | ModelAction::RemoveServer { .. }
                             | ModelAction::Download { .. }
-                            | ModelAction::ResumeDownload { .. }
                             | ModelAction::DeleteModel { .. },
                         ..
                     }
@@ -1333,11 +1330,11 @@ impl Connection {
                 self.refuse(&message, ErrorCode::NotAllowed, NOT_FOR_FOLDERS)
                     .await
             }
-            // Local models come in the next step. Until then this `maxd`
-            // says so, and its hello leaves the capability off.
-            message @ ClientMessage::ModelAction { .. } => {
-                self.refuse(&message, ErrorCode::NotAllowed, NO_LOCAL_MODELS)
-                    .await
+            // A phone without its switch on never gets here for the actions
+            // only the Mac takes, as the gate above says.
+            ClientMessage::ModelAction { key, action } => {
+                self.answer_when(key, tokio::spawn(crate::local_models::act(action)));
+                Ok(())
             }
             // Updates, tools, load and diagnostics belong to the fleet.
             message @ (ClientMessage::InstallUpdate { key, .. }
@@ -1860,8 +1857,8 @@ impl Connection {
                 peer_proofs: true,
                 // Holds terminals in PTY holders of its own.
                 terminals: self.sessions.terminals().is_some(),
-                // Refuses local models actions until it runs them.
-                local_models: false,
+                // Handles every model action once local models run.
+                local_models: crate::local_models::running(),
             },
             challenge: self.challenge.map(|challenge| challenge.encode()),
         }
@@ -3266,8 +3263,8 @@ pub(crate) mod tests {
         use maxhq_protocol::hosts::MoveStep;
         use maxhq_protocol::ids::{
             AccountId, AcpAgentId, AdmissionId, AttachmentId, CredentialId, ForwardId, KeyId,
-            MoveId, PermissionId, PortId, SignInId, SkillProposalId, SkillSourceId, StreamId,
-            TaskId, TestHostId,
+            ModelServerId, MoveId, PermissionId, PortId, SignInId, SkillProposalId, SkillSourceId,
+            StreamId, TaskId, TestHostId,
         };
         use maxhq_protocol::message::{AgentPlace, AgentSpec, ToolTarget, UpdateKind};
         use maxhq_protocol::model::{
@@ -3686,6 +3683,43 @@ pub(crate) mod tests {
                 path: dir.path().join("plan.md").to_str().unwrap().to_owned(),
                 anyway: true,
             },
+            // Adding, probing and removing a server URL, and downloading
+            // and deleting a model, are the Mac's.
+            ClientMessage::ModelAction {
+                key: key("model-add"),
+                action: ModelAction::AddServer {
+                    label: "stolen".into(),
+                    url: "http://gpu-box.example.com:11434".into(),
+                    token: None,
+                },
+            },
+            ClientMessage::ModelAction {
+                key: key("model-probe"),
+                action: ModelAction::ProbeServer {
+                    url: "http://gpu-box.example.com:11434".into(),
+                    token: None,
+                },
+            },
+            ClientMessage::ModelAction {
+                key: key("model-remove"),
+                action: ModelAction::RemoveServer {
+                    server: ModelServerId::derive("server"),
+                },
+            },
+            ClientMessage::ModelAction {
+                key: key("model-download"),
+                action: ModelAction::Download {
+                    model: "qwen3.6-35b-a3b".into(),
+                    file: "Qwen3.6-35B-A3B-UD-Q4_K_XL.gguf".into(),
+                },
+            },
+            ClientMessage::ModelAction {
+                key: key("model-delete"),
+                action: ModelAction::DeleteModel {
+                    model: "qwen3.6-35b-a3b".into(),
+                    file: "Qwen3.6-35B-A3B-UD-Q4_K_XL.gguf".into(),
+                },
+            },
         ];
         // What hands out access, which a phone's switch never lifts.
         let handed_out = [
@@ -3818,6 +3852,42 @@ pub(crate) mod tests {
             },
             ClientMessage::CheckTestHosts {
                 key: key("test-host-check"),
+            },
+            // It may load, unload and test a model server, and pause and
+            // resume a download the Mac started.
+            ClientMessage::ModelAction {
+                key: key("model-test"),
+                action: ModelAction::TestServer {
+                    server: ModelServerId::derive("server"),
+                },
+            },
+            ClientMessage::ModelAction {
+                key: key("model-load"),
+                action: ModelAction::Load {
+                    server: ModelServerId::derive("server"),
+                    model: "qwen3.6-35b-a3b@ud-q4_k_xl".into(),
+                },
+            },
+            ClientMessage::ModelAction {
+                key: key("model-unload"),
+                action: ModelAction::Unload {
+                    server: ModelServerId::derive("server"),
+                    model: "qwen3.6-35b-a3b@ud-q4_k_xl".into(),
+                },
+            },
+            ClientMessage::ModelAction {
+                key: key("model-pause"),
+                action: ModelAction::PauseDownload {
+                    model: "qwen3.6-35b-a3b".into(),
+                    file: "Qwen3.6-35B-A3B-UD-Q4_K_XL.gguf".into(),
+                },
+            },
+            ClientMessage::ModelAction {
+                key: key("model-resume"),
+                action: ModelAction::ResumeDownload {
+                    model: "qwen3.6-35b-a3b".into(),
+                    file: "Qwen3.6-35B-A3B-UD-Q4_K_XL.gguf".into(),
+                },
             },
         ] {
             own.send(&message).await;

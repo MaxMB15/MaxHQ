@@ -58,12 +58,12 @@ for a in "$@"; do
   esac
   src="$x"; n=0; one=
   for e in "$x"/* "$x"/.[!.]*; do
-    if [ -e "$e" ]; then n=$((n + 1)); one="$e"; fi
+    if [ -e "$e" ] || [ -L "$e" ]; then n=$((n + 1)); one="$e"; fi
   done
-  if [ "$n" = 1 ] && [ -d "$one" ]; then src="$one"; fi
+  if [ "$n" = 1 ] && [ -d "$one" ] && [ ! -L "$one" ]; then src="$one"; fi
   if [ -d "$src/Contents/Home" ]; then src="$src/Contents/Home"; fi
   for e in "$src"/* "$src"/.[!.]*; do
-    if [ ! -e "$e" ]; then continue; fi
+    if [ ! -e "$e" ] && [ ! -L "$e" ]; then continue; fi
     b="${e##*/}"
     b="${b%-"$t"}"
     rm -rf "$s/files/$b"

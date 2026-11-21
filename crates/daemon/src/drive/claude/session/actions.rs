@@ -21,7 +21,7 @@ use crate::drive::claude::convo;
 use crate::drive::claude::effort::Saved;
 use crate::drive::claude::limits;
 use crate::drive::claude::wire::{self, text};
-use crate::drive::{Action, ActionKey, Effects, PlaceHost, Staged, Write};
+use crate::drive::{Action, ActionKey, Effects, LoginAuth, PlaceHost, Staged, Write};
 
 /// A request `maxd` sent, waiting for the CLI's reply.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -426,7 +426,11 @@ impl ClaudeSession {
             Some("idle") => self.turn_over(),
             _ => {}
         }
-        if let Some(models) = limits::models(payload, &Saved::read(&self.login.config_dir)) {
+        // A local agent's models are its server's, which local models
+        // publish; the CLI would list Claude's.
+        if !matches!(self.login.auth, LoginAuth::ModelServer(_))
+            && let Some(models) = limits::models(payload, &Saved::read(&self.login.config_dir))
+        {
             fx.models.push((self.login.account, models));
         }
         let frames: Vec<Value> = [

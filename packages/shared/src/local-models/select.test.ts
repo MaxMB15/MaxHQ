@@ -8,6 +8,7 @@ import {
 	DEVBOX_LOCAL,
 	DEVBOX_LOCAL_AGENT,
 	DOWNLOADING_MODEL,
+	LOADED_CATALOG_MODEL,
 	LOADED_MODEL,
 	MAC_LOCAL,
 	MAC_LOCAL_AGENT,
@@ -217,8 +218,8 @@ describe("the Local entry in the agent picker", () => {
 		const models = modelsOf(view, view.tables.account.get(MAC_LOCAL));
 		expect(models.map((m) => [m.id, m.default])).toEqual([
 			[LOADED_MODEL, true],
-			["gpt-oss-20b", false],
-			["ornith-1.5-9b", false],
+			["gpt-oss-20b@mxfp4", false],
+			["ornith-1.5-9b@q4_k_m", false],
 		]);
 		expect(models.every((m) => (m.efforts ?? []).length === 0)).toBe(true);
 	});
@@ -249,8 +250,8 @@ describe("picked values", () => {
 			localModelKey(OLLAMA_LOCAL, "qwen3-coder:30b")
 		);
 		expect([ollama.account.id, ollama.model]).toEqual([OLLAMA_LOCAL, "qwen3-coder:30b"]);
-		const plain = resolveLocal(view, DEVBOX, devbox, "gpt-oss-20b");
-		expect([plain.account.id, plain.model]).toEqual([DEVBOX_LOCAL, "gpt-oss-20b"]);
+		const plain = resolveLocal(view, DEVBOX, devbox, "gpt-oss-20b@mxfp4");
+		expect([plain.account.id, plain.model]).toEqual([DEVBOX_LOCAL, "gpt-oss-20b@mxfp4"]);
 		const missing = resolveLocal(view, DEVBOX, devbox, localModelKey(OLLAMA_LOCAL, "gone"));
 		expect([missing.account.id, missing.model]).toEqual([DEVBOX_LOCAL, LOADED_MODEL]);
 		const fresh = resolveLocal(view, DEVBOX, view.tables.account.get(OLLAMA_LOCAL)!, null);
@@ -268,7 +269,7 @@ describe("a local agent's name", () => {
 		for (const id of [MAC_LOCAL_AGENT, DEVBOX_LOCAL_AGENT]) {
 			const running = view.tables.agent.get(id)!;
 			expect(agentKindLabel(view, running)).toBe("Local · Qwen3.6-35B-A3B");
-			expect(agentCatalogModel(view, running)?.id).toBe(LOADED_MODEL);
+			expect(agentCatalogModel(view, running)?.id).toBe(LOADED_CATALOG_MODEL);
 		}
 		const claude = [...view.tables.agent.values()].find(
 			(a) =>

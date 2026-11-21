@@ -27,7 +27,7 @@ use crate::ids::{
     SkillProposalId, SkillSourceId, StreamId, TaskId, TerminalId, TestHostId, TransferId,
     WorkspaceId,
 };
-use crate::local_models::ModelAction;
+use crate::local_models::{ModelAction, ServerFlavor, ServerModel, ServerProbe};
 use crate::model::{
     CommandRule, DeviceSettingChange, DeviceSettings, InboxChange, PermissionMode, ProjectSettings,
     Tool, Vendor, WorkspaceSpec,
@@ -2227,9 +2227,10 @@ pub enum ClientMessage {
     },
 
     // Local models.
-    /// Acts on the device's local models: adds, tests or removes a server
-    /// URL, downloads, pauses, resumes or deletes a model file, or loads or
-    /// unloads a model. Adding a server answers
+    /// Acts on the device's local models: probes, adds, tests or removes a
+    /// server URL, downloads, pauses, resumes or deletes a model file, or
+    /// loads or unloads a model. Probing a URL answers
+    /// [`ActionOutcome::ServerProbed`], adding a server
     /// [`ActionOutcome::ModelServerAdded`], the rest
     /// [`ActionOutcome::Done`]. The default model is a device setting,
     /// [`crate::model::DeviceSettings::local_models`]. Since
@@ -3401,6 +3402,15 @@ pub enum ActionOutcome {
     ModelServerAdded {
         /// The new server.
         server: ModelServerId,
+    },
+    /// What a [`ModelAction::ProbeServer`] found at a URL it didn't add.
+    ServerProbed {
+        /// What kind of server answered.
+        flavor: ServerFlavor,
+        /// Which APIs answered, or why nothing did.
+        probe: ServerProbe,
+        /// The models it serves.
+        models: Vec<ServerModel>,
     },
 
     /// An outcome from a newer `maxd`. The action went through, and what

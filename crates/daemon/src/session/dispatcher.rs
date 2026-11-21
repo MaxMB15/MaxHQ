@@ -711,7 +711,10 @@ impl Manager {
                     vendor.name()
                 ))
             }
-            None => *accounts.first().ok_or_else(|| no_account(vendor))?,
+            None => *self
+                .default_accounts(vendor, device)
+                .first()
+                .ok_or_else(|| no_account(vendor))?,
         };
         match &place {
             AgentPlace::Workspace { workspace } => {

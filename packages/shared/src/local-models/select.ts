@@ -12,6 +12,7 @@ import { t } from "../i18n";
 
 import {
 	catalogEntry,
+	catalogIdOf,
 	defaultLocalPick,
 	localAccountsOn,
 	localModelsOf,
@@ -46,6 +47,7 @@ import type {
 import type { DeviceFields } from "../settings/device-settings";
 
 export {
+	catalogIdOf,
 	DEFAULT_CATALOG_MODEL,
 	defaultLocalPick,
 	localAccountsOn,
@@ -53,6 +55,7 @@ export {
 	localPicksOn,
 	localSettingsOf,
 	LOCAL_MODEL_DEFAULTS,
+	managedModelId,
 	serverOf,
 	usableServer,
 	type LocalPick,
@@ -318,8 +321,9 @@ export const localModelName = (
 	const server = account ? serverOf(view, account) : undefined;
 	const model = server?.models.find((m) => m.id === agent.model);
 	if (server && model) return serverModelName(view, server, model);
+	const id = catalogIdOf(agent.model);
 	for (const local of view.tables.local_models.values()) {
-		const entry = local.catalog.models.find((m) => m.id === agent.model);
+		const entry = local.catalog.models.find((m) => m.id === id);
 		if (entry) return entry.name;
 	}
 	return agent.model;
