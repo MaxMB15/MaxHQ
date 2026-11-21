@@ -5,8 +5,9 @@ import { describe, expect, it, vi } from "vitest";
 
 import type { Agent, Notice } from "../bindings";
 import { mockNotices } from "../data/mock-notices";
+import { mockSource } from "../data/mock-source";
 import { agent, attention, device, entities, MIN, NOW, project, workspace } from "../test/build";
-import { BADGE_REASONS, badgeCount, DEFAULT_BADGE_PREFS } from "../view/badge";
+import { BADGE_REASONS, type BadgeReason, badgeCount, DEFAULT_BADGE_PREFS } from "../view/badge";
 import { applySnapshot, type ViewState } from "../view/replica";
 
 import {
@@ -132,11 +133,16 @@ const notice = (over: Partial<Notice> & { id: number }): Notice => ({
 describe("the Earlier list", () => {
 	it("shows each notice's words and marks the ones whose agent is gone", () => {
 		const view = viewOf([ask]);
-		const rows = earlierRows(view, [
-			notice({ id: 1, kind: "limit" }),
-			notice({ id: 2, kind: "question", summary: "Which branch?", read_at: NOW }),
-			notice({ id: 3, agent: "gone", project: null }),
-		]);
+		const rows = earlierRows(
+			view,
+			[
+				notice({ id: 1, kind: "limit" }),
+				notice({ id: 2, kind: "question", summary: "Which branch?", read_at: NOW }),
+				notice({ id: 3, agent: "gone", project: null }),
+			],
+			NOW,
+			BADGE_REASONS
+		);
 		expect(
 			rows.map(({ what, unread, gone, place }) => ({ what, unread, gone, place }))
 		).toEqual([
@@ -144,6 +150,53 @@ describe("the Earlier list", () => {
 			{ what: "Which branch?", unread: false, gone: false, place: "example-app" },
 			{ what: "Finished its turn", unread: true, gone: true, place: "Home Mac" },
 		]);
+	});
+
+	it("leaves out what an agent in Now still wants, and keeps what came before", () => {
+		const view = viewOf([ask, question, done, crashed]);
+		const notices = [
+			// What Now shows: the turn that just ended, the question asked 2
+			// minutes ago and the prompt asked 5 minutes ago.
+			notice({ id: 1, agent: "done", at: NOW }),
+			notice({ id: 2, agent: "question", kind: "question", at: NOW - 2 * MIN }),
+			notice({ id: 3, kind: "permission", at: NOW - 5 * MIN }),
+			// A CLI that exits logs nothing, so an error notice is an
+			// earlier prompt's.
+			notice({ id: 4, agent: "crashed", kind: "error", at: NOW - 10 * MIN }),
+			// What came before.
+			notice({ id: 5, kind: "permission", at: NOW - 30 * MIN }),
+			notice({ id: 6, agent: "done", at: NOW - 40 * MIN }),
+		];
+		const keys = (counts: readonly BadgeReason[]) =>
+			earlierRows(view, notices, NOW, counts).map((row) => row.key);
+		expect(keys(BADGE_REASONS)).toEqual(["dev-mac-4", "dev-mac-5", "dev-mac-6"]);
+		// With Finished off, Now leaves the finished agent out, so Earlier
+		// keeps its notice.
+		expect(keys(["waiting", "failed"])).toEqual([
+			"dev-mac-1",
+			"dev-mac-4",
+			"dev-mac-5",
+			"dev-mac-6",
+		]);
+	});
+
+	it("shows each of the sample's prompts once", async () => {
+		const source = mockSource({ now: () => NOW, tick: false });
+		const view = applySnapshot(await source.snapshot());
+		const page = await source.listNotices(NOTICE_PAGE);
+		const notices = page.status === "ok" ? page.data.notices : [];
+		const current = nowRows(view, NOW, BADGE_REASONS);
+		const earlier = earlierRows(view, notices, NOW, BADGE_REASONS);
+		expect(current.find((row) => row.title === "Release checklist")?.what).toBe(
+			"Asking for permission"
+		);
+		// Nothing in Earlier is about an agent in Now since it began to count.
+		for (const row of current) {
+			expect(earlier.filter((past) => past.agent === row.agent && past.at >= row.at)).toEqual(
+				[]
+			);
+		}
+		expect(earlier.length).toBeLessThan(notices.length);
 	});
 });
 
