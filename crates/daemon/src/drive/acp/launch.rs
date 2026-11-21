@@ -170,6 +170,7 @@ mod tests {
             host: PlaceHost::Local,
             dispatcher: false,
             trust: None,
+            claude_artifacts: true,
         }
     }
 

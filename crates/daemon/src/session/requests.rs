@@ -1947,6 +1947,13 @@ impl Manager {
                 "Claude setup-tokens turned on or off"
             );
         }
+        // A CLI that runs keeps its tools until it starts again.
+        if settings.claude_artifacts != before.claude_artifacts {
+            tracing::info!(
+                on = settings.claude_artifacts,
+                "Claude's claude.ai page tools turned on or off"
+            );
+        }
         self.power.set_mode(settings.keep_awake);
         self.keep_to(&settings);
         // Turning Cursor usage on or off shows now, not at the next check.

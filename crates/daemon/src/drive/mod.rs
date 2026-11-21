@@ -154,6 +154,9 @@ pub struct Place {
     /// What maxd decided about the folder's own files, for a CLI that
     /// takes it with the thread. None leaves the CLI to its own config.
     pub trust: Option<FolderTrust>,
+    /// Whether a Claude Code CLI may use its tools for claude.ai pages, as
+    /// the device's settings say when it starts.
+    pub claude_artifacts: bool,
 }
 
 /// Whether a CLI may load a folder's own files, and the folders it looks

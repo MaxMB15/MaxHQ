@@ -389,6 +389,7 @@ async fn probe(
         host: PlaceHost::Local,
         dispatcher: false,
         trust: None,
+        claude_artifacts: true,
     };
     let launch = launch::launch(&command, &place);
     let mut child = spawn(&launch).map_err(|err| format!("couldn't start {name}: {err}"))?;

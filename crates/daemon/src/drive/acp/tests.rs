@@ -157,6 +157,7 @@ fn place() -> Place {
         host: PlaceHost::Local,
         dispatcher: false,
         trust: None,
+        claude_artifacts: true,
     }
 }
 

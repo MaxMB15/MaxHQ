@@ -899,9 +899,9 @@ fn lines(value: &Value) -> Vec<&str> {
     }
 }
 
-/// Removes terminal escape codes, such as colours, from a traceback line.
+/// Removes terminal escape codes, such as colours, from a line of text.
 /// It follows the pattern Node's `util.stripVTControlCharacters` uses.
-fn strip_vt(line: &str) -> String {
+pub fn strip_vt(line: &str) -> String {
     let chars: Vec<char> = line.chars().collect();
     let mut stripped = String::with_capacity(line.len());
     let mut i = 0;

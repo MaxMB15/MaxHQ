@@ -1235,6 +1235,101 @@ mod tests {
     }
 
     #[test]
+    fn an_approval_from_an_older_peer_asks_as_before() {
+        let mut value = serde_json::to_value(item(ItemBody::Approval {
+            attention: "0199a7c2-0000-7000-8000-000000000002".parse().unwrap(),
+            approval_kind: ApprovalKind::Network,
+            title: "Permanently delete \"Old draft\"?".into(),
+            detail: None,
+            cwd: None,
+            options: Vec::new(),
+            decided: None,
+            deny_first: true,
+            reason: Some("Deleting can't be undone.".into()),
+        }))
+        .unwrap();
+        assert_eq!(value["deny_first"], true);
+        assert_eq!(value["reason"], "Deleting can't be undone.");
+        let fields = value.as_object_mut().unwrap();
+        fields.remove("deny_first");
+        fields.remove("reason");
+        let parsed: TimelineItem = serde_json::from_value(value).unwrap();
+        assert!(matches!(
+            parsed.body,
+            ItemBody::Approval {
+                deny_first: false,
+                reason: None,
+                ..
+            }
+        ));
+    }
+
+    #[test]
+    fn a_claude_ai_page_call_round_trips_and_reads_as_none_from_an_older_peer() {
+        let call = ArtifactCall {
+            action: "publish".into(),
+            title: Some("Weekly report".into()),
+            url: Some("https://claude.ai/artifact/EXAMPLE".into()),
+            detail: Some("scratch/report.html".into()),
+            version: Some("2".into()),
+            owned: Some(true),
+        };
+        let published = item(ItemBody::ToolCall {
+            server: None,
+            name: "Artifact".into(),
+            title: Some("Published \"Weekly report\"".into()),
+            input: Some(r#"{"file_path":"scratch/report.html"}"#.into()),
+            output: None,
+            images: Vec::new(),
+            artifact: Some(Box::new(call)),
+        });
+        let mut value = serde_json::to_value(&published).unwrap();
+        assert_eq!(
+            value["artifact"],
+            json!({
+                "action": "publish",
+                "title": "Weekly report",
+                "url": "https://claude.ai/artifact/EXAMPLE",
+                "detail": "scratch/report.html",
+                "version": "2",
+                "owned": true,
+            })
+        );
+        let parsed: TimelineItem = serde_json::from_value(value.clone()).unwrap();
+        assert_eq!(parsed, published);
+
+        // A call that names only its action leaves the rest out.
+        value["artifact"] = json!({"action": "list"});
+        let parsed: TimelineItem = serde_json::from_value(value.clone()).unwrap();
+        let ItemBody::ToolCall {
+            artifact: Some(listed),
+            ..
+        } = parsed.body
+        else {
+            panic!("{parsed:?}");
+        };
+        assert_eq!(listed.action, "list");
+        assert_eq!(
+            (
+                listed.title,
+                listed.url,
+                listed.detail,
+                listed.version,
+                listed.owned
+            ),
+            (None, None, None, None, None)
+        );
+
+        // An older peer's tool call has no page part.
+        value.as_object_mut().unwrap().remove("artifact");
+        let parsed: TimelineItem = serde_json::from_value(value).unwrap();
+        assert!(matches!(
+            parsed.body,
+            ItemBody::ToolCall { artifact: None, .. }
+        ));
+    }
+
+    #[test]
     fn a_message_from_an_older_peer_reads_without_refs() {
         let parsed: TimelineItem = serde_json::from_value(json!({
             "id": "claude:msg_01",

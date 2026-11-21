@@ -14,6 +14,7 @@ use maxhq_protocol::timeline::{
 };
 use serde_json::Value;
 
+use super::artifacts::{self, Asked};
 use super::wire::{cap, clip, content_text, flag, number, text, text_or_empty};
 
 /// How much of a command's output an item keeps.
@@ -40,8 +41,9 @@ pub fn mcp_parts(name: &str) -> Option<(&str, &str)> {
     name.strip_prefix("mcp__")?.split_once("__")
 }
 
-/// The item for a tool call, from its input alone.
-pub fn start(name: &str, id: &str, input: &Value) -> ItemBody {
+/// The item for a tool call, from its input alone. Paths inside `cwd` show
+/// relative to it.
+pub fn start(name: &str, id: &str, input: &Value, cwd: &Path) -> ItemBody {
     match name {
         "Bash" => ItemBody::Command {
             command: text_or_empty(input, "command").to_owned(),
@@ -102,10 +104,15 @@ pub fn start(name: &str, id: &str, input: &Value) -> ItemBody {
                 Some((server, tool)) => (Some(server.to_owned()), tool),
                 None => (None, name),
             };
-            let title = ["description", "skill", "query", "command"]
-                .into_iter()
-                .find_map(|key| text(input, key))
-                .map(|line| clip(line, TITLE_CHARS));
+            let artifact =
+                artifacts::is_tool(name).then(|| Box::new(artifacts::start(name, input, cwd)));
+            let title = match &artifact {
+                Some(call) => Some(artifacts::line(name, input, call, false)),
+                None => ["description", "skill", "query", "command"]
+                    .into_iter()
+                    .find_map(|key| text(input, key))
+                    .map(|line| clip(line, TITLE_CHARS)),
+            };
             let input = (!is_empty_object(input)).then(|| cap(&input.to_string(), TOOL_TEXT_CAP).0);
             ItemBody::ToolCall {
                 server,
@@ -114,7 +121,7 @@ pub fn start(name: &str, id: &str, input: &Value) -> ItemBody {
                 input,
                 output: None,
                 images: Vec::new(),
-                artifact: None,
+                artifact,
             }
         }
     }
@@ -216,9 +223,19 @@ pub fn finish(
             }
             Finish::Ended(ended)
         }
-        ItemBody::ToolCall { output, .. } => {
+        ItemBody::ToolCall {
+            name,
+            title,
+            output,
+            artifact,
+            ..
+        } => {
             if !content.is_empty() {
                 *output = Some(cap(content, TOOL_TEXT_CAP).0);
+            }
+            if let Some(call) = artifact {
+                artifacts::finish(call, result, failed);
+                *title = Some(artifacts::line(name, input, call, !failed));
             }
             Finish::Ended(ended)
         }
@@ -242,13 +259,43 @@ pub fn approval_kind(name: &str) -> ApprovalKind {
         "Read" | "Grep" | "Glob" => ApprovalKind::FileRead,
         "WebFetch" | "WebSearch" => ApprovalKind::Network,
         "ExitPlanMode" => ApprovalKind::Plan,
+        _ if artifacts::is_tool(name) => ApprovalKind::Network,
         _ => ApprovalKind::Tool,
+    }
+}
+
+/// What a permission request's card shows.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Card {
+    /// Its one line.
+    pub title: String,
+    /// More to show below the title.
+    pub detail: Option<String>,
+    /// Why the CLI asks.
+    pub reason: Option<String>,
+}
+
+/// The card for a permission request for `name` with `input`. Paths inside
+/// `cwd` show relative to it.
+pub fn approval_card(name: &str, input: &Value, cwd: &Path, asked: &Asked) -> Card {
+    if let Some(card) = artifacts::card(name, input, cwd, asked) {
+        return card;
+    }
+    // A tool MaxHQ has no words for reads as the request's own title.
+    let title = match (&asked.title, approval_kind(name)) {
+        (Some(said), ApprovalKind::Tool) => said.clone(),
+        _ => approval_title(name, input, cwd),
+    };
+    Card {
+        title,
+        detail: approval_detail(name, input, cwd),
+        reason: asked.reason.clone(),
     }
 }
 
 /// The one line a permission request shows. Paths inside `cwd` show
 /// relative to it.
-pub fn approval_title(name: &str, input: &Value, cwd: &Path) -> String {
+fn approval_title(name: &str, input: &Value, cwd: &Path) -> String {
     let path = || clip_middle(&approval_path(input, cwd), TITLE_CHARS);
     match name {
         "Bash" => format!(
@@ -303,7 +350,7 @@ fn one_line(text: &str) -> String {
 
 /// `text` on one line, cut in the middle to at most `max` characters, so a
 /// path or address always shows how it ends.
-fn clip_middle(text: &str, max: usize) -> String {
+pub(super) fn clip_middle(text: &str, max: usize) -> String {
     let line = one_line(text);
     let count = line.chars().count();
     if count <= max {
@@ -322,7 +369,7 @@ fn uncut(text: &str) -> Option<String> {
 }
 
 /// `path` relative to `cwd` when it's inside it.
-fn short_path(path: &str, cwd: &Path) -> String {
+pub(super) fn short_path(path: &str, cwd: &Path) -> String {
     match Path::new(path).strip_prefix(cwd) {
         Ok(inside) if !inside.as_os_str().is_empty() => inside.display().to_string(),
         _ => path.to_owned(),
@@ -339,7 +386,7 @@ pub fn approval_cwd(input: &Value, cwd: &Path) -> Option<String> {
 }
 
 /// More to show on a permission request than its title.
-pub fn approval_detail(name: &str, input: &Value, cwd: &Path) -> Option<String> {
+fn approval_detail(name: &str, input: &Value, cwd: &Path) -> Option<String> {
     match name {
         "Bash" => text(input, "command").map(str::to_owned),
         "WebFetch" => {
@@ -355,7 +402,7 @@ pub fn approval_detail(name: &str, input: &Value, cwd: &Path) -> Option<String> 
         }
         "ExitPlanMode" => None,
         _ if is_empty_object(input) => None,
-        _ => Some(cap(&input.to_string(), TOOL_TEXT_CAP).0),
+        _ => Some(cap(&artifacts::shown_input(input).to_string(), TOOL_TEXT_CAP).0),
     }
 }
 
@@ -683,7 +730,7 @@ mod tests {
     #[test]
     fn a_command_keeps_its_output_and_exit_status() {
         let input = json!({"command": "cargo test", "description": "Run tests"});
-        let mut body = start("Bash", "toolu_1", &input);
+        let mut body = start("Bash", "toolu_1", &input, Path::new("/w"));
         let result = json!({"stdout": "ok", "stderr": "warn", "interrupted": false});
         assert_eq!(
             finish(&mut body, &input, &result, "ok", false),
@@ -698,7 +745,7 @@ mod tests {
         assert_eq!(output, "ok\nwarn");
         assert_eq!(*exit_code, Some(0));
 
-        let mut body = start("Bash", "toolu_2", &input);
+        let mut body = start("Bash", "toolu_2", &input, Path::new("/w"));
         let failed = json!("Error: Exit code 2\nno such file");
         let status = finish(
             &mut body,
@@ -721,7 +768,7 @@ mod tests {
     #[test]
     fn a_background_command_keeps_running() {
         let input = json!({"command": "sleep 60", "run_in_background": true});
-        let mut body = start("Bash", "toolu_1", &input);
+        let mut body = start("Bash", "toolu_1", &input, Path::new("/w"));
         let result = json!({"stdout": "", "stderr": "", "backgroundTaskId": "b1"});
         assert_eq!(
             finish(&mut body, &input, &result, "", false),
@@ -739,7 +786,7 @@ mod tests {
     #[test]
     fn an_edit_takes_the_structured_patch() {
         let input = json!({"file_path": "/w/seed.txt", "old_string": "one", "new_string": "two"});
-        let mut body = start("Edit", "toolu_1", &input);
+        let mut body = start("Edit", "toolu_1", &input, Path::new("/w"));
         let ItemBody::FileChange { changes } = &body else {
             panic!("{body:?}");
         };
@@ -769,7 +816,7 @@ mod tests {
     #[test]
     fn a_new_file_is_an_add_with_every_line() {
         let input = json!({"file_path": "/w/a.txt", "content": "ALPHA\nBETA\n"});
-        let mut body = start("Write", "toolu_1", &input);
+        let mut body = start("Write", "toolu_1", &input, Path::new("/w"));
         let result = json!({"type": "create", "filePath": "/w/a.txt", "content": "ALPHA\nBETA\n",
             "structuredPatch": [], "originalFile": null});
         finish(&mut body, &input, &result, "", false);
@@ -788,7 +835,7 @@ mod tests {
     fn reads_searches_and_web_calls_get_their_own_kinds() {
         let input = json!({"file_path": "/w/lib.rs", "offset": 10, "limit": 31});
         assert_eq!(
-            start("Read", "t", &input),
+            start("Read", "t", &input, Path::new("/w")),
             ItemBody::FileRead {
                 path: "/w/lib.rs".into(),
                 lines: Some("10-40".into()),
@@ -796,7 +843,7 @@ mod tests {
             }
         );
         let input = json!({"pattern": "fn main", "path": "src"});
-        let mut body = start("Grep", "t", &input);
+        let mut body = start("Grep", "t", &input, Path::new("/w"));
         finish(
             &mut body,
             &input,
@@ -813,7 +860,7 @@ mod tests {
             }
         );
         assert_eq!(
-            start("WebSearch", "t", &json!({"query": "rust"})),
+            start("WebSearch", "t", &json!({"query": "rust"}), Path::new("/w")),
             ItemBody::Web {
                 action: WebAction::Search,
                 target: "rust".into()
@@ -828,6 +875,7 @@ mod tests {
             "mcp__plugin_context7_context7__resolve-library-id",
             "t",
             &input,
+            Path::new("/w"),
         );
         finish(&mut body, &input, &json!([]), "Found serde", false);
         assert_eq!(
@@ -856,7 +904,7 @@ mod tests {
             {"question": "Which sizes?", "header": "Size", "multiSelect": true,
              "options": [{"label": "S"}, {"label": "M"}]},
         ]});
-        let mut body = start("AskUserQuestion", "toolu_q", &input);
+        let mut body = start("AskUserQuestion", "toolu_q", &input, Path::new("/w"));
         let result = json!({"answers": {"Which color?": "Blue", "Which sizes?": "S, M"}});
         finish(&mut body, &input, &result, "", false);
         let ItemBody::Question {
@@ -892,13 +940,13 @@ mod tests {
     fn an_async_sub_agent_keeps_running_until_its_task_ends() {
         let input =
             json!({"description": "Find the parser", "subagent_type": "Explore", "prompt": "go"});
-        let mut body = start("Agent", "t", &input);
+        let mut body = start("Agent", "t", &input, Path::new("/w"));
         let result = json!({"status": "async_launched", "agentId": "a1"});
         assert_eq!(
             finish(&mut body, &input, &result, "Launched", false),
             Finish::Background
         );
-        let mut body = start("Task", "t", &input);
+        let mut body = start("Task", "t", &input, Path::new("/w"));
         finish(
             &mut body,
             &input,
@@ -924,7 +972,7 @@ mod tests {
             {"content": "Write", "status": "in_progress", "activeForm": "Writing"},
             {"content": "Test", "status": "pending", "activeForm": "Testing"},
         ]});
-        let ItemBody::Todos { todos } = start("TodoWrite", "t", &input) else {
+        let ItemBody::Todos { todos } = start("TodoWrite", "t", &input, Path::new("/w")) else {
             panic!();
         };
         let states: Vec<_> = todos.iter().map(|todo| todo.state).collect();
@@ -933,7 +981,12 @@ mod tests {
             [TodoState::Done, TodoState::InProgress, TodoState::Pending]
         );
         assert_eq!(
-            start("ExitPlanMode", "t", &json!({"plan": "1. Read"})),
+            start(
+                "ExitPlanMode",
+                "t",
+                &json!({"plan": "1. Read"}),
+                Path::new("/w")
+            ),
             ItemBody::Plan {
                 markdown: "1. Read".into(),
                 streaming: false
@@ -1047,7 +1100,7 @@ mod tests {
     fn a_huge_read_result_does_not_overflow_its_range() {
         let top = u64::MAX;
         let input = json!({"file_path": "/w/lib.rs"});
-        let mut body = start("Read", "toolu_1", &input);
+        let mut body = start("Read", "toolu_1", &input, Path::new("/w"));
         let result = json!({"file": {"startLine": top, "numLines": 2, "totalLines": 5}});
         finish(&mut body, &input, &result, "", false);
         let ItemBody::FileRead { lines, .. } = &body else {

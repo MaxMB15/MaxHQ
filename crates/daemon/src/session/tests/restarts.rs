@@ -1545,6 +1545,7 @@ fn a_boxed_claude_names_maxhq_as_the_app_running_it() {
         },
         dispatcher: false,
         trust: None,
+        claude_artifacts: true,
     };
     let raw = crate::drive::claude::launch(
         &login,
