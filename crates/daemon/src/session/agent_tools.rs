@@ -787,7 +787,8 @@ impl Manager {
             | Call::SubmitPlan(_)
             | Call::SearchGuide(_)
             | Call::ReadGuide(_)
-            | Call::Admin(_) => {
+            | Call::Admin(_)
+            | Call::Chat(_) => {
                 self.reply_now(reply, Err(NOT_ALLOWED.into()));
             }
             Call::ScheduleTask(asked) => {

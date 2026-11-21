@@ -91,7 +91,7 @@ describe("the sample dispatcher", () => {
 		expect(await mock.confirmPlan(MAC, plan.id)).toEqual(stale);
 	});
 
-	it("starts over for a new conversation or another account", async () => {
+	it("starts over for a new conversation or another account, and keeps the old as a chat", async () => {
 		const { mock, view, dispatcher, planFor } = setup();
 		await planFor("Comet");
 		const first = (await dispatcher()).agent!;
@@ -99,7 +99,50 @@ describe("the sample dispatcher", () => {
 		const second = await dispatcher();
 		expect(second.agent).not.toBe(first);
 		expect(second.plan).toBeNull();
-		expect((await view()).tables.agent.has(first)).toBe(false);
+		const chats = (await view()).tables.dispatcher_chat;
+		expect(chats.get(first)).toMatchObject({ title: "", archived: false });
+		expect(chats.get(second.agent!)!.number).toBe(chats.get(first)!.number + 1);
+	});
+
+	it("picks, renames, archives and deletes a chat, and keeps a moved message here", async () => {
+		const { mock, view, dispatcher } = setup();
+		const chat = (id: string) => view().then((v) => v.tables.dispatcher_chat.get(id));
+		expect((await chat("agent-chat-release"))?.moved_to).toBe("agent-chat-login");
+
+		await mock.actOnChat(MAC, "agent-chat-charts", { type: "pick" });
+		expect((await dispatcher()).agent).toBe("agent-chat-charts");
+		expect((await chat("agent-chat-charts"))?.active_at).toBe(NOW);
+		expect((await view()).tables.agent.get("agent-chat-charts")?.workspace).toBe(
+			DISPATCHER_HOME
+		);
+
+		await mock.actOnChat(MAC, "agent-chat-charts", { type: "rename", title: "Charts" });
+		await mock.actOnChat(MAC, "agent-chat-charts", { type: "archive", archived: true });
+		expect(await chat("agent-chat-charts")).toMatchObject({ title: "Charts", archived: true });
+
+		await mock.actOnChat(MAC, "agent-chat-release", { type: "keep_here" });
+		expect((await dispatcher()).agent).toBe("agent-chat-release");
+		expect((await chat("agent-chat-release"))?.moved_to).toBeNull();
+
+		await mock.deleteAgent("agent-chat-ci");
+		expect(await chat("agent-chat-ci")).toBeUndefined();
+		expect(await mock.actOnChat(MAC, "agent-chat-ci", { type: "pick" })).toEqual({
+			status: "ok",
+			data: { status: "refused", reason: "That chat isn't here any more." },
+		});
+	});
+
+	it("saves a chat to Notes as a note its agent wrote", async () => {
+		const { mock, view, dispatcher } = setup();
+		await mock.actOnChat(MAC, "agent-chat-login", { type: "save_note" });
+		expect((await dispatcher()).agent).toBe("agent-chat-login");
+		const notes = [...(await view()).tables.project_notes.values()]
+			.filter((n) => n.device === MAC)
+			.flatMap((n) => n.notes);
+		expect(notes.find((n) => n.by?.agent === "agent-chat-login")).toMatchObject({
+			title: "Slow login page",
+			created_on: MAC,
+		});
 	});
 
 	it("refuses what the real one refuses", async () => {

@@ -15,6 +15,7 @@ use maxhq_protocol::acp::{AcpAgent, AcpEnvValue};
 use maxhq_protocol::agents::{AccessKey, MoveTo, Permission};
 use maxhq_protocol::attention::AttentionAnswer;
 use maxhq_protocol::context::InlineRef;
+use maxhq_protocol::dispatch::ChatAct;
 use maxhq_protocol::find::{AgentExcerpt, GitItemSearch, PathMatch};
 use maxhq_protocol::folders::FolderList;
 use maxhq_protocol::hosts::MoveStep;
@@ -821,6 +822,13 @@ pub enum Request {
         device: DeviceId,
         action: IdempotencyKey,
     },
+    /// Picks, renames, archives or saves one dispatcher chat, or keeps a
+    /// moved message in it.
+    ActOnChat {
+        device: DeviceId,
+        agent: AgentId,
+        action: ChatAct,
+    },
     /// Moves an agent on `from` to another device, through the `maxd` on
     /// `device`, the one the app runs with. `stop` stops a turn that runs
     /// or a prompt that waits first.
@@ -1134,6 +1142,7 @@ pub enum Response {
     ConfirmPlan(ActionOutcome),
     DismissPlan(ActionOutcome),
     UndoDispatcherAction(ActionOutcome),
+    ActOnChat(ActionOutcome),
     MoveAgent(ActionOutcome),
     TerminalOpen(ActionOutcome),
     TerminalAttach,
@@ -1348,6 +1357,7 @@ impl Request {
             Self::ConfirmPlan { .. } => "confirm_plan",
             Self::DismissPlan { .. } => "dismiss_plan",
             Self::UndoDispatcherAction { .. } => "undo_dispatcher_action",
+            Self::ActOnChat { .. } => "act_on_chat",
             Self::MoveAgent { .. } => "move_agent",
             Self::TerminalOpen { .. } => "terminal_open",
             Self::TerminalAttach { .. } => "terminal_attach",
@@ -1564,6 +1574,7 @@ impl Response {
             Self::ConfirmPlan(_) => "confirm_plan",
             Self::DismissPlan(_) => "dismiss_plan",
             Self::UndoDispatcherAction(_) => "undo_dispatcher_action",
+            Self::ActOnChat(_) => "act_on_chat",
             Self::MoveAgent(_) => "move_agent",
             Self::TerminalOpen(_) => "terminal_open",
             Self::TerminalAttach => "terminal_attach",
@@ -2631,6 +2642,14 @@ impl<C: Connector> App<C> {
             Request::UndoDispatcherAction { device, action } => {
                 let action = ClientMessage::UndoDispatcherAction { key, action };
                 Response::UndoDispatcherAction(devices.act_on(device, action).await?)
+            }
+            Request::ActOnChat {
+                device,
+                agent,
+                action,
+            } => {
+                let action = ClientMessage::ActOnChat { key, agent, action };
+                Response::ActOnChat(devices.act_on(device, action).await?)
             }
             Request::MoveAgent {
                 device,

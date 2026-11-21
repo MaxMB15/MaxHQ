@@ -6388,6 +6388,73 @@
         "workspace"
       ]
     },
+    "DispatcherChat": {
+      "description": "One conversation with a device's dispatcher. Each runs its own agent, so\na chat you pick or the dispatcher moves a message to resumes where it\nstopped. Since protocol 53.",
+      "type": "object",
+      "properties": {
+        "active_at": {
+          "description": "When you last wrote in it or picked it.",
+          "$ref": "#/$defs/Timestamp"
+        },
+        "agent": {
+          "description": "The agent that holds the conversation, which also names the chat.",
+          "$ref": "#/$defs/AgentId"
+        },
+        "archived": {
+          "description": "Whether you archived it. Clients also show one untouched for a week\nas archived.",
+          "type": "boolean"
+        },
+        "device": {
+          "description": "The device the dispatcher runs on.",
+          "$ref": "#/$defs/DeviceId"
+        },
+        "moved_to": {
+          "description": "The chat the dispatcher moved your last message to, until you write\nagain. Keep here moves it back.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/AgentId"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "number": {
+          "description": "Counts the device's chats from 1, so the dispatcher can name one in\na tool call.",
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "project": {
+          "description": "The project it's about, if one. Save to Notes writes there.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ProjectId"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "summary": {
+          "description": "What it's about, in one line.",
+          "type": "string"
+        },
+        "title": {
+          "description": "Its title. Empty until the dispatcher names it or you rename it.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "agent",
+        "device",
+        "number",
+        "title",
+        "summary",
+        "active_at",
+        "archived"
+      ]
+    },
     "EdgeShape": {
       "description": "One edge of a run's shape: `to` needs `from`.",
       "type": "object",
@@ -7057,6 +7124,20 @@
             }
           },
           "$ref": "#/$defs/Terminal",
+          "required": [
+            "entity"
+          ]
+        },
+        {
+          "description": "One conversation with a device's dispatcher. Since protocol 53.",
+          "type": "object",
+          "properties": {
+            "entity": {
+              "type": "string",
+              "const": "dispatcher_chat"
+            }
+          },
+          "$ref": "#/$defs/DispatcherChat",
           "required": [
             "entity"
           ]
@@ -7741,6 +7822,23 @@
             },
             "id": {
               "$ref": "#/$defs/TerminalId"
+            }
+          },
+          "required": [
+            "entity",
+            "id"
+          ]
+        },
+        {
+          "description": "A dispatcher chat, named by its agent.",
+          "type": "object",
+          "properties": {
+            "entity": {
+              "type": "string",
+              "const": "dispatcher_chat"
+            },
+            "id": {
+              "$ref": "#/$defs/AgentId"
             }
           },
           "required": [

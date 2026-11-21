@@ -64,7 +64,7 @@ impl Manager {
     /// [`super::agent_tools`].
     pub(super) fn run_tool(&mut self, session: SessionId, call: ToolCall) {
         if self.is_dispatcher(call.agent) {
-            return self.dispatcher_tool(session, call);
+            return self.dispatcher_call(session, call);
         }
         match call.call {
             Call::SendAttachments(send) => {

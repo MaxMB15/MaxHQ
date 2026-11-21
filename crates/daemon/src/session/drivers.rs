@@ -619,6 +619,7 @@ impl Manager {
             .apply_held(agents.into_iter().map(|agent| Change::Remove {
                 key: EntityKey::Agent(agent),
             }));
+        self.forget_chat(lead);
     }
 
     /// Forgets lead agents with their sub-agents, as

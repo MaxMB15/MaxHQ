@@ -1418,7 +1418,8 @@ impl Connection {
             message @ (ClientMessage::AskDispatcher { .. }
             | ClientMessage::ConfirmPlan { .. }
             | ClientMessage::DismissPlan { .. }
-            | ClientMessage::UndoDispatcherAction { .. }) => {
+            | ClientMessage::UndoDispatcherAction { .. }
+            | ClientMessage::ActOnChat { .. }) => {
                 if let Some(client) = &self.client {
                     client.send(message);
                 }

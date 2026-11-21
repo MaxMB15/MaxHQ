@@ -6,13 +6,18 @@
 // there, and a task that sends it octocat's PR changes once 15 minutes pass
 // with none. A confirmed plan runs through the same sample calls as the
 // rest of the source, item by item, and stops at the first that fails.
+// Each conversation is a chat, and a few earlier ones fill the Chats list.
+// A sample chat's agent starts when you first pick it, and Save to Notes
+// writes its note in the sample project.
 
 import type {
 	ActionOutcome,
+	AgentId,
 	AgentSpec,
 	AttentionAnswer,
 	AttentionId,
 	Dispatcher,
+	DispatcherChat,
 	PlanItem,
 	PlanOutcome,
 	PlanStep,
@@ -24,9 +29,10 @@ import type {
 import type { Entity } from "../fleet/wire";
 import { NO_PERMISSION } from "../tasks/draft";
 
+import type { MockNotes } from "./mock-notes";
 import { NO_RULES } from "./mock-tasks";
 import { type MockTimelines, say, you } from "./mock-timeline";
-import { CURSOR, MAC } from "./mock-view";
+import { CLAUDE, CURSOR, MAC } from "./mock-view";
 import type { ActionResult, DataSource } from "./source";
 
 /** The workspace of the dispatcher's own folder on the Mac. */
@@ -35,8 +41,70 @@ export const DISPATCHER_HOME = "ws-dispatcher-mac";
 /** The sample GitHub login the plan watches. */
 export const SAMPLE_AUTHOR = "octocat";
 
-/** The dispatcher's folder and its entity, as the Mac's `maxd` publishes them. */
-export const dispatcherEntities = (): Entity[] => [
+const MIN = 60_000;
+const HOUR = 60 * MIN;
+const DAY = 24 * HOUR;
+
+/** An earlier chat, how long ago it was active, and what was said in it. */
+type SampleChat = {
+	readonly agent: AgentId;
+	readonly title: string;
+	readonly summary: string;
+	readonly ago: number;
+	readonly archived?: boolean;
+	readonly asked: string;
+	readonly answered: string;
+};
+
+const SAMPLE_CHATS: readonly SampleChat[] = [
+	{
+		agent: "agent-chat-login",
+		title: "Slow login page",
+		summary: "Why the login page takes ten seconds on devbox",
+		ago: 25 * MIN,
+		asked: "Why does the login page take ten seconds on devbox?",
+		answered:
+			"The session check runs twice: once in the middleware and again in the page. Drop the page's check and it loads in under a second.",
+	},
+	{
+		agent: "agent-chat-release",
+		title: "Release notes for the next version",
+		summary: "What goes in the notes, and the order",
+		ago: 26 * HOUR,
+		asked: "What should the next release notes lead with?",
+		answered: "Lead with the terminal sessions, then the phone fixes, then the smaller items.",
+	},
+	{
+		agent: "agent-chat-ci",
+		title: "Flaky Linux tests",
+		summary: "The terminal test that times out on the Linux runner",
+		ago: 6 * DAY,
+		asked: "Why does the terminal test time out on Linux now and then?",
+		answered:
+			"It waits on a prompt bash prints only once the line is idle. Wait for the marker instead.",
+	},
+	{
+		agent: "agent-chat-charts",
+		title: "Picking a chart library",
+		summary: "Small, no canvas, works in the phone app too",
+		ago: 12 * DAY,
+		asked: "Which chart library fits the usage meter?",
+		answered: "A small SVG one, since the meter needs three bars and a line, not a canvas.",
+	},
+	{
+		agent: "agent-chat-colors",
+		title: "Terminal colors",
+		summary: "Matching the drawer's colors to the theme",
+		ago: 3 * HOUR,
+		archived: true,
+		asked: "Can the terminal drawer follow the app's theme?",
+		answered:
+			"Yes. Read the theme's tokens when the drawer opens and again when the theme changes.",
+	},
+];
+
+/** The dispatcher's folder, its entity and its earlier chats, as the Mac's `maxd` publishes them. */
+export const dispatcherEntities = (now: Timestamp): Entity[] => [
 	{
 		entity: "workspace",
 		id: DISPATCHER_HOME,
@@ -48,17 +116,32 @@ export const dispatcherEntities = (): Entity[] => [
 		},
 	},
 	{ entity: "dispatcher", device: MAC, workspace: DISPATCHER_HOME, agent: null, plan: null },
+	...SAMPLE_CHATS.map((chat, i): Entity => ({
+		entity: "dispatcher_chat",
+		agent: chat.agent,
+		device: MAC,
+		number: SAMPLE_CHATS.length - i,
+		title: chat.title,
+		summary: chat.summary,
+		project: null,
+		active_at: now - chat.ago,
+		archived: chat.archived ?? false,
+		// A release question went to the login chat, which Keep here undoes.
+		moved_to: chat.agent === "agent-chat-release" ? "agent-chat-login" : null,
+	})),
 ];
 
 /** The dispatcher calls of a data source. */
 export type DispatcherCalls = Pick<
 	DataSource,
-	"askDispatcher" | "confirmPlan" | "dismissPlan" | "undoDispatcherAction"
+	"askDispatcher" | "confirmPlan" | "dismissPlan" | "undoDispatcherAction" | "actOnChat"
 >;
 
 /** The sample dispatcher. */
 export type MockDispatcher = {
 	readonly calls: DispatcherCalls;
+	/** Starts a sample chat's agent if it hasn't started yet, so it can be deleted. */
+	readonly wake: (agent: AgentId) => void;
 	/** Takes an answer to the dispatcher's question. Null when it's another agent's. */
 	readonly answer: (event: AttentionId, answer: AttentionAnswer) => ActionResult | null;
 };
@@ -76,6 +159,7 @@ export type DispatcherContext = {
 	readonly startAgent: DataSource["startAgent"];
 	readonly saveTask: DataSource["saveTask"];
 	readonly moveAgent: DataSource["moveAgent"];
+	readonly writeNote: MockNotes["write"];
 };
 
 const DONE: ActionResult = { status: "ok", data: { status: "done" } };
@@ -91,6 +175,10 @@ const ran = (results: PlanOutcome[]): ActionResult => ({
 });
 
 const QUESTION = "Which project should the agent work in?";
+
+/** What Keep here and Save to Notes send the chat, as its device does. */
+const KEEP_HERE = "Keep this here. Answer my last message in this chat.";
+const SAVE_NOTE = "Save this chat to Notes.";
 
 /** A project with a folder on the Mac, which the plan's agent can run in. */
 type Choice = {
@@ -111,6 +199,7 @@ const why = (result: ActionResult, fallback: string): string => {
 export const mockDispatcher = (ctx: DispatcherContext): MockDispatcher => {
 	let asked = 0;
 	let plans = 0;
+	let saved = 0;
 	// The question waiting for an answer, and the project the last plan was for.
 	let open: { readonly attention: AttentionId; readonly agent: string } | null = null;
 	let chosen: Choice | null = null;
@@ -126,6 +215,81 @@ export const mockDispatcher = (ctx: DispatcherContext): MockDispatcher => {
 				e.entity === "dispatcher" && e.device === MAC ? { ...e, ...edit(e) } : e
 			)
 		);
+
+	const chatOf = (agent: AgentId): DispatcherChat | undefined => {
+		const found = ctx.get(`dispatcher_chat:${agent}`);
+		return found?.entity === "dispatcher_chat" ? found : undefined;
+	};
+
+	const editChats = (edit: (chat: DispatcherChat) => DispatcherChat) =>
+		ctx.change((base) =>
+			base.map((e) => (e.entity === "dispatcher_chat" ? { ...e, ...edit(e) } : e))
+		);
+
+	/** Lists a conversation that just started as a chat, numbered after the rest. */
+	const addChat = (agent: AgentId) => {
+		let number = 0;
+		for (const e of ctx.entities())
+			if (e.entity === "dispatcher_chat") number = Math.max(number, e.number);
+		ctx.change((base) => [
+			...base,
+			{
+				entity: "dispatcher_chat",
+				agent,
+				device: MAC,
+				number: number + 1,
+				title: "",
+				summary: "",
+				project: null,
+				active_at: ctx.now(),
+				archived: false,
+				moved_to: null,
+			},
+		]);
+	};
+
+	/** Starts a sample chat's agent the first time it's needed, with what was said in it. */
+	const wake = (agent: AgentId) => {
+		const chat = chatOf(agent);
+		if (!chat || ctx.get(`agent:${agent}`)) return;
+		ctx.change((base) => [
+			...base,
+			{
+				entity: "agent",
+				id: chat.agent,
+				workspace: DISPATCHER_HOME,
+				branch: null,
+				parent: null,
+				vendor: "claude",
+				account: CLAUDE,
+				model: null,
+				permission: { requested: "ask", effective: null },
+				session: null,
+				vendor_session_id: null,
+				control: "held",
+				pid: null,
+				link: { state: "live" },
+				title: "Dispatcher",
+				activity: { state: "idle" },
+				context: null,
+				started_at: chat.active_at,
+				last_activity_at: chat.active_at,
+			},
+		]);
+		const sample = SAMPLE_CHATS.find((s) => s.agent === chat.agent);
+		if (!sample) return;
+		ctx.timelines.post(chat.agent, you(sample.asked));
+		ctx.timelines.post(chat.agent, say(sample.answered));
+	};
+
+	/** Makes a chat the conversation now, as picking it does. */
+	const pick = (chat: DispatcherChat) => {
+		wake(chat.agent);
+		open = null;
+		const at = ctx.now();
+		setState((d) => ({ ...d, agent: chat.agent, plan: null }));
+		editChats((c) => (c.agent === chat.agent ? { ...c, active_at: at, archived: false } : c));
+	};
 
 	const choices = (): Choice[] => {
 		const out: Choice[] = [];
@@ -321,22 +485,25 @@ export const mockDispatcher = (ctx: DispatcherContext): MockDispatcher => {
 			)
 				return refused("The dispatcher runs as a Claude or Codex account on this Mac.");
 			const held = dispatcher.agent ? ctx.get(`agent:${dispatcher.agent}`) : undefined;
+			// Writing again clears where the last message moved.
+			editChats((c) => ({ ...c, moved_to: null }));
 			if (!fresh && held?.entity === "agent" && held.account === account) {
+				const at = ctx.now();
+				editChats((c) =>
+					c.agent === held.id ? { ...c, active_at: at, archived: false } : c
+				);
 				ctx.timelines.post(held.id, you(text));
 				// A follow-up with no question waiting gets the plan again, as a new one.
 				if (!open && chosen) propose(held.id, chosen);
 				return DONE;
 			}
-			// A new conversation stops the old one and drops its plan.
+			// A new conversation drops the old one's question and plan, and
+			// the old one stays as a chat.
 			const old = dispatcher.agent;
 			if (old) {
 				open = null;
 				ctx.change((base) =>
-					base.filter(
-						(e) =>
-							!(e.entity === "agent" && e.id === old) &&
-							!(e.entity === "attention" && e.agent === old)
-					)
+					base.filter((e) => !(e.entity === "attention" && e.agent === old))
 				);
 			}
 			setState((d) => ({ ...d, agent: null, plan: null }));
@@ -353,6 +520,7 @@ export const mockDispatcher = (ctx: DispatcherContext): MockDispatcher => {
 			if (started.status !== "ok" || started.data.status !== "started") return started;
 			const agent = started.data.agent;
 			setState((d) => ({ ...d, agent }));
+			addChat(agent);
 			ctx.timelines.post(agent, you(text));
 			ask(agent);
 			return started;
@@ -384,10 +552,58 @@ export const mockDispatcher = (ctx: DispatcherContext): MockDispatcher => {
 					? "That change can't be undone any more."
 					: "The dispatcher runs on the Mac."
 			),
+		actOnChat: async (device, agent, action) => {
+			if (device !== MAC) return refused("The dispatcher runs on the Mac.");
+			const chat = chatOf(agent);
+			if (!chat) return refused("That chat isn't here any more.");
+			switch (action.type) {
+				case "pick":
+					pick(chat);
+					break;
+				case "rename": {
+					const title = action.title.split("\n")[0]?.trim() ?? "";
+					if (!title) return refused("Give the chat a title.");
+					editChats((c) => (c.agent === agent ? { ...c, title } : c));
+					break;
+				}
+				case "archive": {
+					const at = ctx.now();
+					editChats((c) =>
+						c.agent !== agent
+							? c
+							: action.archived
+								? { ...c, archived: true }
+								: { ...c, archived: false, active_at: at }
+					);
+					break;
+				}
+				case "keep_here":
+					if (!chat.moved_to) return refused("No message moved out of that chat.");
+					pick(chat);
+					editChats((c) => (c.agent === agent ? { ...c, moved_to: null } : c));
+					ctx.timelines.post(agent, you(KEEP_HERE));
+					break;
+				case "save_note": {
+					pick(chat);
+					ctx.timelines.post(agent, you(SAVE_NOTE));
+					// The chat writes the note with create_note, as its agent does.
+					const title = chat.title || `Chat ${chat.number}`;
+					saved += 1;
+					ctx.writeNote(`note-chat-${saved}`, title, chat.summary, {
+						device: MAC,
+						agent,
+					});
+					ctx.timelines.post(agent, say(`Saved it to Notes as "${title}".`));
+					break;
+				}
+			}
+			return DONE;
+		},
 	};
 
 	return {
 		calls,
+		wake,
 		answer: (event, answer) => {
 			if (!open || open.attention !== event) return null;
 			const { agent } = open;

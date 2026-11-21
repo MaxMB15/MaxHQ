@@ -14,6 +14,7 @@ use crate::ids::{AgentId, DeviceId, IdempotencyKey, ProjectId, TaskId, Workspace
 use crate::message::{AgentSpec, ToolTarget};
 use crate::model::{DeviceSettingChange, InboxChange, PermissionMode};
 use crate::tasks::{TaskTarget, Trigger};
+use crate::time::Timestamp;
 
 /// A device's dispatcher, as its `maxd` publishes it.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, Type, JsonSchema)]
@@ -309,4 +310,56 @@ pub enum PlanOutcome {
     /// An outcome from a newer `maxd`. The item went, and how needs a newer
     /// app to show.
     Unknown,
+}
+
+/// One conversation with a device's dispatcher. Each runs its own agent, so
+/// a chat you pick or the dispatcher moves a message to resumes where it
+/// stopped. Since protocol 53.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, Type, JsonSchema)]
+pub struct DispatcherChat {
+    /// The agent that holds the conversation, which also names the chat.
+    pub agent: AgentId,
+    /// The device the dispatcher runs on.
+    pub device: DeviceId,
+    /// Counts the device's chats from 1, so the dispatcher can name one in
+    /// a tool call.
+    pub number: u32,
+    /// Its title. Empty until the dispatcher names it or you rename it.
+    pub title: String,
+    /// What it's about, in one line.
+    pub summary: String,
+    /// The project it's about, if one. Save to Notes writes there.
+    pub project: Option<ProjectId>,
+    /// When you last wrote in it or picked it.
+    pub active_at: Timestamp,
+    /// Whether you archived it. Clients also show one untouched for a week
+    /// as archived.
+    pub archived: bool,
+    /// The chat the dispatcher moved your last message to, until you write
+    /// again. Keep here moves it back.
+    pub moved_to: Option<AgentId>,
+}
+
+/// What you do to one dispatcher chat. Delete one with `DeleteAgent`.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, Type, JsonSchema)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum ChatAct {
+    /// Makes it the conversation now.
+    Pick,
+    /// Gives it your own title, which the dispatcher then keeps.
+    Rename {
+        /// The new title.
+        title: String,
+    },
+    /// Archives it, or brings it back.
+    Archive {
+        /// Whether it's archived.
+        archived: bool,
+    },
+    /// Moves the message the dispatcher moved out of this chat back here,
+    /// and has this chat answer it.
+    KeepHere,
+    /// Makes it the conversation now and asks its agent to save it to
+    /// Notes.
+    SaveNote,
 }

@@ -338,6 +338,16 @@ export const ACTIONS: Case[] = [
 		},
 	],
 	[
+		"actOnChat",
+		(s) => s.actOnChat("device-1", "agent-1", { type: "rename", title: "Slow login" }),
+		{
+			kind: "act_on_chat",
+			device: "device-1",
+			agent: "agent-1",
+			action: { type: "rename", title: "Slow login" },
+		},
+	],
+	[
 		"readNote",
 		(s) => s.readNote("device-1", "project-1", "note-1", null),
 		{

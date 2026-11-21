@@ -453,6 +453,7 @@ export const requestCalls = (ask: Ask): Omit<DataSource, PlatformCalls> => ({
 	dismissPlan: (device, plan) => ask({ kind: "dismiss_plan", device, plan }),
 	undoDispatcherAction: (device, action) =>
 		ask({ kind: "undo_dispatcher_action", device, action }),
+	actOnChat: (device, agent, action) => ask({ kind: "act_on_chat", device, agent, action }),
 	listPulls: (project, state) => ask({ kind: "list_pulls", project, state }),
 	listBranches: (project) => ask({ kind: "list_branches", project }),
 	getPull: (device, repo, number) => ask({ kind: "get_pull", device, repo, number }),

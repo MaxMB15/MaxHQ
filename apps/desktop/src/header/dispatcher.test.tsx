@@ -187,7 +187,7 @@ describe("the dispatch box", () => {
 		const second = view().tables.dispatcher.get(MAC)?.agent;
 		expect(second).toBeTruthy();
 		expect(second).not.toBe(first);
-		expect(view().tables.agent.has(first!)).toBe(false);
+		expect(view().tables.dispatcher_chat.has(first!)).toBe(true);
 
 		// Esc with no plan closes the panel.
 		fireEvent.keyDown(input, { key: "Escape" });

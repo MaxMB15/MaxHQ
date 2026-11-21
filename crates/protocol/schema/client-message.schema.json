@@ -4586,6 +4586,34 @@
       ]
     },
     {
+      "description": "Acts on one dispatcher chat, since [`DISPATCHER_CHATS_SINCE`].\nAnswered with Done, or Refused for a chat the device doesn't hold.",
+      "type": "object",
+      "properties": {
+        "action": {
+          "description": "What to do.",
+          "$ref": "#/$defs/ChatAct"
+        },
+        "agent": {
+          "description": "The chat's agent.",
+          "$ref": "#/$defs/AgentId"
+        },
+        "key": {
+          "description": "Makes a resend after a dropped connection safe.",
+          "$ref": "#/$defs/IdempotencyKey"
+        },
+        "type": {
+          "type": "string",
+          "const": "act_on_chat"
+        }
+      },
+      "required": [
+        "type",
+        "key",
+        "agent",
+        "action"
+      ]
+    },
+    {
       "description": "Proves this connection holds `public_key`, with a signature over the\nhello's [`ServerHello::challenge`] and what names the connection, as\nthe `prove` module in `crates/core` lays them out. Sent right after\nthe hello, before the sync. Answered with Done, or Refused for a key\nthe device doesn't trust or a bad signature.",
       "type": "object",
       "properties": {
@@ -7477,6 +7505,86 @@
       "description": "Something an agent needs from you, such as a permission prompt.",
       "type": "string",
       "format": "uuid"
+    },
+    "ChatAct": {
+      "description": "What you do to one dispatcher chat. Delete one with `DeleteAgent`.",
+      "oneOf": [
+        {
+          "description": "Makes it the conversation now.",
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "pick"
+            }
+          },
+          "required": [
+            "type"
+          ]
+        },
+        {
+          "description": "Gives it your own title, which the dispatcher then keeps.",
+          "type": "object",
+          "properties": {
+            "title": {
+              "description": "The new title.",
+              "type": "string"
+            },
+            "type": {
+              "type": "string",
+              "const": "rename"
+            }
+          },
+          "required": [
+            "type",
+            "title"
+          ]
+        },
+        {
+          "description": "Archives it, or brings it back.",
+          "type": "object",
+          "properties": {
+            "archived": {
+              "description": "Whether it's archived.",
+              "type": "boolean"
+            },
+            "type": {
+              "type": "string",
+              "const": "archive"
+            }
+          },
+          "required": [
+            "type",
+            "archived"
+          ]
+        },
+        {
+          "description": "Moves the message the dispatcher moved out of this chat back here,\nand has this chat answer it.",
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "keep_here"
+            }
+          },
+          "required": [
+            "type"
+          ]
+        },
+        {
+          "description": "Makes it the conversation now and asks its agent to save it to\nNotes.",
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "save_note"
+            }
+          },
+          "required": [
+            "type"
+          ]
+        }
+      ]
     },
     "CheckState": {
       "description": "How one check stands.",

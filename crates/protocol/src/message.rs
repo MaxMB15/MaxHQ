@@ -16,7 +16,7 @@ use crate::agents::{
 };
 use crate::attention::{AnswerOutcome, AttentionAnswer};
 use crate::context::InlineRef;
-use crate::dispatch::PlanOutcome;
+use crate::dispatch::{ChatAct, PlanOutcome};
 use crate::find::{AgentExcerpt, GitItemSearch, PathMatch};
 use crate::folders::FolderListing;
 use crate::hosts::{MoveStep, WorkspaceSnapshot};
@@ -1986,6 +1986,16 @@ pub enum ClientMessage {
         /// The key on the change's card.
         action: IdempotencyKey,
     },
+    /// Acts on one dispatcher chat, since [`DISPATCHER_CHATS_SINCE`].
+    /// Answered with Done, or Refused for a chat the device doesn't hold.
+    ActOnChat {
+        /// Makes a resend after a dropped connection safe.
+        key: IdempotencyKey,
+        /// The chat's agent.
+        agent: AgentId,
+        /// What to do.
+        action: ChatAct,
+    },
 
     // Proving who connects.
     /// Proves this connection holds `public_key`, with a signature over the
@@ -2308,6 +2318,7 @@ impl ClientMessage {
             | Self::TerminalMove { .. } => TERMINALS_SINCE,
             Self::ListFolder { .. } | Self::MakeFolder { .. } => FOLDERS_SINCE,
             Self::Notices { .. } => NOTICES_SINCE,
+            Self::ActOnChat { .. } => DISPATCHER_CHATS_SINCE,
             _ => OLDEST_PROTOCOL_VERSION,
         }
     }
@@ -2471,6 +2482,7 @@ impl ClientMessage {
             | Self::ConfirmPlan { key, .. }
             | Self::DismissPlan { key, .. }
             | Self::UndoDispatcherAction { key, .. }
+            | Self::ActOnChat { key, .. }
             | Self::Prove { key, .. }
             | Self::EnrollAppKey { key, .. }
             | Self::RemoveAppKey { key, .. }
@@ -2944,6 +2956,12 @@ pub const NOTICES_SINCE: u32 = 49;
 /// [`crate::model::DeviceSettingChange::DispatcherActs`]. An older one
 /// only plans, so the app hides the switch.
 pub const DISPATCHER_ADMIN_SINCE: u32 = 52;
+
+/// The protocol version whose `maxd` first keeps the dispatcher's chats:
+/// the [`crate::dispatch::DispatcherChat`] entity and
+/// [`ClientMessage::ActOnChat`]. An older one keeps one conversation, so
+/// the app hides the Chats list.
+pub const DISPATCHER_CHATS_SINCE: u32 = 53;
 
 /// When [`ClientMessage::TakeOver`] stops the terminal's CLI.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, Type, JsonSchema)]
@@ -5915,6 +5933,16 @@ mod tests {
                 },
                 "undo_dispatcher_action",
             ),
+            (
+                ClientMessage::ActOnChat {
+                    key: key(),
+                    agent: agent(),
+                    action: ChatAct::Rename {
+                        title: "Release notes".into(),
+                    },
+                },
+                "act_on_chat",
+            ),
         ] {
             assert_eq!(round_trip(&message)["type"], json!(kind));
         }
@@ -6014,6 +6042,35 @@ mod tests {
             json!("item")
         );
         assert_eq!(entity.key(), crate::state::EntityKey::Dispatcher(device));
+
+        let chat = Entity::DispatcherChat(crate::dispatch::DispatcherChat {
+            agent: agent(),
+            device,
+            number: 3,
+            title: "Release notes".into(),
+            summary: "Drafting the notes for the next release".into(),
+            project: None,
+            active_at: crate::time::Timestamp(1_800_000_000_000),
+            archived: false,
+            moved_to: None,
+        });
+        let value = round_trip(&chat);
+        assert_eq!(value["entity"], json!("dispatcher_chat"));
+        assert_eq!(value["active_at"], json!(1_800_000_000_000_u64));
+        assert_eq!(chat.key(), crate::state::EntityKey::DispatcherChat(agent()));
+        assert_eq!(
+            round_trip(&ChatAct::Archive { archived: true })["type"],
+            json!("archive")
+        );
+        assert_eq!(
+            ClientMessage::ActOnChat {
+                key: key(),
+                agent: agent(),
+                action: ChatAct::Pick,
+            }
+            .since(),
+            DISPATCHER_CHATS_SINCE
+        );
     }
 
     #[test]

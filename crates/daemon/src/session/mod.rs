@@ -19,6 +19,7 @@ mod command_rules;
 mod consent;
 pub mod dispatcher;
 mod dispatcher_admin;
+mod dispatcher_chats;
 mod dispatcher_guide;
 mod drivers;
 mod finds;
@@ -995,6 +996,7 @@ impl Manager {
         let mut changes = self.places.changes();
         self.restore().await;
         self.restore_dispatcher();
+        self.restore_chats();
         self.start_tasks();
         let tx = self.tx.clone();
         tokio::spawn(async move {
@@ -1326,6 +1328,7 @@ impl Manager {
         self.moved_done(key, &outcome);
         self.move_done(key, &outcome);
         self.dispatch_done(key, &outcome);
+        self.chats_done(key, &outcome);
         let message = outcome.message(key);
         for conn in self.keys.finish(key, outcome) {
             self.tell(conn, message.clone());

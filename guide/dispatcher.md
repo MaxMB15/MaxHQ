@@ -108,13 +108,34 @@ The dispatcher has tools that only read, so it can plan with what's really there
 
 What it reads from repositories, pull requests and other agents is data to it, not instructions.
 
-## Keep or start a conversation
-<!-- id: dispatcher/conversation -->
+## Keep each topic in its own chat
+<!-- id: dispatcher/chats -->
+<!-- covers: tool/name_chat tool/switch_chat tool/find_chats -->
 
-The dispatcher remembers the conversation, so a follow-up can build on what you asked before.
+The dispatcher keeps each topic in a chat of its own, so a follow-up builds on what you asked before.
 
-- Click **New conversation** in the panel to start fresh. After you dismiss a plan, what you ask next starts a new conversation too.
-- Click **Open as pane** to keep the conversation open beside your agents.
+- What you ask within 30 minutes of your last message, or of the dispatcher's last answer, stays in the same chat. After a longer gap a new chat starts, and the dispatcher looks over your recent chats to carry on the right one.
+- The dispatcher names each chat with **Name this chat**: a short title, a line about it and its project. A chat without a name yet shows as "Chat 1", "Chat 2" and so on.
+- When a request is about another topic, the dispatcher moves it with **Move the message to another chat**, and that chat answers it. The chat it left says "Moved your message to" and the other chat's title, with **Keep here** to bring it back. The chat it went to says "Moved your message here from", with **Move back**.
+- With **Find earlier chats** it looks further back, through the titles, summaries and full text of every chat, archived ones too.
+
+## Find, rename and archive chats
+<!-- id: dispatcher/chats-list -->
+
+The top bar of the dispatcher's panel has **Save to Notes**, **Chats**, **New conversation** and **Open as pane**.
+
+1. Click **Chats** for the list, grouped under **Today**, **This week**, **Earlier** and **Archived**.
+2. Type in **Search chats** to find one by its title or summary. The best fits show first, under **Matches**.
+3. Click a chat to carry on there. What you ask next goes to it.
+
+Hover a chat, or move to it with Tab, for its buttons:
+
+- **Rename chat**: type a title and press Enter. The dispatcher keeps a title you gave.
+- **Save to Notes**: the chat writes a note of what was asked, decided and found, in its project. A chat that isn't about a project asks you which one. **Save to Notes** in the top bar saves the chat you're in.
+- **Archive** moves it under Archived, and **Unarchive** brings it back. A chat you haven't used for 7 days moves there by itself.
+- **Delete** asks first. MaxHQ stops the chat, and the dispatcher won't list or find it again. Its CLI's transcript stays.
+
+**New conversation** starts a fresh chat. After you dismiss a plan, what you ask next starts a new chat too. **Open as pane** keeps the conversation beside your agents.
 
 ## Choose the account it runs as
 <!-- id: dispatcher/account -->

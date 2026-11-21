@@ -1095,7 +1095,7 @@
     {
       "agents": true,
       "description": "Makes a note in your project with a title and a Markdown body, and gives its id.",
-      "dispatcher": false,
+      "dispatcher": true,
       "id": "tool/create_note",
       "link": "maxhq://settings/agent-tools",
       "name": "create_note",
@@ -1199,6 +1199,33 @@
       "link": "maxhq://settings/dispatcher",
       "name": "read_guide",
       "title": "Read a guide section"
+    },
+    {
+      "agents": false,
+      "description": "Names the chat you're in, as the user's list of chats shows it: a short title, a one line summary, and the project it's about by the id list_targets gives, if one.",
+      "dispatcher": true,
+      "id": "tool/name_chat",
+      "link": "maxhq://settings/dispatcher",
+      "name": "name_chat",
+      "title": "Name this chat"
+    },
+    {
+      "agents": false,
+      "description": "Moves the user's last message to another chat, which answers it there with its own history: an earlier chat by its `chat` number, or a new one with `new` and a `title`.",
+      "dispatcher": true,
+      "id": "tool/switch_chat",
+      "link": "maxhq://settings/dispatcher",
+      "name": "switch_chat",
+      "title": "Move the message to another chat"
+    },
+    {
+      "agents": false,
+      "description": "Finds the user's earlier chats, archived ones too, by a few words: a title match first, then a summary match, then the most matches in the full text.",
+      "dispatcher": true,
+      "id": "tool/find_chats",
+      "link": "maxhq://settings/dispatcher",
+      "name": "find_chats",
+      "title": "Find earlier chats"
     }
   ],
   "views": [
