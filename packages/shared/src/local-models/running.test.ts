@@ -37,9 +37,10 @@ describe("Loading model", () => {
 	it("shows while a turn runs on a model that isn't in memory", async () => {
 		const view = await load();
 		const cold = parser(view, { model: GPT_OSS });
-		expect(localLoading(view, cold)).toEqual({ model: "gpt-oss-20b" });
+		expect(localLoading(view, cold)).toEqual({ model: "gpt-oss-20b", percent: null });
 		expect(localLoading(view, { ...cold, activity: { state: "starting" } })).toEqual({
 			model: "gpt-oss-20b",
+			percent: null,
 		});
 		// Not once the turn ends, nor for a model in memory.
 		expect(localLoading(view, { ...cold, activity: { state: "idle" } })).toBeNull();
@@ -50,12 +51,23 @@ describe("Loading model", () => {
 		const view = await load({ state: "loading" });
 		expect(localLoading(view, parser(view, { model: GPT_OSS }))).toEqual({
 			model: "gpt-oss-20b",
+			percent: null,
 		});
 		const idle = parser(view, {
 			activity: { state: "idle" },
 			local: { loading: true },
 		});
-		expect(localLoading(view, idle)).toEqual({ model: "Qwen3.6-35B-A3B" });
+		expect(localLoading(view, idle)).toEqual({ model: "Qwen3.6-35B-A3B", percent: null });
+	});
+
+	it("carries how far the server got, up to 99 while it warms up", async () => {
+		for (const percent of [42, 99]) {
+			const view = await load({ state: "loading", percent });
+			expect(localLoading(view, parser(view, { model: GPT_OSS }))).toEqual({
+				model: "gpt-oss-20b",
+				percent,
+			});
+		}
 	});
 
 	it("never shows for an agent that isn't local", async () => {

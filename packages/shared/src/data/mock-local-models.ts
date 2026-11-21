@@ -40,6 +40,8 @@ const HOUR = 60 * MIN;
 const DAY = 24 * HOUR;
 const GIB = 1024 ** 3;
 
+/** The llama.cpp build the Mac has installed, the one maxd pins. */
+export const LLAMA_CPP_VERSION = "b12359";
 /** The Mac's own model server. */
 export const MAC_SERVER = "srv-mac-llama";
 /** The Ollama server devbox reaches at a URL. */
@@ -376,7 +378,7 @@ const localModels = (now: Timestamp): LocalModels[] => [
 		},
 		models_dir: MODELS_DIR[MAC]!,
 		disk_free: 212 * GIB,
-		runtime: { support: "managed", version: "b7412", state: { type: "idle" } },
+		runtime: { support: "managed", version: LLAMA_CPP_VERSION, state: { type: "idle" } },
 		catalog: { updated_at: now - 6 * DAY, models: mockCatalog() },
 		files: [
 			fileState(MAC, LOADED_CATALOG_MODEL, "Qwen3.6-35B-A3B-UD-Q4_K_XL.gguf", null, {

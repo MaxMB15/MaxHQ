@@ -71,6 +71,7 @@
 	"Saving": "Enregistrement",
 	"Save": "Enregistrer",
 	"Waiting for {{name}} to report its hardware": "En attente du matériel de {{name}}",
+	"What the test found": "Ce que le test a trouvé",
 	"maxd unloads a model no agent used for this long, to free its memory. 0 keeps it loaded.": "maxd décharge un modèle qu'aucun agent n'a utilisé pendant cette durée, pour libérer sa mémoire. 0 le garde chargé.",
 	"the new variable": "la nouvelle variable",
 	"Variable name": "Nom de la variable",

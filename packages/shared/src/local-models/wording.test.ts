@@ -11,6 +11,7 @@ import {
 	fileStateText,
 	formatFileSize,
 	gpuLimitText,
+	loadingLabel,
 	loadText,
 	localAgentLabel,
 	notEncrypted,
@@ -90,6 +91,13 @@ describe("model wording", () => {
 		);
 		expect(loadText(null)).toBeNull();
 		expect(loadText({ state: "loading" })).toBe("Loading model");
+		expect(loadText({ state: "loading", percent: null })).toBe("Loading model");
+		expect(loadText({ state: "loading", percent: 42.7 })).toBe("Loading model, 42%");
+		// maxd holds a load at 99 until the server answers: almost ready, not stuck.
+		expect(loadText({ state: "loading", percent: 99 })).toBe("Warming up");
+		expect(loadingLabel(98)).toBe("Loading model");
+		expect(loadingLabel(99)).toBe("Warming up");
+		expect(loadingLabel(null)).toBe("Loading model");
 		expect(loadText({ state: "failed", reason: "out of memory" })).toBe(
 			"Couldn't load: out of memory"
 		);

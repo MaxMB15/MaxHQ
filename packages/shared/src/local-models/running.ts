@@ -39,13 +39,20 @@ const runningModel = (
 export type LocalLoading = {
 	/** The model's name, when the agent's server lists it. */
 	readonly model: string | null;
+	/**
+	 * How much of the model is in memory, 0 to 99, when its server says.
+	 * At 99 the file is in and the server gets ready: see `warmingUp`.
+	 */
+	readonly percent: number | null;
 };
 
 /**
  * Whether a local agent's turn waits for its model to load, with the
- * model's name. It shows as soon as a turn starts on a model that isn't in
- * memory, before the server says it's loading, so there's no blank wait.
- * Null for an agent that isn't local or whose model is ready.
+ * model's name and how far the load is. It shows as soon as a turn starts on
+ * a model that isn't in memory, before the server says it's loading, so
+ * there's no blank wait. The model may be on another device's server, whose
+ * load shows here the same. Null for an agent that isn't local or whose
+ * model is ready.
  */
 export const localLoading = (
 	view: ViewState,
@@ -55,10 +62,11 @@ export const localLoading = (
 	const model = running
 		? serverModelName(view, running.server, running.model)
 		: localModelName(view, agent);
-	if (agent.local?.loading) return { model };
+	const load = running?.model.load;
+	const percent = load?.state === "loading" ? (load.percent ?? null) : null;
+	if (agent.local?.loading) return { model, percent };
 	if (!running || !turnRuns(agent)) return null;
-	const state = running.model.load?.state;
-	return state === "unloaded" || state === "loading" ? { model } : null;
+	return load?.state === "unloaded" || load?.state === "loading" ? { model, percent } : null;
 };
 
 /** The footer's speed line for a local agent. */

@@ -32,6 +32,7 @@ import { SmallPullChips } from "@/pulls/chip";
 import { RowRunChipFor } from "@/workflow/containers";
 import type { Agent, Timestamp } from "@maxhq/shared/bindings";
 import { localLoading } from "@maxhq/shared/local-models/running";
+import { loadingText } from "@maxhq/shared/local-models/wording";
 import { agentLook, agentRowMeta } from "@maxhq/shared/status/activity";
 import { showFailure } from "@maxhq/shared/ui/inbox-notice";
 import { renameAgent } from "@maxhq/shared/ui/rename-agent";
@@ -134,7 +135,7 @@ const Row = ({
 	const picked = useUi((s) => s.picked.has(agent.id));
 	const look = agentLook(agent, now);
 	const meta = agentRowMeta(view, agent, now);
-	const loading = localLoading(view, agent) !== null;
+	const loading = localLoading(view, agent);
 	const inbox = inboxOf(agent);
 	const snoozedUntil = isSnoozed(inbox, now) ? inbox.snoozed_until : null;
 	const woke = inbox.woke_at !== null && snoozedUntil === null && inbox.settled === null;
@@ -268,9 +269,9 @@ const Row = ({
 					// A local agent's turn waits while its model loads into memory.
 					<span
 						data-loading-model
-						className="shrink-0 text-[11px] text-status-connecting-text"
+						className="shrink-0 text-[11px] text-status-connecting-text tabular-nums"
 					>
-						{t("Loading model")}
+						{loadingText(loading.percent)}
 					</span>
 				) : meta.kind === "asleep" ? (
 					<span className="shrink-0 text-[11px] text-subtle-foreground">{meta.text}</span>

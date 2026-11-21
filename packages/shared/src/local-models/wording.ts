@@ -194,14 +194,40 @@ export const serverProblemText = (server: Pick<ModelServer, "probe">): string | 
 	return null;
 };
 
-/** Where a model stands in memory, such as "Loading model". */
+/**
+ * The percent at which a load has the whole file in memory and waits for the
+ * server to answer. `maxd` holds it there until the server serves.
+ */
+export const WARM_UP_PERCENT = 99;
+
+/** Whether a load's percent means the model is in memory and the server gets ready. */
+export const warmingUp = (percent: number | null | undefined): boolean =>
+	percent != null && percent >= WARM_UP_PERCENT;
+
+/**
+ * A load in progress in a few words: "Loading model", "Warming up" once the
+ * file is in memory, so the last step never reads as stuck.
+ */
+export const loadingLabel = (percent: number | null | undefined): string =>
+	warmingUp(percent) ? t("Warming up") : t("Loading model");
+
+/**
+ * A load in progress with its percent, such as "Loading model, 42%", or
+ * `loadingLabel`'s words when the percent is unknown or the model warms up.
+ */
+export const loadingText = (percent: number | null | undefined): string =>
+	percent == null || warmingUp(percent)
+		? loadingLabel(percent)
+		: t("Loading model, {{percent}}%", { percent: formatNumber(Math.floor(percent)) });
+
+/** Where a model stands in memory, such as "Loading model, 42%". */
 export const loadText = (load: ModelLoad | null): string | null => {
 	if (!load) return null;
 	switch (load.state) {
 		case "unloaded":
 			return t("Not loaded");
 		case "loading":
-			return t("Loading model");
+			return loadingText(load.percent);
 		case "loaded":
 			return t("Loaded");
 		case "failed":

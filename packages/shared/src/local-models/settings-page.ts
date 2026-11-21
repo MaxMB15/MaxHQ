@@ -24,6 +24,7 @@ import { type CatalogRow, runsLocalModels, serversOf, serverUsers } from "./sele
 import {
 	downloadPercent,
 	fileStateText,
+	flavorName,
 	formatFileSize,
 	formatMemory,
 	loadText,
@@ -138,8 +139,13 @@ export type ModelRowView = {
 	readonly status: string | null;
 	/** Whether `status` says something failed. */
 	readonly error: boolean;
-	/** How far the download is, 0 to 100, while it's on its way or paused. */
+	/**
+	 * How far the download is, 0 to 100, while it's on its way or paused; or
+	 * how far the model's load into memory is, when `loading` says so.
+	 */
 	readonly percent: number | null;
+	/** Whether `percent` is the model's load into memory, not its download. */
+	readonly loading: boolean;
 	/** Whether the file is being checked, or the model loaded, so the row waits. */
 	readonly busy: boolean;
 	/** Before a download: its size and the free space, and whether that's too little. */
@@ -163,6 +169,7 @@ const row = (view: Partial<ModelRowView>): ModelRowView => ({
 	status: null,
 	error: false,
 	percent: null,
+	loading: false,
 	busy: false,
 	disk: null,
 	buttons: [],
@@ -232,7 +239,13 @@ export const modelRow = (
 				case "unloaded":
 					return row({ status, served, buttons: ["load", "delete"] });
 				case "loading":
-					return row({ status, served, busy: true });
+					return row({
+						status,
+						served,
+						busy: true,
+						percent: load.percent ?? null,
+						loading: true,
+					});
 				case "loaded":
 					return row({ status, served, buttons: ["unload"] });
 				case "failed":
@@ -334,7 +347,7 @@ export const managedServerView = (view: ViewState, server: ModelServer): Managed
 			: install?.type === "failed"
 				? t("Couldn't set it up: {{reason}}", { reason: install.reason })
 				: runtime?.version
-					? `llama.cpp ${runtime.version}`
+					? `${flavorName("llama_cpp")} ${runtime.version}`
 					: t("Not set up yet");
 	const active =
 		server.models.find((m) => m.load?.state === "loading") ??
@@ -427,6 +440,47 @@ export const addedServerOf = (result: ActionResult): ModelServerId | null =>
 	result.status === "ok" && result.data.status === "model_server_added"
 		? result.data.server
 		: null;
+
+/**
+ * The form's Test: what answers at the typed URL, with the token typed.
+ * `maxd` keeps nothing of either; only Add saves the server.
+ */
+export const probeServerAction = (url: string, token: string): ModelAction => ({
+	action: "probe_server",
+	url: url.trim(),
+	token: token.trim() || null,
+});
+
+/** What the form's Test found at a URL. */
+export type ProbeFindings = {
+	/** What kind of server answered, such as "Ollama", or null when nothing did. */
+	readonly flavor: string | null;
+	/** Whether it can run a Local agent, with its context, or why not. */
+	readonly summary: ProbeSummary;
+	/** The models it offers, such as "Offers gpt-oss-20b, Qwen3", or null when nothing answered. */
+	readonly models: string | null;
+};
+
+/** What a Test found, from its reply; null for another reply. */
+export const probeFindings = (
+	view: ViewState,
+	device: DeviceId,
+	result: ActionResult
+): ProbeFindings | null => {
+	if (result.status !== "ok" || result.data.status !== "server_probed") return null;
+	const { flavor, probe, models } = result.data;
+	const answered = probe.error === null;
+	const names = models.map((m) => serverModelName(view, { device }, m));
+	return {
+		flavor: answered ? flavorName(flavor) : null,
+		summary: probeSummary({ probe }),
+		models: !answered
+			? null
+			: names.length > 0
+				? t("Offers {{models}}", { models: names.join(", ") })
+				: t("This server lists no models"),
+	};
+};
 
 // Default model
 

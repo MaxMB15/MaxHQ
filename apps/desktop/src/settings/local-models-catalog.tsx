@@ -175,9 +175,11 @@ const ModelRow = ({
 					{shown.percent !== null ? (
 						<span
 							role="progressbar"
-							aria-label={translate("Download of {{model}}", {
-								model: row.model.name,
-							})}
+							aria-label={
+								shown.loading
+									? translate("Load of {{model}}", { model: row.model.name })
+									: translate("Download of {{model}}", { model: row.model.name })
+							}
 							aria-valuemin={0}
 							aria-valuemax={100}
 							aria-valuenow={Math.floor(shown.percent)}

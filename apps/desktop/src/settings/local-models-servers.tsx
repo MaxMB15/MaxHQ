@@ -5,18 +5,18 @@
 // runs on a device, with its install and the model it has loaded, and the
 // server URLs the device reaches, each with what answers there and its
 // last test. The managed server's port and key stay with `maxd`. A form
-// adds a server URL: Test adds it and shows what the test finds, Add keeps
-// it and Cancel removes it again. Its token goes from a password field
-// straight into the add and is cleared there; no state, log or note keeps
+// adds a server URL: Test asks what answers there and shows it, saving
+// nothing, and Add saves it. Its token goes from a password field straight
+// into the test or the add, and Add clears it; no state, log or note keeps
 // it, and a reply that echoes it shows `<secret>`. Plain http to another
 // machine is still allowed, with the risk named on the row and in the form.
 
 import { useRef, useState } from "react";
 
-import { useServices, useView } from "@/app/services";
+import { useServices } from "@/app/services";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/tasks/activity";
-import type { DeviceId, ModelServer, ModelServerId } from "@maxhq/shared/bindings";
+import type { DeviceId, ModelServer } from "@maxhq/shared/bindings";
 import type { ActionResult } from "@maxhq/shared/data/source";
 import { t as translate, useI18n } from "@maxhq/shared/i18n";
 import { serversOf } from "@maxhq/shared/local-models/select";
@@ -26,6 +26,9 @@ import {
 	canAddServer,
 	managedServerView,
 	notEncryptedDetail,
+	probeFindings,
+	type ProbeFindings,
+	probeServerAction,
 	probeSummary,
 	removeServerQuestion,
 	serverUrlProblem,
@@ -177,22 +180,20 @@ const ExternalRow = ({
 };
 
 /**
- * The form that adds a server URL. Test adds it and shows what its test
- * finds, with the fields locked from then on; Add keeps it, and Cancel
- * removes one Test added.
+ * The form that adds a server URL. Test asks the device what answers at the
+ * URL and shows it, keeping nothing; Add saves the server, and Cancel closes
+ * the form. Changing the URL or the token clears what the last Test found.
  */
 const AddServerForm = ({ device, onClose }: { device: DeviceId; onClose: () => void }) => {
 	useI18n();
-	const { source } = useServices();
-	const servers = useView((s) => s.view.tables.model_server);
+	const services = useServices();
+	const { source } = services;
 	const token = useRef<HTMLInputElement>(null);
 	const [label, setLabel] = useState("");
 	const [url, setUrl] = useState("");
-	const [added, setAdded] = useState<ModelServerId | null>(null);
+	const [found, setFound] = useState<ProbeFindings | null>(null);
 	const [busy, setBusy] = useState(false);
 	const [note, setNote] = useState<Note | null>(null);
-	// The server Test added, while the view has it.
-	const server = added ? (servers.get(added) ?? null) : null;
 	const problem = serverUrlProblem(url);
 	const ready = canAddServer(url) && !busy;
 
@@ -221,8 +222,19 @@ const AddServerForm = ({ device, onClose }: { device: DeviceId; onClose: () => v
 		}
 	};
 
-	/** Adds the server with the token typed, which it reads and clears. */
-	const add = async (): Promise<ModelServerId | null> => {
+	/** Tests the URL with the token typed, which stays in its field for Add. */
+	const test = async () => {
+		const secret = token.current?.value.trim() ?? "";
+		setFound(null);
+		const result = await run(
+			() => source.modelAction(device, probeServerAction(url, secret)),
+			secret
+		);
+		if (result) setFound(probeFindings(services.view.getState().view, device, result));
+	};
+
+	/** Saves the server with the token typed, which it reads and clears. */
+	const add = async () => {
 		const input = token.current;
 		const secret = input?.value.trim() ?? "";
 		if (input) input.value = "";
@@ -230,36 +242,7 @@ const AddServerForm = ({ device, onClose }: { device: DeviceId; onClose: () => v
 			() => source.modelAction(device, addServerAction(label, url, secret)),
 			secret
 		);
-		return result ? addedServerOf(result) : null;
-	};
-
-	const test = async () => {
-		if (server) {
-			await run(
-				() => source.modelAction(device, { action: "test_server", server: server.id }),
-				""
-			);
-			return;
-		}
-		const id = await add();
-		if (id) setAdded(id);
-	};
-
-	const keep = async () => {
-		if (!server && !(await add())) return;
-		onClose();
-	};
-
-	const cancel = async () => {
-		if (
-			server &&
-			!(await run(
-				() => source.modelAction(device, { action: "remove_server", server: server.id }),
-				""
-			))
-		)
-			return;
-		onClose();
+		if (result && addedServerOf(result)) onClose();
 	};
 
 	return (
@@ -276,7 +259,6 @@ const AddServerForm = ({ device, onClose }: { device: DeviceId; onClose: () => v
 						value={label}
 						placeholder={translate("Ollama on devbox")}
 						onChange={(e) => setLabel(e.target.value)}
-						disabled={server !== null}
 						spellCheck={false}
 						autoComplete="off"
 						className={FIELD}
@@ -288,8 +270,10 @@ const AddServerForm = ({ device, onClose }: { device: DeviceId; onClose: () => v
 						aria-label={translate("URL")}
 						value={url}
 						placeholder="http://devbox:11434"
-						onChange={(e) => setUrl(e.target.value)}
-						disabled={server !== null}
+						onChange={(e) => {
+							setUrl(e.target.value);
+							setFound(null);
+						}}
 						spellCheck={false}
 						autoComplete="off"
 						autoCapitalize="off"
@@ -298,14 +282,12 @@ const AddServerForm = ({ device, onClose }: { device: DeviceId; onClose: () => v
 					/>
 				</label>
 			</div>
-			{server ? null : (
-				<SecretField
-					field={token}
-					onTyped={() => undefined}
-					label={translate("Token, if the server asks for one")}
-					placeholder={translate("Kept by maxd, never shown again")}
-				/>
-			)}
+			<SecretField
+				field={token}
+				onTyped={() => setFound(null)}
+				label={translate("Token, if the server asks for one")}
+				placeholder={translate("Kept by maxd, never shown again")}
+			/>
 			{problem ? <p className="text-xs text-status-error-text">{problem}</p> : null}
 			{typedNotEncrypted(url) ? (
 				<p className="flex flex-col gap-1 text-xs text-muted-foreground">
@@ -313,23 +295,36 @@ const AddServerForm = ({ device, onClose }: { device: DeviceId; onClose: () => v
 					{notEncryptedDetail()}
 				</p>
 			) : null}
-			{server ? (
-				<p className="flex items-center gap-2 text-xs">
-					{server.probe ? (
-						<ProbeLine server={server} />
-					) : (
-						<span className="text-muted-foreground">{translate("Testing")}</span>
-					)}
-				</p>
+			{busy && !found ? (
+				<p className="text-xs text-muted-foreground">{translate("Testing")}</p>
+			) : found ? (
+				<div
+					role="status"
+					aria-label={translate("What the test found")}
+					className="flex flex-col gap-1 text-xs"
+				>
+					<span className="flex items-center gap-2">
+						{found.flavor ? (
+							<span className="font-[600] text-foreground">{found.flavor}</span>
+						) : null}
+						<span
+							className={cn(
+								found.summary.ok === false
+									? "text-status-error-text"
+									: "text-muted-foreground"
+							)}
+						>
+							{found.summary.text}
+						</span>
+					</span>
+					{found.models ? (
+						<span className="text-muted-foreground">{found.models}</span>
+					) : null}
+				</div>
 			) : null}
 			<div className="flex items-center justify-end gap-2.5">
 				<StatusNote note={note} className="mr-auto" />
-				<button
-					type="button"
-					className={SECONDARY}
-					disabled={busy}
-					onClick={() => void cancel()}
-				>
+				<button type="button" className={SECONDARY} disabled={busy} onClick={onClose}>
 					{translate("Cancel")}
 				</button>
 				<button
@@ -344,7 +339,7 @@ const AddServerForm = ({ device, onClose }: { device: DeviceId; onClose: () => v
 					type="button"
 					className={PRIMARY}
 					disabled={!ready}
-					onClick={() => void keep()}
+					onClick={() => void add()}
 				>
 					{translate("Add")}
 				</button>

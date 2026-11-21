@@ -71,6 +71,7 @@
 	"Saving": "Opslaan",
 	"Save": "Opslaan",
 	"Waiting for {{name}} to report its hardware": "Wachten tot {{name}} zijn hardware doorgeeft",
+	"What the test found": "Wat de test vond",
 	"maxd unloads a model no agent used for this long, to free its memory. 0 keeps it loaded.": "maxd ontlaadt een model dat zo lang door geen agent is gebruikt, om het geheugen vrij te maken. 0 houdt het geladen.",
 	"the new variable": "de nieuwe variabele",
 	"Variable name": "Variabelenaam",

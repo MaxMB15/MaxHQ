@@ -71,6 +71,7 @@
 	"Saving": "Guardando",
 	"Save": "Guardar",
 	"Waiting for {{name}} to report its hardware": "Esperando a que {{name}} informe de su hardware",
+	"What the test found": "Lo que encontró la prueba",
 	"maxd unloads a model no agent used for this long, to free its memory. 0 keeps it loaded.": "maxd libera de la memoria un modelo que ningún agente ha usado durante este tiempo. 0 lo mantiene cargado.",
 	"the new variable": "la nueva variable",
 	"Variable name": "Nombre de la variable",

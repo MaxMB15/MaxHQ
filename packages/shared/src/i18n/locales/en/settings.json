@@ -71,6 +71,7 @@
 	"Saving": "Saving",
 	"Save": "Save",
 	"Waiting for {{name}} to report its hardware": "Waiting for {{name}} to report its hardware",
+	"What the test found": "What the test found",
 	"maxd unloads a model no agent used for this long, to free its memory. 0 keeps it loaded.": "maxd unloads a model no agent used for this long, to free its memory. 0 keeps it loaded.",
 	"the new variable": "the new variable",
 	"Variable name": "Variable name",

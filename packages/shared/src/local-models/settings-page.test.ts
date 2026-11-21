@@ -6,6 +6,7 @@ import { describe, expect, it } from "vitest";
 import type { Entity, ModelFile, ModelLoad } from "../bindings";
 import {
 	DOWNLOADING_MODEL,
+	LLAMA_CPP_VERSION,
 	LOADED_CATALOG_MODEL,
 	LOADED_MODEL,
 	MAC_SERVER,
@@ -225,7 +226,26 @@ describe("a catalog row", () => {
 
 	it("waits while a model loads, and offers Load again after a failed load", async () => {
 		const loading = shown(await withLoad(GPT_OSS, { state: "loading" }), "gpt-oss-20b");
-		expect(loading).toMatchObject({ status: "Loading model", busy: true, buttons: [] });
+		expect(loading).toMatchObject({
+			status: "Loading model",
+			busy: true,
+			buttons: [],
+			percent: null,
+		});
+		const partway = shown(
+			await withLoad(GPT_OSS, { state: "loading", percent: 42 }),
+			"gpt-oss-20b"
+		);
+		expect(partway).toMatchObject({
+			status: "Loading model, 42%",
+			percent: 42,
+			loading: true,
+		});
+		const warming = shown(
+			await withLoad(GPT_OSS, { state: "loading", percent: 99 }),
+			"gpt-oss-20b"
+		);
+		expect(warming).toMatchObject({ status: "Warming up", percent: 99, loading: true });
 		const failed = shown(
 			await withLoad(GPT_OSS, { state: "failed", reason: "Out of memory" }),
 			"gpt-oss-20b"
@@ -267,7 +287,7 @@ describe("the servers", () => {
 		const server = view.tables.model_server.get(MAC_SERVER)!;
 		const summary = managedServerView(view, server);
 		expect(summary).toEqual({
-			state: "llama.cpp b7412",
+			state: `llama.cpp ${LLAMA_CPP_VERSION}`,
 			error: false,
 			model: { name: "Qwen3.6-35B-A3B", load: "Loaded", tone: "good" },
 			users: "Local agents on devbox use it too",

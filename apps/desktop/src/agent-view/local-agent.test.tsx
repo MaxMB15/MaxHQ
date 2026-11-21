@@ -8,8 +8,8 @@ import App from "@/App";
 import { ServicesProvider } from "@/app/services";
 import { mockSource } from "@/data/mock-source";
 import { clearKept } from "@maxhq/shared/agent-view/kept";
-import type { Agent } from "@maxhq/shared/bindings";
-import { MAC_LOCAL_AGENT } from "@maxhq/shared/data/mock-local-models";
+import type { Agent, ModelLoad } from "@maxhq/shared/bindings";
+import { MAC_LOCAL_AGENT, MAC_SERVER } from "@maxhq/shared/data/mock-local-models";
 import type { DataSource } from "@maxhq/shared/data/source";
 import { FixedNow } from "@maxhq/shared/lib/clock";
 import { NOW } from "@maxhq/shared/test/build";
@@ -31,8 +31,14 @@ afterEach(() => {
 	clearSnapshots();
 });
 
-/** The sample source, with the Mac's local agent changed by `over`, and that agent. */
-const localAgent = async (over: Partial<Agent> = {}) => {
+/** gpt-oss-20b on the Mac's managed server, not in memory in the sample. */
+const GPT_OSS = "gpt-oss-20b@mxfp4";
+
+/**
+ * The sample source, with the Mac's local agent changed by `over` and
+ * gpt-oss-20b's load set to `load`, and that agent.
+ */
+const localAgent = async (over: Partial<Agent> = {}, load?: ModelLoad) => {
 	const source = mockSource({ now: () => NOW, tick: false });
 	const snapshot = source.snapshot;
 	const changed: DataSource["snapshot"] = async () => {
@@ -40,7 +46,16 @@ const localAgent = async (over: Partial<Agent> = {}) => {
 		return {
 			...state,
 			entities: state.entities.map((e) =>
-				e.entity === "agent" && e.id === MAC_LOCAL_AGENT ? { ...e, ...over } : e
+				e.entity === "agent" && e.id === MAC_LOCAL_AGENT
+					? { ...e, ...over }
+					: e.entity === "model_server" && e.id === MAC_SERVER && load
+						? {
+								...e,
+								models: e.models.map((m) =>
+									m.id === GPT_OSS ? { ...m, load } : m
+								),
+							}
+						: e
 			),
 		};
 	};
@@ -51,8 +66,8 @@ const localAgent = async (over: Partial<Agent> = {}) => {
 	return { source: Object.assign(source, { snapshot: changed }), agent: found };
 };
 
-const show = async (over: Partial<Agent> = {}) => {
-	const { source, agent } = await localAgent(over);
+const show = async (over: Partial<Agent> = {}, load?: ModelLoad) => {
+	const { source, agent } = await localAgent(over, load);
 	render(
 		<ServicesProvider source={source}>
 			<FixedNow value={NOW}>
@@ -69,20 +84,41 @@ const show = async (over: Partial<Agent> = {}) => {
 
 const speedLine = (): HTMLElement | null => document.querySelector("[data-local-speed]");
 
+const loadingStep = (pane: HTMLElement) =>
+	waitFor(() => {
+		const found = pane.querySelector<HTMLElement>("[data-loading-model]");
+		expect(found).not.toBeNull();
+		return found!;
+	});
+
 describe("a local agent's view", () => {
 	it("shows Loading model above the composer while its turn waits for the model", async () => {
-		const pane = await show({ model: "gpt-oss-20b@mxfp4" });
-		const step = await waitFor(() => {
-			const found = pane.querySelector<HTMLElement>("[data-loading-model]");
-			expect(found).not.toBeNull();
-			return found!;
-		});
+		const pane = await show({ model: GPT_OSS });
+		const step = await loadingStep(pane);
 		expect(step).toHaveAttribute("role", "status");
 		expect(step).toHaveTextContent("Loading modelgpt-oss-20b");
+		// No bar until the server says how far it is.
+		expect(within(step).queryByRole("progressbar")).toBeNull();
 		const composer = within(pane).getByRole("textbox", { name: /Message/ });
 		expect(
 			step.compareDocumentPosition(composer) & Node.DOCUMENT_POSITION_FOLLOWING
 		).toBeTruthy();
+	});
+
+	it("fills a bar as the model loads", async () => {
+		const pane = await show({ model: GPT_OSS }, { state: "loading", percent: 42 });
+		const step = await loadingStep(pane);
+		const bar = within(step).getByRole("progressbar", { name: "Load of gpt-oss-20b" });
+		expect(bar).toHaveAttribute("aria-valuenow", "42");
+		expect(step).toHaveTextContent("Loading modelgpt-oss-20b42%");
+	});
+
+	it("says Warming up at 99, while the server gets ready", async () => {
+		const pane = await show({ model: GPT_OSS }, { state: "loading", percent: 99 });
+		const step = await loadingStep(pane);
+		expect(step).toHaveTextContent("Warming upgpt-oss-20b");
+		expect(step).not.toHaveTextContent("99");
+		expect(within(step).getByRole("progressbar")).toHaveAttribute("aria-valuenow", "99");
 	});
 
 	it("shows the speed line while the turn runs, once its model is in memory", async () => {
@@ -132,18 +168,26 @@ describe("a local agent's view", () => {
 });
 
 describe("a local agent's sidebar row", () => {
-	it("says Loading model while its turn waits for the model", async () => {
-		const { source } = await localAgent({ model: "gpt-oss-20b@mxfp4" });
-		render(
-			<FixedNow value={NOW}>
-				<App source={source} ui={createUiStore()} />
-			</FixedNow>
-		);
-		const nav = screen.getByRole("navigation", { name: "Agents" });
-		const title = await within(nav).findByText("Parser edge-case tests");
-		const row = title.closest<HTMLElement>("[data-agent-row]")!;
-		expect(within(row).getByText("Loading model")).toHaveAttribute("data-loading-model");
-	});
+	it("says Loading model while its turn waits for the model, with how far it is", async () => {
+		const row = async (load?: ModelLoad) => {
+			const { source } = await localAgent({ model: GPT_OSS }, load);
+			const { unmount } = render(
+				<FixedNow value={NOW}>
+					<App source={source} ui={createUiStore()} />
+				</FixedNow>
+			);
+			const nav = screen.getByRole("navigation", { name: "Agents" });
+			const title = await within(nav).findByText("Parser edge-case tests");
+			const text = title
+				.closest<HTMLElement>("[data-agent-row]")!
+				.querySelector("[data-loading-model]")?.textContent;
+			unmount();
+			return text;
+		};
+		expect(await row()).toBe("Loading model");
+		expect(await row({ state: "loading", percent: 42 })).toBe("Loading model, 42%");
+		expect(await row({ state: "loading", percent: 99 })).toBe("Warming up");
+	}, 20_000);
 
 	it("shows its usual meta once the model is in memory", async () => {
 		const { source } = await localAgent();

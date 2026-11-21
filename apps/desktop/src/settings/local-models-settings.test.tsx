@@ -205,16 +205,27 @@ describe("the Local models page", () => {
 		);
 	});
 
-	it("adds a server URL on Test, with its token, and removes it on Cancel", async () => {
-		const source = renderPage();
-		const act = vi.spyOn(source, "modelAction");
-		await showDevbox();
+	const openForm = async () => {
 		fireEvent.click(
 			within(await screen.findByRole("region", { name: "Servers" })).getByRole("button", {
 				name: "Add server URL",
 			})
 		);
-		const form = await group("Add server URL");
+		return group("Add server URL");
+	};
+
+	/** The servers devbox has in the source's view. */
+	const devboxServers = async (source: DataSource) =>
+		(await source.snapshot()).entities.filter(
+			(e) => e.entity === "model_server" && e.device === DEVBOX
+		).length;
+
+	it("tests a server URL with its token and saves nothing until Add", async () => {
+		const source = renderPage();
+		const act = vi.spyOn(source, "modelAction");
+		await showDevbox();
+		const before = await devboxServers(source);
+		const form = await openForm();
 		const test = form.getByRole("button", { name: "Test" });
 		expect(test).toBeDisabled();
 
@@ -226,8 +237,24 @@ describe("the Local models page", () => {
 		fireEvent.change(token, { target: { value: "tok-123" } });
 
 		fireEvent.click(test);
+		const found = within(await form.findByRole("status", { name: "What the test found" }));
+		expect(act).toHaveBeenCalledWith(DEVBOX, {
+			action: "probe_server",
+			url,
+			token: "tok-123",
+		});
+		expect(found.getByText("Ollama")).toBeInTheDocument();
+		expect(found.getByText(/^Works with Local agents/)).toBeInTheDocument();
+		expect(found.getByText(/^Offers /)).toBeInTheDocument();
+		expect(document.body.textContent).not.toContain("tok-123");
+		// Nothing saved: no add, and devbox has the servers it had.
+		expect(act).toHaveBeenCalledTimes(1);
+		expect(await devboxServers(source)).toBe(before);
+
+		// Add saves it, with the token, and clears the field.
+		fireEvent.click(form.getByRole("button", { name: "Add" }));
 		await waitFor(() =>
-			expect(act).toHaveBeenCalledWith(DEVBOX, {
+			expect(act).toHaveBeenLastCalledWith(DEVBOX, {
 				action: "add_server",
 				label: "lab-box.example.com",
 				url,
@@ -235,23 +262,35 @@ describe("the Local models page", () => {
 			})
 		);
 		expect(token.value).toBe("");
-		expect(await form.findByText("Works with Local agents")).toBeInTheDocument();
-		expect(form.getByRole("textbox", { name: "URL" })).toBeDisabled();
-		expect(document.body.textContent).not.toContain("tok-123");
-
-		const added = (await act.mock.results[0]!.value) as {
-			data: { server: string };
-		};
-		fireEvent.click(form.getByRole("button", { name: "Cancel" }));
-		await waitFor(() =>
-			expect(act).toHaveBeenLastCalledWith(DEVBOX, {
-				action: "remove_server",
-				server: added.data.server,
-			})
-		);
 		await waitFor(() =>
 			expect(screen.queryByRole("group", { name: "Add server URL" })).toBeNull()
 		);
+		expect(await devboxServers(source)).toBe(before + 1);
+	});
+
+	it("says what a Test found wrong, and Cancel sends nothing", async () => {
+		const source = renderPage();
+		const act = vi.spyOn(source, "modelAction");
+		await showDevbox();
+		const before = await devboxServers(source);
+		const form = await openForm();
+		const url = "http://nothing.invalid:8080";
+		fireEvent.change(form.getByRole("textbox", { name: "URL" }), { target: { value: url } });
+		fireEvent.click(form.getByRole("button", { name: "Test" }));
+		const found = within(await form.findByRole("status", { name: "What the test found" }));
+		expect(found.getByText(`Nothing answered at ${url}`)).toHaveClass("text-status-error-text");
+		// A new URL clears what the last Test found.
+		fireEvent.change(form.getByRole("textbox", { name: "URL" }), {
+			target: { value: "http://other.invalid:8080" },
+		});
+		expect(form.queryByRole("status", { name: "What the test found" })).toBeNull();
+
+		fireEvent.click(form.getByRole("button", { name: "Cancel" }));
+		await waitFor(() =>
+			expect(screen.queryByRole("group", { name: "Add server URL" })).toBeNull()
+		);
+		expect(act).toHaveBeenCalledTimes(1);
+		expect(await devboxServers(source)).toBe(before);
 	});
 
 	it("says when the device's maxd is too old for local models", async () => {

@@ -8,6 +8,7 @@ import { t, formatNumber } from "../i18n";
 
 import type { AttachmentRef, ItemStatus, TimelineItem } from "../bindings";
 import { formatDuration, plural } from "../status/format";
+import { localAgentLabel } from "../local-models/wording";
 import { kindName, type AgentKind } from "../status/agent-kind";
 
 /** Whether an item's status means it's still going. */
@@ -188,9 +189,17 @@ export const handoffTitle = (status: ItemStatus): string =>
 			? t("Context handoff skipped")
 			: t("Context handoff");
 
-/** One end of a move: the kind, such as Codex or Local, then the model when one was set. */
+/**
+ * One end of a move: the kind, such as Codex or Local, then the model when
+ * one was set. A local end reads as a local agent does everywhere:
+ * "Local · <model>".
+ */
 export const handoffEnd = (kind: AgentKind, model: string | null): string =>
-	model ? `${kindName(kind)} ${model}` : kindName(kind);
+	kind === "local"
+		? localAgentLabel(model)
+		: model
+			? `${kindName(kind)} ${model}`
+			: kindName(kind);
 
 /**
  * The kinds a move went from and to: Local for an end on a local model,
