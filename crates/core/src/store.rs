@@ -180,7 +180,7 @@ mod tests {
         let mut store = Store::new(8);
         store.apply([upsert(device(1, "mac"))]);
         let mut replica = Replica::default();
-        replica.apply_snapshot(store.snapshot());
+        replica.apply_snapshot(store.snapshot()).unwrap();
 
         let renamed = store.apply([upsert(device(1, "studio"))]).unwrap();
         let added = store.apply([upsert(device(2, "devbox"))]).unwrap();

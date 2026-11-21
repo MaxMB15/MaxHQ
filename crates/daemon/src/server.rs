@@ -2373,7 +2373,7 @@ pub(crate) mod tests {
         };
         assert_eq!(snapshot.seq, served.hub.seq());
         let mut replica = Replica::default();
-        replica.apply_snapshot(snapshot);
+        replica.apply_snapshot(snapshot).unwrap();
         assert!(replica
             .get(&EntityKey::Device(DeviceId::derive("test")))
             .is_some());
@@ -2422,7 +2422,7 @@ pub(crate) mod tests {
             panic!("expected a snapshot");
         };
         let mut replica = Replica::default();
-        replica.apply_snapshot(snapshot);
+        replica.apply_snapshot(snapshot).unwrap();
 
         served.hub.apply([upsert(agent("a", Activity::Busy))]);
         served.hub.apply([upsert(agent(

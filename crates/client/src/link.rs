@@ -52,7 +52,7 @@ use maxhq_protocol::link::{ConnectStep, DeviceLink, LinkState, NetworkState, Pee
 use maxhq_protocol::message::{
     ActionOutcome, Capabilities, ClientHello, ClientInfo, ErrorCode, ServerHello,
 };
-use maxhq_protocol::state::{Entity, EntityKey, Replica};
+use maxhq_protocol::state::{DeltaError, Entity, EntityKey, Overfull, Replica};
 use maxhq_protocol::time::Timestamp;
 use maxhq_protocol::{ClientMessage, ProtocolRange, ServerMessage};
 use maxhq_wire::Queue;
@@ -61,7 +61,7 @@ use tokio::sync::{mpsc, oneshot, watch, Notify};
 use tokio::task::JoinHandle;
 use tokio::time::{Instant, MissedTickBehavior};
 use tokio_util::sync::{CancellationToken, DropGuard};
-use tracing::{debug, info};
+use tracing::{debug, info, warn};
 
 use crate::backoff::{Backoff, BackoffLimits};
 use crate::forward::{ForwardError, ForwardLink, Forwards, Gone, Out};
@@ -91,6 +91,10 @@ const NO_TUNNELS: &str = "this device's maxd doesn't forward ports";
 /// sends little before then: the answer to a Sync that went behind a
 /// proof, and the changes after it.
 const EARLY: usize = 1024;
+
+/// How many bytes those messages may take on the wire: a snapshot as large
+/// as a frame and the changes after it.
+pub(crate) const EARLY_BYTES: usize = 2 * frame::MAX_FRAME_LEN;
 
 /// The timings a link works to. Tests shorten them.
 #[derive(Clone, Copy, Debug)]
@@ -524,6 +528,8 @@ struct Unopened {
     sync: Option<ClientMessage>,
     /// What `maxd` sent meanwhile, for after the connection opens.
     early: Vec<ServerMessage>,
+    /// The bytes those took on the wire.
+    early_bytes: usize,
 }
 
 /// Why reading stopped.
@@ -570,6 +576,7 @@ impl Wire {
                 reader: conn.reader,
                 decoder: FrameDecoder::new(),
                 buf: vec![0; READ_CHUNK],
+                last: 0,
                 transfers,
                 forwards,
                 terminals,
@@ -590,6 +597,8 @@ struct Inbound {
     reader: Reader,
     decoder: FrameDecoder,
     buf: Vec<u8>,
+    /// The bytes the last message took on the wire.
+    last: usize,
     /// Where file data goes.
     transfers: Arc<Transfers>,
     /// Where tunnel frames go.
@@ -606,6 +615,7 @@ impl Inbound {
             match self.decoder.next_frame() {
                 Ok(Some(Frame::Message(json))) => {
                     if let Some(message) = ServerMessage::read(json) {
+                        self.last = json.len();
                         return Ok(message);
                     }
                 }
@@ -1006,6 +1016,7 @@ impl Task {
                 resume,
                 sync,
                 early: Vec::new(),
+                early_bytes: 0,
             })
         } else {
             if let Some(sync) = sync {
@@ -1122,19 +1133,20 @@ impl Task {
 
     /// Opens a connection the device took as proven. Its Sync goes unless
     /// one went behind a proof the device took, and what `maxd` sent
-    /// meanwhile is handled after.
+    /// meanwhile is handled after, which may end the session.
     async fn open_proven(
         &mut self,
         wire: &mut Wire,
         unopened: Unopened,
         proof: &Proof,
         resync: &mut Option<Instant>,
-    ) {
+    ) -> Option<End> {
         let Unopened {
             hello,
             resume,
             sync,
             early,
+            early_bytes: _,
         } = unopened;
         let (unsent, synced) = proof.sync();
         // A Sync that went behind a proof the device turned down got no
@@ -1144,8 +1156,11 @@ impl Task {
         }
         self.open(wire, hello, resume).await;
         for message in early {
-            self.handle(message, &wire.queue, resync).await;
+            if let Some(end) = self.handle(message, &wire.queue, resync).await {
+                return Some(end);
+            }
         }
+        None
     }
 
     /// Dials each route in turn until one reaches the device and it says
@@ -1392,22 +1407,30 @@ impl Task {
                     probe = None;
                     match unopened.as_mut() {
                         Some(waiting) if !answers_proof(&message) => {
-                            if waiting.early.len() >= EARLY {
+                            waiting.early_bytes += wire.inbound.last;
+                            if waiting.early.len() >= EARLY || waiting.early_bytes > EARLY_BYTES {
                                 return dropped("maxd sent too much before the proof");
                             }
                             waiting.early.push(message);
                         }
-                        _ => self.handle(message, &wire.queue, &mut resync).await,
+                        _ => {
+                            if let Some(end) = self.handle(message, &wire.queue, &mut resync).await {
+                                return end;
+                            }
+                        }
                     }
                 }
                 verdict = verdict(&mut running) => {
                     running = None;
                     match (verdict, unopened.take()) {
                         (Verdict::Proven, Some(waiting)) => {
-                            if let Some(proof) = &proof {
-                                self.open_proven(wire, waiting, proof, &mut resync).await;
-                            }
                             *opened = Some(Instant::now());
+                            if let Some(proof) = &proof
+                                && let Some(end) =
+                                    self.open_proven(wire, waiting, proof, &mut resync).await
+                            {
+                                return end;
+                            }
                         }
                         (Verdict::Refused(reason), Some(_)) => return End::Refused(reason),
                         (Verdict::Lost, Some(_)) => return quiet("maxd didn't answer the proof"),
@@ -1508,22 +1531,24 @@ impl Task {
         true
     }
 
-    /// Acts on one message from a connected `maxd`.
+    /// Acts on one message from a connected `maxd`. A snapshot or delta
+    /// that holds more than a replica takes ends the session, and the next
+    /// one starts from a fresh snapshot.
     async fn handle(
         &mut self,
         message: ServerMessage,
         queue: &mpsc::Sender<ClientMessage>,
         resync: &mut Option<Instant>,
-    ) {
-        let Some(message) = self.transfers.take(message) else {
-            return;
-        };
+    ) -> Option<End> {
+        let message = self.transfers.take(message)?;
         if self.forwards.handle(&message) {
-            return;
+            return None;
         }
         match message {
             ServerMessage::Snapshot(snapshot) => {
-                self.replica.apply_snapshot(snapshot);
+                if let Err(over) = self.replica.apply_snapshot(snapshot) {
+                    return Some(self.overfull(over));
+                }
                 *resync = None;
                 let entities = self.replica.entities().cloned().collect();
                 self.emit(LinkEvent::Synced(entities)).await;
@@ -1540,7 +1565,8 @@ impl Task {
                     }
                     // A repeat of a delta already held.
                     Ok(()) => {}
-                    Err(gap) => {
+                    Err(DeltaError::Overfull(over)) => return Some(self.overfull(over)),
+                    Err(DeltaError::Gap(gap)) => {
                         if resync.is_none() {
                             debug!(link = %self.link.id, ?gap, "missed a delta, syncing again");
                             post(queue, ClientMessage::Sync { since: gap.have });
@@ -1565,9 +1591,7 @@ impl Task {
                 debug!(link = %self.link.id, "ignored a second hello");
             }
             ServerMessage::ActionResult { key, outcome } => {
-                let Some(outcome) = self.tunnel.settle(key, outcome) else {
-                    return;
-                };
+                let outcome = self.tunnel.settle(key, outcome)?;
                 if !self.book.lock().settle_action(key, outcome) {
                     debug!(link = %self.link.id, %key, "a repeat action result");
                 }
@@ -1617,6 +1641,13 @@ impl Task {
                 }
             }
         }
+        None
+    }
+
+    /// Ends a session whose device sent more state than its replica holds.
+    fn overfull(&self, over: Overfull) -> End {
+        warn!(link = %self.link.id, %over, "dropping the connection");
+        dropped(over.to_string())
     }
 
     /// Waits out a delay, or until something worth an attempt now happens.

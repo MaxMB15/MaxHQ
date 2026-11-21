@@ -518,6 +518,53 @@ async fn a_gap_that_a_resync_doesnt_close_drops_the_connection() {
     );
 }
 
+/// An entity that takes about 1 MiB.
+fn large(n: u32) -> Entity {
+    let Entity::Network(network) = entity(n) else {
+        unreachable!("a test network");
+    };
+    Entity::Network(Network {
+        name: "x".repeat(1 << 20),
+        ..network
+    })
+}
+
+#[tokio::test]
+async fn more_state_than_a_client_holds_drops_the_connection_and_syncs_from_nothing() {
+    let mut rig = Rig::new(FAST, Tailnet::default(), &[]);
+    let instance = InstanceId::generate();
+    let (_handle, mut events, mut maxd) = connected(&mut rig, instance).await;
+    // Each message fits in a frame, and together they pass the cap.
+    let per_frame = 15;
+    maxd.send(&ServerMessage::Snapshot(Snapshot {
+        seq: Seq(1),
+        entities: (0..per_frame).map(large).collect(),
+    }))
+    .await;
+    assert!(matches!(next(&mut events).await, LinkEvent::Synced(_)));
+    let upserts = |from: u32| {
+        (from..from + per_frame)
+            .map(|n| Change::Upsert { value: large(n) })
+            .collect()
+    };
+    maxd.send(&delta(2, upserts(per_frame))).await;
+    assert!(matches!(next(&mut events).await, LinkEvent::Changed(_)));
+    maxd.send(&delta(3, upserts(2 * per_frame))).await;
+    assert_eq!(maxd.recv().await, None, "the connection closes");
+
+    assert_eq!(
+        next_state(&mut events).await,
+        connecting(ConnectStep::Dialing, 1)
+    );
+    let mut maxd = rig.next_maxd().await;
+    assert_eq!(
+        next_state(&mut events).await,
+        connecting(ConnectStep::Handshake, 1)
+    );
+    // The same maxd, and still a whole snapshot.
+    assert_eq!(maxd.accept(instance, "boot-1").await, None);
+}
+
 #[tokio::test]
 async fn a_reconnect_to_the_same_maxd_catches_up_from_its_seq() {
     let mut rig = Rig::new(FAST, Tailnet::default(), &[]);

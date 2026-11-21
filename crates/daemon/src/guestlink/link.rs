@@ -15,8 +15,8 @@ use std::time::{Duration, Instant, SystemTime};
 use maxhq_protocol::frame::EncodeError;
 use maxhq_protocol::guest::{
     GuestToHost, HolderEvent, HostToGuest, TokenReply, TokenWant, GUEST_PROTOCOL_VERSION,
-    MAX_HISTORIES, MAX_HOLDER_CONNECTIONS, MAX_PORTS, MAX_TOKEN_REQUESTS_PER_MINUTE, MAX_TUNNELS,
-    RECONNECT_MAX, RECONNECT_MIN,
+    MAX_HISTORIES, MAX_HOLDER_CONNECTIONS, MAX_MESSAGE_LEN, MAX_PORTS,
+    MAX_TOKEN_REQUESTS_PER_MINUTE, MAX_TUNNELS, RECONNECT_MAX, RECONNECT_MIN,
 };
 use maxhq_protocol::ids::{AgentId, SessionId, StreamId, TransferId, WorkspaceId};
 use maxhq_protocol::message::TunnelEnd;
@@ -25,7 +25,7 @@ use maxhq_protocol::timeline::TimelineItem;
 use thiserror::Error;
 use tokio::net::unix::OwnedReadHalf;
 use tokio::net::UnixStream;
-use tokio::sync::{mpsc, oneshot, watch, OwnedSemaphorePermit, Semaphore};
+use tokio::sync::{mpsc, oneshot, watch, OwnedSemaphorePermit, Semaphore, SemaphorePermit};
 
 use super::wire::{self, Abort, Outbox, Read, ReadError, Reader, SendError, TokenRate};
 use super::{socket_path, Shared};
@@ -66,6 +66,28 @@ pub(crate) type HistoryBatch = (Vec<TimelineItem>, Unread);
 
 /// How long the guest has to say hello once connected.
 const HELLO_WAIT: Duration = Duration::from_secs(10);
+
+/// How many bytes of guest messages every link on this host may be reading
+/// at once. Reading a message can take many times its size for a moment, so
+/// links take turns with the large ones however many workspaces send.
+const READING_BUDGET: usize = MAX_MESSAGE_LEN;
+
+/// A message smaller than this reads without waiting its turn.
+const READ_FREELY: usize = 64 * 1024;
+
+/// The turns every link takes to read a large message.
+static READING: Semaphore = Semaphore::const_new(READING_BUDGET);
+
+/// Waits for a turn to read a message of `len` bytes from `gate`, which
+/// holds while the turn does. A small message needs none.
+async fn reading(gate: &'static Semaphore, len: usize) -> Option<SemaphorePermit<'static>> {
+    if len < READ_FREELY {
+        return None;
+    }
+    let bytes = u32::try_from(len.min(READING_BUDGET)).unwrap_or(u32::MAX);
+    // The gate is never closed.
+    gate.acquire_many(bytes).await.ok()
+}
 
 /// How long a connect to the proxy socket may take.
 const CONNECT_WAIT: Duration = Duration::from_secs(5);
@@ -744,6 +766,10 @@ async fn connect(
     let Read::Message(body) = first else {
         return Err("the guest's first frame wasn't a message".to_owned());
     };
+    let hello = {
+        let _turn = reading(&READING, body.len()).await;
+        GuestToHost::parse(&body).map_err(|err| err.to_string())?
+    };
     let GuestToHost::Hello {
         protocol,
         maxd_version,
@@ -751,7 +777,7 @@ async fn connect(
         boot_id,
         holders,
         build,
-    } = GuestToHost::parse(&body).map_err(|err| err.to_string())?
+    } = hello
     else {
         return Err("the guest didn't start with a hello".to_owned());
     };
@@ -881,6 +907,11 @@ async fn serve(
             }
             read = reader.next() => match read {
                 Ok(read) => {
+                    let len = match &read {
+                        Read::Message(body) => body.len(),
+                        Read::Chunk { .. } | Read::Tunnel { .. } => 0,
+                    };
+                    let _turn = reading(&READING, len).await;
                     if let Err(reason) = link.dispatch(shared, read, &mut ping) {
                         tracing::warn!(workspace = %link.workspace, "dropping the guest link: {reason}");
                         return reason;
@@ -926,6 +957,35 @@ mod tests {
                 pid: 50,
             },
         }
+    }
+
+    #[tokio::test]
+    async fn links_take_turns_reading_large_messages() {
+        static GATE: Semaphore = Semaphore::const_new(READING_BUDGET);
+        let wait = Duration::from_millis(50);
+
+        // Small messages never wait, even while the budget is taken.
+        let first = reading(&GATE, MAX_MESSAGE_LEN).await.expect("a turn");
+        assert!(reading(&GATE, READ_FREELY - 1).await.is_none());
+
+        // A large one waits for the turn before it, and a frame past the
+        // budget takes all of it.
+        let second = tokio::spawn(reading(&GATE, READ_FREELY));
+        tokio::time::sleep(wait).await;
+        assert!(!second.is_finished());
+        drop(first);
+        let second = tokio::time::timeout(wait * 20, second)
+            .await
+            .expect("its turn came")
+            .unwrap()
+            .expect("a turn");
+        assert_eq!(GATE.available_permits(), READING_BUDGET - READ_FREELY);
+        drop(second);
+
+        let whole = reading(&GATE, 4 * MAX_MESSAGE_LEN).await.expect("a turn");
+        assert_eq!(GATE.available_permits(), 0);
+        drop(whole);
+        assert_eq!(GATE.available_permits(), READING_BUDGET);
     }
 
     #[tokio::test]

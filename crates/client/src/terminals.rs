@@ -59,14 +59,19 @@ impl Terminals {
     }
 
     /// Hands output from a frame to the terminal's sink, if it's attached.
+    /// A frame whose bytes would end past the largest offset is dropped.
     pub(crate) fn output(&self, terminal: TerminalId, offset: u64, bytes: &[u8]) {
+        let Some(end) = offset.checked_add(bytes.len() as u64) else {
+            return;
+        };
         let sink = {
             let mut attached = self.lock();
             let Some(one) = attached.get_mut(&terminal) else {
                 return;
             };
             if !bytes.is_empty() {
-                one.after = Some(offset + bytes.len() as u64 - 1);
+                // At least one byte, so `end` is at least 1.
+                one.after = Some(end - 1);
             }
             Arc::clone(&one.sink)
         };
@@ -205,5 +210,28 @@ pub(crate) mod tests {
         terminals.attached(one, 1_000, true);
         assert!(terminals.replay().is_empty());
         assert_eq!(sink.notes(), vec![(one, 900, None)]);
+    }
+
+    #[test]
+    fn output_ending_past_the_largest_offset_is_dropped() {
+        let terminals = Terminals::default();
+        let sink = Arc::new(Noted::default());
+        let one = terminal(1);
+        terminals.attach(one, Some(10), sink.clone());
+        terminals.output(one, u64::MAX, b"xy");
+        terminals.output(one, u64::MAX - 1, b"abc");
+        // Ending right at the largest offset still fits.
+        terminals.output(one, u64::MAX - 2, b"ok");
+        assert_eq!(
+            terminals.replay(),
+            vec![ClientMessage::TerminalAttach {
+                terminal: one,
+                after: Some(u64::MAX - 1)
+            }]
+        );
+        assert_eq!(
+            sink.notes(),
+            vec![(one, u64::MAX - 2, Some(b"ok".to_vec()))]
+        );
     }
 }

@@ -266,7 +266,7 @@ impl<R: Read, W: Write> Client<R, W> {
                     panic!("the output started over at {from}")
                 }
                 Heard::Message(ServerMessage::Snapshot(snapshot)) => {
-                    replica.apply_snapshot(snapshot);
+                    replica.apply_snapshot(snapshot).unwrap();
                 }
                 Heard::Message(ServerMessage::Delta(delta)) => {
                     let _ = replica.apply_delta(delta);
@@ -357,7 +357,7 @@ impl<R: Read, W: Write> Client<R, W> {
             panic!("expected a snapshot");
         };
         let mut replica = Replica::default();
-        replica.apply_snapshot(snapshot);
+        replica.apply_snapshot(snapshot).unwrap();
         match replica.get(&EntityKey::Device(hello.device)) {
             Some(Entity::Device(device)) => device.clone(),
             other => panic!("expected this device, got {other:?}"),
@@ -439,7 +439,7 @@ fn the_app_s_view_keeps_all_a_real_maxd_reports() {
         panic!("expected a snapshot");
     };
     let mut replica = Replica::default();
-    replica.apply_snapshot(snapshot);
+    replica.apply_snapshot(snapshot).unwrap();
     let entities: Vec<Entity> = replica.entities().cloned().collect();
     assert!(entities
         .iter()

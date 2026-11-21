@@ -343,8 +343,12 @@ impl Hub {
 
 impl Watch {
     /// Queues the part of some output the window doesn't have yet. Says
-    /// whether anything was left to queue.
+    /// whether anything was left to queue. Output that would end past the
+    /// largest offset is dropped.
     fn push(&mut self, offset: u64, bytes: &[u8], now: Instant) -> bool {
+        let Some(end) = offset.checked_add(bytes.len() as u64) else {
+            return false;
+        };
         let skip = self.end.map_or(0, |end| end.saturating_sub(offset));
         let rest = usize::try_from(skip)
             .ok()
@@ -352,8 +356,9 @@ impl Watch {
         let Some(bytes) = rest.filter(|rest| !rest.is_empty()) else {
             return false;
         };
+        // Below `end`, which fits.
         let offset = offset + skip;
-        self.end = Some(offset + bytes.len() as u64);
+        self.end = Some(end);
         let waiting = self.records.waiting(now);
         match waiting.last_mut() {
             Some(last) if follows(last, offset) && last.len() + bytes.len() <= RECORD => {
@@ -391,7 +396,7 @@ fn follows(record: &[u8], offset: u64) -> bool {
         return false;
     };
     let start = u64::from_be_bytes(start.try_into().unwrap_or_default());
-    record.len() > HEADER && start + (record.len() - HEADER) as u64 == offset
+    record.len() > HEADER && start.checked_add((record.len() - HEADER) as u64) == Some(offset)
 }
 
 #[cfg(test)]
@@ -490,6 +495,25 @@ mod tests {
             full.len()
         );
         assert!(main.messages().iter().all(|record| record.len() <= RECORD));
+    }
+
+    #[test]
+    fn output_ending_past_the_largest_offset_is_dropped() {
+        let mut hub = Hub::default();
+        let start = Instant::now();
+        let main = Recorder::<Vec<u8>>::new(1);
+        let one = terminal(1);
+        hub.attach("main", main.clone(), one, None, link("devbox"));
+        assert!(!hub.output(one, u64::MAX, b"xy", start));
+        assert!(!hub.output(one, u64::MAX - 1, b"abc", start));
+        assert_eq!(hub.next_due(), None);
+        // Ending right at the largest offset still fits, and what goes on
+        // past it is dropped too.
+        assert!(hub.output(one, u64::MAX - 2, b"ok", start));
+        assert!(!hub.output(one, u64::MAX, b"!", ms(start, 1)));
+        send(&mut hub, ms(start, 10));
+        assert_eq!(main.messages(), vec![record(1, u64::MAX - 2, b"ok")]);
+        assert!(!follows(&record(1, u64::MAX - 1, b"ab"), 0));
     }
 
     #[test]

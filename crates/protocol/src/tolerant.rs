@@ -8,9 +8,14 @@
 //! can't read is logged once, up to a limit.
 
 use std::collections::BTreeSet;
+use std::fmt;
+use std::marker::PhantomData;
 use std::sync::{Mutex, Once, PoisonError};
 
-use serde::de::{DeserializeOwned, Deserializer};
+use serde::de::{
+    self, DeserializeOwned, DeserializeSeed, Deserializer, IgnoredAny, MapAccess, SeqAccess,
+    Visitor,
+};
 use serde::Deserialize;
 use serde_json::Value;
 
@@ -29,39 +34,47 @@ where
     D: Deserializer<'de>,
     T: DeserializeOwned,
 {
-    let items = Vec::<Value>::deserialize(deserializer)?;
-    Ok(items
-        .into_iter()
-        .filter_map(|item| {
-            let kind = kind(&item).map(str::to_owned);
-            match serde_json::from_value(item) {
-                Ok(item) => Some(item),
-                Err(_) => {
-                    unreadable(kind.as_deref().unwrap_or("unnamed"));
-                    None
-                }
-            }
-        })
-        .collect())
+    each(deserializer, |item: Value| match T::deserialize(&item) {
+        Ok(item) => Ok(Some(item)),
+        Err(_) => {
+            unreadable(&kind_of(&item, &[]));
+            Ok(None)
+        }
+    })
 }
 
-/// Reads one message, or none for one this build can't read, such as a
-/// type from a newer `maxd`.
-pub(crate) fn message<T: DeserializeOwned>(json: &[u8]) -> Option<T> {
-    #[derive(Deserialize)]
-    struct Tag {
-        r#type: Option<String>,
-    }
-    match serde_json::from_slice(json) {
-        Ok(message) => Some(message),
-        Err(_) => {
-            let tag = serde_json::from_slice::<Tag>(json)
-                .ok()
-                .and_then(|tag| tag.r#type);
-            unreadable(tag.as_deref().unwrap_or("unnamed"));
-            None
+/// Reads a list one item at a time, so only one item is ever held before
+/// it's read. `read` gives what to keep of each, nothing to leave it out,
+/// or an error that fails the list.
+pub(crate) fn each<'de, D, E, T, F>(deserializer: D, read: F) -> Result<Vec<T>, D::Error>
+where
+    D: Deserializer<'de>,
+    E: Deserialize<'de>,
+    F: FnMut(E) -> serde_json::Result<Option<T>>,
+{
+    struct Each<E, T, F>(F, PhantomData<fn(E) -> T>);
+
+    impl<'de, E, T, F> Visitor<'de> for Each<E, T, F>
+    where
+        E: Deserialize<'de>,
+        F: FnMut(E) -> serde_json::Result<Option<T>>,
+    {
+        type Value = Vec<T>;
+
+        fn expecting(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+            f.write_str("a list")
+        }
+
+        fn visit_seq<A: SeqAccess<'de>>(mut self, mut seq: A) -> Result<Vec<T>, A::Error> {
+            let mut items = Vec::new();
+            while let Some(item) = seq.next_element::<E>()? {
+                items.extend((self.0)(item).map_err(de::Error::custom)?);
+            }
+            Ok(items)
         }
     }
+
+    deserializer.deserialize_seq(Each(read, PhantomData))
 }
 
 /// A type with a stand-in for a kind this build can't read.
@@ -134,34 +147,193 @@ where
     D: Deserializer<'de>,
     T: Unknown,
 {
-    let items = Vec::<Value>::deserialize(deserializer)?;
-    Ok(items.into_iter().map(stand_in).collect())
+    each(deserializer, |item: Value| Ok(Some(stand_in(item))))
 }
 
 /// The value, or its stand-in when it doesn't decode.
 fn stand_in<T: Unknown>(value: Value) -> T {
-    let kind = kind(&value).unwrap_or("unnamed").to_owned();
-    serde_json::from_value(value).unwrap_or_else(|_| {
-        unreadable(&kind);
-        T::unknown(&kind)
-    })
+    T::deserialize(&value).unwrap_or_else(|_| unknown(&kind_of(&value, &[])))
 }
 
+/// The stand-in for a kind this build can't read, logged.
+pub(crate) fn unknown<T: Unknown>(kind: &str) -> T {
+    unreadable(kind);
+    T::unknown(kind)
+}
+
+/// The fields an item may be named by, in the order [`kind_of`] picks
+/// them. `value` and `key` name it by their own `entity`.
+const NAMED_BY: [&str; 7] = ["entity", "value", "key", "op", "type", "kind", "status"];
+
 /// The kind an item names: itself when it's a string, its entity, its
-/// change's entity, or its tag.
-fn kind(item: &Value) -> Option<&str> {
-    fn entity(value: &Value) -> Option<&str> {
-        value.get("entity")?.as_str()
+/// change's entity, or its tag, cut to [`KIND_LEN`]. Fields named in
+/// `skip` don't count. Only the names are kept while it reads, so an item
+/// of any size costs no more than them.
+pub(crate) fn kind_of<'de, D: Deserializer<'de>>(item: D, skip: &[&str]) -> String {
+    item.deserialize_any(Names(skip))
+        .ok()
+        .flatten()
+        .unwrap_or_else(|| "unnamed".to_owned())
+}
+
+/// The visit methods of a visitor that skips all but strings and maps,
+/// naming nothing for them.
+macro_rules! names_nothing_else {
+    () => {
+        fn visit_bool<E: de::Error>(self, _: bool) -> Result<Self::Value, E> {
+            Ok(None)
+        }
+
+        fn visit_i64<E: de::Error>(self, _: i64) -> Result<Self::Value, E> {
+            Ok(None)
+        }
+
+        fn visit_u64<E: de::Error>(self, _: u64) -> Result<Self::Value, E> {
+            Ok(None)
+        }
+
+        fn visit_f64<E: de::Error>(self, _: f64) -> Result<Self::Value, E> {
+            Ok(None)
+        }
+
+        fn visit_unit<E: de::Error>(self) -> Result<Self::Value, E> {
+            Ok(None)
+        }
+
+        fn visit_seq<A: SeqAccess<'de>>(self, mut seq: A) -> Result<Self::Value, A::Error> {
+            while seq.next_element::<IgnoredAny>()?.is_some() {}
+            Ok(None)
+        }
+    };
+}
+
+/// Reads an item for [`kind_of`], skipping the fields in it.
+struct Names<'s>(&'s [&'s str]);
+
+impl<'de> Visitor<'de> for Names<'_> {
+    type Value = Option<String>;
+
+    fn expecting(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("an item")
     }
-    item.as_str()
-        .or_else(|| entity(item))
-        .or_else(|| item.get("value").and_then(entity))
-        .or_else(|| item.get("key").and_then(entity))
-        .or_else(|| {
-            ["op", "type", "kind", "status"]
-                .iter()
-                .find_map(|tag| item.get(tag)?.as_str())
-        })
+
+    fn visit_str<E: de::Error>(self, kind: &str) -> Result<Self::Value, E> {
+        Ok(Some(cut(kind).to_owned()))
+    }
+
+    fn visit_map<A: MapAccess<'de>>(self, mut map: A) -> Result<Self::Value, A::Error> {
+        let mut found: [Option<String>; NAMED_BY.len()] = Default::default();
+        while let Some(field) = map.next_key_seed(Field(self.0))? {
+            let Some(at) = field else {
+                map.next_value::<IgnoredAny>()?;
+                continue;
+            };
+            found[at] = if matches!(NAMED_BY[at], "value" | "key") {
+                map.next_value_seed(Entity)?
+            } else {
+                map.next_value_seed(Name)?
+            };
+        }
+        Ok(found.into_iter().flatten().next())
+    }
+
+    names_nothing_else!();
+}
+
+/// Reads a key as its place in [`NAMED_BY`], or none when it names
+/// nothing or is skipped.
+struct Field<'s>(&'s [&'s str]);
+
+impl<'de> DeserializeSeed<'de> for Field<'_> {
+    type Value = Option<usize>;
+
+    fn deserialize<D: Deserializer<'de>>(self, deserializer: D) -> Result<Self::Value, D::Error> {
+        deserializer.deserialize_str(self)
+    }
+}
+
+impl Visitor<'_> for Field<'_> {
+    type Value = Option<usize>;
+
+    fn expecting(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("a field's name")
+    }
+
+    fn visit_str<E: de::Error>(self, field: &str) -> Result<Self::Value, E> {
+        if self.0.contains(&field) {
+            return Ok(None);
+        }
+        Ok(NAMED_BY.iter().position(|named| *named == field))
+    }
+}
+
+/// Reads a field's value as a name when it's a string, and skips it
+/// otherwise.
+struct Name;
+
+impl<'de> DeserializeSeed<'de> for Name {
+    type Value = Option<String>;
+
+    fn deserialize<D: Deserializer<'de>>(self, deserializer: D) -> Result<Self::Value, D::Error> {
+        deserializer.deserialize_any(self)
+    }
+}
+
+impl<'de> Visitor<'de> for Name {
+    type Value = Option<String>;
+
+    fn expecting(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("a name")
+    }
+
+    fn visit_str<E: de::Error>(self, name: &str) -> Result<Self::Value, E> {
+        Ok(Some(cut(name).to_owned()))
+    }
+
+    fn visit_map<A: MapAccess<'de>>(self, mut map: A) -> Result<Self::Value, A::Error> {
+        while map.next_entry::<IgnoredAny, IgnoredAny>()?.is_some() {}
+        Ok(None)
+    }
+
+    names_nothing_else!();
+}
+
+/// Reads a `value` or `key` field for the `entity` it names, and skips
+/// anything else.
+struct Entity;
+
+impl<'de> DeserializeSeed<'de> for Entity {
+    type Value = Option<String>;
+
+    fn deserialize<D: Deserializer<'de>>(self, deserializer: D) -> Result<Self::Value, D::Error> {
+        deserializer.deserialize_any(self)
+    }
+}
+
+impl<'de> Visitor<'de> for Entity {
+    type Value = Option<String>;
+
+    fn expecting(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("an entity or its key")
+    }
+
+    fn visit_str<E: de::Error>(self, _: &str) -> Result<Self::Value, E> {
+        Ok(None)
+    }
+
+    fn visit_map<A: MapAccess<'de>>(self, mut map: A) -> Result<Self::Value, A::Error> {
+        let mut entity = None;
+        while let Some(field) = map.next_key_seed(Field(&[]))? {
+            if field.is_some_and(|at| NAMED_BY[at] == "entity") {
+                entity = map.next_value_seed(Name)?;
+            } else {
+                map.next_value::<IgnoredAny>()?;
+            }
+        }
+        Ok(entity)
+    }
+
+    names_nothing_else!();
 }
 
 /// How many kinds this build remembers having logged. The peer picks the
@@ -169,25 +341,45 @@ fn kind(item: &Value) -> Option<&str> {
 const MOST_KINDS: usize = 64;
 
 /// How many bytes of a kind's name this build logs and remembers.
-const KIND_LEN: usize = 64;
+pub(crate) const KIND_LEN: usize = 64;
 
 /// The kinds logged so far, each cut to `KIND_LEN`.
 static SEEN: Mutex<BTreeSet<String>> = Mutex::new(BTreeSet::new());
 
-/// Logs a kind this build can't read, the first time it comes.
-fn unreadable(kind: &str) {
-    let cut = (0..=KIND_LEN.min(kind.len()))
+/// The start of a kind's name, at most [`KIND_LEN`] bytes, cut between
+/// characters.
+pub(crate) fn cut(kind: &str) -> &str {
+    let at = (0..=KIND_LEN.min(kind.len()))
         .rev()
         .find(|at| kind.is_char_boundary(*at))
         .unwrap_or(0);
-    let kind = &kind[..cut];
+    &kind[..at]
+}
+
+/// Logs a kind this build can't read, the first time it comes.
+pub(crate) fn unreadable(kind: &str) {
+    once(kind, "this build can't read this kind; a newer app can");
+}
+
+/// Logs a kind that came larger than this build reads it, the first time
+/// it comes.
+pub(crate) fn too_large(kind: &str) {
+    once(
+        kind,
+        "a message of this kind came larger than this build reads",
+    );
+}
+
+/// Logs a kind the first time it comes, for why it was left out.
+fn once(kind: &str, why: &str) {
+    let kind = cut(kind);
     let mut seen = SEEN.lock().unwrap_or_else(PoisonError::into_inner);
     if seen.contains(kind) {
         return;
     }
     if seen.len() < MOST_KINDS {
         seen.insert(kind.to_owned());
-        tracing::warn!(kind, "this build can't read this kind; a newer app can");
+        tracing::warn!(kind, "{why}");
     } else {
         static FULL: Once = Once::new();
         FULL.call_once(|| tracing::warn!("this build won't log any more kinds it can't read"));
@@ -237,7 +429,7 @@ mod tests {
         };
         assert_eq!(snapshot.entities.len(), 1);
         let mut replica = Replica::default();
-        replica.apply_snapshot(snapshot);
+        replica.apply_snapshot(snapshot).unwrap();
         assert!(replica.get(&hidden_key(ONE)).is_some());
 
         let ServerMessage::Delta(delta) = read(&json!({
@@ -277,7 +469,7 @@ mod tests {
             panic!("expected a snapshot");
         };
         let mut replica = Replica::default();
-        replica.apply_snapshot(snapshot);
+        replica.apply_snapshot(snapshot).unwrap();
         let key = EntityKey::Dispatcher(ONE.parse().unwrap());
         assert!(matches!(replica.get(&key), Some(Entity::Dispatcher(_))));
 

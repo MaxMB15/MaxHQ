@@ -16,6 +16,7 @@ use crate::acp::AcpAgent;
 use crate::admission::{Admission, AppKey};
 use crate::attention::AttentionEvent;
 use crate::dispatch::{Dispatcher, DispatcherChat};
+use crate::frame::MAX_FRAME_LEN;
 use crate::hosts::{AcpRegistry, HostReport, Move, PendingLicence};
 use crate::ids::{
     AccountId, AcpAgentId, AdmissionId, AgentId, AppKeyId, AttentionId, CredentialId, DeviceId,
@@ -580,11 +581,82 @@ pub struct SeqGap {
     pub got: Seq,
 }
 
-/// A client's copy of the state, kept current by snapshots and deltas.
+/// The most entities a replica holds for one device, far past what a real
+/// device's state has.
+pub const MAX_ENTITIES: usize = 100_000;
+
+/// The most bytes of JSON a replica holds for one device, twice what one
+/// snapshot can carry.
+pub const MAX_ENTITY_BYTES: usize = 2 * MAX_FRAME_LEN;
+
+/// A snapshot or delta that would take a replica past [`MAX_ENTITIES`] or
+/// [`MAX_ENTITY_BYTES`]. The replica is emptied, and the fix is a fresh
+/// connection with a new snapshot.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Error)]
+#[error(
+    "the device sent more state than a client holds: {entities} entities in {bytes} bytes, past \
+     {MAX_ENTITIES} entities or {MAX_ENTITY_BYTES} bytes"
+)]
+pub struct Overfull {
+    /// The entities it would have held.
+    pub entities: usize,
+    /// The bytes of JSON they would have taken.
+    pub bytes: usize,
+}
+
+/// Why a replica didn't take a delta.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Error)]
+pub enum DeltaError {
+    /// It doesn't follow the state held, and a sync fixes it.
+    #[error(transparent)]
+    Gap(#[from] SeqGap),
+    /// It would hold too much, and the replica is emptied.
+    #[error(transparent)]
+    Overfull(#[from] Overfull),
+}
+
+/// A client's copy of the state, kept current by snapshots and deltas. It
+/// holds at most [`MAX_ENTITIES`] entities in [`MAX_ENTITY_BYTES`] bytes.
 #[derive(Clone, Debug, Default)]
 pub struct Replica {
     seq: Option<Seq>,
-    entities: BTreeMap<EntityKey, Entity>,
+    entities: BTreeMap<EntityKey, Held>,
+    bytes: usize,
+}
+
+/// An entity and the bytes of JSON it takes.
+#[derive(Clone, Debug)]
+struct Held {
+    entity: Entity,
+    bytes: usize,
+}
+
+impl Held {
+    fn new(entity: Entity) -> Self {
+        let bytes = json_len(&entity);
+        Self { entity, bytes }
+    }
+}
+
+/// How many bytes a value's JSON takes, counted without writing it down.
+fn json_len(entity: &Entity) -> usize {
+    struct Count(usize);
+
+    impl std::io::Write for Count {
+        fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+            self.0 = self.0.saturating_add(bytes.len());
+            Ok(bytes.len())
+        }
+
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+
+    let mut count = Count(0);
+    // An entity always encodes, so a failure counts what was written.
+    let _ = serde_json::to_writer(&mut count, entity);
+    count.0
 }
 
 impl Replica {
@@ -593,19 +665,32 @@ impl Replica {
         self.seq
     }
 
-    /// Replaces everything with the snapshot.
-    pub fn apply_snapshot(&mut self, snapshot: Snapshot) {
-        self.seq = Some(snapshot.seq);
-        self.entities = snapshot
-            .entities
-            .into_iter()
-            .map(|entity| (entity.key(), entity))
-            .collect();
+    /// Replaces everything with the snapshot. One that holds too much
+    /// leaves the replica empty.
+    pub fn apply_snapshot(&mut self, snapshot: Snapshot) -> Result<(), Overfull> {
+        *self = Self::default();
+        let mut entities = BTreeMap::new();
+        let mut bytes = 0usize;
+        for entity in snapshot.entities {
+            let held = Held::new(entity);
+            bytes = bytes.saturating_add(held.bytes);
+            if let Some(old) = entities.insert(held.entity.key(), held) {
+                bytes -= old.bytes;
+            }
+            within(entities.len(), bytes)?;
+        }
+        *self = Self {
+            seq: Some(snapshot.seq),
+            entities,
+            bytes,
+        };
+        Ok(())
     }
 
     /// Applies the next delta. A delta for a version already held is a
-    /// repeat and changes nothing. Anything further ahead is a gap.
-    pub fn apply_delta(&mut self, delta: Delta) -> Result<(), SeqGap> {
+    /// repeat and changes nothing. Anything further ahead is a gap. One
+    /// that would hold too much leaves the replica empty.
+    pub fn apply_delta(&mut self, delta: Delta) -> Result<(), DeltaError> {
         let gap = SeqGap {
             have: self.seq,
             got: delta.seq,
@@ -615,16 +700,26 @@ impl Replica {
             return Ok(());
         }
         if delta.seq != have.next() {
-            return Err(gap);
+            return Err(gap.into());
         }
         for change in delta.changes {
             match change {
                 Change::Upsert { value } => {
-                    self.entities.insert(value.key(), value);
+                    let held = Held::new(value);
+                    self.bytes = self.bytes.saturating_add(held.bytes);
+                    if let Some(old) = self.entities.insert(held.entity.key(), held) {
+                        self.bytes -= old.bytes;
+                    }
                 }
                 Change::Remove { key } => {
-                    self.entities.remove(&key);
+                    if let Some(old) = self.entities.remove(&key) {
+                        self.bytes -= old.bytes;
+                    }
                 }
+            }
+            if let Err(over) = within(self.entities.len(), self.bytes) {
+                *self = Self::default();
+                return Err(over.into());
             }
         }
         self.seq = Some(delta.seq);
@@ -633,13 +728,21 @@ impl Replica {
 
     /// The entity with this key.
     pub fn get(&self, key: &EntityKey) -> Option<&Entity> {
-        self.entities.get(key)
+        self.entities.get(key).map(|held| &held.entity)
     }
 
     /// Every entity, ordered by key.
     pub fn entities(&self) -> impl Iterator<Item = &Entity> {
-        self.entities.values()
+        self.entities.values().map(|held| &held.entity)
     }
+}
+
+/// Refuses a replica past [`MAX_ENTITIES`] or [`MAX_ENTITY_BYTES`].
+fn within(entities: usize, bytes: usize) -> Result<(), Overfull> {
+    if entities > MAX_ENTITIES || bytes > MAX_ENTITY_BYTES {
+        return Err(Overfull { entities, bytes });
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -673,7 +776,7 @@ mod tests {
     #[test]
     fn deltas_apply_in_order() {
         let mut replica = Replica::default();
-        replica.apply_snapshot(snapshot(4));
+        replica.apply_snapshot(snapshot(4)).unwrap();
         let renamed = Entity::Device(device("home"));
         let key = renamed.key();
         replica
@@ -699,7 +802,7 @@ mod tests {
     #[test]
     fn repeated_deltas_change_nothing() {
         let mut replica = Replica::default();
-        replica.apply_snapshot(snapshot(4));
+        replica.apply_snapshot(snapshot(4)).unwrap();
         let key = device("devbox").id;
         let remove = Delta {
             seq: Seq(4),
@@ -720,24 +823,122 @@ mod tests {
         };
         assert_eq!(
             replica.apply_delta(delta.clone()),
-            Err(SeqGap {
+            Err(DeltaError::Gap(SeqGap {
                 have: None,
                 got: Seq(1)
-            })
+            }))
         );
 
-        replica.apply_snapshot(snapshot(4));
+        replica.apply_snapshot(snapshot(4)).unwrap();
         let ahead = Delta {
             seq: Seq(6),
             changes: vec![],
         };
         assert_eq!(
             replica.apply_delta(ahead),
-            Err(SeqGap {
+            Err(DeltaError::Gap(SeqGap {
                 have: Some(Seq(4)),
                 got: Seq(6)
-            })
+            }))
         );
+    }
+
+    /// A device with its own id and a name of `pad` bytes.
+    fn padded(n: u128, pad: usize) -> Entity {
+        let mut device = device(&"x".repeat(pad));
+        device.id = DeviceId(uuid::Uuid::from_u128(n));
+        Entity::Device(device)
+    }
+
+    #[test]
+    fn a_replica_holds_only_so_many_entities() {
+        let mut replica = Replica::default();
+        let most = Snapshot {
+            seq: Seq(1),
+            entities: (0..MAX_ENTITIES as u128).map(|n| padded(n, 0)).collect(),
+        };
+        replica.apply_snapshot(most.clone()).unwrap();
+        assert_eq!(replica.entities().count(), MAX_ENTITIES);
+
+        // A repeat of one held changes no count.
+        let again = Delta {
+            seq: Seq(2),
+            changes: vec![Change::Upsert {
+                value: padded(0, 0),
+            }],
+        };
+        replica.apply_delta(again).unwrap();
+        let one_more = Delta {
+            seq: Seq(3),
+            changes: vec![Change::Upsert {
+                value: padded(u128::MAX, 0),
+            }],
+        };
+        assert!(matches!(
+            replica.apply_delta(one_more),
+            Err(DeltaError::Overfull(Overfull { entities, .. })) if entities == MAX_ENTITIES + 1
+        ));
+        assert_eq!(replica.entities().count(), 0);
+        assert_eq!(replica.seq(), None);
+
+        let mut too_many = most;
+        too_many.entities.push(padded(u128::MAX, 0));
+        assert!(replica.apply_snapshot(too_many).is_err());
+        assert_eq!(replica.entities().count(), 0);
+        assert_eq!(replica.seq(), None);
+    }
+
+    #[test]
+    fn a_replica_holds_only_so_many_bytes() {
+        let mut replica = Replica::default();
+        let quarter = MAX_ENTITY_BYTES / 4;
+        let snapshot = Snapshot {
+            seq: Seq(1),
+            entities: (0..3).map(|n| padded(n, quarter)).collect(),
+        };
+        replica.apply_snapshot(snapshot).unwrap();
+
+        // Replacing one, or removing one first, keeps it under.
+        let replace = Delta {
+            seq: Seq(2),
+            changes: vec![
+                Change::Upsert {
+                    value: padded(2, quarter),
+                },
+                Change::Remove {
+                    key: padded(2, 0).key(),
+                },
+                Change::Upsert {
+                    value: padded(3, quarter),
+                },
+            ],
+        };
+        replica.apply_delta(replace).unwrap();
+        assert_eq!(replica.entities().count(), 3);
+
+        let past = Delta {
+            seq: Seq(3),
+            changes: vec![Change::Upsert {
+                value: padded(4, quarter),
+            }],
+        };
+        let Err(DeltaError::Overfull(over)) = replica.apply_delta(past) else {
+            panic!("expected the replica to refuse it");
+        };
+        assert!(over.bytes > MAX_ENTITY_BYTES);
+        assert!(over.to_string().contains("more state than a client holds"));
+        assert_eq!(replica.entities().count(), 0);
+
+        // A fresh snapshot fills it again.
+        replica.apply_snapshot(snapshot_of(2, quarter)).unwrap();
+        assert_eq!(replica.entities().count(), 2);
+    }
+
+    fn snapshot_of(count: u128, pad: usize) -> Snapshot {
+        Snapshot {
+            seq: Seq(9),
+            entities: (0..count).map(|n| padded(n, pad)).collect(),
+        }
     }
 
     #[test]

@@ -29,6 +29,7 @@ mod tests;
 use std::collections::{BTreeMap, BTreeSet, HashMap, VecDeque};
 use std::io;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, OnceLock, Weak};
 use std::time::{Duration, Instant};
 
@@ -47,7 +48,7 @@ use maxhq_protocol::message::{ActionOutcome, TunnelEnd};
 use maxhq_protocol::{ClientMessage, ServerMessage};
 use maxhq_wire::Queue;
 use tokio::io::DuplexStream;
-use tokio::sync::{oneshot, watch, Semaphore};
+use tokio::sync::{mpsc, oneshot, watch, Semaphore};
 use tracing::{debug, info, warn};
 
 use crate::agents::{Answer, PeerCalls, Stepped, Unreachable, Woken};
@@ -84,6 +85,11 @@ const ANSWERS_KEPT: usize = 256;
 /// agent's blocking call, however long it waits, so a real link stays far
 /// under this even with every agent on a device waiting on the same peer.
 const MAX_REQUESTS: usize = 1024;
+
+/// How many bytes of control messages may wait behind one link's full
+/// queue. A link this far behind isn't reading, so it closes. A real link
+/// waits on a handful of requests at most.
+const MAX_WAITING: usize = 16 * 1024 * 1024;
 
 /// The file under the SSH folder that holds the other devices' host keys.
 const KNOWN_HOSTS: &str = "known_hosts";
@@ -249,7 +255,7 @@ struct Out {
 }
 
 struct Incoming {
-    wire: maxhq_wire::Sender,
+    control: Control,
     serial: u64,
     /// Where its model streams send, behind everything sent before.
     sink: Arc<dyn tunnel::Sink<ServerMessage>>,
@@ -438,7 +444,7 @@ impl Peers {
         let mut state = self.lock();
         state.out.remove(&device);
         if let Some(incoming) = state.incoming.remove(&device) {
-            incoming.wire.close();
+            incoming.control.wire.close();
         }
         state.streams.retain(|_, carried| carried.device != device);
         info!(%device, "took out a device's key");
@@ -983,13 +989,10 @@ impl Peers {
         {
             let mut state = self.lock();
             if let Some(incoming) = state.incoming.get(&device) {
-                send(
-                    &incoming.wire,
-                    &ServerMessage::PeerRequest {
-                        key,
-                        request: request.clone(),
-                    },
-                );
+                incoming.control.send(&ServerMessage::PeerRequest {
+                    key,
+                    request: request.clone(),
+                });
             }
             state.pending.insert(
                 key,
@@ -1177,23 +1180,26 @@ impl Peers {
         let mut state = self.lock();
         state.serial += 1;
         let serial = state.serial;
+        let control = Control::new(wire.clone());
         for (key, pending) in &state.pending {
             if pending.device == device {
-                send(
-                    &wire,
-                    &ServerMessage::PeerRequest {
-                        key: *key,
-                        request: pending.request.clone(),
-                    },
-                );
+                control.send(&ServerMessage::PeerRequest {
+                    key: *key,
+                    request: pending.request.clone(),
+                });
             }
         }
         let sink: Arc<dyn tunnel::Sink<ServerMessage>> =
-            Arc::new(tunnel::Queue::spawn(crate::server::ToClient(wire.clone())));
+            Arc::new(tunnel::Queue::spawn(crate::server::ToClient(wire)));
         state.streams.retain(|_, carried| carried.device != device);
-        state
-            .incoming
-            .insert(device, Incoming { wire, serial, sink });
+        state.incoming.insert(
+            device,
+            Incoming {
+                control,
+                serial,
+                sink,
+            },
+        );
         self.relink(&state);
         serial
     }
@@ -1409,19 +1415,70 @@ fn route_host(device: DeviceId, n: usize) -> String {
     format!("maxhq-peer-{device}-{n}")
 }
 
-/// Queues one message on a link's control queue, in order with the ones
-/// before it. A link that closed drops it.
-fn send(wire: &maxhq_wire::Sender, message: &ServerMessage) {
-    let mut out = Vec::new();
-    if let Err(err) = frame::encode_message(&mut out, message) {
-        warn!(%err, "couldn't encode a peer message");
-        return;
-    }
-    if let Err(maxhq_wire::TrySendError::Full) = wire.try_send(Queue::Control, out.clone()) {
-        let wire = wire.clone();
+/// The control messages going over one link another device opened. What
+/// the link's queue has no room for yet waits, in order, for one task that
+/// queues it as room frees, up to [`MAX_WAITING`] bytes.
+#[derive(Clone)]
+struct Control {
+    wire: maxhq_wire::Sender,
+    /// Bytes handed to the task that aren't in the link's queue yet.
+    waiting: Arc<AtomicUsize>,
+    later: mpsc::UnboundedSender<Vec<u8>>,
+}
+
+impl Control {
+    fn new(wire: maxhq_wire::Sender) -> Self {
+        let (later, mut frames) = mpsc::unbounded_channel::<Vec<u8>>();
+        let waiting = Arc::new(AtomicUsize::new(0));
+        let (to, left) = (wire.clone(), Arc::clone(&waiting));
         tokio::spawn(async move {
-            let _ = wire.send(Queue::Control, out).await;
+            while let Some(frame) = frames.recv().await {
+                let len = frame.len();
+                let sent = to.send(Queue::Control, frame).await;
+                left.fetch_sub(len, Ordering::AcqRel);
+                if sent.is_err() {
+                    break;
+                }
+            }
         });
+        Control {
+            wire,
+            waiting,
+            later,
+        }
+    }
+
+    /// Queues one message, after the ones sent before it. A link that
+    /// closed drops it, and one too far behind closes. Messages from one
+    /// sender at a time keep their order, as [`Peers`] sends under its
+    /// lock.
+    fn send(&self, message: &ServerMessage) {
+        if self.wire.is_closed() {
+            return;
+        }
+        let mut out = Vec::new();
+        if let Err(err) = frame::encode_message(&mut out, message) {
+            warn!(%err, "couldn't encode a peer message");
+            return;
+        }
+        // The task's count only drops once its frame is queued, so none
+        // waiting means nothing sent before is still ahead of this one.
+        if self.waiting.load(Ordering::Acquire) == 0 {
+            match self.wire.try_send(Queue::Control, out.clone()) {
+                Err(maxhq_wire::TrySendError::Full) => {}
+                Ok(()) | Err(maxhq_wire::TrySendError::Closed) => return,
+            }
+        }
+        let len = out.len();
+        if self.waiting.load(Ordering::Acquire) + len > MAX_WAITING {
+            warn!("a peer stopped reading what this device sends, so its link closes");
+            self.wire.close();
+            return;
+        }
+        self.waiting.fetch_add(len, Ordering::AcqRel);
+        if self.later.send(out).is_err() {
+            self.waiting.fetch_sub(len, Ordering::AcqRel);
+        }
     }
 }
 
