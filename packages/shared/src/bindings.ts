@@ -6266,7 +6266,13 @@ cwd: string | null;
 /**  The answers you can pick, in order. */
 options: AttentionOption[]; 
 /**  How it ended, once it has. */
-decided: Decided | null } | 
+decided: Decided | null; 
+/**
+ *  The rules "Always allow" saves for a command, as their words, when
+ *  MaxHQ keeps them. An older `maxd` leaves it out, which reads as
+ *  none.
+ */
+saves?: string[] } | 
 /**  The agent asked you one or more questions. */
 { kind: "question"; 
 /**  The attention event you answer. */

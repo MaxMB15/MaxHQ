@@ -70,6 +70,7 @@
 	"Allow to run agents": "Ausführen von Agenten erlauben",
 	"Allow {{expression}}": "{{expression}} erlauben",
 	"Also delete MaxHQ's data on this Mac": "Auch die Daten von MaxHQ auf diesem Mac löschen",
+	"Always allow saves:": "Immer erlauben speichert:",
 	"Another host": "Anderer Host",
 	"Any account": "Beliebiges Konto",
 	"Anywhere": "Überall",

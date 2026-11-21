@@ -1016,6 +1016,7 @@ impl Convo {
                 by: None,
                 at,
             }),
+            saves: Vec::new(),
         };
         let owner = Owner {
             agent: tool.agent,

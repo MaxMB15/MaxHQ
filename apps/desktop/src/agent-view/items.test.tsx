@@ -767,6 +767,25 @@ describe("approval card", () => {
 		show(approval(), { agent: "agent-release" });
 		expect(screen.queryByText(/^In /)).not.toBeInTheDocument();
 	});
+
+	it("says what Always allow saves while it's on offer", () => {
+		show(
+			approval({
+				options: [
+					{ id: "allow-once", label: "Allow once", kind: "allow_once" },
+					{ id: "allow-always", label: "Allow always", kind: "allow_always" },
+				],
+				saves: ["pnpm install", "rm -rf build"],
+			})
+		);
+		expect(screen.getByText("Always allow saves:")).toBeInTheDocument();
+		expect(screen.getByText("rm -rf build")).toBeInTheDocument();
+	});
+
+	it("leaves the saved rules out when Always allow isn't on offer", () => {
+		show(approval({ saves: ["pnpm install"] }));
+		expect(screen.queryByText("Always allow saves:")).not.toBeInTheDocument();
+	});
 });
 
 const subagent = (

@@ -1191,7 +1191,13 @@ fn ask_and_accept_edits_ask_about_a_command_that_only_reads() {
 fn always_allow_saves_rules_that_answer_later_prompts() {
     let mut run = turning_in(PermissionMode::Ask);
     run.feed_all(&command_prompt("git show 1a2b3c && rm -rf build", 0));
-    let event = opened(&run.take()).pop().expect("a prompt");
+    let fx = run.take();
+    let event = opened(&fx).pop().expect("a prompt");
+    // The card shows what "Always allow" saves before you pick it.
+    match &item(&items_of(&fx), &format!("cursor:approval:{}", event.id)).body {
+        ItemBody::Approval { saves, .. } => assert_eq!(saves, &["git show", "rm -rf build"]),
+        other => panic!("{other:?}"),
+    }
     run.act(Action::Answer {
         key: key(2),
         event: event.id,
@@ -1201,9 +1207,10 @@ fn always_allow_saves_rules_that_answer_later_prompts() {
         by: client(),
     });
     let fx = run.take();
-    // The CLI still gets your answer, and the project keeps the rules.
+    // MaxHQ keeps the rules, and the CLI hears "once", so its own allowlist
+    // never learns a rule wider than the one MaxHQ saved.
     let reply = answers(&fx).pop().expect("an answer");
-    assert_eq!(reply["result"]["outcome"]["optionId"], "allow-always");
+    assert_eq!(reply["result"]["outcome"]["optionId"], "allow-once");
     let rules = vec![
         CommandRule {
             command: "git show".into(),

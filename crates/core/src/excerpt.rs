@@ -1585,6 +1585,7 @@ mod tests {
                         by: None,
                         at: Timestamp(1),
                     }),
+                    saves: Vec::new(),
                 },
             ),
         ];
