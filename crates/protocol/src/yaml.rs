@@ -190,14 +190,25 @@ pub fn flow_too_deep(text: &[u8]) -> bool {
                 at = end + 1;
                 continue;
             }
-            // A tag, anchor or alias comes before a token or is one, and
-            // flow characters end it, apart from a verbatim tag (`!<...>`),
-            // whose text takes them in.
+            // A verbatim tag (`!<...>`) takes flow characters into its text
+            // and ends at its `>`. What follows is read as usual, so a
+            // bracket after it still counts.
+            b'!' if start && text[at..].starts_with(b"!<") => {
+                at += 2;
+                while text.get(at).is_some_and(|c| !blank(*c) && *c != b'>') {
+                    at += 1;
+                }
+                if text.get(at) == Some(&b'>') {
+                    at += 1;
+                }
+                continue;
+            }
+            // Any other tag, anchor or alias comes before a token or is one,
+            // and flow characters end it.
             b'!' | b'&' | b'*' if start => {
-                let verbatim = text[at..].starts_with(b"!<");
                 while text
                     .get(at)
-                    .is_some_and(|c| !blank(*c) && (verbatim || !b"[]{},".contains(c)))
+                    .is_some_and(|c| !blank(*c) && !b"[]{},".contains(c))
                 {
                     at += 1;
                 }
@@ -285,6 +296,7 @@ mod tests {
             "",
             "a: [1, 2, {b: [3, {c: d}]}]\n",
             "a: 'it''s [[[[' # and [[[[[\nb: \"\\\" [[[[\"\n",
+            "a: [!<tag:yaml.org,2002:str> x, {b: [1]}]\n",
             &deep("[", "]", MAX_FLOW_DEPTH),
             &deep("{", "}", MAX_FLOW_DEPTH),
         ] {
@@ -303,6 +315,9 @@ mod tests {
             deep("&a[", "]", MAX_FLOW_DEPTH + 1),
             deep("[!!seq ", "]", MAX_FLOW_DEPTH + 1),
             deep("[!<]> ", "", 100_000),
+            deep("[!<a>,", "", 100_000),
+            deep("[!<a>[", "", 100_000),
+            deep("[!<a,b> ", "]", MAX_FLOW_DEPTH + 1),
         ] {
             assert!(flow_too_deep(text.as_bytes()), "{}", &text[..20]);
         }

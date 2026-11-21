@@ -348,6 +348,14 @@ mod tests {
     }
 
     #[test]
+    fn a_verbatim_tag_doesnt_hide_the_nesting_after_it() {
+        let deep = format!("x: {}\n", "[!<a>,".repeat(20_000));
+        assert!(check_yaml(deep.as_bytes()).is_err());
+        assert!(matches!(load(deep.as_bytes()), Err(LoadError::Parse(_))));
+        assert_eq!(crate::eval::parse_doc(deep.as_bytes()), None);
+    }
+
+    #[test]
     fn a_descriptor_past_the_limit_is_refused() {
         let mut text = minimal("");
         text.push_str(&"# padding\n".repeat(MAX_DESCRIPTOR / 10 + 1));
