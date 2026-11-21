@@ -26,6 +26,7 @@ use maxhq_protocol::message::{
     ActionOutcome, AttachmentSource, Capabilities, ClientHello, ErrorCode, ServerHello,
     UploadSource,
 };
+use maxhq_protocol::model::PermissionMode;
 use maxhq_protocol::state::{Delta, Seq};
 use maxhq_protocol::terminal::TerminalKind;
 use maxhq_protocol::{ClientMessage, ProtocolRange, ServerMessage};
@@ -766,18 +767,25 @@ impl Connection {
         // removes a credential, signs in, changes how this device is set
         // up or installs anything. So a stolen phone's key can't either.
         // Nor can it read a file by its path on the device, list or make
-        // folders, start or move agents, start tasks, make, clone or remove
-        // workspaces, place files in them, open a shell, reach a guest's
-        // shell or ports, signal a process, copy files out, build or reset
-        // a test host, or change hosts, snapshots, moves, skills, the skill
-        // library or its sources: the phone asks the dispatcher, answers
-        // and steers agents that already run. Unless the Mac turned the
-        // phone's switch on, which lets it do all of these.
+        // folders, start or move agents, set one to Auto or Full access,
+        // start tasks, make, clone or remove workspaces, place files in
+        // them, open a shell, reach a guest's shell or ports, signal a
+        // process, copy files out, download models, build or reset a test
+        // host, or change hosts, snapshots, moves, skills, the skill
+        // library or its sources. Nor, as `terminals::access` says, run a
+        // `!` command, type into a terminal or watch a shell. The phone
+        // asks the dispatcher, answers and steers agents that already run.
+        // Unless the Mac turned the phone's switch on, which lets it do all
+        // of these.
         if self.phone.is_some()
             && matches!(
                 message,
                 ClientMessage::StartAgent { .. }
                     | ClientMessage::MoveAgent { .. }
+                    | ClientMessage::SetPermission {
+                        mode: PermissionMode::Auto | PermissionMode::FullAccess,
+                        ..
+                    }
                     | ClientMessage::SaveTask { .. }
                     | ClientMessage::SetDeviceSettings { .. }
                     | ClientMessage::UpdateDeviceSettings { .. }
@@ -847,6 +855,7 @@ impl Connection {
                             | ModelAction::ProbeServer { .. }
                             | ModelAction::RemoveServer { .. }
                             | ModelAction::Download { .. }
+                            | ModelAction::ResumeDownload { .. }
                             | ModelAction::DeleteModel { .. },
                         ..
                     }
@@ -3738,6 +3747,25 @@ pub(crate) mod tests {
                     file: "Qwen3.6-35B-A3B-UD-Q4_K_XL.gguf".into(),
                 },
             },
+            // A resume starts a download the Mac never began just as well.
+            ClientMessage::ModelAction {
+                key: key("model-resume"),
+                action: ModelAction::ResumeDownload {
+                    model: "qwen3.6-35b-a3b".into(),
+                    file: "Qwen3.6-35B-A3B-UD-Q4_K_XL.gguf".into(),
+                },
+            },
+            // Nor does it let an agent act without asking.
+            ClientMessage::SetPermission {
+                key: key("auto"),
+                agent: AgentId::derive("a"),
+                mode: PermissionMode::Auto,
+            },
+            ClientMessage::SetPermission {
+                key: key("full-access"),
+                agent: AgentId::derive("a"),
+                mode: PermissionMode::FullAccess,
+            },
         ];
         // What hands out access, which a phone's switch never lifts.
         let handed_out = [
@@ -3845,9 +3873,9 @@ pub(crate) mod tests {
             );
         }
         assert!(!phones.everything(phone), "the phone can't turn it on");
-        // A sign-in the Mac began can still be read and stopped from it, and
-        // a command typed after `!` still runs, and the phone can still have
-        // this device look at what it hosts.
+        // A sign-in the Mac began can still be read and stopped from it, an
+        // agent can still be set to a mode that asks, and the phone can
+        // still have this device look at what it hosts.
         let round = SignInId::derive("round");
         for message in [
             ClientMessage::CheckCliLogin {
@@ -3858,21 +3886,21 @@ pub(crate) mod tests {
                 key: key("cli-cancel"),
                 sign_in: round,
             },
-            ClientMessage::TerminalOpen {
-                key: key("run"),
+            ClientMessage::SetPermission {
+                key: key("ask"),
                 agent: AgentId::derive("a"),
-                kind: TerminalKind::Run {
-                    command: "pnpm test".into(),
-                    private: false,
-                },
-                cols: 80,
-                rows: 24,
+                mode: PermissionMode::Ask,
+            },
+            ClientMessage::SetPermission {
+                key: key("accept-edits"),
+                agent: AgentId::derive("a"),
+                mode: PermissionMode::AcceptEdits,
             },
             ClientMessage::CheckTestHosts {
                 key: key("test-host-check"),
             },
-            // It may load, unload and test a model server, and pause and
-            // resume a download the Mac started.
+            // It may load, unload and test a model server, and pause a
+            // download the Mac started.
             ClientMessage::ModelAction {
                 key: key("model-test"),
                 action: ModelAction::TestServer {
@@ -3896,13 +3924,6 @@ pub(crate) mod tests {
             ClientMessage::ModelAction {
                 key: key("model-pause"),
                 action: ModelAction::PauseDownload {
-                    model: "qwen3.6-35b-a3b".into(),
-                    file: "Qwen3.6-35B-A3B-UD-Q4_K_XL.gguf".into(),
-                },
-            },
-            ClientMessage::ModelAction {
-                key: key("model-resume"),
-                action: ModelAction::ResumeDownload {
                     model: "qwen3.6-35b-a3b".into(),
                     file: "Qwen3.6-35B-A3B-UD-Q4_K_XL.gguf".into(),
                 },
@@ -3986,6 +4007,15 @@ pub(crate) mod tests {
                 ..
             }
         ));
+        // And set an agent to Full access.
+        let full = ClientMessage::SetPermission {
+            key: IdempotencyKey::generate(),
+            agent: AgentId::derive("a"),
+            mode: PermissionMode::FullAccess,
+        };
+        own.send(&full).await;
+        let answer = own.recv().await;
+        assert!(!refused_with(&full, &answer, PHONE_CANT), "{answer:?}");
         // And list and make folders, as it may start an agent in one.
         own.send(&ClientMessage::ListFolder {
             key: IdempotencyKey::generate(),

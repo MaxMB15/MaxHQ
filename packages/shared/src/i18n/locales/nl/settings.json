@@ -510,7 +510,7 @@
 	" is paired.": " is gekoppeld.",
 	"On the phone, choose Scan the code. It works once, for {{duration}} more.": "Kies Code scannen op de telefoon. De code werkt eenmaal en is nog {{duration}} geldig.",
 	"The code ran out. Show a new one.": "De code is verlopen. Toon een nieuwe.",
-	"Anyone holding this phone could start agents that run commands on your devices, change settings, store or remove sign-ins, and copy files out. Adding keys or other phones still needs this Mac.": "Iedereen met deze telefoon kan agents starten die opdrachten op je apparaten uitvoeren, instellingen wijzigen, aanmeldingen opslaan of verwijderen en bestanden kopiëren. Sleutels of andere telefoons toevoegen vereist nog steeds deze Mac.",
+	"Anyone holding this phone could start agents or set them to Auto or Full access, run commands and open shells on your devices, change settings, store or remove sign-ins, and copy files out. Adding keys or other phones still needs this Mac.": "Iedereen met deze telefoon kan agents starten of op Automatisch of Volledige toegang zetten, opdrachten uitvoeren en shells openen op je apparaten, instellingen wijzigen, aanmeldingen opslaan of verwijderen en bestanden kopiëren. Sleutels of andere telefoons toevoegen vereist nog steeds deze Mac.",
 	"Couldn't reach {{list}}. The phone can do everything there once {{they}} connected again.": "Kon {{list}} niet bereiken. De telefoon krijgt daar volledige toegang zodra de verbinding is hersteld.{{they}}",
 	"Couldn't reach {{list}}. The phone can still do everything there until {{they}} connected again.": "Kon {{list}} niet bereiken. De telefoon behoudt daar volledige toegang tot de verbinding is hersteld.{{they}}",
 	"Couldn't remove a phone": "Kon een telefoon niet verwijderen",

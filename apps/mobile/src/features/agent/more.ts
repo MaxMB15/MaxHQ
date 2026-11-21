@@ -40,6 +40,7 @@ import { attempt } from "@maxhq/shared/composer/send";
 import type { ActionResult } from "@maxhq/shared/data/source";
 import { shownPulls } from "@maxhq/shared/pulls/links";
 import { AUTO_NOTE, type AutoConsent, whenModeAllowed } from "@maxhq/shared/settings/auto-mode";
+import { needsSwitch } from "@maxhq/shared/settings/phones";
 import { accountName } from "@maxhq/shared/status/usage";
 import { deletableAgents } from "@maxhq/shared/ui/delete-agents";
 import { type Renames, renameAgent, shownTitle } from "@maxhq/shared/ui/rename-agent";
@@ -155,29 +156,50 @@ export type Sheet = {
 	readonly choices: readonly Choice[];
 };
 
+/** Why Auto and Full access are greyed out while the switch is off. */
+const NEEDS_SWITCH = "Needs the switch";
+
+/** The line that says where to turn the switch on. */
+const SWITCH_LINE =
+	"To pick Auto or Full access from the phone, turn on Let this phone do everything for this device in the Mac's Settings, under Phones.";
+
 /**
  * The permission sheet: the modes the desktop's picker lists, with the one
- * the agent runs in, and those its CLI can't run in, greyed out. A sheet
- * shows no line under each mode, so its message says what Auto runs.
+ * the agent runs in, and those its CLI can't run in, greyed out. Unless the
+ * agent's device `lets` this phone do everything, Auto and Full access are
+ * greyed out too, since that device refuses them. A sheet shows no line
+ * under each mode, so its message says what Auto runs, or where to turn
+ * the switch on.
  */
 export const permissionSheet = (
 	view: ViewState,
 	agent: Agent,
 	permission: AgentPermission,
-	pick: (mode: PermissionMode) => void
+	pick: (mode: PermissionMode) => void,
+	lets = true
 ): Sheet => {
 	const running = runningMode(permission);
 	const acp = agent.account ? view.tables.account.get(agent.account)?.acp : undefined;
-	const modes = permissionChoices(agent.vendor, acp);
+	const choices = permissionChoices(agent.vendor, acp).map((choice) => ({
+		...choice,
+		reason: !choice.offered
+			? NOT_OFFERED
+			: !lets && needsSwitch(choice.mode)
+				? NEEDS_SWITCH
+				: null,
+	}));
 	const runs =
 		permissionNote(permission) ?? t("Runs as {{mode}}.", { mode: permissionLabel(running) });
-	const auto = modes.some((m) => m.mode === "auto" && m.offered);
+	const auto = choices.some((m) => m.mode === "auto" && m.reason === null);
+	const held = choices.some((m) => m.reason === NEEDS_SWITCH);
 	return {
 		title: t("Permission mode"),
-		message: auto ? `${runs} ${t(AUTO_NOTE)}` : runs,
-		choices: modes.map(({ mode, label, offered }) => ({
-			label: offered ? label : t("{{label}} ({{reason}})", { label, reason: t(NOT_OFFERED) }),
-			disabled: !offered || mode === running,
+		message: [runs, ...(auto ? [t(AUTO_NOTE)] : []), ...(held ? [t(SWITCH_LINE)] : [])].join(
+			" "
+		),
+		choices: choices.map(({ mode, label, reason }) => ({
+			label: reason ? t("{{label}} ({{reason}})", { label, reason: t(reason) }) : label,
+			disabled: reason !== null || mode === running,
 			pick: () => pick(mode),
 		})),
 	};

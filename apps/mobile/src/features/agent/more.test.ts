@@ -263,6 +263,21 @@ describe("the More sheet", () => {
 		expect(picked).toEqual(["auto"]);
 	});
 
+	it("greys Auto and Full access, and says where to turn them on, while the switch is off", () => {
+		const { view, agent: target } = controls();
+		const sheet = permissionSheet(view, target, target.permission!, () => {}, false);
+		expect(sheet.message).toBe(
+			"Runs as Ask first. To pick Auto or Full access from the phone, turn on Let this phone do everything for this device in the Mac's Settings, under Phones."
+		);
+		expect(labels(sheet)).toEqual([
+			"Ask first, greyed",
+			"Accept edits",
+			"Auto (Needs the switch), greyed",
+			"Plan only",
+			"Full access (Needs the switch), greyed",
+		]);
+	});
+
 	it("greys the modes Codex can't run in and says when the CLI runs another", () => {
 		const { view, agent: target } = controls({
 			vendor: "codex",

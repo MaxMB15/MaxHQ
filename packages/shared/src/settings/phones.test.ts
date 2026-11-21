@@ -7,7 +7,14 @@ import type { Entity, Phone, PhoneDevice } from "../bindings";
 import { device, entities, NOW } from "../test/build";
 import { applySnapshot } from "../view/replica";
 
-import { letsPhone, pairedPhones, pairingDevice, reachable, withoutPushKey } from "./phones";
+import {
+	letsPhone,
+	needsSwitch,
+	pairedPhones,
+	pairingDevice,
+	reachable,
+	withoutPushKey,
+} from "./phones";
 
 const phone = (over: Partial<Phone> & { device: string }): Entity => ({
 	entity: "phone",
@@ -120,5 +127,15 @@ describe("letsPhone", () => {
 		expect(letsPhone(v, "phone-1", "devbox")).toBe(false);
 		expect(letsPhone(v, "phone-1", "ws-alpha")).toBe(false);
 		expect(letsPhone(v, "phone-2", "ws-alpha")).toBe(true);
+	});
+});
+
+describe("needsSwitch", () => {
+	it("holds back the modes that act without asking", () => {
+		expect(needsSwitch("auto")).toBe(true);
+		expect(needsSwitch("full_access")).toBe(true);
+		expect(needsSwitch("ask")).toBe(false);
+		expect(needsSwitch("accept_edits")).toBe(false);
+		expect(needsSwitch("plan")).toBe(false);
 	});
 });

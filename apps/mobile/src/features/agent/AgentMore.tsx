@@ -21,12 +21,14 @@ import { useState } from "react";
 import { Alert } from "react-native";
 
 import { STOP_AGENT } from "@maxhq/shared/agent-view/controls";
+import { agentDevice } from "@maxhq/shared/agent-view/move-agent";
 import type { Agent, Permission } from "@maxhq/shared/bindings";
 import type { ActionResult } from "@maxhq/shared/data/source";
 import { AUTO_QUESTION } from "@maxhq/shared/settings/auto-mode";
 import { deleteAgents, deleteQuestion } from "@maxhq/shared/ui/delete-agents";
 
 import type { Screens } from "../../navigation";
+import { useLetsEach } from "../phone/everything";
 import { LinkPullSheet } from "../pulls";
 import { useServices } from "../../services";
 import { choose, confirm } from "../../ui/choose";
@@ -93,6 +95,7 @@ export const AgentMore = ({
 	const [effortOpen, setEffortOpen] = useState(false);
 	const [linking, setLinking] = useState(false);
 	const title = useShownTitle(agent);
+	const lets = useLetsEach();
 
 	const run = (what: string, action: () => Promise<ActionResult>) =>
 		void runControl(what, action).then((why) => {
@@ -126,6 +129,7 @@ export const AgentMore = ({
 	const open = () => {
 		const view = services.view.getState().view;
 		const now = view.tables.agent.get(agent.id) ?? agent;
+		const device = agentDevice(view, now);
 		const picks: Record<MoreChoice, () => void> = {
 			find: onFind,
 			prompts: onPrompts,
@@ -141,7 +145,8 @@ export const AgentMore = ({
 							run("change the permission mode", () =>
 								source.setPermission(now.id, mode)
 							)
-						)
+						),
+						device !== null && lets(device)
 					)
 				),
 			model: () =>

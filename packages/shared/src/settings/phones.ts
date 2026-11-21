@@ -6,7 +6,7 @@
 // devices Add phone ticks, the one it pairs through, and which of a new
 // phone's devices can't push to it yet.
 
-import type { DeviceId, PhoneDevice, PhoneId, Timestamp } from "../bindings";
+import type { DeviceId, PermissionMode, PhoneDevice, PhoneId, Timestamp } from "../bindings";
 import { alwaysOn } from "../tasks/place";
 import { all, type ViewState } from "../view/replica";
 import { deviceName } from "../view/select";
@@ -69,6 +69,13 @@ export const letsPhone = (view: ViewState, phone: PhoneId, device: DeviceId): bo
 	all(view, "phone").some(
 		(p) => p.id === phone && p.device === device && (p.everything ?? false)
 	);
+
+/**
+ * Whether a phone needs Let this phone do everything to set an agent to
+ * `mode`: Auto and Full access, which let the agent act without asking.
+ */
+export const needsSwitch = (mode: PermissionMode): boolean =>
+	mode === "auto" || mode === "full_access";
 
 /**
  * The devices that let `phone` in but hold no APNs key, by name. Each
