@@ -17,6 +17,7 @@ import { useEffect, useState } from "react";
 import { useServices, useView } from "@/app/services";
 import { Bar, CloneBanner } from "@/agent-view/clone-banner";
 import { formatBytes } from "@maxhq/shared/agent-view/format";
+import { ClippedValue } from "@/components/copy-field";
 import { Checkbox } from "@/components/ui/checkbox";
 import { copySize } from "@maxhq/shared/copy/defaults";
 import type { CopiedProject, IgnoredFile } from "@maxhq/shared/data/source";
@@ -85,7 +86,10 @@ const FileRow = ({
 	return (
 		<label className="flex cursor-pointer items-center gap-2 border-b border-sidebar-border px-2.5 py-1.5 last:border-b-0">
 			<Checkbox aria-label={file.path} checked={ticked} onCheckedChange={onTick} />
-			<span className="min-w-0 flex-1 truncate font-mono text-xs text-foreground">
+			<span
+				title={file.path}
+				className="min-w-0 flex-1 truncate font-mono text-xs text-foreground"
+			>
 				{file.path}
 			</span>
 			<span className="shrink-0 text-xs text-muted-foreground tabular-nums">
@@ -110,7 +114,7 @@ const Copying = ({ started }: { started: StartedCopy }) => {
 	return (
 		<>
 			{!landed ? (
-				<p role="status" className="text-[12.5px] text-muted-foreground">
+				<p role="status" className="selectable text-[12.5px] text-muted-foreground">
 					{t("Waiting for {{where}} to start it.", { where: where })}
 				</p>
 			) : plan.target.type === "container" ? (
@@ -118,7 +122,7 @@ const Copying = ({ started }: { started: StartedCopy }) => {
 			) : cloning ? (
 				<CloneBanner workspace={landed} />
 			) : (
-				<p className="text-[12.5px] text-status-ready-text">
+				<p className="selectable text-[12.5px] text-status-ready-text">
 					{t("Cloned into {{where}}.", { where: plan.where })}
 				</p>
 			)}
@@ -170,10 +174,15 @@ const Result = ({ placed, files }: { placed: CopiedProject; files: number }) => 
 								key={f.path}
 								className="flex items-baseline gap-2 border-b border-sidebar-border px-2.5 py-1.5 last:border-b-0"
 							>
-								<span className="min-w-0 truncate font-mono text-xs text-foreground">
-									{f.path}
-								</span>
-								<span className="min-w-0 flex-1 truncate text-xs text-muted-foreground">
+								<ClippedValue
+									value={f.path}
+									label={t("Copy path")}
+									className="font-mono text-xs text-foreground"
+								/>
+								<span
+									title={sentence(f.reason)}
+									className="selectable min-w-0 flex-1 truncate text-xs text-muted-foreground"
+								>
 									{sentence(f.reason)}
 								</span>
 							</li>
@@ -200,7 +209,7 @@ const Progress = ({ started, onBack }: { started: StartedCopy; onBack: () => voi
 					{run.phase === "copying" ? (
 						t("It keeps going if you close this.")
 					) : (
-						<span className="font-mono text-xs">{plan.where}</span>
+						<span className="selectable font-mono text-xs">{plan.where}</span>
 					)}
 				</Dialog.Description>
 			</div>
@@ -208,7 +217,7 @@ const Progress = ({ started, onBack }: { started: StartedCopy; onBack: () => voi
 			{run.phase === "done" ? (
 				<Result placed={run.placed} files={started.files} />
 			) : run.phase === "failed" ? (
-				<p role="alert" className="text-[12.5px] text-status-error-text">
+				<p role="alert" className="selectable text-[12.5px] text-status-error-text">
 					{`${sentence(run.reason)}.`}
 				</p>
 			) : (
@@ -342,9 +351,16 @@ const Form = ({ request }: { request: CopyRequest }) => {
 					onChange={(device) => set({ device })}
 				/>
 			</div>
-			{from ? (
-				<p className="-mt-2 truncate font-mono text-[11.5px] text-muted-foreground">
+			{from?.location.type === "container" ? (
+				<p
+					title={checkoutOf(from)}
+					className="selectable -mt-2 truncate font-mono text-[11.5px] text-muted-foreground"
+				>
 					{checkoutOf(from)}
+				</p>
+			) : from ? (
+				<p className="-mt-2 font-mono text-[11.5px] text-muted-foreground">
+					<ClippedValue value={checkoutOf(from)} label={t("Copy path")} />
 				</p>
 			) : null}
 
@@ -439,10 +455,10 @@ const Form = ({ request }: { request: CopyRequest }) => {
 					) : null}
 				</div>
 				{shown.state === "failed" ? (
-					<p className="text-xs text-status-error-text">{`${sentence(shown.reason)}.`}</p>
+					<p className="selectable text-xs text-status-error-text">{`${sentence(shown.reason)}.`}</p>
 				) : shown.state === "unlisted" ? (
 					shown.why ? (
-						<p className="text-xs text-muted-foreground">{shown.why}</p>
+						<p className="selectable text-xs text-muted-foreground">{shown.why}</p>
 					) : null
 				) : files.length === 0 ? (
 					<p className="text-xs text-muted-foreground">
@@ -490,7 +506,7 @@ const Form = ({ request }: { request: CopyRequest }) => {
 			</div>
 
 			{blocked ? (
-				<p role="status" className="text-[11.5px] text-muted-foreground">
+				<p role="status" className="selectable text-[11.5px] text-muted-foreground">
 					{blocked}
 				</p>
 			) : null}

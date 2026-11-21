@@ -1,5 +1,7 @@
 {
+	"Act directly": "Actuar directamente",
 	"Add the key file": "Añadir el archivo de clave",
+	"Changes": "Cambios",
 	"Click the plus button, give the key a name such as `MaxHQ pushes`, tick Apple Push Notifications service (APNs), and click Continue, then Register.": "Haz clic en el botón de más, ponle a la clave un nombre como `MaxHQ pushes`, marca Apple Push Notifications service (APNs) y haz clic en Continue y luego en Register.",
 	"Removing": "Eliminando",
 	"Couldn't remove the ACP agent": "No se pudo eliminar el agente ACP",
@@ -27,6 +29,8 @@
 	"Argument {{value1}}": "Argumento {{value1}}",
 	"Remove argument {{value1}}": "Eliminar argumento {{value1}}",
 	"Add argument": "Añadir argumento",
+	"The dispatcher changes settings, agents and tasks without asking first. Deleting, stopping busy agents and granting permissions still ask.": "El coordinador cambia ajustes, agentes y tareas sin preguntar antes. Sigue preguntando antes de eliminar, detener agentes ocupados o conceder permisos.",
+	"The dispatcher reads your projects and agents, and can't change files. Without a pick it takes the first Claude account, else the first Codex one.": "El coordinador lee tus proyectos y agentes, y no puede cambiar archivos. Sin selección usa la primera cuenta de Claude o, en su defecto, la primera de Codex.",
 	"Variables": "Variables",
 	"Set for the agent when it starts, such as an API key. The device keeps each value as a secret and never shows it again.": "Se establecen al iniciar el agente, por ejemplo una clave API. El dispositivo guarda cada valor como secreto y no vuelve a mostrarlo.",
 	"Add variable": "Añadir variable",
@@ -277,7 +281,6 @@
 	"Phones on the same network or tailnet can reach {{name}} while it's on.": "Los teléfonos de la misma red o tailnet pueden acceder a {{name}} mientras esté activado.",
 	"The port phones reach {{name}} on. {{DEFAULT_PORT}} by default.": "El puerto para acceder a {{name}} desde teléfonos. {{DEFAULT_PORT}} por defecto.",
 	"Runs as": "Ejecutar como",
-	"The dispatcher reads your projects and agents and proposes a plan. It can't change files or start anything until you confirm. Without a pick it takes the first Claude account, else the first Codex one.": "El coordinador lee tus proyectos y agentes y propone un plan. Necesita tu confirmación para cambiar archivos o iniciar algo. Sin selección usa la primera cuenta de Claude o, en su defecto, la primera de Codex.",
 	"Sign in to Claude or Codex on this Mac first": "Inicia sesión en Claude o Codex en este Mac primero",
 	"Open in": "Abrir en",
 	"Default editor": "Editor predeterminado",
@@ -1023,6 +1026,10 @@
 	"While an agent works, Enter": "Intro mientras un agente trabaja",
 	"{{keyHint}} steers instead.": "{{keyHint}} redirige en su lugar.",
 	"{{keyHint}} queues instead.": "{{keyHint}} pone en cola en su lugar.",
+	"the port prompts setting": "el ajuste de propuestas de puertos",
+	"Port prompts": "Propuestas de puertos",
+	"Offer to forward or open a port an agent starts listening on.": "Ofrecer reenviar o abrir un puerto en cuanto un agente empieza a escucharlo.",
+	"Off. Ports still show under the device chip in each agent's header, with Forward and Open there.": "Desactivado. Los puertos siguen apareciendo bajo la etiqueta del dispositivo en la cabecera de cada agente, con Reenviar y Abrir.",
 	"Dock badge": "Globo del Dock",
 	"Each agent counts once": "Cada agente cuenta una vez",
 	"Show the badge": "Mostrar el globo",
@@ -1064,5 +1071,10 @@
 	"Terminals on {{name}}": "Terminales en {{name}}",
 	"Shell integration on by default": "Integración del shell activada de forma predeterminada",
 	"Shell integration": "Integración del shell",
-	"MaxHQ adds hooks to zsh, bash and fish so it can tell commands apart. Off starts shells exactly as your startup files say. Applies to terminals opened after the change.": "MaxHQ añade hooks a zsh, bash y fish para distinguir los comandos. Desactivada, los shells se inician exactamente como dicen tus archivos de inicio. Se aplica a los terminales abiertos después del cambio."
+	"MaxHQ adds hooks to zsh, bash and fish so it can tell commands apart. Off starts shells exactly as your startup files say. Applies to terminals opened after the change.": "MaxHQ añade hooks a zsh, bash y fish para distinguir los comandos. Desactivada, los shells se inician exactamente como dicen tus archivos de inicio. Se aplica a los terminales abiertos después del cambio.",
+	"Agents can read other agents": "Los agentes pueden leer otros agentes",
+	"Any agent can list and read any other agent's conversation, which may hold code, paths and command output. Off lets agents read only the agents you attach or quote. Starting, messaging or stopping agents still needs your permission.": "Cualquier agente puede listar y leer la conversación de cualquier otro agente, que puede contener código, rutas y salida de comandos. Desactivado, los agentes solo leen los agentes que adjuntes o cites. Iniciar, escribir a o detener agentes sigue necesitando tu permiso.",
+	"Other agents": "Otros agentes",
+	"Other agents on {{name}}": "Otros agentes en {{name}}",
+	"Reading on by default": "Lectura activada de forma predeterminada"
 }

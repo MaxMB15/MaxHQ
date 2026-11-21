@@ -166,11 +166,13 @@ const AgentRow = ({
 	const command = [agent.program, ...(agent.args ?? [])].join(" ");
 	return (
 		<Row
-			title={agent.name}
+			title={<span className="selectable">{agent.name}</span>}
 			sub={
 				<span className="flex flex-col gap-0.5">
 					<span className="flex min-w-0 items-center gap-0.5">
-						<span className="min-w-0 truncate font-mono text-[11.5px]">{command}</span>
+						<span title={command} className="min-w-0 truncate font-mono text-[11.5px]">
+							{command}
+						</span>
 						<CopyIcon
 							text={command}
 							label={translate("Copy command")}
@@ -441,7 +443,10 @@ const VariableField = ({
 	return (
 		<div className="flex items-center gap-2">
 			{row.held ? (
-				<span className="w-[40%] shrink-0 truncate font-mono text-xs text-foreground">
+				<span
+					title={row.name}
+					className="selectable w-[40%] shrink-0 truncate font-mono text-xs text-foreground"
+				>
 					{row.name}
 				</span>
 			) : (

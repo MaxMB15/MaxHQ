@@ -329,7 +329,11 @@ impl CodexServer {
         // MaxHQ's own tools stay with the thread, through every resume.
         // Codex takes them only here, so a thread keeps the ones it
         // started with.
-        let tools: Vec<Value> = place.tools().iter().map(|tool| tool.codex_spec()).collect();
+        let tools: Vec<Value> = place
+            .tools()
+            .iter()
+            .map(|tool| tool.codex_spec(place.tools()))
+            .collect();
         params.insert("dynamicTools".into(), tools.into());
         let call = Call::ThreadStart {
             key,
@@ -1247,11 +1251,11 @@ fn on_this_device(thread: &Thread) -> bool {
         .is_some_and(|place| place.host == PlaceHost::Local)
 }
 
-/// The settings a thread in `place` runs with in `mode`: the read-only
-/// ones in the dispatcher's folder, whatever the mode, or else the mode's.
+/// The settings a thread in `place` runs with in `mode`: auto mode's in
+/// the dispatcher's folder, whatever the mode, or else the mode's.
 fn policy_in(place: Option<&Place>, mode: Option<PermissionMode>) -> Option<policy::Policy> {
     if place.is_some_and(|place| place.dispatcher) {
-        return Some(policy::READ_ONLY);
+        return Some(policy::DISPATCHER);
     }
     mode.and_then(policy::policy)
 }
@@ -1261,7 +1265,7 @@ fn add_instructions(place: Option<&Place>, params: &mut Map<String, Value>) {
     if place.is_some_and(|place| place.dispatcher) {
         params.insert(
             "developerInstructions".into(),
-            dispatch::INSTRUCTIONS.into(),
+            dispatch::instructions().into(),
         );
     }
 }

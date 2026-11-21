@@ -43,9 +43,12 @@ pub const STRIPPED_PREFIXES: &[&str] = &["CLAUDE", "ANTHROPIC"];
 /// The variable a setup-token reaches the CLI in, per W-5.
 pub const OAUTH_TOKEN: &str = "CLAUDE_CODE_OAUTH_TOKEN";
 
-/// The Claude Code tools the dispatcher's session doesn't have, so it
-/// can't run commands or change files in any mode.
-const DISPATCHER_DENIED: &str = "Bash,Edit,Write,MultiEdit,NotebookEdit";
+/// The settings the dispatcher's session adds to the login's own. Its file
+/// tools write only inside its working folders, and its commands run in
+/// Claude Code's sandbox, which writes only there too. A command that
+/// wants out of the sandbox goes to auto mode's reviewer first.
+const DISPATCHER_SETTINGS: &str =
+    r#"{"permissions":{"blockWritesOutsideWorkingDirectories":true},"sandbox":{"enabled":true}}"#;
 
 /// The command line for a Claude session in `place` under `login`.
 /// `resume` continues the session with ID `session`, and otherwise starts
@@ -151,6 +154,13 @@ pub(super) fn command(
     .collect();
     args.push(if resume { "--resume" } else { "--session-id" }.into());
     args.push(session.to_string().into());
+    // The dispatcher runs in auto mode whatever its mode says, and never
+    // gets full access.
+    let mode = if place.dispatcher {
+        PermissionMode::Auto
+    } else {
+        mode
+    };
     args.push("--permission-mode".into());
     args.push(mode_name(mode).into());
     if !place.dispatcher {
@@ -161,12 +171,12 @@ pub(super) fn command(
         args.push(model.into());
     }
     if place.dispatcher {
-        // The dispatcher reads and proposes. The tools that write are
-        // gone from its session, and it never gets full access.
-        args.push("--disallowedTools".into());
-        args.push(DISPATCHER_DENIED.into());
+        // It reads anywhere and runs what the reviewer allows, but writes
+        // only in its own folder and the attachments one.
+        args.push("--settings".into());
+        args.push(DISPATCHER_SETTINGS.into());
         args.push("--append-system-prompt".into());
-        args.push(dispatch::INSTRUCTIONS.into());
+        args.push(dispatch::instructions().into());
     }
     args.push("--add-dir".into());
     args.push(place.attachments.clone().into());
@@ -392,7 +402,7 @@ mod tests {
     }
 
     #[test]
-    fn the_dispatcher_cant_write_or_run_commands() {
+    fn the_dispatcher_runs_in_auto_and_writes_only_its_folders() {
         let place = Place {
             dispatcher: true,
             ..place()
@@ -404,16 +414,27 @@ mod tests {
             Uuid::from_u128(7),
             false,
             None,
-            PermissionMode::Ask,
+            PermissionMode::FullAccess,
         );
         let args = strings(&launch.args);
-        let denied = args.iter().position(|arg| *arg == "--disallowedTools");
+        let after = |flag: &str| {
+            let at = args.iter().position(|arg| *arg == flag).unwrap();
+            args[at + 1]
+        };
+        // Auto mode's reviewer judges its commands, whatever mode it had.
+        assert_eq!(after("--permission-mode"), "auto");
+        assert!(!args.contains(&"--disallowedTools"));
+        let settings: serde_json::Value = serde_json::from_str(after("--settings")).unwrap();
         assert_eq!(
-            args[denied.unwrap() + 1],
-            "Bash,Edit,Write,MultiEdit,NotebookEdit"
+            settings["permissions"]["blockWritesOutsideWorkingDirectories"],
+            true
         );
+        assert_eq!(settings["sandbox"]["enabled"], true);
+        // Its working folders are its own and the attachments one.
+        assert_eq!(launch.cwd, PathBuf::from("/work/repo"));
+        assert_eq!(after("--add-dir"), "/data/attachments/agent");
         let prompt = args.iter().position(|arg| *arg == "--append-system-prompt");
-        assert_eq!(args[prompt.unwrap() + 1], dispatch::INSTRUCTIONS);
+        assert_eq!(args[prompt.unwrap() + 1], dispatch::instructions());
         assert!(!args.contains(&"--allow-dangerously-skip-permissions"));
     }
 

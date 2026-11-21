@@ -593,6 +593,7 @@ fn claim(entity: &Entity) -> Claim {
         Entity::PhoneSession(session) => Claim::Device(session.device),
         Entity::HiddenProjects(hidden) => Claim::Device(hidden.device),
         Entity::Dispatcher(dispatcher) => Claim::Device(dispatcher.device),
+        Entity::DispatcherChat(chat) => Claim::Device(chat.device),
         Entity::CommandRules(rules) => Claim::Device(rules.device),
         Entity::ProjectNotes(notes) => Claim::Device(notes.device),
         Entity::AppKey(key) => Claim::Device(key.device),

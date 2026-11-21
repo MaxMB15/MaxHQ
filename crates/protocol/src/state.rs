@@ -15,7 +15,7 @@ use thiserror::Error;
 use crate::acp::AcpAgent;
 use crate::admission::{Admission, AppKey};
 use crate::attention::AttentionEvent;
-use crate::dispatch::Dispatcher;
+use crate::dispatch::{Dispatcher, DispatcherChat};
 use crate::hosts::{AcpRegistry, HostReport, Move, PendingLicence};
 use crate::ids::{
     AccountId, AcpAgentId, AdmissionId, AgentId, AppKeyId, AttentionId, CredentialId, DeviceId,
@@ -142,6 +142,8 @@ pub enum Entity {
     /// A terminal a device holds for an agent: a shell in its drawer or a
     /// command you ran with `!`. Since protocol 45.
     Terminal(Terminal),
+    /// One conversation with a device's dispatcher. Since protocol 53.
+    DispatcherChat(DispatcherChat),
 }
 
 /// Names one entity, for removal and lookup.
@@ -258,6 +260,8 @@ pub enum EntityKey {
     Admission(AdmissionId),
     /// A terminal.
     Terminal(TerminalId),
+    /// A dispatcher chat, named by its agent.
+    DispatcherChat(AgentId),
 }
 
 impl Entity {
@@ -315,6 +319,7 @@ impl Entity {
             Self::AppKey(key) => EntityKey::AppKey(key.id),
             Self::Admission(admission) => EntityKey::Admission(admission.id),
             Self::Terminal(terminal) => EntityKey::Terminal(terminal.id),
+            Self::DispatcherChat(chat) => EntityKey::DispatcherChat(chat.agent),
         }
     }
 }
@@ -763,6 +768,8 @@ mod tests {
             history_mib: 256,
             claude_setup_token: false,
             shell_integration: true,
+            read_other_agents: true,
+            dispatcher_acts: true,
         });
         assert_eq!(settings.key(), EntityKey::DeviceSettings(id));
         assert_eq!(
@@ -795,11 +802,15 @@ mod tests {
                 "history_mib": 256,
                 "claude_setup_token": false,
                 "shell_integration": true,
+                "read_other_agents": true,
+                "dispatcher_acts": true,
             })
         );
         // A `maxd` from before the switch leaves it out, which reads as on.
         let mut old = serde_json::to_value(&settings).unwrap();
         old.as_object_mut().unwrap().remove("shell_integration");
+        old.as_object_mut().unwrap().remove("read_other_agents");
+        old.as_object_mut().unwrap().remove("dispatcher_acts");
         assert_eq!(serde_json::from_value::<Entity>(old).unwrap(), settings);
     }
 

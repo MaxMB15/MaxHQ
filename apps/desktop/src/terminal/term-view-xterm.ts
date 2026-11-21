@@ -431,10 +431,10 @@ export const xtermView: MakeView = () => {
 
 	const view: TermView = {
 		element,
-		write: (bytes, offset) => {
+		write: (bytes, offset, done) => {
 			for (const byte of bytes) if (byte === NEWLINE) newlines++;
 			findMarks(bytes, offset);
-			terminal.write(bytes);
+			terminal.write(bytes, done);
 		},
 		clear: () => {
 			newlines = 0;

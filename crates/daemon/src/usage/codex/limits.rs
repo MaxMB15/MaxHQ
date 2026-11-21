@@ -40,6 +40,7 @@ pub struct Reading {
 
 /// The field names in one format.
 struct Keys {
+    name: &'static str,
     used: &'static str,
     minutes: &'static str,
     resets: &'static str,
@@ -47,6 +48,7 @@ struct Keys {
 
 /// The app-server's field names.
 const APP_SERVER: Keys = Keys {
+    name: "limitName",
     used: "usedPercent",
     minutes: "windowDurationMins",
     resets: "resetsAt",
@@ -54,6 +56,7 @@ const APP_SERVER: Keys = Keys {
 
 /// The field names in rollouts.
 const ROLLOUT: Keys = Keys {
+    name: "limit_name",
     used: "used_percent",
     minutes: "window_minutes",
     resets: "resets_at",
@@ -144,11 +147,13 @@ pub fn scope(id: &str) -> Option<String> {
     (id != OWN_LIMIT).then(|| id.to_owned())
 }
 
-/// One limit's windows from a snapshot.
+/// One limit's windows from a snapshot, each with the limit's name when
+/// Codex gives one.
 fn limit(id: &str, snapshot: &Value, keys: &Keys) -> Limit {
+    let name = snapshot.get(keys.name).and_then(Value::as_str);
     let windows: Vec<UsageWindow> = ["primary", "secondary"]
         .into_iter()
-        .filter_map(|which| window(snapshot.get(which)?, scope(id), keys))
+        .filter_map(|which| window(snapshot.get(which)?, scope(id), name, keys))
         .collect();
     Limit {
         id: id.to_owned(),
@@ -157,7 +162,12 @@ fn limit(id: &str, snapshot: &Value, keys: &Keys) -> Limit {
 }
 
 /// One window, or None when it is null or lacks its length or use.
-fn window(value: &Value, scope: Option<String>, keys: &Keys) -> Option<UsageWindow> {
+fn window(
+    value: &Value,
+    scope: Option<String>,
+    name: Option<&str>,
+    keys: &Keys,
+) -> Option<UsageWindow> {
     let window_minutes = u32::try_from(value.get(keys.minutes)?.as_u64()?).ok()?;
     let used_percent = value.get(keys.used)?.as_f64()?;
     let resets_at = value
@@ -166,6 +176,7 @@ fn window(value: &Value, scope: Option<String>, keys: &Keys) -> Option<UsageWind
         .map(|secs| Timestamp(secs.saturating_mul(1000)));
     Some(UsageWindow {
         scope,
+        name: name.map(str::to_owned),
         window_minutes,
         used_percent,
         resets_at,
@@ -184,6 +195,7 @@ mod tests {
     fn window(scope: Option<&str>, minutes: u32, used: f64, resets: u64) -> UsageWindow {
         UsageWindow {
             scope: scope.map(str::to_owned),
+            name: None,
             window_minutes: minutes,
             used_percent: used,
             resets_at: Some(Timestamp(resets * 1000)),
@@ -207,7 +219,33 @@ mod tests {
             vec![
                 window(None, 300, 41.0, 1_792_907_222),
                 window(None, 10_080, 12.0, 1_793_494_022),
-                window(Some("codex_mini"), 300, 3.0, 1_792_906_000),
+                UsageWindow {
+                    name: Some("Codex Mini".into()),
+                    ..window(Some("codex_mini"), 300, 3.0, 1_792_906_000)
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn a_rollout_carries_the_limit_name() {
+        let rate_limits = json!({
+            "limit_id": "codex_mini",
+            "limit_name": "Codex Mini",
+            "primary": { "used_percent": 8.0, "window_minutes": 300, "resets_at": 1_792_906_000 },
+            "secondary": { "used_percent": 2.0, "window_minutes": 10080, "resets_at": 1_793_494_022 }
+        });
+        let reading = from_rollout(&rate_limits, Timestamp(1)).unwrap();
+        let windows = reading.limits[0].windows.as_ref().unwrap();
+        let names: Vec<_> = windows
+            .iter()
+            .map(|w| (w.scope.as_deref(), w.name.as_deref(), w.window_minutes))
+            .collect();
+        assert_eq!(
+            names,
+            [
+                (Some("codex_mini"), Some("Codex Mini"), 300),
+                (Some("codex_mini"), Some("Codex Mini"), 10_080)
             ]
         );
     }

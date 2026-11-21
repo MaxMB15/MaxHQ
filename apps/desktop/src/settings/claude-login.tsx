@@ -99,7 +99,8 @@ const Send = ({ device }: { device?: DeviceId }) => {
 						<div className="flex items-center gap-2">
 							<code
 								aria-label={translate("Command")}
-								className="min-w-0 flex-1 truncate rounded-[7px] border border-border bg-subpanel px-2.5 py-[7px] font-mono text-xs text-foreground"
+								title={command}
+								className="selectable min-w-0 flex-1 truncate rounded-[7px] border border-border bg-subpanel px-2.5 py-[7px] font-mono text-xs text-foreground"
 							>
 								{command}
 							</code>

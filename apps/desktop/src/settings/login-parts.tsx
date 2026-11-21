@@ -109,7 +109,7 @@ export const Outcomes = ({
 					>
 						{o.failure ? (
 							<>
-								{`${deviceName(view, o.device)}: ${sentence(o.failure)}.`}
+								<span className="selectable">{`${deviceName(view, o.device)}: ${sentence(o.failure)}.`}</span>
 								<ErrorCopy text={o.failure} />
 							</>
 						) : (
@@ -119,7 +119,7 @@ export const Outcomes = ({
 						)}
 					</span>
 					{o.failure ? null : (
-						<span className="text-muted-foreground">{done(o.device)}</span>
+						<span className="selectable text-muted-foreground">{done(o.device)}</span>
 					)}
 				</li>
 			))}
@@ -180,7 +180,7 @@ export const KeyFileField = ({
 						title={path ?? undefined}
 						className={cn(
 							"min-w-0 truncate text-xs",
-							path ? "font-mono text-foreground" : "text-muted-foreground"
+							path ? "selectable font-mono text-foreground" : "text-muted-foreground"
 						)}
 					>
 						{path ?? empty}
@@ -242,7 +242,7 @@ export const TrashOffer = ({ trash, onMove }: { trash: Trash; onMove: () => void
 	switch (trash.step) {
 		case "moved":
 			return (
-				<p role="status" className="text-xs text-muted-foreground">
+				<p role="status" className="selectable text-xs text-muted-foreground">
 					{translate("Moved {{name}} to the Trash. The Mac keeps no copy.", {
 						name: name,
 					})}
@@ -251,10 +251,12 @@ export const TrashOffer = ({ trash, onMove }: { trash: Trash; onMove: () => void
 		case "failed":
 			return (
 				<p role="status" className="text-xs text-status-error-text">
-					{translate(
-						"Couldn't move {{name}} to the Trash: {{sentence}}. Delete it in Finder.",
-						{ name: name, sentence: sentence(trash.reason) }
-					)}
+					<span className="selectable">
+						{translate(
+							"Couldn't move {{name}} to the Trash: {{sentence}}. Delete it in Finder.",
+							{ name: name, sentence: sentence(trash.reason) }
+						)}
+					</span>
 					<ErrorCopy text={trash.reason} />
 				</p>
 			);
@@ -265,7 +267,7 @@ export const TrashOffer = ({ trash, onMove }: { trash: Trash; onMove: () => void
 					aria-label={translate("Key file")}
 					className="flex items-center gap-2.5 rounded-lg border border-input bg-subpanel px-3 py-2"
 				>
-					<span className="min-w-0 flex-1 text-xs text-secondary-foreground">
+					<span className="selectable min-w-0 flex-1 text-xs text-secondary-foreground">
 						{translate("Every device has the key, so the Mac doesn't need {{name}}.", {
 							name: name,
 						})}
@@ -396,7 +398,7 @@ export const SendFooter = ({
 			<div className="min-w-0 flex-1">
 				{secret.failure ? (
 					<p role="status" className="text-xs text-status-error-text">
-						{secret.failure}
+						<span className="selectable">{secret.failure}</span>
 						<ErrorCopy text={secret.failure} />
 					</p>
 				) : (
@@ -508,16 +510,18 @@ export const HeldList = <T extends CredentialKind["type"]>({
 						className="flex items-start gap-4 border-t border-sidebar-border px-4 py-3 first:border-t-0"
 					>
 						<div className="flex min-w-0 flex-1 flex-col gap-0.5">
-							<span className="text-[12.5px] text-foreground">
+							<span className="selectable text-[12.5px] text-foreground">
 								{deviceName(view, c.device)}
 							</span>
-							<span className="text-xs text-muted-foreground">{describe(c)}</span>
+							<span className="selectable text-xs text-muted-foreground">
+								{describe(c)}
+							</span>
 							<span className="text-xs text-muted-foreground">
 								{translate("Stored {{ago}}", { ago: formatAgo(c.stored_at, now) })}
 							</span>
 							{c.problem ? (
 								<span className="text-xs text-status-error-text">
-									{`${sentence(c.problem)}.`}
+									<span className="selectable">{`${sentence(c.problem)}.`}</span>
 									<ErrorCopy text={c.problem} />
 								</span>
 							) : null}

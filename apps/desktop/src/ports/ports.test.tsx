@@ -21,12 +21,17 @@ import {
 import { remoteCalls } from "@maxhq/shared/test/remote";
 import { applySnapshot, keyOf } from "@maxhq/shared/view/replica";
 
+import { PortPromptsSection } from "@/settings/port-prompts-settings";
 import { PortOffers } from "./offer";
+import { PORT_PROMPTS_KEY } from "./prompts-prefs";
 import { closedForwards } from "@maxhq/shared/ports/select";
 import { clearPorts } from "@maxhq/shared/ports/store";
 import { WorkspacePorts } from "./workspace-ports";
 
-afterEach(() => clearPorts());
+afterEach(() => {
+	clearPorts();
+	localStorage.clear();
+});
 
 const DONE: ActionResult = { status: "ok", data: { status: "done" } };
 
@@ -145,7 +150,7 @@ const fakeSource = (extra: Entity[]) => {
 	};
 };
 
-const show = (agent: Agent, extra: Entity[] = []) => {
+const show = (agent: Agent, extra: Entity[] = [], { settings = false } = {}) => {
 	const fake = fakeSource(extra);
 	const workspace = agent.workspace === LOCAL_WS.id ? LOCAL_WS : REMOTE_WS;
 	render(
@@ -153,6 +158,7 @@ const show = (agent: Agent, extra: Entity[] = []) => {
 			<FixedNow value={NOW}>
 				<WorkspacePorts agent={agent} workspace={workspace} />
 				<PortOffers agent={agent} />
+				{settings ? <PortPromptsSection /> : null}
 			</FixedNow>
 		</ServicesProvider>
 	);
@@ -161,42 +167,51 @@ const show = (agent: Agent, extra: Entity[] = []) => {
 
 const card = (number: number) => screen.findByRole("region", { name: `Port ${number}` });
 
+const stack = () => screen.queryByRole("region", { name: "Ports" });
+
+/** Ports 3000 up, each first seen a second after the one before. */
+const many = (count: number, over: Partial<ListeningPort> = {}) =>
+	Array.from({ length: count }, (_, at) =>
+		port(`p${at + 1}`, 3000 + at, { first_seen: NOW - (count - at) * 1000, ...over })
+	);
+
+const openPopover = async (name = "Workspace ws-maxhq on devbox") => {
+	fireEvent.click(await screen.findByRole("button", { name }));
+	return screen.findByRole("dialog");
+};
+
 describe("port offers", () => {
-	it("offers a forward when the agent's process starts listening, and opens it", async () => {
+	it("offers a forward when the agent's process starts listening, and the forward moves to the header", async () => {
 		const fake = show(remoteAgent);
 		await screen.findByRole("button", { name: "Workspace ws-maxhq on devbox" });
-		expect(screen.queryByRole("list", { name: "Ports" })).not.toBeInTheDocument();
+		expect(stack()).not.toBeInTheDocument();
 
 		fake.upsert([port("p1", 5173)]);
 		const offer = await card(5173);
 		expect(offer).toHaveTextContent("MaxHQ on devbox is listening on port 5173.");
 		expect(offer).toHaveTextContent("Forward to localhost:5173?");
+		// One port is one card, with no strip under it.
+		expect(screen.queryByRole("button", { name: "Show all" })).not.toBeInTheDocument();
+		expect(screen.queryByText(/more port/)).not.toBeInTheDocument();
 
 		fireEvent.click(within(offer).getByRole("button", { name: "Forward" }));
 		expect(fake.source.openForward).toHaveBeenCalledWith("p1");
 		fake.upsert([forward("fwd-1", "p1", 5173)]);
+		await waitFor(() => expect(stack()).not.toBeInTheDocument());
 
-		const forwarded = await card(5173);
-		await waitFor(() => expect(forwarded).toHaveTextContent("Forwarded to localhost:5173"));
-		expect(forwarded).toHaveTextContent("vite from MaxHQ on devbox");
-		fireEvent.click(within(forwarded).getByRole("button", { name: "Open in browser" }));
+		const popup = await openPopover("Workspace ws-maxhq on devbox, 1 forwarded port");
+		const forwarded = within(popup).getByRole("region", { name: "Forwarded ports" });
+		fireEvent.click(
+			within(forwarded).getByRole("button", { name: "Open localhost:5173 in the browser" })
+		);
 		expect(fake.source.openLocalhost).toHaveBeenCalledWith(5173);
-		expect(
-			screen.getByRole("button", { name: "Workspace ws-maxhq on devbox, 1 forwarded port" })
-		).toBeInTheDocument();
-	});
-
-	it("says when the port was busy here and the forward took the next one", async () => {
-		show(remoteAgent, [port("p1", 5173), forward("fwd-1", "p1", 5174)]);
-		const forwarded = await card(5173);
-		expect(forwarded).toHaveTextContent("5173 is busy on this Mac, forwarded to 5174");
-		fireEvent.click(within(forwarded).getByRole("button", { name: "Open in browser" }));
 	});
 
 	it("shows only the agent's own ports, and none of the other agent's", async () => {
 		show(remoteAgent, [port("p1", 5173), port("p2", 8787, { agent: otherAgent.id })]);
 		await card(5173);
 		expect(screen.queryByRole("region", { name: "Port 8787" })).not.toBeInTheDocument();
+		expect(screen.queryByText(/more port/)).not.toBeInTheDocument();
 	});
 
 	it("says why a forward didn't open", async () => {
@@ -214,24 +229,149 @@ describe("port offers", () => {
 	it("drops the offer on Dismiss and keeps the port in the workspace popover", async () => {
 		show(remoteAgent, [port("p1", 5173)]);
 		fireEvent.click(within(await card(5173)).getByRole("button", { name: "Dismiss" }));
-		expect(screen.queryByRole("list", { name: "Ports" })).not.toBeInTheDocument();
+		expect(stack()).not.toBeInTheDocument();
 
-		fireEvent.click(screen.getByRole("button", { name: "Workspace ws-maxhq on devbox" }));
-		const popup = await screen.findByRole("dialog");
+		const popup = await openPopover();
 		const listening = within(popup).getByRole("region", { name: "Listening, not forwarded" });
 		expect(listening).toHaveTextContent("5173");
 		expect(within(listening).getByRole("button", { name: "Forward port 5173" })).toBeEnabled();
 	});
 
-	it("stops a forward and keeps the offer away after", async () => {
+	it("stacks the rest under the newest port, and names the first four", async () => {
+		show(remoteAgent, many(7));
+		const offer = await card(3006);
+		expect(offer).toHaveTextContent("MaxHQ on devbox is listening on port 3006.");
+		expect(screen.getAllByRole("region", { name: /^Port \d+$/ })).toHaveLength(1);
+
+		const ports = stack();
+		expect(ports).toHaveTextContent("6 more ports");
+		const chips = within(ports!)
+			.getAllByRole("button", { name: /^Show port / })
+			.map((chip) => chip.textContent);
+		expect(chips).toEqual(["3005", "3004", "3003", "3002"]);
+		expect(ports).toHaveTextContent("+2");
+	});
+
+	it("lists the rest in a scrolling list on Show all, and folds them again on Hide", async () => {
+		const fake = show(remoteAgent, many(7));
+		await card(3006);
+		const toggle = screen.getByRole("button", { name: "Show all" });
+		expect(toggle).toHaveAttribute("aria-expanded", "false");
+		fireEvent.click(toggle);
+
+		const list = screen.getByRole("list", { name: "6 more ports" });
+		expect(list).toHaveClass("max-h-[220px]", "overflow-y-auto");
+		const rows = within(list).getAllByRole("listitem");
+		expect(rows.map((row) => row.textContent?.slice(0, 4))).toEqual([
+			"3005",
+			"3004",
+			"3003",
+			"3002",
+			"3001",
+			"3000",
+		]);
+		expect(screen.queryByRole("button", { name: /^Show port / })).not.toBeInTheDocument();
+		expect(screen.getByRole("button", { name: "Hide" })).toHaveAttribute(
+			"aria-expanded",
+			"true"
+		);
+
+		fireEvent.click(within(list).getByRole("button", { name: "Forward port 3001" }));
+		expect(fake.source.openForward).toHaveBeenCalledWith("p2");
+		fireEvent.click(within(list).getByRole("button", { name: "Dismiss port 3000" }));
+		expect(
+			within(screen.getByRole("list", { name: "5 more ports" })).getAllByRole("listitem")
+		).toHaveLength(5);
+
+		fireEvent.click(screen.getByRole("button", { name: "Hide" }));
+		expect(screen.queryByRole("list", { name: /more port/ })).not.toBeInTheDocument();
+		expect(screen.getAllByRole("button", { name: /^Show port / })).toHaveLength(4);
+	});
+
+	it("opens the list from a port named in the strip", async () => {
+		show(remoteAgent, many(3));
+		await card(3002);
+		fireEvent.click(screen.getByRole("button", { name: "Show port 3000" }));
+		expect(
+			within(screen.getByRole("list", { name: "2 more ports" })).getAllByRole("listitem")
+		).toHaveLength(2);
+	});
+
+	it("forwards every waiting port at once", async () => {
+		const fake = show(remoteAgent, many(7));
+		await card(3006);
+		fireEvent.click(screen.getByRole("button", { name: "Forward all" }));
+		expect(fake.source.openForward.mock.calls.map(([id]) => id).sort()).toEqual([
+			"p1",
+			"p2",
+			"p3",
+			"p4",
+			"p5",
+			"p6",
+			"p7",
+		]);
+	});
+
+	it("dismisses every waiting port at once, and keeps them in the popover", async () => {
+		show(remoteAgent, many(7));
+		await card(3006);
+		fireEvent.click(screen.getByRole("button", { name: "Dismiss all" }));
+		expect(stack()).not.toBeInTheDocument();
+
+		const popup = await openPopover();
+		const listening = within(popup).getByRole("region", { name: "Listening, not forwarded" });
+		expect(within(listening).getAllByRole("button", { name: /^Forward port / })).toHaveLength(
+			7
+		);
+	});
+
+	it("takes a forwarded port out of the stack and leaves the rest", async () => {
+		const fake = show(remoteAgent, many(3));
+		await card(3002);
+		fake.upsert([forward("fwd-1", "p3", 3002)]);
+		expect(await card(3001)).toHaveTextContent("listening on port 3001.");
+		expect(stack()).toHaveTextContent("1 more port");
+	});
+
+	it("turns off with the Port prompts setting, while the header still offers Forward", async () => {
+		const fake = show(remoteAgent, many(2), { settings: true });
+		await card(3001);
+		const toggle = screen.getByRole("switch", { name: "Port prompts" });
+		expect(toggle).toBeChecked();
+
+		fireEvent.click(toggle);
+		expect(stack()).not.toBeInTheDocument();
+		expect(localStorage.getItem(PORT_PROMPTS_KEY)).toBe("off");
+		expect(
+			screen.getByText(/^Offer to forward or open a port.*Off\. Ports still show/)
+		).toBeInTheDocument();
+
+		const popup = await openPopover();
+		const listening = within(popup).getByRole("region", { name: "Listening, not forwarded" });
+		fireEvent.click(within(listening).getByRole("button", { name: "Forward port 3001" }));
+		expect(fake.source.openForward).toHaveBeenCalledWith("p2");
+	});
+
+	it("stays off in a window opened after the setting was turned off", async () => {
+		localStorage.setItem(PORT_PROMPTS_KEY, "off");
+		show(remoteAgent, [port("p1", 5173)]);
+		await screen.findByRole("button", { name: "Workspace ws-maxhq on devbox" });
+		expect(stack()).not.toBeInTheDocument();
+	});
+
+	it("stops a forward from the popover and keeps the offer away after", async () => {
 		const fake = show(remoteAgent, [port("p1", 5173), forward("fwd-1", "p1", 5173)]);
-		const forwarded = await card(5173);
-		fireEvent.click(within(forwarded).getByRole("button", { name: "Stop forwarding" }));
+		const popup = await openPopover("Workspace ws-maxhq on devbox, 1 forwarded port");
+		expect(stack()).not.toBeInTheDocument();
+		const forwarded = within(popup).getByRole("region", { name: "Forwarded ports" });
+		fireEvent.click(within(forwarded).getByRole("button", { name: "Stop forwarding 5173" }));
 		expect(fake.source.closeForward).toHaveBeenCalledWith("fwd-1");
 		fake.remove([forward("fwd-1", "p1", 5173)]);
-		await waitFor(() =>
-			expect(screen.queryByRole("list", { name: "Ports" })).not.toBeInTheDocument()
-		);
+		const listening = await within(popup).findByRole("region", {
+			name: "Listening, not forwarded",
+		});
+		expect(listening).toHaveTextContent("5173");
+		expect(stack()).not.toBeInTheDocument();
 	});
 
 	it("goes when the port closes, and says when a forward stopped with it", async () => {
@@ -240,15 +380,14 @@ describe("port offers", () => {
 			forward("fwd-1", "p1", 5174),
 			port("p2", 9229, { process: { pid: 9, name: "node", command: "node --inspect" } }),
 		]);
-		await card(5173);
 		await card(9229);
+		expect(screen.queryByRole("region", { name: "Port 5173" })).not.toBeInTheDocument();
 
 		// Both close. The one with no forward just goes.
 		fake.upsert([port("p1", 5173, { gone_since: NOW }), port("p2", 9229, { gone_since: NOW })]);
 		await waitFor(() =>
-			expect(screen.queryByRole("region", { name: "Port 5173" })).not.toBeInTheDocument()
+			expect(screen.queryByRole("region", { name: "Port 9229" })).not.toBeInTheDocument()
 		);
-		expect(screen.queryByRole("region", { name: "Port 9229" })).not.toBeInTheDocument();
 		const notice = "Port 5173 closed on devbox. Forwarding to localhost:5174 stopped.";
 		expect(screen.getByText(notice)).toBeInTheDocument();
 
@@ -257,11 +396,35 @@ describe("port offers", () => {
 		expect(screen.getByText(notice)).toBeInTheDocument();
 		fireEvent.click(screen.getByRole("button", { name: "Dismiss the notice about port 5173" }));
 		expect(screen.queryByText(notice)).not.toBeInTheDocument();
+		expect(stack()).not.toBeInTheDocument();
+	});
+
+	it("keeps to one notice when several forwards stop, under the stack", async () => {
+		const fake = show(remoteAgent, [
+			port("p1", 5173),
+			forward("fwd-1", "p1", 5173),
+			port("p2", 8080),
+			forward("fwd-2", "p2", 8080),
+			port("p3", 9229),
+		]);
+		await card(9229);
+		fake.upsert([port("p1", 5173, { gone_since: NOW }), port("p2", 8080, { gone_since: NOW })]);
+		const latest = await screen.findByText(
+			"Port 8080 closed on devbox. Forwarding to localhost:8080 stopped."
+		);
+		expect(stack()).toContainElement(latest);
+		expect(screen.queryByText(/^Port 5173 closed/)).not.toBeInTheDocument();
+
+		fireEvent.click(screen.getByRole("button", { name: "Dismiss the notice about port 8080" }));
+		expect(screen.queryByText(/closed on devbox/)).not.toBeInTheDocument();
+		expect(await card(9229)).toBeInTheDocument();
 	});
 
 	it("asks again when the port opens again", async () => {
 		const fake = show(remoteAgent, [port("p1", 5173), forward("fwd-1", "p1", 5173)]);
-		await card(5173);
+		await screen.findByRole("button", {
+			name: "Workspace ws-maxhq on devbox, 1 forwarded port",
+		});
 		fake.upsert([port("p1", 5173, { gone_since: NOW })]);
 		fake.remove([port("p1", 5173), forward("fwd-1", "p1", 5173)]);
 		await screen.findByText(/^Port 5173 closed on devbox/);
@@ -288,16 +451,18 @@ describe("port offers", () => {
 			port("p2", 8080),
 			forward("fwd-2", "p2", 8080),
 		]);
-		const forwarded = await card(8080);
-		expect(forwarded).toHaveTextContent(
-			"devbox can't be reached. The forward picks up again once it's back."
-		);
-		expect(screen.queryByRole("region", { name: "Port 5173" })).not.toBeInTheDocument();
+		await screen.findByRole("button", {
+			name: "Workspace ws-maxhq on devbox, 1 forwarded port",
+		});
+		expect(stack()).not.toBeInTheDocument();
 
 		fake.upsert([{ ...offline, state: { state: "connected", since: NOW } }]);
 		const offer = await card(5173);
 		expect(within(offer).getByRole("button", { name: "Forward" })).toBeInTheDocument();
-		expect(await card(8080)).toHaveTextContent("vite from MaxHQ on devbox");
+		expect(screen.queryByRole("region", { name: "Port 8080" })).not.toBeInTheDocument();
+		expect(
+			screen.getByRole("button", { name: "Workspace ws-maxhq on devbox, 1 forwarded port" })
+		).toBeInTheDocument();
 	});
 
 	it("offers no forward on a device that doesn't forward ports", async () => {
@@ -314,17 +479,14 @@ describe("port offers", () => {
 			port("p1", 5173),
 			port("p2", 6379, { agent: null }),
 		]);
-		fireEvent.click(
-			await screen.findByRole("button", { name: "Workspace ws-maxhq on devbox" })
-		);
-		const popup = await screen.findByRole("dialog");
+		const popup = await openPopover();
 		expect(popup).toHaveTextContent("devbox doesn't forward ports.");
 		const listening = within(popup).getByRole("region", { name: "Listening, not forwarded" });
 		expect(listening).toHaveTextContent("5173");
 		expect(within(listening).queryByRole("button")).not.toBeInTheDocument();
 		const others = within(popup).getByRole("region", { name: "Other ports" });
 		expect(within(others).queryByRole("button")).not.toBeInTheDocument();
-		expect(screen.queryByRole("list", { name: "Ports" })).not.toBeInTheDocument();
+		expect(stack()).not.toBeInTheDocument();
 		expect(fake.source.openForward).not.toHaveBeenCalled();
 	});
 
@@ -338,6 +500,20 @@ describe("port offers", () => {
 		fireEvent.click(within(offer).getByRole("button", { name: "Open localhost:3000" }));
 		expect(fake.source.openLocalhost).toHaveBeenCalledWith(3000);
 		expect(fake.source.openForward).not.toHaveBeenCalled();
+	});
+
+	it("stacks a Mac agent's ports with Open on each and no Forward all", async () => {
+		const fake = show(localAgent, many(3, { workspace: LOCAL_WS.id, agent: localAgent.id }));
+		await card(3002);
+		expect(stack()).toHaveTextContent("2 more ports");
+		expect(screen.queryByRole("button", { name: "Forward all" })).not.toBeInTheDocument();
+		fireEvent.click(screen.getByRole("button", { name: "Show all" }));
+		const list = screen.getByRole("list", { name: "2 more ports" });
+		fireEvent.click(
+			within(list).getByRole("button", { name: "Open localhost:3001 in the browser" })
+		);
+		expect(fake.source.openLocalhost).toHaveBeenCalledWith(3001);
+		expect(within(list).queryByRole("button", { name: /^Forward/ })).not.toBeInTheDocument();
 	});
 });
 

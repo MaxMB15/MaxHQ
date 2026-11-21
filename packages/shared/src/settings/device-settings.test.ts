@@ -27,6 +27,7 @@ const NEW_SETTINGS = {
 	memory_items: 256,
 	claude_setup_token: false,
 	shell_integration: true,
+	read_other_agents: true,
 } as Entity;
 
 const view = applySnapshot({
@@ -100,6 +101,7 @@ describe("settingsWhy", () => {
 			tokens: offline,
 			effort: offline,
 			shell: offline,
+			reads: offline,
 		});
 	});
 
@@ -113,6 +115,7 @@ describe("settingsWhy", () => {
 			tokens: null,
 			effort: null,
 			shell: null,
+			reads: null,
 		});
 	});
 
@@ -125,6 +128,7 @@ describe("settingsWhy", () => {
 		expect(why.idle).toBe("oldbox's maxd is too old for this. Update it first.");
 		expect(why.effort).toBe("oldbox's maxd is too old for this. Update it first.");
 		expect(why.shell).toBe("oldbox's maxd is too old for this. Update it first.");
+		expect(why.reads).toBe("oldbox's maxd is too old for this. Update it first.");
 		expect(why.tokens).toBe(
 			"oldbox's maxd is too old for this, and takes setup-tokens. Update it first."
 		);

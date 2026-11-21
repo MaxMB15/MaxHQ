@@ -187,7 +187,7 @@ describe("the dispatch box", () => {
 		const second = view().tables.dispatcher.get(MAC)?.agent;
 		expect(second).toBeTruthy();
 		expect(second).not.toBe(first);
-		expect(view().tables.agent.has(first!)).toBe(false);
+		expect(view().tables.dispatcher_chat.has(first!)).toBe(true);
 
 		// Esc with no plan closes the panel.
 		fireEvent.keyDown(input, { key: "Escape" });
@@ -267,6 +267,27 @@ describe("the dispatcher settings", () => {
 
 		ask(input, REQUEST);
 		expect(await (await panel()).findByText(/^Dispatcher, as Codex/)).toBeInTheDocument();
+	});
+
+	it("acts directly by default, and saves the switch off on the Mac", async () => {
+		const { services, view } = await renderBox(<DispatcherSettingsPage />);
+		const save = vi.spyOn(services.source, "setDeviceSettings");
+		const acts = screen.getByRole("switch", { name: "Act directly" });
+		expect(acts).toBeChecked();
+		expect(
+			screen.getByText(/^The dispatcher changes settings, agents and tasks/)
+		).toBeVisible();
+
+		fireEvent.click(acts);
+		await waitFor(() =>
+			expect(save).toHaveBeenCalledWith(
+				expect.objectContaining({ device: MAC, dispatcher_acts: false })
+			)
+		);
+		await waitFor(() =>
+			expect(view().tables.device_settings.get(MAC)?.dispatcher_acts).toBe(false)
+		);
+		expect(acts).not.toBeChecked();
 	});
 });
 

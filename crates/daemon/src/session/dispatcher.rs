@@ -2,18 +2,20 @@
 // Copyright (c) 2026 Max Boksem
 
 //! The dispatcher: a Claude or Codex agent on the Mac, in a folder of its
-//! own, behind the header's text field. It reads what MaxHQ knows and
-//! submits a plan. Only a client's confirm runs the plan, item by item,
-//! through the same keyed requests the app sends. Its CLI can't write, it
-//! gets only the tools that read and `submit_plan`, and its calls are
-//! checked here as well, whatever its CLI was given.
+//! own, behind the header's text field. It reads what MaxHQ knows, makes
+//! the safe changes the user asked for at once (see [`super::dispatcher_admin`])
+//! and puts the rest in a plan. Only a client's confirm runs the plan, item
+//! by item, through the same keyed requests the app sends. Its CLI runs in
+//! Auto and writes only in its own folder, and its calls are checked here
+//! as well, whatever its CLI was given.
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use maxhq_core::agents::user_permission;
 use maxhq_core::pill_text::Carried;
-use maxhq_core::tools::dispatch::{Aim, Repo, Start, Step, Submit};
+use maxhq_core::tools::admin;
+use maxhq_core::tools::dispatch::{Aim, Repo, Start, Step, Submit, MAX_ITEMS};
 use maxhq_core::tools::tasks::NewAgent;
 use maxhq_core::tools::Call;
 use maxhq_core::{context, schedule};
@@ -32,6 +34,8 @@ use tracing::warn;
 use super::agent_tools::{
     account_card, failure, no_account, workspace_card, Later, Reply, NO_CONN, NO_PLACE,
 };
+use super::dispatcher_admin::{succeeded, Admin, Then};
+use super::dispatcher_guide;
 use super::idem::{Outcome, Seen};
 use super::move_agent::ALREADY_THERE;
 use super::scheduled::system_zone;
@@ -43,9 +47,6 @@ use crate::secrets::RepoName;
 
 /// The dispatcher's folder, in `maxd`'s data directory.
 pub const DIR: &str = "dispatcher";
-
-/// What a dispatcher tool that doesn't read or propose answers.
-const ONLY_READS: &str = "The dispatcher only reads and proposes plans.";
 
 /// Why a plan can't name another device yet.
 const MAC_ONLY: &str = "This version of the dispatcher plans on this Mac only, except a move.";
@@ -78,19 +79,23 @@ pub(super) struct Dispatch {
     /// The workspace of its folder. None on a device with no dispatcher.
     workspace: Option<WorkspaceId>,
     /// The agent of the conversation now.
-    agent: Option<AgentId>,
+    pub(super) agent: Option<AgentId>,
     /// The request that starts a new conversation, until it's done.
-    starting: Option<IdempotencyKey>,
+    pub(super) starting: Option<IdempotencyKey>,
     /// The plan shown, until it's confirmed or dismissed.
-    plan: Option<Plan>,
+    pub(super) plan: Option<Plan>,
     /// The last plan's number.
-    plans: u32,
+    pub(super) plans: u32,
     /// The confirmed plan that runs now.
-    run: Option<Run>,
+    pub(super) run: Option<Run>,
+    /// The changes it makes at once.
+    pub(super) admin: Admin,
     /// The pills in the conversation's requests, which its plans hand on.
     pub(super) carried: Carried,
     /// Where a project's PRs are read.
     pub(super) pulls: Option<Arc<dyn PullSource>>,
+    /// Its conversations, each a chat.
+    pub(super) chats: super::dispatcher_chats::Chats,
 }
 
 impl Dispatch {
@@ -109,7 +114,7 @@ impl Dispatch {
 }
 
 /// A confirmed plan as it runs.
-struct Run {
+pub(super) struct Run {
     /// The confirm's key, which hears how the plan went.
     key: IdempotencyKey,
     /// The items still to run.
@@ -122,11 +127,92 @@ struct Run {
 
 /// What a running item asked for.
 #[derive(Clone, Copy)]
-enum Waited {
+pub(super) enum Waited {
     Start,
     Send(AgentId),
     Save(TaskId),
     Move,
+    Admin,
+}
+
+/// The request that runs a plan item on `device`, and what it asks for.
+/// `results` are how the plan's earlier items went, so a task aimed at one
+/// reaches the agent it started. A change to MaxHQ itself has none, since
+/// [`Manager::admin_start`] runs it.
+pub(super) fn plan_message(
+    device: DeviceId,
+    key: IdempotencyKey,
+    step: PlanStep,
+    results: &[PlanOutcome],
+) -> Result<(ClientMessage, Waited), String> {
+    Ok(match step {
+        PlanStep::StartAgent { spec, .. } => {
+            let message = ClientMessage::StartAgent { key, spec: *spec };
+            (message, Waited::Start)
+        }
+        PlanStep::SendMessage { agent, text, .. } => {
+            let input = UserInput {
+                text,
+                attachments: Vec::new(),
+                refs: Vec::new(),
+            };
+            let message = ClientMessage::SendInput {
+                key,
+                agent,
+                input,
+                mode: SendMode::Queue,
+            };
+            (message, Waited::Send(agent))
+        }
+        PlanStep::ScheduleTask {
+            name,
+            prompt,
+            trigger,
+            target,
+            ..
+        } => {
+            let target = match target {
+                PlanTarget::Task { target } => target,
+                PlanTarget::Item { item } => match results.get(item as usize) {
+                    Some(PlanOutcome::Started { agent }) => TaskTarget::Agent {
+                        device,
+                        agent: *agent,
+                    },
+                    _ => return Err(format!("Item {item} didn't start an agent.")),
+                },
+            };
+            let id = TaskId::derive(&format!("dispatch:{key}"));
+            let task = Task {
+                id,
+                name,
+                prompt,
+                trigger: *trigger,
+                target,
+                enabled: true,
+                permission: user_permission(id),
+                made_by: Maker::User,
+                next_run: None,
+                last_run: None,
+                approval_asked: None,
+            };
+            let message = ClientMessage::SaveTask {
+                key,
+                task: Box::new(task),
+            };
+            (message, Waited::Save(id))
+        }
+        PlanStep::MoveAgent { device, agent, to } => {
+            let message = ClientMessage::MoveAgent {
+                key,
+                agent,
+                from: device,
+                to,
+                stop: false,
+            };
+            (message, Waited::Move)
+        }
+        PlanStep::Admin { .. } => return Err("MaxHQ runs that change itself.".into()),
+    })
 }
 
 impl Manager {
@@ -141,7 +227,7 @@ impl Manager {
     }
 
     /// Shows the dispatcher as it is now.
-    fn publish_dispatcher(&self) {
+    pub(super) fn publish_dispatcher(&self) {
         let Some(workspace) = self.dispatcher.home() else {
             return;
         };
@@ -151,6 +237,7 @@ impl Manager {
                 workspace,
                 agent: self.dispatcher.agent,
                 plan: self.dispatcher.plan.clone(),
+                undo: self.undoable(),
             }),
         }]);
     }
@@ -175,7 +262,8 @@ impl Manager {
         let key = match &message {
             ClientMessage::AskDispatcher { key, .. }
             | ClientMessage::ConfirmPlan { key, .. }
-            | ClientMessage::DismissPlan { key, .. } => *key,
+            | ClientMessage::DismissPlan { key, .. }
+            | ClientMessage::UndoDispatcherAction { key, .. } => *key,
             _ => return,
         };
         match self.keys.begin(key, conn) {
@@ -203,6 +291,9 @@ impl Manager {
             }
             ClientMessage::ConfirmPlan { plan, .. } => self.confirm_plan(conn, key, plan),
             ClientMessage::DismissPlan { plan, .. } => Some(self.dismiss_plan(plan)),
+            ClientMessage::UndoDispatcherAction { action, .. } => {
+                self.undo_action(conn, key, action)
+            }
             _ => None,
         };
         if let Some(outcome) = outcome {
@@ -213,7 +304,7 @@ impl Manager {
     /// Sends the conversation a request, or starts a new one under
     /// `account` with it: when asked, or when the account changed. The
     /// conversation keeps the request's pills for its plans.
-    fn ask_dispatcher(
+    pub(super) fn ask_dispatcher(
         &mut self,
         key: IdempotencyKey,
         mut input: UserInput,
@@ -235,6 +326,11 @@ impl Manager {
         if self.dispatcher.starting.is_some() {
             return Some(refused("The dispatcher is still starting."));
         }
+        // A new request starts its own count of changes made at once, and
+        // its own plan.
+        self.dispatcher.admin.made = 0;
+        self.dispatcher.admin.added.clear();
+        self.dispatcher.admin.since = self.dispatcher.plans;
         let vendor = match self.hub.get(&EntityKey::Account(account)) {
             Some(Entity::Account(found))
                 if found.device == self.device
@@ -253,6 +349,7 @@ impl Manager {
                 .get(agent)
                 .is_some_and(|held| held.account == account)
         });
+        let new = self.route_chat(key, &input, current, new);
         if let Some(agent) = current.filter(|_| !new) {
             self.dispatcher.carried.keep(&input.refs);
             let send = ClientMessage::SendInput {
@@ -278,7 +375,7 @@ impl Manager {
             account,
             place: AgentPlace::Workspace { workspace: home },
             model: None,
-            permission: Some(PermissionMode::Ask),
+            permission: Some(PermissionMode::Auto),
             title: Some("Dispatcher".into()),
             first: Some(input),
             branch: None,
@@ -298,6 +395,7 @@ impl Manager {
         let Some(plan) = self.dispatcher.plan.take_if(|shown| shown.id == plan) else {
             return Some(refused("That plan isn't the one shown any more."));
         };
+        self.dispatcher.admin.added.clear();
         self.publish_dispatcher();
         let steps: Vec<PlanStep> = plan.items.into_iter().map(|item| item.step).collect();
         self.dispatcher.run = Some(Run {
@@ -320,6 +418,7 @@ impl Manager {
         {
             return refused("That plan isn't the one shown any more.");
         }
+        self.dispatcher.admin.added.clear();
         self.publish_dispatcher();
         ActionOutcome::Done
     }
@@ -334,75 +433,13 @@ impl Manager {
             return self.end_plan(None);
         };
         let key = IdempotencyKey::derive(&format!("dispatch:{}:{}", run.key, run.results.len()));
-        let (message, waited) = match step {
-            PlanStep::StartAgent { spec, .. } => {
-                let message = ClientMessage::StartAgent { key, spec: *spec };
-                (message, Waited::Start)
-            }
-            PlanStep::SendMessage { agent, text, .. } => {
-                let input = UserInput {
-                    text,
-                    attachments: Vec::new(),
-                    refs: Vec::new(),
-                };
-                let message = ClientMessage::SendInput {
-                    key,
-                    agent,
-                    input,
-                    mode: SendMode::Queue,
-                };
-                (message, Waited::Send(agent))
-            }
-            PlanStep::ScheduleTask {
-                name,
-                prompt,
-                trigger,
-                target,
-                ..
-            } => {
-                let target = match target {
-                    PlanTarget::Task { target } => target,
-                    PlanTarget::Item { item } => match run.results.get(item as usize) {
-                        Some(PlanOutcome::Started { agent }) => TaskTarget::Agent {
-                            device: self.device,
-                            agent: *agent,
-                        },
-                        _ => {
-                            let reason = format!("Item {item} didn't start an agent.");
-                            return self.end_plan(Some(reason));
-                        }
-                    },
-                };
-                let id = TaskId::derive(&format!("dispatch:{key}"));
-                let task = Task {
-                    id,
-                    name,
-                    prompt,
-                    trigger: *trigger,
-                    target,
-                    enabled: true,
-                    permission: user_permission(id),
-                    made_by: Maker::User,
-                    next_run: None,
-                    last_run: None,
-                    approval_asked: None,
-                };
-                let message = ClientMessage::SaveTask {
-                    key,
-                    task: Box::new(task),
-                };
-                (message, Waited::Save(id))
-            }
-            PlanStep::MoveAgent { device, agent, to } => {
-                let message = ClientMessage::MoveAgent {
-                    key,
-                    agent,
-                    from: device,
-                    to,
-                    stop: false,
-                };
-                (message, Waited::Move)
-            }
+        if let PlanStep::Admin { device, action } = step {
+            run.waiting = Some((key, Waited::Admin));
+            return self.admin_start(key, device, action, None, Then::Plan);
+        }
+        let (message, waited) = match plan_message(self.device, key, step, &run.results) {
+            Ok(planned) => planned,
+            Err(reason) => return self.end_plan(Some(reason)),
         };
         // Set first, since a request may finish before it returns.
         run.waiting = Some((key, waited));
@@ -420,9 +457,10 @@ impl Manager {
         self.finish(run.key, Outcome::Action(ActionOutcome::PlanRan { results }));
     }
 
-    /// Hears that a request finished: a new conversation's start, or a
-    /// running plan's item.
+    /// Hears that a request finished: a new conversation's start, a change
+    /// made at once, or a running plan's item.
     pub(super) fn dispatch_done(&mut self, key: IdempotencyKey, outcome: &Outcome) {
+        self.admin_done(key, outcome);
         if self.dispatcher.starting == Some(key) {
             self.dispatcher.starting = None;
             if let Outcome::Action(ActionOutcome::Started { agent }) = outcome {
@@ -447,20 +485,22 @@ impl Manager {
             (Waited::Save(task), ActionOutcome::TaskSaved { .. }) => {
                 PlanOutcome::TaskSaved { task }
             }
+            (Waited::Admin, outcome) if succeeded(outcome) => PlanOutcome::Done,
             (_, outcome) => return self.end_plan(Some(failure(outcome))),
         };
         run.results.push(result);
         self.next_item();
     }
 
-    /// Runs the dispatcher's call to MaxHQ's tools: a read, or a plan.
-    /// Anything else is refused here, whatever its CLI was given.
+    /// Runs the dispatcher's call to MaxHQ's tools: a read, a plan, or a
+    /// change. Anything else is refused here, whatever its CLI was given.
     pub(super) fn dispatcher_tool(&mut self, session: SessionId, call: ToolCall) {
         let lead = self.lead_of(call.agent);
         let reply = Reply::Driver {
             session,
             key: call.key,
         };
+        let asked = admin::asked(&call.arguments);
         let text = match call.call {
             Call::ListTargets(Some(device)) if device != self.device => {
                 return self.targets_there(reply, device);
@@ -478,7 +518,12 @@ impl Manager {
             Call::ListTasks => Ok(self.task_list(|_| true)),
             Call::ListRepoPullRequests(repo) => return self.repo_pulls(reply, repo),
             Call::SubmitPlan(submit) => self.submit_plan(lead, submit),
-            _ => Err(ONLY_READS.to_owned()),
+            Call::SearchGuide(query) => Ok(dispatcher_guide::search(&query)),
+            Call::ReadGuide(id) => dispatcher_guide::read(&id),
+            acting if admin::acts(acting.tool()) => {
+                return self.dispatcher_act(lead, reply, asked, acting);
+            }
+            _ => Err("The dispatcher doesn't get that tool.".to_owned()),
         };
         self.reply_now(reply, text);
     }
@@ -598,6 +643,16 @@ impl Manager {
                 })
             })
             .collect::<Result<Vec<_>, String>>()?;
+        // The changes this request put in the plan stay in it, after the
+        // items it submits, so an item's number still names it.
+        let added = &self.dispatcher.admin.added;
+        if items.len() + added.len() > MAX_ITEMS {
+            return Err(format!(
+                "With the {} changes waiting, that's more than {MAX_ITEMS} items.",
+                added.len()
+            ));
+        }
+        let items = items.into_iter().chain(added.iter().cloned()).collect();
         self.dispatcher.plans += 1;
         self.dispatcher.plan = Some(Plan {
             id: self.dispatcher.plans,
@@ -609,7 +664,7 @@ impl Manager {
     }
 
     /// Checks one item of a plan and fills in what it leaves out.
-    fn plan_step(&self, step: Step) -> Result<PlanStep, String> {
+    pub(super) fn plan_step(&self, step: Step) -> Result<PlanStep, String> {
         Ok(match step {
             Step::Start(Start {
                 agent,

@@ -239,6 +239,7 @@ mod tests {
             source: UsageSource::ClaudeProbe,
             windows: vec![UsageWindow {
                 scope: None,
+                name: None,
                 window_minutes: 300,
                 used_percent: 10.0,
                 resets_at: None,

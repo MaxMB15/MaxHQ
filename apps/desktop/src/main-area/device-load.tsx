@@ -108,7 +108,7 @@ const Processes = ({ diagnostics, view }: { diagnostics: Diagnostics; view: View
 				{processRows(diagnostics, view).map((p) => (
 					<tr key={p.pid} className="border-t border-row-divider">
 						<td
-							className="max-w-0 truncate px-4 py-1.5 text-foreground"
+							className="selectable max-w-0 truncate px-4 py-1.5 text-foreground"
 							title={p.command}
 						>
 							{p.name}

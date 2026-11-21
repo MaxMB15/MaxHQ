@@ -497,6 +497,16 @@
 	}
 }
 
+/* A value someone might paste elsewhere, such as an address, a path, a version
+   or an error. It selects on its own, so a drag across it takes none of the
+   labels and rows around it. Labels, buttons and headings never carry it,
+   apart from the device page's heading, which is the device's own name. */
+@utility selectable {
+	-webkit-user-select: text;
+	user-select: text;
+	cursor: text;
+}
+
 /* A formula can place what it draws anywhere, and this keeps that near its own
    line and out of what scrolls. Its box reaches past the formula for the marks
    that hang outside it, and those whole pixels neither move the line nor catch

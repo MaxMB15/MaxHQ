@@ -19,7 +19,7 @@ rustPlatform.buildRustPackage {
   inherit (manifest.workspace.package) version;
 
   # Cargo reads every workspace member's manifest, so the desktop app comes
-  # along even though only maxd gets built.
+  # along even though only maxd gets built. maxd embeds the guide.
   src = lib.fileset.toSource {
     inherit root;
     fileset = lib.fileset.unions [
@@ -27,6 +27,7 @@ rustPlatform.buildRustPackage {
       (root + "/Cargo.lock")
       (root + "/crates")
       (root + "/apps/desktop/src-tauri")
+      (root + "/guide")
     ];
   };
 

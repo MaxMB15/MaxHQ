@@ -36,7 +36,7 @@ import type { ViewState } from "@maxhq/shared/view/replica";
 const Code = ({ text }: { text: string }) => {
 	useI18n();
 	return (
-		<code className="block min-w-0 flex-1 rounded-[6px] border border-border bg-subpanel px-2.5 py-1.5 font-mono text-[11.5px] break-all whitespace-pre-wrap text-foreground select-text">
+		<code className="block min-w-0 flex-1 rounded-[6px] border border-border bg-subpanel px-2.5 py-1.5 font-mono text-[11.5px] break-all whitespace-pre-wrap text-foreground selectable">
 			{text}
 		</code>
 	);
@@ -70,9 +70,10 @@ const Group = ({ group }: { group: HostGroup }) => {
 						</span>
 						<span
 							className={cn(
-								"min-w-0 flex-1 truncate text-xs",
+								"selectable min-w-0 flex-1 truncate text-xs",
 								item.ok ? "text-muted-foreground" : "text-status-error-text"
 							)}
+							title={item.status}
 						>
 							{item.status}
 						</span>

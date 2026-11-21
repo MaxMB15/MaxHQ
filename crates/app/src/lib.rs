@@ -26,6 +26,7 @@ pub mod host_fix;
 pub mod keys;
 pub mod media;
 pub mod merge;
+pub mod notices;
 pub mod notify;
 pub mod offered;
 pub mod pace;

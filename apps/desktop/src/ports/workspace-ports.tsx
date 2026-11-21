@@ -20,12 +20,11 @@ import { AgentConnectionDot } from "@/components/status/agent-dots";
 import { Popover, PopoverPopup, PopoverTitle, PopoverTrigger } from "@/components/ui/popover";
 import type { Agent, Forward, ListeningPort, Workspace } from "@maxhq/shared/bindings";
 import { useNow } from "@maxhq/shared/lib/clock";
-import { cn } from "@/lib/utils";
 import { all } from "@maxhq/shared/view/replica";
 import { deviceName, linkForDevice } from "@maxhq/shared/view/select";
 
 import { type PortActions, usePortActions } from "./actions";
-import { Failure, Section, TEXT_BUTTON } from "./parts";
+import { Failure, ListeningRow, PortNumber, Process, Section } from "./parts";
 import { Running } from "./running";
 import {
 	forwardOf,
@@ -35,36 +34,10 @@ import {
 	placeName,
 	workspacePorts,
 } from "@maxhq/shared/ports/select";
+import { dismissPort } from "@maxhq/shared/ports/store";
 
 const ICON_BUTTON =
 	"grid size-6 cursor-pointer place-items-center rounded-[5px] text-muted-foreground outline-none hover:bg-border hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-default disabled:opacity-60";
-
-const Process = ({ port, quiet }: { port: ListeningPort; quiet?: boolean }) => {
-	const { t } = useI18n();
-	return (
-		<span className="flex min-w-0 items-baseline gap-1.5" title={port.process?.command}>
-			<span
-				className={cn("shrink-0", quiet ? "text-secondary-foreground" : "text-foreground")}
-			>
-				{port.process?.name ?? t("Unknown process")}
-			</span>
-			{port.process ? (
-				<span className="truncate font-mono text-[11px] text-muted-foreground">
-					{port.process.command}
-				</span>
-			) : null}
-		</span>
-	);
-};
-
-const PortNumber = ({ port }: { port: ListeningPort }) => {
-	useI18n();
-	return (
-		<span className="font-mono text-[12px] text-foreground tabular-nums">
-			{formatNumber(port.port, { useGrouping: false })}
-		</span>
-	);
-};
 
 const ForwardedRow = ({
 	port,
@@ -99,7 +72,11 @@ const ForwardedRow = ({
 					})}
 					className={ICON_BUTTON}
 					disabled={actions.busy(port.id)}
-					onClick={() => actions.stop(port, forward.id)}
+					onClick={() => {
+						// Once stopped, the port's prompt stays away. This list still has it.
+						dismissPort(port.id);
+						actions.stop(port, forward.id);
+					}}
 				>
 					<Unplug aria-hidden size={12} strokeWidth={2.2} />
 				</button>
@@ -112,53 +89,6 @@ const ForwardedRow = ({
 					})}
 				</span>
 			) : null}
-			<Failure text={actions.failure(port.id)} />
-		</li>
-	);
-};
-
-const ListeningRow = ({
-	port,
-	remote,
-	forwards,
-	quiet,
-	actions,
-}: {
-	port: ListeningPort;
-	remote: boolean;
-	forwards: boolean;
-	quiet?: boolean;
-	actions: PortActions;
-}) => {
-	const { t } = useI18n();
-	return (
-		<li className="grid grid-cols-[46px_minmax(0,1fr)_auto] items-center gap-x-2 gap-y-0.5 px-3.5 py-1.5 text-[12px]">
-			<PortNumber port={port} />
-			<Process port={port} quiet={quiet} />
-			{remote && !forwards ? null : remote ? (
-				<button
-					type="button"
-					aria-label={t("Forward port {{port}}", {
-						port: formatNumber(port.port, { useGrouping: false }),
-					})}
-					className={TEXT_BUTTON}
-					disabled={actions.busy(port.id)}
-					onClick={() => actions.forward(port)}
-				>
-					{t("Forward")}
-				</button>
-			) : (
-				<button
-					type="button"
-					aria-label={t("Open localhost:{{port}} in the browser", {
-						port: formatNumber(port.port, { useGrouping: false }),
-					})}
-					className={TEXT_BUTTON}
-					onClick={() => actions.open(port, port.port)}
-				>
-					{t("Open")}
-				</button>
-			)}
 			<Failure text={actions.failure(port.id)} />
 		</li>
 	);

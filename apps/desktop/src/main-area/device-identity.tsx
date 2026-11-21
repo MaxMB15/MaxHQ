@@ -95,7 +95,7 @@ export const LinkClaimCard = ({
 					{t("Reading both links' details")}
 				</p>
 			) : failed ? (
-				<p className="text-[11.5px] text-status-error-text">{failed}</p>
+				<p className="selectable text-[11.5px] text-status-error-text">{failed}</p>
 			) : null}
 		</ConsentCard>
 	);

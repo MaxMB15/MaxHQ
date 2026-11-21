@@ -91,7 +91,7 @@ export const CreationSteps = ({ id, planned }: { id: WorkspaceId; planned: strin
 						className="flex items-center gap-2.5 text-[12.5px] text-foreground"
 					>
 						<ConnectionDot size={8} look={step.look} label={step.label} />
-						<span>{step.text}</span>
+						<span className="selectable">{step.text}</span>
 					</li>
 				))}
 				{left > 0 ? (
@@ -102,21 +102,27 @@ export const CreationSteps = ({ id, planned }: { id: WorkspaceId; planned: strin
 			</ol>
 
 			{!workspace || !managed ? (
-				<p role="status" className="text-xs text-muted-foreground">
+				<p role="status" className="selectable text-xs text-muted-foreground">
 					{t("{{instance}} is gone from the device.", { instance: instance })}
 				</p>
 			) : (
 				<div role="status" className="flex flex-col gap-1 text-xs text-muted-foreground">
-					<span className={cn("text-[12.5px]", STATE_TONE[stateLook(managed.state)])}>
+					<span
+						className={cn(
+							"selectable text-[12.5px]",
+							STATE_TONE[stateLook(managed.state)]
+						)}
+					>
 						{managed.state.state === "running"
 							? t("{{instance}} is ready.", { instance: instance })
 							: `${stateText(managed.state)}.`}
 					</span>
 					{managed.state.state === "creating" ? null : (
-						<span>{guestText(managed.guest, now)}</span>
+						<span className="selectable">{guestText(managed.guest, now)}</span>
 					)}
 					<span
 						className={cn(
+							"selectable",
 							managed.egress.state === "failed" && "text-status-error-text"
 						)}
 					>
@@ -275,7 +281,7 @@ const Form = ({ project, device }: { project: ProjectId | null; device: DeviceId
 				<p
 					role="status"
 					className={cn(
-						"text-[11.5px]",
+						"selectable text-[11.5px]",
 						failure ? "text-status-error-text" : "text-muted-foreground"
 					)}
 				>

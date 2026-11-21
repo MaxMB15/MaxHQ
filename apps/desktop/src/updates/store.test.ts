@@ -12,10 +12,12 @@ import {
 	progressOf,
 	promptVersion,
 	setAutoCheck,
+	showPrompt,
 	statusText,
 	type UpdateState,
 	updateNow,
 	updates,
+	versionButton,
 	watchUpdates,
 } from "./store";
 import { fake, fakeApp, leaveApp, sendStatus, sent } from "./testing";
@@ -54,6 +56,61 @@ describe("the prompt's version", () => {
 			"1.5.0"
 		);
 		expect(promptVersion({ update: null, later: null, error: null })).toBeNull();
+	});
+});
+
+describe("the status bar's update button", () => {
+	it("checks while no update is known, and spins while the app looks", () => {
+		expect(versionButton(state({ state: "idle" }))).toEqual({ kind: "check", checking: false });
+		expect(versionButton(state({ state: "up_to_date", checked_at: 0 }))).toEqual({
+			kind: "check",
+			checking: false,
+		});
+		expect(versionButton(state({ state: "failed", reason: "offline", version: null }))).toEqual(
+			{
+				kind: "check",
+				checking: false,
+			}
+		);
+		expect(versionButton(state({ state: "checking" }))).toEqual({
+			kind: "check",
+			checking: true,
+		});
+	});
+
+	it("updates while a version is on offer, even after Later", () => {
+		const offer = { kind: "update", version: "1.4.0" };
+		expect(versionButton(state({ state: "available", version: "1.4.0" }, "1.4.0"))).toEqual(
+			offer
+		);
+		expect(
+			versionButton(
+				state({ state: "downloading", version: "1.4.0", downloaded: 1, total: null })
+			)
+		).toEqual(offer);
+		expect(versionButton(state({ state: "installing", version: "1.4.0" }))).toEqual(offer);
+		expect(
+			versionButton(state({ state: "failed", reason: "no space", version: "1.4.0" }))
+		).toEqual(offer);
+	});
+
+	it("is off in a copy that doesn't update itself, saying why", () => {
+		expect(versionButton(state({ state: "unavailable", reason: "from_source" }))).toEqual({
+			kind: "off",
+			tip: "Updates come with release builds. This copy was built from source.",
+		});
+		expect(versionButton(state({ state: "unavailable", reason: "disk_image" }))).toMatchObject({
+			kind: "off",
+			tip: expect.stringContaining("disk image"),
+		});
+		expect(versionButton({ update: null, later: null, error: null })).toBeNull();
+	});
+
+	it("shows the prompt again after Later", () => {
+		updates.setState(state({ state: "available", version: "1.4.0" }, "1.4.0"));
+		expect(promptVersion(updates.getState())).toBeNull();
+		showPrompt();
+		expect(promptVersion(updates.getState())).toBe("1.4.0");
 	});
 });
 

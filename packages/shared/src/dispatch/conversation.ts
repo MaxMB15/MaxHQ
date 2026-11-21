@@ -16,6 +16,7 @@ export const CONVERSATION_KINDS: ReadonlySet<TimelineItem["kind"]> = new Set<Tim
 	"error",
 	"notice",
 	"limit_wait",
+	"dispatcher_action",
 ]);
 
 /** Whether the conversation shows an item. */

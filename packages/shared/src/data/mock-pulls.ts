@@ -269,7 +269,7 @@ const samplePulls = (now: Timestamp): MockPull[] =>
 					review: "approved",
 					updated_at: now - 25 * MIN,
 				}),
-				body: "The header meter shows only the 5-hour window. This adds the week as a thin bar under it, for plans that have one.\n\n- Codex Plus and Claude Max show both.\n- Cursor shows neither, as before.",
+				body: "The header meter shows only the 5-hour window. This adds the week as a thin bar under it, for plans that have one.\n\n- Codex Pro and Claude Max show both.\n- Cursor shows neither, as before.",
 				checks: passing(9100),
 				reviews: [
 					{

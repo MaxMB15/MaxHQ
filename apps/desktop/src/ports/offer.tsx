@@ -1,37 +1,52 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026 Max Boksem
 
-// The cards above the composer for ports the agent's processes listen on,
-// per N-6. A port on another device offers a forward to this Mac, and once
-// forwarded the card says where it landed. A port on this Mac offers to
-// open it in the browser, since it needs no forward. A device that doesn't
-// forward ports gets no offer, and neither does one that can't be reached,
-// where a forward could only fail. Its forwards stay, saying so. When a
-// forwarded port closes, a quiet line says the forward stopped.
+// The port prompts at the top of an agent's view, per N-6. The port the
+// agent's processes started listening on last shows as one card: a port on
+// another device offers a forward to this Mac, and one on this Mac offers
+// to open it in the browser, since it needs no forward. The rest fold into
+// a strip under the card, which names the first few and opens them as a
+// list. A device that doesn't forward ports gets no offer, and neither does
+// one that can't be reached, where a forward could only fail. Forwarded
+// ports leave for the header's ports popover. When a forwarded port
+// closes, one quiet line says the forward stopped. The Port prompts setting
+// turns all of it off.
 
 import { useI18n, formatNumber } from "@maxhq/shared/i18n";
 
-import { Plug, X } from "lucide-react";
-import { type ReactNode, useEffect } from "react";
+import { ChevronDown, ChevronUp, Plug, X } from "lucide-react";
+import { type ReactNode, useEffect, useId, useState } from "react";
 
 import { useServices, useView } from "@/app/services";
 import { Spinner } from "@/agent-view/icons";
-import type { Agent, Forward, ListeningPort } from "@maxhq/shared/bindings";
+import type { Agent, ListeningPort } from "@maxhq/shared/bindings";
 import { cn } from "@/lib/utils";
 import { useNow } from "@maxhq/shared/lib/clock";
 import { deviceName } from "@maxhq/shared/view/select";
 
 import { type PortActions, usePortActions } from "./actions";
+import { GHOST_TEXT_BUTTON, ListeningRow } from "./parts";
+import { usePortPrompts } from "./prompts-prefs";
 import {
-	agentPorts,
 	type ClosedForward,
-	forwardOf,
-	forwardsPorts,
 	isRemoteDevice,
-	isUnreachable,
+	listedPorts,
 	subjectName,
 } from "@maxhq/shared/ports/select";
-import { dismissClosed, dismissPort, usePorts, watchClosed } from "@maxhq/shared/ports/store";
+import {
+	latestNotice,
+	offersPorts,
+	type PortStack,
+	portStack,
+	waitingPorts,
+} from "@maxhq/shared/ports/stack";
+import {
+	dismissAgentClosed,
+	dismissPort,
+	dismissPorts,
+	usePorts,
+	watchClosed,
+} from "@maxhq/shared/ports/store";
 
 const BUTTON =
 	"inline-flex h-[26px] shrink-0 cursor-pointer items-center gap-1.5 rounded-md px-2.5 text-[12px] whitespace-nowrap outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-default disabled:opacity-60";
@@ -41,12 +56,10 @@ const PRIMARY = cn(
 	"bg-primary font-semibold text-primary-foreground shadow-lit hover:bg-primary/90"
 );
 
-const SECONDARY = cn(
-	BUTTON,
-	"border border-input bg-secondary text-foreground hover:bg-hover-card"
-);
-
 const GHOST = cn(BUTTON, "text-secondary-foreground hover:bg-border hover:text-foreground");
+
+const CHIP =
+	"inline-flex h-5 cursor-pointer items-center rounded-[5px] border border-track bg-secondary px-1.5 font-mono text-[11px] text-secondary-foreground tabular-nums outline-none hover:border-input hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring";
 
 const Code = ({ children }: { children: ReactNode }) => {
 	useI18n();
@@ -55,14 +68,12 @@ const Code = ({ children }: { children: ReactNode }) => {
 
 const Card = ({
 	port,
-	forwarded,
 	title,
 	detail,
 	failure,
 	children,
 }: {
 	port: ListeningPort;
-	forwarded: boolean;
 	title: ReactNode;
 	detail: ReactNode;
 	failure: string | null;
@@ -74,16 +85,11 @@ const Card = ({
 			aria-label={t("Port {{port}}", {
 				port: formatNumber(port.port, { useGrouping: false }),
 			})}
-			className="flex items-center gap-[11px] rounded-[10px] border border-input bg-card py-2 pr-2.5 pl-3"
+			className="flex items-center gap-[11px] py-2 pr-2.5 pl-3"
 		>
 			<span
 				aria-hidden
-				className={cn(
-					"grid size-[26px] shrink-0 place-items-center rounded-md",
-					forwarded
-						? "bg-status-ready/14 text-status-ready-text"
-						: "bg-selected text-primary"
-				)}
+				className="grid size-[26px] shrink-0 place-items-center rounded-md bg-selected text-primary"
 			>
 				<Plug size={13} strokeWidth={2.2} />
 			</span>
@@ -129,7 +135,6 @@ const LocalCard = ({
 	return (
 		<Card
 			port={port}
-			forwarded={false}
 			title={t("{{subject}} is listening on port {{port}}.", {
 				subject: place.subject,
 				port: formatNumber(port.port, { useGrouping: false }),
@@ -176,7 +181,6 @@ const OfferCard = ({
 	return (
 		<Card
 			port={port}
-			forwarded={false}
 			title={t("{{subject}} on {{device}} is listening on port {{port}}.", {
 				subject: place.subject,
 				device: place.device,
@@ -206,80 +210,115 @@ const OfferCard = ({
 	);
 };
 
-const ForwardedCard = ({
-	port,
-	forward,
-	place,
-	offline,
+/**
+ * The line under the card for the ports behind it: how many, the first few
+ * by number, and what to do with all of them. A port on this Mac has no
+ * Open all, since a port that listens isn't always a web page.
+ */
+const Strip = ({
+	stack,
+	remote,
+	listed,
+	list,
+	onList,
 	actions,
 }: {
-	port: ListeningPort;
-	forward: Forward;
-	place: Place;
-	/** Whether the device can't be reached right now. */
-	offline: boolean;
+	stack: PortStack;
+	remote: boolean;
+	/** Whether the list of the rest is open. */
+	listed: boolean;
+	/** The list's element ID. */
+	list: string;
+	onList: (listed: boolean) => void;
 	actions: PortActions;
 }) => {
 	const { t } = useI18n();
-
-	const moved = forward.local_port !== port.port;
-	const from = t("{{subject}} on {{device}}", { subject: place.subject, device: place.device });
+	const count = stack.rest.length;
+	const every = [stack.newest, ...stack.rest];
 	return (
-		<Card
-			port={port}
-			forwarded
-			title={
-				moved
-					? t("{{port}} is busy on this Mac, forwarded to {{local_port}}", {
-							port: formatNumber(port.port, { useGrouping: false }),
-							local_port: formatNumber(forward.local_port, { useGrouping: false }),
-						})
-					: t("Forwarded to localhost:{{local_port}}", {
-							local_port: formatNumber(forward.local_port, { useGrouping: false }),
-						})
-			}
-			detail={
-				offline
-					? t("{{device}} can't be reached. The forward picks up again once it's back.", {
-							device: place.device,
-						})
-					: moved
-						? t("Something on this Mac already uses {{port}}.", {
-								port: formatNumber(port.port, { useGrouping: false }),
-							})
-						: port.process
-							? t("{{name}} from {{from}}", { name: port.process.name, from: from })
-							: t("From {{from}}", { from: from })
-			}
-			failure={actions.failure(port.id)}
-		>
+		<div className="flex flex-wrap items-center gap-2 border-t border-border bg-subpanel py-1.5 pr-2 pl-3 text-[11.5px] text-muted-foreground">
+			<span className="text-secondary-foreground">
+				{t("{{countText}} more ports", { count, countText: formatNumber(count) })}
+			</span>
+			{listed ? null : (
+				<>
+					{stack.chips.map((port) => {
+						const number = formatNumber(port.port, { useGrouping: false });
+						return (
+							<button
+								key={port.id}
+								type="button"
+								aria-label={t("Show port {{port}}", { port: number })}
+								className={CHIP}
+								onClick={() => onList(true)}
+							>
+								{number}
+							</button>
+						);
+					})}
+					{stack.more > 0 ? <span>+{formatNumber(stack.more)}</span> : null}
+				</>
+			)}
+			<span className="flex-1" />
+			{remote ? (
+				<button
+					type="button"
+					className={GHOST_TEXT_BUTTON}
+					onClick={() =>
+						every
+							.filter((port) => !actions.busy(port.id))
+							.forEach((port) => actions.forward(port))
+					}
+				>
+					{t("Forward all")}
+				</button>
+			) : null}
 			<button
 				type="button"
-				className={SECONDARY}
-				onClick={() => actions.open(port, forward.local_port)}
+				className={GHOST_TEXT_BUTTON}
+				onClick={() => dismissPorts(every.map((port) => port.id))}
 			>
-				{t("Open in browser")}
+				{t("Dismiss all")}
 			</button>
 			<button
 				type="button"
-				className={GHOST}
-				disabled={actions.busy(port.id)}
-				onClick={() => {
-					// Once stopped, the offer stays away. The workspace popover still lists the port.
-					dismissPort(port.id);
-					actions.stop(port, forward.id);
-				}}
+				aria-expanded={listed}
+				aria-controls={list}
+				className={cn(GHOST_TEXT_BUTTON, "gap-1")}
+				onClick={() => onList(!listed)}
 			>
-				{t("Stop forwarding")}
+				{listed ? t("Hide") : t("Show all")}
+				{listed ? (
+					<ChevronUp aria-hidden size={11} strokeWidth={2.2} />
+				) : (
+					<ChevronDown aria-hidden size={11} strokeWidth={2.2} />
+				)}
 			</button>
-		</Card>
+		</div>
 	);
 };
 
-const ClosedLine = ({ notice, device }: { notice: ClosedForward; device: string }) => {
+/** The one quiet line that says a forward stopped, inside the card or on its own. */
+const ClosedLine = ({
+	notice,
+	device,
+	joined,
+}: {
+	notice: ClosedForward;
+	device: string;
+	/** Whether it sits under the card rather than on its own. */
+	joined: boolean;
+}) => {
 	const { t } = useI18n();
 	return (
-		<div className="flex items-center gap-2 rounded-[10px] border border-dashed border-input py-1.5 pr-1.5 pl-3 text-[12px] text-muted-foreground">
+		<div
+			className={cn(
+				"flex items-center gap-2 py-1.5 pr-1.5 pl-3 text-[12px] text-muted-foreground",
+				joined
+					? "border-t border-border bg-subpanel"
+					: "rounded-[10px] border border-dashed border-input"
+			)}
+		>
 			<Plug aria-hidden size={12} strokeWidth={2.2} className="shrink-0" />
 			<p className="min-w-0 flex-1 truncate">
 				{t(
@@ -296,7 +335,7 @@ const ClosedLine = ({ notice, device }: { notice: ClosedForward; device: string 
 				aria-label={t("Dismiss the notice about port {{port}}", {
 					port: formatNumber(notice.port, { useGrouping: false }),
 				})}
-				onClick={() => dismissClosed(notice.agent, notice.port)}
+				onClick={() => dismissAgentClosed(notice.agent)}
 				className="grid size-5 shrink-0 cursor-pointer place-items-center rounded-[5px] hover:bg-border hover:text-foreground"
 			>
 				<X aria-hidden size={11} strokeWidth={2.4} />
@@ -305,7 +344,10 @@ const ClosedLine = ({ notice, device }: { notice: ClosedForward; device: string 
 	);
 };
 
-/** The agent's ports above its composer, or nothing while it listens on none. */
+/**
+ * The agent's port prompts under its header, or nothing while no port
+ * waits on you, nor a notice.
+ */
 export const PortOffers = ({ agent }: { agent: Agent }) => {
 	const { t } = useI18n();
 
@@ -313,58 +355,100 @@ export const PortOffers = ({ agent }: { agent: Agent }) => {
 	const view = useView((s) => s.view);
 	const dismissed = usePorts((s) => s.dismissed);
 	const closed = usePorts((s) => s.closed);
+	const shown = usePortPrompts();
 	const actions = usePortActions();
 	const now = useNow(60_000);
+	const [listed, setListed] = useState(false);
+	const list = useId();
 	useEffect(() => watchClosed(store), [store]);
 
 	const workspace = view.tables.workspace.get(agent.workspace);
-	if (!workspace) return null;
+	if (!shown || !workspace) return null;
 	const remote = isRemoteDevice(view, workspace.device);
-	const forwards = forwardsPorts(view, workspace.device);
-	const offline = remote && isUnreachable(view, workspace.device, now);
 	const place = {
 		subject: subjectName(view, workspace),
 		device: deviceName(view, workspace.device),
 	};
-	const ports = agentPorts(view, agent.id);
-	const cards = ports.flatMap((port): { port: ListeningPort; forward: Forward | null }[] => {
-		const forward = forwardOf(view, port.id);
-		if (forward) return [{ port, forward }];
-		if (offline || (remote && !forwards)) return [];
-		return dismissed.has(port.id) ? [] : [{ port, forward: null }];
-	});
-	// A port that opened again gets a new offer, which stands in for the notice.
-	const notices = closed.filter(
-		(notice) => notice.agent === agent.id && !ports.some((port) => port.port === notice.port)
-	);
-	if (cards.length === 0 && notices.length === 0) return null;
+	const stack = offersPorts(view, workspace.device, now)
+		? portStack(waitingPorts(view, agent.id, dismissed))
+		: null;
+	const notice = latestNotice(closed, agent.id, listedPorts(view, agent.id));
+	if (!stack && !notice) return null;
+	const noticeLine = notice ? (
+		<ClosedLine notice={notice} device={deviceName(view, notice.device)} joined={!!stack} />
+	) : null;
+	const behind = stack !== null && stack.rest.length > 0;
+	const open = behind && listed;
 
 	return (
-		<div className="shrink-0 px-7 pb-2">
-			<ul aria-label={t("Ports")} className="mx-auto flex max-w-[744px] flex-col gap-1.5">
-				{cards.map(({ port, forward }) => (
-					<li key={port.id}>
-						{forward ? (
-							<ForwardedCard
-								port={port}
-								forward={forward}
+		<section aria-label={t("Ports")} className="shrink-0 border-b border-row-divider px-7 py-3">
+			{stack ? (
+				<div className={cn("relative mx-auto max-w-[744px]", behind && !open && "pb-3")}>
+					{behind && !open ? (
+						<>
+							<div
+								aria-hidden
+								className="absolute inset-x-[22px] top-3 bottom-0 rounded-xl border border-border bg-background"
+							/>
+							<div
+								aria-hidden
+								className="absolute inset-x-2.5 top-1.5 bottom-[5px] rounded-xl border border-track bg-subpanel"
+							/>
+						</>
+					) : null}
+					<div className="relative overflow-hidden rounded-xl border border-input bg-card shadow-hover">
+						{remote ? (
+							<OfferCard
+								key={stack.newest.id}
+								port={stack.newest}
 								place={place}
-								offline={offline}
 								actions={actions}
 							/>
-						) : remote ? (
-							<OfferCard port={port} place={place} actions={actions} />
 						) : (
-							<LocalCard port={port} place={place} actions={actions} />
+							<LocalCard
+								key={stack.newest.id}
+								port={stack.newest}
+								place={place}
+								actions={actions}
+							/>
 						)}
-					</li>
-				))}
-				{notices.map((notice) => (
-					<li key={`closed-${notice.port}`}>
-						<ClosedLine notice={notice} device={deviceName(view, notice.device)} />
-					</li>
-				))}
-			</ul>
-		</div>
+						{behind ? (
+							<Strip
+								stack={stack}
+								remote={remote}
+								listed={open}
+								list={list}
+								onList={setListed}
+								actions={actions}
+							/>
+						) : null}
+						{open ? (
+							<ul
+								id={list}
+								aria-label={t("{{countText}} more ports", {
+									count: stack.rest.length,
+									countText: formatNumber(stack.rest.length),
+								})}
+								className="max-h-[220px] animate-reveal-down divide-y divide-row-divider overflow-y-auto border-t border-border bg-subpanel"
+							>
+								{stack.rest.map((port) => (
+									<ListeningRow
+										key={port.id}
+										port={port}
+										remote={remote}
+										forwards
+										actions={actions}
+										onDismiss={() => dismissPort(port.id)}
+									/>
+								))}
+							</ul>
+						) : null}
+						{noticeLine}
+					</div>
+				</div>
+			) : (
+				<div className="mx-auto max-w-[744px]">{noticeLine}</div>
+			)}
+		</section>
 	);
 };

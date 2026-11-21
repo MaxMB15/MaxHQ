@@ -5,7 +5,7 @@ import { act, cleanup, render, screen } from "@testing-library/react";
 import { afterEach, expect, it } from "vitest";
 
 import { setLanguageChoice } from "@maxhq/shared/i18n";
-import { bellLabel } from "@/header/header";
+import { bellLabel } from "@/header/notifications";
 
 import { ShortcutList } from "./sheet";
 

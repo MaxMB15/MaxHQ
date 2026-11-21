@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026 Max Boksem
 
-import { act, fireEvent, render, screen, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { mockSource } from "@/data/mock-source";
@@ -78,23 +78,31 @@ describe("App", () => {
 		expect(screen.queryByRole("complementary")).not.toBeInTheDocument();
 	});
 
-	it("goes round the agents that need you from the bell, as ⌘J does", async () => {
+	it("lists what needs you and past notifications from the bell", async () => {
 		const { ui } = renderApp();
-		const bell = await screen.findByRole("button", { name: "2 agents need you" });
-		expect(bell).toHaveAttribute(
-			"title",
-			expect.stringMatching(/^Open the next agent waiting /)
+		const bell = await screen.findByRole("button", { name: /agents need you$/ });
+		fireEvent.click(bell);
+
+		const popup = await screen.findByRole("dialog", { name: "Notifications" });
+		const now = within(popup).getByRole("region", { name: "Now" });
+		const earlier = within(popup).getByRole("region", { name: "Earlier" });
+		expect(bell).toHaveAccessibleName(
+			`${within(now).getAllByRole("listitem").length} agents need you`
 		);
-		expect(bell).toHaveAttribute("aria-keyshortcuts", expect.stringMatching(/\+J$/));
-		fireEvent.click(bell);
-		const first = ui.getState().selectedAgent;
-		fireEvent.click(bell);
-		const second = ui.getState().selectedAgent;
-		expect(first).not.toBeNull();
-		expect(second).not.toBeNull();
-		expect(second).not.toBe(first);
-		fireEvent.click(bell);
-		expect(ui.getState().selectedAgent).toBe(first);
+		expect(within(now).getByRole("button", { name: /Release checklist/ })).toHaveTextContent(
+			"Stays until you answer it"
+		);
+		const [gone] = await within(earlier).findAllByRole("button", {
+			name: /Schema migration dry run/,
+		});
+		expect(gone).toHaveTextContent("This agent is gone");
+		expect(within(earlier).getAllByRole("listitem")).toHaveLength(20);
+		fireEvent.click(within(popup).getByRole("button", { name: "Show more" }));
+		await waitFor(() => expect(within(earlier).getAllByRole("listitem")).toHaveLength(27));
+
+		fireEvent.click(within(now).getByRole("button", { name: /Release checklist/ }));
+		expect(ui.getState().selectedAgent).toBe("agent-release");
+		await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
 	});
 
 	it("shows plan usage with the at-limit account in the popover", async () => {
@@ -104,7 +112,7 @@ describe("App", () => {
 		fireEvent.click(meter);
 
 		const popup = await screen.findByRole("dialog");
-		const codex = within(popup).getByRole("region", { name: "Codex Plus" });
+		const codex = within(popup).getByRole("region", { name: "Codex Pro" });
 		expect(codex).toHaveTextContent("At limit, 1 agent waiting");
 		expect(within(popup).getByRole("region", { name: "Claude Max" })).toHaveTextContent(
 			"5 hours"

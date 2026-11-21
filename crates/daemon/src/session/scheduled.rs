@@ -597,6 +597,7 @@ impl Manager {
             agent: None,
             device: None,
             container: container.map(|workspace| (self.device, workspace)),
+            reads: false,
         };
         let call = match &found.target {
             TaskTarget::Agent { device, agent } => Call::SendAgent(Message {
@@ -1173,6 +1174,11 @@ impl Manager {
     /// A task's name, while it's here.
     pub(super) fn task_name(&self, task: TaskId) -> Option<String> {
         self.tasks.tasks.get(&task).map(|task| task.name.clone())
+    }
+
+    /// Whether a task is on, while it's here.
+    pub(super) fn task_enabled(&self, task: TaskId) -> Option<bool> {
+        self.tasks.tasks.get(&task).map(|task| task.enabled)
     }
 
     /// Whether the caller made the task, sits above whoever made it, or is

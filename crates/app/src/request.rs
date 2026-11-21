@@ -15,6 +15,7 @@ use maxhq_protocol::acp::{AcpAgent, AcpEnvValue};
 use maxhq_protocol::agents::{AccessKey, MoveTo, Permission};
 use maxhq_protocol::attention::AttentionAnswer;
 use maxhq_protocol::context::InlineRef;
+use maxhq_protocol::dispatch::ChatAct;
 use maxhq_protocol::find::{AgentExcerpt, GitItemSearch, PathMatch};
 use maxhq_protocol::folders::FolderList;
 use maxhq_protocol::hosts::MoveStep;
@@ -31,6 +32,7 @@ use maxhq_protocol::model::{
     CommandRule, DeviceSettings, InboxChange, PermissionMode, ProjectSettings, WorkspaceSpec,
 };
 use maxhq_protocol::notes::{NoteId, NoteVersion, NoteVersionInfo, VersionHash};
+use maxhq_protocol::notices::NoticePage;
 use maxhq_protocol::processes::{ProcessList, ProcessSignal};
 use maxhq_protocol::pulls::{PullAction, PullListState};
 use maxhq_protocol::secret::Secret;
@@ -814,6 +816,19 @@ pub enum Request {
     ConfirmPlan { device: DeviceId, plan: u32 },
     /// Drops the plan the dispatcher shows.
     DismissPlan { device: DeviceId, plan: u32 },
+    /// Puts back a change the dispatcher made at once, by the key on its
+    /// card.
+    UndoDispatcherAction {
+        device: DeviceId,
+        action: IdempotencyKey,
+    },
+    /// Picks, renames, archives or saves one dispatcher chat, or keeps a
+    /// moved message in it.
+    ActOnChat {
+        device: DeviceId,
+        agent: AgentId,
+        action: ChatAct,
+    },
     /// Moves an agent on `from` to another device, through the `maxd` on
     /// `device`, the one the app runs with. `stop` stops a turn that runs
     /// or a prompt that waits first.
@@ -916,6 +931,14 @@ pub enum Request {
         #[serde(default)]
         force: bool,
     },
+    // The notification inbox. Each goes to every connected device, or the
+    // agent's, and a `maxd` before protocol 49 is left out.
+    /// The newest `limit` notices across every device, newest first.
+    ListNotices { limit: u32 },
+    /// Marks the agent's notices read, or every notice with no agent.
+    ReadNotices { agent: Option<AgentId> },
+    /// Forgets every device's notices.
+    ClearNotices,
 }
 
 /// The answer to a [`Request`], of the same kind. A request that only
@@ -1118,6 +1141,8 @@ pub enum Response {
     AskDispatcher(ActionOutcome),
     ConfirmPlan(ActionOutcome),
     DismissPlan(ActionOutcome),
+    UndoDispatcherAction(ActionOutcome),
+    ActOnChat(ActionOutcome),
     MoveAgent(ActionOutcome),
     TerminalOpen(ActionOutcome),
     TerminalAttach,
@@ -1133,6 +1158,9 @@ pub enum Response {
     SessionShare(ActionOutcome),
     SessionCd(ActionOutcome),
     SessionEnd(ActionOutcome),
+    ListNotices(NoticePage),
+    ReadNotices,
+    ClearNotices,
 }
 
 impl Request {
@@ -1328,6 +1356,8 @@ impl Request {
             Self::AskDispatcher { .. } => "ask_dispatcher",
             Self::ConfirmPlan { .. } => "confirm_plan",
             Self::DismissPlan { .. } => "dismiss_plan",
+            Self::UndoDispatcherAction { .. } => "undo_dispatcher_action",
+            Self::ActOnChat { .. } => "act_on_chat",
             Self::MoveAgent { .. } => "move_agent",
             Self::TerminalOpen { .. } => "terminal_open",
             Self::TerminalAttach { .. } => "terminal_attach",
@@ -1343,6 +1373,9 @@ impl Request {
             Self::SessionShare { .. } => "session_share",
             Self::SessionCd { .. } => "session_cd",
             Self::SessionEnd { .. } => "session_end",
+            Self::ListNotices { .. } => "list_notices",
+            Self::ReadNotices { .. } => "read_notices",
+            Self::ClearNotices => "clear_notices",
         }
     }
 }
@@ -1540,6 +1573,8 @@ impl Response {
             Self::AskDispatcher(_) => "ask_dispatcher",
             Self::ConfirmPlan(_) => "confirm_plan",
             Self::DismissPlan(_) => "dismiss_plan",
+            Self::UndoDispatcherAction(_) => "undo_dispatcher_action",
+            Self::ActOnChat(_) => "act_on_chat",
             Self::MoveAgent(_) => "move_agent",
             Self::TerminalOpen(_) => "terminal_open",
             Self::TerminalAttach => "terminal_attach",
@@ -1555,6 +1590,9 @@ impl Response {
             Self::SessionShare(_) => "session_share",
             Self::SessionCd(_) => "session_cd",
             Self::SessionEnd(_) => "session_end",
+            Self::ListNotices(_) => "list_notices",
+            Self::ReadNotices => "read_notices",
+            Self::ClearNotices => "clear_notices",
         }
     }
 }
@@ -2601,6 +2639,18 @@ impl<C: Connector> App<C> {
                 let action = ClientMessage::DismissPlan { key, plan };
                 Response::DismissPlan(devices.act_on(device, action).await?)
             }
+            Request::UndoDispatcherAction { device, action } => {
+                let action = ClientMessage::UndoDispatcherAction { key, action };
+                Response::UndoDispatcherAction(devices.act_on(device, action).await?)
+            }
+            Request::ActOnChat {
+                device,
+                agent,
+                action,
+            } => {
+                let action = ClientMessage::ActOnChat { key, agent, action };
+                Response::ActOnChat(devices.act_on(device, action).await?)
+            }
             Request::MoveAgent {
                 device,
                 agent,
@@ -2749,6 +2799,15 @@ impl<C: Connector> App<C> {
             Request::SessionEnd { agent, force } => {
                 let action = ClientMessage::SessionEnd { key, agent, force };
                 Response::SessionEnd(devices.act(action).await?)
+            }
+            Request::ListNotices { limit } => Response::ListNotices(self.list_notices(limit).await),
+            Request::ReadNotices { agent } => {
+                self.read_notices(agent).await?;
+                Response::ReadNotices
+            }
+            Request::ClearNotices => {
+                self.clear_notices().await?;
+                Response::ClearNotices
             }
         })
     }
@@ -3664,6 +3723,9 @@ mod tests {
                 "filter": "ex",
             }),
             json!({"kind": "make_folder", "device": mac, "path": "/Users/dev/code/new"}),
+            json!({"kind": "list_notices", "limit": 20}),
+            json!({"kind": "read_notices", "agent": null}),
+            json!({"kind": "clear_notices"}),
         ]
         .into_iter()
         .chain(skill_requests(mac))
@@ -4505,7 +4567,7 @@ mod tests {
                 }
             }
         }
-        assert_eq!(kinds.len() + mac_only.len(), 160);
+        assert_eq!(kinds.len() + mac_only.len(), 163);
         // The harness has no maxd to install or uninstall, no timeline open, no
         // listening port, no setup waiting on a host key, no GitHub
         // sign-in to merge with, no skill proposal, no link or card waiting

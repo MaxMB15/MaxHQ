@@ -3,14 +3,14 @@
 
 // Sample data shaped like the real setup: this Mac and devbox, a NixOS
 // server on the tailnet whose agents run in Incus containers, one Claude Max
-// login and one Codex Plus login. Every activity state shows somewhere,
+// login and one Codex Pro login. Every activity state shows somewhere,
 // and so does every place in the inbox: a pinned agent, a snoozed one, one
 // back from its snooze, and one settled by you and one by auto-settle.
 // The connecting and unreachable dots need devbox to be in trouble, so they
 // show through the scenarios at the bottom. Emails are made up.
 //
 // devbox also has one workspace MaxHQ made, with a setup-token account for
-// the Claude Max login and its own Sign in with ChatGPT for the Plus one.
+// the Claude Max login and its own Sign in with ChatGPT for the Pro one.
 // Neither has usage, since devbox hasn't read any for them.
 //
 // The Mac also runs Gemini as a local ACP agent, set up in its settings
@@ -250,7 +250,7 @@ const madeWorkspace = (now: Timestamp): Workspace => ({
 
 /** The Claude Max login's ID. */
 export const CLAUDE = "acct-claude-mac";
-/** The Codex Plus login's ID. */
+/** The Codex Pro login's ID. */
 export const CODEX = "acct-codex-mac";
 /** The Mac's Cursor CLI login, which shows no usage meters. */
 export const CURSOR = "acct-cursor-mac";
@@ -258,7 +258,7 @@ export const CURSOR = "acct-cursor-mac";
 export const GEMINI = "acp-gemini-mac";
 export const GEMINI_ACCOUNT = "acct-acp-gemini-mac";
 
-/** When the Codex Plus 5-hour window opens again. */
+/** When the Codex Pro 5-hour window opens again. */
 const codexReset = (now: Timestamp) => now + 2 * HOUR + 22 * MIN;
 
 /**
@@ -319,6 +319,19 @@ const accounts = (now: Timestamp): Account[] => [
 					used_percent: 45,
 					resets_at: at(now, 9, 0, 4),
 				},
+				{
+					scope: "opus",
+					window_minutes: 10080,
+					used_percent: 58,
+					resets_at: at(now, 9, 0, 4),
+				},
+				{
+					scope: "fable",
+					name: "Fable",
+					window_minutes: 10080,
+					used_percent: 12,
+					resets_at: at(now, 9, 0, 4),
+				},
 			],
 		},
 		usage_failure: null,
@@ -333,7 +346,7 @@ const accounts = (now: Timestamp): Account[] => [
 		config_dir: "/Users/me/.codex",
 		email: "max@example.net",
 		organization: null,
-		plan: "plus",
+		plan: "pro",
 		models: [],
 		usage: {
 			checked_at: now - 50_000,
@@ -344,6 +357,22 @@ const accounts = (now: Timestamp): Account[] => [
 					scope: null,
 					window_minutes: 10080,
 					used_percent: 64,
+					resets_at: at(now, 8, 30, 3),
+				},
+				// Codex Mini frees up first, but the account's own 5 hours
+				// still hold it until they reset.
+				{
+					scope: "codex_mini",
+					name: "Codex Mini",
+					window_minutes: 300,
+					used_percent: 100,
+					resets_at: now + HOUR + 5 * MIN,
+				},
+				{
+					scope: "codex_mini",
+					name: "Codex Mini",
+					window_minutes: 10080,
+					used_percent: 31,
 					resets_at: at(now, 8, 30, 3),
 				},
 			],
@@ -602,7 +631,7 @@ const agents = (now: Timestamp): Agent[] => {
 			inbox: { ...DEFAULT_INBOX, settled: { at: now - 7 * DAY, by: "auto" } },
 		}),
 
-		// This Mac, Comet, on Codex Plus.
+		// This Mac, Comet, on Codex Pro.
 		seed(now, {
 			id: "agent-hdr",
 			workspace: "ws-mac-comet",
@@ -734,8 +763,30 @@ const attention = (now: Timestamp): AttentionEvent[] => [
 	},
 ];
 
-// The transit map's dev server, which the GTFS agent started, and a
-// database nothing in MaxHQ started, both in the transit container.
+// A server the GTFS agent started in the transit container, seen `ago` ms
+// before the sample view was made.
+const transitPort = (
+	now: Timestamp,
+	port: number,
+	pid: number,
+	name: string,
+	command: string,
+	ago: number
+): ListeningPort => ({
+	id: `port-transit-${port}`,
+	workspace: "ws-alpha",
+	agent: "agent-gtfs",
+	port,
+	bind: { type: "any" },
+	process: { pid, name, command },
+	url_hint: null,
+	first_seen: now - ago,
+	gone_since: null,
+});
+
+// The transit map's dev server and six more servers the GTFS agent started,
+// enough to stack its port prompts, and a database nothing in MaxHQ
+// started, all in the transit container.
 const ports = (now: Timestamp): ListeningPort[] => [
 	{
 		id: "port-transit-vite",
@@ -748,6 +799,12 @@ const ports = (now: Timestamp): ListeningPort[] => [
 		first_seen: now - 4 * MIN,
 		gone_since: null,
 	},
+	transitPort(now, 4000, 2230, "node", "node server/api.js", 5 * MIN),
+	transitPort(now, 8080, 2236, "python3", "python3 -m http.server 8080", 3 * MIN),
+	transitPort(now, 9229, 2242, "node", "node --inspect server/tiles.js", 2 * MIN + 30_000),
+	transitPort(now, 3000, 2248, "node", "node server/tiles.js", 2 * MIN),
+	transitPort(now, 5174, 2254, "node", "vite --host --port 5174", MIN),
+	transitPort(now, 6006, 2260, "storybook", "storybook dev -p 6006", 20_000),
 	{
 		id: "port-transit-postgres",
 		workspace: "ws-alpha",

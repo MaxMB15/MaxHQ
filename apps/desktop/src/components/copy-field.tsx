@@ -4,8 +4,8 @@
 // Text you might type somewhere else, with a quiet copy icon beside it: a
 // value in its own mono field, or a few words of code or a web address
 // inside a sentence. The icon sits in a muted colour at rest and turns to a
-// check for a moment once it has copied. The text itself doesn't select,
-// like the rest of the app's chrome, so the icon is the way to copy it.
+// check for a moment once it has copied. The text selects on its own too,
+// and a value cut short shows all of itself on hover.
 
 import { Check, CircleAlert, Copy } from "lucide-react";
 
@@ -76,12 +76,37 @@ export const CopyField = ({
 			<code
 				aria-label={label}
 				title={value}
-				className="min-w-0 flex-1 truncate font-mono text-xs text-foreground"
+				className="selectable min-w-0 flex-1 truncate font-mono text-xs text-foreground"
 			>
 				{value}
 			</code>
 			<CopyIcon text={value} label={copyName} />
 		</div>
+	);
+};
+
+/**
+ * A value that an ellipsis may cut short, such as a long path or a command
+ * line, with all of it on hover and a copy icon after it.
+ */
+export const ClippedValue = ({
+	value,
+	label,
+	className,
+}: {
+	value: string;
+	/** The icon's name, "Copy" unless given. */
+	label?: string;
+	className?: string;
+}) => {
+	useI18n();
+	return (
+		<span className="flex min-w-0 items-center gap-0.5">
+			<span title={value} className={cn("selectable min-w-0 truncate", className)}>
+				{value}
+			</span>
+			<CopyIcon text={value} label={label} className="size-[18px]" />
+		</span>
 	);
 };
 
@@ -107,7 +132,7 @@ export const InlineCopy = ({
 			) : (
 				<code
 					className={cn(
-						"rounded-[4px] bg-secondary px-1 py-px font-mono text-[11.5px] break-all whitespace-normal text-foreground",
+						"selectable rounded-[4px] bg-secondary px-1 py-px font-mono text-[11.5px] break-all whitespace-normal text-foreground",
 						className
 					)}
 				>

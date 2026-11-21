@@ -3,7 +3,7 @@
 
 // Sample timelines for the mock data source. "Usage meter popover" on Claude
 // and "HDR tone mapping" on Codex hold every kind of item between them and
-// each, "M0 skeleton review" has ten thousand items of history, paged the
+// each, except the dispatcher's change cards, which show in its chats, "M0 skeleton review" has ten thousand items of history, paged the
 // way `maxd` pages them, and "M1 observe milestone" streams a turn on a timer.
 // One message in "Usage meter popover" holds every kind of pill.
 
@@ -368,7 +368,7 @@ const TEST_OUTPUT = [
 
 const POPOVER_REPLY = `The popover now builds its rows from what the account reports, so a plan with only a 5 hour window shows one bar.
 
-| Window | Claude Max | Codex Plus |
+| Window | Claude Max | Codex Pro |
 | --- | --- | --- |
 | 5 hours | 22% used | 100% used, resets 17:10 |
 | Week | 45% used | 64% used |
@@ -383,7 +383,7 @@ export const usageRows = (usage: Usage): UsageRow[] =>
 		.map((w) => ({ label: windowLabel(w), percent: w.used_percent, resetsAt: w.resets_at }));
 \`\`\`
 
-Here it is on Codex Plus at the limit:
+Here it is on Codex Pro at the limit:
 
 ![The popover at the limit](shots/popover-limit.png)
 
@@ -393,7 +393,7 @@ And a recording of it opening:
 
 Two things to check by hand:
 
-1. Open the popover on **Codex Plus** while it's at the limit. The 5 hour row turns amber.
+1. Open the popover on **Codex Pro** while it's at the limit. The 5 hour row turns amber.
 2. Switch the sample data to *devbox offline* and confirm the popover still opens.
 
 The tests in \`src/header\` pass. I didn't touch the Rust side.`;
@@ -403,7 +403,7 @@ const POPOVER_PLAN = `## Hide usage rows the vendor doesn't report
 1. Add \`usageRows\` in \`src/header/usage-rows.ts\` that keeps only the windows the account reports.
 2. Build the popover rows from it, so the weekly bar goes away for plans without one.
 3. Turn the 5 hour row amber at 90% and red at the limit, as the mockup shows.
-4. Cover Claude Max and Codex Plus in \`usage-rows.test.ts\`.
+4. Cover Claude Max and Codex Pro in \`usage-rows.test.ts\`.
 
 Nothing changes in \`maxd\`. The protocol already sends each window with its length.`;
 
@@ -601,7 +601,7 @@ const usagePopover = (now: Timestamp): TimelineItem[] => {
 			["done", "Add usageRows with the windows the account reports"],
 			["done", "Build the popover rows from usageRows"],
 			["done", "Color the 5 hour row at 90% and at the limit"],
-			["in_progress", "Cover Claude Max and Codex Plus in tests"],
+			["in_progress", "Cover Claude Max and Codex Pro in tests"],
 			["pending", "Check the sidebar meter uses the same labels"]
 		)
 	);
@@ -813,7 +813,7 @@ const CARGO_OUTPUT = [
 	"",
 ].join("\n");
 
-// "HDR tone mapping", on Codex Plus. Every kind of item, ending at the limit.
+// "HDR tone mapping", on Codex Pro. Every kind of item, ending at the limit.
 const hdrToneMapping = (now: Timestamp): TimelineItem[] => {
 	const s = story("agent-hdr");
 	s.add(
@@ -1297,7 +1297,7 @@ const BRIEFS: Readonly<Record<AgentId, Brief>> = {
 		ask: "Observe Codex sessions from the rollout files.",
 		file: "crates/daemon/src/observe/codex.rs",
 		command: "cargo test -p maxhq-daemon observe::codex",
-		reply: "Rollouts map to agents, and rate limit events update the Codex Plus account.",
+		reply: "Rollouts map to agents, and rate limit events update the Codex Pro account.",
 	},
 	"agent-w4": {
 		ask: "Write the client crate that talks to maxd.",
@@ -1436,7 +1436,7 @@ const LEAD_REPLY = `W3 is done and its tests pass. Here's where the milestone st
 
 - **W1 maxd core** has the replica and the socket. Reconnects are covered.
 - **W2 Claude observer** maps session files to agents, including sub-agents.
-- **W3 Codex observer** reads rollouts and the Codex Plus rate limits.
+- **W3 Codex observer** reads rollouts and the Codex Pro rate limits.
 - **W7 Incus observer** still needs the container restart case on devbox.
 
 The one thing blocking a merge is a flaky test in \`observe::incus\`:

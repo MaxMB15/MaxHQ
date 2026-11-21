@@ -98,7 +98,7 @@ const CommandRules = ({
 							<span className="flex min-w-0 flex-1 items-center gap-0.5">
 								<code
 									title={rule.command}
-									className="min-w-0 truncate font-mono text-xs text-foreground"
+									className="selectable min-w-0 truncate font-mono text-xs text-foreground"
 								>
 									{rule.command}
 								</code>
@@ -377,7 +377,10 @@ const OnDevice = ({ project, device }: { project: ProjectId; device: DeviceId })
 				</div>
 				<div className="flex items-center justify-end gap-3 border-t border-sidebar-border px-4 py-2.5">
 					{!plan.ok ? (
-						<span role="status" className="text-[11.5px] text-status-error-text">
+						<span
+							role="status"
+							className="selectable text-[11.5px] text-status-error-text"
+						>
 							{plan.reason}
 						</span>
 					) : (

@@ -81,7 +81,10 @@ export const fakeView = (): FakeView => {
 		},
 		jumps,
 		takesMarks: () => takesMarks,
-		write: (bytes) => written.push(decoder.decode(bytes)),
+		write: (bytes, _offset, done) => {
+			written.push(decoder.decode(bytes));
+			done?.();
+		},
 		clear: () => {
 			cleared++;
 			written.length = 0;

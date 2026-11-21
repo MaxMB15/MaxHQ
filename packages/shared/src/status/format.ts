@@ -51,8 +51,12 @@ export const formatAgo = (at: Timestamp, now: Timestamp): string => {
 /** How long ago, as a sidebar row shows it, such as "now", "4m", "3h" or "2d". */
 export const formatAgoShort = (at: Timestamp, now: Timestamp): string => {
 	const ms = Math.max(0, now - at);
-	if (ms < MINUTE) return t("now");
-	if (ms < HOUR) return t("{{count, number}}m", { count: Math.floor(ms / MINUTE) });
+	return ms < MINUTE ? t("now") : formatSpanShort(ms);
+};
+
+/** A stretch of time in its largest whole unit, such as "4m", "3h" or "2d", and never under "1m". */
+export const formatSpanShort = (ms: number): string => {
+	if (ms < HOUR) return t("{{count, number}}m", { count: Math.max(1, Math.floor(ms / MINUTE)) });
 	if (ms < DAY) return t("{{count, number}}h", { count: Math.floor(ms / HOUR) });
 	return t("{{count, number}}d", { count: Math.floor(ms / DAY) });
 };
@@ -88,6 +92,17 @@ export const formatWhen = (at: Timestamp, now: Timestamp): string => {
 		time: formatClock(at),
 	});
 };
+
+/** The day and time in full, such as "Thursday, November 26 at 02:00", for a tooltip. */
+export const formatFullWhen = (at: Timestamp): string =>
+	formatDate(at, {
+		weekday: "long",
+		day: "numeric",
+		month: "long",
+		hour: "2-digit",
+		minute: "2-digit",
+		hourCycle: "h23",
+	});
 
 /** US cents as dollars, such as "$12.40" or "$50". */
 export const formatDollars = (cents: number): string =>

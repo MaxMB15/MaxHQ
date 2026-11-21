@@ -97,7 +97,7 @@ export const WorkspaceSnapshots = ({
 				</button>
 			</div>
 			{list?.state === "failed" ? (
-				<p role="alert" className="px-3 pb-2 text-xs text-status-error-text">
+				<p role="alert" className="selectable px-3 pb-2 text-xs text-status-error-text">
 					{sentence(list.error)}
 				</p>
 			) : null}
@@ -115,7 +115,10 @@ export const WorkspaceSnapshots = ({
 						>
 							<div className="flex items-center gap-2">
 								<span className="flex min-w-0 flex-1 flex-col">
-									<span className="truncate font-mono text-[12px] text-foreground">
+									<span
+										title={snapshot.name}
+										className="selectable truncate font-mono text-[12px] text-foreground"
+									>
 										{snapshot.name}
 									</span>
 									<span className="text-[11.5px] text-muted-foreground">
@@ -157,7 +160,7 @@ export const WorkspaceSnapshots = ({
 									}
 								>
 									{loses ? (
-										<span className="text-xs font-[600] text-status-error-text">
+										<span className="selectable text-xs font-[600] text-status-error-text">
 											{t("Rolling back loses this: {{loses}}.", {
 												loses: loses,
 											})}

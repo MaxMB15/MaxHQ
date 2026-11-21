@@ -117,6 +117,8 @@ describe("device settings", () => {
 			history_mib: 256,
 			claude_setup_token: false,
 			shell_integration: true,
+			read_other_agents: true,
+			dispatcher_acts: true,
 			skill_library: null,
 			network: {},
 			test_hosts: MOCK_TEST_HOST_SETTINGS[MAC],
@@ -145,6 +147,8 @@ describe("device settings", () => {
 			history_mib: 256,
 			claude_setup_token: false,
 			shell_integration: true,
+			read_other_agents: true,
+			dispatcher_acts: true,
 			skill_library: null,
 			network: {},
 			test_hosts: MOCK_TEST_HOST_SETTINGS[MAC],
@@ -197,6 +201,8 @@ describe("device settings", () => {
 			history_mib: 256,
 			claude_setup_token: true,
 			shell_integration: true,
+			read_other_agents: true,
+			dispatcher_acts: true,
 			skill_library: null,
 			network: {},
 			test_hosts: MOCK_TEST_HOST_SETTINGS[DEVBOX],
@@ -262,6 +268,8 @@ describe("device settings", () => {
 			history_mib: 256,
 			claude_setup_token: true,
 			shell_integration: true,
+			read_other_agents: true,
+			dispatcher_acts: true,
 			skill_library: null,
 			network: {},
 			test_hosts: MOCK_TEST_HOST_SETTINGS[DEVBOX],
@@ -295,6 +303,8 @@ describe("device settings", () => {
 			history_mib: 256,
 			claude_setup_token: true,
 			shell_integration: true,
+			read_other_agents: true,
+			dispatcher_acts: true,
 			skill_library: null,
 			network: {},
 			test_hosts: MOCK_TEST_HOST_SETTINGS[DEVBOX],
@@ -342,6 +352,8 @@ describe("device settings", () => {
 			history_mib: 256,
 			claude_setup_token: true,
 			shell_integration: true,
+			read_other_agents: true,
+			dispatcher_acts: true,
 			skill_library: null,
 			network: {},
 			test_hosts: MOCK_TEST_HOST_SETTINGS[DEVBOX],
@@ -400,6 +412,8 @@ describe("device settings", () => {
 			history_mib: 256,
 			claude_setup_token: false,
 			shell_integration: true,
+			read_other_agents: true,
+			dispatcher_acts: true,
 			skill_library: null,
 			network: {},
 			test_hosts: MOCK_TEST_HOST_SETTINGS[MAC],
@@ -826,6 +840,66 @@ describe("terminals", () => {
 	});
 });
 
+describe("other agents", () => {
+	const card = (name: string) => screen.findByRole("region", { name: `Other agents on ${name}` });
+	const reads = async (name: string) =>
+		within(await card(name)).getByRole("switch", { name: "Agents can read other agents" });
+
+	// The mock source with devbox's maxd from before the setting.
+	const before = (source: DataSource): DataSource => ({
+		...source,
+		snapshot: async () => {
+			const snapshot = await source.snapshot();
+			const entities = snapshot.entities.map((e): Entity => {
+				if (e.entity !== "device_settings" || e.device !== "dev-devbox") return e;
+				const rest = { ...e };
+				delete rest.read_other_agents;
+				return rest;
+			});
+			return { ...snapshot, entities };
+		},
+	});
+
+	it("is on by default, and says what agents can see", async () => {
+		renderDevice("link-devbox");
+		expect(await reads("devbox")).toBeChecked();
+		expect(
+			within(await card("devbox")).getByText(
+				/^Any agent can list and read any other agent's conversation, which may hold code, paths and command output\./
+			)
+		).toBeInTheDocument();
+	});
+
+	it("saves it off, keeping the other settings", async () => {
+		const { source } = renderDevice("link-mac");
+		const save = vi.spyOn(source, "setDeviceSettings");
+		fireEvent.click(await reads("Mac"));
+
+		expect(save).toHaveBeenCalledWith(
+			expect.objectContaining({
+				device: "dev-mac",
+				read_other_agents: false,
+				shell_integration: true,
+				default_permission: "auto",
+			})
+		);
+		expect(await within(await card("Mac")).findByText("Saved")).toBeInTheDocument();
+		expect(await reads("Mac")).not.toBeChecked();
+	});
+
+	it("can't change on a maxd from before the setting", async () => {
+		renderDevice("link-devbox", "connected", before);
+		const toggle = await reads("devbox");
+		expect(toggle).toHaveAttribute("aria-disabled", "true");
+		expect(toggle).not.toBeChecked();
+		expect(
+			within(await card("devbox")).getByText(
+				"devbox's maxd is too old for this. Update it first."
+			)
+		).toBeInTheDocument();
+	});
+});
+
 describe("placement", () => {
 	it("saves Prefer and keeps the rest", async () => {
 		const { source } = renderDevice("link-devbox");
@@ -970,6 +1044,19 @@ describe("network access", () => {
 		expect(await within(section).findByText("Addresses for phones")).toBeInTheDocument();
 		expect(within(section).getByText("192.168.1.30")).toBeInTheDocument();
 		expect(within(section).getByRole("switch", { name: "Network access" })).toBeChecked();
+	});
+
+	it("lets the addresses be selected, but not their label", async () => {
+		renderDevice(
+			"link-devbox",
+			"connected",
+			devboxAccess({ on: true, hosts: ["192.168.1.30", "devbox.example.net"] })
+		);
+		const section = await region("devbox");
+		expect(await within(section).findByText("192.168.1.30, devbox.example.net")).toHaveClass(
+			"selectable"
+		);
+		expect(within(section).getByText("Addresses for phones").closest(".selectable")).toBeNull();
 	});
 
 	it("saves a new port and says why it won't take one that isn't", async () => {

@@ -1,5 +1,7 @@
 {
+	"Act directly": "Act directly",
 	"Add the key file": "Add the key file",
+	"Changes": "Changes",
 	"Click the plus button, give the key a name such as `MaxHQ pushes`, tick Apple Push Notifications service (APNs), and click Continue, then Register.": "Click the plus button, give the key a name such as `MaxHQ pushes`, tick Apple Push Notifications service (APNs), and click Continue, then Register.",
 	"Removing": "Removing",
 	"Couldn't remove the ACP agent": "Couldn't remove the ACP agent",
@@ -27,6 +29,8 @@
 	"Argument {{value1}}": "Argument {{value1}}",
 	"Remove argument {{value1}}": "Remove argument {{value1}}",
 	"Add argument": "Add argument",
+	"The dispatcher changes settings, agents and tasks without asking first. Deleting, stopping busy agents and granting permissions still ask.": "The dispatcher changes settings, agents and tasks without asking first. Deleting, stopping busy agents and granting permissions still ask.",
+	"The dispatcher reads your projects and agents, and can't change files. Without a pick it takes the first Claude account, else the first Codex one.": "The dispatcher reads your projects and agents, and can't change files. Without a pick it takes the first Claude account, else the first Codex one.",
 	"Variables": "Variables",
 	"Set for the agent when it starts, such as an API key. The device keeps each value as a secret and never shows it again.": "Set for the agent when it starts, such as an API key. The device keeps each value as a secret and never shows it again.",
 	"Add variable": "Add variable",
@@ -276,7 +280,6 @@
 	"Phones on the same network or tailnet can reach {{name}} while it's on.": "Phones on the same network or tailnet can reach {{name}} while it's on.",
 	"The port phones reach {{name}} on. {{DEFAULT_PORT}} by default.": "The port phones reach {{name}} on. {{DEFAULT_PORT}} by default.",
 	"Runs as": "Runs as",
-	"The dispatcher reads your projects and agents and proposes a plan. It can't change files or start anything until you confirm. Without a pick it takes the first Claude account, else the first Codex one.": "The dispatcher reads your projects and agents and proposes a plan. It can't change files or start anything until you confirm. Without a pick it takes the first Claude account, else the first Codex one.",
 	"Sign in to Claude or Codex on this Mac first": "Sign in to Claude or Codex on this Mac first",
 	"Open in": "Open in",
 	"Default editor": "Default editor",
@@ -1021,6 +1024,10 @@
 	"While an agent works, Enter": "While an agent works, Enter",
 	"{{keyHint}} steers instead.": "{{keyHint}} steers instead.",
 	"{{keyHint}} queues instead.": "{{keyHint}} queues instead.",
+	"the port prompts setting": "the port prompts setting",
+	"Port prompts": "Port prompts",
+	"Offer to forward or open a port an agent starts listening on.": "Offer to forward or open a port an agent starts listening on.",
+	"Off. Ports still show under the device chip in each agent's header, with Forward and Open there.": "Off. Ports still show under the device chip in each agent's header, with Forward and Open there.",
 	"Dock badge": "Dock badge",
 	"Each agent counts once": "Each agent counts once",
 	"Show the badge": "Show the badge",
@@ -1062,5 +1069,10 @@
 	"Terminals on {{name}}": "Terminals on {{name}}",
 	"Shell integration on by default": "Shell integration on by default",
 	"Shell integration": "Shell integration",
-	"MaxHQ adds hooks to zsh, bash and fish so it can tell commands apart. Off starts shells exactly as your startup files say. Applies to terminals opened after the change.": "MaxHQ adds hooks to zsh, bash and fish so it can tell commands apart. Off starts shells exactly as your startup files say. Applies to terminals opened after the change."
+	"MaxHQ adds hooks to zsh, bash and fish so it can tell commands apart. Off starts shells exactly as your startup files say. Applies to terminals opened after the change.": "MaxHQ adds hooks to zsh, bash and fish so it can tell commands apart. Off starts shells exactly as your startup files say. Applies to terminals opened after the change.",
+	"Agents can read other agents": "Agents can read other agents",
+	"Any agent can list and read any other agent's conversation, which may hold code, paths and command output. Off lets agents read only the agents you attach or quote. Starting, messaging or stopping agents still needs your permission.": "Any agent can list and read any other agent's conversation, which may hold code, paths and command output. Off lets agents read only the agents you attach or quote. Starting, messaging or stopping agents still needs your permission.",
+	"Other agents": "Other agents",
+	"Other agents on {{name}}": "Other agents on {{name}}",
+	"Reading on by default": "Reading on by default"
 }

@@ -67,7 +67,7 @@ import { t as translate, useI18n } from "@maxhq/shared/i18n";
 
 const LOGINS = LOGIN_PAGES;
 
-const LOGIN_TERMS: Record<LoginPage, readonly string[]> = {
+export const LOGIN_TERMS: Record<LoginPage, readonly string[]> = {
 	claude: CLAUDE_LOGIN_TERMS,
 	codex: CODEX_LOGIN_TERMS,
 	cursor: CURSOR_LOGIN_TERMS,
@@ -76,10 +76,10 @@ const LOGIN_TERMS: Record<LoginPage, readonly string[]> = {
 };
 
 // The dispatcher's page keeps its own file; these are its headings and labels.
-const DISPATCHER_TERMS: readonly string[] = ["Account", "Runs as"];
+const DISPATCHER_TERMS: readonly string[] = ["Account", "Runs as", "Changes", "Act directly"];
 
 /** A page in the App group. */
-type AppPage = {
+export type AppPage = {
 	readonly kind: Exclude<SettingsPage["kind"], "login" | "project">;
 	readonly title: string;
 	readonly hint: string;
@@ -98,7 +98,7 @@ const ShortcutsPage = () => {
 };
 
 // Built when asked for, since the key hints depend on the platform.
-const appPages = (): readonly AppPage[] => [
+export const appPages = (): readonly AppPage[] => [
 	{
 		kind: "appearance",
 		title: translate("Appearance"),
@@ -303,7 +303,7 @@ const PageHeader = ({
 						: "text-[12.5px] text-muted-foreground"
 				}
 			>
-				{hint}
+				{mono ? <span className="selectable">{hint}</span> : hint}
 				{copy ? <CopyIcon text={copy} className="-my-1 ml-1 size-[18px]" /> : null}
 			</p>
 		</header>

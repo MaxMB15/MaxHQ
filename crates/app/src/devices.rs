@@ -2598,7 +2598,8 @@ fn action_targets(merge: &Merge, action: &ClientMessage) -> Result<Vec<Target>, 
         ClientMessage::CreateWorkspace { spec, .. } => device_targets(merge, spec.device),
         ClientMessage::CloneFolder { device, .. }
         | ClientMessage::ListFolder { device, .. }
-        | ClientMessage::MakeFolder { device, .. } => device_targets(merge, *device),
+        | ClientMessage::MakeFolder { device, .. }
+        | ClientMessage::Notices { device, .. } => device_targets(merge, *device),
         ClientMessage::StartWorkspace { workspace, .. }
         | ClientMessage::StopWorkspace { workspace, .. }
         | ClientMessage::DeleteWorkspace { workspace, .. }
@@ -3255,6 +3256,15 @@ pub(crate) mod tests {
                         .acts
                         .pop_front()
                         .or(Some(ActionOutcome::Runs { runs: Vec::new() })),
+                    false,
+                ),
+                ClientMessage::Notices {
+                    call: maxhq_protocol::notices::NoticeCall::List { .. },
+                    ..
+                } => (
+                    record.acts.pop_front().or(Some(ActionOutcome::Notices {
+                        page: Default::default(),
+                    })),
                     false,
                 ),
                 // Each link's device has a key of its own.
@@ -4341,6 +4351,8 @@ pub(crate) mod tests {
             history_mib: 256,
             claude_setup_token: false,
             shell_integration: true,
+            read_other_agents: true,
+            dispatcher_acts: true,
         }
     }
 
@@ -4470,6 +4482,8 @@ pub(crate) mod tests {
                 history_mib: 256,
                 claude_setup_token: false,
                 shell_integration: true,
+                read_other_agents: true,
+                dispatcher_acts: true,
             },
         };
         act(settings("nl")).unwrap();

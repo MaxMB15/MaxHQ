@@ -89,7 +89,7 @@ const AUDIO_TYPES = new Map([
 	[".weba", "audio/webm"],
 ]);
 
-const safeDecode = (value: string): string => {
+export const safeDecode = (value: string): string => {
 	try {
 		return decodeURIComponent(value);
 	} catch {
@@ -97,12 +97,12 @@ const safeDecode = (value: string): string => {
 	}
 };
 
-const normalizeDestination = (value: string): string => {
+export const normalizeDestination = (value: string): string => {
 	const trimmed = value.trim();
 	return trimmed.startsWith("<") && trimmed.endsWith(">") ? trimmed.slice(1, -1) : trimmed;
 };
 
-const splitSearchAndHash = (value: string): { path: string; hash: string } => {
+export const splitSearchAndHash = (value: string): { path: string; hash: string } => {
 	const hashAt = value.indexOf("#");
 	const withSearch = hashAt >= 0 ? value.slice(0, hashAt) : value;
 	const hash = hashAt >= 0 ? value.slice(hashAt) : "";
@@ -111,9 +111,10 @@ const splitSearchAndHash = (value: string): { path: string; hash: string } => {
 };
 
 /** Browser URL parsers write `C:/foo` as `/C:/foo` for file URLs. */
-const stripSlashDrive = (path: string): string => (SLASH_DRIVE.test(path) ? path.slice(1) : path);
+export const stripSlashDrive = (path: string): string =>
+	SLASH_DRIVE.test(path) ? path.slice(1) : path;
 
-const isWindowsAbsolute = (path: string): boolean =>
+export const isWindowsAbsolute = (path: string): boolean =>
 	path.startsWith("\\\\") || /^[a-zA-Z]:([/\\]|$)/.test(path);
 
 /**
@@ -121,7 +122,7 @@ const isWindowsAbsolute = (path: string): boolean =>
  * in to it with the user's credentials, so a path an agent wrote never
  * reaches one.
  */
-const isNetworkPath = (path: string): boolean => /^[\\/]{2}/.test(path);
+export const isNetworkPath = (path: string): boolean => /^[\\/]{2}/.test(path);
 
 /** The last part of a path, without the separators after it. */
 export const fileBasename = (path: string): string => {
@@ -138,7 +139,7 @@ const withoutPosition = (path: string): string => {
 };
 
 /** The path a `file:` URL names on its own machine, or null for any other. */
-const fileUrlPath = (href: string): string | null => {
+export const fileUrlPath = (href: string): string | null => {
 	const match = FILE_URL.exec(href);
 	if (!match) return null;
 	const host = (match[1] ?? "").toLowerCase();

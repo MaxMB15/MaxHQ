@@ -25,7 +25,9 @@ afterEach(() => {
 describe("mock timelines", () => {
 	it.each(["agent-usage-popover", "agent-hdr"])("%s holds every kind of item", (agent) => {
 		const kinds = new Set(firstPage(agent).items.map((item: TimelineItem) => item.kind));
-		expect(ITEM_KINDS.filter((kind) => !kinds.has(kind))).toEqual([]);
+		// The dispatcher's change cards show only in its own chats.
+		const missing = ITEM_KINDS.filter((kind) => !kinds.has(kind));
+		expect(missing).toEqual(["dispatcher_action"]);
 	});
 
 	it("sends a message with every kind of pill", () => {

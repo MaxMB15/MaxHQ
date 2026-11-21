@@ -22,6 +22,7 @@ import {
 	type WorkflowUpdate,
 } from "../bindings";
 import { folderCalls } from "../folders/requests";
+import { noticeCalls } from "../notices/requests";
 import { terminalCalls } from "../terminal/requests";
 import { sessionCalls } from "../terminal/session";
 import { runName } from "../workflow/select";
@@ -249,6 +250,7 @@ export const requestCalls = (ask: Ask): Omit<DataSource, PlatformCalls> => ({
 	...terminalCalls(ask),
 	...sessionCalls(ask),
 	...folderCalls(ask),
+	...noticeCalls(ask),
 	appInfo: async () => orThrow(await ask({ kind: "app_info" })),
 	snapshot: async () => orThrow(await ask({ kind: "view_snapshot" })),
 	markSeen: (agent) => ask({ kind: "mark_seen", agent }),
@@ -449,6 +451,9 @@ export const requestCalls = (ask: Ask): Omit<DataSource, PlatformCalls> => ({
 		}),
 	confirmPlan: (device, plan) => ask({ kind: "confirm_plan", device, plan }),
 	dismissPlan: (device, plan) => ask({ kind: "dismiss_plan", device, plan }),
+	undoDispatcherAction: (device, action) =>
+		ask({ kind: "undo_dispatcher_action", device, action }),
+	actOnChat: (device, agent, action) => ask({ kind: "act_on_chat", device, agent, action }),
 	listPulls: (project, state) => ask({ kind: "list_pulls", project, state }),
 	listBranches: (project) => ask({ kind: "list_branches", project }),
 	getPull: (device, repo, number) => ask({ kind: "get_pull", device, repo, number }),

@@ -34,6 +34,8 @@ import { tasksTargeting } from "../tasks/place";
 import type { ViewState } from "../view/replica";
 import { accounts, deviceName, workspaceName } from "../view/select";
 
+import { adminPhrase, settingLines } from "./action";
+
 /** The accounts on `device` the dispatcher can run as: Claude first, then Codex. */
 export const dispatcherAccounts = (view: ViewState, device: DeviceId | null): Account[] =>
 	accounts(view).filter(
@@ -134,7 +136,7 @@ const firstText = (first: UserInput | null): string | undefined =>
 	first ? labeledText(first, () => undefined) : undefined;
 
 // What a step sends: a new agent's first message, a message or a task's
-// prompt. A move sends nothing.
+// prompt. A move or a change to MaxHQ sends nothing.
 const sentText = (step: PlanStep): string | null | undefined => {
 	switch (step.type) {
 		case "start_agent":
@@ -144,6 +146,7 @@ const sentText = (step: PlanStep): string | null | undefined => {
 		case "schedule_task":
 			return step.prompt;
 		case "move_agent":
+		case "admin":
 			return null;
 	}
 };
@@ -199,6 +202,8 @@ export const itemPhrase = (view: ViewState, item: PlanItem): string => {
 				agent: agentTitle(view, step.agent),
 				device: deviceName(view, step.to.device),
 			});
+		case "admin":
+			return adminPhrase(view, step.device, step.action);
 	}
 };
 
@@ -343,6 +348,15 @@ export const itemLines = (view: ViewState, plan: Plan, index: number): ItemLine[
 				...(follow > 0 ? [{ label: t("Automations"), value: followLine(follow) }] : []),
 			];
 		}
+		case "admin":
+			return [
+				{ label: t("Device"), value: deviceName(view, step.device) },
+				{
+					label: t("Change"),
+					value: sentence(adminPhrase(view, step.device, step.action)),
+				},
+				...settingLines(step.action).map((value) => ({ label: t("Setting"), value })),
+			];
 	}
 };
 
@@ -359,6 +373,8 @@ export const outcomeLine = (outcome: PlanOutcome): string => {
 			return t("Sent");
 		case "task_saved":
 			return t("Task saved");
+		case "done":
+			return t("Done");
 		case "failed":
 			return outcome.reason;
 		case "unknown":

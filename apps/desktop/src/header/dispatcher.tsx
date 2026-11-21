@@ -7,7 +7,7 @@
 // plan. Nothing in a plan runs until you confirm it, with Enter or the
 // Confirm button, and Esc dismisses it. Once a plan runs, each item says how
 // it went and links to the agent or task it made, and a failed item stops
-// the rest.
+// the rest. Each conversation is a chat, and Chats lists them to go back to.
 
 import { useI18n } from "@maxhq/shared/i18n";
 
@@ -76,6 +76,7 @@ import { MODE_LABEL } from "@maxhq/shared/settings/permission";
 import { sentence } from "@maxhq/shared/status/format";
 
 import { useDispatcherAccount } from "./dispatcher-prefs";
+import { ChatButtons, ChatsList, inDialog, MovedBar, useChatPanel } from "./dispatcher/chats";
 
 /** A quiet button in the panel's top bar. */
 const QUIET =
@@ -366,10 +367,12 @@ export const DispatchBox = () => {
 	const [focused, setFocused] = useState(false);
 	const box = useRef<HTMLDivElement>(null);
 	const input = useRef<AnswerFieldHandle>(null);
+	const chats = useChatPanel(flow, mac, setOpen);
 
 	const send = () => {
 		if (!text.trim() || busy) return;
 		setOpen(true);
+		chats.setListing(false);
 		void ask(flow, { device: mac, account: account?.id ?? null, pills });
 	};
 
@@ -379,6 +382,7 @@ export const DispatchBox = () => {
 
 	const newConversation = () => {
 		startOver(flow);
+		chats.setListing(false);
 		input.current?.focus();
 	};
 
@@ -386,7 +390,7 @@ export const DispatchBox = () => {
 	useEffect(() => {
 		if (!open) return;
 		const onDown = (e: PointerEvent) => {
-			if (!box.current?.contains(e.target as Node)) setOpen(false);
+			if (!box.current?.contains(e.target as Node) && !inDialog(e.target)) setOpen(false);
 		};
 		document.addEventListener("pointerdown", onDown);
 		return () => document.removeEventListener("pointerdown", onDown);
@@ -404,7 +408,7 @@ export const DispatchBox = () => {
 		}
 	};
 
-	const shown = open && hasPanel(state, talking);
+	const shown = open && (hasPanel(state, talking) || chats.listing);
 
 	const onEnter = () => {
 		setOpen(true);
@@ -462,6 +466,12 @@ export const DispatchBox = () => {
 							<span className="mr-auto truncate text-[12px] text-muted-foreground">
 								{dispatcherTitle(account)}
 							</span>
+							<ChatButtons
+								panel={chats}
+								device={mac}
+								current={talking?.id}
+								className={QUIET}
+							/>
 							<button
 								type="button"
 								className={QUIET}
@@ -483,8 +493,18 @@ export const DispatchBox = () => {
 								{t("Open as pane")}
 							</button>
 						</div>
-						{talking ? (
-							<Conversation agent={talking} />
+						{chats.listing && mac ? (
+							<ChatsList
+								flow={flow}
+								device={mac}
+								current={talking?.id}
+								panel={chats}
+							/>
+						) : talking ? (
+							<>
+								<MovedBar flow={flow} device={mac} current={talking.id} />
+								<Conversation agent={talking} />
+							</>
 						) : (
 							<p className="px-4 py-3 text-[12px] text-muted-foreground">
 								{noConversationHint(busy)}

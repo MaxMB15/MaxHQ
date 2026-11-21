@@ -82,6 +82,7 @@ import { mockClaims } from "./mock-claims";
 import { sampleSessionTerminal } from "./mock-sessions";
 import { mockTerminals } from "./mock-terminals";
 import { mockFolders } from "./mock-folders";
+import { mockNotices } from "./mock-notices";
 import { mockLinks } from "./mock-links";
 import { mockNetworkAccess, mockPhone, mockPhones } from "./mock-phones";
 import { type FleetContext, mockFleet, mockTools } from "./mock-fleet";
@@ -231,6 +232,8 @@ const SETTINGS: Entity[] = [
 		history_mib: 256,
 		claude_setup_token: false,
 		shell_integration: true,
+		read_other_agents: true,
+		dispatcher_acts: true,
 		test_hosts: MOCK_TEST_HOST_SETTINGS[MAC],
 	},
 	{
@@ -250,6 +253,8 @@ const SETTINGS: Entity[] = [
 		// devbox holds a setup-token, so it takes them.
 		claude_setup_token: true,
 		shell_integration: true,
+		read_other_agents: true,
+		dispatcher_acts: true,
 		test_hosts: MOCK_TEST_HOST_SETTINGS[DEVBOX],
 	},
 	mockNetworkAccess(MAC),
@@ -361,7 +366,7 @@ export const mockSource = (options: MockOptions = {}): MockSource => {
 		...mockTools(),
 		...mockHosts(now()),
 		...mockWorkflowRuns(now()),
-		...dispatcherEntities(),
+		...dispatcherEntities(now()),
 		{ entity: "terminal", ...sampleSessionTerminal(now()) },
 	];
 	// The sample tasks publish each device's list as it changes.
@@ -635,6 +640,7 @@ export const mockSource = (options: MockOptions = {}): MockSource => {
 	// Deletes a lead agent the way maxd does, with its sub-agents and its
 	// prompts. One from your own terminal, or a sub-agent, is refused.
 	const deleteAgent = async (id: AgentId) => {
+		dispatcher.wake(id);
 		const agent = current.get(`agent:${id}`);
 		if (agent?.entity !== "agent") return missing(`agent ${id}`);
 		if (agent.control === "observed") return refused(OUTSIDE);
@@ -644,7 +650,8 @@ export const mockSource = (options: MockOptions = {}): MockSource => {
 		base = base.filter(
 			(e) =>
 				!(e.entity === "agent" && (e.id === id || e.parent === id)) &&
-				!(e.entity === "attention" && e.agent === id)
+				!(e.entity === "attention" && e.agent === id) &&
+				!(e.entity === "dispatcher_chat" && e.agent === id)
 		);
 		commit();
 		return DONE;
@@ -833,6 +840,7 @@ export const mockSource = (options: MockOptions = {}): MockSource => {
 		startAgent,
 		saveTask: tasks.calls.saveTask,
 		moveAgent,
+		writeNote: notes.write,
 	});
 
 	// Container workspaces, which move through their states a step at a time.
@@ -1617,6 +1625,7 @@ export const mockSource = (options: MockOptions = {}): MockSource => {
 		...mockClaims(fleet),
 		...terminalCalls,
 		...mockFolders(),
+		...mockNotices(now),
 		...mockHostCalls(fleet),
 		...mockAgents(now),
 		...mockLinks(),

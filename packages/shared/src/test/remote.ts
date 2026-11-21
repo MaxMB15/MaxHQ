@@ -22,6 +22,7 @@ import { noSkills } from "../data/mock-skills";
 import { noTasks } from "../data/mock-tasks";
 import { noTerminals } from "../data/mock-terminals";
 import { noFolders } from "../data/mock-folders";
+import { noNotices } from "../data/mock-notices";
 import { noSessions } from "../data/mock-sessions";
 import { noTestHosts } from "../data/mock-test-hosts";
 
@@ -110,6 +111,8 @@ type RemoteCalls = Pick<
 	| "askDispatcher"
 	| "confirmPlan"
 	| "dismissPlan"
+	| "undoDispatcherAction"
+	| "actOnChat"
 	| "answerLinkClaim"
 	| "askLinkClaimAgain"
 	| "forgetLinkIdentity"
@@ -122,6 +125,7 @@ type RemoteCalls = Pick<
 	| keyof typeof noCliLogins
 	| keyof typeof noTerminals
 	| keyof typeof noFolders
+	| keyof typeof noNotices
 	| keyof typeof noSessions
 >;
 
@@ -239,6 +243,8 @@ export const remoteCalls = (): RemoteCalls => ({
 	askDispatcher: done,
 	confirmPlan: done,
 	dismissPlan: done,
+	undoDispatcherAction: done,
+	actOnChat: done,
 	answerLinkClaim: async () => OK,
 	askLinkClaimAgain: async () => OK,
 	forgetLinkIdentity: async () => OK,
@@ -254,5 +260,6 @@ export const remoteCalls = (): RemoteCalls => ({
 	...noCliLogins,
 	...noTerminals,
 	...noFolders,
+	...noNotices,
 	...noSessions,
 });

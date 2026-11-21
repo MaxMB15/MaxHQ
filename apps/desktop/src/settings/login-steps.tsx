@@ -33,7 +33,7 @@ export const StepText = ({ text }: { text: string }) => {
 						return (
 							<code
 								key={i}
-								className="rounded-[4px] bg-secondary px-1 py-px font-mono text-[11.5px] break-all text-foreground"
+								className="selectable rounded-[4px] bg-secondary px-1 py-px font-mono text-[11.5px] break-all text-foreground"
 							>
 								{part}
 							</code>

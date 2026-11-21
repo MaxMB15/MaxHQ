@@ -154,6 +154,21 @@ describe("agent view", () => {
 			await screen.findByText("No messages yet. Send one below to start.")
 		).toBeInTheDocument();
 	});
+
+	it("puts the port prompts under the header, above the conversation", async () => {
+		const agent = sample("agent-gtfs", { control: "held" });
+		show(agent);
+		const ports = await screen.findByRole("region", { name: "Ports" });
+		expect(ports).toHaveTextContent("6 more ports");
+		const header = screen.getByRole("heading", { level: 1 });
+		const conversation = screen.getByRole("region", { name: "Conversation" });
+		const composer = await screen.findByRole("textbox", { name: `Message ${agent.title}` });
+		const follows = (a: Element, b: Element) =>
+			(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0;
+		expect(follows(header, ports)).toBe(true);
+		expect(follows(ports, conversation)).toBe(true);
+		expect(follows(conversation, composer)).toBe(true);
+	});
 });
 
 describe("agent header", () => {
@@ -191,8 +206,8 @@ describe("agent header", () => {
 			.getAllByText(/^Move to /)
 			.map((label) => label.textContent);
 		// devbox's logins aren't on the agent's device.
-		expect(groups).toEqual(["Move to Codex Plus", "Move to Cursor Pro", "Move to Gemini"]);
-		const codex = within(menu).getByRole("group", { name: "Move to Codex Plus" });
+		expect(groups).toEqual(["Move to Codex Pro", "Move to Cursor Pro", "Move to Gemini"]);
+		const codex = within(menu).getByRole("group", { name: "Move to Codex Pro" });
 		fireEvent.click(within(codex).getByRole("menuitem", { name: "Default model" }));
 		expect(setModel).toHaveBeenCalledWith("agent-release", "", CODEX);
 	});

@@ -88,7 +88,7 @@ const OutsideBanner = ({ project }: { project: ProjectId }) => {
 			{found.map(({ device, checkout }) => (
 				<p
 					key={`${device}:${checkout.path}`}
-					className="min-w-0 text-[12.5px] text-foreground"
+					className="selectable min-w-0 text-[12.5px] text-foreground"
 				>
 					{t(
 						"Skills can't land through {{value1}} in {{path}} on {{value3}}: a link there leads out of the checkout.",
@@ -120,7 +120,7 @@ const DriftBanner = ({ project }: { project: ProjectId }) => {
 		>
 			{drift.map(({ device, checkout }) => (
 				<div key={`${device}:${checkout.path}`} className="flex items-center gap-3">
-					<p className="min-w-0 flex-1 text-[12.5px] text-foreground">
+					<p className="selectable min-w-0 flex-1 text-[12.5px] text-foreground">
 						{t("{{value1}} changed in {{path}} on {{value3}} since it landed.", {
 							value1: listInWords(checkout.drift),
 							path: checkout.path,
@@ -167,10 +167,16 @@ const Proposals = ({
 					className="flex items-center gap-3 border-t border-sidebar-border px-4 py-2.5 first:border-t-0"
 				>
 					<div className="flex min-w-0 flex-1 flex-col">
-						<span className="font-mono text-[12px] text-foreground">
+						<span className="selectable font-mono text-[12px] text-foreground">
 							{proposal.name}
 						</span>
-						<span className="truncate text-xs text-muted-foreground">
+						<span
+							title={t("From {{value1}}, {{value2}}", {
+								value1: proposalFrom(view, proposal),
+								value2: formatAgo(proposal.created_at, now),
+							})}
+							className="selectable truncate text-xs text-muted-foreground"
+						>
 							{t("From {{value1}}, {{value2}}", {
 								value1: proposalFrom(view, proposal),
 								value2: formatAgo(proposal.created_at, now),
@@ -229,10 +235,13 @@ const LibraryPicker = ({
 							className="flex items-start gap-2 px-3 py-1.5"
 						>
 							<div className="flex min-w-0 flex-1 flex-col gap-0.5">
-								<span className="font-mono text-[12px] text-foreground">
+								<span className="selectable font-mono text-[12px] text-foreground">
 									{item.skill.name}
 								</span>
-								<span className="truncate text-xs text-muted-foreground">
+								<span
+									title={why ?? item.skill.description}
+									className="selectable truncate text-xs text-muted-foreground"
+								>
 									{why ?? item.skill.description}
 								</span>
 								<SkillBadges badges={skillBadges(item.skill, item.source)} />
@@ -290,7 +299,7 @@ const CliGroup = ({
 						className="flex items-start gap-2 px-4 py-1"
 					>
 						<div className="flex min-w-0 flex-1 flex-col">
-							<span className="font-mono text-[12px] text-foreground">
+							<span className="selectable font-mono text-[12px] text-foreground">
 								{skill.name}
 							</span>
 							{skill.mark ? (
@@ -311,10 +320,10 @@ const CliGroup = ({
 				))}
 			</ul>
 			{fixed && hint ? (
-				<p className="px-4 pb-3 text-xs text-muted-foreground">{hint}</p>
+				<p className="selectable px-4 pb-3 text-xs text-muted-foreground">{hint}</p>
 			) : null}
 			{group.cli === "cursor" && mac ? (
-				<p className="px-4 pb-3 text-xs text-muted-foreground">
+				<p className="selectable px-4 pb-3 text-xs text-muted-foreground">
 					{t(
 						"Cursor's own skills in ~/.cursor on this Mac aren't read, so they don't show here."
 					)}
@@ -359,7 +368,7 @@ const Effective = ({
 			}
 		>
 			{!place ? (
-				<p className="px-4 py-3 text-xs text-muted-foreground">
+				<p className="selectable px-4 py-3 text-xs text-muted-foreground">
 					{t("There's no checkout of this project on {{value1}} to look in.", {
 						value1: deviceName(view, device),
 					})}
@@ -368,7 +377,7 @@ const Effective = ({
 				<p
 					role={scan?.state === "failed" ? "alert" : undefined}
 					className={cn(
-						"px-4 py-3 text-xs",
+						"selectable px-4 py-3 text-xs",
 						scan?.state === "failed"
 							? "text-status-error-text"
 							: "text-muted-foreground"
@@ -446,14 +455,20 @@ const OnDevice = ({
 										className="flex flex-col gap-1 px-3 py-1.5"
 									>
 										<span className="flex items-center gap-2">
-											<span className="min-w-0 flex-1 truncate font-mono text-[12px] text-foreground">
+											<span
+												title={locked.name}
+												className="selectable min-w-0 flex-1 truncate font-mono text-[12px] text-foreground"
+											>
 												{locked.name}
 											</span>
 											{locked.pinned ? (
 												<Badge tone="info">{t("Pinned")}</Badge>
 											) : null}
 										</span>
-										<span className="truncate text-xs text-muted-foreground">
+										<span
+											title={lockedWhere(library, locked)}
+											className="selectable truncate text-xs text-muted-foreground"
+										>
 											{lockedWhere(library, locked)}
 										</span>
 										<span className="flex gap-1.5">

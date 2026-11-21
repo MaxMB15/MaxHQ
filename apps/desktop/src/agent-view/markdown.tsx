@@ -34,6 +34,7 @@ import { VisualStreaming } from "@/visuals/visual-streaming";
 import { AlertTitle, alertEdge } from "./alert";
 import { CodeBlock } from "./code-block";
 import { Diagram } from "./diagram";
+import { MarkdownLink } from "./markdown-link";
 import {
 	htmlSchema,
 	remarkAlerts,
@@ -68,8 +69,6 @@ const fenceLanguage = (node: TreeNode | undefined): string | null => {
 	const name = names.find((n): n is string => typeof n === "string" && n.startsWith("language-"));
 	return name ? name.slice("language-".length) : null;
 };
-
-const LINK = "text-primary hover:underline";
 
 const isMath = (className: string | undefined): boolean =>
 	className?.split(" ").includes("language-math") ?? false;
@@ -118,27 +117,14 @@ const LOOK: Components = {
 				{children}
 			</code>
 		),
-	// A link within the message, as to a footnote, moves to it there.
-	a: ({ href, children, ...props }) =>
-		href?.startsWith("#") ? (
-			<a
-				{...attributes(props)}
-				href={href}
-				className={LINK}
-				onClick={(event) => {
-					event.preventDefault();
-					document
-						.getElementById(decodeURIComponent(href.slice(1)))
-						?.scrollIntoView({ block: "nearest" });
-				}}
-			>
-				{children}
-			</a>
-		) : (
-			<a {...attributes(props)} href={href} target="_blank" rel="noreferrer" className={LINK}>
-				{children}
-			</a>
-		),
+	// A web link opens in the browser, a file link in the viewer, a link to
+	// a view of the app opens it, and one within the message, as to a
+	// footnote, moves to it there.
+	a: ({ href, children, ...props }) => (
+		<MarkdownLink {...attributes(props)} href={href}>
+			{children}
+		</MarkdownLink>
+	),
 	// Find leaves a picture out, and the text on either side runs on.
 	img: ({ src, alt }) => (
 		<span data-find-skip className="contents">
@@ -300,9 +286,14 @@ const TOO_DEEP = /^(?:[ \t]*>){100}/m;
 
 // An image's target goes to MarkdownMedia as written, which shows only what
 // it can vouch for, such as a path or a data picture the default drops.
-// Every other URL keeps the default's check.
+// A link's target goes to MarkdownLink as written too, since the default
+// drops `file:` and `maxhq:` and reads `main.rs:12` as a scheme, and
+// MarkdownLink opens only web, file, view and in-message links. Every other
+// URL keeps the default's check.
 const urlTransform: UrlTransform = (url, key, node) =>
-	node.tagName === "img" && key === "src" ? url : defaultUrlTransform(url);
+	(node.tagName === "img" && key === "src") || (node.tagName === "a" && key === "href")
+		? url
+		: defaultUrlTransform(url);
 
 const Block = memo(
 	({

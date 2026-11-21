@@ -34,10 +34,10 @@ const DELETED: &str = "That note was deleted.";
 impl Manager {
     /// Runs a notes tool call for the caller's project.
     pub(super) fn note_tool(&mut self, reply: Reply, caller: Calling, call: NoteCall) {
-        let Some((agent, project)) = caller
-            .agent
-            .and_then(|agent| Some((agent, self.project_of(agent)?)))
-        else {
+        let Some((agent, project)) = caller.agent.and_then(|agent| {
+            let project = self.project_of(agent).or_else(|| self.chat_project(agent));
+            Some((agent, project?))
+        }) else {
             return self.reply_now(reply, Err(NO_PROJECT.into()));
         };
         let notes = self.notes.clone();

@@ -19,6 +19,7 @@ import { DEFAULT_SETTLE_DAYS, keepsInboxes } from "./inbox";
 import { continuesAtLimit } from "./limits";
 import { DEFAULT_HISTORY_MIB, DEFAULT_MEMORY_ITEMS, keepsMemoryLimits } from "./memory";
 import { deviceDefault } from "./permission";
+import { knowsReadRights } from "./read-rights";
 import { knowsSetupTokens } from "./setup-tokens";
 import { knowsShellIntegration } from "./shell-integration";
 
@@ -47,6 +48,8 @@ export const deviceSettingsOf = (view: ViewState, device: DeviceId): DeviceField
 		history_mib: kept?.history_mib ?? DEFAULT_HISTORY_MIB,
 		claude_setup_token: kept?.claude_setup_token ?? false,
 		shell_integration: kept?.shell_integration ?? true,
+		read_other_agents: kept?.read_other_agents ?? true,
+		dispatcher_acts: kept?.dispatcher_acts ?? true,
 		skill_library: kept?.skill_library ?? null,
 		network: kept?.network ?? {},
 		test_hosts: testHostSettingsOf(view, device),
@@ -72,6 +75,8 @@ export const sameDeviceFields = (a: DeviceFields, b: DeviceFields): boolean =>
 	a.history_mib === b.history_mib &&
 	a.claude_setup_token === b.claude_setup_token &&
 	a.shell_integration === b.shell_integration &&
+	a.read_other_agents === b.read_other_agents &&
+	a.dispatcher_acts === b.dispatcher_acts &&
 	a.skill_library === b.skill_library &&
 	a.network.on === b.network.on &&
 	a.network.port === b.network.port &&
@@ -158,6 +163,7 @@ export type SettingsWhy = {
 	readonly tokens: string | null;
 	readonly effort: string | null;
 	readonly shell: string | null;
+	readonly reads: string | null;
 };
 
 /** Why each part of `device`'s settings can't change, given whether it answers. */
@@ -193,5 +199,6 @@ export const settingsWhy = (
 					)),
 		effort: tooOld(setsEffort(view, device), false),
 		shell: tooOld(knowsShellIntegration(view, device), false),
+		reads: tooOld(knowsReadRights(view, device), false),
 	};
 };

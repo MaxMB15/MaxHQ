@@ -73,14 +73,20 @@ export const Section = ({
 		>
 			<div className="flex items-baseline justify-between gap-3 border-b border-sidebar-border px-4 py-3">
 				<h2 className="text-[13.5px] font-[650] text-foreground">{title}</h2>
-				{hint ? <span className="text-[11.5px] text-muted-foreground">{hint}</span> : null}
+				{hint ? (
+					<span className="selectable text-[11.5px] text-muted-foreground">{hint}</span>
+				) : null}
 			</div>
 			{children}
 		</section>
 	);
 };
 
-/** One row in a card: its name and what it means, then its control. */
+/**
+ * One row in a card: its name and what it means, then its control. The line
+ * under the name often holds a value, such as an address or an error, so it
+ * selects. The name doesn't.
+ */
 export const Row = ({
 	title,
 	sub,
@@ -102,7 +108,9 @@ export const Row = ({
 		>
 			<div className="flex min-w-0 flex-1 flex-col gap-0.5">
 				<span className="text-[12.5px] text-foreground">{title}</span>
-				{sub ? <span className="text-xs text-muted-foreground">{sub}</span> : null}
+				{sub ? (
+					<span className="selectable text-xs text-muted-foreground">{sub}</span>
+				) : null}
 			</div>
 			{children ? <div className="flex shrink-0 items-center gap-2.5">{children}</div> : null}
 		</div>
@@ -116,7 +124,7 @@ export const StatusNote = ({ note, className }: { note: Note | null; className?:
 		<span
 			role="status"
 			className={cn(
-				"text-[11.5px]",
+				"selectable text-[11.5px]",
 				note.error ? "text-status-error-text" : "text-muted-foreground",
 				className
 			)}
@@ -127,8 +135,8 @@ export const StatusNote = ({ note, className }: { note: Note | null; className?:
 };
 
 /**
- * A copy icon after an error's words, for a report or a search, since
- * settings text doesn't select.
+ * A copy icon after an error's words, for a report or a search, so a long
+ * error copies whole without a drag across it.
  */
 export const ErrorCopy = ({ text }: { text: string }) => {
 	useI18n();

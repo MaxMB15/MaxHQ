@@ -21,6 +21,7 @@ import type {
 	AgentSpec,
 	AttentionAnswer,
 	AttentionId,
+	ChatAct,
 	CloneProgress,
 	CloneStage,
 	CloneState,
@@ -118,6 +119,7 @@ import type {
 } from "../fleet/wire";
 import { DEPTH } from "../bindings";
 import type { FolderCalls } from "../folders/requests";
+import type { NoticeCalls } from "../notices/requests";
 import type { GitItemRef } from "../pills/draft";
 import type { TerminalCalls } from "../terminal/requests";
 import type { SessionCalls } from "../terminal/session";
@@ -332,7 +334,7 @@ export type MockControls = {
 };
 
 /** The calls that live with their own helpers: the terminal's, the session's and the folders'. */
-type HelperCalls = TerminalCalls & SessionCalls & FolderCalls;
+type HelperCalls = TerminalCalls & SessionCalls & FolderCalls & NoticeCalls;
 
 /**
  * One place the view comes from, with the commands that act on it. The
@@ -911,6 +913,21 @@ export type DataSource = HelperCalls & {
 	readonly confirmPlan: (device: DeviceId, plan: number) => Promise<ActionResult>;
 	/** Drops the plan `device`'s dispatcher shows, so nothing in it runs. */
 	readonly dismissPlan: (device: DeviceId, plan: number) => Promise<ActionResult>;
+	/**
+	 * Puts back a change `device`'s dispatcher made at once, by the key on
+	 * its card. It's refused once that change can't be undone any more.
+	 */
+	readonly undoDispatcherAction: (device: DeviceId, action: string) => Promise<ActionResult>;
+	/**
+	 * Picks, renames, archives or saves one of `device`'s dispatcher chats,
+	 * or keeps the message the dispatcher moved out of it there. Delete one
+	 * with `deleteAgent`.
+	 */
+	readonly actOnChat: (
+		device: DeviceId,
+		agent: AgentId,
+		action: ChatAct
+	) => Promise<ActionResult>;
 	/** A project's PRs on one tab, read on the project's device. */
 	readonly listPulls: (project: ProjectId, state: PullListState) => Promise<ActionResult>;
 	/** A project's repository's branches, read on the project's device, as `branches`. */

@@ -71,10 +71,11 @@ export type DispatchTarget = {
 	readonly pills?: boolean;
 };
 
-const noteOf = (failure: string): string => `${sentence(failure)}.`;
+/** A failure as the note under the box. */
+export const noteOf = (failure: string): string => `${sentence(failure)}.`;
 
-// What a call came back with, or why it threw.
-const tryCall = async (run: () => Promise<ActionResult>): Promise<ActionResult | string> => {
+/** What a call came back with, or why it threw. */
+export const tryCall = async (run: () => Promise<ActionResult>): Promise<ActionResult | string> => {
 	try {
 		return await run();
 	} catch (error) {
@@ -82,7 +83,8 @@ const tryCall = async (run: () => Promise<ActionResult>): Promise<ActionResult |
 	}
 };
 
-const failureIn = (result: ActionResult | string): string | null =>
+/** Why a call failed, if it did. */
+export const failureIn = (result: ActionResult | string): string | null =>
 	typeof result === "string" ? result : failureOf(result);
 
 /**

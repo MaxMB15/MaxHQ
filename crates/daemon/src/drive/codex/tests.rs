@@ -789,7 +789,7 @@ fn a_start_with_no_first_message_leaves_the_thread_idle() {
 }
 
 #[test]
-fn the_dispatcher_thread_reads_only_and_gets_its_own_tools() {
+fn the_dispatcher_thread_runs_in_auto_and_gets_its_own_tools() {
     let mut run = Run::ready();
     let Action::Start {
         key: started,
@@ -812,9 +812,13 @@ fn the_dispatcher_thread_reads_only_and_gets_its_own_tools() {
     });
     let fx = run.take();
     let params = sent_once(&fx, "thread/start")["params"].clone();
-    assert_eq!(params["sandbox"], "read-only");
-    assert_eq!(params["approvalPolicy"], "never");
-    assert_eq!(params["developerInstructions"], dispatch::INSTRUCTIONS);
+    // Full access asked for still gives auto mode: the sandbox writes only
+    // the dispatcher's folder, its `cwd`, and Codex's reviewer judges the
+    // commands that want out.
+    assert_eq!(params["sandbox"], "workspace-write");
+    assert_eq!(params["approvalPolicy"], "on-request");
+    assert_eq!(params["approvalsReviewer"], "auto_review");
+    assert_eq!(params["developerInstructions"], dispatch::instructions());
     let names: Vec<&str> = params["dynamicTools"]
         .as_array()
         .unwrap()
@@ -829,11 +833,11 @@ fn the_dispatcher_thread_reads_only_and_gets_its_own_tools() {
 
     run.feed_all(&fixture_lines("turn-image.jsonl", 1, 2));
     let turn = sent_once(&run.take(), "turn/start")["params"].clone();
-    assert_eq!(turn["approvalPolicy"], "never");
-    assert_eq!(
-        turn["sandboxPolicy"],
-        json!({ "type": "readOnly", "networkAccess": false })
-    );
+    assert_eq!(turn["approvalPolicy"], "on-request");
+    assert_eq!(turn["approvalsReviewer"], "auto_review");
+    assert_eq!(turn["sandboxPolicy"]["type"], "workspaceWrite");
+    assert_eq!(turn["sandboxPolicy"]["writableRoots"], json!([]));
+    assert_eq!(turn["sandboxPolicy"]["networkAccess"], false);
 }
 
 #[test]

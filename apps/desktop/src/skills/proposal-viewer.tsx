@@ -49,7 +49,7 @@ const Changes = ({ diff, error }: { diff: ProposalDiff | undefined; error: Error
 			<p
 				role={error ? "alert" : undefined}
 				className={cn(
-					"px-3 py-6 text-center text-[12.5px]",
+					"selectable px-3 py-6 text-center text-[12.5px]",
 					error ? "text-status-error-text" : "text-muted-foreground"
 				)}
 			>
@@ -118,11 +118,13 @@ const Body = ({
 			<Title>{proposalTitle(view, proposal)}</Title>
 			<div className="flex flex-col gap-1">
 				<span className="flex items-center gap-2">
-					<span className="font-mono text-[13px] text-foreground">{proposal.name}</span>
+					<span className="selectable font-mono text-[13px] text-foreground">
+						{proposal.name}
+					</span>
 					{standing ? (
 						<span
 							className={cn(
-								"text-xs",
+								"selectable text-xs",
 								base === null ? "text-muted-foreground" : "text-status-error-text"
 							)}
 						>
@@ -131,7 +133,7 @@ const Body = ({
 					) : null}
 					<SkillBadges badges={skillBadges(diff ?? proposal, from)} />
 				</span>
-				<span className="text-xs text-muted-foreground">
+				<span className="selectable text-xs text-muted-foreground">
 					{t("In {{checkout}} on {{value2}}, {{value3}}", {
 						checkout: proposal.checkout,
 						value2: deviceName(view, proposal.device),
@@ -139,7 +141,7 @@ const Body = ({
 					})}
 				</span>
 				{from ? (
-					<span className="text-xs text-muted-foreground">
+					<span className="selectable text-xs text-muted-foreground">
 						{t("From {{name}}", { name: from.name })}
 					</span>
 				) : null}
@@ -166,7 +168,7 @@ const Body = ({
 					/>
 				</label>
 			) : null}
-			{refusal ? <p className="text-xs text-muted-foreground">{refusal}</p> : null}
+			{refusal ? <p className="selectable text-xs text-muted-foreground">{refusal}</p> : null}
 			<div className="flex items-center justify-end gap-2.5">
 				<StatusNote note={note} className="mr-auto" />
 				<button

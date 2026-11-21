@@ -10,9 +10,11 @@ use serde::{Deserialize, Serialize};
 use specta::Type;
 
 use crate::agents::MoveTo;
-use crate::ids::{AgentId, DeviceId, TaskId, WorkspaceId};
-use crate::message::AgentSpec;
+use crate::ids::{AgentId, DeviceId, IdempotencyKey, ProjectId, TaskId, WorkspaceId};
+use crate::message::{AgentSpec, ToolTarget};
+use crate::model::{DeviceSettingChange, InboxChange, PermissionMode};
 use crate::tasks::{TaskTarget, Trigger};
+use crate::time::Timestamp;
 
 /// A device's dispatcher, as its `maxd` publishes it.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, Type, JsonSchema)]
@@ -27,6 +29,11 @@ pub struct Dispatcher {
     pub agent: Option<AgentId>,
     /// The plan it submitted, until you confirm or dismiss it.
     pub plan: Option<Plan>,
+    /// The changes it made at once that Undo may still put back, by the
+    /// key on each one's card. An older `maxd` leaves it out, which reads
+    /// as none.
+    #[serde(default)]
+    pub undo: Vec<IdempotencyKey>,
 }
 
 /// What the dispatcher proposes to do.
@@ -90,6 +97,172 @@ pub enum PlanStep {
         /// Where it goes.
         to: MoveTo,
     },
+    /// Changes MaxHQ itself: an agent's name, inbox or mode, a project, a
+    /// workspace, a task, the device's settings or tools, or a permission.
+    /// A `maxd` from before [`crate::message::DISPATCHER_ADMIN_SINCE`]
+    /// never plans one.
+    Admin {
+        /// The device it changes.
+        device: DeviceId,
+        /// What it does.
+        action: AdminAction,
+    },
+}
+
+/// A change the dispatcher makes to MaxHQ itself, as a plan item or at
+/// once. Each one is a request the app already sends.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, Type, JsonSchema)]
+#[serde(tag = "action", rename_all = "snake_case")]
+pub enum AdminAction {
+    /// Renames an agent.
+    RenameAgent {
+        /// The agent.
+        agent: AgentId,
+        /// Its new title.
+        title: String,
+    },
+    /// Snoozes, wakes, settles or unsettles an agent, or puts its inbox
+    /// back as it was.
+    SetInbox {
+        /// The agent.
+        agent: AgentId,
+        /// The change.
+        change: InboxChange,
+    },
+    /// Marks what an agent did as read.
+    MarkRead {
+        /// The agent.
+        agent: AgentId,
+    },
+    /// Sets an agent's permission mode.
+    SetMode {
+        /// The agent.
+        agent: AgentId,
+        /// The mode.
+        mode: PermissionMode,
+    },
+    /// Sets an agent's model.
+    SetModel {
+        /// The agent.
+        agent: AgentId,
+        /// The model.
+        model: String,
+    },
+    /// Sets an agent's effort level.
+    SetEffort {
+        /// The agent.
+        agent: AgentId,
+        /// The level, or none for its model's default.
+        effort: Option<String>,
+    },
+    /// Stops an agent's turn.
+    Interrupt {
+        /// The agent.
+        agent: AgentId,
+    },
+    /// Stops an agent.
+    StopAgent {
+        /// The agent.
+        agent: AgentId,
+    },
+    /// Deletes an agent and its timeline.
+    DeleteAgent {
+        /// The agent.
+        agent: AgentId,
+    },
+    /// Hides a project from the sidebar, or shows it again.
+    HideProject {
+        /// The project.
+        project: ProjectId,
+        /// Whether it's hidden.
+        hidden: bool,
+    },
+    /// Changes some of a project's settings on the device.
+    SetProject {
+        /// The project.
+        project: ProjectId,
+        /// The settings to change.
+        changes: Vec<ProjectSettingChange>,
+    },
+    /// Starts a workspace.
+    StartWorkspace {
+        /// The workspace.
+        workspace: WorkspaceId,
+    },
+    /// Stops a workspace.
+    StopWorkspace {
+        /// The workspace.
+        workspace: WorkspaceId,
+    },
+    /// Turns a scheduled task on or off.
+    SetTask {
+        /// The task.
+        task: TaskId,
+        /// Whether it runs.
+        enabled: bool,
+    },
+    /// Runs a scheduled task now.
+    RunTask {
+        /// The task.
+        task: TaskId,
+    },
+    /// Deletes a scheduled task.
+    DeleteTask {
+        /// The task.
+        task: TaskId,
+    },
+    /// Changes some of the device's settings.
+    ChangeSettings {
+        /// The settings to change.
+        changes: Vec<DeviceSettingChange>,
+    },
+    /// Updates agent CLIs on the device and in its workspaces.
+    UpdateTools {
+        /// The CLIs and where.
+        tools: Vec<ToolTarget>,
+    },
+    /// Lets an agent start, message and stop agents.
+    GrantPermission {
+        /// The agent.
+        agent: AgentId,
+        /// The devices it may run agents on.
+        devices: Vec<DeviceId>,
+        /// How many levels of agents may run below it.
+        depth: u8,
+    },
+    /// Takes back what an agent was allowed to run.
+    RevokePermission {
+        /// The agent.
+        agent: AgentId,
+    },
+}
+
+/// One of a project's settings on a device, for
+/// [`AdminAction::SetProject`].
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, Type, JsonSchema)]
+#[serde(tag = "field", rename_all = "snake_case")]
+pub enum ProjectSettingChange {
+    /// Whether its agents start again after a restart.
+    ResumeOnRestart {
+        /// The new value.
+        value: bool,
+    },
+    /// Whether an agent settles once its PR merges.
+    SettleOnMerge {
+        /// The new value.
+        value: bool,
+    },
+    /// The days after which an idle agent settles, or none for the
+    /// device's own.
+    AutoSettleDays {
+        /// The new value.
+        value: Option<u16>,
+    },
+    /// The ports its workspaces don't offer to forward.
+    IgnoredPorts {
+        /// The new value.
+        value: Vec<u16>,
+    },
 }
 
 /// The agent a planned task's runs reach.
@@ -127,6 +300,8 @@ pub enum PlanOutcome {
         /// The new task.
         task: TaskId,
     },
+    /// The change was made.
+    Done,
     /// The item didn't go, and the items after it didn't run.
     Failed {
         /// Why, for a person to read.
@@ -135,4 +310,56 @@ pub enum PlanOutcome {
     /// An outcome from a newer `maxd`. The item went, and how needs a newer
     /// app to show.
     Unknown,
+}
+
+/// One conversation with a device's dispatcher. Each runs its own agent, so
+/// a chat you pick or the dispatcher moves a message to resumes where it
+/// stopped. Since protocol 53.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, Type, JsonSchema)]
+pub struct DispatcherChat {
+    /// The agent that holds the conversation, which also names the chat.
+    pub agent: AgentId,
+    /// The device the dispatcher runs on.
+    pub device: DeviceId,
+    /// Counts the device's chats from 1, so the dispatcher can name one in
+    /// a tool call.
+    pub number: u32,
+    /// Its title. Empty until the dispatcher names it or you rename it.
+    pub title: String,
+    /// What it's about, in one line.
+    pub summary: String,
+    /// The project it's about, if one. Save to Notes writes there.
+    pub project: Option<ProjectId>,
+    /// When you last wrote in it or picked it.
+    pub active_at: Timestamp,
+    /// Whether you archived it. Clients also show one untouched for a week
+    /// as archived.
+    pub archived: bool,
+    /// The chat the dispatcher moved your last message to, until you write
+    /// again. Keep here moves it back.
+    pub moved_to: Option<AgentId>,
+}
+
+/// What you do to one dispatcher chat. Delete one with `DeleteAgent`.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, Type, JsonSchema)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum ChatAct {
+    /// Makes it the conversation now.
+    Pick,
+    /// Gives it your own title, which the dispatcher then keeps.
+    Rename {
+        /// The new title.
+        title: String,
+    },
+    /// Archives it, or brings it back.
+    Archive {
+        /// Whether it's archived.
+        archived: bool,
+    },
+    /// Moves the message the dispatcher moved out of this chat back here,
+    /// and has this chat answer it.
+    KeepHere,
+    /// Makes it the conversation now and asks its agent to save it to
+    /// Notes.
+    SaveNote,
 }

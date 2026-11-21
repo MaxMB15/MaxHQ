@@ -3,7 +3,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import { bellLabel } from "./header";
+import { bellLabel } from "./notifications";
 
 // The usage popover's wording is tested with it in
 // packages/shared/src/status/usage-text.test.ts.

@@ -115,7 +115,7 @@ impl Manager {
             return self.reply_now(pending.reply, Err(NO_FEED.into()));
         };
         let (summary, question) = self.consent_question(feed, &pending, permission, device);
-        let keep = keeps(permission).then_some(permission.id);
+        let keep = self.keeps(permission).then_some(permission.id);
         let (event, item) = self.open_timed_card(feed, "container-reach", summary, question);
         self.agent_tools.asking.push(Asking {
             event,
@@ -296,6 +296,14 @@ impl Manager {
         }
     }
 
+    /// Whether a card offers to keep its answer on the permission: only one
+    /// an agent holds, whose header menu changes it. The read right every
+    /// agent gets isn't kept anywhere, so its cards don't offer it.
+    fn keeps(&self, permission: &Permission) -> bool {
+        matches!(permission.holder, Actor::Agent { .. })
+            && self.agent_tools.permissions.contains_key(&permission.id)
+    }
+
     /// The agent whose feed asks about a call: the caller, or for a task's
     /// run, the agent that made the task.
     fn feed_of(&self, caller: Calling) -> Option<AgentId> {
@@ -365,7 +373,7 @@ impl Manager {
         for (label, value) in &details {
             text.push_str(&format!("\n{label}: {value}"));
         }
-        let remember = keeps(permission).then(|| ConsentRemember {
+        let remember = self.keeps(permission).then(|| ConsentRemember {
             id: REMEMBER.to_owned(),
             label: REMEMBER_LABEL.to_owned(),
             settings: format!(
@@ -462,6 +470,13 @@ impl Manager {
                 };
                 (format!("read the conversation of {named}"), reads)
             }
+            Call::ListAgents(_) => (
+                format!("list the agents {on} with their last replies"),
+                format!(
+                    "Those agents run outside the container, and their replies can hold your \
+                     files and keys. {MISLED} it could pass on what it reads."
+                ),
+            ),
             Call::WaitAgent(wait) => (
                 format!(
                     "wait on {} and read where they got to",
@@ -583,10 +598,4 @@ impl Manager {
         };
         visible(&name)
     }
-}
-
-/// Whether a card offers to keep its answer on the permission: only one an
-/// agent holds, whose header menu changes it.
-fn keeps(permission: &Permission) -> bool {
-    matches!(permission.holder, Actor::Agent { .. })
 }

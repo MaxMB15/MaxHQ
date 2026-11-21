@@ -61,6 +61,7 @@ mod automated;
 mod container_reach;
 mod deletes;
 mod dispatcher;
+mod dispatcher_chats;
 mod finds;
 mod folders;
 mod idle;
@@ -522,6 +523,18 @@ impl Harness {
         let key = IdempotencyKey::generate();
         self.phone.send(make(key));
         self.phone.result(key).await
+    }
+
+    /// Turns this device's "Agents can read other agents" switch on or off.
+    async fn read_others(&mut self, on: bool) {
+        let settings = DeviceSettings {
+            read_other_agents: on,
+            ..hub::default_settings(&device())
+        };
+        let outcome = self
+            .act(|key| ClientMessage::SetDeviceSettings { key, settings })
+            .await;
+        assert_eq!(outcome, ActionOutcome::Done);
     }
 
     async fn send(&mut self, agent: AgentId, text: &str) -> ActionOutcome {
@@ -1443,6 +1456,7 @@ async fn every_effect_a_driver_reports_is_carried_out() {
         source: UsageSource::ClaudeProbe,
         windows: vec![UsageWindow {
             scope: None,
+            name: None,
             window_minutes: 300,
             used_percent: 12.5,
             resets_at: None,
@@ -2269,6 +2283,8 @@ async fn device_settings_are_stored_and_published() {
         history_mib: 256,
         claude_setup_token: false,
         shell_integration: true,
+        read_other_agents: true,
+        dispatcher_acts: true,
     };
     let outcome = h
         .act(|key| ClientMessage::SetDeviceSettings {

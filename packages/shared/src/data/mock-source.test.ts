@@ -72,18 +72,22 @@ describe("mock source", () => {
 		);
 	});
 
-	it("has Claude Max, Codex Plus and Cursor Pro logins, metered except Cursor", async () => {
+	it("has Claude Max, Codex Pro and Cursor Pro logins, metered except Cursor", async () => {
 		const logins = all(await load(), "account").filter(
 			(a) => a.origin === null && a.vendor !== "acp"
 		);
 		expect(logins.map((a) => [a.vendor, a.plan])).toEqual([
 			["claude", "max"],
-			["codex", "plus"],
+			["codex", "pro"],
 			["cursor", "pro"],
 		]);
 		for (const account of logins) {
 			const windows = account.vendor === "cursor" ? undefined : [300, 10080];
-			expect(account.usage?.windows.map((w) => w.window_minutes)).toEqual(windows);
+			const own = account.usage?.windows.filter((w) => w.scope === null);
+			expect(own?.map((w) => w.window_minutes)).toEqual(windows);
+			// Each metered plan also has limits for single models.
+			const scoped = account.usage?.windows.some((w) => w.scope !== null);
+			expect(scoped).toBe(account.vendor === "cursor" ? undefined : true);
 			expect(account.email).toMatch(/@example\.(com|net)$/);
 		}
 	});

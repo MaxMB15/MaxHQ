@@ -1031,6 +1031,22 @@ pub struct DeviceSettings {
     /// hooks.
     #[serde(default = "yes")]
     pub shell_integration: bool,
+    /// Whether agents on this device may list and read other agents, here
+    /// and on linked devices, without a permission. Starting, messaging,
+    /// stopping and moving agents still need one. Off, an agent reads only
+    /// agents you attached or quoted, unless its permission reaches them.
+    /// A `maxd` from before [`crate::message::READ_RIGHTS_SINCE`] leaves
+    /// it out and lets agents read only what they're allowed.
+    #[serde(default = "yes")]
+    pub read_other_agents: bool,
+    /// Whether the dispatcher makes safe changes at once, such as renaming
+    /// an agent or turning a task off. Off makes every change a plan item
+    /// you confirm. Deleting, stopping a busy agent and granting a
+    /// permission ask either way. A `maxd` from before
+    /// [`crate::message::DISPATCHER_ADMIN_SINCE`] leaves it out, and its
+    /// dispatcher only plans.
+    #[serde(default = "yes")]
+    pub dispatcher_acts: bool,
 }
 
 impl DeviceSettings {
@@ -1063,6 +1079,8 @@ impl DeviceSettings {
             history_mib,
             claude_setup_token,
             shell_integration,
+            read_other_agents,
+            dispatcher_acts,
         } = self;
         let differs = |same: &dyn Fn(&Self) -> bool| old.is_none_or(|old| !same(old));
         let mut changes = Vec::new();
@@ -1165,6 +1183,16 @@ impl DeviceSettings {
                 value: *shell_integration,
             });
         }
+        if differs(&|old| old.read_other_agents == *read_other_agents) {
+            changes.push(Change::ReadOtherAgents {
+                value: *read_other_agents,
+            });
+        }
+        if differs(&|old| old.dispatcher_acts == *dispatcher_acts) {
+            changes.push(Change::DispatcherActs {
+                value: *dispatcher_acts,
+            });
+        }
         changes
     }
 
@@ -1196,6 +1224,8 @@ impl DeviceSettings {
             DeviceSettingChange::HistoryMib { value } => self.history_mib = value,
             DeviceSettingChange::ClaudeSetupToken { value } => self.claude_setup_token = value,
             DeviceSettingChange::ShellIntegration { value } => self.shell_integration = value,
+            DeviceSettingChange::ReadOtherAgents { value } => self.read_other_agents = value,
+            DeviceSettingChange::DispatcherActs { value } => self.dispatcher_acts = value,
         }
     }
 
@@ -1255,6 +1285,8 @@ impl DeviceSettingChange {
             Self::ClaudeEffort { .. } | Self::CodexEffort { .. } => crate::message::EFFORT_SINCE,
             Self::ClaudeSetupToken { .. } => crate::message::SETUP_TOKENS_SINCE,
             Self::ShellIntegration { .. } => crate::message::SHELL_MARKS_SINCE,
+            Self::ReadOtherAgents { .. } => crate::message::READ_RIGHTS_SINCE,
+            Self::DispatcherActs { .. } => crate::message::DISPATCHER_ADMIN_SINCE,
             _ => 26,
         }
     }
@@ -1380,6 +1412,16 @@ pub enum DeviceSettingChange {
     },
     /// See [`DeviceSettings::shell_integration`].
     ShellIntegration {
+        /// What it becomes.
+        value: bool,
+    },
+    /// See [`DeviceSettings::read_other_agents`].
+    ReadOtherAgents {
+        /// What it becomes.
+        value: bool,
+    },
+    /// See [`DeviceSettings::dispatcher_acts`].
+    DispatcherActs {
         /// What it becomes.
         value: bool,
     },
@@ -1563,6 +1605,11 @@ pub struct UsageWindow {
     /// of it, such as one model's weekly limit or a Codex limit other than
     /// `codex`. A billing cycle's parts are `auto`, `api` and `on_demand`.
     pub scope: Option<String>,
+    /// What the vendor calls the limit a scope names, such as Codex's
+    /// "Codex Mini". Unset when the vendor gives it no name, and left out by
+    /// a `maxd` from before protocol 51.
+    #[serde(default)]
+    pub name: Option<String>,
     /// The window's length. 300 is the 5-hour window and 10080 the weekly
     /// one. A billing cycle has no fixed length and sends 0.
     pub window_minutes: u32,

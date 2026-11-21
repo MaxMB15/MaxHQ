@@ -42,6 +42,7 @@ pub fn usage(info: &Value, at: Timestamp) -> Option<Usage> {
             let used = window.get("utilization").and_then(Value::as_f64)?;
             Some(UsageWindow {
                 scope,
+                name: None,
                 window_minutes,
                 used_percent: (used * 100.0).clamp(0.0, 100.0),
                 resets_at: window.get("resetsAt").and_then(unix_seconds),

@@ -15,6 +15,7 @@ import {
 	meterRowLabel,
 	planNote,
 	resetText,
+	resetTitle,
 	usageCheckFailure,
 	usageFailureNote,
 	usagePlans,
@@ -104,8 +105,30 @@ describe("usage details", () => {
 		const [five, week] = accountWindows({
 			usage: usage([window(FIVE_HOURS, 30, NOW + 142 * MIN), window(WEEK, null, null)]),
 		});
-		expect(resetText(five!, NOW)).toBe("resets 17:10");
+		expect(resetText(five!, NOW)).toBe("resets in 2h, 17:10");
 		expect(resetText(week!, NOW)).toBe("Not reported");
+	});
+
+	it("counts down under a day and names the day further out, across midnight", () => {
+		const late = new Date(2026, 9, 25, 22, 30).getTime();
+		const resetAt = (at: number) =>
+			resetText(accountWindows({ usage: usage([window(FIVE_HOURS, 30, at)]) })[0]!, late);
+		// 01:15 is tomorrow, but under a day away, so it counts down.
+		expect(resetAt(new Date(2026, 9, 26, 1, 15).getTime())).toBe("resets in 2h, 01:15");
+		expect(resetAt(late + 20 * 1000)).toBe("resets in 1m, 22:30");
+		expect(resetAt(late + 47 * MIN)).toBe("resets in 47m, 23:17");
+		expect(resetAt(new Date(2026, 9, 27, 4, 30).getTime())).toBe("resets Tue 04:30");
+		expect(resetAt(THU_9)).toBe("resets Thu 09:00");
+		// A reset already past waits for the next reading rather than counting up.
+		expect(resetAt(late - 5 * MIN)).toBe("resets 22:25");
+	});
+
+	it("gives the full day and time as the reset's tooltip", () => {
+		const [five, week] = accountWindows({
+			usage: usage([window(FIVE_HOURS, 30, NOW + 142 * MIN), window(WEEK, 10, null)]),
+		});
+		expect(resetTitle(five!)).toBe("Sunday, October 25 at 17:10");
+		expect(resetTitle(week!)).toBeUndefined();
 	});
 
 	it("shows money spent where a spend limit would reset", () => {

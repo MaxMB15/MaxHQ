@@ -131,7 +131,7 @@ const AgentRow = ({ row }: { row: AgentGrantRow }) => {
 	useI18n();
 	const { note, revoke } = useRevoke(row.permission);
 	return (
-		<Row title={row.title} sub={row.line}>
+		<Row title={<span className="selectable">{row.title}</span>} sub={row.line}>
 			<StatusNote note={note} />
 			<ConfirmButton
 				label={translate("Revoke")}
@@ -148,7 +148,7 @@ const KeyRow = ({ row }: { row: KeyGrantRow }) => {
 	const { note, revoke } = useRevoke(row.permission);
 	return (
 		<Row
-			title={row.name}
+			title={<span className="selectable">{row.name}</span>}
 			sub={
 				<>
 					<span className="block">{row.line}</span>

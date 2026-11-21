@@ -8,6 +8,7 @@
 // container, and its small preview shows while the rest comes. One on the
 // device also drags out as its file, onto a composer to attach it. Pictures
 // shown together step left and right through one viewer (picture-set.tsx).
+// It zooms and pans as Preview does (zoom-picture.tsx).
 
 import { Dialog } from "@base-ui/react/dialog";
 import { ChevronLeft, ChevronRight, Image, RotateCw, X } from "lucide-react";
@@ -31,6 +32,7 @@ import { useInPictureSet } from "./picture-set";
 import { type FileDrag, useFileDrag } from "./file-drag";
 import { formatBytes } from "@maxhq/shared/agent-view/format";
 import { Spinner } from "./icons";
+import { ZoomPicture } from "./zoom-picture";
 import { t as translate, useI18n } from "@maxhq/shared/i18n";
 
 /** A picture to show whole: one the webview can load, or one on the agent's device. */
@@ -68,7 +70,8 @@ export const useSeen = <T extends Element>(): [RefCallback<T>, boolean] => {
 const percent = (sent: number, total: number) =>
 	total > 0 ? Math.min(100, Math.floor((sent / total) * 100)) : null;
 
-const WHOLE = "max-h-[86vh] max-w-[92vw] rounded-md object-contain";
+// The frame a picture zooms and pans in, a little inside the window.
+const STAGE = "h-[86vh] w-[92vw]";
 
 const PLAIN_BUTTON =
 	"inline-flex h-[26px] cursor-pointer items-center gap-1.5 rounded-md border border-media-foreground/15 bg-media/40 px-2.5 text-[12px] text-media-foreground hover:bg-media/60";
@@ -78,10 +81,14 @@ const DeviceWhole = ({
 	name,
 	path,
 	thumbnail,
+	drag,
+	onBackground,
 }: {
 	name: string;
 	path: string;
 	thumbnail: string | null;
+	drag: FileDrag;
+	onBackground: () => void;
 }) => {
 	useI18n();
 	const { agent } = useRow();
@@ -93,11 +100,13 @@ const DeviceWhole = ({
 
 	if (media?.state === "ready") {
 		return (
-			<img
+			<ZoomPicture
 				src={media.url}
 				alt={name}
-				draggable={false}
-				className={WHOLE}
+				drag={drag}
+				keys="window"
+				onBackground={onBackground}
+				className={STAGE}
 				onError={() =>
 					mediaFailed(agent, path, translate("Couldn't show {{name}}.", { name: name }))
 				}
@@ -107,6 +116,7 @@ const DeviceWhole = ({
 	if (media?.state === "failed" || media?.state === "large") {
 		return (
 			<div
+				{...drag}
 				role="alert"
 				className="flex max-w-[420px] flex-col items-center gap-3 rounded-xl border border-media-foreground/10 bg-media/50 px-5 py-4 text-center text-[12.5px] text-media-foreground"
 			>
@@ -141,7 +151,7 @@ const DeviceWhole = ({
 	}
 	const done = media?.state === "loading" ? percent(media.sent, media.total) : null;
 	return (
-		<div className="relative grid place-items-center">
+		<div {...drag} className="relative grid place-items-center">
 			{thumbnail ? (
 				<img
 					src={thumbnail}
@@ -222,6 +232,7 @@ export const PictureViewer = ({
 }) => {
 	useI18n();
 	useStepKeys(open ? nav : undefined);
+	const close = () => onOpenChange(false);
 	const start = drag?.onDragStart;
 	const dragOut: FileDrag = start
 		? {
@@ -245,23 +256,26 @@ export const PictureViewer = ({
 					className="fixed inset-0 z-[121] flex flex-col items-center justify-center gap-2 outline-none"
 				>
 					{open ? (
-						<div {...dragOut} className="flex">
-							{picture.kind === "url" ? (
-								<img
-									src={picture.url}
-									alt={name}
-									draggable={false}
-									className={WHOLE}
-								/>
-							) : (
-								<DeviceWhole
-									key={picture.path}
-									name={name}
-									path={picture.path}
-									thumbnail={picture.thumbnail ?? null}
-								/>
-							)}
-						</div>
+						picture.kind === "url" ? (
+							<ZoomPicture
+								key={picture.url}
+								src={picture.url}
+								alt={name}
+								drag={dragOut}
+								keys="window"
+								onBackground={close}
+								className={STAGE}
+							/>
+						) : (
+							<DeviceWhole
+								key={picture.path}
+								name={name}
+								path={picture.path}
+								thumbnail={picture.thumbnail ?? null}
+								drag={dragOut}
+								onBackground={close}
+							/>
+						)
 					) : null}
 					<div className="flex max-w-[94vw] items-center gap-2 text-[12px] text-media-foreground/80">
 						{nav ? (
