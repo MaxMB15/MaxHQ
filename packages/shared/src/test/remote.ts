@@ -51,6 +51,7 @@ type RemoteCalls = Pick<
 	| "gitIdentity"
 	| "windDown"
 	| "restartMaxd"
+	| "removeDevice"
 	| "startLocalMaxd"
 	| "uninstallLocalMaxd"
 	| "storeClaudeToken"
@@ -163,6 +164,7 @@ export const remoteCalls = (): RemoteCalls => ({
 	gitIdentity: async () => ({ name: null, email: null }),
 	windDown: done,
 	restartMaxd: async () => OK,
+	removeDevice: async () => OK,
 	startLocalMaxd: async () => OK,
 	uninstallLocalMaxd: async () => OK,
 	storeClaudeToken: each,

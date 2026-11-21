@@ -1146,6 +1146,7 @@
 	"MaxHQ adds hooks to zsh, bash and fish so it can tell commands apart. Off starts shells exactly as your startup files say. Applies to terminals opened after the change.": "MaxHQ ajoute des hooks à zsh, bash et fish pour distinguer les commandes. Désactivée, les shells démarrent exactement comme vos fichiers de démarrage l'indiquent. S'applique aux terminaux ouverts après la modification.",
 	"Agents can read other agents": "Les agents peuvent lire les autres agents",
 	"Any agent can list and read any other agent's conversation, which may hold code, paths and command output. Off lets agents read only the agents you attach or quote. Starting, messaging or stopping agents still needs your permission.": "Tout agent peut lister et lire la conversation de tout autre agent, qui peut contenir du code, des chemins et la sortie de commandes. Désactivé, les agents ne lisent que les agents que vous joignez ou citez. Démarrer, contacter ou arrêter des agents demande toujours votre autorisation.",
+	"If a device may be compromised, remove it under Devices, which cuts its link on every device.": "Si un appareil a pu être compromis, retirez-le sous Appareils, ce qui coupe sa liaison sur tous les appareils.",
 	"Other agents": "Autres agents",
 	"Reading on by default": "Lecture activée par défaut",
 	"claude.ai pages": "Pages claude.ai",

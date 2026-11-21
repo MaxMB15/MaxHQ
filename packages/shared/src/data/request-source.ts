@@ -328,6 +328,7 @@ export const requestCalls = (ask: Ask): Omit<DataSource, PlatformCalls> => ({
 		ask({ kind: "remove_command_rule", device, project, rule }),
 	windDown: (device, windowSecs) => ask({ kind: "wind_down", device, window_secs: windowSecs }),
 	restartMaxd: (link) => ask({ kind: "restart_maxd", link }),
+	removeDevice: (link) => ask({ kind: "remove_device", link }),
 	startLocalMaxd: () => ask({ kind: "start_local_maxd" }),
 	uninstallLocalMaxd: (deleteData) =>
 		ask({ kind: "uninstall_local_maxd", delete_data: deleteData }),

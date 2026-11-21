@@ -191,6 +191,54 @@ describe("restart maxd", () => {
 	});
 });
 
+describe("remove device", () => {
+	const remove = () => screen.findByRole("region", { name: "Remove devbox" });
+
+	it("asks first, then removes the device, which leaves the view", async () => {
+		const { source } = renderDevice("link-devbox");
+		const removeDevice = vi.spyOn(source, "removeDevice");
+		const region = await remove();
+		expect(
+			within(region).getByText(
+				"MaxHQ forgets devbox and closes its link. Your other devices each take out devbox's key, cut their link to it and stop what it started on them, as soon as MaxHQ reaches them. Nothing on devbox is deleted."
+			)
+		).toBeInTheDocument();
+		fireEvent.click(within(region).getByRole("button", { name: "Remove device" }));
+		expect(
+			within(region).getByText("Remove devbox and cut its link on every device?")
+		).toBeInTheDocument();
+		fireEvent.click(within(region).getByRole("button", { name: "Keep" }));
+		expect(removeDevice).not.toHaveBeenCalled();
+
+		fireEvent.click(within(region).getByRole("button", { name: "Remove device" }));
+		fireEvent.click(within(region).getByRole("button", { name: "Remove" }));
+		expect(removeDevice).toHaveBeenCalledWith("link-devbox");
+		await waitFor(() =>
+			expect(screen.queryByRole("region", { name: "Remove devbox" })).toBeNull()
+		);
+	});
+
+	it("says why it didn't remove the device", async () => {
+		const { source } = renderDevice("link-devbox");
+		vi.spyOn(source, "removeDevice").mockResolvedValue({
+			status: "error",
+			error: { kind: "failed", message: "Couldn't write the app's database" },
+		});
+		const region = await remove();
+		fireEvent.click(within(region).getByRole("button", { name: "Remove device" }));
+		fireEvent.click(within(region).getByRole("button", { name: "Remove" }));
+		expect(
+			await within(region).findByText("Couldn't write the app's database")
+		).toBeInTheDocument();
+	});
+
+	it("offers nothing to remove on this Mac", async () => {
+		renderDevice("link-mac");
+		await screen.findByRole("button", { name: "Settings for Mac" });
+		expect(screen.queryByRole("region", { name: "Remove Mac" })).toBeNull();
+	});
+});
+
 describe("device workspaces", () => {
 	it("lists the workspaces MaxHQ made on devbox", async () => {
 		renderDevice("link-devbox");

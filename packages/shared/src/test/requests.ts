@@ -762,6 +762,7 @@ export const UNITS: Case[] = [
 	["refreshUsage", (s) => s.refreshUsage(null), { kind: "refresh_usage", account: null }],
 	["refreshLinks", (s) => s.refreshLinks("link-1"), { kind: "refresh_links", link: "link-1" }],
 	["restartMaxd", (s) => s.restartMaxd("link-1"), { kind: "restart_maxd", link: "link-1" }],
+	["removeDevice", (s) => s.removeDevice("link-1"), { kind: "remove_device", link: "link-1" }],
 	["startLocalMaxd", (s) => s.startLocalMaxd(), { kind: "start_local_maxd" }],
 	[
 		"uninstallLocalMaxd",
