@@ -80,20 +80,27 @@ fn a_pack_lands_and_installs_once_per_tree() {
     assert_eq!(mode & 0o777, 0o755);
     assert!(marker(&vendor).is_some());
     assert_eq!(
-        noted(&s.logs(), &s.root).map(|m| m.ran),
+        noted(&s.logs(), &s.root).map(|note| note.marker.ran),
         Some(Ran::Installed)
     );
     assert!(log_path(&s.dir.path().join("logs"), &s.root).is_file());
 }
 
+/// Makes a `.venv` the way an installer does, with a python, a link and a
+/// file only the first run writes.
+const MAKES_VENV: &str = "echo ran >> installed.txt
+mkdir -p .devflow-vendor/.venv/bin
+printf '#!/bin/sh\\necho made\\n' > .devflow-vendor/.venv/bin/python3
+chmod 755 .devflow-vendor/.venv/bin/python3
+ln -s python3 .devflow-vendor/.venv/bin/python";
+
 #[test]
 fn a_new_tree_keeps_the_old_venv() {
     let s = Setup::new();
-    let (one, first) = fake(s.dir.path(), "one", NOTE);
+    let (one, first) = fake(s.dir.path(), "one", MAKES_VENV);
     s.land(&one, &first, true, TIMEOUT);
     let venv = s.root.join(PACK_DIR).join(".venv/bin");
-    fs::create_dir_all(&venv).unwrap();
-    fs::write(venv.join("python3"), "").unwrap();
+    assert!(noted(&s.logs(), &s.root).unwrap().venv.is_some());
     let (two, second) = fake(s.dir.path(), "two", &format!("{NOTE}\necho two"));
     assert_eq!(
         s.land(&two, &second, false, TIMEOUT),
@@ -101,6 +108,89 @@ fn a_new_tree_keeps_the_old_venv() {
     );
     assert_eq!(s.runs(), 2);
     assert!(venv.join("python3").is_file());
+}
+
+/// A named change made to a `.venv/bin` folder.
+type Change = (&'static str, fn(&Path));
+
+#[test]
+fn a_venv_changed_since_its_install_isnt_carried_over() {
+    let changes: [Change; 5] = [
+        ("python", |bin| {
+            fs::write(
+                bin.join("python3"),
+                "#!/bin/sh\necho attacker > pwned.txt\n",
+            )
+            .unwrap();
+        }),
+        ("mode", |bin| {
+            fs::set_permissions(bin.join("python3"), fs::Permissions::from_mode(0o777)).unwrap();
+        }),
+        ("link", |bin| {
+            fs::remove_file(bin.join("python")).unwrap();
+            std::os::unix::fs::symlink("/bin/sh", bin.join("python")).unwrap();
+        }),
+        ("added", |bin| {
+            fs::write(bin.join("activate"), "echo attacker > pwned.txt\n").unwrap();
+        }),
+        ("link in place of a folder", |bin| {
+            let venv = bin.parent().unwrap();
+            let elsewhere = venv.with_file_name("elsewhere");
+            fs::rename(venv, &elsewhere).unwrap();
+            std::os::unix::fs::symlink(&elsewhere, venv).unwrap();
+        }),
+    ];
+    for (what, change) in changes {
+        let s = Setup::new();
+        let (one, first) = fake(s.dir.path(), "one", MAKES_VENV);
+        s.land(&one, &first, true, TIMEOUT);
+        let vendor = s.root.join(PACK_DIR);
+        change(&vendor.join(".venv/bin"));
+        let (two, second) = fake(s.dir.path(), "two", &format!("{USES_VENV}\necho two"));
+        assert_eq!(
+            s.land(&two, &second, false, TIMEOUT),
+            PackState::Installed { tree: second },
+            "{what}"
+        );
+        assert!(!s.root.join("pwned.txt").exists(), "{what}");
+        assert!(vendor.symlink_metadata().unwrap().is_dir(), "{what}");
+        assert!(vendor.join(".venv").symlink_metadata().is_err(), "{what}");
+    }
+}
+
+#[test]
+fn the_venv_hash_sees_every_kind_of_change_and_refuses_odd_files() {
+    let s = Setup::new();
+    let vendor = s.root.join(PACK_DIR);
+    let bin = vendor.join(".venv/bin");
+    assert_eq!(venv_hash(&vendor), None);
+    fs::create_dir_all(&bin).unwrap();
+    fs::write(bin.join("python3"), "one").unwrap();
+    std::os::unix::fs::symlink("python3", bin.join("python")).unwrap();
+    let first = venv_hash(&vendor).unwrap();
+    assert_eq!(venv_hash(&vendor).as_ref(), Some(&first));
+
+    let mut seen = vec![first];
+    let mut check = |what: &str| {
+        let now = venv_hash(&vendor).unwrap();
+        assert!(!seen.contains(&now), "{what}");
+        seen.push(now);
+    };
+    fs::write(bin.join("python3"), "two").unwrap();
+    check("bytes");
+    fs::set_permissions(bin.join("python3"), fs::Permissions::from_mode(0o755)).unwrap();
+    check("mode");
+    fs::remove_file(bin.join("python")).unwrap();
+    std::os::unix::fs::symlink("python3.12", bin.join("python")).unwrap();
+    check("link");
+    fs::create_dir(bin.join("lib")).unwrap();
+    check("folder");
+    fs::rename(bin.join("lib"), bin.join("lib2")).unwrap();
+    check("name");
+
+    let made = Command::new("mkfifo").arg(bin.join("pipe")).status();
+    assert!(made.unwrap().success());
+    assert_eq!(venv_hash(&vendor), None);
 }
 
 /// Runs the python in the copy's `.venv` when it can, as devflow's
@@ -546,7 +636,7 @@ fn a_venv_comes_over_after_the_copy_lands_in_a_container() {
     let s = Setup::new();
     let user = agent(&s);
     let logs = s.logs();
-    let land_as = |from: &Path, tree: &TreeHash| {
+    let land_as = |from: &Path, tree: &TreeHash, installing: &dyn Fn()| {
         land(
             &Landing {
                 root: &s.root,
@@ -557,17 +647,20 @@ fn a_venv_comes_over_after_the_copy_lands_in_a_container() {
                 retry: false,
                 timeout: TIMEOUT,
             },
-            || {},
+            installing,
         )
     };
-    let (one, first) = fake(s.dir.path(), "one", NOTE);
-    land_as(&one, &first);
     let venv = s.root.join(PACK_DIR).join(".venv/bin");
-    fs::create_dir_all(&venv).unwrap();
-    fs::write(venv.join("python3"), "").unwrap();
+    // The guest's fixed path may have no mkdir, so the venv is made just
+    // before the installer runs, as if it made it.
+    let (one, first) = fake(s.dir.path(), "one", NOTE);
+    land_as(&one, &first, &|| {
+        fs::create_dir_all(&venv).unwrap();
+        fs::write(venv.join("python3"), "").unwrap();
+    });
     let (two, second) = fake(s.dir.path(), "two", &format!("{NOTE}\necho two"));
     assert_eq!(
-        land_as(&two, &second),
+        land_as(&two, &second, &|| {}),
         PackState::Installed { tree: second }
     );
     assert!(venv.join("python3").is_file());
@@ -639,7 +732,7 @@ fn an_installer_that_swaps_the_copy_for_a_link_gets_no_marker_through_it() {
     );
     assert_eq!(fs::read_dir(&decoy).unwrap().count(), 0);
     assert_eq!(
-        noted(&s.logs(), &s.root).map(|m| m.ran),
+        noted(&s.logs(), &s.root).map(|note| note.marker.ran),
         Some(Ran::Installed)
     );
 }

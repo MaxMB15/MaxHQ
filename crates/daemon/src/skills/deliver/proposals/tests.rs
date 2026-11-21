@@ -264,8 +264,9 @@ impl Rig {
     /// A proposal from another device that says what it's told to, with
     /// the files at `folder` in this device's store.
     fn proposal_from_elsewhere(&self, folder: &Path, name: &str) -> SkillProposal {
-        let tree = tree::of(&DiskFs, folder).unwrap();
-        self.delivery.keep(&tree, folder).unwrap();
+        let held = Held::at(folder).unwrap();
+        let tree = held.tree().unwrap();
+        self.delivery.keep(&tree, &held).unwrap();
         SkillProposal {
             id: SkillProposalId::derive("elsewhere"),
             device: maxhq_protocol::ids::DeviceId::derive("other"),
@@ -390,6 +391,18 @@ async fn approving_commits_as_you_and_takes_the_folder_away() {
     assert!(!folder.exists());
     assert!(rig.proposals().is_empty());
 
+    // The store keeps the tree that was committed, and no copy is left.
+    let stored = rig.delivery.store.path(&proposal.tree).unwrap();
+    assert!(rig.delivery.store.has(&proposal.tree));
+    assert!(stored.join(SKILL_FILE).is_file());
+    let left = fs::read_dir(rig.delivery.mirror())
+        .into_iter()
+        .flatten()
+        .flatten()
+        .map(|entry| entry.file_name())
+        .collect::<Vec<_>>();
+    assert!(left.is_empty(), "{left:?}");
+
     let gone = rig
         .answer(proposal.id, ProposalAction::Approve, None)
         .await
@@ -430,18 +443,9 @@ async fn a_change_to_a_proposal_after_its_check_doesnt_reach_the_commit() {
 
     // The library's lock holds the approval at the commit, past its check.
     let busy = rig.library.busy().await;
-    let mirror = rig.delivery.mirror();
     let change = async {
         for _ in 0..200 {
-            let copied = fs::read_dir(&mirror)
-                .into_iter()
-                .flatten()
-                .flatten()
-                .any(|at| {
-                    fs::read_to_string(at.path().join(SKILL_FILE))
-                        .is_ok_and(|text| text.ends_with("Steps.\n"))
-                });
-            if copied {
+            if rig.delivery.store.has(&proposal.tree) {
                 break;
             }
             tokio::time::sleep(Duration::from_millis(10)).await;
@@ -610,6 +614,47 @@ async fn a_proposals_link_to_the_folder_above_doesnt_offer_a_sibling_checkout() 
 
     assert!(rig.proposals().is_empty());
     assert!(sibling.join(".git/HEAD").is_file());
+}
+
+#[test]
+fn the_open_refuses_a_link_that_turns_up_after_the_look() {
+    for link in [".maxhq", ".maxhq/proposals"] {
+        let dir = TempDir::new();
+        let repo = dir.path().join("repo");
+        write(&repo.join(".maxhq/proposals/mine"), "mine", "Mine");
+        assert!(open_checkout(&repo).is_ok(), "{link}");
+        // The checkout itself may be reached through a link.
+        let linked = dir.path().join("linked");
+        std::os::unix::fs::symlink(&repo, &linked).unwrap();
+        assert!(open_checkout(&linked).is_ok(), "{link}");
+
+        // A link put in after the look is refused by the open alone.
+        let away = dir.path().join("away");
+        fs::rename(repo.join(link), &away).unwrap();
+        std::os::unix::fs::symlink(&away, repo.join(link)).unwrap();
+        assert!(open_checkout(&repo).is_err(), "{link}");
+    }
+}
+
+#[tokio::test]
+async fn rejecting_a_proposal_whose_folder_is_a_link_removes_only_the_link() {
+    let rig = Rig::new();
+    let (repo, at) = rig.checkout();
+    write(&repo.join(".maxhq/proposals/mine"), "mine", "Mine");
+    rig.delivery.found(rig.project, &at, None);
+    let [proposal] = rig.proposals().try_into().unwrap();
+
+    let elsewhere = rig.dir.path().join("elsewhere");
+    write(&elsewhere, "mine", "Someone else's");
+    let folder = repo.join(".maxhq/proposals/mine");
+    fs::remove_dir_all(&folder).unwrap();
+    std::os::unix::fs::symlink(&elsewhere, &folder).unwrap();
+
+    rig.answer(proposal.id, ProposalAction::Reject, None)
+        .await
+        .unwrap();
+    assert!(fs::symlink_metadata(&folder).is_err());
+    assert!(elsewhere.join(SKILL_FILE).is_file());
 }
 
 #[tokio::test]

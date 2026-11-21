@@ -165,10 +165,10 @@ pub fn skill(
         .unwrap_or_default();
     let name = doc.name().unwrap_or(fallback).to_owned();
     frontmatter::check_name(&name).map_err(|why| format!("has a name that {why}"))?;
-    let (tree, entries) = store.copy_in(folder)?;
+    let (tree, held) = store.copy_in(folder)?;
     Ok(SkillInfo {
         description: doc.description().unwrap_or_default().to_owned(),
-        flags: frontmatter::flags(&doc, &entries),
+        flags: frontmatter::flags(&doc, &held.entries),
         listing_chars: doc.listing_chars(&name),
         name,
         tree,
