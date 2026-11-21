@@ -11,6 +11,7 @@ use maxhq_protocol::agents::{
 };
 use maxhq_protocol::dispatch::{AdminAction, Dispatcher, PlanOutcome, PlanStep, PlanTarget};
 use maxhq_protocol::ids::{PermissionId, ProjectId, WorkspaceId};
+use maxhq_protocol::local_models::LocalModelSettings;
 use maxhq_protocol::model::{DeviceSettingChange, Project};
 use maxhq_protocol::tasks::{FilterTest, TaskTarget, Trigger};
 use serde_json::{json, Value};
@@ -438,6 +439,64 @@ async fn with_act_directly_off_every_change_waits_in_the_plan() {
 }
 
 #[tokio::test]
+async fn a_local_models_change_keeps_the_fields_it_leaves_out() {
+    let mut h = Harness::with_dispatcher().await;
+    let device = h.host.id;
+    let off = LocalModelSettings {
+        linked_devices: false,
+        ..Default::default()
+    };
+    let changes = vec![DeviceSettingChange::LocalModels {
+        value: Box::new(off.clone()),
+    }];
+    let outcome = h
+        .act(|key| ClientMessage::UpdateDeviceSettings {
+            key,
+            device,
+            changes,
+        })
+        .await;
+    assert_eq!(outcome, ActionOutcome::Done);
+    let (dispatcher, session) = h.dispatch("Give local models a 32k context").await;
+
+    let change = json!({"action": "settings",
+        "changes": [{"field": "local_models", "value": {"context": 32768}}], "asked": true});
+    let answer = h
+        .call(session, dispatcher, "l1", "manage_device", change)
+        .await;
+    assert_eq!(answer, Ok(ASKS_FIRST.into()));
+
+    // The plan shows what the change leaves, linked devices still off, and
+    // once confirmed it leaves just that.
+    let after = LocalModelSettings {
+        context: 32_768,
+        ..off
+    };
+    let plan = h.dispatcher().plan.expect("the plan");
+    assert_eq!(
+        plan.items[0].step,
+        PlanStep::Admin {
+            device,
+            action: AdminAction::ChangeSettings {
+                changes: vec![DeviceSettingChange::LocalModels {
+                    value: Box::new(after.clone()),
+                }],
+            },
+        }
+    );
+    let outcome = h
+        .act(|key| ClientMessage::ConfirmPlan { key, plan: plan.id })
+        .await;
+    assert_eq!(
+        outcome,
+        ActionOutcome::PlanRan {
+            results: vec![PlanOutcome::Done]
+        }
+    );
+    assert_eq!(*h.settings_now().local_models, after);
+}
+
+#[tokio::test]
 async fn a_change_on_another_device_goes_there_as_a_peer_call() {
     let mut mac = Harness::with_dispatcher().await;
     let mut devbox = Harness::on(devbox());
@@ -488,6 +547,21 @@ async fn a_change_on_another_device_goes_there_as_a_peer_call() {
     assert_eq!(mac.undo(undo).await, ActionOutcome::Done);
     assert_eq!(devbox.agent(agent).title, before);
     assert_eq!(mac.fakes.peers.calls().len(), 2);
+
+    // devbox's local model settings aren't known here, so a change there
+    // that leaves some out stays here.
+    let models = json!({"action": "settings",
+        "changes": [{"field": "local_models", "value": {"context": 32768}}],
+        "device": devbox.host.id.to_string(), "asked": true});
+    let answer = mac
+        .call(session, dispatcher, "m1", "manage_device", models)
+        .await;
+    assert!(
+        matches!(&answer, Err(refused) if refused.contains("every field")),
+        "{answer:?}"
+    );
+    assert_eq!(mac.fakes.peers.calls().len(), 2);
+    assert_eq!(mac.dispatcher().plan, None);
 
     // devbox takes changes only from its home.
     devbox.fakes.peers.set_home(DeviceId::derive("elsewhere"));

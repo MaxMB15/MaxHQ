@@ -10,6 +10,7 @@ use std::time::Duration;
 
 use maxhq_protocol::dispatch::{AdminAction, PlanStep, ProjectSettingChange};
 use maxhq_protocol::ids::{AgentId, DeviceId};
+use maxhq_protocol::local_models::LocalModelSettings;
 use maxhq_protocol::message::{SendMode, ToolTarget};
 use maxhq_protocol::model::{DeviceSettingChange, DeviceSettings, InboxChange, PermissionMode};
 use maxhq_protocol::model::{ProjectSettings, Tool as Cli};
@@ -54,7 +55,62 @@ pub struct Act {
     pub device: Option<DeviceId>,
     /// What it does.
     pub action: AdminAction,
+    /// The fields each local_models change in `action` names, by its place
+    /// in the changes, and none for any other change. [`Act::filled`]
+    /// keeps the rest at the device's values.
+    pub named: Vec<Option<Map<String, Value>>>,
 }
+
+impl Act {
+    /// What the change does, with each local_models field it leaves out
+    /// kept at `now`, the device's local model settings. `now` is none for
+    /// another device, whose settings this one can't see, so a change there
+    /// must name every field.
+    pub fn filled(self, now: Option<&LocalModelSettings>) -> Result<AdminAction, String> {
+        let mut changes = match self.action {
+            AdminAction::ChangeSettings { changes } => changes,
+            action => return Ok(action),
+        };
+        let mut now = now.cloned();
+        for (change, named) in changes.iter_mut().zip(self.named) {
+            let (DeviceSettingChange::LocalModels { value }, Some(named)) = (change, named) else {
+                continue;
+            };
+            let Some(now) = &mut now else {
+                let every = fields_of(&LocalModelSettings::default());
+                if every.keys().all(|field| named.contains_key(field)) {
+                    continue;
+                }
+                return Err(ELSEWHERE.into());
+            };
+            let mut filled = fields_of(now);
+            filled.extend(named);
+            // A later change in the same call starts from this one.
+            *now = serde_json::from_value(Value::Object(filled)).map_err(|_| SETTING)?;
+            **value = now.clone();
+        }
+        Ok(AdminAction::ChangeSettings { changes })
+    }
+}
+
+/// Local model settings as the fields a change names.
+fn fields_of(settings: &LocalModelSettings) -> Map<String, Value> {
+    match serde_json::to_value(settings) {
+        Ok(Value::Object(fields)) => fields,
+        _ => Map::new(),
+    }
+}
+
+/// What the dispatcher hears for a device setting change it can't read.
+const SETTING: &str = "Each change needs a `field` Settings has and a `value` it takes.";
+
+/// What the dispatcher hears for a local_models change on another device
+/// that leaves fields out.
+const ELSEWHERE: &str = "This device can't see another device's local model settings, \
+                         so a local_models change there must give every field.";
+
+/// What the dispatcher hears for a local_models value that isn't an object.
+const OBJECT: &str = "Give local_models an object of the fields to change.";
 
 /// What a dispatcher call that changes something does: what a plan item
 /// does, or a change to MaxHQ itself.
@@ -278,14 +334,17 @@ pub fn wants(call: Call) -> Result<Wants, String> {
             } else {
                 AdminAction::Interrupt { agent: stop.agent }
             },
+            named: Vec::new(),
         }),
         Call::RunTaskNow(named) => Wants::Act(Act {
             device: None,
             action: AdminAction::RunTask { task: named.task },
+            named: Vec::new(),
         }),
         Call::DeleteTask(named) => Wants::Act(Act {
             device: None,
             action: AdminAction::DeleteTask { task: named.task },
+            named: Vec::new(),
         }),
         call => return Err(format!("{} doesn't change anything.", call.tool().name())),
     })
@@ -469,7 +528,7 @@ pub(super) fn input_schema(tool: Tool) -> Value {
                         "type": "object",
                         "properties": {
                             "field": {"type": "string", "enum": ["default_permission", "workspace_network", "workspace_pool", "auto_settle_days", "snooze_at_limit", "continue_claude_at_limit", "continue_codex_at_limit", "claude_effort", "codex_effort", "placement", "tool_updates", "keep_awake", "idle_release_minutes", "memory_items", "history_mib", "chat_gap_minutes", "shell_integration", "read_other_agents", "local_models", "skill_library"]},
-                            "value": {"description": "The new value: true or false for a switch, a whole number for days, minutes (0 for never), items or MiB, a mode for default_permission, a level or null for an effort, prefer or normal for placement, charger, always, working or off for keep_awake, a list of claude, codex or cursor for tool_updates, and for local_models an object with idle_unload_minutes (0 keeps a model loaded), kv_type (f16 or q8_0), context in tokens, fewer_tools, default_model ({server, model} or null) and linked_devices, where any left out goes back to its default."},
+                            "value": {"description": "The new value: true or false for a switch, a whole number for days, minutes (0 for never), items or MiB, a mode for default_permission, a level or null for an effort, prefer or normal for placement, charger, always, working or off for keep_awake, a list of claude, codex or cursor for tool_updates, and for local_models an object with idle_unload_minutes (0 keeps a model loaded), kv_type (f16 or q8_0), context in tokens, fewer_tools, default_model ({server, model} or null) and linked_devices. Give only the fields to change; the rest keep their current values. On another device, give them all."},
                         },
                         "required": ["field", "value"],
                     },
@@ -522,6 +581,7 @@ pub(super) fn parse(tool: Tool, arguments: &Value) -> Result<Call, String> {
     let action = text(&args, "action")?.ok_or("Give an `action`.")?;
     let wrong = || Err(format!("`action` can't be {action:?}."));
     let required = |name: &str| format!("Give `{name}`.");
+    let mut given = Vec::new();
     let action = match tool {
         Tool::ManageAgent => {
             let agent: AgentId = id(&args, "agent")?.ok_or_else(|| required("agent"))?;
@@ -592,14 +652,25 @@ pub(super) fn parse(tool: Tool, arguments: &Value) -> Result<Call, String> {
             }
         }
         Tool::ManageDevice => match action.as_str() {
-            "settings" => AdminAction::ChangeSettings {
-                changes: list(&args, "changes", |item| {
-                    serde_json::from_value(Value::Object(item.clone())).map_err(|_| {
-                        "Each change needs a `field` Settings has and a `value` it takes."
-                            .to_owned()
-                    })
-                })?,
-            },
+            "settings" => {
+                let parsed = list(&args, "changes", |item| {
+                    let change = serde_json::from_value(Value::Object(item.clone()))
+                        .map_err(|_| SETTING.to_owned())?;
+                    let fields = match (&change, item.get("value")) {
+                        (DeviceSettingChange::LocalModels { .. }, Some(Value::Object(fields))) => {
+                            Some(fields.clone())
+                        }
+                        (DeviceSettingChange::LocalModels { .. }, _) => {
+                            return Err(OBJECT.into());
+                        }
+                        _ => None,
+                    };
+                    Ok((change, fields))
+                })?;
+                let (changes, fields) = parsed.into_iter().unzip();
+                given = fields;
+                AdminAction::ChangeSettings { changes }
+            }
             "update_tools" => AdminAction::UpdateTools {
                 tools: list(&args, "tools", |item| {
                     Ok(ToolTarget {
@@ -630,6 +701,7 @@ pub(super) fn parse(tool: Tool, arguments: &Value) -> Result<Call, String> {
     Ok(Call::Admin(Act {
         device: id(&args, "device")?,
         action,
+        named: given,
     }))
 }
 
@@ -690,7 +762,7 @@ mod tests {
     use super::*;
 
     use maxhq_protocol::ids::{ProjectId, TaskId, WorkspaceId};
-    use maxhq_protocol::local_models::LocalModelSettings;
+    use maxhq_protocol::local_models::KvCacheType;
     use maxhq_protocol::model::KeepAwake;
 
     fn admin(action: AdminAction) -> PlanStep {
@@ -701,10 +773,34 @@ mod tests {
     }
 
     fn parsed(tool: Tool, arguments: Value) -> AdminAction {
+        act(tool, arguments).action
+    }
+
+    fn act(tool: Tool, arguments: Value) -> Act {
         match tool.parse(&arguments) {
-            Ok(Call::Admin(act)) => act.action,
+            Ok(Call::Admin(act)) => act,
             other => panic!("{other:?}"),
         }
+    }
+
+    /// A device's settings as a new `maxd` stores them.
+    fn settings() -> DeviceSettings {
+        serde_json::from_value(json!({
+            "device": DeviceId::derive("mac"),
+            "default_permission": "ask",
+            "workspace_network": null,
+            "workspace_pool": null,
+        }))
+        .expect("settings")
+    }
+
+    /// `settings` with `changes` made.
+    fn changed(settings: &DeviceSettings, changes: &[DeviceSettingChange]) -> DeviceSettings {
+        let mut changed = settings.clone();
+        for change in changes {
+            changed.change(change.clone());
+        }
+        changed
     }
 
     #[test]
@@ -834,6 +930,11 @@ mod tests {
                 Tool::ManageDevice,
                 json!({"action": "settings", "changes": [{"field": "theme", "value": "dark"}]}),
                 "`field`",
+            ),
+            (
+                Tool::ManageDevice,
+                json!({"action": "settings", "changes": [{"field": "local_models", "value": [0]}]}),
+                "an object",
             ),
         ] {
             let refused = tool.parse(&arguments).expect_err("refused");
@@ -999,13 +1100,7 @@ mod tests {
             (risk(&step, false), risk(&step, true)),
             (Risk::Direct, Risk::Direct)
         );
-        let settings: DeviceSettings = serde_json::from_value(json!({
-            "device": DeviceId::derive("mac"),
-            "default_permission": "ask",
-            "workspace_network": null,
-            "workspace_pool": null,
-        }))
-        .expect("settings");
+        let settings = settings();
         assert_eq!(
             settings_now(&settings, &changes),
             [DeviceSettingChange::ChatGapMinutes { value: 30 }]
@@ -1013,7 +1108,7 @@ mod tests {
     }
 
     #[test]
-    fn local_model_settings_wait_for_a_confirm() {
+    fn a_local_models_change_keeps_what_it_leaves_out_and_waits_for_a_confirm() {
         let tool = Tool::ManageDevice;
         let enum_ =
             &input_schema(tool)["properties"]["changes"]["items"]["properties"]["field"]["enum"];
@@ -1021,38 +1116,87 @@ mod tests {
             .as_array()
             .expect("fields")
             .contains(&json!("local_models")));
-        let action = parsed(
-            tool,
-            json!({"action": "settings", "changes": [
-                {"field": "local_models", "value": {"linked_devices": false}},
-            ]}),
-        );
-        let value = Box::new(LocalModelSettings {
+        let local_models = |values: Value| {
+            let changes: Vec<Value> = values
+                .as_array()
+                .expect("values")
+                .iter()
+                .map(|value| json!({"field": "local_models", "value": value}))
+                .collect();
+            act(tool, json!({"action": "settings", "changes": changes}))
+        };
+        let mut settings = settings();
+        settings.local_models.linked_devices = false;
+
+        // Only the context changes. Linked devices stay off.
+        let context = local_models(json!([{"context": 32768}]));
+        let after = LocalModelSettings {
+            context: 32_768,
             linked_devices: false,
             ..Default::default()
-        });
+        };
+        let changes = vec![DeviceSettingChange::LocalModels {
+            value: Box::new(after.clone()),
+        }];
         assert_eq!(
-            action,
-            AdminAction::ChangeSettings {
-                changes: vec![DeviceSettingChange::LocalModels { value }]
-            }
+            context.clone().filled(Some(&settings.local_models)),
+            Ok(AdminAction::ChangeSettings {
+                changes: changes.clone()
+            })
         );
-        let step = admin(action);
+        let step = admin(AdminAction::ChangeSettings {
+            changes: changes.clone(),
+        });
         assert_eq!(
             (risk(&step, false), risk(&step, true)),
             (Risk::Confirm, Risk::Confirm)
+        );
+
+        // Undo puts back the old context and nothing else.
+        let made = changed(&settings, &changes);
+        assert_eq!(*made.local_models, after);
+        assert_eq!(changed(&made, &settings_now(&settings, &changes)), settings);
+
+        // A second change in the same call keeps what the first changed.
+        let both = local_models(json!([{"context": 32768}, {"fewer_tools": false}]))
+            .filled(Some(&settings.local_models));
+        let Ok(AdminAction::ChangeSettings { changes }) = both else {
+            panic!("{both:?}");
+        };
+        assert_eq!(
+            *changed(&settings, &changes).local_models,
+            LocalModelSettings {
+                fewer_tools: false,
+                ..after.clone()
+            }
+        );
+
+        // Another device's settings aren't known here, so a change there
+        // gives every field.
+        let refused = context.filled(None).expect_err("refused");
+        assert!(refused.contains("every field"), "{refused}");
+        let every = local_models(json!([{"idle_unload_minutes": 0, "kv_type": "q8_0",
+            "context": 32768, "fewer_tools": false, "default_model": null,
+            "linked_devices": false}]));
+        let given = LocalModelSettings {
+            idle_unload_minutes: 0,
+            kv_type: KvCacheType::Q8_0,
+            fewer_tools: false,
+            ..after
+        };
+        assert_eq!(
+            every.filled(None),
+            Ok(AdminAction::ChangeSettings {
+                changes: vec![DeviceSettingChange::LocalModels {
+                    value: Box::new(given)
+                }]
+            })
         );
     }
 
     #[test]
     fn the_current_values_put_a_change_back() {
-        let settings: DeviceSettings = serde_json::from_value(json!({
-            "device": DeviceId::derive("mac"),
-            "default_permission": "ask",
-            "workspace_network": null,
-            "workspace_pool": null,
-        }))
-        .expect("settings");
+        let settings = settings();
         let changes = [
             DeviceSettingChange::MemoryItems { value: 1 },
             DeviceSettingChange::KeepAwake {
@@ -1060,14 +1204,7 @@ mod tests {
             },
         ];
         let now = settings_now(&settings, &changes);
-        let mut changed = settings.clone();
-        for change in changes {
-            changed.change(change);
-        }
-        for change in now {
-            changed.change(change);
-        }
-        assert_eq!(changed, settings);
+        assert_eq!(changed(&changed(&settings, &changes), &now), settings);
     }
 
     #[test]
@@ -1089,7 +1226,8 @@ mod tests {
             ),
             Ok(Wants::Act(Act {
                 device: None,
-                action: AdminAction::StopAgent { agent }
+                action: AdminAction::StopAgent { agent },
+                named: Vec::new(),
             }))
         );
         let refused = wants(
