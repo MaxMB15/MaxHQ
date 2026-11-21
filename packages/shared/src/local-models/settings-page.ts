@@ -16,6 +16,7 @@ import {
 	localModelsOf,
 	localPicksOn,
 	serverModelName,
+	sharingOff,
 	type LocalPick,
 	type LocalSettings,
 } from "./models";
@@ -354,7 +355,11 @@ export const managedServerView = (view: ViewState, server: ModelServer): Managed
 		server.models.find((m) => m.load?.state === "loaded") ??
 		server.models.find((m) => m.load?.state === "failed");
 	const load = active?.load;
-	const users = serverUsers(view, server).map((d) => deviceName(view, d));
+	// With "Linked devices can use this Mac's models" off, the Mac refuses
+	// their turns, so it names nobody else.
+	const users = serverUsers(view, server)
+		.filter((d) => !sharingOff(view, d, server))
+		.map((d) => deviceName(view, d));
 	return {
 		state,
 		error: install?.type === "failed",

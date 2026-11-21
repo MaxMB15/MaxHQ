@@ -296,6 +296,18 @@ describe("the servers", () => {
 		expect(JSON.stringify(summary)).not.toMatch(/:\d{2,5}\b|127\.0\.0\.1|localhost/);
 	});
 
+	it("name nobody else while the Mac doesn't share its models", async () => {
+		const view = await edited((entities) =>
+			entities.map((e) =>
+				e.entity === "device_settings" && e.device === MAC
+					? { ...e, local_models: { ...e.local_models, linked_devices: false } }
+					: e
+			)
+		);
+		const summary = managedServerView(view, view.tables.model_server.get(MAC_SERVER)!);
+		expect(summary.users).toBeNull();
+	});
+
 	it("say when the managed server failed to set up", async () => {
 		const view = await edited((entities) =>
 			entities.map((e) =>
