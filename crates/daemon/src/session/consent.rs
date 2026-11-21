@@ -71,6 +71,23 @@ const NO_FEED: &str = "This call reaches outside the container it was made in, s
 const MISLED: &str =
     "If the agent in the container was misled by a repository, a web page or a prompt injection,";
 
+/// The risk of `subject` running outside the container an agent asked
+/// from.
+pub(super) fn runs_outside(subject: &str) -> String {
+    format!(
+        "{subject} runs outside the container, without its network limits or file walls. \
+         {MISLED} whatever it asks for runs outside the container with your files and keys."
+    )
+}
+
+/// The risk of a conversation going into a container.
+pub(super) fn goes_inside() -> String {
+    format!(
+        "The summary of its conversation goes into the container, and can hold your files and \
+         keys. {MISLED} it could pass on what it reads."
+    )
+}
+
 /// A call held for your answer.
 pub(super) struct Pending {
     pub(super) reply: Reply,
@@ -432,12 +449,6 @@ impl Manager {
     ) -> Reach {
         let on = format!("on {}", visible(&device_name(&self.hub, device)));
         let mut details = vec![("Device", visible(&device_name(&self.hub, device)))];
-        let runs = |subject: &str| {
-            format!(
-                "{subject} runs outside the container, without its network limits or file walls. \
-                 {MISLED} whatever it asks for runs outside the container with your files and keys."
-            )
-        };
         let reads = format!(
             "That agent runs outside the container, and its conversation can hold your files \
              and keys. {MISLED} it could pass on what it reads."
@@ -467,7 +478,7 @@ impl Manager {
                 (
                     format!("start a {vendor} agent{place} {on}{context}"),
                     if leaves || context.is_empty() {
-                        runs("The new agent")
+                        runs_outside("The new agent")
                     } else {
                         reads
                     },
@@ -478,7 +489,7 @@ impl Manager {
                     "send a message to {}",
                     self.agents_reached(device, &[message.agent], &mut details)
                 ),
-                runs("That agent"),
+                runs_outside("That agent"),
             ),
             Call::ReadAgent(read) => {
                 let named = match read.agent.trim().parse::<AgentId>() {
@@ -529,7 +540,7 @@ impl Manager {
             }
             other => (
                 format!("use {} {on}", other.tool().name()),
-                runs("What it reaches"),
+                runs_outside("What it reaches"),
             ),
         };
         Reach {
@@ -609,7 +620,7 @@ impl Manager {
     }
 
     /// A workspace's name: its container, or its folder's.
-    fn workspace_name(&self, workspace: WorkspaceId) -> String {
+    pub(super) fn workspace_name(&self, workspace: WorkspaceId) -> String {
         let name = match self.hub.get(&EntityKey::Workspace(workspace)) {
             Some(Entity::Workspace(found)) => match found.location {
                 WorkspaceLocation::Container { instance, .. } => instance,

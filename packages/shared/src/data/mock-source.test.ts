@@ -487,6 +487,8 @@ describe("mock source moves", () => {
 			title: "Release checklist",
 			moved: { from: { device: MAC, agent: "agent-release" } },
 		});
+		// The Mac's Auto, lower than devbox's Full access.
+		expect(view.tables.agent.get(moved)?.permission?.requested).toBe("auto");
 		const targets = all(view, "device_tasks")
 			.flatMap((d) => d.tasks)
 			.filter((task) => task.target.type === "agent" && task.target.agent === moved);
@@ -494,6 +496,15 @@ describe("mock source moves", () => {
 		expect(await mock.moveAgent(MAC, "agent-release", MAC, to, true)).toMatchObject({
 			data: { reason: "That agent moved already." },
 		});
+	});
+
+	it("runs the agent in the higher mode when you pick it", async () => {
+		const mock = source();
+		const picked = { ...to, mode: "full_access" as const };
+		const result = await mock.moveAgent(MAC, "agent-release", MAC, picked, true);
+		if (result.status !== "ok" || result.data.status !== "started") throw new Error("no move");
+		const view = applySnapshot(await mock.snapshot());
+		expect(view.tables.agent.get(result.data.agent)?.permission?.requested).toBe("full_access");
 	});
 });
 

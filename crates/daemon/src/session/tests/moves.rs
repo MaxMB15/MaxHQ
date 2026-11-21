@@ -38,6 +38,7 @@ fn pair() -> (Harness, Harness) {
     let mac = Harness::new();
     let devbox = Harness::on(devbox());
     mac.fakes.peers.answer_with(&devbox.sessions, mac.host.id);
+    mac.fakes.peers.name(devbox.host.id, "devbox");
     (mac, devbox)
 }
 
@@ -51,6 +52,7 @@ impl Harness {
             place: AgentPlace::Folder {
                 path: self.folder.display().to_string(),
             },
+            mode: None,
         }
     }
 
@@ -415,18 +417,19 @@ async fn a_tools_move_waits_for_your_approval_and_says_what_it_will_do() {
     };
     mac.say(session, &say).await;
     let card = mac.move_card().await;
-    let consent = mac
-        .move_question(lead)
-        .await
-        .consent
-        .expect("it's a consent card");
+    let question = mac.move_question(lead).await;
+    // The lead runs in Auto, so Full access on devbox is no choice here.
+    assert_eq!(buttons(&question), [APPROVE, DECLINE]);
+    let consent = question.consent.expect("it's a consent card");
     let facts: Vec<(&str, &str)> = consent
         .facts
         .iter()
         .map(|fact| (fact.label.as_str(), fact.value.as_str()))
         .collect();
     let folder = devbox.folder.display().to_string();
+    assert!(facts.contains(&("From", "mac")), "{facts:?}");
     assert!(facts.contains(&("To", "devbox")), "{facts:?}");
+    assert!(facts.contains(&("Runs in", "Auto")), "{facts:?}");
     assert!(facts.contains(&("Folder", folder.as_str())), "{facts:?}");
     assert!(
         facts.contains(&("Carries over", "Only a summary of the conversation")),
@@ -644,5 +647,266 @@ async fn the_dispatcher_lists_another_device_and_plans_a_move_to_it() {
             device: devbox.host.id,
             agent: new,
         })
+    );
+    // It ran in Auto and devbox starts agents in Full access, and the plan
+    // named no mode, so it keeps the lower.
+    assert_eq!(devbox.runs_in(new), Some(PermissionMode::Auto));
+}
+
+impl Harness {
+    /// Has this device start new agents in `mode` unless one is chosen.
+    async fn default_to(&mut self, mode: PermissionMode) {
+        let settings = DeviceSettings {
+            default_permission: mode,
+            ..hub::default_settings(&self.host)
+        };
+        let outcome = self
+            .act(|key| ClientMessage::SetDeviceSettings { key, settings })
+            .await;
+        assert_eq!(outcome, ActionOutcome::Done);
+    }
+
+    /// The mode `agent` runs in.
+    fn runs_in(&self, agent: AgentId) -> Option<PermissionMode> {
+        self.agent(agent)
+            .permission
+            .map(|permission| permission.requested)
+    }
+}
+
+/// The facts a move's card shows, by label.
+fn card_facts(question: &Question) -> Vec<(String, String)> {
+    question
+        .consent
+        .as_ref()
+        .expect("it's a consent card")
+        .facts
+        .iter()
+        .map(|fact| (fact.label.clone(), fact.value.clone()))
+        .collect()
+}
+
+/// Whether a card shows `label` with `value`.
+fn shows(facts: &[(String, String)], label: &str, value: &str) -> bool {
+    facts
+        .iter()
+        .any(|(shown, is)| shown == label && is == value)
+}
+
+/// The labels of a card's buttons.
+fn buttons(question: &Question) -> Vec<&str> {
+    question
+        .options
+        .iter()
+        .map(|option| option.label.as_str())
+        .collect()
+}
+
+#[tokio::test]
+async fn the_device_an_agent_moves_to_decides_its_mode_whatever_the_other_claims() {
+    let (mut mac, mut devbox) = pair();
+    mac.default_to(PermissionMode::Ask).await;
+    let (old, _) = devbox.claude_after_a_turn().await;
+    mac.fakes.peers.claim_mode(PermissionMode::FullAccess);
+
+    let new = started(
+        mac.move_agent(old, devbox.host.id, mac.move_here(), false)
+            .await,
+    );
+    assert_eq!(mac.runs_in(new), Some(PermissionMode::Ask));
+
+    // The lines around the summary are this device's, with what devbox
+    // sent inside them as data.
+    assert_eq!(mac.send(new, "Ship it").await, ActionOutcome::Done);
+    let server = mac.holders.last();
+    eventually("the first message", || !mac.sent(server).is_empty()).await;
+    let sent = mac.sent(server);
+    assert!(
+        sent[0].starts_with(
+            "<maxhq_handoff>\nContext handoff (moved_from_device):\nThis agent moved here from \
+             device"
+        ),
+        "{}",
+        sent[0]
+    );
+    let inside = sent[0]
+        .split_once("<moved_summary>\n")
+        .and_then(|(_, rest)| rest.split_once("\n</moved_summary>"))
+        .map(|(brief, _)| brief)
+        .expect("the summary sits between the tags");
+    assert!(inside.contains("Built it"), "{inside}");
+}
+
+#[tokio::test]
+async fn an_agent_moves_in_the_lower_mode_unless_you_pick_the_higher() {
+    let (mut mac, mut devbox) = pair();
+    // devbox runs Linux, so its agents run in Full access, and the Mac
+    // starts them in Auto.
+    let (first, _) = devbox.claude_after_a_turn().await;
+    let (second, _) = devbox.claude_after_a_turn().await;
+    assert_eq!(devbox.runs_in(first), Some(PermissionMode::FullAccess));
+    let from = devbox.host.id;
+
+    let new = started(mac.move_agent(first, from, mac.move_here(), false).await);
+    assert_eq!(mac.runs_in(new), Some(PermissionMode::Auto));
+
+    let full = MoveTo {
+        mode: Some(PermissionMode::FullAccess),
+        ..mac.move_here()
+    };
+    let new = started(mac.move_agent(second, from, full, false).await);
+    assert_eq!(mac.runs_in(new), Some(PermissionMode::FullAccess));
+}
+
+#[tokio::test]
+async fn a_tools_move_offers_the_higher_mode_no_higher_than_the_callers() {
+    let (mut mac, mut devbox) = pair();
+    mac.fakes.peers.name(devbox.host.id, "Build box");
+    let (old, _) = mac.claude_after_a_turn().await;
+    mac.default_to(PermissionMode::FullAccess).await;
+    let (lead, session) = mac.start_claude(Some("Lead")).await;
+    allow_both(&mut mac, &mut devbox, lead).await;
+
+    // The agent runs in Auto and devbox starts agents in Full access, so
+    // Approve keeps Auto and a second Approve offers Full access.
+    let say = Say {
+        tools: vec![(
+            "m1".into(),
+            lead,
+            "move_agent".into(),
+            devbox.move_ask("m1", old),
+        )],
+        ..Say::default()
+    };
+    mac.say(session, &say).await;
+    let card = mac.move_card().await;
+    assert_eq!(card.summary, "Move Build it to Build box?");
+    let question = mac.move_question(lead).await;
+    let facts = card_facts(&question);
+    assert!(shows(&facts, "Runs in", "Auto"), "{facts:?}");
+    assert!(shows(&facts, "From", "mac"), "{facts:?}");
+    assert!(shows(&facts, "To", "Build box"), "{facts:?}");
+    assert_eq!(
+        buttons(&question),
+        [APPROVE, "Approve in Full access", DECLINE]
+    );
+    assert_eq!(
+        mac.answer_move(card.id, "Approve in Full access").await,
+        AnswerOutcome::Accepted
+    );
+    let new = moved_to(&mac.answer("m1").await.expect("it moved"));
+    assert_eq!(devbox.runs_in(new), Some(PermissionMode::FullAccess));
+}
+
+#[tokio::test]
+async fn a_tools_move_starts_the_agent_no_higher_than_the_caller() {
+    let (mut mac, mut devbox) = pair();
+    mac.default_to(PermissionMode::Ask).await;
+    let (careful, careful_session) = mac.start_claude(Some("Careful")).await;
+    allow_both(&mut mac, &mut devbox, careful).await;
+    mac.default_to(PermissionMode::Auto).await;
+    let (other, _) = mac.claude_after_a_turn().await;
+    let say = Say {
+        tools: vec![(
+            "m2".into(),
+            careful,
+            "move_agent".into(),
+            devbox.move_ask("m2", other),
+        )],
+        ..Say::default()
+    };
+    mac.say(careful_session, &say).await;
+    let card = mac.move_card().await;
+    let question = mac.move_question(careful).await;
+    assert!(
+        shows(&card_facts(&question), "Runs in", "Ask"),
+        "{question:?}"
+    );
+    assert_eq!(buttons(&question), [APPROVE, DECLINE]);
+    assert_eq!(
+        mac.answer_move(card.id, "Approve in Full access").await,
+        AnswerOutcome::UnknownEvent,
+        "a choice the card doesn't offer leaves it open"
+    );
+    assert_eq!(
+        mac.answer_move(card.id, APPROVE).await,
+        AnswerOutcome::Accepted
+    );
+    let new = moved_to(&mac.answer("m2").await.expect("it moved"));
+    assert_eq!(devbox.runs_in(new), Some(PermissionMode::Ask));
+}
+
+#[tokio::test]
+async fn a_tools_move_into_a_container_says_it_crosses_the_wall() {
+    let (mut mac, mut devbox) = pair();
+    devbox.container(None);
+    devbox.start_boxed_claude(None).await;
+    let (old, _) = mac.claude_after_a_turn().await;
+    let (lead, session) = mac.start_claude(Some("Lead")).await;
+    allow_both(&mut mac, &mut devbox, lead).await;
+
+    let mut asked = devbox.move_ask("m1", old);
+    asked.as_object_mut().expect("an object").remove("folder");
+    asked["workspace"] = json!(super::restarts::workspace());
+    let say = Say {
+        tools: vec![("m1".into(), lead, "move_agent".into(), asked)],
+        ..Say::default()
+    };
+    mac.say(session, &say).await;
+    let card = mac.move_card().await;
+    let question = mac.move_question(lead).await;
+    let facts = card_facts(&question);
+    assert!(shows(&facts, "Goes into container", "mhq-box"), "{facts:?}");
+    let risk = &question.consent.as_ref().expect("a consent card").risk;
+    assert!(
+        risk.starts_with(
+            "This move crosses a container's wall. The summary of its conversation goes into \
+             the container"
+        ),
+        "{risk}"
+    );
+    assert_eq!(
+        mac.answer_move(card.id, DECLINE).await,
+        AnswerOutcome::Accepted
+    );
+}
+
+#[tokio::test]
+async fn a_move_asked_from_a_container_says_the_new_agent_runs_outside_it() {
+    let mut server = Harness::on(super::restarts::server());
+    let mut devbox = Harness::on(devbox());
+    server
+        .fakes
+        .peers
+        .answer_with(&devbox.sessions, server.host.id);
+    server.fakes.peers.name(devbox.host.id, "devbox");
+    server.container(None);
+    let (lead, session) = server.start_boxed_claude(Some("Plan it")).await;
+    let (old, _) = server.claude_after_a_turn().await;
+    allow_both(&mut server, &mut devbox, lead).await;
+
+    let asked = devbox.move_ask("m1", old);
+    let say = Say {
+        tools: vec![("m1".into(), lead, "move_agent".into(), asked)],
+        ..Say::default()
+    };
+    server.say_in(session, &say).await;
+    let card = server.move_card().await;
+    let question = server.move_question(lead).await;
+    let facts = card_facts(&question);
+    assert!(
+        shows(&facts, "Asked from container", "mhq-box"),
+        "{facts:?}"
+    );
+    let risk = &question.consent.as_ref().expect("a consent card").risk;
+    assert!(
+        risk.starts_with(
+            "This move crosses a container's wall. The new agent runs outside the container"
+        ),
+        "{risk}"
+    );
+    assert_eq!(
+        server.answer_move(card.id, DECLINE).await,
+        AnswerOutcome::Accepted
     );
 }

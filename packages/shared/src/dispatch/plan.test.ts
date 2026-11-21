@@ -288,7 +288,7 @@ describe("a planned move", () => {
 		seq: 1,
 		entities: [...mockEntities(NOW), ...mockTasks({ now: () => NOW }).entities()],
 	});
-	const move = (agent: string): Plan => ({
+	const move = (agent: string, mode?: PermissionMode): Plan => ({
 		id: 9,
 		items: [
 			{
@@ -302,6 +302,7 @@ describe("a planned move", () => {
 						account: DEVBOX_CLAUDE,
 						model: null,
 						place: { type: "folder", path: "/home/me/work/MaxHQ" },
+						mode,
 					},
 				},
 			},
@@ -322,11 +323,38 @@ describe("a planned move", () => {
 			{ label: "Account", value: "Claude" },
 			{ label: "Model", value: "Default" },
 			{ label: "Where", value: "/home/me/work/MaxHQ" },
+			{ label: "Mode", value: "Auto" },
 			{ label: "Carries over", value: "Only a summary of the conversation" },
 			{ label: "Automations", value: "2 automations will follow it" },
 		]);
 		const lone = itemLines(sample, move("agent-usage-popover"), 0).map((l) => l.label);
 		expect(lone).not.toContain("Automations");
+	});
+
+	it("runs it in the lower of its mode and devbox's, unless the plan asks for more", () => {
+		// The Mac's Auto, below devbox's Full access.
+		expect(itemMode(sample, move("agent-release").items[0]!)).toBe("auto");
+		const full = move("agent-release", "full_access");
+		expect(planSummary(sample, full)).toBe(
+			"1 item: a move of Release checklist to devbox, with Full access"
+		);
+		expect(itemLines(sample, full, 0)).toContainEqual({ label: "Mode", value: "Full access" });
+		// With devbox set to Ask, Full access is above both, so it runs in Auto.
+		const careful = applySnapshot({
+			seq: 1,
+			entities: [
+				...mockEntities(NOW),
+				{
+					entity: "device_settings",
+					device: DEVBOX,
+					default_permission: "ask",
+					workspace_network: null,
+					workspace_pool: null,
+				},
+			],
+		});
+		expect(itemMode(careful, move("agent-release").items[0]!)).toBe("ask");
+		expect(itemMode(careful, full.items[0]!)).toBe("auto");
 	});
 
 	it("says it moved once it ran", () => {

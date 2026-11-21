@@ -15,7 +15,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Instant;
 
-use maxhq_core::agents::{offers, task_permission};
+use maxhq_core::agents::{arrival_mode, runnable, task_permission};
 use maxhq_core::handoff::{self, Usage};
 use maxhq_core::tools::agents::MAX_LIST;
 use maxhq_core::{inbox, names};
@@ -25,7 +25,7 @@ use maxhq_protocol::agents::{
 };
 use maxhq_protocol::ids::{AgentId, DeviceId, IdempotencyKey, PermissionId};
 use maxhq_protocol::message::{ActionOutcome, AgentPlace, AgentSpec, ClientMessage};
-use maxhq_protocol::model::{InboxChange, PermissionMode, WorkspaceLocation};
+use maxhq_protocol::model::{InboxChange, WorkspaceLocation};
 use maxhq_protocol::state::{Entity, EntityKey};
 use maxhq_protocol::tasks::{Maker, Task, TaskTarget};
 use maxhq_protocol::timeline::ItemId;
@@ -441,6 +441,8 @@ impl Manager {
             model,
             place,
             workspace: info.workspace,
+            mode: Some(runnable(spec.vendor, self.default_mode())),
+            container: info.guest.map(|guest| self.workspace_name(guest)),
         };
         ActionOutcome::Checked {
             check: Box::new(check),
@@ -535,6 +537,7 @@ impl Manager {
             mode: held.mode,
             effort: held.effort.clone(),
             brief: None,
+            container: held.guest.map(|guest| self.workspace_name(guest)),
         })
     }
 
@@ -580,12 +583,14 @@ impl Manager {
             }
         };
         let departure = &arrival.departure;
-        // A mode the vendor lacks steps to asking first, as a switch does.
-        spec.permission = Some(if offers(spec.vendor, departure.mode) {
-            departure.mode
-        } else {
-            PermissionMode::Ask
-        });
+        // This device's default decides, so the mode the device it left
+        // reports can't raise the agent above it unless you chose that.
+        spec.permission = Some(arrival_mode(
+            departure.mode,
+            runnable(spec.vendor, self.default_mode()),
+            arrival.to.mode,
+            spec.vendor,
+        ));
         spec.effort.clone_from(&departure.effort);
         spec.title = Some(departure.title.clone());
         let key = internal_key();
@@ -610,11 +615,17 @@ impl Manager {
                 to: None,
                 from: Some(arrival.from),
             }));
-            held.handoff = arrival.departure.brief.clone().map(|brief| Handoff {
+            // The lines around the summary are written here, so the device
+            // it left only fills in what goes between them.
+            held.handoff = arrival.departure.brief.as_deref().map(|brief| Handoff {
                 marker: ItemId(format!("maxhq-moved-{}", Uuid::now_v7())),
                 since: None,
                 context: None,
-                brief: Some(brief),
+                brief: Some(handoff::moved(
+                    arrival.from.agent,
+                    arrival.from.device,
+                    brief,
+                )),
             });
         }
         self.save(agent);

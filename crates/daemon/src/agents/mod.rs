@@ -93,6 +93,11 @@ pub trait PeerCalls: Send + Sync {
     fn home(&self) -> Option<DeviceId> {
         None
     }
+
+    /// What the owner named `device` in the link book, if it's in there.
+    fn name_of(&self, _device: DeviceId) -> Option<String> {
+        None
+    }
 }
 
 /// No line to other devices yet. Device links bring the real one.

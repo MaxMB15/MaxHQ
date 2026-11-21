@@ -25,7 +25,7 @@ import type {
 	UserInput,
 } from "../bindings";
 import { labeledText } from "../pills/draft";
-import { MODE_LABEL, startingMode } from "../settings/permission";
+import { agentMode, MODE_LABEL, movedMode, startingMode } from "../settings/permission";
 import { listInWords, plural, sentence } from "../status/format";
 import { agentKindName, isLocalAccount } from "../status/agent-kind";
 import { accountName } from "../status/usage";
@@ -118,11 +118,28 @@ const triggerPhrase = (trigger: Trigger): string => {
 	}
 };
 
-/** The mode an item's new agent runs in, or null when the item starts none. */
+/**
+ * The mode an item's new agent runs in, or null when the item starts none.
+ * A moved agent takes the lower of its mode now and the default where it
+ * goes, unless the plan names the higher one.
+ */
 export const itemMode = (view: ViewState, item: PlanItem): PermissionMode | null => {
 	const { step } = item;
 	if (step.type === "start_agent") {
 		return step.spec.permission ?? startingMode(view, step.device, step.spec.vendor);
+	}
+	if (step.type === "move_agent") {
+		const vendor = view.tables.account.get(step.to.account)?.vendor;
+		const agent = view.tables.agent.get(step.agent);
+		return vendor && agent
+			? movedMode(
+					view,
+					step.to.device,
+					vendor,
+					agentMode(view, agent, step.device),
+					step.to.mode
+				)
+			: (step.to.mode ?? null);
 	}
 	if (step.type !== "schedule_task" || step.target.type !== "task") return null;
 	const aim = step.target.target;
@@ -202,9 +219,10 @@ export const itemPhrase = (view: ViewState, item: PlanItem): string => {
 				access: access,
 			});
 		case "move_agent":
-			return t("a move of {{agent}} to {{device}}", {
+			return t("a move of {{agent}} to {{device}}{{access}}", {
 				agent: agentTitle(view, step.agent),
 				device: deviceName(view, step.to.device),
+				access: access,
 			});
 		case "admin":
 			return adminPhrase(view, step.device, step.action);
@@ -351,6 +369,7 @@ export const itemLines = (view: ViewState, plan: Plan, index: number): ItemLine[
 				},
 				{ label: t("Model"), value: to.model ?? t("Default") },
 				{ label: t("Where"), value: whereLine(view, to.device, to.place) },
+				...modeLine,
 				{ label: t("Carries over"), value: t("Only a summary of the conversation") },
 				...(follow > 0 ? [{ label: t("Automations"), value: followLine(follow) }] : []),
 			];

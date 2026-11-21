@@ -436,6 +436,12 @@ pub struct MoveTo {
     pub model: Option<String>,
     /// The folder there.
     pub place: AgentPlace,
+    /// The permission mode you chose for it there. The device it goes to
+    /// takes it up to the higher of the mode it ran in and that device's
+    /// own default. None, as from a peer before this field, means the
+    /// lower of the two.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mode: Option<PermissionMode>,
 }
 
 /// What the device an agent moves to says it will run as there.
@@ -453,6 +459,15 @@ pub struct MoveCheck {
     pub place: String,
     /// The workspace that folder belongs to.
     pub workspace: WorkspaceId,
+    /// The mode an agent of that vendor starts in there unless you choose
+    /// one. A device from before this field leaves it out, and starts a
+    /// moved agent in the mode it ran in.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mode: Option<PermissionMode>,
+    /// The container it runs in there, by name, if it runs in one. A
+    /// device from before this field leaves it out.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub container: Option<String>,
 }
 
 /// What an agent takes along from the device it leaves.
@@ -471,6 +486,10 @@ pub struct Departure {
     /// none when there was nothing to carry.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub brief: Option<String>,
+    /// The container it ran in, by name, if it ran in one. A device from
+    /// before this field leaves it out.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub container: Option<String>,
 }
 
 /// What starts a moved agent on the device it goes to.

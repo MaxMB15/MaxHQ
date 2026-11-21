@@ -41,6 +41,7 @@ import {
 import type { Entity } from "../fleet/wire";
 import { apply, inboxOf, isSnoozed } from "../view/inbox";
 import { networkReady } from "../settings/network-access";
+import { narrower } from "../settings/permission";
 import { idOf, keyOf as entityKey } from "../view/replica";
 import { givenName } from "../ui/rename-agent";
 import { runName } from "../workflow/select";
@@ -779,6 +780,8 @@ export const mockSource = (options: MockOptions = {}): MockSource => {
 	// Moves a held lead agent to another device the way maxd does, through
 	// the Mac: a new agent starts there under the same name, the old one
 	// stops and settles, and the tasks the Mac keeps that send to it follow.
+	// It runs there in the mode you chose, or else the lower of its mode now
+	// and that device's default.
 	const moveAgent = async (
 		device: DeviceId,
 		id: AgentId,
@@ -820,7 +823,9 @@ export const mockSource = (options: MockOptions = {}): MockSource => {
 			account: account.id,
 			place: to.place,
 			model: to.model ?? null,
-			permission: agent.permission?.requested ?? null,
+			permission:
+				to.mode ??
+				narrower(agent.permission?.requested ?? defaultMode(from), defaultMode(to.device)),
 			title: agent.title,
 			first: null,
 			branch: null,

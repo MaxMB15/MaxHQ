@@ -5,22 +5,27 @@
 //! one a tool asks for waits for your answer on a card in the caller's
 //! feed, as a task an agent makes does. Before the card opens, the device
 //! the agent leaves says it can go and the device it goes to says what it
-//! will run as there, so the card names both. Approve runs the move as the
-//! app's Move does. Decline refuses it, and so does a card nobody answers
-//! in time. Cards live in memory, so restarting `maxd` drops them with the
-//! calls they hold.
+//! will run as there, so the card names both. The agent starts there in
+//! the lower of the mode it ran in and that device's default, and a second
+//! Approve starts it in the higher one. Approve runs the move as the app's
+//! Move does. Decline refuses it, and so does a card nobody answers in
+//! time. A move that crosses a container's wall says so, with the risk the
+//! container's own card names. Cards live in memory, so restarting `maxd`
+//! drops them with the calls they hold.
 
 use std::time::{Duration, Instant};
 
-use maxhq_core::agents::{self as rules, Ask, NOT_ALLOWED};
+use maxhq_core::agents::{self as rules, mode_name, mode_title, runnable, Ask, NOT_ALLOWED};
 use maxhq_core::tools::agents::{Move, WAIT};
 use maxhq_protocol::agents::{AgentMoveStep, Departure, MoveCheck, MoveTo, Permission};
 use maxhq_protocol::attention::{AnswerOutcome, AttentionAnswer};
 use maxhq_protocol::ids::{AgentId, AttentionId, ClientId, DeviceId, IdempotencyKey, PermissionId};
 use maxhq_protocol::message::ActionOutcome;
+use maxhq_protocol::model::PermissionMode;
 use maxhq_protocol::timeline::{Consent, ConsentFact, Question, QuestionOption, TimelineItem};
 
 use super::agent_tools::{failure, request_key, Calling, Reply, Then, NO_CONN};
+use super::consent::{goes_inside, runs_outside};
 use super::folders::picked;
 use super::idem::Outcome;
 use super::move_agent::{Later, ALREADY_THERE, NOT_HOME};
@@ -44,6 +49,11 @@ pub(super) const UNANSWERED: &str = "The user didn't answer in time, so the agen
 /// What a call reads when there's no feed to ask in.
 const NO_FEED: &str = "A move waits for the user's approval in MaxHQ, and this call has no \
                        agent's feed to ask in.";
+/// What a call reads when the device it goes to would start the agent in
+/// a broader mode than the caller's.
+const ABOVE_CALLER: &str = "That device's maxd is older and would start the agent in the mode it \
+                            ran in, which is broader than yours. Update maxd there, or ask the \
+                            user to move it.";
 /// What an agent reads when it asks to move itself.
 const ITSELF: &str = "You can't move yourself while you work. Ask the user to move you, from \
                       your menu in MaxHQ.";
@@ -58,7 +68,31 @@ pub(super) struct Asking {
     agent: AgentId,
     from: DeviceId,
     to: MoveTo,
+    modes: Modes,
     pub(super) until: Instant,
+}
+
+/// The modes a move's card offers: Approve's, and the higher one a second
+/// Approve offers when it differs.
+#[derive(Clone, Copy)]
+struct Modes {
+    approve: PermissionMode,
+    higher: Option<PermissionMode>,
+}
+
+/// What a move's card says besides what both devices answered.
+struct Shown {
+    /// The names you gave the devices the agent leaves and goes to.
+    from: String,
+    to: String,
+    /// How many automations follow it.
+    follow: usize,
+    modes: Modes,
+    /// The containers it crosses: the caller's, the one the agent leaves
+    /// and the one it goes into.
+    asked_from: Option<String>,
+    leaves: Option<String>,
+    enters: Option<String>,
 }
 
 /// What both devices said about a move a tool asked for, before the card.
@@ -189,13 +223,31 @@ impl Manager {
             mode: None,
             counts: None,
         };
-        let allowed =
-            rules::check_move(&permission, caller.rules(), from, start, self.clock.wall());
-        if let Err(refusal) = allowed {
-            return self.finish(key, Outcome::Action(refused(refusal.to_string())));
-        }
-        let follow = self.following(from, agent).len();
-        let (summary, question) = move_question(&departure, &check, follow);
+        let cap =
+            match rules::check_move(&permission, caller.rules(), from, start, self.clock.wall()) {
+                Ok(cap) => cap,
+                Err(refusal) => {
+                    return self.finish(key, Outcome::Action(refused(refusal.to_string())))
+                }
+            };
+        let Some(modes) = self.card_modes(caller, &departure, &check, cap) else {
+            return self.finish(key, Outcome::Action(refused(ABOVE_CALLER)));
+        };
+        let shown = Shown {
+            from: self.booked_name(from),
+            to: self.booked_name(to.device),
+            follow: self.following(from, agent).len(),
+            modes,
+            asked_from: caller
+                .container
+                .map(|(_, workspace)| self.workspace_name(workspace)),
+            leaves: self
+                .container_of(from, agent)
+                .map(|workspace| self.workspace_name(workspace))
+                .or_else(|| departure.container.as_deref().map(visible)),
+            enters: check.container.as_deref().map(visible),
+        };
+        let (summary, question) = move_question(&departure, &check, &shown);
         let (event, item) = self.open_timed_card(feed, QUESTION, summary, question);
         self.moves.asking.push(Asking {
             event,
@@ -204,8 +256,71 @@ impl Manager {
             agent,
             from,
             to,
+            modes,
             until: self.clock.now() + Duration::from_secs(WAIT),
         });
+    }
+
+    /// The modes a move's card offers. The device it goes to starts it in
+    /// the lower of the mode it ran in and its own default unless you pick
+    /// the higher, and neither goes past `cap`, the caller's own mode. A
+    /// device from before that choice starts it in the mode it ran in, so
+    /// that's the one shown, and none when it's broader than `cap`.
+    fn card_modes(
+        &self,
+        caller: Calling,
+        departure: &Departure,
+        check: &MoveCheck,
+        cap: Option<PermissionMode>,
+    ) -> Option<Modes> {
+        let capped = |mode| {
+            runnable(
+                check.vendor,
+                cap.map_or(mode, |cap| rules::narrower(mode, cap)),
+            )
+        };
+        let Some(default) = check.mode else {
+            let ran = runnable(check.vendor, departure.mode);
+            return (capped(ran) == ran).then_some(Modes {
+                approve: ran,
+                higher: None,
+            });
+        };
+        let (lower, higher) = rules::move_modes(departure.mode, default);
+        let (lower, higher) = (capped(lower), capped(higher));
+        if self.owner_asked_for_mode(caller, higher) {
+            return Some(Modes {
+                approve: higher,
+                higher: None,
+            });
+        }
+        Some(Modes {
+            approve: lower,
+            higher: (higher != lower).then_some(higher),
+        })
+    }
+
+    /// Whether the owner's own words asked for this move in `mode`, so the
+    /// card's Approve starts the agent in it with no second choice. Always
+    /// false for now: `owner_asked_for(agent, quote, mode)` in
+    /// `crates/daemon/src/session/owner_words.rs` goes here, with the
+    /// caller's agent and the owner's words it quotes.
+    fn owner_asked_for_mode(&self, _caller: Calling, _mode: PermissionMode) -> bool {
+        false
+    }
+
+    /// The name you gave a device in the link book, or this device's own,
+    /// rather than the one a device reports for itself.
+    fn booked_name(&self, device: DeviceId) -> String {
+        let name = if device == self.device {
+            self.hub.device().name.clone()
+        } else {
+            self.agent_tools
+                .peers
+                .name_of(device)
+                .unwrap_or_else(|| device.to_string())
+        };
+        visible(&name)
     }
 
     /// Whether an event is a move's card that waits.
@@ -234,19 +349,28 @@ impl Manager {
         else {
             return AnswerOutcome::UnknownEvent;
         };
-        let Some(pick) = picked(answer, QUESTION).filter(|pick| [APPROVE, DECLINE].contains(pick))
-        else {
-            return AnswerOutcome::UnknownEvent;
+        let modes = self.moves.asking[index].modes;
+        let (pick, mode) = match picked(answer, QUESTION) {
+            Some(pick @ APPROVE) => (pick, Some(modes.approve)),
+            Some(pick @ DECLINE) => (pick, None),
+            Some(pick) if modes.higher.is_some_and(|mode| pick == approve_in(mode)) => {
+                (pick, modes.higher)
+            }
+            _ => return AnswerOutcome::UnknownEvent,
         };
-        let approve = pick == APPROVE;
         let values = vec![pick.to_owned()];
         let asking = self.moves.asking.swap_remove(index);
         self.record_answer(event, key, by);
         self.close_timed_card(asking.event, asking.item, QUESTION, Some(values));
-        let outcome = if approve {
-            self.move_agent(asking.key, asking.agent, asking.from, asking.to, false)
-        } else {
-            Some(refused(DECLINED))
+        let outcome = match mode {
+            Some(mode) => {
+                let to = MoveTo {
+                    mode: Some(mode),
+                    ..asking.to
+                };
+                self.move_agent(asking.key, asking.agent, asking.from, to, false)
+            }
+            None => Some(refused(DECLINED)),
         };
         if let Some(outcome) = outcome {
             self.finish(asking.key, Outcome::Action(outcome));
@@ -269,38 +393,64 @@ impl Manager {
     }
 }
 
+/// The label of the Approve that starts the agent in `mode`, the higher
+/// of the two.
+fn approve_in(mode: PermissionMode) -> String {
+    format!("{APPROVE} in {}", mode_title(mode))
+}
+
 /// The card's inbox line and its question, for a move of the agent that
-/// `departure` describes to where `check` says, with `follow` tasks.
-fn move_question(departure: &Departure, check: &MoveCheck, follow: usize) -> (String, Question) {
+/// `departure` describes to where `check` says, as `shown` adds.
+fn move_question(departure: &Departure, check: &MoveCheck, shown: &Shown) -> (String, Question) {
     let title = visible(&departure.title);
-    let from = visible(&departure.device);
-    let to = visible(&check.device);
-    let mut risk = format!(
+    let Shown { from, to, .. } = shown;
+    let Modes { approve, higher } = shown.modes;
+    let mut risk = crossing(shown);
+    risk.push_str(&format!(
         "{title} stops on {from} and settles. A new agent starts on {to} under the same name, \
          from a summary of the conversation. Files and uncommitted changes in its folder stay \
          on {from}."
-    );
-    match follow {
+    ));
+    if let Some(higher) = higher {
+        risk.push_str(&format!(
+            " It runs in {} there, the lower of the mode it ran in and {to}'s default, unless \
+             you pick {}.",
+            mode_name(approve),
+            approve_in(higher)
+        ));
+    }
+    match shown.follow {
         0 => {}
         1 => risk.push_str(" 1 automation will follow it."),
         n => risk.push_str(&format!(" {n} automations will follow it.")),
     }
-    let facts = vec![
+    let mut facts = vec![
         ("Agent", title.clone()),
-        ("From", from),
+        ("From", from.clone()),
         ("To", to.clone()),
         (
             "Runs as",
             format!("{}, {}", vendor_name(check.vendor), visible(&check.account)),
         ),
+        ("Runs in", mode_title(approve)),
         ("Model", visible(&check.model)),
         ("Folder", visible(&check.place)),
         (
             "Carries over",
             "Only a summary of the conversation".to_owned(),
         ),
-        ("Automations", follow.to_string()),
+        ("Automations", shown.follow.to_string()),
     ];
+    let containers = [
+        ("Asked from container", &shown.asked_from),
+        ("Leaves container", &shown.leaves),
+        ("Goes into container", &shown.enters),
+    ];
+    for (label, name) in containers {
+        if let Some(name) = name {
+            facts.push((label, name.clone()));
+        }
+    }
     let mut text = risk.clone();
     text.push('\n');
     for (label, value) in &facts {
@@ -320,23 +470,50 @@ fn move_question(departure: &Departure, check: &MoveCheck, follow: usize) -> (St
         rows: Vec::new(),
         remember: None,
     };
-    let choice = |label: &str, description: &str| QuestionOption {
-        label: label.to_owned(),
-        description: Some(description.to_owned()),
+    let choice = |label: String, description: String| QuestionOption {
+        label,
+        description: Some(description),
     };
+    let mut options = vec![choice(
+        APPROVE.to_owned(),
+        format!(
+            "Stops the agent and starts it again there, in {}.",
+            mode_name(approve)
+        ),
+    )];
+    if let Some(higher) = higher {
+        options.push(choice(
+            approve_in(higher),
+            format!("Starts it there in {} instead.", mode_name(higher)),
+        ));
+    }
+    options.push(choice(
+        DECLINE.to_owned(),
+        "Leaves the agent where it is.".to_owned(),
+    ));
     let summary: String = format!("Move {title} to {to}?").chars().take(80).collect();
     let question = Question {
         id: QUESTION.to_owned(),
         header: Some(TITLE.to_owned()),
         text,
-        options: vec![
-            choice(APPROVE, "Stops the agent and starts it again there."),
-            choice(DECLINE, "Leaves the agent where it is."),
-        ],
+        options,
         multi: false,
         other: false,
         secret: false,
         consent: Some(consent),
     };
     (summary, question)
+}
+
+/// What the card says first when the move crosses a container's wall, or
+/// nothing when it doesn't.
+fn crossing(shown: &Shown) -> String {
+    let risk = if shown.enters.is_some() {
+        goes_inside()
+    } else if shown.leaves.is_some() || shown.asked_from.is_some() {
+        runs_outside("The new agent")
+    } else {
+        return String::new();
+    };
+    format!("This move crosses a container's wall. {risk} ")
 }

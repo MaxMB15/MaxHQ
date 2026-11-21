@@ -1409,6 +1409,7 @@
 	"Couldn't undo it. Try again.": "No se pudo deshacer. Inténtalo de nuevo.",
 	"Couldn't undo the dispatcher's change": "No se pudo deshacer el cambio del coordinador",
 	"On {{device}}": "En {{device}}",
+	"Runs in": "Se ejecuta en",
 	"This change can't be undone any more": "Este cambio ya no se puede deshacer",
 	"Undone": "Deshecho"
 }
