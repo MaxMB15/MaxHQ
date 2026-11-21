@@ -71,6 +71,7 @@ describe("sameDeviceFields", () => {
 			false
 		);
 		expect(sameDeviceFields(fields, { ...fields, codex_effort: "high" })).toBe(false);
+		expect(sameDeviceFields(fields, { ...fields, claude_artifacts: false })).toBe(false);
 	});
 });
 
@@ -109,6 +110,7 @@ describe("settingsWhy", () => {
 			effort: offline,
 			shell: offline,
 			reads: offline,
+			artifacts: offline,
 			local: offline,
 		});
 	});
@@ -124,6 +126,7 @@ describe("settingsWhy", () => {
 			effort: null,
 			shell: null,
 			reads: null,
+			artifacts: null,
 			local: null,
 		});
 	});
@@ -138,6 +141,7 @@ describe("settingsWhy", () => {
 		expect(why.effort).toBe("oldbox's maxd is too old for this. Update it first.");
 		expect(why.shell).toBe("oldbox's maxd is too old for this. Update it first.");
 		expect(why.reads).toBe("oldbox's maxd is too old for this. Update it first.");
+		expect(why.artifacts).toBe("oldbox's maxd is too old for this. Update it first.");
 		expect(why.local).toBe("oldbox's maxd is too old for these. Update it first.");
 		expect(why.tokens).toBe(
 			"oldbox's maxd is too old for this, and takes setup-tokens. Update it first."

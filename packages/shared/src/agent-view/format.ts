@@ -10,6 +10,7 @@ import type { AttachmentRef, ItemStatus, TimelineItem } from "../bindings";
 import { formatDuration, plural } from "../status/format";
 import { localAgentLabel } from "../local-models/wording";
 import { kindName, type AgentKind } from "../status/agent-kind";
+import { artifactLine } from "./artifact-line";
 
 /** Whether an item's status means it's still going. */
 export const isOpen = (status: ItemStatus): boolean =>
@@ -154,7 +155,8 @@ export const gapAbove = (kind: Kind, before: Kind | null): number => {
 
 /**
  * What a tool step acts on, in one line: a command's first line, a path, a
- * query or a tool's name. Null for anything that isn't a tool step.
+ * query, a claude.ai page or a tool's name. Null for anything that isn't a
+ * tool step.
  */
 export const toolTarget = (item: TimelineItem): string | null => {
 	switch (item.kind) {
@@ -171,7 +173,10 @@ export const toolTarget = (item: TimelineItem): string | null => {
 		case "web":
 			return item.target;
 		case "tool_call":
-			return item.server ? `${item.server}:${item.name}` : item.name;
+			return (
+				artifactLine(item)?.target ||
+				(item.server ? `${item.server}:${item.name}` : item.name)
+			);
 		default:
 			return null;
 	}

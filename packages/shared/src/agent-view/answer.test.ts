@@ -11,6 +11,7 @@ import {
 	failureOf,
 	isDeny,
 	isLate,
+	mainAnswer,
 	plainChoices,
 	questionsAnswer,
 } from "./answer";
@@ -185,6 +186,32 @@ describe("approvalChoices", () => {
 			others: ["cancel"],
 			deny: "decline",
 		});
+	});
+
+	it("puts the no on the main button when turning it down comes first", () => {
+		const options = [
+			option("allow", "Allow"),
+			option("allow_always", "Allow always"),
+			option("deny", "Deny"),
+		];
+		const choices = approvalChoices(options, true);
+		expect([choices.primary?.id, choices.others.map((o) => o.id), choices.deny?.id]).toEqual([
+			"deny",
+			["allow", "allow_always"],
+			"deny",
+		]);
+		expect(mainAnswer(choices, "")).toEqual({ type: "option", id: "deny" });
+		expect(mainAnswer(choices, " Not this one ")).toEqual({
+			type: "text",
+			text: "Not this one",
+		});
+		expect(mainAnswer(approvalChoices(options), "ignored")).toEqual({
+			type: "option",
+			id: "allow",
+		});
+		// With no no to put first, the card stays as it was.
+		expect(approvalChoices([option("allow", "Allow")], true).primary?.id).toBe("allow");
+		expect(mainAnswer(approvalChoices([option("always", "Allow always")]), "")).toBeNull();
 	});
 
 	it("takes the no for this one request first", () => {

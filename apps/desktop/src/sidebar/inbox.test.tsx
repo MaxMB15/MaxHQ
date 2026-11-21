@@ -197,9 +197,11 @@ describe("picking agents", () => {
 		const rows = within(region("MaxHQ")).getAllByRole("option");
 		// The two agents the release checklist started sit under it.
 		expect(rows.map((b) => b.textContent)).toEqual([
+			expect.stringMatching(/^Weekly report page/),
 			expect.stringMatching(/^Release checklist/),
 			expect.stringMatching(/^Write the release notes/),
 			expect.stringMatching(/^Build a signed bundle/),
+			expect.stringMatching(/^Tidy old claude\.ai pages/),
 			expect.stringMatching(/^Show the release plan/),
 			expect.stringMatching(/^M1 observe milestone/),
 			expect.stringMatching(/^Usage meter popover/),
@@ -610,7 +612,13 @@ describe("the inbox shortcuts", () => {
 
 		press("KeyS", "S", true);
 		expect(setInbox).toHaveBeenLastCalledWith(["agent-bindings"], { change: "settle" });
-		const waiting = ["agent-release", "agent-sync-drift", "agent-launch-tag"];
+		const waiting = [
+			"agent-release",
+			"agent-sync-drift",
+			"agent-launch-tag",
+			"agent-weekly-report",
+			"agent-tidy-pages",
+		];
 		const first = ui.getState().selectedAgent;
 		expect(waiting).toContain(first);
 
@@ -626,7 +634,10 @@ describe("the inbox shortcuts", () => {
 	it("stay on the agent you settle when no other waits", async () => {
 		const { setInbox, ui } = renderApp(
 			undefined,
-			changed(["agent-sync-drift", "agent-launch-tag"], { activity: { state: "idle" } })
+			changed(
+				["agent-sync-drift", "agent-launch-tag", "agent-weekly-report", "agent-tidy-pages"],
+				{ activity: { state: "idle" } }
+			)
 		);
 		fireEvent.click(await row(/Release checklist/));
 

@@ -65,6 +65,55 @@ describe("mock timelines", () => {
 		expect(updates).toHaveLength(count);
 	});
 
+	it("shows Claude's artifact calls and the two kinds of artifact ask", () => {
+		const items = [
+			...firstPage("agent-weekly-report").items,
+			...firstPage("agent-tidy-pages").items,
+		];
+		const calls = items.flatMap((item) =>
+			item.kind === "tool_call" && item.artifact
+				? [`${item.name} ${item.artifact.action} ${item.status}`]
+				: []
+		);
+		expect(calls).toEqual(
+			expect.arrayContaining([
+				"Artifact publish completed",
+				"ArtifactData set completed",
+				"ArtifactComments reply failed",
+				"Artifact read waiting",
+				"Artifact delete waiting",
+			])
+		);
+		const foreign = items.filter(
+			(item) => item.kind === "tool_call" && item.artifact?.owned === false
+		);
+		expect(foreign.length).toBeGreaterThan(0);
+		const asks = items.flatMap((item) =>
+			item.kind === "approval" && item.status === "waiting"
+				? [[item.approval_kind, item.deny_first ?? false, Boolean(item.reason)]]
+				: []
+		);
+		expect(asks).toEqual([
+			["network", false, false],
+			["network", true, true],
+		]);
+	});
+
+	it("moves a call on once its ask is answered", () => {
+		const { timelines, updates } = firstPage("agent-tidy-pages");
+		expect(
+			timelines.decide("att-draft-delete", { type: "option", id: "deny" }, "client-1")
+		).toBe(true);
+		const last = updates.at(-1);
+		const statuses = last?.type === "events" ? last.events : [];
+		expect(
+			statuses.map((event) => event.type === "upsert" && [event.item.kind, event.item.status])
+		).toEqual([
+			["approval", "declined"],
+			["tool_call", "declined"],
+		]);
+	});
+
 	it("marks an approval answered", () => {
 		const { timelines, updates } = firstPage("agent-release");
 		expect(timelines.decide("att-release", { type: "option", id: "allow" }, "client-1")).toBe(

@@ -52,7 +52,11 @@ const lasts = (option: AttentionOption): boolean => {
 
 /** An approval's options as the card lays them out. */
 export type Choices = {
-	/** The first yes for this request alone, on the main button. A yes that lasts never goes there. */
+	/**
+	 * The option on the main button: the first yes for this request alone,
+	 * or the no when turning it down comes first. A yes that lasts never
+	 * goes there.
+	 */
 	readonly primary: AttentionOption | null;
 	/** Every other option, in the order the agent listed them. */
 	readonly others: readonly AttentionOption[];
@@ -63,11 +67,16 @@ export type Choices = {
 /**
  * Sorts an approval's options into the card's buttons. The agent names and
  * orders them, so the main button goes by what an option says, not by where
- * it's listed.
+ * it's listed. With `denyFirst`, the no takes the main button and every
+ * yes sits beside it, so a stray Enter can't allow the request.
  */
-export const approvalChoices = (options: readonly AttentionOption[]): Choices => {
+export const approvalChoices = (
+	options: readonly AttentionOption[],
+	denyFirst = false
+): Choices => {
 	const shown = options.map((o) => ({ ...o, label: showHidden(o.label) }));
 	const deny = shown.find((o) => isDeny(o) && !lasts(o)) ?? shown.find(isDeny) ?? null;
+	if (denyFirst && deny) return { primary: deny, others: shown.filter((o) => o !== deny), deny };
 	const yes = shown.filter((o) => !isDeny(o));
 	const primary = yes.find((o) => !lasts(o)) ?? null;
 	return { primary, others: shown.filter((o) => o !== deny && o !== primary), deny };
@@ -77,6 +86,13 @@ export const approvalChoices = (options: readonly AttentionOption[]): Choices =>
 export const denyAnswer = (deny: AttentionOption, reason: string): AttentionAnswer => {
 	const text = reason.trim();
 	return text ? { type: "text", text } : { type: "option", id: deny.id };
+};
+
+/** What the main button and Enter send, with the reason when they say no. */
+export const mainAnswer = (choices: Choices, reason: string): AttentionAnswer | null => {
+	const { primary, deny } = choices;
+	if (!primary) return null;
+	return primary === deny ? denyAnswer(primary, reason) : { type: "option", id: primary.id };
 };
 
 /** What you picked and typed for one question. */

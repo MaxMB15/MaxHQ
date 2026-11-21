@@ -93,6 +93,28 @@ describe("recentOutput", () => {
 		expect(lineOf(sent("Here you go", 2))).toBe("Here you go");
 	});
 
+	it("reads a claude.ai page call as its verb, page and link", () => {
+		const published = timelineItem(
+			{
+				kind: "tool_call",
+				server: null,
+				name: "Artifact",
+				title: "Artifact publish",
+				input: null,
+				output: null,
+				artifact: {
+					action: "publish",
+					title: "Weekly report",
+					url: "https://claude.ai/artifact/ExampleArtifactId0000001",
+				},
+			},
+			{ id: "p" }
+		);
+		expect(recentOutput(stateOf([published]))[0]?.text).toBe(
+			"Published Weekly report https://claude.ai/artifact/ExampleArtifactId0000001"
+		);
+	});
+
 	it("reads a visual as what it shows", () => {
 		const shown = timelineItem(
 			{

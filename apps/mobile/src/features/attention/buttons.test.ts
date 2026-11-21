@@ -34,6 +34,20 @@ describe("answerButtons", () => {
 		expect(deny?.id).toBe("deny");
 	});
 
+	it("puts the no first in the main button's look when the agent wants no as the default", () => {
+		const shown = (acceptsText: boolean) => {
+			const { buttons, deny } = answerButtons(options, true, acceptsText, true);
+			return [buttons.map((b) => [b.option.id, b.tone]), deny];
+		};
+		const first = [
+			["deny", "primary"],
+			["allow", "secondary"],
+			["session", "secondary"],
+		];
+		expect(shown(false)).toEqual([first, null]);
+		expect(shown(true)).toEqual([first, null]);
+	});
+
 	it("keeps a question's options as buttons even when it takes text", () => {
 		expect(answerButtons(options, false, true).deny).toBeNull();
 	});

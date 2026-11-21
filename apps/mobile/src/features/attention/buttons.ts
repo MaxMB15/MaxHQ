@@ -3,8 +3,10 @@
 
 // The buttons under a prompt. An approval puts its first yes first and its
 // no last, as the desktop card does. When it takes a reason, its no moves
-// to a field of its own, a box for the reason with the no on its end. A
-// question lists its options in order.
+// to a field of its own, a box for the reason with the no on its end. When
+// the agent wants no as the default, the no comes first in the main
+// button's look and every yes follows it. A question lists its options in
+// order.
 
 import { approvalChoices } from "@maxhq/shared/agent-view/answer";
 import type { AttentionOption } from "@maxhq/shared/bindings";
@@ -26,18 +28,21 @@ export type Answers = {
 export const answerButtons = (
 	options: readonly AttentionOption[],
 	permission: boolean,
-	acceptsText = false
+	acceptsText = false,
+	denyFirst = false
 ): Answers => {
 	if (!permission) {
 		return { buttons: options.map((option) => ({ option, tone: "secondary" })), deny: null };
 	}
-	const { primary, others, deny } = approvalChoices(options);
-	const attached = acceptsText && deny ? deny : null;
+	const { primary, others, deny } = approvalChoices(options, denyFirst);
+	// A no on the main button stays there, and the reason field sends a note.
+	const last = deny && primary !== deny ? deny : null;
+	const attached = acceptsText ? last : null;
 	return {
 		buttons: [
 			...(primary ? [{ option: primary, tone: "primary" as const }] : []),
 			...others.map((option) => ({ option, tone: "secondary" as const })),
-			...(deny && !attached ? [{ option: deny, tone: "danger" as const }] : []),
+			...(last && !attached ? [{ option: last, tone: "danger" as const }] : []),
 		],
 		deny: attached,
 	};
