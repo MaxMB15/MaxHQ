@@ -229,6 +229,7 @@ fn task(name: &str, repo: &str, events: &[&str]) -> Task {
         next_run: None,
         last_run: None,
         approval_asked: None,
+        by_dispatcher: false,
     }
 }
 

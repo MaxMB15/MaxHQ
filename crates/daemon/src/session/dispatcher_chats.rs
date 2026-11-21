@@ -136,6 +136,19 @@ struct Starting {
 }
 
 impl Manager {
+    /// Whether an agent is one of the dispatcher's chats.
+    pub(super) fn is_chat(&self, agent: AgentId) -> bool {
+        self.dispatcher.chats.rows.contains_key(&agent)
+    }
+
+    /// Makes a chat the conversation the header shows. An agent that isn't
+    /// one of the dispatcher's chats never takes its place.
+    pub(super) fn adopt_chat(&mut self, chat: AgentId) {
+        if self.is_chat(chat) {
+            self.dispatcher.agent = Some(chat);
+        }
+    }
+
     /// Handles a client's act on one chat.
     pub(super) fn chat_message(&mut self, conn: u64, message: ClientMessage) {
         let ClientMessage::ActOnChat {
@@ -576,6 +589,7 @@ impl Manager {
         self.dispatcher.chats.starting.insert(key, starting);
         // The chat the request leaves runs on to end its turn.
         self.dispatcher.agent = None;
+        self.owner_words.sent(key, &input.text);
         if let Some(outcome) = self.ask_dispatcher(key, input, account, true) {
             self.finish(key, Outcome::Action(outcome));
         }
@@ -646,6 +660,7 @@ impl Manager {
         };
         self.edit_chat(source, |row| row.moved = Some(moved));
         self.publish_dispatcher();
+        self.owner_words.sent(key, &input.text);
         let send = ClientMessage::SendInput {
             key,
             agent: target,
@@ -725,19 +740,20 @@ impl Manager {
     }
 
     /// Takes up the chats the last run kept, with a chat for each
-    /// conversation it held that has none, and makes the one you wrote in
-    /// last the conversation now.
+    /// conversation from before chats were kept, and makes the one you
+    /// wrote in last the conversation now. An agent that tools started in
+    /// the dispatcher's folder doesn't become one.
     pub(super) fn restore_chats(&mut self) {
-        let Some(home) = self.dispatcher.home() else {
+        if self.dispatcher.home().is_none() {
             return;
-        };
+        }
         let stored = self.db.dispatcher_chats::<Record>().unwrap_or_else(|err| {
             warn!(%err, "couldn't read the dispatcher's chats");
             Vec::new()
         });
         for record in stored {
             let agent = record.agent;
-            if self.is_dispatcher(agent) {
+            if self.in_home(agent) {
                 self.dispatcher.chats.rows.insert(agent, Chat::new(record));
             } else if let Err(err) = self.db.remove_dispatcher_chat(agent) {
                 warn!(%err, %agent, "couldn't forget the dispatcher chat");
@@ -746,7 +762,7 @@ impl Manager {
         let mut unlisted: Vec<(Timestamp, AgentId, Timestamp)> = self
             .held
             .values()
-            .filter(|held| held.guest.is_none() && held.agent.workspace == home)
+            .filter(|held| held.agent.origin.is_none() && self.in_home(held.agent.id))
             .filter(|held| !self.dispatcher.chats.rows.contains_key(&held.agent.id))
             .map(|held| {
                 let agent = &held.agent;
@@ -770,10 +786,8 @@ impl Manager {
         }
         let rows = self.dispatcher.chats.rows.values();
         let newest = rows.max_by_key(|row| row.record.active_at);
-        if let Some(row) = newest {
-            self.dispatcher.agent = Some(row.record.agent);
-            self.publish_dispatcher();
-        }
+        self.dispatcher.agent = newest.map(|row| row.record.agent);
+        self.publish_dispatcher();
         let chats: Vec<AgentId> = self.dispatcher.chats.rows.keys().copied().collect();
         for chat in chats {
             self.publish_chat(chat);

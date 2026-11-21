@@ -8,19 +8,21 @@
 
 use std::time::Duration;
 
-use maxhq_protocol::dispatch::{AdminAction, PlanStep, ProjectSettingChange};
+use maxhq_protocol::dispatch::{AdminAction, PlanStep, PlanTarget, ProjectSettingChange};
 use maxhq_protocol::ids::{AgentId, DeviceId};
 use maxhq_protocol::local_models::LocalModelSettings;
 use maxhq_protocol::message::{SendMode, ToolTarget};
 use maxhq_protocol::model::{DeviceSettingChange, DeviceSettings, InboxChange, PermissionMode};
 use maxhq_protocol::model::{ProjectSettings, Tool as Cli};
 use maxhq_protocol::state::ToolPlace;
+use maxhq_protocol::tasks::TaskTarget;
 use maxhq_protocol::time::Timestamp;
 use serde_json::{json, Map, Value};
 
 use super::agents::{flag, id, named, number, text, MAX_TITLE};
 use super::dispatch::{self, Start, Step};
 use super::{fields, tasks, Call, Tool};
+use crate::agents::mode_rank;
 
 /// The most things one change touches, and the most changes one request
 /// makes without asking, before the dispatcher asks first.
@@ -47,6 +49,13 @@ pub const SHARED: [Tool; 7] = [
 /// What `asked` reads, in each acting tool the dispatcher has.
 const ASKED: &str = "True when the user's request asked for exactly this. False when it's \
                      your own idea, which the user then confirms.";
+
+/// What `user_words` reads, in the dispatcher's start_agent and
+/// schedule_task.
+const USER_WORDS: &str = "Only when the user's own message asked for the `mode` you set: their \
+                          exact words that name it, copied. Leave it out otherwise. Above the \
+                          device's default mode, the user confirms the start unless their \
+                          words name that mode.";
 
 /// A change, checked: what it does, and on which device.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -155,8 +164,45 @@ pub(super) fn add_asked(schema: &mut Value) {
     }
 }
 
+/// The user's words the dispatcher quotes for the mode it starts an agent
+/// in, or none.
+pub fn user_words(arguments: &Value) -> Option<String> {
+    fields(arguments)
+        .ok()
+        .and_then(|args| text(&args, "user_words").ok().flatten())
+}
+
+/// Adds `user_words` to the schema of the dispatcher's copy of a tool that
+/// starts an agent.
+pub(super) fn add_user_words(schema: &mut Value) {
+    schema["properties"]["user_words"] = json!({"type": "string", "description": USER_WORDS});
+}
+
+/// The mode a start, or a task that starts a new agent, runs its agent in
+/// when that's above `default`, the device's: Full access always, and any
+/// other mode that ranks above the default. None when it names no mode, so
+/// the agent runs in the default. The user confirms such a start, unless
+/// they asked for that mode in their own words.
+pub fn raised(step: &PlanStep, default: PermissionMode) -> Option<PermissionMode> {
+    let spec = match step {
+        PlanStep::StartAgent { spec, .. } => spec,
+        PlanStep::ScheduleTask {
+            target:
+                PlanTarget::Task {
+                    target: TaskTarget::New { spec, .. },
+                },
+            ..
+        } => spec,
+        _ => return None,
+    };
+    let mode = spec.permission?;
+    (mode == PermissionMode::FullAccess || mode_rank(mode) > mode_rank(default)).then_some(mode)
+}
+
 /// The risk class of one change, before the switch and `asked` have their
-/// say. `busy` is whether the agent it names works or waits on a prompt.
+/// say. `busy` is whether the agent it names works or waits on a prompt,
+/// or for a task it turns on, whether that task waits for the user's
+/// approval or an agent made it.
 pub fn risk(step: &PlanStep, busy: bool) -> Risk {
     use AdminAction as A;
     let idle = if busy { Risk::Confirm } else { Risk::Direct };
@@ -173,8 +219,9 @@ pub fn risk(step: &PlanStep, busy: bool) -> Risk {
         | A::MarkRead { .. }
         | A::HideProject { .. }
         | A::StartWorkspace { .. }
-        | A::SetTask { .. }
+        | A::SetTask { enabled: false, .. }
         | A::RunTask { .. } => Risk::Direct,
+        A::SetTask { enabled: true, .. } => idle,
         A::SetMode { mode, .. } if *mode == PermissionMode::FullAccess => Risk::Confirm,
         A::SetMode { .. } | A::SetModel { .. } | A::SetEffort { .. } => idle,
         A::Interrupt { .. } | A::StopAgent { .. } => idle,
@@ -1050,6 +1097,22 @@ mod tests {
                     depth: 3,
                 },
                 Risk::Confirm,
+                Risk::Confirm,
+            ),
+            (
+                AdminAction::SetTask {
+                    task: TaskId::derive("t"),
+                    enabled: false,
+                },
+                Risk::Direct,
+                Risk::Direct,
+            ),
+            (
+                AdminAction::SetTask {
+                    task: TaskId::derive("t"),
+                    enabled: true,
+                },
+                Risk::Direct,
                 Risk::Confirm,
             ),
         ] {

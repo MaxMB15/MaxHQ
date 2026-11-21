@@ -413,7 +413,7 @@ impl Manager {
             Err(reason) => return refused(reason),
         };
         if Some(info.workspace) == self.dispatcher.home() {
-            return refused("An agent can't run in the dispatcher's own folder.");
+            return refused(super::dispatcher::OWN_FOLDER);
         }
         let account = match self.hub.get(&EntityKey::Account(to.account)) {
             Some(Entity::Account(account)) => account,

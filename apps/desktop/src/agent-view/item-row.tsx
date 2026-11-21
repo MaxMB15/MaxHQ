@@ -122,6 +122,7 @@ export const ItemBodyView = ({ item }: { item: TimelineItem }) => {
 		case "user_session":
 			return <UserSessionCard item={item} />;
 		case "dispatcher_action":
+		case "dispatcher_step":
 			return <DispatcherActionCard item={item} />;
 		case "unknown":
 			return <UnknownRow item={item} />;

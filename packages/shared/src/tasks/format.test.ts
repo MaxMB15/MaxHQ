@@ -16,6 +16,7 @@ import {
 	GITHUB_EVENTS,
 	hiddenHookUrl,
 	lastRunLine,
+	makerLine,
 	needsSecret,
 	nextRunLine,
 	ownAddressHint,
@@ -124,6 +125,19 @@ describe("what makes a task run", () => {
 				rules: restart,
 			})
 		).toBe("On pull requests in owner/repo. Waits 15 min after the last event, 2 h at most");
+	});
+});
+
+describe("who made a task", () => {
+	it("marks one the dispatcher or an agent made, and none you made", () => {
+		expect(makerLine(task({}))).toBeNull();
+		expect(makerLine(task({ by_dispatcher: true }))).toBe("Made by the dispatcher");
+		const origin = {
+			permission: "perm",
+			by: { kind: "agent", agent: "a" },
+			device: "d",
+		} as const;
+		expect(makerLine(task({ made_by: { type: "tools", origin } }))).toBe("Made by an agent");
 	});
 });
 

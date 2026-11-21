@@ -339,6 +339,25 @@ const SAMPLES: Record<ItemBody["kind"], [ItemBody, string | RegExp, ItemStatus?]
 		},
 		"Renamed Fix login to Auth fix",
 	],
+	dispatcher_step: [
+		{
+			kind: "dispatcher_step",
+			step: {
+				type: "schedule_task",
+				device: "device-1",
+				name: "Nightly build",
+				prompt: "Build it",
+				trigger: { type: "every", minutes: 60 },
+				target: {
+					type: "task",
+					target: { type: "agent", device: "device-1", agent: "agent-1" },
+				},
+			},
+			outcome: { type: "task_saved", task: "task-1" },
+			undo: null,
+		},
+		"Scheduled Nightly build, a task that runs every hour",
+	],
 	unknown: [{ kind: "unknown", native_kind: "hook_progress" }, "hook_progress"],
 };
 

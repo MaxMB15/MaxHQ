@@ -20,10 +20,10 @@ use maxhq_core::tools::Call;
 use maxhq_protocol::agents::{
     self, Actor, LeaveContainer, Limits, PeerCall, Permission, ToolAnswer,
 };
-use maxhq_protocol::dispatch::{AdminAction, Plan, PlanItem, PlanStep};
+use maxhq_protocol::dispatch::{AdminAction, Plan, PlanItem, PlanOutcome, PlanStep};
 use maxhq_protocol::ids::{AgentId, DeviceId, IdempotencyKey, PermissionId};
 use maxhq_protocol::message::{ActionOutcome, ClientMessage};
-use maxhq_protocol::model::{InboxChange, Vendor, WorkspaceLocation};
+use maxhq_protocol::model::{InboxChange, PermissionMode, Vendor, WorkspaceLocation};
 use maxhq_protocol::state::{Entity, EntityKey};
 use maxhq_protocol::timeline::{ItemBody, ItemId, ItemStatus, TimelineEvent, TimelineItem};
 use serde::{Deserialize, Serialize};
@@ -58,14 +58,19 @@ const ASKS_FIRST: &str = "It waits in the plan under the bar until the user conf
 /// back.
 const UNDOABLE: &str = "Done. The user can undo it from the card under your answer.";
 
+/// What the dispatcher hears for an agent or a task made at once.
+pub(super) const UNDO_STEP: &str = "The user can undo it from the card under your answer.";
+
+/// Why a start above the device's default mode waits for the user.
+pub(super) const RAISED: &str = "It runs an agent in a mode above this device's default.";
+
 /// What the dispatcher keeps of the changes it makes at once.
 #[derive(Default)]
 pub(super) struct Admin {
     /// Each change that runs now, by its request's key.
     running: HashMap<IdempotencyKey, Running>,
-    /// Each start, message or task made at once, by its request's key, and
-    /// who hears how it went.
-    steps: HashMap<IdempotencyKey, (Waited, Reply)>,
+    /// Each start, message or task made at once, by its request's key.
+    steps: HashMap<IdempotencyKey, Direct>,
     /// What Undo may still put back, oldest first.
     undo: VecDeque<Undo>,
     /// How many changes the request now made at once.
@@ -76,6 +81,18 @@ pub(super) struct Admin {
     /// The last plan's number when the request now came. A plan numbered
     /// after it grows with each change that waits.
     pub(super) since: u32,
+}
+
+/// A start, message or task the dispatcher made at once.
+struct Direct {
+    /// What its request answers.
+    waited: Waited,
+    /// Who hears how it went.
+    reply: Reply,
+    /// The chat that made it, which shows its card.
+    lead: AgentId,
+    /// What it does.
+    step: PlanStep,
 }
 
 /// A change that runs now.
@@ -162,8 +179,16 @@ pub(super) fn succeeded(outcome: &ActionOutcome) -> bool {
 impl Manager {
     /// Runs a dispatcher call that changes something: at once when it's
     /// safe, `asked` says the user asked for it and the switch lets it,
-    /// into the plan when the user should confirm it, or not at all.
-    pub(super) fn dispatcher_act(&mut self, lead: AgentId, reply: Reply, asked: bool, call: Call) {
+    /// into the plan when the user should confirm it, or not at all. A
+    /// start above the device's default mode waits too, unless `words`
+    /// are the user's own and name that mode.
+    pub(super) fn dispatcher_act(
+        &mut self,
+        lead: AgentId,
+        reply: Reply,
+        (asked, words): (bool, Option<String>),
+        call: Call,
+    ) {
         let checked = admin::wants(call).and_then(|wants| match wants {
             Wants::Step(step) => Ok((self.plan_step(step)?, false)),
             Wants::Act(act) => {
@@ -178,8 +203,17 @@ impl Manager {
             Ok(checked) => checked,
             Err(reason) => return self.reply_now(reply, Err(reason)),
         };
-        let risk = admin::risk(&step, busy);
-        let acts = self.device_settings().dispatcher_acts;
+        let settings = self.device_settings();
+        let raised = admin::raised(&step, settings.default_permission).filter(|mode| {
+            !words
+                .as_deref()
+                .is_some_and(|words| self.owner_asked_for(lead, words, *mode))
+        });
+        let risk = match admin::risk(&step, busy) {
+            Risk::Direct if raised.is_some() => Risk::Confirm,
+            risk => risk,
+        };
+        let acts = settings.dispatcher_acts;
         let made = self.dispatcher.admin.made;
         match admin::decide(risk, asked, acts, made) {
             Risk::Never => self.reply_now(reply, Err(NEVER.into())),
@@ -190,6 +224,8 @@ impl Manager {
                     "The dispatcher suggests it."
                 } else if made >= admin::MAX_AT_ONCE {
                     "One request made enough changes at once."
+                } else if raised.is_some() {
+                    RAISED
                 } else {
                     "It asks first."
                 };
@@ -203,13 +239,23 @@ impl Manager {
                     PlanStep::Admin { device, action } => {
                         self.admin_start(key, device, action, None, Then::Tool { reply, lead });
                     }
-                    step => match super::dispatcher::plan_message(self.device, key, step, &[]) {
-                        Ok((message, waited)) => {
-                            self.dispatcher.admin.steps.insert(key, (waited, reply));
-                            self.message(NO_CONN, message);
+                    step => {
+                        let planned =
+                            super::dispatcher::plan_message(self.device, key, step.clone(), &[]);
+                        match planned {
+                            Ok((message, waited)) => {
+                                let direct = Direct {
+                                    waited,
+                                    reply,
+                                    lead,
+                                    step,
+                                };
+                                self.dispatcher.admin.steps.insert(key, direct);
+                                self.message(NO_CONN, message);
+                            }
+                            Err(reason) => self.reply_now(reply, Err(reason)),
                         }
-                        Err(reason) => self.reply_now(reply, Err(reason)),
-                    },
+                    }
                 }
             }
         }
@@ -247,7 +293,7 @@ impl Manager {
             id: self.dispatcher.plans,
             items,
         });
-        self.dispatcher.agent = Some(lead);
+        self.adopt_chat(lead);
         self.publish_dispatcher();
         Ok(ASKS_FIRST.into())
     }
@@ -286,7 +332,9 @@ impl Manager {
             if !book.peers.iter().any(|peer| peer.device == device) {
                 return Err(format!("There's no device with id {device}."));
             }
-            return Ok((action, waits_on_turn));
+            // A task there may wait for the user, which this one can't see.
+            let turns_on = matches!(action, A::SetTask { enabled: true, .. });
+            return Ok((action, waits_on_turn || turns_on));
         }
         let mut busy = false;
         match &action {
@@ -333,6 +381,10 @@ impl Manager {
                 if self.task_name(*task).is_none() {
                     return Err(format!("There's no task here with id {task}."));
                 }
+                // Turning on a task that waits for the user, or one an
+                // agent made, would approve it for them.
+                busy = matches!(action, A::SetTask { enabled: true, .. })
+                    && self.only_you_turn_on(*task);
             }
             A::ChangeSettings { .. } | A::UpdateTools { .. } => {}
         }
@@ -542,16 +594,25 @@ impl Manager {
             Outcome::Action(outcome) => outcome,
             _ => &refused("MaxHQ couldn't do that."),
         };
-        if let Some((waited, reply)) = self.dispatcher.admin.steps.remove(&key) {
+        if let Some(direct) = self.dispatcher.admin.steps.remove(&key) {
+            let Direct {
+                waited,
+                reply,
+                lead,
+                step,
+            } = direct;
             let text = match (waited, outcome) {
                 (Waited::Start, ActionOutcome::Started { agent }) => {
-                    Ok(format!("Started agent {agent}."))
+                    let started = PlanOutcome::Started { agent: *agent };
+                    self.step_card(key, lead, step, started);
+                    Ok(format!("Started agent {agent}. {UNDO_STEP}"))
                 }
                 (Waited::Send(_), ActionOutcome::Done) => {
                     Ok("Sent. It reaches the agent once its turn ends.".into())
                 }
                 (Waited::Save(task), ActionOutcome::TaskSaved { .. }) => {
-                    Ok(format!("Saved task {task}."))
+                    self.step_card(key, lead, step, PlanOutcome::TaskSaved { task });
+                    Ok(format!("Saved task {task}. {UNDO_STEP}"))
                 }
                 (_, outcome) => Err(failure(outcome)),
             };
@@ -672,6 +733,80 @@ impl Manager {
             },
         };
         self.timeline_events(vec![(lead, TimelineEvent::Upsert { item })]);
+    }
+
+    /// Shows an agent or a task the dispatcher started or saved at once as
+    /// a card on its timeline, whose Undo stops the agent or deletes the
+    /// task.
+    fn step_card(
+        &mut self,
+        key: IdempotencyKey,
+        lead: AgentId,
+        step: PlanStep,
+        outcome: PlanOutcome,
+    ) {
+        use AdminAction as A;
+        // What it left: the agent in its mode, or the task on. Undo is gone
+        // once that changes.
+        let (inverse, after) = match outcome {
+            PlanOutcome::Started { agent } => (
+                A::StopAgent { agent },
+                A::SetMode {
+                    agent,
+                    mode: PermissionMode::Plan,
+                },
+            ),
+            PlanOutcome::TaskSaved { task } => (
+                A::DeleteTask { task },
+                A::SetTask {
+                    task,
+                    enabled: true,
+                },
+            ),
+            _ => return,
+        };
+        let after = self.now(&after);
+        let undo = self.remember(key, self.device, Some(inverse), after);
+        let now = self.clock.wall();
+        let item = TimelineItem {
+            id: ItemId(format!("maxhq-dispatcher-step-{}", Uuid::now_v7())),
+            agent: lead,
+            turn: None,
+            parent: None,
+            ordinal: 0,
+            status: ItemStatus::Completed,
+            started_at: Some(now),
+            completed_at: Some(now),
+            body: ItemBody::DispatcherStep {
+                step: Box::new(step),
+                outcome,
+                undo,
+            },
+        };
+        self.timeline_events(vec![(lead, TimelineEvent::Upsert { item })]);
+    }
+
+    /// Whether the change under `key` is one the user made or confirmed:
+    /// a plan they confirmed, their Undo, or a change the home device sent,
+    /// whose dispatcher asks first for one this device must confirm.
+    pub(super) fn confirmed_change(&self, key: IdempotencyKey) -> bool {
+        self.dispatcher
+            .admin
+            .running
+            .get(&key)
+            .is_some_and(|running| {
+                matches!(running.then, Then::Plan | Then::Undo { .. } | Then::Peer(_))
+            })
+    }
+
+    /// Whether the request under `key` is a task the dispatcher saves at
+    /// once.
+    pub(super) fn dispatcher_saves(&self, key: IdempotencyKey) -> bool {
+        self.dispatcher
+            .admin
+            .steps
+            .get(&key)
+            .is_some_and(|direct| matches!(direct.waited, Waited::Save(_)))
     }
 
     /// The keys of the changes Undo may still put back. A change here that

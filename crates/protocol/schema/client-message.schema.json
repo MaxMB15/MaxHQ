@@ -14336,6 +14336,10 @@
           ],
           "default": null
         },
+        "by_dispatcher": {
+          "description": "Set by `maxd` for a task you made that the dispatcher saved at\nonce, for a request of yours, without a plan you confirmed. Its\nruns say the dispatcher made it. One from an older `maxd` has none.",
+          "type": "boolean"
+        },
         "enabled": {
           "description": "Whether it runs. A paused task keeps its schedule and its webhook.",
           "type": "boolean"

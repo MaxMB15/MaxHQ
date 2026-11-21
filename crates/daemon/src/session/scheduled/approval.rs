@@ -41,6 +41,10 @@ pub const STILL_WAITS: &str =
     "That task waits for the user's approval in MaxHQ, so it can't run yet.";
 /// What an agent's `run_task_now` reads for a task that's off.
 pub const OFF: &str = "That task is off. Only the user turns it on, in MaxHQ.";
+/// Why a task that waits for the user, or one an agent made, stays off
+/// when anyone else turns it on.
+pub const YOURS_TO_TURN_ON: &str =
+    "That task waits for the user's approval, so only the user turns it on, in MaxHQ.";
 
 /// The card's event for a task that waits: one for each time it asks, and
 /// each version of what it runs, since an answered event stays answered.

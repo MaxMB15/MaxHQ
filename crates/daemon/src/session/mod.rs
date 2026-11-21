@@ -38,6 +38,7 @@ mod move_agent;
 mod move_tool;
 mod moved;
 mod note_tools;
+mod owner_words;
 mod pace;
 mod places;
 mod previews;
@@ -757,6 +758,9 @@ struct Manager {
     /// The messages a person sent, rather than an agent's tools, until
     /// they go to their agent and seal its session cards.
     yours: HashSet<IdempotencyKey>,
+    /// What you said to each agent in its turn now, which a tool that
+    /// goes past a default because you asked checks.
+    owner_words: owner_words::OwnerWords,
     /// Each agent's session cards no message has sealed yet, once read.
     open_cards: HashMap<AgentId, Vec<ItemId>>,
     /// The agent and card of each session block that runs, by its
@@ -897,6 +901,7 @@ impl Manager {
             openers: HashMap::new(),
             fresh: HashMap::new(),
             yours: HashSet::new(),
+            owner_words: owner_words::OwnerWords::default(),
             open_cards: HashMap::new(),
             blocks: HashMap::new(),
             hub: config.hub,
@@ -1012,8 +1017,6 @@ impl Manager {
         self.load_pulls();
         let mut changes = self.places.changes();
         self.restore().await;
-        self.restore_dispatcher();
-        self.restore_chats();
         self.start_tasks();
         let tx = self.tx.clone();
         tokio::spawn(async move {
@@ -1353,6 +1356,7 @@ impl Manager {
         self.move_done(key, &outcome);
         self.dispatch_done(key, &outcome);
         self.chats_done(key, &outcome);
+        self.owner_words.done(key);
         let message = outcome.message(key);
         for conn in self.keys.finish(key, outcome) {
             self.tell(conn, message.clone());

@@ -48,6 +48,11 @@ pub struct Task {
     /// that leaves this out has none.
     #[serde(default)]
     pub approval_asked: Option<Timestamp>,
+    /// Set by `maxd` for a task you made that the dispatcher saved at
+    /// once, for a request of yours, without a plan you confirmed. Its
+    /// runs say the dispatcher made it. One from an older `maxd` has none.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub by_dispatcher: bool,
 }
 
 /// What makes a task run.
@@ -579,6 +584,7 @@ mod tests {
             next_run: None,
             last_run: None,
             approval_asked: None,
+            by_dispatcher: false,
         };
         let json = serde_json::to_value(&task).expect("it serializes");
         assert_eq!(json["trigger"]["type"], "hook");

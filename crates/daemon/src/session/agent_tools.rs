@@ -274,6 +274,19 @@ struct Waiting {
     until: Instant,
 }
 
+/// Who the dispatcher's messages and tasks speak for, in their mark.
+pub(super) const FOR_YOU: &str = "MaxHQ's dispatcher, on your user's behalf.";
+
+/// Why an agent can't read, message, wait on or stop the dispatcher.
+pub(super) const ONLY_THE_USER: &str =
+    "That agent is MaxHQ's dispatcher, which only the user talks to.";
+
+/// `text` under a first line saying who sent it, `from`, which tells the
+/// agent reading it that these aren't your user's own words.
+pub(super) fn mark(from: &str, text: &str) -> String {
+    format!("[MaxHQ] Not from your user. Sent by {from}\n\n{text}")
+}
+
 impl Manager {
     /// Runs an agent's call to the agent tools, or its read of an agent it
     /// may read under its permission.
@@ -772,6 +785,9 @@ impl Manager {
         if device != self.device {
             return self.forward(reply, caller, &permission, device, call, raw);
         }
+        if self.aims_at_dispatcher(caller, &call) {
+            return self.reply_now(reply, Err(ONLY_THE_USER.into()));
+        }
         match call {
             Call::ListTargets(_) => {
                 let text = self.targets(caller, &permission);
@@ -779,7 +795,10 @@ impl Manager {
             }
             Call::MoveAgent(asked) => self.move_tool(reply, caller, &permission, asked),
             Call::ListAgents(list) => {
-                let text = self.list(caller, &list);
+                // The read right checked the caller may reach every agent
+                // here; a grant shows only those it reaches.
+                let grant = permission.id != rules::read_right_id();
+                let text = self.list(caller, grant.then_some(&permission), &list);
                 self.reply_now(reply, Ok(text));
             }
             Call::ReadAgent(read) => self.read_agent(reply, caller.agent, read, true),
@@ -1003,12 +1022,14 @@ impl Manager {
                 {
                     accounts.push(account_card(&account));
                 }
+                // The dispatcher's folder is no place to start an agent.
                 Entity::Workspace(workspace)
-                    if permission.places.as_ref().is_none_or(|places| {
-                        places.contains(&AgentPlace::Workspace {
-                            workspace: workspace.id,
-                        })
-                    }) =>
+                    if Some(workspace.id) != self.dispatcher.home()
+                        && permission.places.as_ref().is_none_or(|places| {
+                            places.contains(&AgentPlace::Workspace {
+                                workspace: workspace.id,
+                            })
+                        }) =>
                 {
                     workspaces.push(workspace_card(&workspace));
                 }
@@ -1039,16 +1060,37 @@ impl Manager {
         .to_string()
     }
 
-    /// A page of the agents on this device, newest activity first.
-    pub(super) fn list(&self, caller: Calling, list: &List) -> String {
-        let agents = self
-            .newest_leads(|agent| !list.mine || agent.origin.is_some_and(|o| o.by == caller.actor));
+    /// A page of the agents on this device, newest activity first, but
+    /// the dispatcher. Under a `grant`, a caller in a container sees only
+    /// the agents it may reach, and the last replies of those it reaches
+    /// without asking.
+    pub(super) fn list(&self, caller: Calling, grant: Option<&Permission>, list: &List) -> String {
+        let reach = |agent: &Agent| match grant {
+            None => Ok(()),
+            Some(permission) => rules::check_reach(
+                permission,
+                caller.rules(),
+                self.device,
+                self.container_of(self.device, agent.id),
+            ),
+        };
+        let agents = self.newest_leads(|agent| {
+            (!list.mine || agent.origin.is_some_and(|o| o.by == caller.actor))
+                && !self.is_dispatcher(agent.id)
+                && matches!(reach(agent), Ok(()) | Err(rules::Refusal::NeedsConsent))
+        });
         let total = agents.len();
         let page: Vec<Value> = agents
             .iter()
             .skip(list.cursor)
             .take(list.limit)
-            .map(|agent| self.card(agent))
+            .map(|agent| {
+                let mut card = self.card(agent);
+                if reach(agent).is_err() {
+                    card["last_reply"] = Value::Null;
+                }
+                card
+            })
             .collect();
         let end = list.cursor + page.len();
         json!({
@@ -1243,6 +1285,9 @@ impl Manager {
             }
             Actor::Key { key } => format!("access key {key}."),
             Actor::Task { task } => match self.task_maker(task) {
+                Some(Maker::User) if self.task_by_dispatcher(task) => {
+                    format!("scheduled task {task}, made by {FOR_YOU}")
+                }
                 // A task you made in the app speaks for you.
                 Some(Maker::User) => return text.to_owned(),
                 Some(Maker::Tools { .. }) => format!("scheduled task {task}, made by an agent."),
@@ -1251,7 +1296,7 @@ impl Manager {
                 None => format!("scheduled task {task}, deleted since."),
             },
         };
-        format!("[MaxHQ] Not from your user. Sent by {from}\n\n{text}")
+        mark(&from, text)
     }
 
     /// Sends a message to an agent on this device. One another device sent
@@ -1279,6 +1324,23 @@ impl Manager {
                     mode: message.mode,
                 },
             );
+        }
+    }
+
+    /// Whether a call reads, messages, waits on or stops the dispatcher,
+    /// which only the user talks to.
+    fn aims_at_dispatcher(&self, caller: Calling, call: &Call) -> bool {
+        match call {
+            Call::SendAgent(message) => self.is_dispatcher(message.agent),
+            Call::InterruptAgent(stop) => self.is_dispatcher(stop.agent),
+            Call::WaitAgent(wait) => wait.agents.iter().any(|agent| self.is_dispatcher(*agent)),
+            Call::ReadAgent(read) => self
+                .read_by_id(caller.agent, read)
+                .is_some_and(|agent| self.is_dispatcher(agent)),
+            Call::StartAgent(start) => start
+                .context_from
+                .is_some_and(|from| self.is_dispatcher(from)),
+            _ => false,
         }
     }
 

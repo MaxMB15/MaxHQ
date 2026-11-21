@@ -296,7 +296,9 @@ impl Manager {
                 None => return,
             },
             ClientMessage::SetTaskEnabled { task, enabled, .. } => {
-                self.set_task_enabled(task, enabled)
+                let yours = self.clients.get(&conn).is_some_and(|viewer| viewer.person)
+                    || self.confirmed_change(key);
+                self.set_task_enabled(task, enabled, yours)
             }
             ClientMessage::DeleteTask { task, .. } => match self.delete_task(task) {
                 Ok(()) => ActionOutcome::Done,
@@ -316,9 +318,10 @@ impl Manager {
     }
 
     /// Checks and stores a task the app sent, or answers none while a new
-    /// webhook's URL is made. A task keeps who made it and its last run.
-    /// One the user made gets a permission of its own, scoped to its
-    /// target; one an agent made keeps that agent's.
+    /// webhook's URL is made. A task keeps who made it, whether the
+    /// dispatcher saved it at once, and its last run. One the user made
+    /// gets a permission of its own, scoped to its target; one an agent
+    /// made keeps that agent's.
     fn save_task(&mut self, key: IdempotencyKey, mut task: Task) -> Option<ActionOutcome> {
         if task.prompt.trim().is_empty() {
             return Some(refused("A task needs a prompt."));
@@ -331,6 +334,8 @@ impl Manager {
         }
         let existing = self.tasks.tasks.get(&task.id);
         task.made_by = existing.map_or(Maker::User, |old| old.made_by);
+        task.by_dispatcher =
+            existing.map_or_else(|| self.dispatcher_saves(key), |old| old.by_dispatcher);
         task.last_run = existing.and_then(|old| old.last_run);
         // You saved it, so it no longer waits for you.
         task.approval_asked = None;
@@ -363,11 +368,15 @@ impl Manager {
         None
     }
 
-    /// Stores a checked task, and answers it with its new webhook's URL.
-    fn set_task_enabled(&mut self, id: TaskId, enabled: bool) -> ActionOutcome {
+    /// Turns a task on or off. Only `yours`, a change you made or
+    /// confirmed, turns on one that waits for you or that an agent made.
+    fn set_task_enabled(&mut self, id: TaskId, enabled: bool, yours: bool) -> ActionOutcome {
         let Some(task) = self.tasks.tasks.get(&id) else {
             return refused("This device doesn't hold that task.");
         };
+        if enabled && !yours && self.only_you_turn_on(id) {
+            return refused(approval::YOURS_TO_TURN_ON);
+        }
         let mut task = task.clone();
         task.enabled = enabled;
         // Turning it on approves it, and off declines to for now.
@@ -1049,6 +1058,7 @@ impl Manager {
             next_run: None,
             last_run: existing.as_ref().and_then(|old| old.last_run),
             approval_asked: None,
+            by_dispatcher: false,
         };
         // An agent's task runs once you approve it: one it makes, turns on
         // or changes in what it runs waits, off, until you do. Renaming one
@@ -1171,6 +1181,14 @@ impl Manager {
         self.tasks.tasks.get(&task).map(|task| task.made_by)
     }
 
+    /// Whether the dispatcher saved a task at once, while it's here.
+    pub(super) fn task_by_dispatcher(&self, task: TaskId) -> bool {
+        self.tasks
+            .tasks
+            .get(&task)
+            .is_some_and(|task| task.by_dispatcher)
+    }
+
     /// A task's name, while it's here.
     pub(super) fn task_name(&self, task: TaskId) -> Option<String> {
         self.tasks.tasks.get(&task).map(|task| task.name.clone())
@@ -1179,6 +1197,15 @@ impl Manager {
     /// Whether a task is on, while it's here.
     pub(super) fn task_enabled(&self, task: TaskId) -> Option<bool> {
         self.tasks.tasks.get(&task).map(|task| task.enabled)
+    }
+
+    /// Whether only you may turn a task on: it waits for your approval, or
+    /// an agent made it and it's off.
+    pub(super) fn only_you_turn_on(&self, task: TaskId) -> bool {
+        self.tasks.tasks.get(&task).is_some_and(|task| {
+            task.approval_asked.is_some()
+                || (!task.enabled && matches!(task.made_by, Maker::Tools { .. }))
+        })
     }
 
     /// Whether the caller made the task, sits above whoever made it, or is
@@ -1254,6 +1281,9 @@ impl Manager {
                 reach(device, self.container_of(device, agent))?;
                 if device == self.device && self.agent_now(agent).is_none() {
                     return Err(format!("There's no agent here with id {agent}."));
+                }
+                if device == self.device && self.is_dispatcher(agent) {
+                    return Err(super::agent_tools::ONLY_THE_USER.into());
                 }
                 return Ok(TaskTarget::Agent { device, agent });
             }

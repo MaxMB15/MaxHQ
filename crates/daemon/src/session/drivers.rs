@@ -615,6 +615,7 @@ impl Manager {
         self.unhold(lead);
         self.adopting.remove(&lead);
         self.forget_inbox(lead);
+        self.owner_words.forget(lead);
         self.hub
             .apply_held(agents.into_iter().map(|agent| Change::Remove {
                 key: EntityKey::Agent(agent),

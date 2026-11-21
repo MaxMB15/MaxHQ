@@ -3404,6 +3404,7 @@ pub(crate) mod tests {
                     next_run: None,
                     last_run: None,
                     approval_asked: None,
+                    by_dispatcher: false,
                 }),
             },
             ClientMessage::SetDeviceSettings {

@@ -894,6 +894,31 @@ describe("a caller's started agents, collapsed", () => {
 		expect(projectGroups(view, NOW)[0]!.agents.map((a) => a.id)).toEqual(["a"]);
 	});
 
+	it("lists an agent another agent started in a dispatcher's home as that agent's", () => {
+		const view = viewOf(
+			[
+				agent({ id: "dispatcher", workspace: "w-dispatcher" }),
+				agent({ id: "caller" }),
+				child("homed", 1, { workspace: "w-dispatcher" }),
+				agent({ id: "a", origin: by("homed"), started_at: NOW - 30 * MIN }),
+			],
+			[
+				{
+					entity: "dispatcher",
+					device: "dev-mac",
+					workspace: "w-dispatcher",
+					agent: "dispatcher",
+					plan: null,
+				},
+			]
+		);
+		expect(callerOf(view, view.tables.agent.get("homed")!, NOW)?.id).toBe("caller");
+		expect(callerOf(view, view.tables.agent.get("a")!, NOW)?.id).toBe("homed");
+		const listed = projectGroups(view, NOW).flatMap((g) => g.agents.map((a) => a.id));
+		expect(listed).toEqual(["caller"]);
+		expect(startedRows(view, "caller", NOW).map((r) => r.agent.id)).toEqual(["homed", "a"]);
+	});
+
 	it("nests the ones that settled with their caller under it among the settled", () => {
 		const view = viewOf([
 			agent({ id: "caller", inbox: inbox({ settled }) }),

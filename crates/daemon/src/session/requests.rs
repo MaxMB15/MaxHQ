@@ -401,10 +401,11 @@ impl Manager {
         }
         // A message a person sent seals its agent's session cards once it
         // goes; one from an agent's tools doesn't.
-        if matches!(message, ClientMessage::SendInput { .. })
+        if let ClientMessage::SendInput { input, .. } = &message
             && self.clients.get(&conn).is_some_and(|viewer| viewer.person)
         {
             self.yours.insert(key);
+            self.owner_words.sent(key, &input.text);
         }
         if let Some(outcome) = self.action(key, message) {
             self.finish(key, Outcome::Action(outcome));
@@ -629,11 +630,14 @@ impl Manager {
         };
         let hub = self.hub.clone();
         let tx = self.tx.clone();
+        let own = self.dispatcher_folder();
         tokio::task::spawn_blocking(move || {
-            let folder = usable_folder(&hub, &path).map(|()| {
-                let workspace = hub.locate_folder(&path);
-                (path, workspace)
-            });
+            let folder = usable_folder(&hub, &path)
+                .and_then(|()| outside(own.as_deref(), &path))
+                .map(|()| {
+                    let workspace = hub.locate_folder(&path);
+                    (path, workspace)
+                });
             let _ = tx.send(Input::Located {
                 key,
                 spec: Box::new(spec),
@@ -658,6 +662,12 @@ impl Manager {
             Ok(prepared) => prepared,
             Err(reason) => return Some(refused(reason)),
         };
+        // Only your request to the dispatcher starts an agent in its
+        // folder, and that agent is the dispatcher.
+        let dispatcher = self.dispatcher.starting == Some(key);
+        if !dispatcher && self.in_dispatcher_folder(info.workspace, info.guest, &info.cwd) {
+            return Some(refused(super::dispatcher::OWN_FOLDER));
+        }
         if let Some(origin) = &spec.origin
             && let Err(reason) = self.still_allowed(origin, &spec, info.workspace)
         {
@@ -672,7 +682,13 @@ impl Manager {
             Vendor::Cursor => names::agent(Vendor::Cursor, &uuid.to_string()).to_string(),
             Vendor::Acp => names::agent(Vendor::Acp, &uuid.to_string()).to_string(),
         };
-        let place = self.place_in(info.workspace, info.guest, info.cwd.clone(), &name);
+        let place = self.place_in(
+            info.workspace,
+            info.guest,
+            info.cwd.clone(),
+            &name,
+            dispatcher,
+        );
         let start = GuestStart {
             spec,
             info,
@@ -1057,6 +1073,7 @@ impl Manager {
     pub(super) fn send_own(&mut self, lead: AgentId, message: Message) {
         let key = internal_key();
         self.internal.insert(key, Internal::Plain);
+        self.owner_words.reached(key, lead);
         self.work.push_back((
             Target::Agent(lead),
             Action::Send {
@@ -1306,6 +1323,7 @@ impl Manager {
         if self.yours.remove(&key) {
             self.seal_cards(lead, &message.refs, true);
         }
+        self.owner_words.reached(key, lead);
         let Some(held) = self.held.get(&lead) else {
             return;
         };
@@ -1896,7 +1914,14 @@ impl Manager {
             PlaceHost::Guest { workspace } => Some(workspace),
             PlaceHost::Local => None,
         };
-        Ok(self.place_in(folder.workspace, guest, folder.cwd, &lead.to_string()))
+        let place = self.place_in(
+            folder.workspace,
+            guest,
+            folder.cwd,
+            &lead.to_string(),
+            false,
+        );
+        Ok(place)
     }
 
     /// Changes some of this device's settings, keeping the rest as it has
@@ -2033,6 +2058,19 @@ pub(super) fn usable_folder(hub: &Hub, path: &Path) -> Result<(), String> {
     } else {
         Err("that folder doesn't exist".to_owned())
     }
+}
+
+/// Refuses a folder inside the dispatcher's own, `own`, as the disk
+/// resolves both, so a link or `..` doesn't lead into it.
+fn outside(own: Option<&Path>, path: &Path) -> Result<(), String> {
+    let Some(own) = own else {
+        return Ok(());
+    };
+    let real = |path: &Path| std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+    if path.starts_with(own) || real(path).starts_with(real(own)) {
+        return Err(super::dispatcher::OWN_FOLDER.to_owned());
+    }
+    Ok(())
 }
 
 /// The title a new agent's spec asks for, if it names one that isn't

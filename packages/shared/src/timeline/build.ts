@@ -56,6 +56,7 @@ const KINDS: Record<ItemBody["kind"], true> = {
 	user_run: true,
 	user_session: true,
 	dispatcher_action: true,
+	dispatcher_step: true,
 	unknown: true,
 };
 

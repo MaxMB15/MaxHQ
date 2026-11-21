@@ -63,6 +63,7 @@ pub(super) fn task(name: &str, trigger: Trigger, target: TaskTarget) -> Task {
         next_run: None,
         last_run: None,
         approval_asked: None,
+        by_dispatcher: false,
     }
 }
 

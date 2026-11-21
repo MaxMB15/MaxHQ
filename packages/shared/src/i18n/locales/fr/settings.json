@@ -103,7 +103,7 @@
 	"Sends a token": "Envoie un jeton",
 	"Servers": "Serveurs",
 	"Testing": "Test en cours",
-	"The dispatcher changes settings, agents and tasks without asking first. Deleting, stopping busy agents and granting permissions still ask.": "Le dispatcher modifie les réglages, les agents et les tâches sans demander d'abord. Il demande toujours avant de supprimer, d'arrêter des agents occupés ou d'accorder des autorisations.",
+	"The dispatcher changes settings, agents and tasks without asking first. It still asks before deleting, stopping a busy agent, granting permissions, turning on a task that waits for approval, or starting an agent in a mode above this device's default that you didn't name.": "Le dispatcher modifie les réglages, les agents et les tâches sans demander d'abord. Il demande toujours avant de supprimer, d'arrêter un agent occupé, d'accorder des autorisations, d'activer une tâche qui attend une approbation, ou de démarrer un agent dans un mode supérieur au mode par défaut de cet appareil que vous n'avez pas nommé.",
 	"The dispatcher reads your projects and agents, and can't change files. Without a pick it takes the first Claude account, else the first Codex one.": "Le dispatcher lit vos projets et agents, et ne peut pas modifier de fichiers. Sans sélection, il utilise le premier compte Claude, sinon le premier compte Codex.",
 	"Token, if the server asks for one": "Jeton, si le serveur en demande un",
 	"URL": "URL",

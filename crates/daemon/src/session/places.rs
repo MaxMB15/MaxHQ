@@ -336,18 +336,20 @@ impl Manager {
             held.guest,
             held.cwd.clone(),
             &held.agent.id.to_string(),
+            self.is_dispatcher(held.agent.id),
         )
     }
 
     /// Where an agent runs. A guest's agent gets its attachments in the
-    /// guest's own folder, which file delivery copies them into. One in
-    /// the dispatcher's folder runs as the dispatcher.
+    /// guest's own folder, which file delivery copies them into. A
+    /// `dispatcher` runs as the dispatcher, in its folder.
     pub(super) fn place_in(
         &self,
         workspace: WorkspaceId,
         guest: Option<WorkspaceId>,
         cwd: PathBuf,
         name: &str,
+        dispatcher: bool,
     ) -> Place {
         let (attachments, host) = match guest {
             Some(guest) => (
@@ -362,7 +364,7 @@ impl Manager {
             cwd,
             attachments,
             host,
-            dispatcher: guest.is_none() && self.dispatcher.home() == Some(workspace),
+            dispatcher: dispatcher && guest.is_none() && self.dispatcher.home() == Some(workspace),
             trust: None,
         }
     }

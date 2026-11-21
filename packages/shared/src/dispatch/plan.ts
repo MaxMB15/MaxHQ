@@ -2,8 +2,9 @@
 // Copyright (c) 2026 Max Boksem
 
 // The dispatcher in words: which account it runs as, the one-line summary
-// over a plan, each item's lines once you open it, and how each item of a
-// confirmed plan went. Nothing here changes the view.
+// over a plan, each item's lines once you open it, how each item of a
+// confirmed plan went, and the card of an agent or a task it started at
+// once. Nothing here changes the view.
 
 import { t } from "../i18n";
 
@@ -21,6 +22,7 @@ import type {
 	PlanOutcome,
 	PlanStep,
 	PlanTarget,
+	TimelineItem,
 	Trigger,
 	UserInput,
 } from "../bindings";
@@ -35,7 +37,7 @@ import { tasksTargeting } from "../tasks/place";
 import type { ViewState } from "../view/replica";
 import { accounts, deviceName, workspaceName } from "../view/select";
 
-import { adminPhrase, grantLines, settingLines } from "./action";
+import { type ActionCard, adminPhrase, cardUndo, grantLines, settingLines } from "./action";
 
 /**
  * The accounts on `device` the dispatcher can run as: Claude first, then
@@ -407,6 +409,27 @@ export const outcomeLine = (outcome: PlanOutcome): string => {
 		case "unknown":
 			return t("Done; update the app for details");
 	}
+};
+
+/** An agent or a task the dispatcher started or saved at once, as its card. */
+export type StepItem = Extract<TimelineItem, { kind: "dispatcher_step" }>;
+
+/**
+ * The card for an agent or a task the dispatcher started or saved at once,
+ * such as "Started a Claude agent in Comet on Home Mac". Its line says
+ * where, so it names no device of its own.
+ */
+export const stepCard = (view: ViewState, item: StepItem): ActionCard => {
+	const { step } = item;
+	const what = itemPhrase(view, { reason: "", step });
+	return {
+		line:
+			step.type === "schedule_task"
+				? t("Scheduled {{name}}, {{what}}", { name: step.name, what })
+				: t("Started {{what}}", { what }),
+		elsewhere: null,
+		...cardUndo(view, item.agent, item.undo),
+	};
 };
 
 /** Under an item when a failed one before it stopped the plan. */
