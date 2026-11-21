@@ -8,6 +8,7 @@ import { Shell } from "@/App";
 import { ServicesProvider } from "@/app/services";
 import { ErrorRow } from "@/agent-view/items/notices";
 import { mockSource } from "@/data/mock-source";
+import { openLogin } from "@/test/settings";
 import type { AccountId, Entity } from "@maxhq/shared/bindings";
 import {
 	CLI_SIGN_IN_MS,
@@ -81,11 +82,11 @@ const renderShell = async (signIn?: AccountId, out = false) => {
 	return source;
 };
 
+const ROW = { claude: "Claude", codex: "Codex", cursor: "Cursor" } as const;
+
 const openCard = async (page: "claude" | "codex" | "cursor") => {
-	fireEvent.click(screen.getByRole("button", { name: "Settings" }));
-	const nav = await screen.findByRole("navigation", { name: "Settings pages" });
-	fireEvent.click(within(nav).getByRole("button", { name: LOGIN_STEPS[page].title }));
-	const settings = await screen.findByRole("dialog", { name: "Settings" });
+	const settings = await openLogin(ROW[page]);
+	expect(within(settings).getByRole("heading", { name: LOGIN_STEPS[page].title })).toBeVisible();
 	return within(settings).getByRole("region", { name: "Sign in again" });
 };
 

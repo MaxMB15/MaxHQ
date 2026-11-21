@@ -78,7 +78,7 @@ export const mockPhones = (
 					address: addresses.get(MAC) ?? null,
 					note: networkOn(MAC)
 						? null
-						: "Turn on Network access on its page to pair a phone with it.",
+						: "Turn on Network access on its tab to pair a phone with it.",
 				},
 			] satisfies PhoneDevice[],
 		}),

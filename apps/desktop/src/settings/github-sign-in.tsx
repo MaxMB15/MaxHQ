@@ -242,7 +242,7 @@ const SignInFlow = () => {
 	);
 };
 
-/** The "Merge and approve as you" card on the GitHub page. */
+/** The "Merge and approve as you" card in the GitHub view. */
 export const MergeAsYou = () => {
 	useI18n();
 	const view = useView((s) => s.view);

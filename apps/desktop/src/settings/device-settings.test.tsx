@@ -43,7 +43,8 @@ const LOCAL_MODELS = {
 	[DEVBOX]: LOCAL_MODEL_DEFAULTS,
 };
 
-const renderDevice = (link: string, scenario = "connected", wrap = (s: DataSource) => s) => {
+// The device's page, which keeps its routes, ACP agents and device links.
+const renderDevicePage = (link: string, scenario = "connected", wrap = (s: DataSource) => s) => {
 	const source = wrap(mockSource({ now: () => NOW, tick: false, scenario }));
 	const ui = createUiStore();
 	ui.getState().setMode("devices");
@@ -55,6 +56,18 @@ const renderDevice = (link: string, scenario = "connected", wrap = (s: DataSourc
 	);
 	return { source };
 };
+
+// The device's tab in Settings, from its page's Settings button.
+const renderDevice = async (link: string, scenario = "connected", wrap = (s: DataSource) => s) => {
+	const rendered = renderDevicePage(link, scenario, wrap);
+	fireEvent.click(await screen.findByRole("button", { name: /^Settings for / }));
+	await screen.findByRole("dialog", { name: "Settings" });
+	return rendered;
+};
+
+// A card on the Settings page, outside the device's tab.
+const pageCard = async (name: string) =>
+	within(await screen.findByRole("dialog", { name: "Settings" })).getByRole("region", { name });
 
 const section = (name: string) => screen.findByRole("region", { name: `Settings for ${name}` });
 const mode = async (name: string) =>
@@ -91,7 +104,7 @@ const oldMaxd = (source: DataSource): DataSource => ({
 
 describe("device settings", () => {
 	it("shows the default each device reports", async () => {
-		renderDevice("link-mac");
+		await renderDevice("link-mac");
 		expect(await mode("Mac")).toHaveTextContent("Auto");
 		expect(
 			within(await section("Mac")).getByText(
@@ -101,7 +114,7 @@ describe("device settings", () => {
 	});
 
 	it("saves a new default mode on the device", async () => {
-		const { source } = renderDevice("link-mac");
+		const { source } = await renderDevice("link-mac");
 		const save = vi.spyOn(source, "setDeviceSettings");
 		await pick("Mac", "Ask first");
 
@@ -168,7 +181,7 @@ describe("device settings", () => {
 	});
 
 	it("asks before Auto becomes the default the first time", async () => {
-		const { source } = renderDevice("link-devbox");
+		const { source } = await renderDevice("link-devbox");
 		const save = vi.spyOn(source, "setDeviceSettings");
 		await pick("devbox", "Auto");
 		const dialog = await screen.findByRole("alertdialog");
@@ -189,7 +202,7 @@ describe("device settings", () => {
 	});
 
 	it("keeps a device's workspace defaults when the mode changes", async () => {
-		const { source } = renderDevice("link-devbox");
+		const { source } = await renderDevice("link-devbox");
 		const save = vi.spyOn(source, "setDeviceSettings");
 		await pick("devbox", "Ask first");
 
@@ -224,7 +237,7 @@ describe("device settings", () => {
 	});
 
 	it("says why it didn't save and shows the mode the device still has", async () => {
-		const { source } = renderDevice("link-mac");
+		const { source } = await renderDevice("link-mac");
 		vi.spyOn(source, "setDeviceSettings").mockResolvedValue({
 			status: "error",
 			error: { kind: "failed", message: "maxd couldn't write its settings" },
@@ -238,15 +251,16 @@ describe("device settings", () => {
 	});
 
 	it("can't change a device that isn't connected", async () => {
-		renderDevice("link-devbox", "tailscale_off");
+		await renderDevice("link-devbox", "tailscale_off");
 		expect(await mode("devbox")).toBeDisabled();
+		// The default mode, both usage limits and the placement each say it.
 		expect(
-			within(await section("devbox")).getByText("Connect to devbox to change it.")
-		).toBeInTheDocument();
+			within(await section("devbox")).getAllByText("Connect to devbox to change it.")
+		).toHaveLength(4);
 	});
 
 	it("shows the network and pool new workspaces get", async () => {
-		renderDevice("link-devbox");
+		await renderDevice("link-devbox");
 		const section = await workspace("devbox");
 		expect(
 			within(section).getByRole("combobox", { name: "Network, agentbr0" })
@@ -257,7 +271,7 @@ describe("device settings", () => {
 	});
 
 	it("saves a new network and keeps the mode and pool", async () => {
-		const { source } = renderDevice("link-devbox", "connected", twoOfEach);
+		const { source } = await renderDevice("link-devbox", "connected", twoOfEach);
 		const save = vi.spyOn(source, "setDeviceSettings");
 		const section = await workspace("devbox");
 		await choose(within(section).getByRole("combobox", { name: /^Network,/ }), "incusbr-lab");
@@ -294,7 +308,7 @@ describe("device settings", () => {
 	});
 
 	it("saves a new pool and keeps the network", async () => {
-		const { source } = renderDevice("link-devbox", "connected", twoOfEach);
+		const { source } = await renderDevice("link-devbox", "connected", twoOfEach);
 		const save = vi.spyOn(source, "setDeviceSettings");
 		const section = await workspace("devbox");
 		await choose(within(section).getByRole("combobox", { name: /^Storage pool,/ }), "fast");
@@ -330,7 +344,7 @@ describe("device settings", () => {
 	});
 
 	it("shows when idle agents settle and whether they snooze at the limit", async () => {
-		renderDevice("link-mac");
+		await renderDevice("link-mac");
 		const section = await inbox("Mac");
 		expect(within(section).getByRole("textbox", { name: "Auto-settle after" })).toHaveValue(
 			"5"
@@ -341,7 +355,7 @@ describe("device settings", () => {
 	});
 
 	it("saves new days once you leave the field, keeping the rest", async () => {
-		const { source } = renderDevice("link-devbox");
+		const { source } = await renderDevice("link-devbox");
 		const save = vi.spyOn(source, "setDeviceSettings");
 		const section = await inbox("devbox");
 		const days = within(section).getByRole("textbox", { name: "Auto-settle after" });
@@ -383,7 +397,7 @@ describe("device settings", () => {
 	});
 
 	it("takes 0 for never, on Enter", async () => {
-		const { source } = renderDevice("link-mac");
+		const { source } = await renderDevice("link-mac");
 		const save = vi.spyOn(source, "setDeviceSettings");
 		const days = within(await inbox("Mac")).getByRole("textbox", { name: "Auto-settle after" });
 		fireEvent.change(days, { target: { value: "0" } });
@@ -392,7 +406,7 @@ describe("device settings", () => {
 	});
 
 	it("says why it won't take days past 90 and keeps the days the device has", async () => {
-		const { source } = renderDevice("link-mac");
+		const { source } = await renderDevice("link-mac");
 		const save = vi.spyOn(source, "setDeviceSettings");
 		const section = await inbox("Mac");
 		const days = within(section).getByRole("textbox", { name: "Auto-settle after" });
@@ -407,7 +421,7 @@ describe("device settings", () => {
 	});
 
 	it("saves snoozing at the limit", async () => {
-		const { source } = renderDevice("link-mac");
+		const { source } = await renderDevice("link-mac");
 		const save = vi.spyOn(source, "setDeviceSettings");
 		const section = await inbox("Mac");
 		fireEvent.click(within(section).getByRole("switch", { name: "Snooze at the limit" }));
@@ -445,7 +459,7 @@ describe("device settings", () => {
 	});
 
 	it("asks for a newer maxd before it changes the inbox settings", async () => {
-		renderDevice("link-devbox", "connected", oldMaxd);
+		await renderDevice("link-devbox", "connected", oldMaxd);
 		const section = await inbox("devbox");
 		expect(within(section).getByRole("textbox", { name: "Auto-settle after" })).toBeDisabled();
 		expect(
@@ -458,20 +472,20 @@ describe("device settings", () => {
 	});
 
 	it("can't change the inbox settings of a device that isn't connected", async () => {
-		renderDevice("link-devbox", "tailscale_off");
+		await renderDevice("link-devbox", "tailscale_off");
 		const section = await inbox("devbox");
 		expect(within(section).getByRole("textbox", { name: "Auto-settle after" })).toBeDisabled();
 		expect(within(section).getAllByText("Connect to devbox to change it.")).toHaveLength(2);
 	});
 
 	it("turns Cursor usage on from the Mac", async () => {
-		const { source } = renderDevice("link-mac");
+		const { source } = await renderDevice("link-mac");
 		const save = vi.spyOn(source, "setDeviceSettings");
-		const region = await screen.findByRole("region", { name: "Cursor usage for Mac" });
+		const region = await pageCard("Cursor usage");
 		expect(
 			within(region).getByText(/reads the Cursor CLI's saved login from the Keychain/)
 		).toBeInTheDocument();
-		const toggle = within(region).getByRole("switch", { name: "Enable Cursor usage" });
+		const toggle = within(region).getByRole("switch", { name: "Enable Cursor usage on Mac" });
 		expect(toggle).not.toBeChecked();
 		fireEvent.click(toggle);
 
@@ -488,17 +502,24 @@ describe("device settings", () => {
 			})
 		);
 		expect(await within(region).findByText("Saved")).toBeInTheDocument();
-		expect(within(region).getByRole("switch", { name: "Enable Cursor usage" })).toBeChecked();
+		expect(
+			within(region).getByRole("switch", { name: "Enable Cursor usage on Mac" })
+		).toBeChecked();
 	});
 
 	it("offers Cursor usage only on a Mac", async () => {
-		renderDevice("link-devbox");
-		await section("devbox");
-		expect(screen.queryByRole("region", { name: "Cursor usage for devbox" })).toBeNull();
+		await renderDevice("link-devbox");
+		const region = await pageCard("Cursor usage");
+		expect(
+			within(region).getByRole("switch", { name: "Enable Cursor usage on Mac" })
+		).toBeVisible();
+		expect(
+			within(region).queryByRole("switch", { name: "Enable Cursor usage on devbox" })
+		).toBeNull();
 	});
 
 	it("has no workspace settings for a device without Incus", async () => {
-		renderDevice("link-mac");
+		await renderDevice("link-mac");
 		await section("Mac");
 		expect(screen.queryByRole("region", { name: "Workspace settings for Mac" })).toBeNull();
 	});
@@ -522,7 +543,7 @@ describe("keep awake", () => {
 		});
 
 	it("reads On the charger by default, with why it matters", async () => {
-		renderDevice("link-mac");
+		await renderDevice("link-mac");
 		expect(await keepAwake("Mac")).toHaveTextContent("On the charger");
 		const region = await sleep("Mac");
 		expect(within(region).getByText("Keep this Mac awake")).toBeInTheDocument();
@@ -540,12 +561,12 @@ describe("keep awake", () => {
 			delete rest.keep_awake;
 			return rest;
 		});
-		renderDevice("link-mac", "connected", old);
+		await renderDevice("link-mac", "connected", old);
 		expect(await keepAwake("Mac")).toHaveTextContent("On the charger");
 	});
 
 	it("saves a change, keeping the other settings", async () => {
-		const { source } = renderDevice("link-mac");
+		const { source } = await renderDevice("link-mac");
 		const save = vi.spyOn(source, "setDeviceSettings");
 		await choose(await keepAwake("Mac"), "Always");
 
@@ -563,7 +584,7 @@ describe("keep awake", () => {
 	});
 
 	it("shows each option's whole description", async () => {
-		renderDevice("link-mac");
+		await renderDevice("link-mac");
 		fireEvent.click(await keepAwake("Mac"));
 		for (const text of [
 			"Awake whenever it's plugged in. On battery, only while an agent is working.",
@@ -576,7 +597,7 @@ describe("keep awake", () => {
 	});
 
 	it("shows only on a Mac", async () => {
-		renderDevice("link-devbox");
+		await renderDevice("link-devbox");
 		await section("devbox");
 		expect(screen.queryByRole("region", { name: "Sleep settings for devbox" })).toBeNull();
 	});
@@ -585,7 +606,7 @@ describe("keep awake", () => {
 		const mac = changed((e) =>
 			e.entity === "device" && e.id === "dev-devbox" ? { ...e, os: "macos" } : e
 		);
-		renderDevice("link-devbox", "tailscale_off", mac);
+		await renderDevice("link-devbox", "tailscale_off", mac);
 		expect(await keepAwake("devbox")).toBeDisabled();
 		const region = await sleep("devbox");
 		expect(within(region).getByText("Connect to devbox to change it.")).toBeInTheDocument();
@@ -613,7 +634,7 @@ describe("idle agents", () => {
 	});
 
 	it("reads 1 hour by default, with what it frees", async () => {
-		renderDevice("link-devbox");
+		await renderDevice("link-devbox");
 		expect(await after("devbox")).toHaveTextContent("1 hour");
 		expect(
 			within(await idle("devbox")).getByText(
@@ -623,7 +644,7 @@ describe("idle agents", () => {
 	});
 
 	it("saves Never, keeping the other settings", async () => {
-		const { source } = renderDevice("link-mac");
+		const { source } = await renderDevice("link-mac");
 		const save = vi.spyOn(source, "setDeviceSettings");
 		await choose(await after("Mac"), "Never");
 
@@ -640,7 +661,7 @@ describe("idle agents", () => {
 	});
 
 	it("can't change on a maxd from before the setting", async () => {
-		renderDevice("link-devbox", "connected", before);
+		await renderDevice("link-devbox", "connected", before);
 		expect(await after("devbox")).toBeDisabled();
 		expect(
 			within(await idle("devbox")).getByText(
@@ -679,7 +700,7 @@ describe("usage limits", () => {
 	});
 
 	it("is off by default for each vendor, with what it does", async () => {
-		renderDevice("link-devbox");
+		await renderDevice("link-devbox");
 		expect(await claude("devbox")).not.toBeChecked();
 		expect(await codex("devbox")).not.toBeChecked();
 		expect(
@@ -690,7 +711,7 @@ describe("usage limits", () => {
 	});
 
 	it("saves one vendor on, keeping the other settings", async () => {
-		const { source } = renderDevice("link-mac");
+		const { source } = await renderDevice("link-mac");
 		const save = vi.spyOn(source, "setDeviceSettings");
 		fireEvent.click(await claude("Mac"));
 
@@ -709,7 +730,7 @@ describe("usage limits", () => {
 	});
 
 	it("saves Codex on its own", async () => {
-		const { source } = renderDevice("link-mac");
+		const { source } = await renderDevice("link-mac");
 		const save = vi.spyOn(source, "setDeviceSettings");
 		fireEvent.click(await codex("Mac"));
 
@@ -722,7 +743,7 @@ describe("usage limits", () => {
 	});
 
 	it("can't change on a maxd from before the setting", async () => {
-		renderDevice("link-devbox", "connected", before);
+		await renderDevice("link-devbox", "connected", before);
 		expect(await claude("devbox")).toHaveAttribute("aria-disabled", "true");
 		expect(await codex("devbox")).toHaveAttribute("aria-disabled", "true");
 		expect(
@@ -733,7 +754,7 @@ describe("usage limits", () => {
 	});
 
 	it("can't change on a device that isn't connected", async () => {
-		renderDevice("link-devbox", "tailscale_off");
+		await renderDevice("link-devbox", "tailscale_off");
 		expect(await claude("devbox")).toHaveAttribute("aria-disabled", "true");
 		expect(
 			within(await limits("devbox")).getAllByText("Connect to devbox to change it.")
@@ -752,7 +773,7 @@ describe("memory", () => {
 	const warning = NO_LIMIT_WARNING;
 
 	it("reads 256 items and 256 MB by default, with what each means", async () => {
-		renderDevice("link-devbox");
+		await renderDevice("link-devbox");
 		expect(await items("devbox")).toHaveTextContent("256 items");
 		expect(await history("devbox")).toHaveTextContent("256 MB");
 		const region = await memory("devbox");
@@ -765,7 +786,7 @@ describe("memory", () => {
 	});
 
 	it("saves more items, keeping the other settings", async () => {
-		const { source } = renderDevice("link-mac");
+		const { source } = await renderDevice("link-mac");
 		const save = vi.spyOn(source, "setDeviceSettings");
 		await choose(await items("Mac"), "4,096 items");
 
@@ -783,7 +804,7 @@ describe("memory", () => {
 	});
 
 	it("saves No limit and says what it risks", async () => {
-		const { source } = renderDevice("link-mac");
+		const { source } = await renderDevice("link-mac");
 		const save = vi.spyOn(source, "setDeviceSettings");
 		await choose(await history("Mac"), "No limit");
 
@@ -795,7 +816,7 @@ describe("memory", () => {
 	});
 
 	it("can't change on a device that isn't connected", async () => {
-		renderDevice("link-devbox", "tailscale_off");
+		await renderDevice("link-devbox", "tailscale_off");
 		expect(await items("devbox")).toBeDisabled();
 		expect(await history("devbox")).toBeDisabled();
 		const region = await memory("devbox");
@@ -825,7 +846,7 @@ describe("terminals", () => {
 	});
 
 	it("is on by default, with what it does", async () => {
-		renderDevice("link-devbox");
+		await renderDevice("link-devbox");
 		expect(await shell("devbox")).toBeChecked();
 		expect(
 			within(await terminals("devbox")).getByText(/^MaxHQ adds hooks to zsh, bash and fish/)
@@ -833,7 +854,7 @@ describe("terminals", () => {
 	});
 
 	it("saves it off, keeping the other settings", async () => {
-		const { source } = renderDevice("link-mac");
+		const { source } = await renderDevice("link-mac");
 		const save = vi.spyOn(source, "setDeviceSettings");
 		fireEvent.click(await shell("Mac"));
 
@@ -850,7 +871,7 @@ describe("terminals", () => {
 	});
 
 	it("can't change on a maxd from before the setting, which adds no hooks", async () => {
-		renderDevice("link-devbox", "connected", before);
+		await renderDevice("link-devbox", "connected", before);
 		const toggle = await shell("devbox");
 		expect(toggle).toHaveAttribute("aria-disabled", "true");
 		expect(toggle).not.toBeChecked();
@@ -863,9 +884,11 @@ describe("terminals", () => {
 });
 
 describe("other agents", () => {
-	const card = (name: string) => screen.findByRole("region", { name: `Other agents on ${name}` });
+	const card = () => pageCard("Other agents");
 	const reads = async (name: string) =>
-		within(await card(name)).getByRole("switch", { name: "Agents can read other agents" });
+		within(await card()).getByRole("switch", {
+			name: `Agents can read other agents on ${name}`,
+		});
 
 	// The mock source with devbox's maxd from before the setting.
 	const before = (source: DataSource): DataSource => ({
@@ -883,17 +906,17 @@ describe("other agents", () => {
 	});
 
 	it("is on by default, and says what agents can see", async () => {
-		renderDevice("link-devbox");
+		await renderDevice("link-devbox");
 		expect(await reads("devbox")).toBeChecked();
 		expect(
-			within(await card("devbox")).getByText(
+			within(await card()).getByText(
 				/^Any agent can list and read any other agent's conversation, which may hold code, paths and command output\./
 			)
 		).toBeInTheDocument();
 	});
 
 	it("saves it off, keeping the other settings", async () => {
-		const { source } = renderDevice("link-mac");
+		const { source } = await renderDevice("link-mac");
 		const save = vi.spyOn(source, "setDeviceSettings");
 		fireEvent.click(await reads("Mac"));
 
@@ -905,26 +928,24 @@ describe("other agents", () => {
 				default_permission: "auto",
 			})
 		);
-		expect(await within(await card("Mac")).findByText("Saved")).toBeInTheDocument();
+		expect(await within(await card()).findByText("Saved")).toBeInTheDocument();
 		expect(await reads("Mac")).not.toBeChecked();
 	});
 
 	it("can't change on a maxd from before the setting", async () => {
-		renderDevice("link-devbox", "connected", before);
+		await renderDevice("link-devbox", "connected", before);
 		const toggle = await reads("devbox");
 		expect(toggle).toHaveAttribute("aria-disabled", "true");
 		expect(toggle).not.toBeChecked();
 		expect(
-			within(await card("devbox")).getByText(
-				"devbox's maxd is too old for this. Update it first."
-			)
+			within(await card()).getByText("devbox's maxd is too old for this. Update it first.")
 		).toBeInTheDocument();
 	});
 });
 
 describe("placement", () => {
 	it("saves Prefer and keeps the rest", async () => {
-		const { source } = renderDevice("link-devbox");
+		const { source } = await renderDevice("link-devbox");
 		const save = vi.spyOn(source, "setDeviceSettings");
 		const region = await screen.findByRole("region", { name: "Placement for devbox" });
 		const placement = within(region).getByRole("combobox", { name: "Placement, Normal" });
@@ -955,7 +976,7 @@ describe("skill library", () => {
 		screen.findByRole("region", { name: `Skill library for ${name}` });
 
 	it("shows which device holds it, and the holder can't turn it off", async () => {
-		renderDevice("link-mac");
+		await renderDevice("link-mac");
 		const region = await library("Mac");
 		const toggle = within(region).getByRole("switch", { name: "Holds the skill library" });
 		expect(toggle).toBeChecked();
@@ -968,7 +989,7 @@ describe("skill library", () => {
 	});
 
 	it("moves it to another device", async () => {
-		const { source } = renderDevice("link-devbox");
+		const { source } = await renderDevice("link-devbox");
 		const move = vi.spyOn(source, "moveSkillLibrary");
 		const save = vi.spyOn(source, "setDeviceSettings");
 		const region = await library("devbox");
@@ -990,7 +1011,7 @@ describe("skill library", () => {
 	});
 
 	it("says why it didn't move", async () => {
-		const { source } = renderDevice("link-devbox");
+		const { source } = await renderDevice("link-devbox");
 		const reason =
 			"Mac has approved skill changes it hasn't pushed. Push the library's approvals first.";
 		vi.spyOn(source, "moveSkillLibrary").mockResolvedValue({
@@ -1008,7 +1029,7 @@ describe("skill library", () => {
 
 describe("device links", () => {
 	it("turns a link off and allows it again", async () => {
-		renderDevice("link-devbox");
+		renderDevicePage("link-devbox");
 		const region = await screen.findByRole("region", { name: "Device links for devbox" });
 		expect(await within(region).findByText("Linked")).toBeInTheDocument();
 
@@ -1045,7 +1066,7 @@ describe("network access", () => {
 		});
 
 	it("is off until you turn it on, then lists the addresses phones use", async () => {
-		const { source } = renderDevice("link-devbox");
+		const { source } = await renderDevice("link-devbox");
 		const save = vi.spyOn(source, "setDeviceSettings");
 		const section = await region("devbox");
 		expect(
@@ -1069,7 +1090,7 @@ describe("network access", () => {
 	});
 
 	it("lets the addresses be selected, but not their label", async () => {
-		renderDevice(
+		await renderDevice(
 			"link-devbox",
 			"connected",
 			devboxAccess({ on: true, hosts: ["192.168.1.30", "devbox.example.net"] })
@@ -1082,7 +1103,7 @@ describe("network access", () => {
 	});
 
 	it("saves a new port and says why it won't take one that isn't", async () => {
-		const { source } = renderDevice("link-devbox");
+		const { source } = await renderDevice("link-devbox");
 		const save = vi.spyOn(source, "setDeviceSettings");
 		const section = await region("devbox");
 		const port = within(section).getByRole("textbox", { name: "Port" });
@@ -1102,7 +1123,7 @@ describe("network access", () => {
 
 	it("shows what keeps it from listening", async () => {
 		const problem = "Port 7466 is in use on this device. Pick another port.";
-		renderDevice("link-devbox", "connected", devboxAccess({ on: true, problem }));
+		await renderDevice("link-devbox", "connected", devboxAccess({ on: true, problem }));
 		const section = await region("devbox");
 		expect(within(section).getByText(problem)).toBeInTheDocument();
 		expect(within(section).queryByText("Addresses for phones")).toBeNull();
@@ -1128,7 +1149,7 @@ describe("network access", () => {
 			expires: NOW + 29 * 24 * 60 * 60 * 1000,
 			last_used: null,
 		};
-		const { source } = renderDevice(
+		const { source } = await renderDevice(
 			"link-devbox",
 			"connected",
 			devboxAccess({ on: true, hosts: ["192.168.1.30"] }, [phone, session])
@@ -1146,7 +1167,7 @@ describe("network access", () => {
 	});
 
 	it("has no section on a device from before network access", async () => {
-		renderDevice("link-devbox", "connected", devboxAccess(null));
+		await renderDevice("link-devbox", "connected", devboxAccess(null));
 		await section("devbox");
 		expect(
 			screen.queryByRole("region", { name: "Network access for devbox" })
@@ -1155,10 +1176,11 @@ describe("network access", () => {
 });
 
 describe("app keys", () => {
-	const keys = (name: string) => screen.findByRole("region", { name: `App keys for ${name}` });
+	const keys = async (name: string) =>
+		within(await pageCard("App keys")).getByRole("region", { name: `App keys for ${name}` });
 
 	it("warns about a key this Mac didn't add, and removes it", async () => {
-		const { source } = renderDevice("link-devbox");
+		const { source } = await renderDevice("link-devbox");
 		const remove = vi.spyOn(source, "removeAppKey");
 		const region = await keys("devbox");
 		expect(
@@ -1180,7 +1202,7 @@ describe("app keys", () => {
 	});
 
 	it("makes a new key from this Mac's page", async () => {
-		const { source } = renderDevice("link-mac");
+		const { source } = await renderDevice("link-mac");
 		const rotate = vi.spyOn(source, "rotateAppKey");
 		const region = await keys("Mac");
 		expect(
@@ -1218,7 +1240,7 @@ describe("Claude setup-tokens", () => {
 	});
 
 	it("is off by default, and says what turning it on means before it does", async () => {
-		const { source } = renderDevice("link-mac");
+		const { source } = await renderDevice("link-mac");
 		const save = vi.spyOn(source, "setDeviceSettings");
 		expect(
 			within(await tokens("Mac")).getByText("Off by default. For personal use")
@@ -1249,7 +1271,7 @@ describe("Claude setup-tokens", () => {
 	});
 
 	it("turns off without asking", async () => {
-		const { source } = renderDevice("link-devbox");
+		const { source } = await renderDevice("link-devbox");
 		const save = vi.spyOn(source, "setDeviceSettings");
 		expect(await toggle("devbox")).toBeChecked();
 		fireEvent.click(await toggle("devbox"));
@@ -1262,7 +1284,7 @@ describe("Claude setup-tokens", () => {
 	});
 
 	it("reads on for a maxd from before the setting, which can't change it", async () => {
-		renderDevice("link-devbox", "connected", before);
+		await renderDevice("link-devbox", "connected", before);
 		const on = await toggle("devbox");
 		expect(on).toBeChecked();
 		expect(on).toHaveAttribute("data-disabled");

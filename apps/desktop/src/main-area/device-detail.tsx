@@ -3,8 +3,9 @@
 
 // One device in the main area: how it's reached, the chain of checks from
 // this Mac to its agents with the one that stopped marked, its load, CLIs,
-// routes and settings, and the agents it runs or last ran, with the
-// settled ones last. This Mac's page also starts and uninstalls its maxd.
+// routes, ACP agents and links, and the agents it runs or last ran, with
+// the settled ones last. Its Settings button opens the device's tab in
+// Settings. This Mac's page also starts and uninstalls its maxd.
 
 import { useI18n, formatNumber } from "@maxhq/shared/i18n";
 
@@ -20,8 +21,10 @@ import { useNow } from "@maxhq/shared/lib/clock";
 import { cn } from "@/lib/utils";
 import { Picker } from "@/new-agent/picker";
 import { PRIMARY, Row, SECONDARY, Section, StatusNote } from "@/settings/controls";
-import { DeviceSettings } from "@/settings/device-settings";
+import { AcpAgents } from "@/settings/acp-agents";
+import { DeviceLinks } from "@/settings/device-links";
 import { failureOf, type Note } from "@/settings/result";
+import { showDeviceCard } from "@/settings/store";
 import { ACTIVITY_LABEL, agentLook } from "@maxhq/shared/status/activity";
 import type { Check, CheckState } from "@maxhq/shared/status/card";
 import { deviceConnection, linkChecks } from "@maxhq/shared/status/connection";
@@ -38,7 +41,8 @@ import { accountName } from "@maxhq/shared/status/usage";
 import { inboxOf } from "@maxhq/shared/view/inbox";
 import type { ViewState } from "@maxhq/shared/view/replica";
 import type { DeviceNode } from "@maxhq/shared/view/select";
-import { DeviceTestHosts } from "@/test-hosts/device-test-hosts";
+import { offersTestHosts } from "@maxhq/shared/test-hosts/hosts";
+import { DeviceLeases } from "@/test-hosts/device-test-hosts";
 import { DeviceMoves } from "@/workspaces/device-moves";
 import { DeviceWorkspaces } from "@/workspaces/workspace-list";
 
@@ -193,9 +197,11 @@ const StartHere = () => {
 const Actions = ({ node }: { node: DeviceNode }) => {
 	const { t } = useI18n();
 
-	const { source } = useServices();
+	const services = useServices();
+	const { source } = services;
 	const route = node.link.route;
 	const start = route.type === "local" && node.link.state.state !== "connected";
+	const device = node.link.device;
 	return (
 		<div className="flex shrink-0 gap-2">
 			{start ? <StartHere /> : null}
@@ -206,6 +212,16 @@ const Actions = ({ node }: { node: DeviceNode }) => {
 			>
 				{t("Try now")}
 			</button>
+			{device ? (
+				<button
+					type="button"
+					aria-label={t("Settings for {{name}}", { name: node.link.name })}
+					onClick={() => showDeviceCard(services, device, null)}
+					className={SECONDARY}
+				>
+					{t("Settings")}
+				</button>
+			) : null}
 			{route.type === "ssh" ? (
 				<CopyButton
 					text={`ssh ${route.host}`}
@@ -610,19 +626,12 @@ export const DeviceDetail = ({ node, view }: { node: DeviceNode; view: ViewState
 							live={live}
 							view={view}
 						/>
-						<DeviceTestHosts
-							device={link.device}
-							name={link.name}
-							live={live}
-							view={view}
-						/>
+						{offersTestHosts(view, link.device) ? (
+							<DeviceLeases device={link.device} name={link.name} view={view} />
+						) : null}
 						<DeviceRoutes link={link.id} view={view} />
-						<DeviceSettings
-							device={link.device}
-							name={link.name}
-							live={live}
-							view={view}
-						/>
+						<AcpAgents device={link.device} name={link.name} live={live} view={view} />
+						<DeviceLinks device={link.device} name={link.name} />
 					</>
 				) : null}
 				<DeviceIdentity link={link} view={view} />

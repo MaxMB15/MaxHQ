@@ -505,7 +505,11 @@ export const GithubFields = ({
 				disabled={repos.length === 0}
 			/>
 			{repos.length === 0 ? (
-				<Hint>{t("Add repos to the GitHub App in Settings › GitHub to watch them.")}</Hint>
+				<Hint>
+					{t(
+						"Add repos to the GitHub App in Settings › Accounts › GitHub to watch them."
+					)}
+				</Hint>
 			) : null}
 			<TickGroup title={t("Events")}>
 				{GITHUB_EVENTS.map(({ event, label }) => (

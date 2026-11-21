@@ -29,19 +29,19 @@ import { deviceName, linkForDevice } from "../view/select";
 
 import { isThisMac } from "./app-keys";
 
-/** A section of the desktop's Settings, Logins. */
+/** A section of the desktop's Settings, Accounts. */
 export type LoginSection = "claude" | "codex" | "cursor";
 
 /**
  * What Sign in again does for an account: the in-app login, a section of
- * Settings, Logins, or nothing, when there's no button.
+ * Settings, Accounts, or nothing, when there's no button.
  */
 export type SignInRoute = "login" | { readonly settings: LoginSection } | null;
 
 /**
  * What Sign in again does for `account`. A login in a config folder signs
  * in again in the app. A token, a Codex session or a Cursor key is sent
- * from Settings, Logins. A local ACP command signs in through its own CLI,
+ * from Settings, Accounts. A local ACP command signs in through its own CLI,
  * a local model's account has no login, and an account MaxHQ doesn't know
  * has nothing to sign in.
  */
@@ -81,7 +81,7 @@ export type SignInAction =
 	/** Opens the in-app login for the account. */
 	| { readonly kind: "login"; readonly account: Account }
 	/**
-	 * Opens Settings, Logins at a section, for the account's device. `why`
+	 * Opens Settings, Accounts at a section, for the account's device. `why`
 	 * says why the in-app login can't run there, when it can't.
 	 */
 	| {
@@ -106,7 +106,7 @@ export const signInAction = (
 	return { kind: "settings", section: sectionOf(account.vendor), device, why };
 };
 
-// The section of Settings, Logins for a vendor whose login signs in in the app.
+// The section of Settings, Accounts for a vendor whose login signs in in the app.
 const sectionOf = (vendor: Vendor): LoginSection =>
 	vendor === "codex" || vendor === "cursor" ? vendor : "claude";
 

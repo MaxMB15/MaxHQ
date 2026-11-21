@@ -542,7 +542,7 @@ async fn only_a_cli_login_in_its_folder_here_signs_in_again() {
     let (rounds, hub) = fresh(QUICK);
     let here = hub.device().id;
     let cli_only =
-        "This account doesn't sign in through its CLI. Change its login in Settings, Logins.";
+        "This account doesn't sign in through its CLI. Change its login in Settings, Accounts.";
     let cases = [
         ("unknown", None, "This device doesn't hold that account."),
         (

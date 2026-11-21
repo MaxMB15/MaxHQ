@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026 Max Boksem
 
-// One device's place for one kind of test machine, as the Test hosts page
-// and the device detail both show it: the tick that picks the device, a
+// One device's place for one kind of test machine, as the Test machines
+// card on its tab in Settings shows it: the tick that picks the device, a
 // hint where it suits the kind best, and once ticked, each host its `maxd`
 // detected or built, with the setup text, Build and Reset. The Mac's iOS
 // place adds the switch for its own Simulator.
@@ -201,22 +201,18 @@ const MacHostSwitch = ({ place, view, live }: { place: Place; view: ViewState; l
 
 /**
  * One place: the tick, then while ticked each host and its actions. `title`
- * names the row, the device on the Test hosts page and the kind on the
- * device's detail.
+ * names the row: the kind, on the device's tab in Settings.
  */
 export const PlaceBlock = ({
 	place,
 	title,
 	view,
 	live,
-	check,
 }: {
 	place: Place;
 	title: string;
 	view: ViewState;
 	live: boolean;
-	/** Whether the row offers Check again for its device. */
-	check: boolean;
 }) => {
 	const { t } = useI18n();
 
@@ -248,9 +244,6 @@ export const PlaceBlock = ({
 					) : null}
 				</label>
 				<StatusNote note={note} />
-				{check && place.ticked ? (
-					<CheckAgain device={place.device} name={place.name} live={live} />
-				) : null}
 			</div>
 			{!live ? (
 				<p className="text-xs text-muted-foreground">

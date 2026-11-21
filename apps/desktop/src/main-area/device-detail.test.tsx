@@ -58,6 +58,22 @@ const renderDevice = (
 	return { source };
 };
 
+describe("the device page's Settings button", () => {
+	it("opens Settings on the device's tab", async () => {
+		renderDevice("link-devbox");
+		fireEvent.click(await screen.findByRole("button", { name: "Settings for devbox" }));
+		const dialog = await screen.findByRole("dialog", { name: "Settings" });
+		const tabs = within(dialog).getByRole("tablist", { name: "Device" });
+		expect(within(tabs).getByRole("tab", { name: "devbox" })).toHaveAttribute(
+			"aria-selected",
+			"true"
+		);
+		expect(
+			await within(dialog).findByRole("region", { name: "Idle agents on devbox" })
+		).toBeInTheDocument();
+	});
+});
+
 const restart = () => screen.findByRole("region", { name: "Restart devbox" });
 const windDownButton = async () =>
 	within(await restart()).getByRole("button", { name: "Wind down for restart" });
@@ -186,7 +202,7 @@ describe("device workspaces", () => {
 
 	it("shows no workspaces section for a device without Incus", async () => {
 		renderDevice("link-mac");
-		await screen.findByRole("region", { name: "Settings for Mac" });
+		await screen.findByRole("button", { name: "Settings for Mac" });
 		expect(screen.queryByRole("region", { name: "Workspaces on Mac" })).toBeNull();
 	});
 });
@@ -306,7 +322,7 @@ describe("device routes", () => {
 
 	it("has no routes for this Mac", async () => {
 		renderDevice("link-mac");
-		await screen.findByRole("region", { name: "Settings for Mac" });
+		await screen.findByRole("button", { name: "Settings for Mac" });
 		expect(screen.queryByRole("region", { name: /^Routes to/ })).toBeNull();
 	});
 });

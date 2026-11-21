@@ -467,7 +467,7 @@ fn network_access_goes_in_the_book_while_its_on() {
     publish(&h, &specs[1], vec![access("jumped", false, Some(&pin()))]);
     assert_eq!(
         note(&h).as_deref(),
-        Some("Turn on Network access on its page to pair a phone with it.")
+        Some("Turn on Network access on its tab to pair a phone with it.")
     );
     // On without a pin is no way in yet.
     publish(&h, &specs[1], vec![access("jumped", true, None)]);

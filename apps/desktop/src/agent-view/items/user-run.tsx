@@ -535,15 +535,15 @@ const FreshLine = ({ item, device }: { item: UserRunItem; device: string }) => {
 	const view = useView((state) => state.view);
 	const note = freshNote(item.fresh);
 	if (!note) return null;
-	const link = linkForDevice(view, item.device);
+	const linked = linkForDevice(view, item.device)?.device ?? null;
 	const setting =
-		link === undefined ? (
+		linked === null ? (
 			t("Shell integration")
 		) : (
 			<button
 				type="button"
 				className="cursor-pointer text-muted-foreground underline underline-offset-2 hover:text-foreground"
-				onClick={() => showDeviceCard(services, link.id, "terminals")}
+				onClick={() => showDeviceCard(services, linked, "terminals")}
 			>
 				{t("Shell integration")}
 			</button>
