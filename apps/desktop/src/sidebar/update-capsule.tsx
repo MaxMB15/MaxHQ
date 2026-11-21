@@ -272,7 +272,7 @@ export const UpdateCapsule = () => {
 		queryKey: ["app-info"],
 		queryFn: () => services.source.appInfo(),
 	}).data;
-	const plan = planUpdate(view, info?.bundled ?? null);
+	const plan = planUpdate(view, info?.bundled ?? null, info?.version ?? null);
 
 	if (run) {
 		return (

@@ -13,7 +13,7 @@
 import { openNextWaiting } from "@/app/open-agent";
 import type { Services } from "@/app/services";
 import { onMac } from "@/native/platform";
-import { finderFor } from "@/agent-view/find/registry";
+import { finderFor, inTerminal } from "@/agent-view/find/registry";
 import { toggleShortcutList } from "@/shortcut-list/store";
 import { canUndoInbox, settleAndMoveOn, togglePinChosen, undoInbox } from "@/sidebar/commands";
 import { focusFilter } from "@/sidebar/filter";
@@ -72,6 +72,13 @@ export const SHORTCUTS = {
 	shortcuts: { label: "/", code: "Slash" },
 	terminal: { label: "`", code: "Backquote", control: true },
 } as const satisfies Record<string, Shortcut>;
+
+/**
+ * Find in a terminal: the same key on a Mac, and with Shift too elsewhere,
+ * where a terminal keeps Control and F for its shell and passes on only the
+ * keys with Control and Shift.
+ */
+export const terminalFind = (): Shortcut => ({ ...SHORTCUTS.find, shift: !onMac() });
 
 /** How a tooltip or menu writes a shortcut, such as ⇧⌘D on a Mac or Ctrl+Shift+D elsewhere. */
 export const keyHint = (s: Shortcut): string =>
@@ -157,8 +164,8 @@ const commandFor = (services: Services, e: KeyboardEvent): (() => boolean) | nul
 	// so only those work there.
 	const api = panes.api();
 	if (!api || services.ui.getState().mode !== "projects") return null;
-	// Find opens in the agent view focus is in, or the active pane's.
-	if (matches(e, SHORTCUTS.find)) {
+	// Find opens in the agent view or terminal focus is in, or the active pane's.
+	if (matches(e, inTerminal(document.activeElement) ? terminalFind() : SHORTCUTS.find)) {
 		const open = finderFor(document.activeElement, api.activeGroup?.element ?? null);
 		return open ? once(stay(open)) : null;
 	}

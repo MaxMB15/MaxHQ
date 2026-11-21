@@ -22,30 +22,53 @@ import { Picker } from "@/new-agent/picker";
 import { FIELD, Label, PRIMARY, SECONDARY } from "@/settings/controls";
 import { scrub } from "@/settings/result";
 import type { AccountId, DeviceId, LinkId } from "@maxhq/shared/bindings";
-import type { SetupHost, SetupProgress, SetupSecret, SetupStep } from "@maxhq/shared/fleet/wire";
+import type {
+	SetupHint,
+	SetupHost,
+	SetupPhase,
+	SetupProgress,
+	SetupSecret,
+	SetupStep,
+} from "@maxhq/shared/fleet/wire";
 import type { ConnectionLook } from "@maxhq/shared/status/connection";
 import { accountName } from "@maxhq/shared/status/usage";
 
-/** What each step after the pick is called in the list. */
-export const STEP_TITLE: Readonly<Record<Exclude<SetupStep, "pick">, string>> = {
-	get host_key() {
-		return t("Host key");
-	},
-	get install() {
-		return t("Install maxd");
-	},
-	get key() {
-		return t("Add MaxHQ's key");
-	},
-	get handshake() {
-		return t("Connect through the key");
-	},
-	get secrets() {
-		return t("Send logins");
-	},
+/** The steps after the pick, which the list counts down. */
+const STEPS: readonly Exclude<SetupStep, "pick">[] = [
+	"host_key",
+	"install",
+	"key",
+	"handshake",
+	"secrets",
+];
+
+/** What the list says of a step's phase. The app sends the phase, not the words. */
+export const phaseText = (phase: SetupPhase, host: string): string => {
+	switch (phase) {
+		case "reading_host_key":
+			return t("Reading {{host}}'s host key", { host: host });
+		case "checking_system":
+			return t("Checking the system");
+		case "copying_maxd":
+			return t("Copying maxd");
+		case "added_key":
+			return t("Added MaxHQ's key");
+		case "connecting":
+			return t("Connecting to maxd");
+		case "waiting_for_answer":
+			return t("Waiting for your answer about which device this is");
+		case "sending_logins":
+			return t("Sending the logins you picked");
+	}
 };
 
-const STEPS = Object.keys(STEP_TITLE) as Exclude<SetupStep, "pick">[];
+/** What a hint asks you to do on the host. */
+const hintText = (kind: SetupHint): string => {
+	switch (kind) {
+		case "linger":
+			return t("maxd can't keep running after you log out until lingering is on.");
+	}
+};
 
 const Title = ({ children }: { children: string }) => {
 	useI18n();
@@ -226,8 +249,8 @@ type Hint = Extract<SetupProgress, { type: "hint" }>;
 /** Where a setup stands, from what the app has sent. */
 export type RunState = {
 	readonly setup: string | null;
-	/** The steps reached so far, in order, with the app's words for each. */
-	readonly steps: readonly { step: SetupStep; message: string }[];
+	/** The steps reached so far, in order, each at the phase it's reached. */
+	readonly steps: readonly { step: SetupStep; phase: SetupPhase }[];
 	readonly hostKey: HostKey | null;
 	readonly hint: Hint | null;
 	readonly failed: { step: SetupStep; reason: string } | null;
@@ -252,7 +275,7 @@ export const follow = (state: RunState, progress: SetupProgress): RunState => {
 				...at,
 				steps: [
 					...state.steps.filter((s) => s.step !== progress.step),
-					{ step: progress.step, message: progress.message },
+					{ step: progress.step, phase: progress.phase },
 				],
 			};
 		case "host_key":
@@ -313,13 +336,13 @@ const Running = ({
 			</div>
 
 			<ol aria-label={t("Steps")} className="flex flex-col gap-2">
-				{state.steps.map(({ step, message }) => (
+				{state.steps.map(({ step, phase }) => (
 					<li
 						key={step}
 						className="flex items-center gap-2.5 text-[12.5px] text-foreground"
 					>
 						<ConnectionDot size={8} {...lookOf(state, step)} />
-						<span className="selectable">{message}</span>
+						<span className="selectable">{phaseText(phase, host)}</span>
 					</li>
 				))}
 				{!ended && left > 0 ? (
@@ -339,7 +362,10 @@ const Running = ({
 					className="flex flex-col gap-2 rounded-lg border border-status-connecting/40 bg-status-connecting/10 p-3"
 				>
 					<span className="selectable text-[12.5px] text-foreground">
-						{`${state.hostKey.host} shows this ${state.hostKey.key_type} key. Check it matches the one the machine prints for ssh-keygen -lf on its host key.`}
+						{t(
+							"{{host}} shows this {{type}} key. Check it matches the one the machine prints for ssh-keygen -lf on its host key.",
+							{ host: state.hostKey.host, type: state.hostKey.key_type }
+						)}
 					</span>
 					<div className="flex items-start gap-1">
 						<code className="selectable min-w-0 flex-1 font-mono text-xs break-all text-foreground-strong">
@@ -361,7 +387,7 @@ const Running = ({
 			{state.hint ? (
 				<div className="flex flex-col gap-2 rounded-lg border border-sidebar-border bg-subpanel p-3">
 					<span className="selectable text-[12.5px] text-foreground">
-						{state.hint.text}
+						{hintText(state.hint.kind)}
 					</span>
 					<div className="flex items-center gap-2">
 						<code

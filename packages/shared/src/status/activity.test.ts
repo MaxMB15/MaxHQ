@@ -39,6 +39,7 @@ const cases: [Activity, ActivityLook, string][] = [
 	],
 	[{ state: "paused", reason: "by_you" }, "paused", "Paused"],
 	[{ state: "paused", reason: "resumes_made_no_progress" }, "paused", "Paused after 3 resumes"],
+	[{ state: "paused", reason: "resume_off" }, "paused", "Paused after a restart"],
 	[{ state: "error", reason: "exited with status 1" }, "error", "Stopped with an error"],
 	[{ state: "not_accessible" }, "not_accessible", "Not accessible"],
 ];
@@ -73,6 +74,16 @@ describe("activity dot", () => {
 });
 
 describe("activity hover", () => {
+	it("says a message brings back an agent you stopped, as the Stopped banner does", () => {
+		for (const reason of ["by_you", "resume_off"] as const) {
+			const activity: Activity = { state: "paused", reason };
+			const card = activityCard({ agent: agent({ id: "a", activity }), now: NOW });
+			expect(card.body).toContain(
+				"Resume starts it again, and so does sending it a message."
+			);
+		}
+	});
+
 	it("says when Claude's cache goes cold, as a fact", () => {
 		const card = activityCard({
 			agent: agent({

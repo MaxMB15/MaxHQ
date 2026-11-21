@@ -133,6 +133,18 @@ describe("the shortcut list", () => {
 			"Down",
 		]);
 		expect(rowOf("Show the tab at that place, 9 for the last")?.keys).toEqual(["Ctrl+1–9"]);
+		// A terminal keeps Ctrl+F for its shell.
+		expect(rowOf("Find in the conversation")?.keys).toEqual(["Ctrl+F"]);
+		expect(rowOf("Find in the terminal")).toMatchObject({
+			keys: ["Ctrl+Shift+F"],
+			group: "Find",
+		});
+	});
+
+	it("lists Find in the terminal only off a Mac, where its key differs", () => {
+		onMac();
+		expect(rowOf("Find in the conversation")?.keys).toEqual(["⌘F"]);
+		expect(rowOf("Find in the terminal")).toBeUndefined();
 	});
 
 	it("keeps the groups in order", () => {

@@ -10,7 +10,7 @@
 import { type BusySend, DEFAULT_BUSY_SEND } from "@maxhq/shared/composer/send";
 import { t } from "@maxhq/shared/i18n";
 
-import { keyHint, SHORTCUTS, type Shortcut } from "@/layout/shortcuts";
+import { keyHint, SHORTCUTS, type Shortcut, terminalFind } from "@/layout/shortcuts";
 import { onMac } from "@/native/platform";
 
 /** The groups, in the order the list shows them. */
@@ -151,6 +151,13 @@ const lines = (pick: BusySend): readonly Line[] => [
 		keys: [command(UP, { shift: !onMac() }), command(DOWN, { shift: !onMac() })],
 	},
 	{ what: t("Find in the conversation"), group: "Find", projectsOnly: true, id: "find" },
+	{
+		what: t("Find in the terminal"),
+		group: "Find",
+		projectsOnly: true,
+		// A Mac uses the line above's key, so the line shows only elsewhere.
+		keys: onMac() ? [] : [keyHint(terminalFind())],
+	},
 	{
 		what: t("Next or previous match"),
 		group: "Find",

@@ -2801,6 +2801,9 @@ async fn an_agent_you_stopped_stays_stopped_until_you_send() {
         Some(true)
     );
     assert_eq!(h.sent(resumed), ["go on"]);
+    // Stop leaves it paused, and the message took it out: one state, which
+    // Resume or a message ends.
+    eventually("the pause ending", || h.activity(agent) != paused).await;
 }
 
 #[tokio::test]

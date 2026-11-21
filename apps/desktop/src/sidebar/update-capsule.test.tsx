@@ -70,6 +70,32 @@ describe("the Update everything capsule", () => {
 		expect(within(popup).queryByText("doesn't check signatures")).toBeNull();
 	});
 
+	it("leaves out a device whose maxd is newer than the app", async () => {
+		const setup = renderSidebar();
+		vi.spyOn(setup.source, "appInfo").mockResolvedValue({
+			version: "0.0.9",
+			protocol_version: 1,
+			bundled: [
+				{ target: "x86_64-unknown-linux-musl", build: `${DEVBOX_BUILD}0`, signed: true },
+			],
+		});
+		const fleet = driven(setup.source);
+		show(setup);
+		fireEvent.click(await screen.findByRole("button", { name: "Update 1 CLI" }));
+		const popup = await screen.findByRole("dialog");
+		expect(within(popup).getByText("Claude in mhq-maxhq")).toBeVisible();
+		expect(within(popup).queryByText("maxd, Claude in mhq-maxhq")).toBeNull();
+		fireEvent.click(within(popup).getByRole("button", { name: "Update everything" }));
+		await waitFor(() =>
+			expect(fleet.updateFleet).toHaveBeenCalledWith(
+				["dev-devbox"],
+				true,
+				false,
+				expect.any(Function)
+			)
+		);
+	});
+
 	it("sends a signed build without asking", async () => {
 		const setup = renderSidebar();
 		vi.spyOn(setup.source, "appInfo").mockResolvedValue({

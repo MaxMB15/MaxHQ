@@ -72,6 +72,7 @@ fn machine(name: &str, build: &str) -> Machine {
             ..Capabilities::default()
         }),
         build: Some(build.to_owned()),
+        version: None,
         target: Some(TARGET.to_owned()),
         local: false,
         workspaces: false,
@@ -173,6 +174,46 @@ fn a_current_device_still_gets_its_tools_when_asked() {
     assert_eq!(with_tools.targets.len(), 1);
     assert_eq!(with_tools.targets[0].tools, [claude_on_host()]);
     assert_eq!(with_tools.targets[0].maxd, None);
+}
+
+#[test]
+fn a_newer_maxd_is_never_taken_back_to_the_apps_build() {
+    let old = "bbbbbbbbbbbbbbbb";
+    let at = |name: &str, version: &str| Machine {
+        version: Some(version.to_owned()),
+        ..machine(name, old)
+    };
+    let machines = [
+        at("newer", "99.0.0"),
+        at("same", env!("CARGO_PKG_VERSION")),
+        at("older", "0.0.1"),
+        at("no-version", ""),
+        Machine {
+            tools: vec![claude_on_host()],
+            ..at("newer-with-tools", "99.0.0")
+        },
+    ];
+    let plan = plan(&machines, &fleet_binaries(), true, false, false);
+    let targets: Vec<_> = plan
+        .targets
+        .iter()
+        .map(|t| (t.name.as_str(), t.maxd.is_some()))
+        .collect();
+    assert_eq!(
+        targets,
+        [
+            ("same", true),
+            ("older", true),
+            ("no-version", true),
+            ("newer-with-tools", false),
+        ]
+    );
+    assert!(plan.skipped.is_empty(), "{plan:?}");
+    assert!(newer_than_app(Some("99.0.0")));
+    assert!(!newer_than_app(Some(env!("CARGO_PKG_VERSION"))));
+    assert!(!newer_than_app(Some("0.0.1")));
+    assert!(!newer_than_app(Some("not a version")));
+    assert!(!newer_than_app(None));
 }
 
 #[test]

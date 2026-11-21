@@ -5,13 +5,24 @@
 // find in. Each says where it sits in the page, and the shortcut picks the
 // innermost one focus is in, then the outermost one in the active pane.
 
-type Finder = { readonly element: Element; readonly open: () => void };
+type Finder = {
+	readonly element: Element;
+	readonly open: () => void;
+	readonly terminal: boolean;
+};
 
 const finders = new Set<Finder>();
 
-/** Lets the find shortcut open find in the agent view at `element`. Returns the undo. */
-export const registerFinder = (element: Element, open: () => void): (() => void) => {
-	const finder = { element, open };
+/**
+ * Lets the find shortcut open find in the agent view, or the terminal when
+ * `terminal` is set, at `element`. Returns the undo.
+ */
+export const registerFinder = (
+	element: Element,
+	open: () => void,
+	terminal = false
+): (() => void) => {
+	const finder = { element, open, terminal };
 	finders.add(finder);
 	return () => {
 		finders.delete(finder);
@@ -36,3 +47,8 @@ export const finderFor = (focus: Element | null, pane: Element | null): (() => v
 		(outermost.length === 1 ? outermost[0] : undefined);
 	return found?.open ?? null;
 };
+
+/** Whether focus is in a terminal, where the find shortcut takes Shift too off a Mac. */
+export const inTerminal = (focus: Element | null): boolean =>
+	focus !== null &&
+	[...finders].some((finder) => finder.terminal && finder.element.contains(focus));

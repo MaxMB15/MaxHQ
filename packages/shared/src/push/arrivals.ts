@@ -9,7 +9,7 @@
 import { t } from "../i18n";
 
 import type { Agent, AgentId, AttentionEvent, AttentionId, Timestamp } from "../bindings";
-import { showHidden } from "../status/format";
+import { askTitle, showHidden } from "../status/format";
 import { agentSynced } from "../status/reach";
 import { all, type ViewState } from "../view/replica";
 
@@ -70,7 +70,8 @@ export const arrivalText = (
 				: arrival.event?.kind === "error"
 					? t("Stopped on an error")
 					: t("Needs input");
-	return { title: arrival.agent.title, body: showHidden(arrival.event?.summary || ask) };
+	const summary = arrival.event?.summary;
+	return { title: arrival.agent.title, body: showHidden(summary ? askTitle(summary) : ask) };
 };
 
 /** Whether a banner's prompt is still open. */

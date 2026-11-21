@@ -334,6 +334,8 @@ impl AcpSession {
             self.pending.remove(key);
             return None;
         }
+        // The apps word this title in the reader's language by its shape
+        // (askTitle in packages/shared), so keep it as it is.
         let title = text(&tool, "title")
             .filter(|title| !title.is_empty())
             .map_or_else(

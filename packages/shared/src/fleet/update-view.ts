@@ -7,7 +7,7 @@
 // done, dismissing the settled ones, and the plan's summary. MaxHQ's run
 // follows the `FleetProgress` the app sends instead of each server's own
 // update state, and a device is behind when its build isn't the one the app
-// carries.
+// carries and its version isn't newer than the app's.
 
 import { t } from "../i18n";
 
@@ -40,15 +40,59 @@ export const isAgentTool = (tool: ToolInfo): tool is AgentToolInfo => tool.kind.
 export const agentTools = (tools: readonly ToolInfo[]): AgentToolInfo[] =>
 	tools.filter(isAgentTool);
 
+const SEMVER = /^v?(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.-]+))?(?:\+[0-9A-Za-z.-]+)?$/;
+
+/** Compares two pre-release labels the way semver orders them. */
+const comparePre = (a: string | undefined, b: string | undefined): number => {
+	if (a === b) return 0;
+	if (a === undefined) return 1;
+	if (b === undefined) return -1;
+	const left = a.split(".");
+	const right = b.split(".");
+	for (let i = 0; i < Math.min(left.length, right.length); i++) {
+		const x = left[i]!;
+		const y = right[i]!;
+		if (x === y) continue;
+		const xNumber = /^\d+$/.test(x);
+		const yNumber = /^\d+$/.test(y);
+		if (xNumber && yNumber) return Math.sign(Number(x) - Number(y));
+		if (xNumber !== yNumber) return xNumber ? -1 : 1;
+		return x < y ? -1 : 1;
+	}
+	return Math.sign(left.length - right.length);
+};
+
+/**
+ * Orders two versions such as "0.1.5": below 0 when `a` is older, 0 when
+ * they're the same, above 0 when `a` is newer. Null when either doesn't
+ * read as a version, so there's nothing to compare.
+ */
+export const compareVersions = (a: string | null, b: string | null): number | null => {
+	const left = a === null ? null : SEMVER.exec(a.trim());
+	const right = b === null ? null : SEMVER.exec(b.trim());
+	if (!left || !right) return null;
+	for (const part of [1, 2, 3]) {
+		const diff = Number(left[part]) - Number(right[part]);
+		if (diff !== 0) return Math.sign(diff);
+	}
+	return comparePre(left[4], right[4]);
+};
+
 /**
  * Whether a device runs a different `maxd` than the one the app carries
  * for its target. A device or app that names no build is never behind,
- * since there's nothing to compare.
+ * since there's nothing to compare. Nor is one whose `maxd` is a newer
+ * version than the app, `version`: its build would take the device back.
  */
-export const isBehind = (device: Device, bundled: readonly BundledBuild[] | null): boolean => {
+export const isBehind = (
+	device: Device,
+	bundled: readonly BundledBuild[] | null,
+	version: string | null
+): boolean => {
 	if (!bundled || !device.build || !device.target) return false;
+	const newer = (compareVersions(device.maxd_version, version) ?? 0) > 0;
 	const carried = bundled.find((b) => b.target === device.target);
-	return carried !== undefined && carried.build !== device.build;
+	return !newer && carried !== undefined && carried.build !== device.build;
 };
 
 /**
@@ -160,17 +204,21 @@ export const updatableTools = (view: ViewState, device: DeviceId): AgentToolInfo
 	return tools.filter((t) => hasNewer(t) && mayUpdate(t, ticked) && t.state.type !== "running");
 };
 
-/** The connected devices that are behind or have a CLI to update, by the sidebar's names. */
+/**
+ * The connected devices that are behind or have a CLI to update, by the
+ * sidebar's names. `version` is the app's, so a newer `maxd` stays put.
+ */
 export const planUpdate = (
 	view: ViewState,
-	bundled: readonly BundledBuild[] | null
+	bundled: readonly BundledBuild[] | null,
+	version: string | null
 ): UpdatePlan => {
 	const rows: PlanRow[] = [];
 	for (const link of view.tables.device_link.values()) {
 		if (!link.device || link.state.state !== "connected") continue;
 		const device = view.tables.device.get(link.device);
 		if (!device) continue;
-		const maxd = isBehind(device, bundled);
+		const maxd = isBehind(device, bundled, version);
 		const tools = updatableTools(view, link.device).map((t) => toolLabel(view, t));
 		if (maxd || tools.length > 0)
 			rows.push({

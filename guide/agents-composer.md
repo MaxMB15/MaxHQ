@@ -147,7 +147,7 @@ When Claude Code proposes a plan, it shows as a **Proposed plan** card.
 
 To stop what an agent is doing right now, click the stop button in the composer, **Stop this turn**, or press ⌘.. The agent keeps its conversation and waits for your next message.
 
-To end the agent's process, open the **More** menu in its header and pick **Stop agent**. Its pane then reads **Stopped**: "The conversation stays. Resume starts it again, and so does sending it a message." Click **Resume**, or just send a message. Its terminals keep running, and the sidebar marks it **Paused** until it starts again.
+To end the agent's process, open the **More** menu in its header and pick **Stop agent**. Its pane then reads **Stopped**: "The conversation stays. Resume starts it again, and so does sending it a message." Click **Resume**, or just send a message. Its terminals keep running, and the sidebar marks it **Paused** until it starts again. Hover its status dot and it says the same: "You stopped it. Resume starts it again, and so does sending it a message."
 
 The same menu can copy the session ID, **Export as Markdown…** or **Copy as Markdown**, and **Delete agent**.
 

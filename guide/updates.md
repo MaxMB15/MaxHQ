@@ -50,7 +50,7 @@ When a device's maxd or an agent CLI needs an update, the bottom of the sidebar'
 
 What counts, on connected devices only:
 
-- A device whose maxd isn't the build this app carries. A device running a newer maxd than the app counts too, and Update everything would put the app's build on it, so update the app first.
+- A device whose maxd isn't the build this app carries. A device running a newer maxd than the app doesn't count, since the app's build would take it back. Update the app instead.
 - An agent CLI with a newer version out that MaxHQ may update. One you installed yourself counts once you turn on Let MaxHQ update for it.
 
 1. Click the summary to see this app's version and what each device gets: maxd, Claude, Codex or Cursor.

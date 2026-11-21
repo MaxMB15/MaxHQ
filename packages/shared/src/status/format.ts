@@ -188,6 +188,19 @@ export const showHidden = (text: string): string =>
 		(char) => `[U+${(char.codePointAt(0) ?? 0).toString(16).toUpperCase().padStart(4, "0")}]`
 	);
 
+// The title maxd gives a tool request whose agent named no tool, in the
+// one language maxd writes.
+const ASKS_FOR_A_TOOL = /^(.+) asks to use a tool$/;
+
+/**
+ * A tool request's title in the reader's language when maxd wrote it, as it
+ * does when the agent named no tool. A title from the agent stays as it is.
+ */
+export const askTitle = (title: string): string => {
+	const named = ASKS_FOR_A_TOOL.exec(title);
+	return named ? t("{{name}} asks to use a tool", { name: named[1] }) : title;
+};
+
 /** Spells small counts as words, such as "Second" for a second attempt. */
 export const ordinal = (n: number): string =>
 	[t("First"), t("Second"), t("Third"), t("Fourth"), t("Fifth")][n - 1] ??

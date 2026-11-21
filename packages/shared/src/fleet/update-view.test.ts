@@ -15,6 +15,7 @@ import {
 	failedDevices,
 	formatUpdateElapsed,
 	checksSignatures,
+	compareVersions,
 	isBehind,
 	isUnsigned,
 	offersUpdate,
@@ -27,6 +28,7 @@ import type { Entity, ToolInfo } from "./wire";
 
 const LINUX = "x86_64-unknown-linux-musl";
 const BUNDLED = [{ target: LINUX, build: "new", signed: true }];
+const APP = "0.1.0";
 
 const tool = (over: Partial<ToolInfo>): ToolInfo => ({
 	kind: { type: "agent", tool: "claude" },
@@ -66,18 +68,51 @@ describe("a CLI's version", () => {
 	});
 });
 
+describe("compareVersions", () => {
+	it("orders older, the same and newer", () => {
+		expect(compareVersions("0.1.4", "0.1.5")).toBeLessThan(0);
+		expect(compareVersions("0.1.5", "0.1.5")).toBe(0);
+		expect(compareVersions("0.2.0", "0.1.5")).toBeGreaterThan(0);
+		expect(compareVersions("0.1.10", "0.1.9")).toBeGreaterThan(0);
+		expect(compareVersions("1.0.0", "0.99.99")).toBeGreaterThan(0);
+	});
+
+	it("puts a pre-release before its release, as semver does", () => {
+		expect(compareVersions("0.1.5-beta.1", "0.1.5")).toBeLessThan(0);
+		expect(compareVersions("0.1.5-beta.2", "0.1.5-beta.10")).toBeLessThan(0);
+		expect(compareVersions("0.1.5-alpha", "0.1.5-beta")).toBeLessThan(0);
+		expect(compareVersions("0.1.5+build.7", "0.1.5")).toBe(0);
+	});
+
+	it("can't compare a build that has no version", () => {
+		expect(compareVersions("", "0.1.5")).toBeNull();
+		expect(compareVersions("0.1.5", null)).toBeNull();
+		expect(compareVersions("dev", "0.1.5")).toBeNull();
+	});
+});
+
 describe("isBehind", () => {
+	const d = { ...device({ id: "dev-a" }), build: "old", target: LINUX, maxd_version: "0.1.5" };
+
 	it("compares the build with the one the app carries for the target", () => {
-		const d = { ...device({ id: "dev-a" }), build: "old", target: LINUX };
-		expect(isBehind(d, BUNDLED)).toBe(true);
-		expect(isBehind({ ...d, build: "new" }, BUNDLED)).toBe(false);
+		expect(isBehind(d, BUNDLED, "0.1.5")).toBe(true);
+		expect(isBehind({ ...d, build: "new" }, BUNDLED, "0.1.5")).toBe(false);
 	});
 
 	it("is never behind when either side names no build", () => {
-		const d = { ...device({ id: "dev-a" }), build: "old", target: LINUX };
-		expect(isBehind(d, null)).toBe(false);
-		expect(isBehind({ ...d, build: null }, BUNDLED)).toBe(false);
-		expect(isBehind({ ...d, target: "aarch64-apple-darwin" }, BUNDLED)).toBe(false);
+		expect(isBehind(d, null, "0.1.5")).toBe(false);
+		expect(isBehind({ ...d, build: null }, BUNDLED, "0.1.5")).toBe(false);
+		expect(isBehind({ ...d, target: "aarch64-apple-darwin" }, BUNDLED, "0.1.5")).toBe(false);
+	});
+
+	it("leaves a maxd newer than the app alone, and updates an older one", () => {
+		expect(isBehind({ ...d, maxd_version: "0.1.6" }, BUNDLED, "0.1.5")).toBe(false);
+		expect(isBehind({ ...d, maxd_version: "0.1.4" }, BUNDLED, "0.1.5")).toBe(true);
+	});
+
+	it("goes by the build alone when a version doesn't read", () => {
+		expect(isBehind({ ...d, maxd_version: "" }, BUNDLED, "0.1.5")).toBe(true);
+		expect(isBehind({ ...d, maxd_version: "0.1.6" }, BUNDLED, null)).toBe(true);
 	});
 });
 
@@ -168,7 +203,7 @@ describe("planUpdate", () => {
 	];
 
 	it("lists connected devices that are behind or have a CLI MaxHQ may update", () => {
-		const plan = planUpdate(viewOf(entities()), BUNDLED);
+		const plan = planUpdate(viewOf(entities()), BUNDLED, APP);
 		expect(plan.rows).toEqual([
 			{
 				device: "dev-a",
@@ -193,7 +228,7 @@ describe("planUpdate", () => {
 	});
 
 	it("asks first when a device would get a build from source", () => {
-		const plan = planUpdate(viewOf(entities()), [{ ...BUNDLED[0]!, signed: false }]);
+		const plan = planUpdate(viewOf(entities()), [{ ...BUNDLED[0]!, signed: false }], APP);
 		expect(plan.rows[0]).toMatchObject({ device: "dev-a", maxd: true, unsigned: true });
 		// A device only getting its CLIs gets no maxd, signed or not.
 		expect(plan.rows[1]).toMatchObject({ device: "dev-b", unsigned: false });
@@ -202,19 +237,28 @@ describe("planUpdate", () => {
 
 	it("marks a device whose maxd is too old to check signatures", () => {
 		for (const protocol of [SIGNED_UPDATES_SINCE - 1, null]) {
-			const plan = planUpdate(viewOf(entities({ protocol })), BUNDLED);
+			const plan = planUpdate(viewOf(entities({ protocol })), BUNDLED, APP);
 			expect(plan.rows[0]).toMatchObject({ device: "dev-a", unchecked: true });
 		}
 	});
 
+	it("leaves out a device whose maxd is newer than the app", () => {
+		const plan = planUpdate(viewOf(entities({ tools: [] })), BUNDLED, "0.0.9");
+		expect(plan).toEqual({ summary: null, rows: [], tools: false, unsigned: false });
+		// Its CLIs still update, without a maxd.
+		const tools = planUpdate(viewOf(entities()), BUNDLED, "0.0.9");
+		expect(tools.rows.map((r) => [r.device, r.maxd])).toEqual([["dev-b", false]]);
+		expect(tools.summary).toBe("Update 1 CLI");
+	});
+
 	it("adds the host's CLIs once you tick them", () => {
-		const plan = planUpdate(viewOf(entities({ ticked: ["claude"] })), BUNDLED);
+		const plan = planUpdate(viewOf(entities({ ticked: ["claude"] })), BUNDLED, APP);
 		expect(plan.rows[1]?.tools).toEqual(["Claude", "Codex in mhq-one"]);
 		expect(plan.summary).toBe("Update 1 device and 2 CLIs");
 	});
 
 	it("has nothing to do when every build matches and no CLI is behind", () => {
-		const plan = planUpdate(viewOf(entities({ tools: [] })), null);
+		const plan = planUpdate(viewOf(entities({ tools: [] })), null, APP);
 		expect(plan).toEqual({ summary: null, rows: [], tools: false, unsigned: false });
 	});
 });

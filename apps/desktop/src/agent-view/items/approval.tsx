@@ -33,7 +33,7 @@ import {
 	type Typed,
 	typedFor,
 } from "@maxhq/shared/pills/answer";
-import { showHidden } from "@maxhq/shared/status/format";
+import { askTitle, showHidden } from "@maxhq/shared/status/format";
 import { VENDOR_NAME } from "@maxhq/shared/status/usage";
 import { deviceName } from "@maxhq/shared/view/select";
 
@@ -182,7 +182,7 @@ const LiveApproval = ({ item }: { item: ItemOf<"approval"> }) => {
 			<WaitingCard
 				label={label}
 				icon={KIND_ICON[item.approval_kind](15)}
-				title={<CodeTitle text={item.title} />}
+				title={<CodeTitle text={askTitle(item.title)} />}
 				vendor={vendor}
 				since={item.started_at}
 			>
@@ -210,7 +210,7 @@ const LiveApproval = ({ item }: { item: ItemOf<"approval"> }) => {
 		<WaitingCard
 			label={label}
 			icon={KIND_ICON[item.approval_kind](15)}
-			title={<CodeTitle text={item.title} />}
+			title={<CodeTitle text={askTitle(item.title)} />}
 			vendor={vendor}
 			since={item.started_at}
 			onKeyDown={(event) => {
@@ -322,7 +322,7 @@ const DecidedApproval = ({ item, decided }: { item: ItemOf<"approval">; decided:
 					/>
 				)
 			}
-			title={<CodeTitle text={item.title} />}
+			title={<CodeTitle text={askTitle(item.title)} />}
 			meta={decidedLine(decided, item.options)}
 		>
 			{answer.type === "text" ? (
@@ -347,7 +347,7 @@ export const ApprovalCard = ({ item }: { item: ItemOf<"approval"> }) => {
 			icon={
 				<Ban size={14} strokeWidth={1.9} aria-hidden className="text-subtle-foreground" />
 			}
-			title={<CodeTitle text={item.title} />}
+			title={<CodeTitle text={askTitle(item.title)} />}
 			meta={dismissed ? SKIP_WORDS.dismissed : "Closed without an answer"}
 		/>
 	);

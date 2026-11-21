@@ -203,7 +203,7 @@ export const TerminalBody = ({
 
 	useEffect(() => {
 		const element = body.current;
-		return element ? registerFinder(element, () => setFinding((n) => n + 1)) : undefined;
+		return element ? registerFinder(element, () => setFinding((n) => n + 1), true) : undefined;
 	}, []);
 
 	// The view is placed by the host below, whose effect runs first.

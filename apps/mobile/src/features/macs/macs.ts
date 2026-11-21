@@ -361,16 +361,14 @@ export const pairNote = (from: string | null, macs: readonly PairedMac[]): strin
 		: null;
 };
 
-/** What Settings says under this phone's name: where to rename it. */
-export const renameNote = (macs: readonly PairedMac[]): string => {
-	const real = realMacs(macs);
-	if (real.length === 1) {
-		return t("How your devices list this phone. Rename it on {{mac}}.", { mac: real[0]!.name });
-	}
-	return real.length > 1
-		? t("How your devices list this phone. Rename it on your Macs.")
-		: t("How your devices list this phone. Rename it on the Mac.");
-};
+/**
+ * What Settings says under this phone's name: where it comes from. No device
+ * can rename a phone, and pairing again sets the name anew.
+ */
+export const nameNote = (): string =>
+	t(
+		"How your devices list this phone, from This phone's name when you paired it. Pair again to change it."
+	);
 
 /** This phone's name as its devices list it, whichever device tells it. */
 export const phoneName = (view: ViewState, phone: string): string | undefined => {
