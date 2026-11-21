@@ -724,7 +724,3 @@ export const newestUsageCheck = (view: ViewState): Timestamp | undefined => {
 	const times = all(view, "account").flatMap((a) => (a.usage ? [a.usage.checked_at] : []));
 	return times.length > 0 ? Math.max(...times) : undefined;
 };
-
-/** How many agents need you, for the bell. */
-export const needsYouCount = (view: ViewState): number =>
-	all(view, "agent").filter((a) => a.activity.state === "needs_input").length;

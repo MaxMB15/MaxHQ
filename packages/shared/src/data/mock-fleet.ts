@@ -13,6 +13,7 @@ import type {
 	HostLoad,
 	ProcessUse,
 	SetupHost,
+	SetupPhase,
 	SetupProgress,
 	SetupStep,
 	ToolInfo,
@@ -355,8 +356,8 @@ export const mockFleet = (
 	> => {
 		setups += 1;
 		const id = `setup-${setups}`;
-		const step = async (which: SetupStep, message: string) => {
-			onProgress({ type: "step", setup: id, step: which, message });
+		const step = async (which: SetupStep, phase: SetupPhase) => {
+			onProgress({ type: "step", setup: id, step: which, phase });
 			await pause(stepMs);
 		};
 		const stop = (which: SetupStep, reason: string) => {
@@ -365,7 +366,7 @@ export const mockFleet = (
 		};
 		const found = hosts.find((h) => h.host === host);
 		if (found?.link) return stop("pick", `${host} is already set up`);
-		await step("host_key", `Reading ${host}'s host key`);
+		await step("host_key", "reading_host_key");
 		const ok = await new Promise<boolean>((resolve) => {
 			asking.set(id, resolve);
 			onProgress({
@@ -378,21 +379,23 @@ export const mockFleet = (
 		});
 		asking.delete(id);
 		if (!ok) return stop("host_key", "You didn't trust the host key, so nothing ran");
-		await step("install", "Checking the system and copying maxd");
+		await step("install", "checking_system");
 		if (host === "build-box") {
-			const text = "maxd can't keep running after you log out until lingering is on.";
 			onProgress({
 				type: "hint",
 				setup: id,
 				step: "install",
-				text,
+				kind: "linger",
 				command: "loginctl enable-linger $USER",
 			});
-			return failed(`${text} Run the command on ${host}, then try again`);
+			return failed(
+				`maxd can't keep running after you log out until lingering is on. Run the command on ${host}, then try again`
+			);
 		}
-		await step("key", "Adding MaxHQ's key");
-		await step("handshake", "Connecting through the new key");
-		await step("secrets", "Sending the logins you picked");
+		await step("install", "copying_maxd");
+		await step("key", "added_key");
+		await step("handshake", "connecting");
+		await step("secrets", "sending_logins");
 		const device = `dev-${host}`;
 		const link = `link-${host}`;
 		const at = now();

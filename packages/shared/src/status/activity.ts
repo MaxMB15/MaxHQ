@@ -7,13 +7,14 @@
 
 import { t } from "../i18n";
 
-import type { Account, Activity, Agent, AttentionEvent, Timestamp } from "../bindings";
+import type { Account, Activity, Agent, AttentionEvent, PauseReason, Timestamp } from "../bindings";
 import type { ViewState } from "../view/replica";
 import { agentLinkContext, childrenOf } from "../view/select";
 
 import type { Fact, HoverCard } from "./card";
 import { agentConnection, type ConnectionLook } from "./connection";
 import {
+	askTitle,
 	formatAgo,
 	formatAgoShort,
 	formatContext,
@@ -181,6 +182,44 @@ const lastActivity = (ctx: ActivityContext) =>
 const working = (children: readonly Agent[]) =>
 	children.filter((c) => isWorking(c.activity) || c.activity.state === "needs_input");
 
+/**
+ * The hover card for a paused agent. Stop pauses an agent, and Resume or a
+ * message you send ends any pause.
+ */
+const pausedCard = (reason: PauseReason, ctx: ActivityContext, foot: string): HoverCard => {
+	switch (reason) {
+		case "by_you":
+			return {
+				title: t("Paused"),
+				body: t(
+					"You stopped it. Resume starts it again, and so does sending it a message."
+				),
+				facts: facts(ctx),
+				foot,
+			};
+		case "resume_off":
+			return {
+				title: t("Paused after a restart"),
+				body: t(
+					"Its device or container restarted, and Resume after a restart is off for its project. Resume starts it again, and so does sending it a message."
+				),
+				facts: facts(ctx),
+				foot,
+			};
+		case "resumes_made_no_progress":
+			return {
+				title: t("Paused after 3 resumes"),
+				body: t(
+					"It was resumed 3 times in a row without making progress, so it waits for you to look."
+				),
+				facts: facts(ctx),
+				foot: t(
+					"A resume counts toward 3 only if the agent made no progress since the last one"
+				),
+			};
+	}
+};
+
 /** The hover card for the activity dot. */
 export const activityCard = (ctx: ActivityContext): HoverCard => {
 	const { agent, now } = ctx;
@@ -260,7 +299,7 @@ export const activityCard = (ctx: ActivityContext): HoverCard => {
 					: t("Answer it in its pane");
 			return {
 				title,
-				body: attention ? showHidden(attention.summary) : undefined,
+				body: attention ? showHidden(askTitle(attention.summary)) : undefined,
 				facts: facts(ctx),
 				foot: attention
 					? t("Asked {{formatAgo_attention_created_at__now}}. {{answer}}", {
@@ -345,23 +384,7 @@ export const activityCard = (ctx: ActivityContext): HoverCard => {
 			};
 		}
 		case "paused":
-			return activity.reason === "by_you"
-				? {
-						title: t("Paused"),
-						body: t("You paused it. It waits until you press Resume."),
-						facts: facts(ctx),
-						foot,
-					}
-				: {
-						title: t("Paused after 3 resumes"),
-						body: t(
-							"It was resumed 3 times in a row without making progress, so it waits for you to look."
-						),
-						facts: facts(ctx),
-						foot: t(
-							"A resume counts toward 3 only if the agent made no progress since the last one"
-						),
-					};
+			return pausedCard(activity.reason, ctx, foot);
 		case "error":
 			return {
 				title: t("Stopped with an error"),

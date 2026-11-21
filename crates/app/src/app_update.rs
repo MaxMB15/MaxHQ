@@ -407,6 +407,7 @@ mod tests {
             winding_down,
             capabilities: None,
             build: build.map(str::to_owned),
+            version: None,
             target: Some("aarch64-apple-darwin".into()),
             local: true,
             workspaces: false,

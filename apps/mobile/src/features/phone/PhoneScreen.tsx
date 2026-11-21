@@ -30,9 +30,8 @@ import { Card, CardRow } from "../../ui/Card";
 import { Input } from "../../ui/Field";
 import { Header } from "../../ui/Header";
 import { reachSummary } from "../devices/summary";
-import { phoneName, renameNote } from "../macs/macs";
+import { nameNote, phoneName } from "../macs/macs";
 import { PairedMacsCard } from "../macs/PairedMacsCard";
-import { useMacs } from "../macs/useMacs";
 import { type SettingsPage, settingsPageTitle } from "../settings/SettingsPageScreen";
 import { AboutSection } from "../updates/AboutSection";
 
@@ -117,7 +116,6 @@ export const PhoneScreen = ({ navigation, route }: ScreenProps<"Settings">) => {
 	const [key] = useState(() => phone?.phoneKey());
 	const id = key?.status === "ok" ? key.data.phone : null;
 	const named = useView((s) => (id ? phoneName(s.view, id) : undefined));
-	const { macs } = useMacs();
 	const [byHand, setByHand] = useState(route.params?.byHand === true);
 	const scroll = useRef<ComponentRef<typeof ScrollView>>(null);
 	const form = useRef<ComponentRef<typeof View>>(null);
@@ -169,7 +167,7 @@ export const PhoneScreen = ({ navigation, route }: ScreenProps<"Settings">) => {
 				automaticallyAdjustKeyboardInsets
 			>
 				<Card title={t("This phone")}>
-					<CardRow label={t("Name")} note={named ? renameNote(macs) : undefined}>
+					<CardRow label={t("Name")} note={named ? nameNote() : undefined}>
 						<Text style={styles.value} numberOfLines={1}>
 							{named ?? t("Not paired yet")}
 						</Text>

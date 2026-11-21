@@ -158,15 +158,51 @@ pub enum SetupStep {
     Secrets,
 }
 
+/// What a stage is doing. The wizard has the words for each, so none come
+/// from here.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Type)]
+#[serde(rename_all = "snake_case")]
+pub enum SetupPhase {
+    ReadingHostKey,
+    CheckingSystem,
+    CopyingMaxd,
+    AddedKey,
+    Connecting,
+    /// The host says it's a device MaxHQ knows, and waits for you to say so.
+    WaitingForAnswer,
+    SendingLogins,
+}
+
+impl SetupPhase {
+    /// The stage it's part of.
+    pub const fn step(self) -> SetupStep {
+        match self {
+            Self::ReadingHostKey => SetupStep::HostKey,
+            Self::CheckingSystem | Self::CopyingMaxd => SetupStep::Install,
+            Self::AddedKey => SetupStep::Key,
+            Self::Connecting | Self::WaitingForAnswer => SetupStep::Handshake,
+            Self::SendingLogins => SetupStep::Secrets,
+        }
+    }
+}
+
+/// Something you do on the host yourself, which the wizard words.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Type)]
+#[serde(rename_all = "snake_case")]
+pub enum SetupHint {
+    /// Turn on lingering, so maxd keeps running after you log out.
+    Linger,
+}
+
 /// What a setup is doing. `setup` names the run.
 #[derive(Debug, Clone, PartialEq, Serialize, Type)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum SetupProgress {
-    /// A stage started.
+    /// A stage started, or moved on to its next phase.
     Step {
         setup: String,
         step: SetupStep,
-        message: String,
+        phase: SetupPhase,
     },
     /// A host key ssh hasn't seen waits for your OK. Answer with
     /// `ConfirmHostKey`. Nothing runs on the host before.
@@ -180,7 +216,7 @@ pub enum SetupProgress {
     Hint {
         setup: String,
         step: SetupStep,
-        text: String,
+        kind: SetupHint,
         command: String,
     },
     /// Set up.
@@ -222,12 +258,13 @@ struct Run<'a> {
 }
 
 impl Run<'_> {
-    fn step(&self, step: SetupStep, message: impl Into<String>) {
+    fn step(&self, phase: SetupPhase) {
+        let step = phase.step();
         *self.at.lock().unwrap_or_else(|p| p.into_inner()) = step;
         (self.report)(SetupProgress::Step {
             setup: self.setup.clone(),
             step,
-            message: message.into(),
+            phase,
         });
     }
 
@@ -238,10 +275,7 @@ impl Run<'_> {
     /// Shows what the client did.
     fn client(&self, step: Step) {
         match step {
-            Step::HostKey => self.step(
-                SetupStep::HostKey,
-                format!("Reading {}'s host key", self.host),
-            ),
+            Step::HostKey => self.step(SetupPhase::ReadingHostKey),
             Step::ConfirmHostKey { id, fingerprints } => {
                 asking().insert(self.setup.clone(), id);
                 let first = fingerprints.first().map_or("", String::as_str);
@@ -253,15 +287,15 @@ impl Run<'_> {
                     fingerprint,
                 });
             }
-            Step::Probe => self.step(SetupStep::Install, "Checking the system"),
-            Step::Install => self.step(SetupStep::Install, "Copying maxd"),
+            Step::Probe => self.step(SetupPhase::CheckingSystem),
+            Step::Install => self.step(SetupPhase::CopyingMaxd),
             Step::Linger { command } => (self.report)(SetupProgress::Hint {
                 setup: self.setup.clone(),
                 step: SetupStep::Install,
-                text: "maxd can't keep running after you log out until lingering is on.".to_owned(),
+                kind: SetupHint::Linger,
                 command,
             }),
-            Step::Key { .. } => self.step(SetupStep::Key, "Added MaxHQ's key"),
+            Step::Key { .. } => self.step(SetupPhase::AddedKey),
         }
     }
 }
@@ -353,7 +387,7 @@ impl<C: Connector> App<C> {
             .await
             .map_err(|error| error.0)?;
 
-        run.step(SetupStep::Handshake, "Connecting to maxd");
+        run.step(SetupPhase::Connecting);
         let link = self
             .devices
             .add_device(&prepared.host)
@@ -380,7 +414,7 @@ impl<C: Connector> App<C> {
         self.devices.host_keys_changed();
 
         if !secrets.is_empty() {
-            run.step(SetupStep::Secrets, "Sending the logins you picked");
+            run.step(SetupPhase::SendingLogins);
             let failed = self.hand_over(device, secrets).await;
             if !failed.is_empty() {
                 return Err(failed.join(". "));

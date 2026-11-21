@@ -306,6 +306,37 @@ describe("a terminal whose shell marks its commands", () => {
 		expect(view.jumps).toEqual([true, false]);
 	});
 
+	// The fake view's element stands in for the terminal's own text field.
+	const focusIn = (view: FakeView) =>
+		act(() => {
+			view.element.tabIndex = 0;
+			view.element.focus();
+		});
+	const finding = () => screen.queryByRole("search", { name: "Find in the terminal" });
+
+	it("opens find on Control+Shift+F off a Mac, where Control+F is the shell's", async () => {
+		renderApp();
+		const view = await openAndRun();
+		focusIn(view);
+		fireEvent.keyDown(view.element, { key: "f", code: "KeyF", ctrlKey: true });
+		expect(finding()).toBeNull();
+		fireEvent.keyDown(view.element, { key: "F", code: "KeyF", ctrlKey: true, shiftKey: true });
+		expect(await screen.findByRole("search", { name: "Find in the terminal" })).toBeVisible();
+	});
+
+	it("opens find on Command+F on a Mac", async () => {
+		vi.spyOn(navigator, "userAgent", "get").mockReturnValue(
+			"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)"
+		);
+		renderApp();
+		const view = await openAndRun();
+		focusIn(view);
+		fireEvent.keyDown(view.element, { key: "F", code: "KeyF", metaKey: true, shiftKey: true });
+		expect(finding()).toBeNull();
+		fireEvent.keyDown(view.element, { key: "f", code: "KeyF", metaKey: true });
+		expect(await screen.findByRole("search", { name: "Find in the terminal" })).toBeVisible();
+	});
+
 	it("jumps between commands on Command and Up or Down on a Mac", async () => {
 		vi.spyOn(navigator, "userAgent", "get").mockReturnValue(
 			"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)"

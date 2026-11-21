@@ -20,9 +20,9 @@ import {
 	macsMode,
 	macsPrefOf,
 	macView,
+	nameNote,
 	pairNote,
 	phoneName,
-	renameNote,
 	severalMacs,
 	shortNames,
 	tagOf,
@@ -264,12 +264,10 @@ describe("Paired Macs", () => {
 		);
 	});
 
-	it("says where to rename the phone", () => {
-		expect(renameNote([])).toBe("How your devices list this phone. Rename it on the Mac.");
-		expect(renameNote([HOME, BY_HAND])).toBe(
-			"How your devices list this phone. Rename it on Home Mac."
+	it("says the phone's name comes from pairing, as no device can rename it", () => {
+		expect(nameNote()).toBe(
+			"How your devices list this phone, from This phone's name when you paired it. Pair again to change it."
 		);
-		expect(renameNote(MACS)).toBe("How your devices list this phone. Rename it on your Macs.");
 	});
 
 	it("finds the phone's name whichever device lists it", () => {

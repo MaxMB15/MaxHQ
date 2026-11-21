@@ -114,7 +114,7 @@ Each phone on the Mac's Phones page shows the devices that let it in, with Remov
 
 - Remove takes the phone off every device. It has to pair again to reach them.
 - Not signed in on a device means the phone hasn't signed in there over the network yet. Click New code, then open MaxHQ on the phone within 10 minutes.
-- A phone can't be renamed, on the Mac or on the phone. Its name is the one typed in This phone's name when it paired, iPhone unless you changed it. The phone shows how your devices list it.
+- A phone's name is the one typed in This phone's name when it paired, iPhone unless you changed it. Neither the Mac nor the phone renames it. To change it, pair the phone again with a new name. The phone's This phone card says so.
 
 On the phone, Paired Macs has Forget, which makes the phone forget that Mac's devices and sign out of them.
 

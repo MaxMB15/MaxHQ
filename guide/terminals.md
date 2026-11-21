@@ -30,7 +30,7 @@ The drawer holds several terminals as tabs. The first tab, Session, is the shell
 - Open as pane moves your terminals out of the drawer into panes. The drawer then reads "Your terminals are open as panes." A pane has Back to the drawer.
 - Double-click a tab, or press F2 on it, to Rename it.
 - Closing a tab that still runs a command asks first, such as "Stop pnpm dev and close the tab?"
-- Press `⌘F` in a terminal to Find in the terminal, with Next match and Previous match. The key is fixed: MaxHQ has no setting that changes its keys.
+- Press `⌘F` in a terminal to Find in the terminal, with Next match and Previous match. Off a Mac, press `Ctrl+Shift+F`. The key is fixed: MaxHQ has no setting that changes its keys.
 
 Off a Mac, only keys with Ctrl and Shift held go to MaxHQ from a terminal, so Ctrl+F reaches the shell.
 

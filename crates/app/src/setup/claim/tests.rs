@@ -6,7 +6,7 @@ use std::path::PathBuf;
 use maxhq_client::setup::host_key_alias;
 use maxhq_client::LinkEvent;
 
-use super::super::SetupProgress;
+use super::super::{SetupPhase, SetupProgress, SetupStep};
 use super::*;
 use crate::devices::tests::{harness, Fake, Harness};
 use crate::merge::tests::{connected, link_state};
@@ -165,12 +165,12 @@ async fn until(check: impl Fn() -> bool) {
 
 /// The steps a setup run reported.
 #[derive(Default)]
-struct Steps(Mutex<Vec<String>>);
+struct Steps(Mutex<Vec<SetupPhase>>);
 
 impl Steps {
     fn report(&self, progress: SetupProgress) {
-        if let SetupProgress::Step { message, .. } = progress {
-            self.0.lock().unwrap().push(message);
+        if let SetupProgress::Step { phase, .. } = progress {
+            self.0.lock().unwrap().push(phase);
         }
     }
 
@@ -179,8 +179,7 @@ impl Steps {
         self.0
             .lock()
             .unwrap()
-            .iter()
-            .any(|step| step == "Waiting for your answer about which device this is")
+            .contains(&SetupPhase::WaitingForAnswer)
     }
 }
 

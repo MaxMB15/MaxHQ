@@ -1,11 +1,13 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026 Max Boksem
 
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 
+import { setLanguageChoice } from "../i18n";
 import { MIN, NOW } from "../test/build";
 
 import {
+	askTitle,
 	formatAgo,
 	formatAgoShort,
 	formatContext,
@@ -19,6 +21,8 @@ import {
 } from "./format";
 
 describe("format", () => {
+	afterEach(() => setLanguageChoice("en"));
+
 	it("writes durations the way the hovers do", () => {
 		expect(formatDuration(12_000)).toBe("12 s");
 		expect(formatDuration(72_000)).toBe("1 min 12 s");
@@ -71,6 +75,14 @@ describe("format", () => {
 		expect(isClipped("Which branch should the release notes come from…")).toBe(true);
 		expect(isClipped("Run `cargo test`?")).toBe(false);
 		expect(isClipped("Edit src/main.rs?")).toBe(false);
+	});
+
+	it("words the title maxd gives a tool request in the reader's language", () => {
+		expect(askTitle("Cursor asks to use a tool")).toBe("Cursor asks to use a tool");
+		setLanguageChoice("nl");
+		expect(askTitle("Cursor asks to use a tool")).toBe("Cursor vraagt een tool te gebruiken");
+		// The agent's own title stays as the agent wrote it.
+		expect(askTitle("Run `ls`")).toBe("Run `ls`");
 	});
 
 	it("spells out what text would hide", () => {

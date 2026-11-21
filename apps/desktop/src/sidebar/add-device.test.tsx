@@ -10,7 +10,7 @@ import { FixedNow } from "@maxhq/shared/lib/clock";
 import { NOW } from "@maxhq/shared/test/build";
 import { createUiStore } from "@maxhq/shared/ui/store";
 
-import { follow, START } from "./add-device";
+import { follow, phaseText, START } from "./add-device";
 
 // Each step of the sample setup takes a millisecond, not the sample build's
 // 700, so a wait only lasts as long as the renders. Several steps can still
@@ -63,7 +63,10 @@ describe("the Add device wizard", () => {
 
 		const key = await screen.findByRole("group", { name: "Host key" }, SLOW);
 		expect(key).toHaveTextContent("SHA256:q3Vt0bYx9mJ2kZ8hR4fWc1nP7sLd6uEa5oGi0XyTz4M");
-		expect(screen.queryByText("Checking the system and copying maxd")).toBeNull();
+		expect(key).toHaveTextContent(
+			"spare-box shows this ED25519 key. Check it matches the one the machine prints for ssh-keygen -lf on its host key."
+		);
+		expect(screen.queryByText("Checking the system")).toBeNull();
 		fireEvent.click(within(key).getByRole("button", { name: "Trust this key" }));
 		expect(confirm).toHaveBeenCalledWith("setup-1", true);
 
@@ -71,11 +74,12 @@ describe("the Add device wizard", () => {
 			await screen.findByRole("heading", { name: "spare-box is set up" }, SLOW)
 		).toBeVisible();
 		const steps = within(screen.getByRole("list", { name: "Steps" })).getAllByRole("listitem");
+		// The app sends each step's phase, and the list words it.
 		expect(steps.map((s) => s.textContent)).toEqual([
 			"Reading spare-box's host key",
-			"Checking the system and copying maxd",
-			"Adding MaxHQ's key",
-			"Connecting through the new key",
+			"Copying maxd",
+			"Added MaxHQ's key",
+			"Connecting to maxd",
 			"Sending the logins you picked",
 		]);
 		fireEvent.click(screen.getByRole("button", { name: "Show spare-box" }));
@@ -106,14 +110,31 @@ describe("the Add device wizard", () => {
 });
 
 describe("follow", () => {
-	it("keeps each step once, in the order reached", () => {
-		let state = follow(START, { type: "step", setup: "s", step: "host_key", message: "a" });
-		state = follow(state, { type: "step", setup: "s", step: "install", message: "b" });
-		state = follow(state, { type: "step", setup: "s", step: "install", message: "c" });
+	it("keeps each step once, at the last phase it reached, in the order reached", () => {
+		let state = follow(START, {
+			type: "step",
+			setup: "s",
+			step: "host_key",
+			phase: "reading_host_key",
+		});
+		state = follow(state, {
+			type: "step",
+			setup: "s",
+			step: "install",
+			phase: "checking_system",
+		});
+		state = follow(state, { type: "step", setup: "s", step: "install", phase: "copying_maxd" });
 		expect(state.steps).toEqual([
-			{ step: "host_key", message: "a" },
-			{ step: "install", message: "c" },
+			{ step: "host_key", phase: "reading_host_key" },
+			{ step: "install", phase: "copying_maxd" },
 		]);
 		expect(state.setup).toBe("s");
+	});
+
+	it("words every phase in the reader's language, the waiting one included", () => {
+		expect(phaseText("reading_host_key", "devbox")).toBe("Reading devbox's host key");
+		expect(phaseText("waiting_for_answer", "devbox")).toBe(
+			"Waiting for your answer about which device this is"
+		);
 	});
 });

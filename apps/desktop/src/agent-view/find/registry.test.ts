@@ -3,7 +3,7 @@
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { finderFor, registerFinder } from "./registry";
+import { finderFor, inTerminal, registerFinder } from "./registry";
 
 describe("the find shortcut's target", () => {
 	const undo: (() => void)[] = [];
@@ -24,14 +24,14 @@ describe("the find shortcut's target", () => {
 		pane.append(agent);
 		document.body.append(pane);
 		const inAgent = vi.fn();
-		const inTerminal = vi.fn();
-		undo.push(registerFinder(agent, inAgent), registerFinder(terminal, inTerminal));
-		return { pane, input, composer, inAgent, inTerminal };
+		const inShell = vi.fn();
+		undo.push(registerFinder(agent, inAgent), registerFinder(terminal, inShell, true));
+		return { pane, input, composer, inAgent, inShell };
 	};
 
 	it("finds in the innermost view that holds focus", () => {
-		const { input, composer, inAgent, inTerminal } = setup();
-		expect(finderFor(input, null)).toBe(inTerminal);
+		const { input, composer, inAgent, inShell } = setup();
+		expect(finderFor(input, null)).toBe(inShell);
 		expect(finderFor(composer, null)).toBe(inAgent);
 	});
 
@@ -39,5 +39,12 @@ describe("the find shortcut's target", () => {
 		const { pane, inAgent } = setup();
 		expect(finderFor(document.body, pane)).toBe(inAgent);
 		expect(finderFor(null, null)).toBe(inAgent);
+	});
+
+	it("knows when focus is in a terminal, and nowhere else", () => {
+		const { input, composer } = setup();
+		expect(inTerminal(input)).toBe(true);
+		expect(inTerminal(composer)).toBe(false);
+		expect(inTerminal(null)).toBe(false);
 	});
 });

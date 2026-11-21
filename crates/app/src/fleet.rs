@@ -372,6 +372,8 @@ pub struct Machine {
     pub capabilities: Option<Capabilities>,
     /// The build its `maxd` runs.
     pub build: Option<String>,
+    /// The version its `maxd` runs, from its last hello.
+    pub version: Option<String>,
     /// The Rust target its `maxd` was built for.
     pub target: Option<String>,
     /// Whether it's this Mac.
@@ -425,8 +427,18 @@ pub struct Plan {
     pub skipped: Vec<Skipped>,
 }
 
+/// Whether a `maxd` runs a newer version than this app, so the app's
+/// build would take it back. One whose version doesn't read can't say, so
+/// its build decides as before.
+pub fn newer_than_app(version: Option<&str>) -> bool {
+    let app = semver::Version::parse(env!("CARGO_PKG_VERSION")).ok();
+    let running = version.and_then(|version| semver::Version::parse(version.trim()).ok());
+    matches!((running, app), (Some(running), Some(app)) if running > app)
+}
+
 /// Picks the devices that need an update, leaving out the ones that are
-/// current without a word and naming why each other one can't. `tools`
+/// current, or run a newer `maxd` than this app, without a word and naming
+/// why each other one can't. `tools`
 /// says whether to update agent CLIs too. This Mac's own `maxd` moves
 /// with the app, and `dev_tree` says the app runs from the source tree,
 /// where it restarts with Start maxd instead. `unsigned` says you agreed
@@ -463,7 +475,7 @@ pub fn plan(
             // Without a binary for its target the app can't tell, so it
             // says so rather than call the device current.
             (None, _) | (Some(_), None) => true,
-        };
+        } && !newer_than_app(machine.version.as_deref());
         if !behind && wanted_tools.is_empty() {
             continue;
         }
@@ -743,6 +755,7 @@ pub fn machines(merge: &Merge, only: Option<&[DeviceId]>) -> Vec<Machine> {
                 .and_then(|link| link.capabilities)
                 .or_else(|| links.iter().find_map(|link| link.capabilities)),
             build: device.build.clone(),
+            version: Some(device.maxd_version.clone()),
             target: device.target.clone(),
             local: links
                 .iter()

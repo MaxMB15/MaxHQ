@@ -23,7 +23,7 @@ use serde::Serialize;
 use sha2::{Digest, Sha256};
 use specta::Type;
 
-use super::{connected_device, down_reason, Run, SetupStep, HELLO_WITHIN};
+use super::{connected_device, down_reason, Run, SetupPhase, HELLO_WITHIN};
 use crate::devices::Connector;
 use crate::merge::Merge;
 use crate::request::CommandError;
@@ -142,10 +142,7 @@ impl<C: Connector> App<C> {
                 Some(LinkClaimState::Asking) if !waiting => {
                     waiting = true;
                     deadline = Instant::now() + ANSWER_WITHIN;
-                    run.step(
-                        SetupStep::Handshake,
-                        "Waiting for your answer about which device this is",
-                    );
+                    run.step(SetupPhase::WaitingForAnswer);
                 }
                 _ => {}
             }

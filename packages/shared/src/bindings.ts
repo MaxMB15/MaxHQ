@@ -9756,6 +9756,11 @@ export type Settler =
 /**  Its PR closed without merging while the agent sat idle. */
 ({ closed: PullKey }) & { merged?: never };
 
+/**  Something you do on the host yourself, which the wizard words. */
+export type SetupHint = 
+/**  Turn on lingering, so maxd keeps running after you log out. */
+"linger";
+
 /**  A host setup offers. */
 export type SetupHost = {
 	host: string,
@@ -9769,17 +9774,25 @@ export type SetupHost = {
 /**  Where a host setup offers came from. */
 export type SetupHostFrom = "ssh_config" | "tailnet";
 
+/**
+ *  What a stage is doing. The wizard has the words for each, so none come
+ *  from here.
+ */
+export type SetupPhase = "reading_host_key" | "checking_system" | "copying_maxd" | "added_key" | "connecting" | 
+/**  The host says it's a device MaxHQ knows, and waits for you to say so. */
+"waiting_for_answer" | "sending_logins";
+
 /**  What a setup is doing. `setup` names the run. */
 export type SetupProgress = 
-/**  A stage started. */
-{ type: "step"; setup: string; step: SetupStep; message: string } | 
+/**  A stage started, or moved on to its next phase. */
+{ type: "step"; setup: string; step: SetupStep; phase: SetupPhase } | 
 /**
  *  A host key ssh hasn't seen waits for your OK. Answer with
  *  `ConfirmHostKey`. Nothing runs on the host before.
  */
 { type: "host_key"; setup: string; host: string; key_type: string; fingerprint: string } | 
 /**  Something for you to do there yourself. */
-{ type: "hint"; setup: string; step: SetupStep; text: string; command: string } | 
+{ type: "hint"; setup: string; step: SetupStep; kind: SetupHint; command: string } | 
 /**  Set up. */
 { type: "done"; setup: string; link: LinkId; device: DeviceId } | 
 /**  Stopped. */

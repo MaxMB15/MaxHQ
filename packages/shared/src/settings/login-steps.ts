@@ -122,7 +122,9 @@ export const LOGIN_STEPS: Record<LoginPage, LoginSteps> = {
 		},
 	},
 	github: {
-		title: "GitHub App",
+		get title() {
+			return t("GitHub App");
+		},
 		before: [],
 		get steps() {
 			return [

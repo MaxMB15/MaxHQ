@@ -97,7 +97,7 @@ Off a Mac, jump between commands with `Ctrl+Shift+Up` or `Ctrl+Shift+Down`.
 <!-- id: shortcuts/find -->
 <!-- covers: settings/shortcuts shortcut/find-in-the-conversation shortcut/next-or-previous-match shortcut/close-find -->
 
-`⌘F` finds words in the conversation of the agent in view. These keys work only in projects mode.
+`⌘F` finds words in the conversation of the agent in view, or in the terminal that has focus. Off a Mac, Find in the terminal is `Ctrl+Shift+F`, since Ctrl+F belongs to the shell there. These keys work only in projects mode.
 
 | What it does | Keys |
 | --- | --- |
