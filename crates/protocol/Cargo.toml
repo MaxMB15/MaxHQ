@@ -9,7 +9,8 @@ publish.workspace = true
 [dependencies]
 schemars.workspace = true
 serde.workspace = true
-serde_json.workspace = true
+# `raw_value` lets what a device or guest sends be read item by item.
+serde_json = { workspace = true, features = ["raw_value"] }
 specta = { workspace = true, features = ["serde_json"] }
 # Only for `Number`, which tells the TypeScript exporter a u64 is a plain number.
 specta-typescript.workspace = true

@@ -315,6 +315,37 @@ async fn a_proof_with_no_answer_ends_the_attempt() {
 }
 
 #[tokio::test]
+async fn a_device_that_sends_too_much_before_the_proof_is_dropped() {
+    let timing = Timing {
+        handshake: Duration::from_secs(30),
+        ..NO_RETRY
+    };
+    let mut rig = proving_rig(timing, true, None);
+    let (_handle, mut events) = rig.client.link(spec(Route::Local));
+    let mut maxd = rig.next_maxd().await;
+    let statement = challenge(&mut maxd, InstanceId::generate()).await;
+    proof(&mut maxd, &statement).await;
+    assert_eq!(maxd.recv().await, Some(ClientMessage::Sync { since: None }));
+    // Snapshots that keep nothing, each a third of what may come before
+    // the proof's answer, which never comes.
+    let pad = "x".repeat(crate::link::EARLY_BYTES / 3);
+    let large = serde_json::json!({ "type": "snapshot", "seq": 1, "entities": [pad] });
+    for _ in 0..3 {
+        let mut out = Vec::new();
+        frame::encode_message(&mut out, &large).unwrap();
+        maxd.stream.write_all(&out).await.unwrap();
+    }
+    let state = until_state(&mut events, |state| {
+        matches!(state, LinkState::Unreachable { .. })
+    })
+    .await;
+    assert_eq!(
+        state,
+        unreachable("maxd sent too much before the proof", None)
+    );
+}
+
+#[tokio::test]
 async fn an_older_maxd_gets_no_proof() {
     let mut rig = proving_rig(FAST, true, None);
     let (_handle, mut events) = rig.client.link(spec(Route::Local));

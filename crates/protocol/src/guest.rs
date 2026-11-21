@@ -26,6 +26,7 @@
 use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
+use serde_json::value::RawValue;
 use thiserror::Error;
 
 use crate::agents::ToolImage;
@@ -38,6 +39,7 @@ use crate::leases::RunOutput;
 use crate::message::{ErrorCode, IgnoredFile, ManifestEntry, PlaceFailure, TunnelEnd};
 use crate::model::{BindAddress, PortProcess, Vendor};
 use crate::processes::{AgentProcess, ProcessSignal};
+use crate::raw::{self, All, Tag};
 use crate::secret::Secret;
 use crate::skills::{PackState, TreeHash};
 use crate::time::Timestamp;
@@ -922,9 +924,31 @@ impl GuestToHost {
     }
 
     /// Reads a message body from the guest, and refuses one over its
-    /// [`GuestToHost::limit`].
+    /// [`GuestToHost::limit`]. Its `type` is read first, so a message over
+    /// [`MAX_MESSAGE_LEN`] that may not take that much is refused before
+    /// anything in it is kept, and holder lines and history items are read
+    /// a piece at a time.
     pub fn parse(body: &[u8]) -> Result<Self, GuestLinkError> {
-        let message: Self = serde_json::from_slice(body)?;
+        let message = match raw::tag(body)?.as_ref().and_then(Tag::known) {
+            Some("holder") => holder(body)?,
+            Some("history_items") => {
+                #[derive(Deserialize)]
+                struct History {
+                    req: u64,
+                    items: All<TimelineItem>,
+                }
+                within(body, MAX_MESSAGE_LEN)?;
+                let History { req, items } = serde_json::from_slice(body)?;
+                Self::HistoryItems {
+                    req,
+                    items: items.0,
+                }
+            }
+            _ => {
+                within(body, MAX_MESSAGE_LEN)?;
+                serde_json::from_slice(body)?
+            }
+        };
         let limit = message.limit();
         if body.len() > limit {
             return Err(GuestLinkError::TooLong {
@@ -934,6 +958,67 @@ impl GuestToHost {
         }
         Ok(message)
     }
+}
+
+/// Refuses a body over `limit` before it's read.
+fn within(body: &[u8], limit: usize) -> Result<(), GuestLinkError> {
+    if body.len() > limit {
+        return Err(GuestLinkError::TooLong {
+            len: body.len(),
+            limit,
+        });
+    }
+    Ok(())
+}
+
+/// Reads a holder's message by its event's `type`, each event straight
+/// into its own type. Only a line, or a hello with one pending line, may
+/// take more than [`MAX_MESSAGE_LEN`].
+fn holder(body: &[u8]) -> Result<GuestToHost, GuestLinkError> {
+    #[derive(Deserialize)]
+    struct Holder<'a> {
+        conn: u64,
+        #[serde(borrow)]
+        event: &'a RawValue,
+    }
+    #[derive(Deserialize)]
+    struct Pending<'a> {
+        #[serde(borrow)]
+        pending: Option<&'a RawValue>,
+    }
+    #[derive(Deserialize)]
+    struct Closed {
+        error: Option<String>,
+    }
+    let Holder { conn, event } = serde_json::from_slice(body)?;
+    let event = event.get();
+    let event = match raw::tag(event.as_bytes())?.as_ref().and_then(Tag::known) {
+        Some("line") => HolderEvent::Line(serde_json::from_str(event)?),
+        Some("hello") => {
+            if body.len() > MAX_MESSAGE_LEN {
+                let Pending { pending } = serde_json::from_str(event)?;
+                let lines = pending.map_or(Ok(0), |lines| raw::count(lines.get()))?;
+                if lines != 1 {
+                    within(body, MAX_MESSAGE_LEN)?;
+                }
+            }
+            HolderEvent::Hello(raw::whole(event)?)
+        }
+        Some("exited") => {
+            within(body, MAX_MESSAGE_LEN)?;
+            HolderEvent::Exited(serde_json::from_str(event)?)
+        }
+        Some("closed") => {
+            within(body, MAX_MESSAGE_LEN)?;
+            let Closed { error } = serde_json::from_str(event)?;
+            HolderEvent::Closed { error }
+        }
+        _ => {
+            within(body, MAX_MESSAGE_LEN)?;
+            raw::whole(event)?
+        }
+    };
+    Ok(GuestToHost::Holder { conn, event })
 }
 
 /// What a holder in the guest runs.

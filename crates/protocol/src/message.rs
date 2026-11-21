@@ -2275,6 +2275,13 @@ pub enum ClientMessage {
 }
 
 impl ClientMessage {
+    /// Reads a message another device's `maxd` sent over a peer link. Its
+    /// requests and answers are read a piece at a time, and any other
+    /// message past 1 MiB is refused unread.
+    pub fn read_peer(json: &[u8]) -> serde_json::Result<Self> {
+        crate::raw::peer(json)
+    }
+
     /// The first protocol version with this message. A new message returns
     /// the version that adds it, and a client won't send it to an older
     /// `maxd`.
@@ -3673,9 +3680,11 @@ pub enum ServerMessage {
 
 impl ServerMessage {
     /// Reads a message, or none for one this build can't read, such as a
-    /// type from a newer `maxd`. Each type it can't read is logged once.
+    /// type from a newer `maxd`, or one too large for its kind. Lists,
+    /// timeline items, outcomes and requests are read a piece at a time.
+    /// Each type it leaves out is logged once.
     pub fn read(json: &[u8]) -> Option<Self> {
-        crate::tolerant::message(json)
+        crate::raw::server(json)
     }
 }
 
