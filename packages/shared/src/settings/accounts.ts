@@ -51,9 +51,15 @@ export const accountDevices = (view: ViewState): AccountDevice[] => {
 
 const VENDORS: readonly (Vendor & LoginView)[] = ["claude", "codex", "cursor"];
 
-// The CLI's state on a device: true or false once the device reports its
-// CLIs, and undefined before.
-const installed = (view: ViewState, device: DeviceId, vendor: Vendor): boolean | undefined => {
+/**
+ * Whether `vendor`'s CLI is on a device: true or false once the device
+ * reports its CLIs, and undefined before.
+ */
+export const installed = (
+	view: ViewState,
+	device: DeviceId,
+	vendor: Vendor
+): boolean | undefined => {
 	const tools = view.tables.device_tools.get(device)?.tools;
 	if (!tools) return undefined;
 	return tools.some(

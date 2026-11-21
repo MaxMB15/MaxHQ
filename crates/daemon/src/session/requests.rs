@@ -385,6 +385,7 @@ impl Manager {
             | ClientMessage::ListFolder { .. }
             | ClientMessage::MakeFolder { .. }
             | ClientMessage::Notices { .. }
+            | ClientMessage::CursorRules { .. }
             | ClientMessage::SessionRun { .. }
             | ClientMessage::SessionShare { .. }
             | ClientMessage::SessionCd { .. }

@@ -14,6 +14,7 @@ mod images;
 mod launch;
 mod limits;
 mod requests;
+pub mod rules;
 mod tasks;
 mod todos;
 

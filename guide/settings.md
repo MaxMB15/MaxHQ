@@ -248,6 +248,7 @@ On the Mac, Cursor agents run as the Cursor CLI's own login. For containers, sen
 - Send an API key: create a user API key in the Cursor dashboard under Integrations, paste it into API key, give it a name if you like, tick the devices and click Send. The same key can go to every device.
 - MaxHQ sends it once to each ticked device's `maxd`, then clears the field. The Mac keeps no copy.
 - Keys devices hold: a device holds one key, so sending another replaces it. Forget deletes it on the device.
+- Shell rules Cursor saved: Always allow in an earlier MaxHQ also saved the rule in Cursor's own settings, and Cursor then runs commands that start with those words without asking MaxHQ, in every project on that device. Each device with Cursor lists them. Remove makes Cursor ask again; agents already running keep the rule until they start again. MaxHQ now keeps Always allow rules itself.
 - Cursor usage, under Accounts, can show the account's usage. Manage usage opens the Cursor dashboard.
 
 ## GitHub App: pushes and # lookups

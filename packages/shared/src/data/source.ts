@@ -120,6 +120,7 @@ import type {
 } from "../fleet/wire";
 import { DEPTH } from "../bindings";
 import type { FolderCalls } from "../folders/requests";
+import type { CursorRuleCalls } from "../settings/cursor-rules";
 import type { NoticeCalls } from "../notices/requests";
 import type { GitItemRef } from "../pills/draft";
 import type { TerminalCalls } from "../terminal/requests";
@@ -335,8 +336,11 @@ export type MockControls = {
 	readonly setScenario: (id: string) => void;
 };
 
-/** The calls that live with their own helpers: the terminal's, the session's and the folders'. */
-type HelperCalls = TerminalCalls & SessionCalls & FolderCalls & NoticeCalls;
+/**
+ * The calls that live with their own helpers: the terminal's, the
+ * session's, the folders', the notices' and Cursor's rules'.
+ */
+type HelperCalls = TerminalCalls & SessionCalls & FolderCalls & NoticeCalls & CursorRuleCalls;
 
 /**
  * One place the view comes from, with the commands that act on it. The

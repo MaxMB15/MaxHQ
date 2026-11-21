@@ -2113,6 +2113,24 @@
           ]
         },
         {
+          "description": "A device's Cursor rules, for [`ClientMessage::CursorRules`]. Since\nprotocol 57.",
+          "type": "object",
+          "properties": {
+            "rules": {
+              "description": "The entries.",
+              "$ref": "#/$defs/CursorRules"
+            },
+            "status": {
+              "type": "string",
+              "const": "cursor_rules"
+            }
+          },
+          "required": [
+            "status",
+            "rules"
+          ]
+        },
+        {
           "description": "The server a [`ModelAction::AddServer`] added, which its probe fills\nin.",
           "type": "object",
           "properties": {
@@ -5482,6 +5500,27 @@
             "team_id"
           ]
         }
+      ]
+    },
+    "CursorRules": {
+      "description": "The `Shell(...)` entries in Cursor's allow list on a device, for\n[`crate::message::ActionOutcome::CursorRules`]. Since protocol 57.",
+      "type": "object",
+      "properties": {
+        "path": {
+          "description": "The settings file the device read, with `~` for its home folder.",
+          "type": "string"
+        },
+        "rules": {
+          "description": "The entries as written, such as `Shell(git status)`, in the file's\norder. Empty when the file isn't there.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "required": [
+        "path",
+        "rules"
       ]
     },
     "Days": {

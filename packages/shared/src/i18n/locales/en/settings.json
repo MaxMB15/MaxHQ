@@ -1149,5 +1149,16 @@
 	"claude.ai pages": "claude.ai pages",
 	"On by default": "On by default",
 	"Claude agents can use claude.ai artifacts": "Claude agents can use claude.ai artifacts",
-	"Claude Code can publish pages to your claude.ai account, read pages you or others share, and change their data and comments. It asks you before it reads someone else's page, deletes one or changes who can open it. Off removes these tools from Claude agents on this device. Agents pick up a change when their CLI next starts.": "Claude Code can publish pages to your claude.ai account, read pages you or others share, and change their data and comments. It asks you before it reads someone else's page, deletes one or changes who can open it. Off removes these tools from Claude agents on this device. Agents pick up a change when their CLI next starts."
+	"Claude Code can publish pages to your claude.ai account, read pages you or others share, and change their data and comments. It asks you before it reads someone else's page, deletes one or changes who can open it. Off removes these tools from Claude agents on this device. Agents pick up a change when their CLI next starts.": "Claude Code can publish pages to your claude.ai account, read pages you or others share, and change their data and comments. It asks you before it reads someone else's page, deletes one or changes who can open it. Off removes these tools from Claude agents on this device. Agents pick up a change when their CLI next starts.",
+	"Couldn't change Cursor's settings.": "Couldn't change Cursor's settings.",
+	"Couldn't read Cursor's settings.": "Couldn't read Cursor's settings.",
+	"Cursor runs commands that start with these words without asking MaxHQ, in every project on this device. Always allow in an earlier MaxHQ saved them; MaxHQ now keeps those rules itself.": "Cursor runs commands that start with these words without asking MaxHQ, in every project on this device. Always allow in an earlier MaxHQ saved them; MaxHQ now keeps those rules itself.",
+	"Cursor saved no shell rules here.": "Cursor saved no shell rules here.",
+	"No device reports the Cursor CLI yet.": "No device reports the Cursor CLI yet.",
+	"Reading Cursor's settings": "Reading Cursor's settings",
+	"Remove makes Cursor ask again": "Remove makes Cursor ask again",
+	"Remove {{rule}} on {{deviceName}}": "Remove {{rule}} on {{deviceName}}",
+	"Removed. Cursor agents running now keep it until they start again.": "Removed. Cursor agents running now keep it until they start again.",
+	"Shell rules Cursor saved": "Shell rules Cursor saved",
+	"Update maxd on {{deviceName}} to see the rules Cursor saved there.": "Update maxd on {{deviceName}} to see the rules Cursor saved there."
 }

@@ -7,7 +7,7 @@
 // it's done, git knows no identity, this Mac has no editors, no workspace
 // reaches one over SSH, the lookups find nothing, no agent runs a process,
 // no device holds a permission or a key, no device has a task or PR, and
-// no maxd has terminals.
+// no maxd has terminals or reads Cursor's rules.
 
 import {
 	AGENT_DEFAULTS,
@@ -24,6 +24,7 @@ import { noTasks } from "../data/mock-tasks";
 import { noTerminals } from "../data/mock-terminals";
 import { noFolders } from "../data/mock-folders";
 import { noNotices } from "../data/mock-notices";
+import { noCursorRules } from "../data/mock-cursor-rules";
 import { noSessions } from "../data/mock-sessions";
 import { noTestHosts } from "../data/mock-test-hosts";
 
@@ -128,6 +129,7 @@ type RemoteCalls = Pick<
 	| keyof typeof noTerminals
 	| keyof typeof noFolders
 	| keyof typeof noNotices
+	| keyof typeof noCursorRules
 	| keyof typeof noSessions
 >;
 
@@ -264,5 +266,6 @@ export const remoteCalls = (): RemoteCalls => ({
 	...noTerminals,
 	...noFolders,
 	...noNotices,
+	...noCursorRules,
 	...noSessions,
 });

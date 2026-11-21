@@ -1149,5 +1149,16 @@
 	"claude.ai pages": "claude.ai-pagina's",
 	"On by default": "Standaard aan",
 	"Claude agents can use claude.ai artifacts": "Claude-agents kunnen claude.ai-artifacts gebruiken",
-	"Claude Code can publish pages to your claude.ai account, read pages you or others share, and change their data and comments. It asks you before it reads someone else's page, deletes one or changes who can open it. Off removes these tools from Claude agents on this device. Agents pick up a change when their CLI next starts.": "Claude Code kan pagina's publiceren op je claude.ai-account, pagina's lezen die jij of anderen delen, en hun gegevens en opmerkingen wijzigen. Het vraagt het je voordat het de pagina van iemand anders leest, een pagina verwijdert of wijzigt wie die kan openen. Uit haalt deze tools weg bij Claude-agents op dit apparaat. Agents nemen een wijziging over zodra hun CLI opnieuw start."
+	"Claude Code can publish pages to your claude.ai account, read pages you or others share, and change their data and comments. It asks you before it reads someone else's page, deletes one or changes who can open it. Off removes these tools from Claude agents on this device. Agents pick up a change when their CLI next starts.": "Claude Code kan pagina's publiceren op je claude.ai-account, pagina's lezen die jij of anderen delen, en hun gegevens en opmerkingen wijzigen. Het vraagt het je voordat het de pagina van iemand anders leest, een pagina verwijdert of wijzigt wie die kan openen. Uit haalt deze tools weg bij Claude-agents op dit apparaat. Agents nemen een wijziging over zodra hun CLI opnieuw start.",
+	"Couldn't change Cursor's settings.": "Kon de instellingen van Cursor niet wijzigen.",
+	"Couldn't read Cursor's settings.": "Kon de instellingen van Cursor niet lezen.",
+	"Cursor runs commands that start with these words without asking MaxHQ, in every project on this device. Always allow in an earlier MaxHQ saved them; MaxHQ now keeps those rules itself.": "Cursor voert opdrachten die met deze woorden beginnen uit zonder MaxHQ te vragen, in elk project op dit apparaat. Altijd toestaan in een eerdere MaxHQ heeft ze bewaard; MaxHQ houdt die regels nu zelf bij.",
+	"Cursor saved no shell rules here.": "Cursor heeft hier geen shellregels bewaard.",
+	"No device reports the Cursor CLI yet.": "Nog geen apparaat meldt de Cursor-CLI.",
+	"Reading Cursor's settings": "Instellingen van Cursor lezen",
+	"Remove makes Cursor ask again": "Na Verwijderen vraagt Cursor het weer",
+	"Remove {{rule}} on {{deviceName}}": "{{rule}} op {{deviceName}} verwijderen",
+	"Removed. Cursor agents running now keep it until they start again.": "Verwijderd. Cursor-agents die nu draaien houden de regel tot ze opnieuw starten.",
+	"Shell rules Cursor saved": "Shellregels die Cursor bewaarde",
+	"Update maxd on {{deviceName}} to see the rules Cursor saved there.": "Werk maxd bij op {{deviceName}} om de regels te zien die Cursor daar bewaarde."
 }

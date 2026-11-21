@@ -24,6 +24,7 @@ pub mod admission;
 pub mod agents;
 pub mod attention;
 pub mod context;
+pub mod cursor_rules;
 pub mod dispatch;
 pub mod find;
 pub mod folders;

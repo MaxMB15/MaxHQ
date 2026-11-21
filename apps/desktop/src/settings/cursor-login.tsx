@@ -4,7 +4,8 @@
 // Cursor in workspaces: the Mac runs agents as the CLI's own login, which
 // signs in again from here, and each device that hosts workspaces gets a
 // Cursor API key you paste. The key sits only in the field until Send
-// reads it, clears it and hands it to the source.
+// reads it, clears it and hands it to the source. Last come the shell
+// rules Cursor saved on each device, with Remove.
 
 import { useState } from "react";
 
@@ -16,6 +17,7 @@ import { isLive } from "@maxhq/shared/workspaces/state";
 
 import { SignInAgain } from "./cli-sign-in";
 import { FIELD, Label, Row, Section } from "./controls";
+import { CursorRules } from "./cursor-rules";
 import {
 	DeviceTicks,
 	HeldList,
@@ -138,6 +140,7 @@ export const CURSOR_LOGIN_TERMS: readonly string[] = [
 	"Send an API key",
 	"API key",
 	"Keys devices hold",
+	"Shell rules Cursor saved",
 ];
 
 /**
@@ -169,6 +172,7 @@ export const CursorLogin = ({ device }: { device?: DeviceId }) => {
 					actions={() => <ManageUsage />}
 				/>
 			</Section>
+			<CursorRules />
 		</div>
 	);
 };

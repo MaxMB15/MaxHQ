@@ -23,6 +23,7 @@ import {
 } from "../bindings";
 import { folderCalls } from "../folders/requests";
 import { noticeCalls } from "../notices/requests";
+import { cursorRuleCalls } from "../settings/cursor-rules";
 import { terminalCalls } from "../terminal/requests";
 import { sessionCalls } from "../terminal/session";
 import { runName } from "../workflow/select";
@@ -251,6 +252,7 @@ export const requestCalls = (ask: Ask): Omit<DataSource, PlatformCalls> => ({
 	...sessionCalls(ask),
 	...folderCalls(ask),
 	...noticeCalls(ask),
+	...cursorRuleCalls(ask),
 	appInfo: async () => orThrow(await ask({ kind: "app_info" })),
 	snapshot: async () => orThrow(await ask({ kind: "view_snapshot" })),
 	markSeen: (agent) => ask({ kind: "mark_seen", agent }),

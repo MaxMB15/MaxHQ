@@ -2626,7 +2626,8 @@ fn action_targets(merge: &Merge, action: &ClientMessage) -> Result<Vec<Target>, 
         ClientMessage::CloneFolder { device, .. }
         | ClientMessage::ListFolder { device, .. }
         | ClientMessage::MakeFolder { device, .. }
-        | ClientMessage::Notices { device, .. } => device_targets(merge, *device),
+        | ClientMessage::Notices { device, .. }
+        | ClientMessage::CursorRules { device, .. } => device_targets(merge, *device),
         ClientMessage::StartWorkspace { workspace, .. }
         | ClientMessage::StopWorkspace { workspace, .. }
         | ClientMessage::DeleteWorkspace { workspace, .. }
@@ -3334,6 +3335,15 @@ pub(crate) mod tests {
                                 truncated: false,
                             },
                         })),
+                    false,
+                ),
+                ClientMessage::CursorRules { .. } => (
+                    record.acts.pop_front().or(Some(ActionOutcome::CursorRules {
+                        rules: maxhq_protocol::cursor_rules::CursorRules {
+                            path: "~/.cursor/cli-config.json".to_owned(),
+                            rules: Vec::new(),
+                        },
+                    })),
                     false,
                 ),
                 // A note reads back as an empty one, and a save as what
