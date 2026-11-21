@@ -142,9 +142,13 @@ pub(crate) async fn prepare(
         }
         None => "HEAD".to_owned(),
     };
-    let args: [&OsStr; 6] = [
+    // A new branch tracks nothing, even when it starts from a remote
+    // branch such as origin/HEAD, so a plain push makes it on the remote
+    // under its own name rather than aiming at the branch it came from.
+    let args: [&OsStr; 7] = [
         "worktree".as_ref(),
         "add".as_ref(),
+        "--no-track".as_ref(),
         "-b".as_ref(),
         branch.as_ref(),
         path_arg,
@@ -598,7 +602,10 @@ impl Git<'_> {
         command
     }
 
-    /// Whether git succeeds.
+    /// Whether git succeeds. What it prints goes nowhere: `status` closes
+    /// a piped output before it waits, so a git that prints, as
+    /// `rev-parse --verify` does, could die writing to it and read as a
+    /// failure.
     async fn ok<I, S>(&self, args: I) -> bool
     where
         I: IntoIterator<Item = S>,
@@ -606,6 +613,8 @@ impl Git<'_> {
     {
         self.command(self.repo)
             .args(args)
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
             .status()
             .await
             .is_ok_and(|status| status.success())
@@ -619,6 +628,8 @@ impl Git<'_> {
         let mut command = self.command(self.repo);
         command
             .args(["fetch", "--quiet", "--no-tags", "origin", &refspec])
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
             .kill_on_drop(true);
         matches!(
             tokio::time::timeout(FETCH_TIMEOUT, command.status()).await,
