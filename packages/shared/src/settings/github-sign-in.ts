@@ -18,7 +18,8 @@ import { errorText } from "../timeline/store";
 import type { ViewState } from "../view/replica";
 import { heldOf } from "./logins";
 
-const GITHUB_PAGES = "https://github.com/";
+/** GitHub's page for a device code sign-in, the only one the app opens for it. */
+const DEVICE_PAGE = "https://github.com/login/device";
 
 /** Where GitHub lists the Apps you authorized, to revoke one there. */
 export const AUTHORIZED_APPS_URL = "https://github.com/settings/apps/authorizations";
@@ -97,12 +98,13 @@ export const startedFrom = (
 	}
 	if (result.data.status === "device_code") {
 		const code = result.data;
-		// The device names this page and the app opens it for you, so it has to be GitHub's.
-		if (!code.verification_uri.startsWith(GITHUB_PAGES)) {
+		// The device names this page and the app opens it for you, so it has to be
+		// GitHub's device sign-in page, not another page there such as an app's consent.
+		if (code.verification_uri !== DEVICE_PAGE) {
 			return {
 				state: "failed",
 				device,
-				reason: t("The device named a sign-in page that isn't on GitHub."),
+				reason: t("The device named a page that isn't GitHub's sign-in page."),
 			};
 		}
 		return {

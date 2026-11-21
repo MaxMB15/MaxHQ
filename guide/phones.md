@@ -94,17 +94,17 @@ Let this phone do everything is a switch on each phone's row in the Phones card,
 2. Turn on Let this phone do everything.
 3. Read what it allows, then choose Let it do everything, or Keep it off.
 
-With it on, anyone holding the phone could start agents that run commands on your devices, change settings, store or remove sign-ins, and copy files out. Adding keys or other phones still needs this Mac. It stays on until you turn it off there. A device that isn't connected gets it once it's back.
+With it on, anyone holding the phone could start agents or set them to Auto or Full access, run commands and open shells on your devices, change settings, store or remove sign-ins, and copy files out. Adding keys or other phones still needs this Mac. It stays on until you turn it off there. A device that isn't connected gets it once it's back.
 
 With it off, the phone can still follow your agents and act on the ones that run:
 
-- Answer prompts, send messages, steer, interrupt, stop, rename and delete agents, and change an agent's model, effort and mode.
+- Answer prompts, send messages, steer, interrupt, stop, rename and delete agents, and change an agent's model, effort and mode, other than to Auto or Full access.
 - Settle, snooze and pin in the inbox, read and write notes, and ask the dispatcher.
 - Merge, approve and link pull requests, run, turn on or off and delete scheduled tasks, and start or stop workspaces.
 - Change a project's settings, end test machine leases and accept licences.
-- Run a ! command in an agent's terminal, watch it and stop it with Ctrl-C.
+- Watch a ! command in an agent's terminal and stop it with Ctrl-C.
 
-It can't start or move agents, save a scheduled task, change a device's settings, install anything, make, copy or delete workspaces, restore a snapshot, browse folders, open a shell, forward ports, stop processes, copy files out, build or reset test machines, change skills, or store sign-ins. Those show greyed out on the phone, and a device that's asked anyway answers "A phone can't do that. To let this phone, turn on Let this phone do everything for it in the Mac's Settings, under Phones."
+It can't start or move agents, set one to Auto or Full access, save a scheduled task, change a device's settings, install anything, make, copy or delete workspaces, restore a snapshot, browse folders, run a ! command, open or watch a shell, type into a terminal, download models, forward ports, stop processes, copy files out, build or reset test machines, change skills, or store sign-ins. Those show greyed out on the phone, and a device that's asked anyway answers "A phone can't do that. To let this phone, turn on Let this phone do everything for it in the Mac's Settings, under Phones."
 
 ## Remove a phone or pair it again
 <!-- id: phones/remove -->

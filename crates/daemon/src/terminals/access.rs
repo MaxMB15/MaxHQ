@@ -5,24 +5,29 @@
 //!
 //! Only the app and paired phones reach terminals at all: the server turns
 //! everyone else away before a request gets here. The app may do anything.
-//! A phone may open a `!` run, watch any terminal and send Ctrl-C to it,
-//! and type into, size, close, rename or move the runs it opened itself.
-//! The rest, a shell above all, needs its "Let this phone do everything"
-//! switch, since what you type into a terminal can be a password.
+//! A phone may watch a `!` run and send Ctrl-C to it, and close, rename or
+//! move the runs it opened itself. The rest needs its "Let this phone do
+//! everything" switch: opening a run or a shell, since a command can do
+//! anything you can on this device, typing into any terminal, since a run
+//! can be a shell too, and watching a shell, since what it shows can be a
+//! password.
 
 use maxhq_protocol::ids::PhoneId;
 use maxhq_protocol::terminal::TerminalKind;
 use serde::{Deserialize, Serialize};
 
-/// The refusal for a shell, to a phone whose switch is off.
-pub const PHONE_SHELL: &str = "A phone can't open a shell. To let this phone, turn on Let this \
-                               phone do everything for it in the Mac's Settings, under Phones.";
+/// The refusal for running a command, typing into a terminal or watching
+/// a shell, to a phone whose switch is off.
+pub const PHONE_CANT_RUN: &str = "A phone can't run commands, type into a terminal or watch a \
+                                  shell. To let this phone, turn on Let this phone do \
+                                  everything for it in the Mac's Settings, under Phones.";
 
 /// The refusal for a terminal a phone didn't open, to a phone whose switch
 /// is off.
-pub const PHONE_NOT_ITS_OWN: &str = "A phone can only type into the runs it started. To let \
-                                     this phone use every terminal, turn on Let this phone do \
-                                     everything for it in the Mac's Settings, under Phones.";
+pub const PHONE_NOT_ITS_OWN: &str = "A phone can only close, rename or move the runs it \
+                                     started. To let this phone use every terminal, turn on \
+                                     Let this phone do everything for it in the Mac's \
+                                     Settings, under Phones.";
 
 /// Who sent a terminal request, as its connection proved.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -91,11 +96,10 @@ pub fn check(
     }
     let run = matches!(kind, TerminalKind::Run { .. });
     match act {
-        Act::Open if run => Ok(()),
-        Act::Open => Err(PHONE_SHELL),
-        Act::Watch => Ok(()),
-        Act::Type | Act::Manage if run && opener == (Opener::Phone { phone }) => Ok(()),
-        Act::Type | Act::Manage => Err(PHONE_NOT_ITS_OWN),
+        Act::Watch if run => Ok(()),
+        Act::Manage if run && opener == (Opener::Phone { phone }) => Ok(()),
+        Act::Manage => Err(PHONE_NOT_ITS_OWN),
+        Act::Open | Act::Type | Act::Watch => Err(PHONE_CANT_RUN),
     }
 }
 
@@ -112,6 +116,10 @@ mod tests {
             command: "ls".into(),
             private: false,
         }
+    }
+
+    fn session() -> TerminalKind {
+        TerminalKind::Session
     }
 
     fn phone(name: &str, everything: bool) -> Caller {
@@ -147,35 +155,49 @@ mod tests {
     }
 
     #[test]
-    fn a_phone_opens_runs_but_not_shells() {
+    fn a_phone_opens_and_types_into_nothing() {
         let caller = phone("a", false);
-        let opener = caller.opener();
-        assert_eq!(check(caller, Act::Open, &run(), opener), Ok(()));
-        assert_eq!(check(caller, Act::Open, &shell(), opener), Err(PHONE_SHELL));
-    }
-
-    #[test]
-    fn a_phone_watches_and_interrupts_any_terminal() {
-        let caller = phone("a", false);
-        for kind in [shell(), run()] {
-            for opener in [Opener::App, phone("b", false).opener(), caller.opener()] {
-                assert_eq!(check(caller, Act::Watch, &kind, opener), Ok(()));
+        for act in [Act::Open, Act::Type] {
+            for kind in [shell(), run(), session()] {
+                for opener in [Opener::App, caller.opener()] {
+                    assert_eq!(check(caller, act, &kind, opener), Err(PHONE_CANT_RUN));
+                }
             }
         }
     }
 
     #[test]
-    fn a_phone_types_into_and_manages_only_its_own_runs() {
+    fn a_phone_watches_and_interrupts_runs_but_not_shells() {
         let caller = phone("a", false);
-        for act in [Act::Type, Act::Manage] {
-            assert_eq!(check(caller, act, &run(), caller.opener()), Ok(()));
-            // A run the app or another phone opened.
-            for opener in [Opener::App, phone("b", false).opener()] {
-                assert_eq!(check(caller, act, &run(), opener), Err(PHONE_NOT_ITS_OWN));
+        for opener in [Opener::App, phone("b", false).opener(), caller.opener()] {
+            assert_eq!(check(caller, Act::Watch, &run(), opener), Ok(()));
+            for kind in [shell(), session()] {
+                assert_eq!(
+                    check(caller, Act::Watch, &kind, opener),
+                    Err(PHONE_CANT_RUN)
+                );
             }
-            // A shell, even one it opened while its switch was on.
+        }
+    }
+
+    #[test]
+    fn a_phone_manages_only_its_own_runs() {
+        let caller = phone("a", false);
+        assert_eq!(check(caller, Act::Manage, &run(), caller.opener()), Ok(()));
+        // A run the app or another phone opened.
+        for opener in [Opener::App, phone("b", false).opener()] {
+            assert_eq!(
+                check(caller, Act::Manage, &run(), opener),
+                Err(PHONE_NOT_ITS_OWN)
+            );
+        }
+        // A shell or session, even one it opened while its switch was on.
+        for kind in [shell(), session()] {
             for opener in [Opener::App, caller.opener()] {
-                assert_eq!(check(caller, act, &shell(), opener), Err(PHONE_NOT_ITS_OWN));
+                assert_eq!(
+                    check(caller, Act::Manage, &kind, opener),
+                    Err(PHONE_NOT_ITS_OWN)
+                );
             }
         }
     }

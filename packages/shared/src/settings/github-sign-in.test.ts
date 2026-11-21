@@ -60,13 +60,19 @@ describe("startedFrom", () => {
 		});
 	});
 
-	it("turns down a page that isn't GitHub's", () => {
-		const started = startedFrom(code("https://example.com/login"), "dev-box", null);
-		expect(started).toEqual({
-			state: "failed",
-			device: "dev-box",
-			reason: "The device named a sign-in page that isn't on GitHub.",
-		});
+	it("turns down a page that isn't GitHub's sign-in page", () => {
+		for (const page of [
+			"https://example.com/login",
+			"https://github.com/login/oauth/authorize?client_id=Iv1.example",
+			"https://github.com/apps/example-app/installations/new",
+			"https://github.com/login/device/../oauth/authorize",
+		]) {
+			expect(startedFrom(code(page), "dev-box", null)).toEqual({
+				state: "failed",
+				device: "dev-box",
+				reason: "The device named a page that isn't GitHub's sign-in page.",
+			});
+		}
 	});
 
 	it("says why the device refused", () => {

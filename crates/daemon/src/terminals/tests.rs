@@ -10,7 +10,7 @@ use maxhq_protocol::ids::PhoneId;
 use tokio::io::AsyncReadExt;
 use tokio::time::timeout;
 
-use super::access::PHONE_NOT_ITS_OWN;
+use super::access::{PHONE_CANT_RUN, PHONE_NOT_ITS_OWN};
 use super::*;
 use crate::testing::TempDir;
 
@@ -119,7 +119,7 @@ async fn requests_wait_while_the_terminals_a_previous_maxd_left_come_back() {
 }
 
 #[tokio::test]
-async fn a_phone_types_only_into_its_own_runs_until_its_switch_is_on() {
+async fn a_phone_manages_only_its_own_runs_until_its_switch_is_on() {
     let mut f = fixture();
     let agent = AgentId::derive("a");
     let mine = PhoneId::derive("mine");
@@ -139,14 +139,18 @@ async fn a_phone_types_only_into_its_own_runs_until_its_switch_is_on() {
     let own = f
         .terminals
         .plant(agent, run(), Opener::Phone { phone: mine });
-    let not_its_own = || Err(Refusal::NotAllowed(PHONE_NOT_ITS_OWN.to_owned()));
+    let cant_run = || Err(Refusal::NotAllowed(PHONE_CANT_RUN.to_owned()));
 
-    for terminal in [apps, others, shell] {
+    // It types into and sizes no terminal, not even its own run, since a
+    // run can be a shell too.
+    for terminal in [apps, others, shell, own] {
         assert_eq!(
             f.terminals.input(2, me, terminal, b"y".to_vec()),
-            not_its_own()
+            cant_run()
         );
-        assert_eq!(f.terminals.resize(2, me, terminal, 40, 20), not_its_own());
+        assert_eq!(f.terminals.resize(2, me, terminal, 40, 20), cant_run());
+    }
+    for terminal in [apps, others, shell] {
         assert_eq!(
             f.terminals.close(me, terminal, true),
             refused(PHONE_NOT_ITS_OWN)
@@ -159,31 +163,33 @@ async fn a_phone_types_only_into_its_own_runs_until_its_switch_is_on() {
             f.terminals.move_run(me, terminal),
             refused(PHONE_NOT_ITS_OWN)
         );
-        // It watches any terminal and sends it Ctrl-C. These have no
-        // holder to reach, so each gets as far as trying.
-        assert_eq!(f.terminals.interrupt(me, terminal), refused(UNREACHABLE));
-        let attached = f.terminals.attach(2, me, nowhere(), terminal, None).await;
-        assert!(
-            matches!(&attached, Err(Refusal::Unknown(reason)) if reason != NO_SUCH_TERMINAL),
-            "{attached:?}"
-        );
         let shown = published(&f.hub, terminal).expect("still shown");
         assert_eq!((shown.cols, shown.rows, shown.moved), (80, 24, false));
         assert_ne!(shown.title, "mine");
     }
     assert!(f.notes.try_recv().is_err(), "nothing moved");
 
-    // Its own run it types into, sizes, renames and moves.
-    let typed = f.terminals.input(2, me, own, b"y".to_vec());
-    assert_eq!(typed, Err(Refusal::unreachable()));
-    assert_eq!(f.terminals.resize(2, me, own, 40, 20), Ok(()));
+    // It watches any run and sends it Ctrl-C. These have no holder to
+    // reach, so each gets as far as trying. A shell it doesn't watch.
+    for terminal in [apps, others, own] {
+        assert_eq!(f.terminals.interrupt(me, terminal), refused(UNREACHABLE));
+        let attached = f.terminals.attach(2, me, nowhere(), terminal, None).await;
+        assert!(
+            matches!(&attached, Err(Refusal::Unknown(reason)) if reason != NO_SUCH_TERMINAL),
+            "{attached:?}"
+        );
+    }
+    assert_eq!(f.terminals.interrupt(me, shell), refused(PHONE_CANT_RUN));
+    assert_eq!(
+        f.terminals.attach(2, me, nowhere(), shell, None).await,
+        cant_run()
+    );
+
+    // Its own run it renames and moves.
     assert_eq!(f.terminals.rename(me, own, "tests"), ActionOutcome::Done);
     assert_eq!(f.terminals.move_run(me, own), ActionOutcome::Done);
     let shown = published(&f.hub, own).expect("still shown");
-    assert_eq!(
-        (shown.title.as_str(), shown.moved, shown.cols, shown.rows),
-        ("tests", true, 40, 20)
-    );
+    assert_eq!((shown.title.as_str(), shown.moved), ("tests", true));
     assert!(matches!(
         f.notes.try_recv(),
         Ok(RunNote::Moved { agent: moved, terminal }) if moved == agent && terminal == own
@@ -194,7 +200,7 @@ async fn a_phone_types_only_into_its_own_runs_until_its_switch_is_on() {
         phone: mine,
         everything: true,
     };
-    for terminal in [apps, others, shell] {
+    for terminal in [apps, others, shell, own] {
         let typed = f.terminals.input(2, trusted, terminal, b"y".to_vec());
         assert_eq!(typed, Err(Refusal::unreachable()));
         assert_eq!(

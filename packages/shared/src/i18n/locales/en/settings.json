@@ -510,7 +510,7 @@
 	" is paired.": " is paired.",
 	"On the phone, choose Scan the code. It works once, for {{duration}} more.": "On the phone, choose Scan the code. It works once, for {{duration}} more.",
 	"The code ran out. Show a new one.": "The code ran out. Show a new one.",
-	"Anyone holding this phone could start agents that run commands on your devices, change settings, store or remove sign-ins, and copy files out. Adding keys or other phones still needs this Mac.": "Anyone holding this phone could start agents that run commands on your devices, change settings, store or remove sign-ins, and copy files out. Adding keys or other phones still needs this Mac.",
+	"Anyone holding this phone could start agents or set them to Auto or Full access, run commands and open shells on your devices, change settings, store or remove sign-ins, and copy files out. Adding keys or other phones still needs this Mac.": "Anyone holding this phone could start agents or set them to Auto or Full access, run commands and open shells on your devices, change settings, store or remove sign-ins, and copy files out. Adding keys or other phones still needs this Mac.",
 	"Couldn't reach {{list}}. The phone can do everything there once {{they}} connected again.": "Couldn't reach {{list}}. The phone can do everything there once {{they}} connected again.",
 	"Couldn't reach {{list}}. The phone can still do everything there until {{they}} connected again.": "Couldn't reach {{list}}. The phone can still do everything there until {{they}} connected again.",
 	"Couldn't remove a phone": "Couldn't remove a phone",

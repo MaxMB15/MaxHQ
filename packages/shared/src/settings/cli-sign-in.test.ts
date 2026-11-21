@@ -8,6 +8,7 @@ import {
 	CLI_SIGN_IN_MS,
 	MOCK_CLAUDE_PAGE,
 	MOCK_CODEX_CODE,
+	MOCK_CODEX_PAGE,
 	MOCK_CODEX_DEVICE_PAGE,
 	MOCK_CURSOR_PAGE,
 	mockCliLogins,
@@ -22,8 +23,8 @@ import {
 	type CliSignIn,
 	cliLoginBlocked,
 	cliSignIn,
+	isSignInPage,
 	loggedOut,
-	onVendorSite,
 	opensPageItself,
 	pollCliLogin,
 	signedInText,
@@ -161,19 +162,29 @@ describe("sign in again", () => {
 		expect(opensPageItself(v, CURSOR, "desktop")).toBe(true);
 	});
 
-	it("only takes a page on the vendor's own site", () => {
-		expect(onVendorSite(MOCK_CLAUDE_PAGE, "claude")).toBe(true);
-		expect(onVendorSite("https://console.anthropic.com/oauth", "claude")).toBe(true);
-		expect(onVendorSite(MOCK_CODEX_DEVICE_PAGE, "codex")).toBe(true);
-		expect(onVendorSite("https://AUTH.OPENAI.COM:443/x", "codex")).toBe(true);
-		expect(onVendorSite(MOCK_CODEX_DEVICE_PAGE, "claude")).toBe(false);
-		expect(onVendorSite("http://claude.com/x", "claude")).toBe(false);
-		expect(onVendorSite("https://claude.com.example.net/x", "claude")).toBe(false);
-		expect(onVendorSite("https://evilclaude.com/x", "claude")).toBe(false);
-		expect(onVendorSite("https://user@claude.com/x", "claude")).toBe(false);
-		expect(onVendorSite("https://claude.com/x", "cursor")).toBe(false);
-		expect(onVendorSite(MOCK_CURSOR_PAGE, "cursor")).toBe(true);
-		expect(onVendorSite(MOCK_CURSOR_PAGE, "acp")).toBe(false);
+	it("only takes the vendor's own sign-in pages", () => {
+		expect(isSignInPage(MOCK_CLAUDE_PAGE, "claude")).toBe(true);
+		expect(
+			isSignInPage("https://console.anthropic.com/oauth/authorize?code=true", "claude")
+		).toBe(true);
+		expect(isSignInPage(MOCK_CODEX_PAGE, "codex")).toBe(true);
+		expect(isSignInPage(MOCK_CODEX_DEVICE_PAGE, "codex")).toBe(true);
+		expect(isSignInPage("https://AUTH.OPENAI.COM/codex/device", "codex")).toBe(true);
+		expect(isSignInPage(MOCK_CURSOR_PAGE, "cursor")).toBe(true);
+		// Other pages on the same sites stay shut.
+		expect(isSignInPage("https://console.anthropic.com/oauth", "claude")).toBe(false);
+		expect(isSignInPage("https://claude.ai/settings/connectors", "claude")).toBe(false);
+		expect(isSignInPage("https://auth.openai.com/oauth/authorize/x", "codex")).toBe(false);
+		expect(isSignInPage("https://chatgpt.com/codex/device", "codex")).toBe(false);
+		expect(isSignInPage("https://cursor.com/settings", "cursor")).toBe(false);
+		// And so do other vendors' pages, other schemes, hosts and ports.
+		expect(isSignInPage(MOCK_CODEX_DEVICE_PAGE, "claude")).toBe(false);
+		expect(isSignInPage(MOCK_CURSOR_PAGE, "acp")).toBe(false);
+		expect(isSignInPage("http://claude.ai/oauth/authorize", "claude")).toBe(false);
+		expect(isSignInPage("https://claude.ai.example.net/oauth/authorize", "claude")).toBe(false);
+		expect(isSignInPage("https://user@claude.ai/oauth/authorize", "claude")).toBe(false);
+		expect(isSignInPage("https://claude.ai:8443/oauth/authorize", "claude")).toBe(false);
+		expect(isSignInPage("https://claude.ai/oauth/authorize#x", "claude")).toBe(false);
 	});
 
 	it("titles and the words once signed in", () => {

@@ -166,24 +166,30 @@ export const loggedOut = (account: Account): boolean => {
 	return /\blogged out\b/i.test(failure.reason);
 };
 
-// The sites each vendor's sign-in pages are on. The device names the page
-// and the app opens it, so it has to be one of these.
-const SITES: Readonly<Record<Vendor, readonly string[]>> = {
-	claude: ["claude.com", "claude.ai", "anthropic.com"],
-	codex: ["openai.com", "chatgpt.com"],
-	cursor: ["cursor.com"],
+// The pages each vendor's CLI signs in on, older CLIs' included. The device
+// names the page and the app opens it, so it has to be one of these, with
+// nothing after it but a query. Other pages on the same sites stay shut.
+const PAGES: Readonly<Record<Vendor, readonly string[]>> = {
+	claude: [
+		"https://claude.com/cai/oauth/authorize",
+		"https://claude.ai/oauth/authorize",
+		"https://platform.claude.com/oauth/authorize",
+		"https://console.anthropic.com/oauth/authorize",
+	],
+	codex: ["https://auth.openai.com/oauth/authorize", "https://auth.openai.com/codex/device"],
+	cursor: ["https://cursor.com/loginDeepControl", "https://www.cursor.com/loginDeepControl"],
 	acp: [],
 };
 
-// A URL with no user part, so the host is the part after `https://`.
-// Parsed by hand, since the phone's URL can't read a host.
-const HTTPS_HOST = /^https:\/\/([a-z0-9.-]+)(?::\d+)?(?:[/?#]|$)/i;
+// A URL's origin and path, with no user part, port or fragment. Parsed by
+// hand, since the phone's URL can't read a host.
+const PAGE = /^(https:\/\/[a-z0-9.-]+)(\/[^?#]*)(?:\?[^#]*)?$/i;
 
-/** Whether `url` is a page on the vendor's own site, over HTTPS. */
-export const onVendorSite = (url: string, vendor: Vendor): boolean => {
-	const host = HTTPS_HOST.exec(url)?.[1]?.toLowerCase();
-	if (!host) return false;
-	return SITES[vendor].some((site) => host === site || host.endsWith(`.${site}`));
+/** Whether `url` is one of the vendor's own sign-in pages, over HTTPS. */
+export const isSignInPage = (url: string, vendor: Vendor): boolean => {
+	const [, origin, path] = PAGE.exec(url) ?? [];
+	if (origin === undefined || path === undefined) return false;
+	return PAGES[vendor].includes(`${origin.toLowerCase()}${path}`);
 };
 
 /** The page a waiting round signs in on. */
@@ -251,7 +257,7 @@ const pageOf = (result: ActionResult, vendor: Vendor, opens: boolean): CliSignIn
 		return failed(t("The device didn't give a sign-in page"));
 	}
 	const { sign_in, url, user_code, paste } = result.data;
-	if (!onVendorSite(url, vendor)) {
+	if (!isSignInPage(url, vendor)) {
 		return failed(
 			t("The device named a sign-in page MaxHQ doesn't know, so it didn't open it")
 		);

@@ -305,7 +305,7 @@ async fn pairing_posts_to_the_devices_network_access_and_keeps_the_token() {
     };
     let code = code(Some(network.clone()));
     let book = sign_ins
-        .pair(&code, &network, "iPhone", &key)
+        .pair(&code, &network, "iPhone", &key, &[])
         .await
         .unwrap();
     assert_eq!(book.phone, key.phone);
@@ -356,6 +356,7 @@ async fn a_used_pairing_code_says_to_scan_a_new_one() {
             &network,
             "iPhone",
             &phone_key(),
+            &[],
         )
         .await;
     assert_eq!(
@@ -363,6 +364,58 @@ async fn a_used_pairing_code_says_to_scan_a_new_one() {
         "That pairing code is used or over. Scan a new one."
     );
     assert_eq!(held(&*store), None);
+}
+
+#[tokio::test]
+async fn a_pairing_that_says_it_is_for_a_paired_mac_through_another_device_keeps_nothing() {
+    let key = phone_key();
+    let home = PhoneMac {
+        device: DeviceId::derive("Home Mac"),
+        name: "Home Mac".into(),
+    };
+    let paired = json!(NetPaired {
+        phone: key.phone,
+        book: Vec::new(),
+        token: serde_json::from_value(token(FRESH, 30)).unwrap(),
+        mac: Some(home.clone()),
+    });
+    let (post, _) = device(vec![Ok((200, paired))]);
+    let (sign_ins, store) = signing(post);
+    let network = PhoneNetwork {
+        hosts: vec!["192.168.1.20".into()],
+        port: 7466,
+        pin: URL_SAFE_NO_PAD.encode([7; 32]),
+        code: None,
+    };
+    // The phone has Home Mac's book, which doesn't list devbox.
+    let had = PhoneBook {
+        phone: key.phone,
+        device: home.device,
+        devices: vec![PhoneBookEntry {
+            device: home.device,
+            name: "Home Mac".into(),
+            routes: Vec::new(),
+            host_key: String::new(),
+            network: Some(PhoneNetwork {
+                pin: URL_SAFE_NO_PAD.encode([8; 32]),
+                ..network.clone()
+            }),
+        }],
+        mac: Some(home),
+    };
+    let refused = sign_ins
+        .pair(
+            &code(Some(network.clone())),
+            &network,
+            "iPhone",
+            &key,
+            &[had],
+        )
+        .await;
+    assert!(refused
+        .unwrap_err()
+        .starts_with("The device that answered says it pairs for Home Mac"),);
+    assert_eq!(held(&*store), None, "no token is kept for devbox");
 }
 
 /// Everything written to the log, shared with the subscriber.

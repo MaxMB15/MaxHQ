@@ -1013,7 +1013,7 @@
 	"The device didn't give a code.": "El dispositivo no proporcionó un código.",
 	"The device didn't make it": "El dispositivo no lo creó",
 	"The device has finished.": "El dispositivo terminó.",
-	"The device named a sign-in page that isn't on GitHub.": "El dispositivo indicó una página de inicio de sesión que no está en GitHub.",
+	"The device named a page that isn't GitHub's sign-in page.": "El dispositivo indicó una página que no es la página de inicio de sesión de GitHub.",
 	"The env files start ticked. Folders git ignores whole, like node_modules, are left out.": "Los archivos env empiezan marcados. Se omiten las carpetas que git ignora por completo, como node_modules.",
 	"The file changed while it was read.": "El archivo cambió mientras se leía.",
 	"The files didn't copy": "Los archivos no se copiaron",

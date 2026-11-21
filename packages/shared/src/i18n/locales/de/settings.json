@@ -510,7 +510,7 @@
 	" is paired.": " ist gekoppelt.",
 	"On the phone, choose Scan the code. It works once, for {{duration}} more.": "Wähle auf dem Telefon Code scannen. Der Code gilt einmal und noch {{duration}}.",
 	"The code ran out. Show a new one.": "Der Code ist abgelaufen. Zeige einen neuen an.",
-	"Anyone holding this phone could start agents that run commands on your devices, change settings, store or remove sign-ins, and copy files out. Adding keys or other phones still needs this Mac.": "Wer dieses Telefon hat, kann Agents starten, die Befehle auf deinen Geräten ausführen, Einstellungen ändern, Anmeldungen speichern oder entfernen und Dateien kopieren. Schlüssel oder weitere Telefone erfordern weiterhin diesen Mac.",
+	"Anyone holding this phone could start agents or set them to Auto or Full access, run commands and open shells on your devices, change settings, store or remove sign-ins, and copy files out. Adding keys or other phones still needs this Mac.": "Wer dieses Telefon hat, kann Agents starten oder auf Automatisch oder Voller Zugriff stellen, auf deinen Geräten Befehle ausführen und Shells öffnen, Einstellungen ändern, Anmeldungen speichern oder entfernen und Dateien kopieren. Schlüssel oder weitere Telefone erfordern weiterhin diesen Mac.",
 	"Couldn't reach {{list}}. The phone can do everything there once {{they}} connected again.": "{{list}} nicht erreichbar. Das Telefon erhält dort nach erneuter Verbindung vollen Zugriff.{{they}}",
 	"Couldn't reach {{list}}. The phone can still do everything there until {{they}} connected again.": "{{list}} nicht erreichbar. Das Telefon behält dort bis zur erneuten Verbindung vollen Zugriff.{{they}}",
 	"Couldn't remove a phone": "Telefon konnte nicht entfernt werden",

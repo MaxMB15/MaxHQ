@@ -16,7 +16,7 @@ use super::{NOT_FOR_TERMINALS, SESSION_THROUGH_RUNS};
 use crate::server::proof::unproven;
 use crate::server::tests::{hello, serve, Served, TestClient};
 use crate::server::PHONE_CANT;
-use crate::terminals::access::{Opener, PHONE_NOT_ITS_OWN};
+use crate::terminals::access::{Opener, PHONE_CANT_RUN, PHONE_NOT_ITS_OWN};
 use crate::terminals::{NO_SUCH_TERMINAL, STILL_RUNNING, UNREACHABLE};
 
 /// What an attach to a terminal with no holder behind it reads, once it
@@ -349,7 +349,7 @@ async fn agents_tools_and_unproven_connections_never_reach_a_terminal() {
 }
 
 #[tokio::test]
-async fn a_phone_types_only_into_its_own_runs_until_its_switch_is_on() {
+async fn a_phone_runs_nothing_and_manages_only_its_own_runs_until_its_switch_is_on() {
     use base64::Engine;
 
     let phones = crate::phones::for_tests();
@@ -395,9 +395,10 @@ async fn a_phone_types_only_into_its_own_runs_until_its_switch_is_on() {
         .plant(agent, run(), Opener::Phone { phone });
     let key = IdempotencyKey::generate;
 
-    // It watches any terminal and sends it Ctrl-C. These have no holder to
-    // reach, so each gets as far as trying.
-    for terminal in [apps, shell, its_own] {
+    // It watches any run and sends it Ctrl-C. These have no holder to
+    // reach, so each gets as far as trying. A shell it doesn't watch.
+    let cant_run = || error(ErrorCode::NotAllowed, PHONE_CANT_RUN);
+    for terminal in [apps, its_own] {
         own.send(&ClientMessage::TerminalAttach {
             terminal,
             after: None,
@@ -410,18 +411,31 @@ async fn a_phone_types_only_into_its_own_runs_until_its_switch_is_on() {
         };
         assert_eq!(ask(&mut own, interrupt).await, refused(UNREACHABLE));
     }
-    // It types into, sizes and manages only the runs it opened.
-    let not_its_own = || error(ErrorCode::NotAllowed, PHONE_NOT_ITS_OWN);
-    for terminal in [apps, shell] {
+    own.send(&ClientMessage::TerminalAttach {
+        terminal: shell,
+        after: None,
+    })
+    .await;
+    assert_eq!(own.recv().await, cant_run());
+    let interrupt = ClientMessage::TerminalInterrupt {
+        key: key(),
+        terminal: shell,
+    };
+    assert_eq!(ask(&mut own, interrupt).await, refused(PHONE_CANT_RUN));
+    // It types into and sizes no terminal, not even a run it opened, and
+    // manages only the runs it opened.
+    for terminal in [apps, shell, its_own] {
         own.type_into(terminal, b"y").await;
-        assert_eq!(own.recv().await, not_its_own());
+        assert_eq!(own.recv().await, cant_run());
         own.send(&ClientMessage::TerminalResize {
             terminal,
             cols: 40,
             rows: 20,
         })
         .await;
-        assert_eq!(own.recv().await, not_its_own());
+        assert_eq!(own.recv().await, cant_run());
+    }
+    for terminal in [apps, shell] {
         let rename = ClientMessage::TerminalRename {
             key: key(),
             terminal,
@@ -429,15 +443,15 @@ async fn a_phone_types_only_into_its_own_runs_until_its_switch_is_on() {
         };
         assert_eq!(ask(&mut own, rename).await, refused(PHONE_NOT_ITS_OWN));
     }
-    own.type_into(its_own, b"y").await;
-    assert_eq!(own.recv().await, error(ErrorCode::Unreachable, UNREACHABLE));
     let rename = ClientMessage::TerminalRename {
         key: key(),
         terminal: its_own,
         title: "mine".into(),
     };
     assert_eq!(ask(&mut own, rename).await, ActionOutcome::Done);
-    // Nor does it open a shell.
+    // Nor does it open a shell or a run, run a `!` command, share a
+    // session's block or move a session. It ends a session only once its
+    // switch is on.
     let open_shell = || ClientMessage::TerminalOpen {
         key: key(),
         agent,
@@ -446,13 +460,22 @@ async fn a_phone_types_only_into_its_own_runs_until_its_switch_is_on() {
         rows: 24,
     };
     assert_eq!(ask(&mut own, open_shell()).await, refused(PHONE_CANT));
-    // It runs `!` commands as it opens runs, and gets as far as the agent,
-    // which isn't here. It ends a session only once its switch is on.
-    let ran = ask(&mut own, session_run(agent)).await;
-    assert!(
-        matches!(&ran, ActionOutcome::Refused { reason } if reason.contains("agents MaxHQ runs on this device")),
-        "{ran:?}"
-    );
+    let commands = requests(agent, its_own).into_iter().filter(|message| {
+        matches!(
+            message,
+            ClientMessage::TerminalOpen { .. }
+                | ClientMessage::SessionRun { .. }
+                | ClientMessage::SessionShare { .. }
+                | ClientMessage::SessionCd { .. }
+        )
+    });
+    for message in commands {
+        assert_eq!(
+            ask(&mut own, message.clone()).await,
+            refused(PHONE_CANT_RUN),
+            "{message:?}"
+        );
+    }
     assert_eq!(
         ask(&mut own, session_end(agent, true)).await,
         refused(PHONE_NOT_ITS_OWN)
@@ -466,19 +489,25 @@ async fn a_phone_types_only_into_its_own_runs_until_its_switch_is_on() {
     };
     assert_eq!(ask(&mut app, switch(true)).await, ActionOutcome::Done);
     assert!(phones.everything(phone));
-    for terminal in [apps, shell] {
+    for terminal in [apps, shell, its_own] {
         own.type_into(terminal, b"y").await;
         assert_eq!(own.recv().await, error(ErrorCode::Unreachable, UNREACHABLE));
     }
     let opened = ask(&mut own, open_shell()).await;
     assert_ne!(opened, refused(PHONE_CANT));
+    // It runs `!` commands, and gets as far as the agent, which isn't here.
+    let ran = ask(&mut own, session_run(agent)).await;
+    assert!(
+        matches!(&ran, ActionOutcome::Refused { reason } if reason.contains("agents MaxHQ runs on this device")),
+        "{ran:?}"
+    );
     assert_eq!(
         ask(&mut own, session_end(agent, true)).await,
         ActionOutcome::Done
     );
 
-    // Off again, it's back to its own runs.
+    // Off again, it types into nothing.
     assert_eq!(ask(&mut app, switch(false)).await, ActionOutcome::Done);
     own.type_into(apps, b"y").await;
-    assert_eq!(own.recv().await, not_its_own());
+    assert_eq!(own.recv().await, cant_run());
 }

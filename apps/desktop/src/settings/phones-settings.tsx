@@ -212,7 +212,7 @@ const NoPushKey = ({ names }: { names: readonly string[] }) => {
 
 /** What a phone that may do everything could do, for the card that asks first. */
 const EVERYTHING_RISK =
-	"Anyone holding this phone could start agents that run commands on your devices, change settings, store or remove sign-ins, and copy files out. Adding keys or other phones still needs this Mac.";
+	"Anyone holding this phone could start agents or set them to Auto or Full access, run commands and open shells on your devices, change settings, store or remove sign-ins, and copy files out. Adding keys or other phones still needs this Mac.";
 
 /** The devices a phone's switch didn't reach, and when it will. */
 const unreached = (names: readonly string[], everything: boolean) => {

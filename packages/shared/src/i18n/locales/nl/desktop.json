@@ -1021,7 +1021,7 @@
 	"The device didn't give a code.": "Het apparaat heeft geen code gegeven.",
 	"The device didn't make it": "Het apparaat heeft dit niet gemaakt",
 	"The device has finished.": "Het apparaat is klaar.",
-	"The device named a sign-in page that isn't on GitHub.": "Het apparaat gaf een aanmeldpagina buiten GitHub.",
+	"The device named a page that isn't GitHub's sign-in page.": "Het apparaat gaf een pagina die niet de aanmeldpagina van GitHub is.",
 	"The env files start ticked. Folders git ignores whole, like node_modules, are left out.": "Env-bestanden zijn standaard aangevinkt. Mappen die git volledig negeert, zoals node_modules, worden overgeslagen.",
 	"The file changed while it was read.": "Het bestand is gewijzigd tijdens het lezen.",
 	"The files didn't copy": "De bestanden zijn niet gekopieerd",
