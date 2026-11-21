@@ -50,6 +50,10 @@ pub const SERVER_TOKEN: &str = "ANTHROPIC_AUTH_TOKEN";
 /// can't run commands or change files in any mode.
 const DISPATCHER_DENIED: &str = "Bash,Edit,Write,MultiEdit,NotebookEdit";
 
+/// The Claude Code built-in tools a local agent goes without while Fewer
+/// tools is on, so a small model has less to read.
+const LEAN_DENIED: &str = "Workflow,ScheduleWakeup,ReportFindings";
+
 /// The command line for a Claude session in `place` under `login`.
 /// `resume` continues the session with ID `session`, and otherwise starts
 /// it with that ID. Full access is always reachable later, so a running
@@ -176,6 +180,9 @@ pub(super) fn command(
         args.push(DISPATCHER_DENIED.into());
         args.push("--append-system-prompt".into());
         args.push(dispatch::INSTRUCTIONS.into());
+    } else if matches!(&login.auth, LoginAuth::ModelServer(server) if server.lean) {
+        args.push("--disallowedTools".into());
+        args.push(LEAN_DENIED.into());
     }
     args.push("--add-dir".into());
     args.push(place.attachments.clone().into());
@@ -860,5 +867,44 @@ mod tests {
         assert_eq!(env_value(&launch, "ANTHROPIC_MODEL"), Some("other@q8_0"));
         // A server that reported no context leaves Claude Code its own.
         assert_eq!(env_value(&launch, "CLAUDE_CODE_MAX_CONTEXT_TOKENS"), None);
+    }
+
+    /// What a launch under `login` turns off with the CLI's disallow flag.
+    fn denied(login: &Login) -> Option<String> {
+        let launch = command(
+            &host(),
+            login,
+            &place(),
+            Uuid::from_u128(1),
+            false,
+            None,
+            PermissionMode::Ask,
+        );
+        let args = strings(&launch.args);
+        let at = args.iter().position(|arg| *arg == "--disallowedTools")?;
+        Some(args[at + 1].to_owned())
+    }
+
+    #[test]
+    fn fewer_tools_turns_off_the_cli_s_heavy_built_in_tools() {
+        let lean = server_login(None, None);
+        assert_eq!(
+            denied(&lean).as_deref(),
+            Some("Workflow,ScheduleWakeup,ReportFindings")
+        );
+
+        let LoginAuth::ModelServer(server) = &lean.auth else {
+            unreachable!()
+        };
+        let mut full = ServerLogin::clone(server);
+        full.lean = false;
+        let full = Login {
+            auth: LoginAuth::ModelServer(std::sync::Arc::new(full)),
+            ..lean.clone()
+        };
+        assert_eq!(denied(&full), None);
+
+        // An account's own sign-in keeps every tool.
+        assert_eq!(denied(&login("/home/me/.claude")), None);
     }
 }
