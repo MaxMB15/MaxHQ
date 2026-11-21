@@ -168,7 +168,9 @@ impl Manager {
             Wants::Step(step) => Ok((self.plan_step(step)?, false)),
             Wants::Act(act) => {
                 let device = act.device.unwrap_or(self.device);
-                let (action, busy) = self.check_act(device, act.action)?;
+                let settings = self.device_settings();
+                let here = (device == self.device).then_some(&*settings.local_models);
+                let (action, busy) = self.check_act(device, act.filled(here)?)?;
                 Ok((PlanStep::Admin { device, action }, busy))
             }
         });
