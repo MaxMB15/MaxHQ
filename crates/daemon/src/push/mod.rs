@@ -456,7 +456,11 @@ impl Watch {
             options: attention.map(options).unwrap_or_default(),
         };
         let plaintext = message.fit();
-        let permission = attention.is_some_and(|event| event.kind == AttentionKind::Permission);
+        // A request only its card may answer comes with no options, and
+        // its push with no Deny button.
+        let permission = attention.is_some_and(|event| {
+            event.kind == AttentionKind::Permission && !event.options.is_empty()
+        });
 
         let tokens: Vec<(PhoneId, PushToken)> = self
             .push

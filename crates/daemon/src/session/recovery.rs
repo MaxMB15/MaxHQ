@@ -275,6 +275,7 @@ mod tests {
             input: None,
             output: None,
             images: Vec::new(),
+            artifact: None,
         };
         let items = [
             item("1", ItemStatus::Running, command("make migrate")),

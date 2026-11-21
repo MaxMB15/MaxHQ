@@ -87,7 +87,7 @@ The Accounts group has a table with a row for each login agents use, Claude, Cod
 
 ## Permissions: between agents and outside tools
 <!-- id: settings/agent-tools -->
-<!-- covers: settings/other-agents settings/grants settings/new-permissions settings/access-keys settings/app-keys settings/remembered-answers -->
+<!-- covers: settings/other-agents settings/grants settings/new-permissions settings/claude-artifacts settings/access-keys settings/app-keys settings/remembered-answers -->
 
 The Permissions group sets what agents may do to each other, and what tools outside MaxHQ may do on your devices. Between agents comes first, then Outside tools.
 
@@ -95,6 +95,7 @@ The Permissions group sets what agents may do to each other, and what tools outs
 - Grants: Agents allowed to run agents lists each agent you allowed, with Revoke. Allow one from its agent's menu, with Allow to run agents.
 - New permissions: Depth, Agents started, Agents at once, Usage cap and Expires after, plus the Devices, Vendors, Accounts, Places and Test hosts a new permission starts with. They start 3 levels deep with no limits. An empty limit is off. Save defaults saves them.
 - Depth counts the levels of agents below the one that holds the permission. Limits count agents and usage. They don't fence off files: an agent that should stay away from your files runs in a container, with its permission's Containers setting on Ask or Never.
+- claude.ai pages: a row for each device with Claude agents can use claude.ai artifacts, on by default. Off removes Claude Code's Artifacts tools from Claude agents there once their CLI next starts. See [Permissions](permissions.md).
 - Access keys, For tools outside MaxHQ, such as a bot: New access key takes a Key name and the device it's kept on, then what it may use and its limits. Make key makes it. Each key shows where its file is, Copy MCP command for the command a tool runs, and Revoke. The page never shows the key itself.
 - App keys: the apps each device trusts to do everything there, one row per key, with Remove. This Mac's app key shows the key this Mac's app signs with. Make a new app key moves every device to a new key for this Mac, and asks first.
 - Remembered answers: the answers this Mac keeps to the questions that ask for your consent. Auto mode says whether you confirmed it. Forget makes picking Auto mode ask again.

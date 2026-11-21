@@ -571,6 +571,7 @@ impl Rig {
             host: PlaceHost::Local,
             dispatcher: false,
             trust: None,
+            claude_artifacts: true,
         };
         let boxed = Place {
             device: local.device,
@@ -582,6 +583,7 @@ impl Rig {
             },
             dispatcher: false,
             trust: None,
+            claude_artifacts: true,
         };
         let transfers = Transfers::new(Config {
             attachments: device.path().join("attachments"),

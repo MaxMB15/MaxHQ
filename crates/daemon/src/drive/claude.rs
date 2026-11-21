@@ -10,6 +10,7 @@
 //! session's transcript into the same items, for a session MaxHQ didn't
 //! start.
 
+mod artifacts;
 mod attach;
 mod convo;
 mod effort;

@@ -222,7 +222,9 @@ const NOT_YET: ActionResult = {
 /**
  * Denies a push's request from its button. The choices come with the push
  * when the extension opened it, or else from the view once it's in, so the
- * answer waits for the view as it waits for the link.
+ * answer waits for the view as it waits for the link. A request the view
+ * holds with no choices is one only its card may answer, so the phone says
+ * to open MaxHQ straight away.
  */
 export const denyFromButton = (
 	target: PushTarget,
@@ -236,7 +238,7 @@ export const denyFromButton = (
 	return answerFromButton(
 		async () => {
 			const options = target.options.length > 0 ? target.options : optionsInView();
-			if (!options || options.length === 0) return NOT_YET;
+			if (!options) return NOT_YET;
 			const picked = denyAnswer(options);
 			return picked
 				? answer(attention, picked)

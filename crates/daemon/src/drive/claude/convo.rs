@@ -25,6 +25,7 @@ use maxhq_protocol::timeline::{
 };
 use serde_json::Value;
 
+use super::artifacts::Asked;
 use super::attach;
 use super::items::Book;
 use super::tools::{self, Finish};
@@ -621,7 +622,7 @@ impl Convo {
             .unwrap_or_else(|| Value::Object(serde_json::Map::new()));
         let item_id = item_id(id);
         if !self.book.contains(&item_id) {
-            let body = tools::start(&name, id, &input);
+            let body = tools::start(&name, id, &input, &self.cwd);
             let mut item = self.item(item_id.clone(), owner, at, body);
             item.status = ItemStatus::Running;
             item.completed_at = None;
@@ -1000,6 +1001,7 @@ impl Convo {
             tools::tool_options(source == "permanent")
         };
         let cwd = text(line, "cwd").map_or_else(|| self.cwd.clone(), PathBuf::from);
+        let card = tools::approval_card(name, input, &cwd, &Asked::default());
         let body = ItemBody::Approval {
             attention: AttentionId::derive(&id.0),
             approval_kind: if plan {
@@ -1007,8 +1009,8 @@ impl Convo {
             } else {
                 tools::approval_kind(name)
             },
-            title: tools::approval_title(name, input, &cwd),
-            detail: tools::approval_detail(name, input, &cwd),
+            title: card.title,
+            detail: card.detail,
             cwd: tools::approval_cwd(input, &cwd),
             options,
             decided: answer.map(|answer| Decided {
@@ -1016,6 +1018,8 @@ impl Convo {
                 by: None,
                 at,
             }),
+            deny_first: false,
+            reason: card.reason,
         };
         let owner = Owner {
             agent: tool.agent,

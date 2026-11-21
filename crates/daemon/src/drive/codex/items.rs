@@ -121,6 +121,7 @@ pub fn native(item: &Value, done: bool) -> Option<Native> {
             input: field(item, &["arguments"]).map(compact),
             output: mcp_output(item),
             images: Vec::new(),
+            artifact: None,
         },
         "dynamictoolcall" => ItemBody::ToolCall {
             server: text(item, &["namespace"]),
@@ -129,6 +130,7 @@ pub fn native(item: &Value, done: bool) -> Option<Native> {
             input: field(item, &["arguments"]).map(compact),
             output: content_text(field(item, &["contentItems", "content_items"])),
             images: Vec::new(),
+            artifact: None,
         },
         "collabagenttoolcall" => {
             let (body, child) = collab(item);
@@ -167,6 +169,7 @@ pub fn native(item: &Value, done: bool) -> Option<Native> {
                 .map(|ms| format!("{ms} ms")),
             output: None,
             images: Vec::new(),
+            artifact: None,
         },
         "imagegeneration" => ItemBody::ToolCall {
             server: None,
@@ -175,6 +178,7 @@ pub fn native(item: &Value, done: bool) -> Option<Native> {
             input: text(item, &["revisedPrompt", "revised_prompt"]),
             output: text(item, &["savedPath", "saved_path", "failure"]),
             images: shown(&text(item, &["savedPath", "saved_path"]).unwrap_or_default()),
+            artifact: None,
         },
         "enteredreviewmode" => notice("Review started", item),
         "exitedreviewmode" => notice("Review finished", item),
@@ -196,6 +200,7 @@ pub fn native(item: &Value, done: bool) -> Option<Native> {
                 other => content_text(other),
             },
             images: Vec::new(),
+            artifact: None,
         },
         _ => ItemBody::Unknown {
             native_kind: kind_name.to_owned(),
@@ -1018,6 +1023,7 @@ fn collab(item: &Value) -> (ItemBody, Option<String>) {
         input: prompt,
         output: output.filter(|output| !output.is_empty()),
         images: Vec::new(),
+        artifact: None,
     };
     (body, None)
 }
@@ -1172,6 +1178,7 @@ mod tests {
                     input: Some("{\"n\":1}".into()),
                     output: Some("open".into()),
                     images: Vec::new(),
+                    artifact: None,
                 },
             ),
             (
@@ -1185,6 +1192,7 @@ mod tests {
                     input: Some("{}".into()),
                     output: Some("done".into()),
                     images: Vec::new(),
+                    artifact: None,
                 },
             ),
             (
@@ -1241,6 +1249,7 @@ mod tests {
                     input: Some("1500 ms".into()),
                     output: None,
                     images: Vec::new(),
+                    artifact: None,
                 },
             ),
             (
@@ -1321,6 +1330,7 @@ mod tests {
                 input: None,
                 output: Some("child-thread: completed: found it".into()),
                 images: Vec::new(),
+                artifact: None,
             }
         );
     }

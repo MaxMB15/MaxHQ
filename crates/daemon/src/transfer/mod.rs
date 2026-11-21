@@ -159,6 +159,7 @@ impl Places for HubPlaces {
                 host: PlaceHost::Local,
                 dispatcher: false,
                 trust: None,
+                claude_artifacts: true,
             },
             WorkspaceLocation::Container { path, .. } => Place {
                 device,
@@ -168,6 +169,7 @@ impl Places for HubPlaces {
                 host: PlaceHost::Guest { workspace },
                 dispatcher: false,
                 trust: None,
+                claude_artifacts: true,
             },
         })
     }

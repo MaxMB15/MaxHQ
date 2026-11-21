@@ -3000,6 +3000,13 @@ pub const DISPATCHER_CHATS_SINCE: u32 = 53;
 /// out.
 pub const LOCAL_MODELS_SINCE: u32 = 54;
 
+/// The protocol version whose `maxd` first knows Claude Code's artifact
+/// tools: the `artifact` part of a tool call, an approval's `deny_first`
+/// and `reason`, and [`crate::model::DeviceSettingChange::ClaudeArtifacts`].
+/// An older one shows them as plain tool calls and always lets agents use
+/// them, so the app hides the switch.
+pub const ARTIFACTS_SINCE: u32 = 55;
+
 /// When [`ClientMessage::TakeOver`] stops the terminal's CLI.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, Type, JsonSchema)]
 #[serde(rename_all = "snake_case")]
@@ -4532,6 +4539,7 @@ mod tests {
                         dispatcher_acts: true,
                         chat_gap_minutes: 30,
                         local_models: Default::default(),
+                        claude_artifacts: true,
                     },
                 },
             ),
@@ -5773,6 +5781,7 @@ mod tests {
             dispatcher_acts: true,
             chat_gap_minutes: 30,
             local_models: Default::default(),
+            claude_artifacts: true,
         };
         assert_eq!(old.changes_from(Some(&old)), []);
         let new = DeviceSettings {

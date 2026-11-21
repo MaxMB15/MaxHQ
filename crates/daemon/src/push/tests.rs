@@ -407,6 +407,22 @@ async fn push_waits_its_hold_then_goes_sealed_with_only_the_placeholder_in_the_c
 }
 
 #[tokio::test]
+async fn a_prompt_only_its_card_may_answer_pushes_without_the_deny_button() {
+    let mut h = Harness::new().await;
+    h.tokens(&[PushKind::NeedsInput]);
+    let mut watch = h.watch();
+    watch.observe(vec![agent(Activity::Busy)]);
+    watch.observe(prompt(AttentionKind::Permission, SUMMARY, Vec::new()));
+    h.clock.advance(HOLD);
+    assert_eq!(h.send_all(&mut watch).await, [Sent::Done, Sent::Done]);
+    let got = h.fake.take();
+    let aps = &got[0].body["aps"];
+    assert!(aps.get("category").is_none(), "{aps}");
+    assert_eq!(aps["interruption-level"], "time-sensitive");
+    assert_eq!(got[0].body["e"], attention_id().to_string());
+}
+
+#[tokio::test]
 async fn push_is_dropped_when_the_prompt_clears_inside_the_hold() {
     let mut h = Harness::new().await;
     h.tokens(ALL);

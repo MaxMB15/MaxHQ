@@ -1059,6 +1059,13 @@ pub struct DeviceSettings {
     /// [`crate::message::DISPATCHER_CHATS_SINCE`] leaves it out.
     #[serde(default = "default_chat_gap_minutes")]
     pub chat_gap_minutes: u16,
+    /// Whether Claude Code agents on this device may use the claude.ai
+    /// artifact tools, which publish, read and change pages on your
+    /// claude.ai account. It applies to agents whose CLI starts after it
+    /// changes. A `maxd` from before [`crate::message::ARTIFACTS_SINCE`]
+    /// leaves it out and always lets them.
+    #[serde(default = "yes")]
+    pub claude_artifacts: bool,
     /// The device's choices for local models: idle unload, KV cache type,
     /// context size, fewer tools and the default model. A `maxd` from
     /// before [`crate::message::LOCAL_MODELS_SINCE`] leaves it out, and
@@ -1100,6 +1107,7 @@ impl DeviceSettings {
             read_other_agents,
             dispatcher_acts,
             chat_gap_minutes,
+            claude_artifacts,
             local_models,
         } = self;
         let differs = |same: &dyn Fn(&Self) -> bool| old.is_none_or(|old| !same(old));
@@ -1213,6 +1221,11 @@ impl DeviceSettings {
                 value: *dispatcher_acts,
             });
         }
+        if differs(&|old| old.claude_artifacts == *claude_artifacts) {
+            changes.push(Change::ClaudeArtifacts {
+                value: *claude_artifacts,
+            });
+        }
         if differs(&|old| old.chat_gap_minutes == *chat_gap_minutes) {
             changes.push(Change::ChatGapMinutes {
                 value: *chat_gap_minutes,
@@ -1256,6 +1269,7 @@ impl DeviceSettings {
             DeviceSettingChange::ShellIntegration { value } => self.shell_integration = value,
             DeviceSettingChange::ReadOtherAgents { value } => self.read_other_agents = value,
             DeviceSettingChange::DispatcherActs { value } => self.dispatcher_acts = value,
+            DeviceSettingChange::ClaudeArtifacts { value } => self.claude_artifacts = value,
             DeviceSettingChange::ChatGapMinutes { value } => self.chat_gap_minutes = value,
             DeviceSettingChange::LocalModels { value } => self.local_models = value,
         }
@@ -1329,6 +1343,7 @@ impl DeviceSettingChange {
             Self::ShellIntegration { .. } => crate::message::SHELL_MARKS_SINCE,
             Self::ReadOtherAgents { .. } => crate::message::READ_RIGHTS_SINCE,
             Self::DispatcherActs { .. } => crate::message::DISPATCHER_ADMIN_SINCE,
+            Self::ClaudeArtifacts { .. } => crate::message::ARTIFACTS_SINCE,
             Self::ChatGapMinutes { .. } => crate::message::DISPATCHER_CHATS_SINCE,
             Self::LocalModels { .. } => crate::message::LOCAL_MODELS_SINCE,
             _ => 26,
@@ -1466,6 +1481,11 @@ pub enum DeviceSettingChange {
     },
     /// See [`DeviceSettings::dispatcher_acts`].
     DispatcherActs {
+        /// What it becomes.
+        value: bool,
+    },
+    /// See [`DeviceSettings::claude_artifacts`].
+    ClaudeArtifacts {
         /// What it becomes.
         value: bool,
     },

@@ -28,7 +28,7 @@ use maxhq_protocol::find::AgentExcerpt;
 use maxhq_protocol::ids::AgentId;
 use maxhq_protocol::model::Vendor;
 use maxhq_protocol::timeline::{
-    AttachmentRef, Delivery, FileOp, ItemBody, TimelineItem, TodoState, WebAction,
+    AttachmentRef, Delivery, FileOp, ItemBody, ItemStatus, TimelineItem, TodoState, WebAction,
 };
 
 use crate::attached::clean_name;
@@ -271,7 +271,7 @@ fn gather(items: impl IntoIterator<Item = impl Borrow<TimelineItem>>, whole: boo
                 Some((Role::Reply, [text.trim(), &sent].join("\n\n")))
             }
             body => {
-                let lines = steps_of(body);
+                let lines = steps_of(body, item.status);
                 if steps.is_empty() && !lines.is_empty() {
                     steps_at = item.ordinal;
                 }
@@ -403,8 +403,11 @@ fn state_name(state: GitItemState) -> &'static str {
     }
 }
 
+/// Where every claude.ai page's link starts.
+const CLAUDE_AI: &str = "https://claude.ai/";
+
 /// The step lines an item reads as, none for one that isn't shown.
-fn steps_of(body: &ItemBody) -> Vec<String> {
+fn steps_of(body: &ItemBody, status: ItemStatus) -> Vec<String> {
     let line = |text: String| vec![one_line(&text, MAX_STEP)];
     match body {
         ItemBody::Command {
@@ -460,6 +463,26 @@ fn steps_of(body: &ItemBody) -> Vec<String> {
             WebAction::Search => format!("Searched the web for {target}"),
             WebAction::Fetch => format!("Fetched {target}"),
         }),
+        // A claude.ai page call that went well says what it did to which
+        // page, and the page's link.
+        ItemBody::ToolCall {
+            server: None,
+            title: Some(title),
+            artifact: Some(call),
+            ..
+        } if status == ItemStatus::Completed => {
+            let mut text = match &call.title {
+                Some(page) => {
+                    let page = format!("\"{page}\"");
+                    title.replacen(&page, &format!("the claude.ai page {page}"), 1)
+                }
+                None => title.clone(),
+            };
+            if let Some(url) = call.url.as_deref().filter(|url| url.starts_with(CLAUDE_AI)) {
+                text.push_str(&format!(" ({url})"));
+            }
+            line(text)
+        }
         ItemBody::ToolCall {
             server,
             name,
@@ -1345,8 +1368,8 @@ mod tests {
     use maxhq_protocol::ids::{AttachmentId, AttentionId};
     use maxhq_protocol::time::Timestamp;
     use maxhq_protocol::timeline::{
-        ApprovalKind, AttachmentKind, Decided, FileEdit, ItemId, ItemStatus, Question,
-        QuestionAnswer,
+        ApprovalKind, ArtifactCall, AttachmentKind, Decided, FileEdit, ItemId, ItemStatus,
+        Question, QuestionAnswer,
     };
 
     use super::*;
@@ -1554,6 +1577,7 @@ mod tests {
                     input: Some("select token".into()),
                     output: Some("token=abc123".into()),
                     images: Vec::new(),
+                    artifact: None,
                 },
             ),
             item(
@@ -1585,6 +1609,8 @@ mod tests {
                         by: None,
                         at: Timestamp(1),
                     }),
+                    deny_first: false,
+                    reason: None,
                 },
             ),
         ];
@@ -1605,6 +1631,72 @@ mod tests {
         assert!(
             text.contains("## Steps (item item-0)\n\n- Ran `env` (exit 0)"),
             "{text}"
+        );
+    }
+
+    #[test]
+    fn a_claude_ai_page_call_names_its_page_and_its_link() {
+        let link = "https://claude.ai/artifact/EXAMPLE";
+        let step = |status, title: &str, call: ArtifactCall| {
+            let item = TimelineItem {
+                status,
+                ..item(
+                    0,
+                    ItemBody::ToolCall {
+                        server: None,
+                        name: "Artifact".into(),
+                        title: Some(title.into()),
+                        input: Some(r#"{"file_path":"report.html"}"#.into()),
+                        output: Some("Published.".into()),
+                        images: Vec::new(),
+                        artifact: Some(Box::new(call)),
+                    },
+                )
+            };
+            lone(&item).unwrap().text
+        };
+        let published = ArtifactCall {
+            action: "publish".into(),
+            title: Some("Weekly report".into()),
+            url: Some(link.into()),
+            detail: Some("report.html".into()),
+            version: Some("2".into()),
+            owned: Some(true),
+        };
+        assert_eq!(
+            step(
+                ItemStatus::Completed,
+                "Published \"Weekly report\"",
+                published.clone()
+            ),
+            format!("- Published the claude.ai page \"Weekly report\" ({link})")
+        );
+        let untitled = ArtifactCall {
+            action: "read".into(),
+            title: None,
+            ..published.clone()
+        };
+        assert_eq!(
+            step(ItemStatus::Completed, "Read a claude.ai page", untitled),
+            format!("- Read a claude.ai page ({link})")
+        );
+        // Only a claude.ai link is named.
+        let elsewhere = ArtifactCall {
+            url: Some("https://example.com/artifact/EXAMPLE".into()),
+            ..published.clone()
+        };
+        assert_eq!(
+            step(
+                ItemStatus::Completed,
+                "Published \"Weekly report\"",
+                elsewhere
+            ),
+            "- Published the claude.ai page \"Weekly report\""
+        );
+        // A call that failed reads as any other tool's.
+        assert_eq!(
+            step(ItemStatus::Failed, "Publish \"Weekly report\"", published),
+            "- Called Artifact: Publish \"Weekly report\""
         );
     }
 

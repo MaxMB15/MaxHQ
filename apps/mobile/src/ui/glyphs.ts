@@ -4,8 +4,10 @@
 // The line icons the feed shares with the desktop. Each comes from its own
 // file, so the app carries only these and not the whole set.
 
+export { default as AppWindow } from "lucide-react-native/icons/app-window";
 export { default as ArrowRightLeft } from "lucide-react-native/icons/arrow-right-left";
 export { default as ArrowUpDown } from "lucide-react-native/icons/arrow-up-down";
+export { default as BadgeCheck } from "lucide-react-native/icons/badge-check";
 export { default as Bot } from "lucide-react-native/icons/bot";
 export { default as Check } from "lucide-react-native/icons/check";
 export { default as ChevronDown } from "lucide-react-native/icons/chevron-down";
@@ -20,6 +22,7 @@ export { default as CircleStop } from "lucide-react-native/icons/circle-stop";
 export { default as CircleX } from "lucide-react-native/icons/circle-x";
 export { default as Clock } from "lucide-react-native/icons/clock";
 export { default as Copy } from "lucide-react-native/icons/copy";
+export { default as Database } from "lucide-react-native/icons/database";
 export { default as Diamond } from "lucide-react-native/icons/diamond";
 export { default as ExternalLink } from "lucide-react-native/icons/external-link";
 export { default as Eye } from "lucide-react-native/icons/eye";

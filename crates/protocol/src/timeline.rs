@@ -179,6 +179,13 @@ pub enum ItemBody {
         /// them. A `maxd` from before leaves this out.
         #[serde(default)]
         images: Vec<AttachmentRef>,
+        /// What the call did with a claude.ai page, for Claude Code's
+        /// artifact tools. A `maxd` from before
+        /// [`crate::message::ARTIFACTS_SINCE`] leaves it out, which reads
+        /// as a plain tool call.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[specta(optional)]
+        artifact: Option<Box<ArtifactCall>>,
     },
     /// A sub-agent the agent started.
     Subagent {
@@ -222,6 +229,19 @@ pub enum ItemBody {
         options: Vec<AttentionOption>,
         /// How it ended, once it has.
         decided: Option<Decided>,
+        /// Whether turning it down is the default, so a stray Enter can't
+        /// allow it, as for a call only a person may approve. A `maxd` from
+        /// before [`crate::message::ARTIFACTS_SINCE`] leaves it out, which
+        /// reads as no.
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        #[specta(optional)]
+        deny_first: bool,
+        /// Why the agent's CLI asks instead of going ahead, such as a
+        /// safety check the call tripped, when it says. A `maxd` from
+        /// before [`crate::message::ARTIFACTS_SINCE`] leaves it out.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[specta(optional)]
+        reason: Option<String>,
     },
     /// The agent asked you one or more questions.
     Question {
@@ -472,6 +492,35 @@ pub enum WebAction {
     Search,
     /// Fetched one page.
     Fetch,
+}
+
+/// What one of Claude Code's artifact tools did with a claude.ai page.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, Type, JsonSchema)]
+pub struct ArtifactCall {
+    /// What it did, as the tool's `action` names it, such as `publish`,
+    /// `read`, `list`, `delete`, `reply` or `set`.
+    pub action: String,
+    /// The page's title, once the input or the result names one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[specta(optional)]
+    pub title: Option<String>,
+    /// The page's link. Set only for an https link on claude.ai.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[specta(optional)]
+    pub url: Option<String>,
+    /// One more thing the call named, such as the file it read, the
+    /// collection it changed or the kind of page it started.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[specta(optional)]
+    pub detail: Option<String>,
+    /// The page's version after the call, when the result says.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[specta(optional)]
+    pub version: Option<String>,
+    /// Whether the page is yours, when the result says.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[specta(optional)]
+    pub owned: Option<bool>,
 }
 
 /// One entry in an agent's to-do list.
@@ -915,6 +964,7 @@ mod tests {
                 input: Some("{}".into()),
                 output: None,
                 images: Vec::new(),
+                artifact: None,
             },
             ItemBody::Subagent {
                 subagent: Some("0199a7c2-0000-7000-8000-000000000004".parse().unwrap()),
@@ -948,6 +998,8 @@ mod tests {
                     by: None,
                     at: Timestamp(1_761_350_400_000),
                 }),
+                deny_first: false,
+                reason: None,
             },
             ItemBody::Question {
                 attention,
@@ -1151,6 +1203,8 @@ mod tests {
             cwd: None,
             options: Vec::new(),
             decided: None,
+            deny_first: false,
+            reason: None,
         }))
         .unwrap();
         assert_eq!(value["kind"], "approval");
@@ -1167,6 +1221,8 @@ mod tests {
             cwd: Some("/work/maxhq".into()),
             options: Vec::new(),
             decided: None,
+            deny_first: false,
+            reason: None,
         }))
         .unwrap();
         value.as_object_mut().unwrap().remove("cwd");
@@ -1176,6 +1232,101 @@ mod tests {
         // A field from a newer peer is left alone too.
         value["seen_by"] = json!("someone");
         assert!(serde_json::from_value::<TimelineItem>(value).is_ok());
+    }
+
+    #[test]
+    fn an_approval_from_an_older_peer_asks_as_before() {
+        let mut value = serde_json::to_value(item(ItemBody::Approval {
+            attention: "0199a7c2-0000-7000-8000-000000000002".parse().unwrap(),
+            approval_kind: ApprovalKind::Network,
+            title: "Permanently delete \"Old draft\"?".into(),
+            detail: None,
+            cwd: None,
+            options: Vec::new(),
+            decided: None,
+            deny_first: true,
+            reason: Some("Deleting can't be undone.".into()),
+        }))
+        .unwrap();
+        assert_eq!(value["deny_first"], true);
+        assert_eq!(value["reason"], "Deleting can't be undone.");
+        let fields = value.as_object_mut().unwrap();
+        fields.remove("deny_first");
+        fields.remove("reason");
+        let parsed: TimelineItem = serde_json::from_value(value).unwrap();
+        assert!(matches!(
+            parsed.body,
+            ItemBody::Approval {
+                deny_first: false,
+                reason: None,
+                ..
+            }
+        ));
+    }
+
+    #[test]
+    fn a_claude_ai_page_call_round_trips_and_reads_as_none_from_an_older_peer() {
+        let call = ArtifactCall {
+            action: "publish".into(),
+            title: Some("Weekly report".into()),
+            url: Some("https://claude.ai/artifact/EXAMPLE".into()),
+            detail: Some("scratch/report.html".into()),
+            version: Some("2".into()),
+            owned: Some(true),
+        };
+        let published = item(ItemBody::ToolCall {
+            server: None,
+            name: "Artifact".into(),
+            title: Some("Published \"Weekly report\"".into()),
+            input: Some(r#"{"file_path":"scratch/report.html"}"#.into()),
+            output: None,
+            images: Vec::new(),
+            artifact: Some(Box::new(call)),
+        });
+        let mut value = serde_json::to_value(&published).unwrap();
+        assert_eq!(
+            value["artifact"],
+            json!({
+                "action": "publish",
+                "title": "Weekly report",
+                "url": "https://claude.ai/artifact/EXAMPLE",
+                "detail": "scratch/report.html",
+                "version": "2",
+                "owned": true,
+            })
+        );
+        let parsed: TimelineItem = serde_json::from_value(value.clone()).unwrap();
+        assert_eq!(parsed, published);
+
+        // A call that names only its action leaves the rest out.
+        value["artifact"] = json!({"action": "list"});
+        let parsed: TimelineItem = serde_json::from_value(value.clone()).unwrap();
+        let ItemBody::ToolCall {
+            artifact: Some(listed),
+            ..
+        } = parsed.body
+        else {
+            panic!("{parsed:?}");
+        };
+        assert_eq!(listed.action, "list");
+        assert_eq!(
+            (
+                listed.title,
+                listed.url,
+                listed.detail,
+                listed.version,
+                listed.owned
+            ),
+            (None, None, None, None, None)
+        );
+
+        // An older peer's tool call has no page part.
+        value.as_object_mut().unwrap().remove("artifact");
+        let parsed: TimelineItem = serde_json::from_value(value).unwrap();
+        assert!(matches!(
+            parsed.body,
+            ItemBody::ToolCall { artifact: None, .. }
+        ));
     }
 
     #[test]

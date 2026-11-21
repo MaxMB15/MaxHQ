@@ -110,7 +110,9 @@ describe("agent panes", () => {
 		expect(list("Needs you")).toEqual([
 			"Subtitle sync driftQuestion",
 			"Tag the releaseAllow?",
+			"Tidy old claude.ai pagesAllow?",
 			"Release checklistAllow?",
+			"Weekly report pageAllow?",
 		]);
 		expect(screen.queryByRole("region", { name: "Recently closed" })).not.toBeInTheDocument();
 		expect(list("Keys")).toEqual([
@@ -225,18 +227,20 @@ describe("pane shortcuts", () => {
 
 		press("KeyJ", "j");
 		expect(ui.getState().mode).toBe("projects");
-		const first = heading().textContent;
-		press("KeyJ", "j");
-		const second = heading().textContent;
-		press("KeyJ", "j");
-		const third = heading().textContent;
-		expect([first, second, third].sort()).toEqual([
+		const seen = [heading().textContent];
+		while (seen.length < 5) {
+			press("KeyJ", "j");
+			seen.push(heading().textContent);
+		}
+		expect([...seen].sort()).toEqual([
 			"Release checklist",
 			"Subtitle sync drift",
 			"Tag the release",
+			"Tidy old claude.ai pages",
+			"Weekly report page",
 		]);
 		press("KeyJ", "j");
-		expect(heading().textContent).toBe(first);
+		expect(heading().textContent).toBe(seen[0]);
 	});
 
 	it("asks the agent ⌘J opens to go to the request it waits on", async () => {
