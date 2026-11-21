@@ -18,13 +18,15 @@ mod updater;
 use std::path::PathBuf;
 use std::process::Stdio;
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use maxhq_app::app_keys;
 use maxhq_app::app_update::UpdatePrefs;
 use maxhq_app::devices::{self, Devices};
 use maxhq_app::editors;
+use maxhq_app::hang_watch::{self, HangWatch, Step};
 use maxhq_app::media::{self, Served};
+use maxhq_app::navigation;
 use maxhq_app::notify::NotificationPrefs;
 use maxhq_app::registry::Registry;
 use maxhq_app::screen::ScreenOn;
@@ -53,6 +55,15 @@ pub struct ViewChanged(pub Vec<Delta>);
 pub struct FocusAgent {
     /// The agent the notification was about.
     pub agent: AgentId,
+}
+
+/// Sent when the window, or a frame in it, tried to go to a web or mail
+/// address and stayed on the app. The webview opens it in the browser: at
+/// once after a click on that link, and otherwise once you say so.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, Type, Event)]
+pub struct OpenAsked {
+    /// The whole address.
+    pub url: String,
 }
 
 /// Lists every command and every protocol type the webview sees. The app
@@ -104,6 +115,7 @@ pub fn specta_builder() -> Builder<tauri::Wry> {
         .events(collect_events![
             ViewChanged,
             FocusAgent,
+            OpenAsked,
             updater::AppUpdateChanged
         ])
         .typ::<maxhq_protocol::ClientMessage>()
@@ -191,7 +203,10 @@ pub fn run() {
             native::on_window_event(window, event);
             forget_closed(window, event);
         })
-        .on_page_load(release_reloaded)
+        .on_page_load(|webview, payload| {
+            release_reloaded(webview, payload);
+            watch_shown(webview, payload);
+        })
         .register_asynchronous_uri_scheme_protocol(media::SCHEME, serve_media)
         .register_uri_scheme_protocol(viewer::SCHEME, serve_viewer)
         .setup(move |app| {
@@ -245,7 +260,11 @@ pub fn run() {
             app.manage(App::new(view, devices, desktop));
             keep_local_maxd_current(app.handle());
             updater::start(app.handle());
-            open_main_window(app)?;
+            let data = app.path().app_data_dir().ok();
+            let stopped = data.as_deref().is_some_and(hang_watch::noted);
+            app.manage(HangWatch::new(stopped));
+            open_main_window(app, stopped)?;
+            watch_window(app.handle(), data);
             Ok(())
         })
         .run(tauri::generate_context!())
@@ -266,15 +285,41 @@ fn keep_local_maxd_current(handle: &AppHandle) {
 /// Makes the main window from its config, once the app's state is there
 /// for its first requests. A link or `window.open` that asks for a new
 /// window opens in the browser instead, since the webview alone does
-/// nothing with it.
-fn open_main_window(app: &tauri::App) -> tauri::Result<()> {
+/// nothing with it. The window and its frames stay on the app's own pages,
+/// and the webview hears about a web or mail address they tried to go to.
+/// The page learns first whether the window had `stopped` answering when
+/// the app last went away.
+fn open_main_window(app: &tauri::App, stopped: bool) -> tauri::Result<()> {
     let Some(config) = app.config().app.windows.iter().find(|w| w.label == "main") else {
         return Ok(());
     };
     let desktop = Desktop {
         app: app.handle().clone(),
     };
+    let handle = app.handle().clone();
     tauri::WebviewWindowBuilder::from_config(app.handle(), config)?
+        .initialization_script(hang_watch::page_script(stopped))
+        .on_navigation(move |url| {
+            if navigation::stays_in_app(url.as_str(), cfg!(debug_assertions)) {
+                return true;
+            }
+            if editors::page_link_allowed(url.as_str()) {
+                let handle = handle.clone();
+                let url = url.to_string();
+                // Not from inside WebKit's question, which this answers.
+                tauri::async_runtime::spawn(async move {
+                    if let Err(error) = (OpenAsked { url }).emit(&handle) {
+                        tracing::warn!(%error, "couldn't ask the webview to open a link");
+                    }
+                });
+            } else {
+                tracing::warn!(
+                    scheme = url.scheme(),
+                    "kept the window from a page that isn't the app's"
+                );
+            }
+            false
+        })
         .on_new_window(move |url, _| {
             if editors::page_link_allowed(url.as_str()) {
                 let opening = desktop.open_url(url.to_string());
@@ -433,6 +478,55 @@ fn release_reloaded(webview: &Webview, payload: &PageLoadPayload<'_>) {
     {
         app.release_window(webview.label());
     }
+}
+
+/// Tells the watch that a page started showing in the main window, so its
+/// next question goes to that page.
+fn watch_shown(webview: &Webview, payload: &PageLoadPayload<'_>) {
+    if matches!(payload.event(), PageLoadEvent::Started)
+        && webview.label() == "main"
+        && let Some(watch) = webview.try_state::<HangWatch>()
+    {
+        watch.showing();
+    }
+}
+
+/// Asks the main window every second whether it answers, and keeps the
+/// note that says it stopped in the app's data folder, `data`.
+fn watch_window(app: &AppHandle, data: Option<PathBuf>) {
+    let app = app.clone();
+    tauri::async_runtime::spawn(async move {
+        loop {
+            tokio::time::sleep(hang_watch::ASK_EVERY).await;
+            let Some(window) = app.get_webview_window("main") else {
+                continue;
+            };
+            let watch = app.state::<HangWatch>();
+            match watch.step(Instant::now()) {
+                Step::Wait => {}
+                Step::Ask(id) => {
+                    let handle = app.clone();
+                    let asked = window.eval_with_callback("0", move |_| {
+                        handle.state::<HangWatch>().answered(id);
+                    });
+                    if asked.is_err() {
+                        // The window is going away, so nothing will answer.
+                        watch.answered(id);
+                    }
+                }
+                Step::Note(stopped) => {
+                    if stopped {
+                        tracing::warn!("the window stopped answering");
+                    }
+                    if let Some(dir) = &data
+                        && let Err(error) = hang_watch::note(dir, stopped)
+                    {
+                        tracing::warn!(%error, "couldn't note whether the window answers");
+                    }
+                }
+            }
+        }
+    });
 }
 
 /// Brings the window forward and opens an agent's pane, for a click on a

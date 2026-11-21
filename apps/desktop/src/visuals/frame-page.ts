@@ -6,8 +6,8 @@
 // frame's document. Writing a document takes away the listeners the window
 // had, so this script listens again before it writes, and its listeners see
 // the page from its first line: how tall it is, its errors, what the content
-// policy blocked, the files it asked for that aren't there, when it settled,
-// and the links the user clicked.
+// policy blocked, the files it asked for that aren't there, and the links
+// the user clicked.
 
 import {
 	type FrameReport,
@@ -89,11 +89,6 @@ const listen = () => {
 		event.preventDefault();
 		if (LINKS.has(url.protocol)) tell({ type: "maxhq-visual:link", url: url.href });
 	});
-	window.addEventListener(
-		"load",
-		() => setTimeout(() => tell({ type: "maxhq-visual:settled" })),
-		{ once: true }
-	);
 };
 
 // The page's height, which is its content's unless it scrolls, as one whose

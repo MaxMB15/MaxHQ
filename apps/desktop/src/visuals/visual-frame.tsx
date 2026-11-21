@@ -12,8 +12,9 @@
 // scrolls inside it, at a zoom that lays the page out again.
 //
 // A frame's scripts run on the window's thread, so a page that never ends
-// stops the window. One that was running when the window went away waits
-// for Run anyway the next time.
+// stops the window. One that was on screen when the window stopped waits
+// for Run anyway the next time. A link the page opens waits for Open in
+// the window's question, which shows its whole address.
 
 import { t, useI18n, formatList, formatNumber } from "@maxhq/shared/i18n";
 
@@ -21,9 +22,11 @@ import { type CSSProperties, useEffect, useMemo, useReducer, useRef, useState } 
 
 import { CodeBlock } from "@/agent-view/code-block";
 import { useSeen } from "@/agent-view/picture-viewer";
+import { useServicesIfAny } from "@/app/services";
 import { useTheme } from "@/app/theme";
 import { hangGuard } from "@/lib/hang-guard";
 import { cn } from "@/lib/utils";
+import { askToOpen } from "@/native/page-links";
 import { framePageUrl } from "@/viewer/load";
 import { FRAME_SANDBOX } from "@/viewer/messages";
 import { formatBytes } from "@maxhq/shared/agent-view/format";
@@ -37,6 +40,7 @@ import {
 	THEME_VARIABLES,
 	visualFrameQuery,
 } from "@maxhq/shared/visuals/frame";
+import { visualLinkQuestion } from "@maxhq/shared/visuals/links";
 import {
 	addReport,
 	loadableHosts,
@@ -67,18 +71,6 @@ const themeVariables = (): Record<string, string> => {
 	values["--font-sans"] ||= getComputedStyle(document.body).fontFamily;
 	values["--font-mono"] ||= MONO_FALLBACK;
 	return values;
-};
-
-// A page can say it was clicked when it wasn't, so the app opens a link only
-// while its frame has the focus a click gives it, and one at a time.
-const LINK_GAP_MS = 1000;
-let lastLink = 0;
-
-const openLink = (url: string) => {
-	const now = Date.now();
-	if (now - lastLink < LINK_GAP_MS) return;
-	lastLink = now;
-	window.open(url, "_blank", "noreferrer");
 };
 
 const BAR = "flex items-start gap-2 border-b px-3 py-1.5 text-[11.5px] leading-[1.45]";
@@ -204,6 +196,7 @@ const FrameRun = ({
 	theme,
 	hosts,
 	fill,
+	from,
 	onTell,
 	onLoad,
 }: {
@@ -213,11 +206,18 @@ const FrameRun = ({
 	theme: Theme;
 	hosts: readonly string[];
 	fill: { readonly zoom: number } | undefined;
+	from: string | null;
 	onTell: ((errors: readonly VisualError[], count: number) => void) | undefined;
 	onLoad: (hosts: readonly string[]) => void;
 }) => {
 	const { t } = useI18n();
+	const services = useServicesIfAny();
 	const frame = useRef<HTMLIFrameElement>(null);
+	// Read when a link asks, so a new name doesn't run the page again.
+	const asking = useRef({ services, from });
+	useEffect(() => {
+		asking.current = { services, from };
+	});
 	const [track, setTrack] = useState<HeightTrack>(() => ({
 		...HEIGHT_START,
 		height: knownHeight(mark) ?? FIRST_HEIGHT_PX,
@@ -230,15 +230,10 @@ const FrameRun = ({
 	}, [mark, track.height]);
 
 	// The listener is in place before the frame loads, so it hears the frame's
-	// first word.
+	// first word. The page's mark stays stored for as long as the frame
+	// shows it, since a page can start looping at any time.
 	useEffect(() => {
 		let shown = false;
-		let running = false;
-		const end = () => {
-			if (!running) return;
-			running = false;
-			guard.finish(mark);
-		};
 		const onMessage = (event: MessageEvent) => {
 			const into = frame.current?.contentWindow;
 			if (!into || event.source !== into) return;
@@ -249,7 +244,6 @@ const FrameRun = ({
 				case "maxhq-visual:ready": {
 					if (shown) return;
 					shown = true;
-					running = true;
 					guard.start(mark);
 					const show: ShowVisual = {
 						type: "maxhq-visual:show",
@@ -265,12 +259,14 @@ const FrameRun = ({
 					reported.current = true;
 					setTrack((track) => nextHeight(track, said.height));
 					return;
-				case "maxhq-visual:settled":
-					end();
+				case "maxhq-visual:link": {
+					// A page can say it was clicked when it wasn't, so only a
+					// frame with the focus a click gives it asks.
+					const { services, from } = asking.current;
+					if (services && document.activeElement === frame.current)
+						void askToOpen(services, said.url, visualLinkQuestion(from));
 					return;
-				case "maxhq-visual:link":
-					if (document.activeElement === frame.current) openLink(said.url);
-					return;
+				}
 				case "maxhq-visual:error":
 					report({ type: "error", error: { message: said.message, line: said.line } });
 					return;
@@ -286,7 +282,7 @@ const FrameRun = ({
 		frame.current?.setAttribute("src", frameSrc(theme, hosts));
 		return () => {
 			window.removeEventListener("message", onMessage);
-			end();
+			if (shown) guard.finish(mark);
 		};
 	}, [html, mark, theme, hosts]);
 
@@ -327,6 +323,7 @@ export const VisualFrame = ({
 	title,
 	runs = 0,
 	fill,
+	from = null,
 	onTell,
 	className,
 }: {
@@ -334,6 +331,8 @@ export const VisualFrame = ({
 	title: string;
 	/** Counts Reload, each of which runs the page again in a new frame. */
 	runs?: number;
+	/** The agent that showed it, which a link's question names. */
+	from?: string | null;
 	/**
 	 * Fills the box, which lays its bars and frame out in a column, with
 	 * the page scrolling inside at this zoom, instead of growing with it.
@@ -410,6 +409,7 @@ export const VisualFrame = ({
 					theme={theme}
 					hosts={hosts}
 					fill={fill}
+					from={from}
 					onTell={onTell}
 					onLoad={(more) => setHosts((hosts) => withHosts(hosts, more))}
 				/>

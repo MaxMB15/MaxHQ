@@ -173,6 +173,8 @@ pub fn serve(
         headers.push(("Content-Security-Policy", CONTENT_POLICY.to_owned()));
     } else if path == VISUAL_PAGE {
         headers.push(("Content-Security-Policy", visual_policy(&hosts_in(query))));
+        // The policy doesn't cover looking up a link's host ahead of a click.
+        headers.push(("X-DNS-Prefetch-Control", "off".to_owned()));
     }
     Served {
         status: 200,
@@ -336,6 +338,7 @@ mod tests {
         assert_eq!(header(&served, "Content-Type"), Some("text/html"));
         let policy = header(&served, "Content-Security-Policy").unwrap();
         assert_eq!(policy, visual_policy(&[]));
+        assert_eq!(header(&served, "X-DNS-Prefetch-Control"), Some("off"));
         let directives: Vec<&str> = policy.split(';').map(str::trim).collect();
         for directive in [
             "default-src 'none'",

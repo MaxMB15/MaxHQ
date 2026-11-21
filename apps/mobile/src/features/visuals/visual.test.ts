@@ -16,7 +16,6 @@ import {
 	blockedBar,
 	closeVisual,
 	errorText,
-	linkGate,
 	missingText,
 	openVisual,
 	shownVisual,
@@ -153,22 +152,5 @@ describe("a visual's page on the phone", () => {
 			"x is not defined (line 4)"
 		);
 		expect(errorText({ message: "boom", line: null }, 3)).toBe("boom, and 2 more errors");
-	});
-});
-
-describe("a link in a visual", () => {
-	it("opens web and mail links, one a second at most", () => {
-		const opens = linkGate();
-		expect(opens("https://example.com", 10_000)).toBe(true);
-		expect(opens("https://example.com/b", 10_500)).toBe(false);
-		expect(opens("mailto:someone@example.com", 11_000)).toBe(true);
-	});
-
-	it("never opens other kinds of link", () => {
-		const opens = linkGate();
-		expect(opens("javascript:alert(1)", 0)).toBe(false);
-		expect(opens("file:///etc/hosts", 5_000)).toBe(false);
-		expect(opens("maxhq://pair", 10_000)).toBe(false);
-		expect(opens("about:blank", 15_000)).toBe(false);
 	});
 });

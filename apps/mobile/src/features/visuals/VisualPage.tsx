@@ -5,17 +5,17 @@
 // page is one document with the libraries the app carries in it and a
 // content policy that keeps it off the network, unless the user lets a
 // host through with Load this time, which lasts until the page goes. It
-// never leaves its first address, and a link the user taps opens in the
-// browser after the same checks as the desktop's. One on an agent's
-// device comes through the media cache, as a picture does. Bars say what
-// the page asked for that it can't have, and its first error, with Tell the
-// agent when the card has an agent to tell.
+// never leaves its first address, and a link it gives opens in the browser
+// after Open in a question that shows the whole address, as on the
+// desktop. One on an agent's device comes through the media cache, as a
+// picture does. Bars say what the page asked for that it can't have, and
+// its first error, with Tell the agent when the card has an agent to tell.
 
-import { useI18n } from "@maxhq/shared/i18n";
+import { t, useI18n } from "@maxhq/shared/i18n";
 
 import { File } from "expo-file-system";
 import { useEffect, useMemo, useReducer, useState } from "react";
-import { Linking, StyleSheet, Text, View } from "react-native";
+import { Alert, Linking, StyleSheet, Text, View } from "react-native";
 import { WebView, type WebViewMessageEvent } from "react-native-webview";
 
 import { formatBytes } from "@maxhq/shared/agent-view/format";
@@ -28,6 +28,7 @@ import {
 	readFrameReport,
 } from "@maxhq/shared/visuals/frame";
 import { inlineVisualDocument, readBridgeReport } from "@maxhq/shared/visuals/inline";
+import { linkGate, visualLinkQuestion } from "@maxhq/shared/visuals/links";
 import { addReport, NO_REPORTS, type VisualError, withHosts } from "@maxhq/shared/visuals/reports";
 import { MAX_VISUAL_BYTES } from "@maxhq/shared/visuals/visual";
 
@@ -37,10 +38,35 @@ import { Button } from "../../ui/Button";
 import { Spinner } from "../../ui/Dot";
 import { cardHeight, keepHeight, knownHeight } from "./card";
 import { bundledLibraries } from "./libraries";
-import { blockedBar, errorText, linkGate, missingText, VISUAL_VARIABLES } from "./visual";
+import { blockedBar, errorText, missingText, VISUAL_VARIABLES } from "./visual";
 
 // Only the document the view gives it, which has no address of its own.
 const stays = ({ url }: { url: string }) => url.startsWith("about:");
+
+// One question at a time across the app's visuals.
+const gate = linkGate();
+
+/** Asks before `url` from a visual by `from` opens in the browser, showing all of it. */
+const askToOpen = (url: string, from: string | null) => {
+	if (!gate.ask(url, Date.now())) return;
+	const done = () => gate.answered(Date.now());
+	const question = visualLinkQuestion(from);
+	Alert.alert(
+		question.title,
+		`${question.detail}\n\n${url}`,
+		[
+			{ text: t("Cancel"), style: "cancel", onPress: done },
+			{
+				text: t("Open"),
+				onPress: () => {
+					done();
+					Linking.openURL(url).catch(() => {});
+				},
+			},
+		],
+		{ cancelable: true, onDismiss: done }
+	);
+};
 
 const Bar = ({
 	text,
@@ -85,12 +111,14 @@ const Run = ({
 	html,
 	card,
 	hosts,
+	from,
 	onLoad,
 	onTell,
 }: {
 	html: string;
 	card: InCard | undefined;
 	hosts: readonly string[];
+	from: string | null;
 	onLoad: (hosts: readonly string[]) => void;
 	onTell: Tell | undefined;
 }) => {
@@ -108,7 +136,6 @@ const Run = ({
 	const [reports, report] = useReducer(addReport, NO_REPORTS);
 	// Null until the page says how tall it is.
 	const [track, setTrack] = useState<HeightTrack | null>(null);
-	const [gate] = useState(linkGate);
 
 	const mark = card?.mark ?? null;
 	useEffect(() => {
@@ -128,7 +155,7 @@ const Run = ({
 				report({ type: "blocked", url: said.url, what: said.what });
 				return;
 			case "maxhq-visual:link":
-				if (gate(said.url, Date.now())) Linking.openURL(said.url).catch(() => {});
+				askToOpen(said.url, from);
 		}
 	};
 
@@ -191,17 +218,20 @@ const Run = ({
 /**
  * A visual's page with its bars: in a card when `card` says where, else
  * filling its place. `runs` counts Reload, each of which runs it again.
- * The error bar offers Tell the agent only when given `onTell`.
+ * The error bar offers Tell the agent only when given `onTell`. A link's
+ * question names `from`, the agent that showed it.
  */
 export const VisualPage = ({
 	html,
 	card,
 	runs = 0,
+	from = null,
 	onTell,
 }: {
 	html: string;
 	card?: InCard;
 	runs?: number;
+	from?: string | null;
 	onTell?: Tell;
 }) => {
 	// The hosts Load this time let through, which a Reload keeps.
@@ -212,6 +242,7 @@ export const VisualPage = ({
 			html={html}
 			card={card}
 			hosts={hosts}
+			from={from}
 			onLoad={(more) => setHosts((was) => withHosts(was, more))}
 			onTell={onTell}
 		/>

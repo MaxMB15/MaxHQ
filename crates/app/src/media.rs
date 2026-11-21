@@ -117,13 +117,16 @@ fn answer(path: &Path, mime: &str, range: Option<&str>, head: bool) -> io::Resul
     })
 }
 
+/// The dev server's origin, which `tauri dev` loads the app's page from.
+pub(crate) const DEV_ORIGIN: &str = "http://localhost:1420";
+
 /// The origins the app's own page loads from: the bundle's on macOS and
 /// Linux, then on Windows, then the dev server's.
-const APP_ORIGINS: [&str; 4] = [
+pub(crate) const APP_ORIGINS: [&str; 4] = [
     "tauri://localhost",
     "http://tauri.localhost",
     "https://tauri.localhost",
-    "http://localhost:1420",
+    DEV_ORIGIN,
 ];
 
 /// Answers like [`serve`], and lets a request from the app's own page,

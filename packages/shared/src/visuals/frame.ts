@@ -7,8 +7,8 @@
 //
 // The app sends the page with the theme's colours. The frame writes the
 // document, then reports how tall it is, its script errors, what its content
-// policy blocked, the files it asked for that aren't there, when it settled,
-// and links the user clicked.
+// policy blocked, the files it asked for that aren't there, and links the
+// user clicked.
 
 import type { Theme } from "../theme/theme";
 
@@ -65,8 +65,6 @@ export type FrameReport =
 	| { readonly type: "maxhq-visual:blocked"; readonly url: string; readonly what: string }
 	/** A file the page names next to itself didn't load, as the page wrote it. */
 	| { readonly type: "maxhq-visual:missing"; readonly path: string }
-	/** The page has loaded and run its first scripts. */
-	| { readonly type: "maxhq-visual:settled" }
 	/** The user clicked a link to this URL. */
 	| { readonly type: "maxhq-visual:link"; readonly url: string };
 
@@ -81,7 +79,6 @@ export const readFrameReport = (data: unknown): FrameReport | null => {
 	const message = data as Record<string, unknown>;
 	switch (message.type) {
 		case "maxhq-visual:ready":
-		case "maxhq-visual:settled":
 			return { type: message.type };
 		case "maxhq-visual:height":
 			return typeof message.height === "number" && Number.isFinite(message.height)
@@ -136,18 +133,71 @@ const BASE_CSS = [
 ].join("");
 
 /**
- * The document a frame writes for a page: the theme's colours and the base
- * styles first in its head, then the page with its doctype taken off, and
- * each `maxhq:lib/` turned into the path the frame serves libraries from.
+ * Takes away the page's peer connections before its own scripts run. The
+ * content policy has no word for them, and one reaches the network on its
+ * own. It names `window`, so a test can run it on a stand-in.
+ */
+export const NO_PEERS =
+	'["RTCPeerConnection","webkitRTCPeerConnection","RTCDataChannel"].forEach(function(name){try{delete window[name]}catch(error){}});';
+
+// Where the tag that starts at `from`, just past its name, ends: past its
+// `>` outside a quoted value, or at the end of the page for one left open.
+const tagEnd = (html: string, from: number): number => {
+	let quote = "";
+	let valueNext = false;
+	for (let at = from; at < html.length; at++) {
+		const char = html.charAt(at);
+		if (quote) {
+			if (char === quote) quote = "";
+		} else if (char === ">") return at + 1;
+		else if (char === "=") valueNext = true;
+		else if (valueNext && (char === '"' || char === "'")) quote = char;
+		else if (!/\s/.test(char)) valueNext = false;
+	}
+	return html.length;
+};
+
+// A link that warms up a connection ahead of any load, which no content
+// policy looks at, or one that spells its words in character references.
+const WARMS = /prefetch|preconnect|prerender|&#/i;
+
+/** The page without the link tags that reach out ahead of a load, such as `rel="preconnect"`. */
+export const withoutWarmUps = (html: string): string => {
+	const lower = html.toLowerCase();
+	let kept = "";
+	let from = 0;
+	for (let at = lower.indexOf("<link", from); at !== -1; at = lower.indexOf("<link", from)) {
+		const name = at + "<link".length;
+		// Another tag whose name starts the same, such as `<linkbox>`.
+		if (name < html.length && !/[\s/>]/.test(html.charAt(name))) {
+			kept += html.slice(from, name);
+			from = name;
+			continue;
+		}
+		const end = tagEnd(html, name);
+		const tag = html.slice(at, end);
+		kept += html.slice(from, at) + (WARMS.test(tag) ? "" : tag);
+		from = end;
+	}
+	return kept + html.slice(from);
+};
+
+/**
+ * The document a frame writes for a page: what keeps it off the network
+ * where the content policy can't, the theme's colours and the base styles
+ * first in its head, then the page with its doctype and warm-up links taken
+ * off, and each `maxhq:lib/` turned into the path the frame serves
+ * libraries from.
  */
 export const visualDocument = ({ html, theme, variables }: Omit<ShowVisual, "type">): string => {
 	const declared = THEME_VARIABLES.filter((name) => typeof variables[name] === "string")
 		.map((name) => `${name}:${cssValue(variables[name] ?? "")}`)
 		.join(";");
-	const page = html
-		.replace(/^\uFEFF?\s*<!doctype[^>]*>/i, "")
-		.replaceAll(LIBRARY_PREFIX, LIBRARY_PATH);
-	return `<!doctype html><style>:root{color-scheme:${theme};${declared}}${BASE_CSS}</style>${page}`;
+	const page = withoutWarmUps(html.replace(/^\uFEFF?\s*<!doctype[^>]*>/i, "")).replaceAll(
+		LIBRARY_PREFIX,
+		LIBRARY_PATH
+	);
+	return `<!doctype html><meta http-equiv="x-dns-prefetch-control" content="off"><script>${NO_PEERS}</script><style>:root{color-scheme:${theme};${declared}}${BASE_CSS}</style>${page}`;
 };
 
 /** How the frame's height follows its page. */

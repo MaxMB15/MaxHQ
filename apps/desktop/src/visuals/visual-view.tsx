@@ -159,6 +159,7 @@ export const VisualView = ({ visual }: { visual: VisualTransfer }) => {
 							title={title}
 							runs={runs}
 							fill={fill}
+							from={from}
 							className="flex h-full flex-col"
 						/>
 					</div>

@@ -2,9 +2,8 @@
 // Copyright (c) 2026 Max Boksem
 
 // What the phone needs to show a visual, in its card or whole: which one,
-// from a feed's item or a fenced block, the theme it draws in, which of the
-// page's links may open, and what its bars say. The card and the screen
-// draw from this.
+// from a feed's item or a fenced block, the theme it draws in, and what
+// its bars say. The card and the screen draw from this.
 
 import { t } from "@maxhq/shared/i18n";
 
@@ -14,7 +13,6 @@ import type { AgentId, AttachmentRef } from "@maxhq/shared/bindings";
 import { listInWords } from "@maxhq/shared/status/format";
 import { type Blocked, THEME_VARIABLES } from "@maxhq/shared/visuals/frame";
 import { fromVisualFence } from "@maxhq/shared/visuals/fence";
-import { opensFromVisual } from "@maxhq/shared/visuals/inline";
 import { loadableHosts } from "@maxhq/shared/visuals/reports";
 
 import { color, radius } from "../../theme";
@@ -66,23 +64,6 @@ export const VISUAL_VARIABLES: Readonly<Record<(typeof THEME_VARIABLES)[number],
 	"--font-sans": "-apple-system, system-ui, sans-serif",
 	"--font-mono": "Menlo, monospace",
 	"--radius": `${radius.md}px`,
-};
-
-// A page can say it was clicked when it wasn't, so the screen opens one link
-// a second at most, as the desktop does.
-const LINK_GAP_MS = 1000;
-
-/**
- * Says whether a link a page reports may open in the browser now: a web or
- * mail address, and not within a second of the last one opened.
- */
-export const linkGate = () => {
-	let last = -Infinity;
-	return (url: string, now: number): boolean => {
-		if (!opensFromVisual(url) || now - last < LINK_GAP_MS) return false;
-		last = now;
-		return true;
-	};
 };
 
 /** The bar for the libraries a page asked for that the phone doesn't carry. */

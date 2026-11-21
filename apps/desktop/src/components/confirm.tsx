@@ -7,7 +7,7 @@
 // answers, such as Use Auto or Ask first instead, shows the other in
 // Cancel's place and asks through `requestAnswer`. A question with
 // another way to do it, such as Stop now, shows that beside Cancel. One
-// lives with each window.
+// that opens an address shows it in full. One lives with each window.
 
 import { useI18n } from "@maxhq/shared/i18n";
 
@@ -33,6 +33,8 @@ export type Question = {
 	readonly other?: string;
 	/** Another button that does it differently, beside Cancel, such as "Stop now". */
 	readonly alternative?: string;
+	/** An address it opens, shown in full under what it means. */
+	readonly link?: string;
 };
 
 /** Which button you pressed, or null when you closed the question. */
@@ -65,6 +67,10 @@ export const requestAnswer = (services: Services, question: Question): Promise<A
 /** Asks the question, and resolves with whether you said yes. */
 export const requestConfirm = async (services: Services, question: Question): Promise<boolean> =>
 	(await requestAnswer(services, question)) === "action";
+
+/** Whether a question waits for an answer now. */
+export const asking = (services: Services): boolean =>
+	requestsOf(services).getState().request !== null;
 
 const answer = (services: Services, pressed: Answer) => {
 	const store = requestsOf(services);
@@ -101,6 +107,11 @@ export const ConfirmHost = () => {
 									{request.detail}
 								</AlertDialog.Description>
 							</div>
+							{request.link === undefined ? null : (
+								<p className="max-h-[120px] overflow-y-auto rounded-[6px] border border-border bg-subpanel px-2 py-1.5 font-mono text-[11.5px] break-all text-foreground select-text">
+									{request.link}
+								</p>
+							)}
 							<div className="flex items-center justify-end gap-2">
 								{request.other === undefined ? (
 									<AlertDialog.Close className={SECONDARY}>

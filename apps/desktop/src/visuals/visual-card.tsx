@@ -133,7 +133,7 @@ export const VisualCard = ({
 					<VisualMenu actions={actions} />
 				</span>
 			</figcaption>
-			<VisualFrame html={html} title={title} runs={runs} onTell={onTell} />
+			<VisualFrame html={html} title={title} runs={runs} from={visual.from} onTell={onTell} />
 		</figure>
 	);
 };

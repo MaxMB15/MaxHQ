@@ -3,7 +3,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import { MOST_HOSTS } from "./frame";
+import { MOST_HOSTS, NO_PEERS } from "./frame";
 import {
 	INLINE_VISUAL_POLICY,
 	inlineVisualDocument,
@@ -37,6 +37,10 @@ describe("a visual drawn with no server", () => {
 		// The policy and the reporter come before anything of the page's.
 		expect(document.indexOf("Content-Security-Policy")).toBeLessThan(document.indexOf("<p>hi"));
 		expect(document.indexOf("ReactNativeWebView")).toBeLessThan(document.indexOf("<p>hi"));
+		// So do the switches for what the policy can't stop.
+		const before = document.slice(0, document.indexOf("<p>hi"));
+		expect(before).toContain(`<script>${NO_PEERS}</script>`);
+		expect(before).toContain('<meta http-equiv="x-dns-prefetch-control" content="off">');
 	});
 
 	it("lets through code, styles, fonts and pictures from the hosts it's given, and no more", () => {

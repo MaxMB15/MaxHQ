@@ -7852,6 +7852,16 @@ export type NotificationPrefs = {
 	other_sound: boolean,
 };
 
+/**
+ *  Sent when the window, or a frame in it, tried to go to a web or mail
+ *  address and stayed on the app. The webview opens it in the browser: at
+ *  once after a click on that link, and otherwise once you say so.
+ */
+export type OpenAsked = {
+	/**  The whole address. */
+	url: string,
+};
+
 /**  A forward that opened. */
 export type OpenedForward = {
 	/**

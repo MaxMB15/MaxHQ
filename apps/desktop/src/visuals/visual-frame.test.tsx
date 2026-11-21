@@ -1,9 +1,14 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026 Max Boksem
 
-import { act, fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import type { ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { ServicesProvider } from "@/app/services";
+import { ConfirmHost } from "@/components/confirm";
+import { mockSource } from "@/data/mock-source";
+import { NOW } from "@maxhq/shared/test/build";
 import type { FrameReport } from "@maxhq/shared/visuals/frame";
 import { visualKey } from "@maxhq/shared/visuals/visual";
 
@@ -25,8 +30,18 @@ const say = (report: FrameReport, frame = frameOf()) =>
 		);
 	});
 
+/** `children` in a window, with its question. */
+const inWindow = (children: ReactNode) => (
+	<ServicesProvider source={mockSource({ now: () => NOW, tick: false })}>
+		{children}
+		<ConfirmHost />
+	</ServicesProvider>
+);
+
 afterEach(() => {
 	localStorage.clear();
+	sessionStorage.clear();
+	delete window.__MAXHQ_LAST_STOPPED__;
 	vi.restoreAllMocks();
 });
 
@@ -115,21 +130,32 @@ describe("a visual's frame", () => {
 		expect(screen.queryByText(/Blocked loading/)).toBeNull();
 	});
 
-	it("opens a link only while its frame has the focus", () => {
+	it("asks before it opens a link, and only while its frame has the focus", async () => {
 		const open = vi.spyOn(window, "open").mockReturnValue(null);
-		render(<VisualFrame html={HTML} title="Hello" />);
-		say({ type: "maxhq-visual:link", url: "https://example.com/" });
-		expect(open).not.toHaveBeenCalled();
+		const url = "https://example.com/?q=notes";
+		render(inWindow(<VisualFrame html={HTML} title="Hello" from="Claude Code" />));
+		say({ type: "maxhq-visual:link", url });
+		expect(screen.queryByRole("alertdialog")).toBeNull();
 		frameOf().focus();
-		say({ type: "maxhq-visual:link", url: "https://example.com/" });
-		expect(open).toHaveBeenCalledWith("https://example.com/", "_blank", "noreferrer");
+		say({ type: "maxhq-visual:link", url });
+		const question = await screen.findByRole("alertdialog");
+		expect(question).toHaveTextContent(url);
+		expect(question).toHaveTextContent("The visual from Claude Code");
+		expect(open).not.toHaveBeenCalled();
+		fireEvent.click(within(question).getByRole("button", { name: "Open" }));
+		await waitFor(() => expect(open).toHaveBeenCalledWith(url, "_blank", "noreferrer"));
 	});
 
-	it("marks its page running until it settles", () => {
-		render(<VisualFrame html={HTML} title="Hello" />);
+	it("keeps its page marked running for as long as it shows it", () => {
+		const view = render(<VisualFrame html={HTML} title="Hello" />);
 		say({ type: "maxhq-visual:ready" });
 		expect(localStorage.getItem("maxhq.visual.drawing")).toBe(visualKey(HTML));
-		say({ type: "maxhq-visual:settled" });
+		say({ type: "maxhq-visual:height", height: 320 });
+		say({ type: "maxhq-visual:error", message: "Oops", line: null });
+		// A page that says it's done can still start looping after.
+		say({ type: "maxhq-visual:settled" } as unknown as FrameReport);
+		expect(localStorage.getItem("maxhq.visual.drawing")).toBe(visualKey(HTML));
+		view.unmount();
 		expect(localStorage.getItem("maxhq.visual.drawing")).toBeNull();
 	});
 });
@@ -151,6 +177,15 @@ describe("a visual that was running when the window went away", () => {
 
 	it("leaves other visuals alone", async () => {
 		localStorage.setItem("maxhq.visual.drawing", visualKey("<p>Other</p>"));
+		vi.resetModules();
+		const { VisualFrame: Fresh } = await import("./visual-frame");
+		render(<Fresh html={HTML} title="Hello" />);
+		expect(document.querySelector("iframe")).not.toBeNull();
+	});
+
+	it("runs again when the app quit with its window answering", async () => {
+		localStorage.setItem("maxhq.visual.drawing", visualKey(HTML));
+		window.__MAXHQ_LAST_STOPPED__ = false;
 		vi.resetModules();
 		const { VisualFrame: Fresh } = await import("./visual-frame");
 		render(<Fresh html={HTML} title="Hello" />);
