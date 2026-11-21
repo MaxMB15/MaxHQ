@@ -15,7 +15,7 @@ use specta::Type;
 use crate::attention::{AttentionAnswer, AttentionOption};
 use crate::context::InlineRef;
 use crate::ids::{AccountId, AgentId, AttachmentId, AttentionId, ClientId, DeviceId, TerminalId};
-use crate::model::Vendor;
+use crate::model::{EditKind, Vendor};
 use crate::state::Seq;
 use crate::terminal::{FreshReason, SessionBlock, TerminalStatus};
 use crate::time::Timestamp;
@@ -636,6 +636,17 @@ pub struct Consent {
     pub rows: Vec<ConsentRow>,
     /// The box that keeps the answer, when it can be kept.
     pub remember: Option<ConsentRemember>,
+    /// The kind of file an agent asks to change, when that's what the card
+    /// asks, so a client can word the card in your language. An older
+    /// peer leaving it out, or a kind this build can't read, reads as none,
+    /// and the card shows the text above. Since protocol 57.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::tolerant::or_none"
+    )]
+    #[specta(type = Option<EditKind>)]
+    pub edit: Option<EditKind>,
 }
 
 /// One labelled detail on a consent card, such as `Container: web`.
@@ -1381,6 +1392,37 @@ mod tests {
         }))
         .unwrap();
         assert!(parsed.facts.is_empty());
+        assert_eq!(parsed.edit, None);
+    }
+
+    #[test]
+    fn a_consent_names_the_kind_of_file_and_reads_a_newer_kind_as_none() {
+        let consent = |edit: serde_json::Value| {
+            serde_json::from_value::<Consent>(json!({
+                "title": "Change git hooks?",
+                "risk": "Git hooks run on your next commit, with your keys.",
+                "changes": [],
+                "rows": [],
+                "remember": null,
+                "edit": edit,
+            }))
+            .unwrap()
+            .edit
+        };
+        assert_eq!(consent(json!("git_hooks")), Some(EditKind::GitHooks));
+        assert_eq!(consent(json!("build_scripts")), None);
+        assert_eq!(consent(json!(null)), None);
+        // A card about anything else leaves the field out, as before.
+        let plain = Consent {
+            title: String::new(),
+            risk: String::new(),
+            changes: Vec::new(),
+            facts: Vec::new(),
+            rows: Vec::new(),
+            remember: None,
+            edit: None,
+        };
+        assert!(serde_json::to_value(&plain).unwrap().get("edit").is_none());
     }
 
     #[test]

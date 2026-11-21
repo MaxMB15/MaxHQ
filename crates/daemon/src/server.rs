@@ -1388,6 +1388,7 @@ impl Connection {
             | ClientMessage::SetInbox { .. }
             | ClientMessage::SetProjectHidden { .. }
             | ClientMessage::RemoveCommandRule { .. }
+            | ClientMessage::RemoveAllowedEdit { .. }
             | ClientMessage::ContinueHere { .. }
             | ClientMessage::TakeOver { .. }
             | ClientMessage::StageAttachment { .. }

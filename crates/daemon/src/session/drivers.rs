@@ -341,6 +341,9 @@ impl Manager {
         if !fx.command_rules.is_empty() {
             self.save_command_rules(session, fx.command_rules);
         }
+        if !fx.allowed_edits.is_empty() {
+            self.save_allowed_edits(session, fx.allowed_edits);
+        }
         if let Some(at) = fx.wake_at
             && let Some(hold) = self.holds.get_mut(&session)
         {

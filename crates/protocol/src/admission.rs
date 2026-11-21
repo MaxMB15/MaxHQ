@@ -251,6 +251,7 @@ mod tests {
                     }],
                     rows: vec![],
                     remember: None,
+                    edit: None,
                 }),
             },
             raised_at: Timestamp(1_762_600_000_000),

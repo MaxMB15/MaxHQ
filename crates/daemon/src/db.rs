@@ -30,7 +30,9 @@ use maxhq_protocol::ids::{
     ModelServerId, MoveId, ProjectId, SessionId, SkillSourceId, TestHostId, WorkspaceId,
 };
 use maxhq_protocol::leases::{TestHost, TestLease};
-use maxhq_protocol::model::{CommandRule, DeviceSettings, Inbox, ModelChoice, ProjectSettings};
+use maxhq_protocol::model::{
+    CommandRule, DeviceSettings, EditKind, Inbox, ModelChoice, ProjectSettings,
+};
 use maxhq_protocol::pulls::{PullKey, PullLink};
 use maxhq_protocol::skills::{ProjectSkills, SkillSource};
 use maxhq_protocol::time::Timestamp;
@@ -246,6 +248,13 @@ pub fn migrations() -> Migrations<'static> {
         // found. Until you remove one. Their tokens are in the secrets
         // store.
         M::up("CREATE TABLE model_servers (id TEXT PRIMARY KEY, record TEXT NOT NULL);"),
+        // The kinds of file, such as git hooks, that agents in a project
+        // may change without asking, which you remembered from a card.
+        // Until you turn one off.
+        M::up(
+            "CREATE TABLE allowed_edits (project TEXT NOT NULL, kind TEXT NOT NULL, \
+             PRIMARY KEY (project, kind));",
+        ),
     ])
 }
 
@@ -1241,6 +1250,43 @@ impl Db {
         Ok(())
     }
 
+    /// Every project's remembered kinds of file. A row that doesn't hold a
+    /// project ID or a kind this build knows is skipped.
+    pub fn allowed_edits(&self) -> rusqlite::Result<Vec<(ProjectId, EditKind)>> {
+        let conn = self.lock();
+        let mut query = conn.prepare("SELECT project, kind FROM allowed_edits ORDER BY rowid")?;
+        let rows = query.query_map([], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        })?;
+        let mut edits = Vec::new();
+        for row in rows {
+            let (project, kind) = row?;
+            match (project.parse(), EditKind::named(&kind)) {
+                (Ok(id), Some(kind)) => edits.push((id, kind)),
+                _ => tracing::warn!(project, kind, "skipping a remembered kind of file"),
+            }
+        }
+        Ok(edits)
+    }
+
+    /// Remembers a kind of file for a project, or forgets it when `allowed`
+    /// is false.
+    pub fn set_allowed_edit(
+        &self,
+        project: ProjectId,
+        kind: EditKind,
+        allowed: bool,
+    ) -> rusqlite::Result<()> {
+        let statement = if allowed {
+            "INSERT OR IGNORE INTO allowed_edits (project, kind) VALUES (?1, ?2)"
+        } else {
+            "DELETE FROM allowed_edits WHERE project = ?1 AND kind = ?2"
+        };
+        self.lock()
+            .execute(statement, params![project.to_string(), kind.name()])?;
+        Ok(())
+    }
+
     /// Every stored inbox. A row that doesn't hold an agent ID or doesn't
     /// parse is skipped.
     pub fn inboxes(&self) -> rusqlite::Result<HashMap<AgentId, Inbox>> {
@@ -1898,6 +1944,33 @@ mod tests {
     #[test]
     fn an_older_database_gains_hidden_projects_and_keeps_its_rows() {
         an_older_database_gains(21, "hidden_projects");
+    }
+
+    #[test]
+    fn remembered_kinds_of_file_survive_a_reopen_until_turned_off() {
+        an_older_database_gains(35, "allowed_edits");
+        let dir = TempDir::new();
+        let path = dir.path().join(FILE);
+        let db = Db::open(&path).unwrap();
+        let (a, b) = (ProjectId::derive("a"), ProjectId::derive("b"));
+        db.set_allowed_edit(a, EditKind::GitHooks, true).unwrap();
+        db.set_allowed_edit(b, EditKind::CiWorkflows, true).unwrap();
+        db.set_allowed_edit(a, EditKind::GitHooks, true).unwrap();
+        db.set_allowed_edit(a, EditKind::EditorTasks, true).unwrap();
+        db.set_allowed_edit(a, EditKind::EditorTasks, false)
+            .unwrap();
+        // A kind from a newer build, and a row without a project, are skipped.
+        db.lock()
+            .execute(
+                "INSERT INTO allowed_edits (project, kind) VALUES (?1, 'build_scripts'), \
+                 ('x', 'git_hooks')",
+                params![a.to_string()],
+            )
+            .unwrap();
+        assert_eq!(
+            Db::open(&path).unwrap().allowed_edits().unwrap(),
+            [(a, EditKind::GitHooks), (b, EditKind::CiWorkflows)]
+        );
     }
 
     #[test]

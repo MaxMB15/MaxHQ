@@ -2236,6 +2236,20 @@ project: ProjectId;
 /**  The rule to remove. */
 rule: CommandRule }) & { account?: never; action?: never; address?: never; admission?: never; after?: never; agent?: never; allow?: never; answer?: never; anyway?: never; app_id?: never; as_new?: never; at?: never; attachment?: never; base?: never; before?: never; block?: never; body?: never; book?: never; bucket_secs?: never; budget?: never; call?: never; change?: never; changes?: never; client_id?: never; code?: never; cols?: never; command?: never; committed?: never; confirm_unchecked?: never; credential?: never; default_ref?: never; deleted?: never; device_code?: never; discard_unpushed?: never; discard_unsaved?: never; effort?: never; elsewhere?: never; enabled?: never; env?: never; event?: never; everything?: never; expect_sha?: never; files?: never; filter?: never; force?: never; fork?: never; forward?: never; fresh?: never; from?: never; granted?: never; hashes?: never; hidden?: never; host?: never; how?: never; id?: never; idempotency_key?: never; input?: never; instance?: never; item?: never; items?: never; key_id?: never; kind?: never; label?: never; lead?: never; lease?: never; licence?: never; limit?: never; local_port?: never; lock?: never; mac?: never; mode?: never; model?: never; moving?: never; name?: never; new?: never; node?: never; nonce?: never; note?: never; number?: never; on?: never; origin?: never; outcome?: never; overwrite?: never; page?: never; pair?: never; parent?: never; path?: never; paths?: never; permission?: never; phone?: never; picks?: never; pid?: never; place?: never; plan?: never; plan_hash?: never; port?: never; private?: never; private_key?: never; proposal?: never; public_key?: never; push?: never; push_public?: never; query?: never; refs?: never; release?: never; repo?: never; request?: never; rows?: never; run?: never; secret?: never; seen?: never; session?: never; settings?: never; sha256?: never; sign_in?: never; signal?: never; signature?: never; since?: never; skills?: never; snapshot?: never; source?: never; sources?: never; spec?: never; ssh_public?: never; staged?: never; start?: never; state?: never; step?: never; stop?: never; stream?: never; target?: never; task?: never; team_id?: never; terminal?: never; text?: never; text_sha256?: never; title?: never; to?: never; token?: never; tool?: never; tools?: never; transfer?: never; tree?: never; trust?: never; unsigned?: never; version?: never; versions?: never; window_end?: never; window_secs?: never; workspace?: never } | 
 /**
+ *  Turns off a kind of file you remembered for a project, so agents in
+ *  Accept edits or Auto ask again before they change one. Since
+ *  protocol 57, [`ALLOWED_EDITS_SINCE`].
+ */
+({ type: "remove_allowed_edit"; 
+/**  Makes a resend after a dropped connection safe. */
+key: IdempotencyKey; 
+/**  The device that keeps the project's rules. */
+device: DeviceId; 
+/**  The project. */
+project: ProjectId; 
+/**  The kind to ask about again. */
+kind: EditKind }) & { account?: never; action?: never; address?: never; admission?: never; after?: never; agent?: never; allow?: never; answer?: never; anyway?: never; app_id?: never; as_new?: never; at?: never; attachment?: never; base?: never; before?: never; block?: never; body?: never; book?: never; bucket_secs?: never; budget?: never; call?: never; change?: never; changes?: never; client_id?: never; code?: never; cols?: never; command?: never; committed?: never; confirm_unchecked?: never; credential?: never; default_ref?: never; deleted?: never; device_code?: never; discard_unpushed?: never; discard_unsaved?: never; effort?: never; elsewhere?: never; enabled?: never; env?: never; event?: never; everything?: never; expect_sha?: never; files?: never; filter?: never; force?: never; fork?: never; forward?: never; fresh?: never; from?: never; granted?: never; hashes?: never; hidden?: never; host?: never; how?: never; id?: never; idempotency_key?: never; input?: never; instance?: never; item?: never; items?: never; key_id?: never; label?: never; lead?: never; lease?: never; licence?: never; limit?: never; local_port?: never; lock?: never; mac?: never; mode?: never; model?: never; moving?: never; name?: never; new?: never; node?: never; nonce?: never; note?: never; number?: never; on?: never; origin?: never; outcome?: never; overwrite?: never; page?: never; pair?: never; parent?: never; path?: never; paths?: never; permission?: never; phone?: never; picks?: never; pid?: never; place?: never; plan?: never; plan_hash?: never; port?: never; private?: never; private_key?: never; proposal?: never; public_key?: never; push?: never; push_public?: never; query?: never; refs?: never; release?: never; repo?: never; request?: never; rows?: never; rule?: never; run?: never; secret?: never; seen?: never; session?: never; settings?: never; sha256?: never; sign_in?: never; signal?: never; signature?: never; since?: never; skills?: never; snapshot?: never; source?: never; sources?: never; spec?: never; ssh_public?: never; staged?: never; start?: never; state?: never; step?: never; stop?: never; stream?: never; target?: never; task?: never; team_id?: never; terminal?: never; text?: never; text_sha256?: never; title?: never; to?: never; token?: never; tool?: never; tools?: never; transfer?: never; tree?: never; trust?: never; unsigned?: never; version?: never; versions?: never; window_end?: never; window_secs?: never; workspace?: never } | 
+/**
  *  A-11. Asks busy agents to wind down and marks each one when the
  *  window closes.
  */
@@ -4034,8 +4048,9 @@ export type CommandRule = {
 
 /**
  *  The commands agents may run without asking in one project, as the
- *  device that runs those agents keeps them. A device publishes no list
- *  for a project with no rules.
+ *  device that runs those agents keeps them, and the kinds of file they
+ *  may change without asking. A device publishes no list for a project
+ *  with neither.
  */
 export type CommandRules = {
 	/**  The project. */
@@ -4044,6 +4059,13 @@ export type CommandRules = {
 	device: DeviceId,
 	/**  The rules, in the order they were saved. */
 	rules: CommandRule[],
+	/**
+	 *  The kinds of file agents in Accept edits or Auto may change without
+	 *  asking, which you remembered from a card, in [`EditKind::ALL`]'s
+	 *  order. One this build can't read is left out. An older peer leaving
+	 *  it out keeps none. Since protocol 57.
+	 */
+	edits?: EditKind[],
 };
 
 /**  How far a connection attempt has got. */
@@ -4082,6 +4104,13 @@ export type Consent = {
 	rows: ConsentRow[],
 	/**  The box that keeps the answer, when it can be kept. */
 	remember: ConsentRemember | null,
+	/**
+	 *  The kind of file an agent asks to change, when that's what the card
+	 *  asks, so a client can word the card in your language. An older
+	 *  peer leaving it out, or a kind this build can't read, reads as none,
+	 *  and the card shows the text above. Since protocol 57.
+	 */
+	edit?: EditKind | null,
 };
 
 /**  One labelled detail on a consent card, such as `Container: web`. */
@@ -4848,6 +4877,26 @@ export type EdgeShape = {
 	/**  The node that needs it. */
 	to: string,
 };
+
+/**
+ *  A kind of file that decides what runs later, outside the agent: on
+ *  your next commit, in CI, from your editor or when packages install.
+ *  Where `maxd` decides an edit for an agent in Accept edits or Auto, a
+ *  change to one asks first. Since protocol 57.
+ */
+export type EditKind = 
+/**  Git hook managers, such as `.husky/` or `lefthook.yml`. */
+"git_hooks" | 
+/**  CI pipelines, such as `.github/workflows/`. */
+"ci_workflows" | 
+/**  Editor tasks and launch settings, such as `.vscode/tasks.json`. */
+"editor_tasks" | 
+/**  Package manager hooks, such as `.pnpmfile.cjs`. */
+"package_hooks" | 
+/**  `.gitmodules` and `.gitattributes`. */
+"git_settings" | 
+/**  Dev container settings, such as `.devcontainer/`. */
+"dev_container";
 
 /**  One editor, as the app shows it. */
 export type EditorChoice = {
@@ -9490,6 +9539,12 @@ export type Request =
  */
 { kind: "remove_command_rule"; device: DeviceId; project: ProjectId; rule: CommandRule } | 
 /**
+ *  Turns off a kind of file remembered for a project on the device
+ *  that keeps it, so its agents ask again before they change one. The
+ *  request's own `kind` names the request, so the field is `edit`.
+ */
+{ kind: "remove_allowed_edit"; device: DeviceId; project: ProjectId; edit: EditKind } | 
+/**
  *  This Mac's global git `user.name` and `user.email`, the author a
  *  project's commits default to.
  */
@@ -9930,7 +9985,7 @@ export type Response = { kind: "app_info"; value: AppInfo } | { kind: "view_snap
 	state: SshIncludeState,
 } } | { kind: "setup_ssh_include"; value: {
 	state: SshIncludeState,
-} } | { kind: "list_ignored_files"; value: IgnoredFiles } | { kind: "clone_cancel"; value: ActionOutcome } | { kind: "clone_retry"; value: ActionOutcome } | { kind: "clone_remove"; value: ActionOutcome } | { kind: "list_editors"; value: Editors } | { kind: "open_in_editor" } | { kind: "set_project_settings"; value: ActionOutcome } | { kind: "set_project_hidden"; value: ActionOutcome } | { kind: "remove_command_rule"; value: ActionOutcome } | { kind: "git_identity"; value: GitIdentity } | { kind: "wind_down"; value: ActionOutcome } | { kind: "store_claude_token"; value: ActionReply[] } | { kind: "store_cursor_key"; value: ActionReply[] } | { kind: "sign_in_chatgpt"; value: ActionOutcome } | { kind: "set_github_app"; value: ActionReply[] } | { kind: "check_github_app"; value: ActionOutcome } | { kind: "set_apns_key"; value: ActionReply[] } | { kind: "forget_credential"; value: ActionOutcome } | { kind: "set_acp_agent"; value: ActionOutcome } | { kind: "delete_acp_agent"; value: ActionOutcome } | { kind: "list_pulls"; value: ActionOutcome } | { kind: "list_branches"; value: ActionOutcome } | { kind: "get_pull"; value: ActionOutcome } | { kind: "pull_files"; value: ActionOutcome } | { kind: "pull_comments"; value: ActionOutcome } | { kind: "pull_checks"; value: ActionOutcome } | { kind: "pull_action"; value: ActionOutcome } | { kind: "pulls_due"; value: ActionOutcome } | { kind: "link_pull"; value: ActionOutcome } | { kind: "unlink_pull"; value: ActionOutcome } | { kind: "begin_github_sign_in"; value: ActionOutcome } | { kind: "cancel_github_sign_in"; value: ActionOutcome } | { kind: "check_github_sign_in"; value: ActionOutcome } | { kind: "begin_cli_login"; value: ActionOutcome } | { kind: "finish_cli_login"; value: ActionOutcome } | { kind: "check_cli_login"; value: ActionOutcome } | { kind: "cancel_cli_login"; value: ActionOutcome } | { kind: "read_load"; value: DeviceLoad[] } | { kind: "read_diagnostics"; value: ActionOutcome } | { kind: "update_tools"; value: ActionOutcome } | { kind: "confirm_host_key" } | { kind: "set_routes" } | { kind: "answer_link_claim" } | { kind: "ask_link_claim_again" } | { kind: "forget_link_identity" } | { kind: "link_claim_details"; value: LinkClaimDetails } | { kind: "list_setup_hosts"; value: SetupHost[] } | { kind: "list_permissions"; value: Permission[] } | { kind: "grant_permission"; value: ActionOutcome } | { kind: "revoke_permission"; value: ActionOutcome } | { kind: "mint_key"; value: ActionOutcome } | { kind: "list_keys"; value: AccessKey[] } | { kind: "list_device_links"; value: PeerLink[] } | { kind: "set_device_link" } | { kind: "list_phone_devices"; value: PhoneDevice[] } | { kind: "begin_phone_pair"; value: PhonePairing } | { kind: "remove_phone" } | 
+} } | { kind: "list_ignored_files"; value: IgnoredFiles } | { kind: "clone_cancel"; value: ActionOutcome } | { kind: "clone_retry"; value: ActionOutcome } | { kind: "clone_remove"; value: ActionOutcome } | { kind: "list_editors"; value: Editors } | { kind: "open_in_editor" } | { kind: "set_project_settings"; value: ActionOutcome } | { kind: "set_project_hidden"; value: ActionOutcome } | { kind: "remove_command_rule"; value: ActionOutcome } | { kind: "remove_allowed_edit"; value: ActionOutcome } | { kind: "git_identity"; value: GitIdentity } | { kind: "wind_down"; value: ActionOutcome } | { kind: "store_claude_token"; value: ActionReply[] } | { kind: "store_cursor_key"; value: ActionReply[] } | { kind: "sign_in_chatgpt"; value: ActionOutcome } | { kind: "set_github_app"; value: ActionReply[] } | { kind: "check_github_app"; value: ActionOutcome } | { kind: "set_apns_key"; value: ActionReply[] } | { kind: "forget_credential"; value: ActionOutcome } | { kind: "set_acp_agent"; value: ActionOutcome } | { kind: "delete_acp_agent"; value: ActionOutcome } | { kind: "list_pulls"; value: ActionOutcome } | { kind: "list_branches"; value: ActionOutcome } | { kind: "get_pull"; value: ActionOutcome } | { kind: "pull_files"; value: ActionOutcome } | { kind: "pull_comments"; value: ActionOutcome } | { kind: "pull_checks"; value: ActionOutcome } | { kind: "pull_action"; value: ActionOutcome } | { kind: "pulls_due"; value: ActionOutcome } | { kind: "link_pull"; value: ActionOutcome } | { kind: "unlink_pull"; value: ActionOutcome } | { kind: "begin_github_sign_in"; value: ActionOutcome } | { kind: "cancel_github_sign_in"; value: ActionOutcome } | { kind: "check_github_sign_in"; value: ActionOutcome } | { kind: "begin_cli_login"; value: ActionOutcome } | { kind: "finish_cli_login"; value: ActionOutcome } | { kind: "check_cli_login"; value: ActionOutcome } | { kind: "cancel_cli_login"; value: ActionOutcome } | { kind: "read_load"; value: DeviceLoad[] } | { kind: "read_diagnostics"; value: ActionOutcome } | { kind: "update_tools"; value: ActionOutcome } | { kind: "confirm_host_key" } | { kind: "set_routes" } | { kind: "answer_link_claim" } | { kind: "ask_link_claim_again" } | { kind: "forget_link_identity" } | { kind: "link_claim_details"; value: LinkClaimDetails } | { kind: "list_setup_hosts"; value: SetupHost[] } | { kind: "list_permissions"; value: Permission[] } | { kind: "grant_permission"; value: ActionOutcome } | { kind: "revoke_permission"; value: ActionOutcome } | { kind: "mint_key"; value: ActionOutcome } | { kind: "list_keys"; value: AccessKey[] } | { kind: "list_device_links"; value: PeerLink[] } | { kind: "set_device_link" } | { kind: "list_phone_devices"; value: PhoneDevice[] } | { kind: "begin_phone_pair"; value: PhonePairing } | { kind: "remove_phone" } | 
 /**  The devices that didn't take the switch, by name. */
 { kind: "set_phone_everything"; value: string[] } | 
 /**  The devices that didn't get a new code, by name. */

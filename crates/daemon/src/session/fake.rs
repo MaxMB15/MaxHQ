@@ -26,8 +26,8 @@ use maxhq_protocol::ids::{
 };
 use maxhq_protocol::message::{ActionOutcome, AttachmentSource};
 use maxhq_protocol::model::{
-    Agent, AllowedWorkflowEnv, CommandRule, KeepAwake, LoginKind, ModelChoice, PermissionMode,
-    Usage, Vendor,
+    Agent, AllowedWorkflowEnv, CommandRule, EditKind, KeepAwake, LoginKind, ModelChoice,
+    PermissionMode, Usage, Vendor,
 };
 use maxhq_protocol::time::Timestamp;
 use maxhq_protocol::timeline::{AttachmentKind, AttachmentRef, TimelineEvent, TimelineItem};
@@ -633,6 +633,8 @@ pub struct Say {
     pub tools: Vec<(String, AgentId, String, Value)>,
     /// Commands answered "Always allow", as rules to keep.
     pub command_rules: Vec<CommandRule>,
+    /// Kinds of file a card remembered for the agent's project.
+    pub allowed_edits: Vec<EditKind>,
     /// With true, something only the running CLI holds keeps it from
     /// stopping when idle, and with false nothing does any more.
     pub keeps: Option<bool>,
@@ -825,6 +827,7 @@ impl FakeVendors {
             clock: self.clock.clone(),
             turn_from: None,
             keeps: false,
+            edits: false,
         })
     }
 }
@@ -1012,6 +1015,8 @@ struct Scripted {
     turn_from: Option<u64>,
     /// Whether the script said the CLI holds something it can't stop with.
     keeps: bool,
+    /// Whether the driver was given remembered kinds of file.
+    edits: bool,
 }
 
 impl Scripted {
@@ -1094,6 +1099,7 @@ impl Scripted {
         }
         fx.stop |= say.stop;
         fx.command_rules.extend(say.command_rules);
+        fx.allowed_edits.extend(say.allowed_edits);
     }
 }
 
@@ -1253,6 +1259,17 @@ impl Driver for Scripted {
         }
         let rules: Vec<&str> = rules.iter().map(|rule| rule.command.as_str()).collect();
         self.log(format!("rules {}", rules.join(", ")));
+    }
+
+    fn allowed_edits(&mut self, edits: Option<&[EditKind]>) {
+        // Logged from the first that names any, as with the rules.
+        let edits = edits.unwrap_or_default();
+        if edits.is_empty() && !self.edits {
+            return;
+        }
+        self.edits = true;
+        let names: Vec<&str> = edits.iter().map(|kind| kind.name()).collect();
+        self.log(format!("edits {}", names.join(", ")).trim_end().to_owned());
     }
 }
 

@@ -65,8 +65,8 @@ use maxhq_protocol::agents::McpCommand;
 use maxhq_protocol::ids::{AgentId, AttentionId, IdempotencyKey};
 use maxhq_protocol::message::ActionOutcome;
 use maxhq_protocol::model::{
-    Activity, Agent, AgentLink, AgentPermission, CommandRule, ContextUsage, Control, ModelChoice,
-    PermissionMode, Vendor,
+    Activity, Agent, AgentLink, AgentPermission, CommandRule, ContextUsage, Control, EditKind,
+    ModelChoice, PermissionMode, Vendor,
 };
 use maxhq_protocol::time::Timestamp;
 use maxhq_protocol::timeline::{ItemBody, ItemId, ItemStatus, NoticeLevel, TimelineEvent, Todo};
@@ -385,6 +385,11 @@ pub struct AcpSession {
     shown: HashMap<AgentId, Agent>,
     /// The commands the project's rules let run without asking.
     command_rules: Vec<CommandRule>,
+    /// The kinds of file the project lets agents change without asking,
+    /// or none while the agent has no project to keep them for.
+    allowed_edits: Option<HashSet<EditKind>>,
+    /// The kinds of file you allowed for the rest of an agent's run.
+    edit_runs: HashSet<(AgentId, EditKind)>,
 }
 
 impl AcpSession {
@@ -467,6 +472,8 @@ impl AcpSession {
             last_seq: None,
             shown: HashMap::new(),
             command_rules: Vec::new(),
+            allowed_edits: None,
+            edit_runs: HashSet::new(),
         }
     }
 
@@ -1551,6 +1558,18 @@ impl Driver for AcpSession {
 
     fn command_rules(&mut self, rules: &[CommandRule]) {
         rules.clone_into(&mut self.command_rules);
+    }
+
+    fn allowed_edits(&mut self, edits: Option<&[EditKind]>) {
+        let now: Option<HashSet<EditKind>> = edits.map(|edits| edits.iter().copied().collect());
+        // A kind you turned off asks again, of an agent you allowed it for
+        // as well.
+        if let Some(before) = &self.allowed_edits {
+            self.edit_runs.retain(|(_, kind)| {
+                !before.contains(kind) || now.as_ref().is_some_and(|now| now.contains(kind))
+            });
+        }
+        self.allowed_edits = now;
     }
 
     /// Only a CLI that loads its sessions comes back whole, and only

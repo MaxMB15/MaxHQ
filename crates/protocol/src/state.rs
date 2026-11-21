@@ -1356,6 +1356,7 @@ mod tests {
                         command: "git show".into(),
                         exact: false,
                     }],
+                    edits: vec![crate::model::EditKind::GitHooks],
                 }),
             ),
             (
@@ -1471,6 +1472,33 @@ mod tests {
         assert_eq!(
             serde_json::to_value(key).unwrap()["entity"],
             "project_notes"
+        );
+    }
+
+    #[test]
+    fn remembered_kinds_of_file_read_as_none_from_an_older_peer() {
+        use crate::model::EditKind;
+
+        let rules = |edits: Option<serde_json::Value>| {
+            let mut value = json!({
+                "entity": "command_rules",
+                "project": "0199a7c2-0000-7000-8000-000000000002",
+                "device": "0199a7c2-0000-7000-8000-000000000001",
+                "rules": [],
+            });
+            if let Some(edits) = edits {
+                value["edits"] = edits;
+            }
+            match serde_json::from_value(value).unwrap() {
+                Entity::CommandRules(rules) => rules.edits,
+                other => panic!("not rules: {other:?}"),
+            }
+        };
+        assert_eq!(rules(None), []);
+        // A kind from a newer `maxd` is left out and the rest still reads.
+        assert_eq!(
+            rules(Some(json!(["ci_workflows", "build_scripts", "git_hooks"]))),
+            [EditKind::CiWorkflows, EditKind::GitHooks]
         );
     }
 

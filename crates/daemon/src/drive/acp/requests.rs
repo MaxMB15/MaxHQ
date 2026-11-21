@@ -30,21 +30,26 @@
 //! In Accept edits and Auto a change passes alone when every path it names
 //! lands inside the agent's folders and off the files that decide what runs
 //! later, as [`commands::Folders::may_change`] reads them. One that names no
-//! path asks, including through what its call's updates said.
+//! path asks, including through what its call's updates said. A change to a
+//! hook, CI or task file, as [`commands::Folders::runs_later`] reads it,
+//! asks on a card of its own unless you allowed its kind for the agent's run
+//! or kept it for the project. Its Allow tells the CLI to allow it once, so
+//! that turning the kind off makes the next one ask again.
 
 use maxhq_protocol::attention::{AttentionAnswer, AttentionEvent, AttentionKind, AttentionOption};
 use maxhq_protocol::ids::{AgentId, AttentionId, ClientId, IdempotencyKey};
-use maxhq_protocol::model::PermissionMode;
+use maxhq_protocol::model::{EditKind, PermissionMode};
 use maxhq_protocol::time::Timestamp;
 use maxhq_protocol::timeline::{
-    ApprovalKind, Decided, ItemBody, ItemId, ItemStatus, Question, QuestionAnswer, QuestionOption,
-    TimelineItem,
+    ApprovalKind, Consent, ConsentFact, ConsentRemember, Decided, ItemBody, ItemId, ItemStatus,
+    Question, QuestionAnswer, QuestionOption, TimelineItem,
 };
 use serde_json::{json, Value};
 
 use super::events::{self, Out};
 use super::rpc::{self, text};
 use super::{close_attention, done, refused, AcpSession, Asked, ExtPrompt, Plan};
+use crate::drive::codex::requests::visible;
 use crate::drive::{commands, AttentionChange, Effects, Write};
 
 /// The option that starts on a plan.
@@ -52,6 +57,15 @@ const ACCEPT: &str = "accept";
 
 /// The option that keeps planning.
 const REJECT: &str = "reject";
+
+/// The question on a card about a kind of file, and its answers.
+const EDIT_QUESTION: &str = "edit-kind";
+const EDIT_ALLOW: &str = "Allow";
+const EDIT_DENY: &str = "Deny";
+
+/// The box that keeps a kind of file for the project.
+const EDIT_REMEMBER: &str = "edit-kind-remember";
+const EDIT_REMEMBER_LABEL: &str = "Remember for this project";
 
 /// A request waiting on your answer.
 #[derive(Clone, Debug)]
@@ -78,6 +92,13 @@ pub enum Kind {
     Plan,
     /// Questions, each with its ID and its options as ID and label.
     Question(Vec<(String, Vec<(String, String)>)>),
+    /// To change a kind of file that decides what runs later, with the
+    /// CLI's options that allow and deny it once.
+    Edit {
+        kind: EditKind,
+        allow: String,
+        deny: String,
+    },
 }
 
 /// Fields of a call's input that name a path it changes.
@@ -298,6 +319,7 @@ impl AcpSession {
         // doesn't ask you as well, as Claude's are allowed too. The request
         // names the server only in its title, so the call's own updates
         // say which server it is.
+        let mut asks_edit = None;
         let auto = tool.as_object().is_some_and(events::ours)
             || match self.effective {
                 PermissionMode::FullAccess => true,
@@ -309,8 +331,24 @@ impl AcpSession {
                         && {
                             let folders = self.folders();
                             let paths = changed_paths(&tool, asked.as_ref());
-                            !paths.is_empty()
-                                && paths.into_iter().all(|path| folders.may_change(path))
+                            let passes = !paths.is_empty()
+                                && paths.iter().all(|path| folders.may_change(path));
+                            let asking = if passes {
+                                self.edits_asking(agent, &folders, &paths)
+                            } else {
+                                Vec::new()
+                            };
+                            // One kind gets its card; a change to several
+                            // asks as any other.
+                            asks_edit = match asking.as_slice() {
+                                [(kind, path), rest @ ..]
+                                    if rest.iter().all(|(other, _)| other == kind) =>
+                                {
+                                    Some((*kind, (*path).to_owned()))
+                                }
+                                _ => None,
+                            };
+                            passes && asking.is_empty()
                         };
                     let auto = mode == PermissionMode::Auto;
                     edits
@@ -335,6 +373,20 @@ impl AcpSession {
             });
             self.pending.remove(key);
             return None;
+        }
+        let once = |exact: &str, prefix: &str| {
+            options
+                .iter()
+                .find(|(_, kind, _)| kind == exact)
+                .or_else(|| options.iter().find(|(_, kind, _)| kind.starts_with(prefix)))
+                .map(|(option, _, _)| option.clone())
+        };
+        if let Some((kind, path)) = asks_edit
+            && let Some(allow) = once("allow_once", "allow")
+            && let Some(deny) = once("reject_once", "reject")
+        {
+            let (item, event) = self.edit_card(agent, kind, &path, at);
+            return Some((Kind::Edit { kind, allow, deny }, item, event, call));
         }
         // The apps word this title in the reader's language by its shape
         // (askTitle in packages/shared), so keep it as it is.
@@ -418,6 +470,91 @@ impl AcpSession {
         Some((kind, item, event, call))
     }
 
+    /// The changed paths whose kind of file asks first for `agent`, each
+    /// with its kind: those you neither allowed for its run nor kept for
+    /// the project.
+    fn edits_asking<'a>(
+        &self,
+        agent: AgentId,
+        folders: &commands::Folders,
+        paths: &[&'a str],
+    ) -> Vec<(EditKind, &'a str)> {
+        paths
+            .iter()
+            .filter_map(|path| Some((folders.runs_later(path)?, *path)))
+            .filter(|(kind, _)| {
+                !self.edit_runs.contains(&(agent, *kind))
+                    && !self
+                        .allowed_edits
+                        .as_ref()
+                        .is_some_and(|kept| kept.contains(kind))
+            })
+            .collect()
+    }
+
+    /// The card that asks before `agent` changes `path`, a file of `kind`.
+    /// Its box shows only where the agent has a project to keep it for.
+    fn edit_card(
+        &self,
+        agent: AgentId,
+        kind: EditKind,
+        path: &str,
+        at: Timestamp,
+    ) -> (TimelineItem, AttentionEvent) {
+        let words = commands::edit_words(kind);
+        let path = visible(path);
+        let consent = Consent {
+            title: words.title.to_owned(),
+            risk: words.meaning.to_owned(),
+            changes: Vec::new(),
+            facts: vec![ConsentFact {
+                label: "File".to_owned(),
+                value: path.clone(),
+            }],
+            rows: Vec::new(),
+            remember: self.allowed_edits.is_some().then(|| ConsentRemember {
+                id: EDIT_REMEMBER.to_owned(),
+                label: EDIT_REMEMBER_LABEL.to_owned(),
+                settings: words.remembered.to_owned(),
+            }),
+            edit: Some(kind),
+        };
+        let option = |label: &str| QuestionOption {
+            label: label.to_owned(),
+            description: None,
+        };
+        let item = waiting(
+            agent,
+            self.stream.turn_id(),
+            at,
+            ItemBody::Question {
+                attention: AttentionId::derive("unset"),
+                questions: vec![Question {
+                    id: EDIT_QUESTION.to_owned(),
+                    header: Some(words.name.to_owned()),
+                    text: format!(
+                        "{} asks to change {path}. {}",
+                        self.flavor.name(),
+                        words.meaning
+                    ),
+                    options: vec![option(EDIT_ALLOW), option(EDIT_DENY)],
+                    multi: false,
+                    other: false,
+                    secret: false,
+                    consent: Some(consent),
+                }],
+                answers: None,
+            },
+        );
+        let summary = format!("{} {path}", words.title);
+        // No buttons, so a notification sends you to the card and its words.
+        let event = AttentionEvent {
+            accepts_text: false,
+            ..event(agent, AttentionKind::Question, summary, Vec::new(), at)
+        };
+        (item, event)
+    }
+
     /// A plan to approve, which also shows as the plan and its todos.
     fn plan(
         &mut self,
@@ -499,6 +636,7 @@ impl AcpSession {
             refused(fx, key, "That question was already answered.");
             return;
         };
+        let mut allowed = None;
         if matches!(answer, AttentionAnswer::Dismiss) {
             self.dismiss(Some(event), Timestamp::now(), fx);
             done(fx, key);
@@ -533,6 +671,27 @@ impl AcpSession {
                     follow_up = Some(text.clone());
                     (rpc::selected(option), true)
                 })
+            }
+            (Kind::Edit { kind, allow, deny }, AttentionAnswer::Questions { answers }) => {
+                let picked = answers
+                    .iter()
+                    .find(|answer| answer.id == EDIT_QUESTION)
+                    .and_then(|answer| answer.values.first());
+                let kept = answers
+                    .iter()
+                    .any(|answer| answer.id == EDIT_REMEMBER && !answer.values.is_empty());
+                match picked.map(String::as_str) {
+                    Some(EDIT_ALLOW) => {
+                        allowed = Some((prompt.item.agent, *kind, kept));
+                        Some((rpc::selected(allow), false))
+                    }
+                    Some(EDIT_DENY) => Some((rpc::selected(deny), true)),
+                    _ => None,
+                }
+            }
+            (Kind::Edit { deny, .. }, AttentionAnswer::Text { text }) => {
+                follow_up = Some(text.clone());
+                Some((rpc::selected(deny), true))
             }
             (Kind::Plan, AttentionAnswer::Option { id }) if id == ACCEPT => {
                 Some((json!({ "outcome": { "outcome": "accepted" } }), false))
@@ -577,6 +736,15 @@ impl AcpSession {
             refused(fx, key, "That answer doesn't fit this question.");
             return;
         };
+        // Allow covers the kind for the rest of the agent's run, and the box
+        // keeps it for every agent in the project, which the manager hands
+        // back to this driver too.
+        if let Some((agent, kind, kept)) = allowed {
+            self.edit_runs.insert((agent, kind));
+            if kept && self.allowed_edits.is_some() {
+                fx.allowed_edits.push(kind);
+            }
+        }
         let at = Timestamp::now();
         let status = if declined {
             ItemStatus::Declined

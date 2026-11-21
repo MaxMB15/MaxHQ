@@ -26,9 +26,9 @@ use maxhq_protocol::message::{
 };
 use maxhq_protocol::model::{
     Account, Activity, Agent, AgentLink, CloneProgress, CloneStage, CloneState, CommandRule,
-    CommandRules, Control, Device, DeviceSettings, HiddenProjects, LoginKind, ModelChoice,
-    PauseReason, PermissionMode, ProjectSettings, Usage, UsagePeriod, UsageSource, UsageWindow,
-    Vendor, WorkspaceLocation,
+    CommandRules, Control, Device, DeviceSettings, EditKind, HiddenProjects, LoginKind,
+    ModelChoice, PauseReason, PermissionMode, ProjectSettings, Usage, UsagePeriod, UsageSource,
+    UsageWindow, Vendor, WorkspaceLocation,
 };
 use maxhq_protocol::state::{Change, Entity, EntityKey, Seq};
 use maxhq_protocol::time::Timestamp;
@@ -2410,6 +2410,7 @@ async fn command_rules_show_per_project_and_go_when_removed() {
             project,
             device: device().id,
             rules: rules.to_vec(),
+            edits: Vec::new(),
         }))
     };
     assert_eq!(
@@ -2477,6 +2478,7 @@ async fn rules_a_driver_saves_go_to_its_project_and_its_drivers() {
         project,
         device: device().id,
         rules: vec![rule.clone()],
+        edits: Vec::new(),
     }));
     eventually("the rule shows", || h.hub.get(&key) == saved).await;
     assert!(h.vendors.log().contains(&"rules git show".to_owned()));
@@ -2493,6 +2495,77 @@ async fn rules_a_driver_saves_go_to_its_project_and_its_drivers() {
             == 2
     })
     .await;
+}
+
+#[tokio::test]
+async fn kinds_of_file_a_card_remembers_reach_its_project_until_turned_off() {
+    let mut h = Harness::new();
+    let (agent, session) = h.start_claude(None).await;
+    let project_of = |h: &Harness, agent| match h
+        .hub
+        .get(&EntityKey::Workspace(h.agent(agent).workspace))
+    {
+        Some(Entity::Workspace(workspace)) => workspace.project.expect("a folder has a project"),
+        other => panic!("no workspace: {other:?}"),
+    };
+    let project = project_of(&h, agent);
+    let say = Say {
+        allowed_edits: vec![EditKind::GitHooks, EditKind::GitHooks],
+        ..Say::default()
+    };
+    h.say(session, &say).await;
+    let key = EntityKey::CommandRules {
+        project,
+        device: device().id,
+    };
+    let kept = Some(Entity::CommandRules(CommandRules {
+        project,
+        device: device().id,
+        rules: Vec::new(),
+        edits: vec![EditKind::GitHooks],
+    }));
+    eventually("the kind shows", || h.hub.get(&key) == kept).await;
+    assert_eq!(
+        h.db.allowed_edits().unwrap(),
+        [(project, EditKind::GitHooks)]
+    );
+    let given = |h: &Harness, entry: &str| h.vendors.log().iter().filter(|e| *e == entry).count();
+    assert_eq!(given(&h, "edits git_hooks"), 1);
+
+    // A new agent in the project gets it as it connects, and one in
+    // another project doesn't.
+    h.start_claude(None).await;
+    eventually("the second agent's", || given(&h, "edits git_hooks") == 2).await;
+    let other = h.folder.with_file_name("other");
+    fs::create_dir_all(&other).unwrap();
+    let mut spec = h.spec(Vendor::Claude, None);
+    spec.place = AgentPlace::Folder {
+        path: other.display().to_string(),
+    };
+    let elsewhere = started(h.act(|key| ClientMessage::StartAgent { key, spec }).await);
+    h.say(h.holders.last(), &Say::default()).await;
+    assert_ne!(project_of(&h, elsewhere), project);
+    assert_eq!(given(&h, "edits git_hooks"), 2);
+
+    let remove = |device| {
+        move |key| ClientMessage::RemoveAllowedEdit {
+            key,
+            device,
+            project,
+            kind: EditKind::GitHooks,
+        }
+    };
+    let refused = h.act(remove(DeviceId::derive("other"))).await;
+    assert!(reason(&refused).contains("another device"), "{refused:?}");
+    assert_eq!(h.hub.get(&key), kept);
+
+    // Turned off, the project's drivers hear so and the list goes.
+    assert_eq!(h.act(remove(device().id)).await, ActionOutcome::Done);
+    assert_eq!(h.hub.get(&key), None);
+    assert_eq!(given(&h, "edits"), 2);
+    assert_eq!(h.db.allowed_edits().unwrap(), []);
+    h.restart().await;
+    assert_eq!(h.hub.get(&key), None);
 }
 
 #[tokio::test]

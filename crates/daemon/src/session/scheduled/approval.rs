@@ -249,6 +249,7 @@ impl Manager {
                 .collect(),
             rows: Vec::new(),
             remember: None,
+            edit: None,
         };
         let summary: String = format!("Approve the task {name}?")
             .chars()

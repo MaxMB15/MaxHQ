@@ -29,8 +29,8 @@ use crate::ids::{
 };
 use crate::local_models::{ModelAction, ServerFlavor, ServerModel, ServerProbe};
 use crate::model::{
-    CommandRule, DeviceSettingChange, DeviceSettings, InboxChange, PermissionMode, ProjectSettings,
-    Tool, Vendor, WorkspaceSpec,
+    CommandRule, DeviceSettingChange, DeviceSettings, EditKind, InboxChange, PermissionMode,
+    ProjectSettings, Tool, Vendor, WorkspaceSpec,
 };
 use crate::notes::{NoteId, NoteVersion, NoteVersionInfo, VersionHash};
 use crate::notices::{NoticeCall, NoticePage};
@@ -600,6 +600,19 @@ pub enum ClientMessage {
         project: ProjectId,
         /// The rule to remove.
         rule: CommandRule,
+    },
+    /// Turns off a kind of file you remembered for a project, so agents in
+    /// Accept edits or Auto ask again before they change one. Since
+    /// protocol 57, [`ALLOWED_EDITS_SINCE`].
+    RemoveAllowedEdit {
+        /// Makes a resend after a dropped connection safe.
+        key: IdempotencyKey,
+        /// The device that keeps the project's rules.
+        device: DeviceId,
+        /// The project.
+        project: ProjectId,
+        /// The kind to ask about again.
+        kind: EditKind,
     },
     /// A-11. Asks busy agents to wind down and marks each one when the
     /// window closes.
@@ -2289,6 +2302,7 @@ impl ClientMessage {
     pub fn since(&self) -> u32 {
         match self {
             Self::RemoveCommandRule { .. } => 23,
+            Self::RemoveAllowedEdit { .. } => ALLOWED_EDITS_SINCE,
             Self::ListProcesses { .. } | Self::SignalProcess { .. } => 24,
             Self::UpdateDeviceSettings { changes, .. } => changes
                 .iter()
@@ -2382,6 +2396,7 @@ impl ClientMessage {
             | Self::SetInbox { key, .. }
             | Self::SetProjectHidden { key, .. }
             | Self::RemoveCommandRule { key, .. }
+            | Self::RemoveAllowedEdit { key, .. }
             | Self::ContinueHere { key, .. }
             | Self::TakeOver { key, .. }
             | Self::StageAttachment { key, .. }
@@ -3013,6 +3028,14 @@ pub const LOCAL_MODELS_SINCE: u32 = 54;
 /// An older one shows them as plain tool calls and always lets agents use
 /// them, so the app hides the switch.
 pub const ARTIFACTS_SINCE: u32 = 55;
+
+/// The protocol version whose `maxd` first asks before an agent in Accept
+/// edits or Auto changes a hook, CI or task file: the card's
+/// [`crate::timeline::Consent::edit`], the kinds in
+/// [`crate::model::CommandRules::edits`] and
+/// [`ClientMessage::RemoveAllowedEdit`]. An older one lets such edits
+/// pass, so the app shows nothing to turn off.
+pub const ALLOWED_EDITS_SINCE: u32 = 57;
 
 /// When [`ClientMessage::TakeOver`] stops the terminal's CLI.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, Type, JsonSchema)]
@@ -4936,6 +4959,15 @@ mod tests {
                         command: "rm -rf build".into(),
                         exact: true,
                     },
+                },
+            ),
+            (
+                "remove_allowed_edit",
+                ClientMessage::RemoveAllowedEdit {
+                    key: key(),
+                    device,
+                    project,
+                    kind: EditKind::GitHooks,
                 },
             ),
             (

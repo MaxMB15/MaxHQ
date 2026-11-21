@@ -40,7 +40,7 @@
 use std::ffi::OsString;
 use std::path::{Component, Path, PathBuf};
 
-use maxhq_protocol::model::CommandRule;
+use maxhq_protocol::model::{CommandRule, EditKind};
 
 /// Commands that only read, whatever their arguments.
 const READERS: &[&str] = &[
@@ -583,21 +583,39 @@ impl Folders {
         // doesn't hide it. A secret name counts past the deepest, as the
         // agent's attachments sit inside MaxHQ's data folder.
         let runs = |path: &Path| {
-            let mut owns = self
-                .inside
-                .iter()
-                .filter_map(|folder| path.strip_prefix(folder).ok())
-                .peekable();
-            match owns.peek() {
-                None => any_name(path, decides_what_runs),
-                Some(_) => owns.any(|own| any_name(own, decides_what_runs)),
-            }
+            self.past_each(path)
+                .into_iter()
+                .any(|own| any_name(own, decides_what_runs))
         };
         let clear = |path: &Path| !runs(path) && !names_secret(self.own(path));
         let Some(at) = self.place(path, &self.start) else {
             return false;
         };
         clear(Path::new(path)) && !self.in_data(&at) && self.inside_of(&at).is_some() && clear(&at)
+    }
+
+    /// The kind of file `path` is when it decides what runs later outside
+    /// the agent, such as a git hook or a CI workflow, as written or where
+    /// it lands. [`Self::may_change`] lets these through, so the driver
+    /// asks about them unless you allowed the kind. Its names count past
+    /// every folder that holds it, as there.
+    pub fn runs_later(&self, path: &str) -> Option<EditKind> {
+        let kind = |path: &Path| self.past_each(path).into_iter().find_map(kind_of_file);
+        kind(Path::new(path)).or_else(|| kind(&self.place(path, &self.start)?))
+    }
+
+    /// `path` past each folder that holds it, or all of it when none does.
+    fn past_each<'a>(&self, path: &'a Path) -> Vec<&'a Path> {
+        let owns: Vec<&Path> = self
+            .inside
+            .iter()
+            .filter_map(|folder| path.strip_prefix(folder).ok())
+            .collect();
+        if owns.is_empty() {
+            vec![path]
+        } else {
+            owns
+        }
     }
 }
 
@@ -853,6 +871,148 @@ fn any_name(path: &Path, test: fn(&str) -> bool) -> bool {
     })
 }
 
+/// `path`'s names, lower-cased.
+fn lower_names(path: &Path) -> Vec<String> {
+    path.components()
+        .filter_map(|part| match part {
+            Component::Normal(name) => Some(name.to_string_lossy().to_ascii_lowercase()),
+            _ => None,
+        })
+        .collect()
+}
+
+/// The kind of file `path` is when it decides what runs later, outside the
+/// agent: on your next commit, in CI, from your editor or when packages
+/// install. One of its names, lower-cased, names the kind, or two in a row
+/// do, such as `.github/workflows`. This is the one list of them, and
+/// [`edit_words`] names each kind. Agent instruction files, such as
+/// `AGENTS.md`, aren't on it.
+fn kind_of_file(path: &Path) -> Option<EditKind> {
+    let names = lower_names(path);
+    names.iter().find_map(|name| named_kind(name)).or_else(|| {
+        names
+            .windows(2)
+            .find_map(|pair| paired_kind(&pair[0], &pair[1]))
+    })
+}
+
+/// The kind a lower-cased name makes a file or folder.
+fn named_kind(name: &str) -> Option<EditKind> {
+    Some(match name {
+        ".husky" | ".githooks" | ".pre-commit-config.yaml" | ".pre-commit-config.yml" => {
+            EditKind::GitHooks
+        }
+        _ if is_lefthook(name) => EditKind::GitHooks,
+        ".gitlab-ci.yml"
+        | ".circleci"
+        | ".buildkite"
+        | "azure-pipelines.yml"
+        | "azure-pipelines.yaml"
+        | "bitbucket-pipelines.yml"
+        | ".travis.yml"
+        | ".drone.yml"
+        | "jenkinsfile" => EditKind::CiWorkflows,
+        ".pnpmfile.cjs" | ".pnpmfile.mjs" | ".yarnrc" | ".yarnrc.yml" => EditKind::PackageHooks,
+        ".gitmodules" | ".gitattributes" => EditKind::GitSettings,
+        ".devcontainer" | ".devcontainer.json" => EditKind::DevContainer,
+        _ => return None,
+    })
+}
+
+/// The kind a lower-cased name makes a file or folder inside `parent`.
+fn paired_kind(parent: &str, name: &str) -> Option<EditKind> {
+    Some(match (parent, name) {
+        // Local actions run in CI as the workflows that use them.
+        (".github", "workflows" | "actions") => EditKind::CiWorkflows,
+        (".vscode", "tasks.json" | "launch.json")
+        | (".zed", "tasks.json")
+        | (".idea", "runconfigurations") => EditKind::EditorTasks,
+        // Yarn runs the release `yarnPath` names, and its plugins, on
+        // every command.
+        (".yarn", "releases" | "plugins") => EditKind::PackageHooks,
+        _ => return None,
+    })
+}
+
+/// What a card about a kind of file says, in English. The apps word the
+/// same in your language by the card's kind (`editWords` in
+/// packages/shared).
+pub struct EditWords {
+    /// The kind's short name, such as "Git hooks".
+    pub name: &'static str,
+    /// The card's title.
+    pub title: &'static str,
+    /// What files of the kind do, in a line.
+    pub meaning: &'static str,
+    /// What remembering the kind lets agents do, and where to turn it off.
+    pub remembered: &'static str,
+}
+
+/// The words for `kind`.
+pub const fn edit_words(kind: EditKind) -> EditWords {
+    let (name, title, meaning, remembered) = match kind {
+        EditKind::GitHooks => (
+            "Git hooks",
+            "Change git hooks?",
+            "Git hooks run on your next commit, with your keys.",
+            "Agents in Accept edits or Auto may then change your git hooks in this project \
+             without asking. Turn it off in Project settings, under Permissions.",
+        ),
+        EditKind::CiWorkflows => (
+            "CI workflows",
+            "Change CI workflows?",
+            "CI workflows run on your next push, with the repository's secrets.",
+            "Agents in Accept edits or Auto may then change your CI workflows in this project \
+             without asking. Turn it off in Project settings, under Permissions.",
+        ),
+        EditKind::EditorTasks => (
+            "Editor tasks",
+            "Change editor tasks?",
+            "Editor tasks run as you when your editor starts them.",
+            "Agents in Accept edits or Auto may then change your editor tasks in this project \
+             without asking. Turn it off in Project settings, under Permissions.",
+        ),
+        EditKind::PackageHooks => (
+            "Package manager hooks",
+            "Change package manager hooks?",
+            "Package manager hooks run as you when packages install.",
+            "Agents in Accept edits or Auto may then change your package manager hooks in this \
+             project without asking. Turn it off in Project settings, under Permissions.",
+        ),
+        EditKind::GitSettings => (
+            "Git settings",
+            "Change git settings?",
+            "Git settings pick the submodules git fetches and the filters it runs on your files.",
+            "Agents in Accept edits or Auto may then change your git settings in this project \
+             without asking. Turn it off in Project settings, under Permissions.",
+        ),
+        EditKind::DevContainer => (
+            "Dev container",
+            "Change the dev container?",
+            "The dev container sets what runs when it builds and starts, with your files.",
+            "Agents in Accept edits or Auto may then change your dev container in this project \
+             without asking. Turn it off in Project settings, under Permissions.",
+        ),
+    };
+    EditWords {
+        name,
+        title,
+        meaning,
+        remembered,
+    }
+}
+
+/// Whether a lower-cased name is lefthook's: its config, such as
+/// `lefthook.yml` or `.lefthook-local.toml`, or its folder of scripts.
+fn is_lefthook(name: &str) -> bool {
+    let name = name.strip_prefix('.').unwrap_or(name);
+    let stem = match name.rsplit_once('.') {
+        Some((stem, "yml" | "yaml" | "toml" | "json" | "jsonc")) => stem,
+        _ => name,
+    };
+    matches!(stem, "lefthook" | "lefthook-local")
+}
+
 /// Whether a lower-cased name holds keys or tokens.
 fn holds_secrets(name: &str) -> bool {
     matches!(
@@ -898,13 +1058,7 @@ fn is_cli_home(name: &str) -> bool {
 /// one [`holds_secrets`] or [`is_cli_home`] names, or a folder where a CLI or
 /// MaxHQ keeps its own, such as `.config/gh` or MaxHQ's data folder.
 fn names_secret(path: &Path) -> bool {
-    let names: Vec<String> = path
-        .components()
-        .filter_map(|part| match part {
-            Component::Normal(name) => Some(name.to_string_lossy().to_ascii_lowercase()),
-            _ => None,
-        })
-        .collect();
+    let names = lower_names(path);
     names
         .iter()
         .any(|name| holds_secrets(name) || is_cli_home(name))
@@ -4563,6 +4717,84 @@ mod tests {
         );
         assert!(!kept.may_change("/work/ws/.maxhq/a1/note"));
         assert!(!kept.may_change(".maxhq/a1/note"));
+    }
+
+    #[test]
+    fn hooks_ci_and_task_files_name_their_kind_and_others_none() {
+        let work = folders();
+        for (path, kind) in [
+            (".husky/pre-commit", EditKind::GitHooks),
+            ("/work/ws/.githooks/pre-push", EditKind::GitHooks),
+            ("lefthook.yml", EditKind::GitHooks),
+            (".lefthook-local.toml", EditKind::GitHooks),
+            (".lefthook/pre-commit/lint.sh", EditKind::GitHooks),
+            (".pre-commit-config.yaml", EditKind::GitHooks),
+            (".github/workflows/ci.yml", EditKind::CiWorkflows),
+            (".github/actions/setup/action.yml", EditKind::CiWorkflows),
+            (".GitLab-CI.yml", EditKind::CiWorkflows),
+            (".circleci/config.yml", EditKind::CiWorkflows),
+            (".buildkite/pipeline.yml", EditKind::CiWorkflows),
+            ("azure-pipelines.yml", EditKind::CiWorkflows),
+            ("Jenkinsfile", EditKind::CiWorkflows),
+            (".vscode/tasks.json", EditKind::EditorTasks),
+            (".vscode/launch.json", EditKind::EditorTasks),
+            (".zed/tasks.json", EditKind::EditorTasks),
+            (".idea/runConfigurations/App.xml", EditKind::EditorTasks),
+            (".pnpmfile.cjs", EditKind::PackageHooks),
+            (".yarnrc.yml", EditKind::PackageHooks),
+            (".yarn/releases/yarn-4.5.0.cjs", EditKind::PackageHooks),
+            (".gitmodules", EditKind::GitSettings),
+            ("sub/.gitattributes", EditKind::GitSettings),
+            (".devcontainer/devcontainer.json", EditKind::DevContainer),
+            (".devcontainer.json", EditKind::DevContainer),
+        ] {
+            assert!(work.may_change(path), "{path} passes may_change");
+            assert_eq!(work.runs_later(path), Some(kind), "{path}");
+        }
+        for path in [
+            "src/main.rs",
+            "AGENTS.md",
+            "CLAUDE.md",
+            "sub/AGENTS.md",
+            ".cursorrules",
+            ".github/copilot-instructions.md",
+            ".github/CODEOWNERS",
+            ".vscode/settings.json",
+            ".yarn/cache/x.zip",
+            "docs/lefthook.md",
+            ".gitignore",
+        ] {
+            assert_eq!(work.runs_later(path), None, "{path}");
+            assert!(work.may_change(path), "{path}");
+        }
+        // `.npmrc` can hold a token, so it asks as a secret instead.
+        assert!(!work.may_change(".npmrc"));
+        // The folder's own path doesn't count, as with may_change.
+        let nested = Folders::new(
+            Path::new("/work/.husky/ws"),
+            Path::new("/work/attached"),
+            false,
+        );
+        assert_eq!(nested.runs_later("/work/.husky/ws/src/main.rs"), None);
+        assert_eq!(
+            nested.runs_later("/work/.husky/ws/.husky/pre-commit"),
+            Some(EditKind::GitHooks)
+        );
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn a_hook_file_counts_where_its_link_leads() {
+        let base = crate::testing::TempDir::new();
+        let ws = std::fs::canonicalize(base.path()).unwrap();
+        std::fs::create_dir_all(ws.join(".husky")).unwrap();
+        std::os::unix::fs::symlink(".husky", ws.join("hooks")).unwrap();
+        let folders = Folders::new(&ws, &ws.join("attached"), true);
+        assert_eq!(
+            folders.runs_later("hooks/pre-commit"),
+            Some(EditKind::GitHooks)
+        );
+        assert_eq!(folders.runs_later("src/main.rs"), None);
     }
 
     #[test]

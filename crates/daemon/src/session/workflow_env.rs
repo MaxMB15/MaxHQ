@@ -196,6 +196,7 @@ impl Manager {
                 label: REMEMBER_LABEL.to_owned(),
                 settings: self.env_setting(project),
             }),
+            edit: None,
         };
         let mut workflows: Vec<&str> = Vec::new();
         for row in &consent.rows {

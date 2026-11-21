@@ -472,6 +472,7 @@ fn move_question(departure: &Departure, check: &MoveCheck, shown: &Shown) -> (St
             .collect(),
         rows: Vec::new(),
         remember: None,
+        edit: None,
     };
     let choice = |label: String, description: String| QuestionOption {
         label,
