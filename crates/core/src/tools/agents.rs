@@ -190,6 +190,9 @@ pub struct Move {
     pub agent: AgentId,
     /// Where it goes.
     pub to: MoveTo,
+    /// The user's own words that name the mode it should run in there, as
+    /// the caller quotes them.
+    pub user_words: Option<String>,
 }
 
 /// List agents.
@@ -275,6 +278,13 @@ pub(super) fn description(tool: Tool) -> &'static str {
         _ => unreachable!("not an agent tool"),
     }
 }
+
+/// What `user_words` reads, in move_agent.
+const MOVE_WORDS: &str = "Only when the user's own message asked for the agent to run in a \
+                          given mode there, such as Full access: their exact words that name \
+                          it, copied. Leave it out otherwise. A moved agent runs in the lower \
+                          of its mode now and the other device's default, unless the user's \
+                          words name the higher one. The user approves the move either way.";
 
 /// The JSON schema for each agent tool's arguments.
 pub(super) fn input_schema(tool: Tool) -> Value {
@@ -449,6 +459,7 @@ pub(super) fn parse(tool: Tool, arguments: &Value) -> Result<Call, String> {
             device: id(&args, "device")?,
             agent: id(&args, "agent")?.ok_or("Give an `agent`.")?,
             to: move_to(&args)?,
+            user_words: text(&args, "user_words")?,
         }),
         _ => unreachable!("not an agent tool"),
     })
@@ -701,6 +712,7 @@ mod tests {
                 device: None,
                 agent,
                 to,
+                user_words: None,
             }))
         );
         let refused = Tool::MoveAgent

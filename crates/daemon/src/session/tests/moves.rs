@@ -799,6 +799,44 @@ async fn a_tools_move_offers_the_higher_mode_no_higher_than_the_callers() {
 }
 
 #[tokio::test]
+async fn a_tools_move_takes_the_higher_mode_when_your_own_words_name_it() {
+    let (mut mac, mut devbox) = pair();
+    let (old, _) = mac.claude_after_a_turn().await;
+    mac.default_to(PermissionMode::FullAccess).await;
+    let (lead, session) = mac.start_claude(Some("Lead")).await;
+    allow_both(&mut mac, &mut devbox, lead).await;
+    mac.send(lead, "Move Build it to the build box with full access")
+        .await;
+    eventually("your message", || {
+        mac.sent(session)
+            .iter()
+            .any(|sent| sent.contains("with full access"))
+    })
+    .await;
+
+    // Your words name Full access, so Approve takes it with no second
+    // choice. The card still asks.
+    let mut ask = devbox.move_ask("m1", old);
+    ask["user_words"] = "with Full access".into();
+    let say = Say {
+        tools: vec![("m1".into(), lead, "move_agent".into(), ask)],
+        ..Say::default()
+    };
+    mac.say(session, &say).await;
+    let card = mac.move_card().await;
+    let question = mac.move_question(lead).await;
+    let facts = card_facts(&question);
+    assert!(shows(&facts, "Runs in", "Full access"), "{facts:?}");
+    assert_eq!(buttons(&question), [APPROVE, DECLINE]);
+    assert_eq!(
+        mac.answer_move(card.id, APPROVE).await,
+        AnswerOutcome::Accepted
+    );
+    let new = moved_to(&mac.answer("m1").await.expect("it moved"));
+    assert_eq!(devbox.runs_in(new), Some(PermissionMode::FullAccess));
+}
+
+#[tokio::test]
 async fn a_tools_move_starts_the_agent_no_higher_than_the_caller() {
     let (mut mac, mut devbox) = pair();
     mac.default_to(PermissionMode::Ask).await;

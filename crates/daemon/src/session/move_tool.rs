@@ -108,6 +108,8 @@ pub(super) struct Looked {
     look: ActionOutcome,
     /// What it will run as there, as the other device says.
     check: ActionOutcome,
+    /// The user's words the caller quotes for the mode it runs in there.
+    words: Option<String>,
 }
 
 impl Manager {
@@ -125,6 +127,7 @@ impl Manager {
             device,
             agent,
             to,
+            user_words: words,
         } = asked;
         let from = device.unwrap_or(self.device);
         let key = request_key(caller.actor, &request_id);
@@ -157,6 +160,7 @@ impl Manager {
                 to,
                 look,
                 check,
+                words,
             };
             let _ = tx.send(Input::Move(Box::new(Later::Looked(Box::new(looked)))));
         });
@@ -202,6 +206,7 @@ impl Manager {
             to,
             look,
             check,
+            words,
         } = looked;
         let departure = match look {
             ActionOutcome::Departed { departure } => departure,
@@ -230,7 +235,7 @@ impl Manager {
                     return self.finish(key, Outcome::Action(refused(refusal.to_string())))
                 }
             };
-        let Some(modes) = self.card_modes(caller, &departure, &check, cap) else {
+        let Some(modes) = self.card_modes(caller, words.as_deref(), &departure, &check, cap) else {
             return self.finish(key, Outcome::Action(refused(ABOVE_CALLER)));
         };
         let shown = Shown {
@@ -265,10 +270,13 @@ impl Manager {
     /// the lower of the mode it ran in and its own default unless you pick
     /// the higher, and neither goes past `cap`, the caller's own mode. A
     /// device from before that choice starts it in the mode it ran in, so
-    /// that's the one shown, and none when it's broader than `cap`.
+    /// that's the one shown, and none when it's broader than `cap`. When
+    /// `words` the caller quotes are yours and name the higher mode,
+    /// Approve takes it with no second choice.
     fn card_modes(
         &self,
         caller: Calling,
+        words: Option<&str>,
         departure: &Departure,
         check: &MoveCheck,
         cap: Option<PermissionMode>,
@@ -288,7 +296,11 @@ impl Manager {
         };
         let (lower, higher) = rules::move_modes(departure.mode, default);
         let (lower, higher) = (capped(lower), capped(higher));
-        if self.owner_asked_for_mode(caller, higher) {
+        let asked = caller
+            .agent
+            .zip(words)
+            .is_some_and(|(agent, words)| self.owner_asked_for(agent, words, higher));
+        if asked {
             return Some(Modes {
                 approve: higher,
                 higher: None,
@@ -298,15 +310,6 @@ impl Manager {
             approve: lower,
             higher: (higher != lower).then_some(higher),
         })
-    }
-
-    /// Whether the owner's own words asked for this move in `mode`, so the
-    /// card's Approve starts the agent in it with no second choice. Always
-    /// false for now: `owner_asked_for(agent, quote, mode)` in
-    /// `crates/daemon/src/session/owner_words.rs` goes here, with the
-    /// caller's agent and the owner's words it quotes.
-    fn owner_asked_for_mode(&self, _caller: Calling, _mode: PermissionMode) -> bool {
-        false
     }
 
     /// The name you gave a device in the link book, or this device's own,
