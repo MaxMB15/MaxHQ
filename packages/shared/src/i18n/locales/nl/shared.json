@@ -1382,6 +1382,7 @@
 	"This spans more than one line, so it ran on its own.": "Dit beslaat meer dan één regel, dus het draaide apart.",
 	"This starts with exec, so it ran on its own.": "Dit begint met exec, dus het draaide apart.",
 	"Your shell didn't report its commands, so this ran on its own.": "Je shell gaf zijn opdrachten niet door, dus dit draaide apart.",
+	"Any folder or workspace": "Elke map of werkruimte",
 	"Brought {{name}} back": "{{name}} teruggezet als open",
 	"Change": "Wijziging",
 	"Changed the settings of {{name}}": "Instellingen van {{name}} gewijzigd",
@@ -1392,6 +1393,7 @@
 	"Deleted {{name}}": "{{name}} verwijderd",
 	"Hid {{name}} from the sidebar": "{{name}} verborgen in de zijbalk",
 	"Let {{name}} run agents": "{{name}} mag nu agents uitvoeren",
+	"Lets it": "Het mag",
 	"Marked {{name}} as read": "{{name}} als gelezen gemarkeerd",
 	"Ran the task {{name}}": "Taak {{name}} uitgevoerd",
 	"Renamed {{name}} to {{title}}": "{{name}} hernoemd naar {{title}}",
@@ -1403,6 +1405,7 @@
 	"Settled {{name}}": "{{name}} afgehandeld",
 	"Showed {{name}} in the sidebar again": "{{name}} weer getoond in de zijbalk",
 	"Snoozed {{name}}": "{{name}} uitgesteld",
+	"Start, message and stop agents": "Agents starten, berichten sturen en stoppen",
 	"Started the workspace {{name}}": "Werkruimte {{name}} gestart",
 	"Stopped the turn of {{name}}": "Beurt van {{name}} gestopt",
 	"Stopped the workspace {{name}}": "Werkruimte {{name}} gestopt",
@@ -1441,5 +1444,7 @@
 	"turning off the task {{name}}": "taak {{name}} uitzetten",
 	"turning on the task {{name}}": "taak {{name}} aanzetten",
 	"updating the agent CLIs on {{name}}": "agent-CLI's op {{name}} bijwerken",
-	"waking {{name}}": "{{name}} weer tonen"
+	"waking {{name}}": "{{name}} weer tonen",
+	"{{count, number}} levels of agents below it_one": "{{count, number}} niveau agents eronder",
+	"{{count, number}} levels of agents below it_other": "{{count, number}} niveaus agents eronder"
 }

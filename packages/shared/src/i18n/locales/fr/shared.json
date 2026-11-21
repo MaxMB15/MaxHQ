@@ -1420,6 +1420,7 @@
 	"This spans more than one line, so it ran on its own.": "Ceci tient sur plusieurs lignes, donc cela s'est exécuté à part.",
 	"This starts with exec, so it ran on its own.": "Ceci commence par exec, donc cela s'est exécuté à part.",
 	"Your shell didn't report its commands, so this ran on its own.": "Votre shell n'a pas signalé ses commandes, donc ceci s'est exécuté à part.",
+	"Any folder or workspace": "Tout dossier ou espace de travail",
 	"Brought {{name}} back": "{{name}} marqué comme non traité",
 	"Change": "Modification",
 	"Changed the settings of {{name}}": "Réglages de {{name}} modifiés",
@@ -1431,6 +1432,7 @@
 	"Deleted {{name}}": "{{name}} supprimé",
 	"Hid {{name}} from the sidebar": "{{name}} masqué dans la barre latérale",
 	"Let {{name}} run agents": "{{name}} peut maintenant exécuter des agents",
+	"Lets it": "Peut",
 	"Marked {{name}} as read": "{{name}} marqué comme lu",
 	"Ran the task {{name}}": "Tâche {{name}} exécutée",
 	"Renamed {{name}} to {{title}}": "{{name}} renommé en {{title}}",
@@ -1442,6 +1444,7 @@
 	"Settled {{name}}": "{{name}} marqué comme traité",
 	"Showed {{name}} in the sidebar again": "{{name}} réaffiché dans la barre latérale",
 	"Snoozed {{name}}": "{{name}} reporté",
+	"Start, message and stop agents": "Démarrer, contacter et arrêter des agents",
 	"Started the workspace {{name}}": "Espace de travail {{name}} démarré",
 	"Stopped the turn of {{name}}": "Tour de {{name}} arrêté",
 	"Stopped the workspace {{name}}": "Espace de travail {{name}} arrêté",
@@ -1481,5 +1484,8 @@
 	"turning off the task {{name}}": "désactiver la tâche {{name}}",
 	"turning on the task {{name}}": "activer la tâche {{name}}",
 	"updating the agent CLIs on {{name}}": "mettre à jour les CLI des agents sur {{name}}",
-	"waking {{name}}": "réafficher {{name}}"
+	"waking {{name}}": "réafficher {{name}}",
+	"{{count, number}} levels of agents below it_many": "{{count, number}} niveaux d'agents en dessous",
+	"{{count, number}} levels of agents below it_one": "{{count, number}} niveau d'agents en dessous",
+	"{{count, number}} levels of agents below it_other": "{{count, number}} niveaux d'agents en dessous"
 }

@@ -14,8 +14,11 @@ import type {
 	ProjectSettingChange,
 	TimelineItem,
 } from "../bindings";
+import { VENDORS } from "../agent-tools/scope";
 import { t } from "../i18n";
 import { MODE_LABEL } from "../settings/permission";
+import { VENDOR_NAME } from "../status/agent-kind";
+import { listInWords } from "../status/format";
 import { all, type ViewState } from "../view/replica";
 import { deviceName, workspaceName } from "../view/select";
 
@@ -224,6 +227,38 @@ export const settingLines = (action: AdminAction): string[] => {
 		return `${change.field.replaceAll("_", " ")}: ${shown}`;
 	});
 };
+
+/**
+ * How wide a planned grant is, line by line, such as "Devices: devbox", so
+ * you see what you confirm. `maxd` makes the dispatcher's grant for every
+ * vendor the forms offer, with any account and place and no limits.
+ */
+export const grantLines = (
+	view: ViewState,
+	action: AdminAction
+): { readonly label: string; readonly value: string }[] =>
+	action.action === "grant_permission"
+		? [
+				{ label: t("Lets it"), value: t("Start, message and stop agents") },
+				{
+					label: t("Devices"),
+					value: listInWords(action.devices.map((device) => deviceName(view, device))),
+				},
+				{
+					label: t("Vendors"),
+					value: listInWords(VENDORS.map((vendor) => VENDOR_NAME[vendor])),
+				},
+				{ label: t("Accounts"), value: t("Any account") },
+				{ label: t("Places"), value: t("Any folder or workspace") },
+				{
+					label: t("Depth"),
+					value: t("{{count, number}} levels of agents below it", {
+						count: action.depth,
+					}),
+				},
+				{ label: t("Limits"), value: t("No limits") },
+			]
+		: [];
 
 /**
  * Whether `device`'s dispatcher makes safe changes at once, as the Act

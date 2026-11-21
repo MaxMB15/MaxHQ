@@ -19,6 +19,8 @@ import { NOW } from "@maxhq/shared/test/build";
 import { timelineItem } from "@maxhq/shared/timeline/build";
 import { createTimelineStore } from "@maxhq/shared/timeline/store";
 
+import { ConsentFacts } from "@/components/consent-facts";
+
 import { QuestionCard } from "./question";
 import type { ItemOf } from "./types";
 
@@ -29,9 +31,9 @@ afterEach(() => {
 
 const QUESTION = "container-reach";
 const REMEMBER = "container-reach-remember";
-const REMEMBER_LABEL = "Remember for this permission";
+const REMEMBER_LABEL = "Remember for every call outside the container";
 const WHERE =
-	"Kept on the permission. To change it later, open the menu in this agent's header, pick Change what it can run, and set Containers.";
+	"Kept on the permission, so it answers every later call that reaches outside the container, to any agent, device or test machine. To change it later, open the menu in this agent's header, pick Change what it can run, and set Containers.";
 
 const REACH: Question = {
 	id: QUESTION,
@@ -161,5 +163,20 @@ describe("consent card", () => {
 		show("cancelled");
 		expect(screen.getByText("Reach outside the container")).toBeInTheDocument();
 		expect(screen.getByText("Closed without an answer")).toBeInTheDocument();
+	});
+});
+
+describe("consent facts", () => {
+	it("keep a long value whole, with its lines, and say when there's more below", () => {
+		// The value's text runs taller than its box shows.
+		const spies = [
+			vi.spyOn(HTMLElement.prototype, "scrollHeight", "get").mockReturnValue(900),
+			vi.spyOn(HTMLElement.prototype, "clientHeight", "get").mockReturnValue(220),
+		];
+		const prompt = `Check the build.\n${"And again. ".repeat(80)}\nThen delete it.`;
+		render(<ConsentFacts facts={[{ label: "Prompt", value: prompt }]} />);
+		expect(screen.getByText(/^Check the build\./).textContent).toBe(prompt);
+		expect(screen.getByText("More below. Scroll to read it all.")).toBeInTheDocument();
+		spies.forEach((spy) => spy.mockRestore());
 	});
 });

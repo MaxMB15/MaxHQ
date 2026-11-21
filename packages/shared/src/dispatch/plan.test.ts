@@ -336,3 +336,37 @@ describe("a planned move", () => {
 		expect(row).toMatchObject({ line: "Moved", agent: "agent-new", failed: false });
 	});
 });
+
+describe("a planned grant", () => {
+	it("opens to how wide it is", () => {
+		const grant: Plan = {
+			id: 10,
+			items: [
+				{
+					reason: "Lets it hand off the review",
+					step: {
+						type: "admin",
+						device: "dev-mac",
+						action: {
+							action: "grant_permission",
+							agent: "reviewer",
+							devices: ["dev-mac", "dev-box"],
+							depth: 3,
+						},
+					},
+				},
+			],
+		};
+		expect(itemLines(view, grant, 0)).toEqual([
+			{ label: "Device", value: "Mac" },
+			{ label: "Change", value: "Letting Reviewer run agents" },
+			{ label: "Lets it", value: "Start, message and stop agents" },
+			{ label: "Devices", value: "Mac and dev-box" },
+			{ label: "Vendors", value: "Claude and Codex" },
+			{ label: "Accounts", value: "Any account" },
+			{ label: "Places", value: "Any folder or workspace" },
+			{ label: "Depth", value: "3 levels of agents below it" },
+			{ label: "Limits", value: "No limits" },
+		]);
+	});
+});
