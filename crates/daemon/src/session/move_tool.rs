@@ -333,7 +333,8 @@ impl Manager {
 
     /// Answers a move's card. Only a person can, so an agent's tool route
     /// hears there's no such event, and an answer it doesn't offer leaves
-    /// it open.
+    /// it open. A phone whose switch is off can't pick the higher mode when
+    /// that's Auto or Full access, so the Mac still can.
     pub(super) fn answer_move_card(
         &mut self,
         conn: u64,
@@ -353,12 +354,13 @@ impl Manager {
             return AnswerOutcome::UnknownEvent;
         };
         let modes = self.moves.asking[index].modes;
+        let higher = modes
+            .higher
+            .filter(|mode| !(rules::needs_switch(*mode) && self.held_back(conn)));
         let (pick, mode) = match picked(answer, QUESTION) {
             Some(pick @ APPROVE) => (pick, Some(modes.approve)),
             Some(pick @ DECLINE) => (pick, None),
-            Some(pick) if modes.higher.is_some_and(|mode| pick == approve_in(mode)) => {
-                (pick, modes.higher)
-            }
+            Some(pick) if higher.is_some_and(|mode| pick == approve_in(mode)) => (pick, higher),
             _ => return AnswerOutcome::UnknownEvent,
         };
         let values = vec![pick.to_owned()];

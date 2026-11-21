@@ -28,6 +28,7 @@ import type {
 } from "../bindings";
 import { labeledText } from "../pills/draft";
 import { agentMode, MODE_LABEL, movedMode, startingMode } from "../settings/permission";
+import { needsSwitch } from "../settings/phones";
 import { listInWords, plural, sentence } from "../status/format";
 import { agentKindName, isLocalAccount } from "../status/agent-kind";
 import { accountName } from "../status/usage";
@@ -147,6 +148,40 @@ export const itemMode = (view: ViewState, item: PlanItem): PermissionMode | null
 	const aim = step.target.target;
 	if (aim.type !== "new") return null;
 	return aim.spec.permission ?? startingMode(view, aim.device, aim.spec.vendor);
+};
+
+const names = (mode?: PermissionMode | null): boolean => !!mode && needsSwitch(mode);
+
+/**
+ * Whether a step names Auto or Full access, so a phone confirms it only
+ * when the dispatcher's device lets it do everything, as that maxd checks:
+ * a start's mode, a new task agent's, a move's, an agent's new mode or the
+ * device's new default. A start that names no mode runs in the default the
+ * Mac set, so it doesn't count.
+ */
+export const stepNeedsSwitch = (step: PlanStep): boolean => {
+	switch (step.type) {
+		case "start_agent":
+			return names(step.spec.permission);
+		case "schedule_task":
+			return (
+				step.target.type === "task" &&
+				step.target.target.type === "new" &&
+				names(step.target.target.spec.permission)
+			);
+		case "move_agent":
+			return names(step.to.mode);
+		case "admin": {
+			const { action } = step;
+			if (action.action === "set_mode") return needsSwitch(action.mode);
+			return (
+				action.action === "change_settings" &&
+				action.changes.some((c) => c.field === "default_permission" && needsSwitch(c.value))
+			);
+		}
+		case "send_message":
+			return false;
+	}
 };
 
 /** How many lines of what an item sends show before you open it. */

@@ -42,6 +42,7 @@ use super::scheduled::system_zone;
 use super::{refused, Input, Manager};
 use crate::drive::{ToolCall, ToolResult};
 use crate::hub::Hub;
+use crate::phones::PHONE_CANT;
 use crate::pulls::source::{Pull, PullSource};
 use crate::secrets::RepoName;
 
@@ -297,7 +298,7 @@ impl Manager {
                 ..
             } => {
                 if self.clients.get(&conn).is_some_and(|viewer| viewer.person) {
-                    self.owner_words.sent(key, &text);
+                    self.owner_words.sent(key, &text, self.held_back(conn));
                 }
                 let input = UserInput {
                     text,
@@ -401,13 +402,25 @@ impl Manager {
         self.action(key, ClientMessage::StartAgent { key, spec })
     }
 
-    /// Runs the plan shown, unless an agent or the dispatcher itself asks.
+    /// Runs the plan shown, unless an agent or the dispatcher itself asks,
+    /// or a phone whose switch is off asks for Auto or Full access in it.
     fn confirm_plan(&mut self, conn: u64, key: IdempotencyKey, plan: u32) -> Option<ActionOutcome> {
         if conn == NO_CONN || self.agent_tools.signed_in(conn) {
             return Some(refused("Only you can confirm a plan, in MaxHQ."));
         }
         if self.dispatcher.run.is_some() {
             return Some(refused("A plan is still running."));
+        }
+        if self.held_back(conn)
+            && self.dispatcher.plan.as_ref().is_some_and(|shown| {
+                shown.id == plan
+                    && shown
+                        .items
+                        .iter()
+                        .any(|item| admin::needs_switch(&item.step))
+            })
+        {
+            return Some(refused(PHONE_CANT));
         }
         let Some(plan) = self.dispatcher.plan.take_if(|shown| shown.id == plan) else {
             return Some(refused("That plan isn't the one shown any more."));

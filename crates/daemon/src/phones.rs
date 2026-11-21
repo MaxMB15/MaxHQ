@@ -51,6 +51,9 @@ use crate::sshkey::ed25519_line;
 
 /// The refusal for every phone request on a device that doesn't pair.
 pub const NOT_YET: &str = "Phones aren't set up yet.";
+/// The refusal for what only the Mac does, to a phone whose switch is off.
+pub const PHONE_CANT: &str = "A phone can't do that. To let this phone, turn on Let this phone do \
+                              everything for it in the Mac's Settings, under Phones.";
 /// How long a one-time pairing key works.
 pub const PAIR_WITHIN: Duration = Duration::from_secs(10 * 60);
 /// The refusal for a pairing that no longer waits.
@@ -698,6 +701,12 @@ pub fn install(phones: Phones) {
 /// The service, once `maxd` has started it.
 pub fn installed() -> Option<&'static Phones> {
     PHONES.get()
+}
+
+/// Whether the Mac turned `phone`'s switch on here, so it may do what
+/// only the Mac does, short of letting other keys in.
+pub fn lets(phone: PhoneId) -> bool {
+    installed().is_some_and(|phones| phones.everything(phone))
 }
 
 /// Runs `f` on the service, or refuses on a device that doesn't pair.

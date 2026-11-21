@@ -790,6 +790,17 @@ async fn a_tools_move_offers_the_higher_mode_no_higher_than_the_callers() {
         buttons(&question),
         [APPROVE, "Approve in Full access", DECLINE]
     );
+    // A phone whose switch is off can't pick Full access, so the card
+    // stays open for the Mac.
+    let own = std::mem::replace(
+        &mut mac.phone,
+        Inbox::from_phone(&mac.sessions, PhoneId::derive("switched off")),
+    );
+    assert_eq!(
+        mac.answer_move(card.id, "Approve in Full access").await,
+        AnswerOutcome::UnknownEvent
+    );
+    mac.phone = own;
     assert_eq!(
         mac.answer_move(card.id, "Approve in Full access").await,
         AnswerOutcome::Accepted

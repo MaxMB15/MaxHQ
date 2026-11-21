@@ -18,7 +18,7 @@ use maxhq_protocol::attention::{
 use maxhq_protocol::context::{InlineRef, QuoteSource};
 use maxhq_protocol::ids::{
     AccountId, AcpAgentId, AgentId, AttachmentId, AttentionId, BootId, ClientId, DeviceId,
-    IdempotencyKey, ProjectId, SessionId,
+    IdempotencyKey, PhoneId, ProjectId, SessionId,
 };
 use maxhq_protocol::message::{
     ActionOutcome, AgentPlace, AgentSpec, AttachmentSource, ClientMessage, SendMode, ServerMessage,
@@ -74,6 +74,7 @@ mod memory;
 mod moves;
 mod notes;
 mod pace;
+mod phone_switch;
 mod pulls;
 mod renames;
 mod restarts;
@@ -202,6 +203,15 @@ impl Inbox {
     fn new(sessions: &Sessions, by: ClientId) -> Self {
         Self {
             client: sessions.client(by),
+            kept: Vec::new(),
+        }
+    }
+
+    /// A client on `phone`, whose switch is off unless the shared phone
+    /// store turned it on.
+    fn from_phone(sessions: &Sessions, phone: PhoneId) -> Self {
+        Self {
+            client: sessions.phone_client(ClientId::derive("iphone"), phone),
             kept: Vec::new(),
         }
     }

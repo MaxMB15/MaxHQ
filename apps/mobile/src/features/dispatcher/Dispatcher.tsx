@@ -54,6 +54,7 @@ import {
 	planSummary,
 	resultRows,
 	resultsTitle,
+	stepNeedsSwitch,
 } from "@maxhq/shared/dispatch/plan";
 import { ANY_PLACE, takesAnswerPills, type Typed } from "@maxhq/shared/pills/answer";
 import { sentence } from "@maxhq/shared/status/format";
@@ -71,6 +72,7 @@ import { FeedItem } from "../agent/FeedRow";
 import { AttentionCard } from "../attention/AttentionCard";
 import { useTypedField } from "../composer/typed-field";
 import { promptOfEvent } from "../attention/prompt";
+import { NeedsSwitch, useLetsPhone } from "../phone/everything";
 import { ASK_PLACEHOLDER, type DispatcherBar, dispatcherBar, resultLine, sheetOpens } from "./bar";
 import { dispatcherPrefs } from "./prefs";
 
@@ -378,6 +380,10 @@ const Sheet = ({
 	const device = useView((s) => (reach.device ? deviceName(s.view, reach.device) : t("the Mac")));
 	const scroller = useRef<ComponentRef<typeof ScrollView>>(null);
 	const blocked = busy || reach.off !== null;
+	// The Mac's maxd refuses a phone's confirm of Auto or Full access
+	// unless it lets this phone do everything.
+	const lets = useLetsPhone(reach.device);
+	const held = !lets && !!plan && plan.items.some((item) => stepNeedsSwitch(item.step));
 
 	return (
 		<>
@@ -410,7 +416,7 @@ const Sheet = ({
 				{ran ? (
 					<Results run={ran} onOpenAgent={onOpenAgent} />
 				) : plan ? (
-					<PlanItems key={plan.id} plan={plan} />
+					<PlanItems key={plan.id} plan={plan} lets={lets} />
 				) : null}
 				{note ? (
 					<Text accessibilityRole="alert" style={styles.note}>
@@ -431,9 +437,14 @@ const Sheet = ({
 						label={t("Confirm")}
 						tone="primary"
 						small
-						disabled={blocked}
+						disabled={blocked || held}
 						onPress={() => void confirm(flow, reach.device, plan)}
 					/>
+				</View>
+			) : null}
+			{!ran && held ? (
+				<View style={styles.switchLine}>
+					<NeedsSwitch />
 				</View>
 			) : null}
 		</>
@@ -479,8 +490,12 @@ const Conversation = ({ agent, device }: { agent: Agent; device: string }) => {
 	);
 };
 
-/** A plan waiting on you: its summary, and its items, each opening to its lines. */
-const PlanItems = ({ plan }: { plan: Plan }) => {
+/**
+ * A plan waiting on you: its summary, and its items, each opening to its
+ * lines. Unless the Mac `lets` this phone do everything, an item that
+ * names Auto or Full access says it needs the switch.
+ */
+const PlanItems = ({ plan, lets }: { plan: Plan; lets: boolean }) => {
 	const { t } = useI18n();
 
 	const view = useView((s) => s.view);
@@ -507,6 +522,9 @@ const PlanItems = ({ plan }: { plan: Plan }) => {
 									{sentence(itemPhrase(view, item))}
 								</Text>
 								<Text style={styles.reason}>{item.reason}</Text>
+								{!lets && stepNeedsSwitch(item.step) ? (
+									<Text style={styles.reason}>{t("Needs the switch")}</Text>
+								) : null}
 							</View>
 						</Pressable>
 						{open ? (
@@ -654,6 +672,7 @@ const styles = StyleSheet.create({
 		borderTopColor: color.border,
 	},
 	confirmHint: { flex: 1, color: color.mutedForeground, fontSize: size.tiny },
+	switchLine: { paddingHorizontal: 14, paddingBottom: 8 },
 	foot: {
 		backgroundColor: color.background,
 		borderTopWidth: StyleSheet.hairlineWidth,

@@ -1406,6 +1406,30 @@ impl Manager {
         );
     }
 
+    /// Stops every agent a caller on `device` started here, and the ones
+    /// they started, once this device no longer links to it: nothing it
+    /// asked for goes on. Each stays, paused, for you. What its tasks
+    /// said they reach here no longer holds either.
+    pub(super) fn cut_off(&mut self, device: DeviceId) {
+        let started: Vec<AgentId> = self
+            .held
+            .values()
+            .filter(|held| {
+                held.origin
+                    .as_ref()
+                    .is_some_and(|origin| origin.device == device)
+            })
+            .map(|held| held.agent.id)
+            .collect();
+        for lead in started {
+            for agent in self.started_by(lead).into_iter().chain([lead]) {
+                let key = super::held::internal_key();
+                self.message(NO_CONN, ClientMessage::StopAgent { key, agent });
+            }
+        }
+        self.forget_task_targets(device);
+    }
+
     /// Every held agent `agent` started, and the ones they started.
     fn started_by(&self, agent: AgentId) -> Vec<AgentId> {
         let mut found = Vec::new();

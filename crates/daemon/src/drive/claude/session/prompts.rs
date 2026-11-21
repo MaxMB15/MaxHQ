@@ -24,7 +24,7 @@ use super::ClaudeSession;
 use crate::drive::claude::artifacts::Asked;
 use crate::drive::claude::convo::{self, Owner};
 use crate::drive::claude::tools::{
-    self, plan_options, tool_options, DENIED, DISMISSED, KEEP_PLANNING,
+    self, plan_mode, plan_options, tool_options, DENIED, DISMISSED, KEEP_PLANNING,
 };
 use crate::drive::claude::wire::{self, clip, text};
 use crate::drive::{AttentionChange, Effects, Write};
@@ -63,16 +63,6 @@ pub struct Prompt {
 
 /// What `maxd` says to requests it doesn't handle.
 const NOT_HANDLED: &str = "MaxHQ doesn't handle this request.";
-
-/// The mode a plan's option starts in.
-fn plan_mode(option: &str) -> Option<PermissionMode> {
-    match option {
-        "accept_edits" => Some(PermissionMode::AcceptEdits),
-        "accept" => Some(PermissionMode::Ask),
-        "auto" => Some(PermissionMode::Auto),
-        _ => None,
-    }
-}
 
 /// An answer that went out, and how the items show it.
 struct Reply {
