@@ -68,6 +68,8 @@ The Dispatcher page picks which Claude or Codex account answers the box at the t
 - Account, Runs as: pick one of this Mac's Claude or Codex accounts. Without a pick, the dispatcher takes the first Claude account, else the first Codex one.
 - With no account on this Mac, the page says to sign in to Claude or Codex first.
 - Changes, Act directly: the dispatcher changes settings, agents and tasks without asking first. Deleting, stopping busy agents and granting permissions still ask. Off, every change waits in a plan you confirm. See [The dispatcher](dispatcher.md).
+- Chats, New chat after a pause: when you write again after this long, the dispatcher starts a fresh chat. Pick 15 minutes, 30 minutes, 1 hour, 2 hours, 4 hours or Never. It starts at 30 minutes. It still goes back to an earlier chat on the same topic.
+- A Mac whose maxd is too old for a setting greys it out and says to update maxd first.
 - The dispatcher reads your projects and agents, and can't change your files.
 
 ## Agent tools: limits, allowed agents and access keys

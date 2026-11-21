@@ -4415,7 +4415,11 @@ value: boolean } |
 /**  See [`DeviceSettings::dispatcher_acts`]. */
 { field: "dispatcher_acts"; 
 /**  What it becomes. */
-value: boolean };
+value: boolean } | 
+/**  See [`DeviceSettings::chat_gap_minutes`]. */
+{ field: "chat_gap_minutes"; 
+/**  What it becomes. */
+value: number };
 
 /**  Settings `maxd` keeps for its device. */
 export type DeviceSettings = {
@@ -4542,6 +4546,13 @@ export type DeviceSettings = {
 	 *  dispatcher only plans.
 	 */
 	dispatcher_acts?: boolean,
+	/**
+	 *  Minutes since a dispatcher chat's last message after which your next
+	 *  request starts a fresh chat, or 0 for never, which keeps it in the
+	 *  chat you're in. A `maxd` from before
+	 *  [`crate::message::DISPATCHER_CHATS_SINCE`] leaves it out.
+	 */
+	chat_gap_minutes?: number,
 };
 
 /**  The tasks a device holds, and whether its webhooks can be reached. */

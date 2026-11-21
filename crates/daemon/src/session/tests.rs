@@ -2285,6 +2285,7 @@ async fn device_settings_are_stored_and_published() {
         shell_integration: true,
         read_other_agents: true,
         dispatcher_acts: true,
+        chat_gap_minutes: 30,
     };
     let outcome = h
         .act(|key| ClientMessage::SetDeviceSettings {

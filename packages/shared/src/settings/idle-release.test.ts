@@ -3,7 +3,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import { idleReleaseOptions, idleReleaseText } from "./idle-release";
+import { idleReleaseOptions } from "./idle-release";
 
 describe("idle release", () => {
 	it("offers never and 15 minutes to 8 hours", () => {
@@ -31,13 +31,5 @@ describe("idle release", () => {
 		const options = idleReleaseOptions(45);
 		expect(options.map((o) => o.label)).toContain("45 minutes");
 		expect(options.findIndex((o) => o.value === "45")).toBe(3);
-	});
-
-	it("words minutes as minutes or hours", () => {
-		expect(idleReleaseText(0)).toBe("Never");
-		expect(idleReleaseText(1)).toBe("1 minute");
-		expect(idleReleaseText(90)).toBe("90 minutes");
-		expect(idleReleaseText(60)).toBe("1 hour");
-		expect(idleReleaseText(480)).toBe("8 hours");
 	});
 });

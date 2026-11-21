@@ -31,8 +31,9 @@ use maxhq_core::store::Store;
 use maxhq_protocol::ids::{AccountId, AgentId, InstanceId, ProjectId, WorkspaceId};
 use maxhq_protocol::model::{
     Account, Activity, Agent, AgentLink, CloneProgress, Control, Device, DeviceSettings, Inbox,
-    ModelChoice, PermissionMode, Project, Usage, Workspace, WorkspaceLocation, DEFAULT_HISTORY_MIB,
-    DEFAULT_IDLE_RELEASE_MINUTES, DEFAULT_MEMORY_ITEMS,
+    ModelChoice, PermissionMode, Project, Usage, Workspace, WorkspaceLocation,
+    DEFAULT_CHAT_GAP_MINUTES, DEFAULT_HISTORY_MIB, DEFAULT_IDLE_RELEASE_MINUTES,
+    DEFAULT_MEMORY_ITEMS,
 };
 use maxhq_protocol::pulls::{PullKey, PullLink};
 use maxhq_protocol::state::{Change, Delta, Entity, EntityKey, Seq, Snapshot};
@@ -938,6 +939,7 @@ pub fn default_settings(device: &Device) -> DeviceSettings {
         shell_integration: true,
         read_other_agents: true,
         dispatcher_acts: true,
+        chat_gap_minutes: DEFAULT_CHAT_GAP_MINUTES,
     }
 }
 

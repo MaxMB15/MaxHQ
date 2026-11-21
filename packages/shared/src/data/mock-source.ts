@@ -234,6 +234,7 @@ const SETTINGS: Entity[] = [
 		shell_integration: true,
 		read_other_agents: true,
 		dispatcher_acts: true,
+		chat_gap_minutes: 30,
 		test_hosts: MOCK_TEST_HOST_SETTINGS[MAC],
 	},
 	{
@@ -255,6 +256,7 @@ const SETTINGS: Entity[] = [
 		shell_integration: true,
 		read_other_agents: true,
 		dispatcher_acts: true,
+		chat_gap_minutes: 30,
 		test_hosts: MOCK_TEST_HOST_SETTINGS[DEVBOX],
 	},
 	mockNetworkAccess(MAC),

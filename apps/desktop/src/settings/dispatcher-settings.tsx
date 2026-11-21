@@ -2,14 +2,15 @@
 // Copyright (c) 2026 Max Boksem
 
 // The dispatcher settings, kept on this Mac since the dispatcher runs there:
-// which Claude or Codex account answers the box at the top, and whether it
-// makes safe changes without asking. Each saves as you make it.
+// which Claude or Codex account answers the box at the top, whether it
+// makes safe changes without asking, and how long a pause starts a fresh
+// chat. Each saves as you make it.
 
 import { useMemo } from "react";
 
 import { useServices, useView } from "@/app/services";
 import { setDispatcherAccount, useDispatcherAccount } from "@/header/dispatcher-prefs";
-import { ActsDirectlySection } from "@/header/dispatcher/acts-setting";
+import { ActsDirectlySection, ChatGapSection } from "@/header/dispatcher/acts-setting";
 import { dispatcherAccountLabel, dispatcherAccounts } from "@maxhq/shared/dispatch/plan";
 import { dispatcherDevice } from "@maxhq/shared/dispatch/reach";
 
@@ -56,7 +57,12 @@ export const DispatcherSettingsPage = () => {
 					)}
 				</Row>
 			</Section>
-			{device ? <ActsDirectlySection device={device} /> : null}
+			{device ? (
+				<>
+					<ActsDirectlySection device={device} />
+					<ChatGapSection device={device} />
+				</>
+			) : null}
 		</>
 	);
 };
