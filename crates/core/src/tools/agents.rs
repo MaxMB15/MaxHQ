@@ -371,6 +371,7 @@ pub(super) fn input_schema(tool: Tool) -> Value {
                 "workspace": {"type": "string", "description": "The workspace there, as list_targets with that `device` gives it. Give this or `folder`."},
                 "folder": {"type": "string", "description": "An absolute folder there. Give this or `workspace`."},
                 "model": {"type": "string", "description": "The model, as list_targets names it. Leave it out for the account's default."},
+                "user_words": {"type": "string", "description": MOVE_WORDS},
             }),
             json!(["request_id", "agent", "to_device", "account"]),
         ),
