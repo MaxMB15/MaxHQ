@@ -2,12 +2,13 @@
 // Copyright (c) 2026 Max Boksem
 
 // A prompt an agent is waiting on, laid out as the desktop's waiting card:
-// what it asks, the full command in a box, which a tap opens in full, the edit it
-// asks about, the yes buttons, and a box for a reason with the no on its
-// end. A question shows each of its questions with their options and a box
-// for your own answer, and Dismiss beside its submit button skips them and
-// stops the turn. Once it's answered it says how, and an answer that came
-// too late says so.
+// what it asks and why, when the agent says, the full command in a box,
+// which a tap opens in full, the edit it asks about, the yes buttons, and a
+// box for a reason with the no on its end. When the agent wants no as the
+// default, the no leads the buttons instead. A question shows each of its
+// questions with their options and a box for your own answer, and Dismiss
+// beside its submit button skips them and stops the turn. Once it's
+// answered it says how, and an answer that came too late says so.
 
 import { useI18n } from "@maxhq/shared/i18n";
 
@@ -140,6 +141,7 @@ export const AttentionCard = ({
 					{tag}
 					{open ? <Text style={styles.waiting}>{waiting}</Text> : null}
 				</View>
+				{prompt.reason ? <Why text={prompt.reason} /> : null}
 				{inbox && prompt.detail === null ? (
 					<Text style={styles.summary}>{prompt.title}</Text>
 				) : null}
@@ -271,6 +273,40 @@ export const AttentionCard = ({
 	);
 };
 
+/** A reason shows this many lines until a tap. */
+const WHY_LINES = 3;
+
+/** Why the agent's CLI asks, a few lines until a tap opens it in full. */
+const Why = ({ text }: { text: string }) => {
+	const { t } = useI18n();
+	const [full, setFull] = useState(false);
+	const [lines, setLines] = useState(0);
+	const line = t("Why it asks: {{reason}}", { reason: text });
+	return (
+		<Pressable
+			accessibilityRole="button"
+			accessibilityState={{ expanded: full }}
+			onPress={() => setFull((f) => !f)}
+		>
+			<Text style={styles.why} numberOfLines={full ? undefined : WHY_LINES}>
+				{line}
+			</Text>
+			{/* Laid out in full behind the line to count its lines. */}
+			<Text
+				style={[styles.why, styles.measure]}
+				accessibilityElementsHidden
+				importantForAccessibility="no-hide-descendants"
+				onTextLayout={(event) => setLines(event.nativeEvent.lines.length)}
+			>
+				{line}
+			</Text>
+			{!full && lines > WHY_LINES ? (
+				<Text style={styles.where}>{t("More below. Tap to read it all.")}</Text>
+			) : null}
+		</Pressable>
+	);
+};
+
 const Outcome = ({
 	decided,
 	state,
@@ -377,6 +413,7 @@ const styles = StyleSheet.create({
 	},
 	waiting: { color: color.readyText, fontSize: size.tiny },
 	summary: { color: color.foreground, fontSize: size.small },
+	why: { color: color.mutedForeground, fontSize: size.meta, lineHeight: 17 },
 	detail: {
 		color: color.foreground,
 		fontFamily: font.mono,

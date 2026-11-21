@@ -1,16 +1,19 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026 Max Boksem
 
-// The tool steps: commands, file edits, reads, searches, the web and any
-// other tool. Each is one row, and commands, edits and tool calls open to
-// show what they printed or changed. A file it read or wrote opens in an
+// The tool steps: commands, file edits, reads, searches, the web, claude.ai
+// pages and any other tool. Each is one row, and commands, edits and tool
+// calls open to show what they printed or changed. A file it read or wrote opens in an
 // editor from its row, at the line, and for an agent on another device it
 // can be downloaded from there too. The pictures a read
 // or a tool showed the agent, such as a screenshot, sit under its row.
 
 import {
+	AppWindow,
+	BadgeCheck,
 	Bot,
 	ChevronUp,
+	Database,
 	Diamond,
 	Eye,
 	FileMinus,
@@ -18,6 +21,7 @@ import {
 	FileSymlink,
 	FileText,
 	Globe,
+	MessageSquare,
 	Pencil,
 	Search,
 	Terminal,
@@ -26,6 +30,11 @@ import {
 import { type ReactNode, useMemo } from "react";
 
 import { agentToolLine, agentToolOf, viewNames } from "@maxhq/shared/agent-view/agent-tools";
+import {
+	artifactLine,
+	type ArtifactLine,
+	type ArtifactTool,
+} from "@maxhq/shared/agent-view/artifact-line";
 import { EDIT_VERBS, TOOL_VERBS, verbFor, WEB_VERBS } from "@maxhq/shared/agent-view/tool-line";
 import type { AttachmentRef, FileEdit, ItemStatus } from "@maxhq/shared/bindings";
 import { plural } from "@maxhq/shared/status/format";
@@ -50,6 +59,7 @@ import { useFold } from "@maxhq/shared/agent-view/find-context";
 import { useKept } from "@maxhq/shared/agent-view/kept";
 import { editLine, readLine } from "@maxhq/shared/agent-view/viewer-files";
 import { OpenFileButton } from "../open-in";
+import { PageButtons } from "../page-link";
 import { PictureSet } from "../picture-set";
 import { PictureThumb } from "../picture-viewer";
 import { Detail, Target, ToolRow } from "./tool-row";
@@ -454,8 +464,30 @@ const AgentToolCallRow = ({ item }: { item: ItemOf<"tool_call"> }) => {
 	);
 };
 
+const ARTIFACT_ICON: Record<ArtifactTool, ReactNode> = {
+	page: <AppWindow {...ICON} />,
+	data: <Database {...ICON} />,
+	comments: <MessageSquare {...ICON} />,
+	check: <BadgeCheck {...ICON} />,
+};
+
+// A call to one of Claude Code's artifact tools, in words: "Published
+// Weekly report", with buttons that open and copy the page's link.
+const ArtifactCallRow = ({ item, line }: { item: ItemOf<"tool_call">; line: ArtifactLine }) => (
+	<CallRow
+		item={item}
+		icon={ARTIFACT_ICON[line.tool]}
+		verb={verbFor(item.status, line.verbs)}
+		target={line.target ? <Target>{line.target}</Target> : false}
+		note={line.note}
+		action={line.url ? <PageButtons url={line.url} name={line.target || line.url} /> : null}
+	/>
+);
+
 export const ToolCallRow = ({ item }: { item: ItemOf<"tool_call"> }) => {
 	useI18n();
+	const artifact = artifactLine(item);
+	if (artifact) return <ArtifactCallRow item={item} line={artifact} />;
 	return agentToolOf(item.server, item.name) ? (
 		<AgentToolCallRow item={item} />
 	) : (
@@ -469,12 +501,15 @@ const CallRow = ({
 	verb,
 	target,
 	note,
+	action,
 }: {
 	item: ItemOf<"tool_call">;
 	icon?: ReactNode;
 	verb?: string;
 	target?: ReactNode;
 	note?: string | null;
+	/** A control beside the row, such as the buttons for a page's link. */
+	action?: ReactNode;
 }) => {
 	useI18n();
 	const [open, setOpen] = useFold(`open:${item.id}`, item.id);
@@ -505,6 +540,7 @@ const CallRow = ({
 				running={isOpen(item.status)}
 				open={hasDetail ? open : undefined}
 				onToggle={hasDetail ? () => setOpen(!open) : undefined}
+				action={action}
 			>
 				<Detail>
 					{item.input ? <Section label={translate("Input")} text={item.input} /> : null}

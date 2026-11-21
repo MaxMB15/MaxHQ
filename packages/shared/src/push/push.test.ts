@@ -195,6 +195,14 @@ describe("denyFromButton", () => {
 			"unreached"
 		);
 	});
+
+	it("leaves a request only its card may answer at once", async () => {
+		let looks = 0;
+		const inView = () => (looks++, []);
+		const answer = async () => DONE;
+		expect(await denyFromButton(target, inView, answer, 20_000, noWait)).toBe("unreached");
+		expect(looks).toBe(1);
+	});
 });
 
 describe("handledNotifications", () => {

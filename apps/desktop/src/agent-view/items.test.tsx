@@ -375,6 +375,30 @@ describe("item renderers", () => {
 		expect(screen.getByText("2 agents")).toBeInTheDocument();
 	});
 
+	it("read a claude.ai page call in words, and link only a claude.ai page", () => {
+		const page = "https://claude.ai/artifact/ExampleArtifactId0000001";
+		const call = (url: string): ItemBody => ({
+			kind: "tool_call",
+			server: null,
+			name: "Artifact",
+			title: null,
+			input: null,
+			output: null,
+			artifact: { action: "publish", title: "Weekly report", url, version: "2", owned: true },
+		});
+		show(item(call(page)));
+		expect(screen.getByText("Published")).toBeInTheDocument();
+		expect(screen.getByText("Weekly report")).toBeInTheDocument();
+		const open = screen.getByRole("link", { name: "Open Weekly report in the browser" });
+		expect(open).toHaveAttribute("href", page);
+		expect(screen.getByTitle("Copy link")).toBeInTheDocument();
+		cleanup();
+		show(item(call("https://example.com/artifact/ExampleArtifactId0000001")));
+		expect(screen.getByText("Weekly report")).toBeInTheDocument();
+		expect(screen.queryByRole("link")).toBeNull();
+		expect(screen.queryByTitle("Copy link")).toBeNull();
+	});
+
 	it("copy a finished reply as Markdown, and offer no copy while it streams", async () => {
 		const writeText = vi.fn().mockResolvedValue(undefined);
 		Object.defineProperty(navigator, "clipboard", { value: { writeText }, configurable: true });
@@ -615,6 +639,37 @@ describe("approval card", () => {
 		expect(card).toHaveFocus();
 		fireEvent.keyDown(card, { key: "Enter" });
 		expect(answer).toHaveBeenCalledWith("att-approval", { type: "option", id: "allow_once" });
+	});
+
+	it("puts Deny first when the agent asks for that, so Enter says no", async () => {
+		const { answer } = show(
+			approval({
+				approval_kind: "network",
+				title: 'Permanently delete "Old draft"?',
+				detail: "https://claude.ai/artifact/ExampleArtifactId0000004\nOld draft",
+				options: [
+					{ id: "allow", label: "Allow once" },
+					{ id: "deny", label: "Deny" },
+				],
+				deny_first: true,
+				reason: "Deleting a page can't be undone.",
+			})
+		);
+		expect(
+			screen.getByText("Why it asks: Deleting a page can't be undone.")
+		).toBeInTheDocument();
+		const link = screen.getByRole("link", {
+			name: "https://claude.ai/artifact/ExampleArtifactId0000004",
+		});
+		expect(link).toHaveAttribute("href", "https://claude.ai/artifact/ExampleArtifactId0000004");
+		const card = screen.getByRole("region", { name: "Permission request" });
+		fireEvent.keyDown(card, { key: "Enter" });
+		expect(answer).toHaveBeenCalledWith("att-approval", { type: "option", id: "deny" });
+		expect(screen.getAllByRole("button", { name: /^Deny$/ })).toHaveLength(1);
+		const allow = screen.getByRole("button", { name: /Allow once/ });
+		await waitFor(() => expect(allow).toBeEnabled());
+		fireEvent.click(allow);
+		expect(answer).toHaveBeenLastCalledWith("att-approval", { type: "option", id: "allow" });
 	});
 
 	it("sends another option that says yes", () => {

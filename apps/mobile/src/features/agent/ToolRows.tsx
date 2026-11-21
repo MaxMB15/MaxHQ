@@ -7,7 +7,8 @@
 // a tool showed the agent sit under its line. A file read, edited or opened
 // shows in the file viewer, at the line the desktop opens it at: a tap on
 // the row for a read or an opened file, and the eye at the end of an edit's
-// row, whose own tap opens its changes.
+// row, whose own tap opens its changes. A claude.ai page a Claude agent
+// published or read opens in the browser from the arrow at its row's end.
 
 import { useI18n, formatNumber } from "@maxhq/shared/i18n";
 
@@ -15,9 +16,15 @@ import { useNavigation } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import type { ComponentType, ReactNode } from "react";
 import { useMemo } from "react";
-import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { Linking, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 
 import { agentToolLine, agentToolOf, viewNames } from "@maxhq/shared/agent-view/agent-tools";
+import {
+	artifactLine,
+	type ArtifactLine,
+	type ArtifactTool,
+	claudeLink,
+} from "@maxhq/shared/agent-view/artifact-line";
 import { useFold } from "@maxhq/shared/agent-view/find-context";
 import {
 	baseName,
@@ -50,16 +57,21 @@ import { AnsiText } from "../../ui/AnsiText";
 import { Spinner } from "../../ui/Dot";
 import { Elapsed } from "../../ui/Elapsed";
 import {
+	AppWindow,
+	BadgeCheck,
 	Bot,
 	ChevronDown,
 	ChevronRight,
 	ChevronUp,
+	Database,
+	ExternalLink,
 	Eye,
 	FileMinus,
 	FilePlus,
 	FileSymlink,
 	FileText,
 	Globe,
+	MessageSquare,
 	Pencil,
 	Search,
 	Terminal,
@@ -114,8 +126,11 @@ const Detail = ({ children }: { children: ReactNode }) => {
 	return <View style={styles.detail}>{children}</View>;
 };
 
-/** Showing a file in the viewer, and what VoiceOver calls it. */
-type ShowFile = { readonly label: string; readonly onPress: () => void };
+/**
+ * Showing a file in the viewer, or a page in the browser, and what
+ * VoiceOver calls it. The eye marks it unless it names its own glyph.
+ */
+type ShowFile = { readonly label: string; readonly onPress: () => void; readonly glyph?: Glyph };
 
 // The rows are shorter than a finger, so the eye takes taps a little past itself.
 const ROW = 30;
@@ -138,7 +153,9 @@ const useShowFile = (path: string, line: number | undefined, when: boolean): Sho
 		: null;
 };
 
-const ShowGlyph = () => <Eye size={13} strokeWidth={2} color={color.mutedForeground} />;
+const ShowGlyph = ({ glyph: Shown = Eye }: { glyph?: Glyph }) => (
+	<Shown size={13} strokeWidth={2} color={color.mutedForeground} />
+);
 
 const ToolRow = ({
 	icon,
@@ -193,7 +210,7 @@ const ToolRow = ({
 			{expandable ? (
 				<Chevron size={10} strokeWidth={2.4} color={color.mutedForeground} />
 			) : show ? (
-				<ShowGlyph />
+				<ShowGlyph glyph={show.glyph} />
 			) : null}
 		</>
 	);
@@ -223,7 +240,7 @@ const ToolRow = ({
 						hitSlop={SLOP}
 						style={({ pressed }) => [styles.show, pressed ? styles.pressed : null]}
 					>
-						<ShowGlyph />
+						<ShowGlyph glyph={show.glyph} />
 					</Pressable>
 				</View>
 			) : toggle ? (
@@ -569,12 +586,14 @@ const CallRow = ({
 	verb,
 	target,
 	note,
+	show,
 }: {
 	item: ItemOf<"tool_call">;
 	icon?: Glyph;
 	verb?: string;
 	target?: ReactNode;
 	note?: string | null;
+	show?: ShowFile | null;
 }) => {
 	const { t } = useI18n();
 
@@ -608,6 +627,7 @@ const CallRow = ({
 				running={isOpen(item.status)}
 				open={hasDetail ? open : undefined}
 				onToggle={hasDetail ? () => setOpen(!open) : undefined}
+				show={show}
 			>
 				<Detail>
 					{item.input ? <Section label={t("Input")} text={item.input} /> : null}
@@ -648,8 +668,47 @@ const AgentToolCallRow = ({ item }: { item: ItemOf<"tool_call"> }) => {
 	);
 };
 
+const ARTIFACT_GLYPH: Record<ArtifactTool, Glyph> = {
+	page: AppWindow,
+	data: Database,
+	comments: MessageSquare,
+	check: BadgeCheck,
+};
+
+// Opens a claude.ai page in the browser, checking the link once more first.
+const openPage = (url: string) => {
+	const href = claudeLink(url);
+	if (href) Linking.openURL(href).catch(() => {});
+};
+
+// A call to Claude Code's tools for claude.ai pages, in words: "Published
+// Weekly report", with a tap at its end that opens the page in the browser.
+const ArtifactCallRow = ({ item, line }: { item: ItemOf<"tool_call">; line: ArtifactLine }) => {
+	const { t } = useI18n();
+	const { url } = line;
+	const show = url
+		? {
+				label: t("Open {{name}} in the browser", { name: line.target || url }),
+				onPress: () => openPage(url),
+				glyph: ExternalLink,
+			}
+		: null;
+	return (
+		<CallRow
+			item={item}
+			icon={ARTIFACT_GLYPH[line.tool]}
+			verb={verbFor(item.status, line.verbs)}
+			target={line.target ? <Target>{line.target}</Target> : false}
+			note={line.note}
+			show={show}
+		/>
+	);
+};
+
 /** Any other tool, such as one from an MCP server. */
 export const ToolCallRow = ({ item }: { item: ItemOf<"tool_call"> }) => {
+	const artifact = artifactLine(item);
+	if (artifact) return <ArtifactCallRow item={item} line={artifact} />;
 	return agentToolOf(item.server, item.name) ? (
 		<AgentToolCallRow item={item} />
 	) : (

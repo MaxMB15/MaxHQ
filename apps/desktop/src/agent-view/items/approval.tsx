@@ -4,7 +4,9 @@
 // An approval the agent waits on, answered right in the timeline: the main
 // option on the blue button, the others beside it, and a box to say why
 // not next to the button that turns it down, which takes pills as the
-// composer does. Once answered it shrinks to one line that says what won
+// composer does. When the agent's CLI wants no as the default, the no
+// takes the blue button and Enter. Why the CLI asks, when it says, sits
+// under the title. Once answered it shrinks to one line that says what won
 // and where it came from. The folder is the one the approval names, or
 // else the one its command runs in.
 
@@ -37,11 +39,14 @@ import { askTitle, showHidden } from "@maxhq/shared/status/format";
 import { kindName } from "@maxhq/shared/status/agent-kind";
 import { deviceName } from "@maxhq/shared/view/select";
 
+import { LinkedLines } from "../page-link";
+
 import {
 	approvalChoices,
 	decidedLine,
 	decidedNo,
 	denyAnswer,
+	mainAnswer,
 	useSend,
 } from "@maxhq/shared/agent-view/answer";
 import { rowKind, useRow } from "@maxhq/shared/agent-view/context";
@@ -91,8 +96,8 @@ const useDeviceName = (): string | null => {
 
 // A box and whether more of its text sits below what it shows, kept up as it
 // scrolls and resizes.
-const useMoreBelow = (text: string | null) => {
-	const ref = useRef<HTMLPreElement>(null);
+const useMoreBelow = <Box extends HTMLElement>(text: string | null) => {
+	const ref = useRef<Box>(null);
 	const [more, setMore] = useState(false);
 	const measure = useCallback(() => {
 		const box = ref.current;
@@ -109,14 +114,40 @@ const useMoreBelow = (text: string | null) => {
 	return { ref, more, measure };
 };
 
+const MORE_BELOW = "text-[11.5px] text-muted-foreground";
+
+// Why the agent's CLI asks, under the title, a few lines at most. A long one
+// says there's more, as the detail does.
+const Reason = ({ text }: { text: string }) => {
+	useI18n();
+	const { ref, more, measure } = useMoreBelow<HTMLParagraphElement>(text);
+	return (
+		<div className="flex flex-col gap-[3px]">
+			<p
+				ref={ref}
+				onScroll={measure}
+				className="max-h-[54px] overflow-auto text-[12px] leading-[18px] break-words whitespace-pre-wrap text-muted-foreground select-text"
+			>
+				{translate("Why it asks: {{reason}}", { reason: showHidden(text) })}
+			</p>
+			{more ? (
+				<span className={MORE_BELOW}>
+					{translate("More below. Scroll to read it all.")}
+				</span>
+			) : null}
+		</div>
+	);
+};
+
 // What the detail box shows: a command after a prompt sign, anything else
-// as it came, and the folder it runs in. A long one says there's more, so what
-// sits past the fold can't go unread.
+// as it came with a claude.ai link on its own line made a link, and the
+// folder it runs in. A long one says there's more, so what sits past the
+// fold can't go unread.
 const Detail = ({ item }: { item: ItemOf<"approval"> }) => {
 	useI18n();
 	const working = useWorkingFolder(item);
 	const device = useDeviceName();
-	const { ref, more, measure } = useMoreBelow(item.detail);
+	const { ref, more, measure } = useMoreBelow<HTMLPreElement>(item.detail);
 	const folder = working === null ? null : showHidden(working);
 	if (!item.detail && folder === null) return null;
 	const command = item.approval_kind === "command";
@@ -128,12 +159,18 @@ const Detail = ({ item }: { item: ItemOf<"approval"> }) => {
 					onScroll={measure}
 					className="max-h-[220px] overflow-auto font-mono text-[12px] leading-[1.5] break-words whitespace-pre-wrap text-foreground select-text"
 				>
-					{command ? <span className="text-muted-foreground select-none">$ </span> : null}
-					{showHidden(item.detail)}
+					{command ? (
+						<>
+							<span className="text-muted-foreground select-none">$ </span>
+							{showHidden(item.detail)}
+						</>
+					) : (
+						<LinkedLines text={showHidden(item.detail)} />
+					)}
 				</pre>
 			) : null}
 			{more ? (
-				<span className="text-[11.5px] text-muted-foreground">
+				<span className={MORE_BELOW}>
 					{translate("More below. Scroll to read it all.")}
 				</span>
 			) : null}
@@ -170,13 +207,20 @@ const LiveApproval = ({ item }: { item: ItemOf<"approval"> }) => {
 		[answer, item.attention, pills, reason.refs]
 	);
 	const [state, submit] = useSend(send);
-	const { primary, others, deny } = approvalChoices(item.options);
+	const choices = approvalChoices(item.options, item.deny_first);
+	const { primary, others, deny } = choices;
 	const busy = state.state === "sending";
 	const turnDown = () => {
 		if (deny && !busy) submit(denyAnswer(deny, reason.text));
 	};
+	// The main button and Enter: the first yes, or the no when it comes first.
+	const answerMain = () => {
+		const main = mainAnswer(choices, reason.text);
+		if (main && !busy) submit(main);
+	};
 	const label =
 		vendor === "codex" ? translate("Approval request") : translate("Permission request");
+	const why = item.reason ? <Reason text={item.reason} /> : null;
 
 	if (readOnly) {
 		return (
@@ -187,6 +231,7 @@ const LiveApproval = ({ item }: { item: ItemOf<"approval"> }) => {
 				kind={kind}
 				since={item.started_at}
 			>
+				{why}
 				<Detail item={item} />
 				<ul className="flex flex-wrap gap-1.5" aria-label={translate("Options")}>
 					{item.options.map((o) => (
@@ -216,25 +261,17 @@ const LiveApproval = ({ item }: { item: ItemOf<"approval"> }) => {
 			since={item.started_at}
 			onKeyDown={(event) => {
 				// Enter on the card itself picks the main option, as the hint on its button says.
-				if (
-					event.key === "Enter" &&
-					event.target === event.currentTarget &&
-					primary &&
-					!busy
-				) {
+				if (event.key === "Enter" && event.target === event.currentTarget && primary) {
 					event.preventDefault();
-					submit({ type: "option", id: primary.id });
+					answerMain();
 				}
 			}}
 		>
+			{why}
 			<Detail item={item} />
 			<div className="flex flex-wrap items-start gap-1.5">
 				{primary ? (
-					<PrimaryButton
-						busy={busy}
-						disabled={busy}
-						onClick={() => submit({ type: "option", id: primary.id })}
-					>
+					<PrimaryButton busy={busy} disabled={busy} onClick={answerMain}>
 						{primary.label}
 					</PrimaryButton>
 				) : null}
@@ -274,13 +311,16 @@ const LiveApproval = ({ item }: { item: ItemOf<"approval"> }) => {
 								look="card"
 								busy={busy}
 								trailing={
-									<button
-										type="submit"
-										disabled={busy}
-										className="min-h-[26px] shrink-0 cursor-pointer self-stretch rounded-r-[5px] border-l border-input bg-secondary px-2.5 text-[12px] text-foreground hover:bg-accent disabled:cursor-default disabled:opacity-60"
-									>
-										{deny.label}
-									</button>
+									// The main button says no already when it comes first.
+									primary === deny ? null : (
+										<button
+											type="submit"
+											disabled={busy}
+											className="min-h-[26px] shrink-0 cursor-pointer self-stretch rounded-r-[5px] border-l border-input bg-secondary px-2.5 text-[12px] text-foreground hover:bg-accent disabled:cursor-default disabled:opacity-60"
+										>
+											{deny.label}
+										</button>
+									)
 								}
 							/>
 						</form>

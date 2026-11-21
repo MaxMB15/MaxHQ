@@ -9,6 +9,8 @@
 import { t } from "../i18n";
 
 import type { AttentionId, FileEdit, TimelineItem } from "../bindings";
+import { artifactLine } from "../agent-view/artifact-line";
+import { artifactWords } from "../agent-view/tool-line";
 import {
 	gapAbove,
 	handoffLine,
@@ -60,6 +62,11 @@ const sentLine = (item: Extract<TimelineItem, { kind: "user_message" }>): string
 
 // The line an item reads as, or null for one that shows nothing here.
 const lineOf = (item: TimelineItem): Omit<OutputLine, "id"> | null => {
+	const artifact = artifactLine(item);
+	if (artifact) {
+		const link = artifact.url && artifact.url !== artifact.target ? ` ${artifact.url}` : "";
+		return { speaker: "tool", text: `${artifactWords(item.status, artifact)}${link}` };
+	}
 	const verb = TOOL_VERB[item.kind];
 	if (verb) return { speaker: "tool", text: `${verb} ${toolTarget(item) ?? ""}`.trim() };
 	switch (item.kind) {

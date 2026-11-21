@@ -9,6 +9,7 @@
 
 import type {
 	AgentId,
+	ArtifactCall,
 	AttachmentKind,
 	AttachmentRef,
 	AttentionAnswer,
@@ -1131,6 +1132,167 @@ const syncDrift = (now: Timestamp): TimelineItem[] => {
 	return s.end(now - 6 * MIN);
 };
 
+// Made-up claude.ai pages for the artifact stories.
+const REPORT_PAGE = "https://claude.ai/artifact/ExampleArtifactId0000001";
+const CHECKLIST_PAGE = "https://claude.ai/artifact/ExampleArtifactId0000002";
+const NOTES_PAGE = "https://claude.ai/artifact/ExampleArtifactId0000003";
+const DRAFT_PAGE = "https://claude.ai/artifact/ExampleArtifactId0000004";
+
+// A call to one of Claude Code's artifact tools, with the English line an
+// older app shows in its place.
+const artifact = (
+	name: string,
+	call: ArtifactCall,
+	title: string,
+	input: string,
+	output: string | null = null
+): ItemBody => ({ kind: "tool_call", server: null, name, title, input, output, artifact: call });
+
+// Claude's two answers to an artifact ask, which keeps no rule.
+const ONCE_OR_NOT = [
+	{ id: "allow", label: "Allow once" },
+	{ id: "deny", label: "Deny" },
+];
+
+// "Weekly report page", on Claude, waiting to read a page someone else made.
+const weeklyReport = (now: Timestamp): TimelineItem[] => {
+	const s = story("agent-weekly-report");
+	s.add(
+		you(
+			"Turn docs/weekly-report.html into a claude.ai page. Take the open items from the launch checklist the design team shared."
+		)
+	);
+	const checklist = s.add(
+		artifact(
+			"Artifact",
+			{ action: "read", title: "Launch checklist", url: CHECKLIST_PAGE, owned: false },
+			'Read "Launch checklist"',
+			`{ "action": "read", "url": "${CHECKLIST_PAGE}" }`,
+			"Launch checklist, 14 items, 5 open."
+		),
+		{ took: 2 * SEC }
+	);
+	s.add(
+		{
+			kind: "approval",
+			attention: "att-checklist-read",
+			approval_kind: "network",
+			title: '"Launch checklist" was made by someone else. Let Claude read it?',
+			detail: `${CHECKLIST_PAGE}\nLaunch checklist\nThe open items, to add to the weekly report`,
+			cwd: null,
+			options: ONCE_OR_NOT,
+			decided: { answer: { type: "option", id: "allow" }, by: MOCK_CLIENT, at: 0 },
+		},
+		{ parent: checklist, gap: 0 }
+	);
+	s.add(
+		artifact(
+			"Artifact",
+			{
+				action: "publish",
+				title: "Weekly report",
+				url: REPORT_PAGE,
+				detail: "docs/weekly-report.html",
+				version: "1",
+				owned: true,
+			},
+			'Published "Weekly report"',
+			'{ "action": "publish", "file_path": "docs/weekly-report.html" }',
+			`Published Weekly report, version 1: ${REPORT_PAGE}`
+		),
+		{ took: 4 * SEC }
+	);
+	s.add(
+		artifact(
+			"ArtifactData",
+			{ action: "set", title: "Weekly report", url: REPORT_PAGE, detail: "notes/2026-11-21" },
+			'Wrote to notes in "Weekly report"',
+			'{ "action": "set", "collection": "notes", "doc_id": "2026-11-21" }',
+			"Saved."
+		),
+		{ took: SEC }
+	);
+	s.add(
+		artifact(
+			"ArtifactComments",
+			{ action: "reply", title: "Weekly report", url: REPORT_PAGE },
+			'Reply on "Weekly report"',
+			'{ "action": "reply", "thread": "t-1", "text": "Fixed the totals." }',
+			"That comment thread is closed."
+		),
+		{ status: "failed", took: SEC }
+	);
+	s.add(say(`The report is up as Weekly report: ${REPORT_PAGE}`));
+	s.turn();
+	s.add(you("Add the decisions from the design review notes too."));
+	const notes = s.add(
+		artifact(
+			"Artifact",
+			{ action: "read", title: "Design review notes", url: NOTES_PAGE, owned: false },
+			'Read "Design review notes"',
+			`{ "action": "read", "url": "${NOTES_PAGE}" }`
+		),
+		// maxd marks a call waiting while its ask is open.
+		{ status: "waiting" }
+	);
+	s.add(
+		{
+			kind: "approval",
+			attention: "att-notes-read",
+			approval_kind: "network",
+			title: '"Design review notes" was made by someone else. Let Claude read it?',
+			detail: `${NOTES_PAGE}\nDesign review notes\nThe decisions, for the weekly report`,
+			cwd: null,
+			options: ONCE_OR_NOT,
+			decided: null,
+		},
+		{ status: "waiting", parent: notes, gap: 0 }
+	);
+	return s.end(now - MIN);
+};
+
+// "Tidy old claude.ai pages", on Claude, waiting on a delete it wants you
+// to turn down unless you mean it, which only you may answer.
+const tidyPages = (now: Timestamp): TimelineItem[] => {
+	const s = story("agent-tidy-pages");
+	s.add(you("Delete the claude.ai drafts we don't need anymore."));
+	s.add(
+		artifact(
+			"Artifact",
+			{ action: "list", detail: "12 pages" },
+			"Listed claude.ai pages",
+			'{ "action": "list" }',
+			"12 pages."
+		),
+		{ took: SEC }
+	);
+	const draft = s.add(
+		artifact(
+			"Artifact",
+			{ action: "delete", title: "Old draft", url: DRAFT_PAGE, owned: true },
+			'Delete "Old draft"',
+			`{ "action": "delete", "url": "${DRAFT_PAGE}" }`
+		),
+		{ status: "waiting" }
+	);
+	s.add(
+		{
+			kind: "approval",
+			attention: "att-draft-delete",
+			approval_kind: "network",
+			title: 'Permanently delete "Old draft"?',
+			detail: `${DRAFT_PAGE}\nOld draft`,
+			cwd: null,
+			options: ONCE_OR_NOT,
+			decided: null,
+			deny_first: true,
+			reason: "Deleting a page can't be undone. Its link stops working for everyone it was shared with, and its comments, its saved data and every earlier version go with it, so a person has to say yes.",
+		},
+		{ status: "waiting", parent: draft, gap: 0 }
+	);
+	return s.end(now - 4 * MIN);
+};
+
 // Ten thousand items ---------------------------------------------------------
 
 const FILES = [
@@ -1612,6 +1774,10 @@ const build = (agent: AgentId, now: Timestamp): TimelineItem[] => {
 			return releaseChecklist(now);
 		case "agent-sync-drift":
 			return syncDrift(now);
+		case "agent-weekly-report":
+			return weeklyReport(now);
+		case "agent-tidy-pages":
+			return tidyPages(now);
 		case LONG_HISTORY:
 			return longHistory(now, 10_000);
 		case STREAMING:
@@ -1932,6 +2098,10 @@ export const createMockTimelines = (options: MockTimelineOptions): MockTimelines
 						dismissed ||
 						answer.type === "text" ||
 						(answer.type === "option" && /^(deny|decline)/.test(answer.id));
+					// A call that waited on it runs once it's allowed, as maxd has it.
+					const call = live.items.find(
+						(i) => i.id === item.parent && i.status === "waiting"
+					);
 					emit(live, [
 						{
 							type: "upsert",
@@ -1942,6 +2112,20 @@ export const createMockTimelines = (options: MockTimelineOptions): MockTimelines
 								decided: dismissed ? null : { answer, by, at },
 							},
 						},
+						...(call
+							? [
+									{
+										type: "upsert" as const,
+										item: {
+											...call,
+											status: declined
+												? ("declined" as const)
+												: ("running" as const),
+											completed_at: declined ? at : null,
+										},
+									},
+								]
+							: []),
 					]);
 				} else if (item.kind === "question") {
 					emit(live, [

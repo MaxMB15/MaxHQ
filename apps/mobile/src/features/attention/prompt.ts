@@ -35,6 +35,8 @@ export type Prompt = {
 	readonly title: string;
 	/** Set when maxd cut the title short, so the agent's feed says more. */
 	readonly clipped: boolean;
+	/** Why the agent's CLI asks, when it says. */
+	readonly reason: string | null;
 	/** Such as the full command. */
 	readonly detail: string | null;
 	/** Set when the detail is a command, shown after a prompt sign. */
@@ -55,20 +57,26 @@ export type Prompt = {
 	readonly decided: string | null;
 };
 
-/** The prompt as the inbox has it. */
+/**
+ * The prompt as the inbox has it. A permission whose event carries no
+ * choices is one only its card may answer, so it offers no answer here,
+ * only the way to its card.
+ */
 export const promptOfEvent = (event: AttentionEvent): Prompt => {
 	const permission = event.kind === "permission";
+	const acceptsText = event.accepts_text && !(permission && event.options.length === 0);
 	return {
 		attention: event.id,
 		title: showHidden(event.summary),
 		clipped: isClipped(event.summary),
+		reason: null,
 		detail: null,
 		command: false,
 		folder: null,
 		since: event.created_at,
-		...answerButtons(event.options, permission, event.accepts_text),
+		...answerButtons(event.options, permission, acceptsText),
 		questions: [],
-		acceptsText: event.accepts_text,
+		acceptsText,
 		permission,
 		decided: null,
 	};
@@ -83,11 +91,12 @@ export const promptOfItem = (item: FeedCard, event: AttentionEvent | undefined):
 			attention: item.attention,
 			title: showHidden(item.title),
 			clipped: false,
+			reason: item.reason ? showHidden(item.reason) : null,
 			detail: item.detail === null ? null : showHidden(item.detail),
 			command: item.approval_kind === "command",
 			folder: item.cwd === null ? null : showHidden(item.cwd),
 			since: item.started_at,
-			...answerButtons(item.options, true, acceptsText),
+			...answerButtons(item.options, true, acceptsText, item.deny_first ?? false),
 			questions: [],
 			acceptsText,
 			permission: true,
@@ -102,6 +111,7 @@ export const promptOfItem = (item: FeedCard, event: AttentionEvent | undefined):
 				? (first.consent?.title ?? first.header ?? t("Question"))
 				: t("{{count}} questions", { count: item.questions.length }),
 		clipped: false,
+		reason: null,
 		detail: null,
 		command: false,
 		folder: null,

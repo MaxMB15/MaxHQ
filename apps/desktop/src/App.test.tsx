@@ -33,7 +33,7 @@ describe("App", () => {
 			.getAllByRole("region")
 			.map((r) => r.getAttribute("aria-label"));
 		expect(groups).toEqual([
-			"3 agents need you",
+			"5 agents need you",
 			"Pinned",
 			"AtlasMaps",
 			"Comet",

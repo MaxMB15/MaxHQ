@@ -9,6 +9,7 @@ import { t } from "../i18n";
 
 import type { FileEdit, ItemStatus, TimelineItem, WebAction } from "../bindings";
 import { agentToolLine, type ToolNames } from "./agent-tools";
+import { artifactLine, type ArtifactLine } from "./artifact-line";
 
 /**
  * A step's verbs: what it does while it runs, what it did once it ended,
@@ -171,6 +172,10 @@ const ENDED_EARLY: Partial<Record<ItemStatus, string>> = {
 	failed: " (failed)",
 };
 
+/** An artifact call's verb and page as one line, such as "Published Weekly report". */
+export const artifactWords = (status: ItemStatus, line: ArtifactLine): string =>
+	line.target ? `${verbFor(status, line.verbs)} ${line.target}` : verbFor(status, line.verbs);
+
 /**
  * A tool step as lines of Markdown: one for each file a change touched and
  * one for any other step. Empty for anything that isn't a tool step.
@@ -217,6 +222,13 @@ export const toolLines = (item: TimelineItem, names: ToolNames): string[] => {
 				),
 			];
 		case "tool_call": {
+			const artifact = artifactLine(item);
+			if (artifact) {
+				const note = artifact.note ? `, ${artifact.note}` : "";
+				const link =
+					artifact.url && artifact.url !== artifact.target ? ` <${artifact.url}>` : "";
+				return [`${artifactWords(item.status, artifact)}${note}${link}${end}`];
+			}
 			const agentTool = agentToolLine(item, names);
 			if (agentTool) {
 				const note = agentTool.note ? `, ${agentTool.note}` : "";
