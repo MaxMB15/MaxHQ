@@ -1021,7 +1021,7 @@
 	"The device didn't give a code.": "The device didn't give a code.",
 	"The device didn't make it": "The device didn't make it",
 	"The device has finished.": "The device has finished.",
-	"The device named a sign-in page that isn't on GitHub.": "The device named a sign-in page that isn't on GitHub.",
+	"The device named a page that isn't GitHub's sign-in page.": "The device named a page that isn't GitHub's sign-in page.",
 	"The env files start ticked. Folders git ignores whole, like node_modules, are left out.": "The env files start ticked. Folders git ignores whole, like node_modules, are left out.",
 	"The file changed while it was read.": "The file changed while it was read.",
 	"The files didn't copy": "The files didn't copy",
