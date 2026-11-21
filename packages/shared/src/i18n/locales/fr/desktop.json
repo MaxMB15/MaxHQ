@@ -461,6 +461,7 @@
 	"Licences to accept": "Licences à accepter",
 	"Link": "Associer",
 	"Link a pull request": "Associer une pull request",
+	"Move to Local, {{server}}": "Déplacer vers Local, {{server}}",
 	"Move to…": "Déplacer vers…",
 	"Go on in a new agent on another device, from a summary.": "Continuez dans un nouvel agent sur un autre appareil, à partir d'un résumé.",
 	"Goes straight to this command over the encrypted link. MaxHQ doesn't keep or log it, and no agent can see it or type into this command.": "Va directement à cette commande par la liaison chiffrée. MaxHQ ne le conserve pas et ne le journalise pas, et aucun agent ne peut le voir ni taper dans cette commande.",

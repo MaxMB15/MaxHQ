@@ -16,7 +16,8 @@ import type {
 	UserInput,
 } from "@maxhq/shared/bindings";
 import { vendorHasMode } from "@maxhq/shared/settings/permission";
-import { accountName, atLimit, shortWindow, VENDOR_NAME } from "@maxhq/shared/status/usage";
+import { accountKind, kindName, ownKind } from "@maxhq/shared/status/agent-kind";
+import { accountName, atLimit, shortWindow } from "@maxhq/shared/status/usage";
 import { t as translate } from "@maxhq/shared/i18n";
 
 /** How many of your last messages the brief repeats. */
@@ -86,7 +87,7 @@ export const briefOf = (
 
 	const limit = account ? `${accountName(account)} hit its usage limit` : "it hit a usage limit";
 	const parts = [
-		`You're taking over from a ${VENDOR_NAME[agent.vendor]} agent called "${agent.title}" in this workspace. It stopped because ${limit}.`,
+		`You're taking over from a ${kindName(account ? accountKind(account) : ownKind(agent))} agent called "${agent.title}" in this workspace. It stopped because ${limit}.`,
 	];
 	if (asked.length > 0) {
 		parts.push(

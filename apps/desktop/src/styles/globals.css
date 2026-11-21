@@ -497,6 +497,11 @@
 	}
 }
 
+@utility selectable {
+	user-select: text;
+	cursor: text;
+}
+
 /* A formula can place what it draws anywhere, and this keeps that near its own
    line and out of what scrolls. Its box reaches past the formula for the marks
    that hang outside it, and those whole pixels neither move the line nor catch

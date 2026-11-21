@@ -322,4 +322,37 @@ describe("the composer's footer", () => {
 			"Send now Ctrl+EnterSkips what's waiting and sends this now"
 		);
 	});
+
+	it("folds a local agent's speed line to its writing speed after the key hints", async () => {
+		renderComposer({
+			agent: heldAgent({
+				account: "local",
+				model: "qwen",
+				activity: { state: "done_unread" },
+				local: {
+					prompt_per_second: 1_180,
+					decode_per_second: 74,
+					context_used: 31_200,
+					context_size: 65_536,
+				},
+			}),
+			account: account({ id: "local", login: "model_server", model_server: "srv" }),
+		});
+		await findTextbox();
+		const speed = () => row().querySelector<HTMLElement>("[data-local-speed]")!;
+		const shown = () => speed().querySelector("[aria-hidden]");
+		expect(shown()).toHaveTextContent(/^1,180 \/ 74 tok\/s · 31k of 66k$/);
+
+		narrow();
+		expect(button(/^Send/)).toHaveTextContent(/^Send$/);
+		expect(shown()).toHaveTextContent(/^1,180 \/ 74 tok\/s/);
+
+		narrow();
+		expect(shown()).toHaveTextContent(/^74 tok\/s$/);
+		expect(button("Permission mode: Ask first")).toHaveTextContent("Ask first");
+		// Its name still says all of it.
+		expect(within(speed()).getByText(/^Last turn: Reads the prompt at 1,180/)).toHaveClass(
+			"sr-only"
+		);
+	});
 });

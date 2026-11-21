@@ -467,6 +467,7 @@
 	"Licences to accept": "Te accepteren licenties",
 	"Link": "Koppelen",
 	"Link a pull request": "Een pull request koppelen",
+	"Move to Local, {{server}}": "Verplaatsen naar Lokaal, {{server}}",
 	"Move to…": "Verplaatsen naar…",
 	"Go on in a new agent on another device, from a summary.": "Ga verder in een nieuwe agent op een ander apparaat, vanuit een samenvatting.",
 	"Goes straight to this command over the encrypted link. MaxHQ doesn't keep or log it, and no agent can see it or type into this command.": "Gaat via de versleutelde verbinding rechtstreeks naar deze opdracht. MaxHQ bewaart of logt het niet, en geen agent kan het zien of in deze opdracht typen.",

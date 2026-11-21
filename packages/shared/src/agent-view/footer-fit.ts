@@ -8,17 +8,20 @@
 // one with `fitLevel`.
 
 /** A step the footer folds. */
-export type FooterStep = "size" | "count" | "keys" | "permission" | "effort" | "model" | "send";
+export type FooterStep =
+	"size" | "count" | "keys" | "speed" | "permission" | "effort" | "model" | "send";
 
 // The order they fold in. The attachments' size goes first, then their
 // count moves onto the paperclip, as the box above shows each file anyway.
-// The key hints go next, as you learn those once. The permission mode and
+// The key hints go next, as you learn those once, then a local agent's speed
+// line keeps only its writing speed. The permission mode and
 // the effort fold to their icons, then the model gives up letters, as it
 // matters most, and the send buttons fold to their icons last.
 const STEPS: readonly FooterStep[] = [
 	"size",
 	"count",
 	"keys",
+	"speed",
 	"permission",
 	"effort",
 	"model",
@@ -32,6 +35,8 @@ export type FooterShows = {
 	readonly attachments: boolean;
 	readonly effort: boolean;
 	readonly permission: boolean;
+	/** Whether it shows a local agent's speed line. */
+	readonly speed?: boolean;
 };
 
 // The steps that fold something only when the footer shows it.
@@ -39,6 +44,7 @@ const SHOWN_BY: Partial<Record<FooterStep, keyof FooterShows>> = {
 	size: "sized",
 	count: "attachments",
 	permission: "permission",
+	speed: "speed",
 	effort: "effort",
 };
 

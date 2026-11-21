@@ -21,7 +21,7 @@ import type { Trigger } from "@maxhq/shared/pills/trigger";
 import { File, Folder, Sparkles, StickyNote, Type } from "lucide-react";
 import { type ReactNode, useEffect, useRef } from "react";
 
-import { VendorIcon } from "@/agent-view/icons";
+import { AgentIcon } from "@/agent-view/icons";
 import { cn } from "@/lib/utils";
 import { GitIcon } from "@/pills/pill";
 import { t as translate, useI18n } from "@maxhq/shared/i18n";
@@ -46,7 +46,7 @@ const optionIcon = (option: MenuOption): ReactNode => {
 				<File aria-hidden className={ICON} />
 			);
 		case "agent":
-			return <VendorIcon vendor={option.agent.vendor} className={ICON} />;
+			return <AgentIcon agent={option.agent} className={ICON} />;
 		case "note":
 			return <StickyNote aria-hidden className={ICON} />;
 		case "git":

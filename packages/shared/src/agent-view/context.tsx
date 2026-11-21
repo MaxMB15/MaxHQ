@@ -12,12 +12,15 @@ import { createContext, type ReactNode, useContext } from "react";
 import type { ActionResult } from "../data/source";
 import type { AgentId, AttentionAnswer, AttentionId, Vendor } from "../bindings";
 import type { InlineRef } from "../pills/wire";
+import type { AgentKind } from "../status/agent-kind";
 import type { TimelineStore } from "../timeline/store";
 
 /** What the rows of one agent view share. */
 export type RowContext = {
 	readonly agent: AgentId;
 	readonly vendor: Vendor;
+	/** What the agent shows as, Local for a local model; its vendor when not set. */
+	readonly kind?: AgentKind;
 	/** The agent's timeline, for rows that look at other items or the queue. */
 	readonly timeline: TimelineStore;
 	/** Set for a session in a terminal, which MaxHQ watches but can't answer. */
@@ -54,3 +57,7 @@ export const useRow = (): RowContext => {
 	if (!value) throw new Error("useRow needs a RowProvider above it");
 	return value;
 };
+
+/** What the rows' agent shows as, for its name in a card. */
+export const rowKind = (row: Pick<RowContext, "vendor" | "kind">): AgentKind =>
+	row.kind ?? row.vendor;

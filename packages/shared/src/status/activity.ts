@@ -25,7 +25,7 @@ import {
 	showHidden,
 } from "./format";
 import { agentWait, idleExtra, jobsFact, jobsSentence, waitWords } from "./running";
-import { agentKind, kindName } from "./agent-kind";
+import { agentKind, isLocalAccount, kindName } from "./agent-kind";
 import { accountName, accountSummary, blockingWindow } from "./usage";
 
 /** How the activity dot looks. One per state, with a warm cache past its time shown as idle. */
@@ -128,6 +128,8 @@ export type ActivityContext = {
 	readonly agent: Agent;
 	/** The login it runs under, if the view has it. */
 	readonly account?: Account;
+	/** What a local agent goes by, such as "Local · Qwen3.6 35B A3B", in place of its account. */
+	readonly localLabel?: string;
 	/** The open prompt, while it needs input. */
 	readonly attention?: AttentionEvent;
 	/** Its sub-agents. */
@@ -143,7 +145,9 @@ const facts = (ctx: ActivityContext, warm?: string): Fact[] => {
 		const value = formatContext(context.used_tokens, context.window_tokens);
 		out.push({ label: t("Context"), value: warm ? `${value}, ${warm}` : value });
 	}
-	if (ctx.account) out.push({ label: t("Account"), value: accountSummary(ctx.account) });
+	if (ctx.account && isLocalAccount(ctx.account))
+		out.push({ label: t("Agent"), value: ctx.localLabel ?? accountName(ctx.account) });
+	else if (ctx.account) out.push({ label: t("Account"), value: accountSummary(ctx.account) });
 	return out;
 };
 

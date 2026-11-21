@@ -10,7 +10,7 @@ import { t } from "../i18n";
 import type { ToolNames } from "../agent-view/agent-tools";
 import type { Agent } from "../bindings";
 import type { DataSource } from "../data/source";
-import { ownKind } from "../status/agent-kind";
+import { type AgentKind, ownKind } from "../status/agent-kind";
 import type { TimelineState } from "./apply";
 import { conversationMarkdown } from "./export";
 import { leaseTimeline } from "./registry";
@@ -62,7 +62,9 @@ export const loadAll = (timeline: Timeline): Promise<TimelineState> =>
 export const conversationText = async (
 	source: DataSource,
 	agent: Pick<Agent, "id" | "title" | "vendor" | "local">,
-	names: ToolNames
+	names: ToolNames,
+	/** What the agent shows as, from its account; its own record when not given. */
+	kind: AgentKind = ownKind(agent)
 ): Promise<string> => {
 	const { timeline, release } = leaseTimeline(source, agent.id);
 	try {
@@ -71,7 +73,7 @@ export const conversationText = async (
 			const item = state.items.get(id);
 			return item ? [item] : [];
 		});
-		return conversationMarkdown(items, { title: agent.title, vendor: ownKind(agent), names });
+		return conversationMarkdown(items, { title: agent.title, vendor: kind, names });
 	} finally {
 		release();
 	}
