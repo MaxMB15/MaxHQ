@@ -33,7 +33,6 @@ The drawer holds several terminals as tabs. The first tab, Session, is the shell
 - Press `⌘F` in a terminal to Find in the terminal, with Next match and Previous match. The key is fixed: MaxHQ has no setting that changes its keys.
 
 Off a Mac, only keys with Ctrl and Shift held go to MaxHQ from a terminal, so Ctrl+F reaches the shell.
-<!-- check: off a Mac, can Find in the terminal be opened from the keyboard at all? The Find key is Ctrl+F there, which the terminal keeps (keyForApp in term-view-xterm.ts). -->
 
 When a shell exits, its tab shows the exit code and Restart.
 
