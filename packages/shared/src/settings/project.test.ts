@@ -4,7 +4,7 @@
 import { describe, expect, it } from "vitest";
 
 import type { Entity, ProjectSettings } from "../bindings";
-import { entities, link } from "../test/build";
+import { entities, link, project, workspace } from "../test/build";
 import { applySnapshot } from "../view/replica";
 import {
 	allowedWorkflowEnvText,
@@ -14,6 +14,7 @@ import {
 	parseMemory,
 	planProjectSettings,
 	projectCapabilities,
+	projectRows,
 	ruleKey,
 	sameDraft,
 	shownDraft,
@@ -174,5 +175,44 @@ describe("what a device keeps for a project", () => {
 		expect(commandRulesOn(view, "proj-maxhq", "dev-old")).toBe(
 			commandRulesOn(view, "proj-other", "dev-devbox")
 		);
+	});
+});
+
+describe("project rows", () => {
+	it("lists each project by name with this Mac's checkout and its devices", () => {
+		const view = applySnapshot({
+			seq: 1,
+			entities: entities({
+				links: [
+					link({ id: "devbox" }),
+					link({ id: "mac", name: "Home Mac", route: { type: "local" } }),
+				],
+				projects: [project("p-site", "docs-site"), project("p-app", "example-app")],
+				workspaces: [
+					workspace({ id: "box-app", project: "p-app", device: "dev-devbox" }),
+					workspace({
+						id: "mac-app",
+						project: "p-app",
+						device: "dev-mac",
+						location: { type: "folder", path: "~/code/example-app" },
+					}),
+					workspace({ id: "box-site", project: "p-site", device: "dev-devbox" }),
+				],
+			}),
+		});
+		expect(projectRows(view)).toEqual([
+			{
+				project: "p-site",
+				name: "docs-site",
+				path: "/work/box-site",
+				devices: ["devbox"],
+			},
+			{
+				project: "p-app",
+				name: "example-app",
+				path: "~/code/example-app",
+				devices: ["Home Mac", "devbox"],
+			},
+		]);
 	});
 });

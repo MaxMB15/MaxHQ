@@ -7,6 +7,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import App from "@/App";
 import { ServicesProvider, useView } from "@/app/services";
 import { mockSource } from "@/data/mock-source";
+import { openOwnView, openProjectSettings } from "@/test/settings";
 import type { ProposalDiff, SkillProposal } from "@maxhq/shared/bindings";
 import type { ActionResult } from "@maxhq/shared/data/source";
 import { DEVFLOW, GIT_FLOW_PROPOSAL, THIRD_PARTY } from "@maxhq/shared/data/mock-skills";
@@ -32,15 +33,10 @@ const renderApp = (scenario = "connected", agent?: string) => {
 	return source;
 };
 
-const openSettings = async (group: string, page: string) => {
-	fireEvent.click(await screen.findByRole("button", { name: "Settings" }));
-	const nav = await screen.findByRole("navigation", { name: "Settings pages" });
-	fireEvent.click(
-		await within(within(nav).getByRole("group", { name: group })).findByRole("button", {
-			name: page,
-		})
-	);
-	return within(await screen.findByRole("dialog", { name: "Settings" }));
+// The skill library, a view of its own, or a project's settings.
+const openSettings = async (group: "Views" | "Projects", page: string) => {
+	await screen.findByRole("button", { name: "Settings" });
+	return within(group === "Views" ? await openOwnView(page) : await openProjectSettings(page));
 };
 
 const openSkillsTab = async (project: string) => {
@@ -52,7 +48,7 @@ const openSkillsTab = async (project: string) => {
 describe("the skills library page", () => {
 	it("lists each source with its trust and its skills' badges", async () => {
 		renderApp();
-		const page = await openSettings("App", "Skills");
+		const page = await openSettings("Views", "Skills");
 		const mine = page.getByRole("group", { name: "example/agent-skills" });
 		expect(within(mine).getByText("Yours")).toBeTruthy();
 		expect(within(mine).getByText("native-rendering-discipline")).toBeTruthy();
@@ -68,7 +64,7 @@ describe("the skills library page", () => {
 	it("adds a source from owner/repo and refuses a name the library has", async () => {
 		const source = renderApp();
 		const add = vi.spyOn(source, "addSkillSource");
-		const page = await openSettings("App", "Skills");
+		const page = await openSettings("Views", "Skills");
 		const form = within(page.getByRole("form", { name: "Add a source" }));
 		const where = form.getByPlaceholderText(/owner\/repo/);
 		expect(form.getByRole("button", { name: "Browse…" })).toBeInTheDocument();
@@ -94,7 +90,7 @@ describe("the skills library page", () => {
 	it("asks for a tick before tidying a device's global skills, then sends the plan it showed", async () => {
 		const source = renderApp("skills_conflict");
 		const apply = vi.spyOn(source, "applyGlobalSkills");
-		const page = await openSettings("App", "Skills");
+		const page = await openSettings("Views", "Skills");
 		const globals = within(page.getByRole("region", { name: "Global skills" }));
 		const macRow = globals.getByText("Mac").closest("div.flex.items-center") as HTMLElement;
 		fireEvent.click(within(macRow).getByRole("button", { name: "Tidy global skills" }));
@@ -121,7 +117,7 @@ describe("the skills library page", () => {
 	it("shows the repos that join and sends the copy you pick", async () => {
 		const source = renderApp("skills_conflict");
 		const apply = vi.spyOn(source, "applyGlobalSkills");
-		const page = await openSettings("App", "Skills");
+		const page = await openSettings("Views", "Skills");
 		const globals = within(page.getByRole("region", { name: "Global skills" }));
 		const macRow = globals.getByText("Mac").closest("div.flex.items-center") as HTMLElement;
 		fireEvent.click(within(macRow).getByRole("button", { name: "Tidy global skills" }));
@@ -144,7 +140,7 @@ describe("the skills library page", () => {
 
 	it("offers Undo only once a device has a tidy to undo", async () => {
 		renderApp("skills_conflict");
-		const page = await openSettings("App", "Skills");
+		const page = await openSettings("Views", "Skills");
 		const globals = within(page.getByRole("region", { name: "Global skills" }));
 		const macRow = globals.getByText("Mac").closest("div.flex.items-center") as HTMLElement;
 		const row = within(macRow);
@@ -164,7 +160,7 @@ describe("the skills library page", () => {
 
 	it("shows a device's refusal in place of a plan", async () => {
 		renderApp("skills_conflict");
-		const page = await openSettings("App", "Skills");
+		const page = await openSettings("Views", "Skills");
 		const globals = within(page.getByRole("region", { name: "Global skills" }));
 		const row = globals.getByText("devbox").closest("div.flex.items-center") as HTMLElement;
 		fireEvent.click(within(row).getByRole("button", { name: "Tidy global skills" }));

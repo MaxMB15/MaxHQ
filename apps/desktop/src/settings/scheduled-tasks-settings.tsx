@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026 Max Boksem
 
-// The scheduled tasks page: every device's tasks, grouped by the device
-// each lives on, with on and off, when it runs next, how it last went and
-// Run now, under the address the device's webhooks are reached at. A
+// The scheduled tasks view: one device's tasks at a time, picked above
+// them, with on and off, when each runs next, how it last went and Run
+// now, under the address the device's webhooks are reached at. A
 // GitHub events task says whether a webhook brings its events at once. A
 // device whose `maxd` predates tasks isn't listed.
 
@@ -29,10 +29,20 @@ import {
 	triggerLine,
 	webhookLine,
 } from "@maxhq/shared/tasks/format";
-import { deviceTasks } from "@maxhq/shared/tasks/place";
+import { deviceTasks, shownTaskDevice } from "@maxhq/shared/tasks/place";
 import { deviceName } from "@maxhq/shared/view/select";
+import { cn } from "@/lib/utils";
 
-import { ConfirmButton, PRIMARY, Row, SECONDARY, Section, StatusNote } from "./controls";
+import {
+	ConfirmButton,
+	PRIMARY,
+	Row,
+	SECONDARY,
+	Section,
+	SEG,
+	SEG_ITEM,
+	StatusNote,
+} from "./controls";
 import type { Note } from "./result";
 import { t as translate, useI18n } from "@maxhq/shared/i18n";
 
@@ -167,6 +177,8 @@ export const ScheduledTasksSettingsPage = () => {
 	useI18n();
 	const view = useView((s) => s.view);
 	const groups = deviceTasks(view);
+	const [picked, setPicked] = useState<DeviceId | null>(null);
+	const shown = shownTaskDevice(view, picked);
 	const [editing, setEditing] = useState<Editing | null>(null);
 	const [activity, setActivity] = useState<Task | null>(null);
 	return (
@@ -180,51 +192,70 @@ export const ScheduledTasksSettingsPage = () => {
 				</Section>
 			) : (
 				<>
-					<div className="flex justify-end">
+					<div className="flex items-center gap-2">
+						{groups.length > 1 ? (
+							<div role="group" aria-label={translate("Device")} className={SEG}>
+								{groups.map(({ device }) => (
+									<button
+										key={device}
+										type="button"
+										aria-pressed={device === shown}
+										className={SEG_ITEM}
+										onClick={() => setPicked(device)}
+									>
+										{deviceName(view, device)}
+									</button>
+								))}
+							</div>
+						) : null}
 						<button
 							type="button"
-							className={PRIMARY}
+							className={cn(PRIMARY, "ml-auto")}
 							onClick={() => setEditing({ task: null, home: null })}
 						>
 							{translate("New task")}
 						</button>
 					</div>
-					{groups.map((reach) => {
-						const { device, tasks, funnel, problems, webhooks } = reach;
-						return (
-							<Section
-								key={device}
-								title={deviceName(view, device)}
-								hint={
-									tasks.some(
-										(t) => t.trigger.type !== "every" && t.trigger.type !== "at"
-									)
-										? addressHint(addressOf(reach), funnel)
-										: undefined
-								}
-							>
-								<AddressRow reach={reach} name={deviceName(view, device)} />
-								{tasks.length === 0 ? (
-									<Row title={translate("No tasks on this device")} />
-								) : (
-									tasks.map((task) => (
-										<TaskRow
-											key={task.id}
-											task={task}
-											home={device}
-											funnel={funnel}
-											webhooks={webhooks}
-											problem={
-												problems.find((p) => p.task === task.id) ?? null
-											}
-											onEdit={() => setEditing({ task, home: device })}
-											onActivity={() => setActivity(task)}
-										/>
-									))
-								)}
-							</Section>
-						);
-					})}
+					{groups
+						.filter((reach) => reach.device === shown)
+						.map((reach) => {
+							const { device, tasks, funnel, problems, webhooks } = reach;
+							return (
+								<Section
+									key={device}
+									title={deviceName(view, device)}
+									hint={
+										tasks.some(
+											(t) =>
+												t.trigger.type !== "every" &&
+												t.trigger.type !== "at"
+										)
+											? addressHint(addressOf(reach), funnel)
+											: undefined
+									}
+								>
+									<AddressRow reach={reach} name={deviceName(view, device)} />
+									{tasks.length === 0 ? (
+										<Row title={translate("No tasks on this device")} />
+									) : (
+										tasks.map((task) => (
+											<TaskRow
+												key={task.id}
+												task={task}
+												home={device}
+												funnel={funnel}
+												webhooks={webhooks}
+												problem={
+													problems.find((p) => p.task === task.id) ?? null
+												}
+												onEdit={() => setEditing({ task, home: device })}
+												onActivity={() => setActivity(task)}
+											/>
+										))
+									)}
+								</Section>
+							);
+						})}
 				</>
 			)}
 			<TaskEditor editing={editing} onClose={() => setEditing(null)} />

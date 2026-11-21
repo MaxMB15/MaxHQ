@@ -6,6 +6,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import App from "@/App";
 import { mockSource } from "@/data/mock-source";
+import { openOwnView } from "@/test/settings";
 import type { Entity } from "@maxhq/shared/bindings";
 import type { DataSource } from "@maxhq/shared/data/source";
 import { CURSOR, DEVBOX, MAC } from "@maxhq/shared/data/mock-view";
@@ -33,17 +34,18 @@ const renderApp = (edit: (e: Entity) => Entity = (e) => e) => {
 };
 
 const openTasks = async () => {
-	fireEvent.click(await screen.findByRole("button", { name: "Settings" }));
-	const nav = await screen.findByRole("navigation", { name: "Settings pages" });
-	fireEvent.click(
-		within(within(nav).getByRole("group", { name: "App" })).getByRole("button", {
-			name: "Scheduled tasks",
-		})
-	);
+	await screen.findByRole("button", { name: "Settings" });
+	await openOwnView("Scheduled tasks");
 	await screen.findByRole("heading", { name: "Scheduled tasks" });
 };
 
-const section = (name: string) => within(screen.getByRole("region", { name }));
+// A device's tasks, after picking it in the filter when the filter shows.
+const section = (name: string) => {
+	const filter = screen.queryByRole("group", { name: "Device" });
+	const pick = filter ? within(filter).queryByRole("button", { name }) : null;
+	if (pick && pick.getAttribute("aria-pressed") !== "true") fireEvent.click(pick);
+	return within(screen.getByRole("region", { name }));
+};
 
 const editor = (name = "New scheduled task") => within(screen.getByRole("dialog", { name }));
 

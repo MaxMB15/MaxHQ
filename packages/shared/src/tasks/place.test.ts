@@ -19,6 +19,7 @@ import {
 	homeOf,
 	keptByAutomation,
 	NEW_AGENT,
+	shownTaskDevice,
 	sleepWarning,
 	targetOptions,
 	targetPatch,
@@ -58,6 +59,13 @@ describe("the devices that run tasks", () => {
 		]);
 		expect(byDevice[MAC]!.funnel.state).toBe("needs_setup");
 		expect(byDevice[DEVBOX]!.funnel.state).toBe("on");
+	});
+
+	it("shows the device you picked, else this Mac, else the first", () => {
+		expect(shownTaskDevice(view, null)).toBe(MAC);
+		expect(shownTaskDevice(view, DEVBOX)).toBe(DEVBOX);
+		expect(shownTaskDevice(older(DEVBOX), DEVBOX)).toBe(MAC);
+		expect(shownTaskDevice(older(MAC), null)).toBe(DEVBOX);
 	});
 
 	it("hides a device whose maxd is older", () => {

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026 Max Boksem
 
-// The Conversation card on the Editor page: whether an agent's view offers
+// The Above the conversation card: whether an agent's view offers
 // to forward or open the ports its processes start listening on. With it
 // off, the header's ports popover still lists them with Forward and Open.
 
@@ -15,14 +15,14 @@ import { Row, Section } from "./controls";
 /** The card's headings and labels, for the settings search. */
 export const PORT_PROMPTS_TERMS: readonly string[] = ["Conversation", "Port prompts"];
 
-/** The Conversation card. */
+/** The Above the conversation card. */
 export const PortPromptsSection = () => {
 	useI18n();
 	const services = useServices();
 	const shown = usePortPrompts();
 	const about = translate("Offer to forward or open a port an agent starts listening on.");
 	return (
-		<Section title={translate("Conversation")}>
+		<Section title={translate("Above the conversation")}>
 			<Row
 				title={translate("Port prompts")}
 				sub={

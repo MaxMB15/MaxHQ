@@ -43,6 +43,20 @@ export const deviceTasks = (view: ViewState): DeviceTasks[] =>
 			}
 	);
 
+/**
+ * The device the Scheduled tasks view shows: the one you picked while it
+ * runs tasks, else this Mac, else the first by name. Null when none does.
+ */
+export const shownTaskDevice = (view: ViewState, picked: DeviceId | null): DeviceId | null => {
+	const devices = taskDevices(view);
+	if (picked !== null && devices.includes(picked)) return picked;
+	return (
+		devices.find((device) => linkForDevice(view, device)?.route.type === "local") ??
+		devices[0] ??
+		null
+	);
+};
+
 const connected = (view: ViewState, device: DeviceId) =>
 	linkForDevice(view, device)?.state.state === "connected";
 

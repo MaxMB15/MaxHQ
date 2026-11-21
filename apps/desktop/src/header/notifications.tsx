@@ -235,7 +235,7 @@ export const NotificationBell = () => {
 						type="button"
 						onClick={() => {
 							setOpen(false);
-							openSettings(services, { kind: "notifications" });
+							openSettings(services, { kind: "page", at: "notifications" });
 						}}
 						className="text-[11.5px] text-primary hover:underline"
 					>

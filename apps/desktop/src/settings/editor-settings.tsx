@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026 Max Boksem
 
-// The editor settings, kept on this Mac since editors belong to it: which
-// editor the Open in button and file rows' buttons use, or none, how the
-// boxes you type prompts and notes in check spelling, what Enter does
-// while an agent works, and whether agent views offer the ports agents
-// open. Each change saves as you make it.
+// Two cards kept on this Mac, since editors and keyboards belong to it:
+// Open in, which editor the Open in button and file rows' buttons use, or
+// none, and Composer, what Enter does while an agent works and how the
+// boxes you type prompts and notes in check spelling. Each change saves as
+// you make it.
 
 import { useServices } from "@/app/services";
 import { setDefaultEditor, useDefaultEditor } from "@/agent-view/editor-prefs";
@@ -17,7 +17,6 @@ import { setTypingPrefs, useTypingPrefs } from "@/composer/typing-prefs";
 import { BUSY_SEND_WORDS, type BusySend } from "@maxhq/shared/composer/send";
 
 import { Row, Section } from "./controls";
-import { PORT_PROMPTS_TERMS, PortPromptsSection } from "./port-prompts-settings";
 import { type Choice, Pick as Picker } from "./snooze-presets";
 import { t as translate, useI18n } from "@maxhq/shared/i18n";
 
@@ -31,24 +30,27 @@ const choiceOf = (value: string): DefaultEditor => {
 	return LAST_USED;
 };
 
-/** The page's headings and labels, for the settings search. */
-export const EDITOR_TERMS: readonly string[] = [
-	"Open in",
+/** The Open in card's labels, for the settings search. */
+export const OPEN_IN_TERMS: readonly string[] = [
+	"Editor",
 	"Default editor",
 	"Last used",
 	"Cursor",
 	"VS Code",
+];
+
+/** The Composer card's labels, for the settings search. */
+export const COMPOSER_TERMS: readonly string[] = [
 	"Typing",
-	"Check spelling",
-	"Correct spelling automatically",
 	"While an agent works, Enter",
 	"Queue",
 	"Steer",
-	...PORT_PROMPTS_TERMS,
+	"Check spelling",
+	"Correct spelling automatically",
 ];
 
-/** The Editor page. */
-export const EditorSettingsPage = () => {
+/** The Open in card. */
+export const OpenInSettings = () => {
 	useI18n();
 	const services = useServices();
 	const fixed = useDefaultEditor();
@@ -62,26 +64,22 @@ export const EditorSettingsPage = () => {
 		{ value: valueOf({ kind: "none" }), label: translate("None") },
 	];
 	return (
-		<>
-			<Section title={translate("Open in")}>
-				<Row
-					title={translate("Default editor")}
-					sub={translate(
-						"Which editor the Open in button and the buttons on file rows use. Last used is the one you opened last, and so is a set editor this Mac doesn't have. None hides those buttons."
-					)}
-				>
-					<Picker
-						label={translate("Default editor")}
-						value={valueOf(fixed)}
-						options={options}
-						onChange={(value) => setDefaultEditor(services, choiceOf(value))}
-						className="w-[180px]"
-					/>
-				</Row>
-			</Section>
-			<TypingSection />
-			<PortPromptsSection />
-		</>
+		<Section title={translate("Open in")}>
+			<Row
+				title={translate("Default editor")}
+				sub={translate(
+					"Which editor the Open in button and the buttons on file rows use. Last used is the one you opened last, and so is a set editor this Mac doesn't have. None hides those buttons."
+				)}
+			>
+				<Picker
+					label={translate("Default editor")}
+					value={valueOf(fixed)}
+					options={options}
+					onChange={(value) => setDefaultEditor(services, choiceOf(value))}
+					className="w-[180px]"
+				/>
+			</Row>
+		</Section>
 	);
 };
 
@@ -92,14 +90,30 @@ const otherKey = (pick: BusySend): string =>
 		: translate("{{keyHint}} queues instead.", { keyHint: commandEnter() });
 
 /**
- * Check spelling, Correct spelling automatically, which needs it, and what
- * Enter does while an agent works.
+ * The Composer card: what Enter does while an agent works, Check spelling,
+ * and Correct spelling automatically, which needs it.
  */
-const TypingSection = () => {
+export const ComposerSettings = () => {
+	useI18n();
 	const services = useServices();
 	const { checkSpelling, correctSpelling, busySend } = useTypingPrefs();
 	return (
-		<Section title={translate("Typing")}>
+		<Section title={translate("Composer")}>
+			<Row
+				title={translate("While an agent works, Enter")}
+				sub={`${BUSY_SEND_WORDS[busySend].line} ${otherKey(busySend)}`}
+			>
+				<Picker
+					label={translate("While an agent works, Enter")}
+					value={busySend}
+					options={(["queue", "steer"] as const).map((value) => ({
+						value,
+						label: BUSY_SEND_WORDS[value].label,
+					}))}
+					onChange={(value) => setTypingPrefs(services, { busySend: value })}
+					className="w-[180px]"
+				/>
+			</Row>
 			<Row
 				title={translate("Check spelling")}
 				sub={translate(
@@ -123,21 +137,6 @@ const TypingSection = () => {
 					checked={checkSpelling && correctSpelling}
 					disabled={!checkSpelling}
 					onCheckedChange={(on) => setTypingPrefs(services, { correctSpelling: on })}
-				/>
-			</Row>
-			<Row
-				title={translate("While an agent works, Enter")}
-				sub={`${BUSY_SEND_WORDS[busySend].line} ${otherKey(busySend)}`}
-			>
-				<Picker
-					label={translate("While an agent works, Enter")}
-					value={busySend}
-					options={(["queue", "steer"] as const).map((value) => ({
-						value,
-						label: BUSY_SEND_WORDS[value].label,
-					}))}
-					onChange={(value) => setTypingPrefs(services, { busySend: value })}
-					className="w-[180px]"
 				/>
 			</Row>
 		</Section>

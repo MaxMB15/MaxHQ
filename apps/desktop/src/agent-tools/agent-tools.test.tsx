@@ -6,6 +6,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import App from "@/App";
 import { mockSource } from "@/data/mock-source";
+import { settingsCard } from "@/test/settings";
 import type { DataSource } from "@maxhq/shared/data/source";
 import { FixedNow } from "@maxhq/shared/lib/clock";
 import { NOW } from "@maxhq/shared/test/build";
@@ -35,15 +36,10 @@ const held = async (source: DataSource, agent: string) => {
 		: undefined;
 };
 
+// The Access keys card, in the Permissions group.
 const openAgentTools = async () => {
-	fireEvent.click(await screen.findByRole("button", { name: "Settings" }));
-	const nav = await screen.findByRole("navigation", { name: "Settings pages" });
-	fireEvent.click(
-		within(within(nav).getByRole("group", { name: "App" })).getByRole("button", {
-			name: "Agent tools",
-		})
-	);
-	return within(await screen.findByRole("region", { name: "Access keys" }));
+	await screen.findByRole("button", { name: "Settings" });
+	return within(await settingsCard("Access keys"));
 };
 
 describe("allowing an agent to run agents", () => {

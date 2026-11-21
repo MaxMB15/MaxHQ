@@ -11,7 +11,15 @@
 // the Dock badge's count.
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { createContext, type ReactNode, useContext, useEffect, useState } from "react";
+import {
+	createContext,
+	type ReactNode,
+	useContext,
+	useEffect,
+	useRef,
+	useState,
+	useSyncExternalStore,
+} from "react";
 import { useStore } from "zustand";
 
 import type { DataSource } from "@maxhq/shared/data/source";
@@ -35,6 +43,7 @@ import {
 	type ViewStore,
 	type ViewStoreState,
 } from "@maxhq/shared/view/store";
+import type { EntityKind, ViewState } from "@maxhq/shared/view/replica";
 import { openAgent } from "./open-agent";
 
 /** What every component reaches through `useServices`. */
@@ -131,6 +140,24 @@ export const useServicesIfAny = (): Services | null => useContext(ServicesContex
 /** Reads from the view store. Select a stable value, such as `s.view`, then derive with `useMemo`. */
 export const useView = <T,>(selector: (state: ViewStoreState) => T): T =>
 	useStore(useServices().view, selector);
+
+/**
+ * The view, kept the same until one of `kinds` changes, so a part that
+ * reads only those tables skips the deltas for every other. `kinds` is a
+ * list that stays the same from render to render.
+ */
+export const useViewOf = (kinds: readonly EntityKind[]): ViewState => {
+	const store = useServices().view;
+	const last = useRef<ViewState | null>(null);
+	const get = () => {
+		const now = store.getState().view;
+		const held = last.current;
+		if (held && kinds.every((kind) => held.tables[kind] === now.tables[kind])) return held;
+		last.current = now;
+		return now;
+	};
+	return useSyncExternalStore(store.subscribe, get, get);
+};
 
 /** Reads from the window's store. */
 export const useUi = <T,>(selector: (state: UiState & UiActions) => T): T =>

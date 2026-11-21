@@ -1,19 +1,20 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026 Max Boksem
 
-// The badge's card on the Notifications page: whether the bell and MaxHQ's
-// icon in the Dock show how many agents need you, and what counts. Each
-// change applies and saves as you make it. macOS hides the Dock badge of an
-// app whose notifications or badges are off in System Settings, so the card
-// says so, from the page's read of what macOS allows, and links there.
+// The Badge card in Notifications: whether the bell and MaxHQ's icon in
+// the Dock show how many agents need you, and what counts. Each change
+// applies and saves as you make it. macOS hides the Dock badge of an app
+// whose notifications or badges are off in System Settings, so the card
+// says so, from its read of what macOS allows, and links there.
 
 import { Switch } from "@/components/ui/switch";
 import { setBadgePrefs, useBadgePrefs } from "@/native/dock-badge";
-import type { NotificationAccess } from "@/native/notifications";
+import { type NotificationAccess, openNotificationSettings } from "@/native/notifications";
 import { t as translate, useI18n } from "@maxhq/shared/i18n";
 import { BADGE_REASON_TEXT, BADGE_REASONS, switchReason } from "@maxhq/shared/view/badge";
 
 import { Row, SECONDARY, Section } from "./controls";
+import { useNotificationAccess } from "./notification-access";
 
 /** The card's headings and labels, for the settings search. */
 export const DOCK_BADGE_TERMS: readonly string[] = [
@@ -36,16 +37,15 @@ const hiddenBecause = (access: NotificationAccess | null): string | null => {
 	return null;
 };
 
-/** The badge card. */
-export const DockBadgeSection = ({
-	access,
-	onOpenSettings,
-}: {
-	/** What macOS allows, or null before the page has read it. */
-	access: NotificationAccess | null;
-	onOpenSettings: () => void;
-}) => {
+/** The Badge card. */
+export const DockBadgeSection = () => {
 	useI18n();
+	const { access } = useNotificationAccess();
+	const onOpenSettings = () => {
+		openNotificationSettings().catch((error: unknown) =>
+			console.warn(translate("Couldn't open System Settings"), error)
+		);
+	};
 	const show = useBadgePrefs((p) => p.show);
 	const counts = useBadgePrefs((p) => p.counts);
 	// It only matters while MaxHQ would show a badge.

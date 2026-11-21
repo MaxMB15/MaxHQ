@@ -1,10 +1,11 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026 Max Boksem
 
-// The agent tools page: the depth and limits a new permission starts with,
-// the agents allowed to run agents, and the access keys that let tools
-// outside MaxHQ run agents. A key's file stays on its device, so the page
-// shows where it is and the command that uses it, never the key.
+// The agent tools cards in the Permissions group: the depth and limits a
+// new permission starts with, the agents allowed to run agents, and the
+// access keys that let tools outside MaxHQ run agents. A key's file stays
+// on its device, so the card shows where it is and the command that uses
+// it, never the key.
 
 import { useState } from "react";
 
@@ -289,9 +290,8 @@ const MintForm = ({ defaults }: { defaults: AgentDefaults }) => {
 	);
 };
 
-/** The page's headings and labels, for the settings search. */
-export const AGENT_TOOLS_TERMS: readonly string[] = [
-	"New permissions",
+/** The New permissions card's labels, for the settings search. */
+export const NEW_PERMISSIONS_TERMS: readonly string[] = [
 	"Depth",
 	"Agents started",
 	"Agents at once",
@@ -302,8 +302,14 @@ export const AGENT_TOOLS_TERMS: readonly string[] = [
 	"Accounts",
 	"Places",
 	"Test hosts",
-	"Agents allowed to run agents",
-	"Access keys",
+	"Save defaults",
+];
+
+/** The Grants card's labels, for the settings search. */
+export const GRANTS_TERMS: readonly string[] = ["Agents allowed to run agents", "Revoke"];
+
+/** The Access keys card's labels, for the settings search. */
+export const ACCESS_KEYS_TERMS: readonly string[] = [
 	"For tools outside MaxHQ, such as a bot",
 	"New access key",
 	"Key name",
@@ -311,8 +317,63 @@ export const AGENT_TOOLS_TERMS: readonly string[] = [
 	"Revoke",
 ];
 
-/** The Agent tools page. */
-export const AgentToolsSettingsPage = () => {
+/** The New permissions card: the depth and limits a new permission starts with. */
+export const NewPermissionsCard = () => {
+	useI18n();
+	const defaults = useAgentDefaults();
+	return (
+		<Section
+			title={translate("New permissions")}
+			hint={translate("{{DEPTH}} levels deep and no limits by default", { DEPTH: DEPTH })}
+		>
+			{defaults.data ? (
+				<DefaultsForm saved={defaults.data} />
+			) : (
+				<Row
+					title={
+						defaults.error
+							? translate("Couldn't read the defaults")
+							: translate("Reading the defaults")
+					}
+				/>
+			)}
+		</Section>
+	);
+};
+
+/** The Grants card: the agents allowed to run agents, each with a Revoke. */
+export const GrantsCard = () => {
+	useI18n();
+	const view = useView((s) => s.view);
+	const now = useNow(60_000);
+	const permissions = usePermissions();
+	const held = permissions.data?.status === "ok" ? permissions.data.data : null;
+	const agents = held ? agentRows(view, held, now) : null;
+	return (
+		<Section
+			title={translate("Grants")}
+			label={translate("Agents allowed to run agents")}
+			hint={translate("Allow one from the agent's menu")}
+		>
+			{agents === null ? (
+				<Row
+					title={
+						permissions.data?.status === "error" || permissions.error
+							? translate("Couldn't read the permissions. Try again.")
+							: translate("Reading permissions")
+					}
+				/>
+			) : agents.length === 0 ? (
+				<Row title={translate("None yet.")} />
+			) : (
+				agents.map((row) => <AgentRow key={row.permission} row={row} />)
+			)}
+		</Section>
+	);
+};
+
+/** The Access keys card: the keys that let tools outside MaxHQ run agents, and a form for a new one. */
+export const AccessKeysCard = () => {
 	useI18n();
 	const view = useView((s) => s.view);
 	const now = useNow(60_000);
@@ -320,64 +381,27 @@ export const AgentToolsSettingsPage = () => {
 	const keys = useKeys();
 	const permissions = usePermissions();
 	const held = permissions.data?.status === "ok" ? permissions.data.data : null;
-	const agents = held ? agentRows(view, held, now) : null;
 	const listed =
 		keys.data?.status === "ok" ? keyRows(view, keys.data.data, held ?? [], now) : null;
 	return (
-		<>
-			<Section
-				title={translate("New permissions")}
-				hint={translate("{{DEPTH}} levels deep and no limits by default", { DEPTH: DEPTH })}
-			>
-				{defaults.data ? (
-					<DefaultsForm saved={defaults.data} />
-				) : (
-					<Row
-						title={
-							defaults.error
-								? translate("Couldn't read the defaults")
-								: translate("Reading the defaults")
-						}
-					/>
-				)}
-			</Section>
-			<Section
-				title={translate("Agents allowed to run agents")}
-				hint={translate("Allow one from the agent's menu")}
-			>
-				{agents === null ? (
-					<Row
-						title={
-							permissions.data?.status === "error" || permissions.error
-								? translate("Couldn't read the permissions. Try again.")
-								: translate("Reading permissions")
-						}
-					/>
-				) : agents.length === 0 ? (
-					<Row title={translate("None yet.")} />
-				) : (
-					agents.map((row) => <AgentRow key={row.permission} row={row} />)
-				)}
-			</Section>
-			<Section
-				title={translate("Access keys")}
-				hint={translate("For tools outside MaxHQ, such as a bot")}
-			>
-				{listed === null ? (
-					<Row
-						title={
-							keys.data?.status === "error" || keys.error
-								? translate("Couldn't read the keys")
-								: translate("Reading the keys")
-						}
-					/>
-				) : listed.length === 0 ? (
-					<Row title={translate("No keys yet")} />
-				) : (
-					listed.map((row) => <KeyRow key={row.id} row={row} />)
-				)}
-				{defaults.data ? <MintForm defaults={defaults.data} /> : null}
-			</Section>
-		</>
+		<Section
+			title={translate("Access keys")}
+			hint={translate("For tools outside MaxHQ, such as a bot")}
+		>
+			{listed === null ? (
+				<Row
+					title={
+						keys.data?.status === "error" || keys.error
+							? translate("Couldn't read the keys")
+							: translate("Reading the keys")
+					}
+				/>
+			) : listed.length === 0 ? (
+				<Row title={translate("No keys yet")} />
+			) : (
+				listed.map((row) => <KeyRow key={row.id} row={row} />)
+			)}
+			{defaults.data ? <MintForm defaults={defaults.data} /> : null}
+		</Section>
 	);
 };

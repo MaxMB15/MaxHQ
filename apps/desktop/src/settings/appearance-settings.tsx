@@ -53,7 +53,7 @@ export const APPEARANCE_TERMS: readonly string[] = [
 	...LANGUAGE_OPTIONS.map((option) => option.label),
 ];
 
-/** The Appearance page. */
+/** The Appearance card: the theme and the interface language. */
 export const AppearanceSettingsPage = () => {
 	const { t, choice: languageChoice, setLanguageChoice } = useI18n();
 	const choice = useThemeChoice();
@@ -63,37 +63,33 @@ export const AppearanceSettingsPage = () => {
 		{ value: "dark", label: t("Dark") },
 	];
 	return (
-		<>
-			<Section title={t("Colors")}>
-				<Row
-					title={t("Theme")}
-					sub={t(
-						"Light or dark. System follows the Mac's appearance as it changes through the day."
-					)}
-				>
-					<Picker
-						label={t("Theme")}
-						value={choice}
-						options={themes}
-						onChange={setThemeChoice}
-						className="w-[180px]"
-					/>
-				</Row>
-			</Section>
-			<Section title={t("Language")}>
-				<Row
-					title={t("Interface language")}
-					sub={t("System follows this device's language. Changes apply immediately.")}
-				>
-					<Picker
-						label={t("Language")}
-						value={languageChoice}
-						options={[{ value: "system", label: t("System") }, ...LANGUAGE_OPTIONS]}
-						onChange={setLanguageChoice}
-						className="w-[180px]"
-					/>
-				</Row>
-			</Section>
-		</>
+		<Section title={t("Appearance")}>
+			<Row
+				title={t("Theme")}
+				sub={t(
+					"Light or dark. System follows the Mac's appearance as it changes through the day."
+				)}
+			>
+				<Picker
+					label={t("Theme")}
+					value={choice}
+					options={themes}
+					onChange={setThemeChoice}
+					className="w-[180px]"
+				/>
+			</Row>
+			<Row
+				title={t("Interface language")}
+				sub={t("System follows this device's language. Changes apply immediately.")}
+			>
+				<Picker
+					label={t("Language")}
+					value={languageChoice}
+					options={[{ value: "system", label: t("System") }, ...LANGUAGE_OPTIONS]}
+					onChange={setLanguageChoice}
+					className="w-[180px]"
+				/>
+			</Row>
+		</Section>
 	);
 };

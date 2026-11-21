@@ -15,6 +15,7 @@ import { describe, expect, it } from "vitest";
 import App from "@/App";
 import { mockSource } from "@/data/mock-source";
 import { PREFS_KEY } from "@/sidebar/prefs";
+import { settingsCard } from "@/test/settings";
 import { FixedNow } from "@maxhq/shared/lib/clock";
 import { NOW } from "@maxhq/shared/test/build";
 import { createUiStore } from "@maxhq/shared/ui/store";
@@ -33,15 +34,8 @@ const openSidebarSettings = async () => {
 		</FixedNow>
 	);
 	await screen.findAllByRole("button", { name: /devbox/ });
-	fireEvent.click(screen.getByRole("button", { name: "Settings" }));
-	const nav = await screen.findByRole("navigation", { name: "Settings pages" });
-	fireEvent.click(
-		within(within(nav).getByRole("group", { name: "App" })).getByRole("button", {
-			name: "Sidebar",
-		})
-	);
-	const dialog = await screen.findByRole("dialog", { name: "Settings" });
-	return within(within(dialog).getByRole("region", { name: "Snooze options" }));
+	const card = await settingsCard("Sidebar");
+	return within(within(card).getByRole("region", { name: "Snooze options" }));
 };
 
 const saved = (): { workingShelf: boolean; snoozePresets: SnoozePresetSetting[] } | null =>
