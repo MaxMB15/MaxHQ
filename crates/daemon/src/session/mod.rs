@@ -614,6 +614,15 @@ enum Input {
         agent: AgentId,
         unsaved: Option<bool>,
     },
+    /// The check of the worktree of an agent `caller` started finished, so
+    /// it may settle along with `caller` under `settled`. `unsaved` is none
+    /// when it couldn't tell.
+    Along {
+        caller: AgentId,
+        settled: Box<maxhq_protocol::model::Settled>,
+        agent: AgentId,
+        unsaved: Option<bool>,
+    },
     /// A call to one of MaxHQ's tools finished, for the driver of
     /// `session`.
     ToolDone { session: SessionId, done: ToolDone },
@@ -1234,6 +1243,12 @@ impl Manager {
             }
             Input::TakenOver { agent, result } => self.taken_over(agent, result),
             Input::Checked { agent, unsaved } => self.checked(agent, unsaved),
+            Input::Along {
+                caller,
+                settled,
+                agent,
+                unsaved,
+            } => self.along_checked(caller, *settled, agent, unsaved),
             Input::ToolDone { session, done } => self.tool_done(session, done).await,
             Input::JobDone { session, done } => self.driver_job_done(session, done).await,
             Input::Preview { agent, id, preview } => self.preview_made(agent, id, preview),
