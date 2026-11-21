@@ -222,6 +222,11 @@ pub enum ItemBody {
         options: Vec<AttentionOption>,
         /// How it ended, once it has.
         decided: Option<Decided>,
+        /// The rules "Always allow" saves for a command, as their words, when
+        /// MaxHQ keeps them. An older `maxd` leaves it out, which reads as
+        /// none.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        saves: Vec<String>,
     },
     /// The agent asked you one or more questions.
     Question {
@@ -960,6 +965,7 @@ mod tests {
                     by: None,
                     at: Timestamp(1_761_350_400_000),
                 }),
+                saves: Vec::new(),
             },
             ItemBody::Question {
                 attention,
@@ -1163,6 +1169,7 @@ mod tests {
             cwd: None,
             options: Vec::new(),
             decided: None,
+            saves: Vec::new(),
         }))
         .unwrap();
         assert_eq!(value["kind"], "approval");
@@ -1179,6 +1186,7 @@ mod tests {
             cwd: Some("/work/maxhq".into()),
             options: Vec::new(),
             decided: None,
+            saves: Vec::new(),
         }))
         .unwrap();
         value.as_object_mut().unwrap().remove("cwd");

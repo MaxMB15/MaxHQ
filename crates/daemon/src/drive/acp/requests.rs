@@ -23,7 +23,9 @@
 //! update before it gives the command line. MaxHQ answers it itself when
 //! [`commands::allows`] does: in Auto for a command that only reads, and
 //! in any mode but Plan for one the project's rules name. Picking an
-//! allow-always option saves rules for the command too.
+//! allow-always option saves rules for the command, which the card shows
+//! first, and tells the CLI to allow it once, so that its own rule for the
+//! program alone doesn't pass the next one.
 //!
 //! In Accept edits and Auto a change passes alone when every path it names
 //! lands inside the agent's folders and off the files that decide what runs
@@ -379,6 +381,15 @@ impl AcpSession {
                 .then(|| kind.clone()),
             })
             .collect();
+        // The card shows what "Always allow" would save before you pick it.
+        let saves = command
+            .as_deref()
+            .filter(|_| options.iter().any(|(_, kind, _)| kind == "allow_always"))
+            .map(|line| commands::rules_for(line, &self.folders()))
+            .into_iter()
+            .flatten()
+            .map(|rule| rule.command)
+            .collect();
         let item = waiting(
             agent,
             self.stream.turn_id(),
@@ -391,6 +402,7 @@ impl AcpSession {
                 cwd: Some(self.cwd()),
                 options: choices.clone(),
                 decided: None,
+                saves,
             },
         );
         let event = event(agent, AttentionKind::Permission, title, choices, at);
@@ -463,6 +475,7 @@ impl AcpSession {
                 cwd: Some(self.cwd()),
                 options: options.clone(),
                 decided: None,
+                saves: Vec::new(),
             },
         );
         let event = event(agent, AttentionKind::Permission, title, options, at);
@@ -491,16 +504,21 @@ impl AcpSession {
         let reply = match (&prompt.kind, &answer) {
             (Kind::Permission(options, command), AttentionAnswer::Option { id }) => {
                 let picked = options.iter().find(|(option, _)| option == id);
-                // The CLI keeps its own rule as well, but MaxHQ's covers the
-                // command for every agent in the project, after a restart
-                // too.
+                let mut sent = id;
+                // MaxHQ keeps the rule, which covers the command for every
+                // agent in the project, after a restart too, and reads where
+                // it reaches. The CLI hears "allow once", as its own rule
+                // would name the program alone and pass it with any words.
                 if let Some(command) = command
                     && picked.is_some_and(|(_, kind)| kind == "allow_always")
                 {
                     fx.command_rules
                         .extend(commands::rules_for(command, &self.folders()));
+                    if let Some((once, _)) = options.iter().find(|(_, kind)| kind == "allow_once") {
+                        sent = once;
+                    }
                 }
-                picked.map(|_| (rpc::selected(id), declines(options, id)))
+                picked.map(|_| (rpc::selected(sent), declines(options, id)))
             }
             (Kind::Permission(options, _), AttentionAnswer::Text { text }) => {
                 let reject = options

@@ -99,7 +99,12 @@ const Detail = ({ item }: { item: ItemOf<"approval"> }) => {
 	const device = useDeviceName();
 	const { ref, more, measure } = useMoreBelow<HTMLPreElement>(item.detail);
 	const folder = working === null ? null : showHidden(working);
-	if (!item.detail && folder === null) return null;
+	// The rules "Always allow" would save, while it's still on offer.
+	const saves =
+		item.saves?.length && item.options.some((option) => option.kind === "allow_always")
+			? item.saves.map(showHidden)
+			: null;
+	if (!item.detail && folder === null && saves === null) return null;
 	const command = item.approval_kind === "command";
 	return (
 		<div className="flex flex-col gap-[3px] rounded-md border border-border bg-background px-2.5 py-2">
@@ -126,6 +131,19 @@ const Detail = ({ item }: { item: ItemOf<"approval"> }) => {
 								device: device,
 							})
 						: translate("In {{baseName}}.", { baseName: baseName(folder) })}
+				</span>
+			) : null}
+			{saves !== null ? (
+				<span
+					title={saves.join("\n")}
+					className="truncate text-[11.5px] text-muted-foreground"
+				>
+					{translate("Always allow saves:")}
+					{saves.map((rule) => (
+						<code key={rule} className="ml-1.5 font-mono text-foreground">
+							{rule}
+						</code>
+					))}
 				</span>
 			) : null}
 		</div>

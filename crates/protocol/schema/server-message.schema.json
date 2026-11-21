@@ -18564,6 +18564,13 @@
                 "$ref": "#/$defs/AttentionOption"
               }
             },
+            "saves": {
+              "description": "The rules \"Always allow\" saves for a command, as their words, when\nMaxHQ keeps them. An older `maxd` leaves it out, which reads as\nnone.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
             "title": {
               "description": "One line to show.",
               "type": "string"

@@ -255,6 +255,7 @@ impl CodexServer {
                 cwd,
                 options: options.clone(),
                 decided: None,
+                saves: Vec::new(),
             };
             let event = AttentionEvent {
                 id: attention,

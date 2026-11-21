@@ -16,19 +16,28 @@
 //! would become that flag.
 //!
 //! In Auto a command passes when it only reads, such as `ls`, `git show`
-//! or `cargo test`, and its paths stay inside the agent's folders. In Ask,
-//! Accept edits and Auto it passes when one of the project's rules names it.
-//! "Always allow" saves a rule for the command and its subcommand, such as
-//! `git show` from `git show 1a2b3c`. A command that deletes, moves,
-//! overwrites, reaches the network, runs other code or publishes keeps its
-//! exact words, so only that same command passes again. So does one that
-//! reaches outside the folders.
+//! or `cargo test`, and its paths stay inside the agent's folders. A reading
+//! command passes only with the flags its table here lists, read the way the
+//! program reads them, as runs like `-rnA3`, `--name=value` and a value in
+//! the next word. Any other flag could write a file, run a program or read a
+//! file its words don't show, so it asks. In Ask, Accept edits and Auto a
+//! command passes when one of the project's rules names it. "Always allow"
+//! saves a rule for the command and its subcommand, such as `git show` from
+//! `git show 1a2b3c`. A command that deletes, moves, overwrites, reaches the
+//! network, runs other code or publishes keeps its exact words, so only that
+//! same command passes again. So does one with a flag before its subcommand,
+//! such as `pip -q install`, and one that reaches outside the folders: a rule
+//! that isn't exact covers a command only inside them.
 //!
 //! In every mode, a `cd` passes only inside the folders, and a path through a
-//! name that holds secrets, such as `.ssh`, passes only under an exact rule.
-//! This reads a path's words and doesn't follow a symlink inside the folders,
-//! so a path it can't place asks.
+//! name that holds secrets, such as `.ssh` or `.claude`, or into MaxHQ's own
+//! data folder passes only under an exact rule. On this machine a path is
+//! placed after following its symlinks the way the kernel does, so a link in
+//! the folders that points out of them reads as outside, and a path that
+//! can't be followed reads as outside too. For a workspace elsewhere only the
+//! path's words count, so a path it can't place from them asks.
 
+use std::ffi::OsString;
 use std::path::{Component, Path, PathBuf};
 
 use maxhq_protocol::model::CommandRule;
@@ -191,6 +200,23 @@ const RISKY: &[&str] = &[
     "watch",
     "command",
     "builtin",
+    // These run a script or a query they're given, change files or settings,
+    // or read what other apps hold.
+    "sqlite3",
+    "man",
+    "csh",
+    "tcsh",
+    "lua",
+    "tclsh",
+    "expect",
+    "defaults",
+    "plutil",
+    "ditto",
+    "touch",
+    "xattr",
+    "mkdir",
+    "pbpaste",
+    "screencapture",
 ];
 
 /// Subcommands of a tool with subcommands that a rule keeps whole: they
@@ -317,46 +343,115 @@ struct Command {
 
 /// The folders an agent works in, which a command's paths are read against.
 pub struct Folders {
-    /// Where a line starts, which a path that climbs with `..` climbs from.
-    from: PathBuf,
-    /// Where a path may land, as the driver knows them and as they resolve.
+    /// Where a line starts.
+    start: PathBuf,
+    /// Where a path may land, as the driver knows them and, on this machine,
+    /// as they resolve.
     inside: Vec<PathBuf>,
+    /// MaxHQ's own data folders, which hold its keys and sign-ins.
+    data: Vec<PathBuf>,
+    /// Whether the folders are on this machine, so a path's links can be
+    /// followed.
+    local: bool,
 }
+
+/// Where the commands of one line may run, as the `cd`s before them leave it.
+struct Here {
+    /// Every folder a command may run in: where the line starts and each place
+    /// a `cd` may have landed, since one that fails leaves it where it was.
+    dirs: Vec<PathBuf>,
+    /// Whether a `cd` went somewhere this can't place, so a relative path
+    /// could land anywhere.
+    lost: bool,
+}
+
+/// The most places a line's `cd`s are followed to before it counts as lost.
+const MOST_PLACES: usize = 64;
+
+/// The most links one path may pass through. macOS gives up after 32 and
+/// Linux after 40, so this never follows more than the kernel would.
+const MOST_LINKS: usize = 32;
 
 impl Folders {
     /// The folders `cwd` and `attachments`. `local` says they're on this
-    /// machine, so that a symlink on the way to them, such as `/tmp` on a Mac,
-    /// resolves here. Elsewhere only their words count.
+    /// machine, so that a path resolves here, links and all. Elsewhere only
+    /// its words count.
     pub fn new(cwd: &Path, attachments: &Path, local: bool) -> Self {
-        let resolved = |path: &Path| local.then(|| std::fs::canonicalize(path).ok()).flatten();
+        Self::with_data(cwd, attachments, local, data_folders())
+    }
+
+    /// The folders, with `data` as MaxHQ's data folders.
+    fn with_data(cwd: &Path, attachments: &Path, local: bool, data: Vec<PathBuf>) -> Self {
+        let resolved = |paths: &[PathBuf]| -> Vec<PathBuf> {
+            paths
+                .iter()
+                .filter(|_| local)
+                .filter_map(|path| resolve(path))
+                .collect()
+        };
         let mut inside = vec![cwd.to_owned(), attachments.to_owned()];
-        inside.extend(resolved(cwd));
-        inside.extend(resolved(attachments));
+        inside.extend(resolved(&inside));
         // A relative folder would hold nothing the check can place.
         inside.retain(|folder| folder.is_absolute());
+        let mut all_data = data.clone();
+        all_data.extend(resolved(&data));
         Self {
-            from: resolved(cwd).unwrap_or_else(|| cwd.to_owned()),
+            start: cwd.to_owned(),
             inside,
+            data: all_data,
+            local,
         }
     }
 
-    /// How far a command reaches. `moved` says an earlier `cd` on the line
-    /// may have changed where it runs.
-    fn reach(&self, command: &Command, moved: bool) -> Reach {
+    /// Where a line starts out.
+    fn here(&self) -> Here {
+        Here {
+            dirs: vec![self.start.clone()],
+            lost: false,
+        }
+    }
+
+    /// How far a command reaches from `here`.
+    fn reach(&self, command: &Command, here: &Here) -> Reach {
         let part = &command.words;
         if command.globs.iter().any(|at| !glob_is_clear(&part[*at])) {
             return Reach::Secret;
         }
-        path_words(part)
-            .into_iter()
-            .map(|word| self.word_reach(word, moved))
-            .max()
-            .unwrap_or(Reach::Inside)
+        // `HEAD:.env` and `:0:.env` name a file in the repository's history
+        // or index.
+        let objects = part[0] == "git"
+            && part.iter().any(|word| {
+                word.split(':')
+                    .skip(1)
+                    .any(|path| names_secret(Path::new(path)))
+            });
+        if objects {
+            return Reach::Secret;
+        }
+        let args = &part[1..];
+        let reaches: Vec<Reach> = match options_for(&part[0]).map(|options| parse(options, args)) {
+            Some(Some(parsed)) => parsed
+                .paths
+                .iter()
+                .map(|path| self.path_reach(path, here))
+                .collect(),
+            // A reader its table can't read is always asked about, so every
+            // word counts.
+            Some(None) => args
+                .iter()
+                .map(|word| self.word_reach(word, here))
+                .collect(),
+            None => path_words(part)
+                .into_iter()
+                .map(|word| self.word_reach(word, here))
+                .collect(),
+        };
+        reaches.into_iter().max().unwrap_or(Reach::Inside)
     }
 
     /// How far one word reaches, as a whole, after a flag's name and after
     /// each `=`, such as in `--file=/etc/passwd` or `-I/etc`.
-    fn word_reach(&self, word: &str, moved: bool) -> Reach {
+    fn word_reach(&self, word: &str, here: &Here) -> Reach {
         word.split('=')
             .enumerate()
             .map(|(at, piece)| {
@@ -365,58 +460,144 @@ impl Folders {
                 } else {
                     piece
                 };
-                self.path_reach(path, moved)
+                self.path_reach(path, here)
             })
             .max()
             .unwrap_or(Reach::Inside)
     }
 
-    /// How far one path reaches.
-    fn path_reach(&self, path: &str, moved: bool) -> Reach {
-        let parts = || Path::new(path).components();
+    /// How far one path reaches from everywhere the line may be.
+    fn path_reach(&self, path: &str, here: &Here) -> Reach {
         // Names on the way to a folder aren't the path's own.
-        let own = self
-            .inside
-            .iter()
-            .find_map(|folder| Path::new(path).strip_prefix(folder).ok())
-            .unwrap_or(Path::new(path));
-        let names = |test: fn(&str) -> bool| any_name(own, test);
-        if names(holds_secrets) {
+        if names_secret(self.own(Path::new(path))) {
             return Reach::Secret;
         }
-        let climbs = parts().any(|part| part == Component::ParentDir);
-        if !climbs && !path.starts_with(['/', '~']) {
-            return Reach::Inside;
+        if here.lost && !path.starts_with('/') {
+            return Reach::Outside;
         }
-        // A `cd` that failed would leave `..` climbing from somewhere else.
-        if !(moved && climbs) && self.holds(path) {
-            return Reach::Inside;
+        here.dirs
+            .iter()
+            .map(|dir| self.at_reach(self.place(path, dir).as_deref()))
+            .max()
+            .unwrap_or(Reach::Outside)
+    }
+
+    /// How far a path reaches where it landed, or from nowhere when it
+    /// couldn't be placed.
+    fn at_reach(&self, at: Option<&Path>) -> Reach {
+        let Some(at) = at else {
+            return Reach::Outside;
+        };
+        if self.in_data(at) {
+            return Reach::Secret;
         }
-        if names(is_cli_home) {
-            Reach::Secret
+        match self.inside_of(at) {
+            Some(own) if names_secret(own) => Reach::Secret,
+            Some(_) => Reach::Inside,
+            None if names_secret(at) => Reach::Secret,
+            None => Reach::Outside,
+        }
+    }
+
+    /// Where `path` lands from `dir`: on this machine after following its
+    /// links the way the kernel does, elsewhere as far as its words tell.
+    /// None when that can't be told.
+    fn place(&self, path: &str, dir: &Path) -> Option<PathBuf> {
+        if path.starts_with('~') {
+            return None;
+        }
+        if self.local {
+            resolve(&dir.join(path))
         } else {
-            Reach::Outside
+            landing(path, dir)
         }
+    }
+
+    /// `path` past the deepest folder that holds it, or none when none does.
+    fn inside_of<'a>(&self, path: &'a Path) -> Option<&'a Path> {
+        self.inside
+            .iter()
+            .filter_map(|folder| path.strip_prefix(folder).ok())
+            .min_by_key(|own| own.components().count())
+    }
+
+    /// `path`'s own names: past the folder that holds it, or all of them.
+    fn own<'a>(&self, path: &'a Path) -> &'a Path {
+        self.inside_of(path).unwrap_or(path)
+    }
+
+    /// Whether `at` is in one of MaxHQ's data folders, and not in one of the
+    /// agent's own folders kept there, such as its attachments.
+    fn in_data(&self, at: &Path) -> bool {
+        let kept = |data: &PathBuf| {
+            self.inside
+                .iter()
+                .any(|folder| folder != data && folder.starts_with(data) && at.starts_with(folder))
+        };
+        self.data
+            .iter()
+            .any(|data| at.starts_with(data) && !kept(data))
+    }
+
+    /// Follows a `cd`, adding where it may land to `here`, and says whether
+    /// it lands inside the folders from everywhere the line may be. One with
+    /// no folder, one back to the last folder, one with flags and one with a
+    /// glob can land anywhere.
+    fn cd(&self, command: &Command, here: &mut Here) -> bool {
+        let target = match command.words.as_slice() {
+            [_, target] if !target.starts_with('-') && command.globs.is_empty() => target,
+            _ => {
+                here.lost = true;
+                return false;
+            }
+        };
+        let mut stays = self.path_reach(target, here) == Reach::Inside;
+        let mut landed = Vec::new();
+        for dir in &here.dirs {
+            landed.extend(self.place(target, dir));
+            // A shell's own `cd` takes `..` off the words first, and follows
+            // the links only when that path isn't there.
+            if self.local && !target.starts_with('~') {
+                let named = lexical(&dir.join(target));
+                stays &= self.at_reach(resolve(&named).as_deref()) == Reach::Inside;
+                landed.push(named);
+            }
+        }
+        for at in landed {
+            if !here.dirs.contains(&at) {
+                here.dirs.push(at);
+            }
+        }
+        here.lost |= !stays || here.dirs.len() > MOST_PLACES;
+        stays
     }
 
     /// Whether the agent may change `path` without asking: it lands inside the
-    /// folders, off the files that decide what runs later and off names that hold
-    /// secrets. A folder's own path doesn't count, as a workspace may live under
-    /// `.claude/worktrees`.
+    /// folders, off the files that decide what runs later, off names that hold
+    /// secrets and out of MaxHQ's data, both as written and, on this machine,
+    /// where its links lead. A folder's own path doesn't count, as a workspace
+    /// may live under `.claude/worktrees`.
     pub fn may_change(&self, path: &str) -> bool {
-        let Some(at) = landing(path, &self.from) else {
+        // A name that decides what runs counts past every folder that holds
+        // the path, so a folder kept inside another one's `.git` or `.maxhq`
+        // doesn't hide it. A secret name counts past the deepest, as the
+        // agent's attachments sit inside MaxHQ's data folder.
+        let runs = |path: &Path| {
+            let mut owns = self
+                .inside
+                .iter()
+                .filter_map(|folder| path.strip_prefix(folder).ok())
+                .peekable();
+            match owns.peek() {
+                None => any_name(path, decides_what_runs),
+                Some(_) => owns.any(|own| any_name(own, decides_what_runs)),
+            }
+        };
+        let clear = |path: &Path| !runs(path) && !names_secret(self.own(path));
+        let Some(at) = self.place(path, &self.start) else {
             return false;
         };
-        self.inside
-            .iter()
-            .find_map(|folder| at.strip_prefix(folder).ok())
-            .is_some_and(|own| !any_name(own, decides_what_runs) && !any_name(own, holds_secrets))
-    }
-
-    /// Whether `path` lands inside the folders, as far as its words can tell.
-    fn holds(&self, path: &str) -> bool {
-        landing(path, &self.from)
-            .is_some_and(|at| self.inside.iter().any(|folder| at.starts_with(folder)))
+        clear(Path::new(path)) && !self.in_data(&at) && self.inside_of(&at).is_some() && clear(&at)
     }
 }
 
@@ -427,7 +608,8 @@ enum Reach {
     Inside,
     /// One lands outside them, or where it lands can't be told.
     Outside,
-    /// One goes through a name that holds secrets, or a glob could match one.
+    /// One goes through a name that holds secrets or into MaxHQ's data, or a
+    /// glob could match one.
     Secret,
 }
 
@@ -442,27 +624,25 @@ pub fn allows(line: &str, auto: bool, rules: &[CommandRule], folders: &Folders) 
         .iter()
         .filter_map(|rule| Some((words_of(&rule.command)?, rule.exact)))
         .collect();
-    let mut moved = false;
+    let mut here = folders.here();
     commands.iter().all(|command| {
         let part = &command.words;
         if is_cd(part) {
-            let stays = cd_stays(command, folders, moved);
-            moved = true;
-            return stays;
+            return folders.cd(command, &mut here);
         }
         if glob_matters(command) {
             return false;
         }
-        let named = rules.iter().any(|rule| matches(rule, part));
         // You approved these words, wherever they reach.
         let exact = rules.iter().any(|(words, exact)| *exact && words == part);
         exact
-            || match folders.reach(command, moved) {
-                Reach::Inside => (auto && reads_only(part)) || named,
-                // A plain command's rule covers it wherever it looks, outside
-                // Auto. A rule for a project's tool covers only this project.
-                Reach::Outside => !auto && !WITH_SUBCOMMANDS.contains(&part[0].as_str()) && named,
-                Reach::Secret => false,
+            || match folders.reach(command, &here) {
+                Reach::Inside => {
+                    (auto && reads_only(part)) || rules.iter().any(|rule| matches(rule, part))
+                }
+                // A rule that isn't exact names a command, not where it looks,
+                // so it covers one only inside the folders.
+                Reach::Outside | Reach::Secret => false,
             }
     })
 }
@@ -475,14 +655,14 @@ pub fn rules_for(line: &str, folders: &Folders) -> Vec<CommandRule> {
         return Vec::new();
     };
     let mut rules: Vec<CommandRule> = Vec::new();
-    let mut moved = false;
+    let mut here = folders.here();
     for command in commands.iter().filter(|command| !glob_matters(command)) {
         let part = &command.words;
         if is_cd(part) {
-            moved = true;
+            folders.cd(command, &mut here);
             continue;
         }
-        let rule = if risky(part) || folders.reach(command, moved) != Reach::Inside {
+        let rule = if risky(part) || folders.reach(command, &here) != Reach::Inside {
             CommandRule {
                 command: join(part),
                 exact: true,
@@ -525,11 +705,22 @@ fn words_of(command: &str) -> Option<Part> {
 
 /// Whether an unquoted `*` or `?` could turn into a flag this refuses.
 fn glob_matters(command: &Command) -> bool {
-    let Some(program) = command.words.first().map(String::as_str) else {
+    let words = &command.words;
+    let Some(program) = words.first().map(String::as_str) else {
         return false;
     };
+    // `wc` and `du` read a list of files from one a flag names, and a name a
+    // leading `*` matches could spell that flag. After `--` it can't.
+    let dashes = words
+        .iter()
+        .position(|word| word == "--")
+        .unwrap_or(words.len());
+    let leading = command
+        .globs
+        .iter()
+        .any(|at| *at < dashes && words[*at].starts_with(['*', '?']));
     !command.globs.is_empty()
-        && !GLOB_SAFE.contains(&program)
+        && (!GLOB_SAFE.contains(&program) || (matches!(program, "wc" | "du") && leading))
         && (READERS.contains(&program)
             || WITH_SUBCOMMANDS.contains(&program)
             || matches!(program, "find" | "sed" | "pytest" | "tsc"))
@@ -538,19 +729,6 @@ fn glob_matters(command: &Command) -> bool {
 /// `cd` changes nothing on its own, but what follows it runs where it landed.
 fn is_cd(part: &Part) -> bool {
     part.first().is_some_and(|word| word == "cd")
-}
-
-/// Whether a `cd` stays inside the folders. One with no folder, one back to
-/// the last folder, one with flags and one with a glob can land anywhere.
-fn cd_stays(command: &Command, folders: &Folders, moved: bool) -> bool {
-    match command.words.as_slice() {
-        [_, target] => {
-            !target.starts_with('-')
-                && command.globs.is_empty()
-                && folders.word_reach(target, moved) == Reach::Inside
-        }
-        _ => false,
-    }
 }
 
 /// Where `path` lands from `from`, or none when its words can't tell: it starts
@@ -580,6 +758,93 @@ fn landing(path: &str, from: &Path) -> Option<PathBuf> {
     Some(at)
 }
 
+/// `path` with `.` and `..` taken off its words, as a shell's `cd` does
+/// before it looks at the disk.
+fn lexical(path: &Path) -> PathBuf {
+    let mut at = PathBuf::new();
+    for part in path.components() {
+        match part {
+            Component::ParentDir => {
+                at.pop();
+            }
+            Component::CurDir => {}
+            part => at.push(part),
+        }
+    }
+    at
+}
+
+/// Where an absolute `path` lands on this machine, following its links the
+/// way the kernel does. Past a name that isn't there, the rest counts by its
+/// words. None when the kernel would give up on the links, or a folder on the
+/// way can't be read.
+fn resolve(path: &Path) -> Option<PathBuf> {
+    if !path.is_absolute() {
+        return None;
+    }
+    let mut rest = Vec::new();
+    push_steps(&mut rest, path);
+    let mut at = PathBuf::from("/");
+    let mut links = 0;
+    let mut missing = false;
+    while let Some(step) = rest.pop() {
+        if step == ".." {
+            at.pop();
+            continue;
+        }
+        at.push(&step);
+        if missing {
+            continue;
+        }
+        match std::fs::symlink_metadata(&at) {
+            Ok(meta) if meta.file_type().is_symlink() => {
+                links += 1;
+                if links > MOST_LINKS {
+                    return None;
+                }
+                let target = std::fs::read_link(&at).ok()?;
+                at.pop();
+                if target.is_absolute() {
+                    at = PathBuf::from("/");
+                }
+                push_steps(&mut rest, &target);
+            }
+            Ok(_) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => missing = true,
+            Err(_) => return None,
+        }
+    }
+    Some(at)
+}
+
+/// Puts `path`'s names on `rest` so that its first comes off first.
+fn push_steps(rest: &mut Vec<OsString>, path: &Path) {
+    for part in path.components().rev() {
+        match part {
+            Component::Normal(name) => rest.push(name.to_owned()),
+            Component::ParentDir => rest.push("..".into()),
+            Component::CurDir | Component::RootDir | Component::Prefix(_) => {}
+        }
+    }
+}
+
+/// MaxHQ's data folders: this device's, the usual one on Linux and a
+/// workspace guest's.
+#[cfg(not(test))]
+fn data_folders() -> Vec<PathBuf> {
+    let mut folders: Vec<PathBuf> = maxhq_core::paths::data_dir().into_iter().collect();
+    folders.extend(std::env::home_dir().map(|home| home.join(".local/share/maxhq")));
+    folders.push(maxhq_core::paths::GUEST_DATA_DIR.into());
+    folders.dedup();
+    folders
+}
+
+/// MaxHQ's data folders, kept off the real home folder in tests.
+#[cfg(test)]
+fn data_folders() -> Vec<PathBuf> {
+    vec![maxhq_core::paths::GUEST_DATA_DIR.into()]
+}
+
 /// Whether `test` holds for any of `path`'s names, lower-cased.
 fn any_name(path: &Path, test: fn(&str) -> bool) -> bool {
     path.components().any(|part| match part {
@@ -602,20 +867,57 @@ fn holds_secrets(name: &str) -> bool {
             | ".pgpass"
             | ".npmrc"
             | ".pypirc"
+            | ".tauri"
+            | ".appstoreconnect"
+            | ".terraform.d"
+            | ".vault-token"
+            | ".claude.json"
+            | ".credentials.json"
+            | "auth.json"
+            | "credentials.toml"
             | "keychains"
             | "credentials"
             | "credentials.json"
+            | "secrets"
     ) || name.starts_with(".env")
         || ["id_rsa", "id_ed25519", "id_ecdsa", "id_dsa"]
             .iter()
             .any(|key| name.starts_with(key))
-        || name.ends_with(".pem")
+        || [".pem", ".key", ".p8", ".token"]
+            .iter()
+            .any(|end| name.ends_with(end))
 }
 
 /// Whether a lower-cased name is where a CLI keeps its sign-in. Inside the
-/// folders it's the project's own settings.
+/// folders it's the project's own settings, which can hold keys as well.
 fn is_cli_home(name: &str) -> bool {
     matches!(name, ".claude" | ".codex" | ".cursor")
+}
+
+/// Whether `path` goes through a name that holds keys, tokens or sign-ins:
+/// one [`holds_secrets`] or [`is_cli_home`] names, or a folder where a CLI or
+/// MaxHQ keeps its own, such as `.config/gh` or MaxHQ's data folder.
+fn names_secret(path: &Path) -> bool {
+    let names: Vec<String> = path
+        .components()
+        .filter_map(|part| match part {
+            Component::Normal(name) => Some(name.to_string_lossy().to_ascii_lowercase()),
+            _ => None,
+        })
+        .collect();
+    names
+        .iter()
+        .any(|name| holds_secrets(name) || is_cli_home(name))
+        || names.windows(2).any(|pair| {
+            matches!(
+                (pair[0].as_str(), pair[1].as_str()),
+                (".config", "gh" | "gcloud" | "maxhq" | "cursor")
+                    | ("application support", "maxhq")
+            )
+        })
+        || names
+            .windows(3)
+            .any(|three| three == [".local", "share", "maxhq"])
 }
 
 /// Whether a lower-cased name holds what a CLI, git or a shell loads and runs
@@ -655,32 +957,1031 @@ fn glob_is_clear(word: &str) -> bool {
         };
         let tail = &name[last + 1..];
         !name.starts_with('.')
-            && !tail.ends_with(".pem")
+            && ![".pem", ".key", ".p8", ".token"]
+                .iter()
+                .any(|end| tail.ends_with(end))
             && tail.rfind('.').is_some_and(|dot| dot + 1 < tail.len())
     })
 }
 
-/// The arguments of `part` that can name files or folders. A pattern or a
-/// script isn't one, and some commands take no paths at all.
-fn path_words(part: &Part) -> Vec<&str> {
-    const SEARCH_INPUTS: &[&str] = &["-e", "-f", "--file", "--files", "--regexp"];
-    let args = part.get(1..).unwrap_or(&[]);
-    let without = |first: Option<usize>| {
-        let rest = args
-            .iter()
-            .enumerate()
-            .filter(move |(at, _)| Some(*at) != first);
-        rest.map(|(_, arg)| arg.as_str()).collect()
+/// What a reading command's flag takes after it.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Takes {
+    /// Nothing, as a switch.
+    Nothing,
+    /// A count, such as `3`, `+5` or `10K`.
+    Count,
+    /// A word that names no file, such as a format, a pattern or a glob.
+    Word,
+    /// A file or folder, or a word that one platform reads as one.
+    Path,
+    /// A word only in the same word, as in `--color=never`, or nothing.
+    Joined,
+    /// Two words, as jq's `--arg name value`.
+    Pair,
+}
+
+/// How a reading command reads its flags. A flag it lists only reads, and any
+/// other one asks: it could write a file, run a program or read a file the
+/// words don't show. Long flags count only by their full names.
+struct Options {
+    /// The letters that are switches.
+    letters: &'static str,
+    /// The letters that take something.
+    valued: &'static [(char, Takes)],
+    /// The long switches.
+    switches: &'static [&'static str],
+    /// The long flags that take something.
+    long: &'static [(&'static str, Takes)],
+    /// Whether the first plain word is a pattern or a program rather than a
+    /// file, unless a flag in `given_by` gives it.
+    pattern: bool,
+    /// The flags that give the pattern, so every plain word is a file.
+    given_by: &'static [&'static str],
+    /// Whether a letter's value can follow it in the same word, as in `-n5`.
+    /// Without, it's always the next word and the letters go on.
+    joined: bool,
+    /// Whether a flag of digits alone is a count, as in `head -50`.
+    digits: bool,
+}
+
+/// The switches every reading command takes.
+const HELP: &[&str] = &["help", "version"];
+
+/// What `options` read in a command's arguments.
+struct Parsed<'a> {
+    /// The words that name files or folders.
+    paths: Vec<&'a str>,
+    /// The words that aren't flags, their values or the pattern.
+    plain: Vec<&'a str>,
+    /// The pattern or program, when the first plain word is one.
+    term: Option<&'a str>,
+}
+
+/// Reads `args` the way a program with `options` does, or none when one is a
+/// flag the table doesn't list or a value that doesn't fit. GNU programs
+/// read flags after files too, and BSD ones read those as files, so a value
+/// after the first file counts as a path unless it's a count.
+fn parse<'a>(options: &Options, args: &'a [String]) -> Option<Parsed<'a>> {
+    let mut paths = Vec::new();
+    let mut plain: Vec<&str> = Vec::new();
+    let mut given = false;
+    let mut dashes = false;
+    let mut at = 0;
+    while let Some(word) = args.get(at) {
+        at += 1;
+        if dashes || word == "-" || !word.starts_with('-') {
+            plain.push(word);
+            continue;
+        }
+        if word == "--" {
+            dashes = true;
+            continue;
+        }
+        let late = !plain.is_empty();
+        if let Some(long) = word.strip_prefix("--") {
+            let (name, value) = match long.split_once('=') {
+                Some((name, value)) => (name, Some(value)),
+                None => (long, None),
+            };
+            given |= options
+                .given_by
+                .iter()
+                .any(|flag| flag.strip_prefix("--") == Some(name));
+            let takes = if options.switches.contains(&name) || HELP.contains(&name) {
+                Takes::Nothing
+            } else {
+                options.long.iter().find(|(flag, _)| *flag == name)?.1
+            };
+            take(takes, value, args, &mut at, late, &mut paths)?;
+            continue;
+        }
+        let mut rest = &word[1..];
+        if options.digits && rest.bytes().all(|byte| byte.is_ascii_digit()) {
+            continue;
+        }
+        while let Some(letter) = rest.chars().next() {
+            rest = &rest[letter.len_utf8()..];
+            given |= options.given_by.iter().any(|flag| {
+                !flag.starts_with("--")
+                    && flag
+                        .strip_prefix('-')
+                        .is_some_and(|f| f.starts_with(letter))
+            });
+            if options.letters.contains(letter) || (options.digits && letter.is_ascii_digit()) {
+                continue;
+            }
+            let takes = options.valued.iter().find(|(flag, _)| *flag == letter)?.1;
+            let value = (options.joined && !rest.is_empty()).then(|| std::mem::take(&mut rest));
+            take(takes, value, args, &mut at, late, &mut paths)?;
+        }
+    }
+    let term = (options.pattern && !given && !plain.is_empty()).then(|| plain.remove(0));
+    paths.extend(&plain);
+    Some(Parsed { paths, plain, term })
+}
+
+/// Takes what a flag takes, from the rest of its word or the words after it,
+/// and keeps the ones that may name files in `paths`. None when it's missing
+/// or doesn't fit.
+fn take<'a>(
+    takes: Takes,
+    joined: Option<&'a str>,
+    args: &'a [String],
+    at: &mut usize,
+    late: bool,
+    paths: &mut Vec<&'a str>,
+) -> Option<()> {
+    let values: Vec<&str> = match (takes, joined) {
+        (Takes::Nothing | Takes::Pair, Some(_)) => return None,
+        (Takes::Nothing | Takes::Joined, None) => return Some(()),
+        (Takes::Pair, None) => {
+            let pair = args.get(*at..*at + 2)?;
+            *at += 2;
+            pair.iter().map(String::as_str).collect()
+        }
+        (_, Some(value)) => vec![value],
+        (_, None) => {
+            let value = args.get(*at)?;
+            *at += 1;
+            vec![value.as_str()]
+        }
     };
+    if takes == Takes::Count && !values.iter().all(|value| is_count(value)) {
+        return None;
+    }
+    if takes == Takes::Path || (late && takes != Takes::Count) {
+        for value in values {
+            paths.push(value);
+            // Some parsers read `-f=name` as `name`.
+            paths.extend(value.strip_prefix('='));
+        }
+    }
+    Some(())
+}
+
+/// Whether `word` reads as a count, such as `3`, `+5`, `-2` or `10K`.
+fn is_count(word: &str) -> bool {
+    let word = word.strip_prefix(['+', '-']).unwrap_or(word);
+    let unit = word.trim_start_matches(|c: char| c.is_ascii_digit());
+    unit.len() < word.len() && unit.chars().all(|c| c.is_ascii_alphabetic())
+}
+
+/// The flag table for a reading command, or none for one that takes no
+/// files, such as `echo`.
+fn options_for(command: &str) -> Option<&'static Options> {
+    Some(match command {
+        "cat" => &CAT,
+        "head" => &HEAD,
+        "tail" => &TAIL,
+        "wc" => &WC,
+        "grep" | "egrep" | "fgrep" => &GREP,
+        "rg" => &RG,
+        "fd" => &FD,
+        "tree" => &TREE,
+        "file" => &FILE,
+        "stat" => &STAT,
+        "du" => &DU,
+        "df" => &DF,
+        "sort" => &SORT,
+        "uniq" => &UNIQ,
+        "cut" => &CUT,
+        "diff" => &DIFF,
+        "cmp" => &CMP,
+        "realpath" => &REALPATH,
+        "readlink" => &READLINK,
+        "ls" => &LS,
+        "date" => &DATE,
+        "jq" => &JQ,
+        _ => return None,
+    })
+}
+
+/// A table's defaults: short values may be joined, no pattern, no digit flags.
+const PLAIN: Options = Options {
+    letters: "",
+    valued: &[],
+    switches: &[],
+    long: &[],
+    pattern: false,
+    given_by: &[],
+    joined: true,
+    digits: false,
+};
+
+const CAT: Options = Options {
+    letters: "AbeEnstTuvl",
+    switches: &[
+        "show-all",
+        "number-nonblank",
+        "show-ends",
+        "number",
+        "squeeze-blank",
+        "show-tabs",
+        "show-nonprinting",
+    ],
+    ..PLAIN
+};
+
+/// `head` and `tail` share their long flags.
+const ENDS: &[(&str, Takes)] = &[("bytes", Takes::Count), ("lines", Takes::Count)];
+const ENDS_SWITCHES: &[&str] = &["quiet", "silent", "verbose", "zero-terminated"];
+
+const HEAD: Options = Options {
+    letters: "qvz",
+    valued: &[('n', Takes::Count), ('c', Takes::Count)],
+    switches: ENDS_SWITCHES,
+    long: ENDS,
+    digits: true,
+    ..PLAIN
+};
+
+/// No `-f` or `--follow`, which never end.
+const TAIL: Options = Options {
+    letters: "qvzr",
+    valued: &[
+        ('n', Takes::Count),
+        ('c', Takes::Count),
+        ('b', Takes::Count),
+    ],
+    switches: ENDS_SWITCHES,
+    long: ENDS,
+    digits: true,
+    ..PLAIN
+};
+
+/// No `--files0-from`, which reads the files to count from another.
+const WC: Options = Options {
+    letters: "lwcmL",
+    switches: &["bytes", "chars", "lines", "words", "max-line-length"],
+    long: &[("total", Takes::Word)],
+    ..PLAIN
+};
+
+/// No `-R`, which follows every link, or `--exclude-from`, which reads
+/// another file.
+const GREP: Options = Options {
+    letters: "rinlLwxvcoqshHEFGPzZaIbUTy",
+    valued: &[
+        ('A', Takes::Count),
+        ('B', Takes::Count),
+        ('C', Takes::Count),
+        ('m', Takes::Count),
+        ('e', Takes::Word),
+        ('f', Takes::Path),
+        ('d', Takes::Word),
+        ('D', Takes::Word),
+    ],
+    switches: &[
+        "extended-regexp",
+        "fixed-strings",
+        "basic-regexp",
+        "perl-regexp",
+        "ignore-case",
+        "no-ignore-case",
+        "word-regexp",
+        "line-regexp",
+        "null-data",
+        "no-messages",
+        "invert-match",
+        "byte-offset",
+        "line-number",
+        "no-line-number",
+        "with-filename",
+        "no-filename",
+        "only-matching",
+        "quiet",
+        "silent",
+        "text",
+        "files-with-matches",
+        "files-without-match",
+        "count",
+        "initial-tab",
+        "null",
+        "recursive",
+        "line-buffered",
+        "no-group-separator",
+    ],
+    long: &[
+        ("after-context", Takes::Count),
+        ("before-context", Takes::Count),
+        ("context", Takes::Count),
+        ("max-count", Takes::Count),
+        ("regexp", Takes::Word),
+        ("file", Takes::Path),
+        ("include", Takes::Word),
+        ("exclude", Takes::Word),
+        ("exclude-dir", Takes::Word),
+        ("include-dir", Takes::Word),
+        ("label", Takes::Word),
+        ("binary-files", Takes::Word),
+        ("directories", Takes::Word),
+        ("devices", Takes::Word),
+        ("group-separator", Takes::Word),
+        ("color", Takes::Joined),
+        ("colour", Takes::Joined),
+    ],
+    pattern: true,
+    given_by: &["-e", "-f", "--regexp", "--file"],
+    digits: true,
+    ..PLAIN
+};
+
+/// No `--pre`, `--pre-glob`, `--hostname-bin` or `-z`, which run programs,
+/// no `-L`, which follows links, and no `--ignore-file`, which reads another
+/// file.
+const RG: Options = Options {
+    letters: "nNiIsSlwxFvcoqHUaPpb0u.hV",
+    valued: &[
+        ('A', Takes::Count),
+        ('B', Takes::Count),
+        ('C', Takes::Count),
+        ('m', Takes::Count),
+        ('M', Takes::Count),
+        ('j', Takes::Count),
+        ('d', Takes::Count),
+        ('e', Takes::Word),
+        ('g', Takes::Word),
+        ('t', Takes::Word),
+        ('T', Takes::Word),
+        ('r', Takes::Word),
+        ('E', Takes::Word),
+        ('f', Takes::Path),
+    ],
+    switches: &[
+        "hidden",
+        "no-hidden",
+        "no-ignore",
+        "ignore",
+        "no-ignore-vcs",
+        "ignore-vcs",
+        "no-ignore-dot",
+        "ignore-dot",
+        "no-ignore-parent",
+        "ignore-parent",
+        "no-ignore-global",
+        "ignore-global",
+        "no-ignore-exclude",
+        "ignore-exclude",
+        "no-ignore-files",
+        "ignore-files",
+        "no-ignore-messages",
+        "no-messages",
+        "messages",
+        "ignore-case",
+        "smart-case",
+        "case-sensitive",
+        "fixed-strings",
+        "no-fixed-strings",
+        "word-regexp",
+        "line-regexp",
+        "invert-match",
+        "no-invert-match",
+        "count",
+        "count-matches",
+        "files",
+        "files-with-matches",
+        "files-without-match",
+        "only-matching",
+        "line-number",
+        "no-line-number",
+        "column",
+        "no-column",
+        "heading",
+        "no-heading",
+        "with-filename",
+        "no-filename",
+        "pretty",
+        "vimgrep",
+        "json",
+        "no-json",
+        "null",
+        "null-data",
+        "quiet",
+        "text",
+        "no-text",
+        "binary",
+        "no-binary",
+        "multiline",
+        "no-multiline",
+        "multiline-dotall",
+        "pcre2",
+        "no-pcre2",
+        "crlf",
+        "no-crlf",
+        "trim",
+        "no-trim",
+        "stats",
+        "no-stats",
+        "unrestricted",
+        "byte-offset",
+        "no-byte-offset",
+        "no-follow",
+        "no-search-zip",
+        "passthru",
+        "passthrough",
+        "debug",
+        "trace",
+        "type-list",
+        "no-config",
+        "unicode",
+        "no-unicode",
+        "auto-hybrid-regex",
+        "block-buffered",
+        "line-buffered",
+        "no-require-git",
+        "one-file-system",
+        "no-one-file-system",
+        "include-zero",
+        "no-include-zero",
+        "max-columns-preview",
+        "no-max-columns-preview",
+        "glob-case-insensitive",
+        "no-glob-case-insensitive",
+        "sort-files",
+        "no-context-separator",
+    ],
+    long: &[
+        ("after-context", Takes::Count),
+        ("before-context", Takes::Count),
+        ("context", Takes::Count),
+        ("max-count", Takes::Count),
+        ("max-columns", Takes::Count),
+        ("max-depth", Takes::Count),
+        ("maxdepth", Takes::Count),
+        ("threads", Takes::Count),
+        ("regexp", Takes::Word),
+        ("file", Takes::Path),
+        ("glob", Takes::Word),
+        ("iglob", Takes::Word),
+        ("type", Takes::Word),
+        ("type-not", Takes::Word),
+        ("type-add", Takes::Word),
+        ("type-clear", Takes::Word),
+        ("replace", Takes::Word),
+        ("encoding", Takes::Word),
+        ("engine", Takes::Word),
+        ("sort", Takes::Word),
+        ("sortr", Takes::Word),
+        ("color", Takes::Word),
+        ("colors", Takes::Word),
+        ("max-filesize", Takes::Word),
+        ("context-separator", Takes::Word),
+        ("field-match-separator", Takes::Word),
+        ("field-context-separator", Takes::Word),
+        ("path-separator", Takes::Word),
+        ("dfa-size-limit", Takes::Word),
+        ("regex-size-limit", Takes::Word),
+        ("hyperlink-format", Takes::Word),
+    ],
+    pattern: true,
+    given_by: &["-e", "-f", "--regexp", "--file", "--files", "--type-list"],
+    ..PLAIN
+};
+
+/// No `-x` or `-X`, which run a command, `-l`, which runs `ls`, `-L`, which
+/// follows links, `--base-directory` or `--ignore-file`. Its pattern counts
+/// as a path too.
+const FD: Options = Options {
+    letters: "HIusiFgapq01",
+    valued: &[
+        ('t', Takes::Word),
+        ('e', Takes::Word),
+        ('E', Takes::Word),
+        ('S', Takes::Word),
+        ('c', Takes::Word),
+        ('d', Takes::Count),
+        ('j', Takes::Count),
+    ],
+    switches: &[
+        "hidden",
+        "no-hidden",
+        "no-ignore",
+        "ignore",
+        "no-ignore-vcs",
+        "ignore-vcs",
+        "no-ignore-parent",
+        "no-global-ignore-file",
+        "unrestricted",
+        "case-sensitive",
+        "ignore-case",
+        "glob",
+        "regex",
+        "fixed-strings",
+        "absolute-path",
+        "relative-path",
+        "full-path",
+        "print0",
+        "prune",
+        "one-file-system",
+        "show-errors",
+        "quiet",
+        "no-require-git",
+        "require-git",
+        "no-follow",
+    ],
+    long: &[
+        ("type", Takes::Word),
+        ("extension", Takes::Word),
+        ("exclude", Takes::Word),
+        ("size", Takes::Word),
+        ("color", Takes::Word),
+        ("changed-within", Takes::Word),
+        ("changed-before", Takes::Word),
+        ("owner", Takes::Word),
+        ("path-separator", Takes::Word),
+        ("format", Takes::Word),
+        ("and", Takes::Word),
+        ("max-results", Takes::Count),
+        ("min-depth", Takes::Count),
+        ("exact-depth", Takes::Count),
+        ("max-depth", Takes::Count),
+        ("threads", Takes::Count),
+        ("search-path", Takes::Path),
+        ("strip-cwd-prefix", Takes::Joined),
+        ("hyperlink", Takes::Joined),
+    ],
+    ..PLAIN
+};
+
+/// No `-o`, which writes a file, `-R`, which writes one in every folder,
+/// `-l`, which follows links, or `--fromfile`, `--infofile` and
+/// `--gitfile`, which read other files.
+const TREE: Options = Options {
+    letters: "adfixNCnshDFpugJXtrcvUqQAS",
+    valued: &[
+        ('L', Takes::Count),
+        ('P', Takes::Word),
+        ('I', Takes::Word),
+        ('H', Takes::Word),
+        ('T', Takes::Word),
+    ],
+    switches: &[
+        "noreport",
+        "dirsfirst",
+        "filesfirst",
+        "prune",
+        "matchdirs",
+        "ignore-case",
+        "gitignore",
+        "si",
+        "du",
+        "inodes",
+        "device",
+        "metafirst",
+        "info",
+        "nolinks",
+    ],
+    long: &[
+        ("charset", Takes::Word),
+        ("timefmt", Takes::Word),
+        ("sort", Takes::Word),
+        ("filelimit", Takes::Count),
+    ],
+    joined: false,
+    ..PLAIN
+};
+
+/// No `-f`, which reads the files to look at from another, `-m`, which reads
+/// a magic file, `-C`, which writes one, or `-z`, which runs decompressors.
+const FILE: Options = Options {
+    letters: "bhiIkLsNnrE0dv",
+    valued: &[('e', Takes::Word), ('P', Takes::Word), ('F', Takes::Word)],
+    switches: &[
+        "mime-type",
+        "mime-encoding",
+        "apple",
+        "extension",
+        "brief",
+        "mime",
+        "keep-going",
+        "no-dereference",
+        "dereference",
+        "no-pad",
+        "no-buffer",
+        "raw",
+        "special-files",
+        "print0",
+    ],
+    long: &[
+        ("exclude", Takes::Word),
+        ("exclude-quiet", Takes::Word),
+        ("separator", Takes::Word),
+        ("parameter", Takes::Word),
+    ],
+    ..PLAIN
+};
+
+/// `-f`, `-c` and `-t` take a format on one platform and are switches on
+/// the other, so their next word counts as a path.
+const STAT: Options = Options {
+    letters: "FHLlnqrsx",
+    valued: &[('f', Takes::Path), ('c', Takes::Path), ('t', Takes::Path)],
+    switches: &["dereference", "file-system", "terse"],
+    long: &[
+        ("format", Takes::Word),
+        ("printf", Takes::Word),
+        ("cached", Takes::Word),
+    ],
+    ..PLAIN
+};
+
+/// No `--files0-from` or `-X`, which read other files, or `-L`, which
+/// follows links.
+const DU: Options = Options {
+    letters: "0aAbcDghHklmnPrsSx",
+    valued: &[
+        ('d', Takes::Count),
+        ('B', Takes::Word),
+        ('t', Takes::Word),
+        ('I', Takes::Word),
+    ],
+    switches: &[
+        "all",
+        "apparent-size",
+        "bytes",
+        "total",
+        "dereference-args",
+        "human-readable",
+        "inodes",
+        "count-links",
+        "separate-dirs",
+        "summarize",
+        "one-file-system",
+        "si",
+        "null",
+        "no-dereference",
+    ],
+    long: &[
+        ("max-depth", Takes::Count),
+        ("block-size", Takes::Word),
+        ("threshold", Takes::Word),
+        ("exclude", Takes::Word),
+        ("time-style", Takes::Word),
+        ("time", Takes::Joined),
+    ],
+    ..PLAIN
+};
+
+const DF: Options = Options {
+    letters: "aHhiklPmgcbnT",
+    valued: &[('B', Takes::Word), ('t', Takes::Word), ('x', Takes::Word)],
+    switches: &[
+        "all",
+        "human-readable",
+        "si",
+        "inodes",
+        "local",
+        "portability",
+        "sync",
+        "no-sync",
+        "total",
+        "print-type",
+    ],
+    long: &[
+        ("block-size", Takes::Word),
+        ("type", Takes::Word),
+        ("exclude-type", Takes::Word),
+        ("output", Takes::Joined),
+    ],
+    ..PLAIN
+};
+
+/// No `-o`, which writes a file, `--compress-program`, which runs one,
+/// or `-T`, `--files0-from` and `--random-source`, which use other files.
+const SORT: Options = Options {
+    letters: "bdfgiMhnRrVcCmsuz",
+    valued: &[('k', Takes::Word), ('t', Takes::Word), ('S', Takes::Word)],
+    switches: &[
+        "ignore-leading-blanks",
+        "dictionary-order",
+        "ignore-case",
+        "general-numeric-sort",
+        "ignore-nonprinting",
+        "month-sort",
+        "human-numeric-sort",
+        "numeric-sort",
+        "random-sort",
+        "reverse",
+        "version-sort",
+        "merge",
+        "stable",
+        "unique",
+        "zero-terminated",
+        "debug",
+    ],
+    long: &[
+        ("key", Takes::Word),
+        ("field-separator", Takes::Word),
+        ("buffer-size", Takes::Word),
+        ("sort", Takes::Word),
+        ("parallel", Takes::Count),
+        ("batch-size", Takes::Count),
+        ("check", Takes::Joined),
+    ],
+    ..PLAIN
+};
+
+const UNIQ: Options = Options {
+    letters: "cduizD",
+    valued: &[
+        ('f', Takes::Count),
+        ('s', Takes::Count),
+        ('w', Takes::Count),
+    ],
+    switches: &[
+        "count",
+        "repeated",
+        "unique",
+        "ignore-case",
+        "zero-terminated",
+    ],
+    long: &[
+        ("skip-fields", Takes::Count),
+        ("skip-chars", Takes::Count),
+        ("check-chars", Takes::Count),
+        ("all-repeated", Takes::Joined),
+        ("group", Takes::Joined),
+    ],
+    ..PLAIN
+};
+
+const CUT: Options = Options {
+    letters: "nszw",
+    valued: &[
+        ('b', Takes::Word),
+        ('c', Takes::Word),
+        ('f', Takes::Word),
+        ('d', Takes::Word),
+    ],
+    switches: &["complement", "only-delimited", "zero-terminated"],
+    long: &[
+        ("bytes", Takes::Word),
+        ("characters", Takes::Word),
+        ("fields", Takes::Word),
+        ("delimiter", Takes::Word),
+        ("output-delimiter", Takes::Word),
+    ],
+    ..PLAIN
+};
+
+/// No `-l`, which runs `pr`, or `-X`, `--from-file` and `--to-file`, which
+/// read other files.
+const DIFF: Options = Options {
+    letters: "abBcdeEfhinNpPqrstTuwyZ",
+    valued: &[
+        ('U', Takes::Count),
+        ('C', Takes::Count),
+        ('W', Takes::Count),
+        ('I', Takes::Word),
+        ('F', Takes::Word),
+        ('D', Takes::Word),
+        ('L', Takes::Word),
+        ('S', Takes::Word),
+        ('x', Takes::Word),
+    ],
+    switches: &[
+        "text",
+        "ignore-space-change",
+        "ignore-blank-lines",
+        "ignore-all-space",
+        "ignore-case",
+        "ignore-tab-expansion",
+        "ignore-trailing-space",
+        "ignore-file-name-case",
+        "no-ignore-file-name-case",
+        "minimal",
+        "new-file",
+        "unidirectional-new-file",
+        "show-c-function",
+        "brief",
+        "report-identical-files",
+        "recursive",
+        "expand-tabs",
+        "initial-tab",
+        "side-by-side",
+        "left-column",
+        "suppress-common-lines",
+        "suppress-blank-empty",
+        "strip-trailing-cr",
+        "normal",
+        "ed",
+        "forward-ed",
+        "rcs",
+        "speed-large-files",
+        "no-dereference",
+    ],
+    long: &[
+        ("unified", Takes::Joined),
+        ("context", Takes::Joined),
+        ("color", Takes::Joined),
+        ("width", Takes::Count),
+        ("tabsize", Takes::Count),
+        ("horizon-lines", Takes::Count),
+        ("ignore-matching-lines", Takes::Word),
+        ("show-function-line", Takes::Word),
+        ("label", Takes::Word),
+        ("starting-file", Takes::Word),
+        ("exclude", Takes::Word),
+        ("ifdef", Takes::Word),
+        ("line-format", Takes::Word),
+        ("old-line-format", Takes::Word),
+        ("new-line-format", Takes::Word),
+        ("unchanged-line-format", Takes::Word),
+        ("old-group-format", Takes::Word),
+        ("new-group-format", Takes::Word),
+        ("changed-group-format", Takes::Word),
+        ("unchanged-group-format", Takes::Word),
+    ],
+    ..PLAIN
+};
+
+const CMP: Options = Options {
+    letters: "bhlsqvxz",
+    valued: &[('i', Takes::Word), ('n', Takes::Count)],
+    switches: &["print-bytes", "verbose", "quiet", "silent"],
+    long: &[("ignore-initial", Takes::Word), ("bytes", Takes::Count)],
+    ..PLAIN
+};
+
+const REALPATH: Options = Options {
+    letters: "emLPqsz",
+    switches: &[
+        "canonicalize-existing",
+        "canonicalize-missing",
+        "logical",
+        "physical",
+        "quiet",
+        "strip",
+        "no-symlinks",
+        "zero",
+    ],
+    long: &[("relative-to", Takes::Path), ("relative-base", Takes::Path)],
+    ..PLAIN
+};
+
+const READLINK: Options = Options {
+    letters: "efmnqsvz",
+    switches: &[
+        "canonicalize",
+        "canonicalize-existing",
+        "canonicalize-missing",
+        "no-newline",
+        "quiet",
+        "silent",
+        "verbose",
+        "zero",
+    ],
+    ..PLAIN
+};
+
+/// No `-w`, `-T`, `-I` or `-D`, which take a value on one platform and not
+/// the other, or `-L`, which follows links.
+const LS: Options = Options {
+    letters: "1@aAbBcCdeFfgGhHiklmnNoOpPqQrRsStuUvWxXZ",
+    switches: &[
+        "all",
+        "almost-all",
+        "author",
+        "escape",
+        "ignore-backups",
+        "directory",
+        "full-time",
+        "group-directories-first",
+        "no-group",
+        "human-readable",
+        "si",
+        "inode",
+        "kibibytes",
+        "literal",
+        "numeric-uid-gid",
+        "hide-control-chars",
+        "show-control-chars",
+        "quote-name",
+        "recursive",
+        "reverse",
+        "size",
+        "zero",
+        "context",
+        "file-type",
+        "dereference-command-line",
+        "dereference-command-line-symlink-to-dir",
+    ],
+    long: &[
+        ("color", Takes::Joined),
+        ("classify", Takes::Joined),
+        ("hyperlink", Takes::Joined),
+        ("format", Takes::Word),
+        ("sort", Takes::Word),
+        ("time", Takes::Word),
+        ("time-style", Takes::Word),
+        ("indicator-style", Takes::Word),
+        ("quoting-style", Takes::Word),
+        ("block-size", Takes::Word),
+    ],
+    ..PLAIN
+};
+
+/// No `-s` or `--set`, which set the clock. `-f` and `-r` name a file on one
+/// platform.
+const DATE: Options = Options {
+    letters: "uRjn",
+    valued: &[
+        ('d', Takes::Word),
+        ('v', Takes::Word),
+        ('r', Takes::Path),
+        ('f', Takes::Path),
+        ('I', Takes::Joined),
+    ],
+    switches: &["utc", "universal", "rfc-email", "debug", "resolution"],
+    long: &[
+        ("date", Takes::Word),
+        ("file", Takes::Path),
+        ("reference", Takes::Path),
+        ("iso-8601", Takes::Joined),
+        ("rfc-3339", Takes::Word),
+    ],
+    ..PLAIN
+};
+
+/// No `-f` or `-L`, which load a program or modules from files, or
+/// `--rawfile` and `--slurpfile`, which read other files.
+const JQ: Options = Options {
+    letters: "acCeMnrRsSjhV",
+    switches: &[
+        "slurp",
+        "raw-input",
+        "null-input",
+        "compact-output",
+        "raw-output",
+        "raw-output0",
+        "join-output",
+        "ascii-output",
+        "sort-keys",
+        "color-output",
+        "monochrome-output",
+        "tab",
+        "exit-status",
+        "seq",
+        "stream",
+        "stream-errors",
+        "unbuffered",
+        "args",
+        "jsonargs",
+        "build-configuration",
+    ],
+    long: &[
+        ("arg", Takes::Pair),
+        ("argjson", Takes::Pair),
+        ("indent", Takes::Count),
+    ],
+    pattern: true,
+    joined: false,
+    ..PLAIN
+};
+
+/// Whether a jq program only reads its input: it doesn't read the
+/// environment, which can hold tokens, or load a module from a file. A
+/// field such as `.env` is fine.
+fn jq_reads(program: &str) -> bool {
+    const DENIED: &[&str] = &["env", "$ENV", "import", "include", "modulemeta"];
+    let bytes = program.as_bytes();
+    let mut at = 0;
+    while at < bytes.len() {
+        let start = at;
+        if bytes[at] == b'$' {
+            at += 1;
+        }
+        let name = at;
+        while bytes
+            .get(at)
+            .is_some_and(|byte| byte.is_ascii_alphanumeric() || *byte == b'_')
+        {
+            at += 1;
+        }
+        if at == name {
+            at = start + 1;
+            continue;
+        }
+        let token = &program[start..at];
+        let field = !token.starts_with('$')
+            && start >= 1
+            && bytes[start - 1] == b'.'
+            && (start < 2 || bytes[start - 2] != b'.');
+        if DENIED.contains(&token) && !field {
+            return false;
+        }
+    }
+    true
+}
+
+/// The arguments of `part` that can name files or folders, for a command with
+/// no flag table. A pattern or a script isn't one, and some commands take no
+/// paths at all.
+fn path_words(part: &Part) -> Vec<&str> {
+    let args = part.get(1..).unwrap_or(&[]);
     match part.first().map(String::as_str) {
         Some("echo" | "printf" | "tr" | "basename" | "dirname") => Vec::new(),
-        Some("jq") => without(args.iter().position(|arg| !arg.starts_with('-'))),
-        // With these flags, every plain word is a file to search.
-        Some("grep" | "egrep" | "fgrep" | "rg")
-            if !args.iter().any(|arg| names_flag(arg, SEARCH_INPUTS)) =>
-        {
-            without(first_plain(args))
-        }
         Some("sed") => sed_words(args).map_or_else(
             || args.iter().map(String::as_str).collect(),
             |(_, files)| files,
@@ -693,7 +1994,7 @@ fn path_words(part: &Part) -> Vec<&str> {
 }
 
 /// Where the first word of `args` sits that isn't a flag or a flag's count, as
-/// in `rg -A 3 foo`.
+/// in `git grep -A 3 foo`.
 fn first_plain(args: &[String]) -> Option<usize> {
     const COUNTS: &[&str] = &[
         "-A",
@@ -745,11 +2046,7 @@ fn is_term(part: &Part, at: usize) -> bool {
     let rest = after_globals(part);
     let sub_at = part.len() - rest.len();
     match (part[0].as_str(), rest.first().map(String::as_str)) {
-        ("git", Some("grep")) => {
-            let args = &part[sub_at + 1..];
-            !args.iter().any(|arg| names_flag(arg, &["-f", "--file"]))
-                && first_plain(args).map(|first| first + sub_at + 1) == Some(at)
-        }
+        ("git", Some("grep")) => at > sub_at && grep_term(&part[sub_at + 1..], at - sub_at - 1),
         ("git", Some("log")) => {
             after(LOG_TERMS)
                 || word
@@ -767,6 +2064,25 @@ fn is_term(part: &Part, at: usize) -> bool {
         ("find", _) => after(NAME_TERMS),
         _ => false,
     }
+}
+
+/// Whether the word at `at` in `git grep`'s `args` is its pattern. With `-e`
+/// the pattern is the word after it and every other word is a file or a
+/// revision, with `-f` the pattern comes from a file, and after `--` every
+/// word is a file.
+fn grep_term(args: &[String], at: usize) -> bool {
+    let dashes = args
+        .iter()
+        .position(|arg| arg == "--")
+        .unwrap_or(args.len());
+    let before = &args[..dashes];
+    if at >= dashes || before.iter().any(|arg| names_flag(arg, &["-f", "--file"])) {
+        return false;
+    }
+    if before.iter().any(|arg| names_flag(arg, &["-e"])) {
+        return at > 0 && args[at - 1] == "-e";
+    }
+    first_plain(before) == Some(at)
 }
 
 /// The words a rule for `part` keeps: the command, its subcommand when it
@@ -843,9 +2159,13 @@ fn risky(part: &Part) -> bool {
         "find" | "sed" => !reads_only(part),
         _ if READERS.contains(&command) => !reads_only(part),
         "git" => git_risky(part),
+        // A flag before the subcommand can pick another project, index or
+        // settings file, which a rule for the subcommand alone wouldn't show.
         _ if WITH_SUBCOMMANDS.contains(&command) => {
             after_globals(part).first().is_some_and(|sub| {
-                RISKY_SUBCOMMANDS.contains(&sub.as_str()) || runs_what_it_names(command, sub)
+                sub.starts_with('-')
+                    || RISKY_SUBCOMMANDS.contains(&sub.as_str())
+                    || runs_what_it_names(command, sub)
             })
         }
         _ => false,
@@ -894,10 +2214,11 @@ fn reads_only(part: &Part) -> bool {
     };
     let args = &part[1..];
     match command {
+        // `-files0-from` reads where to look from another file.
         "find" => !args.iter().any(|arg| {
             matches!(
                 arg.as_str(),
-                "-exec" | "-execdir" | "-ok" | "-okdir" | "-delete"
+                "-exec" | "-execdir" | "-ok" | "-okdir" | "-delete" | "-files0-from"
             ) || arg.starts_with("-fprint")
                 || arg.starts_with("-fls")
         }),
@@ -923,38 +2244,23 @@ fn reads_only(part: &Part) -> bool {
     }
 }
 
-/// Whether one of the reading commands is asked, through its arguments,
-/// to write a file or run another command.
+/// Whether one of the reading commands is asked, through its arguments, to
+/// write a file, run another command or read more than its words show: a
+/// flag its table doesn't list, or one of the uses below.
 fn reader_writes(command: &str, args: &[String]) -> bool {
-    let any = |flags: &[&str]| args.iter().any(|arg| names_flag(arg, flags));
-    match command {
-        // `sort -o` and `tree -o` write their output to a file, and
-        // `sort --compress-program` runs a program on it.
-        "sort" => any(&["-o", "--output", "--compress-program"]),
-        "tree" => any(&["-o", "-R"]),
-        // A second file names where `uniq` writes. `-` is the first file, and
-        // anything after `--` is a file whatever it looks like.
-        "uniq" => {
-            let flags = args.iter().position(|arg| arg == "--");
-            let before = &args[..flags.unwrap_or(args.len())];
-            let after = flags.map_or(0, |at| args.len() - at - 1);
-            let files = before
-                .iter()
-                .filter(|arg| *arg == "-" || !arg.starts_with('-'))
-                .count();
-            files + after > 1
-        }
-        // `rg --pre`, `rg --hostname-bin` and `fd -x` run a command they name.
-        "rg" => any(&["--pre", "--hostname-bin"]),
-        "fd" => any(&["-x", "--exec", "-X", "--exec-batch"]),
-        "date" => any(&["-s", "--set"]),
+    let Some(options) = options_for(command) else {
         // `printf -v` sets a shell variable, such as `PATH`.
-        "printf" => any(&["-v"]),
-        // These load a program or a library from a file.
-        "jq" => any(&["-f", "--from-file", "-L", "--library-path"]),
-        "file" => any(&["-C", "--compile"]),
-        // `tail -f` never ends.
-        "tail" => any(&["-f", "-F", "--follow"]),
+        return command == "printf" && args.iter().any(|arg| names_flag(arg, &["-v"]));
+    };
+    let Some(parsed) = parse(options, args) else {
+        return true;
+    };
+    match command {
+        // A second file names where `uniq` writes.
+        "uniq" => parsed.plain.len() > 1,
+        // A `date` without a `+format` sets the clock.
+        "date" => parsed.plain.iter().any(|word| !word.starts_with('+')),
+        "jq" => parsed.term.is_some_and(|program| !jq_reads(program)),
         _ => false,
     }
 }
@@ -1068,16 +2374,21 @@ fn git_reads(rest: &[String]) -> bool {
             Some(_) => false,
         },
         "stash" => args.first().is_some_and(|arg| arg == "list"),
+        // The user's and the system's settings can hold tokens, so only the
+        // repository's own are read.
         "config" => {
             let gets = args.iter().any(|arg| arg == "--get");
             let lists = args.iter().any(|arg| arg == "--list" || arg == "-l");
-            let scopes = ["--get", "--list", "-l", "--global", "--local", "--system"];
+            let local = args.iter().any(|arg| arg == "--local");
+            let flags = ["--get", "--list", "-l", "--local"];
             let positional = args.iter().filter(|arg| !arg.starts_with('-')).count();
             let flags_ok = args
                 .iter()
                 .filter(|arg| arg.starts_with('-'))
-                .all(|arg| scopes.contains(&arg.as_str()));
-            flags_ok && ((gets && (1..=2).contains(&positional)) || (lists && positional == 0))
+                .all(|arg| flags.contains(&arg.as_str()));
+            local
+                && flags_ok
+                && ((gets && (1..=2).contains(&positional)) || (lists && positional == 0))
         }
         sub => GIT_READERS.contains(&sub),
     }
@@ -1807,9 +3118,8 @@ mod tests {
             "git tag",
             "git tag -l 'v1.*'",
             "git stash list",
-            "git config --get user.email",
-            "git config --list",
-            "git config --global --get user.name",
+            "git config --local --get user.email",
+            "git config --local --list",
         ] {
             assert!(auto(line), "{line}");
         }
@@ -1826,7 +3136,10 @@ mod tests {
             "git stash",
             "git stash drop",
             "git config user.name x",
-            "git config --get",
+            "git config --get user.email",
+            "git config --list",
+            "git config --global --get user.name",
+            "git config --local --get",
             "git -c core.pager=x log",
             "git log --output=out.txt",
             "git diff --output out.txt",
@@ -1907,8 +3220,8 @@ mod tests {
         assert_eq!(one("gh pr view 12"), [rule("gh pr view", false)]);
         assert_eq!(one("git commit -m 'fix it'"), [rule("git commit", false)]);
         assert_eq!(
-            one("cd app && mkdir -p out && touch out/a"),
-            [rule("mkdir", false), rule("touch", false)]
+            one("cd app && git add a && git commit -m x"),
+            [rule("git add", false), rule("git commit", false)]
         );
         assert_eq!(one("ls && ls -l"), [rule("ls", false)]);
         // A line that's always asked about saves nothing.
@@ -1970,7 +3283,9 @@ mod tests {
         assert!(ask("git show 9f8e7d"));
         assert!(ask("git -C sub show HEAD"));
         assert!(ask("cargo test -p other"));
-        assert!(ask("ls -la /tmp && cargo test"));
+        assert!(ask("ls -la src && cargo test"));
+        // A loose rule covers only what lies inside the folders.
+        assert!(!ask("ls -la /tmp && cargo test"));
         assert!(ask("rm -rf build"));
         assert!(ask("rm   -rf   'build'"));
         assert!(ask("rm \"it's\""));
@@ -2024,7 +3339,6 @@ mod tests {
         }
         for line in [
             "ls /work/ws/src",
-            "cat /work/ws/.claude/settings.json",
             "cat /data/attached/picture.png",
             "cat ../ws/README.md",
             "cat ./README.md",
@@ -2066,8 +3380,10 @@ mod tests {
         }
         assert!(allows("git -C sub log", false, &rules));
         assert!(allows("git -C vendor/evil.git status", true, &[]));
-        // A plain command's rule covers it wherever it looks, outside Auto.
-        assert!(allows("ls /tmp", false, &rules));
+        // A plain command's rule covers it only inside the folders, in
+        // every mode.
+        assert!(allows("ls src", false, &rules));
+        assert!(!allows("ls /tmp", false, &rules));
         assert!(!allows("ls /tmp", true, &rules));
         // Saving one of these keeps its words, so it can pass again in Auto.
         assert_eq!(rules_for("ls /tmp"), [rule("ls /tmp", true)]);
@@ -2462,10 +3778,15 @@ mod tests {
             "cat src/id_map.rs",
             "cat id_tools/a.rs",
             "cat credentials.rs",
-            "sed -n '1,40p' crates/daemon/src/secrets/chatgpt/id_token.rs",
+            "sed -n '1,40p' crates/daemon/src/auth/id_token.rs",
         ] {
             assert!(auto(line), "{line}");
         }
+        // A folder named `secrets` asks wherever it is, as MaxHQ keeps its
+        // own sign-ins in one.
+        assert!(!auto(
+            "sed -n '1,40p' crates/daemon/src/secrets/chatgpt/id_token.rs"
+        ));
     }
 
     #[test]
@@ -2840,7 +4161,7 @@ mod tests {
             "wc -l src/*.rs",
             "grep foo *.rs",
             "stat *.md",
-            "du -sh *.md",
+            "du -sh src/*.md",
             "diff a.rs *.rs",
         ] {
             assert!(auto(line), "{line}");
@@ -2882,5 +4203,446 @@ mod tests {
         let rules = [rule("ls && rm x", false), rule("echo $(x)", true)];
         assert!(!allows("ls", false, &rules));
         assert!(!allows("echo hi", false, &rules));
+    }
+
+    #[test]
+    fn everyday_reads_pass_in_auto_without_a_card() {
+        for line in [
+            "cat",
+            "cat README.md",
+            "cat -n src/main.rs",
+            "rg -n foo src",
+            "rg -n -A 3 --hidden foo src",
+            "grep -rnA3 foo src",
+            "grep --context=3 -e foo src",
+            "jq .name package.json",
+            "jq -r '.scripts | keys[]' package.json",
+            "jq --arg name x '.[$name]' package.json",
+            "jq '.env' package.json",
+            "git log -p",
+            "git log -p -- src",
+            "ls -la",
+            "ls -la src",
+            "head -50",
+            "head -50 README.md",
+            "head -n 50 README.md",
+            "tail -n 20 notes.txt",
+            "wc -l",
+            "wc -l src/main.rs",
+            "sort -u",
+            "sort -u names.txt",
+            "tree -L 2 src",
+            "du -sh src",
+            "diff -u a.rs b.rs",
+            "fd -e rs src",
+            "date +%F",
+        ] {
+            assert!(auto(line), "{line}");
+            assert!(!rules_for(line).iter().any(|rule| rule.exact), "{line}");
+        }
+    }
+
+    #[test]
+    fn a_reader_asks_when_a_flag_reads_more_than_its_words_show() {
+        let lines = [
+            "jq --rawfile key /etc/hosts .",
+            "jq --rawfile key notes.txt .",
+            "jq --slurpfile key notes.json .",
+            "jq --from-file f.jq package.json",
+            "jq -L /tmp . package.json",
+            "jq -n env",
+            "jq -n env.HOME",
+            "jq -n '$ENV'",
+            "jq -n '$ENV.HOME'",
+            "jq '.a | env' package.json",
+            r#"jq -n '"\(env)"'"#,
+            r#"jq 'import "x" as x; .' package.json"#,
+            r#"jq 'include "x"; .' package.json"#,
+            "sort --files0-from=list",
+            "sort --files0-from=-",
+            "sort --files0-from list",
+            "rg --ignore-file .gitignore foo",
+            "rg --ignore-file=/etc/hosts foo",
+            "find . -files0-from list",
+            "find -files0-from list",
+            "file -f list",
+            "file -flist",
+            "wc --files0-from=list",
+            "wc --files0-from list",
+            "du --files0-from=list",
+            "grep --exclude-from=list foo src",
+            "grep -R foo .",
+            "git config --list",
+            "git config --global --list",
+            "git config --system --list",
+            "git config --get user.email",
+            "git config --local --file x --list",
+            "date 0101000026",
+            "head --lin=5 a",
+            "sort --uniq a",
+        ];
+        assert_eq!(passing(&lines, &[]), [""; 0]);
+        let rules = [
+            rule("jq", false),
+            rule("sort", false),
+            rule("rg", false),
+            rule("find", false),
+            rule("file", false),
+            rule("wc", false),
+            rule("du", false),
+            rule("grep", false),
+            rule("git config", false),
+            rule("date", false),
+            rule("head", false),
+        ];
+        assert_eq!(passing(&lines, &rules), [""; 0]);
+        for line in lines {
+            assert!(
+                rules_for(line).iter().all(|rule| rule.exact),
+                "{line}: {:?}",
+                rules_for(line)
+            );
+        }
+        // The repository's own settings still read.
+        assert!(auto("git config --local --list"));
+        assert!(auto("git config --local --get user.email"));
+    }
+
+    #[test]
+    fn a_flag_value_counts_however_the_program_reads_it() {
+        // Grouped, joined and after `=`, a value that names a file is checked.
+        let lines = [
+            "grep -rf /etc/hosts src",
+            "grep -f/etc/hosts src",
+            "grep --file=/etc/hosts src",
+            "grep -e foo --file /etc/hosts",
+            "date -r /etc/hosts",
+            "date -f=/etc/hosts",
+            "stat -f %z /etc/hosts",
+            "tail -n 5 /etc/hosts",
+            "cat src /etc/hosts",
+            // BSD tools stop at the first file, so a flag after it is a file.
+            "cat src -/etc/hosts",
+        ];
+        assert_eq!(passing(&lines, &[]), [""; 0]);
+        let rules = [
+            rule("grep", false),
+            rule("date", false),
+            rule("stat", false),
+            rule("tail", false),
+            rule("cat", false),
+        ];
+        assert_eq!(passing(&lines, &rules), [""; 0]);
+    }
+
+    #[test]
+    fn a_flag_before_the_subcommand_keeps_the_exact_words() {
+        for (line, loose) in [
+            ("pip -q install -r requirements.txt", "pip"),
+            ("cargo --locked test", "cargo"),
+            ("cargo -Zunstable-options test", "cargo"),
+            ("uv --directory sub sync", "uv"),
+            ("go -C sub test", "go"),
+            ("make -j4 build", "make"),
+            ("make -C sub build", "make"),
+            ("brew --prefix", "brew"),
+            ("gh -R owner/repo pr view 1", "gh"),
+            ("npm -ddd test", "npm"),
+        ] {
+            assert_eq!(rules_for(line), [rule(line, true)], "{line}");
+            assert!(allows(line, false, &rules_for(line)), "{line}");
+            assert!(!allows(line, false, &[rule(loose, false)]), "{line}");
+            assert!(!auto(line), "{line}");
+        }
+        // The flags a rule's words already account for still give a loose one.
+        assert_eq!(rules_for("make build"), [rule("make build", false)]);
+        assert_eq!(
+            rules_for("cargo +nightly test"),
+            [rule("cargo test", false)]
+        );
+        assert_eq!(
+            rules_for("pnpm --filter app build"),
+            [rule("pnpm build", false)]
+        );
+    }
+
+    #[test]
+    fn a_loose_rule_covers_only_paths_inside_the_folders() {
+        let rules = [rule("ls", false), rule("cat", false), rule("wc", false)];
+        for line in [
+            "ls /tmp",
+            "cat /etc/hosts",
+            "cat ../other/a.rs",
+            "wc -l ~/notes.txt",
+            "ls src && cat /etc/hosts",
+        ] {
+            for mode in [false, true] {
+                assert!(!allows(line, mode, &rules), "{line} in Auto {mode}");
+            }
+            assert!(allows(line, false, &rules_for(line)), "{line}");
+        }
+        assert!(allows("ls src", false, &rules));
+        assert!(allows("cat src/a.rs && wc -l src/a.rs", false, &rules));
+    }
+
+    #[test]
+    fn a_risky_program_keeps_its_exact_words() {
+        for line in [
+            "sqlite3 db.sqlite .dump",
+            "man ls",
+            "csh -c ls",
+            "tcsh -c ls",
+            "lua x.lua",
+            "tclsh x.tcl",
+            "expect x.exp",
+            "defaults read com.apple.finder",
+            "plutil -p x.plist",
+            "ditto a b",
+            "touch x",
+            "xattr -l x",
+            "mkdir -p out",
+            "pbpaste",
+            "screencapture x.png",
+        ] {
+            assert_eq!(rules_for(line), [rule(line, true)], "{line}");
+            let program = line.split(' ').next().unwrap();
+            for mode in [false, true] {
+                assert!(
+                    !allows(line, mode, &[rule(program, false)]),
+                    "{line} in Auto {mode}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn git_reads_no_secret_from_history_or_the_index() {
+        let lines = [
+            "git grep --no-index -e. .env",
+            "git grep -e. -- .env",
+            "git grep -e foo -e bar .env",
+            "git grep -e. HEAD -- id_rsa",
+            "git grep foo -- .env",
+            "git grep -n -e foo .env.local",
+            "git show HEAD:.env",
+            "git show :.env",
+            "git show :0:.env",
+            "git show HEAD:config/.env.local",
+            "git show main:.ssh/id_rsa",
+            "git cat-file -p HEAD:.env",
+            "git cat-file blob HEAD:credentials.json",
+            "git diff HEAD:.env HEAD~1:.env",
+            "git log -p -- .env",
+        ];
+        assert_eq!(passing(&lines, &[]), [""; 0]);
+        let rules = [
+            rule("git grep", false),
+            rule("git show", false),
+            rule("git cat-file", false),
+            rule("git diff", false),
+            rule("git log", false),
+        ];
+        assert_eq!(passing(&lines, &rules), [""; 0]);
+        for line in [
+            "git grep -e credentials src",
+            "git grep -e foo",
+            "git grep -n -e foo -- src",
+            "git show HEAD:src/main.rs",
+            "git show HEAD~1:README.md",
+            "git log --format=%h:%s",
+        ] {
+            assert!(auto(line), "{line}");
+        }
+    }
+
+    /// The folders of an agent that works in the home folder `/home/you`, with
+    /// MaxHQ's data in the two usual places.
+    fn home() -> Folders {
+        Folders::with_data(
+            Path::new("/home/you"),
+            Path::new("/home/you/Library/Application Support/MaxHQ/attachments/a1"),
+            false,
+            vec![
+                PathBuf::from("/home/you/Library/Application Support/MaxHQ"),
+                PathBuf::from("/home/you/.local/share/maxhq"),
+            ],
+        )
+    }
+
+    #[test]
+    fn sign_ins_and_maxhq_data_ask_from_the_home_folder_too() {
+        let home = home();
+        let rules = [rule("cat", false), rule("ls", false), rule("head", false)];
+        for line in [
+            "cat .claude/.credentials.json",
+            "cat .codex/auth.json",
+            "cat 'Library/Application Support/MaxHQ/secrets/chatgpt.json'",
+            "cat .cursor/cli-config.json",
+            "cat /home/you/.codex/auth.json",
+            "cat .local/share/maxhq/keys/agents/lead.key",
+            "ls 'Library/Application Support/MaxHQ'",
+            "head -c 100 'Library/Application Support/MaxHQ/maxhq.db'",
+            "cat /home/you/.local/share/maxhq/maxhq.db",
+            "cat .config/gh/hosts.yml",
+            "cat .config/maxhq/ssh/id",
+            "cat .tauri/maxhq.key",
+            "cat .appstoreconnect/AuthKey.p8",
+            "cat build/session.token",
+            "cat secrets/x.json",
+            "cd Library && cat 'Application Support/MaxHQ/secrets/cursor.json'",
+            "cat /home/you/Library/Application\\ Support/MaxHQ/attachments/a2/x.png",
+        ] {
+            for mode in [false, true] {
+                assert!(
+                    !super::allows(line, mode, &rules, &home),
+                    "{line} in Auto {mode}"
+                );
+            }
+            let saved = super::rules_for(line, &home);
+            assert!(saved.iter().all(|rule| rule.exact), "{line}: {saved:?}");
+        }
+        // The agent's own attachments, kept in the data folder, still read.
+        for line in [
+            "cat '/home/you/Library/Application Support/MaxHQ/attachments/a1/x.png'",
+            "cat notes.txt",
+            "ls -la Documents",
+        ] {
+            assert!(super::allows(line, true, &[], &home), "{line}");
+        }
+    }
+
+    #[test]
+    fn a_projects_own_cli_settings_ask() {
+        for line in [
+            "cat .claude/settings.json",
+            "cat /work/ws/.claude/settings.json",
+            "cat .codex/config.toml",
+            "ls .cursor",
+            "cat sub/.claude/CLAUDE.md",
+        ] {
+            assert!(!auto(line), "{line}");
+            assert!(
+                !allows(line, false, &[rule("cat", false), rule("ls", false)]),
+                "{line}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_change_inside_git_or_maxhq_data_asks() {
+        let work = Folders::with_data(
+            Path::new("/work/ws"),
+            Path::new("/data/maxhq/attachments/a1"),
+            false,
+            vec![PathBuf::from("/data/maxhq")],
+        );
+        for path in [
+            ".git/config",
+            ".git/hooks/pre-commit",
+            "sub/.git/hooks/post-checkout",
+            "/work/ws/.git/info/attributes",
+            "/data/maxhq/maxhq.db",
+            "/data/maxhq/attachments/a2/x.png",
+            ".claude/settings.json",
+        ] {
+            assert!(!work.may_change(path), "{path}");
+        }
+        for path in [
+            "src/main.rs",
+            ".gitignore",
+            "/data/maxhq/attachments/a1/x.png",
+        ] {
+            assert!(work.may_change(path), "{path}");
+        }
+        // A folder kept inside the workspace's `.maxhq` still counts as in it.
+        let kept = Folders::with_data(
+            Path::new("/work/ws"),
+            Path::new("/work/ws/.maxhq/a1"),
+            false,
+            Vec::new(),
+        );
+        assert!(!kept.may_change("/work/ws/.maxhq/a1/note"));
+        assert!(!kept.may_change(".maxhq/a1/note"));
+    }
+
+    #[test]
+    fn a_glob_that_could_spell_a_list_flag_asks() {
+        for line in ["wc -l *", "wc -l *.md", "du -sh *", "du -sh ?.txt"] {
+            assert!(!auto(line), "{line}");
+            assert!(
+                !allows(line, false, &[rule("wc", false), rule("du", false)]),
+                "{line}"
+            );
+        }
+        for line in ["wc -l src/*.rs", "wc -l -- *.md", "du -sh src/*.md"] {
+            assert!(auto(line), "{line}");
+        }
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn a_path_counts_where_its_links_lead() {
+        let base = std::env::temp_dir().join(format!("maxhq-links-{}", std::process::id()));
+        let ws = base.join("ws");
+        std::fs::create_dir_all(ws.join("src")).unwrap();
+        std::fs::create_dir_all(ws.join(".git/hooks")).unwrap();
+        std::fs::create_dir_all(base.join("outside")).unwrap();
+        std::fs::write(base.join("outside/notes.txt"), "x").unwrap();
+        let ws = std::fs::canonicalize(&ws).unwrap();
+        let link = |target: &str, name: &str| {
+            std::os::unix::fs::symlink(target, ws.join(name)).unwrap();
+        };
+        link("../outside", "out");
+        link("../../..", "root");
+        link(".git/hooks", "hooks");
+        link("src", "code");
+        link("loop", "loop");
+        link("missing/a", "ahead");
+        link("/nowhere-maxhq-test/a", "far");
+        let folders = Folders::new(&ws, &ws.join("attached"), true);
+        let ok = |line: &str| super::allows(line, true, &[], &folders);
+        for line in [
+            "cat code/main.rs",
+            "cat src/main.rs",
+            "cat ahead",
+            "cd code && cat main.rs",
+        ] {
+            assert!(ok(line), "{line}");
+        }
+        for line in [
+            "cat out/notes.txt",
+            "ls root/etc",
+            "cat root",
+            "cat loop",
+            "cat far",
+            "cd out && cat notes.txt",
+            "cd root && ls",
+            "cd code && cat ../../outside/notes.txt",
+        ] {
+            assert!(!ok(line), "{line}");
+            assert!(
+                !super::allows(
+                    line,
+                    false,
+                    &[rule("cat", false), rule("ls", false)],
+                    &folders
+                ),
+                "{line}"
+            );
+        }
+        assert!(!folders.may_change("hooks/pre-commit"));
+        assert!(!folders.may_change("out/notes.txt"));
+        assert!(!folders.may_change("loop"));
+        assert!(folders.may_change("code/main.rs"));
+        // A chain longer than the kernel follows counts as outside.
+        let mut name = String::from("src");
+        for at in 0..MOST_LINKS + 1 {
+            let next = format!("hop{at}");
+            link(&name, &next);
+            name = next;
+        }
+        assert!(!ok(&format!("cat {name}/main.rs")));
+        assert!(ok("cat hop0/main.rs"));
+        std::fs::remove_dir_all(&base).unwrap();
     }
 }
