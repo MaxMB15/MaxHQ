@@ -19,20 +19,22 @@ Pair a phone from the Mac's Settings with a code you scan in MaxHQ on the phone.
 4. Click Show the code. The Pairing code shows.
 5. On the phone, open MaxHQ, type This phone's name and choose Scan the code. Without the camera, use Or paste the code, then Pair.
 
-The phone then lists the devices it can reach. If the code ran out, click Show a new code.
+The phone then lists the devices it can reach. If the code ran out, the phone says "That pairing is over. Start again on the Mac." Click Show a new code. A new code doesn't cancel the one before, which still works until its 10 minutes end. A device lets at most four pairings wait at once; past that it says to try again in a few minutes.
 
 ## What the phone app does
 <!-- id: phones/app -->
 
 The phone app shows the same agents as the Mac, so you can follow and answer them away from your desk.
 
-- Inbox lists the agents that need you. Open one to read its conversation, answer its prompts and send messages from the composer.
-- Start a new agent, move one to another device, and see its sub-agents, ports and running processes.
-- Devices shows each device's page and settings, with its workspaces.
-- Read and write a project's notes, review pull requests, and edit scheduled tasks.
-- Usage shows your plans' limits.
+The app opens on Agents, the inbox, with the agents that need you first, then each project. Its header has Usage, Devices, More and Settings. More holds New agent, Pull requests, Scheduled tasks and Select.
 
-The phone reaches each device through maxd, the same service the Mac uses.
+- Tap an agent to read its conversation, answer its prompts and send messages. From there, open Details, Sub-agents, Ports and processes, or Move to… for another device.
+- A project's menu has New agent, Notes, New note, Pull requests, Workflows, Scheduled tasks, Skills, Copy to another device…, Hide project and Project settings….
+- Devices lists each device. Tap one for its page, with its workspaces, New workspace, test machine leases and licences to accept.
+- Usage shows your plans' limits.
+- Settings has This phone, Paired Macs, About, App, Logins, Projects, Device settings and Devices.
+
+The phone reaches each device through maxd, the same service the Mac uses. Some of these need Let this phone do everything; see below.
 
 ## Let a phone reach a device over the network
 <!-- id: phones/network-access -->
@@ -94,6 +96,16 @@ Let this phone do everything is a switch on each phone's row in the Mac's Settin
 
 With it on, anyone holding the phone could start agents that run commands on your devices, change settings, store or remove sign-ins, and copy files out. Adding keys or other phones still needs this Mac. It stays on until you turn it off there. A device that isn't connected gets it once it's back.
 
+With it off, the phone can still follow your agents and act on the ones that run:
+
+- Answer prompts, send messages, steer, interrupt, stop, rename and delete agents, and change an agent's model, effort and mode.
+- Settle, snooze and pin in the inbox, read and write notes, and ask the dispatcher.
+- Merge, approve and link pull requests, run, turn on or off and delete scheduled tasks, and start or stop workspaces.
+- Change a project's settings, end test machine leases and accept licences.
+- Run a ! command in an agent's terminal, watch it and stop it with Ctrl-C.
+
+It can't start or move agents, save a scheduled task, change a device's settings, install anything, make, copy or delete workspaces, restore a snapshot, browse folders, open a shell, forward ports, stop processes, copy files out, build or reset test machines, change skills, or store sign-ins. Those show greyed out on the phone, and a device that's asked anyway answers "A phone can't do that. To let this phone, turn on Let this phone do everything for it in the Mac's Settings, under Phones."
+
 ## Remove a phone or pair it again
 <!-- id: phones/remove -->
 <!-- covers: settings/phones -->
@@ -102,7 +114,8 @@ Each phone on the Mac's Phones page shows the devices that let it in, with Remov
 
 - Remove takes the phone off every device. It has to pair again to reach them.
 - Not signed in on a device means the phone hasn't signed in there over the network yet. Click New code, then open MaxHQ on the phone within 10 minutes.
-- To rename the phone, change it on the Mac. The phone shows how your devices list it.
+- A phone can't be renamed, on the Mac or on the phone. Its name is the one typed in This phone's name when it paired, iPhone unless you changed it. The phone shows how your devices list it.
+<!-- check: does pairing again with a new name rename the phone on every device? Each device keeps the name from its own pairing (phones.rs), and the phone's own note says to rename it on the Mac, where no rename exists. -->
 
 On the phone, Paired Macs has Forget, which makes the phone forget that Mac's devices and sign out of them.
 

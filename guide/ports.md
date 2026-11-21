@@ -47,6 +47,13 @@ A forward lasts while the port listens and the device can be reached. The agent'
 - While the device can't be reached, the agent's view offers no ports, since a forward could only fail.
 - A device that doesn't forward ports gets no offer. The header lists its ports with no Forward button.
 
+A forward stays through a lost connection: once the device is back, it asks for the port again. A server that restarts within 10 seconds keeps its forward too, since maxd keeps the port listed that long.
+
+Forwards end when MaxHQ quits, and none come back when you open it again. Forward the port again from the agent's header.
+
+When maxd itself restarts, the port shows as new, so the old forward ends and the card offers the port again.
+<!-- check: after a maxd restart, does the forward really end and the port show a new offer? Inferred from PortId::generate in ports/host.rs, not tried. -->
+
 ## Turn off port prompts
 <!-- id: ports/prompts -->
 <!-- covers: settings/editor -->

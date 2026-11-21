@@ -84,7 +84,7 @@ At the foot of the list:
 
 - **Add device** connects another computer or server over ssh, such as devbox.
 - **Refresh all** checks every device again.
-- The update capsule shows this app's version, and **Update everything** when updates wait.
+- The update capsule shows only when updates wait, such as **Update 2 devices and 3 CLIs**, with **Update everything** next to it. Click the capsule to see this app's version and what each device gets. See [Updates](updates.md).
 
 ## Start maxd on this Mac
 <!-- id: getting-started/start-maxd -->
@@ -94,7 +94,7 @@ MaxHQ needs maxd running on your Mac. When the app can't reach it, a notice offe
 1. Click **Start maxd** in the notice.
 2. Wait for your agents to show up in the sidebar.
 
-This Mac's page under **Devices** in Settings can also start maxd, or uninstall it.
+This Mac's own page can also start maxd, or uninstall it. To open it, pick **Devices** at the top of the sidebar and click this Mac.
 
 ## Open Settings
 <!-- id: getting-started/settings -->
@@ -104,12 +104,13 @@ Click the gear at the right of the title bar, or press ⌘,, to open Settings.
 
 Type in **Search settings** to find a setting by name. Matching devices follow the app's pages, and picking one opens that device's page at the matching card.
 
-The list has four groups:
+The list has three groups:
 
 - **App**: settings for this Mac, such as **Appearance**, **Sidebar**, **Editor**, **Dispatcher**, **Agent tools**, **Notifications** and **Keyboard shortcuts**.
 - **Logins**: your Claude, Codex, Cursor and GitHub sign-ins.
 - **Projects**: each project's defaults and skills.
-- **Devices**: each device's own settings, such as the mode new agents start in.
+
+Each device's own settings, such as the mode new agents start in, sit on its page. Pick **Devices** at the top of the sidebar and click the device. A search also lists matching devices under **Devices**.
 
 Press ⌘/ to see every keyboard shortcut. See [Settings](settings.md) for each page.
 

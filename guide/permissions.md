@@ -38,9 +38,11 @@ A permission request card shows in the agent's feed when it wants to edit or run
 
 - Claude offers Allow once, Allow for this session when its CLI gives a rule, and Deny.
 - Codex calls it an approval request, with Approve, Approve for this session, Decline and Decline and stop.
-- Cursor and other ACP agents show the options their CLI sends.
+- Cursor and other ACP agents show the options their CLI sends, under the heading Permission request. Cursor sends Allow once, Allow always and Reject. The first allow once option is the main one.
 
-To say no with a reason, type it in "Why not, or what to do instead" and deny. Claude's turn continues with your reason, and Codex gets it as its next message. A session MaxHQ doesn't hold says to answer it in the terminal.
+For a command MaxHQ's rules can't cover, the card leaves out Allow always, since the next run would ask again. Allow always on an ACP card also saves MaxHQ's rule for the project.
+
+To say no with a reason, type it in "Why not, or what to do instead" and deny. Claude's turn continues with your reason, and Codex and ACP agents get it as their next message. A session MaxHQ doesn't hold says to answer it in the terminal.
 
 ## Answer an agent's question
 <!-- id: permissions/questions -->
@@ -102,8 +104,10 @@ New permissions, in Settings › Agent tools, sets the depth and limits a new pe
 
 1. Open Settings and pick Agent tools.
 2. Under New permissions, set Depth: how many levels of agents may sit below the one that holds the permission.
-3. Fill in Agents started, Agents at once and Usage cap, in percent. Leave one empty for no limit.
+3. Fill in Agents started, Agents at once and Usage cap. Leave one empty for no limit.
 4. Click Save defaults.
+
+Usage cap is a percent from 1 to 100 of the account's limit. MaxHQ compares it with the account's most used window, such as the week, and refuses only new starts past it: "That account has used more than 80 percent of its limit. Pick another account, or wait for it to reset." Agents already running carry on. An account MaxHQ reads no usage for, such as Cursor, is never stopped by the cap.
 
 Limits count agents and usage. They don't fence off files, so keep an agent away from your files by running it in a container.
 

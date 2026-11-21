@@ -46,9 +46,14 @@ When a check fails, the row says why. Click Check now to try again.
 ## Update maxd on your other devices
 <!-- id: updates/everything -->
 
-When a device's maxd or an agent CLI is behind, the bottom of the sidebar shows what needs updating, such as "Update 2 devices". Click Update everything to update them all.
+When a device's maxd or an agent CLI needs an update, the bottom of the sidebar's Devices view shows what waits, such as "Update 2 devices and 3 CLIs", with Update everything. With nothing to update, it doesn't show.
 
-1. Click the summary to see what each device gets: maxd, Claude, Codex or Cursor.
+What counts, on connected devices only:
+
+- A device whose maxd isn't the build this app carries. A device running a newer maxd than the app counts too, and Update everything would put the app's build on it, so update the app first.
+- An agent CLI with a newer version out that MaxHQ may update. One you installed yourself counts once you turn on Let MaxHQ update for it.
+
+1. Click the summary to see this app's version and what each device gets: maxd, Claude, Codex or Cursor.
 2. Click Update everything.
 3. Watch each device go through its steps, such as uploading and restarting, until it's done.
 4. If one fails, click Retry, or Dismiss to close the list.
@@ -64,7 +69,9 @@ A device's Agent CLIs card lists Claude, Codex and Cursor there with their versi
 2. Find Agent CLIs.
 3. Click Update on a CLI with a newer version out.
 
-A CLI you installed yourself shows Let MaxHQ update. Turn it on to let MaxHQ update it. When MaxHQ can't update one, the row says so, or gives the command to run yourself with Copy command.
+Each row reads its version, whether a newer one is out, and who installed it with what, such as "Version 2.1.38, 2.1.42 is out. You installed it with npm."
+
+A CLI you installed yourself shows Let MaxHQ update. Turn it on to let MaxHQ update it. When MaxHQ doesn't update one, the row ends "MaxHQ doesn't update it." When you have to update it yourself, the row reads "Update it yourself with" and the command, with Copy command.
 
 ## See which versions you run
 <!-- id: updates/versions -->

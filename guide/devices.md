@@ -14,12 +14,16 @@ How to add a Mac or Linux machine to MaxHQ, what maxd does on each one, how devi
 MaxHQ adds a device with your own SSH login, installs maxd there, and then reaches it through a key of its own.
 
 1. Switch the sidebar to Devices and click Add device.
-2. Pick a host From your SSH config, or On your tailnet when you use Tailscale. For any other one, type it under Or another host, as user@host the way ssh takes it, and click Next.
-3. Under Logins for the host, pick the Claude account it gets. You can paste a Claude token from claude setup-token instead, or leave it empty and sign in on the device later.
-4. Check the host key, then click Trust this key. Nothing runs on the host until you trust its key.
-5. Follow the steps: Host key, Install maxd, Add MaxHQ's key, Connect through the key and Send logins.
+2. Pick a host From your SSH config, or On your tailnet when you use Tailscale. A host that reads Set up already is in MaxHQ. For any other one, type it under Or another host, as user@host the way ssh takes it, and click Next.
+3. Under Logins for the host, you can paste a Claude token from claude setup-token. That turns setup-tokens on for the device, and with more than one Claude account you pick which one it is under Claude account. Leave it empty to sign in with claude on the device later.
+4. Click Set up and the host's name, such as Set up devbox.
+5. If ssh doesn't know the host yet, the dialog shows its host key. Check it matches what ssh-keygen -lf prints on the host, then click Trust this key, or Don't trust. Nothing runs on the host until you trust its key, and no answer in 10 minutes counts as Don't trust.
 
-When it's done, the device's agents and settings show under Devices.
+The dialog then lists each step as it runs: Reading devbox's host key, Checking the system, Copying maxd, Added MaxHQ's key, Connecting to maxd, and Sending the logins you picked when you gave a token.
+
+On a Linux host where maxd would stop when you log out, the dialog says lingering is off and shows sudo loginctl enable-linger with your user name, with Copy command. Run it on the host to keep maxd running.
+
+When it's done, the dialog reads devbox is set up. Click Show devbox to open its page, or Done. Its agents and settings show under Devices. If a step fails, the dialog says why, and Try again goes back to Logins for the host so you can start it again. Since the token field empties once setup starts, paste the token again if you gave one.
 
 ## What a device's page shows
 <!-- id: devices/page -->
@@ -27,15 +31,19 @@ When it's done, the device's agents and settings show under Devices.
 
 Click a device under Devices to open its page. It reads from the top:
 
-- How MaxHQ reaches it, then Connection checks.
-- Its load: CPU over the last hour and the busiest processes.
+- The header, with how MaxHQ reaches it, Try now and Copy SSH command.
+- Where the connection stops: the connection checks.
+- Load: CPU over the last hour and the busiest processes.
 - Setup: what the last host check found, with a fix for each item.
 - Workspaces on the device, with New workspace and Copy to another device….
 - Moves into MaxHQ, for older containers MaxHQ didn't make.
-- Agent CLIs and Tools, with their versions and updates, and the ACP registry.
-- Test hosts, Routes, then the device's settings cards and ACP agents.
-- Device links, its identity and Restart.
-- Agents on the device, settled ones included.
+- Agent CLIs, Tools and ACP registry: what's installed, with versions and updates.
+- Test hosts and Leases: the device's test machines, and the agents that hold one now.
+- Routes.
+- The device's settings cards, from New agents to Network access, then ACP agents and App keys.
+- Device links, then Phones with the device's address for a phone.
+- Identity, then Restart. This Mac's page also has Start maxd and Uninstall maxd here.
+- Agents here, or Agents last seen here while it's offline, settled ones included.
 
 A section that needs the device says "Connect to" it while it's offline.
 
@@ -43,10 +51,10 @@ A section that needs the device says "Connect to" it while it's offline.
 <!-- id: devices/connection-checks -->
 <!-- covers: view/device -->
 
-Connection checks on a device's page show where the connection stops. Each check runs only if the one above passed.
+The connection checks on a device's page, under Where the connection stops, show where the connection stops. Each check runs only if the one above passed.
 
 1. Open the device's page from Devices in the sidebar.
-2. Read Connection checks from the top. Each one reads Passed, Failed or Not run.
+2. Read the checks from the top. Each one reads Passed, Failed or Not run.
 3. Fix the first one that failed, then click Try now to run every check again from the top.
 4. To try the same connection in Terminal, click Copy SSH command.
 
@@ -64,6 +72,48 @@ The Setup section of a device's page lists what its last host check found, item 
 4. Click Check again once it's done.
 
 On NixOS the section gives the change to make to your configuration instead, with Copy change.
+
+## Install tools on a device
+<!-- id: devices/tools -->
+<!-- covers: view/device -->
+
+Agent CLIs and Tools on a device's page list what MaxHQ installs and keeps up to date there.
+
+- Agent CLIs lists Claude, Codex and Cursor with their versions. See [Updates](updates.md) to update one.
+- Tools lists the helpers agents use: the GitHub CLI, Node.js, uv, agent-device, Java and, on a Mac, the Android SDK. Agents installed from the ACP registry show here too.
+- Each row reads its version, or Not installed with Install. Remove takes out one MaxHQ installed and asks first. One you installed yourself reads "You installed it." and has no Remove.
+- An install shows how far it got, such as Downloading with its size. One that failed says why, with Try again. One that waits on a licence reads Waiting for you to accept its licences, with Read licences.
+- Tools in a container workspace sit under In and the workspace's name.
+
+A device whose maxd is too old to install tools says so. Update it first.
+
+## Install an agent from the ACP registry
+<!-- id: devices/acp-registry -->
+<!-- covers: view/device -->
+
+The ACP registry section on a device's page lists the agents the ACP registry offers, under Agents to install. maxd fetches the list at most every five minutes and keeps a copy for when it can't.
+
+1. Open the device's page and find ACP registry.
+2. Type in Search the registry to find an agent by name or what it does. Installed ones come first.
+3. Each row says how it installs, as a Binary, an npm package or a Python package, with its version. Click Install, or Update when a newer version is out.
+
+When the registry gives no checksum for a binary, MaxHQ asks before it downloads it, with Install anyway. An installed agent becomes an ACP agent on the device and starts like any other. You sign in to it the way it asks.
+
+When maxd can't reach the registry, the section says how old its copy is.
+
+## Test hosts and leases on a device
+<!-- id: devices/test-hosts -->
+<!-- covers: view/device -->
+
+The Test hosts section on a device's page shows the test machines it can run for agents there: iOS Simulator, Android emulator, Linux and macOS VM.
+
+- Each kind the device hosts shows where it stands, such as a test container that's ready for a lease, with Build, Reset and Check again. Reset ends a lease on it.
+- Lease length is how long a lease lasts when the agent doesn't say, 30 minutes by default.
+- Longest lease is the most an agent may ask for, 240 minutes by default.
+- Ends when idle ends a lease after this long without a command, 10 minutes by default.
+- On a Mac, macOS VMs at once sets how many VMs run together. Apple lets a Mac run two.
+
+Leases lists the test machines agents hold now, each with End lease. Its holder loses the machine. Only agents on a device lease its test machines, so for an agent elsewhere to test here, start an agent on this device. To pick which devices host each kind, see [Settings](settings.md).
 
 ## Change how MaxHQ reaches a device
 <!-- id: devices/routes -->
@@ -166,8 +216,10 @@ Both switches let agents continue after the limit. To change it for one agent, u
 
 The Placement card weighs a device when MaxHQ picks where a new agent runs. It's Normal by default.
 
-- New agents you don't place: when more than one device could run a new agent, MaxHQ picks the one with the most free CPU and memory.
-- Prefer makes this device count twice in that pick. Normal counts it once.
+- New agents you don't place: Prefer or Normal, the only two choices.
+- Prefer makes this device count twice in the pick. Normal counts it once.
+
+MaxHQ picks a device only when you don't pick one, the project's default workspace isn't on a ready device, and more than one connected device has a login for the agent's vendor. It weighs each device by its CPU cores, how idle they are and how much memory is free, times its Placement. It skips a device at 95% CPU or more, one with 5% or less memory free, and one whose last reading is more than 15 seconds old.
 
 Set Prefer on a strong server so agents land there first, and leave a laptop on Normal.
 
