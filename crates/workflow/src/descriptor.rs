@@ -143,7 +143,8 @@ const RISKY_ENV: &[(&str, &[&str])] = &[
         "OPENAI", "CODEX", "CURSOR", "GEMINI", "AWS", "GOOGLE", "AZURE", "VERTEX", "BEDROCK",
         "CLOUD_ML", "CLOUDSDK", "GCLOUD", "GCP", "BOTO", "RCLONE", "VAULT", "HEROKU", "FLY",
         "VERCEL", "NETLIFY", "CLOUDFLARE", "DIGITALOCEAN", "HF", "HUGGINGFACE", "OLLAMA", "MYSQL",
-        "KRB5", "NSS", "PKCS11",
+        "KRB5", "NSS", "PKCS11", "PULUMI", "OP_CONNECT", "OP_SERVICE_ACCOUNT", "OP_ACCOUNT",
+        "OP_SESSION", "APP_STORE_CONNECT",
     ]),
     ("can run code when a tool starts", &[
         // Loaders, shells and where they look.
@@ -161,15 +162,17 @@ const RISKY_ENV: &[(&str, &[&str])] = &[
         "COVERAGE_PROCESS_START", "COVERAGE_RCFILE", "JUPYTER", "DJANGO", "FLASK", "CELERY",
         "CARGO", "RUSTC", "RUSTUP", "GO", "GOROOT", "JAVA", "_JAVA", "JDK", "MAVEN", "GRADLE",
         "ANT", "SBT", "KOTLIN", "GROOVY", "SCALA", "RUBY", "GEM", "BUNDLE", "BUNDLER", "RBENV",
-        "PERL", "PHP", "LUA", "DOTNET", "CORECLR", "MISE", "ASDF", "NIX", "HOMEBREW",
+        "PERL", "PHP", "COMPOSER", "LUA", "DOTNET", "CORECLR", "MISE", "ASDF", "NIX", "HOMEBREW",
+        "NODENV", "GOENV", "JENV", "EM_CONFIG", "ANDROID",
         "PKG_CONFIG", "CMAKE", "CCACHE", "ERL", "ELIXIR", "MIX_HOME", "MIX_ARCHIVES", "JULIA",
         "TCL", "TK", "R_PROFILE", "R_ENVIRON", "R_LIBS", "R_HOME", "GHC", "CABAL", "STACK_ROOT",
         "STACK_YAML", "OPAM", "SWIFT", "DART", "FLUTTER", "PUB_CACHE", "PUB_HOSTED_URL",
         "DOCKER", "COMPOSE", "PODMAN", "BUILDKIT", "CONTAINER_HOST", "CONTAINERS_CONF",
         "CONTAINERS_REGISTRIES_CONF", "CONTAINERS_STORAGE_CONF", "KUBE", "HELM", "TF",
+        "TERRAGRUNT", "TG_TF_PATH", "ANSIBLE",
         // Programs that read their options, or the program to run, from a variable.
         "TAR", "XZ", "GREP", "RIPGREP", "FZF", "BAT", "DELTA_PAGER", "SYSTEMD", "VIM", "NVIM",
-        "EMACS", "GS_LIB", "GS_OPTIONS", "MAGICK",
+        "EMACS", "GS_LIB", "GS_OPTIONS", "MAGICK", "PARALLEL_SHELL", "PARALLEL_SSH",
         // Browsers and what drives them.
         "CHROME", "CHROMIUM", "FIREFOX", "ELECTRON", "PUPPETEER", "PLAYWRIGHT", "CYPRESS",
         "SELENIUM",
@@ -177,13 +180,13 @@ const RISKY_ENV: &[(&str, &[&str])] = &[
     // Git, other version control and other ways to reach another machine.
     ("can run code or change the account when git or ssh runs", &[
         "GIT", "GH", "GITHUB", "GITLAB", "GLAB", "GITEA", "BITBUCKET", "HG", "JJ", "SVN", "CVS",
-        "SSH", "RSYNC", "GPG", "SUDO", "PRE_COMMIT", "LEFTHOOK", "DIRENV",
+        "SSH", "AUTOSSH", "RSYNC", "GPG", "SUDO", "PRE_COMMIT", "LEFTHOOK", "DIRENV",
     ]),
     // Proxies, certificates, name lookups and HTTP clients.
     ("can send the agent's traffic somewhere else", &[
         "HTTP", "HTTPS", "ALL_PROXY", "NO_PROXY", "WS_PROXY", "WSS_PROXY", "GLOBAL_AGENT", "FTP",
         "SOCKS", "SSL", "OPENSSL", "LIBRESSL", "CURL", "REQUESTS", "GRPC", "WEBSOCKET",
-        "HTTPLIB2", "RES_OPTIONS", "RESOLV",
+        "HTTPLIB2", "RES_OPTIONS", "RESOLV", "OTEL",
     ]),
 ];
 
