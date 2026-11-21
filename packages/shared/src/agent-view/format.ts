@@ -6,9 +6,10 @@
 
 import { t, formatNumber } from "../i18n";
 
-import type { AttachmentRef, ItemStatus, TimelineItem, Vendor } from "../bindings";
+import type { AttachmentRef, ItemStatus, TimelineItem } from "../bindings";
 import { formatDuration, plural } from "../status/format";
-import { VENDOR_NAME } from "../status/usage";
+import { localAgentLabel } from "../local-models/wording";
+import { kindName, type AgentKind } from "../status/agent-kind";
 
 /** Whether an item's status means it's still going. */
 export const isOpen = (status: ItemStatus): boolean =>
@@ -188,17 +189,41 @@ export const handoffTitle = (status: ItemStatus): string =>
 			? t("Context handoff skipped")
 			: t("Context handoff");
 
-/** One end of a move: the vendor, then the model when one was set. */
-export const handoffEnd = (vendor: Vendor, model: string | null): string =>
-	model ? `${VENDOR_NAME[vendor]} ${model}` : VENDOR_NAME[vendor];
+/**
+ * One end of a move: the kind, such as Codex or Local, then the model when
+ * one was set. A local end reads as a local agent does everywhere:
+ * "Local · <model>".
+ */
+export const handoffEnd = (kind: AgentKind, model: string | null): string =>
+	kind === "local"
+		? localAgentLabel(model)
+		: model
+			? `${kindName(kind)} ${model}`
+			: kindName(kind);
+
+/**
+ * The kinds a move went from and to: Local for an end on a local model,
+ * which runs as Claude, else the vendor.
+ */
+export const handoffKinds = (
+	item: Pick<
+		Extract<TimelineItem, { kind: "handoff" }>,
+		"from_vendor" | "to_vendor" | "from_local" | "to_local"
+	>
+): { readonly from: AgentKind; readonly to: AgentKind } => ({
+	from: item.from_local ? "local" : item.from_vendor,
+	to: item.to_local ? "local" : item.to_vendor,
+});
 
 /** A move's marker as one line, such as "Context handoff, Claude opus to Codex". */
-export const handoffLine = (item: Extract<TimelineItem, { kind: "handoff" }>): string =>
-	t("{{value1}}, {{value2}} to {{value3}}", {
+export const handoffLine = (item: Extract<TimelineItem, { kind: "handoff" }>): string => {
+	const kinds = handoffKinds(item);
+	return t("{{value1}}, {{value2}} to {{value3}}", {
 		value1: handoffTitle(item.status),
-		value2: handoffEnd(item.from_vendor, item.from_model),
-		value3: handoffEnd(item.to_vendor, item.to_model),
+		value2: handoffEnd(kinds.from, item.from_model),
+		value3: handoffEnd(kinds.to, item.to_model),
 	});
+};
 
 /** Where one stands among `count`, counting from one, such as "2 / 5". */
 export const placeLabel = (index: number, count: number): string =>

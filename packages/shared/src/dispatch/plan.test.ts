@@ -113,6 +113,17 @@ describe("the dispatcher's account", () => {
 		expect(dispatcherAccount(view, "dev-mac", null)?.id).toBe("claude-a");
 		expect(dispatcherAccount(view, null, null)).toBeUndefined();
 	});
+
+	it("runs on a local model only when you pick it", () => {
+		const local = account({ id: "local", label: "Local", login: "model_server" });
+		const only = applySnapshot({
+			seq: 1,
+			entities: entities({ devices: [device({ id: "dev-mac" })], accounts: [local] }),
+		});
+		expect(dispatcherAccounts(only, "dev-mac").map((a) => a.id)).toEqual(["local"]);
+		expect(dispatcherAccount(only, "dev-mac", null)).toBeUndefined();
+		expect(dispatcherAccount(only, "dev-mac", "local")?.id).toBe("local");
+	});
 });
 
 describe("a plan in words", () => {

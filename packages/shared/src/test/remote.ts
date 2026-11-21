@@ -17,6 +17,7 @@ import {
 } from "../data/source";
 import { noCliLogins } from "../data/mock-cli-login";
 import { noHosts } from "../data/mock-host-calls";
+import { noLocalModels } from "../data/mock-local-models";
 import { noPulls } from "../data/mock-pulls";
 import { noSkills } from "../data/mock-skills";
 import { noTasks } from "../data/mock-tasks";
@@ -122,6 +123,7 @@ type RemoteCalls = Pick<
 	| keyof typeof noTestHosts
 	| keyof typeof noSkills
 	| keyof typeof noHosts
+	| keyof typeof noLocalModels
 	| keyof typeof noCliLogins
 	| keyof typeof noTerminals
 	| keyof typeof noFolders
@@ -257,6 +259,7 @@ export const remoteCalls = (): RemoteCalls => ({
 	...noTestHosts,
 	...noSkills,
 	...noHosts,
+	...noLocalModels,
 	...noCliLogins,
 	...noTerminals,
 	...noFolders,

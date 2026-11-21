@@ -7,10 +7,10 @@
 
 import type { KeyboardEvent, ReactNode } from "react";
 
-import type { Timestamp, Vendor } from "@maxhq/shared/bindings";
+import type { Timestamp } from "@maxhq/shared/bindings";
 import { cn } from "@/lib/utils";
+import { type AgentKind, kindName } from "@maxhq/shared/status/agent-kind";
 import { formatDuration, showHidden } from "@maxhq/shared/status/format";
-import { VENDOR_NAME } from "@maxhq/shared/status/usage";
 
 import { Elapsed } from "../elapsed";
 import { Spinner } from "../icons";
@@ -54,7 +54,7 @@ export const WaitingCard = ({
 	label,
 	icon,
 	title,
-	vendor,
+	kind,
 	since,
 	children,
 	onKeyDown,
@@ -62,7 +62,7 @@ export const WaitingCard = ({
 	label: string;
 	icon: ReactNode;
 	title: ReactNode;
-	vendor: Vendor;
+	kind: AgentKind;
 	since: Timestamp | null;
 	children: ReactNode;
 	onKeyDown?: (event: KeyboardEvent<HTMLElement>) => void;
@@ -84,7 +84,7 @@ export const WaitingCard = ({
 					{title}
 				</h3>
 				<span className="shrink-0 pt-px text-[11.5px] leading-5 whitespace-nowrap text-status-ready-text tabular-nums">
-					{VENDOR_NAME[vendor]} {translate(" is waiting")}
+					{kindName(kind)} {translate(" is waiting")}
 					{since !== null ? (
 						<>
 							, <Elapsed since={since} format={waited} />
@@ -176,11 +176,11 @@ export const SecondaryButton = ({
  */
 export const SendNote = ({
 	state,
-	vendor,
+	kind,
 	dismissed = false,
 }: {
 	state: SendState;
-	vendor: Vendor;
+	kind: AgentKind;
 	dismissed?: boolean;
 }) => {
 	useI18n();
@@ -201,7 +201,7 @@ export const SendNote = ({
 	if (state.state === "sent" && dismissed) {
 		return (
 			<p role="status" className="text-[11.5px] text-muted-foreground">
-				{dismissSent(vendor)}
+				{dismissSent(kind)}
 			</p>
 		);
 	}
@@ -209,7 +209,7 @@ export const SendNote = ({
 		return (
 			<p role="status" className="text-[11.5px] text-status-ready-text">
 				{translate("Answer sent. Waiting for ")}
-				{VENDOR_NAME[vendor]} {translate(" to pick it up.")}
+				{kindName(kind)} {translate(" to pick it up.")}
 			</p>
 		);
 	}

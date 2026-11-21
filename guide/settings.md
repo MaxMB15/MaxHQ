@@ -24,7 +24,7 @@ Click the gear at the top of the window, or press `⌘,` (`Ctrl+,` off a Mac). T
 A page whose line says "kept on this Mac" saves on this Mac only. The other pages change what your devices do, and each change goes to the devices it names.
 
 - Kept on this Mac: Appearance, Sidebar, Editor and Dispatcher, plus Notifications and the badge.
-- On your devices: Agent tools, Scheduled tasks, Test hosts, Skills, Phones and every login page.
+- On your devices: Agent tools, Local models, Scheduled tasks, Test hosts, Skills, Phones and every login page. See [Local models](local-models.md) for its page.
 - A device's own settings, such as idle agents, memory, sleep and network access, are on that device's page. See [Devices and links](devices.md).
 - A project's settings and its skills are on the project's page under Projects. See [Projects and workspaces](projects.md).
 

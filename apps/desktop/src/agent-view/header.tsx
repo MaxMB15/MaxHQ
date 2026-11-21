@@ -27,6 +27,7 @@ import { useServices, useView } from "@/app/services";
 import { copyLabel, CopyStatus, useCopy } from "@/components/copy-button";
 import { RenameInput } from "@/components/rename-input";
 import { ModelPicker } from "@/composer";
+import { localMenu } from "@/composer/local-menu";
 import type { ActionResult } from "@maxhq/shared/data/source";
 import type { Agent, AgentId } from "@maxhq/shared/bindings";
 import { useNow } from "@maxhq/shared/lib/clock";
@@ -46,7 +47,8 @@ import { formatContext } from "@maxhq/shared/status/format";
 import { deletableAgents } from "@maxhq/shared/ui/delete-agents";
 import { renameAgent } from "@maxhq/shared/ui/rename-agent";
 import { modelsOf, movesOf, startedByLine } from "@maxhq/shared/view/select";
-import { accountName, VENDOR_NAME } from "@maxhq/shared/status/usage";
+import { agentKind, kindName } from "@maxhq/shared/status/agent-kind";
+import { accountName } from "@maxhq/shared/status/usage";
 
 import { failureOf } from "@maxhq/shared/agent-view/answer";
 import { picksModel } from "@maxhq/shared/agent-view/controls";
@@ -179,7 +181,8 @@ export const AgentHeader = ({ agent }: { agent: Agent }) => {
 		[observed, allows && held !== undefined, shownPulls(agent).length > 0].filter(Boolean)
 			.length
 	);
-	const accountLabel = account ? accountName(account) : VENDOR_NAME[agent.vendor];
+	const kind = agentKind(agent, view.tables.account);
+	const accountLabel = account ? accountName(account) : kindName(kind);
 	const terminalLine =
 		agent.link.state === "down"
 			? translate("Ended in a terminal")
@@ -238,7 +241,7 @@ export const AgentHeader = ({ agent }: { agent: Agent }) => {
 					title={folded.has("account") ? accountLabel : undefined}
 					className="inline-flex h-[22px] shrink-0 items-center gap-[5px] rounded-md border border-track bg-secondary px-[7px] text-[11.5px] whitespace-nowrap text-terminal"
 				>
-					<VendorIcon vendor={agent.vendor} />
+					<VendorIcon kind={kind} />
 					<span className={folded.has("account") ? "sr-only" : undefined}>
 						{accountLabel}
 					</span>
@@ -246,11 +249,12 @@ export const AgentHeader = ({ agent }: { agent: Agent }) => {
 				{(picks || agent.model) && !folded.has("model") ? (
 					<ModelPicker
 						place="header"
-						vendor={agent.vendor}
+						kind={kind}
 						model={agent.model}
 						account={account}
 						choices={models}
 						moves={moves}
+						local={localMenu(services, view, workspace?.device)}
 						onPick={
 							picks
 								? (model, to) =>

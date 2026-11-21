@@ -9,6 +9,7 @@ import { Fragment } from "react";
 
 import { Bar } from "@/header/usage";
 import { cn } from "@/lib/utils";
+import { TONE } from "@/tasks/activity";
 import { formatPercent } from "@maxhq/shared/status/format";
 import { type WindowView, windowShort } from "@maxhq/shared/status/usage";
 
@@ -157,8 +158,18 @@ export const Picker = ({
 								const heading =
 									option.group !== undefined &&
 									option.group !== options[i - 1]?.group;
+								// A row with no group after grouped ones, such as Set up local models, stands apart.
+								const apart =
+									option.group === undefined &&
+									options[i - 1]?.group !== undefined;
 								return (
 									<Fragment key={option.value}>
+										{apart ? (
+											<div
+												role="separator"
+												className="mx-1 my-1 h-px bg-border"
+											/>
+										) : null}
 										{heading ? (
 											<div className="px-2 pt-2 pb-1 text-[11px] text-muted-foreground">
 												{option.group}
@@ -192,7 +203,15 @@ export const Picker = ({
 												<Usage windows={option.usage} />
 											) : null}
 											{option.tag ? (
-												<span className="h-[18px] shrink-0 rounded-[4px] bg-border px-1.5 text-[10.5px] leading-[18px] text-secondary-foreground">
+												<span
+													data-tone={option.tone}
+													className={cn(
+														"h-[18px] shrink-0 rounded-[4px] px-1.5 text-[10.5px] leading-[18px]",
+														option.tone
+															? TONE[option.tone]
+															: "bg-border text-secondary-foreground"
+													)}
+												>
 													{option.tag}
 												</span>
 											) : null}

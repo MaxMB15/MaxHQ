@@ -106,6 +106,7 @@ impl Login {
             acp: None,
             login: LoginKind::ConfigDir,
             origin: None,
+            model_server: None,
         };
         Self { config, account }
     }

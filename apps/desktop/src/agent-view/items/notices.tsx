@@ -20,11 +20,12 @@ import { useServices, useView } from "@/app/services";
 import { cn } from "@/lib/utils";
 import { openCliSignIn } from "@/settings/cli-sign-in";
 import { openSettings } from "@/settings/store";
-import type { AccountId, Vendor } from "@maxhq/shared/bindings";
-import { handoffEnd, handoffTitle, isOpen } from "@maxhq/shared/agent-view/format";
+import type { AccountId } from "@maxhq/shared/bindings";
+import { handoffKinds, handoffTitle, isOpen } from "@maxhq/shared/agent-view/format";
 import { signInAction } from "@maxhq/shared/settings/cli-sign-in";
+import type { AgentKind } from "@maxhq/shared/status/agent-kind";
 import { formatDuration, formatTokens } from "@maxhq/shared/status/format";
-import { modelName } from "@maxhq/shared/view/select";
+import { handoffEndText } from "@maxhq/shared/local-models/handoff";
 
 import { Spinner } from "../icons";
 import { SecondaryButton } from "./card";
@@ -188,27 +189,27 @@ export const NoticeRow = ({ item }: { item: ItemOf<"notice"> }) => {
 };
 
 /** One end of a move, with the model by its label. */
-const HandoffEnd = ({ vendor, model }: { vendor: Vendor; model: string | null }) => {
+const HandoffEnd = ({ kind, model }: { kind: AgentKind; model: string | null }) => {
 	useI18n();
-	const name = useView((s) => (model ? modelName(s.view, vendor, model) : null));
-	return (
-		<span className="font-medium text-secondary-foreground">{handoffEnd(vendor, name)}</span>
-	);
+	const text = useView((s) => handoffEndText(s.view, kind, model));
+	return <span className="font-medium text-secondary-foreground">{text}</span>;
 };
 
 /**
  * Where the agent moved to another vendor, marking the context handoff. It
- * waits until the next message carries the conversation over.
+ * waits until the next message carries the conversation over. The move says
+ * which end ran on a local model.
  */
 export const HandoffRow = ({ item }: { item: ItemOf<"handoff"> }) => {
 	useI18n();
+	const kinds = handoffKinds(item);
 	return (
 		<Divider icon={<ArrowRightLeft size={12} strokeWidth={1.9} aria-hidden />}>
 			{handoffTitle(item.status)}
 			<span className="inline-flex items-center gap-1">
-				<HandoffEnd vendor={item.from_vendor} model={item.from_model} />
+				<HandoffEnd kind={kinds.from} model={item.from_model} />
 				<ArrowRight size={11} strokeWidth={1.9} aria-label={translate("to")} />
-				<HandoffEnd vendor={item.to_vendor} model={item.to_model} />
+				<HandoffEnd kind={kinds.to} model={item.to_model} />
 			</span>
 		</Divider>
 	);

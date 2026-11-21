@@ -189,7 +189,9 @@ fn setting(change: &DeviceSettingChange) -> Risk {
         | S::TestHosts { .. }
         | S::SkillLibrary { .. }
         | S::ShellIntegration { .. }
-        | S::ReadOtherAgents { .. } => Risk::Confirm,
+        | S::ReadOtherAgents { .. }
+        // Its linked devices switch lets other devices use this one's models.
+        | S::LocalModels { .. } => Risk::Confirm,
         S::CursorUsage { .. }
         | S::Network { .. }
         | S::ClaudeSetupToken { .. }
@@ -466,8 +468,8 @@ pub(super) fn input_schema(tool: Tool) -> Value {
                     "items": {
                         "type": "object",
                         "properties": {
-                            "field": {"type": "string", "enum": ["default_permission", "workspace_network", "workspace_pool", "auto_settle_days", "snooze_at_limit", "continue_claude_at_limit", "continue_codex_at_limit", "claude_effort", "codex_effort", "placement", "tool_updates", "keep_awake", "idle_release_minutes", "memory_items", "history_mib", "chat_gap_minutes", "shell_integration", "read_other_agents", "skill_library"]},
-                            "value": {"description": "The new value: true or false for a switch, a whole number for days, minutes (0 for never), items or MiB, a mode for default_permission, a level or null for an effort, prefer or normal for placement, charger, always, working or off for keep_awake, and a list of claude, codex or cursor for tool_updates."},
+                            "field": {"type": "string", "enum": ["default_permission", "workspace_network", "workspace_pool", "auto_settle_days", "snooze_at_limit", "continue_claude_at_limit", "continue_codex_at_limit", "claude_effort", "codex_effort", "placement", "tool_updates", "keep_awake", "idle_release_minutes", "memory_items", "history_mib", "chat_gap_minutes", "shell_integration", "read_other_agents", "local_models", "skill_library"]},
+                            "value": {"description": "The new value: true or false for a switch, a whole number for days, minutes (0 for never), items or MiB, a mode for default_permission, a level or null for an effort, prefer or normal for placement, charger, always, working or off for keep_awake, a list of claude, codex or cursor for tool_updates, and for local_models an object with idle_unload_minutes (0 keeps a model loaded), kv_type (f16 or q8_0), context in tokens, fewer_tools, default_model ({server, model} or null) and linked_devices, where any left out goes back to its default."},
                         },
                         "required": ["field", "value"],
                     },
@@ -688,6 +690,7 @@ mod tests {
     use super::*;
 
     use maxhq_protocol::ids::{ProjectId, TaskId, WorkspaceId};
+    use maxhq_protocol::local_models::LocalModelSettings;
     use maxhq_protocol::model::KeepAwake;
 
     fn admin(action: AdminAction) -> PlanStep {
@@ -909,6 +912,15 @@ mod tests {
             ),
             (
                 AdminAction::ChangeSettings {
+                    changes: vec![DeviceSettingChange::LocalModels {
+                        value: Default::default(),
+                    }],
+                },
+                Risk::Confirm,
+                Risk::Confirm,
+            ),
+            (
+                AdminAction::ChangeSettings {
                     changes: vec![DeviceSettingChange::SnoozeAtLimit { value: true }; 6],
                 },
                 Risk::Confirm,
@@ -997,6 +1009,38 @@ mod tests {
         assert_eq!(
             settings_now(&settings, &changes),
             [DeviceSettingChange::ChatGapMinutes { value: 30 }]
+        );
+    }
+
+    #[test]
+    fn local_model_settings_wait_for_a_confirm() {
+        let tool = Tool::ManageDevice;
+        let enum_ =
+            &input_schema(tool)["properties"]["changes"]["items"]["properties"]["field"]["enum"];
+        assert!(enum_
+            .as_array()
+            .expect("fields")
+            .contains(&json!("local_models")));
+        let action = parsed(
+            tool,
+            json!({"action": "settings", "changes": [
+                {"field": "local_models", "value": {"linked_devices": false}},
+            ]}),
+        );
+        let value = Box::new(LocalModelSettings {
+            linked_devices: false,
+            ..Default::default()
+        });
+        assert_eq!(
+            action,
+            AdminAction::ChangeSettings {
+                changes: vec![DeviceSettingChange::LocalModels { value }]
+            }
+        );
+        let step = admin(action);
+        assert_eq!(
+            (risk(&step, false), risk(&step, true)),
+            (Risk::Confirm, Risk::Confirm)
         );
     }
 

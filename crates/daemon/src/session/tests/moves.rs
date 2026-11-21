@@ -559,6 +559,8 @@ async fn the_dispatcher_lists_another_device_and_plans_a_move_to_it() {
             host_key: String::new(),
             test_kinds: Vec::new(),
             home: false,
+            model_server: None,
+            models_from: Vec::new(),
         }],
     };
     mac.db.set_peer_book(&book).expect("the book is kept");

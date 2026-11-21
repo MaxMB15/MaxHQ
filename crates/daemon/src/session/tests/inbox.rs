@@ -700,6 +700,7 @@ async fn an_agent_waiting_for_its_limit_snoozes_until_the_reset_when_the_device_
         read_other_agents: true,
         dispatcher_acts: true,
         chat_gap_minutes: 30,
+        local_models: Default::default(),
     };
     let outcome = h
         .act(|key| ClientMessage::SetDeviceSettings { key, settings })

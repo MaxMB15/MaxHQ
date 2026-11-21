@@ -15,7 +15,7 @@ Press ⌘N, or click **New agent** at the foot of the sidebar or in a project's 
 
 1. Pick the **Project**, or **Use a local folder** to pick a **Folder** on any connected device.
 2. Pick where it runs: **Runs on** for a project's workspace, or **Device** for a folder. A container workspace also takes a branch.
-3. Pick the **Agent**, which is the account it uses, then its **Model** and **Mode**.
+3. Pick the **Agent**, which is the account it uses, then its **Model** and **Mode**. **Local** runs it on a model on your own hardware, see [Local models](local-models.md).
 4. Give it a **Title** and a **First message** if you like. Without a title, the CLI or the first message names it.
 5. Click **Start agent**, or press ⌘Enter.
 

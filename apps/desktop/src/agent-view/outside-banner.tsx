@@ -36,7 +36,7 @@ import {
 	useFollowLead,
 	useTakeOver,
 } from "@maxhq/shared/agent-view/outside";
-import { Spinner } from "./icons";
+import { Spinner, useAgentKind } from "./icons";
 import { t as translate, useI18n } from "@maxhq/shared/i18n";
 
 const Parts = ({ parts, code }: { parts: readonly NotePart[]; code: string }) => {
@@ -189,6 +189,7 @@ export const OutsideBanner = ({ agent }: { agent: Agent }) => {
 	const [continued, continueHere] = useContinueHere(source, agent.id);
 	const [taken, takeOver] = useTakeOver(source, lead?.id ?? agent.id);
 	const tip = useId();
+	const kind = useAgentKind(agent);
 	const note = outsideNote(agent, device, { link, now });
 	const offer = outsideOffer(agent, lead, note, protocol, link, device);
 	if (offer.kind === "moved")
@@ -197,7 +198,8 @@ export const OutsideBanner = ({ agent }: { agent: Agent }) => {
 				<SessionMoved lead={offer.lead} />
 			</div>
 		);
-	const resume = offer.kind === "continue" ? resumeCommand(agent) : null;
+	// A Local session has no CLI of its own to resume in.
+	const resume = offer.kind === "continue" && kind !== "local" ? resumeCommand(agent) : null;
 	const own = agent.parent === null;
 	const failed = [continued, taken].find((state) => state.state === "failed");
 	const ask = () => {

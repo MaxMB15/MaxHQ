@@ -31,6 +31,7 @@ import { Markdown } from "@/agent-view/markdown";
 import { BLOCK_SELECTOR } from "@/agent-view/selection";
 import { openAgent } from "@/app/open-agent";
 import { useServices, useView } from "@/app/services";
+import { agentKind } from "@maxhq/shared/status/agent-kind";
 import { writeDraftClipboard } from "@/composer/pill-keys";
 import { NotePill } from "@/notes/pill";
 import { OutputPreview } from "@/pills/output-preview";
@@ -131,8 +132,11 @@ const AgentPill = ({ agent, index, now }: { agent: AgentRef; index: number; now:
 	const services = useServices();
 	const found = useView((state) => state.view.tables.agent.get(agent.agent) ?? null);
 	const device = useView((state) => deviceName(state.view, agent.device));
+	const kind = useView((state) =>
+		found ? agentKind(found, state.view.tables.account) : agent.vendor
+	);
 	const presentation = presentPill(
-		{ kind: "agent", ref: agent, agent: found, deviceName: device },
+		{ kind: "agent", ref: agent, agent: found, deviceName: device, agentKind: kind },
 		{ now }
 	);
 	return (

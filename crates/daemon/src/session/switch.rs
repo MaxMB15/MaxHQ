@@ -14,7 +14,9 @@ use std::path::PathBuf;
 use maxhq_core::handoff::{self, Strategy, Usage};
 use maxhq_protocol::ids::{AccountId, AgentId};
 use maxhq_protocol::message::ActionOutcome;
-use maxhq_protocol::model::{Account, Activity, AgentPermission, PermissionMode, Vendor};
+use maxhq_protocol::model::{
+    Account, Activity, AgentPermission, LoginKind, PermissionMode, Vendor,
+};
 use maxhq_protocol::state::{Entity, EntityKey};
 use maxhq_protocol::timeline::{ItemBody, ItemId, ItemStatus, TimelineEvent, TimelineItem};
 use tracing::warn;
@@ -67,9 +69,13 @@ impl Manager {
             return refused(STOPPING);
         }
         if self.cut(lead).busy {
-            return refused(format!(
-                "wait for the turn to end before moving the agent to {}",
+            let to_name = if to.login == LoginKind::ModelServer {
+                "Local"
+            } else {
                 to.vendor.name()
+            };
+            return refused(format!(
+                "wait for the turn to end before moving the agent to {to_name}"
             ));
         }
         let guest = held.guest;
@@ -186,6 +192,7 @@ impl Manager {
         };
         let model = Some(model).filter(|model| !model.is_empty());
         let from_vendor = held.vendor();
+        let from_local = held.login == LoginKind::ModelServer;
         let from_model = held.agent.model.clone().or_else(|| held.model.clone());
         let native = held
             .natives
@@ -242,6 +249,8 @@ impl Manager {
                 from_model,
                 to_vendor: to.vendor,
                 to_model: model,
+                from_local,
+                to_local: to.login == LoginKind::ModelServer,
             },
         };
         self.timeline_events(vec![(lead, TimelineEvent::Upsert { item })]);

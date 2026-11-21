@@ -18,8 +18,7 @@ use maxhq_protocol::frame::MAX_TUNNEL_CHUNK;
 use maxhq_protocol::ids::StreamId;
 use maxhq_protocol::message::TunnelEnd;
 use maxhq_protocol::ClientMessage;
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::net::tcp::{ReadHalf, WriteHalf};
+use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, DuplexStream};
 use tokio::net::TcpStream;
 use tokio::sync::{mpsc, Notify};
 
@@ -133,11 +132,33 @@ impl Drop for End {
     }
 }
 
+/// What a stream pumps: a connection accepted on a forward's port, or one
+/// end of an in-memory pipe.
+pub trait Socket: AsyncRead + AsyncWrite + Send + Unpin + 'static {
+    /// Readies it for the pump.
+    fn ready(&self) {}
+    /// Makes the coming close a reset, where the socket has one.
+    fn abort(&self) {}
+}
+
+impl Socket for TcpStream {
+    fn ready(&self) {
+        let _ = self.set_nodelay(true);
+    }
+
+    fn abort(&self) {
+        // A reset, not a quiet close, so the program sees the abort.
+        let _ = self.set_zero_linger();
+    }
+}
+
+impl Socket for DuplexStream {}
+
 /// Pumps `socket` for `stream` in a task of its own, until the stream
 /// ends. `ended` runs once it's over, however it ends.
-pub(super) fn start(
+pub(super) fn start<S: Socket>(
     stream: StreamId,
-    socket: TcpStream,
+    socket: S,
     link: Arc<dyn ForwardLink>,
     ended: Box<dyn FnOnce() + Send>,
 ) -> End {
@@ -181,13 +202,13 @@ struct Task {
 }
 
 impl Task {
-    async fn run(
+    async fn run<S: Socket>(
         &self,
-        mut socket: TcpStream,
+        mut socket: S,
         events: mpsc::UnboundedReceiver<Event>,
         abort: &Notify,
     ) {
-        let _ = socket.set_nodelay(true);
+        socket.ready();
         let ended = tokio::select! {
             biased;
             () = abort.notified() => Err(Abort::Peer),
@@ -200,8 +221,7 @@ impl Task {
                     how: TunnelEnd::Reset,
                 });
             }
-            // A reset, not a quiet close, so the program sees the abort.
-            let _ = socket.set_zero_linger();
+            socket.abort();
         }
     }
 
@@ -209,17 +229,17 @@ impl Task {
         self.link.send(Out::Message(message))
     }
 
-    async fn pump(
+    async fn pump<S: Socket>(
         &self,
-        socket: &mut TcpStream,
+        socket: &mut S,
         events: mpsc::UnboundedReceiver<Event>,
     ) -> Result<(), Abort> {
-        let (reader, writer) = socket.split();
+        let (reader, writer) = tokio::io::split(socket);
         tokio::try_join!(self.reading(reader), self.writing(writer, events)).map(|_| ())
     }
 
     /// Socket to link, within the credit `maxd` granted.
-    async fn reading(&self, mut reader: ReadHalf<'_>) -> Result<(), Abort> {
+    async fn reading(&self, mut reader: impl AsyncRead + Unpin) -> Result<(), Abort> {
         let mut buf = vec![0; MAX_TUNNEL_CHUNK];
         loop {
             let left = self.credit.wait().await;
@@ -249,7 +269,7 @@ impl Task {
     /// Link to socket, granting `maxd` more as its bytes are written.
     async fn writing(
         &self,
-        mut writer: WriteHalf<'_>,
+        mut writer: impl AsyncWrite + Unpin,
         mut events: mpsc::UnboundedReceiver<Event>,
     ) -> Result<(), Abort> {
         let mut unacked = 0;

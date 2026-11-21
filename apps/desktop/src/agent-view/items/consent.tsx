@@ -15,7 +15,7 @@ import { useCallback, useState } from "react";
 import type { AttentionAnswer, Consent, ConsentRow, Question } from "@maxhq/shared/bindings";
 import { useSend } from "@maxhq/shared/agent-view/answer";
 import { consentAnswer, consentGroups, shownValue } from "@maxhq/shared/agent-view/consent";
-import { useRow } from "@maxhq/shared/agent-view/context";
+import { rowKind, useRow } from "@maxhq/shared/agent-view/context";
 import { useKept } from "@maxhq/shared/agent-view/kept";
 import { sentence } from "@maxhq/shared/status/format";
 import { ConsentFacts } from "@/components/consent-facts";
@@ -131,7 +131,8 @@ export const ConsentCard = ({
 	consent: Consent;
 }) => {
 	useI18n();
-	const { vendor, answer } = useRow();
+	const { answer } = useRow();
+	const kind = rowKind(useRow());
 	const [remember, setRemember] = useKept(`remember:${item.attention}`, false);
 	const send = useCallback(
 		(a: AttentionAnswer) => answer(item.attention, a),
@@ -147,7 +148,7 @@ export const ConsentCard = ({
 			label={translate("Consent request")}
 			icon={ICON}
 			title={consent.title}
-			vendor={vendor}
+			kind={kind}
 			since={item.started_at}
 		>
 			<Body consent={consent} />
@@ -181,7 +182,7 @@ export const ConsentCard = ({
 					</SecondaryButton>
 				))}
 			</div>
-			<SendNote state={state} vendor={vendor} />
+			<SendNote state={state} kind={kind} />
 		</WaitingCard>
 	);
 };

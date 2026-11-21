@@ -21,6 +21,7 @@ use maxhq_protocol::frame::{self, DecodeError, EncodeError, Frame, FrameDecoder}
 use maxhq_protocol::ids::{
     ClientId, DeviceId, IdempotencyKey, PairId, PhoneId, StreamId, TerminalId, TransferId,
 };
+use maxhq_protocol::local_models::ModelAction;
 use maxhq_protocol::message::{
     ActionOutcome, AttachmentSource, Capabilities, ClientHello, ErrorCode, ServerHello,
     UploadSource,
@@ -841,6 +842,14 @@ impl Connection {
                         ..
                     }
                     | ClientMessage::FetchBegin { anyway: true, .. }
+                    | ClientMessage::ModelAction {
+                        action: ModelAction::AddServer { .. }
+                            | ModelAction::ProbeServer { .. }
+                            | ModelAction::RemoveServer { .. }
+                            | ModelAction::Download { .. }
+                            | ModelAction::DeleteModel { .. },
+                        ..
+                    }
             )
             && !self.may_do_everything()
         {
@@ -1336,6 +1345,12 @@ impl Connection {
             message @ ClientMessage::Notices { .. } => {
                 self.refuse(&message, ErrorCode::NotAllowed, NOT_FOR_NOTICES)
                     .await
+            }
+            // A phone without its switch on never gets here for the actions
+            // only the Mac takes, as the gate above says.
+            ClientMessage::ModelAction { key, action } => {
+                self.answer_when(key, tokio::spawn(crate::local_models::act(action)));
+                Ok(())
             }
             // Updates, tools, load and diagnostics belong to the fleet.
             message @ (ClientMessage::InstallUpdate { key, .. }
@@ -1860,6 +1875,8 @@ impl Connection {
                 peer_proofs: true,
                 // Holds terminals in PTY holders of its own.
                 terminals: self.sessions.terminals().is_some(),
+                // Handles every model action once local models run.
+                local_models: crate::local_models::running(),
             },
             challenge: self.challenge.map(|challenge| challenge.encode()),
         }
@@ -1954,7 +1971,7 @@ impl Connection {
 /// Writes what the tunnels send a client, on the bulk queue behind the
 /// state, so a stream's bytes never hold up a pong or a delta. A stream's
 /// messages go the same way as its bytes, so a close never passes them.
-struct ToClient(Sender);
+pub(crate) struct ToClient(pub(crate) Sender);
 
 impl Writer<ServerMessage> for ToClient {
     async fn write(&mut self, out: Out<ServerMessage>) -> Result<(), Gone> {
@@ -2080,6 +2097,7 @@ pub(crate) mod tests {
             effort: None,
             running: None,
             moved: None,
+            local: None,
         })
     }
 
@@ -3263,8 +3281,8 @@ pub(crate) mod tests {
         use maxhq_protocol::hosts::MoveStep;
         use maxhq_protocol::ids::{
             AccountId, AcpAgentId, AdmissionId, AttachmentId, CredentialId, ForwardId, KeyId,
-            MoveId, PermissionId, PortId, SignInId, SkillProposalId, SkillSourceId, StreamId,
-            TaskId, TestHostId,
+            ModelServerId, MoveId, PermissionId, PortId, SignInId, SkillProposalId, SkillSourceId,
+            StreamId, TaskId, TestHostId,
         };
         use maxhq_protocol::message::{AgentPlace, AgentSpec, ToolTarget, UpdateKind};
         use maxhq_protocol::model::{
@@ -3683,6 +3701,43 @@ pub(crate) mod tests {
                 path: dir.path().join("plan.md").to_str().unwrap().to_owned(),
                 anyway: true,
             },
+            // Adding, probing and removing a server URL, and downloading
+            // and deleting a model, are the Mac's.
+            ClientMessage::ModelAction {
+                key: key("model-add"),
+                action: ModelAction::AddServer {
+                    label: "stolen".into(),
+                    url: "http://gpu-box.example.com:11434".into(),
+                    token: None,
+                },
+            },
+            ClientMessage::ModelAction {
+                key: key("model-probe"),
+                action: ModelAction::ProbeServer {
+                    url: "http://gpu-box.example.com:11434".into(),
+                    token: None,
+                },
+            },
+            ClientMessage::ModelAction {
+                key: key("model-remove"),
+                action: ModelAction::RemoveServer {
+                    server: ModelServerId::derive("server"),
+                },
+            },
+            ClientMessage::ModelAction {
+                key: key("model-download"),
+                action: ModelAction::Download {
+                    model: "qwen3.6-35b-a3b".into(),
+                    file: "Qwen3.6-35B-A3B-UD-Q4_K_XL.gguf".into(),
+                },
+            },
+            ClientMessage::ModelAction {
+                key: key("model-delete"),
+                action: ModelAction::DeleteModel {
+                    model: "qwen3.6-35b-a3b".into(),
+                    file: "Qwen3.6-35B-A3B-UD-Q4_K_XL.gguf".into(),
+                },
+            },
         ];
         // What hands out access, which a phone's switch never lifts.
         let handed_out = [
@@ -3815,6 +3870,42 @@ pub(crate) mod tests {
             },
             ClientMessage::CheckTestHosts {
                 key: key("test-host-check"),
+            },
+            // It may load, unload and test a model server, and pause and
+            // resume a download the Mac started.
+            ClientMessage::ModelAction {
+                key: key("model-test"),
+                action: ModelAction::TestServer {
+                    server: ModelServerId::derive("server"),
+                },
+            },
+            ClientMessage::ModelAction {
+                key: key("model-load"),
+                action: ModelAction::Load {
+                    server: ModelServerId::derive("server"),
+                    model: "qwen3.6-35b-a3b@ud-q4_k_xl".into(),
+                },
+            },
+            ClientMessage::ModelAction {
+                key: key("model-unload"),
+                action: ModelAction::Unload {
+                    server: ModelServerId::derive("server"),
+                    model: "qwen3.6-35b-a3b@ud-q4_k_xl".into(),
+                },
+            },
+            ClientMessage::ModelAction {
+                key: key("model-pause"),
+                action: ModelAction::PauseDownload {
+                    model: "qwen3.6-35b-a3b".into(),
+                    file: "Qwen3.6-35B-A3B-UD-Q4_K_XL.gguf".into(),
+                },
+            },
+            ClientMessage::ModelAction {
+                key: key("model-resume"),
+                action: ModelAction::ResumeDownload {
+                    model: "qwen3.6-35b-a3b".into(),
+                    file: "Qwen3.6-35B-A3B-UD-Q4_K_XL.gguf".into(),
+                },
             },
         ] {
             own.send(&message).await;

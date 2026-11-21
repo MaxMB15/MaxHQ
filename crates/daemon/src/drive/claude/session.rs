@@ -811,6 +811,7 @@ impl ClaudeSession {
                 ..AgentRunning::default()
             }),
             moved: None,
+            local: None,
         }
     }
 

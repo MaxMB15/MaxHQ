@@ -10,7 +10,9 @@ import type { DataSource } from "@maxhq/shared/data/source";
 import type { Entity, NetworkAccess } from "@maxhq/shared/bindings";
 import { MOCK_TEST_HOST_SETTINGS } from "@maxhq/shared/data/mock-test-hosts";
 import { NO_LIMIT_WARNING } from "@maxhq/shared/settings/memory";
+import { LOADED_MODEL, MAC_SERVER } from "@maxhq/shared/data/mock-local-models";
 import { DEVBOX, MAC } from "@maxhq/shared/data/mock-view";
+import { LOCAL_MODEL_DEFAULTS } from "@maxhq/shared/local-models/models";
 import { FixedNow } from "@maxhq/shared/lib/clock";
 import { NOW } from "@maxhq/shared/test/build";
 import { createUiStore } from "@maxhq/shared/ui/store";
@@ -34,6 +36,12 @@ const twoOfEach = (source: DataSource): DataSource => ({
 		return { ...snapshot, entities };
 	},
 });
+
+// What each device keeps for its local models: the Mac has a default model.
+const LOCAL_MODELS = {
+	[MAC]: { ...LOCAL_MODEL_DEFAULTS, default_model: { server: MAC_SERVER, model: LOADED_MODEL } },
+	[DEVBOX]: LOCAL_MODEL_DEFAULTS,
+};
 
 const renderDevice = (link: string, scenario = "connected", wrap = (s: DataSource) => s) => {
 	const source = wrap(mockSource({ now: () => NOW, tick: false, scenario }));
@@ -122,6 +130,7 @@ describe("device settings", () => {
 			chat_gap_minutes: 30,
 			skill_library: null,
 			network: {},
+			local_models: LOCAL_MODELS[MAC],
 			test_hosts: MOCK_TEST_HOST_SETTINGS[MAC],
 		});
 		expect(await within(await section("Mac")).findByText("Saved")).toBeInTheDocument();
@@ -153,6 +162,7 @@ describe("device settings", () => {
 			chat_gap_minutes: 30,
 			skill_library: null,
 			network: {},
+			local_models: LOCAL_MODELS[MAC],
 			test_hosts: MOCK_TEST_HOST_SETTINGS[MAC],
 		});
 	});
@@ -208,6 +218,7 @@ describe("device settings", () => {
 			chat_gap_minutes: 30,
 			skill_library: null,
 			network: {},
+			local_models: LOCAL_MODELS[DEVBOX],
 			test_hosts: MOCK_TEST_HOST_SETTINGS[DEVBOX],
 		});
 	});
@@ -276,6 +287,7 @@ describe("device settings", () => {
 			chat_gap_minutes: 30,
 			skill_library: null,
 			network: {},
+			local_models: LOCAL_MODELS[DEVBOX],
 			test_hosts: MOCK_TEST_HOST_SETTINGS[DEVBOX],
 		});
 		expect(await within(section).findByText("Saved")).toBeInTheDocument();
@@ -312,6 +324,7 @@ describe("device settings", () => {
 			chat_gap_minutes: 30,
 			skill_library: null,
 			network: {},
+			local_models: LOCAL_MODELS[DEVBOX],
 			test_hosts: MOCK_TEST_HOST_SETTINGS[DEVBOX],
 		});
 	});
@@ -362,6 +375,7 @@ describe("device settings", () => {
 			chat_gap_minutes: 30,
 			skill_library: null,
 			network: {},
+			local_models: LOCAL_MODELS[DEVBOX],
 			test_hosts: MOCK_TEST_HOST_SETTINGS[DEVBOX],
 		});
 		expect(await within(section).findByText("Saved")).toBeInTheDocument();
@@ -423,6 +437,7 @@ describe("device settings", () => {
 			chat_gap_minutes: 30,
 			skill_library: null,
 			network: {},
+			local_models: LOCAL_MODELS[MAC],
 			test_hosts: MOCK_TEST_HOST_SETTINGS[MAC],
 		});
 		expect(await within(section).findByText("Saved")).toBeInTheDocument();

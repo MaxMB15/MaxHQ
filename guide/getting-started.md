@@ -44,7 +44,7 @@ The usage meter in the title bar shows how much of each vendor's plan you've use
 - **Fullest context windows** lists the agents closest to filling their context.
 - **Check usage now** reads usage again, and **Updated** says when it last did.
 
-A window at 99% or more reads as used up. Only the account's own windows mark its agents as at the limit, not a model's. Cursor shows its month meters once a Mac turns Cursor usage on, and a link to its dashboard otherwise.
+A window at 99% or more reads as used up. Only the account's own windows mark its agents as at the limit, not a model's. Cursor shows its month meters once a Mac turns Cursor usage on, and a link to its dashboard otherwise. A Local agent has no plan, so it has no meter; see [Local models](local-models.md).
 
 ## See your agents by project
 <!-- id: getting-started/projects -->

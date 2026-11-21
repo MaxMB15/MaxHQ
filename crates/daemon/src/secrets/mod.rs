@@ -125,6 +125,7 @@ fn login_account(
         usage: None,
         usage_failure: None,
         acp: None,
+        model_server: None,
     }
 }
 

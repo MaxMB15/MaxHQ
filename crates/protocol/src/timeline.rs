@@ -281,7 +281,9 @@ pub enum ItemBody {
     },
     /// The agent moved to another vendor here, carrying the conversation
     /// over. Pending until the next message takes the conversation to the
-    /// new vendor, and cancelled if the agent moves again first.
+    /// new vendor, and cancelled if the agent moves again first. A move
+    /// between Claude and a local model is one too, since a local agent
+    /// runs Claude Code with its own config folder.
     Handoff {
         /// The vendor the agent left.
         from_vendor: Vendor,
@@ -291,6 +293,15 @@ pub enum ItemBody {
         to_vendor: Vendor,
         /// The model it runs there, if you picked one.
         to_model: Option<String>,
+        /// Whether the agent left a local model, which runs as
+        /// [`Vendor::Claude`]: show that end as Local. Since
+        /// [`crate::message::LOCAL_MODELS_SINCE`].
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        from_local: bool,
+        /// Whether the agent moved to a local model. Since
+        /// [`crate::message::LOCAL_MODELS_SINCE`].
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        to_local: bool,
     },
     /// Files the agent sent you with MaxHQ's send tool, from copies MaxHQ
     /// keeps in its attachments folder.
@@ -991,6 +1002,16 @@ mod tests {
                 from_model: Some("opus".into()),
                 to_vendor: Vendor::Codex,
                 to_model: None,
+                from_local: false,
+                to_local: false,
+            },
+            ItemBody::Handoff {
+                from_vendor: Vendor::Claude,
+                from_model: Some("opus".into()),
+                to_vendor: Vendor::Claude,
+                to_model: Some("qwen3.6-35b-a3b@ud-q4_k_xl".into()),
+                from_local: false,
+                to_local: true,
             },
             ItemBody::AgentAttachments {
                 text: "Here's the plot".into(),
@@ -1016,6 +1037,32 @@ mod tests {
             let parsed: TimelineItem = serde_json::from_str(&text).unwrap();
             assert_eq!(parsed, original, "{text}");
         }
+    }
+
+    #[test]
+    fn a_handoff_from_an_older_peer_reads_as_a_move_between_vendors() {
+        let mut value = serde_json::to_value(item(ItemBody::Handoff {
+            from_vendor: Vendor::Claude,
+            from_model: None,
+            to_vendor: Vendor::Codex,
+            to_model: None,
+            from_local: false,
+            to_local: false,
+        }))
+        .unwrap();
+        // A move between vendors writes neither flag, as an older peer.
+        assert!(value.get("from_local").is_none(), "{value}");
+        assert!(value.get("to_local").is_none(), "{value}");
+        value["to_vendor"] = "claude".into();
+        let parsed: TimelineItem = serde_json::from_value(value).unwrap();
+        assert!(matches!(
+            parsed.body,
+            ItemBody::Handoff {
+                from_local: false,
+                to_local: false,
+                ..
+            }
+        ));
     }
 
     #[test]

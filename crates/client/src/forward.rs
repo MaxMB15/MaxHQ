@@ -19,6 +19,10 @@
 //! asks `maxd` again once the link is back. Nothing restores forwards when
 //! the app starts.
 //!
+//! A stream can also carry a pipe in this process instead of a forward's
+//! connection: [`Forwards::attach`] takes one end for a stream the other
+//! side opens by a request of its own, such as a peer's model stream.
+//!
 //! The link's owner implements [`ForwardLink`] over its connection. It
 //! hands [`Forwards`] the tunnel messages and frames `maxd` sends, the
 //! link's events, and word of the connection going and coming back.
@@ -174,7 +178,8 @@ impl Drop for Accepts {
 }
 
 struct Stream {
-    port: PortId,
+    /// The forward it came through, or none for an attached pipe.
+    port: Option<PortId>,
     serial: u64,
     end: pump::End,
 }
@@ -192,7 +197,8 @@ impl Inner {
 
     fn remove_stream(&mut self, stream: StreamId) {
         if let Some(gone) = self.streams.remove(&stream)
-            && let Some(entry) = self.forwards.get_mut(&gone.port)
+            && let Some(port) = gone.port
+            && let Some(entry) = self.forwards.get_mut(&port)
         {
             entry.streams.remove(&stream);
         }
@@ -263,7 +269,7 @@ impl Inner {
         self.streams.insert(
             stream,
             Stream {
-                port,
+                port: Some(port),
                 serial: stream_serial,
                 end,
             },
@@ -357,6 +363,52 @@ impl Forwards {
             }
             (Err(err), None) => Err(err),
         }
+    }
+
+    /// Pumps `socket` as `stream`, a stream the other side opens by a
+    /// request of its own rather than by `TunnelOpen`. Like a forward's, it
+    /// sends nothing until `TunnelOpened`, counts against the link's
+    /// streams, and ends when the link drops. Refused past the limit or
+    /// for a stream already open.
+    pub fn attach(&self, stream: StreamId, socket: tokio::io::DuplexStream) -> Result<(), String> {
+        let mut inner = self.lock();
+        if inner.streams.len() >= inner.limits.per_client {
+            return Err("Too many streams are open on this link.".into());
+        }
+        if inner.streams.contains_key(&stream) {
+            return Err("That stream is already open.".into());
+        }
+        let serial = inner.serial();
+        let weak = Arc::downgrade(&self.shared);
+        let ended = Box::new(move || {
+            let Some(shared) = weak.upgrade() else {
+                return;
+            };
+            let mut inner = lock(&shared);
+            if inner
+                .streams
+                .get(&stream)
+                .is_some_and(|entry| entry.serial == serial)
+            {
+                inner.remove_stream(stream);
+            }
+        });
+        let end = pump::start(stream, socket, Arc::clone(&self.link), ended);
+        inner.streams.insert(
+            stream,
+            Stream {
+                port: None,
+                serial,
+                end,
+            },
+        );
+        Ok(())
+    }
+
+    /// Drops a stream [`Forwards::attach`] took, as when its request was
+    /// refused, without telling `maxd`.
+    pub fn forget(&self, stream: StreamId) {
+        self.lock().remove_stream(stream);
     }
 
     /// Closes the forward to `port`, if one is open.

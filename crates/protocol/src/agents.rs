@@ -13,9 +13,11 @@ use serde_json::Value;
 use specta::Type;
 
 use crate::ids::{
-    AccountId, AgentId, DeviceId, KeyId, PermissionId, ProjectId, TaskId, WorkspaceId,
+    AccountId, AgentId, DeviceId, KeyId, ModelServerId, PermissionId, ProjectId, StreamId, TaskId,
+    WorkspaceId,
 };
 use crate::leases::TestKind;
+use crate::local_models::LinkedModels;
 use crate::message::AgentPlace;
 use crate::model::{PermissionMode, Vendor};
 use crate::notes::{NoteVersion, VersionHash};
@@ -285,6 +287,29 @@ pub enum PeerRequest {
         /// The step.
         step: AgentMoveStep,
     },
+    /// Opens a tunnel stream to the asked device's managed model server,
+    /// for a local agent on the asking device. The device that opened the
+    /// link carries the stream's client end, as with a port forward. The
+    /// outcome is [`crate::message::ActionOutcome::Done`] once the stream
+    /// is ready, or `Refused` with why, such as the asked device's switch
+    /// being off. Since [`crate::message::LOCAL_MODELS_SINCE`]; an older
+    /// `maxd` reads [`PeerRequest::Unknown`] and refuses.
+    ModelStream {
+        /// The stream, named by the asking device.
+        stream: StreamId,
+        /// The server.
+        server: ModelServerId,
+    },
+    /// Keeps models on the asked device's managed server from idling out,
+    /// while the asking device's local agents on them work. The outcome is
+    /// [`crate::message::ActionOutcome::Done`]. Since
+    /// [`crate::message::LOCAL_MODELS_SINCE`].
+    ModelHold {
+        /// The server.
+        server: ModelServerId,
+        /// The models, by id.
+        models: Vec<String>,
+    },
     /// A request from a newer `maxd`, which this one refuses.
     Unknown,
 }
@@ -351,6 +376,19 @@ pub struct PeerEntry {
     /// move agents on this one.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub home: bool,
+    /// Its managed model server, which local agents on this device may use
+    /// over the link. Since [`crate::message::LOCAL_MODELS_SINCE`]; an
+    /// older `maxd` ignores it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[specta(optional)]
+    pub model_server: Option<LinkedModels>,
+    /// The devices whose managed models its local agents use. One of them
+    /// that takes no SSH logins keeps a link up to it, so those agents
+    /// reach it. Since [`crate::message::LOCAL_MODELS_SINCE`]; an older
+    /// `maxd` ignores it.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[specta(optional)]
+    pub models_from: Vec<DeviceId>,
 }
 
 /// One way to reach a device over SSH, resolved by the app, with no jump
@@ -572,5 +610,50 @@ mod tests {
         .expect("an old entry reads");
         assert!(entry.test_kinds.is_empty());
         assert!(!entry.home);
+        assert_eq!(entry.model_server, None);
+        assert!(entry.models_from.is_empty());
+        // And one with neither writes as before.
+        let json = serde_json::to_value(&entry).unwrap();
+        assert!(json.get("model_server").is_none());
+        assert!(json.get("models_from").is_none());
+    }
+
+    #[test]
+    fn model_streams_holds_and_shared_servers_round_trip() {
+        let server = ModelServerId::derive("model-server:mac:managed");
+        let stream = StreamId::generate();
+        for request in [
+            PeerRequest::ModelStream { stream, server },
+            PeerRequest::ModelHold {
+                server,
+                models: vec!["qwen@q4".into()],
+            },
+        ] {
+            let json = serde_json::to_value(&request).unwrap();
+            assert_eq!(
+                serde_json::from_value::<PeerRequest>(json).unwrap(),
+                request
+            );
+        }
+        let json = serde_json::to_value(PeerRequest::ModelStream { stream, server }).unwrap();
+        assert_eq!(json["kind"], "model_stream");
+
+        let entry = PeerEntry {
+            device: DeviceId::derive("mac"),
+            name: "Home Mac".into(),
+            routes: Vec::new(),
+            host_key: String::new(),
+            test_kinds: Vec::new(),
+            home: false,
+            model_server: Some(LinkedModels {
+                server,
+                label: "Home Mac".into(),
+                models: Vec::new(),
+            }),
+            models_from: vec![DeviceId::derive("devbox")],
+        };
+        let json = serde_json::to_value(&entry).unwrap();
+        assert_eq!(json["model_server"]["label"], "Home Mac");
+        assert_eq!(serde_json::from_value::<PeerEntry>(json).unwrap(), entry);
     }
 }

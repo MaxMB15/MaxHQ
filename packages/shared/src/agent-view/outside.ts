@@ -27,7 +27,7 @@ import {
 import type { DataSource } from "../data/source";
 import { errorReason, isWorking } from "../status/activity";
 import { formatAgo, formatWhen } from "../status/format";
-import { VENDOR_NAME } from "../status/usage";
+import { kindName, ownKind } from "../status/agent-kind";
 import { failureOf, type SendState, useSend } from "./answer";
 import { keep, keptValue } from "./kept";
 
@@ -148,7 +148,7 @@ export const outsideNote = (
 				{
 					text: t(
 						"{{error}}{{VENDOR_NAME_agent_vendor}} keeps the history and context. The terminal is no longer attached.",
-						{ error: error, VENDOR_NAME_agent_vendor: VENDOR_NAME[agent.vendor] }
+						{ error: error, VENDOR_NAME_agent_vendor: kindName(ownKind(agent)) }
 					),
 				},
 			],
@@ -322,7 +322,7 @@ export const movedNote = (lead: Agent): { readonly title: string; readonly body:
 	title: t("This sub-agent's session continues in MaxHQ."),
 	body: t(
 		"The sub-agent stopped when its session left the terminal. {{vendor}} keeps its history, so the session can pick it up again, and then it shows here.",
-		{ vendor: VENDOR_NAME[lead.vendor] }
+		{ vendor: kindName(ownKind(lead)) }
 	),
 });
 
@@ -353,7 +353,7 @@ export const takeOverQuestion = (
 	subAgents = false
 ): TakeOverQuestion => {
 	const cli = CLI[lead.vendor];
-	const vendor = VENDOR_NAME[lead.vendor];
+	const vendor = kindName(ownKind(lead));
 	const own = agent.id === lead.id;
 	const title = own ? t("Take over this session?") : t("Take over this sub-agent's session?");
 	const detail = [

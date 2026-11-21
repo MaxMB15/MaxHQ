@@ -598,6 +598,8 @@ fn claim(entity: &Entity) -> Claim {
         Entity::ProjectNotes(notes) => Claim::Device(notes.device),
         Entity::AppKey(key) => Claim::Device(key.device),
         Entity::Admission(admission) => Claim::Device(admission.device),
+        Entity::ModelServer(server) => Claim::Device(server.device),
+        Entity::LocalModels(models) => Claim::Device(models.device),
         // A guest's agents and ports come through its host, under the host's
         // ID, so these hang from a workspace that host reports.
         Entity::Agent(agent) => Claim::Through(
@@ -775,6 +777,7 @@ pub(crate) mod tests {
             effort: None,
             running: None,
             moved: None,
+            local: None,
         })
     }
 

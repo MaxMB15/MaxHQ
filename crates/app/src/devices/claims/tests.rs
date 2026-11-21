@@ -94,6 +94,7 @@ fn account_on(device: &str) -> Entity {
         acp: None,
         login: LoginKind::ConfigDir,
         origin: None,
+        model_server: None,
     })
 }
 

@@ -28,6 +28,8 @@ import {
 	type LinkContext,
 	worstLook,
 } from "../status/connection";
+import { serverModelChoices } from "../local-models/models";
+import { AGENT_KINDS, accountKind, agentKind, isLocalAccount } from "../status/agent-kind";
 import { atLimit } from "../status/usage";
 import { claimNames } from "../ui/link-claim";
 import { liveRunAgents } from "../workflow/select";
@@ -625,14 +627,17 @@ export const deviceGroups = (view: ViewState, now: Timestamp): DeviceGroup[] => 
 	return groups;
 };
 
-// The order vendors list in. The ACP agents come last, since none reports usage.
-const VENDOR_ORDER: Record<Vendor, number> = { claude: 0, codex: 1, cursor: 2, acp: 3 };
+// The order kinds list in. The ACP agents come last, since none reports usage.
+const KIND_ORDER = (account: Account): number => AGENT_KINDS.indexOf(accountKind(account));
 
-/** Accounts by vendor, Claude, Codex, Cursor and then ACP agents, and by name within one. */
+/**
+ * Accounts by kind, Claude, Codex, Cursor, Local and then ACP agents, and
+ * by name within one.
+ */
 export const accounts = (view: ViewState): Account[] =>
 	all(view, "account").sort(
 		(a, b) =>
-			VENDOR_ORDER[a.vendor] - VENDOR_ORDER[b.vendor] ||
+			KIND_ORDER(a) - KIND_ORDER(b) ||
 			a.label.localeCompare(b.label) ||
 			a.id.localeCompare(b.id)
 	);
@@ -640,13 +645,16 @@ export const accounts = (view: ViewState): Account[] =>
 /**
  * The models to offer for an account. A new login lists none until its CLI
  * has run under it, so until then it borrows the list of the same vendor's
- * login with the most models, ties going to the lowest id.
+ * login with the most models, ties going to the lowest id. A local model's
+ * account offers its server's models, and never lends or borrows.
  */
 export const modelsOf = (view: ViewState, account: Account | undefined): readonly ModelChoice[] => {
+	if (account && isLocalAccount(account)) return serverModelChoices(view, account);
 	if (!account || account.models.length > 0) return account?.models ?? [];
 	let lender: Account | undefined;
 	for (const other of view.tables.account.values()) {
-		if (other.vendor !== account.vendor || other.models.length === 0) continue;
+		if (other.vendor !== account.vendor || other.models.length === 0 || isLocalAccount(other))
+			continue;
 		if (
 			!lender ||
 			other.models.length > lender.models.length ||
@@ -674,17 +682,19 @@ export type Move = { readonly account: Account; readonly models: readonly ModelC
 /**
  * The accounts a held agent can move to, carrying its conversation over:
  * the other vendors signed in on its device. An ACP agent can also move
- * to another ACP agent, since each is a CLI of its own.
+ * to another ACP agent, since each is a CLI of its own, and Local counts as
+ * a vendor of its own.
  */
 export const movesOf = (view: ViewState, agent: Agent): Move[] => {
 	const device = view.tables.workspace.get(agent.workspace)?.device;
 	if (agent.control !== "held" || agent.parent !== null || !device) return [];
+	const kind = agentKind(agent, view.tables.account);
 	return accounts(view)
 		.filter(
 			(a) =>
 				a.device === device &&
 				a.id !== agent.account &&
-				(a.vendor !== agent.vendor || a.vendor === "acp")
+				(accountKind(a) !== kind || a.vendor === "acp")
 		)
 		.map((account) => ({ account, models: modelsOf(view, account) }));
 };

@@ -17,6 +17,7 @@ Each page covers one part of MaxHQ in short, task-shaped sections. Start with Ge
 - [The dispatcher](dispatcher.md): asking for work in plain words, changes it makes and can undo, plans you confirm, and how-to questions.
 - [Projects and workspaces](projects.md): projects, their settings, workspaces in containers and pull requests.
 - [Devices and links](devices.md): adding devices, maxd, links between devices and each device's settings.
+- [Local models](local-models.md): Local agents on your own hardware or a server you pick, and the Local models page.
 - [Phones](phones.md): pairing an iPhone, what the phone app does and how pushes reach it.
 - [Notes](notes.md): notes in Markdown for you and a project's agents.
 - [Terminals and ! commands](terminals.md): terminals beside an agent and commands from the composer.

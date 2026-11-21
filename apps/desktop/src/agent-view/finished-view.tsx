@@ -22,7 +22,8 @@ import { type RowContext, RowProvider } from "@maxhq/shared/agent-view/context";
 import { FindProvider } from "@maxhq/shared/agent-view/find-context";
 import { finishedTitle } from "@maxhq/shared/agent-view/finished";
 import { useI18n } from "@maxhq/shared/i18n";
-import { accountName, VENDOR_NAME } from "@maxhq/shared/status/usage";
+import { agentKind, kindName } from "@maxhq/shared/status/agent-kind";
+import { accountName } from "@maxhq/shared/status/usage";
 
 import { FindBar } from "./find/bar";
 import { useFind } from "./find/use-find";
@@ -49,7 +50,8 @@ export const FinishedView = ({ agent, lead }: { agent: AgentId; lead: Agent }) =
 	const [target, setTarget] = useState<JumpTarget | null>(null);
 	const find = useFind(agent, timeline, pane, target);
 	const title = finishedTitle(agent) ?? t("Sub-agent");
-	const accountLabel = account ? accountName(account) : VENDOR_NAME[lead.vendor];
+	const kind = useView((s) => agentKind(lead, s.view.tables.account));
+	const accountLabel = account ? accountName(account) : kindName(kind);
 
 	const answer = useCallback(
 		(attention: AttentionId, value: AttentionAnswer, refs?: readonly InlineRef[]) =>
@@ -65,6 +67,7 @@ export const FinishedView = ({ agent, lead }: { agent: AgentId; lead: Agent }) =
 		() => ({
 			agent,
 			vendor: lead.vendor,
+			kind,
 			timeline: timeline.store,
 			readOnly: true,
 			remote,
@@ -73,7 +76,7 @@ export const FinishedView = ({ agent, lead }: { agent: AgentId; lead: Agent }) =
 			shownSubAgent: null,
 			toggleSubAgents,
 		}),
-		[agent, lead.vendor, timeline.store, remote, answer, toggleSubAgents]
+		[agent, lead.vendor, kind, timeline.store, remote, answer, toggleSubAgents]
 	);
 
 	return (
@@ -90,7 +93,7 @@ export const FinishedView = ({ agent, lead }: { agent: AgentId; lead: Agent }) =
 					{title}
 				</h1>
 				<span className="inline-flex h-[22px] shrink-0 items-center gap-[5px] rounded-md border border-track bg-secondary px-[7px] text-[11.5px] whitespace-nowrap text-terminal">
-					<VendorIcon vendor={lead.vendor} />
+					<VendorIcon kind={kind} />
 					{accountLabel}
 				</span>
 				<span className="inline-flex h-[22px] min-w-12 shrink items-center rounded-md border border-dashed border-input px-[7px] text-[11.5px] whitespace-nowrap text-muted-foreground">

@@ -73,7 +73,8 @@ impl ClaudeSession {
             return;
         }
         let message = body.get("message").unwrap_or(&Value::Null);
-        match tools::mcp(message, env!("CARGO_PKG_VERSION"), self.place.tools()) {
+        let offered = self.place.tools_for(&self.login);
+        match tools::mcp(message, env!("CARGO_PKG_VERSION"), offered) {
             Mcp::Answer(answer) => {
                 let line = wire::success(id, json!({"mcp_response": answer}));
                 self.mcp_reply(id, line, fx);

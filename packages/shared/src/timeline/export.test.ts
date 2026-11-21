@@ -125,6 +125,26 @@ describe("conversationMarkdown", () => {
 		);
 	});
 
+	it("says Local for a move to or from a local model, which runs as Claude", () => {
+		const move = (from_local: boolean, to_local: boolean) =>
+			item({
+				kind: "handoff",
+				from_vendor: "claude",
+				from_model: null,
+				to_vendor: "claude",
+				to_model: null,
+				from_local,
+				to_local,
+			});
+		const text = conversationMarkdown(
+			[reply("On Claude"), move(false, true), reply("On Local"), move(true, false)],
+			{ vendor: "claude" }
+		);
+		expect(text).toBe(
+			"## Claude\n\nOn Claude\n\n*Context handoff, Claude to Local*\n\n## Local\n\nOn Local\n\n*Context handoff, Local to Claude*\n"
+		);
+	});
+
 	it("keeps plans, sent files and errors", () => {
 		const text = conversationMarkdown(
 			[

@@ -609,6 +609,59 @@ async fn opening_while_disconnected_fails_and_frees_the_port() {
     closed(local).await;
 }
 
+#[tokio::test]
+async fn an_attached_pipe_waits_for_maxd_and_ends_with_the_link() {
+    let mut world = world_with(MAX_STREAMS_PER_FORWARD, 2);
+    let (mut near, far) = tokio::io::duplex(1 << 16);
+    let stream = StreamId::generate();
+    world.forwards.attach(stream, far).unwrap();
+    let (_other, again) = tokio::io::duplex(1 << 16);
+    assert_eq!(
+        world.forwards.attach(stream, again),
+        Err("That stream is already open.".to_owned())
+    );
+
+    // Nothing goes before maxd says the stream opened.
+    near.write_all(b"hello").await.unwrap();
+    quiet(&mut world.rx).await;
+    assert!(world
+        .forwards
+        .handle(&ServerMessage::TunnelOpened { stream }));
+    assert_eq!(
+        next(&mut world.rx).await,
+        Out::Data {
+            stream,
+            data: b"hello".to_vec(),
+        }
+    );
+    world.forwards.data(stream, b"world");
+    let mut buf = [0; 5];
+    near.read_exact(&mut buf).await.unwrap();
+    assert_eq!(&buf, b"world");
+
+    // It counts against the link's streams, and one forgotten frees its
+    // place without a word to maxd.
+    let (_kept, second) = tokio::io::duplex(1 << 16);
+    let refused = StreamId::generate();
+    world.forwards.attach(refused, second).unwrap();
+    let (_past, third) = tokio::io::duplex(1 << 16);
+    assert_eq!(
+        world.forwards.attach(StreamId::generate(), third),
+        Err("Too many streams are open on this link.".to_owned())
+    );
+    world.forwards.forget(refused);
+    assert_eq!(world.forwards.open_streams(), 1);
+    quiet(&mut world.rx).await;
+
+    world.forwards.link_down();
+    let ended = tokio::time::timeout(Duration::from_secs(5), near.read(&mut buf)).await;
+    assert!(
+        matches!(ended, Ok(Ok(0) | Err(_))),
+        "the pipe ends: {ended:?}"
+    );
+    assert_eq!(world.forwards.open_streams(), 0);
+}
+
 #[test]
 fn forwards_cross_threads() {
     fn shared<T: Send + Sync>() {}

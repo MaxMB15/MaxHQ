@@ -290,6 +290,20 @@ export const ACTIONS: Case[] = [
 		{ kind: "delete_acp_agent", device: "device-1", id: "acp-1" },
 	],
 	[
+		"modelAction",
+		(s) =>
+			s.modelAction("device-1", {
+				action: "load",
+				server: "srv-1",
+				model: "qwen3.6-35b-a3b",
+			}),
+		{
+			kind: "model_action",
+			device: "device-1",
+			action: { action: "load", server: "srv-1", model: "qwen3.6-35b-a3b" },
+		},
+	],
+	[
 		"grantPermission",
 		(s) => s.grantPermission(PERMISSION),
 		{ kind: "grant_permission", permission: PERMISSION },

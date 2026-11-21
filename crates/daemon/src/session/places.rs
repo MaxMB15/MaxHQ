@@ -63,6 +63,14 @@ const HOST_SIGN_IN: &str = "This account's Codex sign-in runs agents in containe
 /// Why an agent can't start on a local ACP agent that was deleted.
 const NO_ACP_AGENT: &str = "This ACP agent isn't set up on this device any more";
 
+/// Why a local agent can't start on a model server that's gone.
+const NO_MODEL_SERVER: &str =
+    "This model server isn't set up on this device any more, or has no model ready";
+
+/// Why a local agent can't run in a container.
+const NO_GUEST_MODEL: &str =
+    "Local agents run on the device itself for now, not in a container workspace";
+
 /// Why a guest's link is down once you stop its container.
 const STOPPED: &str = "the container stopped";
 
@@ -113,6 +121,7 @@ pub(super) fn kind_of(auth: &LoginAuth) -> LoginKind {
         LoginAuth::ChatGptBroker => LoginKind::ChatGptSignIn,
         LoginAuth::CursorApiKey(_) => LoginKind::CursorApiKey,
         LoginAuth::AcpCommand(_) => LoginKind::AcpCommand,
+        LoginAuth::ModelServer(_) => LoginKind::ModelServer,
     }
 }
 
@@ -176,6 +185,10 @@ impl Manager {
             LoginKind::SetupToken => match self.credentials.claude_token(account) {
                 Some(token) if !token.is_empty() => LoginAuth::SetupToken(token),
                 _ => return Err(NO_TOKEN.to_owned()),
+            },
+            LoginKind::ModelServer => match self.credentials.model_server(account) {
+                Some(server) => LoginAuth::ModelServer(Arc::new(server)),
+                None => return Err(NO_MODEL_SERVER.to_owned()),
             },
             _ => LoginAuth::ConfigDir,
         };
@@ -247,6 +260,10 @@ impl Manager {
         guest: bool,
     ) -> Result<Login, String> {
         match vendor {
+            // A managed server listens on this device's loopback only.
+            Vendor::Claude if guest && kind == LoginKind::ModelServer => {
+                Err(NO_GUEST_MODEL.to_owned())
+            }
             Vendor::Claude => self.claude_login(account, config_dir, kind),
             Vendor::Codex => Ok(self.codex_login(account, config_dir, kind)),
             Vendor::Cursor => self.cursor_login(account, config_dir, kind, guest),

@@ -211,6 +211,7 @@ mod tests {
             effort: None,
             running: None,
             moved: None,
+            local: None,
         }
     }
 

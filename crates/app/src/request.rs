@@ -24,6 +24,7 @@ use maxhq_protocol::ids::{
     LeaseId, LinkId, MoveId, PermissionId, PortId, ProjectId, SignInId, SkillProposalId,
     SkillSourceId, TaskId, TerminalId, TestHostId, TransferId, WorkspaceId,
 };
+use maxhq_protocol::local_models::ModelAction;
 use maxhq_protocol::message::{
     ActionOutcome, AgentPlace, AgentSpec, AttachmentSource, HostLoad, IgnoredFile, SendMode,
     TakeOverMode, ToolTarget, UserInput,
@@ -939,6 +940,14 @@ pub enum Request {
     ReadNotices { agent: Option<AgentId> },
     /// Forgets every device's notices.
     ClearNotices,
+    /// Acts on `device`'s local models: adds, tests or removes a server
+    /// URL, downloads, pauses, resumes or deletes a model file, or loads or
+    /// unloads a model. The default model is a device setting, saved with
+    /// `set_device_settings`.
+    ModelAction {
+        device: DeviceId,
+        action: ModelAction,
+    },
 }
 
 /// The answer to a [`Request`], of the same kind. A request that only
@@ -1161,6 +1170,7 @@ pub enum Response {
     ListNotices(NoticePage),
     ReadNotices,
     ClearNotices,
+    ModelAction(ActionOutcome),
 }
 
 impl Request {
@@ -1376,6 +1386,7 @@ impl Request {
             Self::ListNotices { .. } => "list_notices",
             Self::ReadNotices { .. } => "read_notices",
             Self::ClearNotices => "clear_notices",
+            Self::ModelAction { .. } => "model_action",
         }
     }
 }
@@ -1593,6 +1604,7 @@ impl Response {
             Self::ListNotices(_) => "list_notices",
             Self::ReadNotices => "read_notices",
             Self::ClearNotices => "clear_notices",
+            Self::ModelAction(_) => "model_action",
         }
     }
 }
@@ -2809,6 +2821,10 @@ impl<C: Connector> App<C> {
                 self.clear_notices().await?;
                 Response::ClearNotices
             }
+            Request::ModelAction { device, action } => {
+                let act = |key| ClientMessage::ModelAction { key, action };
+                Response::ModelAction(self.act_needing(device, Needs::LocalModels, act).await?)
+            }
         })
     }
 
@@ -3726,6 +3742,11 @@ mod tests {
             json!({"kind": "list_notices", "limit": 20}),
             json!({"kind": "read_notices", "agent": null}),
             json!({"kind": "clear_notices"}),
+            json!({
+                "kind": "model_action",
+                "device": mac,
+                "action": {"action": "download", "model": "qwen3.6-35b-a3b", "file": "model-Q4.gguf"},
+            }),
         ]
         .into_iter()
         .chain(skill_requests(mac))
@@ -4567,7 +4588,7 @@ mod tests {
                 }
             }
         }
-        assert_eq!(kinds.len() + mac_only.len(), 163);
+        assert_eq!(kinds.len() + mac_only.len(), 164);
         // The harness has no maxd to install or uninstall, no timeline open, no
         // listening port, no setup waiting on a host key, no GitHub
         // sign-in to merge with, no skill proposal, no link or card waiting

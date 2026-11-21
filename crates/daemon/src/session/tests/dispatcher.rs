@@ -452,6 +452,8 @@ async fn a_change_on_another_device_goes_there_as_a_peer_call() {
             host_key: String::new(),
             test_kinds: Vec::new(),
             home: false,
+            model_server: None,
+            models_from: Vec::new(),
         }],
     };
     mac.db.set_peer_book(&book).expect("the book is kept");
