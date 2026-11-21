@@ -124,6 +124,69 @@ async fn a_send_refuses_folders_links_and_paths_outside_and_sends_nothing() {
 }
 
 #[tokio::test]
+async fn a_name_swapped_for_a_link_after_the_look_isnt_followed() {
+    use maxhq_transfer::send::walk_beneath;
+    let rig = Rig::new();
+    let cwd = &rig.local.cwd;
+    let roots = [cwd.clone(), rig.local.attachments.clone()];
+    put(cwd, "notes.txt", b"plain");
+    put(cwd, "sub/notes.txt", b"plain");
+    let outside = TempDir::new();
+    let secret = put(outside.path(), "notes.txt", b"secret");
+
+    // The look passes both, then the name and a folder on the way become
+    // links before the walk.
+    let leaf = disk::opened(&roots, "notes.txt").unwrap();
+    let parent = disk::opened(&roots, "sub/notes.txt").unwrap();
+    fs::remove_file(cwd.join("notes.txt")).unwrap();
+    symlink(&secret, cwd.join("notes.txt")).unwrap();
+    fs::rename(cwd.join("sub"), cwd.join("old")).unwrap();
+    symlink(outside.path(), cwd.join("sub")).unwrap();
+    for found in [leaf, parent] {
+        let walked = walk_beneath(found.top, &found.name, &found.parts, None);
+        assert!(walked.is_err(), "{:?}", found.parts);
+    }
+}
+
+#[tokio::test]
+async fn a_send_racing_a_swap_to_a_link_copies_only_what_was_checked() {
+    use maxhq_core::tools::Page;
+    let rig = Rig::new();
+    let outside = TempDir::new();
+    let secret = put(outside.path(), "auth.json", b"secret");
+    let cwd = rig.local.cwd.clone();
+    put(&cwd, "x", b"plain");
+    let stop = Arc::new(AtomicBool::new(false));
+    let swapper = {
+        let stop = stop.clone();
+        std::thread::spawn(move || {
+            while !stop.load(Ordering::Relaxed) {
+                fs::write(cwd.join("x.plain"), b"plain").unwrap();
+                fs::rename(cwd.join("x.plain"), cwd.join("x")).unwrap();
+                let _ = fs::remove_file(cwd.join("x.link"));
+                symlink(&secret, cwd.join("x.link")).unwrap();
+                fs::rename(cwd.join("x.link"), cwd.join("x")).unwrap();
+            }
+        })
+    };
+    for call in 0..120 {
+        let call = format!("call-{call}");
+        if let Ok(sent) = send(&rig, &rig.local, &call, &["x"]).await {
+            assert_eq!(fs::read(&sent[0].path).unwrap(), b"plain");
+        }
+        let page = Page::Path("x".to_owned());
+        let shown = rig
+            .transfers
+            .show(&rig.local, &call, page, "visual-x.html".to_owned());
+        if let Ok((_, text)) = shown.await {
+            assert_eq!(text, "plain");
+        }
+    }
+    stop.store(true, Ordering::Relaxed);
+    swapper.join().unwrap();
+}
+
+#[tokio::test]
 async fn a_send_run_again_lands_on_the_same_files() {
     let rig = Rig::new();
     put(&rig.local.cwd, "notes.txt", b"first");

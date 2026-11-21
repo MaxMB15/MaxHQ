@@ -13,6 +13,7 @@ use std::sync::{Mutex, MutexGuard, PoisonError};
 
 use futures::future::{self, BoxFuture, FutureExt};
 
+use super::retire::LEFT;
 use super::steps::{CODEX_BUILDS, CODEX_RELEASE, CURSOR_DOWNLOADS, CURSOR_VERSION, PACKAGES};
 use super::{Exec, ExecError, ExecOutput, ExecUser, AGENT_UID};
 use crate::tools::install::fetch::{Fetched, Progress};
@@ -483,12 +484,7 @@ impl Container {
             "install" => self.install_dir(args),
             "stat" => self.stat(args),
             "sh" => return self.sh(args, user, &env),
-            "rm" if args.first() == Some(&"-rf") => {
-                for path in &args[1..] {
-                    self.remove_tree(path);
-                }
-                out("")
-            }
+            "rm" if args.first() == Some(&"-rf") => self.rm_rf(&args[1..], user.uid()),
             "uname" if args == ["-m"] => out(format!("{}\n", self.machine)),
             "systemctl" => self.systemctl(args, root),
             path if path.starts_with('/') => self.binary(path, args),
@@ -1021,6 +1017,52 @@ impl Container {
     }
 
     /// `rm -rf`.
+    /// Where `path` is with every part but the last followed, as `rm` and
+    /// `test -L` see it.
+    fn unfollowed(&self, path: &str) -> String {
+        let path = tidy(path);
+        let name = path.rsplit('/').next().unwrap_or_default();
+        tidy(&format!("{}/{name}", self.resolve(parent(&path))))
+    }
+
+    /// Whether anything, a link included, is at `at`.
+    fn there(&self, at: &str) -> bool {
+        self.files.contains_key(at) || self.dirs.contains_key(at) || self.links.contains_key(at)
+    }
+
+    /// `rm -rf` as `uid`. Someone other than root removes only from a folder
+    /// of its own, and a path it can't remove fails the command after the
+    /// rest go.
+    fn rm_rf(&mut self, paths: &[&str], uid: u32) -> ExecOutput {
+        let mut denied = String::new();
+        for path in paths.iter().filter(|path| **path != "--") {
+            let at = self.unfollowed(path);
+            if !self.there(&at) {
+                continue;
+            }
+            if !self.writable(parent(&at), uid) {
+                denied.push_str(&format!("rm: cannot remove '{path}': Permission denied\n"));
+                continue;
+            }
+            self.remove_tree(&at);
+        }
+        match denied.is_empty() {
+            true => out(""),
+            false => exit(1, denied),
+        }
+    }
+
+    /// What [`LEFT`] prints: each path that's there, a link included.
+    fn left(&self, paths: &[&str]) -> ExecOutput {
+        let mut found = String::new();
+        for path in paths {
+            if self.there(&self.unfollowed(path)) || self.there(&self.resolve(path)) {
+                found.push_str(&format!("{path}\n"));
+            }
+        }
+        out(found)
+    }
+
     fn remove_tree(&mut self, path: &str) {
         let path = tidy(path);
         self.files.retain(|at, _| !within(at, &path));
@@ -1179,6 +1221,7 @@ impl Container {
                 Ok(out(""))
             }
             (REMOVE, [dir]) => Ok(self.remove_tool(dir)),
+            (LEFT, paths) => Ok(self.left(paths)),
             _ => Err(ExecError::Transport(
                 "the fake doesn't know this script".to_owned(),
             )),

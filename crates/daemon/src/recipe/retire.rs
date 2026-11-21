@@ -39,6 +39,10 @@ pub const LOGIN_FILES: [&str; 2] = [
     "/home/agent/.codex/auth.json",
 ];
 
+/// Prints each path given that's there, a link included, without opening it.
+pub const LEFT: &str =
+    r#"for p; do if [ -e "$p" ] || [ -L "$p" ]; then printf '%s\n' "$p"; fi; done"#;
+
 /// The links into the old shared volumes, which a copy no longer mounts.
 const LINKS: &[&str] = &[
     "find",
@@ -63,8 +67,8 @@ pub fn steps() -> Vec<Step> {
         Step {
             id: "old-token-file",
             version: 1,
-            check: |exec| gone(exec, &[TOKEN_FILE]).boxed(),
-            apply: |exec| remove(exec, &[TOKEN_FILE]).boxed(),
+            check: |exec| gone(exec, &[TOKEN_FILE], ExecUser::Root).boxed(),
+            apply: |exec| remove(exec, &[TOKEN_FILE], ExecUser::Root).boxed(),
         },
         Step {
             id: "old-state-hook",
@@ -75,8 +79,8 @@ pub fn steps() -> Vec<Step> {
         Step {
             id: "old-gh-token",
             version: 1,
-            check: |exec| gone(exec, &[GH_HOSTS]).boxed(),
-            apply: |exec| remove(exec, &[GH_HOSTS]).boxed(),
+            check: |exec| gone(exec, &[GH_HOSTS], ExecUser::Agent).boxed(),
+            apply: |exec| remove(exec, &[GH_HOSTS], ExecUser::Agent).boxed(),
         },
         Step {
             id: "old-gh-helper",
@@ -93,26 +97,29 @@ pub fn steps() -> Vec<Step> {
         Step {
             id: "old-sign-ins",
             version: 1,
-            check: |exec| gone(exec, &LOGIN_FILES).boxed(),
-            apply: |exec| remove(exec, &LOGIN_FILES).boxed(),
+            check: |exec| gone(exec, &LOGIN_FILES, ExecUser::Agent).boxed(),
+            apply: |exec| remove(exec, &LOGIN_FILES, ExecUser::Agent).boxed(),
         },
     ]
 }
 
-/// True when none of `paths` is there.
-async fn gone(exec: &dyn Exec, paths: &[&str]) -> Result<bool, ExecError> {
-    for path in paths {
-        if exec.read(path).await?.is_some() {
-            return Ok(false);
-        }
-    }
-    Ok(true)
+/// True when none of `paths` is there, as `user` sees it. Nothing is read, so
+/// a pipe at a path can't hold the check up.
+async fn gone(exec: &dyn Exec, paths: &[&str], user: ExecUser) -> Result<bool, ExecError> {
+    let mut cmd = vec!["sh", "-c", LEFT, "sh"];
+    cmd.extend_from_slice(paths);
+    let found = ok(exec, &cmd, user).await?;
+    Ok(found.stdout.iter().all(u8::is_ascii_whitespace))
 }
 
-async fn remove(exec: &dyn Exec, paths: &[&str]) -> Result<(), ExecError> {
+/// Removes `paths` as `user`. The files in the agent's home go as the agent,
+/// since they're its own: a folder on the way that the agent swapped for a
+/// link then leads only where the agent could delete anyway. One the agent
+/// can't remove stays, and the step reports it.
+async fn remove(exec: &dyn Exec, paths: &[&str], user: ExecUser) -> Result<(), ExecError> {
     let mut cmd = vec!["rm", "-rf", "--"];
     cmd.extend_from_slice(paths);
-    ok(exec, &cmd, ExecUser::Root).await.map(|_| ())
+    ok(exec, &cmd, user).await.map(|_| ())
 }
 
 /// The settings as they'd be without the old hook, or None when it isn't
@@ -402,6 +409,50 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn a_home_folder_the_agent_linked_elsewhere_doesnt_take_roots_files() {
+        let exec = container();
+        {
+            let mut state = exec.lock();
+            for dir in ["/home/agent/.claude", "/home/agent/.config/gh"] {
+                state.dirs.remove(dir);
+                state.links.insert(dir.to_owned(), "/etc/kept".to_owned());
+            }
+            state.dirs.insert(
+                "/etc/kept".to_owned(),
+                super::super::fake::Dir {
+                    mode: 0o755,
+                    uid: 0,
+                    gid: 0,
+                },
+            );
+        }
+        for name in [".credentials.json", "hosts.yml"] {
+            let path = format!("/etc/kept/{name}");
+            exec.write(&path, b"root's own", 0o600, ExecUser::Root)
+                .await
+                .unwrap();
+        }
+        // The agent's own sign-in, which goes.
+        put(&exec, LOGIN_FILES[1], "{}").await;
+
+        for id in ["old-gh-token", "old-sign-ins"] {
+            let step = steps().into_iter().find(|step| step.id == id).unwrap();
+            assert!(!(step.check)(&exec).await.unwrap(), "{id}");
+            assert!((step.apply)(&exec).await.is_err(), "{id}");
+        }
+        assert!(exec.file("/etc/kept/.credentials.json").is_some());
+        assert!(exec.file("/etc/kept/hosts.yml").is_some());
+        assert!(exec.file(LOGIN_FILES[1]).is_none());
+        for call in &exec.lock().calls {
+            if let super::super::fake::Call::Run { cmd, user } = call
+                && cmd.first().map(String::as_str) == Some("rm")
+            {
+                assert_eq!(*user, ExecUser::Agent, "{cmd:?}");
+            }
+        }
+    }
+
+    #[tokio::test]
     async fn a_clean_copy_needs_nothing() {
         let exec = container();
         put(&exec, HOOK_FILES[1], r#"{"hooks": {}}"#).await;
@@ -410,7 +461,7 @@ mod tests {
         assert!(applied.is_empty(), "{applied:?}");
         assert!(exec.lock().calls.iter().all(|call| {
             call.command()
-                .is_none_or(|cmd| cmd.first() == Some(&"find"))
+                .is_none_or(|cmd| cmd.first() == Some(&"find") || cmd.get(2) == Some(&LEFT))
         }));
     }
 

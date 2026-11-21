@@ -19,8 +19,8 @@ use maxhq_protocol::ids::{AttachmentId, TransferId, WorkspaceId};
 use maxhq_protocol::message::{ErrorCode, ManifestEntry};
 use maxhq_protocol::timeline::AttachmentRef;
 use maxhq_transfer::manifest::{self, Kind, Layout};
-use maxhq_transfer::send::RESTARTS;
-use maxhq_transfer::{Failure, Source};
+use maxhq_transfer::send::{self, Beneath, RESTARTS};
+use maxhq_transfer::Failure;
 use tracing::debug;
 
 use super::disk::{self, remove, ticker, Land};
@@ -180,6 +180,10 @@ impl Transfers {
     }
 
     /// Copies a file from a local agent's folders.
+    ///
+    /// The agent can swap a name for a link while this runs, so the walk and
+    /// every read start from the folder the look opened and follow no link.
+    /// What's copied is what was checked, or nothing.
     async fn pull_local(
         &self,
         place: &Place,
@@ -189,26 +193,31 @@ impl Transfers {
     ) -> Result<Land, Failure> {
         let roots = vec![place.cwd.clone(), place.attachments.clone()];
         let path = path.to_owned();
-        let found = disk::blocking(move || disk::resolve(&roots, &path)).await?;
-        let walk = disk::walk(found).await?;
-        takes.check(&walk.entries)?;
+        let walk = disk::blocking(move || {
+            let found = disk::opened(&roots, &path)?;
+            send::walk_beneath(found.top, &found.name, &found.parts, None)
+        })
+        .await?;
+        takes.check(walk.entries())?;
         let shared = self.shared.clone();
         disk::check_quota(
             shared.root.clone(),
             incoming.to_owned(),
-            walk.total(),
+            Layout::of(walk.entries()).total(),
             shared.quota,
         )
         .await?;
-        let mut land = Land::open(incoming.to_owned(), walk.entries.clone(), shared.room).await?;
-        let mut source = Source::new(&walk);
+        let mut land =
+            Land::open(incoming.to_owned(), walk.entries().to_vec(), shared.room).await?;
+        let reader = |walk: &Beneath| walk.reader().map_err(|err| Failure::io(&err, None));
+        let mut source = reader(&walk)?;
         let mut restarts = 0;
         while !land.is_done() {
             source = match land.fill(source).await {
                 Ok(source) => source,
                 Err(failure) if failure.code == ErrorCode::HashMismatch && restarts < RESTARTS => {
                     restarts += 1;
-                    Source::new(&walk)
+                    reader(&walk)?
                 }
                 Err(failure) => return Err(failure),
             };
