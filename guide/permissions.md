@@ -72,13 +72,20 @@ To see or remove rules:
 ## Approve an agent in a container reaching out
 <!-- id: permissions/consent -->
 
-A consent request card shows when an agent in a container wants to reach outside it, such as starting or messaging an agent outside the container. It says what the agent wants and what could go wrong.
+A consent request card shows when an agent in a container wants to reach outside it, such as starting or messaging an agent outside the container, or using the project's notes. It says what the agent wants and what could go wrong.
 
 1. Read the card's risk and details. Values that look secret stay hidden until you click Show.
 2. Click Allow to let this one call go, or Deny to refuse it.
 3. Tick Remember for every call outside the container to keep the answer. It covers every later call this permission makes outside the container, whatever it reaches, not only this one.
 
 A card nobody answers in time refuses the call. To change a remembered answer, open the agent header's ⋯ menu, pick Change what it can run and set Containers.
+
+An agent in a container asks once before it uses the project's notes. The notes are shared with you and with agents outside the container, on this device and your others. An agent in a container could send them out through its internet access, and agents outside read what it writes. Its first notes call shows a card that names the call, such as Read note: Release plan.
+
+- Allow lets that agent use the notes for the rest of its run. After maxd restarts or the agent moves, it asks again.
+- Deny refuses that call, and its next notes call asks again.
+- Another agent in the container asks for itself.
+- A remembered answer covers notes too: Always allow lets every notes call go, and Never refuses them.
 
 ## Let an agent run other agents
 <!-- id: permissions/allow-agent -->

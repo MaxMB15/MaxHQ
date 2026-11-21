@@ -1147,7 +1147,7 @@
 	"When it runs": "Quand l'exécuter",
 	"Where it goes": "Où l'envoyer",
 	"Where the connection stops": "Où la connexion s'arrête",
-	"Whether an agent in a container may start or reach agents outside it, which run without its network limits and file walls.": "Si un agent dans un conteneur peut démarrer ou contacter des agents externes, qui tournent sans ses restrictions réseau et fichiers.",
+	"Whether an agent in a container may start or reach agents outside it, which run without its network limits and file walls, or use the project's notes, which are shared outside it. For notes, Ask asks once per agent.": "Si un agent dans un conteneur peut démarrer ou contacter des agents externes, qui tournent sans ses restrictions réseau et fichiers, ou utiliser les notes du projet, partagées hors du conteneur. Pour les notes, Demander ne demande qu'une fois par agent.",
 	"Wind down first": "Préparer l'arrêt d'abord",
 	"Wind down for restart": "Préparer le redémarrage",
 	"Winding down": "Préparation de l'arrêt",

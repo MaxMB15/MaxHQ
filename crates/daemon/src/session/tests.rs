@@ -73,6 +73,7 @@ mod lookups;
 mod memory;
 mod moves;
 mod notes;
+mod notes_card;
 mod pace;
 mod pulls;
 mod renames;

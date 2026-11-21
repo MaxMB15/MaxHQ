@@ -106,6 +106,10 @@ pub(super) struct AgentTools {
     waits: Vec<Waiting>,
     /// Calls waiting for you to let them reach outside a container.
     pub(super) asking: Vec<Asking>,
+    /// The lead agents in a container you let use the project's notes, for
+    /// the rest of their run. Kept in memory, so restarting `maxd` asks
+    /// again.
+    pub(super) notes: HashSet<AgentId>,
 }
 
 impl AgentTools {
@@ -137,6 +141,7 @@ impl AgentTools {
             reserved: HashMap::new(),
             waits: Vec::new(),
             asking: Vec::new(),
+            notes: HashSet::new(),
         }
     }
 
@@ -714,9 +719,10 @@ impl Manager {
             return self.reply_now(reply, Err(IN_PLAN.into()));
         }
         // The notes tools act on the caller's own project and need no
-        // permission.
+        // permission. An agent in a container asks you first, since the
+        // notes are shared outside it.
         if let Call::Note(call) = call {
-            return self.note_tool(reply, caller, call);
+            return self.notes_call(reply, caller, call, raw);
         }
         let held = caller
             .permission

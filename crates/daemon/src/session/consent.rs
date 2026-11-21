@@ -7,7 +7,8 @@
 //! go wrong. Allow runs the call and Deny refuses it, and with the card's
 //! box ticked either is kept on the permission. A card nobody answers in
 //! time refuses its call, the way a wait times out. Cards live in memory, so
-//! restarting `maxd` drops them with the calls they hold.
+//! restarting `maxd` drops them with the calls they hold. The notes tools
+//! ask on the same card, once per agent: see [`super::note_tools`].
 
 use std::time::{Duration, Instant};
 
@@ -33,7 +34,7 @@ use tracing::warn;
 
 use super::agent_tools::{Calling, Reply};
 use super::folders::{answered, picked, ticked};
-use super::note_tools::device_name;
+use super::note_tools::{device_name, NOTES_DENIED, NOTES_UNANSWERED};
 use super::Manager;
 use crate::drive::codex::requests::visible;
 use crate::folder_trust::Card;
@@ -68,7 +69,7 @@ const NO_FEED: &str = "This call reaches outside the container it was made in, s
                        the owner to allow it, but the agent whose feed would ask is gone.";
 
 /// How each risk starts, after what runs outside the container.
-const MISLED: &str =
+pub(super) const MISLED: &str =
     "If the agent in the container was misled by a repository, a web page or a prompt injection,";
 
 /// The risk of `subject` running outside the container an agent asked
@@ -102,9 +103,24 @@ pub(super) struct Asking {
     /// The card in the feed that shows it.
     item: TimelineItem,
     pending: Pending,
+    /// The agent's other notes calls made while a notes card waits, which
+    /// its answer settles too.
+    also: Vec<Pending>,
     /// The permission an answer can be kept on, when the card offers that.
     keep: Option<PermissionId>,
     pub(super) until: Instant,
+}
+
+impl Asking {
+    /// Whether the card asks about the project's notes.
+    fn is_notes(&self) -> bool {
+        matches!(self.pending.call, Call::Note(_))
+    }
+
+    /// Every call the card holds, the first one first.
+    fn calls(self) -> impl Iterator<Item = Pending> {
+        std::iter::once(self.pending).chain(self.also)
+    }
 }
 
 /// What a call reaches, for the card.
@@ -133,13 +149,56 @@ impl Manager {
         let Some(feed) = self.feed_of(pending.caller) else {
             return self.reply_now(pending.reply, Err(NO_FEED.into()));
         };
-        let (summary, question) = self.consent_question(feed, &pending, permission, device);
+        let card = self.consent_question(feed, &pending, permission, device);
         let keep = self.keeps(permission).then_some(permission.id);
-        let (event, item) = self.open_timed_card(feed, "container-reach", summary, question);
+        self.hold_call(feed, "container-reach", card, pending, keep);
+    }
+
+    /// Holds a notes call from an agent in a container for your answer, on
+    /// the card `card` words for the agent's feed. A notes card the agent
+    /// has open already holds it too, so calls it makes together ask once.
+    pub(super) fn ask_for_notes(
+        &mut self,
+        pending: Pending,
+        card: impl FnOnce(&Self, AgentId, Option<&Permission>) -> (String, Question),
+    ) {
+        let lead = pending.caller.agent;
+        if let Some(open) = (self.agent_tools.asking.iter_mut())
+            .find(|asking| asking.is_notes() && asking.pending.caller.agent == lead)
+        {
+            open.also.push(pending);
+            return;
+        }
+        let Some(feed) = self.feed_of(pending.caller) else {
+            return self.reply_now(pending.reply, Err(NO_FEED.into()));
+        };
+        let permission = (pending.caller.permission)
+            .and_then(|id| self.agent_tools.permissions.get(&id))
+            .cloned();
+        let keep = (permission.as_ref())
+            .filter(|permission| self.keeps(permission))
+            .map(|permission| permission.id);
+        let card = card(self, feed, permission.as_ref());
+        self.hold_call(feed, "notes-reach", card, pending, keep);
+    }
+
+    /// Opens a card in `feed`'s timeline, with `name` in its item's id, that
+    /// holds `pending` until you answer or the wait runs out. A ticked box
+    /// keeps the answer on `keep`.
+    fn hold_call(
+        &mut self,
+        feed: AgentId,
+        name: &str,
+        (summary, question): (String, Question),
+        pending: Pending,
+        keep: Option<PermissionId>,
+    ) {
+        let (event, item) = self.open_timed_card(feed, name, summary, question);
         self.agent_tools.asking.push(Asking {
             event,
             item,
             pending,
+            also: Vec::new(),
             keep,
             until: self.clock.now() + Duration::from_secs(WAIT),
         });
@@ -262,21 +321,41 @@ impl Manager {
             };
             self.keep_reach(permission, leave);
         }
-        let Pending {
-            reply,
-            caller,
-            call,
-            raw,
-        } = asking.pending;
-        if allow {
-            // You allowed this call, so it runs as if from outside.
-            let caller = Calling {
-                container: None,
-                ..caller
-            };
-            self.run_agent_call(reply, caller, call, raw, false);
+        let notes = asking.is_notes();
+        if allow && notes {
+            // Allowed once, the agent uses the notes for the rest of its
+            // run, and each call the card held runs through that.
+            let lead = (asking.pending.caller.agent).filter(|lead| self.held.contains_key(lead));
+            self.agent_tools.notes.extend(lead);
+            for pending in asking.calls() {
+                let Pending {
+                    reply,
+                    caller,
+                    call,
+                    raw,
+                } = pending;
+                self.run_agent_call(reply, caller, call, raw, false);
+            }
+        } else if allow {
+            for pending in asking.calls() {
+                let Pending {
+                    reply,
+                    caller,
+                    call,
+                    raw,
+                } = pending;
+                // You allowed this call, so it runs as if from outside.
+                let caller = Calling {
+                    container: None,
+                    ..caller
+                };
+                self.run_agent_call(reply, caller, call, raw, false);
+            }
         } else {
-            self.reply_now(reply, Err(DENIED.into()));
+            let reason = if notes { NOTES_DENIED } else { DENIED };
+            for pending in asking.calls() {
+                self.reply_now(pending.reply, Err(reason.into()));
+            }
         }
         AnswerOutcome::Accepted
     }
@@ -292,10 +371,13 @@ impl Manager {
         for asking in ended {
             self.close_consent(&asking, None);
             let reason = match asking.pending.caller.actor {
+                _ if asking.is_notes() => NOTES_UNANSWERED,
                 Actor::Task { .. } => RUN_UNANSWERED,
                 _ => UNANSWERED,
             };
-            self.reply_now(asking.pending.reply, Err(reason.into()));
+            for pending in asking.calls() {
+                self.reply_now(pending.reply, Err(reason.into()));
+            }
         }
     }
 
@@ -357,10 +439,7 @@ impl Manager {
         device: DeviceId,
     ) -> (String, Question) {
         let title = self.agent_title(feed);
-        let container = pending.caller.container.map_or_else(
-            || "a container".to_owned(),
-            |(_, ws)| self.workspace_name(ws),
-        );
+        let container = self.container_named(pending.caller.container);
         let reach = self.call_reach(&pending.call, device, pending.caller.container);
         let tool = pending.call.tool().name();
         let (who, opening, mut details) = match pending.caller.actor {
@@ -388,56 +467,46 @@ impl Manager {
         details.push(("Container", container));
         details.push(("Call", tool.to_owned()));
         details.extend(reach.details);
-        let mut text = format!("{opening}\n\n{}\n", reach.risk);
-        for (label, value) in &details {
-            text.push_str(&format!("\n{label}: {value}"));
-        }
-        let remember = self.keeps(permission).then(|| ConsentRemember {
+        let question = consent_card(
+            TITLE,
+            &opening,
+            &reach.risk,
+            details,
+            ["Lets this call go, this once.", "Refuses this call."],
+            self.remember_box(feed, permission),
+        );
+        (
+            inbox_line(&format!("Let {who} reach outside its container?")),
+            question,
+        )
+    }
+
+    /// The box that keeps a card's answer on `permission`, when the card
+    /// offers it.
+    pub(super) fn remember_box(
+        &self,
+        feed: AgentId,
+        permission: &Permission,
+    ) -> Option<ConsentRemember> {
+        self.keeps(permission).then(|| ConsentRemember {
             id: REMEMBER.to_owned(),
             label: REMEMBER_LABEL.to_owned(),
             settings: format!(
                 "Kept on the permission, so it answers every later call that reaches outside \
-                 the container, to any agent, device or test machine. To change it later, open \
-                 the menu in {}, pick Change what it can run, and set Containers.",
+                 the container, to any agent, device, test machine or the project's notes. To \
+                 change it later, open the menu in {}, pick Change what it can run, and set \
+                 Containers.",
                 self.holder_header(feed, permission.holder)
             ),
-        });
-        let consent = Consent {
-            title: TITLE.to_owned(),
-            risk: format!("{opening} {}", reach.risk),
-            changes: Vec::new(),
-            facts: details
-                .into_iter()
-                .map(|(label, value)| ConsentFact {
-                    label: label.to_owned(),
-                    value,
-                })
-                .collect(),
-            rows: Vec::new(),
-            remember,
-        };
-        let choice = |label: &str, description: &str| QuestionOption {
-            label: label.to_owned(),
-            description: Some(description.to_owned()),
-        };
-        let summary: String = format!("Let {who} reach outside its container?")
-            .chars()
-            .take(80)
-            .collect();
-        let question = Question {
-            id: QUESTION.to_owned(),
-            header: Some(TITLE.to_owned()),
-            text,
-            options: vec![
-                choice(ALLOW, "Lets this call go, this once."),
-                choice(DENY, "Refuses this call."),
-            ],
-            multi: false,
-            other: false,
-            secret: false,
-            consent: Some(consent),
-        };
-        (summary, question)
+        })
+    }
+
+    /// The container a caller runs in, by name, for a card.
+    pub(super) fn container_named(&self, container: Option<(DeviceId, WorkspaceId)>) -> String {
+        container.map_or_else(
+            || "a container".to_owned(),
+            |(_, workspace)| self.workspace_name(workspace),
+        )
     }
 
     /// What a call reaches, said for the card, from a caller in `container`.
@@ -635,4 +704,54 @@ impl Manager {
         };
         visible(&name)
     }
+}
+
+/// A card's question: what it asks for, what the agent wants to do and
+/// what could go wrong, the details to judge it by, what Allow and Deny
+/// each do, and the box that keeps the answer when the card offers it.
+pub(super) fn consent_card(
+    title: &str,
+    opening: &str,
+    risk: &str,
+    details: Vec<(&'static str, String)>,
+    [allows, denies]: [&str; 2],
+    remember: Option<ConsentRemember>,
+) -> Question {
+    let mut text = format!("{opening}\n\n{risk}\n");
+    for (label, value) in &details {
+        text.push_str(&format!("\n{label}: {value}"));
+    }
+    let consent = Consent {
+        title: title.to_owned(),
+        risk: format!("{opening} {risk}"),
+        changes: Vec::new(),
+        facts: details
+            .into_iter()
+            .map(|(label, value)| ConsentFact {
+                label: label.to_owned(),
+                value,
+            })
+            .collect(),
+        rows: Vec::new(),
+        remember,
+    };
+    let choice = |label: &str, description: &str| QuestionOption {
+        label: label.to_owned(),
+        description: Some(description.to_owned()),
+    };
+    Question {
+        id: QUESTION.to_owned(),
+        header: Some(title.to_owned()),
+        text,
+        options: vec![choice(ALLOW, allows), choice(DENY, denies)],
+        multi: false,
+        other: false,
+        secret: false,
+        consent: Some(consent),
+    }
+}
+
+/// A card's line in the inbox, cut to fit.
+pub(super) fn inbox_line(summary: &str) -> String {
+    summary.chars().take(80).collect()
 }

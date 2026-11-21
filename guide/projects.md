@@ -97,7 +97,7 @@ The list fills from your answers on approval cards. It reads "None yet." until y
 ## Make a workspace container
 <!-- id: projects/new-workspace -->
 
-A workspace is an Incus container on a Linux device that holds a clone of the project. Agents you start in it run inside the container.
+A workspace is an Incus container on a Linux device that holds a clone of the project. Agents you start in it run inside the container. Each one asks you once before it uses the project's notes, since the notes are shared outside the container. See [Permissions](permissions.md).
 
 1. Open the project's settings and click New workspace under Workspaces. A device's page has the same button under "Workspaces on {device}".
 2. Pick the Project and the Device. Only devices with Incus can host one.

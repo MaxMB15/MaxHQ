@@ -288,7 +288,7 @@ export const ScopeFields = ({
 				</div>
 				<p className="text-[11.5px] text-muted-foreground">
 					{t(
-						"Whether an agent in a container may start or reach agents outside it, which run without its network limits and file walls."
+						"Whether an agent in a container may start or reach agents outside it, which run without its network limits and file walls, or use the project's notes, which are shared outside it. For notes, Ask asks once per agent."
 					)}
 				</p>
 			</div>
