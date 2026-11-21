@@ -92,7 +92,7 @@ fn outside(h: &Harness, on_host: AgentId) -> Vec<(&'static str, Value)> {
 
 impl Harness {
     /// Gives `lead` its permission, here and on devbox, set to `leave`.
-    async fn reach_as(&mut self, lead: AgentId, leave: LeaveContainer) -> Permission {
+    pub(super) async fn reach_as(&mut self, lead: AgentId, leave: LeaveContainer) -> Permission {
         let permission = Permission {
             id: held(),
             holder: Actor::Agent { agent: lead },
@@ -111,7 +111,7 @@ impl Harness {
 
     /// `agent`, in the container, calls `tool` and doesn't wait for its
     /// answer.
-    async fn ask_in(
+    pub(super) async fn ask_in(
         &self,
         session: SessionId,
         agent: AgentId,
@@ -128,7 +128,7 @@ impl Harness {
     }
 
     /// `agent`, in the container, calls `tool`. Gives what it answered.
-    async fn call_in(
+    pub(super) async fn call_in(
         &self,
         session: SessionId,
         agent: AgentId,
@@ -141,7 +141,7 @@ impl Harness {
     }
 
     /// Whether the tool call `key` was answered yet.
-    fn replied(&self, key: &str) -> bool {
+    pub(super) fn replied(&self, key: &str) -> bool {
         let prefix = format!("tool {key} ");
         self.vendors
             .log()
@@ -176,7 +176,7 @@ impl Harness {
 
     /// Answers a card with one of its labels, with its box ticked when
     /// `remember` is set.
-    async fn pick_reach(
+    pub(super) async fn pick_reach(
         &mut self,
         event: AttentionId,
         label: &str,
@@ -204,7 +204,7 @@ impl Harness {
 
     /// The last card the agent's timeline shows, as an item. A timeline
     /// opened before still sends the changes since, ahead of the reset.
-    async fn reach_item(&mut self, agent: AgentId) -> TimelineItem {
+    pub(super) async fn reach_item(&mut self, agent: AgentId) -> TimelineItem {
         let mut update = self.open(agent, None, 200).await;
         let items = loop {
             match update {
@@ -224,7 +224,7 @@ impl Harness {
     }
 
     /// The question on the agent's last card.
-    async fn reach_question(&mut self, agent: AgentId) -> Question {
+    pub(super) async fn reach_question(&mut self, agent: AgentId) -> Question {
         match self.reach_item(agent).await.body {
             ItemBody::Question { mut questions, .. } => questions.remove(0),
             _ => unreachable!("it's a question"),
@@ -232,7 +232,7 @@ impl Harness {
     }
 
     /// What the lead's permission says now, as this device keeps it.
-    fn leave_now(&self) -> LeaveContainer {
+    pub(super) fn leave_now(&self) -> LeaveContainer {
         self.leave_of(held())
     }
 

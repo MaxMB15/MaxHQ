@@ -1155,7 +1155,7 @@
 	"When it runs": "Wanneer dit wordt uitgevoerd",
 	"Where it goes": "Waar dit naartoe gaat",
 	"Where the connection stops": "Waar de verbinding stopt",
-	"Whether an agent in a container may start or reach agents outside it, which run without its network limits and file walls.": "Of een agent in een container agents daarbuiten mag starten of bereiken, die zonder de netwerk- en bestandsbeperkingen van de container draaien.",
+	"Whether an agent in a container may start or reach agents outside it, which run without its network limits and file walls, or use the project's notes, which are shared outside it. For notes, Ask asks once per agent.": "Of een agent in een container agents daarbuiten mag starten of bereiken, die zonder de netwerk- en bestandsbeperkingen van de container draaien, of de notities van het project mag gebruiken, die buiten de container gedeeld worden. Bij notities vraagt Vragen één keer per agent.",
 	"Wind down first": "Eerst afbouwen",
 	"Wind down for restart": "Afbouwen voor herstart",
 	"Winding down": "Afbouwen",

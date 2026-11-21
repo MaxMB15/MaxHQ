@@ -685,6 +685,7 @@ impl Manager {
         self.forget_task_cards(lead);
         self.dirty.remove(&lead);
         self.forget_restricted(lead);
+        self.agent_tools.notes.remove(&lead);
         if let Err(err) = self.db.remove_held(lead) {
             warn!(%err, agent = %lead, "couldn't forget the agent");
         }

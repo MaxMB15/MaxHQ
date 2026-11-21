@@ -1155,7 +1155,7 @@
 	"When it runs": "When it runs",
 	"Where it goes": "Where it goes",
 	"Where the connection stops": "Where the connection stops",
-	"Whether an agent in a container may start or reach agents outside it, which run without its network limits and file walls.": "Whether an agent in a container may start or reach agents outside it, which run without its network limits and file walls.",
+	"Whether an agent in a container may start or reach agents outside it, which run without its network limits and file walls, or use the project's notes, which are shared outside it. For notes, Ask asks once per agent.": "Whether an agent in a container may start or reach agents outside it, which run without its network limits and file walls, or use the project's notes, which are shared outside it. For notes, Ask asks once per agent.",
 	"Wind down first": "Wind down first",
 	"Wind down for restart": "Wind down for restart",
 	"Winding down": "Winding down",

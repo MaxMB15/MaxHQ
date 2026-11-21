@@ -1155,7 +1155,7 @@
 	"When it runs": "Wann sie läuft",
 	"Where it goes": "Wohin sie geht",
 	"Where the connection stops": "Wo die Verbindung scheitert",
-	"Whether an agent in a container may start or reach agents outside it, which run without its network limits and file walls.": "Ob ein Agent in einem Container Agenten außerhalb starten oder erreichen darf, die ohne dessen Netzwerk- und Dateibeschränkungen laufen.",
+	"Whether an agent in a container may start or reach agents outside it, which run without its network limits and file walls, or use the project's notes, which are shared outside it. For notes, Ask asks once per agent.": "Ob ein Agent in einem Container Agenten außerhalb starten oder erreichen darf, die ohne dessen Netzwerk- und Dateibeschränkungen laufen, oder die Notizen des Projekts nutzen darf, die außerhalb des Containers geteilt werden. Bei Notizen fragt Fragen einmal pro Agent.",
 	"Wind down first": "Zuerst für Neustart vorbereiten",
 	"Wind down for restart": "Für Neustart vorbereiten",
 	"Winding down": "Neustart wird vorbereitet",

@@ -187,6 +187,9 @@ impl Manager {
     /// handoff its next message carries.
     fn arrive(&mut self, lead: AgentId, to: &Account, config_dir: PathBuf, model: String) {
         let now = self.clock.wall();
+        // A move starts a new run, which asks again before it uses notes
+        // from a container.
+        self.agent_tools.notes.remove(&lead);
         let Some(held) = self.held.get_mut(&lead) else {
             return;
         };

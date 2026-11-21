@@ -653,6 +653,7 @@ impl Manager {
             return ActionOutcome::UnknownAgent;
         };
         held.moved.get_or_insert_with(Box::default).to = Some(to);
+        self.agent_tools.notes.remove(&agent);
         self.save(agent);
         self.publish(agent);
         // It stopped when it left, so nothing it does keeps it from

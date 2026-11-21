@@ -342,7 +342,7 @@ An agent can borrow a test machine, such as an iOS Simulator, an Android emulato
 <!-- id: agents-composer/tools-notes -->
 <!-- covers: tool/list_notes tool/read_note tool/create_note tool/edit_note -->
 
-Agents can read and write the notes of the project they work in, with no permission needed. An agent in Plan only mode reads them but can't change them.
+Agents can read and write the notes of the project they work in, with no permission needed. An agent in a container asks you once first, since the notes are shared outside it. An agent in Plan only mode reads them but can't change them.
 
 - **List notes** lists the project's notes.
 - **Read a note** reads one.
