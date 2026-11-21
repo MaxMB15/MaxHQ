@@ -589,6 +589,22 @@ mod tests {
             ("ws", "WS_PROXY"),
             ("wss", "WSS_PROXY"),
             ("global-agent", "GLOBAL_AGENT_HTTP_PROXY"),
+            ("ansible", "ANSIBLE_CONFIG"),
+            ("composer", "COMPOSER_HOME"),
+            ("nodenv", "NODENV_ROOT"),
+            ("goenv", "GOENV_ROOT"),
+            ("jenv", "JENV_ROOT"),
+            ("em", "EM_CONFIG"),
+            ("terragrunt", "TERRAGRUNT_TFPATH"),
+            ("tg", "TG_TF_PATH"),
+            ("parallel", "PARALLEL_SHELL"),
+            ("autossh", "AUTOSSH_PATH"),
+            ("android", "ANDROID_HOME"),
+            ("otel", "OTEL_EXPORTER_OTLP_ENDPOINT"),
+            ("otel", "OTEL_EXPORTER_OTLP_HEADERS"),
+            ("pulumi", "PULUMI_ACCESS_TOKEN"),
+            ("op", "OP_CONNECT_HOST"),
+            ("app-store", "APP_STORE_CONNECT_API_KEY_PATH"),
         ]
         .into_iter()
         .filter(|(id, name)| !marked(id, name))
@@ -631,6 +647,10 @@ mod tests {
             ("r", "R_MODE"),
             ("all-tests", "ALL_TESTS_X"),
             ("no-regressions", "NO_REGRESSIONS_X"),
+            ("op", "OP_MODE"),
+            ("em", "EM_MODE"),
+            ("tg", "TG_MODE"),
+            ("parallel", "PARALLEL_JOBS"),
         ] {
             let loaded = load(with_env(id, name).as_bytes());
             assert!(loaded.is_ok(), "{id} {name}: {loaded:?}");

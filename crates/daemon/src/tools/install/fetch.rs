@@ -34,17 +34,19 @@ pub type Progress<'a> = &'a (dyn Fn(u64, Option<u64>) + Send + Sync);
 
 /// The one HTTP client downloads use.
 pub fn client() -> &'static reqwest::Client {
-    static CLIENT: LazyLock<reqwest::Client> = LazyLock::new(|| {
-        // reqwest is built without a TLS crypto provider of its own.
-        let _ = rustls::crypto::ring::default_provider().install_default();
-        reqwest::Client::builder()
-            .connect_timeout(STALL)
-            .read_timeout(STALL)
-            .user_agent(concat!("maxd/", env!("CARGO_PKG_VERSION")))
-            .build()
-            .unwrap_or_default()
-    });
+    static CLIENT: LazyLock<reqwest::Client> =
+        LazyLock::new(|| builder().build().unwrap_or_default());
     &CLIENT
+}
+
+/// A client builder with the downloads' timeouts and user agent.
+pub fn builder() -> reqwest::ClientBuilder {
+    // reqwest is built without a TLS crypto provider of its own.
+    let _ = rustls::crypto::ring::default_provider().install_default();
+    reqwest::Client::builder()
+        .connect_timeout(STALL)
+        .read_timeout(STALL)
+        .user_agent(concat!("maxd/", env!("CARGO_PKG_VERSION")))
 }
 
 /// Reads a small text file, such as a checksum list or a release's JSON.

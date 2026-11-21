@@ -20,7 +20,7 @@ use sysinfo::{
     Pid, ProcessRefreshKind, ProcessesToUpdate, System, UpdateKind, MINIMUM_CPU_UPDATE_INTERVAL,
 };
 
-use super::mask::masked;
+use super::mask::{masked, masked_args};
 
 /// sysinfo reads start times to the second.
 const PROCESS_START_TIME_PRECISION_MS: u64 = 1_000;
@@ -216,21 +216,16 @@ impl Collector {
                     return None;
                 }
                 let command = if details.cmd().is_empty() {
-                    process.name().to_string_lossy().into_owned()
+                    masked(&process.name().to_string_lossy())
                 } else {
-                    details
-                        .cmd()
-                        .iter()
-                        .map(|part| part.to_string_lossy())
-                        .collect::<Vec<_>>()
-                        .join(" ")
+                    masked_args(details.cmd().iter().map(|part| part.to_string_lossy()))
                 };
                 Some(ProcessSample {
                     pid,
                     ppid: process.parent().map(Pid::as_u32).unwrap_or(0),
                     root,
                     start_time_ms: process.start_time().saturating_mul(1_000),
-                    command: truncate_utf8(masked(&command), MAX_PROCESS_COMMAND_BYTES),
+                    command: truncate_utf8(command, MAX_PROCESS_COMMAND_BYTES),
                     cpu_percent: process.cpu_usage(),
                     resident_bytes: details.memory(),
                 })
