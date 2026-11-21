@@ -27,7 +27,8 @@ import type {
 import { labeledText } from "../pills/draft";
 import { MODE_LABEL, startingMode } from "../settings/permission";
 import { listInWords, plural, sentence } from "../status/format";
-import { accountName, VENDOR_NAME } from "../status/usage";
+import { agentKindName, isLocalAccount } from "../status/agent-kind";
+import { accountName } from "../status/usage";
 import { FILTER_OPS } from "../tasks/draft";
 import { triggerLine } from "../tasks/format";
 import { tasksTargeting } from "../tasks/place";
@@ -36,7 +37,10 @@ import { accounts, deviceName, workspaceName } from "../view/select";
 
 import { adminPhrase, settingLines } from "./action";
 
-/** The accounts on `device` the dispatcher can run as: Claude first, then Codex. */
+/**
+ * The accounts on `device` the dispatcher can run as: Claude first, then
+ * Codex, then local models, which it never picks unless you do.
+ */
 export const dispatcherAccounts = (view: ViewState, device: DeviceId | null): Account[] =>
 	accounts(view).filter(
 		(a) => a.device === device && (a.vendor === "claude" || a.vendor === "codex")
@@ -45,7 +49,7 @@ export const dispatcherAccounts = (view: ViewState, device: DeviceId | null): Ac
 /**
  * The account the dispatcher runs as: the one picked in settings while
  * `device` still has it, else the first Claude account, else the first
- * Codex one.
+ * Codex one. A local model runs it only when picked.
  */
 export const dispatcherAccount = (
 	view: ViewState,
@@ -53,7 +57,7 @@ export const dispatcherAccount = (
 	picked: AccountId | null
 ): Account | undefined => {
 	const choices = dispatcherAccounts(view, device);
-	return choices.find((a) => a.id === picked) ?? choices[0];
+	return choices.find((a) => a.id === picked) ?? choices.find((a) => !isLocalAccount(a));
 };
 
 /** An account as the pick in settings names it, such as "Claude Max, octocat@example.com". */
@@ -173,7 +177,7 @@ export const itemPhrase = (view: ViewState, item: PlanItem): string => {
 			const who =
 				spec.vendor === "acp"
 					? (view.tables.account.get(spec.account)?.label ?? "local")
-					: VENDOR_NAME[spec.vendor];
+					: agentKindName(spec, view.tables.account);
 			return t(
 				"a {{who}} agent in {{placeName_view__step_device__spec_place}} on {{deviceName_view__step_device}}{{access}}",
 				{
@@ -282,7 +286,7 @@ const targetLine = (view: ViewState, plan: Plan, target: PlanTarget): string => 
 	if (aim.type === "agent") return agentTitle(view, aim.agent);
 	const where = placeName(view, aim.device, aim.spec.place);
 	return t("A new {{VENDOR_NAME_aim_spec_vendor}} agent for each run, in {{where}}", {
-		VENDOR_NAME_aim_spec_vendor: VENDOR_NAME[aim.spec.vendor],
+		VENDOR_NAME_aim_spec_vendor: agentKindName(aim.spec, view.tables.account),
 		where: where,
 	});
 };
@@ -299,7 +303,10 @@ export const itemLines = (view: ViewState, plan: Plan, index: number): ItemLine[
 			const { spec } = step;
 			const account = view.tables.account.get(spec.account);
 			return [
-				{ label: t("Account"), value: account?.label ?? VENDOR_NAME[spec.vendor] },
+				{
+					label: t("Account"),
+					value: account?.label ?? agentKindName(spec, view.tables.account),
+				},
 				{ label: t("Device"), value: deviceName(view, step.device) },
 				{ label: t("Where"), value: whereLine(view, step.device, spec.place) },
 				{ label: t("Model"), value: spec.model ?? t("Default") },

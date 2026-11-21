@@ -7,7 +7,12 @@
 
 import type { PermissionMode } from "@maxhq/shared/bindings";
 import {
-	accountOptions,
+	agentOptions,
+	localPickerOptions,
+	opensLocalSetup,
+} from "@maxhq/shared/local-models/picker";
+import { modelChoice } from "@maxhq/shared/local-models/select";
+import {
 	type Choices,
 	deviceOptions,
 	modelOptions,
@@ -17,11 +22,13 @@ import {
 	type Resolved,
 	workspaceOptions,
 } from "@maxhq/shared/new-agent/spec";
+import { isLocalAccount } from "@maxhq/shared/status/agent-kind";
 import type { ViewState } from "@maxhq/shared/view/replica";
 import { useServices } from "@/app/services";
 import { cn } from "@/lib/utils";
 import { PathField } from "@/paths/path-field";
 import { pickMode } from "@/settings/auto-consent";
+import { openSettings } from "@/settings/store";
 
 import { Picker } from "./picker";
 import { t as translate, useI18n } from "@maxhq/shared/i18n";
@@ -53,6 +60,17 @@ export const AgentPickers = ({
 	useI18n();
 	const services = useServices();
 	const folder = r.place === "folder";
+	const local = r.account !== undefined && isLocalAccount(r.account);
+	// A Local entry or model that isn't ready opens the device's Local models settings.
+	const setUp = (value: string): boolean => {
+		const setup = opensLocalSetup(value, r.device);
+		if (!setup) return false;
+		openSettings(services, {
+			kind: "local-models",
+			...(setup.device ? { device: setup.device } : {}),
+		});
+		return true;
+	};
 	const places: Option[] = [
 		...projectOptions(view).map((o) => ({ ...o, group: "Projects" })),
 		{
@@ -93,15 +111,25 @@ export const AgentPickers = ({
 				<Picker
 					label={translate("Agent")}
 					value={r.account?.id ?? ""}
-					options={r.device ? accountOptions(view, r.device, now) : []}
-					onChange={(account) => onPick({ account })}
-					disabled={!r.account}
+					options={
+						r.device ? agentOptions(view, r.device, now, r.account?.id ?? null) : []
+					}
+					onChange={(account) => {
+						if (!setUp(account)) onPick({ account });
+					}}
+					disabled={!r.device}
 				/>
 				<Picker
 					label={translate("Model")}
 					value={r.shownModel ?? ""}
-					options={modelOptions(view, r.account)}
-					onChange={(model) => onPick({ model: model || null })}
+					options={
+						local && r.device
+							? localPickerOptions(view, r.device)
+							: modelOptions(view, r.account)
+					}
+					onChange={(model) => {
+						if (!setUp(model)) onPick(modelChoice(model));
+					}}
 				/>
 				<Picker
 					label={translate("Mode")}

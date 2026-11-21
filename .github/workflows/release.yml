@@ -130,6 +130,9 @@ jobs:
           targets: ${{ matrix.target }}
 
       - name: Build
+        env:
+          # Where maxd refreshes its model catalog, written in at build time.
+          MAXHQ_CATALOG_URL: https://github.com/${{ github.repository }}/releases/latest/download/model-catalog.json
         run: cargo build --release --locked -p maxd --target "$TARGET"
 
       # A dynamic binary would need the host's loader and libc.
@@ -209,6 +212,8 @@ jobs:
         env:
           # Where the app looks for its updates, written in at build time.
           MAXHQ_RELEASES_REPO: ${{ github.repository }}
+          # Where maxd refreshes its model catalog, written in at build time.
+          MAXHQ_CATALOG_URL: https://github.com/${{ github.repository }}/releases/latest/download/model-catalog.json
         run: sh scripts/release/package-macos.sh build
 
       - name: Set up Developer ID signing
@@ -477,6 +482,15 @@ jobs:
             --sig "x64=sigs/MaxHQ_${VERSION}_x64.app.tar.gz.sig"
           cat latest.json
           gh release upload "v$VERSION" --repo "$GITHUB_REPOSITORY" --clobber latest.json
+
+      # The catalog every maxd built above refreshes from.
+      - name: Upload the model catalog
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          cp crates/daemon/src/local_models/catalog.json model-catalog.json
+          gh release upload "v$VERSION" --repo "$GITHUB_REPOSITORY" --clobber model-catalog.json
 
       # After latest.json, so the line naming the iPhone build stays out of
       # the Mac app's What's new.

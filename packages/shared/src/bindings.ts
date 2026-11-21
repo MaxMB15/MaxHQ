@@ -32,7 +32,7 @@ export const NOTE_PILLS_SINCE = 28 as const;
 
 export const OLDEST_PROTOCOL_VERSION = 20 as const;
 
-export const PROTOCOL_VERSION = 53 as const;
+export const PROTOCOL_VERSION = 54 as const;
 
 export const SESSIONS_SINCE = 48 as const;
 
@@ -119,6 +119,12 @@ export type Account = {
 	 *  Unset for every other account.
 	 */
 	acp?: AcpFeatures | null,
+	/**
+	 *  The model server a [`LoginKind::ModelServer`] account runs on.
+	 *  Unset for every other account, and from a `maxd` from before
+	 *  [`crate::message::LOCAL_MODELS_SINCE`].
+	 */
+	model_server?: ModelServerId | null,
 };
 
 /**  A vendor login on a device. */
@@ -213,25 +219,25 @@ export type AcpSkills =
 /**  What an action came to. A repeated key gets the first outcome again. */
 export type ActionOutcome = 
 /**  It's done. */
-({ status: "done" }) & { agent?: never; answer?: never; at?: never; attachment?: never; block?: never; book?: never; branches?: never; buckets?: never; callback_port?: never; check?: never; checks?: never; code?: never; command?: never; comments?: never; containers?: never; default_branch?: never; deliveries?: never; departure?: never; detail?: never; diff?: never; error?: never; excerpt?: never; expires_at?: never; failed?: never; files?: never; find?: never; forward?: never; hashes?: never; hook_url?: never; host_key?: never; id?: never; image?: never; item?: never; keys?: never; list?: never; listing?: never; mac?: never; matches?: never; merged?: never; more?: never; page?: never; pair?: never; paste?: never; path?: never; permission?: never; permissions?: never; phone?: never; plan?: never; public_key?: never; pull?: never; pulls?: never; queued?: never; reason?: never; results?: never; revoked?: never; runs?: never; search?: never; seed?: never; sign_in?: never; skills?: never; snapshots?: never; state?: never; stored?: never; task?: never; terminal?: never; top?: never; trees?: never; truncated?: never; url?: never; user_code?: never; verification_uri?: never; version?: never; versions?: never; workspace?: never; written?: never } | 
+({ status: "done" }) & { agent?: never; answer?: never; at?: never; attachment?: never; block?: never; book?: never; branches?: never; buckets?: never; callback_port?: never; check?: never; checks?: never; code?: never; command?: never; comments?: never; containers?: never; default_branch?: never; deliveries?: never; departure?: never; detail?: never; diff?: never; error?: never; excerpt?: never; expires_at?: never; failed?: never; files?: never; find?: never; flavor?: never; forward?: never; hashes?: never; hook_url?: never; host_key?: never; id?: never; image?: never; item?: never; keys?: never; list?: never; listing?: never; mac?: never; matches?: never; merged?: never; models?: never; more?: never; page?: never; pair?: never; paste?: never; path?: never; permission?: never; permissions?: never; phone?: never; plan?: never; probe?: never; public_key?: never; pull?: never; pulls?: never; queued?: never; reason?: never; results?: never; revoked?: never; runs?: never; search?: never; seed?: never; server?: never; sign_in?: never; skills?: never; snapshots?: never; state?: never; stored?: never; task?: never; terminal?: never; top?: never; trees?: never; truncated?: never; url?: never; user_code?: never; verification_uri?: never; version?: never; versions?: never; workspace?: never; written?: never } | 
 /**  A new agent is starting. */
 ({ status: "started"; 
 /**  The new agent. */
-agent: AgentId }) & { answer?: never; at?: never; attachment?: never; block?: never; book?: never; branches?: never; buckets?: never; callback_port?: never; check?: never; checks?: never; code?: never; command?: never; comments?: never; containers?: never; default_branch?: never; deliveries?: never; departure?: never; detail?: never; diff?: never; error?: never; excerpt?: never; expires_at?: never; failed?: never; files?: never; find?: never; forward?: never; hashes?: never; hook_url?: never; host_key?: never; id?: never; image?: never; item?: never; keys?: never; list?: never; listing?: never; mac?: never; matches?: never; merged?: never; more?: never; page?: never; pair?: never; paste?: never; path?: never; permission?: never; permissions?: never; phone?: never; plan?: never; public_key?: never; pull?: never; pulls?: never; queued?: never; reason?: never; results?: never; revoked?: never; runs?: never; search?: never; seed?: never; sign_in?: never; skills?: never; snapshots?: never; state?: never; stored?: never; task?: never; terminal?: never; top?: never; trees?: never; truncated?: never; url?: never; user_code?: never; verification_uri?: never; version?: never; versions?: never; workspace?: never; written?: never } | 
+agent: AgentId }) & { answer?: never; at?: never; attachment?: never; block?: never; book?: never; branches?: never; buckets?: never; callback_port?: never; check?: never; checks?: never; code?: never; command?: never; comments?: never; containers?: never; default_branch?: never; deliveries?: never; departure?: never; detail?: never; diff?: never; error?: never; excerpt?: never; expires_at?: never; failed?: never; files?: never; find?: never; flavor?: never; forward?: never; hashes?: never; hook_url?: never; host_key?: never; id?: never; image?: never; item?: never; keys?: never; list?: never; listing?: never; mac?: never; matches?: never; merged?: never; models?: never; more?: never; page?: never; pair?: never; paste?: never; path?: never; permission?: never; permissions?: never; phone?: never; plan?: never; probe?: never; public_key?: never; pull?: never; pulls?: never; queued?: never; reason?: never; results?: never; revoked?: never; runs?: never; search?: never; seed?: never; server?: never; sign_in?: never; skills?: never; snapshots?: never; state?: never; stored?: never; task?: never; terminal?: never; top?: never; trees?: never; truncated?: never; url?: never; user_code?: never; verification_uri?: never; version?: never; versions?: never; workspace?: never; written?: never } | 
 /**  The attachment is ready to send. */
 ({ status: "staged"; 
 /**  The staged attachment. */
-attachment: AttachmentRef }) & { agent?: never; answer?: never; at?: never; block?: never; book?: never; branches?: never; buckets?: never; callback_port?: never; check?: never; checks?: never; code?: never; command?: never; comments?: never; containers?: never; default_branch?: never; deliveries?: never; departure?: never; detail?: never; diff?: never; error?: never; excerpt?: never; expires_at?: never; failed?: never; files?: never; find?: never; forward?: never; hashes?: never; hook_url?: never; host_key?: never; id?: never; image?: never; item?: never; keys?: never; list?: never; listing?: never; mac?: never; matches?: never; merged?: never; more?: never; page?: never; pair?: never; paste?: never; path?: never; permission?: never; permissions?: never; phone?: never; plan?: never; public_key?: never; pull?: never; pulls?: never; queued?: never; reason?: never; results?: never; revoked?: never; runs?: never; search?: never; seed?: never; sign_in?: never; skills?: never; snapshots?: never; state?: never; stored?: never; task?: never; terminal?: never; top?: never; trees?: never; truncated?: never; url?: never; user_code?: never; verification_uri?: never; version?: never; versions?: never; workspace?: never; written?: never } | 
+attachment: AttachmentRef }) & { agent?: never; answer?: never; at?: never; block?: never; book?: never; branches?: never; buckets?: never; callback_port?: never; check?: never; checks?: never; code?: never; command?: never; comments?: never; containers?: never; default_branch?: never; deliveries?: never; departure?: never; detail?: never; diff?: never; error?: never; excerpt?: never; expires_at?: never; failed?: never; files?: never; find?: never; flavor?: never; forward?: never; hashes?: never; hook_url?: never; host_key?: never; id?: never; image?: never; item?: never; keys?: never; list?: never; listing?: never; mac?: never; matches?: never; merged?: never; models?: never; more?: never; page?: never; pair?: never; paste?: never; path?: never; permission?: never; permissions?: never; phone?: never; plan?: never; probe?: never; public_key?: never; pull?: never; pulls?: never; queued?: never; reason?: never; results?: never; revoked?: never; runs?: never; search?: never; seed?: never; server?: never; sign_in?: never; skills?: never; snapshots?: never; state?: never; stored?: never; task?: never; terminal?: never; top?: never; trees?: never; truncated?: never; url?: never; user_code?: never; verification_uri?: never; version?: never; versions?: never; workspace?: never; written?: never } | 
 /**  `maxd` won't do it. */
 ({ status: "refused"; 
 /**  Why, for a person to read. */
-reason: string }) & { agent?: never; answer?: never; at?: never; attachment?: never; block?: never; book?: never; branches?: never; buckets?: never; callback_port?: never; check?: never; checks?: never; code?: never; command?: never; comments?: never; containers?: never; default_branch?: never; deliveries?: never; departure?: never; detail?: never; diff?: never; error?: never; excerpt?: never; expires_at?: never; failed?: never; files?: never; find?: never; forward?: never; hashes?: never; hook_url?: never; host_key?: never; id?: never; image?: never; item?: never; keys?: never; list?: never; listing?: never; mac?: never; matches?: never; merged?: never; more?: never; page?: never; pair?: never; paste?: never; path?: never; permission?: never; permissions?: never; phone?: never; plan?: never; public_key?: never; pull?: never; pulls?: never; queued?: never; results?: never; revoked?: never; runs?: never; search?: never; seed?: never; sign_in?: never; skills?: never; snapshots?: never; state?: never; stored?: never; task?: never; terminal?: never; top?: never; trees?: never; truncated?: never; url?: never; user_code?: never; verification_uri?: never; version?: never; versions?: never; workspace?: never; written?: never } | 
+reason: string }) & { agent?: never; answer?: never; at?: never; attachment?: never; block?: never; book?: never; branches?: never; buckets?: never; callback_port?: never; check?: never; checks?: never; code?: never; command?: never; comments?: never; containers?: never; default_branch?: never; deliveries?: never; departure?: never; detail?: never; diff?: never; error?: never; excerpt?: never; expires_at?: never; failed?: never; files?: never; find?: never; flavor?: never; forward?: never; hashes?: never; hook_url?: never; host_key?: never; id?: never; image?: never; item?: never; keys?: never; list?: never; listing?: never; mac?: never; matches?: never; merged?: never; models?: never; more?: never; page?: never; pair?: never; paste?: never; path?: never; permission?: never; permissions?: never; phone?: never; plan?: never; probe?: never; public_key?: never; pull?: never; pulls?: never; queued?: never; results?: never; revoked?: never; runs?: never; search?: never; seed?: never; server?: never; sign_in?: never; skills?: never; snapshots?: never; state?: never; stored?: never; task?: never; terminal?: never; top?: never; trees?: never; truncated?: never; url?: never; user_code?: never; verification_uri?: never; version?: never; versions?: never; workspace?: never; written?: never } | 
 /**  `maxd` has no agent with that ID. */
-({ status: "unknown_agent" }) & { agent?: never; answer?: never; at?: never; attachment?: never; block?: never; book?: never; branches?: never; buckets?: never; callback_port?: never; check?: never; checks?: never; code?: never; command?: never; comments?: never; containers?: never; default_branch?: never; deliveries?: never; departure?: never; detail?: never; diff?: never; error?: never; excerpt?: never; expires_at?: never; failed?: never; files?: never; find?: never; forward?: never; hashes?: never; hook_url?: never; host_key?: never; id?: never; image?: never; item?: never; keys?: never; list?: never; listing?: never; mac?: never; matches?: never; merged?: never; more?: never; page?: never; pair?: never; paste?: never; path?: never; permission?: never; permissions?: never; phone?: never; plan?: never; public_key?: never; pull?: never; pulls?: never; queued?: never; reason?: never; results?: never; revoked?: never; runs?: never; search?: never; seed?: never; sign_in?: never; skills?: never; snapshots?: never; state?: never; stored?: never; task?: never; terminal?: never; top?: never; trees?: never; truncated?: never; url?: never; user_code?: never; verification_uri?: never; version?: never; versions?: never; workspace?: never; written?: never } | 
+({ status: "unknown_agent" }) & { agent?: never; answer?: never; at?: never; attachment?: never; block?: never; book?: never; branches?: never; buckets?: never; callback_port?: never; check?: never; checks?: never; code?: never; command?: never; comments?: never; containers?: never; default_branch?: never; deliveries?: never; departure?: never; detail?: never; diff?: never; error?: never; excerpt?: never; expires_at?: never; failed?: never; files?: never; find?: never; flavor?: never; forward?: never; hashes?: never; hook_url?: never; host_key?: never; id?: never; image?: never; item?: never; keys?: never; list?: never; listing?: never; mac?: never; matches?: never; merged?: never; models?: never; more?: never; page?: never; pair?: never; paste?: never; path?: never; permission?: never; permissions?: never; phone?: never; plan?: never; probe?: never; public_key?: never; pull?: never; pulls?: never; queued?: never; reason?: never; results?: never; revoked?: never; runs?: never; search?: never; seed?: never; server?: never; sign_in?: never; skills?: never; snapshots?: never; state?: never; stored?: never; task?: never; terminal?: never; top?: never; trees?: never; truncated?: never; url?: never; user_code?: never; verification_uri?: never; version?: never; versions?: never; workspace?: never; written?: never } | 
 /**  A container workspace is being made. */
 ({ status: "created"; 
 /**  The new workspace, which shows its progress. */
-workspace: WorkspaceId }) & { agent?: never; answer?: never; at?: never; attachment?: never; block?: never; book?: never; branches?: never; buckets?: never; callback_port?: never; check?: never; checks?: never; code?: never; command?: never; comments?: never; containers?: never; default_branch?: never; deliveries?: never; departure?: never; detail?: never; diff?: never; error?: never; excerpt?: never; expires_at?: never; failed?: never; files?: never; find?: never; forward?: never; hashes?: never; hook_url?: never; host_key?: never; id?: never; image?: never; item?: never; keys?: never; list?: never; listing?: never; mac?: never; matches?: never; merged?: never; more?: never; page?: never; pair?: never; paste?: never; path?: never; permission?: never; permissions?: never; phone?: never; plan?: never; public_key?: never; pull?: never; pulls?: never; queued?: never; reason?: never; results?: never; revoked?: never; runs?: never; search?: never; seed?: never; sign_in?: never; skills?: never; snapshots?: never; state?: never; stored?: never; task?: never; terminal?: never; top?: never; trees?: never; truncated?: never; url?: never; user_code?: never; verification_uri?: never; version?: never; versions?: never; written?: never } | 
+workspace: WorkspaceId }) & { agent?: never; answer?: never; at?: never; attachment?: never; block?: never; book?: never; branches?: never; buckets?: never; callback_port?: never; check?: never; checks?: never; code?: never; command?: never; comments?: never; containers?: never; default_branch?: never; deliveries?: never; departure?: never; detail?: never; diff?: never; error?: never; excerpt?: never; expires_at?: never; failed?: never; files?: never; find?: never; flavor?: never; forward?: never; hashes?: never; hook_url?: never; host_key?: never; id?: never; image?: never; item?: never; keys?: never; list?: never; listing?: never; mac?: never; matches?: never; merged?: never; models?: never; more?: never; page?: never; pair?: never; paste?: never; path?: never; permission?: never; permissions?: never; phone?: never; plan?: never; probe?: never; public_key?: never; pull?: never; pulls?: never; queued?: never; reason?: never; results?: never; revoked?: never; runs?: never; search?: never; seed?: never; server?: never; sign_in?: never; skills?: never; snapshots?: never; state?: never; stored?: never; task?: never; terminal?: never; top?: never; trees?: never; truncated?: never; url?: never; user_code?: never; verification_uri?: never; version?: never; versions?: never; written?: never } | 
 /**
  *  A Sign in with ChatGPT round is waiting. Open `url` in the browser
  *  and listen on 127.0.0.1:`callback_port`.
@@ -242,30 +248,30 @@ sign_in: SignInId;
 /**  The page to open. */
 url: string; 
 /**  The local port the browser comes back to. */
-callback_port: number }) & { agent?: never; answer?: never; at?: never; attachment?: never; block?: never; book?: never; branches?: never; buckets?: never; check?: never; checks?: never; code?: never; command?: never; comments?: never; containers?: never; default_branch?: never; deliveries?: never; departure?: never; detail?: never; diff?: never; error?: never; excerpt?: never; expires_at?: never; failed?: never; files?: never; find?: never; forward?: never; hashes?: never; hook_url?: never; host_key?: never; id?: never; image?: never; item?: never; keys?: never; list?: never; listing?: never; mac?: never; matches?: never; merged?: never; more?: never; page?: never; pair?: never; paste?: never; path?: never; permission?: never; permissions?: never; phone?: never; plan?: never; public_key?: never; pull?: never; pulls?: never; queued?: never; reason?: never; results?: never; revoked?: never; runs?: never; search?: never; seed?: never; skills?: never; snapshots?: never; state?: never; stored?: never; task?: never; terminal?: never; top?: never; trees?: never; truncated?: never; user_code?: never; verification_uri?: never; version?: never; versions?: never; workspace?: never; written?: never } | 
+callback_port: number }) & { agent?: never; answer?: never; at?: never; attachment?: never; block?: never; book?: never; branches?: never; buckets?: never; check?: never; checks?: never; code?: never; command?: never; comments?: never; containers?: never; default_branch?: never; deliveries?: never; departure?: never; detail?: never; diff?: never; error?: never; excerpt?: never; expires_at?: never; failed?: never; files?: never; find?: never; flavor?: never; forward?: never; hashes?: never; hook_url?: never; host_key?: never; id?: never; image?: never; item?: never; keys?: never; list?: never; listing?: never; mac?: never; matches?: never; merged?: never; models?: never; more?: never; page?: never; pair?: never; paste?: never; path?: never; permission?: never; permissions?: never; phone?: never; plan?: never; probe?: never; public_key?: never; pull?: never; pulls?: never; queued?: never; reason?: never; results?: never; revoked?: never; runs?: never; search?: never; seed?: never; server?: never; skills?: never; snapshots?: never; state?: never; stored?: never; task?: never; terminal?: never; top?: never; trees?: never; truncated?: never; user_code?: never; verification_uri?: never; version?: never; versions?: never; workspace?: never; written?: never } | 
 /**  A forward is open. */
 ({ status: "forward_opened"; 
 /**  The new forward. */
-forward: ForwardId }) & { agent?: never; answer?: never; at?: never; attachment?: never; block?: never; book?: never; branches?: never; buckets?: never; callback_port?: never; check?: never; checks?: never; code?: never; command?: never; comments?: never; containers?: never; default_branch?: never; deliveries?: never; departure?: never; detail?: never; diff?: never; error?: never; excerpt?: never; expires_at?: never; failed?: never; files?: never; find?: never; hashes?: never; hook_url?: never; host_key?: never; id?: never; image?: never; item?: never; keys?: never; list?: never; listing?: never; mac?: never; matches?: never; merged?: never; more?: never; page?: never; pair?: never; paste?: never; path?: never; permission?: never; permissions?: never; phone?: never; plan?: never; public_key?: never; pull?: never; pulls?: never; queued?: never; reason?: never; results?: never; revoked?: never; runs?: never; search?: never; seed?: never; sign_in?: never; skills?: never; snapshots?: never; state?: never; stored?: never; task?: never; terminal?: never; top?: never; trees?: never; truncated?: never; url?: never; user_code?: never; verification_uri?: never; version?: never; versions?: never; workspace?: never; written?: never } | 
+forward: ForwardId }) & { agent?: never; answer?: never; at?: never; attachment?: never; block?: never; book?: never; branches?: never; buckets?: never; callback_port?: never; check?: never; checks?: never; code?: never; command?: never; comments?: never; containers?: never; default_branch?: never; deliveries?: never; departure?: never; detail?: never; diff?: never; error?: never; excerpt?: never; expires_at?: never; failed?: never; files?: never; find?: never; flavor?: never; hashes?: never; hook_url?: never; host_key?: never; id?: never; image?: never; item?: never; keys?: never; list?: never; listing?: never; mac?: never; matches?: never; merged?: never; models?: never; more?: never; page?: never; pair?: never; paste?: never; path?: never; permission?: never; permissions?: never; phone?: never; plan?: never; probe?: never; public_key?: never; pull?: never; pulls?: never; queued?: never; reason?: never; results?: never; revoked?: never; runs?: never; search?: never; seed?: never; server?: never; sign_in?: never; skills?: never; snapshots?: never; state?: never; stored?: never; task?: never; terminal?: never; top?: never; trees?: never; truncated?: never; url?: never; user_code?: never; verification_uri?: never; version?: never; versions?: never; workspace?: never; written?: never } | 
 /**  What a [`ClientMessage::FindPaths`] found, best first. */
 ({ status: "paths"; 
 /**  At most [`crate::find::MAX_PATH_MATCHES`]. */
-matches: PathMatch[] }) & { agent?: never; answer?: never; at?: never; attachment?: never; block?: never; book?: never; branches?: never; buckets?: never; callback_port?: never; check?: never; checks?: never; code?: never; command?: never; comments?: never; containers?: never; default_branch?: never; deliveries?: never; departure?: never; detail?: never; diff?: never; error?: never; excerpt?: never; expires_at?: never; failed?: never; files?: never; find?: never; forward?: never; hashes?: never; hook_url?: never; host_key?: never; id?: never; image?: never; item?: never; keys?: never; list?: never; listing?: never; mac?: never; merged?: never; more?: never; page?: never; pair?: never; paste?: never; path?: never; permission?: never; permissions?: never; phone?: never; plan?: never; public_key?: never; pull?: never; pulls?: never; queued?: never; reason?: never; results?: never; revoked?: never; runs?: never; search?: never; seed?: never; sign_in?: never; skills?: never; snapshots?: never; state?: never; stored?: never; task?: never; terminal?: never; top?: never; trees?: never; truncated?: never; url?: never; user_code?: never; verification_uri?: never; version?: never; versions?: never; workspace?: never; written?: never } | 
+matches: PathMatch[] }) & { agent?: never; answer?: never; at?: never; attachment?: never; block?: never; book?: never; branches?: never; buckets?: never; callback_port?: never; check?: never; checks?: never; code?: never; command?: never; comments?: never; containers?: never; default_branch?: never; deliveries?: never; departure?: never; detail?: never; diff?: never; error?: never; excerpt?: never; expires_at?: never; failed?: never; files?: never; find?: never; flavor?: never; forward?: never; hashes?: never; hook_url?: never; host_key?: never; id?: never; image?: never; item?: never; keys?: never; list?: never; listing?: never; mac?: never; merged?: never; models?: never; more?: never; page?: never; pair?: never; paste?: never; path?: never; permission?: never; permissions?: never; phone?: never; plan?: never; probe?: never; public_key?: never; pull?: never; pulls?: never; queued?: never; reason?: never; results?: never; revoked?: never; runs?: never; search?: never; seed?: never; server?: never; sign_in?: never; skills?: never; snapshots?: never; state?: never; stored?: never; task?: never; terminal?: never; top?: never; trees?: never; truncated?: never; url?: never; user_code?: never; verification_uri?: never; version?: never; versions?: never; workspace?: never; written?: never } | 
 /**  What a [`ClientMessage::FindGitItems`] found. */
 ({ status: "git_items"; 
 /**  The repo and what matched, or why nothing could be looked up. */
-search: GitItemSearch }) & { agent?: never; answer?: never; at?: never; attachment?: never; block?: never; book?: never; branches?: never; buckets?: never; callback_port?: never; check?: never; checks?: never; code?: never; command?: never; comments?: never; containers?: never; default_branch?: never; deliveries?: never; departure?: never; detail?: never; diff?: never; error?: never; excerpt?: never; expires_at?: never; failed?: never; files?: never; find?: never; forward?: never; hashes?: never; hook_url?: never; host_key?: never; id?: never; image?: never; item?: never; keys?: never; list?: never; listing?: never; mac?: never; matches?: never; merged?: never; more?: never; page?: never; pair?: never; paste?: never; path?: never; permission?: never; permissions?: never; phone?: never; plan?: never; public_key?: never; pull?: never; pulls?: never; queued?: never; reason?: never; results?: never; revoked?: never; runs?: never; seed?: never; sign_in?: never; skills?: never; snapshots?: never; state?: never; stored?: never; task?: never; terminal?: never; top?: never; trees?: never; truncated?: never; url?: never; user_code?: never; verification_uri?: never; version?: never; versions?: never; workspace?: never; written?: never } | 
+search: GitItemSearch }) & { agent?: never; answer?: never; at?: never; attachment?: never; block?: never; book?: never; branches?: never; buckets?: never; callback_port?: never; check?: never; checks?: never; code?: never; command?: never; comments?: never; containers?: never; default_branch?: never; deliveries?: never; departure?: never; detail?: never; diff?: never; error?: never; excerpt?: never; expires_at?: never; failed?: never; files?: never; find?: never; flavor?: never; forward?: never; hashes?: never; hook_url?: never; host_key?: never; id?: never; image?: never; item?: never; keys?: never; list?: never; listing?: never; mac?: never; matches?: never; merged?: never; models?: never; more?: never; page?: never; pair?: never; paste?: never; path?: never; permission?: never; permissions?: never; phone?: never; plan?: never; probe?: never; public_key?: never; pull?: never; pulls?: never; queued?: never; reason?: never; results?: never; revoked?: never; runs?: never; seed?: never; server?: never; sign_in?: never; skills?: never; snapshots?: never; state?: never; stored?: never; task?: never; terminal?: never; top?: never; trees?: never; truncated?: never; url?: never; user_code?: never; verification_uri?: never; version?: never; versions?: never; workspace?: never; written?: never } | 
 /**  What a [`ClientMessage::ListProcesses`] found. */
 ({ status: "processes"; 
 /**
  *  The agent's processes, or that its guest is too old to list
  *  them.
  */
-list: ProcessList }) & { agent?: never; answer?: never; at?: never; attachment?: never; block?: never; book?: never; branches?: never; buckets?: never; callback_port?: never; check?: never; checks?: never; code?: never; command?: never; comments?: never; containers?: never; default_branch?: never; deliveries?: never; departure?: never; detail?: never; diff?: never; error?: never; excerpt?: never; expires_at?: never; failed?: never; files?: never; find?: never; forward?: never; hashes?: never; hook_url?: never; host_key?: never; id?: never; image?: never; item?: never; keys?: never; listing?: never; mac?: never; matches?: never; merged?: never; more?: never; page?: never; pair?: never; paste?: never; path?: never; permission?: never; permissions?: never; phone?: never; plan?: never; public_key?: never; pull?: never; pulls?: never; queued?: never; reason?: never; results?: never; revoked?: never; runs?: never; search?: never; seed?: never; sign_in?: never; skills?: never; snapshots?: never; state?: never; stored?: never; task?: never; terminal?: never; top?: never; trees?: never; truncated?: never; url?: never; user_code?: never; verification_uri?: never; version?: never; versions?: never; workspace?: never; written?: never } | 
+list: ProcessList }) & { agent?: never; answer?: never; at?: never; attachment?: never; block?: never; book?: never; branches?: never; buckets?: never; callback_port?: never; check?: never; checks?: never; code?: never; command?: never; comments?: never; containers?: never; default_branch?: never; deliveries?: never; departure?: never; detail?: never; diff?: never; error?: never; excerpt?: never; expires_at?: never; failed?: never; files?: never; find?: never; flavor?: never; forward?: never; hashes?: never; hook_url?: never; host_key?: never; id?: never; image?: never; item?: never; keys?: never; listing?: never; mac?: never; matches?: never; merged?: never; models?: never; more?: never; page?: never; pair?: never; paste?: never; path?: never; permission?: never; permissions?: never; phone?: never; plan?: never; probe?: never; public_key?: never; pull?: never; pulls?: never; queued?: never; reason?: never; results?: never; revoked?: never; runs?: never; search?: never; seed?: never; server?: never; sign_in?: never; skills?: never; snapshots?: never; state?: never; stored?: never; task?: never; terminal?: never; top?: never; trees?: never; truncated?: never; url?: never; user_code?: never; verification_uri?: never; version?: never; versions?: never; workspace?: never; written?: never } | 
 /**  The note version a [`ClientMessage::ReadNote`] asked for. */
 ({ status: "note_read"; 
 /**  The version, with its body. */
-version: NoteVersion }) & { agent?: never; answer?: never; at?: never; attachment?: never; block?: never; book?: never; branches?: never; buckets?: never; callback_port?: never; check?: never; checks?: never; code?: never; command?: never; comments?: never; containers?: never; default_branch?: never; deliveries?: never; departure?: never; detail?: never; diff?: never; error?: never; excerpt?: never; expires_at?: never; failed?: never; files?: never; find?: never; forward?: never; hashes?: never; hook_url?: never; host_key?: never; id?: never; image?: never; item?: never; keys?: never; list?: never; listing?: never; mac?: never; matches?: never; merged?: never; more?: never; page?: never; pair?: never; paste?: never; path?: never; permission?: never; permissions?: never; phone?: never; plan?: never; public_key?: never; pull?: never; pulls?: never; queued?: never; reason?: never; results?: never; revoked?: never; runs?: never; search?: never; seed?: never; sign_in?: never; skills?: never; snapshots?: never; state?: never; stored?: never; task?: never; terminal?: never; top?: never; trees?: never; truncated?: never; url?: never; user_code?: never; verification_uri?: never; versions?: never; workspace?: never; written?: never } | 
+version: NoteVersion }) & { agent?: never; answer?: never; at?: never; attachment?: never; block?: never; book?: never; branches?: never; buckets?: never; callback_port?: never; check?: never; checks?: never; code?: never; command?: never; comments?: never; containers?: never; default_branch?: never; deliveries?: never; departure?: never; detail?: never; diff?: never; error?: never; excerpt?: never; expires_at?: never; failed?: never; files?: never; find?: never; flavor?: never; forward?: never; hashes?: never; hook_url?: never; host_key?: never; id?: never; image?: never; item?: never; keys?: never; list?: never; listing?: never; mac?: never; matches?: never; merged?: never; models?: never; more?: never; page?: never; pair?: never; paste?: never; path?: never; permission?: never; permissions?: never; phone?: never; plan?: never; probe?: never; public_key?: never; pull?: never; pulls?: never; queued?: never; reason?: never; results?: never; revoked?: never; runs?: never; search?: never; seed?: never; server?: never; sign_in?: never; skills?: never; snapshots?: never; state?: never; stored?: never; task?: never; terminal?: never; top?: never; trees?: never; truncated?: never; url?: never; user_code?: never; verification_uri?: never; versions?: never; workspace?: never; written?: never } | 
 /**  What a [`ClientMessage::SaveNote`] made the note's head. */
 ({ status: "note_saved"; 
 /**  The new head. */
@@ -274,53 +280,53 @@ version: NoteVersion;
  *  Whether the save merged with changes made since its base, so
  *  the head holds more than what was sent.
  */
-merged: boolean }) & { agent?: never; answer?: never; at?: never; attachment?: never; block?: never; book?: never; branches?: never; buckets?: never; callback_port?: never; check?: never; checks?: never; code?: never; command?: never; comments?: never; containers?: never; default_branch?: never; deliveries?: never; departure?: never; detail?: never; diff?: never; error?: never; excerpt?: never; expires_at?: never; failed?: never; files?: never; find?: never; forward?: never; hashes?: never; hook_url?: never; host_key?: never; id?: never; image?: never; item?: never; keys?: never; list?: never; listing?: never; mac?: never; matches?: never; more?: never; page?: never; pair?: never; paste?: never; path?: never; permission?: never; permissions?: never; phone?: never; plan?: never; public_key?: never; pull?: never; pulls?: never; queued?: never; reason?: never; results?: never; revoked?: never; runs?: never; search?: never; seed?: never; sign_in?: never; skills?: never; snapshots?: never; state?: never; stored?: never; task?: never; terminal?: never; top?: never; trees?: never; truncated?: never; url?: never; user_code?: never; verification_uri?: never; versions?: never; workspace?: never; written?: never } | 
+merged: boolean }) & { agent?: never; answer?: never; at?: never; attachment?: never; block?: never; book?: never; branches?: never; buckets?: never; callback_port?: never; check?: never; checks?: never; code?: never; command?: never; comments?: never; containers?: never; default_branch?: never; deliveries?: never; departure?: never; detail?: never; diff?: never; error?: never; excerpt?: never; expires_at?: never; failed?: never; files?: never; find?: never; flavor?: never; forward?: never; hashes?: never; hook_url?: never; host_key?: never; id?: never; image?: never; item?: never; keys?: never; list?: never; listing?: never; mac?: never; matches?: never; models?: never; more?: never; page?: never; pair?: never; paste?: never; path?: never; permission?: never; permissions?: never; phone?: never; plan?: never; probe?: never; public_key?: never; pull?: never; pulls?: never; queued?: never; reason?: never; results?: never; revoked?: never; runs?: never; search?: never; seed?: never; server?: never; sign_in?: never; skills?: never; snapshots?: never; state?: never; stored?: never; task?: never; terminal?: never; top?: never; trees?: never; truncated?: never; url?: never; user_code?: never; verification_uri?: never; versions?: never; workspace?: never; written?: never } | 
 /**  The versions a [`ClientMessage::NoteHistory`] listed. */
 ({ status: "note_history"; 
 /**  Newest first. */
-versions: NoteVersionInfo[] }) & { agent?: never; answer?: never; at?: never; attachment?: never; block?: never; book?: never; branches?: never; buckets?: never; callback_port?: never; check?: never; checks?: never; code?: never; command?: never; comments?: never; containers?: never; default_branch?: never; deliveries?: never; departure?: never; detail?: never; diff?: never; error?: never; excerpt?: never; expires_at?: never; failed?: never; files?: never; find?: never; forward?: never; hashes?: never; hook_url?: never; host_key?: never; id?: never; image?: never; item?: never; keys?: never; list?: never; listing?: never; mac?: never; matches?: never; merged?: never; more?: never; page?: never; pair?: never; paste?: never; path?: never; permission?: never; permissions?: never; phone?: never; plan?: never; public_key?: never; pull?: never; pulls?: never; queued?: never; reason?: never; results?: never; revoked?: never; runs?: never; search?: never; seed?: never; sign_in?: never; skills?: never; snapshots?: never; state?: never; stored?: never; task?: never; terminal?: never; top?: never; trees?: never; truncated?: never; url?: never; user_code?: never; verification_uri?: never; version?: never; workspace?: never; written?: never } | 
+versions: NoteVersionInfo[] }) & { agent?: never; answer?: never; at?: never; attachment?: never; block?: never; book?: never; branches?: never; buckets?: never; callback_port?: never; check?: never; checks?: never; code?: never; command?: never; comments?: never; containers?: never; default_branch?: never; deliveries?: never; departure?: never; detail?: never; diff?: never; error?: never; excerpt?: never; expires_at?: never; failed?: never; files?: never; find?: never; flavor?: never; forward?: never; hashes?: never; hook_url?: never; host_key?: never; id?: never; image?: never; item?: never; keys?: never; list?: never; listing?: never; mac?: never; matches?: never; merged?: never; models?: never; more?: never; page?: never; pair?: never; paste?: never; path?: never; permission?: never; permissions?: never; phone?: never; plan?: never; probe?: never; public_key?: never; pull?: never; pulls?: never; queued?: never; reason?: never; results?: never; revoked?: never; runs?: never; search?: never; seed?: never; server?: never; sign_in?: never; skills?: never; snapshots?: never; state?: never; stored?: never; task?: never; terminal?: never; top?: never; trees?: never; truncated?: never; url?: never; user_code?: never; verification_uri?: never; version?: never; workspace?: never; written?: never } | 
 /**  The hashes a [`ClientMessage::NoteHashes`] listed. */
 ({ status: "note_hashes"; 
 /**  Every version the device holds for the project, sorted. */
-hashes: VersionHash[] }) & { agent?: never; answer?: never; at?: never; attachment?: never; block?: never; book?: never; branches?: never; buckets?: never; callback_port?: never; check?: never; checks?: never; code?: never; command?: never; comments?: never; containers?: never; default_branch?: never; deliveries?: never; departure?: never; detail?: never; diff?: never; error?: never; excerpt?: never; expires_at?: never; failed?: never; files?: never; find?: never; forward?: never; hook_url?: never; host_key?: never; id?: never; image?: never; item?: never; keys?: never; list?: never; listing?: never; mac?: never; matches?: never; merged?: never; more?: never; page?: never; pair?: never; paste?: never; path?: never; permission?: never; permissions?: never; phone?: never; plan?: never; public_key?: never; pull?: never; pulls?: never; queued?: never; reason?: never; results?: never; revoked?: never; runs?: never; search?: never; seed?: never; sign_in?: never; skills?: never; snapshots?: never; state?: never; stored?: never; task?: never; terminal?: never; top?: never; trees?: never; truncated?: never; url?: never; user_code?: never; verification_uri?: never; version?: never; versions?: never; workspace?: never; written?: never } | 
+hashes: VersionHash[] }) & { agent?: never; answer?: never; at?: never; attachment?: never; block?: never; book?: never; branches?: never; buckets?: never; callback_port?: never; check?: never; checks?: never; code?: never; command?: never; comments?: never; containers?: never; default_branch?: never; deliveries?: never; departure?: never; detail?: never; diff?: never; error?: never; excerpt?: never; expires_at?: never; failed?: never; files?: never; find?: never; flavor?: never; forward?: never; hook_url?: never; host_key?: never; id?: never; image?: never; item?: never; keys?: never; list?: never; listing?: never; mac?: never; matches?: never; merged?: never; models?: never; more?: never; page?: never; pair?: never; paste?: never; path?: never; permission?: never; permissions?: never; phone?: never; plan?: never; probe?: never; public_key?: never; pull?: never; pulls?: never; queued?: never; reason?: never; results?: never; revoked?: never; runs?: never; search?: never; seed?: never; server?: never; sign_in?: never; skills?: never; snapshots?: never; state?: never; stored?: never; task?: never; terminal?: never; top?: never; trees?: never; truncated?: never; url?: never; user_code?: never; verification_uri?: never; version?: never; versions?: never; workspace?: never; written?: never } | 
 /**  The versions a [`ClientMessage::NoteVersions`] read. */
 ({ status: "note_versions"; 
 /**
  *  Those it holds of the ones asked for, in the order asked, maybe
  *  only the first few.
  */
-versions: NoteVersion[] }) & { agent?: never; answer?: never; at?: never; attachment?: never; block?: never; book?: never; branches?: never; buckets?: never; callback_port?: never; check?: never; checks?: never; code?: never; command?: never; comments?: never; containers?: never; default_branch?: never; deliveries?: never; departure?: never; detail?: never; diff?: never; error?: never; excerpt?: never; expires_at?: never; failed?: never; files?: never; find?: never; forward?: never; hashes?: never; hook_url?: never; host_key?: never; id?: never; image?: never; item?: never; keys?: never; list?: never; listing?: never; mac?: never; matches?: never; merged?: never; more?: never; page?: never; pair?: never; paste?: never; path?: never; permission?: never; permissions?: never; phone?: never; plan?: never; public_key?: never; pull?: never; pulls?: never; queued?: never; reason?: never; results?: never; revoked?: never; runs?: never; search?: never; seed?: never; sign_in?: never; skills?: never; snapshots?: never; state?: never; stored?: never; task?: never; terminal?: never; top?: never; trees?: never; truncated?: never; url?: never; user_code?: never; verification_uri?: never; version?: never; workspace?: never; written?: never } | 
+versions: NoteVersion[] }) & { agent?: never; answer?: never; at?: never; attachment?: never; block?: never; book?: never; branches?: never; buckets?: never; callback_port?: never; check?: never; checks?: never; code?: never; command?: never; comments?: never; containers?: never; default_branch?: never; deliveries?: never; departure?: never; detail?: never; diff?: never; error?: never; excerpt?: never; expires_at?: never; failed?: never; files?: never; find?: never; flavor?: never; forward?: never; hashes?: never; hook_url?: never; host_key?: never; id?: never; image?: never; item?: never; keys?: never; list?: never; listing?: never; mac?: never; matches?: never; merged?: never; models?: never; more?: never; page?: never; pair?: never; paste?: never; path?: never; permission?: never; permissions?: never; phone?: never; plan?: never; probe?: never; public_key?: never; pull?: never; pulls?: never; queued?: never; reason?: never; results?: never; revoked?: never; runs?: never; search?: never; seed?: never; server?: never; sign_in?: never; skills?: never; snapshots?: never; state?: never; stored?: never; task?: never; terminal?: never; top?: never; trees?: never; truncated?: never; url?: never; user_code?: never; verification_uri?: never; version?: never; workspace?: never; written?: never } | 
 /**  How many versions a [`ClientMessage::PutNoteVersions`] kept. */
 ({ status: "notes_put"; 
 /**  The versions it didn't hold before. */
-stored: number }) & { agent?: never; answer?: never; at?: never; attachment?: never; block?: never; book?: never; branches?: never; buckets?: never; callback_port?: never; check?: never; checks?: never; code?: never; command?: never; comments?: never; containers?: never; default_branch?: never; deliveries?: never; departure?: never; detail?: never; diff?: never; error?: never; excerpt?: never; expires_at?: never; failed?: never; files?: never; find?: never; forward?: never; hashes?: never; hook_url?: never; host_key?: never; id?: never; image?: never; item?: never; keys?: never; list?: never; listing?: never; mac?: never; matches?: never; merged?: never; more?: never; page?: never; pair?: never; paste?: never; path?: never; permission?: never; permissions?: never; phone?: never; plan?: never; public_key?: never; pull?: never; pulls?: never; queued?: never; reason?: never; results?: never; revoked?: never; runs?: never; search?: never; seed?: never; sign_in?: never; skills?: never; snapshots?: never; state?: never; task?: never; terminal?: never; top?: never; trees?: never; truncated?: never; url?: never; user_code?: never; verification_uri?: never; version?: never; versions?: never; workspace?: never; written?: never } | 
+stored: number }) & { agent?: never; answer?: never; at?: never; attachment?: never; block?: never; book?: never; branches?: never; buckets?: never; callback_port?: never; check?: never; checks?: never; code?: never; command?: never; comments?: never; containers?: never; default_branch?: never; deliveries?: never; departure?: never; detail?: never; diff?: never; error?: never; excerpt?: never; expires_at?: never; failed?: never; files?: never; find?: never; flavor?: never; forward?: never; hashes?: never; hook_url?: never; host_key?: never; id?: never; image?: never; item?: never; keys?: never; list?: never; listing?: never; mac?: never; matches?: never; merged?: never; models?: never; more?: never; page?: never; pair?: never; paste?: never; path?: never; permission?: never; permissions?: never; phone?: never; plan?: never; probe?: never; public_key?: never; pull?: never; pulls?: never; queued?: never; reason?: never; results?: never; revoked?: never; runs?: never; search?: never; seed?: never; server?: never; sign_in?: never; skills?: never; snapshots?: never; state?: never; task?: never; terminal?: never; top?: never; trees?: never; truncated?: never; url?: never; user_code?: never; verification_uri?: never; version?: never; versions?: never; workspace?: never; written?: never } | 
 /**  The excerpt a [`ClientMessage::ExcerptAgent`] asked for. */
 ({ status: "excerpt"; 
 /**  The Markdown and how much it holds. */
-excerpt: AgentExcerpt }) & { agent?: never; answer?: never; at?: never; attachment?: never; block?: never; book?: never; branches?: never; buckets?: never; callback_port?: never; check?: never; checks?: never; code?: never; command?: never; comments?: never; containers?: never; default_branch?: never; deliveries?: never; departure?: never; detail?: never; diff?: never; error?: never; expires_at?: never; failed?: never; files?: never; find?: never; forward?: never; hashes?: never; hook_url?: never; host_key?: never; id?: never; image?: never; item?: never; keys?: never; list?: never; listing?: never; mac?: never; matches?: never; merged?: never; more?: never; page?: never; pair?: never; paste?: never; path?: never; permission?: never; permissions?: never; phone?: never; plan?: never; public_key?: never; pull?: never; pulls?: never; queued?: never; reason?: never; results?: never; revoked?: never; runs?: never; search?: never; seed?: never; sign_in?: never; skills?: never; snapshots?: never; state?: never; stored?: never; task?: never; terminal?: never; top?: never; trees?: never; truncated?: never; url?: never; user_code?: never; verification_uri?: never; version?: never; versions?: never; workspace?: never; written?: never } | 
+excerpt: AgentExcerpt }) & { agent?: never; answer?: never; at?: never; attachment?: never; block?: never; book?: never; branches?: never; buckets?: never; callback_port?: never; check?: never; checks?: never; code?: never; command?: never; comments?: never; containers?: never; default_branch?: never; deliveries?: never; departure?: never; detail?: never; diff?: never; error?: never; expires_at?: never; failed?: never; files?: never; find?: never; flavor?: never; forward?: never; hashes?: never; hook_url?: never; host_key?: never; id?: never; image?: never; item?: never; keys?: never; list?: never; listing?: never; mac?: never; matches?: never; merged?: never; models?: never; more?: never; page?: never; pair?: never; paste?: never; path?: never; permission?: never; permissions?: never; phone?: never; plan?: never; probe?: never; public_key?: never; pull?: never; pulls?: never; queued?: never; reason?: never; results?: never; revoked?: never; runs?: never; search?: never; seed?: never; server?: never; sign_in?: never; skills?: never; snapshots?: never; state?: never; stored?: never; task?: never; terminal?: never; top?: never; trees?: never; truncated?: never; url?: never; user_code?: never; verification_uri?: never; version?: never; versions?: never; workspace?: never; written?: never } | 
 /**  What a [`ClientMessage::FindInTimeline`] found. */
 ({ status: "timeline_find"; 
 /**  The matches and the active one. */
-find: TimelineFind }) & { agent?: never; answer?: never; at?: never; attachment?: never; block?: never; book?: never; branches?: never; buckets?: never; callback_port?: never; check?: never; checks?: never; code?: never; command?: never; comments?: never; containers?: never; default_branch?: never; deliveries?: never; departure?: never; detail?: never; diff?: never; error?: never; excerpt?: never; expires_at?: never; failed?: never; files?: never; forward?: never; hashes?: never; hook_url?: never; host_key?: never; id?: never; image?: never; item?: never; keys?: never; list?: never; listing?: never; mac?: never; matches?: never; merged?: never; more?: never; page?: never; pair?: never; paste?: never; path?: never; permission?: never; permissions?: never; phone?: never; plan?: never; public_key?: never; pull?: never; pulls?: never; queued?: never; reason?: never; results?: never; revoked?: never; runs?: never; search?: never; seed?: never; sign_in?: never; skills?: never; snapshots?: never; state?: never; stored?: never; task?: never; terminal?: never; top?: never; trees?: never; truncated?: never; url?: never; user_code?: never; verification_uri?: never; version?: never; versions?: never; workspace?: never; written?: never } | 
+find: TimelineFind }) & { agent?: never; answer?: never; at?: never; attachment?: never; block?: never; book?: never; branches?: never; buckets?: never; callback_port?: never; check?: never; checks?: never; code?: never; command?: never; comments?: never; containers?: never; default_branch?: never; deliveries?: never; departure?: never; detail?: never; diff?: never; error?: never; excerpt?: never; expires_at?: never; failed?: never; files?: never; flavor?: never; forward?: never; hashes?: never; hook_url?: never; host_key?: never; id?: never; image?: never; item?: never; keys?: never; list?: never; listing?: never; mac?: never; matches?: never; merged?: never; models?: never; more?: never; page?: never; pair?: never; paste?: never; path?: never; permission?: never; permissions?: never; phone?: never; plan?: never; probe?: never; public_key?: never; pull?: never; pulls?: never; queued?: never; reason?: never; results?: never; revoked?: never; runs?: never; search?: never; seed?: never; server?: never; sign_in?: never; skills?: never; snapshots?: never; state?: never; stored?: never; task?: never; terminal?: never; top?: never; trees?: never; truncated?: never; url?: never; user_code?: never; verification_uri?: never; version?: never; versions?: never; workspace?: never; written?: never } | 
 /**  What a [`ClientMessage::ListIgnoredFiles`] found. */
 ({ status: "ignored_files"; 
 /**  The files, sorted by path, at most 200. */
 files: IgnoredFile[]; 
 /**  Whether git listed more than `files` holds. */
-truncated: boolean }) & { agent?: never; answer?: never; at?: never; attachment?: never; block?: never; book?: never; branches?: never; buckets?: never; callback_port?: never; check?: never; checks?: never; code?: never; command?: never; comments?: never; containers?: never; default_branch?: never; deliveries?: never; departure?: never; detail?: never; diff?: never; error?: never; excerpt?: never; expires_at?: never; failed?: never; find?: never; forward?: never; hashes?: never; hook_url?: never; host_key?: never; id?: never; image?: never; item?: never; keys?: never; list?: never; listing?: never; mac?: never; matches?: never; merged?: never; more?: never; page?: never; pair?: never; paste?: never; path?: never; permission?: never; permissions?: never; phone?: never; plan?: never; public_key?: never; pull?: never; pulls?: never; queued?: never; reason?: never; results?: never; revoked?: never; runs?: never; search?: never; seed?: never; sign_in?: never; skills?: never; snapshots?: never; state?: never; stored?: never; task?: never; terminal?: never; top?: never; trees?: never; url?: never; user_code?: never; verification_uri?: never; version?: never; versions?: never; workspace?: never; written?: never } | 
+truncated: boolean }) & { agent?: never; answer?: never; at?: never; attachment?: never; block?: never; book?: never; branches?: never; buckets?: never; callback_port?: never; check?: never; checks?: never; code?: never; command?: never; comments?: never; containers?: never; default_branch?: never; deliveries?: never; departure?: never; detail?: never; diff?: never; error?: never; excerpt?: never; expires_at?: never; failed?: never; find?: never; flavor?: never; forward?: never; hashes?: never; hook_url?: never; host_key?: never; id?: never; image?: never; item?: never; keys?: never; list?: never; listing?: never; mac?: never; matches?: never; merged?: never; models?: never; more?: never; page?: never; pair?: never; paste?: never; path?: never; permission?: never; permissions?: never; phone?: never; plan?: never; probe?: never; public_key?: never; pull?: never; pulls?: never; queued?: never; reason?: never; results?: never; revoked?: never; runs?: never; search?: never; seed?: never; server?: never; sign_in?: never; skills?: never; snapshots?: never; state?: never; stored?: never; task?: never; terminal?: never; top?: never; trees?: never; url?: never; user_code?: never; verification_uri?: never; version?: never; versions?: never; workspace?: never; written?: never } | 
 /**  What a [`ClientMessage::PlaceStaged`] moved in. */
 ({ status: "placed"; 
 /**  How many files went in. */
 written: number; 
 /**  The files that didn't, and why. */
-failed: PlaceFailure[] }) & { agent?: never; answer?: never; at?: never; attachment?: never; block?: never; book?: never; branches?: never; buckets?: never; callback_port?: never; check?: never; checks?: never; code?: never; command?: never; comments?: never; containers?: never; default_branch?: never; deliveries?: never; departure?: never; detail?: never; diff?: never; error?: never; excerpt?: never; expires_at?: never; files?: never; find?: never; forward?: never; hashes?: never; hook_url?: never; host_key?: never; id?: never; image?: never; item?: never; keys?: never; list?: never; listing?: never; mac?: never; matches?: never; merged?: never; more?: never; page?: never; pair?: never; paste?: never; path?: never; permission?: never; permissions?: never; phone?: never; plan?: never; public_key?: never; pull?: never; pulls?: never; queued?: never; reason?: never; results?: never; revoked?: never; runs?: never; search?: never; seed?: never; sign_in?: never; skills?: never; snapshots?: never; state?: never; stored?: never; task?: never; terminal?: never; top?: never; trees?: never; truncated?: never; url?: never; user_code?: never; verification_uri?: never; version?: never; versions?: never; workspace?: never } | 
+failed: PlaceFailure[] }) & { agent?: never; answer?: never; at?: never; attachment?: never; block?: never; book?: never; branches?: never; buckets?: never; callback_port?: never; check?: never; checks?: never; code?: never; command?: never; comments?: never; containers?: never; default_branch?: never; deliveries?: never; departure?: never; detail?: never; diff?: never; error?: never; excerpt?: never; expires_at?: never; files?: never; find?: never; flavor?: never; forward?: never; hashes?: never; hook_url?: never; host_key?: never; id?: never; image?: never; item?: never; keys?: never; list?: never; listing?: never; mac?: never; matches?: never; merged?: never; models?: never; more?: never; page?: never; pair?: never; paste?: never; path?: never; permission?: never; permissions?: never; phone?: never; plan?: never; probe?: never; public_key?: never; pull?: never; pulls?: never; queued?: never; reason?: never; results?: never; revoked?: never; runs?: never; search?: never; seed?: never; server?: never; sign_in?: never; skills?: never; snapshots?: never; state?: never; stored?: never; task?: never; terminal?: never; top?: never; trees?: never; truncated?: never; url?: never; user_code?: never; verification_uri?: never; version?: never; versions?: never; workspace?: never } | 
 /**  The device dropped its ChatGPT sign-in. */
 ({ status: "signed_out"; 
 /**
  *  Whether ChatGPT confirmed it revoked the session. When it didn't,
  *  you disconnect the app in ChatGPT's settings.
  */
-revoked: boolean }) & { agent?: never; answer?: never; at?: never; attachment?: never; block?: never; book?: never; branches?: never; buckets?: never; callback_port?: never; check?: never; checks?: never; code?: never; command?: never; comments?: never; containers?: never; default_branch?: never; deliveries?: never; departure?: never; detail?: never; diff?: never; error?: never; excerpt?: never; expires_at?: never; failed?: never; files?: never; find?: never; forward?: never; hashes?: never; hook_url?: never; host_key?: never; id?: never; image?: never; item?: never; keys?: never; list?: never; listing?: never; mac?: never; matches?: never; merged?: never; more?: never; page?: never; pair?: never; paste?: never; path?: never; permission?: never; permissions?: never; phone?: never; plan?: never; public_key?: never; pull?: never; pulls?: never; queued?: never; reason?: never; results?: never; runs?: never; search?: never; seed?: never; sign_in?: never; skills?: never; snapshots?: never; state?: never; stored?: never; task?: never; terminal?: never; top?: never; trees?: never; truncated?: never; url?: never; user_code?: never; verification_uri?: never; version?: never; versions?: never; workspace?: never; written?: never } | 
+revoked: boolean }) & { agent?: never; answer?: never; at?: never; attachment?: never; block?: never; book?: never; branches?: never; buckets?: never; callback_port?: never; check?: never; checks?: never; code?: never; command?: never; comments?: never; containers?: never; default_branch?: never; deliveries?: never; departure?: never; detail?: never; diff?: never; error?: never; excerpt?: never; expires_at?: never; failed?: never; files?: never; find?: never; flavor?: never; forward?: never; hashes?: never; hook_url?: never; host_key?: never; id?: never; image?: never; item?: never; keys?: never; list?: never; listing?: never; mac?: never; matches?: never; merged?: never; models?: never; more?: never; page?: never; pair?: never; paste?: never; path?: never; permission?: never; permissions?: never; phone?: never; plan?: never; probe?: never; public_key?: never; pull?: never; pulls?: never; queued?: never; reason?: never; results?: never; runs?: never; search?: never; seed?: never; server?: never; sign_in?: never; skills?: never; snapshots?: never; state?: never; stored?: never; task?: never; terminal?: never; top?: never; trees?: never; truncated?: never; url?: never; user_code?: never; verification_uri?: never; version?: never; versions?: never; workspace?: never; written?: never } | 
 /**  The device's free CPU and memory, for [`ClientMessage::ReadLoad`]. */
 {
 	status: "load",
@@ -334,15 +340,15 @@ top: ProcessUse[];
 /**  Each running container workspace's totals. */
 containers: ContainerUse[]; 
 /**  Why some of it couldn't be read, if something went wrong. */
-error: string | null }) & { agent?: never; answer?: never; at?: never; attachment?: never; block?: never; book?: never; branches?: never; callback_port?: never; check?: never; checks?: never; code?: never; command?: never; comments?: never; default_branch?: never; deliveries?: never; departure?: never; detail?: never; diff?: never; excerpt?: never; expires_at?: never; failed?: never; files?: never; find?: never; forward?: never; hashes?: never; hook_url?: never; host_key?: never; id?: never; image?: never; item?: never; keys?: never; list?: never; listing?: never; mac?: never; matches?: never; merged?: never; more?: never; page?: never; pair?: never; paste?: never; path?: never; permission?: never; permissions?: never; phone?: never; plan?: never; public_key?: never; pull?: never; pulls?: never; queued?: never; reason?: never; results?: never; revoked?: never; runs?: never; search?: never; seed?: never; sign_in?: never; skills?: never; snapshots?: never; state?: never; stored?: never; task?: never; terminal?: never; trees?: never; truncated?: never; url?: never; user_code?: never; verification_uri?: never; version?: never; versions?: never; workspace?: never; written?: never } | 
+error: string | null }) & { agent?: never; answer?: never; at?: never; attachment?: never; block?: never; book?: never; branches?: never; callback_port?: never; check?: never; checks?: never; code?: never; command?: never; comments?: never; default_branch?: never; deliveries?: never; departure?: never; detail?: never; diff?: never; excerpt?: never; expires_at?: never; failed?: never; files?: never; find?: never; flavor?: never; forward?: never; hashes?: never; hook_url?: never; host_key?: never; id?: never; image?: never; item?: never; keys?: never; list?: never; listing?: never; mac?: never; matches?: never; merged?: never; models?: never; more?: never; page?: never; pair?: never; paste?: never; path?: never; permission?: never; permissions?: never; phone?: never; plan?: never; probe?: never; public_key?: never; pull?: never; pulls?: never; queued?: never; reason?: never; results?: never; revoked?: never; runs?: never; search?: never; seed?: never; server?: never; sign_in?: never; skills?: never; snapshots?: never; state?: never; stored?: never; task?: never; terminal?: never; trees?: never; truncated?: never; url?: never; user_code?: never; verification_uri?: never; version?: never; versions?: never; workspace?: never; written?: never } | 
 /**  What a [`ClientMessage::CallTool`] came to. */
 ({ status: "tool"; 
 /**  The answer. */
-answer: ToolAnswer }) & { agent?: never; at?: never; attachment?: never; block?: never; book?: never; branches?: never; buckets?: never; callback_port?: never; check?: never; checks?: never; code?: never; command?: never; comments?: never; containers?: never; default_branch?: never; deliveries?: never; departure?: never; detail?: never; diff?: never; error?: never; excerpt?: never; expires_at?: never; failed?: never; files?: never; find?: never; forward?: never; hashes?: never; hook_url?: never; host_key?: never; id?: never; image?: never; item?: never; keys?: never; list?: never; listing?: never; mac?: never; matches?: never; merged?: never; more?: never; page?: never; pair?: never; paste?: never; path?: never; permission?: never; permissions?: never; phone?: never; plan?: never; public_key?: never; pull?: never; pulls?: never; queued?: never; reason?: never; results?: never; revoked?: never; runs?: never; search?: never; seed?: never; sign_in?: never; skills?: never; snapshots?: never; state?: never; stored?: never; task?: never; terminal?: never; top?: never; trees?: never; truncated?: never; url?: never; user_code?: never; verification_uri?: never; version?: never; versions?: never; workspace?: never; written?: never } | 
+answer: ToolAnswer }) & { agent?: never; at?: never; attachment?: never; block?: never; book?: never; branches?: never; buckets?: never; callback_port?: never; check?: never; checks?: never; code?: never; command?: never; comments?: never; containers?: never; default_branch?: never; deliveries?: never; departure?: never; detail?: never; diff?: never; error?: never; excerpt?: never; expires_at?: never; failed?: never; files?: never; find?: never; flavor?: never; forward?: never; hashes?: never; hook_url?: never; host_key?: never; id?: never; image?: never; item?: never; keys?: never; list?: never; listing?: never; mac?: never; matches?: never; merged?: never; models?: never; more?: never; page?: never; pair?: never; paste?: never; path?: never; permission?: never; permissions?: never; phone?: never; plan?: never; probe?: never; public_key?: never; pull?: never; pulls?: never; queued?: never; reason?: never; results?: never; revoked?: never; runs?: never; search?: never; seed?: never; server?: never; sign_in?: never; skills?: never; snapshots?: never; state?: never; stored?: never; task?: never; terminal?: never; top?: never; trees?: never; truncated?: never; url?: never; user_code?: never; verification_uri?: never; version?: never; versions?: never; workspace?: never; written?: never } | 
 /**  What a [`ClientMessage::ListPermissions`] found. */
 ({ status: "permissions"; 
 /**  The permissions, oldest first. */
-permissions: Permission[] }) & { agent?: never; answer?: never; at?: never; attachment?: never; block?: never; book?: never; branches?: never; buckets?: never; callback_port?: never; check?: never; checks?: never; code?: never; command?: never; comments?: never; containers?: never; default_branch?: never; deliveries?: never; departure?: never; detail?: never; diff?: never; error?: never; excerpt?: never; expires_at?: never; failed?: never; files?: never; find?: never; forward?: never; hashes?: never; hook_url?: never; host_key?: never; id?: never; image?: never; item?: never; keys?: never; list?: never; listing?: never; mac?: never; matches?: never; merged?: never; more?: never; page?: never; pair?: never; paste?: never; path?: never; permission?: never; phone?: never; plan?: never; public_key?: never; pull?: never; pulls?: never; queued?: never; reason?: never; results?: never; revoked?: never; runs?: never; search?: never; seed?: never; sign_in?: never; skills?: never; snapshots?: never; state?: never; stored?: never; task?: never; terminal?: never; top?: never; trees?: never; truncated?: never; url?: never; user_code?: never; verification_uri?: never; version?: never; versions?: never; workspace?: never; written?: never } | 
+permissions: Permission[] }) & { agent?: never; answer?: never; at?: never; attachment?: never; block?: never; book?: never; branches?: never; buckets?: never; callback_port?: never; check?: never; checks?: never; code?: never; command?: never; comments?: never; containers?: never; default_branch?: never; deliveries?: never; departure?: never; detail?: never; diff?: never; error?: never; excerpt?: never; expires_at?: never; failed?: never; files?: never; find?: never; flavor?: never; forward?: never; hashes?: never; hook_url?: never; host_key?: never; id?: never; image?: never; item?: never; keys?: never; list?: never; listing?: never; mac?: never; matches?: never; merged?: never; models?: never; more?: never; page?: never; pair?: never; paste?: never; path?: never; permission?: never; phone?: never; plan?: never; probe?: never; public_key?: never; pull?: never; pulls?: never; queued?: never; reason?: never; results?: never; revoked?: never; runs?: never; search?: never; seed?: never; server?: never; sign_in?: never; skills?: never; snapshots?: never; state?: never; stored?: never; task?: never; terminal?: never; top?: never; trees?: never; truncated?: never; url?: never; user_code?: never; verification_uri?: never; version?: never; versions?: never; workspace?: never; written?: never } | 
 /**  The key [`ClientMessage::MintKey`] made. */
 ({ status: "key_minted"; 
 /**  The key's ID. */
@@ -352,11 +358,11 @@ path: string;
 /**  The permission, with the key as its holder. */
 permission: PermissionId; 
 /**  What an MCP client on the device runs to use the key. */
-command: McpCommand }) & { agent?: never; answer?: never; at?: never; attachment?: never; block?: never; book?: never; branches?: never; buckets?: never; callback_port?: never; check?: never; checks?: never; code?: never; comments?: never; containers?: never; default_branch?: never; deliveries?: never; departure?: never; detail?: never; diff?: never; error?: never; excerpt?: never; expires_at?: never; failed?: never; files?: never; find?: never; forward?: never; hashes?: never; hook_url?: never; host_key?: never; image?: never; item?: never; keys?: never; list?: never; listing?: never; mac?: never; matches?: never; merged?: never; more?: never; page?: never; pair?: never; paste?: never; permissions?: never; phone?: never; plan?: never; public_key?: never; pull?: never; pulls?: never; queued?: never; reason?: never; results?: never; revoked?: never; runs?: never; search?: never; seed?: never; sign_in?: never; skills?: never; snapshots?: never; state?: never; stored?: never; task?: never; terminal?: never; top?: never; trees?: never; truncated?: never; url?: never; user_code?: never; verification_uri?: never; version?: never; versions?: never; workspace?: never; written?: never } | 
+command: McpCommand }) & { agent?: never; answer?: never; at?: never; attachment?: never; block?: never; book?: never; branches?: never; buckets?: never; callback_port?: never; check?: never; checks?: never; code?: never; comments?: never; containers?: never; default_branch?: never; deliveries?: never; departure?: never; detail?: never; diff?: never; error?: never; excerpt?: never; expires_at?: never; failed?: never; files?: never; find?: never; flavor?: never; forward?: never; hashes?: never; hook_url?: never; host_key?: never; image?: never; item?: never; keys?: never; list?: never; listing?: never; mac?: never; matches?: never; merged?: never; models?: never; more?: never; page?: never; pair?: never; paste?: never; permissions?: never; phone?: never; plan?: never; probe?: never; public_key?: never; pull?: never; pulls?: never; queued?: never; reason?: never; results?: never; revoked?: never; runs?: never; search?: never; seed?: never; server?: never; sign_in?: never; skills?: never; snapshots?: never; state?: never; stored?: never; task?: never; terminal?: never; top?: never; trees?: never; truncated?: never; url?: never; user_code?: never; verification_uri?: never; version?: never; versions?: never; workspace?: never; written?: never } | 
 /**  What a [`ClientMessage::ListKeys`] found. */
 ({ status: "keys"; 
 /**  The keys, by ID. */
-keys: AccessKey[] }) & { agent?: never; answer?: never; at?: never; attachment?: never; block?: never; book?: never; branches?: never; buckets?: never; callback_port?: never; check?: never; checks?: never; code?: never; command?: never; comments?: never; containers?: never; default_branch?: never; deliveries?: never; departure?: never; detail?: never; diff?: never; error?: never; excerpt?: never; expires_at?: never; failed?: never; files?: never; find?: never; forward?: never; hashes?: never; hook_url?: never; host_key?: never; id?: never; image?: never; item?: never; list?: never; listing?: never; mac?: never; matches?: never; merged?: never; more?: never; page?: never; pair?: never; paste?: never; path?: never; permission?: never; permissions?: never; phone?: never; plan?: never; public_key?: never; pull?: never; pulls?: never; queued?: never; reason?: never; results?: never; revoked?: never; runs?: never; search?: never; seed?: never; sign_in?: never; skills?: never; snapshots?: never; state?: never; stored?: never; task?: never; terminal?: never; top?: never; trees?: never; truncated?: never; url?: never; user_code?: never; verification_uri?: never; version?: never; versions?: never; workspace?: never; written?: never } | 
+keys: AccessKey[] }) & { agent?: never; answer?: never; at?: never; attachment?: never; block?: never; book?: never; branches?: never; buckets?: never; callback_port?: never; check?: never; checks?: never; code?: never; command?: never; comments?: never; containers?: never; default_branch?: never; deliveries?: never; departure?: never; detail?: never; diff?: never; error?: never; excerpt?: never; expires_at?: never; failed?: never; files?: never; find?: never; flavor?: never; forward?: never; hashes?: never; hook_url?: never; host_key?: never; id?: never; image?: never; item?: never; list?: never; listing?: never; mac?: never; matches?: never; merged?: never; models?: never; more?: never; page?: never; pair?: never; paste?: never; path?: never; permission?: never; permissions?: never; phone?: never; plan?: never; probe?: never; public_key?: never; pull?: never; pulls?: never; queued?: never; reason?: never; results?: never; revoked?: never; runs?: never; search?: never; seed?: never; server?: never; sign_in?: never; skills?: never; snapshots?: never; state?: never; stored?: never; task?: never; terminal?: never; top?: never; trees?: never; truncated?: never; url?: never; user_code?: never; verification_uri?: never; version?: never; versions?: never; workspace?: never; written?: never } | 
 /**  The task [`ClientMessage::SaveTask`] stored. */
 ({ status: "task_saved"; 
 /**  The task, as `maxd` keeps it. */
@@ -365,26 +371,26 @@ task: Task;
  *  The webhook's URL, when this save made the webhook. It shows only
  *  this once.
  */
-hook_url: Secret | null }) & { agent?: never; answer?: never; at?: never; attachment?: never; block?: never; book?: never; branches?: never; buckets?: never; callback_port?: never; check?: never; checks?: never; code?: never; command?: never; comments?: never; containers?: never; default_branch?: never; deliveries?: never; departure?: never; detail?: never; diff?: never; error?: never; excerpt?: never; expires_at?: never; failed?: never; files?: never; find?: never; forward?: never; hashes?: never; host_key?: never; id?: never; image?: never; item?: never; keys?: never; list?: never; listing?: never; mac?: never; matches?: never; merged?: never; more?: never; page?: never; pair?: never; paste?: never; path?: never; permission?: never; permissions?: never; phone?: never; plan?: never; public_key?: never; pull?: never; pulls?: never; queued?: never; reason?: never; results?: never; revoked?: never; runs?: never; search?: never; seed?: never; sign_in?: never; skills?: never; snapshots?: never; state?: never; stored?: never; terminal?: never; top?: never; trees?: never; truncated?: never; url?: never; user_code?: never; verification_uri?: never; version?: never; versions?: never; workspace?: never; written?: never } | 
+hook_url: Secret | null }) & { agent?: never; answer?: never; at?: never; attachment?: never; block?: never; book?: never; branches?: never; buckets?: never; callback_port?: never; check?: never; checks?: never; code?: never; command?: never; comments?: never; containers?: never; default_branch?: never; deliveries?: never; departure?: never; detail?: never; diff?: never; error?: never; excerpt?: never; expires_at?: never; failed?: never; files?: never; find?: never; flavor?: never; forward?: never; hashes?: never; host_key?: never; id?: never; image?: never; item?: never; keys?: never; list?: never; listing?: never; mac?: never; matches?: never; merged?: never; models?: never; more?: never; page?: never; pair?: never; paste?: never; path?: never; permission?: never; permissions?: never; phone?: never; plan?: never; probe?: never; public_key?: never; pull?: never; pulls?: never; queued?: never; reason?: never; results?: never; revoked?: never; runs?: never; search?: never; seed?: never; server?: never; sign_in?: never; skills?: never; snapshots?: never; state?: never; stored?: never; terminal?: never; top?: never; trees?: never; truncated?: never; url?: never; user_code?: never; verification_uri?: never; version?: never; versions?: never; workspace?: never; written?: never } | 
 /**
  *  The new URL [`ClientMessage::RotateHookToken`] made. It shows only
  *  this once.
  */
 ({ status: "hook_url"; 
 /**  The URL. */
-url: Secret }) & { agent?: never; answer?: never; at?: never; attachment?: never; block?: never; book?: never; branches?: never; buckets?: never; callback_port?: never; check?: never; checks?: never; code?: never; command?: never; comments?: never; containers?: never; default_branch?: never; deliveries?: never; departure?: never; detail?: never; diff?: never; error?: never; excerpt?: never; expires_at?: never; failed?: never; files?: never; find?: never; forward?: never; hashes?: never; hook_url?: never; host_key?: never; id?: never; image?: never; item?: never; keys?: never; list?: never; listing?: never; mac?: never; matches?: never; merged?: never; more?: never; page?: never; pair?: never; paste?: never; path?: never; permission?: never; permissions?: never; phone?: never; plan?: never; public_key?: never; pull?: never; pulls?: never; queued?: never; reason?: never; results?: never; revoked?: never; runs?: never; search?: never; seed?: never; sign_in?: never; skills?: never; snapshots?: never; state?: never; stored?: never; task?: never; terminal?: never; top?: never; trees?: never; truncated?: never; user_code?: never; verification_uri?: never; version?: never; versions?: never; workspace?: never; written?: never } | 
+url: Secret }) & { agent?: never; answer?: never; at?: never; attachment?: never; block?: never; book?: never; branches?: never; buckets?: never; callback_port?: never; check?: never; checks?: never; code?: never; command?: never; comments?: never; containers?: never; default_branch?: never; deliveries?: never; departure?: never; detail?: never; diff?: never; error?: never; excerpt?: never; expires_at?: never; failed?: never; files?: never; find?: never; flavor?: never; forward?: never; hashes?: never; hook_url?: never; host_key?: never; id?: never; image?: never; item?: never; keys?: never; list?: never; listing?: never; mac?: never; matches?: never; merged?: never; models?: never; more?: never; page?: never; pair?: never; paste?: never; path?: never; permission?: never; permissions?: never; phone?: never; plan?: never; probe?: never; public_key?: never; pull?: never; pulls?: never; queued?: never; reason?: never; results?: never; revoked?: never; runs?: never; search?: never; seed?: never; server?: never; sign_in?: never; skills?: never; snapshots?: never; state?: never; stored?: never; task?: never; terminal?: never; top?: never; trees?: never; truncated?: never; user_code?: never; verification_uri?: never; version?: never; versions?: never; workspace?: never; written?: never } | 
 /**  What a [`ClientMessage::ListRuns`] found. */
 ({ status: "runs"; 
 /**  The runs, newest first. */
-runs: Run[] }) & { agent?: never; answer?: never; at?: never; attachment?: never; block?: never; book?: never; branches?: never; buckets?: never; callback_port?: never; check?: never; checks?: never; code?: never; command?: never; comments?: never; containers?: never; default_branch?: never; deliveries?: never; departure?: never; detail?: never; diff?: never; error?: never; excerpt?: never; expires_at?: never; failed?: never; files?: never; find?: never; forward?: never; hashes?: never; hook_url?: never; host_key?: never; id?: never; image?: never; item?: never; keys?: never; list?: never; listing?: never; mac?: never; matches?: never; merged?: never; more?: never; page?: never; pair?: never; paste?: never; path?: never; permission?: never; permissions?: never; phone?: never; plan?: never; public_key?: never; pull?: never; pulls?: never; queued?: never; reason?: never; results?: never; revoked?: never; search?: never; seed?: never; sign_in?: never; skills?: never; snapshots?: never; state?: never; stored?: never; task?: never; terminal?: never; top?: never; trees?: never; truncated?: never; url?: never; user_code?: never; verification_uri?: never; version?: never; versions?: never; workspace?: never; written?: never } | 
+runs: Run[] }) & { agent?: never; answer?: never; at?: never; attachment?: never; block?: never; book?: never; branches?: never; buckets?: never; callback_port?: never; check?: never; checks?: never; code?: never; command?: never; comments?: never; containers?: never; default_branch?: never; deliveries?: never; departure?: never; detail?: never; diff?: never; error?: never; excerpt?: never; expires_at?: never; failed?: never; files?: never; find?: never; flavor?: never; forward?: never; hashes?: never; hook_url?: never; host_key?: never; id?: never; image?: never; item?: never; keys?: never; list?: never; listing?: never; mac?: never; matches?: never; merged?: never; models?: never; more?: never; page?: never; pair?: never; paste?: never; path?: never; permission?: never; permissions?: never; phone?: never; plan?: never; probe?: never; public_key?: never; pull?: never; pulls?: never; queued?: never; reason?: never; results?: never; revoked?: never; search?: never; seed?: never; server?: never; sign_in?: never; skills?: never; snapshots?: never; state?: never; stored?: never; task?: never; terminal?: never; top?: never; trees?: never; truncated?: never; url?: never; user_code?: never; verification_uri?: never; version?: never; versions?: never; workspace?: never; written?: never } | 
 /**  What a [`ClientMessage::ListDeliveries`] found. */
 ({ status: "deliveries"; 
 /**  The deliveries, newest first. */
-deliveries: TaskDelivery[] }) & { agent?: never; answer?: never; at?: never; attachment?: never; block?: never; book?: never; branches?: never; buckets?: never; callback_port?: never; check?: never; checks?: never; code?: never; command?: never; comments?: never; containers?: never; default_branch?: never; departure?: never; detail?: never; diff?: never; error?: never; excerpt?: never; expires_at?: never; failed?: never; files?: never; find?: never; forward?: never; hashes?: never; hook_url?: never; host_key?: never; id?: never; image?: never; item?: never; keys?: never; list?: never; listing?: never; mac?: never; matches?: never; merged?: never; more?: never; page?: never; pair?: never; paste?: never; path?: never; permission?: never; permissions?: never; phone?: never; plan?: never; public_key?: never; pull?: never; pulls?: never; queued?: never; reason?: never; results?: never; revoked?: never; runs?: never; search?: never; seed?: never; sign_in?: never; skills?: never; snapshots?: never; state?: never; stored?: never; task?: never; terminal?: never; top?: never; trees?: never; truncated?: never; url?: never; user_code?: never; verification_uri?: never; version?: never; versions?: never; workspace?: never; written?: never } | 
+deliveries: TaskDelivery[] }) & { agent?: never; answer?: never; at?: never; attachment?: never; block?: never; book?: never; branches?: never; buckets?: never; callback_port?: never; check?: never; checks?: never; code?: never; command?: never; comments?: never; containers?: never; default_branch?: never; departure?: never; detail?: never; diff?: never; error?: never; excerpt?: never; expires_at?: never; failed?: never; files?: never; find?: never; flavor?: never; forward?: never; hashes?: never; hook_url?: never; host_key?: never; id?: never; image?: never; item?: never; keys?: never; list?: never; listing?: never; mac?: never; matches?: never; merged?: never; models?: never; more?: never; page?: never; pair?: never; paste?: never; path?: never; permission?: never; permissions?: never; phone?: never; plan?: never; probe?: never; public_key?: never; pull?: never; pulls?: never; queued?: never; reason?: never; results?: never; revoked?: never; runs?: never; search?: never; seed?: never; server?: never; sign_in?: never; skills?: never; snapshots?: never; state?: never; stored?: never; task?: never; terminal?: never; top?: never; trees?: never; truncated?: never; url?: never; user_code?: never; verification_uri?: never; version?: never; versions?: never; workspace?: never; written?: never } | 
 /**  The device's own SSH key, as `ssh-ed25519 <base64>`. */
 ({ status: "peer_key"; 
 /**  The public half. The private half never leaves the device. */
-public_key: string }) & { agent?: never; answer?: never; at?: never; attachment?: never; block?: never; book?: never; branches?: never; buckets?: never; callback_port?: never; check?: never; checks?: never; code?: never; command?: never; comments?: never; containers?: never; default_branch?: never; deliveries?: never; departure?: never; detail?: never; diff?: never; error?: never; excerpt?: never; expires_at?: never; failed?: never; files?: never; find?: never; forward?: never; hashes?: never; hook_url?: never; host_key?: never; id?: never; image?: never; item?: never; keys?: never; list?: never; listing?: never; mac?: never; matches?: never; merged?: never; more?: never; page?: never; pair?: never; paste?: never; path?: never; permission?: never; permissions?: never; phone?: never; plan?: never; pull?: never; pulls?: never; queued?: never; reason?: never; results?: never; revoked?: never; runs?: never; search?: never; seed?: never; sign_in?: never; skills?: never; snapshots?: never; state?: never; stored?: never; task?: never; terminal?: never; top?: never; trees?: never; truncated?: never; url?: never; user_code?: never; verification_uri?: never; version?: never; versions?: never; workspace?: never; written?: never } | 
+public_key: string }) & { agent?: never; answer?: never; at?: never; attachment?: never; block?: never; book?: never; branches?: never; buckets?: never; callback_port?: never; check?: never; checks?: never; code?: never; command?: never; comments?: never; containers?: never; default_branch?: never; deliveries?: never; departure?: never; detail?: never; diff?: never; error?: never; excerpt?: never; expires_at?: never; failed?: never; files?: never; find?: never; flavor?: never; forward?: never; hashes?: never; hook_url?: never; host_key?: never; id?: never; image?: never; item?: never; keys?: never; list?: never; listing?: never; mac?: never; matches?: never; merged?: never; models?: never; more?: never; page?: never; pair?: never; paste?: never; path?: never; permission?: never; permissions?: never; phone?: never; plan?: never; probe?: never; pull?: never; pulls?: never; queued?: never; reason?: never; results?: never; revoked?: never; runs?: never; search?: never; seed?: never; server?: never; sign_in?: never; skills?: never; snapshots?: never; state?: never; stored?: never; task?: never; terminal?: never; top?: never; trees?: never; truncated?: never; url?: never; user_code?: never; verification_uri?: never; version?: never; versions?: never; workspace?: never; written?: never } | 
 /**
  *  A GitHub sign-in waits for you: open `verification_uri` and enter
  *  `user_code`.
@@ -397,7 +403,7 @@ user_code: string;
 /**  The page to enter it on. */
 verification_uri: string; 
 /**  When the code stops working. */
-expires_at: Timestamp }) & { agent?: never; answer?: never; at?: never; attachment?: never; block?: never; book?: never; branches?: never; buckets?: never; callback_port?: never; check?: never; checks?: never; code?: never; command?: never; comments?: never; containers?: never; default_branch?: never; deliveries?: never; departure?: never; detail?: never; diff?: never; error?: never; excerpt?: never; failed?: never; files?: never; find?: never; forward?: never; hashes?: never; hook_url?: never; host_key?: never; id?: never; image?: never; item?: never; keys?: never; list?: never; listing?: never; mac?: never; matches?: never; merged?: never; more?: never; page?: never; pair?: never; paste?: never; path?: never; permission?: never; permissions?: never; phone?: never; plan?: never; public_key?: never; pull?: never; pulls?: never; queued?: never; reason?: never; results?: never; revoked?: never; runs?: never; search?: never; seed?: never; skills?: never; snapshots?: never; state?: never; stored?: never; task?: never; terminal?: never; top?: never; trees?: never; truncated?: never; url?: never; version?: never; versions?: never; workspace?: never; written?: never } | 
+expires_at: Timestamp }) & { agent?: never; answer?: never; at?: never; attachment?: never; block?: never; book?: never; branches?: never; buckets?: never; callback_port?: never; check?: never; checks?: never; code?: never; command?: never; comments?: never; containers?: never; default_branch?: never; deliveries?: never; departure?: never; detail?: never; diff?: never; error?: never; excerpt?: never; failed?: never; files?: never; find?: never; flavor?: never; forward?: never; hashes?: never; hook_url?: never; host_key?: never; id?: never; image?: never; item?: never; keys?: never; list?: never; listing?: never; mac?: never; matches?: never; merged?: never; models?: never; more?: never; page?: never; pair?: never; paste?: never; path?: never; permission?: never; permissions?: never; phone?: never; plan?: never; probe?: never; public_key?: never; pull?: never; pulls?: never; queued?: never; reason?: never; results?: never; revoked?: never; runs?: never; search?: never; seed?: never; server?: never; skills?: never; snapshots?: never; state?: never; stored?: never; task?: never; terminal?: never; top?: never; trees?: never; truncated?: never; url?: never; version?: never; versions?: never; workspace?: never; written?: never } | 
 /**  A CLI login waits for you: open `url` and sign in there. */
 ({ status: "cli_login"; 
 /**  The sign-in, for [`ClientMessage::CheckCliLogin`]. */
@@ -410,35 +416,35 @@ user_code: string | null;
  *  Whether the page shows a code to paste back with
  *  [`ClientMessage::FinishCliLogin`].
  */
-paste: boolean }) & { agent?: never; answer?: never; at?: never; attachment?: never; block?: never; book?: never; branches?: never; buckets?: never; callback_port?: never; check?: never; checks?: never; code?: never; command?: never; comments?: never; containers?: never; default_branch?: never; deliveries?: never; departure?: never; detail?: never; diff?: never; error?: never; excerpt?: never; expires_at?: never; failed?: never; files?: never; find?: never; forward?: never; hashes?: never; hook_url?: never; host_key?: never; id?: never; image?: never; item?: never; keys?: never; list?: never; listing?: never; mac?: never; matches?: never; merged?: never; more?: never; page?: never; pair?: never; path?: never; permission?: never; permissions?: never; phone?: never; plan?: never; public_key?: never; pull?: never; pulls?: never; queued?: never; reason?: never; results?: never; revoked?: never; runs?: never; search?: never; seed?: never; skills?: never; snapshots?: never; state?: never; stored?: never; task?: never; terminal?: never; top?: never; trees?: never; truncated?: never; verification_uri?: never; version?: never; versions?: never; workspace?: never; written?: never } | 
+paste: boolean }) & { agent?: never; answer?: never; at?: never; attachment?: never; block?: never; book?: never; branches?: never; buckets?: never; callback_port?: never; check?: never; checks?: never; code?: never; command?: never; comments?: never; containers?: never; default_branch?: never; deliveries?: never; departure?: never; detail?: never; diff?: never; error?: never; excerpt?: never; expires_at?: never; failed?: never; files?: never; find?: never; flavor?: never; forward?: never; hashes?: never; hook_url?: never; host_key?: never; id?: never; image?: never; item?: never; keys?: never; list?: never; listing?: never; mac?: never; matches?: never; merged?: never; models?: never; more?: never; page?: never; pair?: never; path?: never; permission?: never; permissions?: never; phone?: never; plan?: never; probe?: never; public_key?: never; pull?: never; pulls?: never; queued?: never; reason?: never; results?: never; revoked?: never; runs?: never; search?: never; seed?: never; server?: never; skills?: never; snapshots?: never; state?: never; stored?: never; task?: never; terminal?: never; top?: never; trees?: never; truncated?: never; verification_uri?: never; version?: never; versions?: never; workspace?: never; written?: never } | 
 /**  How a CLI login stands. */
 ({ status: "cli_login_state"; 
 /**  Where it is now. */
-state: CliLoginState }) & { agent?: never; answer?: never; at?: never; attachment?: never; block?: never; book?: never; branches?: never; buckets?: never; callback_port?: never; check?: never; checks?: never; code?: never; command?: never; comments?: never; containers?: never; default_branch?: never; deliveries?: never; departure?: never; detail?: never; diff?: never; error?: never; excerpt?: never; expires_at?: never; failed?: never; files?: never; find?: never; forward?: never; hashes?: never; hook_url?: never; host_key?: never; id?: never; image?: never; item?: never; keys?: never; list?: never; listing?: never; mac?: never; matches?: never; merged?: never; more?: never; page?: never; pair?: never; paste?: never; path?: never; permission?: never; permissions?: never; phone?: never; plan?: never; public_key?: never; pull?: never; pulls?: never; queued?: never; reason?: never; results?: never; revoked?: never; runs?: never; search?: never; seed?: never; sign_in?: never; skills?: never; snapshots?: never; stored?: never; task?: never; terminal?: never; top?: never; trees?: never; truncated?: never; url?: never; user_code?: never; verification_uri?: never; version?: never; versions?: never; workspace?: never; written?: never } | 
+state: CliLoginState }) & { agent?: never; answer?: never; at?: never; attachment?: never; block?: never; book?: never; branches?: never; buckets?: never; callback_port?: never; check?: never; checks?: never; code?: never; command?: never; comments?: never; containers?: never; default_branch?: never; deliveries?: never; departure?: never; detail?: never; diff?: never; error?: never; excerpt?: never; expires_at?: never; failed?: never; files?: never; find?: never; flavor?: never; forward?: never; hashes?: never; hook_url?: never; host_key?: never; id?: never; image?: never; item?: never; keys?: never; list?: never; listing?: never; mac?: never; matches?: never; merged?: never; models?: never; more?: never; page?: never; pair?: never; paste?: never; path?: never; permission?: never; permissions?: never; phone?: never; plan?: never; probe?: never; public_key?: never; pull?: never; pulls?: never; queued?: never; reason?: never; results?: never; revoked?: never; runs?: never; search?: never; seed?: never; server?: never; sign_in?: never; skills?: never; snapshots?: never; stored?: never; task?: never; terminal?: never; top?: never; trees?: never; truncated?: never; url?: never; user_code?: never; verification_uri?: never; version?: never; versions?: never; workspace?: never; written?: never } | 
 /**  What a [`ClientMessage::ListPulls`] found. */
 ({ status: "pulls"; 
 /**  The PRs, newest change first. */
-pulls: PullSummary[] }) & { agent?: never; answer?: never; at?: never; attachment?: never; block?: never; book?: never; branches?: never; buckets?: never; callback_port?: never; check?: never; checks?: never; code?: never; command?: never; comments?: never; containers?: never; default_branch?: never; deliveries?: never; departure?: never; detail?: never; diff?: never; error?: never; excerpt?: never; expires_at?: never; failed?: never; files?: never; find?: never; forward?: never; hashes?: never; hook_url?: never; host_key?: never; id?: never; image?: never; item?: never; keys?: never; list?: never; listing?: never; mac?: never; matches?: never; merged?: never; more?: never; page?: never; pair?: never; paste?: never; path?: never; permission?: never; permissions?: never; phone?: never; plan?: never; public_key?: never; pull?: never; queued?: never; reason?: never; results?: never; revoked?: never; runs?: never; search?: never; seed?: never; sign_in?: never; skills?: never; snapshots?: never; state?: never; stored?: never; task?: never; terminal?: never; top?: never; trees?: never; truncated?: never; url?: never; user_code?: never; verification_uri?: never; version?: never; versions?: never; workspace?: never; written?: never } | 
+pulls: PullSummary[] }) & { agent?: never; answer?: never; at?: never; attachment?: never; block?: never; book?: never; branches?: never; buckets?: never; callback_port?: never; check?: never; checks?: never; code?: never; command?: never; comments?: never; containers?: never; default_branch?: never; deliveries?: never; departure?: never; detail?: never; diff?: never; error?: never; excerpt?: never; expires_at?: never; failed?: never; files?: never; find?: never; flavor?: never; forward?: never; hashes?: never; hook_url?: never; host_key?: never; id?: never; image?: never; item?: never; keys?: never; list?: never; listing?: never; mac?: never; matches?: never; merged?: never; models?: never; more?: never; page?: never; pair?: never; paste?: never; path?: never; permission?: never; permissions?: never; phone?: never; plan?: never; probe?: never; public_key?: never; pull?: never; queued?: never; reason?: never; results?: never; revoked?: never; runs?: never; search?: never; seed?: never; server?: never; sign_in?: never; skills?: never; snapshots?: never; state?: never; stored?: never; task?: never; terminal?: never; top?: never; trees?: never; truncated?: never; url?: never; user_code?: never; verification_uri?: never; version?: never; versions?: never; workspace?: never; written?: never } | 
 /**  What a [`ClientMessage::ListBranches`] found. */
 ({ status: "branches"; 
 /**  The branches by name, at most the first 100. */
 branches: string[]; 
 /**  The repository's default branch, when GitHub said. */
-default_branch: string | null }) & { agent?: never; answer?: never; at?: never; attachment?: never; block?: never; book?: never; buckets?: never; callback_port?: never; check?: never; checks?: never; code?: never; command?: never; comments?: never; containers?: never; deliveries?: never; departure?: never; detail?: never; diff?: never; error?: never; excerpt?: never; expires_at?: never; failed?: never; files?: never; find?: never; forward?: never; hashes?: never; hook_url?: never; host_key?: never; id?: never; image?: never; item?: never; keys?: never; list?: never; listing?: never; mac?: never; matches?: never; merged?: never; more?: never; page?: never; pair?: never; paste?: never; path?: never; permission?: never; permissions?: never; phone?: never; plan?: never; public_key?: never; pull?: never; pulls?: never; queued?: never; reason?: never; results?: never; revoked?: never; runs?: never; search?: never; seed?: never; sign_in?: never; skills?: never; snapshots?: never; state?: never; stored?: never; task?: never; terminal?: never; top?: never; trees?: never; truncated?: never; url?: never; user_code?: never; verification_uri?: never; version?: never; versions?: never; workspace?: never; written?: never } | 
+default_branch: string | null }) & { agent?: never; answer?: never; at?: never; attachment?: never; block?: never; book?: never; buckets?: never; callback_port?: never; check?: never; checks?: never; code?: never; command?: never; comments?: never; containers?: never; deliveries?: never; departure?: never; detail?: never; diff?: never; error?: never; excerpt?: never; expires_at?: never; failed?: never; files?: never; find?: never; flavor?: never; forward?: never; hashes?: never; hook_url?: never; host_key?: never; id?: never; image?: never; item?: never; keys?: never; list?: never; listing?: never; mac?: never; matches?: never; merged?: never; models?: never; more?: never; page?: never; pair?: never; paste?: never; path?: never; permission?: never; permissions?: never; phone?: never; plan?: never; probe?: never; public_key?: never; pull?: never; pulls?: never; queued?: never; reason?: never; results?: never; revoked?: never; runs?: never; search?: never; seed?: never; server?: never; sign_in?: never; skills?: never; snapshots?: never; state?: never; stored?: never; task?: never; terminal?: never; top?: never; trees?: never; truncated?: never; url?: never; user_code?: never; verification_uri?: never; version?: never; versions?: never; workspace?: never; written?: never } | 
 /**  What a [`ClientMessage::GetPull`] read. */
 ({ status: "pull"; 
 /**  The PR. */
-pull: PullDetail }) & { agent?: never; answer?: never; at?: never; attachment?: never; block?: never; book?: never; branches?: never; buckets?: never; callback_port?: never; check?: never; checks?: never; code?: never; command?: never; comments?: never; containers?: never; default_branch?: never; deliveries?: never; departure?: never; detail?: never; diff?: never; error?: never; excerpt?: never; expires_at?: never; failed?: never; files?: never; find?: never; forward?: never; hashes?: never; hook_url?: never; host_key?: never; id?: never; image?: never; item?: never; keys?: never; list?: never; listing?: never; mac?: never; matches?: never; merged?: never; more?: never; page?: never; pair?: never; paste?: never; path?: never; permission?: never; permissions?: never; phone?: never; plan?: never; public_key?: never; pulls?: never; queued?: never; reason?: never; results?: never; revoked?: never; runs?: never; search?: never; seed?: never; sign_in?: never; skills?: never; snapshots?: never; state?: never; stored?: never; task?: never; terminal?: never; top?: never; trees?: never; truncated?: never; url?: never; user_code?: never; verification_uri?: never; version?: never; versions?: never; workspace?: never; written?: never } | 
+pull: PullDetail }) & { agent?: never; answer?: never; at?: never; attachment?: never; block?: never; book?: never; branches?: never; buckets?: never; callback_port?: never; check?: never; checks?: never; code?: never; command?: never; comments?: never; containers?: never; default_branch?: never; deliveries?: never; departure?: never; detail?: never; diff?: never; error?: never; excerpt?: never; expires_at?: never; failed?: never; files?: never; find?: never; flavor?: never; forward?: never; hashes?: never; hook_url?: never; host_key?: never; id?: never; image?: never; item?: never; keys?: never; list?: never; listing?: never; mac?: never; matches?: never; merged?: never; models?: never; more?: never; page?: never; pair?: never; paste?: never; path?: never; permission?: never; permissions?: never; phone?: never; plan?: never; probe?: never; public_key?: never; pulls?: never; queued?: never; reason?: never; results?: never; revoked?: never; runs?: never; search?: never; seed?: never; server?: never; sign_in?: never; skills?: never; snapshots?: never; state?: never; stored?: never; task?: never; terminal?: never; top?: never; trees?: never; truncated?: never; url?: never; user_code?: never; verification_uri?: never; version?: never; versions?: never; workspace?: never; written?: never } | 
 /**  What a [`ClientMessage::PullFiles`] read. */
 ({ status: "pull_files"; 
 /**  The page's files. */
 files: PullFile[]; 
 /**  Whether another page follows. */
-more: boolean }) & { agent?: never; answer?: never; at?: never; attachment?: never; block?: never; book?: never; branches?: never; buckets?: never; callback_port?: never; check?: never; checks?: never; code?: never; command?: never; comments?: never; containers?: never; default_branch?: never; deliveries?: never; departure?: never; detail?: never; diff?: never; error?: never; excerpt?: never; expires_at?: never; failed?: never; find?: never; forward?: never; hashes?: never; hook_url?: never; host_key?: never; id?: never; image?: never; item?: never; keys?: never; list?: never; listing?: never; mac?: never; matches?: never; merged?: never; page?: never; pair?: never; paste?: never; path?: never; permission?: never; permissions?: never; phone?: never; plan?: never; public_key?: never; pull?: never; pulls?: never; queued?: never; reason?: never; results?: never; revoked?: never; runs?: never; search?: never; seed?: never; sign_in?: never; skills?: never; snapshots?: never; state?: never; stored?: never; task?: never; terminal?: never; top?: never; trees?: never; truncated?: never; url?: never; user_code?: never; verification_uri?: never; version?: never; versions?: never; workspace?: never; written?: never } | 
+more: boolean }) & { agent?: never; answer?: never; at?: never; attachment?: never; block?: never; book?: never; branches?: never; buckets?: never; callback_port?: never; check?: never; checks?: never; code?: never; command?: never; comments?: never; containers?: never; default_branch?: never; deliveries?: never; departure?: never; detail?: never; diff?: never; error?: never; excerpt?: never; expires_at?: never; failed?: never; find?: never; flavor?: never; forward?: never; hashes?: never; hook_url?: never; host_key?: never; id?: never; image?: never; item?: never; keys?: never; list?: never; listing?: never; mac?: never; matches?: never; merged?: never; models?: never; page?: never; pair?: never; paste?: never; path?: never; permission?: never; permissions?: never; phone?: never; plan?: never; probe?: never; public_key?: never; pull?: never; pulls?: never; queued?: never; reason?: never; results?: never; revoked?: never; runs?: never; search?: never; seed?: never; server?: never; sign_in?: never; skills?: never; snapshots?: never; state?: never; stored?: never; task?: never; terminal?: never; top?: never; trees?: never; truncated?: never; url?: never; user_code?: never; verification_uri?: never; version?: never; versions?: never; workspace?: never; written?: never } | 
 /**  What a [`ClientMessage::PullComments`] read. */
 ({ status: "pull_comments"; 
 /**  The comments, oldest first. */
-comments: PullComment[] }) & { agent?: never; answer?: never; at?: never; attachment?: never; block?: never; book?: never; branches?: never; buckets?: never; callback_port?: never; check?: never; checks?: never; code?: never; command?: never; containers?: never; default_branch?: never; deliveries?: never; departure?: never; detail?: never; diff?: never; error?: never; excerpt?: never; expires_at?: never; failed?: never; files?: never; find?: never; forward?: never; hashes?: never; hook_url?: never; host_key?: never; id?: never; image?: never; item?: never; keys?: never; list?: never; listing?: never; mac?: never; matches?: never; merged?: never; more?: never; page?: never; pair?: never; paste?: never; path?: never; permission?: never; permissions?: never; phone?: never; plan?: never; public_key?: never; pull?: never; pulls?: never; queued?: never; reason?: never; results?: never; revoked?: never; runs?: never; search?: never; seed?: never; sign_in?: never; skills?: never; snapshots?: never; state?: never; stored?: never; task?: never; terminal?: never; top?: never; trees?: never; truncated?: never; url?: never; user_code?: never; verification_uri?: never; version?: never; versions?: never; workspace?: never; written?: never } | 
+comments: PullComment[] }) & { agent?: never; answer?: never; at?: never; attachment?: never; block?: never; book?: never; branches?: never; buckets?: never; callback_port?: never; check?: never; checks?: never; code?: never; command?: never; containers?: never; default_branch?: never; deliveries?: never; departure?: never; detail?: never; diff?: never; error?: never; excerpt?: never; expires_at?: never; failed?: never; files?: never; find?: never; flavor?: never; forward?: never; hashes?: never; hook_url?: never; host_key?: never; id?: never; image?: never; item?: never; keys?: never; list?: never; listing?: never; mac?: never; matches?: never; merged?: never; models?: never; more?: never; page?: never; pair?: never; paste?: never; path?: never; permission?: never; permissions?: never; phone?: never; plan?: never; probe?: never; public_key?: never; pull?: never; pulls?: never; queued?: never; reason?: never; results?: never; revoked?: never; runs?: never; search?: never; seed?: never; server?: never; sign_in?: never; skills?: never; snapshots?: never; state?: never; stored?: never; task?: never; terminal?: never; top?: never; trees?: never; truncated?: never; url?: never; user_code?: never; verification_uri?: never; version?: never; versions?: never; workspace?: never; written?: never } | 
 /**  What a [`ClientMessage::PullChecks`] read. */
 ({ status: "pull_checks"; 
 /**
@@ -447,47 +453,47 @@ comments: PullComment[] }) & { agent?: never; answer?: never; at?: never; attach
  */
 state: ChecksState; 
 /**  Each check. */
-checks: PullCheck[] }) & { agent?: never; answer?: never; at?: never; attachment?: never; block?: never; book?: never; branches?: never; buckets?: never; callback_port?: never; check?: never; code?: never; command?: never; comments?: never; containers?: never; default_branch?: never; deliveries?: never; departure?: never; detail?: never; diff?: never; error?: never; excerpt?: never; expires_at?: never; failed?: never; files?: never; find?: never; forward?: never; hashes?: never; hook_url?: never; host_key?: never; id?: never; image?: never; item?: never; keys?: never; list?: never; listing?: never; mac?: never; matches?: never; merged?: never; more?: never; page?: never; pair?: never; paste?: never; path?: never; permission?: never; permissions?: never; phone?: never; plan?: never; public_key?: never; pull?: never; pulls?: never; queued?: never; reason?: never; results?: never; revoked?: never; runs?: never; search?: never; seed?: never; sign_in?: never; skills?: never; snapshots?: never; stored?: never; task?: never; terminal?: never; top?: never; trees?: never; truncated?: never; url?: never; user_code?: never; verification_uri?: never; version?: never; versions?: never; workspace?: never; written?: never } | 
+checks: PullCheck[] }) & { agent?: never; answer?: never; at?: never; attachment?: never; block?: never; book?: never; branches?: never; buckets?: never; callback_port?: never; check?: never; code?: never; command?: never; comments?: never; containers?: never; default_branch?: never; deliveries?: never; departure?: never; detail?: never; diff?: never; error?: never; excerpt?: never; expires_at?: never; failed?: never; files?: never; find?: never; flavor?: never; forward?: never; hashes?: never; hook_url?: never; host_key?: never; id?: never; image?: never; item?: never; keys?: never; list?: never; listing?: never; mac?: never; matches?: never; merged?: never; models?: never; more?: never; page?: never; pair?: never; paste?: never; path?: never; permission?: never; permissions?: never; phone?: never; plan?: never; probe?: never; public_key?: never; pull?: never; pulls?: never; queued?: never; reason?: never; results?: never; revoked?: never; runs?: never; search?: never; seed?: never; server?: never; sign_in?: never; skills?: never; snapshots?: never; stored?: never; task?: never; terminal?: never; top?: never; trees?: never; truncated?: never; url?: never; user_code?: never; verification_uri?: never; version?: never; versions?: never; workspace?: never; written?: never } | 
 /**  What a merge from [`ClientMessage::PullAction`] came to. */
 ({ status: "pull_merged"; 
 /**
  *  GitHub took the merge but the PR is still open, as in a merge
  *  queue.
  */
-queued: boolean }) & { agent?: never; answer?: never; at?: never; attachment?: never; block?: never; book?: never; branches?: never; buckets?: never; callback_port?: never; check?: never; checks?: never; code?: never; command?: never; comments?: never; containers?: never; default_branch?: never; deliveries?: never; departure?: never; detail?: never; diff?: never; error?: never; excerpt?: never; expires_at?: never; failed?: never; files?: never; find?: never; forward?: never; hashes?: never; hook_url?: never; host_key?: never; id?: never; image?: never; item?: never; keys?: never; list?: never; listing?: never; mac?: never; matches?: never; merged?: never; more?: never; page?: never; pair?: never; paste?: never; path?: never; permission?: never; permissions?: never; phone?: never; plan?: never; public_key?: never; pull?: never; pulls?: never; reason?: never; results?: never; revoked?: never; runs?: never; search?: never; seed?: never; sign_in?: never; skills?: never; snapshots?: never; state?: never; stored?: never; task?: never; terminal?: never; top?: never; trees?: never; truncated?: never; url?: never; user_code?: never; verification_uri?: never; version?: never; versions?: never; workspace?: never; written?: never } | 
+queued: boolean }) & { agent?: never; answer?: never; at?: never; attachment?: never; block?: never; book?: never; branches?: never; buckets?: never; callback_port?: never; check?: never; checks?: never; code?: never; command?: never; comments?: never; containers?: never; default_branch?: never; deliveries?: never; departure?: never; detail?: never; diff?: never; error?: never; excerpt?: never; expires_at?: never; failed?: never; files?: never; find?: never; flavor?: never; forward?: never; hashes?: never; hook_url?: never; host_key?: never; id?: never; image?: never; item?: never; keys?: never; list?: never; listing?: never; mac?: never; matches?: never; merged?: never; models?: never; more?: never; page?: never; pair?: never; paste?: never; path?: never; permission?: never; permissions?: never; phone?: never; plan?: never; probe?: never; public_key?: never; pull?: never; pulls?: never; reason?: never; results?: never; revoked?: never; runs?: never; search?: never; seed?: never; server?: never; sign_in?: never; skills?: never; snapshots?: never; state?: never; stored?: never; task?: never; terminal?: never; top?: never; trees?: never; truncated?: never; url?: never; user_code?: never; verification_uri?: never; version?: never; versions?: never; workspace?: never; written?: never } | 
 /**  A workspace's snapshots, from [`ClientMessage::ListSnapshots`]. */
 ({ status: "snapshots"; 
 /**  Each one, oldest first. */
-snapshots: WorkspaceSnapshot[] }) & { agent?: never; answer?: never; at?: never; attachment?: never; block?: never; book?: never; branches?: never; buckets?: never; callback_port?: never; check?: never; checks?: never; code?: never; command?: never; comments?: never; containers?: never; default_branch?: never; deliveries?: never; departure?: never; detail?: never; diff?: never; error?: never; excerpt?: never; expires_at?: never; failed?: never; files?: never; find?: never; forward?: never; hashes?: never; hook_url?: never; host_key?: never; id?: never; image?: never; item?: never; keys?: never; list?: never; listing?: never; mac?: never; matches?: never; merged?: never; more?: never; page?: never; pair?: never; paste?: never; path?: never; permission?: never; permissions?: never; phone?: never; plan?: never; public_key?: never; pull?: never; pulls?: never; queued?: never; reason?: never; results?: never; revoked?: never; runs?: never; search?: never; seed?: never; sign_in?: never; skills?: never; state?: never; stored?: never; task?: never; terminal?: never; top?: never; trees?: never; truncated?: never; url?: never; user_code?: never; verification_uri?: never; version?: never; versions?: never; workspace?: never; written?: never } | 
+snapshots: WorkspaceSnapshot[] }) & { agent?: never; answer?: never; at?: never; attachment?: never; block?: never; book?: never; branches?: never; buckets?: never; callback_port?: never; check?: never; checks?: never; code?: never; command?: never; comments?: never; containers?: never; default_branch?: never; deliveries?: never; departure?: never; detail?: never; diff?: never; error?: never; excerpt?: never; expires_at?: never; failed?: never; files?: never; find?: never; flavor?: never; forward?: never; hashes?: never; hook_url?: never; host_key?: never; id?: never; image?: never; item?: never; keys?: never; list?: never; listing?: never; mac?: never; matches?: never; merged?: never; models?: never; more?: never; page?: never; pair?: never; paste?: never; path?: never; permission?: never; permissions?: never; phone?: never; plan?: never; probe?: never; public_key?: never; pull?: never; pulls?: never; queued?: never; reason?: never; results?: never; revoked?: never; runs?: never; search?: never; seed?: never; server?: never; sign_in?: never; skills?: never; state?: never; stored?: never; task?: never; terminal?: never; top?: never; trees?: never; truncated?: never; url?: never; user_code?: never; verification_uri?: never; version?: never; versions?: never; workspace?: never; written?: never } | 
 /**  A lease's screenshot, from [`ClientMessage::ReadLeaseScreen`]. */
 ({ status: "lease_screen"; 
 /**  The image, a PNG. */
 image: ToolImage; 
 /**  When it was taken. */
-at: Timestamp }) & { agent?: never; answer?: never; attachment?: never; block?: never; book?: never; branches?: never; buckets?: never; callback_port?: never; check?: never; checks?: never; code?: never; command?: never; comments?: never; containers?: never; default_branch?: never; deliveries?: never; departure?: never; detail?: never; diff?: never; error?: never; excerpt?: never; expires_at?: never; failed?: never; files?: never; find?: never; forward?: never; hashes?: never; hook_url?: never; host_key?: never; id?: never; item?: never; keys?: never; list?: never; listing?: never; mac?: never; matches?: never; merged?: never; more?: never; page?: never; pair?: never; paste?: never; path?: never; permission?: never; permissions?: never; phone?: never; plan?: never; public_key?: never; pull?: never; pulls?: never; queued?: never; reason?: never; results?: never; revoked?: never; runs?: never; search?: never; seed?: never; sign_in?: never; skills?: never; snapshots?: never; state?: never; stored?: never; task?: never; terminal?: never; top?: never; trees?: never; truncated?: never; url?: never; user_code?: never; verification_uri?: never; version?: never; versions?: never; workspace?: never; written?: never } | 
+at: Timestamp }) & { agent?: never; answer?: never; attachment?: never; block?: never; book?: never; branches?: never; buckets?: never; callback_port?: never; check?: never; checks?: never; code?: never; command?: never; comments?: never; containers?: never; default_branch?: never; deliveries?: never; departure?: never; detail?: never; diff?: never; error?: never; excerpt?: never; expires_at?: never; failed?: never; files?: never; find?: never; flavor?: never; forward?: never; hashes?: never; hook_url?: never; host_key?: never; id?: never; item?: never; keys?: never; list?: never; listing?: never; mac?: never; matches?: never; merged?: never; models?: never; more?: never; page?: never; pair?: never; paste?: never; path?: never; permission?: never; permissions?: never; phone?: never; plan?: never; probe?: never; public_key?: never; pull?: never; pulls?: never; queued?: never; reason?: never; results?: never; revoked?: never; runs?: never; search?: never; seed?: never; server?: never; sign_in?: never; skills?: never; snapshots?: never; state?: never; stored?: never; task?: never; terminal?: never; top?: never; trees?: never; truncated?: never; url?: never; user_code?: never; verification_uri?: never; version?: never; versions?: never; workspace?: never; written?: never } | 
 /**  More about a node, from [`ClientMessage::NodeDetail`]. */
 ({ status: "node_detail"; 
 /**  The detail. */
-detail: NodeDetail }) & { agent?: never; answer?: never; at?: never; attachment?: never; block?: never; book?: never; branches?: never; buckets?: never; callback_port?: never; check?: never; checks?: never; code?: never; command?: never; comments?: never; containers?: never; default_branch?: never; deliveries?: never; departure?: never; diff?: never; error?: never; excerpt?: never; expires_at?: never; failed?: never; files?: never; find?: never; forward?: never; hashes?: never; hook_url?: never; host_key?: never; id?: never; image?: never; item?: never; keys?: never; list?: never; listing?: never; mac?: never; matches?: never; merged?: never; more?: never; page?: never; pair?: never; paste?: never; path?: never; permission?: never; permissions?: never; phone?: never; plan?: never; public_key?: never; pull?: never; pulls?: never; queued?: never; reason?: never; results?: never; revoked?: never; runs?: never; search?: never; seed?: never; sign_in?: never; skills?: never; snapshots?: never; state?: never; stored?: never; task?: never; terminal?: never; top?: never; trees?: never; truncated?: never; url?: never; user_code?: never; verification_uri?: never; version?: never; versions?: never; workspace?: never; written?: never } | 
+detail: NodeDetail }) & { agent?: never; answer?: never; at?: never; attachment?: never; block?: never; book?: never; branches?: never; buckets?: never; callback_port?: never; check?: never; checks?: never; code?: never; command?: never; comments?: never; containers?: never; default_branch?: never; deliveries?: never; departure?: never; diff?: never; error?: never; excerpt?: never; expires_at?: never; failed?: never; files?: never; find?: never; flavor?: never; forward?: never; hashes?: never; hook_url?: never; host_key?: never; id?: never; image?: never; item?: never; keys?: never; list?: never; listing?: never; mac?: never; matches?: never; merged?: never; models?: never; more?: never; page?: never; pair?: never; paste?: never; path?: never; permission?: never; permissions?: never; phone?: never; plan?: never; probe?: never; public_key?: never; pull?: never; pulls?: never; queued?: never; reason?: never; results?: never; revoked?: never; runs?: never; search?: never; seed?: never; server?: never; sign_in?: never; skills?: never; snapshots?: never; state?: never; stored?: never; task?: never; terminal?: never; top?: never; trees?: never; truncated?: never; url?: never; user_code?: never; verification_uri?: never; version?: never; versions?: never; workspace?: never; written?: never } | 
 /**  The skills each CLI sees, from [`ClientMessage::SkillsScan`]. */
 ({ status: "skills"; 
 /**  Every skill found, with the CLI that sees it. */
-skills: EffectiveSkill[] }) & { agent?: never; answer?: never; at?: never; attachment?: never; block?: never; book?: never; branches?: never; buckets?: never; callback_port?: never; check?: never; checks?: never; code?: never; command?: never; comments?: never; containers?: never; default_branch?: never; deliveries?: never; departure?: never; detail?: never; diff?: never; error?: never; excerpt?: never; expires_at?: never; failed?: never; files?: never; find?: never; forward?: never; hashes?: never; hook_url?: never; host_key?: never; id?: never; image?: never; item?: never; keys?: never; list?: never; listing?: never; mac?: never; matches?: never; merged?: never; more?: never; page?: never; pair?: never; paste?: never; path?: never; permission?: never; permissions?: never; phone?: never; plan?: never; public_key?: never; pull?: never; pulls?: never; queued?: never; reason?: never; results?: never; revoked?: never; runs?: never; search?: never; seed?: never; sign_in?: never; snapshots?: never; state?: never; stored?: never; task?: never; terminal?: never; top?: never; trees?: never; truncated?: never; url?: never; user_code?: never; verification_uri?: never; version?: never; versions?: never; workspace?: never; written?: never } | 
+skills: EffectiveSkill[] }) & { agent?: never; answer?: never; at?: never; attachment?: never; block?: never; book?: never; branches?: never; buckets?: never; callback_port?: never; check?: never; checks?: never; code?: never; command?: never; comments?: never; containers?: never; default_branch?: never; deliveries?: never; departure?: never; detail?: never; diff?: never; error?: never; excerpt?: never; expires_at?: never; failed?: never; files?: never; find?: never; flavor?: never; forward?: never; hashes?: never; hook_url?: never; host_key?: never; id?: never; image?: never; item?: never; keys?: never; list?: never; listing?: never; mac?: never; matches?: never; merged?: never; models?: never; more?: never; page?: never; pair?: never; paste?: never; path?: never; permission?: never; permissions?: never; phone?: never; plan?: never; probe?: never; public_key?: never; pull?: never; pulls?: never; queued?: never; reason?: never; results?: never; revoked?: never; runs?: never; search?: never; seed?: never; server?: never; sign_in?: never; snapshots?: never; state?: never; stored?: never; task?: never; terminal?: never; top?: never; trees?: never; truncated?: never; url?: never; user_code?: never; verification_uri?: never; version?: never; versions?: never; workspace?: never; written?: never } | 
 /**
  *  The trees the store lacks, from
  *  [`ClientMessage::SkillsTreesNeeded`].
  */
 ({ status: "skill_trees"; 
 /**  The trees to upload. */
-trees: TreeHash[] }) & { agent?: never; answer?: never; at?: never; attachment?: never; block?: never; book?: never; branches?: never; buckets?: never; callback_port?: never; check?: never; checks?: never; code?: never; command?: never; comments?: never; containers?: never; default_branch?: never; deliveries?: never; departure?: never; detail?: never; diff?: never; error?: never; excerpt?: never; expires_at?: never; failed?: never; files?: never; find?: never; forward?: never; hashes?: never; hook_url?: never; host_key?: never; id?: never; image?: never; item?: never; keys?: never; list?: never; listing?: never; mac?: never; matches?: never; merged?: never; more?: never; page?: never; pair?: never; paste?: never; path?: never; permission?: never; permissions?: never; phone?: never; plan?: never; public_key?: never; pull?: never; pulls?: never; queued?: never; reason?: never; results?: never; revoked?: never; runs?: never; search?: never; seed?: never; sign_in?: never; skills?: never; snapshots?: never; state?: never; stored?: never; task?: never; terminal?: never; top?: never; truncated?: never; url?: never; user_code?: never; verification_uri?: never; version?: never; versions?: never; workspace?: never; written?: never } | 
+trees: TreeHash[] }) & { agent?: never; answer?: never; at?: never; attachment?: never; block?: never; book?: never; branches?: never; buckets?: never; callback_port?: never; check?: never; checks?: never; code?: never; command?: never; comments?: never; containers?: never; default_branch?: never; deliveries?: never; departure?: never; detail?: never; diff?: never; error?: never; excerpt?: never; expires_at?: never; failed?: never; files?: never; find?: never; flavor?: never; forward?: never; hashes?: never; hook_url?: never; host_key?: never; id?: never; image?: never; item?: never; keys?: never; list?: never; listing?: never; mac?: never; matches?: never; merged?: never; models?: never; more?: never; page?: never; pair?: never; paste?: never; path?: never; permission?: never; permissions?: never; phone?: never; plan?: never; probe?: never; public_key?: never; pull?: never; pulls?: never; queued?: never; reason?: never; results?: never; revoked?: never; runs?: never; search?: never; seed?: never; server?: never; sign_in?: never; skills?: never; snapshots?: never; state?: never; stored?: never; task?: never; terminal?: never; top?: never; truncated?: never; url?: never; user_code?: never; verification_uri?: never; version?: never; versions?: never; workspace?: never; written?: never } | 
 /**  What tidying would do, from [`ClientMessage::SkillsGlobalsPlan`]. */
 ({ status: "skills_globals_plan"; 
 /**  The plan. */
-plan: GlobalsPlan }) & { agent?: never; answer?: never; at?: never; attachment?: never; block?: never; book?: never; branches?: never; buckets?: never; callback_port?: never; check?: never; checks?: never; code?: never; command?: never; comments?: never; containers?: never; default_branch?: never; deliveries?: never; departure?: never; detail?: never; diff?: never; error?: never; excerpt?: never; expires_at?: never; failed?: never; files?: never; find?: never; forward?: never; hashes?: never; hook_url?: never; host_key?: never; id?: never; image?: never; item?: never; keys?: never; list?: never; listing?: never; mac?: never; matches?: never; merged?: never; more?: never; page?: never; pair?: never; paste?: never; path?: never; permission?: never; permissions?: never; phone?: never; public_key?: never; pull?: never; pulls?: never; queued?: never; reason?: never; results?: never; revoked?: never; runs?: never; search?: never; seed?: never; sign_in?: never; skills?: never; snapshots?: never; state?: never; stored?: never; task?: never; terminal?: never; top?: never; trees?: never; truncated?: never; url?: never; user_code?: never; verification_uri?: never; version?: never; versions?: never; workspace?: never; written?: never } | 
+plan: GlobalsPlan }) & { agent?: never; answer?: never; at?: never; attachment?: never; block?: never; book?: never; branches?: never; buckets?: never; callback_port?: never; check?: never; checks?: never; code?: never; command?: never; comments?: never; containers?: never; default_branch?: never; deliveries?: never; departure?: never; detail?: never; diff?: never; error?: never; excerpt?: never; expires_at?: never; failed?: never; files?: never; find?: never; flavor?: never; forward?: never; hashes?: never; hook_url?: never; host_key?: never; id?: never; image?: never; item?: never; keys?: never; list?: never; listing?: never; mac?: never; matches?: never; merged?: never; models?: never; more?: never; page?: never; pair?: never; paste?: never; path?: never; permission?: never; permissions?: never; phone?: never; probe?: never; public_key?: never; pull?: never; pulls?: never; queued?: never; reason?: never; results?: never; revoked?: never; runs?: never; search?: never; seed?: never; server?: never; sign_in?: never; skills?: never; snapshots?: never; state?: never; stored?: never; task?: never; terminal?: never; top?: never; trees?: never; truncated?: never; url?: never; user_code?: never; verification_uri?: never; version?: never; versions?: never; workspace?: never; written?: never } | 
 /**  What a proposal changes, from [`ClientMessage::SkillProposalDiff`]. */
 ({ status: "skill_proposal_diff"; 
 /**  The changed files and the flags. */
-diff: ProposalDiff }) & { agent?: never; answer?: never; at?: never; attachment?: never; block?: never; book?: never; branches?: never; buckets?: never; callback_port?: never; check?: never; checks?: never; code?: never; command?: never; comments?: never; containers?: never; default_branch?: never; deliveries?: never; departure?: never; detail?: never; error?: never; excerpt?: never; expires_at?: never; failed?: never; files?: never; find?: never; forward?: never; hashes?: never; hook_url?: never; host_key?: never; id?: never; image?: never; item?: never; keys?: never; list?: never; listing?: never; mac?: never; matches?: never; merged?: never; more?: never; page?: never; pair?: never; paste?: never; path?: never; permission?: never; permissions?: never; phone?: never; plan?: never; public_key?: never; pull?: never; pulls?: never; queued?: never; reason?: never; results?: never; revoked?: never; runs?: never; search?: never; seed?: never; sign_in?: never; skills?: never; snapshots?: never; state?: never; stored?: never; task?: never; terminal?: never; top?: never; trees?: never; truncated?: never; url?: never; user_code?: never; verification_uri?: never; version?: never; versions?: never; workspace?: never; written?: never } | 
+diff: ProposalDiff }) & { agent?: never; answer?: never; at?: never; attachment?: never; block?: never; book?: never; branches?: never; buckets?: never; callback_port?: never; check?: never; checks?: never; code?: never; command?: never; comments?: never; containers?: never; default_branch?: never; deliveries?: never; departure?: never; detail?: never; error?: never; excerpt?: never; expires_at?: never; failed?: never; files?: never; find?: never; flavor?: never; forward?: never; hashes?: never; hook_url?: never; host_key?: never; id?: never; image?: never; item?: never; keys?: never; list?: never; listing?: never; mac?: never; matches?: never; merged?: never; models?: never; more?: never; page?: never; pair?: never; paste?: never; path?: never; permission?: never; permissions?: never; phone?: never; plan?: never; probe?: never; public_key?: never; pull?: never; pulls?: never; queued?: never; reason?: never; results?: never; revoked?: never; runs?: never; search?: never; seed?: never; server?: never; sign_in?: never; skills?: never; snapshots?: never; state?: never; stored?: never; task?: never; terminal?: never; top?: never; trees?: never; truncated?: never; url?: never; user_code?: never; verification_uri?: never; version?: never; versions?: never; workspace?: never; written?: never } | 
 /**
  *  A pairing waits for its phone, from [`ClientMessage::BeginPhonePair`].
  *  The Mac shows these in the QR code with the device's routes.
@@ -500,7 +506,7 @@ seed: Secret;
 /**  This device's SSH host key, as `ssh-ed25519 <base64>`. */
 host_key: string; 
 /**  When the one-time key stops working. */
-expires_at: Timestamp }) & { agent?: never; answer?: never; at?: never; attachment?: never; block?: never; book?: never; branches?: never; buckets?: never; callback_port?: never; check?: never; checks?: never; code?: never; command?: never; comments?: never; containers?: never; default_branch?: never; deliveries?: never; departure?: never; detail?: never; diff?: never; error?: never; excerpt?: never; failed?: never; files?: never; find?: never; forward?: never; hashes?: never; hook_url?: never; id?: never; image?: never; item?: never; keys?: never; list?: never; listing?: never; mac?: never; matches?: never; merged?: never; more?: never; page?: never; paste?: never; path?: never; permission?: never; permissions?: never; phone?: never; plan?: never; public_key?: never; pull?: never; pulls?: never; queued?: never; reason?: never; results?: never; revoked?: never; runs?: never; search?: never; sign_in?: never; skills?: never; snapshots?: never; state?: never; stored?: never; task?: never; terminal?: never; top?: never; trees?: never; truncated?: never; url?: never; user_code?: never; verification_uri?: never; version?: never; versions?: never; workspace?: never; written?: never } | 
+expires_at: Timestamp }) & { agent?: never; answer?: never; at?: never; attachment?: never; block?: never; book?: never; branches?: never; buckets?: never; callback_port?: never; check?: never; checks?: never; code?: never; command?: never; comments?: never; containers?: never; default_branch?: never; deliveries?: never; departure?: never; detail?: never; diff?: never; error?: never; excerpt?: never; failed?: never; files?: never; find?: never; flavor?: never; forward?: never; hashes?: never; hook_url?: never; id?: never; image?: never; item?: never; keys?: never; list?: never; listing?: never; mac?: never; matches?: never; merged?: never; models?: never; more?: never; page?: never; paste?: never; path?: never; permission?: never; permissions?: never; phone?: never; plan?: never; probe?: never; public_key?: never; pull?: never; pulls?: never; queued?: never; reason?: never; results?: never; revoked?: never; runs?: never; search?: never; server?: never; sign_in?: never; skills?: never; snapshots?: never; state?: never; stored?: never; task?: never; terminal?: never; top?: never; trees?: never; truncated?: never; url?: never; user_code?: never; verification_uri?: never; version?: never; versions?: never; workspace?: never; written?: never } | 
 /**  The phone is paired, from [`ClientMessage::PairPhone`]. */
 ({ status: "phone_paired"; 
 /**  The phone's ID, for `maxd proxy --phone`. */
@@ -508,7 +514,7 @@ phone: PhoneId;
 /**  The devices it may reach. */
 book: PhoneBookEntry[]; 
 /**  The Mac that paired it, when the Mac said. */
-mac?: PhoneMac | null }) & { agent?: never; answer?: never; at?: never; attachment?: never; block?: never; branches?: never; buckets?: never; callback_port?: never; check?: never; checks?: never; code?: never; command?: never; comments?: never; containers?: never; default_branch?: never; deliveries?: never; departure?: never; detail?: never; diff?: never; error?: never; excerpt?: never; expires_at?: never; failed?: never; files?: never; find?: never; forward?: never; hashes?: never; hook_url?: never; host_key?: never; id?: never; image?: never; item?: never; keys?: never; list?: never; listing?: never; matches?: never; merged?: never; more?: never; page?: never; pair?: never; paste?: never; path?: never; permission?: never; permissions?: never; plan?: never; public_key?: never; pull?: never; pulls?: never; queued?: never; reason?: never; results?: never; revoked?: never; runs?: never; search?: never; seed?: never; sign_in?: never; skills?: never; snapshots?: never; state?: never; stored?: never; task?: never; terminal?: never; top?: never; trees?: never; truncated?: never; url?: never; user_code?: never; verification_uri?: never; version?: never; versions?: never; workspace?: never; written?: never } | 
+mac?: PhoneMac | null }) & { agent?: never; answer?: never; at?: never; attachment?: never; block?: never; branches?: never; buckets?: never; callback_port?: never; check?: never; checks?: never; code?: never; command?: never; comments?: never; containers?: never; default_branch?: never; deliveries?: never; departure?: never; detail?: never; diff?: never; error?: never; excerpt?: never; expires_at?: never; failed?: never; files?: never; find?: never; flavor?: never; forward?: never; hashes?: never; hook_url?: never; host_key?: never; id?: never; image?: never; item?: never; keys?: never; list?: never; listing?: never; matches?: never; merged?: never; models?: never; more?: never; page?: never; pair?: never; paste?: never; path?: never; permission?: never; permissions?: never; plan?: never; probe?: never; public_key?: never; pull?: never; pulls?: never; queued?: never; reason?: never; results?: never; revoked?: never; runs?: never; search?: never; seed?: never; server?: never; sign_in?: never; skills?: never; snapshots?: never; state?: never; stored?: never; task?: never; terminal?: never; top?: never; trees?: never; truncated?: never; url?: never; user_code?: never; verification_uri?: never; version?: never; versions?: never; workspace?: never; written?: never } | 
 /**
  *  The phone is let in, from [`ClientMessage::AddPhone`] on a device
  *  whose network access is on.
@@ -518,7 +524,7 @@ mac?: PhoneMac | null }) & { agent?: never; answer?: never; at?: never; attachme
  *  A one-time code bound to the phone, which the Mac puts in the
  *  phone's book for this device.
  */
-code: Secret }) & { agent?: never; answer?: never; at?: never; attachment?: never; block?: never; book?: never; branches?: never; buckets?: never; callback_port?: never; check?: never; checks?: never; command?: never; comments?: never; containers?: never; default_branch?: never; deliveries?: never; departure?: never; detail?: never; diff?: never; error?: never; excerpt?: never; expires_at?: never; failed?: never; files?: never; find?: never; forward?: never; hashes?: never; hook_url?: never; host_key?: never; id?: never; image?: never; item?: never; keys?: never; list?: never; listing?: never; mac?: never; matches?: never; merged?: never; more?: never; page?: never; pair?: never; paste?: never; path?: never; permission?: never; permissions?: never; phone?: never; plan?: never; public_key?: never; pull?: never; pulls?: never; queued?: never; reason?: never; results?: never; revoked?: never; runs?: never; search?: never; seed?: never; sign_in?: never; skills?: never; snapshots?: never; state?: never; stored?: never; task?: never; terminal?: never; top?: never; trees?: never; truncated?: never; url?: never; user_code?: never; verification_uri?: never; version?: never; versions?: never; workspace?: never; written?: never } | 
+code: Secret }) & { agent?: never; answer?: never; at?: never; attachment?: never; block?: never; book?: never; branches?: never; buckets?: never; callback_port?: never; check?: never; checks?: never; command?: never; comments?: never; containers?: never; default_branch?: never; deliveries?: never; departure?: never; detail?: never; diff?: never; error?: never; excerpt?: never; expires_at?: never; failed?: never; files?: never; find?: never; flavor?: never; forward?: never; hashes?: never; hook_url?: never; host_key?: never; id?: never; image?: never; item?: never; keys?: never; list?: never; listing?: never; mac?: never; matches?: never; merged?: never; models?: never; more?: never; page?: never; pair?: never; paste?: never; path?: never; permission?: never; permissions?: never; phone?: never; plan?: never; probe?: never; public_key?: never; pull?: never; pulls?: never; queued?: never; reason?: never; results?: never; revoked?: never; runs?: never; search?: never; seed?: never; server?: never; sign_in?: never; skills?: never; snapshots?: never; state?: never; stored?: never; task?: never; terminal?: never; top?: never; trees?: never; truncated?: never; url?: never; user_code?: never; verification_uri?: never; version?: never; versions?: never; workspace?: never; written?: never } | 
 /**
  *  How each item of a confirmed plan went, from
  *  [`ClientMessage::ConfirmPlan`], in the plan's order. A failed item
@@ -529,26 +535,26 @@ code: Secret }) & { agent?: never; answer?: never; at?: never; attachment?: neve
  *  One for each item that ran. One from a newer `maxd` reads as
  *  unknown.
  */
-results: PlanOutcome[] }) & { agent?: never; answer?: never; at?: never; attachment?: never; block?: never; book?: never; branches?: never; buckets?: never; callback_port?: never; check?: never; checks?: never; code?: never; command?: never; comments?: never; containers?: never; default_branch?: never; deliveries?: never; departure?: never; detail?: never; diff?: never; error?: never; excerpt?: never; expires_at?: never; failed?: never; files?: never; find?: never; forward?: never; hashes?: never; hook_url?: never; host_key?: never; id?: never; image?: never; item?: never; keys?: never; list?: never; listing?: never; mac?: never; matches?: never; merged?: never; more?: never; page?: never; pair?: never; paste?: never; path?: never; permission?: never; permissions?: never; phone?: never; plan?: never; public_key?: never; pull?: never; pulls?: never; queued?: never; reason?: never; revoked?: never; runs?: never; search?: never; seed?: never; sign_in?: never; skills?: never; snapshots?: never; state?: never; stored?: never; task?: never; terminal?: never; top?: never; trees?: never; truncated?: never; url?: never; user_code?: never; verification_uri?: never; version?: never; versions?: never; workspace?: never; written?: never } | 
+results: PlanOutcome[] }) & { agent?: never; answer?: never; at?: never; attachment?: never; block?: never; book?: never; branches?: never; buckets?: never; callback_port?: never; check?: never; checks?: never; code?: never; command?: never; comments?: never; containers?: never; default_branch?: never; deliveries?: never; departure?: never; detail?: never; diff?: never; error?: never; excerpt?: never; expires_at?: never; failed?: never; files?: never; find?: never; flavor?: never; forward?: never; hashes?: never; hook_url?: never; host_key?: never; id?: never; image?: never; item?: never; keys?: never; list?: never; listing?: never; mac?: never; matches?: never; merged?: never; models?: never; more?: never; page?: never; pair?: never; paste?: never; path?: never; permission?: never; permissions?: never; phone?: never; plan?: never; probe?: never; public_key?: never; pull?: never; pulls?: never; queued?: never; reason?: never; revoked?: never; runs?: never; search?: never; seed?: never; server?: never; sign_in?: never; skills?: never; snapshots?: never; state?: never; stored?: never; task?: never; terminal?: never; top?: never; trees?: never; truncated?: never; url?: never; user_code?: never; verification_uri?: never; version?: never; versions?: never; workspace?: never; written?: never } | 
 /**
  *  A card on another device asks whether to trust the key, for
  *  [`ClientMessage::EnrollAppKey`].
  */
-({ status: "asked" }) & { agent?: never; answer?: never; at?: never; attachment?: never; block?: never; book?: never; branches?: never; buckets?: never; callback_port?: never; check?: never; checks?: never; code?: never; command?: never; comments?: never; containers?: never; default_branch?: never; deliveries?: never; departure?: never; detail?: never; diff?: never; error?: never; excerpt?: never; expires_at?: never; failed?: never; files?: never; find?: never; forward?: never; hashes?: never; hook_url?: never; host_key?: never; id?: never; image?: never; item?: never; keys?: never; list?: never; listing?: never; mac?: never; matches?: never; merged?: never; more?: never; page?: never; pair?: never; paste?: never; path?: never; permission?: never; permissions?: never; phone?: never; plan?: never; public_key?: never; pull?: never; pulls?: never; queued?: never; reason?: never; results?: never; revoked?: never; runs?: never; search?: never; seed?: never; sign_in?: never; skills?: never; snapshots?: never; state?: never; stored?: never; task?: never; terminal?: never; top?: never; trees?: never; truncated?: never; url?: never; user_code?: never; verification_uri?: never; version?: never; versions?: never; workspace?: never; written?: never } | 
+({ status: "asked" }) & { agent?: never; answer?: never; at?: never; attachment?: never; block?: never; book?: never; branches?: never; buckets?: never; callback_port?: never; check?: never; checks?: never; code?: never; command?: never; comments?: never; containers?: never; default_branch?: never; deliveries?: never; departure?: never; detail?: never; diff?: never; error?: never; excerpt?: never; expires_at?: never; failed?: never; files?: never; find?: never; flavor?: never; forward?: never; hashes?: never; hook_url?: never; host_key?: never; id?: never; image?: never; item?: never; keys?: never; list?: never; listing?: never; mac?: never; matches?: never; merged?: never; models?: never; more?: never; page?: never; pair?: never; paste?: never; path?: never; permission?: never; permissions?: never; phone?: never; plan?: never; probe?: never; public_key?: never; pull?: never; pulls?: never; queued?: never; reason?: never; results?: never; revoked?: never; runs?: never; search?: never; seed?: never; server?: never; sign_in?: never; skills?: never; snapshots?: never; state?: never; stored?: never; task?: never; terminal?: never; top?: never; trees?: never; truncated?: never; url?: never; user_code?: never; verification_uri?: never; version?: never; versions?: never; workspace?: never; written?: never } | 
 /**
  *  What an agent took along when it left this device, for
  *  [`crate::agents::AgentMoveStep::Leave`].
  */
 ({ status: "departed"; 
 /**  What it took. */
-departure: Departure }) & { agent?: never; answer?: never; at?: never; attachment?: never; block?: never; book?: never; branches?: never; buckets?: never; callback_port?: never; check?: never; checks?: never; code?: never; command?: never; comments?: never; containers?: never; default_branch?: never; deliveries?: never; detail?: never; diff?: never; error?: never; excerpt?: never; expires_at?: never; failed?: never; files?: never; find?: never; forward?: never; hashes?: never; hook_url?: never; host_key?: never; id?: never; image?: never; item?: never; keys?: never; list?: never; listing?: never; mac?: never; matches?: never; merged?: never; more?: never; page?: never; pair?: never; paste?: never; path?: never; permission?: never; permissions?: never; phone?: never; plan?: never; public_key?: never; pull?: never; pulls?: never; queued?: never; reason?: never; results?: never; revoked?: never; runs?: never; search?: never; seed?: never; sign_in?: never; skills?: never; snapshots?: never; state?: never; stored?: never; task?: never; terminal?: never; top?: never; trees?: never; truncated?: never; url?: never; user_code?: never; verification_uri?: never; version?: never; versions?: never; workspace?: never; written?: never } | 
+departure: Departure }) & { agent?: never; answer?: never; at?: never; attachment?: never; block?: never; book?: never; branches?: never; buckets?: never; callback_port?: never; check?: never; checks?: never; code?: never; command?: never; comments?: never; containers?: never; default_branch?: never; deliveries?: never; detail?: never; diff?: never; error?: never; excerpt?: never; expires_at?: never; failed?: never; files?: never; find?: never; flavor?: never; forward?: never; hashes?: never; hook_url?: never; host_key?: never; id?: never; image?: never; item?: never; keys?: never; list?: never; listing?: never; mac?: never; matches?: never; merged?: never; models?: never; more?: never; page?: never; pair?: never; paste?: never; path?: never; permission?: never; permissions?: never; phone?: never; plan?: never; probe?: never; public_key?: never; pull?: never; pulls?: never; queued?: never; reason?: never; results?: never; revoked?: never; runs?: never; search?: never; seed?: never; server?: never; sign_in?: never; skills?: never; snapshots?: never; state?: never; stored?: never; task?: never; terminal?: never; top?: never; trees?: never; truncated?: never; url?: never; user_code?: never; verification_uri?: never; version?: never; versions?: never; workspace?: never; written?: never } | 
 /**
  *  What an agent would run as on this device, for
  *  [`crate::agents::AgentMoveStep::Check`].
  */
 ({ status: "checked"; 
 /**  What it would run as. */
-check: MoveCheck }) & { agent?: never; answer?: never; at?: never; attachment?: never; block?: never; book?: never; branches?: never; buckets?: never; callback_port?: never; checks?: never; code?: never; command?: never; comments?: never; containers?: never; default_branch?: never; deliveries?: never; departure?: never; detail?: never; diff?: never; error?: never; excerpt?: never; expires_at?: never; failed?: never; files?: never; find?: never; forward?: never; hashes?: never; hook_url?: never; host_key?: never; id?: never; image?: never; item?: never; keys?: never; list?: never; listing?: never; mac?: never; matches?: never; merged?: never; more?: never; page?: never; pair?: never; paste?: never; path?: never; permission?: never; permissions?: never; phone?: never; plan?: never; public_key?: never; pull?: never; pulls?: never; queued?: never; reason?: never; results?: never; revoked?: never; runs?: never; search?: never; seed?: never; sign_in?: never; skills?: never; snapshots?: never; state?: never; stored?: never; task?: never; terminal?: never; top?: never; trees?: never; truncated?: never; url?: never; user_code?: never; verification_uri?: never; version?: never; versions?: never; workspace?: never; written?: never } | 
+check: MoveCheck }) & { agent?: never; answer?: never; at?: never; attachment?: never; block?: never; book?: never; branches?: never; buckets?: never; callback_port?: never; checks?: never; code?: never; command?: never; comments?: never; containers?: never; default_branch?: never; deliveries?: never; departure?: never; detail?: never; diff?: never; error?: never; excerpt?: never; expires_at?: never; failed?: never; files?: never; find?: never; flavor?: never; forward?: never; hashes?: never; hook_url?: never; host_key?: never; id?: never; image?: never; item?: never; keys?: never; list?: never; listing?: never; mac?: never; matches?: never; merged?: never; models?: never; more?: never; page?: never; pair?: never; paste?: never; path?: never; permission?: never; permissions?: never; phone?: never; plan?: never; probe?: never; public_key?: never; pull?: never; pulls?: never; queued?: never; reason?: never; results?: never; revoked?: never; runs?: never; search?: never; seed?: never; server?: never; sign_in?: never; skills?: never; snapshots?: never; state?: never; stored?: never; task?: never; terminal?: never; top?: never; trees?: never; truncated?: never; url?: never; user_code?: never; verification_uri?: never; version?: never; versions?: never; workspace?: never; written?: never } | 
 /**
  *  A terminal is open, for [`ClientMessage::TerminalOpen`]. For
  *  [`ClientMessage::SessionRun`], the command runs in this fresh shell,
@@ -557,7 +563,7 @@ check: MoveCheck }) & { agent?: never; answer?: never; at?: never; attachment?: 
  */
 ({ status: "terminal_opened"; 
 /**  The new terminal. */
-terminal: TerminalId }) & { agent?: never; answer?: never; at?: never; attachment?: never; block?: never; book?: never; branches?: never; buckets?: never; callback_port?: never; check?: never; checks?: never; code?: never; command?: never; comments?: never; containers?: never; default_branch?: never; deliveries?: never; departure?: never; detail?: never; diff?: never; error?: never; excerpt?: never; expires_at?: never; failed?: never; files?: never; find?: never; forward?: never; hashes?: never; hook_url?: never; host_key?: never; id?: never; image?: never; item?: never; keys?: never; list?: never; listing?: never; mac?: never; matches?: never; merged?: never; more?: never; page?: never; pair?: never; paste?: never; path?: never; permission?: never; permissions?: never; phone?: never; plan?: never; public_key?: never; pull?: never; pulls?: never; queued?: never; reason?: never; results?: never; revoked?: never; runs?: never; search?: never; seed?: never; sign_in?: never; skills?: never; snapshots?: never; state?: never; stored?: never; task?: never; top?: never; trees?: never; truncated?: never; url?: never; user_code?: never; verification_uri?: never; version?: never; versions?: never; workspace?: never; written?: never } | 
+terminal: TerminalId }) & { agent?: never; answer?: never; at?: never; attachment?: never; block?: never; book?: never; branches?: never; buckets?: never; callback_port?: never; check?: never; checks?: never; code?: never; command?: never; comments?: never; containers?: never; default_branch?: never; deliveries?: never; departure?: never; detail?: never; diff?: never; error?: never; excerpt?: never; expires_at?: never; failed?: never; files?: never; find?: never; flavor?: never; forward?: never; hashes?: never; hook_url?: never; host_key?: never; id?: never; image?: never; item?: never; keys?: never; list?: never; listing?: never; mac?: never; matches?: never; merged?: never; models?: never; more?: never; page?: never; pair?: never; paste?: never; path?: never; permission?: never; permissions?: never; phone?: never; plan?: never; probe?: never; public_key?: never; pull?: never; pulls?: never; queued?: never; reason?: never; results?: never; revoked?: never; runs?: never; search?: never; seed?: never; server?: never; sign_in?: never; skills?: never; snapshots?: never; state?: never; stored?: never; task?: never; top?: never; trees?: never; truncated?: never; url?: never; user_code?: never; verification_uri?: never; version?: never; versions?: never; workspace?: never; written?: never } | 
 /**
  *  A command went to the agent's session as a block in its open card,
  *  for [`ClientMessage::SessionRun`] and [`ClientMessage::SessionCd`].
@@ -568,20 +574,35 @@ terminal: TerminalId;
 /**  The card. */
 item: ItemId; 
 /**  The block's ID in the card. */
-block: number }) & { agent?: never; answer?: never; at?: never; attachment?: never; book?: never; branches?: never; buckets?: never; callback_port?: never; check?: never; checks?: never; code?: never; command?: never; comments?: never; containers?: never; default_branch?: never; deliveries?: never; departure?: never; detail?: never; diff?: never; error?: never; excerpt?: never; expires_at?: never; failed?: never; files?: never; find?: never; forward?: never; hashes?: never; hook_url?: never; host_key?: never; id?: never; image?: never; keys?: never; list?: never; listing?: never; mac?: never; matches?: never; merged?: never; more?: never; page?: never; pair?: never; paste?: never; path?: never; permission?: never; permissions?: never; phone?: never; plan?: never; public_key?: never; pull?: never; pulls?: never; queued?: never; reason?: never; results?: never; revoked?: never; runs?: never; search?: never; seed?: never; sign_in?: never; skills?: never; snapshots?: never; state?: never; stored?: never; task?: never; top?: never; trees?: never; truncated?: never; url?: never; user_code?: never; verification_uri?: never; version?: never; versions?: never; workspace?: never; written?: never } | 
+block: number }) & { agent?: never; answer?: never; at?: never; attachment?: never; book?: never; branches?: never; buckets?: never; callback_port?: never; check?: never; checks?: never; code?: never; command?: never; comments?: never; containers?: never; default_branch?: never; deliveries?: never; departure?: never; detail?: never; diff?: never; error?: never; excerpt?: never; expires_at?: never; failed?: never; files?: never; find?: never; flavor?: never; forward?: never; hashes?: never; hook_url?: never; host_key?: never; id?: never; image?: never; keys?: never; list?: never; listing?: never; mac?: never; matches?: never; merged?: never; models?: never; more?: never; page?: never; pair?: never; paste?: never; path?: never; permission?: never; permissions?: never; phone?: never; plan?: never; probe?: never; public_key?: never; pull?: never; pulls?: never; queued?: never; reason?: never; results?: never; revoked?: never; runs?: never; search?: never; seed?: never; server?: never; sign_in?: never; skills?: never; snapshots?: never; state?: never; stored?: never; task?: never; top?: never; trees?: never; truncated?: never; url?: never; user_code?: never; verification_uri?: never; version?: never; versions?: never; workspace?: never; written?: never } | 
 /**  What a folder holds, for [`ClientMessage::ListFolder`]. */
 ({ status: "folder_listed"; 
 /**  The listing. */
-listing: FolderListing }) & { agent?: never; answer?: never; at?: never; attachment?: never; block?: never; book?: never; branches?: never; buckets?: never; callback_port?: never; check?: never; checks?: never; code?: never; command?: never; comments?: never; containers?: never; default_branch?: never; deliveries?: never; departure?: never; detail?: never; diff?: never; error?: never; excerpt?: never; expires_at?: never; failed?: never; files?: never; find?: never; forward?: never; hashes?: never; hook_url?: never; host_key?: never; id?: never; image?: never; item?: never; keys?: never; list?: never; mac?: never; matches?: never; merged?: never; more?: never; page?: never; pair?: never; paste?: never; path?: never; permission?: never; permissions?: never; phone?: never; plan?: never; public_key?: never; pull?: never; pulls?: never; queued?: never; reason?: never; results?: never; revoked?: never; runs?: never; search?: never; seed?: never; sign_in?: never; skills?: never; snapshots?: never; state?: never; stored?: never; task?: never; terminal?: never; top?: never; trees?: never; truncated?: never; url?: never; user_code?: never; verification_uri?: never; version?: never; versions?: never; workspace?: never; written?: never } | 
+listing: FolderListing }) & { agent?: never; answer?: never; at?: never; attachment?: never; block?: never; book?: never; branches?: never; buckets?: never; callback_port?: never; check?: never; checks?: never; code?: never; command?: never; comments?: never; containers?: never; default_branch?: never; deliveries?: never; departure?: never; detail?: never; diff?: never; error?: never; excerpt?: never; expires_at?: never; failed?: never; files?: never; find?: never; flavor?: never; forward?: never; hashes?: never; hook_url?: never; host_key?: never; id?: never; image?: never; item?: never; keys?: never; list?: never; mac?: never; matches?: never; merged?: never; models?: never; more?: never; page?: never; pair?: never; paste?: never; path?: never; permission?: never; permissions?: never; phone?: never; plan?: never; probe?: never; public_key?: never; pull?: never; pulls?: never; queued?: never; reason?: never; results?: never; revoked?: never; runs?: never; search?: never; seed?: never; server?: never; sign_in?: never; skills?: never; snapshots?: never; state?: never; stored?: never; task?: never; terminal?: never; top?: never; trees?: never; truncated?: never; url?: never; user_code?: never; verification_uri?: never; version?: never; versions?: never; workspace?: never; written?: never } | 
 /**  A page of the notification log, for [`ClientMessage::Notices`]. */
 ({ status: "notices"; 
 /**  The page. */
-page: NoticePage }) & { agent?: never; answer?: never; at?: never; attachment?: never; block?: never; book?: never; branches?: never; buckets?: never; callback_port?: never; check?: never; checks?: never; code?: never; command?: never; comments?: never; containers?: never; default_branch?: never; deliveries?: never; departure?: never; detail?: never; diff?: never; error?: never; excerpt?: never; expires_at?: never; failed?: never; files?: never; find?: never; forward?: never; hashes?: never; hook_url?: never; host_key?: never; id?: never; image?: never; item?: never; keys?: never; list?: never; listing?: never; mac?: never; matches?: never; merged?: never; more?: never; pair?: never; paste?: never; path?: never; permission?: never; permissions?: never; phone?: never; plan?: never; public_key?: never; pull?: never; pulls?: never; queued?: never; reason?: never; results?: never; revoked?: never; runs?: never; search?: never; seed?: never; sign_in?: never; skills?: never; snapshots?: never; state?: never; stored?: never; task?: never; terminal?: never; top?: never; trees?: never; truncated?: never; url?: never; user_code?: never; verification_uri?: never; version?: never; versions?: never; workspace?: never; written?: never } | 
+page: NoticePage }) & { agent?: never; answer?: never; at?: never; attachment?: never; block?: never; book?: never; branches?: never; buckets?: never; callback_port?: never; check?: never; checks?: never; code?: never; command?: never; comments?: never; containers?: never; default_branch?: never; deliveries?: never; departure?: never; detail?: never; diff?: never; error?: never; excerpt?: never; expires_at?: never; failed?: never; files?: never; find?: never; flavor?: never; forward?: never; hashes?: never; hook_url?: never; host_key?: never; id?: never; image?: never; item?: never; keys?: never; list?: never; listing?: never; mac?: never; matches?: never; merged?: never; models?: never; more?: never; pair?: never; paste?: never; path?: never; permission?: never; permissions?: never; phone?: never; plan?: never; probe?: never; public_key?: never; pull?: never; pulls?: never; queued?: never; reason?: never; results?: never; revoked?: never; runs?: never; search?: never; seed?: never; server?: never; sign_in?: never; skills?: never; snapshots?: never; state?: never; stored?: never; task?: never; terminal?: never; top?: never; trees?: never; truncated?: never; url?: never; user_code?: never; verification_uri?: never; version?: never; versions?: never; workspace?: never; written?: never } | 
+/**
+ *  The server a [`ModelAction::AddServer`] added, which its probe fills
+ *  in.
+ */
+({ status: "model_server_added"; 
+/**  The new server. */
+server: ModelServerId }) & { agent?: never; answer?: never; at?: never; attachment?: never; block?: never; book?: never; branches?: never; buckets?: never; callback_port?: never; check?: never; checks?: never; code?: never; command?: never; comments?: never; containers?: never; default_branch?: never; deliveries?: never; departure?: never; detail?: never; diff?: never; error?: never; excerpt?: never; expires_at?: never; failed?: never; files?: never; find?: never; flavor?: never; forward?: never; hashes?: never; hook_url?: never; host_key?: never; id?: never; image?: never; item?: never; keys?: never; list?: never; listing?: never; mac?: never; matches?: never; merged?: never; models?: never; more?: never; page?: never; pair?: never; paste?: never; path?: never; permission?: never; permissions?: never; phone?: never; plan?: never; probe?: never; public_key?: never; pull?: never; pulls?: never; queued?: never; reason?: never; results?: never; revoked?: never; runs?: never; search?: never; seed?: never; sign_in?: never; skills?: never; snapshots?: never; state?: never; stored?: never; task?: never; terminal?: never; top?: never; trees?: never; truncated?: never; url?: never; user_code?: never; verification_uri?: never; version?: never; versions?: never; workspace?: never; written?: never } | 
+/**  What a [`ModelAction::ProbeServer`] found at a URL it didn't add. */
+({ status: "server_probed"; 
+/**  What kind of server answered. */
+flavor: ServerFlavor; 
+/**  Which APIs answered, or why nothing did. */
+probe: ServerProbe; 
+/**  The models it serves. */
+models: ServerModel[] }) & { agent?: never; answer?: never; at?: never; attachment?: never; block?: never; book?: never; branches?: never; buckets?: never; callback_port?: never; check?: never; checks?: never; code?: never; command?: never; comments?: never; containers?: never; default_branch?: never; deliveries?: never; departure?: never; detail?: never; diff?: never; error?: never; excerpt?: never; expires_at?: never; failed?: never; files?: never; find?: never; forward?: never; hashes?: never; hook_url?: never; host_key?: never; id?: never; image?: never; item?: never; keys?: never; list?: never; listing?: never; mac?: never; matches?: never; merged?: never; more?: never; page?: never; pair?: never; paste?: never; path?: never; permission?: never; permissions?: never; phone?: never; plan?: never; public_key?: never; pull?: never; pulls?: never; queued?: never; reason?: never; results?: never; revoked?: never; runs?: never; search?: never; seed?: never; server?: never; sign_in?: never; skills?: never; snapshots?: never; state?: never; stored?: never; task?: never; terminal?: never; top?: never; trees?: never; truncated?: never; url?: never; user_code?: never; verification_uri?: never; version?: never; versions?: never; workspace?: never; written?: never } | 
 /**
  *  An outcome from a newer `maxd`. The action went through, and what
  *  it came to needs a newer app to show.
  */
-({ status: "unknown" }) & { agent?: never; answer?: never; at?: never; attachment?: never; block?: never; book?: never; branches?: never; buckets?: never; callback_port?: never; check?: never; checks?: never; code?: never; command?: never; comments?: never; containers?: never; default_branch?: never; deliveries?: never; departure?: never; detail?: never; diff?: never; error?: never; excerpt?: never; expires_at?: never; failed?: never; files?: never; find?: never; forward?: never; hashes?: never; hook_url?: never; host_key?: never; id?: never; image?: never; item?: never; keys?: never; list?: never; listing?: never; mac?: never; matches?: never; merged?: never; more?: never; page?: never; pair?: never; paste?: never; path?: never; permission?: never; permissions?: never; phone?: never; plan?: never; public_key?: never; pull?: never; pulls?: never; queued?: never; reason?: never; results?: never; revoked?: never; runs?: never; search?: never; seed?: never; sign_in?: never; skills?: never; snapshots?: never; state?: never; stored?: never; task?: never; terminal?: never; top?: never; trees?: never; truncated?: never; url?: never; user_code?: never; verification_uri?: never; version?: never; versions?: never; workspace?: never; written?: never };
+({ status: "unknown" }) & { agent?: never; answer?: never; at?: never; attachment?: never; block?: never; book?: never; branches?: never; buckets?: never; callback_port?: never; check?: never; checks?: never; code?: never; command?: never; comments?: never; containers?: never; default_branch?: never; deliveries?: never; departure?: never; detail?: never; diff?: never; error?: never; excerpt?: never; expires_at?: never; failed?: never; files?: never; find?: never; flavor?: never; forward?: never; hashes?: never; hook_url?: never; host_key?: never; id?: never; image?: never; item?: never; keys?: never; list?: never; listing?: never; mac?: never; matches?: never; merged?: never; models?: never; more?: never; page?: never; pair?: never; paste?: never; path?: never; permission?: never; permissions?: never; phone?: never; plan?: never; probe?: never; public_key?: never; pull?: never; pulls?: never; queued?: never; reason?: never; results?: never; revoked?: never; runs?: never; search?: never; seed?: never; server?: never; sign_in?: never; skills?: never; snapshots?: never; state?: never; stored?: never; task?: never; terminal?: never; top?: never; trees?: never; truncated?: never; url?: never; user_code?: never; verification_uri?: never; version?: never; versions?: never; workspace?: never; written?: never };
 
 /**  One action's result, for a request that answers with several. */
 export type ActionReply = 
@@ -878,6 +899,12 @@ export type Agent = {
 	running?: AgentRunning | null,
 	/**  Where the agent moved between devices, if it did. */
 	moved?: Moved | null,
+	/**
+	 *  What its model server is doing for a local agent: loading, and
+	 *  prompt and decode speed. Unset for every other agent, and from a
+	 *  `maxd` from before [`crate::message::LOCAL_MODELS_SINCE`].
+	 */
+	local?: LocalRun | null,
 };
 
 /**  An agent on a device, such as the one a moved agent became. */
@@ -1679,6 +1706,69 @@ export type Capabilities = {
 	 *  frames. A `maxd` from before it leaves this out, and reads as false.
 	 */
 	terminals?: boolean,
+	/**
+	 *  Runs or reaches model servers for local agents, publishes
+	 *  [`crate::local_models::ModelServer`] and
+	 *  [`crate::local_models::LocalModels`], and takes
+	 *  [`ClientMessage::ModelAction`]. A `maxd` from before it leaves this
+	 *  out, and reads as false.
+	 */
+	local_models?: boolean,
+};
+
+/**  One quantized file of a catalog model. */
+export type CatalogFile = {
+	/**  The file's name in the repo. */
+	name: string,
+	/**  The quantization, such as "Q4_K_M". */
+	quant: string,
+	/**  Its size in bytes. */
+	bytes: number,
+	/**  Its SHA-256, in hex. */
+	sha256: string,
+	/**  Whether it's the file to pick for this model. */
+	recommended?: boolean,
+};
+
+/**  One curated model. */
+export type CatalogModel = {
+	/**  The catalog's ID for it, such as `qwen3.6-35b-a3b`. */
+	id: string,
+	/**  The name to show, such as "Qwen3.6-35B-A3B". */
+	name: string,
+	/**  The Hugging Face repo the files come from, as `org/repo`. */
+	repo: string,
+	/**  The repo commit the files are pinned to. */
+	commit: string,
+	/**  The licence, such as "Apache-2.0". */
+	license: string,
+	/**  When the model came out, as `YYYY-MM-DD`. */
+	released: string,
+	/**  Parameters in billions. */
+	params_b: number | null,
+	/**
+	 *  Parameters active per token in billions, less than `params_b` for a
+	 *  mixture of experts.
+	 */
+	active_params_b: number | null,
+	/**  The files to pick from, one per quantization. */
+	files: CatalogFile[],
+	/**  What the KV cache needs per token. */
+	kv: KvShape,
+	/**  The longest context the model takes, in tokens. */
+	native_context: number,
+	/**  A line or two on what it's good at, in English. */
+	notes: string,
+	/**  Published benchmark scores. */
+	scores: ModelScore[],
+};
+
+/**  One file of one catalog model. */
+export type CatalogRef = {
+	/**  The catalog model's ID. */
+	model: string,
+	/**  The file's name. */
+	file: string,
 };
 
 /**  One change in a delta. */
@@ -3819,7 +3909,22 @@ key: IdempotencyKey;
 /**  The device whose log it is. */
 device: DeviceId; 
 /**  What to do with it. */
-call: NoticeCall }) & { account?: never; action?: never; address?: never; admission?: never; after?: never; agent?: never; allow?: never; answer?: never; anyway?: never; app_id?: never; as_new?: never; at?: never; attachment?: never; base?: never; before?: never; block?: never; body?: never; book?: never; bucket_secs?: never; budget?: never; change?: never; changes?: never; client_id?: never; code?: never; cols?: never; command?: never; committed?: never; confirm_unchecked?: never; credential?: never; default_ref?: never; deleted?: never; device_code?: never; discard_unpushed?: never; discard_unsaved?: never; effort?: never; elsewhere?: never; enabled?: never; env?: never; event?: never; everything?: never; expect_sha?: never; files?: never; filter?: never; force?: never; fork?: never; forward?: never; fresh?: never; from?: never; granted?: never; hashes?: never; hidden?: never; host?: never; how?: never; id?: never; idempotency_key?: never; input?: never; instance?: never; item?: never; items?: never; key_id?: never; kind?: never; label?: never; lead?: never; lease?: never; licence?: never; limit?: never; local_port?: never; lock?: never; mac?: never; mode?: never; model?: never; moving?: never; name?: never; new?: never; node?: never; nonce?: never; note?: never; number?: never; on?: never; origin?: never; outcome?: never; overwrite?: never; page?: never; pair?: never; parent?: never; path?: never; paths?: never; permission?: never; phone?: never; picks?: never; pid?: never; place?: never; plan?: never; plan_hash?: never; port?: never; private?: never; private_key?: never; project?: never; proposal?: never; public_key?: never; push?: never; push_public?: never; query?: never; refs?: never; release?: never; repo?: never; request?: never; rows?: never; rule?: never; run?: never; secret?: never; seen?: never; session?: never; settings?: never; sha256?: never; sign_in?: never; signal?: never; signature?: never; since?: never; skills?: never; snapshot?: never; source?: never; sources?: never; spec?: never; ssh_public?: never; staged?: never; start?: never; state?: never; step?: never; stop?: never; stream?: never; target?: never; task?: never; team_id?: never; terminal?: never; text?: never; text_sha256?: never; title?: never; to?: never; token?: never; tool?: never; tools?: never; transfer?: never; tree?: never; trust?: never; unsigned?: never; version?: never; versions?: never; window_end?: never; window_secs?: never; workspace?: never };
+call: NoticeCall }) & { account?: never; action?: never; address?: never; admission?: never; after?: never; agent?: never; allow?: never; answer?: never; anyway?: never; app_id?: never; as_new?: never; at?: never; attachment?: never; base?: never; before?: never; block?: never; body?: never; book?: never; bucket_secs?: never; budget?: never; change?: never; changes?: never; client_id?: never; code?: never; cols?: never; command?: never; committed?: never; confirm_unchecked?: never; credential?: never; default_ref?: never; deleted?: never; device_code?: never; discard_unpushed?: never; discard_unsaved?: never; effort?: never; elsewhere?: never; enabled?: never; env?: never; event?: never; everything?: never; expect_sha?: never; files?: never; filter?: never; force?: never; fork?: never; forward?: never; fresh?: never; from?: never; granted?: never; hashes?: never; hidden?: never; host?: never; how?: never; id?: never; idempotency_key?: never; input?: never; instance?: never; item?: never; items?: never; key_id?: never; kind?: never; label?: never; lead?: never; lease?: never; licence?: never; limit?: never; local_port?: never; lock?: never; mac?: never; mode?: never; model?: never; moving?: never; name?: never; new?: never; node?: never; nonce?: never; note?: never; number?: never; on?: never; origin?: never; outcome?: never; overwrite?: never; page?: never; pair?: never; parent?: never; path?: never; paths?: never; permission?: never; phone?: never; picks?: never; pid?: never; place?: never; plan?: never; plan_hash?: never; port?: never; private?: never; private_key?: never; project?: never; proposal?: never; public_key?: never; push?: never; push_public?: never; query?: never; refs?: never; release?: never; repo?: never; request?: never; rows?: never; rule?: never; run?: never; secret?: never; seen?: never; session?: never; settings?: never; sha256?: never; sign_in?: never; signal?: never; signature?: never; since?: never; skills?: never; snapshot?: never; source?: never; sources?: never; spec?: never; ssh_public?: never; staged?: never; start?: never; state?: never; step?: never; stop?: never; stream?: never; target?: never; task?: never; team_id?: never; terminal?: never; text?: never; text_sha256?: never; title?: never; to?: never; token?: never; tool?: never; tools?: never; transfer?: never; tree?: never; trust?: never; unsigned?: never; version?: never; versions?: never; window_end?: never; window_secs?: never; workspace?: never } | 
+/**
+ *  Acts on the device's local models: probes, adds, tests or removes a
+ *  server URL, downloads, pauses, resumes or deletes a model file, or
+ *  loads or unloads a model. Probing a URL answers
+ *  [`ActionOutcome::ServerProbed`], adding a server
+ *  [`ActionOutcome::ModelServerAdded`], the rest
+ *  [`ActionOutcome::Done`]. The default model is a device setting,
+ *  [`crate::model::DeviceSettings::local_models`]. Since
+ *  [`LOCAL_MODELS_SINCE`].
+ */
+({ type: "model_action"; 
+/**  Makes a resend after a dropped connection safe. */
+key: IdempotencyKey; 
+/**  What to do. */
+action: ModelAction }) & { account?: never; address?: never; admission?: never; after?: never; agent?: never; allow?: never; answer?: never; anyway?: never; app_id?: never; as_new?: never; at?: never; attachment?: never; base?: never; before?: never; block?: never; body?: never; book?: never; bucket_secs?: never; budget?: never; call?: never; change?: never; changes?: never; client_id?: never; code?: never; cols?: never; command?: never; committed?: never; confirm_unchecked?: never; credential?: never; default_ref?: never; deleted?: never; device?: never; device_code?: never; discard_unpushed?: never; discard_unsaved?: never; effort?: never; elsewhere?: never; enabled?: never; env?: never; event?: never; everything?: never; expect_sha?: never; files?: never; filter?: never; force?: never; fork?: never; forward?: never; fresh?: never; from?: never; granted?: never; hashes?: never; hidden?: never; host?: never; how?: never; id?: never; idempotency_key?: never; input?: never; instance?: never; item?: never; items?: never; key_id?: never; kind?: never; label?: never; lead?: never; lease?: never; licence?: never; limit?: never; local_port?: never; lock?: never; mac?: never; mode?: never; model?: never; moving?: never; name?: never; new?: never; node?: never; nonce?: never; note?: never; number?: never; on?: never; origin?: never; outcome?: never; overwrite?: never; page?: never; pair?: never; parent?: never; path?: never; paths?: never; permission?: never; phone?: never; picks?: never; pid?: never; place?: never; plan?: never; plan_hash?: never; port?: never; private?: never; private_key?: never; project?: never; proposal?: never; public_key?: never; push?: never; push_public?: never; query?: never; refs?: never; release?: never; repo?: never; request?: never; rows?: never; rule?: never; run?: never; secret?: never; seen?: never; session?: never; settings?: never; sha256?: never; sign_in?: never; signal?: never; signature?: never; since?: never; skills?: never; snapshot?: never; source?: never; sources?: never; spec?: never; ssh_public?: never; staged?: never; start?: never; state?: never; step?: never; stop?: never; stream?: never; target?: never; task?: never; team_id?: never; terminal?: never; text?: never; text_sha256?: never; title?: never; to?: never; token?: never; tool?: never; tools?: never; transfer?: never; tree?: never; trust?: never; unsigned?: never; version?: never; versions?: never; window_end?: never; window_secs?: never; workspace?: never };
 
 /**
  *  Which kind of client a connection is. A connection whose hello leaves
@@ -4243,6 +4348,21 @@ export type Device = {
 	target?: string | null,
 };
 
+/**  A device's hardware, as far as it matters for running a model. */
+export type DeviceHardware = {
+	/**  The chip, such as "Apple M4 Max", when known. */
+	chip: string | null,
+	/**  The GPU's core count, when known. */
+	gpu_cores: number | null,
+	/**  Memory in bytes. */
+	ram: number,
+	/**
+	 *  The memory a GPU can use for a model. None for a device without a
+	 *  GPU `maxd` can use, which is too slow for agents.
+	 */
+	gpu: GpuMemory | null,
+};
+
 /**  A machine that runs `maxd`. */
 export type DeviceId = string;
 
@@ -4419,7 +4539,11 @@ value: boolean } |
 /**  See [`DeviceSettings::chat_gap_minutes`]. */
 { field: "chat_gap_minutes"; 
 /**  What it becomes. */
-value: number };
+value: number } | 
+/**  See [`DeviceSettings::local_models`]. */
+{ field: "local_models"; 
+/**  What it becomes. */
+value: LocalModelSettings };
 
 /**  Settings `maxd` keeps for its device. */
 export type DeviceSettings = {
@@ -4553,6 +4677,13 @@ export type DeviceSettings = {
 	 *  [`crate::message::DISPATCHER_CHATS_SINCE`] leaves it out.
 	 */
 	chat_gap_minutes?: number,
+	/**
+	 *  The device's choices for local models: idle unload, KV cache type,
+	 *  context size, fewer tools and the default model. A `maxd` from
+	 *  before [`crate::message::LOCAL_MODELS_SINCE`] leaves it out, and
+	 *  reads as the defaults.
+	 */
+	local_models?: LocalModelSettings,
 };
 
 /**  The tasks a device holds, and whether its webhooks can be reached. */
@@ -4894,7 +5025,21 @@ export type Entity =
 /**  One conversation with a device's dispatcher. Since protocol 53. */
 {
 	entity: "dispatcher_chat",
-} & DispatcherChat;
+} & DispatcherChat | 
+/**
+ *  A model server a device runs or reaches. Since
+ *  [`crate::message::LOCAL_MODELS_SINCE`].
+ */
+{
+	entity: "model_server",
+} & ModelServer | 
+/**
+ *  A device's hardware, model catalog and model files. Since
+ *  [`crate::message::LOCAL_MODELS_SINCE`].
+ */
+{
+	entity: "local_models",
+} & LocalModels;
 
 /**  Names one entity, for removal and lookup. */
 export type EntityKey = 
@@ -4996,7 +5141,11 @@ export type EntityKey =
 /**  A terminal. */
 { entity: "terminal"; id: TerminalId } | 
 /**  A dispatcher chat, named by its agent. */
-{ entity: "dispatcher_chat"; id: AgentId };
+{ entity: "dispatcher_chat"; id: AgentId } | 
+/**  A model server. */
+{ entity: "model_server"; id: ModelServerId } | 
+/**  A device's local models, named by the device. */
+{ entity: "local_models"; id: DeviceId };
 
 /**  What a [`ManifestEntry`] is. */
 export type EntryKind = 
@@ -5455,6 +5604,23 @@ export type GlobalsPlan = {
 	 *  leaves this out, and reads as false.
 	 */
 	undo?: boolean,
+};
+
+/**  Where a GPU memory budget came from. */
+export type GpuBudgetSource = 
+/**  Metal's recommended working set size. */
+"metal" | 
+/**  The `iogpu.wired_limit_mb` limit someone set on the Mac. */
+"wired_limit" | 
+/**  macOS's default share of memory, estimated from the memory size. */
+"estimate";
+
+/**  How much memory a GPU can give a model. */
+export type GpuMemory = {
+	/**  The budget in bytes. */
+	budget: number,
+	/**  Where the figure came from. */
+	source: GpuBudgetSource,
 };
 
 /**  A group of nodes the canvas can fold. */
@@ -6151,7 +6317,9 @@ message: string } |
 /**
  *  The agent moved to another vendor here, carrying the conversation
  *  over. Pending until the next message takes the conversation to the
- *  new vendor, and cancelled if the agent moves again first.
+ *  new vendor, and cancelled if the agent moves again first. A move
+ *  between Claude and a local model is one too, since a local agent
+ *  runs Claude Code with its own config folder.
  */
 { kind: "handoff"; 
 /**  The vendor the agent left. */
@@ -6161,7 +6329,18 @@ from_model: string | null;
 /**  The vendor the agent moved to. */
 to_vendor: Vendor; 
 /**  The model it runs there, if you picked one. */
-to_model: string | null } | 
+to_model: string | null; 
+/**
+ *  Whether the agent left a local model, which runs as
+ *  [`Vendor::Claude`]: show that end as Local. Since
+ *  [`crate::message::LOCAL_MODELS_SINCE`].
+ */
+from_local?: boolean; 
+/**
+ *  Whether the agent moved to a local model. Since
+ *  [`crate::message::LOCAL_MODELS_SINCE`].
+ */
+to_local?: boolean } | 
 /**
  *  Files the agent sent you with MaxHQ's send tool, from copies MaxHQ
  *  keeps in its attachments folder.
@@ -6357,6 +6536,27 @@ export type KeyRefusal = {
 	kept_previous: boolean,
 };
 
+/**  How a managed server stores its KV cache. */
+export type KvCacheType = 
+/**  16-bit floats, the exact cache. */
+"f16" | 
+/**  8-bit, about half the memory for a small loss. */
+"q8_0";
+
+/**  What a model's KV cache needs, to estimate its size for a context. */
+export type KvShape = {
+	/**  Layers whose attention covers the whole context. */
+	full_layers: number,
+	/**  KV heads per layer. */
+	kv_heads: number,
+	/**  Each head's size. */
+	head_dim: number,
+	/**  Layers whose attention covers only a sliding window. */
+	swa_layers?: number,
+	/**  The sliding window in tokens, for `swa_layers`. */
+	swa_window?: number,
+};
+
 /**  One command a lease's holder ran, as the app shows it. */
 export type LeaseCommand = {
 	/**  When it started. */
@@ -6527,6 +6727,23 @@ last_seen: Timestamp | null } |
 /**  The client hasn't tried yet, or can't tell. */
 { state: "unknown" };
 
+/**
+ *  A Mac's managed model server, as the devices it links to see it in
+ *  their peer book, so their local agents can use it over the `maxd`
+ *  link. Its load and speed stay in the Mac's own entity.
+ */
+export type LinkedModels = {
+	/**  The server. */
+	server: ModelServerId,
+	/**  Its name, the Mac's. */
+	label: string,
+	/**
+	 *  The models it serves, with no load or speed. One this build can't
+	 *  read is left out.
+	 */
+	models: ServerModel[],
+};
+
 /**  A port a process in a workspace listens on, per N-6. */
 export type ListeningPort = {
 	/**  Stable while the port stays open. */
@@ -6547,6 +6764,84 @@ export type ListeningPort = {
 	first_seen: Timestamp,
 	/**  When the port was first seen gone. It stays listed for a while after. */
 	gone_since: Timestamp | null,
+};
+
+/**  One model on one server. */
+export type LocalModelPick = {
+	/**  The server. */
+	server: ModelServerId,
+	/**  The model's ID on that server. */
+	model: string,
+};
+
+/**  A device's choices for local models, in its device settings. */
+export type LocalModelSettings = {
+	/**
+	 *  Minutes with no local agent turn running before a managed server
+	 *  unloads its model. 0 keeps it loaded.
+	 */
+	idle_unload_minutes?: number,
+	/**  How a managed server stores its KV cache. */
+	kv_type?: KvCacheType,
+	/**  The context size a managed server loads a model with, in tokens. */
+	context?: number,
+	/**
+	 *  Whether local agents get a lean set of MaxHQ tools, which leaves
+	 *  more of a small context for the work.
+	 */
+	fewer_tools?: boolean,
+	/**
+	 *  The model a new local agent on this device starts with, or none to
+	 *  use the catalog's default once it's ready.
+	 */
+	default_model?: LocalModelPick | null,
+	/**
+	 *  Whether local agents on the devices this one links to may use its
+	 *  managed server over the `maxd` link. Only this device changes it.
+	 *  An older `maxd` reads it as on, and doesn't share either way.
+	 */
+	linked_devices?: boolean,
+};
+
+/**
+ *  What one device knows for local models: its hardware, the catalog and
+ *  the model files it holds.
+ */
+export type LocalModels = {
+	/**  The device. */
+	device: DeviceId,
+	/**  Its hardware, for the fit estimate. */
+	hardware: DeviceHardware,
+	/**
+	 *  Where model files go, as an absolute path on the device, such as
+	 *  `~/.local/share/maxhq/models` expanded.
+	 */
+	models_dir: string,
+	/**  Free bytes on the disk that holds `models_dir`. */
+	disk_free: number,
+	/**  Whether it can run a managed server, and that server's install. */
+	runtime: ModelRuntime,
+	/**  The curated models it offers. */
+	catalog: ModelCatalog,
+	/**
+	 *  The model files on disk or on their way. One this build can't read
+	 *  is left out.
+	 */
+	files: ModelFile[],
+};
+
+/**  What a local agent's server is doing for it, in its live state. */
+export type LocalRun = {
+	/**  Whether its model is loading, so the turn waits. */
+	loading?: boolean,
+	/**  Prompt tokens read per second in the current or last turn. */
+	prompt_per_second?: number | null,
+	/**  Tokens written per second in the current or last turn. */
+	decode_per_second?: number | null,
+	/**  Tokens of the server's context in use. */
+	context_used?: number | null,
+	/**  The server's context size in tokens. */
+	context_size?: number | null,
 };
 
 /**  One skill in a project's lock. */
@@ -6579,7 +6874,16 @@ export type LoginKind =
 /**  A Cursor user API key the device keeps and hands to each launch. */
 "cursor_api_key" | 
 /**  A local ACP command, which signs in through its own CLI. */
-"acp_command";
+"acp_command" | 
+/**
+ *  A model server, local or at a URL, that Claude Code runs on with
+ *  no Claude login, quota or sign-in. Its account names the server in
+ *  [`Account::model_server`], and every client shows its agents as
+ *  Local, never as Claude. Since
+ *  [`crate::message::LOCAL_MODELS_SINCE`]: an older client leaves the
+ *  whole account out.
+ */
+"model_server";
 
 /**  A loop between two nodes, such as a review sending work back. */
 export type LoopState = {
@@ -6723,6 +7027,97 @@ export type Misspelling = {
 	language: string | null,
 };
 
+/**
+ *  Something to do with a device's local models, in
+ *  [`crate::ClientMessage::ModelAction`].
+ */
+export type ModelAction = 
+/**
+ *  Adds a server URL and probes it. Answers
+ *  [`crate::message::ActionOutcome::ModelServerAdded`].
+ */
+{ action: "add_server"; 
+/**  Your name for it. */
+label: string; 
+/**  Its base URL, such as `http://devbox:11434`. */
+url: string; 
+/**  A token it wants, which `maxd` keeps in its secrets store. */
+token?: Secret | null } | 
+/**
+ *  Probes a URL without adding it, to see what answers there before
+ *  it's added. Answers
+ *  [`crate::message::ActionOutcome::ServerProbed`].
+ */
+{ action: "probe_server"; 
+/**  Its base URL, such as `http://devbox:11434`. */
+url: string; 
+/**  A token it wants. `maxd` keeps nothing of it. */
+token?: Secret | null } | 
+/**  Probes a server again. */
+{ action: "test_server"; 
+/**  The server. */
+server: ModelServerId } | 
+/**
+ *  Removes a server URL, with its account and token. A managed server
+ *  can't be removed.
+ */
+{ action: "remove_server"; 
+/**  The server. */
+server: ModelServerId } | 
+/**  Downloads one file of a catalog model. */
+{ action: "download"; 
+/**  The catalog model's ID. */
+model: string; 
+/**  The file's name. */
+file: string } | 
+/**  Pauses a download. */
+{ action: "pause_download"; 
+/**  The catalog model's ID. */
+model: string; 
+/**  The file's name. */
+file: string } | 
+/**  Resumes a paused or failed download. */
+{ action: "resume_download"; 
+/**  The catalog model's ID. */
+model: string; 
+/**  The file's name. */
+file: string } | 
+/**
+ *  Deletes a model file, or stops its download and deletes what came
+ *  down.
+ */
+{ action: "delete_model"; 
+/**  The catalog model's ID. */
+model: string; 
+/**  The file's name. */
+file: string } | 
+/**
+ *  Loads a model on a managed server now, rather than at the next
+ *  local agent turn.
+ */
+{ action: "load"; 
+/**  The server. */
+server: ModelServerId; 
+/**  The model's ID on that server. */
+model: string } | 
+/**  Unloads a model from a managed server. */
+{ action: "unload"; 
+/**  The server. */
+server: ModelServerId; 
+/**  The model's ID on that server. */
+model: string };
+
+/**  The curated models a device offers. */
+export type ModelCatalog = {
+	/**
+	 *  When the catalog was last refreshed, or when the shipped one was
+	 *  made.
+	 */
+	updated_at: Timestamp,
+	/**  The models, best pick first. One this build can't read is left out. */
+	models: CatalogModel[],
+};
+
 /**  One model an account can run. */
 export type ModelChoice = {
 	/**  The name the CLI takes, such as "opus". */
@@ -6749,6 +7144,150 @@ export type ModelChoice = {
 	 *  image by its path only. A `maxd` from before leaves this out.
 	 */
 	no_images?: boolean,
+};
+
+/**  A model file on a device's disk or on its way. */
+export type ModelFile = {
+	/**  The catalog model's ID. */
+	model: string,
+	/**  The file's name. */
+	file: string,
+	/**
+	 *  Where it is, as an absolute path on the device:
+	 *  `<models_dir>/<org>/<repo>/<file>`.
+	 */
+	path: string,
+	/**  Bytes on disk so far. */
+	bytes_done: number,
+	/**  The whole file's size in bytes. */
+	bytes_total: number,
+	/**  Where it stands. */
+	state: ModelFileState,
+};
+
+/**  Where a model file stands. */
+export type ModelFileState = 
+/**  Downloading, or checking what came down. */
+{ state: "downloading"; 
+/**  Downloading or verifying. */
+phase: ToolPhase } | 
+/**  Paused, keeping what came down so far. */
+{ state: "paused" } | 
+/**  On disk and checked, ready to load. */
+{ state: "ready" } | 
+/**  The download failed, keeping what came down when it can resume. */
+{ state: "failed"; 
+/**  Why, for a person to read. */
+reason: string };
+
+/**  Whether a model is in memory. */
+export type ModelLoad = 
+/**  Not loaded. A local agent's turn loads it. */
+{ state: "unloaded" } | 
+/**  Loading into memory. */
+{ state: "loading"; 
+/**
+ *  How much of the model file is in memory, from 0 to 99 percent,
+ *  when `maxd` can tell. It stays below 100 until the server
+ *  serves. Since [`crate::message::LOCAL_MODELS_SINCE`].
+ */
+percent?: number | null } | 
+/**  Loaded and serving. */
+{ state: "loaded"; 
+/**  How many requests it serves at once, each with its own KV cache. */
+slots: number; 
+/**  The context size of each slot, in tokens. */
+context: number; 
+/**  When it finished loading. */
+since: Timestamp } | 
+/**  The last load failed. */
+{ state: "failed"; 
+/**  Why, for a person to read. */
+reason: string };
+
+/**  Whether a device can run a managed model server. */
+export type ModelRuntime = {
+	/**  What the device supports. */
+	support: RuntimeSupport,
+	/**  The installed llama-server's version, or none before an install. */
+	version: string | null,
+	/**  What its install or update is doing. */
+	state: ToolState,
+};
+
+/**  A published benchmark score. */
+export type ModelScore = {
+	/**  The benchmark, such as "SWE-bench Verified". */
+	benchmark: string,
+	/**  The score, in percent. */
+	value: number | null,
+	/**  The agent harness it ran in, such as "Claude Code", when known. */
+	harness: string | null,
+	/**  Who reported it. */
+	source: ScoreSource,
+	/**  Where it was reported. */
+	url: string,
+	/**  When, as `YYYY-MM-DD`. */
+	date: string,
+};
+
+/**  A model server a device's `maxd` runs or reaches. */
+export type ModelServer = {
+	/**  The server's ID. */
+	id: ModelServerId,
+	/**
+	 *  The device whose `maxd` runs or reaches it. Agents on other devices
+	 *  reach a managed server through this device's `maxd` link.
+	 */
+	device: DeviceId,
+	/**  Whether `maxd` runs it or it's a URL you gave. */
+	kind: ModelServerKind,
+	/**  Your name for it, or the device's name for a managed one. */
+	label: string,
+	/**
+	 *  Where it answers, such as `http://devbox:11434`. None for a managed
+	 *  server, which listens on a loopback port `maxd` picks each start.
+	 */
+	base_url: string | null,
+	/**
+	 *  Whether `maxd` holds a token for it. The token itself stays in
+	 *  `maxd`'s secrets store and is never sent.
+	 */
+	token?: boolean,
+	/**  What the last probe found, or none before the first. */
+	probe: ServerProbe | null,
+	/**
+	 *  The models it serves. For a managed server, the model files ready
+	 *  on its device; for a URL, what its model list returned. One this
+	 *  build can't read is left out.
+	 */
+	models: ServerModel[],
+};
+
+/**
+ *  A model server a device's `maxd` runs or reaches: its own
+ *  llama-server, or a server URL you gave it.
+ */
+export type ModelServerId = string;
+
+/**  Whether `maxd` runs a server or reaches it at a URL. */
+export type ModelServerKind = 
+/**
+ *  llama-server, which `maxd` installs, starts on 127.0.0.1 with a key
+ *  of its own, and stops when idle.
+ */
+{ type: "managed" } | 
+/**  A server URL you gave. */
+{ type: "external"; 
+/**  What the probe says answers there. */
+flavor: ServerFlavor };
+
+/**  How fast a model ran, in whole tokens per second. */
+export type ModelSpeed = {
+	/**  Prompt tokens read per second. */
+	prompt_per_second?: number | null,
+	/**  Tokens written per second. */
+	decode_per_second?: number | null,
 };
 
 /**
@@ -7453,6 +7992,19 @@ export type PeerEntry = {
 	 *  move agents on this one.
 	 */
 	home?: boolean,
+	/**
+	 *  Its managed model server, which local agents on this device may use
+	 *  over the link. Since [`crate::message::LOCAL_MODELS_SINCE`]; an
+	 *  older `maxd` ignores it.
+	 */
+	model_server?: LinkedModels | null,
+	/**
+	 *  The devices whose managed models its local agents use. One of them
+	 *  that takes no SSH logins keeps a link up to it, so those agents
+	 *  reach it. Since [`crate::message::LOCAL_MODELS_SINCE`]; an older
+	 *  `maxd` ignores it.
+	 */
+	models_from?: DeviceId[],
 };
 
 /**  One other device, as a device's settings list it. */
@@ -7548,6 +8100,31 @@ agents: AgentId[] } |
 { kind: "move"; 
 /**  The step. */
 step: AgentMoveStep } | 
+/**
+ *  Opens a tunnel stream to the asked device's managed model server,
+ *  for a local agent on the asking device. The device that opened the
+ *  link carries the stream's client end, as with a port forward. The
+ *  outcome is [`crate::message::ActionOutcome::Done`] once the stream
+ *  is ready, or `Refused` with why, such as the asked device's switch
+ *  being off. Since [`crate::message::LOCAL_MODELS_SINCE`]; an older
+ *  `maxd` reads [`PeerRequest::Unknown`] and refuses.
+ */
+{ kind: "model_stream"; 
+/**  The stream, named by the asking device. */
+stream: StreamId; 
+/**  The server. */
+server: ModelServerId } | 
+/**
+ *  Keeps models on the asked device's managed server from idling out,
+ *  while the asking device's local agents on them work. The outcome is
+ *  [`crate::message::ActionOutcome::Done`]. Since
+ *  [`crate::message::LOCAL_MODELS_SINCE`].
+ */
+{ kind: "model_hold"; 
+/**  The server. */
+server: ModelServerId; 
+/**  The models, by id. */
+models: string[] } | 
 /**  A request from a newer `maxd`, which this one refuses. */
 { kind: "unknown" };
 
@@ -9226,7 +9803,14 @@ seen?: ProposalSeen | null } |
 /**  Marks the agent's notices read, or every notice with no agent. */
 { kind: "read_notices"; agent: AgentId | null } | 
 /**  Forgets every device's notices. */
-{ kind: "clear_notices" };
+{ kind: "clear_notices" } | 
+/**
+ *  Acts on `device`'s local models: adds, tests or removes a server
+ *  URL, downloads, pauses, resumes or deletes a model file, or loads or
+ *  unloads a model. The default model is a device setting, saved with
+ *  `set_device_settings`.
+ */
+{ kind: "model_action"; device: DeviceId; action: ModelAction };
 
 /**
  *  The answer to a [`Request`], of the same kind. A request that only
@@ -9240,7 +9824,7 @@ export type Response = { kind: "app_info"; value: AppInfo } | { kind: "view_snap
 /**  The devices that didn't take the switch, by name. */
 { kind: "set_phone_everything"; value: string[] } | 
 /**  The devices that didn't get a new code, by name. */
-{ kind: "renew_phone_codes"; value: string[] } | { kind: "set_phone_address" } | { kind: "revoke_phone_session"; value: ActionOutcome } | { kind: "app_key"; value: AppKeyState } | { kind: "remove_app_key"; value: ActionOutcome } | { kind: "rotate_app_key" } | { kind: "answer_admission"; value: ActionOutcome } | { kind: "agent_defaults"; value: AgentDefaults } | { kind: "set_agent_defaults" } | { kind: "list_tasks"; value: Task[] } | { kind: "save_task"; value: ActionOutcome } | { kind: "set_task_enabled"; value: ActionOutcome } | { kind: "delete_task"; value: ActionOutcome } | { kind: "run_task_now"; value: ActionOutcome } | { kind: "set_hook_on"; value: ActionOutcome } | { kind: "rotate_hook_token"; value: ActionOutcome } | { kind: "set_hook_secret"; value: ActionOutcome } | { kind: "set_hook_address"; value: ActionOutcome } | { kind: "list_runs"; value: Run[] } | { kind: "list_deliveries"; value: TaskDelivery[] } | { kind: "funnel_state"; value: FunnelState } | { kind: "check_test_hosts"; value: ActionOutcome } | { kind: "build_test_host"; value: ActionOutcome } | { kind: "reset_test_host"; value: ActionOutcome } | { kind: "end_lease"; value: ActionOutcome } | { kind: "read_lease_screen"; value: ActionOutcome } | { kind: "skill_source_add"; value: ActionOutcome } | { kind: "skill_source_fetch"; value: ActionOutcome } | { kind: "skill_source_remove"; value: ActionOutcome } | { kind: "skills_set_project"; value: ActionOutcome } | { kind: "skills_apply"; value: ActionOutcome } | { kind: "skills_scan"; value: ActionOutcome } | { kind: "skills_trees_needed"; value: ActionOutcome } | { kind: "skill_proposal_action"; value: ActionOutcome } | { kind: "skill_proposal_diff"; value: ActionOutcome } | { kind: "skills_globals_plan"; value: ActionOutcome } | { kind: "skills_globals_apply"; value: ActionOutcome } | { kind: "skills_globals_undo"; value: ActionOutcome } | { kind: "move_skill_library"; value: ActionOutcome } | { kind: "skill_source_push"; value: ActionOutcome } | { kind: "check_host"; value: ActionOutcome } | { kind: "apply_host"; value: ActionOutcome } | { kind: "install_tool"; value: ActionOutcome } | { kind: "remove_tool"; value: ActionOutcome } | { kind: "list_snapshots"; value: ActionOutcome } | { kind: "restore_snapshot"; value: ActionOutcome } | { kind: "plan_move"; value: ActionOutcome } | { kind: "run_move_step"; value: ActionOutcome } | { kind: "move_back"; value: ActionOutcome } | { kind: "retire_move"; value: ActionOutcome } | { kind: "install_acp_agent"; value: ActionOutcome } | { kind: "accept_licence"; value: ActionOutcome } | { kind: "ask_dispatcher"; value: ActionOutcome } | { kind: "confirm_plan"; value: ActionOutcome } | { kind: "dismiss_plan"; value: ActionOutcome } | { kind: "undo_dispatcher_action"; value: ActionOutcome } | { kind: "act_on_chat"; value: ActionOutcome } | { kind: "move_agent"; value: ActionOutcome } | { kind: "terminal_open"; value: ActionOutcome } | { kind: "terminal_attach" } | { kind: "terminal_detach" } | { kind: "terminal_resize" } | { kind: "terminal_interrupt"; value: ActionOutcome } | { kind: "terminal_close"; value: ActionOutcome } | { kind: "terminal_rename"; value: ActionOutcome } | { kind: "terminal_move"; value: ActionOutcome } | { kind: "list_folder"; value: FolderList } | { kind: "make_folder"; value: ActionOutcome } | { kind: "session_run"; value: ActionOutcome } | { kind: "session_share"; value: ActionOutcome } | { kind: "session_cd"; value: ActionOutcome } | { kind: "session_end"; value: ActionOutcome } | { kind: "list_notices"; value: NoticePage } | { kind: "read_notices" } | { kind: "clear_notices" };
+{ kind: "renew_phone_codes"; value: string[] } | { kind: "set_phone_address" } | { kind: "revoke_phone_session"; value: ActionOutcome } | { kind: "app_key"; value: AppKeyState } | { kind: "remove_app_key"; value: ActionOutcome } | { kind: "rotate_app_key" } | { kind: "answer_admission"; value: ActionOutcome } | { kind: "agent_defaults"; value: AgentDefaults } | { kind: "set_agent_defaults" } | { kind: "list_tasks"; value: Task[] } | { kind: "save_task"; value: ActionOutcome } | { kind: "set_task_enabled"; value: ActionOutcome } | { kind: "delete_task"; value: ActionOutcome } | { kind: "run_task_now"; value: ActionOutcome } | { kind: "set_hook_on"; value: ActionOutcome } | { kind: "rotate_hook_token"; value: ActionOutcome } | { kind: "set_hook_secret"; value: ActionOutcome } | { kind: "set_hook_address"; value: ActionOutcome } | { kind: "list_runs"; value: Run[] } | { kind: "list_deliveries"; value: TaskDelivery[] } | { kind: "funnel_state"; value: FunnelState } | { kind: "check_test_hosts"; value: ActionOutcome } | { kind: "build_test_host"; value: ActionOutcome } | { kind: "reset_test_host"; value: ActionOutcome } | { kind: "end_lease"; value: ActionOutcome } | { kind: "read_lease_screen"; value: ActionOutcome } | { kind: "skill_source_add"; value: ActionOutcome } | { kind: "skill_source_fetch"; value: ActionOutcome } | { kind: "skill_source_remove"; value: ActionOutcome } | { kind: "skills_set_project"; value: ActionOutcome } | { kind: "skills_apply"; value: ActionOutcome } | { kind: "skills_scan"; value: ActionOutcome } | { kind: "skills_trees_needed"; value: ActionOutcome } | { kind: "skill_proposal_action"; value: ActionOutcome } | { kind: "skill_proposal_diff"; value: ActionOutcome } | { kind: "skills_globals_plan"; value: ActionOutcome } | { kind: "skills_globals_apply"; value: ActionOutcome } | { kind: "skills_globals_undo"; value: ActionOutcome } | { kind: "move_skill_library"; value: ActionOutcome } | { kind: "skill_source_push"; value: ActionOutcome } | { kind: "check_host"; value: ActionOutcome } | { kind: "apply_host"; value: ActionOutcome } | { kind: "install_tool"; value: ActionOutcome } | { kind: "remove_tool"; value: ActionOutcome } | { kind: "list_snapshots"; value: ActionOutcome } | { kind: "restore_snapshot"; value: ActionOutcome } | { kind: "plan_move"; value: ActionOutcome } | { kind: "run_move_step"; value: ActionOutcome } | { kind: "move_back"; value: ActionOutcome } | { kind: "retire_move"; value: ActionOutcome } | { kind: "install_acp_agent"; value: ActionOutcome } | { kind: "accept_licence"; value: ActionOutcome } | { kind: "ask_dispatcher"; value: ActionOutcome } | { kind: "confirm_plan"; value: ActionOutcome } | { kind: "dismiss_plan"; value: ActionOutcome } | { kind: "undo_dispatcher_action"; value: ActionOutcome } | { kind: "act_on_chat"; value: ActionOutcome } | { kind: "move_agent"; value: ActionOutcome } | { kind: "terminal_open"; value: ActionOutcome } | { kind: "terminal_attach" } | { kind: "terminal_detach" } | { kind: "terminal_resize" } | { kind: "terminal_interrupt"; value: ActionOutcome } | { kind: "terminal_close"; value: ActionOutcome } | { kind: "terminal_rename"; value: ActionOutcome } | { kind: "terminal_move"; value: ActionOutcome } | { kind: "list_folder"; value: FolderList } | { kind: "make_folder"; value: ActionOutcome } | { kind: "session_run"; value: ActionOutcome } | { kind: "session_share"; value: ActionOutcome } | { kind: "session_cd"; value: ActionOutcome } | { kind: "session_end"; value: ActionOutcome } | { kind: "list_notices"; value: NoticePage } | { kind: "read_notices" } | { kind: "clear_notices" } | { kind: "model_action"; value: ActionOutcome };
 
 /**  Where a PR's reviews leave it. */
 export type ReviewState = 
@@ -9428,6 +10012,18 @@ export type RunSummary = {
 	outcome: RunOutcome,
 };
 
+/**  What a device supports for local models. */
+export type RuntimeSupport = 
+/**  A managed server and the catalog, as on an Apple silicon Mac. */
+"managed" | 
+/**  No GPU `maxd` can use: too slow for agents, so only server URLs. */
+"no_gpu" | 
+/**
+ *  A GPU, but `maxd` doesn't manage a server here yet: server URLs
+ *  only.
+ */
+"url_only";
+
 /**
  *  The file an export went to, for the menu to name it and the next export
  *  to start in the same folder.
@@ -9449,6 +10045,13 @@ export type SavedNote = {
 	 */
 	merged: boolean,
 };
+
+/**  Who reported a score. */
+export type ScoreSource = 
+/**  The model's maker. */
+"vendor" | 
+/**  Someone else. */
+"independent";
 
 /**
  *  A token, key or code on its way to `maxd`. Debug and Display print
@@ -9477,6 +10080,32 @@ export type SendMode =
  *  TypeScript sees a plain `number`, which is exact up to 2^53.
  */
 export type Seq = number;
+
+/**
+ *  Which APIs a server answered on. Only a server with the Anthropic
+ *  Messages API can run a local agent.
+ */
+export type ServerApis = {
+	/**  `/v1/messages`, the Anthropic Messages API Claude Code talks. */
+	messages?: boolean,
+	/**  `/v1/chat/completions`. */
+	chat?: boolean,
+	/**  `/v1/responses`. */
+	responses?: boolean,
+};
+
+/**  What kind of server answers at a URL. */
+export type ServerFlavor = 
+/**  llama.cpp's llama-server. */
+"llama_cpp" | 
+/**  Ollama. */
+"ollama" | 
+/**  LM Studio. */
+"lm_studio" | 
+/**  vLLM. */
+"vllm" | 
+/**  Something else, or not yet probed. */
+"other";
 
 /**  The first message `maxd` sends. */
 export type ServerHello = {
@@ -9648,6 +10277,47 @@ from: number;
  *  `from`, since what it had ended before what `maxd` still holds.
  */
 reset: boolean }) & { agent?: never; attachment?: never; code?: never; committed?: never; entries?: never; entry?: never; granted?: never; how?: never; idempotency_key?: never; key?: never; message?: never; nonce?: never; outcome?: never; request?: never; run?: never; stream?: never; transfer?: never; update?: never; window_end?: never };
+
+/**  One model a server serves. */
+export type ServerModel = {
+	/**  The ID the server takes in a request, such as `qwen3.6:35b`. */
+	id: string,
+	/**  The name to show. */
+	label: string,
+	/**
+	 *  The catalog entry and file it runs, for a managed server's model or
+	 *  a URL's model `maxd` recognized.
+	 */
+	catalog: CatalogRef | null,
+	/**  The context size it runs with, in tokens, when known. */
+	context: number | null,
+	/**
+	 *  Whether it's in memory. None when the server doesn't say, as with
+	 *  most URLs.
+	 */
+	load: ModelLoad | null,
+	/**
+	 *  How fast a managed server ran it in its last turn, so a local agent
+	 *  on another device shows its speed line too. Since
+	 *  [`crate::message::LOCAL_MODELS_SINCE`]; an older client reads none.
+	 */
+	speed?: ModelSpeed | null,
+};
+
+/**  What a probe of a server found. */
+export type ServerProbe = {
+	/**  When it ran. */
+	at: Timestamp,
+	/**  Which APIs answered. */
+	apis: ServerApis,
+	/**  The context size the server runs with, in tokens, when it says. */
+	context: number | null,
+	/**
+	 *  Why the probe failed, for a person to read. None when the server
+	 *  answered.
+	 */
+	error: string | null,
+};
 
 /**
  *  One command you ran in an agent's session, as a block in its card. It

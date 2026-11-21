@@ -27,7 +27,7 @@ describe("ModelPicker", () => {
 		const onPick = vi.fn();
 		render(
 			<ModelPicker
-				vendor="claude"
+				kind="claude"
 				model={null}
 				account={claude}
 				choices={claude.models}
@@ -51,7 +51,7 @@ describe("ModelPicker", () => {
 	it("shows the model as plain text when the account lists none", () => {
 		render(
 			<ModelPicker
-				vendor="codex"
+				kind="codex"
 				model="gpt-5.5"
 				account={undefined}
 				choices={[]}
@@ -66,7 +66,7 @@ describe("ModelPicker", () => {
 		const onPick = vi.fn();
 		render(
 			<ModelPicker
-				vendor="claude"
+				kind="claude"
 				model="opus"
 				account={claude}
 				choices={claude.models}
@@ -83,7 +83,7 @@ describe("ModelPicker", () => {
 	it("only names the model when there's nothing to pick it with", () => {
 		render(
 			<ModelPicker
-				vendor="claude"
+				kind="claude"
 				model="opus"
 				account={claude}
 				choices={claude.models}
@@ -105,7 +105,7 @@ describe("ModelPicker", () => {
 		const onPick = vi.fn();
 		render(
 			<ModelPicker
-				vendor="claude"
+				kind="claude"
 				model="opus"
 				account={claude}
 				choices={claude.models}
@@ -132,7 +132,7 @@ describe("ModelPicker", () => {
 		const codex = account({ id: "acc-codex", vendor: "codex", plan: "plus" });
 		render(
 			<ModelPicker
-				vendor="claude"
+				kind="claude"
 				model={null}
 				account={{ ...claude, models: [] }}
 				choices={[]}
@@ -251,7 +251,7 @@ describe("in a narrow footer", () => {
 	it("names the model's id in a tooltip when its name says less", async () => {
 		render(
 			<ModelPicker
-				vendor="claude"
+				kind="claude"
 				model="claude-opus-4-8"
 				account={claude}
 				choices={claude.models}
@@ -267,7 +267,7 @@ describe("in a narrow footer", () => {
 	it("cuts the model's name short, and keeps it whole in its name and tooltip", async () => {
 		render(
 			<ModelPicker
-				vendor="claude"
+				kind="claude"
 				model="sonnet"
 				account={claude}
 				choices={claude.models}
@@ -285,7 +285,7 @@ describe("in a narrow footer", () => {
 		const short = [{ id: "o3", label: "o3", default: true }];
 		render(
 			<ModelPicker
-				vendor="codex"
+				kind="codex"
 				model="o3"
 				account={claude}
 				choices={short}

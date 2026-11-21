@@ -11,6 +11,7 @@
 
 import { t } from "../i18n";
 
+import { isLocalAccount, kindName, VENDOR_NAME } from "./agent-kind";
 import { plural, formatPercent } from "./format";
 import { subscriptions } from "./subscriptions";
 import type { Account, Timestamp, UsageSpend, UsageWindow, Vendor } from "../bindings";
@@ -222,22 +223,18 @@ export const modelRows = (
 	return { rows: rows.filter((r) => fullest.has(r)), folded: rows.length - fullest.size };
 };
 
-/** What the vendor's CLI is called, in the header meter and elsewhere. */
-export const VENDOR_NAME: Record<Vendor, string> = {
-	claude: "Claude",
-	codex: "Codex",
-	cursor: "Cursor",
-	get acp() {
-		return t("ACP agent");
-	},
-};
+export { VENDOR_NAME };
 
 /**
  * The account's name as its plan reads, such as "Claude Max" or "Codex
  * Plus". Without a reported plan it falls back to the product alone, since
- * the app never guesses a tier. A local ACP agent goes by the name you gave it.
+ * the app never guesses a tier. A local ACP agent goes by the name you gave
+ * it, and a local model's account is Local, never Claude.
  */
-export const accountName = (account: Pick<Account, "vendor" | "plan" | "label">): string => {
+export const accountName = (
+	account: Pick<Account, "vendor" | "plan" | "label"> & Partial<Pick<Account, "login">>
+): string => {
+	if (isLocalAccount(account)) return kindName("local");
 	if (account.vendor === "acp") return account.label;
 	const plan = account.plan?.trim();
 	if (!plan) return VENDOR_NAME[account.vendor];

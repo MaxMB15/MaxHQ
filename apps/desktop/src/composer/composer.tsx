@@ -87,7 +87,8 @@ import { agentPillOf } from "@maxhq/shared/pills/agent-pill";
 import { messageFragment } from "@maxhq/shared/pills/sent";
 import type { TriggerKind } from "@maxhq/shared/pills/trigger";
 import type { TimelineStore } from "@maxhq/shared/timeline/store";
-import { VENDOR_NAME } from "@maxhq/shared/status/usage";
+import { localSpeed } from "@maxhq/shared/local-models/running";
+import { agentKind, kindName } from "@maxhq/shared/status/agent-kind";
 import { errorText } from "@maxhq/shared/timeline/store";
 import { draggedName } from "@maxhq/shared/ui/rows";
 import { noteCopyName, notePillBlocked, notesReach, shownTitle } from "@maxhq/shared/view/notes";
@@ -107,7 +108,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useStore } from "zustand";
 
 import type { DraggedFile } from "@/agent-view/file-drag";
-import { VendorIcon } from "@/agent-view/icons";
+import { AgentIcon } from "@/agent-view/icons";
 import { askForRequest } from "@/agent-view/request";
 import { useServices, useView } from "@/app/services";
 import { agreedSend, pickMode } from "@/settings/auto-consent";
@@ -146,6 +147,8 @@ import { type PaneFile, usePaneFiles } from "./pane-files";
 import { nextPastedTextFileName, pastesAsFile } from "./paste";
 import { EffortPicker } from "./effort-picker";
 import { type Attached, AttachButton, FooterRow, SendButtons, type Sends } from "./footer";
+import { localMenu } from "./local-menu";
+import { LocalSpeed } from "./local-speed";
 import { ModelPicker, PermissionPicker } from "./pickers";
 import { usePillMenu } from "./pill-menu";
 import { PILL_CLOCK_MS, PillsContext, type PillsContextValue } from "./pill-nodes";
@@ -379,6 +382,7 @@ const ComposerBody = ({
 	const paneFiles = usePaneFiles();
 	const view = useView((state) => state.view);
 	const account = agent.account ? view.tables.account.get(agent.account) : undefined;
+	const kind = agentKind(agent, view.tables.account);
 	const where = deviceName(view, device);
 	const turn = turnOf(agent.activity);
 	const { busySend } = useTypingPrefs();
@@ -1242,10 +1246,13 @@ const ComposerBody = ({
 			? translate("Sends when the upload finishes")
 			: translate("Sends when the files are ready")
 		: null;
+	// A local agent's speeds and context, live while its turn runs, then dimmed.
+	const speed = kind === "local" ? localSpeed(view, agent) : null;
 	// What the footer shows, so it measures itself again when that changes.
 	const footerContent = [
 		language,
 		attached?.summary,
+		speed?.text,
 		agent.model,
 		agent.effort,
 		agent.permission && runningMode(agent.permission),
@@ -1308,7 +1315,7 @@ const ComposerBody = ({
 							<span className="truncate">
 								{translate(
 									"Anything you send now waits until {{value1}}'s next turn.",
-									{ value1: VENDOR_NAME[agent.vendor] }
+									{ value1: kindName(kind) }
 								)}
 							</span>
 						</div>
@@ -1364,6 +1371,7 @@ const ComposerBody = ({
 							attachments: attached !== null,
 							effort: effortShows,
 							permission: agent.permission !== null && agent.permission !== undefined,
+							speed: speed !== null,
 						}}
 						content={footerContent}
 					>
@@ -1375,11 +1383,12 @@ const ComposerBody = ({
 									onPick={() => void pick()}
 								/>
 								<ModelPicker
-									vendor={agent.vendor}
+									kind={kind}
 									model={agent.model}
 									account={account}
 									choices={models}
 									moves={movesOf(view, agent)}
+									local={localMenu(services, view, device)}
 									folded={folded.has("model")}
 									onPick={(model, to) =>
 										void run("model", () =>
@@ -1418,6 +1427,7 @@ const ComposerBody = ({
 										}
 									/>
 								)}
+								{speed && <LocalSpeed speed={speed} folded={folded.has("speed")} />}
 								{shell.runButton ?? (
 									<SendButtons
 										sends={sends}
@@ -1440,8 +1450,8 @@ const ComposerBody = ({
 						>
 							<div className="flex flex-col items-center gap-1 text-center">
 								{agentOver?.[0] ? (
-									<VendorIcon
-										vendor={agentOver[0].vendor}
+									<AgentIcon
+										agent={agentOver[0]}
 										size={20}
 										className="text-primary"
 									/>

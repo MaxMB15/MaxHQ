@@ -68,7 +68,7 @@ use maxhq_protocol::attention::{AnswerOutcome, AttentionAnswer};
 use maxhq_protocol::context::InlineRef;
 use maxhq_protocol::frame;
 use maxhq_protocol::ids::{
-    AgentId, AttentionId, ClientId, DeviceId, IdempotencyKey, LinkId, PortId, TerminalId,
+    AgentId, AttentionId, ClientId, DeviceId, IdempotencyKey, LinkId, PortId, StreamId, TerminalId,
     TransferId, WorkspaceId,
 };
 use maxhq_protocol::link::{DeviceLink, LinkState, Network, Route, RouteChoice};
@@ -935,6 +935,21 @@ impl LinkHandle {
     /// Closes the forward to a port, if one is open.
     pub fn close_forward(&self, port: PortId) {
         self.forwards.close(port);
+    }
+
+    /// Pumps one end of an in-memory pipe as `stream`, which `maxd` opens
+    /// by a request of its own: see [`Forwards::attach`].
+    pub fn attach_stream(
+        &self,
+        stream: StreamId,
+        socket: tokio::io::DuplexStream,
+    ) -> Result<(), String> {
+        self.forwards.attach(stream, socket)
+    }
+
+    /// Drops a stream [`LinkHandle::attach_stream`] took.
+    pub fn forget_stream(&self, stream: StreamId) {
+        self.forwards.forget(stream);
     }
 
     /// The forwards open on this link, by local port. Each shows `maxd`'s

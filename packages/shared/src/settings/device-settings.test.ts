@@ -38,7 +38,13 @@ const view = applySnapshot({
 				link({
 					id: "new",
 					protocol: EFFORT_SINCE,
-					capabilities: { transfers: true, tunnels: true, workspaces: true, inbox: true },
+					capabilities: {
+						transfers: true,
+						tunnels: true,
+						workspaces: true,
+						inbox: true,
+						local_models: true,
+					},
 				}),
 				link({ id: "old", protocol: null }),
 			],
@@ -102,6 +108,7 @@ describe("settingsWhy", () => {
 			effort: offline,
 			shell: offline,
 			reads: offline,
+			local: offline,
 		});
 	});
 
@@ -116,6 +123,7 @@ describe("settingsWhy", () => {
 			effort: null,
 			shell: null,
 			reads: null,
+			local: null,
 		});
 	});
 
@@ -129,6 +137,7 @@ describe("settingsWhy", () => {
 		expect(why.effort).toBe("oldbox's maxd is too old for this. Update it first.");
 		expect(why.shell).toBe("oldbox's maxd is too old for this. Update it first.");
 		expect(why.reads).toBe("oldbox's maxd is too old for this. Update it first.");
+		expect(why.local).toBe("oldbox's maxd is too old for these. Update it first.");
 		expect(why.tokens).toBe(
 			"oldbox's maxd is too old for this, and takes setup-tokens. Update it first."
 		);

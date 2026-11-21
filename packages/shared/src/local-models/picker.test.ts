@@ -1,0 +1,160 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026 Max Boksem
+
+import { describe, expect, it } from "vitest";
+
+import type { Entity } from "../bindings";
+import {
+	DEVBOX_LOCAL,
+	DOWNLOADING_MODEL,
+	LOADED_MODEL,
+	MAC_LOCAL,
+	OLLAMA_LOCAL,
+} from "../data/mock-local-models";
+import { mockSource } from "../data/mock-source";
+import { DEVBOX, MAC } from "../data/mock-view";
+import { NOW } from "../test/build";
+import { applySnapshot, type ViewState } from "../view/replica";
+
+import { agentOptions, localPickerOptions, localModelTag, opensLocalSetup } from "./picker";
+import { defaultLocalPick, localPicksOn } from "./models";
+import { LOCAL_SETUP_VALUE, localModelKey, modelChoice } from "./select";
+
+/** The sample view, with its entities changed by `edit`. */
+const load = async (edit: (entities: Entity[]) => Entity[] = (e) => e): Promise<ViewState> => {
+	const snapshot = await mockSource({ now: () => NOW, tick: false }).snapshot();
+	return applySnapshot({ ...snapshot, entities: edit(snapshot.entities) });
+};
+
+/** Without any local login, as on a device with no model ready. */
+const noLocalLogins = (entities: Entity[]): Entity[] =>
+	entities.filter((e) => !(e.entity === "account" && e.login === "model_server"));
+
+describe("the agent picker", () => {
+	it("lists Local once, last, as an agent of its own", async () => {
+		const view = await load();
+		const options = agentOptions(view, MAC, NOW);
+		expect(options.at(-1)).toMatchObject({ value: MAC_LOCAL, label: "Local" });
+		expect(options.filter((o) => o.label === "Local")).toHaveLength(1);
+		expect(options.slice(0, -1).map((o) => o.label)).not.toContain("Local");
+		expect(agentOptions(view, DEVBOX, NOW, OLLAMA_LOCAL).at(-1)?.value).toBe(OLLAMA_LOCAL);
+	});
+
+	it("still lists Local without a model, and leads to its setup", async () => {
+		const view = await load(noLocalLogins);
+		expect(agentOptions(view, MAC, NOW).at(-1)).toEqual({
+			value: LOCAL_SETUP_VALUE,
+			label: "Local",
+			detail: "Download a model in Settings first",
+			warn: true,
+		});
+		expect(agentOptions(view, DEVBOX, NOW).at(-1)).toMatchObject({
+			value: LOCAL_SETUP_VALUE,
+			detail: "Add a server URL in Settings first",
+		});
+	});
+});
+
+describe("the local model picker", () => {
+	it("groups the Mac's models under This Mac, each with its fit", async () => {
+		const view = await load();
+		const options = localPickerOptions(view, MAC);
+		expect(options.map((o) => [o.group, o.label, o.tag])).toEqual([
+			["This Mac", "Qwen3.6-35B-A3B", "Fits"],
+			["This Mac", "gpt-oss-20b", "Fits"],
+			["This Mac", "Ornith-1.5-9B", "Fits"],
+			["This Mac", "Ornith-1.5-35B-A3B", "Not downloaded"],
+			["This Mac", "Qwen3.8-27B", "Not downloaded"],
+			["This Mac", "Qwen3-Coder-Next-80B-A3B", "Not downloaded"],
+			[undefined, "Set up local models…", undefined],
+		]);
+		expect(options[0]).toMatchObject({
+			value: localModelKey(MAC_LOCAL, LOADED_MODEL),
+			detail: "The default, Loaded",
+			tone: "good",
+		});
+		expect(options.find((o) => o.label === "Qwen3.8-27B")?.detail).toBe("Downloading, 41%");
+	});
+
+	it("puts a server at a URL under its own name, without a fit", async () => {
+		const view = await load();
+		const options = localPickerOptions(view, DEVBOX);
+		const ollama = options.filter((o) => o.group === "Ollama on gpu-box (not encrypted)");
+		expect(ollama.map((o) => o.label)).toEqual(["qwen3-coder:30b", "gpt-oss-20b"]);
+		expect(ollama.every((o) => o.tag === undefined)).toBe(true);
+		// devbox's own login on the Mac's server lists the Mac's models, and its catalog.
+		expect(
+			options.filter((o) => o.value.startsWith(localModelKey(DEVBOX_LOCAL, ""))).length
+		).toBe(3);
+		expect(options.at(-1)?.value).toBe(LOCAL_SETUP_VALUE);
+	});
+
+	it("shows a Mac's models turned off where its switch keeps them to itself", async () => {
+		const view = await load((entities) =>
+			entities.map((e) =>
+				e.entity === "device_settings" && e.device === MAC
+					? { ...e, local_models: { ...e.local_models, linked_devices: false } }
+					: e
+			)
+		);
+		const options = localPickerOptions(view, DEVBOX);
+		const mac = options.filter((o) => o.group === "This Mac");
+		expect(mac.map((o) => [o.label, o.disabled, o.detail])).toEqual([
+			["Qwen3.6-35B-A3B", true, "Turned off on Mac"],
+			["gpt-oss-20b", true, "Turned off on Mac"],
+			["Ornith-1.5-9B", true, "Turned off on Mac"],
+			[
+				"Open Mac's Local models settings…",
+				undefined,
+				'Turn on "Linked devices can use this Mac\'s models" there',
+			],
+		]);
+		// No fit tags, nor the Mac's catalog to download from.
+		expect(mac.every((o) => o.tag === undefined)).toBe(true);
+		expect(mac.every((o) => o.warn)).toBe(true);
+		// The last row opens the Mac's page, where the switch is.
+		expect(opensLocalSetup(mac.at(-1)!.value, DEVBOX)).toEqual({ device: MAC });
+		// devbox's default moves off the Mac; the Mac's own picker stays as it was.
+		expect(defaultLocalPick(view, DEVBOX)?.account.id).toBe(OLLAMA_LOCAL);
+		expect(localPicksOn(view, DEVBOX).some((p) => p.account.id === DEVBOX_LOCAL)).toBe(false);
+		expect(localPickerOptions(view, MAC).filter((o) => o.disabled)).toEqual([]);
+	});
+
+	it("tags a model too large for the GPU", async () => {
+		const view = await load((entities) =>
+			entities.map((e) =>
+				e.entity === "local_models" && e.device === MAC && e.hardware.gpu
+					? {
+							...e,
+							hardware: {
+								...e.hardware,
+								gpu: { ...e.hardware.gpu, budget: 1024 ** 3 },
+							},
+						}
+					: e
+			)
+		);
+		const account = view.tables.account.get(MAC_LOCAL)!;
+		expect(localModelTag(view, account, LOADED_MODEL)).toEqual({
+			label: "Too large",
+			tone: "bad",
+		});
+		expect(localModelTag(view, account, "gone")).toBeNull();
+	});
+});
+
+describe("picked values", () => {
+	it("tell a setup row from a model", () => {
+		expect(opensLocalSetup(LOCAL_SETUP_VALUE, MAC)).toEqual({ device: MAC });
+		expect(opensLocalSetup(LOCAL_SETUP_VALUE, null)).toEqual({ device: null });
+		expect(opensLocalSetup(`${LOCAL_SETUP_VALUE}|${DEVBOX}|${DOWNLOADING_MODEL}`, MAC)).toEqual(
+			{
+				device: DEVBOX,
+			}
+		);
+		const model = localModelKey(MAC_LOCAL, LOADED_MODEL);
+		expect(opensLocalSetup(model, MAC)).toBeNull();
+		expect(modelChoice(model)).toEqual({ account: MAC_LOCAL, model });
+		expect(opensLocalSetup(MAC_LOCAL, MAC)).toBeNull();
+	});
+});

@@ -282,6 +282,7 @@ pub(crate) fn agent_titled(activity: Activity, title: &str) -> Change {
             effort: None,
             running: None,
             moved: None,
+            local: None,
         }),
     }
 }

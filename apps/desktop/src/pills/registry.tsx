@@ -32,7 +32,7 @@ import {
 } from "@maxhq/shared/pills/label";
 import { ACTIVITY_LABEL, agentLook } from "@maxhq/shared/status/activity";
 import { formatAgo } from "@maxhq/shared/status/format";
-import { VENDOR_NAME } from "@maxhq/shared/status/usage";
+import { type AgentKind, kindName, ownKind } from "@maxhq/shared/status/agent-kind";
 import { type SessionPillLook, sessionPillLabel } from "@maxhq/shared/terminal/session";
 import {
 	ArrowRight,
@@ -194,6 +194,8 @@ export type PillRecord =
 			/** The agent now, or null once it's gone. */
 			readonly agent: Agent | null;
 			readonly deviceName: string | null;
+			/** What the agent shows as, from its account, so a local agent reads Local. */
+			readonly agentKind?: AgentKind;
 	  }
 	| {
 			readonly kind: "note";
@@ -413,6 +415,10 @@ const QuoteDetails = ({
 	);
 };
 
+/** What an agent pill's agent shows as: the kind it was given, else from its own record. */
+const pillKind = (record: Extract<PillRecord, { kind: "agent" }>): AgentKind =>
+	record.agentKind ?? (record.agent ? ownKind(record.agent) : record.ref.vendor);
+
 const AgentDetails = ({
 	record,
 	now,
@@ -430,7 +436,7 @@ const AgentDetails = ({
 				{agent?.title ?? ref.title}
 			</div>
 			<div className="text-muted-foreground">
-				{[VENDOR_NAME[ref.vendor], deviceName].filter(Boolean).join(t(" on "))}
+				{[kindName(pillKind(record)), deviceName].filter(Boolean).join(t(" on "))}
 			</div>
 			{look ? (
 				<div className="flex items-center gap-1.5 text-muted-foreground">
@@ -641,11 +647,11 @@ export const pillRegistry = createPillRegistry<PillRecord, PillContext, PillPres
 					family: "agent",
 					state: agent.agent ? "ready" : "unresolved",
 					progress: null,
-					icon: <VendorIcon vendor={agent.ref.vendor} size={12} />,
+					icon: <VendorIcon kind={pillKind(agent)} size={12} />,
 					label: middleTruncate(title),
 					aria: [
 						t("Agent {{title}}", { title: title }),
-						VENDOR_NAME[agent.ref.vendor],
+						kindName(pillKind(agent)),
 						agent.deviceName,
 						look ? ACTIVITY_LABEL[look].toLowerCase() : "gone",
 					]

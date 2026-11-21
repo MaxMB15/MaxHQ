@@ -5,7 +5,9 @@
 //! --peer`. It says hello as a peer and proves it holds that device's key,
 //! the one `authorized_keys` lets in for it. Then it sends agent calls and
 //! wakes, and answers the ones this device sends back over it. Nothing
-//! else is let through: no sync, secrets, workspace or settings.
+//! else is let through: no sync, secrets, workspace or settings. The one
+//! exception is the model streams a request on the link opened, whose
+//! bytes and credit come in tunnel frames and messages.
 //!
 //! The frame that names the device proves nothing, since any program on
 //! this device can write one to the socket. Until the proof, the link
@@ -24,7 +26,7 @@ use tokio::io::{AsyncRead, AsyncReadExt};
 use tokio::sync::Semaphore;
 use tracing::{debug, info, warn};
 
-use super::{Peers, MAX_REQUESTS};
+use super::{Peers, Via, MAX_REQUESTS};
 
 /// How much is read from the socket at once.
 const READ_CHUNK: usize = 64 * 1024;
@@ -68,6 +70,12 @@ pub async fn serve(
             let message = match decoder.next_frame() {
                 Ok(None) => break,
                 Ok(Some(Frame::Message(json))) => serde_json::from_slice::<ClientMessage>(json),
+                Ok(Some(Frame::TunnelData { stream, data })) => {
+                    if let Stage::Linked(_, serial) = stage {
+                        peers.tunnel_data(device, serial, stream, data);
+                    }
+                    continue;
+                }
                 Ok(Some(_)) => continue,
                 Err(err) => {
                     debug!(%err, %device, "a peer sent a broken frame");
@@ -98,13 +106,13 @@ pub async fn serve(
                         stage = Stage::Linked(client, peers.attach(device, wire.clone()));
                     }
                 }
-                Stage::Linked(client, _) => {
+                Stage::Linked(client, serial) => {
                     let asked = Asked {
                         device,
                         client,
                         hello: &hello,
                     };
-                    if !handle(&peers, &asked, &wire, message, &running).await {
+                    if !handle(&peers, &asked, serial, &wire, message, &running).await {
                         warn!(%device, "a peer asked too much at once, so its link closes");
                         break 'read;
                     }
@@ -251,6 +259,7 @@ impl Asked<'_> {
 async fn handle(
     peers: &Peers,
     asked: &Asked<'_>,
+    serial: u64,
     wire: &Sender,
     message: ClientMessage,
     running: &Arc<Semaphore>,
@@ -265,12 +274,21 @@ async fn handle(
             let peers = peers.clone();
             let wire = wire.clone();
             tokio::spawn(async move {
-                let outcome = peers.answer(device, key, request).await;
+                let via = Via::Incoming(serial);
+                let outcome = peers.answer_on(device, key, request, via).await;
                 reply(&wire, &ServerMessage::ActionResult { key, outcome }).await;
                 drop(place);
             });
         }
         ClientMessage::PeerAnswer { key, outcome } => peers.answered(device, key, outcome),
+        // A model stream's credit and close, for a stream a request on
+        // this link opened.
+        ClientMessage::TunnelCredit { stream, granted } => {
+            peers.tunnel_credit(device, serial, stream, granted);
+        }
+        ClientMessage::TunnelClose { stream, how } => {
+            peers.tunnel_close(device, serial, stream, how);
+        }
         // A proof again gets its answer, and the link stays whatever it
         // is.
         ClientMessage::Prove {

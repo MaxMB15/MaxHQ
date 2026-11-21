@@ -94,6 +94,29 @@
       "title": "Agent tools"
     },
     {
+      "hint": "Models each device runs with llama.cpp, and servers such as Ollama it reaches by URL",
+      "id": "settings/local-models",
+      "link": "maxhq://settings/local-models",
+      "terms": [
+        "Device",
+        "Hardware",
+        "GPU",
+        "Default model",
+        "Models",
+        "Download",
+        "Servers",
+        "Linked devices can use this Mac's models",
+        "Add server URL",
+        "Token, if the server asks for one",
+        "Local agent settings",
+        "Unload models after",
+        "KV cache",
+        "Context size",
+        "Fewer tools for local agents"
+      ],
+      "title": "Local models"
+    },
+    {
       "hint": "Prompts each device sends to an agent on a timer, a webhook or GitHub events",
       "id": "settings/scheduled-tasks",
       "link": "maxhq://settings/scheduled-tasks",

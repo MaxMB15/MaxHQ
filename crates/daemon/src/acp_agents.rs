@@ -309,6 +309,7 @@ impl AcpAgents {
             usage: None,
             usage_failure: None,
             acp: record.features.clone(),
+            model_server: None,
         };
         self.inner.hub.apply([
             Change::Upsert {

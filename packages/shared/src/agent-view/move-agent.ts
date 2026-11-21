@@ -35,7 +35,8 @@ import {
 	type Option,
 	workspaceWhere,
 } from "../new-agent/spec";
-import { VENDOR_NAME } from "../status/usage";
+import { resolveLocal, shownLocalModel } from "../local-models/select";
+import { accountKind, agentKind, isLocalAccount, kindName } from "../status/agent-kind";
 import { tasksTargeting } from "../tasks/place";
 import { all, type ViewState } from "../view/replica";
 import {
@@ -103,35 +104,44 @@ export type SignInVendor = Exclude<Vendor, "acp">;
 
 const SIGN_INS: readonly SignInVendor[] = ["claude", "codex", "cursor"];
 
-/** The vendors with no account on `device`, each one you can sign in to there. */
+/**
+ * The vendors with no account on `device`, each one you can sign in to
+ * there. A local model's account isn't a Claude sign-in.
+ */
 export const missingVendors = (view: ViewState, device: DeviceId): SignInVendor[] => {
 	const there = new Set(
 		all(view, "account")
-			.filter((account) => account.device === device)
+			.filter((account) => account.device === device && !isLocalAccount(account))
 			.map((account) => account.vendor)
 	);
 	return SIGN_INS.filter((vendor) => !there.has(vendor));
 };
 
 /**
- * The accounts on `device`, the agent's own vendor first, then the vendors
- * not signed in there, turned off.
+ * The accounts on `device`, the agent's own kind first, then the vendors
+ * not signed in there, turned off. The Local entry stands for `selected`
+ * when that's one of the device's local accounts.
  */
 export const moveAccountOptions = (
 	view: ViewState,
 	agent: Agent,
 	device: DeviceId,
-	now: number
+	now: number,
+	selected: AccountId | null = null
 ): Option[] => {
-	const options = accountOptions(view, device, now);
-	const own = (option: Option) => view.tables.account.get(option.value)?.vendor === agent.vendor;
+	const options = accountOptions(view, device, now, selected);
+	const kind = agentKind(agent, view.tables.account);
+	const own = (option: Option) => {
+		const account = view.tables.account.get(option.value);
+		return account !== undefined && accountKind(account) === kind;
+	};
 	const name = deviceName(view, device);
 	return [
 		...options.filter(own),
 		...options.filter((option) => !own(option)),
 		...missingVendors(view, device).map((vendor) => ({
 			value: `sign-in:${vendor}`,
-			label: VENDOR_NAME[vendor],
+			label: kindName(vendor),
 			detail: t("Not signed in on {{names}}", { names: name }),
 			disabled: true,
 		})),
@@ -313,10 +323,10 @@ export const moveLines = (
 			: t("Files and uncommitted changes stay on {{device}}.", { device: fromName }),
 		t("This agent stops and settles on {{device}}.", { device: fromName }),
 		...(inTurn(agent) ? [t("Its current turn stops.")] : []),
-		...(account && account.vendor !== agent.vendor
+		...(account && accountKind(account) !== agentKind(agent, view.tables.account)
 			? [
 					t("It goes on with {{vendor}} on {{device}}.", {
-						vendor: VENDOR_NAME[account.vendor],
+						vendor: kindName(accountKind(account)),
 						device: device === null ? "" : deviceName(view, device),
 					}),
 				]
@@ -334,12 +344,27 @@ export const moveForm = (
 ): MoveForm => {
 	const devices = moveDeviceOptions(view, agent);
 	const device = firstUsable(devices, choices.device);
-	const accounts = device === null ? [] : moveAccountOptions(view, agent, device, now);
+	const accounts =
+		device === null ? [] : moveAccountOptions(view, agent, device, now, choices.account);
 	const accountId = firstUsable(accounts, choices.account);
-	const account = accountId === null ? undefined : view.tables.account.get(accountId);
+	const picked = accountId === null ? undefined : view.tables.account.get(accountId);
+	const sameKind =
+		picked !== undefined && accountKind(picked) === agentKind(agent, view.tables.account);
+	const wanted = choices.model ?? (sameKind ? agent.model : null);
+	// A local account sends its model always, and its picker names the
+	// account with the model, so picking one can move to another server.
+	const local =
+		picked && device !== null && isLocalAccount(picked)
+			? resolveLocal(view, device, picked, wanted)
+			: null;
+	const account = local?.account ?? picked;
+	// The Local entry stands for the server's account the model pick moved to.
+	const shownAccounts =
+		account && account.id !== accountId
+			? accounts.map((o) => (o.value === accountId ? { ...o, value: account.id } : o))
+			: accounts;
 	const listed = modelsOf(view, account);
-	const wanted = choices.model ?? (account?.vendor === agent.vendor ? agent.model : null);
-	const model = listed.some((m) => m.id === wanted) ? wanted : null;
+	const model = local ? local.model : listed.some((m) => m.id === wanted) ? wanted : null;
 	const places = device === null ? [] : movePlaceOptions(view, device);
 	const place = places.some((o) => o.value === choices.place)
 		? choices.place
@@ -375,11 +400,13 @@ export const moveForm = (
 	return {
 		devices,
 		device,
-		accounts,
+		accounts: shownAccounts,
 		account,
 		missing: device === null ? [] : missingVendors(view, device),
 		models: modelOptions(view, account),
-		model: model ?? listed.find((m) => m.default)?.id ?? listed[0]?.id ?? "",
+		model: local
+			? (shownLocalModel(local.account, local.model) ?? "")
+			: (model ?? listed.find((m) => m.default)?.id ?? listed[0]?.id ?? ""),
 		places,
 		place,
 		lines: moveLines(view, agent, device, account),

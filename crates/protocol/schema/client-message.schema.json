@@ -5228,6 +5228,29 @@
         "device",
         "call"
       ]
+    },
+    {
+      "description": "Acts on the device's local models: probes, adds, tests or removes a\nserver URL, downloads, pauses, resumes or deletes a model file, or\nloads or unloads a model. Probing a URL answers\n[`ActionOutcome::ServerProbed`], adding a server\n[`ActionOutcome::ModelServerAdded`], the rest\n[`ActionOutcome::Done`]. The default model is a device setting,\n[`crate::model::DeviceSettings::local_models`]. Since\n[`LOCAL_MODELS_SINCE`].",
+      "type": "object",
+      "properties": {
+        "action": {
+          "description": "What to do.",
+          "$ref": "#/$defs/ModelAction"
+        },
+        "key": {
+          "description": "Makes a resend after a dropped connection safe.",
+          "$ref": "#/$defs/IdempotencyKey"
+        },
+        "type": {
+          "type": "string",
+          "const": "model_action"
+        }
+      },
+      "required": [
+        "type",
+        "key",
+        "action"
+      ]
     }
   ],
   "$defs": {
@@ -6698,6 +6721,55 @@
           ]
         },
         {
+          "description": "The server a [`ModelAction::AddServer`] added, which its probe fills\nin.",
+          "type": "object",
+          "properties": {
+            "server": {
+              "description": "The new server.",
+              "$ref": "#/$defs/ModelServerId"
+            },
+            "status": {
+              "type": "string",
+              "const": "model_server_added"
+            }
+          },
+          "required": [
+            "status",
+            "server"
+          ]
+        },
+        {
+          "description": "What a [`ModelAction::ProbeServer`] found at a URL it didn't add.",
+          "type": "object",
+          "properties": {
+            "flavor": {
+              "description": "What kind of server answered.",
+              "$ref": "#/$defs/ServerFlavor"
+            },
+            "models": {
+              "description": "The models it serves.",
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/ServerModel"
+              }
+            },
+            "probe": {
+              "description": "Which APIs answered, or why nothing did.",
+              "$ref": "#/$defs/ServerProbe"
+            },
+            "status": {
+              "type": "string",
+              "const": "server_probed"
+            }
+          },
+          "required": [
+            "status",
+            "flavor",
+            "probe",
+            "models"
+          ]
+        },
+        {
           "description": "An outcome from a newer `maxd`. The action went through, and what\nit came to needs a newer app to show.",
           "type": "object",
           "properties": {
@@ -7505,6 +7577,24 @@
       "description": "Something an agent needs from you, such as a permission prompt.",
       "type": "string",
       "format": "uuid"
+    },
+    "CatalogRef": {
+      "description": "One file of one catalog model.",
+      "type": "object",
+      "properties": {
+        "file": {
+          "description": "The file's name.",
+          "type": "string"
+        },
+        "model": {
+          "description": "The catalog model's ID.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "model",
+        "file"
+      ]
     },
     "ChatAct": {
       "description": "What you do to one dispatcher chat. Delete one with `DeleteAgent`.",
@@ -8413,6 +8503,24 @@
             "field",
             "value"
           ]
+        },
+        {
+          "description": "See [`DeviceSettings::local_models`].",
+          "type": "object",
+          "properties": {
+            "field": {
+              "type": "string",
+              "const": "local_models"
+            },
+            "value": {
+              "description": "What it becomes.",
+              "$ref": "#/$defs/LocalModelSettings"
+            }
+          },
+          "required": [
+            "field",
+            "value"
+          ]
         }
       ]
     },
@@ -8503,6 +8611,18 @@
           "description": "When a Mac's `maxd` keeps it from idling to sleep. Other systems\nignore it.",
           "$ref": "#/$defs/KeepAwake",
           "default": "charger"
+        },
+        "local_models": {
+          "description": "The device's choices for local models: idle unload, KV cache type,\ncontext size, fewer tools and the default model. A `maxd` from\nbefore [`crate::message::LOCAL_MODELS_SINCE`] leaves it out, and\nreads as the defaults.",
+          "$ref": "#/$defs/LocalModelSettings",
+          "default": {
+            "context": 65536,
+            "default_model": null,
+            "fewer_tools": true,
+            "idle_unload_minutes": 15,
+            "kv_type": "f16",
+            "linked_devices": true
+          }
         },
         "memory_items": {
           "description": "How many of each agent's newest items `maxd` keeps in memory, from\n[`MEMORY_ITEMS`]. The rest wait on disk until a client scrolls back.\nA `maxd` from before this leaves it out.",
@@ -10176,6 +10296,21 @@
       "type": "string",
       "format": "uuid"
     },
+    "KvCacheType": {
+      "description": "How a managed server stores its KV cache.",
+      "oneOf": [
+        {
+          "description": "16-bit floats, the exact cache.",
+          "type": "string",
+          "const": "f16"
+        },
+        {
+          "description": "8-bit, about half the memory for a small loss.",
+          "type": "string",
+          "const": "q8_0"
+        }
+      ]
+    },
     "LeaseId": {
       "description": "One lease of a test host.",
       "type": "string",
@@ -10267,6 +10402,98 @@
         "first",
         "last"
       ]
+    },
+    "LinkedModels": {
+      "description": "A Mac's managed model server, as the devices it links to see it in\ntheir peer book, so their local agents can use it over the `maxd`\nlink. Its load and speed stay in the Mac's own entity.",
+      "type": "object",
+      "properties": {
+        "label": {
+          "description": "Its name, the Mac's.",
+          "type": "string"
+        },
+        "models": {
+          "description": "The models it serves, with no load or speed. One this build can't\nread is left out.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ServerModel"
+          }
+        },
+        "server": {
+          "description": "The server.",
+          "$ref": "#/$defs/ModelServerId"
+        }
+      },
+      "required": [
+        "server",
+        "label",
+        "models"
+      ]
+    },
+    "LocalModelPick": {
+      "description": "One model on one server.",
+      "type": "object",
+      "properties": {
+        "model": {
+          "description": "The model's ID on that server.",
+          "type": "string"
+        },
+        "server": {
+          "description": "The server.",
+          "$ref": "#/$defs/ModelServerId"
+        }
+      },
+      "required": [
+        "server",
+        "model"
+      ]
+    },
+    "LocalModelSettings": {
+      "description": "A device's choices for local models, in its device settings.",
+      "type": "object",
+      "properties": {
+        "context": {
+          "description": "The context size a managed server loads a model with, in tokens.",
+          "type": "integer",
+          "format": "uint32",
+          "default": 65536,
+          "minimum": 0
+        },
+        "default_model": {
+          "description": "The model a new local agent on this device starts with, or none to\nuse the catalog's default once it's ready.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/LocalModelPick"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "fewer_tools": {
+          "description": "Whether local agents get a lean set of MaxHQ tools, which leaves\nmore of a small context for the work.",
+          "type": "boolean",
+          "default": true
+        },
+        "idle_unload_minutes": {
+          "description": "Minutes with no local agent turn running before a managed server\nunloads its model. 0 keeps it loaded.",
+          "type": "integer",
+          "format": "uint16",
+          "default": 15,
+          "maximum": 65535,
+          "minimum": 0
+        },
+        "kv_type": {
+          "description": "How a managed server stores its KV cache.",
+          "$ref": "#/$defs/KvCacheType",
+          "default": "f16"
+        },
+        "linked_devices": {
+          "description": "Whether local agents on the devices this one links to may use its\nmanaged server over the `maxd` link. Only this device changes it.\nAn older `maxd` reads it as on, and doesn't share either way.",
+          "type": "boolean",
+          "default": true
+        }
+      }
     },
     "LockedSkill": {
       "description": "One skill in a project's lock.",
@@ -10441,6 +10668,373 @@
           "const": "unknown"
         }
       ]
+    },
+    "ModelAction": {
+      "description": "Something to do with a device's local models, in\n[`crate::ClientMessage::ModelAction`].",
+      "oneOf": [
+        {
+          "description": "Adds a server URL and probes it. Answers\n[`crate::message::ActionOutcome::ModelServerAdded`].",
+          "type": "object",
+          "properties": {
+            "action": {
+              "type": "string",
+              "const": "add_server"
+            },
+            "label": {
+              "description": "Your name for it.",
+              "type": "string"
+            },
+            "token": {
+              "description": "A token it wants, which `maxd` keeps in its secrets store.",
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/Secret"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "url": {
+              "description": "Its base URL, such as `http://devbox:11434`.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "action",
+            "label",
+            "url"
+          ]
+        },
+        {
+          "description": "Probes a URL without adding it, to see what answers there before\nit's added. Answers\n[`crate::message::ActionOutcome::ServerProbed`].",
+          "type": "object",
+          "properties": {
+            "action": {
+              "type": "string",
+              "const": "probe_server"
+            },
+            "token": {
+              "description": "A token it wants. `maxd` keeps nothing of it.",
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/Secret"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "url": {
+              "description": "Its base URL, such as `http://devbox:11434`.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "action",
+            "url"
+          ]
+        },
+        {
+          "description": "Probes a server again.",
+          "type": "object",
+          "properties": {
+            "action": {
+              "type": "string",
+              "const": "test_server"
+            },
+            "server": {
+              "description": "The server.",
+              "$ref": "#/$defs/ModelServerId"
+            }
+          },
+          "required": [
+            "action",
+            "server"
+          ]
+        },
+        {
+          "description": "Removes a server URL, with its account and token. A managed server\ncan't be removed.",
+          "type": "object",
+          "properties": {
+            "action": {
+              "type": "string",
+              "const": "remove_server"
+            },
+            "server": {
+              "description": "The server.",
+              "$ref": "#/$defs/ModelServerId"
+            }
+          },
+          "required": [
+            "action",
+            "server"
+          ]
+        },
+        {
+          "description": "Downloads one file of a catalog model.",
+          "type": "object",
+          "properties": {
+            "action": {
+              "type": "string",
+              "const": "download"
+            },
+            "file": {
+              "description": "The file's name.",
+              "type": "string"
+            },
+            "model": {
+              "description": "The catalog model's ID.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "action",
+            "model",
+            "file"
+          ]
+        },
+        {
+          "description": "Pauses a download.",
+          "type": "object",
+          "properties": {
+            "action": {
+              "type": "string",
+              "const": "pause_download"
+            },
+            "file": {
+              "description": "The file's name.",
+              "type": "string"
+            },
+            "model": {
+              "description": "The catalog model's ID.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "action",
+            "model",
+            "file"
+          ]
+        },
+        {
+          "description": "Resumes a paused or failed download.",
+          "type": "object",
+          "properties": {
+            "action": {
+              "type": "string",
+              "const": "resume_download"
+            },
+            "file": {
+              "description": "The file's name.",
+              "type": "string"
+            },
+            "model": {
+              "description": "The catalog model's ID.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "action",
+            "model",
+            "file"
+          ]
+        },
+        {
+          "description": "Deletes a model file, or stops its download and deletes what came\ndown.",
+          "type": "object",
+          "properties": {
+            "action": {
+              "type": "string",
+              "const": "delete_model"
+            },
+            "file": {
+              "description": "The file's name.",
+              "type": "string"
+            },
+            "model": {
+              "description": "The catalog model's ID.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "action",
+            "model",
+            "file"
+          ]
+        },
+        {
+          "description": "Loads a model on a managed server now, rather than at the next\nlocal agent turn.",
+          "type": "object",
+          "properties": {
+            "action": {
+              "type": "string",
+              "const": "load"
+            },
+            "model": {
+              "description": "The model's ID on that server.",
+              "type": "string"
+            },
+            "server": {
+              "description": "The server.",
+              "$ref": "#/$defs/ModelServerId"
+            }
+          },
+          "required": [
+            "action",
+            "server",
+            "model"
+          ]
+        },
+        {
+          "description": "Unloads a model from a managed server.",
+          "type": "object",
+          "properties": {
+            "action": {
+              "type": "string",
+              "const": "unload"
+            },
+            "model": {
+              "description": "The model's ID on that server.",
+              "type": "string"
+            },
+            "server": {
+              "description": "The server.",
+              "$ref": "#/$defs/ModelServerId"
+            }
+          },
+          "required": [
+            "action",
+            "server",
+            "model"
+          ]
+        }
+      ]
+    },
+    "ModelLoad": {
+      "description": "Whether a model is in memory.",
+      "oneOf": [
+        {
+          "description": "Not loaded. A local agent's turn loads it.",
+          "type": "object",
+          "properties": {
+            "state": {
+              "type": "string",
+              "const": "unloaded"
+            }
+          },
+          "required": [
+            "state"
+          ]
+        },
+        {
+          "description": "Loading into memory.",
+          "type": "object",
+          "properties": {
+            "percent": {
+              "description": "How much of the model file is in memory, from 0 to 99 percent,\nwhen `maxd` can tell. It stays below 100 until the server\nserves. Since [`crate::message::LOCAL_MODELS_SINCE`].",
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "uint8",
+              "maximum": 255,
+              "minimum": 0
+            },
+            "state": {
+              "type": "string",
+              "const": "loading"
+            }
+          },
+          "required": [
+            "state"
+          ]
+        },
+        {
+          "description": "Loaded and serving.",
+          "type": "object",
+          "properties": {
+            "context": {
+              "description": "The context size of each slot, in tokens.",
+              "type": "integer",
+              "format": "uint32",
+              "minimum": 0
+            },
+            "since": {
+              "description": "When it finished loading.",
+              "$ref": "#/$defs/Timestamp"
+            },
+            "slots": {
+              "description": "How many requests it serves at once, each with its own KV cache.",
+              "type": "integer",
+              "format": "uint8",
+              "maximum": 255,
+              "minimum": 0
+            },
+            "state": {
+              "type": "string",
+              "const": "loaded"
+            }
+          },
+          "required": [
+            "state",
+            "slots",
+            "context",
+            "since"
+          ]
+        },
+        {
+          "description": "The last load failed.",
+          "type": "object",
+          "properties": {
+            "reason": {
+              "description": "Why, for a person to read.",
+              "type": "string"
+            },
+            "state": {
+              "type": "string",
+              "const": "failed"
+            }
+          },
+          "required": [
+            "state",
+            "reason"
+          ]
+        }
+      ]
+    },
+    "ModelServerId": {
+      "description": "A model server a device's `maxd` runs or reaches: its own\nllama-server, or a server URL you gave it.",
+      "type": "string",
+      "format": "uuid"
+    },
+    "ModelSpeed": {
+      "description": "How fast a model ran, in whole tokens per second.",
+      "type": "object",
+      "properties": {
+        "decode_per_second": {
+          "description": "Tokens written per second.",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint32",
+          "default": null,
+          "minimum": 0
+        },
+        "prompt_per_second": {
+          "description": "Prompt tokens read per second.",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint32",
+          "default": null,
+          "minimum": 0
+        }
+      }
     },
     "MoveCheck": {
       "description": "What the device an agent moves to says it will run as there.",
@@ -11033,6 +11627,24 @@
           "description": "Its SSH host key, as `ssh-ed25519 <base64>`. Empty for a device\nwith no routes, which is never dialed.",
           "type": "string"
         },
+        "model_server": {
+          "description": "Its managed model server, which local agents on this device may use\nover the link. Since [`crate::message::LOCAL_MODELS_SINCE`]; an\nolder `maxd` ignores it.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/LinkedModels"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "models_from": {
+          "description": "The devices whose managed models its local agents use. One of them\nthat takes no SSH logins keeps a link up to it, so those agents\nreach it. Since [`crate::message::LOCAL_MODELS_SINCE`]; an older\n`maxd` ignores it.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/DeviceId"
+          }
+        },
         "name": {
           "description": "Its name.",
           "type": "string"
@@ -11206,6 +11818,55 @@
           "required": [
             "kind",
             "step"
+          ]
+        },
+        {
+          "description": "Opens a tunnel stream to the asked device's managed model server,\nfor a local agent on the asking device. The device that opened the\nlink carries the stream's client end, as with a port forward. The\noutcome is [`crate::message::ActionOutcome::Done`] once the stream\nis ready, or `Refused` with why, such as the asked device's switch\nbeing off. Since [`crate::message::LOCAL_MODELS_SINCE`]; an older\n`maxd` reads [`PeerRequest::Unknown`] and refuses.",
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "model_stream"
+            },
+            "server": {
+              "description": "The server.",
+              "$ref": "#/$defs/ModelServerId"
+            },
+            "stream": {
+              "description": "The stream, named by the asking device.",
+              "$ref": "#/$defs/StreamId"
+            }
+          },
+          "required": [
+            "kind",
+            "stream",
+            "server"
+          ]
+        },
+        {
+          "description": "Keeps models on the asked device's managed server from idling out,\nwhile the asking device's local agents on them work. The outcome is\n[`crate::message::ActionOutcome::Done`]. Since\n[`crate::message::LOCAL_MODELS_SINCE`].",
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "model_hold"
+            },
+            "models": {
+              "description": "The models, by id.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "server": {
+              "description": "The server.",
+              "$ref": "#/$defs/ModelServerId"
+            }
+          },
+          "required": [
+            "kind",
+            "server",
+            "models"
           ]
         },
         {
@@ -12872,6 +13533,151 @@
       "type": "integer",
       "format": "uint64",
       "minimum": 0
+    },
+    "ServerApis": {
+      "description": "Which APIs a server answered on. Only a server with the Anthropic\nMessages API can run a local agent.",
+      "type": "object",
+      "properties": {
+        "chat": {
+          "description": "`/v1/chat/completions`.",
+          "type": "boolean",
+          "default": false
+        },
+        "messages": {
+          "description": "`/v1/messages`, the Anthropic Messages API Claude Code talks.",
+          "type": "boolean",
+          "default": false
+        },
+        "responses": {
+          "description": "`/v1/responses`.",
+          "type": "boolean",
+          "default": false
+        }
+      }
+    },
+    "ServerFlavor": {
+      "description": "What kind of server answers at a URL.",
+      "oneOf": [
+        {
+          "description": "llama.cpp's llama-server.",
+          "type": "string",
+          "const": "llama_cpp"
+        },
+        {
+          "description": "Ollama.",
+          "type": "string",
+          "const": "ollama"
+        },
+        {
+          "description": "LM Studio.",
+          "type": "string",
+          "const": "lm_studio"
+        },
+        {
+          "description": "vLLM.",
+          "type": "string",
+          "const": "vllm"
+        },
+        {
+          "description": "Something else, or not yet probed.",
+          "type": "string",
+          "const": "other"
+        }
+      ]
+    },
+    "ServerModel": {
+      "description": "One model a server serves.",
+      "type": "object",
+      "properties": {
+        "catalog": {
+          "description": "The catalog entry and file it runs, for a managed server's model or\na URL's model `maxd` recognized.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CatalogRef"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "context": {
+          "description": "The context size it runs with, in tokens, when known.",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint32",
+          "minimum": 0
+        },
+        "id": {
+          "description": "The ID the server takes in a request, such as `qwen3.6:35b`.",
+          "type": "string"
+        },
+        "label": {
+          "description": "The name to show.",
+          "type": "string"
+        },
+        "load": {
+          "description": "Whether it's in memory. None when the server doesn't say, as with\nmost URLs.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ModelLoad"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "speed": {
+          "description": "How fast a managed server ran it in its last turn, so a local agent\non another device shows its speed line too. Since\n[`crate::message::LOCAL_MODELS_SINCE`]; an older client reads none.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ModelSpeed"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "id",
+        "label"
+      ]
+    },
+    "ServerProbe": {
+      "description": "What a probe of a server found.",
+      "type": "object",
+      "properties": {
+        "apis": {
+          "description": "Which APIs answered.",
+          "$ref": "#/$defs/ServerApis"
+        },
+        "at": {
+          "description": "When it ran.",
+          "$ref": "#/$defs/Timestamp"
+        },
+        "context": {
+          "description": "The context size the server runs with, in tokens, when it says.",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint32",
+          "minimum": 0
+        },
+        "error": {
+          "description": "Why the probe failed, for a person to read. None when the server\nanswered.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "at",
+        "apis"
+      ]
     },
     "SessionRefBlock": {
       "description": "One command in an [`InlineRef::Session`].",

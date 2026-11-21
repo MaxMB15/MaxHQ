@@ -88,6 +88,7 @@ import { mockNetworkAccess, mockPhone, mockPhones } from "./mock-phones";
 import { type FleetContext, mockFleet, mockTools } from "./mock-fleet";
 import { mockHostCalls } from "./mock-host-calls";
 import { mockHosts } from "./mock-hosts";
+import { LOADED_MODEL, MAC_SERVER, mockLocalEntities, mockLocalModels } from "./mock-local-models";
 import { OUTSIDE_SAMPLE, sampleFile } from "./mock-files";
 
 /** Settings for tests. */
@@ -235,6 +236,14 @@ const SETTINGS: Entity[] = [
 		read_other_agents: true,
 		dispatcher_acts: true,
 		chat_gap_minutes: 30,
+		local_models: {
+			idle_unload_minutes: 15,
+			kv_type: "f16",
+			context: 65_536,
+			fewer_tools: true,
+			linked_devices: true,
+			default_model: { server: MAC_SERVER, model: LOADED_MODEL },
+		},
 		test_hosts: MOCK_TEST_HOST_SETTINGS[MAC],
 	},
 	{
@@ -257,6 +266,14 @@ const SETTINGS: Entity[] = [
 		read_other_agents: true,
 		dispatcher_acts: true,
 		chat_gap_minutes: 30,
+		local_models: {
+			idle_unload_minutes: 15,
+			kv_type: "f16",
+			context: 65_536,
+			fewer_tools: true,
+			linked_devices: true,
+			default_model: null,
+		},
 		test_hosts: MOCK_TEST_HOST_SETTINGS[DEVBOX],
 	},
 	mockNetworkAccess(MAC),
@@ -361,6 +378,7 @@ export const mockSource = (options: MockOptions = {}): MockSource => {
 	const stepMs = options.stepMs ?? STEP_MS;
 	let base: Entity[] = [
 		...mockEntities(now()),
+		...mockLocalEntities(now()),
 		...mockStarted(now()),
 		...SETTINGS,
 		mockPhone(now()),
@@ -1629,6 +1647,7 @@ export const mockSource = (options: MockOptions = {}): MockSource => {
 		...mockFolders(),
 		...mockNotices(now),
 		...mockHostCalls(fleet),
+		...mockLocalModels(fleet),
 		...mockAgents(now),
 		...mockLinks(),
 		...mockAppKeys(now, {

@@ -92,7 +92,7 @@ type Part =
  * A number field. What you type stays here until you leave the field or
  * press Enter, so a half-typed number never reaches the device.
  */
-const NumberField = ({
+export const NumberField = ({
 	label,
 	value,
 	unit,

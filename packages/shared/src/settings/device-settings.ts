@@ -11,6 +11,8 @@ import { setsEffort } from "../agent-view/effort";
 import type { DeviceId } from "../bindings";
 import type { DeviceSettings } from "../fleet/wire";
 import { t } from "../i18n";
+import { localSettingsOf, sameLocalSettings } from "../local-models/models";
+import { runsLocalModels } from "../local-models/select";
 import type { Option } from "../new-agent/spec";
 import { sameTestHostSettings, testHostSettingsOf } from "../test-hosts/hosts";
 import type { ViewState } from "../view/replica";
@@ -52,6 +54,7 @@ export const deviceSettingsOf = (view: ViewState, device: DeviceId): DeviceField
 		read_other_agents: kept?.read_other_agents ?? true,
 		dispatcher_acts: kept?.dispatcher_acts ?? true,
 		chat_gap_minutes: kept?.chat_gap_minutes ?? DEFAULT_CHAT_GAP_MINUTES,
+		local_models: localSettingsOf(kept?.local_models),
 		skill_library: kept?.skill_library ?? null,
 		network: kept?.network ?? {},
 		test_hosts: testHostSettingsOf(view, device),
@@ -80,6 +83,7 @@ export const sameDeviceFields = (a: DeviceFields, b: DeviceFields): boolean =>
 	a.read_other_agents === b.read_other_agents &&
 	a.dispatcher_acts === b.dispatcher_acts &&
 	a.chat_gap_minutes === b.chat_gap_minutes &&
+	sameLocalSettings(a.local_models, b.local_models) &&
 	a.skill_library === b.skill_library &&
 	a.network.on === b.network.on &&
 	a.network.port === b.network.port &&
@@ -167,6 +171,8 @@ export type SettingsWhy = {
 	readonly effort: string | null;
 	readonly shell: string | null;
 	readonly reads: string | null;
+	/** The local model settings, which need a `maxd` that runs local models. */
+	readonly local: string | null;
 };
 
 /** Why each part of `device`'s settings can't change, given whether it answers. */
@@ -203,5 +209,6 @@ export const settingsWhy = (
 		effort: tooOld(setsEffort(view, device), false),
 		shell: tooOld(knowsShellIntegration(view, device), false),
 		reads: tooOld(knowsReadRights(view, device), false),
+		local: tooOld(runsLocalModels(view, device), true),
 	};
 };

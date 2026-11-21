@@ -175,6 +175,15 @@ impl Place {
             &Tool::ALL
         }
     }
+
+    /// The MaxHQ tools an agent here under `login` gets: a local agent
+    /// that asked for fewer gets the lean set, except as the dispatcher.
+    pub fn tools_for(&self, login: &Login) -> &'static [Tool] {
+        match &login.auth {
+            LoginAuth::ModelServer(server) if server.lean && !self.dispatcher => &Tool::LEAN,
+            _ => self.tools(),
+        }
+    }
 }
 
 /// Where an agent's holder runs.
@@ -217,6 +226,24 @@ pub enum LoginAuth {
     /// A local ACP command. The launch runs its program and arguments, and
     /// sets its variables' values as secret variables.
     AcpCommand(Arc<local::AcpCommand>),
+    /// A local agent: Claude Code pointed at a model server, with the
+    /// server's token as a secret variable.
+    ModelServer(Arc<ServerLogin>),
+}
+
+/// How a local agent reaches its model server.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ServerLogin {
+    /// The server's Anthropic API base URL.
+    pub base_url: String,
+    /// Its token.
+    pub token: Secret,
+    /// Its context size in tokens, which Claude Code compacts before.
+    pub context: Option<u32>,
+    /// The model an agent with none of its own uses.
+    pub model: Option<String>,
+    /// Whether the agent gets the lean set of MaxHQ tools.
+    pub lean: bool,
 }
 
 /// An attachment moved into the agent's folder, ready for the CLI.

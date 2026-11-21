@@ -19,11 +19,12 @@ use crate::dispatch::{Dispatcher, DispatcherChat};
 use crate::hosts::{AcpRegistry, HostReport, Move, PendingLicence};
 use crate::ids::{
     AccountId, AcpAgentId, AdmissionId, AgentId, AppKeyId, AttentionId, CredentialId, DeviceId,
-    ForwardId, LeaseId, LinkId, MoveId, NetworkId, PhoneId, PhoneSessionId, PortId, ProjectId,
-    SkillProposalId, TerminalId, TestHostId, WorkflowRunId, WorkspaceId,
+    ForwardId, LeaseId, LinkId, ModelServerId, MoveId, NetworkId, PhoneId, PhoneSessionId, PortId,
+    ProjectId, SkillProposalId, TerminalId, TestHostId, WorkflowRunId, WorkspaceId,
 };
 use crate::leases::{TestHost, TestLease};
 use crate::link::{DeviceLink, Network};
+use crate::local_models::{LocalModels, ModelServer};
 use crate::model::{
     Account, Agent, CommandRules, Credential, Device, DeviceSettings, Forward, HiddenProjects,
     ListeningPort, Project, ProjectSettings, Tool, Workspace,
@@ -144,6 +145,12 @@ pub enum Entity {
     Terminal(Terminal),
     /// One conversation with a device's dispatcher. Since protocol 53.
     DispatcherChat(DispatcherChat),
+    /// A model server a device runs or reaches. Since
+    /// [`crate::message::LOCAL_MODELS_SINCE`].
+    ModelServer(ModelServer),
+    /// A device's hardware, model catalog and model files. Since
+    /// [`crate::message::LOCAL_MODELS_SINCE`].
+    LocalModels(LocalModels),
 }
 
 /// Names one entity, for removal and lookup.
@@ -262,6 +269,10 @@ pub enum EntityKey {
     Terminal(TerminalId),
     /// A dispatcher chat, named by its agent.
     DispatcherChat(AgentId),
+    /// A model server.
+    ModelServer(ModelServerId),
+    /// A device's local models, named by the device.
+    LocalModels(DeviceId),
 }
 
 impl Entity {
@@ -320,6 +331,8 @@ impl Entity {
             Self::Admission(admission) => EntityKey::Admission(admission.id),
             Self::Terminal(terminal) => EntityKey::Terminal(terminal.id),
             Self::DispatcherChat(chat) => EntityKey::DispatcherChat(chat.agent),
+            Self::ModelServer(server) => EntityKey::ModelServer(server.id),
+            Self::LocalModels(models) => EntityKey::LocalModels(models.device),
         }
     }
 }
@@ -771,6 +784,7 @@ mod tests {
             read_other_agents: true,
             dispatcher_acts: true,
             chat_gap_minutes: 30,
+            local_models: Default::default(),
         });
         assert_eq!(settings.key(), EntityKey::DeviceSettings(id));
         assert_eq!(
@@ -806,6 +820,14 @@ mod tests {
                 "read_other_agents": true,
                 "dispatcher_acts": true,
                 "chat_gap_minutes": 30,
+                "local_models": {
+                    "idle_unload_minutes": 15,
+                    "kv_type": "f16",
+                    "context": 65536,
+                    "fewer_tools": true,
+                    "default_model": null,
+                    "linked_devices": true,
+                },
             })
         );
         // A `maxd` from before these leaves them out, which reads as their defaults.
@@ -814,6 +836,7 @@ mod tests {
         old.as_object_mut().unwrap().remove("read_other_agents");
         old.as_object_mut().unwrap().remove("dispatcher_acts");
         old.as_object_mut().unwrap().remove("chat_gap_minutes");
+        old.as_object_mut().unwrap().remove("local_models");
         assert_eq!(serde_json::from_value::<Entity>(old).unwrap(), settings);
     }
 
@@ -1208,6 +1231,7 @@ mod tests {
                     usage: None,
                     usage_failure: None,
                     acp: None,
+                    model_server: None,
                 }),
             ),
         ];
@@ -1289,6 +1313,7 @@ mod tests {
                 images: true,
                 ..AcpFeatures::default()
             }),
+            model_server: None,
         });
         let value = round_trip(&account);
         assert_eq!(value["vendor"], "acp");

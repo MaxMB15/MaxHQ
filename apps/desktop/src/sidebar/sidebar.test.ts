@@ -27,7 +27,7 @@ const withState = (node: DeviceNode, state: LinkState): DeviceNode => ({
 
 describe("device rows", () => {
 	it("count agents when connected and say what's wrong otherwise", async () => {
-		expect(deviceRowStatus(await devbox())).toEqual({ text: "10 agents", tone: "plain" });
+		expect(deviceRowStatus(await devbox())).toEqual({ text: "11 agents", tone: "plain" });
 		expect(deviceRowStatus(await devbox("rebooting"))).toEqual({
 			text: "Restarting",
 			tone: "connecting",

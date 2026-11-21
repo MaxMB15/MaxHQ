@@ -68,18 +68,31 @@ pub async fn install(
     releases: &dyn Releases,
     report: Report<'_>,
 ) -> Result<Installed, Error> {
-    let name = name(&def.kind);
-    let dir = spot.layout.dir(&def.kind);
+    install_as(spot, def, &name(&def.kind), version, releases, report).await
+}
+
+/// Installs `def` in `spot` under the folder `name`, for a tool the views
+/// don't list as one, such as the llama-server local models run on. Its
+/// archives must be pinned, since the kind names no release feed.
+pub async fn install_as(
+    spot: &Spot<'_>,
+    def: &InstallDef,
+    name: &str,
+    version: Option<&str>,
+    releases: &dyn Releases,
+    report: Report<'_>,
+) -> Result<Installed, Error> {
+    let dir = format!("{}/{name}", spot.layout.tools());
     let _turn = lock::turn(&spot.layout.label, &dir).await;
     report(running(
         ToolPhase::Resolving,
         format!("Getting ready to install {name}"),
     ));
-    let held = lock::take(spot, &dir, &name, WAIT).await?;
+    let held = lock::take(spot, &dir, name, WAIT).await?;
     let job = Job {
         spot,
         def,
-        name: &name,
+        name,
         dir: &dir,
         report,
     };

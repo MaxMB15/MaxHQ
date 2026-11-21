@@ -940,6 +940,7 @@ pub fn default_settings(device: &Device) -> DeviceSettings {
         read_other_agents: true,
         dispatcher_acts: true,
         chat_gap_minutes: DEFAULT_CHAT_GAP_MINUTES,
+        local_models: Default::default(),
     }
 }
 
@@ -1243,6 +1244,7 @@ mod tests {
             effort: None,
             running: None,
             moved: None,
+            local: None,
         })
     }
 
@@ -1443,6 +1445,7 @@ mod tests {
             acp: None,
             login: Default::default(),
             origin: None,
+            model_server: None,
         });
         let listed = vec![ModelChoice {
             id: "gpt-6.1-sol".into(),

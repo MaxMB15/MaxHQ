@@ -143,6 +143,9 @@ uuid_ids! {
     /// A terminal a device's `maxd` holds: a shell in an agent's terminal
     /// drawer, or a command you ran with `!`.
     TerminalId;
+    /// A model server a device's `maxd` runs or reaches: its own
+    /// llama-server, or a server URL you gave it.
+    ModelServerId;
 }
 
 /// The boot a device or container is on.

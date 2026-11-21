@@ -4,8 +4,11 @@
 use std::sync::Mutex;
 
 use maxhq_client::LinkEvent;
+use maxhq_protocol::ids::{AccountId, ModelServerId};
 use maxhq_protocol::link::LinkState;
+use maxhq_protocol::local_models::ModelLoad;
 use maxhq_protocol::message::Capabilities;
+use maxhq_protocol::model::Activity;
 
 use super::*;
 use crate::devices::tests::{harness, hello_as, Call, Harness};
@@ -189,6 +192,8 @@ fn keys_are_asked_once_and_logins_go_only_to_devices_that_take_them() {
                         host_key: HOST_KEY.into(),
                         test_kinds: Vec::new(),
                         home: false,
+                        model_server: None,
+                        models_from: Vec::new(),
                     }],
                 }
             ),
@@ -212,6 +217,8 @@ fn keys_are_asked_once_and_logins_go_only_to_devices_that_take_them() {
                         host_key: String::new(),
                         test_kinds: Vec::new(),
                         home: true,
+                        model_server: None,
+                        models_from: Vec::new(),
                     }],
                 }
             ),
@@ -567,4 +574,109 @@ fn a_book_says_which_kinds_each_device_hosts_once_they_change() {
     let changes = vec![maxhq_protocol::state::Change::Upsert { value: busy }];
     h.report(nl.id, LinkEvent::Changed(changes));
     assert_eq!(pass(&h, &names), []);
+}
+
+/// The Mac's managed model server, with `load` on its one model.
+fn managed_on_mac(load: ModelLoad) -> Entity {
+    Entity::ModelServer(maxhq_protocol::local_models::ModelServer {
+        id: ModelServerId::derive("model-server:mac:managed"),
+        device: DeviceId::derive("mac"),
+        kind: ModelServerKind::Managed,
+        label: "Mac".into(),
+        base_url: None,
+        token: false,
+        probe: None,
+        models: vec![ServerModel {
+            id: "qwen@q4".into(),
+            label: "Qwen".into(),
+            catalog: None,
+            context: Some(32_768),
+            load: Some(load),
+            speed: Some(maxhq_protocol::local_models::ModelSpeed {
+                prompt_per_second: Some(900),
+                decode_per_second: Some(40),
+            }),
+        }],
+    })
+}
+
+/// The next book the device named `name` gets.
+fn next_book(h: &Harness, names: &[(&LinkSpec, &'static str)], name: &str) -> PeerBook {
+    let start = std::time::Instant::now();
+    loop {
+        if let Some(Sent::Book(_, book)) = to(&sent(h, names), name).pop() {
+            return book;
+        }
+        assert!(start.elapsed().as_secs() < 5, "{name} never got a book");
+        std::thread::sleep(std::time::Duration::from_millis(2));
+    }
+}
+
+#[test]
+fn a_book_carries_the_macs_models_and_whose_agents_use_them() {
+    use maxhq_protocol::model::{Account, LoginKind, Vendor};
+    use maxhq_protocol::state::Change;
+
+    let (h, local, nl, _) = mac_and_devbox(true, true);
+    let names = [(&local, "mac"), (&nl, "nl")];
+    pass(&h, &names);
+
+    // The Mac's server reaches devbox's book, with no load or speed.
+    let upsert = |value| LinkEvent::Changed(vec![Change::Upsert { value }]);
+    h.report(local.id, upsert(managed_on_mac(ModelLoad::Unloaded)));
+    let book = next_book(&h, &names, "nl");
+    let shared = book.peers[0]
+        .model_server
+        .clone()
+        .expect("the Mac's models");
+    assert_eq!(
+        shared.server,
+        ModelServerId::derive("model-server:mac:managed")
+    );
+    assert_eq!(shared.label, "Mac");
+    assert_eq!(shared.models[0].id, "qwen@q4");
+    assert_eq!(shared.models[0].context, Some(32_768));
+    assert_eq!(shared.models[0].load, None);
+    assert_eq!(shared.models[0].speed, None);
+    assert!(book.peers[0].models_from.is_empty());
+
+    // A model loading sends no book.
+    h.report(
+        local.id,
+        upsert(managed_on_mac(ModelLoad::Loading { percent: Some(40) })),
+    );
+    assert_eq!(pass(&h, &names), []);
+
+    // An agent on devbox whose account uses the Mac's server tells the
+    // Mac to hold a link for it.
+    let account = AccountId::derive("devbox local");
+    h.report(
+        nl.id,
+        upsert(Entity::Account(Account {
+            id: account,
+            device: DeviceId::derive("nl"),
+            vendor: Vendor::Claude,
+            label: "Mac".into(),
+            login: LoginKind::ModelServer,
+            origin: None,
+            config_dir: String::new(),
+            email: None,
+            organization: None,
+            plan: None,
+            models: Vec::new(),
+            usage: None,
+            usage_failure: None,
+            acp: None,
+            model_server: Some(ModelServerId::derive("model-server:mac:managed")),
+        })),
+    );
+    let mut agent = crate::merge::tests::agent("local", "w", Activity::Idle);
+    if let Entity::Agent(agent) = &mut agent {
+        agent.account = Some(account);
+    }
+    h.report(nl.id, upsert(agent));
+    let book = next_book(&h, &names, "mac");
+    assert_eq!(book.peers[0].device, DeviceId::derive("nl"));
+    assert_eq!(book.peers[0].models_from, [DeviceId::derive("mac")]);
+    assert_eq!(book.peers[0].model_server, None, "devbox has no server");
 }

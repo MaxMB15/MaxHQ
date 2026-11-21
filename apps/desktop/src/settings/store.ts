@@ -37,6 +37,11 @@ export type SettingsPage =
 	| { readonly kind: "editor" }
 	| { readonly kind: "dispatcher" }
 	| { readonly kind: "agent-tools" }
+	| {
+			readonly kind: "local-models";
+			/** The device it opens on, this Mac or the first with local models when not given. */
+			readonly device?: DeviceId;
+	  }
 	| { readonly kind: "scheduled-tasks" }
 	| { readonly kind: "test-hosts" }
 	| { readonly kind: "skills" }
@@ -125,6 +130,7 @@ export const pageKey = (page: SettingsPage): string => {
 			project: page.project,
 			value2: page.tab ?? "general",
 		});
+	if (page.kind === "local-models") return `local-models:${page.device ?? ""}`;
 	return page.kind;
 };
 

@@ -33,7 +33,8 @@ import {
 } from "@maxhq/shared/status/device-page";
 import { formatDuration, formatWhen } from "@maxhq/shared/status/format";
 import { versionNote } from "@maxhq/shared/status/reach";
-import { accountName, VENDOR_NAME } from "@maxhq/shared/status/usage";
+import { kindName, ownKind } from "@maxhq/shared/status/agent-kind";
+import { accountName } from "@maxhq/shared/status/usage";
 import { inboxOf } from "@maxhq/shared/view/inbox";
 import type { ViewState } from "@maxhq/shared/view/replica";
 import type { DeviceNode } from "@maxhq/shared/view/select";
@@ -238,7 +239,7 @@ const AgentLine = ({
 	const account = agent.account ? view.tables.account.get(agent.account) : undefined;
 	const where = [
 		workspace?.location.type === "container" ? workspace.location.instance : undefined,
-		account ? accountName(account) : VENDOR_NAME[agent.vendor],
+		account ? accountName(account) : kindName(ownKind(agent)),
 	]
 		.filter(Boolean)
 		.join(", ");

@@ -26,7 +26,8 @@ use maxhq_protocol::ids::{
 };
 use maxhq_protocol::message::{ActionOutcome, AttachmentSource};
 use maxhq_protocol::model::{
-    Agent, AllowedWorkflowEnv, CommandRule, KeepAwake, ModelChoice, PermissionMode, Usage, Vendor,
+    Agent, AllowedWorkflowEnv, CommandRule, KeepAwake, LoginKind, ModelChoice, PermissionMode,
+    Usage, Vendor,
 };
 use maxhq_protocol::time::Timestamp;
 use maxhq_protocol::timeline::{AttachmentKind, AttachmentRef, TimelineEvent, TimelineItem};
@@ -697,6 +698,8 @@ struct Script {
     sent_refs: Vec<(AgentId, Vec<maxhq_protocol::context::InlineRef>)>,
     /// Each Claude launch: its session UUID and whether it resumes.
     launches: Vec<(Uuid, bool)>,
+    /// The kind of sign-in each Claude launch ran with.
+    claude_logins: Vec<LoginKind>,
     /// Where each Claude session's driver was made for.
     claude_places: Vec<Place>,
     /// Each launch of an ACP agent.
@@ -740,6 +743,11 @@ impl FakeVendors {
     /// Each Claude launch: its session UUID and whether it resumes.
     pub fn launches(&self) -> Vec<(Uuid, bool)> {
         lock(&self.state).launches.clone()
+    }
+
+    /// The kind of sign-in each Claude launch ran with.
+    pub fn claude_logins(&self) -> Vec<LoginKind> {
+        lock(&self.state).claude_logins.clone()
     }
 
     /// Where each Claude session's driver was made for.
@@ -824,14 +832,20 @@ impl FakeVendors {
 impl Vendors for FakeVendors {
     fn claude_launch(
         &self,
-        _login: &Login,
+        login: &Login,
         place: &Place,
         session: Uuid,
         resume: bool,
         _model: Option<&str>,
         _mode: PermissionMode,
     ) -> drive::Launch {
-        lock(&self.state).launches.push((session, resume));
+        {
+            let mut state = lock(&self.state);
+            state.launches.push((session, resume));
+            state
+                .claude_logins
+                .push(super::places::kind_of(&login.auth));
+        }
         let flag = if resume { "--resume" } else { "--session-id" };
         drive::Launch {
             program: "fake-claude".into(),
@@ -1557,9 +1571,15 @@ struct Stored {
     signed_in: HashSet<AccountId>,
     keys: HashMap<AccountId, Secret>,
     acp: HashMap<AcpAgentId, Vec<AcpEnvValue>>,
+    servers: HashMap<AccountId, crate::drive::ServerLogin>,
 }
 
 impl FakeCredentials {
+    /// Points a local agent's account at a model server.
+    pub fn set_model_server(&self, account: AccountId, server: crate::drive::ServerLogin) {
+        lock(&self.state).servers.insert(account, server);
+    }
+
     /// Stores a setup-token for a Claude account.
     pub fn set_token(&self, account: AccountId, token: &str) {
         lock(&self.state)
@@ -1620,6 +1640,10 @@ impl Credentials for FakeCredentials {
             .get(&agent)
             .cloned()
             .unwrap_or_default()
+    }
+
+    fn model_server(&self, account: AccountId) -> Option<crate::drive::ServerLogin> {
+        lock(&self.state).servers.get(&account).cloned()
     }
 }
 

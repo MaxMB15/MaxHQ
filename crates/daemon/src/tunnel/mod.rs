@@ -27,7 +27,7 @@ use serde::Serialize;
 use thiserror::Error;
 use tokio::sync::mpsc;
 
-pub(crate) use self::pump::{connect, open, targets, End, Words};
+pub(crate) use self::pump::{connect, open, targets, End, ToClient, Words};
 #[cfg(test)]
 pub(crate) use self::registry::tests as registry_tests;
 pub use self::registry::{ClientTunnels, GuestRelay, Tunnels};

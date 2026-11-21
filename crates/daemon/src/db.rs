@@ -27,7 +27,7 @@ use maxhq_core::db::{self, OpenError};
 use maxhq_protocol::guest::ScannedFile;
 use maxhq_protocol::ids::{
     AccountId, AcpAgentId, AgentId, AttentionId, ClientId, DeviceId, IdempotencyKey, LeaseId,
-    MoveId, ProjectId, SessionId, SkillSourceId, TestHostId, WorkspaceId,
+    ModelServerId, MoveId, ProjectId, SessionId, SkillSourceId, TestHostId, WorkspaceId,
 };
 use maxhq_protocol::leases::{TestHost, TestLease};
 use maxhq_protocol::model::{CommandRule, DeviceSettings, Inbox, ModelChoice, ProjectSettings};
@@ -242,6 +242,10 @@ pub fn migrations() -> Migrations<'static> {
         // The dispatcher's chats: each one's number, title, summary and
         // when you last wrote in it. Until its agent is forgotten.
         M::up("CREATE TABLE dispatcher_chats (agent TEXT PRIMARY KEY, record TEXT NOT NULL);"),
+        // The model server URLs you added, each with what its last probe
+        // found. Until you remove one. Their tokens are in the secrets
+        // store.
+        M::up("CREATE TABLE model_servers (id TEXT PRIMARY KEY, record TEXT NOT NULL);"),
     ])
 }
 
@@ -1462,6 +1466,33 @@ impl Db {
         Ok(())
     }
 
+    /// The model server URLs you added, as their records were stored.
+    pub fn model_servers(&self) -> rusqlite::Result<Vec<String>> {
+        let conn = self.lock();
+        let mut query = conn.prepare("SELECT record FROM model_servers ORDER BY id")?;
+        let rows = query.query_map([], |row| row.get::<_, String>(0))?;
+        rows.collect()
+    }
+
+    /// Stores a model server's record, in place of the one it had.
+    pub fn put_model_server(&self, id: ModelServerId, record: &str) -> rusqlite::Result<()> {
+        self.lock().execute(
+            "INSERT INTO model_servers (id, record) VALUES (?1, ?2)
+             ON CONFLICT (id) DO UPDATE SET record = excluded.record",
+            params![id.to_string(), record],
+        )?;
+        Ok(())
+    }
+
+    /// Forgets a model server.
+    pub fn remove_model_server(&self, id: ModelServerId) -> rusqlite::Result<()> {
+        self.lock().execute(
+            "DELETE FROM model_servers WHERE id = ?1",
+            params![id.to_string()],
+        )?;
+        Ok(())
+    }
+
     /// The ACP registry agents installed on this device, by registry ID,
     /// as their records were stored.
     pub fn acp_installs(&self) -> rusqlite::Result<Vec<(String, String)>> {
@@ -1691,6 +1722,11 @@ mod tests {
     #[test]
     fn an_older_database_gains_notices_and_keeps_its_rows() {
         an_older_database_gains(32, "notices");
+    }
+
+    #[test]
+    fn an_older_database_gains_model_servers_and_keeps_its_rows() {
+        an_older_database_gains(34, "model_servers");
     }
 
     #[test]
@@ -2104,6 +2140,7 @@ mod tests {
             read_other_agents: true,
             dispatcher_acts: true,
             chat_gap_minutes: 30,
+            local_models: Default::default(),
         };
         Db::open(&path)
             .unwrap()

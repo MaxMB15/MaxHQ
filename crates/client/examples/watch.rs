@@ -154,5 +154,7 @@ fn kind(entity: &Entity) -> &'static str {
         Entity::Admission(_) => "admission",
         Entity::Terminal(_) => "terminal",
         Entity::DispatcherChat(_) => "dispatcher chat",
+        Entity::ModelServer(_) => "model server",
+        Entity::LocalModels(_) => "local models",
     }
 }

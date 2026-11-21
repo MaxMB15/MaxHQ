@@ -529,6 +529,17 @@
           "$ref": "#/$defs/LoginKind",
           "default": "config_dir"
         },
+        "model_server": {
+          "description": "The model server a [`LoginKind::ModelServer`] account runs on.\nUnset for every other account, and from a `maxd` from before\n[`crate::message::LOCAL_MODELS_SINCE`].",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ModelServerId"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "models": {
           "description": "The models the login can run. Empty until a held CLI for it has\nreported them.",
           "type": "array",
@@ -2102,6 +2113,55 @@
           ]
         },
         {
+          "description": "The server a [`ModelAction::AddServer`] added, which its probe fills\nin.",
+          "type": "object",
+          "properties": {
+            "server": {
+              "description": "The new server.",
+              "$ref": "#/$defs/ModelServerId"
+            },
+            "status": {
+              "type": "string",
+              "const": "model_server_added"
+            }
+          },
+          "required": [
+            "status",
+            "server"
+          ]
+        },
+        {
+          "description": "What a [`ModelAction::ProbeServer`] found at a URL it didn't add.",
+          "type": "object",
+          "properties": {
+            "flavor": {
+              "description": "What kind of server answered.",
+              "$ref": "#/$defs/ServerFlavor"
+            },
+            "models": {
+              "description": "The models it serves.",
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/ServerModel"
+              }
+            },
+            "probe": {
+              "description": "Which APIs answered, or why nothing did.",
+              "$ref": "#/$defs/ServerProbe"
+            },
+            "status": {
+              "type": "string",
+              "const": "server_probed"
+            }
+          },
+          "required": [
+            "status",
+            "flavor",
+            "probe",
+            "models"
+          ]
+        },
+        {
           "description": "An outcome from a newer `maxd`. The action went through, and what\nit came to needs a newer app to show.",
           "type": "object",
           "properties": {
@@ -2900,6 +2960,17 @@
         "link": {
           "description": "Whether `maxd` can reach the agent itself. Decision N-2 shows a\ndevice that answers with an agent that doesn't as purple.",
           "$ref": "#/$defs/AgentLink"
+        },
+        "local": {
+          "description": "What its model server is doing for a local agent: loading, and\nprompt and decode speed. Unset for every other agent, and from a\n`maxd` from before [`crate::message::LOCAL_MODELS_SINCE`].",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/LocalRun"
+            },
+            {
+              "type": "null"
+            }
+          ]
         },
         "model": {
           "description": "The model it runs, as the CLI names it. Unset for observed agents.",
@@ -4343,6 +4414,11 @@
           "type": "boolean",
           "default": false
         },
+        "local_models": {
+          "description": "Runs or reaches model servers for local agents, publishes\n[`crate::local_models::ModelServer`] and\n[`crate::local_models::LocalModels`], and takes\n[`ClientMessage::ModelAction`]. A `maxd` from before it leaves this\nout, and reads as false.",
+          "type": "boolean",
+          "default": false
+        },
         "moves": {
           "description": "Moves workspaces the old scripts made into MaxHQ, publishes `Move`,\nand takes `PlanMove`, `RunMoveStep`, `MoveBack` and `RetireMove`. A\n`maxd` from before it leaves this out, and reads as false.",
           "type": "boolean",
@@ -4435,6 +4511,142 @@
         "transfers",
         "tunnels",
         "workspaces"
+      ]
+    },
+    "CatalogFile": {
+      "description": "One quantized file of a catalog model.",
+      "type": "object",
+      "properties": {
+        "bytes": {
+          "description": "Its size in bytes.",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "name": {
+          "description": "The file's name in the repo.",
+          "type": "string"
+        },
+        "quant": {
+          "description": "The quantization, such as \"Q4_K_M\".",
+          "type": "string"
+        },
+        "recommended": {
+          "description": "Whether it's the file to pick for this model.",
+          "type": "boolean",
+          "default": false
+        },
+        "sha256": {
+          "description": "Its SHA-256, in hex.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "quant",
+        "bytes",
+        "sha256"
+      ]
+    },
+    "CatalogModel": {
+      "description": "One curated model.",
+      "type": "object",
+      "properties": {
+        "active_params_b": {
+          "description": "Parameters active per token in billions, less than `params_b` for a\nmixture of experts.",
+          "type": "number",
+          "format": "float"
+        },
+        "commit": {
+          "description": "The repo commit the files are pinned to.",
+          "type": "string"
+        },
+        "files": {
+          "description": "The files to pick from, one per quantization.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/CatalogFile"
+          }
+        },
+        "id": {
+          "description": "The catalog's ID for it, such as `qwen3.6-35b-a3b`.",
+          "type": "string"
+        },
+        "kv": {
+          "description": "What the KV cache needs per token.",
+          "$ref": "#/$defs/KvShape"
+        },
+        "license": {
+          "description": "The licence, such as \"Apache-2.0\".",
+          "type": "string"
+        },
+        "name": {
+          "description": "The name to show, such as \"Qwen3.6-35B-A3B\".",
+          "type": "string"
+        },
+        "native_context": {
+          "description": "The longest context the model takes, in tokens.",
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "notes": {
+          "description": "A line or two on what it's good at, in English.",
+          "type": "string"
+        },
+        "params_b": {
+          "description": "Parameters in billions.",
+          "type": "number",
+          "format": "float"
+        },
+        "released": {
+          "description": "When the model came out, as `YYYY-MM-DD`.",
+          "type": "string"
+        },
+        "repo": {
+          "description": "The Hugging Face repo the files come from, as `org/repo`.",
+          "type": "string"
+        },
+        "scores": {
+          "description": "Published benchmark scores.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ModelScore"
+          }
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "repo",
+        "commit",
+        "license",
+        "released",
+        "params_b",
+        "active_params_b",
+        "files",
+        "kv",
+        "native_context",
+        "notes",
+        "scores"
+      ]
+    },
+    "CatalogRef": {
+      "description": "One file of one catalog model.",
+      "type": "object",
+      "properties": {
+        "file": {
+          "description": "The file's name.",
+          "type": "string"
+        },
+        "model": {
+          "description": "The catalog model's ID.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "model",
+        "file"
       ]
     },
     "Change": {
@@ -5505,6 +5717,49 @@
         "maxd_version"
       ]
     },
+    "DeviceHardware": {
+      "description": "A device's hardware, as far as it matters for running a model.",
+      "type": "object",
+      "properties": {
+        "chip": {
+          "description": "The chip, such as \"Apple M4 Max\", when known.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "gpu": {
+          "description": "The memory a GPU can use for a model. None for a device without a\nGPU `maxd` can use, which is too slow for agents.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/GpuMemory"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "gpu_cores": {
+          "description": "The GPU's core count, when known.",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint16",
+          "maximum": 65535,
+          "minimum": 0
+        },
+        "ram": {
+          "description": "Memory in bytes.",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "ram"
+      ]
+    },
     "DeviceId": {
       "description": "A machine that runs `maxd`.",
       "type": "string",
@@ -6099,6 +6354,24 @@
             "field",
             "value"
           ]
+        },
+        {
+          "description": "See [`DeviceSettings::local_models`].",
+          "type": "object",
+          "properties": {
+            "field": {
+              "type": "string",
+              "const": "local_models"
+            },
+            "value": {
+              "description": "What it becomes.",
+              "$ref": "#/$defs/LocalModelSettings"
+            }
+          },
+          "required": [
+            "field",
+            "value"
+          ]
         }
       ]
     },
@@ -6189,6 +6462,18 @@
           "description": "When a Mac's `maxd` keeps it from idling to sleep. Other systems\nignore it.",
           "$ref": "#/$defs/KeepAwake",
           "default": "charger"
+        },
+        "local_models": {
+          "description": "The device's choices for local models: idle unload, KV cache type,\ncontext size, fewer tools and the default model. A `maxd` from\nbefore [`crate::message::LOCAL_MODELS_SINCE`] leaves it out, and\nreads as the defaults.",
+          "$ref": "#/$defs/LocalModelSettings",
+          "default": {
+            "context": 65536,
+            "default_model": null,
+            "fewer_tools": true,
+            "idle_unload_minutes": 15,
+            "kv_type": "f16",
+            "linked_devices": true
+          }
         },
         "memory_items": {
           "description": "How many of each agent's newest items `maxd` keeps in memory, from\n[`MEMORY_ITEMS`]. The rest wait on disk until a client scrolls back.\nA `maxd` from before this leaves it out.",
@@ -7170,6 +7455,34 @@
           "required": [
             "entity"
           ]
+        },
+        {
+          "description": "A model server a device runs or reaches. Since\n[`crate::message::LOCAL_MODELS_SINCE`].",
+          "type": "object",
+          "properties": {
+            "entity": {
+              "type": "string",
+              "const": "model_server"
+            }
+          },
+          "$ref": "#/$defs/ModelServer",
+          "required": [
+            "entity"
+          ]
+        },
+        {
+          "description": "A device's hardware, model catalog and model files. Since\n[`crate::message::LOCAL_MODELS_SINCE`].",
+          "type": "object",
+          "properties": {
+            "entity": {
+              "type": "string",
+              "const": "local_models"
+            }
+          },
+          "$ref": "#/$defs/LocalModels",
+          "required": [
+            "entity"
+          ]
         }
       ]
     },
@@ -7868,6 +8181,40 @@
             },
             "id": {
               "$ref": "#/$defs/AgentId"
+            }
+          },
+          "required": [
+            "entity",
+            "id"
+          ]
+        },
+        {
+          "description": "A model server.",
+          "type": "object",
+          "properties": {
+            "entity": {
+              "type": "string",
+              "const": "model_server"
+            },
+            "id": {
+              "$ref": "#/$defs/ModelServerId"
+            }
+          },
+          "required": [
+            "entity",
+            "id"
+          ]
+        },
+        {
+          "description": "A device's local models, named by the device.",
+          "type": "object",
+          "properties": {
+            "entity": {
+              "type": "string",
+              "const": "local_models"
+            },
+            "id": {
+              "$ref": "#/$defs/DeviceId"
             }
           },
           "required": [
@@ -8686,6 +9033,46 @@
         "moves",
         "links",
         "backups"
+      ]
+    },
+    "GpuBudgetSource": {
+      "description": "Where a GPU memory budget came from.",
+      "oneOf": [
+        {
+          "description": "Metal's recommended working set size.",
+          "type": "string",
+          "const": "metal"
+        },
+        {
+          "description": "The `iogpu.wired_limit_mb` limit someone set on the Mac.",
+          "type": "string",
+          "const": "wired_limit"
+        },
+        {
+          "description": "macOS's default share of memory, estimated from the memory size.",
+          "type": "string",
+          "const": "estimate"
+        }
+      ]
+    },
+    "GpuMemory": {
+      "description": "How much memory a GPU can give a model.",
+      "type": "object",
+      "properties": {
+        "budget": {
+          "description": "The budget in bytes.",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "source": {
+          "description": "Where the figure came from.",
+          "$ref": "#/$defs/GpuBudgetSource"
+        }
+      },
+      "required": [
+        "budget",
+        "source"
       ]
     },
     "GroupShape": {
@@ -10018,6 +10405,68 @@
       "type": "string",
       "format": "uuid"
     },
+    "KvCacheType": {
+      "description": "How a managed server stores its KV cache.",
+      "oneOf": [
+        {
+          "description": "16-bit floats, the exact cache.",
+          "type": "string",
+          "const": "f16"
+        },
+        {
+          "description": "8-bit, about half the memory for a small loss.",
+          "type": "string",
+          "const": "q8_0"
+        }
+      ]
+    },
+    "KvShape": {
+      "description": "What a model's KV cache needs, to estimate its size for a context.",
+      "type": "object",
+      "properties": {
+        "full_layers": {
+          "description": "Layers whose attention covers the whole context.",
+          "type": "integer",
+          "format": "uint16",
+          "maximum": 65535,
+          "minimum": 0
+        },
+        "head_dim": {
+          "description": "Each head's size.",
+          "type": "integer",
+          "format": "uint16",
+          "maximum": 65535,
+          "minimum": 0
+        },
+        "kv_heads": {
+          "description": "KV heads per layer.",
+          "type": "integer",
+          "format": "uint16",
+          "maximum": 65535,
+          "minimum": 0
+        },
+        "swa_layers": {
+          "description": "Layers whose attention covers only a sliding window.",
+          "type": "integer",
+          "format": "uint16",
+          "default": 0,
+          "maximum": 65535,
+          "minimum": 0
+        },
+        "swa_window": {
+          "description": "The sliding window in tokens, for `swa_layers`.",
+          "type": "integer",
+          "format": "uint32",
+          "default": 0,
+          "minimum": 0
+        }
+      },
+      "required": [
+        "full_layers",
+        "kv_heads",
+        "head_dim"
+      ]
+    },
     "LeaseCommand": {
       "description": "One command a lease's holder ran, as the app shows it.",
       "type": "object",
@@ -10472,6 +10921,169 @@
         "first_seen"
       ]
     },
+    "LocalModelPick": {
+      "description": "One model on one server.",
+      "type": "object",
+      "properties": {
+        "model": {
+          "description": "The model's ID on that server.",
+          "type": "string"
+        },
+        "server": {
+          "description": "The server.",
+          "$ref": "#/$defs/ModelServerId"
+        }
+      },
+      "required": [
+        "server",
+        "model"
+      ]
+    },
+    "LocalModelSettings": {
+      "description": "A device's choices for local models, in its device settings.",
+      "type": "object",
+      "properties": {
+        "context": {
+          "description": "The context size a managed server loads a model with, in tokens.",
+          "type": "integer",
+          "format": "uint32",
+          "default": 65536,
+          "minimum": 0
+        },
+        "default_model": {
+          "description": "The model a new local agent on this device starts with, or none to\nuse the catalog's default once it's ready.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/LocalModelPick"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "fewer_tools": {
+          "description": "Whether local agents get a lean set of MaxHQ tools, which leaves\nmore of a small context for the work.",
+          "type": "boolean",
+          "default": true
+        },
+        "idle_unload_minutes": {
+          "description": "Minutes with no local agent turn running before a managed server\nunloads its model. 0 keeps it loaded.",
+          "type": "integer",
+          "format": "uint16",
+          "default": 15,
+          "maximum": 65535,
+          "minimum": 0
+        },
+        "kv_type": {
+          "description": "How a managed server stores its KV cache.",
+          "$ref": "#/$defs/KvCacheType",
+          "default": "f16"
+        },
+        "linked_devices": {
+          "description": "Whether local agents on the devices this one links to may use its\nmanaged server over the `maxd` link. Only this device changes it.\nAn older `maxd` reads it as on, and doesn't share either way.",
+          "type": "boolean",
+          "default": true
+        }
+      }
+    },
+    "LocalModels": {
+      "description": "What one device knows for local models: its hardware, the catalog and\nthe model files it holds.",
+      "type": "object",
+      "properties": {
+        "catalog": {
+          "description": "The curated models it offers.",
+          "$ref": "#/$defs/ModelCatalog"
+        },
+        "device": {
+          "description": "The device.",
+          "$ref": "#/$defs/DeviceId"
+        },
+        "disk_free": {
+          "description": "Free bytes on the disk that holds `models_dir`.",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "files": {
+          "description": "The model files on disk or on their way. One this build can't read\nis left out.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ModelFile"
+          }
+        },
+        "hardware": {
+          "description": "Its hardware, for the fit estimate.",
+          "$ref": "#/$defs/DeviceHardware"
+        },
+        "models_dir": {
+          "description": "Where model files go, as an absolute path on the device, such as\n`~/.local/share/maxhq/models` expanded.",
+          "type": "string"
+        },
+        "runtime": {
+          "description": "Whether it can run a managed server, and that server's install.",
+          "$ref": "#/$defs/ModelRuntime"
+        }
+      },
+      "required": [
+        "device",
+        "hardware",
+        "models_dir",
+        "disk_free",
+        "runtime",
+        "catalog",
+        "files"
+      ]
+    },
+    "LocalRun": {
+      "description": "What a local agent's server is doing for it, in its live state.",
+      "type": "object",
+      "properties": {
+        "context_size": {
+          "description": "The server's context size in tokens.",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint32",
+          "default": null,
+          "minimum": 0
+        },
+        "context_used": {
+          "description": "Tokens of the server's context in use.",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint32",
+          "default": null,
+          "minimum": 0
+        },
+        "decode_per_second": {
+          "description": "Tokens written per second in the current or last turn.",
+          "type": [
+            "number",
+            "null"
+          ],
+          "format": "float",
+          "default": null
+        },
+        "loading": {
+          "description": "Whether its model is loading, so the turn waits.",
+          "type": "boolean",
+          "default": false
+        },
+        "prompt_per_second": {
+          "description": "Prompt tokens read per second in the current or last turn.",
+          "type": [
+            "number",
+            "null"
+          ],
+          "format": "float",
+          "default": null
+        }
+      }
+    },
     "LockedSkill": {
       "description": "One skill in a project's lock.",
       "type": "object",
@@ -10539,6 +11151,11 @@
           "description": "A local ACP command, which signs in through its own CLI.",
           "type": "string",
           "const": "acp_command"
+        },
+        {
+          "description": "A model server, local or at a URL, that Claude Code runs on with\nno Claude login, quota or sign-in. Its account names the server in\n[`Account::model_server`], and every client shows its agents as\nLocal, never as Claude. Since\n[`crate::message::LOCAL_MODELS_SINCE`]: an older client leaves the\nwhole account out.",
+          "type": "string",
+          "const": "model_server"
         }
       ]
     },
@@ -10787,6 +11404,27 @@
         }
       ]
     },
+    "ModelCatalog": {
+      "description": "The curated models a device offers.",
+      "type": "object",
+      "properties": {
+        "models": {
+          "description": "The models, best pick first. One this build can't read is left out.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/CatalogModel"
+          }
+        },
+        "updated_at": {
+          "description": "When the catalog was last refreshed, or when the shipped one was\nmade.",
+          "$ref": "#/$defs/Timestamp"
+        }
+      },
+      "required": [
+        "updated_at",
+        "models"
+      ]
+    },
     "ModelChoice": {
       "description": "One model an account can run.",
       "type": "object",
@@ -10827,6 +11465,399 @@
         "label",
         "default"
       ]
+    },
+    "ModelFile": {
+      "description": "A model file on a device's disk or on its way.",
+      "type": "object",
+      "properties": {
+        "bytes_done": {
+          "description": "Bytes on disk so far.",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "bytes_total": {
+          "description": "The whole file's size in bytes.",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "file": {
+          "description": "The file's name.",
+          "type": "string"
+        },
+        "model": {
+          "description": "The catalog model's ID.",
+          "type": "string"
+        },
+        "path": {
+          "description": "Where it is, as an absolute path on the device:\n`<models_dir>/<org>/<repo>/<file>`.",
+          "type": "string"
+        },
+        "state": {
+          "description": "Where it stands.",
+          "$ref": "#/$defs/ModelFileState"
+        }
+      },
+      "required": [
+        "model",
+        "file",
+        "path",
+        "bytes_done",
+        "bytes_total",
+        "state"
+      ]
+    },
+    "ModelFileState": {
+      "description": "Where a model file stands.",
+      "oneOf": [
+        {
+          "description": "Downloading, or checking what came down.",
+          "type": "object",
+          "properties": {
+            "phase": {
+              "description": "Downloading or verifying.",
+              "$ref": "#/$defs/ToolPhase"
+            },
+            "state": {
+              "type": "string",
+              "const": "downloading"
+            }
+          },
+          "required": [
+            "state",
+            "phase"
+          ]
+        },
+        {
+          "description": "Paused, keeping what came down so far.",
+          "type": "object",
+          "properties": {
+            "state": {
+              "type": "string",
+              "const": "paused"
+            }
+          },
+          "required": [
+            "state"
+          ]
+        },
+        {
+          "description": "On disk and checked, ready to load.",
+          "type": "object",
+          "properties": {
+            "state": {
+              "type": "string",
+              "const": "ready"
+            }
+          },
+          "required": [
+            "state"
+          ]
+        },
+        {
+          "description": "The download failed, keeping what came down when it can resume.",
+          "type": "object",
+          "properties": {
+            "reason": {
+              "description": "Why, for a person to read.",
+              "type": "string"
+            },
+            "state": {
+              "type": "string",
+              "const": "failed"
+            }
+          },
+          "required": [
+            "state",
+            "reason"
+          ]
+        }
+      ]
+    },
+    "ModelLoad": {
+      "description": "Whether a model is in memory.",
+      "oneOf": [
+        {
+          "description": "Not loaded. A local agent's turn loads it.",
+          "type": "object",
+          "properties": {
+            "state": {
+              "type": "string",
+              "const": "unloaded"
+            }
+          },
+          "required": [
+            "state"
+          ]
+        },
+        {
+          "description": "Loading into memory.",
+          "type": "object",
+          "properties": {
+            "percent": {
+              "description": "How much of the model file is in memory, from 0 to 99 percent,\nwhen `maxd` can tell. It stays below 100 until the server\nserves. Since [`crate::message::LOCAL_MODELS_SINCE`].",
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "uint8",
+              "maximum": 255,
+              "minimum": 0
+            },
+            "state": {
+              "type": "string",
+              "const": "loading"
+            }
+          },
+          "required": [
+            "state"
+          ]
+        },
+        {
+          "description": "Loaded and serving.",
+          "type": "object",
+          "properties": {
+            "context": {
+              "description": "The context size of each slot, in tokens.",
+              "type": "integer",
+              "format": "uint32",
+              "minimum": 0
+            },
+            "since": {
+              "description": "When it finished loading.",
+              "$ref": "#/$defs/Timestamp"
+            },
+            "slots": {
+              "description": "How many requests it serves at once, each with its own KV cache.",
+              "type": "integer",
+              "format": "uint8",
+              "maximum": 255,
+              "minimum": 0
+            },
+            "state": {
+              "type": "string",
+              "const": "loaded"
+            }
+          },
+          "required": [
+            "state",
+            "slots",
+            "context",
+            "since"
+          ]
+        },
+        {
+          "description": "The last load failed.",
+          "type": "object",
+          "properties": {
+            "reason": {
+              "description": "Why, for a person to read.",
+              "type": "string"
+            },
+            "state": {
+              "type": "string",
+              "const": "failed"
+            }
+          },
+          "required": [
+            "state",
+            "reason"
+          ]
+        }
+      ]
+    },
+    "ModelRuntime": {
+      "description": "Whether a device can run a managed model server.",
+      "type": "object",
+      "properties": {
+        "state": {
+          "description": "What its install or update is doing.",
+          "$ref": "#/$defs/ToolState"
+        },
+        "support": {
+          "description": "What the device supports.",
+          "$ref": "#/$defs/RuntimeSupport"
+        },
+        "version": {
+          "description": "The installed llama-server's version, or none before an install.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "support",
+        "state"
+      ]
+    },
+    "ModelScore": {
+      "description": "A published benchmark score.",
+      "type": "object",
+      "properties": {
+        "benchmark": {
+          "description": "The benchmark, such as \"SWE-bench Verified\".",
+          "type": "string"
+        },
+        "date": {
+          "description": "When, as `YYYY-MM-DD`.",
+          "type": "string"
+        },
+        "harness": {
+          "description": "The agent harness it ran in, such as \"Claude Code\", when known.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "source": {
+          "description": "Who reported it.",
+          "$ref": "#/$defs/ScoreSource"
+        },
+        "url": {
+          "description": "Where it was reported.",
+          "type": "string"
+        },
+        "value": {
+          "description": "The score, in percent.",
+          "type": "number",
+          "format": "float"
+        }
+      },
+      "required": [
+        "benchmark",
+        "value",
+        "source",
+        "url",
+        "date"
+      ]
+    },
+    "ModelServer": {
+      "description": "A model server a device's `maxd` runs or reaches.",
+      "type": "object",
+      "properties": {
+        "base_url": {
+          "description": "Where it answers, such as `http://devbox:11434`. None for a managed\nserver, which listens on a loopback port `maxd` picks each start.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "device": {
+          "description": "The device whose `maxd` runs or reaches it. Agents on other devices\nreach a managed server through this device's `maxd` link.",
+          "$ref": "#/$defs/DeviceId"
+        },
+        "id": {
+          "description": "The server's ID.",
+          "$ref": "#/$defs/ModelServerId"
+        },
+        "kind": {
+          "description": "Whether `maxd` runs it or it's a URL you gave.",
+          "$ref": "#/$defs/ModelServerKind"
+        },
+        "label": {
+          "description": "Your name for it, or the device's name for a managed one.",
+          "type": "string"
+        },
+        "models": {
+          "description": "The models it serves. For a managed server, the model files ready\non its device; for a URL, what its model list returned. One this\nbuild can't read is left out.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ServerModel"
+          }
+        },
+        "probe": {
+          "description": "What the last probe found, or none before the first.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ServerProbe"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "token": {
+          "description": "Whether `maxd` holds a token for it. The token itself stays in\n`maxd`'s secrets store and is never sent.",
+          "type": "boolean",
+          "default": false
+        }
+      },
+      "required": [
+        "id",
+        "device",
+        "kind",
+        "label",
+        "models"
+      ]
+    },
+    "ModelServerId": {
+      "description": "A model server a device's `maxd` runs or reaches: its own\nllama-server, or a server URL you gave it.",
+      "type": "string",
+      "format": "uuid"
+    },
+    "ModelServerKind": {
+      "description": "Whether `maxd` runs a server or reaches it at a URL.",
+      "oneOf": [
+        {
+          "description": "llama-server, which `maxd` installs, starts on 127.0.0.1 with a key\nof its own, and stops when idle.",
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "managed"
+            }
+          },
+          "required": [
+            "type"
+          ]
+        },
+        {
+          "description": "A server URL you gave.",
+          "type": "object",
+          "properties": {
+            "flavor": {
+              "description": "What the probe says answers there.",
+              "$ref": "#/$defs/ServerFlavor"
+            },
+            "type": {
+              "type": "string",
+              "const": "external"
+            }
+          },
+          "required": [
+            "type",
+            "flavor"
+          ]
+        }
+      ]
+    },
+    "ModelSpeed": {
+      "description": "How fast a model ran, in whole tokens per second.",
+      "type": "object",
+      "properties": {
+        "decode_per_second": {
+          "description": "Tokens written per second.",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint32",
+          "default": null,
+          "minimum": 0
+        },
+        "prompt_per_second": {
+          "description": "Prompt tokens read per second.",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint32",
+          "default": null,
+          "minimum": 0
+        }
+      }
     },
     "Move": {
       "description": "A workspace the old scripts made, moving into MaxHQ one approved step\nat a time.",
@@ -12374,6 +13405,55 @@
           "required": [
             "kind",
             "step"
+          ]
+        },
+        {
+          "description": "Opens a tunnel stream to the asked device's managed model server,\nfor a local agent on the asking device. The device that opened the\nlink carries the stream's client end, as with a port forward. The\noutcome is [`crate::message::ActionOutcome::Done`] once the stream\nis ready, or `Refused` with why, such as the asked device's switch\nbeing off. Since [`crate::message::LOCAL_MODELS_SINCE`]; an older\n`maxd` reads [`PeerRequest::Unknown`] and refuses.",
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "model_stream"
+            },
+            "server": {
+              "description": "The server.",
+              "$ref": "#/$defs/ModelServerId"
+            },
+            "stream": {
+              "description": "The stream, named by the asking device.",
+              "$ref": "#/$defs/StreamId"
+            }
+          },
+          "required": [
+            "kind",
+            "stream",
+            "server"
+          ]
+        },
+        {
+          "description": "Keeps models on the asked device's managed server from idling out,\nwhile the asking device's local agents on them work. The outcome is\n[`crate::message::ActionOutcome::Done`]. Since\n[`crate::message::LOCAL_MODELS_SINCE`].",
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "model_hold"
+            },
+            "models": {
+              "description": "The models, by id.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "server": {
+              "description": "The server.",
+              "$ref": "#/$defs/ModelServerId"
+            }
+          },
+          "required": [
+            "kind",
+            "server",
+            "models"
           ]
         },
         {
@@ -15053,6 +16133,41 @@
         "outcome"
       ]
     },
+    "RuntimeSupport": {
+      "description": "What a device supports for local models.",
+      "oneOf": [
+        {
+          "description": "A managed server and the catalog, as on an Apple silicon Mac.",
+          "type": "string",
+          "const": "managed"
+        },
+        {
+          "description": "No GPU `maxd` can use: too slow for agents, so only server URLs.",
+          "type": "string",
+          "const": "no_gpu"
+        },
+        {
+          "description": "A GPU, but `maxd` doesn't manage a server here yet: server URLs\nonly.",
+          "type": "string",
+          "const": "url_only"
+        }
+      ]
+    },
+    "ScoreSource": {
+      "description": "Who reported a score.",
+      "oneOf": [
+        {
+          "description": "The model's maker.",
+          "type": "string",
+          "const": "vendor"
+        },
+        {
+          "description": "Someone else.",
+          "type": "string",
+          "const": "independent"
+        }
+      ]
+    },
     "Secret": {
       "description": "A token, key or code on its way to `maxd`. Debug and Display print\n`<secret>`, and the bytes are zeroed on drop. A string in TypeScript.\n\nOnly [`Secret::expose`] gives the value back, so every place that reads\nit is easy to find.",
       "type": "string"
@@ -15062,6 +16177,57 @@
       "type": "integer",
       "format": "uint64",
       "minimum": 0
+    },
+    "ServerApis": {
+      "description": "Which APIs a server answered on. Only a server with the Anthropic\nMessages API can run a local agent.",
+      "type": "object",
+      "properties": {
+        "chat": {
+          "description": "`/v1/chat/completions`.",
+          "type": "boolean",
+          "default": false
+        },
+        "messages": {
+          "description": "`/v1/messages`, the Anthropic Messages API Claude Code talks.",
+          "type": "boolean",
+          "default": false
+        },
+        "responses": {
+          "description": "`/v1/responses`.",
+          "type": "boolean",
+          "default": false
+        }
+      }
+    },
+    "ServerFlavor": {
+      "description": "What kind of server answers at a URL.",
+      "oneOf": [
+        {
+          "description": "llama.cpp's llama-server.",
+          "type": "string",
+          "const": "llama_cpp"
+        },
+        {
+          "description": "Ollama.",
+          "type": "string",
+          "const": "ollama"
+        },
+        {
+          "description": "LM Studio.",
+          "type": "string",
+          "const": "lm_studio"
+        },
+        {
+          "description": "vLLM.",
+          "type": "string",
+          "const": "vllm"
+        },
+        {
+          "description": "Something else, or not yet probed.",
+          "type": "string",
+          "const": "other"
+        }
+      ]
     },
     "ServerHello": {
       "description": "The first message `maxd` sends.",
@@ -15122,6 +16288,100 @@
         "boot_id",
         "instance",
         "capabilities"
+      ]
+    },
+    "ServerModel": {
+      "description": "One model a server serves.",
+      "type": "object",
+      "properties": {
+        "catalog": {
+          "description": "The catalog entry and file it runs, for a managed server's model or\na URL's model `maxd` recognized.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CatalogRef"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "context": {
+          "description": "The context size it runs with, in tokens, when known.",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint32",
+          "minimum": 0
+        },
+        "id": {
+          "description": "The ID the server takes in a request, such as `qwen3.6:35b`.",
+          "type": "string"
+        },
+        "label": {
+          "description": "The name to show.",
+          "type": "string"
+        },
+        "load": {
+          "description": "Whether it's in memory. None when the server doesn't say, as with\nmost URLs.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ModelLoad"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "speed": {
+          "description": "How fast a managed server ran it in its last turn, so a local agent\non another device shows its speed line too. Since\n[`crate::message::LOCAL_MODELS_SINCE`]; an older client reads none.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ModelSpeed"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "id",
+        "label"
+      ]
+    },
+    "ServerProbe": {
+      "description": "What a probe of a server found.",
+      "type": "object",
+      "properties": {
+        "apis": {
+          "description": "Which APIs answered.",
+          "$ref": "#/$defs/ServerApis"
+        },
+        "at": {
+          "description": "When it ran.",
+          "$ref": "#/$defs/Timestamp"
+        },
+        "context": {
+          "description": "The context size the server runs with, in tokens, when it says.",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint32",
+          "minimum": 0
+        },
+        "error": {
+          "description": "Why the probe failed, for a person to read. None when the server\nanswered.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "at",
+        "apis"
       ]
     },
     "SessionBlock": {
@@ -17486,9 +18746,13 @@
           ]
         },
         {
-          "description": "The agent moved to another vendor here, carrying the conversation\nover. Pending until the next message takes the conversation to the\nnew vendor, and cancelled if the agent moves again first.",
+          "description": "The agent moved to another vendor here, carrying the conversation\nover. Pending until the next message takes the conversation to the\nnew vendor, and cancelled if the agent moves again first. A move\nbetween Claude and a local model is one too, since a local agent\nruns Claude Code with its own config folder.",
           "type": "object",
           "properties": {
+            "from_local": {
+              "description": "Whether the agent left a local model, which runs as\n[`Vendor::Claude`]: show that end as Local. Since\n[`crate::message::LOCAL_MODELS_SINCE`].",
+              "type": "boolean"
+            },
             "from_model": {
               "description": "The model it ran there, if it had one set.",
               "type": [
@@ -17503,6 +18767,10 @@
             "kind": {
               "type": "string",
               "const": "handoff"
+            },
+            "to_local": {
+              "description": "Whether the agent moved to a local model. Since\n[`crate::message::LOCAL_MODELS_SINCE`].",
+              "type": "boolean"
             },
             "to_model": {
               "description": "The model it runs there, if you picked one.",

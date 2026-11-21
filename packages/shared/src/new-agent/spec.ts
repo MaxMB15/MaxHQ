@@ -38,7 +38,15 @@ import {
 	startingMode,
 	vendorHasMode,
 } from "../settings/permission";
+import {
+	localAccountOption,
+	localModelOptions,
+	resolveLocal,
+	shownLocalModel,
+} from "../local-models/select";
+import { isLocalAccount } from "../status/agent-kind";
 import { formatClock, plural } from "../status/format";
+import type { Tone } from "../tasks/format";
 import { accountName, accountWindows, blockingWindow, type WindowView } from "../status/usage";
 import { all, type ViewState } from "../view/replica";
 import { deviceName, linkForDevice, modelsOf } from "../view/select";
@@ -74,6 +82,8 @@ export type Option = {
 	readonly warn?: boolean;
 	/** A short tag on the right, such as "Not in Codex". */
 	readonly tag?: string;
+	/** The tag's color, such as green for a local model that fits. Plain when not set. */
+	readonly tone?: Tone;
 	readonly disabled?: boolean;
 	/** The heading of the group the entry sits under. */
 	readonly group?: string;
@@ -206,12 +216,22 @@ const whoOf = (view: ViewState, account: Account): string =>
 		? (agentOfAccount(view, account)?.program ?? account.label)
 		: (account.email ?? account.label);
 
-/** The logins on a device, which pick the vendor too. */
-export const accountOptions = (view: ViewState, device: DeviceId, now: number): Option[] =>
-	all(view, "account")
-		.filter((a) => a.device === device)
+/**
+ * The logins on a device, which pick the vendor too. The device's local
+ * models come last as one Local entry, standing for `selected` when that's
+ * one of its local accounts.
+ */
+export const accountOptions = (
+	view: ViewState,
+	device: DeviceId,
+	now: number,
+	selected: AccountId | null = null
+): Option[] => {
+	const local = localAccountOption(view, device, selected);
+	return all(view, "account")
+		.filter((a) => a.device === device && !isLocalAccount(a))
 		.sort((a, b) => a.vendor.localeCompare(b.vendor) || a.id.localeCompare(b.id))
-		.map((account) => {
+		.map((account): Option => {
 			const blocked = blockingWindow(account);
 			const until =
 				blocked?.resetsAt != null && blocked.resetsAt > now
@@ -229,10 +249,18 @@ export const accountOptions = (view: ViewState, device: DeviceId, now: number): 
 				warn: blocked !== undefined,
 				usage: accountWindows(account),
 			};
-		});
+		})
+		.concat(local ? [local] : []);
+};
 
-/** The models a login offers, with its default marked. */
+/**
+ * The models a login offers, with its default marked. A local login offers
+ * the models of every local login on its device, grouped by server, so
+ * picking one can move to another server's login; `modelChoice` reads the
+ * value back.
+ */
 export const modelOptions = (view: ViewState, account: Account | undefined): Option[] => {
+	if (account && isLocalAccount(account)) return localModelOptions(view, account.device);
 	const models = modelsOf(view, account);
 	if (models.length === 0) {
 		return account?.vendor === "acp"
@@ -291,6 +319,8 @@ const folderDevice = (view: ViewState, wanted: DeviceId | null): DeviceId | null
 
 // The login to use on a device: the one you picked, else the project's
 // default, else the first for the project's default vendor, else the first.
+// A local login is only ever picked by name, never as a vendor's or the
+// device's first.
 const pickAccount = (
 	view: ViewState,
 	device: DeviceId | null,
@@ -300,12 +330,17 @@ const pickAccount = (
 	if (device === null) return undefined;
 	const here = all(view, "account")
 		.filter((a) => a.device === device)
-		.sort((a, b) => a.vendor.localeCompare(b.vendor) || a.id.localeCompare(b.id));
+		.sort(
+			(a, b) =>
+				Number(isLocalAccount(a)) - Number(isLocalAccount(b)) ||
+				a.vendor.localeCompare(b.vendor) ||
+				a.id.localeCompare(b.id)
+		);
 	const settings = project ? view.tables.project.get(project) : undefined;
 	return (
 		here.find((a) => a.id === wanted) ??
 		here.find((a) => a.id === settings?.default_account) ??
-		here.find((a) => a.vendor === settings?.default_vendor) ??
+		here.find((a) => a.vendor === settings?.default_vendor && !isLocalAccount(a)) ??
 		here[0]
 	);
 };
@@ -418,10 +453,22 @@ export const resolve = (
 	const device = folder
 		? folderDevice(view, choices.device ?? weighed)
 		: (workspace?.device ?? null);
-	const account = pickAccount(view, device, choices.account, project);
+	const picked = pickAccount(view, device, choices.account, project);
+	// A local login always sends its model, since it has no CLI default.
+	const local =
+		picked && device !== null && isLocalAccount(picked)
+			? resolveLocal(view, device, picked, choices.model)
+			: null;
+	const account = local?.account ?? picked;
 	const models = modelsOf(view, account);
-	const model = models.some((m) => m.id === choices.model) ? choices.model : null;
-	const shownModel = model ?? models.find((m) => m.default)?.id ?? models[0]?.id ?? null;
+	const model = local
+		? local.model
+		: models.some((m) => m.id === choices.model)
+			? choices.model
+			: null;
+	const shownModel = local
+		? shownLocalModel(local.account, local.model)
+		: (model ?? models.find((m) => m.default)?.id ?? models[0]?.id ?? null);
 	const vendor = account?.vendor;
 	const mode =
 		choices.mode && (!vendor || vendorHasMode(vendor, choices.mode, account?.acp))
