@@ -112,7 +112,7 @@ describe("App", () => {
 		fireEvent.click(meter);
 
 		const popup = await screen.findByRole("dialog");
-		const codex = within(popup).getByRole("region", { name: "Codex Plus" });
+		const codex = within(popup).getByRole("region", { name: "Codex Pro" });
 		expect(codex).toHaveTextContent("At limit, 1 agent waiting");
 		expect(within(popup).getByRole("region", { name: "Claude Max" })).toHaveTextContent(
 			"5 hours"

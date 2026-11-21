@@ -30,6 +30,18 @@ const view = (acts?: boolean) =>
 				plan: null,
 				undo: ["key-ready"],
 			},
+			{
+				entity: "dispatcher_chat",
+				agent: "a-earlier",
+				device: "dev-mac",
+				number: 1,
+				title: "Clearer titles",
+				summary: "",
+				project: null,
+				active_at: 0,
+				archived: false,
+				moved_to: null,
+			},
 			...(acts === undefined
 				? []
 				: [
@@ -72,6 +84,11 @@ describe("a change the dispatcher made at once", () => {
 			home: "dev-mac",
 			undo: "ready",
 		});
+	});
+
+	it("keeps its Undo in a chat you're no longer in", () => {
+		const earlier = item({ action: rename, agent: "a-earlier", target: "Fix login" });
+		expect(actionCard(view(), earlier)).toMatchObject({ home: "dev-mac", undo: "ready" });
 	});
 
 	it("falls back to the name it has now", () => {

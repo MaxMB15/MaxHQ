@@ -132,6 +132,27 @@ describe("the sample dispatcher", () => {
 		});
 	});
 
+	it("puts a rename the titles chat made back with Undo, once", async () => {
+		const { mock, view, dispatcher } = setup();
+		expect((await dispatcher()).undo).toEqual(["undo-rename-usage", "undo-rename-hdr"]);
+		expect(await mock.undoDispatcherAction(MAC, "undo-rename-hdr")).toEqual({
+			status: "ok",
+			data: { status: "done" },
+		});
+		expect((await view()).tables.agent.get("agent-hdr")?.title).toBe("HDR");
+		expect((await dispatcher()).undo).toEqual(["undo-rename-usage"]);
+		const gone = {
+			status: "ok",
+			data: { status: "refused", reason: "That change can't be undone any more." },
+		};
+		expect(await mock.undoDispatcherAction(MAC, "undo-rename-hdr")).toEqual(gone);
+
+		// A later rename takes the Undo away.
+		await mock.renameAgent("agent-usage-popover", "Popover");
+		expect(await mock.undoDispatcherAction(MAC, "undo-rename-usage")).toEqual(gone);
+		expect((await view()).tables.agent.get("agent-usage-popover")?.title).toBe("Popover");
+	});
+
 	it("saves a chat to Notes as a note its agent wrote", async () => {
 		const { mock, view, dispatcher } = setup();
 		await mock.actOnChat(MAC, "agent-chat-login", { type: "save_note" });

@@ -3,14 +3,14 @@
 
 // Sample data shaped like the real setup: this Mac and devbox, a NixOS
 // server on the tailnet whose agents run in Incus containers, one Claude Max
-// login and one Codex Plus login. Every activity state shows somewhere,
+// login and one Codex Pro login. Every activity state shows somewhere,
 // and so does every place in the inbox: a pinned agent, a snoozed one, one
 // back from its snooze, and one settled by you and one by auto-settle.
 // The connecting and unreachable dots need devbox to be in trouble, so they
 // show through the scenarios at the bottom. Emails are made up.
 //
 // devbox also has one workspace MaxHQ made, with a setup-token account for
-// the Claude Max login and its own Sign in with ChatGPT for the Plus one.
+// the Claude Max login and its own Sign in with ChatGPT for the Pro one.
 // Neither has usage, since devbox hasn't read any for them.
 //
 // The Mac also runs Gemini as a local ACP agent, set up in its settings
@@ -250,7 +250,7 @@ const madeWorkspace = (now: Timestamp): Workspace => ({
 
 /** The Claude Max login's ID. */
 export const CLAUDE = "acct-claude-mac";
-/** The Codex Plus login's ID. */
+/** The Codex Pro login's ID. */
 export const CODEX = "acct-codex-mac";
 /** The Mac's Cursor CLI login, which shows no usage meters. */
 export const CURSOR = "acct-cursor-mac";
@@ -258,7 +258,7 @@ export const CURSOR = "acct-cursor-mac";
 export const GEMINI = "acp-gemini-mac";
 export const GEMINI_ACCOUNT = "acct-acp-gemini-mac";
 
-/** When the Codex Plus 5-hour window opens again. */
+/** When the Codex Pro 5-hour window opens again. */
 const codexReset = (now: Timestamp) => now + 2 * HOUR + 22 * MIN;
 
 /**
@@ -346,7 +346,7 @@ const accounts = (now: Timestamp): Account[] => [
 		config_dir: "/Users/me/.codex",
 		email: "max@example.net",
 		organization: null,
-		plan: "plus",
+		plan: "pro",
 		models: [],
 		usage: {
 			checked_at: now - 50_000,
@@ -631,7 +631,7 @@ const agents = (now: Timestamp): Agent[] => {
 			inbox: { ...DEFAULT_INBOX, settled: { at: now - 7 * DAY, by: "auto" } },
 		}),
 
-		// This Mac, Comet, on Codex Plus.
+		// This Mac, Comet, on Codex Pro.
 		seed(now, {
 			id: "agent-hdr",
 			workspace: "ws-mac-comet",

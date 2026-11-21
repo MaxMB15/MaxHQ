@@ -250,7 +250,11 @@ export type ActionCard = {
 
 /** The card for a change the dispatcher made at once. */
 export const actionCard = (view: ViewState, item: ActionItem): ActionCard => {
-	const dispatcher = all(view, "dispatcher").find((d) => d.agent === item.agent);
+	// The card's chat names the dispatcher, even when you're in another chat now.
+	const device = view.tables.dispatcher_chat.get(item.agent)?.device;
+	const dispatcher =
+		(device === undefined ? undefined : view.tables.dispatcher.get(device)) ??
+		all(view, "dispatcher").find((d) => d.agent === item.agent);
 	const home = dispatcher?.device ?? null;
 	const undoable = item.undo !== null && (dispatcher?.undo ?? []).includes(item.undo);
 	return {

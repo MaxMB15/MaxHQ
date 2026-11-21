@@ -72,13 +72,13 @@ describe("mock source", () => {
 		);
 	});
 
-	it("has Claude Max, Codex Plus and Cursor Pro logins, metered except Cursor", async () => {
+	it("has Claude Max, Codex Pro and Cursor Pro logins, metered except Cursor", async () => {
 		const logins = all(await load(), "account").filter(
 			(a) => a.origin === null && a.vendor !== "acp"
 		);
 		expect(logins.map((a) => [a.vendor, a.plan])).toEqual([
 			["claude", "max"],
-			["codex", "plus"],
+			["codex", "pro"],
 			["cursor", "pro"],
 		]);
 		for (const account of logins) {

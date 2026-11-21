@@ -95,7 +95,7 @@ describe("the dispatcher's chats", () => {
 	it("lists the chats by group, and search narrows them to the matches", async () => {
 		const { panel, search } = await listChats();
 		expect(search).toHaveFocus();
-		expect(titlesIn("Today")).toEqual(["Chat 6", "Slow login page"]);
+		expect(titlesIn("Today")).toEqual(["Chat 7", "Slow login page", "Clearer agent titles"]);
 		expect(titlesIn("This week")).toEqual([
 			"Release notes for the next version",
 			"Flaky Linux tests",
@@ -111,10 +111,20 @@ describe("the dispatcher's chats", () => {
 		// Esc clears the search, then closes the list.
 		fireEvent.keyDown(search, { key: "Escape" });
 		expect(search).toHaveValue("");
-		expect(titlesIn("Today")).toHaveLength(2);
+		expect(titlesIn("Today")).toHaveLength(3);
 		fireEvent.keyDown(search, { key: "Escape" });
 		expect(panel.queryByRole("searchbox")).not.toBeInTheDocument();
 		expect(panel.getByRole("log", { name: "Conversation" })).toBeInTheDocument();
+	});
+
+	it("puts a rename back with the Undo on its card", async () => {
+		const { panel, view } = await listChats();
+		fireEvent.click(panel.getByRole("button", { name: /^Clearer agent titles/ }));
+		const line = await panel.findByText("Renamed HDR to HDR tone mapping");
+		const card = within(line.parentElement!.parentElement!);
+		fireEvent.click(card.getByRole("button", { name: "Undo" }));
+		expect(await card.findByText("Undone")).toBeInTheDocument();
+		expect(view().tables.agent.get("agent-hdr")?.title).toBe("HDR");
 	});
 
 	it("makes the chat you pick the one you're in", async () => {

@@ -8,7 +8,8 @@
 // rest of the source, item by item, and stops at the first that fails.
 // Each conversation is a chat, and a few earlier ones fill the Chats list.
 // A sample chat's agent starts when you first pick it, and Save to Notes
-// writes its note in the sample project.
+// writes its note in the sample project. One of them renamed two agents at
+// once, and Undo on either card puts the old title back.
 
 import type {
 	ActionOutcome,
@@ -45,7 +46,26 @@ const MIN = 60_000;
 const HOUR = 60 * MIN;
 const DAY = 24 * HOUR;
 
-/** An earlier chat, how long ago it was active, and what was said in it. */
+/** An agent an earlier chat renamed at once, and the key its card's Undo sends. */
+type SampleRename = {
+	readonly key: string;
+	readonly agent: AgentId;
+	readonly from: string;
+	readonly title: string;
+};
+
+/** The renames the titles chat made, which Undo can still put back. */
+const SAMPLE_RENAMES: readonly SampleRename[] = [
+	{
+		key: "undo-rename-usage",
+		agent: "agent-usage-popover",
+		from: "Usage popover",
+		title: "Usage meter popover",
+	},
+	{ key: "undo-rename-hdr", agent: "agent-hdr", from: "HDR", title: "HDR tone mapping" },
+];
+
+/** An earlier chat, how long ago it was active, and what was said and done in it. */
 type SampleChat = {
 	readonly agent: AgentId;
 	readonly title: string;
@@ -53,6 +73,7 @@ type SampleChat = {
 	readonly ago: number;
 	readonly archived?: boolean;
 	readonly asked: string;
+	readonly renames?: readonly SampleRename[];
 	readonly answered: string;
 };
 
@@ -65,6 +86,15 @@ const SAMPLE_CHATS: readonly SampleChat[] = [
 		asked: "Why does the login page take ten seconds on devbox?",
 		answered:
 			"The session check runs twice: once in the middleware and again in the page. Drop the page's check and it loads in under a second.",
+	},
+	{
+		agent: "agent-chat-titles",
+		title: "Clearer agent titles",
+		summary: "Two agents renamed so the sidebar says what they do",
+		ago: 50 * MIN,
+		asked: "Give the usage popover and HDR agents titles that say what they do.",
+		renames: SAMPLE_RENAMES,
+		answered: "Renamed both. Undo on a card puts that agent's old title back.",
 	},
 	{
 		agent: "agent-chat-release",
@@ -115,7 +145,14 @@ export const dispatcherEntities = (now: Timestamp): Entity[] => [
 			path: "/Users/me/Library/Application Support/MaxHQ/dispatcher",
 		},
 	},
-	{ entity: "dispatcher", device: MAC, workspace: DISPATCHER_HOME, agent: null, plan: null },
+	{
+		entity: "dispatcher",
+		device: MAC,
+		workspace: DISPATCHER_HOME,
+		agent: null,
+		plan: null,
+		undo: SAMPLE_RENAMES.map((rename) => rename.key),
+	},
 	...SAMPLE_CHATS.map((chat, i): Entity => ({
 		entity: "dispatcher_chat",
 		agent: chat.agent,
@@ -279,6 +316,14 @@ export const mockDispatcher = (ctx: DispatcherContext): MockDispatcher => {
 		const sample = SAMPLE_CHATS.find((s) => s.agent === chat.agent);
 		if (!sample) return;
 		ctx.timelines.post(chat.agent, you(sample.asked));
+		for (const rename of sample.renames ?? [])
+			ctx.timelines.post(chat.agent, {
+				kind: "dispatcher_action",
+				device: MAC,
+				action: { action: "rename_agent", agent: rename.agent, title: rename.title },
+				target: rename.from,
+				undo: rename.key,
+			});
 		ctx.timelines.post(chat.agent, say(sample.answered));
 	};
 
@@ -545,13 +590,27 @@ export const mockDispatcher = (ctx: DispatcherContext): MockDispatcher => {
 			setState((d) => ({ ...d, plan: null }));
 			return DONE;
 		},
-		// The sample dispatcher makes no change at once, so nothing has an Undo.
-		undoDispatcherAction: async (device) =>
-			refused(
-				device === MAC
-					? "That change can't be undone any more."
-					: "The dispatcher runs on the Mac."
-			),
+		// Only the titles chat's renames have an Undo. Each works once, and
+		// not after something else renamed the agent again.
+		undoDispatcherAction: async (device, action) => {
+			if (device !== MAC) return refused("The dispatcher runs on the Mac.");
+			const rename = SAMPLE_RENAMES.find((r) => r.key === action);
+			const agent = rename ? ctx.get(`agent:${rename.agent}`) : undefined;
+			if (
+				!rename ||
+				!(state()?.undo ?? []).includes(action) ||
+				agent?.entity !== "agent" ||
+				agent.title !== rename.title
+			)
+				return refused("That change can't be undone any more.");
+			ctx.change((base) =>
+				base.map((e) =>
+					e.entity === "agent" && e.id === rename.agent ? { ...e, title: rename.from } : e
+				)
+			);
+			setState((d) => ({ ...d, undo: (d.undo ?? []).filter((key) => key !== action) }));
+			return DONE;
+		},
 		actOnChat: async (device, agent, action) => {
 			if (device !== MAC) return refused("The dispatcher runs on the Mac.");
 			const chat = chatOf(agent);

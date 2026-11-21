@@ -251,7 +251,7 @@ describe("the new-agent form", () => {
 		expect(picker("Mode")).toHaveTextContent("Plan only");
 
 		press(await option("Agent", "Codex CLI"));
-		expect(picker("Agent")).toHaveTextContent("Codex Plus");
+		expect(picker("Agent")).toHaveTextContent("Codex Pro");
 		expect(picker("Mode")).toHaveTextContent("Auto");
 		expect(await option("Mode", "Plan only")).toHaveAttribute("aria-disabled", "true");
 	});
@@ -264,7 +264,7 @@ describe("the new-agent form", () => {
 		expect(claude).toHaveTextContent("5 hours, 22% used");
 		expect(claude).toHaveTextContent("Week, 45% used");
 		const codex = (await screen.findAllByRole("option")).find((o) =>
-			o.textContent?.includes("Codex Plus")
+			o.textContent?.includes("Codex Pro")
 		)!;
 		expect(codex).toHaveTextContent("5 hours, at its limit");
 		expect(codex).toHaveTextContent("Week, 64% used");

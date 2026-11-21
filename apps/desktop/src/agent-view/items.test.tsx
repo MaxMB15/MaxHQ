@@ -873,7 +873,7 @@ describe("sub-agent card", () => {
 });
 
 describe("limit wait card", () => {
-	// The sample Codex agent on Codex Plus, which is at its 5 hour limit.
+	// The sample Codex agent on Codex Pro, which is at its 5 hour limit.
 	// Claude Max on the same Mac has 78% of its 5 hours left.
 	const step = (id: string, body: ItemBody, ordinal: number, status: ItemStatus = "completed") =>
 		timelineItem(body, {
@@ -982,7 +982,7 @@ describe("limit wait card", () => {
 		});
 		expect(spec.first?.text).toBe(
 			[
-				'You\'re taking over from a Codex agent called "HDR tone mapping" in this workspace. It stopped because Codex Plus hit its usage limit.',
+				'You\'re taking over from a Codex agent called "HDR tone mapping" in this workspace. It stopped because Codex Pro hit its usage limit.',
 				"The last things it was asked:\n- Make tone mapping configurable.\n- Keep going, the peak test is fine to loosen.",
 				"The last thing it said:\nTone mapping is now on, with `auto` as the default.",
 				"Messages that were waiting for it:\n- Then add the option to Playback settings.",
@@ -1066,7 +1066,7 @@ describe("limit wait card", () => {
 
 	it("offers nothing for a session in a terminal", async () => {
 		setup([...HISTORY, wait(), QUEUED], true);
-		expect(await screen.findByText(/^Codex Plus is at its 5-hour limit\./)).toBeInTheDocument();
+		expect(await screen.findByText(/^Codex Pro is at its 5-hour limit\./)).toBeInTheDocument();
 		expect(screen.queryByRole("button")).not.toBeInTheDocument();
 	});
 

@@ -28,7 +28,7 @@ describe("AccountSection", () => {
 		const { view, plans: list } = await plans();
 		const codex = list.find((p) => p.account.vendor === "codex")!;
 		render(<AccountSection plan={codex} view={view} now={NOW} first />);
-		const section = screen.getByRole("region", { name: "Codex Plus" });
+		const section = screen.getByRole("region", { name: "Codex Pro" });
 		expect(within(section).getByText("By model")).toBeTruthy();
 		const rows = within(section).getAllByTitle("Codex Mini");
 		expect(rows).toHaveLength(2);
