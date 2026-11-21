@@ -32,7 +32,7 @@ export const NOTE_PILLS_SINCE = 28 as const;
 
 export const OLDEST_PROTOCOL_VERSION = 20 as const;
 
-export const PROTOCOL_VERSION = 54 as const;
+export const PROTOCOL_VERSION = 55 as const;
 
 export const SESSIONS_SINCE = 48 as const;
 
@@ -4305,7 +4305,7 @@ export type Departure = {
 	brief?: string | null,
 	/**
 	 *  The container it ran in, by name, if it ran in one. A device from
-	 *  before this field leaves it out.
+	 *  before this field leaves it out. Since protocol 55.
 	 */
 	container?: string | null,
 };
@@ -6275,7 +6275,7 @@ decided: Decided | null;
 /**
  *  The rules "Always allow" saves for a command, as their words, when
  *  MaxHQ keeps them. An older `maxd` leaves it out, which reads as
- *  none.
+ *  none. Since protocol 55.
  */
 saves?: string[] } | 
 /**  The agent asked you one or more questions. */
@@ -6418,7 +6418,7 @@ undo: IdempotencyKey | null } |
 /**
  *  An agent or a task the dispatcher started or saved without asking,
  *  as a card on its own timeline. An older app shows it as an item it
- *  doesn't know.
+ *  doesn't know. Since protocol 55.
  */
 { kind: "dispatcher_step"; 
 /**  What it did: a start or a task. */
@@ -7376,12 +7376,12 @@ export type MoveCheck = {
 	/**
 	 *  The mode an agent of that vendor starts in there unless you choose
 	 *  one. A device from before this field leaves it out, and starts a
-	 *  moved agent in the mode it ran in.
+	 *  moved agent in the mode it ran in. Since protocol 55.
 	 */
 	mode?: PermissionMode | null,
 	/**
 	 *  The container it runs in there, by name, if it runs in one. A
-	 *  device from before this field leaves it out.
+	 *  device from before this field leaves it out. Since protocol 55.
 	 */
 	container?: string | null,
 };
@@ -7468,7 +7468,7 @@ export type MoveTo = {
 	 *  The permission mode you chose for it there. The device it goes to
 	 *  takes it up to the higher of the mode it ran in and that device's
 	 *  own default. None, as from a peer before this field, means the
-	 *  lower of the two.
+	 *  lower of the two. Since protocol 55.
 	 */
 	mode?: PermissionMode | null,
 };
@@ -10880,6 +10880,7 @@ export type Task = {
 	 *  Set by `maxd` for a task you made that the dispatcher saved at
 	 *  once, for a request of yours, without a plan you confirmed. Its
 	 *  runs say the dispatcher made it. One from an older `maxd` has none.
+	 *  Since protocol 55.
 	 */
 	by_dispatcher?: boolean,
 };

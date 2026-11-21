@@ -224,7 +224,7 @@ pub enum ItemBody {
         decided: Option<Decided>,
         /// The rules "Always allow" saves for a command, as their words, when
         /// MaxHQ keeps them. An older `maxd` leaves it out, which reads as
-        /// none.
+        /// none. Since protocol 55.
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         saves: Vec<String>,
     },
@@ -362,7 +362,7 @@ pub enum ItemBody {
     },
     /// An agent or a task the dispatcher started or saved without asking,
     /// as a card on its own timeline. An older app shows it as an item it
-    /// doesn't know.
+    /// doesn't know. Since protocol 55.
     DispatcherStep {
         /// What it did: a start or a task.
         step: Box<crate::dispatch::PlanStep>,

@@ -51,6 +51,7 @@ pub struct Task {
     /// Set by `maxd` for a task you made that the dispatcher saved at
     /// once, for a request of yours, without a plan you confirmed. Its
     /// runs say the dispatcher made it. One from an older `maxd` has none.
+    /// Since protocol 55.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub by_dispatcher: bool,
 }
