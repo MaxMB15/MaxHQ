@@ -30,6 +30,7 @@ import {
 	childrenOf,
 	deviceGroups,
 	deviceNode,
+	foldStarted,
 	fullestContexts,
 	hiddenProjectList,
 	inboxSections,
@@ -41,6 +42,7 @@ import {
 	projectGroups,
 	startedBy,
 	startedByLine,
+	type StartedFold,
 	startedRows,
 	waitingFor,
 	waitingOnAccount,
@@ -763,6 +765,161 @@ describe("agents started through the agent tools", () => {
 		const line = (id: string) => startedByLine(view, view.tables.agent.get(id)!);
 		expect(line("by-task-1")).toBe("Started by the task Morning review on Mac");
 		expect(line("by-task-gone")).toBe("Started by a scheduled task on Mac");
+	});
+});
+
+describe("a caller's started agents, collapsed", () => {
+	const by = (caller: string) => ({
+		permission: "perm-1",
+		by: { kind: "agent" as const, agent: caller },
+		device: "dev-mac",
+	});
+	const settled = { at: NOW - MIN, by: "you" as const };
+	const inbox = (over: Partial<Inbox>): Inbox => ({ ...DEFAULT_INBOX, ...over });
+	const viewOf = (agents: Agent[], extra: Entity[] = []) =>
+		applySnapshot({
+			seq: 1,
+			entities: [
+				...entities({
+					devices: [device({ id: "dev-mac", os: "macos" })],
+					links: [
+						link({
+							id: "mac",
+							name: "Mac",
+							device: "dev-mac",
+							route: { type: "local" },
+						}),
+					],
+					workspaces: [
+						workspace({ id: "w1", project: "p" }),
+						workspace({ id: "w-dispatcher" }),
+					],
+					projects: [project("p", "MaxHQ")],
+					agents,
+				}),
+				...extra,
+			],
+		});
+	const child = (id: string, minutes: number, over: Partial<Agent> = {}) =>
+		agent({ id, origin: by("caller"), started_at: NOW - (60 - minutes) * MIN, ...over });
+	const six = viewOf([
+		agent({ id: "caller" }),
+		child("one", 1, { activity: { state: "done_unread" } }),
+		child("two", 2, { activity: { state: "busy" } }),
+		child("three", 3, { activity: { state: "needs_input", attention: "att-1" } }),
+		agent({ id: "under-three", origin: by("three"), started_at: NOW - 50 * MIN }),
+		child("four", 4),
+		agent({
+			id: "under-four",
+			origin: by("four"),
+			started_at: NOW - 40 * MIN,
+			activity: { state: "error", reason: "exited with status 1" },
+		}),
+	]);
+	const rowsOf = (view: typeof six) => startedRows(view, "caller", NOW);
+	const shown = (fold: StartedFold) => fold.rows.map((r) => `${r.agent.id}:${r.level}`);
+
+	it("leaves two started agents as they are", () => {
+		const two = rowsOf(six).slice(0, 2);
+		const fold = foldStarted(two, false);
+		expect(fold.summary).toBeUndefined();
+		expect(fold.rows).toEqual(two);
+	});
+
+	it("counts every level, and how many work, in one summary row", () => {
+		const fold = foldStarted(rowsOf(six), false);
+		expect(fold.summary).toEqual({ count: 6, working: 1, text: "6 started, 1 working" });
+		const idle = foldStarted(rowsOf(six).slice(2), true);
+		expect(idle.summary?.text).toBe("4 started");
+	});
+
+	it("keeps the ones that need you, under the kept agent that started them", () => {
+		expect(shown(foldStarted(rowsOf(six), false))).toEqual(["three:1", "under-four:1"]);
+		const looking = foldStarted(rowsOf(six), false, (a) => a.id === "four");
+		expect(shown(looking)).toEqual(["three:1", "four:1", "under-four:2"]);
+	});
+
+	it("shows every row while open", () => {
+		expect(shown(foldStarted(rowsOf(six), true))).toEqual([
+			"one:1",
+			"two:1",
+			"three:1",
+			"under-three:2",
+			"four:1",
+			"under-four:2",
+		]);
+	});
+
+	it("keeps its caller out of the older row while a started agent wouldn't fold", () => {
+		const old = NOW - 3 * DAY;
+		const groups = (busy: boolean) =>
+			projectGroups(
+				viewOf([
+					agent({ id: "caller", last_activity_at: old }),
+					child("a", 1, {
+						last_activity_at: old,
+						activity: busy ? { state: "busy" } : { state: "idle" },
+					}),
+				]),
+				NOW
+			)[0]!;
+		expect(groups(true).agents.map((a) => a.id)).toEqual(["caller"]);
+		expect(groups(false).older.map((a) => a.id)).toEqual(["caller"]);
+	});
+
+	it("brings an active started agent to the top when its caller is settled or snoozed", () => {
+		for (const away of [
+			inbox({ settled }),
+			inbox({ snoozed_until: NOW + DAY, snoozed_at: NOW - MIN }),
+		]) {
+			const view = viewOf([agent({ id: "caller", inbox: away }), child("a", 1)]);
+			expect(callerOf(view, view.tables.agent.get("a")!, NOW)).toBeUndefined();
+			expect(projectGroups(view, NOW)[0]!.agents.map((a) => a.id)).toEqual(["a"]);
+		}
+	});
+
+	it("brings it to the top when its caller is a dispatcher's", () => {
+		const view = viewOf(
+			[agent({ id: "caller", workspace: "w-dispatcher" }), child("a", 1)],
+			[
+				{
+					entity: "dispatcher",
+					device: "dev-mac",
+					workspace: "w-dispatcher",
+					agent: "caller",
+					plan: null,
+				},
+			]
+		);
+		expect(projectGroups(view, NOW)[0]!.agents.map((a) => a.id)).toEqual(["a"]);
+	});
+
+	it("nests the ones that settled with their caller under it among the settled", () => {
+		const view = viewOf([
+			agent({ id: "caller", inbox: inbox({ settled }) }),
+			child("along", 1, { inbox: inbox({ settled }) }),
+			child("before", 2, { inbox: inbox({ settled: { at: NOW - DAY, by: "you" } }) }),
+			child("by-auto", 3, { inbox: inbox({ settled: { at: NOW - 2 * DAY, by: "auto" } }) }),
+		]);
+		const along = (id: string) => callerOf(view, view.tables.agent.get(id)!, NOW)?.id;
+		expect(along("along")).toBe("caller");
+		expect(along("before")).toBeUndefined();
+		expect(along("by-auto")).toBeUndefined();
+		const same = { ...settled, by: "auto" as const };
+		const auto = viewOf([
+			agent({ id: "caller", inbox: inbox({ settled }) }),
+			child("a", 1, { inbox: inbox({ settled: same }) }),
+		]);
+		expect(callerOf(auto, auto.tables.agent.get("a")!, NOW)).toBeUndefined();
+		const listed = inboxSections(view, NOW).settled.map((a) => a.id);
+		expect(listed).not.toContain("along");
+		expect(listed).toContain("before");
+		expect(inboxList(view, NOW).settled.map((a) => a.id)).toEqual([
+			"caller",
+			"along",
+			"before",
+			"by-auto",
+		]);
 	});
 });
 

@@ -19,7 +19,8 @@ import { PREFS_KEY } from "./prefs";
 const MIN = 60_000;
 
 // The sample source with one agent changed.
-const changed = (id: string, over: Partial<Agent>): DataSource => {
+const changed = (id: string | readonly string[], over: Partial<Agent>): DataSource => {
+	const ids = new Set([id].flat());
 	const source = mockSource({ now: () => NOW, tick: false });
 	const snapshot = source.snapshot;
 	const patched: DataSource["snapshot"] = async () => {
@@ -27,7 +28,7 @@ const changed = (id: string, over: Partial<Agent>): DataSource => {
 		return {
 			...state,
 			entities: state.entities.map((e) =>
-				e.entity === "agent" && e.id === id ? { ...e, ...over } : e
+				e.entity === "agent" && ids.has(e.id) ? { ...e, ...over } : e
 			),
 		};
 	};
@@ -203,6 +204,10 @@ describe("picking agents", () => {
 			expect.stringMatching(/^M1 observe milestone/),
 			expect.stringMatching(/^Usage meter popover/),
 			expect.stringMatching(/^Bindings check/),
+			// The launch agent's six fold into one row, all but the one
+			// that needs you.
+			expect.stringMatching(/^Prepare the launch/),
+			expect.stringMatching(/^Tag the release/),
 		]);
 
 		fireEvent.click(rows[0]!, { ctrlKey: true });
@@ -605,22 +610,23 @@ describe("the inbox shortcuts", () => {
 
 		press("KeyS", "S", true);
 		expect(setInbox).toHaveBeenLastCalledWith(["agent-bindings"], { change: "settle" });
+		const waiting = ["agent-release", "agent-sync-drift", "agent-launch-tag"];
 		const first = ui.getState().selectedAgent;
-		expect(["agent-release", "agent-sync-drift"]).toContain(first);
+		expect(waiting).toContain(first);
 
-		// The one just settled is passed over, so the other opens.
+		// The one just settled is passed over, so another opens.
 		await within(notice()).findByText("Settled Bindings check");
 		press("KeyS", "S", true);
 		expect(setInbox).toHaveBeenLastCalledWith([first], { change: "settle" });
 		const second = ui.getState().selectedAgent;
-		expect(["agent-release", "agent-sync-drift"]).toContain(second);
+		expect(waiting).toContain(second);
 		expect(second).not.toBe(first);
 	});
 
 	it("stay on the agent you settle when no other waits", async () => {
 		const { setInbox, ui } = renderApp(
 			undefined,
-			changed("agent-sync-drift", { activity: { state: "idle" } })
+			changed(["agent-sync-drift", "agent-launch-tag"], { activity: { state: "idle" } })
 		);
 		fireEvent.click(await row(/Release checklist/));
 

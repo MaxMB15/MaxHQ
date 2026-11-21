@@ -952,6 +952,8 @@
 	"the task {{task_name}}": "the task {{task_name}}",
 	"a scheduled task": "a scheduled task",
 	"Started by {{actorName_view__origin_by}} on {{deviceName_view__origin_device}}": "Started by {{actorName_view__origin_by}} on {{deviceName_view__origin_device}}",
+	"{{started}} started": "{{started}} started",
+	"{{started}} started, {{working}} working": "{{started}} started, {{working}} working",
 	"No project": "No project",
 	"Allow?": "Allow?",
 	"Question": "Question",

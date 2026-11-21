@@ -424,6 +424,8 @@
 	"the task {{task_name}}": "de taak {{task_name}}",
 	"a scheduled task": "een geplande taak",
 	"Started by {{actorName_view__origin_by}} on {{deviceName_view__origin_device}}": "Gestart door {{actorName_view__origin_by}} op {{deviceName_view__origin_device}}",
+	"{{started}} started": "{{started}} gestart",
+	"{{started}} started, {{working}} working": "{{started}} gestart, {{working}} bezig",
 	"No project": "Geen project",
 	"Allow?": "Toestaan?",
 	"Question": "Vraag",

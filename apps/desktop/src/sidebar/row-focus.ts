@@ -7,11 +7,16 @@
 // button. While focus is on a row, that row keeps the stop; once focus
 // leaves, the stop goes to the agent you're looking at. Rows come and go as
 // agents change, so when the focused row goes, focus follows its agent to
-// its new row, or else lands on the row that took its place.
+// its new row, or else lands on the row that took its place. The summary
+// row a caller's started agents collapse into is a row like any other.
 
-const ROW = "[data-agent-row]";
+const ROW = "[data-agent-row], [data-started-row]";
 
-const idOf = (row: HTMLElement | undefined): string | undefined => row?.dataset.agentRow;
+const idOf = (row: HTMLElement | undefined): string | undefined => {
+	if (row?.dataset.agentRow !== undefined) return row.dataset.agentRow;
+	const caller = row?.dataset.startedRow;
+	return caller === undefined ? undefined : `started:${caller}`;
+};
 
 /** Runs the agent rows under `root` as one list, and returns a call that stops. */
 export const watchRowFocus = (root: HTMLElement): (() => void) => {
@@ -67,7 +72,7 @@ export const watchRowFocus = (root: HTMLElement): (() => void) => {
 		childList: true,
 		subtree: true,
 		attributes: true,
-		attributeFilter: ["data-agent-row", "aria-current"],
+		attributeFilter: ["data-agent-row", "data-started-row", "aria-current"],
 	});
 	document.addEventListener("focusin", onFocus);
 	document.addEventListener("pointerdown", onPointer, true);

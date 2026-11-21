@@ -3,11 +3,11 @@
 
 import { describe, expect, it } from "vitest";
 
-import type { Inbox } from "../bindings";
+import type { Agent, Inbox } from "../bindings";
 import { agent, device, entities, link, MIN, NOW, project, workspace } from "../test/build";
 import { DEFAULT_INBOX } from "../view/inbox";
 import { applySnapshot } from "../view/replica";
-import { projectGroups } from "../view/select";
+import { projectGroups, startedOpenKey } from "../view/select";
 
 import { draggedAgents, draggedName, foldKey, shelfRows, shownRows } from "./rows";
 import { createUiStore, SETTLED_SHOWN } from "./store";
@@ -90,6 +90,67 @@ describe("the rows the projects view shows", () => {
 		const ids = shownRows(withStarted, NOW, options, createUiStore().getState());
 		expect(ids).toContain("started");
 		expect(ids.indexOf("started")).toBe(ids.indexOf("a1") + 1);
+	});
+
+	describe("a caller with more than two started agents", () => {
+		const by = {
+			permission: "perm-1",
+			by: { kind: "agent" as const, agent: "a1" },
+			device: "dev-mac",
+		};
+		const started = ["s1", "s2", "s3"].map((id, i) =>
+			agent({
+				id,
+				workspace: "w-a",
+				origin: by,
+				started_at: NOW - (30 - i) * MIN,
+				activity:
+					id === "s2" ? { state: "needs_input", attention: "att-1" } : { state: "idle" },
+			})
+		);
+		const many = applySnapshot({
+			seq: 2,
+			entities: [...view.tables.agent.values(), ...started].map((a) => ({
+				entity: "agent" as const,
+				...a,
+			})),
+		});
+		const after = (ids: string[]) => ids.slice(ids.indexOf("a1"), ids.indexOf("b1"));
+
+		it("hides them behind the summary row, but for the one that needs you", () => {
+			const ids = shownRows(many, NOW, options, createUiStore().getState());
+			expect(after(ids)).toEqual(["a1", "s2"]);
+		});
+
+		it("shows them all once you open it", () => {
+			const ui = createUiStore({ collapsed: new Set([startedOpenKey("a1")]) }).getState();
+			expect(after(shownRows(many, NOW, options, ui))).toEqual(["a1", "s1", "s2", "s3"]);
+		});
+
+		it("keeps the one you're looking at or picked", () => {
+			const ui = createUiStore({ selectedAgent: "s3", picked: new Set(["s1"]) }).getState();
+			expect(after(shownRows(many, NOW, options, ui))).toEqual(["a1", "s1", "s2", "s3"]);
+		});
+
+		it("opens it while the filter has words, unless folded since", () => {
+			const ui = createUiStore().getState();
+			const words = ["a1"];
+			const open = shownRows(many, NOW, options, ui, { words, folded: new Set() });
+			expect(open.slice(0, 4)).toEqual(["a1", "s1", "s2", "s3"]);
+			const folded = new Set([foldKey("started", "a1")]);
+			expect(shownRows(many, NOW, options, ui, { words, folded }).slice(0, 2)).toEqual([
+				"a1",
+				"s2",
+			]);
+		});
+
+		it("keeps a closed shelf's caller when you look at an agent under it", () => {
+			const caller = many.tables.agent.get("a1")!;
+			const looking = createUiStore({ selectedAgent: "s3" }).getState();
+			const under = (a: Agent) => (a.id === "a1" ? started : []);
+			expect(shelfRows("settled", [caller], looking, under)).toEqual([caller]);
+			expect(shelfRows("settled", [caller], looking)).toEqual([]);
+		});
 	});
 
 	it("adds each open shelf at the bottom, a page of the settled ones", () => {

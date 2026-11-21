@@ -2,17 +2,25 @@
 // Copyright (c) 2026 Max Boksem
 
 // The agents the projects view shows as rows, top to bottom, which is the
-// order a Shift-click picks along. Rows a folded group or a closed shelf
-// hides aren't in it, so a range never picks what you can't see. A closed
-// shelf still shows the agent you're looking at. While
-// the sidebar's filter has words, only its matches are rows, and every
-// group and shelf is open unless folded since the filter began.
+// order a Shift-click picks along. Rows a folded group, a closed shelf or
+// a collapsed summary of started agents hides aren't in it, so a range
+// never picks what you can't see. A closed shelf still shows the agent
+// you're looking at, under its caller when it has one there. While the
+// sidebar's filter has words, only its matches are rows, and every group,
+// shelf and summary is open unless folded since the filter began.
 
 import type { Agent, AgentId, Timestamp } from "../bindings";
 import { filterSidebar } from "../view/filter";
 import type { ViewState } from "../view/replica";
 import { plural } from "../status/format";
-import { inboxSections, projectGroups, type SectionOptions, startedRows } from "../view/select";
+import {
+	foldStarted,
+	inboxSections,
+	projectGroups,
+	type SectionOptions,
+	startedOpenKey,
+	startedRows,
+} from "../view/select";
 
 import { type Shelf, slideLead, type UiState } from "./store";
 
@@ -23,16 +31,22 @@ export type ShelfShown = Pick<
 >;
 
 /** The parts of the window's state that hide rows. */
-export type RowsShown = ShelfShown & Pick<UiState, "collapsed" | "showingOlder">;
+export type RowsShown = ShelfShown & Pick<UiState, "collapsed" | "showingOlder" | "picked">;
 
 /**
  * The rows a shelf shows: every one while it's open, though only a page of
  * the settled ones, and only the one you're looking at while it's closed.
+ * `under` gives the agents shown under each one, so an agent you look at
+ * there keeps the row it sits under.
  */
-export const shelfRows = (shelf: Shelf, agents: readonly Agent[], ui: ShelfShown): Agent[] => {
-	const looking = agents.find(
-		(agent) => agent.id === ui.selectedAgent || agent.id === slideLead(ui)
-	);
+export const shelfRows = (
+	shelf: Shelf,
+	agents: readonly Agent[],
+	ui: ShelfShown,
+	under: (agent: Agent) => readonly Agent[] = () => []
+): Agent[] => {
+	const looks = (agent: Agent) => agent.id === ui.selectedAgent || agent.id === slideLead(ui);
+	const looking = agents.find((agent) => looks(agent) || under(agent).some(looks));
 	if (!ui.openShelves.has(shelf)) return looking ? [looking] : [];
 	if (shelf !== "settled") return [...agents];
 	const page = agents.slice(0, ui.settledShown);
@@ -40,10 +54,11 @@ export const shelfRows = (shelf: Shelf, agents: readonly Agent[], ui: ShelfShown
 };
 
 /**
- * The key a project group's or a shelf's fold has while the sidebar's
- * filter has words.
+ * The key a project group's, a shelf's or a caller's started agents' fold
+ * has while the sidebar's filter has words.
  */
-export const foldKey = (kind: "project" | "shelf", key: string): string => `${kind}:${key}`;
+export const foldKey = (kind: "project" | "shelf" | "started", key: string): string =>
+	`${kind}:${key}`;
 
 /** What the sidebar's filter holds: its words, and what was folded since. */
 export type RowsFilter = {
@@ -56,7 +71,8 @@ const SHELVES: readonly Shelf[] = ["working", "snoozed", "settled"];
 /**
  * The agents shown as rows, in order: the pinned ones, each open project
  * group with its older agents when they're shown, then each open shelf,
- * with the agents each one started right under it.
+ * with the agents each one started right under it, unless their summary
+ * row is collapsed.
  */
 export const shownRows = (
 	view: ViewState,
@@ -89,14 +105,21 @@ export const shownRows = (
 		),
 	};
 	const { sections } = lists;
+	const under = (agent: Agent) => startedRows(view, agent.id, now).map((row) => row.agent);
+	const keep = (agent: Agent) =>
+		agent.id === ui.selectedAgent || agent.id === slideLead(ui) || ui.picked.has(agent.id);
 	return [
 		...sections.pinned,
 		...groups,
-		...SHELVES.flatMap((shelf) => shelfRows(shelf, sections[shelf], shelves)),
-	].flatMap((agent) => [
-		agent.id,
-		...startedRows(view, agent.id, now).map((row) => row.agent.id),
-	]);
+		...SHELVES.flatMap((shelf) => shelfRows(shelf, sections[shelf], shelves, under)),
+	].flatMap((agent) => {
+		const shown = open(
+			foldKey("started", agent.id),
+			ui.collapsed.has(startedOpenKey(agent.id))
+		);
+		const fold = foldStarted(startedRows(view, agent.id, now), shown, keep);
+		return [agent.id, ...fold.rows.map((row) => row.agent.id)];
+	});
 };
 
 /**

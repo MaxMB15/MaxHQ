@@ -18,7 +18,7 @@ import type { Agent, Timestamp } from "@maxhq/shared/bindings";
 import { foldKey, shelfRows } from "@maxhq/shared/ui/rows";
 import { SETTLED_PAGE, type Shelf } from "@maxhq/shared/ui/store";
 import type { ViewState } from "@maxhq/shared/view/replica";
-import type { InboxSections } from "@maxhq/shared/view/select";
+import { type InboxSections, startedRows } from "@maxhq/shared/view/select";
 
 import { AgentRow, Chevron, useLookingAt } from "./agent-row";
 import { useFilterFold } from "./filter";
@@ -87,12 +87,17 @@ const ShelfSection = ({
 		toggleShelf(shelf)
 	);
 	if (agents.length === 0) return null;
-	const rows = shelfRows(shelf, agents, {
-		openShelves: open ? new Set([shelf]) : new Set(),
-		settledShown,
-		selectedAgent,
-		slideOut,
-	});
+	const rows = shelfRows(
+		shelf,
+		agents,
+		{
+			openShelves: open ? new Set([shelf]) : new Set(),
+			settledShown,
+			selectedAgent,
+			slideOut,
+		},
+		(agent) => startedRows(view, agent.id, now).map((row) => row.agent)
+	);
 	const hidden = open ? agents.length - rows.length : 0;
 	return (
 		<section aria-label={label} className="flex flex-col gap-px">

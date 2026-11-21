@@ -33,7 +33,7 @@ describe("App", () => {
 			.getAllByRole("region")
 			.map((r) => r.getAttribute("aria-label"));
 		expect(groups).toEqual([
-			"2 agents need you",
+			"3 agents need you",
 			"Pinned",
 			"AtlasMaps",
 			"Comet",
@@ -59,6 +59,28 @@ describe("App", () => {
 		const maxhq = await within(agentsNav()).findByRole("region", { name: "MaxHQ" });
 		fireEvent.click(within(maxhq).getByRole("option", { name: /Write the release notes/ }));
 		expect(await screen.findByText("Started by Release checklist on Mac")).toBeInTheDocument();
+	});
+
+	it("folds more than two started agents into one row, but for the one that needs you", async () => {
+		renderApp();
+		const maxhq = await within(agentsNav()).findByRole("region", { name: "MaxHQ" });
+		const fold = within(maxhq).getByRole("button", { name: "6 started, 1 working" });
+		expect(fold).toHaveAttribute("aria-expanded", "false");
+		expect(within(maxhq).getByRole("option", { name: /Tag the release/ })).toBeInTheDocument();
+		expect(within(maxhq).queryByRole("option", { name: /Write the launch post/ })).toBeNull();
+
+		fireEvent.click(fold);
+		expect(fold).toHaveAttribute("aria-expanded", "true");
+		expect(
+			within(maxhq).getByRole("option", { name: /Write the launch post/ })
+		).toBeInTheDocument();
+		expect(
+			within(maxhq).getByRole("option", { name: /Check the download links/ })
+		).toBeInTheDocument();
+		// It's a button, so Enter and Space toggle it as a click does.
+		expect(fold.tagName).toBe("BUTTON");
+		fireEvent.click(fold);
+		expect(within(maxhq).queryByRole("option", { name: /Write the launch post/ })).toBeNull();
 	});
 
 	it("opens an agent with sub-agents in the main area and the side panel", async () => {

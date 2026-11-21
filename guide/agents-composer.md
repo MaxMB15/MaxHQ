@@ -296,6 +296,10 @@ With the permission, the agent gets these tools:
 
 **List where agents can start**, **List agents** and **Wait for agents** only read, so they need no permission while the device's **Other agents** card allows reading, as it does by default.
 
+In the sidebar, the agents an agent starts sit under it, one step further in for each level, with a faint line down the side. Once it has started more than two, they fold into one row such as **6 started, 1 working**. Click that row, or press Return or Space on it, to open or close it. An agent that needs you, has failed, or that you have open or picked keeps its own row.
+
+Settling an agent also settles the agents it started, and the ones they started, whether you settle it or **Auto-settle after** does. MaxHQ leaves out any that is working, needs you, has failed, is pinned or snoozed, or has work in its worktree that isn't saved yet. Those stay in the inbox. Unsettling the agent brings back only the ones that settled with it.
+
 Settings, then **Agent tools**, sets what new permissions allow, such as how deep agents may nest and how many run at once.
 
 ## Let an agent schedule tasks

@@ -34,7 +34,11 @@ describe("the agent list", () => {
 		// The list hears of the new rows once the DOM settles.
 		await act(() => Promise.resolve());
 
-		const rows = within(list).getAllByRole("option");
+		// The row a caller's started agents fold into is one of them.
+		const rows = [
+			...list.querySelectorAll<HTMLElement>("[data-agent-row], [data-started-row]"),
+		];
+		expect(rows.filter((row) => row.dataset.startedRow !== undefined)).toHaveLength(1);
 		expect(rows.filter((row) => row.tabIndex === 0)).toHaveLength(1);
 		const sections = new Set(rows.map((row) => row.closest("section")));
 		expect(sections.size).toBeGreaterThan(2);

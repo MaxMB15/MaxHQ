@@ -424,6 +424,8 @@
 	"the task {{task_name}}": "la tâche {{task_name}}",
 	"a scheduled task": "une tâche planifiée",
 	"Started by {{actorName_view__origin_by}} on {{deviceName_view__origin_device}}": "Démarré par {{actorName_view__origin_by}} sur {{deviceName_view__origin_device}}",
+	"{{started}} started": "{{started}} démarrés",
+	"{{started}} started, {{working}} working": "{{started}} démarrés, {{working}} en cours",
 	"No project": "Aucun projet",
 	"Allow?": "Autoriser ?",
 	"Question": "Question",
