@@ -9,20 +9,26 @@
 //   core [--release]                  the Rust core for both Apple targets
 //   dev [--simulator] [--rebuild]     the core, a new dev build when the
 //                                     fingerprint changed, then Metro
-//   testflight [--ipa]                the core in release, the check, archive
-//                                     and upload, or with --ipa the signed
-//                                     .ipa kept instead of uploaded
+//   testflight                        the core in release, the check, archive
+//                                     and upload
 //   install                           the core in release, then the
 //                                     production app archived, signed ad hoc
 //                                     and installed on the paired iPhone
 //   check                             the fingerprint check on its own, for CI
 //   build-number                      prints the release workflow's build
 //                                     number for this run and attempt
+//   archive                           the release workflow's build: the core
+//                                     in release, then the production app
+//                                     archived and signed ad hoc, with no key
+//   export                            the release workflow's upload job: that
+//                                     archive exported as an .ipa, signed
+//                                     with the API key
 //
 // With MAXHQ_BUILD_NUMBER set, as the release workflow sets it, testflight
-// numbers the build with it and leaves native-build.json alone. --ipa needs
-// that number: the workflow keeps the .ipa and uploads it in a later job,
-// once every build of the release has passed.
+// numbers the build with it and leaves native-build.json alone. archive
+// needs that number. archive and export each check that the app's signature
+// still carries push and the app group. export runs without the packages
+// installed, so it loads nothing but Node's own modules.
 //
 // --dry-run prints the commands instead of running them and writes nothing.
 
@@ -31,11 +37,13 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 
-import { createProjectHashAsync } from "expo/fingerprint";
-
-import { MISSING_LOCAL, readIosLocal } from "./ios-config.ts";
+import { type IosLocal, MISSING_LOCAL, readIosLocal } from "./ios-config.ts";
 import {
+	API_KEY_ENV,
 	apiKeyFromEnv,
+	appInIpa,
+	archivedApp,
+	archivePath,
 	BUILD_NUMBER_ENV,
 	checkNativeBuild,
 	CORE_MODULE,
@@ -44,9 +52,12 @@ import {
 	devBuildSteps,
 	EXPORT_OPTIONS_FILE,
 	exportOptions,
+	exportSteps,
 	installSteps,
 	ipaPath,
+	keylessArchiveSteps,
 	metroStep,
+	missingEntitlements,
 	NATIVE_BUILD_FILE,
 	needsDevBuild,
 	onlyPhone,
@@ -104,7 +115,11 @@ const readJson = <T>(repoPath: string, fallback: T): T => {
 	return existsSync(file) ? (JSON.parse(readFileSync(file, "utf8")) as T) : fallback;
 };
 
-const fingerprint = () => createProjectHashAsync(appDir, { silent: true });
+// Loaded only when a command needs it, since export runs without packages.
+const fingerprint = async () => {
+	const { createProjectHashAsync } = await import("expo/fingerprint");
+	return createProjectHashAsync(appDir, { silent: true });
+};
 
 // devicectl installs on the one paired iPhone, named by its UDID. A dry run
 // lists nothing, so its steps name a stand-in.
@@ -177,9 +192,6 @@ const release = (steps: Step[], teamId: string, kind: ExportKind) => {
 };
 
 const testflight = async () => {
-	const keep = flags.includes("--ipa");
-	if (keep && !process.env[BUILD_NUMBER_ENV])
-		fail(`--ipa is for the release workflow, which sets ${BUILD_NUMBER_ENV}.`);
 	const local = readIosLocal(appDir) ?? fail(MISSING_LOCAL);
 	const key = apiKeyFromEnv(process.env);
 	if (key && !dryRun && !existsSync(key.path)) fail("The API key file isn't there.");
@@ -197,13 +209,8 @@ const testflight = async () => {
 		const buildNumber = resolveBuildNumber(record, numbered);
 		run(coreSteps(true));
 		console.log(`Build ${buildNumber}, numbered by ${BUILD_NUMBER_ENV}.`);
-		release(testflightSteps(local, key), local.teamId, keep ? "ipa" : "testflight");
-		if (!dryRun)
-			console.log(
-				keep
-					? `Build ${buildNumber} is signed for TestFlight in apps/mobile/${ipaPath(local)}.`
-					: `Build ${buildNumber} is on its way to TestFlight.`
-			);
+		release(testflightSteps(local, key), local.teamId, "testflight");
+		if (!dryRun) console.log(`Build ${buildNumber} is on its way to TestFlight.`);
 		return;
 	}
 	run(coreSteps(true));
@@ -233,6 +240,85 @@ const install = () => {
 		);
 };
 
+// The entitlements in an app's signature, or none when it has none.
+const entitlementsOf = (app: string): Record<string, unknown> => {
+	const dir = mkdtempSync(join(tmpdir(), "maxhq-entitlements-"));
+	try {
+		const plist = join(dir, "entitlements.plist");
+		const read = spawnSync("codesign", ["-d", "--entitlements", plist, "--xml", app], {
+			stdio: ["ignore", "ignore", "inherit"],
+		});
+		if (read.status !== 0) fail(`codesign can't read the signature of ${app}.`);
+		if (!existsSync(plist)) return {};
+		const json = spawnSync("plutil", ["-convert", "json", "-o", "-", plist], {
+			encoding: "utf8",
+		});
+		if (json.status !== 0) fail(`plutil can't read the entitlements of ${app}.`);
+		return JSON.parse(json.stdout) as Record<string, unknown>;
+	} finally {
+		rmSync(dir, { recursive: true, force: true });
+	}
+};
+
+// Stops when the app's signature lost what push and the app group need.
+const checkEntitlements = (local: IosLocal, app: string, exported: boolean) => {
+	if (dryRun) return console.log(`would check the entitlements of ${app}`);
+	const missing = missingEntitlements(local, entitlementsOf(app), exported);
+	if (missing.length > 0) {
+		fail(
+			`The signature of ${app} is missing ${missing.join(", ")}, so push or the app group wouldn't work.`
+		);
+	}
+	console.log(`The signature of ${app} carries push and the app group.`);
+};
+
+// The release workflow's build job. No key and no account reach it, since
+// it runs every package's scripts; the archive is signed ad hoc.
+const archive = () => {
+	const numbered = process.env[BUILD_NUMBER_ENV];
+	if (!numbered) fail(`archive is for the release workflow, which sets ${BUILD_NUMBER_ENV}.`);
+	if (apiKeyFromEnv(process.env)) {
+		fail(
+			`archive signs ad hoc and takes no App Store Connect key; leave ${Object.values(API_KEY_ENV).join(", ")} unset.`
+		);
+	}
+	const local = readIosLocal(appDir) ?? fail(MISSING_LOCAL);
+	releaseExtra(process.env);
+	const buildNumber = resolveBuildNumber({ buildNumber: 1, lastUpload: null }, numbered);
+	run(coreSteps(true));
+	console.log(`Build ${buildNumber}, numbered by ${BUILD_NUMBER_ENV}.`);
+	run(keylessArchiveSteps(local));
+	checkEntitlements(local, join(appDir, archivedApp(local)), false);
+	if (!dryRun)
+		console.log(`Build ${buildNumber} is archived in apps/mobile/${archivePath(local)}.`);
+};
+
+// The release workflow's upload job: the archive from the build job,
+// exported and signed for App Store Connect with the key. It needs no
+// packages, so the job installs none while the key is on disk.
+const exportArchive = () => {
+	const local = readIosLocal(appDir) ?? fail(MISSING_LOCAL);
+	const key =
+		apiKeyFromEnv(process.env) ??
+		fail(
+			`export signs with an App Store Connect key, which ${Object.values(API_KEY_ENV).join(", ")} name.`
+		);
+	if (!dryRun && !existsSync(key.path)) fail("The API key file isn't there.");
+	if (!dryRun && !existsSync(join(appDir, archivePath(local))))
+		fail(`There's no archive at apps/mobile/${archivePath(local)}.`);
+	write(`apps/mobile/${EXPORT_OPTIONS_FILE}`, exportOptions(local.teamId, "ipa"));
+	run(exportSteps(local, key));
+	if (dryRun) return checkEntitlements(local, appInIpa(local), true);
+	const dir = mkdtempSync(join(tmpdir(), "maxhq-ipa-"));
+	try {
+		run([{ cmd: "ditto", args: ["-x", "-k", join(appDir, ipaPath(local)), dir] }]);
+		checkEntitlements(local, join(dir, appInIpa(local)), true);
+	} finally {
+		rmSync(dir, { recursive: true, force: true });
+	}
+	console.log(`The .ipa is signed for TestFlight in apps/mobile/${ipaPath(local)}.`);
+};
+
 const main = async () => {
 	switch (command) {
 		case "core":
@@ -245,6 +331,10 @@ const main = async () => {
 			return install();
 		case "check":
 			return void (await check(false));
+		case "archive":
+			return archive();
+		case "export":
+			return exportArchive();
 		case "build-number":
 			return console.log(
 				pipelineBuildNumber(
@@ -253,7 +343,9 @@ const main = async () => {
 				)
 			);
 		default:
-			fail("Usage: mobile.ts core|dev|testflight|install|check|build-number [--dry-run]");
+			fail(
+				"Usage: mobile.ts core|dev|testflight|install|check|build-number|archive|export [--dry-run]"
+			);
 	}
 };
 

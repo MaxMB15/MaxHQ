@@ -3,8 +3,9 @@
 # Copyright (c) 2026 Max Boksem
 
 # Builds MaxHQ.app for this Mac's CPU with everything a release carries in it,
-# then the DMG and the updater archive. The release workflow runs it on each
-# macOS runner, and a local build can run it too.
+# then the DMG and the updater archive. The release workflow runs `build` in
+# a job with no secret and `assemble` in a separate signing job, which runs
+# nothing the build made. A local build can run both.
 #
 #   sh scripts/release/package-macos.sh [build|assemble|all] [options]
 #
@@ -32,11 +33,19 @@
 #     identity. Without either, everything is signed ad hoc (`-`).
 #   TAURI_SIGNING_PRIVATE_KEY, or TAURI_SIGNING_PRIVATE_KEY_PATH, and
 #     TAURI_SIGNING_PRIVATE_KEY_PASSWORD: the update key that signs
-#     maxd-release.json and the updater archive (see sign.mjs).
+#     maxd-release.json and the updater archive (see sign.mjs). The same
+#     names ending in _NEXT hold the next key during a key change.
+#   MAXHQ_UPDATE_KEY=next: sign with the next key instead of the current
+#     one. MAXHQ_BRIDGE=1: sign with the current key, and also sign the
+#     updater archive with the next key, into <archive>.next.sig. A key
+#     change's steps are in .github/RELEASING.md.
 #   MAXHQ_RELEASES_REPO: the GitHub repository, as owner/name, whose
 #     releases the app updates from. The build writes its
-#     releases/latest/download/latest.json into the updater's endpoints.
+#     releases/latest/download/<manifest> into the updater's endpoints.
 #     Without it the app can't look for updates.
+#   MAXHQ_UPDATE_MANIFEST: that manifest's name. Default latest.json.
+#   MAXHQ_UPDATE_PUBKEY: the public key the app's updater trusts, when it
+#     isn't the one in tauri.conf.json.
 #   MAXHQ_UNSIGNED_UPDATES=1: skip both update-key signatures, for a local
 #     build without the key. Update everything then asks before it sends
 #     this bundle's maxd to other devices.
@@ -136,9 +145,24 @@ build() {
 		*/*) ;;
 		*) die "MAXHQ_RELEASES_REPO is owner/name, not $MAXHQ_RELEASES_REPO" ;;
 		esac
-		endpoint=https://github.com/$MAXHQ_RELEASES_REPO/releases/latest/download/latest.json
+		updates=${MAXHQ_UPDATE_MANIFEST:-latest.json}
+		case "$updates" in
+		latest.json | latest-v[0-9].json) ;;
+		*) die "MAXHQ_UPDATE_MANIFEST is latest.json or latest-v<n>.json, not $updates" ;;
+		esac
+		endpoint=https://github.com/$MAXHQ_RELEASES_REPO/releases/latest/download/$updates
 		note "Updates come from $endpoint"
-		config="$config,\"plugins\":{\"updater\":{\"endpoints\":[\"$endpoint\"]}}"
+		updater="\"endpoints\":[\"$endpoint\"]"
+		if [ -n "${MAXHQ_UPDATE_PUBKEY:-}" ]; then
+			case "$MAXHQ_UPDATE_PUBKEY" in
+			*[!A-Za-z0-9+/=]*) die "MAXHQ_UPDATE_PUBKEY isn't a base64 public key" ;;
+			esac
+			note "The updater trusts the public key in MAXHQ_UPDATE_PUBKEY"
+			updater="$updater,\"pubkey\":\"$MAXHQ_UPDATE_PUBKEY\""
+		fi
+		config="$config,\"plugins\":{\"updater\":{$updater}}"
+	elif [ -n "${MAXHQ_UPDATE_PUBKEY:-}" ]; then
+		die "MAXHQ_UPDATE_PUBKEY needs MAXHQ_RELEASES_REPO"
 	else
 		warn "MAXHQ_RELEASES_REPO isn't set, so this app can't look for updates"
 	fi
@@ -158,12 +182,28 @@ sign() {
 	fi
 }
 
+# Which update key signs: the current one, or the next one of a key change.
+case "${MAXHQ_UPDATE_KEY:-current}" in
+current) key_flag= ;;
+next) key_flag=--next ;;
+*) die "MAXHQ_UPDATE_KEY is current or next, not $MAXHQ_UPDATE_KEY" ;;
+esac
+bridge=${MAXHQ_BRIDGE:-}
+if [ "$bridge" = 1 ] && [ -n "$key_flag" ]; then
+	die "MAXHQ_BRIDGE=1 signs with the current key, so it can't go with MAXHQ_UPDATE_KEY=next"
+fi
+
+# Signs a file with the update key into <file>.sig. Arguments after the
+# file go to sign.mjs.
 update_sign() {
+	file=$1
+	shift
 	if [ "${MAXHQ_UNSIGNED_UPDATES:-}" = 1 ]; then
-		warn "MAXHQ_UNSIGNED_UPDATES=1, so $(basename "$1") has no .sig"
+		warn "MAXHQ_UNSIGNED_UPDATES=1, so $(basename "$file") has no .sig"
 		return 0
 	fi
-	node "$RELEASE/sign.mjs" "$1"
+	# shellcheck disable=SC2086 # $key_flag is empty or one flag
+	node "$RELEASE/sign.mjs" $key_flag "$@" "$file"
 }
 
 assemble() {
@@ -172,7 +212,11 @@ assemble() {
 		[ -f "$target_dir/release/$bin" ] || die "$target_dir/release/$bin doesn't exist; run the build phase first"
 	done
 	if [ "${MAXHQ_UNSIGNED_UPDATES:-}" != 1 ]; then
-		node "$RELEASE/sign.mjs" --check || die "no usable update key; set MAXHQ_UNSIGNED_UPDATES=1 to build without one"
+		# shellcheck disable=SC2086 # $key_flag is empty or one flag
+		node "$RELEASE/sign.mjs" $key_flag --check || die "no usable update key; set MAXHQ_UNSIGNED_UPDATES=1 to build without one"
+		if [ "$bridge" = 1 ]; then
+			node "$RELEASE/sign.mjs" --next --check || die "MAXHQ_BRIDGE=1 needs the next update key"
+		fi
 	fi
 	if [ "$notarize" = 1 ] && [ "$identity" = - ]; then
 		die "--notarize needs a Developer ID identity; Apple won't notarize ad hoc code"
@@ -251,10 +295,15 @@ assemble() {
 
 	archive=$out/MaxHQ_${version}_$arch.app.tar.gz
 	note "Making $(basename "$archive")"
-	rm -f "$archive" "$archive.sig"
+	rm -f "$archive" "$archive.sig" "$archive.next.sig"
 	# Without COPYFILE_DISABLE, macOS tar adds ._ files for extended attributes.
 	COPYFILE_DISABLE=1 tar -czf "$archive" -C "$(dirname "$app")" MaxHQ.app
-	update_sign "$archive"
+	# The signature names the version, and the app's updater installs the
+	# archive only as that version.
+	update_sign "$archive" --app-version "$version"
+	if [ "$bridge" = 1 ] && [ "${MAXHQ_UNSIGNED_UPDATES:-}" != 1 ]; then
+		node "$RELEASE/sign.mjs" --next --app-version "$version" --out "$archive.next.sig" "$archive"
+	fi
 
 	note "Done"
 	echo "  app      $app"

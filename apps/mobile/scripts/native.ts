@@ -184,8 +184,8 @@ ${Object.entries(entries)
 `;
 
 // How an archive leaves the Mac. TestFlight's goes straight to App Store
-// Connect. The release workflow's is the same build kept as an .ipa, which
-// a later job uploads once every build of the release has passed. An
+// Connect. The release workflow's is an .ipa, which its upload job exports
+// and uploads once every build of the release has passed. An
 // install's is an .ipa signed ad hoc for the phones registered with the
 // team, which keeps the production aps-environment, so the app gets
 // production pushes.
@@ -213,8 +213,8 @@ const EXPORT_PATH = "ios/build/export";
 
 const productionName = (local: IosLocal) => projectName(iosConfig("production", local, true).name);
 
-// The exported .ipa, from the app's folder. The release workflow keeps it
-// from this path as an artifact.
+// The exported .ipa, from the app's folder. The release workflow uploads it
+// to TestFlight from this path.
 export const ipaPath = (local: IosLocal) => `${EXPORT_PATH}/${productionName(local)}.ipa`;
 
 // An App Store Connect API key, which xcodebuild signs and uploads with in
@@ -259,70 +259,139 @@ const signedWith = (key: ApiKey | null): Pick<Step, "args" | "hide"> =>
 			}
 		: { args: [] };
 
+const prebuildStep = () =>
+	expo(["prebuild", "--clean", "--platform", "ios"], expoEnv("production", true));
+
+// The archive, from the app's folder. The release workflow carries it from
+// its build job to its upload job.
+export const archivePath = (local: IosLocal) => `ios/build/${productionName(local)}.xcarchive`;
+
+// The app inside that archive.
+export const archivedApp = (local: IosLocal) =>
+	`${archivePath(local)}/Products/Applications/${productionName(local)}.app`;
+
+// The app inside an exported .ipa, once unpacked.
+export const appInIpa = (local: IosLocal) => `Payload/${productionName(local)}.app`;
+
+const archiveStep = (local: IosLocal, signing: Pick<Step, "args" | "hide">): Step => {
+	const name = productionName(local);
+	return {
+		cmd: "xcodebuild",
+		args: [
+			"-workspace",
+			`ios/${name}.xcworkspace`,
+			"-scheme",
+			name,
+			"-configuration",
+			"Release",
+			"-destination",
+			"generic/platform=iOS",
+			"-archivePath",
+			archivePath(local),
+			...signing.args,
+			`DEVELOPMENT_TEAM=${local.teamId}`,
+			"archive",
+		],
+		cwd: "app",
+		...(signing.hide ? { hide: signing.hide } : {}),
+	};
+};
+
+const exportStep = (local: IosLocal, key: ApiKey | null): Step => {
+	const auth = signedWith(key);
+	return {
+		cmd: "xcodebuild",
+		args: [
+			"-exportArchive",
+			"-archivePath",
+			archivePath(local),
+			"-exportOptionsPlist",
+			EXPORT_OPTIONS_FILE,
+			"-exportPath",
+			EXPORT_PATH,
+			"-allowProvisioningUpdates",
+			...auth.args,
+		],
+		cwd: "app",
+		...(auth.hide ? { hide: auth.hide } : {}),
+	};
+};
+
 // Prebuild production from clean, archive it in Release and export it with
 // the account signed in to Xcode, or with `key` when there is one, for
 // TestFlight and an install alike. scripts/mobile.ts writes the export
 // options file between prebuild and archive, since prebuild clears ios/.
-const releaseSteps = (local: IosLocal, key: ApiKey | null = null) => {
+export const testflightSteps = (local: IosLocal, key: ApiKey | null = null): Step[] => {
 	const auth = signedWith(key);
-	const name = productionName(local);
-	const archive = `ios/build/${name}.xcarchive`;
-	const steps: Step[] = [
-		expo(["prebuild", "--clean", "--platform", "ios"], expoEnv("production", true)),
-		{
-			cmd: "xcodebuild",
-			args: [
-				"-workspace",
-				`ios/${name}.xcworkspace`,
-				"-scheme",
-				name,
-				"-configuration",
-				"Release",
-				"-destination",
-				"generic/platform=iOS",
-				"-archivePath",
-				archive,
-				"-allowProvisioningUpdates",
-				...auth.args,
-				`DEVELOPMENT_TEAM=${local.teamId}`,
-				"archive",
-			],
-			cwd: "app",
+	return [
+		prebuildStep(),
+		archiveStep(local, {
+			args: ["-allowProvisioningUpdates", ...auth.args],
 			...(auth.hide ? { hide: auth.hide } : {}),
-		},
-		{
-			cmd: "xcodebuild",
-			args: [
-				"-exportArchive",
-				"-archivePath",
-				archive,
-				"-exportOptionsPlist",
-				EXPORT_OPTIONS_FILE,
-				"-exportPath",
-				EXPORT_PATH,
-				"-allowProvisioningUpdates",
-				...auth.args,
-			],
-			cwd: "app",
-			...(auth.hide ? { hide: auth.hide } : {}),
-		},
+		}),
+		exportStep(local, key),
 	];
-	return { name, steps };
 };
 
-export const testflightSteps = (local: IosLocal, key: ApiKey | null = null): Step[] =>
-	releaseSteps(local, key).steps;
+// The release workflow archives with no key and no account, so its build
+// job, which runs every package's scripts, holds nothing to sign with.
+// Everything is signed ad hoc, which keeps the entitlements in the
+// signature, and a job of its own signs the archive for App Store Connect
+// as it exports it.
+export const AD_HOC_SIGNING = [
+	"CODE_SIGN_STYLE=Manual",
+	"CODE_SIGN_IDENTITY=-",
+	"AD_HOC_CODE_SIGNING_ALLOWED=YES",
+	"PROVISIONING_PROFILE_SPECIFIER=",
+];
+
+/** The release workflow's archive: prebuild, then archive signed ad hoc. */
+export const keylessArchiveSteps = (local: IosLocal): Step[] => [
+	prebuildStep(),
+	archiveStep(local, { args: AD_HOC_SIGNING }),
+];
+
+/** The release workflow's export of that archive, signed with the key. */
+export const exportSteps = (local: IosLocal, key: ApiKey): Step[] => [exportStep(local, key)];
+
+// What the app's signature must carry, as iosConfig asks for it: push, the
+// app group, the Keychain group and time-sensitive prompts. The release
+// workflow checks the ad hoc archive and the exported app, so a build that
+// lost any of them fails before TestFlight. Only the exported app must say
+// production for push, and Xcode fills in the Keychain group's team prefix.
+export const missingEntitlements = (
+	local: IosLocal,
+	signed: Record<string, unknown>,
+	exported: boolean
+): string[] => {
+	const { bundleIdentifier, appGroup } = iosConfig("production", local, true);
+	const listed = (value: unknown, ok: (item: string) => boolean) =>
+		Array.isArray(value) && value.some((item) => typeof item === "string" && ok(item));
+	const checks: [string, (value: unknown) => boolean][] = [
+		[
+			"aps-environment",
+			(value) => (exported ? value === "production" : typeof value === "string"),
+		],
+		[
+			"com.apple.security.application-groups",
+			(value) => listed(value, (group) => group === appGroup),
+		],
+		[
+			"keychain-access-groups",
+			(value) => listed(value, (group) => group.endsWith(bundleIdentifier)),
+		],
+		["com.apple.developer.usernotifications.time-sensitive", (value) => value === true],
+	];
+	return checks.filter(([key, ok]) => !ok(signed[key])).map(([key]) => key);
+};
 
 // The production app on the phone, next to the dev build: the release steps,
 // then the app out of the exported .ipa and onto the phone.
-export const installSteps = (local: IosLocal, phone: string | undefined): Step[] => {
-	const { name, steps } = releaseSteps(local);
-	return [
-		...steps,
-		{ cmd: "ditto", args: ["-x", "-k", ipaPath(local), EXPORT_PATH], cwd: "app" },
-		phoneInstall(phone, `${EXPORT_PATH}/Payload/${name}.app`),
-	];
-};
+export const installSteps = (local: IosLocal, phone: string | undefined): Step[] => [
+	...testflightSteps(local),
+	{ cmd: "ditto", args: ["-x", "-k", ipaPath(local), EXPORT_PATH], cwd: "app" },
+	phoneInstall(phone, `${EXPORT_PATH}/${appInIpa(local)}`),
+];
 
 export type NativeBuild = {
 	buildNumber: number;

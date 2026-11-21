@@ -353,6 +353,18 @@ mod tests {
     }
 
     #[test]
+    fn an_update_installs_only_as_the_version_its_signature_names() {
+        // The release signs each archive with its version, so a manifest
+        // that names a newer version can't hand out an older release.
+        let config: serde_json::Value =
+            serde_json::from_str(include_str!("../tauri.conf.json")).unwrap();
+        assert_eq!(
+            config["plugins"]["updater"]["requireSignedVersion"],
+            serde_json::Value::Bool(true)
+        );
+    }
+
+    #[test]
     fn progress_moves_on_each_percent_or_megabyte() {
         let mut shown = Progress::default();
         assert!(shown.moved(0, Some(1000)));
