@@ -2,8 +2,11 @@
 // Copyright (c) 2026 Max Boksem
 
 //! Talks to `codex app-server`, which speaks JSON lines on stdio with no
-//! `jsonrpc` field. Only the read-only methods in [`Method`] can be sent,
-//! so nothing here can change the account, spend a reset or start a turn.
+//! `jsonrpc` field. Only the methods in [`Method`] can be sent, so nothing
+//! here can change the account or start a turn. Every one only reads but
+//! [`Method::UseResetCredit`], which spends a banked reset, and only
+//! [`super::reset`] sends it, for an explicit click in the app after you
+//! confirm.
 
 use std::io;
 use std::path::Path;
@@ -23,7 +26,8 @@ const CALL_TIMEOUT: Duration = Duration::from_secs(30);
 /// killed.
 const STOP_GRACE: Duration = Duration::from_secs(2);
 
-/// The requests `maxd` sends. Every one only reads.
+/// The requests `maxd` sends. Every one only reads but
+/// [`Method::UseResetCredit`].
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Method {
     /// Starts the exchange.
@@ -34,6 +38,9 @@ pub enum Method {
     ReadRateLimits,
     /// Lists the models, one page at a time.
     ListModels,
+    /// Spends one banked reset, which can't be undone. Sent only by
+    /// [`super::reset`], when the app asks after you confirm.
+    UseResetCredit,
 }
 
 impl Method {
@@ -44,6 +51,7 @@ impl Method {
             Self::ReadAccount => "account/read",
             Self::ReadRateLimits => "account/rateLimits/read",
             Self::ListModels => "model/list",
+            Self::UseResetCredit => "account/rateLimitResetCredit/consume",
         }
     }
 }
@@ -219,8 +227,11 @@ pub mod tests {
     /// limits, or an error when that file is missing, and `models.json` for
     /// the first page of `model/list` and `models-next.json` for any page
     /// asked for by cursor. With `exit` there, it quits instead of
-    /// answering the rate limits. Once its input closes it adds a line to
-    /// `stops.log` and exits.
+    /// answering the rate limits. It answers a reset from `consume.json`,
+    /// but quits instead once when `drop-consume` is there, which it
+    /// removes, and every time with `drop-every-consume`, and waits while
+    /// `hold` is there. Once its input closes it adds a line to `stops.log`
+    /// and exits.
     const FAKE: &str = r#"#!/bin/sh
 while IFS= read -r line; do
   printf '%s\n' "$line" >> "$CODEX_HOME/requests.log"
@@ -242,6 +253,11 @@ while IFS= read -r line; do
       page=models
       case "$line" in *'"cursor":'*) page=models-next ;; esac
       printf '{"id":%s,"result":%s}\n' "$id" "$(cat "$CODEX_HOME/$page.json")" ;;
+    *'"method":"account/rateLimitResetCredit/consume"'*)
+      if [ -e "$CODEX_HOME/drop-consume" ]; then rm "$CODEX_HOME/drop-consume"; exit 0; fi
+      if [ -e "$CODEX_HOME/drop-every-consume" ]; then exit 0; fi
+      while [ -e "$CODEX_HOME/hold" ]; do sleep 0.05; done
+      printf '{"id":%s,"result":%s}\n' "$id" "$(cat "$CODEX_HOME/consume.json")" ;;
   esac
 done
 echo stopped >> "$CODEX_HOME/stops.log"

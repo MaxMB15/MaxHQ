@@ -92,6 +92,14 @@ pub enum Request {
     SetShown { shown: Shown },
     /// Checks usage now, for one account or every account.
     RefreshUsage { account: Option<AccountId> },
+    /// Spends one of a Codex account's banked rate-limit resets, which
+    /// can't be undone, through the `maxd` of the device the login is on.
+    /// Only the desktop app sends it, after you confirm it there, and a
+    /// `maxd` refuses it from anything else. One from before
+    /// [`maxhq_protocol::message::RESET_CREDITS_SINCE`] can't read it, so
+    /// the app hides the button.
+    #[cfg(feature = "desktop")]
+    UseResetCredit { account: AccountId },
     /// Probes the connection to one device, or every device, now rather
     /// than at the next backoff step.
     RefreshLinks { link: Option<LinkId> },
@@ -977,6 +985,8 @@ pub enum Response {
     MarkSeen,
     SetShown,
     RefreshUsage,
+    #[cfg(feature = "desktop")]
+    UseResetCredit(ActionOutcome),
     RefreshLinks,
     AddDevice(LinkId),
     RenameDevice,
@@ -1201,6 +1211,8 @@ impl Request {
             Self::MarkSeen { .. } => "mark_seen",
             Self::SetShown { .. } => "set_shown",
             Self::RefreshUsage { .. } => "refresh_usage",
+            #[cfg(feature = "desktop")]
+            Self::UseResetCredit { .. } => "use_reset_credit",
             Self::RefreshLinks { .. } => "refresh_links",
             Self::AddDevice { .. } => "add_device",
             Self::RenameDevice { .. } => "rename_device",
@@ -1421,6 +1433,8 @@ impl Response {
             Self::MarkSeen => "mark_seen",
             Self::SetShown => "set_shown",
             Self::RefreshUsage => "refresh_usage",
+            #[cfg(feature = "desktop")]
+            Self::UseResetCredit(_) => "use_reset_credit",
             Self::RefreshLinks => "refresh_links",
             Self::AddDevice(_) => "add_device",
             Self::RenameDevice => "rename_device",
@@ -1670,6 +1684,11 @@ impl<C: Connector> App<C> {
             Request::RefreshUsage { account } => {
                 devices.refresh_usage(account).await?;
                 Response::RefreshUsage
+            }
+            #[cfg(feature = "desktop")]
+            Request::UseResetCredit { account } => {
+                let action = ClientMessage::UseResetCredit { key, account };
+                Response::UseResetCredit(devices.act(action).await?)
             }
             Request::RefreshLinks { link } => {
                 devices.refresh_links(link)?;
@@ -3532,6 +3551,7 @@ mod tests {
             json!({"kind": "mark_seen", "agent": a}),
             json!({"kind": "set_shown", "shown": {"focused": a, "visible": [a]}}),
             json!({"kind": "refresh_usage", "account": null}),
+            json!({"kind": "use_reset_credit", "account": personal}),
             json!({"kind": "refresh_links", "link": devbox}),
             json!({"kind": "add_device", "host": "dev@other"}),
             json!({"kind": "rename_device", "link": devbox, "name": "Devbox"}),
@@ -4638,7 +4658,7 @@ mod tests {
                 }
             }
         }
-        assert_eq!(kinds.len() + mac_only.len(), 166);
+        assert_eq!(kinds.len() + mac_only.len(), 167);
         // The harness has no maxd to install or uninstall, no timeline open, no
         // listening port, no setup waiting on a host key, no GitHub
         // sign-in to merge with, no skill proposal, no link or card waiting
@@ -4783,6 +4803,37 @@ mod tests {
             block_on(app.request(&caller, ask(CursorRuleCall::List))),
             Ok(Response::CursorRules(CursorRuleList::TooOld))
         );
+    }
+
+    #[cfg(feature = "desktop")]
+    #[test]
+    fn a_reset_goes_to_the_device_whose_login_it_is() {
+        let (h, local, _) = two_devices();
+        let app = App::new(h.view.clone(), h.devices, FakeShell::default());
+        let caller = Caller {
+            window: "main".into(),
+            on_screen: true,
+        };
+        let personal = AccountId::derive("personal");
+        let spent = ActionOutcome::ResetCredit {
+            outcome: maxhq_protocol::message::ResetCreditOutcome::Reset,
+        };
+        h.fake.record().acts.push_back(spent.clone());
+        let ask = |account| Request::UseResetCredit { account };
+        assert_eq!(
+            block_on(app.request(&caller, ask(personal))),
+            Ok(Response::UseResetCredit(spent))
+        );
+        let calls = h.fake.calls();
+        let [(link, Call::Send(ClientMessage::UseResetCredit { account, .. }))] = &calls[..] else {
+            panic!("{calls:?}");
+        };
+        assert_eq!((*link, *account), (local.id, personal));
+
+        // An account the view doesn't hold goes nowhere.
+        let answer = block_on(app.request(&caller, ask(AccountId::derive("gone"))));
+        assert!(matches!(answer, Err(CommandError::NotFound { what }) if what == "This account"));
+        assert!(h.fake.calls().is_empty());
     }
 
     #[test]

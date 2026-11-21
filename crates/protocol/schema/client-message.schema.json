@@ -5291,6 +5291,29 @@
       ]
     },
     {
+      "description": "Spends one of a Codex account's banked rate-limit resets through\n`codex app-server`, which resets the account's limits now and can't\nbe undone. The outcome is [`ActionOutcome::ResetCredit`]. Only the\napp may send it, after you confirm, and only to the device the\naccount is on: phones, peer links and agents' tools are refused.\nSince protocol 58, [`RESET_CREDITS_SINCE`].",
+      "type": "object",
+      "properties": {
+        "account": {
+          "description": "The Codex account to reset.",
+          "$ref": "#/$defs/AccountId"
+        },
+        "key": {
+          "description": "Makes a resend after a dropped connection safe.",
+          "$ref": "#/$defs/IdempotencyKey"
+        },
+        "type": {
+          "type": "string",
+          "const": "use_reset_credit"
+        }
+      },
+      "required": [
+        "type",
+        "key",
+        "account"
+      ]
+    },
+    {
       "description": "Acts on the device's local models: probes, adds, tests or removes a\nserver URL, downloads, pauses, resumes or deletes a model file, or\nloads or unloads a model. Probing a URL answers\n[`ActionOutcome::ServerProbed`], adding a server\n[`ActionOutcome::ModelServerAdded`], the rest\n[`ActionOutcome::Done`]. The default model is a device setting,\n[`crate::model::DeviceSettings::local_models`]. Since\n[`LOCAL_MODELS_SINCE`].",
       "type": "object",
       "properties": {
@@ -6797,6 +6820,24 @@
           "required": [
             "status",
             "rules"
+          ]
+        },
+        {
+          "description": "What spending a banked reset came to, for\n[`ClientMessage::UseResetCredit`]. Since protocol 58.",
+          "type": "object",
+          "properties": {
+            "outcome": {
+              "description": "What Codex answered.",
+              "$ref": "#/$defs/ResetCreditOutcome"
+            },
+            "status": {
+              "type": "string",
+              "const": "reset_credit"
+            }
+          },
+          "required": [
+            "status",
+            "outcome"
           ]
         },
         {
@@ -13521,6 +13562,31 @@
           "description": "Anything else.",
           "type": "string",
           "const": "other"
+        }
+      ]
+    },
+    "ResetCreditOutcome": {
+      "description": "What Codex answered when asked to spend a banked reset, from\n[`ActionOutcome::ResetCredit`]. Since protocol 58.",
+      "oneOf": [
+        {
+          "description": "It spent one and reset the account's limits.",
+          "type": "string",
+          "const": "reset"
+        },
+        {
+          "description": "No limit needed a reset, so it spent nothing.",
+          "type": "string",
+          "const": "nothing_to_reset"
+        },
+        {
+          "description": "The account has no resets left.",
+          "type": "string",
+          "const": "no_credit"
+        },
+        {
+          "description": "The same request had already spent one, as when a dropped answer\nwas sent again. The limits are reset.",
+          "type": "string",
+          "const": "already_redeemed"
         }
       ]
     },

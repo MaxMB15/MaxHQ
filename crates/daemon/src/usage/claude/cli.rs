@@ -434,6 +434,7 @@ pub fn read_reply(line: &str, now: Timestamp) -> Option<Result<Usage, String>> {
         checked_at: now,
         source: UsageSource::ClaudeProbe,
         windows,
+        reset_credits: None,
     }))
 }
 

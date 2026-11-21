@@ -247,6 +247,7 @@ mod tests {
                 period: UsagePeriod::Rolling,
                 spend: None,
             }],
+            reset_credits: None,
         }
     }
 
