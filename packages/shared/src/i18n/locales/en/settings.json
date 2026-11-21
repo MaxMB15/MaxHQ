@@ -1149,5 +1149,11 @@
 	"claude.ai pages": "claude.ai pages",
 	"On by default": "On by default",
 	"Claude agents can use claude.ai artifacts": "Claude agents can use claude.ai artifacts",
-	"Claude Code can publish pages to your claude.ai account, read pages you or others share, and change their data and comments. It asks you before it reads someone else's page, deletes one or changes who can open it. Off removes these tools from Claude agents on this device. Agents pick up a change when their CLI next starts.": "Claude Code can publish pages to your claude.ai account, read pages you or others share, and change their data and comments. It asks you before it reads someone else's page, deletes one or changes who can open it. Off removes these tools from Claude agents on this device. Agents pick up a change when their CLI next starts."
+	"Claude Code can publish pages to your claude.ai account, read pages you or others share, and change their data and comments. It asks you before it reads someone else's page, deletes one or changes who can open it. Off removes these tools from Claude agents on this device. Agents pick up a change when their CLI next starts.": "Claude Code can publish pages to your claude.ai account, read pages you or others share, and change their data and comments. It asks you before it reads someone else's page, deletes one or changes who can open it. Off removes these tools from Claude agents on this device. Agents pick up a change when their CLI next starts.",
+	"Agents in Accept edits or Auto ask before they change files that run later, such as git hooks and CI workflows. A kind you remembered shows here, and agents here change it without asking until you turn it off.": "Agents in Accept edits or Auto ask before they change files that run later, such as git hooks and CI workflows. A kind you remembered shows here, and agents here change it without asking until you turn it off.",
+	"Couldn't turn it off. Try again.": "Couldn't turn it off. Try again.",
+	"Couldn't turn off the kind of file": "Couldn't turn off the kind of file",
+	"Hooks, CI and task files": "Hooks, CI and task files",
+	"Turn off": "Turn off",
+	"Turn off {{name}}": "Turn off {{name}}"
 }

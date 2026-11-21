@@ -1151,5 +1151,11 @@
 	"claude.ai pages": "Páginas de claude.ai",
 	"On by default": "Activado de forma predeterminada",
 	"Claude agents can use claude.ai artifacts": "Los agentes de Claude pueden usar artifacts de claude.ai",
-	"Claude Code can publish pages to your claude.ai account, read pages you or others share, and change their data and comments. It asks you before it reads someone else's page, deletes one or changes who can open it. Off removes these tools from Claude agents on this device. Agents pick up a change when their CLI next starts.": "Claude Code puede publicar páginas en tu cuenta de claude.ai, leer páginas que tú u otras personas compartan, y cambiar sus datos y comentarios. Te pregunta antes de leer la página de otra persona, eliminar una o cambiar quién puede abrirla. Desactivado, quita estas herramientas a los agentes de Claude en este dispositivo. Los agentes aplican un cambio la próxima vez que se inicie su CLI."
+	"Claude Code can publish pages to your claude.ai account, read pages you or others share, and change their data and comments. It asks you before it reads someone else's page, deletes one or changes who can open it. Off removes these tools from Claude agents on this device. Agents pick up a change when their CLI next starts.": "Claude Code puede publicar páginas en tu cuenta de claude.ai, leer páginas que tú u otras personas compartan, y cambiar sus datos y comentarios. Te pregunta antes de leer la página de otra persona, eliminar una o cambiar quién puede abrirla. Desactivado, quita estas herramientas a los agentes de Claude en este dispositivo. Los agentes aplican un cambio la próxima vez que se inicie su CLI.",
+	"Agents in Accept edits or Auto ask before they change files that run later, such as git hooks and CI workflows. A kind you remembered shows here, and agents here change it without asking until you turn it off.": "Los agentes en Aceptar cambios o Automático preguntan antes de cambiar archivos que se ejecutan después, como los hooks de git y los flujos de CI. Un tipo que recordaste aparece aquí, y los agentes lo cambian aquí sin preguntar hasta que lo desactives.",
+	"Couldn't turn it off. Try again.": "No se pudo desactivar. Inténtalo de nuevo.",
+	"Couldn't turn off the kind of file": "No se pudo desactivar el tipo de archivo",
+	"Hooks, CI and task files": "Hooks, CI y archivos de tareas",
+	"Turn off": "Desactivar",
+	"Turn off {{name}}": "Desactivar {{name}}"
 }

@@ -1149,5 +1149,11 @@
 	"claude.ai pages": "claude.ai-pagina's",
 	"On by default": "Standaard aan",
 	"Claude agents can use claude.ai artifacts": "Claude-agents kunnen claude.ai-artifacts gebruiken",
-	"Claude Code can publish pages to your claude.ai account, read pages you or others share, and change their data and comments. It asks you before it reads someone else's page, deletes one or changes who can open it. Off removes these tools from Claude agents on this device. Agents pick up a change when their CLI next starts.": "Claude Code kan pagina's publiceren op je claude.ai-account, pagina's lezen die jij of anderen delen, en hun gegevens en opmerkingen wijzigen. Het vraagt het je voordat het de pagina van iemand anders leest, een pagina verwijdert of wijzigt wie die kan openen. Uit haalt deze tools weg bij Claude-agents op dit apparaat. Agents nemen een wijziging over zodra hun CLI opnieuw start."
+	"Claude Code can publish pages to your claude.ai account, read pages you or others share, and change their data and comments. It asks you before it reads someone else's page, deletes one or changes who can open it. Off removes these tools from Claude agents on this device. Agents pick up a change when their CLI next starts.": "Claude Code kan pagina's publiceren op je claude.ai-account, pagina's lezen die jij of anderen delen, en hun gegevens en opmerkingen wijzigen. Het vraagt het je voordat het de pagina van iemand anders leest, een pagina verwijdert of wijzigt wie die kan openen. Uit haalt deze tools weg bij Claude-agents op dit apparaat. Agents nemen een wijziging over zodra hun CLI opnieuw start.",
+	"Agents in Accept edits or Auto ask before they change files that run later, such as git hooks and CI workflows. A kind you remembered shows here, and agents here change it without asking until you turn it off.": "Agents in Bewerkingen accepteren of Automatisch vragen het eerst voordat ze bestanden wijzigen die later draaien, zoals git-hooks en CI-workflows. Een soort die je onthield staat hier, en agents wijzigen die hier zonder vragen tot je hem uitzet.",
+	"Couldn't turn it off. Try again.": "Uitzetten mislukt. Probeer het opnieuw.",
+	"Couldn't turn off the kind of file": "Kon het soort bestand niet uitzetten",
+	"Hooks, CI and task files": "Hooks, CI- en taakbestanden",
+	"Turn off": "Uitzetten",
+	"Turn off {{name}}": "{{name}} uitzetten"
 }

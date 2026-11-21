@@ -4,7 +4,8 @@
 // A project's page in the settings, on two tabs. General has its
 // workspaces, then what each device keeps for it: each device keeps its
 // own copy, so each gets its own form and its own Save, and its own
-// "Always allow" command rules. Skills has the project's skills.
+// permissions: the "Always allow" command rules and the kinds of file
+// agents may change without asking. Skills has the project's skills.
 
 import { Tabs } from "@base-ui/react/tabs";
 import { useQuery } from "@tanstack/react-query";
@@ -13,7 +14,8 @@ import { useState } from "react";
 import { useServices, useView } from "@/app/services";
 import { CopyIcon } from "@/components/copy-field";
 import { Switch } from "@/components/ui/switch";
-import type { CommandRule, DeviceId, ProjectId } from "@maxhq/shared/bindings";
+import { editWords } from "@maxhq/shared/agent-view/edit-kinds";
+import type { CommandRule, DeviceId, EditKind, ProjectId } from "@maxhq/shared/bindings";
 import { useNow } from "@maxhq/shared/lib/clock";
 import { cn } from "@/lib/utils";
 import { settleDaysText } from "@maxhq/shared/settings/inbox";
@@ -24,6 +26,7 @@ import { ProjectWorkspaces } from "@/workspaces/workspace-list";
 
 import { FIELD, Label, PRIMARY, Row, SECONDARY, Section, StatusNote } from "./controls";
 import {
+	allowedEditsOn,
 	allowedWorkflowEnvText,
 	commandRulesOn,
 	deviceSettleDays,
@@ -78,7 +81,7 @@ const CommandRules = ({
 	};
 
 	return (
-		<div className="flex flex-col gap-2 border-t border-sidebar-border px-4 py-3">
+		<div className="flex flex-col gap-2 px-4 pt-1.5 pb-3">
 			<div className="flex flex-col gap-0.5">
 				<span className="text-[12.5px] text-foreground">
 					{translate("Allowed commands")}
@@ -129,6 +132,117 @@ const CommandRules = ({
 				</ul>
 			)}
 			<StatusNote note={note} />
+		</div>
+	);
+};
+
+/**
+ * The kinds of file, such as git hooks, you ticked "Remember for this
+ * project" for, which agents here change without asking in Accept edits or
+ * Auto. Turning one off makes the next change ask again.
+ */
+const AllowedEdits = ({
+	project,
+	device,
+	live,
+}: {
+	project: ProjectId;
+	device: DeviceId;
+	live: boolean;
+}) => {
+	useI18n();
+	const { source } = useServices();
+	const kinds = useView((s) => allowedEditsOn(s.view, project, device));
+	const [note, setNote] = useState<Note | null>(null);
+	const [busy, setBusy] = useState(false);
+
+	const turnOff = async (kind: EditKind) => {
+		if (busy) return;
+		setBusy(true);
+		setNote(null);
+		try {
+			const failure = failureOf(await source.removeAllowedEdit(device, project, kind));
+			if (failure) setNote({ text: failure, error: true });
+		} catch (error) {
+			console.warn(translate("Couldn't turn off the kind of file"), error);
+			setNote({ text: translate("Couldn't turn it off. Try again."), error: true });
+		} finally {
+			setBusy(false);
+		}
+	};
+
+	return (
+		<div className="flex flex-col gap-2 border-t border-sidebar-border px-4 py-3">
+			<div className="flex flex-col gap-0.5">
+				<span className="text-[12.5px] text-foreground">
+					{translate("Hooks, CI and task files")}
+				</span>
+				<span className="text-xs text-muted-foreground">
+					{translate(
+						"Agents in Accept edits or Auto ask before they change files that run later, such as git hooks and CI workflows. A kind you remembered shows here, and agents here change it without asking until you turn it off."
+					)}
+				</span>
+			</div>
+			{kinds.length === 0 ? (
+				<span className="text-xs text-muted-foreground">{translate("None yet.")}</span>
+			) : (
+				<ul
+					aria-label={translate("Hooks, CI and task files")}
+					className="flex flex-col gap-2"
+				>
+					{kinds.map((kind) => {
+						const words = editWords(kind);
+						return (
+							<li key={kind} className="flex items-start gap-2">
+								<span className="flex min-w-0 flex-1 flex-col gap-0.5">
+									<span className="text-xs text-foreground">{words.name}</span>
+									<span className="text-[11.5px] text-muted-foreground">
+										{words.remembered}
+									</span>
+								</span>
+								<button
+									type="button"
+									aria-label={translate("Turn off {{name}}", {
+										name: words.name,
+									})}
+									className={cn(SECONDARY, "h-[26px] shrink-0 px-2.5 text-xs")}
+									disabled={!live || busy}
+									onClick={() => void turnOff(kind)}
+								>
+									{translate("Turn off")}
+								</button>
+							</li>
+						);
+					})}
+				</ul>
+			)}
+			<StatusNote note={note} />
+		</div>
+	);
+};
+
+/** What agents here may do without asking, under one heading. */
+const Permissions = ({
+	project,
+	device,
+	live,
+}: {
+	project: ProjectId;
+	device: DeviceId;
+	live: boolean;
+}) => {
+	useI18n();
+	return (
+		<div
+			role="group"
+			aria-label={translate("Permissions")}
+			className="border-t border-sidebar-border"
+		>
+			<h4 className="px-4 pt-3 text-[11px] font-[650] tracking-[0.04em] text-muted-foreground uppercase">
+				{translate("Permissions")}
+			</h4>
+			<CommandRules project={project} device={device} live={live} />
+			<AllowedEdits project={project} device={device} live={live} />
 		</div>
 	);
 };
@@ -395,7 +509,7 @@ const OnDevice = ({ project, device }: { project: ProjectId; device: DeviceId })
 					</button>
 				</div>
 			</form>
-			<CommandRules project={project} device={device} live={live} />
+			<Permissions project={project} device={device} live={live} />
 		</Section>
 	);
 };
@@ -412,6 +526,7 @@ export const PROJECT_TERMS: readonly string[] = [
 	"Memory per container",
 	"Commit author",
 	"Allowed commands",
+	"Hooks, CI and task files",
 ];
 
 /** One project's page in the settings. */

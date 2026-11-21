@@ -88,11 +88,13 @@ Each "On {device}" part of a project's General tab changes how that device treat
 
 Allowed commands lists the commands you answered "Always allow" for. Agents in the project run them on that device without asking, except in Plan mode.
 
-1. Open the project's settings and find Allowed commands under "On {device}".
+1. Open the project's settings and find Allowed commands under Permissions in "On {device}".
 2. Read each rule. A rule covers a command and its subcommand, so "git show" covers any git show. One marked Exact covers only that line.
 3. Click Copy command to copy a rule, or Remove to drop it. The agent asks again the next time it runs that command.
 
 The list fills from your answers on approval cards. It reads "None yet." until you answer one with Always allow.
+
+Hooks, CI and task files, below it, lists the kinds of file, such as Git hooks, that agents here change without asking because you ticked Remember for this project on their card. Turn off makes the next change ask again. See [Permissions](permissions.md).
 
 ## Make a workspace container
 <!-- id: projects/new-workspace -->

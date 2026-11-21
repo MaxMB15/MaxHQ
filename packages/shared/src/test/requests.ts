@@ -255,6 +255,16 @@ export const ACTIONS: Case[] = [
 		},
 	],
 	[
+		"removeAllowedEdit",
+		(s) => s.removeAllowedEdit("device-1", "project-1", "git_hooks"),
+		{
+			kind: "remove_allowed_edit",
+			device: "device-1",
+			project: "project-1",
+			edit: "git_hooks",
+		},
+	],
+	[
 		"windDown",
 		(s) => s.windDown("device-1", 600),
 		{ kind: "wind_down", device: "device-1", window_secs: 600 },

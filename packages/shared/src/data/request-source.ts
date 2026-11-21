@@ -326,6 +326,8 @@ export const requestCalls = (ask: Ask): Omit<DataSource, PlatformCalls> => ({
 	setProjectHidden: (project, hidden) => ask({ kind: "set_project_hidden", project, hidden }),
 	removeCommandRule: (device, project, rule) =>
 		ask({ kind: "remove_command_rule", device, project, rule }),
+	removeAllowedEdit: (device, project, kind) =>
+		ask({ kind: "remove_allowed_edit", device, project, edit: kind }),
 	windDown: (device, windowSecs) => ask({ kind: "wind_down", device, window_secs: windowSecs }),
 	restartMaxd: (link) => ask({ kind: "restart_maxd", link }),
 	startLocalMaxd: () => ask({ kind: "start_local_maxd" }),

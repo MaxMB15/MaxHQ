@@ -1151,5 +1151,11 @@
 	"claude.ai pages": "Pages claude.ai",
 	"On by default": "Activé par défaut",
 	"Claude agents can use claude.ai artifacts": "Les agents Claude peuvent utiliser les artifacts claude.ai",
-	"Claude Code can publish pages to your claude.ai account, read pages you or others share, and change their data and comments. It asks you before it reads someone else's page, deletes one or changes who can open it. Off removes these tools from Claude agents on this device. Agents pick up a change when their CLI next starts.": "Claude Code peut publier des pages sur votre compte claude.ai, lire les pages que vous ou d'autres partagez, et modifier leurs données et leurs commentaires. Il vous demande avant de lire la page de quelqu'un d'autre, d'en supprimer une ou de changer qui peut l'ouvrir. Désactivé, ces outils sont retirés des agents Claude sur cet appareil. Les agents prennent en compte un changement au prochain démarrage de leur CLI."
+	"Claude Code can publish pages to your claude.ai account, read pages you or others share, and change their data and comments. It asks you before it reads someone else's page, deletes one or changes who can open it. Off removes these tools from Claude agents on this device. Agents pick up a change when their CLI next starts.": "Claude Code peut publier des pages sur votre compte claude.ai, lire les pages que vous ou d'autres partagez, et modifier leurs données et leurs commentaires. Il vous demande avant de lire la page de quelqu'un d'autre, d'en supprimer une ou de changer qui peut l'ouvrir. Désactivé, ces outils sont retirés des agents Claude sur cet appareil. Les agents prennent en compte un changement au prochain démarrage de leur CLI.",
+	"Agents in Accept edits or Auto ask before they change files that run later, such as git hooks and CI workflows. A kind you remembered shows here, and agents here change it without asking until you turn it off.": "Les agents en mode Accepter les modifications ou Automatique demandent avant de modifier des fichiers qui s'exécutent plus tard, comme les hooks git et les workflows CI. Un type que vous avez mémorisé s'affiche ici, et les agents le modifient ici sans demander jusqu'à ce que vous le désactiviez.",
+	"Couldn't turn it off. Try again.": "Désactivation impossible. Réessayez.",
+	"Couldn't turn off the kind of file": "Impossible de désactiver le type de fichier",
+	"Hooks, CI and task files": "Hooks, CI et fichiers de tâches",
+	"Turn off": "Désactiver",
+	"Turn off {{name}}": "Désactiver {{name}}"
 }
