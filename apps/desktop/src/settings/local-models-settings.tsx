@@ -45,7 +45,7 @@ import { NumberField } from "./device-settings";
 import { ModelsSection } from "./local-models-catalog";
 import { ServersSection } from "./local-models-servers";
 import { failureOf, type Note } from "./result";
-import { showPage, useSettings } from "./store";
+import { showPlace, useSettings } from "./store";
 
 /** The page's headings and labels, for the settings search. */
 export const LOCAL_MODELS_TERMS: readonly string[] = [
@@ -315,7 +315,9 @@ export const LocalModelsSettingsPage = () => {
 	useI18n();
 	const services = useServices();
 	const view = useView((s) => s.view);
-	const wanted = useSettings((s) => (s.page.kind === "local-models" ? s.page.device : undefined));
+	const wanted = useSettings((s) =>
+		s.detail?.kind === "local-models" ? s.detail.device : undefined
+	);
 	const device = pageDevice(view, wanted);
 
 	if (!device) {
@@ -332,7 +334,7 @@ export const LocalModelsSettingsPage = () => {
 					label={translate("Device")}
 					value={device}
 					options={localDeviceOptions(view)}
-					onChange={(next) => showPage(services, { kind: "local-models", device: next })}
+					onChange={(next) => showPlace(services, { kind: "local-models", device: next })}
 				/>
 			</div>
 			<DeviceBody key={device} device={device} view={view} />

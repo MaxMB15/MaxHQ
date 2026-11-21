@@ -19,13 +19,13 @@ import { FixedNow } from "@maxhq/shared/lib/clock";
 import { NOW } from "@maxhq/shared/test/build";
 import { createUiStore } from "@maxhq/shared/ui/store";
 
-import { EditorSettingsPage } from "./editor-settings";
+import { ComposerSettings, OpenInSettings } from "./editor-settings";
 
 afterEach(() => localStorage.clear());
 
-// The whole app takes a while to mount and to search, which a busy machine
-// stretches past the test timeout. One test opens the page from Settings, and
-// the rest render the page on its own.
+// The whole app takes a while to mount, which a busy machine stretches
+// past the test timeout. One test finds the card in Settings, and the rest
+// render the card on its own.
 const openEditorSettings = async (source: DataSource = mock()) => {
 	render(
 		<FixedNow value={NOW}>
@@ -34,21 +34,15 @@ const openEditorSettings = async (source: DataSource = mock()) => {
 	);
 	await screen.findAllByRole("button", { name: /devbox/ });
 	fireEvent.click(screen.getByRole("button", { name: "Settings" }));
-	const nav = await screen.findByRole("navigation", { name: "Settings pages" });
-	fireEvent.click(
-		within(within(nav).getByRole("group", { name: "App" })).getByRole("button", {
-			name: "Editor",
-		})
-	);
 	const dialog = await screen.findByRole("dialog", { name: "Settings" });
 	return within(within(dialog).getByRole("region", { name: "Open in" }));
 };
 
-/** The page alone, with the services it reads. */
+/** The Open in card alone, with the services it reads. */
 const renderEditorPage = (source: DataSource = mock()) => {
 	render(
 		<ServicesProvider source={source} ui={createUiStore()}>
-			<EditorSettingsPage />
+			<OpenInSettings />
 		</ServicesProvider>
 	);
 	return within(screen.getByRole("region", { name: "Open in" }));
@@ -72,13 +66,14 @@ const choose = async (picker: HTMLElement, label: string) => {
 	fireEvent.click(found);
 };
 
-describe("the editor settings page", () => {
+describe("the Open in card", () => {
 	it("starts on Last used and saves the editor you pick, or None", async () => {
 		const page = await openEditorSettings();
 		const picker = page.getByRole("combobox", { name: "Default editor, Last used" });
 		expect(page.getByText(/None hides those buttons/)).toBeInTheDocument();
 		expect(await options(picker)).toEqual(["Last used", "Cursor", "VS Code", "None"]);
-		fireEvent.keyDown(document.activeElement ?? document.body, { key: "Escape" });
+		// The open list takes the Esc, as it would with the picker focused.
+		fireEvent.keyDown(screen.getByRole("listbox"), { key: "Escape" });
 
 		await choose(picker, "VS Code");
 		expect(saved()).toEqual({ kind: "editor", id: "vscode" });
@@ -117,20 +112,20 @@ describe("the editor settings page", () => {
 describe("the typing settings", () => {
 	beforeAll(installBrowserFakes);
 
-	/** The Editor page and a note side by side, on a Mac with its own spell check. */
+	/** The Composer card and a note side by side, on a Mac with its own spell check. */
 	const renderWithNote = () => {
 		const { native } = fakeNative({ spelling: true });
 		native.checkSpelling.mockImplementation(checkerFor(["teh"]));
 		render(
 			<ServicesProvider source={mock()} ui={createUiStore()}>
 				<ComposerNativeProvider value={native}>
-					<EditorSettingsPage />
+					<ComposerSettings />
 					<NoteEditor initial="Fix teh login" onChange={() => {}} />
 				</ComposerNativeProvider>
 			</ServicesProvider>
 		);
 		return {
-			page: within(screen.getByRole("region", { name: "Typing" })),
+			page: within(screen.getByRole("region", { name: "Composer" })),
 			note: screen.getByRole("textbox", { name: "Note" }),
 		};
 	};
@@ -180,10 +175,10 @@ describe("what Enter does while an agent works", () => {
 	const renderTyping = () => {
 		render(
 			<ServicesProvider source={mock()} ui={createUiStore()}>
-				<EditorSettingsPage />
+				<ComposerSettings />
 			</ServicesProvider>
 		);
-		return within(screen.getByRole("region", { name: "Typing" }));
+		return within(screen.getByRole("region", { name: "Composer" }));
 	};
 
 	it("queues by default, and saves Steer once you pick it", async () => {

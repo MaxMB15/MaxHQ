@@ -317,7 +317,7 @@ impl Rounds {
         }
         if found.login != LoginKind::ConfigDir {
             return Err(
-                "This account doesn't sign in through its CLI. Change its login in Settings, Logins.",
+                "This account doesn't sign in through its CLI. Change its login in Settings, Accounts.",
             );
         }
         let login = Login {

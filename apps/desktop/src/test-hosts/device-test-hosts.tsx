@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026 Max Boksem
 
-// A device's test hosts in its detail: the kinds it could host with their
-// hosts, how long its leases last, and the leases it grants now. Leases
-// stay on the device, so only agents there get one. Hidden when the
-// device's `maxd` doesn't offer test hosts. The limits and the lease's
-// words are in shared `test-hosts/device`, which the phone shows too.
+// A device's test machines: in its Settings tab the kinds it could host
+// with their hosts and how long its leases last, and in its detail the
+// leases it grants now. Leases stay on the device, so only agents there
+// get one. The limits and the lease's words are in shared
+// `test-hosts/device`, which the phone shows too.
 
 import { useI18n } from "@maxhq/shared/i18n";
 
@@ -14,6 +14,7 @@ import { useState } from "react";
 import { useServices } from "@/app/services";
 import { Picker } from "@/new-agent/picker";
 import { ConfirmButton, Row, SECONDARY, Section, StatusNote } from "@/settings/controls";
+import { deviceCardId } from "@/settings/store";
 import type { DeviceId, LeaseId, TestHostSettings, TestLease } from "@maxhq/shared/bindings";
 import { useNow } from "@maxhq/shared/lib/clock";
 import {
@@ -25,12 +26,7 @@ import {
 	minuteChoices,
 	VM_CHOICES,
 } from "@maxhq/shared/test-hosts/device";
-import {
-	kindLabel,
-	leasesOn,
-	offersTestHosts,
-	testHostSettingsOf,
-} from "@maxhq/shared/test-hosts/hosts";
+import { kindLabel, leasesOn, testHostSettingsOf } from "@maxhq/shared/test-hosts/hosts";
 import { placesOn } from "@maxhq/shared/test-hosts/place";
 import type { ViewState } from "@maxhq/shared/view/replica";
 
@@ -176,8 +172,13 @@ export const DeviceLeases = ({
 	);
 };
 
-/** A device's test hosts and leases, or nothing when its `maxd` doesn't offer them. */
-export const DeviceTestHosts = ({
+/**
+ * A device's test machines in its Settings tab, which was its part of the
+ * Test hosts page: each kind it could host with its hosts, how long its
+ * leases last, and Check again. Its tab shows it only when the device's
+ * `maxd` offers test hosts.
+ */
+export const TestMachines = ({
 	device,
 	name,
 	live,
@@ -190,29 +191,32 @@ export const DeviceTestHosts = ({
 }) => {
 	const { t } = useI18n();
 
-	if (!offersTestHosts(view, device)) return null;
-	const places = placesOn(view, device);
 	const mac = view.tables.device.get(device)?.os === "macos";
 	return (
-		<>
-			<Section
-				title={t("Test hosts")}
-				label={t("Test hosts on {{name}}", { name: name })}
-				hint={<CheckAgain device={device} name={name} live={live} />}
-			>
-				{places.map((place) => (
-					<PlaceBlock
-						key={place.kind}
-						place={place}
-						title={kindLabel(place.kind)}
-						view={view}
-						live={live}
-						check={false}
-					/>
-				))}
-				<Limits device={device} view={view} live={live} mac={mac} />
-			</Section>
-			<DeviceLeases device={device} name={name} view={view} />
-		</>
+		<Section
+			title={t("Test machines")}
+			id={deviceCardId("test-machines")}
+			label={t("Test machines on {{name}}", { name: name })}
+			hint={t("Simulators and VMs that agents here can lease")}
+		>
+			{placesOn(view, device).map((place) => (
+				<PlaceBlock
+					key={place.kind}
+					place={place}
+					title={kindLabel(place.kind)}
+					view={view}
+					live={live}
+				/>
+			))}
+			<Limits device={device} view={view} live={live} mac={mac} />
+			<div className="flex items-center gap-3 border-t border-sidebar-border px-4 py-2.5">
+				<p className="min-w-0 flex-1 text-xs text-muted-foreground">
+					{t(
+						"Only agents on a device lease its test machines. For an agent elsewhere to test on one, start an agent on the device that hosts it."
+					)}
+				</p>
+				<CheckAgain device={device} name={name} live={live} />
+			</div>
+		</Section>
 	);
 };

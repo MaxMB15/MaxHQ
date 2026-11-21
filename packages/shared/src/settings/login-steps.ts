@@ -8,7 +8,7 @@
 
 import { t } from "../i18n";
 
-/** A login's page in Settings, Logins. */
+/** A login's page in Settings, Accounts. */
 export type LoginPage = "claude" | "codex" | "cursor" | "github" | "apns";
 
 /** The logins, in the order Settings lists them. */
@@ -64,7 +64,9 @@ export const LOGIN_STEPS: Record<LoginPage, LoginSteps> = {
 		before: [],
 		get steps() {
 			return [
-				t("In Settings, Logins, click Continue with ChatGPT next to a device."),
+				t(
+					"In Settings, Accounts, open Codex and click Continue with ChatGPT next to a device."
+				),
 				t(
 					"MaxHQ asks that device's `maxd` for a sign-in. The device builds the authorize URL with `client_id=dynamic_agent_client`, `agent_name_hint=MaxHQ` and its own `ext_agent_host_id`, and keeps the PKCE verifier."
 				),

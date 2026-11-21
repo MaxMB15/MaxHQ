@@ -121,7 +121,7 @@ Each workspace has a card under Workspaces in the project's settings and on its 
 <!-- id: projects/pools-networks -->
 <!-- covers: settings/device/workspaces -->
 
-The Incus network and storage pool new workspaces use are set per device, in the New workspaces card on that device's page.
+The Incus network and storage pool new workspaces use are set per device, in the New workspaces card on that device's tab in Settings.
 
 1. Switch the sidebar to Devices and click the Linux device.
 2. Find the New workspaces card.

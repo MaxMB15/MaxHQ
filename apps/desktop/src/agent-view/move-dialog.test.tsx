@@ -78,8 +78,9 @@ describe("moving an agent", () => {
 		expect(dialog.getByRole("button", { name: "Move" })).toBeEnabled();
 
 		fireEvent.click(dialog.getByRole("button", { name: "Sign in to Cursor" }));
+		const settings = await screen.findByRole("dialog", { name: "Settings" });
 		expect(
-			await screen.findByRole("navigation", { name: "Settings pages" })
+			within(settings).getByRole("heading", { level: 2, name: "Cursor in workspaces" })
 		).toBeInTheDocument();
 	});
 

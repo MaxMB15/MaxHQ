@@ -57,7 +57,7 @@ const renderBox = async (
 				<ComposerNativeProvider value={native.native}>
 					<Grab />
 					<DispatchBox />
-					{extra}
+					<div data-extra>{extra}</div>
 				</ComposerNativeProvider>
 			</ServicesProvider>
 		</FixedNow>
@@ -101,7 +101,17 @@ const ask = (input: HTMLElement, text: string) => {
 	fireEvent.keyDown(input, { key: "Enter" });
 };
 
-const panel = async () => within(await screen.findByRole("region", { name: "Dispatcher" }));
+// The box's panel, and not the Dispatcher card a test renders beside it.
+const panel = async () =>
+	within(
+		await waitFor(() => {
+			const [shown, ...more] = screen
+				.getAllByRole("region", { name: "Dispatcher" })
+				.filter((region) => !region.closest("[data-extra]"));
+			if (!shown || more.length > 0) throw new Error("No dispatcher panel");
+			return shown;
+		})
+	);
 
 /** Asks, answers the project question with Comet, and returns the plan. */
 const planInComet = async (input: HTMLElement) => {
@@ -177,7 +187,7 @@ describe("the dispatch box", () => {
 		fireEvent.click((await panel()).getByRole("button", { name: "Open task" }));
 		expect(settingsOf(services).getState()).toMatchObject({
 			open: true,
-			page: { kind: "scheduled-tasks" },
+			detail: { kind: "scheduled-tasks" },
 		});
 	});
 

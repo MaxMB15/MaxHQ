@@ -20,6 +20,7 @@ import {
 	type SendGate,
 	whenModeAllowed,
 } from "@maxhq/shared/settings/auto-mode";
+import { t } from "@maxhq/shared/i18n";
 
 /** The storage key for whether you confirmed Auto. */
 export const AUTO_CONSENT_KEY = "maxhq.auto-mode.confirmed";
@@ -28,6 +29,18 @@ const consent = keptConsent({
 	read: () => localStorage.getItem(AUTO_CONSENT_KEY),
 	write: (value) => localStorage.setItem(AUTO_CONSENT_KEY, value),
 });
+
+/** Whether you confirmed Auto on this Mac, so a pick of it no longer asks. */
+export const autoConfirmed = (): boolean => consent.confirmed();
+
+/** Forgets that you confirmed Auto, so the next pick of it asks again. */
+export const forgetAutoConsent = (): void => {
+	try {
+		localStorage.removeItem(AUTO_CONSENT_KEY);
+	} catch (error) {
+		console.warn(t("Couldn't forget the Auto mode answer"), error);
+	}
+};
 
 /** Runs `go` to switch to `mode`. Auto asks first, until you confirm it once. */
 export const pickMode = (services: Services, mode: PermissionMode, go: () => void): void =>

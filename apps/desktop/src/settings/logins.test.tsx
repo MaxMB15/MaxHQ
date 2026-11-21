@@ -10,12 +10,13 @@ import { mockSource } from "@/data/mock-source";
 import type { ActionResult } from "@maxhq/shared/data/source";
 import { FixedNow } from "@maxhq/shared/lib/clock";
 import { NativeFailure } from "@/native";
+import { openDeviceTab, openLogin } from "@/test/settings";
 import { NOW } from "@maxhq/shared/test/build";
 import { createUiStore } from "@maxhq/shared/ui/store";
 
 import { LOGIN_STEPS } from "./login-steps";
 import { parseAppId, setupTokenCommand } from "./logins";
-import { settingsOf } from "./store";
+import { deviceCardId, settingsOf } from "./store";
 
 const native = vi.hoisted(() => ({
 	pickAttachments: vi.fn<() => Promise<string[]>>(),
@@ -50,13 +51,23 @@ const renderSettings = (scenario = "connected") => {
 	return { source, ui, services };
 };
 
-const openPage = async (page: string) => {
+// The accounts table's row each login opens from.
+const ROW: Record<string, string> = {
+	"Claude in workspaces": "Claude",
+	"Codex in workspaces": "Codex",
+	"Cursor in workspaces": "Cursor",
+	"GitHub App": "GitHub",
+};
+
+// A login's view, or the push key's part of the Phones tab.
+const openPage = async (page: string): Promise<HTMLElement> => {
 	// The forms tick the devices that are connected, so wait for the view.
 	await screen.findAllByRole("button", { name: /devbox/ });
-	fireEvent.click(screen.getByRole("button", { name: "Settings" }));
-	const nav = await screen.findByRole("navigation", { name: "Settings pages" });
-	fireEvent.click(within(nav).getByRole("button", { name: page }));
-	return screen.findByRole("dialog", { name: "Settings" });
+	if (page === "Phone pushes") {
+		const dialog = await openDeviceTab("Phones");
+		return dialog.querySelector<HTMLElement>(`#${deviceCardId("apns")}`)!;
+	}
+	return openLogin(ROW[page]!);
 };
 
 const result = (r: ActionResult) => r;
@@ -360,7 +371,7 @@ describe("Codex in workspaces", () => {
 		const dialog = await openPage("Codex in workspaces");
 		const steps = within(dialog).getByRole("region", { name: "Steps for Codex in workspaces" });
 		expect(within(steps).getAllByRole("listitem")[0]).toHaveTextContent(
-			"In Settings, Logins, click Continue with ChatGPT next to a device."
+			"In Settings, Accounts, open Codex and click Continue with ChatGPT next to a device."
 		);
 		expect(within(dialog).getByText("Signed in as max@example.net")).toBeInTheDocument();
 
@@ -480,11 +491,8 @@ describe("GitHub App", () => {
 		expect(within(app).getByRole("checkbox", { name: "devbox" })).toBeChecked();
 		expect(within(app).getByRole("checkbox", { name: "Mac" })).toBeChecked();
 
-		fireEvent.click(screen.getByRole("button", { name: "Claude in workspaces" }));
-		const claude = within(await screen.findByRole("dialog", { name: "Settings" })).getByRole(
-			"group",
-			{ name: "Devices" }
-		);
+		fireEvent.click(screen.getByRole("button", { name: "Back" }));
+		const claude = within(await openLogin("Claude")).getByRole("group", { name: "Devices" });
 		expect(within(claude).getByRole("checkbox", { name: "devbox" })).toBeInTheDocument();
 		expect(within(claude).queryByRole("checkbox", { name: "Mac" })).toBeNull();
 	});

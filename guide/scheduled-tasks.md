@@ -20,7 +20,7 @@ A scheduled task sends a prompt to an agent each time it runs. Its device runs i
 5. Under Where it goes, pick the agent and the device.
 6. Click Make task.
 
-Tasks show grouped by device, each with its next and last run. A switch turns one on or off, and Edit opens it again. Delete removes a task with its runs and requests.
+With more than one device, the row at the top picks the device whose tasks show. Each task shows its next and last run. A switch turns one on or off, and Edit opens it again. Delete removes a task with its runs and requests.
 
 ## Run a task every few minutes or at set times
 <!-- id: scheduled-tasks/schedule -->
@@ -65,7 +65,7 @@ MaxHQ shows each URL only once. If you lose it, rotate again and give the sender
 
 By default only programs on the device reach its webhooks. Pick Tailscale Funnel or Your own address in the device's Webhook address row to let other senders in.
 
-1. Open Settings › Scheduled tasks and find the device's Webhook address row.
+1. Open Settings › Scheduled tasks, pick the device at the top, and find its Webhook address row.
 2. In Reached, pick This device only, Tailscale Funnel or Your own address.
 3. For Tailscale Funnel, confirm with Use Funnel. maxd adds one path per webhook that's on, and anyone with a URL can reach it.
 4. For Your own address, paste an https address of a tunnel or proxy that points at the device's webhook port. maxd can't check it for you.
@@ -96,7 +96,7 @@ A webhook made before this list fills in every field, and says "This prompt fill
 
 Set Runs to GitHub events to start a task when something happens in a repo, such as a new pull request. The repo must be in the GitHub App first.
 
-1. Add the repo to the GitHub App in Settings › GitHub App.
+1. Add the repo to the GitHub App in Settings › Accounts › GitHub.
 2. In the task's editor, set Runs to GitHub events.
 3. Pick the Repository and tick the Events.
 4. Keep "Only for the repo's owners, members and collaborators" on, so outsiders can't run it.

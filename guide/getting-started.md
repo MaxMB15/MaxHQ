@@ -102,17 +102,21 @@ This Mac's own page can also start maxd, or uninstall it. To open it, pick **Dev
 
 Click the gear at the right of the title bar, or press ⌘,, to open Settings.
 
-Type in **Search settings** to find a setting by name. Matching devices follow the app's pages, and picking one opens that device's page at the matching card.
+Settings is one page of groups. Click a group in the left column to scroll to it:
 
-The list has three groups:
-
-- **App**: settings for this Mac, such as **Appearance**, **Sidebar**, **Editor**, **Dispatcher**, **Agent tools**, **Notifications** and **Keyboard shortcuts**.
-- **Logins**: your Claude, Codex, Cursor and GitHub sign-ins.
+- **General**: **Appearance** and **Updates**.
+- **Chat and agents**: the **Composer**, **Open in**, **Sidebar** and **Dispatcher**.
+- **Notifications**: alerts, sounds and the badge.
+- **Accounts**: your Claude, Codex, Cursor and GitHub sign-ins on each device.
+- **Devices and phones**: a tab for each device's own settings, such as the mode new agents start in, and one for **Phones**.
+- **Permissions**: what agents may do to each other, and access keys for outside tools.
 - **Projects**: each project's defaults and skills.
 
-Each device's own settings, such as the mode new agents start in, sit on its page. Pick **Devices** at the top of the sidebar and click the device. A search also lists matching devices under **Devices**.
+**Skills**, **Scheduled tasks**, **Local models** and **Keyboard shortcuts** open as views of their own, under **Their own views**.
 
-Press ⌘/ to see every keyboard shortcut. See [Settings](settings.md) for each page.
+Type in **Search settings**, or press ⌘F, to show only the cards that match. A match on a device's tab lists the device, and picking it opens that tab at the card. **Settings** on a device's page opens its tab too.
+
+Press ⌘/ to see every keyboard shortcut. See [Settings](settings.md) for each group.
 
 ## Start your first agent
 <!-- id: getting-started/first-agent -->

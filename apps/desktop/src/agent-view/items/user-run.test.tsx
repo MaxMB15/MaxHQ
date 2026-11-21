@@ -735,8 +735,12 @@ describe("a command that ran in a shell of its own", () => {
 		);
 		fireEvent.click(button(card, "Shell integration"));
 
-		expect(services().ui.getState().selectedLink).toBe("mac");
-		expect(settingsOf(services()).getState().reveal).toBe("terminals");
+		// Settings opens on the device's tab, scrolled to its Terminals card.
+		expect(settingsOf(services()).getState()).toMatchObject({
+			open: true,
+			tab: DEVICE,
+			reveal: "device-card-terminals",
+		});
 	});
 
 	it("says quietly why the session couldn't take it", async () => {

@@ -32,7 +32,7 @@ import { ConfirmButton, FIELD, PRIMARY, Row, SECONDARY, Section, StatusNote } fr
 import { DeviceTicks, useTicks } from "./login-parts";
 import { failureOf, type Note } from "./result";
 import { Pick } from "./snooze-presets";
-import { showPage } from "./store";
+import { showPlace } from "./store";
 import { formatList, t as translate, useI18n } from "@maxhq/shared/i18n";
 
 const PHONE_DEVICES = "phone-devices";
@@ -187,7 +187,7 @@ const AddPhone = ({ devices }: { devices: readonly PhoneDevice[] }) => {
 
 /**
  * The devices a new phone paired with that hold no APNs key, which can't
- * push to it until they get one, with the way to the key's page.
+ * push to it until they get one, with the way to the key's card.
  */
 const NoPushKey = ({ names }: { names: readonly string[] }) => {
 	useI18n();
@@ -202,7 +202,7 @@ const NoPushKey = ({ names }: { names: readonly string[] }) => {
 			<button
 				type="button"
 				className={SECONDARY}
-				onClick={() => showPage(services, { kind: "login", login: "apns" })}
+				onClick={() => showPlace(services, { kind: "phones", card: "apns" })}
 			>
 				{translate("Add the key file")}
 			</button>
@@ -467,7 +467,7 @@ export const PhonesSettingsPage = () => {
 	useI18n();
 	const devices = usePhoneDevices().data;
 	return (
-		<div className="flex flex-col gap-4">
+		<div className="flex flex-col gap-3">
 			{devices?.status === "error" ? (
 				<Section title={translate("Add phone")}>
 					<Row title={translate("Add phone")} sub={failureOf(devices)} />
@@ -482,9 +482,10 @@ export const PhonesSettingsPage = () => {
 
 /**
  * The address a phone dials a device at, when the one the Mac uses won't
- * do from the phone. Nothing shows for a device that doesn't take phones.
+ * do from the phone, as a row of the device's Connection card. Nothing
+ * shows for a device that doesn't take phones.
  */
-export const PhoneAddress = ({ device, name }: { device: DeviceId; name: string }) => {
+export const PhoneAddress = ({ device }: { device: DeviceId }) => {
 	useI18n();
 	const { source } = useServices();
 	const queries = useQueryClient();
@@ -516,31 +517,24 @@ export const PhoneAddress = ({ device, name }: { device: DeviceId; name: string 
 	};
 
 	return (
-		<Section
-			title={translate("Phones")}
-			label={translate("Phone settings for {{name}}", { name: name })}
+		<Row
+			title={translate("Address for the phone")}
+			sub={entry.note ?? translate("Where a phone dials it, such as devbox.example.net:22")}
 		>
-			<Row
-				title={translate("Address for the phone")}
-				sub={
-					entry.note ?? translate("Where a phone dials it, such as devbox.example.net:22")
-				}
-			>
-				<StatusNote note={note} />
-				<input
-					aria-label={translate("Address for the phone")}
-					value={typed ?? saved}
-					placeholder={translate("The one the Mac uses")}
-					onChange={(e) => setTyped(e.target.value)}
-					onBlur={() => void commit()}
-					onKeyDown={(e: KeyboardEvent<HTMLInputElement>) => {
-						if (e.key === "Enter") void commit();
-					}}
-					spellCheck={false}
-					autoComplete="off"
-					className={cn(FIELD, "w-[220px]")}
-				/>
-			</Row>
-		</Section>
+			<StatusNote note={note} />
+			<input
+				aria-label={translate("Address for the phone")}
+				value={typed ?? saved}
+				placeholder={translate("The one the Mac uses")}
+				onChange={(e) => setTyped(e.target.value)}
+				onBlur={() => void commit()}
+				onKeyDown={(e: KeyboardEvent<HTMLInputElement>) => {
+					if (e.key === "Enter") void commit();
+				}}
+				spellCheck={false}
+				autoComplete="off"
+				className={cn(FIELD, "w-[220px]")}
+			/>
+		</Row>
 	);
 };

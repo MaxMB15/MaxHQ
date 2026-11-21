@@ -55,12 +55,12 @@ When maxd itself restarts, the port shows as new, so the old forward ends and th
 
 ## Turn off port prompts
 <!-- id: ports/prompts -->
-<!-- covers: settings/editor -->
+<!-- covers: settings/above-conversation -->
 
-Port prompts, in the Conversation section of Settings › Editor, turns the port cards off in every agent's view. It's on by default.
+Port prompts, in the Above the conversation card of Settings › Chat and agents, turns the port cards off in every agent's view. It's on by default.
 
-1. Open Settings (⌘,) and pick Editor.
-2. Under Conversation, turn off Port prompts.
+1. Open Settings (⌘,) and pick Chat and agents.
+2. In Above the conversation, under Conversation, turn off Port prompts.
 
 With it off, the quiet lines about stopped forwards go too. Each agent's header still lists its ports, with Forward and Open there. The setting is kept on this Mac.
 

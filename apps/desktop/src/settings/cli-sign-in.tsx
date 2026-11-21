@@ -272,7 +272,7 @@ export const CliSignInHost = () => {
 };
 
 /**
- * The Sign in again card on the Claude, Codex and Cursor pages: each login
+ * The Sign in again card in the Claude, Codex and Cursor views: each login
  * a config folder holds, on any device, with why it can't sign in from
  * here when it can't, and the last usage check's finding when it found it
  * logged out. A logged out login's button says Sign in.

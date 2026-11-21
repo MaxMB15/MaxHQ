@@ -246,7 +246,7 @@ const Form = () => {
 					type="button"
 					onClick={() => {
 						finish(services, null);
-						openSettings(services, { kind: "sidebar" });
+						openSettings(services, { kind: "page", at: "sidebar" });
 					}}
 					className="mr-auto inline-flex h-[30px] items-center gap-1.5 rounded-[7px] px-2 text-[12.5px] text-muted-foreground hover:bg-secondary hover:text-secondary-foreground"
 				>

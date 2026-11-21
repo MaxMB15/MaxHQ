@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import App from "@/App";
 import { mockSource } from "@/data/mock-source";
+import { openProjectSettings } from "@/test/settings";
 import { DEVBOX, DEVBOX_CLAUDE, MAC, MHQ_WORKSPACE } from "@maxhq/shared/data/mock-view";
 import type { AgentSpec, Entity, ProjectSettings } from "@maxhq/shared/bindings";
 import type { DataSource } from "@maxhq/shared/data/source";
@@ -325,12 +326,7 @@ const renderProject = (scenario = "connected", wrap = (s: DataSource) => s) => {
 
 const openProject = async (name: string) => {
 	await screen.findAllByRole("button", { name: /devbox/ });
-	fireEvent.click(screen.getByRole("button", { name: "Settings" }));
-	const nav = await screen.findByRole("navigation", { name: "Settings pages" });
-	fireEvent.click(
-		within(within(nav).getByRole("group", { name: "Projects" })).getByRole("button", { name })
-	);
-	return screen.findByRole("dialog", { name: "Settings" });
+	return openProjectSettings(name);
 };
 
 describe("project settings page", () => {

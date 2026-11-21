@@ -66,11 +66,10 @@ describe("a project's header", () => {
 		fireEvent.click(more("Mosaic"));
 		fireEvent.click(await screen.findByRole("menuitem", { name: "Project settings…" }));
 		const dialog = await screen.findByRole("dialog", { name: "Settings" });
-		const pages = within(dialog).getByRole("navigation", { name: "Settings pages" });
-		expect(within(pages).getByRole("button", { name: "Mosaic" })).toHaveAttribute(
-			"aria-current",
-			"page"
-		);
+		expect(
+			within(dialog).getByRole("heading", { level: 2, name: "Mosaic" })
+		).toBeInTheDocument();
+		expect(within(dialog).getByRole("button", { name: "Back" })).toBeInTheDocument();
 	});
 
 	it("keeps its + and ⋯ showing on the project of the agent you're looking at", async () => {

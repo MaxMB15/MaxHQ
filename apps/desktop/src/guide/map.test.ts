@@ -3,14 +3,17 @@
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { APNS_LOGIN_TERMS } from "@/settings/apns-login";
 import { deviceCards } from "@/settings/device-settings";
 import { LOGIN_STEPS } from "@/settings/login-steps";
+import { LOGIN_TERMS, ownViews, PAGE } from "@/settings/page/cards";
+import { PHONES_TERMS } from "@/settings/phones-settings";
 import { PROJECT_TERMS } from "@/settings/project-settings";
-import { appPages, LOGIN_TERMS } from "@/settings/settings";
 import { shortcutRows } from "@/shortcut-list/rows";
 import { PROJECT_SKILLS_TERMS } from "@/skills/skills-tab";
+import { LOGIN_VIEWS } from "@maxhq/shared/guide/settings-link";
 import { VIEWS } from "@maxhq/shared/guide/view-link";
-import { LOGIN_HINT, LOGIN_PAGES } from "@maxhq/shared/settings/login-steps";
+import { LOGIN_HINT } from "@maxhq/shared/settings/login-steps";
 import { device, entities, link } from "@maxhq/shared/test/build";
 import { applySnapshot } from "@maxhq/shared/view/replica";
 
@@ -24,8 +27,9 @@ afterEach(() => {
 /** The map, from this test file. */
 const MAP = "../../../../guide/map.json";
 
-// A Mac that hosts workspaces, holds the skill library and takes phones
-// over the network, so its page shows every card a device can have.
+// A Mac that hosts workspaces, holds the skill library, hosts test
+// machines and takes phones over the network, so its tab shows every card
+// a device can have.
 const EVERY_CARD = applySnapshot({
 	seq: 1,
 	entities: [
@@ -43,6 +47,7 @@ const EVERY_CARD = applySnapshot({
 						tunnels: true,
 						workspaces: true,
 						skills: true,
+						test_hosts: true,
 					},
 				}),
 			],
@@ -59,21 +64,43 @@ const EVERY_CARD = applySnapshot({
 	],
 });
 
-/** Every Settings page, each login, a project's two tabs and every device card. */
+/**
+ * Every card of the Settings page, each login, the Phones tab's two cards,
+ * the views of their own, a project's two tabs and every device card.
+ */
 const appSettings = (): SettingsEntry[] => [
-	...appPages().map((page) => ({
-		id: `settings/${page.kind}`,
-		title: page.title,
-		hint: page.hint,
-		terms: page.terms,
-		link: `maxhq://settings/${page.kind}`,
+	...PAGE.map((entry) => ({
+		id: `settings/${entry.card}`,
+		title: entry.title,
+		terms: entry.terms,
+		link: `maxhq://settings/${entry.card}`,
 	})),
-	...LOGIN_PAGES.map((login) => ({
+	...LOGIN_VIEWS.map((login) => ({
 		id: `settings/${login}`,
 		title: LOGIN_STEPS[login].title,
 		hint: LOGIN_HINT[login],
 		terms: LOGIN_TERMS[login],
 		link: `maxhq://settings/${login}`,
+	})),
+	{
+		id: "settings/phones",
+		title: "Phones",
+		terms: PHONES_TERMS,
+		link: "maxhq://settings/phones",
+	},
+	{
+		id: "settings/apns",
+		title: LOGIN_STEPS.apns.title,
+		hint: LOGIN_HINT.apns,
+		terms: APNS_LOGIN_TERMS,
+		link: "maxhq://settings/apns",
+	},
+	...ownViews().map((own) => ({
+		id: `settings/${own.kind}`,
+		title: own.title,
+		hint: own.hint,
+		terms: own.terms,
+		link: `maxhq://settings/${own.kind}`,
 	})),
 	{
 		id: "settings/project",

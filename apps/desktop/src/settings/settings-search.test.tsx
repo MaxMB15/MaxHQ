@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import App from "@/App";
 import { mockSource } from "@/data/mock-source";
+import { openSettingsWindow } from "@/test/settings";
 import { FixedNow } from "@maxhq/shared/lib/clock";
 import { NOW } from "@maxhq/shared/test/build";
 import { createUiStore } from "@maxhq/shared/ui/store";
@@ -24,9 +25,7 @@ const openSettings = async () => {
 		</FixedNow>
 	);
 	await screen.findAllByRole("button", { name: /devbox/ });
-	fireEvent.click(screen.getByRole("button", { name: "Settings" }));
-	const nav = await screen.findByRole("navigation", { name: "Settings pages" });
-	const dialog = screen.getByRole("dialog", { name: "Settings" });
+	const { dialog, nav } = await openSettingsWindow();
 	const field = within(nav).getByRole("searchbox", { name: "Search settings" });
 	return { nav, dialog, field };
 };
@@ -37,26 +36,42 @@ const search = (field: HTMLElement, text: string) =>
 const marks = (element: HTMLElement) =>
 	Array.from(element.querySelectorAll("mark"), (mark) => mark.textContent);
 
-describe("the settings list", () => {
-	it("puts the App group first and opens on its first page", async () => {
-		const { nav, dialog } = await openSettings();
-		const groups = within(nav)
-			.getAllByRole("group")
-			.map((group) => group.getAttribute("aria-label"));
-		expect(groups).toEqual(["App", "Logins", "Projects"]);
-		expect(
-			within(dialog).getByRole("heading", { level: 2, name: "Appearance" })
-		).toBeInTheDocument();
-	});
-});
+// The left column's group buttons, outside the views of their own.
+const groupButtons = (nav: HTMLElement) =>
+	within(nav)
+		.getAllByRole("button")
+		.filter((button) => button.closest("[role=group]") === null);
 
-describe("the settings pages", () => {
+describe("the settings page", () => {
+	it("lists the seven groups, then the views of their own, and opens on General", async () => {
+		const { nav, dialog } = await openSettings();
+		expect(groupButtons(nav).map((button) => button.textContent)).toEqual([
+			"General",
+			"Chat and agents",
+			"Notifications",
+			"Accounts",
+			"Devices and phones",
+			"Permissions",
+			"Projects",
+		]);
+		const views = within(nav).getByRole("group", { name: "Their own views" });
+		expect(
+			within(views)
+				.getAllByRole("button")
+				.map((button) => button.querySelector("span")?.textContent)
+		).toEqual(["Skills", "Scheduled tasks", "Local models", "Keyboard shortcuts"]);
+		expect(within(nav).getByRole("button", { name: "General" })).toHaveAttribute(
+			"aria-current",
+			"location"
+		);
+		expect(within(dialog).getByRole("heading", { level: 2, name: "General" })).toBeVisible();
+		expect(within(dialog).getByRole("region", { name: "Appearance" })).toBeInTheDocument();
+	});
+
 	it("let values select, but never a heading, a label, a button or a hidden secret", async () => {
 		const { nav, dialog } = await openSettings();
 		const chrome = "h1, h2, h3, label, legend, button, summary, [role=option], [role=switch]";
-		for (const page of within(nav).getAllByRole("button")) {
-			fireEvent.click(page);
-			const name = page.textContent ?? "";
+		const sweep = (name: string) => {
 			// One class marks a value, so selection looks the same everywhere.
 			const other = dialog.querySelectorAll(".select-text, .select-all");
 			expect(
@@ -80,71 +95,126 @@ describe("the settings pages", () => {
 				masked.map((element) => element.textContent),
 				name
 			).toEqual([]);
+		};
+		const back = async () => {
+			fireEvent.click(within(dialog).getByRole("button", { name: "Back" }));
+			await within(dialog).findByRole("region", { name: "Logins" });
+		};
+
+		// The page, with each device's tab and the Phones tab.
+		sweep("page");
+		const tabs = within(dialog).getByRole("tablist", { name: "Device" });
+		for (const tab of within(tabs).getAllByRole("tab")) {
+			fireEvent.click(tab);
+			sweep(tab.textContent ?? "");
+		}
+
+		// Each login.
+		const logins = within(dialog).getByRole("region", { name: "Logins" });
+		const rows = within(logins).getAllByRole("rowheader").length;
+		for (let at = 0; at < rows; at++) {
+			const row = within(within(dialog).getByRole("region", { name: "Logins" }))
+				.getAllByRole("rowheader")
+				[at]!.closest("tr")!;
+			const name = row.querySelector("th")?.textContent ?? "";
+			fireEvent.click(within(row).getAllByRole("button")[0]!);
+			await within(dialog).findByRole("button", { name: "Back" });
+			sweep(name);
+			await back();
+		}
+
+		// Each project.
+		const projects = within(dialog)
+			.getAllByRole("button", { name: /^Open / })
+			.map((button) => button.getAttribute("aria-label")!);
+		expect(projects.length).toBeGreaterThan(0);
+		for (const project of projects) {
+			fireEvent.click(within(dialog).getByRole("button", { name: project }));
+			await within(dialog).findByRole("button", { name: "Back" });
+			sweep(project);
+			for (const tab of within(dialog).queryAllByRole("tab")) {
+				fireEvent.click(tab);
+				sweep(`${project}, ${tab.textContent}`);
+			}
+			await back();
+		}
+
+		// The views of their own, but the keyboard shortcuts, which show over any view.
+		const views = within(nav).getByRole("group", { name: "Their own views" });
+		for (const name of ["Skills", "Scheduled tasks", "Local models"]) {
+			fireEvent.click(within(views).getByRole("button", { name: new RegExp(`^${name}`) }));
+			await within(dialog).findByRole("button", { name: "Back" });
+			sweep(name);
+			await back();
 		}
 	});
 });
 
 describe("the settings search", () => {
-	it("keeps the pages that have the words, and marks them", async () => {
+	it("keeps the cards that have the words, and marks them", async () => {
 		const { nav, dialog, field } = await openSettings();
 		search(field, "split");
-		expect(within(nav).queryByRole("group", { name: "Logins" })).toBeNull();
-		expect(within(nav).queryByRole("group", { name: "Projects" })).toBeNull();
-		const app = within(nav).getByRole("group", { name: "App" });
-		const [page, ...rest] = within(app).getAllByRole("button");
+		expect(groupButtons(nav)).toEqual([]);
+		const views = within(nav).getByRole("group", { name: "Their own views" });
+		const [hit, ...rest] = within(views).getAllByRole("button");
 		expect(rest).toEqual([]);
-		expect(page).toHaveTextContent(/^Keyboard shortcutsSplit down$/);
-		expect(marks(page!)).toEqual(["Split"]);
-
-		fireEvent.click(page!);
+		expect(hit).toHaveTextContent(/^Keyboard shortcutsSplit down$/);
+		expect(marks(hit!)).toEqual(["Split"]);
+		// The page leads there too.
 		expect(
-			within(dialog).getByRole("heading", { level: 2, name: "Keyboard shortcuts" })
-		).toBeInTheDocument();
-		expect(within(dialog).getByText("Split right")).toBeInTheDocument();
+			within(dialog).getByRole("heading", { level: 2, name: "Their own views" })
+		).toBeVisible();
+		expect(within(dialog).queryByRole("region", { name: "Appearance" })).toBeNull();
 	});
 
-	it("matches every word, across the title and a label, and opens the first page on Enter", async () => {
+	it("matches every word, across the title and a label, and opens the first hit on Enter", async () => {
 		const { nav, dialog, field } = await openSettings();
 		search(field, "phones pairing");
-		const page = within(nav).getByRole("button", { name: /^Phones/ });
-		expect(page).toHaveTextContent("PhonesPairing code");
-		expect(marks(page)).toEqual(["Phones", "Pairing"]);
-		expect(within(nav).getAllByRole("button")).toHaveLength(1);
+		expect(groupButtons(nav).map((button) => button.textContent)).toEqual([
+			"Devices and phones",
+			"PhonesPairing code",
+		]);
+		const hit = within(nav).getByRole("button", { name: /^Phones/ });
+		expect(marks(hit)).toEqual(["Phones", "Pairing"]);
 
 		fireEvent.keyDown(field, { key: "Enter" });
-		expect(page).toHaveAttribute("aria-current", "page");
-		expect(
-			within(dialog).getByText(
-				"The phones that reach your devices, and a code to pair a new one"
-			)
-		).toBeInTheDocument();
+		const tabs = within(dialog).getByRole("tablist", { name: "Device" });
+		expect(within(tabs).getByRole("tab", { name: "Phones" })).toHaveAttribute(
+			"aria-selected",
+			"true"
+		);
+		expect(within(dialog).getByRole("region", { name: "Add phone" })).toBeInTheDocument();
 	});
 
 	it("finds the dispatcher's pause before a new chat", async () => {
 		const { nav, dialog, field } = await openSettings();
 		search(field, "chat pause");
-		const page = within(nav).getByRole("button", { name: /^Dispatcher/ });
-		expect(page).toHaveTextContent("DispatcherNew chat after a pause");
-		expect(within(nav).getAllByRole("button")).toHaveLength(1);
+		const hit = within(nav).getByRole("button", { name: /^Dispatcher/ });
+		expect(hit).toHaveTextContent("DispatcherNew chat after a pause");
+		expect(groupButtons(nav).map((button) => button.textContent)).toEqual([
+			"Chat and agents",
+			"DispatcherNew chat after a pause",
+		]);
 
-		fireEvent.click(page);
+		fireEvent.click(hit);
 		expect(
 			within(dialog).getByRole("combobox", { name: /^New chat after a pause/ })
 		).toBeInTheDocument();
+		expect(within(dialog).queryByRole("region", { name: "Composer" })).toBeNull();
 	});
 
 	it("opens a project on its Skills tab when only that tab has the words", async () => {
 		const { nav, dialog, field } = await openSettings();
 		search(field, "proposals");
-		const projects = within(nav).getByRole("group", { name: "Projects" });
-		const page = within(projects).getByRole("button", { name: /^MaxHQ/ });
-		expect(page).toHaveTextContent("MaxHQProposals");
+		const hit = within(nav).getByRole("button", { name: /^MaxHQ/ });
+		expect(hit).toHaveTextContent("MaxHQProposals");
 
-		fireEvent.click(page);
-		expect(within(dialog).getByRole("tab", { name: "Skills" })).toHaveAttribute(
+		fireEvent.click(hit);
+		expect(await within(dialog).findByRole("tab", { name: "Skills" })).toHaveAttribute(
 			"aria-selected",
 			"true"
 		);
+		expect(within(dialog).getByRole("button", { name: "Back" })).toBeInTheDocument();
 	});
 
 	it("says when nothing matches, and Esc clears the search before it closes the settings", async () => {
@@ -155,34 +225,35 @@ describe("the settings search", () => {
 
 		fireEvent.keyDown(field, { key: "Escape" });
 		expect(field).toHaveValue("");
-		expect(within(nav).getByRole("group", { name: "Logins" })).toBeInTheDocument();
+		expect(within(nav).getByRole("button", { name: "Accounts" })).toBeInTheDocument();
 		expect(screen.getByRole("dialog", { name: "Settings" })).toBeInTheDocument();
 
 		fireEvent.keyDown(field, { key: "Escape" });
 		await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
 	});
 
-	it("finds a device's own settings, and opens its page at the card", async () => {
-		const scrolled: string[] = [];
-		Element.prototype.scrollIntoView = function (this: Element) {
-			scrolled.push(this.id);
-		};
-		try {
-			const { nav, field } = await openSettings();
-			search(field, "stop idle");
-			const devices = within(nav).getByRole("group", { name: "Devices" });
-			const [hit] = within(devices).getAllByRole("button");
-			expect(hit).toHaveTextContent(/Stop idle CLIs after$/);
-			expect(marks(hit!)).toEqual(["Stop", "idle"]);
+	it("finds a device's own settings, and shows its tab at the card", async () => {
+		const { nav, dialog, field } = await openSettings();
+		search(field, "stop idle");
+		const hits = groupButtons(nav).map((button) => button.textContent);
+		expect(hits).toEqual([
+			"Devices and phones",
+			"MacStop idle CLIs after",
+			"devboxStop idle CLIs after",
+		]);
+		const hit = within(nav).getByRole("button", { name: /^devbox/ });
+		expect(marks(hit)).toEqual(["Stop", "idle"]);
 
-			fireEvent.click(hit!);
-			await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
-			const card = await screen.findByRole("region", { name: /^Idle agents on / });
-			await waitFor(() => expect(scrolled).toEqual([card.id]));
-			expect(card.id).toBe("device-card-idle");
-		} finally {
-			delete (Element.prototype as Partial<Element>).scrollIntoView;
-		}
+		fireEvent.click(hit);
+		const tabs = within(dialog).getByRole("tablist", { name: "Device" });
+		expect(within(tabs).getByRole("tab", { name: "devbox" })).toHaveAttribute(
+			"aria-selected",
+			"true"
+		);
+		const card = within(dialog).getByRole("region", { name: "Resources" });
+		expect(card.id).toBe("device-card-resources");
+		expect(within(card).getByRole("region", { name: "Idle agents on devbox" })).toBeVisible();
+		expect(screen.getByRole("dialog", { name: "Settings" })).toBeInTheDocument();
 	});
 
 	it("takes Command-F to the field while the settings are open", async () => {
@@ -190,11 +261,11 @@ describe("the settings search", () => {
 			"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)"
 		);
 		const { nav, field } = await openSettings();
-		const page = within(nav).getByRole("button", { name: "Editor" });
-		act(() => page.focus());
+		const group = within(nav).getByRole("button", { name: "General" });
+		act(() => group.focus());
 		let passed = true;
 		act(() => {
-			passed = fireEvent.keyDown(page, { key: "f", code: "KeyF", metaKey: true });
+			passed = fireEvent.keyDown(group, { key: "f", code: "KeyF", metaKey: true });
 		});
 		expect(passed).toBe(false);
 		expect(field).toHaveFocus();

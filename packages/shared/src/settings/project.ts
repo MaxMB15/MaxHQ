@@ -26,6 +26,8 @@ import { all, type ViewState } from "../view/replica";
 import { deviceName, linkForDevice } from "../view/select";
 import { workspaceHosts } from "../workspaces/state";
 
+import { accountDevices } from "./accounts";
+
 /** What the form holds, as typed. */
 export type ProjectDraft = {
 	readonly resume: boolean;
@@ -296,3 +298,35 @@ export const commandRulesOn = (
 
 /** A rule's key in a list: an exact rule and a prefix one for the same words differ. */
 export const ruleKey = (rule: CommandRule): string => `${rule.exact ? "=" : "~"}${rule.command}`;
+
+/** A project in the Settings list: where it's checked out, and on which devices. */
+export type ProjectRow = {
+	readonly project: ProjectId;
+	readonly name: string;
+	/** Its main checkout's folder, this Mac's first, or null when it has none. */
+	readonly path: string | null;
+	/** The names of the devices that hold a checkout, this Mac first. */
+	readonly devices: readonly string[];
+};
+
+/** Every project by name, with its checkout and the devices that hold one. */
+export const projectRows = (view: ViewState): ProjectRow[] => {
+	const order = accountDevices(view);
+	const rank = (device: DeviceId) => {
+		const at = order.findIndex((d) => d.device === device);
+		return at === -1 ? order.length : at;
+	};
+	const spaces = all(view, "workspace").sort((a, b) => rank(a.device) - rank(b.device));
+	return all(view, "project")
+		.sort((a, b) => a.name.localeCompare(b.name))
+		.map((project) => {
+			const held = spaces.filter((w) => w.project === project.id);
+			const main = held.find((w) => !w.managed) ?? held[0];
+			return {
+				project: project.id,
+				name: project.name,
+				path: main?.location.path ?? null,
+				devices: [...new Set(held.map((w) => w.device))].map((d) => deviceName(view, d)),
+			};
+		});
+};

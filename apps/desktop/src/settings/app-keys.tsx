@@ -1,19 +1,19 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026 Max Boksem
 
-// The app keys in a device's settings: each key the device trusts, with
-// how and when it came in and when it last proved, and a Remove for every
-// key but this Mac's. Warnings come first when the device trusts a key
-// this Mac didn't add or turned this Mac's key down, and a note when it
-// took the first key offered without checking who offered it, with how to
-// start over. This Mac's own page also makes a new key and lists the
-// devices still on the old one.
+// The App keys card in Permissions, a part for each device: each key the
+// device trusts, with how and when it came in and when it last proved, and
+// a Remove for every key but this Mac's. Warnings come first when the
+// device trusts a key this Mac didn't add or turned this Mac's key down,
+// and a note when it took the first key offered without checking who
+// offered it, with how to start over. This Mac's part also makes a new key
+// and lists the devices still on the old one.
 
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 
-import { useServices } from "@/app/services";
-import type { AppKey, DeviceId } from "@maxhq/shared/bindings";
+import { useServices, useViewOf } from "@/app/services";
+import type { AppKey, AppKeyState, DeviceId } from "@maxhq/shared/bindings";
 import { useNow } from "@maxhq/shared/lib/clock";
 import {
 	appKeyRows,
@@ -24,43 +24,34 @@ import {
 	refusalNote,
 	rotationNote,
 } from "@maxhq/shared/settings/app-keys";
-import type { ViewState } from "@maxhq/shared/view/replica";
+import { accountDevices } from "@maxhq/shared/settings/accounts";
+import { deviceLive } from "@maxhq/shared/test-hosts/place";
+import type { EntityKind, ViewState } from "@maxhq/shared/view/replica";
 
-import { ConfirmButton, Row, Section, StatusNote } from "./controls";
+import { ConfirmButton, Part, Row, Section, StatusNote } from "./controls";
 import { failureOf, type Note } from "./result";
 import { t as translate, useI18n } from "@maxhq/shared/i18n";
 
 const APP_KEY = "app-key";
 
-/** How often the page asks again while devices move to a new key. */
+/** How often the card asks again while devices move to a new key. */
 const WHILE_MOVING_MS = 3000;
 
-/** A warning at the top of the list. */
+/** What the card reads from the view. */
+const KINDS: readonly EntityKind[] = ["device", "device_link", "network", "app_key"];
+
+/** The card's labels, for the settings search. */
+export const APP_KEYS_TERMS: readonly string[] = ["This Mac's app key", "Make a new app key"];
+
+/** A warning at the top of a device's part. */
 const Warning = ({ text }: { text: string }) => {
 	useI18n();
 	return <Row title={<span className="selectable text-status-error-text">{text}</span>} />;
 };
 
-/** The app keys section, or nothing when the device lists none and has nothing to say. */
-export const AppKeys = ({
-	id,
-	device,
-	name,
-	live,
-	view,
-}: {
-	/** The card's element ID, for the settings search. */
-	id: string;
-	device: DeviceId;
-	name: string;
-	/** Whether the device's `maxd` answers, so it can take a removal. */
-	live: boolean;
-	view: ViewState;
-}) => {
-	useI18n();
+/** This Mac's app key, as maxd keeps it, asked again while devices move to a new one. */
+const useAppKey = (): AppKeyState | null => {
 	const { source } = useServices();
-	const queries = useQueryClient();
-	const now = useNow(60_000);
 	const result = useQuery({
 		queryKey: [APP_KEY],
 		queryFn: () => source.appKey(),
@@ -69,9 +60,29 @@ export const AppKeys = ({
 			return data?.status === "ok" && data.data.previous !== null ? WHILE_MOVING_MS : false;
 		},
 	});
+	return result.data?.status === "ok" ? result.data.data : null;
+};
+
+/** One device's part, or nothing when the device lists no keys and has nothing to say. */
+const DeviceKeys = ({
+	device,
+	name,
+	view,
+	state,
+}: {
+	device: DeviceId;
+	name: string;
+	view: ViewState;
+	state: AppKeyState | null;
+}) => {
+	useI18n();
+	const { source } = useServices();
+	const queries = useQueryClient();
+	const now = useNow(60_000);
 	const [busy, setBusy] = useState(false);
 	const [note, setNote] = useState<{ key: string; note: Note } | null>(null);
-	const state = result.data?.status === "ok" ? result.data.data : null;
+	// Whether the device's `maxd` answers, so it can take a removal.
+	const live = deviceLive(view, device, now);
 	const here = isThisMac(view, device) && state !== null;
 	const rows = appKeyRows(view, device, state, now);
 	const refusal = refusalNote(view, device, state);
@@ -104,12 +115,7 @@ export const AppKeys = ({
 	const kept = state && here ? keyStateNote(state) : null;
 
 	return (
-		<Section
-			title={translate("App keys")}
-			id={id}
-			label={translate("App keys for {{name}}", { name: name })}
-			hint={translate("Apps that may do everything here")}
-		>
+		<Part title={name} label={translate("App keys for {{name}}", { name: name })}>
 			{refusal ? <Warning text={refusal} /> : null}
 			{foreign ? <Warning text={foreign} /> : null}
 			{first?.warning ? <Warning text={first.text} /> : null}
@@ -143,6 +149,20 @@ export const AppKeys = ({
 				</Row>
 			) : null}
 			{kept ? <Row title={kept} /> : null}
+		</Part>
+	);
+};
+
+/** The App keys card: the keys each device trusts, this Mac's first. */
+export const AppKeysCard = () => {
+	useI18n();
+	const view = useViewOf(KINDS);
+	const state = useAppKey();
+	return (
+		<Section title={translate("App keys")} hint={translate("Apps that may do everything here")}>
+			{accountDevices(view).map(({ device, name }) => (
+				<DeviceKeys key={device} device={device} name={name} view={view} state={state} />
+			))}
 		</Section>
 	);
 };

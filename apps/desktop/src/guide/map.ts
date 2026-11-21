@@ -10,7 +10,7 @@
 
 import type { ViewEntry } from "@maxhq/shared/guide/view-link";
 
-/** A Settings page, or a card on a device's page, in the map. */
+/** A Settings card or view, or a card on a device's tab, in the map. */
 export type SettingsEntry = {
 	readonly id: string;
 	readonly title: string;

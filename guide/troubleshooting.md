@@ -65,27 +65,27 @@ When a CLI's login runs out, the agent's feed shows an error with a Sign in agai
 2. Finish the login in the window that opens.
 3. Send the agent a message to carry on.
 
-You can also sign in from Settings, under Logins: pick Claude in workspaces, Codex in workspaces or Cursor in workspaces. A login marked Signed out shows Sign in instead.
+You can also sign in from Settings, under Accounts: click Manage on the Claude, Codex or Cursor row. A login marked Signed out shows Sign in instead.
 
 ## Wait out a usage limit
 <!-- id: troubleshooting/usage-limit -->
-<!-- covers: settings/device/limits -->
+<!-- covers: settings/device/new-agents -->
 
 An agent at its account's limit shows "Waiting for usage limit reset". Nothing is lost. It continues on its own at the reset, or waits for your message.
 
 - Continue after the limit decides which. Set it per agent from its right-click menu in the sidebar.
-- Each device's Usage limits card sets the default per CLI, for Claude Code and Codex agents.
+- Usage limits, in each device's New agents card, sets the default per CLI, for Claude Code and Codex agents.
 - Move to another account with room left continues the agent there now. Don't resume stops it from continuing on its own.
 
 The Limit alert in Settings › Notifications tells you when an agent starts waiting (see [Notifications](notifications.md)).
 
 ## Wake an agent that's asleep
 <!-- id: troubleshooting/asleep -->
-<!-- covers: settings/device/idle -->
+<!-- covers: settings/device/resources -->
 
 Asleep means the device stopped the agent's CLI after it sat idle. Your next message starts it again, with nothing lost.
 
-To change how long a CLI may sit idle, open the device's page from the Devices view of the sidebar and set Stop idle CLIs after on its Idle agents card.
+To change how long a CLI may sit idle, open the device's tab in Settings, under Devices and phones, and set Stop idle CLIs after under Idle agents in its Resources card.
 
 Other states on the agent's dot:
 

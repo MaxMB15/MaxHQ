@@ -9,7 +9,8 @@ import { t } from "../i18n";
 
 import type { DeviceNode } from "../view/select";
 
-const OS_NAME: Record<string, string> = {
+/** Each operating system's name, by the name Rust gives it. */
+export const OS_NAME: Readonly<Record<string, string>> = {
 	linux: "Linux",
 	macos: "macOS",
 	windows: "Windows",

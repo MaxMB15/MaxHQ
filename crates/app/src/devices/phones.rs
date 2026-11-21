@@ -569,7 +569,7 @@ impl<L: LinkControl> Core<L> {
             (Some(host_key), network) if !routes.is_empty() => Ok(entry(routes, host_key, network)),
             (_, Some(network)) => Ok(entry(Vec::new(), String::new(), Some(network))),
             (_, None) if routes.is_empty() && off => {
-                Err("Turn on Network access on its page to pair a phone with it.".to_owned())
+                Err("Turn on Network access on its tab to pair a phone with it.".to_owned())
             }
             (_, None) if routes.is_empty() => Err(
                 "The phone has no way to reach it. Give it an address for the phone.".to_owned(),

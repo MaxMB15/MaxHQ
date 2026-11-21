@@ -12,7 +12,8 @@ import { DEFAULT_NOTIFICATION_PREFS } from "@/native/notifications";
 import { searchWords } from "@maxhq/shared/lib/words";
 import { DEFAULT_BADGE_PREFS } from "@maxhq/shared/view/badge";
 
-import { NOTIFICATIONS_TERMS, NotificationsSettingsPage } from "./notifications-settings";
+import { DOCK_BADGE_TERMS, DockBadgeSection } from "./dock-badge-settings";
+import { NotificationsSettingsPage } from "./notifications-settings";
 import { findIn } from "./search";
 
 const app = globalThis as { isTauri?: boolean };
@@ -51,8 +52,14 @@ afterEach(() => {
 	delete app.isTauri;
 });
 
+// The group's two cards, as the Settings page shows them.
 const renderPage = async () => {
-	render(<NotificationsSettingsPage />);
+	render(
+		<>
+			<NotificationsSettingsPage />
+			<DockBadgeSection />
+		</>
+	);
 	// Loaded once the master switch takes clicks.
 	await waitFor(() =>
 		expect(screen.getByRole("switch", { name: "Show notifications" })).not.toHaveAttribute(
@@ -205,8 +212,8 @@ describe("the badge card", () => {
 	});
 
 	it("comes up in the search by its title, and still by Dock badge", () => {
-		const page = { title: "Notifications", terms: NOTIFICATIONS_TERMS };
-		expect(findIn(page, searchWords("badge"))?.term).toEqual([{ text: "Badge", hit: true }]);
+		const page = { title: "Badge", terms: DOCK_BADGE_TERMS };
+		expect(findIn(page, searchWords("badge"))?.title).toEqual([{ text: "Badge", hit: true }]);
 		expect(findIn(page, searchWords("dock badge"))?.term).toEqual([
 			{ text: "Dock", hit: true },
 			{ text: " ", hit: false },

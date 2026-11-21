@@ -5,7 +5,7 @@ Copyright (c) 2026 Max Boksem
 
 # Devices and links
 
-How to add a Mac or Linux machine to MaxHQ, what maxd does on each one, how devices link to each other, and what each card on a device's page changes.
+How to add a Mac or Linux machine to MaxHQ, what maxd does on each one, how devices link to each other, and what each card on a device's tab in Settings changes.
 
 ## Add a device over SSH
 <!-- id: devices/add -->
@@ -23,7 +23,7 @@ The dialog then lists each step as it runs: Reading devbox's host key, Checking 
 
 On a Linux host where maxd would stop when you log out, the dialog says lingering is off and shows sudo loginctl enable-linger with your user name, with Copy command. Run it on the host to keep maxd running.
 
-When it's done, the dialog reads devbox is set up. Click Show devbox to open its page, or Done. Its agents and settings show under Devices. If a step fails, the dialog says why, and Try again goes back to Logins for the host so you can start it again. Since the token field empties once setup starts, paste the token again if you gave one.
+When it's done, the dialog reads devbox is set up. Click Show devbox to open its page, or Done. Its agents show under Devices, and its settings on its tab in Settings. If a step fails, the dialog says why, and Try again goes back to Logins for the host so you can start it again. Since the token field empties once setup starts, paste the token again if you gave one.
 
 ## What a device's page shows
 <!-- id: devices/page -->
@@ -31,17 +31,16 @@ When it's done, the dialog reads devbox is set up. Click Show devbox to open its
 
 Click a device under Devices to open its page. It reads from the top:
 
-- The header, with how MaxHQ reaches it, Try now and Copy SSH command.
+- The header, with how MaxHQ reaches it, Try now, Settings and Copy SSH command. Settings opens the device's tab in Settings, where its settings cards are.
 - Where the connection stops: the connection checks.
 - Load: CPU over the last hour and the busiest processes.
 - Setup: what the last host check found, with a fix for each item.
 - Workspaces on the device, with New workspace and Copy to another device….
 - Moves into MaxHQ, for older containers MaxHQ didn't make.
 - Agent CLIs, Tools and ACP registry: what's installed, with versions and updates.
-- Test hosts and Leases: the device's test machines, and the agents that hold one now.
+- Leases: the test machines agents there hold now.
 - Routes.
-- The device's settings cards, from New agents to Network access, then ACP agents and App keys.
-- Device links, then Phones with the device's address for a phone.
+- ACP agents, then Device links.
 - Identity, then Restart. This Mac's page also has Start maxd and Uninstall maxd here.
 - Agents here, or Agents last seen here while it's offline, settled ones included.
 
@@ -101,19 +100,15 @@ When the registry gives no checksum for a binary, MaxHQ asks before it downloads
 
 When maxd can't reach the registry, the section says how old its copy is.
 
-## Test hosts and leases on a device
+## Test machines and leases on a device
 <!-- id: devices/test-hosts -->
 <!-- covers: view/device -->
 
-The Test hosts section on a device's page shows the test machines it can run for agents there: iOS Simulator, Android emulator, Linux and macOS VM.
+Leases, on a device's page, lists the test machines agents there hold now: an iOS Simulator, an Android emulator, Linux or a macOS VM. It shows on a device whose maxd offers test hosts.
 
-- Each kind the device hosts shows where it stands, such as a test container that's ready for a lease, with Build, Reset and Check again. Reset ends a lease on it.
-- Lease length is how long a lease lasts when the agent doesn't say, 30 minutes by default.
-- Longest lease is the most an agent may ask for, 240 minutes by default.
-- Ends when idle ends a lease after this long without a command, 10 minutes by default.
-- On a Mac, macOS VMs at once sets how many VMs run together. Apple lets a Mac run two.
-
-Leases lists the test machines agents hold now, each with End lease. Its holder loses the machine. Only agents on a device lease its test machines, so for an agent elsewhere to test here, start an agent on this device. To pick which devices host each kind, see [Settings](settings.md).
+- Open shows a lease's machine. End, then End lease, ends it, and its holder loses the machine.
+- Only agents on a device lease its test machines, so for an agent elsewhere to test here, start an agent on this device.
+- Which kinds the device hosts, and how long its leases last, are on the Test machines card of its tab in Settings. See [Settings](settings.md).
 
 ## Change how MaxHQ reaches a device
 <!-- id: devices/routes -->
@@ -166,7 +161,7 @@ Tailscale is optional. Every feature works over plain SSH, and Tailscale only ad
 <!-- id: devices/new-agents -->
 <!-- covers: settings/device/new-agents -->
 
-The New agents card on a device's page sets the mode and effort new agents there start with. By default that's Auto on the Mac and Full access on remote devices.
+Each device's settings are on its tab in Settings, under Devices and phones. Open it from Settings on the device's page, or pick the device's tab there. The New agents card sets the mode and effort new agents there start with. By default that's Auto on the Mac and Full access on remote devices.
 
 - Default mode: new agents here start in this mode unless you pick another. Running agents keep theirs.
 - Claude Code effort and Codex effort: the Effort level new agents start at, on a slider over the levels the device's logins list. Until you pick one, each agent starts at its model's own level.
@@ -175,9 +170,9 @@ A vendor's effort row shows once a login of it on the device lists levels.
 
 ## Other agents: reading without a permission
 <!-- id: devices/other-agents -->
-<!-- covers: settings/device/other-agents -->
+<!-- covers: settings/other-agents -->
 
-The Other agents card sets whether agents on the device may read other agents without asking you first. Reading is on by default.
+The Other agents card, under Permissions in Settings, sets whether agents on each device may read other agents without asking you first. It has a row for each device. Reading is on by default.
 
 With Agents can read other agents on, any agent on the device can list your agents, read their conversations and wait for them, without a permission. It can also list where agents start, pull requests, test hosts and notes, and read notes. A conversation may hold code, paths and command output, so turn it off when that matters.
 
@@ -186,7 +181,7 @@ With Agents can read other agents on, any agent on the device can list your agen
 - An agent in a container still asks before it reads outside the container.
 - An agent on a linked device that reads here follows this device's switch.
 
-A device whose maxd is too old for the switch says so on the card. Update it first.
+A device whose maxd is too old for the switch says so on its row. Update it first.
 
 ## Inbox: settle idle agents and snooze at a limit
 <!-- id: devices/inbox -->
@@ -201,9 +196,9 @@ A project can set its own Auto-settle after for its agents on the device, in the
 
 ## Usage limits: continue after the limit
 <!-- id: devices/limits -->
-<!-- covers: settings/device/limits -->
+<!-- covers: settings/device/new-agents -->
 
-The Usage limits card decides whether agents stopped by a usage limit carry on by themselves. It's off by default.
+Usage limits, in the New agents card, decides whether agents stopped by a usage limit carry on by themselves. It's off by default.
 
 - Claude Code agents continue: an agent a limit stops mid-turn gets a message to carry on once the limit resets.
 - Codex agents continue: the same for Codex.
@@ -212,9 +207,9 @@ Both switches let agents continue after the limit. To change it for one agent, u
 
 ## Placement: where unplaced agents run
 <!-- id: devices/placement -->
-<!-- covers: settings/device/placement -->
+<!-- covers: settings/device/new-agents -->
 
-The Placement card weighs a device when MaxHQ picks where a new agent runs. It's Normal by default.
+Placement, in the New agents card, weighs a device when MaxHQ picks where a new agent runs. It's Normal by default.
 
 - New agents you don't place: Prefer or Normal, the only two choices.
 - Prefer makes this device count twice in the pick. Normal counts it once.
@@ -225,9 +220,9 @@ Set Prefer on a strong server so agents land there first, and leave a laptop on 
 
 ## Idle agents and memory
 <!-- id: devices/idle-memory -->
-<!-- covers: settings/device/idle settings/device/memory -->
+<!-- covers: settings/device/resources -->
 
-Two cards on a device's page keep agents from holding memory they don't use.
+The Resources card on a device's tab keeps agents from holding memory they don't use.
 
 - Idle agents, Stop idle CLIs after: maxd stops the CLI of an agent idle this long to free its memory. The agent stays as it is and starts again with your next message. Pick Never, 15 or 30 minutes, or 1, 2, 4 or 8 hours. It's 1 hour by default.
 - Memory, Recent items kept in memory per agent: maxd keeps this many of each agent's newest items in memory, and the rest on disk until you scroll back. It's 256 by default.
@@ -250,13 +245,13 @@ The Claude setup-tokens card lets a device keep a Claude setup-token for its age
 - Take setup-tokens: the device stores the setup-token you send it and gives it to Claude Code agents when they start. Turning it on asks first.
 - Without it, sign in with claude on the device itself.
 
-Send the token from the Claude page of Settings, or paste one as the Claude token when you add the device. MaxHQ keeps no copy. See [Settings](settings.md).
+Send the token from Claude in workspaces, which Manage on the Claude row under Accounts opens, or paste one as the Claude token when you add the device. MaxHQ keeps no copy. See [Settings](settings.md).
 
 ## Sleep: keep this Mac awake
 <!-- id: devices/sleep -->
-<!-- covers: settings/device/sleep -->
+<!-- covers: settings/device/resources -->
 
-The Sleep card on a Mac's page decides when maxd keeps the Mac awake. A sleeping Mac stops maxd, so your phone, webhooks and scheduled tasks can't reach it.
+Sleep, in the Resources card on a Mac's tab, decides when maxd keeps the Mac awake. A sleeping Mac stops maxd, so your phone, webhooks and scheduled tasks can't reach it.
 
 Keep this Mac awake:
 
@@ -269,12 +264,12 @@ The display still turns off, and closing the lid still sleeps the Mac.
 
 ## Cursor usage on a Mac
 <!-- id: devices/cursor -->
-<!-- covers: settings/device/cursor -->
+<!-- covers: settings/cursor-usage -->
 
-The Cursor usage card lets one Mac read the Cursor account's usage for MaxHQ's usage bars. It's off by default, and one Mac covers the whole account.
+The Cursor usage card, under Accounts in Settings, lets one Mac read the Cursor account's usage for MaxHQ's usage bars. It's off by default, and one Mac covers the whole account.
 
-1. Open the Mac's page and find Cursor usage.
-2. Turn on Enable Cursor usage.
+1. Open Settings, Accounts, and find Cursor usage.
+2. Turn on Enable Cursor usage next to the Mac.
 3. macOS asks once to let maxd read the Cursor CLI's saved login from the Keychain. Allow it.
 
 maxd then asks Cursor for this month's usage through an endpoint Cursor doesn't document, so it may stop working.
@@ -296,7 +291,7 @@ Workspaces already made keep theirs. See [Projects and workspaces](projects.md) 
 
 The Skill library card shows which device holds the skill library. One device holds it at a time.
 
-1. Open the page of the device that should hold it.
+1. In Settings, open the tab of the device that should hold it.
 2. Turn on Holds the skill library.
 
 That moves the library and its sources from the device that held it to this one. To move it again, turn it on for another device.
@@ -316,12 +311,12 @@ See [Phones](phones.md).
 
 ## App keys
 <!-- id: devices/app-keys -->
-<!-- covers: settings/device/app-keys -->
+<!-- covers: settings/app-keys -->
 
-The App keys card lists the apps that may do everything on the device, one row per key.
+The App keys card, under Permissions in Settings, lists for each device the apps that may do everything there, one row per key.
 
 - Remove on a key's row makes the device stop trusting it.
-- On this Mac's page, This Mac's app key shows the key this Mac's app signs with.
+- This Mac's app key shows the key this Mac's app signs with.
 - Make a new app key moves every device to a new key for this Mac. It asks first.
 
 ## Run ACP agents on a device

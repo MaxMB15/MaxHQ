@@ -1,7 +1,6 @@
 {
   "settings": [
     {
-      "hint": "Light, dark or the Mac's own, kept on this Mac",
       "id": "settings/appearance",
       "link": "maxhq://settings/appearance",
       "terms": [
@@ -21,7 +20,51 @@
       "title": "Appearance"
     },
     {
-      "hint": "How the sidebar lists agents, kept on this Mac",
+      "id": "settings/updates",
+      "link": "maxhq://settings/updates",
+      "terms": [
+        "Check for updates automatically",
+        "Check now",
+        "Update now",
+        "Version"
+      ],
+      "title": "Updates"
+    },
+    {
+      "id": "settings/composer",
+      "link": "maxhq://settings/composer",
+      "terms": [
+        "Typing",
+        "While an agent works, Enter",
+        "Queue",
+        "Steer",
+        "Check spelling",
+        "Correct spelling automatically"
+      ],
+      "title": "Composer"
+    },
+    {
+      "id": "settings/open-in",
+      "link": "maxhq://settings/open-in",
+      "terms": [
+        "Editor",
+        "Default editor",
+        "Last used",
+        "Cursor",
+        "VS Code"
+      ],
+      "title": "Open in"
+    },
+    {
+      "id": "settings/above-conversation",
+      "link": "maxhq://settings/above-conversation",
+      "terms": [
+        "Conversation",
+        "Port prompts"
+      ],
+      "title": "Above the conversation"
+    },
+    {
       "id": "settings/sidebar",
       "link": "maxhq://settings/sidebar",
       "terms": [
@@ -33,28 +76,6 @@
       "title": "Sidebar"
     },
     {
-      "hint": "Where workspaces and files open, kept on this Mac",
-      "id": "settings/editor",
-      "link": "maxhq://settings/editor",
-      "terms": [
-        "Open in",
-        "Default editor",
-        "Last used",
-        "Cursor",
-        "VS Code",
-        "Typing",
-        "Check spelling",
-        "Correct spelling automatically",
-        "While an agent works, Enter",
-        "Queue",
-        "Steer",
-        "Conversation",
-        "Port prompts"
-      ],
-      "title": "Editor"
-    },
-    {
-      "hint": "Which account answers the box at the top, kept on this Mac",
       "id": "settings/dispatcher",
       "link": "maxhq://settings/dispatcher",
       "terms": [
@@ -68,11 +89,80 @@
       "title": "Dispatcher"
     },
     {
-      "hint": "What agents and tools may do when they run agents through MaxHQ",
-      "id": "settings/agent-tools",
-      "link": "maxhq://settings/agent-tools",
+      "id": "settings/notifications",
+      "link": "maxhq://settings/notifications",
       "terms": [
-        "New permissions",
+        "Show notifications",
+        "Send a test notification",
+        "System Settings",
+        "Alerts",
+        "Needs input",
+        "Error",
+        "Finished",
+        "Limit",
+        "Sounds",
+        "Prompts",
+        "Other alerts"
+      ],
+      "title": "Notifications"
+    },
+    {
+      "id": "settings/badge",
+      "link": "maxhq://settings/badge",
+      "terms": [
+        "Badge",
+        "Dock badge",
+        "Show the badge",
+        "Waiting on you",
+        "Finished",
+        "Failed or stopped with an error"
+      ],
+      "title": "Badge"
+    },
+    {
+      "id": "settings/accounts",
+      "link": "maxhq://settings/accounts",
+      "terms": [
+        "Claude",
+        "Codex",
+        "Cursor",
+        "GitHub",
+        "Signed in",
+        "Not signed in",
+        "Not installed",
+        "Manage"
+      ],
+      "title": "Logins"
+    },
+    {
+      "id": "settings/cursor-usage",
+      "link": "maxhq://settings/cursor-usage",
+      "terms": [
+        "Enable Cursor usage"
+      ],
+      "title": "Cursor usage"
+    },
+    {
+      "id": "settings/other-agents",
+      "link": "maxhq://settings/other-agents",
+      "terms": [
+        "Agents can read other agents"
+      ],
+      "title": "Other agents"
+    },
+    {
+      "id": "settings/grants",
+      "link": "maxhq://settings/grants",
+      "terms": [
+        "Agents allowed to run agents",
+        "Revoke"
+      ],
+      "title": "Grants"
+    },
+    {
+      "id": "settings/new-permissions",
+      "link": "maxhq://settings/new-permissions",
+      "terms": [
         "Depth",
         "Agents started",
         "Agents at once",
@@ -83,15 +173,162 @@
         "Accounts",
         "Places",
         "Test hosts",
-        "Agents allowed to run agents",
-        "Access keys",
+        "Save defaults"
+      ],
+      "title": "New permissions"
+    },
+    {
+      "id": "settings/access-keys",
+      "link": "maxhq://settings/access-keys",
+      "terms": [
         "For tools outside MaxHQ, such as a bot",
         "New access key",
         "Key name",
         "Copy MCP command",
         "Revoke"
       ],
-      "title": "Agent tools"
+      "title": "Access keys"
+    },
+    {
+      "id": "settings/app-keys",
+      "link": "maxhq://settings/app-keys",
+      "terms": [
+        "This Mac's app key",
+        "Make a new app key"
+      ],
+      "title": "App keys"
+    },
+    {
+      "id": "settings/remembered-answers",
+      "link": "maxhq://settings/remembered-answers",
+      "terms": [
+        "Auto mode",
+        "Forget"
+      ],
+      "title": "Remembered answers"
+    },
+    {
+      "id": "settings/projects",
+      "link": "maxhq://settings/projects",
+      "terms": [
+        "Open"
+      ],
+      "title": "Projects"
+    },
+    {
+      "hint": "A setup-token from a Mac login, for Claude Code in containers",
+      "id": "settings/claude",
+      "link": "maxhq://settings/claude",
+      "terms": [
+        "Sign in again",
+        "Send a token",
+        "Mac login",
+        "Account",
+        "Run this in Terminal on the Mac",
+        "Setup-token",
+        "Tokens devices hold"
+      ],
+      "title": "Claude in workspaces"
+    },
+    {
+      "hint": "Each device's own Codex sign-in, for Codex in containers",
+      "id": "settings/codex",
+      "link": "maxhq://settings/codex",
+      "terms": [
+        "Sign in again",
+        "Sign in",
+        "Continue with ChatGPT",
+        "Sessions devices hold",
+        "Sign out"
+      ],
+      "title": "Codex in workspaces"
+    },
+    {
+      "hint": "The Mac's own Cursor login, and an API key for Cursor in containers",
+      "id": "settings/cursor",
+      "link": "maxhq://settings/cursor",
+      "terms": [
+        "Sign in again",
+        "On the Mac",
+        "Send an API key",
+        "API key",
+        "Keys devices hold"
+      ],
+      "title": "Cursor in workspaces"
+    },
+    {
+      "hint": "The App for pushes from workspaces and # lookups, and the repos it reaches",
+      "id": "settings/github",
+      "link": "maxhq://settings/github",
+      "terms": [
+        "Send the App",
+        "App ID",
+        "Private key",
+        "Apps devices hold",
+        "Merge and approve as you",
+        "Sign in to GitHub"
+      ],
+      "title": "GitHub App"
+    },
+    {
+      "id": "settings/phones",
+      "link": "maxhq://settings/phones",
+      "terms": [
+        "Add phone",
+        "Scan the code with MaxHQ on the phone",
+        "Pairing code",
+        "Devices the phone can reach",
+        "Pair through",
+        "Address for the phone",
+        "Let this phone do everything",
+        "New code"
+      ],
+      "title": "Phones"
+    },
+    {
+      "hint": "The Apple key each device signs its pushes to your phones with",
+      "id": "settings/apns",
+      "link": "maxhq://settings/apns",
+      "terms": [
+        "Send the key",
+        "Key ID",
+        "Team ID",
+        "Private key",
+        "Push keys devices hold"
+      ],
+      "title": "Phone pushes"
+    },
+    {
+      "hint": "The skills projects pick from, and the ones every agent gets",
+      "id": "settings/skills",
+      "link": "maxhq://settings/skills",
+      "terms": [
+        "Sources",
+        "Add a source",
+        "Repo or folder",
+        "Branch or tag",
+        "A third party's skills",
+        "Every agent",
+        "Skills every agent gets",
+        "Global skills"
+      ],
+      "title": "Skills"
+    },
+    {
+      "hint": "Prompts each device sends to an agent on a timer, a webhook or GitHub events",
+      "id": "settings/scheduled-tasks",
+      "link": "maxhq://settings/scheduled-tasks",
+      "terms": [
+        "New task",
+        "Prompt",
+        "When it runs",
+        "Webhook",
+        "Rotate URL",
+        "Requests it takes",
+        "Where it goes",
+        "History"
+      ],
+      "title": "Scheduled tasks"
     },
     {
       "hint": "Models each device runs with llama.cpp, and servers such as Ollama it reaches by URL",
@@ -115,103 +352,6 @@
         "Fewer tools for local agents"
       ],
       "title": "Local models"
-    },
-    {
-      "hint": "Prompts each device sends to an agent on a timer, a webhook or GitHub events",
-      "id": "settings/scheduled-tasks",
-      "link": "maxhq://settings/scheduled-tasks",
-      "terms": [
-        "New task",
-        "Prompt",
-        "When it runs",
-        "Webhook",
-        "Rotate URL",
-        "Requests it takes",
-        "Where it goes",
-        "History"
-      ],
-      "title": "Scheduled tasks"
-    },
-    {
-      "hint": "Which devices run each kind of test machine for the agents there",
-      "id": "settings/test-hosts",
-      "link": "maxhq://settings/test-hosts",
-      "terms": [
-        "iOS Simulator",
-        "Android emulator",
-        "Linux",
-        "macOS VM"
-      ],
-      "title": "Test hosts"
-    },
-    {
-      "hint": "The skills projects pick from, and the ones every agent gets",
-      "id": "settings/skills",
-      "link": "maxhq://settings/skills",
-      "terms": [
-        "Sources",
-        "Add a source",
-        "Repo or folder",
-        "Branch or tag",
-        "A third party's skills",
-        "Every agent",
-        "Skills every agent gets",
-        "Global skills"
-      ],
-      "title": "Skills"
-    },
-    {
-      "hint": "Which alerts this Mac shows, and which of them play a sound",
-      "id": "settings/notifications",
-      "link": "maxhq://settings/notifications",
-      "terms": [
-        "Show notifications",
-        "Send a test notification",
-        "System Settings",
-        "Alerts",
-        "Needs input",
-        "Error",
-        "Finished",
-        "Limit",
-        "Sounds",
-        "Prompts",
-        "Other alerts",
-        "Badge",
-        "Dock badge",
-        "Show the badge",
-        "Waiting on you",
-        "Finished",
-        "Failed or stopped with an error"
-      ],
-      "title": "Notifications"
-    },
-    {
-      "hint": "This app's version, and when it looks for a newer one",
-      "id": "settings/updates",
-      "link": "maxhq://settings/updates",
-      "terms": [
-        "Check for updates automatically",
-        "Check now",
-        "Update now",
-        "Version"
-      ],
-      "title": "Updates"
-    },
-    {
-      "hint": "The phones that reach your devices, and a code to pair a new one",
-      "id": "settings/phones",
-      "link": "maxhq://settings/phones",
-      "terms": [
-        "Add phone",
-        "Scan the code with MaxHQ on the phone",
-        "Pairing code",
-        "Devices the phone can reach",
-        "Pair through",
-        "Address for the phone",
-        "Let this phone do everything",
-        "New code"
-      ],
-      "title": "Phones"
     },
     {
       "hint": "The keys MaxHQ listens for. ⌘/ shows them over any view.",
@@ -271,74 +411,6 @@
       "title": "Keyboard shortcuts"
     },
     {
-      "hint": "A setup-token from a Mac login, for Claude Code in containers",
-      "id": "settings/claude",
-      "link": "maxhq://settings/claude",
-      "terms": [
-        "Sign in again",
-        "Send a token",
-        "Mac login",
-        "Account",
-        "Run this in Terminal on the Mac",
-        "Setup-token",
-        "Tokens devices hold"
-      ],
-      "title": "Claude in workspaces"
-    },
-    {
-      "hint": "Each device's own Codex sign-in, for Codex in containers",
-      "id": "settings/codex",
-      "link": "maxhq://settings/codex",
-      "terms": [
-        "Sign in again",
-        "Sign in",
-        "Continue with ChatGPT",
-        "Sessions devices hold",
-        "Sign out"
-      ],
-      "title": "Codex in workspaces"
-    },
-    {
-      "hint": "The Mac's own Cursor login, and an API key for Cursor in containers",
-      "id": "settings/cursor",
-      "link": "maxhq://settings/cursor",
-      "terms": [
-        "Sign in again",
-        "On the Mac",
-        "Send an API key",
-        "API key",
-        "Keys devices hold"
-      ],
-      "title": "Cursor in workspaces"
-    },
-    {
-      "hint": "The App for pushes from workspaces and # lookups, and the repos it reaches",
-      "id": "settings/github",
-      "link": "maxhq://settings/github",
-      "terms": [
-        "Send the App",
-        "App ID",
-        "Private key",
-        "Apps devices hold",
-        "Merge and approve as you",
-        "Sign in to GitHub"
-      ],
-      "title": "GitHub App"
-    },
-    {
-      "hint": "The Apple key each device signs its pushes to your phones with",
-      "id": "settings/apns",
-      "link": "maxhq://settings/apns",
-      "terms": [
-        "Send the key",
-        "Key ID",
-        "Team ID",
-        "Private key",
-        "Push keys devices hold"
-      ],
-      "title": "Phone pushes"
-    },
-    {
       "id": "settings/project",
       "link": "maxhq://project/{project}",
       "terms": [
@@ -371,21 +443,31 @@
       "title": "A project's skills"
     },
     {
+      "id": "settings/device/connection",
+      "link": "maxhq://device/{device}/connection",
+      "terms": [
+        "Reached by",
+        "maxd",
+        "System",
+        "Device ID",
+        "Address for the phone"
+      ],
+      "title": "Connection"
+    },
+    {
       "id": "settings/device/new-agents",
       "link": "maxhq://device/{device}/new-agents",
       "terms": [
         "Default mode",
-        "Effort"
+        "Effort",
+        "Usage limits",
+        "Claude Code agents continue",
+        "Codex agents continue",
+        "Continue after the limit",
+        "Placement",
+        "New agents you don't place"
       ],
       "title": "New agents"
-    },
-    {
-      "id": "settings/device/other-agents",
-      "link": "maxhq://device/{device}/other-agents",
-      "terms": [
-        "Agents can read other agents"
-      ],
-      "title": "Other agents"
     },
     {
       "id": "settings/device/inbox",
@@ -397,37 +479,18 @@
       "title": "Inbox"
     },
     {
-      "id": "settings/device/limits",
-      "link": "maxhq://device/{device}/limits",
+      "id": "settings/device/resources",
+      "link": "maxhq://device/{device}/resources",
       "terms": [
-        "Continue after the limit"
-      ],
-      "title": "Usage limits"
-    },
-    {
-      "id": "settings/device/placement",
-      "link": "maxhq://device/{device}/placement",
-      "terms": [
-        "New agents you don't place"
-      ],
-      "title": "Placement"
-    },
-    {
-      "id": "settings/device/idle",
-      "link": "maxhq://device/{device}/idle",
-      "terms": [
-        "Stop idle CLIs after"
-      ],
-      "title": "Idle agents"
-    },
-    {
-      "id": "settings/device/memory",
-      "link": "maxhq://device/{device}/memory",
-      "terms": [
+        "Idle agents",
+        "Stop idle CLIs after",
+        "Memory",
         "Recent items kept in memory per agent",
-        "History kept per agent"
+        "History kept per agent",
+        "Sleep",
+        "Keep this Mac awake"
       ],
-      "title": "Memory"
+      "title": "Resources"
     },
     {
       "id": "settings/device/terminals",
@@ -444,22 +507,6 @@
         "Take setup-tokens"
       ],
       "title": "Claude setup-tokens"
-    },
-    {
-      "id": "settings/device/sleep",
-      "link": "maxhq://device/{device}/sleep",
-      "terms": [
-        "Keep this Mac awake"
-      ],
-      "title": "Sleep"
-    },
-    {
-      "id": "settings/device/cursor",
-      "link": "maxhq://device/{device}/cursor",
-      "terms": [
-        "Enable Cursor usage"
-      ],
-      "title": "Cursor usage"
     },
     {
       "id": "settings/device/workspaces",
@@ -488,13 +535,15 @@
       "title": "Network access"
     },
     {
-      "id": "settings/device/app-keys",
-      "link": "maxhq://device/{device}/app-keys",
+      "id": "settings/device/test-machines",
+      "link": "maxhq://device/{device}/test-machines",
       "terms": [
-        "This Mac's app key",
-        "Make a new app key"
+        "Test hosts",
+        "iOS Simulator",
+        "Android emulator",
+        "macOS VM"
       ],
-      "title": "App keys"
+      "title": "Test machines"
     }
   ],
   "shortcuts": [
@@ -871,7 +920,7 @@
       "description": "Show files to the user.",
       "dispatcher": false,
       "id": "tool/send_attachments",
-      "link": "maxhq://settings/agent-tools",
+      "link": "maxhq://settings/permissions",
       "name": "send_attachments",
       "title": "Send attachments"
     },
@@ -880,7 +929,7 @@
       "description": "Open a file in MaxHQ's file viewer for the user.",
       "dispatcher": false,
       "id": "tool/open_file",
-      "link": "maxhq://settings/agent-tools",
+      "link": "maxhq://settings/permissions",
       "name": "open_file",
       "title": "Open a file"
     },
@@ -889,7 +938,7 @@
       "description": "Show the user a web page you made, such as a chart, diagram or mockup.",
       "dispatcher": false,
       "id": "tool/show_visual",
-      "link": "maxhq://settings/agent-tools",
+      "link": "maxhq://settings/permissions",
       "name": "show_visual",
       "title": "Show a visual"
     },
@@ -898,7 +947,7 @@
       "description": "Read the conversation of another MaxHQ agent: one list_agents names, by its id, with `device` for one on another device, or one the user attached to one of your messages as an [Agent: title] entry, by the id or the title that entry gives.",
       "dispatcher": true,
       "id": "tool/read_agent",
-      "link": "maxhq://settings/agent-tools",
+      "link": "maxhq://settings/permissions",
       "name": "read_agent",
       "title": "Read an agent"
     },
@@ -907,7 +956,7 @@
       "description": "Lists what you may start agents with and where: the devices, vendors, accounts, workspaces and models you're allowed, how many levels of agents you may still start, and any limits on you.",
       "dispatcher": true,
       "id": "tool/list_targets",
-      "link": "maxhq://settings/agent-tools",
+      "link": "maxhq://settings/permissions",
       "name": "list_targets",
       "title": "List where agents can start"
     },
@@ -916,7 +965,7 @@
       "description": "Lists the MaxHQ agents on this device, or on `device`, newest activity first, one line each: id, title, vendor, device, state, context used and the last reply.",
       "dispatcher": true,
       "id": "tool/list_agents",
-      "link": "maxhq://settings/agent-tools",
+      "link": "maxhq://settings/permissions",
       "name": "list_agents",
       "title": "List agents"
     },
@@ -925,7 +974,7 @@
       "description": "Starts a new MaxHQ agent with a task and returns its id.",
       "dispatcher": true,
       "id": "tool/start_agent",
-      "link": "maxhq://settings/agent-tools",
+      "link": "maxhq://settings/permissions",
       "name": "start_agent",
       "title": "Start an agent"
     },
@@ -934,7 +983,7 @@
       "description": "Sends a message to a MaxHQ agent.",
       "dispatcher": true,
       "id": "tool/send_agent",
-      "link": "maxhq://settings/agent-tools",
+      "link": "maxhq://settings/permissions",
       "name": "send_agent",
       "title": "Message an agent"
     },
@@ -943,7 +992,7 @@
       "description": "Waits until each of the agents you name finishes its turn, needs input or stops, up to `timeout_seconds`, 600 by default and 3600 at most.",
       "dispatcher": false,
       "id": "tool/wait_agent",
-      "link": "maxhq://settings/agent-tools",
+      "link": "maxhq://settings/permissions",
       "name": "wait_agent",
       "title": "Wait for agents"
     },
@@ -952,7 +1001,7 @@
       "description": "Stops a MaxHQ agent's turn.",
       "dispatcher": true,
       "id": "tool/interrupt_agent",
-      "link": "maxhq://settings/agent-tools",
+      "link": "maxhq://settings/permissions",
       "name": "interrupt_agent",
       "title": "Stop an agent"
     },
@@ -961,7 +1010,7 @@
       "description": "Moves a MaxHQ agent to another device, once the user approves it in MaxHQ.",
       "dispatcher": true,
       "id": "tool/move_agent",
-      "link": "maxhq://settings/agent-tools",
+      "link": "maxhq://settings/permissions",
       "name": "move_agent",
       "title": "Move an agent to another device"
     },
@@ -970,7 +1019,7 @@
       "description": "Makes a scheduled task, which runs a prompt with nobody watching: on a timer, when a webhook gets a request or when a GitHub repository has new events.",
       "dispatcher": true,
       "id": "tool/schedule_task",
-      "link": "maxhq://settings/agent-tools",
+      "link": "maxhq://settings/permissions",
       "name": "schedule_task",
       "title": "Schedule a task"
     },
@@ -979,7 +1028,7 @@
       "description": "Lists the scheduled tasks on the devices you're allowed, with each one's id, schedule, next run and last run.",
       "dispatcher": true,
       "id": "tool/list_tasks",
-      "link": "maxhq://settings/agent-tools",
+      "link": "maxhq://settings/permissions",
       "name": "list_tasks",
       "title": "List scheduled tasks"
     },
@@ -988,7 +1037,7 @@
       "description": "Deletes a scheduled task by its id.",
       "dispatcher": true,
       "id": "tool/delete_task",
-      "link": "maxhq://settings/agent-tools",
+      "link": "maxhq://settings/permissions",
       "name": "delete_task",
       "title": "Delete a scheduled task"
     },
@@ -997,7 +1046,7 @@
       "description": "Runs a scheduled task now, whatever its schedule, once the user approved it and it's on.",
       "dispatcher": true,
       "id": "tool/run_task_now",
-      "link": "maxhq://settings/agent-tools",
+      "link": "maxhq://settings/permissions",
       "name": "run_task_now",
       "title": "Run a scheduled task now"
     },
@@ -1006,7 +1055,7 @@
       "description": "Links a pull request in your repository to you by its number, so the user sees it with you.",
       "dispatcher": false,
       "id": "tool/link_pull_request",
-      "link": "maxhq://settings/agent-tools",
+      "link": "maxhq://settings/permissions",
       "name": "link_pull_request",
       "title": "Link a pull request"
     },
@@ -1015,7 +1064,7 @@
       "description": "Unlinks a pull request from you by its number.",
       "dispatcher": false,
       "id": "tool/unlink_pull_request",
-      "link": "maxhq://settings/agent-tools",
+      "link": "maxhq://settings/permissions",
       "name": "unlink_pull_request",
       "title": "Unlink a pull request"
     },
@@ -1024,7 +1073,7 @@
       "description": "Lists the pull requests linked to you, with each one's state and checks.",
       "dispatcher": false,
       "id": "tool/list_pull_requests",
-      "link": "maxhq://settings/agent-tools",
+      "link": "maxhq://settings/permissions",
       "name": "list_pull_requests",
       "title": "List your pull requests"
     },
@@ -1033,7 +1082,7 @@
       "description": "MaxHQ wakes you when checks fail, every check passes, new comments or reviews arrive, or the PR conflicts.",
       "dispatcher": false,
       "id": "tool/watch_pull_request",
-      "link": "maxhq://settings/agent-tools",
+      "link": "maxhq://settings/permissions",
       "name": "watch_pull_request",
       "title": "Watch a pull request"
     },
@@ -1042,7 +1091,7 @@
       "description": "Stops waking you for a pull request.",
       "dispatcher": false,
       "id": "tool/unwatch_pull_request",
-      "link": "maxhq://settings/agent-tools",
+      "link": "maxhq://settings/permissions",
       "name": "unwatch_pull_request",
       "title": "Stop watching a pull request"
     },
@@ -1051,7 +1100,7 @@
       "description": "Lists the test machines this device hosts: iOS Simulators, Android emulators, Linux containers and macOS VMs, with whether each is ready, what it lacks, and how many wait for it.",
       "dispatcher": false,
       "id": "tool/list_test_hosts",
-      "link": "maxhq://settings/agent-tools",
+      "link": "maxhq://settings/permissions",
       "name": "list_test_hosts",
       "title": "List test hosts"
     },
@@ -1060,7 +1109,7 @@
       "description": "Leases a test machine of one kind on this device for you alone, waiting in line while it's busy.",
       "dispatcher": false,
       "id": "tool/lease_open",
-      "link": "maxhq://settings/agent-tools",
+      "link": "maxhq://settings/permissions",
       "name": "lease_open",
       "title": "Lease a test machine"
     },
@@ -1069,7 +1118,7 @@
       "description": "Runs one command on a leased machine and answers its exit code and output.",
       "dispatcher": false,
       "id": "tool/lease_run",
-      "link": "maxhq://settings/agent-tools",
+      "link": "maxhq://settings/permissions",
       "name": "lease_run",
       "title": "Run a command on a leased machine"
     },
@@ -1078,7 +1127,7 @@
       "description": "Takes a PNG of a leased machine's screen, scaled to at most 1280 pixels on its long edge, and shows it to you.",
       "dispatcher": false,
       "id": "tool/lease_screenshot",
-      "link": "maxhq://settings/agent-tools",
+      "link": "maxhq://settings/permissions",
       "name": "lease_screenshot",
       "title": "Screenshot a leased machine"
     },
@@ -1087,7 +1136,7 @@
       "description": "Installs an app on a leased machine from your working folder: a .app folder or .ipa for a Simulator, an .apk for an emulator, or any file or folder for a Linux container, up to 4 GiB.",
       "dispatcher": false,
       "id": "tool/lease_install",
-      "link": "maxhq://settings/agent-tools",
+      "link": "maxhq://settings/permissions",
       "name": "lease_install",
       "title": "Install an app on a leased machine"
     },
@@ -1096,7 +1145,7 @@
       "description": "Ends one of your leases and frees the machine for the next caller.",
       "dispatcher": false,
       "id": "tool/lease_close",
-      "link": "maxhq://settings/agent-tools",
+      "link": "maxhq://settings/permissions",
       "name": "lease_close",
       "title": "End a lease"
     },
@@ -1105,7 +1154,7 @@
       "description": "Lists your project's notes: each one's id, title and size, and when and by whom it last changed.",
       "dispatcher": false,
       "id": "tool/list_notes",
-      "link": "maxhq://settings/agent-tools",
+      "link": "maxhq://settings/permissions",
       "name": "list_notes",
       "title": "List notes"
     },
@@ -1114,7 +1163,7 @@
       "description": "Reads one of your project's notes in Markdown.",
       "dispatcher": false,
       "id": "tool/read_note",
-      "link": "maxhq://settings/agent-tools",
+      "link": "maxhq://settings/permissions",
       "name": "read_note",
       "title": "Read a note"
     },
@@ -1123,7 +1172,7 @@
       "description": "Makes a note in your project with a title and a Markdown body, and gives its id.",
       "dispatcher": true,
       "id": "tool/create_note",
-      "link": "maxhq://settings/agent-tools",
+      "link": "maxhq://settings/permissions",
       "name": "create_note",
       "title": "Create a note"
     },
@@ -1132,7 +1181,7 @@
       "description": "Changes one of your project's notes: replaces `old_string` with `new_string` in its body.",
       "dispatcher": false,
       "id": "tool/edit_note",
-      "link": "maxhq://settings/agent-tools",
+      "link": "maxhq://settings/permissions",
       "name": "edit_note",
       "title": "Edit a note"
     },

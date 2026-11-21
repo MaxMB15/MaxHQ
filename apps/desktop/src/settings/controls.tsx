@@ -1,12 +1,13 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026 Max Boksem
 
-// The pieces the settings screens share: a card with a header, a row with
-// its words on the left, buttons, fields, the note that says how a save
-// went, a copy icon for an error's words, and a button that asks once more
-// before it does anything.
+// The pieces the settings screens share: a card with a header and a tag
+// for where it applies, a part of a card, a row with its words on the
+// left, buttons, fields, the note that says how a save went, a copy icon
+// for an error's words, and a button that asks once more before it does
+// anything.
 
-import { type ReactNode, useState } from "react";
+import { createContext, type ReactNode, useContext, useState } from "react";
 
 import { CopyIcon } from "@/components/copy-field";
 import { cn } from "@/lib/utils";
@@ -40,13 +41,27 @@ export const DANGER = cn(
 export const FIELD =
 	"h-8 w-full rounded-[7px] border border-border bg-subpanel px-2.5 text-[12.5px] text-foreground outline-none placeholder:text-subtle-foreground focus:border-primary focus:shadow-focus disabled:opacity-60";
 
+/** A row of small buttons that picks one of a few, such as a device. */
+export const SEG =
+	"flex w-fit max-w-full flex-wrap gap-0.5 rounded-[7px] border border-border bg-subpanel p-0.5";
+
+/** One button of a `SEG` row, on while pressed or active. */
+export const SEG_ITEM =
+	"h-[22px] cursor-pointer rounded-[5px] px-[9px] text-[11.5px] whitespace-nowrap text-secondary-foreground hover:text-foreground aria-pressed:bg-secondary aria-pressed:text-foreground data-active:bg-secondary data-active:text-foreground";
+
 /** A field's name above it. */
 export const Label = ({ children }: { children: ReactNode }) => {
 	useI18n();
 	return <span className="text-[11.5px] font-[550] text-secondary-foreground">{children}</span>;
 };
 
-/** A card with a title and an optional hint on the right. */
+/**
+ * Where the cards inside apply: "This Mac", "Every device" or a device's
+ * name. The Settings page gives each card one; a view of its own gives none.
+ */
+export const CardScope = createContext<string | null>(null);
+
+/** A card with a title, its tag for where it applies, and an optional hint. */
 export const Section = ({
 	title,
 	hint,
@@ -65,18 +80,66 @@ export const Section = ({
 	className?: string;
 }) => {
 	useI18n();
+	const scope = useContext(CardScope);
 	return (
 		<section
 			id={id}
 			aria-label={label ?? title}
-			className={cn("overflow-hidden rounded-[11px] border border-track bg-card", className)}
+			className={cn(
+				"scroll-mt-[60px] overflow-hidden rounded-[11px] border border-track bg-card [&>header+*]:border-t-0",
+				className
+			)}
 		>
-			<div className="flex items-baseline justify-between gap-3 border-b border-sidebar-border px-4 py-3">
-				<h2 className="text-[13.5px] font-[650] text-foreground">{title}</h2>
+			<header className="flex items-center gap-2 px-4 pt-3 pb-1.5">
+				<h3 className="min-w-0 flex-1 text-[11px] font-[650] tracking-[0.04em] text-muted-foreground uppercase">
+					{title}
+				</h3>
 				{hint ? (
-					<span className="selectable text-[11.5px] text-muted-foreground">{hint}</span>
+					<span className="selectable text-right text-[11.5px] text-muted-foreground">
+						{hint}
+					</span>
 				) : null}
-			</div>
+				{scope ? (
+					<span className="shrink-0 rounded-full border border-input px-[7px] py-px text-[10.5px] text-secondary-foreground">
+						{scope}
+					</span>
+				) : null}
+			</header>
+			{children}
+		</section>
+	);
+};
+
+/**
+ * A part of a card under its own small heading, such as Snooze options in
+ * the Sidebar card.
+ */
+export const Part = ({
+	title,
+	hint,
+	label,
+	children,
+}: {
+	title: string;
+	hint?: ReactNode;
+	/** The name a screen reader hears, when it isn't the title. */
+	label?: string;
+	children: ReactNode;
+}) => {
+	useI18n();
+	return (
+		<section
+			aria-label={label ?? title}
+			className="border-t border-sidebar-border [&>header+*]:border-t-0"
+		>
+			<header className="flex items-baseline gap-3 px-4 pt-3 pb-1">
+				<h4 className="min-w-0 flex-1 text-[12.5px] font-[600] text-foreground">{title}</h4>
+				{hint ? (
+					<span className="selectable text-right text-[11.5px] text-muted-foreground">
+						{hint}
+					</span>
+				) : null}
+			</header>
 			{children}
 		</section>
 	);

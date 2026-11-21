@@ -44,7 +44,7 @@ describe("ACP agents settings", () => {
 
 	it("shows nothing for a device whose maxd doesn't run them", async () => {
 		renderDevice("link-devbox");
-		await screen.findByRole("region", { name: "Settings for devbox" });
+		await screen.findByRole("region", { name: "Device links for devbox" });
 		expect(screen.queryByRole("region", { name: /^ACP agents/ })).not.toBeInTheDocument();
 	});
 

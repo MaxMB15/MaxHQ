@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import App from "@/App";
 import { mockSource } from "@/data/mock-source";
+import { openDeviceTab } from "@/test/settings";
 import type { Entity } from "@maxhq/shared/bindings";
 import type { DataSource } from "@maxhq/shared/data/source";
 import { IOS_LEASE, MAC_IOS, MAC_MACOS } from "@maxhq/shared/data/mock-test-hosts";
@@ -47,15 +48,13 @@ const renderApp = ({
 	return { source: mock };
 };
 
-const openPage = async () => {
-	fireEvent.click(await screen.findByRole("button", { name: "Settings" }));
-	const nav = await screen.findByRole("navigation", { name: "Settings pages" });
-	fireEvent.click(
-		within(within(nav).getByRole("group", { name: "App" })).getByRole("button", {
-			name: "Test hosts",
-		})
-	);
-	return within(await screen.findByRole("dialog", { name: "Settings" }));
+// A device's Test machines card, on its tab in Settings.
+const openCard = async (name: string) => {
+	if (!screen.queryByRole("dialog", { name: "Settings" })) {
+		await screen.findByRole("button", { name: "Settings" });
+	}
+	const dialog = await openDeviceTab(name);
+	return within(await within(dialog).findByRole("region", { name: `Test machines on ${name}` }));
 };
 
 const renderDevice = (link: string, scenario = "connected") =>
@@ -79,65 +78,63 @@ const noTestHosts = (e: Entity): Entity =>
 		? { ...e, capabilities: { ...e.capabilities!, test_hosts: false } }
 		: e;
 
-describe("the test hosts page", () => {
-	it("lists each kind with the devices that could host it", async () => {
+describe("a device's Test machines card", () => {
+	it("lists each kind the device could host, with its lease limits", async () => {
 		renderApp();
-		const page = await openPage();
-		const ios = within(await page.findByRole("region", { name: "iOS Simulator" }));
-		expect(ios.getByRole("checkbox", { name: "Host iOS Simulator on Mac" })).toBeChecked();
-		expect(ios.getByText("Suggested, its VM is built")).toBeInTheDocument();
-		expect(ios.getByRole("group", { name: "Mac VM on Mac" })).toHaveTextContent(
+		const mac = await openCard("Mac");
+		expect(mac.getByRole("checkbox", { name: "Host iOS Simulator on Mac" })).toBeChecked();
+		expect(mac.getByText("Suggested, its VM is built")).toBeInTheDocument();
+		expect(mac.getByText("Suggested, runs the emulator best")).toBeInTheDocument();
+		// The Mac VM hosts iOS and macOS, so it shows under each.
+		expect(mac.getAllByRole("group", { name: "Mac VM on Mac" })[0]).toHaveTextContent(
 			"60 GB disk, 8 GB memory"
 		);
-		expect(ios.getByRole("switch", { name: "Use Mac's own Simulator" })).not.toBeChecked();
-		expect(ios.getByText(/Apps it runs can read your home folder/)).toBeInTheDocument();
-
-		const android = within(page.getByRole("region", { name: "Android emulator" }));
+		expect(mac.getByRole("switch", { name: "Use Mac's own Simulator" })).not.toBeChecked();
+		expect(mac.getByText(/Apps it runs can read your home folder/)).toBeInTheDocument();
+		expect(mac.queryByRole("checkbox", { name: /Linux/ })).toBeNull();
+		expect(mac.getByRole("combobox", { name: "Lease length, 30 min" })).toBeInTheDocument();
+		expect(mac.getByRole("combobox", { name: "macOS VMs at once, 1" })).toBeInTheDocument();
 		expect(
-			android.getByRole("checkbox", { name: "Host Android emulator on devbox" })
-		).not.toBeChecked();
-		expect(android.getByText("Suggested, runs the emulator best")).toBeInTheDocument();
-		expect(
-			page.getByText(/Only agents on a device lease its test machines/)
+			mac.getByText(/Only agents on a device lease its test machines/)
 		).toBeInTheDocument();
+
+		const devbox = await openCard("devbox");
+		expect(
+			devbox.getByRole("checkbox", { name: "Host Android emulator on devbox" })
+		).not.toBeChecked();
+		expect(devbox.queryByText(/^Suggested/)).toBeNull();
 	});
 
-	it("ticks a device for a kind and shows what it found there", async () => {
+	it("ticks a kind and shows what it found there", async () => {
 		const { source } = renderApp();
 		const save = vi.spyOn(source, "setDeviceSettings");
-		const page = await openPage();
-		const android = within(await page.findByRole("region", { name: "Android emulator" }));
-		fireEvent.click(android.getByRole("checkbox", { name: "Host Android emulator on devbox" }));
+		const devbox = await openCard("devbox");
+		fireEvent.click(devbox.getByRole("checkbox", { name: "Host Android emulator on devbox" }));
 		await waitFor(() => expect(save).toHaveBeenCalled());
 		expect(save.mock.calls[0]![0]).toMatchObject({
 			device: "dev-devbox",
 			test_hosts: { kinds: ["android_emulator", "linux"] },
 		});
-		expect(await android.findByText(/The Android SDK isn't installed/)).toBeInTheDocument();
-		expect(android.getByRole("button", { name: "Check devbox again" })).toBeInTheDocument();
+		expect(await devbox.findByText(/The Android SDK isn't installed/)).toBeInTheDocument();
+		expect(devbox.getByRole("button", { name: "Check devbox again" })).toBeInTheDocument();
 	});
 
-	it("builds a host that's off and checks a device again", async () => {
+	it("builds a host that's off and checks the device again", async () => {
 		const { source } = renderApp();
 		const build = vi.spyOn(source, "buildTestHost");
 		const check = vi.spyOn(source, "checkTestHosts");
-		const page = await openPage();
-		const macos = within(await page.findByRole("region", { name: "macOS VM" }));
-		fireEvent.click(macos.getByRole("button", { name: "Build Mac VM on Mac" }));
+		const mac = await openCard("Mac");
+		fireEvent.click(mac.getByRole("button", { name: "Build Mac VM on Mac" }));
 		expect(build).toHaveBeenCalledWith("dev-mac", MAC_MACOS);
-		fireEvent.click(macos.getByRole("button", { name: "Check Mac again" }));
+		fireEvent.click(mac.getByRole("button", { name: "Check Mac again" }));
 		expect(check).toHaveBeenCalledWith("dev-mac");
 	});
 
 	it("asks before resetting a leased host", async () => {
 		const { source } = renderApp();
 		const reset = vi.spyOn(source, "resetTestHost");
-		const page = await openPage();
-		const vm = within(
-			within(await page.findByRole("region", { name: "iOS Simulator" })).getByRole("group", {
-				name: "Mac VM on Mac",
-			})
-		);
+		const mac = await openCard("Mac");
+		const vm = within(mac.getAllByRole("group", { name: "Mac VM on Mac" })[0]!);
 		fireEvent.click(vm.getByRole("button", { name: "Reset" }));
 		expect(vm.getByText("This ends its lease.")).toBeInTheDocument();
 		expect(reset).not.toHaveBeenCalled();
@@ -148,8 +145,8 @@ describe("the test hosts page", () => {
 	it("turns on the Mac's own Simulator", async () => {
 		const { source } = renderApp();
 		const save = vi.spyOn(source, "setDeviceSettings");
-		const page = await openPage();
-		fireEvent.click(await page.findByRole("switch", { name: "Use Mac's own Simulator" }));
+		const mac = await openCard("Mac");
+		fireEvent.click(mac.getByRole("switch", { name: "Use Mac's own Simulator" }));
 		await waitFor(() =>
 			expect(save).toHaveBeenCalledWith(
 				expect.objectContaining({
@@ -160,44 +157,11 @@ describe("the test hosts page", () => {
 		);
 	});
 
-	it("can't change a device that doesn't answer", async () => {
-		renderApp({ scenario: "peer_offline" });
-		const page = await openPage();
-		const linux = within(await page.findByRole("region", { name: "Linux" }));
-		expect(linux.getByRole("checkbox", { name: "Host Linux on devbox" })).toHaveAttribute(
-			"aria-disabled",
-			"true"
-		);
-		expect(linux.getByText("Connect to devbox to change it.")).toBeInTheDocument();
-	});
-
-	it("says when no device offers test hosts", async () => {
-		renderApp({ edit: noTestHosts });
-		const page = await openPage();
-		expect(await page.findByText(/No device offers test hosts yet/)).toBeInTheDocument();
-	});
-});
-
-describe("a device's test hosts", () => {
-	it("shows the kinds it could host, its lease limits and its leases", async () => {
-		renderDevice("link-mac");
-		const hosts = within(await screen.findByRole("region", { name: "Test hosts on Mac" }));
-		expect(hosts.getByRole("checkbox", { name: "Host iOS Simulator on Mac" })).toBeChecked();
-		expect(hosts.queryByRole("checkbox", { name: /Linux/ })).toBeNull();
-		expect(hosts.getByRole("combobox", { name: "Lease length, 30 min" })).toBeInTheDocument();
-		expect(hosts.getByRole("combobox", { name: "macOS VMs at once, 1" })).toBeInTheDocument();
-
-		const leases = within(screen.getByRole("region", { name: "Leases on Mac" }));
-		expect(leases.getByText("iOS Simulator for Build a signed bundle")).toBeInTheDocument();
-		expect(leases.getByText("Ready, 8 min left, Mac VM")).toBeInTheDocument();
-		expect(leases.getByText(/start an agent on Mac/)).toBeInTheDocument();
-	});
-
 	it("saves a lease limit", async () => {
-		const { source } = renderDevice("link-mac");
+		const { source } = renderApp();
 		const save = vi.spyOn(source, "setDeviceSettings");
-		const hosts = within(await screen.findByRole("region", { name: "Test hosts on Mac" }));
-		fireEvent.click(hosts.getByRole("combobox", { name: "Ends when idle, 10 min" }));
+		const mac = await openCard("Mac");
+		fireEvent.click(mac.getByRole("combobox", { name: "Ends when idle, 10 min" }));
 		const twenty = (await screen.findAllByRole("option")).find(
 			(o) => o.textContent === "20 min"
 		)!;
@@ -210,6 +174,35 @@ describe("a device's test hosts", () => {
 				})
 			)
 		);
+	});
+
+	it("can't change a device that doesn't answer", async () => {
+		renderApp({ scenario: "peer_offline" });
+		const devbox = await openCard("devbox");
+		expect(devbox.getByRole("checkbox", { name: "Host Linux on devbox" })).toHaveAttribute(
+			"aria-disabled",
+			"true"
+		);
+		expect(devbox.getAllByText("Connect to devbox to change it.").length).toBeGreaterThan(0);
+	});
+
+	it("is left out when the device doesn't offer test hosts", async () => {
+		renderApp({ edit: noTestHosts });
+		await screen.findByRole("button", { name: "Settings" });
+		const dialog = await openDeviceTab("Mac");
+		await within(dialog).findByRole("region", { name: "Connection" });
+		expect(within(dialog).queryByRole("region", { name: "Test machines on Mac" })).toBeNull();
+	});
+});
+
+describe("a device's leases", () => {
+	it("shows on the device's page", async () => {
+		renderDevice("link-mac");
+		const leases = within(await screen.findByRole("region", { name: "Leases on Mac" }));
+		expect(leases.getByText("iOS Simulator for Build a signed bundle")).toBeInTheDocument();
+		expect(leases.getByText("Ready, 8 min left, Mac VM")).toBeInTheDocument();
+		expect(leases.getByText(/start an agent on Mac/)).toBeInTheDocument();
+		expect(screen.queryByRole("region", { name: "Test machines on Mac" })).toBeNull();
 	});
 
 	it("ends a lease after asking", async () => {
@@ -232,7 +225,6 @@ describe("a device's test hosts", () => {
 			},
 		});
 		await screen.findByRole("region", { name: "Restart Mac" });
-		expect(screen.queryByRole("region", { name: "Test hosts on Mac" })).toBeNull();
 		expect(screen.queryByRole("region", { name: "Leases on Mac" })).toBeNull();
 	});
 });

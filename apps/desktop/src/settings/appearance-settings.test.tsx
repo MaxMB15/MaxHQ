@@ -7,6 +7,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import App from "@/App";
 import { setThemeChoice } from "@/app/theme";
 import { mockSource } from "@/data/mock-source";
+import { openSettingsWindow } from "@/test/settings";
 import { FixedNow } from "@maxhq/shared/lib/clock";
 import { NOW } from "@maxhq/shared/test/build";
 import { setLanguageChoice, configureLanguage } from "@maxhq/shared/i18n";
@@ -28,7 +29,7 @@ const choose = async (picker: HTMLElement, label: string) => {
 };
 
 describe("the appearance settings page", () => {
-	it("sits in the App group, and the search finds it by its words", async () => {
+	it("sits in General, and the search finds it by its words", async () => {
 		render(
 			<FixedNow value={NOW}>
 				<App
@@ -38,24 +39,21 @@ describe("the appearance settings page", () => {
 			</FixedNow>
 		);
 		await screen.findAllByRole("button", { name: /devbox/ });
-		fireEvent.click(screen.getByRole("button", { name: "Settings" }));
-		const nav = await screen.findByRole("navigation", { name: "Settings pages" });
+		const { dialog, nav } = await openSettingsWindow();
 		fireEvent.change(within(nav).getByRole("searchbox", { name: "Search settings" }), {
 			target: { value: "dark" },
 		});
-		const app = within(nav).getByRole("group", { name: "App" });
-		const [page, ...rest] = within(app).getAllByRole("button");
-		expect(rest).toEqual([]);
-		expect(page).toHaveTextContent(/^Appearance/);
-		fireEvent.click(page!);
-		const dialog = screen.getByRole("dialog", { name: "Settings" });
-		const colors = within(within(dialog).getByRole("region", { name: "Colors" }));
-		expect(colors.getByRole("combobox", { name: "Theme, System" })).toBeInTheDocument();
+		expect(within(nav).getByRole("button", { name: "General" })).toBeVisible();
+		expect(within(nav).queryByRole("button", { name: "Notifications" })).toBeNull();
+		fireEvent.click(within(nav).getByRole("button", { name: /^Appearance/ }));
+		const card = within(within(dialog).getByRole("region", { name: "Appearance" }));
+		expect(card.getByRole("combobox", { name: "Theme, System" })).toBeInTheDocument();
+		expect(within(dialog).queryByRole("region", { name: "Updates" })).toBeNull();
 	});
 
 	it("starts on System, and shows and saves the theme you pick", async () => {
 		render(<AppearanceSettingsPage />);
-		const page = within(screen.getByRole("region", { name: "Colors" }));
+		const page = within(screen.getByRole("region", { name: "Appearance" }));
 		await choose(page.getByRole("combobox", { name: "Theme, System" }), "Light");
 		expect(document.documentElement.dataset.theme).toBe("light");
 		expect(localStorage.getItem(THEME_KEY)).toBe("light");

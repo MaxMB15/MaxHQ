@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026 Max Boksem
 
-// The dispatcher's own settings on the Dispatcher settings page. Act
+// The dispatcher's own settings in the Dispatcher card in Settings. Act
 // directly: on, the dispatcher makes safe changes at once and leaves a card
 // with Undo under its answer; off, every change waits in its plan until you
 // confirm it. New chat after a pause: how long after a chat's last message
@@ -13,7 +13,7 @@ import { useState } from "react";
 import { useServices, useView } from "@/app/services";
 import { Switch } from "@/components/ui/switch";
 import { Picker } from "@/new-agent/picker";
-import { Row, Section, StatusNote } from "@/settings/controls";
+import { Part, Row, StatusNote } from "@/settings/controls";
 import { failureOf, type Note } from "@/settings/result";
 import type { DeviceId } from "@maxhq/shared/bindings";
 import { actsDirectly } from "@maxhq/shared/dispatch/action";
@@ -74,45 +74,43 @@ const useSetting = <K extends keyof DeviceFields>(
 	return { shown, note, save };
 };
 
-/** The Changes section, with the switch for `device`'s dispatcher. */
-export const ActsDirectlySection = ({ device }: { device: DeviceId }) => {
+/** The Act directly row, with the switch for `device`'s dispatcher. */
+export const ActsDirectlyRow = ({ device }: { device: DeviceId }) => {
 	useI18n();
 	const view = useView((s) => s.view);
 	const known = actsDirectly(view, device);
 	const { shown, note, save } = useSetting(device, "dispatcher_acts", known);
 	return (
-		<Section title={translate("Changes")}>
-			<Row
-				title={translate("Act directly")}
-				sub={
-					known === null
-						? tooOld(view, device)
-						: translate(
-								"The dispatcher changes settings, agents and tasks without asking first. Deleting, stopping busy agents and granting permissions still ask."
-							)
-				}
-			>
-				<StatusNote note={note} />
-				<Switch
-					aria-label={translate("Act directly")}
-					checked={shown ?? false}
-					disabled={known === null}
-					onCheckedChange={(value) => void save(value)}
-				/>
-			</Row>
-		</Section>
+		<Row
+			title={translate("Act directly")}
+			sub={
+				known === null
+					? tooOld(view, device)
+					: translate(
+							"The dispatcher changes settings, agents and tasks without asking first. Deleting, stopping busy agents and granting permissions still ask."
+						)
+			}
+		>
+			<StatusNote note={note} />
+			<Switch
+				aria-label={translate("Act directly")}
+				checked={shown ?? false}
+				disabled={known === null}
+				onCheckedChange={(value) => void save(value)}
+			/>
+		</Row>
 	);
 };
 
-/** The Chats section, with the pause after which `device`'s dispatcher starts a fresh chat. */
-export const ChatGapSection = ({ device }: { device: DeviceId }) => {
+/** The Chats part, with the pause after which `device`'s dispatcher starts a fresh chat. */
+export const ChatGapPart = ({ device }: { device: DeviceId }) => {
 	useI18n();
 	const view = useView((s) => s.view);
 	const known = chatGap(view, device);
 	const { shown, note, save } = useSetting(device, "chat_gap_minutes", known);
 	const minutes = shown ?? DEFAULT_CHAT_GAP_MINUTES;
 	return (
-		<Section title={translate("Chats")} hint={translate("30 minutes by default")}>
+		<Part title={translate("Chats")} hint={translate("30 minutes by default")}>
 			<Row
 				title={translate("New chat after a pause")}
 				sub={
@@ -132,6 +130,6 @@ export const ChatGapSection = ({ device }: { device: DeviceId }) => {
 					disabled={known === null}
 				/>
 			</Row>
-		</Section>
+		</Part>
 	);
 };

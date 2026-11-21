@@ -7,6 +7,7 @@ import { describe, expect, it, vi } from "vitest";
 import App from "@/App";
 import { ServicesProvider } from "@/app/services";
 import { mockSource } from "@/data/mock-source";
+import { openSettingsWindow } from "@/test/settings";
 import type { Entity } from "@maxhq/shared/bindings";
 import type { DataSource } from "@maxhq/shared/data/source";
 import { DOWNLOADING_MODEL, MAC_SERVER, OLLAMA_URL } from "@maxhq/shared/data/mock-local-models";
@@ -67,20 +68,14 @@ describe("the Local models page in the settings", () => {
 			</FixedNow>
 		);
 		await screen.findAllByRole("button", { name: /devbox/ });
-		fireEvent.click(screen.getByRole("button", { name: "Settings" }));
-		const nav = await screen.findByRole("navigation", { name: "Settings pages" });
+		const { dialog, nav } = await openSettingsWindow();
 		const field = within(nav).getByRole("searchbox", { name: "Search settings" });
+		const views = () => within(within(nav).getByRole("group", { name: "Their own views" }));
 		for (const words of ["ollama", "llama.cpp", "GPU", "KV cache"]) {
 			fireEvent.change(field, { target: { value: words } });
-			const app = within(nav).getByRole("group", { name: "App" });
-			expect(within(app).getByRole("button", { name: /^Local models/ }), words).toBeVisible();
+			expect(views().getByRole("button", { name: /^Local models/ }), words).toBeVisible();
 		}
-		fireEvent.click(
-			within(within(nav).getByRole("group", { name: "App" })).getByRole("button", {
-				name: /^Local models/,
-			})
-		);
-		const dialog = await screen.findByRole("dialog", { name: "Settings" });
+		fireEvent.click(views().getByRole("button", { name: /^Local models/ }));
 		expect(
 			await within(dialog).findByRole("region", { name: "Hardware of Mac" })
 		).toBeInTheDocument();

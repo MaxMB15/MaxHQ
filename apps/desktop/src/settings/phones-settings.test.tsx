@@ -6,6 +6,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import App from "@/App";
 import { mockSource } from "@/data/mock-source";
+import { openDeviceTab } from "@/test/settings";
 import type { DeviceId } from "@maxhq/shared/bindings";
 import { DEVBOX, MAC } from "@maxhq/shared/data/mock-view";
 import { FixedNow } from "@maxhq/shared/lib/clock";
@@ -34,14 +35,7 @@ const openPhones = async (networkOn?: DeviceId) => {
 		</FixedNow>
 	);
 	await screen.findAllByRole("button", { name: /devbox/ });
-	fireEvent.click(screen.getByRole("button", { name: "Settings" }));
-	const nav = await screen.findByRole("navigation", { name: "Settings pages" });
-	fireEvent.click(
-		within(within(nav).getByRole("group", { name: "App" })).getByRole("button", {
-			name: "Phones",
-		})
-	);
-	const dialog = await screen.findByRole("dialog", { name: "Settings" });
+	const dialog = await openDeviceTab("Phones");
 	return {
 		source,
 		add: within(await within(dialog).findByRole("region", { name: "Add phone" })),
@@ -58,9 +52,7 @@ describe("Phones settings", () => {
 		// Both devices are connected, and the line below says why the phone can't reach one.
 		expect(add.queryByText("Not connected")).not.toBeInTheDocument();
 		expect(
-			add.getByText(
-				"MacBook Pro: Turn on Network access on its page to pair a phone with it."
-			)
+			add.getByText("MacBook Pro: Turn on Network access on its tab to pair a phone with it.")
 		).toBeInTheDocument();
 
 		fireEvent.click(add.getByRole("button", { name: "Show the code" }));
@@ -168,9 +160,10 @@ describe("Phones settings", () => {
 				<App source={source} ui={ui} />
 			</FixedNow>
 		);
-		const phones = within(
-			await screen.findByRole("region", { name: "Phone settings for devbox" })
-		);
+		fireEvent.click(await screen.findByRole("button", { name: "Settings for devbox" }));
+		const dialog = await screen.findByRole("dialog", { name: "Settings" });
+		const phones = within(within(dialog).getByRole("region", { name: "Connection" }));
+		await phones.findByRole("textbox", { name: "Address for the phone" });
 		const field = phones.getByRole("textbox", { name: "Address for the phone" });
 		fireEvent.change(field, { target: { value: " devbox.example.net:2200 " } });
 		fireEvent.keyDown(field, { key: "Enter" });
