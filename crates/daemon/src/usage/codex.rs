@@ -11,6 +11,7 @@ pub(crate) mod account;
 mod app_server;
 pub mod limits;
 pub mod models;
+pub(crate) mod reset;
 
 use std::collections::HashMap;
 use std::ffi::OsStr;
@@ -192,6 +193,7 @@ mod tests {
             source: UsageSource::CodexRollout,
             limits: Vec::new(),
             complete: false,
+            reset_credits: None,
         };
         let mut seen = ROLLOUTS.subscribe();
         report_rollout(account, reading(20));

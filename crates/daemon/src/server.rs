@@ -46,6 +46,7 @@ use crate::db::Db;
 use crate::hub::{Command, Hub, Start, Subscription};
 use crate::phones::PHONE_CANT;
 use crate::session::{Client, Sessions};
+use crate::terminals::access::Caller;
 use crate::transfer::{Route, Transfers};
 use crate::tunnel::{self, ClientTunnels, Gone, Out, Tunnels, Writer};
 use crate::{acp_agents, codesign, secrets, workspace};
@@ -75,6 +76,10 @@ const NOT_FOR_NOTICES: &str = "Only the MaxHQ app and phones that proved their k
 /// the app or a proven phone.
 const NOT_FOR_CURSOR_RULES: &str = "Only the MaxHQ app and phones that proved their keys may \
                                     read or change Cursor's rules on this device.";
+
+/// The refusal for spending a banked reset from anything but the app.
+const NOT_FOR_RESETS: &str = "Only the MaxHQ desktop app may use a Codex reset, after you \
+                              confirm it there.";
 
 /// The answer to a request whose part of `maxd` isn't built yet.
 pub fn not_yet() -> ActionOutcome {
@@ -1374,6 +1379,20 @@ impl Connection {
             }
             message @ ClientMessage::CursorRules { .. } => {
                 self.refuse(&message, ErrorCode::NotAllowed, NOT_FOR_CURSOR_RULES)
+                    .await
+            }
+            // A reset can't be undone, so only the app spends one, for a
+            // click you confirmed. Not a phone, whatever its switch says,
+            // and never agents' tools or a link from another device.
+            ClientMessage::UseResetCredit { key, account }
+                if matches!(self.terminal_caller(), Some(Caller::App)) =>
+            {
+                let spend = crate::usage::codex::reset::use_credit(self.hub.clone(), key, account);
+                self.answer_when(key, tokio::spawn(spend));
+                Ok(())
+            }
+            message @ ClientMessage::UseResetCredit { .. } => {
+                self.refuse(&message, ErrorCode::NotAllowed, NOT_FOR_RESETS)
                     .await
             }
             // A phone without its switch on never gets here for the actions
@@ -3258,6 +3277,56 @@ pub(crate) mod tests {
     }
 
     #[tokio::test]
+    async fn only_the_app_may_use_a_codex_reset() {
+        let served = serve();
+        let reset = || ClientMessage::UseResetCredit {
+            key: IdempotencyKey::generate(),
+            account: maxhq_protocol::ids::AccountId::derive("codex"),
+        };
+
+        // Agents' tools, the dispatcher's among them, can't.
+        let mut tools = TestClient::connect(&served.socket).await;
+        let ClientMessage::Hello(mut hello) = hello(ProtocolRange::OURS) else {
+            unreachable!()
+        };
+        hello.role = ClientRole::Mcp;
+        tools.send(&ClientMessage::Hello(hello)).await;
+        assert!(matches!(tools.recv().await, ServerMessage::Hello(_)));
+        tools.send(&reset()).await;
+        assert!(matches!(
+            tools.recv().await,
+            ServerMessage::Error {
+                code: ErrorCode::NotAllowed,
+                ..
+            }
+        ));
+
+        // Nor an app that proved no key.
+        let (mut unproven, _) = TestClient::unproven(&served.socket).await;
+        let message = reset();
+        unproven.send(&message).await;
+        let key = message.action_key().unwrap();
+        let outcome = unproven.outcome(key).await;
+        assert!(
+            matches!(&outcome, ActionOutcome::Refused { reason } if reason != NOT_FOR_RESETS),
+            "{outcome:?}"
+        );
+
+        // The app gets through to the spend, which knows no such account
+        // here, so nothing starts.
+        let (mut app, _) = TestClient::greeted(&served.socket).await;
+        let message = reset();
+        app.send(&message).await;
+        let outcome = app.outcome(message.action_key().unwrap()).await;
+        assert_eq!(
+            outcome,
+            ActionOutcome::Refused {
+                reason: "maxd doesn't know that account.".into()
+            }
+        );
+    }
+
+    #[tokio::test]
     async fn only_the_app_may_set_or_delete_acp_agents() {
         let served = serve();
         let id = maxhq_protocol::ids::AcpAgentId::derive("gemini");
@@ -3952,6 +4021,18 @@ pub(crate) mod tests {
             );
         }
         assert!(!phones.everything(phone), "the phone can't turn it on");
+        // Nor use a Codex reset, which only the app does.
+        let reset = || ClientMessage::UseResetCredit {
+            key: IdempotencyKey::generate(),
+            account: AccountId::derive("codex"),
+        };
+        let message = reset();
+        own.send(&message).await;
+        let answer = own.recv().await;
+        assert!(
+            refused_with(&message, &answer, NOT_FOR_RESETS),
+            "{answer:?}"
+        );
         // A sign-in the Mac began can still be read and stopped from it, an
         // agent can still be set to a mode that asks, and the phone can
         // still have this device look at what it hosts.
@@ -4066,6 +4147,14 @@ pub(crate) mod tests {
             );
         }
         assert!(phones.everything(phone));
+        // Nor use a Codex reset, whatever its switch says.
+        let message = reset();
+        own.send(&message).await;
+        let answer = own.recv().await;
+        assert!(
+            refused_with(&message, &answer, NOT_FOR_RESETS),
+            "{answer:?}"
+        );
         // Nor send a maxd no release signed, which only the Mac builds.
         let unsigned = ClientMessage::InstallUpdate {
             key: key("unsigned"),

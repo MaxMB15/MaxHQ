@@ -3,7 +3,8 @@
 
 //! Turns the rate limits Codex reports into usage windows. The app-server
 //! names fields in camel case and rollouts in snake case, and both give a
-//! limit a primary and a secondary window.
+//! limit a primary and a secondary window. The app-server also says how
+//! many resets the account has banked, which a rollout doesn't.
 
 use maxhq_protocol::model::{Usage, UsagePeriod, UsageSource, UsageWindow};
 use maxhq_protocol::time::Timestamp;
@@ -36,6 +37,10 @@ pub struct Reading {
     /// shown is gone. The app-server reports them all, and a rollout only
     /// the one its session used.
     pub complete: bool,
+    /// The resets the account has banked, when the report said. A reading
+    /// that doesn't say leaves the count to the hub, which keeps the last
+    /// one read.
+    pub reset_credits: Option<u32>,
 }
 
 /// The field names in one format.
@@ -88,7 +93,18 @@ pub fn from_app_server(result: &Value, checked_at: Timestamp) -> Reading {
         source: UsageSource::CodexAppServer,
         limits,
         complete: true,
+        reset_credits: reset_credits(result),
     }
+}
+
+/// The banked resets in a rate-limit result, read with
+/// `excludeResetCreditDetails`, so only the count comes back.
+fn reset_credits(result: &Value) -> Option<u32> {
+    let count = result
+        .get("rateLimitResetCredits")?
+        .get("availableCount")?
+        .as_u64()?;
+    Some(u32::try_from(count).unwrap_or(u32::MAX))
 }
 
 /// The limit in a `token_count` event's `rate_limits`, written at
@@ -106,11 +122,15 @@ pub fn from_rollout(rate_limits: &Value, checked_at: Timestamp) -> Option<Readin
         source: UsageSource::CodexRollout,
         limits: vec![limit(id, rate_limits, &ROLLOUT)],
         complete: false,
+        reset_credits: None,
     })
 }
 
 /// The usage to show once `reading` arrives, given what showed before. A
-/// reading older than that changes nothing.
+/// reading older than that changes nothing. The count of banked resets is
+/// the reading's own and isn't carried here: a count carried with a newer
+/// reading would win over a newer count read after a reset was spent, so
+/// the hub keeps the last count read instead.
 pub fn merge(earlier: Option<Usage>, reading: &Reading) -> Option<Usage> {
     if let Some(shown) = &earlier
         && shown.checked_at > reading.checked_at
@@ -138,6 +158,7 @@ pub fn merge(earlier: Option<Usage>, reading: &Reading) -> Option<Usage> {
         checked_at: reading.checked_at,
         source: reading.source,
         windows,
+        reset_credits: reading.reset_credits,
     })
 }
 
@@ -260,6 +281,7 @@ mod tests {
                 window(Some("codex_premium"), 10_080, 77.0, 9),
                 window(Some("codex_retired"), 10_080, 5.0, 9),
             ],
+            reset_credits: Some(5),
         };
         let usage = merge(Some(earlier), &app_server_reading()).unwrap();
         let scopes: Vec<_> = usage
@@ -304,6 +326,37 @@ mod tests {
 
         let older = from_rollout(&rate_limits, Timestamp(10)).unwrap();
         assert_eq!(merge(shown.clone(), &older), shown);
+    }
+
+    #[test]
+    fn the_banked_resets_come_from_the_app_server_only() {
+        let usage = merge(None, &app_server_reading()).unwrap();
+        assert_eq!(usage.reset_credits, Some(2), "the fixture banks two");
+
+        // An app-server that doesn't say leaves the count unset.
+        let result = json!({ "rateLimits": { "limitId": "codex", "primary": null } });
+        let reading = from_app_server(&result, Timestamp(2_000));
+        assert_eq!(reading.reset_credits, None);
+        assert_eq!(
+            merge(Some(usage.clone()), &reading).unwrap().reset_credits,
+            None
+        );
+
+        // A rollout never says, and leaves the count to the hub.
+        let rate_limits = json!({
+            "limit_id": "codex",
+            "primary": { "used_percent": 5.0, "window_minutes": 300, "resets_at": 1 }
+        });
+        let rollout = from_rollout(&rate_limits, Timestamp(3_000)).unwrap();
+        assert_eq!(rollout.reset_credits, None);
+        assert_eq!(merge(Some(usage), &rollout).unwrap().reset_credits, None);
+
+        // None left reads as zero.
+        let result = json!({ "rateLimitResetCredits": { "availableCount": 0, "credits": null } });
+        assert_eq!(
+            from_app_server(&result, Timestamp(1)).reset_credits,
+            Some(0)
+        );
     }
 
     #[test]

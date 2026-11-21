@@ -1556,5 +1556,19 @@
 	"Package manager hooks": "Hooks del gestor de paquetes",
 	"Package manager hooks run as you when packages install.": "Los hooks del gestor de paquetes se ejecutan con tu usuario cuando se instalan paquetes.",
 	"Remember for this project": "Recordar para este proyecto",
-	"The dev container sets what runs when it builds and starts, with your files.": "El contenedor de desarrollo fija lo que se ejecuta al construirse y arrancar, con tus archivos."
+	"The dev container sets what runs when it builds and starts, with your files.": "El contenedor de desarrollo fija lo que se ejecuta al construirse y arrancar, con tus archivos.",
+	"Couldn't use a reset. {{reason}}.": "No se pudo usar un reinicio. {{reason}}.",
+	"No limit needs a reset right now, so nothing was spent.": "Ningún límite necesita un reinicio ahora mismo, así que no se ha gastado nada.",
+	"No resets left.": "No quedan reinicios.",
+	"Reset used. This account's Codex limits start over now.": "Reinicio usado. Los límites de Codex de esta cuenta empiezan de nuevo ahora.",
+	"The device gave an answer MaxHQ doesn't know. Check the count before trying again.": "El dispositivo dio una respuesta que MaxHQ no conoce. Comprueba el número antes de volver a intentarlo.",
+	"This spends 1 of your {{count, number}} banked resets and resets this account's Codex limits now. It can't be undone._many": "Esto gasta 1 de tus {{count, number}} reinicios acumulados y reinicia ahora los límites de Codex de esta cuenta. No se puede deshacer.",
+	"This spends 1 of your {{count, number}} banked resets and resets this account's Codex limits now. It can't be undone._one": "Esto gasta tu único reinicio acumulado y reinicia ahora los límites de Codex de esta cuenta. No se puede deshacer.",
+	"This spends 1 of your {{count, number}} banked resets and resets this account's Codex limits now. It can't be undone._other": "Esto gasta 1 de tus {{count, number}} reinicios acumulados y reinicia ahora los límites de Codex de esta cuenta. No se puede deshacer.",
+	"Use a Codex reset?": "¿Usar un reinicio de Codex?",
+	"Use reset": "Usar reinicio",
+	"Using a reset…": "Usando un reinicio…",
+	"{{count, number}} reset banked_many": "{{count, number}} reinicios acumulados",
+	"{{count, number}} reset banked_one": "{{count, number}} reinicio acumulado",
+	"{{count, number}} reset banked_other": "{{count, number}} reinicios acumulados"
 }

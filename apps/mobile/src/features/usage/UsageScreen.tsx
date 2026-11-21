@@ -14,6 +14,7 @@ import { ScrollView, StyleSheet, Text, View } from "react-native";
 import type { Timestamp } from "@maxhq/shared/bindings";
 import { useNow } from "@maxhq/shared/lib/clock";
 import { formatAgo, formatPercent } from "@maxhq/shared/status/format";
+import { resetCreditsLine } from "@maxhq/shared/status/reset-credits";
 import {
 	accountName,
 	accountWindows,
@@ -118,6 +119,8 @@ const AccountSection = ({
 	const blocking = blockingWindow(account)?.label;
 	const failureNote = planNote(view, plan, now);
 	const note = weekNote(windows, now);
+	// Only the desktop app spends a reset, so the phone shows the count alone.
+	const banked = resetCreditsLine(account);
 	return (
 		<View style={[styles.account, !first && styles.line, limited && styles.limited]}>
 			<View style={styles.head}>
@@ -132,6 +135,7 @@ const AccountSection = ({
 				<WindowRow key={w.label} window={w} now={now} blocking={blocking === w.label} />
 			))}
 			{note ? <Text style={[styles.note, styles.busyText]}>{note}</Text> : null}
+			{banked ? <Text style={styles.note}>{banked}</Text> : null}
 			{failureNote ? <Text style={styles.note}>{failureNote}</Text> : null}
 		</View>
 	);

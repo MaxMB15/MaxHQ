@@ -1,12 +1,18 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026 Max Boksem
 
-import { fireEvent, render, screen, within } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { describe, expect, it, vi } from "vitest";
 
+import { ServicesProvider } from "@/app/services";
+import { ConfirmHost } from "@/components/confirm";
+import { type AccountId, type ActionOutcome, RESET_CREDITS_SINCE } from "@maxhq/shared/bindings";
 import { mockSource } from "@maxhq/shared/data/mock-source";
+import { CODEX, MAC } from "@maxhq/shared/data/mock-view";
+import type { Result } from "@maxhq/shared/data/request-source";
 import { usagePlans } from "@maxhq/shared/status/usage-text";
 import { MIN, NOW } from "@maxhq/shared/test/build";
+import { createUiStore } from "@maxhq/shared/ui/store";
 import { applySnapshot } from "@maxhq/shared/view/replica";
 
 import { AccountSection, Bar } from "./usage";
@@ -90,6 +96,131 @@ describe("AccountSection", () => {
 			/>
 		);
 		expect(screen.queryByText("By model")).toBeNull();
+	});
+});
+
+/** The sample view with the Codex Pro login's resets banked and the Mac's maxd at `protocol`. */
+const banked = async (count: number, protocol: number = RESET_CREDITS_SINCE) => {
+	const snapshot = await mockSource({ now: () => NOW, tick: false }).snapshot();
+	const view = applySnapshot({
+		...snapshot,
+		entities: snapshot.entities.map((e) => {
+			if (e.entity === "account" && e.id === CODEX && e.usage) {
+				return { ...e, usage: { ...e.usage, reset_credits: count } };
+			}
+			if (e.entity === "device_link" && e.device === MAC) return { ...e, protocol };
+			return e;
+		}),
+	});
+	const account = view.tables.account.get(CODEX)!;
+	const plan = usagePlans(view).find((p) => p.account.vendor === "codex")!;
+	return { view, plan: { ...plan, account } };
+};
+
+type Spend = (account: AccountId) => Promise<Result<ActionOutcome>>;
+
+/** The Codex section in a window whose resets go to `useResetCredit`. */
+const renderBanked = async (useResetCredit: Spend, count = 2, protocol?: number) => {
+	const { view, plan } = await banked(count, protocol);
+	const source = { ...mockSource({ now: () => NOW, tick: false }), useResetCredit };
+	render(
+		<ServicesProvider source={source} ui={createUiStore()}>
+			<AccountSection plan={plan} view={view} now={NOW} first />
+			<ConfirmHost />
+		</ServicesProvider>
+	);
+	return screen.getByRole("region", { name: "Codex Pro" });
+};
+
+const RESET: Result<ActionOutcome> = {
+	status: "ok",
+	data: { status: "reset_credit", outcome: "reset" },
+};
+
+describe("banked resets", () => {
+	it("shows how many are banked, and Cancel spends nothing", async () => {
+		const spend = vi.fn<Spend>(async () => RESET);
+		const section = await renderBanked(spend);
+		expect(within(section).getByText("2 resets banked")).toBeInTheDocument();
+
+		fireEvent.click(within(section).getByRole("button", { name: "Use reset" }));
+		const dialog = await screen.findByRole("alertdialog");
+		expect(within(dialog).getByText("Use a Codex reset?")).toBeInTheDocument();
+		expect(
+			within(dialog).getByText(
+				"This spends 1 of your 2 banked resets and resets this account's Codex limits now. It can't be undone."
+			)
+		).toBeInTheDocument();
+		const cancel = within(dialog).getByRole("button", { name: "Cancel" });
+		await waitFor(() => expect(cancel).toHaveFocus());
+		fireEvent.click(cancel);
+		await waitFor(() => expect(screen.queryByRole("alertdialog")).toBeNull());
+		expect(spend).not.toHaveBeenCalled();
+		expect(within(section).queryByRole("status")).toBeNull();
+	});
+
+	it("spends one once you confirm and shows what came of it", async () => {
+		const spend = vi.fn<Spend>(async () => RESET);
+		const section = await renderBanked(spend);
+
+		fireEvent.click(within(section).getByRole("button", { name: "Use reset" }));
+		const dialog = await screen.findByRole("alertdialog");
+		fireEvent.click(within(dialog).getByRole("button", { name: "Use reset" }));
+
+		expect(
+			await within(section).findByText(
+				"Reset used. This account's Codex limits start over now."
+			)
+		).toBeInTheDocument();
+		expect(spend).toHaveBeenCalledTimes(1);
+		expect(spend).toHaveBeenCalledWith(CODEX);
+	});
+
+	it("can't be pressed again while a spend is out", async () => {
+		let answer: (result: Result<ActionOutcome>) => void = () => {};
+		const spend = vi.fn<Spend>(
+			() =>
+				new Promise((resolve) => {
+					answer = resolve;
+				})
+		);
+		const section = await renderBanked(spend, 1);
+
+		fireEvent.click(within(section).getByRole("button", { name: "Use reset" }));
+		const dialog = await screen.findByRole("alertdialog");
+		expect(
+			within(dialog).getByText(
+				"This spends your only banked reset and resets this account's Codex limits now. It can't be undone."
+			)
+		).toBeInTheDocument();
+		fireEvent.click(within(dialog).getByRole("button", { name: "Use reset" }));
+
+		const running = await within(section).findByRole("button", { name: "Using a reset…" });
+		expect(running).toBeDisabled();
+		await waitFor(() => expect(screen.queryByRole("alertdialog")).toBeNull());
+		// A second press asks nothing and sends nothing.
+		fireEvent.click(running);
+		expect(screen.queryByRole("alertdialog")).toBeNull();
+
+		answer({ status: "ok", data: { status: "reset_credit", outcome: "nothing_to_reset" } });
+		expect(
+			await within(section).findByText(
+				"No limit needs a reset right now, so nothing was spent."
+			)
+		).toBeInTheDocument();
+		expect(spend).toHaveBeenCalledTimes(1);
+	});
+
+	it("leaves Use reset out where the device's maxd can't spend one", async () => {
+		const section = await renderBanked(vi.fn<Spend>(), 2, RESET_CREDITS_SINCE - 1);
+		expect(within(section).getByText("2 resets banked")).toBeInTheDocument();
+		expect(within(section).queryByRole("button", { name: "Use reset" })).toBeNull();
+	});
+
+	it("says nothing about resets when none are banked", async () => {
+		const section = await renderBanked(vi.fn<Spend>(), 0);
+		expect(within(section).queryByText(/banked/)).toBeNull();
+		expect(within(section).queryByRole("button", { name: "Use reset" })).toBeNull();
 	});
 });
 

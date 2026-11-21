@@ -1746,6 +1746,13 @@ pub struct Usage {
     pub source: UsageSource,
     /// Every limit, the account's own first, shortest window first.
     pub windows: Vec<UsageWindow>,
+    /// How many rate-limit resets Codex holds banked for the account,
+    /// which [`crate::message::ClientMessage::UseResetCredit`] spends.
+    /// Unset for other vendors, when Codex didn't say, and from a `maxd`
+    /// from before [`crate::message::RESET_CREDITS_SINCE`]. Since
+    /// protocol 58.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reset_credits: Option<u32>,
 }
 
 /// Where a usage reading came from.

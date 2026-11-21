@@ -2659,6 +2659,13 @@ fn action_targets(merge: &Merge, action: &ClientMessage) -> Result<Vec<Target>, 
                 _ => Err(gone("That card")),
             }
         }
+        // Only the device whose folder holds the login spends its resets.
+        ClientMessage::UseResetCredit { account, .. } => {
+            match merge.store().get(&EntityKey::Account(*account)) {
+                Some(Entity::Account(found)) => device_targets(merge, found.device),
+                _ => Err(gone("This account")),
+            }
+        }
         // Fleet tools: a workspace's CLIs go to its device. The rest name
         // no device, so they go through `act_on`.
         ClientMessage::UpdateTools { tools, .. } => match tools.first().map(|tool| &tool.place) {

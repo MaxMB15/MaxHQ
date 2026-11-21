@@ -114,6 +114,7 @@ pub fn usage(body: &Value, checked_at: Timestamp) -> Option<Usage> {
         checked_at,
         source: UsageSource::CursorDashboard,
         windows,
+        reset_credits: None,
     })
 }
 

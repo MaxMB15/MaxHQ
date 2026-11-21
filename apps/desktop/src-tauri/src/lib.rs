@@ -178,6 +178,10 @@ pub fn specta_builder() -> Builder<tauri::Wry> {
             maxhq_protocol::message::DISPATCHER_CHATS_SINCE,
         )
         .constant("ARTIFACTS_SINCE", maxhq_protocol::message::ARTIFACTS_SINCE)
+        .constant(
+            "RESET_CREDITS_SINCE",
+            maxhq_protocol::message::RESET_CREDITS_SINCE,
+        )
 }
 
 /// The exporter settings for the generated file.

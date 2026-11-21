@@ -38,6 +38,7 @@ pub fn cached(state: &[u8], now: Timestamp) -> Option<Usage> {
         checked_at: fetched,
         source: UsageSource::ClaudeCache,
         windows,
+        reset_credits: None,
     })
 }
 

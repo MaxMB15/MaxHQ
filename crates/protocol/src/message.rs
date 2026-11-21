@@ -2284,6 +2284,19 @@ pub enum ClientMessage {
         call: CursorRuleCall,
     },
 
+    /// Spends one of a Codex account's banked rate-limit resets through
+    /// `codex app-server`, which resets the account's limits now and can't
+    /// be undone. The outcome is [`ActionOutcome::ResetCredit`]. Only the
+    /// app may send it, after you confirm, and only to the device the
+    /// account is on: phones, peer links and agents' tools are refused.
+    /// Since protocol 58, [`RESET_CREDITS_SINCE`].
+    UseResetCredit {
+        /// Makes a resend after a dropped connection safe.
+        key: IdempotencyKey,
+        /// The Codex account to reset.
+        account: AccountId,
+    },
+
     // Local models.
     /// Acts on the device's local models: probes, adds, tests or removes a
     /// server URL, downloads, pauses, resumes or deletes a model file, or
@@ -2379,6 +2392,7 @@ impl ClientMessage {
             Self::ListFolder { .. } | Self::MakeFolder { .. } => FOLDERS_SINCE,
             Self::Notices { .. } => NOTICES_SINCE,
             Self::CursorRules { .. } => CURSOR_RULES_SINCE,
+            Self::UseResetCredit { .. } => RESET_CREDITS_SINCE,
             Self::ActOnChat { .. } => DISPATCHER_CHATS_SINCE,
             Self::ModelAction { .. } => LOCAL_MODELS_SINCE,
             _ => OLDEST_PROTOCOL_VERSION,
@@ -2564,6 +2578,7 @@ impl ClientMessage {
             | Self::SessionEnd { key, .. }
             | Self::Notices { key, .. }
             | Self::CursorRules { key, .. }
+            | Self::UseResetCredit { key, .. }
             | Self::ModelAction { key, .. } => Some(*key),
             Self::Hello(_)
             | Self::Phone { .. }
@@ -3059,6 +3074,12 @@ pub const CURSOR_RULES_SINCE: u32 = 57;
 /// pass, so the app shows nothing to turn off.
 pub const ALLOWED_EDITS_SINCE: u32 = 57;
 
+/// The protocol version whose `maxd` first reports a Codex account's
+/// banked resets in [`crate::model::Usage::reset_credits`] and spends one
+/// for [`ClientMessage::UseResetCredit`]. An older one refuses the
+/// message, so the app hides the button. Since protocol 58.
+pub const RESET_CREDITS_SINCE: u32 = 58;
+
 /// When [`ClientMessage::TakeOver`] stops the terminal's CLI.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, Type, JsonSchema)]
 #[serde(rename_all = "snake_case")]
@@ -3530,6 +3551,13 @@ pub enum ActionOutcome {
         rules: CursorRules,
     },
 
+    /// What spending a banked reset came to, for
+    /// [`ClientMessage::UseResetCredit`]. Since protocol 58.
+    ResetCredit {
+        /// What Codex answered.
+        outcome: ResetCreditOutcome,
+    },
+
     // Local models.
     /// The server a [`ModelAction::AddServer`] added, which its probe fills
     /// in.
@@ -3550,6 +3578,22 @@ pub enum ActionOutcome {
     /// An outcome from a newer `maxd`. The action went through, and what
     /// it came to needs a newer app to show.
     Unknown,
+}
+
+/// What Codex answered when asked to spend a banked reset, from
+/// [`ActionOutcome::ResetCredit`]. Since protocol 58.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, Type, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum ResetCreditOutcome {
+    /// It spent one and reset the account's limits.
+    Reset,
+    /// No limit needed a reset, so it spent nothing.
+    NothingToReset,
+    /// The account has no resets left.
+    NoCredit,
+    /// The same request had already spent one, as when a dropped answer
+    /// was sent again. The limits are reset.
+    AlreadyRedeemed,
 }
 
 /// Where a CLI login stands, from [`ActionOutcome::CliLoginState`].

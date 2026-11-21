@@ -124,6 +124,9 @@ struct State {
     /// before a restart. The usage checks report accounts without it, so
     /// the hub puts it back.
     from_clis: HashMap<AccountId, FromCli>,
+    /// Each account's banked resets as last read, and when. A reading
+    /// that doesn't say, such as a rollout's, shows this count.
+    reset_credits: HashMap<AccountId, (Timestamp, u32)>,
     /// Where each account's models are kept across restarts, once `maxd`
     /// says. None in tests that don't need it.
     models_db: Option<Db>,
@@ -214,6 +217,7 @@ impl Hub {
                     ended_db: None,
                     taking_over: HashSet::new(),
                     from_clis: HashMap::new(),
+                    reset_credits: HashMap::new(),
                     models_db: None,
                     inboxes: HashMap::new(),
                     pulls: HashMap::new(),
@@ -1171,23 +1175,44 @@ impl State {
     }
 
     /// An account reported without models keeps the ones its CLI reported,
-    /// and keeps its CLI's usage while that's the newer reading.
-    fn with_cli_reports(&self, mut account: Account) -> Account {
-        let Some(reported) = self.from_clis.get(&account.id) else {
-            return account;
-        };
-        if account.models.is_empty() {
-            account.models.clone_from(&reported.models);
-        }
-        if let Some(usage) = &reported.usage {
-            let older = account
-                .usage
-                .as_ref()
-                .is_none_or(|current| current.checked_at < usage.checked_at);
-            if older {
-                account.usage = Some(usage.clone());
-                account.usage_failure = None;
+    /// and keeps its CLI's usage while that's the newer reading. Its usage
+    /// shows the banked resets last read from either.
+    fn with_cli_reports(&mut self, mut account: Account) -> Account {
+        let id = account.id;
+        let reported = self.from_clis.get(&id);
+        let cli_usage = reported.and_then(|reported| reported.usage.as_ref());
+        // A count moves only when it changes, so a count this shows on a
+        // later reading never outweighs one read after it.
+        for usage in account.usage.iter().chain(cli_usage) {
+            if let Some(count) = usage.reset_credits {
+                let last = self
+                    .reset_credits
+                    .entry(id)
+                    .or_insert((usage.checked_at, count));
+                if last.1 != count && last.0 <= usage.checked_at {
+                    *last = (usage.checked_at, count);
+                }
             }
+        }
+        if let Some(reported) = reported {
+            if account.models.is_empty() {
+                account.models.clone_from(&reported.models);
+            }
+            if let Some(usage) = &reported.usage {
+                let older = account
+                    .usage
+                    .as_ref()
+                    .is_none_or(|current| current.checked_at < usage.checked_at);
+                if older {
+                    account.usage = Some(usage.clone());
+                    account.usage_failure = None;
+                }
+            }
+        }
+        if let Some(usage) = &mut account.usage
+            && let Some((_, count)) = self.reset_credits.get(&id)
+        {
+            usage.reset_credits = Some(*count);
         }
         account
     }
@@ -1478,6 +1503,65 @@ mod tests {
         third.remember_models(Db::open(&path).unwrap());
         third.apply([Change::Upsert { value: account }]);
         assert!(models(&third, id).is_empty());
+    }
+
+    fn reset_credits(hub: &Hub, account: AccountId) -> Option<u32> {
+        match hub.get(&EntityKey::Account(account)) {
+            Some(Entity::Account(account)) => account.usage?.reset_credits,
+            other => panic!("no account: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn a_reading_that_doesnt_say_shows_the_last_banked_resets() {
+        let hub = hub();
+        let id = AccountId::derive("codex");
+        let usage = |at: u64, count: Option<u32>| Usage {
+            checked_at: Timestamp(at),
+            source: maxhq_protocol::model::UsageSource::CodexAppServer,
+            windows: Vec::new(),
+            reset_credits: count,
+        };
+        let account = |usage: Usage| Change::Upsert {
+            value: Entity::Account(Account {
+                id,
+                device: DeviceId::derive("test"),
+                vendor: Vendor::Codex,
+                label: "Codex".into(),
+                config_dir: "/home/dev/.codex".into(),
+                email: None,
+                organization: None,
+                plan: None,
+                models: Vec::new(),
+                usage: Some(usage),
+                usage_failure: None,
+                acp: None,
+                login: Default::default(),
+                origin: None,
+                model_server: None,
+            }),
+        };
+        hub.apply([account(usage(10, Some(2)))]);
+        assert_eq!(reset_credits(&hub, id), Some(2));
+
+        // A rollout says nothing, and the count stays.
+        hub.apply([account(usage(20, None))]);
+        assert_eq!(reset_credits(&hub, id), Some(2));
+
+        // The reading after a reset is spent wins, and an agent's reading
+        // after it that doesn't say keeps it.
+        hub.set_usage(id, usage(30, Some(1)));
+        assert_eq!(reset_credits(&hub, id), Some(1));
+        hub.set_usage(id, usage(40, None));
+        assert_eq!(reset_credits(&hub, id), Some(1));
+
+        // An older reading with another count changes nothing.
+        hub.apply([account(usage(25, Some(2)))]);
+        assert_eq!(reset_credits(&hub, id), Some(1));
+
+        // A newer one does.
+        hub.apply([account(usage(50, Some(0)))]);
+        assert_eq!(reset_credits(&hub, id), Some(0));
     }
 
     fn inbox(hub: &Hub) -> Inbox {

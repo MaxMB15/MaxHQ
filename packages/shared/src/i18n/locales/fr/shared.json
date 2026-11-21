@@ -1556,5 +1556,19 @@
 	"Package manager hooks": "Hooks du gestionnaire de paquets",
 	"Package manager hooks run as you when packages install.": "Les hooks du gestionnaire de paquets s'exécutent sous votre compte quand des paquets s'installent.",
 	"Remember for this project": "Mémoriser pour ce projet",
-	"The dev container sets what runs when it builds and starts, with your files.": "Le conteneur de développement définit ce qui s'exécute quand il se construit et démarre, avec vos fichiers."
+	"The dev container sets what runs when it builds and starts, with your files.": "Le conteneur de développement définit ce qui s'exécute quand il se construit et démarre, avec vos fichiers.",
+	"Couldn't use a reset. {{reason}}.": "Impossible d'utiliser une réinitialisation. {{reason}}.",
+	"No limit needs a reset right now, so nothing was spent.": "Aucune limite n'a besoin d'être réinitialisée pour l'instant, donc rien n'a été dépensé.",
+	"No resets left.": "Plus aucune réinitialisation en réserve.",
+	"Reset used. This account's Codex limits start over now.": "Réinitialisation utilisée. Les limites Codex de ce compte repartent de zéro maintenant.",
+	"The device gave an answer MaxHQ doesn't know. Check the count before trying again.": "L'appareil a donné une réponse que MaxHQ ne connaît pas. Vérifiez le nombre avant de réessayer.",
+	"This spends 1 of your {{count, number}} banked resets and resets this account's Codex limits now. It can't be undone._many": "Cela dépense 1 de vos {{count, number}} réinitialisations en réserve et remet à zéro maintenant les limites Codex de ce compte. Cette action est irréversible.",
+	"This spends 1 of your {{count, number}} banked resets and resets this account's Codex limits now. It can't be undone._one": "Cela dépense votre seule réinitialisation en réserve et remet à zéro maintenant les limites Codex de ce compte. Cette action est irréversible.",
+	"This spends 1 of your {{count, number}} banked resets and resets this account's Codex limits now. It can't be undone._other": "Cela dépense 1 de vos {{count, number}} réinitialisations en réserve et remet à zéro maintenant les limites Codex de ce compte. Cette action est irréversible.",
+	"Use a Codex reset?": "Utiliser une réinitialisation Codex ?",
+	"Use reset": "Utiliser la réinitialisation",
+	"Using a reset…": "Réinitialisation en cours…",
+	"{{count, number}} reset banked_many": "{{count, number}} réinitialisations en réserve",
+	"{{count, number}} reset banked_one": "{{count, number}} réinitialisation en réserve",
+	"{{count, number}} reset banked_other": "{{count, number}} réinitialisations en réserve"
 }

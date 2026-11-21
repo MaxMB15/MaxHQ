@@ -388,6 +388,7 @@ impl Manager {
             | ClientMessage::MakeFolder { .. }
             | ClientMessage::Notices { .. }
             | ClientMessage::CursorRules { .. }
+            | ClientMessage::UseResetCredit { .. }
             | ClientMessage::SessionRun { .. }
             | ClientMessage::SessionShare { .. }
             | ClientMessage::SessionCd { .. }

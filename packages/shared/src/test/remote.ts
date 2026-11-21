@@ -50,6 +50,7 @@ type RemoteCalls = Pick<
 	| "setProjectHidden"
 	| "removeCommandRule"
 	| "removeAllowedEdit"
+	| "useResetCredit"
 	| "gitIdentity"
 	| "windDown"
 	| "restartMaxd"
@@ -165,6 +166,10 @@ export const remoteCalls = (): RemoteCalls => ({
 	setProjectHidden: done,
 	removeCommandRule: done,
 	removeAllowedEdit: done,
+	useResetCredit: async () => ({
+		status: "ok",
+		data: { status: "reset_credit", outcome: "no_credit" },
+	}),
 	gitIdentity: async () => ({ name: null, email: null }),
 	windDown: done,
 	restartMaxd: async () => OK,

@@ -2131,6 +2131,24 @@
           ]
         },
         {
+          "description": "What spending a banked reset came to, for\n[`ClientMessage::UseResetCredit`]. Since protocol 58.",
+          "type": "object",
+          "properties": {
+            "outcome": {
+              "description": "What Codex answered.",
+              "$ref": "#/$defs/ResetCreditOutcome"
+            },
+            "status": {
+              "type": "string",
+              "const": "reset_credit"
+            }
+          },
+          "required": [
+            "status",
+            "outcome"
+          ]
+        },
+        {
           "description": "The server a [`ModelAction::AddServer`] added, which its probe fills\nin.",
           "type": "object",
           "properties": {
@@ -15877,6 +15895,31 @@
         }
       ]
     },
+    "ResetCreditOutcome": {
+      "description": "What Codex answered when asked to spend a banked reset, from\n[`ActionOutcome::ResetCredit`]. Since protocol 58.",
+      "oneOf": [
+        {
+          "description": "It spent one and reset the account's limits.",
+          "type": "string",
+          "const": "reset"
+        },
+        {
+          "description": "No limit needed a reset, so it spent nothing.",
+          "type": "string",
+          "const": "nothing_to_reset"
+        },
+        {
+          "description": "The account has no resets left.",
+          "type": "string",
+          "const": "no_credit"
+        },
+        {
+          "description": "The same request had already spent one, as when a dropped answer\nwas sent again. The limits are reset.",
+          "type": "string",
+          "const": "already_redeemed"
+        }
+      ]
+    },
     "ReviewState": {
       "description": "Where a PR's reviews leave it.",
       "oneOf": [
@@ -20151,6 +20194,15 @@
         "checked_at": {
           "description": "When the vendor reported these numbers, which can be earlier than\nwhen `maxd` read them from a cache.",
           "$ref": "#/$defs/Timestamp"
+        },
+        "reset_credits": {
+          "description": "How many rate-limit resets Codex holds banked for the account,\nwhich [`crate::message::ClientMessage::UseResetCredit`] spends.\nUnset for other vendors, when Codex didn't say, and from a `maxd`\nfrom before [`crate::message::RESET_CREDITS_SINCE`]. Since\nprotocol 58.",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint32",
+          "minimum": 0
         },
         "source": {
           "description": "Where the numbers came from.",

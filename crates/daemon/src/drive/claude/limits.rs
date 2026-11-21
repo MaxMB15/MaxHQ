@@ -66,6 +66,7 @@ pub fn usage(info: &Value, at: Timestamp) -> Option<Usage> {
         checked_at: at,
         source: UsageSource::ClaudeProbe,
         windows,
+        reset_credits: None,
     })
 }
 

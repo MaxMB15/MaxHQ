@@ -477,6 +477,7 @@ mod tests {
             checked_at: Timestamp::now(),
             source: UsageSource::CodexAppServer,
             windows: Vec::new(),
+            reset_credits: None,
         };
         hub.set_usage(home.account(hub.device().id), usage);
         let program = fake.program.clone();

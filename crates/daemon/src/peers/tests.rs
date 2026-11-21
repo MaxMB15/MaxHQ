@@ -945,6 +945,10 @@ async fn a_peer_link_carries_only_calls_wakes_and_answers() {
             device: b.id,
             call: maxhq_protocol::cursor_rules::CursorRuleCall::List,
         },
+        ClientMessage::UseResetCredit {
+            key: IdempotencyKey::generate(),
+            account: maxhq_protocol::ids::AccountId::derive("codex"),
+        },
     ]
     .into_iter()
     .chain(terminal_requests())

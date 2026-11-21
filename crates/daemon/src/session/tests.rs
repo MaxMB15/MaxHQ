@@ -1480,6 +1480,7 @@ async fn every_effect_a_driver_reports_is_carried_out() {
             period: UsagePeriod::Rolling,
             spend: None,
         }],
+        reset_credits: None,
     };
     let models = vec![ModelChoice {
         id: "opus".into(),

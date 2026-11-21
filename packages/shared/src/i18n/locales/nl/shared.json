@@ -1515,5 +1515,17 @@
 	"Package manager hooks": "Pakketbeheerder-hooks",
 	"Package manager hooks run as you when packages install.": "Pakketbeheerder-hooks draaien onder jouw account wanneer pakketten worden geïnstalleerd.",
 	"Remember for this project": "Onthouden voor dit project",
-	"The dev container sets what runs when it builds and starts, with your files.": "De dev container bepaalt wat er draait wanneer hij bouwt en start, met je bestanden."
+	"The dev container sets what runs when it builds and starts, with your files.": "De dev container bepaalt wat er draait wanneer hij bouwt en start, met je bestanden.",
+	"Couldn't use a reset. {{reason}}.": "Kon geen reset gebruiken. {{reason}}.",
+	"No limit needs a reset right now, so nothing was spent.": "Geen enkele limiet heeft nu een reset nodig, dus er is niets gebruikt.",
+	"No resets left.": "Geen resets meer over.",
+	"Reset used. This account's Codex limits start over now.": "Reset gebruikt. De Codex-limieten van dit account beginnen nu opnieuw.",
+	"The device gave an answer MaxHQ doesn't know. Check the count before trying again.": "Het apparaat gaf een antwoord dat MaxHQ niet kent. Controleer het aantal voordat je het opnieuw probeert.",
+	"This spends 1 of your {{count, number}} banked resets and resets this account's Codex limits now. It can't be undone._one": "Hiermee gebruik je je enige opgespaarde reset en beginnen de Codex-limieten van dit account nu opnieuw. Dit kan niet ongedaan worden gemaakt.",
+	"This spends 1 of your {{count, number}} banked resets and resets this account's Codex limits now. It can't be undone._other": "Hiermee gebruik je 1 van je {{count, number}} opgespaarde resets en beginnen de Codex-limieten van dit account nu opnieuw. Dit kan niet ongedaan worden gemaakt.",
+	"Use a Codex reset?": "Een Codex-reset gebruiken?",
+	"Use reset": "Reset gebruiken",
+	"Using a reset…": "Reset wordt gebruikt…",
+	"{{count, number}} reset banked_one": "{{count, number}} reset opgespaard",
+	"{{count, number}} reset banked_other": "{{count, number}} resets opgespaard"
 }
