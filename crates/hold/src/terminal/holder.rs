@@ -41,7 +41,7 @@ use tokio::signal::unix::{signal, SignalKind};
 use tokio::sync::{mpsc, watch};
 
 use super::marker::Cutoff;
-use super::marks::{Filter, Mark};
+use super::marks::{Filter, Kind, Mark};
 use super::osc::{Scanner, Set};
 use super::ring::{Ring, RING_BYTES};
 use super::wire::{self, FromHolder, ToHolder, Typed, CHUNK};
@@ -161,6 +161,7 @@ impl Started {
                 marks_gone: 0,
                 title: None,
                 cwd: None,
+                at_prompt: true,
                 password: false,
                 noted: false,
                 busy: launch.run,
@@ -286,6 +287,12 @@ struct State {
     marks_gone: u64,
     title: Option<String>,
     cwd: Option<String>,
+    /// Whether output now is the shell's own, where it says its folder:
+    /// before its first mark, or after a command's end and before its
+    /// prompt. Between the prompt and the end, the output is what you
+    /// typed and what the command printed, which could say any folder.
+    /// A shell that never marks stays here.
+    at_prompt: bool,
     password: bool,
     /// The transcript already says a password went at this prompt.
     noted: bool,
@@ -318,6 +325,7 @@ impl State {
         for (at, kind) in found {
             self.scan(&shown[scanned..at]);
             scanned = at;
+            self.at_prompt = matches!(kind, Kind::Done(_));
             self.marks.push_back(Placed {
                 offset: start + at as u64,
                 at: Timestamp::now(),
@@ -340,17 +348,20 @@ impl State {
         self.noted = false;
     }
 
-    /// Notes the title and folder `bytes` set.
+    /// Notes the title and folder `bytes` set. The folder counts only from
+    /// the shell at its prompt.
     fn scan(&mut self, bytes: &[u8]) {
         let Self {
             scanner,
             title,
             cwd,
+            at_prompt,
             ..
         } = self;
         scanner.feed(bytes, |set| match set {
             Set::Title(set) => *title = Some(set),
-            Set::Cwd(set) => *cwd = Some(set),
+            Set::Cwd(set) if *at_prompt => *cwd = Some(set),
+            Set::Cwd(_) => {}
         });
     }
 
@@ -944,5 +955,63 @@ mod tests {
         );
         // A title that goes away isn't news: the shell sets a new one.
         assert!(changes(&view(false, Some("vim")), &view(false, None)).is_empty());
+    }
+
+    fn state(nonce: Option<&str>) -> State {
+        State {
+            ring: Ring::new(RING_BYTES),
+            cutoff: None,
+            emulator: None,
+            scanner: Scanner::new(),
+            filter: Filter::new(nonce),
+            marks: VecDeque::new(),
+            marks_gone: 0,
+            title: None,
+            cwd: None,
+            at_prompt: true,
+            password: false,
+            noted: false,
+            busy: false,
+            cols: 80,
+            rows: 24,
+            phase: Phase::Running,
+            output_done: false,
+            ending: false,
+        }
+    }
+
+    #[test]
+    fn only_the_shell_at_its_prompt_moves_the_folder() {
+        let nonce = "0123456789abcdef0123456789abcdef";
+        let mark = |kind: &str| format!("\x1b]133;{kind};maxhq={nonce}\x07");
+        let folder = |path: &str| format!("\x1b]7;file://devbox{path}\x07");
+        let mut shell = state(Some(nonce));
+        // Before its first mark.
+        shell.keep(folder("/start").as_bytes());
+        assert_eq!(shell.cwd.as_deref(), Some("/start"));
+        // What a command prints, and what's typed at the prompt, say nothing.
+        shell.keep(format!("{}$ {}cat notes{}", mark("A"), mark("B"), mark("C")).as_bytes());
+        shell.keep(folder("/printed").as_bytes());
+        assert_eq!(shell.cwd.as_deref(), Some("/start"));
+        // After the command ends and before the next prompt, the shell does.
+        shell.keep(format!("{}{}{}$ ", mark("D;0"), folder("/moved"), mark("A")).as_bytes());
+        assert_eq!(shell.cwd.as_deref(), Some("/moved"));
+        shell.keep(folder("/typed").as_bytes());
+        shell.keep(format!("{}{}", mark("B"), folder("/typed")).as_bytes());
+        assert_eq!(shell.cwd.as_deref(), Some("/moved"));
+        let Some(Placed {
+            mark: Mark::Command { cwd },
+            ..
+        }) = shell.marks.get(2)
+        else {
+            panic!("no command mark: {:?}", shell.marks.len());
+        };
+        assert_eq!(cwd.as_deref(), Some("/start"));
+
+        // A shell with no marks says its folder whenever it likes.
+        let mut plain = state(None);
+        plain.keep(format!("{}{}", mark("A"), folder("/a")).as_bytes());
+        plain.keep(format!("{}{}", mark("C"), folder("/b")).as_bytes());
+        assert_eq!(plain.cwd.as_deref(), Some("/b"));
     }
 }
