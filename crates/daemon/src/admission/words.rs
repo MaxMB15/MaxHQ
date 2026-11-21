@@ -100,6 +100,7 @@ impl Words {
                 facts: self.facts.clone(),
                 rows: Vec::new(),
                 remember: None,
+                edit: None,
             }),
         }
     }

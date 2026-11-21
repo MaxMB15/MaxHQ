@@ -395,9 +395,75 @@ pub struct CommandRule {
     pub exact: bool,
 }
 
+/// A kind of file that decides what runs later, outside the agent: on
+/// your next commit, in CI, from your editor or when packages install.
+/// Where `maxd` decides an edit for an agent in Accept edits or Auto, a
+/// change to one asks first. Since protocol 57.
+#[derive(
+    Clone,
+    Copy,
+    Debug,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Hash,
+    Serialize,
+    Deserialize,
+    Type,
+    JsonSchema,
+)]
+#[serde(rename_all = "snake_case")]
+pub enum EditKind {
+    /// Git hook managers, such as `.husky/` or `lefthook.yml`.
+    GitHooks,
+    /// CI pipelines, such as `.github/workflows/`.
+    CiWorkflows,
+    /// Editor tasks and launch settings, such as `.vscode/tasks.json`.
+    EditorTasks,
+    /// Package manager hooks, such as `.pnpmfile.cjs`.
+    PackageHooks,
+    /// `.gitmodules` and `.gitattributes`.
+    GitSettings,
+    /// Dev container settings, such as `.devcontainer/`.
+    DevContainer,
+}
+
+impl EditKind {
+    /// Every kind, in the order a list shows them.
+    pub const ALL: [Self; 6] = [
+        Self::GitHooks,
+        Self::CiWorkflows,
+        Self::EditorTasks,
+        Self::PackageHooks,
+        Self::GitSettings,
+        Self::DevContainer,
+    ];
+
+    /// Its name on the wire, such as `git_hooks`.
+    #[must_use]
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::GitHooks => "git_hooks",
+            Self::CiWorkflows => "ci_workflows",
+            Self::EditorTasks => "editor_tasks",
+            Self::PackageHooks => "package_hooks",
+            Self::GitSettings => "git_settings",
+            Self::DevContainer => "dev_container",
+        }
+    }
+
+    /// The kind a wire name names, if this build knows it.
+    #[must_use]
+    pub fn named(name: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|kind| kind.name() == name)
+    }
+}
+
 /// The commands agents may run without asking in one project, as the
-/// device that runs those agents keeps them. A device publishes no list
-/// for a project with no rules.
+/// device that runs those agents keeps them, and the kinds of file they
+/// may change without asking. A device publishes no list for a project
+/// with neither.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, Type, JsonSchema)]
 pub struct CommandRules {
     /// The project.
@@ -406,6 +472,13 @@ pub struct CommandRules {
     pub device: DeviceId,
     /// The rules, in the order they were saved.
     pub rules: Vec<CommandRule>,
+    /// The kinds of file agents in Accept edits or Auto may change without
+    /// asking, which you remembered from a card, in [`EditKind::ALL`]'s
+    /// order. One this build can't read is left out. An older peer leaving
+    /// it out keeps none. Since protocol 57.
+    #[serde(default, deserialize_with = "crate::tolerant::list")]
+    #[specta(type = Vec<EditKind>)]
+    pub edits: Vec<EditKind>,
 }
 
 /// The name and email that commits carry.
@@ -1754,6 +1827,15 @@ pub struct UsageFailure {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn a_kind_of_file_is_named_as_the_wire_names_it() {
+        for kind in EditKind::ALL {
+            assert_eq!(serde_json::to_value(kind).unwrap(), kind.name());
+            assert_eq!(EditKind::named(kind.name()), Some(kind));
+        }
+        assert_eq!(EditKind::named("build_scripts"), None);
+    }
 
     #[test]
     fn activity_is_tagged_by_state() {

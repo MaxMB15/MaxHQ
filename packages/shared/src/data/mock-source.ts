@@ -293,6 +293,7 @@ const SETTINGS: Entity[] = [
 			{ command: "cargo run", exact: false },
 			{ command: "rm -rf target/tmp", exact: true },
 		],
+		edits: ["git_hooks"],
 	},
 ];
 
@@ -1519,7 +1520,7 @@ export const mockSource = (options: MockOptions = {}): MockSource => {
 			});
 			return DONE;
 		},
-		// The list goes once its last rule does, the way maxd drops it.
+		// The list goes once its last rule and kind of file do, the way maxd drops it.
 		removeCommandRule: async (device, project, rule) => {
 			if (!has("device", device)) return missing(`device ${device}`);
 			const same = (r: CommandRule) => r.command === rule.command && r.exact === rule.exact;
@@ -1527,7 +1528,18 @@ export const mockSource = (options: MockOptions = {}): MockSource => {
 				if (e.entity !== "command_rules" || e.project !== project || e.device !== device)
 					return [e];
 				const rules = e.rules.filter((r) => !same(r));
-				return rules.length === 0 ? [] : [{ ...e, rules }];
+				return rules.length === 0 && !e.edits?.length ? [] : [{ ...e, rules }];
+			});
+			commit();
+			return DONE;
+		},
+		removeAllowedEdit: async (device, project, kind) => {
+			if (!has("device", device)) return missing(`device ${device}`);
+			base = base.flatMap((e) => {
+				if (e.entity !== "command_rules" || e.project !== project || e.device !== device)
+					return [e];
+				const edits = (e.edits ?? []).filter((k) => k !== kind);
+				return e.rules.length === 0 && edits.length === 0 ? [] : [{ ...e, edits }];
 			});
 			commit();
 			return DONE;

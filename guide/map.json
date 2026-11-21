@@ -432,7 +432,8 @@
         "Give agents the workflow's variables",
         "Memory per container",
         "Commit author",
-        "Allowed commands"
+        "Allowed commands",
+        "Hooks, CI and task files"
       ],
       "title": "A project's settings"
     },

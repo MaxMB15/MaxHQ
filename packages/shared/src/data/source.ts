@@ -32,6 +32,7 @@ import type {
 	CredentialId,
 	Delta,
 	DeviceId,
+	EditKind,
 	EditorChoice,
 	Editors,
 	FindAt,
@@ -553,6 +554,15 @@ export type DataSource = HelperCalls & {
 		device: DeviceId,
 		project: ProjectId,
 		rule: CommandRule
+	) => Promise<ActionResult>;
+	/**
+	 * Turns off a kind of file remembered for a project on the device that
+	 * keeps it, so its agents ask again before they change one.
+	 */
+	readonly removeAllowedEdit: (
+		device: DeviceId,
+		project: ProjectId,
+		kind: EditKind
 	) => Promise<ActionResult>;
 	/** This Mac's global git name and email, the author a project's commits default to. */
 	readonly gitIdentity: () => Promise<GitIdentity>;

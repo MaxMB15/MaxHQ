@@ -15,6 +15,7 @@ import type { ActionResult } from "@maxhq/shared/data/source";
 import { FixedNow } from "@maxhq/shared/lib/clock";
 import { type RowContext, RowProvider } from "@maxhq/shared/agent-view/context";
 import { clearKept } from "@maxhq/shared/agent-view/kept";
+import { setLanguageChoice } from "@maxhq/shared/i18n";
 import { NOW } from "@maxhq/shared/test/build";
 import { timelineItem } from "@maxhq/shared/timeline/build";
 import { createTimelineStore } from "@maxhq/shared/timeline/store";
@@ -65,14 +66,48 @@ const REACH: Question = {
 	},
 };
 
-const show = (status: ItemStatus = "waiting", row: Partial<RowContext> = {}) => {
+const HOOKS_WHERE =
+	"Agents in Accept edits or Auto may then change your git hooks in this project without asking. Turn it off in Project settings, under Permissions.";
+
+/** The card maxd shows before an agent changes a git hook. */
+const HOOKS: Question = {
+	id: "edit-kind",
+	header: "Git hooks",
+	text: "Cursor asks to change .husky/pre-commit. Git hooks run on your next commit, with your keys.",
+	options: [
+		{ label: "Allow", description: null },
+		{ label: "Deny", description: null },
+	],
+	multi: false,
+	other: false,
+	secret: false,
+	consent: {
+		title: "Change git hooks?",
+		risk: "Git hooks run on your next commit, with your keys.",
+		changes: [],
+		facts: [{ label: "File", value: ".husky/pre-commit" }],
+		rows: [],
+		remember: {
+			id: "edit-kind-remember",
+			label: "Remember for this project",
+			settings: HOOKS_WHERE,
+		},
+		edit: "git_hooks",
+	},
+};
+
+const show = (
+	status: ItemStatus = "waiting",
+	row: Partial<RowContext> = {},
+	question: Question = REACH
+) => {
 	const answer = vi.fn<
 		(attention: AttentionId, answer: AttentionAnswer) => Promise<ActionResult>
 	>(async () => ({ status: "ok", data: { status: "done" } }));
 	const body: ItemBody = {
 		kind: "question",
 		attention: "att-reach",
-		questions: [REACH],
+		questions: [question],
 		answers: null,
 	};
 	const item = timelineItem(body, {
@@ -157,6 +192,40 @@ describe("consent card", () => {
 		const answer = show("waiting", { readOnly: true });
 		fireEvent.click(screen.getByRole("button", { name: "Deny" }));
 		expect(answer).toHaveBeenCalledWith("att-reach", sent("Deny"));
+	});
+
+	it("names a kind of file, what it runs and where to turn the box off", () => {
+		const answer = show("waiting", {}, HOOKS);
+		expect(screen.getByText("Change git hooks?")).toBeInTheDocument();
+		expect(
+			screen.getByText("Git hooks run on your next commit, with your keys.")
+		).toBeInTheDocument();
+		expect(screen.getByText(".husky/pre-commit")).toBeInTheDocument();
+		fireEvent.click(screen.getByRole("checkbox", { name: "Remember for this project" }));
+		expect(screen.getByText(HOOKS_WHERE)).toBeInTheDocument();
+		fireEvent.click(screen.getByRole("button", { name: "Allow" }));
+		expect(answer).toHaveBeenCalledWith("att-reach", {
+			type: "questions",
+			answers: [
+				{ id: "edit-kind", values: ["Allow"] },
+				{ id: "edit-kind-remember", values: ["Remember for this project"] },
+			],
+		});
+	});
+
+	it("words a kind of file in your language and sends maxd's labels", () => {
+		setLanguageChoice("de");
+		try {
+			const answer = show("waiting", {}, HOOKS);
+			expect(screen.queryByText("Change git hooks?")).toBeNull();
+			fireEvent.click(screen.getByRole("button", { name: "Ablehnen" }));
+			expect(answer).toHaveBeenCalledWith("att-reach", {
+				type: "questions",
+				answers: [{ id: "edit-kind", values: ["Deny"] }],
+			});
+		} finally {
+			setLanguageChoice("en");
+		}
 	});
 
 	it("closes under its title when nobody answered", () => {

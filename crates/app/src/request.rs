@@ -31,7 +31,8 @@ use maxhq_protocol::message::{
     TakeOverMode, ToolTarget, UserInput,
 };
 use maxhq_protocol::model::{
-    CommandRule, DeviceSettings, InboxChange, PermissionMode, ProjectSettings, WorkspaceSpec,
+    CommandRule, DeviceSettings, EditKind, InboxChange, PermissionMode, ProjectSettings,
+    WorkspaceSpec,
 };
 use maxhq_protocol::notes::{NoteId, NoteVersion, NoteVersionInfo, VersionHash};
 use maxhq_protocol::notices::NoticePage;
@@ -343,6 +344,14 @@ pub enum Request {
         device: DeviceId,
         project: ProjectId,
         rule: CommandRule,
+    },
+    /// Turns off a kind of file remembered for a project on the device
+    /// that keeps it, so its agents ask again before they change one. The
+    /// request's own `kind` names the request, so the field is `edit`.
+    RemoveAllowedEdit {
+        device: DeviceId,
+        project: ProjectId,
+        edit: EditKind,
     },
     /// This Mac's global git `user.name` and `user.email`, the author a
     /// project's commits default to.
@@ -1036,6 +1045,7 @@ pub enum Response {
     SetProjectSettings(ActionOutcome),
     SetProjectHidden(ActionOutcome),
     RemoveCommandRule(ActionOutcome),
+    RemoveAllowedEdit(ActionOutcome),
     #[cfg(feature = "desktop")]
     GitIdentity(GitIdentity),
     WindDown(ActionOutcome),
@@ -1255,6 +1265,7 @@ impl Request {
             Self::SetProjectSettings { .. } => "set_project_settings",
             Self::SetProjectHidden { .. } => "set_project_hidden",
             Self::RemoveCommandRule { .. } => "remove_command_rule",
+            Self::RemoveAllowedEdit { .. } => "remove_allowed_edit",
             #[cfg(feature = "desktop")]
             Self::GitIdentity => "git_identity",
             Self::WindDown { .. } => "wind_down",
@@ -1474,6 +1485,7 @@ impl Response {
             Self::SetProjectSettings(_) => "set_project_settings",
             Self::SetProjectHidden(_) => "set_project_hidden",
             Self::RemoveCommandRule(_) => "remove_command_rule",
+            Self::RemoveAllowedEdit(_) => "remove_allowed_edit",
             #[cfg(feature = "desktop")]
             Self::GitIdentity(_) => "git_identity",
             Self::WindDown(_) => "wind_down",
@@ -2017,6 +2029,19 @@ impl<C: Connector> App<C> {
                     rule,
                 };
                 Response::RemoveCommandRule(devices.act(action).await?)
+            }
+            Request::RemoveAllowedEdit {
+                device,
+                project,
+                edit,
+            } => {
+                let action = ClientMessage::RemoveAllowedEdit {
+                    key,
+                    device,
+                    project,
+                    kind: edit,
+                };
+                Response::RemoveAllowedEdit(devices.act(action).await?)
             }
             #[cfg(feature = "desktop")]
             Request::GitIdentity => {
@@ -3619,6 +3644,8 @@ mod tests {
             json!({"kind": "set_project_hidden", "project": project, "hidden": true}),
             json!({"kind": "remove_command_rule", "device": mac, "project": project,
                 "rule": {"command": "git show", "exact": false}}),
+            json!({"kind": "remove_allowed_edit", "device": mac, "project": project,
+                "edit": "git_hooks"}),
             json!({"kind": "git_identity"}),
             json!({"kind": "wind_down", "device": mac, "window_secs": 30}),
             json!({
@@ -4611,7 +4638,7 @@ mod tests {
                 }
             }
         }
-        assert_eq!(kinds.len() + mac_only.len(), 165);
+        assert_eq!(kinds.len() + mac_only.len(), 166);
         // The harness has no maxd to install or uninstall, no timeline open, no
         // listening port, no setup waiting on a host key, no GitHub
         // sign-in to merge with, no skill proposal, no link or card waiting

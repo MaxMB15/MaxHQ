@@ -14,6 +14,7 @@ import { t } from "../i18n";
 import type {
 	CommandRule,
 	DeviceId,
+	EditKind,
 	GitAuthor,
 	GitIdentity,
 	ProjectId,
@@ -295,6 +296,19 @@ export const commandRulesOn = (
 	device: DeviceId
 ): readonly CommandRule[] =>
 	view.tables.command_rules.get(`${project}/${device}`)?.rules ?? NO_RULES;
+
+const NO_EDITS: readonly EditKind[] = [];
+
+/**
+ * The kinds of file you ticked "Remember for this project" for, which the
+ * device lets its agents in Accept edits or Auto change without asking.
+ * The same empty list each time it keeps none, as an older maxd does.
+ */
+export const allowedEditsOn = (
+	view: ViewState,
+	project: ProjectId,
+	device: DeviceId
+): readonly EditKind[] => view.tables.command_rules.get(`${project}/${device}`)?.edits ?? NO_EDITS;
 
 /** A rule's key in a list: an exact rule and a prefix one for the same words differ. */
 export const ruleKey = (rule: CommandRule): string => `${rule.exact ? "=" : "~"}${rule.command}`;

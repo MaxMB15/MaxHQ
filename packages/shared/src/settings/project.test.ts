@@ -8,6 +8,7 @@ import { entities, link, project, workspace } from "../test/build";
 import { applySnapshot } from "../view/replica";
 import {
 	allowedWorkflowEnvText,
+	allowedEditsOn,
 	commandRulesOn,
 	deviceSettleDays,
 	draftOf,
@@ -145,6 +146,13 @@ describe("what a device keeps for a project", () => {
 					{ command: "git show", exact: true },
 				],
 			},
+			{
+				entity: "command_rules",
+				project: "proj-hooks",
+				device: "dev-devbox",
+				rules: [],
+				edits: ["ci_workflows"],
+			},
 		],
 	});
 
@@ -174,6 +182,14 @@ describe("what a device keeps for a project", () => {
 		expect(commandRulesOn(view, "proj-maxhq", "dev-old")).toEqual([]);
 		expect(commandRulesOn(view, "proj-maxhq", "dev-old")).toBe(
 			commandRulesOn(view, "proj-other", "dev-devbox")
+		);
+	});
+
+	it("lists the kinds of file remembered, none where an older maxd sent no list", () => {
+		expect(allowedEditsOn(view, "proj-hooks", "dev-devbox")).toEqual(["ci_workflows"]);
+		expect(allowedEditsOn(view, "proj-maxhq", "dev-devbox")).toEqual([]);
+		expect(allowedEditsOn(view, "proj-maxhq", "dev-devbox")).toBe(
+			allowedEditsOn(view, "proj-other", "dev-old")
 		);
 	});
 });

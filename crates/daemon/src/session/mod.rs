@@ -795,6 +795,8 @@ struct Manager {
     holds: HashMap<SessionId, Hold>,
     /// Each project's command rules.
     command_rules: command_rules::Rules,
+    /// Each project's remembered kinds of file.
+    allowed_edits: command_rules::Edits,
     /// Each lead agent held.
     held: HashMap<AgentId, Held>,
     /// Each held sub-agent's lead.
@@ -951,6 +953,7 @@ impl Manager {
             staged: HashMap::new(),
             holds: HashMap::new(),
             command_rules: command_rules::Rules::new(),
+            allowed_edits: command_rules::Edits::new(),
             held: HashMap::new(),
             parents: HashMap::new(),
             subs: HashMap::new(),

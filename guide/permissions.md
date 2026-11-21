@@ -66,8 +66,35 @@ A rule covers the command and its subcommand, so "git show" covers any git show.
 To see or remove rules:
 
 1. Open the project's ⋯ menu, or right-click it in the sidebar, and pick Project settings….
-2. On the General tab, find Allowed commands for the device.
+2. On the General tab, find Allowed commands under Permissions for the device.
 3. Click Remove on a rule. Rules marked Exact cover only that line.
+
+## Changes to hooks, CI and task files
+<!-- id: permissions/files-that-run-later -->
+<!-- covers: settings/project -->
+
+In Accept edits and Auto, an agent asks before it changes a file that decides what runs later, even inside its own folders.
+
+Such a file runs outside the agent: on your next commit, in CI, from your editor or when packages install. It runs with your keys or the repository's secrets.
+
+- Git hooks: .husky/, .githooks/, lefthook.yml and .pre-commit-config.yaml.
+- CI workflows: .github/workflows/, .github/actions/, .gitlab-ci.yml, .circleci/, .buildkite/, azure-pipelines.yml and other CI files, such as a Jenkinsfile.
+- Editor tasks: .vscode/tasks.json, .vscode/launch.json, .idea/runConfigurations/ and .zed/tasks.json.
+- Package manager hooks: .pnpmfile.cjs, .yarnrc.yml and Yarn's releases and plugins.
+- Git settings: .gitmodules and .gitattributes.
+- Dev container: .devcontainer/ and .devcontainer.json.
+
+Agent instruction files, such as AGENTS.md, CLAUDE.md, .cursorrules and .github/copilot-instructions.md, don't ask.
+
+The card names the kind, what a change to it can do and the file.
+
+1. Click Allow to let the change go. The agent then changes that kind of file without asking for the rest of its run. Its sub-agents ask on their own.
+2. Or click Deny to turn it down. The agent's next change asks again.
+3. To keep the answer, tick Remember for this project, then click Allow. Every agent in the project then changes that kind of file without asking.
+
+Remembered kinds show under Hooks, CI and task files, in the Permissions part of the project's settings for that device. Click Turn off on a kind, and the next change to one asks again.
+
+MaxHQ asks this for Cursor and other ACP agents, whose edits it answers itself. Claude and Codex decide edits in their own CLIs, so their usual permission request cards apply.
 
 ## Approve an agent in a container reaching out
 <!-- id: permissions/consent -->

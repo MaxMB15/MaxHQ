@@ -610,11 +610,35 @@ describe("project settings page", () => {
 		await waitFor(() => expect(within(list).getAllByRole("listitem")).toHaveLength(2));
 	});
 
-	it("says when devbox allows no commands for the project", async () => {
+	it("lists the kinds of file remembered under Permissions and turns one off", async () => {
+		const { source } = renderProject();
+		const turnOff = vi.spyOn(source, "removeAllowedEdit");
+		const dialog = await openProject("MaxHQ");
+		const on = within(dialog).getByRole("region", { name: "MaxHQ on devbox" });
+		const permissions = within(on).getByRole("group", { name: "Permissions" });
+		const list = within(permissions).getByRole("list", { name: "Hooks, CI and task files" });
+		const row = within(list).getByRole("listitem");
+		expect(row).toHaveTextContent("Git hooks");
+		expect(row).toHaveTextContent(
+			"Agents in Accept edits or Auto may then change your git hooks in this project without asking. Turn it off in Project settings, under Permissions."
+		);
+		fireEvent.click(within(row).getByRole("button", { name: "Turn off Git hooks" }));
+		expect(turnOff).toHaveBeenCalledWith("dev-devbox", "proj-maxhq", "git_hooks");
+		await waitFor(() =>
+			expect(
+				within(permissions).queryByRole("list", { name: "Hooks, CI and task files" })
+			).toBeNull()
+		);
+		expect(
+			within(permissions).getByRole("list", { name: "Allowed commands" })
+		).toBeInTheDocument();
+	});
+
+	it("says when devbox allows no commands or kinds of file for the project", async () => {
 		renderProject();
 		const dialog = await openProject("Comet");
 		const on = within(dialog).getByRole("region", { name: "Comet on devbox" });
-		expect(within(on).getByText("None yet.")).toBeInTheDocument();
+		expect(within(on).getAllByText("None yet.")).toHaveLength(2);
 	});
 
 	it("can't change it while devbox isn't connected", async () => {
@@ -624,5 +648,6 @@ describe("project settings page", () => {
 		expect(within(on).getByText("Connect to devbox to change it")).toBeInTheDocument();
 		expect(within(on).getByRole("textbox", { name: "Ports never offered" })).toBeDisabled();
 		expect(within(on).getByRole("button", { name: "Remove git show" })).toBeDisabled();
+		expect(within(on).getByRole("button", { name: "Turn off Git hooks" })).toBeDisabled();
 	});
 });

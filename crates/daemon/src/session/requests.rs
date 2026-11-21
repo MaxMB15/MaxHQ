@@ -240,6 +240,7 @@ impl Manager {
             | ClientMessage::SetInbox { key, .. }
             | ClientMessage::SetProjectHidden { key, .. }
             | ClientMessage::RemoveCommandRule { key, .. }
+            | ClientMessage::RemoveAllowedEdit { key, .. }
             | ClientMessage::ContinueHere { key, .. }
             | ClientMessage::TakeOver { key, .. }
             | ClientMessage::StageAttachment { key, .. }
@@ -505,6 +506,12 @@ impl Manager {
                 rule,
                 ..
             } => Some(self.remove_command_rule(device, project, &rule)),
+            ClientMessage::RemoveAllowedEdit {
+                device,
+                project,
+                kind,
+                ..
+            } => Some(self.remove_allowed_edit(device, project, kind)),
             ClientMessage::ContinueHere { agent, .. } => self.continue_here(key, agent),
             ClientMessage::TakeOver { agent, mode, .. } => self.take_over(key, agent, mode),
             ClientMessage::StageAttachment { source, .. } => {

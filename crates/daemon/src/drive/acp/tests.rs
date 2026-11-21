@@ -27,7 +27,7 @@ use maxhq_protocol::ids::{
     AccountId, AgentId, AttachmentId, AttentionId, ClientId, DeviceId, IdempotencyKey, WorkspaceId,
 };
 use maxhq_protocol::message::{ActionOutcome, SendMode};
-use maxhq_protocol::model::{Activity, Agent, CommandRule, PermissionMode, Vendor};
+use maxhq_protocol::model::{Activity, Agent, CommandRule, EditKind, PermissionMode, Vendor};
 use maxhq_protocol::time::Timestamp;
 use maxhq_protocol::timeline::{
     ApprovalKind, AttachmentKind, AttachmentRef, Delivery, ItemBody, ItemId, ItemStatus,
@@ -2604,4 +2604,244 @@ fn a_title_that_names_an_agent_tool_doesnt_approve_a_command_or_a_change() {
         let lines = tool_prompt("maxhq: echo", "other", 0, &named("maxhq", "list_agents"));
         assert!(answers_alone(mode, &lines), "{mode:?}");
     }
+}
+
+// Hooks, CI and task files.
+
+/// A request to edit `path`, as request `id`.
+fn edit_prompt(path: &str, id: u32) -> Vec<String> {
+    tool_prompt(
+        "Edit it",
+        "edit",
+        id,
+        &format!(r#","locations":[{{"path":"{path}"}}]"#),
+    )
+}
+
+/// Answers a kind of file's card with `pick`, the box ticked when `keep`.
+fn answer_edit(run: &mut Run, event: AttentionId, pick: &str, keep: bool) -> Effects {
+    let mut answers = vec![QuestionAnswer {
+        id: "edit-kind".into(),
+        values: vec![pick.into()],
+    }];
+    if keep {
+        answers.push(QuestionAnswer {
+            id: "edit-kind-remember".into(),
+            values: vec!["Remember for this project".into()],
+        });
+    }
+    run.act(Action::Answer {
+        key: key(9),
+        event,
+        answer: AttentionAnswer::Questions { answers },
+        by: client(),
+    });
+    run.take()
+}
+
+/// A turn under way in `mode` for an agent whose project keeps `kept`.
+fn turning_kept(mode: PermissionMode, kept: &[EditKind]) -> Run {
+    let mut run = turning_in(mode);
+    run.session.allowed_edits(Some(kept));
+    run
+}
+
+/// Whether the driver answered `lines` by itself.
+fn passes(run: &mut Run, lines: &[String]) -> bool {
+    run.feed_all(lines);
+    !answers(&run.take()).is_empty()
+}
+
+#[test]
+fn a_hook_ci_or_task_file_asks_with_its_kind_in_accept_edits_and_auto() {
+    for mode in [PermissionMode::AcceptEdits, PermissionMode::Auto] {
+        for (path, kind) in [
+            ("/work/ws/.husky/pre-commit", EditKind::GitHooks),
+            ("/work/ws/.github/workflows/ci.yml", EditKind::CiWorkflows),
+            ("/work/ws/.vscode/tasks.json", EditKind::EditorTasks),
+            ("/work/ws/.pnpmfile.cjs", EditKind::PackageHooks),
+            ("/work/ws/.gitmodules", EditKind::GitSettings),
+            (
+                "/work/ws/.devcontainer/devcontainer.json",
+                EditKind::DevContainer,
+            ),
+        ] {
+            let mut run = turning_kept(mode, &[]);
+            run.feed_all(&edit_prompt(path, 0));
+            let fx = run.take();
+            assert!(answers(&fx).is_empty(), "{mode:?} {path}");
+            let event = opened(&fx).pop().expect("a card");
+            assert_eq!(event.kind, AttentionKind::Question, "{path}");
+            assert!(event.options.is_empty() && !event.accepts_text, "{path}");
+            let words = crate::drive::commands::edit_words(kind);
+            assert_eq!(event.summary, format!("{} {path}", words.title));
+            match &item(&items_of(&fx), &format!("cursor:approval:{}", event.id)).body {
+                ItemBody::Question { questions, .. } => {
+                    let question = &questions[0];
+                    assert_eq!(question.header.as_deref(), Some(words.name));
+                    let labels: Vec<&str> = question
+                        .options
+                        .iter()
+                        .map(|option| option.label.as_str())
+                        .collect();
+                    assert_eq!(labels, ["Allow", "Deny"]);
+                    let consent = question.consent.as_ref().expect("a consent card");
+                    assert_eq!(consent.edit, Some(kind));
+                    assert_eq!(consent.risk, words.meaning);
+                    assert_eq!(consent.facts[0].value, path);
+                    let remember = consent.remember.as_ref().expect("a box");
+                    assert_eq!(remember.settings, words.remembered);
+                }
+                other => panic!("{other:?}"),
+            }
+        }
+        // Instruction files and source files pass as before.
+        for path in [
+            "/work/ws/AGENTS.md",
+            "/work/ws/CLAUDE.md",
+            "/work/ws/.cursorrules",
+            "/work/ws/.github/copilot-instructions.md",
+            "/work/ws/src/a.rs",
+        ] {
+            assert!(
+                answers_alone(mode, &edit_prompt(path, 0)),
+                "{mode:?} {path}"
+            );
+        }
+    }
+    // Ask asks about every change on its own card already.
+    let mut run = turning_kept(PermissionMode::Ask, &[]);
+    run.feed_all(&edit_prompt("/work/ws/.husky/pre-commit", 0));
+    let event = opened(&run.take()).pop().expect("a prompt");
+    assert_eq!(event.kind, AttentionKind::Permission);
+}
+
+#[test]
+fn allow_covers_the_kind_for_the_agents_run_but_not_its_sub_agents() {
+    let mut run = turning_kept(PermissionMode::Auto, &[]);
+    run.feed_all(&edit_prompt("/work/ws/.husky/pre-commit", 0));
+    let event = opened(&run.take()).pop().expect("a card");
+    let fx = answer_edit(&mut run, event.id, "Allow", false);
+    let reply = answers(&fx).pop().expect("an answer");
+    assert_eq!(reply["result"]["outcome"]["optionId"], "allow-once");
+    assert!(fx.allowed_edits.is_empty());
+    assert_eq!(
+        item(&items_of(&fx), &format!("cursor:approval:{}", event.id)).status,
+        ItemStatus::Completed
+    );
+    // The same kind passes for the rest of the run, and another kind asks.
+    assert!(passes(
+        &mut run,
+        &edit_prompt("/work/ws/.husky/pre-push", 1)
+    ));
+    let ci = edit_prompt("/work/ws/.github/workflows/ci.yml", 2);
+    assert!(!passes(&mut run, &ci));
+    // A sub-agent is another agent, so it asks for itself.
+    run.feed_all(&fixture("subagent.jsonl")[..3]);
+    run.take();
+    let lines: Vec<String> = edit_prompt("/work/ws/.husky/pre-commit", 3)
+        .into_iter()
+        .map(|line| line.replace(SESSION, "child-1"))
+        .collect();
+    run.feed_all(&lines);
+    let fx = run.take();
+    assert!(answers(&fx).is_empty());
+    assert_eq!(opened(&fx).pop().unwrap().kind, AttentionKind::Question);
+}
+
+#[test]
+fn remember_keeps_the_kind_for_the_project_until_you_turn_it_off() {
+    let mut run = turning_kept(PermissionMode::AcceptEdits, &[]);
+    run.feed_all(&edit_prompt("/work/ws/.husky/pre-commit", 0));
+    let event = opened(&run.take()).pop().expect("a card");
+    let fx = answer_edit(&mut run, event.id, "Allow", true);
+    assert_eq!(fx.allowed_edits, [EditKind::GitHooks]);
+    // The manager keeps it and hands it back, as to every agent in the
+    // project.
+    run.session.allowed_edits(Some(&[EditKind::GitHooks]));
+
+    // Another agent in the project gets the kind from the manager.
+    let mut other = turning_kept(PermissionMode::AcceptEdits, &[EditKind::GitHooks]);
+    assert!(passes(
+        &mut other,
+        &edit_prompt("/work/ws/.husky/pre-commit", 0)
+    ));
+
+    // Turned off, both ask again, the one you allowed it for too.
+    for run in [&mut run, &mut other] {
+        run.session.allowed_edits(Some(&[]));
+        assert!(!passes(run, &edit_prompt("/work/ws/.husky/pre-commit", 5)));
+    }
+}
+
+#[test]
+fn an_agent_without_a_project_gets_no_box() {
+    let mut run = turning_in(PermissionMode::Auto);
+    run.feed_all(&edit_prompt("/work/ws/.husky/pre-commit", 0));
+    let fx = run.take();
+    let event = opened(&fx).pop().expect("a card");
+    match &item(&items_of(&fx), &format!("cursor:approval:{}", event.id)).body {
+        ItemBody::Question { questions, .. } => {
+            assert!(questions[0].consent.as_ref().unwrap().remember.is_none());
+        }
+        other => panic!("{other:?}"),
+    }
+    let fx = answer_edit(&mut run, event.id, "Allow", true);
+    assert_eq!(answers(&fx).len(), 1);
+    assert!(fx.allowed_edits.is_empty());
+}
+
+#[test]
+fn deny_turns_the_change_down_and_the_next_one_asks_again() {
+    let mut run = turning_kept(PermissionMode::Auto, &[]);
+    run.feed_all(&edit_prompt("/work/ws/.husky/pre-commit", 0));
+    let event = opened(&run.take()).pop().expect("a card");
+    let fx = answer_edit(&mut run, event.id, "Deny", true);
+    let reply = answers(&fx).pop().expect("an answer");
+    assert_eq!(reply["result"]["outcome"]["optionId"], "reject-once");
+    assert!(fx.allowed_edits.is_empty());
+    assert_eq!(
+        item(&items_of(&fx), &format!("cursor:approval:{}", event.id)).status,
+        ItemStatus::Declined
+    );
+    run.feed_all(&edit_prompt("/work/ws/.husky/pre-commit", 1));
+    let event = opened(&run.take()).pop().expect("a card again");
+    // Words turn it down too.
+    run.act(Action::Answer {
+        key: key(10),
+        event: event.id,
+        answer: AttentionAnswer::Text {
+            text: "Leave the hooks alone".into(),
+        },
+        by: client(),
+    });
+    let reply = answers(&run.take()).pop().expect("an answer");
+    assert_eq!(reply["result"]["outcome"]["optionId"], "reject-once");
+}
+
+#[test]
+fn a_change_to_two_kinds_asks_as_any_other() {
+    let two = |first: &str, second: &str, id: u32| {
+        tool_prompt(
+            "Edit them",
+            "edit",
+            id,
+            &format!(r#","locations":[{{"path":"{first}"}},{{"path":"{second}"}}]"#),
+        )
+    };
+    let mut run = turning_kept(PermissionMode::Auto, &[]);
+    run.feed_all(&two(
+        "/work/ws/.husky/pre-commit",
+        "/work/ws/.github/workflows/ci.yml",
+        0,
+    ));
+    let fx = run.take();
+    assert!(answers(&fx).is_empty());
+    assert_eq!(opened(&fx).pop().unwrap().kind, AttentionKind::Permission);
+    // One kind beside a plain file gets that kind's card.
+    run.feed_all(&two("/work/ws/src/a.rs", "/work/ws/.husky/pre-commit", 1));
+    assert_eq!(
+        opened(&run.take()).pop().unwrap().kind,
+        AttentionKind::Question
+    );
 }

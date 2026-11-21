@@ -734,6 +734,7 @@ pub(super) fn consent_card(
             .collect(),
         rows: Vec::new(),
         remember,
+        edit: None,
     };
     let choice = |label: &str, description: &str| QuestionOption {
         label: label.to_owned(),

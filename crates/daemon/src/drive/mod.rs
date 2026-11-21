@@ -28,7 +28,7 @@ use maxhq_protocol::ids::{
     AccountId, AgentId, AttentionId, ClientId, DeviceId, IdempotencyKey, WorkspaceId,
 };
 use maxhq_protocol::message::{ActionOutcome, AgentSpec, SendMode};
-use maxhq_protocol::model::{Agent, CommandRule, ModelChoice, PermissionMode, Usage};
+use maxhq_protocol::model::{Agent, CommandRule, EditKind, ModelChoice, PermissionMode, Usage};
 use maxhq_protocol::time::Timestamp;
 use maxhq_protocol::timeline::{AttachmentRef, ItemId, TimelineEvent, TimelineItem};
 use maxhq_protocol::Secret;
@@ -464,6 +464,10 @@ pub struct Effects {
     /// Commands you answered "Always allow" to, which the agent's project
     /// keeps as rules.
     pub command_rules: Vec<CommandRule>,
+    /// Kinds of file you allowed with a card's "Remember for this project"
+    /// box, which the agent's project keeps, so its agents change them
+    /// without asking.
+    pub allowed_edits: Vec<EditKind>,
 }
 
 /// What a [`Job`] returns, for the driver that asked for it to read back.
@@ -611,6 +615,13 @@ pub trait Driver: Send + 'static {
     /// others leave prompts to the CLI.
     fn command_rules(&mut self, rules: &[CommandRule]) {
         let _ = rules;
+    }
+    /// The kinds of file the agent's project lets agents in Accept edits or
+    /// Auto change without asking, or none when the agent has no project
+    /// to remember more for. A driver that decides its CLI's edits itself
+    /// reads them; the others leave edits to the CLI.
+    fn allowed_edits(&mut self, edits: Option<&[EditKind]>) {
+        let _ = edits;
     }
     /// How many of each agent's newest items the timeline keeps in memory.
     /// A driver that keeps settled items of its own keeps as many.

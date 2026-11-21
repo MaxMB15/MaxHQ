@@ -139,6 +139,22 @@ where
     Ok(stand_in(Value::deserialize(deserializer)?))
 }
 
+/// Reads an optional value, or none when it doesn't decode, such as a kind
+/// from a newer `maxd`. For `#[serde(default, deserialize_with =
+/// "crate::tolerant::or_none")]`, which also takes
+/// `#[specta(type = Option<...>)]` naming the field's type.
+pub(crate) fn or_none<'de, D, T>(deserializer: D) -> Result<Option<T>, D::Error>
+where
+    D: Deserializer<'de>,
+    T: DeserializeOwned,
+{
+    let value = Value::deserialize(deserializer)?;
+    Ok(Option::<T>::deserialize(&value).unwrap_or_else(|_| {
+        unreadable(&kind_of(&value, &[]));
+        None
+    }))
+}
+
 /// Reads a list item by item, with the stand-in for each item that doesn't
 /// decode. For `#[serde(deserialize_with = "crate::tolerant::unknowns")]`,
 /// which also takes `#[specta(type = Vec<...>)]` naming the list's type.

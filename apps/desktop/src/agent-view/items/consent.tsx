@@ -7,7 +7,8 @@
 // can do more than it says. A value that looks secret stays hidden until
 // you show it. Where the answer can be kept, a box keeps it and says where
 // to change it later. maxd asks it itself, so it takes an answer even in a
-// session MaxHQ only watches.
+// session MaxHQ only watches. A card about a kind of file, such as git
+// hooks, shows in the reader's language and still sends maxd's labels.
 
 import { ShieldAlert, TriangleAlert } from "lucide-react";
 import { useCallback, useState } from "react";
@@ -15,6 +16,7 @@ import { useCallback, useState } from "react";
 import type { AttentionAnswer, Consent, ConsentRow, Question } from "@maxhq/shared/bindings";
 import { useSend } from "@maxhq/shared/agent-view/answer";
 import { consentAnswer, consentGroups, shownValue } from "@maxhq/shared/agent-view/consent";
+import { shownConsent, shownOption } from "@maxhq/shared/agent-view/edit-kinds";
 import { rowKind, useRow } from "@maxhq/shared/agent-view/context";
 import { useKept } from "@maxhq/shared/agent-view/kept";
 import { sentence } from "@maxhq/shared/status/format";
@@ -124,13 +126,14 @@ const Body = ({ consent }: { consent: Consent }) => {
 export const ConsentCard = ({
 	item,
 	question,
-	consent,
+	consent: sent,
 }: {
 	item: ItemOf<"question">;
 	question: Question;
 	consent: Consent;
 }) => {
 	useI18n();
+	const consent = shownConsent(sent);
 	const { answer } = useRow();
 	const kind = rowKind(useRow());
 	const [remember, setRemember] = useKept(`remember:${item.attention}`, false);
@@ -169,7 +172,7 @@ export const ConsentCard = ({
 						disabled={busy}
 						onClick={() => pick(primary.label)}
 					>
-						{primary.label}
+						{shownOption(sent, primary.label)}
 					</PrimaryButton>
 				) : null}
 				{others.map((option) => (
@@ -178,7 +181,7 @@ export const ConsentCard = ({
 						disabled={busy}
 						onClick={() => pick(option.label)}
 					>
-						{option.label}
+						{shownOption(sent, option.label)}
 					</SecondaryButton>
 				))}
 			</div>

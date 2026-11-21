@@ -2643,7 +2643,8 @@ fn action_targets(merge: &Merge, action: &ClientMessage) -> Result<Vec<Target>, 
             device_targets(merge, settings.device)
         }
         ClientMessage::SetProjectHidden { device, .. } => device_targets(merge, *device),
-        ClientMessage::RemoveCommandRule { device, .. } => device_targets(merge, *device),
+        ClientMessage::RemoveCommandRule { device, .. }
+        | ClientMessage::RemoveAllowedEdit { device, .. } => device_targets(merge, *device),
         ClientMessage::SetDeviceSettings { settings, .. } => device_targets(merge, settings.device),
         ClientMessage::UpdateDeviceSettings { device, .. } => device_targets(merge, *device),
         ClientMessage::RevokePhoneSession { session, .. } => {
