@@ -70,6 +70,10 @@ const SIGN_IN: &str = "Sign in with an access key first.";
 /// What a start with no place reads, from a caller with no workspace.
 pub(super) const NO_PLACE: &str = "Name a place for the agent: a workspace or a folder.";
 
+/// What an agent in Plan mode reads from a tool that changes something.
+pub(super) const IN_PLAN: &str = "Plan mode doesn't allow this, since it changes something. \
+     Ask your user to switch you out of Plan mode first.";
+
 /// Why a start found no account of `vendor` it may use.
 pub(super) fn no_account(vendor: Vendor) -> String {
     format!("There's no {} account here you may use.", vendor.name())
@@ -693,6 +697,9 @@ impl Manager {
         if caller.agent.is_some_and(|agent| self.is_dispatcher(agent)) {
             return self.reply_now(reply, Err(NOT_ALLOWED.into()));
         }
+        if caller.mode == Some(PermissionMode::Plan) && self.plan_holds(&call) {
+            return self.reply_now(reply, Err(IN_PLAN.into()));
+        }
         // The notes tools act on the caller's own project and need no
         // permission.
         if let Call::Note(call) = call {
@@ -818,6 +825,21 @@ impl Manager {
             Call::Lease(call) => self.lease_call(reply, caller, &permission, call),
             Call::Note(_) => unreachable!("run above"),
         }
+    }
+
+    /// Whether Plan mode holds a call back. A message or a stop to an agent
+    /// here that plans too changes nothing a plan can't.
+    fn plan_holds(&self, call: &Call) -> bool {
+        let agent = match call {
+            Call::SendAgent(message) => message.agent,
+            Call::InterruptAgent(stop) => stop.agent,
+            call => return call.tool().plan_holds(),
+        };
+        call.device().is_some_and(|device| device != self.device)
+            || self
+                .held
+                .get(&self.lead_of(agent))
+                .is_none_or(|held| held.mode != PermissionMode::Plan)
     }
 
     /// Runs a lease tool call off the loop, once the permission lists the
@@ -1101,7 +1123,18 @@ impl Manager {
             mode: start.mode,
             counts,
         });
-        let mode = match rules::check(Some(permission), caller.rules(), &ask, self.clock.wall()) {
+        // The agent it takes context from is read for the brief, so it's
+        // held to the caller's container as a read is.
+        let checked = rules::check(Some(permission), caller.rules(), &ask, self.clock.wall())
+            .and_then(|mode| match start.context_from {
+                Some(from) => {
+                    let target = self.container_of(self.device, from);
+                    rules::check_reach(permission, caller.rules(), self.device, target)
+                        .map(|()| mode)
+                }
+                None => Ok(mode),
+            });
+        let mode = match checked {
             Ok(mode) => mode,
             Err(refusal) => {
                 let raw = ToolCall {
@@ -1211,8 +1244,11 @@ impl Manager {
             Actor::Key { key } => format!("access key {key}."),
             Actor::Task { task } => match self.task_maker(task) {
                 // A task you made in the app speaks for you.
-                Some(Maker::User) | None => return text.to_owned(),
+                Some(Maker::User) => return text.to_owned(),
                 Some(Maker::Tools { .. }) => format!("scheduled task {task}, made by an agent."),
+                // A run let through after its task was deleted can't show
+                // who made it, so it doesn't speak for you.
+                None => format!("scheduled task {task}, deleted since."),
             },
         };
         format!("[MaxHQ] Not from your user. Sent by {from}\n\n{text}")

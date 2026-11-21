@@ -1010,6 +1010,34 @@ async fn only_a_person_approves_an_agents_task_and_a_new_version_asks_again() {
 }
 
 #[tokio::test]
+async fn a_task_card_shows_the_whole_prompt_and_how_a_new_agent_runs() {
+    let mut h = Harness::new();
+    let (lead, session) = h.start_claude(Some("Lead")).await;
+    h.allow(lead, vec![Vendor::Claude]).await;
+    let folder = h.folder.display().to_string();
+    let prompt = format!(
+        "Check the build.\n{}\nThen delete it.",
+        "And again. ".repeat(80)
+    );
+    let mut asked = hourly_ask("s1", &prompt);
+    asked["target"] =
+        json!({"type": "new_agent", "vendor": "claude", "folder": folder, "mode": "plan"});
+    h.ask_task((lead, session), "s1", asked).await;
+    h.task_card().await;
+    let question = h.task_question(lead).await;
+    let consent = question.consent.expect("it's a consent card");
+    let facts: Vec<(&str, &str)> = consent
+        .facts
+        .iter()
+        .map(|fact| (fact.label.as_str(), fact.value.as_str()))
+        .collect();
+    assert!(facts.contains(&("Prompt", prompt.as_str())), "{facts:?}");
+    assert!(facts.contains(&("Vendor", "Claude")), "{facts:?}");
+    assert!(facts.contains(&("Folder", folder.as_str())), "{facts:?}");
+    assert!(facts.contains(&("Mode", "Plan")), "{facts:?}");
+}
+
+#[tokio::test]
 async fn an_agent_cant_turn_on_a_task_you_turned_off_and_your_switch_approves() {
     let mut h = Harness::new();
     let (lead, session) = h.start_claude(Some("Lead")).await;

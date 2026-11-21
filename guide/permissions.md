@@ -15,7 +15,7 @@ The permission mode sets what an agent does without asking. Pick it in the compo
 - Ask first: asks before every edit and command.
 - Accept edits: edits apply, commands still ask.
 - Auto: approves what looks safe and runs the repo's own test, build and lint scripts. Use it on repos you trust.
-- Plan only: reads and plans, changes nothing. Codex has no plan mode.
+- Plan only: reads and plans, changes nothing. MaxHQ's own tools that change something, such as notes and tasks, refuse too. Codex has no plan mode.
 - Full access: never asks. Use it in a workspace container.
 
 New agents on a device start in that device's Default mode, on the New agents card of the device's tab in Settings. Local ACP agents don't offer Auto.
@@ -76,7 +76,7 @@ A consent request card shows when an agent in a container wants to reach outside
 
 1. Read the card's risk and details. Values that look secret stay hidden until you click Show.
 2. Click Allow to let this one call go, or Deny to refuse it.
-3. Tick Remember for this permission to keep the answer.
+3. Tick Remember for every call outside the container to keep the answer. It covers every later call this permission makes outside the container, whatever it reaches, not only this one.
 
 A card nobody answers in time refuses the call. To change a remembered answer, open the agent header's ⋯ menu, pick Change what it can run and set Containers.
 

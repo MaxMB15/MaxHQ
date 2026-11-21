@@ -380,6 +380,18 @@ impl Tool {
         )
     }
 
+    /// Whether Plan mode holds the tool back, as it does the CLI's own
+    /// writing tools: every tool that changes something, but a start,
+    /// whose agent plans too, and a lease's screenshot and close.
+    pub fn plan_holds(self) -> bool {
+        !self.only_reads()
+            && !self.shows()
+            && !matches!(
+                self,
+                Tool::StartAgent | Tool::LeaseScreenshot | Tool::LeaseClose
+            )
+    }
+
     /// Whether the tool runs other agents, so it needs a permission.
     pub fn runs_agents(self) -> bool {
         self != Tool::ReadAgent
@@ -1636,6 +1648,30 @@ mod tests {
             }
         }
         assert!(Tool::ReadAgent.description().contains("list_agents names"));
+    }
+
+    #[test]
+    fn plan_mode_holds_back_the_tools_that_change_something() {
+        let held = [
+            Tool::SendAgent,
+            Tool::InterruptAgent,
+            Tool::MoveAgent,
+            Tool::ScheduleTask,
+            Tool::DeleteTask,
+            Tool::RunTaskNow,
+            Tool::LinkPullRequest,
+            Tool::UnlinkPullRequest,
+            Tool::WatchPullRequest,
+            Tool::UnwatchPullRequest,
+            Tool::LeaseOpen,
+            Tool::LeaseRun,
+            Tool::LeaseInstall,
+            Tool::CreateNote,
+            Tool::EditNote,
+        ];
+        for tool in Tool::ALL {
+            assert_eq!(tool.plan_holds(), held.contains(&tool), "{}", tool.name());
+        }
     }
 
     #[test]

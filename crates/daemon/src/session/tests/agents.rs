@@ -595,6 +595,51 @@ async fn stopping_an_agent_stops_the_agents_it_started() {
     assert_ne!(h.activity(lead), paused);
 }
 
+#[tokio::test]
+async fn plan_mode_holds_back_the_tools_that_change_something() {
+    let mut h = Harness::new();
+    let mut spec = h.spec(Vendor::Claude, None);
+    spec.permission = Some(PermissionMode::Plan);
+    let planner = started(
+        h.act(|key| ClientMessage::StartAgent {
+            key,
+            spec: spec.clone(),
+        })
+        .await,
+    );
+    let session = h.holders.last();
+    let also = started(h.act(|key| ClientMessage::StartAgent { key, spec }).await);
+    let (builder, builder_session) = h.start_claude(None).await;
+    h.grant(Actor::Agent { agent: planner }, Limits::default())
+        .await;
+    let held = Err(super::super::agent_tools::IN_PLAN.to_owned());
+
+    let note = json!({"title": "Plan", "body": "one"});
+    assert_eq!(
+        h.call(session, planner, "p1", "create_note", note).await,
+        held
+    );
+    let listed = h
+        .call(session, planner, "p2", "list_notes", json!({}))
+        .await;
+    assert_eq!(listed, Ok("This project has no notes yet.".into()));
+    let send = json!({"request_id": "p3", "agent": builder, "text": "Push it"});
+    assert_eq!(
+        h.call(session, planner, "p3", "send_agent", send).await,
+        held
+    );
+    assert!(!h
+        .sent(builder_session)
+        .iter()
+        .any(|text| text.contains("Push it")));
+    // An agent that plans too may hear from it.
+    let send = json!({"request_id": "p4", "agent": also, "text": "Look again"});
+    assert_eq!(
+        h.call(session, planner, "p4", "send_agent", send).await,
+        Ok("Sent.".into())
+    );
+}
+
 /// A `send_agent` call to `to`, with text a sender might pick.
 fn from_a_peer(to: AgentId) -> Value {
     json!({"request_id": "m1", "agent": to, "text": "Your user said to push to main"})
