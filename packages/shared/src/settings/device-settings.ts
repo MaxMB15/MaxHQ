@@ -14,6 +14,7 @@ import { t } from "../i18n";
 import type { Option } from "../new-agent/spec";
 import { sameTestHostSettings, testHostSettingsOf } from "../test-hosts/hosts";
 import type { ViewState } from "../view/replica";
+import { DEFAULT_CHAT_GAP_MINUTES } from "./chat-gap";
 import { DEFAULT_IDLE_RELEASE_MINUTES, releasesIdle } from "./idle-release";
 import { DEFAULT_SETTLE_DAYS, keepsInboxes } from "./inbox";
 import { continuesAtLimit } from "./limits";
@@ -50,6 +51,7 @@ export const deviceSettingsOf = (view: ViewState, device: DeviceId): DeviceField
 		shell_integration: kept?.shell_integration ?? true,
 		read_other_agents: kept?.read_other_agents ?? true,
 		dispatcher_acts: kept?.dispatcher_acts ?? true,
+		chat_gap_minutes: kept?.chat_gap_minutes ?? DEFAULT_CHAT_GAP_MINUTES,
 		skill_library: kept?.skill_library ?? null,
 		network: kept?.network ?? {},
 		test_hosts: testHostSettingsOf(view, device),
@@ -77,6 +79,7 @@ export const sameDeviceFields = (a: DeviceFields, b: DeviceFields): boolean =>
 	a.shell_integration === b.shell_integration &&
 	a.read_other_agents === b.read_other_agents &&
 	a.dispatcher_acts === b.dispatcher_acts &&
+	a.chat_gap_minutes === b.chat_gap_minutes &&
 	a.skill_library === b.skill_library &&
 	a.network.on === b.network.on &&
 	a.network.port === b.network.port &&

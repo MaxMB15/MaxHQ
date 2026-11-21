@@ -1047,6 +1047,12 @@ pub struct DeviceSettings {
     /// dispatcher only plans.
     #[serde(default = "yes")]
     pub dispatcher_acts: bool,
+    /// Minutes since a dispatcher chat's last message after which your next
+    /// request starts a fresh chat, or 0 for never, which keeps it in the
+    /// chat you're in. A `maxd` from before
+    /// [`crate::message::DISPATCHER_CHATS_SINCE`] leaves it out.
+    #[serde(default = "default_chat_gap_minutes")]
+    pub chat_gap_minutes: u16,
 }
 
 impl DeviceSettings {
@@ -1081,6 +1087,7 @@ impl DeviceSettings {
             shell_integration,
             read_other_agents,
             dispatcher_acts,
+            chat_gap_minutes,
         } = self;
         let differs = |same: &dyn Fn(&Self) -> bool| old.is_none_or(|old| !same(old));
         let mut changes = Vec::new();
@@ -1193,6 +1200,11 @@ impl DeviceSettings {
                 value: *dispatcher_acts,
             });
         }
+        if differs(&|old| old.chat_gap_minutes == *chat_gap_minutes) {
+            changes.push(Change::ChatGapMinutes {
+                value: *chat_gap_minutes,
+            });
+        }
         changes
     }
 
@@ -1226,6 +1238,7 @@ impl DeviceSettings {
             DeviceSettingChange::ShellIntegration { value } => self.shell_integration = value,
             DeviceSettingChange::ReadOtherAgents { value } => self.read_other_agents = value,
             DeviceSettingChange::DispatcherActs { value } => self.dispatcher_acts = value,
+            DeviceSettingChange::ChatGapMinutes { value } => self.chat_gap_minutes = value,
         }
     }
 
@@ -1275,6 +1288,16 @@ impl DeviceSettings {
             mib => Some(u64::from(mib) << 20),
         }
     }
+
+    /// How long a dispatcher chat waits before your next request starts a
+    /// fresh one, or none for never.
+    #[must_use]
+    pub fn chat_gap(&self) -> Option<std::time::Duration> {
+        match self.chat_gap_minutes {
+            0 => None,
+            minutes => Some(std::time::Duration::from_secs(u64::from(minutes) * 60)),
+        }
+    }
 }
 
 impl DeviceSettingChange {
@@ -1287,6 +1310,7 @@ impl DeviceSettingChange {
             Self::ShellIntegration { .. } => crate::message::SHELL_MARKS_SINCE,
             Self::ReadOtherAgents { .. } => crate::message::READ_RIGHTS_SINCE,
             Self::DispatcherActs { .. } => crate::message::DISPATCHER_ADMIN_SINCE,
+            Self::ChatGapMinutes { .. } => crate::message::DISPATCHER_CHATS_SINCE,
             _ => 26,
         }
     }
@@ -1425,6 +1449,11 @@ pub enum DeviceSettingChange {
         /// What it becomes.
         value: bool,
     },
+    /// See [`DeviceSettings::chat_gap_minutes`].
+    ChatGapMinutes {
+        /// What it becomes.
+        value: u16,
+    },
 }
 
 /// How readily new agents go to a device when you don't pick one.
@@ -1475,6 +1504,10 @@ pub const DEFAULT_AUTO_SETTLE_DAYS: u16 = 5;
 /// An idle agent's CLI stops after an hour unless you pick otherwise.
 pub const DEFAULT_IDLE_RELEASE_MINUTES: u16 = 60;
 
+/// A dispatcher chat takes your next request for 30 minutes after its last
+/// message unless you pick otherwise.
+pub const DEFAULT_CHAT_GAP_MINUTES: u16 = 30;
+
 /// An agent keeps its newest 256 items in memory unless you pick otherwise.
 pub const DEFAULT_MEMORY_ITEMS: u16 = 256;
 
@@ -1499,6 +1532,10 @@ fn default_auto_settle_days() -> u16 {
 
 fn default_idle_release_minutes() -> u16 {
     DEFAULT_IDLE_RELEASE_MINUTES
+}
+
+fn default_chat_gap_minutes() -> u16 {
+    DEFAULT_CHAT_GAP_MINUTES
 }
 
 fn default_memory_items() -> u16 {
@@ -1876,6 +1913,37 @@ mod tests {
         changed.change(never.clone());
         assert_eq!(changed.idle_release_minutes, 0);
         assert_eq!(changed.changes_from(Some(&settings)), [never]);
+    }
+
+    #[test]
+    fn the_dispatcher_starts_a_chat_after_half_an_hour_until_you_pick_otherwise() {
+        let old = json!({
+            "device": DeviceId::derive("d"),
+            "default_permission": "auto",
+            "workspace_network": null,
+            "workspace_pool": null,
+        });
+        let settings: DeviceSettings = serde_json::from_value(old).unwrap();
+        assert_eq!(settings.chat_gap_minutes, 30);
+        assert_eq!(
+            settings.chat_gap(),
+            Some(std::time::Duration::from_secs(30 * 60))
+        );
+        let never = DeviceSettingChange::ChatGapMinutes { value: 0 };
+        let text = json!({ "field": "chat_gap_minutes", "value": 0 });
+        assert_eq!(serde_json::to_value(&never).unwrap(), text);
+        assert_eq!(
+            serde_json::from_value::<DeviceSettingChange>(text).unwrap(),
+            never
+        );
+        assert_eq!(never.since(), crate::message::DISPATCHER_CHATS_SINCE);
+        let mut changed = settings.clone();
+        changed.change(never.clone());
+        assert_eq!(changed.chat_gap(), None);
+        assert_eq!(changed.changes_from(Some(&settings)), [never]);
+        let kept: DeviceSettings =
+            serde_json::from_value(serde_json::to_value(&changed).unwrap()).unwrap();
+        assert_eq!(kept, changed);
     }
 
     #[test]

@@ -180,7 +180,8 @@ fn setting(change: &DeviceSettingChange) -> Risk {
         | S::KeepAwake { .. }
         | S::IdleReleaseMinutes { .. }
         | S::MemoryItems { .. }
-        | S::HistoryMib { .. } => Risk::Direct,
+        | S::HistoryMib { .. }
+        | S::ChatGapMinutes { .. } => Risk::Direct,
         S::DefaultPermission { .. }
         | S::WorkspaceNetwork { .. }
         | S::WorkspacePool { .. }
@@ -465,8 +466,8 @@ pub(super) fn input_schema(tool: Tool) -> Value {
                     "items": {
                         "type": "object",
                         "properties": {
-                            "field": {"type": "string", "enum": ["default_permission", "workspace_network", "workspace_pool", "auto_settle_days", "snooze_at_limit", "continue_claude_at_limit", "continue_codex_at_limit", "claude_effort", "codex_effort", "placement", "tool_updates", "keep_awake", "idle_release_minutes", "memory_items", "history_mib", "shell_integration", "read_other_agents", "skill_library"]},
-                            "value": {"description": "The new value: true or false for a switch, a whole number for days, minutes, items or MiB, a mode for default_permission, a level or null for an effort, prefer or normal for placement, charger, always, working or off for keep_awake, and a list of claude, codex or cursor for tool_updates."},
+                            "field": {"type": "string", "enum": ["default_permission", "workspace_network", "workspace_pool", "auto_settle_days", "snooze_at_limit", "continue_claude_at_limit", "continue_codex_at_limit", "claude_effort", "codex_effort", "placement", "tool_updates", "keep_awake", "idle_release_minutes", "memory_items", "history_mib", "chat_gap_minutes", "shell_integration", "read_other_agents", "skill_library"]},
+                            "value": {"description": "The new value: true or false for a switch, a whole number for days, minutes (0 for never), items or MiB, a mode for default_permission, a level or null for an effort, prefer or normal for placement, charger, always, working or off for keep_awake, and a list of claude, codex or cursor for tool_updates."},
                         },
                         "required": ["field", "value"],
                     },
@@ -959,6 +960,44 @@ mod tests {
         assert!(asked(&json!({"asked": true})));
         assert!(!asked(&json!({"asked": false})));
         assert!(!asked(&json!({})));
+    }
+
+    #[test]
+    fn the_pause_before_a_new_chat_changes_at_once_and_goes_back() {
+        let tool = Tool::ManageDevice;
+        let enum_ =
+            &input_schema(tool)["properties"]["changes"]["items"]["properties"]["field"]["enum"];
+        assert!(enum_
+            .as_array()
+            .expect("fields")
+            .contains(&json!("chat_gap_minutes")));
+        let action = parsed(
+            tool,
+            json!({"action": "settings", "changes": [{"field": "chat_gap_minutes", "value": 0}]}),
+        );
+        let changes = vec![DeviceSettingChange::ChatGapMinutes { value: 0 }];
+        assert_eq!(
+            action,
+            AdminAction::ChangeSettings {
+                changes: changes.clone()
+            }
+        );
+        let step = admin(action);
+        assert_eq!(
+            (risk(&step, false), risk(&step, true)),
+            (Risk::Direct, Risk::Direct)
+        );
+        let settings: DeviceSettings = serde_json::from_value(json!({
+            "device": DeviceId::derive("mac"),
+            "default_permission": "ask",
+            "workspace_network": null,
+            "workspace_pool": null,
+        }))
+        .expect("settings");
+        assert_eq!(
+            settings_now(&settings, &changes),
+            [DeviceSettingChange::ChatGapMinutes { value: 30 }]
+        );
     }
 
     #[test]

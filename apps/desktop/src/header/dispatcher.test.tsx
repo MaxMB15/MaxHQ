@@ -19,7 +19,7 @@ import {
 import { DispatcherSettingsPage } from "@/settings/dispatcher-settings";
 import { settingsOf } from "@/settings/store";
 import { clearKept } from "@maxhq/shared/agent-view/kept";
-import { ANSWER_PILLS_SINCE } from "@maxhq/shared/bindings";
+import { ANSWER_PILLS_SINCE, type Entity } from "@maxhq/shared/bindings";
 import type { DataSource } from "@maxhq/shared/data/source";
 import { CODEX, MAC } from "@maxhq/shared/data/mock-view";
 import { FixedNow } from "@maxhq/shared/lib/clock";
@@ -68,6 +68,19 @@ const renderBox = async (
 	const input = screen.getByRole("textbox", { name: "Ask the dispatcher" });
 	const view = () => services!.view.getState().view;
 	return { services: services!, input, view };
+};
+
+/** The sample source, with each entity of its snapshot passed through `change`. */
+const changed = (change: (entity: Entity) => Entity) => {
+	const source = mockSource({ now: () => NOW, tick: false });
+	const snapshot = source.snapshot;
+	return {
+		...source,
+		snapshot: async () => {
+			const loaded = await snapshot();
+			return { ...loaded, entities: loaded.entities.map(change) };
+		},
+	};
 };
 
 /** Puts text in the field as if typed. */
@@ -289,28 +302,64 @@ describe("the dispatcher settings", () => {
 		);
 		expect(acts).not.toBeChecked();
 	});
+
+	it("starts a fresh chat after 30 minutes by default, and saves another pause on the Mac", async () => {
+		const { services, view } = await renderBox(<DispatcherSettingsPage />);
+		const save = vi.spyOn(services.source, "setDeviceSettings");
+		expect(screen.getByText(/^When you write again after this long/)).toBeVisible();
+		fireEvent.click(
+			screen.getByRole("combobox", { name: "New chat after a pause, 30 minutes" })
+		);
+		const options = await screen.findAllByRole("option");
+		expect(options.map((o) => o.textContent)).toEqual([
+			"15 minutes",
+			"30 minutes",
+			"1 hour",
+			"2 hours",
+			"4 hours",
+			"Never",
+		]);
+		const hour = options[2]!;
+		fireEvent.pointerDown(hour, { pointerType: "mouse" });
+		fireEvent.click(hour);
+		await waitFor(() =>
+			expect(save).toHaveBeenCalledWith(
+				expect.objectContaining({
+					device: MAC,
+					chat_gap_minutes: 60,
+					dispatcher_acts: true,
+				})
+			)
+		);
+		await waitFor(() =>
+			expect(view().tables.device_settings.get(MAC)?.chat_gap_minutes).toBe(60)
+		);
+		expect(
+			screen.getByRole("combobox", { name: "New chat after a pause, 1 hour" })
+		).toBeInTheDocument();
+	});
+
+	it("greys out the pause against a maxd too old for it", async () => {
+		const source = changed((entity) =>
+			entity.entity === "device_settings" && entity.device === MAC
+				? { ...entity, chat_gap_minutes: undefined }
+				: entity
+		);
+		await renderBox(<DispatcherSettingsPage />, undefined, source);
+		expect(screen.getByRole("combobox", { name: /^New chat after a pause/ })).toBeDisabled();
+		expect(screen.getByText(/maxd is too old for this\. Update it first\.$/)).toBeVisible();
+		expect(screen.getByRole("switch", { name: "Act directly" })).toBeEnabled();
+	});
 });
 
 describe("pills in a request", () => {
 	/** The sample source, with the Mac's maxd speaking `protocol`. */
-	const speaking = (protocol: number) => {
-		const source = mockSource({ now: () => NOW, tick: false });
-		const snapshot = source.snapshot;
-		return {
-			...source,
-			snapshot: async () => {
-				const loaded = await snapshot();
-				return {
-					...loaded,
-					entities: loaded.entities.map((entity) =>
-						entity.entity === "device_link" && entity.device === MAC
-							? { ...entity, protocol }
-							: entity
-					),
-				};
-			},
-		};
-	};
+	const speaking = (protocol: number) =>
+		changed((entity) =>
+			entity.entity === "device_link" && entity.device === MAC
+				? { ...entity, protocol }
+				: entity
+		);
 
 	/** Names "Sidebar sort order" in a request to a Mac on `protocol`, and returns what went. */
 	const askWithPill = async (protocol: number) => {

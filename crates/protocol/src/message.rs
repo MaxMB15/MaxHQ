@@ -2958,9 +2958,10 @@ pub const NOTICES_SINCE: u32 = 49;
 pub const DISPATCHER_ADMIN_SINCE: u32 = 52;
 
 /// The protocol version whose `maxd` first keeps the dispatcher's chats:
-/// the [`crate::dispatch::DispatcherChat`] entity and
-/// [`ClientMessage::ActOnChat`]. An older one keeps one conversation, so
-/// the app hides the Chats list.
+/// the [`crate::dispatch::DispatcherChat`] entity,
+/// [`ClientMessage::ActOnChat`] and
+/// [`crate::model::DeviceSettingChange::ChatGapMinutes`]. An older one
+/// keeps one conversation, so the app hides the Chats list.
 pub const DISPATCHER_CHATS_SINCE: u32 = 53;
 
 /// When [`ClientMessage::TakeOver`] stops the terminal's CLI.
@@ -4476,6 +4477,7 @@ mod tests {
                         shell_integration: true,
                         read_other_agents: true,
                         dispatcher_acts: true,
+                        chat_gap_minutes: 30,
                     },
                 },
             ),
@@ -5713,6 +5715,7 @@ mod tests {
             shell_integration: true,
             read_other_agents: true,
             dispatcher_acts: true,
+            chat_gap_minutes: 30,
         };
         assert_eq!(old.changes_from(Some(&old)), []);
         let new = DeviceSettings {

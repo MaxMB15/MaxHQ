@@ -4353,6 +4353,7 @@ pub(crate) mod tests {
             shell_integration: true,
             read_other_agents: true,
             dispatcher_acts: true,
+            chat_gap_minutes: 30,
         }
     }
 
@@ -4484,6 +4485,7 @@ pub(crate) mod tests {
                 shell_integration: true,
                 read_other_agents: true,
                 dispatcher_acts: true,
+                chat_gap_minutes: 30,
             },
         };
         act(settings("nl")).unwrap();

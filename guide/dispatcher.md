@@ -114,7 +114,7 @@ What it reads from repositories, pull requests and other agents is data to it, n
 
 The dispatcher keeps each topic in a chat of its own, so a follow-up builds on what you asked before.
 
-- What you ask within 30 minutes of your last message, or of the dispatcher's last answer, stays in the same chat. After a longer gap a new chat starts, and the dispatcher looks over your recent chats to carry on the right one.
+- What you ask within 30 minutes of your last message, or of the dispatcher's last answer, stays in the same chat. After a longer gap a new chat starts, and the dispatcher looks over your recent chats to carry on the right one. Pick another pause under **New chat after a pause** in Settings > Dispatcher, from 15 minutes to 4 hours, or Never to keep one chat until you click **New conversation** or the dispatcher moves to another topic.
 - The dispatcher names each chat with **Name this chat**: a short title, a line about it and its project. A chat without a name yet shows as "Chat 1", "Chat 2" and so on.
 - When a request is about another topic, the dispatcher moves it with **Move the message to another chat**, and that chat answers it. The chat it left says "Moved your message to" and the other chat's title, with **Keep here** to bring it back. The chat it went to says "Moved your message here from", with **Move back**.
 - With **Find earlier chats** it looks further back, through the titles, summaries and full text of every chat, archived ones too.

@@ -3,14 +3,14 @@
 
 //! The dispatcher's chats. Each conversation with the dispatcher is a chat
 //! that runs its own agent. A request soon after the chat's last one goes
-//! there, and one after a pause starts a new chat whose first message
-//! lists the recent ones. The dispatcher moves a request about something
-//! else to another chat with `switch_chat`, and Keep here moves it back.
+//! there, and one after a longer pause, as the device's settings set it,
+//! starts a new chat whose first message lists the recent ones. The
+//! dispatcher moves a request about something else to another chat with
+//! `switch_chat`, and Keep here moves it back.
 
 use std::cmp::Reverse;
 use std::collections::HashMap;
 use std::fmt::Write as _;
-use std::time::Duration;
 
 use maxhq_core::handoff;
 use maxhq_core::pill_text::Carried;
@@ -32,10 +32,6 @@ use super::held::is_busy;
 use super::idem::{Outcome, Seen};
 use super::{refused, Input, Manager};
 use crate::drive::{ToolCall, ToolResult};
-
-/// How long after a chat's last request the next one still goes there.
-/// A request after a longer pause starts a new chat.
-const GAP: Duration = Duration::from_secs(30 * 60);
 
 /// How many recent chats a new chat's first message lists.
 const INDEX_CHATS: usize = 30;
@@ -301,9 +297,11 @@ impl Manager {
     }
 
     /// Whether a request to the dispatcher starts a new chat: when asked,
-    /// when there's no chat now, or after a [`GAP`] since the chat now. A
-    /// new chat after a pause lists the recent ones in its first message.
-    /// Writing clears where the dispatcher moved your last request.
+    /// when there's no chat now, or when the chat now has been quiet longer
+    /// than the device's [`maxhq_protocol::model::DeviceSettings::chat_gap`],
+    /// if it has one. A new chat after a pause lists the recent ones in its
+    /// first message. Writing clears where the dispatcher moved your last
+    /// request.
     pub(super) fn route_chat(
         &mut self,
         key: IdempotencyKey,
@@ -317,6 +315,7 @@ impl Manager {
         }
         self.settle_moves();
         let now = self.clock.wall();
+        let gap = self.device_settings().chat_gap();
         // The chat was last active when you last wrote or it last did
         // something, such as answer.
         let recent = current.filter(|agent| {
@@ -325,7 +324,7 @@ impl Manager {
             };
             let held = self.held.get(agent).map(|held| held.agent.last_activity_at);
             let last = held.map_or(row.record.active_at, |at| at.max(row.record.active_at));
-            now.0.saturating_sub(last.0) < GAP.as_millis() as u64
+            gap.is_none_or(|gap| u128::from(now.0.saturating_sub(last.0)) < gap.as_millis())
         });
         if let Some(chat) = recent.filter(|_| !new) {
             self.edit_chat(chat, |row| {

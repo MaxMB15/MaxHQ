@@ -770,6 +770,7 @@ mod tests {
             shell_integration: true,
             read_other_agents: true,
             dispatcher_acts: true,
+            chat_gap_minutes: 30,
         });
         assert_eq!(settings.key(), EntityKey::DeviceSettings(id));
         assert_eq!(
@@ -804,13 +805,15 @@ mod tests {
                 "shell_integration": true,
                 "read_other_agents": true,
                 "dispatcher_acts": true,
+                "chat_gap_minutes": 30,
             })
         );
-        // A `maxd` from before the switch leaves it out, which reads as on.
+        // A `maxd` from before these leaves them out, which reads as their defaults.
         let mut old = serde_json::to_value(&settings).unwrap();
         old.as_object_mut().unwrap().remove("shell_integration");
         old.as_object_mut().unwrap().remove("read_other_agents");
         old.as_object_mut().unwrap().remove("dispatcher_acts");
+        old.as_object_mut().unwrap().remove("chat_gap_minutes");
         assert_eq!(serde_json::from_value::<Entity>(old).unwrap(), settings);
     }
 

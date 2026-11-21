@@ -8,6 +8,7 @@
 use maxhq_core::handoff;
 use maxhq_protocol::dispatch::{ChatAct, DispatcherChat};
 use maxhq_protocol::ids::ProjectId;
+use maxhq_protocol::model::DeviceSettingChange;
 use serde_json::{json, Value};
 
 use super::*;
@@ -35,6 +36,19 @@ impl Harness {
             refs: Vec::new(),
         })
         .await
+    }
+
+    /// Sets the pause after which a request starts a new chat, 0 for never.
+    async fn chat_gap(&mut self, minutes: u16) {
+        let device = self.host.id;
+        let outcome = self
+            .act(|key| ClientMessage::UpdateDeviceSettings {
+                key,
+                device,
+                changes: vec![DeviceSettingChange::ChatGapMinutes { value: minutes }],
+            })
+            .await;
+        assert_eq!(outcome, ActionOutcome::Done);
     }
 
     /// Acts on a chat.
@@ -113,6 +127,54 @@ async fn a_request_soon_after_the_last_goes_to_the_chat_now() {
     .await;
     assert_eq!(h.chats().len(), 1);
     assert_eq!(h.dispatcher().agent, Some(chat));
+}
+
+#[tokio::test]
+async fn a_shorter_pause_starts_a_chat_when_the_device_says_so() {
+    let mut h = Harness::with_dispatcher().await;
+    h.chat_gap(15).await;
+    let (chat, session) = h.dispatch("Why is the login slow?").await;
+
+    h.clock.advance(Duration::from_secs(14 * 60));
+    assert_eq!(
+        h.ask_chat("And the signup?", false).await,
+        ActionOutcome::Done
+    );
+    eventually("the second request", || {
+        h.sent(session).contains(&"And the signup?".to_owned())
+    })
+    .await;
+
+    h.clock.advance(Duration::from_secs(16 * 60));
+    let next = started(h.ask_chat("Plan the release notes", false).await);
+    assert_ne!(next, chat);
+    assert_eq!(h.dispatcher().agent, Some(next));
+    h.got(next, "Plan the release notes").await;
+    assert_eq!(h.chats().len(), 2);
+}
+
+#[tokio::test]
+async fn with_never_only_a_new_conversation_starts_a_chat() {
+    let mut h = Harness::with_dispatcher().await;
+    h.chat_gap(0).await;
+    let (chat, session) = h.dispatch("Why is the login slow?").await;
+
+    h.clock.advance(Duration::from_secs(24 * 60 * 60));
+    assert_eq!(
+        h.ask_chat("And the signup?", false).await,
+        ActionOutcome::Done
+    );
+    eventually("the second request", || {
+        h.sent(session).contains(&"And the signup?".to_owned())
+    })
+    .await;
+    assert_eq!(h.chats().len(), 1);
+    assert_eq!(h.dispatcher().agent, Some(chat));
+
+    let next = started(h.ask_chat("Plan the release notes", true).await);
+    assert_ne!(next, chat);
+    h.got(next, "Plan the release notes").await;
+    assert_eq!(h.chats().len(), 2);
 }
 
 #[tokio::test]

@@ -2103,6 +2103,7 @@ mod tests {
             shell_integration: true,
             read_other_agents: true,
             dispatcher_acts: true,
+            chat_gap_minutes: 30,
         };
         Db::open(&path)
             .unwrap()

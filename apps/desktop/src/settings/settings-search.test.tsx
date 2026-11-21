@@ -120,6 +120,19 @@ describe("the settings search", () => {
 		).toBeInTheDocument();
 	});
 
+	it("finds the dispatcher's pause before a new chat", async () => {
+		const { nav, dialog, field } = await openSettings();
+		search(field, "chat pause");
+		const page = within(nav).getByRole("button", { name: /^Dispatcher/ });
+		expect(page).toHaveTextContent("DispatcherNew chat after a pause");
+		expect(within(nav).getAllByRole("button")).toHaveLength(1);
+
+		fireEvent.click(page);
+		expect(
+			within(dialog).getByRole("combobox", { name: /^New chat after a pause/ })
+		).toBeInTheDocument();
+	});
+
 	it("opens a project on its Skills tab when only that tab has the words", async () => {
 		const { nav, dialog, field } = await openSettings();
 		search(field, "proposals");
