@@ -174,5 +174,4 @@ MaxHQ also links a pull request to an agent by itself, in a repository on GitHub
 - When the agent runs gh pr create in its project's repository and the output gives the new PR's address.
 - When an open PR's branch, in the repository itself rather than a fork, is the branch the agent works on. A push alone links nothing until the PR is open.
 
-MaxHQ looks for these while the agent is active, or settled less than 24 hours ago, and reads the repository's open pull requests every 2 minutes. A PR you unlink stays unlinked.
-<!-- check: does linking by branch need a GitHub App that reaches the repository? The watcher reads through MaxHQ's stored GitHub sign-ins, not confirmed which one. -->
+MaxHQ looks for these while the agent is active, or settled less than 24 hours ago, and reads the repository's open pull requests every 2 minutes. It reads them with the GitHub App where the App reaches the repository, and with the device's own gh sign-in otherwise. A PR you unlink stays unlinked.

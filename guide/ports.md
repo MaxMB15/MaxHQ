@@ -52,7 +52,6 @@ A forward stays through a lost connection: once the device is back, it asks for 
 Forwards end when MaxHQ quits, and none come back when you open it again. Forward the port again from the agent's header.
 
 When maxd itself restarts, the port shows as new, so the old forward ends and the card offers the port again.
-<!-- check: after a maxd restart, does the forward really end and the port show a new offer? Inferred from PortId::generate in ports/host.rs, not tried. -->
 
 ## Turn off port prompts
 <!-- id: ports/prompts -->
