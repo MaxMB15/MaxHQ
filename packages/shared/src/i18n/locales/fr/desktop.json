@@ -1427,5 +1427,15 @@
 	"On {{device}}": "Sur {{device}}",
 	"Runs in": "S'exécute en",
 	"This change can't be undone any more": "Cette modification ne peut plus être annulée",
-	"Undone": "Annulé"
+	"Undone": "Annulé",
+	"typed in the terminal": "tapée dans le terminal",
+	"{{count, number}} commands typed in the terminal_one": "{{count, number}} commande tapée dans le terminal",
+	"{{count, number}} commands typed in the terminal_other": "{{count, number}} commandes tapées dans le terminal",
+	"{{count, number}} commands typed in the terminal_many": "{{count, number}} commandes tapées dans le terminal",
+	"{{shared}} of {{total}} shared": "{{shared}} sur {{total}} partagées",
+	"{{program}} is open in the terminal below. The result comes back here when it closes.": "{{program}} est ouvert dans le terminal ci-dessous. Le résultat revient ici à sa fermeture.",
+	"go to the program": "vont au programme",
+	"Your keys go to the program. Click outside or press {{keyHint}} to give them back.": "Vos touches vont au programme. Cliquez à côté ou appuyez sur {{keyHint}} pour les rendre.",
+	"Click to give the program your keys": "Cliquez pour donner vos touches au programme",
+	"Click outside or press {{keyHint}} to give the keys back.": "Cliquez à côté ou appuyez sur {{keyHint}} pour rendre les touches."
 }

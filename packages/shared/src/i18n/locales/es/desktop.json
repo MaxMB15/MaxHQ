@@ -1427,5 +1427,15 @@
 	"On {{device}}": "En {{device}}",
 	"Runs in": "Se ejecuta en",
 	"This change can't be undone any more": "Este cambio ya no se puede deshacer",
-	"Undone": "Deshecho"
+	"Undone": "Deshecho",
+	"typed in the terminal": "escrito en la terminal",
+	"{{count, number}} commands typed in the terminal_one": "{{count, number}} comando escrito en la terminal",
+	"{{count, number}} commands typed in the terminal_other": "{{count, number}} comandos escritos en la terminal",
+	"{{count, number}} commands typed in the terminal_many": "{{count, number}} comandos escritos en la terminal",
+	"{{shared}} of {{total}} shared": "{{shared}} de {{total}} compartidos",
+	"{{program}} is open in the terminal below. The result comes back here when it closes.": "{{program}} está abierto en la terminal de abajo. El resultado vuelve aquí cuando se cierra.",
+	"go to the program": "van al programa",
+	"Your keys go to the program. Click outside or press {{keyHint}} to give them back.": "Tus teclas van al programa. Haz clic fuera o pulsa {{keyHint}} para devolverlas.",
+	"Click to give the program your keys": "Haz clic para dar tus teclas al programa",
+	"Click outside or press {{keyHint}} to give the keys back.": "Haz clic fuera o pulsa {{keyHint}} para devolver las teclas."
 }

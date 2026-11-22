@@ -20,6 +20,7 @@ import { ServicesProvider } from "@/app/services";
 import { ConfirmHost } from "@/components/confirm";
 import { Composer } from "@/composer/composer";
 import { ComposerNativeProvider } from "@/composer/native";
+import { forgetNewest, startSessionRun } from "@/composer/run-command";
 import {
 	AGENT,
 	DEVICE,
@@ -42,9 +43,11 @@ const seam = vi.hoisted(() => ({
 	sendInput: vi.fn<(device: string, terminal: string, data: string) => void>(),
 	showInDrawer: vi.fn<(agent: string, terminal: string) => void>(),
 	live: [] as LiveTerminalProps[],
+	shown: false,
 }));
 
 vi.mock("@/terminal", () => ({
+	useShownInPanel: () => seam.shown,
 	LiveTerminal: (props: LiveTerminalProps) => {
 		seam.live.push(props);
 		return <div data-testid="live-terminal" />;
@@ -65,6 +68,7 @@ beforeEach(() => {
 	seam.sendInput.mockReset();
 	seam.showInDrawer.mockReset();
 	seam.live = [];
+	seam.shown = false;
 });
 afterEach(() => {
 	cleanup();
@@ -647,5 +651,231 @@ describe("a sealed session card", () => {
 		// The composer has had its chance to add one.
 		await act(async () => {});
 		expect(pillsIn(textbox)).toEqual([]);
+	});
+});
+
+describe("lines you typed in the terminal", () => {
+	const typed = (id: number, over: Partial<SessionBlock> = {}) =>
+		block(id, {
+			command: `ls ${id}`,
+			cwd: `${FOLDER}/apps/web`,
+			typed: true,
+			private: true,
+			output: `README-${id}.md\n`,
+			lines: 1,
+			...over,
+		});
+
+	it("shows each as a Private line you can share, which opens to its output", async () => {
+		const item = card({ blocks: [...BLOCKS, typed(5, { command: "ls -la" })] });
+		const { sessionShare } = renderCard(item);
+		const found = await findCard();
+		const line = blockOf(found, 5);
+
+		expect(line).toHaveAttribute("data-typed");
+		expect(line).toHaveTextContent("ls -latyped in the terminalPrivate");
+		expect(line).not.toHaveTextContent("README-5.md");
+		expect(found).toHaveTextContent("3 of 5 go with your next message");
+
+		fireEvent.click(button(line, "ls -la"));
+		expect(line).toHaveTextContent("README-5.md");
+
+		fireEvent.click(button(line, "Share ls -la with the agent"));
+		await waitFor(() =>
+			expect(sessionShare).toHaveBeenCalledExactlyOnceWith(AGENT, item.id, 5, false)
+		);
+	});
+
+	it("folds more than three in a row into one line that opens to them", async () => {
+		const run = [typed(5), typed(6, { private: false }), typed(7), typed(8)];
+		renderCard(card({ blocks: [...BLOCKS, ...run] }));
+		const found = await findCard();
+		const fold = found.querySelector<HTMLElement>("[data-typed-run]")!;
+
+		expect(fold).toHaveAttribute("data-typed-run", "4");
+		expect(fold).toHaveTextContent("4 commands typed in the terminal1 of 4 shared");
+		expect(found.querySelectorAll("[data-typed]")).toHaveLength(0);
+
+		fireEvent.click(button(fold, /4 commands typed in the terminal/));
+
+		expect(found.querySelectorAll("[data-typed]")).toHaveLength(4);
+		expect(blockOf(found, 6)).toHaveTextContent("Shared");
+	});
+
+	it("shows three in a row one by one", async () => {
+		renderCard(card({ blocks: [...BLOCKS, typed(5), typed(6), typed(7)] }));
+		const found = await findCard();
+
+		expect(found.querySelector("[data-typed-run]")).toBeNull();
+		expect(found.querySelectorAll("[data-typed]")).toHaveLength(3);
+	});
+
+	it("keeps the header's Open in terminal while one runs, with no view of its own", async () => {
+		const running = typed(5, { process: { state: "running" }, duration_ms: null, output: "" });
+		renderCard(card({ blocks: [...BLOCKS, running] }), {
+			terminal: sessionTerminal({ busy: true }),
+		});
+		const found = await findCard();
+
+		expect(within(found).getAllByRole("button", { name: "Open in terminal" })).toHaveLength(1);
+		expect(within(blockOf(found, 5)).queryByTestId("live-terminal")).toBeNull();
+		expect(within(blockOf(found, 5)).queryByRole("textbox")).toBeNull();
+		expect(within(blockOf(found, 5)).queryByRole("button", { name: "Stop" })).toBeNull();
+	});
+});
+
+describe("a program that takes the whole screen", () => {
+	const vim = block(5, {
+		command: "vim notes.md",
+		process: { state: "running" },
+		duration_ms: null,
+	});
+	const full = () => sessionTerminal({ busy: true, full_screen: true });
+	// A private command puts no pill in, so starting it never reads the view.
+	const noView = (): never => {
+		throw new Error("A private command doesn't read the view");
+	};
+
+	afterEach(forgetNewest);
+
+	it("says it's in the terminal, with one Open in terminal and no view", async () => {
+		renderCard(card({ blocks: [...BLOCKS, vim] }), { terminal: full() });
+		const found = await findCard();
+		const line = blockOf(found, 5);
+
+		expect(line.querySelector("[data-handoff]")).toHaveTextContent("In the terminal");
+		expect(line).toHaveTextContent(
+			"vim is open in the terminal below. The result comes back here when it closes."
+		);
+		expect(within(found).getAllByRole("button", { name: "Open in terminal" })).toHaveLength(1);
+		expect(button(line, "Stop")).toBeInTheDocument();
+		expect(within(line).queryByTestId("live-terminal")).toBeNull();
+		expect(within(line).queryByRole("textbox")).toBeNull();
+
+		fireEvent.click(button(line, "Open in terminal"));
+		expect(seam.showInDrawer).toHaveBeenCalledExactlyOnceWith(AGENT, "s1");
+	});
+
+	it("has no Open in terminal while the panel shows it", async () => {
+		seam.shown = true;
+		renderCard(card({ blocks: [...BLOCKS, vim] }), { terminal: full() });
+		const found = await findCard();
+
+		expect(within(found).queryByRole("button", { name: "Open in terminal" })).toBeNull();
+		expect(blockOf(found, 5)).toHaveTextContent("vim is open in the terminal below.");
+	});
+
+	it("opens the Agent shell's tab by itself for the command you just ran here", async () => {
+		const here = {
+			sessionRun: async (): Promise<ActionResult> => ({
+				status: "ok",
+				data: { status: "session_ran", terminal: "s1", item: "card-1", block: 5 },
+			}),
+		};
+		await startSessionRun(here, noView, {
+			agent: AGENT,
+			command: "vim notes.md",
+			private: true,
+			fresh: false,
+			size: { cols: 100, rows: 24 },
+		});
+
+		renderCard(card({ blocks: [...BLOCKS, vim] }), { terminal: full() });
+		await findCard();
+
+		await waitFor(() => expect(seam.showInDrawer).toHaveBeenCalledExactlyOnceWith(AGENT, "s1"));
+	});
+
+	it("leaves the panel alone for a command this window didn't just run", async () => {
+		renderCard(card({ blocks: [...BLOCKS, vim] }), { terminal: full() });
+		await findCard();
+		await act(async () => {});
+
+		expect(seam.showInDrawer).not.toHaveBeenCalled();
+	});
+
+	it("has no buttons of its own in a read-only timeline", async () => {
+		renderCard(card({ blocks: [...BLOCKS, vim] }), { terminal: full(), readOnly: true });
+		const found = await findCard();
+		const line = blockOf(found, 5);
+
+		expect(line).toHaveTextContent("vim is open in the terminal below.");
+		expect(within(line).queryByRole("button")).toBeNull();
+		// The header keeps its Open in terminal, as it does in any read-only card.
+		expect(within(found).getAllByRole("button", { name: "Open in terminal" })).toHaveLength(1);
+	});
+});
+
+describe("a picker that reads keys", () => {
+	const picker = block(5, {
+		command: "pnpm create vite",
+		process: { state: "running" },
+		duration_ms: null,
+	});
+	const reads = (over: Partial<Terminal> = {}) =>
+		sessionTerminal({
+			busy: true,
+			reads_keys: true,
+			waiting: true,
+			answers: true,
+			app_cursor: true,
+			...over,
+		});
+
+	it("waits for keys, and takes yours once you click its output", async () => {
+		renderCard(card({ blocks: [...BLOCKS, picker] }), { terminal: reads() });
+		const found = await findCard();
+		const line = blockOf(found, 5);
+		const box = line.querySelector<HTMLElement>("[data-keys]")!;
+
+		expect(line.querySelector("[data-handoff]")).toHaveTextContent("Waiting for keys");
+		expect(box).toHaveAttribute("data-keys", "offered");
+
+		act(() => box.focus());
+
+		expect(box).toHaveAttribute("data-keys", "held");
+		expect(line).toHaveTextContent("go to the program");
+		expect(within(found).getAllByRole("button", { name: "Open in terminal" })).toHaveLength(1);
+		expect(within(found).getAllByRole("button", { name: "Stop" })).toHaveLength(1);
+		expect(within(line).queryByRole("textbox")).toBeNull();
+
+		fireEvent.keyDown(box, { key: "ArrowDown" });
+		fireEvent.keyDown(box, { key: "Enter" });
+		expect(seam.sendInput.mock.calls).toEqual([
+			[DEVICE, "s1", "\x1bOB"],
+			[DEVICE, "s1", "\r"],
+		]);
+	});
+
+	it("keeps waiting for keys while you hold them, also just after one", async () => {
+		// Right after a key it prints, so the device doesn't say it waits yet.
+		renderCard(card({ blocks: [...BLOCKS, picker] }), { terminal: reads({ waiting: false }) });
+		const found = await findCard();
+		const line = blockOf(found, 5);
+		const box = line.querySelector<HTMLElement>("[data-keys]")!;
+		expect(line.querySelector("[data-handoff]")).toBeNull();
+
+		act(() => box.focus());
+
+		expect(line.querySelector("[data-handoff]")).toHaveTextContent("Waiting for keys");
+	});
+
+	it("stays view-only with a device that doesn't answer for the terminal", async () => {
+		renderCard(card({ blocks: [...BLOCKS, picker] }), {
+			terminal: sessionTerminal({ busy: true, waiting: true }),
+		});
+		const found = await findCard();
+		const line = blockOf(found, 5);
+
+		expect(line.querySelector("[data-keys]")).toBeNull();
+		expect(line).toHaveTextContent("Waiting for you");
+		expect(within(line).getByRole("textbox")).toBeInTheDocument();
+	});
+
+	it("takes no keys in a read-only timeline", async () => {
+		renderCard(card({ blocks: [...BLOCKS, picker] }), { terminal: reads(), readOnly: true });
+		const found = await findCard();
+
+		expect(blockOf(found, 5).querySelector("[data-keys]")).toBeNull();
 	});
 });

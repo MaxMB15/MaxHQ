@@ -111,3 +111,5 @@ export const useTerminalActions = (): TerminalActions => {
 		[services]
 	);
 };
+
+export { useShownInPanel } from "./shown";

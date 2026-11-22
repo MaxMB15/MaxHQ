@@ -87,6 +87,12 @@ describe("runHistory", () => {
 		expect(runHistory(state)).toEqual(["pnpm test", "pnpm lint", "git status", "cd apps/web"]);
 	});
 
+	it("leaves out the lines you typed in the session's terminal", () => {
+		const card = session("i1", ["pnpm lint", "ls -la", "pnpm test"]);
+		if (card.kind === "user_session") card.blocks[1] = { ...card.blocks[1]!, typed: true };
+		expect(runHistory(timeline([card]))).toEqual(["pnpm test", "pnpm lint"]);
+	});
+
 	it("is empty with no commands", () => {
 		expect(runHistory(timeline([]))).toEqual([]);
 	});

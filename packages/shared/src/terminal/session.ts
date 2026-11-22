@@ -172,6 +172,9 @@ export const sessionFolder = (
 export const blockRunning = (block: Pick<SessionBlock, "process">): boolean =>
 	block.process.state === "running";
 
+/** Whether you typed a block by hand in the session's terminal, rather than with `!`. */
+export const blockTyped = (block: Pick<SessionBlock, "typed">): boolean => block.typed === true;
+
 /** Whether a block ended with an exit code other than 0. */
 export const blockFailed = (block: Pick<SessionBlock, "process">): boolean =>
 	block.process.state === "exited" && block.process.code !== null && block.process.code !== 0;
@@ -236,6 +239,38 @@ export const sessionPillLabel = (look: SessionPillLook): string =>
 	look.failed > 0
 		? t("Agent shell · {{failed}} failed", { failed: look.failed })
 		: t("Agent shell");
+
+/** How many typed blocks in a row a card shows one by one before it folds them. */
+export const TYPED_FOLD = 3;
+
+/**
+ * One row of a card: a block, or a run of more than `TYPED_FOLD` blocks
+ * typed in a row, which shows as one row until you open it. `index` is
+ * where the row's first block stands in the card.
+ */
+export type CardRow =
+	| { readonly kind: "block"; readonly block: SessionBlock; readonly index: number }
+	| { readonly kind: "typed"; readonly blocks: readonly SessionBlock[]; readonly index: number };
+
+/** A card's blocks as rows, each run of more than `fold` typed blocks folded into one. */
+export const cardRows = (blocks: readonly SessionBlock[], fold = TYPED_FOLD): CardRow[] => {
+	const rows: CardRow[] = [];
+	let index = 0;
+	while (index < blocks.length) {
+		let end = index;
+		while (end < blocks.length && blockTyped(blocks[end]!)) end += 1;
+		if (end - index > fold) {
+			rows.push({ kind: "typed", blocks: blocks.slice(index, end), index });
+			index = end;
+			continue;
+		}
+		const last = Math.max(end, index + 1);
+		for (let at = index; at < last; at += 1)
+			rows.push({ kind: "block", block: blocks[at]!, index: at });
+		index = last;
+	}
+	return rows;
+};
 
 // Sending -----------------------------------------------------------------------
 

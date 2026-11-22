@@ -20,13 +20,12 @@ import {
 import { useShallow } from "zustand/react/shallow";
 
 import { ICON_BUTTON } from "@/agent-view/find/bar";
-import { type Services, useServices, useView } from "@/app/services";
+import { useServices, useView } from "@/app/services";
 import { ErrorBoundary } from "@/components/error-boundary";
-import { panesOf } from "@/layout/panes";
 import { ariaKeys, keyHint, SHORTCUTS } from "@/layout/shortcuts";
 import { followPointer } from "@/lib/drag";
 import { cn } from "@/lib/utils";
-import type { AgentId, DeviceId, TerminalId } from "@maxhq/shared/bindings";
+import type { AgentId, DeviceId } from "@maxhq/shared/bindings";
 import { t as translate, useI18n } from "@maxhq/shared/i18n";
 import { runsCommand, tabTitle } from "@maxhq/shared/terminal/drawer";
 import { supportsTerminals, type TerminalEntity, terminalsOf } from "@maxhq/shared/terminal/select";
@@ -37,7 +36,6 @@ import {
 	closeTab,
 	openFirstTab,
 	openTab,
-	poppedOut,
 	popOut,
 	renameTab,
 	toggleSplit,
@@ -54,6 +52,7 @@ import {
 	useDrawers,
 } from "./drawer-prefs";
 import { registryOf } from "./live";
+import { usePopped } from "./shown";
 import { TerminalBody } from "./terminal-body";
 
 // How far an arrow key moves the edge.
@@ -65,32 +64,6 @@ const ROOM = 240;
 /** The line that names where a terminal runs, such as `~/code/example-app · Mac`. */
 export const whereLine = (cwd: string, device: string): string =>
 	cwd ? `${cwd} · ${device}` : device;
-
-const same = (a: ReadonlySet<TerminalId>, b: ReadonlySet<TerminalId>) =>
-	a.size === b.size && [...a].every((id) => b.has(id));
-
-/** The terminals open as panes of their own, kept up to date. */
-const usePopped = (services: Services): ReadonlySet<TerminalId> => {
-	const [popped, setPopped] = useState(() => poppedOut(services));
-	useEffect(() => {
-		let stops: { dispose: () => void }[] = [];
-		const unwatch = panesOf(services).watch((api) => {
-			for (const stop of stops) stop.dispose();
-			const update = () =>
-				setPopped((before) => {
-					const now = poppedOut(services);
-					return same(before, now) ? before : now;
-				});
-			stops = api ? [api.onDidAddPanel(update), api.onDidRemovePanel(update)] : [];
-			update();
-		});
-		return () => {
-			unwatch();
-			for (const stop of stops) stop.dispose();
-		};
-	}, [services]);
-	return popped;
-};
 
 /** The drawer's top edge, which you drag or move with the arrow keys. */
 const Edge = ({

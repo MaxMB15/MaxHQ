@@ -38,6 +38,7 @@ const seam = vi.hoisted(() => ({
 }));
 
 vi.mock("@/terminal", () => ({
+	useShownInPanel: () => false,
 	LiveTerminal: () => null,
 	useTerminalActions: () => ({
 		sendInput: () => {},

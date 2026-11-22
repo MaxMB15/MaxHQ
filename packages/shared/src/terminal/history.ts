@@ -3,7 +3,8 @@
 
 // ↑ and ↓ in shell mode: the commands you ran with `!` in this agent's
 // timeline, in a fresh shell or in its session, newest first and each
-// once. No shell's own history file is read.
+// once. No shell's own history file is read, and the lines you typed in
+// the session's terminal stay out, since the shell keeps those itself.
 
 import type { TimelineState } from "../timeline/apply";
 
@@ -17,7 +18,10 @@ export const runHistory = (state: Pick<TimelineState, "items" | "order">): strin
 			item?.kind === "user_run"
 				? [item.command]
 				: item?.kind === "user_session"
-					? item.blocks.map((block) => block.command).reverse()
+					? item.blocks
+							.filter((block) => block.typed !== true)
+							.map((block) => block.command)
+							.reverse()
 					: [];
 		for (const typed of ran) {
 			const command = typed.trim();

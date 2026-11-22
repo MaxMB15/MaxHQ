@@ -237,6 +237,56 @@ describe("sample terminal stream", () => {
 		});
 	});
 
+	it("takes the whole screen for vim until :wq, and says how to quit at Ctrl-C", async () => {
+		const { source, agent, watch, type, view } = await setup();
+		const terminal = openedTerminal(
+			await runCommand(source, agent, "vim notes.md", { private: false, size: SIZE })
+		);
+		if (!terminal) throw new Error("no terminal opened");
+		const out = await watch(terminal);
+		expect(terminalById(await view(), terminal)).toMatchObject({ full_screen: true });
+		expect(out.text()).toContain("# Notes");
+
+		type(terminal, "\x03");
+		expect(out.text()).toContain("Type  :qa  and press <Enter> to exit Vim");
+		expect(terminalById(await view(), terminal)?.status.state).toBe("running");
+
+		type(terminal, ":wq\r");
+		expect(terminalById(await view(), terminal)).toMatchObject({
+			full_screen: false,
+			status: { state: "exited", code: 0 },
+		});
+	});
+
+	it("lets you pick with the arrow keys in either cursor mode, and Enter", async () => {
+		const { source, agent, watch, type, view } = await setup();
+		const terminal = openedTerminal(
+			await runCommand(source, agent, "pnpm create vite", { private: false, size: SIZE })
+		);
+		if (!terminal) throw new Error("no terminal opened");
+		const out = await watch(terminal);
+		expect(terminalById(await view(), terminal)).toMatchObject({
+			reads_keys: true,
+			app_cursor: true,
+		});
+		await vi.advanceTimersByTimeAsync(1_100);
+		expect(terminalById(await view(), terminal)?.waiting).toBe(true);
+
+		type(terminal, "\x1bOB\x1b[B\x1bOA");
+		expect(terminalById(await view(), terminal)?.waiting).toBe(false);
+		type(terminal, "\r");
+		expect(out.text()).toContain("◇  Select a framework:\r\n│  Vue");
+		expect(terminalById(await view(), terminal)).toMatchObject({
+			reads_keys: false,
+			app_cursor: false,
+		});
+		await vi.advanceTimersByTimeAsync(1_000);
+		expect(terminalById(await view(), terminal)?.status).toMatchObject({
+			state: "exited",
+			code: 0,
+		});
+	});
+
 	it("replays from where a view ended, and only while attached", async () => {
 		const { source, stream, agent, watch, type } = await setup();
 		const terminal = openedTerminal(await openShell(source, agent, SIZE));

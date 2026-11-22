@@ -1586,5 +1586,9 @@
 	"Using a reset…": "Réinitialisation en cours…",
 	"{{count, number}} reset banked_many": "{{count, number}} réinitialisations en réserve",
 	"{{count, number}} reset banked_one": "{{count, number}} réinitialisation en réserve",
-	"{{count, number}} reset banked_other": "{{count, number}} réinitialisations en réserve"
+	"{{count, number}} reset banked_other": "{{count, number}} réinitialisations en réserve",
+	"In the terminal": "Dans le terminal",
+	"Waiting for keys": "En attente de touches",
+	"In the terminal · Open on the Mac": "Dans le terminal · Ouvrir sur le Mac",
+	"Waiting for keys · Open on the Mac": "En attente de touches · Ouvrir sur le Mac"
 }

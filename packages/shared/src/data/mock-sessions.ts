@@ -5,8 +5,10 @@
 // shell its `!` commands share, opened by the first one. A command it
 // runs adds a block to the agent's open card, which gets how it ended
 // and what it printed, as `maxd` does. A command the session can't take
-// opens a shell of its own, whose "You ran" card says why. A message you
-// send closes the open cards, and says whether it took one's pill along.
+// opens a shell of its own, whose "You ran" card says why. A line you type
+// at the session's prompt yourself adds a private block too, with what
+// reads like a secret masked. A message you send closes the open cards,
+// and says whether it took one's pill along.
 
 import type {
 	ActionOutcome,
@@ -99,6 +101,14 @@ const TEST_OUTPUT = [
 	"   Duration  9.06s",
 ].join("\n");
 
+const YELLOW = "\x1b[33m";
+
+const LOG_OUTPUT = [
+	`${YELLOW}8c41d2e${OFF} Read the usage windows from the account`,
+	`${YELLOW}5b0e7a3${OFF} Show the reset time under each bar`,
+	`${YELLOW}a19f6c0${OFF} Add the usage meter to the header`,
+].join("\n");
+
 type SampleBlock = Omit<SessionBlock, "lines" | "output_truncated" | "start">;
 
 const SAMPLE_BLOCKS: readonly SampleBlock[] = [
@@ -150,7 +160,37 @@ const SAMPLE_BLOCKS: readonly SampleBlock[] = [
 		output: TEST_OUTPUT,
 		secret_prompts: 0,
 	},
+	// Two lines you typed in the session's tab yourself, which start Private.
+	{
+		id: 5,
+		command: "git log --oneline -3",
+		cwd: DESKTOP_FOLDER,
+		cwd_after: null,
+		private: true,
+		typed: true,
+		process: { state: "exited", code: 0, signal: null },
+		started_at: 52_000,
+		duration_ms: 60,
+		output: LOG_OUTPUT,
+		secret_prompts: 0,
+	},
+	{
+		id: 6,
+		command: "export GH_TOKEN=•••",
+		cwd: DESKTOP_FOLDER,
+		cwd_after: null,
+		private: true,
+		typed: true,
+		process: { state: "exited", code: 0, signal: null },
+		started_at: 61_000,
+		duration_ms: 10,
+		output: "",
+		secret_prompts: 0,
+	},
 ];
+
+/** How long the sample card ran, from its first block's start to its last one's end. */
+export const SAMPLE_TOOK = 61_010;
 
 const lineCount = (text: string) => (text === "" ? 0 : text.split("\n").length);
 
@@ -168,7 +208,8 @@ const sampleReplay = (): string => {
 /**
  * The usage popover agent's session on the Mac: its terminal, the card it
  * holds open with four commands (a `cd`, an install, a private `sudo` and
- * a test that fails), and what its shell printed.
+ * a test that fails) and two lines you typed in its tab (a `git log` and
+ * an `export` whose token is masked), and what its shell printed.
  */
 export const SAMPLE_SESSION = {
 	agent: "agent-usage-popover" as AgentId,
@@ -255,6 +296,12 @@ export type MockSessionCalls = SessionCalls & {
 	readonly sealSessions: (agent: AgentId, input: UserInput) => void;
 	/** A session's terminal closed, so a command still running in it ends with no code. */
 	readonly sessionClosed: (terminal: TerminalId) => void;
+	/**
+	 * A line you typed at a session's prompt yourself: a private block of
+	 * its open card, and what tells it how the line ended. Null for a
+	 * terminal that isn't a session.
+	 */
+	readonly typedIn: (terminal: TerminalId, line: string) => ((end: BlockEnd) => void) | null;
 };
 
 /** A session while its shell runs. */
@@ -276,6 +323,24 @@ const reasonIn = (command: string): FreshReason | null => {
 	if (/^\s*exec(\s|$)/.test(command)) return "exec";
 	return null;
 };
+
+/** What `maxd` shows for a secret it masks in a line you typed. */
+const MASK = "•••";
+
+/**
+ * A line you typed, with a value set for a name that reads like a secret
+ * masked, as `maxd` masks it: `export GH_TOKEN=•••`, `--password •••`.
+ */
+export const maskedLine = (line: string): string =>
+	line
+		.replace(
+			/\b([A-Za-z_][A-Za-z0-9_]*(?:TOKEN|SECRET|PASSWORD|PASSWD|KEY)[A-Za-z0-9_]*)=("[^"]*"|'[^']*'|\S+)/gi,
+			`$1=${MASK}`
+		)
+		.replace(
+			/(--(?:password|passwd|token|secret)(?:=|\s+))(?!-)("[^"]*"|'[^']*'|\S+)/gi,
+			`$1${MASK}`
+		);
 
 /** A folder as one word for `cd`. */
 const quoted = (path: string) => `'${path.replace(/'/g, `'\\''`)}'`;
@@ -368,15 +433,17 @@ export const mockSessionCalls = (hooks: MockSessionHooks): MockSessionCalls => {
 		}));
 	};
 
-	/** Runs a command in the session as a block of its open card, starting one when there's none. */
-	const runIn = (
+	/**
+	 * Adds a block that runs to the session's open card, starting one when
+	 * there's none, and answers the card.
+	 */
+	const addBlock = (
 		agent: AgentId,
 		session: Session,
+		terminal: Terminal,
 		command: string,
-		privately: boolean
-	): ActionResult => {
-		const terminal = find(session.terminal);
-		if (!terminal) return notFound(`terminal ${session.terminal}`);
+		options: { readonly private: boolean; readonly typed?: boolean }
+	): { readonly item: ItemId; readonly id: number } => {
 		const id = session.next;
 		session.next += 1;
 		const block: SessionBlock = {
@@ -384,7 +451,7 @@ export const mockSessionCalls = (hooks: MockSessionHooks): MockSessionCalls => {
 			command,
 			cwd: stream.cwd(session.terminal) ?? terminal.cwd,
 			cwd_after: null,
-			private: privately,
+			private: options.private,
 			process: { state: "running" },
 			started_at: now(),
 			duration_ms: null,
@@ -393,6 +460,7 @@ export const mockSessionCalls = (hooks: MockSessionHooks): MockSessionCalls => {
 			output_truncated: false,
 			secret_prompts: 0,
 			start: null,
+			...(options.typed ? { typed: true } : {}),
 		};
 		let item = session.card;
 		if (item) {
@@ -427,8 +495,22 @@ export const mockSessionCalls = (hooks: MockSessionHooks): MockSessionCalls => {
 				item
 			);
 		}
-		const card = item;
-		session.running = { item: card, block: id };
+		session.running = { item, block: id };
+		return { item, id };
+	};
+
+	/** Runs a command in the session as a block of its open card, starting one when there's none. */
+	const runIn = (
+		agent: AgentId,
+		session: Session,
+		command: string,
+		privately: boolean
+	): ActionResult => {
+		const terminal = find(session.terminal);
+		if (!terminal) return notFound(`terminal ${session.terminal}`);
+		const { item: card, id } = addBlock(agent, session, terminal, command, {
+			private: privately,
+		});
 		const start = stream.command(session.terminal, command, (end) =>
 			ended(agent, session, card, id, end)
 		);
@@ -555,6 +637,19 @@ export const mockSessionCalls = (hooks: MockSessionHooks): MockSessionCalls => {
 			seed();
 			for (const [agent, session] of sessions)
 				if (session.terminal === terminal) forget(agent, session);
+		},
+		typedIn: (terminal, line) => {
+			seed();
+			const found = [...sessions].find(([, session]) => session.terminal === terminal);
+			const open = find(terminal);
+			if (!found || !open || open.status.state !== "running") return null;
+			const [agent, session] = found;
+			// A typed line starts Private, so the agent sees it only once you share it.
+			const { item, id } = addBlock(agent, session, open, maskedLine(line), {
+				private: true,
+				typed: true,
+			});
+			return (end) => ended(agent, session, item, id, end);
 		},
 	};
 };

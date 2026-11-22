@@ -50,6 +50,7 @@ import type {
 } from "@maxhq/shared/bindings";
 
 import { endedText } from "@maxhq/shared/terminal/ended";
+import { handoffOf, handoffPhoneText } from "@maxhq/shared/terminal/handoff";
 import { runStatus } from "@maxhq/shared/terminal/output";
 import { terminalById, waitsForYou } from "@maxhq/shared/terminal/select";
 import { editPath } from "@maxhq/shared/timeline/diff";
@@ -391,7 +392,9 @@ export const CommandRow = ({ item }: { item: ItemOf<"command"> }) => {
 
 /**
  * A command you ran with `!`: how long it has run, that it waits for you,
- * or how it ended, with its output when opened once it ended.
+ * or how it ended, with its output when opened once it ended. A program
+ * that takes the whole screen, or reads keys one at a time, says to open
+ * it on the Mac, since the phone has no keys to give it.
  */
 export const UserRunRow = ({ item }: { item: ItemOf<"user_run"> }) => {
 	const { t } = useI18n();
@@ -399,6 +402,7 @@ export const UserRunRow = ({ item }: { item: ItemOf<"user_run"> }) => {
 	const [open, setOpen] = useFold(`open:${item.id}`, item.id);
 	const status = runStatus(terminal, item) ?? item.process;
 	const waits = terminal !== undefined && waitsForYou(terminal);
+	const handoff = handoffOf(status.state === "running", terminal);
 	const ended = status.state === "exited" ? status : null;
 	const failed = ended !== null && ended.stopped !== true && ended.code !== 0;
 	return (
@@ -407,7 +411,9 @@ export const UserRunRow = ({ item }: { item: ItemOf<"user_run"> }) => {
 			verb={t("You ran")}
 			target={<Target>{item.command.split("\n")[0] ?? ""}</Target>}
 			meta={
-				waits ? (
+				handoff !== null ? (
+					handoffPhoneText(handoff)
+				) : waits ? (
 					t("Waiting for you")
 				) : ended ? (
 					<Text style={failed ? styles.failed : undefined}>
@@ -416,7 +422,7 @@ export const UserRunRow = ({ item }: { item: ItemOf<"user_run"> }) => {
 				) : null
 			}
 			since={terminal?.started_at ?? item.started_at}
-			running={status.state === "running" && !waits}
+			running={status.state === "running" && !waits && handoff === null}
 			open={ended ? open : undefined}
 			onToggle={() => setOpen(!open)}
 		>

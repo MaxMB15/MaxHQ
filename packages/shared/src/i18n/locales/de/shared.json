@@ -1542,5 +1542,9 @@
 	"Use reset": "Reset nutzen",
 	"Using a reset…": "Reset wird genutzt…",
 	"{{count, number}} reset banked_one": "{{count, number}} Reset angespart",
-	"{{count, number}} reset banked_other": "{{count, number}} Resets angespart"
+	"{{count, number}} reset banked_other": "{{count, number}} Resets angespart",
+	"In the terminal": "Im Terminal",
+	"Waiting for keys": "Wartet auf Tasten",
+	"In the terminal · Open on the Mac": "Im Terminal · Auf dem Mac öffnen",
+	"Waiting for keys · Open on the Mac": "Wartet auf Tasten · Auf dem Mac öffnen"
 }

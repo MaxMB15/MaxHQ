@@ -72,7 +72,9 @@ const defaultTitle = (terminal: Pick<Terminal, "kind">) =>
 
 /** The mock terminal calls, with the session calls and what tells them a message went. */
 export type MockTerminalCalls = TerminalCalls &
-	Omit<MockSessionCalls, "sessionClosed"> & { readonly terminalStream: TerminalStream };
+	Omit<MockSessionCalls, "sessionClosed" | "typedIn"> & {
+		readonly terminalStream: TerminalStream;
+	};
 
 /**
  * The terminal calls over the sample entities, and their bytes. With
@@ -152,6 +154,7 @@ export const mockTerminals = (
 				if (terminal) endRun(terminal, terminal.status);
 			},
 			marks: (terminal) => deviceMarks(terminal.device),
+			typed: (id, line) => typedIn(id, line),
 		});
 	/** Opens a terminal in `cwd`, or the agent's folder, and a `!` run's card. */
 	const open = (
@@ -224,7 +227,7 @@ export const mockTerminals = (
 		end(terminal.id);
 		change((base) => base.filter((e) => !(e.entity === "terminal" && e.id === terminal.id)));
 	};
-	const { sessionClosed, ...sessionCalls } = mockSessionCalls({
+	const { sessionClosed, typedIn, ...sessionCalls } = mockSessionCalls({
 		now,
 		find,
 		placeOf,

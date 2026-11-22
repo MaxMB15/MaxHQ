@@ -13,9 +13,24 @@
 // Force stop once the command ignored Stop, and Open in terminal. Force
 // stop ends only the command, so the session keeps its folder and
 // variables, and needs a device that says so.
+//
+// What you typed by hand in the session's terminal shows as compact
+// Private rows, "typed in the terminal", that open to their output, and a
+// run of more than a few folds into one row. A command whose program takes
+// the whole screen is in the terminal, and the card says so in one line.
+// One that reads keys one at a time takes your keys in the card once you
+// click its output.
 
 import { Menu } from "@base-ui/react/menu";
-import { ArrowRight, Ellipsis, Eye, LockKeyhole, PanelBottom, SquareTerminal } from "lucide-react";
+import {
+	ArrowRight,
+	ChevronRight,
+	Ellipsis,
+	Eye,
+	LockKeyhole,
+	PanelBottom,
+	SquareTerminal,
+} from "lucide-react";
 import { type ReactNode, useEffect, useState } from "react";
 
 import { useRow } from "@maxhq/shared/agent-view/context";
@@ -25,9 +40,12 @@ import type { SessionBlock } from "@maxhq/shared/bindings";
 import { attempt, failureOf } from "@maxhq/shared/composer/send";
 import { t, useI18n } from "@maxhq/shared/i18n";
 import { endedText } from "@maxhq/shared/terminal/ended";
+import { handoffOf, takesKeys } from "@maxhq/shared/terminal/handoff";
 import { type TerminalEntity, terminalById } from "@maxhq/shared/terminal/select";
 import {
 	blockRunning,
+	blockTyped,
+	cardRows,
 	cardSummary,
 	fillSession,
 	sessionPill,
@@ -50,17 +68,28 @@ import { LiveTerminal, useTerminalActions } from "@/terminal";
 
 import { Elapsed } from "../elapsed";
 import { Spinner } from "../icons";
-import { IgnoredStop, InputRow, PasswordField, useStop } from "./run-input";
+import {
+	heldLook,
+	IgnoredStop,
+	InputRow,
+	KeysHint,
+	PasswordField,
+	useHeldKeys,
+	useStop,
+} from "./run-input";
 import {
 	BOXED,
 	BUTTON,
 	EndedChip,
 	FinishedOutput,
 	ForceStopButton,
+	HandoffChip,
+	InTerminalNote,
 	LIVE_ROWS,
 	runClock,
 	sendAlone,
 	StopButton,
+	useOpensPanel,
 	WaitingChip,
 } from "./user-run";
 
@@ -105,8 +134,10 @@ export const UserSessionCard = ({ item }: { item: UserSessionItem }) => {
 	const alive = terminal !== undefined && terminal.status.state === "running";
 	const acts = !row.readOnly;
 	// A running block has its own Open in terminal beside Stop, so the
-	// header leaves it out then rather than showing the button twice.
-	const blockOpens = acts && item.blocks.some(blockRunning);
+	// header leaves it out then rather than showing the button twice. A
+	// line you typed has none, since you typed it there.
+	const blockOpens =
+		acts && item.blocks.some((block) => blockRunning(block) && !blockTyped(block));
 	const open = !item.sealed;
 
 	const end = async () => {
@@ -272,18 +303,40 @@ export const UserSessionCard = ({ item }: { item: UserSessionItem }) => {
 					</button>
 				) : null}
 			</div>
-			{item.blocks.map((block, index) => (
-				<Block
-					key={block.id}
-					item={item}
-					block={block}
-					terminal={terminal}
-					device={device}
-					first={index === 0}
-					acts={acts}
-					onError={setError}
-				/>
-			))}
+			{cardRows(item.blocks).map((shown) =>
+				shown.kind === "typed" ? (
+					<TypedRun
+						key={`typed-${shown.blocks[0]!.id}`}
+						item={item}
+						blocks={shown.blocks}
+						terminal={terminal}
+						first={shown.index === 0}
+						acts={acts}
+						onError={setError}
+					/>
+				) : blockTyped(shown.block) ? (
+					<TypedBlock
+						key={shown.block.id}
+						item={item}
+						block={shown.block}
+						terminal={terminal}
+						first={shown.index === 0}
+						acts={acts}
+						onError={setError}
+					/>
+				) : (
+					<Block
+						key={shown.block.id}
+						item={item}
+						block={shown.block}
+						terminal={terminal}
+						device={device}
+						first={shown.index === 0}
+						acts={acts}
+						onError={setError}
+					/>
+				)
+			)}
 			{footer}
 			{error !== null ? (
 				<p
@@ -294,6 +347,225 @@ export const UserSessionCard = ({ item }: { item: UserSessionItem }) => {
 				</p>
 			) : null}
 		</section>
+	);
+};
+
+/**
+ * Whether a block goes to the agent: a toggle until a message closes the
+ * card, and a quiet Private once it has.
+ */
+const ShareToggle = ({
+	item,
+	block,
+	acts,
+	onError,
+}: {
+	item: UserSessionItem;
+	block: SessionBlock;
+	acts: boolean;
+	onError: (error: string | null) => void;
+}) => {
+	useI18n();
+	const row = useRow();
+	const services = useServices();
+	const toggle = async () => {
+		onError(null);
+		const reason = await shareBlock(services.source, row.agent, item, block);
+		if (reason !== null) onError(failed("share", reason));
+	};
+	if (item.sealed || !acts)
+		return block.private ? (
+			<span className="ml-auto inline-flex items-center gap-1 text-[11.5px] text-subtle-foreground">
+				<LockKeyhole aria-hidden className="size-3" strokeWidth={2} />
+				{t("Private")}
+			</span>
+		) : null;
+	return (
+		<button
+			type="button"
+			aria-pressed={!block.private}
+			aria-label={
+				block.private
+					? t("Share {{command}} with the agent", { command: block.command })
+					: t("Keep {{command}} private", { command: block.command })
+			}
+			onClick={() => void toggle()}
+			className={cn(
+				"ml-auto inline-flex h-[22px] cursor-pointer items-center gap-1 rounded-md border px-[7px] text-[11.5px] whitespace-nowrap outline-none focus-visible:ring-2 focus-visible:ring-ring",
+				block.private
+					? "border-status-busy/45 bg-status-busy/10 text-status-busy-text"
+					: "border-[var(--pill-output-border)] bg-[var(--pill-output-bg)] text-[var(--pill-output-text)]"
+			)}
+		>
+			{block.private ? (
+				<LockKeyhole aria-hidden className="size-3" strokeWidth={2} />
+			) : (
+				<Eye aria-hidden className="size-3" strokeWidth={2} />
+			)}
+			{block.private ? t("Private") : t("Shared")}
+		</button>
+	);
+};
+
+/** The chip that says you typed a command in the terminal by hand. */
+const TypedChip = () => {
+	useI18n();
+	return (
+		<span
+			data-typed-chip
+			className="inline-flex items-center rounded-full border border-border px-2 py-px text-[11.5px] whitespace-nowrap text-muted-foreground"
+		>
+			{t("typed in the terminal")}
+		</span>
+	);
+};
+
+/**
+ * A command you typed in the session's terminal, as one compact row. Once
+ * it ends, a click opens it to its output.
+ */
+const TypedBlock = ({
+	item,
+	block,
+	terminal,
+	first,
+	acts,
+	onError,
+}: {
+	item: UserSessionItem;
+	block: SessionBlock;
+	terminal: TerminalEntity | undefined;
+	first: boolean;
+	acts: boolean;
+	onError: (error: string | null) => void;
+}) => {
+	useI18n();
+	const [open, setOpen] = useFold(`session-typed:${item.id}:${block.id}`, item.id);
+	const [all, setAll] = useFold(`session-all:${item.id}:${block.id}`, item.id);
+	const running = blockRunning(block);
+	const handoff = handoffOf(running, terminal);
+	return (
+		<div
+			data-session-block={block.id}
+			data-typed
+			data-private={block.private || undefined}
+			className={cn(!first && "border-t border-dashed border-border")}
+		>
+			<div className="flex flex-wrap items-center gap-x-2 gap-y-1 py-1.5 pr-2 pl-3">
+				<button
+					type="button"
+					disabled={running}
+					aria-expanded={running ? undefined : open}
+					title={running ? undefined : open ? t("Hide output") : t("Show output")}
+					onClick={() => setOpen(!open)}
+					className={cn(
+						"min-w-0 rounded-sm text-left font-mono text-[12.5px] break-all text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-default",
+						!running &&
+							"cursor-pointer hover:underline hover:decoration-border hover:underline-offset-2",
+						block.private && "opacity-50"
+					)}
+				>
+					<span aria-hidden className="text-subtle-foreground">
+						${" "}
+					</span>
+					{block.command}
+				</button>
+				<TypedChip />
+				{running ? (
+					handoff !== null ? (
+						<HandoffChip handoff={handoff} />
+					) : (
+						<Spinner size={11} />
+					)
+				) : null}
+				<ShareToggle item={item} block={block} acts={acts} onError={onError} />
+			</div>
+			{open && !running ? (
+				<div className={cn(block.private && "opacity-50")}>
+					<FinishedOutput
+						output={block.output}
+						truncated={block.output_truncated}
+						all={all}
+						onAll={() => setAll(true)}
+					/>
+				</div>
+			) : null}
+		</div>
+	);
+};
+
+/** A run of commands you typed in the terminal, folded into one row that opens to them. */
+const TypedRun = ({
+	item,
+	blocks,
+	terminal,
+	first,
+	acts,
+	onError,
+}: {
+	item: UserSessionItem;
+	blocks: readonly SessionBlock[];
+	terminal: TerminalEntity | undefined;
+	first: boolean;
+	acts: boolean;
+	onError: (error: string | null) => void;
+}) => {
+	useI18n();
+	const [open, setOpen] = useFold(`session-typed-run:${item.id}:${blocks[0]!.id}`, item.id);
+	const shared = blocks.filter((block) => !block.private).length;
+	return (
+		<div
+			data-typed-run={blocks.length}
+			className={cn(!first && "border-t border-dashed border-border")}
+		>
+			<button
+				type="button"
+				aria-expanded={open}
+				onClick={() => setOpen(!open)}
+				className="flex w-full cursor-pointer flex-wrap items-center gap-x-2 gap-y-1 py-1.5 pr-2 pl-3 text-left text-xs text-muted-foreground outline-none hover:bg-accent/40 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
+			>
+				<ChevronRight
+					aria-hidden
+					className={cn("size-3 shrink-0 transition-transform", open && "rotate-90")}
+					strokeWidth={2.2}
+				/>
+				<span className="min-w-0">
+					{t("{{count, number}} commands typed in the terminal", {
+						count: blocks.length,
+					})}
+				</span>
+				{blocks.some(blockRunning) ? <Spinner size={11} /> : null}
+				<span className="ml-auto inline-flex items-center gap-1 text-[11.5px] whitespace-nowrap text-subtle-foreground">
+					{shared > 0 ? (
+						<>
+							<Eye aria-hidden className="size-3" strokeWidth={2} />
+							{t("{{shared}} of {{total}} shared", {
+								shared,
+								total: blocks.length,
+							})}
+						</>
+					) : (
+						<>
+							<LockKeyhole aria-hidden className="size-3" strokeWidth={2} />
+							{t("Private")}
+						</>
+					)}
+				</span>
+			</button>
+			{open
+				? blocks.map((block) => (
+						<TypedBlock
+							key={block.id}
+							item={item}
+							block={block}
+							terminal={terminal}
+							first={false}
+							acts={acts}
+							onError={onError}
+						/>
+					))
+				: null}
+		</div>
 	);
 };
 
@@ -324,6 +596,10 @@ const Block = ({
 	// The session's terminal asks for the command that runs in it.
 	const asking = running && terminal?.password_prompt === true;
 	const waiting = running && !asking && terminal?.waiting === true;
+	// A program that takes the whole screen is in the terminal, and one that
+	// reads keys one at a time waits for keys rather than a line.
+	const handoff = handoffOf(running, terminal);
+	const full = handoff === "in_terminal";
 	// Running a command here marks the session again, so each command's
 	// first ask takes focus.
 	const takeFocus = asking && firstAskHere(item.terminal);
@@ -332,12 +608,6 @@ const Block = ({
 	}, [asking, item.terminal]);
 	const moved = block.cwd_after !== null && block.cwd_after !== block.cwd;
 	const status = block.process;
-
-	const toggle = async () => {
-		onError(null);
-		const reason = await shareBlock(services.source, row.agent, item, block);
-		if (reason !== null) onError(failed("share", reason));
-	};
 
 	/** Interrupts the command, or with `force` ends it, and says why when that doesn't go. */
 	const interrupt = async (force: boolean) => {
@@ -350,12 +620,29 @@ const Block = ({
 	const { stop, ignored } = useStop(running, () => void interrupt(false));
 	// Only a device that says it answers for the terminal ends the command alone.
 	const forces = terminal?.answers === true;
+	const open = () => actions.showInDrawer(row.agent, item.terminal);
+
+	// Just run from here, a program that takes the whole screen opens the
+	// Agent shell's tab.
+	useOpensPanel(acts && full, row.agent, { terminal: item.terminal, block: block.id }, open);
+
+	const keys = useHeldKeys({
+		agent: row.agent,
+		takes: acts && takesKeys(running, terminal),
+		appCursor: terminal?.app_cursor === true,
+		onSend: (data) => actions.sendInput(item.device, item.terminal, data),
+		onStop: stop,
+	});
+	// While you hold its keys it reads them, also just after one, before it waits again.
+	const chip = handoff ?? (keys.held ? "keys" : null);
 
 	const state: ReactNode = asking ? (
 		<span className="inline-flex items-center gap-[5px] text-xs whitespace-nowrap text-status-busy-text">
 			<LockKeyhole aria-hidden className="size-3" strokeWidth={2.2} />
 			{t("Waiting for your password")}
 		</span>
+	) : chip !== null ? (
+		<HandoffChip handoff={chip} />
 	) : waiting ? (
 		<WaitingChip />
 	) : running ? (
@@ -379,39 +666,25 @@ const Block = ({
 		/>
 	) : null;
 
-	const share: ReactNode =
-		item.sealed || !acts ? (
-			block.private ? (
-				<span className="ml-auto inline-flex items-center gap-1 text-[11.5px] text-subtle-foreground">
-					<LockKeyhole aria-hidden className="size-3" strokeWidth={2} />
-					{t("Private")}
-				</span>
-			) : null
-		) : (
-			<button
-				type="button"
-				aria-pressed={!block.private}
-				aria-label={
-					block.private
-						? t("Share {{command}} with the agent", { command: block.command })
-						: t("Keep {{command}} private", { command: block.command })
-				}
-				onClick={() => void toggle()}
-				className={cn(
-					"ml-auto inline-flex h-[22px] cursor-pointer items-center gap-1 rounded-md border px-[7px] text-[11.5px] whitespace-nowrap outline-none focus-visible:ring-2 focus-visible:ring-ring",
-					block.private
-						? "border-status-busy/45 bg-status-busy/10 text-status-busy-text"
-						: "border-[var(--pill-output-border)] bg-[var(--pill-output-bg)] text-[var(--pill-output-text)]"
-				)}
-			>
-				{block.private ? (
-					<LockKeyhole aria-hidden className="size-3" strokeWidth={2} />
-				) : (
-					<Eye aria-hidden className="size-3" strokeWidth={2} />
-				)}
-				{block.private ? t("Private") : t("Shared")}
-			</button>
+	// It shows only while the card is open or the block is private.
+	const share =
+		(item.sealed || !acts) && !block.private ? null : (
+			<ShareToggle item={item} block={block} acts={acts} onError={onError} />
 		);
+
+	const stopButtons = (
+		<>
+			{ignored ? <IgnoredStop program={programOf(block.command)} /> : null}
+			<StopButton onStop={stop} hint={!asking && !ignored} />
+			{ignored && forces ? <ForceStopButton onForce={() => void interrupt(true)} /> : null}
+		</>
+	);
+	const openButton = (
+		<button type="button" className={BUTTON} onClick={open}>
+			<PanelBottom aria-hidden className="size-3" strokeWidth={2} />
+			{t("Open in terminal")}
+		</button>
+	);
 
 	return (
 		<div
@@ -433,26 +706,16 @@ const Block = ({
 				</span>
 				{state}
 				{share}
-				{acts && running ? (
+				{acts && running && !keys.held ? (
 					<span
 						className={cn(
 							"flex flex-wrap items-center gap-1",
 							share === null && "ml-auto"
 						)}
 					>
-						{ignored ? <IgnoredStop program={programOf(block.command)} /> : null}
-						<StopButton onStop={stop} hint={!asking && !ignored} />
-						{ignored && forces ? (
-							<ForceStopButton onForce={() => void interrupt(true)} />
-						) : null}
-						<button
-							type="button"
-							className={BUTTON}
-							onClick={() => actions.showInDrawer(row.agent, item.terminal)}
-						>
-							<PanelBottom aria-hidden className="size-3" strokeWidth={2} />
-							{t("Open in terminal")}
-						</button>
+						{stopButtons}
+						{/* While the program is in the terminal, the note has the one Open in terminal. */}
+						{full ? null : openButton}
 					</span>
 				) : null}
 			</div>
@@ -461,14 +724,34 @@ const Block = ({
 					{t("now in {{folder}}", { folder: homeShort(block.cwd_after!) })}
 				</div>
 			) : null}
-			{running ? (
-				<div className="border-t border-border bg-subpanel px-3 py-2 empty:hidden">
-					<LiveTerminal
-						device={item.device}
-						terminal={item.terminal}
-						maxRows={LIVE_ROWS}
-						interactive={false}
-					/>
+			{full ? (
+				<InTerminalNote
+					agent={row.agent}
+					terminal={item.terminal}
+					command={block.command}
+					onOpen={acts ? open : null}
+				/>
+			) : running ? (
+				<div {...keys.box}>
+					<div
+						className={cn(
+							"border-t border-border bg-subpanel px-3 py-2 empty:hidden",
+							heldLook(keys)
+						)}
+					>
+						<LiveTerminal
+							device={item.device}
+							terminal={item.terminal}
+							maxRows={LIVE_ROWS}
+							interactive={false}
+						/>
+					</div>
+					{keys.held ? (
+						<KeysHint>
+							{openButton}
+							{stopButtons}
+						</KeysHint>
+					) : null}
 				</div>
 			) : block.output !== "" ? (
 				<div className={cn(block.private && "opacity-50")}>
@@ -480,7 +763,7 @@ const Block = ({
 					/>
 				</div>
 			) : null}
-			{acts && running && !asking ? (
+			{acts && running && !asking && !full && !keys.held ? (
 				<InputRow
 					onSend={(data, options) =>
 						actions.sendInput(item.device, item.terminal, data, options)

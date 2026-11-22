@@ -127,6 +127,7 @@ export const AgentView = ({ agent }: { agent: Agent }) => {
 			<section
 				ref={setPane}
 				aria-label={agent.title}
+				data-agent-pane={agent.id}
 				className="flex h-full min-h-0 w-full min-w-0 flex-col bg-background"
 			>
 				<AgentHeader agent={agent} />

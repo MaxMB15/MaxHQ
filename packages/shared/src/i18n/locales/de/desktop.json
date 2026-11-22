@@ -1408,5 +1408,14 @@
 	"On {{device}}": "Auf {{device}}",
 	"Runs in": "Läuft in",
 	"This change can't be undone any more": "Diese Änderung lässt sich nicht mehr rückgängig machen",
-	"Undone": "Rückgängig gemacht"
+	"Undone": "Rückgängig gemacht",
+	"typed in the terminal": "im Terminal getippt",
+	"{{count, number}} commands typed in the terminal_one": "{{count, number}} Befehl im Terminal getippt",
+	"{{count, number}} commands typed in the terminal_other": "{{count, number}} Befehle im Terminal getippt",
+	"{{shared}} of {{total}} shared": "{{shared}} von {{total}} geteilt",
+	"{{program}} is open in the terminal below. The result comes back here when it closes.": "{{program}} ist im Terminal unten geöffnet. Das Ergebnis kommt hierher zurück, sobald es sich schließt.",
+	"go to the program": "gehen an das Programm",
+	"Your keys go to the program. Click outside or press {{keyHint}} to give them back.": "Deine Tasten gehen an das Programm. Klicke daneben oder drücke {{keyHint}}, um sie zurückzugeben.",
+	"Click to give the program your keys": "Klicke, um dem Programm deine Tasten zu geben",
+	"Click outside or press {{keyHint}} to give the keys back.": "Klicke daneben oder drücke {{keyHint}}, um die Tasten zurückzugeben."
 }

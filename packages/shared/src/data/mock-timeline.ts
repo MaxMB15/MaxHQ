@@ -36,7 +36,7 @@ import { withText } from "../timeline/apply";
 import { BINARY_SAMPLE, OUTSIDE_SAMPLE } from "./mock-files";
 import { callerCalls } from "./mock-started";
 import { CHECKLIST, NOTES_PROJECT } from "./mock-notes";
-import { SAMPLE_SESSION, sampleSessionCard } from "./mock-sessions";
+import { SAMPLE_SESSION, SAMPLE_TOOK, sampleSessionCard } from "./mock-sessions";
 import { CLAUDE, CODEX, DEVBOX, MAC } from "./mock-view";
 import type { CommandResult } from "./source";
 
@@ -202,6 +202,9 @@ const ranByYou = (
 	moved: false,
 });
 
+/** How a block of `sessionByYou` differs: a line you typed in the tab, which starts Private. */
+type BlockKind = { readonly typed?: boolean; readonly private?: boolean };
+
 /**
  * Commands you ran with `!` in one shell from `cwd`, each ended with its
  * code, in a card the message after it closed, taking it along when
@@ -209,7 +212,13 @@ const ranByYou = (
  */
 const sessionByYou = (
 	cwd: string,
-	runs: readonly (readonly [command: string, output: string, code: number, took: number])[],
+	runs: readonly (readonly [
+		command: string,
+		output: string,
+		code: number,
+		took: number,
+		kind?: BlockKind,
+	])[],
 	sent: boolean
 ): ItemBody => {
 	let at = 0;
@@ -217,7 +226,7 @@ const sessionByYou = (
 		kind: "user_session",
 		terminal: `0199a7c2-0000-7000-8000-5e5510${runs.length.toString(16).padStart(6, "0")}`,
 		device: MAC,
-		blocks: runs.map(([command, output, code, took], index) => {
+		blocks: runs.map(([command, output, code, took, kind], index) => {
 			const started_at = at;
 			at += took;
 			return {
@@ -225,7 +234,8 @@ const sessionByYou = (
 				command,
 				cwd,
 				cwd_after: null,
-				private: false,
+				private: kind?.private ?? kind?.typed ?? false,
+				...(kind?.typed ? { typed: true } : {}),
 				process: { state: "exited", code, signal: null },
 				started_at,
 				duration_ms: took,
@@ -773,17 +783,28 @@ const usagePopover = (now: Timestamp): TimelineItem[] => {
 			[
 				["git diff --stat", " src/usage/popover.tsx | 4 ++--", 0, 90],
 				["pnpm test usage", "Tests: 12 passed, 12 total", 0, 3_400],
+				// Four lines you typed in the tab, which fold into one row.
+				["git fetch", "", 0, 900, { typed: true }],
+				[
+					"git log --oneline -2 origin/main",
+					"8c41d2e Read the usage windows from the account\n5b0e7a3 Show the reset time under each bar",
+					0,
+					60,
+					{ typed: true, private: false },
+				],
+				["git branch --show-current", "usage-popover", 0, 20, { typed: true }],
+				["git stash list", "", 0, 30, { typed: true }],
 			],
 			true
 		),
-		{ took: 3_490 }
+		{ took: 4_500 }
 	);
 	s.turn(MIN);
 	s.add(you("How did usage move this week?"));
 	s.add(visual("Weekly usage by vendor", "visual-weekly-usage-by-vendor.html", 6_240));
 	s.add(say("Claude climbed through Thursday, then eased off once the limit reset."));
 	// What you ran since, which your next message can take along.
-	s.add(sampleSessionCard(), { gap: 2 * MIN, took: 43_100, id: SAMPLE_SESSION.item });
+	s.add(sampleSessionCard(), { gap: 2 * MIN, took: SAMPLE_TOOK, id: SAMPLE_SESSION.item });
 	return s.end(now - 4 * MIN);
 };
 
