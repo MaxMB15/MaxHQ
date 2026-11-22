@@ -709,6 +709,30 @@ async fn force_stop_ends_a_command_that_ignored_stop_and_leaves_the_shell() {
 }
 
 #[tokio::test]
+async fn a_command_that_ends_well_after_stop_ended_on_its_own() {
+    let Some(mut f) = fixture_on_path("bash") else {
+        return;
+    };
+    let key = f.run("sh -c 'trap \"exit 0\" INT; sleep 30'");
+    let SessionResult::Wrote {
+        terminal, block, ..
+    } = f.answer(key).await
+    else {
+        panic!("sh didn't go into the session");
+    };
+    f.started(block).await;
+    f.until(terminal, |open| open.is_some_and(|open| open.entity.busy))
+        .await;
+    assert_eq!(
+        f.terminals.interrupt(Caller::App, terminal, false),
+        ActionOutcome::Done
+    );
+    let ran = f.ended(terminal, block).await;
+    assert_eq!((ran.exit, ran.stopped), (Some(0), false), "{ran:?}");
+    f.end().await;
+}
+
+#[tokio::test]
 async fn force_stop_on_a_run_ends_it_and_says_you_stopped_it() {
     let Some(mut f) = fixture_on_path("bash") else {
         return;

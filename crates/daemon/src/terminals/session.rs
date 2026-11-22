@@ -867,7 +867,7 @@ impl Terminals {
         if let Some(open) = opens.get_mut(&terminal) {
             if open.block.as_ref().is_some_and(|(id, _)| *id == block.id) {
                 open.block = None;
-                stopped = open.stopped();
+                stopped = open.stopped(exit);
             }
             let session = open.note.session.as_mut();
             if let Some(session) = session

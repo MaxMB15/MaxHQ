@@ -71,7 +71,8 @@ pub const UNREACHABLE: &str = "Couldn't reach the terminal. Try again in a momen
 const HANGUP_GRACE: Duration = Duration::from_secs(2);
 
 /// How soon after your Stop or Force stop a program must end for its end
-/// to read as stopped by you, rather than as its own.
+/// to read as stopped by you, rather than as its own. One that ends with
+/// exit 0 ended its own way, as vim saving after Stop sent it Ctrl-C.
 const STOP_WINDOW: Duration = Duration::from_secs(10);
 
 /// What Force stop reads when only the shell runs.
@@ -374,10 +375,10 @@ impl Open {
         changed
     }
 
-    /// Whether your Stop or Force stop came just before what it ran ended.
-    fn stopped(&self) -> bool {
-        self.stopped_at
-            .is_some_and(|at| at.elapsed() <= STOP_WINDOW)
+    /// Whether your Stop or Force stop came just before what it ran ended
+    /// with `code`, and it didn't end well.
+    fn stopped(&self, code: Option<i32>) -> bool {
+        code != Some(0) && (self.stopped_at).is_some_and(|at| at.elapsed() <= STOP_WINDOW)
     }
 
     /// The name you gave it, or the title its shell set, or what it runs.
@@ -898,7 +899,7 @@ impl Terminals {
         }
         let run = matches!(open.note.kind, TerminalKind::Run { .. });
         // A shell you closed isn't a program you stopped.
-        let stopped = run && open.stopped();
+        let stopped = run && open.stopped(exit.as_ref().and_then(|exit| exit.code));
         open.entity.status = TerminalStatus::Exited {
             code: exit.as_ref().and_then(|exit| exit.code),
             signal: exit.as_ref().and_then(|exit| exit.signal),
