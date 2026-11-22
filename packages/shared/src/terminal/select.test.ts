@@ -7,7 +7,14 @@ import { type DeviceLink, type Entity, TERMINALS_SINCE, type Terminal } from "..
 import { entities, link, MIN, NOW } from "../test/build";
 import { applySnapshot } from "../view/replica";
 
-import { inDrawer, supportsTerminals, terminalById, terminalsOf } from "./select";
+import {
+	commandWaits,
+	inDrawer,
+	supportsTerminals,
+	terminalById,
+	terminalsOf,
+	waitsForYou,
+} from "./select";
 
 const terminal = (over: Partial<Terminal> & { id: string }): Entity => ({
 	entity: "terminal",
@@ -99,6 +106,38 @@ describe("terminalById", () => {
 		const view = viewOf([run("t-card")]);
 		expect(terminalById(view, "t-card")?.title).toBe("pnpm test");
 		expect(terminalById(view, "t-gone")).toBeUndefined();
+	});
+});
+
+describe("waitsForYou and commandWaits", () => {
+	const at = (id: string, entity: Entity) => {
+		const found = terminalById(viewOf([entity]), id);
+		if (!found) throw new Error(`no terminal ${id}`);
+		return found;
+	};
+
+	it("says a run or a session waits while it reads with nothing printed, or asks for a password", () => {
+		expect(waitsForYou(at("r", run("r", { waiting: true })))).toBe(true);
+		expect(waitsForYou(at("r", run("r", { password_prompt: true })))).toBe(true);
+		const session = terminal({ id: "s", kind: { type: "session" }, waiting: true });
+		expect(waitsForYou(at("s", session))).toBe(true);
+	});
+
+	it("leaves out a drawer shell, one that ended, and one an older maxd holds", () => {
+		expect(waitsForYou(at("t", terminal({ id: "t", waiting: true })))).toBe(false);
+		const ended = run("r", {
+			waiting: true,
+			status: { state: "exited", code: 0, signal: null },
+		});
+		expect(waitsForYou(at("r", ended))).toBe(false);
+		expect(waitsForYou(at("r", run("r")))).toBe(false);
+	});
+
+	it("finds a command of the agent's that waits", () => {
+		const view = viewOf([run("r1"), run("r2", { waiting: true })]);
+		expect(commandWaits(view, "agent-1")).toBe(true);
+		expect(commandWaits(view, "agent-2")).toBe(false);
+		expect(commandWaits(viewOf([run("r1")]), "agent-1")).toBe(false);
 	});
 });
 

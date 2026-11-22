@@ -312,6 +312,7 @@
 	"Started in a terminal at {{time}}. History comes from the session file.": "Started in a terminal at {{time}}. History comes from the session file.",
 	"Starting the sign-in on {{device}}": "Starting the sign-in on {{device}}",
 	"Stop": "Stop",
+	"You ran": "You ran",
 	"Stop agent \"{{title}}\"?": "Stop agent \"{{title}}\"?",
 	"Stop scanning": "Stop scanning",
 	"Submit answers": "Submit answers",

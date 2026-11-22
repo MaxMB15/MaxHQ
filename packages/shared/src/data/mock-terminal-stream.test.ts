@@ -127,6 +127,96 @@ describe("sample terminal stream", () => {
 		expect(out.text()).toContain("Password: 🔒 sent\r\n");
 	});
 
+	it("waits for you with yes and no once ssh asks, and goes on with your answer", async () => {
+		const { source, agent, watch, type, view } = await setup();
+		const terminal = openedTerminal(
+			await runCommand(source, agent, "ssh devbox", { private: false, size: SIZE })
+		);
+		if (!terminal) throw new Error("no terminal opened");
+		const out = await watch(terminal);
+		expect(out.text()).toContain("(yes/no/[fingerprint])? ");
+		expect(terminalById(await view(), terminal)?.waiting).toBeFalsy();
+
+		await vi.advanceTimersByTimeAsync(1_000);
+		expect(terminalById(await view(), terminal)).toMatchObject({
+			waiting: true,
+			choices: ["yes", "no"],
+		});
+
+		type(terminal, "ye");
+		expect(terminalById(await view(), terminal)).toMatchObject({ waiting: false, choices: [] });
+		type(terminal, "s\r");
+		expect(out.text()).toContain("? yes\r\nWarning: Permanently added 'devbox'");
+		await vi.advanceTimersByTimeAsync(1_000);
+		expect(terminalById(await view(), terminal)?.status).toEqual({
+			state: "exited",
+			code: 0,
+			signal: null,
+		});
+	});
+
+	it("asks gh for a secret without echoing it, and waits for you meanwhile", async () => {
+		const { source, agent, watch, type, view } = await setup();
+		const terminal = openedTerminal(
+			await runCommand(source, agent, "gh secret set API_TOKEN", {
+				private: false,
+				size: SIZE,
+			})
+		);
+		if (!terminal) throw new Error("no terminal opened");
+		const out = await watch(terminal);
+		await vi.advanceTimersByTimeAsync(1_000);
+		expect(terminalById(await view(), terminal)).toMatchObject({
+			password_prompt: true,
+			waiting: true,
+		});
+
+		type(terminal, "s3cr3t\r");
+		expect(out.text()).not.toContain("s3cr3t");
+		expect(out.text()).toContain("Set Actions secret API_TOKEN for owner/repo");
+		expect(terminalById(await view(), terminal)).toMatchObject({
+			password_prompt: false,
+			waiting: false,
+			status: { state: "exited", code: 0 },
+		});
+	});
+
+	it("lets python take Stop and go on, until Force stop kills it", async () => {
+		const { source, agent, watch, type, view } = await setup();
+		const terminal = openedTerminal(
+			await runCommand(source, agent, "python3", { private: false, size: SIZE })
+		);
+		if (!terminal) throw new Error("no terminal opened");
+		const out = await watch(terminal);
+		type(terminal, "1 + 1\r");
+		await source.interruptTerminal(terminal);
+		expect(out.text()).toContain("KeyboardInterrupt\r\n>>> ");
+		expect(terminalById(await view(), terminal)?.status.state).toBe("running");
+
+		expect(await source.closeTerminal(terminal, true)).toEqual({
+			status: "ok",
+			data: { status: "done" },
+		});
+		expect(terminalById(await view(), terminal)).toBeUndefined();
+	});
+
+	it("kills what runs in a session on Force stop and says you stopped it", async () => {
+		const { source, agent, watch, type, view } = await setup();
+		const terminal = openedTerminal(await openShell(source, agent, SIZE));
+		if (!terminal) throw new Error("no terminal opened");
+		const out = await watch(terminal);
+		type(terminal, "python3\r");
+		await source.interruptTerminal(terminal);
+		expect(terminalById(await view(), terminal)?.busy).toBe(true);
+
+		await source.interruptTerminal(terminal, true);
+		expect(terminalById(await view(), terminal)).toMatchObject({
+			busy: false,
+			status: { state: "running" },
+		});
+		expect(out.text()).toMatch(/KeyboardInterrupt\r\n>>> \r\n\S+ % $/);
+	});
+
 	it("prints a log line every second until Ctrl-C", async () => {
 		const { source, agent, watch, view } = await setup();
 		const result = await runCommand(source, agent, "pnpm dev", { private: false, size: SIZE });
@@ -142,7 +232,7 @@ describe("sample terminal stream", () => {
 		await vi.advanceTimersByTimeAsync(3_000);
 		expect(lines()).toBe(3);
 		expect(terminalById(await view(), terminal)).toMatchObject({
-			status: { state: "exited", code: null, signal: 2 },
+			status: { state: "exited", code: null, signal: 2, stopped: true },
 			busy: false,
 		});
 	});

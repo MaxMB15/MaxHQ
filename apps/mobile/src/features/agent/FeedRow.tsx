@@ -45,6 +45,7 @@ import {
 	OpenedFileRow,
 	SearchRow,
 	ToolCallRow,
+	UserRunRow,
 	VisualRow,
 	WebRow,
 } from "./ToolRows";
@@ -117,10 +118,8 @@ const Body = ({ item }: { item: TimelineItem }) => {
 			return <OpenedFileRow item={item} />;
 		case "agent_visual":
 			return <VisualRow item={item} />;
-		// A command you ran with `!` shows as an item this build can't show
-		// until its card comes.
 		case "user_run":
-			return <UnknownRow item={{ ...item, kind: "unknown", native_kind: item.kind }} />;
+			return <UserRunRow item={item} />;
 		case "unknown":
 			return <UnknownRow item={item} />;
 	}

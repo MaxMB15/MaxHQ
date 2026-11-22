@@ -31,6 +31,8 @@ export type FakeView = TermView & {
 	readonly jumps: boolean[];
 	/** Whether it was told to take its shell's marks. */
 	readonly takesMarks: () => boolean;
+	/** Whether it was told the device answers what programs ask the terminal. */
+	readonly leavesAnswers: () => boolean;
 };
 
 export const fakeView = (): FakeView => {
@@ -47,6 +49,7 @@ export const fakeView = (): FakeView => {
 	let cleared = 0;
 	let gpu = false;
 	let takesMarks = false;
+	let leavesAnswers = false;
 	let disposed = false;
 	let picked: Picked | null = null;
 	let size = { cols: 80, rows: 24 };
@@ -81,6 +84,7 @@ export const fakeView = (): FakeView => {
 		},
 		jumps,
 		takesMarks: () => takesMarks,
+		leavesAnswers: () => leavesAnswers,
 		write: (bytes, _offset, done) => {
 			written.push(decoder.decode(bytes));
 			done?.();
@@ -123,6 +127,9 @@ export const fakeView = (): FakeView => {
 		onGpuLost: (listener) => {
 			lost.add(listener);
 			return () => lost.delete(listener);
+		},
+		setAnswers: (on) => {
+			leavesAnswers = on;
 		},
 		setMarks: (on) => {
 			takesMarks = on;

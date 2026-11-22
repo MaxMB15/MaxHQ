@@ -35,8 +35,11 @@ export type TerminalCalls = {
 	readonly detachTerminal: (terminal: TerminalId) => Promise<CommandResult>;
 	/** Sets the terminal's size. The client you last typed in owns it. */
 	readonly resizeTerminal: (terminal: TerminalId, size: TerminalSize) => Promise<CommandResult>;
-	/** Sends the terminal Ctrl-C. */
-	readonly interruptTerminal: (terminal: TerminalId) => Promise<ActionResult>;
+	/**
+	 * Sends the terminal Ctrl-C. With `force`, a `maxd` at protocol 59 or
+	 * later kills what runs in your session, and leaves the session open.
+	 */
+	readonly interruptTerminal: (terminal: TerminalId, force?: boolean) => Promise<ActionResult>;
 	/** Hangs up what runs in the terminal, or kills it with `force`, then forgets it. */
 	readonly closeTerminal: (terminal: TerminalId, force?: boolean) => Promise<ActionResult>;
 	/** Renames the terminal's tab. Empty goes back to the name the shell sets. */
@@ -53,7 +56,12 @@ export const terminalCalls = (ask: Ask): TerminalCalls => ({
 	detachTerminal: (terminal) => ask({ kind: "terminal_detach", terminal }),
 	resizeTerminal: (terminal, { cols, rows }) =>
 		ask({ kind: "terminal_resize", terminal, cols, rows }),
-	interruptTerminal: (terminal) => ask({ kind: "terminal_interrupt", terminal }),
+	interruptTerminal: (terminal, force = false) =>
+		ask(
+			force
+				? { kind: "terminal_interrupt", terminal, force }
+				: { kind: "terminal_interrupt", terminal }
+		),
 	closeTerminal: (terminal, force = false) => ask({ kind: "terminal_close", terminal, force }),
 	renameTerminal: (terminal, title) => ask({ kind: "terminal_rename", terminal, title }),
 	moveTerminal: (terminal) => ask({ kind: "terminal_move", terminal }),

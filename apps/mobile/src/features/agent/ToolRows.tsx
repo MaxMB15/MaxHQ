@@ -9,6 +9,8 @@
 // the row for a read or an opened file, and the eye at the end of an edit's
 // row, whose own tap opens its changes. A claude.ai page a Claude agent
 // published or read opens in the browser from the arrow at its row's end.
+// A command you ran with `!` gets a row too, saying whether it waits for you
+// or how it ended, with its output once it ended.
 
 import { useI18n, formatNumber } from "@maxhq/shared/i18n";
 
@@ -47,6 +49,9 @@ import type {
 	Timestamp,
 } from "@maxhq/shared/bindings";
 
+import { endedText } from "@maxhq/shared/terminal/ended";
+import { runStatus } from "@maxhq/shared/terminal/output";
+import { terminalById, waitsForYou } from "@maxhq/shared/terminal/select";
 import { editPath } from "@maxhq/shared/timeline/diff";
 import { VisualOriginContext } from "@maxhq/shared/visuals/origin";
 
@@ -372,6 +377,47 @@ export const CommandRow = ({ item }: { item: ItemOf<"command"> }) => {
 			since={item.started_at}
 			running={isOpen(item.status) && item.status !== "waiting"}
 			open={open}
+			onToggle={() => setOpen(!open)}
+		>
+			<Output
+				id={item.id}
+				command={item.command}
+				text={item.output}
+				truncated={item.output_truncated}
+			/>
+		</ToolRow>
+	);
+};
+
+/**
+ * A command you ran with `!`: how long it has run, that it waits for you,
+ * or how it ended, with its output when opened once it ended.
+ */
+export const UserRunRow = ({ item }: { item: ItemOf<"user_run"> }) => {
+	const { t } = useI18n();
+	const terminal = useView((s) => terminalById(s.view, item.terminal));
+	const [open, setOpen] = useFold(`open:${item.id}`, item.id);
+	const status = runStatus(terminal, item) ?? item.process;
+	const waits = terminal !== undefined && waitsForYou(terminal);
+	const ended = status.state === "exited" ? status : null;
+	const failed = ended !== null && ended.stopped !== true && ended.code !== 0;
+	return (
+		<ToolRow
+			icon={Terminal}
+			verb={t("You ran")}
+			target={<Target>{item.command.split("\n")[0] ?? ""}</Target>}
+			meta={
+				waits ? (
+					t("Waiting for you")
+				) : ended ? (
+					<Text style={failed ? styles.failed : undefined}>
+						{endedText(ended, item.duration_ms)}
+					</Text>
+				) : null
+			}
+			since={terminal?.started_at ?? item.started_at}
+			running={status.state === "running" && !waits}
+			open={ended ? open : undefined}
 			onToggle={() => setOpen(!open)}
 		>
 			<Output

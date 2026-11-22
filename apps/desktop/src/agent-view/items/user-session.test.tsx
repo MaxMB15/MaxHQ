@@ -34,6 +34,7 @@ import {
 } from "@/composer/testing";
 import type { LiveTerminalProps } from "@/terminal";
 
+import { IGNORED_AFTER } from "./run-input";
 import { UserSessionCard } from "./user-session";
 
 // The terminal module, as the card reaches it.
@@ -306,6 +307,98 @@ describe("an open session card", () => {
 		});
 		expect(blockOf(found, 5)).toHaveTextContent(/Running/);
 		expect(within(blockOf(found, 5)).getByRole("textbox")).toBeInTheDocument();
+	});
+
+	describe("a command that runs in it", () => {
+		const python = block(5, {
+			command: "python3",
+			process: { state: "running" },
+			duration_ms: null,
+		});
+
+		/** The card with `python3` running in its session, on a device that answers or not. */
+		const renderPython = (answers: boolean) => {
+			const rendered = renderCard(card({ blocks: [...BLOCKS, python] }), {
+				terminal: sessionTerminal({ busy: true, answers }),
+			});
+			const interruptTerminal = vi.fn<DataSource["interruptTerminal"]>(async () => DONE);
+			Object.assign(rendered.source, { interruptTerminal });
+			return { ...rendered, interruptTerminal };
+		};
+
+		/** Presses Stop on `python3`, and lets the moment it gets go by. */
+		const stopAndWait = async (found: HTMLElement, interrupt: ReturnType<typeof vi.fn>) => {
+			fireEvent.click(button(blockOf(found, 5), "Stop"));
+			await waitFor(() => expect(interrupt).toHaveBeenCalledWith("s1", false));
+			await act(async () => {
+				await vi.advanceTimersByTimeAsync(IGNORED_AFTER);
+			});
+		};
+
+		beforeEach(() => {
+			vi.useFakeTimers({ shouldAdvanceTime: true });
+		});
+		afterEach(() => {
+			vi.useRealTimers();
+		});
+
+		it("stops it, and once it ignored that ends only it, leaving the shell", async () => {
+			const { interruptTerminal } = renderPython(true);
+			const found = await findCard();
+			expect(
+				within(blockOf(found, 5)).queryByRole("button", { name: "Force stop" })
+			).toBeNull();
+
+			await stopAndWait(found, interruptTerminal);
+
+			expect(blockOf(found, 5)).toHaveTextContent("python3 ignored Stop");
+			fireEvent.click(button(blockOf(found, 5), "Force stop"));
+			await waitFor(() => expect(interruptTerminal).toHaveBeenLastCalledWith("s1", true));
+		});
+
+		it("has no Force stop on a device that can't end only the command", async () => {
+			const { interruptTerminal } = renderPython(false);
+			const found = await findCard();
+
+			await stopAndWait(found, interruptTerminal);
+
+			expect(blockOf(found, 5)).toHaveTextContent("python3 ignored Stop");
+			expect(
+				within(blockOf(found, 5)).queryByRole("button", { name: "Force stop" })
+			).toBeNull();
+		});
+
+		it("opens the session's tab in the drawer from the command too", async () => {
+			renderPython(true);
+			const found = await findCard();
+
+			fireEvent.click(button(blockOf(found, 5), "Open in terminal"));
+
+			expect(seam.showInDrawer).toHaveBeenCalledExactlyOnceWith(AGENT, "s1");
+		});
+
+		it("says it waits for you, with the prompt's answers", async () => {
+			renderCard(card({ blocks: [...BLOCKS, python] }), {
+				terminal: sessionTerminal({ busy: true, waiting: true, choices: ["y", "n"] }),
+			});
+			const found = await findCard();
+
+			expect(blockOf(found, 5)).toHaveTextContent("Waiting for you");
+			fireEvent.click(button(blockOf(found, 5), "Answer y"));
+			expect(seam.sendInput).toHaveBeenCalledExactlyOnceWith(DEVICE, "s1", "y\r");
+		});
+	});
+
+	it("says Stopped after how long for a command you stopped", async () => {
+		const stopped = block(5, {
+			command: "pnpm dev",
+			process: { state: "exited", code: null, signal: 2, stopped: true },
+			duration_ms: 33_000,
+		});
+		renderCard(card({ blocks: [...BLOCKS, stopped] }));
+		const found = await findCard();
+
+		expect(blockOf(found, 5)).toHaveTextContent("Stopped after 33 s");
 	});
 
 	it("opens the session's tab in the drawer", async () => {

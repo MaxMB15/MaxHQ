@@ -112,7 +112,7 @@ describe("sample terminals", () => {
 		});
 	});
 
-	it("keeps a command out of the drawer until it moves, and ends it on Ctrl-C", async () => {
+	it("keeps a command out of the drawer until it moves, and ends it on Stop", async () => {
 		const { source, view, agent } = await setup();
 		const result = await runCommand(source, agent, "pnpm dev", { private: false, size: SIZE });
 		const terminal = openedTerminal(result);
@@ -125,6 +125,7 @@ describe("sample terminals", () => {
 			state: "exited",
 			code: null,
 			signal: 2,
+			stopped: true,
 		});
 
 		expect(await source.moveTerminal(terminal)).toEqual({

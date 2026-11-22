@@ -7,7 +7,11 @@
 // `pnpm test` prints a failing run over a few seconds, `pnpm dev` prints a
 // log line every second until Ctrl-C, and `sudo true` asks for a password
 // the way a real prompt does, with the terminal in password mode until you
-// send a line, which it never echoes or keeps. A command you ran with `!`
+// send a line, which it never echoes or keeps. `gh secret set` asks for a
+// secret the same way, `ssh devbox` asks yes or no about a new host, and
+// `python3` reads lines at its prompt and takes Ctrl-C without ending, so
+// Stop does nothing to it. A command that reads what you type and printed
+// nothing for a second waits for you, as `maxd` says. A command you ran with `!`
 // keeps what it printed, which its card shows once it ends. A shell on a
 // device with Shell integration on marks its prompts and commands, OSC
 // 133, as `maxd` passes them on. An agent's session is a shell that takes
@@ -45,6 +49,8 @@ export type BlockEnd = {
 	readonly printed: Printed;
 	/** How many passwords went in at prompts that hid them. */
 	readonly secrets: number;
+	/** Whether your Stop or Force stop ended it. */
+	readonly stopped?: boolean;
 	/** The shell's folder once it ended. */
 	readonly cwd: string;
 };
@@ -67,8 +73,11 @@ export type MockTerminalStream = TerminalStream & {
 	readonly idle: (terminal: TerminalId) => boolean;
 	/** The folder a shell is in now. */
 	readonly cwd: (terminal: TerminalId) => string | undefined;
-	/** Sends Ctrl-C, the way an interrupt does. */
-	readonly interrupt: (terminal: TerminalId) => void;
+	/**
+	 * Sends Ctrl-C, the way your Stop does, or with `force` kills what runs
+	 * in a session and leaves the shell, the way Force stop does.
+	 */
+	readonly interrupt: (terminal: TerminalId, force?: boolean) => void;
 	/** Ends it and forgets what it printed. */
 	readonly end: (terminal: TerminalId) => void;
 	/** Whether you named it, so commands no longer change its title. */
@@ -80,10 +89,17 @@ export type MockTerminalStream = TerminalStream & {
 /** The signal Ctrl-C sends. */
 const SIGINT = 2;
 
+/** The signal Force stop sends. */
+const SIGKILL = 9;
+
+/** How long a command that reads what you type prints nothing before it waits for you. */
+const QUIET = 1000;
+
 /** How much each sample terminal keeps, like the device's buffer. */
 const KEPT = 256 * 1024;
 
 const CTRL_C = "\x03";
+const CTRL_D = "\x04";
 const CTRL_L = "\x0c";
 const ESC = "\x1b";
 const DIM = "\x1b[2m";
@@ -103,7 +119,28 @@ type Script = {
 type Plan =
 	| ({ readonly type: "script" } & Script)
 	| { readonly type: "forever"; readonly head: string; readonly line: (n: number) => string }
-	| { readonly type: "password"; readonly prompt: string }
+	| {
+			readonly type: "password";
+			readonly prompt: string;
+			/** What it prints once the line went, after it. */
+			readonly done?: string;
+	  }
+	| {
+			/** Asks a question on a line of its own and ends on your answer, or at Ctrl-D. */
+			readonly type: "ask";
+			readonly head: string;
+			readonly prompt: string;
+			/** The answers the prompt names, as `maxd` reads them off it. */
+			readonly choices: readonly string[];
+			readonly answer: (line: string | null) => Script;
+	  }
+	| {
+			/** Reads lines at its prompt until `exit()` or Ctrl-D, and takes Ctrl-C without ending. */
+			readonly type: "repl";
+			readonly head: string;
+			readonly prompt: string;
+			readonly interrupted: string;
+	  }
 	| { readonly type: "cd"; readonly to: string }
 	| { readonly type: "exit" }
 	| { readonly type: "clear" };
@@ -183,6 +220,38 @@ const planFor = (command: string, cwd: string, now: () => Timestamp): Plan => {
 			};
 		case "sudo true":
 			return { type: "password", prompt: "Password:" };
+		case "ssh devbox":
+			return {
+				type: "ask",
+				head:
+					"The authenticity of host 'devbox (192.0.2.10)' can't be established.\r\n" +
+					"ED25519 key fingerprint is SHA256:Qm4bX0r1zZk2cP9vT7yWq5nL8sE3dA6fH1jK4uV0x8.\r\n" +
+					"This key is not known by any other names.\r\n",
+				prompt: "Are you sure you want to continue connecting (yes/no/[fingerprint])? ",
+				choices: ["yes", "no"],
+				answer: (line) =>
+					line?.trim() === "yes"
+						? {
+								exit: 0,
+								lines: [
+									[
+										0,
+										"Warning: Permanently added 'devbox' (ED25519) to the list of known hosts.\r\n",
+									],
+									[600, "Connection to devbox closed.\r\n"],
+								],
+							}
+						: { exit: 255, lines: [[0, "Host key verification failed.\r\n"]] },
+			};
+		case "python3":
+			return {
+				type: "repl",
+				head:
+					"Python 3.13.1 (main, Dec  3 2024, 17:59:52) [Clang 16.0.0] on darwin\r\n" +
+					'Type "help", "copyright", "credits" or "license" for more information.\r\n',
+				prompt: ">>> ",
+				interrupted: "\r\nKeyboardInterrupt\r\n",
+			};
 		case "pnpm install":
 			return {
 				type: "script",
@@ -217,6 +286,12 @@ const planFor = (command: string, cwd: string, now: () => Timestamp): Plan => {
 		return { type: "cd", to: cdTarget(cwd, to.length ? unquoted(to.join(" ")) : undefined) };
 	}
 	if (words[0] === "sudo") return { type: "password", prompt: "[sudo] password for me:" };
+	if (words[0] === "gh" && words[1] === "secret" && words[2] === "set" && words[3])
+		return {
+			type: "password",
+			prompt: `${GREEN}?${OFF} ${BOLD}Paste your secret:${OFF} `,
+			done: `${GREEN}✓${OFF} Set Actions secret ${words[3]} for owner/repo\r\n`,
+		};
 	if (words[0] === "echo")
 		return { type: "script", exit: 0, lines: [[0, `${words.slice(1).join(" ")}\r\n`]] };
 	return {
@@ -227,7 +302,12 @@ const planFor = (command: string, cwd: string, now: () => Timestamp): Plan => {
 };
 
 /** A command that runs, and how to stop it. */
-type Job = { readonly command: string; readonly stop: () => void };
+type Job = {
+	readonly command: string;
+	readonly stop: () => void;
+	/** What it does with Ctrl-C, when it takes it and goes on. */
+	readonly keepsOn?: () => void;
+};
 
 /** A session's command while it runs: what it printed so far, and who hears how it ends. */
 type Block = {
@@ -249,6 +329,10 @@ type State = {
 	job: Job | null;
 	/** Set while a password prompt waits, with what to do once a line comes. */
 	secret: (() => void) | null;
+	/** Set while a command reads a line it echoes, with what to do with it, or null at Ctrl-D. */
+	reply: ((line: string | null) => void) | null;
+	/** Counts down to the command waiting for you, while it reads and prints nothing. */
+	quiet: ReturnType<typeof setTimeout> | null;
 	named: boolean;
 	/** What it printed as text, up to what it keeps. */
 	text: string;
@@ -345,19 +429,52 @@ export const mockTerminalStream = ({
 	};
 
 	/** Tells a session's block how it ended, before the D mark, so the mark isn't in its text. */
-	const endBlock = (state: State, code: number | null) => {
+	const endBlock = (state: State, code: number | null, stopped = false) => {
 		const block = state.block;
 		if (!block) return;
 		state.block = null;
-		block.ended({ code, printed: shown(block.text), secrets: block.secrets, cwd: state.cwd });
+		block.ended({
+			code,
+			printed: shown(block.text),
+			secrets: block.secrets,
+			cwd: state.cwd,
+			...(stopped ? { stopped } : {}),
+		});
 	};
 
-	/** The command ended with `code`, or a signal when null. */
-	const finish = (state: State, code: number | null, signal: number | null = null) => {
+	/** It no longer waits for you: it took a line, or ended. */
+	const answered = (state: State) => {
+		if (state.quiet) clearTimeout(state.quiet);
+		state.quiet = null;
+		if (find(state.id)?.waiting)
+			edit(state.id, (terminal) => ({ ...terminal, waiting: false, choices: [] }));
+	};
+
+	/**
+	 * The command reads what you type, so it waits for you once it printed
+	 * nothing for a while, with the answers its prompt names.
+	 */
+	const reads = (state: State, choices: readonly string[] = []) => {
+		answered(state);
+		state.quiet = setTimeout(() => {
+			state.quiet = null;
+			edit(state.id, (terminal) => ({ ...terminal, waiting: true, choices: [...choices] }));
+		}, QUIET);
+	};
+
+	/** The command ended with `code`, or a signal when null, by your Stop when `stopped`. */
+	const finish = (
+		state: State,
+		code: number | null,
+		signal: number | null = null,
+		stopped = false
+	) => {
 		state.secret = null;
+		state.reply = null;
+		answered(state);
 		if (state.shell) {
 			foreground(state, null);
-			endBlock(state, code);
+			endBlock(state, code, stopped);
 			print(state, mark(state, `D;${code ?? ""}`));
 			prompt(state);
 			return;
@@ -367,7 +484,7 @@ export const mockTerminalStream = ({
 			...terminal,
 			busy: false,
 			password_prompt: false,
-			status: { state: "exited", code, signal },
+			status: { state: "exited", code, signal, ...(stopped ? { stopped } : {}) },
 		}));
 		exited?.(state.id);
 	};
@@ -379,6 +496,19 @@ export const mockTerminalStream = ({
 		const stop = () => {
 			for (const timer of timers) clearTimeout(timer);
 		};
+		/** Prints a script's lines over time, then ends with its code, at once when it waits for none. */
+		const play = (script: Script): boolean => {
+			let at = 0;
+			for (const [wait, text] of script.lines) {
+				at += wait;
+				if (at === 0) print(state, text);
+				else later(at, () => print(state, text));
+			}
+			if (at === 0) finish(state, script.exit);
+			else later(at + 50, () => finish(state, script.exit));
+			return at === 0;
+		};
+		let keepsOn: (() => void) | undefined;
 		switch (plan.type) {
 			case "clear":
 				print(state, "\x1b[H\x1b[2J");
@@ -395,48 +525,79 @@ export const mockTerminalStream = ({
 			case "password":
 				print(state, plan.prompt);
 				edit(state.id, (terminal) => ({ ...terminal, password_prompt: true }));
+				reads(state);
 				state.secret = () => {
+					answered(state);
 					edit(state.id, (terminal) => ({ ...terminal, password_prompt: false }));
 					if (state.block) state.block.secrets += 1;
-					print(state, " 🔒 sent\r\n");
+					print(state, ` 🔒 sent\r\n${plan.done ?? ""}`);
 					finish(state, 0);
 				};
 				break;
+			case "ask":
+				print(state, plan.head + plan.prompt);
+				reads(state, plan.choices);
+				state.reply = (line) => {
+					state.reply = null;
+					answered(state);
+					play(plan.answer(line));
+				};
+				break;
+			case "repl": {
+				const ready = () => {
+					print(state, plan.prompt);
+					reads(state);
+				};
+				print(state, plan.head);
+				ready();
+				state.reply = (line) => {
+					answered(state);
+					if (line === null || line.trim() === "exit()" || line.trim() === "quit()")
+						return finish(state, 0);
+					ready();
+				};
+				keepsOn = () => {
+					state.line = "";
+					print(state, plan.interrupted);
+					ready();
+				};
+				break;
+			}
 			case "forever": {
 				print(state, plan.head);
 				let n = 0;
 				timers.push(setInterval(() => print(state, plan.line(n++)), 1000));
 				break;
 			}
-			case "script": {
-				let at = 0;
-				for (const [wait, text] of plan.lines) {
-					at += wait;
-					if (at === 0) print(state, text);
-					else later(at, () => print(state, text));
-				}
+			case "script":
 				// A command that prints all at once is done at once.
-				if (at === 0) return finish(state, plan.exit);
-				later(at + 50, () => finish(state, plan.exit));
+				if (play(plan)) return;
 				break;
-			}
 		}
-		foreground(state, { command, stop });
+		foreground(state, { command, stop, keepsOn });
 	};
 
-	const interrupt = (state: State) => {
-		print(state, "^C\r\n");
+	/**
+	 * Ctrl-C you typed, or your Stop when `by` says so, which ends what runs
+	 * unless it takes Ctrl-C and goes on. Force stop ends it either way.
+	 */
+	const interrupt = (state: State, by: "keys" | "stop" | "force" = "keys") => {
+		if (state.job?.keepsOn && by !== "force") return state.job.keepsOn();
+		print(state, by === "force" ? "\r\n" : "^C\r\n");
 		state.line = "";
 		if (state.job) {
 			state.job.stop();
 			if (state.secret)
 				edit(state.id, (terminal) => ({ ...terminal, password_prompt: false }));
-			if (!state.shell) return finish(state, null, SIGINT);
+			const signal = by === "force" ? SIGKILL : SIGINT;
+			if (!state.shell) return finish(state, null, signal, by !== "keys");
 			state.secret = null;
+			state.reply = null;
+			answered(state);
 			foreground(state, null);
-			endBlock(state, 128 + SIGINT);
-			// A shell says what Ctrl-C stopped exited with 128 and the signal.
-			print(state, mark(state, `D;${128 + SIGINT}`));
+			endBlock(state, 128 + signal, by !== "keys");
+			// A shell says what a signal stopped exited with 128 and the signal.
+			print(state, mark(state, `D;${128 + signal}`));
 		}
 		prompt(state);
 	};
@@ -450,6 +611,33 @@ export const mockTerminalStream = ({
 		run(state, line.trim());
 	};
 
+	/**
+	 * A key typed into a command that reads a line, which it echoes as a
+	 * terminal in line mode does. The echo is output, so it no longer waits.
+	 */
+	const read = (state: State, char: string) => {
+		const reply = state.reply;
+		if (!reply) return;
+		answered(state);
+		if (char === "\r" || char === "\n") {
+			const line = state.line;
+			state.line = "";
+			print(state, "\r\n");
+			reply(line);
+		} else if (char === CTRL_D && state.line === "") {
+			print(state, "\r\n");
+			reply(null);
+		} else if (char === "\x7f" || char === "\b") {
+			if (state.line) {
+				state.line = state.line.slice(0, -1);
+				print(state, "\b \b");
+			}
+		} else if (char >= " ") {
+			state.line += char;
+			print(state, char);
+		}
+	};
+
 	// Escape sequences, such as the arrow keys and the markers around a
 	// paste, are left out; the sample shell has no line editing.
 	const typed = (state: State, text: string) => {
@@ -460,7 +648,8 @@ export const mockTerminalStream = ({
 				if (text[i + 1] === "[") {
 					i += 2;
 					while (i < text.length && !/[@-~]/.test(text[i]!)) i++;
-				} else i++;
+				} else if (text[i + 1] === "O") i += 2;
+				else i++;
 				continue;
 			}
 			if (char === CTRL_C) {
@@ -470,6 +659,10 @@ export const mockTerminalStream = ({
 			if (state.secret) {
 				// What you type at a password prompt is never echoed or kept.
 				if (char === "\r" || char === "\n") state.secret();
+				continue;
+			}
+			if (state.reply) {
+				read(state, char);
 				continue;
 			}
 			if (state.job || !state.shell) continue;
@@ -506,6 +699,8 @@ export const mockTerminalStream = ({
 				line: "",
 				job: null,
 				secret: null,
+				reply: null,
+				quiet: null,
 				named: false,
 				text: "",
 				dropped: false,
@@ -536,16 +731,19 @@ export const mockTerminalStream = ({
 				state.shell &&
 				!state.job &&
 				!state.secret &&
+				!state.reply &&
 				state.line === ""
 			);
 		},
 		cwd: (id) => stateOf(id)?.cwd,
-		interrupt: (id) => {
+		interrupt: (id, force = false) => {
 			const state = stateOf(id);
-			if (state) interrupt(state);
+			if (state) interrupt(state, force ? "force" : "stop");
 		},
 		end: (id) => {
-			stateOf(id)?.job?.stop();
+			const state = stateOf(id);
+			state?.job?.stop();
+			if (state?.quiet) clearTimeout(state.quiet);
 			states.delete(id);
 		},
 		named: (id, named) => {

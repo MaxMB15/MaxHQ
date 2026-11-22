@@ -197,6 +197,7 @@ export const sampleSessionTerminal = (now: Timestamp, ago = 12 * 60_000): Termin
 	busy: false,
 	marks: true,
 	password_prompt: false,
+	answers: true,
 	started_at: now - ago,
 	cols: 100,
 	rows: 20,
@@ -352,7 +353,12 @@ export const mockSessionCalls = (hooks: MockSessionHooks): MockSessionCalls => {
 		if (session.running?.block === id) session.running = null;
 		amendBlock(agent, item, id, (block) => ({
 			...block,
-			process: { state: "exited", code: end.code, signal: null },
+			process: {
+				state: "exited",
+				code: end.code,
+				signal: null,
+				...(end.stopped ? { stopped: true } : {}),
+			},
 			duration_ms: Math.max(0, now() - block.started_at),
 			lines: end.printed.lines,
 			output: end.printed.text,

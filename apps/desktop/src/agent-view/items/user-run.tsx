@@ -9,7 +9,9 @@
 // `!!` starts folded and reaches the agent only once you attach it. Moved
 // to the terminal, it shrinks to a line that links to its tab. The first
 // time a command this window started asks for a password, its secure field
-// takes focus from the composer.
+// takes focus from the composer. While the command waits for you, the card
+// says so in place of its clock, and Stop turns into Stop and Force stop
+// once the command ignores it.
 
 import { Menu } from "@base-ui/react/menu";
 import {
@@ -18,6 +20,7 @@ import {
 	CircleCheck,
 	CircleX,
 	Ellipsis,
+	Keyboard,
 	LockKeyhole,
 	MessageSquare,
 	PanelBottom,
@@ -28,7 +31,6 @@ import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 
 import { useRow } from "@maxhq/shared/agent-view/context";
 import { useFold } from "@maxhq/shared/agent-view/find-context";
-import { formatTook } from "@maxhq/shared/agent-view/format";
 import type { Agent, TerminalStatus, Timestamp } from "@maxhq/shared/bindings";
 import {
 	attempt,
@@ -41,6 +43,7 @@ import type { ActionResult } from "@maxhq/shared/data/source";
 import { t, useI18n } from "@maxhq/shared/i18n";
 import { type OutputRef, type Segment, toUserInput } from "@maxhq/shared/pills/draft";
 import { stripAnsi } from "@maxhq/shared/timeline/ansi";
+import { endedText, type ExitedStatus } from "@maxhq/shared/terminal/ended";
 import {
 	fillOutput,
 	OUTPUT_LINES,
@@ -69,7 +72,7 @@ import { LiveTerminal, useTerminalActions } from "@/terminal";
 import { AnsiLines, ansiLines } from "../ansi-text";
 import { Elapsed } from "../elapsed";
 import { Spinner } from "../icons";
-import { InputRow, PasswordField } from "./run-input";
+import { IgnoredStop, InputRow, PasswordField, useStop } from "./run-input";
 
 /** How many of its last lines a finished command shows until you ask for all. */
 export const FOLDED_LINES = 20;
@@ -96,13 +99,67 @@ export const runClock = (ms: number): string => {
 		: `${minutes}:${seconds}`;
 };
 
-/** How a command ended, such as "exit 1 · 4.2 s". */
-export const endedText = (
-	status: Extract<TerminalStatus, { state: "exited" }>,
-	took: number | null
-) => {
-	const how = status.code !== null ? t("exit {{code}}", { code: status.code }) : t("Stopped");
-	return took === null ? how : `${how} · ${formatTook(took)}`;
+/** The chip for a command waiting for you, in place of its clock. */
+export const WaitingChip = () => {
+	useI18n();
+	return (
+		<span
+			data-waiting-chip
+			className="inline-flex items-center gap-[5px] rounded-full bg-status-busy/12 px-2 py-px text-xs whitespace-nowrap text-status-busy-text"
+		>
+			<Keyboard aria-hidden className="size-3" strokeWidth={2.2} />
+			{t("Waiting for you")}
+		</span>
+	);
+};
+
+/** The color and icon of a command that ended: yours to stop, done or failed. */
+export const endedLook = (
+	status: ExitedStatus
+): { readonly color: string; readonly icon: ReactNode } =>
+	status.stopped === true
+		? {
+				color: "text-muted-foreground",
+				icon: <Square aria-hidden className="size-2.5 fill-current" strokeWidth={0} />,
+			}
+		: status.code === 0
+			? {
+					color: "text-status-ready-text",
+					icon: <CircleCheck aria-hidden className="size-3" strokeWidth={2.2} />,
+				}
+			: {
+					color: "text-status-error-text",
+					icon: <CircleX aria-hidden className="size-3" strokeWidth={2.2} />,
+				};
+
+/** The Stop button a running command's card shows, with Control-C as its key. */
+export const StopButton = ({ onStop, hint }: { onStop: () => void; hint: boolean }) => {
+	useI18n();
+	return (
+		<button type="button" className={BOXED} onClick={onStop}>
+			<Square aria-hidden className="size-2.5 fill-current" strokeWidth={0} />
+			{t("Stop")}
+			{hint ? (
+				<kbd aria-hidden className={KBD}>
+					⌃C
+				</kbd>
+			) : null}
+		</button>
+	);
+};
+
+/** Force stop, beside Stop once the command ignored it. */
+export const ForceStopButton = ({ onForce }: { onForce: () => void }) => {
+	useI18n();
+	return (
+		<button
+			type="button"
+			className={cn(BOXED, "text-status-error-text hover:text-status-error-text")}
+			onClick={onForce}
+		>
+			{t("Force stop")}
+		</button>
+	);
 };
 
 /** What a card's button tried, when it didn't go. */
@@ -223,7 +280,6 @@ const RunCard = ({
 	const view = useView((state) => state.view);
 	const { busySend } = useTypingPrefs();
 	const card = useRef<HTMLElement>(null);
-	const [stopped, setStopped] = useState(false);
 	const [error, setError] = useState<string | null>(null);
 	const [busy, setBusy] = useState(false);
 	const [open, setOpen] = useFold(`run-open:${item.id}`, item.id);
@@ -232,6 +288,7 @@ const RunCard = ({
 	const device = deviceName(view, item.device);
 	const running = status.state === "running";
 	const asking = running && terminal?.password_prompt === true;
+	const waiting = running && !asking && terminal?.waiting === true;
 	const shown = !item.private || open;
 	const acts = !row.readOnly;
 	// When the card first drew, for a command that hasn't said when it started.
@@ -250,14 +307,12 @@ const RunCard = ({
 		if (reason !== null) setError(failedText(failed, reason));
 	};
 
-	const stop = () => {
-		if (stopped) {
-			void act(() => services.source.closeTerminal(item.terminal, true), "kill");
-			return;
-		}
-		setStopped(true);
+	const { stop, ignored } = useStop(running, () => {
 		void act(() => services.source.interruptTerminal(item.terminal), "stop");
-	};
+	});
+
+	const forceStop = () =>
+		void act(() => services.source.closeTerminal(item.terminal, true), "kill");
 
 	const move = () => void act(() => services.source.moveTerminal(item.terminal), "move");
 
@@ -314,6 +369,8 @@ const RunCard = ({
 			<LockKeyhole aria-hidden className="size-3" strokeWidth={2.2} />
 			{t("Waiting for your password")}
 		</span>
+	) : waiting ? (
+		<WaitingChip />
 	) : running ? (
 		<span className="inline-flex items-center gap-[5px] text-xs whitespace-nowrap text-status-busy-text">
 			<Spinner size={11} />
@@ -324,31 +381,15 @@ const RunCard = ({
 			</span>
 		</span>
 	) : status.state === "exited" ? (
-		<span
-			className={cn(
-				"inline-flex items-center gap-[5px] text-xs whitespace-nowrap",
-				status.code === 0 ? "text-status-ready-text" : "text-status-error-text"
-			)}
-		>
-			{status.code === 0 ? (
-				<CircleCheck aria-hidden className="size-3" strokeWidth={2.2} />
-			) : (
-				<CircleX aria-hidden className="size-3" strokeWidth={2.2} />
-			)}
-			{endedText(status, item.duration_ms)}
-		</span>
+		<EndedChip status={status} took={item.duration_ms} />
 	) : null;
 
 	const stopButton = (
-		<button type="button" className={BOXED} onClick={stop}>
-			<Square aria-hidden className="size-2.5 fill-current" strokeWidth={0} />
-			{stopped ? t("Kill") : t("Stop")}
-			{!stopped && !asking ? (
-				<kbd aria-hidden className={KBD}>
-					⌃C
-				</kbd>
-			) : null}
-		</button>
+		<>
+			{ignored ? <IgnoredStop program={programOf(item.command)} /> : null}
+			<StopButton onStop={stop} hint={!asking && !ignored} />
+			{ignored ? <ForceStopButton onForce={forceStop} /> : null}
+		</>
 	);
 
 	const buttons: ReactNode = !acts ? null : asking ? (
@@ -428,6 +469,7 @@ const RunCard = ({
 			ref={card}
 			aria-label={t("You ran {{command}}", { command: item.command })}
 			data-user-run={asking ? "password" : running ? "running" : "finished"}
+			data-waiting={waiting || undefined}
 			className="my-2 overflow-hidden rounded-[10px] border border-border bg-background"
 		>
 			<div className="flex flex-wrap items-center gap-x-2 gap-y-1 py-[7px] pr-2 pl-3">
@@ -488,6 +530,9 @@ const RunCard = ({
 				<InputRow
 					onSend={(data) => actions.sendInput(item.device, item.terminal, data)}
 					onInterrupt={stop}
+					choices={waiting ? terminal?.choices : undefined}
+					appCursor={terminal?.app_cursor === true}
+					waiting={waiting}
 				/>
 			) : null}
 			{acts && asking ? (
@@ -522,6 +567,35 @@ const RunCard = ({
 				</p>
 			) : null}
 		</section>
+	);
+};
+
+/**
+ * How a command ended, as a chip: "exit 1 · 4.2 s", or "Stopped after 33 s"
+ * in grey. `text` says it in other words.
+ */
+export const EndedChip = ({
+	status,
+	took,
+	text,
+}: {
+	status: ExitedStatus;
+	took: number | null;
+	text?: string;
+}) => {
+	useI18n();
+	const look = endedLook(status);
+	return (
+		<span
+			data-ended={status.stopped === true ? "stopped" : status.code === 0 ? "done" : "failed"}
+			className={cn(
+				"inline-flex items-center gap-[5px] text-xs whitespace-nowrap",
+				look.color
+			)}
+		>
+			{look.icon}
+			{text ?? endedText(status, took)}
+		</span>
 	);
 };
 

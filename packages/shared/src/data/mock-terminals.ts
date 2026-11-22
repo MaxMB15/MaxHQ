@@ -177,6 +177,8 @@ export const mockTerminals = (
 			// The mock lets through only the marks it adds itself.
 			marks: true,
 			password_prompt: false,
+			// The sample answers its programs' questions about the terminal itself.
+			answers: true,
 			started_at: now(),
 			cols,
 			rows,
@@ -206,10 +208,18 @@ export const mockTerminals = (
 		start(terminal);
 		return { status: "ok", data: { status: "terminal_opened", terminal: terminal.id } };
 	};
-	/** Closes a terminal for good, hanging up what runs in it. */
-	const close = (terminal: Terminal) => {
+	/**
+	 * Closes a terminal for good, hanging up what runs in it. With `force`,
+	 * as Force stop on a run's card does, you stopped what ran.
+	 */
+	const close = (terminal: Terminal, force = false) => {
 		if (terminal.status.state === "running")
-			endRun(terminal, { state: "exited", code: null, signal: SIGHUP });
+			endRun(terminal, {
+				state: "exited",
+				code: null,
+				signal: SIGHUP,
+				...(force ? { stopped: true } : {}),
+			});
 		if (terminal.kind.type === "session") sessionClosed(terminal.id);
 		end(terminal.id);
 		change((base) => base.filter((e) => !(e.entity === "terminal" && e.id === terminal.id)));
@@ -247,14 +257,14 @@ export const mockTerminals = (
 			terminalStream.resize(id, size);
 			return OK;
 		},
-		interruptTerminal: withTerminal((terminal) => {
-			// A shell takes Ctrl-C and goes on; a command ends.
-			if (terminal.status.state === "running") interrupt(terminal.id);
+		interruptTerminal: withTerminal((terminal, force = false) => {
+			// A shell takes Ctrl-C and goes on; a command ends, unless it takes Ctrl-C too.
+			if (terminal.status.state === "running") interrupt(terminal.id, force);
 			return DONE;
 		}),
 		closeTerminal: withTerminal((terminal, force = false) => {
 			if (!force && runsCommand(terminal)) return refused(STILL_RUNNING);
-			close(terminal);
+			close(terminal, force);
 			return DONE;
 		}),
 		renameTerminal: withTerminal((terminal, title: string) => {

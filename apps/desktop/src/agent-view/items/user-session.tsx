@@ -8,17 +8,12 @@
 // shell and Send to agent sends the shared blocks on their own. A closed
 // card says whether its commands went with that message. A block that
 // still runs shows the live terminal, a line to type into it and, when it
-// asks for a password, a secure field.
+// asks for a password, a secure field. It has Stop, Force stop once the
+// command ignored Stop, and Open in terminal. Force stop ends only the
+// command, so the session keeps its folder and variables, and needs a
+// device that says so.
 
-import {
-	ArrowRight,
-	CircleCheck,
-	CircleX,
-	Eye,
-	LockKeyhole,
-	PanelBottom,
-	SquareTerminal,
-} from "lucide-react";
+import { ArrowRight, Eye, LockKeyhole, PanelBottom, SquareTerminal } from "lucide-react";
 import { type ReactNode, useEffect, useState } from "react";
 
 import { useRow } from "@maxhq/shared/agent-view/context";
@@ -27,6 +22,7 @@ import { formatTook } from "@maxhq/shared/agent-view/format";
 import type { SessionBlock } from "@maxhq/shared/bindings";
 import { attempt, failureOf } from "@maxhq/shared/composer/send";
 import { t, useI18n } from "@maxhq/shared/i18n";
+import { endedText } from "@maxhq/shared/terminal/ended";
 import { type TerminalEntity, terminalById } from "@maxhq/shared/terminal/select";
 import {
 	blockRunning,
@@ -51,20 +47,31 @@ import { LiveTerminal, useTerminalActions } from "@/terminal";
 
 import { Elapsed } from "../elapsed";
 import { Spinner } from "../icons";
-import { InputRow, PasswordField } from "./run-input";
+import { IgnoredStop, InputRow, PasswordField, useStop } from "./run-input";
 import {
 	BOXED,
 	BUTTON,
-	endedText,
+	EndedChip,
 	FinishedOutput,
+	ForceStopButton,
 	LIVE_ROWS,
 	runClock,
 	sendAlone,
+	StopButton,
+	WaitingChip,
 } from "./user-run";
 
 /** Why a card's button didn't go, with the reason when there is one. */
-const failed = (what: "end" | "send" | "share", reason: string): string => {
+const failed = (what: "end" | "send" | "share" | "stop" | "kill", reason: string): string => {
 	switch (what) {
+		case "stop":
+			return reason
+				? t("Couldn't stop the command. {{reason}}.", { reason })
+				: t("Couldn't stop the command.");
+		case "kill":
+			return reason
+				? t("Couldn't kill the command. {{reason}}.", { reason })
+				: t("Couldn't kill the command.");
 		case "end":
 			return reason
 				? t("Couldn't end the session. {{reason}}.", { reason })
@@ -289,6 +296,7 @@ const Block = ({
 	const running = blockRunning(block);
 	// The session's terminal asks for the command that runs in it.
 	const asking = running && terminal?.password_prompt === true;
+	const waiting = running && !asking && terminal?.waiting === true;
 	// Running a command here marks the session again, so each command's
 	// first ask takes focus.
 	const takeFocus = asking && firstAskHere(item.terminal);
@@ -304,11 +312,25 @@ const Block = ({
 		if (reason !== null) onError(failed("share", reason));
 	};
 
+	/** Interrupts the command, or with `force` ends it, and says why when that doesn't go. */
+	const interrupt = async (force: boolean) => {
+		onError(null);
+		const reason = failureOf(
+			await attempt(() => services.source.interruptTerminal(item.terminal, force))
+		);
+		if (reason !== null) onError(failed(force ? "kill" : "stop", reason));
+	};
+	const { stop, ignored } = useStop(running, () => void interrupt(false));
+	// Only a device that says it answers for the terminal ends the command alone.
+	const forces = terminal?.answers === true;
+
 	const state: ReactNode = asking ? (
 		<span className="inline-flex items-center gap-[5px] text-xs whitespace-nowrap text-status-busy-text">
 			<LockKeyhole aria-hidden className="size-3" strokeWidth={2.2} />
 			{t("Waiting for your password")}
 		</span>
+	) : waiting ? (
+		<WaitingChip />
 	) : running ? (
 		<span className="inline-flex items-center gap-[5px] text-xs whitespace-nowrap text-status-busy-text">
 			<Spinner size={11} />
@@ -319,21 +341,15 @@ const Block = ({
 			</span>
 		</span>
 	) : status.state === "exited" ? (
-		<span
-			className={cn(
-				"inline-flex items-center gap-[5px] text-xs whitespace-nowrap",
-				status.code === 0 ? "text-status-ready-text" : "text-status-error-text"
-			)}
-		>
-			{status.code === 0 ? (
-				<CircleCheck aria-hidden className="size-3" strokeWidth={2.2} />
-			) : (
-				<CircleX aria-hidden className="size-3" strokeWidth={2.2} />
-			)}
-			{status.code === 0 && block.duration_ms !== null
-				? formatTook(block.duration_ms)
-				: endedText(status, block.duration_ms)}
-		</span>
+		<EndedChip
+			status={status}
+			took={block.duration_ms}
+			text={
+				status.code === 0 && status.stopped !== true && block.duration_ms !== null
+					? formatTook(block.duration_ms)
+					: endedText(status, block.duration_ms)
+			}
+		/>
 	) : null;
 
 	const share: ReactNode =
@@ -390,6 +406,28 @@ const Block = ({
 				</span>
 				{state}
 				{share}
+				{acts && running ? (
+					<span
+						className={cn(
+							"flex flex-wrap items-center gap-1",
+							share === null && "ml-auto"
+						)}
+					>
+						{ignored ? <IgnoredStop program={programOf(block.command)} /> : null}
+						<StopButton onStop={stop} hint={!asking && !ignored} />
+						{ignored && forces ? (
+							<ForceStopButton onForce={() => void interrupt(true)} />
+						) : null}
+						<button
+							type="button"
+							className={BUTTON}
+							onClick={() => actions.showInDrawer(row.agent, item.terminal)}
+						>
+							<PanelBottom aria-hidden className="size-3" strokeWidth={2} />
+							{t("Open in terminal")}
+						</button>
+					</span>
+				) : null}
 			</div>
 			{moved ? (
 				<div className="-mt-1 pr-3 pb-1.5 pl-6 text-[11.5px] text-subtle-foreground">
@@ -418,9 +456,10 @@ const Block = ({
 			{acts && running && !asking ? (
 				<InputRow
 					onSend={(data) => actions.sendInput(item.device, item.terminal, data)}
-					onInterrupt={() =>
-						void attempt(() => services.source.interruptTerminal(item.terminal))
-					}
+					onInterrupt={stop}
+					choices={waiting ? terminal?.choices : undefined}
+					appCursor={terminal?.app_cursor === true}
+					waiting={waiting}
 				/>
 			) : null}
 			{acts && asking ? (
