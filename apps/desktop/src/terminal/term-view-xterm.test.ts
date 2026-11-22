@@ -252,3 +252,47 @@ describe("a terminal view whose shell marks its commands", () => {
 		expect(view.text(10).text).toBe("$ ls\nREADME.md\n$");
 	});
 });
+
+describe("a terminal view whose device answers what programs ask", () => {
+	/** What the view sends while it takes in `text`. */
+	const answersTo = async (text: string, answers: boolean) => {
+		const { view, print } = make({ marks: false });
+		view.setAnswers(answers);
+		const sent: string[] = [];
+		view.onData((data) => sent.push(data));
+		await print(text);
+		return sent.join("");
+	};
+
+	const asks: [string, string][] = [
+		["where the cursor is", "\x1b[6n"],
+		["whether all is well", "\x1b[5n"],
+		["what terminal it is", "\x1b[c"],
+		["its version", "\x1b[>c"],
+	];
+
+	it.each(asks)("answers %s itself while the device doesn't", async (_what, ask) => {
+		expect(await answersTo(ask, false)).not.toBe("");
+	});
+
+	// The view has its size reports off, but a device that answers them
+	// still gets them to itself.
+	it.each<[string, string]>([...asks, ["its size in cells", "\x1b[18t"]])(
+		"leaves %s to the device that does",
+		async (_what, ask) => {
+			expect(await answersTo(ask, true)).toBe("");
+		}
+	);
+
+	// The device answers no mode reports, so the view still does.
+	it("still answers whether a mode is on, which the device leaves", async () => {
+		expect(await answersTo("\x1b[?2004$p", true)).not.toBe("");
+	});
+
+	it("still draws what comes after a question it leaves", async () => {
+		const { view, print } = make({ marks: false });
+		view.setAnswers(true);
+		await print("\x1b[6nready\x1b[c\r\n$ ");
+		expect(view.text(10).text).toBe("ready\n$");
+	});
+});

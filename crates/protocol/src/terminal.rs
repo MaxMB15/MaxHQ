@@ -130,6 +130,11 @@ pub enum TerminalStatus {
         code: Option<i32>,
         /// The signal that ended it, if one did.
         signal: Option<i32>,
+        /// Whether your Stop or Force stop ended it, rather than the
+        /// program on its own. False from a `maxd` before
+        /// [`crate::message::INPUT_MODES_SINCE`].
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        stopped: bool,
     },
 }
 
@@ -169,8 +174,45 @@ pub struct Terminal {
     #[serde(default)]
     pub marks: bool,
     /// Whether it waits for a password at a prompt that hides what you
-    /// type, so clients offer a secure field.
+    /// type, so clients offer a secure field. Since
+    /// [`crate::message::INPUT_MODES_SINCE`] also while a program reads keys
+    /// one at a time and the cursor's line reads like it asks for a secret,
+    /// such as `? Paste your token:`.
     pub password_prompt: bool,
+    /// Whether a program that runs reads keys one at a time, as a picker or
+    /// a prompt in raw mode does, so clients send each key as you press it.
+    /// False at a secret prompt, which `password_prompt` says, and from a
+    /// `maxd` before [`crate::message::INPUT_MODES_SINCE`].
+    #[serde(default)]
+    pub reads_keys: bool,
+    /// Whether a program that runs shows the alternate screen, as a
+    /// full-screen program does. False from a `maxd` before
+    /// [`crate::message::INPUT_MODES_SINCE`].
+    #[serde(default)]
+    pub full_screen: bool,
+    /// Whether the program asked for application cursor keys, so the arrow
+    /// keys go as `ESC O A` rather than `ESC [ A`. False from a `maxd`
+    /// before [`crate::message::INPUT_MODES_SINCE`].
+    #[serde(default)]
+    pub app_cursor: bool,
+    /// Whether a program that runs has printed nothing for about a second
+    /// and reads what you type, so it waits for you. False from a `maxd`
+    /// before [`crate::message::INPUT_MODES_SINCE`].
+    #[serde(default)]
+    pub waiting: bool,
+    /// The answers the prompt it waits at offers, as you type them, such
+    /// as `y` and `n` for `Continue? [y/N]` or `yes` and `no` for
+    /// `(yes/no/[fingerprint])`, so a client can offer a button for each.
+    /// Empty when it doesn't wait or the prompt offers none, and from a
+    /// `maxd` before [`crate::message::INPUT_MODES_SINCE`].
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub choices: Vec<String>,
+    /// Whether the device answers the queries a program sends its terminal,
+    /// such as where the cursor is, so a client's view must not answer
+    /// them too. False from a holder or `maxd` before
+    /// [`crate::message::INPUT_MODES_SINCE`], where an open view answers.
+    #[serde(default)]
+    pub answers: bool,
     /// When it started.
     pub started_at: Timestamp,
     /// Its width in cells.
@@ -196,7 +238,9 @@ mod tests {
 
     use super::*;
     use crate::ids::IdempotencyKey;
-    use crate::message::{ActionOutcome, ServerMessage, SESSIONS_SINCE, TERMINALS_SINCE};
+    use crate::message::{
+        ActionOutcome, ServerMessage, INPUT_MODES_SINCE, SESSIONS_SINCE, TERMINALS_SINCE,
+    };
     use crate::state::{Entity, EntityKey};
     use crate::timeline::{ItemBody, ItemId, ItemStatus, TimelineItem};
     use crate::ClientMessage;
@@ -294,7 +338,11 @@ mod tests {
                 false,
             ),
             (
-                ClientMessage::TerminalInterrupt { key, terminal },
+                ClientMessage::TerminalInterrupt {
+                    key,
+                    terminal,
+                    force: false,
+                },
                 json!({ "type": "terminal_interrupt", "key": KEY, "terminal": TERMINAL }),
                 true,
             ),
@@ -337,6 +385,22 @@ mod tests {
             // resend needs no key.
             assert_eq!(message.action_key(), keyed.then_some(key), "{wire}");
         }
+
+        // Force stop for a session command needs a maxd that knows it, so
+        // an older one never takes it for a plain Ctrl-C.
+        let force = ClientMessage::TerminalInterrupt {
+            key,
+            terminal,
+            force: true,
+        };
+        assert_eq!(
+            round_trip(&force),
+            json!({ "type": "terminal_interrupt", "key": KEY, "terminal": TERMINAL, "force": true })
+        );
+        assert_eq!(INPUT_MODES_SINCE, 59);
+        assert_eq!(force.since(), INPUT_MODES_SINCE);
+        assert!(!force.reaches(Some(58)));
+        assert!(force.reaches(Some(59)));
     }
 
     #[test]
@@ -353,6 +417,12 @@ mod tests {
             busy: true,
             marks: true,
             password_prompt: false,
+            reads_keys: true,
+            full_screen: false,
+            app_cursor: true,
+            waiting: true,
+            answers: true,
+            choices: vec!["y".into(), "n".into()],
             started_at: Timestamp(1_793_368_920_000),
             cols: 120,
             rows: 32,
@@ -370,22 +440,45 @@ mod tests {
             "busy": true,
             "marks": true,
             "password_prompt": false,
+            "reads_keys": true,
+            "full_screen": false,
+            "app_cursor": true,
+            "waiting": true,
+            "answers": true,
+            "choices": ["y", "n"],
             "started_at": 1_793_368_920_000u64,
             "cols": 120,
             "rows": 32,
         });
         assert_eq!(round_trip(&entity), wire);
-        // A device that doesn't say whether it's busy, or whether its
-        // holder keeps to the shell's marks, leaves both false.
-        wire.as_object_mut().unwrap().remove("busy");
-        wire.as_object_mut().unwrap().remove("marks");
+        // A device that doesn't say whether it's busy, whether its holder
+        // keeps to the shell's marks, or how the program reads input,
+        // leaves each false, so a client's view answers queries itself.
+        for field in [
+            "busy",
+            "marks",
+            "reads_keys",
+            "full_screen",
+            "app_cursor",
+            "waiting",
+            "answers",
+            "choices",
+        ] {
+            wire.as_object_mut().unwrap().remove(field);
+        }
         assert!(matches!(
             serde_json::from_value(wire).unwrap(),
             Entity::Terminal(Terminal {
                 busy: false,
                 marks: false,
+                reads_keys: false,
+                full_screen: false,
+                app_cursor: false,
+                waiting: false,
+                answers: false,
+                ref choices,
                 ..
-            })
+            }) if choices.is_empty()
         ));
         assert_eq!(entity.key(), EntityKey::Terminal(terminal()));
         assert_eq!(
@@ -396,8 +489,18 @@ mod tests {
             round_trip(&TerminalStatus::Exited {
                 code: None,
                 signal: Some(9),
+                stopped: false,
             }),
             json!({ "state": "exited", "code": null, "signal": 9 })
+        );
+        // Your Stop shows only when it ended the program.
+        assert_eq!(
+            round_trip(&TerminalStatus::Exited {
+                code: None,
+                signal: Some(1),
+                stopped: true,
+            }),
+            json!({ "state": "exited", "code": null, "signal": 1, "stopped": true })
         );
     }
 
@@ -421,6 +524,7 @@ mod tests {
                 process: TerminalStatus::Exited {
                     code: Some(1),
                     signal: None,
+                    stopped: false,
                 },
                 duration_ms: Some(4_200),
                 lines: 214,
@@ -597,6 +701,7 @@ mod tests {
                         process: TerminalStatus::Exited {
                             code: Some(0),
                             signal: None,
+                            stopped: false,
                         },
                         duration_ms: Some(3),
                         start: Some(1_024),

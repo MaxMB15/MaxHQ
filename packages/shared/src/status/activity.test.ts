@@ -3,7 +3,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import type { Activity, Agent, DeviceLink } from "../bindings";
+import type { Activity, Agent, DeviceLink, Entity, Terminal } from "../bindings";
 import { account, agent, attention, entities, link, MIN, NOW, workspace } from "../test/build";
 import { applySnapshot } from "../view/replica";
 
@@ -318,6 +318,35 @@ describe("row meta", () => {
 			expect(rowMeta(quiet, [], NOW, "connecting")).toEqual(ago);
 			expect(rowMeta(quiet, [], NOW)).toEqual(ago);
 		});
+	});
+
+	it("says Input while a command you ran waits for you, whatever the agent does", () => {
+		const busy = agent({ id: "a", activity: { state: "busy" }, started_at: NOW - HOUR });
+		const run = (over: Partial<Terminal>): Entity => ({
+			entity: "terminal",
+			id: "t",
+			agent: "a",
+			device: "dev-mac",
+			kind: { type: "run", command: "ssh devbox", private: false },
+			moved: false,
+			title: "ssh devbox",
+			cwd: "~",
+			status: { state: "running" },
+			password_prompt: false,
+			started_at: NOW - MIN,
+			cols: 120,
+			rows: 32,
+			...over,
+		});
+		const metaWith = (terminal: Entity) =>
+			agentRowMeta(
+				applySnapshot({ seq: 1, entities: [...entities({ agents: [busy] }), terminal] }),
+				busy,
+				NOW
+			);
+		expect(metaWith(run({ waiting: true, choices: ["yes", "no"] }))).toEqual({ kind: "input" });
+		expect(metaWith(run({ password_prompt: true }))).toEqual({ kind: "input" });
+		expect(metaWith(run({}))).not.toEqual({ kind: "input" });
 	});
 
 	it("names every sub-agent state", () => {

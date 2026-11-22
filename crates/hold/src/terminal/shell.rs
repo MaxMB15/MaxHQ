@@ -18,6 +18,12 @@
 //!   `fish/vendor_conf.d`, which fish finds through XDG_DATA_DIRS, runs
 //!   before the user's `config.fish` and puts XDG_DATA_DIRS back.
 //!
+//! A command `maxd` sends for the chat runs with PAGER and GIT_PAGER set to
+//! `cat` while a file in the terminal's folder says so, as
+//! [`super::Terminals::no_pager`] writes it. The shell gets the file's path
+//! as it gets the nonce, and gives the values back at its next prompt. What
+//! you type in the drawer keeps your pager.
+//!
 //! The marks carry a nonce for the terminal, which the shell gets in its
 //! environment and keeps in a variable, out of what it starts. The user's
 //! startup files run without it but for `/etc/zshenv` and fish's `conf.d`
@@ -38,6 +44,13 @@ use crate::{files, secret};
 
 /// The variable that gives the shell its nonce.
 const NONCE: &str = "MAXHQ_SHELL_NONCE";
+
+/// The variable that gives the shell the path of the file that turns the
+/// pager off.
+const PAGER_FLAG: &str = "MAXHQ_SHELL_PAGER";
+
+/// That file's name in the terminal's folder.
+pub(super) const NO_PAGER: &str = "no-pager";
 
 /// The variable that gives zsh the user's own ZDOTDIR.
 const USER_ZDOTDIR: &str = "MAXHQ_USER_ZDOTDIR";
@@ -99,7 +112,8 @@ pub(super) fn integrate(launch: &mut TermLaunch, dir: &Path) -> io::Result<bool>
     let Some(shell) = Shell::of(&launch.program).filter(|_| !launch.run) else {
         return Ok(false);
     };
-    let folder = write_files(&std::path::absolute(dir)?)?;
+    let dir = std::path::absolute(dir)?;
+    let folder = write_files(&dir)?;
     match shell {
         Shell::Zsh => {
             let user = env_value(launch, "ZDOTDIR").filter(|dir| !dir.is_empty());
@@ -137,6 +151,8 @@ pub(super) fn integrate(launch: &mut TermLaunch, dir: &Path) -> io::Result<bool>
     let nonce = secret::new_nonce()?;
     launch.env.push((NONCE.into(), nonce.clone().into()));
     launch.nonce = Some(nonce);
+    let flag = dir.join(launch.terminal.to_string()).join(NO_PAGER);
+    launch.env.push((PAGER_FLAG.into(), flag.into()));
     Ok(true)
 }
 
@@ -314,6 +330,11 @@ mod tests {
         let nonce = zsh.nonce.clone().unwrap();
         assert_eq!(nonce.len(), 32);
         assert_eq!(env(&zsh, NONCE), Some(&OsString::from(&nonce)));
+        let flag = std::path::absolute(&dir)
+            .unwrap()
+            .join(zsh.terminal.to_string())
+            .join(NO_PAGER);
+        assert_eq!(env(&zsh, PAGER_FLAG), Some(&flag.into()));
 
         let mut bash = launch("/usr/local/bin/bash");
         assert!(integrate(&mut bash, &dir).unwrap());

@@ -10369,6 +10369,18 @@
               "description": "Whether it still ran when the message went.",
               "type": "boolean"
             },
+            "signal": {
+              "description": "The signal that ended it, if one did. None from a client before\n[`crate::message::INPUT_MODES_SINCE`].",
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "int32"
+            },
+            "stopped": {
+              "description": "Whether your Stop or Force stop ended it. False from a client\nbefore [`crate::message::INPUT_MODES_SINCE`].",
+              "type": "boolean"
+            },
             "terminal": {
               "description": "The terminal it came from, so the app can follow a command that\nstill runs. Agents never see it, so it reads back as none.",
               "anyOf": [
@@ -16768,6 +16780,10 @@
           "description": "Whether it still ran when the message went.",
           "type": "boolean"
         },
+        "stopped": {
+          "description": "Whether your Stop or Force stop ended it. False from a client before\n[`crate::message::INPUT_MODES_SINCE`].",
+          "type": "boolean"
+        },
         "text": {
           "description": "Its last lines, as plain text.",
           "type": "string"
@@ -17626,10 +17642,27 @@
           "description": "The agent whose folder it runs in.",
           "$ref": "#/$defs/AgentId"
         },
+        "answers": {
+          "description": "Whether the device answers the queries a program sends its terminal,\nsuch as where the cursor is, so a client's view must not answer\nthem too. False from a holder or `maxd` before\n[`crate::message::INPUT_MODES_SINCE`], where an open view answers.",
+          "type": "boolean",
+          "default": false
+        },
+        "app_cursor": {
+          "description": "Whether the program asked for application cursor keys, so the arrow\nkeys go as `ESC O A` rather than `ESC [ A`. False from a `maxd`\nbefore [`crate::message::INPUT_MODES_SINCE`].",
+          "type": "boolean",
+          "default": false
+        },
         "busy": {
           "description": "Whether a command runs in it: a program other than the shell holds\nits foreground, its shell marked a command that hasn't ended, or a\n`!` run hasn't ended. False while a shell waits at its prompt,\nwhatever title it sets there, and when the device doesn't say.",
           "type": "boolean",
           "default": false
+        },
+        "choices": {
+          "description": "The answers the prompt it waits at offers, as you type them, such\nas `y` and `n` for `Continue? [y/N]` or `yes` and `no` for\n`(yes/no/[fingerprint])`, so a client can offer a button for each.\nEmpty when it doesn't wait or the prompt offers none, and from a\n`maxd` before [`crate::message::INPUT_MODES_SINCE`].",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
         },
         "cols": {
           "description": "Its width in cells.",
@@ -17645,6 +17678,11 @@
         "device": {
           "description": "The device whose `maxd` holds it.",
           "$ref": "#/$defs/DeviceId"
+        },
+        "full_screen": {
+          "description": "Whether a program that runs shows the alternate screen, as a\nfull-screen program does. False from a `maxd` before\n[`crate::message::INPUT_MODES_SINCE`].",
+          "type": "boolean",
+          "default": false
         },
         "id": {
           "description": "The terminal.",
@@ -17664,8 +17702,13 @@
           "type": "boolean"
         },
         "password_prompt": {
-          "description": "Whether it waits for a password at a prompt that hides what you\ntype, so clients offer a secure field.",
+          "description": "Whether it waits for a password at a prompt that hides what you\ntype, so clients offer a secure field. Since\n[`crate::message::INPUT_MODES_SINCE`] also while a program reads keys\none at a time and the cursor's line reads like it asks for a secret,\nsuch as `? Paste your token:`.",
           "type": "boolean"
+        },
+        "reads_keys": {
+          "description": "Whether a program that runs reads keys one at a time, as a picker or\na prompt in raw mode does, so clients send each key as you press it.\nFalse at a secret prompt, which `password_prompt` says, and from a\n`maxd` before [`crate::message::INPUT_MODES_SINCE`].",
+          "type": "boolean",
+          "default": false
         },
         "rows": {
           "description": "Its height in cells.",
@@ -17685,6 +17728,11 @@
         "title": {
           "description": "The tab's name: what the shell set as the window title, or what you\nrenamed it to.",
           "type": "string"
+        },
+        "waiting": {
+          "description": "Whether a program that runs has printed nothing for about a second\nand reads what you type, so it waits for you. False from a `maxd`\nbefore [`crate::message::INPUT_MODES_SINCE`].",
+          "type": "boolean",
+          "default": false
         }
       },
       "required": [
@@ -17800,6 +17848,10 @@
             "state": {
               "type": "string",
               "const": "exited"
+            },
+            "stopped": {
+              "description": "Whether your Stop or Force stop ended it, rather than the\nprogram on its own. False from a `maxd` before\n[`crate::message::INPUT_MODES_SINCE`].",
+              "type": "boolean"
             }
           },
           "required": [

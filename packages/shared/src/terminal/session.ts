@@ -308,6 +308,9 @@ export const fillSession = (
 			cwd: block.cwd,
 			cwd_after: block.cwd_after,
 			exit_code: block.process.state === "exited" ? block.process.code : null,
+			...(block.process.state === "exited" && block.process.stopped === true
+				? { stopped: true }
+				: {}),
 			running,
 			duration_ms: running ? Math.max(0, now - block.started_at) : block.duration_ms,
 			lines_total: total,

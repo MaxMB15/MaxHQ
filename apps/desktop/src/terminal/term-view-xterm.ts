@@ -16,6 +16,10 @@
 // Marks sit on xterm markers, which move with the scrollback and go with
 // the lines it drops. The view takes them only once the device says its
 // holder lets through just the shell's own.
+//
+// A device that answers what programs ask the terminal, such as where the
+// cursor is, gets those questions to itself, so the view doesn't answer too.
+// The view still answers what the device leaves, such as its colors.
 
 import { FitAddon } from "@xterm/addon-fit";
 import { SearchAddon } from "@xterm/addon-search";
@@ -87,6 +91,12 @@ const ESC = 0x1b;
 
 /** How a command mark starts, ESC ] 133 ; C, as the holder writes each one. */
 const COMMAND_MARK = [ESC, 0x5d, 0x31, 0x33, 0x33, 0x3b, 0x43];
+
+/** A CSI's first parameter, 0 when it has none. */
+const first = (params: readonly (number | readonly number[])[]): number => {
+	const param = params[0];
+	return typeof param === "number" ? param : (param?.[0] ?? 0);
+};
 
 /** Where a mark sits: on its line, which moves with the scrollback, and in its column. */
 type Spot = { readonly marker: IMarker; readonly x: number };
@@ -162,6 +172,8 @@ export const xtermView: MakeView = () => {
 	let lastId = 0;
 	// Whether the OSC 133 it reads are its shell's own marks.
 	let marks = false;
+	// Whether the device answers what programs ask the terminal.
+	let answers = false;
 	// Where each command mark written but not yet parsed starts, in order,
 	// and the last bytes written, which may hold the start of the next one.
 	let markOffsets: (number | null)[] = [];
@@ -422,6 +434,17 @@ export const xtermView: MakeView = () => {
 		return true;
 	});
 
+	// A device that answers what programs ask the terminal answers these
+	// itself, so the view stays quiet about them: whether all is well,
+	// where the cursor is, what terminal it is and its size in cells. Each
+	// handler that says false leaves the question to xterm, as it does for
+	// all the device leaves unanswered, such as modes and colors.
+	const asks = terminal.parser;
+	asks.registerCsiHandler({ final: "n" }, (params) => answers && [5, 6].includes(first(params)));
+	asks.registerCsiHandler({ final: "c" }, (params) => answers && first(params) === 0);
+	asks.registerCsiHandler({ prefix: ">", final: "c" }, () => answers);
+	asks.registerCsiHandler({ final: "t" }, (params) => answers && first(params) === 18);
+
 	const listen =
 		<T>(event: (listener: (value: T) => void) => { dispose: () => void }) =>
 		(listener: (value: T) => void) => {
@@ -527,6 +550,9 @@ export const xtermView: MakeView = () => {
 		},
 		setMarks: (on) => {
 			marks = on;
+		},
+		setAnswers: (on) => {
+			answers = on;
 		},
 		commands: () =>
 			ran().map((command): MarkedCommand => ({

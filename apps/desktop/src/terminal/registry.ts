@@ -14,6 +14,11 @@
 // the device starts over. At most eight views draw with the GPU, the one
 // with focus first and then the ones shown most lately. The rest, and any
 // whose GPU context dropped, draw with the DOM.
+//
+// What a program asked the terminal long ago, such as where the cursor is,
+// comes again with the output an attach replays. The view answers it, and
+// those answers go nowhere: the program that asked has its answer or gave
+// up, and what reads keys now would take them as typing.
 
 import type { TerminalId } from "@maxhq/shared/bindings";
 import type { TerminalSize } from "@maxhq/shared/terminal/requests";
@@ -56,6 +61,11 @@ export type RegistryOptions = {
 	 * the device says. With none, no view takes any.
 	 */
 	readonly marksOf?: (terminal: TerminalId) => boolean;
+	/**
+	 * Whether the terminal's device answers what programs ask the terminal,
+	 * as the device says, so its view leaves those questions to it.
+	 */
+	readonly answersOf?: (terminal: TerminalId) => boolean;
 	/** Hears that an attach failed, with a sentence to show. */
 	readonly onFailure?: (terminal: TerminalId, message: string) => void;
 	readonly detachAfter?: number;
@@ -101,6 +111,8 @@ type Entry = {
 	/** Where it shows, the last one holding the element. */
 	readonly spots: Spot[];
 	attached: boolean;
+	/** Set while the view takes in the output an attach replays. */
+	replaying: boolean;
 	timer: ReturnType<typeof setTimeout> | null;
 	focused: boolean;
 	lost: boolean;
@@ -115,12 +127,25 @@ type Entry = {
 
 const encoder = new TextEncoder();
 
+/**
+ * One answer a terminal gives a program that asks it something: where the
+ * cursor is, that all is well, what terminal it is, whether a mode is on,
+ * its size or state, or a color.
+ */
+const REPLY =
+	// eslint-disable-next-line no-control-regex
+	/\x1b\[\??\d+;\d+R|\x1b\[0n|\x1b\[[?>][\d;]*c|\x1b\[\??[\d;]+\$y|\x1b\[\d+(?:;\d+)*t|\x1b\](?:4;\d+|1[0-2]);rgb:[\da-f/]+(?:\x07|\x1b\\)/;
+
+/** Whether all a view sends is answers to what programs asked it, none of it typing. */
+const onlyReplies = new RegExp(`^(?:${REPLY.source})+$`, "i");
+
 export const createRegistry = ({
 	stream,
 	makeView,
 	sizeOf,
 	exists,
 	marksOf = () => false,
+	answersOf = () => false,
 	onFailure,
 	detachAfter = DETACH_AFTER,
 	gpuBudget = GPU_BUDGET,
@@ -174,6 +199,7 @@ export const createRegistry = ({
 		if (!step) return;
 		if (step.clear) entry.view.clear();
 		entry.view.setMarks(marksOf(entry.terminal));
+		entry.view.setAnswers(answersOf(entry.terminal));
 		// A card grows with what it shows, once the view has taken it in.
 		const grow = () => {
 			if (top(entry)?.placement.maxRows !== undefined) layout(entry);
@@ -194,6 +220,7 @@ export const createRegistry = ({
 			end: null,
 			spots: [],
 			attached: false,
+			replaying: false,
 			timer: null,
 			focused: false,
 			lost: false,
@@ -206,6 +233,7 @@ export const createRegistry = ({
 			stream.listen(terminal, onEvent(entry)),
 			// What you type goes straight on, and nothing here keeps it.
 			view.onData((data) => {
+				if (entry.replaying && onlyReplies.test(data)) return;
 				if (top(entry)?.placement.interactive) stream.input(terminal, encoder.encode(data));
 			}),
 			view.onFocus((focused) => {
@@ -225,10 +253,16 @@ export const createRegistry = ({
 	const attach = (entry: Entry) => {
 		if (entry.attached) return;
 		entry.attached = true;
-		stream.attach(entry.terminal, lastByte(entry.end)).catch((error: unknown) => {
-			entry.attached = false;
-			onFailure?.(entry.terminal, error instanceof Error ? error.message : String(error));
-		});
+		entry.replaying = true;
+		stream.attach(entry.terminal, lastByte(entry.end)).then(
+			// The replay is in once the view took in all written before this.
+			() => entry.view.write(new Uint8Array(), undefined, () => (entry.replaying = false)),
+			(error: unknown) => {
+				entry.attached = false;
+				entry.replaying = false;
+				onFailure?.(entry.terminal, error instanceof Error ? error.message : String(error));
+			}
+		);
 	};
 
 	const drop = (entry: Entry) => {

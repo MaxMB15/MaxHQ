@@ -37,6 +37,7 @@ const setup = (
 	over: {
 		exists?: (terminal: TerminalId) => boolean;
 		marksOf?: (terminal: TerminalId) => boolean;
+		answersOf?: (terminal: TerminalId) => boolean;
 		gpuBudget?: number;
 	} = {}
 ) => {
@@ -52,6 +53,7 @@ const setup = (
 		sizeOf: () => ({ cols: 120, rows: 32 }),
 		exists: over.exists ?? (() => true),
 		marksOf: over.marksOf,
+		answersOf: over.answersOf,
 		detachAfter: 30_000,
 		gpuBudget: over.gpuBudget,
 	});
@@ -137,6 +139,41 @@ describe("the terminal registry", () => {
 		trusted.delete("t-1");
 		output("t-1", 2, "ls\n");
 		expect(views[0]!.takesMarks()).toBe(false);
+	});
+
+	it("leaves what programs ask to a device that answers them, as the device says", () => {
+		const answers = new Set<TerminalId>(["t-1"]);
+		const { registry, output, views } = setup({
+			answersOf: (terminal) => answers.has(terminal),
+		});
+		registry.place("t-1", host(), { interactive: true });
+		registry.place("t-2", host(), { interactive: true });
+		output("t-1", 0, "$ ");
+		output("t-2", 0, "$ ");
+		expect(views.map((view) => view.leavesAnswers())).toEqual([true, false]);
+	});
+
+	it("drops what the view answers the output an attach replays, but never typing", async () => {
+		const { registry, stream, output, views } = setup();
+		let replayed = () => {};
+		stream.attach.mockImplementationOnce(
+			() =>
+				new Promise<void>((done) => {
+					replayed = done;
+				})
+		);
+		registry.place("t-1", host(), { interactive: true });
+		output("t-1", 0, "\x1b[6n\x1b]11;?\x07$ ");
+		const view = views[0]!;
+		view.type("\x1b[1;3R");
+		view.type("\x1b]11;rgb:1e1e/1e1e/1e1e\x07\x1b[?1;2c\x1b[8;24;80t\x1b[?2026;2$y");
+		view.type("ls\r");
+		view.type("\x1b[A");
+		replayed();
+		await vi.advanceTimersByTimeAsync(0);
+		view.type("\x1b[2;3R");
+		const sent = stream.input.mock.calls.map(([, bytes]) => new TextDecoder().decode(bytes));
+		expect(sent).toEqual(["ls\r", "\x1b[A", "\x1b[2;3R"]);
 	});
 
 	it("drops the view of a terminal that's gone, instead of only detaching", () => {

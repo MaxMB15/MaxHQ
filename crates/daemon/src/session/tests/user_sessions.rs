@@ -114,6 +114,7 @@ impl Harness {
                     truncated: false,
                 },
                 secret_prompts: 0,
+                stopped: false,
             },
         });
     }
@@ -182,6 +183,7 @@ fn pill(item: Option<&ItemId>, commands: &[&str]) -> InlineRef {
                 cwd: FOLDER.into(),
                 cwd_after: None,
                 exit_code: Some(0),
+                stopped: false,
                 running: false,
                 duration_ms: Some(5),
                 lines_total: 1,
@@ -225,6 +227,12 @@ fn opened(h: &Harness, agent: AgentId, kind: TerminalKind) -> Terminal {
         busy: false,
         marks: true,
         password_prompt: false,
+        reads_keys: false,
+        full_screen: false,
+        app_cursor: false,
+        waiting: false,
+        answers: false,
+        choices: Vec::new(),
         started_at: Timestamp::now(),
         cols: 100,
         rows: 30,
@@ -335,6 +343,7 @@ async fn a_bang_goes_into_a_card_where_the_timeline_stood_and_fills_in_as_it_run
                 truncated: false,
             },
             secret_prompts: 0,
+            stopped: false,
         },
     });
     eventually("the end kept", || {
@@ -347,7 +356,8 @@ async fn a_bang_goes_into_a_card_where_the_timeline_stood_and_fills_in_as_it_run
         block.process,
         TerminalStatus::Exited {
             code: Some(1),
-            signal: None
+            signal: None,
+            stopped: false,
         }
     );
     assert_eq!(block.cwd, "~/code/example-app/apps/web");

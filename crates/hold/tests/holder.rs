@@ -43,6 +43,8 @@ use serde_json::{json, Value};
 use self::terminal::{
     a_goodbye_before_the_end_changes_nothing,
     a_password_prompt_is_flagged_and_its_answer_kept_nowhere,
+    a_quiet_question_waits_and_offers_its_answers,
+    a_raw_prompt_that_asks_for_a_secret_waits_as_a_password_prompt,
     a_reader_past_the_ring_starts_over_at_a_whole_line, a_run_keeps_what_it_showed,
     a_run_shows_nothing_its_shell_printed_before_the_command,
     a_run_streams_each_piece_as_it_prints, a_run_whose_startup_asks_for_something_shows_it,
@@ -52,6 +54,8 @@ use self::terminal::{
     an_ended_terminal_leaves_its_exit_when_nobody_says_goodbye,
     bash_on_its_own_keeps_what_its_commands_see, interrupt_stops_what_the_shell_runs,
     kill_escalates_to_sigkill, kill_hangs_up_the_whole_group,
+    stop_command_ends_what_the_shell_runs_and_leaves_the_shell,
+    the_holder_answers_where_the_cursor_is_with_nobody_looking,
     the_title_and_folder_come_from_the_shell, zsh_bash_and_fish_on_the_path_mark_their_commands,
 };
 
@@ -135,6 +139,7 @@ const TESTS: &[(&str, TestFn)] = tests![
     the_title_and_folder_come_from_the_shell,
     a_watch_gets_all_but_the_output,
     interrupt_stops_what_the_shell_runs,
+    stop_command_ends_what_the_shell_runs_and_leaves_the_shell,
     kill_hangs_up_the_whole_group,
     kill_escalates_to_sigkill,
     an_ended_terminal_leaves_its_exit_when_nobody_says_goodbye,
@@ -144,6 +149,9 @@ const TESTS: &[(&str, TestFn)] = tests![
     a_run_streams_each_piece_as_it_prints,
     a_run_shows_nothing_its_shell_printed_before_the_command,
     a_run_whose_startup_asks_for_something_shows_it,
+    the_holder_answers_where_the_cursor_is_with_nobody_looking,
+    a_raw_prompt_that_asks_for_a_secret_waits_as_a_password_prompt,
+    a_quiet_question_waits_and_offers_its_answers,
     a_terminal_outlives_its_spawner,
     a_shell_mark_needs_its_nonce_and_may_come_in_pieces,
     zsh_bash_and_fish_on_the_path_mark_their_commands,

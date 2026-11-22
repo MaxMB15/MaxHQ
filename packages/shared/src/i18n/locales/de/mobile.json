@@ -312,6 +312,7 @@
 	"Started in a terminal at {{time}}. History comes from the session file.": "Um {{time}} in einem Terminal gestartet. Der Verlauf stammt aus der Sitzungsdatei.",
 	"Starting the sign-in on {{device}}": "Anmeldung auf {{device}} wird gestartet",
 	"Stop": "Stoppen",
+	"You ran": "Von dir ausgeführt",
 	"Stop agent \"{{title}}\"?": "Agenten \"{{title}}\" stoppen?",
 	"Stop scanning": "Scannen stoppen",
 	"Submit answers": "Antworten absenden",

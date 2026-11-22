@@ -4913,6 +4913,10 @@
       "description": "Writes Ctrl-C to a terminal. A phone may send it to a drawer\nterminal it may not type into.",
       "type": "object",
       "properties": {
+        "force": {
+          "description": "Kills the program in the terminal's foreground instead, for a\nsession command that ignored Ctrl-C. The shell goes on. A\n`maxd` refuses it when only the shell runs. Since\n[`INPUT_MODES_SINCE`].",
+          "type": "boolean"
+        },
         "key": {
           "description": "Makes a resend after a dropped connection safe.",
           "$ref": "#/$defs/IdempotencyKey"
@@ -10363,6 +10367,18 @@
               "description": "Whether it still ran when the message went.",
               "type": "boolean"
             },
+            "signal": {
+              "description": "The signal that ended it, if one did. None from a client before\n[`crate::message::INPUT_MODES_SINCE`].",
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "int32"
+            },
+            "stopped": {
+              "description": "Whether your Stop or Force stop ended it. False from a client\nbefore [`crate::message::INPUT_MODES_SINCE`].",
+              "type": "boolean"
+            },
             "terminal": {
               "description": "The terminal it came from, so the app can follow a command that\nstill runs. Agents never see it, so it reads back as none.",
               "anyOf": [
@@ -14020,6 +14036,10 @@
         },
         "running": {
           "description": "Whether it still ran when the message went.",
+          "type": "boolean"
+        },
+        "stopped": {
+          "description": "Whether your Stop or Force stop ended it. False from a client before\n[`crate::message::INPUT_MODES_SINCE`].",
           "type": "boolean"
         },
         "text": {

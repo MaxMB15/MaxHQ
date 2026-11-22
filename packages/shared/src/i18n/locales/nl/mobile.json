@@ -312,6 +312,7 @@
 	"Started in a terminal at {{time}}. History comes from the session file.": "Gestart in een terminal om {{time}}. De geschiedenis komt uit het sessiebestand.",
 	"Starting the sign-in on {{device}}": "Aanmelden starten op {{device}}",
 	"Stop": "Stoppen",
+	"You ran": "Door jou uitgevoerd",
 	"Stop agent \"{{title}}\"?": "Agent \"{{title}}\" stoppen?",
 	"Stop scanning": "Scannen stoppen",
 	"Submit answers": "Antwoorden versturen",

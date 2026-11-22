@@ -72,13 +72,22 @@ export const runStatus = (
 	item: Pick<UserRunItem, "process"> | undefined
 ): TerminalStatus | null => terminal?.status ?? item?.process ?? null;
 
-/** The pill's state as a status says it. */
-const withStatus = (ref: OutputRef, status: TerminalStatus | null): OutputRef =>
+/**
+ * The pill's state as a status says it, with the signal that ended the
+ * command and whether your Stop did.
+ */
+export const withStatus = (ref: OutputRef, status: TerminalStatus | null): OutputRef =>
 	status === null
 		? ref
 		: status.state === "running"
-			? { ...ref, running: true, exit_code: null }
-			: { ...ref, running: false, exit_code: status.code };
+			? { ...ref, running: true, exit_code: null, signal: null, stopped: false }
+			: {
+					...ref,
+					running: false,
+					exit_code: status.code,
+					signal: status.signal,
+					stopped: status.stopped === true,
+				};
 
 /** What the composer has of a command when the message goes. */
 export type OutputSources = {

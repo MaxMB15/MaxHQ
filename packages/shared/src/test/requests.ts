@@ -745,6 +745,11 @@ export const ACTIONS: Case[] = [
 		{ kind: "terminal_interrupt", terminal: "terminal-1" },
 	],
 	[
+		"interruptTerminal by force",
+		(s) => s.interruptTerminal("terminal-1", true),
+		{ kind: "terminal_interrupt", terminal: "terminal-1", force: true },
+	],
+	[
 		"closeTerminal",
 		(s) => s.closeTerminal("terminal-1"),
 		{ kind: "terminal_close", terminal: "terminal-1", force: false },

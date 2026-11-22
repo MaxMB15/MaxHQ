@@ -185,6 +185,8 @@ pub enum BlockChange {
         /// How many passwords you sent at prompts that hid what you
         /// typed.
         secret_prompts: u32,
+        /// Whether your Stop or Force stop ended it.
+        stopped: bool,
     },
 }
 
@@ -662,6 +664,7 @@ impl Terminals {
         // The line takes the prompt: what you sent before has run, or what
         // ran read it.
         open.keys = Typed::default();
+        open.stopped_at = None;
         session.blocks += 1;
         let at = Timestamp::now();
         let block = BlockNote {
@@ -692,6 +695,11 @@ impl Terminals {
                 at,
             },
         });
+        // The card can't page, so the command runs with no pager. What you
+        // type in the drawer keeps yours.
+        if let Err(err) = self.inner.holds.no_pager(terminal, true) {
+            warn!(%err, %terminal, "couldn't turn the pager off for a session's command");
+        }
         control.input(format!("{line}\r").into_bytes());
         drop(opens);
         tokio::spawn(self.clone().follow_block(
@@ -768,6 +776,7 @@ impl Terminals {
                                         Cut::None => {}
                                         Cut::Started { start, at, cwd } => {
                                             timer = None;
+                                            self.pager_back(terminal);
                                             started_in.clone_from(&cwd);
                                             self.keep_block(terminal, block.id, |kept| {
                                                 kept.start = Some(start);
@@ -805,6 +814,7 @@ impl Terminals {
                                 TermEvent::Exit(_) => break,
                                 TermEvent::Password(true)
                                 | TermEvent::Busy(_)
+                                | TermEvent::Modes(_)
                                 | TermEvent::Title(_) => {}
                             }
                         }
@@ -844,15 +854,20 @@ impl Terminals {
             Ok(Reached::Ended(_) | Reached::Missing) => {}
             Err(err) => warn!(%err, %terminal, "couldn't follow a session's command"),
         }
+        // A line that never started, as one a program read, leaves the
+        // pager to the next command you type.
+        self.pager_back(terminal);
         let (exit, at, output, secret_prompts) = cutter.finish();
         let before = started_in.map_or_else(|| block.cwd.clone(), |cwd| shown(Path::new(&cwd)));
         let cwd_after = tracked
             .map(|cwd| shown(Path::new(&cwd)))
             .filter(|after| *after != before);
         let mut opens = self.lock();
+        let mut stopped = false;
         if let Some(open) = opens.get_mut(&terminal) {
             if open.block.as_ref().is_some_and(|(id, _)| *id == block.id) {
                 open.block = None;
+                stopped = open.stopped(exit);
             }
             let session = open.note.session.as_mut();
             if let Some(session) = session
@@ -877,9 +892,18 @@ impl Terminals {
                 cwd_after,
                 output,
                 secret_prompts,
+                stopped,
             },
         });
         drop(opens);
+    }
+
+    /// Gives the pager back to what the session's shell runs next, once
+    /// the command `maxd` sent started.
+    fn pager_back(&self, terminal: TerminalId) {
+        if let Err(err) = self.inner.holds.no_pager(terminal, false) {
+            warn!(%err, %terminal, "couldn't give a session's pager back");
+        }
     }
 
     /// Changes the block a session runs, when it's still `id`, and keeps
@@ -1070,7 +1094,12 @@ impl Open {
     /// while something runs count too: the shell reads them next.
     pub(super) fn heard_keys(&mut self, data: &[u8]) {
         if self.entity.password_prompt {
-            if let Some((_, secrets)) = &self.block {
+            // The secret goes at Enter. A prompt that reads each key gets
+            // the rest before it.
+            let sent = data.iter().any(|&byte| matches!(byte, b'\r' | b'\n'));
+            if let Some((_, secrets)) = &self.block
+                && sent
+            {
                 let _ = secrets.send(());
             }
             return;

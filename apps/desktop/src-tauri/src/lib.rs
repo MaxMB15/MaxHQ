@@ -182,6 +182,10 @@ pub fn specta_builder() -> Builder<tauri::Wry> {
             "RESET_CREDITS_SINCE",
             maxhq_protocol::message::RESET_CREDITS_SINCE,
         )
+        .constant(
+            "INPUT_MODES_SINCE",
+            maxhq_protocol::message::INPUT_MODES_SINCE,
+        )
 }
 
 /// The exporter settings for the generated file.

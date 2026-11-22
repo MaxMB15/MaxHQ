@@ -2,7 +2,8 @@
 // Copyright (c) 2026 Max Boksem
 
 // Reading terminals out of the view: an agent's drawer tabs, one terminal by
-// its id, and whether a device's `maxd` has terminals at all.
+// its id, whether a command waits on you, and whether a device's `maxd` has
+// terminals at all.
 
 import { type AgentId, type DeviceId, TERMINALS_SINCE, type TerminalId } from "../bindings";
 import { all, type EntityOf, type ViewState } from "../view/replica";
@@ -29,6 +30,20 @@ export const terminalsOf = (view: ViewState, agent: AgentId): TerminalEntity[] =
 				a.started_at - b.started_at ||
 				(a.id < b.id ? -1 : a.id > b.id ? 1 : 0)
 		);
+
+/**
+ * Whether a command you ran with `!`, on its own or in your session, waits
+ * on you: `maxd` saw it go quiet while it reads what you type, or it asks
+ * for a password. A `maxd` older than protocol 59 says only the second.
+ */
+export const waitsForYou = (terminal: TerminalEntity): boolean =>
+	terminal.kind.type !== "shell" &&
+	terminal.status.state === "running" &&
+	(terminal.waiting === true || terminal.password_prompt);
+
+/** Whether any command you ran with `!` for the agent waits on you, so its row shows Input. */
+export const commandWaits = (view: ViewState, agent: AgentId): boolean =>
+	all(view, "terminal").some((terminal) => terminal.agent === agent && waitsForYou(terminal));
 
 /** The terminal with this id, if the view has it. */
 export const terminalById = (view: ViewState, id: TerminalId): TerminalEntity | undefined =>

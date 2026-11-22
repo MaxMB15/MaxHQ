@@ -82,6 +82,13 @@ export type TermView = {
 	 */
 	readonly setMarks: (on: boolean) => void;
 	/**
+	 * Whether the device answers what programs ask the terminal, such as
+	 * where the cursor is, as a `maxd` since protocol 59 does. The view then
+	 * leaves those questions to it, so a program gets one answer. Without,
+	 * the view answers them.
+	 */
+	readonly setAnswers: (on: boolean) => void;
+	/**
 	 * The commands its shell marked that the view still holds, oldest first.
 	 * A shell without marks has none.
 	 */

@@ -38,6 +38,7 @@ import {
 } from "@/composer/testing";
 import type { LiveTerminalProps } from "@/terminal";
 
+import { IGNORED_AFTER } from "./run-input";
 import { UserRunCard } from "./user-run";
 
 // The terminal module, as the card reaches it.
@@ -298,18 +299,63 @@ describe("a running command", () => {
 		expect(within(card).queryByRole("button", { name: "Ask about this" })).toBeNull();
 	});
 
-	it("stops it with Ctrl-C, then kills it on a second press", async () => {
-		const { interruptTerminal, closeTerminal } = renderCard(running(), {
-			terminal: terminalOf(),
-		});
-		const card = await findCard();
+	it("stops it with Ctrl-C, and offers Force stop once it ignored that", async () => {
+		vi.useFakeTimers({ shouldAdvanceTime: true });
+		try {
+			const python = terminalOf({
+				kind: { type: "run", command: "python3", private: false },
+			});
+			const { interruptTerminal, closeTerminal } = renderCard(
+				running({ command: "python3" }),
+				{
+					terminal: python,
+				}
+			);
+			const card = await findCard("python3");
 
-		fireEvent.click(button(card, "Stop"));
-		await waitFor(() => expect(interruptTerminal).toHaveBeenCalledWith("t1"));
-		fireEvent.click(button(card, "Kill"));
+			fireEvent.click(button(card, "Stop"));
+			await waitFor(() => expect(interruptTerminal).toHaveBeenCalledWith("t1"));
+			// Stop stays Stop, and another press types Control-C again.
+			expect(button(card, "Stop")).toHaveTextContent("Stop⌃C");
+			fireEvent.click(button(card, "Stop"));
+			await waitFor(() => expect(interruptTerminal).toHaveBeenCalledTimes(2));
+			expect(within(card).queryByRole("button", { name: "Force stop" })).toBeNull();
+			expect(card).not.toHaveTextContent("ignored Stop");
 
-		await waitFor(() => expect(closeTerminal).toHaveBeenCalledWith("t1", true));
-		expect(interruptTerminal).toHaveBeenCalledOnce();
+			await act(async () => {
+				await vi.advanceTimersByTimeAsync(IGNORED_AFTER);
+			});
+
+			expect(card).toHaveTextContent("python3 ignored Stop");
+			expect(button(card, "Stop")).toHaveTextContent(/^Stop$/);
+			fireEvent.click(button(card, "Force stop"));
+			await waitFor(() => expect(closeTerminal).toHaveBeenCalledExactlyOnceWith("t1", true));
+			expect(interruptTerminal).toHaveBeenCalledTimes(2);
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	it("says nothing was ignored when it ends soon after Stop", async () => {
+		vi.useFakeTimers({ shouldAdvanceTime: true });
+		try {
+			const rendered = renderCard(running(), { terminal: terminalOf() });
+			const card = await findCard();
+
+			fireEvent.click(button(card, "Stop"));
+			await waitFor(() => expect(rendered.interruptTerminal).toHaveBeenCalledWith("t1"));
+			rendered.upsert([
+				terminalOf({ status: { state: "exited", code: null, signal: 2, stopped: true } }),
+			]);
+			await act(async () => {
+				await vi.advanceTimersByTimeAsync(IGNORED_AFTER);
+			});
+
+			expect(card).not.toHaveTextContent("ignored Stop");
+			expect(within(card).queryByRole("button", { name: "Force stop" })).toBeNull();
+		} finally {
+			vi.useRealTimers();
+		}
 	});
 
 	it("moves it to the terminal panel and shows its tab there", async () => {
@@ -374,6 +420,83 @@ describe("a running command", () => {
 		seam.sendInput.mockClear();
 		line.blur();
 		expect(placesHolding(rendered, typed, logs)).toEqual([]);
+	});
+});
+
+describe("a command waiting for you", () => {
+	/** The terminal `ssh devbox` runs in, at its host key prompt or not. */
+	const sshTerminal = (waiting: boolean) =>
+		terminalOf({
+			kind: { type: "run", command: "ssh devbox", private: false },
+			waiting,
+			choices: waiting ? ["yes", "no"] : [],
+		});
+	const ssh = (waiting = true) =>
+		renderCard(running({ command: "ssh devbox" }), { terminal: sshTerminal(waiting) });
+
+	/** Puts focus in the composer's text box, and waits until it's there. */
+	const focusComposer = async () => {
+		const message = await findTextbox();
+		act(() => {
+			editorOf(message).commands.focus();
+		});
+		await waitFor(() => expect(message).toHaveFocus());
+		return message;
+	};
+
+	it("says so in place of its clock, and offers the prompt's answers", async () => {
+		ssh();
+		const card = await findCard("ssh devbox");
+
+		expect(card).toHaveAttribute("data-waiting", "true");
+		expect(card).toHaveTextContent("Waiting for you");
+		expect(card).not.toHaveTextContent(/Running \d/);
+		const line = within(card).getByRole("textbox", { name: "Input for the command" });
+		expect(line).toHaveAttribute("placeholder", "Or type a reply");
+
+		fireEvent.click(button(card, "Answer yes"));
+		expect(seam.sendInput).toHaveBeenCalledExactlyOnceWith(DEVICE, "t1", "yes\r");
+		fireEvent.click(button(card, "Answer no"));
+		expect(seam.sendInput).toHaveBeenLastCalledWith(DEVICE, "t1", "no\r");
+	});
+
+	it("drops the answers and the chip once it goes on", async () => {
+		const rendered = ssh();
+		const card = await findCard("ssh devbox");
+		rendered.upsert([sshTerminal(false)]);
+
+		await waitFor(() => expect(card).toHaveTextContent(/Running \d/));
+		expect(card).not.toHaveAttribute("data-waiting");
+		expect(within(card).queryByRole("button", { name: "Answer yes" })).toBeNull();
+	});
+
+	it("takes focus from an empty composer once, as the wait starts", async () => {
+		const rendered = ssh(false);
+		const card = await findCard("ssh devbox");
+		const message = await focusComposer();
+
+		rendered.upsert([sshTerminal(true)]);
+		const line = within(card).getByRole("textbox", { name: "Input for the command" });
+		await waitFor(() => expect(line).toHaveFocus());
+
+		// The same wait, told again, leaves focus where you put it.
+		await focusComposer();
+		rendered.upsert([sshTerminal(true)]);
+		expect(message).toHaveFocus();
+	});
+
+	it("never takes focus while you type in the composer", async () => {
+		const rendered = ssh(false);
+		const card = await findCard("ssh devbox");
+		const message = await focusComposer();
+		act(() => {
+			editorOf(message).commands.insertContent("half a thought");
+		});
+
+		rendered.upsert([sshTerminal(true)]);
+		await within(card).findByRole("button", { name: "Answer yes" });
+		expect(message).toHaveFocus();
+		expect(textIn(message)).toBe("half a thought");
 	});
 });
 
@@ -550,6 +673,32 @@ describe("a command asking for a password", () => {
 		expect(
 			within(card).getByLabelText<HTMLInputElement>("Password for sudo on Mac").value
 		).toBe("");
+	});
+});
+
+describe("a command you stopped", () => {
+	it("says Stopped after how long, in grey, and not the signal", async () => {
+		renderCard(
+			ran({
+				process: { state: "exited", code: null, signal: 1, stopped: true },
+				duration_ms: 33_400,
+			})
+		);
+		const card = await findCard();
+
+		const ended = card.querySelector<HTMLElement>("[data-ended]")!;
+		expect(ended).toHaveAttribute("data-ended", "stopped");
+		expect(ended).toHaveTextContent(/^Stopped after 33 s$/);
+		expect(ended).toHaveClass("text-muted-foreground");
+	});
+
+	it("names the signal that ended it when you didn't", async () => {
+		renderCard(ran({ process: { state: "exited", code: null, signal: 9 }, duration_ms: 4200 }));
+		const card = await findCard();
+
+		expect(card.querySelector("[data-ended]")).toHaveTextContent(
+			"Ended by signal 9 (killed) · 4.2 s"
+		);
 	});
 });
 

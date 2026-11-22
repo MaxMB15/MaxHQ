@@ -1620,6 +1620,8 @@ mod testing {
             device_name: "devbox".to_owned(),
             cwd: "~/code/example-app".to_owned(),
             exit_code: Some(1),
+            signal: None,
+            stopped: false,
             running: false,
             ran_at: maxhq_protocol::time::Timestamp(1_793_368_920_000),
             duration_ms: Some(4_200),

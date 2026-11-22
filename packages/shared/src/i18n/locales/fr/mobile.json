@@ -313,6 +313,7 @@
 	"Started in a terminal at {{time}}. History comes from the session file.": "Démarré dans un terminal à {{time}}. L'historique provient du fichier de session.",
 	"Starting the sign-in on {{device}}": "Démarrage de la connexion sur {{device}}",
 	"Stop": "Arrêter",
+	"You ran": "Tu as exécuté",
 	"Stop agent \"{{title}}\"?": "Arrêter l'agent « {{title}} » ?",
 	"Stop scanning": "Arrêter le scan",
 	"Submit answers": "Envoyer les réponses",

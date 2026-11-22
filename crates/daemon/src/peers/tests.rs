@@ -1010,6 +1010,7 @@ fn terminal_requests() -> [ClientMessage; 8] {
         ClientMessage::TerminalInterrupt {
             key: key(),
             terminal,
+            force: false,
         },
         ClientMessage::TerminalClose {
             key: key(),

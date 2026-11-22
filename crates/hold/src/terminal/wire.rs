@@ -17,7 +17,7 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use tokio::io::{AsyncBufRead, AsyncWrite, AsyncWriteExt};
 
 use super::marks::Mark;
-use super::{RunOutput, TermExit, TermHello};
+use super::{RunOutput, TermExit, TermHello, TermModes};
 use crate::secret::{zero, Secret};
 
 /// The longest message read from the socket, in bytes. Output and input
@@ -34,7 +34,8 @@ pub(crate) enum ToHolder {
     /// The first message: the terminal, the holder's key, and the offset
     /// just past the last output byte `maxd` has. A quiet connection gets
     /// everything but the output. One that asks for marks gets the shell's
-    /// marks too, which a client before them can't read.
+    /// marks too, and one that asks for modes gets [`FromHolder::Modes`],
+    /// which a client before them can't read.
     Hello {
         terminal: TerminalId,
         key: Secret,
@@ -43,6 +44,8 @@ pub(crate) enum ToHolder {
         quiet: bool,
         #[serde(default)]
         marks: bool,
+        #[serde(default)]
+        modes: bool,
     },
     /// Bytes for the terminal to read.
     Input { data: Typed },
@@ -53,6 +56,10 @@ pub(crate) enum ToHolder {
     /// Hangs up the terminal's process groups, then kills them after the
     /// grace.
     Kill { grace_ms: u64 },
+    /// Kills the process group in the terminal's foreground when it isn't
+    /// the shell's own, so the shell lives on. Only a holder whose hello
+    /// has modes takes it: one from before ends the connection at it.
+    StopCommand,
     /// `maxd` is letting go of the connection, and the terminal runs on.
     Detach,
     /// `maxd` has read the exit, so the holder deletes its folder and ends.
@@ -79,6 +86,9 @@ pub(crate) enum FromHolder {
     /// The terminal started or stopped running something other than its
     /// shell at a prompt.
     Busy { on: bool },
+    /// How the program reads input changed. Only a connection that asked
+    /// for modes gets it.
+    Modes(TermModes),
     /// The shell set the window title.
     Title { title: String },
     /// The shell set its working folder.

@@ -1,7 +1,10 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026 Max Boksem
 
-use crate::{emulator, Emulator, Transcript, FULL_SCREEN, MAX_BYTES, MAX_LINES, SECRET_SENT};
+use crate::{
+    emulator, screen, Emulator, Transcript, FULL_SCREEN, MAX_ANSWERS, MAX_BYTES, MAX_LINES,
+    SECRET_SENT,
+};
 
 fn run(cols: u16, rows: u16, output: &[u8]) -> Transcript {
     let mut emulator = emulator(cols, rows);
@@ -266,4 +269,106 @@ fn a_resize_keeps_the_text() {
 #[test]
 fn tabs_keep_their_columns() {
     assert_eq!(text(b"a\tb\r\n"), "a       b");
+}
+
+fn answers(output: &[u8]) -> String {
+    let mut emulator = emulator(80, 24);
+    emulator.feed(output);
+    String::from_utf8(emulator.answers()).unwrap()
+}
+
+#[test]
+fn the_cursor_status_kind_and_size_get_answers() {
+    // Where the cursor is, counted from 1, as a picker asks before drawing.
+    assert_eq!(answers(b"? Paste your secret: \x1b[6n"), "\x1b[1;22R");
+    assert_eq!(answers(b"a\r\nbc\x1b[6n"), "\x1b[2;3R");
+    assert_eq!(answers(b"\x1b[5n"), "\x1b[0n");
+    assert_eq!(answers(b"\x1b[c"), "\x1b[?6c");
+    let kind = answers(b"\x1b[>c");
+    assert!(
+        kind.starts_with("\x1b[>0;") && kind.ends_with(";1c"),
+        "{kind:?}"
+    );
+    assert_eq!(answers(b"\x1b[18t"), "\x1b[8;24;80t");
+    // In the order they were asked.
+    assert_eq!(answers(b"\x1b[5n\x1b[6n"), "\x1b[0n\x1b[1;1R");
+}
+
+#[test]
+fn modes_colors_the_clipboard_and_pixels_go_unanswered() {
+    for asked in [
+        &b"\x1b[?2026$p"[..],
+        b"\x1b[4$p",
+        b"\x1b[?u",
+        b"\x1b]52;c;?\x07",
+        b"\x1b]10;?\x07",
+        b"\x1b]11;?\x1b\\",
+        b"\x1b]12;?\x07",
+        b"\x1b]4;1;?\x07",
+        b"\x1b[14t",
+        b"\x1b[16t",
+        b"\x1b[21t",
+    ] {
+        assert_eq!(answers(asked), "", "{asked:?}");
+    }
+}
+
+#[test]
+fn answers_are_taken_once_and_kept_within_bounds() {
+    let mut emulator = emulator(80, 24);
+    emulator.feed(b"\x1b[5n");
+    assert_eq!(emulator.answers(), b"\x1b[0n");
+    assert!(emulator.answers().is_empty());
+    emulator.feed(&b"\x1b[5n".repeat(MAX_ANSWERS));
+    let kept = emulator.answers();
+    assert!(
+        kept.len() <= MAX_ANSWERS && !kept.is_empty(),
+        "{}",
+        kept.len()
+    );
+}
+
+#[test]
+fn a_look_shows_the_line_the_cursor_waits_on() {
+    let mut emulator = emulator(80, 24);
+    emulator.feed(b"Cloning into 'demo'...\r\n\x1b[32m?\x1b[0m Paste your secret: ***");
+    let look = emulator.look();
+    assert_eq!(look.prompt, "? Paste your secret: ***");
+    assert!(look.asks_for_secret());
+    assert!(!look.full_screen && !look.app_cursor);
+
+    emulator.feed(b"\r\n");
+    assert_eq!(emulator.look().prompt, "");
+
+    // Application cursor keys and the alternate screen show.
+    emulator.feed(b"\x1b[?1h\x1b[?1049h");
+    let look = emulator.look();
+    assert!(look.app_cursor && look.full_screen);
+    emulator.feed(b"\x1b[?1l\x1b[?1049l");
+    let look = emulator.look();
+    assert!(!look.app_cursor && !look.full_screen);
+}
+
+#[test]
+fn a_look_joins_a_prompt_that_wrapped() {
+    let mut wrapped = emulator(10, 5);
+    wrapped.feed(b"first\r\nEnter passphrase: ");
+    assert_eq!(wrapped.look().prompt, "Enter passphrase: ");
+    // A prompt that fills its last column leaves the cursor on it.
+    let mut full = emulator(10, 5);
+    full.feed(b"012345678:");
+    assert_eq!(full.look().prompt, "012345678:");
+}
+
+#[test]
+fn a_screen_answers_and_looks_but_keeps_no_scrollback() {
+    let mut shell = screen(80, 24);
+    for line in 0..10_000 {
+        shell.feed(format!("line {line}\r\n").as_bytes());
+    }
+    shell.feed(b"Continue? [y/N] \x1b[6n");
+    assert_eq!(shell.answers(), b"\x1b[24;17R");
+    assert_eq!(shell.look().choices(), ["y", "n"]);
+    let transcript = shell.transcript();
+    assert!(transcript.lines <= 24, "{}", transcript.lines);
 }

@@ -10,6 +10,7 @@ import { t } from "../i18n";
 import type { Account, Activity, Agent, AttentionEvent, PauseReason, Timestamp } from "../bindings";
 import type { ViewState } from "../view/replica";
 import { agentLinkContext, childrenOf } from "../view/select";
+import { commandWaits } from "../terminal/select";
 
 import type { Fact, HoverCard } from "./card";
 import { agentConnection, type ConnectionLook } from "./connection";
@@ -469,14 +470,20 @@ export const rowMeta = (
 	}
 };
 
-/** {@link rowMeta} for an agent in the view, the one every row shows. */
+/**
+ * {@link rowMeta} for an agent in the view, the one every row shows. It
+ * shows Input too while a command you ran with `!` for the agent waits on
+ * you.
+ */
 export const agentRowMeta = (view: ViewState, agent: Agent, now: Timestamp): RowMeta =>
-	rowMeta(
-		agent,
-		childrenOf(view, agent.id),
-		now,
-		agentConnection(agent, agentLinkContext(view, agent), now).look
-	);
+	commandWaits(view, agent.id)
+		? { kind: "input" }
+		: rowMeta(
+				agent,
+				childrenOf(view, agent.id),
+				now,
+				agentConnection(agent, agentLinkContext(view, agent), now).look
+			);
 
 /** A sub-agent's status in the slide-out panel. */
 export const subAgentStatus = (activity: Activity): string => {

@@ -14,6 +14,7 @@ import {
 	startedOutput,
 	type UserRunItem,
 	userRunOf,
+	withStatus,
 } from "./output";
 
 const AT = 1_000_000;
@@ -85,6 +86,31 @@ describe("userRunOf and runStatus", () => {
 		expect(runStatus({ status: { state: "running" } }, item)).toEqual({ state: "running" });
 		expect(runStatus(undefined, item)).toEqual(item.process);
 		expect(runStatus(undefined, undefined)).toBeNull();
+	});
+});
+
+describe("withStatus", () => {
+	it("carries the signal and whether you stopped it", () => {
+		expect(
+			withStatus(started, { state: "exited", code: null, signal: 2, stopped: true })
+		).toMatchObject({ running: false, exit_code: null, signal: 2, stopped: true });
+		expect(withStatus(started, { state: "exited", code: 1, signal: null })).toMatchObject({
+			running: false,
+			exit_code: 1,
+			signal: null,
+			stopped: false,
+		});
+	});
+
+	it("says it runs, and leaves the pill as it is without a status", () => {
+		const ended = withStatus(started, { state: "exited", code: 0, signal: null });
+		expect(withStatus(ended, { state: "running" })).toMatchObject({
+			running: true,
+			exit_code: null,
+			signal: null,
+			stopped: false,
+		});
+		expect(withStatus(started, null)).toBe(started);
 	});
 });
 
