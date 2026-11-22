@@ -681,13 +681,14 @@ async fn force_stop_ends_a_command_that_ignored_stop_and_leaves_the_shell() {
         f.terminals.interrupt(Caller::App, terminal, true),
         refused(NOTHING_TO_STOP)
     );
-    let key = f.run("trap '' INT; sleep 30");
+    let key = f.run("trap '' INT; printf 'rea%sy\\n' d; sleep 30");
     let SessionResult::Wrote { block, .. } = f.answer(key).await else {
         panic!("sleep didn't go into the session");
     };
     f.started(block).await;
     f.until(terminal, |open| open.is_some_and(|open| open.entity.busy))
         .await;
+    shows(&f.terminals.inner.holds, terminal, "ready").await;
     assert_eq!(
         f.terminals.interrupt(Caller::App, terminal, false),
         ActionOutcome::Done
@@ -713,7 +714,10 @@ async fn a_command_that_ends_well_after_stop_ended_on_its_own() {
     let Some(mut f) = fixture_on_path("bash") else {
         return;
     };
-    let key = f.run("sh -c 'trap \"exit 0\" INT; sleep 30'");
+    // A Ctrl-C that lands while sh starts a sleep waits for that sleep to
+    // end before the trap runs, so the sleeps are short.
+    let key =
+        f.run("sh -c 'trap \"exit 0\" INT; printf \"rea%sy\\n\" d; while :; do sleep 1; done'");
     let SessionResult::Wrote {
         terminal, block, ..
     } = f.answer(key).await
@@ -723,6 +727,8 @@ async fn a_command_that_ends_well_after_stop_ended_on_its_own() {
     f.started(block).await;
     f.until(terminal, |open| open.is_some_and(|open| open.entity.busy))
         .await;
+    // Stop only once the trap is set. The echoed line doesn't say "ready".
+    shows(&f.terminals.inner.holds, terminal, "ready").await;
     assert_eq!(
         f.terminals.interrupt(Caller::App, terminal, false),
         ActionOutcome::Done
@@ -744,7 +750,7 @@ async fn force_stop_on_a_run_ends_it_and_says_you_stopped_it() {
             key,
             agent: f.agent,
             kind: TerminalKind::Run {
-                command: "trap '' INT HUP; sleep 30".into(),
+                command: "trap '' INT HUP; printf 'rea%sy\\n' d; sleep 30".into(),
                 private: false,
             },
             cwd: f.work.clone(),
@@ -765,6 +771,8 @@ async fn force_stop_on_a_run_ends_it_and_says_you_stopped_it() {
     };
     f.until(terminal, |open| open.is_some_and(|open| open.entity.busy))
         .await;
+    // Hang up only once the shell ignores it, so the kill is what ends it.
+    shows(&f.terminals.inner.holds, terminal, "ready").await;
     assert_eq!(
         f.terminals.interrupt(Caller::App, terminal, true),
         ActionOutcome::Done
