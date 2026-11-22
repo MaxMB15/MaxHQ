@@ -11,9 +11,10 @@
 // The message you were writing stays in the text box, hidden, unless it
 // was one line of plain text: that becomes the command.
 //
-// On a device with sessions, ↩ runs the command in the agent's session and
-// ⌥↩ in a fresh shell. The folder chip shows where the session is, or the
-// agent's folder before there's one, and picks another.
+// On a device with sessions, ↩ runs the command in the Agent shell and ⌥↩
+// in a fresh shell. The folder chip shows where the Agent shell is, or the
+// agent's folder before there's one, and picks another. The last hint opens
+// the full terminal.
 
 import { ArrowRight, ChevronDown, Folder, LockKeyhole, SquareTerminal } from "lucide-react";
 import {
@@ -52,6 +53,7 @@ import type { TimelineStore } from "@maxhq/shared/timeline/store";
 import type { ViewState } from "@maxhq/shared/view/replica";
 
 import { useServices, useView } from "@/app/services";
+import { keyHint, SHORTCUTS } from "@/layout/shortcuts";
 import { withParts } from "@/lib/parts";
 import { FolderBrowserDialog } from "@/paths/folder-browser";
 import { useTerminalActions } from "@/terminal";
@@ -257,15 +259,15 @@ export const useShellMode = ({
 		change(OFF, { to: "editor" });
 	};
 
-	/** Moves the session to a folder you picked, or opens it there. */
+	/** Moves the Agent shell to a folder you picked, or opens it there. */
 	const moveTo = async (path: string) => {
 		onError(null);
 		const reason = failureOf(await attempt(() => services.source.sessionCd(agent, path)));
 		if (reason !== null)
 			onError(
 				reason
-					? t("Couldn't move the session. {{reason}}.", { reason })
-					: t("Couldn't move the session.")
+					? t("Couldn't move the Agent shell. {{reason}}.", { reason })
+					: t("Couldn't move the Agent shell.")
 			);
 	};
 
@@ -328,7 +330,7 @@ export const useShellMode = ({
 			<button
 				type="button"
 				className="shell-chip"
-				aria-label={t("Pick the folder the session runs in")}
+				aria-label={t("Pick the folder the Agent shell runs in")}
 				title={folder ?? undefined}
 				onClick={() => setBrowsing(true)}
 			>
@@ -339,7 +341,7 @@ export const useShellMode = ({
 			<span>{withParts("on {{device}}", { device: <b>{place.deviceName}</b> })}</span>
 			{card ? (
 				<span className="shell-count">
-					{t("Session · {{count, number}} commands", { count: card.blocks.length })}
+					{t("Agent shell · {{count, number}} commands", { count: card.blocks.length })}
 				</span>
 			) : null}
 			<FolderBrowserDialog
@@ -351,15 +353,28 @@ export const useShellMode = ({
 			/>
 		</div>
 	);
+	// The way to the full terminal, which opens the panel on the Agent shell.
+	const fullTerminal = (
+		<button
+			type="button"
+			className="shell-open"
+			onMouseDown={(event) => event.preventDefault()}
+			onClick={() => actions.openAgentShell(agent)}
+		>
+			{withParts("{{key}} full terminal", {
+				key: <kbd className="shell-key">{keyHint(SHORTCUTS.terminal)}</kbd>,
+			})}
+		</button>
+	);
 	const sessionHint = (
 		<div className="shell-hint">
 			<span>
-				{withParts("{{key}} run in the session", {
+				{withParts("{{key}} run", {
 					key: <kbd className="shell-key">↩</kbd>,
 				})}
 			</span>
 			<span>
-				{withParts("{{key}} run in a fresh shell", {
+				{withParts("{{key}} fresh shell", {
 					key: <kbd className="shell-key">⌥↩</kbd>,
 				})}
 			</span>
@@ -367,11 +382,12 @@ export const useShellMode = ({
 				<span>{t("The agent won't see the output")}</span>
 			) : (
 				<span>
-					{withParts("{{bangs}} keeps this one private", {
+					{withParts("{{bangs}} private", {
 						bangs: <span className="font-mono">!!</span>,
 					})}
 				</span>
 			)}
+			{fullTerminal}
 		</div>
 	);
 	const where = place && (
@@ -444,6 +460,7 @@ export const useShellMode = ({
 								</span>
 							</>
 						)}
+						{fullTerminal}
 					</div>
 				)}
 			</div>

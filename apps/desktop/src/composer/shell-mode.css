@@ -87,6 +87,26 @@
 	font-size: 10.5px;
 }
 
+/* The hint that opens the full terminal. */
+.shell-open {
+	padding: 0;
+	border: 0;
+	background: none;
+	color: inherit;
+	font: inherit;
+	cursor: pointer;
+}
+
+.shell-open:hover {
+	color: var(--foreground);
+}
+
+.shell-open:focus-visible {
+	border-radius: 4px;
+	outline: 2px solid var(--ring);
+	outline-offset: 1px;
+}
+
 .shell-run {
 	display: inline-flex;
 	flex-shrink: 0;

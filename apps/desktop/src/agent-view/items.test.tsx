@@ -327,7 +327,7 @@ const SAMPLES: Record<ItemBody["kind"], [ItemBody, string | RegExp, ItemStatus?]
 			sealed: false,
 			sent: false,
 		},
-		"Send to agent",
+		"Send now",
 	],
 	dispatcher_action: [
 		{

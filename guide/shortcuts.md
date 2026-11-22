@@ -16,7 +16,7 @@ Press `⌘/`, Show keyboard shortcuts, to see the list over any view. Settings h
 - The groups are General, Agents, Sidebar, Inbox, Panes, Find, Composer and Notes. Other holds a key that has no words yet.
 - A key marked Projects only works only in projects mode.
 - Off a Mac, `⌘` reads Ctrl, `⌥` reads Alt, `⇧` reads Shift, `⏎` reads Enter, and the arrows read Up and Down. So `⇧⌘D` is `Ctrl+Shift+D` there.
-- Show or hide the terminal holds Control everywhere: `` ⌃` ``.
+- Show or hide the terminal panel holds Control everywhere: `` ⌃` ``.
 
 ## General
 <!-- id: shortcuts/general -->
@@ -73,7 +73,7 @@ General keys work in any view.
 
 ## Panes
 <!-- id: shortcuts/panes -->
-<!-- covers: settings/shortcuts shortcut/move-to-the-pane-on-that-side shortcut/next-tab shortcut/previous-tab shortcut/show-the-tab-at-that-place-9-for-the-last shortcut/split-right shortcut/split-down shortcut/maximize-or-restore-the-pane shortcut/close-the-tab shortcut/reopen-the-last-closed-tab shortcut/show-or-hide-the-terminal shortcut/jump-to-the-previous-or-next-command-in-a-terminal -->
+<!-- covers: settings/shortcuts shortcut/move-to-the-pane-on-that-side shortcut/next-tab shortcut/previous-tab shortcut/show-the-tab-at-that-place-9-for-the-last shortcut/split-right shortcut/split-down shortcut/maximize-or-restore-the-pane shortcut/close-the-tab shortcut/reopen-the-last-closed-tab shortcut/show-or-hide-the-terminal-panel shortcut/jump-to-the-previous-or-next-command-in-a-terminal -->
 
 `⌘D` splits the pane right and `⇧⌘D` splits it down. These keys work only in projects mode, except Reopen the last closed tab, which works everywhere.
 
@@ -88,7 +88,7 @@ General keys work in any view.
 | Maximize or restore the pane | `⇧⌘M` |
 | Close the tab | `⇧⌘W` |
 | Reopen the last closed tab | `⇧⌘T` |
-| Show or hide the terminal | `` ⌃` `` |
+| Show or hide the terminal panel | `` ⌃` `` |
 | Jump to the previous or next command, in a terminal | `⌘↑` or `⌘↓` |
 
 Off a Mac, jump between commands with `Ctrl+Shift+Up` or `Ctrl+Shift+Down`.

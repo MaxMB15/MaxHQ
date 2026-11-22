@@ -31,7 +31,7 @@ import {
 	quoteLabel,
 } from "@maxhq/shared/pills/label";
 import { ACTIVITY_LABEL, agentLook } from "@maxhq/shared/status/activity";
-import { formatAgo } from "@maxhq/shared/status/format";
+import { formatAgo, plural } from "@maxhq/shared/status/format";
 import { type AgentKind, kindName, ownKind } from "@maxhq/shared/status/agent-kind";
 import { type SessionPillLook, sessionPillLabel } from "@maxhq/shared/terminal/session";
 import {
@@ -534,7 +534,7 @@ export const outputFailed = (ref: OutputRef): boolean =>
 
 /** What an output's pill says after the command: the lines picked from it, or how it ended. */
 export const outputState = (ref: OutputRef): string | null => {
-	if (ref.lines) return t("lines {{first}}-{{last}}", ref.lines);
+	if (ref.lines) return plural(ref.lines.last - ref.lines.first + 1, "line");
 	if (ref.running) return t("running");
 	return ref.exit_code === null ? null : t("exit {{code}}", { code: ref.exit_code });
 };
@@ -737,7 +737,7 @@ export const pillRegistry = createPillRegistry<PillRecord, PillContext, PillPres
 			canRender: (record) => record.kind === "session",
 			render: (record) => {
 				const { ref, look, preview } = record as Extract<PillRecord, { kind: "session" }>;
-				const label = look ? sessionPillLabel(look) : t("Shell session");
+				const label = look ? sessionPillLabel(look) : t("Agent shell");
 				return {
 					family: look?.tone === "failed" ? "output-failed" : "output",
 					state: look ? "ready" : "unresolved",

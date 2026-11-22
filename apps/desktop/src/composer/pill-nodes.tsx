@@ -54,6 +54,8 @@ export type PillsContextValue = {
 	readonly agent?: AgentId;
 	/** The agent's timeline, where an output pill finds its command once it ends. */
 	readonly timeline?: TimelineStore;
+	/** Opens the agent's Agent shell in the terminal panel, which a click on its pill does. */
+	readonly openShell?: () => void;
 };
 
 export const PillsContext = createContext<PillsContextValue | null>(null);
@@ -276,11 +278,11 @@ const OutputPillView = ({ node, selected }: ReactNodeViewProps) => {
 
 const SessionPillView = ({ node, selected }: ReactNodeViewProps) => {
 	useI18n();
-	const { now, timeline, agent } = usePills();
+	const { now, timeline, agent, openShell } = usePills();
 	const presentation = useSessionPill(node.attrs.ref as SessionRef, timeline, agent, now);
 	return (
 		<NodeViewWrapper as="span" className="pill-node" contentEditable={false}>
-			<ShownPill presentation={presentation} selected={selected} />
+			<ShownPill presentation={presentation} selected={selected} onClick={openShell} />
 		</NodeViewWrapper>
 	);
 };

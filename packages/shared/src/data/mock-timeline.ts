@@ -1047,7 +1047,14 @@ const releaseChecklist = (now: Timestamp): TimelineItem[] => {
 			["pending", "Write the release notes"]
 		)
 	);
-	s.add(say("Every manifest says 0.2.0, so nothing is out of step. Next is the full test run."));
+	// A command the agent ran and a block of commands it names, which you
+	// can run yourself.
+	s.add(run("git status --short", "", 0, MAXHQ_FOLDER), { took: 90 });
+	s.add(
+		say(
+			"Every manifest says 0.2.0, so nothing is out of step. Next is the full test run:\n\n```sh\ncargo test --workspace\n```"
+		)
+	);
 	// It hands the notes and the bundle to agents of their own.
 	for (const body of callerCalls()) s.add(body, { took: 2 * SEC });
 	// The command waits on the approval that sits under it.

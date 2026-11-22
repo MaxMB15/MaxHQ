@@ -10,7 +10,7 @@ import { createElement, type ReactElement, useMemo } from "react";
 import { useServices } from "@/app/services";
 import type { AgentId, DeviceId, TerminalId } from "@maxhq/shared/bindings";
 
-import { pasteIntoDrawer, showInDrawer } from "./actions";
+import { openAgentShell, pasteIntoDrawer, showInDrawer } from "./actions";
 import { cellSize, registryOf } from "./live";
 import { LiveTerminalHost } from "./live-terminal";
 import { commandText } from "./term-view";
@@ -72,6 +72,11 @@ export type TerminalActions = {
 	readonly pasteIntoDrawer: (agent: AgentId, text: string) => void;
 	/** Opens the agent's drawer on this terminal's tab. */
 	readonly showInDrawer: (agent: AgentId, terminal: TerminalId) => void;
+	/**
+	 * Opens the agent's drawer on its Agent shell, focused, starting one
+	 * when there's none.
+	 */
+	readonly openAgentShell: (agent: AgentId) => void;
 };
 
 const encoder = new TextEncoder();
@@ -91,6 +96,7 @@ export const useTerminalActions = (): TerminalActions => {
 			cellSize,
 			pasteIntoDrawer: (agent, text) => void pasteIntoDrawer(services, agent, text),
 			showInDrawer: (agent, terminal) => showInDrawer(services, agent, terminal),
+			openAgentShell: (agent) => void openAgentShell(services, agent),
 		}),
 		[services]
 	);

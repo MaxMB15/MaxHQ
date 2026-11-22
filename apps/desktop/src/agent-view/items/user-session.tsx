@@ -4,16 +4,19 @@
 // A session card: the commands you ran with `!` in the agent's session
 // between two of your messages, each as a block with its output, exit
 // code and whether the agent sees it. Until a message closes the card,
-// each block switches between Shared and Private, End session closes the
-// shell and Send to agent sends the shared blocks on their own. A closed
-// card says whether its commands went with that message. A block that
-// still runs shows the live terminal, a line to type into it and, when it
-// asks for a password, a secure field.
+// each block switches between Shared and Private, Close shell in its ⋯
+// menu closes the shell and Send now sends the shared blocks on their own,
+// before your next message. Open in terminal shows the shell in the
+// terminal panel. A closed card says whether its commands went with that
+// message. A block that still runs shows the live terminal, a line to type
+// into it and, when it asks for a password, a secure field.
 
+import { Menu } from "@base-ui/react/menu";
 import {
 	ArrowRight,
 	CircleCheck,
 	CircleX,
+	Ellipsis,
 	Eye,
 	LockKeyhole,
 	PanelBottom,
@@ -41,6 +44,7 @@ import { deviceName } from "@maxhq/shared/view/select";
 import { useServices, useView } from "@/app/services";
 import { requestConfirm } from "@/components/confirm";
 import { takeSessionBack, useSessionHeld } from "@/composer/held-pills";
+import { MENU_ITEM, MENU_POPUP } from "@/composer/pickers";
 import { askedHere, firstAskHere } from "@/composer/run-command";
 import { draftsOf } from "@/composer/saved-drafts";
 import { addSessionPill, markPlaced, shareBlock } from "@/composer/session-pill";
@@ -67,8 +71,8 @@ const failed = (what: "end" | "send" | "share", reason: string): string => {
 	switch (what) {
 		case "end":
 			return reason
-				? t("Couldn't end the session. {{reason}}.", { reason })
-				: t("Couldn't end the session.");
+				? t("Couldn't close the shell. {{reason}}.", { reason })
+				: t("Couldn't close the shell.");
 		case "send":
 			return reason
 				? t("Couldn't send the commands. {{reason}}.", { reason })
@@ -106,9 +110,9 @@ export const UserSessionCard = ({ item }: { item: UserSessionItem }) => {
 		const runs = item.blocks.some(blockRunning) || terminal?.busy === true;
 		if (reason !== null && refused && runs) {
 			const sure = await requestConfirm(services, {
-				title: t("End the session?"),
+				title: t("Close the shell?"),
 				detail: reason,
-				action: t("End session"),
+				action: t("Close shell"),
 			});
 			if (!sure) return;
 			reason = failureOf(await attempt(() => services.source.sessionEnd(row.agent, true)));
@@ -154,7 +158,7 @@ export const UserSessionCard = ({ item }: { item: UserSessionItem }) => {
 		<div className="flex flex-wrap items-center gap-2 border-t border-border bg-subpanel py-[7px] pr-2 pl-3 text-xs text-muted-foreground">
 			<span>
 				{held || !acts
-					? t("{{shared}} of {{total}} go to the agent with your next message", {
+					? t("{{shared}} of {{total}} go with your next message", {
 							shared,
 							total,
 						})
@@ -173,11 +177,6 @@ export const UserSessionCard = ({ item }: { item: UserSessionItem }) => {
 							{t("Add to next message")}
 						</button>
 					) : null}
-					{alive ? (
-						<button type="button" className={BOXED} onClick={() => void end()}>
-							{t("End session")}
-						</button>
-					) : null}
 					<button
 						type="button"
 						className={cn(
@@ -188,8 +187,34 @@ export const UserSessionCard = ({ item }: { item: UserSessionItem }) => {
 						onClick={() => void send()}
 					>
 						<ArrowRight aria-hidden className="size-3" strokeWidth={2} />
-						{t("Send to agent")}
+						{t("Send now")}
 					</button>
+					{alive ? (
+						<Menu.Root>
+							<Menu.Trigger
+								aria-label={t("More for this shell")}
+								className={cn(BUTTON, "px-1.5 data-popup-open:bg-accent")}
+							>
+								<Ellipsis aria-hidden className="size-3.5" strokeWidth={2.2} />
+							</Menu.Trigger>
+							<Menu.Portal>
+								<Menu.Positioner
+									side="bottom"
+									align="end"
+									sideOffset={6}
+									className="z-[130]"
+								>
+									<Menu.Popup
+										className={cn(MENU_POPUP, "w-[200px] text-[12.5px]")}
+									>
+										<Menu.Item className={MENU_ITEM} onClick={() => void end()}>
+											{t("Close shell")}
+										</Menu.Item>
+									</Menu.Popup>
+								</Menu.Positioner>
+							</Menu.Portal>
+						</Menu.Root>
+					) : null}
 				</span>
 			) : null}
 		</div>
@@ -225,7 +250,7 @@ export const UserSessionCard = ({ item }: { item: UserSessionItem }) => {
 					})}
 				</span>
 				<span className="text-[11.5px] text-subtle-foreground">
-					{t("on {{device}} · in one shell", { device })}
+					{t("on {{device}}", { device })}
 				</span>
 				{alive ? (
 					<button
@@ -234,7 +259,7 @@ export const UserSessionCard = ({ item }: { item: UserSessionItem }) => {
 						onClick={() => actions.showInDrawer(row.agent, item.terminal)}
 					>
 						<PanelBottom aria-hidden className="size-3" strokeWidth={2} />
-						{t("Open in drawer")}
+						{t("Open in terminal")}
 					</button>
 				) : null}
 			</div>

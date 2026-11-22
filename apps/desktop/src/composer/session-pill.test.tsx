@@ -42,6 +42,7 @@ const seam = vi.hoisted(() => ({
 	runningText: vi.fn<
 		(terminal: string, start: number | null) => { text: string; total: number } | null
 	>(() => null),
+	openAgentShell: vi.fn<(agent: string) => void>(),
 }));
 
 vi.mock("@/terminal", () => ({
@@ -53,6 +54,7 @@ vi.mock("@/terminal", () => ({
 		cellSize: () => ({ width: 8, height: 17 }),
 		pasteIntoDrawer: () => {},
 		showInDrawer: () => {},
+		openAgentShell: seam.openAgentShell,
 	}),
 }));
 
@@ -63,6 +65,7 @@ afterEach(() => {
 	quoteInbox.take(AGENT);
 	seam.runningText.mockReset();
 	seam.runningText.mockReturnValue(null);
+	seam.openAgentShell.mockReset();
 	localStorage.clear();
 	sessionStorage.clear();
 	vi.restoreAllMocks();
@@ -166,10 +169,18 @@ describe("the session pill", () => {
 		renderWith(card([INSTALL, SECRET, TEST]));
 		const textbox = await findTextbox();
 
-		await waitFor(() =>
-			expect(pillsIn(textbox)).toEqual(["Shell session · 3 · 1 failed on Mac"])
-		);
+		await waitFor(() => expect(pillsIn(textbox)).toEqual(["Agent shell · 1 failed on Mac"]));
 		expect(pillOf(textbox)).toHaveAttribute("data-family", "output-failed");
+	});
+
+	it("opens the Agent shell in the terminal panel on a click", async () => {
+		renderWith(card([INSTALL, TEST]));
+		const textbox = await findTextbox();
+		await waitFor(() => expect(pillOf(textbox)).not.toBeNull());
+
+		fireEvent.click(pillOf(textbox)!);
+
+		expect(seam.openAgentShell).toHaveBeenCalledExactlyOnceWith(AGENT);
 	});
 
 	it("stays plain while nothing shared failed, and spins while a shared command runs", async () => {
@@ -178,15 +189,13 @@ describe("the session pill", () => {
 		const { amend } = renderWith(item);
 		const textbox = await findTextbox();
 
-		await waitFor(() => expect(pillsIn(textbox)).toEqual(["Shell session · 2 on Mac"]));
+		await waitFor(() => expect(pillsIn(textbox)).toEqual(["Agent shell on Mac"]));
 		expect(pillOf(textbox)).toHaveAttribute("data-family", "output");
 		expect(pillOf(textbox)!.querySelector(".pill-spin")).toBeNull();
 
 		amend({ ...item, blocks: [INSTALL, SECRET, running] });
 
-		await waitFor(() =>
-			expect(pillsIn(textbox)).toEqual(["Shell session · 3 on Mac, running"])
-		);
+		await waitFor(() => expect(pillsIn(textbox)).toEqual(["Agent shell on Mac, running"]));
 		expect(pillOf(textbox)!.querySelector(".pill-spin")).not.toBeNull();
 	});
 
@@ -271,8 +280,8 @@ describe("the session pill", () => {
 		fireEvent.mouseEnter(pill);
 		fireEvent.mouseMove(pill);
 		const preview = await screen.findByRole("dialog", {}, { timeout: 2000 });
-		expect(preview).toHaveTextContent("Shell session on Mac");
-		expect(preview).toHaveTextContent("· 2 of 3 go to the agent");
+		expect(preview).toHaveTextContent("Agent shell on Mac");
+		expect(preview).toHaveTextContent("· 2 of 3 go with your next message");
 		const tick = (command: string) =>
 			within(preview).getByRole("checkbox", { name: `Send ${command} to the agent` });
 		expect(tick("pnpm install")).toBeChecked();

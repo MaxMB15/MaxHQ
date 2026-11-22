@@ -107,7 +107,7 @@ describe("an output pill", () => {
 		show(output({ lines: { first: 3, last: 8 }, terminal: "t1" }));
 
 		expect(pill()).toHaveAttribute("data-family", "output");
-		expect(pill()).toHaveAccessibleName("Output of pnpm test, lines 3-8");
+		expect(pill()).toHaveAccessibleName("Output of pnpm test, 6 lines");
 	});
 
 	it("puts a command of several lines on one", () => {

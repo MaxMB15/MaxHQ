@@ -63,6 +63,7 @@ vi.mock("@/terminal", () => ({
 		cellSize: () => ({ width: 8, height: 17 }),
 		pasteIntoDrawer: seam.pasteIntoDrawer,
 		showInDrawer: seam.showInDrawer,
+		openAgentShell: () => {},
 	}),
 }));
 
@@ -290,7 +291,7 @@ describe("a running command", () => {
 			interactive: false,
 		});
 		expect(button(card, "Stop")).toHaveTextContent("Stop⌃C");
-		expect(button(card, "Move to terminal")).toBeInTheDocument();
+		expect(button(card, "Open in terminal")).toBeInTheDocument();
 		expect(
 			within(card).getByPlaceholderText("Type to send input to the command")
 		).toBeInTheDocument();
@@ -311,7 +312,17 @@ describe("a running command", () => {
 		expect(interruptTerminal).toHaveBeenCalledOnce();
 	});
 
-	it("moves it to the terminal, and says why when that doesn't go", async () => {
+	it("moves it to the terminal panel and shows its tab there", async () => {
+		const { moveTerminal } = renderCard(running(), { terminal: terminalOf() });
+		const card = await findCard();
+
+		fireEvent.click(button(card, "Open in terminal"));
+
+		await waitFor(() => expect(seam.showInDrawer).toHaveBeenCalledExactlyOnceWith(AGENT, "t1"));
+		expect(moveTerminal).toHaveBeenCalledWith("t1");
+	});
+
+	it("says why when moving it to the terminal doesn't go", async () => {
 		const { moveTerminal } = renderCard(running(), { terminal: terminalOf() });
 		const card = await findCard();
 		moveTerminal.mockResolvedValueOnce({
@@ -319,12 +330,13 @@ describe("a running command", () => {
 			data: { status: "refused", reason: "The terminal has ended" },
 		});
 
-		fireEvent.click(button(card, "Move to terminal"));
+		fireEvent.click(button(card, "Open in terminal"));
 
 		expect(await within(card).findByRole("alert")).toHaveTextContent(
 			"Couldn't move the command to the terminal. The terminal has ended."
 		);
 		expect(moveTerminal).toHaveBeenCalledWith("t1");
+		expect(seam.showInDrawer).not.toHaveBeenCalled();
 	});
 
 	it("types a line into it, and Ctrl-C in the line stops it", async () => {
@@ -712,7 +724,7 @@ describe("a command moved to the terminal", () => {
 		expect(stub).toHaveTextContent("You ran pnpm dev· moved to the terminal, still running");
 		expect(screen.queryByTestId("live-terminal")).toBeNull();
 
-		fireEvent.click(within(stub).getByRole("button", { name: "Show in terminal" }));
+		fireEvent.click(within(stub).getByRole("button", { name: "Open in terminal" }));
 
 		expect(seam.showInDrawer).toHaveBeenCalledExactlyOnceWith(AGENT, "t1");
 	});

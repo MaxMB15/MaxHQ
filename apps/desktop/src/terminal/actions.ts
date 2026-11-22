@@ -3,8 +3,9 @@
 
 // What the drawer, its shortcut and the chat do with an agent's terminals:
 // open a tab, close one, asking first while something runs in it, start
-// an exited one again, show or hide the drawer, paste into it, take a tab
-// out as a pane and back, and add picked output to a chat.
+// an exited one again, show or hide the drawer, open it on the agent's
+// shell, paste into it, take a tab out as a pane and back, and add picked
+// output to a chat.
 
 import type { Services } from "@/app/services";
 import { requestConfirm } from "@/components/confirm";
@@ -22,7 +23,7 @@ import {
 	runCommand,
 	type TerminalSize,
 } from "@maxhq/shared/terminal/requests";
-import { sessionFolder, sessionTerminalOf } from "@maxhq/shared/terminal/session";
+import { sessionFolder, sessionTerminalOf, supportsSessions } from "@maxhq/shared/terminal/session";
 import {
 	supportsTerminals,
 	type TerminalEntity,
@@ -250,6 +251,38 @@ export const showInDrawer = (services: Services, agent: AgentId, terminal: Termi
 	setDrawer(services, agent, { open: true });
 	setActive(services, agent, terminal);
 	drawersOf(services).setState({ focusing: agent });
+};
+
+/**
+ * Opens the agent's drawer on its Agent shell, focused, for the ways into
+ * the terminal besides its shortcut. With no Agent shell yet it starts one
+ * in the agent's folder. A device too old for one opens the drawer the way
+ * the shortcut does.
+ */
+export const openAgentShell = async (services: Services, agent: AgentId): Promise<void> => {
+	if (!checkSupported(services, agent)) return;
+	const view = services.view.getState().view;
+	const session = sessionTerminalOf(view, agent);
+	if (session) return showInDrawer(services, agent, session.id);
+	const device = agentDevice(view, agent);
+	const record = view.tables.agent.get(agent);
+	const folder = record && view.tables.workspace.get(record.workspace)?.location.path;
+	if (!device || !folder || !supportsSessions(view, device) || opening.has(agent)) {
+		setDrawer(services, agent, { open: true });
+		drawersOf(services).setState({ focusing: agent });
+		return;
+	}
+	// The drawer opens once the shell is there, so it doesn't open a plain
+	// shell of its own meanwhile.
+	opening.add(agent);
+	try {
+		const result = await services.source.sessionCd(agent, folder);
+		const terminal = openedTerminal(result);
+		if (!terminal) return fail(services, failureOf(result) ?? t("Couldn't open a terminal."));
+		showInDrawer(services, agent, terminal);
+	} finally {
+		opening.delete(agent);
+	}
 };
 
 /**

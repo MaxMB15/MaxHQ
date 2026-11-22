@@ -300,9 +300,9 @@ describe("agent header", () => {
 			const agent = sample("agent-usage-popover", { pulls: [pullLink(142)] });
 			show(agent);
 			const menu = await openMenu("More");
-			// With nothing else to offer, More still exports. Outside the app
-			// there's no save dialog, so it copies.
-			expect(within(menu).getAllByRole("menuitem")).toHaveLength(1);
+			// With nothing else to offer, More still opens the terminal and
+			// exports. Outside the app there's no save dialog, so it copies.
+			expect(within(menu).getAllByRole("menuitem")).toHaveLength(2);
 			const item = within(menu).getByRole("menuitem", { name: /Copy as Markdown/ });
 			fireEvent.click(item);
 			await waitFor(() => expect(item).toHaveTextContent("Copied as Markdown"));
