@@ -1214,6 +1214,10 @@ impl Driver for Scripted {
         self.log("tick".into());
     }
 
+    fn limits_lifted(&mut self, _fx: &mut Effects) {
+        self.log("limits lifted".into());
+    }
+
     fn tool_done(&mut self, done: ToolDone, _fx: &mut Effects) {
         match done.result {
             Ok(ToolResult::Sent(sent)) => {

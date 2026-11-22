@@ -613,6 +613,12 @@ pub trait Driver: Send + 'static {
     fn skills_changed(&mut self, cwds: &[String], fx: &mut Effects) {
         let _ = (cwds, fx);
     }
+    /// A banked reset lifted the account's usage limit before its reset
+    /// time. A CLI that waits out a limit by reading it reads it again
+    /// now, so its waits end; the others find out on their own.
+    fn limits_lifted(&mut self, fx: &mut Effects) {
+        let _ = fx;
+    }
     /// The commands the agent's project lets run without asking. A driver
     /// that answers its CLI's command prompts itself reads them; the
     /// others leave prompts to the CLI.

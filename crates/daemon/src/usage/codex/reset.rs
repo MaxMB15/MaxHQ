@@ -5,7 +5,8 @@
 //! undone. Only the app asks, for an explicit click after you confirm, and
 //! the server refuses everyone else first. A short-lived app-server for the
 //! account's `CODEX_HOME` sends the request with Codex's own sign-in, then
-//! reads the limits again so the reset shows at once.
+//! reads the limits again so the reset shows at once. A reset that landed
+//! is passed on, so the agents its limit held can carry on.
 
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
@@ -51,16 +52,24 @@ impl Drop for Spending {
 
 /// Spends one of `account`'s banked resets, with `key` as Codex's
 /// idempotency key, so a resend of the same request can't spend a second.
-pub async fn use_credit(hub: Hub, key: IdempotencyKey, account: AccountId) -> ActionOutcome {
-    use_credit_with(hub, key, account, find_codex).await
+/// `lifted` hears of a reset that landed, once the limits are read again,
+/// and of nothing else.
+pub async fn use_credit(
+    hub: Hub,
+    key: IdempotencyKey,
+    account: AccountId,
+    lifted: impl FnOnce(AccountId),
+) -> ActionOutcome {
+    use_credit_with(hub, key, account, find_codex, lifted).await
 }
 
 /// [`use_credit`] with the way to find `codex` given, for tests.
-async fn use_credit_with(
+pub(crate) async fn use_credit_with(
     hub: Hub,
     key: IdempotencyKey,
     account: AccountId,
     program: impl Fn() -> Option<PathBuf>,
+    lifted: impl FnOnce(AccountId),
 ) -> ActionOutcome {
     let home = match home(&hub, account) {
         Ok(home) => home,
@@ -93,6 +102,9 @@ async fn use_credit_with(
     match outcome(&answer) {
         Some(outcome) => {
             tracing::info!(%account, ?outcome, "codex reset credit");
+            if landed(outcome) {
+                lifted(account);
+            }
             ActionOutcome::ResetCredit { outcome }
         }
         None => refused(&format!(
@@ -174,6 +186,16 @@ fn outcome(answer: &Value) -> Option<ResetCreditOutcome> {
         "noCredit" => Some(ResetCreditOutcome::NoCredit),
         "alreadyRedeemed" => Some(ResetCreditOutcome::AlreadyRedeemed),
         _ => None,
+    }
+}
+
+/// Whether the limit is lifted after `outcome`: a reset spent now, or one
+/// an earlier try with the same key spent. Nothing to reset and no credit
+/// left change nothing.
+fn landed(outcome: ResetCreditOutcome) -> bool {
+    match outcome {
+        ResetCreditOutcome::Reset | ResetCreditOutcome::AlreadyRedeemed => true,
+        ResetCreditOutcome::NothingToReset | ResetCreditOutcome::NoCredit => false,
     }
 }
 
@@ -260,32 +282,92 @@ mod tests {
         key: IdempotencyKey,
         id: AccountId,
     ) -> ActionOutcome {
+        heard(hub, fake, key, id).await.0
+    }
+
+    /// A spend, and the accounts it said a reset landed for.
+    async fn heard(
+        hub: &Hub,
+        fake: &FakeHome,
+        key: IdempotencyKey,
+        id: AccountId,
+    ) -> (ActionOutcome, Vec<AccountId>) {
         let program = fake.program.clone();
-        use_credit_with(hub.clone(), key, id, move || Some(program.clone())).await
+        let mut lifted = Vec::new();
+        let outcome = use_credit_with(
+            hub.clone(),
+            key,
+            id,
+            move || Some(program.clone()),
+            |account| lifted.push(account),
+        )
+        .await;
+        (outcome, lifted)
     }
 
     #[tokio::test]
     async fn each_answer_comes_back_as_its_outcome() {
         let (hub, fake, id) = setup("codex-reset-outcomes");
-        for (answer, outcome) in [
-            ("reset", ResetCreditOutcome::Reset),
-            ("nothingToReset", ResetCreditOutcome::NothingToReset),
-            ("noCredit", ResetCreditOutcome::NoCredit),
-            ("alreadyRedeemed", ResetCreditOutcome::AlreadyRedeemed),
+        for (answer, outcome, lifts) in [
+            ("reset", ResetCreditOutcome::Reset, true),
+            ("nothingToReset", ResetCreditOutcome::NothingToReset, false),
+            ("noCredit", ResetCreditOutcome::NoCredit, false),
+            ("alreadyRedeemed", ResetCreditOutcome::AlreadyRedeemed, true),
         ] {
             fake.write("consume.json", &json!({ "outcome": answer }));
+            let (spent, lifted) = heard(&hub, &fake, IdempotencyKey::generate(), id).await;
+            assert_eq!(spent, ActionOutcome::ResetCredit { outcome }, "{answer}");
+            let expected = if lifts { vec![id] } else { Vec::new() };
             assert_eq!(
-                spend(&hub, &fake, IdempotencyKey::generate(), id).await,
-                ActionOutcome::ResetCredit { outcome },
-                "{answer}"
+                lifted, expected,
+                "{answer} lifts the limit only if it landed"
             );
         }
         fake.write("consume.json", &json!({ "outcome": "somethingNew" }));
-        let outcome = spend(&hub, &fake, IdempotencyKey::generate(), id).await;
+        let (outcome, lifted) = heard(&hub, &fake, IdempotencyKey::generate(), id).await;
         assert!(
             matches!(outcome, ActionOutcome::Refused { .. }),
             "{outcome:?}"
         );
+        assert!(
+            lifted.is_empty(),
+            "an answer maxd doesn't know lifts nothing"
+        );
+    }
+
+    #[tokio::test]
+    async fn only_a_reset_that_landed_lifts_the_limit() {
+        // Unanswered twice: maxd can't tell, so nothing carries on.
+        let (hub, fake, id) = setup("codex-reset-lift-unsure");
+        fake.write("consume.json", &json!({ "outcome": "reset" }));
+        fake.write("drop-every-consume", &json!(true));
+        let (outcome, lifted) = heard(&hub, &fake, IdempotencyKey::generate(), id).await;
+        assert!(
+            matches!(outcome, ActionOutcome::Refused { .. }),
+            "{outcome:?}"
+        );
+        assert!(lifted.is_empty(), "an unsure spend lifts nothing");
+        fake.remove("drop-every-consume");
+
+        // A refusal before anything went out.
+        let (outcome, lifted) = heard(
+            &hub,
+            &fake,
+            IdempotencyKey::generate(),
+            AccountId::derive("nobody"),
+        )
+        .await;
+        assert!(
+            matches!(outcome, ActionOutcome::Refused { .. }),
+            "{outcome:?}"
+        );
+        assert!(lifted.is_empty(), "a refusal lifts nothing");
+
+        // A dropped answer that went again and landed lifts it once.
+        fake.write("consume.json", &json!({ "outcome": "alreadyRedeemed" }));
+        fake.write("drop-consume", &json!(true));
+        let (_, lifted) = heard(&hub, &fake, IdempotencyKey::generate(), id).await;
+        assert_eq!(lifted, [id], "one landing, heard once");
     }
 
     #[tokio::test]
@@ -376,9 +458,13 @@ mod tests {
         let first = tokio::spawn({
             let (hub, program) = (hub.clone(), fake.program.clone());
             async move {
-                use_credit_with(hub, IdempotencyKey::generate(), id, move || {
-                    Some(program.clone())
-                })
+                use_credit_with(
+                    hub,
+                    IdempotencyKey::generate(),
+                    id,
+                    move || Some(program.clone()),
+                    |_| {},
+                )
                 .await
             }
         });

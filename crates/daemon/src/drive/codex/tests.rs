@@ -2224,6 +2224,61 @@ fn a_usage_limit_waits_for_the_reset() {
 }
 
 #[test]
+fn a_reset_used_elsewhere_reads_the_limits_so_the_wait_ends() {
+    // Not up yet, so nothing goes.
+    let mut run = Run::new("test");
+    run.connect();
+    run.take();
+    run.server.limits_lifted(&mut run.fx);
+    assert!(run.take().writes.is_empty());
+
+    let mut run = Run::started(None);
+    run.feed_all(&fixture_lines("turn-command.jsonl", 1, 5));
+    let full = json!({ "rateLimits": { "limitId": "codex", "primary": { "usedPercent": 100,
+                       "windowDurationMins": 300, "resetsAt": 1_792_939_751u64 }, "secondary": null } });
+    let error = json!({ "threadId": THREAD, "turnId": TURN_COMMAND, "willRetry": false,
+                        "error": { "message": "You've hit your usage limit.",
+                                   "codexErrorInfo": "usageLimitExceeded", "additionalDetails": null } });
+    run.feed(&notification("error", error));
+    let failed = json!({ "threadId": THREAD, "turn": { "id": TURN_COMMAND, "items": [],
+                         "status": "failed", "error": { "message": "You've hit your usage limit.",
+                         "codexErrorInfo": "usageLimitExceeded" }, "startedAt": 1_792_921_751u64,
+                         "completedAt": 1_792_921_755u64, "durationMs": 4088 } });
+    run.feed(&notification("turn/completed", failed));
+    // The read the handshake sent finds the limit full.
+    run.feed(&json!({ "id": "$account/rateLimits/read", "result": full }).to_string());
+    let fx = run.take();
+    assert!(matches!(
+        agent_update(&fx, agent()).activity,
+        Activity::WaitingForLimitReset { .. }
+    ));
+    assert_eq!(
+        last(&fx, &format!("codex:error:{TURN_COMMAND}")).status,
+        ItemStatus::Running
+    );
+
+    // A reset lands, so it reads them again, once while that read is out.
+    run.server.limits_lifted(&mut run.fx);
+    run.server.limits_lifted(&mut run.fx);
+    let fx = run.take();
+    assert_eq!(
+        sent_once(&fx, "account/rateLimits/read")["params"],
+        json!({ "excludeResetCreditDetails": true })
+    );
+    let room = json!({ "rateLimits": { "limitId": "codex", "primary": { "usedPercent": 0,
+                       "windowDurationMins": 300, "resetsAt": 1_792_957_751u64 }, "secondary": null } });
+    run.feed(&json!({ "id": "$account/rateLimits/read", "result": room }).to_string());
+    let fx = run.take();
+    let ended = last(&fx, &format!("codex:error:{TURN_COMMAND}"));
+    assert_eq!(ended.status, ItemStatus::Completed);
+    assert!(matches!(
+        agent_update(&fx, agent()).activity,
+        Activity::Idle | Activity::IdleCacheWarm { .. }
+    ));
+    assert!(sent(&fx, "turn/start").is_empty(), "nothing was queued");
+}
+
+#[test]
 fn taking_back_the_last_queued_message_stops_the_resume() {
     let mut run = Run::started(None);
     run.feed_all(&fixture_lines("turn-command.jsonl", 1, 5));

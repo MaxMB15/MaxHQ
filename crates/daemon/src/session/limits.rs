@@ -9,17 +9,18 @@
 //! that ends before its reset time, as one a turn the CLI starts by itself
 //! can end, is checked again a minute after the reset, so an agent it left
 //! idle still carries on. Cursor and other ACP agents don't say when a
-//! limit resets, so they're left alone.
+//! limit resets, so they're left alone. A banked reset you use on a Codex
+//! account brings its agents' reset time forward to now.
 
 use std::time::{Duration, Instant};
 
-use maxhq_protocol::ids::AgentId;
+use maxhq_protocol::ids::{AccountId, AgentId, SessionId};
 use maxhq_protocol::model::{Activity, Vendor};
 
 use super::held::is_busy;
 use super::recovery::LIMIT_MESSAGE;
 use super::Manager;
-use crate::drive;
+use crate::drive::{self, Effects};
 use crate::hub::Moved;
 
 /// How long after a reset the check for an agent left idle runs, so the
@@ -127,18 +128,69 @@ impl Manager {
             .map(|(lead, _)| *lead)
             .collect();
         for lead in leads {
-            let Some(held) = self.held.get_mut(&lead) else {
+            self.reset_came(lead);
+        }
+    }
+
+    /// Carries on the Codex agents a usage limit held on `account`, after
+    /// a banked reset you used there landed, as their reset time would
+    /// have: one left idle carries on now, and one still shown waiting
+    /// once its wait ends, which its app-server is asked to check now.
+    /// Only an agent whose switch, or else its device's default, says to
+    /// carry on counts. The others keep their reset time, as do other
+    /// accounts' agents.
+    pub(super) async fn reset_used(&mut self, account: AccountId) {
+        let leads: Vec<AgentId> = self
+            .held
+            .iter()
+            .filter(|(_, held)| {
+                held.account == account && held.vendor() == Vendor::Codex && held.cut_at_limit
+            })
+            .map(|(lead, _)| *lead)
+            .collect();
+        let mut servers: Vec<SessionId> = Vec::new();
+        for lead in leads {
+            if !self.continues_at_limit(lead) {
+                continue;
+            }
+            let Some(held) = self.held.get(&lead) else {
                 continue;
             };
-            held.limit_resets_at = None;
-            let activity = held.agent.activity.clone();
-            if !waits(&activity) {
-                held.cut_at_limit = false;
+            let carries_on = held.paused.is_none() && held.fault.is_none();
+            if carries_on
+                && waits(&held.agent.activity)
+                && let Some(session) = self.session_of(held)
+                && !servers.contains(&session)
+            {
+                servers.push(session);
             }
-            self.mark_dirty(lead);
-            if idle(&activity) {
-                self.carry_on(lead);
-            }
+            self.reset_came(lead);
+        }
+        for session in servers {
+            let Some(hold) = self.holds.get_mut(&session) else {
+                continue;
+            };
+            let mut fx = Effects::default();
+            hold.driver.limits_lifted(&mut fx);
+            self.apply_fx(session, fx).await;
+        }
+    }
+
+    /// Takes a held lead's limit as reset. One left idle carries on, one
+    /// still shown waiting is left to the end of its wait, and one doing
+    /// anything else went on without it.
+    fn reset_came(&mut self, lead: AgentId) {
+        let Some(held) = self.held.get_mut(&lead) else {
+            return;
+        };
+        held.limit_resets_at = None;
+        let activity = held.agent.activity.clone();
+        if !waits(&activity) {
+            held.cut_at_limit = false;
+        }
+        self.mark_dirty(lead);
+        if idle(&activity) {
+            self.carry_on(lead);
         }
     }
 

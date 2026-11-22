@@ -339,6 +339,12 @@ impl Sessions {
         let _ = self.tx.send(Input::LocalRun(account));
     }
 
+    /// Lets the agents a usage limit held on this Codex account carry on
+    /// now, after a banked reset you used there landed.
+    pub fn reset_used(&self, account: AccountId) {
+        let _ = self.tx.send(Input::ResetUsed(account));
+    }
+
     /// Runs a call another device's `maxd` sent for a caller whose home is
     /// `from`, and gives its answer. Device links call it.
     pub async fn peer_call(
@@ -674,6 +680,9 @@ enum Input {
     SignedIn(AccountId),
     /// A local model account's server changed what it shows its agents.
     LocalRun(AccountId),
+    /// A banked reset you used landed on this Codex account, so the
+    /// agents its limit held carry on now.
+    ResetUsed(AccountId),
     /// The skills in these checkouts changed.
     SkillsChanged(Vec<crate::skills::deliver::Changed>),
     /// A move's switch resumes its agent in the copy.
@@ -1286,6 +1295,7 @@ impl Manager {
             Input::RecycleCodex => self.recycle_codex(),
             Input::SignedIn(account) => self.signed_in(account).await,
             Input::LocalRun(account) => self.local_run(account),
+            Input::ResetUsed(account) => self.reset_used(account).await,
             Input::SkillsChanged(changed) => self.skills_changed(changed).await,
             Input::ResumeMoved { resume, done } => self.resume_moved(resume, done),
             Input::StopIn { workspace, done } => self.stop_in(workspace, done),

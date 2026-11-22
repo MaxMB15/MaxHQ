@@ -1383,11 +1383,18 @@ impl Connection {
             }
             // A reset can't be undone, so only the app spends one, for a
             // click you confirmed. Not a phone, whatever its switch says,
-            // and never agents' tools or a link from another device.
+            // and never agents' tools or a link from another device. A
+            // reset that lands lets the agents its limit held carry on.
             ClientMessage::UseResetCredit { key, account }
                 if matches!(self.terminal_caller(), Some(Caller::App)) =>
             {
-                let spend = crate::usage::codex::reset::use_credit(self.hub.clone(), key, account);
+                let sessions = self.sessions.clone();
+                let spend = crate::usage::codex::reset::use_credit(
+                    self.hub.clone(),
+                    key,
+                    account,
+                    move |account| sessions.reset_used(account),
+                );
                 self.answer_when(key, tokio::spawn(spend));
                 Ok(())
             }
