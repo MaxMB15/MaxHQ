@@ -395,7 +395,7 @@ describe("an open session card", () => {
 
 			expect(blockOf(found, 5)).toHaveTextContent("Waiting for you");
 			fireEvent.click(button(blockOf(found, 5), "Answer y"));
-			expect(seam.sendInput).toHaveBeenCalledExactlyOnceWith(DEVICE, "s1", "y\r");
+			expect(seam.sendInput).toHaveBeenCalledExactlyOnceWith(DEVICE, "s1", "y\r", undefined);
 		});
 	});
 

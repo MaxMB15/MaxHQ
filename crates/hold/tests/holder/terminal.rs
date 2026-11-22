@@ -831,6 +831,7 @@ pub(super) async fn a_shell_mark_needs_its_nonce_and_may_come_in_pieces(ctx: Ctx
                     at("\x1b]133;C"),
                     Mark::Command {
                         cwd: Some("/tmp/x".into()),
+                        command: None,
                     },
                 ),
                 (at("\x1b]133;D"), Mark::Done { exit: Some(7) }),
@@ -838,6 +839,7 @@ pub(super) async fn a_shell_mark_needs_its_nonce_and_may_come_in_pieces(ctx: Ctx
                     last("\x1b]133;C"),
                     Mark::Command {
                         cwd: Some("/tmp/y".into()),
+                        command: None,
                     },
                 ),
             ],

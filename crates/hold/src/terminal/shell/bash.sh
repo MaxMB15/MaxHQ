@@ -82,14 +82,79 @@ _maxhq_prompt_end() {
     _maxhq_ps1="\[\033]133;A;maxhq=$_maxhq_nonce\007\]$PS1\[\033]133;B;maxhq=$_maxhq_nonce\007\]"
     PS1=$_maxhq_ps1
   fi
+  if [ -z "$_maxhq_numbered" ]; then
+    # The first prompt, with the history read: no line from before counts
+    # as one you typed.
+    _maxhq_typed
+    _maxhq_numbered=${_maxhq_numbered:-0}
+  fi
   _maxhq_waiting=1
   return $ret
 }
 
+# The line in $1 as the start mark carries it, in _maxhq_line: its first
+# 501 characters, with `%`, `;`, control characters and every byte past
+# ASCII percent-encoded, so nothing in it can end the mark.
+_maxhq_encode() {
+  local line=${1:0:501}
+  case $line in
+    *[!\ -~]* | *[%\;]*) ;;
+    *)
+      _maxhq_line=$line
+      return 0
+      ;;
+  esac
+  local LC_ALL=C
+  local i=0 c out= hex
+  while [ "$i" -lt "${#line}" ]; do
+    c=${line:$i:1}
+    case $c in
+      [%\;])
+        builtin printf -v hex '%%%02X' "'$c"
+        out=$out$hex
+        ;;
+      [\ -~]) out=$out$c ;;
+      *)
+        builtin printf -v hex '%d' "'$c"
+        builtin printf -v hex '%%%02X' $(((hex + 256) % 256))
+        out=$out$hex
+        ;;
+    esac
+    i=$((i + 1))
+  done
+  _maxhq_line=$out
+}
+
+# The newest line in the history, as `history 1` prints it.
+_maxhq_newest() {
+  HISTTIMEFORMAT= builtin history 1
+}
+
+# The line you typed, encoded in _maxhq_line, when the history took it in
+# since the last one. The mark carries no text for a line that starts with
+# a space, as it keeps out of the history, nor when bash took none in: one
+# it ignores as a repeat, or any with the history off.
+_maxhq_typed() {
+  _maxhq_line=
+  local newest number
+  newest=$(_maxhq_newest)
+  newest=${newest#"${newest%%[![:space:]]*}"}
+  number=${newest%%[![:digit:]]*}
+  [ -n "$number" ] && [ "$number" != "$_maxhq_numbered" ] || return 0
+  _maxhq_numbered=$number
+  # The number, a space or a * for a line you changed, a space, the line.
+  newest=${newest#"$number"}
+  newest=${newest:2}
+  case $newest in
+    [[:space:]]*) return 0 ;;
+  esac
+  _maxhq_encode "$newest"
+}
+
 # Where the command starts, before the first thing bash runs from what you
-# typed, and PS1 back as it was. A command that starts with exec gets no
-# mark: a shell that takes this one's place never marks its end, so the
-# command would seem to run for good.
+# typed, with the line, and PS1 back as it was. A command that starts with
+# exec gets no mark: a shell that takes this one's place never marks its
+# end, so the command would seem to run for good.
 _maxhq_command() {
   local line=${1-}
   _maxhq_waiting=0
@@ -102,7 +167,8 @@ _maxhq_command() {
     exec | exec[[:space:]]*) return 0 ;;
   esac
   _maxhq_ran=1
-  _maxhq_mark C
+  _maxhq_typed
+  _maxhq_mark "C;$_maxhq_line"
 }
 
 # The DEBUG trap's part: bash runs it before every command, so it skips
@@ -137,6 +203,8 @@ _maxhq_take() {
 if [ -n "$_maxhq_nonce" ]; then
   _maxhq_ran=0
   _maxhq_waiting=0
+  _maxhq_numbered=
+  _maxhq_line=
   _maxhq_paged=0
   _maxhq_ps1=
   _maxhq_user_ps1=

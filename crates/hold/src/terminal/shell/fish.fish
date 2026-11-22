@@ -64,16 +64,23 @@ function _maxhq_pager_back
     end
 end
 
-# Where the command starts. A command that starts with exec gets no mark:
-# a shell that takes this one's place never marks its end, so the command
-# would seem to run for good.
+# Where the command starts, with the line you typed: its first 501
+# characters, percent-encoded so nothing in it can end the mark. A line
+# that starts with a space keeps its text to itself, as it keeps out of
+# the history. A command that starts with exec gets no mark: a shell that
+# takes this one's place never marks its end, so the command would seem to
+# run for good.
 function _maxhq_preexec --on-event fish_preexec
     _maxhq_no_pager
     if string match -qr '^\s*exec(\s|$)' -- "$argv[1]"
         return
     end
     set -g _maxhq_ran 1
-    _maxhq_mark C
+    set -l line ''
+    if not string match -qr '^\s' -- "$argv[1]"
+        set line (string sub -l 501 -- "$argv[1]" | string collect | string escape --style=url)
+    end
+    _maxhq_mark "C;$line"
 end
 
 function _maxhq_postexec --on-event fish_postexec

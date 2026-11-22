@@ -395,7 +395,7 @@ describe("a running command", () => {
 		fireEvent.change(line, { target: { value: "yes" } });
 		fireEvent.keyDown(line, { key: "Enter" });
 
-		expect(seam.sendInput).toHaveBeenCalledExactlyOnceWith(DEVICE, "t1", "yes\r");
+		expect(seam.sendInput).toHaveBeenCalledExactlyOnceWith(DEVICE, "t1", "yes\r", undefined);
 		expect(line.value).toBe("");
 
 		fireEvent.keyDown(line, { key: "c", ctrlKey: true });
@@ -416,7 +416,12 @@ describe("a running command", () => {
 		fireEvent.change(line, { target: { value: typed } });
 		fireEvent.keyDown(line, { key: "Enter" });
 
-		expect(seam.sendInput).toHaveBeenCalledExactlyOnceWith(DEVICE, "t1", `${typed}\r`);
+		expect(seam.sendInput).toHaveBeenCalledExactlyOnceWith(
+			DEVICE,
+			"t1",
+			`${typed}\r`,
+			undefined
+		);
 		seam.sendInput.mockClear();
 		line.blur();
 		expect(placesHolding(rendered, typed, logs)).toEqual([]);
@@ -455,9 +460,9 @@ describe("a command waiting for you", () => {
 		expect(line).toHaveAttribute("placeholder", "Or type a reply");
 
 		fireEvent.click(button(card, "Answer yes"));
-		expect(seam.sendInput).toHaveBeenCalledExactlyOnceWith(DEVICE, "t1", "yes\r");
+		expect(seam.sendInput).toHaveBeenCalledExactlyOnceWith(DEVICE, "t1", "yes\r", undefined);
 		fireEvent.click(button(card, "Answer no"));
-		expect(seam.sendInput).toHaveBeenLastCalledWith(DEVICE, "t1", "no\r");
+		expect(seam.sendInput).toHaveBeenLastCalledWith(DEVICE, "t1", "no\r", undefined);
 	});
 
 	it("drops the answers and the chip once it goes on", async () => {
@@ -644,7 +649,9 @@ describe("a command asking for a password", () => {
 
 		fireEvent.keyDown(field, { key: "Enter" });
 
-		expect(seam.sendInput).toHaveBeenCalledExactlyOnceWith(DEVICE, "t1", `${secret}\r`);
+		expect(seam.sendInput).toHaveBeenCalledExactlyOnceWith(DEVICE, "t1", `${secret}\r`, {
+			secret: true,
+		});
 		seam.sendInput.mockClear();
 		// A new, empty field takes its place, so no undo brings it back.
 		const fresh = within(card).getByLabelText<HTMLInputElement>("Password for sudo on Mac");
@@ -669,7 +676,9 @@ describe("a command asking for a password", () => {
 		fireEvent.change(field, { target: { value: "hunter2" } });
 		fireEvent.click(button(card, "Send"));
 
-		expect(seam.sendInput).toHaveBeenCalledExactlyOnceWith(DEVICE, "t1", "hunter2\r");
+		expect(seam.sendInput).toHaveBeenCalledExactlyOnceWith(DEVICE, "t1", "hunter2\r", {
+			secret: true,
+		});
 		expect(
 			within(card).getByLabelText<HTMLInputElement>("Password for sudo on Mac").value
 		).toBe("");

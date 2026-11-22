@@ -8,7 +8,8 @@
 // no bytes is a reset. An attach answers with the terminal's number, and a
 // record may come before that answer does, so records for a number not yet
 // known wait for it. What you type goes as a raw body, with the terminal
-// named in a header, and nothing here keeps it.
+// named in a header, and a second header when it came from a field that
+// hides it. Nothing here keeps it.
 
 import { Channel, invoke } from "@tauri-apps/api/core";
 
@@ -21,6 +22,9 @@ const HEAD = 12;
 
 /** The header that names the terminal input goes to. */
 const TERMINAL_HEADER = "maxhq-terminal";
+
+/** The header that says input came from a field that hides it. */
+const SECRET_HEADER = "maxhq-secret";
 
 /** How many records wait for an attach's answer, per number. */
 const MOST_WAITING = 256;
@@ -115,10 +119,12 @@ export const tauriStream = (
 			);
 		},
 		resize: (terminal, size) => void resize(terminal, size),
-		input: (terminal, bytes) => {
+		input: (terminal, bytes, options) => {
+			const headers: Record<string, string> = { [TERMINAL_HEADER]: terminal };
+			if (options?.secret === true) headers[SECRET_HEADER] = "1";
 			// What you type is never logged, so a failure names only the terminal.
-			invoke("terminal_input", bytes, { headers: { [TERMINAL_HEADER]: terminal } }).catch(
-				() => console.warn("Couldn't send input to terminal", terminal)
+			invoke("terminal_input", bytes, { headers }).catch(() =>
+				console.warn("Couldn't send input to terminal", terminal)
 			);
 		},
 		listen: (terminal, listener) => {

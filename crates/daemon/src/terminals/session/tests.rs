@@ -1175,6 +1175,7 @@ fn note(after: u64, start: Option<u64>) -> BlockNote {
         cwd: "~".into(),
         done: false,
         exit: None,
+        typed: false,
     }
 }
 
@@ -1205,7 +1206,8 @@ fn a_cutter_takes_the_output_between_the_commands_marks() {
             start,
             at,
             &Mark::Command {
-                cwd: Some("/w".into())
+                cwd: Some("/w".into()),
+                command: None,
             }
         ),
         Cut::Started {
@@ -1261,10 +1263,10 @@ fn a_cutter_says_when_it_lost_the_start() {
 fn a_cutter_notes_one_password_per_prompt() {
     let mut cutter = Cutter::new(&note(0, Some(0)), 80, 24);
     let at = feed(&mut cutter, 0, b"\x1b]133;C\x07Password: ");
-    cutter.secret();
-    cutter.secret();
+    cutter.secret(false);
+    cutter.secret(false);
     let at = feed(&mut cutter, at, b"\r\nPassword: ");
-    cutter.secret();
+    cutter.secret(false);
     feed(&mut cutter, at, b"\r\nok\r\n");
     let (_, _, output, secrets) = cutter.finish();
     assert_eq!(secrets, 2);
@@ -1381,7 +1383,10 @@ fn marks(open: &mut Open, marks: &[(u64, Mark)]) {
     }
 }
 
-const COMMAND: Mark = Mark::Command { cwd: None };
+const COMMAND: Mark = Mark::Command {
+    cwd: None,
+    command: None,
+};
 const DONE: Mark = Mark::Done { exit: Some(0) };
 
 #[test]
@@ -1429,14 +1434,14 @@ fn keys_typed_while_something_runs_count_at_the_next_prompt() {
     // No Enter: the shell shows it at the next prompt.
     let mut open = session_open(1, true);
     marks(&mut open, &ran);
-    open.heard_keys(b"rm -rf /tmp/x");
+    open.heard_keys(b"rm -rf /tmp/x", false);
     marks(&mut open, &next);
     assert!(matches!(open.shell_look(), Look::Stop(NotNow::Typed)));
 
     // With Enter: the next prompt runs it, so the session waits for it.
     let mut open = session_open(1, true);
     marks(&mut open, &ran);
-    open.heard_keys(b"echo ahead\r");
+    open.heard_keys(b"echo ahead\r", false);
     marks(&mut open, &next);
     assert!(matches!(
         open.shell_look(),
@@ -1453,7 +1458,7 @@ fn keys_typed_while_something_runs_count_at_the_next_prompt() {
     // What ran read it instead: nothing starts, and the wait runs out.
     let mut open = session_open(1, true);
     marks(&mut open, &ran);
-    open.heard_keys(b"y\r");
+    open.heard_keys(b"y\r", false);
     marks(&mut open, &next);
     assert!(matches!(open.shell_look(), Look::Ending(_)));
     open.keys.queued_at = (open.keys.queued_at).and_then(|at| at.checked_sub(AHEAD_WAIT));
@@ -1464,8 +1469,8 @@ fn keys_typed_while_something_runs_count_at_the_next_prompt() {
     // Ctrl-C while something runs drops what waits.
     let mut open = session_open(1, true);
     marks(&mut open, &ran);
-    open.heard_keys(b"ls\rgit st");
-    open.heard_keys(&[0x03]);
+    open.heard_keys(b"ls\rgit st", false);
+    open.heard_keys(&[0x03], false);
     marks(&mut open, &next);
     assert!(matches!(open.shell_look(), Look::Ready));
 
@@ -1473,7 +1478,7 @@ fn keys_typed_while_something_runs_count_at_the_next_prompt() {
     let mut open = session_open(1, true);
     marks(&mut open, &ran);
     open.entity.password_prompt = true;
-    open.heard_keys(b"hunter2\r");
+    open.heard_keys(b"hunter2\r", false);
     assert!(!open.keys.sent && !open.keys.line && open.keys.ahead == 0);
 }
 
@@ -1505,3 +1510,5 @@ fn a_line_the_shell_waits_for_more_of_ends_cancelled() {
     ));
     assert!(!cutter.waiting_for_more());
 }
+
+mod typed;

@@ -204,6 +204,11 @@ pub(super) struct SessionNote {
     /// Whether its shell has shown a marked prompt.
     #[serde(default)]
     pub(super) prompted: bool,
+    /// Where the last start mark `maxd` took in begins, so one the link
+    /// sends again isn't a new command you typed. None in a note from a
+    /// `maxd` before typed blocks.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(super) typed_to: Option<u64>,
 }
 
 /// A block that runs, as its note keeps it.
@@ -224,6 +229,9 @@ pub(super) struct BlockNote {
     pub(super) done: bool,
     #[serde(default)]
     pub(super) exit: Option<i32>,
+    /// Whether you typed it by hand at the session's prompt.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub(super) typed: bool,
 }
 
 /// What you typed into a session's terminal, as far as whether a command
@@ -676,11 +684,13 @@ impl Terminals {
             cwd: cwd.clone(),
             done: false,
             exit: None,
+            typed: false,
         };
         session.current = Some(block.clone());
         self.save(terminal, &open.note);
         let (secrets, secrets_rx) = mpsc::unbounded_channel();
         open.block = Some((block.id, secrets));
+        open.sent_at = Some(after);
         let (cols, rows) = (open.entity.cols, open.entity.rows);
         // The manager hears of the block before anything about it.
         self.note(RunNote::Session {
@@ -718,6 +728,9 @@ impl Terminals {
         let (secrets, secrets_rx) = mpsc::unbounded_channel();
         if let Some(open) = self.lock().get_mut(&terminal) {
             open.block = Some((block.id, secrets));
+            // A start this `maxd` hears is the block's, when none came
+            // before it went.
+            open.sent_at = (!block.typed && block.start.is_none()).then_some(block.after);
         }
         tokio::spawn(self.clone().follow_block(
             terminal,
@@ -731,12 +744,12 @@ impl Terminals {
 
     /// Cuts a block's output from the session's terminal, and tells the
     /// manager when the command starts and how it ended.
-    async fn follow_block(
+    pub(super) async fn follow_block(
         self,
         terminal: TerminalId,
         agent: AgentId,
         block: BlockNote,
-        mut secrets: mpsc::UnboundedReceiver<()>,
+        mut secrets: mpsc::UnboundedReceiver<bool>,
         cols: u16,
         rows: u16,
     ) {
@@ -819,7 +832,7 @@ impl Terminals {
                             }
                         }
                         secret = secrets.recv(), if secrets_open => match secret {
-                            Some(()) => cutter.secret(),
+                            Some(echoes) => cutter.secret(echoes),
                             None => secrets_open = false,
                         },
                         () = until(more) => {
@@ -1033,7 +1046,8 @@ impl Open {
         if let Some(block) =
             (session.and_then(|session| session.current.as_ref())).filter(|block| !block.done)
         {
-            let busy = NotNow::Busy(Some(block.command.clone()));
+            // A line you typed stays yours, even in a refusal.
+            let busy = NotNow::Busy((!block.typed).then(|| block.command.clone()));
             // The shell showed a new prompt with nothing started: the
             // block ends in a moment, with no code.
             let ending = last.is_some_and(|last| {
@@ -1090,18 +1104,22 @@ impl Open {
     }
 
     /// Takes in keys you typed into the session, as far as what they leave
-    /// at its prompt, or that a password went when one waited. Keys typed
-    /// while something runs count too: the shell reads them next.
-    pub(super) fn heard_keys(&mut self, data: &[u8]) {
-        if self.entity.password_prompt {
-            // The secret goes at Enter. A prompt that reads each key gets
-            // the rest before it.
-            let sent = data.iter().any(|&byte| matches!(byte, b'\r' | b'\n'));
-            if let Some((_, secrets)) = &self.block
-                && sent
-            {
-                let _ = secrets.send(());
-            }
+    /// at its prompt, or that a password went when one waited or you sent
+    /// them as a secret. Keys typed while something runs count too: the
+    /// shell reads them next.
+    pub(super) fn heard_keys(&mut self, data: &[u8], secret: bool) {
+        let hidden = self.entity.password_prompt;
+        // The secret goes at Enter. A prompt that reads each key gets the
+        // rest before it.
+        let sent = data.iter().any(|&byte| matches!(byte, b'\r' | b'\n'));
+        if let Some((_, secrets)) = &self.block
+            && sent
+            && (hidden || secret)
+        {
+            // A prompt that shows what you type echoes the secret.
+            let _ = secrets.send(!hidden);
+        }
+        if hidden {
             return;
         }
         let busy = self.entity.busy || self.block.is_some();
@@ -1258,6 +1276,9 @@ struct Cutter {
     prompt_at: Option<u64>,
     /// Whether `maxd` cancelled the line, as the shell waited for more.
     cancelled: bool,
+    /// Whether the echo of a secret you sent, up to the line's end, has
+    /// yet to come.
+    echo: bool,
 }
 
 impl Cutter {
@@ -1282,6 +1303,7 @@ impl Cutter {
             input_at: None,
             prompt_at: None,
             cancelled: false,
+            echo: false,
         }
     }
 
@@ -1298,6 +1320,10 @@ impl Cutter {
         };
         if let Phase::Ended { .. } = self.phase {
             self.next = end;
+            return;
+        }
+        let (offset, data) = self.past_echo(offset, data);
+        if data.is_empty() {
             return;
         }
         if offset > self.next {
@@ -1330,7 +1356,7 @@ impl Cutter {
 
     fn mark(&mut self, offset: u64, at: Timestamp, mark: &Mark) -> Cut {
         match (&self.phase, mark) {
-            (Phase::Waiting, Mark::Command { cwd }) if offset > self.after => {
+            (Phase::Waiting, Mark::Command { cwd, .. }) if offset > self.after => {
                 self.skip_to(offset);
                 self.phase = Phase::Running { start: offset };
                 self.cancelled = false;
@@ -1430,8 +1456,9 @@ impl Cutter {
         self.noted = false;
     }
 
-    /// Notes a password you sent, once per prompt.
-    fn secret(&mut self) {
+    /// Notes a password you sent, once per prompt. When the prompt
+    /// `echoes` what you type, the echo up to the line's end stays out.
+    fn secret(&mut self, echoes: bool) {
         if !matches!(self.phase, Phase::Running { .. }) || self.noted {
             return;
         }
@@ -1439,6 +1466,25 @@ impl Cutter {
         self.emulator.note(maxhq_term::SECRET_SENT);
         self.secrets += 1;
         self.noted = true;
+        self.echo = echoes;
+    }
+
+    /// What of `data`, at `offset`, comes after the echo of a secret you
+    /// sent, and where it starts. The echo goes, with what was held before
+    /// it rendered first.
+    fn past_echo<'a>(&mut self, offset: u64, data: &'a [u8]) -> (u64, &'a [u8]) {
+        if !self.echo || !matches!(self.phase, Phase::Running { .. }) {
+            return (offset, data);
+        }
+        let end = data.iter().position(|byte| matches!(byte, b'\r' | b'\n'));
+        self.echo = end.is_none();
+        let echoed = end.unwrap_or(data.len());
+        self.feed_to(self.next);
+        let after = offset + echoed as u64;
+        self.buf.clear();
+        self.buf_at = after;
+        self.next = after;
+        (after, &data[echoed..])
     }
 
     fn exit(&self) -> Option<i32> {

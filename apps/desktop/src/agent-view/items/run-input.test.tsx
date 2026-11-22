@@ -122,7 +122,7 @@ describe("the reply line", () => {
 
 		act(() => field.focus());
 		fireEvent.keyDown(field, { key: "Enter" });
-		expect(onSend).toHaveBeenCalledExactlyOnceWith("half\r");
+		expect(onSend).toHaveBeenCalledExactlyOnceWith("half\r", { secret: true });
 		const fresh = hidden();
 		expect(fresh).not.toBe(field);
 		expect(field.isConnected).toBe(false);

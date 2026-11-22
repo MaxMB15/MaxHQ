@@ -5,6 +5,12 @@
 //! the hooks in `shell.rs` print them: `A` where the prompt starts, `B`
 //! where what you type starts, `C` where the command starts and `D;<exit>`
 //! where it ended. Each carries the terminal's nonce as `maxhq=<nonce>`.
+//! A `C` may carry the command line as `C;<line>`, percent-encoded so it
+//! holds no `;`, `%`, control or non-ASCII byte. The holder decodes it,
+//! drops any control character but the line break, cuts it at
+//! [`MAX_COMMAND`] characters and hides what it sets for a name that reads
+//! like a secret, so the line it keeps is safe to show. A line with a
+//! leading space, as the shell history leaves out, comes with none.
 //!
 //! The holder reads them out of the output before it keeps it. A mark with
 //! the right nonce goes on in the standard form, without the nonce, and
@@ -18,8 +24,13 @@
 //! the next read.
 
 /// The longest 133 body kept: past it, the sequence can't be a mark and
-/// goes nowhere through its end.
-const MAX_BODY: usize = 128;
+/// goes nowhere through its end. A `C` with its line takes the most: up to
+/// 501 characters of four bytes each, each byte as `%XX`.
+const MAX_BODY: usize = 8 * 1024;
+
+/// The most characters of a command line a `C` mark keeps. A longer line
+/// keeps one less and ends in `…`.
+pub const MAX_COMMAND: usize = 500;
 
 /// The most digits read after an OSC introducer, leading zeros and all.
 /// Past it, a number that still reads as 133 or less goes nowhere.
@@ -49,6 +60,13 @@ pub enum Mark {
         /// The folder the shell said last before it, which is where the
         /// command starts.
         cwd: Option<String>,
+        /// The command line as the shell said it, safe to show: at most
+        /// [`MAX_COMMAND`] characters, no control character but the line
+        /// break, and `•••` for a value set for a name that reads like a
+        /// secret. None when the shell didn't say, as for a line with a
+        /// leading space, and from a holder before it said any.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        command: Option<String>,
     },
     /// The command ended.
     Done {
@@ -58,11 +76,12 @@ pub enum Mark {
 }
 
 /// A mark as it reads in the output, before the holder adds the folder.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum Kind {
     Prompt,
     Input,
-    Command,
+    /// With the command line, safe to show, when the shell said it.
+    Command(Option<String>),
     Done(Option<i32>),
 }
 
@@ -72,19 +91,20 @@ impl Kind {
         match self {
             Self::Prompt => Mark::Prompt,
             Self::Input => Mark::Input,
-            Self::Command => Mark::Command {
+            Self::Command(command) => Mark::Command {
                 cwd: cwd.map(str::to_owned),
+                command,
             },
             Self::Done(exit) => Mark::Done { exit },
         }
     }
 
-    /// The mark in the standard form, without the nonce.
-    fn standard(self) -> Vec<u8> {
+    /// The mark in the standard form, without the nonce or the line.
+    fn standard(&self) -> Vec<u8> {
         match self {
             Self::Prompt => b"\x1b]133;A\x07".to_vec(),
             Self::Input => b"\x1b]133;B\x07".to_vec(),
-            Self::Command => b"\x1b]133;C\x07".to_vec(),
+            Self::Command(_) => b"\x1b]133;C\x07".to_vec(),
             Self::Done(None) => b"\x1b]133;D\x07".to_vec(),
             Self::Done(Some(exit)) => format!("\x1b]133;D;{exit}\x07").into_bytes(),
         }
@@ -250,8 +270,9 @@ impl Filter {
                     Some(kind) => {
                         self.held.clear();
                         out.append(&mut self.controls);
+                        let standard = kind.standard();
                         marks.push((out.len(), kind));
-                        out.extend_from_slice(&kind.standard());
+                        out.extend_from_slice(&standard);
                     }
                     None => self.drop_held(out),
                 }
@@ -309,7 +330,8 @@ impl Filter {
         match parts {
             [b"A"] => Some(Kind::Prompt),
             [b"B"] => Some(Kind::Input),
-            [b"C"] => Some(Kind::Command),
+            [b"C"] => Some(Kind::Command(None)),
+            [b"C", line] => Some(Kind::Command(command_line(line))),
             [b"D"] => Some(Kind::Done(None)),
             [b"D", exit] => std::str::from_utf8(exit)
                 .ok()?
@@ -344,6 +366,63 @@ impl Filter {
             }
         }
     }
+}
+
+/// The command line a `C` mark carries, percent-encoded, as it's safe to
+/// show: decoded, with no control character but the line break, a tab as
+/// a space, no character that turns text around or hides, cut at
+/// [`MAX_COMMAND`] characters and with what it sets for a name that reads
+/// like a secret hidden. None when nothing's left.
+fn command_line(encoded: &[u8]) -> Option<String> {
+    let mut bytes = Vec::with_capacity(encoded.len());
+    let mut at = 0;
+    while let Some(&byte) = encoded.get(at) {
+        let hex = |at: usize| {
+            encoded
+                .get(at)
+                .and_then(|digit| (*digit as char).to_digit(16))
+        };
+        if byte == b'%'
+            && let (Some(high), Some(low)) = (hex(at + 1), hex(at + 2))
+        {
+            // Two hex digits make at most 0xff.
+            bytes.push((high * 16 + low) as u8);
+            at += 3;
+        } else {
+            bytes.push(byte);
+            at += 1;
+        }
+    }
+    let decoded = String::from_utf8_lossy(&bytes);
+    let mut line = String::with_capacity(decoded.len());
+    let mut count = 0;
+    let mut longer = false;
+    for c in decoded.chars() {
+        let c = match c {
+            '\t' => ' ',
+            '\n' => '\n',
+            '\u{200b}'..='\u{200f}'
+            | '\u{202a}'..='\u{202e}'
+            | '\u{2066}'..='\u{2069}'
+            | '\u{feff}' => {
+                continue;
+            }
+            c if c.is_control() => continue,
+            c => c,
+        };
+        if count == MAX_COMMAND {
+            longer = true;
+            break;
+        }
+        line.push(c);
+        count += 1;
+    }
+    let mut line = line.trim().to_owned();
+    if longer {
+        line.pop();
+        line.push('…');
+    }
+    (!line.is_empty()).then(|| maxhq_term::mask_secrets(&line))
 }
 
 /// Whether the terminal skips `byte` inside an OSC: a C0 control but for
@@ -399,13 +478,13 @@ mod tests {
             text(&out),
             "\x1b]133;A\x07$ \x1b]133;B\x07ls\r\n\x1b]133;C\x07\x1b\\a b\r\n\x1b]133;D;2\x07"
         );
-        let kinds: Vec<_> = marks.iter().map(|(_, kind)| *kind).collect();
+        let kinds: Vec<_> = marks.iter().map(|(_, kind)| kind.clone()).collect();
         assert_eq!(
             kinds,
             [
                 Kind::Prompt,
                 Kind::Input,
-                Kind::Command,
+                Kind::Command(None),
                 Kind::Done(Some(2))
             ]
         );
@@ -495,5 +574,88 @@ mod tests {
         assert_eq!(text(&filter(&[&long]).0), "after");
         let zeros = [&b"\x1b]"[..], &[b'0'; MAX_ID * 2], b"133;A\x07after"].concat();
         assert_eq!(text(&filter(&[&zeros]).0), "after");
+    }
+
+    /// The line a `C` mark with `encoded` after it carries.
+    fn line_of(encoded: &str) -> Option<String> {
+        let mark = format!("\x1b]133;C;{encoded};maxhq={NONCE}\x07");
+        let (out, marks) = filter(&[mark.as_bytes()]);
+        assert_eq!(text(&out), "\x1b]133;C\x07", "the line never goes out");
+        match marks.as_slice() {
+            [(0, Kind::Command(line))] => line.clone(),
+            other => panic!("expected one command mark, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn a_command_mark_carries_its_line_decoded() {
+        assert_eq!(line_of("ls%20-la").as_deref(), Some("ls -la"));
+        assert_eq!(
+            line_of("echo%20%22a%3Bb%22%20%25%20caf%C3%A9").as_deref(),
+            Some("echo \"a;b\" % café")
+        );
+        // A line break stays, a tab reads as a space, and other controls,
+        // escapes and characters that turn text around go.
+        assert_eq!(
+            line_of("for%20f%20in%20*%0A%09do%20x%1B%5B31m%07%E2%80%AE%C2%9B").as_deref(),
+            Some("for f in *\n do x[31m")
+        );
+        // A `%` that starts no code stays as it is.
+        assert_eq!(line_of("printf%20%zz%2").as_deref(), Some("printf %zz%2"));
+        // Nothing to say, or only spaces, says nothing.
+        assert_eq!(line_of(""), None);
+        assert_eq!(line_of("%20%20"), None);
+        // What it sets for a name that reads like a secret hides.
+        assert_eq!(
+            line_of("export%20GH_TOKEN%3Dabc123").as_deref(),
+            Some("export GH_TOKEN=•••")
+        );
+    }
+
+    #[test]
+    fn a_long_line_is_cut_with_an_ellipsis() {
+        let at_cap = "x".repeat(MAX_COMMAND);
+        assert_eq!(line_of(&at_cap), Some(at_cap.clone()));
+        // A shell sends one more than the cap for a line that goes on.
+        let over = "é".repeat(MAX_COMMAND + 1);
+        let encoded = "%C3%A9".repeat(MAX_COMMAND + 1);
+        let line = line_of(&encoded).unwrap();
+        assert_eq!(line.chars().count(), MAX_COMMAND);
+        assert!(line.ends_with("é…") && over.starts_with(line.trim_end_matches('…')));
+        // The widest line a shell sends still fits a mark.
+        let widest = "%F0%9F%98%80".repeat(MAX_COMMAND + 1);
+        assert_eq!(line_of(&widest).unwrap().chars().count(), MAX_COMMAND);
+    }
+
+    #[test]
+    fn a_line_cant_forge_a_mark_or_end_one() {
+        // Without the nonce, a line goes nowhere, however it's written.
+        for bad in [
+            &b"\x1b]133;C;ls;maxhq=ffff\x07"[..],
+            b"\x1b]133;C;ls\x07",
+            b"\x1b]133;C;a;b;maxhq=0123abcd\x07",
+        ] {
+            let (out, marks) = filter(&[b"<", bad, b">"]);
+            assert_eq!(
+                (text(&out), marks),
+                ("<>".into(), Vec::new()),
+                "{}",
+                text(bad)
+            );
+        }
+        // An encoded `;maxhq=` in a line is part of the line, and the mark
+        // still needs the nonce last.
+        assert_eq!(
+            line_of("x%3Bmaxhq=0123abcd").as_deref(),
+            Some("x;maxhq=0123abcd")
+        );
+        // Raw controls in the body are skipped as the terminal skips them,
+        // and an encoded ESC or BEL can't end the mark early.
+        let (out, marks) = filter(&[b"\x1b]133;C;a\x01b%1B%5D133%3BA%07;maxhq=0123abcd\x07after"]);
+        assert_eq!(text(&out), "\x1b]133;C\x07after");
+        assert_eq!(marks, [(0, Kind::Command(Some("ab]133;A".into())))]);
+        // A body past the most a mark holds goes nowhere.
+        let long = format!("\x1b]133;C;{};maxhq={NONCE}\x07after", "x".repeat(MAX_BODY));
+        assert_eq!(filter(&[long.as_bytes()]), (b"after".to_vec(), Vec::new()));
     }
 }

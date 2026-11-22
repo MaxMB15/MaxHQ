@@ -86,9 +86,17 @@ pub struct SessionBlock {
     /// The folder the shell was in once it ended, when the command moved
     /// it, as the device writes it.
     pub cwd_after: Option<String>,
-    /// Whether it's kept from the agent: you ran it with `!!`, or switched
-    /// it to private.
+    /// Whether it's kept from the agent: you ran it with `!!`, typed it in
+    /// the session's terminal, or switched it to private.
     pub private: bool,
+    /// Whether you typed it by hand in the session's terminal rather than
+    /// sending it with `!`. Such a block starts private, and its command
+    /// shows each value set for a name that reads like a secret as `•••`.
+    /// False from a `maxd` before [`crate::message::TYPED_BLOCKS_SINCE`],
+    /// which records none, and an older client shows it as any other
+    /// private block.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub typed: bool,
     /// Whether it still runs, and its exit code once it ended. A session
     /// reports no signals, and a command it lost track of, such as one
     /// running when its shell ended, ends with no code.
@@ -674,6 +682,7 @@ mod tests {
             cwd: "~/code/example-app".into(),
             cwd_after: None,
             private: false,
+            typed: false,
             process: TerminalStatus::Running,
             started_at: Timestamp(1_793_368_920_000),
             duration_ms: None,
@@ -714,6 +723,12 @@ mod tests {
                         secret_prompts: 1,
                         start: Some(2_048),
                         ..block(2, "sudo systemctl restart nginx")
+                    },
+                    SessionBlock {
+                        private: true,
+                        typed: true,
+                        start: Some(4_096),
+                        ..block(3, "export GH_TOKEN=•••")
                     },
                 ],
                 sealed: false,
@@ -764,6 +779,22 @@ mod tests {
                         "output_truncated": false,
                         "secret_prompts": 1,
                         "start": 2_048,
+                    },
+                    {
+                        "id": 3,
+                        "command": "export GH_TOKEN=•••",
+                        "cwd": "~/code/example-app",
+                        "cwd_after": null,
+                        "private": true,
+                        "typed": true,
+                        "process": { "state": "running" },
+                        "started_at": 1_793_368_920_000u64,
+                        "duration_ms": null,
+                        "lines": 0,
+                        "output": "",
+                        "output_truncated": false,
+                        "secret_prompts": 0,
+                        "start": 4_096,
                     },
                 ],
                 "sealed": false,

@@ -161,6 +161,11 @@ impl Manager {
                 block,
                 change,
             } => self.block_note(agent, terminal, block, change),
+            RunNote::Typed {
+                agent,
+                terminal,
+                block,
+            } => self.typed_block(agent, terminal, block),
         }
     }
 

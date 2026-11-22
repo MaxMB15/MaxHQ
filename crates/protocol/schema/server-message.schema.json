@@ -16688,7 +16688,7 @@
           "type": "boolean"
         },
         "private": {
-          "description": "Whether it's kept from the agent: you ran it with `!!`, or switched\nit to private.",
+          "description": "Whether it's kept from the agent: you ran it with `!!`, typed it in\nthe session's terminal, or switched it to private.",
           "type": "boolean"
         },
         "process": {
@@ -16713,6 +16713,10 @@
         "started_at": {
           "description": "When it started.",
           "$ref": "#/$defs/Timestamp"
+        },
+        "typed": {
+          "description": "Whether you typed it by hand in the session's terminal rather than\nsending it with `!`. Such a block starts private, and its command\nshows each value set for a name that reads like a secret as `•••`.\nFalse from a `maxd` before [`crate::message::TYPED_BLOCKS_SINCE`],\nwhich records none, and an older client shows it as any other\nprivate block.",
+          "type": "boolean"
         }
       },
       "required": [

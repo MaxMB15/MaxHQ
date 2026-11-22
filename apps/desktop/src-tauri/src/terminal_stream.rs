@@ -26,6 +26,9 @@ pub const COMMANDS: [&str; 3] = ["terminal_attach", "terminal_detach", "terminal
 /// The header that names the terminal input goes to.
 const TERMINAL_HEADER: &str = "maxhq-terminal";
 
+/// The header that says the input came from a secret field, when it's `1`.
+const SECRET_HEADER: &str = "maxhq-secret";
+
 /// The window's terminal channel as the page names it.
 type RecordChannelName = ChannelName<Vec<u8>>;
 
@@ -58,7 +61,8 @@ pub async fn terminal_detach(
     Ok(())
 }
 
-/// Sends the bytes in the body to the terminal the header names.
+/// Sends the bytes in the body to the terminal the header names, as a
+/// secret line when the secret header says so.
 #[tauri::command]
 pub async fn terminal_input(app: State<'_, App>, request: Request<'_>) -> Result<(), String> {
     let InvokeBody::Raw(bytes) = request.body() else {
@@ -70,7 +74,11 @@ pub async fn terminal_input(app: State<'_, App>, request: Request<'_>) -> Result
         .and_then(|value| value.to_str().ok())
         .and_then(|value| value.parse::<TerminalId>().ok())
         .ok_or_else(|| format!("Terminal input needs the terminal in {TERMINAL_HEADER}"))?;
-    app.terminal_input(terminal, bytes.clone())
+    let secret = request
+        .headers()
+        .get(SECRET_HEADER)
+        .is_some_and(|value| value.as_bytes() == b"1");
+    app.terminal_input(terminal, bytes.clone(), secret)
         .await
         .map_err(|error| error.to_string())
 }

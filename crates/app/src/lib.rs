@@ -197,13 +197,16 @@ impl<C: Connector> App<C> {
         self.devices.detach_terminal(window, terminal).await;
     }
 
-    /// Sends what you typed into a terminal. Nothing keeps it.
+    /// Sends what you typed into a terminal. Nothing keeps it. A `secret`
+    /// line came from a secret field, so the device records only that a
+    /// secret went, when it reads that.
     pub async fn terminal_input(
         &self,
         terminal: TerminalId,
         bytes: Vec<u8>,
+        secret: bool,
     ) -> Result<(), CommandError> {
-        self.devices.terminal_input(terminal, bytes).await
+        self.devices.terminal_input(terminal, bytes, secret).await
     }
 
     /// Lets go of the timelines, runs and terminals a window watched, once

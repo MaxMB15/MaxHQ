@@ -482,7 +482,9 @@ const Block = ({
 			) : null}
 			{acts && running && !asking ? (
 				<InputRow
-					onSend={(data) => actions.sendInput(item.device, item.terminal, data)}
+					onSend={(data, options) =>
+						actions.sendInput(item.device, item.terminal, data, options)
+					}
 					onInterrupt={stop}
 					choices={waiting ? terminal?.choices : undefined}
 					appCursor={terminal?.app_cursor === true}
@@ -495,7 +497,9 @@ const Block = ({
 						program: programOf(block.command),
 						device,
 					})}
-					onSend={(data) => actions.sendInput(item.device, item.terminal, data)}
+					onSend={(data, options) =>
+						actions.sendInput(item.device, item.terminal, data, options)
+					}
 					takeFocus={takeFocus}
 				/>
 			) : null}

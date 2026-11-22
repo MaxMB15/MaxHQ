@@ -160,8 +160,11 @@ export const InputRow = ({
 	appCursor = false,
 	waiting = false,
 }: {
-	/** Types the line and its Enter into the command. */
-	onSend: (data: string) => void;
+	/**
+	 * Types the line and its Enter into the command, as a secret when you
+	 * locked the line.
+	 */
+	onSend: (data: string, options?: { readonly secret: boolean }) => void;
 	/** Control-C in the field, with no text picked. */
 	onInterrupt: () => void;
 	/** The answers the prompt the command waits at offers, as you type them. */
@@ -182,7 +185,9 @@ export const InputRow = ({
 	const send = (key: string) => {
 		const input = field.current;
 		if (!input) return;
-		onSend(`${input.value}${key}`);
+		const text = `${input.value}${key}`;
+		if (locked) onSend(text, { secret: true });
+		else onSend(text);
 		input.value = "";
 		if (locked) next(input);
 	};
@@ -340,8 +345,8 @@ export const PasswordField = ({
 }: {
 	/** What the field asks for, such as "Password for sudo on devbox". */
 	label: string;
-	/** Types the password and its Enter into the command. */
-	onSend: (data: string) => void;
+	/** Types the password and its Enter into the command, as a secret. */
+	onSend: (data: string, options: { readonly secret: boolean }) => void;
 	/** Whether it takes focus when it shows, for a command this window started. */
 	takeFocus?: boolean;
 }) => {
@@ -353,7 +358,7 @@ export const PasswordField = ({
 	const send = () => {
 		const input = field.current;
 		if (!input) return;
-		onSend(`${input.value}\r`);
+		onSend(`${input.value}\r`, { secret: true });
 		input.value = "";
 		next(input);
 	};

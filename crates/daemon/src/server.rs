@@ -355,6 +355,9 @@ enum Incoming {
         terminal: TerminalId,
         /// The bytes, which nothing logs.
         data: Vec<u8>,
+        /// Whether they came from a secret field, so a record of them
+        /// says only that a secret went.
+        secret: bool,
     },
 }
 
@@ -597,10 +600,15 @@ impl Connection {
                         return Ok(incoming);
                     }
                 }
-                Ok(Some(Frame::TerminalInput { terminal, bytes })) => {
+                Ok(Some(Frame::TerminalInput {
+                    terminal,
+                    bytes,
+                    secret,
+                })) => {
                     incoming.push(Incoming::TerminalInput {
                         terminal,
                         data: bytes.to_vec(),
+                        secret,
                     });
                 }
                 Ok(Some(Frame::TerminalOutput { .. })) => {
@@ -653,12 +661,16 @@ impl Connection {
                 }
                 return Ok(());
             }
-            Incoming::TerminalInput { terminal, data } => {
+            Incoming::TerminalInput {
+                terminal,
+                data,
+                secret,
+            } => {
                 if !self.greeted {
                     debug!(%terminal, "dropped terminal input from before hello");
                     return Ok(());
                 }
-                return self.terminal_input(terminal, data).await;
+                return self.terminal_input(terminal, data, secret).await;
             }
         };
         let fresh = std::mem::replace(&mut self.fresh, false);

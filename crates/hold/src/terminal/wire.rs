@@ -47,8 +47,14 @@ pub(crate) enum ToHolder {
         #[serde(default)]
         modes: bool,
     },
-    /// Bytes for the terminal to read.
-    Input { data: Typed },
+    /// Bytes for the terminal to read. `secret` says you typed them as a
+    /// secret, so a run's transcript notes that a password went, as at a
+    /// prompt that hides what you type. A holder from before it reads none.
+    Input {
+        data: Typed,
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        secret: bool,
+    },
     /// A new window size.
     Resize { cols: u16, rows: u16 },
     /// Ctrl-C.
@@ -211,13 +217,24 @@ mod tests {
 
         let input = ToHolder::Input {
             data: Typed(b"hunter2\n".to_vec()),
+            secret: false,
         };
         let line = serde_json::to_string(&input).unwrap();
         assert_eq!(line, r#"{"type":"input","data":"aHVudGVyMgo="}"#);
-        let ToHolder::Input { data } = serde_json::from_str(&line).unwrap() else {
+        let ToHolder::Input { data, secret } = serde_json::from_str(&line).unwrap() else {
             panic!("not input: {line}");
         };
-        assert_eq!(data.0, b"hunter2\n");
-        assert_eq!(format!("{input:?}"), "Input { data: Typed }");
+        assert_eq!(
+            (data.0.as_slice(), secret),
+            (b"hunter2\n".as_slice(), false)
+        );
+        assert_eq!(format!("{input:?}"), "Input { data: Typed, secret: false }");
+        // A secret line says so, and a holder from before reads it as any.
+        let secret = ToHolder::Input {
+            data: Typed(b"x\r".to_vec()),
+            secret: true,
+        };
+        let line = serde_json::to_string(&secret).unwrap();
+        assert_eq!(line, r#"{"type":"input","data":"eA0=","secret":true}"#);
     }
 }

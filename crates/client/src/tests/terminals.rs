@@ -22,8 +22,9 @@ impl FakeMaxd {
     async fn input(&mut self) -> (TerminalId, Vec<u8>) {
         let mut buf = [0; 4096];
         loop {
-            if let Some(Frame::TerminalInput { terminal, bytes }) =
-                self.decoder.next_frame().unwrap()
+            if let Some(Frame::TerminalInput {
+                terminal, bytes, ..
+            }) = self.decoder.next_frame().unwrap()
             {
                 return (terminal, bytes.to_vec());
             }
@@ -91,7 +92,7 @@ async fn a_terminal_streams_takes_input_and_attaches_again_after_a_reconnect() {
     // Input goes in frames of at most a chunk each. The test compares it
     // without printing it.
     let typed = vec![b'x'; MAX_TERMINAL_CHUNK + 10];
-    handle.terminal_input(shell, &typed).await.unwrap();
+    handle.terminal_input(shell, &typed, false).await.unwrap();
     let (first, head) = maxd.input().await;
     let (second, tail) = maxd.input().await;
     assert!(first == shell && second == shell, "both went to the shell");
@@ -107,7 +108,7 @@ async fn a_terminal_streams_takes_input_and_attaches_again_after_a_reconnect() {
         connecting(ConnectStep::Dialing, 1)
     );
     assert_eq!(
-        handle.terminal_input(shell, b"y").await,
+        handle.terminal_input(shell, b"y", false).await,
         Err(LinkError::NotConnected),
         "input waits for nothing"
     );

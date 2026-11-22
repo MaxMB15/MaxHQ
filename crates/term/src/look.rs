@@ -20,7 +20,7 @@ pub struct Look {
 }
 
 /// Words that ask for something to keep to yourself.
-const SECRET_WORDS: &[&str] = &[
+pub(crate) const SECRET_WORDS: &[&str] = &[
     "password",
     "passwd",
     "passphrase",

@@ -933,3 +933,212 @@ async fn the_manager_lets_go_of_cards_and_blocks_it_no_longer_needs() {
     assert_eq!(outcome, ActionOutcome::Done);
     remembers(&h, agent, (None, 0)).await;
 }
+
+/// Block `id` of a session, for a line you typed at its prompt, as the
+/// terminals say it started.
+fn typed(id: u32, command: &str) -> SessionBlock {
+    SessionBlock {
+        id,
+        command: command.into(),
+        cwd: FOLDER.into(),
+        cwd_after: None,
+        private: true,
+        typed: true,
+        process: TerminalStatus::Running,
+        started_at: Timestamp::now(),
+        duration_ms: None,
+        lines: 0,
+        output: String::new(),
+        output_truncated: false,
+        secret_prompts: 0,
+        start: Some(4096 + u64::from(id)),
+    }
+}
+
+#[tokio::test]
+async fn a_line_you_typed_joins_the_open_card_private_and_raises_nothing() {
+    let mut h = Harness::new();
+    let (agent, _) = h.start_claude(None).await;
+    reset(h.open(agent, None, 50).await);
+    let terminal = TerminalId::generate();
+    let item = h.wrote(agent, terminal, 1, "cd apps/web", false).await;
+    let before = h.agent(agent);
+
+    h.fakes.terminals.note(RunNote::Typed {
+        agent,
+        terminal,
+        block: typed(2, "export DEBUG=cues"),
+    });
+    eventually("the line in the card", || {
+        card_of(&h.session_card(agent, &item)).0.len() == 2
+    })
+    .await;
+    h.block_ended(agent, terminal, 2, Timestamp::now(), "");
+    eventually("its end", || {
+        let card = h.session_card(agent, &item);
+        matches!(card_of(&card).0[1].process, TerminalStatus::Exited { .. })
+    })
+    .await;
+    let card = h.session_card(agent, &item);
+    let block = &card_of(&card).0[1];
+    assert!(block.private && block.typed, "{block:?}");
+    assert_eq!(block.command, "export DEBUG=cues");
+    let after = h.agent(agent);
+    assert_eq!(after.activity, before.activity, "nothing to read");
+    assert_eq!(
+        after.last_activity_at, before.last_activity_at,
+        "not raised"
+    );
+
+    // A message takes it along only once you share it.
+    let sent = pill(Some(&item), &["cd apps/web", "export DEBUG=cues"]);
+    let outcome = h
+        .send_refs(agent, "Why \u{FFFC}?", vec![sent], SendMode::Queue)
+        .await;
+    assert_eq!(outcome, ActionOutcome::Done);
+    assert_eq!(pill_commands(&h.last_refs(agent)), [["cd apps/web"]]);
+
+    // The next line you type, with no card open, starts one.
+    h.fakes.terminals.note(RunNote::Typed {
+        agent,
+        terminal,
+        block: typed(3, "ls"),
+    });
+    let next = ItemId(format!("session-{terminal}-3"));
+    eventually("a card of its own", || {
+        h.db.user_run::<TimelineItem>(agent, &next.0).is_some()
+    })
+    .await;
+    let card = h.session_card(agent, &next);
+    assert!(card_of(&card).0[0].typed && card_of(&card).0[0].private);
+
+    // A line for an agent this device no longer holds goes nowhere.
+    let gone = AgentId::generate();
+    h.fakes.terminals.note(RunNote::Typed {
+        agent: gone,
+        terminal,
+        block: typed(4, "pwd"),
+    });
+    h.block_ended(agent, terminal, 3, Timestamp::now(), "sub");
+    eventually("the end after it", || {
+        let card = h.session_card(agent, &next);
+        matches!(card_of(&card).0[0].process, TerminalStatus::Exited { .. })
+    })
+    .await;
+    assert!(h.db.user_runs::<TimelineItem>(gone).unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn a_card_full_of_blocks_or_output_makes_way_for_a_new_one() {
+    use crate::session::user_sessions::{CARD_BLOCKS, CARD_OUTPUT};
+
+    let mut h = Harness::new();
+    let (agent, _) = h.start_claude(None).await;
+    reset(h.open(agent, None, 50).await);
+    let terminal = TerminalId::generate();
+    let blocks = u32::try_from(CARD_BLOCKS).expect("a few");
+    for id in 1..=blocks + 1 {
+        h.fakes.terminals.note(RunNote::Typed {
+            agent,
+            terminal,
+            block: typed(id, "ls"),
+        });
+        h.block_ended(agent, terminal, id, Timestamp::now(), "sub");
+    }
+    let first = ItemId(format!("session-{terminal}-1"));
+    let full = ItemId(format!("session-{terminal}-{}", blocks + 1));
+    eventually("the next card", || {
+        h.db.user_run::<TimelineItem>(agent, &full.0).is_some()
+    })
+    .await;
+    assert_eq!(card_of(&h.session_card(agent, &first)).0.len(), CARD_BLOCKS);
+    assert_eq!(card_of(&h.session_card(agent, &full)).0.len(), 1);
+
+    // A block that wrote all a card holds leaves the next for a new one.
+    h.fakes.terminals.note(RunNote::Typed {
+        agent,
+        terminal,
+        block: typed(blocks + 2, "cat big.log"),
+    });
+    let big = "x".repeat(CARD_OUTPUT);
+    h.block_ended(agent, terminal, blocks + 2, Timestamp::now(), &big);
+    eventually("the long end", || {
+        let card = h.session_card(agent, &full);
+        card_of(&card)
+            .0
+            .get(1)
+            .is_some_and(|block| block.output.len() == CARD_OUTPUT)
+    })
+    .await;
+    h.fakes.terminals.note(RunNote::Typed {
+        agent,
+        terminal,
+        block: typed(blocks + 3, "ls"),
+    });
+    let after = format!("session-{terminal}-{}", blocks + 3);
+    eventually("a card after the long one", || {
+        h.db.user_run::<TimelineItem>(agent, &after).is_some()
+    })
+    .await;
+}
+
+/// What a long card costs to keep and send, change by change: each change
+/// to one of its blocks keeps and sends the whole card again. Run it with
+/// `--ignored --nocapture` to see the numbers.
+#[tokio::test]
+#[ignore = "a measurement, not a check"]
+async fn what_a_long_card_costs() {
+    let h = Harness::new();
+    let agent = AgentId::generate();
+    let terminal = TerminalId::generate();
+    println!("blocks  output/block  card bytes  keep ms/change  sent per card");
+    for (count, each) in [
+        (10, 200),
+        (40, 200),
+        (100, 200),
+        (200, 200),
+        (40, 4 * 1024),
+        (40, 32 * 1024),
+        (3, 512 * 1024),
+    ] {
+        let mut blocks = Vec::new();
+        let (mut sent, mut kept, mut size) = (0usize, Duration::ZERO, 0);
+        for id in 1..=count {
+            let mut block = typed(id, "git status --short");
+            block.output = "y".repeat(each);
+            blocks.push(block);
+            let card = TimelineItem {
+                id: ItemId(format!("session-{terminal}-1")),
+                agent,
+                turn: None,
+                parent: None,
+                ordinal: 0,
+                status: ItemStatus::Running,
+                started_at: Some(Timestamp::now()),
+                completed_at: None,
+                body: ItemBody::UserSession {
+                    terminal,
+                    device: h.host.id,
+                    blocks: blocks.clone(),
+                    sealed: false,
+                    sent: false,
+                },
+            };
+            // Its start and its end each keep and send it whole.
+            for _ in 0..2 {
+                let at = std::time::Instant::now();
+                size = serde_json::to_vec(&card).expect("it serializes").len();
+                (h.db)
+                    .put_user_run(agent, &card.id.0, None, Timestamp::now(), &card)
+                    .expect("it keeps");
+                kept += at.elapsed();
+                sent += size;
+            }
+        }
+        println!(
+            "{count:6}  {each:12}  {size:10}  {:14.3}  {:>10} KiB",
+            kept.as_secs_f64() * 1000.0 / f64::from(2 * count),
+            sent / 1024
+        );
+    }
+}

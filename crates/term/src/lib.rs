@@ -19,9 +19,11 @@
 
 mod alacritty;
 mod look;
+mod mask;
 mod scan;
 
 pub use look::Look;
+pub use mask::{mask_secrets, MASK};
 
 #[cfg(test)]
 mod tests;

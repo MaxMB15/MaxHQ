@@ -20,6 +20,12 @@ export type TerminalEvent =
 	 */
 	| { readonly type: "reset"; readonly from: number };
 
+/** How a client sends what you type. */
+export type InputOptions = {
+	/** It came from a field that hides what you type. */
+	readonly secret?: boolean;
+};
+
 /** A terminal's bytes between a client and the device that holds it. */
 export type TerminalStream = {
 	/**
@@ -32,8 +38,12 @@ export type TerminalStream = {
 	readonly detach: (terminal: TerminalId) => void;
 	/** Tells the terminal its size in cells. */
 	readonly resize: (terminal: TerminalId, size: TerminalSize) => void;
-	/** Sends what you type. It isn't kept or logged anywhere on the way. */
-	readonly input: (terminal: TerminalId, bytes: Uint8Array) => void;
+	/**
+	 * Sends what you type. It isn't kept or logged anywhere on the way. With
+	 * `secret`, from a reply line you locked, the device notes that a secret
+	 * went in place of what you typed, when it knows how.
+	 */
+	readonly input: (terminal: TerminalId, bytes: Uint8Array, options?: InputOptions) => void;
 	/** Calls `listener` with the terminal's output and resets, until the returned call. */
 	readonly listen: (terminal: TerminalId, listener: (event: TerminalEvent) => void) => () => void;
 };
