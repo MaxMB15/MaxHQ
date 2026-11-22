@@ -62,6 +62,7 @@ import { OpenFileButton } from "../open-in";
 import { PageButtons } from "../page-link";
 import { PictureSet } from "../picture-set";
 import { PictureThumb } from "../picture-viewer";
+import { CommandRunMenu } from "../run-menu";
 import { Detail, Target, ToolRow } from "./tool-row";
 import type { ItemOf } from "./types";
 import { t as translate, useI18n } from "@maxhq/shared/i18n";
@@ -139,6 +140,7 @@ const Output = ({
 /** A shell command, with its output when opened. */
 export const CommandRow = ({ item }: { item: ItemOf<"command"> }) => {
 	useI18n();
+	const { agent, readOnly } = useRow();
 	const [open, setOpen, held] = useFold(`open:${item.id}`, item.id);
 	// The row's line shows the command's first line, cut to fit. While find's
 	// active match is in the item, the details show the whole command, and
@@ -166,6 +168,9 @@ export const CommandRow = ({ item }: { item: ItemOf<"command"> }) => {
 			: item.status === "waiting"
 				? translate("Waiting for you")
 				: null);
+	// Once it has finished, you can run it yourself.
+	const finished =
+		item.status === "completed" || item.status === "failed" || item.status === "interrupted";
 	return (
 		<ToolRow
 			icon={<Terminal {...ICON} />}
@@ -180,6 +185,11 @@ export const CommandRow = ({ item }: { item: ItemOf<"command"> }) => {
 			running={running}
 			open={open}
 			onToggle={() => setOpen(!open)}
+			action={
+				finished ? (
+					<CommandRunMenu agent={readOnly ? null : agent} command={item.command} />
+				) : null
+			}
 		>
 			<Output
 				id={item.id}

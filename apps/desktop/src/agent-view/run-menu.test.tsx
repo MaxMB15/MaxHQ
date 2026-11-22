@@ -29,6 +29,8 @@ import {
 	textIn,
 } from "@/composer/testing";
 
+import { keyHint, SHORTCUTS } from "@/layout/shortcuts";
+
 import { ItemBodyView } from "./item-row";
 
 // The terminal module, as the menu reaches it.
@@ -45,6 +47,7 @@ vi.mock("@/terminal", () => ({
 		cellSize: () => ({ width: 8, height: 17 }),
 		pasteIntoDrawer: seam.pasteIntoDrawer,
 		showInDrawer: () => {},
+		openAgentShell: () => {},
 	}),
 }));
 
@@ -151,18 +154,20 @@ describe("Run ▾ on a code block", () => {
 				.getAllByRole("menuitem")
 				.map((each) => each.textContent)
 		).toEqual([
-			"Run with !output goes to the agent",
-			"Run privately with !!",
-			"Paste into terminal",
+			"RunThe agent sees the output!",
+			"Run privatelyThe agent doesn't see it!!",
+			`Paste into terminal${keyHint(SHORTCUTS.terminal)}`,
 		]);
 		expect(within(menu).getByRole("separator")).toBeInTheDocument();
 	});
 
-	it("puts the command in the composer in shell mode, ready to edit, for Run with !", async () => {
+	it("puts the command in the composer in shell mode, ready to edit, for Run", async () => {
 		renderItem(reply(BASH));
 		const textbox = await findTextbox();
 
-		fireEvent.click(within(await openRun()).getByRole("menuitem", { name: /^Run with !/ }));
+		fireEvent.click(
+			within(await openRun()).getByRole("menuitem", { name: /^RunThe agent sees/ })
+		);
 
 		const field = await commandField();
 		expect(field.value).toBe("pnpm test");
@@ -171,12 +176,10 @@ describe("Run ▾ on a code block", () => {
 		expect(textIn(textbox)).toBe("");
 	});
 
-	it("puts it in private mode for Run privately with !!", async () => {
+	it("puts it in private mode for Run privately", async () => {
 		renderItem(reply(BASH));
 
-		fireEvent.click(
-			within(await openRun()).getByRole("menuitem", { name: "Run privately with !!" })
-		);
+		fireEvent.click(within(await openRun()).getByRole("menuitem", { name: /^Run privately/ }));
 
 		const field = await screen.findByRole<HTMLTextAreaElement>("textbox", {
 			name: "Command to run privately",
@@ -186,11 +189,11 @@ describe("Run ▾ on a code block", () => {
 		expect(screen.getByText("The agent won't see the output")).toBeInTheDocument();
 	});
 
-	it("types it into the agent's terminal drawer for Paste into terminal", async () => {
+	it("types it into the agent's terminal panel for Paste into terminal", async () => {
 		renderItem(reply(BASH));
 
 		fireEvent.click(
-			within(await openRun()).getByRole("menuitem", { name: "Paste into terminal" })
+			within(await openRun()).getByRole("menuitem", { name: /^Paste into terminal/ })
 		);
 
 		expect(seam.pasteIntoDrawer).toHaveBeenCalledExactlyOnceWith(AGENT, "pnpm test");
@@ -200,7 +203,9 @@ describe("Run ▾ on a code block", () => {
 	it("takes only the commands of a console block, without their $ prompts", async () => {
 		renderItem(reply("```console\n$ pnpm install\nPackages: +12\n$ pnpm test\nok\n```\n"));
 
-		fireEvent.click(within(await openRun()).getByRole("menuitem", { name: /^Run with !/ }));
+		fireEvent.click(
+			within(await openRun()).getByRole("menuitem", { name: /^RunThe agent sees/ })
+		);
 
 		expect((await commandField()).value).toBe("pnpm install\npnpm test");
 	});
@@ -245,5 +250,89 @@ describe("Run ▾ on a code block", () => {
 		await findBlocks(container);
 
 		expect(screen.queryByRole("button", { name: "Run this code" })).toBeNull();
+	});
+});
+
+const command = (status: "running" | "completed" | "failed" = "completed"): TimelineItem =>
+	timelineItem(
+		{
+			kind: "command",
+			command: "pnpm test",
+			cwd: "/Users/dev/code/example-app",
+			exit_code: status === "running" ? null : status === "failed" ? 1 : 0,
+			output: "ok\n",
+			output_truncated: false,
+			background: false,
+		},
+		{ id: "c1", agent: AGENT, ordinal: 1, status }
+	);
+
+const openCommandRun = async () => {
+	fireEvent.click(await screen.findByRole("button", { name: "Run this command" }));
+	return screen.findByRole("menu");
+};
+
+describe("Run ▾ on a command the agent ran", () => {
+	it("offers Run it yourself and Paste into terminal", async () => {
+		renderItem(command());
+
+		const menu = await openCommandRun();
+
+		expect(
+			within(menu)
+				.getAllByRole("menuitem")
+				.map((each) => each.textContent)
+		).toEqual([
+			"Run it yourselfIn the composer with !, ready to edit",
+			`Paste into terminal${keyHint(SHORTCUTS.terminal)}`,
+		]);
+	});
+
+	it("stages the command after ! in the composer for Run it yourself", async () => {
+		renderItem(command("failed"));
+		const textbox = await findTextbox();
+
+		fireEvent.click(
+			within(await openCommandRun()).getByRole("menuitem", { name: /^Run it yourself/ })
+		);
+
+		expect((await commandField()).value).toBe("pnpm test");
+		expect(screen.getByText("Shell")).toBeInTheDocument();
+		expect(textIn(textbox)).toBe("");
+	});
+
+	it("pastes it into the terminal panel", async () => {
+		renderItem(command());
+
+		fireEvent.click(
+			within(await openCommandRun()).getByRole("menuitem", { name: /^Paste into terminal/ })
+		);
+
+		expect(seam.pasteIntoDrawer).toHaveBeenCalledExactlyOnceWith(AGENT, "pnpm test");
+	});
+
+	it("waits until the command has finished", async () => {
+		const { container } = renderItem(command("running"));
+		await findTextbox();
+		await waitFor(() => expect(container).toHaveTextContent("pnpm test"));
+
+		expect(screen.queryByRole("button", { name: "Run this command" })).toBeNull();
+	});
+
+	it("isn't on an agent you only watch", async () => {
+		const { container } = renderItem(command(), {
+			agent: heldAgent({ control: "observed" }),
+		});
+		await waitFor(() => expect(container).toHaveTextContent("pnpm test"));
+
+		expect(screen.queryByRole("button", { name: "Run this command" })).toBeNull();
+	});
+
+	it("is hidden while the device's maxd has no terminals", async () => {
+		const { container } = renderItem(command(), { links: [macLink({ protocol: 44 })] });
+		await findTextbox();
+		await waitFor(() => expect(container).toHaveTextContent("pnpm test"));
+
+		expect(screen.queryByRole("button", { name: "Run this command" })).toBeNull();
 	});
 });
