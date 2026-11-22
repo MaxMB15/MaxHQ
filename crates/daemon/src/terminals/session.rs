@@ -695,6 +695,11 @@ impl Terminals {
                 at,
             },
         });
+        // The card can't page, so the command runs with no pager. What you
+        // type in the drawer keeps yours.
+        if let Err(err) = self.inner.holds.no_pager(terminal, true) {
+            warn!(%err, %terminal, "couldn't turn the pager off for a session's command");
+        }
         control.input(format!("{line}\r").into_bytes());
         drop(opens);
         tokio::spawn(self.clone().follow_block(
@@ -771,6 +776,7 @@ impl Terminals {
                                         Cut::None => {}
                                         Cut::Started { start, at, cwd } => {
                                             timer = None;
+                                            self.pager_back(terminal);
                                             started_in.clone_from(&cwd);
                                             self.keep_block(terminal, block.id, |kept| {
                                                 kept.start = Some(start);
@@ -848,6 +854,9 @@ impl Terminals {
             Ok(Reached::Ended(_) | Reached::Missing) => {}
             Err(err) => warn!(%err, %terminal, "couldn't follow a session's command"),
         }
+        // A line that never started, as one a program read, leaves the
+        // pager to the next command you type.
+        self.pager_back(terminal);
         let (exit, at, output, secret_prompts) = cutter.finish();
         let before = started_in.map_or_else(|| block.cwd.clone(), |cwd| shown(Path::new(&cwd)));
         let cwd_after = tracked
@@ -887,6 +896,14 @@ impl Terminals {
             },
         });
         drop(opens);
+    }
+
+    /// Gives the pager back to what the session's shell runs next, once
+    /// the command `maxd` sent started.
+    fn pager_back(&self, terminal: TerminalId) {
+        if let Err(err) = self.inner.holds.no_pager(terminal, false) {
+            warn!(%err, %terminal, "couldn't give a session's pager back");
+        }
     }
 
     /// Changes the block a session runs, when it's still `id`, and keeps

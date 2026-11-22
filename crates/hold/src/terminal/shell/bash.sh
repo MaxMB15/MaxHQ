@@ -7,7 +7,8 @@
 # prints anything you see. It keeps to what bash 3.2 has.
 
 _maxhq_nonce=${MAXHQ_SHELL_NONCE-}
-unset MAXHQ_SHELL_NONCE
+_maxhq_pager_flag=${MAXHQ_SHELL_PAGER-}
+unset MAXHQ_SHELL_NONCE MAXHQ_SHELL_PAGER
 
 if [ -r /etc/profile ]; then
   . /etc/profile
@@ -32,6 +33,32 @@ _maxhq_cwd() {
   builtin printf '\033]7;file://%s%s\007' "$HOSTNAME" "${PWD//\%/%25}"
 }
 
+# No pager for a command MaxHQ sends, while the file says so: its card
+# can't page. Each value comes back at the next prompt, unless the command
+# changed it.
+_maxhq_no_pager() {
+  if [ -z "$_maxhq_pager_flag" ] || [ ! -e "$_maxhq_pager_flag" ]; then
+    return 0
+  fi
+  _maxhq_paged=1
+  _maxhq_pager_set=${PAGER+1}
+  _maxhq_pager_was=${PAGER-}
+  _maxhq_git_pager_set=${GIT_PAGER+1}
+  _maxhq_git_pager_was=${GIT_PAGER-}
+  export PAGER=cat GIT_PAGER=cat
+}
+
+_maxhq_pager_back() {
+  [ "$_maxhq_paged" = 1 ] || return 0
+  _maxhq_paged=0
+  if [ "${PAGER-}" = cat ]; then
+    if [ -n "$_maxhq_pager_set" ]; then PAGER=$_maxhq_pager_was; else unset PAGER; fi
+  fi
+  if [ "${GIT_PAGER-}" = cat ]; then
+    if [ -n "$_maxhq_git_pager_set" ]; then GIT_PAGER=$_maxhq_git_pager_was; else unset GIT_PAGER; fi
+  fi
+}
+
 # First at each prompt: where the command that ran ended, with its exit
 # code, then the folder.
 _maxhq_prompt_start() {
@@ -41,6 +68,7 @@ _maxhq_prompt_start() {
     _maxhq_ran=0
     _maxhq_mark "D;$ret"
   fi
+  _maxhq_pager_back
   _maxhq_cwd
   return $ret
 }
@@ -68,6 +96,7 @@ _maxhq_command() {
   if [ "$PS1" = "$_maxhq_ps1" ]; then
     PS1=$_maxhq_user_ps1
   fi
+  _maxhq_no_pager
   line=${line#"${line%%[![:space:]]*}"}
   case $line in
     exec | exec[[:space:]]*) return 0 ;;
@@ -108,6 +137,7 @@ _maxhq_take() {
 if [ -n "$_maxhq_nonce" ]; then
   _maxhq_ran=0
   _maxhq_waiting=0
+  _maxhq_paged=0
   _maxhq_ps1=
   _maxhq_user_ps1=
   if [ -n "${bash_preexec_imported-}${__bp_imported-}" ]; then

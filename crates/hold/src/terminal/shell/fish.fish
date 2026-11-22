@@ -11,7 +11,12 @@ if set -q MAXHQ_SHELL_NONCE
     set -g _maxhq_nonce $MAXHQ_SHELL_NONCE
     set -e MAXHQ_SHELL_NONCE
 end
+if set -q MAXHQ_SHELL_PAGER
+    set -g _maxhq_pager_flag $MAXHQ_SHELL_PAGER
+    set -e MAXHQ_SHELL_PAGER
+end
 set -g _maxhq_ran 0
+set -g _maxhq_paged 0
 
 function _maxhq_mark
     builtin printf '\e]133;%s;maxhq=%s\a' $argv[1] $_maxhq_nonce
@@ -26,10 +31,44 @@ function _maxhq_prompt --on-event fish_prompt
     _maxhq_mark A
 end
 
+# No pager for a command MaxHQ sends, while the file says so: its card
+# can't page. Each value comes back after the command, unless it changed
+# it. A universal value shows again once the global one goes.
+function _maxhq_no_pager
+    if test -z "$_maxhq_pager_flag"; or not test -e "$_maxhq_pager_flag"
+        return
+    end
+    set -g _maxhq_paged 1
+    set -e _maxhq_pager_was
+    set -e _maxhq_git_pager_was
+    set -q PAGER; and set -g _maxhq_pager_was $PAGER
+    set -q GIT_PAGER; and set -g _maxhq_git_pager_was $GIT_PAGER
+    set -gx PAGER cat
+    set -gx GIT_PAGER cat
+end
+
+function _maxhq_pager_back
+    test "$_maxhq_paged" = 1; or return
+    set -g _maxhq_paged 0
+    if test "$PAGER" = cat
+        set -eg PAGER
+        if set -q _maxhq_pager_was; and not set -q PAGER
+            set -gx PAGER $_maxhq_pager_was
+        end
+    end
+    if test "$GIT_PAGER" = cat
+        set -eg GIT_PAGER
+        if set -q _maxhq_git_pager_was; and not set -q GIT_PAGER
+            set -gx GIT_PAGER $_maxhq_git_pager_was
+        end
+    end
+end
+
 # Where the command starts. A command that starts with exec gets no mark:
 # a shell that takes this one's place never marks its end, so the command
 # would seem to run for good.
 function _maxhq_preexec --on-event fish_preexec
+    _maxhq_no_pager
     if string match -qr '^\s*exec(\s|$)' -- "$argv[1]"
         return
     end
@@ -43,6 +82,7 @@ function _maxhq_postexec --on-event fish_postexec
         set -g _maxhq_ran 0
         _maxhq_mark "D;$ret"
     end
+    _maxhq_pager_back
 end
 
 # Where what you type starts, after the user's prompt.

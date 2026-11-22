@@ -5,7 +5,9 @@
 //! drop what the shell's startup files printed first: a banner, a title, a
 //! theme's prompt.
 //!
-//! The run's shell gets `printf '<marker>'; <command>`. Everything before
+//! The run's shell gets `printf '<marker>'; export PAGER=cat GIT_PAGER=cat;
+//! <command>` on one line: a card can't page, so `git log` and `man` print
+//! all of it and end, as in a pipe. Everything before
 //! the first marker goes nowhere, the marker included, and offsets count
 //! from the byte after it. Only the first one counts: the command's own
 //! output passes untouched, even when it prints the same bytes.
@@ -34,14 +36,19 @@ pub(super) const MARKER: &[u8] = concat!("\x1b]", body!(), "\x07").as_bytes();
 /// these octal escapes in `printf`.
 const PRINT_MARKER: &str = concat!(r"printf '\033]", body!(), r"\007'; ");
 
+/// The shell code that turns the pager off for the command. sh, bash, zsh
+/// and fish all take it. `git` looks at GIT_PAGER first, then its own
+/// setting, then PAGER, so both go.
+pub(super) const NO_PAGER: &str = "export PAGER=cat GIT_PAGER=cat; ";
+
 /// How much output may wait for the marker.
 pub(super) const HELD_CAP: usize = 64 * 1024;
 
-/// The script for the shell's `-c`: the marker, then `command` as typed.
-/// They share a line, so the shell's errors give the command's own line
-/// numbers.
+/// The script for the shell's `-c`: the marker, no pager, then `command`
+/// as typed. They share a line, so the shell's errors give the command's
+/// own line numbers.
 pub(super) fn after_marker(command: &str) -> String {
-    format!("{PRINT_MARKER}{command}")
+    format!("{PRINT_MARKER}{NO_PAGER}{command}")
 }
 
 /// Output held back until the marker.
@@ -98,11 +105,11 @@ mod tests {
     }
 
     #[test]
-    fn the_script_prints_the_marker_then_the_command() {
+    fn the_script_prints_the_marker_then_the_command_with_no_pager() {
         assert_eq!(MARKER, b"\x1b]7346;maxhq-run\x07");
         assert_eq!(
             after_marker("ls -la"),
-            r"printf '\033]7346;maxhq-run\007'; ls -la"
+            r"printf '\033]7346;maxhq-run\007'; export PAGER=cat GIT_PAGER=cat; ls -la"
         );
     }
 

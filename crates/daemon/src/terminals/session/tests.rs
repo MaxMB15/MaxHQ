@@ -764,6 +764,46 @@ async fn force_stop_on_a_run_ends_it_and_says_you_stopped_it() {
     f.end().await;
 }
 
+async fn the_pager_is_off_for_what_you_send_from_the_chat(name: &str) {
+    let Some(mut f) = fixture_on_path(name) else {
+        return;
+    };
+    // What the command itself sets stays.
+    let first = f.block("export PAGER=less-pager; unset GIT_PAGER").await;
+    let terminal = first.terminal;
+    let ran = f.block(r#"echo "pager:[$PAGER|${GIT_PAGER-unset}]""#).await;
+    assert_eq!(ran.output.text.trim(), "pager:[cat|cat]", "{ran:?}");
+    // What you type in the drawer keeps yours.
+    f.terminals
+        .input(
+            1,
+            Caller::App,
+            terminal,
+            br#"echo "typed:[$PAGER|${GIT_PAGER-unset}]""#.to_vec(),
+        )
+        .expect("you may type");
+    f.terminals
+        .input(1, Caller::App, terminal, b"\r".to_vec())
+        .expect("you may type");
+    shows(
+        &f.terminals.inner.holds,
+        terminal,
+        "typed:[less-pager|unset]",
+    )
+    .await;
+    f.end().await;
+}
+
+#[tokio::test]
+async fn the_pager_is_off_for_what_bash_runs_from_the_chat() {
+    the_pager_is_off_for_what_you_send_from_the_chat("bash").await;
+}
+
+#[tokio::test]
+async fn the_pager_is_off_for_what_zsh_runs_from_the_chat() {
+    the_pager_is_off_for_what_you_send_from_the_chat("zsh").await;
+}
+
 #[tokio::test]
 async fn a_password_counts_and_goes_nowhere() {
     const CANARY: &str = "canary-7d1e4b-not-for-logs";

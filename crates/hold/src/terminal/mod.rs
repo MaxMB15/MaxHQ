@@ -337,6 +337,21 @@ impl Terminals {
         shell::integrate(launch, &self.dirs.sessions)
     }
 
+    /// Turns the pager off, or `on` false back on, for what a shell from
+    /// [`Terminals::integrate`] runs next, as for a command `maxd` sends
+    /// from the chat, whose card can't page. The shell gives back PAGER and
+    /// GIT_PAGER as they were at its next prompt.
+    pub fn no_pager(&self, terminal: TerminalId, on: bool) -> io::Result<()> {
+        let flag = self.dir(terminal).join(shell::NO_PAGER);
+        if on {
+            return fs::write(flag, b"");
+        }
+        match fs::remove_file(flag) {
+            Err(err) if err.kind() != io::ErrorKind::NotFound => Err(err),
+            _ => Ok(()),
+        }
+    }
+
     /// Deletes what writing the shell integration files left when a `maxd`
     /// stopped part way, as `maxd` does when it starts.
     pub fn sweep(&self) -> io::Result<()> {
@@ -514,7 +529,7 @@ mod tests {
             launch.args,
             [
                 OsString::from("-ilc"),
-                r"printf '\033]7346;maxhq-run\007'; ls -la".into()
+                r"printf '\033]7346;maxhq-run\007'; export PAGER=cat GIT_PAGER=cat; ls -la".into()
             ]
         );
         assert!(launch.run);

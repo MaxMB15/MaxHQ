@@ -1026,13 +1026,14 @@ async fn a_shell_marks_its_commands(ctx: &Ctx, program: &Path) {
     // are hooks at the prompt and before a command, which still run.
     // No startup file sees the nonce.
     let fish = "if set -q MAXHQ_SHELL_NONCE; set -gx RC leaked; else; set -gx RC config; end\n\
+                set -e GIT_PAGER\n\
                 function fish_prompt; printf 'ready> '; end\n\
                 function hooked --on-event fish_prompt; set -gx HOOKED yes; end\n\
                 function trapped --on-event fish_preexec; set -gx TRAPPED yes; end\n";
     for (path, text) in [
         (
             zdot.join(".zshenv"),
-            "export RC=env${MAXHQ_SHELL_NONCE+:leaked}",
+            "export RC=env${MAXHQ_SHELL_NONCE+:leaked}; unset GIT_PAGER",
         ),
         (zdot.join(".zprofile"), "RC=${RC}:profile"),
         (
@@ -1044,7 +1045,7 @@ async fn a_shell_marks_its_commands(ctx: &Ctx, program: &Path) {
         (zdot.join(".zlogin"), "RC=${RC}:login"),
         (
             home.join(".bash_profile"),
-            "export RC=profile${MAXHQ_SHELL_NONCE+:leaked}; PS1='ready> '\n\
+            "export RC=profile${MAXHQ_SHELL_NONCE+:leaked}; PS1='ready> '; unset GIT_PAGER\n\
              PROMPT_COMMAND='export HOOKED=yes'\n\
              trap 'export TRAPPED=yes' DEBUG",
         ),
@@ -1069,6 +1070,7 @@ async fn a_shell_marks_its_commands(ctx: &Ctx, program: &Path) {
             ("XDG_DATA_HOME", home.join("data")),
             ("XDG_CACHE_HOME", home.join("cache")),
             ("XDG_DATA_DIRS", PathBuf::from("/opt/share")),
+            ("PAGER", PathBuf::from("less-pager")),
         ]
         .map(|(key, value)| (key.into(), value.into())),
     );
@@ -1089,10 +1091,23 @@ async fn a_shell_marks_its_commands(ctx: &Ctx, program: &Path) {
         assert!(link.control.input(format!("{line}\n").into_bytes()));
     }
     ready(&mut watch, &mut watched, typed.len()).await;
+    // A command sent while the file says so runs with no pager, and the
+    // next one has the user's own back, or none as they had.
+    let pager = "sh -c 'echo \"pager:[${PAGER-unset}|${GIT_PAGER-unset}]\"'";
+    for (done, on) in [(typed.len(), true), (typed.len() + 1, false)] {
+        terminals.no_pager(launch.terminal, on).unwrap();
+        assert!(link.control.input(format!("{pager}\n").into_bytes()));
+        ready(&mut watch, &mut watched, done + 1).await;
+    }
     assert!(link.control.input(b"exit 0\n".to_vec()));
     let mut seen = Seen::from(&link);
     let exit = seen.until_exit(&mut link).await;
     assert_eq!(exit.code, Some(0), "{shown}: {seen:?}");
+    let shown_text = seen.text();
+    let paged = (shown_text.find("pager:[cat|cat]"))
+        .zip(shown_text.find("pager:[less-pager|unset]"))
+        .is_some_and(|(off, back)| off < back);
+    assert!(paged, "{shown}: {shown_text:?}");
     watched.until_exit(&mut watch).await;
 
     assert_marks_in_place(&seen.bytes, &watched.marks);

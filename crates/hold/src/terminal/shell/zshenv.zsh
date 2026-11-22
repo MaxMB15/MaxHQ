@@ -10,6 +10,9 @@
 _maxhq_dir=$ZDOTDIR
 _maxhq_user_dir=${MAXHQ_USER_ZDOTDIR-}
 _maxhq_nonce=${MAXHQ_SHELL_NONCE-}
+_maxhq_pager_flag=${MAXHQ_SHELL_PAGER-}
+_maxhq_paged=0
+_maxhq_pager=()
 _maxhq_ran=0
 _maxhq_ps1=
 _maxhq_user_ps1=
@@ -17,7 +20,7 @@ _maxhq_user_ps1=
 # starts.
 _maxhq_a="%{"$'\e]133;A;maxhq='"$_maxhq_nonce"$'\a'"%}"
 _maxhq_b="%{"$'\e]133;B;maxhq='"$_maxhq_nonce"$'\a'"%}"
-unset MAXHQ_USER_ZDOTDIR MAXHQ_SHELL_NONCE
+unset MAXHQ_USER_ZDOTDIR MAXHQ_SHELL_NONCE MAXHQ_SHELL_PAGER
 
 # ZDOTDIR as the user has it, while their files run.
 _maxhq_user() {
@@ -62,6 +65,29 @@ _maxhq_cwd() {
   builtin print -rn -- $'\e]7;file://'"$HOST${PWD//\%/%25}"$'\a'
 }
 
+# No pager for a command MaxHQ sends, while the file says so: its card
+# can't page. Each value comes back at the next prompt, unless the command
+# changed it.
+_maxhq_no_pager() {
+  emulate -L zsh
+  [[ -n $_maxhq_pager_flag && -e $_maxhq_pager_flag ]] || return 0
+  _maxhq_paged=1
+  _maxhq_pager=(${+PAGER} "${PAGER-}" ${+GIT_PAGER} "${GIT_PAGER-}")
+  export PAGER=cat GIT_PAGER=cat
+}
+
+_maxhq_pager_back() {
+  emulate -L zsh
+  (( _maxhq_paged )) || return 0
+  _maxhq_paged=0
+  if [[ ${PAGER-} == cat ]]; then
+    if (( _maxhq_pager[1] )); then PAGER=$_maxhq_pager[2]; else unset PAGER; fi
+  fi
+  if [[ ${GIT_PAGER-} == cat ]]; then
+    if (( _maxhq_pager[3] )); then GIT_PAGER=$_maxhq_pager[4]; else unset GIT_PAGER; fi
+  fi
+}
+
 # First at each prompt: where the command that ran ended, with its exit
 # code, then the folder.
 _maxhq_precmd() {
@@ -71,6 +97,7 @@ _maxhq_precmd() {
     _maxhq_ran=0
     _maxhq_mark "D;$ret"
   fi
+  _maxhq_pager_back
   [[ ${ZDOTDIR-} == "$_maxhq_dir" ]] && _maxhq_user
   _maxhq_cwd
   return $ret
@@ -93,6 +120,7 @@ _maxhq_preexec() {
   emulate -L zsh
   [[ $PS1 == "$_maxhq_ps1" ]] && PS1=$_maxhq_user_ps1
   precmd_functions=(_maxhq_precmd ${precmd_functions:#_maxhq_(precmd|prompt)} _maxhq_prompt)
+  _maxhq_no_pager
   local line=${1:-$3}
   line=${line#"${line%%[![:space:]]*}"}
   case $line in
