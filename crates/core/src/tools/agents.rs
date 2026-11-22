@@ -28,8 +28,10 @@ pub const MAX_LIST: usize = 100;
 /// How long a wait lasts when the call doesn't say, in seconds.
 pub const WAIT: u64 = 10 * 60;
 
-/// The longest a wait lasts, in seconds.
-pub const MAX_WAIT: u64 = 60 * 60;
+/// The longest a wait lasts, in seconds. It stays under the hour that the
+/// vendors keep a prompt cached, so the call that follows a full wait still
+/// reads the cache instead of writing the whole context again.
+pub const MAX_WAIT: u64 = 55 * 60;
 
 /// The most agents one wait names.
 pub const MAX_WAITED: usize = 20;
@@ -258,7 +260,7 @@ pub(super) fn description(tool: Tool) -> &'static str {
         }
         Tool::WaitAgent => {
             "Waits until each of the agents you name finishes its turn, needs input or stops, \
-             up to `timeout_seconds`, 600 by default and 3600 at most. Returns each one's \
+             up to `timeout_seconds`, 600 by default and 3300 at most. Returns each one's \
              state and last reply, and whether the wait timed out."
         }
         Tool::InterruptAgent => {
@@ -679,9 +681,19 @@ mod tests {
         assert!(refused(Tool::WaitAgent, json!({"agents": []})).contains("1 to"));
         assert!(refused(
             Tool::WaitAgent,
-            json!({"agents": [AgentId::derive("x").to_string()], "timeout_seconds": 3601})
+            json!({"agents": [AgentId::derive("x").to_string()], "timeout_seconds": 3301})
         )
-        .contains("3600"));
+        .contains("3300"));
+        assert!(Tool::WaitAgent
+            .description()
+            .contains(&format!("{MAX_WAIT} at most")));
+        // Under the hour a prompt stays cached.
+        const { assert!(MAX_WAIT < 60 * 60) };
+        assert!(Tool::WaitAgent
+            .parse(
+                &json!({"agents": [AgentId::derive("x").to_string()], "timeout_seconds": MAX_WAIT})
+            )
+            .is_ok());
         assert!(refused(Tool::ListAgents, json!({"limit": 101})).contains("100"));
     }
 

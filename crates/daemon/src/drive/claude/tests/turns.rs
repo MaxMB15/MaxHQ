@@ -1161,7 +1161,7 @@ fn a_session_starts_and_an_early_action_initializes_first() {
             "agentProgressSummaries": true,
             "perTaskStopAffordance": true,
             "sdkMcpServers": ["maxhq"],
-            "sdkMcpServerConfigs": {"maxhq": {"timeout": 600_000}},
+            "sdkMcpServerConfigs": {"maxhq": {"timeout": 3_600_000}},
         })
     );
     assert_eq!(run.lead().activity, Activity::Starting);

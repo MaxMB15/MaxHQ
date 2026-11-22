@@ -152,6 +152,23 @@ fn the_handshake_and_the_tool_list_are_answered_at_once() {
 }
 
 #[test]
+fn the_cli_gives_the_longest_wait_time_to_answer() {
+    let mut run = Run::new();
+    let fx = run.connect(true, &[]);
+    let request = &only_write(&fx)["request"];
+    assert_eq!(request["subtype"], "initialize");
+    let timeout = request["sdkMcpServerConfigs"]["maxhq"]["timeout"]
+        .as_u64()
+        .expect("a timeout in milliseconds");
+    // The CLI ends a call at its timeout, so the longest wait_agent has
+    // to time out and answer well before it does.
+    let longest_wait = tools::agents::MAX_WAIT * 1000;
+    assert!(timeout >= longest_wait + 60_000, "{timeout}");
+    // It stays at least the ten minutes a copy out of a container had.
+    assert!(timeout >= 600_000, "{timeout}");
+}
+
+#[test]
 fn a_cli_held_across_a_restart_reads_the_tool_list_again() {
     // The CLI read its tools from the `maxd` before, which may have had
     // fewer, and a repeat `initialize` doesn't make it read them again.

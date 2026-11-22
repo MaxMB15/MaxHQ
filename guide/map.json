@@ -999,7 +999,7 @@
     },
     {
       "agents": true,
-      "description": "Waits until each of the agents you name finishes its turn, needs input or stops, up to `timeout_seconds`, 600 by default and 3600 at most.",
+      "description": "Waits until each of the agents you name finishes its turn, needs input or stops, up to `timeout_seconds`, 600 by default and 3300 at most.",
       "dispatcher": false,
       "id": "tool/wait_agent",
       "link": "maxhq://settings/permissions",

@@ -382,7 +382,7 @@ fn bare_initialize() -> Value {
     json!({
         "subtype": "initialize",
         "sdkMcpServers": ["maxhq"],
-        "sdkMcpServerConfigs": {"maxhq": {"timeout": 600_000}},
+        "sdkMcpServerConfigs": {"maxhq": {"timeout": 3_600_000}},
     })
 }
 

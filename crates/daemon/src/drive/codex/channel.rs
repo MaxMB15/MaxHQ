@@ -51,13 +51,14 @@ impl CodexServer {
         fx: &mut Effects,
     ) {
         let name = params.get("tool").and_then(Value::as_str).unwrap_or("");
+        let namespace = params.get("namespace").and_then(Value::as_str);
         // A thread calls only the tools its place gives it.
         let served = self
             .threads
             .get(&thread)
             .and_then(|known| known.place.as_ref())
             .map_or(&Tool::ALL[..], |place| place.tools());
-        let parsed = match Tool::from_codex(name).filter(|tool| served.contains(tool)) {
+        let parsed = match Tool::from_codex(namespace, name).filter(|tool| served.contains(tool)) {
             Some(tool) => tool.parse(params.get("arguments").unwrap_or(&Value::Null)),
             None => Err(format!("MaxHQ has no tool {name:?}.")),
         };
