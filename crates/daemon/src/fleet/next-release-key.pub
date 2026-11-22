@@ -6,3 +6,4 @@
 # the .pub file `tauri signer generate` wrote for the new key, as is. While
 # it is set, maxd trusts releases signed with either key, and the release
 # workflow runs the change. The steps are in .github/RELEASING.md.
+dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDBENDFFNjJEM0Y1RjE2OEQKUldTTkZsOC9MZVpCRGZhUEgrMmxzMFJVSVdrNTR5eHJHSFo4RmRWMGRsVjBkVFRKMnFQcDhTYUwK
