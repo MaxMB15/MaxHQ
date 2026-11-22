@@ -24,20 +24,26 @@ fn send_input() -> Value {
     json!({"paths": ["out/chart.png"], "message": "The chart you asked for."})
 }
 
-/// An `item/tool/call` request with the app-server's ID `id`.
-fn tool_call(id: u64, tool: &str, arguments: Value) -> String {
+/// An `item/tool/call` request with the app-server's ID `id`, for a tool
+/// in `namespace`.
+fn namespaced_call(id: u64, namespace: Value, tool: &str, arguments: Value) -> String {
     json!({
         "method": "item/tool/call",
         "id": id,
         "params": {"threadId": THREAD, "turnId": TURN_COMMAND, "callId": CALL,
-                   "namespace": null, "tool": tool, "arguments": arguments},
+                   "namespace": namespace, "tool": tool, "arguments": arguments},
     })
     .to_string()
 }
 
+/// An `item/tool/call` request for one of MaxHQ's tools.
+fn tool_call(id: u64, tool: &str, arguments: Value) -> String {
+    namespaced_call(id, json!("maxhq"), tool, arguments)
+}
+
 /// The send call.
 fn send_call() -> String {
-    tool_call(7, "maxhq_send_attachments", send_input())
+    tool_call(7, "send_attachments", send_input())
 }
 
 /// The file the send copied.
@@ -58,8 +64,8 @@ fn finished_call(said: &str, success: bool) -> Value {
     json!({
         "type": "dynamicToolCall",
         "id": CALL,
-        "namespace": null,
-        "tool": "maxhq_send_attachments",
+        "namespace": "maxhq",
+        "tool": "send_attachments",
         "arguments": send_input(),
         "status": "completed",
         "contentItems": [{"type": "inputText", "text": said}],
@@ -174,7 +180,7 @@ fn a_read_answers_with_its_text_and_shows_no_files() {
     run.take();
     run.feed(&tool_call(
         8,
-        "maxhq_read_agent",
+        "read_agent",
         json!({"agent": "API work", "limit": 5}),
     ));
     let fx = run.take();
@@ -215,7 +221,7 @@ fn a_screenshot_answers_with_its_text_and_an_image_url() {
     let lease = maxhq_protocol::ids::LeaseId::derive("lease");
     run.feed(&tool_call(
         9,
-        "maxhq_lease_screenshot",
+        "lease_screenshot",
         json!({"lease": lease.to_string()}),
     ));
     let fx = run.take();
@@ -254,24 +260,123 @@ fn bad_calls_fail_at_once_as_tool_errors() {
     let mut run = Run::started(None);
     run.feed_all(&fixture_lines("turn-command.jsonl", 1, 3));
     run.take();
-    run.feed(&tool_call(
-        8,
-        "maxhq_send_attachments",
-        json!({"paths": []}),
-    ));
+    run.feed(&tool_call(8, "send_attachments", json!({"paths": []})));
     let fx = run.take();
     assert!(fx.calls.is_empty());
     assert_eq!(tool_answer(&fx, 8)["success"], false);
 
-    run.feed(&tool_call(9, "maxhq_nothing", json!({})));
+    run.feed(&tool_call(9, "nothing", json!({})));
     let fx = run.take();
     assert!(fx.calls.is_empty());
     let answer = tool_answer(&fx, 9);
     assert_eq!(answer["success"], false);
     assert_eq!(
         answer["contentItems"][0]["text"],
-        "MaxHQ has no tool \"maxhq_nothing\"."
+        "MaxHQ has no tool \"nothing\"."
     );
+
+    // Another namespace's tool of the same name isn't ours.
+    let call = namespaced_call(10, json!("other"), "send_attachments", send_input());
+    run.feed(&call);
+    let fx = run.take();
+    assert!(fx.calls.is_empty());
+    assert_eq!(tool_answer(&fx, 10)["success"], false);
+
+    // Nor is a flat name inside the namespace.
+    run.feed(&tool_call(11, "maxhq_send_attachments", send_input()));
+    let fx = run.take();
+    assert!(fx.calls.is_empty());
+    assert_eq!(tool_answer(&fx, 11)["success"], false);
+}
+
+#[test]
+fn a_thread_started_before_the_namespace_calls_the_old_names() {
+    let mut run = Run::started(None);
+    run.feed_all(&fixture_lines("turn-command.jsonl", 1, 3));
+    run.take();
+    run.feed(&namespaced_call(
+        7,
+        Value::Null,
+        "maxhq_send_attachments",
+        send_input(),
+    ));
+    let fx = run.take();
+    assert_eq!(fx.calls.len(), 1, "{:#?}", written(&fx));
+    assert_eq!(fx.calls[0].call.tool(), tools::Tool::SendAttachments);
+
+    // Without a namespace, a name has to carry the prefix.
+    run.feed(&namespaced_call(
+        8,
+        Value::Null,
+        "send_attachments",
+        send_input(),
+    ));
+    let fx = run.take();
+    assert!(fx.calls.is_empty());
+    assert_eq!(tool_answer(&fx, 8)["success"], false);
+}
+
+#[test]
+fn an_old_threads_call_shows_as_maxhqs_own_tool() {
+    let mut run = Run::started(None);
+    run.feed_all(&fixture_lines("turn-command.jsonl", 1, 3));
+    run.take();
+    let input = json!({"agent": "API work", "limit": 5});
+    for (namespace, tool) in [
+        (Value::Null, "maxhq_read_agent"),
+        (json!("maxhq"), "read_agent"),
+    ] {
+        let item = json!({
+            "type": "dynamicToolCall",
+            "id": "exec-read",
+            "namespace": namespace,
+            "tool": tool,
+            "arguments": input,
+            "status": "completed",
+            "contentItems": [{"type": "inputText", "text": "API work: idle"}],
+            "success": true,
+            "durationMs": 12,
+        });
+        run.feed(&notification(
+            "item/completed",
+            json!({"threadId": THREAD, "turnId": TURN_COMMAND, "item": item}),
+        ));
+        let fx = run.take();
+        let ItemBody::ToolCall { server, name, .. } = &last(&fx, "codex:exec-read").body else {
+            panic!("{:#?}", last(&fx, "codex:exec-read").body);
+        };
+        assert_eq!(server.as_deref(), Some("maxhq"), "{tool}");
+        assert_eq!(name, "read_agent", "{tool}");
+    }
+
+    // Another namespace's tool keeps its own names, and so does a flat
+    // name MaxHQ never gave.
+    for (namespace, tool, shown) in [
+        (json!("app"), "maxhq_read_agent", Some("app")),
+        (Value::Null, "maxhq_nothing", None),
+        (Value::Null, "read_agent", None),
+    ] {
+        let item = json!({
+            "type": "dynamicToolCall",
+            "id": "exec-other",
+            "namespace": namespace,
+            "tool": tool,
+            "arguments": {},
+            "status": "completed",
+            "contentItems": [],
+            "success": true,
+        });
+        run.feed(&notification(
+            "item/completed",
+            json!({"threadId": THREAD, "turnId": TURN_COMMAND, "item": item}),
+        ));
+        let fx = run.take();
+        let ItemBody::ToolCall { server, name, .. } = &last(&fx, "codex:exec-other").body else {
+            panic!("{:#?}", last(&fx, "codex:exec-other").body);
+        };
+        assert_eq!(server.as_deref(), shown, "{tool}");
+        assert_eq!(name, tool);
+    }
 }
 
 #[test]
@@ -360,35 +465,42 @@ fn a_send_read_back_from_history_shows_its_files() {
         attachments: vec![shown],
     };
 
-    // From a rollout, in Codex's own shape.
-    let home = TempDir::new();
-    let path = home.path().join("rollout.jsonl");
-    let item = json!({
-        "type": "DynamicToolCall",
-        "id": CALL,
-        "tool": "maxhq_send_attachments",
-        "arguments": send_input(),
-        "status": "completed",
-        "content_items": [{"type": "inputText", "text": said}],
-        "success": true,
-    });
-    let lines = [
-        json!({"timestamp": "2026-10-30T10:00:00.000Z", "type": "event_msg",
-               "payload": {"type": "task_started", "turn_id": "t1", "started_at": 1_792_921_750u64}}),
-        json!({"timestamp": "2026-10-30T10:00:01.000Z", "type": "event_msg",
-               "payload": {"type": "item_completed", "thread_id": THREAD, "turn_id": "t1",
-                           "item": item, "started_at_ms": 1_792_921_751_000u64,
-                           "completed_at_ms": 1_792_921_751_040u64}}),
-    ];
-    let text: Vec<String> = lines.iter().map(Value::to_string).collect();
-    std::fs::write(&path, format!("{}\n", text.join("\n"))).unwrap();
-    let read = History::new(path, agent()).read().unwrap();
-    let sent = read
-        .iter()
-        .find(|item| item.id.0 == sent_item())
-        .expect("the files show");
-    assert_eq!(sent.body, expected);
-    assert_eq!(sent.completed_at, Some(Timestamp(1_792_921_751_040)));
+    // From a rollout, in Codex's own shape: of a thread started before
+    // the tools had a namespace, and of one started since.
+    for (namespace, tool) in [
+        (Value::Null, "maxhq_send_attachments"),
+        (json!("maxhq"), "send_attachments"),
+    ] {
+        let home = TempDir::new();
+        let path = home.path().join("rollout.jsonl");
+        let item = json!({
+            "type": "DynamicToolCall",
+            "id": CALL,
+            "namespace": namespace,
+            "tool": tool,
+            "arguments": send_input(),
+            "status": "completed",
+            "content_items": [{"type": "inputText", "text": said}],
+            "success": true,
+        });
+        let lines = [
+            json!({"timestamp": "2026-10-30T10:00:00.000Z", "type": "event_msg",
+                   "payload": {"type": "task_started", "turn_id": "t1", "started_at": 1_792_921_750u64}}),
+            json!({"timestamp": "2026-10-30T10:00:01.000Z", "type": "event_msg",
+                   "payload": {"type": "item_completed", "thread_id": THREAD, "turn_id": "t1",
+                               "item": item, "started_at_ms": 1_792_921_751_000u64,
+                               "completed_at_ms": 1_792_921_751_040u64}}),
+        ];
+        let text: Vec<String> = lines.iter().map(Value::to_string).collect();
+        std::fs::write(&path, format!("{}\n", text.join("\n"))).unwrap();
+        let read = History::new(path, agent()).read().unwrap();
+        let sent = read
+            .iter()
+            .find(|item| item.id.0 == sent_item())
+            .expect("the files show");
+        assert_eq!(sent.body, expected, "{tool}");
+        assert_eq!(sent.completed_at, Some(Timestamp(1_792_921_751_040)));
+    }
 
     // From a turn the app-server lists.
     let turn = json!({"id": "t1", "status": "completed", "startedAt": 1_792_921_750u64,
@@ -407,7 +519,7 @@ fn an_open_answers_when_it_ends_and_shows_the_file() {
     run.feed_all(&fixture_lines("turn-command.jsonl", 1, 3));
     run.take();
     let input = json!({"path": "docs/plan.md", "line": 12});
-    run.feed(&tool_call(9, "maxhq_open_file", input.clone()));
+    run.feed(&tool_call(9, "open_file", input.clone()));
     let fx = run.take();
     assert!(fx.writes.is_empty(), "a call is answered when it ends");
     assert_eq!(fx.calls.len(), 1);
@@ -447,8 +559,8 @@ fn an_open_answers_when_it_ends_and_shows_the_file() {
     let finished = json!({
         "type": "dynamicToolCall",
         "id": CALL,
-        "namespace": null,
-        "tool": "maxhq_open_file",
+        "namespace": "maxhq",
+        "tool": "open_file",
         "arguments": input,
         "status": "completed",
         "contentItems": [{"type": "inputText", "text": said}],
@@ -477,7 +589,7 @@ fn a_show_answers_with_its_id_and_shows_the_visual() {
     run.feed_all(&fixture_lines("turn-command.jsonl", 1, 3));
     run.take();
     let input = json!({"title": "Weekly usage", "html": "<p>hi</p>"});
-    run.feed(&tool_call(9, "maxhq_show_visual", input.clone()));
+    run.feed(&tool_call(9, "show_visual", input.clone()));
     let fx = run.take();
     assert!(fx.writes.is_empty(), "a call is answered when it ends");
     assert_eq!(fx.calls.len(), 1);
@@ -517,8 +629,8 @@ fn a_show_answers_with_its_id_and_shows_the_visual() {
     let finished = json!({
         "type": "dynamicToolCall",
         "id": CALL,
-        "namespace": null,
-        "tool": "maxhq_show_visual",
+        "namespace": "maxhq",
+        "tool": "show_visual",
         "arguments": input,
         "status": "completed",
         "contentItems": [{"type": "inputText", "text": said}],

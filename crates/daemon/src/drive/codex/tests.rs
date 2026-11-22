@@ -15,7 +15,7 @@ use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 use maxhq_core::names;
-use maxhq_core::tools::{dispatch, Tool};
+use maxhq_core::tools::{self, dispatch, Tool};
 use maxhq_protocol::attention::{AttentionAnswer, AttentionEvent, AttentionKind};
 use maxhq_protocol::context::{InlineRef, QuoteSource};
 use maxhq_protocol::ids::{
@@ -665,8 +665,25 @@ fn start_answers_started_once_the_thread_is_up() {
             "sandbox": "workspace-write",
         })
     );
-    // MaxHQ's own tools go with the thread.
-    assert_eq!(tools.unwrap()[0]["name"], "maxhq_send_attachments");
+    // MaxHQ's own tools go with the thread, in their namespace, and most
+    // wait behind Codex's tool search.
+    let tools = tools.unwrap();
+    assert_eq!(tools, tools::codex_tools(&Tool::ALL));
+    let [namespace] = tools.as_array().unwrap().as_slice() else {
+        panic!("{tools}");
+    };
+    assert_eq!(namespace["type"], "namespace");
+    assert_eq!(namespace["name"], "maxhq");
+    let specs = namespace["tools"].as_array().unwrap();
+    assert_eq!(specs.len(), Tool::ALL.len());
+    assert_eq!(specs[0]["name"], "send_attachments");
+    assert_eq!(specs[0]["deferLoading"], true);
+    let up_front: Vec<&str> = specs
+        .iter()
+        .filter(|spec| spec.get("deferLoading").is_none())
+        .map(|spec| spec["name"].as_str().unwrap())
+        .collect();
+    assert_eq!(up_front, ["open_file", "read_agent"]);
 
     run.feed_all(&fixture_lines("turn-image.jsonl", 1, 2));
     let fx = run.take();
@@ -821,17 +838,36 @@ fn the_dispatcher_thread_runs_in_auto_and_gets_its_own_tools() {
     assert_eq!(params["approvalPolicy"], "on-request");
     assert_eq!(params["approvalsReviewer"], "auto_review");
     assert_eq!(params["developerInstructions"], dispatch::instructions());
-    let names: Vec<&str> = params["dynamicTools"]
-        .as_array()
-        .unwrap()
+    assert_eq!(
+        params["dynamicTools"],
+        tools::codex_tools(&Tool::DISPATCHER)
+    );
+    let specs = params["dynamicTools"][0]["tools"].as_array().unwrap();
+    let names: Vec<&str> = specs
         .iter()
-        .map(|tool| tool["name"].as_str().unwrap())
+        .map(|spec| spec["name"].as_str().unwrap())
         .collect();
-    let wanted: Vec<String> = Tool::DISPATCHER
-        .iter()
-        .map(|tool| tool.codex_name())
-        .collect();
+    let wanted: Vec<&str> = Tool::DISPATCHER.iter().map(|tool| tool.name()).collect();
     assert_eq!(names, wanted);
+    // Its reads and plan load with the thread, and the rest wait.
+    let up_front: Vec<&str> = specs
+        .iter()
+        .filter(|spec| spec.get("deferLoading").is_none())
+        .map(|spec| spec["name"].as_str().unwrap())
+        .collect();
+    assert_eq!(
+        up_front,
+        [
+            "read_agent",
+            "list_targets",
+            "list_agents",
+            "list_tasks",
+            "list_repo_pull_requests",
+            "submit_plan",
+            "name_chat",
+            "switch_chat",
+        ]
+    );
 
     run.feed_all(&fixture_lines("turn-image.jsonl", 1, 2));
     let turn = sent_once(&run.take(), "turn/start")["params"].clone();

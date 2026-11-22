@@ -7,7 +7,7 @@
 use std::time::{Duration, Instant};
 
 use maxhq_core::names;
-use maxhq_core::tools::dispatch;
+use maxhq_core::tools::{self, dispatch};
 use maxhq_protocol::ids::{AgentId, IdempotencyKey};
 use maxhq_protocol::message::{ActionOutcome, AgentSpec, SendMode};
 use maxhq_protocol::model::{AgentLink, ModelChoice, PermissionMode, Vendor};
@@ -332,13 +332,8 @@ impl CodexServer {
         add_trust(Some(&place), &mut params);
         // MaxHQ's own tools stay with the thread, through every resume.
         // Codex takes them only here, so a thread keeps the ones it
-        // started with.
-        let tools: Vec<Value> = place
-            .tools()
-            .iter()
-            .map(|tool| tool.codex_spec(place.tools()))
-            .collect();
-        params.insert("dynamicTools".into(), tools.into());
+        // started with. Most wait behind Codex's tool search.
+        params.insert("dynamicTools".into(), tools::codex_tools(place.tools()));
         let call = Call::ThreadStart {
             key,
             place,

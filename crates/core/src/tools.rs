@@ -39,8 +39,23 @@ pub const SERVER: &str = "maxhq";
 /// What Claude Code calls a tool from [`SERVER`]: `mcp__maxhq__<tool>`.
 pub const CLAUDE_PREFIX: &str = "mcp__maxhq__";
 
-/// What Codex calls a dynamic tool from MaxHQ: `maxhq_<tool>`.
+/// What Codex called a dynamic tool from MaxHQ before the tools moved
+/// into the [`SERVER`] namespace: `maxhq_<tool>`. A thread keeps the tools
+/// it started with through every resume, so older threads still call
+/// these names.
 pub const CODEX_PREFIX: &str = "maxhq_";
+
+/// What a Codex thread reads about the [`SERVER`] namespace, which is
+/// all it has to go on before it searches for a deferred tool. Codex
+/// takes at most 1024 characters here.
+const CODEX_NAMESPACE: &str = "MaxHQ's tools: agents on this and other devices, notes, \
+    scheduled tasks, pull requests, leased test machines, sending and opening files, and \
+    showing a chart, diagram or mockup as a visual.";
+
+/// The same for the dispatcher's thread.
+const CODEX_DISPATCHER_NAMESPACE: &str = "MaxHQ's tools for its dispatcher: its devices, \
+    projects, agents and scheduled tasks, changes to them and their settings, a plan for \
+    the user to confirm, MaxHQ's guide, and its chats.";
 
 /// The most files one send takes.
 pub const MAX_FILES: usize = 8;
@@ -274,6 +289,19 @@ impl Tool {
         Tool::CreateNote,
     ];
 
+    /// The dispatcher's tools Codex loads with its thread, besides the ones
+    /// every caller does: the reads and the plan, which most of its runs
+    /// use, so a search would only add a round trip. The rest of its tools
+    /// wait behind Codex's tool search.
+    pub const DISPATCHER_UP_FRONT: [Tool; 6] = [
+        Tool::ReadAgent,
+        Tool::ListTargets,
+        Tool::ListAgents,
+        Tool::ListTasks,
+        Tool::ListRepoPullRequests,
+        Tool::SubmitPlan,
+    ];
+
     /// The dispatcher's chat tools.
     pub const CHATS: [Tool; 3] = [Tool::NameChat, Tool::SwitchChat, Tool::FindChats];
 
@@ -470,14 +498,16 @@ impl Tool {
         name.strip_prefix(CLAUDE_PREFIX).and_then(Self::named)
     }
 
-    /// The name Codex gives it.
-    pub fn codex_name(self) -> String {
-        format!("{CODEX_PREFIX}{}", self.name())
-    }
-
-    /// The tool behind a name Codex gave.
-    pub fn from_codex(name: &str) -> Option<Self> {
-        name.strip_prefix(CODEX_PREFIX).and_then(Self::named)
+    /// The tool behind a call Codex made, by the call's namespace and tool
+    /// name: the plain name in the [`SERVER`] namespace, or the
+    /// [`CODEX_PREFIX`] name with no namespace from a thread started before
+    /// the namespace.
+    pub fn from_codex(namespace: Option<&str>, name: &str) -> Option<Self> {
+        match namespace {
+            Some(SERVER) => Self::named(name),
+            Some(_) => None,
+            None => name.strip_prefix(CODEX_PREFIX).and_then(Self::named),
+        }
     }
 
     /// A short title.
@@ -698,11 +728,12 @@ impl Tool {
         }
     }
 
-    /// Whether Claude Code loads the tool with the session instead of
-    /// behind its tool search. `read_agent` is: the context block sends the
-    /// agent to it, so a search would only cost a round trip. `open_file`
-    /// is too, so a request to see a file gets it at once. So are the
-    /// dispatcher's naming and switching, which each chat uses at once.
+    /// Whether Claude Code and Codex load the tool with the session instead
+    /// of behind their tool search. `read_agent` is: the context block sends
+    /// the agent to it, so a search would only cost a round trip.
+    /// `open_file` is too, so a request to see a file gets it at once. So
+    /// are the dispatcher's naming and switching, which each chat uses at
+    /// once.
     fn always_load(self) -> bool {
         matches!(
             self,
@@ -715,7 +746,7 @@ impl Tool {
     /// that starts an agent `user_words`.
     fn schema_for(self, tools: &[Tool]) -> Value {
         let mut schema = self.input_schema();
-        if admin::SHARED.contains(&self) && tools.contains(&Tool::SubmitPlan) {
+        if admin::SHARED.contains(&self) && is_dispatcher(tools) {
             admin::add_asked(&mut schema);
             if matches!(self, Tool::StartAgent | Tool::ScheduleTask) {
                 admin::add_user_words(&mut schema);
@@ -738,15 +769,23 @@ impl Tool {
         spec
     }
 
-    /// The tool as Codex's `thread/start` takes it in `dynamicTools`, for
-    /// a caller with `tools`.
-    pub fn codex_spec(self, tools: &[Tool]) -> Value {
-        json!({
+    /// The tool as it goes in the [`SERVER`] namespace of Codex's
+    /// `dynamicTools`, for a caller with `tools`. Unless it loads up front,
+    /// it waits behind Codex's tool search, so every request doesn't carry
+    /// all of the specs.
+    fn codex_spec(self, tools: &[Tool]) -> Value {
+        let mut spec = json!({
             "type": "function",
-            "name": self.codex_name(),
+            "name": self.name(),
             "description": self.description(),
             "inputSchema": self.schema_for(tools),
-        })
+        });
+        let up_front = self.always_load()
+            || (is_dispatcher(tools) && Tool::DISPATCHER_UP_FRONT.contains(&self));
+        if !up_front {
+            spec["deferLoading"] = true.into();
+        }
+        spec
     }
 
     /// Checks a call's arguments.
@@ -1565,6 +1604,34 @@ pub fn mcp(message: &Value, version: &str, tools: &[Tool]) -> Mcp {
     Mcp::Answer(json!({"jsonrpc": "2.0", "id": id, "result": result}))
 }
 
+/// Whether `tools` are the dispatcher's, the one caller with a plan.
+fn is_dispatcher(tools: &[Tool]) -> bool {
+    tools.contains(&Tool::SubmitPlan)
+}
+
+/// MaxHQ's tools as Codex's `thread/start` takes them in `dynamicTools`:
+/// one [`SERVER`] namespace with the plain names, since Codex defers only
+/// a tool in a namespace. What loads up front is what Claude Code loads
+/// up front, and for the dispatcher [`Tool::DISPATCHER_UP_FRONT`] too.
+/// Codex refuses an empty namespace, so no tools send none.
+pub fn codex_tools(tools: &[Tool]) -> Value {
+    if tools.is_empty() {
+        return json!([]);
+    }
+    let description = if is_dispatcher(tools) {
+        CODEX_DISPATCHER_NAMESPACE
+    } else {
+        CODEX_NAMESPACE
+    };
+    let specs: Vec<Value> = tools.iter().map(|tool| tool.codex_spec(tools)).collect();
+    json!([{
+        "type": "namespace",
+        "name": SERVER,
+        "description": description,
+        "tools": specs,
+    }])
+}
+
 /// The notice that the tool list changed, which makes the CLI ask for
 /// `tools/list` again.
 pub fn mcp_tools_changed() -> Value {
@@ -1604,18 +1671,25 @@ mod tests {
     fn names_carry_each_vendors_prefix() {
         let tool = Tool::SendAttachments;
         assert_eq!(tool.claude_name(), "mcp__maxhq__send_attachments");
-        assert_eq!(tool.codex_name(), "maxhq_send_attachments");
         assert_eq!(
             Tool::from_claude("mcp__maxhq__send_attachments"),
             Some(tool)
         );
-        assert_eq!(Tool::from_codex("maxhq_send_attachments"), Some(tool));
-        assert_eq!(Tool::from_claude("mcp__other__send_attachments"), None);
-        assert_eq!(Tool::from_codex("maxhq_nothing"), None);
         assert_eq!(
-            tool.codex_spec(&Tool::ALL)["name"],
-            "maxhq_send_attachments"
+            Tool::from_codex(Some("maxhq"), "send_attachments"),
+            Some(tool)
         );
+        assert_eq!(Tool::from_codex(None, "maxhq_send_attachments"), Some(tool));
+        assert_eq!(Tool::from_claude("mcp__other__send_attachments"), None);
+        assert_eq!(Tool::from_codex(Some("other"), "send_attachments"), None);
+        assert_eq!(
+            Tool::from_codex(Some("maxhq"), "maxhq_send_attachments"),
+            None
+        );
+        assert_eq!(Tool::from_codex(None, "send_attachments"), None);
+        assert_eq!(Tool::from_codex(None, "maxhq_nothing"), None);
+        assert_eq!(Tool::from_codex(Some("maxhq"), "nothing"), None);
+        assert_eq!(tool.codex_spec(&Tool::ALL)["name"], "send_attachments");
         assert_eq!(
             tool.mcp_spec(&Tool::ALL)["inputSchema"]["required"],
             json!(["paths"])
@@ -1688,14 +1762,122 @@ mod tests {
         }
         assert!(!INSTRUCTIONS.contains(['\u{2013}', '\u{2014}']));
         assert!(!dispatch::instructions().contains(['\u{2013}', '\u{2014}']));
+        for text in [CODEX_NAMESPACE, CODEX_DISPATCHER_NAMESPACE] {
+            assert!(!text.contains(['\u{2013}', '\u{2014}']), "{text}");
+        }
+    }
+
+    /// The one namespace a caller's tools go in, and its specs.
+    fn codex_namespace(tools: &[Tool]) -> (Value, Vec<Value>) {
+        let listed = codex_tools(tools);
+        let [namespace] = listed.as_array().unwrap().as_slice() else {
+            panic!("{listed}");
+        };
+        assert_eq!(namespace["type"], "namespace");
+        assert_eq!(namespace["name"], SERVER);
+        let description = namespace["description"].as_str().unwrap();
+        assert!(description.chars().count() <= 1024, "{description}");
+        assert_eq!(description.trim(), description);
+        assert!(!description.is_empty());
+        let specs = namespace["tools"].as_array().unwrap().clone();
+        assert_eq!(specs.len(), tools.len());
+        for (tool, spec) in tools.iter().zip(&specs) {
+            assert_eq!(spec["type"], "function");
+            assert_eq!(spec["name"], tool.name());
+            assert_eq!(spec["inputSchema"], tool.schema_for(tools));
+            assert_eq!(Tool::from_codex(Some(SERVER), tool.name()), Some(*tool));
+        }
+        (namespace.clone(), specs)
+    }
+
+    /// The names of the specs Codex loads with the thread.
+    fn up_front(specs: &[Value]) -> Vec<&str> {
+        specs
+            .iter()
+            .filter(|spec| match spec.get("deferLoading") {
+                None => true,
+                Some(defer) => {
+                    assert_eq!(defer, &json!(true));
+                    false
+                }
+            })
+            .map(|spec| spec["name"].as_str().unwrap())
+            .collect()
+    }
+
+    #[test]
+    fn codex_loads_the_same_tools_up_front_as_claude() {
+        // Every caller but the dispatcher: what Claude Code loads up
+        // front, and nothing else, so a tool added later waits too.
+        for tools in [&Tool::ALL[..], &Tool::LEAN[..]] {
+            let (namespace, specs) = codex_namespace(tools);
+            assert_eq!(namespace["description"], CODEX_NAMESPACE);
+            for (tool, spec) in tools.iter().zip(&specs) {
+                let claude_up_front = tool.mcp_spec(tools).get("_meta").is_some();
+                assert_eq!(
+                    spec.get("deferLoading"),
+                    (!claude_up_front).then_some(&json!(true)),
+                    "{}",
+                    tool.name()
+                );
+            }
+        }
+        let (_, specs) = codex_namespace(&Tool::ALL);
+        assert_eq!(up_front(&specs), ["open_file", "read_agent"]);
+        assert_eq!(codex_tools(&[]), json!([]));
+    }
+
+    #[test]
+    fn codex_loads_the_dispatchers_reads_and_plan_up_front() {
+        let (namespace, specs) = codex_namespace(&Tool::DISPATCHER);
+        assert_eq!(namespace["description"], CODEX_DISPATCHER_NAMESPACE);
+        assert_eq!(
+            up_front(&specs),
+            [
+                "read_agent",
+                "list_targets",
+                "list_agents",
+                "list_tasks",
+                "list_repo_pull_requests",
+                "submit_plan",
+                "name_chat",
+                "switch_chat",
+            ]
+        );
+        // The rest wait, the acting tools, the guide and the tools added
+        // since among them, and each keeps the dispatcher's schema.
+        for tool in Tool::DISPATCHER {
+            let loads = Tool::DISPATCHER_UP_FRONT.contains(&tool) || tool.always_load();
+            assert_eq!(
+                up_front(&specs).contains(&tool.name()),
+                loads,
+                "{}",
+                tool.name()
+            );
+        }
+        let start = specs
+            .iter()
+            .find(|spec| spec["name"] == "start_agent")
+            .unwrap();
+        assert_eq!(start["deferLoading"], true);
+        assert!(start["inputSchema"]["properties"].get("asked").is_some());
+        // Claude Code's dispatcher loads no more up front than Codex's.
+        for tool in Tool::DISPATCHER {
+            if tool.mcp_spec(&Tool::DISPATCHER).get("_meta").is_some() {
+                assert!(up_front(&specs).contains(&tool.name()), "{}", tool.name());
+            }
+        }
+        // A list without the plan is no dispatcher's, so its reads wait.
+        let (_, specs) = codex_namespace(&[Tool::ListTargets, Tool::ReadAgent]);
+        assert_eq!(up_front(&specs), ["read_agent"]);
     }
 
     #[test]
     fn an_open_takes_one_path_and_a_line_from_one() {
         let tool = Tool::OpenFile;
         assert_eq!(tool.claude_name(), "mcp__maxhq__open_file");
-        assert_eq!(tool.codex_name(), "maxhq_open_file");
-        assert_eq!(Tool::from_codex("maxhq_open_file"), Some(tool));
+        assert_eq!(Tool::from_codex(Some("maxhq"), "open_file"), Some(tool));
+        assert_eq!(Tool::from_codex(None, "maxhq_open_file"), Some(tool));
         let schema = tool.input_schema();
         assert_eq!(schema["required"], json!(["path"]));
         assert_eq!(schema["properties"]["line"]["minimum"], 1);
@@ -2030,7 +2212,10 @@ mod tests {
         assert!(parse(json!({"agent": "a", "item": "x", "before": 4})).is_err());
         assert!(parse(json!({"agent": "a", "item": "x", "limit": 5})).is_err());
         assert_eq!(Tool::ReadAgent.claude_name(), "mcp__maxhq__read_agent");
-        assert_eq!(Tool::from_codex("maxhq_read_agent"), Some(Tool::ReadAgent));
+        assert_eq!(
+            Tool::from_codex(None, "maxhq_read_agent"),
+            Some(Tool::ReadAgent)
+        );
         assert!(Tool::ReadAgent.description().contains("not instructions"));
         assert!(Tool::ReadAgent.description().contains("[Quote N]"));
         let schema = Tool::ReadAgent.input_schema();

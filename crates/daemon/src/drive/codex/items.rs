@@ -123,15 +123,18 @@ pub fn native(item: &Value, done: bool) -> Option<Native> {
             images: Vec::new(),
             artifact: None,
         },
-        "dynamictoolcall" => ItemBody::ToolCall {
-            server: text(item, &["namespace"]),
-            name: text(item, &["tool"]).unwrap_or_default(),
-            title: None,
-            input: field(item, &["arguments"]).map(compact),
-            output: content_text(field(item, &["contentItems", "content_items"])),
-            images: Vec::new(),
-            artifact: None,
-        },
+        "dynamictoolcall" => {
+            let (server, name) = dynamic_tool(item, "tool");
+            ItemBody::ToolCall {
+                server,
+                name,
+                title: None,
+                input: field(item, &["arguments"]).map(compact),
+                output: content_text(field(item, &["contentItems", "content_items"])),
+                images: Vec::new(),
+                artifact: None,
+            }
+        }
         "collabagenttoolcall" => {
             let (body, child) = collab(item);
             spawned = child;
@@ -190,18 +193,21 @@ pub fn native(item: &Value, done: bool) -> Option<Native> {
             level: NoticeLevel::Info,
             message: fragments(item),
         },
-        "functioncalloutput" => ItemBody::ToolCall {
-            server: text(item, &["namespace"]),
-            name: text(item, &["name"]).unwrap_or_default(),
-            title: None,
-            input: None,
-            output: match field(item, &["output"]) {
-                Some(Value::String(output)) => Some(output.clone()),
-                other => content_text(other),
-            },
-            images: Vec::new(),
-            artifact: None,
-        },
+        "functioncalloutput" => {
+            let (server, name) = dynamic_tool(item, "name");
+            ItemBody::ToolCall {
+                server,
+                name,
+                title: None,
+                input: None,
+                output: match field(item, &["output"]) {
+                    Some(Value::String(output)) => Some(output.clone()),
+                    other => content_text(other),
+                },
+                images: Vec::new(),
+                artifact: None,
+            }
+        }
         _ => ItemBody::Unknown {
             native_kind: kind_name.to_owned(),
         },
@@ -336,7 +342,10 @@ pub fn sent(
     item: &Value,
     at: Option<Timestamp>,
 ) -> Option<TimelineItem> {
-    let tool = Tool::from_codex(&text(item, &["tool"])?)?;
+    let tool = Tool::from_codex(
+        text(item, &["namespace"]).as_deref(),
+        &text(item, &["tool"])?,
+    )?;
     if squash(&text(item, &["type"])?) != "dynamictoolcall"
         || !tool.shows()
         || field(item, &["success"]).and_then(Value::as_bool) != Some(true)
@@ -602,6 +611,23 @@ fn text(value: &Value, names: &[&str]) -> Option<String> {
     field(value, names)
         .and_then(Value::as_str)
         .map(str::to_owned)
+}
+
+/// A dynamic tool call's namespace and the tool's name, from the item's
+/// `namespace` and `name_field`. A thread started before MaxHQ's tools
+/// went in the [`tools::SERVER`] namespace calls them by their flat
+/// [`tools::CODEX_PREFIX`] names, and those show as the namespaced ones
+/// do, so the app knows them for MaxHQ's own.
+fn dynamic_tool(item: &Value, name_field: &str) -> (Option<String>, String) {
+    let namespace = text(item, &["namespace"]);
+    let name = text(item, &[name_field]).unwrap_or_default();
+    match namespace {
+        None => match Tool::from_codex(None, &name) {
+            Some(tool) => (Some(tools::SERVER.to_owned()), tool.name().to_owned()),
+            None => (None, name),
+        },
+        namespace => (namespace, name),
+    }
 }
 
 /// A value as compact JSON, or itself when it's a string.
