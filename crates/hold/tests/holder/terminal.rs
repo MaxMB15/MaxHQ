@@ -8,7 +8,8 @@
 //! so no shell reads anyone's startup files.
 
 use maxhq_hold::{
-    Commands, Mark, Reached, ShellCommand, TermEvent, TermExit, TermLaunch, TermLink, Terminals,
+    Commands, Mark, Reached, ShellCommand, TermEvent, TermExit, TermLaunch, TermLink, TermModes,
+    Terminals,
 };
 use maxhq_protocol::ids::TerminalId;
 use maxhq_protocol::time::Timestamp;
@@ -77,6 +78,7 @@ struct Seen {
     title: Option<String>,
     cwd: Option<String>,
     marks: Vec<(u64, Mark)>,
+    modes: TermModes,
 }
 
 /// The state with only the end of the output, which can run to megabytes.
@@ -92,6 +94,7 @@ impl std::fmt::Debug for Seen {
             .field("title", &self.title)
             .field("cwd", &self.cwd)
             .field("marks", &self.marks)
+            .field("modes", &self.modes)
             .finish()
     }
 }
@@ -107,6 +110,11 @@ impl Seen {
             title: link.hello.title.clone(),
             cwd: link.hello.cwd.clone(),
             marks: Vec::new(),
+            modes: link
+                .hello
+                .modes
+                .clone()
+                .expect("a holder of this build says its modes"),
         }
     }
 
@@ -137,6 +145,7 @@ impl Seen {
                 TermEvent::Title(title) => self.title = Some(title),
                 TermEvent::Cwd(cwd) => self.cwd = Some(cwd),
                 TermEvent::Mark { offset, mark, .. } => self.marks.push((offset, mark)),
+                TermEvent::Modes(modes) => self.modes = modes,
                 TermEvent::Exit(exit) => {
                     assert!(self.exit.is_none(), "two exits");
                     self.exit = Some(exit);
@@ -341,6 +350,134 @@ pub(super) async fn interrupt_stops_what_the_shell_runs(ctx: Ctx) {
     assert!(alive(shell), "the interrupt reached the shell");
     // The pty echoes the command, so only a line of its own counts.
     assert!(!seen.text().contains("\nslept"), "{}", seen.text());
+    assert!(link.control.input(b"exit 4\n".to_vec()));
+    let exit = seen.until_exit(&mut link).await;
+    assert_eq!((exit.code, exit.signal), (Some(4), None));
+}
+
+/// A `!` run of `command` by `/bin/sh` with no startup files.
+fn sh_run(ctx: &Ctx, command: &str) -> TermLaunch {
+    let mut launch = TermLaunch::run(TerminalId::generate(), ctx.root.clone(), command, 80, 24);
+    launch.program = "/bin/sh".into();
+    launch.env.extend(quiet_env(ctx).into_iter().skip(1));
+    launch
+}
+
+pub(super) async fn the_holder_answers_where_the_cursor_is_with_nobody_looking(ctx: Ctx) {
+    // As the prompt library `gh` uses does: raw mode, then a cursor query
+    // it waits for. The answer shows with its escape spelled out.
+    let ask = "stty raw -echo; printf '? Paste your secret: \\033[6n'; \
+               answer=$(dd bs=1 count=7 2>/dev/null); stty sane; \
+               printf '\\ngot %s\\n' \"$(printf %s \"$answer\" | tr '\\033' E)\"";
+    let launch = sh_run(&ctx, ask);
+    let terminals = terminals(&ctx);
+    terminals.spawn(&launch).await.unwrap();
+    let exit_file = terminal_dir(&ctx, launch.terminal).join("exit.json");
+    eventually("the run ended with nobody looking", || exit_file.exists()).await;
+    let mut link = live(&terminals, launch.terminal, None).await;
+    let mut seen = Seen::from(&link);
+    let exit = seen.until_exit(&mut link).await;
+    assert_eq!(exit.code, Some(0), "{exit:?}");
+    let text = exit.output.unwrap().text;
+    assert!(text.ends_with("got E[1;22R"), "{text:?}");
+
+    // A shell's terminal answers too, as for a session's commands.
+    let mut launch = sh(&ctx, "", false);
+    launch.args = vec!["-i".into()];
+    let mut link = start(&ctx, &launch).await;
+    let mut seen = Seen::from(&link);
+    seen.until_text(&mut link, "$ ").await;
+    let status = "stty raw -echo; printf '\\033[5n'; answer=$(dd bs=1 count=4 2>/dev/null); \
+                  stty sane; echo \"status $(printf %s \"$answer\" | tr '\\033' E)\"\n";
+    assert!(link.control.input(status.as_bytes().to_vec()));
+    seen.until_text(&mut link, "status E[0n").await;
+    // What reflects data, such as the clipboard, goes unanswered.
+    let clipboard = "stty raw -echo min 0 time 10; printf '\\033]52;c;?\\007'; \
+                     answer=$(dd bs=1 count=1 2>/dev/null); stty sane; \
+                     echo \"clipboard [$answer]\"\n";
+    assert!(link.control.input(clipboard.as_bytes().to_vec()));
+    seen.until_text(&mut link, "clipboard []").await;
+    assert!(link.control.input(b"exit\n".to_vec()));
+    seen.until_exit(&mut link).await;
+}
+
+pub(super) async fn a_raw_prompt_that_asks_for_a_secret_waits_as_a_password_prompt(ctx: Ctx) {
+    let canary = format!("canary-{}", TerminalId::generate().0.simple());
+    let typed = format!("{canary}\r");
+    let ask = format!(
+        "stty raw -echo; printf '? Paste your secret: '; \
+         secret=$(dd bs=1 count={} 2>/dev/null); stty sane; echo; \
+         echo \"length ${{#secret}}\"",
+        typed.len()
+    );
+    let launch = sh_run(&ctx, &ask);
+    let mut link = start(&ctx, &launch).await;
+    let mut seen = Seen::from(&link);
+    seen.until(&mut link, false, |seen| seen.password && seen.modes.waiting)
+        .await;
+    // A secret prompt reads keys, but the field is a secure one.
+    assert!(
+        !seen.modes.reads_keys && !seen.modes.full_screen,
+        "{seen:?}"
+    );
+    assert!(link.control.input(typed.clone().into_bytes()));
+    let exit = seen.until_exit(&mut link).await;
+    assert_eq!(exit.code, Some(0));
+    let output = exit.output.unwrap();
+    let lines: Vec<&str> = output.text.lines().collect();
+    assert_eq!(
+        lines,
+        [
+            format!("? Paste your secret:{}", maxhq_term::SECRET_SENT),
+            format!("length {}", typed.len())
+        ],
+        "{:?}",
+        output.text
+    );
+    assert!(!seen.text().contains(&canary));
+    assert_no_file_has(&ctx.root, &canary);
+}
+
+pub(super) async fn a_quiet_question_waits_and_offers_its_answers(ctx: Ctx) {
+    // A quiet stretch at the start of a line isn't a question.
+    let ask = "echo building; sleep 1.6; printf 'Continue? [y/N] '; read answer; \
+               echo \"got $answer\"";
+    let launch = sh_run(&ctx, ask);
+    let mut link = start(&ctx, &launch).await;
+    let mut seen = Seen::from(&link);
+    seen.until(&mut link, false, |seen| seen.modes.waiting)
+        .await;
+    assert!(seen.text().ends_with("Continue? [y/N] "), "{seen:?}");
+    assert_eq!(seen.modes.choices, ["y", "n"]);
+    assert!(!seen.password && !seen.modes.reads_keys, "{seen:?}");
+    assert!(link.control.input(b"y\n".to_vec()));
+    seen.until(&mut link, false, |seen| !seen.modes.waiting)
+        .await;
+    let exit = seen.until_exit(&mut link).await;
+    assert!(exit.output.unwrap().text.ends_with("got y"));
+    assert_eq!(seen.modes, TermModes::default());
+}
+
+pub(super) async fn stop_command_ends_what_the_shell_runs_and_leaves_the_shell(ctx: Ctx) {
+    let mut launch = sh(&ctx, "", false);
+    launch.args = vec!["-i".into()];
+    let mut link = start(&ctx, &launch).await;
+    let shell = link.hello.child_pid;
+    let mut seen = Seen::from(&link);
+    seen.until_text(&mut link, "$ ").await;
+    // With only the shell, there's nothing to stop.
+    assert!(link.control.stop_command());
+    // A command that ignores Ctrl-C, as one that traps it can. Ctrl-C
+    // would end it with 130.
+    let ignores = "trap '' INT; sleep 30; echo \"slept $?\"\n";
+    assert!(link.control.input(ignores.as_bytes().to_vec()));
+    seen.until(&mut link, false, |seen| seen.busy).await;
+    assert!(link.control.interrupt());
+    tokio::time::sleep(Duration::from_millis(600)).await;
+    assert!(link.control.stop_command());
+    seen.until_text(&mut link, "slept 137").await;
+    seen.until(&mut link, false, |seen| !seen.busy).await;
+    assert!(alive(shell), "the shell stayed");
     assert!(link.control.input(b"exit 4\n".to_vec()));
     let exit = seen.until_exit(&mut link).await;
     assert_eq!((exit.code, exit.signal), (Some(4), None));

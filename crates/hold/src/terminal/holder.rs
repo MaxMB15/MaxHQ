@@ -8,14 +8,17 @@
 //! pty, in a session of its own with the pty as its terminal. Then it says
 //! `ready`.
 //!
-//! One task reads the master into the ring, and for a `!` run into a
-//! headless terminal too, once the run's marker has come (`marker.rs`).
-//! On the way it takes out the shell's marks (`marks.rs`), and keeps where
-//! each was for clients that ask for them.
-//! One task writes input, in the order it came.
-//! Every 150 ms the holder looks at the pty's modes and its foreground
-//! group, and tells clients when the program starts or stops waiting for
-//! a password or the shell starts or stops running something.
+//! One task reads the master into the ring and a headless terminal, for a
+//! `!` run once its marker has come (`marker.rs`). On the way it takes out
+//! the shell's marks (`marks.rs`), and keeps where each was for clients
+//! that ask for them. The headless terminal answers what the program asks,
+//! such as where the cursor is, and the holder writes those answers back,
+//! so a program gets one answer whether or not anyone looks.
+//! One task writes input and answers, in the order they came.
+//! Every 150 ms the holder looks at the pty's modes, its foreground group
+//! and the line the cursor is on (`modes.rs`), and tells clients when the
+//! program starts or stops waiting for a password or for you, or the
+//! shell starts or stops running something.
 //!
 //! Once the program ends and its output is in, the holder writes
 //! `exit.json`. A goodbye from a client that saw the exit deletes the
@@ -42,10 +45,11 @@ use tokio::sync::{mpsc, watch};
 
 use super::marker::Cutoff;
 use super::marks::{Filter, Kind, Mark};
+use super::modes::{self, Pty, QUIET};
 use super::osc::{Scanner, Set};
 use super::ring::{Ring, RING_BYTES};
 use super::wire::{self, FromHolder, ToHolder, Typed, CHUNK};
-use super::{socket_name, LaunchFile, RunOutput, TermExit, TermHello};
+use super::{socket_name, LaunchFile, RunOutput, TermExit, TermHello, TermModes};
 use crate::files::{self, HolderFile, EXIT, HOLDER, LAUNCH, LOCK};
 use crate::holder::{
     quiet_stdin, read_stdin, say_ready, take_lock, DRAIN_WAIT, FLUSH_WAIT, HELLO_WAIT, QUIT_GRACE,
@@ -65,11 +69,19 @@ const READ_SIZE: usize = 64 * 1024;
 /// output has left the ring.
 const MAX_MARKS: usize = 4096;
 
+/// What the writer task writes.
+enum Input {
+    /// What someone typed.
+    Typed(Typed),
+    /// The headless terminal's answers to what the program asked.
+    Answers(Vec<u8>),
+}
+
 /// What the second step sets up before saying it's ready.
 pub(super) struct Started {
     holder: Arc<Holder>,
     socket: Socket,
-    input: mpsc::UnboundedReceiver<Typed>,
+    input: mpsc::UnboundedReceiver<Input>,
     _lock: File,
 }
 
@@ -152,9 +164,15 @@ impl Started {
             state: Mutex::new(State {
                 ring: Ring::new(RING_BYTES),
                 cutoff: launch.run.then(Cutoff::new),
-                emulator: launch
-                    .run
-                    .then(|| maxhq_term::emulator(launch.cols, launch.rows)),
+                // A shell can run for days, so its terminal keeps only the
+                // screen.
+                emulator: if launch.run {
+                    maxhq_term::emulator(launch.cols, launch.rows)
+                } else {
+                    maxhq_term::screen(launch.cols, launch.rows)
+                },
+                last_output: Instant::now(),
+                modes: TermModes::default(),
                 scanner: Scanner::new(),
                 filter: Filter::new(launch.nonce.as_deref()),
                 marks: VecDeque::new(),
@@ -277,8 +295,13 @@ struct State {
     ring: Ring,
     /// A `!` run's output while it waits for the marker.
     cutoff: Option<Cutoff>,
-    /// The headless terminal a `!` run's transcript comes from.
-    emulator: Option<Box<dyn Emulator>>,
+    /// The headless terminal that answers what the program asks, and that
+    /// a `!` run's transcript comes from.
+    emulator: Box<dyn Emulator>,
+    /// When the program last printed something.
+    last_output: Instant,
+    /// How the program reads input, as the last look saw it.
+    modes: TermModes,
     scanner: Scanner,
     filter: Filter,
     marks: VecDeque<Placed>,
@@ -317,9 +340,7 @@ impl State {
         }
         let start = self.ring.end();
         self.ring.push(&shown);
-        if let Some(emulator) = &mut self.emulator {
-            emulator.feed(&shown);
-        }
+        self.emulator.feed(&shown);
         // A command starts in the folder the shell said before it.
         let mut scanned = 0;
         for (at, kind) in found {
@@ -366,10 +387,12 @@ impl State {
     }
 
     /// Stops waiting for a run's marker and keeps what waited for it.
-    /// Returns whether anything did.
+    /// Returns whether anything did. What the startup asked before the
+    /// marker is long past, so it gets no answer.
     fn release(&mut self) -> bool {
         let held = self.cutoff.take().map(Cutoff::release).unwrap_or_default();
         self.keep(&held);
+        drop(self.emulator.answers());
         !held.is_empty()
     }
 }
@@ -389,6 +412,7 @@ struct View {
     busy: bool,
     title: Option<String>,
     cwd: Option<String>,
+    modes: TermModes,
 }
 
 struct Holder {
@@ -401,8 +425,9 @@ struct Holder {
     run: bool,
     linger: Duration,
     master: Master,
-    /// Input for the writer task, which is the only one that writes.
-    input: mpsc::UnboundedSender<Typed>,
+    /// Input and answers for the writer task, which is the only one that
+    /// writes.
+    input: mpsc::UnboundedSender<Input>,
     state: Mutex<State>,
     /// Counts changes, so tasks can wait for the next one.
     changed: watch::Sender<u64>,
@@ -450,12 +475,14 @@ impl Holder {
         self.bump();
     }
 
-    /// Keeps output, once a run's marker has come.
+    /// Keeps output, once a run's marker has come, and writes back the
+    /// answers to what it asked.
     fn record(&self, bytes: &[u8]) {
         let mut state = self.lock();
         if matches!(state.phase, Phase::Exited(_)) {
             return;
         }
+        state.last_output = Instant::now();
         match state.cutoff.as_mut().map(|cutoff| cutoff.feed(bytes)) {
             None => state.keep(bytes),
             Some(None) => return,
@@ -464,25 +491,43 @@ impl Holder {
                 state.keep(&shown);
             }
         }
+        let answers = state.emulator.answers();
         drop(state);
+        if !answers.is_empty() {
+            let _ = self.input.send(Input::Answers(answers));
+        }
         self.bump();
     }
 
     /// The writer task. It's the only one that writes to the master, so
-    /// input never interleaves.
-    async fn write_input(self: Arc<Self>, mut input: mpsc::UnboundedReceiver<Typed>) {
-        while let Some(typed) = input.recv().await {
-            if self.master.password_mode() {
-                self.note_secret();
-            }
+    /// input and answers never interleave.
+    async fn write_input(self: Arc<Self>, mut input: mpsc::UnboundedReceiver<Input>) {
+        while let Some(next) = input.recv().await {
+            let bytes = match &next {
+                Input::Typed(typed) => {
+                    // A secret goes when you press Enter. A prompt in raw
+                    // mode can echo a mask for each key before it, which
+                    // is output of its own.
+                    let ends_line = typed.0.iter().any(|&byte| matches!(byte, b'\r' | b'\n'));
+                    if ends_line && (self.master.password_mode() || self.lock().password) {
+                        self.note_secret();
+                    }
+                    &typed.0
+                }
+                Input::Answers(answers) => answers,
+            };
             // A program that has gone takes nothing more, and that's no
             // error worth reporting.
-            let _ = self.master.write_all(&typed.0).await;
+            let _ = self.master.write_all(bytes).await;
         }
     }
 
-    /// Marks the transcript where a password went, once per prompt.
+    /// Marks a run's transcript where a password went, once per prompt. A
+    /// shell's terminal keeps no transcript.
     fn note_secret(&self) {
+        if !self.run {
+            return;
+        }
         let mut state = self.lock();
         if state.noted {
             return;
@@ -490,14 +535,12 @@ impl Holder {
         // The prompt goes in first, even when it came before the marker.
         state.release();
         state.noted = true;
-        if let Some(emulator) = state.emulator.as_mut() {
-            emulator.note(maxhq_term::SECRET_SENT);
-        }
+        state.emulator.note(maxhq_term::SECRET_SENT);
     }
 
     /// Queues `typed` for the program.
     fn type_in(&self, typed: Typed) {
-        let _ = self.input.send(typed);
+        let _ = self.input.send(Input::Typed(typed));
     }
 
     fn resize(&self, cols: u16, rows: u16) {
@@ -510,17 +553,15 @@ impl Holder {
         }
         state.cols = cols;
         state.rows = rows;
-        if let Some(emulator) = state.emulator.as_mut() {
-            emulator.resize(cols, rows);
-        }
+        state.emulator.resize(cols, rows);
         self.master
             .resize(pty::winsize(cols.into(), rows.into(), 0, 0));
     }
 
-    /// Looks at the pty's modes and foreground group, and bumps when the
-    /// password prompt or the busy shell changed. A run that waits for
-    /// input before its marker shows what it held, since a startup file
-    /// asks for something.
+    /// Looks at the pty's modes, its foreground group and the screen, and
+    /// bumps when the password prompt, the busy shell or the modes
+    /// changed. A run that waits for input before its marker shows what it
+    /// held, since a startup file asks for something.
     async fn poll(self: Arc<Self>) {
         let mut tick = tokio::time::interval(POLL);
         loop {
@@ -528,7 +569,8 @@ impl Holder {
             if self.exited() {
                 return;
             }
-            let password = self.master.password_mode();
+            let hidden = self.master.password_mode();
+            let keys = self.master.key_mode();
             let foreground = self.master.foreground();
             let mut state = self.lock();
             let running = matches!(state.phase, Phase::Running);
@@ -537,12 +579,21 @@ impl Holder {
             } else {
                 running && foreground.is_some_and(|group| group != self.child_pid)
             };
-            let released =
-                state.cutoff.is_some() && (password || self.master.key_mode()) && state.release();
-            let changed = released || (state.password, state.busy) != (password, busy);
-            state.password = password;
+            let released = state.cutoff.is_some() && (hidden || keys) && state.release();
+            let pty = Pty {
+                busy,
+                hidden,
+                keys,
+                quiet: state.last_output.elapsed() >= QUIET,
+            };
+            let read = modes::read(pty, &state.emulator.look());
+            let changed = released
+                || (state.password, state.busy) != (read.password, busy)
+                || state.modes != read.modes;
+            state.password = read.password;
             state.busy = busy;
-            if !password {
+            state.modes = read.modes;
+            if !state.password {
                 state.noted = false;
             }
             drop(state);
@@ -620,8 +671,7 @@ impl Holder {
         };
         // A run that never printed its marker shows all it printed.
         state.release();
-        let output = (state.emulator.as_mut())
-            .map(|emulator| RunOutput::from_transcript(emulator.transcript()));
+        let output = (self.run).then(|| RunOutput::from_transcript(state.emulator.transcript()));
         let exit = TermExit {
             code,
             signal,
@@ -635,6 +685,7 @@ impl Holder {
         state.phase = Phase::Exited(exit);
         state.password = false;
         state.busy = false;
+        state.modes = TermModes::default();
         drop(state);
         self.bump();
     }
@@ -654,6 +705,20 @@ impl Holder {
         if let Some(group) = foreground.filter(|&group| group != self.child_pid) {
             let _ = rustix::process::kill_process_group(group, signal);
         }
+    }
+
+    /// Kills the group in the terminal's foreground when it isn't the
+    /// program's own, while the program hasn't been reaped: a command the
+    /// shell runs that ignored Ctrl-C ends, and the shell stays.
+    fn stop_command(&self) {
+        let state = self.lock();
+        if !matches!(state.phase, Phase::Running) {
+            return;
+        }
+        if let Some(group) = (self.master.foreground()).filter(|&group| group != self.child_pid) {
+            let _ = rustix::process::kill_process_group(group, Signal::KILL);
+        }
+        drop(state);
     }
 
     /// Hangs the terminal up, then kills what's left after `grace`.
@@ -743,6 +808,7 @@ impl Holder {
             busy: state.busy,
             title: state.title.clone(),
             cwd: state.cwd.clone(),
+            modes: state.modes.clone(),
         };
         let hello = TermHello {
             holder_pid: self.pid,
@@ -757,6 +823,7 @@ impl Holder {
             title: view.title.clone(),
             cwd: view.cwd.clone(),
             marks: true,
+            modes: Some(view.modes.clone()),
         };
         (hello, view, first_mark)
     }
@@ -792,6 +859,7 @@ impl Holder {
             busy: state.busy,
             title: state.title.clone(),
             cwd: state.cwd.clone(),
+            modes: state.modes.clone(),
         };
         if now != *view {
             return Next::View(now);
@@ -813,14 +881,18 @@ enum Next {
     Idle(Option<TermExit>),
 }
 
-/// The messages that tell a client how `now` differs from `was`.
-fn changes(was: &View, now: &View) -> Vec<FromHolder> {
+/// The messages that tell a client how `now` differs from `was`. Only one
+/// that asked for `modes` hears of them.
+fn changes(was: &View, now: &View, modes: bool) -> Vec<FromHolder> {
     let mut sent = Vec::new();
     if now.password != was.password {
         sent.push(FromHolder::Password { on: now.password });
     }
     if now.busy != was.busy {
         sent.push(FromHolder::Busy { on: now.busy });
+    }
+    if modes && now.modes != was.modes {
+        sent.push(FromHolder::Modes(now.modes.clone()));
     }
     if let Some(title) = now.title.as_ref().filter(|_| now.title != was.title) {
         sent.push(FromHolder::Title {
@@ -846,6 +918,7 @@ async fn serve(holder: Arc<Holder>, stream: UnixStream) {
         after,
         quiet,
         marks,
+        modes,
     }))) = hello
     else {
         return;
@@ -881,7 +954,7 @@ async fn serve(holder: Arc<Holder>, stream: UnixStream) {
                     wire::send(&mut write, &FromHolder::Mark { offset, at, mark }).await?;
                 }
                 Next::View(now) => {
-                    for message in changes(&view, &now) {
+                    for message in changes(&view, &now, modes) {
                         wire::send(&mut write, &message).await?;
                     }
                     view = now;
@@ -922,6 +995,7 @@ async fn handle_requests(holder: Arc<Holder>, read: BufReader<OwnedReadHalf>) {
             ToHolder::Kill { grace_ms } => {
                 tokio::spawn(holder.clone().kill(Duration::from_millis(grace_ms)));
             }
+            ToHolder::StopCommand => holder.stop_command(),
             ToHolder::Detach => return,
             ToHolder::Goodbye => holder.goodbye(),
         }
@@ -938,14 +1012,15 @@ mod tests {
             busy: false,
             title: title.map(str::to_owned),
             cwd: None,
+            modes: TermModes::default(),
         }
     }
 
     #[test]
     fn only_what_changed_goes_out() {
-        assert!(changes(&view(false, None), &view(false, None)).is_empty());
+        assert!(changes(&view(false, None), &view(false, None), true).is_empty());
         assert_eq!(
-            changes(&view(false, None), &view(true, Some("vim"))),
+            changes(&view(false, None), &view(true, Some("vim")), true),
             [
                 FromHolder::Password { on: true },
                 FromHolder::Title {
@@ -954,14 +1029,33 @@ mod tests {
             ]
         );
         // A title that goes away isn't news: the shell sets a new one.
-        assert!(changes(&view(false, Some("vim")), &view(false, None)).is_empty());
+        assert!(changes(&view(false, Some("vim")), &view(false, None), true).is_empty());
+    }
+
+    #[test]
+    fn only_a_client_that_asked_hears_of_modes() {
+        let waiting = View {
+            modes: TermModes {
+                reads_keys: true,
+                waiting: true,
+                ..TermModes::default()
+            },
+            ..view(false, None)
+        };
+        assert_eq!(
+            changes(&view(false, None), &waiting, true),
+            [FromHolder::Modes(waiting.modes.clone())]
+        );
+        assert!(changes(&view(false, None), &waiting, false).is_empty());
     }
 
     fn state(nonce: Option<&str>) -> State {
         State {
             ring: Ring::new(RING_BYTES),
             cutoff: None,
-            emulator: None,
+            emulator: maxhq_term::screen(80, 24),
+            last_output: Instant::now(),
+            modes: TermModes::default(),
             scanner: Scanner::new(),
             filter: Filter::new(nonce),
             marks: VecDeque::new(),

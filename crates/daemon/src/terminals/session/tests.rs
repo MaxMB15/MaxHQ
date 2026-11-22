@@ -219,6 +219,7 @@ impl Fixture {
                     cwd_after,
                     output,
                     secret_prompts,
+                    stopped,
                     ..
                 } => {
                     return Ran {
@@ -228,6 +229,7 @@ impl Fixture {
                         cwd_after,
                         output,
                         secret_prompts,
+                        stopped,
                     };
                 }
             }
@@ -297,6 +299,7 @@ struct Ran {
     cwd_after: Option<String>,
     output: Transcript,
     secret_prompts: u32,
+    stopped: bool,
 }
 
 async fn cd_and_export_carry(name: &str) {
@@ -658,6 +661,107 @@ fn a_block_that_runs_as_maxd_restarts_ends_in_the_next() {
         assert!(ran.output.text.contains("done"), "{ran:?}");
         f.end().await;
     });
+}
+
+fn refused(reason: &str) -> ActionOutcome {
+    ActionOutcome::Refused {
+        reason: reason.to_owned(),
+    }
+}
+
+#[tokio::test]
+async fn force_stop_ends_a_command_that_ignored_stop_and_leaves_the_shell() {
+    let Some(mut f) = fixture_on_path("bash") else {
+        return;
+    };
+    let first = f.block("true").await;
+    let terminal = first.terminal;
+    assert!(!first.stopped, "{first:?}");
+    assert_eq!(
+        f.terminals.interrupt(Caller::App, terminal, true),
+        refused(NOTHING_TO_STOP)
+    );
+    let key = f.run("trap '' INT; sleep 30");
+    let SessionResult::Wrote { block, .. } = f.answer(key).await else {
+        panic!("sleep didn't go into the session");
+    };
+    f.started(block).await;
+    f.until(terminal, |open| open.is_some_and(|open| open.entity.busy))
+        .await;
+    assert_eq!(
+        f.terminals.interrupt(Caller::App, terminal, false),
+        ActionOutcome::Done
+    );
+    tokio::time::sleep(Duration::from_millis(600)).await;
+    assert!(f.terminals.lock()[&terminal].entity.busy, "it ignored Stop");
+    assert_eq!(
+        f.terminals.interrupt(Caller::App, terminal, true),
+        ActionOutcome::Done
+    );
+    let ran = f.ended(terminal, block).await;
+    assert_eq!((ran.exit, ran.stopped), (Some(137), true), "{ran:?}");
+    // The shell stayed, and what it runs next ends on its own.
+    let next = f.block("trap - INT; echo still here").await;
+    assert_eq!(next.terminal, terminal);
+    assert_eq!(next.output.text.trim(), "still here", "{next:?}");
+    assert!(!next.stopped, "{next:?}");
+    f.end().await;
+}
+
+#[tokio::test]
+async fn force_stop_on_a_run_ends_it_and_says_you_stopped_it() {
+    let Some(mut f) = fixture_on_path("bash") else {
+        return;
+    };
+    let key = IdempotencyKey::generate();
+    Host::open(
+        &f.terminals,
+        OpenRequest {
+            key,
+            agent: f.agent,
+            kind: TerminalKind::Run {
+                command: "trap '' INT HUP; sleep 30".into(),
+                private: false,
+            },
+            cwd: f.work.clone(),
+            cols: 80,
+            rows: 24,
+            opener: Opener::App,
+            conn: 1,
+        },
+    );
+    let terminal = loop {
+        if let RunNote::Opened {
+            key: said, result, ..
+        } = f.note().await
+            && said == key
+        {
+            break result.expect("the run opened").id;
+        }
+    };
+    f.until(terminal, |open| open.is_some_and(|open| open.entity.busy))
+        .await;
+    assert_eq!(
+        f.terminals.interrupt(Caller::App, terminal, true),
+        ActionOutcome::Done
+    );
+    let (exit, stopped) = loop {
+        if let RunNote::Ended {
+            terminal: ended,
+            exit,
+            stopped,
+            ..
+        } = f.note().await
+            && ended == terminal
+        {
+            break (exit, stopped);
+        }
+    };
+    let exit = exit.expect("its holder said how it ended");
+    assert_eq!(exit.signal, Some(9), "{exit:?}");
+    assert!(stopped);
+    f.terminals.release(terminal);
+    f.end().await;
 }
 
 #[tokio::test]

@@ -476,11 +476,12 @@ fn change_block(card: &mut TimelineItem, block: u32, change: BlockChange) {
             cwd_after,
             output,
             secret_prompts,
+            stopped,
         } => {
             kept.process = TerminalStatus::Exited {
                 code: exit,
                 signal: None,
-                stopped: false,
+                stopped,
             };
             kept.duration_ms = Some(at.0.saturating_sub(kept.started_at.0));
             kept.cwd_after = cwd_after;

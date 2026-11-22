@@ -7,12 +7,16 @@
 //! before it fills, they move out of it into [`Screen::kept`] as rendered
 //! text, so a run that prints more than the scrollback holds still counts
 //! every line, and the transcript knows what it left out.
+//!
+//! The backend answers what a program asks through its listener. Only the
+//! answers [`answerable`] lets through are kept for [`Emulator::answers`].
 
 use std::collections::VecDeque;
 use std::fmt::Write as _;
+use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 
-use alacritty_terminal::event::VoidListener;
+use alacritty_terminal::event::{Event, EventListener};
 use alacritty_terminal::grid::{Dimensions, Grid};
 use alacritty_terminal::index::{Column, Line};
 use alacritty_terminal::term::cell::{Cell, Flags};
@@ -21,10 +25,11 @@ use alacritty_terminal::vte::ansi::{Color, NamedColor, Processor, Timeout};
 use alacritty_terminal::Term;
 
 use crate::scan::{Scanner, Seen};
-use crate::{Emulator, Transcript, FULL_SCREEN, MAX_BYTES, MAX_LINES};
+use crate::{Emulator, Look, Transcript, FULL_SCREEN, MAX_ANSWERS, MAX_BYTES, MAX_LINES};
 
-/// The backend's scrollback, in rows.
-const HISTORY: usize = 10_000;
+/// The backend's scrollback, in rows, for an emulator that keeps every
+/// line.
+pub(crate) const HISTORY: usize = 10_000;
 
 /// Rows of scrollback that start a move into [`Screen::kept`].
 const DRAIN_AT: usize = 4_096;
@@ -33,6 +38,10 @@ const DRAIN_AT: usize = 4_096;
 /// most one row, so the scrollback never passes `DRAIN_AT + PIECE` rows,
 /// well inside [`HISTORY`].
 const PIECE: usize = 4_096;
+
+/// The most rows above the cursor's that [`Emulator::look`] joins, when
+/// its line wrapped.
+const PROMPT_ROWS: i32 = 4;
 
 /// Styles a transcript keeps.
 const STYLES: Flags = Flags::BOLD
@@ -87,9 +96,69 @@ impl Timeout for NoSync {
     }
 }
 
+/// The backend's answers to what the program asked, as [`answerable`]
+/// lets them through. The backend holds one end and the screen the other.
+#[derive(Clone, Default)]
+struct Answers(Arc<Mutex<Vec<u8>>>);
+
+impl EventListener for Answers {
+    fn send_event(&self, event: Event) {
+        let Event::PtyWrite(answer) = event else {
+            return;
+        };
+        if !answerable(&answer) {
+            return;
+        }
+        let mut kept = self.0.lock().unwrap_or_else(PoisonError::into_inner);
+        if kept.len() + answer.len() <= MAX_ANSWERS {
+            kept.extend_from_slice(answer.as_bytes());
+        }
+    }
+}
+
+/// Whether the backend's `answer` is one a program may read: the
+/// terminal's status (`ESC [ 0 n`), the cursor's place (`ESC [ row ; col
+/// R`), what kind of terminal it is (`ESC [ ? 6 c` and `ESC [ > 0 ; version
+/// ; 1 c`) and its size in cells (`ESC [ 8 ; rows ; cols t`). Mode reports
+/// and keyboard reports stay unanswered, as does anything else.
+fn answerable(answer: &str) -> bool {
+    let Some(body) = answer.strip_prefix("\x1b[") else {
+        return false;
+    };
+    let numbers = |text: &str, count: usize| {
+        let parts: Vec<&str> = text.split(';').collect();
+        parts.len() == count
+            && parts
+                .iter()
+                .all(|part| !part.is_empty() && part.bytes().all(|byte| byte.is_ascii_digit()))
+    };
+    if body == "0n" || body == "?6c" {
+        return true;
+    }
+    if let Some(place) = body.strip_suffix('R') {
+        return numbers(place, 2);
+    }
+    if let Some(kind) = body
+        .strip_prefix(">0;")
+        .and_then(|kind| kind.strip_suffix(";1c"))
+    {
+        return numbers(kind, 1);
+    }
+    if let Some(size) = body
+        .strip_prefix("8;")
+        .and_then(|size| size.strip_suffix('t'))
+    {
+        return numbers(size, 2);
+    }
+    false
+}
+
 /// The emulator, with what it moved out of the scrollback.
 pub(crate) struct Screen {
-    term: Term<VoidListener>,
+    term: Term<Answers>,
+    answers: Answers,
+    /// The backend's scrollback, in rows.
+    history: usize,
     parser: Processor<NoSync>,
     scanner: Scanner,
     /// Lines moved out of the scrollback, rendered, oldest first, within
@@ -107,13 +176,19 @@ pub(crate) struct Screen {
 }
 
 impl Screen {
-    pub(crate) fn new(cols: u16, rows: u16) -> Self {
+    /// A screen `cols` by `rows` cells with `history` rows of scrollback.
+    /// With none, rows that scroll off are gone, and nothing moves to
+    /// `kept`.
+    pub(crate) fn new(cols: u16, rows: u16, history: usize) -> Self {
         let config = Config {
-            scrolling_history: HISTORY,
+            scrolling_history: history,
             ..Config::default()
         };
+        let answers = Answers::default();
         Self {
-            term: Term::new(config, &Size::new(cols, rows), VoidListener),
+            term: Term::new(config, &Size::new(cols, rows), answers.clone()),
+            answers,
+            history,
             parser: Processor::new(),
             scanner: Scanner::default(),
             kept: VecDeque::new(),
@@ -190,10 +265,11 @@ impl Screen {
 
     /// Takes the oldest `rows` rows out of the scrollback.
     fn shrink(&mut self, rows: usize) {
+        let full = self.history;
         let grid = self.term.grid_mut();
         let history = grid.history_size();
         grid.update_history(history - rows);
-        grid.update_history(HISTORY);
+        grid.update_history(full);
     }
 
     fn keep(&mut self, line: String) {
@@ -284,6 +360,52 @@ impl Emulator for Screen {
             text,
             lines,
             truncated: left_out || dropped > 0 || self.cut,
+        }
+    }
+
+    fn answers(&mut self) -> Vec<u8> {
+        let mut kept = (self.answers.0.lock()).unwrap_or_else(PoisonError::into_inner);
+        std::mem::take(&mut *kept)
+    }
+
+    fn look(&self) -> Look {
+        let grid = self.term.grid();
+        let cursor = &grid.cursor;
+        let at = cursor.point.line.0;
+        let mut first = at;
+        while first > grid.topmost_line().0
+            && at - first < PROMPT_ROWS
+            && wraps(grid, Line(first - 1))
+        {
+            first -= 1;
+        }
+        let mut prompt = String::new();
+        for line in first..=at {
+            let row = &grid[Line(line)];
+            // The cursor sits on the last column, not past it, once that
+            // column is written.
+            let end = if line == at {
+                cursor.point.column.0 + usize::from(cursor.input_needs_wrap)
+            } else {
+                row.len()
+            };
+            for column in 0..end.min(row.len()) {
+                let cell = &row[Column(column)];
+                if is_spacer(cell) {
+                    continue;
+                }
+                if cell.c == '\t' || cell.flags.contains(Flags::HIDDEN) {
+                    prompt.push(' ');
+                } else {
+                    prompt.push(cell.c);
+                }
+            }
+        }
+        let mode = self.term.mode();
+        Look {
+            full_screen: mode.contains(TermMode::ALT_SCREEN),
+            app_cursor: mode.contains(TermMode::APP_CURSOR),
+            prompt,
         }
     }
 }
@@ -507,6 +629,34 @@ fn tail(line: &str, max: usize) -> &str {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn only_safe_answers_go_back() {
+        for answer in [
+            "\x1b[0n",
+            "\x1b[12;40R",
+            "\x1b[?6c",
+            "\x1b[>0;2600;1c",
+            "\x1b[8;24;80t",
+        ] {
+            assert!(answerable(answer), "{answer:?}");
+        }
+        for answer in [
+            "",
+            "\x1b[?2026;2$y",
+            "\x1b[4;0$y",
+            "\x1b[?0u",
+            "\x1b[4;480;640t",
+            "\x1b[;R",
+            "\x1b[1;2;3R",
+            "\x1b[1;xR",
+            "\x1b]52;c;c2VjcmV0\x07",
+            "\x1b]11;rgb:0000/0000/0000\x07",
+            "hello\r",
+        ] {
+            assert!(!answerable(answer), "{answer:?}");
+        }
+    }
 
     #[test]
     fn a_cut_line_starts_on_a_character_outside_an_escape() {

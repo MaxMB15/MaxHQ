@@ -18,7 +18,7 @@ use tokio::time::Instant;
 
 use super::marks::Mark;
 use super::wire::{self, FromHolder, ToHolder, Typed};
-use super::{TermExit, TermHello};
+use super::{TermExit, TermHello, TermModes};
 use crate::files::{self, HolderFile, EXIT, HOLDER, LOCK};
 
 /// How long to wait for a holder that's starting.
@@ -73,6 +73,9 @@ pub enum TermEvent {
     Password(bool),
     /// The shell started or stopped running something.
     Busy(bool),
+    /// How the program reads input changed. Only a holder whose hello has
+    /// modes says.
+    Modes(TermModes),
     /// The shell set the window title.
     Title(String),
     /// The shell said its working folder.
@@ -119,6 +122,13 @@ impl TermControl {
     pub fn kill(&self, grace: Duration) -> bool {
         let grace_ms = u64::try_from(grace.as_millis()).unwrap_or(u64::MAX);
         self.send(ToHolder::Kill { grace_ms })
+    }
+
+    /// Kills what the shell runs in the foreground, and leaves the shell.
+    /// Send it only to a holder whose hello has modes: one from before
+    /// closes the connection at it.
+    pub fn stop_command(&self) -> bool {
+        self.send(ToHolder::StopCommand)
     }
 
     /// Tells the holder its exit is safe with `maxd`, so it deletes its
@@ -213,12 +223,14 @@ async fn attempt(
         .map_err(|_| timed_out("take the connection"))??;
     let (read, mut write) = stream.into_split();
     let mut read = BufReader::new(read);
+    // Every link asks for modes, which a holder from before ignores.
     let hello = ToHolder::Hello {
         terminal,
         key,
         after,
         quiet,
         marks,
+        modes: true,
     };
     wire::send(&mut write, &hello).await?;
     drop(hello);
@@ -264,6 +276,7 @@ async fn read_holder(mut read: BufReader<OwnedReadHalf>, events: mpsc::Sender<Te
             FromHolder::Output { offset, data } => TermEvent::Output { offset, data },
             FromHolder::Password { on } => TermEvent::Password(on),
             FromHolder::Busy { on } => TermEvent::Busy(on),
+            FromHolder::Modes(modes) => TermEvent::Modes(modes),
             FromHolder::Title { title } => TermEvent::Title(title),
             FromHolder::Cwd { cwd } => TermEvent::Cwd(cwd),
             FromHolder::Mark { offset, at, mark } => TermEvent::Mark { offset, at, mark },

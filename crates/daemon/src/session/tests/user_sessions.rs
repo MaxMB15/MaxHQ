@@ -114,6 +114,7 @@ impl Harness {
                     truncated: false,
                 },
                 secret_prompts: 0,
+                stopped: false,
             },
         });
     }
@@ -342,6 +343,7 @@ async fn a_bang_goes_into_a_card_where_the_timeline_stood_and_fills_in_as_it_run
                 truncated: false,
             },
             secret_prompts: 0,
+            stopped: false,
         },
     });
     eventually("the end kept", || {

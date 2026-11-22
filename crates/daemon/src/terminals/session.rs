@@ -185,6 +185,8 @@ pub enum BlockChange {
         /// How many passwords you sent at prompts that hid what you
         /// typed.
         secret_prompts: u32,
+        /// Whether your Stop or Force stop ended it.
+        stopped: bool,
     },
 }
 
@@ -662,6 +664,7 @@ impl Terminals {
         // The line takes the prompt: what you sent before has run, or what
         // ran read it.
         open.keys = Typed::default();
+        open.stopped_at = None;
         session.blocks += 1;
         let at = Timestamp::now();
         let block = BlockNote {
@@ -805,6 +808,7 @@ impl Terminals {
                                 TermEvent::Exit(_) => break,
                                 TermEvent::Password(true)
                                 | TermEvent::Busy(_)
+                                | TermEvent::Modes(_)
                                 | TermEvent::Title(_) => {}
                             }
                         }
@@ -850,9 +854,11 @@ impl Terminals {
             .map(|cwd| shown(Path::new(&cwd)))
             .filter(|after| *after != before);
         let mut opens = self.lock();
+        let mut stopped = false;
         if let Some(open) = opens.get_mut(&terminal) {
             if open.block.as_ref().is_some_and(|(id, _)| *id == block.id) {
                 open.block = None;
+                stopped = open.stopped();
             }
             let session = open.note.session.as_mut();
             if let Some(session) = session
@@ -877,6 +883,7 @@ impl Terminals {
                 cwd_after,
                 output,
                 secret_prompts,
+                stopped,
             },
         });
         drop(opens);
@@ -1070,7 +1077,12 @@ impl Open {
     /// while something runs count too: the shell reads them next.
     pub(super) fn heard_keys(&mut self, data: &[u8]) {
         if self.entity.password_prompt {
-            if let Some((_, secrets)) = &self.block {
+            // The secret goes at Enter. A prompt that reads each key gets
+            // the rest before it.
+            let sent = data.iter().any(|&byte| matches!(byte, b'\r' | b'\n'));
+            if let Some((_, secrets)) = &self.block
+                && sent
+            {
                 let _ = secrets.send(());
             }
             return;

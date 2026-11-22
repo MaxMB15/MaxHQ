@@ -11,9 +11,12 @@
 //! from the last byte it had. Its wire is its own, in `wire.rs`.
 //!
 //! What someone types goes to the pty and nowhere else. The holder never
-//! logs it or keeps it, not even its length. Output is kept: for a `!` run
-//! the holder also feeds a headless terminal, so the run's exit carries
-//! the lines it showed, with a password sent at a prompt as ` 🔒 sent`.
+//! logs it or keeps it, not even its length. Output is kept, and goes
+//! through a headless terminal too: for a `!` run its exit carries the
+//! lines it showed, with a password sent at a prompt as ` 🔒 sent`. That
+//! terminal is the one that answers what a program asks, such as where the
+//! cursor is, whether or not a client looks (`modes.rs` reads what the
+//! program waits for from it).
 //! What a run's shell prints before its command, from its startup files,
 //! goes nowhere (`marker.rs`).
 //!
@@ -60,6 +63,7 @@ mod commands;
 mod holder;
 mod marker;
 mod marks;
+mod modes;
 mod osc;
 mod ring;
 mod shell;
@@ -221,6 +225,34 @@ pub struct TermHello {
     /// and its output passes on any 133 a program prints.
     #[serde(default)]
     pub marks: bool,
+    /// How the program reads input now. A holder since protocol 59 says,
+    /// and also answers what a program asks its terminal and takes
+    /// [`TermControl::stop_command`]. One from before leaves it out, and
+    /// leaves answering to whoever looks.
+    #[serde(default)]
+    pub modes: Option<TermModes>,
+}
+
+/// How a terminal's program reads input, as a holder since protocol 59
+/// sees it.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TermModes {
+    /// A program that runs reads each key, and not at a secret prompt.
+    #[serde(default)]
+    pub reads_keys: bool,
+    /// A program that runs shows the alternate screen.
+    #[serde(default)]
+    pub full_screen: bool,
+    /// The program asked for application cursor keys.
+    #[serde(default)]
+    pub app_cursor: bool,
+    /// A program that runs has printed nothing for a second and reads
+    /// what you type.
+    #[serde(default)]
+    pub waiting: bool,
+    /// The answers the prompt it waits at offers, such as `y` and `n`.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub choices: Vec<String>,
 }
 
 /// `launch.json` for a terminal.

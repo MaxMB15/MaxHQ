@@ -242,6 +242,7 @@ async fn a_run_shows_where_the_timeline_stood_and_ends_with_what_it_wrote() {
         agent,
         terminal: terminal.id,
         exit: Some(exit(0, "built\n")),
+        stopped: false,
     });
     let item = the_run(h.phone.timeline(agent).await);
     assert_eq!(item.status, ItemStatus::Completed);
@@ -285,6 +286,7 @@ async fn a_run_between_two_messages_stays_there_after_a_restart() {
         agent,
         terminal: terminal.id,
         exit: Some(exit(2, "error\n")),
+        stopped: true,
     });
     eventually("the run's end kept", || {
         h.db.user_run::<TimelineItem>(agent, &format!("run-{}", terminal.id))
@@ -296,12 +298,13 @@ async fn a_run_between_two_messages_stays_there_after_a_restart() {
     let (_, items, _) = reset(h.open(agent, None, 50).await);
     let run = format!("run-{}", terminal.id);
     assert_eq!(ids(&items), ["m1", run.as_str(), "m2"]);
+    // Stopped by you, after a restart too.
     assert_eq!(
         process(&items[1]),
         TerminalStatus::Exited {
             code: Some(2),
             signal: None,
-            stopped: false,
+            stopped: true,
         }
     );
 }
@@ -323,6 +326,7 @@ async fn a_run_that_ended_while_its_timeline_was_read_shows_its_end() {
         agent,
         terminal: terminal.id,
         exit: Some(exit(0, "")),
+        stopped: false,
     });
     eventually("the release", || {
         h.fakes.terminals.released() == [terminal.id]

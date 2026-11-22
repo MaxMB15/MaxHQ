@@ -39,7 +39,7 @@ use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::{Duration, Instant};
 
 use maxhq_hold::{
-    Commands, Reached, TermControl, TermEvent, TermExit, TermHello, TermLaunch, TermLink,
+    Commands, Reached, TermControl, TermEvent, TermExit, TermHello, TermLaunch, TermLink, TermModes,
 };
 use maxhq_protocol::frame::{self, MAX_TERMINAL_CHUNK};
 use maxhq_protocol::ids::{AgentId, DeviceId, IdempotencyKey, TerminalId};
@@ -69,6 +69,18 @@ pub const UNREACHABLE: &str = "Couldn't reach the terminal. Try again in a momen
 /// How long a terminal that's closed, or whose agent ended, has after its
 /// hangup before it's killed.
 const HANGUP_GRACE: Duration = Duration::from_secs(2);
+
+/// How soon after your Stop or Force stop a program must end for its end
+/// to read as stopped by you, rather than as its own.
+const STOP_WINDOW: Duration = Duration::from_secs(10);
+
+/// What Force stop reads when only the shell runs.
+pub const NOTHING_TO_STOP: &str = "Nothing runs there to stop.";
+
+/// What Force stop on a session command reads when its holder is from
+/// before Force stop.
+pub const NO_FORCE_STOP: &str =
+    "This terminal started before Force stop. Close the session to end it.";
 
 /// How long a request waits at most for the terminals a previous `maxd`
 /// left to come back.
@@ -163,6 +175,8 @@ pub enum RunNote {
         terminal: TerminalId,
         /// How it ended, or none when its holder went without saying.
         exit: Option<TermExit>,
+        /// Whether your Stop or Force stop ended it.
+        stopped: bool,
     },
     /// A `!` run moved to the drawer.
     Moved {
@@ -254,6 +268,9 @@ struct Open {
     block: Option<(u32, mpsc::UnboundedSender<()>)>,
     /// When this `maxd` began following it.
     followed: Instant,
+    /// When you last sent Stop or Force stop to what it runs. A session's
+    /// next block starts without one.
+    stopped_at: Option<Instant>,
 }
 
 impl Open {
@@ -293,6 +310,7 @@ impl Open {
             keys: session::Typed::default(),
             block: None,
             followed: Instant::now(),
+            stopped_at: None,
         };
         if let Some(hello) = hello {
             open.hello(hello);
@@ -309,6 +327,10 @@ impl Open {
         self.entity.cols = hello.cols;
         self.entity.rows = hello.rows;
         self.entity.marks = hello.marks;
+        // A holder from before says no modes, and answers nothing, so the
+        // views that attach answer as they did.
+        self.entity.answers = hello.modes.is_some();
+        self.set_modes(hello.modes.clone().unwrap_or_default());
         self.foreground = hello.busy;
         self.rebusy();
         self.shell_title = hello.title.clone();
@@ -328,6 +350,34 @@ impl Open {
         let changed = self.entity.busy != busy;
         self.entity.busy = busy;
         changed
+    }
+
+    /// Takes in how the program reads input. Returns whether it changed.
+    fn set_modes(&mut self, modes: TermModes) -> bool {
+        let TermModes {
+            reads_keys,
+            full_screen,
+            app_cursor,
+            waiting,
+            choices,
+        } = modes;
+        let entity = &mut self.entity;
+        let changed = (entity.reads_keys, entity.full_screen, entity.app_cursor)
+            != (reads_keys, full_screen, app_cursor)
+            || entity.waiting != waiting
+            || entity.choices != choices;
+        entity.reads_keys = reads_keys;
+        entity.full_screen = full_screen;
+        entity.app_cursor = app_cursor;
+        entity.waiting = waiting;
+        entity.choices = choices;
+        changed
+    }
+
+    /// Whether your Stop or Force stop came just before what it ran ended.
+    fn stopped(&self) -> bool {
+        self.stopped_at
+            .is_some_and(|at| at.elapsed() <= STOP_WINDOW)
     }
 
     /// The name you gave it, or the title its shell set, or what it runs.
@@ -758,6 +808,7 @@ impl Terminals {
                         open.foreground = on;
                         open.rebusy()
                     }),
+                    TermEvent::Modes(modes) => self.update(terminal, |open| open.set_modes(modes)),
                     TermEvent::Mark { offset, at, mark } => self.update(terminal, |open| {
                         let (changed, keep) = open.marked(offset, at, &mark);
                         if keep {
@@ -845,19 +896,19 @@ impl Terminals {
         if !open.running() {
             return;
         }
+        let run = matches!(open.note.kind, TerminalKind::Run { .. });
+        // A shell you closed isn't a program you stopped.
+        let stopped = run && open.stopped();
         open.entity.status = TerminalStatus::Exited {
             code: exit.as_ref().and_then(|exit| exit.code),
             signal: exit.as_ref().and_then(|exit| exit.signal),
-            stopped: false,
+            stopped,
         };
         open.entity.password_prompt = false;
         open.entity.busy = false;
+        open.set_modes(TermModes::default());
         self.publish(open);
-        let (agent, run, closing) = (
-            open.note.agent,
-            matches!(open.note.kind, TerminalKind::Run { .. }),
-            open.closing,
-        );
+        let (agent, closing) = (open.note.agent, open.closing);
         // A block whose follower went with a `maxd` that stopped, and
         // whose shell ended before this one followed it again.
         let orphan = if open.block.is_none() {
@@ -885,6 +936,7 @@ impl Terminals {
                         truncated: true,
                     },
                     secret_prompts: 0,
+                    stopped: false,
                 },
             });
         }
@@ -893,6 +945,7 @@ impl Terminals {
                 agent,
                 terminal,
                 exit,
+                stopped,
             });
         } else if closing {
             self.finish(terminal);
@@ -1025,14 +1078,34 @@ impl Terminals {
         Ok(())
     }
 
-    /// Types Ctrl-C into a terminal.
-    pub fn interrupt(&self, caller: Caller, terminal: TerminalId) -> ActionOutcome {
+    /// Types Ctrl-C into a terminal. With `force`, it kills what the shell
+    /// runs instead and leaves the shell, for a command that ignored
+    /// Ctrl-C, or kills a `!` run at once, as closing it with force does.
+    pub fn interrupt(&self, caller: Caller, terminal: TerminalId, force: bool) -> ActionOutcome {
         outcome(self.with(terminal, |open| {
-            open.check(caller, Act::Watch)?;
-            match &open.control {
-                Some(control) if control.interrupt() => Ok(()),
-                _ => Err(UNREACHABLE.to_owned()),
+            open.check(caller, if force { Act::Manage } else { Act::Watch })?;
+            // A run is its command, whatever its shell does. A shell's
+            // command is whatever holds its foreground.
+            let run = matches!(open.entity.kind, TerminalKind::Run { .. });
+            if force && !run && open.running() && !open.entity.busy {
+                return Err(NOTHING_TO_STOP.to_owned());
             }
+            if force && !run && !open.entity.answers {
+                return Err(NO_FORCE_STOP.to_owned());
+            }
+            let sent = match &open.control {
+                Some(control) if force && run => control.kill(Duration::ZERO),
+                Some(control) if force => control.stop_command(),
+                Some(control) => control.interrupt(),
+                None => false,
+            };
+            if !sent {
+                return Err(UNREACHABLE.to_owned());
+            }
+            if run || open.entity.busy {
+                open.stopped_at = Some(Instant::now());
+            }
+            Ok(())
         }))
     }
 
@@ -1066,6 +1139,8 @@ impl Terminals {
         };
         control.kill(if force { Duration::ZERO } else { HANGUP_GRACE });
         open.closing = true;
+        // Force stop on a `!` run closes it.
+        open.stopped_at = Some(Instant::now());
         ActionOutcome::Done
     }
 

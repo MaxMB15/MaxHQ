@@ -81,7 +81,7 @@ async fn a_request_for_a_terminal_nobody_holds_says_so() {
     let resized = f.terminals.resize(1, Caller::App, terminal, 100, 30);
     assert_eq!(resized, Err(Refusal::unknown()));
     let missing = refused(NO_SUCH_TERMINAL);
-    assert_eq!(f.terminals.interrupt(Caller::App, terminal), missing);
+    assert_eq!(f.terminals.interrupt(Caller::App, terminal, false), missing);
     assert_eq!(f.terminals.rename(Caller::App, terminal, "dev"), missing);
     assert_eq!(f.terminals.move_run(Caller::App, terminal), missing);
     // A close sent again after the terminal went finds it gone, which is
@@ -172,14 +172,20 @@ async fn a_phone_manages_only_its_own_runs_until_its_switch_is_on() {
     // It watches any run and sends it Ctrl-C. These have no holder to
     // reach, so each gets as far as trying. A shell it doesn't watch.
     for terminal in [apps, others, own] {
-        assert_eq!(f.terminals.interrupt(me, terminal), refused(UNREACHABLE));
+        assert_eq!(
+            f.terminals.interrupt(me, terminal, false),
+            refused(UNREACHABLE)
+        );
         let attached = f.terminals.attach(2, me, nowhere(), terminal, None).await;
         assert!(
             matches!(&attached, Err(Refusal::Unknown(reason)) if reason != NO_SUCH_TERMINAL),
             "{attached:?}"
         );
     }
-    assert_eq!(f.terminals.interrupt(me, shell), refused(PHONE_CANT_RUN));
+    assert_eq!(
+        f.terminals.interrupt(me, shell, false),
+        refused(PHONE_CANT_RUN)
+    );
     assert_eq!(
         f.terminals.attach(2, me, nowhere(), shell, None).await,
         cant_run()
@@ -336,6 +342,7 @@ fn a_tab_says_whether_its_holder_keeps_to_the_shells_marks() {
             title: None,
             cwd: None,
             marks,
+            modes: None,
         };
         let open = Open::new(
             note.clone(),
@@ -346,6 +353,148 @@ fn a_tab_says_whether_its_holder_keeps_to_the_shells_marks() {
         assert_eq!(open.entity.marks, marks);
         assert!(open.entity.busy, "the foreground says");
     }
+}
+
+#[test]
+fn a_tab_says_whether_its_holder_answers_and_how_its_program_reads() {
+    let note = Note {
+        agent: AgentId::derive("a"),
+        kind: run(),
+        cwd: "~".to_owned(),
+        started_at: Timestamp(1),
+        opener: Opener::App,
+        moved: false,
+        name: None,
+        session: None,
+    };
+    let hello = |modes| TermHello {
+        holder_pid: 10,
+        child_pid: 11,
+        started_at: Timestamp(1),
+        from: 0,
+        reset: false,
+        cols: 80,
+        rows: 24,
+        password: false,
+        busy: true,
+        title: None,
+        cwd: None,
+        marks: false,
+        modes,
+    };
+    let open = |hello: &TermHello| {
+        Open::new(
+            note.clone(),
+            Some(hello),
+            DeviceId::derive("d"),
+            TerminalId::generate(),
+        )
+        .entity
+    };
+    // A holder from before protocol 59 answers nothing, so the views that
+    // attach answer as they did.
+    let old = open(&hello(None));
+    assert!(!old.answers);
+    assert!(!old.waiting && !old.reads_keys && old.choices.is_empty());
+    let modes = TermModes {
+        reads_keys: false,
+        full_screen: false,
+        app_cursor: true,
+        waiting: true,
+        choices: vec!["y".into(), "n".into()],
+    };
+    let new = open(&hello(Some(modes)));
+    assert!(new.answers);
+    assert!(new.waiting && new.app_cursor && !new.full_screen);
+    assert_eq!(new.choices, ["y", "n"]);
+}
+
+#[tokio::test]
+async fn a_tab_follows_how_its_program_reads_until_it_ends() {
+    let mut f = fixture();
+    let ran = f.terminals.plant(AgentId::derive("a"), run(), Opener::App);
+    let shown = || published(&f.hub, ran).expect("a tab");
+    let waits = TermModes {
+        reads_keys: false,
+        full_screen: false,
+        app_cursor: false,
+        waiting: true,
+        choices: vec!["yes".into(), "no".into()],
+    };
+    heard(&f.terminals, ran, vec![TermEvent::Modes(waits)]).await;
+    assert!(shown().waiting);
+    assert_eq!(shown().choices, ["yes", "no"]);
+    let editor = TermModes {
+        reads_keys: true,
+        full_screen: true,
+        app_cursor: true,
+        ..TermModes::default()
+    };
+    heard(&f.terminals, ran, vec![TermEvent::Modes(editor)]).await;
+    let tab = shown();
+    assert!(tab.reads_keys && tab.full_screen && tab.app_cursor && !tab.waiting);
+    assert!(tab.choices.is_empty());
+    // Its end isn't yours: nobody stopped it. And it reads nothing then.
+    let exit = TermExit {
+        code: None,
+        signal: Some(1),
+        at: Timestamp(2),
+        output: None,
+    };
+    heard(&f.terminals, ran, vec![TermEvent::Exit(exit)]).await;
+    let tab = shown();
+    assert_eq!(
+        tab.status,
+        TerminalStatus::Exited {
+            code: None,
+            signal: Some(1),
+            stopped: false,
+        }
+    );
+    assert!(!tab.reads_keys && !tab.full_screen && !tab.app_cursor);
+    assert!(matches!(
+        f.notes.try_recv(),
+        Ok(RunNote::Ended { stopped: false, .. })
+    ));
+}
+
+#[tokio::test]
+async fn force_stop_needs_the_right_to_manage_and_something_to_stop() {
+    let f = fixture();
+    let agent = AgentId::derive("a");
+    let phone = Caller::Phone {
+        phone: PhoneId::derive("mine"),
+        everything: false,
+    };
+    let ran = f.terminals.plant(agent, run(), Opener::App);
+    let shell = f.terminals.plant(agent, TerminalKind::Shell, Opener::App);
+    // A phone may send Stop to any run, but Force stop only to its own.
+    assert_eq!(
+        f.terminals.interrupt(phone, ran, true),
+        refused(PHONE_NOT_ITS_OWN)
+    );
+    // With only the shell, there's nothing to stop. A run is its command,
+    // so it goes as far as trying: it has no holder to reach.
+    assert_eq!(
+        f.terminals.interrupt(Caller::App, shell, true),
+        refused(NOTHING_TO_STOP)
+    );
+    assert_eq!(
+        f.terminals.interrupt(Caller::App, ran, true),
+        refused(UNREACHABLE)
+    );
+    // A shell whose holder came before Force stop can't take it.
+    heard(&f.terminals, shell, vec![TermEvent::Busy(true)]).await;
+    assert_eq!(
+        f.terminals.interrupt(Caller::App, shell, true),
+        refused(NO_FORCE_STOP)
+    );
+    // One that can goes as far as trying.
+    f.terminals.lock().get_mut(&shell).unwrap().entity.answers = true;
+    assert_eq!(
+        f.terminals.interrupt(Caller::App, shell, true),
+        refused(UNREACHABLE)
+    );
 }
 
 #[tokio::test]

@@ -140,8 +140,11 @@ impl Manager {
                 agent,
                 terminal,
                 exit,
+                stopped,
             } => {
-                self.change_run(agent, terminal, |item| end_run(item, exit.as_ref()));
+                self.change_run(agent, terminal, |item| {
+                    end_run(item, exit.as_ref(), stopped);
+                });
                 self.terminals.release(terminal);
             }
             RunNote::Moved { agent, terminal } => {
@@ -245,8 +248,9 @@ impl Manager {
 }
 
 /// Marks a `!` run's item ended as `exit` says, or as ended without a word
-/// when its holder went before it could say.
-fn end_run(item: &mut TimelineItem, exit: Option<&TermExit>) {
+/// when its holder went before it could say. `stopped` when your Stop or
+/// Force stop ended it.
+fn end_run(item: &mut TimelineItem, exit: Option<&TermExit>, stopped: bool) {
     let ItemBody::UserRun {
         process,
         duration_ms,
@@ -262,7 +266,7 @@ fn end_run(item: &mut TimelineItem, exit: Option<&TermExit>) {
     *process = TerminalStatus::Exited {
         code,
         signal: exit.and_then(|exit| exit.signal),
-        stopped: false,
+        stopped,
     };
     let at = exit.map_or_else(Timestamp::now, |exit| exit.at);
     *duration_ms = item
@@ -327,7 +331,7 @@ mod tests {
                 truncated: true,
             }),
         };
-        end_run(&mut item, Some(&exit));
+        end_run(&mut item, Some(&exit), false);
         assert_eq!(item.status, ItemStatus::Failed);
         assert_eq!(item.completed_at, Some(Timestamp(3_500)));
         let ItemBody::UserRun {
@@ -364,6 +368,7 @@ mod tests {
                 at: Timestamp(1_000),
                 output: None,
             }),
+            false,
         );
         assert_eq!(item.status, ItemStatus::Completed);
     }
@@ -371,7 +376,7 @@ mod tests {
     #[test]
     fn a_run_whose_holder_went_ends_without_a_code() {
         let mut item = running(0);
-        end_run(&mut item, None);
+        end_run(&mut item, None, false);
         assert_eq!(item.status, ItemStatus::Failed);
         let ItemBody::UserRun { process, .. } = item.body else {
             panic!("not a run");
