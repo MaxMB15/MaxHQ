@@ -4,16 +4,19 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { Services } from "@/app/services";
-import type { SessionBlock, Terminal } from "@maxhq/shared/bindings";
+import type { Entity, SessionBlock, Terminal } from "@maxhq/shared/bindings";
 import type { ActionResult, DataSource } from "@maxhq/shared/data/source";
 import type { TerminalEntity } from "@maxhq/shared/terminal/select";
 import type { UserSessionItem } from "@maxhq/shared/terminal/session";
+import { agent, entities, link, workspace } from "@maxhq/shared/test/build";
 import { timelineItem } from "@maxhq/shared/timeline/build";
 import { applySnapshot } from "@maxhq/shared/view/replica";
 import { createViewStore } from "@maxhq/shared/view/store";
 
-import { restartTab } from "./actions";
-import { drawersOf } from "./drawer-prefs";
+import { noticesOf } from "@/sidebar/notices";
+
+import { openAgentShell, restartTab } from "./actions";
+import { drawerOf, drawersOf } from "./drawer-prefs";
 
 const AGENT = "agent-1";
 const FOLDER = "/Users/dev/code/example-app";
@@ -144,5 +147,84 @@ describe("starting an exited session tab again", () => {
 		expect(drawers.split[AGENT]).toBeUndefined();
 		expect(drawers.focusing).toBe(AGENT);
 		expect(closeTerminal).toHaveBeenCalledExactlyOnceWith("s-old", true);
+	});
+});
+
+describe("opening the Agent shell", () => {
+	const WITH_TERMINALS = { transfers: true, tunnels: true, workspaces: true, terminals: true };
+
+	/** The agent in its folder on the Mac, whose maxd speaks `protocol`, and these terminals. */
+	const place = (protocol: number, terminals: readonly TerminalEntity[] = []) => {
+		const { services, sessionCd } = setup(terminals, []);
+		const more: Entity[] = [
+			...entities({
+				agents: [agent({ id: AGENT, workspace: "w1" })],
+				workspaces: [
+					workspace({
+						id: "w1",
+						device: "mac",
+						location: { type: "folder", path: FOLDER },
+					}),
+				],
+				links: [
+					link({
+						id: "mac",
+						device: "mac",
+						protocol,
+						capabilities:
+							protocol >= 45
+								? WITH_TERMINALS
+								: { ...WITH_TERMINALS, terminals: false },
+					}),
+				],
+			}),
+			...terminals,
+		];
+		services.view.setState({ view: applySnapshot({ seq: 1, entities: more }) });
+		return { services, sessionCd };
+	};
+
+	it("shows the Agent shell's tab in the panel, focused, when it runs", async () => {
+		const { services, sessionCd } = place(48, [session("s1")]);
+
+		await openAgentShell(services, AGENT);
+
+		const drawers = drawersOf(services).getState();
+		expect(drawerOf(drawers, AGENT).open).toBe(true);
+		expect(drawers.active[AGENT]).toBe("s1");
+		expect(drawers.focusing).toBe(AGENT);
+		expect(sessionCd).not.toHaveBeenCalled();
+	});
+
+	it("starts one in the agent's folder when there's none", async () => {
+		const { services, sessionCd } = place(48);
+
+		await openAgentShell(services, AGENT);
+
+		expect(sessionCd).toHaveBeenCalledExactlyOnceWith(AGENT, FOLDER);
+		const drawers = drawersOf(services).getState();
+		expect(drawerOf(drawers, AGENT).open).toBe(true);
+		expect(drawers.active[AGENT]).toBe("s-new");
+	});
+
+	it("opens the panel as its shortcut does on a maxd before Agent shells", async () => {
+		const { services, sessionCd } = place(46);
+
+		await openAgentShell(services, AGENT);
+
+		expect(sessionCd).not.toHaveBeenCalled();
+		expect(drawerOf(drawersOf(services).getState(), AGENT).open).toBe(true);
+	});
+
+	it("says it needs a newer maxd on one without terminals", async () => {
+		const { services, sessionCd } = place(44);
+
+		await openAgentShell(services, AGENT);
+
+		expect(sessionCd).not.toHaveBeenCalled();
+		expect(drawerOf(drawersOf(services).getState(), AGENT).open).toBe(false);
+		expect(noticesOf(services).store.getState().failures).toEqual([
+			expect.stringMatching(/^Terminals need a newer maxd on /),
+		]);
 	});
 });
