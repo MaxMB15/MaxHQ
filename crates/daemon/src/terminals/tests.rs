@@ -470,7 +470,8 @@ fn an_ended_shell_stays_until_you_close_it() {
         shown.status,
         TerminalStatus::Exited {
             code: Some(0),
-            signal: None
+            signal: None,
+            stopped: false,
         }
     );
     // A shell's end is the drawer's business, not the timeline's.

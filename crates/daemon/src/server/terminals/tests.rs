@@ -76,6 +76,7 @@ fn requests(agent: AgentId, terminal: TerminalId) -> Vec<ClientMessage> {
         ClientMessage::TerminalInterrupt {
             key: key(),
             terminal,
+            force: false,
         },
         ClientMessage::TerminalClose {
             key: key(),
@@ -227,6 +228,7 @@ async fn the_app_reaches_terminals_and_hears_why_a_request_fails() {
         ClientMessage::TerminalInterrupt {
             key: key(),
             terminal: nobodys,
+            force: false,
         },
         ClientMessage::TerminalRename {
             key: key(),
@@ -264,6 +266,7 @@ async fn the_app_reaches_terminals_and_hears_why_a_request_fails() {
     let interrupt = ClientMessage::TerminalInterrupt {
         key: key(),
         terminal: held,
+        force: false,
     };
     assert_eq!(ask(&mut app, interrupt).await, refused(UNREACHABLE));
     let close = |force| ClientMessage::TerminalClose {
@@ -408,6 +411,7 @@ async fn a_phone_runs_nothing_and_manages_only_its_own_runs_until_its_switch_is_
         let interrupt = ClientMessage::TerminalInterrupt {
             key: key(),
             terminal,
+            force: false,
         };
         assert_eq!(ask(&mut own, interrupt).await, refused(UNREACHABLE));
     }
@@ -420,6 +424,7 @@ async fn a_phone_runs_nothing_and_manages_only_its_own_runs_until_its_switch_is_
     let interrupt = ClientMessage::TerminalInterrupt {
         key: key(),
         terminal: shell,
+        force: false,
     };
     assert_eq!(ask(&mut own, interrupt).await, refused(PHONE_CANT_RUN));
     // It types into and sizes no terminal, not even a run it opened, and

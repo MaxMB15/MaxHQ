@@ -2130,6 +2130,12 @@ pub enum ClientMessage {
         key: IdempotencyKey,
         /// The terminal.
         terminal: TerminalId,
+        /// Kills the program in the terminal's foreground instead, for a
+        /// session command that ignored Ctrl-C. The shell goes on. A
+        /// `maxd` refuses it when only the shell runs. Since
+        /// [`INPUT_MODES_SINCE`].
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        force: bool,
     },
     /// Closes a terminal: hangs up its shell or command, then forgets it.
     TerminalClose {
@@ -2381,6 +2387,7 @@ impl ClientMessage {
             | Self::SessionShare { .. }
             | Self::SessionCd { .. }
             | Self::SessionEnd { .. } => SESSIONS_SINCE,
+            Self::TerminalInterrupt { force: true, .. } => INPUT_MODES_SINCE,
             Self::TerminalOpen { .. }
             | Self::TerminalAttach { .. }
             | Self::TerminalDetach { .. }
@@ -3079,6 +3086,16 @@ pub const ALLOWED_EDITS_SINCE: u32 = 57;
 /// for [`ClientMessage::UseResetCredit`]. An older one refuses the
 /// message, so the app hides the button. Since protocol 58.
 pub const RESET_CREDITS_SINCE: u32 = 58;
+
+/// The protocol version whose `maxd` first answers the queries a program
+/// sends its terminal, such as where the cursor is, and says how the
+/// program reads input: [`crate::terminal::Terminal`]'s `reads_keys`,
+/// `full_screen`, `app_cursor`, `waiting` and `answers`, the status's
+/// `stopped`, the output ref's `signal` and `stopped`, and
+/// [`ClientMessage::TerminalInterrupt`]'s `force`. With an older one a
+/// client's view answers the queries, as before, and a session command
+/// has no Force stop.
+pub const INPUT_MODES_SINCE: u32 = 59;
 
 /// When [`ClientMessage::TakeOver`] stops the terminal's CLI.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, Type, JsonSchema)]

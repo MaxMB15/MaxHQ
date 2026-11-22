@@ -887,8 +887,13 @@ pub enum Request {
         cols: u16,
         rows: u16,
     },
-    /// Sends a terminal Ctrl-C.
-    TerminalInterrupt { terminal: TerminalId },
+    /// Sends a terminal Ctrl-C, or with `force` kills the program in its
+    /// foreground, for a session command that ignored it.
+    TerminalInterrupt {
+        terminal: TerminalId,
+        #[serde(default)]
+        force: bool,
+    },
     /// Closes a terminal: hangs up what runs in it, or kills it with
     /// `force`, then forgets it.
     TerminalClose {
@@ -2774,8 +2779,12 @@ impl<C: Connector> App<C> {
                 devices.send_terminal(terminal, resize).await?;
                 Response::TerminalResize
             }
-            Request::TerminalInterrupt { terminal } => {
-                let action = ClientMessage::TerminalInterrupt { key, terminal };
+            Request::TerminalInterrupt { terminal, force } => {
+                let action = ClientMessage::TerminalInterrupt {
+                    key,
+                    terminal,
+                    force,
+                };
                 Response::TerminalInterrupt(devices.act(action).await?)
             }
             Request::TerminalClose { terminal, force } => {
@@ -4607,6 +4616,11 @@ mod tests {
             busy: false,
             marks: false,
             password_prompt: false,
+            reads_keys: false,
+            full_screen: false,
+            app_cursor: false,
+            waiting: false,
+            answers: false,
             started_at: Timestamp(1_793_368_920_000),
             cols: 80,
             rows: 24,

@@ -271,6 +271,11 @@ impl Open {
                 busy: false,
                 marks: false,
                 password_prompt: false,
+                reads_keys: false,
+                full_screen: false,
+                app_cursor: false,
+                waiting: false,
+                answers: false,
                 started_at: note.started_at,
                 cols: 80,
                 rows: 24,
@@ -842,6 +847,7 @@ impl Terminals {
         open.entity.status = TerminalStatus::Exited {
             code: exit.as_ref().and_then(|exit| exit.code),
             signal: exit.as_ref().and_then(|exit| exit.signal),
+            stopped: false,
         };
         open.entity.password_prompt = false;
         open.entity.busy = false;

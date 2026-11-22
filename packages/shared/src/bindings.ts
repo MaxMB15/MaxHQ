@@ -22,6 +22,8 @@ export const FINISHED_SUB_AGENTS_SINCE = 44 as const;
 
 export const FOLDERS_SINCE = 46 as const;
 
+export const INPUT_MODES_SINCE = 59 as const;
+
 export const MAX_INLINE_ATTACHMENT = 8388608 as const;
 
 export const MAX_NOTE_BODY = 1048576 as const;
@@ -34,7 +36,7 @@ export const NOTE_PILLS_SINCE = 28 as const;
 
 export const OLDEST_PROTOCOL_VERSION = 20 as const;
 
-export const PROTOCOL_VERSION = 58 as const;
+export const PROTOCOL_VERSION = 59 as const;
 
 export const RESET_CREDITS_SINCE = 58 as const;
 
@@ -3818,7 +3820,14 @@ rows: number }) & { account?: never; action?: never; address?: never; admission?
 /**  Makes a resend after a dropped connection safe. */
 key: IdempotencyKey; 
 /**  The terminal. */
-terminal: TerminalId }) & { account?: never; action?: never; address?: never; admission?: never; after?: never; agent?: never; allow?: never; answer?: never; anyway?: never; app_id?: never; as_new?: never; at?: never; attachment?: never; base?: never; before?: never; block?: never; body?: never; book?: never; bucket_secs?: never; budget?: never; call?: never; change?: never; changes?: never; client_id?: never; code?: never; cols?: never; command?: never; committed?: never; confirm_unchecked?: never; credential?: never; default_ref?: never; deleted?: never; device?: never; device_code?: never; discard_unpushed?: never; discard_unsaved?: never; effort?: never; elsewhere?: never; enabled?: never; env?: never; event?: never; everything?: never; expect_sha?: never; files?: never; filter?: never; force?: never; fork?: never; forward?: never; fresh?: never; from?: never; granted?: never; hashes?: never; hidden?: never; host?: never; how?: never; id?: never; idempotency_key?: never; input?: never; instance?: never; item?: never; items?: never; key_id?: never; kind?: never; label?: never; lead?: never; lease?: never; licence?: never; limit?: never; local_port?: never; lock?: never; mac?: never; mode?: never; model?: never; moving?: never; name?: never; new?: never; node?: never; nonce?: never; note?: never; number?: never; on?: never; origin?: never; outcome?: never; overwrite?: never; page?: never; pair?: never; parent?: never; path?: never; paths?: never; permission?: never; phone?: never; picks?: never; pid?: never; place?: never; plan?: never; plan_hash?: never; port?: never; private?: never; private_key?: never; project?: never; proposal?: never; public_key?: never; push?: never; push_public?: never; query?: never; refs?: never; release?: never; repo?: never; request?: never; rows?: never; rule?: never; run?: never; secret?: never; seen?: never; session?: never; settings?: never; sha256?: never; sign_in?: never; signal?: never; signature?: never; since?: never; skills?: never; snapshot?: never; source?: never; sources?: never; spec?: never; ssh_public?: never; staged?: never; start?: never; state?: never; step?: never; stop?: never; stream?: never; target?: never; task?: never; team_id?: never; text?: never; text_sha256?: never; title?: never; to?: never; token?: never; tool?: never; tools?: never; transfer?: never; tree?: never; trust?: never; unsigned?: never; version?: never; versions?: never; window_end?: never; window_secs?: never; workspace?: never } | 
+terminal: TerminalId; 
+/**
+ *  Kills the program in the terminal's foreground instead, for a
+ *  session command that ignored Ctrl-C. The shell goes on. A
+ *  `maxd` refuses it when only the shell runs. Since
+ *  [`INPUT_MODES_SINCE`].
+ */
+force?: boolean }) & { account?: never; action?: never; address?: never; admission?: never; after?: never; agent?: never; allow?: never; answer?: never; anyway?: never; app_id?: never; as_new?: never; at?: never; attachment?: never; base?: never; before?: never; block?: never; body?: never; book?: never; bucket_secs?: never; budget?: never; call?: never; change?: never; changes?: never; client_id?: never; code?: never; cols?: never; command?: never; committed?: never; confirm_unchecked?: never; credential?: never; default_ref?: never; deleted?: never; device?: never; device_code?: never; discard_unpushed?: never; discard_unsaved?: never; effort?: never; elsewhere?: never; enabled?: never; env?: never; event?: never; everything?: never; expect_sha?: never; files?: never; filter?: never; fork?: never; forward?: never; fresh?: never; from?: never; granted?: never; hashes?: never; hidden?: never; host?: never; how?: never; id?: never; idempotency_key?: never; input?: never; instance?: never; item?: never; items?: never; key_id?: never; kind?: never; label?: never; lead?: never; lease?: never; licence?: never; limit?: never; local_port?: never; lock?: never; mac?: never; mode?: never; model?: never; moving?: never; name?: never; new?: never; node?: never; nonce?: never; note?: never; number?: never; on?: never; origin?: never; outcome?: never; overwrite?: never; page?: never; pair?: never; parent?: never; path?: never; paths?: never; permission?: never; phone?: never; picks?: never; pid?: never; place?: never; plan?: never; plan_hash?: never; port?: never; private?: never; private_key?: never; project?: never; proposal?: never; public_key?: never; push?: never; push_public?: never; query?: never; refs?: never; release?: never; repo?: never; request?: never; rows?: never; rule?: never; run?: never; secret?: never; seen?: never; session?: never; settings?: never; sha256?: never; sign_in?: never; signal?: never; signature?: never; since?: never; skills?: never; snapshot?: never; source?: never; sources?: never; spec?: never; ssh_public?: never; staged?: never; start?: never; state?: never; step?: never; stop?: never; stream?: never; target?: never; task?: never; team_id?: never; text?: never; text_sha256?: never; title?: never; to?: never; token?: never; tool?: never; tools?: never; transfer?: never; tree?: never; trust?: never; unsigned?: never; version?: never; versions?: never; window_end?: never; window_secs?: never; workspace?: never } | 
 /**  Closes a terminal: hangs up its shell or command, then forgets it. */
 ({ type: "terminal_close"; 
 /**  Makes a resend after a dropped connection safe. */
@@ -6237,6 +6246,16 @@ device_name: string;
 cwd: string; 
 /**  Its exit code, or none while it runs or when a signal ended it. */
 exit_code: number | null; 
+/**
+ *  The signal that ended it, if one did. None from a client before
+ *  [`crate::message::INPUT_MODES_SINCE`].
+ */
+signal?: number | null; 
+/**
+ *  Whether your Stop or Force stop ended it. False from a client
+ *  before [`crate::message::INPUT_MODES_SINCE`].
+ */
+stopped?: boolean; 
 /**  Whether it still ran when the message went. */
 running: boolean; 
 /**  When it started. */
@@ -10002,8 +10021,11 @@ seen?: ProposalSeen | null } |
 { kind: "terminal_detach"; terminal: TerminalId } | 
 /**  Sets a terminal's size. The client you last typed in owns it. */
 { kind: "terminal_resize"; terminal: TerminalId; cols: number; rows: number } | 
-/**  Sends a terminal Ctrl-C. */
-{ kind: "terminal_interrupt"; terminal: TerminalId } | 
+/**
+ *  Sends a terminal Ctrl-C, or with `force` kills the program in its
+ *  foreground, for a session command that ignored it.
+ */
+{ kind: "terminal_interrupt"; terminal: TerminalId; force?: boolean } | 
 /**
  *  Closes a terminal: hangs up what runs in it, or kills it with
  *  `force`, then forgets it.
@@ -10674,6 +10696,11 @@ export type SessionRefBlock = {
 	 *  of it.
 	 */
 	exit_code: number | null,
+	/**
+	 *  Whether your Stop or Force stop ended it. False from a client before
+	 *  [`crate::message::INPUT_MODES_SINCE`].
+	 */
+	stopped?: boolean,
 	/**  Whether it still ran when the message went. */
 	running: boolean,
 	/**  How long it ran, or has run so far, if known. */
@@ -11231,9 +11258,44 @@ export type Terminal = {
 	marks?: boolean,
 	/**
 	 *  Whether it waits for a password at a prompt that hides what you
-	 *  type, so clients offer a secure field.
+	 *  type, so clients offer a secure field. Since
+	 *  [`crate::message::INPUT_MODES_SINCE`] also while a program reads keys
+	 *  one at a time and the cursor's line reads like it asks for a secret,
+	 *  such as `? Paste your token:`.
 	 */
 	password_prompt: boolean,
+	/**
+	 *  Whether a program that runs reads keys one at a time, as a picker or
+	 *  a prompt in raw mode does, so clients send each key as you press it.
+	 *  False at a secret prompt, which `password_prompt` says, and from a
+	 *  `maxd` before [`crate::message::INPUT_MODES_SINCE`].
+	 */
+	reads_keys?: boolean,
+	/**
+	 *  Whether a program that runs shows the alternate screen, as a
+	 *  full-screen program does. False from a `maxd` before
+	 *  [`crate::message::INPUT_MODES_SINCE`].
+	 */
+	full_screen?: boolean,
+	/**
+	 *  Whether the program asked for application cursor keys, so the arrow
+	 *  keys go as `ESC O A` rather than `ESC [ A`. False from a `maxd`
+	 *  before [`crate::message::INPUT_MODES_SINCE`].
+	 */
+	app_cursor?: boolean,
+	/**
+	 *  Whether a program that runs has printed nothing for about a second
+	 *  and reads what you type, so it waits for you. False from a `maxd`
+	 *  before [`crate::message::INPUT_MODES_SINCE`].
+	 */
+	waiting?: boolean,
+	/**
+	 *  Whether the device answers the queries a program sends its terminal,
+	 *  such as where the cursor is, so a client's view must not answer
+	 *  them too. False from a holder or `maxd` before
+	 *  [`crate::message::INPUT_MODES_SINCE`], where an open view answers.
+	 */
+	answers?: boolean,
 	/**  When it started. */
 	started_at: Timestamp,
 	/**  Its width in cells. */
@@ -11281,7 +11343,13 @@ export type TerminalStatus =
 /**  The exit code, or none when a signal ended it. */
 code: number | null; 
 /**  The signal that ended it, if one did. */
-signal: number | null };
+signal: number | null; 
+/**
+ *  Whether your Stop or Force stop ended it, rather than the
+ *  program on its own. False from a `maxd` before
+ *  [`crate::message::INPUT_MODES_SINCE`].
+ */
+stopped?: boolean };
 
 /**
  *  One kind of test machine on one backend on one device, as that

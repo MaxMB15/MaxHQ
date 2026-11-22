@@ -177,6 +177,11 @@ impl Harness {
             busy: false,
             marks: false,
             password_prompt: false,
+            reads_keys: false,
+            full_screen: false,
+            app_cursor: false,
+            waiting: false,
+            answers: false,
             started_at: Timestamp::now(),
             cols: request.cols,
             rows: request.rows,
@@ -243,7 +248,8 @@ async fn a_run_shows_where_the_timeline_stood_and_ends_with_what_it_wrote() {
         process(&item),
         TerminalStatus::Exited {
             code: Some(0),
-            signal: None
+            signal: None,
+            stopped: false,
         }
     );
     let ItemBody::UserRun { output, lines, .. } = &item.body else {
@@ -293,7 +299,8 @@ async fn a_run_between_two_messages_stays_there_after_a_restart() {
         process(&items[1]),
         TerminalStatus::Exited {
             code: Some(2),
-            signal: None
+            signal: None,
+            stopped: false,
         }
     );
 }
@@ -471,6 +478,11 @@ async fn a_terminal_that_opens_after_its_agent_went_ends() {
         busy: false,
         marks: false,
         password_prompt: false,
+        reads_keys: false,
+        full_screen: false,
+        app_cursor: false,
+        waiting: false,
+        answers: false,
         started_at: Timestamp::now(),
         cols: 80,
         rows: 24,

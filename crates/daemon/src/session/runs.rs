@@ -262,6 +262,7 @@ fn end_run(item: &mut TimelineItem, exit: Option<&TermExit>) {
     *process = TerminalStatus::Exited {
         code,
         signal: exit.and_then(|exit| exit.signal),
+        stopped: false,
     };
     let at = exit.map_or_else(Timestamp::now, |exit| exit.at);
     *duration_ms = item
@@ -344,7 +345,8 @@ mod tests {
             process,
             TerminalStatus::Exited {
                 code: Some(2),
-                signal: None
+                signal: None,
+                stopped: false,
             }
         );
         assert_eq!(duration_ms, Some(2_500));
@@ -378,7 +380,8 @@ mod tests {
             process,
             TerminalStatus::Exited {
                 code: None,
-                signal: None
+                signal: None,
+                stopped: false,
             }
         );
     }

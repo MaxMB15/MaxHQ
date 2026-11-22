@@ -134,7 +134,7 @@ impl Connection {
                 let resized = terminals.resize(conn, caller, terminal, cols, rows);
                 self.terminal_refusal(resized).await
             }
-            ClientMessage::TerminalInterrupt { key, terminal } => {
+            ClientMessage::TerminalInterrupt { key, terminal, .. } => {
                 self.outcome(key, terminals.interrupt(caller, terminal))
                     .await
             }

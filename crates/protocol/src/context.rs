@@ -107,6 +107,14 @@ pub enum InlineRef {
         cwd: String,
         /// Its exit code, or none while it runs or when a signal ended it.
         exit_code: Option<i32>,
+        /// The signal that ended it, if one did. None from a client before
+        /// [`crate::message::INPUT_MODES_SINCE`].
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        signal: Option<i32>,
+        /// Whether your Stop or Force stop ended it. False from a client
+        /// before [`crate::message::INPUT_MODES_SINCE`].
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        stopped: bool,
         /// Whether it still ran when the message went.
         running: bool,
         /// When it started.
@@ -188,6 +196,10 @@ pub struct SessionRefBlock {
     /// Its exit code, or none while it runs or when the session lost track
     /// of it.
     pub exit_code: Option<i32>,
+    /// Whether your Stop or Force stop ended it. False from a client before
+    /// [`crate::message::INPUT_MODES_SINCE`].
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub stopped: bool,
     /// Whether it still ran when the message went.
     pub running: bool,
     /// How long it ran, or has run so far, if known.
@@ -300,7 +312,9 @@ mod tests {
                 command: "pnpm test".into(),
                 device_name: "Mac".into(),
                 cwd: "~/code/example-app".into(),
-                exit_code: Some(1),
+                exit_code: None,
+                signal: Some(1),
+                stopped: true,
                 running: false,
                 ran_at: Timestamp(1_761_350_400_000),
                 duration_ms: Some(4_200),
@@ -317,6 +331,7 @@ mod tests {
                         cwd: "~/code/example-app".into(),
                         cwd_after: Some("~/code/example-app/apps/web".into()),
                         exit_code: Some(0),
+                        stopped: false,
                         running: false,
                         duration_ms: Some(3),
                         lines_total: 0,
@@ -327,6 +342,7 @@ mod tests {
                         cwd: "~/code/example-app/apps/web".into(),
                         cwd_after: None,
                         exit_code: None,
+                        stopped: false,
                         running: true,
                         duration_ms: Some(9_100),
                         lines_total: 41,
@@ -388,7 +404,9 @@ mod tests {
                 "command": "pnpm test",
                 "device_name": "Mac",
                 "cwd": "~/code/example-app",
-                "exit_code": 1,
+                "exit_code": null,
+                "signal": 1,
+                "stopped": true,
                 "running": false,
                 "ran_at": 1_761_350_400_000u64,
                 "duration_ms": 4_200,
