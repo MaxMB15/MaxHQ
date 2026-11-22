@@ -6,14 +6,16 @@
 //! ```text
 //! u32 big-endian   length of the kind byte plus the body
 //! u8               kind: 0 message, 1 terminal output, 2 terminal input,
-//!                  3 transfer chunk, 4 tunnel data
+//!                  3 transfer chunk, 4 tunnel data, 5 secret terminal
+//!                  input
 //! body             JSON for a message. For terminal output, the 16-byte
 //!                  terminal ID, a u64 big-endian offset, then at most
 //!                  64 KiB. For terminal input, the 16-byte terminal ID,
 //!                  then at most 64 KiB. For a transfer chunk, the 16-byte
 //!                  transfer ID, a u64 big-endian offset, then at most
 //!                  256 KiB. For tunnel data, the 16-byte stream ID, then at
-//!                  most 64 KiB.
+//!                  most 64 KiB. Secret terminal input is laid out as
+//!                  terminal input.
 //! ```
 //!
 //! Terminal, file and tunnel bytes never go through JSON, so they cost one
@@ -67,6 +69,12 @@ pub enum FrameKind {
     TransferChunk = 3,
     /// `[stream: 16 bytes][data, at most 64 KiB]`
     TunnelData = 4,
+    /// `[terminal: 16 bytes][data, at most 64 KiB]`, input you sent from a
+    /// secret field, such as a token at a prompt. The device records that a
+    /// secret went, never the bytes. Since
+    /// [`crate::message::SECRET_INPUT_SINCE`]: an older one drops the frame,
+    /// so a client sends kind 2 there.
+    TerminalSecret = 5,
 }
 
 /// A decoded frame, borrowed from the decoder's buffer.
@@ -90,6 +98,10 @@ pub enum Frame<'a> {
         terminal: TerminalId,
         /// At most [`MAX_TERMINAL_CHUNK`] bytes.
         bytes: &'a [u8],
+        /// Whether they came from a secret field, kind
+        /// [`FrameKind::TerminalSecret`], so a record of them says only
+        /// that a secret went.
+        secret: bool,
     },
     /// Part of an upload or download.
     TransferChunk {
@@ -144,7 +156,7 @@ pub enum DecodeError {
     /// connection should close.
     #[error("kind {kind} frame carries {len} bytes, more than the {limit} allowed")]
     ChunkTooLong {
-        /// The kind byte, 1 to 4.
+        /// The kind byte, 1 to 5.
         kind: u8,
         /// The bytes after the header.
         len: usize,
@@ -188,9 +200,27 @@ pub fn encode_terminal_output(out: &mut Vec<u8>, terminal: TerminalId, offset: u
 /// Appends terminal input frames to `out`, one per [`MAX_TERMINAL_CHUNK`]
 /// bytes. Empty input appends nothing.
 pub fn encode_terminal_input(out: &mut Vec<u8>, terminal: TerminalId, bytes: &[u8]) {
+    encode_terminal_input_as(out, terminal, bytes, false);
+}
+
+/// Appends terminal input frames to `out` as [`encode_terminal_input`]
+/// does, of kind [`FrameKind::TerminalSecret`] when `secret` says the
+/// bytes came from a secret field. Send that kind only to a peer at
+/// [`crate::message::SECRET_INPUT_SINCE`] or later.
+pub fn encode_terminal_input_as(
+    out: &mut Vec<u8>,
+    terminal: TerminalId,
+    bytes: &[u8],
+    secret: bool,
+) {
+    let kind = if secret {
+        FrameKind::TerminalSecret
+    } else {
+        FrameKind::TerminalInput
+    };
     for chunk in bytes.chunks(MAX_TERMINAL_CHUNK) {
         out.reserve(LEN_BYTES + KIND_BYTES + ID_BYTES + chunk.len());
-        let start = begin(out, FrameKind::TerminalInput);
+        let start = begin(out, kind);
         out.extend_from_slice(terminal.0.as_bytes());
         out.extend_from_slice(chunk);
         // The chunk size keeps every frame within the limit.
@@ -298,9 +328,10 @@ impl FrameDecoder {
         match kind {
             0 => Ok(Some(Frame::Message(body))),
             1 => Self::terminal_output(body).map(Some),
-            2 => Self::terminal_input(body).map(Some),
+            2 => Self::terminal_input(body, false).map(Some),
             3 => Self::transfer(body).map(Some),
             4 => Self::tunnel(body).map(Some),
+            5 => Self::terminal_input(body, true).map(Some),
             other => Err(DecodeError::UnknownKind(other)),
         }
     }
@@ -351,14 +382,19 @@ impl FrameDecoder {
     }
 
     /// Splits a terminal input frame's body into its terminal and bytes.
-    fn terminal_input(body: &[u8]) -> Result<Frame<'_>, DecodeError> {
-        let kind = FrameKind::TerminalInput as u8;
+    fn terminal_input(body: &[u8], secret: bool) -> Result<Frame<'_>, DecodeError> {
+        let kind = if secret {
+            FrameKind::TerminalSecret
+        } else {
+            FrameKind::TerminalInput
+        } as u8;
         let (terminal, bytes) = body
             .split_first_chunk::<ID_BYTES>()
             .ok_or(DecodeError::ShortHeader(kind))?;
         Ok(Frame::TerminalInput {
             terminal: TerminalId(Uuid::from_bytes(*terminal)),
             bytes: within(kind, bytes, MAX_TERMINAL_CHUNK)?,
+            secret,
         })
     }
 
@@ -446,8 +482,12 @@ mod tests {
                         );
                         1
                     }
-                    Frame::TerminalInput { terminal: t, bytes } => {
-                        assert_eq!((t, bytes), (terminal(), &b"y"[..]));
+                    Frame::TerminalInput {
+                        terminal: t,
+                        bytes,
+                        secret,
+                    } => {
+                        assert_eq!((t, bytes, secret), (terminal(), &b"y"[..], false));
                         2
                     }
                     Frame::Message(_) => 0,
@@ -569,8 +609,45 @@ mod tests {
             Ok(Some(Frame::TerminalInput {
                 terminal: terminal(),
                 bytes: &[],
+                secret: false,
             }))
         );
+    }
+
+    #[test]
+    fn secret_input_reads_as_input_that_says_so() {
+        let mut out = Vec::new();
+        encode_terminal_input_as(&mut out, terminal(), b"hunter2\r", true);
+        encode_terminal_input_as(&mut out, terminal(), b"ls\r", false);
+        assert_eq!(out[4], FrameKind::TerminalSecret as u8);
+        let mut decoder = FrameDecoder::new();
+        decoder.push(&out);
+        assert_eq!(
+            decoder.next_frame(),
+            Ok(Some(Frame::TerminalInput {
+                terminal: terminal(),
+                bytes: b"hunter2\r",
+                secret: true,
+            }))
+        );
+        assert_eq!(
+            decoder.next_frame(),
+            Ok(Some(Frame::TerminalInput {
+                terminal: terminal(),
+                bytes: b"ls\r",
+                secret: false,
+            }))
+        );
+        // Laid out as input, with the same limit.
+        decoder.push(&raw(5, &[1, 2]));
+        assert_eq!(decoder.next_frame(), Err(DecodeError::ShortHeader(5)));
+        let mut long = terminal().0.as_bytes().to_vec();
+        long.resize(ID_BYTES + MAX_TERMINAL_CHUNK + 1, b'x');
+        decoder.push(&raw(5, &long));
+        assert!(matches!(
+            decoder.next_frame(),
+            Err(DecodeError::ChunkTooLong { kind: 5, .. })
+        ));
     }
 
     fn transfer() -> TransferId {

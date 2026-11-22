@@ -244,6 +244,11 @@ impl Route {
         self
     }
 
+    /// The protocol version the client agreed, once it said hello.
+    pub fn protocol(&self) -> Option<u32> {
+        self.protocol
+    }
+
     /// `code` as this client reads it. One from before Show anyway gets
     /// an outside path as a bad one, as it always did.
     fn code(&self, code: ErrorCode) -> ErrorCode {

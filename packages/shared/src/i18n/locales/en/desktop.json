@@ -1408,5 +1408,14 @@
 	"On {{device}}": "On {{device}}",
 	"Runs in": "Runs in",
 	"This change can't be undone any more": "This change can't be undone any more",
-	"Undone": "Undone"
+	"Undone": "Undone",
+	"typed in the terminal": "typed in the terminal",
+	"{{count, number}} commands typed in the terminal_one": "{{count, number}} command typed in the terminal",
+	"{{count, number}} commands typed in the terminal_other": "{{count, number}} commands typed in the terminal",
+	"{{shared}} of {{total}} shared": "{{shared}} of {{total}} shared",
+	"{{program}} is open in the terminal below. The result comes back here when it closes.": "{{program}} is open in the terminal below. The result comes back here when it closes.",
+	"go to the program": "go to the program",
+	"Your keys go to the program. Click outside or press {{keyHint}} to give them back.": "Your keys go to the program. Click outside or press {{keyHint}} to give them back.",
+	"Click to give the program your keys": "Click to give the program your keys",
+	"Click outside or press {{keyHint}} to give the keys back.": "Click outside or press {{keyHint}} to give the keys back."
 }

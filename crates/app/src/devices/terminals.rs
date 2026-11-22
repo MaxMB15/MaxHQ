@@ -43,14 +43,15 @@ impl<C: Connector> Devices<C> {
     }
 
     /// Sends what you typed into a terminal, on the link its output comes
-    /// through.
+    /// through. A `secret` line came from a secret field.
     pub async fn terminal_input(
         &self,
         terminal: TerminalId,
         bytes: Vec<u8>,
+        secret: bool,
     ) -> Result<(), CommandError> {
         let (id, link) = self.core.terminal_link(terminal)?;
-        match link.terminal_input(terminal, bytes).await {
+        match link.terminal_input(terminal, bytes, secret).await {
             Ok(()) => Ok(()),
             Err(error @ LinkError::TooOld) => Err(self.core.link_failed(&error, id)),
             Err(_) => Err(CommandError::NotConnected {
@@ -265,11 +266,23 @@ mod tests {
     #[test]
     fn input_goes_on_the_terminals_link_and_only_its_length_is_noted() {
         let (h, _, nl) = two_devices();
-        let input = |bytes: &[u8]| block_on(h.devices.terminal_input(shell(), bytes.to_vec()));
+        let input =
+            |bytes: &[u8]| block_on(h.devices.terminal_input(shell(), bytes.to_vec(), false));
         assert_eq!(input(b"ls\r"), Err(gone("This terminal")));
         holds(&h, nl.id);
         input(b"ls\r").unwrap();
-        assert_eq!(h.fake.calls(), [(nl.id, Call::TerminalInput(shell(), 3))]);
+        block_on(
+            h.devices
+                .terminal_input(shell(), b"hunter2\r".to_vec(), true),
+        )
+        .unwrap();
+        assert_eq!(
+            h.fake.calls(),
+            [
+                (nl.id, Call::TerminalInput(shell(), 3, false)),
+                (nl.id, Call::TerminalInput(shell(), 8, true)),
+            ]
+        );
 
         h.fake.record().up.remove(&nl.id);
         assert!(matches!(

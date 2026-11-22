@@ -311,11 +311,13 @@ pub trait LinkControl: Send + Sync + 'static {
         terminal: TerminalId,
     ) -> impl Future<Output = Result<(), LinkError>> + Send;
 
-    /// Sends what you typed into a terminal. Nothing keeps it.
+    /// Sends what you typed into a terminal. Nothing keeps it. A `secret`
+    /// line came from a secret field.
     fn terminal_input(
         &self,
         terminal: TerminalId,
         bytes: Vec<u8>,
+        secret: bool,
     ) -> impl Future<Output = Result<(), LinkError>> + Send;
 }
 
@@ -549,8 +551,13 @@ impl LinkControl for LinkHandle {
         LinkHandle::detach_terminal(self, terminal)
     }
 
-    async fn terminal_input(&self, terminal: TerminalId, bytes: Vec<u8>) -> Result<(), LinkError> {
-        LinkHandle::terminal_input(self, terminal, &bytes).await
+    async fn terminal_input(
+        &self,
+        terminal: TerminalId,
+        bytes: Vec<u8>,
+        secret: bool,
+    ) -> Result<(), LinkError> {
+        LinkHandle::terminal_input(self, terminal, &bytes, secret).await
     }
 }
 
@@ -3031,7 +3038,7 @@ pub(crate) mod tests {
         AttachTerminal(TerminalId, Option<u64>),
         DetachTerminal(TerminalId),
         /// Input to a terminal, by its length alone.
-        TerminalInput(TerminalId, usize),
+        TerminalInput(TerminalId, usize, bool),
     }
 
     /// Everything the fake connector and its links saw.
@@ -3746,12 +3753,13 @@ pub(crate) mod tests {
             &self,
             terminal: TerminalId,
             bytes: Vec<u8>,
+            secret: bool,
         ) -> impl Future<Output = Result<(), LinkError>> + Send {
             let result = self
                 .record
                 .lock()
                 .unwrap()
-                .take(self.id, Call::TerminalInput(terminal, bytes.len()));
+                .take(self.id, Call::TerminalInput(terminal, bytes.len(), secret));
             async move { result }
         }
     }

@@ -247,6 +247,8 @@ describe("sample sessions", () => {
 			"pnpm install",
 			"sudo dscacheutil -flushcache",
 			"pnpm test",
+			"git log --oneline -3",
+			"export GH_TOKEN=•••",
 		]);
 		const next = await ran("pwd");
 		expect(next).toEqual({
@@ -258,6 +260,47 @@ describe("sample sessions", () => {
 
 		await send([sessionPillOf(SAMPLE_SESSION.item)]);
 		expect(card(SAMPLE_SESSION.item)).toMatchObject({ sealed: true, sent: true });
+	});
+
+	it("adds a line you type in the session's tab as a private block, with secrets masked", async () => {
+		const { source, card } = await setup(SAMPLE_SESSION.agent);
+		const type = (text: string) =>
+			source.terminalStream?.input(SAMPLE_SESSION.terminal, new TextEncoder().encode(text));
+		const blocks = () => card(SAMPLE_SESSION.item).blocks;
+		const before = blocks().length;
+
+		type("pwd\r");
+		expect(blocks().at(-1)).toMatchObject({
+			id: SAMPLE_SESSION.next,
+			command: "pwd",
+			typed: true,
+			private: true,
+			output: SAMPLE_SESSION.cwd,
+			process: { state: "exited", code: 0 },
+		});
+
+		type("echo --password hunter2 API_KEY='a b'\r");
+		expect(blocks().at(-1)?.command).toBe("echo --password ••• API_KEY=•••");
+
+		// A line that starts with a space stays out, as it does from a shell's history.
+		type(" ls\r");
+		expect(blocks()).toHaveLength(before + 2);
+	});
+
+	it("keeps what vim showed out of its block, and ends it once you quit", async () => {
+		const { card, ran, source } = await setup(SAMPLE_SESSION.agent);
+		const block = await ran("vim notes.md");
+		const type = (text: string) =>
+			source.terminalStream?.input(SAMPLE_SESSION.terminal, new TextEncoder().encode(text));
+		const ofCard = () => card(block.item).blocks.find((each) => each.id === block.block);
+		expect(ofCard()?.process.state).toBe("running");
+
+		type(":q\r");
+		expect(ofCard()).toMatchObject({
+			process: { state: "exited", code: 0 },
+			output: "",
+		});
+		expect(ofCard()?.typed).toBeUndefined();
 	});
 
 	it("refuses every request without sessions", async () => {

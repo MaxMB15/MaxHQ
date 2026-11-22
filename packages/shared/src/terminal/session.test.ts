@@ -21,6 +21,7 @@ import { applySnapshot } from "../view/replica";
 
 import {
 	budgetLines,
+	cardRows,
 	cardState,
 	cardSummary,
 	fillSession,
@@ -35,6 +36,7 @@ import {
 	sessionRanOf,
 	sessionTerminalOf,
 	supportsSessions,
+	TYPED_FOLD,
 	type UserSessionItem,
 	wantsPill,
 } from "./session";
@@ -309,6 +311,44 @@ describe("the pill", () => {
 			blocks: [],
 			item: "card-1",
 		});
+	});
+});
+
+describe("the card's rows", () => {
+	const typed = (id: number) => block(id, { typed: true, private: true });
+	const shape = (blocks: SessionBlock[]) =>
+		cardRows(blocks).map((row) =>
+			row.kind === "block"
+				? `${row.index}:${row.block.id}`
+				: `${row.index}:[${row.blocks.map((each) => each.id).join(",")}]`
+		);
+
+	it("shows each block on its own row, typed or not, up to the fold", () => {
+		expect(TYPED_FOLD).toBe(3);
+		expect(shape([block(1), typed(2), typed(3), typed(4), block(5)])).toEqual([
+			"0:1",
+			"1:2",
+			"2:3",
+			"3:4",
+			"4:5",
+		]);
+		expect(shape([])).toEqual([]);
+	});
+
+	it("folds a run of more than three typed blocks into one row", () => {
+		expect(
+			shape([block(1), typed(2), typed(3), typed(4), typed(5), block(6), typed(7)])
+		).toEqual(["0:1", "1:[2,3,4,5]", "5:6", "6:7"]);
+		expect(shape([typed(1), typed(2), typed(3), typed(4)])).toEqual(["0:[1,2,3,4]"]);
+	});
+
+	it("never folds blocks you ran with `!`, however many", () => {
+		const ran = [1, 2, 3, 4, 5, 6].map((id) => block(id));
+		expect(cardRows(ran).every((row) => row.kind === "block")).toBe(true);
+	});
+
+	it("takes the fold as a choice", () => {
+		expect(cardRows([typed(1), typed(2)], 1).map((row) => row.kind)).toEqual(["typed"]);
 	});
 });
 

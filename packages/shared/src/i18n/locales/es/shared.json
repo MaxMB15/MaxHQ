@@ -1586,5 +1586,9 @@
 	"Using a reset…": "Usando un reinicio…",
 	"{{count, number}} reset banked_many": "{{count, number}} reinicios acumulados",
 	"{{count, number}} reset banked_one": "{{count, number}} reinicio acumulado",
-	"{{count, number}} reset banked_other": "{{count, number}} reinicios acumulados"
+	"{{count, number}} reset banked_other": "{{count, number}} reinicios acumulados",
+	"In the terminal": "En la terminal",
+	"Waiting for keys": "Esperando teclas",
+	"In the terminal · Open on the Mac": "En la terminal · Abrir en el Mac",
+	"Waiting for keys · Open on the Mac": "Esperando teclas · Abrir en el Mac"
 }

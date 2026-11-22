@@ -36,7 +36,7 @@ export const NOTE_PILLS_SINCE = 28 as const;
 
 export const OLDEST_PROTOCOL_VERSION = 20 as const;
 
-export const PROTOCOL_VERSION = 59 as const;
+export const PROTOCOL_VERSION = 60 as const;
 
 export const RESET_CREDITS_SINCE = 58 as const;
 
@@ -10638,10 +10638,19 @@ export type SessionBlock = {
 	 */
 	cwd_after: string | null,
 	/**
-	 *  Whether it's kept from the agent: you ran it with `!!`, or switched
-	 *  it to private.
+	 *  Whether it's kept from the agent: you ran it with `!!`, typed it in
+	 *  the session's terminal, or switched it to private.
 	 */
 	private: boolean,
+	/**
+	 *  Whether you typed it by hand in the session's terminal rather than
+	 *  sending it with `!`. Such a block starts private, and its command
+	 *  shows each value set for a name that reads like a secret as `•••`.
+	 *  False from a `maxd` before [`crate::message::TYPED_BLOCKS_SINCE`],
+	 *  which records none, and an older client shows it as any other
+	 *  private block.
+	 */
+	typed?: boolean,
 	/**
 	 *  Whether it still runs, and its exit code once it ended. A session
 	 *  reports no signals, and a command it lost track of, such as one

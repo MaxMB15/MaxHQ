@@ -16,12 +16,28 @@
 //
 // Stop types Control-C. A command still running a moment later ignored
 // it, and Force stop sits beside Stop from then on.
+//
+// A picker that reads keys one at a time can take your keys in the card:
+// click its output and each key goes to it as you press it, until you
+// click outside, press ⌘. or the picker closes. Then the keys go back to
+// the composer.
 
 import { CornerDownLeft, LockKeyhole, LockKeyholeOpen } from "lucide-react";
-import { type KeyboardEvent, useEffect, useLayoutEffect, useRef, useState } from "react";
+import {
+	type FocusEvent,
+	type KeyboardEvent,
+	type ReactNode,
+	type RefObject,
+	useEffect,
+	useLayoutEffect,
+	useRef,
+	useState,
+} from "react";
 
+import type { AgentId } from "@maxhq/shared/bindings";
 import { t, useI18n } from "@maxhq/shared/i18n";
 
+import { holdsCommand, keyHint, SHORTCUTS } from "@/layout/shortcuts";
 import { cn } from "@/lib/utils";
 
 const KBD =
@@ -77,6 +93,254 @@ export const keyInput = (key: Key, empty: boolean, appCursor: boolean): string |
 	const arrow = ARROWS[key.key];
 	if (arrow === undefined || !empty) return null;
 	return `${appCursor ? "\x1bO" : "\x1b["}${arrow}`;
+};
+
+/**
+ * What a key pressed while a card holds your keys types into the program,
+ * or null for one it leaves to the app, such as ⌘ shortcuts. The arrows go
+ * as `ESC O A` when the program asked for application cursor keys, and as
+ * `ESC [ A` otherwise. Enter, Space, Tab, Shift-Tab, Esc, Backspace,
+ * letters and Control with a letter go as a terminal sends them.
+ */
+export const pickerKey = (key: Key, appCursor: boolean): string | null => {
+	if (key.metaKey || key.altKey) return null;
+	if (key.ctrlKey) {
+		const letter = key.key.toLowerCase();
+		return /^[a-z]$/.test(letter) ? String.fromCharCode(letter.charCodeAt(0) - 96) : null;
+	}
+	const arrow = ARROWS[key.key];
+	if (arrow !== undefined) return `${appCursor ? "\x1bO" : "\x1b["}${arrow}`;
+	switch (key.key) {
+		case "Enter":
+			return "\r";
+		case "Tab":
+			return key.shiftKey ? "\x1b[Z" : "\t";
+		case "Escape":
+			return "\x1b";
+		case "Backspace":
+			return "\x7f";
+		default:
+			return [...key.key].length === 1 ? key.key : null;
+	}
+};
+
+/** Whether a key is ⌘., which gives held keys back while a card has them. */
+export const isGiveBack = (key: Key & Pick<KeyboardEvent, "code">): boolean =>
+	holdsCommand(key) && !key.shiftKey && !key.altKey && key.code === SHORTCUTS.stop.code;
+
+/** Whether an element is one you type in. */
+const typesText = (at: HTMLElement): boolean =>
+	at.isContentEditable ||
+	at.matches('input, textarea, select, [contenteditable]:not([contenteditable="false"])');
+
+/** The agent's pane, which carries its ID. */
+const paneOf = (agent: AgentId): HTMLElement | undefined =>
+	[...document.querySelectorAll<HTMLElement>("[data-agent-pane]")].find(
+		(pane) => pane.dataset.agentPane === agent
+	);
+
+/**
+ * Whether focus is free for the terminal panel to take: nowhere, on
+ * something you don't type in, or in this agent's composer. Never while
+ * you type in another agent's composer or any other field.
+ */
+export const focusFree = (agent: AgentId): boolean => {
+	const at = document.activeElement;
+	if (!(at instanceof HTMLElement) || at === document.body) return true;
+	if (!typesText(at)) return true;
+	const pane = at.closest<HTMLElement>("[data-agent-pane]");
+	return pane?.dataset.agentPane === agent && at.closest(".composer-editor") !== null;
+};
+
+/** Puts focus in the agent's composer, which takes your keys back. */
+export const focusComposer = (agent: AgentId): void => {
+	const editors = [
+		...(paneOf(agent)?.querySelectorAll<HTMLElement>(".composer-editor") ?? []),
+	].filter((editor) => !editor.closest(".answer-field"));
+	editors.at(-1)?.focus();
+};
+
+/** Whether focus is nowhere, so the composer may take it. */
+const focusNowhere = (): boolean => {
+	const at = document.activeElement;
+	return at === null || at === document.body;
+};
+
+/** What a card does with the keys it holds for a program. */
+type HeldKeysOptions = {
+	readonly agent: AgentId;
+	/** Whether the program takes keys in the card now. */
+	readonly takes: boolean;
+	/** Whether the program asked for application cursor keys. */
+	readonly appCursor: boolean;
+	/** Types a key into the program, the way the reply line does. */
+	readonly onSend: (data: string) => void;
+	/** Control-C, which stops the program the way Stop does. */
+	readonly onStop: () => void;
+};
+
+/** A card's hold on your keys, and what its output needs to take them. */
+export type HeldKeys = {
+	/** Whether the output has your keys now. */
+	readonly held: boolean;
+	/** What the output's box takes, or nothing while the program takes no keys. */
+	readonly box: {
+		readonly ref: RefObject<HTMLDivElement | null>;
+		readonly role?: "group";
+		readonly tabIndex?: number;
+		readonly "aria-label"?: string;
+		readonly "data-keys"?: "held" | "offered";
+		readonly onFocus?: () => void;
+		readonly onBlur?: (event: FocusEvent<HTMLDivElement>) => void;
+		readonly onKeyDownCapture?: (event: KeyboardEvent<HTMLDivElement>) => void;
+	};
+};
+
+/**
+ * Lets a card's output hold your keys for a picker. Focus in the output
+ * holds them, and each key you press goes to the program. Focus leaving it,
+ * ⌘. or the program no longer taking keys gives them back, to the
+ * composer when focus is left nowhere.
+ */
+export const useHeldKeys = ({
+	agent,
+	takes,
+	appCursor,
+	onSend,
+	onStop,
+}: HeldKeysOptions): HeldKeys => {
+	const ref = useRef<HTMLDivElement>(null);
+	const [holding, setHolding] = useState(false);
+	const held = holding && takes;
+	// Whether a pointer is down, so a click elsewhere gives the keys back only
+	// once it ends, and never cuts a selection short.
+	const pressed = useRef(false);
+	useEffect(() => {
+		if (!holding) return;
+		const down = () => (pressed.current = true);
+		const up = () => (pressed.current = false);
+		window.addEventListener("pointerdown", down, true);
+		window.addEventListener("pointerup", up, true);
+		return () => {
+			window.removeEventListener("pointerdown", down, true);
+			window.removeEventListener("pointerup", up, true);
+		};
+	}, [holding]);
+
+	// The picker closed: the keys go back to the composer.
+	const [took, setTook] = useState(takes);
+	if (took !== takes) {
+		setTook(takes);
+		if (!takes && holding) setHolding(false);
+	}
+	const wasHeld = useRef(false);
+	useEffect(() => {
+		const was = wasHeld.current;
+		wasHeld.current = held;
+		if (!was || held || takes) return;
+		const at = document.activeElement;
+		if (focusNowhere() || (at !== null && ref.current?.contains(at))) focusComposer(agent);
+	}, [held, takes, agent]);
+
+	const giveBack = () => {
+		setHolding(false);
+		focusComposer(agent);
+	};
+
+	if (!takes) return { held: false, box: { ref } };
+	return {
+		held,
+		box: {
+			ref,
+			role: "group",
+			tabIndex: 0,
+			"aria-label": held
+				? t(
+						"Your keys go to the program. Click outside or press {{keyHint}} to give them back.",
+						{
+							keyHint: keyHint(SHORTCUTS.stop),
+						}
+					)
+				: t("Click to give the program your keys"),
+			"data-keys": held ? "held" : "offered",
+			onFocus: () => setHolding(true),
+			onBlur: (event) => {
+				const to = event.relatedTarget;
+				if (to instanceof Node && event.currentTarget.contains(to)) return;
+				setHolding(false);
+				if (to !== null) return;
+				// A click on nothing gives the keys back to the composer once it ends.
+				const back = () => {
+					if (focusNowhere() && (window.getSelection()?.isCollapsed ?? true))
+						focusComposer(agent);
+				};
+				if (pressed.current) window.addEventListener("pointerup", back, { once: true });
+				else back();
+			},
+			onKeyDownCapture: (event) => {
+				if (!held || event.nativeEvent.isComposing) return;
+				if (isGiveBack(event)) {
+					event.preventDefault();
+					event.stopPropagation();
+					giveBack();
+					return;
+				}
+				// The buttons under the output keep their own keys.
+				const target = event.target;
+				if (target instanceof Element && target.closest("[data-keys-hint]")) return;
+				if (event.key === "c" && event.ctrlKey && !event.metaKey && !event.altKey) {
+					event.preventDefault();
+					event.stopPropagation();
+					onStop();
+					return;
+				}
+				const data = pickerKey(event, appCursor);
+				if (data === null) return;
+				event.preventDefault();
+				event.stopPropagation();
+				onSend(data);
+			},
+		},
+	};
+};
+
+/** The look of a card's output while it offers or holds your keys. */
+export const heldLook = (keys: HeldKeys): string =>
+	keys.box["data-keys"] === undefined
+		? ""
+		: keys.held
+			? "cursor-default outline-2 outline-solid outline-primary -outline-offset-2"
+			: "cursor-pointer outline-none";
+
+/**
+ * The row under a card's output while it holds your keys: which keys go to
+ * the program, then the card's own buttons.
+ */
+export const KeysHint = ({ children }: { children: ReactNode }) => {
+	useI18n();
+	return (
+		<div
+			data-keys-hint
+			title={t("Click outside or press {{keyHint}} to give the keys back.", {
+				keyHint: keyHint(SHORTCUTS.stop),
+			})}
+			className="flex flex-wrap items-center gap-2 border-t border-border bg-primary/5 py-1.5 pr-2 pl-3 text-xs text-muted-foreground"
+		>
+			<span className="inline-flex items-center gap-1">
+				<kbd aria-hidden className={KBD}>
+					↑
+				</kbd>
+				<kbd aria-hidden className={KBD}>
+					↓
+				</kbd>
+				<kbd aria-hidden className={KBD}>
+					↩
+				</kbd>
+				<span>{t("go to the program")}</span>
+			</span>
+			<span className="ml-auto flex flex-wrap items-center gap-1">{children}</span>
+		</div>
+	);
 };
 
 /**
@@ -160,8 +424,11 @@ export const InputRow = ({
 	appCursor = false,
 	waiting = false,
 }: {
-	/** Types the line and its Enter into the command. */
-	onSend: (data: string) => void;
+	/**
+	 * Types the line and its Enter into the command, as a secret when you
+	 * locked the line.
+	 */
+	onSend: (data: string, options?: { readonly secret: boolean }) => void;
 	/** Control-C in the field, with no text picked. */
 	onInterrupt: () => void;
 	/** The answers the prompt the command waits at offers, as you type them. */
@@ -182,7 +449,9 @@ export const InputRow = ({
 	const send = (key: string) => {
 		const input = field.current;
 		if (!input) return;
-		onSend(`${input.value}${key}`);
+		const text = `${input.value}${key}`;
+		if (locked) onSend(text, { secret: true });
+		else onSend(text);
 		input.value = "";
 		if (locked) next(input);
 	};
@@ -340,8 +609,8 @@ export const PasswordField = ({
 }: {
 	/** What the field asks for, such as "Password for sudo on devbox". */
 	label: string;
-	/** Types the password and its Enter into the command. */
-	onSend: (data: string) => void;
+	/** Types the password and its Enter into the command, as a secret. */
+	onSend: (data: string, options: { readonly secret: boolean }) => void;
 	/** Whether it takes focus when it shows, for a command this window started. */
 	takeFocus?: boolean;
 }) => {
@@ -353,7 +622,7 @@ export const PasswordField = ({
 	const send = () => {
 		const input = field.current;
 		if (!input) return;
-		onSend(`${input.value}\r`);
+		onSend(`${input.value}\r`, { secret: true });
 		input.value = "";
 		next(input);
 	};

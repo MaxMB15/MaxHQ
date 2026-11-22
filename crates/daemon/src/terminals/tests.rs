@@ -515,7 +515,13 @@ async fn a_shell_that_marks_its_commands_is_busy_from_start_to_end_or_while_the_
     // A builtin such as `read` holds no foreground, but the marks say.
     let cwd = Some("/tmp/example-app".to_owned());
     let command = vec![
-        mark(12, Mark::Command { cwd: cwd.clone() }),
+        mark(
+            12,
+            Mark::Command {
+                cwd: cwd.clone(),
+                command: None,
+            },
+        ),
         TermEvent::Busy(false),
     ];
     heard(&f.terminals, shell, command).await;

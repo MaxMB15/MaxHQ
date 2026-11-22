@@ -1542,5 +1542,9 @@
 	"Use reset": "Use reset",
 	"Using a reset…": "Using a reset…",
 	"{{count, number}} reset banked_one": "{{count, number}} reset banked",
-	"{{count, number}} reset banked_other": "{{count, number}} resets banked"
+	"{{count, number}} reset banked_other": "{{count, number}} resets banked",
+	"In the terminal": "In the terminal",
+	"Waiting for keys": "Waiting for keys",
+	"In the terminal · Open on the Mac": "In the terminal · Open on the Mac",
+	"Waiting for keys · Open on the Mac": "Waiting for keys · Open on the Mac"
 }

@@ -1542,5 +1542,9 @@
 	"Use reset": "Reset gebruiken",
 	"Using a reset…": "Reset wordt gebruikt…",
 	"{{count, number}} reset banked_one": "{{count, number}} reset opgespaard",
-	"{{count, number}} reset banked_other": "{{count, number}} resets opgespaard"
+	"{{count, number}} reset banked_other": "{{count, number}} resets opgespaard",
+	"In the terminal": "In de terminal",
+	"Waiting for keys": "Wacht op toetsen",
+	"In the terminal · Open on the Mac": "In de terminal · Openen op de Mac",
+	"Waiting for keys · Open on the Mac": "Wacht op toetsen · Openen op de Mac"
 }

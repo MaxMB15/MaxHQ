@@ -73,7 +73,8 @@ use maxhq_protocol::ids::{
 };
 use maxhq_protocol::link::{DeviceLink, LinkState, Network, Route, RouteChoice};
 use maxhq_protocol::message::{
-    ActionOutcome, Capabilities, ClientInfo, UploadTarget, SHOW_ANYWAY_SINCE, TERMINALS_SINCE,
+    ActionOutcome, Capabilities, ClientInfo, UploadTarget, SECRET_INPUT_SINCE, SHOW_ANYWAY_SINCE,
+    TERMINALS_SINCE,
 };
 use maxhq_protocol::model::ListeningPort;
 use maxhq_protocol::skills::TreeHash;
@@ -1037,25 +1038,27 @@ impl LinkHandle {
     }
 
     /// Writes what you typed to a terminal, ahead of file data. Nothing
-    /// keeps it, so with no connection it doesn't go at all.
+    /// keeps it, so with no connection it doesn't go at all. A `secret`
+    /// line, from a secret field, goes as such to a `maxd` that reads it,
+    /// so a record of it says only that a secret went, and as plain input
+    /// to an older one.
     pub async fn terminal_input(
         &self,
         terminal: TerminalId,
         bytes: &[u8],
+        secret: bool,
     ) -> Result<(), LinkError> {
-        if self
-            .protocol
-            .borrow()
-            .is_some_and(|version| version < TERMINALS_SINCE)
-        {
+        let version = *self.protocol.borrow();
+        if version.is_some_and(|version| version < TERMINALS_SINCE) {
             return Err(LinkError::TooOld);
         }
+        let secret = secret && version.is_some_and(|version| version >= SECRET_INPUT_SINCE);
         let wire = self.wire.borrow().clone();
         let Some(wire) = wire else {
             return Err(self.not_connected());
         };
         let mut frames = Vec::new();
-        frame::encode_terminal_input(&mut frames, terminal, bytes);
+        frame::encode_terminal_input_as(&mut frames, terminal, bytes, secret);
         if frames.is_empty() {
             return Ok(());
         }

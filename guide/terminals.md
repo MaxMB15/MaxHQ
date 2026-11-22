@@ -106,6 +106,45 @@ The composer's pill reads Agent shell, or such as "Agent shell · 1 failed". Cli
 
 Long output folds to its last 20 lines, with Show all lines. A message takes only the last lines of each block. After a cd, the card shows the folder it's now in.
 
+## Commands you type in the Agent shell's tab
+<!-- id: terminals/typed -->
+
+A command you type yourself in the Agent shell's tab also lands in the card, as a line such as `$ ls -la` marked "typed in the terminal".
+
+- It starts Private, so the agent sees it only once you switch it to Shared.
+- Click the line to show what it printed.
+- More than three in a row fold into one line, such as "4 commands typed in the terminal", with how many are shared. Click it to see each one.
+- It brings no unread mark and no notification.
+- A value set for a name that reads like a secret shows as •••, such as `export GH_TOKEN=•••` or `--password •••`.
+
+Start a command with a space to keep it out of the card, the way shells keep such a line out of their history. Bash records a line only while its history is on, and leaves out one its history skips, such as a repeat under HISTCONTROL=ignoredups. Nothing is recorded from a shell you start inside the Agent shell, or on a device whose maxd is too old.
+
+## Programs that take the whole screen
+<!-- id: terminals/full-screen -->
+
+A ! command that takes the whole screen, such as vim or git commit opening your editor, can't run in a card. The card says "In the terminal", with "vim is open in the terminal below. The result comes back here when it closes."
+
+The terminal panel opens on it by itself when all of these hold:
+
+- You ran the command from this window, and it's the newest you ran here.
+- It took the whole screen within 10 seconds of starting, for the first time.
+- You weren't typing in a field or in another agent's composer. This agent's composer is fine.
+
+A command in the Agent shell opens the Agent shell's tab. One that ran on its own moves to a tab of its own. Otherwise click Open in terminal, which shows only while the panel doesn't show the program. On the phone, the line reads "In the terminal · Open on the Mac".
+
+## Pick from a list in a card
+<!-- id: terminals/pickers -->
+
+Some commands ask you to pick with the arrow keys, such as `pnpm create vite`. While one waits, its card says "Waiting for keys".
+
+1. Click the command's output. A ring shows the card now has your keys.
+2. Press ↑, ↓ and ↩ to pick. Letters, Space, Tab and Esc go to the program too, and Ctrl-C stops it.
+3. Click outside, or press `⌘.`, to give your keys back. Off a Mac, press `Ctrl+.`. They also come back by themselves once the program stops reading keys.
+
+The row under the output reads "↑ ↓ ↩ go to the program", with Open in terminal and Stop. A device whose maxd is too old shows the output without taking keys. On the phone, the line reads "Waiting for keys · Open on the Mac".
+
+To type a secret into a card's reply line, click its lock, Hide what you type, first. The device then keeps the reply's echo out of the card and notes only that it went, as it does for the password field. A device whose maxd is too old gets the reply as plain input, so a program that echoes what you type shows it.
+
 ## Why a command ran on its own
 <!-- id: terminals/fresh-shell -->
 

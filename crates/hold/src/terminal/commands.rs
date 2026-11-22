@@ -67,7 +67,7 @@ impl Commands {
                     last.input = Some(offset);
                 }
             }
-            Mark::Command { cwd } => {
+            Mark::Command { cwd, .. } => {
                 self.close(offset);
                 if self.list.back().is_none_or(|last| last.start.is_some()) {
                     self.push(ShellCommand::default());
@@ -127,6 +127,7 @@ mod tests {
     fn command(cwd: &str) -> Mark {
         Mark::Command {
             cwd: Some(cwd.into()),
+            command: None,
         }
     }
 

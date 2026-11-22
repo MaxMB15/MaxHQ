@@ -9,6 +9,7 @@ import { createElement, type ReactElement, useMemo } from "react";
 
 import { useServices } from "@/app/services";
 import type { AgentId, DeviceId, TerminalId } from "@maxhq/shared/bindings";
+import type { InputOptions } from "@maxhq/shared/terminal/stream";
 
 import { openAgentShell, pasteIntoDrawer, showInDrawer } from "./actions";
 import { cellSize, registryOf } from "./live";
@@ -43,8 +44,17 @@ export const LiveTerminal = ({
 
 /** What the chat asks of terminals. */
 export type TerminalActions = {
-	/** Types `data` into a terminal. MaxHQ never keeps or logs it. */
-	readonly sendInput: (device: DeviceId, terminal: TerminalId, data: string) => void;
+	/**
+	 * Types `data` into a terminal. MaxHQ never keeps or logs it. With
+	 * `secret`, from a field that hides what you type, the device records
+	 * only that a secret went, when it knows how.
+	 */
+	readonly sendInput: (
+		device: DeviceId,
+		terminal: TerminalId,
+		data: string,
+		options?: InputOptions
+	) => void;
 	/**
 	 * A live terminal's last `lines` lines as plain text, and how many lines
 	 * it printed in all, or null when this window doesn't hold it.
@@ -86,8 +96,8 @@ export const useTerminalActions = (): TerminalActions => {
 	const services = useServices();
 	return useMemo(
 		() => ({
-			sendInput: (_device, terminal, data) =>
-				services.source.terminalStream?.input(terminal, encoder.encode(data)),
+			sendInput: (_device, terminal, data, options) =>
+				services.source.terminalStream?.input(terminal, encoder.encode(data), options),
 			text: (terminal, lines) => registryOf(services)?.view(terminal)?.text(lines) ?? null,
 			runningText: (terminal, start) => {
 				const view = start === null ? undefined : registryOf(services)?.view(terminal);
@@ -101,3 +111,5 @@ export const useTerminalActions = (): TerminalActions => {
 		[services]
 	);
 };
+
+export { useShownInPanel } from "./shown";

@@ -112,22 +112,54 @@ _maxhq_prompt() {
   PS1=$_maxhq_ps1
 }
 
+# The line in $1 as the start mark carries it, in REPLY: its first 501
+# characters, with `%`, `;`, control characters and every byte past ASCII
+# percent-encoded, so nothing in it can end the mark.
+_maxhq_encode() {
+  emulate -L zsh
+  local line=${1[1,501]}
+  if [[ $line != *[^\ -~]* && $line != *[%\;]* ]]; then
+    REPLY=$line
+    return 0
+  fi
+  setopt no_multibyte
+  local LC_ALL=C
+  local i c out= hex
+  for (( i = 1; i <= ${#line}; i++ )); do
+    c=${line[i]}
+    case $c in
+      [%\;]) builtin printf -v hex '%%%02X' "'$c"; out+=$hex ;;
+      [\ -~]) out+=$c ;;
+      *)
+        builtin printf -v hex '%d' "'$c"
+        builtin printf -v hex '%%%02X' $(( (hex + 256) % 256 ))
+        out+=$hex
+        ;;
+    esac
+  done
+  REPLY=$out
+}
+
 # Last before a command runs: gives PS1 back as it was, keeps the prompt
-# hooks first and last, and marks where the command starts. A command
-# that starts with exec gets no mark: a shell that takes this one's place
-# never marks its end, so the command would seem to run for good.
+# hooks first and last, and marks where the command starts, with the line
+# you typed. A line that starts with a space keeps its text to itself, as
+# it keeps out of the history. A command that starts with exec gets no
+# mark: a shell that takes this one's place never marks its end, so the
+# command would seem to run for good.
 _maxhq_preexec() {
   emulate -L zsh
   [[ $PS1 == "$_maxhq_ps1" ]] && PS1=$_maxhq_user_ps1
   precmd_functions=(_maxhq_precmd ${precmd_functions:#_maxhq_(precmd|prompt)} _maxhq_prompt)
   _maxhq_no_pager
-  local line=${1:-$3}
-  line=${line#"${line%%[![:space:]]*}"}
+  local typed=${1:-$3}
+  local line=${typed#"${typed%%[![:space:]]*}"}
   case $line in
     exec | exec[[:space:]]*) return 0 ;;
   esac
   _maxhq_ran=1
-  _maxhq_mark C
+  local REPLY=
+  [[ $typed == [[:space:]]* ]] || _maxhq_encode "$typed"
+  _maxhq_mark "C;$REPLY"
 }
 
 _maxhq_user

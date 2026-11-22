@@ -104,7 +104,20 @@ impl TermControl {
     /// Types `data`. The bytes are zeroed once written, and nothing keeps
     /// them.
     pub fn input(&self, data: Vec<u8>) -> bool {
-        self.send(ToHolder::Input { data: Typed(data) })
+        self.send(ToHolder::Input {
+            data: Typed(data),
+            secret: false,
+        })
+    }
+
+    /// Types `data` you sent as a secret: a run's transcript notes that a
+    /// password went when it ends a line, as at a prompt that hides what
+    /// you type. A holder from before takes it as [`TermControl::input`].
+    pub fn input_secret(&self, data: Vec<u8>) -> bool {
+        self.send(ToHolder::Input {
+            data: Typed(data),
+            secret: true,
+        })
     }
 
     /// Sets the window size.

@@ -6,13 +6,15 @@
 // opens that many columns wide. Unless it runs privately, its output pill
 // goes in the composer at once and follows the command from there. On a
 // device with sessions it runs in the agent's session instead, whose pill
-// stands for all its commands.
+// stands for all its commands. The newest command it started may open the
+// terminal panel by itself once its program takes the whole screen.
 
 import { t } from "@maxhq/shared/i18n";
 
-import type { AgentId, TerminalId } from "@maxhq/shared/bindings";
+import type { AgentId, TerminalId, Timestamp } from "@maxhq/shared/bindings";
 import { attempt, failureOf } from "@maxhq/shared/composer/send";
 import type { ActionResult, DataSource } from "@maxhq/shared/data/source";
+import { type JustRan, opensPanel } from "@maxhq/shared/terminal/handoff";
 import { runCommand, openedTerminal, type TerminalSize } from "@maxhq/shared/terminal/requests";
 import { startedOutput } from "@maxhq/shared/terminal/output";
 import { type SessionRan, sessionRanOf } from "@maxhq/shared/terminal/session";
@@ -50,6 +52,35 @@ export const firstAskHere = (terminal: TerminalId): boolean => startedHere.has(t
 /** The command in `terminal` asked for a password, so later asks don't take focus. */
 export const askedHere = (terminal: TerminalId): void => {
 	startedHere.delete(terminal);
+};
+
+/** The newest command this window started, until its program first goes full screen. */
+let newest: JustRan | null = null;
+
+/** Notes the newest command this window started. */
+const startedNow = (terminal: TerminalId, block: number | null): void => {
+	newest = { terminal, block, at: Date.now() };
+};
+
+/**
+ * Whether the command that just went full screen opens the panel by itself:
+ * the newest command this window started, a moment ago, with focus free to
+ * move. It's asked once, so the program going full screen again later
+ * leaves the panel alone.
+ */
+export const opensPanelNow = (
+	ran: { readonly terminal: TerminalId; readonly block: number | null },
+	focusFree: boolean,
+	now: Timestamp = Date.now()
+): boolean => {
+	const opens = opensPanel(newest, ran, now, focusFree);
+	if (newest?.terminal === ran.terminal && newest.block === ran.block) newest = null;
+	return opens;
+};
+
+/** Forgets the newest command, for tests. */
+export const forgetNewest = (): void => {
+	newest = null;
 };
 
 /** What starting a command came to: its terminal, or why it didn't start. */
@@ -116,6 +147,7 @@ export const startSessionRun = async (
 	if (ran) {
 		// Each command's first ask for a password takes focus.
 		startedHere.add(ran.terminal);
+		startedNow(ran.terminal, ran.block);
 		return { ran };
 	}
 	const terminal = openedTerminal(result);
@@ -127,6 +159,7 @@ export const startSessionRun = async (
 /** Notes that this window started the command, and puts its output pill in unless it's private. */
 const follow = (view: () => ViewState, run: Run, terminal: TerminalId) => {
 	startedHere.add(terminal);
+	startedNow(terminal, null);
 	if (!run.private) {
 		const state = view();
 		const place = runPlace(state, run.agent);

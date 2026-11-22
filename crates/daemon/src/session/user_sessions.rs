@@ -74,6 +74,26 @@ pub(super) fn fresh_reason(command: &str, asked: bool) -> Option<FreshReason> {
     }
 }
 
+/// How many blocks a card takes at most. Each change to a block keeps and
+/// sends its whole card again, so a card's cost grows with the square of
+/// its blocks: 40 short ones send about 0.8 MiB to each client that shows
+/// it over its life, 100 about 4.6 MiB.
+pub(super) const CARD_BLOCKS: usize = 40;
+
+/// How much output a card's blocks hold at most, before the next block
+/// starts a new card. A card then sends at most this and its last block,
+/// each time one of its blocks changes.
+pub(super) const CARD_OUTPUT: usize = 256 * 1024;
+
+/// Whether a card takes another block.
+fn has_room(item: &TimelineItem) -> bool {
+    let ItemBody::UserSession { blocks, .. } = &item.body else {
+        return false;
+    };
+    let output: usize = blocks.iter().map(|block| block.output.len()).sum();
+    blocks.len() < CARD_BLOCKS && output < CARD_OUTPUT
+}
+
 /// Whether a kept item is a card that a message hasn't sealed yet.
 fn is_open(item: &TimelineItem) -> bool {
     matches!(item.body, ItemBody::UserSession { sealed: false, .. })
@@ -183,6 +203,7 @@ impl Manager {
                     cwd,
                     cwd_after: None,
                     private,
+                    typed: false,
                     process: TerminalStatus::Running,
                     started_at: at,
                     duration_ms: None,
@@ -203,12 +224,29 @@ impl Manager {
         self.finish(key, Outcome::Action(outcome));
     }
 
+    /// Adds a command you typed by hand at an agent's session prompt to
+    /// its open card, as a private block. It marks nothing unread and
+    /// raises nothing: you watched it run.
+    pub(super) fn typed_block(
+        &mut self,
+        agent: AgentId,
+        terminal: TerminalId,
+        block: SessionBlock,
+    ) {
+        if !self.held.contains_key(&agent) {
+            return;
+        }
+        self.add_block(agent, terminal, block);
+    }
+
     /// Adds a block that went into a session to the agent's open card for
-    /// it, or to a new card where the timeline stands. Returns the card.
+    /// it with room left, or to a new card where the timeline stands.
+    /// Returns the card.
     fn add_block(&mut self, agent: AgentId, terminal: TerminalId, block: SessionBlock) -> ItemId {
         let (id, at) = (block.id, block.started_at);
         let open = (self.open_cards(agent).into_iter())
-            .find(|row| card_terminal(&row.record) == Some(terminal));
+            .rfind(|row| card_terminal(&row.record) == Some(terminal))
+            .filter(|row| has_room(&row.record));
         let item = match open {
             Some(row) => {
                 let item = ItemId(row.item.clone());

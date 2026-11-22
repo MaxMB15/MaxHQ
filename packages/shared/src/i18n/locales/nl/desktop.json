@@ -1408,5 +1408,14 @@
 	"On {{device}}": "Op {{device}}",
 	"Runs in": "Draait in",
 	"This change can't be undone any more": "Deze wijziging kan niet meer ongedaan worden gemaakt",
-	"Undone": "Ongedaan gemaakt"
+	"Undone": "Ongedaan gemaakt",
+	"typed in the terminal": "getypt in de terminal",
+	"{{count, number}} commands typed in the terminal_one": "{{count, number}} opdracht getypt in de terminal",
+	"{{count, number}} commands typed in the terminal_other": "{{count, number}} opdrachten getypt in de terminal",
+	"{{shared}} of {{total}} shared": "{{shared}} van {{total}} gedeeld",
+	"{{program}} is open in the terminal below. The result comes back here when it closes.": "{{program}} is open in de terminal hieronder. Het resultaat komt hier terug als het sluit.",
+	"go to the program": "gaan naar het programma",
+	"Your keys go to the program. Click outside or press {{keyHint}} to give them back.": "Je toetsen gaan naar het programma. Klik ernaast of druk op {{keyHint}} om ze terug te geven.",
+	"Click to give the program your keys": "Klik om het programma je toetsen te geven",
+	"Click outside or press {{keyHint}} to give the keys back.": "Klik ernaast of druk op {{keyHint}} om de toetsen terug te geven."
 }

@@ -10,13 +10,18 @@
 // send a line, which it never echoes or keeps. `gh secret set` asks for a
 // secret the same way, `ssh devbox` asks yes or no about a new host, and
 // `python3` reads lines at its prompt and takes Ctrl-C without ending, so
-// Stop does nothing to it. A command that reads what you type and printed
-// nothing for a second waits for you, as `maxd` says. A command you ran with `!`
-// keeps what it printed, which its card shows once it ends. A shell on a
-// device with Shell integration on marks its prompts and commands, OSC
-// 133, as `maxd` passes them on. An agent's session is a shell that takes
+// Stop does nothing to it. `vim` and `git commit` take the whole screen
+// until you quit with `:q` or `:wq`, and `pnpm create vite` asks you to
+// pick a framework with the arrow keys, reading each key as you press it.
+// A command that reads what you type and printed nothing for a second
+// waits for you, as `maxd` says. A command you ran with `!` keeps what it
+// printed, which its card shows once it ends. A shell on a device with
+// Shell integration on marks its prompts and commands, OSC 133, as `maxd`
+// passes them on. An agent's session is a shell that takes
 // the commands you run with `!` as `maxd` writes them in, and tells how
-// each ended with what it printed between its marks, as a block.
+// each ended with what it printed between its marks, as a block. A line
+// you type at its prompt yourself becomes a block too, unless it starts
+// with a space.
 
 import type { Terminal, TerminalId, Timestamp } from "../bindings";
 import { utf8 } from "../notes/merge";
@@ -31,6 +36,11 @@ export type MockStreamHooks = {
 	readonly exited?: (terminal: TerminalId) => void;
 	/** Whether a shell it starts marks its prompts and commands. */
 	readonly marks?: (terminal: Terminal) => boolean;
+	/**
+	 * A line you typed at a shell's prompt yourself. A session answers what
+	 * to tell once it ends, so it's a block of its card, and any other shell null.
+	 */
+	readonly typed?: (terminal: TerminalId, line: string) => ((end: BlockEnd) => void) | null;
 };
 
 /** What a command you ran with `!` printed, as its card keeps it. */
@@ -106,8 +116,21 @@ const DIM = "\x1b[2m";
 const RED = "\x1b[31m";
 const GREEN = "\x1b[32m";
 const CYAN = "\x1b[36m";
+const BLUE = "\x1b[34m";
 const BOLD = "\x1b[1m";
 const OFF = "\x1b[0m";
+
+/** Into and out of the alternate screen, as a full-screen program goes. */
+const SCREEN_ON = "\x1b[?1049h";
+const SCREEN_OFF = "\x1b[?1049l";
+
+/** Application cursor keys on with the cursor hidden, as a picker asks, and back. */
+const PICKER_ON = "\x1b[?1h\x1b[?25l";
+const PICKER_OFF = "\x1b[?1l\x1b[?25h";
+
+/** The arrow keys, as a terminal sends them in either cursor mode. */
+const UP = new Set(["\x1b[A", "\x1bOA", "k"]);
+const DOWN = new Set(["\x1b[B", "\x1bOB", "j"]);
 
 /** A command's lines, each after a wait in milliseconds, and its exit code. */
 type Script = {
@@ -140,6 +163,25 @@ type Plan =
 			readonly head: string;
 			readonly prompt: string;
 			readonly interrupted: string;
+	  }
+	| {
+			/**
+			 * Takes the whole screen, as vim does, showing `lines` over a status
+			 * line, and ignores Ctrl-C. `:wq` or `:x` quits saved, `:q` or `:q!`
+			 * without, and `after` says what it prints then.
+			 */
+			readonly type: "screen";
+			readonly lines: readonly string[];
+			readonly status: string;
+			readonly after: (saved: boolean) => Script;
+	  }
+	| {
+			/** Asks you to pick one of `options` with the arrow keys and Enter, as create-vite does. */
+			readonly type: "picker";
+			readonly head: string;
+			readonly question: string;
+			readonly options: readonly string[];
+			readonly picked: (option: string) => Script;
 	  }
 	| { readonly type: "cd"; readonly to: string }
 	| { readonly type: "exit" }
@@ -262,6 +304,63 @@ const planFor = (command: string, cwd: string, now: () => Timestamp): Plan => {
 					[2400, `\r\n${DIM}Done in 4.2s${OFF}\r\n`],
 				],
 			};
+		case "git commit":
+			return {
+				type: "screen",
+				lines: [
+					"",
+					`${BLUE}# Please enter the commit message for your changes. Lines starting${OFF}`,
+					`${BLUE}# with '#' will be ignored, and an empty message aborts the commit.${OFF}`,
+					`${BLUE}#${OFF}`,
+					`${BLUE}# On branch main${OFF}`,
+					`${BLUE}# Changes to be committed:${OFF}`,
+					`${BLUE}#\tmodified:   src/usage/popover.tsx${OFF}`,
+					`${BLUE}#${OFF}`,
+				],
+				status: `".git/COMMIT_EDITMSG" 8L, 262B`,
+				after: (saved) =>
+					saved
+						? {
+								exit: 0,
+								lines: [
+									[
+										0,
+										"[main 3f2a1c9] Show only the windows the plan reports\r\n" +
+											" 1 file changed, 4 insertions(+), 2 deletions(-)\r\n",
+									],
+								],
+							}
+						: {
+								exit: 1,
+								lines: [[0, "Aborting commit due to empty commit message.\r\n"]],
+							},
+			};
+		case "pnpm create vite":
+			return {
+				type: "picker",
+				head:
+					`${DIM}│${OFF}\r\n` +
+					`${GREEN}◇${OFF}  Project name:\r\n` +
+					`${DIM}│${OFF}  ${DIM}vite-project${OFF}\r\n` +
+					`${DIM}│${OFF}\r\n`,
+				question: "Select a framework:",
+				options: ["Vanilla", "Vue", "React", "Preact", "Lit", "Svelte", "Solid"],
+				picked: (option) => ({
+					exit: 0,
+					lines: [
+						[
+							0,
+							`${DIM}│${OFF}\r\n${GREEN}◇${OFF}  Scaffolding project in ./vite-project...\r\n`,
+						],
+						[
+							700,
+							`${DIM}│${OFF}\r\n${DIM}└${OFF}  Done. Now run:\r\n\r\n` +
+								`  cd vite-project\r\n  pnpm install\r\n  pnpm dev\r\n` +
+								`\r\n${DIM}A ${option} template.${OFF}\r\n`,
+						],
+					],
+				}),
+			};
 		case "exit":
 			return { type: "exit" };
 		case "clear":
@@ -285,6 +384,18 @@ const planFor = (command: string, cwd: string, now: () => Timestamp): Plan => {
 		const to = words[1] === "--" ? words.slice(2) : words.slice(1);
 		return { type: "cd", to: cdTarget(cwd, to.length ? unquoted(to.join(" ")) : undefined) };
 	}
+	if (words[0] === "vim" && words[1])
+		return {
+			type: "screen",
+			lines: [
+				"# Notes",
+				"",
+				"- The popover reads its rows from the account.",
+				"- A plan with one window shows one bar.",
+			],
+			status: `"${words[1]}" 4L, 96B`,
+			after: () => ({ exit: 0, lines: [] }),
+		};
 	if (words[0] === "sudo") return { type: "password", prompt: "[sudo] password for me:" };
 	if (words[0] === "gh" && words[1] === "secret" && words[2] === "set" && words[3])
 		return {
@@ -294,6 +405,7 @@ const planFor = (command: string, cwd: string, now: () => Timestamp): Plan => {
 		};
 	if (words[0] === "echo")
 		return { type: "script", exit: 0, lines: [[0, `${words.slice(1).join(" ")}\r\n`]] };
+	if (words[0] === "export") return { type: "script", exit: 0, lines: [] };
 	return {
 		type: "script",
 		exit: 127,
@@ -331,6 +443,8 @@ type State = {
 	secret: (() => void) | null;
 	/** Set while a command reads a line it echoes, with what to do with it, or null at Ctrl-D. */
 	reply: ((line: string | null) => void) | null;
+	/** Set while a command reads keys one at a time, with what to do with each. */
+	keys: ((key: string) => void) | null;
 	/** Counts down to the command waiting for you, while it reads and prints nothing. */
 	quiet: ReturnType<typeof setTimeout> | null;
 	named: boolean;
@@ -379,6 +493,7 @@ export const mockTerminalStream = ({
 	now,
 	exited,
 	marks,
+	typed: typedLine,
 }: MockStreamHooks): MockTerminalStream => {
 	const states = new Map<TerminalId, State>();
 
@@ -387,17 +502,21 @@ export const mockTerminalStream = ({
 		for (const listener of [...state.listeners]) listener(event);
 	};
 
-	const print = (state: State, text: string) => {
+	/**
+	 * Prints `text`. What a picker redraws, or a full screen shows, isn't
+	 * `kept`: it stays out of what a card keeps of the command.
+	 */
+	const print = (state: State, text: string, kept = true) => {
 		const bytes = utf8(text);
 		if (bytes.length === 0) return;
-		if (!state.shell) {
+		if (!state.shell && kept) {
 			state.text += text;
 			if (state.text.length > KEPT) {
 				state.text = state.text.slice(-KEPT);
 				state.dropped = true;
 			}
 		}
-		if (state.block) state.block.text += text;
+		if (state.block && kept) state.block.text += text;
 		const chunk = { offset: state.end, bytes };
 		state.chunks.push(chunk);
 		state.end += bytes.length;
@@ -462,6 +581,21 @@ export const mockTerminalStream = ({
 		}, QUIET);
 	};
 
+	/** The command no longer reads keys or holds the whole screen, and its modes go back. */
+	const plain = (state: State) => {
+		state.keys = null;
+		const terminal = find(state.id);
+		if (!terminal?.full_screen && !terminal?.reads_keys) return;
+		if (terminal.full_screen) print(state, SCREEN_OFF, false);
+		if (terminal.reads_keys) print(state, PICKER_OFF, false);
+		edit(state.id, (now) => ({
+			...now,
+			full_screen: false,
+			reads_keys: false,
+			app_cursor: false,
+		}));
+	};
+
 	/** The command ended with `code`, or a signal when null, by your Stop when `stopped`. */
 	const finish = (
 		state: State,
@@ -471,6 +605,7 @@ export const mockTerminalStream = ({
 	) => {
 		state.secret = null;
 		state.reply = null;
+		plain(state);
 		answered(state);
 		if (state.shell) {
 			foreground(state, null);
@@ -563,6 +698,87 @@ export const mockTerminalStream = ({
 				};
 				break;
 			}
+			case "screen": {
+				const rows = find(state.id)?.rows ?? 24;
+				const bottom = (text: string) =>
+					print(state, `\x1b[${rows};1H\x1b[2K${text}`, false);
+				const filler = Array.from(
+					{ length: Math.max(0, rows - 1 - plan.lines.length) },
+					() => `${BLUE}~${OFF}`
+				);
+				print(
+					state,
+					`${SCREEN_ON}\x1b[H\x1b[2J${[...plan.lines, ...filler].join("\r\n")}`,
+					false
+				);
+				bottom(plan.status);
+				edit(state.id, (terminal) => ({ ...terminal, full_screen: true }));
+				let typing: string | null = null;
+				state.keys = (key) => {
+					if (typing === null) {
+						if (key === ":") {
+							typing = "";
+							bottom(":");
+						}
+						return;
+					}
+					if (key === ESC) {
+						typing = null;
+						return bottom("");
+					}
+					if (key === "\x7f" || key === "\b") {
+						typing = typing === "" ? null : typing.slice(0, -1);
+						return bottom(typing === null ? "" : `:${typing}`);
+					}
+					if (key !== "\r") {
+						if (key.length === 1 && key >= " ") bottom(`:${(typing += key)}`);
+						return;
+					}
+					const said = typing.trim();
+					typing = null;
+					const saved = ["w", "wq", "wq!", "x", "x!"].includes(said);
+					if (!saved && !["q", "q!", "qa", "qa!"].includes(said))
+						return bottom(`${RED}E492: Not an editor command: ${said}${OFF}`);
+					if (said === "w") return bottom(plan.status.replace(/\d+B$/, "written"));
+					plain(state);
+					play(plan.after(saved));
+				};
+				keepsOn = () => bottom("Type  :qa  and press <Enter> to exit Vim");
+				break;
+			}
+			case "picker": {
+				const n = plan.options.length;
+				let at = 0;
+				const options = () =>
+					plan.options
+						.map((option, i) =>
+							i === at
+								? `\x1b[2K${DIM}│${OFF}  ${GREEN}●${OFF} ${option}\r\n`
+								: `\x1b[2K${DIM}│  ○ ${option}${OFF}\r\n`
+						)
+						.join("") + `\x1b[2K${CYAN}└${OFF}\r\n`;
+				print(state, plan.head);
+				print(state, `${PICKER_ON}${CYAN}◆${OFF}  ${plan.question}\r\n${options()}`, false);
+				edit(state.id, (terminal) => ({ ...terminal, reads_keys: true, app_cursor: true }));
+				reads(state);
+				state.keys = (key) => {
+					if (UP.has(key) || DOWN.has(key)) {
+						at = (at + (UP.has(key) ? n - 1 : 1)) % n;
+						print(state, `\x1b[${n + 1}A\r${options()}`, false);
+						return reads(state);
+					}
+					if (key !== "\r") return;
+					answered(state);
+					print(state, `\x1b[${n + 2}A\r\x1b[J`, false);
+					print(
+						state,
+						`${GREEN}◇${OFF}  ${plan.question}\r\n${DIM}│${OFF}  ${DIM}${plan.options[at]}${OFF}\r\n`
+					);
+					plain(state);
+					play(plan.picked(plan.options[at]!));
+				};
+				break;
+			}
 			case "forever": {
 				print(state, plan.head);
 				let n = 0;
@@ -583,6 +799,7 @@ export const mockTerminalStream = ({
 	 */
 	const interrupt = (state: State, by: "keys" | "stop" | "force" = "keys") => {
 		if (state.job?.keepsOn && by !== "force") return state.job.keepsOn();
+		plain(state);
 		print(state, by === "force" ? "\r\n" : "^C\r\n");
 		state.line = "";
 		if (state.job) {
@@ -608,6 +825,10 @@ export const mockTerminalStream = ({
 		print(state, "\r\n");
 		if (!line.trim()) return prompt(state);
 		print(state, mark(state, "C"));
+		// A session tells its card of a line you typed, unless it starts with a space.
+		const ended =
+			state.marks && !line.startsWith(" ") ? typedLine?.(state.id, line.trim()) : null;
+		if (ended) state.block = { text: "", secrets: 0, ended };
 		run(state, line.trim());
 	};
 
@@ -639,21 +860,28 @@ export const mockTerminalStream = ({
 	};
 
 	// Escape sequences, such as the arrow keys and the markers around a
-	// paste, are left out; the sample shell has no line editing.
+	// paste, are left out, but for a command that reads keys, which takes
+	// each whole; the sample shell has no line editing.
 	const typed = (state: State, text: string) => {
 		if (find(state.id)?.status.state !== "running") return;
 		for (let i = 0; i < text.length; i++) {
 			const char = text[i]!;
 			if (char === ESC) {
+				const from = i;
 				if (text[i + 1] === "[") {
 					i += 2;
 					while (i < text.length && !/[@-~]/.test(text[i]!)) i++;
 				} else if (text[i + 1] === "O") i += 2;
-				else i++;
+				else if (i + 1 < text.length) i++;
+				state.keys?.(text.slice(from, i + 1));
 				continue;
 			}
 			if (char === CTRL_C) {
 				interrupt(state);
+				continue;
+			}
+			if (state.keys) {
+				state.keys(char);
 				continue;
 			}
 			if (state.secret) {
@@ -700,6 +928,7 @@ export const mockTerminalStream = ({
 				job: null,
 				secret: null,
 				reply: null,
+				keys: null,
 				quiet: null,
 				named: false,
 				text: "",

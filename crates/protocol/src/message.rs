@@ -3097,6 +3097,19 @@ pub const RESET_CREDITS_SINCE: u32 = 58;
 /// has no Force stop.
 pub const INPUT_MODES_SINCE: u32 = 59;
 
+/// The protocol version whose `maxd` first records the commands you type
+/// by hand in an agent's session terminal as private blocks in its card,
+/// [`crate::terminal::SessionBlock`]'s `typed`. An older one records
+/// only the commands sent with `!`. Since protocol 60.
+pub const TYPED_BLOCKS_SINCE: u32 = 60;
+
+/// The protocol version whose `maxd` first reads a secret line, frame kind
+/// [`crate::frame::FrameKind::TerminalSecret`]: it sends the bytes as
+/// terminal input and records that a secret was sent, never the text. An
+/// older one drops a frame of a kind it doesn't know, so a client sends
+/// the line as plain input there. Since protocol 60.
+pub const SECRET_INPUT_SINCE: u32 = 60;
+
 /// When [`ClientMessage::TakeOver`] stops the terminal's CLI.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, Type, JsonSchema)]
 #[serde(rename_all = "snake_case")]

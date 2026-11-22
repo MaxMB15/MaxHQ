@@ -30,8 +30,10 @@
 
 pub mod access;
 mod session;
+mod typed;
 
 pub use session::{BlockChange, SessionAsk, SessionRequest, SessionResult};
+pub use typed::InputFrom;
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -45,7 +47,7 @@ use maxhq_protocol::frame::{self, MAX_TERMINAL_CHUNK};
 use maxhq_protocol::ids::{AgentId, DeviceId, IdempotencyKey, TerminalId};
 use maxhq_protocol::message::{ActionOutcome, ErrorCode, ServerMessage};
 use maxhq_protocol::state::{Change, Entity, EntityKey};
-use maxhq_protocol::terminal::{Terminal, TerminalKind, TerminalStatus};
+use maxhq_protocol::terminal::{SessionBlock, Terminal, TerminalKind, TerminalStatus};
 use maxhq_protocol::time::Timestamp;
 use maxhq_wire::{Queue, Sender};
 use serde::{Deserialize, Serialize};
@@ -206,6 +208,16 @@ pub enum RunNote {
         /// What happened.
         change: BlockChange,
     },
+    /// You typed a command by hand at a session's prompt, which its shell
+    /// started. It's a block of its own, private, followed as any other.
+    Typed {
+        /// The agent whose session it is.
+        agent: AgentId,
+        /// The session's terminal.
+        terminal: TerminalId,
+        /// The block as it starts.
+        block: SessionBlock,
+    },
 }
 
 /// How the terminals and the session manager reach each other.
@@ -265,10 +277,17 @@ struct Open {
     /// its prompt.
     keys: session::Typed,
     /// For a session, the block that runs, and where to say you sent a
-    /// password while it waited for one.
-    block: Option<(u32, mpsc::UnboundedSender<()>)>,
+    /// password while it waited for one, or a secret, and whether the
+    /// prompt showed what you typed.
+    block: Option<(u32, mpsc::UnboundedSender<bool>)>,
+    /// For a session, where the prompt was that `maxd` sent a command at,
+    /// until the quiet link hears its start: the first start after it is
+    /// that command's, not a line you typed.
+    sent_at: Option<u64>,
     /// When this `maxd` began following it.
     followed: Instant,
+    /// The same, as the holder times its marks.
+    since: Timestamp,
     /// When you last sent Stop or Force stop to what it runs. A session's
     /// next block starts without one.
     stopped_at: Option<Instant>,
@@ -310,7 +329,9 @@ impl Open {
             foreground: false,
             keys: session::Typed::default(),
             block: None,
+            sent_at: None,
             followed: Instant::now(),
+            since: Timestamp::now(),
             stopped_at: None,
         };
         if let Some(hello) = hello {
@@ -811,7 +832,8 @@ impl Terminals {
                     }),
                     TermEvent::Modes(modes) => self.update(terminal, |open| open.set_modes(modes)),
                     TermEvent::Mark { offset, at, mark } => self.update(terminal, |open| {
-                        let (changed, keep) = open.marked(offset, at, &mark);
+                        let (changed, mut keep) = open.marked(offset, at, &mark);
+                        keep |= self.typed_mark(terminal, open, (offset, at), &mark);
                         if keep {
                             self.save(terminal, &open.note);
                         }
@@ -1033,10 +1055,8 @@ impl Terminals {
         }
     }
 
-    /// Types `data` into a terminal. The connection then owns its size.
-    /// The bytes go to the holder and nowhere else. In a session, `maxd`
-    /// notes only whether they may have left something at its prompt, and
-    /// that a password went when one waited.
+    /// Types `data` into a terminal, as a client sends keys.
+    #[cfg(test)]
     pub fn input(
         &self,
         conn: u64,
@@ -1044,16 +1064,45 @@ impl Terminals {
         terminal: TerminalId,
         data: Vec<u8>,
     ) -> Result<(), Refusal> {
+        self.input_from(conn, caller, terminal, data, InputFrom::default())
+    }
+
+    /// Types `data` into a terminal, as `from` says it was sent. The
+    /// connection then owns its size. The bytes go to the holder and
+    /// nowhere else. In a session, `maxd` notes only whether they may have
+    /// left something at its prompt, and that a password went when one
+    /// waited or you sent a secret. The answers an older client's view
+    /// gives to queries the holder answers stay out.
+    pub fn input_from(
+        &self,
+        conn: u64,
+        caller: Caller,
+        terminal: TerminalId,
+        data: Vec<u8>,
+        from: InputFrom,
+    ) -> Result<(), Refusal> {
         let mut opens = self.lock();
         let open = opens.get_mut(&terminal).ok_or_else(Refusal::unknown)?;
         open.check(caller, Act::Type).map_err(Refusal::NotAllowed)?;
         let Some(control) = open.control.clone() else {
             return Err(Refusal::unreachable());
         };
-        if matches!(open.note.kind, TerminalKind::Session) {
-            open.heard_keys(&data);
+        let data = if from.answers_too && open.entity.answers {
+            typed::without_answers(&data)
+        } else {
+            data
+        };
+        if data.is_empty() {
+            return Ok(());
         }
-        control.input(data);
+        if matches!(open.note.kind, TerminalKind::Session) {
+            open.heard_keys(&data, from.secret);
+        }
+        if from.secret {
+            control.input_secret(data);
+        } else {
+            control.input(data);
+        }
         if open.typed(conn) {
             self.publish(open);
         }

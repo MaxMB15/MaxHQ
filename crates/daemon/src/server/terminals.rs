@@ -7,14 +7,14 @@
 //! [`access::check`] lets it.
 
 use maxhq_protocol::ids::TerminalId;
-use maxhq_protocol::message::{ActionOutcome, ErrorCode};
+use maxhq_protocol::message::{ActionOutcome, ErrorCode, INPUT_MODES_SINCE};
 use maxhq_protocol::terminal::TerminalKind;
 use maxhq_protocol::ClientMessage;
 use tracing::debug;
 
 use super::{ConnError, Connection};
 use crate::terminals::access::{self, Act, Caller};
-use crate::terminals::{Refusal, Terminals};
+use crate::terminals::{InputFrom, Refusal, Terminals};
 
 /// The refusal for a terminal request from a connection that may not make
 /// one.
@@ -175,6 +175,7 @@ impl Connection {
         &mut self,
         terminal: TerminalId,
         data: Vec<u8>,
+        secret: bool,
     ) -> Result<(), ConnError> {
         let (terminals, caller, conn) = match self.terminals().await {
             Ok(found) => found,
@@ -183,7 +184,11 @@ impl Connection {
                 return self.error(ErrorCode::NotAllowed, reason).await;
             }
         };
-        let typed = terminals.input(conn, caller, terminal, data);
+        let from = InputFrom {
+            secret,
+            answers_too: (self.route.protocol()).is_none_or(|agreed| agreed < INPUT_MODES_SINCE),
+        };
+        let typed = terminals.input_from(conn, caller, terminal, data, from);
         self.terminal_refusal(typed).await
     }
 

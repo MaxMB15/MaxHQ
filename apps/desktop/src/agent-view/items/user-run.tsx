@@ -11,7 +11,9 @@
 // time a command this window started asks for a password, its secure field
 // takes focus from the composer. While the command waits for you, the card
 // says so in place of its clock, and Stop turns into Stop and Force stop
-// once the command ignores it.
+// once the command ignores it. A program that takes the whole screen is in
+// the terminal, and the card says so in one line. A picker that reads keys
+// one at a time takes your keys in the card once you click its output.
 
 import { Menu } from "@base-ui/react/menu";
 import {
@@ -31,7 +33,7 @@ import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 
 import { useRow } from "@maxhq/shared/agent-view/context";
 import { useFold } from "@maxhq/shared/agent-view/find-context";
-import type { Agent, TerminalStatus, Timestamp } from "@maxhq/shared/bindings";
+import type { Agent, AgentId, TerminalId, TerminalStatus, Timestamp } from "@maxhq/shared/bindings";
 import {
 	attempt,
 	type BusySend,
@@ -44,6 +46,13 @@ import { t, useI18n } from "@maxhq/shared/i18n";
 import { type OutputRef, type Segment, toUserInput } from "@maxhq/shared/pills/draft";
 import { stripAnsi } from "@maxhq/shared/timeline/ansi";
 import { endedText, type ExitedStatus } from "@maxhq/shared/terminal/ended";
+import {
+	type Handoff,
+	handoffLabel,
+	handoffOf,
+	inTerminal,
+	takesKeys,
+} from "@maxhq/shared/terminal/handoff";
 import {
 	fillOutput,
 	OUTPUT_LINES,
@@ -61,18 +70,27 @@ import { CopyButton } from "@/components/copy-button";
 import { takeOutputBack, useOutputHeld } from "@/composer/held-pills";
 import { MENU_ITEM, MENU_POPUP } from "@/composer/pickers";
 import { quoteInbox } from "@maxhq/shared/pills/quote-inbox";
-import { askedHere, firstAskHere, runSize, startRun } from "@/composer/run-command";
+import { askedHere, firstAskHere, opensPanelNow, runSize, startRun } from "@/composer/run-command";
 import { useTypingPrefs } from "@/composer/typing-prefs";
 import { withParts } from "@/lib/parts";
 import { cn } from "@/lib/utils";
 import { agreedSend } from "@/settings/auto-consent";
 import { showDeviceCard } from "@/settings/store";
-import { LiveTerminal, useTerminalActions } from "@/terminal";
+import { LiveTerminal, useShownInPanel, useTerminalActions } from "@/terminal";
 
 import { AnsiLines, ansiLines } from "../ansi-text";
 import { Elapsed } from "../elapsed";
 import { Spinner } from "../icons";
-import { IgnoredStop, InputRow, PasswordField, useStop } from "./run-input";
+import {
+	focusFree,
+	heldLook,
+	IgnoredStop,
+	InputRow,
+	KeysHint,
+	PasswordField,
+	useHeldKeys,
+	useStop,
+} from "./run-input";
 
 /** How many of its last lines a finished command shows until you ask for all. */
 export const FOLDED_LINES = 20;
@@ -111,6 +129,98 @@ export const WaitingChip = () => {
 			{t("Waiting for you")}
 		</span>
 	);
+};
+
+/**
+ * The chip for a program in the terminal, or one waiting for keys, in place
+ * of its clock.
+ */
+export const HandoffChip = ({ handoff }: { handoff: Handoff }) => {
+	useI18n();
+	return (
+		<span
+			data-handoff={handoff}
+			className={cn(
+				"inline-flex items-center gap-[5px] rounded-full px-2 py-px text-xs whitespace-nowrap",
+				handoff === "in_terminal"
+					? "bg-primary/10 text-primary"
+					: "bg-status-busy/12 text-status-busy-text"
+			)}
+		>
+			{handoff === "in_terminal" ? (
+				<PanelBottom aria-hidden className="size-3" strokeWidth={2.2} />
+			) : (
+				<Keyboard aria-hidden className="size-3" strokeWidth={2.2} />
+			)}
+			{handoffLabel(handoff)}
+		</span>
+	);
+};
+
+/** "vim is open in the terminal below…", with the program in bold. */
+const inTerminalText = (command: string): ReactNode =>
+	withParts(
+		"{{program}} is open in the terminal below. The result comes back here when it closes.",
+		{ program: <b className="font-semibold text-foreground">{programOf(command)}</b> }
+	);
+
+/**
+ * The line a card shows while its program is in the terminal, with Open in
+ * terminal while this window doesn't show it there.
+ */
+export const InTerminalNote = ({
+	agent,
+	terminal,
+	command,
+	onOpen,
+}: {
+	agent: AgentId;
+	terminal: TerminalId;
+	command: string;
+	/** Opens the terminal, or null where the card can't. */
+	onOpen: (() => void) | null;
+}) => {
+	useI18n();
+	const shown = useShownInPanel(agent, terminal);
+	return (
+		<div
+			data-in-terminal
+			className="flex flex-wrap items-center gap-2 border-t border-border bg-subpanel py-2 pr-2 pl-3 text-[12.5px] text-muted-foreground"
+		>
+			<span className="min-w-0">{inTerminalText(command)}</span>
+			{onOpen !== null && !shown ? (
+				<button type="button" className={cn(BOXED, "ml-auto")} onClick={onOpen}>
+					<PanelBottom aria-hidden className="size-3" strokeWidth={2} />
+					{t("Open in terminal")}
+				</button>
+			) : null}
+		</div>
+	);
+};
+
+/**
+ * Opens the terminal panel, by `open`, as a command turns full screen, when
+ * it's the newest one this window started a moment ago and focus is free to
+ * move. A card that shows up already full screen counts too, since the rule
+ * asks only once for each command.
+ */
+export const useOpensPanel = (
+	full: boolean,
+	agent: AgentId,
+	ran: { readonly terminal: TerminalId; readonly block: number | null },
+	open: () => void
+) => {
+	const was = useRef(false);
+	const latest = useRef(open);
+	useEffect(() => {
+		latest.current = open;
+	});
+	const { terminal, block } = ran;
+	useEffect(() => {
+		const rose = full && !was.current;
+		was.current = full;
+		if (rose && opensPanelNow({ terminal, block }, focusFree(agent))) latest.current();
+	}, [full, agent, terminal, block]);
 };
 
 /** The color and icon of a command that ended: yours to stop, done or failed. */
@@ -230,36 +340,56 @@ export const UserRunCard = ({ item }: { item: UserRunItem }) => {
 	const terminal = terminalById(view, item.terminal);
 	const status = runStatus(terminal, item) ?? item.process;
 	const moved = item.moved || terminal?.moved === true;
-	if (moved && status.state === "running") return <MovedStub item={item} />;
+	if (moved && status.state === "running")
+		return <MovedStub item={item} full={inTerminal(true, terminal)} />;
 	return <RunCard item={item} terminal={terminal} status={status} />;
 };
 
-/** A command moved to the terminal, as a line that links to its tab. */
-const MovedStub = ({ item }: { item: UserRunItem }) => {
+/**
+ * A command moved to the terminal, as a line that links to its tab. While
+ * its program takes the whole screen it says so, and offers the tab only
+ * while this window doesn't show it.
+ */
+const MovedStub = ({ item, full }: { item: UserRunItem; full: boolean }) => {
 	useI18n();
-	const { agent } = useRow();
+	const { agent, readOnly } = useRow();
 	const actions = useTerminalActions();
+	const shown = useShownInPanel(agent, item.terminal);
 	return (
 		<div
 			data-user-run="moved"
-			className="my-1 flex flex-wrap items-center gap-2 rounded-lg border border-dashed border-border px-3 py-1.5 text-xs text-muted-foreground"
+			data-handoff={full ? "in_terminal" : undefined}
+			className="my-1 rounded-lg border border-dashed border-border px-3 py-1.5 text-xs text-muted-foreground"
 		>
-			<SquareTerminal aria-hidden className="size-3.5 shrink-0" strokeWidth={1.9} />
-			<span className="min-w-0 break-all">
-				{withParts("You ran {{command}}", {
-					command: <span className="font-mono text-foreground">{item.command}</span>,
-				})}
-			</span>
-			<span className="text-subtle-foreground">
-				{t("· moved to the terminal, still running")}
-			</span>
-			<button
-				type="button"
-				className={cn(BOXED, "ml-auto")}
-				onClick={() => actions.showInDrawer(agent, item.terminal)}
-			>
-				{t("Open in terminal")}
-			</button>
+			<div className="flex flex-wrap items-center gap-2">
+				<SquareTerminal aria-hidden className="size-3.5 shrink-0" strokeWidth={1.9} />
+				<span className="min-w-0 break-all">
+					{withParts("You ran {{command}}", {
+						command: <span className="font-mono text-foreground">{item.command}</span>,
+					})}
+				</span>
+				{full ? (
+					<HandoffChip handoff="in_terminal" />
+				) : (
+					<span className="text-subtle-foreground">
+						{t("· moved to the terminal, still running")}
+					</span>
+				)}
+				{full && (readOnly || shown) ? null : (
+					<button
+						type="button"
+						className={cn(BOXED, "ml-auto")}
+						onClick={() => actions.showInDrawer(agent, item.terminal)}
+					>
+						{t("Open in terminal")}
+					</button>
+				)}
+			</div>
+			{full ? (
+				<p data-in-terminal className="mt-1 pl-[22px] text-[12px]">
+					{inTerminalText(item.command)}
+				</p>
+			) : null}
 		</div>
 	);
 };
@@ -289,6 +419,10 @@ const RunCard = ({
 	const running = status.state === "running";
 	const asking = running && terminal?.password_prompt === true;
 	const waiting = running && !asking && terminal?.waiting === true;
+	// A program that takes the whole screen is in the terminal, and one that
+	// reads keys one at a time waits for keys rather than a line.
+	const handoff = handoffOf(running, terminal);
+	const full = handoff === "in_terminal";
 	const shown = !item.private || open;
 	const acts = !row.readOnly;
 	// When the card first drew, for a command that hasn't said when it started.
@@ -321,6 +455,19 @@ const RunCard = ({
 			if (failureOf(result) === null) actions.showInDrawer(row.agent, item.terminal);
 			return result;
 		}, "move");
+
+	// Just run from here, a program that takes the whole screen opens the panel.
+	useOpensPanel(acts && full, row.agent, { terminal: item.terminal, block: null }, move);
+
+	const keys = useHeldKeys({
+		agent: row.agent,
+		takes: acts && shown && takesKeys(running, terminal),
+		appCursor: terminal?.app_cursor === true,
+		onSend: (data) => actions.sendInput(item.device, item.terminal, data),
+		onStop: stop,
+	});
+	// While you hold its keys it reads them, also just after one, before it waits again.
+	const chip = handoff ?? (keys.held ? "keys" : null);
 
 	const pill = () =>
 		outputOf(
@@ -375,6 +522,8 @@ const RunCard = ({
 			<LockKeyhole aria-hidden className="size-3" strokeWidth={2.2} />
 			{t("Waiting for your password")}
 		</span>
+	) : chip !== null ? (
+		<HandoffChip handoff={chip} />
 	) : waiting ? (
 		<WaitingChip />
 	) : running ? (
@@ -398,15 +547,23 @@ const RunCard = ({
 		</>
 	);
 
-	const buttons: ReactNode = !acts ? null : asking ? (
+	const moveButton = (
+		<button type="button" className={BOXED} onClick={move}>
+			<PanelBottom aria-hidden className="size-3" strokeWidth={2} />
+			{t("Open in terminal")}
+		</button>
+	);
+
+	// Open in terminal shows once: in the note while the program is in the
+	// terminal, under the output while the card holds your keys, and in the
+	// row otherwise.
+	const quiet = !acts || keys.held;
+	const buttons: ReactNode = quiet ? null : asking || full ? (
 		stopButton
 	) : running ? (
 		<>
 			{stopButton}
-			<button type="button" className={BOXED} onClick={move}>
-				<PanelBottom aria-hidden className="size-3" strokeWidth={2} />
-				{t("Open in terminal")}
-			</button>
+			{moveButton}
 		</>
 	) : item.private ? (
 		<>
@@ -476,6 +633,7 @@ const RunCard = ({
 			aria-label={t("You ran {{command}}", { command: item.command })}
 			data-user-run={asking ? "password" : running ? "running" : "finished"}
 			data-waiting={waiting || undefined}
+			data-handoff={handoff ?? undefined}
 			className="my-2 overflow-hidden rounded-[10px] border border-border bg-background"
 		>
 			<div className="flex flex-wrap items-center gap-x-2 gap-y-1 py-[7px] pr-2 pl-3">
@@ -514,14 +672,34 @@ const RunCard = ({
 				{homeShort(item.cwd)} · {device}
 			</div>
 			<FreshLine item={item} device={device} />
-			{shown && running ? (
-				<div className="border-t border-border bg-subpanel px-3 py-2 empty:hidden">
-					<LiveTerminal
-						device={item.device}
-						terminal={item.terminal}
-						maxRows={LIVE_ROWS}
-						interactive={false}
-					/>
+			{full ? (
+				<InTerminalNote
+					agent={row.agent}
+					terminal={item.terminal}
+					command={item.command}
+					onOpen={acts ? move : null}
+				/>
+			) : shown && running ? (
+				<div {...keys.box}>
+					<div
+						className={cn(
+							"border-t border-border bg-subpanel px-3 py-2 empty:hidden",
+							heldLook(keys)
+						)}
+					>
+						<LiveTerminal
+							device={item.device}
+							terminal={item.terminal}
+							maxRows={LIVE_ROWS}
+							interactive={false}
+						/>
+					</div>
+					{keys.held ? (
+						<KeysHint>
+							{moveButton}
+							{stopButton}
+						</KeysHint>
+					) : null}
 				</div>
 			) : null}
 			{shown && !running ? (
@@ -532,9 +710,11 @@ const RunCard = ({
 					onAll={() => setAll(true)}
 				/>
 			) : null}
-			{acts && running && !asking ? (
+			{acts && running && !asking && !full && !keys.held ? (
 				<InputRow
-					onSend={(data) => actions.sendInput(item.device, item.terminal, data)}
+					onSend={(data, options) =>
+						actions.sendInput(item.device, item.terminal, data, options)
+					}
 					onInterrupt={stop}
 					choices={waiting ? terminal?.choices : undefined}
 					appCursor={terminal?.app_cursor === true}
@@ -547,7 +727,9 @@ const RunCard = ({
 						program: programOf(item.command),
 						device,
 					})}
-					onSend={(data) => actions.sendInput(item.device, item.terminal, data)}
+					onSend={(data, options) =>
+						actions.sendInput(item.device, item.terminal, data, options)
+					}
 					takeFocus={takeFocus}
 				/>
 			) : null}

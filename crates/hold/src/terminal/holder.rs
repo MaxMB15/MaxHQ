@@ -71,8 +71,8 @@ const MAX_MARKS: usize = 4096;
 
 /// What the writer task writes.
 enum Input {
-    /// What someone typed.
-    Typed(Typed),
+    /// What someone typed, and whether they sent it as a secret.
+    Typed(Typed, bool),
     /// The headless terminal's answers to what the program asked.
     Answers(Vec<u8>),
 }
@@ -504,12 +504,14 @@ impl Holder {
     async fn write_input(self: Arc<Self>, mut input: mpsc::UnboundedReceiver<Input>) {
         while let Some(next) = input.recv().await {
             let bytes = match &next {
-                Input::Typed(typed) => {
+                Input::Typed(typed, secret) => {
                     // A secret goes when you press Enter. A prompt in raw
                     // mode can echo a mask for each key before it, which
-                    // is output of its own.
+                    // is output of its own. A line you sent as a secret
+                    // counts as one wherever it goes.
                     let ends_line = typed.0.iter().any(|&byte| matches!(byte, b'\r' | b'\n'));
-                    if ends_line && (self.master.password_mode() || self.lock().password) {
+                    let hidden = || self.master.password_mode() || self.lock().password;
+                    if ends_line && (*secret || hidden()) {
                         self.note_secret();
                     }
                     &typed.0
@@ -538,9 +540,10 @@ impl Holder {
         state.emulator.note(maxhq_term::SECRET_SENT);
     }
 
-    /// Queues `typed` for the program.
-    fn type_in(&self, typed: Typed) {
-        let _ = self.input.send(Input::Typed(typed));
+    /// Queues `typed` for the program, sent as a secret when `secret` says
+    /// so.
+    fn type_in(&self, typed: Typed, secret: bool) {
+        let _ = self.input.send(Input::Typed(typed, secret));
     }
 
     fn resize(&self, cols: u16, rows: u16) {
@@ -989,9 +992,9 @@ async fn handle_requests(holder: Arc<Holder>, read: BufReader<OwnedReadHalf>) {
     while let Ok(Some(request)) = wire::recv::<_, ToHolder>(&mut read, &mut buf).await {
         match request {
             ToHolder::Hello { .. } => {}
-            ToHolder::Input { data } => holder.type_in(data),
+            ToHolder::Input { data, secret } => holder.type_in(data, secret),
             ToHolder::Resize { cols, rows } => holder.resize(cols, rows),
-            ToHolder::Interrupt => holder.type_in(Typed(vec![0x03])),
+            ToHolder::Interrupt => holder.type_in(Typed(vec![0x03]), false),
             ToHolder::Kill { grace_ms } => {
                 tokio::spawn(holder.clone().kill(Duration::from_millis(grace_ms)));
             }
@@ -1094,7 +1097,7 @@ mod tests {
         shell.keep(format!("{}{}", mark("B"), folder("/typed")).as_bytes());
         assert_eq!(shell.cwd.as_deref(), Some("/moved"));
         let Some(Placed {
-            mark: Mark::Command { cwd },
+            mark: Mark::Command { cwd, .. },
             ..
         }) = shell.marks.get(2)
         else {

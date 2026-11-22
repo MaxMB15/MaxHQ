@@ -20,7 +20,7 @@ import { ConfirmHost } from "@/components/confirm";
 import { Composer } from "@/composer/composer";
 import { ComposerNativeProvider } from "@/composer/native";
 import { quoteInbox } from "@maxhq/shared/pills/quote-inbox";
-import { startRun } from "@/composer/run-command";
+import { forgetNewest, startRun } from "@/composer/run-command";
 import { draftsOf } from "@/composer/saved-drafts";
 import { settingsOf } from "@/settings/store";
 import {
@@ -50,9 +50,11 @@ const seam = vi.hoisted(() => ({
 	pasteIntoDrawer: vi.fn<(agent: string, text: string) => void>(),
 	showInDrawer: vi.fn<(agent: string, terminal: string) => void>(),
 	live: [] as LiveTerminalProps[],
+	shown: false,
 }));
 
 vi.mock("@/terminal", () => ({
+	useShownInPanel: () => seam.shown,
 	LiveTerminal: (props: LiveTerminalProps) => {
 		seam.live.push(props);
 		return <div data-testid="live-terminal" />;
@@ -76,6 +78,7 @@ beforeEach(() => {
 	seam.pasteIntoDrawer.mockReset();
 	seam.showInDrawer.mockReset();
 	seam.live = [];
+	seam.shown = false;
 });
 afterEach(() => {
 	cleanup();
@@ -395,7 +398,7 @@ describe("a running command", () => {
 		fireEvent.change(line, { target: { value: "yes" } });
 		fireEvent.keyDown(line, { key: "Enter" });
 
-		expect(seam.sendInput).toHaveBeenCalledExactlyOnceWith(DEVICE, "t1", "yes\r");
+		expect(seam.sendInput).toHaveBeenCalledExactlyOnceWith(DEVICE, "t1", "yes\r", undefined);
 		expect(line.value).toBe("");
 
 		fireEvent.keyDown(line, { key: "c", ctrlKey: true });
@@ -416,7 +419,12 @@ describe("a running command", () => {
 		fireEvent.change(line, { target: { value: typed } });
 		fireEvent.keyDown(line, { key: "Enter" });
 
-		expect(seam.sendInput).toHaveBeenCalledExactlyOnceWith(DEVICE, "t1", `${typed}\r`);
+		expect(seam.sendInput).toHaveBeenCalledExactlyOnceWith(
+			DEVICE,
+			"t1",
+			`${typed}\r`,
+			undefined
+		);
 		seam.sendInput.mockClear();
 		line.blur();
 		expect(placesHolding(rendered, typed, logs)).toEqual([]);
@@ -455,9 +463,9 @@ describe("a command waiting for you", () => {
 		expect(line).toHaveAttribute("placeholder", "Or type a reply");
 
 		fireEvent.click(button(card, "Answer yes"));
-		expect(seam.sendInput).toHaveBeenCalledExactlyOnceWith(DEVICE, "t1", "yes\r");
+		expect(seam.sendInput).toHaveBeenCalledExactlyOnceWith(DEVICE, "t1", "yes\r", undefined);
 		fireEvent.click(button(card, "Answer no"));
-		expect(seam.sendInput).toHaveBeenLastCalledWith(DEVICE, "t1", "no\r");
+		expect(seam.sendInput).toHaveBeenLastCalledWith(DEVICE, "t1", "no\r", undefined);
 	});
 
 	it("drops the answers and the chip once it goes on", async () => {
@@ -644,7 +652,9 @@ describe("a command asking for a password", () => {
 
 		fireEvent.keyDown(field, { key: "Enter" });
 
-		expect(seam.sendInput).toHaveBeenCalledExactlyOnceWith(DEVICE, "t1", `${secret}\r`);
+		expect(seam.sendInput).toHaveBeenCalledExactlyOnceWith(DEVICE, "t1", `${secret}\r`, {
+			secret: true,
+		});
 		seam.sendInput.mockClear();
 		// A new, empty field takes its place, so no undo brings it back.
 		const fresh = within(card).getByLabelText<HTMLInputElement>("Password for sudo on Mac");
@@ -669,7 +679,9 @@ describe("a command asking for a password", () => {
 		fireEvent.change(field, { target: { value: "hunter2" } });
 		fireEvent.click(button(card, "Send"));
 
-		expect(seam.sendInput).toHaveBeenCalledExactlyOnceWith(DEVICE, "t1", "hunter2\r");
+		expect(seam.sendInput).toHaveBeenCalledExactlyOnceWith(DEVICE, "t1", "hunter2\r", {
+			secret: true,
+		});
 		expect(
 			within(card).getByLabelText<HTMLInputElement>("Password for sudo on Mac").value
 		).toBe("");
@@ -930,5 +942,152 @@ describe("a command that ran in a shell of its own", () => {
 			cleanup();
 			clearKept();
 		}
+	});
+});
+
+describe("a program that takes the whole screen", () => {
+	const commit = () => running({ command: "git commit" });
+	const full = (over: Partial<Terminal> = {}) =>
+		terminalOf({
+			kind: { type: "run", command: "git commit", private: false },
+			title: "git commit",
+			full_screen: true,
+			...over,
+		});
+
+	afterEach(forgetNewest);
+
+	it("says it's in the terminal, with one Open in terminal that moves it there", async () => {
+		const { moveTerminal } = renderCard(commit(), { terminal: full() });
+		const card = await findCard("git commit");
+
+		expect(card).toHaveAttribute("data-handoff", "in_terminal");
+		expect(card).toHaveTextContent("In the terminal");
+		expect(card).toHaveTextContent(
+			"git is open in the terminal below. The result comes back here when it closes."
+		);
+		expect(within(card).getAllByRole("button", { name: "Open in terminal" })).toHaveLength(1);
+		expect(button(card, "Stop")).toBeInTheDocument();
+		expect(within(card).queryByTestId("live-terminal")).toBeNull();
+		expect(within(card).queryByRole("textbox")).toBeNull();
+
+		fireEvent.click(button(card, "Open in terminal"));
+
+		await waitFor(() => expect(seam.showInDrawer).toHaveBeenCalledExactlyOnceWith(AGENT, "t1"));
+		expect(moveTerminal).toHaveBeenCalledWith("t1");
+	});
+
+	it("moves to the terminal by itself when you just ran it here", async () => {
+		const here = {
+			openTerminal: async (): Promise<ActionResult> => ({
+				status: "ok",
+				data: { status: "terminal_opened", terminal: "t1" },
+			}),
+		};
+		const noView = (): never => {
+			throw new Error("A private command doesn't read the view");
+		};
+		await startRun(here, noView, {
+			agent: AGENT,
+			command: "git commit",
+			private: true,
+			size: { cols: 100, rows: 24 },
+		});
+
+		const { moveTerminal } = renderCard(commit(), { terminal: full() });
+		await findCard("git commit");
+
+		await waitFor(() => expect(seam.showInDrawer).toHaveBeenCalledExactlyOnceWith(AGENT, "t1"));
+		expect(moveTerminal).toHaveBeenCalledExactlyOnceWith("t1");
+	});
+
+	it("stays put for a command this window didn't just run", async () => {
+		const { moveTerminal } = renderCard(commit(), { terminal: full() });
+		await findCard("git commit");
+		await act(async () => {});
+
+		expect(moveTerminal).not.toHaveBeenCalled();
+		expect(seam.showInDrawer).not.toHaveBeenCalled();
+	});
+
+	it("says so once moved, offering its tab only while the panel doesn't show it", async () => {
+		renderCard(running({ command: "git commit", moved: true }), {
+			terminal: full({ moved: true }),
+		});
+		const stub = await waitFor(() => {
+			const found = document.querySelector<HTMLElement>("[data-user-run='moved']");
+			if (!found) throw new Error("No stub yet");
+			return found;
+		});
+
+		expect(stub).toHaveAttribute("data-handoff", "in_terminal");
+		expect(stub).toHaveTextContent("In the terminal");
+		expect(stub).toHaveTextContent("git is open in the terminal below.");
+		expect(within(stub).getAllByRole("button", { name: "Open in terminal" })).toHaveLength(1);
+	});
+
+	it("drops the tab's button once moved while the panel shows it", async () => {
+		seam.shown = true;
+		renderCard(running({ command: "git commit", moved: true }), {
+			terminal: full({ moved: true }),
+		});
+		const stub = await waitFor(() => {
+			const found = document.querySelector<HTMLElement>("[data-user-run='moved']");
+			if (!found) throw new Error("No stub yet");
+			return found;
+		});
+
+		expect(stub).toHaveTextContent("git is open in the terminal below.");
+		expect(within(stub).queryByRole("button")).toBeNull();
+	});
+});
+
+describe("a picker that reads keys", () => {
+	const reads = (over: Partial<Terminal> = {}) =>
+		terminalOf({ reads_keys: true, waiting: true, answers: true, ...over });
+
+	it("takes your keys once you click its output, and gives them back with ⌘.", async () => {
+		renderCard(running(), { terminal: reads() });
+		const card = await findCard();
+		const box = card.querySelector<HTMLElement>("[data-keys]")!;
+
+		expect(card.querySelector("[data-handoff]")).toHaveTextContent("Waiting for keys");
+		expect(box).toHaveAttribute("data-keys", "offered");
+
+		act(() => box.focus());
+
+		expect(box).toHaveAttribute("data-keys", "held");
+		expect(card).toHaveTextContent("go to the program");
+		expect(within(card).getAllByRole("button", { name: "Open in terminal" })).toHaveLength(1);
+		expect(within(card).getAllByRole("button", { name: "Stop" })).toHaveLength(1);
+		expect(within(card).queryByRole("textbox")).toBeNull();
+
+		fireEvent.keyDown(box, { key: "ArrowUp" });
+		expect(seam.sendInput).toHaveBeenCalledExactlyOnceWith(DEVICE, "t1", "\x1b[A");
+
+		const command = navigator.userAgent.includes("Mac") ? { metaKey: true } : { ctrlKey: true };
+		fireEvent.keyDown(box, { ...command, key: ".", code: "Period" });
+
+		expect(box).toHaveAttribute("data-keys", "offered");
+		expect(within(card).getByRole("textbox")).toBeInTheDocument();
+	});
+
+	it("stays view-only with a device that doesn't answer for the terminal", async () => {
+		renderCard(running(), { terminal: terminalOf({ waiting: true }) });
+		const card = await findCard();
+
+		expect(card.querySelector("[data-keys]")).toBeNull();
+		expect(card).toHaveTextContent("Waiting for you");
+		expect(within(card).getByRole("textbox")).toBeInTheDocument();
+	});
+
+	it("takes no keys in a read-only timeline, or while its output is folded", async () => {
+		renderCard(running(), { terminal: reads(), readOnly: true });
+		expect((await findCard()).querySelector("[data-keys]")).toBeNull();
+		cleanup();
+
+		renderCard(running({ private: true }), { terminal: reads() });
+		const card = await screen.findByRole("region", { name: "You ran pnpm test" });
+		expect(card.querySelector("[data-keys]")).toBeNull();
 	});
 });

@@ -1323,7 +1323,9 @@ impl GuestDecoder {
             })),
             Frame::TunnelData { stream, data } => Ok(Some(GuestFrame::TunnelData { stream, data })),
             Frame::TerminalOutput { .. } => Err(GuestLinkError::WrongKind(1)),
-            Frame::TerminalInput { .. } => Err(GuestLinkError::WrongKind(2)),
+            Frame::TerminalInput { secret, .. } => {
+                Err(GuestLinkError::WrongKind(if secret { 5 } else { 2 }))
+            }
         }
     }
 }
