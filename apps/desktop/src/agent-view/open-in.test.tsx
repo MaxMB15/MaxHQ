@@ -605,3 +605,82 @@ describe("a narrow header", () => {
 		expect(place()).toHaveAttribute("title", expect.stringContaining("Mac"));
 	});
 });
+
+describe("the header's ways into the agent's shell", () => {
+	const TERMINALS = { transfers: true, tunnels: true, workspaces: true, terminals: true };
+
+	/** `source` with the Mac's maxd on protocol 48, with or without terminals. */
+	const onMaxd = (source: ReturnType<typeof fakeSource>, terminals: boolean) => {
+		const entities = world().map((e) =>
+			e.entity === "device_link" && e.id === "mac"
+				? { ...e, protocol: 48, capabilities: terminals ? TERMINALS : e.capabilities }
+				: e
+		);
+		return Object.assign(source, { snapshot: async () => ({ seq: 1, entities }) });
+	};
+
+	it("lists Terminal under the chevron after the other editors, which opens the Agent shell", async () => {
+		const source = onMaxd(fakeSource(), true);
+		const sessionCd = vi.spyOn(source, "sessionCd");
+		showHeader(source);
+
+		fireEvent.click(await screen.findByRole("button", { name: "Choose editor" }));
+		const items = await screen.findAllByRole("menuitem");
+		expect(items.map((item) => item.textContent)).toEqual([
+			"Open in VS Code",
+			expect.stringMatching(/^TerminalThe agent's shell, in .+ on Mac/),
+		]);
+		fireEvent.click(items[1]!);
+
+		await waitFor(() =>
+			expect(sessionCd).toHaveBeenCalledExactlyOnceWith("a1", "/Users/someone/code/comet")
+		);
+	});
+
+	it("is Open in with only Terminal when this Mac has no editor", async () => {
+		const source = onMaxd(fakeSource(), true);
+		source.listEditors.mockResolvedValue({ available: [], known: BOTH });
+		showHeader(source);
+
+		fireEvent.click(await screen.findByRole("button", { name: "Open in" }));
+		const items = await screen.findAllByRole("menuitem");
+		expect(items).toHaveLength(1);
+		expect(items[0]).toHaveTextContent(/^Terminal/);
+		expect(screen.queryByRole("group", { name: "Open in editor" })).toBeNull();
+	});
+
+	it("opens the Agent shell from More", async () => {
+		const source = onMaxd(fakeSource(), true);
+		const sessionCd = vi.spyOn(source, "sessionCd");
+		showHeader(source);
+
+		fireEvent.click(await screen.findByRole("button", { name: "More" }));
+		const open = await screen.findByRole("menuitem", { name: /^Open terminal/ });
+		expect(open).toHaveTextContent("Work by hand where the agent works.");
+		fireEvent.click(open);
+
+		await waitFor(() => expect(sessionCd).toHaveBeenCalledOnce());
+	});
+
+	it("are all gone when the agent's device has no terminals", async () => {
+		const source = onMaxd(fakeSource(), false);
+		showHeader(source);
+
+		const only = await chooseEditor();
+		expect(only).toHaveTextContent("Open in VS Code");
+		fireEvent.keyDown(only, { key: "Escape" });
+		fireEvent.click(await screen.findByRole("button", { name: "More" }));
+		await screen.findAllByRole("menuitem");
+		expect(screen.queryByRole("menuitem", { name: /Open terminal/ })).toBeNull();
+	});
+
+	it("leaves nothing to open with no editor and no terminals", async () => {
+		const source = onMaxd(fakeSource(), false);
+		source.listEditors.mockResolvedValue({ available: [], known: BOTH });
+		showHeader(source);
+
+		await waitFor(() => expect(source.listEditors).toHaveBeenCalled());
+		expect(screen.queryByRole("button", { name: "Open in" })).toBeNull();
+		expect(screen.queryByRole("group", { name: "Open in editor" })).toBeNull();
+	});
+});

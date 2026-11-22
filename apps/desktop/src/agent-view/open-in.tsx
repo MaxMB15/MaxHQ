@@ -5,8 +5,10 @@
 // Adapted from MIT-licensed code, see THIRD_PARTY_NOTICES: opening a
 // workspace, or a file in it at a line, in an editor on this Mac. The header's
 // split button opens the editor you used last and its chevron lists the
-// others, a menu lists them all, a sidebar row's menu offers the one the
-// button uses, and a file row in the timeline opens that file. When the
+// others, then Terminal, which opens the agent's shell in the terminal
+// panel; with no editor the button is a menu with only Terminal. A menu
+// lists them all, a sidebar row's menu offers the one the button uses,
+// and a file row in the timeline opens that file. When the
 // workspace can't open in an editor, the items say why. A file the viewer
 // shows, such as a picture or a 3D model, opens in a file pane in MaxHQ
 // instead, and the row's chevron still lists the editors. Any pick becomes the
@@ -19,25 +21,36 @@
 import { Dialog } from "@base-ui/react/dialog";
 import { Menu } from "@base-ui/react/menu";
 import { skipToken, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ChevronDown, CircleAlert, Ellipsis, Eye, SquareArrowOutUpRight } from "lucide-react";
+import {
+	ChevronDown,
+	CircleAlert,
+	Ellipsis,
+	Eye,
+	SquareArrowOutUpRight,
+	SquareTerminal,
+} from "lucide-react";
 import { useMemo, useState } from "react";
 import { useStore } from "zustand";
 
 import { useServices, useView } from "@/app/services";
 import { panesOf } from "@/layout/panes";
+import { keyHint, SHORTCUTS } from "@/layout/shortcuts";
+import { useTerminalActions } from "@/terminal";
 import { CopyButton } from "@/components/copy-button";
 import { MENU_ITEM, MENU_POPUP } from "@/composer";
 import { PRIMARY, SECONDARY } from "@/settings/controls";
 import { BACKDROP, POPUP, Title } from "@/workspaces/new-workspace";
-import type { SshIncludeState, WorkspaceId } from "@maxhq/shared/bindings";
+import type { AgentId, SshIncludeState, WorkspaceId } from "@maxhq/shared/bindings";
 import type { Editors } from "@maxhq/shared/data/source";
 import { type EditorReach, editorReach, preferredEditor } from "@maxhq/shared/editor/open";
 import { cn } from "@/lib/utils";
+import { runPlace } from "@maxhq/shared/terminal/shell";
 import { errorText } from "@maxhq/shared/timeline/store";
 import { linkForDevice } from "@maxhq/shared/view/select";
 
 import { useRow } from "@maxhq/shared/agent-view/context";
 import { editorPrefsOf, setLast } from "./editor-prefs";
+import { MENU_KEY } from "./run-menu";
 import { baseName } from "@maxhq/shared/agent-view/format";
 import { viewerKind } from "@maxhq/shared/agent-view/viewer-files";
 import { t as translate, useI18n } from "@maxhq/shared/i18n";
@@ -417,23 +430,96 @@ const EditorItems = ({
 
 const POSITIONER = { side: "bottom", align: "end", sideOffset: 6, className: "z-[130]" } as const;
 
+/** The item that opens the agent's shell in the terminal panel. */
+const TerminalItem = ({ agent }: { agent: AgentId }) => {
+	useI18n();
+	const actions = useTerminalActions();
+	const view = useView((s) => s.view);
+	const place = runPlace(view, agent);
+	return (
+		<Menu.Item
+			label={translate("Terminal")}
+			onClick={() => actions.openAgentShell(agent)}
+			className={MENU_ITEM}
+		>
+			<SquareTerminal
+				aria-hidden
+				size={13}
+				strokeWidth={2}
+				className="shrink-0 text-secondary-foreground"
+			/>
+			<span className="flex min-w-0 flex-1 flex-col gap-px">
+				<span className={LABEL}>{translate("Terminal")}</span>
+				{place ? (
+					<span className={cn(DETAIL, "truncate")}>
+						{translate("The agent's shell, in {{folder}} on {{device}}", {
+							folder: place.folder,
+							device: place.deviceName,
+						})}
+					</span>
+				) : null}
+			</span>
+			<kbd aria-hidden className={MENU_KEY}>
+				{keyHint(SHORTCUTS.terminal)}
+			</kbd>
+		</Menu.Item>
+	);
+};
+
+const SPLIT =
+	"inline-flex h-[22px] shrink-0 items-stretch overflow-hidden rounded-md border border-track bg-secondary text-[11.5px] text-secondary-foreground";
+const PART =
+	"inline-flex items-center outline-none hover:bg-border hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset";
+
+/** Open in ▾ with only Terminal, for when there's no editor to open. */
+const TerminalOnly = ({ agent, labelClassName }: { agent: AgentId; labelClassName?: string }) => {
+	useI18n();
+	return (
+		<Menu.Root>
+			<Menu.Trigger
+				aria-label={translate("Open in")}
+				className={cn(
+					SPLIT,
+					PART,
+					"cursor-pointer gap-[5px] px-[7px] data-popup-open:bg-border data-popup-open:text-foreground"
+				)}
+			>
+				<SquareArrowOutUpRight aria-hidden size={11} strokeWidth={2} />
+				<span className={labelClassName}>{translate("Open in")}</span>
+				<ChevronDown aria-hidden size={11} strokeWidth={2.2} />
+			</Menu.Trigger>
+			<Menu.Portal>
+				<Menu.Positioner {...POSITIONER}>
+					<Menu.Popup className={cn(MENU_POPUP, "w-[260px]")}>
+						<TerminalItem agent={agent} />
+					</Menu.Popup>
+				</Menu.Positioner>
+			</Menu.Portal>
+		</Menu.Root>
+	);
+};
+
 /**
  * The header's split button: the main part opens the workspace, or the file
  * `at` names in it, in the default editor or the last one used, and the
- * chevron lists the others. Renders nothing when this Mac has no editor or
- * the default is None.
+ * chevron lists the others, then Terminal when `terminal` names the agent
+ * whose shell it opens. With no editor, or the default None, it's a menu
+ * with only Terminal, or nothing without `terminal`.
  */
 export const OpenInButton = ({
 	workspace,
 	at,
 	onFail,
 	labelClassName,
+	terminal,
 }: {
 	workspace: WorkspaceId;
 	at?: OpenAt;
 	onFail: (text: string) => void;
 	/** Classes for the button's words, such as one that hides them where it's narrow. */
 	labelClassName?: string;
+	/** The agent whose shell Terminal opens, while its device has terminals. */
+	terminal?: AgentId;
 }) => {
 	useI18n();
 	const openIn = useOpenIn(workspace);
@@ -445,19 +531,14 @@ export const OpenInButton = ({
 			})
 		)
 	);
-	if (!openIn?.preferred) return null;
+	if (!openIn?.preferred)
+		return terminal ? <TerminalOnly agent={terminal} labelClassName={labelClassName} /> : null;
 	const { preferred } = openIn;
 	const why = blocked(openIn.reach);
 	const others = openIn.editors.filter((e) => e.id !== preferred.id);
-	const part =
-		"inline-flex items-center outline-none hover:bg-border hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset";
 
 	return (
-		<div
-			role="group"
-			aria-label={translate("Open in editor")}
-			className="inline-flex h-[22px] shrink-0 items-stretch overflow-hidden rounded-md border border-track bg-secondary text-[11.5px] text-secondary-foreground"
-		>
+		<div role="group" aria-label={translate("Open in editor")} className={SPLIT}>
 			<button
 				type="button"
 				disabled={why !== null}
@@ -470,7 +551,7 @@ export const OpenInButton = ({
 				}
 				onClick={() => choose(preferred, at)}
 				className={cn(
-					part,
+					PART,
 					"cursor-pointer gap-[5px] px-[7px] disabled:cursor-default disabled:opacity-60 disabled:hover:bg-transparent disabled:hover:text-secondary-foreground"
 				)}
 			>
@@ -479,14 +560,14 @@ export const OpenInButton = ({
 					{translate("Open in {{label}}", { label: preferred.label })}
 				</span>
 			</button>
-			{others.length > 0 ? (
+			{others.length > 0 || terminal ? (
 				<>
 					<span aria-hidden className="w-px bg-track" />
 					<Menu.Root>
 						<Menu.Trigger
 							aria-label={translate("Choose editor")}
 							className={cn(
-								part,
+								PART,
 								"justify-center px-1 data-popup-open:bg-border data-popup-open:text-foreground"
 							)}
 						>
@@ -500,6 +581,10 @@ export const OpenInButton = ({
 										editors={others}
 										choose={(editor) => choose(editor, at)}
 									/>
+									{terminal && others.length > 0 ? (
+										<Menu.Separator className="mx-1 my-[5px] h-px bg-border" />
+									) : null}
+									{terminal ? <TerminalItem agent={terminal} /> : null}
 								</Menu.Popup>
 							</Menu.Positioner>
 						</Menu.Portal>

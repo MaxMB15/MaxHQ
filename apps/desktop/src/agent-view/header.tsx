@@ -41,6 +41,8 @@ import { Automations } from "@/tasks/automations";
 import { SkillsRestartChip } from "@/skills/restart-chip";
 import { LeaseChips } from "@/test-hosts/lease-chips";
 import { HeaderRunChipFor } from "@/workflow/containers";
+import { useTerminalActions } from "@/terminal";
+import { supportsTerminals } from "@maxhq/shared/terminal/select";
 import { limitsLine } from "@maxhq/shared/agent-tools/scope";
 import { shownPulls } from "@maxhq/shared/pulls/links";
 import { formatContext } from "@maxhq/shared/status/format";
@@ -142,6 +144,9 @@ export const AgentHeader = ({ agent }: { agent: Agent }) => {
 	const workspace = view.tables.workspace.get(agent.workspace);
 	const observed = agent.control === "observed";
 	const location = workspace?.location;
+	const terminalActions = useTerminalActions();
+	// The ways into the agent's shell, while its device has terminals.
+	const terminals = workspace !== undefined && supportsTerminals(view, workspace.device);
 	const models = modelsOf(view, account);
 	const moves = movesOf(view, agent);
 	const picks = picksModel(agent, models, moves);
@@ -353,11 +358,15 @@ export const AgentHeader = ({ agent }: { agent: Agent }) => {
 							workspace={workspace.id}
 							onFail={fail}
 							labelClassName={folded.has("openIn") ? "sr-only" : undefined}
+							terminal={terminals ? agent.id : undefined}
 						/>
 					) : null}
 				</div>
 				<AgentMenu
 					agent={agent}
+					onTerminal={
+						terminals ? () => terminalActions.openAgentShell(agent.id) : undefined
+					}
 					onEnd={() => run(translate("stop the agent"), () => source.stopAgent(agent.id))}
 					onAllow={allows ? () => setAllowing(true) : undefined}
 					allowed={held !== undefined}

@@ -1,12 +1,13 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026 Max Boksem
 
-// The More menu at the end of the agent's header. It ends the agent's
-// process, which keeps the conversation, copies the ID the CLI resumes
-// the session by, saves the conversation as Markdown in a file you pick
-// or copies it, opens the sheet that lets it run agents, links a PR when
-// it has none, since the PR chips' menu links the rest, moves it to
-// another device, and deletes an agent MaxHQ holds.
+// The More menu at the end of the agent's header. It opens the agent's
+// shell in the terminal panel, ends the agent's process, which keeps the
+// conversation, copies the ID the CLI resumes the session by, saves the
+// conversation as Markdown in a file you pick or copies it, opens the
+// sheet that lets it run agents, links a PR when it has none, since the
+// PR chips' menu links the rest, moves it to another device, and deletes
+// an agent MaxHQ holds.
 
 import { Menu } from "@base-ui/react/menu";
 import {
@@ -19,6 +20,7 @@ import {
 	GitPullRequest,
 	MonitorUp,
 	Power,
+	SquareTerminal,
 	Trash2,
 } from "lucide-react";
 
@@ -27,6 +29,7 @@ import { useEffect, useState } from "react";
 import { useServices } from "@/app/services";
 import { copyLabel, CopyStatus, useCopy } from "@/components/copy-button";
 import { MENU_ITEM, MENU_POPUP } from "@/composer";
+import { keyHint, SHORTCUTS } from "@/layout/shortcuts";
 import { inApp } from "@/native/platform";
 import { canEnd, sessionIdName, STOP_AGENT } from "@maxhq/shared/agent-view/controls";
 import { viewNames } from "@maxhq/shared/agent-view/agent-tools";
@@ -36,6 +39,7 @@ import { cn } from "@/lib/utils";
 
 import { conversationText, copyWhenReady, saveWhenReady } from "./export-conversation";
 import { Spinner } from "./icons";
+import { MENU_KEY } from "./run-menu";
 import { t as translate, useI18n } from "@maxhq/shared/i18n";
 
 export { sessionIdName } from "@maxhq/shared/agent-view/controls";
@@ -218,6 +222,7 @@ const ExportItem = ({ agent, to }: { agent: Agent; to: "save" | "copy" }) => {
 /** The header's More menu. */
 export const AgentMenu = ({
 	agent,
+	onTerminal,
 	onEnd,
 	onAllow,
 	allowed,
@@ -227,6 +232,8 @@ export const AgentMenu = ({
 	onDelete,
 }: {
 	agent: Agent;
+	/** Opens the agent's shell in the terminal panel, while its device has terminals. */
+	onTerminal?: () => void;
 	onEnd: () => void;
 	/** Opens the allow sheet, when the agent can hold a permission. */
 	onAllow?: () => void;
@@ -256,6 +263,32 @@ export const AgentMenu = ({
 			<Menu.Portal>
 				<Menu.Positioner side="bottom" align="end" sideOffset={6} className="z-[130]">
 					<Menu.Popup className={cn(MENU_POPUP, "w-[260px]")}>
+						{onTerminal ? (
+							<>
+								<Menu.Item
+									label={translate("Open terminal")}
+									onClick={onTerminal}
+									className={MENU_ITEM}
+								>
+									<SquareTerminal
+										aria-hidden
+										size={13}
+										strokeWidth={2}
+										className="shrink-0 text-secondary-foreground"
+									/>
+									<span className="flex min-w-0 flex-1 flex-col gap-px">
+										<span className={LABEL}>{translate("Open terminal")}</span>
+										<span className={DETAIL}>
+											{translate("Work by hand where the agent works.")}
+										</span>
+									</span>
+									<kbd aria-hidden className={MENU_KEY}>
+										{keyHint(SHORTCUTS.terminal)}
+									</kbd>
+								</Menu.Item>
+								<Menu.Separator className="mx-1 my-[5px] h-px bg-border" />
+							</>
+						) : null}
 						{id ? (
 							<CopyItem
 								label={translate("Copy {{sessionIdName}}", {
