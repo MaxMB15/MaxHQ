@@ -231,6 +231,7 @@ fn opened(h: &Harness, agent: AgentId, kind: TerminalKind) -> Terminal {
         app_cursor: false,
         waiting: false,
         answers: false,
+        choices: Vec::new(),
         started_at: Timestamp::now(),
         cols: 100,
         rows: 30,

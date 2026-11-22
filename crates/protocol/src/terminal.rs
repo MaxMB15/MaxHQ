@@ -200,6 +200,13 @@ pub struct Terminal {
     /// before [`crate::message::INPUT_MODES_SINCE`].
     #[serde(default)]
     pub waiting: bool,
+    /// The answers the prompt it waits at offers, as you type them, such
+    /// as `y` and `n` for `Continue? [y/N]` or `yes` and `no` for
+    /// `(yes/no/[fingerprint])`, so a client can offer a button for each.
+    /// Empty when it doesn't wait or the prompt offers none, and from a
+    /// `maxd` before [`crate::message::INPUT_MODES_SINCE`].
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub choices: Vec<String>,
     /// Whether the device answers the queries a program sends its terminal,
     /// such as where the cursor is, so a client's view must not answer
     /// them too. False from a holder or `maxd` before
@@ -415,6 +422,7 @@ mod tests {
             app_cursor: true,
             waiting: true,
             answers: true,
+            choices: vec!["y".into(), "n".into()],
             started_at: Timestamp(1_793_368_920_000),
             cols: 120,
             rows: 32,
@@ -437,6 +445,7 @@ mod tests {
             "app_cursor": true,
             "waiting": true,
             "answers": true,
+            "choices": ["y", "n"],
             "started_at": 1_793_368_920_000u64,
             "cols": 120,
             "rows": 32,
@@ -453,6 +462,7 @@ mod tests {
             "app_cursor",
             "waiting",
             "answers",
+            "choices",
         ] {
             wire.as_object_mut().unwrap().remove(field);
         }
@@ -466,8 +476,9 @@ mod tests {
                 app_cursor: false,
                 waiting: false,
                 answers: false,
+                ref choices,
                 ..
-            })
+            }) if choices.is_empty()
         ));
         assert_eq!(entity.key(), EntityKey::Terminal(terminal()));
         assert_eq!(

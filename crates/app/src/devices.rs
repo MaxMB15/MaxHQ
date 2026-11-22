@@ -4621,6 +4621,7 @@ pub(crate) mod tests {
             app_cursor: false,
             waiting: false,
             answers: false,
+            choices: Vec::new(),
             started_at: Timestamp(1_793_368_920_000),
             cols: 80,
             rows: 24,

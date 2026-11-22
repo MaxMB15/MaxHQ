@@ -11290,6 +11290,14 @@ export type Terminal = {
 	 */
 	waiting?: boolean,
 	/**
+	 *  The answers the prompt it waits at offers, as you type them, such
+	 *  as `y` and `n` for `Continue? [y/N]` or `yes` and `no` for
+	 *  `(yes/no/[fingerprint])`, so a client can offer a button for each.
+	 *  Empty when it doesn't wait or the prompt offers none, and from a
+	 *  `maxd` before [`crate::message::INPUT_MODES_SINCE`].
+	 */
+	choices?: string[],
+	/**
 	 *  Whether the device answers the queries a program sends its terminal,
 	 *  such as where the cursor is, so a client's view must not answer
 	 *  them too. False from a holder or `maxd` before

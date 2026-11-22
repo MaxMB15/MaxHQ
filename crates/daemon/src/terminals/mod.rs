@@ -276,6 +276,7 @@ impl Open {
                 app_cursor: false,
                 waiting: false,
                 answers: false,
+                choices: Vec::new(),
                 started_at: note.started_at,
                 cols: 80,
                 rows: 24,
