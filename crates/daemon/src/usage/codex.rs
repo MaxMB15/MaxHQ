@@ -13,6 +13,10 @@ pub mod limits;
 pub mod models;
 pub(crate) mod reset;
 
+/// The stand-in app-server, for tests that spend a reset elsewhere.
+#[cfg(test)]
+pub(crate) use app_server::tests::FakeHome;
+
 use std::collections::HashMap;
 use std::ffi::OsStr;
 use std::path::{Path, PathBuf};

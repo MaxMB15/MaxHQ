@@ -1035,6 +1035,12 @@ impl Driver for CodexServer {
         }
     }
 
+    fn limits_lifted(&mut self, fx: &mut Effects) {
+        if self.phase == Phase::Ready {
+            self.read_limits(fx);
+        }
+    }
+
     fn tick(&mut self, now: Instant, fx: &mut Effects) {
         let mut due = Vec::new();
         self.timers.retain(|(at, timer)| {
