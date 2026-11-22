@@ -11,7 +11,7 @@
 //! reconnect. A call still running is left to finish, and one that ended
 //! while no one held the pipe runs again and shows on the same item.
 
-use maxhq_core::tools::{self, Mcp, Tool};
+use maxhq_core::tools::{self, agents, Mcp, Tool};
 use serde_json::{json, Value};
 
 use super::{ClaudeSession, Ours};
@@ -20,8 +20,10 @@ use crate::drive::claude::wire::{self, text};
 use crate::drive::{Effects, ToolCall, ToolDone, ToolResult, Write};
 
 /// How long the CLI waits on one call to MaxHQ's tools: long enough to
-/// copy large files out of a container.
-const CALL_TIMEOUT_MS: u64 = 600_000;
+/// copy large files out of a container, and for the longest `wait_agent`
+/// to answer that it timed out. The CLI ends a call at this, whatever it
+/// is doing.
+const CALL_TIMEOUT_MS: u64 = (agents::MAX_WAIT + 5 * 60) * 1000;
 
 /// A call to MaxHQ's tools that runs now.
 #[derive(Clone, Debug)]

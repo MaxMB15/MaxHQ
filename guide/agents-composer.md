@@ -290,7 +290,7 @@ With the permission, the agent gets these tools:
 
 - **List where agents can start**: devices, vendors, accounts, workspaces and models.
 - **List agents** and **Start an agent**.
-- **Message an agent** and **Wait for agents**, for up to an hour.
+- **Message an agent** and **Wait for agents**, for up to 55 minutes.
 - **Stop an agent**.
 - **Move an agent to another device**, once you approve the move.
 
