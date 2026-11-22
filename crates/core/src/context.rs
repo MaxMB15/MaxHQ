@@ -466,6 +466,8 @@ impl Book {
                 device_name,
                 cwd,
                 exit_code,
+                signal,
+                stopped,
                 running,
                 ran_at,
                 duration_ms,
@@ -484,7 +486,15 @@ impl Book {
                     spot(cwd, " on "),
                     spot(device_name, " at "),
                     iso(*ran_at),
-                    status_words(*running, *exit_code, *duration_ms)
+                    status_words(
+                        Ending {
+                            running: *running,
+                            exit_code: *exit_code,
+                            signal: *signal,
+                            stopped: *stopped,
+                        },
+                        *duration_ms
+                    )
                 );
                 let shown = line_count(&text);
                 match lines {
@@ -1275,7 +1285,16 @@ fn output_entry(number: usize, rest: &str) -> Option<Entry> {
     let (cwd, rest) = read_spot(rest.strip_prefix(" in ")?, " on ")?;
     let (device_name, rest) = read_spot(rest, " at ")?;
     let (at, rest) = rest.split_once(". ")?;
-    let (running, exit_code, duration_ms, rest) = read_status(rest)?;
+    let (
+        Ending {
+            running,
+            exit_code,
+            signal,
+            stopped,
+        },
+        duration_ms,
+        rest,
+    ) = read_status(rest)?;
     let (total, lines) = if rest.is_empty() {
         (None, None)
     } else if let Some(picked) = rest.strip_prefix(" Lines ") {
@@ -1301,8 +1320,8 @@ fn output_entry(number: usize, rest: &str) -> Option<Entry> {
             device_name,
             cwd,
             exit_code,
-            signal: None,
-            stopped: false,
+            signal,
+            stopped,
             running,
             ran_at: read_iso(at)?,
             duration_ms,
@@ -1379,7 +1398,8 @@ fn session_entry(rest: &str) -> Option<Entry> {
 }
 
 /// A command's line in a shell session's entry, such as `$ pnpm test #
-/// exit 1, 9.1 s`. It names the folder the command ran in when it isn't
+/// exit 1, 9.1 s` or `$ sleep 30 # stopped by you, exit 137, 33 s`.
+/// It names the folder the command ran in when it isn't
 /// where the one before it left off, and the folder it left when that
 /// changed, and how many lines its fence holds when that isn't all of them.
 fn session_line(block: &SessionRefBlock, folder: Option<&str>, shown: u32) -> String {
@@ -1390,10 +1410,12 @@ fn session_line(block: &SessionRefBlock, folder: Option<&str>, shown: u32) -> St
     if let Some(after) = &block.cwd_after {
         notes.push(format!("now {}", spot(after, ", ")));
     }
-    notes.push(match (block.running, block.exit_code) {
-        (true, _) => "running".to_owned(),
-        (false, Some(code)) => format!("exit {code}"),
-        (false, None) => "no exit code".to_owned(),
+    notes.push(match (block.running, block.stopped, block.exit_code) {
+        (true, _, _) => "running".to_owned(),
+        (false, true, Some(code)) => format!("stopped by you, exit {code}"),
+        (false, true, None) => "stopped by you".to_owned(),
+        (false, false, Some(code)) => format!("exit {code}"),
+        (false, false, None) => "no exit code".to_owned(),
     });
     if let Some(ms) = block.duration_ms {
         notes.push(format!("{} s", seconds(ms)));
@@ -1463,16 +1485,21 @@ fn read_session_line(line: &str, folder: Option<String>) -> Option<(SessionRefBl
         }
         None => (None, rest),
     };
-    let (running, exit_code, rest) = if let Some(rest) = rest.strip_prefix("running") {
-        (true, None, rest)
+    let (running, stopped, exit_code, rest) = if let Some(rest) = rest.strip_prefix("running") {
+        (true, false, None, rest)
     } else if let Some(rest) = rest.strip_prefix("no exit code") {
-        (false, None, rest)
+        (false, false, None, rest)
+    } else if let Some(rest) = rest.strip_prefix("stopped by you") {
+        match rest.strip_prefix(", exit ") {
+            Some(rest) => {
+                let (code, rest) = read_number(rest)?;
+                (false, true, Some(code), rest)
+            }
+            None => (false, true, None, rest),
+        }
     } else {
-        let rest = rest.strip_prefix("exit ")?;
-        let end = rest
-            .find(|c: char| c != '-' && !c.is_ascii_digit())
-            .unwrap_or(rest.len());
-        (false, Some(rest[..end].parse().ok()?), &rest[end..])
+        let (code, rest) = read_number(rest.strip_prefix("exit ")?)?;
+        (false, false, Some(code), rest)
     };
     let mut duration_ms = None;
     let mut total = None;
@@ -1495,7 +1522,7 @@ fn read_session_line(line: &str, folder: Option<String>) -> Option<(SessionRefBl
         cwd,
         cwd_after,
         exit_code,
-        stopped: false,
+        stopped,
         running,
         duration_ms,
         lines_total: 0,
@@ -1529,42 +1556,148 @@ fn read_spot<'a>(text: &'a str, then: &str) -> Option<(String, &'a str)> {
     Some((value.to_owned(), rest))
 }
 
-/// How an output's entry says the command went, such as `Exit code 1
-/// after 4.2 s.`. One that still runs has no exit code yet.
-fn status_words(running: bool, exit_code: Option<i32>, duration_ms: Option<u64>) -> String {
-    let how = match (running, exit_code) {
-        (true, _) => "Still running".to_owned(),
-        (false, Some(code)) => format!("Exit code {code}"),
-        (false, None) => "Ended without an exit code".to_owned(),
-    };
-    match duration_ms {
-        Some(ms) => format!("{how} after {} s.", seconds(ms)),
-        None => format!("{how}."),
-    }
+/// How a command ended, as an output's entry says it: whether it still
+/// runs, its exit code, the signal that ended it and whether your Stop or
+/// Force stop did.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct Ending {
+    running: bool,
+    exit_code: Option<i32>,
+    signal: Option<i32>,
+    stopped: bool,
 }
 
-/// Reads [`status_words`] back: whether it runs, its exit code and how
-/// long it ran, then what follows.
-fn read_status(text: &str) -> Option<(bool, Option<i32>, Option<u64>, &str)> {
-    let (running, exit_code, rest) = if let Some(rest) = text.strip_prefix("Still running") {
-        (true, None, rest)
+/// What a signal's number means, as the agent reads it, for the signals a
+/// command most often ends by. The app names them the same way.
+fn signal_name(signal: i32) -> Option<&'static str> {
+    Some(match signal {
+        1 => "hangup",
+        2 => "interrupt",
+        3 => "quit",
+        4 => "illegal instruction",
+        6 => "abort",
+        8 => "floating point error",
+        9 => "killed",
+        11 => "segmentation fault",
+        13 => "broken pipe",
+        14 => "alarm",
+        15 => "terminated",
+        _ => return None,
+    })
+}
+
+/// How an output's entry says the command went, such as `Exit code 1
+/// after 4.2 s.`, `Stopped by you after 33 s (signal 1, hangup).` or
+/// `Ended by signal 9 (killed) after 4 s.`. One that still runs has no
+/// exit code yet.
+fn status_words(ending: Ending, duration_ms: Option<u64>) -> String {
+    let (how, then) = match ending {
+        Ending { running: true, .. } => ("Still running".to_owned(), String::new()),
+        Ending {
+            stopped: true,
+            signal: Some(signal),
+            ..
+        } => (
+            "Stopped by you".to_owned(),
+            match signal_name(signal) {
+                Some(name) => format!(" (signal {signal}, {name})"),
+                None => format!(" (signal {signal})"),
+            },
+        ),
+        Ending {
+            stopped: true,
+            exit_code,
+            ..
+        } => (
+            "Stopped by you".to_owned(),
+            exit_code.map_or_else(String::new, |code| format!(", exit code {code}")),
+        ),
+        Ending {
+            signal: Some(signal),
+            ..
+        } => (
+            match signal_name(signal) {
+                Some(name) => format!("Ended by signal {signal} ({name})"),
+                None => format!("Ended by signal {signal}"),
+            },
+            String::new(),
+        ),
+        Ending {
+            exit_code: Some(code),
+            ..
+        } => (format!("Exit code {code}"), String::new()),
+        Ending { .. } => ("Ended without an exit code".to_owned(), String::new()),
+    };
+    let after = duration_ms.map_or_else(String::new, |ms| format!(" after {} s", seconds(ms)));
+    format!("{how}{after}{then}.")
+}
+
+/// Reads [`status_words`] back: how it ended and how long it ran, then
+/// what follows.
+fn read_status(text: &str) -> Option<(Ending, Option<u64>, &str)> {
+    let mut ending = Ending {
+        running: false,
+        exit_code: None,
+        signal: None,
+        stopped: false,
+    };
+    let rest = if let Some(rest) = text.strip_prefix("Still running") {
+        ending.running = true;
+        rest
     } else if let Some(rest) = text.strip_prefix("Ended without an exit code") {
-        (false, None, rest)
+        rest
+    } else if let Some(rest) = text.strip_prefix("Stopped by you") {
+        ending.stopped = true;
+        rest
+    } else if let Some(rest) = text.strip_prefix("Ended by signal ") {
+        let (signal, rest) = read_number(rest)?;
+        ending.signal = Some(signal);
+        match rest.strip_prefix(" (") {
+            Some(named) => named.split_once(')')?.1,
+            None => rest,
+        }
     } else {
-        let rest = text.strip_prefix("Exit code ")?;
-        let end = rest
-            .find(|c: char| c != '-' && !c.is_ascii_digit())
-            .unwrap_or(rest.len());
-        (false, Some(rest[..end].parse().ok()?), &rest[end..])
+        let (code, rest) = read_number(text.strip_prefix("Exit code ")?)?;
+        ending.exit_code = Some(code);
+        rest
     };
     let (duration_ms, rest) = match rest.strip_prefix(" after ") {
         Some(rest) => {
-            let (time, rest) = rest.split_once(" s.")?;
-            (Some(read_seconds(time)?), rest)
+            let end = rest
+                .find(|c: char| c != '.' && !c.is_ascii_digit())
+                .unwrap_or(rest.len());
+            let time = read_seconds(&rest[..end])?;
+            (Some(time), rest[end..].strip_prefix(" s")?)
         }
-        None => (None, rest.strip_prefix('.')?),
+        None => (None, rest),
     };
-    Some((running, exit_code, duration_ms, rest))
+    let rest = if !ending.stopped {
+        rest
+    } else if let Some(rest) = rest.strip_prefix(" (signal ") {
+        let (signal, rest) = read_number(rest)?;
+        ending.signal = Some(signal);
+        match rest.strip_prefix(", ") {
+            Some(named) => named.split_once(')')?.1,
+            None => rest.strip_prefix(')')?,
+        }
+    } else if let Some(rest) = rest.strip_prefix(", exit code ") {
+        let (code, rest) = read_number(rest)?;
+        ending.exit_code = Some(code);
+        rest
+    } else {
+        rest
+    };
+    Some((ending, duration_ms, rest.strip_prefix('.')?))
+}
+
+/// Reads a whole number, maybe negative, from the start of `text`, and
+/// gives what follows it.
+fn read_number(text: &str) -> Option<(i32, &str)> {
+    let end = text
+        .char_indices()
+        .find(|&(at, c)| !(c.is_ascii_digit() || (at == 0 && c == '-')))
+        .map_or(text.len(), |(at, _)| at);
+    Some((text[..end].parse().ok()?, &text[end..]))
 }
 
 /// Milliseconds as seconds, such as `4.2`, to the millisecond.
@@ -2364,6 +2497,62 @@ mod tests {
         }
     }
 
+    /// A command that ended, by a signal or your Stop.
+    fn signaled(
+        exit_code: Option<i32>,
+        signal: Option<i32>,
+        stopped: bool,
+        duration_ms: Option<u64>,
+    ) -> InlineRef {
+        let mut one = ran(exit_code, false, duration_ms);
+        if let InlineRef::Output {
+            signal: had,
+            stopped: was,
+            ..
+        } = &mut one
+        {
+            *had = signal;
+            *was = stopped;
+        }
+        one
+    }
+
+    #[test]
+    fn every_signal_the_agent_reads_has_its_name_and_others_go_unnamed() {
+        let named: Vec<_> = (0..=64).filter_map(signal_name).collect();
+        assert_eq!(
+            named,
+            [
+                "hangup",
+                "interrupt",
+                "quit",
+                "illegal instruction",
+                "abort",
+                "floating point error",
+                "killed",
+                "segmentation fault",
+                "broken pipe",
+                "alarm",
+                "terminated",
+            ]
+        );
+        assert_eq!(signal_name(-9), None);
+    }
+
+    #[test]
+    fn a_status_that_doesnt_read_whole_stays_text() {
+        for status in [
+            "Stopped by you after 33 s (signal 1, hangup",
+            "Stopped by you (signal x).",
+            "Ended by signal 9 (killed after 4 s.",
+            "Ended by signal  after 4 s.",
+            "Stopped by you, exit code .",
+            "Exit code 1 after 4.2.",
+        ] {
+            assert_eq!(read_status(status), None, "{status}");
+        }
+    }
+
     fn output(text: &str, lines_total: u32) -> InlineRef {
         let mut one = ran(Some(1), false, Some(4_200));
         if let InlineRef::Output {
@@ -2437,6 +2626,41 @@ mod tests {
                 ran(None, false, Some(4_213)),
                 "[Output 1: pnpm test]",
                 "Ended without an exit code after 4.213 s.",
+            ),
+            (
+                signaled(None, Some(1), true, Some(33_000)),
+                "[Output 1: pnpm test]",
+                "Stopped by you after 33 s (signal 1, hangup).",
+            ),
+            (
+                signaled(None, Some(42), true, None),
+                "[Output 1: pnpm test]",
+                "Stopped by you (signal 42).",
+            ),
+            (
+                signaled(Some(130), None, true, Some(2_500)),
+                "[Output 1: pnpm test, exit 130]",
+                "Stopped by you after 2.5 s, exit code 130.",
+            ),
+            (
+                signaled(None, None, true, None),
+                "[Output 1: pnpm test]",
+                "Stopped by you.",
+            ),
+            (
+                signaled(None, Some(9), false, Some(4_000)),
+                "[Output 1: pnpm test]",
+                "Ended by signal 9 (killed) after 4 s.",
+            ),
+            (
+                signaled(None, Some(11), false, None),
+                "[Output 1: pnpm test]",
+                "Ended by signal 11 (segmentation fault).",
+            ),
+            (
+                signaled(None, Some(42), false, Some(10)),
+                "[Output 1: pnpm test]",
+                "Ended by signal 42 after 0.01 s.",
             ),
         ] {
             let refs = [one];
@@ -2636,6 +2860,26 @@ mod tests {
             "why does Shell session, 2 commands fail?"
         );
         assert_eq!(check(text, &refs, &[]), Ok(()));
+    }
+
+    #[test]
+    fn a_command_you_stopped_says_so_in_its_session() {
+        let mut killed = block("sleep 30", "~/code/example-app", Some(137), "");
+        killed.stopped = true;
+        killed.duration_ms = Some(33_000);
+        let mut quiet = block("npm run dev", "~/code/example-app", None, "ready");
+        quiet.stopped = true;
+        let refs = vec![session(vec![killed, quiet], None)];
+        let sent = encode("\u{FFFC}", &refs, &[], agent(1));
+        assert!(
+            sent.text.contains(
+                "$ sleep 30 # in ~/code/example-app, stopped by you, exit 137, 33 s\n```\n\n```\n\
+                 $ npm run dev # stopped by you\n```\nready\n```\n"
+            ),
+            "{}",
+            sent.text
+        );
+        assert_eq!(back(&sent.text).refs, refs);
     }
 
     #[test]
