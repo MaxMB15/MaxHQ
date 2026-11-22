@@ -5,8 +5,10 @@ import { act, fireEvent, render, screen, waitFor, within } from "@testing-librar
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import App from "@/App";
+import { browserNative, ComposerNativeProvider } from "@/composer/native";
 import { quoteInbox } from "@maxhq/shared/pills/quote-inbox";
 import { mockSource } from "@/data/mock-source";
+import type { MenuEntry } from "@/native/menu";
 import type { FakeView } from "@/test/fake-term-view";
 import type { DataSource } from "@maxhq/shared/data/source";
 import { FixedNow } from "@maxhq/shared/lib/clock";
@@ -33,12 +35,24 @@ vi.mock("@/terminal/term-view-xterm", async () => {
 const AGENT = "agent-release";
 const FOLDER = "/Users/me/Code/Github/Multi/MaxAIManager";
 
+/** The context menus the app asked for, as the native menu would show them. */
+const menus: (readonly MenuEntry[])[] = [];
+const native = {
+	...browserNative,
+	contextMenu: (entries: readonly MenuEntry[]) => {
+		menus.push(entries);
+		return true;
+	},
+};
+
 const renderApp = () => {
 	const source: DataSource = mockSource({ now: () => NOW, tick: false });
 	const closeTerminal = vi.spyOn(source, "closeTerminal");
 	render(
 		<FixedNow value={NOW}>
-			<App source={source} ui={createUiStore()} />
+			<ComposerNativeProvider value={native}>
+				<App source={source} ui={createUiStore()} />
+			</ComposerNativeProvider>
 		</FixedNow>
 	);
 	return { closeTerminal };
@@ -80,6 +94,7 @@ const openAndRun = async (command?: string) => {
 afterEach(() => {
 	vi.restoreAllMocks();
 	views.length = 0;
+	menus.length = 0;
 	localStorage.clear();
 });
 
@@ -155,14 +170,14 @@ describe("the terminal drawer", () => {
 		expect(view.written.join("")).not.toContain("hunter2");
 	});
 
-	it("adds picked output to the agent's chat as an Output pill with its lines", async () => {
+	it("sends picked output to the agent's chat as an Output pill with its lines", async () => {
 		const send = vi.spyOn(quoteInbox, "send");
 		renderApp();
 		const view = await openAndRun("pnpm dev");
 		const panel = panels()[0]!;
 		act(() => view.pick({ text: "ready in 412 ms", lines: { first: 2, last: 3 } }));
 		fireEvent.pointerUp(view.element, { clientX: 40, clientY: 20 });
-		fireEvent.click(within(panel).getByRole("button", { name: "Add to chat" }));
+		fireEvent.click(within(panel).getByRole("button", { name: "Send to agent" }));
 
 		expect(send).toHaveBeenCalledWith(
 			AGENT,
@@ -179,7 +194,7 @@ describe("the terminal drawer", () => {
 			true
 		);
 		expect(view.selection()).toBeNull();
-		expect(within(panel).queryByRole("button", { name: "Add to chat" })).toBeNull();
+		expect(within(panel).queryByRole("button", { name: "Send to agent" })).toBeNull();
 	});
 
 	it("names what still runs when you delete the agent", async () => {
@@ -238,7 +253,7 @@ describe("a terminal whose shell marks its commands", () => {
 		return screen.findByRole("menu");
 	};
 
-	it("opens a command's menu from its mark, which adds what it printed to the chat or copies it", async () => {
+	it("opens a command's menu from its mark, which sends what it printed to the agent or copies it", async () => {
 		const send = vi.spyOn(quoteInbox, "send");
 		const writeText = vi.fn().mockResolvedValue(undefined);
 		Object.defineProperty(navigator, "clipboard", { value: { writeText }, configurable: true });
@@ -259,7 +274,7 @@ describe("a terminal whose shell marks its commands", () => {
 		await waitFor(() => expect(screen.queryByRole("menu")).toBeNull());
 
 		menu = await openMenu(view);
-		fireEvent.click(within(menu).getByRole("menuitem", { name: "Add to chat" }));
+		fireEvent.click(within(menu).getByRole("menuitem", { name: "Send to agent" }));
 		expect(send).toHaveBeenCalledWith(
 			AGENT,
 			expect.objectContaining({
@@ -351,8 +366,8 @@ describe("a terminal whose shell marks its commands", () => {
 	});
 });
 
-describe("the agent's session", () => {
-	it("is the drawer's first tab, titled Session, and a shell you open goes after it", async () => {
+describe("the Agent shell", () => {
+	it("is the panel's first tab, titled Agent shell, and a shell you open goes after it", async () => {
 		renderApp();
 		fireEvent.click(await within(nav()).findByRole("option", { name: /Usage meter popover/ }));
 		await screen.findAllByRole("region", { name: "Usage meter popover" });
@@ -360,7 +375,7 @@ describe("the agent's session", () => {
 		toggle();
 
 		const [session] = await tabs();
-		expect(session).toHaveTextContent("Session");
+		expect(session).toHaveTextContent("Agent shell");
 		expect(session).toHaveAttribute("aria-selected", "true");
 		await waitFor(() => expect(viewIn(panels()[0]!).written.join("")).toContain("pnpm test"));
 
@@ -368,7 +383,155 @@ describe("the agent's session", () => {
 		fireEvent.click(screen.getByRole("button", { name: "New terminal" }));
 		await waitFor(async () => expect(await tabs()).toHaveLength(2));
 		const [first, second] = await tabs();
-		expect(first).toHaveTextContent("Session");
+		expect(first).toHaveTextContent("Agent shell");
 		expect(second).toHaveAttribute("aria-selected", "true");
+	});
+});
+
+describe("the strip under the composer", () => {
+	const strip = () => document.querySelector("[data-terminal-strip]");
+
+	it("names what runs in the hidden panel, and opens the panel on that tab", async () => {
+		renderApp();
+		await openAndRun("pnpm dev");
+		await waitFor(async () => expect((await tabs())[0]).toHaveTextContent("pnpm dev"));
+		fireEvent.click(screen.getByRole("button", { name: "New terminal" }));
+		await waitFor(async () => expect(await tabs()).toHaveLength(2));
+		expect(strip()).toBeNull();
+
+		fireEvent.click(screen.getByRole("button", { name: "Hide" }));
+
+		await waitFor(() => expect(strip()).toHaveTextContent("pnpm dev running·2 tabs"));
+		fireEvent.click(strip()!);
+		const [dev] = await tabs();
+		expect(dev).toHaveAttribute("aria-selected", "true");
+		expect(strip()).toBeNull();
+	});
+
+	it("isn't there when nothing runs in the hidden panel", async () => {
+		renderApp();
+		await openAndRun();
+
+		fireEvent.click(screen.getByRole("button", { name: "Hide" }));
+
+		expect(screen.queryByRole("tablist", { name: "Terminals" })).toBeNull();
+		expect(strip()).toBeNull();
+	});
+});
+
+describe("Send to agent", () => {
+	const macKeys = () =>
+		vi
+			.spyOn(navigator, "userAgent", "get")
+			.mockReturnValue("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)");
+
+	/** The entries of the menu a right-click on the view asks for. */
+	const rightClick = (view: FakeView) => {
+		fireEvent.contextMenu(view.element, { clientX: 40, clientY: 20 });
+		const entries = menus.at(-1);
+		if (!entries) throw new Error("no menu");
+		return entries;
+	};
+	const item = (entries: readonly MenuEntry[], text: string) => {
+		const found = entries.find((entry) => "text" in entry && entry.text === text);
+		if (!found || found.kind !== "item") throw new Error(`no ${text}`);
+		return found;
+	};
+
+	it("sends the picked text on ⌘↩, named after the tab", async () => {
+		macKeys();
+		const send = vi.spyOn(quoteInbox, "send");
+		renderApp();
+		const view = await openAndRun("pnpm dev");
+		act(() => view.pick({ text: "ready in 412 ms\nlistening", lines: { first: 2, last: 3 } }));
+
+		fireEvent.keyDown(view.element, { key: "Enter", metaKey: true });
+
+		expect(send).toHaveBeenCalledExactlyOnceWith(
+			AGENT,
+			expect.objectContaining({
+				type: "output",
+				command: "pnpm dev",
+				text: "ready in 412 ms\nlistening",
+				lines: { first: 2, last: 3 },
+			}),
+			true
+		);
+		expect(view.selection()).toBeNull();
+	});
+
+	it("takes Control, Shift and Return off a Mac, and leaves Return alone", async () => {
+		const send = vi.spyOn(quoteInbox, "send");
+		renderApp();
+		const view = await openAndRun();
+		act(() => view.pick({ text: "ok", lines: { first: 1, last: 1 } }));
+
+		fireEvent.keyDown(view.element, { key: "Enter", metaKey: true });
+		fireEvent.keyDown(view.element, { key: "Enter", ctrlKey: true });
+		expect(send).not.toHaveBeenCalled();
+
+		fireEvent.keyDown(view.element, { key: "Enter", ctrlKey: true, shiftKey: true });
+		expect(send).toHaveBeenCalledOnce();
+	});
+
+	it("offers Send to agent and Copy on a right-click over picked text", async () => {
+		macKeys();
+		const send = vi.spyOn(quoteInbox, "send");
+		renderApp();
+		const view = await openAndRun();
+		act(() => view.pick({ text: "ok", lines: { first: 1, last: 1 } }));
+
+		const entries = rightClick(view);
+
+		expect(entries.map((entry) => ("text" in entry ? entry.text : entry.kind))).toEqual([
+			"Send to agent",
+			"Send to another agent",
+			"separator",
+			"ok",
+		]);
+		expect(entries.at(-1)).toEqual({ kind: "copy", text: "ok" });
+		const sending = item(entries, "Send to agent");
+		expect(sending).toMatchObject({ enabled: true, accelerator: "Cmd+Enter" });
+		act(() => sending.action());
+		expect(send).toHaveBeenCalledWith(
+			AGENT,
+			expect.objectContaining({ text: "ok", lines: { first: 1, last: 1 } }),
+			true
+		);
+	});
+
+	it("sends the last command's output with nothing picked, and is dimmed with none", async () => {
+		const send = vi.spyOn(quoteInbox, "send");
+		renderApp();
+		const view = await openAndRun();
+
+		let entries = rightClick(view);
+		expect(item(entries, "Send to agent").enabled).toBe(false);
+		expect(entries.some((entry) => entry.kind === "copy")).toBe(false);
+		fireEvent.keyDown(view.element, { key: "Enter", ctrlKey: true, shiftKey: true });
+		expect(send).not.toHaveBeenCalled();
+
+		const failed = { command: "pnpm test", exit: 1, running: false };
+		view.mark([
+			{
+				id: 1,
+				...failed,
+				output: { text: "1 failed", lines: { first: 3, last: 4 }, mark: failed },
+			},
+		]);
+		entries = rightClick(view);
+		expect(item(entries, "Send to agent").enabled).toBe(true);
+		act(() => item(entries, "Send to agent").action());
+
+		expect(send).toHaveBeenCalledExactlyOnceWith(
+			AGENT,
+			expect.objectContaining({
+				command: "pnpm test",
+				text: "1 failed",
+				lines: { first: 3, last: 4 },
+				exit_code: 1,
+			}),
+			true
+		);
 	});
 });

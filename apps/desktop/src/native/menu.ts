@@ -23,6 +23,8 @@ export type MenuEntry =
 			readonly kind: "item";
 			readonly text: string;
 			readonly enabled?: boolean;
+			/** The key it shows, such as "Cmd+Enter", which the page handles itself. */
+			readonly accelerator?: string;
 			readonly action: () => void;
 	  }
 	/** A line that opens more lines. With none, it shows dimmed. */
@@ -43,6 +45,7 @@ const optionsOf = (entry: MenuEntry, index: string): Options => {
 				id: `page-menu-${index}`,
 				text: entry.text,
 				enabled: entry.enabled ?? true,
+				...(entry.accelerator ? { accelerator: entry.accelerator } : {}),
 				action: entry.action,
 			};
 		case "submenu":

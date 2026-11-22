@@ -1,11 +1,13 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026 Max Boksem
 
-// One terminal in the drawer or in a pane of its own: the lock bar while it
-// asks for a password, its live screen with find, the Add to chat button
+// One terminal in the panel or in a pane of its own: the lock bar while it
+// asks for a password, its live screen with find, the Send to agent button
 // over a selection and the menu on it, the menu on a command's mark, and
 // how it exited, with Restart. Command, or Control and Shift off a Mac,
-// with Up or Down jumps between the commands its shell marked.
+// with Up or Down jumps between the commands its shell marked, and with
+// Return sends to the agent what the menu would. With nothing picked that's
+// the last marked command's output, or a run's last lines.
 
 import { ChevronDown, ChevronUp, Copy, Lock, MessageSquarePlus, RotateCcw, X } from "lucide-react";
 import {
@@ -26,12 +28,14 @@ import { cn } from "@/lib/utils";
 import { onMac } from "@/native/platform";
 import type { AgentId } from "@maxhq/shared/bindings";
 import { t as translate, useI18n } from "@maxhq/shared/i18n";
+import { OUTPUT_LINES } from "@maxhq/shared/terminal/output";
 import type { TerminalEntity } from "@maxhq/shared/terminal/select";
 
 import { addPicked, restartTab } from "./actions";
 import { CommandMenu, type MarkedAt } from "./command-menu";
 import { LiveTerminalHost } from "./live-terminal";
 import { registryOf } from "./live";
+import type { CommandOutput, Picked, TermView } from "./term-view";
 
 /** The bar over a terminal that asks for a password. */
 export const LockBar = () => {
@@ -173,6 +177,38 @@ export const jumpKey = (e: KeyboardEvent<HTMLElement>): "up" | "down" | null => 
 	return e.key === "ArrowUp" ? "up" : e.key === "ArrowDown" ? "down" : null;
 };
 
+/** Whether a key sends to the agent: Command and Return, or Control, Shift and Return off a Mac. */
+export const sendKey = (e: KeyboardEvent<HTMLElement>): boolean => {
+	const held = onMac()
+		? e.metaKey && !e.ctrlKey && !e.shiftKey
+		: e.ctrlKey && e.shiftKey && !e.metaKey;
+	return held && !e.altKey && e.key === "Enter";
+};
+
+/**
+ * What Send to agent takes from a terminal: the picked text, or with none,
+ * the output of the last command its shell marked, or a run's last lines.
+ * Null when there's nothing to send.
+ */
+export const sendable = (
+	shown: TermView,
+	terminal: TerminalEntity
+): Picked | CommandOutput | null => {
+	const picked = shown.selection();
+	if (picked) return picked;
+	const last = shown.commands().at(-1);
+	const output = last ? shown.output(last.id) : null;
+	if (output && output.text.trim() !== "") return output;
+	if (terminal.kind.type !== "run") return null;
+	const { text, total } = shown.text(OUTPUT_LINES);
+	if (text.trim() === "") return null;
+	const count = text.split("\n").length;
+	return { text, lines: { first: Math.max(1, total - count + 1), last: total } };
+};
+
+/** The menu's key for Send to agent, as the native menu spells it. */
+const sendAccelerator = () => (onMac() ? "Cmd+Enter" : "Ctrl+Shift+Enter");
+
 const FLOAT_BUTTON =
 	"inline-flex h-6 cursor-pointer items-center gap-1.5 rounded-[5px] px-2 text-[12px] text-foreground outline-none hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring";
 
@@ -193,7 +229,7 @@ export const TerminalBody = ({
 	// An agent you only watch has no composer for picked text.
 	const own = useView((s) => s.view.tables.agent.get(terminal.agent)?.control !== "observed");
 	const body = useRef<HTMLDivElement>(null);
-	// Where the Add to chat button shows, while there's picked text.
+	// Where the Send to agent button shows, while there's picked text.
 	const [float, setFloat] = useState<{ x: number; y: number } | null>(null);
 	const [finding, setFinding] = useState(0);
 	const [marked, setMarked] = useState<MarkedAt | null>(null);
@@ -224,7 +260,7 @@ export const TerminalBody = ({
 
 	const add = (to: AgentId, focus: boolean) => {
 		const shown = view();
-		const picked = shown?.selection();
+		const picked = shown ? sendable(shown, terminal) : null;
 		if (!shown || !picked) return;
 		addPicked(services, to, terminal, picked, shown.text(0).total, focus);
 		shown.clearSelection();
@@ -250,31 +286,44 @@ export const TerminalBody = ({
 	};
 
 	const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+		if (event.nativeEvent.isComposing) return;
+		if (own && sendKey(event)) {
+			event.preventDefault();
+			add(terminal.agent, true);
+			return;
+		}
 		const way = jumpKey(event);
-		if (!way || event.nativeEvent.isComposing) return;
+		if (!way) return;
 		event.preventDefault();
 		view()?.jump(way === "up");
 	};
 
 	const onContextMenu = (event: MouseEvent<HTMLDivElement>) => {
-		const picked = view()?.selection();
-		if (!picked) return;
+		const shown = view();
+		if (!shown) return;
+		const picked = shown.selection();
+		const something = sendable(shown, terminal) !== null;
 		const addTo = (to: AgentId, text: string, focus: boolean): MenuEntry => ({
 			kind: "item",
 			text,
+			enabled: something,
+			...(focus ? { accelerator: sendAccelerator() } : {}),
 			action: () => add(to, focus),
 		});
 		const entries: MenuEntry[] = [
-			...(own ? [addTo(terminal.agent, translate("Add to chat"), true)] : []),
+			...(own ? [addTo(terminal.agent, translate("Send to agent"), true)] : []),
 			{
 				kind: "submenu",
-				text: translate("Add to chat in"),
-				entries: otherAgents(services, terminal.agent).map((other) =>
-					addTo(other.id, other.title, false)
-				),
+				text: translate("Send to another agent"),
+				entries: something
+					? otherAgents(services, terminal.agent).map((other) =>
+							addTo(other.id, other.title, false)
+						)
+					: [],
 			},
-			{ kind: "separator" },
-			{ kind: "copy", text: picked.text },
+			...(picked
+				? ([{ kind: "separator" }, { kind: "copy", text: picked.text }] as const)
+				: []),
 		];
 		if (native.contextMenu?.(entries, { x: event.clientX, y: event.clientY }))
 			event.preventDefault();
@@ -304,7 +353,7 @@ export const TerminalBody = ({
 							onClick={() => add(terminal.agent, true)}
 						>
 							<MessageSquarePlus aria-hidden size={13} strokeWidth={1.9} />
-							{translate("Add to chat")}
+							{translate("Send to agent")}
 						</button>
 					) : null}
 					<button
