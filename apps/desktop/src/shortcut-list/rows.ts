@@ -142,7 +142,12 @@ const lines = (pick: BusySend): readonly Line[] => [
 	{ what: t("Maximize or restore the pane"), group: "Panes", projectsOnly: true, id: "maximize" },
 	{ what: t("Close the tab"), group: "Panes", projectsOnly: true, id: "close" },
 	{ what: t("Reopen the last closed tab"), group: "Panes", id: "reopen" },
-	{ what: t("Show or hide the terminal"), group: "Panes", projectsOnly: true, id: "terminal" },
+	{
+		what: t("Show or hide the terminal panel"),
+		group: "Panes",
+		projectsOnly: true,
+		id: "terminal",
+	},
 	{
 		what: t("Jump to the previous or next command, in a terminal"),
 		group: "Panes",

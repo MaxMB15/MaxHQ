@@ -2,7 +2,7 @@
 // Copyright (c) 2026 Max Boksem
 
 // The menu on a command's mark in a terminal whose shell marks its
-// commands: Add to chat sends what the command printed as an Output pill,
+// commands: Send to agent sends what the command printed as an Output pill,
 // and the copy items copy that or the command you typed.
 
 import { Menu } from "@base-ui/react/menu";
@@ -30,7 +30,7 @@ export const CommandMenu = ({
 }: {
 	terminal: TerminalEntity;
 	marked: MarkedAt;
-	/** Whether the terminal's agent takes Add to chat, which one you only watch doesn't. */
+	/** Whether the terminal's agent takes Send to agent, which one you only watch doesn't. */
 	own: boolean;
 	close: () => void;
 }) => {
@@ -100,7 +100,7 @@ export const CommandMenu = ({
 									)
 								}
 							>
-								{t("Add to chat")}
+								{t("Send to agent")}
 							</Menu.Item>
 						) : null}
 						<Menu.Item

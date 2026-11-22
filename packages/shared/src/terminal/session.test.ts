@@ -282,7 +282,7 @@ describe("the pill", () => {
 	it("is red with a failed shared block and says how many", () => {
 		const look = sessionPillLook(card("card-1", SAMPLE));
 		expect(look).toEqual({ total: 4, shared: 3, failed: 1, running: false, tone: "failed" });
-		expect(sessionPillLabel(look)).toBe("Shell session · 4 · 1 failed");
+		expect(sessionPillLabel(look)).toBe("Agent shell · 1 failed");
 	});
 
 	it("spins while a shared block runs, but not for a private one", () => {
@@ -293,7 +293,7 @@ describe("the pill", () => {
 		).toBe(false);
 		const look = sessionPillLook(card("card-1", [block(1), block(2)]));
 		expect(look.tone).toBe("normal");
-		expect(sessionPillLabel(look)).toBe("Shell session · 2");
+		expect(sessionPillLabel(look)).toBe("Agent shell");
 	});
 
 	it("belongs in the composer only while the card is open and shares a block", () => {

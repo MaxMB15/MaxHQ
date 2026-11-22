@@ -63,7 +63,7 @@ export const TerminalPaneFor = ({ agent, terminal }: { agent: AgentId; terminal:
 					className="inline-flex h-6 shrink-0 cursor-pointer items-center gap-1.5 rounded-[5px] px-2 text-xs text-muted-foreground outline-none hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
 				>
 					<PanelBottom aria-hidden size={13} strokeWidth={1.9} />
-					{translate("Back to the drawer")}
+					{translate("Back to the panel")}
 				</button>
 			</div>
 			<TerminalBody terminal={entity} className="flex-1" />

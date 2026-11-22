@@ -112,6 +112,7 @@ import { AgentIcon } from "@/agent-view/icons";
 import { askForRequest } from "@/agent-view/request";
 import { useServices, useView } from "@/app/services";
 import { agreedSend, pickMode } from "@/settings/auto-consent";
+import { useTerminalActions } from "@/terminal";
 
 import { agentDrops, draggedAgentsOf, draggedNoteOf } from "./agent-drop";
 import {
@@ -378,6 +379,7 @@ const ComposerBody = ({
 	const { language } = useI18n();
 	const services = useServices();
 	const { source } = services;
+	const terminalActions = useTerminalActions();
 	const native = useComposerNative();
 	const paneFiles = usePaneFiles();
 	const view = useView((state) => state.view);
@@ -1219,8 +1221,9 @@ const ComposerBody = ({
 			deviceName: (id) => deviceName(view, id),
 			agent: agent.id,
 			timeline,
+			openShell: () => terminalActions.openAgentShell(agent.id),
 		}),
-		[agent.id, attachments, chips, draft.segments, native, now, timeline, view]
+		[agent.id, attachments, chips, draft.segments, native, now, terminalActions, timeline, view]
 	);
 
 	const hasContent = !isBlank({ segments: draft.segments, gitItems: [] });

@@ -51,7 +51,7 @@ export const tokensOf = (
 			case "output":
 				return middleTruncate(oneLine(pill.command));
 			case "session":
-				return t("Shell session");
+				return t("Agent shell");
 		}
 	};
 };

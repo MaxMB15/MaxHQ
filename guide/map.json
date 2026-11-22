@@ -402,7 +402,7 @@
         "Maximize or restore the pane",
         "Close the tab",
         "Reopen the last closed tab",
-        "Show or hide the terminal",
+        "Show or hide the terminal panel",
         "Jump to the previous or next command, in a terminal",
         "Find in the conversation",
         "Next or previous match",
@@ -793,12 +793,12 @@
     },
     {
       "group": "Panes",
-      "id": "shortcut/show-or-hide-the-terminal",
+      "id": "shortcut/show-or-hide-the-terminal-panel",
       "keys": [
         "⌃`"
       ],
       "link": "maxhq://settings/shortcuts",
-      "title": "Show or hide the terminal"
+      "title": "Show or hide the terminal panel"
     },
     {
       "group": "Panes",

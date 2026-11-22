@@ -6,8 +6,9 @@
 // agent may see, and leaves once a message closed the card or none is
 // shared. One you removed stays out for that card, through a restart
 // too. Its preview lists the commands with ticks, and unticking one keeps
-// it from the agent. When the message goes, the pill takes the shared
-// commands' last lines.
+// it from the agent. A click on it opens the Agent shell in the terminal
+// panel. When the message goes, the pill takes the shared commands' last
+// lines.
 
 import { Check } from "lucide-react";
 import { type RefObject, useCallback, useEffect, useSyncExternalStore } from "react";
@@ -193,10 +194,10 @@ export const SessionPreview = ({
 		<div className="w-[300px]" data-session-preview="">
 			<div className="mb-1.5">
 				<b className="text-[12.5px]">
-					{t("Shell session on {{device}}", { device: deviceName })}
+					{t("Agent shell on {{device}}", { device: deviceName })}
 				</b>{" "}
 				<span className="text-[11.5px] text-subtle-foreground">
-					{t("· {{shared}} of {{total}} go to the agent", { shared, total })}
+					{t("· {{shared}} of {{total}} go with your next message", { shared, total })}
 				</span>
 			</div>
 			<ul className="flex flex-col gap-0.5">

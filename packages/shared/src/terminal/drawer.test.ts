@@ -52,19 +52,19 @@ describe("runsCommand", () => {
 });
 
 describe("tabTitle", () => {
-	it("calls the session Session, whatever its shell sets", () => {
+	it("calls the session Agent shell, whatever its shell sets", () => {
 		expect(tabTitle(terminal({ kind: { type: "session" }, title: "pnpm dev" }))).toBe(
-			"Session"
+			"Agent shell"
 		);
 		expect(tabTitle(terminal({ title: "" }))).toBe("example-app");
 	});
 });
 
 describe("runningCommand", () => {
-	it("names what a busy session runs by its shell's title, or Session", () => {
+	it("names what a busy session runs by its shell's title, or Agent shell", () => {
 		const session = { kind: { type: "session" } as const, busy: true };
 		expect(runningCommand(terminal({ ...session, title: "pnpm test" }))).toBe("pnpm test");
-		expect(runningCommand(terminal({ ...session, title: "" }))).toBe("Session");
+		expect(runningCommand(terminal({ ...session, title: "" }))).toBe("Agent shell");
 		expect(runningCommand(terminal({ ...session, busy: false }))).toBeNull();
 	});
 

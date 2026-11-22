@@ -19,10 +19,10 @@ import { all, type ViewState } from "../view/replica";
 import type { CommandMark } from "./marks";
 import type { TerminalEntity } from "./select";
 
-/** What a tab shows: "Session" for the session, else its title, or the command it was opened for. */
+/** What a tab shows: "Agent shell" for the session, else its title, or the command it was opened for. */
 export const tabTitle = (terminal: TerminalEntity): string =>
 	terminal.kind.type === "session"
-		? t("Session")
+		? t("Agent shell")
 		: terminal.title.trim() ||
 			(terminal.kind.type === "run"
 				? terminal.kind.command

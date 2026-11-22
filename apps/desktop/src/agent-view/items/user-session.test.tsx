@@ -55,6 +55,7 @@ vi.mock("@/terminal", () => ({
 		cellSize: () => ({ width: 8, height: 17 }),
 		pasteIntoDrawer: () => {},
 		showInDrawer: seam.showInDrawer,
+		openAgentShell: () => {},
 	}),
 }));
 
@@ -229,12 +230,18 @@ const renderCard = (
 /** The card, once the view knows the device's name. */
 const findCard = async () => {
 	const found = await screen.findByRole("region", { name: "Commands you ran on Mac" });
-	await within(found).findByText("on Mac · in one shell");
+	await within(found).findByText("on Mac");
 	return found;
 };
 
 const button = (within_: HTMLElement, name: string | RegExp) =>
 	within(within_).getByRole("button", { name });
+
+/** Opens the card's ⋯ menu and clicks Close shell. */
+const closeShell = async (found: HTMLElement) => {
+	fireEvent.click(button(found, "More for this shell"));
+	fireEvent.click(await screen.findByRole("menuitem", { name: "Close shell" }));
+};
 
 const blockOf = (found: HTMLElement, id: number) =>
 	found.querySelector<HTMLElement>(`[data-session-block="${id}"]`)!;
@@ -308,37 +315,37 @@ describe("an open session card", () => {
 		expect(within(blockOf(found, 5)).getByRole("textbox")).toBeInTheDocument();
 	});
 
-	it("opens the session's tab in the drawer", async () => {
+	it("opens the Agent shell's tab in the terminal panel", async () => {
 		renderCard(card());
 		const found = await findCard();
 
-		fireEvent.click(button(found, "Open in drawer"));
+		fireEvent.click(button(found, "Open in terminal"));
 
 		expect(seam.showInDrawer).toHaveBeenCalledExactlyOnceWith(AGENT, "s1");
 	});
 
-	it("drops Open in drawer and End session once the session ended", async () => {
+	it("drops Open in terminal and the ⋯ menu once the shell ended", async () => {
 		renderCard(card(), {
 			terminal: sessionTerminal({ status: { state: "exited", code: 0, signal: null } }),
 		});
 		const found = await findCard();
 
-		expect(within(found).queryByRole("button", { name: "Open in drawer" })).toBeNull();
-		expect(within(found).queryByRole("button", { name: "End session" })).toBeNull();
-		expect(button(found, "Send to agent")).toBeEnabled();
+		expect(within(found).queryByRole("button", { name: "Open in terminal" })).toBeNull();
+		expect(within(found).queryByRole("button", { name: "More for this shell" })).toBeNull();
+		expect(button(found, "Send now")).toBeEnabled();
 	});
 
-	it("ends the session, asking first while a command runs", async () => {
+	it("closes the shell from its ⋯ menu, asking first while a command runs", async () => {
 		const { sessionEnd } = renderCard(card(), { terminal: sessionTerminal({ busy: true }) });
 		const found = await findCard();
 		sessionEnd.mockResolvedValueOnce(refused("A command still runs in the session"));
 
-		fireEvent.click(button(found, "End session"));
+		await closeShell(found);
 
 		const ask = await screen.findByRole("alertdialog");
-		expect(ask).toHaveTextContent("End the session?");
+		expect(ask).toHaveTextContent("Close the shell?");
 		expect(ask).toHaveTextContent("A command still runs in the session");
-		fireEvent.click(within(ask).getByRole("button", { name: "End session" }));
+		fireEvent.click(within(ask).getByRole("button", { name: "Close shell" }));
 		await waitFor(() => expect(sessionEnd).toHaveBeenCalledTimes(2));
 		expect(sessionEnd.mock.calls[0]).toEqual([AGENT]);
 		expect(sessionEnd.mock.calls[1]).toEqual([AGENT, true]);
@@ -351,25 +358,25 @@ describe("an open session card", () => {
 		const found = await findCard();
 		sessionEnd.mockResolvedValueOnce(refused("A command still runs in the session"));
 
-		fireEvent.click(button(found, "End session"));
+		await closeShell(found);
 
 		fireEvent.click(
 			within(await screen.findByRole("alertdialog")).getByRole("button", {
-				name: "End session",
+				name: "Close shell",
 			})
 		);
 		await waitFor(() => expect(sessionEnd).toHaveBeenLastCalledWith(AGENT, true));
 	});
 
-	it("only says why it couldn't end the session when nothing runs", async () => {
+	it("only says why it couldn't close the shell when nothing runs", async () => {
 		const { sessionEnd } = renderCard(card());
 		const found = await findCard();
 		sessionEnd.mockResolvedValueOnce(refused("No session to end"));
 
-		fireEvent.click(button(found, "End session"));
+		await closeShell(found);
 
 		expect(await within(found).findByRole("alert")).toHaveTextContent(
-			"Couldn't end the session. No session to end."
+			"Couldn't close the shell. No session to end."
 		);
 		expect(screen.queryByRole("alertdialog")).toBeNull();
 		expect(sessionEnd).toHaveBeenCalledExactlyOnceWith(AGENT);
@@ -383,10 +390,10 @@ describe("an open session card", () => {
 			error: { kind: "failed", message: "The device is offline" },
 		});
 
-		fireEvent.click(button(found, "End session"));
+		await closeShell(found);
 
 		expect(await within(found).findByRole("alert")).toHaveTextContent(
-			"Couldn't end the session. The device is offline."
+			"Couldn't close the shell. The device is offline."
 		);
 		expect(screen.queryByRole("alertdialog")).toBeNull();
 		expect(sessionEnd).toHaveBeenCalledExactlyOnceWith(AGENT);
@@ -397,7 +404,7 @@ describe("an open session card", () => {
 		const { source } = renderCard(item);
 		const found = await findCard();
 
-		fireEvent.click(button(found, "Send to agent"));
+		fireEvent.click(button(found, "Send now"));
 
 		await waitFor(() => expect(source.sendInput).toHaveBeenCalledOnce());
 		const [agent, input, mode] = source.sendInput.mock.calls[0]!;
@@ -432,7 +439,7 @@ describe("an open session card", () => {
 		const textbox = await findTextbox();
 		await waitFor(() => expect(pillsIn(textbox)).toHaveLength(1));
 
-		fireEvent.click(button(found, "Send to agent"));
+		fireEvent.click(button(found, "Send now"));
 
 		await waitFor(() => expect(source.sendInput).toHaveBeenCalledOnce());
 		await waitFor(() => expect(pillsIn(textbox)).toEqual([]));
@@ -449,7 +456,7 @@ describe("an open session card", () => {
 		await waitFor(() => expect(pillsIn(textbox)).toHaveLength(1));
 		source.sendInput.mockResolvedValueOnce(refused("The agent is gone"));
 
-		fireEvent.click(button(found, "Send to agent"));
+		fireEvent.click(button(found, "Send now"));
 
 		expect(await within(found).findByRole("alert")).toHaveTextContent(
 			"Couldn't send the commands. The agent is gone."
@@ -461,7 +468,7 @@ describe("an open session card", () => {
 		renderCard(card({ blocks: BLOCKS.map((each) => ({ ...each, private: true })) }));
 		const found = await findCard();
 
-		expect(button(found, "Send to agent")).toBeDisabled();
+		expect(button(found, "Send now")).toBeDisabled();
 		expect(found).toHaveTextContent("Not in your next message");
 		expect(within(found).queryByRole("button", { name: "Add to next message" })).toBeNull();
 	});
@@ -472,11 +479,9 @@ describe("an open session card", () => {
 		const found = await findCard();
 		const textbox = await findTextbox();
 
-		await waitFor(() =>
-			expect(pillsIn(textbox)).toEqual(["Shell session · 4 · 1 failed on Mac"])
-		);
+		await waitFor(() => expect(pillsIn(textbox)).toEqual(["Agent shell · 1 failed on Mac"]));
 		expect(
-			await within(found).findByText("3 of 4 go to the agent with your next message")
+			await within(found).findByText("3 of 4 go with your next message")
 		).toBeInTheDocument();
 		expect(within(found).queryByRole("button", { name: "Add to next message" })).toBeNull();
 
@@ -490,11 +495,9 @@ describe("an open session card", () => {
 
 		fireEvent.click(button(found, "Add to next message"));
 
-		await waitFor(() =>
-			expect(pillsIn(textbox)).toEqual(["Shell session · 4 · 1 failed on Mac"])
-		);
+		await waitFor(() => expect(pillsIn(textbox)).toEqual(["Agent shell · 1 failed on Mac"]));
 		expect(
-			await within(found).findByText("3 of 4 go to the agent with your next message")
+			await within(found).findByText("3 of 4 go with your next message")
 		).toBeInTheDocument();
 	});
 
@@ -502,9 +505,9 @@ describe("an open session card", () => {
 		renderCard(card(), { readOnly: true });
 		const found = await findCard();
 
-		expect(found).toHaveTextContent("3 of 4 go to the agent with your next message");
+		expect(found).toHaveTextContent("3 of 4 go with your next message");
 		expect(
-			within(found).queryByRole("button", { name: /Send to agent|End session/ })
+			within(found).queryByRole("button", { name: /Send now|More for this shell/ })
 		).toBeNull();
 		expect(found.querySelector("[aria-pressed]")).toBeNull();
 		expect(blockOf(found, 3)).toHaveTextContent("Private");
@@ -523,8 +526,8 @@ describe("a sealed session card", () => {
 		);
 		expect(found).toHaveTextContent("Sent with your message");
 		expect(found.querySelector("[aria-pressed]")).toBeNull();
-		expect(within(found).queryByRole("button", { name: "Send to agent" })).toBeNull();
-		expect(within(found).queryByRole("button", { name: "End session" })).toBeNull();
+		expect(within(found).queryByRole("button", { name: "Send now" })).toBeNull();
+		expect(within(found).queryByRole("button", { name: "More for this shell" })).toBeNull();
 		expect(blockOf(found, 3)).toHaveTextContent("Private");
 		expect(blockOf(found, 4)).not.toHaveTextContent("Shared");
 	});

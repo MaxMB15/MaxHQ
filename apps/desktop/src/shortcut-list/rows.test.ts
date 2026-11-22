@@ -47,7 +47,10 @@ describe("the shortcut list", () => {
 			projectsOnly: true,
 		});
 		expect(rowOf("Show keyboard shortcuts")?.keys).toEqual(["⌘/"]);
-		expect(rowOf("Show or hide the terminal")).toMatchObject({ keys: ["⌃`"], group: "Panes" });
+		expect(rowOf("Show or hide the terminal panel")).toMatchObject({
+			keys: ["⌃`"],
+			group: "Panes",
+		});
 		expect(rowOf("Stop the agent's turn")).toMatchObject({ keys: ["⌘."], group: "Composer" });
 	});
 

@@ -3,7 +3,7 @@
 
 // A "You ran" card: a command you ran with `!` in the agent's folder.
 // While it runs it shows the live terminal, a line to type into it, Stop
-// and Move to terminal. A command asking for a password gets a secure
+// and Open in terminal. A command asking for a password gets a secure
 // field instead. Once it ends it shows the output, folded to its last
 // lines, with Ask about this and Run again. A command run privately with
 // `!!` starts folded and reaches the agent only once you attach it. Moved
@@ -201,7 +201,7 @@ const MovedStub = ({ item }: { item: UserRunItem }) => {
 				className={cn(BOXED, "ml-auto")}
 				onClick={() => actions.showInDrawer(agent, item.terminal)}
 			>
-				{t("Show in terminal")}
+				{t("Open in terminal")}
 			</button>
 		</div>
 	);
@@ -259,7 +259,13 @@ const RunCard = ({
 		void act(() => services.source.interruptTerminal(item.terminal), "stop");
 	};
 
-	const move = () => void act(() => services.source.moveTerminal(item.terminal), "move");
+	// Moved, it opens in the terminal panel.
+	const move = () =>
+		void act(async () => {
+			const result = await services.source.moveTerminal(item.terminal);
+			if (failureOf(result) === null) actions.showInDrawer(row.agent, item.terminal);
+			return result;
+		}, "move");
 
 	const pill = () =>
 		outputOf(
@@ -358,7 +364,7 @@ const RunCard = ({
 			{stopButton}
 			<button type="button" className={BOXED} onClick={move}>
 				<PanelBottom aria-hidden className="size-3" strokeWidth={2} />
-				{t("Move to terminal")}
+				{t("Open in terminal")}
 			</button>
 		</>
 	) : item.private ? (

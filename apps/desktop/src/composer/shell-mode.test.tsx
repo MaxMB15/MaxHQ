@@ -14,6 +14,7 @@ import { entities, link, workspace } from "@maxhq/shared/test/build";
 import { timelineItem } from "@maxhq/shared/timeline/build";
 
 import { quoteInbox } from "@maxhq/shared/pills/quote-inbox";
+import { keyHint, SHORTCUTS } from "@/layout/shortcuts";
 import { RUN_ROWS, runSize } from "./run-command";
 import { putCommand } from "./shell-mode";
 import {
@@ -31,7 +32,10 @@ import {
 } from "./testing";
 
 // What the terminal module answers for a live terminal's last lines.
-const seam = vi.hoisted(() => ({ live: null as { text: string; total: number } | null }));
+const seam = vi.hoisted(() => ({
+	live: null as { text: string; total: number } | null,
+	openAgentShell: vi.fn<(agent: string) => void>(),
+}));
 
 vi.mock("@/terminal", () => ({
 	LiveTerminal: () => null,
@@ -42,12 +46,14 @@ vi.mock("@/terminal", () => ({
 		cellSize: () => ({ width: 8, height: 17 }),
 		pasteIntoDrawer: () => {},
 		showInDrawer: () => {},
+		openAgentShell: seam.openAgentShell,
 	}),
 }));
 
 beforeAll(installBrowserFakes);
 beforeEach(() => {
 	seam.live = null;
+	seam.openAgentShell.mockReset();
 });
 afterEach(() => {
 	cleanup();
@@ -541,7 +547,8 @@ describe("on a device with sessions", () => {
 		return { ...rendered, sessionRun, sessionCd, listFolder };
 	};
 
-	const chip = () => screen.getByRole("button", { name: "Pick the folder the session runs in" });
+	const chip = () =>
+		screen.getByRole("button", { name: "Pick the folder the Agent shell runs in" });
 
 	/** The session's terminal, in the folder it started in. */
 	const sessionTerminal: Entity = {
@@ -589,22 +596,28 @@ describe("on a device with sessions", () => {
 		{ id: "card-1", agent: AGENT, ordinal: 1 }
 	);
 
-	it("shows the agent's folder in a chip, the device, and the session's keys", async () => {
+	it("shows the agent's folder in a chip, the device, and the Agent shell's keys", async () => {
 		renderSession();
 		bang(await findTextbox());
 		await commandField();
 
 		expect(chip()).toHaveTextContent("~/code/example-app");
 		expect(chip().parentElement).toHaveTextContent(/^~\/code\/example-appon Mac$/);
-		expect(screen.getByText(/run in the session$/)).toHaveTextContent("↩ run in the session");
-		expect(screen.getByText(/run in a fresh shell$/)).toHaveTextContent(
-			"⌥↩ run in a fresh shell"
-		);
-		expect(screen.getByText(/keeps this one private$/)).toHaveTextContent(
-			"!! keeps this one private"
+		expect(chip().closest(".shell-where")?.nextElementSibling).toHaveTextContent(
+			`↩ run⌥↩ fresh shell!! private${keyHint(SHORTCUTS.terminal)} full terminal`
 		);
 		expect(screen.queryByText(/^Runs in/)).toBeNull();
-		expect(screen.queryByText(/^Session · /)).toBeNull();
+		expect(screen.queryByText(/^Agent shell · /)).toBeNull();
+	});
+
+	it("opens the full terminal on the Agent shell from its hint", async () => {
+		renderSession();
+		bang(await findTextbox());
+		await commandField();
+
+		fireEvent.click(screen.getByRole("button", { name: /full terminal$/ }));
+
+		expect(seam.openAgentShell).toHaveBeenCalledExactlyOnceWith(AGENT);
 	});
 
 	it("runs on ↩ in the session, and on ⌥↩ in a fresh shell", async () => {
@@ -692,7 +705,7 @@ describe("on a device with sessions", () => {
 		expect((await commandField()).value).toBe("pnpm test");
 	});
 
-	it("counts the open card's commands, and shows the folder the session is in now", async () => {
+	it("counts the open card's commands, and shows the folder the Agent shell is in now", async () => {
 		renderSession({
 			sent: [openCard],
 			more: [...entities({ workspaces: [home()] }), sessionTerminal],
@@ -701,10 +714,10 @@ describe("on a device with sessions", () => {
 		await commandField();
 
 		expect(chip()).toHaveTextContent("~/code/example-app/apps/web");
-		expect(screen.getByText(/^Session · /)).toHaveTextContent("Session · 2 commands");
+		expect(screen.getByText(/^Agent shell · /)).toHaveTextContent("Agent shell · 2 commands");
 	});
 
-	it("moves the session to the folder you choose on the agent's device", async () => {
+	it("moves the Agent shell to the folder you choose on the agent's device", async () => {
 		const { sessionCd, listFolder } = renderSession();
 		bang(await findTextbox());
 		await commandField();
@@ -720,7 +733,7 @@ describe("on a device with sessions", () => {
 		expect(screen.queryByRole("alert")).toBeNull();
 	});
 
-	it("says why the session didn't move", async () => {
+	it("says why the Agent shell didn't move", async () => {
 		const { sessionCd } = renderSession();
 		sessionCd.mockResolvedValue({
 			status: "ok",
@@ -737,7 +750,7 @@ describe("on a device with sessions", () => {
 		fireEvent.click(within(dialog).getByRole("button", { name: "Choose" }));
 
 		expect(await screen.findByRole("alert")).toHaveTextContent(
-			"Couldn't move the session. A command still runs in the session."
+			"Couldn't move the Agent shell. A command still runs in the session."
 		);
 	});
 
@@ -747,10 +760,11 @@ describe("on a device with sessions", () => {
 		const field = await commandField();
 
 		expect(
-			screen.queryByRole("button", { name: "Pick the folder the session runs in" })
+			screen.queryByRole("button", { name: "Pick the folder the Agent shell runs in" })
 		).toBeNull();
 		expect(screen.getByText(/^Runs in/)).toHaveTextContent("Runs in ~/code/example-app on Mac");
-		expect(screen.queryByText(/run in a fresh shell$/)).toBeNull();
+		expect(screen.queryByText(/fresh shell$/)).toBeNull();
+		expect(screen.getByRole("button", { name: /full terminal$/ })).toBeInTheDocument();
 		typeCommand(field, "pnpm test");
 
 		fireEvent.keyDown(field, { key: "Enter" });

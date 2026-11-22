@@ -231,14 +231,11 @@ export const sessionPillLook = (
 	};
 };
 
-/** The pill's words, such as "Shell session · 4 · 1 failed". */
+/** The pill's words, such as "Agent shell · 1 failed". */
 export const sessionPillLabel = (look: SessionPillLook): string =>
 	look.failed > 0
-		? t("Shell session · {{total}} · {{failed}} failed", {
-				total: look.total,
-				failed: look.failed,
-			})
-		: t("Shell session · {{total}}", { total: look.total });
+		? t("Agent shell · {{failed}} failed", { failed: look.failed })
+		: t("Agent shell");
 
 // Sending -----------------------------------------------------------------------
 
