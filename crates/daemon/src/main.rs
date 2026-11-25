@@ -1651,6 +1651,22 @@ mod testing {
         true
     }
 
+    /// The Unix path `path` as an absolute one on this system too: itself
+    /// on Unix, and on drive C: on Windows, where an absolute path starts
+    /// with a drive.
+    pub fn absolute(path: &str) -> String {
+        if cfg!(windows) {
+            format!("C:{path}")
+        } else {
+            path.to_owned()
+        }
+    }
+
+    /// `parts` joined as this system joins `PATH`.
+    pub fn path_of(parts: &[&str]) -> String {
+        std::env::join_paths(parts).unwrap().into_string().unwrap()
+    }
+
     /// Writes the sh script `text` as the program `name` in `dir` and gives
     /// the path that starts it, which on Unix is the script itself. Windows
     /// starts no script by itself, so there it's `name.cmd` beside the

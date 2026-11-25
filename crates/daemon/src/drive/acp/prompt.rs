@@ -247,16 +247,17 @@ mod tests {
         assert_eq!(with[1]["mimeType"], "image/png");
         assert_eq!(with[1]["data"], STANDARD.encode(b"png"));
         let root = temp.path().display();
+        let sep = std::path::MAIN_SEPARATOR;
         assert_eq!(
             with[0]["text"],
-            format!("Look\n\n[Attached image \"red.png\" is saved at: {root}/red.png]")
+            format!("Look\n\n[Attached image \"red.png\" is saved at: {root}{sep}red.png]")
         );
 
         let without = blocks("Look", &[], &[image], lead(), false, true);
         assert_eq!(without.len(), 1);
         assert_eq!(
             without[0]["text"],
-            format!("Look\n\n[Attached image \"red.png\" is saved at: {root}/red.png]")
+            format!("Look\n\n[Attached image \"red.png\" is saved at: {root}{sep}red.png]")
         );
     }
 }
