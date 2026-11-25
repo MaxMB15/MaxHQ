@@ -81,6 +81,10 @@ pub struct KeyHomeState {
     pub file: Option<String>,
 }
 
+/// What reading the key from a store gave: the key, none yet, or why it
+/// couldn't be read.
+pub(crate) type Read = Result<Option<Zeroizing<Vec<u8>>>, String>;
+
 /// The store the app key opens from, and what the app knows of it.
 pub(crate) struct Place {
     pub(crate) store: Box<dyn KeyStore>,
@@ -89,6 +93,9 @@ pub(crate) struct Place {
     pub(crate) ask: bool,
     /// Where the key file goes, when you choose one.
     pub(crate) file: Option<PathBuf>,
+    /// What the store gave when the app asked whether it answers, so the
+    /// key is read once. None when it wasn't read yet.
+    pub(crate) read: Option<Read>,
 }
 
 impl Place {
@@ -99,6 +106,7 @@ impl Place {
             home,
             ask: false,
             file: None,
+            read: None,
         }
     }
 }
@@ -152,7 +160,11 @@ pub(crate) fn place(registry: &Registry, data: Option<&Path>) -> Option<Place> {
         // A file chosen on a run that had a data folder needs one now.
         .filter(|home| *home != KeyHome::File || file.is_some());
     let there = file.as_deref().is_some_and(Path::exists);
-    let (home, ask) = start(chosen, there, || os_keyring::Keyring.answers());
+    let mut read = None;
+    let (home, ask) = start(chosen, there, || {
+        read = os_keyring::Keyring.read();
+        read.is_some()
+    });
     let store: Box<dyn KeyStore> = match (home, &file) {
         (KeyHome::File, Some(file)) => Box::new(KeyFile::new(file.clone())),
         (KeyHome::Keyring, _) => Box::new(os_keyring::Keyring),
@@ -166,6 +178,7 @@ pub(crate) fn place(registry: &Registry, data: Option<&Path>) -> Option<Place> {
         home,
         ask: ask && file.is_some(),
         file,
+        read,
     })
 }
 
@@ -277,48 +290,50 @@ mod os_keyring {
     use keyring::{Entry, Error};
     use zeroize::Zeroizing;
 
-    use super::only_app;
+    use super::{only_app, Read};
     use crate::keys::{Key, KeyStore};
-
-    /// The service and account the key goes under, as on the Mac.
-    const SERVICE: &str = "maxhq.app-key";
-    const ACCOUNT: &str = "ed25519";
 
     /// The system keyring: the Secret Service on Linux, Credential Manager
     /// on Windows.
     pub(crate) struct Keyring;
 
     impl Keyring {
+        /// The app key's entry, under the same service and account as on
+        /// the Mac.
         fn entry() -> Result<Entry, String> {
-            Entry::new(SERVICE, ACCOUNT)
+            Entry::new(Key::App.service(), &Key::App.account())
                 .map_err(|error| format!("Couldn't open the keyring: {error}"))
         }
 
-        /// Whether the keyring answers, with the key or without one. A
-        /// keyring that's missing, or locked with its unlock turned down,
-        /// doesn't.
-        pub(crate) fn answers(&self) -> bool {
-            let Ok(entry) = Self::entry() else {
-                return false;
-            };
-            match entry.get_secret() {
+        /// The app key, read as [`KeyStore::load`] reads it, when the
+        /// keyring answers, with the key or without one. None when it
+        /// doesn't: a keyring that's missing, or locked with its unlock
+        /// turned down.
+        pub(crate) fn read(&self) -> Option<Read> {
+            match Self::entry().ok()?.get_secret() {
                 Err(Error::PlatformFailure(error) | Error::NoStorageAccess(error)) => {
                     tracing::info!(%error, "the keyring didn't answer");
-                    false
+                    None
                 }
-                _ => true,
+                secret => Some(loaded(secret)),
             }
+        }
+    }
+
+    /// The key from what the keyring gave, held so it's zeroed when
+    /// dropped.
+    fn loaded(secret: Result<Vec<u8>, Error>) -> Read {
+        match secret {
+            Ok(secret) => Ok(Some(Zeroizing::new(secret))),
+            Err(Error::NoEntry) => Ok(None),
+            Err(error) => Err(format!("Couldn't read the app key in the keyring: {error}")),
         }
     }
 
     impl KeyStore for Keyring {
         fn load(&self, key: Key) -> Result<Option<Zeroizing<Vec<u8>>>, String> {
             only_app(key)?;
-            match Self::entry()?.get_secret() {
-                Ok(secret) => Ok(Some(Zeroizing::new(secret))),
-                Err(Error::NoEntry) => Ok(None),
-                Err(error) => Err(format!("Couldn't read the app key in the keyring: {error}")),
-            }
+            loaded(Self::entry()?.get_secret())
         }
 
         fn save(&self, key: Key, bytes: &[u8]) -> Result<(), String> {

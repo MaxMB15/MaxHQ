@@ -44,6 +44,16 @@ impl Key {
         }
     }
 
+    /// The service the key goes under in the system's store: the
+    /// Keychain, or the keyring on Linux and Windows, which keeps the app
+    /// key as the Mac does.
+    pub fn service(self) -> &'static str {
+        match self {
+            Key::App => "maxhq.app-key",
+            Key::Ssh | Key::Push | Key::Token(_) => "maxhq.phone-key",
+        }
+    }
+
     /// What the key is, for an error.
     pub fn what(self) -> &'static str {
         match self {
@@ -133,21 +143,11 @@ mod keychain {
 
     use super::{Key, KeyStore, Keychain};
 
-    /// The phone's keys and tokens.
-    const PHONE: &str = "maxhq.phone-key";
-
-    /// The Mac app's key.
-    const APP: &str = "maxhq.app-key";
-
     /// `errSecItemNotFound`: there's no key yet.
     const NOT_FOUND: i32 = -25300;
 
     fn options(key: Key) -> PasswordOptions {
-        let service = match key {
-            Key::App => APP,
-            Key::Ssh | Key::Push | Key::Token(_) => PHONE,
-        };
-        PasswordOptions::new_generic_password(service, &key.account())
+        PasswordOptions::new_generic_password(key.service(), &key.account())
     }
 
     impl KeyStore for Keychain {
