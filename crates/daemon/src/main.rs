@@ -1349,15 +1349,14 @@ fn service_failed(err: &ServiceError) -> ExitCode {
 /// `maxd host check`: prints each item and exits nonzero unless all are
 /// fine.
 fn host_check() -> ExitCode {
-    let checked = host_runtime().and_then(|runtime| {
-        runtime.block_on(async {
-            let env = host::Env::this_device()?;
-            let loaded = host::load(&env)?;
-            let device = maxhq_protocol::ids::DeviceId::generate();
-            let report = host::report(&env, device).await?;
-            Ok((loaded.source, report))
-        })
-    });
+    let checked = maxhq_os::rt::block_on(async {
+        let env = host::Env::this_device()?;
+        let loaded = host::load(&env)?;
+        let device = maxhq_protocol::ids::DeviceId::generate();
+        let report = host::report(&env, device).await?;
+        Ok::<_, String>((loaded.source, report))
+    })
+    .unwrap_or_else(|err| Err(format!("couldn't start: {err}")));
     match checked {
         Ok((source, report)) => {
             println!("{}", host::source_line(&source));
@@ -1379,19 +1378,17 @@ fn host_check() -> ExitCode {
 
 /// `maxd host apply`: the part that needs no root.
 fn host_apply() -> ExitCode {
-    let applied = host_runtime().and_then(|runtime| {
-        runtime.block_on(async {
-            let env = host::Env::this_device()?;
-            let loaded = host::load(&env)?;
-            let device = maxhq_protocol::ids::DeviceId::generate();
-            let report = host::report(&env, device).await?;
-            let done =
-                host::apply_user(&env, &loaded.spec, &report.items, None, host::Restart::Now)
-                    .await?;
-            let after = host::report(&env, device).await?;
-            Ok((done, after))
-        })
-    });
+    let applied = maxhq_os::rt::block_on(async {
+        let env = host::Env::this_device()?;
+        let loaded = host::load(&env)?;
+        let device = maxhq_protocol::ids::DeviceId::generate();
+        let report = host::report(&env, device).await?;
+        let done =
+            host::apply_user(&env, &loaded.spec, &report.items, None, host::Restart::Now).await?;
+        let after = host::report(&env, device).await?;
+        Ok::<_, String>((done, after))
+    })
+    .unwrap_or_else(|err| Err(format!("couldn't start: {err}")));
     match applied {
         Ok((done, after)) => {
             if done.is_empty() {
@@ -1441,14 +1438,6 @@ fn host_apply_system(yes: bool) -> ExitCode {
             ExitCode::FAILURE
         }
     }
-}
-
-/// A small runtime for the host commands, which talk to Incus.
-fn host_runtime() -> Result<Runtime, String> {
-    tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-        .map_err(|err| format!("couldn't start: {err}"))
 }
 
 /// `maxd host quiesce`: sends `WindDown` to this device's `maxd`, then

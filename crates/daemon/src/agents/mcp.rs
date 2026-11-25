@@ -43,25 +43,21 @@ pub fn run(key_file: &Path) -> ExitCode {
         eprintln!("maxd mcp: can't tell where maxd's socket is");
         return ExitCode::FAILURE;
     };
-    let runtime = match tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-    {
-        Ok(runtime) => runtime,
+    // The read of stdin can't be cancelled, and a runtime dropped the
+    // usual way waits for it, so the process would stay up after an
+    // error until stdin sent a line. This one goes down without waiting.
+    let served = maxhq_os::rt::block_on(async {
+        let stdin = tokio::io::BufReader::new(tokio::io::stdin());
+        let connect = || LocalStream::connect(&socket);
+        serve(key, connect, stdin, tokio::io::stdout()).await
+    });
+    let served = match served {
+        Ok(served) => served,
         Err(err) => {
             eprintln!("maxd mcp: couldn't start: {err}");
             return ExitCode::FAILURE;
         }
     };
-    let served = runtime.block_on(async {
-        let stdin = tokio::io::BufReader::new(tokio::io::stdin());
-        let connect = || LocalStream::connect(&socket);
-        serve(key, connect, stdin, tokio::io::stdout()).await
-    });
-    // The read of stdin can't be cancelled, and a runtime dropped the
-    // usual way waits for it, so the process would stay up after an
-    // error until stdin sent a line.
-    runtime.shutdown_background();
     match served {
         Ok(()) => ExitCode::SUCCESS,
         Err(err) => {

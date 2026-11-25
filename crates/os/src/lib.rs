@@ -18,6 +18,7 @@ pub mod lock;
 pub mod net;
 pub mod power;
 pub mod proc;
+pub mod rt;
 pub mod stop;
 pub mod which;
 #[cfg(windows)]

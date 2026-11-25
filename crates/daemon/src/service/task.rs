@@ -16,7 +16,6 @@
 //! `schtasks` prints in your Windows language, so only its exit codes are
 //! read.
 
-use std::future::Future;
 use std::io;
 use std::path::Path;
 use std::time::Duration;
@@ -28,6 +27,7 @@ use maxhq_core::service::{
 };
 use maxhq_os::ipc::LocalStream;
 use maxhq_os::launcher::{self, Backoff, Plan};
+use maxhq_os::rt::block_on;
 use maxhq_os::stop::{self, Request};
 
 use super::{command_error, must, Runner, ServiceError, Setup, GONE_TRIES, LOG_LIMIT};
@@ -51,7 +51,7 @@ pub struct SystemProcesses;
 
 impl Processes for SystemProcesses {
     fn ask_stop(&mut self, socket: &Path) -> io::Result<u32> {
-        block_on(|| stop::ask(socket, Request::Stop))
+        block_on(stop::ask(socket, Request::Stop))?
     }
 
     fn serving(&mut self, socket: &Path) -> Option<u32> {
@@ -59,13 +59,14 @@ impl Processes for SystemProcesses {
         // is dropped there without a word. Connecting checks that this
         // user serves it.
         let endpoint = stop::endpoint(socket);
-        block_on(|| async move {
+        block_on(async move {
             let stream = LocalStream::connect(&endpoint).await?;
             stream
                 .peer()?
                 .pid
                 .ok_or_else(|| io::Error::other("no process ID"))
         })
+        .ok()?
         .ok()
     }
 
@@ -76,26 +77,6 @@ impl Processes for SystemProcesses {
     fn kill(&mut self, pid: u32) -> io::Result<()> {
         maxhq_os::proc::stop(pid, maxhq_os::proc::Stop::Hard)
     }
-}
-
-/// Runs the future `make` gives on a runtime of its own, in a thread of its
-/// own, so it works inside a runtime and out of one.
-fn block_on<T, F>(make: impl FnOnce() -> F + Send) -> io::Result<T>
-where
-    T: Send,
-    F: Future<Output = io::Result<T>>,
-{
-    std::thread::scope(|scope| {
-        scope
-            .spawn(|| {
-                tokio::runtime::Builder::new_current_thread()
-                    .enable_all()
-                    .build()?
-                    .block_on(make())
-            })
-            .join()
-            .unwrap_or_else(|_| Err(io::Error::other("the call panicked")))
-    })
 }
 
 /// Your Windows user's security ID, which names the task and its user.
