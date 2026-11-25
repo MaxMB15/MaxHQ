@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026 Max Boksem
 
-//! Shell integration: startup files that make zsh, bash and fish in the
-//! drawer mark their prompts and commands, as `marks.rs` reads them, and
-//! say their folder at each prompt. The user's own startup files run as
-//! they would:
+//! Shell integration: startup files that make zsh, bash, fish and, on
+//! Windows, PowerShell in the drawer mark their prompts and commands, as
+//! `marks.rs` reads them, and say their folder at each prompt. The user's
+//! own startup files run as they would:
 //!
 //! - zsh starts with ZDOTDIR at a folder of MaxHQ's, whose `.zshenv`,
 //!   `.zprofile`, `.zshrc` and `.zlogin` each run the user's with ZDOTDIR
@@ -12,11 +12,21 @@
 //! - bash starts as `bash --init-file <file>`. The file does what a login
 //!   shell would, `/etc/profile` and then the first of `~/.bash_profile`,
 //!   `~/.bash_login` and `~/.profile`, then puts the hooks in
-//!   `PROMPT_COMMAND` and the DEBUG trap around the user's.
+//!   `PROMPT_COMMAND` and the DEBUG trap around the user's. Git Bash on
+//!   Windows reads the same file, by a path with forward slashes, and is
+//!   told it's interactive with `-i`, as a console may not look like a
+//!   terminal to it.
 //! - fish starts as `fish -l --init-command 'source <file>'`, which runs
 //!   after the user's config. A snippet in the folder's
 //!   `fish/vendor_conf.d`, which fish finds through XDG_DATA_DIRS, runs
 //!   before the user's `config.fish` and puts XDG_DATA_DIRS back.
+//! - PowerShell, 7 or Windows PowerShell 5.1, starts as
+//!   `-NoLogo -NoExit -Command <script>`, which runs after the user's
+//!   profile. The script is read from the file and run as text, not
+//!   dot-sourced, so an execution policy that blocks script files doesn't
+//!   block it. It wraps the `prompt` function and `PSConsoleHostReadLine`.
+//!   The user's profile runs with the nonce in its environment, as it runs
+//!   first.
 //!
 //! A command `maxd` sends for the chat runs with PAGER and GIT_PAGER set to
 //! `cat` while a file in the terminal's folder says so, as
@@ -39,7 +49,7 @@ use std::io;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-use super::TermLaunch;
+use super::{marker, TermLaunch};
 use crate::{files, secret};
 
 /// The variable that gives the shell its nonce.
@@ -79,6 +89,16 @@ const FILES: &[(&str, &str)] = &[
     ),
 ];
 
+/// The files only Windows has a shell for.
+const WINDOWS_FILES: &[(&str, &str)] = &[("powershell.ps1", include_str!("shell/powershell.ps1"))];
+
+/// The files this OS's shells read. A Unix folder holds no PowerShell
+/// script, so its name and contents stay as they were before Windows.
+fn os_files() -> impl Iterator<Item = &'static (&'static str, &'static str)> {
+    let windows: &[(&str, &str)] = if cfg!(windows) { WINDOWS_FILES } else { &[] };
+    FILES.iter().chain(windows)
+}
+
 /// How a folder or file being written is named until it's done. One a
 /// `maxd` that stopped part way left goes in [`sweep`].
 const TEMP: &str = ".shell-";
@@ -87,31 +107,123 @@ const TEMP: &str = ".shell-";
 /// a write is still at.
 const LEFTOVER_AGE: Duration = Duration::from_secs(60);
 
-#[derive(Clone, Copy)]
+// PowerShell is the shell's own name, which ends as this one does.
+#[allow(clippy::enum_variant_names)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Shell {
     Zsh,
     Bash,
+    /// bash from Git for Windows.
+    GitBash,
     Fish,
+    /// PowerShell 7 or Windows PowerShell, on Windows only.
+    PowerShell,
 }
 
 impl Shell {
     fn of(program: &Path) -> Option<Self> {
-        match program.file_name()?.to_str()? {
-            "zsh" => Some(Self::Zsh),
-            "bash" => Some(Self::Bash),
-            "fish" => Some(Self::Fish),
+        Self::named(program.file_name()?.to_str()?, cfg!(windows))
+    }
+
+    /// The shell a program's file name names. Windows reads names without
+    /// regard to case, with `.exe` or without.
+    fn named(name: &str, windows: bool) -> Option<Self> {
+        if !windows {
+            return match name {
+                "zsh" => Some(Self::Zsh),
+                "bash" => Some(Self::Bash),
+                "fish" => Some(Self::Fish),
+                _ => None,
+            };
+        }
+        let name = name.to_ascii_lowercase();
+        match name.strip_suffix(".exe").unwrap_or(&name) {
+            "bash" => Some(Self::GitBash),
+            "pwsh" | "powershell" => Some(Self::PowerShell),
             _ => None,
         }
     }
 }
 
+/// Whether `program` is PowerShell.
+pub(super) fn is_powershell(program: &Path) -> bool {
+    Shell::of(program) == Some(Shell::PowerShell)
+}
+
+/// How a drawer shell running `program` starts before [`integrate`].
+pub(super) fn start_args(program: &Path) -> Vec<OsString> {
+    start_args_for(Shell::of(program))
+}
+
+/// A login shell, as a terminal app starts one. Git Bash is told it's
+/// interactive too, as editors start it, and PowerShell has no login
+/// shell, only its banner to leave out.
+fn start_args_for(shell: Option<Shell>) -> Vec<OsString> {
+    let args: &[&str] = match shell {
+        Some(Shell::PowerShell) => &["-NoLogo"],
+        Some(Shell::GitBash) => &["-l", "-i"],
+        _ => &["-l"],
+    };
+    args.iter().map(OsString::from).collect()
+}
+
+/// How a `!` run of `command` in `program` starts.
+pub(super) fn run_args(program: &Path, command: &str) -> Vec<OsString> {
+    run_args_for(Shell::of(program), command)
+}
+
+fn run_args_for(shell: Option<Shell>, command: &str) -> Vec<OsString> {
+    if shell == Some(Shell::PowerShell) {
+        return vec![
+            "-NoLogo".into(),
+            "-Command".into(),
+            powershell_run(command).into(),
+        ];
+    }
+    vec!["-ilc".into(), marker::after_marker(command).into()]
+}
+
+/// The script for a PowerShell run: the marker, no pager and `command`,
+/// as [`marker::after_marker`] gives a POSIX shell, then an exit with the
+/// code of the program that failed, or 1 for a failure of PowerShell's
+/// own. PowerShell would exit with 1 for either. The code starts at 0, so
+/// one a profile left doesn't count. The exit goes on a line of its own,
+/// so a comment at the end of `command` can't take it in.
+fn powershell_run(command: &str) -> String {
+    let body = String::from_utf8_lossy(&marker::MARKER[2..marker::MARKER.len() - 1]);
+    format!(
+        "[Console]::Write([char]27 + ']{body}' + [char]7); $global:LASTEXITCODE = 0; \
+         $env:PAGER = 'cat'; $env:GIT_PAGER = 'cat'; {command}\n\
+         if (-not $?) {{ if ($LASTEXITCODE) {{ exit $LASTEXITCODE }} else {{ exit 1 }} }}"
+    )
+}
+
+/// `text` in single quotes, as PowerShell reads them. PowerShell takes the
+/// curly quotes for one too, so each of them is doubled as well.
+pub(super) fn powershell_quoted(text: &str) -> String {
+    let mut quoted = String::with_capacity(text.len() + 2);
+    quoted.push('\'');
+    for c in text.chars() {
+        if matches!(c, '\'' | '\u{2018}' | '\u{2019}' | '\u{201a}' | '\u{201b}') {
+            quoted.push(c);
+        }
+        quoted.push(c);
+    }
+    quoted.push('\'');
+    quoted
+}
+
 /// Makes `launch`, a drawer shell, mark its prompts and commands when it's
-/// zsh, bash or fish, with the files in a folder under `dir`. Returns
-/// whether it will.
+/// zsh, bash, fish or, on Windows, PowerShell, with the files in a folder
+/// under `dir`. Returns whether it will.
 pub(super) fn integrate(launch: &mut TermLaunch, dir: &Path) -> io::Result<bool> {
     let Some(shell) = Shell::of(&launch.program).filter(|_| !launch.run) else {
         return Ok(false);
     };
+    integrate_as(launch, dir, shell)
+}
+
+fn integrate_as(launch: &mut TermLaunch, dir: &Path, shell: Shell) -> io::Result<bool> {
     let dir = std::path::absolute(dir)?;
     let folder = write_files(&dir)?;
     match shell {
@@ -124,6 +236,16 @@ pub(super) fn integrate(launch: &mut TermLaunch, dir: &Path) -> io::Result<bool>
         }
         Shell::Bash => {
             launch.args = vec!["--init-file".into(), folder.join("bash.sh").into()];
+        }
+        Shell::GitBash => {
+            let Some(file) = folder
+                .join("bash.sh")
+                .to_str()
+                .map(|f| f.replace('\\', "/"))
+            else {
+                return Ok(false);
+            };
+            launch.args = vec!["--init-file".into(), file.into(), "-i".into()];
         }
         Shell::Fish => {
             let Some(file) = folder.join("fish.fish").to_str().map(fish_quoted) else {
@@ -145,6 +267,24 @@ pub(super) fn integrate(launch: &mut TermLaunch, dir: &Path) -> io::Result<bool>
                 "-l".into(),
                 "--init-command".into(),
                 format!("source {file}").into(),
+            ];
+        }
+        Shell::PowerShell => {
+            let Some(file) = folder
+                .join("powershell.ps1")
+                .to_str()
+                .map(powershell_quoted)
+            else {
+                return Ok(false);
+            };
+            // Read as text, a script block runs whatever the execution
+            // policy says of script files.
+            let script = format!(". ([scriptblock]::Create([IO.File]::ReadAllText({file})))");
+            launch.args = vec![
+                "-NoLogo".into(),
+                "-NoExit".into(),
+                "-Command".into(),
+                script.into(),
             ];
         }
     }
@@ -173,7 +313,7 @@ fn fish_quoted(text: &str) -> String {
 fn folder_in(dir: &Path) -> PathBuf {
     // FNV-1a over the names and contents.
     let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
-    for (name, text) in FILES {
+    for (name, text) in os_files() {
         for byte in [name.as_bytes(), &[0], text.as_bytes(), &[0]].concat() {
             hash = (hash ^ u64::from(byte)).wrapping_mul(0x0100_0000_01b3);
         }
@@ -198,8 +338,7 @@ fn write_files(dir: &Path) -> io::Result<PathBuf> {
     files::private_dir_all(dir)?;
     let temp = temp_in(dir)?;
     files::private_dir(&temp)?;
-    let written = FILES
-        .iter()
+    let written = os_files()
         .try_for_each(|(name, text)| write_file(&temp.join(name), text))
         .and_then(|()| fs::rename(&temp, &folder));
     match written {
@@ -234,7 +373,7 @@ fn write_file(path: &Path, text: &str) -> io::Result<()> {
 /// or changed: written whole under `dir` first, then renamed over it, so a
 /// shell starting meanwhile reads the old file or the new one.
 fn mend(dir: &Path, folder: &Path) -> io::Result<()> {
-    for (name, text) in FILES {
+    for (name, text) in os_files() {
         let path = folder.join(name);
         if fs::read(&path).is_ok_and(|bytes| bytes == text.as_bytes()) {
             continue;
@@ -324,7 +463,7 @@ mod tests {
         };
         assert_eq!(zsh.args, [OsString::from("-l")]);
         let folder = PathBuf::from(env(&zsh, "ZDOTDIR").unwrap());
-        for (name, text) in FILES {
+        for (name, text) in os_files() {
             assert_eq!(fs::read_to_string(folder.join(name)).unwrap(), *text);
         }
         let nonce = zsh.nonce.clone().unwrap();
@@ -377,7 +516,7 @@ mod tests {
         fs::remove_file(&snippet).unwrap();
         fs::remove_dir(snippet.parent().unwrap()).unwrap();
         assert_eq!(write_files(&dir).unwrap(), folder);
-        for (name, text) in FILES {
+        for (name, text) in os_files() {
             assert_eq!(fs::read_to_string(folder.join(name)).unwrap(), *text);
         }
         // Nothing it wrote along the way stays.
@@ -435,5 +574,122 @@ mod tests {
     #[test]
     fn fish_reads_quotes_back_as_they_were() {
         assert_eq!(fish_quoted(r"/a b/it's\x"), r"'/a b/it\'s\\x'");
+    }
+    #[test]
+    fn windows_names_git_bash_and_powershell_whatever_the_case() {
+        for (name, shell) in [
+            ("bash.exe", Shell::GitBash),
+            ("BASH.EXE", Shell::GitBash),
+            ("pwsh.exe", Shell::PowerShell),
+            ("pwsh", Shell::PowerShell),
+            ("PowerShell.exe", Shell::PowerShell),
+        ] {
+            assert_eq!(Shell::named(name, true), Some(shell), "{name}");
+        }
+        assert_eq!(Shell::named("cmd.exe", true), None);
+        assert_eq!(Shell::named("wsl.exe", true), None);
+        // Elsewhere, PowerShell and a name with `.exe` aren't integrated.
+        assert_eq!(Shell::named("bash", false), Some(Shell::Bash));
+        assert_eq!(Shell::named("pwsh", false), None);
+        assert_eq!(Shell::named("bash.exe", false), None);
+    }
+
+    #[test]
+    fn git_bash_and_powershell_start_and_run_their_own_way() {
+        let args = |args: &[&str]| args.iter().map(OsString::from).collect::<Vec<_>>();
+        assert_eq!(start_args_for(None), args(&["-l"]));
+        assert_eq!(start_args_for(Some(Shell::Bash)), args(&["-l"]));
+        assert_eq!(start_args_for(Some(Shell::GitBash)), args(&["-l", "-i"]));
+        assert_eq!(start_args_for(Some(Shell::PowerShell)), args(&["-NoLogo"]));
+        let posix = marker::after_marker("ls");
+        assert_eq!(
+            run_args_for(Some(Shell::GitBash), "ls"),
+            args(&["-ilc", &posix])
+        );
+        let run = powershell_run("git log # all of it");
+        assert_eq!(
+            run_args_for(Some(Shell::PowerShell), "git log # all of it"),
+            args(&["-NoLogo", "-Command", &run])
+        );
+        let (first, exit) = run.split_once('\n').unwrap();
+        assert_eq!(
+            first,
+            "[Console]::Write([char]27 + ']7346;maxhq-run' + [char]7); \
+             $global:LASTEXITCODE = 0; $env:PAGER = 'cat'; $env:GIT_PAGER = 'cat'; \
+             git log # all of it"
+        );
+        assert!(exit.starts_with("if (-not $?)"), "{exit}");
+
+        let dir = scratch("windows");
+        let folder = write_files(&dir).unwrap();
+        let mut bash = launch("bash.exe");
+        assert!(integrate_as(&mut bash, &dir, Shell::GitBash).unwrap());
+        let file = folder.join("bash.sh").to_str().unwrap().replace('\\', "/");
+        assert_eq!(bash.args, args(&["--init-file", &file, "-i"]));
+        let mut pwsh = launch("pwsh.exe");
+        assert!(integrate_as(&mut pwsh, &dir, Shell::PowerShell).unwrap());
+        let file = folder.join("powershell.ps1");
+        let script = format!(
+            ". ([scriptblock]::Create([IO.File]::ReadAllText('{}')))",
+            file.display()
+        );
+        assert_eq!(
+            pwsh.args,
+            args(&["-NoLogo", "-NoExit", "-Command", &script])
+        );
+        assert_eq!(pwsh.nonce.as_ref().map(String::len), Some(32));
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn powershell_reads_its_quotes_back_as_they_were() {
+        assert_eq!(powershell_quoted(r"C:\it's"), r"'C:\it''s'");
+        assert_eq!(
+            powershell_quoted("a\u{2019}b\u{2018}"),
+            "'a\u{2019}\u{2019}b\u{2018}\u{2018}'"
+        );
+        assert_eq!(powershell_quoted(""), "''");
+    }
+
+    #[test]
+    fn powershells_marks_pass_the_holders_filter() {
+        use super::super::marks::{Filter, Kind};
+
+        let nonce = "0123abcd";
+        let mark = |body: &str| format!("\x1b]133;{body};maxhq={nonce}\x07");
+        let cwd = "\x1b]7;file://<pc>/C:/Users/%3Cuser%3E/my%20app\x07";
+        // As the script prints them: the folder and A before the prompt,
+        // B after it, C with the line once it's read, D at the next prompt.
+        let output = [
+            format!("{cwd}{}PS C:\\> {}", mark("A"), mark("B")),
+            format!("echo a;b\r\n{}a\r\nb\r\n", mark("C;echo a%3Bb")),
+            format!("{}{cwd}{}PS C:\\> {}", mark("D;0"), mark("A"), mark("B")),
+            format!(" secret\r\n{}", mark("C;")),
+            format!("{}{cwd}{}", mark("D;1"), mark("A")),
+        ]
+        .concat();
+        let mut filter = Filter::new(Some(nonce));
+        let (mut out, mut marks) = (Vec::new(), Vec::new());
+        for chunk in output.as_bytes().chunks(7) {
+            filter.feed(chunk, &mut out, &mut marks);
+        }
+        let kinds: Vec<_> = marks.into_iter().map(|(_, kind)| kind).collect();
+        assert_eq!(
+            kinds,
+            [
+                Kind::Prompt,
+                Kind::Input,
+                Kind::Command(Some("echo a;b".into())),
+                Kind::Done(Some(0)),
+                Kind::Prompt,
+                Kind::Input,
+                Kind::Command(None),
+                Kind::Done(Some(1)),
+                Kind::Prompt,
+            ]
+        );
+        let out = String::from_utf8(out).unwrap();
+        assert!(!out.contains(nonce), "{out}");
+        assert!(out.contains(cwd), "the folder passes on");
     }
 }

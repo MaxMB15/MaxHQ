@@ -2,7 +2,9 @@
 // Copyright (c) 2026 Max Boksem
 
 //! Finds the window title (OSC 0 and 2) and the working folder (OSC 7) a
-//! shell sets, across reads that split a sequence anywhere.
+//! shell sets, across reads that split a sequence anywhere. On Windows a
+//! folder comes as `/C:/Users/x` from PowerShell and `/c/Users/x` from Git
+//! Bash, and reads as `C:\Users\x`.
 
 /// The longest OSC body kept. A longer one is skipped.
 const MAX_BODY: usize = 4096;
@@ -112,7 +114,8 @@ fn clean(title: &str) -> String {
     title.chars().filter(|c| !c.is_control()).collect()
 }
 
-/// The path in a `file://host/path` URL, with its `%XX` escapes decoded.
+/// The path in a `file://host/path` URL, with its `%XX` escapes decoded,
+/// and on Windows as Windows writes it.
 fn file_url_path(url: &str) -> Option<String> {
     let rest = url.strip_prefix("file://")?;
     let path = &rest[rest.find('/')?..];
@@ -133,7 +136,27 @@ fn file_url_path(url: &str) -> Option<String> {
         }
     }
     let path = String::from_utf8(out).ok()?;
+    #[cfg(windows)]
+    let path = windows_path(&path);
     (!path.chars().any(char::is_control)).then_some(path)
+}
+
+/// A URL's path on a drive as Windows writes it: `/C:/x` and Git Bash's
+/// `/c/x` as `C:\x`. Any other stays as it was.
+#[cfg(any(windows, test))]
+fn windows_path(path: &str) -> String {
+    let Some(rest) = path.strip_prefix('/') else {
+        return path.to_owned();
+    };
+    let (first, rest) = rest.split_once('/').unwrap_or((rest, ""));
+    match first.as_bytes() {
+        [letter, b':'] | [letter] if letter.is_ascii_alphabetic() => format!(
+            "{}:\\{}",
+            char::from(letter.to_ascii_uppercase()),
+            rest.replace('/', "\\")
+        ),
+        _ => path.to_owned(),
+    }
 }
 
 #[cfg(test)]
@@ -177,6 +200,27 @@ mod tests {
                 "{at}"
             );
         }
+    }
+
+    #[test]
+    fn a_folder_on_a_drive_reads_as_windows_writes_it() {
+        for (url, path) in [
+            ("/C:/Users/<user>/x", r"C:\Users\<user>\x"),
+            ("/c/Users/<user>/my app", r"C:\Users\<user>\my app"),
+            ("/C:/", r"C:\"),
+            ("/d", r"D:\"),
+            ("/usr/bin", "/usr/bin"),
+            ("/", "/"),
+            ("/1:/x", "/1:/x"),
+            ("C:/x", "C:/x"),
+        ] {
+            assert_eq!(windows_path(url), path, "{url}");
+        }
+        let decoded = file_url_path("file://<pc>/C:/Users/%3Cuser%3E/caf%C3%A9").unwrap();
+        #[cfg(windows)]
+        assert_eq!(decoded, r"C:\Users\<user>\café");
+        #[cfg(not(windows))]
+        assert_eq!(decoded, "/C:/Users/<user>/café");
     }
 
     #[test]

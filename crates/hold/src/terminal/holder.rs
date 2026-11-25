@@ -5,8 +5,9 @@
 //!
 //! It detaches as an agent's holder does, takes the folder's lock, reads
 //! its key from stdin, binds its socket and starts the program on a new
-//! pty, in a session of its own with the pty as its terminal. Then it says
-//! `ready`.
+//! terminal (`pty`): on Unix a pty, in a session of its own with the pty
+//! as its terminal, and on Windows a pseudoconsole, in a job of its own.
+//! Then it says `ready`.
 //!
 //! One task reads the master into the ring and a headless terminal, for a
 //! `!` run once its marker has come (`marker.rs`). On the way it takes out
@@ -18,7 +19,8 @@
 //! Every 150 ms the holder looks at the pty's modes, its foreground group
 //! and the line the cursor is on (`modes.rs`), and tells clients when the
 //! program starts or stops waiting for a password or for you, or the
-//! shell starts or stops running something.
+//! shell starts or stops running something. A pseudoconsole has no modes
+//! or foreground group to look at, so on Windows only the screen counts.
 //!
 //! Once the program ends and its output is in, the holder writes
 //! `exit.json`. A goodbye from a client that saw the exit deletes the
@@ -29,18 +31,15 @@ use std::collections::VecDeque;
 use std::fs::File;
 use std::io;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
+use std::process::Command;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::time::{Duration, Instant};
 
+use maxhq_os::ipc::{LocalStream, ReadHalf};
 use maxhq_protocol::ids::TerminalId;
 use maxhq_protocol::time::Timestamp;
 use maxhq_term::Emulator;
-use rustix::process::{Pid, Signal, WaitOptions};
 use tokio::io::BufReader;
-use tokio::net::unix::OwnedReadHalf;
-use tokio::net::UnixStream;
-use tokio::signal::unix::{signal, SignalKind};
 use tokio::sync::{mpsc, watch};
 
 use super::marker::Cutoff;
@@ -55,9 +54,11 @@ use crate::holder::{
     quiet_stdin, read_stdin, say_ready, take_lock, DRAIN_WAIT, FLUSH_WAIT, HELLO_WAIT, QUIT_GRACE,
     REAP_TICK,
 };
-use crate::pty::{self, Master};
+use crate::pty::{self, Failed, Term};
 use crate::secret::{self, Secret};
 use crate::socket::{self, Socket};
+use crate::sys;
+use crate::tree::{self, Sig, Tree};
 
 /// How often the holder looks for a password prompt and a busy shell.
 const POLL: Duration = Duration::from_millis(150);
@@ -105,14 +106,7 @@ impl Started {
         socket::make_dir(&sockets).map_err(at(&sockets))?;
         let socket =
             socket::bind_named(&sockets, &socket_name(launch.terminal)).map_err(at(&sockets))?;
-        socket
-            .listener
-            .set_nonblocking(true)
-            .map_err(at(&socket.path))?;
 
-        let size = pty::winsize(launch.cols.into(), launch.rows.into(), 0, 0);
-        let (master, slave) =
-            pty::open(size).map_err(|err| format!("couldn't open a pty: {err}"))?;
         let program = PathBuf::from(launch.program.0.clone());
         let cwd = PathBuf::from(launch.cwd.0.clone());
         let mut command = Command::new(&program);
@@ -122,31 +116,12 @@ impl Started {
         for (key, value) in &launch.env {
             command.env(&key.0, &value.0);
         }
-        let stdio = |slave: &std::os::fd::OwnedFd| {
-            slave
-                .try_clone()
-                .map(Stdio::from)
-                .map_err(|err| format!("couldn't hand over the pty: {err}"))
-        };
-        command
-            .stdin(stdio(&slave)?)
-            .stdout(stdio(&slave)?)
-            .stderr(Stdio::from(slave));
-        pty::controlling_tty(&mut command);
-        let spawned = command.spawn();
-        // The program has the terminal's end now. The holder keeps none, so
-        // reading the master ends once the program and what it started let
-        // go of theirs.
-        drop(command);
-        let child = spawned.map_err(|err| spawn_failure(&program, &cwd, &err))?;
-        let child_pid = i32::try_from(child.id())
-            .ok()
-            .and_then(Pid::from_raw)
-            .ok_or("the program has no process ID")?;
-        // The holder reaps the program itself, so it can signal its group
-        // only while the ID still belongs to it.
-        drop(child);
-        let master = Master::new(master).map_err(|err| format!("couldn't read the pty: {err}"))?;
+        let (tree, master) =
+            pty::spawn(command, launch.cols, launch.rows).map_err(|failed| match failed {
+                Failed::Pty(err) => format!("couldn't open a pty: {err}"),
+                Failed::Start(err) => spawn_failure(&program, &cwd, &err),
+            })?;
+        let child_pid = tree.pid();
 
         let started_at = Timestamp::now();
         let (input_tx, input) = mpsc::unbounded_channel();
@@ -155,7 +130,7 @@ impl Started {
             terminal: launch.terminal,
             key,
             pid: std::process::id(),
-            child_pid,
+            tree,
             started_at,
             run: launch.run,
             linger: Duration::from_millis(launch.linger_ms),
@@ -193,12 +168,15 @@ impl Started {
         });
         let record = HolderFile {
             holder_pid: holder.pid,
-            child_pid: child_pid.as_raw_nonzero().get().unsigned_abs(),
+            child_pid,
             socket: socket.path.as_path().into(),
             started_at,
+            holder_started: maxhq_os::proc::started(holder.pid),
+            child_started: maxhq_os::proc::started(child_pid),
+            in_spawner_job: sys::in_spawner_job(),
         };
         if let Err(err) = files::write_json(&dir.join(HOLDER), &record) {
-            holder.signal_child(Signal::KILL);
+            holder.signal_child(Sig::Kill);
             return Err(format!("couldn't write {HOLDER}: {err}"));
         }
         say_ready(dir);
@@ -212,33 +190,9 @@ impl Started {
 
     pub(super) async fn run(self) {
         let holder = self.holder;
-        match self
-            .socket
-            .listener
-            .try_clone()
-            .and_then(tokio::net::UnixListener::from_std)
-        {
-            Ok(listener) => {
-                let accepting = holder.clone();
-                tokio::spawn(async move {
-                    loop {
-                        match listener.accept().await {
-                            Ok((stream, _)) => {
-                                tokio::spawn(serve(accepting.clone(), stream));
-                            }
-                            Err(err) => {
-                                eprintln!("couldn't accept a connection: {err}");
-                                tokio::time::sleep(REAP_TICK).await;
-                            }
-                        }
-                    }
-                });
-            }
-            Err(err) => {
-                eprintln!("couldn't listen on {}: {err}", self.socket.path.display());
-                holder.quit();
-            }
-        }
+        let mut socket = self.socket;
+        let serving = holder.clone();
+        socket.accept_each(move |stream| serve(serving.clone(), stream));
         tokio::spawn(holder.clone().read_output());
         tokio::spawn(holder.clone().write_input(self.input));
         tokio::spawn(holder.clone().reap_loop());
@@ -265,14 +219,19 @@ impl Started {
             }
         }
         tokio::time::sleep(FLUSH_WAIT).await;
-        drop(self.socket);
+        drop(socket);
     }
 }
 
 /// Why the program didn't start, naming the folder when that's what's
-/// gone.
+/// gone. Unix says a missing folder is a missing file, and Windows says
+/// it isn't a folder.
 fn spawn_failure(program: &Path, cwd: &Path, err: &io::Error) -> String {
-    if err.kind() == io::ErrorKind::NotFound && matches!(cwd.try_exists(), Ok(false)) {
+    let missing = matches!(
+        err.kind(),
+        io::ErrorKind::NotFound | io::ErrorKind::NotADirectory
+    );
+    if missing && matches!(cwd.try_exists(), Ok(false)) {
         format!("the folder {} is gone", cwd.display())
     } else {
         format!("couldn't start {}: {err}", program.display())
@@ -420,11 +379,12 @@ struct Holder {
     terminal: TerminalId,
     key: Secret,
     pid: u32,
-    child_pid: Pid,
+    /// The program and all it starts.
+    tree: Tree,
     started_at: Timestamp,
     run: bool,
     linger: Duration,
-    master: Master,
+    master: Term,
     /// Input and answers for the writer task, which is the only one that
     /// writes.
     input: mpsc::UnboundedSender<Input>,
@@ -557,8 +517,7 @@ impl Holder {
         state.cols = cols;
         state.rows = rows;
         state.emulator.resize(cols, rows);
-        self.master
-            .resize(pty::winsize(cols.into(), rows.into(), 0, 0));
+        self.master.resize(cols, rows);
     }
 
     /// Looks at the pty's modes, its foreground group and the screen, and
@@ -580,7 +539,7 @@ impl Holder {
             let busy = if self.run {
                 running
             } else {
-                running && foreground.is_some_and(|group| group != self.child_pid)
+                running && foreground.is_some_and(|group| !self.tree.leads(group))
             };
             let released = state.cutoff.is_some() && (hidden || keys) && state.release();
             let pty = Pty {
@@ -611,45 +570,33 @@ impl Holder {
     /// program's ID is never signalled once it could be reused.
     fn reap(&self) -> bool {
         let mut state = self.lock();
-        loop {
-            match rustix::process::wait(WaitOptions::NOHANG) {
-                Ok(Some((pid, status))) => {
-                    if pid == self.child_pid && matches!(state.phase, Phase::Running) {
-                        state.phase = Phase::Reaped {
-                            code: status.exit_status(),
-                            signal: status.terminating_signal(),
-                            at: Timestamp::now(),
-                        };
-                    }
-                }
-                Ok(None) => break,
-                Err(rustix::io::Errno::INTR) => {}
-                // No children left.
-                Err(_) => break,
-            }
+        if let Some(status) = self.tree.reap()
+            && matches!(state.phase, Phase::Running)
+        {
+            state.phase = Phase::Reaped {
+                code: status.code,
+                signal: status.signal,
+                at: Timestamp::now(),
+            };
         }
         !matches!(state.phase, Phase::Running)
     }
 
     async fn reap_loop(self: Arc<Self>) {
-        let mut sigchld = signal(SignalKind::child()).ok();
+        let mut reaper = self.tree.reaper();
         let mut tick = tokio::time::interval(REAP_TICK);
         let mut drain_until = None;
         loop {
-            match sigchld.as_mut() {
-                Some(sigchld) => {
-                    tokio::select! {
-                        _ = sigchld.recv() => {}
-                        _ = tick.tick() => {}
-                    }
-                }
-                None => {
-                    tick.tick().await;
-                }
+            tokio::select! {
+                () = reaper.next() => {}
+                _ = tick.tick() => {}
             }
             if !self.reap() || self.exited() {
                 continue;
             }
+            // A pseudoconsole keeps its output open until it's closed, even
+            // with nothing left in it.
+            self.master.hang_up();
             // Something the program started in the background can keep the
             // terminal open, and what it prints after the program has gone
             // isn't kept.
@@ -693,21 +640,20 @@ impl Holder {
         self.bump();
     }
 
-    /// Signals the program's process group, or the program alone if it has
-    /// left it, and the group in the terminal's foreground, while the
-    /// program hasn't been reaped.
-    fn signal_child(&self, signal: Signal) {
+    /// Signals the program's tree and the group in the terminal's
+    /// foreground, while the program hasn't been reaped. On Windows only a
+    /// kill goes.
+    fn signal_child(&self, sig: Sig) {
         let state = self.lock();
         if !matches!(state.phase, Phase::Running) {
             return;
         }
         let foreground = self.master.foreground();
-        if rustix::process::kill_process_group(self.child_pid, signal).is_err() {
-            let _ = rustix::process::kill_process(self.child_pid, signal);
+        self.tree.signal(sig);
+        if let Some(group) = foreground.filter(|&group| !self.tree.leads(group)) {
+            tree::signal_group(group, sig);
         }
-        if let Some(group) = foreground.filter(|&group| group != self.child_pid) {
-            let _ = rustix::process::kill_process_group(group, signal);
-        }
+        drop(state);
     }
 
     /// Kills the group in the terminal's foreground when it isn't the
@@ -718,20 +664,23 @@ impl Holder {
         if !matches!(state.phase, Phase::Running) {
             return;
         }
-        if let Some(group) = (self.master.foreground()).filter(|&group| group != self.child_pid) {
-            let _ = rustix::process::kill_process_group(group, Signal::KILL);
+        if let Some(group) = (self.master.foreground()).filter(|&group| !self.tree.leads(group)) {
+            tree::signal_group(group, Sig::Kill);
         }
         drop(state);
     }
 
     /// Hangs the terminal up, then kills what's left after `grace`.
-    /// Returns once the exit is recorded.
+    /// Returns once the exit is recorded. Windows has no SIGHUP, but
+    /// closing the pseudoconsole tells what's in it that the console is
+    /// closing, so the program gets its chance to end there too.
     async fn kill(self: Arc<Self>, grace: Duration) {
-        self.signal_child(Signal::HUP);
+        self.signal_child(Sig::Hangup);
+        self.master.hang_up();
         if self.wait_exit(Some(grace)).await {
             return;
         }
-        self.signal_child(Signal::KILL);
+        self.signal_child(Sig::Kill);
         self.wait_exit(None).await;
     }
 
@@ -765,22 +714,16 @@ impl Holder {
     }
 
     async fn watch_signals(self: Arc<Self>) {
-        let (Ok(mut term), Ok(mut int), Ok(mut hup)) = (
-            signal(SignalKind::terminate()),
-            signal(SignalKind::interrupt()),
-            signal(SignalKind::hangup()),
-        ) else {
-            eprintln!("couldn't watch for signals");
-            return;
+        let mut quit = match sys::Quit::watch() {
+            Ok(quit) => quit,
+            Err(err) => {
+                eprintln!("couldn't watch for signals: {err}");
+                return;
+            }
         };
         loop {
-            tokio::select! {
-                _ = term.recv() => self.quit(),
-                _ = int.recv() => self.quit(),
-                // The holder has no terminal of its own, so a hangup means
-                // nothing.
-                _ = hup.recv() => {}
-            }
+            quit.next().await;
+            self.quit();
         }
     }
 
@@ -815,7 +758,7 @@ impl Holder {
         };
         let hello = TermHello {
             holder_pid: self.pid,
-            child_pid: self.child_pid.as_raw_nonzero().get().unsigned_abs(),
+            child_pid: self.tree.pid(),
             started_at: self.started_at,
             from,
             reset,
@@ -910,7 +853,7 @@ fn changes(was: &View, now: &View, modes: bool) -> Vec<FromHolder> {
 
 /// Serves one client: its hello, then the output from where it asked,
 /// what changes, and the exit, while it sends input and the like.
-async fn serve(holder: Arc<Holder>, stream: UnixStream) {
+async fn serve(holder: Arc<Holder>, stream: LocalStream) {
     let (read, mut write) = stream.into_split();
     let mut read = BufReader::new(read);
     let mut buf = Vec::new();
@@ -986,7 +929,7 @@ async fn serve(holder: Arc<Holder>, stream: UnixStream) {
 
 /// Reads a client's requests and acts on each. Ends when the client
 /// detaches or goes.
-async fn handle_requests(holder: Arc<Holder>, read: BufReader<OwnedReadHalf>) {
+async fn handle_requests(holder: Arc<Holder>, read: BufReader<ReadHalf>) {
     let mut read = read;
     let mut buf = Vec::new();
     while let Ok(Some(request)) = wire::recv::<_, ToHolder>(&mut read, &mut buf).await {
