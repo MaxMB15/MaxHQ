@@ -254,8 +254,9 @@ impl Android for HostAndroid {
     }
 
     fn boot(&self, command: &SdkCommand, log: &Path) -> Result<Arc<dyn Process>, String> {
-        use std::os::unix::process::CommandExt;
         use std::process::Stdio;
+
+        use maxhq_os::proc::GroupExt;
 
         let out = std::fs::File::create(log)
             .map_err(|err| format!("couldn't make the emulator's log: {err}"))?;
@@ -269,10 +270,14 @@ impl Android for HostAndroid {
             .stdout(out)
             .stderr(err)
             // Its own group, so stopping it stops the qemu it starts.
-            .process_group(0);
-        let child = tokio::process::Command::from(run)
+            .own_group();
+        let mut child = tokio::process::Command::from(run)
             .spawn()
             .map_err(|err| format!("The emulator couldn't start: {err}"))?;
+        if let Some(Err(err)) = child.id().map(maxhq_os::proc::adopt) {
+            let _ = child.start_kill();
+            return Err(format!("The emulator couldn't start: {err}"));
+        }
         Ok(Arc::new(HostProcess(Mutex::new(child))))
     }
 
@@ -295,11 +300,8 @@ impl Process for HostProcess {
 
     fn kill(&self) {
         let mut child = lock(&self.0);
-        if let Some(pid) = child
-            .id()
-            .and_then(|pid| rustix::process::Pid::from_raw(pid as i32))
-        {
-            let _ = rustix::process::kill_process_group(pid, rustix::process::Signal::KILL);
+        if let Some(pid) = child.id() {
+            let _ = maxhq_os::proc::stop_group(pid, maxhq_os::proc::Stop::Hard);
         }
         let _ = child.start_kill();
     }

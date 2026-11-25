@@ -16,7 +16,7 @@ use std::time::Duration;
 use serde::Serialize;
 use serde_json::{json, Value};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader, Lines};
-use tokio::process::{Child, ChildStdin, ChildStdout, Command};
+use tokio::process::{Child, ChildStdin, ChildStdout};
 
 /// How long one request may take. A cold start answers `initialize` in
 /// under a second, and the limits in a quarter of one.
@@ -111,7 +111,7 @@ impl AppServer {
     /// Starts `program app-server` for the login in `home` and completes
     /// the opening exchange.
     pub async fn start(program: &Path, home: &Path) -> Result<Self, Error> {
-        let mut child = Command::new(program)
+        let mut child = crate::drive::programs::command(program)
             .arg("app-server")
             .env("CODEX_HOME", home)
             .stdin(Stdio::piped())
@@ -272,17 +272,19 @@ echo stopped >> "$CODEX_HOME/stops.log"
         root: PathBuf,
     }
 
+    // The tests that read what it was sent run its sh script, on Unix
+    // alone.
+    #[cfg_attr(not(unix), allow(dead_code))]
     impl FakeHome {
         /// Sets one up under a name unique to this test.
         pub fn new(name: &str) -> Self {
-            use std::os::unix::fs::PermissionsExt;
             let root = std::env::temp_dir().join(format!("maxd-{name}-{}", std::process::id()));
             let _ = std::fs::remove_dir_all(&root);
             let home = root.join("codex-home");
             std::fs::create_dir_all(&home).unwrap();
             let program = root.join("codex");
             std::fs::write(&program, FAKE).unwrap();
-            std::fs::set_permissions(&program, std::fs::Permissions::from_mode(0o755)).unwrap();
+            maxhq_os::fsmode::set_mode(&program, 0o755).unwrap();
             let fake = Self {
                 home,
                 program,
@@ -343,6 +345,8 @@ echo stopped >> "$CODEX_HOME/stops.log"
         }
     }
 
+    // The fake app-server is an sh script.
+    #[cfg(unix)]
     #[tokio::test]
     async fn the_exchange_uses_only_read_methods() {
         let fake = FakeHome::new("codex-exchange");
@@ -403,6 +407,8 @@ echo stopped >> "$CODEX_HOME/stops.log"
         assert_eq!(requests[4]["params"], json!({ "cursor": "2" }));
     }
 
+    // The fake app-server is an sh script.
+    #[cfg(unix)]
     #[tokio::test]
     async fn errors_say_whether_to_restart() {
         let fake = FakeHome::new("codex-exchange-errors");
@@ -437,6 +443,8 @@ echo stopped >> "$CODEX_HOME/stops.log"
         assert!(matches!(error, Error::Spawn(_)), "{error}");
     }
 
+    // The fake app-server is an sh script.
+    #[cfg(unix)]
     #[tokio::test]
     async fn a_stop_waits_for_the_app_server_to_exit() {
         let fake = FakeHome::new("codex-exchange-stop");

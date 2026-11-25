@@ -175,7 +175,8 @@ fn nothing_under_claude_worktrees_is_read() {
     write(&root.join(".claude/settings.json"), "x");
     let first = scanned(&root);
     write(&root.join(".claude/worktrees/x/.claude/settings.json"), "a");
-    // A pipe would hang a read here.
+    // A pipe would hang a read here. Windows makes none at a path.
+    #[cfg(unix)]
     pipe(&root.join(".claude/worktrees/stuck"));
     let second = scanned(&root);
     assert_eq!(first.files, second.files);

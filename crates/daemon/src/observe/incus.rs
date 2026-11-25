@@ -15,7 +15,8 @@
 
 mod api;
 mod events;
-#[cfg(test)]
+// The fake serves on a Unix socket, as Incus does.
+#[cfg(all(test, unix))]
 mod fake;
 pub(crate) mod look;
 mod report;
@@ -412,7 +413,7 @@ fn owns(entity: &Entity, device: DeviceId, agents: &HashSet<AgentId>) -> bool {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, unix))]
 mod tests {
     use std::time::Instant;
 

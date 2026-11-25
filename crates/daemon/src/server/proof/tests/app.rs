@@ -44,7 +44,7 @@ impl PeerDial for Dial {
     fn dial(&self, _host: &str) -> BoxFuture<'static, io::Result<PeerStream>> {
         let (socket, first) = (self.socket.clone(), self.first.clone());
         Box::pin(async move {
-            let mut stream = tokio::net::UnixStream::connect(socket).await?;
+            let mut stream = maxhq_os::ipc::LocalStream::connect(&socket).await?;
             stream.write_all(&first).await?;
             let (reader, writer) = stream.into_split();
             Ok((Box::new(reader) as _, Box::new(writer) as _))

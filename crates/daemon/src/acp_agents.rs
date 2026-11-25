@@ -479,5 +479,6 @@ fn refused(reason: impl Into<String>) -> ActionOutcome {
     }
 }
 
-#[cfg(test)]
+// The fake agents are sh scripts.
+#[cfg(all(test, unix))]
 mod tests;

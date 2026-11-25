@@ -5,6 +5,10 @@
 //! key, install `maxd`, start it as a service and let MaxHQ's own key in
 //! through `maxd proxy` only.
 //!
+//! A Linux device runs each step in `sh`. A Windows PC, found when that
+//! fails or runs in a POSIX layer, runs them in PowerShell instead
+//! ([`windows`]).
+//!
 //! Nothing runs on the device before you confirm a host key ssh hasn't
 //! seen. Secrets never pass through here: the app sends them over the
 //! link once the device answers. Every command is built from fixed text
@@ -27,6 +31,10 @@ use maxhq_protocol::agents::PeerRoute;
 use tokio::io::AsyncWriteExt;
 use tokio::process::Command;
 use tokio::sync::oneshot;
+
+pub use windows::{shell_refusal, target_for_windows, SSHD_STEPS};
+
+mod windows;
 
 /// How long a setup waits for you to confirm a host key.
 pub const CONFIRM_WITHIN: Duration = Duration::from_secs(10 * 60);
@@ -373,10 +381,21 @@ impl<'a, R: Run> Setup<'a, R> {
         let (host_keys, host_keys_confirmed) = self.host_key(confirms, step).await?;
 
         step(Step::Probe);
-        let probe = self
-            .ssh(vec!["sh -s".to_owned()], Some(PROBE.into()))
-            .await?;
-        let facts = parse_probe(&probe);
+        // Windows has no `sh` unless a POSIX layer brings one, which isn't
+        // where maxd runs, so either way the PowerShell probe follows.
+        let probe = self.ssh(vec!["sh -s".to_owned()], Some(PROBE.into())).await;
+        let posix_layer = probe.as_ref().is_ok_and(|probe| {
+            parse_probe(probe)
+                .get("uname")
+                .is_some_and(|uname| windows::posix_layer(uname))
+        });
+        if (probe.is_err() || posix_layer)
+            && let Some(facts) = self.windows_facts().await
+        {
+            let keys = (host_keys, host_keys_confirmed);
+            return self.prepare_windows(facts, binary, step, keys).await;
+        }
+        let facts = parse_probe(&probe?);
         let home = facts.get("home").cloned().unwrap_or_default();
         let uname = facts.get("uname").map_or("", String::as_str);
         let Some(target) = target_for(uname) else {
@@ -387,12 +406,7 @@ impl<'a, R: Run> Setup<'a, R> {
                 "The device has no systemd user session, which maxd's service needs",
             ));
         }
-        let Some(binary) = binary(target) else {
-            return Err(stop(format!("This app has no maxd for {target}")));
-        };
-        if !is_hex(&binary.sha256) || binary.sha256.len() != 64 {
-            return Err(stop("The maxd this app carries has a bad sha256"));
-        }
+        let binary = checked(binary(target), target)?;
 
         step(Step::Install);
         let build = &binary.sha256[..16];
@@ -422,14 +436,9 @@ impl<'a, R: Run> Setup<'a, R> {
             });
         }
 
-        let public = std::fs::read_to_string(self.paths.key.with_extension("pub"))
-            .map_err(|_| stop("MaxHQ's SSH key isn't made yet"))?;
+        let public = self.public_key()?;
         let line = authorized_line(&home, &public)?;
-        let key = public
-            .split_whitespace()
-            .take(2)
-            .collect::<Vec<_>>()
-            .join(" ");
+        let key = key_of(&public);
         let add = match &self.app_key {
             Some((app_key, label)) => remote(ADD_KEYS, &[&key, app_key, label]),
             None => remote(ADD_KEY, &[&key]),
@@ -499,7 +508,10 @@ impl<'a, R: Run> Setup<'a, R> {
         let _ = self.local("ssh", args).await?;
         let text = std::fs::read_to_string(&scratch).unwrap_or_default();
         let Some(shown) = text.lines().find(|line| !key_lines(line).is_empty()) else {
-            return Err(stop(format!("{} didn't show a host key", self.host)));
+            return Err(stop(format!(
+                "{} didn't show a host key. Check that its SSH server is on. {SSHD_STEPS}",
+                self.host
+            )));
         };
         // You see one key, so that key is the only one that can count.
         let keys = key_lines(shown);
@@ -569,12 +581,38 @@ impl<'a, R: Run> Setup<'a, R> {
         Ok(output.stdout)
     }
 
+    /// MaxHQ's public SSH key, as its `.pub` file has it.
+    fn public_key(&self) -> Result<String, SetupError> {
+        std::fs::read_to_string(self.paths.key.with_extension("pub"))
+            .map_err(|_| stop("MaxHQ's SSH key isn't made yet"))
+    }
+
     async fn local(&self, program: &str, args: Vec<String>) -> Result<Output, SetupError> {
         self.run
             .run(program, args, None)
             .await
             .map_err(|error| stop(format!("{program} didn't run: {error}")))
     }
+}
+
+/// The `maxd` the app has for `target`, with a sum that can name a build.
+fn checked(binary: Option<SetupBinary>, target: &str) -> Result<SetupBinary, SetupError> {
+    let Some(binary) = binary else {
+        return Err(stop(format!("This app has no maxd for {target}")));
+    };
+    if !is_hex(&binary.sha256) || binary.sha256.len() != 64 {
+        return Err(stop("The maxd this app carries has a bad sha256"));
+    }
+    Ok(binary)
+}
+
+/// A public key line's type and key, without its comment.
+fn key_of(public: &str) -> String {
+    public
+        .split_whitespace()
+        .take(2)
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
 /// The `key=value` lines the probe printed.

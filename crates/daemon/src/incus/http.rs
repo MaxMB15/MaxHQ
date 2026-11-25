@@ -17,7 +17,6 @@ use hyper::{Method, Request, StatusCode};
 use hyper_util::rt::TokioIo;
 use serde::Deserialize;
 use serde_json::Value;
-use tokio::net::UnixStream;
 
 use super::IncusError;
 
@@ -113,7 +112,7 @@ pub async fn send(
     timeout: Duration,
 ) -> Result<Reply, IncusError> {
     let exchange = async {
-        let stream = UnixStream::connect(socket).await?;
+        let stream = super::socket::connect(socket).await?;
         let (mut sender, connection) = http1::handshake(TokioIo::new(stream))
             .await
             .map_err(broken)?;

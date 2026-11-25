@@ -167,6 +167,7 @@ fn save(db: &Db, folder: &Path) {
 #[cfg(test)]
 mod tests {
     use std::collections::HashMap;
+    #[cfg(unix)]
     use std::fs;
 
     use maxhq_core::names;

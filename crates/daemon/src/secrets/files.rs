@@ -5,12 +5,12 @@
 //! is written whole and renamed into place, so a crash leaves the old
 //! value or the new one and never half of either.
 
-use std::fs::{self, DirBuilder, File, Permissions};
+use std::fs;
 use std::io;
-use std::os::unix::fs::{DirBuilderExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 
 use maxhq_core::fs::{write_atomic, Atomic};
+use maxhq_os::fsmode::{mode_of, private_dir_all, set_mode};
 use maxhq_protocol::Secret;
 
 /// The 0700 folder that holds the secrets.
@@ -22,10 +22,7 @@ impl Folder {
     /// Makes the folder if it's missing, and narrows it to 0700 if it's
     /// wider.
     pub fn open(path: PathBuf) -> io::Result<Self> {
-        DirBuilder::new()
-            .recursive(true)
-            .mode(0o700)
-            .create(&path)?;
+        private_dir_all(&path)?;
         let meta = fs::symlink_metadata(&path)?;
         if !meta.is_dir() {
             return Err(io::Error::other(format!(
@@ -33,8 +30,8 @@ impl Folder {
                 path.display()
             )));
         }
-        if meta.permissions().mode() & 0o777 != 0o700 {
-            fs::set_permissions(&path, Permissions::from_mode(0o700))?;
+        if mode_of(&meta) & 0o777 != 0o700 {
+            set_mode(&path, 0o700)?;
         }
         Ok(Self { path })
     }
@@ -63,8 +60,8 @@ impl Folder {
         if !meta.is_file() {
             return Err(io::Error::other(format!("{name} isn't a plain file")));
         }
-        if meta.permissions().mode() & 0o077 != 0 {
-            fs::set_permissions(&path, Permissions::from_mode(0o600))?;
+        if mode_of(&meta) & 0o077 != 0 {
+            set_mode(&path, 0o600)?;
         }
         fs::read_to_string(&path).map(|text| Some(Secret::new(text)))
     }
@@ -103,7 +100,7 @@ impl Folder {
 
 /// Syncs a folder, so a rename or delete in it survives a crash.
 fn sync(folder: &Path) -> io::Result<()> {
-    File::open(folder)?.sync_all()
+    maxhq_os::fsmode::sync_dir(folder)
 }
 
 #[cfg(test)]
@@ -112,7 +109,7 @@ mod tests {
     use crate::testing::TempDir;
 
     fn mode(path: &Path) -> u32 {
-        fs::metadata(path).unwrap().permissions().mode() & 0o777
+        mode_of(&fs::metadata(path).unwrap()) & 0o777
     }
 
     #[test]
@@ -141,9 +138,9 @@ mod tests {
         let temp = TempDir::new();
         let path = temp.path().join("secrets");
         fs::create_dir(&path).unwrap();
-        fs::set_permissions(&path, Permissions::from_mode(0o755)).unwrap();
+        set_mode(&path, 0o755).unwrap();
         fs::write(path.join("b.token"), "test-not-a-real-token").unwrap();
-        fs::set_permissions(path.join("b.token"), Permissions::from_mode(0o644)).unwrap();
+        set_mode(&path.join("b.token"), 0o644).unwrap();
 
         let folder = Folder::open(path.clone()).unwrap();
         assert_eq!(mode(&path), 0o700);

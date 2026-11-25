@@ -438,7 +438,6 @@ mod tests {
         Activity, Agent, AgentLink, Control, PortProcess, ProjectSettings, Vendor, Workspace,
         WorkspaceLocation,
     };
-    use maxhq_protocol::processes::AgentRunning;
 
     use super::*;
     use crate::tunnel::registry_tests::{forward, sink, world, World};
@@ -771,6 +770,8 @@ mod tests {
     async fn a_holders_jobs_follow_its_processes_and_change_only_when_they_do() {
         use std::os::unix::process::CommandExt;
         use std::process::{Child, Command, Stdio};
+
+        use maxhq_protocol::processes::AgentRunning;
 
         /// Ends the group this test made. The holder isn't reaped yet, so
         /// its pid, the group's id, can't name another group.

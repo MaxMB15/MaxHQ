@@ -4,8 +4,6 @@
 //! The registry's tests. The index comes from a local HTTP fixture and
 //! installs go through a fake installer.
 
-use std::fs;
-use std::os::unix::fs::PermissionsExt;
 use std::sync::atomic::Ordering;
 
 use futures::future::BoxFuture;
@@ -15,7 +13,7 @@ use super::*;
 use crate::secrets::testing::hub;
 use crate::secrets::{Secrets, DIR};
 use crate::testing::TempDir;
-use crate::tools::install::tests::{Answer, Fixture};
+use crate::tools::install::fixture::{Answer, Fixture};
 use crate::tools::install::InstallError;
 
 /// The index the fixture serves, with an entry that breaks the bounds,
@@ -103,6 +101,7 @@ fn registry_json(goose: &str) -> String {
 
 /// What the fake agent answers `initialize` with: one method it runs and
 /// one you run in a terminal.
+#[cfg(unix)]
 const REPLY: &str = r#"{"jsonrpc":"2.0","id":"probe","result":{"protocolVersion":1,"agentCapabilities":{},"authMethods":[{"id":"browser","name":"Sign in"},{"id":"login","name":"Log in","type":"terminal","args":["login"]}]}}"#;
 
 /// An installer that records each call and says the command is `path`.
@@ -191,10 +190,12 @@ impl Setup {
     }
 
     /// A fake agent that answers `initialize`, as the installer's command.
+    /// It's an sh script.
+    #[cfg(unix)]
     fn agent(&self) -> String {
         let path = self.temp.path().join("agent");
-        fs::write(&path, format!("#!/bin/sh\nread line\necho '{REPLY}'\n")).unwrap();
-        fs::set_permissions(&path, fs::Permissions::from_mode(0o755)).unwrap();
+        std::fs::write(&path, format!("#!/bin/sh\nread line\necho '{REPLY}'\n")).unwrap();
+        maxhq_os::fsmode::set_mode(&path, 0o755).unwrap();
         let path = path.display().to_string();
         *self.fake.path.lock().unwrap() = path.clone();
         path
@@ -320,6 +321,8 @@ async fn the_registry_fetches_once_a_while_and_keeps_its_cache() {
     assert!(shown.problem.is_some());
 }
 
+// The fake agent is an sh script.
+#[cfg(unix)]
 #[tokio::test]
 async fn a_binary_with_no_checksum_installs_once_you_confirm_that_version() {
     let setup = Setup::new().await;
@@ -379,6 +382,8 @@ async fn a_binary_with_no_checksum_installs_once_you_confirm_that_version() {
         .unwrap();
 }
 
+// The fake agent is an sh script.
+#[cfg(unix)]
 #[tokio::test]
 async fn an_install_defines_the_agent_with_its_sign_in_methods() {
     let setup = Setup::new().await;
@@ -463,6 +468,8 @@ async fn one_in_a_container_runs_there_through_its_link() {
     assert_eq!(agent.problem, None);
 }
 
+// The fake agent is an sh script.
+#[cfg(unix)]
 #[tokio::test]
 async fn removing_the_last_install_deletes_the_definition() {
     let setup = Setup::new().await;

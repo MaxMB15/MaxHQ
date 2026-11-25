@@ -224,7 +224,6 @@ impl Secrets {
 #[cfg(test)]
 mod tests {
     use std::fs;
-    use std::os::unix::fs::PermissionsExt;
 
     use super::*;
     use crate::secrets::testing::{account, credentials, hub, token_hub, CLAUDE_TOKEN};
@@ -279,8 +278,9 @@ mod tests {
         assert!(secrets.claude_token(origin()).is_none());
 
         let file = temp.path().join(DIR).join(claude_token_file(origin()));
-        let mode =
-            |path: &std::path::Path| fs::metadata(path).unwrap().permissions().mode() & 0o777;
+        let mode = |path: &std::path::Path| {
+            maxhq_os::fsmode::mode_of(&fs::metadata(path).unwrap()) & 0o777
+        };
         assert_eq!(mode(&file), 0o600);
         assert_eq!(mode(&temp.path().join(DIR)), 0o700);
     }

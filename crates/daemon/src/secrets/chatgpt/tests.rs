@@ -3,7 +3,6 @@
 
 use std::collections::HashMap;
 use std::fs;
-use std::os::unix::fs::PermissionsExt;
 use std::time::Duration;
 
 use maxhq_protocol::guest::TokenReply;
@@ -159,7 +158,7 @@ async fn a_first_sign_in_registers_and_stores_the_session() {
     assert_eq!(device.finish(sign_in, callback).await, ActionOutcome::Done);
     let file = device.temp.path().join(DIR).join(CHATGPT_FILE);
     assert_eq!(
-        fs::metadata(&file).unwrap().permissions().mode() & 0o777,
+        maxhq_os::fsmode::mode_of(&fs::metadata(&file).unwrap()) & 0o777,
         0o600
     );
     assert_eq!(token(device.token().await), "test-access-2");

@@ -40,6 +40,7 @@ pub mod commands;
 pub mod cursor;
 pub mod local;
 pub mod pictures;
+pub mod programs;
 
 /// A process for the holder to start.
 #[derive(Clone, Debug, PartialEq, Eq)]

@@ -388,6 +388,8 @@ fn names(folder: &Path) -> Vec<String> {
     names
 }
 
+// Windows makes links only for an administrator.
+#[cfg(unix)]
 #[tokio::test]
 async fn an_upload_never_follows_what_the_guest_planted() {
     use std::os::unix::fs::symlink;
@@ -462,6 +464,8 @@ async fn a_guest_that_takes_every_name_gets_no_upload() {
     assert_eq!(s.calls(), Vec::<String>::new());
 }
 
+// Windows makes links only for an administrator.
+#[cfg(unix)]
 #[tokio::test]
 async fn the_builds_writes_never_follow_what_the_guest_planted() {
     use std::os::unix::fs::symlink;
@@ -619,6 +623,7 @@ fn instance_names_are_valid_and_short() {
 }
 
 /// A helper that answers each request done, as `maxd-vm` does.
+#[cfg(unix)]
 const FAKE_HELPER: &str = r#"#!/bin/sh
 while read -r line; do
   id="$(printf '%s' "$line" | sed 's/^{"id":\([0-9]*\).*/\1/')"
@@ -630,13 +635,14 @@ while read -r line; do
 done
 "#;
 
+// The fake helper is an sh script.
+#[cfg(unix)]
 #[tokio::test]
 async fn the_helper_process_answers_each_request_by_its_id() {
-    use std::os::unix::fs::PermissionsExt as _;
     let dir = crate::testing::TempDir::new();
     let binary = dir.path().join("maxd-vm");
     std::fs::write(&binary, FAKE_HELPER).unwrap();
-    std::fs::set_permissions(&binary, std::fs::Permissions::from_mode(0o755)).unwrap();
+    maxhq_os::fsmode::set_mode(&binary, 0o755).unwrap();
     let helper = Helper { binary };
     let vm = helper
         .start(Op::Start {

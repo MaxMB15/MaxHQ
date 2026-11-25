@@ -358,7 +358,6 @@ fn files(env: &Env, spec: &HostSpec, want: &Want) -> HostItem {
 
 /// The spec's data folder, which must belong to the service user alone.
 fn data_dir(env: &Env, spec: &HostSpec) -> Option<HostItem> {
-    use std::os::unix::fs::MetadataExt;
     let dir = spec.service.data_dir.as_ref()?;
     let state = match std::fs::metadata(env.at(dir)) {
         Err(_) => HostItemState::Missing,
@@ -366,13 +365,13 @@ fn data_dir(env: &Env, spec: &HostSpec) -> Option<HostItem> {
             want: "a folder".to_owned(),
             have: "a file".to_owned(),
         },
-        Ok(meta) if meta.uid() != env.user.uid => HostItemState::Drift {
+        Ok(meta) if super::ids::owner(&meta) != env.user.uid => HostItemState::Drift {
             want: format!("owned by {}", env.user.name),
-            have: format!("owned by uid {}", meta.uid()),
+            have: format!("owned by uid {}", super::ids::owner(&meta)),
         },
-        Ok(meta) if meta.mode() & 0o077 != 0 => HostItemState::Drift {
+        Ok(meta) if maxhq_os::fsmode::mode_of(&meta) & 0o077 != 0 => HostItemState::Drift {
             want: "mode 0700".to_owned(),
-            have: format!("mode {:04o}", meta.mode() & 0o7777),
+            have: format!("mode {:04o}", maxhq_os::fsmode::mode_of(&meta) & 0o7777),
         },
         Ok(_) => HostItemState::Ok,
     };

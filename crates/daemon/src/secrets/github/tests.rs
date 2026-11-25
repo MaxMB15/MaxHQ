@@ -4,7 +4,6 @@
 //! The App against a fake GitHub on 127.0.0.1.
 
 use std::fs;
-use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 
 use serde_json::{json, Value};
@@ -113,7 +112,7 @@ fn reach(credential: &Credential) -> (Option<&str>, Vec<&str>) {
 }
 
 fn mode(path: &Path) -> u32 {
-    fs::metadata(path).unwrap().permissions().mode() & 0o777
+    maxhq_os::fsmode::mode_of(&fs::metadata(path).unwrap()) & 0o777
 }
 
 /// Waits up to five seconds for `probe` to find something.

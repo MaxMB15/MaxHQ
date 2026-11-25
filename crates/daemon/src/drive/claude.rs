@@ -32,7 +32,7 @@ use std::path::Path;
 pub(crate) use wire::{clip, mode_from};
 
 pub use history::{subagent_ids, History};
-pub use launch::{add_effort, launch, login_launch, OAUTH_TOKEN, STRIPPED_PREFIXES};
+pub use launch::{add_effort, find_claude, launch, login_launch, OAUTH_TOKEN, STRIPPED_PREFIXES};
 pub use session::ClaudeSession;
 pub use tools::plan_mode;
 

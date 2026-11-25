@@ -335,28 +335,26 @@ pub(crate) fn short_command(command: &str, name: &str) -> String {
     }
 }
 
-/// Sends `signal` to `pid` alone.
-#[allow(unsafe_code)]
+/// Sends `signal` to `pid` alone. Windows can't ask one process to end,
+/// so there a stop is refused with why, and a kill ends it at once.
 pub(crate) fn send(pid: u32, signal: ProcessSignal) -> Result<(), String> {
+    use maxhq_os::proc::{self, Stop};
+
     // Zero or a negative pid would reach a whole group, and 1 is init.
-    let target = libc::pid_t::try_from(pid)
-        .ok()
-        .filter(|pid| *pid > 1)
-        .ok_or_else(|| format!("pid {pid} can't be signalled"))?;
-    let number = match signal {
-        ProcessSignal::Term => libc::SIGTERM,
-        ProcessSignal::Kill => libc::SIGKILL,
-    };
-    // SAFETY: kill takes any pid and signal number and only reports an
-    // error, and the pid is positive, so it reaches one process.
-    if unsafe { libc::kill(target, number) } == 0 {
-        return Ok(());
+    if pid <= 1 || i32::try_from(pid).is_err() {
+        return Err(format!("pid {pid} can't be signalled"));
     }
-    let error = std::io::Error::last_os_error();
-    if error.raw_os_error() == Some(libc::ESRCH) {
-        Err("that process has already exited".to_owned())
-    } else {
-        Err(format!("the signal wasn't sent: {error}"))
+    let how = match signal {
+        ProcessSignal::Term => Stop::Soft,
+        ProcessSignal::Kill => Stop::Hard,
+    };
+    match proc::stop(pid, how) {
+        Ok(()) => Ok(()),
+        Err(_) if !proc::alive(pid) => Err("that process has already exited".to_owned()),
+        Err(error) if error.kind() == std::io::ErrorKind::Unsupported => {
+            Err("Windows can't ask one process to stop, so kill it to end it now".to_owned())
+        }
+        Err(error) => Err(format!("the signal wasn't sent: {error}")),
     }
 }
 

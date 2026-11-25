@@ -62,14 +62,16 @@ impl Files for Disk {
 mod tests {
     use super::*;
 
-    use std::os::unix::fs::symlink;
-    use std::path::PathBuf;
-    use std::time::Duration;
+    // Links, devices and pipes are Unix's.
+    #[cfg(unix)]
+    use std::{os::unix::fs::symlink, path::PathBuf, time::Duration};
 
+    #[cfg(unix)]
     use maxhq_workflow::Catalog;
 
     /// A project whose one workflow file is a link to `target`, and how many
     /// workflows a scan of it finds. The scan has to end soon.
+    #[cfg(unix)]
     fn scan_with_link(dir: &Path, target: &Path) -> usize {
         let project: PathBuf = dir.join("project");
         fs::create_dir_all(project.join(".maxhq/workflows")).unwrap();
@@ -83,11 +85,13 @@ mod tests {
     }
 
     /// What a scan finds in a project with no workflows of its own.
+    #[cfg(unix)]
     fn built_in(dir: &Path) -> usize {
         Catalog::default().scan(&Disk, dir).workflows.len()
     }
 
     #[test]
+    #[cfg(unix)]
     fn a_workflow_linked_to_zeroes_ends_the_scan_and_stays_small() {
         let dir = crate::testing::TempDir::new();
         assert_eq!(
@@ -97,6 +101,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(unix)]
     fn a_workflow_linked_to_a_terminal_ends_the_scan() {
         let dir = crate::testing::TempDir::new();
         assert_eq!(
@@ -106,6 +111,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(unix)]
     fn a_workflow_linked_to_a_pipe_ends_the_scan() {
         let dir = crate::testing::TempDir::new();
         let fifo = dir.path().join("fifo");
@@ -115,6 +121,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(unix)]
     fn a_workflow_linked_to_a_regular_file_keeps_working() {
         let dir = crate::testing::TempDir::new();
         let real = dir.path().join("real.yaml");
@@ -138,6 +145,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(unix)]
     fn a_read_from_a_device_or_a_pipe_is_refused() {
         let dir = crate::testing::TempDir::new();
         let fifo = dir.path().join("fifo");

@@ -3,7 +3,8 @@
 
 //! What both ends of the guest link share: the outbox that queues frames
 //! for one writer task, the reader that splits frames, the hold types on
-//! the wire, and the token rate limit.
+//! the wire, and the token rate limit. The guest's halves build on Unix
+//! alone, as the guest does.
 //!
 //! The link never ends a request by shutting its write side, since the
 //! Incus proxy drops a half-close. Every message is a whole frame.
@@ -17,9 +18,10 @@ use maxhq_protocol::frame::EncodeError;
 use maxhq_protocol::frame::{encode_message, encode_transfer_chunks, encode_tunnel_data};
 use maxhq_protocol::guest::{
     ChildState, Ended, Framing, GuestDecoder, GuestFrame, GuestLinkError, HolderExit, HolderHello,
-    HolderLine, WriteOutcome, MAX_LINE_MESSAGE_LEN, MAX_MESSAGE_LEN, MAX_TOKEN_REQUESTS_PER_MINUTE,
-    MAX_TUNNELS,
+    HolderLine, WriteOutcome, MAX_TOKEN_REQUESTS_PER_MINUTE, MAX_TUNNELS,
 };
+#[cfg(any(unix, test))]
+use maxhq_protocol::guest::{MAX_LINE_MESSAGE_LEN, MAX_MESSAGE_LEN};
 use maxhq_protocol::ids::{SessionId, StreamId, TransferId};
 use serde::Serialize;
 use thiserror::Error;
@@ -35,10 +37,12 @@ const READ_SIZE: usize = 64 * 1024;
 
 /// What a message may take once a list is split to fit, leaving room for
 /// the rest of the message around the list.
+#[cfg(any(unix, test))]
 pub(crate) const CHUNK_BUDGET: usize = MAX_MESSAGE_LEN - 64 * 1024;
 
 /// What one holder line may take in a message of its own, leaving room
 /// for the rest of the message.
+#[cfg(any(unix, test))]
 pub(crate) const LINE_BUDGET: usize = MAX_LINE_MESSAGE_LEN - 64 * 1024;
 
 /// Why something didn't go out on the link.
@@ -261,6 +265,7 @@ impl TokenRate {
 }
 
 /// A holder line as the link carries it.
+#[cfg(unix)]
 pub(crate) fn line_out(line: hold::Line) -> HolderLine {
     HolderLine {
         seq: line.seq,
@@ -281,6 +286,7 @@ pub(crate) fn line_in(line: HolderLine) -> hold::Line {
 }
 
 /// A holder exit as the link carries it.
+#[cfg(unix)]
 pub(crate) fn exit_out(exit: hold::Exit) -> HolderExit {
     HolderExit {
         code: exit.code,
@@ -302,6 +308,7 @@ pub(crate) fn exit_in(exit: HolderExit) -> hold::Exit {
 
 /// A holder hello as the link carries it, with no pending lines. They go
 /// separately, since they may not fit in one message.
+#[cfg(unix)]
 pub(crate) fn hello_out(hello: &hold::Hello) -> HolderHello {
     HolderHello {
         holder_pid: hello.holder_pid,
@@ -330,6 +337,7 @@ pub(crate) fn hello_in(hello: HolderHello) -> hold::Hello {
 }
 
 /// A write outcome as the link carries it.
+#[cfg(unix)]
 pub(crate) fn outcome_out(outcome: hold::WriteOutcome) -> WriteOutcome {
     match outcome {
         hold::WriteOutcome::Written => WriteOutcome::Written,
@@ -346,6 +354,7 @@ pub(crate) fn outcome_in(outcome: WriteOutcome) -> hold::WriteOutcome {
 }
 
 /// An end's outcome as the link carries it.
+#[cfg(unix)]
 pub(crate) fn ended_out(ended: hold::Ended) -> Ended {
     match ended {
         hold::Ended::Gone => Ended::Gone,
@@ -370,6 +379,7 @@ pub(crate) fn framing_out(framing: hold::Framing) -> Framing {
 }
 
 /// A framing off the link.
+#[cfg(unix)]
 pub(crate) fn framing_in(framing: Framing) -> hold::Framing {
     match framing {
         Framing::ClaudeStreamJson => hold::Framing::ClaudeStreamJson,
@@ -417,6 +427,7 @@ pub(crate) fn connect_error_in(text: String, session: SessionId) -> hold::Connec
 /// Splits `items` into runs whose JSON fits in [`CHUNK_BUDGET`], in order.
 /// An item too big to share a run goes in one of its own when it fits
 /// `alone`, and is otherwise left out, and `dropped` counts it.
+#[cfg(any(unix, test))]
 pub(crate) fn chunks<T: Serialize>(
     items: Vec<T>,
     alone: usize,

@@ -17,7 +17,8 @@ mod daemon;
 pub mod install;
 pub mod process;
 
-#[cfg(test)]
+// The fake agent-device is an sh script.
+#[cfg(all(test, unix))]
 pub(crate) mod tests;
 
 use std::path::{Path, PathBuf};

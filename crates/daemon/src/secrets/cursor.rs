@@ -165,7 +165,6 @@ impl Secrets {
 #[cfg(test)]
 mod tests {
     use std::fs;
-    use std::os::unix::fs::PermissionsExt;
 
     use super::*;
     use crate::secrets::testing::{account, credentials, hub};
@@ -215,7 +214,7 @@ mod tests {
 
         let file = temp.path().join(DIR).join(CURSOR_FILE);
         assert_eq!(
-            fs::metadata(file).unwrap().permissions().mode() & 0o777,
+            maxhq_os::fsmode::mode_of(&fs::metadata(file).unwrap()) & 0o777,
             0o600
         );
     }

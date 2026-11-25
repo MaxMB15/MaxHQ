@@ -387,7 +387,7 @@ pub fn mark_healthy(layout: &Layout, build: &str) -> bool {
 }
 
 /// Whether `build` was just installed and still has to show it's healthy.
-#[cfg(test)]
+#[cfg(all(test, unix))]
 pub fn awaiting_health(layout: &Layout, build: &str) -> bool {
     UpdateState::read(layout).is_some_and(|state| state.build == build && !state.healthy)
 }

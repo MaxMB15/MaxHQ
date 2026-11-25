@@ -442,6 +442,7 @@ fn run() -> ExitCode {
 
 /// How far macOS lets the soft limit on open files go, whatever the hard limit
 /// says.
+#[cfg(unix)]
 const OPEN_MAX: u64 = 10_240;
 
 /// Raises the soft limit on open files as far as the system lets it. launchd
@@ -1096,8 +1097,8 @@ fn start_push(hub: &Hub, data: &Path) {
 /// Starts letting phones in. A device without a home folder, or that
 /// can't keep the phones, runs without them.
 fn start_phones(hub: &Hub, db: &Db, data: &Path) {
-    let Some(home) = std::env::var_os("HOME").map(PathBuf::from) else {
-        error!("can't pair phones: HOME isn't set");
+    let Some(home) = maxhq_os::home::home_dir() else {
+        error!("can't pair phones: the home folder isn't known");
         return;
     };
     let folder = match secrets::files::Folder::open(data.join(phones::DIR)) {
@@ -1111,7 +1112,7 @@ fn start_phones(hub: &Hub, db: &Db, data: &Path) {
         hub.clone(),
         folder,
         db.clone(),
-        home.join(".ssh").join("authorized_keys"),
+        maxhq_core::authorized_keys::file_here(&home),
         Arc::new(session::clock::SystemClock),
     ));
 }
@@ -1187,7 +1188,7 @@ fn proxy_as(first: &ClientMessage) -> ExitCode {
 }
 
 /// `maxd authorize-key`: adds the line that lets `public_key` run only
-/// `maxd proxy` to `~/.ssh/authorized_keys`, once. With `app`, an app key
+/// `maxd proxy` to the `authorized_keys` sshd reads for this account, once. With `app`, an app key
 /// and its label, the device trusts that key too while it trusts none.
 fn authorize_key(public_key: &str, app: Option<(&str, &str)>) -> ExitCode {
     // Checked first, so a bad app key changes nothing.
@@ -1199,15 +1200,17 @@ fn authorize_key(public_key: &str, app: Option<(&str, &str)>) -> ExitCode {
         Some((Some(key), label)) => Some((key, label)),
         None => None,
     };
-    let Some(home) = std::env::var_os("HOME").map(PathBuf::from) else {
-        eprintln!("maxd authorize-key: HOME isn't set");
+    let Some(home) = maxhq_os::home::home_dir() else {
+        eprintln!("maxd authorize-key: the home folder isn't known");
         return ExitCode::FAILURE;
     };
-    let file = home.join(".ssh").join("authorized_keys");
-    let added = maxhq_core::authorized_keys::line(&home.display().to_string(), public_key, None)
-        .and_then(|line| {
-            maxhq_core::authorized_keys::add(&file, &line).map_err(|err| err.to_string())
-        });
+    let file = maxhq_core::authorized_keys::file_here(&home);
+    let added =
+        maxhq_core::authorized_keys::line_here(&home.display().to_string(), public_key, None)
+            .and_then(|line| {
+                maxhq_core::authorized_keys::add(&file, &line)
+                    .map_err(|err| maxhq_core::authorized_keys::add_failed(&file, &line, &err))
+            });
     let trusted = added.and_then(|_| match app {
         Some((key, label)) => trust_app_key(&key, label),
         None => Ok(()),
@@ -1649,7 +1652,9 @@ mod testing {
     }
 
     /// `dir` as a relative path from where this test runs, the way a
-    /// relative entry on `PATH` reads.
+    /// relative entry on `PATH` reads. The tests that use it make Unix
+    /// programs.
+    #[cfg(unix)]
     pub fn from_here(dir: &Path) -> PathBuf {
         let here = fs::canonicalize(std::env::current_dir().unwrap()).unwrap();
         let dir = fs::canonicalize(dir).unwrap();

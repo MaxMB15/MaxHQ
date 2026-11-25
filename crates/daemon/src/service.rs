@@ -17,7 +17,9 @@ pub mod uninstall;
 
 use std::ffi::OsStr;
 use std::fmt;
-use std::fs::{self, File};
+use std::fs;
+#[cfg(any(unix, test))]
+use std::fs::File;
 use std::io;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
@@ -606,6 +608,7 @@ pub const LOG_LIMIT: u64 = 16 << 20;
 /// Moves the log at `path` to `<path>.1` once it's past `limit`, over the
 /// last one there, and gives a fresh file in its place. launchd opens the
 /// log once and never trims it, so only the file `writing` points at moves.
+#[cfg(any(unix, test))]
 pub fn rotate_log(path: &Path, writing: &File, limit: u64) -> io::Result<Option<File>> {
     let log = match fs::metadata(path) {
         Ok(log) => log,

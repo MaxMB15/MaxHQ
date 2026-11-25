@@ -265,6 +265,7 @@ impl Device {
         let dir = std::env::temp_dir().join(format!("maxhq-peers-{name}-{}", uuid::Uuid::now_v7()));
         let files = Files {
             ssh: dir.join(".config/maxhq/ssh"),
+            keys: dir.join(".ssh/authorized_keys"),
             home: dir.clone(),
         };
         let db = Db::open_in_memory().unwrap();

@@ -13,6 +13,8 @@ use maxhq_protocol::model::Device;
 use maxhq_protocol::skills::SkillProposal;
 
 use super::*;
+// The fake Incus serves on a Unix socket.
+#[cfg(unix)]
 use crate::incus::fake::{FakeIncus, State as IncusState};
 use crate::skills::apply::tests::stocked;
 use crate::testing::TempDir;
@@ -72,6 +74,7 @@ impl GuestSkills for FakeGuests {
 }
 
 /// A link request without a pack.
+#[cfg(unix)]
 fn linked(checkout: &str, homes: Vec<String>) -> GuestLinks {
     GuestLinks {
         checkout: checkout.into(),
@@ -365,6 +368,7 @@ fn a_restart_mark_shows_until_the_agents_restart_and_outlasts_an_apply() {
     assert!(!setup.published().checkouts[0].needs_restart);
 }
 
+#[cfg(unix)]
 #[tokio::test]
 async fn a_container_gets_its_set_on_a_read_only_disk_once_and_links_to_it() {
     let mut state = IncusState::default();
@@ -438,6 +442,7 @@ async fn a_container_gets_its_set_on_a_read_only_disk_once_and_links_to_it() {
     assert_eq!(paths, ["/work/repo", "/work/repo/.worktrees/a"]);
 }
 
+#[cfg(unix)]
 #[tokio::test]
 async fn a_gone_workspace_loses_its_set_and_the_others_keep_theirs() {
     let mut state = IncusState::default();

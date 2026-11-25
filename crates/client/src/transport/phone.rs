@@ -21,26 +21,13 @@ use maxhq_protocol::phones::PhoneBookEntry;
 use russh::client::{self, Handle, Msg};
 use russh::keys::ssh_key::private::Ed25519Keypair;
 use russh::keys::{PrivateKey, PrivateKeyWithHashAlg, PublicKey, PublicKeyOrCertificate};
-use russh::{Channel, ChannelMsg, Disconnect};
-use tokio::io::AsyncWriteExt;
+use russh::{Channel, Disconnect};
 use tokio::task::JoinHandle;
 
-use super::reach::{self, Connect, Io, Logins, Reasons, STAGGER};
-use super::{Conn, DialError, Rest, StderrTail, Transport, LOGIN_TIMEOUT, PROXY_COMMAND};
+use super::channel::{self, ssh_failure, REASONS};
+use super::reach::{self, Connect, Io, Logins, STAGGER};
+use super::{Conn, DialError, Rest, Transport, LOGIN_TIMEOUT, PROXY_COMMAND};
 use crate::ssh_config::SshConfig;
-
-/// How many bytes from `maxd` wait for the link to read them.
-const PIPE: usize = 256 * 1024;
-
-/// How many bytes of stderr wait for the tail to read them.
-const STDERR_PIPE: usize = 8 * 1024;
-
-/// What SSH says when it can't reach a port.
-const REASONS: Reasons = Reasons {
-    refused: "SSH connection refused",
-    timed_out: "SSH timed out",
-    closed: "the SSH connection closed",
-};
 
 /// The phone's SSH: its own ed25519 key, and the devices it may reach,
 /// each route with its device's pinned host key. Clones share the devices,
@@ -109,7 +96,7 @@ impl PhoneSsh {
     }
 
     /// Reaches hosts through `connect` in place of TCP.
-    #[cfg(test)]
+    #[cfg(all(test, unix))]
     pub(crate) fn connecting_with(mut self, connect: Connect) -> Self {
         self.connect = connect;
         self
@@ -212,30 +199,16 @@ impl client::Handler for Pinned {
 
 /// The channel as a stream: its data for the link, its stderr for the
 /// tail, and the session kept open until the stream drops.
-fn piped(handle: Handle<Pinned>, mut channel: Channel<Msg>) -> Conn {
-    let writer = channel.make_writer();
-    let (mut out, reader) = tokio::io::duplex(PIPE);
-    let (mut err, stderr) = tokio::io::duplex(STDERR_PIPE);
-    let pump = tokio::spawn(async move {
-        while let Some(message) = channel.wait().await {
-            match message {
-                ChannelMsg::Data { data } if out.write_all(&data).await.is_err() => break,
-                ChannelMsg::ExtendedData { data, ext: 1 } => {
-                    let _ = err.write_all(&data).await;
-                }
-                ChannelMsg::Eof | ChannelMsg::Close => break,
-                _ => {}
-            }
-        }
-    });
+fn piped(handle: Handle<Pinned>, channel: Channel<Msg>) -> Conn {
+    let piped = channel::pipe(channel);
     Conn {
-        reader: Box::new(reader),
-        writer: Box::new(Box::pin(writer)),
+        reader: piped.reader,
+        writer: piped.writer,
         rest: Rest {
-            stderr: Some(StderrTail::read(stderr)),
+            stderr: Some(piped.stderr),
             _keep: Some(Box::new(Session {
                 handle: Some(handle),
-                pump,
+                pump: piped.pump,
             })),
         },
     }
@@ -257,14 +230,5 @@ impl Drop for Session {
                 let _ = handle.disconnect(Disconnect::ByApplication, "", "en").await;
             });
         }
-    }
-}
-
-/// What a russh failure means for the app.
-fn ssh_failure(err: &russh::Error) -> DialError {
-    match err {
-        russh::Error::UnknownKey => DialError::refused("the device showed a different host key"),
-        russh::Error::IO(err) => reach::io_failure(err, &REASONS),
-        _ => DialError::down("the SSH connection closed"),
     }
 }

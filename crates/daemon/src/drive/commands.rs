@@ -36,6 +36,14 @@
 //! the folders that points out of them reads as outside, and a path that
 //! can't be followed reads as outside too. For a workspace elsewhere only the
 //! path's words count, so a path it can't place from them asks.
+//!
+//! On Windows an agent's commands run in PowerShell or `cmd.exe`, which read a
+//! line differently from sh. A `\` there separates folders and is read as a
+//! `/`. A line with what either of them would expand or escape always asks:
+//! a backtick, `^`, `%`, `@`, `[` or `]`, a `*`, `?`, `{` or `}` in quotes, a
+//! doubled quote, a `\` before a quote, or any redirection to a file. `git.exe` counts as `git`, and the commands that
+//! delete, run code or change the system there keep their exact words, as do
+//! cmdlets such as `remove-item` and scripts such as `build.cmd`.
 
 use std::ffi::OsString;
 use std::path::{Component, Path, PathBuf};
@@ -334,6 +342,25 @@ pub enum Refusal {
 /// One command of a line, as its words.
 type Part = Vec<String>;
 
+/// How the shell that runs a line reads it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Syntax {
+    /// sh's rules, on macOS and Linux.
+    Sh,
+    /// PowerShell's and `cmd.exe`'s, on Windows, as far as they agree with
+    /// sh. Where they don't, the line asks.
+    Windows,
+}
+
+impl Syntax {
+    /// How this machine's shells read a line.
+    pub const HOST: Self = if cfg!(windows) {
+        Self::Windows
+    } else {
+        Self::Sh
+    };
+}
+
 /// One command of a line as the lexer read it.
 struct Command {
     words: Part,
@@ -353,6 +380,8 @@ pub struct Folders {
     /// Whether the folders are on this machine, so a path's links can be
     /// followed.
     local: bool,
+    /// How the shell reads a line.
+    syntax: Syntax,
 }
 
 /// Where the commands of one line may run, as the `cd`s before them leave it.
@@ -400,7 +429,14 @@ impl Folders {
             inside,
             data: all_data,
             local,
+            syntax: Syntax::HOST,
         }
+    }
+
+    /// The folders, with lines read by `syntax`'s rules.
+    pub fn read_as(mut self, syntax: Syntax) -> Self {
+        self.syntax = syntax;
+        self
     }
 
     /// Where a line starts out.
@@ -635,12 +671,13 @@ enum Reach {
 /// inside `folders`, and in any mode but Plan when the rules name every command
 /// in it.
 pub fn allows(line: &str, auto: bool, rules: &[CommandRule], folders: &Folders) -> bool {
-    let Ok(commands) = read(line) else {
+    let syntax = folders.syntax;
+    let Ok(commands) = read(line, syntax) else {
         return false;
     };
     let rules: Vec<(Part, bool)> = rules
         .iter()
-        .filter_map(|rule| Some((words_of(&rule.command)?, rule.exact)))
+        .filter_map(|rule| Some((words_of(&rule.command, syntax)?, rule.exact)))
         .collect();
     let mut here = folders.here();
     commands.iter().all(|command| {
@@ -656,7 +693,8 @@ pub fn allows(line: &str, auto: bool, rules: &[CommandRule], folders: &Folders) 
         exact
             || match folders.reach(command, &here) {
                 Reach::Inside => {
-                    (auto && reads_only(part)) || rules.iter().any(|rule| matches(rule, part))
+                    (auto && reads_only(part))
+                        || rules.iter().any(|rule| matches(rule, part, syntax))
                 }
                 // A rule that isn't exact names a command, not where it looks,
                 // so it covers one only inside the folders.
@@ -669,7 +707,7 @@ pub fn allows(line: &str, auto: bool, rules: &[CommandRule], folders: &Folders) 
 /// commands that doesn't pass on its own. None for a line that's always
 /// asked about, and none for a `cd`, which no rule covers.
 pub fn rules_for(line: &str, folders: &Folders) -> Vec<CommandRule> {
-    let Ok(commands) = read(line) else {
+    let Ok(commands) = read(line, folders.syntax) else {
         return Vec::new();
     };
     let mut rules: Vec<CommandRule> = Vec::new();
@@ -680,7 +718,8 @@ pub fn rules_for(line: &str, folders: &Folders) -> Vec<CommandRule> {
             folders.cd(command, &mut here);
             continue;
         }
-        let rule = if risky(part) || folders.reach(command, &here) != Reach::Inside {
+        let rule = if risky(part, folders.syntax) || folders.reach(command, &here) != Reach::Inside
+        {
             CommandRule {
                 command: join(part),
                 exact: true,
@@ -706,18 +745,22 @@ pub fn always_allow_holds(line: &str, folders: &Folders) -> bool {
 }
 
 /// Whether `rule`, as its words and whether it's exact, names `part`.
-fn matches((words, exact): &(Part, bool), part: &Part) -> bool {
+fn matches((words, exact): &(Part, bool), part: &Part, syntax: Syntax) -> bool {
     if *exact {
         words == part
     } else {
-        !risky(part) && *words == key(part)
+        !risky(part, syntax) && *words == key(part)
     }
 }
 
 /// A rule's command back as words, or none for one that doesn't read as
 /// a single command.
-fn words_of(command: &str) -> Option<Part> {
-    let mut parts = split(command).ok()?;
+fn words_of(command: &str, syntax: Syntax) -> Option<Part> {
+    let mut parts = read(command, syntax)
+        .ok()?
+        .into_iter()
+        .map(|command| command.words)
+        .collect::<Vec<_>>();
     (parts.len() == 1).then(|| parts.remove(0))
 }
 
@@ -802,7 +845,7 @@ fn resolve(path: &Path) -> Option<PathBuf> {
     }
     let mut rest = Vec::new();
     push_steps(&mut rest, path);
-    let mut at = PathBuf::from("/");
+    let mut at = root_of(path);
     let mut links = 0;
     let mut missing = false;
     while let Some(step) = rest.pop() {
@@ -823,7 +866,7 @@ fn resolve(path: &Path) -> Option<PathBuf> {
                 let target = std::fs::read_link(&at).ok()?;
                 at.pop();
                 if target.is_absolute() {
-                    at = PathBuf::from("/");
+                    at = root_of(&target);
                 }
                 push_steps(&mut rest, &target);
             }
@@ -833,6 +876,14 @@ fn resolve(path: &Path) -> Option<PathBuf> {
         }
     }
     Some(at)
+}
+
+/// Where an absolute `path` starts: `/`, or a drive's root such as `C:\`
+/// on Windows.
+fn root_of(path: &Path) -> PathBuf {
+    path.components()
+        .take_while(|part| matches!(part, Component::Prefix(_) | Component::RootDir))
+        .collect()
 }
 
 /// Puts `path`'s names on `rest` so that its first comes off first.
@@ -2294,10 +2345,13 @@ fn after_globals(part: &Part) -> &[String] {
 }
 
 /// Whether a rule for `part` has to keep its exact words.
-fn risky(part: &Part) -> bool {
+fn risky(part: &Part, syntax: Syntax) -> bool {
     let Some(command) = part.first().map(String::as_str) else {
         return true;
     };
+    if syntax == Syntax::Windows && windows_risky(command) {
+        return true;
+    }
     // A program written as a path could be anything, and a Mac's file system
     // finds `RM` for `rm`.
     if RISKY.contains(&command)
@@ -2324,6 +2378,87 @@ fn risky(part: &Part) -> bool {
         }
         _ => false,
     }
+}
+
+/// Commands a rule keeps whole on Windows, past [`RISKY`]: PowerShell's
+/// aliases and `cmd.exe`'s commands that delete, move, overwrite, reach the
+/// network, run code or change the system.
+const WINDOWS_RISKY: &[&str] = &[
+    "del",
+    "erase",
+    "rd",
+    "ri",
+    "move",
+    "mi",
+    "copy",
+    "cpi",
+    "xcopy",
+    "robocopy",
+    "ren",
+    "rename",
+    "rni",
+    "ni",
+    "md",
+    "sc",
+    "ac",
+    "clc",
+    "cli",
+    "clv",
+    "sp",
+    "iex",
+    "icm",
+    "ii",
+    "iwr",
+    "irm",
+    "saps",
+    "start",
+    "spps",
+    "sajb",
+    "call",
+    "set",
+    "setx",
+    "sl",
+    "chdir",
+    "mklink",
+    "taskkill",
+    "reg",
+    "regedit",
+    "schtasks",
+    "icacls",
+    "takeown",
+    "attrib",
+    "certutil",
+    "bitsadmin",
+    "msiexec",
+    "rundll32",
+    "regsvr32",
+    "mshta",
+    "cscript",
+    "wscript",
+    "powershell",
+    "pwsh",
+    "cmd",
+    "wsl",
+    "winget",
+    "choco",
+    "scoop",
+    "net",
+    "netsh",
+    "shutdown",
+    "format",
+    "diskpart",
+    "runas",
+    "explorer",
+];
+
+/// Whether `command` keeps its exact words on Windows: one [`WINDOWS_RISKY`]
+/// names, a cmdlet such as `remove-item`, whose verb picks what it does, or a
+/// script, which runs whatever it holds.
+fn windows_risky(command: &str) -> bool {
+    let script = [".cmd", ".bat", ".ps1", ".vbs", ".js", ".wsf", ".com"]
+        .iter()
+        .any(|end| command.ends_with(end));
+    WINDOWS_RISKY.contains(&command) || command.contains('-') || script
 }
 
 /// Whether a tool's subcommand runs whatever it's given. A package manager's
@@ -2777,15 +2912,19 @@ fn quote(word: &str) -> String {
 /// Splits a command line into its commands, each as its words with the
 /// quotes taken off, or says why it's always asked about.
 pub fn split(line: &str) -> Result<Vec<Part>, Refusal> {
-    Ok(read(line)?
+    Ok(read(line, Syntax::HOST)?
         .into_iter()
         .map(|command| command.words)
         .collect())
 }
 
-/// Reads a command line into its commands, or says why it's always asked
-/// about.
-fn read(line: &str) -> Result<Vec<Command>, Refusal> {
+/// Reads a command line into its commands, as `syntax`'s shell reads it, or
+/// says why it's always asked about.
+fn read(line: &str, syntax: Syntax) -> Result<Vec<Command>, Refusal> {
+    let line = match syntax {
+        Syntax::Sh => line.to_owned(),
+        Syntax::Windows => windows_line(line)?,
+    };
     let mut lexer = Lexer {
         chars: line.chars().collect(),
         at: 0,
@@ -2805,7 +2944,12 @@ fn read(line: &str) -> Result<Vec<Command>, Refusal> {
                 part.words.push(word);
             }
             Token::Redirect(target) => {
-                if target.is_some_and(|target| target != "/dev/null") {
+                // Windows has no `/dev/null`, so a redirection there makes a file.
+                let to_file = match syntax {
+                    Syntax::Sh => target.is_some_and(|target| target != "/dev/null"),
+                    Syntax::Windows => target.is_some(),
+                };
+                if to_file {
                     return Err(Refusal::Output);
                 }
             }
@@ -2828,9 +2972,12 @@ fn read(line: &str) -> Result<Vec<Command>, Refusal> {
     if parts.is_empty() {
         return Err(Refusal::Empty);
     }
-    for part in &parts {
+    for part in &mut parts {
+        if syntax == Syntax::Windows {
+            program_as_named(&mut part.words[0]);
+        }
         let first = &part.words[0];
-        if matches!(first.as_str(), "sudo" | "su" | "doas") {
+        if matches!(first.as_str(), "sudo" | "su" | "doas" | "runas" | "gsudo") {
             return Err(Refusal::OtherUser);
         }
         if is_assignment(first) {
@@ -2838,6 +2985,39 @@ fn read(line: &str) -> Result<Vec<Command>, Refusal> {
         }
     }
     Ok(parts)
+}
+
+/// A line PowerShell or `cmd.exe` runs as sh would read it: each `\` a `/`,
+/// which both take as a folder separator. Refused when either would expand
+/// or escape something sh doesn't: a backtick, `^`, `%` or `@`, a quote
+/// doubled inside quotes, or a `\` before a quote, which a program's own
+/// argument reading takes as an escaped quote. So is a `[` or `]`, and a
+/// `*`, `?`, `{` or `}` in quotes, since PowerShell's file commands and the
+/// programs Git for Windows brings match names with them even when quoted.
+fn windows_line(line: &str) -> Result<String, Refusal> {
+    if line.contains(['`', '^', '%', '@', '[', ']']) {
+        return Err(Refusal::Expansion);
+    }
+    if line.contains("''") || line.contains("\"\"") || line.contains("\\\"") {
+        return Err(Refusal::Expansion);
+    }
+    let mut quote = None;
+    for c in line.chars() {
+        match (quote, c) {
+            (None, '\'' | '"') => quote = Some(c),
+            (Some(open), c) if c == open => quote = None,
+            (Some(_), '*' | '?' | '{' | '}') => return Err(Refusal::Expansion),
+            _ => {}
+        }
+    }
+    Ok(line.replace('\\', "/"))
+}
+
+/// A program's name as Windows finds it: `git.exe` is `git`.
+fn program_as_named(program: &mut String) {
+    if !program.contains('/') && program.len() > 4 && program.ends_with(".exe") {
+        program.truncate(program.len() - 4);
+    }
 }
 
 /// Whether a command's first word sets a variable, as `NAME=value`.
@@ -3044,8 +3224,17 @@ impl Lexer {
 mod tests {
     use super::*;
 
+    /// The folders, read as sh reads a line on every system.
     fn folders() -> Folders {
-        Folders::new(Path::new("/work/ws"), Path::new("/data/attached"), false)
+        Folders::new(Path::new("/work/ws"), Path::new("/data/attached"), false).read_as(Syntax::Sh)
+    }
+
+    /// [`super::split`] as sh reads a line.
+    fn split(line: &str) -> Result<Vec<Part>, Refusal> {
+        Ok(read(line, Syntax::Sh)?
+            .into_iter()
+            .map(|command| command.words)
+            .collect())
     }
 
     fn allows(line: &str, auto: bool, rules: &[CommandRule]) -> bool {
@@ -4876,5 +5065,117 @@ mod tests {
         assert!(!ok(&format!("cat {name}/main.rs")));
         assert!(ok("cat hop0/main.rs"));
         std::fs::remove_dir_all(&base).unwrap();
+    }
+
+    /// The folders, read as PowerShell and `cmd.exe` read a line.
+    fn windows() -> Folders {
+        folders().read_as(Syntax::Windows)
+    }
+
+    fn windows_words(line: &str) -> Result<Vec<Part>, Refusal> {
+        Ok(read(line, Syntax::Windows)?
+            .into_iter()
+            .map(|command| command.words)
+            .collect())
+    }
+
+    #[test]
+    fn windows_reads_a_backslash_as_a_folder_separator() {
+        let auto = |line: &str| super::allows(line, true, &[], &windows());
+        assert_eq!(
+            windows_words(r"cat src\main.rs; git.exe status").unwrap(),
+            [vec!["cat", "src/main.rs"], vec!["git", "status"]]
+        );
+        assert!(auto(r"cat src\main.rs"));
+        assert!(auto(r"git.exe log -n 3"));
+        assert!(auto(r"rg -n needle 'src\drive'"));
+        // A backslash that climbs out still reads as outside.
+        assert!(!auto(
+            r"cat ..\..
+otes.txt"
+        ));
+        assert!(!auto(
+            r"cat src\..\..
+otes.txt"
+        ));
+        assert!(!auto(r"cat .ssh\id_ed25519"));
+        // On sh the same backslashes escape, as before.
+        assert_eq!(words(r"cat src\main.rs"), [vec!["cat", "srcmain.rs"]]);
+    }
+
+    #[test]
+    fn windows_asks_about_what_powershell_or_cmd_would_expand() {
+        for line in [
+            "echo `whoami`",
+            "echo a`nb",
+            "echo ^& calc",
+            "type %USERPROFILE%/.ssh/id_rsa",
+            "ls | % name",
+            "ls @args",
+            "cat 'notes[1].txt'",
+            "cat .ss[h]/id_rsa",
+            "cat 'it''s.txt'",
+            r#"echo "say ""hi""""#,
+            r#"grep "a\" b" notes.txt"#,
+            "cat '.ss?/id_rsa'",
+            r#"cat "*.env""#,
+            "cat '{a,b}.txt'",
+        ] {
+            assert_eq!(windows_words(line), Err(Refusal::Expansion), "{line}");
+            assert!(!super::allows(line, true, &[], &windows()), "{line}");
+        }
+        // Windows has no /dev/null, so that's a file too, while another
+        // descriptor is fine.
+        assert_eq!(windows_words("ls > /dev/null"), Err(Refusal::Output));
+        assert_eq!(windows_words("ls > NUL"), Err(Refusal::Output));
+        assert!(windows_words("ls 2>&1").is_ok());
+        assert_eq!(
+            windows_words("runas /user:admin cmd"),
+            Err(Refusal::OtherUser)
+        );
+        // A glob outside quotes is still read as one.
+        assert!(super::allows("ls src/*.rs", true, &[], &windows()));
+        assert!(!super::allows("cat .ss*/id_rsa", true, &[], &windows()));
+    }
+
+    #[test]
+    fn windows_keeps_its_own_risky_commands_exact() {
+        let rules_for = |line: &str| super::rules_for(line, &windows());
+        for line in [
+            "del notes.txt",
+            "rd /s build",
+            "remove-item build",
+            "copy a.txt b.txt",
+            "iex calc",
+            "start notepad",
+            "build.cmd release",
+            "setup.ps1",
+            "pwsh -c ls",
+            "cmd /c dir",
+            "winget install thing",
+            "reg add key",
+        ] {
+            assert_eq!(rules_for(line), [rule(line, true)], "{line}");
+            let loose = line.split(' ').next().unwrap();
+            let other = format!("{loose} other");
+            assert!(
+                !super::allows(&other, false, &[rule(loose, false)], &windows()),
+                "{line}"
+            );
+        }
+        // A program named with .exe saves the rule by its name.
+        assert_eq!(rules_for("git.exe status"), [rule("git status", false)]);
+        assert_eq!(rules_for("make.exe build"), [rule("make build", false)]);
+        // sh keeps reading these as before.
+        assert_eq!(
+            super::rules_for("del notes.txt", &folders()),
+            [rule("del", false)]
+        );
+    }
+
+    #[test]
+    fn an_absolute_path_resolves_from_its_own_root() {
+        assert_eq!(root_of(Path::new("/work/ws")), Path::new("/"));
+        assert_eq!(root_of(Path::new("work/ws")), Path::new(""));
     }
 }

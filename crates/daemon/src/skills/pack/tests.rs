@@ -467,6 +467,7 @@ fn removing_the_pack_takes_its_log() {
 
 /// Links a skill and an agent of the pack the way devflow's installer
 /// does, and writes an instructions file of its own.
+#[cfg(unix)]
 const LINKS: &str = "mkdir -p .claude/skills .codex/skills .github/agents
 ln -s ../../.devflow-vendor/skills/review .claude/skills/review
 ln -s ../../.devflow-vendor/skills/review .codex/skills/review

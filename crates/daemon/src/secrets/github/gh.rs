@@ -188,7 +188,7 @@ fn arguments(path: &str, etag: Option<&str>) -> Vec<String> {
 /// `program` with `args`, its environment cleared of tokens, and nothing
 /// to read.
 fn command(program: &Path, args: &[String]) -> Command {
-    let mut command = Command::new(program);
+    let mut command = crate::drive::programs::command(program);
     command
         .args(args)
         .stdin(Stdio::null())
@@ -333,8 +333,9 @@ fn hidden(text: &str) -> String {
 mod tests {
     use std::collections::HashMap;
     use std::ffi::OsStr;
-    use std::fs;
-    use std::time::Instant;
+    // The fake programs are sh scripts.
+    #[cfg(unix)]
+    use std::{fs, time::Instant};
 
     use super::*;
     use crate::testing::TempDir;
@@ -348,6 +349,7 @@ mod tests {
     }
 
     /// A `gh` that runs `body` as a shell script.
+    #[cfg(unix)]
     fn script(dir: &Path, body: &str) -> PathBuf {
         use std::os::unix::fs::PermissionsExt;
         let program = dir.join("gh");
@@ -449,6 +451,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[cfg(unix)]
     async fn the_program_runs_with_its_arguments_and_settings() {
         let temp = TempDir::new();
         let program = script(
@@ -474,6 +477,7 @@ printf '{"args":"%s","token":"%s","prompt":"%s","notifier":"%s"}' "$*" "${GH_TOK
     }
 
     #[tokio::test]
+    #[cfg(unix)]
     async fn a_run_that_hangs_is_stopped() {
         let temp = TempDir::new();
         let marker = temp.path().join("finished");

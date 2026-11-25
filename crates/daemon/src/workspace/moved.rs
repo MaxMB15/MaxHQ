@@ -573,7 +573,8 @@ pub fn mover(manager: Manager, sessions: Sessions, db: crate::db::Db) -> crate::
     })
 }
 
-#[cfg(test)]
+// The scripts run in a Linux container, and the tests run them with sh.
+#[cfg(all(test, unix))]
 mod tests {
     use std::fs;
     use std::path::Path;

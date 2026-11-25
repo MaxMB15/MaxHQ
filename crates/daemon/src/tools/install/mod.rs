@@ -23,12 +23,15 @@ use maxhq_protocol::state::{ToolKind, ToolPlace, ToolState};
 use crate::recipe::{Exec, ExecError, ExecOutput, ExecUser};
 
 pub mod fetch;
+#[cfg(test)]
+pub(crate) mod fixture;
 pub mod flow;
 mod lock;
 pub mod releases;
 pub mod scripts;
-#[cfg(test)]
-pub(crate) mod tests;
+// The tests run the install scripts with sh.
+#[cfg(all(test, unix))]
+mod tests;
 
 pub use releases::{Publishers, Releases};
 

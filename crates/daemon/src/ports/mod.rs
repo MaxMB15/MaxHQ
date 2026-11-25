@@ -21,12 +21,16 @@
 //! own sockets, nor a CLI's own listeners, nor a project's
 //! `ignored_ports`.
 
+// The guest's port watch, and the /proc scanner it and Linux use, run
+// on Unix alone.
+#[cfg(unix)]
 pub mod guest;
 mod host;
 #[cfg(target_os = "macos")]
 mod libproc;
 mod links;
 pub mod processes;
+#[cfg(unix)]
 mod procfs;
 mod track;
 
@@ -44,6 +48,7 @@ pub use self::host::{local_scanner, run_local, HostPorts, LocalHolder};
 #[cfg(target_os = "macos")]
 pub use self::libproc::Libproc;
 pub use self::links::{HolderWatch, Holding, Holdings, Links};
+#[cfg(unix)]
 pub use self::procfs::Procfs;
 pub use self::track::Debounce;
 
@@ -116,6 +121,7 @@ pub type Jobs = HashMap<SessionId, AgentRunning>;
 
 /// The port numbers of a process's listening sockets, as port detection
 /// counts them.
+#[cfg(unix)]
 pub(crate) fn port_numbers(sockets: impl IntoIterator<Item = (IpAddr, u16)>) -> Vec<u16> {
     sockets
         .into_iter()
@@ -148,6 +154,7 @@ pub fn bind_of(ip: IpAddr) -> BindAddress {
 }
 
 /// A listening socket a scanner found, before sockets on one port merge.
+#[cfg(any(unix, test))]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct Found {
     pub(crate) ip: IpAddr,
@@ -160,6 +167,7 @@ pub(crate) struct Found {
 /// One entry per port, in port order. A port on several addresses shows
 /// the widest: every address, then loopback, then a single address. The
 /// first socket with a holder or a process gives them.
+#[cfg(any(unix, test))]
 pub(crate) fn merge(found: Vec<Found>) -> Vec<GuestPort> {
     fn rank(bind: &BindAddress) -> u8 {
         match bind {

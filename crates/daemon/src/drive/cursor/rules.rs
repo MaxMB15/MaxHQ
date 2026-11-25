@@ -21,7 +21,6 @@ use std::ffi::OsString;
 use std::fs;
 use std::io;
 use std::ops::Range;
-use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, PoisonError};
 use std::time::Duration;
@@ -243,11 +242,7 @@ fn remove(path: &Path, rule: &str) -> Result<Vec<String>, Problem> {
     let Some(kept) = without(&text, rule)? else {
         return shell_rules(&text);
     };
-    let mode = fs::metadata(&path)
-        .map_err(Problem::Read)?
-        .permissions()
-        .mode()
-        & 0o777;
+    let mode = maxhq_os::fsmode::mode_of(&fs::metadata(&path).map_err(Problem::Read)?) & 0o777;
     // Cursor writes the whole file when you change a setting there, so
     // one that changed since the read above is left for another try.
     if read(&path)?.as_deref() != Some(text.as_str()) {
@@ -479,8 +474,6 @@ fn refused(reason: impl Into<String>) -> ActionOutcome {
 
 #[cfg(test)]
 mod tests {
-    use std::os::unix::fs::symlink;
-
     use super::*;
     use crate::testing::TempDir;
 
@@ -526,9 +519,14 @@ mod tests {
         run(&call, None, None, Some(home))
     }
 
+    /// The mode bits of `path`, which Windows gives as 0600 for every
+    /// file.
     fn mode(path: &Path) -> u32 {
-        fs::metadata(path).unwrap().permissions().mode() & 0o777
+        maxhq_os::fsmode::mode_of(&fs::metadata(path).unwrap()) & 0o777
     }
+
+    /// The mode a file set to 0640 reads back with.
+    const SHARED: u32 = if cfg!(unix) { 0o640 } else { 0o600 };
 
     #[test]
     fn cursor_s_folder_is_the_one_its_cli_finds() {
@@ -599,7 +597,7 @@ mod tests {
     #[test]
     fn a_removed_rule_leaves_everything_else_as_it_was() {
         let (home, path) = home_with(CURSOR);
-        fs::set_permissions(&path, fs::Permissions::from_mode(0o640)).unwrap();
+        maxhq_os::fsmode::set_mode(&path, 0o640).unwrap();
 
         let left = remove_in(home.path(), "Shell(pnpm test)").unwrap();
         assert_eq!(left.rules, ["Shell(git status)", "Shell(ls)"]);
@@ -607,7 +605,7 @@ mod tests {
             fs::read_to_string(&path).unwrap(),
             CURSOR.replace("      \"Shell(pnpm test)\",\n", "")
         );
-        assert_eq!(mode(&path), 0o640);
+        assert_eq!(mode(&path), SHARED);
         let names: Vec<_> = fs::read_dir(path.parent().unwrap())
             .unwrap()
             .map(|entry| entry.unwrap().file_name())
@@ -623,7 +621,7 @@ mod tests {
             .replace("      \"Shell(pnpm test)\",\n", "")
             .replace("\"Read(src/**)\",\n      \"Shell(ls)\"", "\"Read(src/**)\"");
         assert_eq!(fs::read_to_string(&path).unwrap(), expected);
-        assert_eq!(mode(&path), 0o640);
+        assert_eq!(mode(&path), SHARED);
     }
 
     #[test]
@@ -658,7 +656,7 @@ mod tests {
     #[test]
     fn a_rule_that_isn_t_there_leaves_the_file_alone() {
         let (home, path) = home_with(CURSOR);
-        fs::set_permissions(&path, fs::Permissions::from_mode(0o600)).unwrap();
+        maxhq_os::fsmode::set_mode(&path, 0o600).unwrap();
         let before = fs::metadata(&path).unwrap().modified().unwrap();
         let left = remove_in(home.path(), "Shell(make)").unwrap();
         assert_eq!(left.rules.len(), 3);
@@ -732,6 +730,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(unix)]
     fn a_linked_file_is_changed_and_the_link_kept() {
         let (home, _) = home_with("");
         let dotfiles = home.path().join("dotfiles");
@@ -740,7 +739,7 @@ mod tests {
         fs::write(&real, CURSOR).unwrap();
         let link = home.path().join(".cursor").join(FILE);
         fs::remove_file(&link).unwrap();
-        symlink(&real, &link).unwrap();
+        std::os::unix::fs::symlink(&real, &link).unwrap();
 
         remove_in(home.path(), "Shell(ls)").unwrap();
         assert!(fs::symlink_metadata(&link)
