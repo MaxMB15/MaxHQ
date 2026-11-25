@@ -162,8 +162,7 @@ jobs:
           # Only branch pushes save, for the same reason as in the rust job.
           save-if: ${{ github.event_name == 'push' }}
 
-      # tauri::generate_context! needs frontendDist to exist, as in the rust
-      # job, for the day the desktop crate joins the list.
+      # tauri::generate_context! needs frontendDist to exist, as in the rust job.
       - name: Create an empty frontend build
         run: mkdir -p apps/desktop/dist
 
