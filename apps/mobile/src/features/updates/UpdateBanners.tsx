@@ -2,10 +2,10 @@
 // Copyright (c) 2026 Max Boksem
 
 // The strips over the agent list about updates: a newer MaxHQ in
-// TestFlight, which you open or dismiss for that version, and each device
-// whose maxd shares no protocol with this app. When the app is the older
-// side, its strip opens TestFlight; when the device is, it says to update
-// MaxHQ there. The phone looks for the newest build from here, when the app
+// TestFlight, or to download on Android, which you open or dismiss for that
+// version, and each device whose maxd shares no protocol with this app. When
+// the app is the older side, its strip opens the update; when the device
+// is, it says to update MaxHQ there. The phone looks for the newest build from here, when the app
 // opens and comes back.
 
 import { useI18n } from "@maxhq/shared/i18n";
@@ -16,11 +16,12 @@ import { useStore } from "zustand";
 
 import { PROTOCOL_VERSION } from "@maxhq/shared/bindings";
 
+import { OS, platform } from "../../platform";
 import { useAppActive, useView } from "../../services";
 import { color, radius, size, tint } from "../../theme";
 import { Button } from "../../ui/Button";
-import { checkIfDue, dismiss, openTestflight, thisBuild, updates } from "./store";
-import { mismatches, offeredVersion } from "./updates";
+import { checkIfDue, dismiss, openUpdate, thisBuild, updates } from "./store";
+import { mismatches, offeredVersion, storeNote } from "./updates";
 
 const Banner = ({
 	hue,
@@ -54,7 +55,7 @@ const Banner = ({
 export const UpdateBanners = () => {
 	const { t } = useI18n();
 
-	const offered = useStore(updates, (state) => offeredVersion(state, thisBuild.version));
+	const offered = useStore(updates, (state) => offeredVersion(state, thisBuild, OS));
 	const view = useView((s) => s.view);
 	const mismatched = useMemo(() => mismatches(view), [view]);
 	const active = useAppActive();
@@ -69,9 +70,10 @@ export const UpdateBanners = () => {
 					hue={color.primary}
 					text={color.foregroundStrong}
 					title={t("MaxHQ {{version}} is ready", { version: offered })}
-					body={t("Update in TestFlight")}
+					body={t("Update in TestFlight", { context: platform.context })}
+					note={storeNote(OS) ?? undefined}
 				>
-					<Button label={t("Open")} small onPress={() => void openTestflight()} />
+					<Button label={t("Open")} small onPress={() => void openUpdate()} />
 					<Button
 						label={t("Dismiss")}
 						tone="link"
@@ -94,9 +96,9 @@ export const UpdateBanners = () => {
 						body={body}
 					>
 						<Button
-							label={t("Open TestFlight")}
+							label={t("Open TestFlight", { context: platform.context })}
 							small
-							onPress={() => void openTestflight()}
+							onPress={() => void openUpdate()}
 						/>
 					</Banner>
 				) : (
