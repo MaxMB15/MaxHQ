@@ -20,6 +20,7 @@ import { linkContext, linkForDevice } from "../view/select";
 
 import { type ConnectionLook, deviceConnection, networkAddress } from "./connection";
 import { formatAgo, plural } from "./format";
+import { wslLabel } from "./wsl";
 
 /** What a phone's link says once a device ends its sign-in, as the client says it. */
 export const SIGN_IN_ENDED = "the device ended this phone's sign-in, so pair the phone again";
@@ -43,6 +44,7 @@ const saysPairAgain = (reason: string): boolean =>
  */
 export const routeLabel = (route: Route): string => {
 	if (route.type === "local") return t("On this device");
+	if (route.type === "wsl") return wslLabel(route);
 	const address = networkAddress(route.host);
 	return address === null
 		? route.host.replace(/^ssh:\/\//, "")

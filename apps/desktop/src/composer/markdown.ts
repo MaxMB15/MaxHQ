@@ -62,6 +62,7 @@ import { fromVisualFence, type Visual, visualFence } from "@maxhq/shared/visuals
 import { visualKey } from "@maxhq/shared/visuals/visual";
 import { alertTone } from "@/agent-view/alert";
 import { alertLine, drawsPairedTag } from "@/agent-view/markdown-plugins";
+import { holdsCommand } from "@/layout/shortcuts";
 
 import { blockPreview, type BlockKind, formulaPreview, removeBlockPreview } from "./previews";
 import { t as translate } from "@maxhq/shared/i18n";
@@ -1999,7 +2000,7 @@ export const MarkdownLook = Extension.create<MarkdownLookOptions>({
 							if (
 								options.links &&
 								event.button === 0 &&
-								event.metaKey &&
+								holdsCommand(event) &&
 								openLink(view, event)
 							)
 								return true;

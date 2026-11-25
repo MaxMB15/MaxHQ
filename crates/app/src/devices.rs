@@ -41,7 +41,7 @@ use std::time::Duration;
 use maxhq_client::forward::{ForwardError, LocalForward};
 use maxhq_client::media::Media;
 use maxhq_client::{
-    Client, Copied, LinkError, LinkEvent, LinkHandle, LinkSpec, TerminalSink, TransferError,
+    Client, Copied, LinkError, LinkEvent, LinkHandle, LinkSpec, Saved, TerminalSink, TransferError,
     TransferProgress,
 };
 use maxhq_protocol::attention::{AnswerOutcome, AttentionAnswer};
@@ -233,13 +233,14 @@ pub trait LinkControl: Send + Sync + 'static {
     ) -> impl Future<Output = Result<ActionOutcome, TransferError>> + Send;
 
     /// Fetches a file or folder an agent can see into the downloads folder,
-    /// and gives where it landed.
+    /// and gives where it landed, with the links this machine couldn't
+    /// make.
     fn download(
         &self,
         agent: AgentId,
         path: String,
         on_progress: OnProgress,
-    ) -> impl Future<Output = Result<PathBuf, TransferError>> + Send;
+    ) -> impl Future<Output = Result<Saved, TransferError>> + Send;
 
     /// Fetches a file or folder an agent can see into a staging folder on
     /// this machine, to hand on to a device.
@@ -474,7 +475,7 @@ impl LinkControl for LinkHandle {
         agent: AgentId,
         path: String,
         on_progress: OnProgress,
-    ) -> impl Future<Output = Result<PathBuf, TransferError>> + Send {
+    ) -> impl Future<Output = Result<Saved, TransferError>> + Send {
         LinkHandle::download(self, agent, path, move |progress| on_progress(progress))
     }
 
@@ -564,23 +565,28 @@ impl LinkControl for LinkHandle {
 /// Starts the Mac's client on `runtime`, as [`start_client`] does.
 #[cfg(feature = "desktop")]
 pub fn client(runtime: &Handle, downloads: Option<PathBuf>, media: Option<PathBuf>) -> Client {
-    start_client(runtime, Client::new, downloads, media)
+    start_client(runtime, Client::new, downloads, None, media)
 }
 
 /// Starts the client `make` gives on `runtime`, since it starts tasks.
-/// With `downloads`, files from devices land in that folder, and with
+/// With `downloads`, files from devices land in that folder, with
+/// `staging`, uploads are copied into that one before they go, and with
 /// `media`, the pictures and videos the timeline shows are kept in that
-/// one.
+/// one. Each left out keeps the user's usual folder.
 pub fn start_client(
     runtime: &Handle,
     make: impl FnOnce() -> Client,
     downloads: Option<PathBuf>,
+    staging: Option<PathBuf>,
     media: Option<PathBuf>,
 ) -> Client {
     let _entered = runtime.enter();
     let mut client = make();
     if let Some(folder) = downloads {
         client = client.downloading_into(folder);
+    }
+    if let Some(folder) = staging {
+        client = client.staging_in(folder);
     }
     if let Some(folder) = media {
         client = client.caching_media_in(folder);
@@ -589,7 +595,8 @@ pub fn start_client(
 }
 
 /// Where the `maxd` that ships with the app would be: beside the app's own
-/// binary, which in the bundle is `Contents/MacOS`. In a dev build that's
+/// binary, which in the bundle is `Contents/MacOS`, in a deb or rpm
+/// `/usr/bin` and in an AppImage `$APPDIR/usr/bin`. In a dev build that's
 /// the target folder, where Cargo puts `maxd` too.
 #[cfg(feature = "desktop")]
 pub fn bundled_maxd() -> Option<PathBuf> {
@@ -1250,14 +1257,15 @@ impl<C: Connector> Devices<C> {
     }
 
     /// Fetches a file or folder an agent can see into the downloads folder,
-    /// through a link to the agent's device, and gives where it landed.
-    /// `on_progress` hears how far it has got.
+    /// through a link to the agent's device, and gives where it landed,
+    /// with the links this machine couldn't make. `on_progress` hears how
+    /// far it has got.
     pub async fn download(
         &self,
         agent: AgentId,
         path: String,
         on_progress: OnProgress,
-    ) -> Result<PathBuf, CommandError> {
+    ) -> Result<Saved, CommandError> {
         let targets = self.core.view.read(|merge| agent_targets(merge, agent))?;
         self.core
             .request_through(targets, move |link| {
@@ -3569,7 +3577,7 @@ pub(crate) mod tests {
             agent: AgentId,
             path: String,
             on_progress: OnProgress,
-        ) -> impl Future<Output = Result<PathBuf, TransferError>> + Send {
+        ) -> impl Future<Output = Result<Saved, TransferError>> + Send {
             let started = self
                 .record
                 .lock()
@@ -3579,7 +3587,10 @@ pub(crate) mod tests {
             async move {
                 started?;
                 fake_transfer(&record, id, path.clone(), &on_progress).await?;
-                Ok(PathBuf::from("/downloads").join(path))
+                Ok(Saved {
+                    path: PathBuf::from("/downloads").join(path),
+                    skipped_links: Vec::new(),
+                })
             }
         }
 
@@ -4405,6 +4416,7 @@ pub(crate) mod tests {
             history_mib: 256,
             claude_setup_token: false,
             shell_integration: true,
+            windows_shell: Default::default(),
             read_other_agents: true,
             dispatcher_acts: true,
             chat_gap_minutes: 30,
@@ -4539,6 +4551,7 @@ pub(crate) mod tests {
                 history_mib: 256,
                 claude_setup_token: false,
                 shell_integration: true,
+                windows_shell: Default::default(),
                 read_other_agents: true,
                 dispatcher_acts: true,
                 chat_gap_minutes: 30,
@@ -6075,7 +6088,14 @@ pub(crate) mod tests {
             std::fs::read_to_string(&config).is_ok_and(|text| text.contains("Host mhq-web."))
         });
         let text = std::fs::read_to_string(&config).unwrap();
-        assert!(text.contains(" dev@devbox 'sh -c "));
+        // Windows' ssh reads the remote command by its own rules, in
+        // double quotes.
+        let remote = if cfg!(windows) {
+            " dev@devbox \"sh -c "
+        } else {
+            " dev@devbox 'sh -c "
+        };
+        assert!(text.contains(remote), "{text}");
         assert!(
             !home.join(".ssh").exists(),
             "your own config waits for a yes"

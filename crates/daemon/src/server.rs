@@ -8,14 +8,15 @@
 //! lock file next to the socket first, so a second one exits with a clear
 //! message, and a socket file left by a crash is removed.
 
-use std::fs::{self, DirBuilder, File, OpenOptions, TryLockError};
+use std::fs::{self, File, OpenOptions, TryLockError};
 use std::io::{self, Read, Write};
-use std::os::unix::fs::{DirBuilderExt, FileTypeExt, OpenOptionsExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
 use maxhq_core::prove::Challenge;
+use maxhq_os::fsmode;
+use maxhq_os::ipc::{self, Found, LocalListener, LocalStream};
 use maxhq_protocol::agents::ClientRole;
 use maxhq_protocol::cursor_rules::CursorRuleCall;
 use maxhq_protocol::frame::{self, DecodeError, EncodeError, Frame, FrameDecoder};
@@ -34,8 +35,6 @@ use maxhq_protocol::{ClientMessage, ProtocolRange, ServerMessage};
 use maxhq_wire::{Queue, Sender};
 use thiserror::Error;
 use tokio::io::AsyncReadExt;
-use tokio::net::unix::OwnedReadHalf;
-use tokio::net::{UnixListener, UnixStream};
 use tokio::sync::broadcast::{self, error::RecvError};
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
@@ -126,7 +125,7 @@ fn already_running(path: &Path, pid: Option<u32>) -> String {
 
 /// The socket `maxd` serves on. Dropping it removes the socket file.
 pub struct Listener {
-    listener: UnixListener,
+    listener: LocalListener,
     path: PathBuf,
     /// Held for the life of the listener. The operating system releases it
     /// when the process ends, however it ends.
@@ -141,23 +140,23 @@ pub fn bind(path: &Path) -> Result<Listener, BindError> {
         move |source| BindError::Io { path, source }
     };
     if let Some(dir) = path.parent().filter(|dir| !dir.as_os_str().is_empty()) {
-        DirBuilder::new()
-            .recursive(true)
-            .mode(0o700)
-            .create(dir)
-            .map_err(io_at(dir))?;
+        fsmode::private_dir_all(dir).map_err(io_at(dir))?;
     }
 
     let lock_path = lock_path(path);
-    let mut lock = OpenOptions::new()
-        .read(true)
-        .write(true)
-        .create(true)
-        .truncate(false)
-        .mode(0o600)
-        .open(&lock_path)
-        .map_err(io_at(&lock_path))?;
-    match lock.try_lock() {
+    let mut lock = fsmode::set_open_mode(
+        OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            .truncate(false),
+        0o600,
+    )
+    .open(&lock_path)
+    .map_err(io_at(&lock_path))?;
+    // Not `try_lock`: on Windows it would bar the next maxd from reading
+    // the process ID written below.
+    match maxhq_os::lock::try_hold(&lock) {
         Ok(()) => {}
         Err(TryLockError::WouldBlock) => {
             return Err(BindError::AlreadyRunning {
@@ -177,21 +176,21 @@ pub fn bind(path: &Path) -> Result<Listener, BindError> {
     // Holding the lock means no other maxd started since, so a socket file
     // here was left by one that crashed. One still answering on it must be
     // a maxd from before the lock file, and it keeps the socket.
-    match fs::symlink_metadata(path) {
-        Ok(meta) if !meta.file_type().is_socket() => {
+    match ipc::probe(path) {
+        Ok(Found::Other) => {
             return Err(BindError::NotASocket { path: path.into() });
         }
-        Ok(_) => {
-            if std::os::unix::net::UnixStream::connect(path).is_ok() {
-                return Err(BindError::AlreadyRunning {
-                    path: path.into(),
-                    pid: None,
-                });
-            }
+        Ok(Found::Listening) => {
+            return Err(BindError::AlreadyRunning {
+                path: path.into(),
+                pid: None,
+            });
+        }
+        Ok(Found::Stale) => {
             fs::remove_file(path).map_err(io_at(path))?;
             info!(socket = %path.display(), "removed a stale socket left by an earlier maxd");
         }
-        Err(err) if err.kind() == io::ErrorKind::NotFound => {}
+        Ok(Found::Nothing) => {}
         Err(source) => {
             return Err(BindError::Io {
                 path: path.into(),
@@ -200,10 +199,7 @@ pub fn bind(path: &Path) -> Result<Listener, BindError> {
         }
     }
 
-    let std = std::os::unix::net::UnixListener::bind(path).map_err(io_at(path))?;
-    fs::set_permissions(path, fs::Permissions::from_mode(0o600)).map_err(io_at(path))?;
-    std.set_nonblocking(true).map_err(io_at(path))?;
-    let listener = UnixListener::from_std(std).map_err(io_at(path))?;
+    let listener = LocalListener::bind(path).map_err(io_at(path))?;
     Ok(Listener {
         listener,
         path: path.into(),
@@ -253,7 +249,7 @@ impl Listener {
     ) {
         loop {
             match self.listener.accept().await {
-                Ok((stream, _)) => {
+                Ok(stream) => {
                     let (hub, db, sessions) = (hub.clone(), db.clone(), sessions.clone());
                     let (transfers, tunnels) = (transfers.clone(), tunnels.clone());
                     let keys = keys.clone();
@@ -281,7 +277,7 @@ impl Drop for Listener {
 
 /// Serves one client until it disconnects or breaks the protocol.
 pub async fn serve_client(
-    stream: UnixStream,
+    stream: LocalStream,
     hub: Hub,
     db: Db,
     sessions: Sessions,
@@ -363,7 +359,7 @@ enum Incoming {
 
 /// One client's connection.
 struct Connection {
-    reader: OwnedReadHalf,
+    reader: ipc::ReadHalf,
     /// The writer's queues. Control messages go ahead of state, and state
     /// ahead of file data.
     wire: Sender,
@@ -449,7 +445,7 @@ struct Connection {
 impl Connection {
     /// A connection that hasn't said hello yet.
     fn new(
-        stream: UnixStream,
+        stream: LocalStream,
         hub: Hub,
         db: Db,
         sessions: Sessions,
@@ -463,8 +459,7 @@ impl Connection {
         let seat = admission::seat_for(&stream, &keys, caller);
         // A `maxd` that runs as root itself can't tell root from the
         // phones' and guests' connections it bridges, so none count.
-        let root = !rustix::process::geteuid().is_root()
-            && stream.peer_cred().is_ok_and(|cred| cred.uid() == 0);
+        let root = !maxhq_os::proc::is_root() && stream.peer().is_ok_and(|peer| peer.elevated);
         let challenge = Challenge::generate();
         if challenge.is_none() {
             warn!("no random bytes for a challenge, so this connection can't prove a key");
@@ -858,6 +853,7 @@ impl Connection {
                     | ClientMessage::SetHookSecret { .. }
                     | ClientMessage::SetHookAddress { .. }
                     | ClientMessage::SetApnsKey { .. }
+                    | ClientMessage::SetFcmKey { .. }
                     | ClientMessage::InstallUpdate { .. }
                     | ClientMessage::InstallTool { .. }
                     | ClientMessage::UpdateTools { .. }
@@ -1313,6 +1309,16 @@ impl Connection {
                 private_key,
             } => {
                 let set = move || secrets::set_apns_key(&key_id, &team_id, private_key);
+                self.answer_when(key, tokio::task::spawn_blocking(set));
+                Ok(())
+            }
+            ClientMessage::SetFcmKey {
+                key,
+                project_id,
+                client_email,
+                private_key,
+            } => {
+                let set = move || secrets::set_fcm_key(&project_id, &client_email, private_key);
                 self.answer_when(key, tokio::task::spawn_blocking(set));
                 Ok(())
             }
@@ -2103,9 +2109,10 @@ pub(crate) mod tests {
         TransferId, WorkspaceId,
     };
     use maxhq_protocol::message::{ClientInfo, UploadTarget, SHOW_ANYWAY_SINCE};
+    #[cfg(unix)]
+    use maxhq_protocol::model::WorkspaceState;
     use maxhq_protocol::model::{
         Activity, Agent, AgentLink, Control, Device, Vendor, Workspace, WorkspaceLocation,
-        WorkspaceState,
     };
     use maxhq_protocol::state::{Change, Entity, EntityKey, Replica};
     use maxhq_protocol::time::Timestamp;
@@ -2131,6 +2138,7 @@ pub(crate) mod tests {
                 workspace_host: None,
                 build: None,
                 target: None,
+                wsl: None,
             },
             HashMap::new(),
         )
@@ -2254,14 +2262,14 @@ pub(crate) mod tests {
 
     /// The client side of the protocol, as plainly as possible.
     pub(super) struct TestClient {
-        stream: UnixStream,
+        stream: LocalStream,
         decoder: FrameDecoder,
     }
 
     impl TestClient {
         pub(super) async fn connect(socket: &Path) -> Self {
             Self {
-                stream: UnixStream::connect(socket).await.unwrap(),
+                stream: LocalStream::connect(socket).await.unwrap(),
                 decoder: FrameDecoder::new(),
             }
         }
@@ -2550,7 +2558,9 @@ pub(crate) mod tests {
     #[tokio::test]
     async fn a_phone_pairs_once_through_its_one_time_key_and_then_has_its_own() {
         use base64::Engine;
-        use maxhq_protocol::phones::{PhoneBookEntry, PhoneRoute, PushEnvironment, PushToken};
+        use maxhq_protocol::phones::{
+            PhoneBookEntry, PhoneRoute, PushEnvironment, PushService, PushToken,
+        };
         use russh::keys::ssh_key::private::Ed25519Keypair;
         use russh::keys::ssh_key::PublicKey;
 
@@ -2664,6 +2674,7 @@ pub(crate) mod tests {
             topic: "com.example.maxhq".into(),
             environment: PushEnvironment::Sandbox,
             kinds: Vec::new(),
+            service: PushService::Apns,
         };
         app.send(&ClientMessage::SetPushToken {
             key: IdempotencyKey::derive("token-app"),
@@ -2930,6 +2941,7 @@ pub(crate) mod tests {
     }
 
     /// The managed state a change gives `workspace`, if it's one of its.
+    #[cfg(unix)]
     fn workspace_state(change: &Change, workspace: WorkspaceId) -> Option<&WorkspaceState> {
         match change {
             Change::Upsert {
@@ -2941,7 +2953,9 @@ pub(crate) mod tests {
 
     // The manager the workspace requests answer through is global, so this
     // is the one test that installs it. A multi-thread runtime runs the
-    // fake Incus while the connection waits.
+    // fake Incus while the connection waits. The fake serves on a Unix
+    // socket.
+    #[cfg(unix)]
     #[tokio::test(flavor = "multi_thread")]
     async fn deltas_and_pongs_go_on_while_a_stop_waits() {
         let installed = workspace::install_slow_stop(Duration::from_secs(1)).await;
@@ -3826,6 +3840,12 @@ pub(crate) mod tests {
                 team_id: "team".into(),
                 private_key: secret(),
             },
+            ClientMessage::SetFcmKey {
+                key: key("fcm"),
+                project_id: "project".into(),
+                client_email: "pusher@example.invalid".into(),
+                private_key: secret(),
+            },
             ClientMessage::InstallUpdate {
                 key: key("update"),
                 staged: AttachmentId::derive("maxd"),
@@ -4609,6 +4629,8 @@ pub(crate) mod tests {
         TestClient::greeted(&served.socket).await;
     }
 
+    /// A Windows pipe leaves no file behind.
+    #[cfg(unix)]
     #[tokio::test]
     async fn a_stale_socket_is_replaced_and_removed_on_drop() {
         let dir = TempDir::new();
@@ -4619,19 +4641,21 @@ pub(crate) mod tests {
 
         let listener = bind(&socket).unwrap();
         assert_eq!(
-            fs::metadata(&socket).unwrap().permissions().mode() & 0o777,
+            fsmode::mode_of(&fs::metadata(&socket).unwrap()) & 0o777,
             0o600
         );
         let accept = tokio::spawn(async move {
-            let (stream, _) = listener.listener.accept().await.unwrap();
+            let stream = listener.listener.accept().await.unwrap();
             (listener, stream)
         });
-        UnixStream::connect(&socket).await.unwrap();
+        LocalStream::connect(&socket).await.unwrap();
         let (listener, _) = accept.await.unwrap();
         drop(listener);
         assert!(!socket.exists());
     }
 
+    /// A Windows pipe has no path on disk for a file to be in the way of.
+    #[cfg(unix)]
     #[tokio::test]
     async fn a_file_in_the_way_is_left_alone() {
         let dir = TempDir::new();

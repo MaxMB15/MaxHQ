@@ -38,6 +38,7 @@ import type { AgentId } from "@maxhq/shared/bindings";
 import { t, useI18n } from "@maxhq/shared/i18n";
 
 import { holdsCommand, keyHint, SHORTCUTS } from "@/layout/shortcuts";
+import { onMac } from "@/native/platform";
 import { cn } from "@/lib/utils";
 
 const KBD =
@@ -100,11 +101,13 @@ export const keyInput = (key: Key, empty: boolean, appCursor: boolean): string |
  * or null for one it leaves to the app, such as ⌘ shortcuts. The arrows go
  * as `ESC O A` when the program asked for application cursor keys, and as
  * `ESC [ A` otherwise. Enter, Space, Tab, Shift-Tab, Esc, Backspace,
- * letters and Control with a letter go as a terminal sends them.
+ * letters and Control with a letter go as a terminal sends them. Off a Mac,
+ * Control and Shift go to the app, whose shortcuts reach a card that way.
  */
 export const pickerKey = (key: Key, appCursor: boolean): string | null => {
 	if (key.metaKey || key.altKey) return null;
 	if (key.ctrlKey) {
+		if (key.shiftKey && !onMac()) return null;
 		const letter = key.key.toLowerCase();
 		return /^[a-z]$/.test(letter) ? String.fromCharCode(letter.charCodeAt(0) - 96) : null;
 	}

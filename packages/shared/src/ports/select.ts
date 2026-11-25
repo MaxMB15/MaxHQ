@@ -19,6 +19,7 @@ import { deviceConnection } from "../status/connection";
 import { all, type ViewState } from "../view/replica";
 import { linkContext, linkForDevice } from "../view/select";
 
+import { nameOf } from "../folders/path";
 const byNumber = (a: ListeningPort, b: ListeningPort) =>
 	a.port - b.port || a.id.localeCompare(b.id);
 
@@ -75,7 +76,7 @@ export const forwardOf = (view: ViewState, port: PortId): Forward | undefined =>
 export const placeName = (workspace: Workspace): string => {
 	const { location } = workspace;
 	if (location.type === "container") return location.instance;
-	return location.path.split("/").filter(Boolean).at(-1) ?? location.path;
+	return nameOf(location.path);
 };
 
 /** What a port's offer calls the workspace: its project, or else its place. */

@@ -7,13 +7,15 @@ license.workspace = true
 publish.workspace = true
 
 # The phone builds with `russh` in place of the defaults. `system-ssh`
-# runs the system `ssh`, reads `ssh_config` and sets devices up;
+# runs the system `ssh`, reads `ssh_config` and sets devices up, Windows
+# PCs too, keeping logins through openssh on Unix and through russh on
+# Windows, where openssh can't run;
 # `tailscale` watches the tailnet; `russh` dials with a key the caller
 # gives and a pinned host key; `ws` dials a device's network access over
 # TLS pinned to its certificate.
 [features]
 default = ["system-ssh", "tailscale"]
-system-ssh = ["dep:openssh", "dep:sha2"]
+system-ssh = ["dep:base64", "dep:openssh", "dep:sha2"]
 tailscale = ["dep:base64", "dep:bytes", "dep:http-body-util", "dep:hyper", "dep:hyper-util"]
 russh = ["dep:russh"]
 ws = [
@@ -39,12 +41,11 @@ http-body-util = { workspace = true, optional = true }
 hyper = { workspace = true, optional = true }
 hyper-util = { workspace = true, optional = true }
 maxhq-core.workspace = true
+maxhq-os.workspace = true
 maxhq-protocol.workspace = true
 maxhq-transfer.workspace = true
 maxhq-wire.workspace = true
-openssh = { workspace = true, optional = true }
 ring = { workspace = true, optional = true }
-rustix = { workspace = true, features = ["fs"] }
 russh = { workspace = true, optional = true }
 rustls = { workspace = true, optional = true }
 serde.workspace = true
@@ -57,6 +58,13 @@ tokio-rustls = { workspace = true, optional = true }
 tokio-tungstenite = { workspace = true, optional = true }
 tokio-util.workspace = true
 tracing.workspace = true
+
+[target.'cfg(unix)'.dependencies]
+openssh = { workspace = true, optional = true }
+rustix = { workspace = true, features = ["fs"] }
+
+[target.'cfg(windows)'.dependencies]
+russh.workspace = true
 
 [dev-dependencies]
 rcgen.workspace = true

@@ -5,13 +5,16 @@
 //! asking `maxd`, so it works whatever protocol that `maxd` speaks, even
 //! one too old for anything else the app sends. On this machine it runs
 //! `launchctl` or `systemctl --user` itself. Over SSH it runs one fixed
-//! command that picks the far side's manager. The commands come from
-//! `maxhq_core::service`, which `maxd` restarts itself with too.
+//! command that picks the far side's manager. A WSL distro's runs
+//! `systemctl --user` through `wsl.exe`, on this PC or over SSH on the one
+//! it's on. The commands come from `maxhq_core::service`, which `maxd`
+//! restarts itself with too.
 
 use std::future::Future;
 use std::io;
 
-use maxhq_client::setup::Output;
+use maxhq_client::setup::{wsl_over_ssh, Output};
+use maxhq_client::wsl;
 use maxhq_core::service::{remote_restart_command, restart_command, Manager};
 use maxhq_protocol::link::Route;
 
@@ -49,9 +52,19 @@ impl Here {
     pub fn now() -> Self {
         Self {
             manager: Manager::here(),
-            uid: rustix::process::getuid().as_raw(),
+            uid: user_id(),
         }
     }
+}
+
+/// Your user ID on Unix. Windows names no launchd or systemd session by
+/// one, so it's 0 there.
+fn user_id() -> u32 {
+    #[cfg(unix)]
+    let uid = rustix::process::getuid().as_raw();
+    #[cfg(not(unix))]
+    let uid = 0;
+    uid
 }
 
 /// Restarts the `maxd` that `route` reaches, and waits for the service
@@ -78,6 +91,28 @@ pub async fn restart(
             .over_ssh(host, &remote_restart_command())
             .await
             .map_err(|error| failed(&format!("Couldn't reach {host}: {error}")))?,
+        Route::Wsl { distro, via } => {
+            let (program, args) = restart_command(Manager::Systemd, 0);
+            let script = format!("exec {program} {}", args.join(" "));
+            match via {
+                None => runner
+                    .here(
+                        wsl::PROGRAM,
+                        wsl::exec_args(distro, &wsl::in_distro(&script), &[]),
+                    )
+                    .await
+                    .map_err(|error| failed(&format!("Couldn't run wsl.exe: {error}")))?,
+                Some(host) => {
+                    let Some(command) = wsl_over_ssh(distro, &script) else {
+                        return Err(failed("That isn't a WSL distro's name"));
+                    };
+                    runner
+                        .over_ssh(host, &command)
+                        .await
+                        .map_err(|error| failed(&format!("Couldn't reach {host}: {error}")))?
+                }
+            }
+        }
     };
     if ran.ok {
         tracing::info!(?route, "restarted maxd");
@@ -185,6 +220,27 @@ pub(crate) mod tests {
             ssh.ran(),
             [format!("ssh dev@devbox {}", remote_restart_command())],
             "the far side picks its own manager, whatever this machine has"
+        );
+
+        let distro = Recorded::answering(worked);
+        let wsl = |via: Option<&str>| Route::Wsl {
+            distro: "Ubuntu".to_owned(),
+            via: via.map(str::to_owned),
+        };
+        block_on(restart(&wsl(None), mac(), &distro)).unwrap();
+        let ran = distro.ran();
+        assert!(
+            ran[0].starts_with("wsl.exe -d Ubuntu --exec sh -c ")
+                && ran[0].ends_with("exec systemctl --user restart maxd.service"),
+            "{ran:?}"
+        );
+
+        let pc = Recorded::answering(worked);
+        block_on(restart(&wsl(Some("dev@pc")), mac(), &pc)).unwrap();
+        let ran = pc.ran();
+        assert!(
+            ran[0].starts_with("ssh dev@pc powershell -NoProfile -NonInteractive -EncodedCommand "),
+            "a Windows machine's shell may be cmd or PowerShell: {ran:?}"
         );
 
         let nothing = Recorded::answering(worked);

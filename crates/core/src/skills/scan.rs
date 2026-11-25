@@ -36,7 +36,7 @@ use maxhq_protocol::model::Vendor;
 use maxhq_protocol::skills::{EffectiveSkill, SkillMark, SkillPlace, TreeHash};
 
 use super::frontmatter::{self, CodexMeta, SkillDoc, CODEX_META};
-use super::{ignored, tree, Node, SkillFs, SKILLS_DIR, SKILL_FILE};
+use super::{ignored, path_text, tree, Node, SkillFs, SKILLS_DIR, SKILL_FILE};
 
 /// How deep the walk goes below a skills folder.
 pub const MAX_DEPTH: usize = 10;
@@ -479,7 +479,7 @@ impl Walk<'_> {
                 if matches!(self.fs.node(&skills), Ok(Some(_))) {
                     let prefix = child
                         .strip_prefix(&input.cwd)
-                        .map(|p| p.to_string_lossy().into_owned())
+                        .map(path_text)
                         .unwrap_or(name);
                     let root =
                         Root::new(skills, SkillPlace::Project, "nested", false).prefixed(prefix);
@@ -993,7 +993,11 @@ mod tests {
         assert_eq!(found[0].display_name.as_deref(), Some("Unslop"));
         assert_eq!(found[0].user_invocation_only, Some(true));
         assert_eq!(found[0].user_invocable, Some(false));
-        assert_eq!(found[0].path, "/home/me/.claude/skills/unslop/SKILL.md");
+        // As paths, since a Windows host joins with `\`.
+        assert_eq!(
+            Path::new(&found[0].path),
+            Path::new("/home/me/.claude/skills/unslop/SKILL.md")
+        );
     }
 
     #[test]

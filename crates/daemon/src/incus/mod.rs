@@ -13,21 +13,22 @@ pub(crate) mod http;
 pub mod moves;
 mod ws;
 
-#[cfg(test)]
+// The fake serves on a Unix socket, as Incus does.
+#[cfg(all(test, unix))]
 pub mod fake;
-#[cfg(test)]
+#[cfg(all(test, unix))]
 mod tests;
 
 use std::collections::BTreeMap;
 use std::fmt;
 use std::io;
-use std::os::unix::fs::MetadataExt;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use futures::stream::{self, BoxStream, StreamExt};
 use hyper::body::Bytes;
 use hyper::Method;
+use maxhq_os::fsmode;
 use serde::Deserialize;
 use serde_json::{json, Value};
 use thiserror::Error;
@@ -1060,13 +1061,16 @@ fn guest_device(socket: &std::path::Path) -> Result<Value, IncusError> {
         .parent()
         .ok_or_else(|| http::broken("the guest socket has no folder"))?;
     let owner = std::fs::metadata(folder)?;
+    let (uid, gid) = fsmode::owner_of(&owner)
+        .zip(fsmode::group_of(&owner))
+        .ok_or_else(|| http::broken("the guest socket's folder has no Unix owner"))?;
     Ok(json!({
         "type": "proxy",
         "bind": "host",
         "listen": format!("unix:{}", socket.display()),
         "connect": format!("unix:{GUEST_LISTEN}"),
-        "uid": owner.uid().to_string(),
-        "gid": owner.gid().to_string(),
+        "uid": uid.to_string(),
+        "gid": gid.to_string(),
         "mode": "0600",
     }))
 }

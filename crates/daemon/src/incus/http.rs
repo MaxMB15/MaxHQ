@@ -15,9 +15,9 @@ use hyper::client::conn::http1;
 use hyper::header::{self, HeaderName, HeaderValue};
 use hyper::{Method, Request, StatusCode};
 use hyper_util::rt::TokioIo;
+use maxhq_os::ipc::LocalStream;
 use serde::Deserialize;
 use serde_json::Value;
-use tokio::net::UnixStream;
 
 use super::IncusError;
 
@@ -113,7 +113,7 @@ pub async fn send(
     timeout: Duration,
 ) -> Result<Reply, IncusError> {
     let exchange = async {
-        let stream = UnixStream::connect(socket).await?;
+        let stream = LocalStream::connect(socket).await?;
         let (mut sender, connection) = http1::handshake(TokioIo::new(stream))
             .await
             .map_err(broken)?;

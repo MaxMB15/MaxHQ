@@ -4,7 +4,7 @@
 import { invoke as __TAURI_INVOKE, Channel } from "@tauri-apps/api/core";
 import * as __TAURI_EVENT from "@tauri-apps/api/event";
 
-import type { ActionOutcome, AgentId, AppUpdate, AppUpdateChanged, AttachmentPickerLabels, CommandError, CopiedProject, CopyTarget, DeviceId, Downloaded, FleetProgress, FocusAgent, LinkId, MediaFile, Misspelling, NativeError, NotificationAccess, NotificationPrefs, OpenAsked, PathInfo, Request, Response, RunKey, SavedExport, SetupProgress, SetupSecret, SpellingChoice, SpellingMenuLabels, TimelineMessage, TransferProgress, UpdatePrefs, UpdateStatus, UploadTarget, ViewChanged, WebviewPoint, WorkflowMessage, WorkspaceId } from "@maxhq/shared/bindings";
+import type { ActionOutcome, AgentId, AppUpdate, AppUpdateChanged, AttachmentPickerLabels, CommandError, CopiedProject, CopyTarget, DeviceId, Downloaded, FleetProgress, FocusAgent, KeyHome, KeyHomeState, LinkId, MediaFile, Misspelling, NativeError, NotificationAccess, NotificationPrefs, OpenAsked, PathInfo, Request, Response, RunKey, SavedExport, SetupProgress, SetupSecret, SpellingChoice, SpellingMenuLabels, TimelineMessage, TransferProgress, UpdatePrefs, UpdateStatus, UploadTarget, ViewChanged, WebviewPoint, WorkflowMessage, WorkspaceId } from "@maxhq/shared/bindings";
 
 /** Commands */
 export const commands = {
@@ -89,6 +89,17 @@ export const commands = {
 	 */
 	maskOutput: (text: string) => __TAURI_INVOKE<string>("mask_output", { text }),
 	/**
+	 *  Where the app key is kept, and whether to ask where to keep it. Nothing
+	 *  on a Mac, or where the app has no key.
+	 */
+	appKeyHome: () => __TAURI_INVOKE<KeyHomeState | null>("app_key_home"),
+	/**
+	 *  Moves the app key to `home` and remembers the choice. Memory stops the
+	 *  asking without moving the key. It runs off the main thread, since the
+	 *  keyring may show an unlock prompt and wait for you.
+	 */
+	keepAppKeyIn: (home: KeyHome) => typedError<KeyHomeState | null, NativeError>(__TAURI_INVOKE("keep_app_key_in", { home })),
+	/**
 	 *  Finds the misspelled words in the composer's text, with the languages
 	 *  and learned words from System Settings. Each sentence gets its own
 	 *  language guess, so Dutch and English can share a message. Off macOS
@@ -150,8 +161,9 @@ export const commands = {
 	 */
 	setNotificationPrefs: (prefs: NotificationPrefs) => typedError<null, NativeError>(__TAURI_INVOKE("set_notification_prefs", { prefs })),
 	/**
-	 *  Whether macOS lets this app show notifications and badge its icon, as
-	 *  System Settings has it now.
+	 *  Whether this app's notifications show and it may badge its icon: on
+	 *  macOS as System Settings has it now, on Linux as the desktop answered
+	 *  when the app started.
 	 */
 	notificationPermission: () => typedError<NotificationAccess, NativeError>(__TAURI_INVOKE("notification_permission")),
 	/**
@@ -159,7 +171,11 @@ export const commands = {
 	 *  macOS asks for permission first if it hasn't yet.
 	 */
 	sendTestNotification: () => typedError<null, NativeError>(__TAURI_INVOKE("send_test_notification")),
-	/**  Opens this app's page under Notifications in System Settings. */
+	/**
+	 *  Opens this app's page under Notifications in System Settings, or the
+	 *  Notifications page of Windows Settings. Linux has no settings page to
+	 *  link to.
+	 */
 	openNotificationSettings: () => typedError<null, NativeError>(__TAURI_INVOKE("open_notification_settings")),
 	/**
 	 *  Whether the sun is on, or nothing where the system can't keep its

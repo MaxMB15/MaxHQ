@@ -63,6 +63,7 @@ use crate::drive::{Place, PlaceHost};
 use crate::guestlink::wire::SendError;
 use crate::guestlink::{self, GuestFiles, GuestSender};
 use crate::hub::Hub;
+use crate::posix_path;
 use crate::session::attach::{Attachments, STALE_AFTER};
 use crate::session::clock::BoxFuture;
 use crate::thumbnail;
@@ -165,7 +166,8 @@ impl Places for HubPlaces {
                 device,
                 workspace,
                 cwd: PathBuf::from(path),
-                attachments: Path::new(ATTACHMENTS_DIR).join(agent.to_string()),
+                // A container path, so `/` whatever this device uses.
+                attachments: PathBuf::from(format!("{ATTACHMENTS_DIR}/{agent}")),
                 host: PlaceHost::Guest { workspace },
                 dispatcher: false,
                 trust: None,
@@ -1018,23 +1020,31 @@ fn no_agent() -> End {
 }
 
 /// The absolute container path for a download from an agent in a
-/// container. The guest checks it stays inside the agent's folders.
+/// container. The guest checks it stays inside the agent's folders. It's
+/// a path in the container, so it's read as Linux reads it.
 fn guest_path(place: &Place, path: &str) -> Result<String, Failure> {
     let bad = |message: &str| Failure::new(ErrorCode::BadPath, None, message);
     if path.contains('\0') {
         return Err(bad("the path has a zero byte"));
     }
-    let joined = place.cwd.join(path);
-    if joined
-        .components()
-        .any(|part| matches!(part, std::path::Component::ParentDir))
-    {
+    let joined = match place.cwd.to_str() {
+        Some(cwd) => posix_path::join(cwd, path),
+        None if posix_path::is_absolute(path) => path.to_owned(),
+        None => return Err(bad("the path isn't UTF-8")),
+    };
+    if posix_path::climbs(&joined) {
         return Err(bad("the path has a `..` part"));
     }
-    joined
-        .to_str()
-        .map(str::to_owned)
-        .ok_or_else(|| bad("the path isn't UTF-8"))
+    Ok(joined)
+}
+
+/// Whether a container path from [`guest_path`] is in the agent's folder
+/// or its attachments.
+fn in_guest_folders(place: &Place, inside: &str) -> bool {
+    [&place.cwd, &place.attachments].into_iter().any(|root| {
+        root.to_str()
+            .is_some_and(|root| posix_path::starts_with(inside, root))
+    })
 }
 
 /// A container checkout's path, as the guest takes it.

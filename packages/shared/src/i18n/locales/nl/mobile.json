@@ -286,6 +286,13 @@
 	"Tools using it stop working.": "Tools die hem gebruiken werken dan niet meer.",
 	"Update MaxHQ on {{name}}.": "Werk MaxHQ bij op {{name}}.",
 	"Update in TestFlight": "Bijwerken in TestFlight",
+	"Update in TestFlight_android": "Update downloaden",
+	"Open TestFlight_android": "Update downloaden",
+	"Couldn't open TestFlight._android": "De downloadlink kon niet worden geopend.",
+	"The newest release has no iPhone build._android": "De nieuwste release heeft geen Android-build.",
+	"Installed from Google Play? Play updates MaxHQ for you.": "Geïnstalleerd via Google Play? Dan werkt Play MaxHQ voor je bij.",
+	"Turn them on in iOS Settings._android": "Schakel ze in via de Android-instellingen.",
+	"iOS asks once._android": "Android vraagt het je eerst.",
 	"Waiting for room on this phone": "Wacht op ruimte op deze telefoon",
 	"While an agent works": "Terwijl een agent werkt",
 	"The send button does this. The other shows beside it once you type.": "De verzendknop doet dit. De andere verschijnt ernaast zodra je typt.",
@@ -459,5 +466,8 @@
 	"“{{title}}” was deleted.": "\"{{title}}\" is verwijderd.",
 	"Runs at {{level}}.": "Draait op {{level}}.",
 	"{{level}} (default)": "{{level}} (standaard)",
-	"Couldn't change the effort level. {{reason}}": "Kon het inspanningsniveau niet wijzigen. {{reason}}"
+	"Couldn't change the effort level. {{reason}}": "Kon het inspanningsniveau niet wijzigen. {{reason}}",
+	"This build gets no pushes": "Deze build krijgt geen pushmeldingen",
+	"It was built without the signing that push needs.": "Hij is gebouwd zonder de ondertekening die push nodig heeft.",
+	"It was built without the signing that push needs._android": "Hij is gebouwd zonder het google-services.json-bestand van Firebase, dat push nodig heeft."
 }

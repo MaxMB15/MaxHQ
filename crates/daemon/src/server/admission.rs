@@ -5,9 +5,9 @@
 //! gate refuses it or the device won't trust its key yet, answering
 //! another's, and taking the key you allowed.
 
+use maxhq_os::ipc::LocalStream;
 use maxhq_protocol::ids::AdmissionId;
 use maxhq_protocol::message::ActionOutcome;
-use tokio::net::UnixStream;
 use tokio::sync::broadcast;
 use tracing::info;
 
@@ -20,11 +20,15 @@ use crate::codesign;
 /// The seat for a connection on `stream`, whose audit token was `token` as
 /// it connected.
 pub(super) fn seat_for(
-    stream: &UnixStream,
+    stream: &LocalStream,
     keys: &AppKeys,
     token: Option<codesign::Token>,
 ) -> Seat {
-    let pid = stream.peer_cred().ok().and_then(|cred| cred.pid());
+    let pid = stream
+        .peer()
+        .ok()
+        .and_then(|peer| peer.pid)
+        .and_then(|pid| i32::try_from(pid).ok());
     keys.admissions().seat(pid, token)
 }
 

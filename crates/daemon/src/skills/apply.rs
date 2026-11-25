@@ -13,15 +13,17 @@
 use std::collections::{BTreeMap, HashMap};
 use std::fs;
 use std::io::{self, Read, Write};
-use std::os::unix::fs::{fchown, lchown, symlink, MetadataExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::time::SystemTime;
 
 use maxhq_core::fs::{read_regular, read_text, write_atomic, Atomic};
+use maxhq_core::fs_ext;
 use maxhq_core::skills::disk::DiskFs;
 use maxhq_core::skills::plan::{self, Clash, Layout, Step, EXCLUDE_HEADING};
 use maxhq_core::skills::store::TreeStore;
 use maxhq_core::skills::{lock, tree, LINK_DIRS, LOCK_MIRROR, PROPOSALS_DIR, SKILLS_DIR};
+use maxhq_os::fsmode;
 use maxhq_protocol::skills::{SkillLock, TreeHash};
 use maxhq_transfer::beneath::{set_mode, Dir, FileType};
 
@@ -30,7 +32,7 @@ static TEMPS: AtomicU64 = AtomicU64::new(0);
 
 /// One file or folder in a copy, as `stat` gives it: its path in the
 /// copy, size, change time and mode.
-type Stamp = (PathBuf, u64, i64, i64, u32);
+type Stamp = (PathBuf, u64, Option<SystemTime>, u32);
 
 /// What MaxHQ knows of the copies in one checkout, so a check that finds
 /// nothing changed hashes nothing.
@@ -68,17 +70,14 @@ pub struct Applied {
 
 impl Applied {
     /// The links that stopped skills landing in the checkout at `root`, as
-    /// paths in it.
+    /// paths in it with `/` on every OS.
     pub fn outside(&self, root: &Path) -> Vec<String> {
         self.clashes
             .iter()
             .filter_map(|clash| match clash {
-                Clash::Outside(link) => Some(
-                    link.strip_prefix(root)
-                        .unwrap_or(link)
-                        .display()
-                        .to_string(),
-                ),
+                Clash::Outside(link) => Some(maxhq_core::skills::path_text(
+                    link.strip_prefix(root).unwrap_or(link),
+                )),
                 _ => None,
             })
             .collect()
@@ -251,9 +250,8 @@ fn stamps(dir: &Path) -> io::Result<Vec<Stamp>> {
             found.push((
                 path,
                 meta.len(),
-                meta.mtime(),
-                meta.mtime_nsec(),
-                meta.mode(),
+                meta.modified().ok(),
+                fsmode::mode_of(&meta),
             ));
         }
     }
@@ -270,7 +268,7 @@ fn copy_tree(from: &Path, to: &Path) -> io::Result<()> {
     clear(&temp)?;
     let copied = copy_dir(from, &temp)
         .and_then(|()| set_modes(&temp, true))
-        .and_then(|()| fs::set_permissions(&temp, fs::Permissions::from_mode(0o755)));
+        .and_then(|()| fsmode::set_mode(&temp, 0o755));
     if let Err(err) = copied {
         let _ = clear(&temp);
         return Err(err);
@@ -282,7 +280,7 @@ fn copy_tree(from: &Path, to: &Path) -> io::Result<()> {
         fs::rename(to, &old)?;
     }
     fs::rename(&temp, to)?;
-    fs::set_permissions(to, fs::Permissions::from_mode(0o555))?;
+    fsmode::set_mode(to, 0o555)?;
     clear(&old)
 }
 
@@ -312,6 +310,7 @@ pub(crate) fn copy_dir(from: &Path, to: &Path) -> io::Result<()> {
 
 /// Sets every mode under `dir`, children first: read-only when
 /// `read_only`, or back to writable for you. Executables stay executable.
+/// Windows has no modes, so there it changes nothing.
 pub(crate) fn set_modes(dir: &Path, read_only: bool) -> io::Result<()> {
     let (file, exec, folder) = if read_only {
         (0o444, 0o555, 0o555)
@@ -325,11 +324,15 @@ pub(crate) fn set_modes(dir: &Path, read_only: bool) -> io::Result<()> {
         if meta.is_dir() {
             set_modes(&path, read_only)?;
         } else if meta.is_file() {
-            let mode = if meta.mode() & 0o111 != 0 { exec } else { file };
-            fs::set_permissions(&path, fs::Permissions::from_mode(mode))?;
+            let mode = if fsmode::mode_of(&meta) & 0o111 != 0 {
+                exec
+            } else {
+                file
+            };
+            fsmode::set_mode(&path, mode)?;
         }
     }
-    fs::set_permissions(dir, fs::Permissions::from_mode(folder))
+    fsmode::set_mode(dir, folder)
 }
 
 /// How deep [`writable`] goes, since it holds a folder open at each level.
@@ -358,21 +361,11 @@ fn writable_at(path: &Path, open: &dyn Fn() -> io::Result<Dir>, depth: usize) ->
     let folder = match open() {
         Ok(folder) => folder,
         // The name stopped being a folder after it was checked.
-        Err(err)
-            if matches!(
-                err.raw_os_error(),
-                Some(libc::ELOOP | libc::ENOTDIR | libc::ENOENT)
-            ) =>
-        {
-            return Ok(())
-        }
+        Err(err) if fs_ext::not_a_folder_now(&err) => return Ok(()),
         // A user can own a folder it can't read. Root can read them all, so
         // it never reaches this change by name, which would follow a link.
-        Err(err)
-            if err.kind() == io::ErrorKind::PermissionDenied
-                && !rustix::process::geteuid().is_root() =>
-        {
-            fs::set_permissions(path, fs::Permissions::from_mode(0o755))?;
+        Err(err) if err.kind() == io::ErrorKind::PermissionDenied && !maxhq_os::proc::is_root() => {
+            fsmode::set_mode(path, 0o755)?;
             open()?
         }
         Err(err) => return Err(err),
@@ -401,7 +394,7 @@ pub(crate) fn clear(path: &Path) -> io::Result<()> {
             writable(path)?;
             maxhq_transfer::remove_tree(path)
         }
-        Ok(_) => fs::remove_file(path),
+        Ok(_) => fs_ext::remove_link(path),
     }
 }
 
@@ -425,7 +418,7 @@ pub(crate) fn make_dir(dir: &Path, owner: Option<(u32, u32)>) -> io::Result<()> 
 /// Gives what's at `path` to `owner`, when there is one.
 pub(crate) fn own(path: &Path, owner: Option<(u32, u32)>) -> io::Result<()> {
     match owner {
-        Some((uid, gid)) => lchown(path, Some(uid), Some(gid)),
+        Some((uid, gid)) => fs_ext::chown_link(path, uid, gid),
         None => Ok(()),
     }
 }
@@ -440,16 +433,16 @@ pub(crate) fn run(step: &Step, owner: Option<(u32, u32)>) -> io::Result<()> {
             if let Some(parent) = path.parent() {
                 make_dir(parent, owner)?;
             }
-            symlink(target, path)?;
+            fs_ext::symlink(target, path)?;
             own(path, owner)
         }
         Step::Relink { path, target } => {
             let temp = beside(path, "link");
-            symlink(target, &temp)?;
+            fs_ext::symlink(target, &temp)?;
             own(&temp, owner)?;
-            fs::rename(&temp, path)
+            fs_ext::rename_link(&temp, path)
         }
-        Step::Unlink(path) => fs::remove_file(path),
+        Step::Unlink(path) => fs_ext::remove_link(path),
         Step::Copy { .. } | Step::RemoveCopy(_) => Err(io::Error::new(
             io::ErrorKind::Unsupported,
             "copies are made from the store",
@@ -658,7 +651,7 @@ fn rewrite_as(
     file.set_len(0)?;
     file.write_all(text.as_bytes())?;
     set_mode(&file, false)?;
-    fchown(&file, Some(uid), Some(gid))?;
+    fs_ext::chown_file(&file, uid, gid)?;
     info.rename(&temp, "exclude")?;
     Ok(true)
 }
@@ -690,7 +683,7 @@ fn read_exclude(info: &Dir) -> io::Result<String> {
 
 /// Refuses a file with a second name, which could be someone else's.
 fn check_one_name(file: &fs::File) -> io::Result<()> {
-    if file.metadata()?.nlink() > 1 {
+    if fsmode::has_other_names(file)? {
         return Err(io::Error::new(
             io::ErrorKind::InvalidInput,
             "the exclude file has another name",
@@ -701,10 +694,7 @@ fn check_one_name(file: &fs::File) -> io::Result<()> {
 
 #[cfg(test)]
 pub(crate) mod tests {
-    use std::sync::atomic::AtomicBool;
-    use std::sync::Arc;
-    use std::time::{Duration, Instant};
-
+    use maxhq_core::fs_ext::symlink;
     use maxhq_core::skills::store::FolderStore;
     use maxhq_protocol::ids::SkillSourceId;
     use maxhq_protocol::skills::LockedSkill;
@@ -751,7 +741,7 @@ pub(crate) mod tests {
         .unwrap();
         let script = from.join("scripts/run.sh");
         fs::write(&script, "#!/bin/sh\n").unwrap();
-        fs::set_permissions(&script, fs::Permissions::from_mode(0o755)).unwrap();
+        fsmode::set_mode(&script, 0o755).unwrap();
         let tree = tree::of(&DiskFs, &from).unwrap();
         store.land(&tree, &from).unwrap();
         tree
@@ -764,8 +754,12 @@ pub(crate) mod tests {
         root
     }
 
-    fn mode(path: &Path) -> u32 {
-        fs::symlink_metadata(path).unwrap().mode() & 0o777
+    /// Checks that `path`'s own mode is `want`. Windows has no modes.
+    fn assert_mode(path: &Path, want: u32) {
+        if cfg!(unix) {
+            let mode = fsmode::mode_of(&fs::symlink_metadata(path).unwrap()) & 0o777;
+            assert_eq!(mode, want, "{}", path.display());
+        }
     }
 
     fn exclude_file(root: &Path) -> String {
@@ -781,14 +775,14 @@ pub(crate) mod tests {
         assert!(applied.changed && applied.drift.is_empty());
 
         let copy = root.join(".maxhq/skills/git-flow");
-        assert_eq!(mode(&copy), 0o555);
-        assert_eq!(mode(&copy.join("SKILL.md")), 0o444);
-        assert_eq!(mode(&copy.join("scripts/run.sh")), 0o555);
+        assert_mode(&copy, 0o555);
+        assert_mode(&copy.join("SKILL.md"), 0o444);
+        assert_mode(&copy.join("scripts/run.sh"), 0o555);
         assert_eq!(tree::of(&DiskFs, &copy).unwrap(), lock.skills[0].tree);
         for link in LINK_DIRS {
             let path = root.join(link).join("git-flow");
             assert_eq!(
-                fs::read_link(&path).unwrap(),
+                fs_ext::read_link(&path).unwrap(),
                 Path::new("../../.maxhq/skills/git-flow")
             );
             assert!(path.join("SKILL.md").is_file());
@@ -914,8 +908,12 @@ pub(crate) mod tests {
         }
     }
 
+    // Only Unix runs maxd as root for a container's user.
+    #[cfg(unix)]
     #[test]
     fn taking_lines_out_as_root_stays_off_a_link_to_someone_elses_file() {
+        use std::os::unix::fs::MetadataExt;
+
         let dir = TempDir::new();
         let root = repo(dir.path());
         let mine = fs::metadata(&root).unwrap();
@@ -969,8 +967,8 @@ pub(crate) mod tests {
         checkout(&store, &root, &lock, &mut seen).unwrap();
 
         let copy = root.join(".maxhq/skills/git-flow");
-        fs::set_permissions(&copy, fs::Permissions::from_mode(0o755)).unwrap();
-        fs::set_permissions(copy.join("SKILL.md"), fs::Permissions::from_mode(0o644)).unwrap();
+        fsmode::set_mode(&copy, 0o755).unwrap();
+        fsmode::set_mode(&copy.join("SKILL.md"), 0o644).unwrap();
         fs::write(copy.join("SKILL.md"), "---\nname: git-flow\n---\nbetter").unwrap();
         // A proposal of that name is there already, so this one goes beside it.
         fs::create_dir_all(root.join(".maxhq/proposals/git-flow")).unwrap();
@@ -990,9 +988,9 @@ pub(crate) mod tests {
             "---\nname: git-flow\n---\nbetter"
         );
         assert_eq!(drifted.tree, Some(tree::of(&DiskFs, kept).unwrap()));
-        assert_eq!(mode(&kept.join("SKILL.md")), 0o644);
+        assert_mode(&kept.join("SKILL.md"), 0o644);
         assert_eq!(tree::of(&DiskFs, &copy).unwrap(), lock.skills[0].tree);
-        assert_eq!(mode(&copy), 0o555);
+        assert_mode(&copy, 0o555);
     }
 
     #[test]
@@ -1039,7 +1037,7 @@ pub(crate) mod tests {
             .is_err());
         assert!(root.join(".claude/skills/mine").is_dir());
         assert_eq!(
-            fs::read_link(root.join(".agents/skills/unslop")).unwrap(),
+            fs_ext::read_link(root.join(".agents/skills/unslop")).unwrap(),
             Path::new("/opt/devflow/skills/unslop")
         );
     }
@@ -1077,8 +1075,9 @@ pub(crate) mod tests {
         fs::create_dir_all(skills.join("mine")).unwrap();
         fs::write(skills.join("mine/SKILL.md"), "the owner's skill").unwrap();
         fs::write(skills.join("loose-file.txt"), "the owner's note").unwrap();
-        symlink("../../.agents/skills/shared", skills.join("shared")).unwrap();
+        // The folder comes first, so Windows makes a folder's link to it.
         fs::create_dir_all(home.join(".agents/skills/shared")).unwrap();
+        symlink("../../.agents/skills/shared", skills.join("shared")).unwrap();
         home
     }
 
@@ -1119,6 +1118,7 @@ pub(crate) mod tests {
     }
 
     /// Runs `work` on its own thread and fails if it doesn't end soon.
+    #[cfg(unix)]
     fn within<T: Send + 'static>(work: impl FnOnce() -> T + Send + 'static) -> T {
         let (tx, rx) = std::sync::mpsc::channel();
         std::thread::spawn(move || {
@@ -1128,6 +1128,8 @@ pub(crate) mod tests {
             .expect("it's still waiting on the file")
     }
 
+    // Windows has no devices to link to by path.
+    #[cfg(unix)]
     #[test]
     fn a_lock_mirror_linked_to_a_device_is_replaced_and_doesnt_hold_up_the_checkout() {
         for target in ["/dev/ptmx", "/dev/zero"] {
@@ -1159,6 +1161,7 @@ pub(crate) mod tests {
             .is_file());
     }
 
+    #[cfg(unix)]
     #[test]
     fn an_exclude_file_that_is_a_pipe_fails_and_doesnt_hold_up_the_checkout() {
         let dir = TempDir::new();
@@ -1172,6 +1175,7 @@ pub(crate) mod tests {
         assert!(failed);
     }
 
+    #[cfg(unix)]
     #[test]
     fn a_git_file_linked_to_a_terminal_doesnt_hold_up_the_checkout() {
         let dir = TempDir::new();
@@ -1199,7 +1203,7 @@ pub(crate) mod tests {
             assert!(root.join(".maxhq/skills/git-flow/SKILL.md").is_file());
             assert!(root.join(".maxhq/proposals").is_dir());
             assert_eq!(
-                fs::read_link(root.join(".agents/skills/git-flow")).unwrap(),
+                fs_ext::read_link(root.join(".agents/skills/git-flow")).unwrap(),
                 Path::new("../../.maxhq/skills/git-flow")
             );
         }
@@ -1216,7 +1220,7 @@ pub(crate) mod tests {
         let applied = checkout(&store, &root, &lock, &mut Seen::default()).unwrap();
         assert!(applied.outside(&root).is_empty());
         assert_eq!(
-            fs::read_link(root.join("shared/skills/git-flow")).unwrap(),
+            fs_ext::read_link(root.join("shared/skills/git-flow")).unwrap(),
             Path::new("../../.maxhq/skills/git-flow")
         );
     }
@@ -1255,14 +1259,17 @@ pub(crate) mod tests {
         assert_eq!(stale_out("# MaxHQ skills\n/.maxhq/\n", &[]), "");
     }
 
-    /// `path`'s own mode.
-    fn mode_of(path: &Path) -> u32 {
-        fs::metadata(path).unwrap().mode() & 0o777
-    }
-
+    // It swaps a folder and a link at once, which only Linux and macOS can.
+    #[cfg(unix)]
     #[test]
     fn making_a_tree_writable_leaves_a_file_a_swapped_link_names() {
+        use std::sync::atomic::AtomicBool;
+        use std::sync::Arc;
+        use std::time::{Duration, Instant};
+
         use rustix::fs::{renameat_with, RenameFlags, CWD};
+
+        let mode_of = |path: &Path| fsmode::mode_of(&fs::metadata(path).unwrap()) & 0o777;
 
         let dir = TempDir::new();
         let tree = dir.path().join("tree");
@@ -1270,7 +1277,7 @@ pub(crate) mod tests {
         fs::create_dir_all(&sub).unwrap();
         let victim = dir.path().join("victim");
         fs::write(&victim, "secret").unwrap();
-        fs::set_permissions(&victim, fs::Permissions::from_mode(0o600)).unwrap();
+        fsmode::set_mode(&victim, 0o600).unwrap();
         let link = dir.path().join("link");
         symlink(&victim, &link).unwrap();
 
@@ -1299,7 +1306,7 @@ pub(crate) mod tests {
         let shut = tree.join("shut");
         fs::create_dir_all(&shut).unwrap();
         fs::write(shut.join("file"), "x").unwrap();
-        fs::set_permissions(&shut, fs::Permissions::from_mode(0o000)).unwrap();
+        fsmode::set_mode(&shut, 0o000).unwrap();
         clear(&tree).unwrap();
         assert!(!tree.exists());
     }

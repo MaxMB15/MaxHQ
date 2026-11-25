@@ -7,13 +7,15 @@
 //! found, so a pid the system gave to another process is never signalled.
 //! The CLI gets SIGTERM to quit on its own first, and SIGKILL only if it
 //! still runs after the grace period. Only that process gets them, never
-//! its group, so the terminal and its shell stay.
+//! its group, so the terminal and its shell stay. Windows can't ask one
+//! process to quit, so there the CLI is ended at once.
 
 use std::ffi::OsStr;
 use std::path::Path;
 use std::thread;
 use std::time::{Duration, Instant};
 
+use maxhq_os::proc::{self, Stop};
 use maxhq_protocol::processes::ProcessSignal;
 use sysinfo::{Pid, ProcessRefreshKind, ProcessStatus, ProcessesToUpdate, System, UpdateKind};
 
@@ -37,7 +39,9 @@ pub struct Process {
 /// What the system says about a pid now.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Seen {
-    pub uid: Option<u32>,
+    /// Who runs it, as the system names its user: a uid on Unix and a
+    /// SID on Windows.
+    pub uid: Option<String>,
     pub started: u64,
     pub name: String,
     pub command: Vec<String>,
@@ -51,15 +55,16 @@ const OTHER_USER: &str = "That CLI runs as another user, so MaxHQ won't stop it.
 
 /// Finds the process `pid` and checks it is `cli` running as you.
 pub fn find(pid: u32, cli: &str) -> Result<Process, String> {
-    let me = rustix::process::getuid().as_raw();
-    check(look(pid).as_ref(), me, cli).map(|started| Process { pid, started })
+    check(look(pid).as_ref(), proc::user_id().as_deref(), cli)
+        .map(|started| Process { pid, started })
 }
 
 /// Checks what the system says about a pid against the CLI MaxHQ looks for,
-/// and gives its start time.
-pub fn check(seen: Option<&Seen>, me: u32, cli: &str) -> Result<u64, String> {
+/// and gives its start time. A process whose user isn't known, or when
+/// `maxd`'s own isn't, counts as another user's.
+pub fn check(seen: Option<&Seen>, me: Option<&str>, cli: &str) -> Result<u64, String> {
     let seen = seen.filter(|seen| !seen.zombie).ok_or(GONE)?;
-    if seen.uid != Some(me) {
+    if me.is_none() || seen.uid.as_deref() != me {
         return Err(OTHER_USER.into());
     }
     if !names(seen, cli) {
@@ -87,15 +92,17 @@ fn names(seen: &Seen, cli: &str) -> bool {
 
 /// Stops the process: SIGTERM, up to `grace` for it to quit, then SIGKILL.
 /// Done once it no longer runs, including when it had already quit.
+/// Windows has no SIGTERM to ask one process with, so there the first
+/// stop ends it at once, and the CLI gets no grace.
 pub fn stop(process: Process, grace: Duration) -> Result<(), String> {
     if !runs(process) {
         return Ok(());
     }
-    signal(process, ProcessSignal::Term)?;
+    signal(process, Stop::GENTLEST)?;
     if quits_within(process, grace) {
         return Ok(());
     }
-    signal(process, ProcessSignal::Kill)?;
+    signal(process, Stop::Hard)?;
     if quits_within(process, grace) {
         return Ok(());
     }
@@ -118,15 +125,24 @@ fn quits_within(process: Process, wait: Duration) -> bool {
 
 /// Sends the signal, after checking the pid still belongs to the process.
 /// One that quit in between counts as sent.
-fn signal(process: Process, signal: ProcessSignal) -> Result<(), String> {
+fn signal(process: Process, how: Stop) -> Result<(), String> {
     if !runs(process) {
         return Ok(());
     }
-    match send(process.pid, signal) {
+    match send_stop(process.pid, how) {
         Ok(()) => Ok(()),
         Err(_) if !runs(process) => Ok(()),
         Err(err) => Err(err),
     }
+}
+
+/// SIGTERM for a soft stop and SIGKILL for a hard one, to `pid` alone.
+fn send_stop(pid: u32, how: Stop) -> Result<(), String> {
+    let signal = match how {
+        Stop::Soft => ProcessSignal::Term,
+        Stop::Hard => ProcessSignal::Kill,
+    };
+    send(pid, signal)
 }
 
 /// Whether the process still runs under its pid.
@@ -147,7 +163,7 @@ fn look(pid: u32) -> Option<Seen> {
     );
     let process = system.process(pid)?;
     Some(Seen {
-        uid: process.user_id().map(|uid| **uid),
+        uid: process.user_id().map(|uid| (**uid).to_string()),
         started: process.start_time(),
         name: process.name().to_string_lossy().into_owned(),
         command: process
@@ -161,18 +177,23 @@ fn look(pid: u32) -> Option<Seen> {
 
 #[cfg(test)]
 mod tests {
+    #[cfg(unix)]
     use std::process::{Child, Command, Stdio};
+    #[cfg(unix)]
     use std::sync::mpsc;
 
     use super::*;
 
     /// A long-running child this test starts itself, reaped as soon as it
-    /// quits so it doesn't linger as a zombie.
+    /// quits so it doesn't linger as a zombie. It runs `sleep` and `sh`,
+    /// which only Unix is sure to have.
+    #[cfg(unix)]
     struct Fake {
         pid: u32,
         quit: mpsc::Receiver<()>,
     }
 
+    #[cfg(unix)]
     impl Fake {
         /// `sleep`, which quits on SIGTERM.
         fn obeying() -> Self {
@@ -215,17 +236,18 @@ mod tests {
         }
     }
 
+    #[cfg(unix)]
     impl Drop for Fake {
         fn drop(&mut self) {
             if self.quit.try_recv().is_err() {
-                let _ = send(self.pid, ProcessSignal::Kill);
+                let _ = send_stop(self.pid, Stop::Hard);
             }
         }
     }
 
-    fn seen(uid: u32, name: &str, command: &[&str]) -> Seen {
+    fn seen(uid: &str, name: &str, command: &[&str]) -> Seen {
         Seen {
-            uid: Some(uid),
+            uid: Some(uid.into()),
             started: 1_700_000_000,
             name: name.into(),
             command: command.iter().map(|arg| (*arg).into()).collect(),
@@ -233,6 +255,7 @@ mod tests {
         }
     }
 
+    #[cfg(unix)]
     #[test]
     fn sigterm_stops_a_cli_that_quits_on_its_own() {
         let fake = Fake::obeying();
@@ -246,6 +269,7 @@ mod tests {
         assert!(fake.quit_within(Duration::from_secs(2)));
     }
 
+    #[cfg(unix)]
     #[test]
     fn sigkill_follows_once_the_grace_runs_out() {
         let fake = Fake::stubborn();
@@ -259,6 +283,7 @@ mod tests {
         assert!(fake.quit_within(Duration::from_secs(2)));
     }
 
+    #[cfg(unix)]
     #[test]
     fn a_reused_pid_is_never_signalled() {
         let fake = Fake::obeying();
@@ -277,17 +302,34 @@ mod tests {
 
     #[test]
     fn only_a_cli_of_yours_is_found() {
-        let me = 501;
-        let claude = seen(me, "claude", &["claude", "--model", "opus"]);
+        let me = Some("501");
+        let claude = seen("501", "claude", &["claude", "--model", "opus"]);
         assert_eq!(check(Some(&claude), me, "claude"), Ok(1_700_000_000));
-        let node = seen(me, "node", &["node", "/opt/lib/node_modules/.bin/claude"]);
+        let node = seen(
+            "501",
+            "node",
+            &["node", "/opt/lib/node_modules/.bin/claude"],
+        );
         assert!(check(Some(&node), me, "claude").is_ok());
-        let script = seen(me, "node", &["node", "/opt/codex/bin/codex.js", "resume"]);
+        let script = seen(
+            "501",
+            "node",
+            &["node", "/opt/codex/bin/codex.js", "resume"],
+        );
         assert!(check(Some(&script), me, "codex").is_ok());
-        assert_eq!(check(Some(&claude), 502, "claude"), Err(OTHER_USER.into()));
-        let other = seen(me, "vim", &["vim", "claude.md"]);
+        assert_eq!(
+            check(Some(&claude), Some("502"), "claude"),
+            Err(OTHER_USER.into())
+        );
+        assert_eq!(check(Some(&claude), None, "claude"), Err(OTHER_USER.into()));
+        let unknown = Seen {
+            uid: None,
+            ..claude.clone()
+        };
+        assert_eq!(check(Some(&unknown), me, "claude"), Err(OTHER_USER.into()));
+        let other = seen("501", "vim", &["vim", "claude.md"]);
         assert_eq!(check(Some(&other), me, "claude"), Err(REUSED.into()));
-        let lookalike = seen(me, "claude-helper", &["claude-helper"]);
+        let lookalike = seen("501", "claude-helper", &["claude-helper"]);
         assert_eq!(check(Some(&lookalike), me, "claude"), Err(REUSED.into()));
         assert_eq!(check(None, me, "claude"), Err(GONE.into()));
         let zombie = Seen {
@@ -295,14 +337,25 @@ mod tests {
             ..claude
         };
         assert_eq!(check(Some(&zombie), me, "claude"), Err(GONE.into()));
-        assert_eq!(check(Some(&seen(me, "x", &[])), me, ""), Err(REUSED.into()));
+        assert_eq!(
+            check(Some(&seen("501", "x", &[])), me, ""),
+            Err(REUSED.into())
+        );
     }
 
+    #[test]
+    fn maxd_knows_which_user_it_runs_as() {
+        let me = proc::user_id().expect("the system says");
+        let seen = look(std::process::id()).expect("maxd is there");
+        assert_eq!(seen.uid.as_deref(), Some(me.as_str()));
+    }
+
+    #[cfg(unix)]
     #[test]
     fn a_process_that_quit_counts_as_stopped() {
         let fake = Fake::obeying();
         let process = fake.found("sleep");
-        send(fake.pid, ProcessSignal::Kill).unwrap();
+        send_stop(fake.pid, Stop::Hard).unwrap();
         assert!(fake.quit_within(Duration::from_secs(2)));
         assert_eq!(find(fake.pid, "sleep"), Err(GONE.into()));
         stop(process, Duration::from_millis(300)).unwrap();

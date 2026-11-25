@@ -286,6 +286,13 @@
 	"Tools using it stop working.": "Tools using it stop working.",
 	"Update MaxHQ on {{name}}.": "Update MaxHQ on {{name}}.",
 	"Update in TestFlight": "Update in TestFlight",
+	"Update in TestFlight_android": "Download update",
+	"Open TestFlight_android": "Download update",
+	"Couldn't open TestFlight._android": "Couldn't open the download link.",
+	"The newest release has no iPhone build._android": "The newest release has no Android build.",
+	"Installed from Google Play? Play updates MaxHQ for you.": "Installed from Google Play? Play updates MaxHQ for you.",
+	"Turn them on in iOS Settings._android": "Turn them on in Android settings.",
+	"iOS asks once._android": "Android asks you first.",
 	"Waiting for room on this phone": "Waiting for room on this phone",
 	"While an agent works": "While an agent works",
 	"The send button does this. The other shows beside it once you type.": "The send button does this. The other shows beside it once you type.",
@@ -459,5 +466,8 @@
 	"“{{title}}” was deleted.": "“{{title}}” was deleted.",
 	"Runs at {{level}}.": "Runs at {{level}}.",
 	"{{level}} (default)": "{{level}} (default)",
-	"Couldn't change the effort level. {{reason}}": "Couldn't change the effort level. {{reason}}"
+	"Couldn't change the effort level. {{reason}}": "Couldn't change the effort level. {{reason}}",
+	"This build gets no pushes": "This build gets no pushes",
+	"It was built without the signing that push needs.": "It was built without the signing that push needs.",
+	"It was built without the signing that push needs._android": "It was built without Firebase's google-services.json, which push needs."
 }

@@ -20,6 +20,7 @@
 #![warn(missing_docs)]
 
 pub mod beneath;
+pub mod local;
 pub mod manifest;
 pub mod name;
 pub mod receive;
@@ -85,13 +86,7 @@ impl Failure {
     /// A failed disk operation, with a code that says whether the disk was
     /// full, a path broke a rule or something else went wrong.
     pub fn io(err: &io::Error, entry: Option<u32>) -> Self {
-        use rustix::io::Errno;
-        let code = match err.raw_os_error().map(Errno::from_raw_os_error) {
-            Some(Errno::NOSPC | Errno::DQUOT) => ErrorCode::NoSpace,
-            Some(Errno::LOOP | Errno::XDEV | Errno::NOTDIR | Errno::EXIST) => ErrorCode::BadPath,
-            _ => ErrorCode::Internal,
-        };
-        Self::new(code, entry, err.to_string())
+        Self::new(beneath::code_of(err), entry, err.to_string())
     }
 }
 
@@ -224,10 +219,11 @@ mod tests {
     use super::*;
     use crate::beneath::Dir;
     use crate::testing::TempDir;
-    use std::os::unix::fs::PermissionsExt;
 
+    #[cfg(unix)]
     #[test]
     fn a_folder_count_passes_over_what_it_cant_read() {
+        use std::os::unix::fs::PermissionsExt;
         let dir = TempDir::new();
         std::fs::write(dir.path().join("kept"), [0; 10]).unwrap();
         let shut = dir.path().join("shut");
@@ -248,6 +244,8 @@ mod tests {
             at.make_dir("d", 0o755).unwrap();
             at = at.dir(&["d".to_owned()]).unwrap();
         }
+        // Windows can't remove a folder this process still holds open.
+        drop(at);
         let counted = folder_bytes(dir.path());
         remove_tree(dir.path().join("d")).unwrap();
         assert_eq!(counted.unwrap(), 10);
@@ -308,11 +306,26 @@ mod tests {
         assert_eq!(over.code, ErrorCode::QuotaExceeded);
     }
 
+    /// The system's codes for a full disk and for a link where none may be.
+    fn full_and_link() -> (i32, i32) {
+        #[cfg(unix)]
+        {
+            use rustix::io::Errno;
+            (Errno::NOSPC.raw_os_error(), Errno::LOOP.raw_os_error())
+        }
+        // ERROR_DISK_FULL and ERROR_STOPPED_ON_SYMLINK.
+        #[cfg(windows)]
+        {
+            (112, 681)
+        }
+    }
+
     #[test]
     fn disk_errors_map_to_codes() {
-        let full = io::Error::from_raw_os_error(rustix::io::Errno::NOSPC.raw_os_error());
+        let (full, link) = full_and_link();
+        let full = io::Error::from_raw_os_error(full);
         assert_eq!(Failure::io(&full, Some(2)).code, ErrorCode::NoSpace);
-        let link = io::Error::from_raw_os_error(rustix::io::Errno::LOOP.raw_os_error());
+        let link = io::Error::from_raw_os_error(link);
         assert_eq!(Failure::io(&link, None).code, ErrorCode::BadPath);
         let other = io::Error::other("odd");
         assert_eq!(Failure::io(&other, None).code, ErrorCode::Internal);

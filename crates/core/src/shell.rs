@@ -3,7 +3,17 @@
 
 //! Words for a POSIX shell. `word` leaves a word as it is when it holds
 //! nothing a shell reads, as the shared `shellQuote` does, and `quoted`
-//! always puts it in single quotes.
+//! always puts it in single quotes. [`powershell`] does the same for
+//! PowerShell. [`windows_script`] reads the other way, taking a script out
+//! of a PowerShell or cmd wrapper.
+//!
+//! A Windows command line's own quoting is `maxhq_os::proc::args`, beside
+//! the reader that splits one back.
+
+pub mod powershell;
+mod windows;
+
+pub use windows::{windows_script, windows_script_argv};
 
 /// `text` as one word for `sh`: as it is when it holds nothing a shell
 /// reads, else in single quotes.

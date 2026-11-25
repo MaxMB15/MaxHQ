@@ -282,6 +282,7 @@ pub(crate) mod tests {
                     workspace_host: None,
                     build: None,
                     target: None,
+                    wsl: None,
                 }),
             },
             Change::Upsert {

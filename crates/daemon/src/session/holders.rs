@@ -98,6 +98,8 @@ impl Holders for Holds {
         let holds = self.clone();
         Box::pin(async move {
             own_mcp::add(&mut launch).await;
+            drive::programs::ready(&mut launch.program, &mut launch.args)
+                .map_err(|message| SpawnError::Holder { message })?;
             Holds::spawn(&holds, &launch).await
         })
     }

@@ -98,6 +98,7 @@ pub fn hub_for(name: &str) -> Hub {
             workspace_host: None,
             build: None,
             target: None,
+            wsl: None,
         },
         HashMap::new(),
     )

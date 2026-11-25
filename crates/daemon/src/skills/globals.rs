@@ -12,11 +12,11 @@
 
 use std::fs;
 use std::io;
-use std::os::unix::fs::symlink;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, OnceLock};
 
 use maxhq_core::fs::{write_atomic, Atomic};
+use maxhq_core::fs_ext::{self, symlink};
 use maxhq_core::skills::always;
 use maxhq_core::skills::disk::DiskFs;
 use maxhq_core::skills::globals::{self, GlobalsInput, Tidy};
@@ -320,8 +320,8 @@ impl Globals {
         let _busy = BUSY.lock().unwrap_or_else(|poison| poison.into_inner());
         let (dir, record) = self.last().ok_or("There's no tidy to undo.")?;
         for link in record.linked.iter().rev() {
-            if fs::read_link(&link.from).is_ok_and(|to| to == link.to) {
-                fs::remove_file(&link.from).map_err(|err| failed(&link.from, err))?;
+            if fs_ext::read_link(&link.from).is_ok_and(|to| to == link.to) {
+                fs_ext::remove_link(&link.from).map_err(|err| failed(&link.from, err))?;
             }
         }
         let mut left = Vec::new();
@@ -471,10 +471,11 @@ pub fn undo_request() -> ActionOutcome {
 #[cfg(test)]
 mod tests {
     use std::collections::BTreeMap;
-    use std::os::unix::fs::PermissionsExt;
 
+    use maxhq_core::skills::path_text;
     use maxhq_core::skills::scan::{scan, ScanInput};
     use maxhq_core::skills::store::FolderStore;
+    use maxhq_os::fsmode;
     use maxhq_protocol::model::Vendor;
     use maxhq_protocol::skills::{SkillMark, SkillPlace};
 
@@ -526,7 +527,7 @@ mod tests {
         .unwrap();
         let run = dir.join("scripts/run.sh");
         fs::write(&run, "#!/bin/sh\n").unwrap();
-        fs::set_permissions(&run, fs::Permissions::from_mode(0o755)).unwrap();
+        fsmode::set_mode(&run, 0o755).unwrap();
     }
 
     /// A temp home laid out like the Mac's, with settings files beside the
@@ -573,11 +574,11 @@ mod tests {
                     format!("link {}", fs::read_link(&path).unwrap().display())
                 } else if meta.is_dir() {
                     todo.push(path.clone());
-                    format!("dir {:o}", meta.permissions().mode())
+                    format!("dir {:o}", fsmode::mode_of(&meta))
                 } else {
                     format!(
                         "file {:o} {:?} {:?}",
-                        meta.permissions().mode(),
+                        fsmode::mode_of(&meta),
                         meta.modified().unwrap(),
                         fs::read(&path).unwrap()
                     )
@@ -605,11 +606,11 @@ mod tests {
                 home.join(".claude-work/skills/grill-me"),
                 home.join(".agents/skills/git-flow"),
             ]
-            .map(|p| p.display().to_string())
+            .map(|p| path_text(&p))
         );
         assert_eq!(
             shown.backups,
-            [home.join(".codex/skills/unslop").display().to_string()]
+            [path_text(&home.join(".codex/skills/unslop"))]
         );
         assert_eq!(shown.links.len(), 6, "{:?}", shown.links);
 
@@ -664,7 +665,7 @@ mod tests {
         for config in [".claude", ".claude-work", ".agents"] {
             for name in always::NAMES {
                 let link = home.join(config).join("skills").join(name);
-                let to = fs::read_link(&link).unwrap();
+                let to = fs_ext::read_link(&link).unwrap();
                 assert!(
                     to.starts_with(globals.data.join("store")),
                     "{}",
@@ -725,7 +726,9 @@ mod tests {
         skill(&home.join(".claude/skills/git-flow"), "A new one.");
 
         let left = globals.undo().unwrap_err();
-        assert!(left.contains(".claude/skills/git-flow"), "{left}");
+        // The message names the folder on this device as it writes paths.
+        let in_way = home.join(".claude").join("skills").join("git-flow");
+        assert!(left.contains(&in_way.display().to_string()), "{left}");
         let backup = globals.data.join("backup/2026-10-26-073320");
         assert!(backup.join(".claude/skills/git-flow").is_dir());
         assert!(home.join(".codex/skills/unslop").is_dir());
@@ -780,7 +783,7 @@ mod tests {
 
         let again = globals.shown().unwrap();
         assert!(again.undo);
-        let pick = home.join(".agents/skills/grill-me").display().to_string();
+        let pick = path_text(&home.join(".agents/skills/grill-me"));
         globals.apply(&again.hash, &[pick], NOW).unwrap();
         let last = library.commits.lock().unwrap().last().unwrap().0.clone();
         assert_eq!(last, "grill-me");

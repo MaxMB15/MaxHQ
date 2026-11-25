@@ -237,7 +237,7 @@ mod tests {
     //! release signs, and its private half was thrown away.
 
     use super::*;
-    use crate::tools::install::tests::{Answer, Fixture};
+    use crate::tools::install::fixture::{Answer, Fixture};
 
     /// The throwaway key's public half. Test only.
     const TEST_ONLY_KEY: &str = include_str!("test-only/key.pub");

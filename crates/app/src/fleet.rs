@@ -29,6 +29,7 @@ use std::time::Duration;
 #[cfg(feature = "desktop")]
 use std::time::Instant;
 
+use maxhq_core::paths::BUILD_LEN;
 use maxhq_protocol::ids::{AttachmentId, DeviceId, IdempotencyKey};
 use maxhq_protocol::link::LinkState;
 #[cfg(feature = "desktop")]
@@ -43,6 +44,8 @@ use serde::Serialize;
 use sha2::{Digest, Sha256};
 use specta::Type;
 
+#[cfg(feature = "desktop")]
+use crate::app_update::Install;
 use crate::devices::Connector;
 #[cfg(feature = "desktop")]
 use crate::devices::{Devices, OnProgress};
@@ -120,10 +123,10 @@ pub struct Binary {
 }
 
 impl Binary {
-    /// The build a `maxd` running from it reports: the first 16 hex
-    /// characters of its sha256.
+    /// The build a `maxd` running from it reports: the first
+    /// [`BUILD_LEN`] hex characters of its sha256.
     pub fn build(&self) -> &str {
-        &self.sha256[..16.min(self.sha256.len())]
+        &self.sha256[..BUILD_LEN.min(self.sha256.len())]
     }
 }
 
@@ -165,7 +168,7 @@ impl BinaryDirs {
     /// build from the source tree, the folder [`BIN_DIR_ENV`] names.
     pub fn for_app() -> Self {
         let mut dirs = Vec::new();
-        if let Some(resources) = resources_dir() {
+        if let Some(resources) = Install::this_app().and_then(Install::resources) {
             dirs.push(resources);
         }
         if cfg!(debug_assertions)
@@ -280,31 +283,9 @@ impl Binaries for BinaryDirs {
     }
 }
 
-/// The bundle's `Resources` folder, beside `Contents/MacOS` where the app
-/// runs from. None outside a bundle.
-#[cfg(feature = "desktop")]
-fn resources_dir() -> Option<PathBuf> {
-    let exe = std::env::current_exe().ok()?;
-    let contents = exe.parent()?.parent()?;
-    let resources = contents.join("Resources");
-    resources.is_dir().then_some(resources)
-}
-
 /// The bundle `pnpm dev` runs the app from, so Notification Center works.
 /// It's made in the target folder, and still counts as the source tree.
 pub const DEV_BUNDLE: &str = "MaxHQ Dev.app";
-
-/// Whether this app runs from the source tree rather than a bundle.
-#[cfg(feature = "desktop")]
-pub fn from_dev_tree() -> bool {
-    let Ok(exe) = std::env::current_exe() else {
-        return true;
-    };
-    !exe.components().any(|part| {
-        let part = part.as_os_str().to_string_lossy();
-        part.ends_with(".app") && part != DEV_BUNDLE
-    })
-}
 
 /// The signed manifest in `dir`, when both it and its signature are there.
 /// The device checks them, so the app only carries them.
@@ -974,7 +955,8 @@ impl<C: Connector> App<C> {
     ) {
         let only = (!devices.is_empty()).then_some(devices.as_slice());
         let machines = self.view.read(|merge| machines(merge, only));
-        let plan = plan(&machines, binaries, tools, from_dev_tree(), unsigned);
+        let from_source = Install::this_app().is_none_or(Install::from_source);
+        let plan = plan(&machines, binaries, tools, from_source, unsigned);
         let through = Through {
             devices: &self.devices,
             view: &self.view,

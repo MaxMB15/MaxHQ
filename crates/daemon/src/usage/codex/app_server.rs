@@ -16,7 +16,7 @@ use std::time::Duration;
 use serde::Serialize;
 use serde_json::{json, Value};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader, Lines};
-use tokio::process::{Child, ChildStdin, ChildStdout, Command};
+use tokio::process::{Child, ChildStdin, ChildStdout};
 
 /// How long one request may take. A cold start answers `initialize` in
 /// under a second, and the limits in a quarter of one.
@@ -111,7 +111,7 @@ impl AppServer {
     /// Starts `program app-server` for the login in `home` and completes
     /// the opening exchange.
     pub async fn start(program: &Path, home: &Path) -> Result<Self, Error> {
-        let mut child = Command::new(program)
+        let mut child = crate::drive::programs::command(program)
             .arg("app-server")
             .env("CODEX_HOME", home)
             .stdin(Stdio::piped())
@@ -239,7 +239,8 @@ while IFS= read -r line; do
   case "$line" in
     *'"method":"initialize"'*)
       printf '{"method":"remoteControl/status/changed","params":{}}\n'
-      printf '{"id":%s,"result":{"userAgent":"fake/0.0.0","codexHome":"%s"}}\n' "$id" "$CODEX_HOME" ;;
+      home=$(printf '%s' "$CODEX_HOME" | sed 's/\\/\\\\/g')
+      printf '{"id":%s,"result":{"userAgent":"fake/0.0.0","codexHome":"%s"}}\n' "$id" "$home" ;;
     *'"method":"account/read"'*)
       printf '{"id":%s,"result":%s}\n' "$id" "$(cat "$CODEX_HOME/account.json")" ;;
     *'"method":"account/rateLimits/read"'*)
@@ -275,14 +276,11 @@ echo stopped >> "$CODEX_HOME/stops.log"
     impl FakeHome {
         /// Sets one up under a name unique to this test.
         pub fn new(name: &str) -> Self {
-            use std::os::unix::fs::PermissionsExt;
             let root = std::env::temp_dir().join(format!("maxd-{name}-{}", std::process::id()));
             let _ = std::fs::remove_dir_all(&root);
             let home = root.join("codex-home");
             std::fs::create_dir_all(&home).unwrap();
-            let program = root.join("codex");
-            std::fs::write(&program, FAKE).unwrap();
-            std::fs::set_permissions(&program, std::fs::Permissions::from_mode(0o755)).unwrap();
+            let program = crate::testing::fake_program(&root, "codex", FAKE);
             let fake = Self {
                 home,
                 program,

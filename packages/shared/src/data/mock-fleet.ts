@@ -200,9 +200,21 @@ const samePlace = (a: ToolInfo, b: ToolTarget) =>
 
 /** The hosts the Add device wizard offers. */
 const SETUP_HOSTS: readonly SetupHost[] = [
-	{ host: "devbox", from: "ssh_config", address: "devbox.tail1234.ts.net", link: "link-devbox" },
-	{ host: "spare-box", from: "tailnet", address: "spare-box.tail1234.ts.net", link: null },
-	{ host: "build-box", from: "ssh_config", address: "192.168.1.60", link: null },
+	{
+		host: "devbox",
+		from: "ssh_config",
+		address: "devbox.tail1234.ts.net",
+		link: "link-devbox",
+		wsl: null,
+	},
+	{
+		host: "spare-box",
+		from: "tailnet",
+		address: "spare-box.tail1234.ts.net",
+		link: null,
+		wsl: null,
+	},
+	{ host: "build-box", from: "ssh_config", address: "192.168.1.60", link: null, wsl: null },
 ];
 
 /** The fingerprint each sample host shows. */
@@ -437,7 +449,7 @@ export const mockFleet = (
 			},
 		]);
 		if (found) found.link = link;
-		else hosts.push({ host, from: "ssh_config", address: null, link });
+		else hosts.push({ host, from: "ssh_config", address: null, link, wsl: null });
 		onProgress({ type: "done", setup: id, link, device });
 		return { status: "ok", data: link };
 	};

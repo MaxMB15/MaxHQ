@@ -19,7 +19,6 @@
 use std::collections::{BTreeMap, HashMap};
 use std::fs;
 use std::io;
-use std::os::unix::fs::PermissionsExt;
 use std::path::{Component, Path, PathBuf};
 use std::process::Stdio;
 use std::sync::Arc;
@@ -880,7 +879,7 @@ fn mirror(dir: &Path, proposals: &[GuestProposal]) -> io::Result<()> {
             }
             fs::write(&to, bytes)?;
             let mode = if file.executable { 0o755 } else { 0o644 };
-            fs::set_permissions(&to, fs::Permissions::from_mode(mode))?;
+            maxhq_os::fsmode::set_mode(&to, mode)?;
         }
     }
     Ok(())

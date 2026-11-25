@@ -13,6 +13,7 @@
 import { formatNumber } from "../i18n";
 import type { Activity, AgentId, AgentProcess } from "../bindings";
 import type { ViewState } from "../view/replica";
+import { nameOf } from "../folders/path";
 
 /** How often the open popover reads the list again. */
 export const PROCESS_REFRESH_MS = 2500;
@@ -259,6 +260,6 @@ export const shortCommand = (process: Pick<AgentProcess, "command" | "name">): s
 	const wrapped = WRAPPED.exec(command)?.[1];
 	if (wrapped !== undefined) return wrapped.replaceAll("'\\''", "'").trim() || command;
 	const [program = "", ...rest] = command.split(/\s+/);
-	const base = program.split("/").filter(Boolean).at(-1) ?? program;
+	const base = nameOf(program);
 	return [base, ...rest].join(" ");
 };

@@ -4,6 +4,8 @@
 //! Runs the built `maxd` binary against a socket, home folder and data
 //! folder in a temp dir. Nothing here touches the real socket or installs a
 //! service.
+// They reach maxd over its Unix socket.
+#![cfg(unix)]
 
 use std::collections::BTreeMap;
 use std::fs::{self, File, TryLockError};
@@ -560,7 +562,7 @@ fn version_names_the_protocol() {
 #[test]
 fn unknown_arguments_print_the_usage() {
     let world = World::new();
-    for args in [&[][..], &["serve"], &["service", "restart"]] {
+    for args in [&[][..], &["serve"], &["service", "reload"]] {
         let output = world.maxd(args).output().unwrap();
         assert_eq!(output.status.code(), Some(2), "{args:?}");
         assert!(stderr(&output).contains("maxd service install"));

@@ -10,6 +10,7 @@
 import { Switch } from "@/components/ui/switch";
 import { setBadgePrefs, useBadgePrefs } from "@/native/dock-badge";
 import { type NotificationAccess, openNotificationSettings } from "@/native/notifications";
+import { onMac } from "@/native/platform";
 import { t as translate, useI18n } from "@maxhq/shared/i18n";
 import { BADGE_REASON_TEXT, BADGE_REASONS, switchReason } from "@maxhq/shared/view/badge";
 
@@ -24,8 +25,13 @@ export const DOCK_BADGE_TERMS: readonly string[] = [
 	...BADGE_REASONS.map((reason) => BADGE_REASON_TEXT[reason].label),
 ];
 
-/** Why macOS hides the Dock badge, or null when nothing does or it isn't known yet. */
+/**
+ * Why macOS hides the Dock badge, or null when nothing does or it isn't
+ * known yet. Windows' taskbar and Linux's docks show a count whatever the
+ * notification settings say.
+ */
 const hiddenBecause = (access: NotificationAccess | null): string | null => {
+	if (!onMac()) return null;
 	if (access?.permission === "denied" || access?.permission === "not_decided") {
 		return translate("macOS hides the Dock badge until MaxHQ's notifications are allowed.");
 	}

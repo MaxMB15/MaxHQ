@@ -31,6 +31,7 @@ import {
 import { serverModelChoices } from "../local-models/models";
 import { AGENT_KINDS, accountKind, agentKind, isLocalAccount } from "../status/agent-kind";
 import { atLimit } from "../status/usage";
+import { wslMachine } from "../status/wsl";
 import { claimNames } from "../ui/link-claim";
 import { liveRunAgents } from "../workflow/select";
 
@@ -39,6 +40,7 @@ import { projectsWithNotes } from "./note-heads";
 import { byPin } from "./pin-order";
 import { all, type EntityOf, type ViewState } from "./replica";
 
+import { nameOf } from "../folders/path";
 /** Idle agents older than this fold into the "older" row (U-8). */
 export const FOLD_AFTER_MS = 24 * 60 * 60 * 1000;
 
@@ -154,6 +156,7 @@ export const linkContext = (view: ViewState, link: DeviceLink): LinkContext => {
 		jumpHosts,
 		agents,
 		claimed: claimNames(view, link) ?? undefined,
+		machine: (link.route.type === "wsl" ? wslMachine(links, link.route) : null) ?? undefined,
 	};
 };
 
@@ -663,8 +666,7 @@ export type DeviceGroup = {
 /** A workspace's short name: its container, or its folder's last part. */
 export const workspaceName = (workspace: Workspace): string => {
 	if (workspace.location.type === "container") return workspace.location.instance;
-	const parts = workspace.location.path.split("/").filter(Boolean);
-	return parts[parts.length - 1] ?? workspace.location.path;
+	return nameOf(workspace.location.path);
 };
 
 // The top-level agents a device page counts, leaving out a dispatcher's.

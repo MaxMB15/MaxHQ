@@ -21,7 +21,7 @@ use std::path::{Path, PathBuf};
 
 use maxhq_protocol::skills::{GlobalsConflict, GlobalsJoin, GlobalsPlan, TreeHash};
 
-use super::{ignored, link_points_at, sha256_hex, tree, Node, SkillFs, SKILL_FILE};
+use super::{ignored, link_points_at, path_text, sha256_hex, tree, Node, SkillFs, SKILL_FILE};
 
 /// The device's global skill folders, as `maxd` finds them.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -133,7 +133,7 @@ impl Tidy {
     /// with no pick stays. A path that isn't a copy in a conflict, or two
     /// picks for one skill, is refused.
     pub fn pick(&mut self, picks: &[String]) -> Result<(), String> {
-        let is = |taken: &Taken, pick: &String| taken.path.as_os_str() == pick.as_str();
+        let is = |taken: &Taken, pick: &String| path_text(&taken.path) == *pick;
         if let Some(stray) = picks.iter().find(|pick| {
             !self
                 .conflicts
@@ -181,7 +181,7 @@ impl Tidy {
     pub fn hash(&self) -> String {
         let mut text = String::new();
         let mut line = |kind: &str, path: &Path, what: &str| {
-            text.push_str(&format!("{kind}\0{}\0{what}\n", path.display()));
+            text.push_str(&format!("{kind}\0{}\0{what}\n", path_text(path)));
         };
         let tree = |taken: &Taken| taken.tree.as_ref().map_or("-".to_owned(), |t| t.0.clone());
         for taken in &self.moves {
@@ -191,7 +191,7 @@ impl Tidy {
             line("backup", &taken.path, &tree(taken));
         }
         for link in &self.links {
-            line("link", &link.path, &link.target.to_string_lossy());
+            line("link", &link.path, &path_text(&link.target));
         }
         for join in &self.joins {
             for taken in &join.taken {
@@ -212,19 +212,14 @@ impl Tidy {
 
     /// The plan the app shows.
     pub fn plan(&self) -> GlobalsPlan {
-        let paths = |taken: &[Taken]| {
-            taken
-                .iter()
-                .map(|t| t.path.to_string_lossy().into_owned())
-                .collect()
-        };
+        let paths = |taken: &[Taken]| taken.iter().map(|t| path_text(&t.path)).collect();
         GlobalsPlan {
             hash: self.hash(),
             moves: paths(&self.moves),
             links: self
                 .links
                 .iter()
-                .map(|link| link.path.to_string_lossy().into_owned())
+                .map(|link| path_text(&link.path))
                 .collect(),
             backups: paths(&self.backups),
             joins: self
@@ -489,8 +484,14 @@ mod tests {
         fs
     }
 
-    fn paths(taken: &[Taken]) -> Vec<&str> {
-        taken.iter().map(|t| t.path.to_str().unwrap()).collect()
+    /// `path` with `/` between its parts, as the tests spell them: a
+    /// Windows host joins with `\`.
+    fn slash(path: &Path) -> String {
+        path.to_string_lossy().replace('\\', "/")
+    }
+
+    fn paths(taken: &[Taken]) -> Vec<String> {
+        taken.iter().map(|t| slash(&t.path)).collect()
     }
 
     fn propose() -> TreeHash {
@@ -511,10 +512,14 @@ mod tests {
         );
         assert_eq!(paths(&tidy.backups), ["/home/dev/.codex/skills/unslop"]);
         let unslop = tidy.moves[0].tree.clone().unwrap();
-        let links: Vec<(&str, PathBuf)> = tidy
+        let links: Vec<(String, PathBuf)> = tidy
             .links
             .iter()
-            .map(|l| (l.path.to_str().unwrap(), l.target.clone()))
+            .map(|l| (slash(&l.path), l.target.clone()))
+            .collect();
+        let links: Vec<(&str, PathBuf)> = links
+            .iter()
+            .map(|(path, target)| (path.as_str(), target.clone()))
             .collect();
         let at = |tree: &TreeHash| Path::new(STORE).join(&tree.0);
         assert_eq!(
@@ -534,7 +539,8 @@ mod tests {
         );
         let shown = tidy.plan();
         assert_eq!(shown.hash, tidy.hash());
-        assert_eq!(shown.backups, ["/home/dev/.codex/skills/unslop"]);
+        let backups: Vec<String> = shown.backups.iter().map(|p| slash(Path::new(p))).collect();
+        assert_eq!(backups, ["/home/dev/.codex/skills/unslop"]);
         assert_eq!(shown.links.len(), 4);
     }
 
@@ -562,14 +568,16 @@ mod tests {
         fs.link("/home/dev/.agents/skills/propose-skill-change", &old);
         fs.file("/home/dev/.agents/skills/unslop", "a file, not a skill");
         let tidy = plan(&fs, &input(Some(propose())));
-        assert!(paths(&tidy.backups).contains(&"/home/dev/.agents/skills/propose-skill-change"));
-        let linked: Vec<&str> = tidy
-            .links
+        assert!(paths(&tidy.backups)
             .iter()
-            .map(|l| l.path.to_str().unwrap())
-            .collect();
-        assert!(linked.contains(&"/home/dev/.agents/skills/propose-skill-change"));
-        assert!(!linked.contains(&"/home/dev/.agents/skills/unslop"));
+            .any(|p| p == "/home/dev/.agents/skills/propose-skill-change"));
+        let linked: Vec<String> = tidy.links.iter().map(|l| slash(&l.path)).collect();
+        assert!(linked
+            .iter()
+            .any(|p| p == "/home/dev/.agents/skills/propose-skill-change"));
+        assert!(!linked
+            .iter()
+            .any(|p| p == "/home/dev/.agents/skills/unslop"));
         assert!(!paths(&tidy.moves).iter().any(|p| p.contains("not-a-skill")));
         assert!(!paths(&tidy.moves).iter().any(|p| p.contains("synced")));
     }
@@ -677,9 +685,15 @@ mod tests {
         assert!(tidy.conflicts.is_empty());
         // The same tree as the pick goes into the library too.
         let moved = paths(&tidy.moves);
-        assert!(moved.contains(&"/home/dev/.claude/skills/grill-me"));
-        assert!(moved.contains(&"/home/dev/.codex/skills/grill-me"));
-        assert!(paths(&tidy.backups).contains(&"/home/dev/.agents/skills/grill-me"));
+        assert!(moved
+            .iter()
+            .any(|p| p == "/home/dev/.claude/skills/grill-me"));
+        assert!(moved
+            .iter()
+            .any(|p| p == "/home/dev/.codex/skills/grill-me"));
+        assert!(paths(&tidy.backups)
+            .iter()
+            .any(|p| p == "/home/dev/.agents/skills/grill-me"));
     }
 
     #[test]

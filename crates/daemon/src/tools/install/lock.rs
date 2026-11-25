@@ -143,11 +143,7 @@ fn stale(owner: &str) -> bool {
     if pid as u32 == std::process::id() {
         return !held().contains(owner);
     }
-    #[allow(unsafe_code)]
-    // SAFETY: signal 0 only checks that the process exists.
-    let alive = unsafe { libc::kill(pid, 0) } == 0
-        || std::io::Error::last_os_error().raw_os_error() == Some(libc::EPERM);
-    !alive
+    !maxhq_os::proc::alive(pid as u32)
 }
 
 #[cfg(test)]
@@ -163,7 +159,7 @@ mod tests {
         held().remove(&mine);
         assert!(stale("not a pid"));
         assert!(stale("0"));
-        // PID 1 always runs.
-        assert!(!stale("1"));
+        // PID 1 always runs, and on Windows the System process, PID 4.
+        assert!(!stale(if cfg!(windows) { "4" } else { "1" }));
     }
 }

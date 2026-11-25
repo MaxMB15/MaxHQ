@@ -15,6 +15,24 @@
 //                                     production app archived, signed ad hoc
 //                                     and installed on the paired iPhone
 //   check                             the fingerprint check on its own, for CI
+//   android-core [--release]          the Rust core for both Android ABIs
+//   android-dev [--rebuild]           the core, a new debug APK when the
+//                                     fingerprint changed, installed on the
+//                                     one Android phone adb lists, then Metro
+//   android-apk [--dev]               the core in release and the production
+//                                     APK, signed when the ANDROID_KEY*
+//                                     variables hold a key (see android.ts);
+//                                     --dev builds the debug APK instead
+//   android-aab                       as android-apk, as an App Bundle
+//   android-release                   the release workflow's Android build:
+//                                     the core in release, then the APK and
+//                                     the App Bundle, unsigned, with no key
+//   android-sign <build> <out>        the release workflow's signing job:
+//                                     those two, from the build job's folder,
+//                                     signed with the ANDROID_KEY* variables'
+//                                     key into <out> as MaxHQ.apk and
+//                                     MaxHQ.aab; with no key it says so and
+//                                     writes nothing
 //   build-number                      prints the release workflow's build
 //                                     number for this run and attempt
 //   archive                           the release workflow's build: the core
@@ -23,22 +41,63 @@
 //   export                            the release workflow's upload job: that
 //                                     archive exported as an .ipa, signed
 //                                     with the API key
+//   write-ids                         the release workflows' ios.local.json,
+//                                     from IOS_TEAM_ID and IOS_BUNDLE_ID
 //
 // With MAXHQ_BUILD_NUMBER set, as the release workflow sets it, testflight
-// numbers the build with it and leaves native-build.json alone. archive
-// needs that number. archive and export each check that the app's signature
-// still carries push and the app group. export runs without the packages
-// installed, so it loads nothing but Node's own modules.
+// numbers the build with it and leaves native-build.json alone. archive and
+// android-release need that number, which is also the Android version code.
+// archive and export each check that the app's signature still carries push
+// and the app group. export, android-sign and write-ids run without the
+// packages installed, so they load nothing but Node's own modules.
 //
 // --dry-run prints the commands instead of running them and writes nothing.
 
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { dirname, join, resolve } from "node:path";
-
-import { type IosLocal, MISSING_LOCAL, readIosLocal } from "./ios-config.ts";
 import {
+	appendFileSync,
+	copyFileSync,
+	existsSync,
+	mkdirSync,
+	mkdtempSync,
+	readdirSync,
+	readFileSync,
+	rmSync,
+	statSync,
+	writeFileSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
+import { basename, dirname, join, resolve } from "node:path";
+
+import {
+	androidEnv,
+	DEBUG_APK,
+	devApkSteps,
+	devInstallStep,
+	newestBuildTools,
+	onlyAndroidPhone,
+	RELEASE_AAB,
+	RELEASE_APK,
+	releaseOutput,
+	releaseSteps,
+	signAabSteps,
+	signApkSteps,
+	SIGNING_ENV,
+	signingFiles,
+	signingFromEnv,
+	type Signing,
+	type SigningFiles,
+	UNSIGNED_APK,
+} from "./android.ts";
+import {
+	type IosLocal,
+	iosLocalFromEnv,
+	LOCAL_FILE,
+	MISSING_LOCAL,
+	readIosLocal,
+} from "./ios-config.ts";
+import {
+	ANDROID_NDK_VERSION,
 	API_KEY_ENV,
 	apiKeyFromEnv,
 	appInIpa,
@@ -66,6 +125,7 @@ import {
 	testflightSteps,
 	type DevBuilds,
 	type ExportKind,
+	type CorePlatform,
 	type ListedDevice,
 	type NativeBuild,
 	type Step,
@@ -77,6 +137,8 @@ const repoDir = resolve(appDir, "../..");
 
 const [command, ...flags] = process.argv.slice(2);
 const dryRun = flags.includes("--dry-run");
+// The arguments that aren't flags, as paths from where it was started.
+const paths = flags.filter((flag) => !flag.startsWith("--")).map((path) => resolve(path));
 
 const fail = (message: string): never => {
 	console.error(message);
@@ -91,7 +153,12 @@ const attempt = (steps: Step[]): Step | undefined =>
 		console.log(`$ ${env.join("")}${step.cmd} ${args.join(" ")}`);
 		if (dryRun) return false;
 		const result = spawnSync(step.cmd, step.args, {
-			cwd: { repo: repoDir, app: appDir, core: join(appDir, CORE_MODULE) }[step.cwd ?? "app"],
+			cwd: {
+				repo: repoDir,
+				app: appDir,
+				core: join(appDir, CORE_MODULE),
+				android: join(appDir, "android"),
+			}[step.cwd ?? "app"],
 			env: { ...process.env, ...step.env },
 			stdio: "inherit",
 		});
@@ -116,9 +183,11 @@ const readJson = <T>(repoPath: string, fallback: T): T => {
 };
 
 // Loaded only when a command needs it, since export runs without packages.
-const fingerprint = async () => {
+// Each platform's builds are hashed on their own, so a change to Android's
+// side alone never asks for a new iPhone build, nor the other way round.
+const fingerprint = async (platform: CorePlatform) => {
 	const { createProjectHashAsync } = await import("expo/fingerprint");
-	return createProjectHashAsync(appDir, { silent: true });
+	return createProjectHashAsync(appDir, { silent: true, platforms: [platform] });
 };
 
 // devicectl installs on the one paired iPhone, named by its UDID. A dry run
@@ -143,26 +212,26 @@ const pairedPhone = (): string | undefined => {
 	}
 };
 
-const dev = async () => {
-	const device = !flags.includes("--simulator");
-	run(coreSteps(false));
-	const hash = await fingerprint();
+// The dev loop both phones share: the core, a new dev build when the
+// fingerprint changed or --rebuild asks, then Metro. `build` builds and
+// installs, and returns why the phone didn't take the build, if it didn't.
+// Metro starts even then. Nothing is noted, so the next run builds and
+// installs again.
+const devLoop = async (
+	platform: CorePlatform,
+	device: boolean | "android",
+	build: () => string | undefined
+) => {
+	run(coreSteps(false, platform));
+	const hash = await fingerprint(platform);
 	const noted = readJson<DevBuilds>(DEV_BUILD_FILE, {});
 	if (flags.includes("--rebuild") || needsDevBuild(noted, device, hash)) {
-		const steps = devBuildSteps(device, device ? pairedPhone() : undefined);
-		run(steps.build);
-		// Metro starts even when the phone doesn't take the build. Nothing is
-		// noted then, so the next run builds and installs again.
-		const failed = steps.install && attempt([steps.install]);
-		if (failed) {
-			console.error(
-				`${failed.cmd} failed, so the phone keeps its last dev build and the next mobile:dev tries again.`
-			);
+		const missed = build();
+		if (missed) {
+			console.error(missed);
 		} else {
-			write(
-				DEV_BUILD_FILE,
-				`${JSON.stringify({ ...noted, [device ? "device" : "simulator"]: hash }, null, "\t")}\n`
-			);
+			const key = device === "android" ? "android" : device ? "device" : "simulator";
+			write(DEV_BUILD_FILE, `${JSON.stringify({ ...noted, [key]: hash }, null, "\t")}\n`);
 		}
 	} else {
 		console.log(
@@ -172,11 +241,23 @@ const dev = async () => {
 	run([metroStep()]);
 };
 
+const dev = () => {
+	const device = !flags.includes("--simulator");
+	return devLoop("ios", device, () => {
+		const steps = devBuildSteps(device, device ? pairedPhone() : undefined);
+		run(steps.build);
+		const failed = steps.install && attempt([steps.install]);
+		return failed
+			? `${failed.cmd} failed, so the phone keeps its last dev build and the next mobile:dev tries again.`
+			: undefined;
+	});
+};
+
 const check = async (upload: boolean) => {
 	const record =
 		readJson<NativeBuild | null>(NATIVE_BUILD_FILE, null) ??
 		fail(`${NATIVE_BUILD_FILE} is missing.`);
-	const hash = await fingerprint();
+	const hash = await fingerprint("ios");
 	const refusal = checkNativeBuild(record, hash, upload);
 	if (refusal) fail(refusal);
 	console.log(`Build ${record.buildNumber}, fingerprint ${hash}.`);
@@ -319,6 +400,182 @@ const exportArchive = () => {
 	console.log(`The .ipa is signed for TestFlight in apps/mobile/${ipaPath(local)}.`);
 };
 
+// The Android builds read the SDK from ANDROID_HOME and the pinned NDK from
+// ANDROID_NDK_HOME, which is filled in from the SDK when it's unset. A
+// missing NDK stops here, before the core's long build, with the command
+// that installs it.
+const setUpAndroid = () => {
+	const { sdk, add } = androidEnv(process.env);
+	Object.assign(process.env, add);
+	const ndk = process.env.ANDROID_NDK_HOME!;
+	if (!dryRun && !existsSync(ndk)) {
+		fail(`There's no NDK at ${ndk}. Install it with: sdkmanager "ndk;${ANDROID_NDK_VERSION}"`);
+	}
+	return sdk;
+};
+
+// The upload key leaves the environment as soon as it's read, so Gradle,
+// prebuild and the plugins they run never see it.
+const takeSigning = (): Signing | null => {
+	const signing = signingFromEnv(process.env);
+	for (const name of Object.values(SIGNING_ENV)) delete process.env[name];
+	return signing;
+};
+
+// The one Android phone adb lists, or none. A dry run lists nothing, so its
+// steps name a stand-in.
+const androidPhone = (): string | undefined => {
+	if (dryRun) return "<phone>";
+	const listed = spawnSync("adb", ["devices", "-l"], { encoding: "utf8" });
+	return listed.status === 0 ? onlyAndroidPhone(listed.stdout) : undefined;
+};
+
+const androidDev = () => {
+	setUpAndroid();
+	return devLoop("android", "android", () => {
+		run(devApkSteps());
+		const phone = androidPhone();
+		const failed = phone ? attempt([devInstallStep(phone)]) : undefined;
+		return !phone || failed
+			? `${phone ? "adb install failed" : "Found no Android phone, or more than one"}, so the debug APK stays in apps/mobile/${DEBUG_APK} and the next mobile:android:dev tries again.`
+			: undefined;
+	});
+};
+
+// Writes the key into files only this user can read, runs the signing steps
+// with them and removes them again, whether or not the steps worked. The
+// printed commands hide the key's alias.
+const signWith = (signing: Signing, steps: (files: SigningFiles) => Step[]) => {
+	const hidden = (files: SigningFiles) =>
+		steps(files).map((step) => ({ ...step, hide: [signing.alias] }));
+	if (dryRun) return run(hidden(signingFiles("<keys>")));
+	const dir = mkdtempSync(join(tmpdir(), "maxhq-signing-"));
+	try {
+		const files = signingFiles(dir);
+		writeFileSync(files.keystore, signing.keystore, { mode: 0o600 });
+		writeFileSync(files.storePassword, signing.storePassword, { mode: 0o600 });
+		writeFileSync(files.keyPassword, signing.keyPassword, { mode: 0o600 });
+		run(hidden(files));
+	} finally {
+		rmSync(dir, { recursive: true, force: true });
+	}
+};
+
+// The newest build-tools the SDK has, for zipalign and apksigner.
+const buildTools = (sdk: string) => {
+	const folder = join(sdk, "build-tools");
+	const version = existsSync(folder) ? newestBuildTools(readdirSync(folder)) : undefined;
+	if (version) return join(folder, version);
+	if (dryRun) return join(folder, "<version>");
+	return fail(`The SDK at ${sdk} has no build-tools. Install them with sdkmanager.`);
+};
+
+const jarsigner = () =>
+	process.env.JAVA_HOME ? join(process.env.JAVA_HOME, "bin", "jarsigner") : "jarsigner";
+
+const androidRelease = (kind: "apk" | "aab") => {
+	const signing = takeSigning();
+	const sdk = setUpAndroid();
+	if (kind === "apk" && flags.includes("--dev")) {
+		run(coreSteps(false, "android"));
+		run(devApkSteps());
+		return console.log(`The debug APK is in apps/mobile/${DEBUG_APK}.`);
+	}
+	run(coreSteps(true, "android"));
+	run(releaseSteps(kind));
+	if (signing) {
+		signWith(signing, (files) =>
+			kind === "apk"
+				? signApkSteps(buildTools(sdk), files, signing.alias)
+				: signAabSteps(jarsigner(), files, signing.alias)
+		);
+	}
+	const signed = signing ? "signed with the upload key" : "unsigned";
+	console.log(
+		`The ${kind === "apk" ? "APK" : "App Bundle"}, ${signed}, is in apps/mobile/${releaseOutput(kind, signing !== null)}.`
+	);
+};
+
+// The release workflow's Android build job. No key reaches it, since it
+// runs every package's scripts: the APK and the App Bundle come out
+// unsigned, and android-sign signs them in a job that runs nothing built.
+const androidReleaseBuild = () => {
+	const numbered = process.env[BUILD_NUMBER_ENV];
+	if (!numbered)
+		fail(`android-release is for the release workflow, which sets ${BUILD_NUMBER_ENV}.`);
+	const names = Object.values(SIGNING_ENV);
+	if (names.some((name) => process.env[name]))
+		fail(
+			`android-release builds unsigned and takes no upload key; leave ${names.join(", ")} unset.`
+		);
+	// The package is the iPhone's bundle ID, so a release never goes out as
+	// the placeholder app.config.ts falls back to.
+	if (!readIosLocal(appDir)) fail(MISSING_LOCAL);
+	releaseExtra(process.env);
+	const buildNumber = resolveBuildNumber({ buildNumber: 1, lastUpload: null }, numbered);
+	setUpAndroid();
+	run(coreSteps(true, "android"));
+	console.log(`Build ${buildNumber}, numbered by ${BUILD_NUMBER_ENV}.`);
+	run(releaseSteps("both"));
+	if (!dryRun)
+		console.log(
+			`Build ${buildNumber} is unsigned in apps/mobile/${UNSIGNED_APK} and apps/mobile/${RELEASE_AAB}.`
+		);
+};
+
+// The release workflow's Android signing job: the build job's APK and App
+// Bundle, copied from <build> back to where Gradle wrote them, signed with
+// the upload key, and copied to <out> as MaxHQ.apk and MaxHQ.aab. With none
+// of the ANDROID_KEY* variables set it says so and writes nothing, so the
+// release carries no Android build until the owner adds the key; half a key
+// fails before anything is written. It needs the SDK's build-tools and the
+// JDK, and no packages or NDK.
+const androidSign = () => {
+	const [build, out] =
+		paths.length === 2
+			? (paths as [string, string])
+			: fail("Usage: mobile.ts android-sign <build> <out>");
+	const unsigned = {
+		apk: join(build, basename(UNSIGNED_APK)),
+		aab: join(build, basename(RELEASE_AAB)),
+	};
+	for (const file of Object.values(unsigned))
+		if (!dryRun && !existsSync(file)) fail(`${build} has no ${basename(file)}.`);
+	const signing = takeSigning();
+	if (!signing) {
+		const message =
+			"There's no Android upload key, so the APK and the App Bundle stay unsigned and this release carries no Android build. .github/RELEASING.md says where the key goes.";
+		if (!process.env.GITHUB_ACTIONS) return console.log(`warning: ${message}`);
+		console.log(`::warning::${message}`);
+		const summary = process.env.GITHUB_STEP_SUMMARY;
+		if (summary) appendFileSync(summary, `### Android build unsigned\n${message}\n`);
+		return;
+	}
+	const { sdk } = androidEnv(process.env);
+	const copy = (from: string, to: string) => {
+		if (dryRun) return console.log(`would copy ${from} to ${to}`);
+		mkdirSync(dirname(to), { recursive: true });
+		copyFileSync(from, to);
+	};
+	if (!dryRun) rmSync(join(appDir, RELEASE_APK), { force: true });
+	copy(unsigned.apk, join(appDir, UNSIGNED_APK));
+	copy(unsigned.aab, join(appDir, RELEASE_AAB));
+	signWith(signing, (files) => [
+		...signApkSteps(buildTools(sdk), files, signing.alias),
+		...signAabSteps(jarsigner(), files, signing.alias),
+	]);
+	const signed = { apk: join(out, "MaxHQ.apk"), aab: join(out, "MaxHQ.aab") };
+	copy(join(appDir, RELEASE_APK), signed.apk);
+	copy(join(appDir, RELEASE_AAB), signed.aab);
+	if (!dryRun)
+		for (const file of Object.values(signed))
+			console.log(`Signed with the upload key: ${file}, ${statSync(file).size} bytes.`);
+};
+
+// The release workflows' ios.local.json, from the IOS_TEAM_ID and
+// IOS_BUNDLE_ID variables, checked as the builds read it.
+const writeIds = () => write(LOCAL_FILE, iosLocalFromEnv(process.env));
+
 const main = async () => {
 	switch (command) {
 		case "core":
@@ -331,6 +588,21 @@ const main = async () => {
 			return install();
 		case "check":
 			return void (await check(false));
+		case "android-core":
+			setUpAndroid();
+			return run(coreSteps(flags.includes("--release"), "android"));
+		case "android-dev":
+			return androidDev();
+		case "android-apk":
+			return androidRelease("apk");
+		case "android-aab":
+			return androidRelease("aab");
+		case "android-release":
+			return androidReleaseBuild();
+		case "android-sign":
+			return androidSign();
+		case "write-ids":
+			return writeIds();
 		case "archive":
 			return archive();
 		case "export":
@@ -344,7 +616,7 @@ const main = async () => {
 			);
 		default:
 			fail(
-				"Usage: mobile.ts core|dev|testflight|install|check|build-number|archive|export [--dry-run]"
+				"Usage: mobile.ts core|dev|testflight|install|check|build-number|archive|export|write-ids|android-core|android-dev|android-apk|android-aab|android-release|android-sign [--dry-run]"
 			);
 	}
 };

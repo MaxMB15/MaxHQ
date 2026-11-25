@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026 Max Boksem
 
+use std::env;
 use std::fs::File;
 use std::io::{BufRead, BufReader};
 use std::net::TcpListener;
-use std::os::unix::fs::PermissionsExt;
 use std::process::{Command, Stdio};
 use std::time::{Instant, SystemTime};
 
@@ -27,7 +27,7 @@ fn names(servers: &Map<String, Value>) -> Vec<&str> {
 }
 
 fn real(path: &Path) -> String {
-    fs::canonicalize(path).unwrap().display().to_string()
+    fs_ext::canonicalize(path).unwrap().display().to_string()
 }
 
 /// A checkout at `root`, as git would leave it, with nothing in it.
@@ -168,16 +168,16 @@ fn local_servers_are_kept_by_checkout() {
     let plain = dir.path().join("plain/sub");
     fs::create_dir_all(&plain).unwrap();
     fs::create_dir_all(dir.path().join("links")).unwrap();
-    std::os::unix::fs::symlink(&main, dir.path().join("links/main")).unwrap();
+    fs_ext::symlink(&main, dir.path().join("links/main")).unwrap();
 
-    let main_root = fs::canonicalize(&main).unwrap();
+    let main_root = fs_ext::canonicalize(&main).unwrap();
     assert_eq!(project_root(&main), main_root);
     assert_eq!(project_root(&main.join("sub/deeper")), main_root);
     assert_eq!(project_root(&dir.path().join("links/main/sub")), main_root);
     // A linked worktree shares its main checkout's, as the CLI has it.
     assert_eq!(project_root(&tree.join("sub")), main_root);
     // Outside a checkout, it's the folder itself.
-    assert_eq!(project_root(&plain), fs::canonicalize(&plain).unwrap());
+    assert_eq!(project_root(&plain), fs_ext::canonicalize(&plain).unwrap());
 }
 
 #[test]
@@ -190,7 +190,7 @@ fn a_worktree_that_names_another_checkout_falsely_keeps_its_own() {
     // Its `.git` names the checkout, which doesn't name it back.
     let admin = main.join(".git");
     fs::write(tree.join(".git"), format!("gitdir: {}\n", admin.display())).unwrap();
-    assert_eq!(project_root(&tree), fs::canonicalize(&tree).unwrap());
+    assert_eq!(project_root(&tree), fs_ext::canonicalize(&tree).unwrap());
 }
 
 #[test]
@@ -200,12 +200,14 @@ fn a_config_that_is_missing_has_no_servers() {
     assert!(found.is_empty());
 }
 
+// Unix owners and pipes at a path; Windows has neither.
+#[cfg(unix)]
 #[test]
 fn a_config_that_is_not_yours_or_not_a_file_is_refused() {
     let dir = TempDir::new();
     let config = dir.path().join(".claude.json");
     put(&config, &json!({ "mcpServers": { "a": server("user") } }));
-    let uid = fs::metadata(&config).unwrap().uid();
+    let uid = fsmode::owner_of(&fs::metadata(&config).unwrap()).unwrap();
     assert_eq!(
         names(&servers(&config, dir.path(), Some(uid)).unwrap()),
         ["a"]
@@ -253,9 +255,13 @@ async fn a_restricted_start_gets_a_private_file_of_your_servers() {
     let file = named(&start).expect("the start names its servers");
     let folders = folders_in(&dir);
     assert_eq!(file, file_of(&folders, start.session));
-    let mode = |path: &Path| fs::metadata(path).unwrap().permissions().mode() & 0o777;
-    assert_eq!(mode(&file), 0o600);
-    assert_eq!(mode(&folders.files), 0o711);
+    // Windows keeps the file private by its DACL, which the os crate's
+    // own tests check, and has no modes to look at.
+    if cfg!(unix) {
+        let mode = |path: &Path| fsmode::mode_of(&fs::metadata(path).unwrap()) & 0o777;
+        assert_eq!(mode(&file), 0o600);
+        assert_eq!(mode(&folders.files), 0o711);
+    }
     let written: Value = serde_json::from_slice(&fs::read(&file).unwrap()).unwrap();
     assert_eq!(
         written,
@@ -350,16 +356,15 @@ async fn a_start_clears_old_files_of_sessions_that_are_gone() {
     assert!(file("notes.txt").exists());
 }
 
-/// The `claude` on `PATH`, if there is one.
+/// The `claude` on `PATH`, if there is one. Windows' is a `claude.exe` or
+/// `claude.cmd`, which this doesn't look for, so the test that needs it
+/// is skipped there: its fake server is a shell script.
 fn claude() -> Option<PathBuf> {
     let path = env::var_os("PATH")?;
     env::split_paths(&path)
         .filter(|dir| dir.is_absolute())
         .map(|dir| dir.join("claude"))
-        .find(|file| {
-            fs::metadata(file)
-                .is_ok_and(|meta| meta.is_file() && meta.permissions().mode() & 0o111 != 0)
-        })
+        .find(|file| fs::metadata(file).is_ok_and(|meta| fsmode::is_executable(file, &meta)))
 }
 
 /// A stdio MCP server that marks `$1` when it starts and answers just

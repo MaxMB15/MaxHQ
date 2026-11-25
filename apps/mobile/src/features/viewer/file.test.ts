@@ -7,6 +7,8 @@ import type { Lines } from "@maxhq/shared/agent-view/highlight";
 import { FULL_LIMIT } from "@maxhq/shared/agent-view/media";
 import type { AgentId } from "@maxhq/shared/bindings";
 
+import { type PhoneOs, rulesFor } from "../../platform";
+
 import {
 	binaryNote,
 	columnsOf,
@@ -27,9 +29,11 @@ import {
 } from "./file";
 
 const AGENT = "agent-1" as AgentId;
+const IOS = rulesFor("ios").opensPdf;
+const ANDROID = rulesFor("android").opensPdf;
 
 describe("lookOf", () => {
-	it.each([
+	it.each<[string, PhoneOs, string]>([
 		["docs/plan.md", "ios", "markdown"],
 		["src/main.rs", "ios", "text"],
 		["data/rows.csv", "android", "text"],
@@ -43,7 +47,7 @@ describe("lookOf", () => {
 		["decks/plan.pptx", "ios", "none"],
 		["bin/tool", "ios", "none"],
 	])("draws %s on %s as %s", (path, os, look) => {
-		expect(lookOf(path, os)).toBe(look);
+		expect(lookOf(path, rulesFor(os).opensPdf)).toBe(look);
 	});
 });
 
@@ -130,10 +134,10 @@ describe("the notes for a file not drawn", () => {
 	});
 
 	it("says Android can't show a PDF, and gives the size of anything else", () => {
-		expect(noViewNote("specs/report.pdf", 2000, "android")).toBe(
+		expect(noViewNote("specs/report.pdf", 2000, ANDROID)).toBe(
 			"Android can't show PDFs here. Save it to open it in another app."
 		);
-		expect(noViewNote("models/part.glb", 2000, "ios")).toBe(
+		expect(noViewNote("models/part.glb", 2000, IOS)).toBe(
 			"Can't show this file here. It's 2 KB."
 		);
 	});
@@ -144,7 +148,7 @@ describe("saveText", () => {
 
 	it("says how far a download has got, or that it waits", () => {
 		expect(saveText(null)).toBeNull();
-		expect(saveText({ state: "done", path: "/downloads/a.zip" })).toBeNull();
+		expect(saveText({ state: "done", path: "/downloads/a.zip", skippedLinks: [] })).toBeNull();
 		expect(saveText(going)).toBe("Downloading");
 		expect(saveText({ ...going, sent: 1, total: 4 })).toBe("Downloading, 25%");
 		expect(saveText({ ...going, held: "paused" })).toBe("Paused, reconnecting");
@@ -157,25 +161,23 @@ describe("where Save's progress shows", () => {
 	const ready = { state: "ready", url: "file:///cache/a", size: 10 } as const;
 
 	it("puts a note in the file's place until the phone draws it", () => {
-		expect(noteInPlace("src/app.ts", null, "ios")).toBe(true);
-		expect(noteInPlace("src/app.ts", { state: "loading", sent: 0, total: 0 }, "ios")).toBe(
-			true
-		);
-		expect(noteInPlace("big.log", { state: "large", size: 9e9 }, "ios")).toBe(true);
-		expect(noteInPlace("models/part.glb", ready, "ios")).toBe(true);
-		expect(noteInPlace("specs/report.pdf", ready, "android")).toBe(true);
-		expect(noteInPlace("specs/report.pdf", ready, "ios")).toBe(false);
-		expect(noteInPlace("src/app.ts", ready, "android")).toBe(false);
+		expect(noteInPlace("src/app.ts", null, IOS)).toBe(true);
+		expect(noteInPlace("src/app.ts", { state: "loading", sent: 0, total: 0 }, IOS)).toBe(true);
+		expect(noteInPlace("big.log", { state: "large", size: 9e9 }, IOS)).toBe(true);
+		expect(noteInPlace("models/part.glb", ready, IOS)).toBe(true);
+		expect(noteInPlace("specs/report.pdf", ready, ANDROID)).toBe(true);
+		expect(noteInPlace("specs/report.pdf", ready, IOS)).toBe(false);
+		expect(noteInPlace("src/app.ts", ready, ANDROID)).toBe(false);
 	});
 
 	it("says it under the name only while the file itself shows", () => {
-		expect(headerSaveText("src/app.ts", ready, going, "ios")).toBe("Downloading, 75%");
-		expect(headerSaveText("src/app.ts", ready, { ...going, held: "paused" }, "ios")).toBe(
+		expect(headerSaveText("src/app.ts", ready, going, IOS)).toBe("Downloading, 75%");
+		expect(headerSaveText("src/app.ts", ready, { ...going, held: "paused" }, IOS)).toBe(
 			"Paused, reconnecting"
 		);
-		expect(headerSaveText("src/app.ts", ready, null, "ios")).toBeNull();
-		expect(headerSaveText("big.log", { state: "large", size: 9e9 }, going, "ios")).toBeNull();
-		expect(headerSaveText("models/part.glb", ready, going, "ios")).toBeNull();
+		expect(headerSaveText("src/app.ts", ready, null, IOS)).toBeNull();
+		expect(headerSaveText("big.log", { state: "large", size: 9e9 }, going, IOS)).toBeNull();
+		expect(headerSaveText("models/part.glb", ready, going, IOS)).toBeNull();
 	});
 });
 

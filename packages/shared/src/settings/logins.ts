@@ -8,6 +8,7 @@
 import { t } from "../i18n";
 
 import type { Account, Credential, CredentialKind, DeviceId, Timestamp, Vendor } from "../bindings";
+import { takesPushes } from "../push/push";
 import { listInWords } from "../status/format";
 import { all, type ViewState } from "../view/replica";
 import { deviceName, linkForDevice } from "../view/select";
@@ -102,6 +103,22 @@ export const appTargets = (view: ViewState, now: Timestamp): Target[] =>
 export const pushTargets = (view: ViewState, now: Timestamp): Target[] =>
 	appTargets(view, now).filter(
 		(t) => linkForDevice(view, t.device)?.capabilities?.phones === true
+	);
+
+/**
+ * The devices that take the Firebase key: those that push to phones. One
+ * whose `maxd` is from before FCM_SINCE says it needs an update first.
+ */
+export const fcmTargets = (view: ViewState, now: Timestamp): Target[] =>
+	pushTargets(view, now).map((target) =>
+		takesPushes(view, target.device, "fcm")
+			? target
+			: {
+					...target,
+					blocked: t("{{name}}'s maxd is too old for this. Update it first.", {
+						name: target.name,
+					}),
+				}
 	);
 
 /**

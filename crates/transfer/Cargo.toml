@@ -7,12 +7,18 @@ license.workspace = true
 publish.workspace = true
 
 [dependencies]
+maxhq-os.workspace = true
 maxhq-protocol.workspace = true
 maxhq-wire.workspace = true
-rustix = { workspace = true, features = ["fs"] }
 sha2.workspace = true
 thiserror.workspace = true
 unicode-normalization.workspace = true
+
+[target.'cfg(unix)'.dependencies]
+rustix = { workspace = true, features = ["fs"] }
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { workspace = true, features = ["Wdk_Foundation", "Wdk_Storage_FileSystem"] }
 
 [lints]
 workspace = true

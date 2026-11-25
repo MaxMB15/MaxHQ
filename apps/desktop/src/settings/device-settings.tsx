@@ -52,7 +52,8 @@ import {
 import {
 	type DeviceFields as Fields,
 	deviceSettingsOf,
-	KEEP_AWAKE_OPTIONS,
+	keepAwakeOptions,
+	keepsAwake,
 	nameOptions,
 	PLACEMENT_OPTIONS,
 	sameDeviceFields as same,
@@ -62,10 +63,12 @@ import { knowsClaudeArtifacts } from "@maxhq/shared/settings/claude-artifacts";
 import { knowsReadRights } from "@maxhq/shared/settings/read-rights";
 import { knowsSetupTokens, setupTokenQuestion } from "@maxhq/shared/settings/setup-tokens";
 import { knowsShellIntegration } from "@maxhq/shared/settings/shell-integration";
+import { picksWindowsShell } from "@maxhq/shared/settings/windows-shell";
 import { offersSkills, skillLibrary } from "@maxhq/shared/skills/library";
 import { kindLabel, offersTestHosts } from "@maxhq/shared/test-hosts/hosts";
 import { deviceLive, placesOn } from "@maxhq/shared/test-hosts/place";
 import { deviceName } from "@maxhq/shared/view/select";
+import { wordingFor } from "@maxhq/shared/lib/os";
 import { TestMachines } from "@/test-hosts/device-test-hosts";
 
 import { pickMode } from "./auto-consent";
@@ -80,9 +83,11 @@ import {
 } from "./controls";
 import { EffortDefaultRows } from "./effort-defaults";
 import { PhoneAddress } from "./phones-settings";
+import { NoSandboxNote } from "./no-sandbox-note";
 import { failureOf, type Note } from "./result";
 import { deviceCardId } from "./store";
 import { Value } from "./value";
+import { WindowsShellRow, windowsShellTerms } from "./windows-shell";
 import { t as translate, useI18n } from "@maxhq/shared/i18n";
 
 type Part =
@@ -100,6 +105,7 @@ type Part =
 	| "library"
 	| "network"
 	| "shell"
+	| "windows-shell"
 	| "reads"
 	| "artifacts"
 	| "tokens";
@@ -193,7 +199,6 @@ export type DeviceCard = {
 /** The cards {@link DeviceSettings} shows for `device`, in order. */
 export const deviceCards = (view: ViewState, device: DeviceId): readonly DeviceCard[] => {
 	const record = view.tables.device.get(device);
-	const mac = record?.os === "macos";
 	const cards: DeviceCard[] = [
 		{
 			id: "connection",
@@ -234,10 +239,22 @@ export const deviceCards = (view: ViewState, device: DeviceId): readonly DeviceC
 				translate("Memory"),
 				translate("Recent items kept in memory per agent"),
 				translate("History kept per agent"),
-				...(mac ? [translate("Sleep"), translate("Keep this Mac awake")] : []),
+				...(keepsAwake(record?.os)
+					? [
+							translate("Sleep"),
+							translate("Keep this Mac awake", { context: wordingFor(record?.os) }),
+						]
+					: []),
 			],
 		},
-		{ id: "terminals", terms: [translate("Terminals"), translate("Shell integration")] },
+		{
+			id: "terminals",
+			terms: [
+				translate("Terminals"),
+				translate("Shell integration"),
+				...(picksWindowsShell(view, device) ? windowsShellTerms() : []),
+			],
+		},
 		{
 			id: "setup-tokens",
 			terms: [translate("Claude setup-tokens"), translate("Take setup-tokens")],
@@ -412,8 +429,10 @@ const Cards = ({
 		live
 	);
 	const host = view.tables.device.get(device)?.workspace_host ?? null;
-	// Only a Mac sleeps under its `maxd`.
-	const mac = view.tables.device.get(device)?.os === "macos";
+	const os = view.tables.device.get(device)?.os;
+	// The Sleep card's and the Terminals card's words name this device's
+	// system, not the app's.
+	const wording = { context: wordingFor(os) };
 	// A maxd from before network access publishes none.
 	const access = view.tables.network_access.get(device);
 	const holder = skillLibrary(view)?.device ?? null;
@@ -459,6 +478,7 @@ const Cards = ({
 							disabled={!live}
 						/>
 					</Row>
+					<NoSandboxNote os={os} className="border-t border-sidebar-border px-4 py-2.5" />
 					<EffortDefaultRows
 						view={view}
 						device={device}
@@ -673,18 +693,19 @@ const Cards = ({
 							/>
 						</Row>
 					</CardPart>
-					{mac ? (
+					{keepsAwake(os) ? (
 						<CardPart
 							title={translate("Sleep")}
 							label={translate("Sleep settings for {{name}}", { name: name })}
 							hint={translate("On the charger by default")}
 						>
 							<Row
-								title={translate("Keep this Mac awake")}
+								title={translate("Keep this Mac awake", wording)}
 								sub={
 									why.offline ??
 									translate(
-										"A sleeping Mac stops maxd, so your phone, webhooks and scheduled tasks can't reach it. The display still turns off. Closing the lid still sleeps the Mac."
+										"A sleeping Mac stops maxd, so your phone, webhooks and scheduled tasks can't reach it. The display still turns off. Closing the lid still sleeps the Mac.",
+										wording
 									)
 								}
 							>
@@ -692,7 +713,7 @@ const Cards = ({
 								<Picker
 									label={translate("Keep awake")}
 									value={shown.keep_awake}
-									options={KEEP_AWAKE_OPTIONS}
+									options={keepAwakeOptions(os)}
 									wrapDetails
 									onChange={(mode) =>
 										void save("awake", { keep_awake: mode as KeepAwake })
@@ -716,7 +737,8 @@ const Cards = ({
 						sub={
 							why.shell ??
 							translate(
-								"MaxHQ adds hooks to zsh, bash and fish so it can tell commands apart. Off starts shells exactly as your startup files say. Applies to terminals opened after the change."
+								"MaxHQ adds hooks to zsh, bash and fish so it can tell commands apart. Off starts shells exactly as your startup files say. Applies to terminals opened after the change.",
+								wording
 							)
 						}
 					>
@@ -728,6 +750,14 @@ const Cards = ({
 							onCheckedChange={(on) => void save("shell", { shell_integration: on })}
 						/>
 					</Row>
+					<WindowsShellRow
+						view={view}
+						device={device}
+						why={why.offline}
+						value={shown.windows_shell}
+						note={noteFor("windows-shell")}
+						onSave={(shell) => void save("windows-shell", { windows_shell: shell })}
+					/>
 				</Section>
 			) : null}
 			{shows("setup-tokens") ? (

@@ -372,6 +372,7 @@ impl Manager {
             | ClientMessage::SetPushToken { .. }
             | ClientMessage::Presence { .. }
             | ClientMessage::SetApnsKey { .. }
+            | ClientMessage::SetFcmKey { .. }
             | ClientMessage::Prove { .. }
             | ClientMessage::EnrollAppKey { .. }
             | ClientMessage::RemoveAppKey { .. }

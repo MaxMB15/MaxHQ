@@ -32,10 +32,11 @@
 //! - `note.json` is for `maxd`, which keeps what it knows about the
 //!   terminal there, so it goes with the folder.
 //!
-//! A drawer shell that's zsh, bash or fish can mark its prompts and
-//! commands (`shell.rs`), with startup files in a `shell-*` folder beside
-//! the terminals' ones. The holder passes on the marks it trusts and drops
-//! the rest (`marks.rs`).
+//! A drawer shell that's zsh, bash, fish or, on Windows, PowerShell can
+//! mark its prompts and commands (`shell.rs`), with startup files in a
+//! `shell-*` folder beside the terminals' ones. The holder passes on the
+//! marks it trusts and drops the rest (`marks.rs`). On Windows the device's
+//! setting picks the shell (`pick/`).
 
 use std::ffi::OsString;
 use std::fs;
@@ -46,6 +47,7 @@ use std::time::Duration;
 
 use maxhq_core::paths;
 use maxhq_protocol::ids::TerminalId;
+use maxhq_protocol::model::WindowsShell;
 use maxhq_protocol::time::Timestamp;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
@@ -57,6 +59,7 @@ use crate::{client as agent_client, secret, Detach, Dirs, SpawnError};
 pub use self::client::{Reached, TermControl, TermEvent, TermLink};
 pub use self::commands::{Commands, ShellCommand};
 pub use self::marks::Mark;
+pub use self::pick::login_shell;
 
 mod client;
 mod commands;
@@ -65,6 +68,7 @@ mod marker;
 mod marks;
 mod modes;
 mod osc;
+mod pick;
 mod ring;
 mod shell;
 mod wire;
@@ -106,7 +110,21 @@ pub struct TermLaunch {
 impl TermLaunch {
     /// A login shell for the terminal drawer, `$SHELL -l`.
     pub fn shell(terminal: TerminalId, cwd: PathBuf, cols: u16, rows: u16) -> Self {
-        Self::new(terminal, vec!["-l".into()], cwd, cols, rows, false)
+        Self::shell_in(terminal, login_shell(), cwd, cols, rows)
+    }
+
+    /// A drawer shell that runs `program`, as [`TermLaunch::pick_shell`]
+    /// gives it: a login shell, or on Windows Git Bash or PowerShell as a
+    /// terminal app starts them.
+    pub fn shell_in(
+        terminal: TerminalId,
+        program: PathBuf,
+        cwd: PathBuf,
+        cols: u16,
+        rows: u16,
+    ) -> Self {
+        let args = shell::start_args(&program);
+        Self::new(terminal, program, args, cwd, cols, rows, false)
     }
 
     /// A `!` run: `command` in a fresh interactive login shell,
@@ -114,12 +132,39 @@ impl TermLaunch {
     /// would. A marker goes first, so the holder drops what the shell's
     /// startup printed, as `marker.rs` says.
     pub fn run(terminal: TerminalId, cwd: PathBuf, command: &str, cols: u16, rows: u16) -> Self {
-        let args = vec!["-ilc".into(), marker::after_marker(command).into()];
-        Self::new(terminal, args, cwd, cols, rows, true)
+        Self::run_in(terminal, login_shell(), cwd, command, cols, rows)
+    }
+
+    /// A `!` run in `program`, as [`TermLaunch::run`] has it. PowerShell
+    /// runs `command` as its own, after the same marker.
+    pub fn run_in(
+        terminal: TerminalId,
+        program: PathBuf,
+        cwd: PathBuf,
+        command: &str,
+        cols: u16,
+        rows: u16,
+    ) -> Self {
+        let args = shell::run_args(&program, command);
+        Self::new(terminal, program, args, cwd, cols, rows, true)
+    }
+
+    /// The shell a terminal runs for the device's Windows shell setting,
+    /// and whether the one `choice` names isn't installed, so another took
+    /// its place. On Unix it's [`login_shell`], whatever `choice` says.
+    pub fn pick_shell(choice: WindowsShell) -> (PathBuf, bool) {
+        pick::pick_shell(choice)
+    }
+
+    /// Whether the program is PowerShell, which reads commands of its own,
+    /// such as `Set-Location` for `cd`.
+    pub fn powershell(&self) -> bool {
+        shell::is_powershell(&self.program)
     }
 
     fn new(
         terminal: TerminalId,
+        program: PathBuf,
         args: Vec<OsString>,
         cwd: PathBuf,
         cols: u16,
@@ -128,7 +173,7 @@ impl TermLaunch {
     ) -> Self {
         Self {
             terminal,
-            program: login_shell(),
+            program,
             args,
             env: terminal_env(),
             cwd,
@@ -138,21 +183,6 @@ impl TermLaunch {
             nonce: None,
         }
     }
-}
-
-/// The user's shell: `$SHELL` when it's an absolute path, or zsh on macOS
-/// and bash elsewhere.
-pub fn login_shell() -> PathBuf {
-    std::env::var_os("SHELL")
-        .map(PathBuf::from)
-        .filter(|shell| shell.is_absolute())
-        .unwrap_or_else(|| {
-            PathBuf::from(if cfg!(target_os = "macos") {
-                "/bin/zsh"
-            } else {
-                "/bin/bash"
-            })
-        })
 }
 
 /// What a terminal's program gets on top of the user's environment, so it
@@ -332,7 +362,8 @@ impl Terminals {
     }
 
     /// Makes `launch`, a drawer shell, mark its prompts and commands when
-    /// it's zsh, bash or fish, as `shell.rs` says. Returns whether it will.
+    /// it's zsh, bash, fish or, on Windows, PowerShell, as `shell.rs` says.
+    /// Returns whether it will.
     pub fn integrate(&self, launch: &mut TermLaunch) -> io::Result<bool> {
         shell::integrate(launch, &self.dirs.sessions)
     }
@@ -525,6 +556,9 @@ mod tests {
     fn a_run_is_an_interactive_login_shell_with_the_command() {
         let terminal = TerminalId::generate();
         let launch = TermLaunch::run(terminal, "/tmp".into(), "ls -la", 80, 24);
+        // Windows starts the shell the automatic order finds, each with its
+        // own arguments, which the shell module's tests cover.
+        #[cfg(unix)]
         assert_eq!(
             launch.args,
             [
@@ -532,10 +566,15 @@ mod tests {
                 r"printf '\033]7346;maxhq-run\007'; export PAGER=cat GIT_PAGER=cat; ls -la".into()
             ]
         );
+        #[cfg(windows)]
+        assert_eq!(launch.args, shell::run_args(&launch.program, "ls -la"));
         assert!(launch.run);
         assert!(launch.program.is_absolute());
         let shell = TermLaunch::shell(terminal, "/tmp".into(), 80, 24);
+        #[cfg(unix)]
         assert_eq!(shell.args, [OsString::from("-l")]);
+        #[cfg(windows)]
+        assert_eq!(shell.args, super::shell::start_args(&shell.program));
         assert!(!shell.run);
         for launch in [&launch, &shell] {
             let env: Vec<_> = launch.env.iter().map(|(key, _)| key.clone()).collect();

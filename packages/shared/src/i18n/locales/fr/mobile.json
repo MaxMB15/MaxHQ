@@ -287,6 +287,13 @@
 	"Tools using it stop working.": "Les outils qui l'utilisent cessent de fonctionner.",
 	"Update MaxHQ on {{name}}.": "Mets à jour MaxHQ sur {{name}}.",
 	"Update in TestFlight": "Mettre à jour dans TestFlight",
+	"Update in TestFlight_android": "Télécharger la mise à jour",
+	"Open TestFlight_android": "Télécharger la mise à jour",
+	"Couldn't open TestFlight._android": "Impossible d'ouvrir le lien de téléchargement.",
+	"The newest release has no iPhone build._android": "La dernière version publiée n'a pas de build Android.",
+	"Installed from Google Play? Play updates MaxHQ for you.": "Installé depuis Google Play ? Play met MaxHQ à jour pour toi.",
+	"Turn them on in iOS Settings._android": "Active-les dans les paramètres d'Android.",
+	"iOS asks once._android": "Android te le demande d'abord.",
 	"Waiting for room on this phone": "En attente de place sur ce téléphone",
 	"While an agent works": "Pendant qu'un agent travaille",
 	"The send button does this. The other shows beside it once you type.": "Le bouton d'envoi fait ceci. L'autre apparaît à côté dès que tu tapes.",
@@ -480,5 +487,8 @@
 	"{{number}} tokens of context_many": "{{number}} tokens de contexte",
 	"Runs at {{level}}.": "Tourne au niveau {{level}}.",
 	"{{level}} (default)": "{{level}} (par défaut)",
-	"Couldn't change the effort level. {{reason}}": "Impossible de changer le niveau d'effort. {{reason}}"
+	"Couldn't change the effort level. {{reason}}": "Impossible de changer le niveau d'effort. {{reason}}",
+	"This build gets no pushes": "Ce build ne reçoit pas de notifications push",
+	"It was built without the signing that push needs.": "Il a été compilé sans la signature dont le push a besoin.",
+	"It was built without the signing that push needs._android": "Il a été compilé sans le fichier google-services.json de Firebase, dont le push a besoin."
 }

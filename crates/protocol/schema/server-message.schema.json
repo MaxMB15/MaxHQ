@@ -4519,7 +4519,7 @@
           "default": false
         },
         "phones": {
-          "description": "Pairs phones and pushes to them, publishes `Phone` and `PhoneBook`,\nand takes the phone requests, first frames and `SetApnsKey`. A\n`maxd` from before it leaves this out, and reads as false.",
+          "description": "Pairs phones and pushes to them, publishes `Phone` and `PhoneBook`,\nand takes the phone requests, first frames, `SetApnsKey` and, since\nprotocol 61, `SetFcmKey`. A `maxd` from before it leaves this out,\nand reads as false.",
           "type": "boolean",
           "default": false
         },
@@ -5536,6 +5536,29 @@
             "key_id",
             "team_id"
           ]
+        },
+        {
+          "description": "The Firebase service account this device pushes to Android phones\nwith. Since protocol 61.",
+          "type": "object",
+          "properties": {
+            "client_email": {
+              "description": "The service account's email.",
+              "type": "string"
+            },
+            "project_id": {
+              "description": "The Firebase project the account belongs to.",
+              "type": "string"
+            },
+            "type": {
+              "type": "string",
+              "const": "fcm"
+            }
+          },
+          "required": [
+            "type",
+            "project_id",
+            "client_email"
+          ]
         }
       ]
     },
@@ -5838,6 +5861,16 @@
               "type": "null"
             }
           ]
+        },
+        "wsl": {
+          "description": "The WSL distros on a Windows device, each of which can be set up as\na device of its own. Unset on a device without WSL, and from a\n`maxd` older than [`crate::message::WSL_SINCE`], which reads as\nnone.",
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "$ref": "#/$defs/WslDistro"
+          }
         }
       },
       "required": [
@@ -6521,6 +6554,24 @@
             "field",
             "value"
           ]
+        },
+        {
+          "description": "See [`DeviceSettings::windows_shell`].",
+          "type": "object",
+          "properties": {
+            "field": {
+              "type": "string",
+              "const": "windows_shell"
+            },
+            "value": {
+              "description": "What it becomes.",
+              "$ref": "#/$defs/WindowsShell"
+            }
+          },
+          "required": [
+            "field",
+            "value"
+          ]
         }
       ]
     },
@@ -6691,6 +6742,10 @@
           "items": {
             "$ref": "#/$defs/Tool"
           }
+        },
+        "windows_shell": {
+          "description": "The shell a Windows device's `maxd` starts for `!` commands and the\nterminal drawer. Other systems ignore it and start your login shell.\nA `maxd` from before [`crate::message::WINDOWS_SHELL_SINCE`] leaves\nit out, which reads as [`WindowsShell::Auto`].",
+          "$ref": "#/$defs/WindowsShell"
         },
         "workspace_network": {
           "description": "The Incus network new container workspaces join, one of\n[`WorkspaceHost::networks`].",
@@ -13928,6 +13983,17 @@
           "description": "The phone's X25519 key that pushes are encrypted to, as base64 of\nits 32 bytes.",
           "type": "string"
         },
+        "service": {
+          "description": "The service this device pushes to the phone through, which says\nwhich key it needs. None until the phone sends a token.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PushService"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "ssh_public": {
           "description": "The phone's own SSH key, as `ssh-ed25519 <base64>`.",
           "type": "string"
@@ -15639,6 +15705,21 @@
         }
       ]
     },
+    "PushService": {
+      "description": "The service a push goes through.",
+      "oneOf": [
+        {
+          "description": "Apple Push Notification service, for an iPhone.",
+          "type": "string",
+          "const": "apns"
+        },
+        {
+          "description": "Firebase Cloud Messaging, for an Android phone.",
+          "type": "string",
+          "const": "fcm"
+        }
+      ]
+    },
     "Question": {
       "description": "One question an agent asks.",
       "type": "object",
@@ -16009,6 +16090,31 @@
           "required": [
             "type",
             "host"
+          ]
+        },
+        {
+          "description": "`maxd proxy` inside a WSL distro, started with `wsl.exe -d\n<distro>` on this Windows machine, or with `ssh <via> maxd proxy\n--wsl <distro>` on another one. `maxd` never sends a link, so no\nolder peer reads this.",
+          "type": "object",
+          "properties": {
+            "distro": {
+              "description": "The distro, as `wsl.exe -d` takes it, such as `Ubuntu`.",
+              "type": "string"
+            },
+            "type": {
+              "type": "string",
+              "const": "wsl"
+            },
+            "via": {
+              "description": "The SSH destination of the Windows machine it's on. Unset for\nthis machine.",
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "type",
+            "distro"
           ]
         }
       ]
@@ -20626,6 +20732,31 @@
         }
       ]
     },
+    "WindowsShell": {
+      "description": "The shell a Windows device starts for `!` commands and the terminal\ndrawer.",
+      "oneOf": [
+        {
+          "description": "Git Bash when Git for Windows is installed, else PowerShell 7, else\nWindows PowerShell 5.1.",
+          "type": "string",
+          "const": "auto"
+        },
+        {
+          "description": "Git Bash, from Git for Windows.",
+          "type": "string",
+          "const": "git_bash"
+        },
+        {
+          "description": "PowerShell 7, `pwsh.exe`.",
+          "type": "string",
+          "const": "pwsh"
+        },
+        {
+          "description": "Windows PowerShell 5.1, `powershell.exe`, which comes with Windows.",
+          "type": "string",
+          "const": "power_shell"
+        }
+      ]
+    },
     "WorkflowRun": {
       "description": "One run, as the view lists it.",
       "type": "object",
@@ -21041,6 +21172,34 @@
             "reason"
           ]
         }
+      ]
+    },
+    "WslDistro": {
+      "description": "A Linux distro WSL runs on a Windows device.",
+      "type": "object",
+      "properties": {
+        "default": {
+          "description": "Whether `wsl.exe` starts it when you name none.",
+          "type": "boolean"
+        },
+        "name": {
+          "description": "Its name, as `wsl.exe -d` takes it, such as `Ubuntu`.",
+          "type": "string"
+        },
+        "version": {
+          "description": "The WSL version it runs under, 1 or 2, when `wsl.exe` said.",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint8",
+          "maximum": 255,
+          "minimum": 0
+        }
+      },
+      "required": [
+        "name",
+        "default"
       ]
     },
     "Zone": {

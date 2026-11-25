@@ -12,12 +12,19 @@ import {
 	expandHome,
 	fitting,
 	folderNameProblem,
+	isAbsolutePath,
 	isPathText,
 	joinPath,
 	MAX_SUGGESTIONS,
+	nameOf,
+	namesOf,
 	parentOf,
+	pathStyleOf,
 	pickText,
+	rootOf,
+	separatorOf,
 	splitTyped,
+	trimSeparators,
 } from "./path";
 
 const folder = (name: string, branch?: string | null): FolderEntry => ({
@@ -65,9 +72,118 @@ describe("path text", () => {
 		expect(parentOf("/srv")).toBe("/");
 		expect(parentOf("/")).toBeNull();
 		expect(parentOf("claude-agent")).toBeNull();
+		expect(parentOf("docs/plan.md")).toBe("docs");
 		expect(baseName("/Users/me/code/")).toBe("code");
+		expect(nameOf("/Users/me/code/")).toBe("code");
+		expect(nameOf("plan.md")).toBe("plan.md");
+		expect(nameOf("/")).toBe("/");
+		expect(nameOf("")).toBe("");
 		expect(joinPath("/", "srv")).toBe("/srv");
 		expect(joinPath("/srv", "app")).toBe("/srv/app");
+	});
+});
+
+describe("Windows paths", () => {
+	it("tells a Windows path by its drive, share or backslashes, whatever system the app is on", () => {
+		expect(
+			["C:\\Users\\me", "c:/code", "D:", "\\\\nas\\share", "src\\main.rs"].map(pathStyleOf)
+		).toEqual(["windows", "windows", "windows", "windows", "windows"]);
+		expect(
+			["/Users/me", "~/code", "owner/repo", "a\\b/c", "notes.md"].map(pathStyleOf)
+		).toEqual(["posix", "posix", "posix", "posix", "posix"]);
+		expect(["C:\\", "C:/x", "\\\\nas\\share", "/srv"].map(isAbsolutePath)).toEqual([
+			true,
+			true,
+			true,
+			true,
+		]);
+		expect(["C:x", "code\\shop", "~\\code"].map(isAbsolutePath)).toEqual([false, false, false]);
+	});
+
+	it("finds a path's root: a drive, a share or /", () => {
+		expect(rootOf("C:\\Users\\me")).toBe("C:\\");
+		expect(rootOf("C:/Users")).toBe("C:/");
+		expect(rootOf("C:")).toBe("C:");
+		expect(rootOf("\\\\nas\\share\\code")).toBe("\\\\nas\\share\\");
+		expect(rootOf("\\\\nas\\share")).toBe("\\\\nas\\share");
+		expect(rootOf("/srv")).toBe("/");
+		expect(rootOf("code\\shop")).toBe("");
+		expect(namesOf("C:\\Users\\me\\")).toEqual(["Users", "me"]);
+		expect(namesOf("\\\\nas\\share\\code\\shop")).toEqual(["code", "shop"]);
+		expect(namesOf("/Users/me/")).toEqual(["Users", "me"]);
+	});
+
+	it("names a Windows path's folder and last name, and joins with its separator", () => {
+		expect(parentOf("C:\\Users\\me\\code\\")).toBe("C:\\Users\\me");
+		expect(parentOf("C:\\Users")).toBe("C:\\");
+		expect(parentOf("C:\\")).toBeNull();
+		expect(parentOf("C:/Users/me")).toBe("C:/Users");
+		expect(parentOf("\\\\nas\\share\\code")).toBe("\\\\nas\\share\\");
+		expect(parentOf("\\\\nas\\share")).toBeNull();
+		expect(parentOf("src\\main.rs")).toBe("src");
+		expect(baseName("C:\\Users\\me\\code\\")).toBe("code");
+		expect(baseName("C:/Users/me")).toBe("me");
+		expect(baseName("\\\\nas\\share\\notes.md")).toBe("notes.md");
+		expect(baseName("C:\\")).toBe("");
+		expect(baseName("\\\\nas\\share")).toBe("");
+		expect(nameOf("C:\\Users\\me\\notes.md")).toBe("notes.md");
+		expect(nameOf("C:\\")).toBe("C:\\");
+		expect(joinPath("C:\\Users", "me")).toBe("C:\\Users\\me");
+		expect(joinPath("C:\\", "code")).toBe("C:\\code");
+		expect(joinPath("C:", "code")).toBe("C:\\code");
+		expect(joinPath("C:/code", "shop")).toBe("C:/code/shop");
+		expect(joinPath("\\\\nas\\share", "code")).toBe("\\\\nas\\share\\code");
+		expect(separatorOf("C:/code")).toBe("/");
+		expect(separatorOf("C:\\code")).toBe("\\");
+		expect(separatorOf("/srv")).toBe("/");
+	});
+
+	it("trims a path's end and keeps its root whole", () => {
+		expect(trimSeparators("C:\\code\\\\")).toBe("C:\\code");
+		expect(trimSeparators("C:\\")).toBe("C:\\");
+		expect(trimSeparators("\\\\nas\\share\\")).toBe("\\\\nas\\share\\");
+		expect(trimSeparators("/srv//")).toBe("/srv");
+		expect(trimSeparators("/")).toBe("/");
+		// A backslash is part of a name on a Mac or Linux.
+		expect(trimSeparators("/srv/odd\\")).toBe("/srv/odd\\");
+	});
+
+	it("reads ~ with a Windows home and shows the home as ~", () => {
+		expect(isPathText("~\\code")).toBe(true);
+		expect(isPathText("C:\\")).toBe(true);
+		expect(isPathText("\\\\nas\\share")).toBe(true);
+		expect(expandHome("~", "C:\\Users\\me")).toBe("C:\\Users\\me");
+		expect(expandHome("~/code/shop", "C:\\Users\\me")).toBe("C:\\Users\\me\\code\\shop");
+		expect(expandHome("~\\code", "C:\\Users\\me")).toBe("C:\\Users\\me\\code");
+		expect(contractHome("C:\\Users\\me\\code", "C:\\Users\\me")).toBe("~\\code");
+		expect(contractHome("c:\\users\\ME\\code", "C:\\Users\\me")).toBe("~\\code");
+		expect(contractHome("C:\\Users\\me", "C:\\Users\\me\\")).toBe("~");
+		expect(contractHome("C:\\Users\\meg", "C:\\Users\\me")).toBe("C:\\Users\\meg");
+		expect(contractHome("C:\\code", "C:\\")).toBe("C:\\code");
+	});
+
+	it("splits typed Windows text and completes with its separator", () => {
+		expect(splitTyped("C:\\Us")).toEqual({ folder: "C:\\", shown: "C:\\", name: "Us" });
+		expect(splitTyped("C:\\Users\\me\\co")).toEqual({
+			folder: "C:\\Users\\me",
+			shown: "C:\\Users\\me\\",
+			name: "co",
+		});
+		expect(splitTyped("C:")).toEqual({ folder: "C:\\", shown: "C:\\", name: "" });
+		expect(splitTyped("~\\co")).toEqual({ folder: "~", shown: "~\\", name: "co" });
+		expect(splitTyped("\\\\nas\\share\\co")).toEqual({
+			folder: "\\\\nas\\share\\",
+			shown: "\\\\nas\\share\\",
+			name: "co",
+		});
+		const typed = { folder: "C:\\code", shown: "C:\\code\\", name: "sh" };
+		expect(pickText(typed, folder("shop"), true)).toBe("C:\\code\\shop\\");
+		expect(pickText(typed, file("shop.md"), true)).toBe("C:\\code\\shop.md");
+	});
+
+	it("keeps backslashes out of a new Windows folder's name only", () => {
+		expect(folderNameProblem("a\\b", "windows")).toBe("A folder's name can't have a slash.");
+		expect(folderNameProblem("a\\b")).toBeNull();
 	});
 });
 

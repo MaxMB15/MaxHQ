@@ -212,7 +212,8 @@ async fn a_program_without_the_key_gets_a_card_after_the_delay() {
             Some("The socket on mac")
         );
         assert!(consent.risk.ends_with("until it disconnects."));
-        assert_eq!(fact(&card, "Program"), None);
+        // Windows names the program from its process, as a Mac does.
+        assert_eq!(fact(&card, "Program").is_some(), cfg!(windows));
     }
     // The proven app shows the card, so the alert doesn't.
     assert!(fake.shown().is_empty());

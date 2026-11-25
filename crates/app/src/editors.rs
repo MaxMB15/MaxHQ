@@ -10,15 +10,19 @@
 
 //! The editors a workspace opens in. Each one is looked for once per run,
 //! first in its own app in the Applications folders, since another editor
-//! can install a command of the same name, as Cursor does with `code`. Then
+//! can install a command of the same name, as Cursor does with `code`. On
+//! Linux its app is the folder its package installs, or an AppImage. Then
 //! it's looked for on `PATH`, leaving out a command that leads into another
-//! editor's app. A workspace on this machine opens
+//! editor's app. On Windows its app is the folder its installer made, for
+//! you or for everyone. A workspace on this machine opens
 //! through the editor's command line, or its link when only the app is
-//! there. One on another device opens as a Remote-SSH link to it, and a
+//! there. On Windows it always opens through the link, since the command
+//! lines there are batch files that only `cmd` can run. One on another device opens as a Remote-SSH link to it, and a
 //! container's goes through MaxHQ's ssh alias for it.
 
 use std::path::{Path, PathBuf};
 
+use maxhq_os::which;
 use maxhq_protocol::ids::WorkspaceId;
 use maxhq_protocol::link::Route;
 use maxhq_protocol::model::{Workspace, WorkspaceLocation};
@@ -30,6 +34,14 @@ use tokio::sync::OnceCell;
 use crate::devices::Connector;
 use crate::request::CommandError;
 use crate::{ssh_config, App};
+
+/// The files editors are looked for among. A test's places can be laid
+/// out for another system than the one it runs on, so tests look through
+/// their own.
+#[cfg(not(test))]
+use maxhq_os::which::Host as Files;
+#[cfg(test)]
+use tests::Files;
 
 /// An editor MaxHQ can open a workspace in.
 #[derive(Debug)]
@@ -46,6 +58,19 @@ pub struct EditorDef {
     pub launch: LaunchStyle,
     /// The app's name in the Applications folder, without `.app`.
     pub mac_app: &'static str,
+    /// The folders its Linux packages install it in, under `/usr/share` or
+    /// `/opt`.
+    pub linux_folders: &'static [&'static str],
+    /// The folders its Windows installer puts it in, under
+    /// `%LOCALAPPDATA%\Programs` when it's installed for you and
+    /// `%ProgramFiles%` when it's for everyone.
+    pub windows_folders: &'static [&'static str],
+    /// How the file name of its AppImage starts, in lower case, for an
+    /// editor that ships one.
+    pub appimage: Option<&'static str>,
+    /// Its Flatpak's app ID, which Flatpak also puts on a command folder as
+    /// a command that runs it.
+    pub flatpak: Option<&'static str>,
     /// The scheme of its links, which open a folder over Remote-SSH.
     pub remote_scheme: Option<&'static str>,
 }
@@ -67,6 +92,10 @@ pub const EDITORS: &[EditorDef] = &[
         base_args: &["--classic"],
         launch: LaunchStyle::Goto,
         mac_app: "Cursor",
+        linux_folders: &["cursor", "Cursor"],
+        windows_folders: &["cursor"],
+        appimage: Some("cursor"),
+        flatpak: None,
         remote_scheme: Some("cursor"),
     },
     EditorDef {
@@ -76,6 +105,10 @@ pub const EDITORS: &[EditorDef] = &[
         base_args: &[],
         launch: LaunchStyle::Goto,
         mac_app: "Visual Studio Code",
+        linux_folders: &["code", "visual-studio-code"],
+        windows_folders: &["Microsoft VS Code"],
+        appimage: None,
+        flatpak: Some("com.visualstudio.code"),
         remote_scheme: Some("vscode"),
     },
 ];
@@ -115,20 +148,216 @@ pub struct Places {
     pub path: Vec<PathBuf>,
     /// The folders apps are installed in, in the order they're tried.
     pub apps: Vec<PathBuf>,
+    /// The folders that hold AppImages, which are each one file.
+    pub appimages: Vec<PathBuf>,
+    /// How the apps in them are laid out.
+    pub layout: Layout,
+}
+
+/// How editors sit on disk, which differs by system.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum Layout {
+    /// macOS: each editor is an app, `<mac_app>.app`, with its command line
+    /// in `Contents/Resources/app/bin`.
+    #[default]
+    MacApps,
+    /// Linux: each editor is a folder its package names, such as
+    /// `/usr/share/code`, with its command line in `bin`, or in
+    /// `resources/app/bin` when it was unpacked from an archive. Cursor
+    /// also comes as an AppImage, one file that is both app and command
+    /// line.
+    Linux,
+    /// Windows: each editor is a folder its installer names, such as
+    /// `Microsoft VS Code`, with its command line, a `.cmd` file, in `bin`
+    /// or `resources\app\bin`.
+    Windows,
+}
+
+impl Layout {
+    /// This system's. Linux and Windows have their own, and the rest look
+    /// for apps as macOS does until they get theirs.
+    fn here() -> Self {
+        if cfg!(target_os = "linux") {
+            Self::Linux
+        } else if cfg!(windows) {
+            Self::Windows
+        } else {
+            Self::MacApps
+        }
+    }
+
+    /// The names `editor`'s app folder goes by.
+    fn folders(self, editor: &EditorDef) -> Vec<String> {
+        match self {
+            Self::MacApps => vec![app_name(editor)],
+            Self::Linux => editor
+                .linux_folders
+                .iter()
+                .map(|&folder| folder.to_owned())
+                .collect(),
+            Self::Windows => editor
+                .windows_folders
+                .iter()
+                .map(|&folder| folder.to_owned())
+                .collect(),
+        }
+    }
+
+    /// Where an app folder keeps its command line.
+    fn bins(self) -> &'static [&'static str] {
+        match self {
+            Self::MacApps => &["Contents/Resources/app/bin"],
+            Self::Linux | Self::Windows => &["bin", "resources/app/bin"],
+        }
+    }
+
+    /// The names `editor`'s command line goes by in its app's folder.
+    fn app_commands(self, editor: &EditorDef) -> Vec<String> {
+        editor
+            .commands
+            .iter()
+            .map(|&command| self.file_name(command))
+            .collect()
+    }
+
+    /// The names `editor`'s command line goes by on `PATH`.
+    fn commands(self, editor: &EditorDef) -> Vec<String> {
+        let mut commands = self.app_commands(editor);
+        if self == Self::Linux {
+            commands.extend(editor.flatpak.map(str::to_owned));
+        }
+        commands
+    }
+
+    /// The file a command is in: `code.cmd` on Windows, where the editors
+    /// install their command lines as batch files.
+    fn file_name(self, command: &str) -> String {
+        match self {
+            Self::Windows => format!("{command}.cmd"),
+            Self::MacApps | Self::Linux => command.to_owned(),
+        }
+    }
+
+    /// Whether a workspace on this machine opens through the editor's link
+    /// even when its command line is there. On Windows the command line is
+    /// a batch file, which only `cmd` runs, with its own reading of the
+    /// arguments, so the link is the safer way in.
+    fn opens_by_link(self) -> bool {
+        self == Self::Windows
+    }
+
+    /// Whether the file at `path` runs on this layout's system: by its
+    /// extension on Windows, and by its run bit elsewhere.
+    fn runs(self, path: &Path) -> bool {
+        let rules = match self {
+            Self::Windows => which::Rules::Windows,
+            Self::MacApps | Self::Linux => which::Rules::Unix,
+        };
+        which::runnable_in(rules, path, &which::Env::current(), &Files)
+    }
 }
 
 impl Places {
-    /// This machine's: the absolute folders on its `PATH`, then
-    /// `/Applications` and `~/Applications`.
+    /// This machine's: the absolute folders on its `PATH`, then where its
+    /// system installs apps.
     pub fn of_this_machine() -> Self {
         let path = std::env::var_os("PATH")
             .map(|path| absolute_folders(&path))
             .unwrap_or_default();
-        let mut apps = vec![PathBuf::from("/Applications")];
-        if let Some(home) = std::env::var_os("HOME") {
-            apps.push(Path::new(&home).join("Applications"));
+        if cfg!(windows) {
+            let folder = |name| {
+                std::env::var_os(name)
+                    .map(PathBuf::from)
+                    .filter(|dir| dir.is_absolute())
+            };
+            return Self::on_windows(path, folder("LOCALAPPDATA"), folder("ProgramFiles"));
         }
-        Self { path, apps }
+        let home = std::env::var_os("HOME").map(PathBuf::from);
+        let data_home = std::env::var_os("XDG_DATA_HOME")
+            .map(PathBuf::from)
+            .filter(|dir| dir.is_absolute());
+        Self::on(Layout::here(), path, home, data_home)
+    }
+
+    /// The places `layout` looks in, after the folders on `PATH`. On macOS
+    /// that's `/Applications` and `~/Applications`. On Linux it's
+    /// `/usr/share` and `/opt` for packages, `~/Applications` and
+    /// `~/AppImages` for AppImages, and Snap's and Flatpak's command
+    /// folders after `PATH`, since an app started from the desktop doesn't
+    /// always have them there.
+    fn on(
+        layout: Layout,
+        mut path: Vec<PathBuf>,
+        home: Option<PathBuf>,
+        data_home: Option<PathBuf>,
+    ) -> Self {
+        match layout {
+            Layout::MacApps => {
+                let mut apps = vec![PathBuf::from("/Applications")];
+                if let Some(home) = &home {
+                    apps.push(home.join("Applications"));
+                }
+                Self {
+                    path,
+                    apps,
+                    appimages: Vec::new(),
+                    layout,
+                }
+            }
+            Layout::Linux => {
+                let data_home =
+                    data_home.or_else(|| home.as_ref().map(|home| home.join(".local/share")));
+                let commands = [
+                    Some(PathBuf::from("/snap/bin")),
+                    Some(PathBuf::from("/var/lib/flatpak/exports/bin")),
+                    data_home.map(|data| data.join("flatpak/exports/bin")),
+                ];
+                for dir in commands.into_iter().flatten() {
+                    if !path.contains(&dir) {
+                        path.push(dir);
+                    }
+                }
+                let appimages = home
+                    .map(|home| vec![home.join("Applications"), home.join("AppImages")])
+                    .unwrap_or_default();
+                Self {
+                    path,
+                    apps: vec![PathBuf::from("/usr/share"), PathBuf::from("/opt")],
+                    appimages,
+                    layout,
+                }
+            }
+            Layout::Windows => Self::on_windows(path, None, None),
+        }
+    }
+
+    /// The places Windows looks in, after the folders on `PATH`: the
+    /// installs for you in `local_app_data\Programs`, then the ones for
+    /// everyone in `program_files`.
+    fn on_windows(
+        path: Vec<PathBuf>,
+        local_app_data: Option<PathBuf>,
+        program_files: Option<PathBuf>,
+    ) -> Self {
+        let apps = [
+            local_app_data.map(|dir| dir.join("Programs")),
+            program_files,
+        ];
+        Self {
+            path,
+            apps: apps.into_iter().flatten().collect(),
+            appimages: Vec::new(),
+            layout: Layout::Windows,
+        }
+    }
+
+    /// Where `editor`'s app folder would be, in the order they're tried.
+    fn bundles(&self, editor: &EditorDef) -> Vec<PathBuf> {
+        let folders = self.layout.folders(editor);
+        self.apps
+            .iter()
+            .flat_map(|root| folders.iter().map(|folder| root.join(folder)))
+            .collect()
     }
 }
 
@@ -182,29 +411,29 @@ impl Installed {
 
 /// The editors in `places` that are installed.
 fn find(places: &Places) -> Vec<Found> {
+    let layout = places.layout;
     EDITORS
         .iter()
         .filter_map(|editor| {
-            let bundles: Vec<PathBuf> = places
-                .apps
-                .iter()
-                .map(|root| root.join(app_name(editor)))
-                .collect();
+            let bundles = places.bundles(editor);
+            let commands = layout.app_commands(editor);
             let in_app = bundles.iter().find_map(|bundle| {
-                let bin = bundle.join("Contents/Resources/app/bin");
-                editor
-                    .commands
+                layout
+                    .bins()
                     .iter()
-                    .map(|command| bin.join(command))
-                    .find(|cli| runs(cli))
+                    .flat_map(|bin| {
+                        let bin = bundle.join(bin);
+                        commands.iter().map(move |command| bin.join(command))
+                    })
+                    .find(|cli| layout.runs(cli))
             });
-            let cli = in_app.or_else(|| {
-                editor.commands.iter().find_map(|command| {
+            let cli = in_app.or_else(|| appimage(editor, places)).or_else(|| {
+                layout.commands(editor).iter().find_map(|command| {
                     places
                         .path
                         .iter()
                         .map(|dir| dir.join(command))
-                        .find(|cli| runs(cli) && !in_other_app(editor, cli))
+                        .find(|cli| layout.runs(cli) && !in_other_app(editor, cli, places))
                 })
             });
             let installed = cli.is_some() || bundles.iter().any(|bundle| bundle.is_dir());
@@ -218,35 +447,56 @@ fn app_name(editor: &EditorDef) -> String {
     format!("{}.app", editor.mac_app)
 }
 
+/// The newest of `editor`'s AppImages in `places`, by when each last
+/// changed, since an update often leaves the old file beside the new one.
+fn appimage(editor: &EditorDef, places: &Places) -> Option<PathBuf> {
+    let prefix = editor.appimage?;
+    places
+        .appimages
+        .iter()
+        .filter_map(|dir| std::fs::read_dir(dir).ok())
+        .flatten()
+        .filter_map(|entry| {
+            let path = entry.ok()?.path();
+            (is_appimage_of(prefix, &path) && places.layout.runs(&path)).then_some(path)
+        })
+        .max_by_key(|path| path.metadata().and_then(|meta| meta.modified()).ok())
+}
+
+/// Whether `path` is named as an AppImage whose name starts with `prefix`,
+/// in any case, as in `Cursor-1.2.3-x86_64.AppImage`.
+fn is_appimage_of(prefix: &str, path: &Path) -> bool {
+    path.file_name()
+        .and_then(|name| name.to_str())
+        .map(str::to_ascii_lowercase)
+        .is_some_and(|name| name.starts_with(prefix) && name.ends_with(".appimage"))
+}
+
 /// Whether `cli`, once its links are followed, is inside an editor's app
-/// other than `editor`'s, wherever that app is.
-fn in_other_app(editor: &EditorDef, cli: &Path) -> bool {
+/// other than `editor`'s. On macOS that's wherever the app is. On Linux
+/// it's the other editor's package folders in `places`, or its AppImage.
+fn in_other_app(editor: &EditorDef, cli: &Path, places: &Places) -> bool {
     let target = cli.canonicalize().unwrap_or_else(|_| cli.to_owned());
     EDITORS
         .iter()
         .filter(|other| other.id != editor.id)
-        .any(|other| {
-            let app = app_name(other);
-            target
-                .ancestors()
-                .any(|dir| dir.file_name() == Some(app.as_ref()))
+        .any(|other| match places.layout {
+            Layout::MacApps => {
+                let app = app_name(other);
+                target
+                    .ancestors()
+                    .any(|dir| dir.file_name() == Some(app.as_ref()))
+            }
+            Layout::Linux | Layout::Windows => {
+                let in_folder = places.bundles(other).iter().any(|bundle| {
+                    target.starts_with(bundle.canonicalize().unwrap_or_else(|_| bundle.clone()))
+                });
+                in_folder
+                    || other
+                        .appimage
+                        .is_some_and(|prefix| is_appimage_of(prefix, &target))
+            }
         })
-}
-
-/// Whether `path` is a program this machine can run.
-fn runs(path: &Path) -> bool {
-    let Ok(metadata) = path.metadata() else {
-        return false;
-    };
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        metadata.is_file() && metadata.permissions().mode() & 0o111 != 0
-    }
-    #[cfg(not(unix))]
-    {
-        metadata.is_file()
-    }
 }
 
 /// Whether the shell may open `url`: what a page's link may open, or a link
@@ -282,6 +532,8 @@ enum Reach {
     Here,
     /// Over ssh to `host`.
     Ssh { host: String },
+    /// In WSL distro `distro` on this Windows machine.
+    Wsl { distro: String },
 }
 
 /// Where `workspace` opens, given how this machine reaches its device.
@@ -295,18 +547,40 @@ fn reach(workspace: &Workspace, route: Option<Route>) -> Result<Reach, CommandEr
     match route {
         Some(Route::Local) => Ok(Reach::Here),
         Some(Route::Ssh { host }) => Ok(Reach::Ssh { host }),
+        Some(Route::Wsl { distro, via: None }) => Ok(Reach::Wsl { distro }),
+        Some(Route::Wsl { via: Some(_), .. }) => Err(failed(
+            "A WSL distro on another PC can't open in an editor from here yet",
+        )),
         None => Err(failed("No route to this device")),
     }
 }
 
-/// `path` in the checkout at `root`. One that starts with `/` is taken as
-/// it is.
+/// `path` in the checkout at `root`. A full one is taken as it is.
 fn in_checkout(root: &str, path: Option<String>) -> String {
     match path {
         None => root.to_owned(),
-        Some(path) if path.starts_with('/') => path,
-        Some(path) => format!("{}/{path}", root.trim_end_matches('/')),
+        Some(path) if is_full_path(&path) => path,
+        Some(path) => format!("{}/{path}", root.trim_end_matches(['/', '\\'])),
     }
+}
+
+/// Whether `path` is a full path on the device that reported it, whichever
+/// system that is: `/src/w`, or on Windows `C:\src\w`, `C:/src/w` or a
+/// share's `\\server\w`. A path from another device can't be checked
+/// with this machine's rules.
+fn is_full_path(path: &str) -> bool {
+    path.starts_with('/') || path.starts_with("\\\\") || drive_letter(path).is_some()
+}
+
+/// The drive at the start of a full Windows path such as `C:\src`, with
+/// its colon.
+fn drive_letter(path: &str) -> Option<&str> {
+    let bytes = path.as_bytes();
+    let full = bytes.len() >= 3
+        && bytes[0].is_ascii_alphabetic()
+        && bytes[1] == b':'
+        && matches!(bytes[2], b'\\' | b'/');
+    full.then(|| &path[..2])
 }
 
 /// The arguments that open `path` at `at`, a line and column, in `editor`.
@@ -332,10 +606,28 @@ fn file_url(scheme: &str, path: &str, at: Option<(u32, u32)>) -> String {
 /// port. A file needs a position for the editor to open it as one, so it
 /// gets the first line when it has none.
 fn remote_url(scheme: &str, host: &str, path: &str, file: bool, at: Option<(u32, u32)>) -> String {
+    let remote = format!("ssh-remote+{}", encode_component(host));
+    remote_link(scheme, &remote, path, file, at)
+}
+
+/// The link that opens `path` in WSL distro `distro` on this machine, as
+/// [`remote_url`] does over SSH.
+fn wsl_url(scheme: &str, distro: &str, path: &str, file: bool, at: Option<(u32, u32)>) -> String {
+    let remote = format!("wsl+{}", encode_component(distro));
+    remote_link(scheme, &remote, path, file, at)
+}
+
+/// The link that opens `path` on the editor's `remote`.
+fn remote_link(
+    scheme: &str,
+    remote: &str,
+    path: &str,
+    file: bool,
+    at: Option<(u32, u32)>,
+) -> String {
     let at = at.or(file.then_some((1, 1)));
     format!(
-        "{scheme}://vscode-remote/ssh-remote+{}{}{}",
-        encode_component(host),
+        "{scheme}://vscode-remote/{remote}{}{}",
         encode_path(path),
         position(at)
     )
@@ -347,8 +639,14 @@ fn position(at: Option<(u32, u32)>) -> String {
         .unwrap_or_default()
 }
 
-/// An absolute path for a link, each part encoded.
+/// An absolute path for a link, each part encoded. A Windows path keeps
+/// its drive as it is and goes with forward slashes, as in `/C:/src/w`,
+/// the way the editors write it.
 fn encode_path(path: &str) -> String {
+    if let Some(drive) = drive_letter(path) {
+        let rest = path[drive.len()..].replace('\\', "/");
+        return format!("/{drive}{}", encode_path(&rest));
+    }
     let rooted = path.strip_prefix('/').unwrap_or(path);
     rooted
         .split('/')
@@ -434,19 +732,23 @@ impl<C: Connector> App<C> {
         let path = in_checkout(root, path);
         // A device reports the folder, and an editor's command line would read
         // anything but a full path as an option, such as one to install an extension.
-        if matches!(reach, Reach::Here) && !path.starts_with('/') {
+        if matches!(reach, Reach::Here) && !is_full_path(&path) {
             return Err(failed("This workspace's folder isn't a full path"));
         }
         let at = line.map(|line| (line, column.unwrap_or(1)));
         let scheme = found.editor.remote_scheme;
+        let by_link = self.editors.places.layout.opens_by_link() && scheme.is_some();
         let opening = match (reach, &found.cli, scheme) {
-            (Reach::Here, Some(cli), _) => self
+            (Reach::Here, Some(cli), _) if !by_link => self
                 .shell
                 .spawn_editor(cli.clone(), launch_args(found.editor, path, at)),
-            (Reach::Here, None, Some(scheme)) => self.shell.open_url(file_url(scheme, &path, at)),
+            (Reach::Here, _, Some(scheme)) => self.shell.open_url(file_url(scheme, &path, at)),
             (Reach::Ssh { host }, _, Some(scheme)) => self
                 .shell
                 .open_url(remote_url(scheme, &host, &path, file, at)),
+            (Reach::Wsl { distro }, _, Some(scheme)) => self
+                .shell
+                .open_url(wsl_url(scheme, &distro, &path, file, at)),
             (_, _, None) => {
                 return Err(CommandError::Failed {
                     message: format!("{} can't open this workspace", found.editor.label),
@@ -463,6 +765,7 @@ impl<C: Connector> App<C> {
 pub(crate) mod tests {
     use std::fs;
 
+    use maxhq_os::which::Fs;
     use maxhq_protocol::ids::{DeviceId, LinkId};
 
     use super::*;
@@ -470,11 +773,23 @@ pub(crate) mod tests {
     use crate::tests::{block_on, FakeShell, Opened};
     use maxhq_client::LinkEvent;
 
+    #[cfg(unix)]
     #[test]
     fn relative_folders_on_path_are_left_out() {
         assert_eq!(
             absolute_folders(std::ffi::OsStr::new("bin:/usr/bin:.::../up:/opt/bin")),
             [PathBuf::from("/usr/bin"), PathBuf::from("/opt/bin")]
+        );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn relative_folders_on_path_are_left_out() {
+        assert_eq!(
+            absolute_folders(std::ffi::OsStr::new(
+                r"bin;C:\Windows;.;;..\up;\tools;D:\tools"
+            )),
+            [PathBuf::from(r"C:\Windows"), PathBuf::from(r"D:\tools")]
         );
     }
 
@@ -489,7 +804,9 @@ pub(crate) mod tests {
         }
 
         /// Puts a program at `path` under the folder, or a plain file when
-        /// `runs` is false, and gives where it went.
+        /// `runs` is false, and gives where it went. Windows has no run
+        /// bit, so there [`Files`] gives every file one.
+        #[cfg_attr(not(unix), allow(unused_variables))]
         pub(crate) fn program(&self, path: &str, runs: bool) -> PathBuf {
             let program = self.0.join(path);
             fs::create_dir_all(program.parent().unwrap()).unwrap();
@@ -522,7 +839,50 @@ pub(crate) mod tests {
                     self.0.join("Applications"),
                     self.0.join("home/Applications"),
                 ],
+                ..Places::default()
             }
+        }
+
+        /// Places laid out as on Linux: `bin` as the whole `PATH`,
+        /// `usr/share` then `opt` for packages, and `home/Applications` for
+        /// AppImages.
+        fn linux_places(&self) -> Places {
+            Places {
+                path: vec![self.0.join("bin")],
+                apps: vec![self.0.join("usr/share"), self.0.join("opt")],
+                appimages: vec![self.0.join("home/Applications")],
+                layout: Layout::Linux,
+            }
+        }
+
+        /// Places laid out as on Windows: `bin` as the whole `PATH`, then
+        /// `Local/Programs` for the installs for you and `Program Files`
+        /// for the ones for everyone.
+        fn windows_places(&self) -> Places {
+            Places {
+                path: vec![self.0.join("bin")],
+                ..Places::on_windows(
+                    Vec::new(),
+                    Some(self.0.join("Local")),
+                    Some(self.0.join("Program Files")),
+                )
+            }
+        }
+    }
+
+    /// The real files, except that on a system without run bits each file
+    /// has them, so the places laid out for macOS and Linux find their
+    /// programs there too. Windows' rules don't read the bits.
+    pub(crate) struct Files;
+
+    impl Fs for Files {
+        fn file_mode(&self, path: &Path) -> Option<u32> {
+            let mode = which::Host.file_mode(path)?;
+            Some(if cfg!(unix) { mode } else { mode | 0o111 })
+        }
+
+        fn read_text(&self, path: &Path) -> Option<String> {
+            which::Host.read_text(path)
         }
     }
 
@@ -561,9 +921,12 @@ pub(crate) mod tests {
         );
         assert_eq!(ids(&find(&scratch.places())), [("cursor", Some(&*in_apps))]);
 
-        // A file that doesn't run isn't a command line.
-        scratch.program("bin/code", false);
-        assert_eq!(ids(&find(&scratch.places())), [("cursor", Some(&*in_apps))]);
+        // A file that doesn't run isn't a command line. Windows has no run
+        // bit to leave off.
+        if cfg!(unix) {
+            scratch.program("bin/code", false);
+            assert_eq!(ids(&find(&scratch.places())), [("cursor", Some(&*in_apps))]);
+        }
         let code = scratch.program(
             "Applications/Visual Studio Code.app/Contents/Resources/app/bin/code",
             true,
@@ -652,7 +1015,7 @@ pub(crate) mod tests {
     fn without_either_app_a_command_on_path_is_taken_as_it_is() {
         let scratch = Scratch::new();
         assert!(ids(&find(&scratch.places())).is_empty());
-        // As on Linux, where editors have no app folder.
+        // As with a command line installed on its own, outside any app.
         let code = scratch.program("bin/code", true);
         let cursor = scratch.program("bin/cursor", true);
         assert_eq!(
@@ -684,6 +1047,282 @@ pub(crate) mod tests {
         let all: Vec<(&str, &str)> = EDITORS.iter().map(|e| (e.id, e.label)).collect();
         assert_eq!(known, all);
         assert_eq!(known, [("cursor", "Cursor"), ("vscode", "VS Code")]);
+    }
+
+    #[test]
+    fn linux_looks_in_package_snap_flatpak_and_appimage_folders() {
+        let home = PathBuf::from("/home/<user>");
+        let path = vec![PathBuf::from("/usr/bin"), PathBuf::from("/snap/bin")];
+        let linux = Places::on(Layout::Linux, path.clone(), Some(home.clone()), None);
+        // Snap's folder is already on this `PATH`, so it isn't added twice.
+        assert_eq!(
+            linux.path,
+            [
+                "/usr/bin",
+                "/snap/bin",
+                "/var/lib/flatpak/exports/bin",
+                "/home/<user>/.local/share/flatpak/exports/bin",
+            ]
+            .map(PathBuf::from)
+        );
+        assert_eq!(linux.apps, ["/usr/share", "/opt"].map(PathBuf::from));
+        assert_eq!(
+            linux.appimages,
+            ["/home/<user>/Applications", "/home/<user>/AppImages"].map(PathBuf::from)
+        );
+        // A data folder of the user's own moves Flatpak's user installs.
+        let moved = Places::on(
+            Layout::Linux,
+            Vec::new(),
+            Some(home.clone()),
+            Some(PathBuf::from("/data/<user>")),
+        );
+        assert_eq!(
+            moved.path.last(),
+            Some(&PathBuf::from("/data/<user>/flatpak/exports/bin"))
+        );
+
+        // macOS looks where it always has.
+        let mac = Places::on(Layout::MacApps, path.clone(), Some(home), None);
+        assert_eq!(mac.path, path);
+        assert_eq!(
+            mac.apps,
+            ["/Applications", "/home/<user>/Applications"].map(PathBuf::from)
+        );
+        assert!(mac.appimages.is_empty());
+    }
+
+    #[test]
+    fn on_linux_the_package_folder_comes_before_path() {
+        let scratch = Scratch::new();
+        assert!(ids(&find(&scratch.linux_places())).is_empty());
+
+        // A package's folder alone opens through its link, as an app does.
+        fs::create_dir_all(scratch.0.join("usr/share/code")).unwrap();
+        assert_eq!(ids(&find(&scratch.linux_places())), [("vscode", None)]);
+
+        let on_path = scratch.program("bin/code", true);
+        assert_eq!(
+            ids(&find(&scratch.linux_places())),
+            [("vscode", Some(&*on_path))]
+        );
+        // An archive unpacked into `/opt` keeps its command line deeper in.
+        let unpacked = scratch.program("opt/visual-studio-code/resources/app/bin/code", true);
+        assert_eq!(
+            ids(&find(&scratch.linux_places())),
+            [("vscode", Some(&*unpacked))]
+        );
+        // The deb and rpm put it in `/usr/share/code/bin`.
+        let packaged = scratch.program("usr/share/code/bin/code", true);
+        assert_eq!(
+            ids(&find(&scratch.linux_places())),
+            [("vscode", Some(&*packaged))]
+        );
+        let cursor = scratch.program("usr/share/cursor/bin/cursor", true);
+        assert_eq!(
+            ids(&find(&scratch.linux_places())),
+            [("cursor", Some(&*cursor)), ("vscode", Some(&*packaged))]
+        );
+    }
+
+    #[test]
+    fn on_linux_flatpak_runs_vs_code_by_its_app_id() {
+        let scratch = Scratch::new();
+        let flatpak = scratch.program("bin/com.visualstudio.code", true);
+        assert_eq!(
+            ids(&find(&scratch.linux_places())),
+            [("vscode", Some(&*flatpak))]
+        );
+        // The plain name comes first when both are there.
+        let code = scratch.program("bin/code", true);
+        assert_eq!(
+            ids(&find(&scratch.linux_places())),
+            [("vscode", Some(&*code))]
+        );
+
+        // macOS has no Flatpak, so it doesn't look for the ID.
+        let mac = Scratch::new();
+        mac.program("bin/com.visualstudio.code", true);
+        assert!(ids(&find(&mac.places())).is_empty());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn on_linux_the_newest_cursor_appimage_runs_it() {
+        use std::time::{Duration, SystemTime};
+
+        let scratch = Scratch::new();
+        let older = scratch.program("home/Applications/Cursor-1.6.0-x86_64.AppImage", true);
+        let newer = scratch.program("home/Applications/cursor-1.7.2-x86_64.AppImage", true);
+        // Neither a file that doesn't run nor one named otherwise counts.
+        scratch.program("home/Applications/Cursor-1.8.0-x86_64.AppImage", false);
+        scratch.program("home/Applications/Cursor-notes.txt", true);
+        scratch.program("home/Applications/Other-1.0.0-x86_64.AppImage", true);
+        let set_changed = |path: &Path, ago: u64| {
+            let when = SystemTime::now() - Duration::from_secs(ago);
+            fs::File::options()
+                .write(true)
+                .open(path)
+                .unwrap()
+                .set_modified(when)
+                .unwrap();
+        };
+        set_changed(&older, 60);
+        set_changed(&newer, 30);
+        assert_eq!(
+            ids(&find(&scratch.linux_places())),
+            [("cursor", Some(&*newer))]
+        );
+        set_changed(&older, 0);
+        assert_eq!(
+            ids(&find(&scratch.linux_places())),
+            [("cursor", Some(&*older))]
+        );
+
+        // An AppImage comes before a command on `PATH`, as an app does.
+        scratch.program("bin/cursor", true);
+        assert_eq!(
+            ids(&find(&scratch.linux_places())),
+            [("cursor", Some(&*older))]
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn on_linux_a_code_command_that_leads_into_cursor_is_not_vs_code() {
+        let scratch = Scratch::new();
+        let cursor = scratch.program("usr/share/cursor/bin/cursor", true);
+        let code = scratch.program("usr/share/cursor/bin/code", true);
+        scratch.link("bin/code", &code);
+        assert_eq!(
+            ids(&find(&scratch.linux_places())),
+            [("cursor", Some(&*cursor))]
+        );
+
+        // Nor one that leads to Cursor's AppImage, wherever it is.
+        let elsewhere = Scratch::new();
+        let image = elsewhere.program("Downloads/Cursor-1.7.2-x86_64.AppImage", true);
+        elsewhere.link("bin/code", &image);
+        assert!(ids(&find(&elsewhere.linux_places())).is_empty());
+    }
+
+    #[test]
+    fn windows_looks_in_the_installs_for_you_then_for_everyone() {
+        let local = PathBuf::from(r"C:\Users\<user>\AppData\Local");
+        let program_files = PathBuf::from(r"C:\Program Files");
+        let path = vec![PathBuf::from(r"C:\Windows\System32")];
+        let windows = Places::on_windows(
+            path.clone(),
+            Some(local.clone()),
+            Some(program_files.clone()),
+        );
+        assert_eq!(windows.path, path);
+        assert_eq!(windows.apps, [local.join("Programs"), program_files]);
+        assert!(windows.appimages.is_empty());
+        assert_eq!(windows.layout, Layout::Windows);
+        // Without the folders, it still looks on `PATH`.
+        assert!(Places::on_windows(path, None, None).apps.is_empty());
+    }
+
+    #[test]
+    fn on_windows_each_installer_s_cmd_file_is_found() {
+        let scratch = Scratch::new();
+        assert!(ids(&find(&scratch.windows_places())).is_empty());
+
+        // An install folder alone opens through its link.
+        fs::create_dir_all(scratch.0.join("Program Files/Microsoft VS Code")).unwrap();
+        assert_eq!(ids(&find(&scratch.windows_places())), [("vscode", None)]);
+
+        // A command without `.cmd` isn't Windows' command line.
+        scratch.program("bin/code", true);
+        assert_eq!(ids(&find(&scratch.windows_places())), [("vscode", None)]);
+        let on_path = scratch.program("bin/code.cmd", true);
+        assert_eq!(
+            ids(&find(&scratch.windows_places())),
+            [("vscode", Some(&*on_path))]
+        );
+        // The install for everyone keeps it in `bin`, and one for you comes
+        // first.
+        let everyone = scratch.program("Program Files/Microsoft VS Code/bin/code.cmd", true);
+        assert_eq!(
+            ids(&find(&scratch.windows_places())),
+            [("vscode", Some(&*everyone))]
+        );
+        let yours = scratch.program("Local/Programs/Microsoft VS Code/bin/code.cmd", true);
+        assert_eq!(
+            ids(&find(&scratch.windows_places())),
+            [("vscode", Some(&*yours))]
+        );
+        // Cursor keeps it deeper in.
+        let cursor = scratch.program("Local/Programs/cursor/resources/app/bin/cursor.cmd", true);
+        assert_eq!(
+            ids(&find(&scratch.windows_places())),
+            [("cursor", Some(&*cursor)), ("vscode", Some(&*yours))]
+        );
+    }
+
+    #[test]
+    fn on_windows_the_code_cmd_in_cursor_s_folder_is_not_vs_code() {
+        let scratch = Scratch::new();
+        // Cursor's installer puts its own folder on `PATH`, with a `code`
+        // beside its `cursor`.
+        let bin = "Local/Programs/cursor/resources/app/bin";
+        let cursor = scratch.program(&format!("{bin}/cursor.cmd"), true);
+        scratch.program(&format!("{bin}/code.cmd"), true);
+        let places = Places {
+            path: vec![scratch.0.join(bin)],
+            ..scratch.windows_places()
+        };
+        assert_eq!(ids(&find(&places)), [("cursor", Some(&*cursor))]);
+    }
+
+    #[test]
+    fn on_windows_a_workspace_here_opens_through_the_link() {
+        let scratch = Scratch::new();
+        scratch.program("Local/Programs/cursor/resources/app/bin/cursor.cmd", true);
+        scratch.program("Local/Programs/Microsoft VS Code/bin/code.cmd", true);
+        let (app, shell) = app_with(scratch.windows_places());
+        let w = WorkspaceId::derive("w");
+        block_on(app.open_in_editor("cursor", w, None, None, None)).unwrap();
+        block_on(app.open_in_editor("vscode", w, Some("a.rs".into()), Some(3), None)).unwrap();
+        assert_eq!(
+            *shell.1.lock().unwrap(),
+            [
+                Opened::Url("cursor://file/src/w".into()),
+                Opened::Url("vscode://file/src/w/a.rs:3:1".into()),
+            ]
+        );
+        assert!(shell.0.lock().unwrap().is_empty());
+    }
+
+    #[test]
+    fn a_windows_path_is_full_and_goes_into_links_with_its_drive() {
+        for path in [r"C:\src\w", "c:/src/w", r"\\server\w", "/src/w"] {
+            assert!(is_full_path(path), "{path}");
+        }
+        for path in ["C:", "C:src", "src/w", "--install-extension=x", ""] {
+            assert!(!is_full_path(path), "{path}");
+        }
+        assert_eq!(
+            in_checkout(r"C:\src\w\", Some("a/b.rs".into())),
+            r"C:\src\w/a/b.rs"
+        );
+        assert_eq!(
+            in_checkout(r"C:\src\w", Some(r"D:\x.rs".into())),
+            r"D:\x.rs"
+        );
+        assert_eq!(
+            file_url("vscode", r"C:\Users\dev\my app\a.rs", Some((3, 7))),
+            "vscode://file/C:/Users/dev/my%20app/a.rs:3:7"
+        );
+        assert_eq!(
+            file_url("cursor", r"C:\src\w/a/b.rs", None),
+            "cursor://file/C:/src/w/a/b.rs"
+        );
+        assert_eq!(
+            remote_url("vscode", "<pc>", r"C:\src\w", false, None),
+            "vscode://vscode-remote/ssh-remote+%3Cpc%3E/C:/src/w"
+        );
     }
 
     #[test]
@@ -726,6 +1365,10 @@ pub(crate) mod tests {
         assert_eq!(
             remote_url("vscode", "devbox", "/src/w/a.rs", true, Some((12, 4))),
             "vscode://vscode-remote/ssh-remote+devbox/src/w/a.rs:12:4"
+        );
+        assert_eq!(
+            wsl_url("vscode", "Ubuntu-24.04", "/home/dev/w", false, None),
+            "vscode://vscode-remote/wsl+Ubuntu-24.04/home/dev/w"
         );
         assert_eq!(
             file_url("cursor", "/Users/dev/it's (new)/a?.rs", Some((2, 1))),
@@ -830,6 +1473,26 @@ pub(crate) mod tests {
                 host: "dev@devbox".into()
             })
         );
+        assert_eq!(
+            reach(
+                &folder,
+                Some(Route::Wsl {
+                    distro: "Ubuntu".into(),
+                    via: None
+                })
+            ),
+            Ok(Reach::Wsl {
+                distro: "Ubuntu".into()
+            })
+        );
+        assert!(reach(
+            &folder,
+            Some(Route::Wsl {
+                distro: "Ubuntu".into(),
+                via: Some("dev@pc".into())
+            })
+        )
+        .is_err());
         assert_eq!(reach(&folder, None), Err(failed("No route to this device")));
     }
 

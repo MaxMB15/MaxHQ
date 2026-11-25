@@ -12,11 +12,13 @@ import type { DeviceId } from "@maxhq/shared/bindings";
 import type { EntityKind } from "@maxhq/shared/view/replica";
 import { t as translate, useI18n } from "@maxhq/shared/i18n";
 import { accountDevices } from "@maxhq/shared/settings/accounts";
-import { LOGIN_HINT } from "@maxhq/shared/settings/login-steps";
+import type { PhoneCard } from "@maxhq/shared/guide/settings-link";
+import { FCM_STEPS, LOGIN_HINT } from "@maxhq/shared/settings/login-steps";
 
 import { ApnsLogin } from "../apns-login";
 import { CardScope, SEG, SEG_ITEM } from "../controls";
 import { DeviceSettings } from "../device-settings";
+import { FcmLogin } from "../fcm-login";
 import { LOGIN_STEPS } from "../login-steps";
 import { PhonesSettingsPage } from "../phones-settings";
 import { deviceCardId, settingsOf, useSettings } from "../store";
@@ -79,10 +81,11 @@ export const DevicesGroup = ({ results }: { results: Results | null }) => {
 	);
 };
 
-// Today's Phones page, then the Apple key the devices push to phones with.
+// Today's Phones page, then the Apple and Firebase keys the devices push
+// to phones with.
 const PhonesTab = ({ results }: { results: Results | null }) => {
 	useI18n();
-	const shows = (card: "phones" | "apns") => !results || results.phones.has(card);
+	const shows = (card: PhoneCard) => !results || results.phones.has(card);
 	return (
 		<CardScope.Provider value={translate("Every device")}>
 			{shows("phones") ? (
@@ -94,6 +97,12 @@ const PhonesTab = ({ results }: { results: Results | null }) => {
 				<div id={deviceCardId("apns")} className="flex scroll-mt-[60px] flex-col gap-3">
 					<Subheading title={LOGIN_STEPS.apns.title} hint={LOGIN_HINT.apns} />
 					<ApnsLogin />
+				</div>
+			) : null}
+			{shows("fcm") ? (
+				<div id={deviceCardId("fcm")} className="flex scroll-mt-[60px] flex-col gap-3">
+					<Subheading title={FCM_STEPS.title} hint={FCM_STEPS.hint} />
+					<FcmLogin />
 				</div>
 			) : null}
 		</CardScope.Provider>

@@ -99,6 +99,45 @@ pub fn normalize(path: &Path) -> PathBuf {
     out
 }
 
+/// `path` as text with `/` between its parts on every OS, as plans, the
+/// picks you send back and a link's target are written, so they read the
+/// same whichever device made them. A Unix path is its own text.
+pub fn path_text(path: &Path) -> String {
+    if cfg!(windows) {
+        slashed(path)
+    } else {
+        path.to_string_lossy().into_owned()
+    }
+}
+
+/// `path`'s parts joined by `/`, after its prefix when it has one.
+fn slashed(path: &Path) -> String {
+    let mut text = String::new();
+    // After a prefix such as `C:` the next part follows on directly, so a
+    // path relative to a drive stays one.
+    let mut joined = true;
+    for part in path.components() {
+        match part {
+            Component::Prefix(prefix) => {
+                text.push_str(&prefix.as_os_str().to_string_lossy());
+                joined = true;
+            }
+            Component::RootDir => {
+                text.push('/');
+                joined = true;
+            }
+            other => {
+                if !joined {
+                    text.push('/');
+                }
+                text.push_str(&other.as_os_str().to_string_lossy());
+                joined = false;
+            }
+        }
+    }
+    text
+}
+
 /// Where a link at `link` pointing at `target` leads, read as text.
 pub fn link_points_at(link: &Path, target: &str) -> PathBuf {
     let base = link.parent().unwrap_or(Path::new("/"));
@@ -130,6 +169,28 @@ mod tests {
             )),
             PathBuf::from("/work/repo/.maxhq/skills/x")
         );
+    }
+
+    #[test]
+    fn path_text_is_slashed_on_every_os() {
+        let joined = Path::new("/home/dev/.claude").join("skills").join("x");
+        assert_eq!(path_text(&joined), "/home/dev/.claude/skills/x");
+        assert_eq!(
+            path_text(Path::new("../../.maxhq/skills/x")),
+            "../../.maxhq/skills/x"
+        );
+        assert_eq!(
+            path_text(&Path::new("packages").join("web")),
+            "packages/web"
+        );
+        assert_eq!(slashed(Path::new("/a//b/./c/")), "/a/b/c");
+        assert_eq!(slashed(Path::new("a/../b")), "a/../b");
+        if cfg!(windows) {
+            assert_eq!(slashed(Path::new(r"C:\Users\dev")), "C:/Users/dev");
+            assert_eq!(slashed(Path::new(r"C:drive\relative")), "C:drive/relative");
+            assert_eq!(slashed(Path::new(r"..\skills\x")), "../skills/x");
+            assert_eq!(slashed(Path::new(r"\\server\share\x")), r"\\server\share/x");
+        }
     }
 
     #[test]

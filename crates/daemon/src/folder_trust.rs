@@ -21,16 +21,16 @@
 
 use std::collections::BTreeSet;
 use std::ffi::OsString;
-use std::fs::{self, File, OpenOptions};
+use std::fs;
 use std::future::Future;
 use std::io::{self, Read};
 use std::iter::Peekable;
-use std::os::unix::ffi::OsStrExt;
-use std::os::unix::fs::OpenOptionsExt;
 use std::path::{Component, Path, PathBuf};
 use std::str::Chars;
 use std::time::Duration;
 
+use maxhq_core::fs_ext::{self, absent, open_regular};
+use maxhq_core::skills::path_text;
 use maxhq_protocol::attention::{AttentionEvent, AttentionKind};
 use maxhq_protocol::guest::{FolderScan, ScannedFile, ShownFile};
 use maxhq_protocol::ids::{AgentId, AttentionId, ClientId, WorkspaceId};
@@ -193,7 +193,7 @@ pub fn scan(
     locked: &[String],
     inside: Option<&Path>,
 ) -> FolderScan {
-    let cwd = fs::canonicalize(cwd).unwrap_or_else(|_| cwd.to_owned());
+    let cwd = fs_ext::canonicalize(cwd).unwrap_or_else(|_| cwd.to_owned());
     let found = checkout_of(&cwd);
     let key = found
         .as_ref()
@@ -224,10 +224,7 @@ pub fn scan(
     // your home. Above those it still reads MCP files.
     for (up, level) in cwd.ancestors().enumerate() {
         let prefix = match &found {
-            Some((root, _)) => level
-                .strip_prefix(root)
-                .ok()
-                .map(|from_root| from_root.display().to_string()),
+            Some((root, _)) => level.strip_prefix(root).ok().map(path_text),
             None if home.is_some_and(|home| home.starts_with(level) && home != level) => None,
             None => Some("../".repeat(up).trim_end_matches('/').to_owned()),
         };
@@ -249,7 +246,7 @@ pub(crate) fn checkout_of(cwd: &Path) -> Option<(PathBuf, String)> {
             continue;
         };
         let common = if meta.is_dir() {
-            fs::canonicalize(&dot_git).ok()
+            fs_ext::canonicalize(&dot_git).ok()
         } else if meta.is_file() {
             worktree_common(&dot_git)
         } else {
@@ -267,14 +264,14 @@ pub(crate) fn checkout_of(cwd: &Path) -> Option<(PathBuf, String)> {
 fn worktree_common(dot_git: &Path) -> Option<PathBuf> {
     let text = read_small(dot_git)?;
     let named = Path::new(text.strip_prefix("gitdir:")?.trim());
-    let git_dir = fs::canonicalize(dot_git.parent()?.join(named)).ok()?;
+    let git_dir = fs_ext::canonicalize(dot_git.parent()?.join(named)).ok()?;
     let back = read_small(&git_dir.join("gitdir"))?;
-    let back = fs::canonicalize(git_dir.join(back.trim())).ok()?;
-    if back != fs::canonicalize(dot_git).ok()? {
+    let back = fs_ext::canonicalize(git_dir.join(back.trim())).ok()?;
+    if back != fs_ext::canonicalize(dot_git).ok()? {
         return None;
     }
     let common = read_small(&git_dir.join("commondir"))?;
-    fs::canonicalize(git_dir.join(common.trim())).ok()
+    fs_ext::canonicalize(git_dir.join(common.trim())).ok()
 }
 
 /// A small text file, without waiting on anything that isn't a file.
@@ -283,29 +280,6 @@ fn read_small(path: &Path) -> Option<String> {
     let mut text = String::new();
     file.take(GIT_FILE_BYTES).read_to_string(&mut text).ok()?;
     Some(text)
-}
-
-/// Opens a regular file. A pipe or device is an error rather than a read
-/// that never ends.
-fn open_regular(path: &Path, follow: bool) -> io::Result<File> {
-    let mut flags = libc::O_NONBLOCK;
-    if !follow {
-        flags |= libc::O_NOFOLLOW;
-    }
-    let file = OpenOptions::new()
-        .read(true)
-        .custom_flags(flags)
-        .open(path)?;
-    if file.metadata()?.is_file() {
-        Ok(file)
-    } else {
-        Err(io::Error::other("not a regular file"))
-    }
-}
-
-/// Whether a read failed only because nothing is there.
-fn absent(err: &io::Error) -> bool {
-    matches!(err.raw_os_error(), Some(libc::ENOENT | libc::ENOTDIR))
 }
 
 /// Bytes as hex.
@@ -363,7 +337,7 @@ impl Walk<'_> {
                 self.link(&dir, named(reads.dir));
                 // The paths below would all lead wherever this does.
                 let out = self.inside.is_some_and(|inside| {
-                    fs::canonicalize(&dir).map_or(true, |real| !real.starts_with(inside))
+                    fs_ext::canonicalize(&dir).map_or(true, |real| !real.starts_with(inside))
                 });
                 if out {
                     self.failed = true;
@@ -488,7 +462,8 @@ impl Walk<'_> {
             let Ok(from_root) = plain.strip_prefix(&self.root) else {
                 continue;
             };
-            let from_root = from_root.display().to_string();
+            // With `/` on every OS, as the walk names what it finds.
+            let from_root = path_text(from_root);
             first.get_or_insert_with(|| from_root.clone());
             let Ok(meta) = fs::metadata(&path) else {
                 continue;
@@ -523,7 +498,7 @@ impl Walk<'_> {
     /// when no link is on its way.
     fn counted(&self, name: &str, from_root: &str, path: &Path, plain: &Path, hook: &str) -> bool {
         let walked = || {
-            fs::canonicalize(path).is_ok_and(|real| real == plain)
+            fs_ext::canonicalize(path).is_ok_and(|real| real == plain)
                 && READS
                     .iter()
                     .all(|reads| !read_by(hook, reads.vendor) || read_by(from_root, reads.vendor))
@@ -554,7 +529,7 @@ impl Walk<'_> {
 
     /// Hashes and shows a file the CLI reads through a link.
     fn read_through(&mut self, path: &Path, name: String, shown: String) {
-        match fs::canonicalize(path) {
+        match fs_ext::canonicalize(path) {
             // A file that's where it says is fine, even above the work folder.
             Ok(real)
                 if real == path || self.inside.is_none_or(|inside| real.starts_with(inside)) => {}
@@ -634,7 +609,7 @@ impl Walk<'_> {
     fn link(&mut self, path: &Path, name: String) {
         match fs::read_link(path) {
             Ok(target) => {
-                let digest = ring::digest::digest(&SHA256, target.as_os_str().as_bytes());
+                let digest = ring::digest::digest(&SHA256, target.as_os_str().as_encoded_bytes());
                 self.files.push(ScannedFile {
                     name,
                     digest: hex(digest),
@@ -961,7 +936,7 @@ pub fn codex_paths(cwd: &Path, key: &str, here: bool) -> Vec<String> {
         paths.extend(path.ancestors().map(|level| level.display().to_string()));
     };
     add(cwd);
-    if here && let Ok(real) = fs::canonicalize(cwd) {
+    if here && let Ok(real) = fs_ext::canonicalize(cwd) {
         add(&real);
     }
     // A guest's key starts with its workspace, which has no colon in it.
@@ -980,13 +955,15 @@ pub fn codex_paths(cwd: &Path, key: &str, here: bool) -> Vec<String> {
 
 /// Scans a folder on this device.
 pub fn scan_here(cwd: &Path, locked: &[String]) -> FolderScan {
-    let home = std::env::var_os("HOME").map(PathBuf::from);
+    let home = maxhq_os::home::home_dir();
     scan(cwd, home.as_deref(), locked, None)
 }
 
 /// Scans a folder for the host, from inside a guest, which reads as root.
+/// The guest runs on Unix alone.
+#[cfg_attr(not(unix), allow(dead_code))]
 pub fn scan_in_guest(cwd: &Path, home: &Path, locked: &[String], work: &Path) -> FolderScan {
-    let work = fs::canonicalize(work).unwrap_or_else(|_| work.to_owned());
+    let work = fs_ext::canonicalize(work).unwrap_or_else(|_| work.to_owned());
     fit(scan(cwd, Some(home), locked, Some(&work)), GUEST_REPLY)
 }
 

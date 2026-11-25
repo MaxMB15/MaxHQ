@@ -10,6 +10,7 @@
 
 import type { IgnoredFile } from "../data/source";
 
+import { nameOf } from "../folders/path";
 /** The largest file a copy ticks by default. */
 export const DEFAULT_COPY_MAX_BYTES = 1024 * 1024;
 
@@ -29,7 +30,7 @@ const DEFAULT_COPIED_FILE_NAME = /^(?:\.env(?:\..+)?|\.envrc|\.dev\.vars)$/;
 
 /** Env files, which people almost always want on a new device. */
 export const isDefaultCopied = (file: IgnoredFile): boolean => {
-	const name = file.path.split("/").at(-1) ?? file.path;
+	const name = nameOf(file.path);
 	return DEFAULT_COPIED_FILE_NAME.test(name) && file.size <= DEFAULT_COPY_MAX_BYTES;
 };
 

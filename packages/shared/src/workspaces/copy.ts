@@ -7,6 +7,14 @@
 // device's host, and the ignored files you tick follow it there.
 
 import { t } from "../i18n";
+import {
+	folderNameProblem,
+	isAbsolutePath,
+	joinPath,
+	parentOf as folderOf,
+	pathStyleOf,
+	trimSeparators,
+} from "../folders/path";
 
 import type { DeviceId, ProjectId, Workspace, WorkspaceId } from "../bindings";
 import type { CopyTarget } from "../data/source";
@@ -112,8 +120,7 @@ export const cloneFolderName = (repo: string): string =>
 /** The folder a workspace's checkout sits in, as a first guess for the parent. */
 export const parentOf = (workspace: Workspace | undefined): string => {
 	if (workspace?.location.type !== "folder") return "";
-	const path = workspace.location.path.replace(/\/+$/, "");
-	return path.slice(0, path.lastIndexOf("/")) || "/";
+	return folderOf(workspace.location.path) ?? "/";
 };
 
 /** The choices a copy starts with: the first checkout and the first device that takes it. */
@@ -140,8 +147,8 @@ export const firstChoices = (
 	};
 };
 
-/** A folder path joined, with no doubled slash. */
-const join = (parent: string, name: string) => `${parent.replace(/\/+$/, "")}/${name}`;
+/** A folder path joined, with no doubled separator. */
+const join = (parent: string, name: string) => joinPath(trimSeparators(parent), name);
 
 /** Checks the choices and builds the target. */
 export const planCopy = (
@@ -189,10 +196,17 @@ export const planCopy = (
 
 	const parent = choices.parent.trim();
 	const name = choices.folder.trim();
-	if (!parent.startsWith("/")) {
-		return { ok: false, reason: t("Give the parent folder as a full path, starting with /.") };
+	if (!isAbsolutePath(parent)) {
+		return {
+			ok: false,
+			reason:
+				device.os === "windows"
+					? t("Give the parent folder as a full path, such as C:\\code.")
+					: t("Give the parent folder as a full path, starting with /."),
+		};
 	}
-	if (!name || name === "." || name === ".." || name.includes("/")) {
+	if (folderNameProblem(name, pathStyleOf(parent)) !== null) {
+		// The message names the clone's folder, so it keeps its own words.
 		return { ok: false, reason: t("Name the folder the clone goes in, with no slashes.") };
 	}
 	const path = join(parent, name);

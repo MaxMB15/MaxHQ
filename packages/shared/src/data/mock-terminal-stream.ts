@@ -27,6 +27,7 @@ import type { Terminal, TerminalId, Timestamp } from "../bindings";
 import { utf8 } from "../notes/merge";
 import type { TerminalEvent, TerminalStream } from "../terminal/stream";
 
+import { baseName as lastName } from "../folders/path";
 /** What the stream needs from the sample terminals. */
 export type MockStreamHooks = {
 	readonly find: (id: TerminalId) => Terminal | undefined;
@@ -187,7 +188,7 @@ type Plan =
 	| { readonly type: "exit" }
 	| { readonly type: "clear" };
 
-const baseName = (path: string) => path.replace(/\/+$/, "").split("/").pop() || path;
+const baseName = (path: string) => lastName(path) || path;
 
 const clock = (at: Timestamp) => new Date(at).toTimeString().slice(0, 8);
 

@@ -9,11 +9,13 @@ import {
 	i18n,
 	languageFor,
 	regionalLocale,
+	setInterfaceOs,
 	setLanguageChoice,
 	t,
 } from "./i18n";
 
 afterEach(() => {
+	setInterfaceOs(null);
 	configureLanguage({ read: () => "en", write: () => {}, systemLanguages: () => ["en"] });
 });
 
@@ -125,5 +127,62 @@ describe("interface language", () => {
 		expect(formatDate(new Date("2026-11-13T12:00:00Z"), options)).toBe(
 			new Intl.DateTimeFormat("de", options).format(new Date("2026-11-13T12:00:00Z"))
 		);
+	});
+});
+
+describe("wording for the system the app runs on", () => {
+	it("keeps the text as written on macOS and until the app says its system", () => {
+		expect(t("Keep this Mac awake")).toBe("Keep this Mac awake");
+		setInterfaceOs("macos");
+		expect(t("Keep this Mac awake")).toBe("Keep this Mac awake");
+		expect(t("Show {{name}} in Finder", { name: "log.txt" })).toBe("Show log.txt in Finder");
+	});
+	it("says PC on Windows and computer on Linux", () => {
+		setInterfaceOs("windows");
+		expect(t("Keep this Mac awake")).toBe("Keep this PC awake");
+		expect(t("Show {{name}} in Finder", { name: "log.txt" })).toBe(
+			"Show log.txt in File Explorer"
+		);
+		setInterfaceOs("linux");
+		expect(t("Keep this Mac awake")).toBe("Keep this computer awake");
+		expect(t("Show {{name}} in Finder", { name: "log.txt" })).toBe(
+			"Show log.txt in its folder"
+		);
+	});
+	it("says Android where the phone's text names iOS, and keeps iOS's", () => {
+		setInterfaceOs("ios");
+		expect(t("Turn them on in iOS Settings.")).toBe("Turn them on in iOS Settings.");
+		setInterfaceOs("android");
+		expect(t("Turn them on in iOS Settings.")).toBe("Turn them on in Android settings.");
+		expect(t("Keep this Mac awake")).toBe("Keep this Mac awake");
+	});
+	it("leaves text without a variant as it is", () => {
+		setInterfaceOs("windows");
+		expect(t("Close")).toBe(t("Close", { context: undefined }));
+	});
+	it("lets a call name a device's own system instead", () => {
+		setInterfaceOs("windows");
+		expect(t("Keep this Mac awake", { context: undefined })).toBe("Keep this Mac awake");
+		expect(t("Keep this Mac awake", { context: "linux" })).toBe("Keep this computer awake");
+	});
+	it("finds the variant in the language shown", () => {
+		configureLanguage({ read: () => "de", write: () => {}, systemLanguages: () => ["de"] });
+		setInterfaceOs("windows");
+		expect(t("Keep this Mac awake")).toBe("Diesen PC wach halten");
+		setInterfaceOs("macos");
+		expect(t("Keep this Mac awake")).not.toContain("PC");
+	});
+	it("picks a plural's variant by count", () => {
+		i18n.addResources("en", "translation", {
+			"{{count}} Macs": "{{count}} Macs",
+			"{{count}} Macs_one": "{{count}} Mac",
+			"{{count}} Macs_windows": "{{count}} PCs",
+			"{{count}} Macs_windows_one": "{{count}} PC",
+		});
+		setInterfaceOs("windows");
+		expect(t("{{count}} Macs", { count: 1 })).toBe("1 PC");
+		expect(t("{{count}} Macs", { count: 3 })).toBe("3 PCs");
+		setInterfaceOs("macos");
+		expect(t("{{count}} Macs", { count: 1 })).toBe("1 Mac");
 	});
 });

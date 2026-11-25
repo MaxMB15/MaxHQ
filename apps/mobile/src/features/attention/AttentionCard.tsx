@@ -27,7 +27,7 @@ import {
 	useSend,
 } from "@maxhq/shared/agent-view/answer";
 import { DISMISS, dismissSent, SKIP_WORDS } from "@maxhq/shared/agent-view/dismiss";
-import { baseName } from "@maxhq/shared/agent-view/format";
+import { nameOf } from "@maxhq/shared/folders/path";
 import type { AttentionAnswer, FileEdit, Question, Vendor } from "@maxhq/shared/bindings";
 import { useNow } from "@maxhq/shared/lib/clock";
 import { formatAgoShort } from "@maxhq/shared/status/format";
@@ -112,10 +112,10 @@ export const AttentionCard = ({
 		prompt.folder !== null
 			? place
 				? t("In {{folder}} on {{device}}.", {
-						folder: baseName(prompt.folder),
+						folder: nameOf(prompt.folder),
 						device: place,
 					})
-				: t("In {{folder}}.", { folder: baseName(prompt.folder) })
+				: t("In {{folder}}.", { folder: nameOf(prompt.folder) })
 			: inbox && place
 				? t("On {{device}}.", { device: place })
 				: null;

@@ -26,7 +26,8 @@ import {
 import { Empty } from "@/main-area/empty";
 import { cn } from "@/lib/utils";
 import { colourable, looksBinary, textLines } from "@maxhq/shared/agent-view/code-text";
-import { extensionOf, fileName } from "@maxhq/shared/agent-view/viewer-files";
+import { extensionOf } from "@maxhq/shared/agent-view/viewer-files";
+import { nameOf } from "@maxhq/shared/folders/path";
 import type { AgentId } from "@maxhq/shared/bindings";
 
 import { readBytes } from "./load";
@@ -62,14 +63,14 @@ export const readText = (bytes: ArrayBuffer): Read => {
 export const binaryNote = (path: string): string =>
 	t(
 		"{{value1}} looks like a binary file, so it isn't shown as text. Open it in an editor with the Open in button above.",
-		{ value1: fileName(path) }
+		{ value1: nameOf(path) }
 	);
 
 /** What the pane says for a code file too big to show. */
 export const tooBigNote = (path: string, size: string): string =>
 	t(
 		"{{value1}} is {{size}}, too big to show here. Open it in an editor with the Open in button above.",
-		{ value1: fileName(path), size: size }
+		{ value1: nameOf(path), size: size }
 	);
 
 const tokenStyle = (token: Token) => ({
@@ -235,7 +236,7 @@ export const CodeLines = ({
 			<div
 				ref={scroller}
 				role="region"
-				aria-label={t("{{value1}}, read-only", { value1: fileName(path) })}
+				aria-label={t("{{value1}}, read-only", { value1: nameOf(path) })}
 				// Focus lets the keys scroll it.
 				tabIndex={0}
 				className="min-h-0 flex-1 overflow-auto bg-subpanel font-mono text-[12px] leading-5 outline-none"
@@ -303,7 +304,7 @@ export const CodeFile = ({
 		};
 	}, [url, size]);
 	if (failure) return <Empty>{failure}</Empty>;
-	if (!read) return <Empty>{t("Reading {{value1}}…", { value1: fileName(path) })}</Empty>;
+	if (!read) return <Empty>{t("Reading {{value1}}…", { value1: nameOf(path) })}</Empty>;
 	if (read.kind === "binary") return <Empty>{binaryNote(path)}</Empty>;
 	return <CodeLines agent={agent} path={path} lines={read.lines} bytes={read.bytes} />;
 };

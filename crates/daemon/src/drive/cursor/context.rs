@@ -115,8 +115,10 @@ fn unhex(text: &[u8]) -> Option<Vec<u8>> {
         return None;
     }
     let digit = |byte: u8| char::from(byte).to_digit(16);
-    text.chunks_exact(2)
-        .map(|pair| u8::try_from((digit(pair[0])? << 4) | digit(pair[1])?).ok())
+    text.as_chunks::<2>()
+        .0
+        .iter()
+        .map(|&[high, low]| u8::try_from((digit(high)? << 4) | digit(low)?).ok())
         .collect()
 }
 

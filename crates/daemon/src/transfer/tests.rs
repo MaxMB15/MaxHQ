@@ -5,13 +5,14 @@
 //! disk, and a fake container whose guest runs on a folder of its own.
 //! Paths cross the fake guest link as the container would see them.
 
-use std::fs::{self, Permissions};
-use std::os::unix::fs::{symlink, PermissionsExt};
+use std::fs;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 
+use maxhq_core::fs_ext::symlink;
 use maxhq_core::skills::disk::DiskFs;
 use maxhq_core::skills::store::FolderStore;
+use maxhq_os::fsmode;
 use maxhq_protocol::frame::{Frame, FrameDecoder, MAX_TRANSFER_CHUNK};
 use maxhq_protocol::ids::DeviceId;
 use maxhq_protocol::message::{EntryKind, IgnoredFile, PlaceFailure, SHOW_ANYWAY_SINCE};
@@ -26,7 +27,7 @@ use super::*;
 use crate::doctext::Extractor;
 use crate::guest::files::{self, Files, Out, WORK_DIR};
 use crate::session::holders::{AgentFiles, DeliverError};
-use crate::testing::TempDir;
+use crate::testing::{fake_program, TempDir};
 
 mod pull;
 
@@ -288,6 +289,14 @@ struct Container {
 impl Container {
     fn new(room: Room, quota: u64) -> Arc<Self> {
         let root = TempDir::new();
+        // The name comes after the last `/`, or `\` on Windows.
+        let reader = fake_program(
+            &root.path().join("bin"),
+            "read",
+            r#"#!/bin/sh
+printf 'text of %s' "${1##*[\\/]}"
+"#,
+        );
         let files = Files::with_extractor(
             files::Config {
                 attachments: root.path().join("attachments"),
@@ -295,7 +304,7 @@ impl Container {
                 room,
                 quota,
             },
-            Extractor::with("/bin/sh", &["-c", "printf 'text of %s' \"${1##*/}\"", "sh"]),
+            Extractor::with(reader, &[]),
         );
         Arc::new(Self {
             workspace: WorkspaceId::generate(),
@@ -324,12 +333,16 @@ impl Container {
             .unwrap_or_else(|| PathBuf::from(path))
     }
 
-    /// What a path on this device is in the container.
+    /// What a path on this device is in the container, whose paths take
+    /// `/` whatever this device uses.
     fn inside(&self, path: &str) -> String {
         let attachments = self.root.path().join("attachments");
         let attachments = attachments.to_str().unwrap();
         match path.strip_prefix(attachments) {
-            Some(rest) => format!("{ATTACHMENTS_DIR}{rest}"),
+            Some(rest) => format!(
+                "{ATTACHMENTS_DIR}{}",
+                maxhq_core::skills::path_text(Path::new(rest))
+            ),
             None => path.to_owned(),
         }
     }
@@ -577,7 +590,7 @@ impl Rig {
             device: local.device,
             workspace: container.workspace,
             cwd: PathBuf::from(format!("{WORK_DIR}/repo")),
-            attachments: Path::new(ATTACHMENTS_DIR).join(boxed_agent.to_string()),
+            attachments: PathBuf::from(format!("{ATTACHMENTS_DIR}/{boxed_agent}")),
             host: PlaceHost::Guest {
                 workspace: container.workspace,
             },
@@ -752,7 +765,7 @@ fn picture() -> Vec<u8> {
 }
 
 fn mode(path: &Path) -> u32 {
-    fs::metadata(path).unwrap().permissions().mode() & 0o777
+    fsmode::mode_of(&fs::metadata(path).unwrap()) & 0o777
 }
 
 #[tokio::test]
@@ -763,7 +776,7 @@ async fn an_upload_to_the_device_lands_in_staging() {
     fs::create_dir_all(folder.join("sub")).unwrap();
     fs::write(folder.join("a.txt"), b"hello").unwrap();
     fs::write(folder.join("sub/run.sh"), b"#!/bin/sh\n").unwrap();
-    fs::set_permissions(folder.join("sub/run.sh"), Permissions::from_mode(0o700)).unwrap();
+    fsmode::set_mode(&folder.join("sub/run.sh"), 0o700).unwrap();
     fs::write(folder.join(".DS_Store"), b"junk").unwrap();
 
     let mut upload = Upload::new(UploadTarget::Device, &folder);
@@ -778,8 +791,11 @@ async fn an_upload_to_the_device_lands_in_staging() {
         .join("notes");
     assert_eq!(attachment.path, landed.to_str().unwrap());
     assert_eq!(fs::read(landed.join("a.txt")).unwrap(), b"hello");
-    assert_eq!(mode(&landed.join("a.txt")), 0o644);
-    assert_eq!(mode(&landed.join("sub/run.sh")), 0o755);
+    // Windows keeps no mode bits to check.
+    if cfg!(unix) {
+        assert_eq!(mode(&landed.join("a.txt")), 0o644);
+        assert_eq!(mode(&landed.join("sub/run.sh")), 0o755);
+    }
     assert!(!landed.join(".DS_Store").exists());
     assert!(!rig
         .attachments()
@@ -1590,7 +1606,7 @@ async fn delivering_into_a_container_pushes_the_staged_copy() {
 
     // Another agent's message in the same container can't name it.
     let other = Place {
-        attachments: Path::new(ATTACHMENTS_DIR).join(AgentId::generate().to_string()),
+        attachments: PathBuf::from(format!("{ATTACHMENTS_DIR}/{}", AgentId::generate())),
         ..rig.boxed.clone()
     };
     assert!(matches!(
@@ -1775,7 +1791,8 @@ async fn a_guest_answers_a_begin_sent_again_after_its_job_ends() {
         .container
         .root
         .path()
-        .join("attachments/staged")
+        .join("attachments")
+        .join("staged")
         .join(transfer.to_string());
     assert_eq!(
         paths,
@@ -1930,7 +1947,7 @@ fn staged_hook(temp: &TempDir, path: &str) -> (PathBuf, PathBuf, PathBuf) {
     let hook = top.join(path);
     fs::create_dir_all(hook.parent().unwrap()).unwrap();
     fs::write(&hook, format!("#!/bin/sh\ntouch '{}'\n", marker.display())).unwrap();
-    fs::set_permissions(&hook, Permissions::from_mode(0o755)).unwrap();
+    fsmode::set_mode(&hook, 0o755).unwrap();
     (checkout, top, marker)
 }
 
@@ -2189,14 +2206,13 @@ impl Hearing {
 
 #[tokio::test]
 async fn a_deep_or_unreadable_leftover_doesnt_stop_a_quota_and_goes_when_removed() {
-    use std::os::unix::fs::PermissionsExt;
     let dir = TempDir::new();
     let root = dir.path().join("uploads");
     fs::create_dir(&root).unwrap();
     fs::write(root.join("kept"), [0; 10]).unwrap();
     let shut = root.join("shut");
     fs::create_dir(&shut).unwrap();
-    fs::set_permissions(&shut, fs::Permissions::from_mode(0o000)).unwrap();
+    fsmode::set_mode(&shut, 0o000).unwrap();
     let deep = root.join("deep");
     fs::create_dir(&deep).unwrap();
     let mut at = maxhq_transfer::beneath::Dir::open(&deep).unwrap();
@@ -2204,9 +2220,11 @@ async fn a_deep_or_unreadable_leftover_doesnt_stop_a_quota_and_goes_when_removed
         at.make_dir("d", 0o755).unwrap();
         at = at.dir(&["d".to_owned()]).unwrap();
     }
+    // Windows can't remove a folder this test still holds open.
+    drop(at);
 
     let checked = disk::check_quota(root.clone(), root.join("incoming"), 1, 11).await;
-    fs::set_permissions(&shut, fs::Permissions::from_mode(0o755)).unwrap();
+    fsmode::set_mode(&shut, 0o755).unwrap();
     assert!(checked.is_ok(), "{checked:?}");
 
     disk::remove(&deep).await;

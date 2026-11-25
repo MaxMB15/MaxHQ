@@ -380,7 +380,7 @@ async fn probe(
     if launch::program(&name, std::env::var_os("PATH").as_deref()).is_none() {
         return Err(format!("{name} isn't installed on this device"));
     }
-    let cwd = std::env::var_os("HOME").map_or_else(|| PathBuf::from("/"), PathBuf::from);
+    let cwd = maxhq_os::home::home_dir().unwrap_or_else(|| PathBuf::from("/"));
     let place = Place {
         device: command.agent.device,
         workspace: WorkspaceId::derive("acp-probe"),
@@ -479,5 +479,6 @@ fn refused(reason: impl Into<String>) -> ActionOutcome {
     }
 }
 
-#[cfg(test)]
+// The fake agents are sh scripts.
+#[cfg(all(test, unix))]
 mod tests;

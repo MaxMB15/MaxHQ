@@ -12,6 +12,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError, Weak};
 use std::time::{Duration, Instant, SystemTime};
 
+use maxhq_os::ipc::{self, LocalStream};
 use maxhq_protocol::frame::EncodeError;
 use maxhq_protocol::guest::{
     GuestToHost, HolderEvent, HostToGuest, TokenReply, TokenWant, GUEST_PROTOCOL_VERSION,
@@ -23,8 +24,6 @@ use maxhq_protocol::message::TunnelEnd;
 use maxhq_protocol::model::Vendor;
 use maxhq_protocol::timeline::TimelineItem;
 use thiserror::Error;
-use tokio::net::unix::OwnedReadHalf;
-use tokio::net::UnixStream;
 use tokio::sync::{mpsc, oneshot, watch, OwnedSemaphorePermit, Semaphore, SemaphorePermit};
 
 use super::wire::{self, Abort, Outbox, Read, ReadError, Reader, SendError, TokenRate};
@@ -740,7 +739,7 @@ async fn connect(
 ) -> Result<Attempt, String> {
     let config = &shared.config;
     let path = socket_path(&config.runtime, instance);
-    let stream = tokio::time::timeout(CONNECT_WAIT, UnixStream::connect(&path))
+    let stream = tokio::time::timeout(CONNECT_WAIT, LocalStream::connect(&path))
         .await
         .map_err(|_| "the proxy socket didn't answer".to_owned())?
         .map_err(|err| format!("couldn't connect to {}: {err}", path.display()))?;
@@ -891,7 +890,7 @@ async fn upgrade(
 async fn serve(
     shared: &Shared,
     link: &Link,
-    reader: &mut Reader<OwnedReadHalf>,
+    reader: &mut Reader<ipc::ReadHalf>,
     writer: &mut Abort<io::Result<()>>,
     mut refresh: tokio::sync::watch::Receiver<u64>,
 ) -> String {

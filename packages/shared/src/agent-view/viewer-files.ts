@@ -12,6 +12,7 @@
 // the viewer shows their text and never runs them.
 
 import { t } from "../i18n";
+import { nameOf } from "../folders/path";
 
 import { type AgentId, SHOW_ANYWAY_SINCE } from "../bindings";
 import type { ViewState } from "../view/replica";
@@ -104,18 +105,9 @@ const BY_EXTENSION: ReadonlyMap<string, ViewerKind> = new Map(
 /** Every extension the viewer opens, lowercase. */
 export const VIEWER_EXTENSIONS: readonly string[] = [...BY_EXTENSION.keys()];
 
-/** A file's name, the last part of its path. */
-export const fileName = (path: string): string => path.split(/[/\\]/).pop() || path;
-
-/** The folder a path's file is in, as the path gives it, or "" for a bare name. */
-export const folderOf = (path: string): string => {
-	const at = Math.max(path.lastIndexOf("/"), path.lastIndexOf("\\"));
-	return at < 0 ? "" : at === 0 ? path.slice(0, 1) : path.slice(0, at);
-};
-
 /** The lowercase extension at the end of a path's name, or "" when it has none. */
 export const extensionOf = (path: string): string => {
-	const name = fileName(path);
+	const name = nameOf(path);
 	const dot = name.lastIndexOf(".");
 	return dot > 0 ? name.slice(dot + 1).toLowerCase() : "";
 };

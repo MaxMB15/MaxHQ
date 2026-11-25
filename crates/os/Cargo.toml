@@ -1,0 +1,44 @@
+[package]
+name = "maxhq-os"
+description = "The operating system calls MaxHQ makes, behind one API for Unix and Windows"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[features]
+# Holds the display on under Linux through the desktop's screen saver and
+# logind, over D-Bus. The app turns it on. `maxd` leaves it off, so it never
+# links libdbus, which a container may not have.
+display = ["dep:dbus"]
+
+[dependencies]
+sha2.workspace = true
+tokio.workspace = true
+
+[target.'cfg(unix)'.dependencies]
+libc.workspace = true
+rustix = { workspace = true, features = ["fs"] }
+
+# Linux's holds log the failures no caller sees: a `systemd-inhibit` that
+# fails after it started, and a D-Bus service that took no hold.
+[target.'cfg(target_os = "linux")'.dependencies]
+dbus = { workspace = true, optional = true }
+tracing.workspace = true
+
+[target.'cfg(windows)'.dependencies]
+# On top of the workspace's: a process's command line and threads,
+# junctions, the job rights, the adapters' addresses, the boot count and
+# the computer's name.
+windows-sys = { workspace = true, features = [
+    "Wdk_System_Threading",
+    "Win32_NetworkManagement_Ndis",
+    "Win32_System_Diagnostics_ToolHelp",
+    "Win32_System_Ioctl",
+    "Win32_System_Registry",
+    "Win32_System_SystemInformation",
+    "Win32_System_SystemServices",
+] }
+
+[lints]
+workspace = true

@@ -7,11 +7,11 @@
 
 use std::fs;
 use std::io;
-use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 use maxhq_hold::RunAs;
+use maxhq_os::fsmode;
 use maxhq_protocol::guest::{HostToGuest, Placement};
 use maxhq_protocol::ids::{AgentId, AttachmentId, TransferId, WorkspaceId};
 use maxhq_protocol::message::PlaceFailure;
@@ -453,7 +453,7 @@ fn copy_across(
     owner: Option<&RunAs>,
 ) -> io::Result<()> {
     let mut source = from.read_file(name)?;
-    let executable = source.metadata()?.permissions().mode() & 0o111 != 0;
+    let executable = fsmode::mode_of(&source.metadata()?) & 0o111 != 0;
     let mut file = to.open_file(part, true)?;
     file.set_len(0)?;
     io::copy(&mut source, &mut file)?;

@@ -763,6 +763,7 @@ mod tests {
             workspace_host: None,
             build: None,
             target: None,
+            wsl: None,
         }
     }
 
@@ -982,6 +983,7 @@ mod tests {
             history_mib: 256,
             claude_setup_token: false,
             shell_integration: true,
+            windows_shell: Default::default(),
             read_other_agents: true,
             dispatcher_acts: true,
             chat_gap_minutes: 30,
@@ -1120,7 +1122,7 @@ mod tests {
 
     #[test]
     fn phones_are_named_by_the_phone_and_their_device() {
-        use crate::phones::{Phone, PhoneBook, PushKind};
+        use crate::phones::{Phone, PhoneBook, PushKind, PushService};
         let device = device("devbox").id;
         let id = PhoneId::derive("phone");
         let phone = Entity::Phone(Phone {
@@ -1131,12 +1133,23 @@ mod tests {
             push_public: "AAAAexample".into(),
             paired_at: crate::time::Timestamp(5),
             push: vec![PushKind::NeedsInput],
+            service: Some(PushService::Apns),
             everything: false,
         });
         assert_eq!(phone.key(), EntityKey::Phone { phone: id, device });
         let value = serde_json::to_value(&phone).unwrap();
         assert_eq!(value["entity"], json!("phone"));
-        assert_eq!(serde_json::from_value::<Entity>(value).unwrap(), phone);
+        assert_eq!(value["service"], json!("apns"));
+        assert_eq!(
+            serde_json::from_value::<Entity>(value.clone()).unwrap(),
+            phone
+        );
+        let mut before = value;
+        before.as_object_mut().unwrap().remove("service");
+        let Entity::Phone(old) = serde_json::from_value::<Entity>(before).unwrap() else {
+            panic!("not a phone");
+        };
+        assert_eq!(old.service, None, "a phone from before 61 has no service");
 
         let book = Entity::PhoneBook(PhoneBook {
             phone: id,

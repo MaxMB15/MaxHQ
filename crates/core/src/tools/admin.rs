@@ -324,6 +324,8 @@ fn setting(change: &DeviceSettingChange) -> Risk {
         | S::TestHosts { .. }
         | S::SkillLibrary { .. }
         | S::ShellIntegration { .. }
+        // It picks the program `!` commands and drawer shells run in.
+        | S::WindowsShell { .. }
         | S::ReadOtherAgents { .. }
         | S::ClaudeArtifacts { .. }
         // Its linked devices switch lets other devices use this one's models.
@@ -607,8 +609,8 @@ pub(super) fn input_schema(tool: Tool) -> Value {
                     "items": {
                         "type": "object",
                         "properties": {
-                            "field": {"type": "string", "enum": ["default_permission", "workspace_network", "workspace_pool", "auto_settle_days", "snooze_at_limit", "continue_claude_at_limit", "continue_codex_at_limit", "claude_effort", "codex_effort", "placement", "tool_updates", "keep_awake", "idle_release_minutes", "memory_items", "history_mib", "chat_gap_minutes", "shell_integration", "read_other_agents", "local_models", "skill_library"]},
-                            "value": {"description": "The new value: true or false for a switch, a whole number for days, minutes (0 for never), items or MiB, a mode for default_permission, a level or null for an effort, prefer or normal for placement, charger, always, working or off for keep_awake, a list of claude, codex or cursor for tool_updates, and for local_models an object with idle_unload_minutes (0 keeps a model loaded), kv_type (f16 or q8_0), context in tokens, fewer_tools, default_model ({server, model} or null) and linked_devices. Give only the fields to change; the rest keep their current values. On another device, give them all."},
+                            "field": {"type": "string", "enum": ["default_permission", "workspace_network", "workspace_pool", "auto_settle_days", "snooze_at_limit", "continue_claude_at_limit", "continue_codex_at_limit", "claude_effort", "codex_effort", "placement", "tool_updates", "keep_awake", "idle_release_minutes", "memory_items", "history_mib", "chat_gap_minutes", "shell_integration", "windows_shell", "read_other_agents", "local_models", "skill_library"]},
+                            "value": {"description": "The new value: true or false for a switch, a whole number for days, minutes (0 for never), items or MiB, a mode for default_permission, a level or null for an effort, prefer or normal for placement, charger, always, working or off for keep_awake, auto, git_bash, pwsh or power_shell for windows_shell, a list of claude, codex or cursor for tool_updates, and for local_models an object with idle_unload_minutes (0 keeps a model loaded), kv_type (f16 or q8_0), context in tokens, fewer_tools, default_model ({server, model} or null) and linked_devices. Give only the fields to change; the rest keep their current values. On another device, give them all."},
                         },
                         "required": ["field", "value"],
                     },

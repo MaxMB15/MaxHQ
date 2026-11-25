@@ -22,7 +22,7 @@ import {
 import { cn } from "@/lib/utils";
 
 import { useRow } from "@maxhq/shared/agent-view/context";
-import { baseName } from "@maxhq/shared/agent-view/format";
+import { nameOf } from "@maxhq/shared/folders/path";
 import { Spinner } from "./icons";
 import { t as translate, useI18n } from "@maxhq/shared/i18n";
 
@@ -40,6 +40,25 @@ const HELD_TITLE = {
 	},
 } as const;
 
+/** How many of the links a download left out its tooltip names. */
+const NAMED_LINKS = 10;
+
+/**
+ * What a download says of the links this machine couldn't make, such as
+ * on Windows without Developer Mode, or null when it made them all.
+ */
+const unmadeText = (links: readonly string[]): string | null => {
+	if (links.length === 0) return null;
+	const named = links.slice(0, NAMED_LINKS).join(", ");
+	return translate(
+		"Downloaded without {{count, number}} links this computer couldn't make: {{links}}",
+		{
+			count: links.length,
+			links: links.length > NAMED_LINKS ? `${named}, …` : named,
+		}
+	);
+};
+
 /**
  * The download button for a file a remote agent can see, as a path relative
  * to its folder or absolute inside it. Renders nothing for an agent on
@@ -47,7 +66,7 @@ const HELD_TITLE = {
  */
 export const DownloadButton = ({
 	path,
-	name = baseName(path),
+	name = nameOf(path),
 	className,
 }: {
 	path: string;
@@ -103,42 +122,57 @@ export const DownloadButton = ({
 		}
 		case "done": {
 			const { revealPath } = native;
+			const unmade = unmadeText(download.skippedLinks);
+			const title = unmade ? `${download.path}\n${unmade}` : download.path;
+			const warned = unmade ? "text-status-busy-text" : null;
+			const note = unmade ? (
+				<span role="status" className="sr-only">
+					{unmade}
+				</span>
+			) : null;
 			if (!revealPath) {
 				return (
-					<span
-						role="img"
-						aria-label={translate("Downloaded {{name}}", { name: name })}
-						title={download.path}
-						className={cn(
-							button,
-							"cursor-default text-status-ready-text hover:bg-transparent"
-						)}
-					>
-						<Check size={13} strokeWidth={2.2} aria-hidden />
-					</span>
+					<>
+						{note}
+						<span
+							role="img"
+							aria-label={translate("Downloaded {{name}}", { name: name })}
+							title={title}
+							className={cn(
+								button,
+								"cursor-default text-status-ready-text hover:bg-transparent",
+								warned
+							)}
+						>
+							<Check size={13} strokeWidth={2.2} aria-hidden />
+						</span>
+					</>
 				);
 			}
 			return (
-				<button
-					type="button"
-					aria-label={translate("Show {{name}} in Finder", { name: name })}
-					title={download.path}
-					onClick={() => {
-						const landed = download.path;
-						revealPath(landed).catch(() =>
-							failDownload(
-								agent,
-								path,
-								translate("Couldn't find {{baseName}} in Downloads.", {
-									baseName: baseName(landed),
-								})
-							)
-						);
-					}}
-					className={button}
-				>
-					<FolderOpen size={13} strokeWidth={1.9} aria-hidden />
-				</button>
+				<>
+					{note}
+					<button
+						type="button"
+						aria-label={translate("Show {{name}} in Finder", { name: name })}
+						title={title}
+						onClick={() => {
+							const landed = download.path;
+							revealPath(landed).catch(() =>
+								failDownload(
+									agent,
+									path,
+									translate("Couldn't find {{baseName}} in Downloads.", {
+										baseName: nameOf(landed),
+									})
+								)
+							);
+						}}
+						className={cn(button, warned)}
+					>
+						<FolderOpen size={13} strokeWidth={1.9} aria-hidden />
+					</button>
+				</>
 			);
 		}
 		case "failed":

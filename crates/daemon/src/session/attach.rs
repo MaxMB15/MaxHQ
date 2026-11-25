@@ -17,7 +17,10 @@
 use std::ffi::{OsStr, OsString};
 use std::fs;
 use std::io;
+#[cfg(unix)]
 use std::os::unix::ffi::{OsStrExt, OsStringExt};
+#[cfg(windows)]
+use std::os::windows::ffi::{OsStrExt, OsStringExt};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime};
 
@@ -254,19 +257,42 @@ impl Attachments {
 fn clean_file_name(name: &OsStr) -> OsString {
     match name.to_str() {
         Some(text) => attached::clean_name(text).into_owned().into(),
-        None => OsString::from_vec(
-            name.as_bytes()
-                .iter()
-                .map(|&byte| {
-                    if byte < 0x20 || byte == 0x7f {
-                        b' '
-                    } else {
-                        byte
-                    }
-                })
-                .collect(),
-        ),
+        None => clean_raw_name(name),
     }
+}
+
+/// A name that isn't text with each control byte made a space.
+#[cfg(unix)]
+fn clean_raw_name(name: &OsStr) -> OsString {
+    OsString::from_vec(
+        name.as_bytes()
+            .iter()
+            .map(|&byte| {
+                if byte < 0x20 || byte == 0x7f {
+                    b' '
+                } else {
+                    byte
+                }
+            })
+            .collect(),
+    )
+}
+
+/// A name that isn't text, which on Windows is one with a lone surrogate,
+/// with each control unit made a space.
+#[cfg(windows)]
+fn clean_raw_name(name: &OsStr) -> OsString {
+    let units: Vec<u16> = name
+        .encode_wide()
+        .map(|unit| {
+            if unit < 0x20 || unit == 0x7f {
+                u16::from(b' ')
+            } else {
+                unit
+            }
+        })
+        .collect();
+    OsString::from_wide(&units)
 }
 
 /// Copies a folder, skipping links inside it, within `budget` bytes.
@@ -358,7 +384,8 @@ pub(crate) fn mime_for(name: &str) -> Option<&'static str> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::testing::TempDir;
+    use crate::testing::{fake_program, TempDir};
+    use std::path::MAIN_SEPARATOR as SEP;
 
     fn store(dir: &TempDir) -> Attachments {
         Attachments::new(dir.path().join("attachments"))
@@ -386,6 +413,8 @@ mod tests {
         assert_eq!(store(&dir).find(id).unwrap(), staged);
     }
 
+    // Windows makes links only with Developer Mode or as an administrator.
+    #[cfg(unix)]
     #[test]
     fn folders_are_copied_whole_without_their_links() {
         let dir = TempDir::new();
@@ -451,7 +480,7 @@ mod tests {
         let staged = store.stage(id, &pasted).unwrap();
         assert_eq!(staged.name, "evil.pdf");
         assert_eq!(staged.kind, AttachmentKind::Pdf);
-        assert!(staged.path.contains("/staged/"));
+        assert!(staged.path.contains(&format!("{SEP}staged{SEP}")));
 
         let agent = store.agent_dir("agent-1");
         let moved = store.take(&staged, &agent).unwrap();
@@ -472,9 +501,16 @@ mod tests {
         };
         let staged = store.stage(AttachmentId::generate(), &pasted).unwrap();
         assert_eq!(staged.name, "two lines .txt");
-        assert!(staged.path.ends_with("/two lines .txt"), "{}", staged.path);
+        let name = format!("{SEP}two lines .txt");
+        assert!(staged.path.ends_with(&name), "{}", staged.path);
 
-        let source = dir.path().join("a\u{7f}b\r.png");
+        // Windows file names can't hold a `\r`, so there it's DEL alone.
+        let name = if cfg!(windows) {
+            "a\u{7f}b .png"
+        } else {
+            "a\u{7f}b\r.png"
+        };
+        let source = dir.path().join(name);
         fs::write(&source, b"png bytes").unwrap();
         let path = AttachmentSource::Path {
             path: source.to_string_lossy().into_owned(),
@@ -482,18 +518,36 @@ mod tests {
         let staged = store.stage(AttachmentId::generate(), &path).unwrap();
         assert_eq!(staged.name, "a b .png");
         assert_eq!(fs::read(&staged.path).unwrap(), b"png bytes");
+    }
 
+    #[cfg(unix)]
+    #[test]
+    fn a_name_that_isnt_text_is_cleaned_byte_by_byte() {
         assert_eq!(
             clean_file_name(OsStr::from_bytes(b"\xff\n.bin")),
             OsStr::from_bytes(b"\xff .bin")
         );
     }
 
+    #[cfg(windows)]
+    #[test]
+    fn a_name_that_isnt_text_is_cleaned_unit_by_unit() {
+        let name = |units: &[u16]| OsString::from_wide(units);
+        assert_eq!(
+            clean_file_name(&name(&[0xd800, 0x0a, 0x2e])),
+            name(&[0xd800, 0x20, 0x2e])
+        );
+    }
+
     #[test]
     fn a_documents_text_is_read_as_its_staged_and_moves_with_it() {
         let dir = TempDir::new();
-        let store =
-            store(&dir).with_extractor(Extractor::with("/bin/sh", &["-c", "printf read", "sh"]));
+        let read = fake_program(
+            &dir.path().join("bin"),
+            "extract",
+            "#!/bin/sh\nprintf read\n",
+        );
+        let store = store(&dir).with_extractor(Extractor::with(read, &[]));
         let source = dir.path().join("notes.docx");
         fs::write(&source, b"words").unwrap();
         let id = AttachmentId::generate();

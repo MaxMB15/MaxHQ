@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- SPDX-License-Identifier: MIT -->
+<!-- Copyright (c) 2026 Max Boksem -->
+<!-- The namespace comes from build.gradle, as the Android Gradle Plugin asks. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android" />

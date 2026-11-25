@@ -27,6 +27,7 @@ pub(crate) fn hub_of(name: &str) -> Hub {
             workspace_host: None,
             build: None,
             target: None,
+            wsl: None,
         },
         HashMap::new(),
     )

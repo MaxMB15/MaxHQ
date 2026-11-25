@@ -6,13 +6,17 @@
 // signing comes from the git-ignored ios.local.json (see scripts/ios-config.ts).
 // The version is MaxHQ's one version, from the root Cargo.toml, and the build
 // number is native-build.json's or the release workflow's (see
-// scripts/native.ts).
+// scripts/native.ts), on iOS and Android alike. scripts/android-config.ts
+// fits the Android project to the Rust core's build, and
+// scripts/push-android.ts leaves FCM to the push module's service.
 
 import type { ExpoConfig } from "expo/config";
 
 import { repoVersion } from "../../scripts/release/version.mjs";
+import { googleServicesFile, withAndroidConfig } from "./scripts/android-config.ts";
 import { DEVICE_ENV, iosConfig, readIosLocal, resolveVariant } from "./scripts/ios-config.ts";
 import { BUILD_NUMBER_ENV, resolveBuildNumber } from "./scripts/native.ts";
+import { withAndroidPush } from "./scripts/push-android.ts";
 import { withPushExtension } from "./scripts/push-extension.ts";
 import { releaseExtra } from "./scripts/release-config.ts";
 import nativeBuild from "./native-build.json";
@@ -22,6 +26,23 @@ const ios = iosConfig(variant, readIosLocal(__dirname), process.env[DEVICE_ENV] 
 
 const version = repoVersion();
 const buildNumber = String(resolveBuildNumber(nativeBuild, process.env[BUILD_NUMBER_ENV]));
+
+// Android push needs Firebase's file, which stays out of git until the owner
+// adds a Firebase project. Prebuild copies it in and applies Google's Gradle
+// plugin, which reads it.
+const googleServices = googleServicesFile(__dirname);
+const androidPush = googleServices !== undefined;
+
+// An Android-only build leaves iOS's entitlements alone. The icon and its
+// tint are Android's: the status bar shows the icon's shape in white.
+const notifications: [string, unknown] = [
+	"expo-notifications",
+	{
+		icon: "./assets/notification-icon.png",
+		color: "#4692F6",
+		enableRemoteNotifications: ios.push,
+	},
+];
 
 const config: ExpoConfig = {
 	name: ios.name,
@@ -42,6 +63,7 @@ const config: ExpoConfig = {
 	},
 	android: {
 		package: ios.bundleIdentifier,
+		versionCode: Number(buildNumber),
 		// The phone's data holds files from your devices, so it stays out of
 		// backups, as the core keeps it out of them on iOS.
 		allowBackup: false,
@@ -49,6 +71,7 @@ const config: ExpoConfig = {
 			foregroundImage: "./assets/adaptive-icon.png",
 			backgroundColor: "#14181F",
 		},
+		...(googleServices ? { googleServicesFile: googleServices } : {}),
 	},
 	plugins: [
 		[
@@ -72,25 +95,32 @@ const config: ExpoConfig = {
 			},
 		],
 		"expo-document-picker",
-		// Push needs a signed build, which sets its own aps-environment.
-		...(ios.push ? ["expo-notifications"] : []),
+		// Push needs a signed build on iOS, which sets its own aps-environment,
+		// and Firebase's file on Android.
+		...(ios.push || androidPush ? [notifications] : []),
 	],
 	extra: {
 		appVariant: variant,
 		push: ios.push,
+		fcm: androidPush,
 		// Left out when unset, since the manifest turns null into {}.
 		...(ios.appGroup ? { appGroup: ios.appGroup } : {}),
 		...releaseExtra(process.env),
 	},
 };
 
-// A signed build gets the extension that shows what each push says.
-export default ios.push && ios.appleTeamId
-	? withPushExtension(config, {
-			bundleIdentifier: `${ios.bundleIdentifier}.push`,
-			teamId: ios.appleTeamId,
-			keychainGroup: `$(AppIdentifierPrefix)${ios.bundleIdentifier}`,
-			version,
-			buildNumber,
-		})
-	: config;
+// A signed build gets the extension that shows what each push says. The
+// Android changes only reach the Android project.
+export default withAndroidPush(
+	withAndroidConfig(
+		ios.push && ios.appleTeamId
+			? withPushExtension(config, {
+					bundleIdentifier: `${ios.bundleIdentifier}.push`,
+					teamId: ios.appleTeamId,
+					keychainGroup: `$(AppIdentifierPrefix)${ios.bundleIdentifier}`,
+					version,
+					buildNumber,
+				})
+			: config
+	)
+);

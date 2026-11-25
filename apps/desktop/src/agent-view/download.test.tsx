@@ -73,7 +73,7 @@ const downloads = () => {
 };
 
 const LANDED = "/Users/max/Downloads/MaxHQ/app.ts";
-const OK: DownloadResult = { status: "ok", data: { path: LANDED } };
+const OK: DownloadResult = { status: "ok", data: { path: LANDED, skipped_links: [] } };
 
 const show = (
 	item: TimelineItem,
@@ -197,6 +197,39 @@ describe("downloads", () => {
 		expect(screen.getByRole("img", { name: "Downloaded app.ts" })).toHaveAttribute(
 			"title",
 			LANDED
+		);
+	});
+
+	it("name the links this computer couldn't make", async () => {
+		const transfers = downloads();
+		const native = { ...browserNative, revealPath: vi.fn(async () => {}) };
+		show(read(), { source: transfers.source, native });
+		fireEvent.click(screen.getByRole("button", { name: "Download app.ts" }));
+		await transfers.finish({
+			status: "ok",
+			data: { path: LANDED, skipped_links: ["docs/latest", "bin/run"] },
+		});
+		const said = "Downloaded without 2 links this computer couldn't make: docs/latest, bin/run";
+		expect(screen.getByRole("status")).toHaveTextContent(said);
+		const reveal = screen.getByRole("button", { name: "Show app.ts in Finder" });
+		expect(reveal).toHaveAttribute("title", `${LANDED}\n${said}`);
+		expect(reveal).toHaveClass("text-status-busy-text");
+	});
+
+	it.each([
+		[["latest"], "Downloaded without 1 link this computer couldn't make: latest"],
+		[
+			Array.from({ length: 12 }, (_, at) => `l${at}`),
+			"Downloaded without 12 links this computer couldn't make: l0, l1, l2, l3, l4, l5, l6, l7, l8, l9, …",
+		],
+	])("name one link, and only the first ten of many", async (skipped_links, said) => {
+		const transfers = downloads();
+		show(read(), { source: transfers.source });
+		fireEvent.click(screen.getByRole("button", { name: "Download app.ts" }));
+		await transfers.finish({ status: "ok", data: { path: LANDED, skipped_links } });
+		expect(screen.getByRole("status")).toHaveTextContent(said);
+		expect(screen.getByRole("img", { name: "Downloaded app.ts" })).toHaveClass(
+			"text-status-busy-text"
 		);
 	});
 

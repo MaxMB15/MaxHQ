@@ -1,8 +1,6 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026 Max Boksem
 
-use std::os::unix::fs::symlink;
-
 use super::*;
 use crate::testing::TempDir;
 
@@ -13,9 +11,10 @@ fn write(path: &Path, text: &str) {
 
 fn link(path: &Path, target: &str) {
     fs::create_dir_all(path.parent().expect("a link has a folder")).expect("the folder is made");
-    symlink(target, path).expect("the link is made");
+    maxhq_core::fs_ext::symlink(Path::new(target), path).expect("the link is made");
 }
 
+#[cfg(unix)]
 fn pipe(path: &Path) {
     let made = std::process::Command::new("mkfifo")
         .arg(path)
@@ -26,7 +25,7 @@ fn pipe(path: &Path) {
 
 /// A folder with a repository in it, made by hand so no git runs here.
 fn repo(dir: &TempDir) -> PathBuf {
-    let root = fs::canonicalize(dir.path())
+    let root = maxhq_core::fs_ext::canonicalize(dir.path())
         .expect("it exists")
         .join("repo");
     fs::create_dir_all(root.join(".git")).expect("the folder is made");
@@ -130,7 +129,8 @@ fn a_link_in_a_walked_folder_counts_by_its_text_and_isnt_followed() {
     let first = print(&scanned(&root));
     write(&root.join("big/secret"), "two");
     assert_eq!(first, print(&scanned(&root)), "the link stays unfollowed");
-    fs::remove_file(root.join(".claude/hooks/out")).expect("it goes");
+    // A link to a folder is a folder's own kind of link on Windows.
+    fs_ext::remove_link(&root.join(".claude/hooks/out")).expect("it goes");
     link(&root.join(".claude/hooks/out"), "../../big/secret");
     assert_ne!(first, print(&scanned(&root)));
 }
@@ -176,13 +176,16 @@ fn nothing_under_claude_worktrees_is_read() {
     write(&root.join(".claude/settings.json"), "x");
     let first = scanned(&root);
     write(&root.join(".claude/worktrees/x/.claude/settings.json"), "a");
-    // A pipe would hang a read here.
+    // A pipe would hang a read here. Windows makes none at a path.
+    #[cfg(unix)]
     pipe(&root.join(".claude/worktrees/stuck"));
     let second = scanned(&root);
     assert_eq!(first.files, second.files);
     assert!(!second.failed);
 }
 
+// Windows makes no pipe at a path in a folder.
+#[cfg(unix)]
 #[test]
 fn a_pipe_counts_against_the_folder_rather_than_hanging_the_start() {
     let dir = TempDir::new();
@@ -291,7 +294,7 @@ fn a_subfolder_also_counts_the_levels_up_to_the_checkouts_root() {
 #[test]
 fn outside_git_the_key_is_the_folder_and_your_own_settings_dont_count() {
     let dir = TempDir::new();
-    let base = fs::canonicalize(dir.path()).expect("it exists");
+    let base = maxhq_core::fs_ext::canonicalize(dir.path()).expect("it exists");
     let home = base.join("home");
     let cwd = home.join("work");
     write(&home.join(".claude/settings.json"), r#"{"yours":1}"#);
@@ -346,7 +349,7 @@ fn a_file_above_the_work_folder_is_read_but_a_link_up_to_it_fails() {
     let root = repo(&dir);
     let above = root.parent().expect("it has one");
     write(&above.join(".mcp.json"), "above");
-    let work = fs::canonicalize(&root).expect("it's there");
+    let work = maxhq_core::fs_ext::canonicalize(&root).expect("it's there");
     let found = scan(&root, None, &[], Some(&work));
     assert!(!found.failed);
     assert!(names(&found).contains(&ABOVE));

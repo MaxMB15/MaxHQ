@@ -243,6 +243,53 @@ export const LOGIN_HINT: Record<LoginPage, string> = {
 	},
 };
 
+/**
+ * The Firebase key's steps, for pushes to Android phones. It sits on the
+ * Phones tab beside the APNs key and isn't a login page of its own, so
+ * the logins each app lists stay as they are.
+ */
+export const FCM_STEPS: LoginSteps & { readonly hint: string } = {
+	get title() {
+		return t("Android pushes");
+	},
+	get hint() {
+		return t("The Firebase key each device signs its pushes to Android phones with");
+	},
+	get before() {
+		return [
+			t(
+				"Each device that runs agents pushes to your Android phones on its own, through Firebase Cloud Messaging. It signs in to Google with a service account key from the Firebase project the MaxHQ Android app is built with."
+			),
+		];
+	},
+	get steps() {
+		return [
+			t(
+				"Open `https://console.firebase.google.com`, signed in to the Google account that owns the Firebase project the MaxHQ Android app is built with, and open that project."
+			),
+			t(
+				"Click the gear beside Project Overview, choose Project settings, and open the Service accounts tab."
+			),
+			t(
+				"Click Generate new private key, then Generate key. The browser saves a JSON file named like `<project>-firebase-adminsdk-<id>.json`. Firebase shows the key only this once."
+			),
+			t(
+				"In MaxHQ, choose the JSON file and tick the devices that push to phones. MaxHQ reads it in its Rust side, never in the webview, sends the project ID, the service account's email and its private key to each ticked device's `maxd`, and offers to move the downloaded file to the Trash. The Mac keeps no copy."
+			),
+		];
+	},
+	get after() {
+		return [
+			t(
+				"Each device keeps the key in its secrets folder, 0600, and never sends it back or logs it. What a push says is sealed to the phone's own key, so Google can't read it."
+			),
+			t(
+				"One key works for every device and every Android phone. A device holds one Firebase key, so sending another replaces it. Forget deletes it, and that device stops pushing to Android phones. To revoke the key itself, delete it under the service account's Keys in the Google Cloud console."
+			),
+		];
+	},
+};
+
 // A whole web address, without a placeholder to fill in.
 const PAGE = /^https:\/\/[^\s<>]+$/;
 

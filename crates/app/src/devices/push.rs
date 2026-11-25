@@ -139,7 +139,10 @@ impl<L: LinkControl> Core<L> {
     }
 
     /// Gives the device on link `id` the token, apart, so the reports
-    /// keep coming.
+    /// keep coming. A `maxd` from before
+    /// [`maxhq_protocol::message::FCM_SINCE`] would refuse an
+    /// Android phone's token, so it doesn't get one, and the phone shows it
+    /// as needing an update from its protocol.
     fn give_token(&self, id: LinkId) {
         let token = lock(&self.push.state).token.clone();
         let (Some(push), Some(link)) = (token, self.link(id)) else {
@@ -149,6 +152,10 @@ impl<L: LinkControl> Core<L> {
             key: IdempotencyKey::generate(),
             push,
         };
+        if !self.view.read(|merge| reads(merge, id, &action)) {
+            tracing::info!(%id, "a device's maxd is too old for this phone's pushes");
+            return;
+        }
         self.runtime.spawn(async move {
             match link.act(action).await {
                 Ok(ActionOutcome::Done) => {}
@@ -195,6 +202,14 @@ async fn presence_loop<L: LinkControl>(core: Weak<Core<L>>, changed: Arc<Notify>
     }
 }
 
+/// Whether the device on link `id` reads `action`, from its last hello.
+fn reads(merge: &Merge, id: LinkId, action: &ClientMessage) -> bool {
+    matches!(
+        merge.store().get(&EntityKey::DeviceLink(id)),
+        Some(Entity::DeviceLink(link)) if action.reaches(link.protocol)
+    )
+}
+
 /// Whether link `id` is up to a device that takes phones, from its last
 /// hello.
 fn takes_phones(merge: &Merge, id: LinkId) -> bool {
@@ -214,7 +229,8 @@ mod tests {
     use maxhq_protocol::ids::AgentId;
     use maxhq_protocol::link::LinkState;
     use maxhq_protocol::message::Capabilities;
-    use maxhq_protocol::phones::{PushEnvironment, PushKind, PushToken};
+    use maxhq_protocol::message::FCM_SINCE;
+    use maxhq_protocol::phones::{PushEnvironment, PushKind, PushService, PushToken};
     use maxhq_protocol::secret::Secret;
     use maxhq_protocol::ClientMessage;
 
@@ -230,12 +246,35 @@ mod tests {
             topic: "com.example.maxhq".into(),
             environment: PushEnvironment::Sandbox,
             kinds,
+            service: PushService::Apns,
+        }
+    }
+
+    /// An Android phone's token, through FCM.
+    fn fcm_token() -> PushToken {
+        PushToken {
+            token: Secret::new("test-not-a-real:fcm-token".into()),
+            topic: "com.example.maxhq".into(),
+            environment: PushEnvironment::Production,
+            kinds: vec![PushKind::NeedsInput],
+            service: PushService::Fcm,
         }
     }
 
     /// Has `spec`'s link report `state`, from a `maxd` that takes phones
     /// when `phones` says so.
     fn report(h: &Harness, spec: &LinkSpec, state: LinkState, phones: bool) {
+        report_at(h, spec, state, phones, None);
+    }
+
+    /// [`report`], from a `maxd` at `protocol` when it says.
+    fn report_at(
+        h: &Harness,
+        spec: &LinkSpec,
+        state: LinkState,
+        phones: bool,
+        protocol: Option<u32>,
+    ) {
         let LinkEvent::Link(mut link) = link_state(spec, state) else {
             unreachable!("link_state reports a link");
         };
@@ -243,6 +282,7 @@ mod tests {
             phones,
             ..Capabilities::default()
         });
+        link.protocol = protocol;
         h.report(spec.id, LinkEvent::Link(link));
     }
 
@@ -313,6 +353,54 @@ mod tests {
         let given = sent(&h);
         assert_eq!(given.len(), 1);
         assert_eq!((given[0].0, kinds_of(&given[0].1)), (a.id, Some(kinds)));
+    }
+
+    #[test]
+    fn an_android_phones_token_goes_only_to_a_maxd_that_knows_fcm() {
+        let registry = Registry::in_memory().unwrap();
+        let old = registry.add("dev@devbox").unwrap();
+        let new = registry.add("dev@ws-alpha").unwrap();
+        let unknown = registry.add("dev@ws-bravo").unwrap();
+        let h = harness(registry, None);
+        for spec in [&old, &new, &unknown] {
+            h.fake.record().up.insert(spec.id);
+        }
+        report_at(&h, &old, connected(), true, Some(FCM_SINCE - 1));
+        report_at(&h, &new, connected(), true, Some(FCM_SINCE));
+        report_at(&h, &unknown, connected(), true, None);
+
+        // An iPhone's token goes to every one.
+        h.devices.set_push_token(token(vec![PushKind::NeedsInput]));
+        wait_until("the iPhone's token never went", || {
+            h.fake.record().calls.len() == 3
+        });
+        sent(&h);
+
+        // An Android phone's skips the one from before FCM, even when it
+        // comes back.
+        h.devices.set_push_token(fcm_token());
+        wait_until("the Android phone's token never went", || {
+            h.fake.record().calls.len() == 2
+        });
+        let mut given: Vec<_> = sent(&h).into_iter().map(|(id, _)| id).collect();
+        given.sort();
+        let mut want = vec![new.id, unknown.id];
+        want.sort();
+        assert_eq!(given, want);
+        report_at(&h, &old, unreachable(), true, Some(FCM_SINCE - 1));
+        report_at(&h, &old, connected(), true, Some(FCM_SINCE - 1));
+        std::thread::sleep(Duration::from_millis(100));
+        assert!(sent(&h).is_empty());
+
+        // Once it's updated, it gets the token as it comes up.
+        report_at(&h, &old, unreachable(), true, Some(FCM_SINCE - 1));
+        report_at(&h, &old, connected(), true, Some(FCM_SINCE));
+        wait_until("the updated device never got the token", || {
+            !h.fake.record().calls.is_empty()
+        });
+        let given = sent(&h);
+        assert_eq!(given.len(), 1);
+        assert_eq!(given[0].0, old.id);
     }
 
     #[test]

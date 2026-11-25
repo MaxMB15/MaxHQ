@@ -35,7 +35,7 @@ use crate::model::{
 };
 use crate::notes::{NoteId, NoteVersion, NoteVersionInfo, VersionHash};
 use crate::notices::{NoticeCall, NoticePage};
-use crate::phones::{PhoneBookEntry, PhoneMac, PushToken};
+use crate::phones::{PhoneBookEntry, PhoneMac, PushService, PushToken};
 use crate::processes::{ProcessList, ProcessSignal};
 use crate::pulls::{
     ChecksState, PullAction, PullCheck, PullComment, PullDetail, PullFile, PullListState,
@@ -273,8 +273,9 @@ pub struct Capabilities {
     #[serde(default)]
     pub skills: bool,
     /// Pairs phones and pushes to them, publishes `Phone` and `PhoneBook`,
-    /// and takes the phone requests, first frames and `SetApnsKey`. A
-    /// `maxd` from before it leaves this out, and reads as false.
+    /// and takes the phone requests, first frames, `SetApnsKey` and, since
+    /// protocol 61, `SetFcmKey`. A `maxd` from before it leaves this out,
+    /// and reads as false.
     #[serde(default)]
     pub phones: bool,
     /// Takes `SkillsTakeLibrary` and `SkillSourcePush`, and says which of
@@ -1943,6 +1944,21 @@ pub enum ClientMessage {
         /// The `.p8` file's contents, as PEM.
         private_key: Secret,
     },
+    /// Gives the device the Firebase service account it pushes to Android
+    /// phones with. The device keeps the key and never sends it back.
+    /// Since protocol 61.
+    SetFcmKey {
+        /// Makes a resend after a dropped connection safe.
+        key: IdempotencyKey,
+        /// The Firebase project the account belongs to, which names the
+        /// FCM endpoint.
+        project_id: String,
+        /// The service account's email, which signs in to Google.
+        client_email: String,
+        /// The account's RSA key, as the PKCS #8 PEM in the JSON file's
+        /// `private_key`.
+        private_key: Secret,
+    },
     /// Takes the library over from the device that held it, with its
     /// sources under the same IDs. This device clones each git source
     /// itself and rebuilds the personal source from its skills' trees,
@@ -2402,6 +2418,8 @@ impl ClientMessage {
             Self::UseResetCredit { .. } => RESET_CREDITS_SINCE,
             Self::ActOnChat { .. } => DISPATCHER_CHATS_SINCE,
             Self::ModelAction { .. } => LOCAL_MODELS_SINCE,
+            Self::SetFcmKey { .. } => FCM_SINCE,
+            Self::SetPushToken { push, .. } if push.service == PushService::Fcm => FCM_SINCE,
             _ => OLDEST_PROTOCOL_VERSION,
         }
     }
@@ -2560,6 +2578,7 @@ impl ClientMessage {
             | Self::SetPhoneEverything { key, .. }
             | Self::SetPushToken { key, .. }
             | Self::SetApnsKey { key, .. }
+            | Self::SetFcmKey { key, .. }
             | Self::SkillsTakeLibrary { key, .. }
             | Self::SkillSourcePush { key, .. }
             | Self::AskDispatcher { key, .. }
@@ -3109,6 +3128,25 @@ pub const TYPED_BLOCKS_SINCE: u32 = 60;
 /// older one drops a frame of a kind it doesn't know, so a client sends
 /// the line as plain input there. Since protocol 60.
 pub const SECRET_INPUT_SINCE: u32 = 60;
+
+/// The protocol version whose `maxd` first pushes to Android phones
+/// through Firebase Cloud Messaging: it takes [`ClientMessage::SetFcmKey`]
+/// and a [`ClientMessage::SetPushToken`] whose service is
+/// [`PushService::Fcm`]. An older one knows APNs only, so a client doesn't
+/// send it either. Since protocol 61.
+pub const FCM_SINCE: u32 = 61;
+
+/// The protocol version whose `maxd` first keeps the shell a Windows device
+/// starts for `!` commands and the terminal drawer,
+/// [`DeviceSettingChange::WindowsShell`]. An older one picks it on its own,
+/// so the app hides the choice. Since protocol 62.
+pub const WINDOWS_SHELL_SINCE: u32 = 62;
+
+/// The protocol version whose `maxd` on Windows first lists its WSL
+/// distros, [`crate::model::Device::wsl`], and carries a link into one
+/// with `maxd proxy --wsl <distro>`. An older one lists none, so the app
+/// offers no distro of it. Since protocol 63.
+pub const WSL_SINCE: u32 = 63;
 
 /// When [`ClientMessage::TakeOver`] stops the terminal's CLI.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, Type, JsonSchema)]
@@ -4670,6 +4708,7 @@ mod tests {
                         history_mib: 256,
                         claude_setup_token: false,
                         shell_integration: true,
+                        windows_shell: Default::default(),
                         read_other_agents: true,
                         dispatcher_acts: true,
                         chat_gap_minutes: 30,
@@ -5885,6 +5924,16 @@ mod tests {
         );
         assert_eq!(shells.since(), SHELL_MARKS_SINCE);
         const { assert!(SHELL_MARKS_SINCE <= crate::PROTOCOL_VERSION) };
+        let windows = update(vec![DeviceSettingChange::WindowsShell {
+            value: crate::model::WindowsShell::Pwsh,
+        }]);
+        assert_eq!(
+            round_trip(&windows)["changes"][0],
+            json!({ "field": "windows_shell", "value": "pwsh" })
+        );
+        assert_eq!(windows.since(), WINDOWS_SHELL_SINCE);
+        assert!(!windows.reaches(Some(WINDOWS_SHELL_SINCE - 1)));
+        const { assert!(WINDOWS_SHELL_SINCE <= crate::PROTOCOL_VERSION) };
         let reads = update(vec![DeviceSettingChange::ReadOtherAgents { value: false }]);
         assert_eq!(
             round_trip(&reads)["changes"][0],
@@ -5921,6 +5970,7 @@ mod tests {
             history_mib: 256,
             claude_setup_token: false,
             shell_integration: true,
+            windows_shell: Default::default(),
             read_other_agents: true,
             dispatcher_acts: true,
             chat_gap_minutes: 30,
@@ -5957,6 +6007,36 @@ mod tests {
             .into_iter()
             .for_each(|one| whole.change(one));
         assert_eq!(whole, new);
+    }
+
+    #[test]
+    fn fcm_messages_reach_only_a_maxd_that_knows_fcm() {
+        use crate::phones::{PushEnvironment, PushKind};
+        let token = |service| ClientMessage::SetPushToken {
+            key: key(),
+            push: PushToken {
+                token: Secret::new("test-not-a-real-token".into()),
+                topic: "com.example.maxhq".into(),
+                environment: PushEnvironment::Production,
+                kinds: vec![PushKind::NeedsInput],
+                service,
+            },
+        };
+        let apns = token(PushService::Apns);
+        assert!(apns.reaches(Some(OLDEST_PROTOCOL_VERSION)));
+        let fcm = token(PushService::Fcm);
+        assert!(!fcm.reaches(Some(FCM_SINCE - 1)));
+        assert!(fcm.reaches(Some(FCM_SINCE)));
+        assert!(fcm.reaches(None), "a peer not known yet gets it");
+        let set = ClientMessage::SetFcmKey {
+            key: key(),
+            project_id: "<PROJECT_ID>".into(),
+            client_email: "pusher@example.invalid".into(),
+            private_key: Secret::new("test-not-a-real-key".into()),
+        };
+        assert!(!set.reaches(Some(FCM_SINCE - 1)));
+        assert!(set.reaches(Some(FCM_SINCE)));
+        assert!(set.action_key().is_some());
     }
 
     #[test]
@@ -6041,6 +6121,7 @@ mod tests {
                         topic: "com.example.maxhq".into(),
                         environment: PushEnvironment::Production,
                         kinds: vec![PushKind::NeedsInput],
+                        service: PushService::Apns,
                     },
                 },
                 "set_push_token",
@@ -6059,6 +6140,15 @@ mod tests {
                     private_key: Secret::new("test-not-a-real-key".into()),
                 },
                 "set_apns_key",
+            ),
+            (
+                ClientMessage::SetFcmKey {
+                    key: key(),
+                    project_id: "<PROJECT_ID>".into(),
+                    client_email: "pusher@example.invalid".into(),
+                    private_key: Secret::new("test-not-a-real-key".into()),
+                },
+                "set_fcm_key",
             ),
         ] {
             let printed = format!("{message:?}");

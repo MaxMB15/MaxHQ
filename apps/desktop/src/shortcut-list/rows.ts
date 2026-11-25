@@ -10,7 +10,15 @@
 import { type BusySend, DEFAULT_BUSY_SEND } from "@maxhq/shared/composer/send";
 import { t } from "@maxhq/shared/i18n";
 
-import { keyHint, SHORTCUTS, type Shortcut, terminalFind } from "@/layout/shortcuts";
+import {
+	keyHint,
+	type KeyName,
+	type Mods,
+	plainHint as plain,
+	SHORTCUTS,
+	type Shortcut,
+	terminalFind,
+} from "@/layout/shortcuts";
 import { onMac } from "@/native/platform";
 
 /** The groups, in the order the list shows them. */
@@ -51,43 +59,33 @@ type Line = {
 	readonly projectsOnly?: boolean;
 } & ({ readonly id: Id } | { readonly keys: readonly string[]; readonly anywhere?: Shortcut });
 
-// A key on its own, as a Mac writes it and as other systems do.
-type Plain = { readonly mac: string; readonly other: string };
-type Mods = { readonly shift?: boolean; readonly alt?: boolean };
-
-const ENTER: Plain = { mac: "⏎", other: "Enter" };
-const UP: Plain = {
+const ENTER: KeyName = { mac: "⏎", other: "Enter" };
+const UP: KeyName = {
 	mac: "↑",
 	get other() {
 		return t("Up");
 	},
 };
-const DOWN: Plain = {
+const DOWN: KeyName = {
 	mac: "↓",
 	get other() {
 		return t("Down");
 	},
 };
-const ESCAPE: Plain = { mac: "Esc", other: "Esc" };
-
-const plain = (key: Plain, mods: Mods = {}): string =>
-	onMac()
-		? `${mods.alt ? "⌥" : ""}${mods.shift ? "⇧" : ""}${key.mac}`
-		: `${mods.alt ? "Alt+" : ""}${mods.shift ? "Shift+" : ""}${key.other}`;
+const ESCAPE: KeyName = { mac: "Esc", other: "Esc" };
 
 // Command, or Control off a Mac, with a key that has no letter.
-const command = (key: Plain, mods: Mods = {}): string =>
+const command = (key: KeyName, mods: Mods = {}): string =>
 	keyHint({ label: onMac() ? key.mac : key.other, code: "", ...mods });
 
 const NEW_AGENT: Shortcut = { label: "N", code: "KeyN" };
-const SETTINGS: Shortcut = { label: ",", code: "Comma" };
 const ATTACH: Shortcut = { label: "U", code: "KeyU" };
 
 // The list in order. The projects-only shortcuts are the ones `commandFor`
 // checks after the mode, and the panes' arrows and numbers.
 const lines = (pick: BusySend): readonly Line[] => [
 	{ what: t("Show keyboard shortcuts"), group: "General", id: "shortcuts" },
-	{ what: t("Open settings"), group: "General", keys: [keyHint(SETTINGS)], anywhere: SETTINGS },
+	{ what: t("Open settings"), group: "General", id: "settings" },
 	{ what: t("New agent"), group: "Agents", keys: [keyHint(NEW_AGENT)], anywhere: NEW_AGENT },
 	{ what: t("Open the next agent waiting on you"), group: "Agents", id: "nextWaiting" },
 	{ what: t("Start the agent, in the New agent form"), group: "Agents", keys: [command(ENTER)] },

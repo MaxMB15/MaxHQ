@@ -236,6 +236,8 @@ The Terminals card turns shell integration on or off for the device. It's on by 
 
 With Shell integration on, MaxHQ adds hooks to zsh, bash and fish so it can tell commands apart. That gives each command its mark in the terminal, and ! commands need it to share one shell. Off starts shells exactly as your startup files say, and each ! command runs in a fresh shell. A change applies to terminals opened after it. See [Terminals and ! commands](terminals.md).
 
+On a Windows device the hooks go into Git Bash and PowerShell, and Shell for terminals picks the shell that ! commands and new terminals start. Automatic takes Git Bash when Git for Windows is installed, else PowerShell 7, else Windows PowerShell 5.1, which comes with Windows. A shell you pick that isn't installed falls back to that order. The row shows once the device's maxd keeps the choice.
+
 ## Claude setup-tokens on a device
 <!-- id: devices/setup-tokens -->
 <!-- covers: settings/device/setup-tokens -->

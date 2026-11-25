@@ -4,9 +4,8 @@
 //! A-10's manifest for a folder workspace: `<data>/workspaces/<id>.json`,
 //! with the same fields as a container's instance keys.
 
-use std::fs::{self, DirBuilder};
+use std::fs;
 use std::io;
-use std::os::unix::fs::DirBuilderExt;
 use std::path::{Path, PathBuf};
 
 use maxhq_core::fs::{write_atomic, Atomic};
@@ -70,7 +69,7 @@ pub fn path(data: &Path, workspace: WorkspaceId) -> PathBuf {
 /// The folder is 0700 and the file 0600.
 pub fn write(data: &Path, manifest: &Manifest) -> io::Result<()> {
     let dir = data.join(DIR);
-    DirBuilder::new().recursive(true).mode(0o700).create(&dir)?;
+    maxhq_os::fsmode::private_dir_all(&dir)?;
     let target = path(data, manifest.workspace);
     let mut bytes = serde_json::to_vec_pretty(manifest).map_err(io::Error::other)?;
     bytes.push(b'\n');
@@ -91,8 +90,6 @@ pub fn read(data: &Path, workspace: WorkspaceId) -> io::Result<Option<Manifest>>
 
 #[cfg(test)]
 mod tests {
-    use std::os::unix::fs::PermissionsExt;
-
     use maxhq_protocol::ids::{AccountId, AgentId};
     use maxhq_protocol::model::Vendor;
 
@@ -127,7 +124,7 @@ mod tests {
         write(dir.path(), &manifest).unwrap();
         assert_eq!(read(dir.path(), workspace).unwrap(), Some(manifest));
 
-        let mode = |p: &Path| fs::metadata(p).unwrap().permissions().mode() & 0o777;
+        let mode = |p: &Path| maxhq_os::fsmode::mode_of(&fs::metadata(p).unwrap()) & 0o777;
         assert_eq!(mode(&dir.path().join(DIR)), 0o700);
         assert_eq!(mode(&path(dir.path(), workspace)), 0o600);
         let names: Vec<_> = fs::read_dir(dir.path().join(DIR)).unwrap().collect();

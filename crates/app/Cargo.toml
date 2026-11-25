@@ -26,11 +26,12 @@ futures.workspace = true
 getrandom.workspace = true
 maxhq-client.workspace = true
 maxhq-core.workspace = true
+# The display hold, which on Linux asks the screen saver and logind over D-Bus.
+maxhq-os = { workspace = true, features = ["display"] }
 maxhq-protocol.workspace = true
 qrcodegen = { workspace = true, optional = true }
 rusqlite.workspace = true
 rusqlite_migration.workspace = true
-rustix = { workspace = true, optional = true }
 semver.workspace = true
 serde.workspace = true
 serde_json.workspace = true
@@ -45,10 +46,27 @@ url.workspace = true
 uuid.workspace = true
 zeroize.workspace = true
 
+# Your user ID, for the service manager's session.
+[target.'cfg(unix)'.dependencies]
+rustix = { workspace = true, optional = true }
+
 # The apps' keys live in the Keychain: the phone's own, and the Mac app's key
 # it proves itself to each maxd with.
 [target.'cfg(any(target_os = "ios", target_os = "macos"))'.dependencies]
 security-framework.workspace = true
+
+# On Android they're files the app's Kotlin seals under an Android Keystore
+# key, which Rust reaches over JNI.
+[target.'cfg(target_os = "android")'.dependencies]
+jni.workspace = true
+
+# Off Apple systems the desktop app's key lives in the system keyring: the
+# Secret Service on Linux and Credential Manager on Windows.
+[target.'cfg(target_os = "linux")'.dependencies]
+keyring = { workspace = true, features = ["sync-secret-service", "crypto-rust"] }
+
+[target.'cfg(windows)'.dependencies]
+keyring = { workspace = true, features = ["windows-native"] }
 
 [dev-dependencies]
 maxhq-core = { workspace = true, features = ["testing"] }

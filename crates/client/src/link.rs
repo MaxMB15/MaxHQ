@@ -1825,7 +1825,7 @@ impl Task {
     /// which is what a restart looks like from here, or dropped after it
     /// said it would restart.
     fn rebooting(&self) -> bool {
-        let went_down = matches!(self.link.route, Route::Ssh { .. })
+        let went_down = !matches!(self.link.route, Route::Local)
             && self.went_down
             && self
                 .dropped_at
@@ -1872,10 +1872,11 @@ impl Task {
     /// Works out the route: `ssh -G` for the host and each hop, and a name
     /// lookup when nothing else ties the host to a peer.
     async fn resolve_route(&mut self) {
-        let Route::Ssh { host } = &self.link.route else {
+        // A WSL route through a Windows machine goes over SSH to it.
+        let Some(host) = self.link.route.ssh_host() else {
             return;
         };
-        let host = host.clone();
+        let host = host.to_owned();
         let transport = Arc::clone(&self.shared.transport);
         let config = match transport.resolve(&host).await {
             Ok(config) => Some(config),
@@ -1917,9 +1918,9 @@ impl Task {
     /// Sets the link's network and peer from the tailnet, and says whether
     /// they changed.
     fn place(&mut self) -> bool {
-        let (network, peer) = match &self.link.route {
-            Route::Local => (None, None),
-            Route::Ssh { .. } => self.placement(),
+        let (network, peer) = match self.link.route.ssh_host() {
+            None => (None, None),
+            Some(_) => self.placement(),
         };
         let changed = self.link.network != network || self.link.peer != peer;
         self.link.network = network;
@@ -1965,7 +1966,7 @@ impl Task {
 
     /// Drops the SSH master after a connection went quiet.
     async fn forget_master(&self) {
-        if let Route::Ssh { host } = &self.link.route {
+        if let Some(host) = self.link.route.ssh_host() {
             self.shared.transport.forget(host).await;
         }
     }
@@ -2021,13 +2022,39 @@ async fn try_route(
     terminals: Arc<Terminals>,
     known: Option<DeviceId>,
 ) -> Result<(Wire, ServerHello), Failure> {
-    let conn = shared.transport.dial(route, None, known).await?;
-    let mut wire = Wire::new(conn, transfers, forwards, terminals);
-    let hello = tokio::time::timeout(shared.timing.handshake, handshake(&mut wire, shared))
-        .await
-        .map_err(|_| no_hello(route))??;
-    same_device(known, route, &hello)?;
-    Ok((wire, hello))
+    let mut windows_tried = false;
+    loop {
+        let conn = shared.transport.dial(route, None, known).await?;
+        let mut wire = Wire::new(
+            conn,
+            Arc::clone(&transfers),
+            Arc::clone(&forwards),
+            Arc::clone(&terminals),
+        );
+        let hello =
+            match tokio::time::timeout(shared.timing.handshake, handshake(&mut wire, shared)).await
+            {
+                Ok(Ok(hello)) => hello,
+                Ok(Err(failure)) => {
+                    // A Windows device's shell has no `sh` to start the proxy
+                    // with, so its SSH routes start `maxd` the Windows way from
+                    // then on, this time too.
+                    if let Route::Ssh { host } = route
+                        && !windows_tried
+                        && wire.rest.lacked_sh()
+                    {
+                        debug!(%host, "the device's shell has no sh, so trying the Windows way");
+                        shared.transport.shell_is_windows(host);
+                        windows_tried = true;
+                        continue;
+                    }
+                    return Err(failure);
+                }
+                Err(_) => return Err(no_hello(route)),
+            };
+        same_device(known, route, &hello)?;
+        return Ok((wire, hello));
+    }
 }
 
 /// Refuses a hello from a device other than `known`, so a reused LAN
@@ -2048,7 +2075,7 @@ fn same_device(known: Option<DeviceId>, route: &Route, hello: &ServerHello) -> R
 fn no_hello(route: &Route) -> Failure {
     Failure {
         reason: "maxd didn't answer".to_owned(),
-        host_down: matches!(route, Route::Ssh { .. }),
+        host_down: !matches!(route, Route::Local),
         last_seen: None,
         mismatch: None,
     }
@@ -2075,6 +2102,7 @@ fn route_name(route: &Route) -> &str {
     match route {
         Route::Local => "this computer",
         Route::Ssh { host } => host,
+        Route::Wsl { distro, .. } => distro,
     }
 }
 

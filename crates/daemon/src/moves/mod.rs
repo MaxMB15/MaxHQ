@@ -14,7 +14,8 @@
 mod plan;
 mod record;
 mod steps;
-#[cfg(test)]
+// The tests move workspaces on the fake Incus, on a Unix socket.
+#[cfg(all(test, unix))]
 mod tests;
 
 use std::collections::BTreeMap;

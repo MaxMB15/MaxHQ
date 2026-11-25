@@ -13,10 +13,13 @@
 //! - **Switches:** each phone's token says which kinds it wants.
 //!
 //! A push says only "An agent needs you" in the clear. The rest is sealed
-//! to the phone's push key, as [`seal`] lays out. A token APNs calls gone
-//! is dropped.
+//! to the phone's push key, as [`seal`] lays out. Each token names the
+//! service that delivers it: APNs for an iPhone, FCM for an Android phone.
+//! Only the transport differs; the rules, the sealed part and its fit are
+//! the same. A token the service calls gone is dropped.
 
 mod apns;
+mod fcm;
 mod seal;
 #[cfg(test)]
 pub(crate) mod tests;
@@ -34,7 +37,7 @@ use maxhq_protocol::attention::{AttentionEvent, AttentionKind, AttentionOption};
 use maxhq_protocol::ids::{AgentId, AttentionId, DeviceId, PhoneId};
 use maxhq_protocol::message::ActionOutcome;
 use maxhq_protocol::model::Activity;
-use maxhq_protocol::phones::{PushKind, PushToken};
+use maxhq_protocol::phones::{PushKind, PushService, PushToken};
 use maxhq_protocol::state::{Change, Entity, EntityKey};
 use serde::Serialize;
 use serde_json::json;
@@ -42,12 +45,13 @@ use tokio::sync::broadcast::error::RecvError;
 use tracing::{debug, info, warn};
 
 pub use apns::Apns;
+pub use fcm::Fcm;
 
 use crate::hub::{Hub, Start};
 use crate::secrets::files::Folder;
-use crate::secrets::ApnsKey;
+use crate::secrets::{ApnsKey, FcmKey};
 use crate::session::clock::Clock;
-use apns::{Request, Sent};
+use apns::Request;
 use tokens::Tokens;
 
 /// How long a push waits, in case what it's about clears first.
@@ -61,11 +65,12 @@ pub const DIR: &str = "push";
 /// The refusal for a phone's own request from a connection that isn't one.
 pub const ONLY_PHONES: &str = "Only a phone sends that.";
 
-/// What Apple and the path see.
+/// What Apple and the path see. An Android phone shows the same when it
+/// can't open the sealed part.
 const TITLE: &str = "MaxHQ";
 const BODY: &str = "An agent needs you";
 /// The most the sealed part takes before base64, which keeps the whole
-/// push well under APNs's 4 KB.
+/// push well under APNs's 4 KB, and FCM's 4 KB of data.
 const SEALED_MAX: usize = 2_400;
 /// The longest title and subtitle, in bytes, before the fit.
 const LINE_MAX: usize = 200;
@@ -75,8 +80,30 @@ const OPTIONS_MAX: usize = 8;
 /// one goes without its options, and the phone opens the app instead.
 const OPTION_MAX: usize = 64;
 
-/// Where the APNs key comes from.
-pub type KeySource = Arc<dyn Fn() -> Option<Arc<ApnsKey>> + Send + Sync>;
+/// Where a service's key comes from.
+pub type KeySource<K> = Arc<dyn Fn() -> Option<Arc<K>> + Send + Sync>;
+
+/// The services pushes go through, each with where its key comes from.
+pub struct Services {
+    pub apns: Apns,
+    pub apns_key: KeySource<ApnsKey>,
+    pub fcm: Fcm,
+    pub fcm_key: KeySource<FcmKey>,
+}
+
+/// How a service answered a push.
+#[derive(Debug, PartialEq, Eq)]
+pub enum Sent {
+    /// The service took it.
+    Done,
+    /// The token isn't the phone's any more, so it goes.
+    Gone,
+    /// The service refused this device's token for it: APNs's provider
+    /// token or FCM's access token. The next push makes a new one.
+    Expired,
+    /// Anything else, in words.
+    Failed(String),
+}
 
 /// The push service. Clones share it.
 #[derive(Clone)]
@@ -87,8 +114,7 @@ pub struct Push {
 struct Inner {
     hub: Hub,
     clock: Arc<dyn Clock>,
-    apns: Apns,
-    key: KeySource,
+    services: Services,
     state: Mutex<State>,
 }
 
@@ -103,19 +129,12 @@ static PUSH: OnceLock<Push> = OnceLock::new();
 
 impl Push {
     /// Starts with the tokens `folder` holds.
-    pub fn open(
-        hub: Hub,
-        folder: Folder,
-        clock: Arc<dyn Clock>,
-        apns: Apns,
-        key: KeySource,
-    ) -> Self {
+    pub fn open(hub: Hub, folder: Folder, clock: Arc<dyn Clock>, services: Services) -> Self {
         Self {
             inner: Arc::new(Inner {
                 hub,
                 clock,
-                apns,
-                key,
+                services,
                 state: Mutex::new(State {
                     tokens: Tokens::open(folder),
                     presence: HashMap::new(),
@@ -133,25 +152,16 @@ impl Push {
 
     /// Answers `SetPushToken` from `phone`'s own connection.
     pub fn set_token(&self, phone: PhoneId, push: PushToken) -> ActionOutcome {
-        let token = push.token.expose();
-        if !(16..=200).contains(&token.len()) || !token.bytes().all(|b| b.is_ascii_hexdigit()) {
-            return refused("That isn't an APNs device token.");
-        }
-        let topic = &push.topic;
-        if topic.is_empty()
-            || topic.len() > 255
-            || !topic
-                .bytes()
-                .all(|b| b.is_ascii_alphanumeric() || b == b'.' || b == b'-')
-        {
-            return refused("That isn't an app's bundle ID.");
+        if let Err(reason) = check(&push) {
+            return refused(reason);
         }
         let kinds = push.kinds.len();
+        let push_service = push.service;
         if let Err(err) = self.lock().tokens.set(phone, push) {
             warn!(%phone, "couldn't save a phone's push token: {err}");
             return refused(format!("This device couldn't save the token: {err}"));
         }
-        info!(%phone, kinds, "kept a phone's push token");
+        info!(%phone, kinds, service = name(push_service), "kept a phone's push token");
         ActionOutcome::Done
     }
 
@@ -216,37 +226,44 @@ impl Push {
         }
     }
 
-    /// Sends one push, dropping its token if APNs says it's gone, and
-    /// making a new provider token once if APNs says it expired.
+    /// Sends one push, dropping its token if the service says it's gone,
+    /// and making a new token for the service once if it refused this one.
     async fn send(&self, out: Outgoing) -> Sent {
         let mut sent = self.send_once(&out).await;
         if sent == Sent::Expired {
-            out.key.expire();
+            out.via.expire();
             sent = self.send_once(&out).await;
         }
+        let service = name(out.token.service);
         match &sent {
-            Sent::Done => info!(phone = %out.phone, "pushed to a phone"),
+            Sent::Done => info!(phone = %out.phone, service, "pushed to a phone"),
             Sent::Gone => {
                 if self.lock().tokens.remove(out.phone, Some(&out.token)) {
-                    info!(phone = %out.phone, "dropped a phone's push token, since APNs says it's gone");
+                    info!(phone = %out.phone, "dropped a phone's push token, since {service} says it's gone");
                 }
             }
-            Sent::Expired => warn!(phone = %out.phone, "APNs refused a new provider token"),
-            Sent::Failed(reason) => warn!(phone = %out.phone, "couldn't push to a phone: {reason}"),
+            Sent::Expired => warn!(phone = %out.phone, "{service} refused a new token"),
+            Sent::Failed(reason) => {
+                warn!(phone = %out.phone, service, "couldn't push to a phone: {reason}")
+            }
         }
         sent
     }
 
     async fn send_once(&self, out: &Outgoing) -> Sent {
-        let request = Request {
-            payload: &out.payload,
-            collapse: &out.collapse,
-        };
         let now = self.inner.clock.wall();
-        self.inner
-            .apns
-            .send(&out.key, now, &out.token, request)
-            .await
+        let services = &self.inner.services;
+        match &out.via {
+            Via::Apns {
+                key,
+                payload,
+                collapse,
+            } => {
+                let request = Request { payload, collapse };
+                services.apns.send(key, now, &out.token, request).await
+            }
+            Via::Fcm { key, data } => services.fcm.send(key, now, &out.token, data).await,
+        }
     }
 
     fn device(&self) -> DeviceId {
@@ -265,9 +282,42 @@ impl Push {
 struct Outgoing {
     phone: PhoneId,
     token: PushToken,
-    key: Arc<ApnsKey>,
-    payload: String,
-    collapse: String,
+    via: Via,
+}
+
+/// The service a push goes through, with its key and what it carries.
+enum Via {
+    Apns {
+        key: Arc<ApnsKey>,
+        payload: String,
+        collapse: String,
+    },
+    Fcm {
+        key: Arc<FcmKey>,
+        data: fcm::Data,
+    },
+}
+
+impl Via {
+    /// Drops the token the key made for the service, so the next send
+    /// makes a new one.
+    fn expire(&self) {
+        match self {
+            Self::Apns { key, .. } => key.expire(),
+            Self::Fcm { key, .. } => key.expire(),
+        }
+    }
+}
+
+#[cfg(test)]
+impl Outgoing {
+    /// The request body the service gets.
+    fn body(&self) -> String {
+        match &self.via {
+            Via::Apns { payload, .. } => payload.clone(),
+            Via::Fcm { data, .. } => fcm::body(&self.token, data),
+        }
+    }
 }
 
 /// What the notifier said, for [`Watch`] to take.
@@ -423,10 +473,13 @@ impl Watch {
         if !self.on(agent, device) {
             return Vec::new();
         }
-        let Some(key) = (self.push.inner.key)() else {
-            debug!("no APNs key, so no push");
+        let services = &self.push.inner.services;
+        let apns = (services.apns_key)();
+        let firebase = (services.fcm_key)();
+        if apns.is_none() && firebase.is_none() {
+            debug!("no push key, so no push");
             return Vec::new();
-        };
+        }
         let attention = match held.alert {
             Alert::NeedsInput(id) => match self.store.get(&EntityKey::Attention(id)) {
                 Some(Entity::Attention(event)) => Some(event),
@@ -480,6 +533,14 @@ impl Watch {
             {
                 continue;
             }
+            let has_key = match token.service {
+                PushService::Apns => apns.is_some(),
+                PushService::Fcm => firebase.is_some(),
+            };
+            if !has_key {
+                debug!(%phone, service = name(token.service), "no key for the phone's service, so no push");
+                continue;
+            }
             let Some(public) = self.phone_key(phone, device) else {
                 debug!(%phone, "no push key for the phone, so no push");
                 continue;
@@ -488,13 +549,28 @@ impl Watch {
                 warn!(%phone, "couldn't seal a push");
                 continue;
             };
-            out.push(Outgoing {
-                phone,
-                token,
-                key: key.clone(),
-                payload: payload(agent, prompt, permission, &STANDARD.encode(sealed)),
-                collapse: notification.id.clone(),
-            });
+            let sealed = STANDARD.encode(sealed);
+            let collapse = notification.id.clone();
+            let via = match (token.service, &apns, &firebase) {
+                (PushService::Apns, Some(key), _) => Via::Apns {
+                    key: key.clone(),
+                    payload: payload(agent, prompt, permission, &sealed),
+                    collapse,
+                },
+                (PushService::Fcm, _, Some(key)) => Via::Fcm {
+                    key: key.clone(),
+                    data: fcm::Data {
+                        c: sealed,
+                        e: prompt.map(|prompt| prompt.to_string()),
+                        t: agent.to_string(),
+                        k: kind,
+                        a: permission.then_some("permission"),
+                        n: collapse,
+                    },
+                },
+                _ => continue,
+            };
+            out.push(Outgoing { phone, token, via });
         }
         out
     }
@@ -612,6 +688,55 @@ fn clip(text: &str, max: usize) -> String {
         end -= 1;
     }
     text[..end].to_owned()
+}
+
+/// Why `push` isn't a token its service delivers to, if it isn't: an
+/// APNs device token is hex, an FCM registration token is letters,
+/// digits, `_`, `:` and `-`. Neither names the token.
+fn check(push: &PushToken) -> Result<(), &'static str> {
+    let token = push.token.expose();
+    let topic = &push.topic;
+    match push.service {
+        PushService::Apns => {
+            if !(16..=200).contains(&token.len()) || !token.bytes().all(|b| b.is_ascii_hexdigit()) {
+                return Err("That isn't an APNs device token.");
+            }
+            if !name_of(topic, |b| {
+                b.is_ascii_alphanumeric() || b == b'.' || b == b'-'
+            }) {
+                return Err("That isn't an app's bundle ID.");
+            }
+        }
+        PushService::Fcm => {
+            let allowed = |b: u8| b.is_ascii_alphanumeric() || matches!(b, b'_' | b':' | b'-');
+            if !(16..=FCM_TOKEN_MAX).contains(&token.len()) || !token.bytes().all(allowed) {
+                return Err("That isn't an FCM registration token.");
+            }
+            if !name_of(topic, |b| {
+                b.is_ascii_alphanumeric() || b == b'.' || b == b'_'
+            }) {
+                return Err("That isn't an Android package name.");
+            }
+        }
+    }
+    Ok(())
+}
+
+/// The longest FCM registration token taken. Today's are about 160
+/// characters; this leaves them room to grow.
+const FCM_TOKEN_MAX: usize = 1_024;
+
+/// Whether `text` is an app's ID: up to 255 bytes, each `allowed`.
+fn name_of(text: &str, allowed: impl Fn(u8) -> bool) -> bool {
+    !text.is_empty() && text.len() <= 255 && text.bytes().all(allowed)
+}
+
+/// The service's name, for the log.
+fn name(service: PushService) -> &'static str {
+    match service {
+        PushService::Apns => "APNs",
+        PushService::Fcm => "FCM",
+    }
 }
 
 fn refused(reason: impl Into<String>) -> ActionOutcome {

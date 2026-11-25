@@ -4,20 +4,20 @@
 //! The files in a session's folder and the helpers that write them safely.
 
 use std::ffi::OsString;
-use std::fs::{self, DirBuilder, File, OpenOptions, TryLockError};
+use std::fs::{self, File, OpenOptions, TryLockError};
 use std::io::{self, Read, Seek, SeekFrom};
-use std::os::unix::ffi::{OsStrExt, OsStringExt};
-use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use maxhq_core::fs::{write_atomic, Atomic};
+use maxhq_os::fsmode;
 use maxhq_protocol::ids::SessionId;
 use maxhq_protocol::time::Timestamp;
-use serde::de::DeserializeOwned;
+use serde::de::{DeserializeOwned, Error as _};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 use crate::secret::{zero, Secret};
+use crate::sys;
 use crate::{Framing, Launch, Limits, RunAs};
 
 /// What to run, written before the holder starts.
@@ -60,7 +60,7 @@ impl Serialize for OsBytes {
         match self.0.to_str() {
             Some(text) => OsRepr::Text(text.to_owned()),
             None => OsRepr::Bytes {
-                bytes: self.0.as_bytes().to_vec(),
+                bytes: sys::os_bytes(&self.0).into_owned(),
             },
         }
         .serialize(serializer)
@@ -71,7 +71,8 @@ impl<'de> Deserialize<'de> for OsBytes {
     fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
         Ok(Self(match OsRepr::deserialize(deserializer)? {
             OsRepr::Text(text) => text.into(),
-            OsRepr::Bytes { bytes } => OsString::from_vec(bytes),
+            OsRepr::Bytes { bytes } => sys::os_from_bytes(bytes)
+                .ok_or_else(|| D::Error::custom("the bytes aren't a name this OS takes"))?,
         }))
     }
 }
@@ -188,6 +189,18 @@ pub(crate) struct HolderFile {
     pub child_pid: u32,
     pub socket: OsBytes,
     pub started_at: Timestamp,
+    /// When the holder's process started, as `maxhq_os::proc::started`
+    /// gives it, so a process that later gets its ID isn't taken for it.
+    /// Holders from before it leave it out.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub holder_started: Option<u64>,
+    /// The same for the program the holder runs.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub child_started: Option<u64>,
+    /// The holder couldn't leave its spawner's job on Windows, so ending
+    /// that job ends it too, and it won't outlive a `maxd` whose job goes.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub in_spawner_job: bool,
 }
 
 impl HolderFile {
@@ -212,15 +225,8 @@ pub(crate) fn session_dir(sessions: &Path, session: &SessionId) -> PathBuf {
     sessions.join(session.to_string())
 }
 
-/// Makes `path` and its parents, readable only by this user.
-pub(crate) fn private_dir_all(path: &Path) -> io::Result<()> {
-    DirBuilder::new().recursive(true).mode(0o700).create(path)
-}
-
-/// Makes `path`, readable only by this user, failing when it exists.
-pub(crate) fn private_dir(path: &Path) -> io::Result<()> {
-    DirBuilder::new().mode(0o700).create(path)
-}
+/// Folders readable only by this user.
+pub(crate) use maxhq_os::fsmode::{private_dir, private_dir_all};
 
 /// Deletes a session's folder. It's first moved to a hidden name, so a
 /// client still writing to it, such as one marking the exit seen, can't
@@ -233,17 +239,30 @@ pub(crate) fn remove_session(dir: &Path) -> io::Result<()> {
     match fs::rename(dir, &hidden) {
         Ok(()) => fs::remove_dir_all(&hidden),
         Err(err) if err.kind() == io::ErrorKind::NotFound => Ok(()),
+        // Windows won't move a folder while a file in it is open, as the
+        // holder's own logs are when it forgets its session. It still
+        // deletes them where they are.
+        #[cfg(windows)]
+        Err(err) if err.kind() == io::ErrorKind::PermissionDenied => fs::remove_dir_all(dir),
         Err(err) => Err(err),
     }
 }
 
 /// Opens `path` for appending, making it readable only by this user.
 pub(crate) fn append(path: &Path) -> io::Result<File> {
-    OpenOptions::new()
-        .create(true)
-        .append(true)
-        .mode(0o600)
-        .open(path)
+    fsmode::set_open_mode(OpenOptions::new().create(true).append(true), 0o600).open(path)
+}
+
+/// Empties `path`, or makes it empty, then opens it for appending as
+/// [`append`] does. Windows won't let a handle that only appends cut a file
+/// short, so the file is emptied through one that writes.
+pub(crate) fn append_empty(path: &Path) -> io::Result<File> {
+    fsmode::set_open_mode(
+        OpenOptions::new().create(true).write(true).truncate(true),
+        0o600,
+    )
+    .open(path)?;
+    append(path)
 }
 
 /// Writes `value` as JSON, synced and renamed into place, so a reader sees
@@ -383,25 +402,39 @@ mod tests {
     fn os_strings_survive_json_whether_or_not_they_are_utf8() {
         let text = OsBytes(OsString::from("/usr/bin/claude"));
         assert_eq!(serde_json::to_string(&text).unwrap(), "\"/usr/bin/claude\"");
-        let bytes = OsBytes(OsString::from_vec(vec![b'a', 0xff, b'b']));
+        #[cfg(unix)]
+        let bytes = {
+            use std::os::unix::ffi::OsStringExt;
+            OsBytes(OsString::from_vec(vec![b'a', 0xff, b'b']))
+        };
+        #[cfg(windows)]
+        let bytes = {
+            use std::os::windows::ffi::OsStringExt;
+            OsBytes(OsString::from_wide(&[97, 0xD800, 98]))
+        };
         let json = serde_json::to_string(&bytes).unwrap();
+        #[cfg(unix)]
         assert_eq!(json, r#"{"bytes":[97,255,98]}"#);
+        #[cfg(windows)]
+        assert_eq!(json, r#"{"bytes":[97,237,160,128,98]}"#);
         let back: OsBytes = serde_json::from_str(&json).unwrap();
         assert_eq!(back, bytes);
     }
 
     #[test]
     fn the_key_file_is_private_and_a_missing_one_means_no_key() {
-        use std::os::unix::fs::PermissionsExt;
-
         let id = SessionId::generate().0.simple().to_string();
         let dir = std::env::temp_dir().join(format!("hold-key-{}", &id[20..]));
         private_dir_all(&dir).unwrap();
         assert!(read_key(&dir).unwrap().is_none());
         let key = crate::secret::new_key().unwrap();
         write_key(&dir, &key).unwrap();
-        let mode = fs::metadata(dir.join(KEY)).unwrap().permissions().mode();
-        assert_eq!(mode & 0o777, 0o600);
+        // Windows keeps the folder's own ACL, which `private_dir_all` set.
+        #[cfg(unix)]
+        assert_eq!(
+            fsmode::mode_of(&fs::metadata(dir.join(KEY)).unwrap()) & 0o777,
+            0o600
+        );
         assert_eq!(read_key(&dir).unwrap(), Some(key));
         fs::write(dir.join(KEY), [0xff]).unwrap();
         let err = read_key(&dir).unwrap_err();

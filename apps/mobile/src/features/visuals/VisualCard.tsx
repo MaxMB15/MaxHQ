@@ -16,18 +16,8 @@ import { t, useI18n } from "@maxhq/shared/i18n";
 import { useNavigation } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import * as Clipboard from "expo-clipboard";
-import { Directory, File, Paths } from "expo-file-system";
 import { memo, useMemo, useState } from "react";
-import {
-	Alert,
-	Platform,
-	Pressable,
-	Share,
-	StyleSheet,
-	Text,
-	useWindowDimensions,
-	View,
-} from "react-native";
+import { Alert, Pressable, StyleSheet, Text, useWindowDimensions, View } from "react-native";
 
 import type { AgentId, NoteId, ProjectId } from "@maxhq/shared/bindings";
 import { copyLabel, useCopyWith } from "@maxhq/shared/lib/copy";
@@ -45,6 +35,7 @@ import { tellQuote, useVisualOrigin } from "@maxhq/shared/visuals/origin";
 import { visualFileName } from "@maxhq/shared/visuals/visual";
 
 import type { Screens } from "../../navigation";
+import { saveAs } from "../../platform/save";
 import { type Services, useServices } from "../../services";
 import { color, radius, size, TOUCH } from "../../theme";
 import { choose } from "../../ui/choose";
@@ -63,17 +54,7 @@ const said = (error: unknown): string => (error instanceof Error ? error.message
 const saveHtml = async ({ html, title }: Visual): Promise<void> => {
 	const name = visualFileName(title);
 	try {
-		if (Platform.OS === "ios") {
-			const file = new File(Paths.cache, name);
-			await file.write(html);
-			await Share.share({ url: file.uri });
-			return;
-		}
-		const folder = await Directory.pickDirectoryAsync().catch(() => null);
-		// Closed without picking one.
-		if (!folder) return;
-		await folder.createFile(name, "text/html").write(html);
-		Alert.alert(t("Saved"), name);
+		if (await saveAs(name, "text/html", { text: html })) Alert.alert(t("Saved"), name);
 	} catch (error) {
 		Alert.alert(t("Couldn't save {{what}}", { what: name }), said(error));
 	}

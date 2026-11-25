@@ -48,6 +48,17 @@ pub(crate) struct SshConfig {
     pub known_hosts_files: Vec<String>,
     /// The machine's own `known_hosts` files, which an admin revokes keys in.
     pub global_known_hosts_files: Vec<String>,
+    /// The `IdentityFile`s, in order, with their `~` and `%` tokens as
+    /// `ssh -G` prints them. Only the russh logins read them.
+    #[cfg_attr(not(any(windows, feature = "russh")), allow(dead_code))]
+    pub identity_files: Vec<String>,
+    /// `IdentityAgent`, `none` included, or missing when it's ssh's own
+    /// default.
+    #[cfg_attr(not(any(windows, feature = "russh")), allow(dead_code))]
+    pub identity_agent: Option<String>,
+    /// `IdentitiesOnly`: offer only the keys the identity files name.
+    #[cfg_attr(not(any(windows, feature = "russh")), allow(dead_code))]
+    pub identities_only: bool,
 }
 
 impl SshConfig {
@@ -61,10 +72,17 @@ impl SshConfig {
                 continue;
             };
             let value = value.trim();
+            let key = key.to_ascii_lowercase();
+            if key == "identityagent" && !value.is_empty() {
+                // `none` here says to use no agent, which isn't the same as
+                // leaving it out.
+                config.identity_agent = Some(value.to_owned());
+                continue;
+            }
             if value.is_empty() || value.eq_ignore_ascii_case("none") {
                 continue;
             }
-            match key.to_ascii_lowercase().as_str() {
+            match key.as_str() {
                 "user" => config.user = Some(value.to_owned()),
                 "hostname" => config.host_name = value.to_owned(),
                 "port" => config.port = value.parse().ok(),
@@ -85,6 +103,8 @@ impl SshConfig {
                 "globalknownhostsfile" => {
                     config.global_known_hosts_files = known_hosts_files(value);
                 }
+                "identityfile" => config.identity_files.push(value.to_owned()),
+                "identitiesonly" => config.identities_only = value.eq_ignore_ascii_case("yes"),
                 _ => {}
             }
         }
@@ -187,7 +207,7 @@ fn known_hosts_files(value: &str) -> Vec<String> {
     let mut files: Vec<String> = Vec::new();
     for word in value.split(' ') {
         match files.last_mut() {
-            Some(file) if !word.starts_with(['/', '~']) => {
+            Some(file) if !starts_a_path(word) => {
                 file.push(' ');
                 file.push_str(word);
             }
@@ -195,6 +215,22 @@ fn known_hosts_files(value: &str) -> Vec<String> {
         }
     }
     files
+}
+
+/// Whether a word starts a path: `/` or `~` anywhere, and on Windows a
+/// drive like `C:\` or `C:/`, a share like `\\server`, or the
+/// `__PROGRAMDATA__` the Windows ssh puts in front of its own files.
+#[cfg(feature = "system-ssh")]
+fn starts_a_path(word: &str) -> bool {
+    let bytes = word.as_bytes();
+    let drive = bytes.len() >= 3
+        && bytes[0].is_ascii_alphabetic()
+        && bytes[1] == b':'
+        && matches!(bytes[2], b'\\' | b'/');
+    word.starts_with(['/', '~'])
+        || drive
+        || word.starts_with(r"\\")
+        || word.starts_with("__PROGRAMDATA__")
 }
 
 /// What a shell reads as more than part of a word.
@@ -245,7 +281,14 @@ const OPTIONS_WITH_ARGUMENT: &str = "BbcDEeFIiJLlmOopQRSWw";
 /// like `ssh -J bastion dev@devbox ws-proxy %h` gives `bastion` and then
 /// `dev@devbox`. A command that doesn't run ssh gives none.
 pub(crate) fn proxy_command_hops(command: &str) -> Vec<String> {
-    let words = shell_words(command);
+    proxy_command_hops_with(command, cfg!(windows))
+}
+
+/// [`proxy_command_hops`], reading backslashes the Windows way, as part of
+/// a path, when `windows` says to. There the program may be `ssh.exe` and
+/// a path like `C:\Windows\System32\OpenSSH\ssh.exe`.
+fn proxy_command_hops_with(command: &str, windows: bool) -> Vec<String> {
+    let words = shell_words(command, !windows);
     let mut words = words.iter().map(String::as_str).peekable();
     if words.peek() == Some(&"exec") {
         words.next();
@@ -253,7 +296,17 @@ pub(crate) fn proxy_command_hops(command: &str) -> Vec<String> {
     let Some(program) = words.next() else {
         return Vec::new();
     };
-    if program.rsplit('/').next() != Some("ssh") {
+    let name = program
+        .rsplit(|c| c == '/' || (windows && c == '\\'))
+        .next()
+        .unwrap_or(program);
+    let runs_ssh = if windows {
+        let name = name.to_ascii_lowercase();
+        name == "ssh" || name == "ssh.exe"
+    } else {
+        name == "ssh"
+    };
+    if !runs_ssh {
         return Vec::new();
     }
 
@@ -316,8 +369,9 @@ pub(crate) fn proxy_command_hops(command: &str) -> Vec<String> {
 
 /// Splits a command line into words the way a POSIX shell would for simple
 /// commands: quotes group, backslashes escape, and the first `;`, `|` or `&`
-/// outside quotes ends the command.
-fn shell_words(command: &str) -> Vec<String> {
+/// outside quotes ends the command. Without `escapes`, as on Windows, a
+/// backslash is only part of the word, except before a `"` in quotes.
+fn shell_words(command: &str, escapes: bool) -> Vec<String> {
     let mut words = Vec::new();
     let mut word = String::new();
     let mut in_word = false;
@@ -338,6 +392,7 @@ fn shell_words(command: &str) -> Vec<String> {
                 while let Some(c) = chars.next() {
                     match c {
                         '"' => break,
+                        '\\' if !escapes && chars.clone().next() != Some('"') => word.push(c),
                         '\\' => {
                             if let Some(next) = chars.next() {
                                 word.push(next);
@@ -346,6 +401,10 @@ fn shell_words(command: &str) -> Vec<String> {
                         c => word.push(c),
                     }
                 }
+            }
+            '\\' if !escapes => {
+                in_word = true;
+                word.push(c);
             }
             '\\' => {
                 in_word = true;
@@ -544,6 +603,69 @@ connecttimeout none
             proxy_command_hops("ssh -o 'ProxyJump ssh://edge' -- devbox"),
             ["edge", "devbox"]
         );
+    }
+
+    #[test]
+    fn windows_proxy_commands_keep_their_backslashes() {
+        assert_eq!(
+            proxy_command_hops_with(
+                r"C:\Windows\System32\OpenSSH\ssh.exe -i C:\Users\dev\.ssh\key -W %h:%p dev@devbox",
+                true
+            ),
+            ["dev@devbox"]
+        );
+        assert_eq!(
+            proxy_command_hops_with(
+                r#""C:\Program Files\Git\usr\bin\SSH.EXE" -J edge devbox"#,
+                true
+            ),
+            ["edge", "devbox"]
+        );
+        assert!(proxy_command_hops_with(r"C:\tools\nc.exe %h %p", true).is_empty());
+        // Unix reads the same backslashes as escapes.
+        assert!(proxy_command_hops_with(r"C:\Windows\ssh.exe devbox", false).is_empty());
+    }
+
+    #[test]
+    fn windows_known_hosts_paths_stay_apart() {
+        let config = SshConfig::parse(
+            "hostname devbox\n\
+             userknownhostsfile C:\\Users\\dev/.ssh/known_hosts C:\\Users\\dev/My Keys/hosts \\\\share\\hosts\n\
+             globalknownhostsfile __PROGRAMDATA__\\ssh/ssh_known_hosts __PROGRAMDATA__\\ssh/ssh_known_hosts2\n",
+        );
+        assert_eq!(
+            config.known_hosts_files,
+            [
+                r"C:\Users\dev/.ssh/known_hosts",
+                r"C:\Users\dev/My Keys/hosts",
+                r"\\share\hosts"
+            ]
+        );
+        assert_eq!(
+            config.global_known_hosts_files,
+            [
+                r"__PROGRAMDATA__\ssh/ssh_known_hosts",
+                r"__PROGRAMDATA__\ssh/ssh_known_hosts2"
+            ]
+        );
+    }
+
+    #[test]
+    fn reads_which_keys_and_agent_to_sign_in_with() {
+        let config = SshConfig::parse(
+            "hostname devbox\nidentityfile ~/.ssh/id_ed25519\nidentityfile ~/.ssh/id_%r@%h\n\
+             identitiesonly yes\nidentityagent none\n",
+        );
+        assert_eq!(
+            config.identity_files,
+            ["~/.ssh/id_ed25519", "~/.ssh/id_%r@%h"]
+        );
+        assert!(config.identities_only);
+        assert_eq!(config.identity_agent.as_deref(), Some("none"));
+        let config = SshConfig::parse("hostname devbox\nidentitiesonly no\n");
+        assert!(!config.identities_only);
+        assert_eq!(config.identity_agent, None);
+        assert!(config.identity_files.is_empty());
     }
 
     #[test]

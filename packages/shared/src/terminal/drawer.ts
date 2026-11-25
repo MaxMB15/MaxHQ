@@ -19,14 +19,13 @@ import { all, type ViewState } from "../view/replica";
 import type { CommandMark } from "./marks";
 import type { TerminalEntity } from "./select";
 
+import { baseName } from "../folders/path";
 /** What a tab shows: "Agent shell" for the session, else its title, or the command it was opened for. */
 export const tabTitle = (terminal: TerminalEntity): string =>
 	terminal.kind.type === "session"
 		? t("Agent shell")
 		: terminal.title.trim() ||
-			(terminal.kind.type === "run"
-				? terminal.kind.command
-				: terminal.cwd.split("/").pop() || "~");
+			(terminal.kind.type === "run" ? terminal.kind.command : baseName(terminal.cwd) || "~");
 
 /** Whether a command runs in the terminal now. */
 export const runsCommand = (terminal: Pick<TerminalEntity, "kind" | "status" | "busy">): boolean =>

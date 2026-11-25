@@ -311,13 +311,13 @@ pub async fn open_root_fix(
     device: DeviceId,
     item: String,
 ) -> Result<(), CommandError> {
-    let line = app.root_fix_line(device, &item)?;
+    let fix = app.root_fix(device, &item)?;
     let dir = handle
         .path()
         .app_cache_dir()
         .unwrap_or_else(|_| std::env::temp_dir().join("maxhq"))
         .join("terminal");
-    crate::terminal::open(dir, line)
+    crate::terminal::open(dir, fix)
         .await
         .map_err(|message| CommandError::Failed { message })
 }

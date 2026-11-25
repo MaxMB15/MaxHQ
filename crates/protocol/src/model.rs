@@ -88,6 +88,23 @@ pub struct Device {
     /// out.
     #[serde(default)]
     pub target: Option<String>,
+    /// The WSL distros on a Windows device, each of which can be set up as
+    /// a device of its own. Unset on a device without WSL, and from a
+    /// `maxd` older than [`crate::message::WSL_SINCE`], which reads as
+    /// none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub wsl: Option<Vec<WslDistro>>,
+}
+
+/// A Linux distro WSL runs on a Windows device.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, Type, JsonSchema)]
+pub struct WslDistro {
+    /// Its name, as `wsl.exe -d` takes it, such as `Ubuntu`.
+    pub name: String,
+    /// Whether `wsl.exe` starts it when you name none.
+    pub default: bool,
+    /// The WSL version it runs under, 1 or 2, when `wsl.exe` said.
+    pub version: Option<u8>,
 }
 
 /// The networks and storage pools a device's Incus offers.
@@ -622,6 +639,14 @@ pub enum CredentialKind {
         /// The Apple developer team the key belongs to.
         team_id: String,
     },
+    /// The Firebase service account this device pushes to Android phones
+    /// with. Since protocol 61.
+    Fcm {
+        /// The Firebase project the account belongs to.
+        project_id: String,
+        /// The service account's email.
+        client_email: String,
+    },
 }
 
 /// Where a workspace lives.
@@ -1145,6 +1170,12 @@ pub struct DeviceSettings {
     /// reads as the defaults.
     #[serde(default)]
     pub local_models: Box<LocalModelSettings>,
+    /// The shell a Windows device's `maxd` starts for `!` commands and the
+    /// terminal drawer. Other systems ignore it and start your login shell.
+    /// A `maxd` from before [`crate::message::WINDOWS_SHELL_SINCE`] leaves
+    /// it out, which reads as [`WindowsShell::Auto`].
+    #[serde(default, skip_serializing_if = "WindowsShell::is_auto")]
+    pub windows_shell: WindowsShell,
 }
 
 impl DeviceSettings {
@@ -1182,6 +1213,7 @@ impl DeviceSettings {
             chat_gap_minutes,
             claude_artifacts,
             local_models,
+            windows_shell,
         } = self;
         let differs = |same: &dyn Fn(&Self) -> bool| old.is_none_or(|old| !same(old));
         let mut changes = Vec::new();
@@ -1309,6 +1341,11 @@ impl DeviceSettings {
                 value: local_models.clone(),
             });
         }
+        if differs(&|old| old.windows_shell == *windows_shell) {
+            changes.push(Change::WindowsShell {
+                value: *windows_shell,
+            });
+        }
         changes
     }
 
@@ -1345,6 +1382,7 @@ impl DeviceSettings {
             DeviceSettingChange::ClaudeArtifacts { value } => self.claude_artifacts = value,
             DeviceSettingChange::ChatGapMinutes { value } => self.chat_gap_minutes = value,
             DeviceSettingChange::LocalModels { value } => self.local_models = value,
+            DeviceSettingChange::WindowsShell { value } => self.windows_shell = value,
         }
     }
 
@@ -1419,6 +1457,7 @@ impl DeviceSettingChange {
             Self::ClaudeArtifacts { .. } => crate::message::ARTIFACTS_SINCE,
             Self::ChatGapMinutes { .. } => crate::message::DISPATCHER_CHATS_SINCE,
             Self::LocalModels { .. } => crate::message::LOCAL_MODELS_SINCE,
+            Self::WindowsShell { .. } => crate::message::WINDOWS_SHELL_SINCE,
             _ => 26,
         }
     }
@@ -1572,6 +1611,11 @@ pub enum DeviceSettingChange {
         /// What it becomes.
         value: Box<LocalModelSettings>,
     },
+    /// See [`DeviceSettings::windows_shell`].
+    WindowsShell {
+        /// What it becomes.
+        value: WindowsShell,
+    },
 }
 
 /// How readily new agents go to a device when you don't pick one.
@@ -1602,6 +1646,33 @@ pub enum KeepAwake {
     Working,
     /// Never.
     Off,
+}
+
+/// The shell a Windows device starts for `!` commands and the terminal
+/// drawer.
+#[derive(
+    Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize, Type, JsonSchema,
+)]
+#[serde(rename_all = "snake_case")]
+pub enum WindowsShell {
+    /// Git Bash when Git for Windows is installed, else PowerShell 7, else
+    /// Windows PowerShell 5.1.
+    #[default]
+    Auto,
+    /// Git Bash, from Git for Windows.
+    GitBash,
+    /// PowerShell 7, `pwsh.exe`.
+    Pwsh,
+    /// Windows PowerShell 5.1, `powershell.exe`, which comes with Windows.
+    PowerShell,
+}
+
+impl WindowsShell {
+    /// Whether it leaves the pick to `maxd`.
+    #[must_use]
+    pub fn is_auto(&self) -> bool {
+        *self == Self::Auto
+    }
 }
 
 /// An agent CLI that MaxHQ can update.
@@ -1996,6 +2067,27 @@ mod tests {
     }
 
     #[test]
+    fn an_fcm_key_names_its_project_and_account() {
+        let fcm = CredentialKind::Fcm {
+            project_id: "<PROJECT_ID>".into(),
+            client_email: "pusher@example.invalid".into(),
+        };
+        let value = serde_json::to_value(&fcm).unwrap();
+        assert_eq!(
+            value,
+            json!({
+                "type": "fcm",
+                "project_id": "<PROJECT_ID>",
+                "client_email": "pusher@example.invalid",
+            })
+        );
+        assert_eq!(
+            serde_json::from_value::<CredentialKind>(value).unwrap(),
+            fcm
+        );
+    }
+
+    #[test]
     fn an_apns_key_names_its_key_and_team() {
         let apns = CredentialKind::Apns {
             key_id: "<KEY_ID>".into(),
@@ -2169,6 +2261,22 @@ mod tests {
         assert_eq!(settings.history_bytes(), Some(4 << 30));
         let clamped = settings.clamped();
         assert_eq!((clamped.memory_items, clamped.history_mib), (4096, 4096));
+    }
+
+    #[test]
+    fn windows_shell_round_trips() {
+        for (shell, text) in [
+            (WindowsShell::Auto, "auto"),
+            (WindowsShell::GitBash, "git_bash"),
+            (WindowsShell::Pwsh, "pwsh"),
+            (WindowsShell::PowerShell, "power_shell"),
+        ] {
+            assert_eq!(serde_json::to_value(shell).unwrap(), json!(text));
+            assert_eq!(
+                serde_json::from_value::<WindowsShell>(json!(text)).unwrap(),
+                shell
+            );
+        }
     }
 
     #[test]

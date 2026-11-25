@@ -11,6 +11,7 @@ use reqwest::header::{AUTHORIZATION, CONTENT_TYPE};
 use reqwest::{Client, StatusCode};
 use serde::Deserialize;
 
+use super::Sent;
 use crate::secrets::http::{describe, http2_client};
 use crate::secrets::ApnsKey;
 
@@ -18,19 +19,6 @@ use crate::secrets::ApnsKey;
 const PRODUCTION: &str = "https://api.push.apple.com";
 /// APNs for development builds.
 const SANDBOX: &str = "https://api.sandbox.push.apple.com";
-
-/// How APNs answered a push.
-#[derive(Debug, PartialEq, Eq)]
-pub enum Sent {
-    /// APNs took it.
-    Done,
-    /// The token isn't the phone's any more, so it goes.
-    Gone,
-    /// The provider token expired, so the next push makes a new one.
-    Expired,
-    /// Anything else, in words.
-    Failed(String),
-}
 
 /// One push: what the phone gets, and its collapse ID.
 pub struct Request<'a> {

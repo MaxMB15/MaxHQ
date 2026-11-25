@@ -241,7 +241,7 @@ async fn upload(
         let meta = tokio::fs::symlink_metadata(&from)
             .await
             .map_err(|error| format!("couldn't read {}: {error}", from.display()))?;
-        let mode = std::os::unix::fs::PermissionsExt::mode(&meta.permissions()) & 0o777;
+        let mode = maxhq_os::fsmode::mode_of(&meta) & 0o777;
         if meta.is_dir() {
             incus.make_folder(name, &to, mode).await.map_err(failed)?;
             let mut entries = tokio::fs::read_dir(&from)
@@ -294,7 +294,8 @@ async fn upload(
     Ok(top)
 }
 
-#[cfg(test)]
+// Incus and its fake serve on Unix sockets.
+#[cfg(all(test, unix))]
 mod tests {
     use std::sync::Mutex;
 

@@ -11,7 +11,6 @@ mod store;
 use std::fs;
 use std::future::Future;
 use std::io;
-use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::pin::Pin;
 
@@ -236,15 +235,16 @@ pub fn remove_key(path: &Path) -> io::Result<()> {
     }
 }
 
-/// The `maxd` an MCP client runs: `~/.local/bin/maxd`, the link updates
-/// keep pointing at the newest build, or this program when there's no
-/// link. It's absolute, since no shell reads an MCP client's config.
+/// The `maxd` an MCP client runs: the path updates keep pointing at the
+/// newest build, or this program when it isn't there. That's the link
+/// `~/.local/bin/maxd` on Unix, and `maxd.exe` through the junction
+/// `%LOCALAPPDATA%\MaxHQ\bin\current` on Windows. It's absolute, since no
+/// shell reads an MCP client's config.
 pub fn maxd_program() -> PathBuf {
-    let link = std::env::var_os("HOME")
-        .filter(|home| !home.is_empty())
-        .map(|home| PathBuf::from(home).join(".local/bin/maxd"))
-        .filter(|link| fs::symlink_metadata(link).is_ok());
-    link.or_else(|| std::env::current_exe().ok())
+    maxhq_core::paths::MaxdLayout::from_env()
+        .map(|layout| layout.program())
+        .filter(|path| fs::symlink_metadata(path).is_ok())
+        .or_else(|| std::env::current_exe().ok())
         .unwrap_or_else(|| PathBuf::from("maxd"))
 }
 
@@ -270,7 +270,7 @@ pub fn read_key(path: &Path) -> io::Result<Secret> {
             path.display()
         )));
     }
-    if meta.permissions().mode() & 0o077 != 0 {
+    if maxhq_os::fsmode::mode_of(&meta) & 0o077 != 0 {
         return Err(io::Error::other(format!(
             "others can read {}. Run chmod 600 on it",
             path.display()
@@ -301,7 +301,10 @@ mod tests {
     }
 
     #[test]
+    #[cfg(unix)]
     fn a_key_file_is_private_and_a_wide_one_is_refused() {
+        use std::os::unix::fs::PermissionsExt;
+
         let dir = std::env::temp_dir().join(format!("maxd-keys-{}", uuid::Uuid::now_v7()));
         let text = Secret::new("mhq_x_y".into());
         let path = write_key(&dir, "ci bot/1", &text).expect("it writes");

@@ -4,6 +4,7 @@
 //! Taking over a session from your terminal. A `sleep` each test starts
 //! stands in for the terminal's CLI.
 
+use std::ffi::OsStr;
 use std::process::{Command, Stdio};
 use std::sync::mpsc;
 
@@ -20,7 +21,7 @@ struct Cli {
 }
 
 impl Cli {
-    fn start(program: &str, args: &[&str]) -> Self {
+    fn start(program: impl AsRef<OsStr>, args: &[&str]) -> Self {
         let mut child = Command::new(program)
             .args(args)
             .stdin(Stdio::null())
@@ -166,7 +167,9 @@ async fn only_the_cli_itself_is_stopped() {
     let mut h = Harness::new();
     let session = Uuid::now_v7().to_string();
     // A shell that kept the CLI's pid isn't the CLI.
-    let other = Cli::start("/bin/sh", &["-c", "sleep 120; :"]);
+    let bin = crate::testing::TempDir::new();
+    let shell = crate::testing::fake_program(bin.path(), "shell", "#!/bin/sh\nsleep 120; :\n");
+    let other = Cli::start(&shell, &[]);
     let agent = in_terminal(&h, &session, Activity::Busy, &other);
     let outcome = h.act(take_over(TakeOverMode::Now, agent)).await;
     assert!(reason(&outcome).contains("another process"), "{outcome:?}");

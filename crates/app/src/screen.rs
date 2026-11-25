@@ -1,15 +1,17 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026 Max Boksem
 
-//! The sun beside the header's title. While it's on, this Mac's screen
-//! doesn't dim or turn off and the Mac doesn't sleep when idle, on the
-//! charger or on battery. While it's off, the device's Keep awake setting
-//! and macOS decide, as before. The app holds this itself, apart from
-//! `maxd`, so it ends when the app quits. The switch is saved, so it's back
-//! on when the app opens again. Closing the lid still sleeps the Mac.
+//! The sun beside the header's title. While it's on, this computer's
+//! screen doesn't dim or turn off and the computer doesn't sleep when
+//! idle, on the charger or on battery. While it's off, the device's Keep
+//! awake setting and the system decide, as before. The app holds this
+//! itself, apart from `maxd`, so it ends when the app quits. The switch is
+//! saved, so it's back on when the app opens again. Closing the lid still
+//! sleeps the computer.
 
 use std::sync::{Mutex, MutexGuard, PoisonError};
 
+use maxhq_os::power::{Awake, Keep};
 use thiserror::Error;
 
 use crate::registry::{Registry, RegistryError};
@@ -17,21 +19,18 @@ use crate::registry::{Registry, RegistryError};
 /// The setting the switch is saved under.
 const SETTING: &str = "screen_on";
 
-/// The holds while it's on: one keeps the display on, the other keeps the
-/// Mac from sleeping when idle. Dropping them lets go.
-#[cfg(target_os = "macos")]
-type Held = [maxhq_core::power::Assertion; 2];
-/// Other systems never hold anything.
-#[cfg(not(target_os = "macos"))]
-type Held = std::convert::Infallible;
+/// What the system lists as the reason for the holds: Activity Monitor
+/// and `pmset -g assertions` on macOS, `systemd-inhibit --list` and the
+/// desktop on Linux, `powercfg /requests` on Windows.
+const REASON: &str = "MaxHQ is keeping the screen on";
 
 /// Why the sun didn't change.
 #[derive(Debug, Error)]
 pub enum ScreenError {
-    /// Only macOS can keep its screen on.
+    /// This system can't keep its screen on.
     #[error("this system can't keep its screen on")]
     Unsupported,
-    /// macOS didn't take the hold.
+    /// The system didn't take the hold.
     #[error("{0}")]
     Refused(String),
     /// The switch couldn't be saved, so it was left as it was.
@@ -39,15 +38,17 @@ pub enum ScreenError {
     Save(#[from] RegistryError),
 }
 
-/// Keeps this Mac's screen on while the sun is on.
+/// Keeps this computer's screen on while the sun is on.
 #[derive(Default)]
 pub struct ScreenOn {
-    held: Mutex<Option<Held>>,
+    /// The hold while it's on, which keeps the display on and the
+    /// computer from sleeping when idle. Dropping it lets go.
+    held: Mutex<Option<Awake>>,
 }
 
 impl ScreenOn {
     /// Whether this system can keep its screen on.
-    pub const SUPPORTED: bool = cfg!(target_os = "macos");
+    pub const SUPPORTED: bool = Keep::Display.supported();
 
     /// Starts with the switch saved in `registry`, off when there's none.
     pub fn start(registry: &Registry) -> Self {
@@ -89,18 +90,12 @@ impl ScreenOn {
         Ok(())
     }
 
-    fn lock(&self) -> MutexGuard<'_, Option<Held>> {
+    fn lock(&self) -> MutexGuard<'_, Option<Awake>> {
         self.held.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
     /// Takes the holds, or lets them go.
-    #[cfg(target_os = "macos")]
     fn hold(&self, on: bool) -> Result<(), ScreenError> {
-        use maxhq_core::power::{Assertion, Prevent};
-
-        /// What Activity Monitor and `pmset -g assertions` show.
-        const REASON: &std::ffi::CStr = c"MaxHQ is keeping the screen on";
-
         let mut held = self.lock();
         if !on {
             if held.take().is_some() {
@@ -109,31 +104,25 @@ impl ScreenOn {
             return Ok(());
         }
         if held.is_none() {
-            let take = |prevent| {
-                Assertion::take(prevent, REASON)
-                    .map_err(|error| ScreenError::Refused(error.to_string()))
-            };
-            *held = Some([take(Prevent::DisplaySleep)?, take(Prevent::IdleSleep)?]);
+            *held = Some(take()?);
             tracing::debug!("keeping the screen on");
         }
         Ok(())
     }
-
-    #[cfg(not(target_os = "macos"))]
-    fn hold(&self, on: bool) -> Result<(), ScreenError> {
-        if on {
-            Err(ScreenError::Unsupported)
-        } else {
-            Ok(())
-        }
-    }
 }
 
-#[cfg(test)]
+/// Takes the display's hold.
+fn take() -> Result<Awake, ScreenError> {
+    Awake::take(Keep::Display, REASON).map_err(|error| ScreenError::Refused(error.to_string()))
+}
+
+// A hold on Linux needs a desktop session to answer, so the sun's test
+// runs on macOS and Windows.
+#[cfg(all(test, not(target_os = "linux")))]
 mod tests {
     use super::*;
 
-    #[cfg(target_os = "macos")]
+    #[cfg(any(target_os = "macos", windows))]
     #[test]
     fn the_sun_holds_the_screen_and_comes_back_on_with_the_app() {
         let registry = Registry::in_memory().unwrap();
@@ -154,7 +143,7 @@ mod tests {
         assert!(!ScreenOn::start(&registry).is_on());
     }
 
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(not(any(target_os = "macos", target_os = "linux", windows)))]
     #[test]
     fn other_systems_say_they_cant() {
         let registry = Registry::in_memory().unwrap();

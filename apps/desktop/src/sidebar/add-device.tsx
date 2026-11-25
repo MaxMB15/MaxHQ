@@ -2,7 +2,8 @@
 // Copyright (c) 2026 Max Boksem
 
 // The Add device wizard, one step at a time: pick a host from your SSH
-// config or your tailnet, choose the logins it gets, then follow the app as
+// config, your tailnet or a Windows device's WSL distros, choose the logins
+// it gets, then follow the app as
 // it reads the host key, waits for you to trust it, installs maxd, adds
 // MaxHQ's key, connects through it and sends the logins. Nothing runs on
 // the host before you trust its key, and a host that can't keep maxd
@@ -29,6 +30,7 @@ import type {
 	SetupProgress,
 	SetupSecret,
 	SetupStep,
+	SetupWsl,
 } from "@maxhq/shared/fleet/wire";
 import type { ConnectionLook } from "@maxhq/shared/status/connection";
 import { isLocalAccount } from "@maxhq/shared/status/agent-kind";
@@ -90,8 +92,39 @@ const Description = ({ children }: { children: string }) => {
 };
 
 const fromText = (host: SetupHost) => {
+	if (host.wsl) return wslText(host.wsl);
 	const from = host.from === "ssh_config" ? t("From your SSH config") : t("On your tailnet");
 	return host.address ? `${from}, ${host.address}` : from;
+};
+
+/** Where a WSL distro is, and whether it's the default one. */
+const wslText = (wsl: SetupWsl) => {
+	const on = wsl.here ? t("WSL on this PC") : t("WSL on {{machine}}", { machine: wsl.machine });
+	return wsl.default ? `${on}, ${t("the default distro")}` : on;
+};
+
+/**
+ * Why a host can't be set up, or null when it can. A WSL 1 distro runs no
+ * systemd, so maxd wouldn't keep running there.
+ */
+const unavailable = (host: SetupHost): string | null =>
+	host.wsl?.version === 1
+		? t("WSL 1 can't run maxd. Move it to WSL 2 with wsl --set-version {{distro}} 2.", {
+				distro: host.wsl.distro,
+			})
+		: null;
+
+/** What the wizard calls a host: a WSL distro by its name. */
+export const hostName = (hosts: readonly SetupHost[] | null, host: string): string =>
+	hosts?.find((h) => h.host === host)?.wsl?.distro ?? host;
+
+/**
+ * The machine whose host key setup reads for `host`: a WSL distro's
+ * Windows machine, which it reaches over SSH.
+ */
+const keyHost = (hosts: readonly SetupHost[] | null, host: string): string => {
+	const wsl = hosts?.find((h) => h.host === host)?.wsl;
+	return wsl && !wsl.here ? wsl.machine : hostName(hosts, host);
 };
 
 /** Step 1: the host. */
@@ -135,7 +168,7 @@ const Pick = ({
 							type="button"
 							role="radio"
 							aria-checked={host === h.host}
-							disabled={h.link !== null}
+							disabled={h.link !== null || unavailable(h) !== null}
 							onClick={() => onHost(h.host)}
 							className={cn(
 								"flex items-center gap-3 rounded-lg border px-3 py-2 text-left disabled:opacity-60",
@@ -146,11 +179,16 @@ const Pick = ({
 						>
 							<span className="min-w-0 flex-1">
 								<span className="block truncate text-[12.5px] text-foreground">
-									{h.host}
+									{h.wsl?.distro ?? h.host}
 								</span>
 								<span className="block truncate text-xs text-muted-foreground">
 									{fromText(h)}
 								</span>
+								{unavailable(h) !== null && h.link === null ? (
+									<span className="block text-xs text-muted-foreground">
+										{unavailable(h)}
+									</span>
+								) : null}
 							</span>
 							{h.link !== null ? (
 								<span className="shrink-0 text-xs text-muted-foreground">
@@ -306,12 +344,15 @@ const lookOf = (state: RunState, step: SetupStep): { look: ConnectionLook; label
 /** Steps 3 to 7: the app at work, with the host key question when it comes. */
 const Running = ({
 	host,
+	keyOf,
 	state,
 	onTrust,
 	onAgain,
 	onOpen,
 }: {
 	host: string;
+	/** The machine whose host key it reads, when that's not `host`. */
+	keyOf: string;
 	state: RunState;
 	onTrust: (ok: boolean) => void;
 	onAgain: () => void;
@@ -343,7 +384,9 @@ const Running = ({
 						className="flex items-center gap-2.5 text-[12.5px] text-foreground"
 					>
 						<ConnectionDot size={8} {...lookOf(state, step)} />
-						<span className="selectable">{phaseText(phase, host)}</span>
+						<span className="selectable">
+							{phaseText(phase, phase === "reading_host_key" ? keyOf : host)}
+						</span>
 					</li>
 				))}
 				{!ended && left > 0 ? (
@@ -548,7 +591,7 @@ const Wizard = ({ onClose }: { onClose: () => void }) => {
 		case "logins":
 			return (
 				<Logins
-					host={host}
+					host={hostName(hosts, host)}
 					accounts={accounts}
 					account={account}
 					token={token}
@@ -561,7 +604,8 @@ const Wizard = ({ onClose }: { onClose: () => void }) => {
 		case "run":
 			return (
 				<Running
-					host={host}
+					host={hostName(hosts, host)}
+					keyOf={keyHost(hosts, host)}
 					state={run}
 					onTrust={trust}
 					onAgain={() => setStage("logins")}

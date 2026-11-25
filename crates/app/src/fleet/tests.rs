@@ -691,6 +691,7 @@ fn a_device_can_t_report_another_device_s_build() {
             workspace_host: None,
             build: Some(build.to_owned()),
             target: None,
+            wsl: None,
         })
     }
 

@@ -27,6 +27,7 @@ fn hub_on(os: &str) -> Hub {
             workspace_host: None,
             build: None,
             target: None,
+            wsl: None,
         },
         HashMap::new(),
     )
@@ -288,8 +289,6 @@ async fn a_committed_folder_lands_in_the_source_and_its_repo() {
 
 #[tokio::test]
 async fn a_commit_lands_what_was_hashed_and_leaves_it_editable() {
-    use std::os::unix::fs::PermissionsExt;
-
     let rig = Rig::on("macos");
     let personal = rig.library.personal().await.unwrap();
     let folder = rig.dir.path().join("new/mine");
@@ -313,8 +312,9 @@ async fn a_commit_lands_what_was_hashed_and_leaves_it_editable() {
         .path(&skill.tree)
         .unwrap()
         .join(SKILL_FILE);
-    assert!(fs::metadata(&kept).unwrap().permissions().readonly());
-    fs::set_permissions(&kept, fs::Permissions::from_mode(0o644)).unwrap();
+    // Windows has no modes to seal the store with.
+    assert!(cfg!(windows) || fs::metadata(&kept).unwrap().permissions().readonly());
+    maxhq_os::fsmode::set_mode(&kept, 0o644).unwrap();
     fs::write(&kept, "---\nname: mine\ndescription: Kept\n---\n").unwrap();
     rig.library
         .commit_folder(personal, "mine", &folder, "Again")
@@ -491,7 +491,7 @@ async fn a_device_takes_the_library_over_with_the_same_ids() {
     assert_eq!(taken.problem, None);
 
     let mine = new.library.find(personal).unwrap();
-    let root = new.dir.path().join("data/skills/personal");
+    let root = new.dir.path().join("data").join("skills").join("personal");
     assert_eq!(
         mine.kind,
         SourceKind::Local {
@@ -581,8 +581,7 @@ async fn the_sweep_keeps_what_a_source_or_a_lock_names() {
     // Every tree was last named long before the clock's time.
     let long_ago = UNIX_EPOCH + Duration::from_millis(rig.clock.wall().0) - KEEP_FOR * 2;
     for tree in [&in_source, &locked, &unused] {
-        let folder = fs::File::open(store.path(tree).unwrap()).unwrap();
-        folder.set_modified(long_ago).unwrap();
+        maxhq_os::fsmode::set_modified(&store.path(tree).unwrap(), long_ago).unwrap();
     }
     rig.library.sweep().await;
     assert!(store.has(&in_source) && store.has(&locked));

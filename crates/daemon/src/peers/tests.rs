@@ -5,7 +5,6 @@
 //! streams in place of SSH.
 
 use std::collections::HashMap;
-use std::os::unix::fs::PermissionsExt;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -266,6 +265,7 @@ impl Device {
         let dir = std::env::temp_dir().join(format!("maxhq-peers-{name}-{}", uuid::Uuid::now_v7()));
         let files = Files {
             ssh: dir.join(".config/maxhq/ssh"),
+            keys: dir.join(".ssh/authorized_keys"),
             home: dir.clone(),
         };
         let db = Db::open_in_memory().unwrap();
@@ -691,10 +691,11 @@ async fn the_book_writes_pinned_host_keys_and_refuses_a_bad_one() {
         std::fs::read_to_string(&file).unwrap(),
         format!("maxhq-dev-{} {HOST_KEY}\n", b.id)
     );
-    assert_eq!(
-        std::fs::metadata(&file).unwrap().permissions().mode() & 0o777,
-        0o600
-    );
+    // Windows keeps no mode bits to check.
+    if cfg!(unix) {
+        let mode = maxhq_os::fsmode::mode_of(&std::fs::metadata(&file).unwrap());
+        assert_eq!(mode & 0o777, 0o600);
+    }
     let refused = a.peers.set_book(PeerBook {
         ssh: true,
         peers: vec![PeerEntry {
@@ -743,8 +744,13 @@ async fn a_device_with_no_routes_needs_no_host_key() {
     assert!(a.peers.set_book(book(vec![route])).is_err());
 }
 
+// The forced command and the kept mode are Unix's; Windows' sshd reads
+// keys its own way.
+#[cfg(unix)]
 #[tokio::test]
 async fn authorize_and_revoke_touch_only_that_devices_line() {
+    use std::os::unix::fs::PermissionsExt;
+
     let net = Net::default();
     let a = Device::new(&net, "a");
     let b = DeviceId::derive("b");

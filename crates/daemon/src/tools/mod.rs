@@ -17,13 +17,13 @@
 use std::collections::HashMap;
 use std::ffi::OsString;
 use std::io::Read;
-use std::os::unix::fs::MetadataExt;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use futures::future::BoxFuture;
 use futures::FutureExt;
+use maxhq_os::which;
 use maxhq_protocol::message::{ActionOutcome, ToolTarget};
 use maxhq_protocol::model::{Tool, WorkspaceLocation};
 use maxhq_protocol::state::{
@@ -113,29 +113,11 @@ impl HostExec {
                 "MaxHQ doesn't run {name} on the device"
             )));
         }
-        Ok(tokio::process::Command::new(program))
+        Ok(crate::drive::programs::command(program))
     }
 }
 
-/// Starts a process with `start`, trying again for a moment while Linux
-/// says its program is busy. A child that another thread forks while the
-/// program file is still open for writing holds it open until that child
-/// execs, and Linux won't run the file until then.
-pub async fn retry_busy<T, Fut>(mut start: impl FnMut() -> Fut) -> std::io::Result<T>
-where
-    Fut: Future<Output = std::io::Result<T>>,
-{
-    let mut busy = 0;
-    loop {
-        match start().await {
-            Err(err) if err.kind() == std::io::ErrorKind::ExecutableFileBusy && busy < 10 => {
-                busy += 1;
-                tokio::time::sleep(Duration::from_millis(20)).await;
-            }
-            started => return started,
-        }
-    }
-}
+pub use maxhq_os::proc::retry_busy;
 
 impl Exec for HostExec {
     fn run<'a>(
@@ -210,12 +192,9 @@ impl Exec for HostExec {
                     "MaxHQ doesn't write files as root on the device".to_owned(),
                 ));
             }
-            use std::os::unix::fs::PermissionsExt;
             tokio::fs::write(path, bytes)
                 .await
-                .and_then(|()| {
-                    std::fs::set_permissions(path, std::fs::Permissions::from_mode(mode))
-                })
+                .and_then(|()| maxhq_os::fsmode::set_mode(Path::new(path), mode))
                 .map_err(|err| ExecError::Transport(err.to_string()))
         }
         .boxed()
@@ -231,14 +210,7 @@ impl Probe for SystemProbe {
     }
 
     fn writable(&self, path: &str) -> bool {
-        let Ok(c) = std::ffi::CString::new(path) else {
-            return false;
-        };
-        #[allow(unsafe_code)]
-        // SAFETY: `c` is a valid C string that outlives the call.
-        let writable = unsafe { libc::access(c.as_ptr(), libc::W_OK) } == 0;
-        // A folder root owns isn't one to update in, even for root.
-        writable && std::fs::metadata(path).is_ok_and(|meta| meta.uid() != 0 || current_uid() == 0)
+        folder_writable(Path::new(path))
     }
 
     fn small_file(&self, path: &str) -> Option<String> {
@@ -254,7 +226,7 @@ impl Probe for SystemProbe {
     }
 
     fn output(&self, program: &str, args: &[&str]) -> Option<String> {
-        let output = std::process::Command::new(program)
+        let output = crate::drive::programs::std_command(program)
             .args(args)
             .stdin(std::process::Stdio::null())
             .stderr(std::process::Stdio::null())
@@ -267,10 +239,13 @@ impl Probe for SystemProbe {
     }
 }
 
-#[allow(unsafe_code)]
-fn current_uid() -> u32 {
-    // SAFETY: getuid can't fail.
-    unsafe { libc::getuid() }
+/// Whether this user can write in the folder `path`. A folder root owns
+/// isn't one to update in, unless `maxd` runs as root.
+fn folder_writable(path: &Path) -> bool {
+    let root = maxhq_os::proc::own_ids().is_some_and(|(uid, _)| uid == 0);
+    maxhq_os::fsmode::writable_dir(path)
+        && std::fs::metadata(path)
+            .is_ok_and(|meta| maxhq_os::fsmode::owner_of(&meta) != Some(0) || root)
 }
 
 /// One CLI on the device, as last found.
@@ -349,7 +324,8 @@ impl Tools {
         registry: Arc<dyn Registry>,
         search: Option<OsString>,
     ) -> Self {
-        let home = std::env::var("HOME").ok().filter(|home| !home.is_empty());
+        let home =
+            maxhq_os::home::home_dir().and_then(|home| home.into_os_string().into_string().ok());
         Self {
             hub,
             incus,
@@ -489,9 +465,13 @@ impl Tools {
 
     fn find(&self, name: &str) -> Option<PathBuf> {
         match &self.search {
-            Some(search) => std::env::split_paths(search)
-                .map(|dir| dir.join(name))
-                .find(|file| file.is_file()),
+            Some(search) => which::find_in(
+                which::Rules::HOST,
+                name,
+                &[],
+                &which::Env::with_path(Some(search)),
+                &which::Host,
+            ),
             None => crate::service::find_program(name),
         }
     }
@@ -899,6 +879,14 @@ impl Tools {
         let Some(installer) = self.installer.get().cloned() else {
             return Err("This maxd can't install tools.".to_owned());
         };
+        // The install scripts run in sh, with Unix paths and links.
+        if cfg!(windows) && matches!(place, ToolPlace::Host) {
+            return Err(
+                "MaxHQ can't install tools on Windows yet. Install the tool yourself, and \
+                 MaxHQ finds it."
+                    .to_owned(),
+            );
+        }
         if let ToolPlace::Workspace { workspace } = place {
             if self.incus.is_none() {
                 return Err("This device runs no container workspaces.".to_owned());
@@ -1235,5 +1223,6 @@ fn lock<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
         .unwrap_or_else(std::sync::PoisonError::into_inner)
 }
 
-#[cfg(test)]
+// The fake CLIs are sh scripts, and host installs run in sh.
+#[cfg(all(test, unix))]
 mod tests;

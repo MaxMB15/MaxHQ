@@ -1,0 +1,265 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Max Boksem
+
+# The release's Windows, Linux and Android builds, run as release.yml runs
+# them, then signed and written up as the signing and publishing jobs would,
+# with throwaway keys: the updater's two, a current and a next one as in a
+# key change, and an Android upload key. It makes no release, uses no
+# environment and holds no secret. What a release would upload ends up in
+# the dry-run-release artifact.
+#
+# It runs on the cross-platform branches when a release file changes, and on
+# demand.
+
+name: Release dry run
+
+on:
+  push:
+    branches: [int/cross-platform, "xplat/**"]
+    paths:
+      - .github/workflows/release*.yml
+      - .github/actions/**
+      - scripts/release/**
+      - apps/mobile/scripts/**
+      - apps/mobile/package.json
+  workflow_dispatch:
+
+permissions: {}
+
+# A new push replaces the run it would only repeat.
+concurrency:
+  group: release-dry-run-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  linux-maxd:
+    uses: ./.github/workflows/release-linux-maxd.yml
+    permissions:
+      contents: read
+
+  # The manifest a release from now on has the app read. The key stays
+  # tauri.conf.json's, as in a release without a key change.
+  build-windows:
+    uses: ./.github/workflows/release-windows.yml
+    permissions:
+      contents: read
+    with:
+      update-manifest: latest-v2.json
+
+  build-linux:
+    needs: [linux-maxd]
+    uses: ./.github/workflows/release-linux.yml
+    permissions:
+      contents: read
+    with:
+      update-manifest: latest-v2.json
+
+  build-android:
+    uses: ./.github/workflows/release-android.yml
+    permissions:
+      contents: read
+    with:
+      release: false
+
+  # What sign-desktop, sign-android and publish-latest-json do with the
+  # builds, run on whatever built, with throwaway keys made here.
+  check:
+    needs: [linux-maxd, build-windows, build-linux, build-android]
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    env:
+      ANDROID_BUILD: ${{ needs.build-android.outputs.build }}
+      RELEASE: ${{ github.workspace }}/release
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # The packages, for the Tauri CLI that makes the throwaway update keys.
+      # The release's signing jobs install none.
+      - name: Set up the frontend
+        uses: ./.github/actions/setup-frontend
+
+      # jarsigner, for the App Bundle, as sign-android has it.
+      - uses: actions/setup-java@77dd5b2ce225ea11469928ac317850245a74ae78 # v6.2.0
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Download the installers
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          pattern: desktop-build-*
+          merge-multiple: true
+          path: ${{ runner.temp }}/desktop
+
+      - name: Download the Linux maxd
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          pattern: release-maxd-*
+          merge-multiple: true
+          path: ${{ runner.temp }}/maxd
+
+      - name: Download the Windows maxd
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          pattern: windows-maxd-*
+          merge-multiple: true
+          path: ${{ runner.temp }}/maxd
+
+      - name: Download the Android build
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: android-build
+          path: ${{ runner.temp }}/android
+
+      # Every Linux and Windows package must be there.
+      - name: Check the installers
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/desktop"
+          ls -l "$RUNNER_TEMP/desktop"
+          missing=0
+          for os in linux windows; do
+            for name in $(node scripts/release/bundles.mjs assets "$os"); do
+              if [[ ! -f "$RUNNER_TEMP/desktop/$name" ]]; then
+                echo "::error::The $os build has no $name."
+                missing=1
+              fi
+            done
+          done
+          exit "$missing"
+
+      # A current and a next key, so the run signs as the bridge release of
+      # a key change does: both signatures for every installer. Only the
+      # paths go into GITHUB_ENV; the keys stay in the runner's temp folder.
+      - name: Make throwaway update keys
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/keys"
+          for name in current next; do
+            pnpm --filter ./apps/desktop exec tauri signer generate --ci -w "$RUNNER_TEMP/keys/$name" > /dev/null
+          done
+          {
+            echo "TAURI_SIGNING_PRIVATE_KEY_PATH=$RUNNER_TEMP/keys/current"
+            echo "TAURI_SIGNING_PRIVATE_KEY_NEXT_PATH=$RUNNER_TEMP/keys/next"
+            echo "CURRENT_PUBKEY=$(cat "$RUNNER_TEMP/keys/current.pub")"
+            echo "NEXT_PUBKEY=$(cat "$RUNNER_TEMP/keys/next.pub")"
+          } >> "$GITHUB_ENV"
+
+      # sign-desktop's steps, with the bridge release's keys.
+      - name: Sign the installers
+        env:
+          MAXHQ_BRIDGE: "1"
+        run: |
+          set -euo pipefail
+          node scripts/release/sign.mjs --check --expect "$CURRENT_PUBKEY"
+          node scripts/release/sign.mjs --next --check --expect "$NEXT_PUBKEY"
+          sh scripts/release/sign-desktop.sh "$RUNNER_TEMP/desktop"
+
+      # publish-latest-json's: the bridge release's two manifests, written by
+      # the release's write-manifests.sh, and SHA256SUMS for the maxd
+      # binaries. The Macs' updater archives are stand-ins, signed with both
+      # keys as package-macos.sh signs them in the bridge release.
+      - name: Write the manifests and SHA256SUMS
+        env:
+          KEY_STATE: bridge
+          SIGN_KEY: current
+          UPDATE_MANIFEST: latest-v2.json
+        run: |
+          set -euo pipefail
+          VERSION=$(node scripts/release/version.mjs get)
+          export VERSION
+          mkdir -p "$RELEASE" "$RUNNER_TEMP/mac"
+          : > "$RELEASE/notes.md"
+          for arch in aarch64 x64; do
+            archive="$RUNNER_TEMP/mac/MaxHQ_${VERSION}_${arch}.app.tar.gz"
+            echo "stand-in for the $arch updater archive" > "$archive"
+            node scripts/release/sign.mjs --app-version "$VERSION" "$archive"
+            node scripts/release/sign.mjs --next --app-version "$VERSION" --out "$archive.next.sig" "$archive"
+          done
+          sh scripts/release/write-manifests.sh "$RELEASE/notes.md" "$RUNNER_TEMP/mac" \
+            "$RUNNER_TEMP/desktop" "$RELEASE" > /dev/null
+          # latest-v2.json has both Macs and every Windows and Linux
+          # package's platform keys, and latest.json only the Macs.
+          desktop=$(node scripts/release/bundles.mjs platforms)
+          # shellcheck disable=SC2086 # one platform key per word
+          node -e '
+            const [dir, ...desktop] = process.argv.slice(1);
+            const macs = ["darwin-aarch64", "darwin-x86_64"];
+            const platforms = (file) =>
+              Object.keys(JSON.parse(require("fs").readFileSync(`${dir}/${file}`, "utf8")).platforms);
+            let failed = false;
+            const check = (file, want, only) => {
+              const have = platforms(file);
+              const missing = want.filter((name) => !have.includes(name));
+              const extra = only ? have.filter((name) => !want.includes(name)) : [];
+              if (missing.length) console.log(`::error::${file} has no ${missing.join(", ")}.`);
+              if (extra.length) console.log(`::error::${file} has ${extra.join(", ")}, which only latest-v2.json gets.`);
+              failed ||= missing.length > 0 || extra.length > 0;
+            };
+            check("latest-v2.json", [...macs, ...desktop], false);
+            check("latest.json", macs, true);
+            if (failed) process.exit(1);' "$RELEASE" $desktop
+          sh scripts/release/maxd-sums.sh "$RUNNER_TEMP/maxd" > "$RUNNER_TEMP/maxd-assets"
+          while read -r name; do cp "$RUNNER_TEMP/maxd/$name" "$RELEASE/"; done < "$RUNNER_TEMP/maxd-assets"
+
+      # sign-android's step, with an upload key made here, then the APK's
+      # signature checked as Android checks it.
+      - name: Sign the Android build
+        run: |
+          set -euo pipefail
+          umask 077
+          keystore="$RUNNER_TEMP/keys/upload.p12"
+          password=$(openssl rand -hex 16)
+          keytool -genkeypair -keystore "$keystore" -storetype PKCS12 -alias upload \
+            -keyalg RSA -keysize 2048 -validity 1 -dname "CN=MaxHQ dry run" \
+            -storepass "$password" -keypass "$password" > /dev/null
+          ANDROID_KEYSTORE_BASE64=$(base64 -w 0 "$keystore") \
+            ANDROID_KEYSTORE_PASSWORD=$password ANDROID_KEY_ALIAS=upload ANDROID_KEY_PASSWORD=$password \
+            node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON apps/mobile/scripts/mobile.ts \
+            android-sign "$RUNNER_TEMP/android" "$RELEASE"
+          tools=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -n 1)
+          "$tools/apksigner" verify --print-certs "$RELEASE/MaxHQ.apk" | grep 'CN=MaxHQ dry run'
+
+      # publish-latest-json's, with the Android build named. The iPhone's
+      # build number is the same, as build-ios would have it.
+      - name: Write mobile.json
+        run: |
+          set -euo pipefail
+          version=$(node scripts/release/version.mjs get)
+          node scripts/release/mobile-json.mjs --version "$version" --build "$ANDROID_BUILD" \
+            --android-build "$ANDROID_BUILD" --repo "$GITHUB_REPOSITORY" \
+            --out "$RELEASE/mobile.json" --notes-file "$RELEASE/notes.md"
+          cat "$RELEASE/mobile.json" "$RELEASE/notes.md"
+
+      # The installers and their signatures, as a release uploads them.
+      - name: Stage the release
+        run: |
+          set -euo pipefail
+          for name in $(node scripts/release/bundles.mjs assets); do
+            for file in "$name" "$name.sig" "$name.next.sig"; do
+              if [[ -f "$RUNNER_TEMP/desktop/$file" ]]; then cp "$RUNNER_TEMP/desktop/$file" "$RELEASE/"; fi
+            done
+          done
+          {
+            echo "### Release dry run"
+            echo "What a release would upload, in the dry-run-release artifact:"
+            echo
+            echo '```'
+            (cd "$RELEASE" && ls -l)
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: dry-run-release
+          path: release/
+          retention-days: 7
+          if-no-files-found: error
+
+      - name: Remove the keys
+        if: always()
+        run: rm -rf "$RUNNER_TEMP/keys"

@@ -42,6 +42,20 @@ use crate::incus::InstanceName;
 use crate::transfer::{self, MakeRequest};
 use crate::workspace::GuestLinks;
 
+/// The bytes the file `meta` is of takes on disk, which for a sparse disk
+/// image is less than its length.
+#[cfg(unix)]
+fn allocated(meta: &std::fs::Metadata) -> u64 {
+    std::os::unix::fs::MetadataExt::blocks(meta) * 512
+}
+
+/// The bytes the file `meta` is of takes on disk. The macOS VM only runs
+/// on a Mac, so elsewhere its length does.
+#[cfg(not(unix))]
+fn allocated(meta: &std::fs::Metadata) -> u64 {
+    meta.len()
+}
+
 /// The base bundle, once built.
 const BASE: &str = "base";
 
@@ -374,11 +388,9 @@ impl MacVm {
             Err(error) => Err(error),
         };
         remove(&staged)?;
-        let path = Path::new(GUEST_SHARE)
-            .join(UPLOADS)
-            .join(placed?)
-            .join(&name);
-        via_guest::install(&guest, on.lease, path.display().to_string()).await?;
+        // The guest is a Mac, so its path has `/` whatever this device uses.
+        let path = format!("{GUEST_SHARE}/{UPLOADS}/{}/{name}", placed?);
+        via_guest::install(&guest, on.lease, path).await?;
         Ok(match self.kind {
             TestKind::IosSimulator => format!("Installed {name} on the Simulator."),
             _ => format!("Copied {name} into the test user's home folder."),
@@ -390,7 +402,7 @@ impl MacVm {
         let base = self.shared.folder.join(BASE);
         let shape = read_shape(&base)?;
         let disk = std::fs::metadata(base.join(bundle::DISK))
-            .map(|meta| std::os::unix::fs::MetadataExt::blocks(&meta) * 512)
+            .map(|meta| allocated(&meta))
             .unwrap_or(0);
         Ok(Built {
             agent_device: Some(agent_device::VERSION.to_owned()),

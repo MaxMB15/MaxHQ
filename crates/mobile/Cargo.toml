@@ -8,7 +8,8 @@ publish.workspace = true
 
 [lib]
 name = "maxhq_mobile"
-# A static library for the app's Xcode build, and the Rust one for tests.
+# A static library for the app's Xcode and Android builds, and the Rust one
+# for tests.
 crate-type = ["lib", "staticlib"]
 
 [dependencies]
@@ -37,6 +38,11 @@ objc2-core-foundation = { workspace = true, features = [
     "CFString",
     "CFURL",
 ] }
+
+# On Android they live under an Android Keystore key, which the key store
+# reaches over JNI once the VM loads the core.
+[target.'cfg(target_os = "android")'.dependencies]
+jni.workspace = true
 
 [dev-dependencies]
 tracing-subscriber.workspace = true

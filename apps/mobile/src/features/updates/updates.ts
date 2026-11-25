@@ -2,9 +2,12 @@
 // Copyright (c) 2026 Max Boksem
 
 // What the phone knows about its own updates. Each release names its iPhone
-// build in mobile.json, next to the Mac's latest.json; the phone reads it
-// from the newest release, offers a newer version in TestFlight, and
-// remembers the version whose banner you dismissed. It also finds the
+// build in mobile.json, next to the Mac's latest.json, and its Android build
+// and APK from the release that added one; the phone reads it from the
+// newest release, offers a newer version in TestFlight on iOS and as a
+// download from GitHub Releases on Android, and remembers the version whose
+// banner you dismissed. An Android phone installed from Google Play gets
+// its updates through Play, which the screens say. It also finds the
 // devices whose maxd shares no protocol with this app, and which side is
 // older.
 
@@ -19,13 +22,23 @@ import {
 import { formatAgo } from "@maxhq/shared/status/format";
 import { all, type ViewState } from "@maxhq/shared/view/replica";
 
-/** The newest release's iPhone build, as its mobile.json names it. */
+import type { UpdateChannel } from "../../platform";
+
+/** A release's Android build: its version code and the APK to download. */
+export type AndroidBuild = { readonly build: number; readonly apkUrl: string };
+
+/** The newest release's iPhone build, and its Android one, as its mobile.json names them. */
 export type Manifest = {
 	readonly version: string;
 	readonly build: number;
 	readonly protocol: { readonly current: number; readonly oldest: number };
 	readonly notesUrl: string;
+	/** Null in a release made before Android joined it, or when its entry is wrong. */
+	readonly android: AndroidBuild | null;
 };
+
+/** This build, as the check compares it. */
+export type ThisBuild = { readonly version: string | null; readonly build: number | null };
 
 /**
  * Where a build finds mobile.json: the latest release of the repository
@@ -39,22 +52,48 @@ const SEMVER = /^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$/;
 const count = (value: unknown): value is number =>
 	typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
 
+const https = (value: unknown): value is string =>
+	typeof value === "string" && value.startsWith("https://");
+
+/**
+ * The Android entry's fields, checked, or null when it's missing or wrong.
+ * A wrong one leaves the iPhone build alone.
+ */
+const androidOf = (value: unknown): AndroidBuild | null => {
+	if (!value || typeof value !== "object") return null;
+	const { build, apkUrl } = value as Record<string, unknown>;
+	return count(build) && https(apkUrl) ? { build, apkUrl } : null;
+};
+
 /** A manifest's fields, checked, or null when one is missing or wrong. */
 const manifestOf = (value: unknown): Manifest | null => {
 	if (!value || typeof value !== "object") return null;
-	const { version, build, protocol, notesUrl } = value as Record<string, unknown>;
+	const { version, build, protocol, notesUrl, android } = value as Record<string, unknown>;
 	if (typeof version !== "string" || !SEMVER.test(version) || !count(build)) return null;
 	const range = (protocol ?? {}) as Record<string, unknown>;
 	if (!count(range.current) || !count(range.oldest)) return null;
-	if (typeof notesUrl !== "string" || !notesUrl.startsWith("https://")) return null;
-	return { version, build, protocol: { current: range.current, oldest: range.oldest }, notesUrl };
+	if (!https(notesUrl)) return null;
+	return {
+		version,
+		build,
+		protocol: { current: range.current, oldest: range.oldest },
+		notesUrl,
+		android: androidOf(android),
+	};
 };
 
 /** mobile.json's text as a manifest, or null when it isn't one. */
 export const parseManifest = (text: string): Manifest | null => {
 	try {
 		const value = JSON.parse(text) as Record<string, unknown> | null;
-		return manifestOf(value && { ...value, notesUrl: value.notes_url });
+		const android = value?.android as Record<string, unknown> | null | undefined;
+		return manifestOf(
+			value && {
+				...value,
+				notesUrl: value.notes_url,
+				android: android && { ...android, apkUrl: android.apk_url },
+			}
+		);
 	} catch {
 		return null;
 	}
@@ -83,7 +122,7 @@ export type UpdatePrefs = {
 	readonly dismissed: string | null;
 	/** When the last check answered, in ms. */
 	readonly checkedAt: number | null;
-	/** What the last check found, or null when the newest release had no iPhone build. */
+	/** What the last check found, or null when the newest release had no mobile.json. */
 	readonly newest: Manifest | null;
 };
 
@@ -148,13 +187,18 @@ export type CheckState = UpdatePrefs & {
  * The line under Newest in About: when the phone last looked, or why it
  * knows of no newest build. `repo` is null in a build that doesn't look.
  */
-export const newestNote = (state: CheckState, repo: string | null, now: number): string => {
+export const newestNote = (
+	state: CheckState,
+	repo: string | null,
+	now: number,
+	through: UpdateChannel
+): string => {
 	if (!repo) return t("This build doesn't look for updates.");
 	if (state.checking) return t("Checking for updates…");
 	if (state.failure)
 		return t("Couldn't check for updates: {{reason}}", { reason: state.failure });
 	if (state.checkedAt === null) return t("MaxHQ hasn't checked for updates yet.");
-	if (!state.newest) return t("The newest release has no iPhone build.");
+	if (!newestFor(state.newest, through)) return t("The newest release has no iPhone build.");
 	return t("Checked {{ago}}", { ago: formatAgo(state.checkedAt, now) });
 };
 
@@ -166,13 +210,45 @@ export const dueForCheck = (prefs: UpdatePrefs, now: number): boolean =>
 	prefs.autoCheck && (prefs.checkedAt === null || now - prefs.checkedAt >= CHECK_EVERY);
 
 /**
- * The version the update banner offers: the newest release's, when it's
- * newer than this build and its banner wasn't dismissed. Null otherwise.
+ * The newest release when it has a build that comes `through` this phone's
+ * channel. Every mobile.json names an iPhone build for TestFlight, and an
+ * Android APK only from the release that added one.
  */
-export const offeredVersion = (prefs: UpdatePrefs, current: string | null): string | null => {
-	const newest = prefs.newest?.version;
-	if (!newest || !current || !isNewer(newest, current)) return null;
-	return newest === prefs.dismissed ? null : newest;
+export const newestFor = (newest: Manifest | null, through: UpdateChannel): Manifest | null =>
+	through === "testflight" || newest?.android ? newest : null;
+
+/**
+ * Whether `newest` has a build that comes `through` this phone's channel
+ * and is newer than this one. TestFlight compares versions, as before. An
+ * APK compares build numbers, since Android installs one over the app only
+ * when its version code is higher.
+ */
+export const hasNewer = (
+	newest: Manifest | null,
+	current: ThisBuild,
+	through: UpdateChannel
+): boolean => {
+	if (!newest) return false;
+	if (through === "testflight")
+		return current.version !== null && isNewer(newest.version, current.version);
+	return Boolean(
+		newest.android && current.build !== null && newest.android.build > current.build
+	);
+};
+
+/**
+ * The version the update banner offers: the newest release's, when it has a
+ * newer build `through` this phone's channel than this one and its banner
+ * wasn't dismissed. Null otherwise.
+ */
+export const offeredVersion = (
+	prefs: UpdatePrefs,
+	current: ThisBuild,
+	through: UpdateChannel
+): string | null => {
+	const newest = prefs.newest;
+	if (!newest || !hasNewer(newest, current, through)) return null;
+	return newest.version === prefs.dismissed ? null : newest.version;
 };
 
 /**
@@ -185,6 +261,29 @@ export const testflightLinks = (appStoreId: string | null): string[] => [
 		: []),
 	"itms-beta://",
 ];
+
+/**
+ * The links that open this phone's update, tried in order: TestFlight on
+ * iOS, and on Android the newest APK, else the latest release's page, such
+ * as when a device needs a newer app before any release has an Android build.
+ */
+export const updateLinks = (
+	through: UpdateChannel,
+	{ appStoreId, repo }: { readonly appStoreId: string | null; readonly repo: string | null },
+	newest: Manifest | null
+): string[] => {
+	if (through === "testflight") return testflightLinks(appStoreId);
+	if (newest?.android) return [newest.android.apkUrl];
+	return repo ? [`https://github.com/${repo}/releases/latest`] : [];
+};
+
+/**
+ * What the screens add where they offer an update, or null. The APK's says
+ * a phone that installed MaxHQ from Google Play gets its updates there:
+ * Play can sign its copy with another key, and the APK won't install over it.
+ */
+export const storeNote = (through: UpdateChannel): string | null =>
+	through === "apk" ? t("Installed from Google Play? Play updates MaxHQ for you.") : null;
 
 /** The protocols this app speaks. */
 const OURS: ProtocolRange = { current: PROTOCOL_VERSION, oldest: OLDEST_PROTOCOL_VERSION };

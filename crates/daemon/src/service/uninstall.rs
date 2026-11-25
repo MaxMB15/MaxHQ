@@ -15,11 +15,12 @@ use std::path::{Path, PathBuf};
 use std::thread;
 use std::time::Duration;
 
+use maxhq_core::service::{launcher_program, task_name_here};
 use maxhq_hold::{Ended, Found, Holds};
 use maxhq_protocol::ids::SessionId;
 
 use super::{
-    command_error, find_program, remove, wait_unloaded, Manager, Runner, ServiceError, Setup,
+    command_error, find_program, remove, task, wait_unloaded, Manager, Runner, ServiceError, Setup,
     GONE_PAUSE, GONE_TRIES, UNIT,
 };
 use crate::hooks::{FUNNEL_PORT, FUNNEL_PREFIX};
@@ -94,18 +95,15 @@ impl Holders for SystemHolders {
         if sessions.is_empty() {
             return Ending::default();
         }
-        let runtime = match tokio::runtime::Builder::new_current_thread()
-            .enable_all()
-            .build()
-        {
-            Ok(runtime) => runtime,
-            Err(err) => return left(format!("couldn't end the agents maxd ran: {err}")),
-        };
         let ends = sessions
             .into_iter()
             .map(|session| end_held(&holds, session));
+        let ended = match maxhq_os::rt::block_on(futures::future::join_all(ends)) {
+            Ok(ended) => ended,
+            Err(err) => return left(format!("couldn't end the agents maxd ran: {err}")),
+        };
         let mut ending = Ending::default();
-        for (ran, still) in runtime.block_on(futures::future::join_all(ends)) {
+        for (ran, still) in ended {
             ending.ended += usize::from(ran && still.is_none());
             ending.left.extend(still);
         }
@@ -298,6 +296,18 @@ impl Steps<'_> {
                         &stop,
                         "maxd was still running after it",
                     ));
+                }
+            }
+            Manager::TaskScheduler => {
+                let ran = task::stop_as(
+                    self.setup,
+                    &task_name_here(),
+                    self.runner,
+                    &mut task::SystemProcesses,
+                    self.how.pause,
+                )?;
+                if !ran {
+                    return Ok(());
                 }
             }
         }
@@ -573,8 +583,12 @@ impl Steps<'_> {
         }
     }
 
-    /// Removes the service file.
+    /// Removes the service file, and on Windows the logon task and its
+    /// launcher first.
     fn remove_file(&mut self) {
+        if self.setup.manager == Manager::TaskScheduler {
+            self.remove_task();
+        }
         let file = self.setup.file();
         if !file.exists() {
             return;
@@ -588,6 +602,39 @@ impl Steps<'_> {
             let _ = self.runner.run("systemctl", &["--user", "daemon-reload"]);
         }
         self.tell(format!("Removed {}.", file.display()));
+    }
+
+    /// Takes the logon task out of Task Scheduler and deletes the launcher
+    /// it ran.
+    fn remove_task(&mut self) {
+        let name = task_name_here();
+        if task::registered(self.runner, &name) {
+            let failed = match self
+                .runner
+                .run("schtasks", &["/Delete", "/TN", &name, "/F"])
+            {
+                Ok(ran) if ran.success => None,
+                Ok(ran) => Some(ran.stderr.trim().to_owned()),
+                Err(err) => Some(err.to_string()),
+            };
+            match failed {
+                None => self.tell(format!("Removed the logon task \"{name}\".")),
+                Some(why) => self
+                    .problems
+                    .push(format!("couldn't remove the logon task \"{name}\": {why}")),
+            }
+        }
+        let launcher = launcher_program(&self.setup.app_folder());
+        let mut old = launcher.as_os_str().to_owned();
+        old.push(".old");
+        let _ = fs::remove_file(PathBuf::from(old));
+        match delete(&launcher) {
+            Ok(true) => self.tell(format!("Removed {}.", launcher.display())),
+            Ok(false) => {}
+            Err(err) => self
+                .problems
+                .push(format!("couldn't remove {}: {err}", launcher.display())),
+        }
     }
 
     /// Deletes `maxd`'s data, its logs and its keys for your other devices,
@@ -684,6 +731,8 @@ impl Steps<'_> {
         let started = match self.setup.manager {
             Manager::Launchd => self.runner.spawn("launchctl", &["bootout", &target]),
             Manager::Systemd => self.runner.spawn("systemctl", &["--user", "stop", UNIT]),
+            // This maxd exits 0 when it's done, and its launcher stops.
+            Manager::TaskScheduler => Ok(()),
         };
         match started {
             Ok(()) => self.tell("Stopping the maxd service.".into()),
@@ -699,7 +748,8 @@ impl Steps<'_> {
 fn delete(path: &Path) -> io::Result<bool> {
     let removed = match fs::symlink_metadata(path) {
         Ok(meta) if meta.is_dir() => fs::remove_dir_all(path),
-        Ok(_) => fs::remove_file(path),
+        // A junction or a folder's link on Windows needs its own removal.
+        Ok(_) => maxhq_core::fs_ext::remove_link(path),
         Err(err) => Err(err),
     };
     match removed {

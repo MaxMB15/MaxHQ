@@ -9,22 +9,23 @@
 //! installer and a `.venv`. Only a copy that note vouches for hands its
 //! `.venv` to the next one, and what the installer makes is never touched.
 
-use std::fs::{self, DirBuilder, File, OpenOptions};
+use std::fs::{self, File};
 use std::io::{self, Read};
-use std::os::unix::ffi::OsStrExt;
-use std::os::unix::fs::{lchown, DirBuilderExt, OpenOptionsExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 
 use maxhq_core::fs::{write_atomic, Atomic};
+use maxhq_core::fs_ext;
 use maxhq_core::skills::disk::DiskFs;
 use maxhq_core::skills::pack::{self, Marker, Next, Ran, INSTALLER, MARKER, PACK_DIR};
 use maxhq_core::skills::tree;
 use maxhq_protocol::skills::{PackState, TreeHash};
 
-use super::apply;
+use super::{apply, bash};
 use maxhq_hold::RunAs;
+use maxhq_os::fsmode;
+use maxhq_os::proc::{self, GroupExt, Stop};
 use maxhq_transfer::beneath::{Dir, FileType};
 use serde::{Deserialize, Serialize};
 
@@ -241,14 +242,7 @@ pub fn unlocked(root: &Path) -> Option<PackState> {
 /// can put anything at its name, so the open doesn't follow a link or wait on
 /// a FIFO, only a regular file counts, and the read stops at the limit.
 fn marker(vendor: &Path) -> Option<Marker> {
-    let file = OpenOptions::new()
-        .read(true)
-        .custom_flags(libc::O_NONBLOCK | libc::O_NOFOLLOW)
-        .open(vendor.join(MARKER))
-        .ok()?;
-    if !file.metadata().ok()?.is_file() {
-        return None;
-    }
+    let file = fs_ext::open_regular(&vendor.join(MARKER), false).ok()?;
     let mut text = String::new();
     file.take(MARKER_LIMIT + 1).read_to_string(&mut text).ok()?;
     if text.len() as u64 > MARKER_LIMIT {
@@ -386,7 +380,7 @@ fn venv_hash(vendor: &Path) -> Option<String> {
                 }
                 FileType::RegularFile => {
                     let mut file = here.read_regular(&name).ok()?;
-                    let mode = file.metadata().ok()?.permissions().mode() & 0o7777;
+                    let mode = fsmode::mode_of(&file.metadata().ok()?) & 0o7777;
                     let mut content = Context::new(&SHA256);
                     let mut buf = vec![0u8; 64 * 1024];
                     loop {
@@ -406,7 +400,7 @@ fn venv_hash(vendor: &Path) -> Option<String> {
                 FileType::Symlink => {
                     let target = here.read_link(&name).ok()?;
                     sum.update(format!("l\0{shown}\0").as_bytes());
-                    sum.update(target.as_bytes());
+                    sum.update(target.as_encoded_bytes());
                     sum.update(b"\0");
                 }
                 _ => return None,
@@ -430,7 +424,7 @@ fn hold(landing: &Landing, vendor: &Path) -> io::Result<PathBuf> {
         }
         None => apply::beside(vendor, "tmp"),
     };
-    DirBuilder::new().mode(0o700).create(&hold)?;
+    fsmode::private_dir(&hold)?;
     Ok(hold)
 }
 
@@ -456,13 +450,13 @@ fn build(landing: &Landing, temp: &Path) -> io::Result<()> {
 
 /// Gives everything under `dir` to `owner`.
 fn own_all(dir: &Path, (uid, gid): (u32, u32)) -> io::Result<()> {
-    lchown(dir, Some(uid), Some(gid))?;
+    fs_ext::chown_link(dir, uid, gid)?;
     for entry in fs::read_dir(dir)? {
         let entry = entry?;
         if entry.file_type()?.is_dir() {
             own_all(&entry.path(), (uid, gid))?;
         } else {
-            lchown(entry.path(), Some(uid), Some(gid))?;
+            fs_ext::chown_link(&entry.path(), uid, gid)?;
         }
     }
     Ok(())
@@ -472,21 +466,23 @@ fn owner(user: Option<&RunAs>) -> Option<(u32, u32)> {
     user.map(|user| (user.uid, user.gid))
 }
 
-/// The log of the checkout at `root`.
+/// The log of the checkout at `root`, named for its path. On Windows a
+/// drive's `:` and a share's `\` go too, since a name can't hold them.
 pub fn log_path(logs: &Path, root: &Path) -> PathBuf {
-    let name = root.display().to_string();
-    logs.join(format!(
-        "{}.log",
-        name.trim_start_matches('/').replace('/', "-")
-    ))
+    let name = maxhq_core::skills::path_text(root);
+    let name = name.trim_start_matches('/');
+    let name = if cfg!(windows) {
+        name.trim_start_matches('\\').replace(['/', '\\', ':'], "-")
+    } else {
+        name.replace('/', "-")
+    };
+    logs.join(format!("{name}.log"))
 }
 
 /// Runs the installer from the checkout's root, with the pull off, in a
 /// process group of its own that goes past the timeout. A failure gives
 /// the log's last lines.
 fn install(landing: &Landing) -> Result<(), Vec<String>> {
-    use std::os::unix::process::CommandExt;
-
     let log = log_path(landing.logs, landing.root);
     let opened = fs::create_dir_all(landing.logs).and_then(|()| File::create(&log));
     let file = opened.map_err(|err| vec![format!("couldn't open the install log: {err}")])?;
@@ -495,7 +491,7 @@ fn install(landing: &Landing) -> Result<(), Vec<String>> {
         .map_err(|err| vec![format!("couldn't open the install log: {err}")])?;
     // bash reads the script rather than running the file, which Linux
     // can refuse while the copy is still open somewhere.
-    let mut command = Command::new("bash");
+    let mut command = Command::new(bash::git_bash().map_err(|err| vec![err.to_string()])?);
     if let Some(user) = landing.user {
         let path = format!(
             "{}:{}",
@@ -507,9 +503,9 @@ fn install(landing: &Landing) -> Result<(), Vec<String>> {
             .env("PATH", path)
             .env("HOME", &user.home)
             .env("USER", &user.user)
-            .env("LOGNAME", &user.user)
-            .uid(user.uid)
-            .gid(user.gid);
+            .env("LOGNAME", &user.user);
+        bash::as_user(&mut command, user.uid, user.gid)
+            .map_err(|err| vec![format!("couldn't start the installer: {err}")])?;
     }
     command
         .arg(format!("{PACK_DIR}/{INSTALLER}"))
@@ -519,9 +515,11 @@ fn install(landing: &Landing) -> Result<(), Vec<String>> {
         .stdin(Stdio::null())
         .stdout(file)
         .stderr(err_file)
-        .process_group(0);
+        .own_group();
     let mut child = command
         .spawn()
+        .map_err(|err| vec![format!("couldn't start the installer: {err}")])?;
+    let _group = proc::adopt(child.id())
         .map_err(|err| vec![format!("couldn't start the installer: {err}")])?;
     let started = Instant::now();
     let status = loop {
@@ -531,9 +529,7 @@ fn install(landing: &Landing) -> Result<(), Vec<String>> {
                 std::thread::sleep(Duration::from_millis(50));
             }
             _ => {
-                if let Some(pid) = rustix::process::Pid::from_raw(child.id() as i32) {
-                    let _ = rustix::process::kill_process_group(pid, rustix::process::Signal::KILL);
-                }
+                let _ = proc::stop_group(child.id(), Stop::Hard);
                 let _ = child.kill();
                 let _ = child.wait();
                 break None;

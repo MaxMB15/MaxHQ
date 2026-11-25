@@ -254,8 +254,9 @@ impl Android for HostAndroid {
     }
 
     fn boot(&self, command: &SdkCommand, log: &Path) -> Result<Arc<dyn Process>, String> {
-        use std::os::unix::process::CommandExt;
         use std::process::Stdio;
+
+        use maxhq_os::proc::GroupExt;
 
         let out = std::fs::File::create(log)
             .map_err(|err| format!("couldn't make the emulator's log: {err}"))?;
@@ -269,11 +270,21 @@ impl Android for HostAndroid {
             .stdout(out)
             .stderr(err)
             // Its own group, so stopping it stops the qemu it starts.
-            .process_group(0);
-        let child = tokio::process::Command::from(run)
+            .own_group();
+        let mut child = tokio::process::Command::from(run)
             .spawn()
             .map_err(|err| format!("The emulator couldn't start: {err}"))?;
-        Ok(Arc::new(HostProcess(Mutex::new(child))))
+        let group = match child.id().map(maxhq_os::proc::adopt).transpose() {
+            Ok(group) => group,
+            Err(err) => {
+                let _ = child.start_kill();
+                return Err(format!("The emulator couldn't start: {err}"));
+            }
+        };
+        Ok(Arc::new(HostProcess {
+            child: Mutex::new(child),
+            _group: group,
+        }))
     }
 
     fn port_free(&self, port: u16) -> bool {
@@ -285,21 +296,22 @@ impl Android for HostAndroid {
     }
 }
 
-/// An emulator process on this device.
-struct HostProcess(Mutex<tokio::process::Child>);
+/// An emulator process on this device, and the group that stops the qemu
+/// it starts with it.
+struct HostProcess {
+    child: Mutex<tokio::process::Child>,
+    _group: Option<maxhq_os::proc::Group>,
+}
 
 impl Process for HostProcess {
     fn exited(&self) -> bool {
-        !matches!(lock(&self.0).try_wait(), Ok(None))
+        !matches!(lock(&self.child).try_wait(), Ok(None))
     }
 
     fn kill(&self) {
-        let mut child = lock(&self.0);
-        if let Some(pid) = child
-            .id()
-            .and_then(|pid| rustix::process::Pid::from_raw(pid as i32))
-        {
-            let _ = rustix::process::kill_process_group(pid, rustix::process::Signal::KILL);
+        let mut child = lock(&self.child);
+        if let Some(pid) = child.id() {
+            let _ = maxhq_os::proc::stop_group(pid, maxhq_os::proc::Stop::Hard);
         }
         let _ = child.start_kill();
     }

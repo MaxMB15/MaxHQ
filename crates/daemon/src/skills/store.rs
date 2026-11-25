@@ -9,11 +9,11 @@
 use std::collections::HashSet;
 use std::fs;
 use std::io;
-use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime};
 
 use maxhq_core::skills::store::{well_formed, FolderStore, TreeStore};
+use maxhq_os::fsmode;
 use maxhq_protocol::skills::TreeHash;
 use tracing::warn;
 
@@ -118,7 +118,7 @@ impl TreeStore for SkillStore {
 }
 
 /// Makes every file and folder under `dir` read-only, keeping each
-/// file's executable bit.
+/// file's executable bit. Windows has no modes, so it leaves them be.
 fn seal(dir: &Path) -> io::Result<()> {
     for entry in fs::read_dir(dir)? {
         let entry = entry?;
@@ -127,21 +127,21 @@ fn seal(dir: &Path) -> io::Result<()> {
         if meta.is_dir() {
             seal(&path)?;
         } else if meta.is_file() {
-            let mode = if meta.permissions().mode() & 0o111 != 0 {
+            let mode = if fsmode::mode_of(&meta) & 0o111 != 0 {
                 0o555
             } else {
                 0o444
             };
-            fs::set_permissions(&path, fs::Permissions::from_mode(mode))?;
+            fsmode::set_mode(&path, mode)?;
         }
     }
-    fs::set_permissions(dir, fs::Permissions::from_mode(0o555))
+    fsmode::set_mode(dir, 0o555)
 }
 
 /// Removes a sealed folder, opening each of its folders first.
 fn remove(dir: &Path) -> io::Result<()> {
     fn open(dir: &Path) -> io::Result<()> {
-        fs::set_permissions(dir, fs::Permissions::from_mode(0o755))?;
+        fsmode::set_mode(dir, 0o755)?;
         for entry in fs::read_dir(dir)? {
             let entry = entry?;
             if entry.file_type()?.is_dir() {
@@ -162,7 +162,7 @@ fn touch(dir: &Path) {
 }
 
 fn set_time(dir: &Path, at: SystemTime) {
-    if let Err(error) = fs::File::open(dir).and_then(|folder| folder.set_modified(at)) {
+    if let Err(error) = fsmode::set_modified(dir, at) {
         warn!(path = %dir.display(), %error, "couldn't mark a skill tree as kept");
     }
 }
@@ -187,11 +187,7 @@ mod tests {
         fs::create_dir_all(dir.join("scripts")).unwrap();
         fs::write(dir.join("SKILL.md"), body).unwrap();
         fs::write(dir.join("scripts/run.sh"), "echo hi\n").unwrap();
-        fs::set_permissions(
-            dir.join("scripts/run.sh"),
-            fs::Permissions::from_mode(0o755),
-        )
-        .unwrap();
+        fsmode::set_mode(&dir.join("scripts/run.sh"), 0o755).unwrap();
         dir.to_path_buf()
     }
 
@@ -208,11 +204,14 @@ mod tests {
 
         let landed = store.path(&tree).unwrap();
         assert_eq!(tree::of(&DiskFs, &landed).unwrap(), tree);
-        let mode = |path: &Path| fs::metadata(path).unwrap().permissions().mode() & 0o777;
-        assert_eq!(mode(&landed), 0o555);
-        assert_eq!(mode(&landed.join("SKILL.md")), 0o444);
-        assert_eq!(mode(&landed.join("scripts/run.sh")), 0o555);
-        assert!(fs::write(landed.join("SKILL.md"), "changed").is_err());
+        // Windows has no modes to seal a tree with.
+        if cfg!(unix) {
+            let mode = |path: &Path| fsmode::mode_of(&fs::metadata(path).unwrap()) & 0o777;
+            assert_eq!(mode(&landed), 0o555);
+            assert_eq!(mode(&landed.join("SKILL.md")), 0o444);
+            assert_eq!(mode(&landed.join("scripts/run.sh")), 0o555);
+            assert!(fs::write(landed.join("SKILL.md"), "changed").is_err());
+        }
 
         // The same files again land nowhere new.
         assert_eq!(store.copy_in(&from).unwrap().0, tree);

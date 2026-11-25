@@ -408,6 +408,14 @@ pub enum Request {
         team_id: String,
         key_path: String,
     },
+    /// Sends the Firebase key that pushes to Android phones to each device,
+    /// one result for each, in order. The app reads the service account's
+    /// JSON key at `key_path`, a file you picked or dropped, so a window
+    /// never holds it, and keeps no copy once it's sent.
+    SetFcmKey {
+        devices: Vec<DeviceId>,
+        key_path: String,
+    },
     /// Makes a device forget a login or key it holds.
     ForgetCredential {
         device: DeviceId,
@@ -1071,6 +1079,7 @@ pub enum Response {
     SetGithubApp(Vec<ActionReply>),
     CheckGithubApp(ActionOutcome),
     SetApnsKey(Vec<ActionReply>),
+    SetFcmKey(Vec<ActionReply>),
     ForgetCredential(ActionOutcome),
     SetAcpAgent(ActionOutcome),
     DeleteAcpAgent(ActionOutcome),
@@ -1293,6 +1302,7 @@ impl Request {
             Self::SetGithubApp { .. } => "set_github_app",
             Self::CheckGithubApp { .. } => "check_github_app",
             Self::SetApnsKey { .. } => "set_apns_key",
+            Self::SetFcmKey { .. } => "set_fcm_key",
             Self::ForgetCredential { .. } => "forget_credential",
             Self::SetAcpAgent { .. } => "set_acp_agent",
             Self::DeleteAcpAgent { .. } => "delete_acp_agent",
@@ -1515,6 +1525,7 @@ impl Response {
             Self::SetGithubApp(_) => "set_github_app",
             Self::CheckGithubApp(_) => "check_github_app",
             Self::SetApnsKey(_) => "set_apns_key",
+            Self::SetFcmKey(_) => "set_fcm_key",
             Self::ForgetCredential(_) => "forget_credential",
             Self::SetAcpAgent(_) => "set_acp_agent",
             Self::DeleteAcpAgent(_) => "delete_acp_agent",
@@ -2126,6 +2137,10 @@ impl<C: Connector> App<C> {
                 team_id,
                 key_path,
             } => Response::SetApnsKey(self.set_apns_key(&to, &key_id, &team_id, &key_path).await),
+            Request::SetFcmKey {
+                devices: to,
+                key_path,
+            } => Response::SetFcmKey(self.set_fcm_key(&to, &key_path).await),
             Request::ForgetCredential { device, credential } => {
                 let action = ClientMessage::ForgetCredential { key, credential };
                 Response::ForgetCredential(devices.act_on(device, action).await?)
@@ -2985,6 +3000,28 @@ impl<C: Connector> App<C> {
         replies
     }
 
+    /// Sends a Firebase service account's key to each device that pushes to
+    /// phones, under a fresh key for each, one result for each. A device
+    /// whose `maxd` is from before [`maxhq_protocol::message::FCM_SINCE`]
+    /// gets a refusal in words and never sees the key.
+    async fn set_fcm_key(&self, to: &[DeviceId], key_path: &str) -> Vec<ActionReply> {
+        let account = match read_service_account(&self.offered, Path::new(key_path)) {
+            Ok(account) => account,
+            Err(error) => return each(to, error),
+        };
+        let mut replies = Vec::with_capacity(to.len());
+        for &device in to {
+            let send = |key| ClientMessage::SetFcmKey {
+                key,
+                project_id: account.project_id.clone(),
+                client_email: account.client_email.clone(),
+                private_key: account.private_key.clone(),
+            };
+            replies.push(self.act_needing(device, Needs::Phones, send).await.into());
+        }
+        replies
+    }
+
     /// Reads what a proposal changes. One found where the library isn't
     /// goes on to the holder, which shows it against its own copy of the
     /// skill, since approving it writes there. A holder from before that
@@ -3313,7 +3350,8 @@ async fn global_git(mut git: tokio::process::Command, key: &str) -> Option<Strin
 pub struct GithubAppId(#[specta(type = specta_typescript::Number)] pub u64);
 
 /// The largest private key file the app reads. A GitHub App's is about
-/// 1.7 KB, and an APNs `.p8` well under that.
+/// 1.7 KB, an APNs `.p8` well under that, and a Firebase service account's
+/// JSON about 2.4 KB.
 const KEY_FILE_LIMIT: usize = 16 * 1024;
 
 /// A kind of private key file the app reads and sends on.
@@ -3336,9 +3374,28 @@ const APNS_KEY: KeyFile = KeyFile {
     not_a_key: "That file isn't an Apple push key. Its name starts with AuthKey_ and ends in .p8",
 };
 
+/// A Firebase service account's key, the JSON Firebase gives under
+/// Project settings, Service accounts.
+const FCM_KEY: KeyFile = KeyFile {
+    labels: &["PRIVATE KEY"],
+    not_a_key: "That file isn't a Firebase service account key. Firebase gives one under \
+                Project settings, Service accounts, Generate new private key",
+};
+
 /// Reads a private key from a file you picked or dropped. It goes into a
 /// [`Secret`] at once, and no error says what the file holds.
 fn read_key_file(offered: &Offered, path: &Path, kind: &KeyFile) -> Result<Secret, CommandError> {
+    let key = read_picked(offered, path, kind)?;
+    if !is_pem(&key, kind) {
+        return Err(failed(kind.not_a_key));
+    }
+    Ok(key)
+}
+
+/// Reads a file you picked or dropped that holds a private key, up to
+/// [`KEY_FILE_LIMIT`]. It goes into a [`Secret`] at once, and no error says
+/// what the file holds.
+fn read_picked(offered: &Offered, path: &Path, kind: &KeyFile) -> Result<Secret, CommandError> {
     if !offered.contains(path) {
         return Err(failed(
             "Choose the private key file again, since MaxHQ only reads files you pick",
@@ -3354,15 +3411,49 @@ fn read_key_file(offered: &Offered, path: &Path, kind: &KeyFile) -> Result<Secre
         .read_to_end(&mut bytes)
         .map_err(|error| failed(&format!("The private key file didn't read: {error}")))?;
     let key = Secret::new(String::from_utf8(bytes).map_err(|_| not_a_key())?);
-    let text = key.expose();
-    let pem = kind.labels.iter().any(|label| {
-        text.contains(&format!("-----BEGIN {label}-----"))
-            && text.contains(&format!("-----END {label}-----"))
-    });
-    if text.len() > KEY_FILE_LIMIT || !pem {
+    if key.expose().len() > KEY_FILE_LIMIT {
         return Err(not_a_key());
     }
     Ok(key)
+}
+
+/// Whether `key` is a PEM block with one of the labels `kind` takes.
+fn is_pem(key: &Secret, kind: &KeyFile) -> bool {
+    let text = key.expose();
+    kind.labels.iter().any(|label| {
+        text.contains(&format!("-----BEGIN {label}-----"))
+            && text.contains(&format!("-----END {label}-----"))
+    })
+}
+
+/// What the app sends on from a Firebase service account's JSON key. The
+/// file holds more, such as the key's ID and the account's client ID,
+/// which FCM doesn't need.
+#[derive(Deserialize)]
+struct ServiceAccount {
+    #[serde(rename = "type")]
+    kind: String,
+    project_id: String,
+    client_email: String,
+    private_key: Secret,
+}
+
+/// Reads a Firebase service account's JSON key from a file you picked or
+/// dropped. `maxd` checks the project and account further, and that the
+/// key signs.
+fn read_service_account(offered: &Offered, path: &Path) -> Result<ServiceAccount, CommandError> {
+    let file = read_picked(offered, path, &FCM_KEY)?;
+    let not_a_key = || failed(FCM_KEY.not_a_key);
+    let account: ServiceAccount = serde_json::from_str(file.expose()).map_err(|_| not_a_key())?;
+    let named = |field: &str| !field.trim().is_empty();
+    if account.kind != "service_account"
+        || !named(&account.project_id)
+        || !named(&account.client_email)
+        || !is_pem(&account.private_key, &FCM_KEY)
+    {
+        return Err(not_a_key());
+    }
+    Ok(account)
 }
 
 /// The same error for each device.
@@ -3704,6 +3795,11 @@ mod tests {
                 "key_id": "ABC123DEFG",
                 "team_id": "<TEAM_ID>",
                 "key_path": "/tmp/AuthKey_ABC123DEFG.p8",
+            }),
+            json!({
+                "kind": "set_fcm_key",
+                "devices": [mac],
+                "key_path": "/tmp/project-firebase-adminsdk.json",
             }),
             json!({
                 "kind": "forget_credential",
@@ -4177,6 +4273,161 @@ mod tests {
         ));
         assert_eq!(calls.len(), 5, "{calls:?}");
         assert_eq!(answer, Response::SkillProposalAction(ActionOutcome::Done));
+    }
+
+    /// A Firebase service account's JSON key, as Firebase gives it, with
+    /// a key that isn't one.
+    fn service_account(kind: &str, project_id: &str, private_key: &str) -> String {
+        json!({
+            "type": kind,
+            "project_id": project_id,
+            "private_key_id": "test-not-a-real-key-id",
+            "private_key": private_key,
+            "client_email": "pusher@maxhq-test.iam.example.invalid",
+            "client_id": "1",
+            "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+            "token_uri": "https://oauth2.googleapis.com/token",
+        })
+        .to_string()
+    }
+
+    const PKCS8: &str = "-----BEGIN PRIVATE KEY-----\ntest-not-a-real-key\n\
+                         -----END PRIVATE KEY-----\n";
+
+    #[test]
+    fn a_firebase_key_is_a_service_accounts_json_with_a_private_key() {
+        let offered = Offered::default();
+        let good = TempFile::new(
+            "maxhq-test-firebase-adminsdk.json",
+            service_account("service_account", "maxhq-test", PKCS8).as_bytes(),
+        );
+        assert!(
+            read_service_account(&offered, &good.0).is_err(),
+            "not picked"
+        );
+        offered.offer([good.0.clone()]);
+        let account = read_service_account(&offered, &good.0).unwrap();
+        assert_eq!(account.project_id, "maxhq-test");
+        assert_eq!(
+            account.client_email,
+            "pusher@maxhq-test.iam.example.invalid"
+        );
+        assert_eq!(account.private_key.expose(), PKCS8);
+
+        let refused = [
+            TempFile::new(
+                "user.json",
+                service_account("authorized_user", "maxhq-test", PKCS8).as_bytes(),
+            ),
+            TempFile::new(
+                "blank.json",
+                service_account("service_account", " ", PKCS8).as_bytes(),
+            ),
+            TempFile::new(
+                "rsa.json",
+                service_account("service_account", "maxhq-test", KEY).as_bytes(),
+            ),
+            TempFile::new("key.pem", PKCS8.as_bytes()),
+            TempFile::new(
+                "google-services.json",
+                br#"{"project_info":{"project_id":"maxhq-test"}}"#,
+            ),
+        ];
+        offered.offer(refused.iter().map(|file| file.0.clone()));
+        for file in &refused {
+            let Err(CommandError::Failed { message }) = read_service_account(&offered, &file.0)
+            else {
+                panic!("{} should be refused", file.0.display());
+            };
+            assert!(
+                message.starts_with("That file isn't a Firebase"),
+                "{message}"
+            );
+            assert!(!message.contains("test-not-a-real"), "{message}");
+        }
+    }
+
+    #[test]
+    fn the_firebase_key_goes_only_to_devices_that_know_fcm() {
+        let (h, local, nl) = two_devices();
+        let pushes = maxhq_protocol::message::Capabilities {
+            phones: true,
+            ..Default::default()
+        };
+        connect_doing(&h, &local, "mac", pushes);
+        connect_doing(&h, &nl, "nl", pushes);
+        h.fake.record().old.insert(nl.id);
+        let app = App::new(h.view.clone(), h.devices, FakeShell::default());
+        let caller = Caller {
+            window: "main".into(),
+            on_screen: true,
+        };
+        let json = service_account("service_account", "maxhq-test", PKCS8);
+        let file = TempFile::new("maxhq-test-firebase-adminsdk.json", json.as_bytes());
+        let ask = || {
+            let request = Request::SetFcmKey {
+                devices: vec![DeviceId::derive("mac"), DeviceId::derive("nl")],
+                key_path: file.0.to_string_lossy().into_owned(),
+            };
+            let Ok(Response::SetFcmKey(replies)) = block_on(app.request(&caller, request)) else {
+                panic!("a reply for each device");
+            };
+            replies
+        };
+
+        // Nothing goes out for a file you didn't pick.
+        let not_picked = ask();
+        assert!(matches!(
+            &not_picked[..],
+            [ActionReply::Error { .. }, ActionReply::Error { .. }]
+        ));
+        assert!(h.fake.calls().is_empty());
+
+        app.offered().offer([file.0.clone()]);
+        h.fake.record().acts.push_back(ActionOutcome::Done);
+        let replies = ask();
+        assert_eq!(
+            replies[0],
+            ActionReply::Ok {
+                data: ActionOutcome::Done
+            }
+        );
+        let ActionReply::Error {
+            error: CommandError::Failed { message },
+        } = &replies[1]
+        else {
+            panic!("{replies:?}");
+        };
+        assert!(
+            message.ends_with("is too old for this; update it"),
+            "{message}"
+        );
+        assert!(!format!("{replies:?}").contains("test-not-a-real-key"));
+        let calls = h.fake.calls();
+        let sent: Vec<_> = calls
+            .iter()
+            .filter_map(|(link, call)| match call {
+                Call::Send(ClientMessage::SetFcmKey {
+                    project_id,
+                    client_email,
+                    private_key,
+                    ..
+                }) => Some((*link, project_id, client_email, private_key)),
+                _ => None,
+            })
+            .collect();
+        // The fake hears both, though the client refuses the old one's
+        // before it goes, as the second reply says.
+        let [(link, project_id, client_email, private_key), (old, ..)] = &sent[..] else {
+            panic!("{calls:?}");
+        };
+        assert_eq!((*link, *old), (local.id, nl.id));
+        assert_eq!(project_id.as_str(), "maxhq-test");
+        assert_eq!(
+            client_email.as_str(),
+            "pusher@maxhq-test.iam.example.invalid"
+        );
+        assert_eq!(private_key.expose(), PKCS8);
     }
 
     #[test]
@@ -4673,7 +4924,7 @@ mod tests {
                 }
             }
         }
-        assert_eq!(kinds.len() + mac_only.len(), 167);
+        assert_eq!(kinds.len() + mac_only.len(), 168);
         // The harness has no maxd to install or uninstall, no timeline open, no
         // listening port, no setup waiting on a host key, no GitHub
         // sign-in to merge with, no skill proposal, no link or card waiting

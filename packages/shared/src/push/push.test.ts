@@ -3,21 +3,28 @@
 
 import { describe, expect, it } from "vitest";
 
+import { setInterfaceOs, t } from "../i18n";
+
 import type { ActionResult } from "../data/source";
 import { SYNC_GRACE_MS } from "../status/reach";
 import { agent, attention, entities, link, NOW, workspace } from "../test/build";
 import { applySnapshot } from "../view/replica";
+import { FCM_SINCE } from "../bindings";
 import {
 	answerFromButton,
+	awaitingPushUpdate,
 	DEFAULT_KINDS,
 	denyAnswer,
 	denyFromButton,
 	handledNotifications,
+	PUSH_KINDS,
 	pushEnvironment,
 	pushTarget,
 	pushToken,
+	pushUpdateNote,
 	readKinds,
 	switchKind,
+	takesPushes,
 	targetPayload,
 } from "./push";
 
@@ -52,6 +59,22 @@ describe("kinds", () => {
 		expect(readKinds('"needs_input"')).toEqual(DEFAULT_KINDS);
 	});
 
+	it("tells an Android phone that Deny opens MaxHQ", () => {
+		const prompt = (kinds: typeof PUSH_KINDS) =>
+			kinds.find((each) => each.kind === "needs_input");
+		const plain =
+			"A permission, a question or a secret. Open it to answer. Deny also works from the lock screen.";
+		expect(prompt(PUSH_KINDS)?.detail).toBe(t(plain));
+		setInterfaceOs("android");
+		try {
+			expect(prompt(PUSH_KINDS)?.detail).toBe(
+				"A permission, a question or a secret. Open it to answer. Deny also works from the notification and opens MaxHQ once the phone is unlocked."
+			);
+		} finally {
+			setInterfaceOs(null);
+		}
+	});
+
 	it("names the host from the build", () => {
 		expect(pushEnvironment("development")).toBe("sandbox");
 		expect(pushEnvironment("production")).toBe("production");
@@ -63,7 +86,57 @@ describe("kinds", () => {
 			topic: "com.example.maxhq",
 			environment: "sandbox",
 			kinds: ["error"],
+			service: "apns",
 		});
+	});
+
+	it("says an Android phone's token is FCM's", () => {
+		expect(
+			pushToken("test-not-a-real:token", "com.example.maxhq", "production", [], "fcm")
+		).toEqual({
+			token: "test-not-a-real:token",
+			topic: "com.example.maxhq",
+			environment: "production",
+			kinds: [],
+			service: "fcm",
+		});
+	});
+});
+
+describe("pushes through FCM", () => {
+	const view = applySnapshot({
+		seq: 1,
+		entities: entities({
+			links: [
+				link({ id: "old", device: "dev-old", protocol: FCM_SINCE - 1 }),
+				link({ id: "new", device: "dev-new", protocol: FCM_SINCE }),
+				link({ id: "unknown", device: "dev-unknown" }),
+				link({ id: "older", device: "dev-older", protocol: 20 }),
+			],
+		}),
+	});
+
+	it("reach only a maxd that knows FCM, or one not heard from yet", () => {
+		expect(takesPushes(view, "dev-old", "fcm")).toBe(false);
+		expect(takesPushes(view, "dev-new", "fcm")).toBe(true);
+		expect(takesPushes(view, "dev-unknown", "fcm")).toBe(true);
+		expect(takesPushes(view, "dev-old", "apns")).toBe(true);
+	});
+
+	it("name the devices to update, and only for FCM", () => {
+		expect(awaitingPushUpdate(view, "fcm")).toEqual(["old", "older"]);
+		expect(awaitingPushUpdate(view, "apns")).toEqual([]);
+		expect(pushUpdateNote(view, "fcm")).toBe(
+			"Update maxd on old and older to get their pushes on this phone."
+		);
+		expect(pushUpdateNote(view, "apns")).toBeNull();
+		const one = applySnapshot({
+			seq: 1,
+			entities: entities({ links: [link({ id: "old", protocol: FCM_SINCE - 1 })] }),
+		});
+		expect(pushUpdateNote(one, "fcm")).toBe(
+			"Update maxd on old to get its pushes on this phone."
+		);
 	});
 });
 
@@ -86,6 +159,15 @@ describe("pushTarget", () => {
 			options: [],
 		});
 		expect(pushTarget({ aps })).toEqual({ agent: AGENT, attention: null, options: [] });
+	});
+
+	it("reads an Android push, whose agent comes under t", () => {
+		const clear = { e: ATTENTION, t: AGENT, k: "needs_input", a: "permission", n: "note" };
+		expect(pushTarget(clear)).toEqual({ agent: AGENT, attention: ATTENTION, options: [] });
+		expect(
+			pushTarget({ ...clear, m: { agent: AGENT, attention: ATTENTION, options: CLAUDE } })
+		).toEqual({ agent: AGENT, attention: ATTENTION, options: CLAUDE });
+		expect(pushTarget({ ...clear, t: "" })).toBeNull();
 	});
 
 	it("ignores a push that isn't MaxHQ's", () => {

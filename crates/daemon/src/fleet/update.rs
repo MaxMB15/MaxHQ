@@ -7,22 +7,24 @@
 //! `~/.local/bin/maxd` is a symlink to the one that runs. An update checks
 //! the upload, moves it into its own folder and flips the link with a
 //! rename, which is atomic, so the link always names a whole binary. The
-//! version before it stays, so a watcher can put it back.
+//! version before it stays, so a watcher can put it back. On Windows the
+//! versions live under `%LOCALAPPDATA%\MaxHQ`, and the link is the
+//! junction `bin\current` to a version's folder, as
+//! [`maxhq_core::paths::MaxdLayout`] says.
 
 use std::fs;
 use std::io;
-use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use maxhq_core::fs::{write_atomic, Atomic};
-use maxhq_core::paths::MAXD_LINK_TEMP;
+use maxhq_os::link::point;
 use serde::{Deserialize, Serialize};
 use tracing::{info, warn};
 
-use crate::identity::{self, BUILD_LEN};
+use crate::identity;
 use crate::service::{self, Manager, Runner};
 
 /// How long `<new> --build` may take. A binary's first run on macOS
@@ -40,50 +42,9 @@ pub const WATCH_POLL: Duration = Duration::from_secs(1);
 /// hello.
 pub const LISTENING_HEALTHY: Duration = Duration::from_secs(30);
 
-/// Where maxd's versions and update record live under a home folder.
-#[derive(Clone, Debug)]
-pub struct Layout {
-    home: PathBuf,
-}
-
-impl Layout {
-    /// The layout under `home`.
-    pub fn new(home: impl Into<PathBuf>) -> Self {
-        Self { home: home.into() }
-    }
-
-    /// The layout under `HOME`, or `None` without one.
-    pub fn from_env() -> Option<Self> {
-        std::env::var_os("HOME")
-            .filter(|home| !home.is_empty())
-            .map(Self::new)
-    }
-
-    /// `~/.local/bin/maxd`, the link the service runs.
-    pub fn link(&self) -> PathBuf {
-        self.home.join(".local/bin/maxd")
-    }
-
-    /// `~/.local/lib/maxhq`.
-    fn lib(&self) -> PathBuf {
-        self.home.join(".local/lib/maxhq")
-    }
-
-    /// The folder with one folder per build.
-    pub fn versions(&self) -> PathBuf {
-        self.lib().join("versions")
-    }
-
-    /// The binary of `build`.
-    pub fn version(&self, build: &str) -> PathBuf {
-        self.versions().join(build).join("maxd")
-    }
-
-    /// `update.json`, the record of the last update.
-    pub fn state(&self) -> PathBuf {
-        self.lib().join("update.json")
-    }
-}
+/// Where maxd's versions and update record live: under a home folder on
+/// Unix, and in MaxHQ's folder, beside maxd's data, on Windows.
+pub use maxhq_core::paths::MaxdLayout as Layout;
 
 /// `update.json`: what the last update installed and whether it came up.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -252,9 +213,14 @@ fn copy_executable(staged: &Path, dir: &Path) -> io::Result<PathBuf> {
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
         .as_nanos();
-    let temp = dir.join(format!(".incoming-{}-{nonce}", std::process::id()));
+    // Windows runs only what it can tell is a program.
+    let temp = dir.join(format!(
+        ".incoming-{}-{nonce}{}",
+        std::process::id(),
+        std::env::consts::EXE_SUFFIX
+    ));
     fs::copy(staged, &temp)?;
-    fs::set_permissions(&temp, fs::Permissions::from_mode(0o755))?;
+    maxhq_os::fsmode::set_mode(&temp, 0o755)?;
     Ok(temp)
 }
 
@@ -268,7 +234,7 @@ pub async fn install_maxd(
 ) -> Result<Installed, Refusal> {
     verify(staged, sha256)?;
     let link = layout.link();
-    let linked = fs::canonicalize(&link).map_err(|_| Refusal::NotLinked)?;
+    let linked = fs::canonicalize(layout.program()).map_err(|_| Refusal::NotLinked)?;
     let current = fs::canonicalize(current).map_err(|_| Refusal::NotLinked)?;
     if linked != current {
         return Err(Refusal::NotLinked);
@@ -297,14 +263,17 @@ pub async fn install_maxd(
         at: now_secs(),
     }
     .write(layout)?;
-    point(&link, &target)?;
-    prune(layout, &[&build, &previous]);
+    point(&link, &layout.link_target(&build))?;
+    for (version, err) in layout.prune(&[&build, &previous]) {
+        warn!(%err, %version, "couldn't remove an old maxd");
+    }
     info!(%build, %previous, "installed a new maxd");
     Ok(Installed::Flipped { build, previous })
 }
 
 /// The build the link names now. A link that's a plain file, from before
 /// versions, moves into its version folder and becomes a symlink first.
+/// `linked` is the program it runs, resolved.
 fn adopt_current(layout: &Layout, link: &Path, linked: &Path) -> Result<String, Refusal> {
     let build = identity::build_of(linked)?;
     let home = layout.version(&build);
@@ -321,7 +290,7 @@ fn adopt_current(layout: &Layout, link: &Path, linked: &Path) -> Result<String, 
             fs::rename(linked, &home)?;
         }
     }
-    point(link, &home)?;
+    point(link, &layout.link_target(&build))?;
     Ok(build)
 }
 
@@ -361,31 +330,6 @@ pub fn is_static_elf(path: &Path) -> bool {
         }
     }
     true
-}
-
-/// Points `link` at `target` through a symlink and a rename.
-pub fn point(link: &Path, target: &Path) -> io::Result<()> {
-    let temp = link.with_file_name(MAXD_LINK_TEMP);
-    let _ = fs::remove_file(&temp);
-    std::os::unix::fs::symlink(target, &temp)?;
-    fs::rename(&temp, link)
-}
-
-/// Removes every version folder except `keep`.
-fn prune(layout: &Layout, keep: &[&str]) {
-    let Ok(entries) = fs::read_dir(layout.versions()) else {
-        return;
-    };
-    for entry in entries.flatten() {
-        let name = entry.file_name();
-        let name = name.to_string_lossy();
-        if keep.contains(&name.as_ref()) || name.len() != BUILD_LEN {
-            continue;
-        }
-        if let Err(err) = fs::remove_dir_all(entry.path()) {
-            warn!(%err, version = %name, "couldn't remove an old maxd");
-        }
-    }
 }
 
 /// Installs `staged` over the guest binary at `guest`.
@@ -428,7 +372,7 @@ pub fn mark_healthy(layout: &Layout, build: &str) -> bool {
 }
 
 /// Whether `build` was just installed and still has to show it's healthy.
-#[cfg(test)]
+#[cfg(all(test, unix))]
 pub fn awaiting_health(layout: &Layout, build: &str) -> bool {
     UpdateState::read(layout).is_some_and(|state| state.build == build && !state.healthy)
 }
@@ -508,12 +452,12 @@ pub fn watch(
     if !target.exists() {
         return Ok(Watched::NoPrevious);
     }
-    if replaced(&layout.link(), &layout.version(build)) {
+    if replaced(&layout.program(), &layout.version(build)) {
         // Putting the old build back would undo whatever did that.
         return Ok(Watched::Superseded);
     }
     warn!(%build, %previous, "the new maxd didn't come up, so the old one goes back");
-    point(&layout.link(), &target)?;
+    point(&layout.link(), &layout.link_target(&previous))?;
     UpdateState {
         previous: None,
         build: previous.clone(),
@@ -525,8 +469,9 @@ pub fn watch(
     Ok(Watched::RolledBack { previous })
 }
 
-/// Whether `link` now resolves somewhere other than `ours`, so something
-/// else replaced it. A link that resolves nowhere counts as not replaced.
+/// Whether `link`, the program through the link, now resolves somewhere
+/// other than `ours`, so something else replaced it. A link that resolves
+/// nowhere counts as not replaced.
 fn replaced(link: &Path, ours: &Path) -> bool {
     fs::canonicalize(link).is_ok_and(|now| fs::canonicalize(ours).ok() != Some(now))
 }
@@ -547,15 +492,13 @@ pub fn start_watcher(previous: &Path, build: &str) -> io::Result<()> {
     } else {
         std::process::Command::new(previous)
     };
-    use std::os::unix::process::CommandExt;
     command
         .args(["update", "watch", "--build", build])
         .stdin(Stdio::null())
         .stdout(Stdio::null())
-        .stderr(Stdio::inherit())
-        .process_group(0);
+        .stderr(Stdio::inherit());
     // The child is never waited for. It lives on after this maxd exits.
-    command.spawn().map(drop)
+    maxhq_os::proc::spawn_detached(&mut command)
 }
 
 /// Seconds since 1970.
@@ -566,5 +509,6 @@ fn now_secs() -> u64 {
         .as_secs()
 }
 
-#[cfg(test)]
+// The tests run shell scripts as the builds.
+#[cfg(all(test, unix))]
 mod tests;

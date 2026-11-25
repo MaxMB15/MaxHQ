@@ -12,7 +12,7 @@
 import { useI18n } from "@maxhq/shared/i18n";
 
 import { useState } from "react";
-import { Platform, ScrollView, StyleSheet, Text, View } from "react-native";
+import { ScrollView, StyleSheet, Text, View } from "react-native";
 
 import { failureOf } from "@maxhq/shared/agent-view/answer";
 import {
@@ -54,7 +54,7 @@ export const MoveScreen = ({ navigation, route }: ScreenProps<"MoveAgent">) => {
 			<View style={styles.screen}>
 				<Header
 					title={t("Move to…")}
-					sheet={Platform.OS === "ios"}
+					sheet
 					back={{ label: t("Close"), onPress: close, close: true }}
 				/>
 				<Text style={styles.gone}>{t("This agent is gone.")}</Text>
@@ -101,7 +101,7 @@ export const MoveScreen = ({ navigation, route }: ScreenProps<"MoveAgent">) => {
 				title={t("Move {{title}} to another device", {
 					title: agent.title || t("This agent"),
 				})}
-				sheet={Platform.OS === "ios"}
+				sheet
 				back={{ label: t("Cancel"), onPress: close, close: true }}
 			/>
 			<ScrollView

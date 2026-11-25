@@ -130,7 +130,9 @@ export const opensLocalSetup = (
 const turnOnOption = (view: ViewState, mac: DeviceId, group: string): Option => ({
 	value: [LOCAL_SETUP_VALUE, mac].join(SETUP_BAR),
 	label: t("Open {{name}}'s Local models settings…", { name: deviceName(view, mac) }),
-	detail: t('Turn on "{{switch}}" there', { switch: linkedDevicesLabel() }),
+	detail: t('Turn on "{{switch}}" there', {
+		switch: linkedDevicesLabel(view.tables.device.get(mac)?.os),
+	}),
 	warn: true,
 	group,
 });

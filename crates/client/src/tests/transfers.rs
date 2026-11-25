@@ -697,6 +697,8 @@ async fn a_download_lands_under_a_free_name_marked_as_from_elsewhere() {
     );
 
     let saved = saved.unwrap();
+    assert!(saved.skipped_links.is_empty());
+    let saved = saved.path;
     assert_eq!(saved, downloads.join("report 3.txt"));
     assert_eq!(std::fs::read(&saved).unwrap(), bytes);
     #[cfg(target_os = "macos")]
@@ -751,7 +753,7 @@ async fn a_download_lands_in_the_folder_the_client_was_given() {
         }
     );
 
-    let saved = saved.unwrap();
+    let saved = saved.unwrap().path;
     assert_eq!(saved, folder.join("notes.txt"));
     assert_eq!(std::fs::read(&saved).unwrap(), bytes);
     assert!(!dir.join("Downloads/MaxHQ/notes.txt").exists());
@@ -844,6 +846,53 @@ async fn a_copy_lands_in_staging_and_goes_when_dropped() {
         tokio::time::sleep(Duration::from_millis(5)).await;
     }
     assert!(!folder.exists());
+}
+
+/// The phone hands the client its own staging folder, since Android has no
+/// usable cache or temporary folder outside the app's.
+#[tokio::test]
+async fn a_copy_lands_in_the_staging_folder_the_client_was_given() {
+    let dir = TempDir::new();
+    let shared = dir.join("agent");
+    std::fs::create_dir_all(&shared).unwrap();
+    let bytes = pattern(64 * 1024);
+    std::fs::write(shared.join("shot.png"), &bytes).unwrap();
+    let walked = walk(&shared.join("shot.png")).unwrap();
+    let folder = dir.join("app/cache/staging");
+    let mut rig = rig(&dir);
+    rig.client = rig.client.staging_in(folder.clone());
+    let (handle, mut events) = rig.client.link(spec(Route::Local));
+    let mut device = Device::dialed(&mut rig).await;
+    while !is_connected(&next_state(&mut events).await) {}
+
+    let (copied, transfer) = tokio::join!(
+        handle.copy(agent(), "/work/shot.png".into(), |_| {}),
+        async {
+            let ClientMessage::FetchBegin { key, transfer, .. } = device.message().await else {
+                panic!("expected a fetch");
+            };
+            device
+                .send(&ServerMessage::FetchManifest {
+                    transfer,
+                    entries: walked.entries.clone(),
+                })
+                .await;
+            device.serve(transfer, &walked).await;
+            device
+                .send(&ServerMessage::ActionResult {
+                    key,
+                    outcome: ActionOutcome::Done,
+                })
+                .await;
+            transfer
+        }
+    );
+
+    let copied = copied.unwrap();
+    let staged = folder.join(transfer.to_string()).join("shot.png");
+    assert_eq!(copied.path(), staged);
+    assert_eq!(std::fs::read(copied.path()).unwrap(), bytes);
+    assert!(!dir.join("staging").exists());
 }
 
 #[tokio::test]

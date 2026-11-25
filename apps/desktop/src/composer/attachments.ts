@@ -23,7 +23,7 @@ import type {
 
 import { refusalFor } from "./limits";
 import { type ComposerNative, type FileKind, guessPath, type PathInfo } from "./native";
-import { baseName } from "@maxhq/shared/agent-view/format";
+import { nameOf } from "@maxhq/shared/folders/path";
 import { failureOf } from "@maxhq/shared/composer/send";
 import { formatNumber, t as translate } from "@maxhq/shared/i18n";
 
@@ -481,7 +481,7 @@ export const createAttachments = (): AttachmentsStore => {
 					key,
 					// The path is what gets copied, so the chip names that and
 					// not the name the timeline item gave it.
-					name: baseName(file.path),
+					name: nameOf(file.path),
 					kind: file.kind,
 					bytes: file.bytes,
 					mime: file.mime,

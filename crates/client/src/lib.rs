@@ -52,8 +52,10 @@ mod tailscale;
 mod terminals;
 mod transfer;
 mod transport;
+pub mod wsl;
 
-#[cfg(test)]
+// The link tests stand maxd up behind Unix sockets.
+#[cfg(all(test, unix))]
 mod tests;
 
 use std::collections::BTreeMap;
@@ -109,7 +111,7 @@ pub use crate::tailscale::{
     CliRun as TailscaleRun, FunnelNeeds as TailscaleFunnelNeeds,
 };
 pub use crate::terminals::TerminalSink;
-pub use crate::transfer::{Copied, TransferError, TransferProgress, TransferState};
+pub use crate::transfer::{Copied, Saved, TransferError, TransferProgress, TransferState};
 #[cfg(feature = "russh")]
 pub use crate::transport::PhoneSsh;
 pub use crate::transport::{phone_route_host, ws_route_host};
@@ -374,6 +376,13 @@ impl Client {
         self.placing(|places| places.downloads = folder)
     }
 
+    /// Copies uploads into `folder` before they go, and lands copies fetched
+    /// to hand on there, in place of the user's cache folder. Links opened
+    /// before this keep the folder they had.
+    pub fn staging_in(self, folder: PathBuf) -> Self {
+        self.placing(|places| places.staging = folder)
+    }
+
     /// Keeps pictures and videos for the timeline in `folder` in place of
     /// the user's cache folder. Links opened before this keep the folder
     /// they had.
@@ -417,7 +426,7 @@ impl Client {
 
     /// Has links name the network with `netkey` in place of reading the
     /// default gateway, which is how tests pick the network.
-    #[cfg(test)]
+    #[cfg(all(test, unix))]
     fn on_network(mut self, key: Option<&str>) -> Self {
         let key = key.map(str::to_owned);
         self.shared = Arc::new(Shared {
@@ -431,7 +440,7 @@ impl Client {
     }
 
     /// The same client with links on `timing`, so tests needn't wait.
-    #[cfg(all(test, any(feature = "russh", feature = "ws")))]
+    #[cfg(all(test, unix, any(feature = "russh", feature = "ws")))]
     fn timed(mut self, timing: Timing) -> Self {
         self.shared = Arc::new(Shared {
             timing,
@@ -843,15 +852,16 @@ impl LinkHandle {
     }
 
     /// Fetches a file or folder an agent can see into `~/Downloads/MaxHQ`
-    /// and gives where it landed. It takes a free name there, and macOS
-    /// asks before it opens what came. It goes on through reconnects like
+    /// and gives where it landed, with the links in it this machine
+    /// couldn't make. It takes a free name there, and macOS and Windows
+    /// ask before they open what came. It goes on through reconnects like
     /// an upload.
     pub async fn download(
         &self,
         agent: AgentId,
         path: String,
         on_progress: impl Fn(TransferProgress) + Send + Sync,
-    ) -> Result<PathBuf, TransferError> {
+    ) -> Result<Saved, TransferError> {
         self.transfers.download(agent, path, &on_progress).await
     }
 

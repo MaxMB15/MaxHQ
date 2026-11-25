@@ -16,7 +16,6 @@
 use std::ffi::OsString;
 use std::fs;
 use std::io::{self, Read};
-use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, ExitCode, ExitStatus, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -24,14 +23,21 @@ use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, Instant};
 
-use maxhq_hold::RunAs;
-
 mod extract;
+#[cfg(unix)]
+mod root;
 mod rtf;
 mod xml;
 mod zip;
 
 pub use extract::{strip_vt, EXTENSIONS};
+
+/// Windows has no root for a daemon to give up, so the child reads as
+/// `maxd`'s own user.
+#[cfg(not(unix))]
+mod root {
+    pub fn give_up(_command: &mut std::process::Command, _owner: Option<&str>) {}
+}
 
 /// The hidden subcommand the child runs.
 pub const SUBCOMMAND: &str = "__document-text";
@@ -54,16 +60,6 @@ const POLL: Duration = Duration::from_millis(10);
 /// The exit code for a document that can't be read this way, which won't
 /// change if it's tried again.
 const REJECTED: u8 = 2;
-
-/// Who a root daemon reads documents as when it can't tell whose they
-/// are: the user and group called nobody.
-const NOBODY: Reader = Reader {
-    uid: 65_534,
-    gid: 65_534,
-};
-
-/// How many groups the child looks at to check it has none left.
-const GROUPS_SEEN: usize = 64;
 
 /// Whether the file's extension is one with text to read out.
 pub fn wants(path: &Path) -> bool {
@@ -89,13 +85,6 @@ enum Program {
     Other(PathBuf, Vec<OsString>),
     /// Nothing, so no text is read.
     Off,
-}
-
-/// The user and group a child that reads documents runs as.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-struct Reader {
-    uid: u32,
-    gid: u32,
 }
 
 /// Reads documents' text in a child process and saves it beside them.
@@ -201,9 +190,7 @@ impl Extractor {
                 command
             }
         };
-        if let Some(reader) = reader(running_as_root(), self.owner_ids()) {
-            run_as(&mut command, reader);
-        }
+        root::give_up(&mut command, self.owner.as_deref());
         let mut child = command
             .arg(path)
             .stdin(Stdio::null())
@@ -235,80 +222,6 @@ impl Extractor {
             return Ok(None);
         }
         Ok(Some(out))
-    }
-
-    /// The owner's user and group, when there's an owner to find.
-    fn owner_ids(&self) -> Option<Reader> {
-        let owner = self.owner.as_deref()?;
-        match RunAs::lookup(owner) {
-            Ok(user) => Some(Reader {
-                uid: user.uid,
-                gid: user.gid,
-            }),
-            Err(err) => {
-                tracing::debug!("couldn't find user {owner} to read documents as: {err}");
-                None
-            }
-        }
-    }
-}
-
-/// Who the child runs as, given whether this process is root and the
-/// owner's user and group. A process that isn't root has nothing to give
-/// up, so the child stays as it is. Root gives the child to the owner, or
-/// to nobody when there's no owner or the owner is root too.
-fn reader(root: bool, owner: Option<Reader>) -> Option<Reader> {
-    if !root {
-        return None;
-    }
-    let owner = owner.filter(|owner| owner.uid != 0 && owner.gid != 0);
-    Some(owner.unwrap_or(NOBODY))
-}
-
-/// Whether this process runs as root.
-#[allow(unsafe_code)]
-fn running_as_root() -> bool {
-    // SAFETY: `geteuid` takes nothing and can't fail.
-    unsafe { libc::geteuid() == 0 }
-}
-
-/// Has `command` run as `reader`, with no group but its own. The standard
-/// library sets the group, clears the other groups and then sets the user
-/// before the child starts, but carries on with the groups kept when the
-/// system refuses to clear them. So the child checks what it ended up with
-/// and fails to start, which skips the document, rather than read it with
-/// more than it should.
-#[allow(unsafe_code)]
-fn run_as(command: &mut Command, reader: Reader) {
-    let Reader { uid, gid } = reader;
-    command.uid(uid).gid(gid);
-    let mut groups: Vec<libc::gid_t> = vec![0; GROUPS_SEEN];
-    let check = move || -> io::Result<()> {
-        // SAFETY: the buffer is the closure's own and holds `GROUPS_SEEN`
-        // entries, and these are plain system calls, which are safe in a
-        // forked process.
-        let (count, ids) = unsafe {
-            let count = libc::getgroups(GROUPS_SEEN as libc::c_int, groups.as_mut_ptr());
-            let ids = (
-                libc::getuid(),
-                libc::geteuid(),
-                libc::getgid(),
-                libc::getegid(),
-            );
-            (count, ids)
-        };
-        let count = usize::try_from(count).map_err(|_| io::Error::last_os_error())?;
-        let refused = || io::Error::from_raw_os_error(libc::EPERM);
-        let kept = groups.get(..count).ok_or_else(refused)?;
-        if ids != (uid, uid, gid, gid) || kept.iter().any(|&group| group != gid) {
-            return Err(refused());
-        }
-        Ok(())
-    };
-    // SAFETY: the closure allocates nothing and takes no locks. It only
-    // makes system calls and reads `errno`.
-    unsafe {
-        command.pre_exec(check);
     }
 }
 
@@ -393,10 +306,15 @@ pub fn run(args: &[OsString]) -> ExitCode {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::testing::TempDir;
+    use crate::testing::{fake_program, tool, TempDir};
 
-    fn sh(script: &str) -> Extractor {
-        Extractor::with("/bin/sh", &["-c", script, "sh"])
+    /// An extractor that runs the sh script `body` on the document.
+    fn sh(dir: &TempDir, body: &str) -> Extractor {
+        let bin = dir.path().join("bin");
+        Extractor::with(
+            fake_program(&bin, "extract", &format!("#!/bin/sh\n{body}\n")),
+            &[],
+        )
     }
 
     #[test]
@@ -404,7 +322,8 @@ mod tests {
         let dir = TempDir::new();
         let doc = dir.path().join("notes.docx");
         fs::write(&doc, "words").unwrap();
-        let saved = sh("printf 'text of %s' \"$(basename \"$1\")\"").save(&doc);
+        // The name comes after the last `/`, or `\` on Windows.
+        let saved = sh(&dir, r#"printf 'text of %s' "${1##*[\\/]}""#).save(&doc);
         assert_eq!(
             saved.as_deref(),
             Some(dir.path().join("notes.docx.txt").as_path())
@@ -422,7 +341,7 @@ mod tests {
         let doc = dir.path().join("a.ODT");
         fs::write(&doc, "words").unwrap();
         fs::write(dir.path().join("a.ODT.txt"), "kept").unwrap();
-        assert!(sh("exit 1").save(&doc).is_some());
+        assert!(sh(&dir, "exit 1").save(&doc).is_some());
         assert_eq!(
             fs::read_to_string(dir.path().join("a.ODT.txt")).unwrap(),
             "kept"
@@ -435,12 +354,12 @@ mod tests {
         let doc = dir.path().join("a.xlsx");
         fs::write(&doc, "words").unwrap();
         for script in ["echo half; exit 2", "echo half; exit 1"] {
-            assert_eq!(sh(script).save(&doc), None, "{script}");
+            assert_eq!(sh(&dir, script).save(&doc), None, "{script}");
             assert!(!text_path(&doc).exists(), "{script}");
         }
         let other = dir.path().join("a.md");
         fs::write(&other, "words").unwrap();
-        assert_eq!(sh("echo text").save(&other), None);
+        assert_eq!(sh(&dir, "echo text").save(&other), None);
         assert_eq!(Extractor::default().save(&doc), None);
     }
 
@@ -450,7 +369,8 @@ mod tests {
         let doc = dir.path().join("a.rtf");
         fs::write(&doc, "words").unwrap();
         let started = Instant::now();
-        assert_eq!(sh("yes").save(&doc), None);
+        // One process, so ending it closes its pipes on Windows too.
+        assert_eq!(Extractor::with(tool("yes"), &[]).save(&doc), None);
         assert!(started.elapsed() < TIMEOUT);
         assert!(!text_path(&doc).exists());
     }
@@ -460,7 +380,8 @@ mod tests {
         let dir = TempDir::new();
         let doc = dir.path().join("a.epub");
         fs::write(&doc, "words").unwrap();
-        let slow = sh("echo early; exec sleep 30").timeout(Duration::from_millis(200));
+        // It prints the document, then waits for more forever.
+        let slow = Extractor::with(tool("tail"), &["-f"]).timeout(Duration::from_millis(200));
         let started = Instant::now();
         assert_eq!(slow.save(&doc), None);
         assert!(started.elapsed() < Duration::from_secs(10));
@@ -473,64 +394,7 @@ mod tests {
         let doc = dir.path().join("big.pptx");
         let file = fs::File::create(&doc).unwrap();
         file.set_len(INPUT_CAP + 1).unwrap();
-        assert_eq!(sh("echo text").save(&doc), None);
-    }
-
-    #[test]
-    fn root_reads_as_the_owner_or_as_nobody() {
-        let agent = Reader {
-            uid: 1000,
-            gid: 1000,
-        };
-        assert_eq!(reader(false, Some(agent)), None);
-        assert_eq!(reader(false, None), None);
-        assert_eq!(reader(true, Some(agent)), Some(agent));
-        assert_eq!(reader(true, None), Some(NOBODY));
-        for root in [
-            Reader { uid: 0, gid: 0 },
-            Reader { uid: 0, gid: 1000 },
-            Reader { uid: 1000, gid: 0 },
-        ] {
-            assert_eq!(reader(true, Some(root)), Some(NOBODY), "{root:?}");
-        }
-        assert_eq!(
-            NOBODY,
-            Reader {
-                uid: 65_534,
-                gid: 65_534
-            }
-        );
-    }
-
-    #[test]
-    fn a_child_left_with_other_groups_doesnt_start() {
-        let id = |flag: &str| {
-            let out = Command::new("id").arg(flag).output().unwrap();
-            String::from_utf8(out.stdout).unwrap()
-        };
-        let uid: u32 = id("-u").trim().parse().unwrap();
-        let gid: u32 = id("-g").trim().parse().unwrap();
-        if uid == 0 {
-            return;
-        }
-        // Without root the child can't clear its groups, so it starts only
-        // when it has none but its own.
-        let alone = id("-G")
-            .split_whitespace()
-            .all(|group| group.parse() == Ok(gid));
-        let mut command = Command::new("/bin/sh");
-        command.args(["-c", "id -u"]).stdout(Stdio::piped());
-        run_as(&mut command, Reader { uid, gid });
-        match command.output() {
-            Ok(out) => {
-                assert!(alone, "the child kept other groups");
-                assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), uid.to_string());
-            }
-            Err(err) => {
-                assert!(!alone, "{err}");
-                assert_eq!(err.raw_os_error(), Some(libc::EPERM), "{err}");
-            }
-        }
+        assert_eq!(sh(&dir, "echo text").save(&doc), None);
     }
 
     #[test]

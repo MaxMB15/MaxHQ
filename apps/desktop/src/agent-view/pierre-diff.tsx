@@ -39,7 +39,7 @@ const STYLE = {
 	"--diffs-dark": "var(--terminal)",
 	"--diffs-light-bg": "var(--subpanel)",
 	"--diffs-light": "var(--terminal)",
-	"--diffs-font-family": '"JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace',
+	"--diffs-font-family": "var(--mono-stack)",
 	"--diffs-font-size": "11.5px",
 	"--diffs-line-height": "19px",
 	"--diffs-bg-context-override": "var(--subpanel)",

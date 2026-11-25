@@ -941,6 +941,7 @@ pub fn default_settings(device: &Device) -> DeviceSettings {
         history_mib: DEFAULT_HISTORY_MIB,
         claude_setup_token: false,
         shell_integration: true,
+        windows_shell: Default::default(),
         read_other_agents: true,
         dispatcher_acts: true,
         chat_gap_minutes: DEFAULT_CHAT_GAP_MINUTES,
@@ -1237,6 +1238,7 @@ mod tests {
                 workspace_host: None,
                 build: None,
                 target: None,
+                wsl: None,
             },
             HashMap::new(),
         )

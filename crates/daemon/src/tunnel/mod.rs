@@ -27,7 +27,11 @@ use serde::Serialize;
 use thiserror::Error;
 use tokio::sync::mpsc;
 
-pub(crate) use self::pump::{connect, open, targets, End, ToClient, Words};
+pub(crate) use self::pump::{open, End, ToClient};
+// The guest's end of a stream connects with these, and the guest role
+// builds on Unix alone.
+#[cfg(unix)]
+pub(crate) use self::pump::{connect, targets, Words};
 #[cfg(test)]
 pub(crate) use self::registry::tests as registry_tests;
 pub use self::registry::{ClientTunnels, GuestRelay, Tunnels};

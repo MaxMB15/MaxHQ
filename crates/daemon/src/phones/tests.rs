@@ -19,6 +19,17 @@ fn key(n: u8) -> String {
         .unwrap()
 }
 
+/// The `maxd` a key's forced command runs: from `~` on Unix, and the one
+/// the service runs on Windows, whose shell doesn't read `~`.
+fn maxd() -> String {
+    if cfg!(windows) {
+        let layout = maxhq_core::paths::MaxdLayout::from_env().unwrap();
+        layout.program().to_string_lossy().into_owned()
+    } else {
+        "~/.local/bin/maxd".to_owned()
+    }
+}
+
 fn push_key() -> String {
     STANDARD.encode([7u8; 32])
 }
@@ -137,7 +148,8 @@ fn a_pairing_key_works_once_and_gives_way_to_the_phones_own() {
     assert_eq!(
         h.keys(),
         format!(
-            "restrict,command=\"~/.local/bin/maxd proxy --pair {pair}\" {one_time} maxhq-pair-{pair}\n"
+            "restrict,command=\"{} proxy --pair {pair}\" {one_time} maxhq-pair-{pair}\n",
+            maxd()
         )
     );
 
@@ -158,7 +170,8 @@ fn a_pairing_key_works_once_and_gives_way_to_the_phones_own() {
     assert_eq!(
         h.keys(),
         format!(
-            "restrict,command=\"~/.local/bin/maxd proxy --phone {phone}\" {} maxhq-phone-{phone}\n",
+            "restrict,command=\"{} proxy --phone {phone}\" {} maxhq-phone-{phone}\n",
+            maxd(),
             key(1)
         )
     );
@@ -179,6 +192,40 @@ fn a_pairing_key_works_once_and_gives_way_to_the_phones_own() {
     let again = open(&h.temp, &hub, &h.clock);
     assert!(again.knows(phone));
     assert!(hub.get(&EntityKey::PhoneBook(phone)).is_some());
+}
+
+#[test]
+fn a_phones_token_says_what_this_device_pushes_and_through_which_service() {
+    let h = Harness::new();
+    let phone = h.paired(1);
+    let device = h.hub.device().id;
+    let published = |hub: &Hub| match hub.get(&EntityKey::Phone { phone, device }) {
+        Some(Entity::Phone(published)) => published,
+        other => panic!("{other:?}"),
+    };
+    assert_eq!(published(&h.hub).service, None, "unknown before a token");
+
+    h.phones.pushes(
+        phone,
+        vec![
+            PushKind::NeedsInput,
+            PushKind::Finished,
+            PushKind::NeedsInput,
+        ],
+        PushService::Fcm,
+    );
+    let mut kinds = vec![PushKind::NeedsInput, PushKind::Finished];
+    kinds.sort_unstable();
+    assert_eq!(published(&h.hub).push, kinds);
+    assert_eq!(published(&h.hub).service, Some(PushService::Fcm));
+
+    // Pairing again keeps it, and so does a restart.
+    assert_eq!(h.paired(1), phone);
+    assert_eq!(published(&h.hub).service, Some(PushService::Fcm));
+    let hub = hub_for("devbox");
+    let _again = open(&h.temp, &hub, &h.clock);
+    assert_eq!(published(&hub).service, Some(PushService::Fcm));
+    assert_eq!(published(&hub).push, kinds);
 }
 
 #[tokio::test]
@@ -454,14 +501,22 @@ fn a_database_from_before_the_switch_opens_with_every_phone_off() {
     let h = Harness::new();
     let phone = h.paired(1);
     assert_eq!(h.phones.set_everything(phone, true), ActionOutcome::Done);
+    // Closed first, since Windows can't delete a database that's open.
+    let Harness {
+        temp,
+        clock,
+        phones,
+        ..
+    } = h;
+    drop(phones);
     // An older build's database, without the switch's table.
-    fs::remove_file(db_path(h.temp.path())).unwrap();
+    fs::remove_file(db_path(temp.path())).unwrap();
     {
-        let mut conn = rusqlite::Connection::open(db_path(h.temp.path())).unwrap();
+        let mut conn = rusqlite::Connection::open(db_path(temp.path())).unwrap();
         crate::db::migrations().to_version(&mut conn, 28).unwrap();
     }
     let hub = hub_for("devbox");
-    let again = open(&h.temp, &hub, &h.clock);
+    let again = open(&temp, &hub, &clock);
     assert!(again.knows(phone));
     assert!(!again.everything(phone));
     assert!(!published_everything(&hub, phone));

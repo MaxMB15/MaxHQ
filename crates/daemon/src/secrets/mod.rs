@@ -43,6 +43,7 @@ mod chatgpt;
 mod claude;
 mod cli_login;
 mod cursor;
+pub(crate) mod fcm;
 pub(crate) mod files;
 mod github;
 mod hooks;
@@ -53,6 +54,7 @@ pub(crate) mod testing;
 mod tests;
 
 pub use apns::ApnsKey;
+pub use fcm::FcmKey;
 pub use github::{Fetched, GithubError, GithubToken, RepoName, UserToken, NOT_GITHUB};
 
 /// The store's folder under `maxd`'s data folder.
@@ -98,6 +100,7 @@ struct Inner {
     github: github::Github,
     acp: acp::Values,
     apns: apns::Held,
+    fcm: fcm::Held,
     cli_login: cli_login::Rounds,
 }
 
@@ -164,6 +167,7 @@ impl Secrets {
                 github: github::Github::new(api, gh),
                 acp: acp::Values::default(),
                 apns: apns::Held::default(),
+                fcm: fcm::Held::default(),
                 cli_login,
             }),
         };
@@ -174,6 +178,7 @@ impl Secrets {
         secrets.load_github_user();
         secrets.load_acp();
         secrets.load_apns();
+        secrets.load_fcm();
         Ok(secrets)
     }
 
@@ -243,6 +248,9 @@ impl Secrets {
             return outcome;
         }
         if let Some(outcome) = self.forget_apns(credential) {
+            return outcome;
+        }
+        if let Some(outcome) = self.forget_fcm(credential) {
             return outcome;
         }
         refused("This device doesn't hold that credential.")
@@ -333,6 +341,20 @@ pub fn set_apns_key(key_id: &str, team_id: &str, private_key: Secret) -> ActionO
 /// The APNs key pushes sign with, while this device holds one.
 pub fn apns_key() -> Option<Arc<ApnsKey>> {
     STORE.get().and_then(Secrets::apns)
+}
+
+/// Answers `SetFcmKey`.
+pub fn set_fcm_key(project_id: &str, client_email: &str, private_key: Secret) -> ActionOutcome {
+    match STORE.get() {
+        Some(store) => store.set_fcm_key(project_id, client_email, private_key),
+        None => not_yet(),
+    }
+}
+
+/// The Firebase key pushes to Android phones go with, while this device
+/// holds one.
+pub fn fcm_key() -> Option<Arc<FcmKey>> {
+    STORE.get().and_then(Secrets::fcm)
 }
 
 /// Answers `CheckGithubApp`.

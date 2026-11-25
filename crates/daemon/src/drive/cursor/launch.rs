@@ -18,7 +18,8 @@ use std::path::{Path, PathBuf};
 
 use maxhq_protocol::model::PermissionMode;
 
-use crate::drive::acp::launch::{path_first, runnable};
+use crate::drive::acp::launch::path_first;
+use crate::drive::programs::{self, Cli};
 use crate::drive::{Framing, Launch, Login, LoginAuth, Place};
 
 /// Keeps a repository's `.cursor/cli.json` from replacing the owner's allow
@@ -59,7 +60,7 @@ pub fn login_launch(login: &Login) -> Launch {
 
 /// The Cursor CLI this device runs, from `PATH` or a usual install folder.
 pub fn program() -> Option<PathBuf> {
-    let home = env::var_os("HOME").map(PathBuf::from);
+    let home = maxhq_os::home::home_dir();
     find(env::var_os("PATH").as_deref(), home.as_deref())
 }
 
@@ -80,7 +81,7 @@ impl Host {
         Self {
             program: program().unwrap_or_else(|| PathBuf::from(NAMES[0])),
             path: env::var_os("PATH"),
-            home: env::var_os("HOME").map(PathBuf::from),
+            home: maxhq_os::home::home_dir(),
         }
     }
 }
@@ -175,31 +176,28 @@ pub(super) fn refused_flag(stderr: &str) -> Option<String> {
 }
 
 /// Finds the CLI on `PATH`, leaving out relative folders, then where the
-/// installer puts it.
+/// installer puts it. Windows has its own install folders.
 fn find(path: Option<&OsStr>, home: Option<&Path>) -> Option<PathBuf> {
-    let mut dirs: Vec<PathBuf> = path
-        .into_iter()
-        .flat_map(env::split_paths)
-        .filter(|dir| dir.is_absolute())
-        .collect();
+    let mut unix: Vec<PathBuf> = Vec::new();
     if let Some(home) = home {
-        dirs.extend(HOME_DIRS.iter().map(|dir| home.join(dir)));
+        unix.extend(HOME_DIRS.iter().map(|dir| home.join(dir)));
     }
-    dirs.extend(SYSTEM_DIRS.iter().map(PathBuf::from));
+    unix.extend(SYSTEM_DIRS.iter().map(PathBuf::from));
     NAMES
         .iter()
-        .flat_map(|name| dirs.iter().map(move |dir| dir.join(name)))
-        .find(|candidate| runnable(candidate))
+        .find_map(|name| programs::find(name, path, &unix, Cli::Cursor))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::drive::PlaceHost;
+    use crate::testing::{absolute, path_of};
     use maxhq_protocol::ids::{AccountId, DeviceId, WorkspaceId};
     use maxhq_protocol::Secret;
 
     #[test]
+    #[cfg(unix)]
     fn a_relative_folder_on_path_is_never_the_cli() {
         use std::os::unix::fs::PermissionsExt;
         let dir = crate::testing::TempDir::new();
@@ -236,8 +234,8 @@ mod tests {
 
     fn host() -> Host {
         Host {
-            program: PathBuf::from("/home/me/.local/bin/cursor-agent"),
-            path: Some("/usr/bin:/bin".into()),
+            program: absolute("/home/me/.local/bin/cursor-agent").into(),
+            path: Some(path_of(&["/usr/bin", "/bin"]).into()),
             home: Some(PathBuf::from("/home/me")),
         }
     }
@@ -266,9 +264,10 @@ mod tests {
         );
         assert_eq!(launch.cwd, PathBuf::from("/work/repo"));
         assert_eq!(launch.framing, Framing::JsonRpc);
-        assert!(launch
-            .env
-            .contains(&("PATH".into(), "/home/me/.local/bin:/usr/bin:/bin".into())));
+        assert!(launch.env.contains(&(
+            "PATH".into(),
+            path_of(&[&absolute("/home/me/.local/bin"), "/usr/bin", "/bin"]).into()
+        )));
     }
 
     #[test]
@@ -345,7 +344,10 @@ mod tests {
         for (name, value) in [
             ("NO_OPEN_BROWSER", "1"),
             ("NO_COLOR", "1"),
-            ("PATH", "/home/me/.local/bin:/usr/bin:/bin"),
+            (
+                "PATH",
+                &*path_of(&[&absolute("/home/me/.local/bin"), "/usr/bin", "/bin"]),
+            ),
         ] {
             assert!(
                 launch.env.contains(&(name.into(), value.into())),

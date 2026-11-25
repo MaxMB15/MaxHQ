@@ -47,7 +47,7 @@ use crate::drive::{
     Action, AttentionChange, ChildExit, Driver, Effects, HeldLine, Job, Login, LoginAuth, Place,
     PlaceHost, Staged,
 };
-use crate::testing::TempDir;
+use crate::testing::{absolute, TempDir};
 
 const SESSION: &str = "00000000-0000-4000-8000-000000000001";
 
@@ -152,12 +152,14 @@ fn login() -> Login {
     }
 }
 
+/// The agent's place on this machine. On Windows its folders are on
+/// drive C:, where the tests' `/work/ws/...` paths land too.
 fn place() -> Place {
     Place {
         device: DeviceId::derive("device-test"),
         workspace: WorkspaceId::derive("ws"),
-        cwd: PathBuf::from("/work/ws"),
-        attachments: PathBuf::from("/work/ws/.maxhq"),
+        cwd: absolute("/work/ws").into(),
+        attachments: absolute("/work/ws/.maxhq").into(),
         host: PlaceHost::Local,
         dispatcher: false,
         trust: None,
@@ -507,7 +509,7 @@ fn the_handshake_starts_a_session_and_lists_the_models() {
     run.feed(&handshake()[0]);
     let fx = run.take();
     let new = sent_once(&fx, "session/new");
-    assert_eq!(new["params"]["cwd"], "/work/ws");
+    assert_eq!(new["params"]["cwd"], absolute("/work/ws"));
     run.feed(&handshake()[1]);
     let fx = run.take();
     let (to, models) = fx.models.last().expect("models");
@@ -903,7 +905,7 @@ fn provider_thread_resume() {
     let fx = run.take();
     let sent_load = sent_once(&fx, "session/load");
     assert_eq!(sent_load["params"]["sessionId"], SESSION);
-    assert_eq!(sent_load["params"]["cwd"], "/work/ws");
+    assert_eq!(sent_load["params"]["cwd"], absolute("/work/ws"));
     assert!(sent(&fx, "session/new").is_empty());
     run.feed_all(&load[1..]);
     let fx = run.take();

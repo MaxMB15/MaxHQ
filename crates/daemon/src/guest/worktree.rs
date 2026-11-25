@@ -14,7 +14,6 @@
 use std::collections::BTreeMap;
 use std::ffi::OsStr;
 use std::io::{self, Read};
-use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 
@@ -374,7 +373,7 @@ impl SkillFs for BeneathFs {
                 let meta = dir.read_file(&name)?.metadata()?;
                 Some(Node::File {
                     size: meta.len(),
-                    executable: meta.permissions().mode() & 0o111 != 0,
+                    executable: maxhq_os::fsmode::mode_of(&meta) & 0o111 != 0,
                 })
             }
             Some(_) => return Err(io::ErrorKind::InvalidInput.into()),
@@ -549,8 +548,6 @@ fn repo_folder(url: &str) -> Option<String> {
 
 /// Git as `user`, or as this process, which never asks for a password.
 pub(crate) fn git(user: Option<&RunAs>) -> std::process::Command {
-    use std::os::unix::process::CommandExt;
-
     let mut command = std::process::Command::new("git");
     command.env("GIT_TERMINAL_PROMPT", "0");
     // Tests run git as whoever runs them, so their own config and
@@ -571,18 +568,31 @@ pub(crate) fn git(user: Option<&RunAs>) -> std::process::Command {
         .env_remove("GIT_COMMITTER_EMAIL")
         .env_remove("GIT_COMMITTER_DATE");
     if let Some(user) = user {
-        command
-            .env_clear()
-            .env("PATH", PATH)
-            .env("HOME", &user.home)
-            .env("USER", &user.user)
-            .env("LOGNAME", &user.user)
-            .env("GIT_TERMINAL_PROMPT", "0")
-            .uid(user.uid)
-            .gid(user.gid);
+        as_user(&mut command, user);
     }
     command
 }
+
+/// Has git run as `user`, as the guest does when it runs as root.
+#[cfg(unix)]
+fn as_user(command: &mut std::process::Command, user: &RunAs) {
+    use std::os::unix::process::CommandExt;
+
+    command
+        .env_clear()
+        .env("PATH", PATH)
+        .env("HOME", &user.home)
+        .env("USER", &user.user)
+        .env("LOGNAME", &user.user)
+        .env("GIT_TERMINAL_PROMPT", "0")
+        .uid(user.uid)
+        .gid(user.gid);
+}
+
+/// Windows has no Unix users, and only a guest running as root on Unix
+/// names one, so git runs as this process.
+#[cfg(not(unix))]
+fn as_user(_command: &mut std::process::Command, _user: &RunAs) {}
 
 /// Runs git in the repo as the worktree's user.
 struct Git<'a> {
@@ -666,9 +676,11 @@ impl Git<'_> {
     }
 }
 
-#[cfg(test)]
+// The guest links and checks out as a Unix user would, with links
+// everywhere, so its tests run on Unix.
+#[cfg(all(test, unix))]
 mod tests {
-    use std::os::unix::fs::{symlink, MetadataExt};
+    use std::os::unix::fs::{symlink, MetadataExt, PermissionsExt};
     use std::sync::atomic::{AtomicBool, Ordering};
     use std::sync::Arc;
 

@@ -4,9 +4,17 @@
 // What the Phones settings work from: each phone you paired with the
 // devices that have it and whether each lets it do everything, which
 // devices Add phone ticks, the one it pairs through, and which of a new
-// phone's devices can't push to it yet.
+// phone's devices can't push to it yet, for want of the key its platform
+// needs: APNs for an iPhone, Firebase for an Android phone.
 
-import type { DeviceId, PermissionMode, PhoneDevice, PhoneId, Timestamp } from "../bindings";
+import type {
+	DeviceId,
+	PermissionMode,
+	PhoneDevice,
+	PhoneId,
+	PushService,
+	Timestamp,
+} from "../bindings";
 import { alwaysOn } from "../tasks/place";
 import { all, type ViewState } from "../view/replica";
 import { deviceName } from "../view/select";
@@ -25,6 +33,8 @@ export type PairedPhone = {
 	}[];
 	/** Whether any device lets it do everything. */
 	readonly everything: boolean;
+	/** The service its pushes go through, or null before it sends a token. */
+	readonly service: PushService | null;
 };
 
 /** Each phone paired with a device, by name. */
@@ -44,13 +54,18 @@ export const pairedPhones = (view: ViewState): PairedPhone[] => {
 				pairedAt: phone.paired_at,
 				devices: [device],
 				everything: false,
+				service: phone.service ?? null,
 			});
 			continue;
 		}
 		seen.devices.push(device);
-		if (phone.paired_at > seen.pairedAt) {
-			phones.set(phone.id, { ...seen, name: phone.name, pairedAt: phone.paired_at });
-		}
+		const service = seen.service ?? phone.service ?? null;
+		phones.set(
+			phone.id,
+			phone.paired_at > seen.pairedAt
+				? { ...seen, name: phone.name, pairedAt: phone.paired_at, service }
+				: { ...seen, service }
+		);
 	}
 	return [...phones.values()]
 		.map((phone) => ({
@@ -77,17 +92,32 @@ export const letsPhone = (view: ViewState, phone: PhoneId, device: DeviceId): bo
 export const needsSwitch = (mode: PermissionMode): boolean =>
 	mode === "auto" || mode === "full_access";
 
+/** A phone's devices that can't push to it yet, and the key they lack. */
+export type MissingPushKey = {
+	/** The phone's service, whose key they lack, or null before its token comes. */
+	readonly service: PushService | null;
+	/** The devices, by name. */
+	readonly names: string[];
+};
+
 /**
- * The devices that let `phone` in but hold no APNs key, by name. Each
- * device pushes on its own, so these can't push to the phone yet.
+ * The devices that let `phone` in but hold no key for the service its
+ * pushes go through: the APNs key for an iPhone, the Firebase key for an
+ * Android phone. Before its token comes the service isn't known, so only
+ * a device with neither key counts. Each device pushes on its own, so
+ * these can't push to the phone yet.
  */
-export const withoutPushKey = (view: ViewState, phone: PairedPhone): string[] => {
+export const withoutPushKey = (view: ViewState, phone: PairedPhone): MissingPushKey => {
+	const needs: readonly PushService[] = phone.service ? [phone.service] : ["apns", "fcm"];
 	const keyed = new Set(
 		all(view, "credential")
-			.filter((credential) => credential.kind.type === "apns")
+			.filter((credential) => needs.some((service) => credential.kind.type === service))
 			.map((credential) => credential.device)
 	);
-	return phone.devices.filter((d) => !keyed.has(d.device)).map((d) => d.name);
+	return {
+		service: phone.service,
+		names: phone.devices.filter((d) => !keyed.has(d.device)).map((d) => d.name),
+	};
 };
 
 /** The devices Add phone ticks first: each one a phone can reach. */

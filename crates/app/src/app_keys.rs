@@ -4,8 +4,9 @@
 //! This Mac's app key: the Ed25519 key the app proves itself to each
 //! `maxd` with, right after the device's hello.
 //!
-//! The seed sits in one Keychain item, read once per launch and kept
-//! zeroized. While the app moves to a new key, the item holds the new seed
+//! The seed sits in one item in the system's store, read once per launch
+//! and kept zeroized: the Keychain on a Mac, the keyring on Linux and
+//! Windows, or a key file you chose when no keyring answered ([`store`]). While the app moves to a new key, the item holds the new seed
 //! followed by the old one, so a device that's offline moves when the app
 //! next reaches it. Beside the item, the app's database keeps a small
 //! [`Record`]: the key's public half, the one it replaces and which devices
@@ -23,6 +24,7 @@
 //! then the new one goes in over it and the old one comes out.
 
 use std::collections::{BTreeMap, BTreeSet};
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, MutexGuard, OnceLock, PoisonError};
 
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
@@ -39,6 +41,11 @@ use zeroize::Zeroizing;
 
 use crate::keys::{Key, KeyStore};
 use crate::registry::Registry;
+pub use store::{remember, KeyHome, KeyHomeState, HOME_SETTING};
+use store::{KeyFile, Place};
+
+mod name;
+pub mod store;
 
 /// The setting the app keeps its key's [`Record`] under.
 pub const SETTING: &str = "app_key";
@@ -60,10 +67,10 @@ pub struct AppKeys {
 
 /// What every clone shares.
 struct Inner {
-    /// Where the seeds live.
-    store: Box<dyn KeyStore>,
     /// What a device calls the key it trusts.
     label: String,
+    /// Where the key file goes, when you choose one.
+    file: Option<PathBuf>,
     state: Mutex<State>,
     /// Saves the record and names the devices, once the app has them.
     keeper: OnceLock<Box<dyn Keeper>>,
@@ -71,6 +78,11 @@ struct Inner {
 
 /// The keys and what's known of each device.
 struct State {
+    /// Where the seeds live.
+    store: Box<dyn KeyStore>,
+    home: KeyHome,
+    /// Whether to ask where to keep the key.
+    ask: bool,
     current: Seed,
     /// The seed of the key before, while devices move off it, when the
     /// item still had it.
@@ -80,7 +92,7 @@ struct State {
     refusals: BTreeMap<DeviceId, Refusal>,
     /// Why the app made a new key as it opened, when it had to.
     remade: Option<String>,
-    /// Whether the Keychain holds the current key.
+    /// Whether the store holds the current key.
     kept: bool,
 }
 
@@ -192,42 +204,55 @@ impl Steps for Proving {
 }
 
 impl AppKeys {
-    /// Reads the key from `store`, once per launch, with the record the
-    /// app saved. Makes a new key when there's none, or when the one there
-    /// looks tampered with. A key it can't keep in `store` lasts until the
-    /// app quits. Fails only when the system gives no random bytes.
+    /// Reads the key from `store`, the Keychain, once per launch, with the
+    /// record the app saved. Makes a new key when there's none, or when the
+    /// one there looks tampered with. A key it can't keep in `store` lasts
+    /// until the app quits. Fails only when the system gives no random
+    /// bytes.
     pub fn open(
         store: Box<dyn KeyStore>,
         record: Option<Record>,
         label: String,
     ) -> Result<Self, String> {
+        Self::open_in(Place::only(store, KeyHome::Keychain), record, label)
+    }
+
+    /// Reads the key from `place`, as [`AppKeys::open`] does.
+    pub(crate) fn open_in(
+        place: Place,
+        record: Option<Record>,
+        label: String,
+    ) -> Result<Self, String> {
+        let Place {
+            store,
+            home,
+            ask,
+            file,
+            read,
+        } = place;
+        let place = home.name();
         let mut record = record.unwrap_or_default();
-        let (current, previous, remade) = match store.load(Key::App) {
+        let read = read.unwrap_or_else(|| store.load(Key::App));
+        let (current, previous, remade) = match read {
             Ok(Some(bytes)) if bytes.len() == 32 => (Some(seed_of(&bytes)), None, None),
             Ok(Some(bytes)) if bytes.len() == 64 => (
                 Some(seed_of(&bytes[..32])),
                 Some(seed_of(&bytes[32..])),
                 None,
             ),
-            Ok(None) => {
-                let lost = "MaxHQ made a new app key, since the Keychain lost the one before";
-                (
-                    None,
-                    None,
-                    record.public_key.as_ref().map(|_| lost.to_owned()),
-                )
-            }
+            Ok(None) => (None, None, record.public_key.as_ref().map(|_| home.lost())),
             Ok(Some(_)) => {
-                tracing::warn!("this Mac's app key in the Keychain isn't one MaxHQ made");
-                let odd =
-                    "MaxHQ made a new app key, since the one in the Keychain wasn't one it made";
-                (None, None, Some(odd.to_owned()))
+                tracing::warn!("this computer's app key in {place} isn't one MaxHQ made");
+                let odd = format!(
+                    "MaxHQ made a new app key, since the one in {place} wasn't one it made"
+                );
+                (None, None, Some(odd))
             }
             Err(error) => {
-                tracing::warn!(%error, "couldn't read this Mac's app key");
+                tracing::warn!(%error, "couldn't read this computer's app key");
                 let unread =
-                    "MaxHQ made a new app key, since it couldn't read the one in the Keychain";
-                (None, None, Some(unread.to_owned()))
+                    format!("MaxHQ made a new app key, since it couldn't read the one in {place}");
+                (None, None, Some(unread))
             }
         };
         let mut kept = true;
@@ -254,9 +279,12 @@ impl AppKeys {
         record.public_key = Some(public_key(&current));
         Ok(Self {
             inner: Arc::new(Inner {
-                store,
                 label,
+                file,
                 state: Mutex::new(State {
+                    store,
+                    home,
+                    ask,
                     current,
                     previous,
                     record,
@@ -339,12 +367,9 @@ impl AppKeys {
                 return Err("This Mac's new app key hasn't reached every device yet".into());
             }
             let next = fresh()?;
-            let mut item = Zeroizing::new([0u8; 64]);
-            item[..32].copy_from_slice(next.as_slice());
-            item[32..].copy_from_slice(state.current.as_slice());
-            self.inner
+            state
                 .store
-                .save(Key::App, item.as_slice())
+                .save(Key::App, &item(&next, Some(&state.current)))
                 .map_err(|error| format!("Couldn't keep the new key: {error}"))?;
             let old = std::mem::replace(&mut state.current, next);
             state.record.previous = state.record.public_key.take();
@@ -365,8 +390,71 @@ impl AppKeys {
         // Held through the forget, so a rotation can't put a key back
         // halfway.
         let mut state = self.state();
-        self.inner.store.forget(Key::App)?;
+        state.store.forget(Key::App)?;
         state.kept = false;
+        Ok(())
+    }
+
+    /// Where the key lives, for the key dialog and Settings. None on a Mac,
+    /// whose Keychain is the only place it goes.
+    pub fn home(&self) -> Option<KeyHomeState> {
+        let state = self.state();
+        (state.home != KeyHome::Keychain).then(|| KeyHomeState {
+            home: state.home,
+            ask: state.ask,
+            file: self
+                .inner
+                .file
+                .as_ref()
+                .map(|file| file.display().to_string()),
+        })
+    }
+
+    /// Moves the key to `home`: the keyring, or the key file you chose
+    /// over the risk the dialog names. Memory only answers the dialog with
+    /// Not now, and moves nothing. The caller saves the choice with
+    /// [`remember`]. This may wait on the keyring's unlock prompt, so it
+    /// runs off the async threads.
+    pub fn keep_in(&self, home: KeyHome) -> Result<(), String> {
+        let store: Box<dyn KeyStore> = match home {
+            KeyHome::Keyring => store::keyring()?,
+            KeyHome::File => match &self.inner.file {
+                Some(file) => Box::new(KeyFile::new(file.clone())),
+                None => return Err("MaxHQ has no data folder to keep a key file in".into()),
+            },
+            KeyHome::Memory => {
+                let mut state = self.state();
+                if state.home != KeyHome::Memory {
+                    return Err(format!(
+                        "This computer's app key is in {} already",
+                        state.home.name()
+                    ));
+                }
+                state.ask = false;
+                return Ok(());
+            }
+            KeyHome::Keychain => return Err("Only a Mac keeps its app key in the Keychain".into()),
+        };
+        self.move_to(store, home)
+    }
+
+    /// Saves the key, and the one before while devices move off it, in
+    /// `store`, then takes them out of the store they were in.
+    fn move_to(&self, store: Box<dyn KeyStore>, home: KeyHome) -> Result<(), String> {
+        let mut state = self.state();
+        if state.home == home {
+            state.ask = false;
+            return Ok(());
+        }
+        store.save(Key::App, &item(&state.current, state.previous.as_ref()))?;
+        if let Err(error) = state.store.forget(Key::App) {
+            tracing::warn!(%error, from = state.home.name(), "couldn't take the app key out of where it was");
+        }
+        tracing::info!(to = home.name(), "moved this computer's app key");
+        state.store = store;
+        state.home = home;
+        state.kept = true;
+        state.ask = false;
         Ok(())
     }
 
@@ -495,7 +583,7 @@ impl AppKeys {
                 return;
             }
             if state.previous.is_some() || !state.kept {
-                if let Err(error) = self.inner.store.save(Key::App, state.current.as_slice()) {
+                if let Err(error) = state.store.save(Key::App, state.current.as_slice()) {
                     tracing::warn!(%error, "couldn't let go of this Mac's old app key");
                     return;
                 }
@@ -551,28 +639,23 @@ impl Prover for AppKeys {
     }
 }
 
-/// This Mac's app key from the Keychain, with the record the app saved in
-/// `registry`. None when the system gives no random bytes for a new key,
-/// and off a Mac, so the app proves nothing.
-pub fn from_keychain(registry: &Registry) -> Option<AppKeys> {
-    #[cfg(target_os = "macos")]
-    {
-        let record = registry.setting::<Record>(SETTING).unwrap_or_else(|error| {
-            tracing::warn!(%error, "couldn't read what the app knows of its key");
-            None
-        });
-        match AppKeys::open(Box::new(crate::keys::Keychain), record, label()) {
-            Ok(keys) => Some(keys),
-            Err(error) => {
-                tracing::error!(%error, "this Mac has no app key, so it proves nothing");
-                None
-            }
-        }
-    }
-    #[cfg(not(target_os = "macos"))]
-    {
-        let _ = registry;
+/// This computer's app key from where the system keeps it ([`store`]),
+/// with the record the app saved in `registry`. `data` is the app's data
+/// folder, where a key file goes if you choose one. None when the system
+/// gives no random bytes for a new key, or has no store, so the app proves
+/// nothing.
+pub fn from_system(registry: &Registry, data: Option<&Path>) -> Option<AppKeys> {
+    let place = store::place(registry, data)?;
+    let record = registry.setting::<Record>(SETTING).unwrap_or_else(|error| {
+        tracing::warn!(%error, "couldn't read what the app knows of its key");
         None
+    });
+    match AppKeys::open_in(place, record, label()) {
+        Ok(keys) => Some(keys),
+        Err(error) => {
+            tracing::error!(%error, "this computer has no app key, so it proves nothing");
+            None
+        }
     }
 }
 
@@ -610,27 +693,20 @@ fn public_key(seed: &[u8; 32]) -> String {
     URL_SAFE_NO_PAD.encode(Ed25519Keypair::from_seed(seed).public.0)
 }
 
-/// What a device calls this Mac's key: "MaxHQ on <this Mac's name>".
-pub fn label() -> String {
-    format!("MaxHQ on {}", mac_name())
+/// The seed `first`, followed by `second` while devices move off it: one
+/// item, as the store keeps it.
+fn item(first: &Seed, second: Option<&Seed>) -> Zeroizing<Vec<u8>> {
+    let mut item = Zeroizing::new(Vec::with_capacity(64));
+    item.extend_from_slice(first.as_slice());
+    if let Some(second) = second {
+        item.extend_from_slice(second.as_slice());
+    }
+    item
 }
 
-/// This Mac's name, as you set it in System Settings, or its host name.
-fn mac_name() -> String {
-    use std::process::{Command, Stdio};
-    let output = |program: &str, args: &[&str]| {
-        let out = Command::new(program)
-            .args(args)
-            .stdin(Stdio::null())
-            .stderr(Stdio::null())
-            .output()
-            .ok()?;
-        let text = String::from_utf8_lossy(&out.stdout).trim().to_owned();
-        (out.status.success() && !text.is_empty()).then_some(text)
-    };
-    output("/usr/sbin/scutil", &["--get", "ComputerName"])
-        .or_else(|| output("hostname", &[]))
-        .unwrap_or_else(|| "this Mac".to_owned())
+/// What a device calls this computer's key: "MaxHQ on <its name>".
+pub fn label() -> String {
+    format!("MaxHQ on {}", name::computer_name())
 }
 
 #[cfg(test)]

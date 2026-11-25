@@ -7,10 +7,10 @@
 use std::collections::BTreeSet;
 use std::fs::File;
 use std::io::{self, Read};
-use std::os::unix::fs::FileExt;
 use std::path::Path;
 use std::time::Instant;
 
+use maxhq_os::fsmode;
 use maxhq_protocol::message::{ErrorCode, ManifestEntry};
 use maxhq_wire::Window;
 use sha2::{Digest, Sha256};
@@ -110,6 +110,7 @@ pub struct Receiver {
     touched: BTreeSet<Vec<String>>,
     grant: Grant,
     sent: Option<(u64, u64)>,
+    skipped_links: Vec<String>,
 }
 
 /// The file landing now.
@@ -149,6 +150,7 @@ impl Receiver {
             touched: BTreeSet::new(),
             grant: Grant::new(),
             sent: None,
+            skipped_links: Vec::new(),
         };
         receiver.make_skeleton()?;
         receiver.recover()?;
@@ -160,28 +162,45 @@ impl Receiver {
         Ok(receiver)
     }
 
-    /// Makes every folder and link.
+    /// Makes every folder, then every link, so a link on Windows can see
+    /// whether what it points to is a folder. A link this system can't make
+    /// is skipped and named in [`Receiver::skipped_links`].
     fn make_skeleton(&mut self) -> Result<(), Failure> {
-        for index in 0..self.entries.len() {
-            let entry = &self.entries[index];
-            let at = u32::try_from(index).ok();
-            let fail = |err: io::Error| Failure::io(&err, at);
-            let (leaf, parent) = entry.parts.split_last().expect("checked paths have a part");
-            match &entry.kind {
-                Kind::Dir => self
-                    .root
-                    .dir(parent)
-                    .and_then(|dir| dir.make_dir(leaf, 0o755)),
-                Kind::Symlink { target } => self
-                    .root
-                    .dir(parent)
-                    .and_then(|dir| dir.symlink(target, leaf)),
-                Kind::File { .. } => continue,
+        for links in [false, true] {
+            for index in 0..self.entries.len() {
+                let entry = &self.entries[index];
+                let at = u32::try_from(index).ok();
+                let (leaf, parent) = entry.parts.split_last().expect("checked paths have a part");
+                let made = match (&entry.kind, links) {
+                    (Kind::Dir, false) => self
+                        .root
+                        .dir(parent)
+                        .and_then(|dir| dir.make_dir(leaf, 0o755)),
+                    (Kind::Symlink { target }, true) => self
+                        .root
+                        .dir(parent)
+                        .and_then(|dir| dir.symlink(target, leaf)),
+                    _ => continue,
+                };
+                match made {
+                    Ok(()) => {}
+                    Err(err) if links && beneath::cannot_link(&err) => {
+                        self.skipped_links.push(entry.path());
+                        continue;
+                    }
+                    Err(err) => return Err(Failure::io(&err, at)),
+                }
+                self.touched.insert(parent.to_vec());
             }
-            .map_err(fail)?;
-            self.touched.insert(parent.to_vec());
         }
         Ok(())
+    }
+
+    /// The links this system couldn't make, by their paths in the
+    /// manifest: Windows without the right to make symlinks, or a target
+    /// Windows would read as leaving the folder.
+    pub fn skipped_links(&self) -> &[String] {
+        &self.skipped_links
     }
 
     /// Finds the first file that hasn't landed, and picks up its partial
@@ -321,8 +340,7 @@ impl Receiver {
                 .unwrap_or(usize::MAX)
                 .min(data.len());
             let open = self.open_part(index)?;
-            open.file
-                .write_all_at(&data[..take], within)
+            fsmode::write_all_at(&open.file, &data[..take], within)
                 .map_err(|err| Failure::io(&err, at))?;
             open.hasher.update(&data[..take]);
             self.written += take as u64;
@@ -534,7 +552,7 @@ pub fn sha256_hex(bytes: &[u8]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::testing::TempDir;
+    use crate::testing::{self, TempDir};
     use maxhq_protocol::message::EntryKind;
     use std::time::Duration;
 
@@ -594,11 +612,6 @@ mod tests {
         }
     }
 
-    fn mode(path: &Path) -> u32 {
-        use std::os::unix::fs::PermissionsExt;
-        std::fs::metadata(path).unwrap().permissions().mode() & 0o7777
-    }
-
     #[test]
     fn a_folder_lands_with_its_links_and_modes() {
         let temp = TempDir::new();
@@ -625,12 +638,22 @@ mod tests {
             notes
         );
         assert_eq!(std::fs::read(root.join("notes/empty")).unwrap(), b"");
-        assert_eq!(
-            std::fs::read_link(root.join("notes/latest")).unwrap(),
-            Path::new("run.sh")
-        );
-        assert_eq!(mode(&root.join("notes/run.sh")), 0o755);
-        assert_eq!(mode(&root.join("notes/deep/big.bin")), 0o644);
+        if receiver.skipped_links().is_empty() {
+            assert_eq!(
+                std::fs::read_link(root.join("notes/latest")).unwrap(),
+                Path::new("run.sh")
+            );
+        } else {
+            // Windows without the right to make links.
+            assert_eq!(receiver.skipped_links(), ["notes/latest"]);
+            assert!(std::fs::symlink_metadata(root.join("notes/latest")).is_err());
+        }
+        if let Some(mode) = testing::mode(&root.join("notes/run.sh")) {
+            assert_eq!(mode, 0o755);
+        }
+        if let Some(mode) = testing::mode(&root.join("notes/deep/big.bin")) {
+            assert_eq!(mode, 0o644);
+        }
         assert!(!root.join("notes/deep/big.bin.part").exists());
         assert_eq!(receiver.tops(), ["notes"]);
     }
@@ -693,7 +716,9 @@ mod tests {
         pour(&mut receiver, &stream, committed, 64 * 1024);
         assert!(receiver.is_done());
         assert_eq!(std::fs::read(root.join("d/b")).unwrap(), b);
-        assert_eq!(mode(&root.join("d/b")), 0o755);
+        if let Some(mode) = testing::mode(&root.join("d/b")) {
+            assert_eq!(mode, 0o755);
+        }
     }
 
     #[test]
@@ -754,7 +779,9 @@ mod tests {
         let root = temp.path().join("in");
         std::fs::create_dir_all(root.join("d")).unwrap();
         // Something put a link where the partial copy goes.
-        std::os::unix::fs::symlink(&outside, root.join("d/a.part")).unwrap();
+        if !testing::symlink(&outside, &root.join("d").join("a.part")) {
+            return;
+        }
         let a = vec![1u8; 10];
         let manifest = [dir("d"), file("d/a", &a, false)];
         let failure = Receiver::open(&root, &manifest, ROOM)
@@ -775,11 +802,45 @@ mod tests {
         std::fs::create_dir_all(&outside).unwrap();
         let root = temp.path().join("in");
         std::fs::create_dir_all(&root).unwrap();
-        std::os::unix::fs::symlink(&outside, root.join("d")).unwrap();
+        testing::dir_link(&outside, &root.join("d"));
         let manifest = [dir("d"), file("d/a", b"x", false)];
         let failure = Receiver::open(&root, &manifest, ROOM).unwrap_err();
         assert_eq!(failure.code, ErrorCode::BadPath, "{failure:?}");
         assert!(std::fs::read_dir(&outside).unwrap().next().is_none());
+    }
+
+    /// Names Unix takes as they are and Windows would read as a way out:
+    /// a backslash, a drive, a stream. Windows skips and names them.
+    #[test]
+    fn a_link_windows_would_read_as_leaving_is_skipped_and_named() {
+        let temp = TempDir::new();
+        let targets = [
+            ("d/up", "a\\..\\..\\x"),
+            ("d/drive", "C:x"),
+            ("d/stream", "a:b"),
+        ];
+        let mut manifest = vec![dir("d")];
+        manifest.extend(targets.iter().map(|(path, target)| link(path, target)));
+        manifest.push(file("d/kept", b"kept", false));
+        let root = temp.path().join("in");
+        let mut receiver = Receiver::open(&root, &manifest, ROOM).unwrap();
+        pour(&mut receiver, b"kept", 0, 1024);
+        assert!(receiver.is_done());
+        assert_eq!(std::fs::read(root.join("d/kept")).unwrap(), b"kept");
+        for (path, target) in targets {
+            let at = root.join(path);
+            if cfg!(windows) {
+                assert!(std::fs::symlink_metadata(&at).is_err(), "{path}");
+            } else {
+                assert_eq!(std::fs::read_link(&at).unwrap(), Path::new(target));
+            }
+        }
+        let expected: &[&str] = if cfg!(windows) {
+            &["d/up", "d/drive", "d/stream"]
+        } else {
+            &[]
+        };
+        assert_eq!(receiver.skipped_links(), expected);
     }
 
     #[test]

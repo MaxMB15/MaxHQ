@@ -5,6 +5,11 @@
 //! key, install `maxd`, start it as a service and let MaxHQ's own key in
 //! through `maxd proxy` only.
 //!
+//! A Linux device runs each step in `sh`. A Windows PC, found when that
+//! fails or runs in a POSIX layer, runs them in PowerShell instead
+//! ([`windows`]). A WSL distro runs the Linux steps through `wsl.exe`
+//! ([`wsl`]).
+//!
 //! Nothing runs on the device before you confirm a host key ssh hasn't
 //! seen. Secrets never pass through here: the app sends them over the
 //! link once the device answers. Every command is built from fixed text
@@ -22,11 +27,17 @@ use std::time::Duration;
 
 use maxhq_core::authorized_keys;
 use maxhq_core::fs::{write_atomic, Atomic};
-use maxhq_core::paths::MAXD_LINK_TEMP;
+use maxhq_core::paths::{BUILD_LEN, MAXD_LINK_TEMP};
 use maxhq_protocol::agents::PeerRoute;
 use tokio::io::AsyncWriteExt;
 use tokio::process::Command;
 use tokio::sync::oneshot;
+
+pub use windows::{shell_refusal, target_for_windows, SSHD_STEPS};
+pub use wsl::over_ssh as wsl_over_ssh;
+
+mod windows;
+mod wsl;
 
 /// How long a setup waits for you to confirm a host key.
 pub const CONFIRM_WITHIN: Duration = Duration::from_secs(10 * 60);
@@ -52,11 +63,14 @@ pub struct SetupPaths {
     pub scratch: PathBuf,
 }
 
-/// The one place the paths come from, so they can move in one edit:
-/// `~/Library/Application Support/MaxHQ/ssh/` on macOS.
+/// The one place the paths come from, so they can move in one edit: the
+/// `ssh` folder in this machine's `maxd` data folder, which is
+/// `~/Library/Application Support/MaxHQ/ssh/` on macOS and
+/// `~/.local/share/maxhq/ssh/` on Linux. Taking it from
+/// [`maxhq_core::paths::data_dir`] keeps the app reading the key the local
+/// `maxd` writes, whatever each OS calls the folder.
 pub fn paths() -> Option<SetupPaths> {
-    let dirs = directories::BaseDirs::new()?;
-    let ssh = dirs.data_dir().join("MaxHQ").join("ssh");
+    let ssh = maxhq_core::paths::data_dir()?.join("ssh");
     Some(SetupPaths {
         key: ssh.join("id_ed25519"),
         known_hosts: ssh.join("known_hosts"),
@@ -96,7 +110,10 @@ impl Run for System {
         args: Vec<String>,
         stdin: Option<Vec<u8>>,
     ) -> io::Result<Output> {
-        let mut child = Command::new(program)
+        let mut command = Command::new(program);
+        // A console program the app starts would open a window on Windows.
+        maxhq_os::launcher::without_window(command.as_std_mut());
+        let mut child = command
             .args(&args)
             .stdin(if stdin.is_some() {
                 Stdio::piped()
@@ -162,7 +179,8 @@ pub enum Step {
 /// What setup learned and did, for the app to finish with.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Prepared {
-    /// The SSH host.
+    /// The SSH host, or for a WSL distro its route as one word
+    /// ([`crate::wsl::route_word`]).
     pub host: String,
     /// The device's home folder.
     pub home: String,
@@ -312,7 +330,11 @@ fn remote(script: &str, args: &[&str]) -> String {
 pub struct Setup<'a, R: Run> {
     run: &'a R,
     paths: &'a SetupPaths,
+    /// The SSH host, or for a WSL distro the Windows machine it's on,
+    /// empty for this one.
     host: String,
+    /// The WSL distro, for a round that sets one up.
+    wsl: Option<String>,
     /// The ssh options that trust the host key you confirmed, when your
     /// own `known_hosts` didn't have it.
     trust: Vec<String>,
@@ -331,6 +353,7 @@ impl<'a, R: Run> Setup<'a, R> {
             run,
             paths,
             host: host.to_owned(),
+            wsl: None,
             trust: Vec::new(),
             app_key: None,
         })
@@ -366,47 +389,69 @@ impl<'a, R: Run> Setup<'a, R> {
         confirms: &Confirmations,
         step: &(dyn Fn(Step) + Sync),
     ) -> Result<Prepared, SetupError> {
+        if self.wsl.is_some() {
+            return self.prepare_wsl(binary, confirms, step).await;
+        }
         step(Step::HostKey);
         let (host_keys, host_keys_confirmed) = self.host_key(confirms, step).await?;
 
         step(Step::Probe);
-        let probe = self
-            .ssh(vec!["sh -s".to_owned()], Some(PROBE.into()))
-            .await?;
-        let facts = parse_probe(&probe);
+        // Windows has no `sh` unless a POSIX layer brings one, which isn't
+        // where maxd runs, so either way the PowerShell probe follows.
+        let probe = self.ssh(vec!["sh -s".to_owned()], Some(PROBE.into())).await;
+        let posix_layer = probe.as_ref().is_ok_and(|probe| {
+            parse_probe(probe)
+                .get("uname")
+                .is_some_and(|uname| windows::posix_layer(uname))
+        });
+        if (probe.is_err() || posix_layer)
+            && let Some(facts) = self.windows_facts().await
+        {
+            let keys = (host_keys, host_keys_confirmed);
+            return self.prepare_windows(facts, binary, step, keys).await;
+        }
+        let facts = parse_probe(&probe?);
+        self.prepare_linux(facts, binary, step, (host_keys, host_keys_confirmed))
+            .await
+    }
+
+    /// The rest of [`Setup::prepare`] on Linux, from its probe's facts.
+    async fn prepare_linux(
+        self,
+        facts: BTreeMap<String, String>,
+        binary: impl Fn(&str) -> Option<SetupBinary>,
+        step: &(dyn Fn(Step) + Sync),
+        (host_keys, host_keys_confirmed): (Vec<String>, bool),
+    ) -> Result<Prepared, SetupError> {
         let home = facts.get("home").cloned().unwrap_or_default();
         let uname = facts.get("uname").map_or("", String::as_str);
         let Some(target) = target_for(uname) else {
             return Err(stop(format!("MaxHQ can't run on {uname} yet")));
         };
         if facts.get("systemd").map(String::as_str) != Some("yes") {
-            return Err(stop(
-                "The device has no systemd user session, which maxd's service needs",
-            ));
+            return Err(stop(match &self.wsl {
+                Some(distro) => wsl::no_systemd(distro),
+                None => {
+                    "The device has no systemd user session, which maxd's service needs".to_owned()
+                }
+            }));
         }
-        let Some(binary) = binary(target) else {
-            return Err(stop(format!("This app has no maxd for {target}")));
-        };
-        if !is_hex(&binary.sha256) || binary.sha256.len() != 64 {
-            return Err(stop("The maxd this app carries has a bad sha256"));
-        }
+        let binary = checked(binary(target), target)?;
 
         step(Step::Install);
-        let build = &binary.sha256[..16];
+        let build = &binary.sha256[..BUILD_LEN];
         if facts.get("build").map(String::as_str) != Some(build) {
             let bytes = std::fs::read(&binary.path)
                 .map_err(|error| stop(format!("Reading maxd failed: {error}")))?;
-            self.ssh(
-                vec![remote(INSTALL, &[&binary.sha256, build, MAXD_LINK_TEMP])],
+            self.linux(
+                INSTALL,
+                &[&binary.sha256, build, MAXD_LINK_TEMP],
                 Some(bytes),
             )
             .await?;
         }
-        self.ssh(
-            vec![remote("\"$HOME/.local/bin/maxd\" service install", &[])],
-            None,
-        )
-        .await?;
+        self.linux("\"$HOME/.local/bin/maxd\" service install", &[], None)
+            .await?;
         let linger = facts.get("linger").map(String::as_str) == Some("yes");
         if !linger {
             let user = facts
@@ -414,28 +459,30 @@ impl<'a, R: Run> Setup<'a, R> {
                 .map(String::as_str)
                 .filter(|user| is_plain_user(user))
                 .unwrap_or("$USER");
-            step(Step::Linger {
-                command: format!("sudo loginctl enable-linger {user}"),
-            });
+            let command = match &self.wsl {
+                Some(distro) => wsl::linger(distro, user),
+                None => format!("sudo loginctl enable-linger {user}"),
+            };
+            step(Step::Linger { command });
         }
 
-        let public = std::fs::read_to_string(self.paths.key.with_extension("pub"))
-            .map_err(|_| stop("MaxHQ's SSH key isn't made yet"))?;
+        let public = self.public_key()?;
         let line = authorized_line(&home, &public)?;
-        let key = public
-            .split_whitespace()
-            .take(2)
-            .collect::<Vec<_>>()
-            .join(" ");
-        let add = match &self.app_key {
-            Some((app_key, label)) => remote(ADD_KEYS, &[&key, app_key, label]),
-            None => remote(ADD_KEY, &[&key]),
-        };
-        self.ssh(vec![add], None).await?;
+        let key = key_of(&public);
+        match &self.app_key {
+            Some((app_key, label)) => self.linux(ADD_KEYS, &[&key, app_key, label], None).await,
+            None => self.linux(ADD_KEY, &[&key], None).await,
+        }?;
         step(Step::Key { line });
 
+        let host = match &self.wsl {
+            Some(distro) => {
+                crate::wsl::route_word(distro, (!self.host.is_empty()).then_some(&*self.host))
+            }
+            None => self.host,
+        };
         Ok(Prepared {
-            host: self.host,
+            host,
             home,
             target: target.to_owned(),
             host_keys,
@@ -496,7 +543,10 @@ impl<'a, R: Run> Setup<'a, R> {
         let _ = self.local("ssh", args).await?;
         let text = std::fs::read_to_string(&scratch).unwrap_or_default();
         let Some(shown) = text.lines().find(|line| !key_lines(line).is_empty()) else {
-            return Err(stop(format!("{} didn't show a host key", self.host)));
+            return Err(stop(format!(
+                "{} didn't show a host key. Check that its SSH server is on. {SSHD_STEPS}",
+                self.host
+            )));
         };
         // You see one key, so that key is the only one that can count.
         let keys = key_lines(shown);
@@ -539,6 +589,20 @@ impl<'a, R: Run> Setup<'a, R> {
         Ok((keys, true))
     }
 
+    /// Runs `script` in `sh` on the device with `args`, as `$1` onwards:
+    /// over your own login, or in the WSL distro.
+    async fn linux(
+        &self,
+        script: &str,
+        args: &[&str],
+        stdin: Option<Vec<u8>>,
+    ) -> Result<String, SetupError> {
+        match &self.wsl {
+            Some(distro) => self.in_distro(distro, script, args, stdin).await,
+            None => self.ssh(vec![remote(script, args)], stdin).await,
+        }
+    }
+
     /// Runs a remote command over your own login.
     async fn ssh(
         &self,
@@ -566,12 +630,38 @@ impl<'a, R: Run> Setup<'a, R> {
         Ok(output.stdout)
     }
 
+    /// MaxHQ's public SSH key, as its `.pub` file has it.
+    fn public_key(&self) -> Result<String, SetupError> {
+        std::fs::read_to_string(self.paths.key.with_extension("pub"))
+            .map_err(|_| stop("MaxHQ's SSH key isn't made yet"))
+    }
+
     async fn local(&self, program: &str, args: Vec<String>) -> Result<Output, SetupError> {
         self.run
             .run(program, args, None)
             .await
             .map_err(|error| stop(format!("{program} didn't run: {error}")))
     }
+}
+
+/// The `maxd` the app has for `target`, with a sum that can name a build.
+fn checked(binary: Option<SetupBinary>, target: &str) -> Result<SetupBinary, SetupError> {
+    let Some(binary) = binary else {
+        return Err(stop(format!("This app has no maxd for {target}")));
+    };
+    if !is_hex(&binary.sha256) || binary.sha256.len() != 64 {
+        return Err(stop("The maxd this app carries has a bad sha256"));
+    }
+    Ok(binary)
+}
+
+/// A public key line's type and key, without its comment.
+fn key_of(public: &str) -> String {
+    public
+        .split_whitespace()
+        .take(2)
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
 /// The `key=value` lines the probe printed.

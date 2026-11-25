@@ -26,7 +26,10 @@ use tracing::debug;
 use super::disk::{self, remove, ticker, Land};
 use super::push;
 use super::registry::{Chunk, Peer};
-use super::{guest_path, Event, FromGuest, GuestLink, Next, Task, Transfers, STALL, WRITE_BATCH};
+use super::{
+    guest_path, in_guest_folders, Event, FromGuest, GuestLink, Next, Task, Transfers, STALL,
+    WRITE_BATCH,
+};
 use crate::drive::{Place, PlaceHost};
 use maxhq_core::tools::{too_big, Page, MAX_VISUAL_BYTES};
 
@@ -238,8 +241,7 @@ impl Transfers {
         let inside = guest_path(place, path)?;
         // The guest keeps a download inside the container's own folders,
         // and this keeps it inside the agent's.
-        let wanted = Path::new(&inside);
-        if !wanted.starts_with(&place.cwd) && !wanted.starts_with(&place.attachments) {
+        if !in_guest_folders(place, &inside) {
             return Err(Failure::new(
                 ErrorCode::BadPath,
                 None,

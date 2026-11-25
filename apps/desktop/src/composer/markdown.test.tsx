@@ -522,7 +522,7 @@ describe("callouts, nested quotes, footnotes, references and escapes", () => {
 		editor.destroy();
 	});
 
-	it("reads each kind of reference link, and opens its address on a Command-click", () => {
+	it("reads each kind of reference link, and opens its address on a Control-click off a Mac", () => {
 		const open = vi.spyOn(window, "open").mockReturnValue(null);
 		const text = "[full][spec], [spec][] and [spec]\n\n[spec]: https://spec.example.com";
 		const editor = noteEditor(text);
@@ -535,7 +535,10 @@ describe("callouts, nested quotes, footnotes, references and escapes", () => {
 		const definition = editor.view.dom.querySelectorAll("p")[2]!.querySelector(".md-marker");
 		expect(definition?.textContent).toBe("[spec]: https://spec.example.com");
 		editor.view.posAtCoords = () => ({ pos: posAt(text, 2), inside: -1 });
+		// The Windows key, Command's place, isn't Control.
 		fireEvent.mouseDown(editor.view.dom, { metaKey: true, button: 0 });
+		expect(open).not.toHaveBeenCalled();
+		fireEvent.mouseDown(editor.view.dom, { ctrlKey: true, button: 0 });
 		expect(open).toHaveBeenCalledWith("https://spec.example.com", "_blank", "noreferrer");
 		open.mockRestore();
 		editor.destroy();
@@ -568,6 +571,10 @@ describe("callouts, nested quotes, footnotes, references and escapes", () => {
 	});
 
 	it("reads definitions in other blocks, and reads every block again only when one comes or goes", () => {
+		// A Mac opens a link on a Command-click.
+		vi.spyOn(navigator, "userAgent", "get").mockReturnValue(
+			"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)"
+		);
 		const open = vi.spyOn(window, "open").mockReturnValue(null);
 		const text =
 			"[spec] and a note.[^1]\n\nplain\n\n[spec]: https://one.example.com\n\n[^1]: One.";
@@ -600,7 +607,7 @@ describe("callouts, nested quotes, footnotes, references and escapes", () => {
 		editor.commands.insertContentAt(start, "[");
 		expect(blocksParsed(editor.state)).toBe(4);
 		expect(links()).toBe(1);
-		open.mockRestore();
+		vi.restoreAllMocks();
 		editor.destroy();
 	});
 

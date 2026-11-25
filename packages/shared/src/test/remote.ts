@@ -63,6 +63,7 @@ type RemoteCalls = Pick<
 	| "setGithubApp"
 	| "checkGithubApp"
 	| "setApnsKey"
+	| "setFcmKey"
 	| "forgetCredential"
 	| "setAcpAgent"
 	| "deleteAcpAgent"
@@ -182,6 +183,7 @@ export const remoteCalls = (): RemoteCalls => ({
 	setGithubApp: each,
 	checkGithubApp: done,
 	setApnsKey: each,
+	setFcmKey: each,
 	forgetCredential: done,
 	setAcpAgent: done,
 	deleteAcpAgent: done,
@@ -189,7 +191,10 @@ export const remoteCalls = (): RemoteCalls => ({
 	uploadPasted: done,
 	attachFromAgent: done,
 	cancelTransfer: async () => {},
-	download: async () => ({ status: "ok", data: { path: "/Users/someone/Downloads/MaxHQ/a" } }),
+	download: async () => ({
+		status: "ok",
+		data: { path: "/Users/someone/Downloads/MaxHQ/a", skipped_links: [] },
+	}),
 	media: async () => ({ status: "ok", data: { kind: "too_large", size: 0 } }),
 	openForward: async () => ({ status: "ok", data: { forward: "forward-1", local_port: 8000 } }),
 	closeForward: async () => {},

@@ -12,7 +12,7 @@
 // was one line of plain text: that becomes the command.
 //
 // On a device with sessions, ↩ runs the command in the Agent shell and ⌥↩
-// in a fresh shell. The folder chip shows where the Agent shell is, or the
+// (Alt+Enter off a Mac) in a fresh shell. The folder chip shows where the Agent shell is, or the
 // agent's folder before there's one, and picks another. The last hint opens
 // the full terminal.
 
@@ -53,7 +53,7 @@ import type { TimelineStore } from "@maxhq/shared/timeline/store";
 import type { ViewState } from "@maxhq/shared/view/replica";
 
 import { useServices, useView } from "@/app/services";
-import { keyHint, SHORTCUTS } from "@/layout/shortcuts";
+import { type KeyName, keyHint, plainHint, SHORTCUTS } from "@/layout/shortcuts";
 import { withParts } from "@/lib/parts";
 import { FolderBrowserDialog } from "@/paths/folder-browser";
 import { useTerminalActions } from "@/terminal";
@@ -66,6 +66,9 @@ import "./shell-mode.css";
 export type ShellState = { readonly mode: ShellMode; readonly command: string };
 
 const OFF: ShellState = { mode: "message", command: "" };
+
+// Return as the shell hints write it: ↩ on a Mac, Enter elsewhere.
+const RETURN: KeyName = { mac: "↩", other: "Enter" };
 
 // Commands a code block's Run menu puts in a composer, waiting until it takes them.
 const waiting = new Map<AgentId, ShellState>();
@@ -370,12 +373,12 @@ export const useShellMode = ({
 		<div className="shell-hint">
 			<span>
 				{withParts("{{key}} run", {
-					key: <kbd className="shell-key">↩</kbd>,
+					key: <kbd className="shell-key">{plainHint(RETURN)}</kbd>,
 				})}
 			</span>
 			<span>
 				{withParts("{{key}} fresh shell", {
-					key: <kbd className="shell-key">⌥↩</kbd>,
+					key: <kbd className="shell-key">{plainHint(RETURN, { alt: true })}</kbd>,
 				})}
 			</span>
 			{privately ? (

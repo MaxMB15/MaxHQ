@@ -1303,6 +1303,24 @@ export const mockSource = (options: MockOptions = {}): MockSource => {
 			return DONE;
 		});
 
+	// The mock reads no file, so every key is the same example project's.
+	const setFcmKey = async (devices: DeviceId[]) =>
+		devices.map((device) => {
+			if (!has("device", device)) return missing(`device ${device}`);
+			hold({
+				id: `cred-fcm-${device}`,
+				device,
+				kind: {
+					type: "fcm",
+					project_id: "maxhq-example",
+					client_email: "firebase-adminsdk@maxhq-example.iam.example.com",
+				},
+				stored_at: now(),
+				problem: null,
+			});
+			return DONE;
+		});
+
 	// The sample's GitHub never changes, so a check finds what the App
 	// already reaches.
 	const checkGithubApp = async (device: DeviceId) => {
@@ -1589,6 +1607,7 @@ export const mockSource = (options: MockOptions = {}): MockSource => {
 		setGithubApp,
 		checkGithubApp,
 		setApnsKey,
+		setFcmKey,
 		forgetCredential,
 		setAcpAgent,
 		deleteAcpAgent,
@@ -1612,7 +1631,10 @@ export const mockSource = (options: MockOptions = {}): MockSource => {
 			if (!has("agent", agent))
 				return { status: "error", error: { kind: "not_found", what: `agent ${agent}` } };
 			onProgress(finished(nameOf(path), 0));
-			return { status: "ok", data: { path: `${DOWNLOADS}/${nameOf(path)}` } };
+			return {
+				status: "ok",
+				data: { path: `${DOWNLOADS}/${nameOf(path)}`, skipped_links: [] },
+			};
 		},
 		media: async (agent, path, limit, anyway, onProgress) => {
 			if (!has("agent", agent))

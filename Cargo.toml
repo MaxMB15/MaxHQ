@@ -4,6 +4,7 @@
 [workspace]
 resolver = "3"
 members = [
+    "crates/os",
     "crates/protocol",
     "crates/core",
     "crates/term",
@@ -109,6 +110,24 @@ rustix = { version = "1.1", features = ["process", "stdio"] }
 # The user database and the calls rustix leaves out, for a holder that
 # starts its CLI as another user: getpwnam_r, getgrouplist and setgroups.
 libc = "0.2.191"
+# The Win32 calls behind maxhq-os on Windows: named pipes and their
+# security, Job Objects, ConPTY, files, process tokens and the network
+# and power state. Already in the build through tokio, mio and rustls.
+windows-sys = { version = "0.61.2", features = [
+    "Win32_Foundation",
+    "Win32_Security",
+    "Win32_Security_Authorization",
+    "Win32_System_Pipes",
+    "Win32_System_Threading",
+    "Win32_System_JobObjects",
+    "Win32_System_Console",
+    "Win32_Storage_FileSystem",
+    "Win32_System_IO",
+    "Win32_NetworkManagement_IpHelper",
+    "Win32_Networking_WinSock",
+    "Win32_System_Power",
+    "Win32_System_ProcessStatus",
+] }
 # Read the text out of the documents you attach: the XML inside Office,
 # OpenDocument and EPUB files, and the ZIP archives that hold it.
 quick-xml = "0.42"
@@ -144,6 +163,10 @@ core-foundation = "0.10"
 # The phone app's bridge to React Native, through its proc macros. At
 # 0.31, the version uniffi-bindgen-react-native is on.
 uniffi = { version = "=0.31.2", default-features = false }
+# The Android phone's keys, which Kotlin keeps under an Android Keystore
+# key, reached from Rust over JNI. Already in the lockfile through
+# rustls-platform-verifier.
+jni = { version = "=0.22.4", default-features = false }
 objc2 = "0.6"
 objc2-foundation = "0.3"
 objc2-user-notifications = "0.3"
@@ -169,7 +192,16 @@ serde_ignored = "0.1"
 # Checks the workflow standard's examples against its schemas, in tests
 # only. No network or file resolving: the schemas hold every definition.
 jsonschema = { version = "0.60", default-features = false }
+# The desktop app's key on Linux and Windows: the Secret Service, over the
+# libdbus that tao already links, and Windows Credential Manager. No default
+# features, so no kernel keyutils store, which forgets keys at reboot.
+keyring = { version = "3.6.3", default-features = false }
+# Keeps the screen on under Linux through the session's ScreenSaver service
+# and logind, in maxhq-os's `display` feature. Already in the build through
+# tao.
+dbus = "0.9.12"
 
+maxhq-os = { path = "crates/os" }
 maxhq-protocol = { path = "crates/protocol" }
 maxhq-core = { path = "crates/core" }
 maxhq-term = { path = "crates/term" }

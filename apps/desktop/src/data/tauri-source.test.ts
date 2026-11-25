@@ -350,6 +350,19 @@ describe("tauri source", () => {
 		});
 	});
 
+	it("sends a Firebase key's path for the backend to read", async () => {
+		const replies = [DONE, DONE];
+		commands.request.mockResolvedValue(answered("set_fcm_key", replies));
+		await expect(
+			tauriSource().setFcmKey(["device-1", "device-2"], "/tmp/project-firebase-adminsdk.json")
+		).resolves.toEqual(replies);
+		expect(commands.request).toHaveBeenCalledExactlyOnceWith({
+			kind: "set_fcm_key",
+			devices: ["device-1", "device-2"],
+			key_path: "/tmp/project-firebase-adminsdk.json",
+		});
+	});
+
 	it("uploads each path in turn, each with a progress channel of its own", async () => {
 		const failed = { status: "error", error: { kind: "not_connected", device: "nl" } };
 		commands.upload.mockResolvedValueOnce(DONE).mockResolvedValueOnce(failed);
@@ -391,7 +404,10 @@ describe("tauri source", () => {
 	});
 
 	it("downloads with a progress channel and gives where the file landed", async () => {
-		const landed = { status: "ok", data: { path: "/Users/max/Downloads/MaxHQ/a.txt" } };
+		const landed = {
+			status: "ok",
+			data: { path: "/Users/max/Downloads/MaxHQ/a.txt", skipped_links: [] },
+		};
 		commands.download.mockResolvedValue(landed);
 		const heard: TransferProgress[] = [];
 		await expect(

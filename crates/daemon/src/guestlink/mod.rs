@@ -44,15 +44,15 @@ use crate::workspace::GuestLinks;
 
 pub(crate) use self::link::unexpected;
 pub use self::link::GuestSender;
-pub use self::wire::Outbox;
 
 mod holders;
 mod link;
 pub(crate) mod wire;
 
-#[cfg(test)]
+// The tests reach the guest over Unix sockets.
+#[cfg(all(test, unix))]
 pub(crate) mod tests;
-#[cfg(test)]
+#[cfg(all(test, unix))]
 mod wired;
 
 /// The folder under `maxd`'s runtime folder that holds each proxy socket.

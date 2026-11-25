@@ -2,9 +2,9 @@
 // Copyright (c) 2026 Max Boksem
 
 // The phone's updates: this build, read from its Expo config, and what it
-// knows of the newest release's iPhone build. The prefs stay in a file in
-// the app's documents, as the dispatcher's do; whether a check is running
-// or failed lasts for this run only.
+// knows of the newest release's iPhone and Android builds. The prefs stay
+// in a file in the app's documents, as the dispatcher's do; whether a check
+// is running or failed lasts for this run only.
 
 import { t } from "@maxhq/shared/i18n";
 
@@ -13,6 +13,7 @@ import { File, Paths } from "expo-file-system";
 import { Alert, Linking } from "react-native";
 import { createStore } from "zustand";
 
+import { platform } from "../../platform";
 import {
 	afterCheck,
 	type CheckOutcome,
@@ -23,8 +24,9 @@ import {
 	outcomeOf,
 	readPrefs,
 	reasonOf,
-	testflightLinks,
+	type ThisBuild,
 	type UpdatePrefs,
+	updateLinks,
 } from "./updates";
 
 const config = Constants.expoConfig;
@@ -35,16 +37,33 @@ const extra = (key: string): string | null => {
 };
 
 /**
- * This build: its version and build number, the repository whose latest
- * release names the newest iPhone build, and its App Store ID. A build made
- * on the Mac has neither of the last two, so it doesn't look for updates.
+ * The build number: the iPhone's for TestFlight, or the APK's version code,
+ * which is the same number on the same release. An APK whose config names no
+ * version code falls back to the iPhone's.
  */
-export const thisBuild = {
+const buildNumber = (): number | null => {
+	const value =
+		platform.updatesThrough === "testflight"
+			? config?.ios?.buildNumber
+			: (config?.android?.versionCode ?? config?.ios?.buildNumber);
+	const number = Number(value);
+	return value !== undefined && Number.isSafeInteger(number) && number > 0 ? number : null;
+};
+
+/**
+ * This build: its version and build number, the repository whose latest
+ * release names the newest build, and its App Store ID. A build made on the
+ * Mac has neither of the last two, so it doesn't look for updates.
+ */
+export const thisBuild: ThisBuild & {
+	readonly repo: string | null;
+	readonly appStoreId: string | null;
+} = {
 	version: config?.version ?? null,
-	build: config?.ios?.buildNumber ?? null,
+	build: buildNumber(),
 	repo: extra("releasesRepo"),
 	appStoreId: extra("appStoreId"),
-} as const;
+};
 
 const kept = () => new File(Paths.document, "updates.json");
 
@@ -122,9 +141,13 @@ export const keepAutoCheck = (autoCheck: boolean) => keep({ autoCheck });
 /** Hides the update banner for this version only. */
 export const dismiss = (version: string) => keep({ dismissed: version });
 
-/** Opens this app's page in TestFlight, else TestFlight, or says neither opens. */
-export const openTestflight = async (): Promise<void> => {
-	for (const url of testflightLinks(thisBuild.appStoreId)) {
+/**
+ * Opens where this phone updates: this app's page in TestFlight, else
+ * TestFlight, on iOS, and the newest APK's download on Android. Says so when
+ * none opens.
+ */
+export const openUpdate = async (): Promise<void> => {
+	for (const url of updateLinks(platform.updatesThrough, thisBuild, updates.getState().newest)) {
 		try {
 			await Linking.openURL(url);
 			return;

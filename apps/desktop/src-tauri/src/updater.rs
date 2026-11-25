@@ -65,9 +65,9 @@ struct Inner {
 impl Updates {
     /// The update state for this copy of the app, with your saved `prefs`.
     pub fn new(prefs: UpdatePrefs) -> Self {
-        let offered = std::env::current_exe()
-            .map_err(|_| NoUpdates::FromSource)
-            .and_then(|exe| app_update::offered(&exe, cfg!(debug_assertions)));
+        let offered = app_update::Install::this_app()
+            .ok_or(NoUpdates::FromSource)
+            .and_then(|app| app.offers_updates(cfg!(debug_assertions)));
         if let Err(reason) = offered {
             tracing::info!(?reason, "this copy of the app doesn't offer updates");
         }

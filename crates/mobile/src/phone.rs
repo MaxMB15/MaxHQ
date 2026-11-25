@@ -114,10 +114,11 @@ struct Shared {
 impl Core {
     /// Opens the core on `dir`, with the phone's keys and tokens in
     /// `store`. The registry is `maxhq.db` there, and none of it goes into
-    /// the phone's backups. The media cache is `media` in `cache` and
-    /// downloads land in `downloads` there, which the system may empty
-    /// when space runs low. A picture it drops fetches again, and a
-    /// download has gone to the share sheet by then. The phone uploads
+    /// the phone's backups. The media cache is `media` in `cache`,
+    /// downloads land in `downloads` there and uploads are copied into
+    /// `staging` there before they go, which the system may empty when
+    /// space runs low. A picture it drops fetches again, and a download has
+    /// gone to the share sheet by then. The phone uploads
     /// only from the folder `cache` is in, the app's caches folder, where
     /// the pickers copy what you pick.
     pub fn open(dir: &Path, cache: &Path, store: Arc<dyn KeyStore>) -> Result<Self, CommandError> {
@@ -153,6 +154,7 @@ impl Core {
             &seed,
             Box::new(move |device, mac, route, code| signing.route(device, mac, route, code)),
             Some(cache.join("downloads")),
+            Some(cache.join("staging")),
             Some(media),
         );
         let public_key = connector.public_key();
@@ -494,7 +496,9 @@ impl Core {
     /// [`phone::may_keep`] allows. A code with the device's network access
     /// pairs through it, and the phone keeps the token it gets. Else the
     /// phone logs in over SSH with the code's one-time key, which the
-    /// device swaps for the phone's own.
+    /// device swaps for the phone's own. The pairing screen names the
+    /// phone, with its system's name when you clear the field, and the
+    /// device refuses an empty name.
     pub fn pair(
         &self,
         code: &str,
@@ -503,10 +507,7 @@ impl Core {
         let shared = Arc::clone(&self.shared);
         let runtime = self.runtime.handle().clone();
         let code = PairCode::decode(code).map_err(failed);
-        let name = match name.trim() {
-            "" => "iPhone".to_owned(),
-            name => name.to_owned(),
-        };
+        let name = name.trim().to_owned();
         let books = self.books();
         self.run(async move {
             let code = code?;
@@ -598,6 +599,7 @@ async fn pair_through(
     let client = maxhq_app::devices::start_client(
         runtime,
         || Client::app(Transport::Russh(ssh)).proving(PhoneProver::pairing(&code.seed)),
+        None,
         None,
         None,
     );

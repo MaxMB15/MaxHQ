@@ -10,6 +10,8 @@ import { applySnapshot } from "../view/replica";
 import {
 	deviceSettingsOf,
 	KEEP_AWAKE_OPTIONS,
+	keepAwakeOptions,
+	keepsAwake,
 	nameOptions,
 	PLACEMENT_OPTIONS,
 	sameDeviceFields,
@@ -72,6 +74,7 @@ describe("sameDeviceFields", () => {
 		);
 		expect(sameDeviceFields(fields, { ...fields, codex_effort: "high" })).toBe(false);
 		expect(sameDeviceFields(fields, { ...fields, claude_artifacts: false })).toBe(false);
+		expect(sameDeviceFields(fields, { ...fields, windows_shell: "pwsh" })).toBe(false);
 	});
 });
 
@@ -86,6 +89,22 @@ describe("choices", () => {
 			"off",
 		]);
 		expect(KEEP_AWAKE_OPTIONS[0]?.label).toBe("On the charger");
+	});
+
+	it("words keep-awake for the device's own system", () => {
+		expect(keepAwakeOptions("linux").map((o) => o.detail)[3]).toBe(
+			"MaxHQ never keeps this computer awake, even while an agent works."
+		);
+		expect(keepAwakeOptions("windows")[2]?.detail).toBe(
+			"Awake only while an agent on this PC is working."
+		);
+		expect(keepAwakeOptions("macos")[2]?.detail).toBe(
+			"Awake only while an agent on this Mac is working."
+		);
+		expect(keepsAwake("macos")).toBe(true);
+		expect(keepsAwake("linux")).toBe(false);
+		expect(keepsAwake("windows")).toBe(false);
+		expect(keepsAwake(undefined)).toBe(false);
 	});
 
 	it("labels names as themselves", () => {

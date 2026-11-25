@@ -10,7 +10,12 @@
 import { Fragment } from "react";
 
 import { InlineCopy } from "@/components/copy-field";
-import { LOGIN_STEPS, type LoginPage, spanKind } from "@maxhq/shared/settings/login-steps";
+import {
+	LOGIN_STEPS,
+	type LoginPage,
+	type LoginSteps,
+	spanKind,
+} from "@maxhq/shared/settings/login-steps";
 
 import { t as translate, useI18n } from "@maxhq/shared/i18n";
 
@@ -45,9 +50,12 @@ export const StepText = ({ text }: { text: string }) => {
 };
 
 /** A login's steps as a numbered list, with the notes before and after. */
-export const Steps = ({ login }: { login: LoginPage }) => {
+export const Steps = ({ login }: { login: LoginPage }) => <StepsOf of={LOGIN_STEPS[login]} />;
+
+/** Steps that aren't a login page's, such as the Firebase key's. */
+export const StepsOf = ({ of }: { of: LoginSteps }) => {
 	useI18n();
-	const { title, before, steps, after } = LOGIN_STEPS[login];
+	const { title, before, steps, after } = of;
 	const notes = [...before, ...after];
 	return (
 		<section

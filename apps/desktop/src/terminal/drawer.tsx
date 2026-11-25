@@ -315,7 +315,7 @@ const Drawer = ({ agent, device }: { agent: AgentId; device: DeviceId }) => {
 				<div
 					role="tablist"
 					aria-label={translate("Terminals")}
-					className="flex min-w-0 items-center gap-0.5 overflow-x-auto [scrollbar-width:none]"
+					className="flex min-w-0 items-center gap-0.5 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
 				>
 					{tabs.map((tab) => (
 						<Tab key={tab.id} terminal={tab} agent={agent} active={tab === active} />

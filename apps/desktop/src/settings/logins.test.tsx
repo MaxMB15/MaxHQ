@@ -11,6 +11,7 @@ import type { ActionResult } from "@maxhq/shared/data/source";
 import { FixedNow } from "@maxhq/shared/lib/clock";
 import { NativeFailure } from "@/native";
 import { openDeviceTab, openLogin } from "@/test/settings";
+import { FCM_STEPS } from "@maxhq/shared/settings/login-steps";
 import { NOW } from "@maxhq/shared/test/build";
 import { createUiStore } from "@maxhq/shared/ui/store";
 
@@ -59,13 +60,14 @@ const ROW: Record<string, string> = {
 	"GitHub App": "GitHub",
 };
 
-// A login's view, or the push key's part of the Phones tab.
+// A login's view, or a push key's part of the Phones tab.
 const openPage = async (page: string): Promise<HTMLElement> => {
 	// The forms tick the devices that are connected, so wait for the view.
 	await screen.findAllByRole("button", { name: /devbox/ });
-	if (page === "Phone pushes") {
+	if (page === "Phone pushes" || page === "Android pushes") {
 		const dialog = await openDeviceTab("Phones");
-		return dialog.querySelector<HTMLElement>(`#${deviceCardId("apns")}`)!;
+		const card = page === "Phone pushes" ? "apns" : "fcm";
+		return dialog.querySelector<HTMLElement>(`#${deviceCardId(card)}`)!;
 	}
 	return openLogin(ROW[page]!);
 };
@@ -111,7 +113,7 @@ const expectNoSecret = async (
 
 describe("Login steps", () => {
 	it("keeps planning IDs out of what you read", () => {
-		const lines = Object.values(LOGIN_STEPS).flatMap((login) => [
+		const lines = [...Object.values(LOGIN_STEPS), FCM_STEPS].flatMap((login) => [
 			login.title,
 			...login.before,
 			...login.steps,
@@ -667,5 +669,90 @@ describe("Phone pushes", () => {
 			)
 		).toBeInTheDocument();
 		expect(within(dialog).queryByRole("group", { name: "Key file" })).toBeNull();
+	});
+});
+
+describe("Android pushes", () => {
+	const JSON_KEY = "/Users/me/Downloads/project-firebase-adminsdk-a1b2c.json";
+
+	it("shows the steps and sends the picked key's path to devices that push", async () => {
+		const { source } = renderSettings();
+		const send = vi.spyOn(source, "setFcmKey");
+		native.pickAttachments.mockResolvedValue([JSON_KEY]);
+		const card = await openPage("Android pushes");
+
+		const steps = within(card).getByRole("region", { name: "Steps for Android pushes" });
+		const items = within(within(steps).getByRole("list")).getAllByRole("listitem");
+		expect(items.map((li) => li.textContent)).toEqual(
+			FCM_STEPS.steps.map((step, i) => `${i + 1}${step.replaceAll("`", "")}`)
+		);
+
+		const devices = within(card).getByRole("group", { name: "Devices" });
+		expect(within(devices).getByRole("checkbox", { name: "Mac" })).toBeChecked();
+		expect(within(devices).queryByRole("checkbox", { name: "devbox" })).toBeNull();
+		expect(within(card).getByRole("button", { name: "Send" })).toBeDisabled();
+		fireEvent.click(within(card).getByRole("button", { name: "Choose file" }));
+		await within(card).findByText(JSON_KEY);
+		fireEvent.click(within(card).getByRole("button", { name: "Send" }));
+
+		expect(send).toHaveBeenCalledWith(["dev-mac"], JSON_KEY);
+		const results = await within(card).findByRole("list", { name: "Results" });
+		expect(results).toHaveTextContent("Mac has it.");
+		const held = within(card).getByRole("region", { name: "Firebase keys devices hold" });
+		expect(within(held).getByRole("group", { name: "On Mac" })).toHaveTextContent(
+			"Project maxhq-example, as firebase-adminsdk@maxhq-example.iam.example.com."
+		);
+
+		const offer = within(card).getByRole("group", { name: "Key file" });
+		fireEvent.click(within(offer).getByRole("button", { name: "Move to Trash" }));
+		expect(native.moveToTrash).toHaveBeenCalledWith(JSON_KEY);
+		expect(
+			await within(card).findByText(
+				"Moved project-firebase-adminsdk-a1b2c.json to the Trash. The Mac keeps no copy."
+			)
+		).toBeInTheDocument();
+	});
+
+	it("says why a device couldn't take the key, and keeps the file", async () => {
+		const { source } = renderSettings();
+		vi.spyOn(source, "setFcmKey").mockResolvedValue([
+			result({
+				status: "error",
+				error: { kind: "failed", message: "That isn't a Firebase service account key" },
+			}),
+		]);
+		native.pickAttachments.mockResolvedValue([JSON_KEY]);
+		const card = await openPage("Android pushes");
+		fireEvent.click(within(card).getByRole("button", { name: "Choose file" }));
+		await within(card).findByText(JSON_KEY);
+		fireEvent.click(within(card).getByRole("button", { name: "Send" }));
+		expect(
+			await within(card).findByText("Mac: That isn't a Firebase service account key.")
+		).toBeInTheDocument();
+		expect(within(card).queryByRole("group", { name: "Key file" })).toBeNull();
+	});
+
+	it("blocks a device whose maxd is too old for the key", async () => {
+		const { services } = renderSettings();
+		native.pickAttachments.mockResolvedValue([JSON_KEY]);
+		const card = await openPage("Android pushes");
+		fireEvent.click(within(card).getByRole("button", { name: "Choose file" }));
+		await within(card).findByText(JSON_KEY);
+		expect(within(card).getByRole("button", { name: "Send" })).toBeEnabled();
+		// The Mac's maxd from before FCM, as its hello says.
+		const view = services.current!.view;
+		const { view: now } = view.getState();
+		const links = new Map(now.tables.device_link);
+		for (const [id, link] of links)
+			if (link.device === "dev-mac") links.set(id, { ...link, protocol: 60 });
+		view.setState({ view: { ...now, tables: { ...now.tables, device_link: links } } });
+		const devices = within(card).getByRole("group", { name: "Devices" });
+		expect(
+			await within(devices).findByText("Mac's maxd is too old for this. Update it first.")
+		).toBeInTheDocument();
+		const mac = within(devices).getByRole("checkbox", { name: "Mac" });
+		expect(mac).not.toBeChecked();
+		expect(mac).toHaveAttribute("aria-disabled", "true");
+		expect(within(card).getByRole("button", { name: "Send" })).toBeDisabled();
 	});
 });

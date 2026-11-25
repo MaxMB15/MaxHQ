@@ -90,29 +90,71 @@ describe("phones", () => {
 		expect(pairingDevice(v, [])).toBeNull();
 	});
 
-	it("names a new phone's devices that hold no APNs key", () => {
-		const key = (device: string, type: "apns" | "github_user"): Entity =>
-			({
-				entity: "credential",
-				id: `cred-${type}-${device}`,
-				device,
-				kind:
-					type === "apns"
-						? { type, key_id: "ABC123DEFG", team_id: "TEAM" }
+	const key = (device: string, type: "apns" | "fcm" | "github_user"): Entity =>
+		({
+			entity: "credential",
+			id: `cred-${type}-${device}`,
+			device,
+			kind:
+				type === "apns"
+					? { type, key_id: "ABC123DEFG", team_id: "TEAM" }
+					: type === "fcm"
+						? { type, project_id: "maxhq-example", client_email: "push@example.com" }
 						: { type, login: "me" },
-				stored_at: NOW,
-				problem: null,
-			}) as Entity;
+			stored_at: NOW,
+			problem: null,
+		}) as Entity;
+	const missing = (more: Entity[]) => {
+		const v = view(more);
+		return withoutPushKey(v, pairedPhones(v)[0]!);
+	};
+
+	it("names an iPhone's devices that hold no APNs key", () => {
+		expect(
+			missing([
+				phone({ device: "devbox", service: "apns" }),
+				phone({ device: "ws-alpha", service: "apns" }),
+				key("devbox", "apns"),
+				key("ws-alpha", "fcm"),
+			])
+		).toEqual({ service: "apns", names: ["ws-alpha"] });
+		expect(
+			missing([phone({ device: "devbox", service: "apns" }), key("devbox", "apns")])
+		).toEqual({ service: "apns", names: [] });
+	});
+
+	it("names an Android phone's devices that hold no Firebase key", () => {
+		expect(
+			missing([
+				phone({ device: "devbox", service: "fcm" }),
+				phone({ device: "ws-alpha", service: "fcm" }),
+				key("devbox", "apns"),
+				key("ws-alpha", "fcm"),
+			])
+		).toEqual({ service: "fcm", names: ["devbox"] });
+	});
+
+	it("names only devices with neither key before the phone's token comes", () => {
+		expect(
+			missing([
+				phone({ device: "mac" }),
+				phone({ device: "devbox" }),
+				phone({ device: "ws-alpha" }),
+				key("devbox", "apns"),
+				key("ws-alpha", "fcm"),
+				key("mac", "github_user"),
+			])
+		).toEqual({ service: null, names: ["Mac"] });
+	});
+
+	it("takes a phone's service from any device that has its token", () => {
 		const v = view([
 			phone({ device: "devbox" }),
-			phone({ device: "ws-alpha" }),
-			key("devbox", "apns"),
-			key("ws-alpha", "github_user"),
+			phone({ device: "ws-alpha", service: "fcm" }),
+			phone({ device: "mac", service: null }),
 		]);
-		const [paired] = pairedPhones(v);
-		expect(withoutPushKey(v, paired!)).toEqual(["ws-alpha"]);
-		const keyed = view([phone({ device: "devbox" }), key("devbox", "apns")]);
-		expect(withoutPushKey(keyed, pairedPhones(keyed)[0]!)).toEqual([]);
+		expect(pairedPhones(v)[0]?.service).toBe("fcm");
+		expect(pairedPhones(view([phone({ device: "devbox" })]))[0]?.service).toBeNull();
 	});
 });
 

@@ -18,17 +18,17 @@
 //! session is forgotten, or when a later start finds the session gone.
 
 use std::collections::HashSet;
-use std::env;
 use std::ffi::OsString;
 use std::fs::{self, OpenOptions};
 use std::io::{self, Read, Write};
-use std::os::unix::fs::{DirBuilderExt, MetadataExt, OpenOptionsExt};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
+use maxhq_core::fs_ext;
 use maxhq_core::paths;
 use maxhq_core::tools::SERVER;
 use maxhq_hold::{Framing, Launch};
+use maxhq_os::fsmode;
 use maxhq_protocol::ids::SessionId;
 use serde::Deserialize;
 use serde_json::{json, Map, Value};
@@ -88,7 +88,7 @@ pub async fn add(launch: &mut Launch) {
     };
     let home = match &launch.run_as {
         Some(user) => Some(user.home.clone()),
-        None => env::var_os("HOME").map(PathBuf::from),
+        None => maxhq_os::home::home_dir(),
     };
     if let Some(home) = home {
         fill(launch, folders, &home).await;
@@ -205,11 +205,7 @@ fn objects(value: Value) -> Map<String, Value> {
 
 /// Reads the global config, or nothing when there's none.
 fn read(path: &Path, owner: Option<u32>) -> io::Result<Option<Config>> {
-    let file = match OpenOptions::new()
-        .read(true)
-        .custom_flags(libc::O_NONBLOCK)
-        .open(path)
-    {
+    let file = match fsmode::open_no_wait(OpenOptions::new().read(true)).open(path) {
         Ok(file) => file,
         Err(err) if err.kind() == io::ErrorKind::NotFound => return Ok(None),
         Err(err) => return Err(err),
@@ -220,7 +216,7 @@ fn read(path: &Path, owner: Option<u32>) -> io::Result<Option<Config>> {
     }
     // Read as root for the agent's user, a link to a file of root's would
     // hand that file to the agent.
-    if owner.is_some_and(|uid| meta.uid() != uid) {
+    if owner.is_some_and(|uid| fsmode::owner_of(&meta) != Some(uid)) {
         return Err(io::Error::other("the config belongs to another user"));
     }
     let mut bytes = Vec::new();
@@ -237,7 +233,7 @@ fn read(path: &Path, owner: Option<u32>) -> io::Result<Option<Config>> {
 /// the main checkout's for a linked worktree, or the folder itself
 /// outside a checkout. The CLI runs in the real path, so links resolve.
 fn project_root(cwd: &Path) -> PathBuf {
-    let cwd = fs::canonicalize(cwd).unwrap_or_else(|_| cwd.to_owned());
+    let cwd = fs_ext::canonicalize(cwd).unwrap_or_else(|_| cwd.to_owned());
     let Some((level, key)) = folder_trust::checkout_of(&cwd) else {
         return cwd;
     };
@@ -257,24 +253,20 @@ fn write(
     owner: Option<(u32, u32)>,
 ) -> io::Result<PathBuf> {
     // The CLI may run as another user, who has to reach its own file.
-    fs::DirBuilder::new()
-        .recursive(true)
-        .mode(0o711)
-        .create(&folders.files)?;
+    fsmode::dir_all_with_mode(&folders.files, 0o711)?;
     sweep(folders, session);
     let path = file_of(folders, session);
     match fs::remove_file(&path) {
         Err(err) if err.kind() != io::ErrorKind::NotFound => return Err(err),
         _ => {}
     }
-    let mut file = OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .mode(0o600)
-        .custom_flags(libc::O_NOFOLLOW)
-        .open(&path)?;
+    let mut options = OpenOptions::new();
+    options.write(true).create_new(true);
+    fsmode::set_open_mode(&mut options, 0o600);
+    let mut file = fs_ext::no_follow(&mut options).open(&path)?;
+    fsmode::private_file(&path)?;
     if let Some((uid, gid)) = owner {
-        std::os::unix::fs::fchown(&file, Some(uid), Some(gid))?;
+        fs_ext::chown_file(&file, uid, gid)?;
     }
     let body = serde_json::to_vec(&json!({ "mcpServers": servers }))?;
     file.write_all(&body)?;

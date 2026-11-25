@@ -17,6 +17,7 @@ use std::time::Duration;
 
 use maxhq_core::paths;
 use maxhq_core::tools::{self, Mcp, Tool};
+use maxhq_os::ipc::LocalStream;
 use maxhq_protocol::agents::{ClientRole, ToolCall};
 use maxhq_protocol::frame::{self, Frame, FrameDecoder};
 use maxhq_protocol::ids::{ClientId, IdempotencyKey};
@@ -26,7 +27,6 @@ use serde_json::Value;
 use tokio::io::{
     AsyncBufRead, AsyncBufReadExt, AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, Lines,
 };
-use tokio::net::UnixStream;
 use tokio::time::Instant;
 
 /// `maxd mcp`. Serves until stdin closes, or `maxd` goes away and doesn't
@@ -43,25 +43,21 @@ pub fn run(key_file: &Path) -> ExitCode {
         eprintln!("maxd mcp: can't tell where maxd's socket is");
         return ExitCode::FAILURE;
     };
-    let runtime = match tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-    {
-        Ok(runtime) => runtime,
+    // The read of stdin can't be cancelled, and a runtime dropped the
+    // usual way waits for it, so the process would stay up after an
+    // error until stdin sent a line. This one goes down without waiting.
+    let served = maxhq_os::rt::block_on(async {
+        let stdin = tokio::io::BufReader::new(tokio::io::stdin());
+        let connect = || LocalStream::connect(&socket);
+        serve(key, connect, stdin, tokio::io::stdout()).await
+    });
+    let served = match served {
+        Ok(served) => served,
         Err(err) => {
             eprintln!("maxd mcp: couldn't start: {err}");
             return ExitCode::FAILURE;
         }
     };
-    let served = runtime.block_on(async {
-        let stdin = tokio::io::BufReader::new(tokio::io::stdin());
-        let connect = || UnixStream::connect(&socket);
-        serve(key, connect, stdin, tokio::io::stdout()).await
-    });
-    // The read of stdin can't be cancelled, and a runtime dropped the
-    // usual way waits for it, so the process would stay up after an
-    // error until stdin sent a line.
-    runtime.shutdown_background();
     match served {
         Ok(()) => ExitCode::SUCCESS,
         Err(err) => {

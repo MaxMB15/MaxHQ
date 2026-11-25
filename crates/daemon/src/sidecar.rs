@@ -13,9 +13,9 @@ use std::collections::HashSet;
 use std::ffi::{OsStr, OsString};
 use std::fs::{self, OpenOptions};
 use std::io::{self, Write};
-use std::os::unix::fs::OpenOptionsExt;
 use std::path::{Path, PathBuf};
 
+use maxhq_os::fsmode;
 use maxhq_protocol::timeline::{AttachmentKind, AttachmentRef};
 
 use crate::doctext::{self, Extractor};
@@ -139,12 +139,11 @@ pub fn carry(from: &Path, to: &Path) {
 /// Writes a sidecar that anyone may read, as an agent's CLI must, even
 /// when a guest running as root makes it.
 pub fn write_readable(path: &Path, bytes: &[u8]) -> io::Result<()> {
-    let mut file = OpenOptions::new()
-        .write(true)
-        .create(true)
-        .truncate(true)
-        .mode(0o644)
-        .open(path)?;
+    let mut file = fsmode::set_open_mode(
+        OpenOptions::new().write(true).create(true).truncate(true),
+        0o644,
+    )
+    .open(path)?;
     file.write_all(bytes)
 }
 
@@ -183,7 +182,7 @@ fn names_of(name: &OsStr) -> [OsString; 3] {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::testing::TempDir;
+    use crate::testing::{fake_program, TempDir};
 
     fn picture(path: &Path) {
         image::RgbImage::from_pixel(40, 30, image::Rgb([200, 10, 10]))
@@ -210,8 +209,9 @@ mod tests {
         let dir = TempDir::new();
         let path = dir.path().join("a.docx");
         fs::write(&path, "words").unwrap();
-        let extractor = Extractor::with("/bin/sh", &["-c", "printf read", "sh"]);
-        let made = make(&path, None, &extractor);
+        let bin = TempDir::new();
+        let extract = fake_program(bin.path(), "extract", "#!/bin/sh\nprintf read\n");
+        let made = make(&path, None, &Extractor::with(extract, &[]));
         assert_eq!(made.thumbnail, None);
         let text = dir.path().join("a.docx.txt");
         assert_eq!(made.text.as_deref(), Some(text.as_path()));

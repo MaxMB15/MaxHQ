@@ -9,6 +9,7 @@ import { describe, expect, it } from "vitest";
 
 import {
 	iosConfig,
+	iosLocalFromEnv,
 	MISSING_LOCAL,
 	parseIosLocal,
 	readIosLocal,
@@ -48,6 +49,25 @@ describe("parseIosLocal", () => {
 		);
 		expect(JSON.parse(example)).toEqual({ teamId: "<TEAM_ID>", bundleId: "com.example.maxhq" });
 		expect(() => parseIosLocal(example)).toThrow(/needs "teamId"/);
+	});
+});
+
+describe("iosLocalFromEnv", () => {
+	it("writes the release workflows' IDs as the file has them", () => {
+		const text = iosLocalFromEnv({
+			IOS_TEAM_ID: local.teamId,
+			IOS_BUNDLE_ID: local.bundleId,
+			OTHER: "left out",
+		});
+		expect(text).toBe(`${JSON.stringify(local, null, "\t")}\n`);
+		expect(parseIosLocal(text)).toEqual(local);
+	});
+
+	it("turns down a missing or bad ID", () => {
+		expect(() => iosLocalFromEnv({ IOS_BUNDLE_ID: local.bundleId })).toThrow(/needs "teamId"/);
+		expect(() =>
+			iosLocalFromEnv({ IOS_TEAM_ID: local.teamId, IOS_BUNDLE_ID: "nodots" })
+		).toThrow(/needs "bundleId"/);
 	});
 });
 

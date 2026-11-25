@@ -2,19 +2,15 @@
 // Copyright (c) 2026 Max Boksem
 
 //! `maxd`, the daemon on every device. `maxd run` watches the agents here
-//! and serves what it sees on a Unix socket, `maxd proxy` carries that
-//! socket over SSH, and `maxd service` keeps `maxd run` going in your login
-//! session. `maxd hold` keeps one agent running for `maxd`, which starts it.
+//! and serves what it sees on a local socket, a Unix socket or on Windows
+//! a named pipe, `maxd proxy` carries that socket over SSH, and `maxd
+//! service` keeps `maxd run` going in your login session. `maxd hold` keeps one agent running for `maxd`, which starts it.
 //! `maxd guest` runs inside a container workspace, and `maxd host quiesce`
 //! winds agents down before the device restarts.
 
 use std::ffi::OsString;
-use std::fs::{DirBuilder, File, Permissions};
 use std::future::Future;
-use std::io::{self, IsTerminal, Read, Write};
-use std::os::fd::AsFd;
-use std::os::unix::fs::{DirBuilderExt, PermissionsExt};
-use std::os::unix::net::UnixStream;
+use std::io::{self, IsTerminal, Write};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::sync::Arc;
@@ -22,16 +18,18 @@ use std::time::Duration;
 
 use maxhq_core::db::OpenError;
 use maxhq_core::paths;
+use maxhq_os::fsmode;
+use maxhq_os::ipc::LocalStream;
+use maxhq_os::stop::Stops;
 use maxhq_protocol::agents::ClientRole;
 use maxhq_protocol::frame::{self, Frame, FrameDecoder};
 use maxhq_protocol::ids::{ClientId, IdempotencyKey};
 use maxhq_protocol::message::{ActionOutcome, ClientHello, ClientInfo};
-use maxhq_protocol::{
-    ClientMessage, ProtocolRange, ServerMessage, OLDEST_PROTOCOL_VERSION, PROTOCOL_VERSION,
-};
+use maxhq_protocol::{ClientMessage, OLDEST_PROTOCOL_VERSION, PROTOCOL_VERSION};
+use maxhq_protocol::{ProtocolRange, ServerMessage};
 use thiserror::Error;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::runtime::Runtime;
-use tokio::signal::unix::{signal, SignalKind};
 use tracing::{error, info, warn};
 use tracing_subscriber::EnvFilter;
 
@@ -81,6 +79,7 @@ mod observe;
 mod peers;
 mod phones;
 mod ports;
+mod posix_path;
 mod power;
 mod proxy;
 // The PR requests and tools refuse until the watcher and handlers read
@@ -111,6 +110,7 @@ mod tunnel;
 mod usage;
 mod workflow;
 mod workspace;
+mod wsl;
 
 /// Set to anything to run `maxd` without its observers and usage checks,
 /// so tests of the binary see only what they make.
@@ -130,6 +130,9 @@ const USAGE: &str = "usage:
   maxd proxy --guest-ssh <workspace>
                            join stdin and stdout to a container's SSH, for
                            an editor's Remote-SSH
+  maxd proxy --wsl <distro>
+                           join stdin and stdout to the socket of the maxd
+                           in this PC's WSL distro, through wsl.exe
   maxd proxy --peer <device>
                            join stdin and stdout to the socket for another
                            device's maxd; that device's key runs this
@@ -147,6 +150,9 @@ const USAGE: &str = "usage:
                            it started, and remove the service; with
                            --delete-data, delete its data and logs too
   maxd service status      say whether maxd is installed and running
+  maxd service start       start maxd's service once it's installed
+  maxd service stop        stop maxd until you next log in
+  maxd service restart     stop maxd and start it again
   maxd mcp --key-file <path>
                            serve the agent tools on stdin and stdout, for
                            a tool outside MaxHQ, with the key in that file
@@ -175,6 +181,8 @@ const USAGE: &str = "usage:
   maxd update watch --build <build>
                            put the old maxd back if <build> never comes up;
                            an update starts this
+  maxd launch <program>    run <program> run and start it again; Windows's
+                           logon task runs this
   maxd --build             print this binary's build
   maxd --version
 
@@ -195,6 +203,23 @@ fn main() -> ExitCode {
     {
         return doctext::run(&args_os[1..]);
     }
+    // The logon task's launcher, given maxd.exe's path, which needn't be
+    // UTF-8 either.
+    if args_os
+        .first()
+        .is_some_and(|first| first == maxhq_core::service::LAUNCH_SUBCOMMAND)
+    {
+        return match &args_os[1..] {
+            [program] => match service::task::launch(Path::new(program)) {
+                Ok(()) => ExitCode::SUCCESS,
+                Err(err) => {
+                    eprintln!("maxd launch: {err}");
+                    ExitCode::FAILURE
+                }
+            },
+            _ => usage_error(),
+        };
+    }
     let args: Vec<String> = std::env::args().skip(1).collect();
     let args: Vec<&str> = args.iter().map(String::as_str).collect();
     match args.as_slice() {
@@ -204,6 +229,9 @@ fn main() -> ExitCode {
             Some(workspace) => proxy_with(proxy::Mode::GuestSsh(workspace)),
             None => usage_error(),
         },
+        ["proxy", "--wsl", distro] if maxhq_client::wsl::is_distro_name(distro) => {
+            proxy_with(proxy::Mode::Wsl((*distro).to_owned()))
+        }
         ["proxy", "--peer", device] => match proxy::device(device) {
             Some(device) => proxy_as(&ClientMessage::Peer { device }),
             None => usage_error(),
@@ -230,15 +258,9 @@ fn main() -> ExitCode {
             None => usage_error(),
         },
         ["mcp", "--key-file", path] => agents::mcp::run(Path::new(path)),
-        ["guest"] => guest::run(false),
-        ["guest", "--test-host"] => guest::run(true),
-        #[cfg(target_os = "macos")]
-        ["guest", "--vm"] => guest::vm::run(),
-        ["guest", "token", "codex"] => guest::token_codex(),
-        ["guest", "codex", command @ ..] if !command.is_empty() => guest::codex(command),
-        ["guest", "git-credential", action] => guest::git_credential(action),
-        ["guest", "github-token"] => guest::github_token(),
+        // The probe runs on the host, so it isn't the guest role's.
         ["guest", "probe", targets] => workspace::probe(Path::new(targets)),
+        ["guest", rest @ ..] => guest::main(rest).unwrap_or_else(usage_error),
         ["host", "check"] => host_check(),
         ["host", "apply"] => host_apply(),
         ["host", "apply", "--system"] => host_apply_system(false),
@@ -253,6 +275,10 @@ fn main() -> ExitCode {
                 ExitCode::FAILURE
             }
         },
+        ["host", "quiesce", "--window", _] if cfg!(windows) => {
+            eprintln!("maxd host quiesce: this is for Linux hosts, whose shutdown unit runs it");
+            ExitCode::FAILURE
+        }
         ["host", "quiesce", "--window", window] => match parse_window(window) {
             Some(window) => quiesce(window),
             None => usage_error(),
@@ -373,18 +399,21 @@ enum RunError {
         /// What went wrong.
         source: io::Error,
     },
-    /// The stop signals couldn't be caught.
+    /// The stop signals couldn't be caught, or on Windows the stop
+    /// endpoint served.
     #[error("couldn't listen for stop signals: {0}")]
     Signals(io::Error),
 }
 
-/// `maxd run`. Serves until SIGINT or SIGTERM, then removes the socket. On
-/// macOS it also stops once the app it came in has been deleted, and then
-/// uninstalls itself.
+/// `maxd run`. Serves until SIGINT or SIGTERM, or on Windows a request to
+/// its stop endpoint, then removes the socket. On macOS it also stops once
+/// the app it came in has been deleted, and then uninstalls itself.
 fn run() -> ExitCode {
     init_logging();
     rotate_log();
-    raise_open_files();
+    if let Err(err) = maxhq_os::proc::raise_open_files() {
+        warn!(%err, "couldn't raise the limit on open files");
+    }
     // The build is read from the program's file, so read it before an app
     // update can put a newer `maxd` there. Read later, a `maxd` still
     // running the old program would report the new build, and the app
@@ -400,6 +429,10 @@ fn run() -> ExitCode {
     runtime.shutdown_timeout(SHUTDOWN_WAIT);
     match result {
         Ok(Stopped::Asked) => ExitCode::SUCCESS,
+        // 0 on Unix, where the service manager starts it again anyway.
+        Ok(Stopped::Restart) => {
+            ExitCode::from(u8::try_from(maxhq_core::service::RESTART_EXIT).unwrap_or(1))
+        }
         Ok(Stopped::AppDeleted) => {
             remove_self();
             ExitCode::SUCCESS
@@ -408,55 +441,22 @@ fn run() -> ExitCode {
     }
 }
 
-/// How far macOS lets the soft limit on open files go, whatever the hard limit
-/// says.
-const OPEN_MAX: u64 = 10_240;
-
-/// Raises the soft limit on open files as far as the system lets it. launchd
-/// and systemd start `maxd` low, and every agent, link and client counts
-/// against it.
-fn raise_open_files() {
-    use rustix::process::{getrlimit, setrlimit, Resource, Rlimit};
-
-    let Rlimit { current, maximum } = getrlimit(Resource::Nofile);
-    if current == maximum {
-        return;
-    }
-    let raise = |to| {
-        setrlimit(
-            Resource::Nofile,
-            Rlimit {
-                current: to,
-                maximum,
-            },
-        )
-    };
-    if raise(maximum).is_ok() {
-        return;
-    }
-    let capped = maximum.map_or(OPEN_MAX, |hard| hard.min(OPEN_MAX));
-    if current.is_some_and(|soft| soft < capped)
-        && let Err(err) = raise(Some(capped))
-    {
-        warn!(%err, "couldn't raise the limit on open files");
-    }
-}
-
 /// Moves launchd's log of `maxd` aside once it's past
 /// [`service::LOG_LIMIT`], and sends what `maxd` writes to a fresh one.
-/// systemd's journal trims itself, and its output is no file.
+/// systemd's journal trims itself, and its output is no file. On Windows
+/// the launcher moves the log aside before it starts `maxd`, so there's no
+/// launchd log here to move.
 fn rotate_log() {
-    let Some(home) = std::env::var_os("HOME").filter(|home| !home.is_empty()) else {
+    let Some(home) = maxhq_os::home::home_dir() else {
         return;
     };
-    let Ok(writing) = io::stderr().as_fd().try_clone_to_owned() else {
+    let Ok(writing) = maxhq_os::proc::stderr_file() else {
         return;
     };
-    let log = service::log_file(Path::new(&home));
-    match service::rotate_log(&log, &File::from(writing), service::LOG_LIMIT) {
+    let log = service::log_file(&home);
+    match service::rotate_log(&log, &writing, service::LOG_LIMIT) {
         Ok(Some(fresh)) => {
-            let _ = rustix::stdio::dup2_stdout(&fresh);
-            let _ = rustix::stdio::dup2_stderr(&fresh);
+            let _ = maxhq_os::proc::send_output_to(&fresh);
             info!("started a new log, with the last one beside it");
         }
         Ok(None) => {}
@@ -495,15 +495,15 @@ fn init_logging() {
 /// an existing folder as it is. Failing to close it warns and carries on, as
 /// maxd can still run in a folder it doesn't own.
 fn private_data_dir(data: &Path) -> io::Result<()> {
-    DirBuilder::new().recursive(true).mode(0o700).create(data)?;
-    let mode = std::fs::metadata(data)?.permissions().mode() & 0o777;
+    fsmode::private_dir_all(data)?;
+    let mode = fsmode::mode_of(&std::fs::metadata(data)?) & 0o777;
     if mode & 0o077 != 0 {
         warn!(
             path = %data.display(),
             mode = %format!("{mode:o}"),
             "the data folder was open to others, so maxd closed it"
         );
-        if let Err(err) = std::fs::set_permissions(data, Permissions::from_mode(0o700)) {
+        if let Err(err) = fsmode::set_mode(data, 0o700) {
             warn!(path = %data.display(), %err, "couldn't close the data folder");
         }
     }
@@ -708,6 +708,7 @@ async fn serve() -> Result<Stopped, RunError> {
         spawn_task("the Claude usage check", usage::claude::run(hub.clone()));
         spawn_task("the Codex usage check", usage::codex::run(hub.clone()));
         spawn_task("the Cursor login check", usage::cursor::run(hub.clone()));
+        spawn_task("the WSL distro list", wsl::publish(hub.clone()));
     }
 
     let hooks_port = hooks::port(&data).map_err(|source| RunError::DataDir {
@@ -858,22 +859,27 @@ async fn serve() -> Result<Stopped, RunError> {
 
     let keys = app_keys::AppKeys::open(data.join(phones::DIR), hub.device().id);
     keys.publish_to(hub.clone());
-    let mut terminate = signal(SignalKind::terminate()).map_err(RunError::Signals)?;
-    let mut interrupt = signal(SignalKind::interrupt()).map_err(RunError::Signals)?;
+    let mut stops = Stops::listen(&socket).map_err(RunError::Signals)?;
     let (transfers, tunnels) = (linked.transfers, linked.tunnels);
     let stopped = tokio::select! {
         () = listener.serve(hub, db, sessions.clone(), transfers, tunnels, keys) => Stopped::Asked,
-        _ = terminate.recv() => {
-            info!("asked to stop");
-            Stopped::Asked
-        }
-        _ = interrupt.recv() => {
-            info!("interrupted");
-            Stopped::Asked
-        }
+        stopped = stops.next() => match stopped {
+            maxhq_os::stop::Stopped::Asked => {
+                info!("asked to stop");
+                Stopped::Asked
+            }
+            maxhq_os::stop::Stopped::Interrupted => {
+                info!("interrupted");
+                Stopped::Asked
+            }
+            maxhq_os::stop::Stopped::Restart => {
+                info!("asked to restart");
+                Stopped::Restart
+            }
+        },
         () = fleet::exit_requested() => {
             info!("restarting into an update");
-            Stopped::Asked
+            Stopped::Restart
         }
         () = service::app_watch::app_deleted() => {
             info!("the app maxd came in was deleted, so maxd stops and uninstalls itself");
@@ -890,8 +896,11 @@ async fn serve() -> Result<Stopped, RunError> {
 
 /// Why [`serve`] stopped.
 enum Stopped {
-    /// A signal, an update or the listener ended it.
+    /// A signal or the listener ended it.
     Asked,
+    /// An update, or a request to restart: what runs `maxd` starts it
+    /// again.
+    Restart,
     /// The app this `maxd` came in was deleted.
     AppDeleted,
 }
@@ -1022,14 +1031,21 @@ fn start_push(hub: &Hub, data: &Path) {
             return;
         }
     };
+    let fcm = match push::Fcm::new() {
+        Ok(fcm) => fcm,
+        Err(err) => {
+            error!("can't push to phones: {err}");
+            return;
+        }
+    };
     let clock = Arc::new(session::clock::SystemClock);
-    let push = push::Push::open(
-        hub.clone(),
-        folder,
-        clock,
+    let services = push::Services {
         apns,
-        Arc::new(secrets::apns_key),
-    );
+        apns_key: Arc::new(secrets::apns_key),
+        fcm,
+        fcm_key: Arc::new(secrets::fcm_key),
+    };
+    let push = push::Push::open(hub.clone(), folder, clock, services);
     push::install(push.clone());
     spawn_task("the phone pushes", push.watch());
 }
@@ -1037,8 +1053,8 @@ fn start_push(hub: &Hub, data: &Path) {
 /// Starts letting phones in. A device without a home folder, or that
 /// can't keep the phones, runs without them.
 fn start_phones(hub: &Hub, db: &Db, data: &Path) {
-    let Some(home) = std::env::var_os("HOME").map(PathBuf::from) else {
-        error!("can't pair phones: HOME isn't set");
+    let Some(home) = maxhq_os::home::home_dir() else {
+        error!("can't pair phones: the home folder isn't known");
         return;
     };
     let folder = match secrets::files::Folder::open(data.join(phones::DIR)) {
@@ -1052,7 +1068,7 @@ fn start_phones(hub: &Hub, db: &Db, data: &Path) {
         hub.clone(),
         folder,
         db.clone(),
-        home.join(".ssh").join("authorized_keys"),
+        maxhq_core::authorized_keys::file_here(&home),
         Arc::new(session::clock::SystemClock),
     ));
 }
@@ -1128,7 +1144,7 @@ fn proxy_as(first: &ClientMessage) -> ExitCode {
 }
 
 /// `maxd authorize-key`: adds the line that lets `public_key` run only
-/// `maxd proxy` to `~/.ssh/authorized_keys`, once. With `app`, an app key
+/// `maxd proxy` to the `authorized_keys` sshd reads for this account, once. With `app`, an app key
 /// and its label, the device trusts that key too while it trusts none.
 fn authorize_key(public_key: &str, app: Option<(&str, &str)>) -> ExitCode {
     // Checked first, so a bad app key changes nothing.
@@ -1140,15 +1156,17 @@ fn authorize_key(public_key: &str, app: Option<(&str, &str)>) -> ExitCode {
         Some((Some(key), label)) => Some((key, label)),
         None => None,
     };
-    let Some(home) = std::env::var_os("HOME").map(PathBuf::from) else {
-        eprintln!("maxd authorize-key: HOME isn't set");
+    let Some(home) = maxhq_os::home::home_dir() else {
+        eprintln!("maxd authorize-key: the home folder isn't known");
         return ExitCode::FAILURE;
     };
-    let file = home.join(".ssh").join("authorized_keys");
-    let added = maxhq_core::authorized_keys::line(&home.display().to_string(), public_key, None)
-        .and_then(|line| {
-            maxhq_core::authorized_keys::add(&file, &line).map_err(|err| err.to_string())
-        });
+    let file = maxhq_core::authorized_keys::file_here(&home);
+    let added =
+        maxhq_core::authorized_keys::line_here(&home.display().to_string(), public_key, None)
+            .and_then(|line| {
+                maxhq_core::authorized_keys::add(&file, &line)
+                    .map_err(|err| maxhq_core::authorized_keys::add_failed(&file, &line, &err))
+            });
     let trusted = added.and_then(|_| match app {
         Some((key, label)) => trust_app_key(&key, label),
         None => Ok(()),
@@ -1191,6 +1209,15 @@ fn trust_app_key(key: &str, label: &str) -> Result<(), String> {
 
 /// `maxd proxy`, carrying what `mode` says.
 fn proxy_with(mode: proxy::Mode) -> ExitCode {
+    if let proxy::Mode::Wsl(distro) = &mode {
+        return match proxy::run_wsl(distro) {
+            Ok(()) => ExitCode::SUCCESS,
+            Err(err) => {
+                eprintln!("maxd proxy: {err}");
+                ExitCode::FAILURE
+            }
+        };
+    }
     let Some(socket) = paths::socket() else {
         eprintln!("maxd proxy: {}", RunError::NoSocket);
         return ExitCode::FAILURE;
@@ -1198,6 +1225,7 @@ fn proxy_with(mode: proxy::Mode) -> ExitCode {
     let carried = match mode {
         proxy::Mode::Plain => proxy::run(&socket),
         proxy::Mode::GuestSsh(workspace) => proxy::run_guest_ssh(&socket, workspace),
+        proxy::Mode::Wsl(_) => return ExitCode::FAILURE,
     };
     match carried {
         Ok(()) => ExitCode::SUCCESS,
@@ -1208,7 +1236,8 @@ fn proxy_with(mode: proxy::Mode) -> ExitCode {
     }
 }
 
-/// `maxd service install`, `uninstall` or `status`.
+/// `maxd service install`, `uninstall`, `status`, `start`, `stop` or
+/// `restart`.
 fn service(action: Action) -> ExitCode {
     let setup = match Setup::from_env() {
         Ok(setup) => setup,
@@ -1217,6 +1246,9 @@ fn service(action: Action) -> ExitCode {
     let mut runner = System;
     let report = match action {
         Action::Install => service::install(&setup, &mut runner),
+        Action::Start => service::start(&setup, &mut runner),
+        Action::Stop => service::stop(&setup, &mut runner),
+        Action::Restart => service::restart(&setup, &mut runner),
         Action::Uninstall { delete_data } => {
             // Each line goes out as it's done, since ending agents and
             // stopping processes can take a while.
@@ -1264,15 +1296,14 @@ fn service_failed(err: &ServiceError) -> ExitCode {
 /// `maxd host check`: prints each item and exits nonzero unless all are
 /// fine.
 fn host_check() -> ExitCode {
-    let checked = host_runtime().and_then(|runtime| {
-        runtime.block_on(async {
-            let env = host::Env::this_device()?;
-            let loaded = host::load(&env)?;
-            let device = maxhq_protocol::ids::DeviceId::generate();
-            let report = host::report(&env, device).await?;
-            Ok((loaded.source, report))
-        })
-    });
+    let checked = maxhq_os::rt::block_on(async {
+        let env = host::Env::this_device()?;
+        let loaded = host::load(&env)?;
+        let device = maxhq_protocol::ids::DeviceId::generate();
+        let report = host::report(&env, device).await?;
+        Ok::<_, String>((loaded.source, report))
+    })
+    .unwrap_or_else(|err| Err(format!("couldn't start: {err}")));
     match checked {
         Ok((source, report)) => {
             println!("{}", host::source_line(&source));
@@ -1294,19 +1325,17 @@ fn host_check() -> ExitCode {
 
 /// `maxd host apply`: the part that needs no root.
 fn host_apply() -> ExitCode {
-    let applied = host_runtime().and_then(|runtime| {
-        runtime.block_on(async {
-            let env = host::Env::this_device()?;
-            let loaded = host::load(&env)?;
-            let device = maxhq_protocol::ids::DeviceId::generate();
-            let report = host::report(&env, device).await?;
-            let done =
-                host::apply_user(&env, &loaded.spec, &report.items, None, host::Restart::Now)
-                    .await?;
-            let after = host::report(&env, device).await?;
-            Ok((done, after))
-        })
-    });
+    let applied = maxhq_os::rt::block_on(async {
+        let env = host::Env::this_device()?;
+        let loaded = host::load(&env)?;
+        let device = maxhq_protocol::ids::DeviceId::generate();
+        let report = host::report(&env, device).await?;
+        let done =
+            host::apply_user(&env, &loaded.spec, &report.items, None, host::Restart::Now).await?;
+        let after = host::report(&env, device).await?;
+        Ok::<_, String>((done, after))
+    })
+    .unwrap_or_else(|err| Err(format!("couldn't start: {err}")));
     match applied {
         Ok((done, after)) => {
             if done.is_empty() {
@@ -1358,14 +1387,6 @@ fn host_apply_system(yes: bool) -> ExitCode {
     }
 }
 
-/// A small runtime for the host commands, which talk to Incus.
-fn host_runtime() -> Result<Runtime, String> {
-    tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-        .map_err(|err| format!("couldn't start: {err}"))
-}
-
 /// `maxd host quiesce`: sends `WindDown` to this device's `maxd`, then
 /// waits until every held agent has wound down or the window closes. With
 /// no `maxd` running, nothing needs to wind down. `maxd` takes it only from
@@ -1375,30 +1396,20 @@ fn quiesce(window: Duration) -> ExitCode {
         eprintln!("maxd host quiesce: can't tell where maxd's socket is");
         return ExitCode::FAILURE;
     };
-    let mut stream = match UnixStream::connect(&socket) {
-        Ok(stream) => stream,
-        Err(err)
-            if matches!(
-                err.kind(),
-                io::ErrorKind::NotFound | io::ErrorKind::ConnectionRefused
-            ) =>
-        {
+    let asked = maxhq_os::rt::block_on(quiesce_at(&socket, window))
+        .unwrap_or_else(|err| Err(format!("couldn't start: {err}")));
+    match asked {
+        Ok(None) => {
             println!("maxd isn't running, so no agents need to wind down");
-            return ExitCode::SUCCESS;
+            ExitCode::SUCCESS
         }
-        Err(err) => {
-            eprintln!("maxd host quiesce: couldn't reach maxd: {err}");
-            return ExitCode::FAILURE;
-        }
-    };
-    match wind_down(&mut stream, window) {
-        Ok(ActionOutcome::Done) => {
+        Ok(Some(ActionOutcome::Done)) => {
             println!("the agents have wound down");
             ExitCode::SUCCESS
         }
-        Ok(ActionOutcome::Refused { reason }) => {
+        Ok(Some(ActionOutcome::Refused { reason })) => {
             eprintln!("maxd host quiesce: {reason}");
-            if !rustix::process::geteuid().is_root() {
+            if !maxhq_os::proc::is_root() {
                 eprintln!(
                     "maxd host quiesce: maxd takes this only from root, as the shutdown unit runs \
                      it, or from the app"
@@ -1406,7 +1417,7 @@ fn quiesce(window: Duration) -> ExitCode {
             }
             ExitCode::FAILURE
         }
-        Ok(other) => {
+        Ok(Some(other)) => {
             eprintln!("maxd host quiesce: maxd answered {other:?}");
             ExitCode::FAILURE
         }
@@ -1417,11 +1428,32 @@ fn quiesce(window: Duration) -> ExitCode {
     }
 }
 
+/// Asks the `maxd` at `socket` to wind its agents down, and gives its
+/// answer, or none when no `maxd` runs there.
+async fn quiesce_at(socket: &Path, window: Duration) -> Result<Option<ActionOutcome>, String> {
+    let mut stream = match LocalStream::connect(socket).await {
+        Ok(stream) => stream,
+        Err(err)
+            if matches!(
+                err.kind(),
+                io::ErrorKind::NotFound | io::ErrorKind::ConnectionRefused
+            ) =>
+        {
+            return Ok(None);
+        }
+        Err(err) => return Err(format!("couldn't reach maxd: {err}")),
+    };
+    wind_down(&mut stream, window)
+        .await
+        .map(Some)
+        .map_err(|err| err.to_string())
+}
+
 /// Asks `maxd` to wind its agents down and waits for the answer, which
 /// comes when the window closes at the latest.
-fn wind_down(stream: &mut UnixStream, window: Duration) -> io::Result<ActionOutcome> {
+async fn wind_down(stream: &mut LocalStream, window: Duration) -> io::Result<ActionOutcome> {
     // A minute past the window covers a busy loop.
-    stream.set_read_timeout(Some(window + Duration::from_secs(60)))?;
+    let patience = window + Duration::from_secs(60);
     let key = IdempotencyKey::generate();
     let hello = ClientMessage::Hello(ClientHello {
         protocol: ProtocolRange::OURS,
@@ -1440,7 +1472,7 @@ fn wind_down(stream: &mut UnixStream, window: Duration) -> io::Result<ActionOutc
     for message in [hello, ask] {
         frame::encode_message(&mut out, &message).map_err(io::Error::other)?;
     }
-    stream.write_all(&out)?;
+    stream.write_all(&out).await?;
     let mut decoder = FrameDecoder::new();
     let mut buf = [0; 8192];
     loop {
@@ -1457,7 +1489,9 @@ fn wind_down(stream: &mut UnixStream, window: Duration) -> io::Result<ActionOutc
                 return Ok(outcome);
             }
         }
-        let read = stream.read(&mut buf)?;
+        let read = tokio::time::timeout(patience, stream.read(&mut buf))
+            .await
+            .map_err(|_| io::Error::new(io::ErrorKind::TimedOut, "maxd didn't answer in time"))??;
         if read == 0 {
             return Err(io::Error::new(
                 io::ErrorKind::UnexpectedEof,
@@ -1480,12 +1514,19 @@ fn parse_window(text: &str) -> Option<Duration> {
 mod tests {
     use super::*;
 
+    #[cfg(unix)]
     fn mode(path: &Path) -> u32 {
+        use std::os::unix::fs::PermissionsExt;
+
         std::fs::metadata(path).unwrap().permissions().mode() & 0o777
     }
 
+    #[cfg(unix)]
     #[test]
     fn the_data_folder_is_private_however_it_got_there() {
+        use std::fs::Permissions;
+        use std::os::unix::fs::PermissionsExt;
+
         let dir = testing::TempDir::new();
 
         // A new folder, under folders that don't exist yet.
@@ -1505,16 +1546,6 @@ mod tests {
         // And again at the next start.
         private_data_dir(&open).unwrap();
         assert_eq!(mode(&open), 0o700);
-    }
-
-    #[test]
-    fn maxd_raises_its_own_limit_on_open_files() {
-        use rustix::process::{getrlimit, Resource};
-
-        raise_open_files();
-        let limit = getrlimit(Resource::Nofile);
-        let wanted = limit.maximum.map_or(OPEN_MAX, |hard| hard.min(OPEN_MAX));
-        assert!(limit.current.is_none_or(|soft| soft >= wanted), "{limit:?}");
     }
 
     #[test]
@@ -1566,8 +1597,67 @@ mod testing {
         true
     }
 
+    /// The Unix path `path` as an absolute one on this system too: itself
+    /// on Unix, and on drive C: on Windows, where an absolute path starts
+    /// with a drive.
+    pub fn absolute(path: &str) -> String {
+        if cfg!(windows) {
+            format!("C:{path}")
+        } else {
+            path.to_owned()
+        }
+    }
+
+    /// `parts` joined as this system joins `PATH`.
+    pub fn path_of(parts: &[&str]) -> String {
+        std::env::join_paths(parts).unwrap().into_string().unwrap()
+    }
+
+    /// Writes the sh script `text` as the program `name` in `dir` and gives
+    /// the path that starts it, which on Unix is the script itself. Windows
+    /// starts no script by itself, so there it's `name.cmd` beside the
+    /// script, which hands it to Git Bash. A test with a fake program needs
+    /// Git for Windows there, as the CI runner has.
+    pub fn fake_program(dir: &Path, name: &str, text: &str) -> PathBuf {
+        fs::create_dir_all(dir).unwrap();
+        let script = dir.join(name);
+        fs::write(&script, text).unwrap();
+        maxhq_os::fsmode::set_mode(&script, 0o755).unwrap();
+        if cfg!(unix) {
+            return script;
+        }
+        let bash = maxhq_os::git_bash::find().expect("a fake program needs Git Bash");
+        // Git Bash reads a Windows path best with forward slashes. The
+        // launcher names no `%~dp0` path, so it isn't taken for an npm shim.
+        let script = script.to_string_lossy().replace('\\', "/");
+        let launcher = dir.join(format!("{name}.cmd"));
+        let line = format!("@\"{}\" \"{script}\" %*\r\n", bash.display());
+        fs::write(&launcher, line).unwrap();
+        launcher
+    }
+
+    /// The Unix tool `name`, for a test whose child must be one process:
+    /// on Windows the copy Git for Windows keeps beside its Git Bash, since
+    /// a fake program there is cmd.exe and Git Bash, and ending cmd.exe
+    /// leaves Git Bash running.
+    pub fn tool(name: &str) -> PathBuf {
+        let beside_bash = || {
+            let bash = maxhq_os::git_bash::find()?;
+            let bin = bash.parent()?;
+            let file = format!("{name}.exe");
+            let usr = bin.parent()?.join("usr").join("bin").join(&file);
+            [bin.join(&file), usr]
+                .into_iter()
+                .find(|path| path.is_file())
+        };
+        let found = if cfg!(windows) { beside_bash() } else { None };
+        found.unwrap_or_else(|| PathBuf::from(name))
+    }
+
     /// `dir` as a relative path from where this test runs, the way a
-    /// relative entry on `PATH` reads.
+    /// relative entry on `PATH` reads. The tests that use it make Unix
+    /// programs.
+    #[cfg(unix)]
     pub fn from_here(dir: &Path) -> PathBuf {
         let here = fs::canonicalize(std::env::current_dir().unwrap()).unwrap();
         let dir = fs::canonicalize(dir).unwrap();

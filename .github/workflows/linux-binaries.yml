@@ -13,7 +13,9 @@ name: Linux binaries
 
 on:
   push:
-    branches: [main, dev]
+    # The cross-platform port runs CI on its own branches before a pull
+    # request exists, since Windows and Linux are tested only on runners.
+    branches: [main, dev, int/cross-platform, "xplat/**"]
   pull_request:
 
 permissions:

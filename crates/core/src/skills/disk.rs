@@ -5,11 +5,11 @@
 
 use std::fs;
 use std::io;
-use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 
-use super::{Node, SkillFs};
+use super::{path_text, Node, SkillFs};
 use crate::fs::read_regular;
+use crate::fs_ext;
 
 /// The real disk.
 #[derive(Clone, Copy, Debug, Default)]
@@ -31,15 +31,16 @@ impl SkillFs for DiskFs {
         };
         let kind = meta.file_type();
         Ok(Some(if kind.is_symlink() {
+            // Written with `/`, as plans write a link's target.
             Node::Link {
-                target: fs::read_link(path)?.to_string_lossy().into_owned(),
+                target: path_text(&fs_ext::read_link(path)?),
             }
         } else if kind.is_dir() {
             Node::Dir
         } else if kind.is_file() {
             Node::File {
                 size: meta.len(),
-                executable: meta.permissions().mode() & 0o111 != 0,
+                executable: maxhq_os::fsmode::is_executable(path, &meta),
             }
         } else {
             Node::Other
@@ -47,7 +48,7 @@ impl SkillFs for DiskFs {
     }
 
     fn real(&self, path: &Path) -> io::Result<Option<PathBuf>> {
-        there(fs::canonicalize(path))
+        there(fs_ext::canonicalize(path))
     }
 
     fn list(&self, path: &Path) -> io::Result<Vec<String>> {
@@ -61,7 +62,8 @@ impl SkillFs for DiskFs {
     }
 }
 
-#[cfg(test)]
+// Pipes, devices and links, which these tests make, are Unix's.
+#[cfg(all(test, unix))]
 mod tests {
     use std::os::unix::fs::symlink;
 
@@ -136,7 +138,7 @@ mod tests {
         fs::write(skill.join("SKILL.md"), "---\nname: unslop\n---\n").unwrap();
         let run = skill.join("scripts").join("run.sh");
         fs::write(&run, "#!/bin/sh\n").unwrap();
-        fs::set_permissions(&run, fs::Permissions::from_mode(0o755)).unwrap();
+        maxhq_os::fsmode::set_mode(&run, 0o755).unwrap();
         symlink("unslop", dir.0.join("link")).unwrap();
         symlink("gone", dir.0.join("dangling")).unwrap();
 

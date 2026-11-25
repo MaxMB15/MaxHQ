@@ -4,12 +4,12 @@
 //! The items a timeline keeps on disk instead of in memory. They go in
 //! files of their own under `maxd`'s data folder, each unlinked as soon
 //! as it's made, so it's gone once the timeline drops it or `maxd` ends,
-//! however it ends.
+//! however it ends. Windows lets an open file be deleted, as std opens it
+//! for that, and keeps its bytes until the last handle closes.
 
 use std::collections::VecDeque;
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, Write as _};
-use std::os::unix::fs::{FileExt as _, OpenOptionsExt as _};
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -45,10 +45,12 @@ pub struct Spilled {
 }
 
 impl Spilled {
-    /// Reads the item back.
+    /// Reads the item back. Several threads may at once, and the file is
+    /// open to append, so a read that moves its cursor, as on Windows,
+    /// doesn't move where the next item is written.
     pub fn load(&self) -> io::Result<TimelineItem> {
         let mut bytes = vec![0; self.len as usize];
-        self.file.read_exact_at(&mut bytes, self.at)?;
+        maxhq_os::fsmode::read_exact_at(&self.file, &mut bytes, self.at)?;
         Ok(serde_json::from_slice(&bytes)?)
     }
 }
@@ -170,12 +172,9 @@ impl Disk {
     fn start(&mut self) -> io::Result<()> {
         fs::create_dir_all(&self.dir)?;
         let path = self.dir.join(Uuid::now_v7().simple().to_string());
-        let file = OpenOptions::new()
-            .read(true)
-            .append(true)
-            .create_new(true)
-            .mode(0o600)
-            .open(&path)?;
+        let mut options = OpenOptions::new();
+        options.read(true).append(true).create_new(true);
+        let file = maxhq_os::fsmode::set_open_mode(&mut options, 0o600).open(&path)?;
         fs::remove_file(&path)?;
         self.files.push_back((Arc::new(file), 0));
         Ok(())

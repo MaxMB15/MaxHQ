@@ -11,6 +11,7 @@ import { setsEffort } from "../agent-view/effort";
 import type { DeviceId } from "../bindings";
 import type { DeviceSettings } from "../fleet/wire";
 import { t } from "../i18n";
+import { wordingFor } from "../lib/os";
 import { localSettingsOf, sameLocalSettings } from "../local-models/models";
 import { runsLocalModels } from "../local-models/select";
 import type { Option } from "../new-agent/spec";
@@ -60,6 +61,7 @@ export const deviceSettingsOf = (view: ViewState, device: DeviceId): DeviceField
 		skill_library: kept?.skill_library ?? null,
 		network: kept?.network ?? {},
 		test_hosts: testHostSettingsOf(view, device),
+		windows_shell: kept?.windows_shell ?? "auto",
 	};
 };
 
@@ -82,6 +84,7 @@ export const sameDeviceFields = (a: DeviceFields, b: DeviceFields): boolean =>
 	a.history_mib === b.history_mib &&
 	a.claude_setup_token === b.claude_setup_token &&
 	a.shell_integration === b.shell_integration &&
+	a.windows_shell === b.windows_shell &&
 	a.read_other_agents === b.read_other_agents &&
 	a.claude_artifacts === b.claude_artifacts &&
 	a.dispatcher_acts === b.dispatcher_acts &&
@@ -113,47 +116,64 @@ export const PLACEMENT_OPTIONS: readonly Option[] = [
 	},
 ];
 
+/**
+ * Whether a device's `maxd` can keep it from sleeping. Only a Mac's can
+ * today, through its power assertions. Linux and Windows join here once
+ * their `maxd` holds the system awake and the device says so, so a server
+ * on an older `maxd` never shows a setting that does nothing.
+ */
+export const keepsAwake = (os: string | null | undefined): boolean => os === "macos";
+
+/** When a device's `maxd` keeps it awake, worded for the device's system. */
+export const keepAwakeOptions = (os: string | null | undefined): readonly Option[] => {
+	const wording = { context: wordingFor(os) };
+	return [
+		{
+			value: "charger",
+			get label() {
+				return t("On the charger");
+			},
+			get detail() {
+				return t(
+					"Awake whenever it's plugged in. On battery, only while an agent is working."
+				);
+			},
+		},
+		{
+			value: "always",
+			get label() {
+				return t("Always");
+			},
+			get detail() {
+				return t(
+					"Awake whenever maxd runs, on battery too. A Mac left unplugged runs until its battery is low.",
+					wording
+				);
+			},
+		},
+		{
+			value: "working",
+			get label() {
+				return t("While agents work");
+			},
+			get detail() {
+				return t("Awake only while an agent on this Mac is working.", wording);
+			},
+		},
+		{
+			value: "off",
+			get label() {
+				return t("Off");
+			},
+			get detail() {
+				return t("MaxHQ never keeps this Mac awake, even while an agent works.", wording);
+			},
+		},
+	];
+};
+
 /** When a Mac's `maxd` keeps it awake. */
-export const KEEP_AWAKE_OPTIONS: readonly Option[] = [
-	{
-		value: "charger",
-		get label() {
-			return t("On the charger");
-		},
-		get detail() {
-			return t("Awake whenever it's plugged in. On battery, only while an agent is working.");
-		},
-	},
-	{
-		value: "always",
-		get label() {
-			return t("Always");
-		},
-		get detail() {
-			return t(
-				"Awake whenever maxd runs, on battery too. A Mac left unplugged runs until its battery is low."
-			);
-		},
-	},
-	{
-		value: "working",
-		get label() {
-			return t("While agents work");
-		},
-		get detail() {
-			return t("Awake only while an agent on this Mac is working.");
-		},
-	},
-	{
-		value: "off",
-		get label() {
-			return t("Off");
-		},
-		get detail() {
-			return t("MaxHQ never keeps this Mac awake, even while an agent works.");
-		},
-	},
-];
+export const KEEP_AWAKE_OPTIONS: readonly Option[] = keepAwakeOptions("macos");
 
 /** Names to pick from, such as a host's Incus networks, each its own label. */
 export const nameOptions = (names: readonly string[]): Option[] =>

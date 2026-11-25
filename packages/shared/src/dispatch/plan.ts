@@ -40,6 +40,7 @@ import { accounts, deviceName, workspaceName } from "../view/select";
 
 import { type ActionCard, adminPhrase, cardUndo, grantLines, settingLines } from "./action";
 
+import { nameOf } from "../folders/path";
 /**
  * The accounts on `device` the dispatcher can run as: Claude first, then
  * Codex, then local models, which it never picks unless you do.
@@ -92,7 +93,7 @@ const placeName = (view: ViewState, device: DeviceId, place: AgentPlace): string
 			if (project) return project.name;
 		}
 	}
-	return place.path.split("/").filter(Boolean).pop() ?? place.path;
+	return nameOf(place.path);
 };
 
 /** Where an opened item runs: a folder's whole path, else the place's name. */

@@ -6,9 +6,7 @@
 //! instance keys when `maxd` starts.
 
 use std::collections::{BTreeMap, BTreeSet};
-use std::fs::DirBuilder;
 use std::io;
-use std::os::unix::fs::DirBuilderExt;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
@@ -513,7 +511,7 @@ impl Manager {
     /// device needs before it can listen.
     pub(super) fn ensure_guests_dir(&self) -> io::Result<PathBuf> {
         let dir = self.inner.config.runtime.join(guestlink::GUESTS_DIR);
-        DirBuilder::new().recursive(true).mode(0o700).create(&dir)?;
+        maxhq_os::fsmode::private_dir_all(&dir)?;
         Ok(dir)
     }
 

@@ -20,6 +20,7 @@ use std::process::Stdio;
 use std::sync::{Arc, Mutex, MutexGuard, OnceLock, PoisonError};
 use std::time::Duration;
 
+use maxhq_os::proc::{self, GroupExt, Stop};
 use maxhq_protocol::ids::{AccountId, SignInId};
 use maxhq_protocol::message::{ActionOutcome, CliLoginState};
 use maxhq_protocol::model::{LoginKind, Vendor};
@@ -37,7 +38,8 @@ use crate::drive::{claude, codex, cursor, Launch, Login, LoginAuth};
 use crate::hub::{Command, Hub};
 use crate::tools::run::{plain_text, progress_line};
 
-#[cfg(test)]
+// The fake CLIs are sh scripts.
+#[cfg(all(test, unix))]
 mod tests;
 
 /// The most output kept from a sign-in's CLI: its last bytes, from the
@@ -252,6 +254,8 @@ struct Run {
     sign_in: SignInId,
     flow: Flow,
     child: Child,
+    /// Keeps the CLI's group in reach of [`proc::stop_group`].
+    group: Option<proc::Group>,
     output: watch::Sender<Vec<u8>>,
     state: watch::Sender<CliLoginState>,
     stopped: oneshot::Receiver<()>,
@@ -357,11 +361,20 @@ impl Rounds {
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
-            .process_group(0)
+            .own_group()
             .kill_on_drop(true);
         let mut child = match crate::tools::retry_busy(|| std::future::ready(command.spawn())).await
         {
             Ok(child) => child,
+            Err(error) => {
+                let cli = flow.cli();
+                return refused(format!(
+                    "This device couldn't start {cli} to sign in: {error}"
+                ));
+            }
+        };
+        let group = match child.id().map(proc::adopt).transpose() {
+            Ok(group) => group,
             Err(error) => {
                 let cli = flow.cli();
                 return refused(format!(
@@ -379,6 +392,7 @@ impl Rounds {
             sign_in,
             flow,
             child,
+            group,
             output,
             state,
             stopped,
@@ -441,6 +455,7 @@ impl Rounds {
             sign_in,
             flow,
             mut child,
+            group: _group,
             output,
             state,
             mut stopped,
@@ -466,8 +481,8 @@ impl Rounds {
             if !matches!(ended, Ended::Exited(_)) {
                 // The group goes while the CLI is still unreaped, so its ID
                 // can't be anyone else's yet.
-                if let Some(pid) = pid.and_then(|pid| rustix::process::Pid::from_raw(pid as i32)) {
-                    let _ = rustix::process::kill_process_group(pid, rustix::process::Signal::KILL);
+                if let Some(pid) = pid {
+                    let _ = proc::stop_group(pid, Stop::Hard);
                 }
                 let _ = child.kill().await;
             }

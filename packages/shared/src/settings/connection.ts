@@ -9,7 +9,8 @@
 import type { DeviceId } from "../bindings";
 import { t } from "../i18n";
 import { OS_NAME } from "../status/device-page";
-import type { ViewState } from "../view/replica";
+import { wslLabel, wslMachine } from "../status/wsl";
+import { all, type ViewState } from "../view/replica";
 import { linkForDevice } from "../view/select";
 
 /** One fact: what it is and its value, which you can select and copy. */
@@ -24,7 +25,14 @@ export const connectionFacts = (view: ViewState, device: DeviceId): readonly Con
 	const link = linkForDevice(view, device);
 	const record = view.tables.device.get(device);
 	if (link) {
-		add(t("Reached by"), link.route.type === "ssh" ? `ssh ${link.route.host}` : t("This Mac"));
+		add(
+			t("Reached by"),
+			link.route.type === "ssh"
+				? `ssh ${link.route.host}`
+				: link.route.type === "wsl"
+					? wslLabel(link.route, wslMachine(all(view, "device_link"), link.route))
+					: t("This Mac")
+		);
 		add(t("Through"), link.via.join(", "));
 	}
 	add(t("maxd"), record?.maxd_version);

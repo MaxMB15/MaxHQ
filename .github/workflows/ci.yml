@@ -5,7 +5,9 @@ name: CI
 
 on:
   push:
-    branches: [main, dev]
+    # The cross-platform port runs CI on its own branches before a pull
+    # request exists, since Windows and Linux are tested only on runners.
+    branches: [main, dev, int/cross-platform, "xplat/**"]
   pull_request:
 
 permissions:
@@ -26,8 +28,12 @@ env:
 # Every check runs on Linux. The rust-macos job also runs the Rust tests on
 # macOS, since the desktop app and the Mac's maxd run there and have code of
 # their own behind cfg(target_os = "macos"). Formatting and clippy run on
-# Linux only, so that code is compiled and tested but not linted. No job
-# builds the app's bundle until releases need a signed build.
+# Linux only, so that code is compiled and tested but not linted. The
+# rust-windows job lints and tests the crates that build for Windows so far.
+# The desktop-linux job packs an unsigned debug bundle, so the Linux packaging
+# can't break unnoticed. The desktop-windows job does the same for the NSIS
+# setup and the MSI, then installs the app, starts it and keeps screenshots of
+# its window.
 jobs:
   # The pre-commit hook runs the same checks, but a commit made with
   # --no-verify skips them.
@@ -126,6 +132,228 @@ jobs:
         if: always()
         run: df -h /
 
+  # The workspace linted and tested on a GitHub-hosted Windows runner, since
+  # nothing else runs its Windows code. The phone core is left out, since no
+  # phone runs Windows.
+  rust-windows:
+    runs-on: windows-latest
+    timeout-minutes: 45
+    env:
+      CRATES: --workspace --exclude maxhq-mobile
+    defaults:
+      run:
+        # The same commands as on Linux, through the runner's Git Bash.
+        shell: bash
+    steps:
+      # .gitattributes keeps LF line endings in this checkout too.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@686976e191b89faba57d3206551f0f330d8cb249 # stable
+        with:
+          toolchain: stable
+          components: clippy
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: ". -> target"
+          # Only branch pushes save, for the same reason as in the rust job.
+          save-if: ${{ github.event_name == 'push' }}
+
+      # tauri::generate_context! needs frontendDist to exist, as in the rust job.
+      - name: Create an empty frontend build
+        run: mkdir -p apps/desktop/dist
+
+      # Clippy checks every target, so there's no separate cargo check.
+      # $CRATES is a list of flags, so it's left unquoted.
+      - name: Clippy
+        run: cargo clippy $CRATES --all-targets --locked -- -D warnings
+
+      - name: Test
+        run: cargo test $CRATES --locked --no-fail-fast
+
+  # Packs the Linux app the way a release does, as an unsigned debug build,
+  # so a change that breaks the AppImage, the .deb or the .rpm fails here
+  # and not on a release tag. It runs on the oldest Ubuntu the release
+  # builds on, since the bundle needs that glibc.
+  desktop-linux:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install Linux dependencies
+        uses: ./.github/actions/install-linux-deps
+
+      # linuxdeploy, which makes the AppImage, needs file and libfuse2. rpm
+      # only reads the finished package's dependencies below.
+      - name: Install the bundle tools
+        run: sudo apt-get install -y --no-install-recommends file libfuse2 rpm
+
+      - name: Set up the frontend
+        uses: ./.github/actions/setup-frontend
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@686976e191b89faba57d3206551f0f330d8cb249 # stable
+        with:
+          toolchain: stable
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: ". -> target"
+          # Only branch pushes save, for the same reason as in the rust job.
+          save-if: ${{ github.event_name == 'push' }}
+
+      # The app carries its own maxd and installs it as this computer's
+      # service. Only a bundle passes that config, so plain cargo builds of
+      # the app need no maxd. maxd builds for the app's target, so the two
+      # share one target folder.
+      - name: Build maxd
+        run: |
+          set -euo pipefail
+          triple="$(rustc --print host-tuple)"
+          echo "TARGET=$triple" >> "$GITHUB_ENV"
+          cargo build -p maxd --locked --target "$triple"
+
+      # As the release's build-linux job packs it, as a debug build. Tauri
+      # takes maxd from binaries/, named for the target, and puts it beside
+      # the app's binary.
+      - name: Bundle the app
+        run: |
+          node scripts/release/package-desktop.mjs --debug --target "$TARGET" \
+            --maxd "target/$TARGET/debug/maxd" --out out
+
+      # The release's build-linux job runs the same check.
+      - name: Check the packages
+        run: bash scripts/release/check-linux-packages.sh "target/$TARGET/debug/bundle"
+
+      - name: Disk left
+        if: always()
+        run: df -h /
+
+  # Packs the Windows app the way a release does, as an unsigned debug
+  # build, installs it with its NSIS setup and starts it. The job waits for
+  # the window, keeps screenshots of it as the run's artifact, so a person
+  # can see the app drew, and fails if the app quits within a minute.
+  desktop-windows:
+    runs-on: windows-latest
+    timeout-minutes: 60
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up the frontend
+        uses: ./.github/actions/setup-frontend
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@686976e191b89faba57d3206551f0f330d8cb249 # stable
+        with:
+          toolchain: stable
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: ". -> target"
+          # Only branch pushes save, for the same reason as in the rust job.
+          save-if: ${{ github.event_name == 'push' }}
+
+      - name: Build maxd
+        run: |
+          set -euo pipefail
+          triple="$(rustc --print host-tuple)"
+          echo "TARGET=$triple" >> "$GITHUB_ENV"
+          cargo build -p maxd --locked --target "$triple"
+
+      # As in desktop-linux: Tauri takes maxd from binaries/, named for the
+      # target, and puts it beside the app's program as maxd.exe.
+      - name: Bundle the app
+        run: |
+          node scripts/release/package-desktop.mjs --debug --target "$TARGET" \
+            --maxd "target/$TARGET/debug/maxd.exe" --out out
+
+      # The NSIS setup installs for the current user, into
+      # %LOCALAPPDATA%\MaxHQ, with maxd beside the app and the uninstaller
+      # the update rules look for. It puts nothing in data, the one folder
+      # there that deleting maxd's data erases.
+      - name: Install the app
+        shell: pwsh
+        run: |
+          $setup = Get-ChildItem out -Filter *-setup.exe | Select-Object -First 1
+          if (-not $setup) { throw "The NSIS setup wasn't built." }
+          $install = Start-Process -FilePath $setup.FullName -ArgumentList '/S' -Wait -PassThru
+          if ($install.ExitCode -ne 0) { throw "The setup ended with $($install.ExitCode)." }
+          $dir = Join-Path $env:LOCALAPPDATA 'MaxHQ'
+          Get-ChildItem $dir | Format-Table Name, Length
+          foreach ($name in 'maxd.exe', 'uninstall.exe') {
+            if (-not (Test-Path (Join-Path $dir $name))) { throw "The setup put no $name beside the app." }
+          }
+          if (Test-Path (Join-Path $dir 'data')) { throw "The setup put files in data, which deleting maxd's data erases." }
+
+      # A GitHub runner has a desktop to draw on, so the window shows and a
+      # screenshot catches it. The first is taken once the page has had
+      # time to load, the second after the minute the app must last.
+      - name: Start the app
+        shell: pwsh
+        run: |
+          Add-Type -AssemblyName System.Windows.Forms, System.Drawing, Microsoft.VisualBasic
+          function Save-Screen([string] $name) {
+            $bounds = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
+            $bitmap = New-Object System.Drawing.Bitmap $bounds.Width, $bounds.Height
+            $graphics = [System.Drawing.Graphics]::FromImage($bitmap)
+            $graphics.CopyFromScreen($bounds.Location, [System.Drawing.Point]::Empty, $bounds.Size)
+            $bitmap.Save((Join-Path $PWD "smoke/$name"), [System.Drawing.Imaging.ImageFormat]::Png)
+            $graphics.Dispose()
+            $bitmap.Dispose()
+          }
+          New-Item -ItemType Directory -Force smoke | Out-Null
+          $dir = Join-Path $env:LOCALAPPDATA 'MaxHQ'
+          $exe = Get-ChildItem $dir -Filter *.exe |
+            Where-Object { $_.Name -notin 'maxd.exe', 'uninstall.exe' } |
+            Select-Object -First 1
+          if (-not $exe) { throw "The setup installed no app." }
+          # A debug build has a console, so what the app logs lands here.
+          $app = Start-Process -FilePath $exe.FullName -WorkingDirectory $dir -PassThru `
+            -RedirectStandardOutput (Join-Path $PWD 'smoke/app-out.log') `
+            -RedirectStandardError (Join-Path $PWD 'smoke/app-err.log')
+          # Holding the handle keeps the exit code readable once it quits.
+          $null = $app.Handle
+          $deadline = (Get-Date).AddMinutes(2)
+          while ((Get-Date) -lt $deadline -and -not $app.HasExited) {
+            $app.Refresh()
+            if ($app.MainWindowHandle -ne 0) { break }
+            Start-Sleep -Seconds 1
+          }
+          if ($app.HasExited) {
+            Save-Screen 'exited.png'
+            throw "The app quit before its window opened, with $($app.ExitCode)."
+          }
+          if ($app.MainWindowHandle -eq 0) {
+            Save-Screen 'no-window.png'
+            throw "The app opened no window within two minutes."
+          }
+          Write-Output "The window opened: $($app.MainWindowTitle)"
+          try { [void][Microsoft.VisualBasic.Interaction]::AppActivate($app.Id) } catch { }
+          Start-Sleep -Seconds 20
+          Save-Screen 'window.png'
+          Start-Sleep -Seconds 40
+          Save-Screen 'a-minute-later.png'
+          if ($app.HasExited) { throw "The app quit within a minute, with $($app.ExitCode)." }
+          Write-Output "The app still runs after a minute."
+          Stop-Process -Id $app.Id -Force
+
+      - name: Upload the screenshots
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: windows-app-screenshots
+          path: smoke/
+          if-no-files-found: warn
+          retention-days: 14
+
   frontend:
     runs-on: ubuntu-24.04
     steps:
@@ -154,6 +382,63 @@ jobs:
 
       - name: Test the scripts
         run: pnpm test:scripts
+
+  # The phone app's Android build: the Rust core for both ABIs through
+  # cargo-ndk, the debug APK, and the JVM tests of the key store's file
+  # format and of how the phone opens a push. It needs the runner's Android SDK, so unlike the rust job it
+  # keeps it, and adds the NDK the core is pinned to.
+  android:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # Frees disk and installs Java, Rust for Android, cargo-ndk and the
+      # NDK native.ts pins, which it names in NDK_VERSION. Only branch
+      # pushes save the caches, as in the rust job.
+      - name: Set up the Android build
+        uses: ./.github/actions/setup-android
+        with:
+          cache: "true"
+          save-cache: ${{ github.event_name == 'push' }}
+
+      - name: Set up the frontend
+        uses: ./.github/actions/setup-frontend
+
+      # mobile.ts builds the core for both ABIs, prebuilds the development
+      # app and builds its debug APK, signed with the debug key.
+      - name: Build the debug APK
+        run: pnpm --filter ./apps/mobile mobile:android:apk --dev
+
+      # The module's JNI_OnLoad hands the key store to the core, and the
+      # core's own symbols stay inside the library, as its CMake build asks.
+      - name: Check the APK carries the core for both ABIs
+        run: |
+          apk=apps/mobile/android/app/build/outputs/apk/debug/app-debug.apk
+          nm="$ANDROID_HOME/ndk/$NDK_VERSION/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-nm"
+          dir=$(mktemp -d)
+          for abi in arm64-v8a x86_64; do
+            unzip -q "$apk" "lib/$abi/libmaxhq-core.so" -d "$dir"
+            "$nm" -D --defined-only "$dir/lib/$abi/libmaxhq-core.so" > "$dir/$abi.syms"
+            grep -q " JNI_OnLoad$" "$dir/$abi.syms"
+            if grep -q " maxhq_mobile_on_load$" "$dir/$abi.syms"; then
+              echo "lib/$abi/libmaxhq-core.so exports the core's own symbols"
+              exit 1
+            fi
+          done
+          ls -l "$apk"
+
+      # Gradle reads the app's config as it starts, so the variant is set.
+      # The push module's tests open maxd's push vectors.
+      - name: Test the key store's file format and the push module
+        working-directory: apps/mobile/android
+        env:
+          APP_VARIANT: development
+          EXPO_NO_GIT_STATUS: "1"
+        run: ./gradlew :maxhq-core:testDebugUnitTest :maxhq-push:testDebugUnitTest
+
+      - name: Disk left
+        if: always()
+        run: df -h /
 
   # Fails on a dependency whose license isn't on the allowlist (decision P-6),
   # with a known vulnerability, or from outside crates.io. cargo-deny reads
