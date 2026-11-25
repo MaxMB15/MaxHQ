@@ -81,6 +81,20 @@ pub fn group_of(meta: &Metadata) -> Option<u32> {
     imp::group_of(meta)
 }
 
+/// Whether what `meta` describes belongs to another user than the one
+/// this process acts as, its effective user ID. Windows has no Unix
+/// owners to compare, so it's never so there.
+pub fn owned_by_other(meta: &Metadata) -> bool {
+    imp::owned_by_other(meta)
+}
+
+/// Whether this user may make files in the folder `path`: what `access`
+/// says on Unix, by the real user ID. Windows keeps who may write in a
+/// folder in its access list, so there a file is made in it and removed.
+pub fn writable_dir(path: &Path) -> bool {
+    imp::writable_dir(path)
+}
+
 /// What tells a file from every other on the machine: its device and
 /// inode on Unix, and its volume and 128-bit file ID on Windows. Two names
 /// or handles with one ID are one file, hard links included.
@@ -210,6 +224,23 @@ mod tests {
         } else {
             assert_eq!(owner_of(&meta), None);
             assert_eq!(group_of(&meta), None);
+        }
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn a_folder_of_ones_own_is_writable_and_ones_own() {
+        let dir = temp("writable");
+        fs::create_dir_all(&dir).unwrap();
+        assert!(writable_dir(&dir));
+        assert_eq!(fs::read_dir(&dir).unwrap().count(), 0, "the probe is gone");
+        assert!(!writable_dir(&dir.join("missing")));
+        assert!(!owned_by_other(&fs::metadata(&dir).unwrap()));
+        if cfg!(unix) && !crate::proc::is_root() {
+            let shut = dir.join("shut");
+            dir_all_with_mode(&shut, 0o500).unwrap();
+            assert!(!writable_dir(&shut));
+            assert!(owned_by_other(&fs::metadata("/").unwrap()), "root's");
         }
         fs::remove_dir_all(&dir).unwrap();
     }

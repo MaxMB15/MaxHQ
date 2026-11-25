@@ -12,7 +12,7 @@ tokio.workspace = true
 
 [target.'cfg(unix)'.dependencies]
 libc.workspace = true
-rustix.workspace = true
+rustix = { workspace = true, features = ["fs"] }
 
 [target.'cfg(windows)'.dependencies]
 # On top of the workspace's: a process's command line and threads,

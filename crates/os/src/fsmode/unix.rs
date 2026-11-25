@@ -63,6 +63,14 @@ pub fn group_of(meta: &Metadata) -> Option<u32> {
     Some(meta.gid())
 }
 
+pub fn owned_by_other(meta: &Metadata) -> bool {
+    meta.uid() != rustix::process::geteuid().as_raw()
+}
+
+pub fn writable_dir(path: &Path) -> bool {
+    rustix::fs::access(path, rustix::fs::Access::WRITE_OK).is_ok()
+}
+
 fn id_of(meta: &Metadata) -> FileId {
     FileId {
         volume: meta.dev(),

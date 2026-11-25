@@ -6,6 +6,7 @@
 //! so it stays theirs outside the profile too.
 
 use std::fs::{self, File, Metadata, OpenOptions};
+use std::hash::{BuildHasher, RandomState};
 use std::io;
 use std::os::windows::fs::{FileExt, OpenOptionsExt};
 use std::path::Path;
@@ -219,6 +220,28 @@ pub fn owner_of(_meta: &Metadata) -> Option<u32> {
 
 pub fn group_of(_meta: &Metadata) -> Option<u32> {
     None
+}
+
+pub fn owned_by_other(_meta: &Metadata) -> bool {
+    false
+}
+
+pub fn writable_dir(path: &Path) -> bool {
+    let name = format!(
+        ".maxhq-{}-{:x}",
+        std::process::id(),
+        RandomState::new().hash_one(path)
+    );
+    let probe = path.join(name);
+    let made = OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&probe)
+        .is_ok();
+    if made {
+        let _ = fs::remove_file(&probe);
+    }
+    made
 }
 
 pub fn file_id(file: &File) -> io::Result<FileId> {
