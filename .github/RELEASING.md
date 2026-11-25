@@ -187,7 +187,7 @@ The Windows and Linux apps from these releases carry only their own `maxd`. Unli
 
 `.github/workflows/release-dry-run.yml` runs the Windows, Linux and Android builds as a release runs them, through the same workflows `release.yml` calls. It then signs and writes up what they built as `sign-desktop`, `sign-android` and `publish-latest-json` would, with throwaway keys it makes on the runner: two update keys, as in the bridge of a key change, and an Android upload key. It makes no tag or release, uses no environment and reads no secret. What a release would upload lands in the run's `dry-run-release` artifact, kept for a week.
 
-It runs on pushes to `int/cross-platform` and `xplat/**` that change a release workflow, a composite action, `scripts/release` or the phone's scripts, and from **Run workflow** once it's on the default branch. A failed Windows build doesn't fail it while the Windows port lands; set `may-fail` to `false` in it once the Windows builds pass. The Android build uses stand-in IDs when `IOS_TEAM_ID` and `IOS_BUNDLE_ID` aren't set.
+It runs on pushes to `int/cross-platform` and `xplat/**` that change a release workflow, a composite action, `scripts/release` or the phone's scripts, and from **Run workflow** once it's on the default branch. The Android build uses stand-in IDs when `IOS_TEAM_ID` and `IOS_BUNDLE_ID` aren't set.
 
 ## When something fails
 
