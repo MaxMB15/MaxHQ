@@ -209,10 +209,8 @@ pub fn task_file_bytes(xml: &str) -> Vec<u8> {
 pub fn task_file_text(bytes: &[u8]) -> Option<String> {
     match bytes.strip_prefix(&[0xff, 0xfe]) {
         Some(units) if units.len() % 2 == 0 => {
-            let units: Vec<u16> = units
-                .chunks_exact(2)
-                .map(|pair| u16::from_le_bytes([pair[0], pair[1]]))
-                .collect();
+            let (pairs, _) = units.as_chunks::<2>();
+            let units: Vec<u16> = pairs.iter().copied().map(u16::from_le_bytes).collect();
             String::from_utf16(&units).ok()
         }
         Some(_) => None,

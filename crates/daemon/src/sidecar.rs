@@ -13,9 +13,9 @@ use std::collections::HashSet;
 use std::ffi::{OsStr, OsString};
 use std::fs::{self, OpenOptions};
 use std::io::{self, Write};
-use std::os::unix::fs::OpenOptionsExt;
 use std::path::{Path, PathBuf};
 
+use maxhq_os::fsmode;
 use maxhq_protocol::timeline::{AttachmentKind, AttachmentRef};
 
 use crate::doctext::{self, Extractor};
@@ -139,12 +139,11 @@ pub fn carry(from: &Path, to: &Path) {
 /// Writes a sidecar that anyone may read, as an agent's CLI must, even
 /// when a guest running as root makes it.
 pub fn write_readable(path: &Path, bytes: &[u8]) -> io::Result<()> {
-    let mut file = OpenOptions::new()
-        .write(true)
-        .create(true)
-        .truncate(true)
-        .mode(0o644)
-        .open(path)?;
+    let mut file = fsmode::set_open_mode(
+        OpenOptions::new().write(true).create(true).truncate(true),
+        0o644,
+    )
+    .open(path)?;
     file.write_all(bytes)
 }
 
