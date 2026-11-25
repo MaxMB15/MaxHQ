@@ -17,7 +17,7 @@ use tracing::{info, warn};
 use super::held::{
     internal_key, is_busy, After, Held, Internal, Open, Pending, ServerKey, Target, Written,
 };
-use super::holders::WriteOutcome;
+use super::holders::{WriteError, WriteOutcome};
 use super::idem::Outcome;
 use super::loading::Later;
 use super::recovery::Restarts;
@@ -30,6 +30,16 @@ const WRITE_LIMIT: Duration = Duration::from_secs(5);
 
 /// How long a CLI asked to stop gets before the holder kills it.
 pub(super) const STOP_GRACE: Duration = Duration::from_secs(5);
+
+/// How long a holder that said its CLI ended gets to send the exit. It
+/// sends it once the CLI's last output is in, within seconds. One that
+/// doesn't, such as a holder whose reaper died, counts as lost, or its
+/// agent's turn would run on with nothing left to stop.
+const EXIT_WAIT: Duration = if cfg!(test) {
+    Duration::from_millis(200)
+} else {
+    Duration::from_secs(10)
+};
 
 impl Manager {
     /// Hands one action to the driver it's for.
@@ -281,6 +291,9 @@ impl Manager {
     pub(super) async fn apply_fx(&mut self, session: SessionId, mut fx: Effects) {
         self.settle(&mut fx);
         let written = self.write(session, std::mem::take(&mut fx.writes)).await;
+        if written.ended {
+            self.await_exit(session, EXIT_WAIT);
+        }
         for picture in fx.pictures.guest {
             self.places.keep_picture(picture);
         }
@@ -427,6 +440,7 @@ impl Manager {
                 Ok(Err(err)) => {
                     warn!(%err, %session, "couldn't write to the agent's process");
                     written.failed = true;
+                    written.ended |= matches!(err, WriteError::Finished);
                 }
                 Err(_) => {
                     warn!(%session, "writing to the agent's process took too long");
@@ -920,10 +934,49 @@ impl Manager {
             return;
         };
         let grace = if asked { STOP_GRACE } else { Duration::ZERO };
+        // The holder kills the CLI after twice the grace, so a stop that
+        // takes longer is one whose exit may never come.
+        self.await_exit(session, grace * 2 + EXIT_WAIT);
         tokio::spawn(async move {
             if let Err(err) = writer.stop(grace).await {
                 warn!(%err, %session, "couldn't stop the agent's process");
             }
         });
+    }
+
+    /// Checks after `wait` that a holder's CLI, which a write found ended
+    /// or which was asked to stop, has sent its exit.
+    fn await_exit(&mut self, session: SessionId, wait: Duration) {
+        let Some(hold) = self.holds.get_mut(&session) else {
+            return;
+        };
+        if hold.awaiting_exit || hold.ending {
+            return;
+        }
+        hold.awaiting_exit = true;
+        let tx = self.tx.clone();
+        tokio::spawn(async move {
+            tokio::time::sleep(wait).await;
+            let _ = tx.send(Input::ExitDue { session });
+        });
+    }
+
+    /// The exit a holder owed hasn't come. While the holder is reached it
+    /// counts as lost, which ends it and its CLI and cuts off the turn.
+    pub(super) fn exit_due(&mut self, session: SessionId) {
+        let Some(hold) = self.holds.get_mut(&session) else {
+            return;
+        };
+        hold.awaiting_exit = false;
+        if hold.ending || hold.exit.is_some() {
+            return;
+        }
+        if hold.writer.is_none() {
+            // Connecting again tells whether it still runs, so look later.
+            self.await_exit(session, EXIT_WAIT);
+            return;
+        }
+        warn!(%session, "the holder never sent its CLI's exit, so maxd ends it");
+        self.lost(session);
     }
 }

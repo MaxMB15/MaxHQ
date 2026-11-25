@@ -51,7 +51,7 @@ impl StderrLog {
             return;
         };
         if let Err(err) = file.write_all(bytes) {
-            eprintln!("couldn't write {}: {err}", self.path.display());
+            note!("couldn't write {}: {err}", self.path.display());
             self.file = None;
             return;
         }
@@ -59,7 +59,7 @@ impl StderrLog {
         if self.size > self.cap as u64
             && let Err(err) = self.trim()
         {
-            eprintln!("couldn't trim {}: {err}", self.path.display());
+            note!("couldn't trim {}: {err}", self.path.display());
         }
     }
 

@@ -112,6 +112,8 @@ struct FakeHold {
     orphan: bool,
     /// Why an end can't confirm the holder, if it can't.
     unconfirmable: Option<String>,
+    /// Set when the CLI ended but the holder never recorded it.
+    stalled: bool,
 }
 
 impl FakeHold {
@@ -261,6 +263,12 @@ impl FakeHolders {
         });
     }
 
+    /// The CLI ends but the holder never records it, as when its reaper
+    /// died: writes find it ended, no exit comes and a stop never returns.
+    pub fn stall(&self, session: SessionId) {
+        self.with(session, |hold| hold.stalled = true);
+    }
+
     /// Ends of the holder can't confirm it's the session's own.
     pub fn unconfirmable(&self, session: SessionId) {
         self.with(session, |hold| {
@@ -396,6 +404,7 @@ impl Holders for FakeHolders {
                     pid,
                     orphan: false,
                     unconfirmable: None,
+                    stalled: false,
                 },
             );
             state.order.push(session);
@@ -530,7 +539,7 @@ impl HoldWriter for FakeWriter {
         answers: Option<String>,
     ) -> BoxFuture<Result<WriteOutcome, WriteError>> {
         let result = self.with(|hold| {
-            if hold.exit.is_some() {
+            if hold.exit.is_some() || hold.stalled {
                 return Err(WriteError::Finished);
             }
             if let Some(request) = &answers {
@@ -553,7 +562,7 @@ impl HoldWriter for FakeWriter {
         let lingers = lock(&self.state).lingers;
         let result = self.with(|hold| {
             hold.stops.push(grace);
-            if !lingers {
+            if !lingers && !hold.stalled {
                 hold.end(None, Some(15));
             }
             Ok(())

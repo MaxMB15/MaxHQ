@@ -510,7 +510,7 @@ pub(crate) fn hold(dir: &Path) -> ExitCode {
                 ExitCode::SUCCESS
             }
             Err(message) => {
-                eprintln!("{message}");
+                note!("{message}");
                 ExitCode::FAILURE
             }
         }

@@ -227,7 +227,7 @@ impl Started {
                                 tokio::spawn(serve(accepting.clone(), stream));
                             }
                             Err(err) => {
-                                eprintln!("couldn't accept a connection: {err}");
+                                note!("couldn't accept a connection: {err}");
                                 tokio::time::sleep(REAP_TICK).await;
                             }
                         }
@@ -235,7 +235,7 @@ impl Started {
                 });
             }
             Err(err) => {
-                eprintln!("couldn't listen on {}: {err}", self.socket.path.display());
+                note!("couldn't listen on {}: {err}", self.socket.path.display());
                 holder.quit();
             }
         }
@@ -466,7 +466,7 @@ impl Holder {
                 Ok(read) => self.record(&buf[..read]),
                 Err(err) if err.kind() == io::ErrorKind::Interrupted => {}
                 Err(err) => {
-                    eprintln!("stopped reading the terminal: {err}");
+                    note!("stopped reading the terminal: {err}");
                     break;
                 }
             }
@@ -683,7 +683,7 @@ impl Holder {
         };
         let path = self.dir.join(EXIT);
         if let Err(err) = files::write_json(&path, &exit) {
-            eprintln!("couldn't write {}: {err}", path.display());
+            note!("couldn't write {}: {err}", path.display());
         }
         state.phase = Phase::Exited(exit);
         state.password = false;
@@ -770,7 +770,7 @@ impl Holder {
             signal(SignalKind::interrupt()),
             signal(SignalKind::hangup()),
         ) else {
-            eprintln!("couldn't watch for signals");
+            note!("couldn't watch for signals");
             return;
         };
         loop {
@@ -792,7 +792,7 @@ impl Holder {
             return;
         }
         if let Err(err) = files::remove_session(&self.dir) {
-            eprintln!("couldn't remove {}: {err}", self.dir.display());
+            note!("couldn't remove {}: {err}", self.dir.display());
         }
         state.ending = true;
         drop(state);
@@ -979,7 +979,7 @@ async fn serve(holder: Arc<Holder>, stream: UnixStream) {
     if let Err(err) = served
         && err.kind() != io::ErrorKind::BrokenPipe
     {
-        eprintln!("a connection ended: {err}");
+        note!("a connection ended: {err}");
     }
     requests.abort();
 }
