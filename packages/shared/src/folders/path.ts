@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026 Max Boksem
+
 // Paths as a device writes them, whichever device that is: a Mac's or
 // Linux's, with `/` between names, or Windows', with `\` or `/`, a drive
 // letter such as `C:\` or a share such as `\\server\share`. Each path is
