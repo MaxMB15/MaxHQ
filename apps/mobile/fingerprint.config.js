@@ -18,7 +18,7 @@ const file = (filePath, reason) => ({ type: "file", filePath, reasons: [reason] 
 
 /** @type {import("expo/fingerprint").Config} */
 module.exports = {
-	platforms: ["ios"],
+	platforms: ["ios", "android"],
 	sourceSkips:
 		DEFAULT_SOURCE_SKIPS | SourceSkips.ExpoConfigAll | SourceSkips.PackageJsonScriptsAll,
 	extraSources: [
@@ -28,6 +28,7 @@ module.exports = {
 		file("app.config.ts", "expoConfig"),
 		file("scripts/ios-config.ts", "expoConfig"),
 		file("scripts/push-extension.ts", "expoConfig"),
+		file("scripts/android-config.ts", "expoConfig"),
 		file("assets/icon.png", "appIcon"),
 		file("targets/push/NotificationService.swift", "pushExtension"),
 		file("targets/push/Sources/PushOpen/PushOpen.swift", "pushExtension"),

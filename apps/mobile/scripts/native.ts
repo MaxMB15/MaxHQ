@@ -2,8 +2,10 @@
 // Copyright (c) 2026 Max Boksem
 
 // The steps behind `pnpm mobile:core`, `mobile:dev`, `mobile:testflight` and
-// `mobile:install`, as plain lists of commands so the tests and --dry-run can
-// read them without running anything. scripts/mobile.ts runs them.
+// `mobile:install`, and the Android core's, as plain lists of commands so the
+// tests and --dry-run can read them without running anything.
+// scripts/mobile.ts runs them; scripts/android.ts holds the rest of
+// Android's.
 
 import { iosConfig, type IosLocal } from "./ios-config.ts";
 
@@ -11,13 +13,28 @@ export type Step = {
 	cmd: string;
 	args: string[];
 	env?: Record<string, string>;
-	cwd?: "repo" | "app" | "core";
+	cwd?: "repo" | "app" | "core" | "android";
 	// Values in `args` the printed command shows as ***.
 	hide?: string[];
 };
 
 // The two Apple targets the core is built for.
 export const RUST_TARGETS = ["aarch64-apple-ios", "aarch64-apple-ios-sim"] as const;
+
+// The Android ABIs the core is built for: phones, and the emulator on an
+// x86_64 PC. Apple silicon's emulator runs arm64-v8a. The module's Gradle
+// build packs the same two.
+export const ANDROID_ABIS = ["arm64-v8a", "x86_64"] as const;
+
+// The oldest Android the app runs on, Android 7.0, as React Native's own.
+export const ANDROID_MIN_SDK = 24;
+
+// The one NDK the core and the app's C++ build with, so cargo-ndk's Rust
+// and Gradle's CMake link against the same runtime. android-config.ts pins
+// Gradle to it.
+export const ANDROID_NDK_VERSION = "30.0.16248370";
+
+export type CorePlatform = "ios" | "android";
 
 export const NATIVE_BUILD_FILE = "apps/mobile/native-build.json";
 export const DEV_BUILD_FILE = "apps/mobile/.expo/maxhq-dev-build.json";
@@ -30,20 +47,30 @@ export const DEV_DERIVED_DATA = ".expo/xcode";
 // It runs in the module's folder, since it reads the package.json there.
 export const CORE_MODULE = "modules/maxhq-core";
 
-// Debug for dev builds, release with thin LTO for TestFlight. Cargo builds
-// each target, then ubrn writes the bindings and the xcframework from those
-// builds.
-export const coreSteps = (release: boolean): Step[] => [
-	...RUST_TARGETS.map((target): Step => ({
+// The cargo command that builds the core for one target. Android's goes
+// through cargo-ndk, which finds the NDK's compiler for the ABI and the API
+// level.
+const cargoBuild = (platform: CorePlatform, target: string) =>
+	platform === "ios"
+		? ["build", "-p", "maxhq-mobile", "--target", target]
+		: [
+				"ndk",
+				"--platform",
+				String(ANDROID_MIN_SDK),
+				"--target",
+				target,
+				"build",
+				"-p",
+				"maxhq-mobile",
+			];
+
+// Debug for dev builds, release with thin LTO for TestFlight and the Play
+// Store. Cargo builds each target, then ubrn writes the bindings and the
+// xcframework, or the libraries Gradle links, from those builds.
+export const coreSteps = (release: boolean, platform: CorePlatform = "ios"): Step[] => [
+	...(platform === "ios" ? RUST_TARGETS : ANDROID_ABIS).map((target): Step => ({
 		cmd: "cargo",
-		args: [
-			"build",
-			"-p",
-			"maxhq-mobile",
-			"--target",
-			target,
-			...(release ? ["--release"] : []),
-		],
+		args: [...cargoBuild(platform, target), ...(release ? ["--release"] : [])],
 		...(release ? { env: { CARGO_PROFILE_RELEASE_LTO: "thin" } } : {}),
 		cwd: "repo",
 	})),
@@ -51,7 +78,7 @@ export const coreSteps = (release: boolean): Step[] => [
 		cmd: "ubrn",
 		args: [
 			"build",
-			"ios",
+			platform,
 			"--config",
 			"ubrn.config.yaml",
 			"--no-cargo",
@@ -62,13 +89,13 @@ export const coreSteps = (release: boolean): Step[] => [
 	},
 ];
 
-const expoEnv = (variant: "development" | "production", device: boolean) => ({
+export const expoEnv = (variant: "development" | "production", device: boolean) => ({
 	APP_VARIANT: variant,
 	EXPO_NO_GIT_STATUS: "1",
 	...(device ? { MAXHQ_IOS_DEVICE: "1" } : {}),
 });
 
-const expo = (args: string[], env: Record<string, string>): Step => ({
+export const expo = (args: string[], env: Record<string, string>): Step => ({
 	cmd: "expo",
 	args,
 	env,
@@ -464,8 +491,10 @@ export const checkNativeBuild = (
 };
 
 // The dev build is rebuilt only when nothing was noted for this destination
-// or its fingerprint has changed since.
-export type DevBuilds = { device?: string; simulator?: string };
+// or its fingerprint has changed since. `device` is the iPhone and
+// `simulator` the iOS Simulator; `android` is Android's dev build, which
+// runs on a phone and the emulator alike.
+export type DevBuilds = { device?: string; simulator?: string; android?: string };
 
-export const needsDevBuild = (noted: DevBuilds, device: boolean, fingerprint: string) =>
-	noted[device ? "device" : "simulator"] !== fingerprint;
+export const needsDevBuild = (noted: DevBuilds, device: boolean | "android", fingerprint: string) =>
+	noted[device === "android" ? "android" : device ? "device" : "simulator"] !== fingerprint;

@@ -9,6 +9,7 @@ import { describe, expect, it } from "vitest";
 
 import {
 	AD_HOC_SIGNING,
+	ANDROID_ABIS,
 	API_KEY_ENV,
 	apiKeyFromEnv,
 	appInIpa,
@@ -51,6 +52,24 @@ describe("coreSteps", () => {
 
 	it("uses the release profile with thin LTO for TestFlight", () => {
 		const release = coreSteps(true);
+		for (const step of release) expect(step.args.at(-1)).toBe("--release");
+		for (const step of release.slice(0, -1)) {
+			expect(step.env).toEqual({ CARGO_PROFILE_RELEASE_LTO: "thin" });
+		}
+	});
+
+	it("builds the crate through cargo-ndk once per Android ABI, then the bindings", () => {
+		expect(ANDROID_ABIS).toEqual(["arm64-v8a", "x86_64"]);
+		const debug = coreSteps(false, "android");
+		expect(debug.map(line)).toEqual([
+			...ANDROID_ABIS.map(
+				(abi) => `cargo ndk --platform 24 --target ${abi} build -p maxhq-mobile`
+			),
+			"ubrn build android --config ubrn.config.yaml --no-cargo --and-generate",
+		]);
+		expect(debug.slice(0, -1).every((step) => step.cwd === "repo" && !step.env)).toBe(true);
+		expect(debug.at(-1)!.cwd).toBe("core");
+		const release = coreSteps(true, "android");
 		for (const step of release) expect(step.args.at(-1)).toBe("--release");
 		for (const step of release.slice(0, -1)) {
 			expect(step.env).toEqual({ CARGO_PROFILE_RELEASE_LTO: "thin" });
@@ -116,6 +135,9 @@ describe("needsDevBuild", () => {
 		expect(needsDevBuild({ device: "a" }, true, "a")).toBe(false);
 		expect(needsDevBuild({ device: "a" }, true, "b")).toBe(true);
 		expect(needsDevBuild({ device: "a" }, false, "a")).toBe(true);
+		expect(needsDevBuild({ device: "a" }, "android", "a")).toBe(true);
+		expect(needsDevBuild({ device: "a", android: "a" }, "android", "a")).toBe(false);
+		expect(needsDevBuild({ device: "a", android: "b" }, "android", "a")).toBe(true);
 	});
 });
 
@@ -251,9 +273,20 @@ describe("the release workflow's archive and export", () => {
 				),
 			].map((match) => match[1]);
 		expect(importsOf("mobile.ts")).toEqual(
-			expect.arrayContaining(["node:child_process", "./native.ts", "./ios-config.ts"])
+			expect.arrayContaining([
+				"node:child_process",
+				"./native.ts",
+				"./ios-config.ts",
+				"./android.ts",
+			])
 		);
-		for (const file of ["mobile.ts", "native.ts", "ios-config.ts", "release-config.ts"]) {
+		for (const file of [
+			"mobile.ts",
+			"native.ts",
+			"ios-config.ts",
+			"release-config.ts",
+			"android.ts",
+		]) {
 			for (const name of importsOf(file)) expect(name).toMatch(/^(node:|\.\/)/);
 		}
 	});
@@ -410,6 +443,7 @@ describe("fingerprint.config.js", () => {
 					"../../Cargo.toml",
 					"../../Cargo.lock",
 					"assets/icon.png",
+					"scripts/android-config.ts",
 				])
 			);
 			expect(

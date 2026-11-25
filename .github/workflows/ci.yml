@@ -157,6 +157,96 @@ jobs:
       - name: Test the scripts
         run: pnpm test:scripts
 
+  # The phone app's Android build: the Rust core for both ABIs through
+  # cargo-ndk, the debug APK, and the JVM tests of the key store's file
+  # format. It needs the runner's Android SDK, so unlike the rust job it
+  # keeps it, and adds the NDK the core is pinned to.
+  android:
+    runs-on: ubuntu-24.04
+    env:
+      # The NDK scripts/native.ts pins, which the runner's SDK doesn't carry.
+      NDK_VERSION: 30.0.16248370
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # The core's two debug builds and Gradle's build take most of the
+      # runner's disk. This job never uses the runner's .NET, Haskell or
+      # CodeQL.
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/.ghcup /opt/hostedtoolcache/CodeQL
+          df -h /
+
+      - name: Set up the frontend
+        uses: ./.github/actions/setup-frontend
+
+      # Gradle's downloads are cached under the versions that pick them: the
+      # lockfile for React Native's and Expo's, and the core module's build.
+      - name: Install Java
+        uses: actions/setup-java@77dd5b2ce225ea11469928ac317850245a74ae78 # v6.2.0
+        with:
+          distribution: temurin
+          java-version: 17
+          cache: gradle
+          cache-dependency-path: |
+            pnpm-lock.yaml
+            apps/mobile/modules/maxhq-core/android/build.gradle
+          # Only branch pushes save, as with the Rust caches.
+          cache-read-only: ${{ github.event_name != 'push' }}
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@686976e191b89faba57d3206551f0f330d8cb249 # stable
+        with:
+          toolchain: stable
+          targets: aarch64-linux-android, x86_64-linux-android
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: ". -> target"
+          # Only branch pushes save, for the same reason as in the rust job.
+          save-if: ${{ github.event_name == 'push' }}
+
+      # install-action has no build of cargo-ndk, so it builds here.
+      - name: Install cargo-ndk
+        run: cargo install --locked cargo-ndk@4.1.2
+
+      # The image accepted the SDK's licenses, so nothing asks.
+      - name: Install the NDK
+        run: |
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --install "ndk;$NDK_VERSION" < /dev/null > /dev/null
+          ls "$ANDROID_HOME/ndk/$NDK_VERSION/source.properties"
+
+      # mobile.ts builds the core for both ABIs, prebuilds the development
+      # app and builds its debug APK, signed with the debug key.
+      - name: Build the debug APK
+        run: pnpm --filter ./apps/mobile mobile:android:apk --dev
+
+      # The core's JNI_OnLoad hands the key store to Rust. The library keeps
+      # it only because the module's CMake build asks the linker to.
+      - name: Check the APK carries the core for both ABIs
+        run: |
+          apk=apps/mobile/android/app/build/outputs/apk/debug/app-debug.apk
+          nm="$ANDROID_HOME/ndk/$NDK_VERSION/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-nm"
+          dir=$(mktemp -d)
+          for abi in arm64-v8a x86_64; do
+            unzip -q "$apk" "lib/$abi/libmaxhq-core.so" -d "$dir"
+            "$nm" -D --defined-only "$dir/lib/$abi/libmaxhq-core.so" | grep -q " JNI_OnLoad$"
+          done
+          ls -l "$apk"
+
+      # Gradle reads the app's config as it starts, so the variant is set.
+      - name: Test the key store's file format
+        working-directory: apps/mobile/android
+        env:
+          APP_VARIANT: development
+          EXPO_NO_GIT_STATUS: "1"
+        run: ./gradlew :maxhq-core:testDebugUnitTest
+
+      - name: Disk left
+        if: always()
+        run: df -h /
+
   # Fails on a dependency whose license isn't on the allowlist (decision P-6),
   # with a known vulnerability, or from outside crates.io. cargo-deny reads
   # deny.toml. check-licenses.mjs holds the npm list.

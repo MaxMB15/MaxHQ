@@ -16,7 +16,11 @@
 		"mobile:install": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/mobile.ts install",
 		"mobile:testflight": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/mobile.ts testflight",
 		"mobile:archive": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/mobile.ts archive",
-		"mobile:check": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/mobile.ts check"
+		"mobile:check": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/mobile.ts check",
+		"mobile:android:core": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/mobile.ts android-core",
+		"mobile:android:dev": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/mobile.ts android-dev",
+		"mobile:android:apk": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/mobile.ts android-apk",
+		"mobile:android:aab": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/mobile.ts android-aab"
 	},
 	"dependencies": {
 		"@formatjs/intl-getcanonicallocales": "^3.3.1",

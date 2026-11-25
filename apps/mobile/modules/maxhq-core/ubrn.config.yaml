@@ -5,3 +5,17 @@ ios:
   targets:
     - aarch64-apple-ios
     - aarch64-apple-ios-sim
+android:
+  targets:
+    - arm64-v8a
+    - x86_64
+  apiLevel: 24
+# Edited by hand, so `ubrn generate` leaves them be: the Gradle build fits
+# the app's Android Gradle Plugin and runs MaxhqKeys' JVM tests, the CMake
+# build keeps the core's JNI_OnLoad, the manifest leaves the namespace to
+# Gradle, and the module sets up the key store.
+noOverwrite:
+  - android/build.gradle
+  - android/CMakeLists.txt
+  - android/src/main/AndroidManifest.xml
+  - android/src/main/java/dev/maxhq/core/MaxhqCoreModule.kt
