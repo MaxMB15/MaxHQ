@@ -17,8 +17,12 @@ pub fn own_group_tokio(command: &mut tokio::process::Command) -> &mut tokio::pro
     command.process_group(0)
 }
 
-pub fn adopt(_leader: u32) -> io::Result<()> {
-    Ok(())
+/// A process group needs nothing kept to reach it.
+#[derive(Debug)]
+pub struct Kept;
+
+pub fn adopt(_leader: u32) -> io::Result<Kept> {
+    Ok(Kept)
 }
 
 pub fn stop_group(leader: u32, how: Stop) -> io::Result<()> {
@@ -160,4 +164,17 @@ pub async fn cmdline(pid: u32) -> io::Result<Option<String>> {
 
 pub fn is_root() -> bool {
     rustix::process::geteuid().is_root()
+}
+
+pub const GENTLEST: Stop = Stop::Soft;
+
+pub fn own_ids() -> Option<(u32, u32)> {
+    Some((
+        rustix::process::getuid().as_raw(),
+        rustix::process::getgid().as_raw(),
+    ))
+}
+
+pub fn user_id() -> Option<String> {
+    Some(rustix::process::getuid().as_raw().to_string())
 }

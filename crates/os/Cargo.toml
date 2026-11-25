@@ -12,15 +12,16 @@ tokio.workspace = true
 
 [target.'cfg(unix)'.dependencies]
 libc.workspace = true
-rustix.workspace = true
+rustix = { workspace = true, features = ["fs"] }
 
 [target.'cfg(windows)'.dependencies]
-# On top of the workspace's: a process's command line, junctions, the
-# job rights, the adapters' addresses, the boot count and the computer's
-# name.
+# On top of the workspace's: a process's command line and threads,
+# junctions, the job rights, the adapters' addresses, the boot count and
+# the computer's name.
 windows-sys = { workspace = true, features = [
     "Wdk_System_Threading",
     "Win32_NetworkManagement_Ndis",
+    "Win32_System_Diagnostics_ToolHelp",
     "Win32_System_Ioctl",
     "Win32_System_Registry",
     "Win32_System_SystemInformation",

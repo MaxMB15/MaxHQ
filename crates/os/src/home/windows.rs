@@ -17,5 +17,5 @@ pub fn user_name() -> Option<String> {
 }
 
 pub fn user_sid() -> io::Result<String> {
-    crate::win::sid_string(&crate::win::own_user()?)
+    crate::win::own_sid().map(str::to_owned)
 }

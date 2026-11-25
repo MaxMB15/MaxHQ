@@ -254,6 +254,8 @@ struct Run {
     sign_in: SignInId,
     flow: Flow,
     child: Child,
+    /// Keeps the CLI's group in reach of [`proc::stop_group`].
+    group: Option<proc::Group>,
     output: watch::Sender<Vec<u8>>,
     state: watch::Sender<CliLoginState>,
     stopped: oneshot::Receiver<()>,
@@ -371,12 +373,15 @@ impl Rounds {
                 ));
             }
         };
-        if let Some(Err(error)) = child.id().map(proc::adopt) {
-            let cli = flow.cli();
-            return refused(format!(
-                "This device couldn't start {cli} to sign in: {error}"
-            ));
-        }
+        let group = match child.id().map(proc::adopt).transpose() {
+            Ok(group) => group,
+            Err(error) => {
+                let cli = flow.cli();
+                return refused(format!(
+                    "This device couldn't start {cli} to sign in: {error}"
+                ));
+            }
+        };
         let sign_in = SignInId::generate();
         let stdin = Arc::new(tokio::sync::Mutex::new(child.stdin.take()));
         let (output, mut printed) = watch::channel(Vec::new());
@@ -387,6 +392,7 @@ impl Rounds {
             sign_in,
             flow,
             child,
+            group,
             output,
             state,
             stopped,
@@ -449,6 +455,7 @@ impl Rounds {
             sign_in,
             flow,
             mut child,
+            group: _group,
             output,
             state,
             mut stopped,

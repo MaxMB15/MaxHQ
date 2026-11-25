@@ -7,36 +7,18 @@ use std::time::Duration;
 use rustix::io::Errno;
 use rustix::process::{Pid, Signal};
 
-use super::{alive, read_holder, unconfirmed, wait_for, Ended, KILL_WAIT};
-use crate::files::{self, EXIT};
-use crate::holder::DETACHED;
-use crate::Exit;
+use super::{alive, not_its_holder, runs_holder, unconfirmed, wait_for, Ended, KILL_WAIT};
+use crate::files::HolderFile;
+use crate::tree::{self, Sig};
 
-/// Ends the session's holder if it still runs. A holder that gets SIGTERM
-/// stops its CLI and records the exit before it goes.
+/// Ends the holder `record` names. A holder that gets SIGTERM stops its
+/// CLI and records the exit before it goes.
 pub(super) async fn end_holder(
     dir: &Path,
-    expected: Option<u32>,
+    record: &HolderFile,
     grace: Duration,
 ) -> Result<(), Ended> {
-    if !alive(dir, expected)? {
-        return Ok(());
-    }
-    let record = read_holder(dir)?.ok_or_else(|| {
-        unconfirmed(
-            expected,
-            "its holder runs but hasn't recorded its process ID",
-        )
-    })?;
     let pid = record.holder_pid;
-    if let Some(expected) = expected
-        && expected != pid
-    {
-        return Err(unconfirmed(
-            Some(pid),
-            format!("its holder said it was process {expected}, but its record says {pid}"),
-        ));
-    }
     for (signal, wait) in [(Signal::TERM, grace), (Signal::KILL, KILL_WAIT)] {
         // Checked again before each signal, in case the holder ended and
         // its process ID went to something else.
@@ -56,31 +38,15 @@ pub(super) async fn end_holder(
 }
 
 /// Ends the CLI a dead holder left behind, if it still runs.
-pub(super) async fn end_cli(dir: &Path, grace: Duration) -> Ended {
-    // The holder records how the CLI ended once it has reaped it. A client
-    // that found the holder dead records an exit without either, though the
-    // CLI may still run.
-    if let Ok(Some(exit)) = files::read_json::<Exit>(&dir.join(EXIT))
-        && (exit.code.is_some() || exit.signal.is_some())
-    {
-        return Ended::Gone;
-    }
-    let record = match read_holder(dir) {
-        Ok(Some(record)) => record,
-        // The CLI never started.
-        Ok(None) => return Ended::Gone,
-        Err(ended) => return ended,
-    };
+pub(super) async fn end_cli(record: &HolderFile, grace: Duration) -> Ended {
     let (pid, holder) = (record.child_pid, record.holder_pid);
-    for (signal, wait) in [(Signal::TERM, grace), (Signal::KILL, KILL_WAIT)] {
+    for (sig, wait) in [(Sig::Term, grace), (Sig::Kill, KILL_WAIT)] {
         let target = match cli(pid, holder) {
             Ok(Some(target)) => target,
             Ok(None) => return Ended::Gone,
             Err(reason) => return unconfirmed(Some(pid), reason),
         };
-        if rustix::process::kill_process_group(target, signal).is_err() {
-            let _ = rustix::process::kill_process(target, signal);
-        }
+        tree::signal_tree(target, sig);
         if wait_for(wait, || matches!(cli(pid, holder), Ok(None))).await {
             return Ended::Gone;
         }
@@ -95,20 +61,16 @@ fn to_pid(pid: u32) -> Option<Pid> {
     Pid::from_raw(i32::try_from(pid).ok()?)
 }
 
-/// Checks that process `pid` is the holder for `dir`.
+/// Checks that process `pid` is the holder for `dir`: it leads a session
+/// of its own and runs `maxd hold` on the folder.
 async fn confirm_holder(dir: &Path, pid: u32) -> Result<Pid, Ended> {
-    let doubt = |why: String| unconfirmed(Some(pid), why);
-    let target = to_pid(pid).ok_or_else(|| doubt(format!("{pid} isn't a process ID")))?;
+    let target =
+        to_pid(pid).ok_or_else(|| unconfirmed(Some(pid), format!("{pid} isn't a process ID")))?;
     let leader = rustix::process::getsid(Some(target)).is_ok_and(|sid| sid == target);
-    let line = maxhq_os::proc::cmdline(pid)
-        .await
-        .map_err(|err| doubt(format!("couldn't read process {pid}'s command line: {err}")))?;
-    let wanted = format!("{} {DETACHED}", dir.display());
-    match line {
-        Some(line) if leader && line.ends_with(&wanted) => Ok(target),
-        _ => Err(doubt(format!(
-            "process {pid} holds its lock but doesn't look like its holder"
-        ))),
+    if runs_holder(dir, pid).await? && leader {
+        Ok(target)
+    } else {
+        Err(not_its_holder(pid))
     }
 }
 

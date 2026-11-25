@@ -10,6 +10,7 @@ use std::io::{self, Read};
 use std::path::Path;
 use std::time::Instant;
 
+use maxhq_os::fsmode;
 use maxhq_protocol::message::{ErrorCode, ManifestEntry};
 use maxhq_wire::Window;
 use sha2::{Digest, Sha256};
@@ -339,7 +340,7 @@ impl Receiver {
                 .unwrap_or(usize::MAX)
                 .min(data.len());
             let open = self.open_part(index)?;
-            beneath::write_all_at(&open.file, &data[..take], within)
+            fsmode::write_all_at(&open.file, &data[..take], within)
                 .map_err(|err| Failure::io(&err, at))?;
             open.hasher.update(&data[..take]);
             self.written += take as u64;

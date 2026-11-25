@@ -2,19 +2,16 @@
 // Copyright (c) 2026 Max Boksem
 
 use std::io;
-use std::os::windows::io::{AsRawHandle, FromRawHandle, OwnedHandle};
+use std::os::windows::io::OwnedHandle;
 use std::os::windows::process::CommandExt;
 use std::process::{Child, Command};
 
 use maxhq_os::proc::{self, Stop};
+use maxhq_os::win::raw;
 use tokio::sync::oneshot;
-use windows_sys::Win32::Foundation::{HANDLE, INVALID_HANDLE_VALUE, WAIT_OBJECT_0};
-use windows_sys::Win32::System::Diagnostics::ToolHelp::{
-    CreateToolhelp32Snapshot, Thread32First, Thread32Next, TH32CS_SNAPTHREAD, THREADENTRY32,
-};
+use windows_sys::Win32::Foundation::WAIT_OBJECT_0;
 use windows_sys::Win32::System::Threading::{
-    GetExitCodeProcess, OpenThread, ResumeThread, WaitForSingleObject, CREATE_NEW_PROCESS_GROUP,
-    CREATE_NO_WINDOW, CREATE_SUSPENDED, INFINITE, THREAD_SUSPEND_RESUME,
+    GetExitCodeProcess, WaitForSingleObject, CREATE_NO_WINDOW, INFINITE,
 };
 
 use super::{Sig, Status};
@@ -24,10 +21,10 @@ use super::{Sig, Status};
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Group {}
 
-/// The creation flags of a program the holder starts: suspended until
-/// it's in its job, a group of its own so a Ctrl-Break to another group
-/// misses it, and a hidden console, since the holder has none to share.
-pub(crate) const FLAGS: u32 = CREATE_SUSPENDED | CREATE_NEW_PROCESS_GROUP | CREATE_NO_WINDOW;
+/// The creation flags of a program the holder starts: a group of its own,
+/// suspended until it's in its job, and a hidden console, since the
+/// holder has none to share.
+pub(crate) const FLAGS: u32 = proc::GROUP_FLAGS | CREATE_NO_WINDOW;
 
 /// Starts the program suspended, so [`Tree::adopt`] puts it in its job
 /// before it can start anything.
@@ -36,58 +33,30 @@ pub(crate) fn prepare(command: &mut Command) {
 }
 
 /// The program, by its ID and a handle that keeps the ID from going to
-/// another process.
+/// another process, and the job it runs in.
 pub(crate) struct Tree {
     pid: u32,
     process: OwnedHandle,
-}
-
-fn raw(handle: &impl AsRawHandle) -> HANDLE {
-    handle.as_raw_handle() as HANDLE
+    _group: proc::Group,
 }
 
 impl Tree {
     /// Takes charge of a program [`prepare`] started, once its pipes are
-    /// taken: puts it in a job of its own, then lets its first thread run.
+    /// taken.
     pub(crate) fn adopt(child: Child) -> io::Result<Self> {
-        let pid = child.id();
-        let tree = Self {
+        Self::start(child.id(), OwnedHandle::from(child))
+    }
+
+    /// Takes charge of a program started suspended, here or through a raw
+    /// `CreateProcessW`: puts it in a job of its own, then lets it run. On
+    /// an error it was stopped before it ran anything.
+    pub(crate) fn start(pid: u32, process: OwnedHandle) -> io::Result<Self> {
+        let group = proc::adopt(pid)?;
+        Ok(Self {
             pid,
-            process: OwnedHandle::from(child),
-        };
-        tree.join_job();
-        if let Err(err) = resume_threads(pid) {
-            tree.signal(Sig::Kill);
-            return Err(err);
-        }
-        Ok(tree)
-    }
-
-    /// Takes charge of a program started suspended through a raw
-    /// `CreateProcessW`, which also gives its first thread.
-    #[allow(unsafe_code)]
-    pub(crate) fn resume(pid: u32, process: OwnedHandle, thread: &OwnedHandle) -> io::Result<Self> {
-        let tree = Self { pid, process };
-        tree.join_job();
-        // SAFETY: the handle is open for the call, with the access
-        // `CreateProcessW` gives.
-        if unsafe { ResumeThread(raw(thread)) } == u32::MAX {
-            let err = io::Error::last_os_error();
-            tree.signal(Sig::Kill);
-            return Err(err);
-        }
-        Ok(tree)
-    }
-
-    /// Puts the program in a job of its own. Without one, ending the tree
-    /// ends the program alone, which is said in `holder.log`.
-    fn join_job(&self) {
-        if let Err(err) = proc::adopt(self.pid) {
-            eprintln!(
-                "couldn't put process {} in a job of its own, so ending it won't end what it starts: {err}",
-                self.pid
-            );
-        }
+            process,
+            _group: group,
+        })
     }
 
     pub(crate) fn pid(&self) -> u32 {
@@ -120,20 +89,9 @@ impl Tree {
         })
     }
 
-    /// Kills the job, or the program alone when it has none. Returns false
-    /// for a hangup or a SIGTERM, which Windows can't send to a program
-    /// with no console the holder shares, so the caller goes on without
-    /// waiting for it.
+    /// Kills the job, as [`signal_tree`] does.
     pub(crate) fn signal(&self, sig: Sig) -> bool {
-        match sig {
-            Sig::Hangup | Sig::Term => false,
-            Sig::Kill => {
-                if proc::stop_group(self.pid, Stop::Hard).is_err() {
-                    let _ = proc::stop(self.pid, Stop::Hard);
-                }
-                true
-            }
-        }
+        signal_tree(self.pid, sig)
     }
 
     /// What wakes the reaper: a thread that waits for the program to end.
@@ -150,6 +108,22 @@ impl Tree {
             let _ = ended.send(());
         });
         Reaper(Some(wait))
+    }
+}
+
+/// Kills the job of the program `pid`, or the program alone if that fails.
+/// Returns false for a hangup or a SIGTERM, which Windows can't send to a
+/// program with no console the holder shares, so the caller goes on
+/// without waiting for it.
+pub(crate) fn signal_tree(pid: u32, sig: Sig) -> bool {
+    match sig {
+        Sig::Hangup | Sig::Term => false,
+        Sig::Kill => {
+            if proc::stop_group(pid, Stop::Hard).is_err() {
+                let _ = proc::stop(pid, Stop::Hard);
+            }
+            true
+        }
     }
 }
 
@@ -173,45 +147,4 @@ impl Reaper {
             None => std::future::pending().await,
         }
     }
-}
-
-/// Lets every thread of the suspended process `pid` run. A process that
-/// starts suspended has one, and std doesn't hand its handle out yet.
-#[allow(unsafe_code)]
-fn resume_threads(pid: u32) -> io::Result<()> {
-    // SAFETY: the call takes no pointers.
-    let snapshot = unsafe { CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD, 0) };
-    if snapshot == INVALID_HANDLE_VALUE {
-        return Err(io::Error::last_os_error());
-    }
-    // SAFETY: the snapshot is a handle the call just opened, owned here.
-    let snapshot = unsafe { OwnedHandle::from_raw_handle(snapshot) };
-    // SAFETY: the struct is plain data, for which zero is valid.
-    let mut entry: THREADENTRY32 = unsafe { std::mem::zeroed() };
-    entry.dwSize = u32::try_from(size_of::<THREADENTRY32>()).map_err(io::Error::other)?;
-    let mut resumed = 0;
-    // SAFETY: `entry` is the size its `dwSize` says.
-    let mut more = unsafe { Thread32First(raw(&snapshot), &mut entry) } != 0;
-    while more {
-        if entry.th32OwnerProcessID == pid {
-            // SAFETY: the call takes no pointers.
-            let thread = unsafe { OpenThread(THREAD_SUSPEND_RESUME, 0, entry.th32ThreadID) };
-            if !thread.is_null() {
-                // SAFETY: the handle was just opened and is owned here.
-                let thread = unsafe { OwnedHandle::from_raw_handle(thread) };
-                // SAFETY: the handle is open with the access the call needs.
-                if unsafe { ResumeThread(raw(&thread)) } != u32::MAX {
-                    resumed += 1;
-                }
-            }
-        }
-        // SAFETY: as for `Thread32First`.
-        more = unsafe { Thread32Next(raw(&snapshot), &mut entry) } != 0;
-    }
-    if resumed == 0 {
-        return Err(io::Error::other(format!(
-            "couldn't find process {pid}'s thread to start it"
-        )));
-    }
-    Ok(())
 }

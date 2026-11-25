@@ -18,12 +18,14 @@ pub mod launcher;
 pub mod link;
 pub mod lock;
 pub mod net;
+pub mod path;
 pub mod power;
 pub mod proc;
 pub mod stop;
 pub mod which;
 #[cfg(windows)]
-mod win;
+#[doc(hidden)]
+pub mod win;
 
 /// The error a call returns on a system that can't make it yet.
 #[cfg_attr(unix, allow(dead_code))]

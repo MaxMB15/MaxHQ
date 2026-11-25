@@ -13,7 +13,6 @@
 
 mod apply;
 mod check;
-pub(crate) mod ids;
 mod render;
 pub mod system;
 
@@ -49,6 +48,11 @@ pub const HOST_CHANGE: &str = "services.maxd.host = lib.importTOML ./maxhq-host.
 
 /// The group whose members may use the Incus socket.
 pub const INCUS_GROUP: &str = "incus-admin";
+
+/// Why host setup doesn't run on Windows. It works with Unix users and
+/// groups, which Windows lacks, so [`Env::this_device`] stops there
+/// before anything reads a file's owner.
+const NOT_HERE: &str = "Host setup runs on Linux and macOS, not on Windows";
 
 /// Lets one apply run at a time, so two never make the same pool.
 static APPLYING: LazyLock<tokio::sync::Mutex<()>> = LazyLock::new(|| tokio::sync::Mutex::new(()));
@@ -186,7 +190,7 @@ impl Env {
     pub fn this_device() -> Result<Self, String> {
         let root = PathBuf::from("/");
         let os = Os::read(&root);
-        let (uid, gid) = ids::own()?;
+        let (uid, gid) = maxhq_os::proc::own_ids().ok_or(NOT_HERE)?;
         let home = std::env::var_os("HOME")
             .filter(|home| !home.is_empty())
             .map(PathBuf::from)

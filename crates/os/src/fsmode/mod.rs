@@ -9,6 +9,10 @@
 //! A file that holds a secret goes through [`private_file`], which on
 //! Windows gives it a DACL of its own that names only the user, so it
 //! stays theirs wherever it sits.
+//!
+//! It also holds what tells one file from another ([`file_id`]) and
+//! reads and writes at an offset ([`read_exact_at`]), which std spells
+//! differently on each OS.
 
 use std::fs::{File, Metadata, OpenOptions};
 use std::io;
@@ -71,19 +75,65 @@ pub fn owner_of(meta: &Metadata) -> Option<u32> {
     imp::owner_of(meta)
 }
 
-/// Whether `a` and `b` are known to describe the same file: the same
-/// device and inode on Unix. Windows doesn't say through [`Metadata`], so
-/// it's false there.
-pub fn same_file(a: &Metadata, b: &Metadata) -> bool {
-    imp::same_file(a, b)
+/// The group ID of what `meta` describes. Windows has no group IDs, so
+/// it's `None` there.
+pub fn group_of(meta: &Metadata) -> Option<u32> {
+    imp::group_of(meta)
 }
 
-/// Which file the open `file` is, as a pair that's another one for every
-/// other file, so a file replaced under the same name tells apart: the
-/// device and inode on Unix, and the volume serial number and file index
-/// on Windows.
-pub fn file_id(file: &File) -> io::Result<(u64, u64)> {
+/// Whether what `meta` describes belongs to another user than the one
+/// this process acts as, its effective user ID. Windows has no Unix
+/// owners to compare, so it's never so there.
+pub fn owned_by_other(meta: &Metadata) -> bool {
+    imp::owned_by_other(meta)
+}
+
+/// Whether this user may make files in the folder `path`: what `access`
+/// says on Unix, by the real user ID. Windows keeps who may write in a
+/// folder in its access list, so there a file is made in it and removed.
+pub fn writable_dir(path: &Path) -> bool {
+    imp::writable_dir(path)
+}
+
+/// What tells a file from every other on the machine: its device and
+/// inode on Unix, and its volume and 128-bit file ID on Windows. Two names
+/// or handles with one ID are one file, hard links included.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct FileId {
+    volume: u64,
+    file: u128,
+}
+
+/// The ID of the open `file`. A file put in its place under the same name
+/// has another.
+pub fn file_id(file: &File) -> io::Result<FileId> {
     imp::file_id(file)
+}
+
+/// Whether `path`, following links, still names the file `file` has
+/// open, and not one made in its place.
+pub fn same_file(file: &File, path: &Path) -> io::Result<bool> {
+    Ok(imp::id_at(path)? == file_id(file)?)
+}
+
+/// Whether the open `file` has a second name, a hard link that could be
+/// someone else's.
+pub fn has_other_names(file: &File) -> io::Result<bool> {
+    imp::has_other_names(file)
+}
+
+/// Fills `buf` from `file` at `offset`, which several threads may do at
+/// once. Each read names its offset, but on Windows it also moves the
+/// file's cursor, so a file that's written as well as read this way is
+/// opened to append, or written with [`write_all_at`].
+pub fn read_exact_at(file: &File, buf: &mut [u8], offset: u64) -> io::Result<()> {
+    imp::read_exact_at(file, buf, offset)
+}
+
+/// Writes all of `buf` to `file` at `offset`. On Windows it also moves the
+/// file's cursor, as [`read_exact_at`] says.
+pub fn write_all_at(file: &File, buf: &[u8], offset: u64) -> io::Result<()> {
+    imp::write_all_at(file, buf, offset)
 }
 
 /// Whether the file `path`, whose metadata is `meta`, is a program you
@@ -171,14 +221,82 @@ mod tests {
         if cfg!(unix) {
             assert_eq!(mode_of(&meta) & 0o777, 0o755, "it keeps its first mode");
             assert!(owner_of(&meta).is_some());
+            assert!(group_of(&meta).is_some());
         } else {
             assert_eq!(owner_of(&meta), None);
+            assert_eq!(group_of(&meta), None);
         }
-        let file = dir.join("file");
-        fs::write(&file, b"").unwrap();
-        let (one, two) = (fs::metadata(&file).unwrap(), fs::metadata(&file).unwrap());
-        assert_eq!(same_file(&one, &two), cfg!(unix));
-        assert!(!same_file(&one, &meta));
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn a_folder_of_ones_own_is_writable_and_ones_own() {
+        let dir = temp("writable");
+        fs::create_dir_all(&dir).unwrap();
+        assert!(writable_dir(&dir));
+        assert_eq!(fs::read_dir(&dir).unwrap().count(), 0, "the probe is gone");
+        assert!(!writable_dir(&dir.join("missing")));
+        assert!(!owned_by_other(&fs::metadata(&dir).unwrap()));
+        if cfg!(unix) && !crate::proc::is_root() {
+            let shut = dir.join("shut");
+            dir_all_with_mode(&shut, 0o500).unwrap();
+            assert!(!writable_dir(&shut));
+            assert!(owned_by_other(&fs::metadata("/").unwrap()), "root's");
+        }
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn a_file_writes_and_reads_at_offsets() {
+        let dir = temp("offsets");
+        fs::create_dir_all(&dir).unwrap();
+        let file = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create_new(true)
+            .open(dir.join("part"))
+            .unwrap();
+        write_all_at(&file, b"world", 6).unwrap();
+        write_all_at(&file, b"hello ", 0).unwrap();
+        let mut out = [0u8; 5];
+        read_exact_at(&file, &mut out, 6).unwrap();
+        assert_eq!(&out, b"world");
+        read_exact_at(&file, &mut out, 0).unwrap();
+        assert_eq!(&out, b"hello");
+        let err = read_exact_at(&file, &mut out, 9).unwrap_err();
+        assert_eq!(err.kind(), io::ErrorKind::UnexpectedEof);
+        assert_eq!(file.metadata().unwrap().len(), 11);
+        drop(file);
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn a_file_is_known_by_its_id_under_any_name() {
+        let dir = temp("same");
+        fs::create_dir_all(&dir).unwrap();
+        let (path, other) = (dir.join("file"), dir.join("other"));
+        fs::write(&path, b"").unwrap();
+        fs::write(&other, b"").unwrap();
+        let file = File::open(&path).unwrap();
+        assert_eq!(
+            file_id(&file).unwrap(),
+            file_id(&File::open(&path).unwrap()).unwrap()
+        );
+        assert!(same_file(&file, &path).unwrap());
+        assert!(!same_file(&file, &other).unwrap());
+        assert!(!has_other_names(&file).unwrap());
+
+        let again = dir.join("again");
+        fs::hard_link(&path, &again).unwrap();
+        assert!(
+            same_file(&file, &again).unwrap(),
+            "a hard link is the same file"
+        );
+        assert!(has_other_names(&file).unwrap());
+
+        let gone = same_file(&file, &dir.join("gone")).unwrap_err();
+        assert_eq!(gone.kind(), io::ErrorKind::NotFound);
+        drop(file);
         fs::remove_dir_all(&dir).unwrap();
     }
 

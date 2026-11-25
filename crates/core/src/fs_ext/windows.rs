@@ -4,7 +4,7 @@
 //! A link is a reparse point, opened as itself with
 //! `FILE_FLAG_OPEN_REPARSE_POINT`. Windows has no Unix owners.
 
-use std::fs::{self, File, Metadata, OpenOptions};
+use std::fs::{self, File, OpenOptions};
 use std::io;
 use std::os::windows::fs::{FileTypeExt, MetadataExt, OpenOptionsExt};
 use std::path::{Path, PathBuf};
@@ -39,10 +39,6 @@ pub fn no_follow(options: &mut OpenOptions) -> &mut OpenOptions {
     options.custom_flags(FILE_FLAG_OPEN_REPARSE_POINT)
 }
 
-pub fn uid_of(_meta: &Metadata) -> Option<u32> {
-    None
-}
-
 fn no_owners() -> io::Error {
     io::Error::new(
         io::ErrorKind::Unsupported,
@@ -54,19 +50,12 @@ pub fn chown_file(_file: &File, _uid: u32, _gid: u32) -> io::Result<()> {
     Err(no_owners())
 }
 
-pub fn chown_link(_path: &Path, _uid: u32, _gid: u32) -> io::Result<()> {
+pub fn chown(_path: &Path, _uid: u32, _gid: u32) -> io::Result<()> {
     Err(no_owners())
 }
 
-pub fn has_other_names(_file: &File) -> io::Result<bool> {
-    Err(io::Error::new(
-        io::ErrorKind::Unsupported,
-        "a file's names can't be counted on Windows",
-    ))
-}
-
-pub fn dir_all_with_mode(path: &Path, _mode: u32) -> io::Result<()> {
-    fs::create_dir_all(path)
+pub fn chown_link(_path: &Path, _uid: u32, _gid: u32) -> io::Result<()> {
+    Err(no_owners())
 }
 
 pub fn symlink(target: &Path, link: &Path) -> io::Result<()> {
@@ -131,11 +120,4 @@ pub fn not_a_folder_now(err: &io::Error) -> bool {
     const STOPPED_ON_LINK: i32 = 681;
     const DELETE_PENDING: i32 = 303;
     absent(err) || matches!(err.raw_os_error(), Some(STOPPED_ON_LINK | DELETE_PENDING))
-}
-
-pub fn plain(path: PathBuf) -> PathBuf {
-    match path.to_str().and_then(super::unverbatim) {
-        Some(text) => PathBuf::from(text),
-        None => path,
-    }
 }

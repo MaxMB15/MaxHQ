@@ -3,9 +3,19 @@
 
 use std::fs::{self, DirBuilder, File, Metadata, OpenOptions, Permissions};
 use std::io;
-use std::os::unix::fs::{DirBuilderExt, MetadataExt, OpenOptionsExt, PermissionsExt};
+use std::os::unix::fs::{DirBuilderExt, FileExt, MetadataExt, OpenOptionsExt, PermissionsExt};
 use std::path::Path;
 use std::time::SystemTime;
+
+use super::FileId;
+
+pub fn read_exact_at(file: &File, buf: &mut [u8], offset: u64) -> io::Result<()> {
+    FileExt::read_exact_at(file, buf, offset)
+}
+
+pub fn write_all_at(file: &File, buf: &[u8], offset: u64) -> io::Result<()> {
+    FileExt::write_all_at(file, buf, offset)
+}
 
 pub fn private_dir_all(path: &Path) -> io::Result<()> {
     DirBuilder::new().recursive(true).mode(0o700).create(path)
@@ -49,13 +59,35 @@ pub fn owner_of(meta: &Metadata) -> Option<u32> {
     Some(meta.uid())
 }
 
-pub fn file_id(file: &File) -> io::Result<(u64, u64)> {
-    let meta = file.metadata()?;
-    Ok((meta.dev(), meta.ino()))
+pub fn group_of(meta: &Metadata) -> Option<u32> {
+    Some(meta.gid())
 }
 
-pub fn same_file(a: &Metadata, b: &Metadata) -> bool {
-    (a.dev(), a.ino()) == (b.dev(), b.ino())
+pub fn owned_by_other(meta: &Metadata) -> bool {
+    meta.uid() != rustix::process::geteuid().as_raw()
+}
+
+pub fn writable_dir(path: &Path) -> bool {
+    rustix::fs::access(path, rustix::fs::Access::WRITE_OK).is_ok()
+}
+
+fn id_of(meta: &Metadata) -> FileId {
+    FileId {
+        volume: meta.dev(),
+        file: u128::from(meta.ino()),
+    }
+}
+
+pub fn file_id(file: &File) -> io::Result<FileId> {
+    file.metadata().map(|meta| id_of(&meta))
+}
+
+pub fn id_at(path: &Path) -> io::Result<FileId> {
+    fs::metadata(path).map(|meta| id_of(&meta))
+}
+
+pub fn has_other_names(file: &File) -> io::Result<bool> {
+    Ok(file.metadata()?.nlink() > 1)
 }
 
 pub fn open_no_wait(options: &mut OpenOptions) -> &mut OpenOptions {

@@ -12,11 +12,11 @@
 use std::ffi::OsString;
 use std::fs::OpenOptions;
 use std::io::{self, Write};
-use std::os::windows::ffi::OsStrExt;
 use std::os::windows::fs::{FileTypeExt, OpenOptionsExt};
 use std::path::Path;
 use std::time::Duration;
 
+use maxhq_os::win::wide;
 use windows_sys::Win32::Foundation::{
     ERROR_ACCESS_DENIED, ERROR_LOCK_VIOLATION, ERROR_SHARING_VIOLATION,
 };
@@ -35,10 +35,6 @@ const ZONE_STREAM: &str = ":Zone.Identifier";
 /// Zone 3 is the internet, which is what a browser says of a download.
 const ZONE: &[u8] = b"[ZoneTransfer]\r\nZoneId=3\r\n";
 
-fn wide(path: &Path) -> Vec<u16> {
-    path.as_os_str().encode_wide().chain([0]).collect()
-}
-
 /// Whether a move failed because another program has the file or a file
 /// in the folder open, which a scanner does for a moment after a write.
 fn held_open(err: &io::Error) -> bool {
@@ -49,7 +45,7 @@ fn held_open(err: &io::Error) -> bool {
 }
 
 pub fn rename_new(from: &Path, to: &Path) -> io::Result<()> {
-    let (source, target) = (wide(from), wide(to));
+    let (source, target) = (wide(from)?, wide(to)?);
     let mut wait = FIRST_WAIT;
     let mut tries = 1;
     loop {

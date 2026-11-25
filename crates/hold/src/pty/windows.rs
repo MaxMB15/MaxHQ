@@ -11,11 +11,12 @@ use std::ffi::{c_void, OsStr, OsString};
 use std::fs::File;
 use std::io::{self, Read, Write};
 use std::os::windows::ffi::OsStrExt;
-use std::os::windows::io::{AsRawHandle, FromRawHandle, OwnedHandle};
+use std::os::windows::io::AsRawHandle;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::{mpsc as std_mpsc, Mutex, PoisonError};
 
+use maxhq_os::win::{self, ended, wide};
 use tokio::sync::{mpsc, oneshot, Mutex as AsyncMutex};
 use windows_sys::Win32::Foundation::{HANDLE, INVALID_HANDLE_VALUE};
 use windows_sys::Win32::System::Console::{
@@ -159,11 +160,10 @@ fn pipe() -> io::Result<(File, File)> {
     let mut write: HANDLE = std::ptr::null_mut();
     // SAFETY: the call writes two handles, and no attributes means
     // neither is inherited.
-    if unsafe { CreatePipe(&mut read, &mut write, std::ptr::null(), 0) } == 0 {
-        return Err(io::Error::last_os_error());
-    }
+    win::check(unsafe { CreatePipe(&mut read, &mut write, std::ptr::null(), 0) })?;
     // SAFETY: both handles were just opened and are owned here alone.
-    Ok(unsafe { (File::from_raw_handle(read), File::from_raw_handle(write)) })
+    let (read, write) = unsafe { (win::owned(read)?, win::owned(write)?) };
+    Ok((File::from(read), File::from(write)))
 }
 
 /// Opens a pseudoconsole of `size`: the console and its handle, the end
@@ -250,24 +250,6 @@ impl Drop for Attributes {
         // SAFETY: the list was initialized, and it's deleted once.
         unsafe { DeleteProcThreadAttributeList(self.ptr()) };
     }
-}
-
-/// `text` as UTF-16 ending in a zero, refused if it holds a zero.
-fn wide(text: &OsStr) -> io::Result<Vec<u16>> {
-    ended(text.encode_wide().collect())
-}
-
-/// `units` ending in a zero, refused if they hold one already, since
-/// Windows would read only up to it.
-fn ended(mut units: Vec<u16>) -> io::Result<Vec<u16>> {
-    if units.contains(&0) {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidInput,
-            "a program, argument, variable or folder holds a zero",
-        ));
-    }
-    units.push(0);
-    Ok(units)
 }
 
 /// Adds `arg` to a command line as a program built with the usual C
@@ -367,7 +349,7 @@ fn program_path(program: &OsStr) -> io::Result<PathBuf> {
 }
 
 /// Starts `command` on a new pseudoconsole of `cols` by `rows`, suspended
-/// until [`Tree::resume`] has put it in its job. It gets no group of its
+/// until [`Tree::start`] has put it in its job. It gets no group of its
 /// own, which would turn Ctrl-C off in it, and the pseudoconsole is its
 /// only console.
 #[allow(unsafe_code)]
@@ -420,13 +402,9 @@ pub(crate) fn spawn(command: Command, cols: u16, rows: u16) -> Result<(Tree, Ter
             return Err(io::Error::last_os_error());
         }
         // SAFETY: the call opened both handles for this, which owns them.
-        let (process, thread) = unsafe {
-            (
-                OwnedHandle::from_raw_handle(info.hProcess),
-                OwnedHandle::from_raw_handle(info.hThread),
-            )
-        };
-        Tree::resume(info.dwProcessId, process, &thread)
+        // The thread's goes: the tree lets every thread of the program run.
+        let (process, _thread) = unsafe { (win::owned(info.hProcess)?, win::owned(info.hThread)?) };
+        Tree::start(info.dwProcessId, process)
     })();
     let tree = started.map_err(Failed::Start)?;
 

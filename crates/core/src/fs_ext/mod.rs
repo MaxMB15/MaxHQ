@@ -4,12 +4,13 @@
 //! File calls that differ by OS, kept here so their callers carry no
 //! `cfg`: opening without following a link, Unix owners, making links,
 //! and paths without Windows' `\\?\` prefix. On Unix each is the call it
-//! stands for.
+//! stands for. Owners, modes and a file's names are read through
+//! [`maxhq_os::fsmode`].
 //!
 //! Windows has no Unix owners, so the calls that hand a file to another
 //! user say they can't. `maxd` only runs as root for another user on Unix.
 
-use std::fs::{File, Metadata, OpenOptions};
+use std::fs::{File, OpenOptions};
 use std::io;
 use std::path::{Path, PathBuf};
 
@@ -21,6 +22,8 @@ use unix as imp;
 mod windows;
 #[cfg(windows)]
 use windows as imp;
+
+pub use maxhq_os::path::plain;
 
 /// Opens the regular file `path` to read. A pipe can't hold up the open,
 /// and anything that isn't a regular file is refused. Unless `follow`, a
@@ -45,32 +48,21 @@ pub fn no_follow(options: &mut OpenOptions) -> &mut OpenOptions {
     imp::no_follow(options)
 }
 
-/// The Unix user that owns what `meta` describes. Windows has none.
-pub fn uid_of(meta: &Metadata) -> Option<u32> {
-    imp::uid_of(meta)
-}
-
 /// Gives the open `file` to the user `uid` and group `gid`.
 pub fn chown_file(file: &File, uid: u32, gid: u32) -> io::Result<()> {
     imp::chown_file(file, uid, gid)
+}
+
+/// Gives what `path` names to the user `uid` and group `gid`, following
+/// a link to what it points at.
+pub fn chown(path: &Path, uid: u32, gid: u32) -> io::Result<()> {
+    imp::chown(path, uid, gid)
 }
 
 /// Gives what's at `path` to the user `uid` and group `gid`, the link
 /// itself when it's a link.
 pub fn chown_link(path: &Path, uid: u32, gid: u32) -> io::Result<()> {
     imp::chown_link(path, uid, gid)
-}
-
-/// Whether the open `file` has a second name, a hard link that could be
-/// someone else's. Windows can't tell through std, so it says it can't.
-pub fn has_other_names(file: &File) -> io::Result<bool> {
-    imp::has_other_names(file)
-}
-
-/// Makes the folder `path` and the parents it lacks with mode `mode`,
-/// less the umask. Windows has no modes, so it only makes them.
-pub fn dir_all_with_mode(path: &Path, mode: u32) -> io::Result<()> {
-    imp::dir_all_with_mode(path, mode)
 }
 
 /// Makes a link at `link` to `target`, which may be relative to the
@@ -117,76 +109,6 @@ pub fn canonicalize(path: impl AsRef<Path>) -> io::Result<PathBuf> {
 /// as [`canonicalize`] does.
 pub fn read_link(path: impl AsRef<Path>) -> io::Result<PathBuf> {
     std::fs::read_link(path).map(plain)
-}
-
-/// `path` without Windows' `\\?\` prefix, when it means the same without
-/// it: a drive or share path short enough for the old limit, with no
-/// part that the plain form would read differently. Any other path,
-/// and every path on Unix, comes back as it is.
-pub fn plain(path: PathBuf) -> PathBuf {
-    imp::plain(path)
-}
-
-/// Windows' path text `text` without its `\\?\`, or none when it has no
-/// such prefix or means something else without it. The plain form reads
-/// `.`, `..`, a trailing dot or space, a stream's `:` and device names
-/// such as `NUL` its own way, and stops at 260 characters.
-#[cfg_attr(not(windows), allow(dead_code))]
-fn unverbatim(text: &str) -> Option<String> {
-    let (plain, names) = if let Some(rest) = text.strip_prefix(r"\\?\UNC\") {
-        let mut parts = rest.splitn(3, '\\');
-        let (server, share) = (parts.next()?, parts.next()?);
-        if server.is_empty() || share.is_empty() {
-            return None;
-        }
-        (format!(r"\\{rest}"), parts.next().unwrap_or(""))
-    } else {
-        let rest = text.strip_prefix(r"\\?\")?;
-        let names = match rest.as_bytes() {
-            [letter, b':', b'\\', ..] if letter.is_ascii_alphabetic() => &rest[3..],
-            _ => return None,
-        };
-        (rest.to_owned(), names)
-    };
-    if plain.encode_utf16().count() >= 260 || plain.contains('/') {
-        return None;
-    }
-    let names: Vec<&str> = names.split('\\').collect();
-    let last = names.len() - 1;
-    for (n, name) in names.iter().enumerate() {
-        let odd = if name.is_empty() {
-            n != last
-        } else {
-            *name == "."
-                || *name == ".."
-                || name.ends_with(['.', ' '])
-                || name.contains(':')
-                || is_device(name)
-        };
-        if odd {
-            return None;
-        }
-    }
-    Some(plain)
-}
-
-/// Whether Windows reads the name `name` as a device in a plain path,
-/// with or without an extension: `CON`, `NUL`, `COM1` and the like.
-#[cfg_attr(not(windows), allow(dead_code))]
-fn is_device(name: &str) -> bool {
-    let stem = name.split('.').next().unwrap_or(name).trim_end_matches(' ');
-    let upper = stem.to_ascii_uppercase();
-    match upper.as_str() {
-        "CON" | "PRN" | "AUX" | "NUL" | "CONIN$" | "CONOUT$" => true,
-        _ => {
-            let mut chars = upper.chars();
-            let head: String = chars.by_ref().take(3).collect();
-            let digit = chars.next();
-            (head == "COM" || head == "LPT")
-                && chars.next().is_none()
-                && digit.is_some_and(|c| c.is_ascii_digit() || matches!(c, '¹' | '²' | '³'))
-        }
-    }
 }
 
 #[cfg(test)]

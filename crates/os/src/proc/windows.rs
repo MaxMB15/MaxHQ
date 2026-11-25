@@ -1,14 +1,16 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026 Max Boksem
 
-//! A group is a Job Object: [`adopt`] puts a child that
-//! [`own_group`] started in a job of its own, and whatever it starts
-//! later lands in the job too, so [`stop_group`] reaches the whole tree.
+//! A group is a Job Object: [`own_group`] starts the child suspended,
+//! and [`adopt`] puts it in a job of its own before it lets it run, so
+//! whatever it starts lands in the job too and [`stop_group`] reaches the
+//! whole tree.
 //!
 //! The job is named after its leader's ID and start time, so a `maxd`
 //! that started after the leader can still find it while the leader
-//! runs. This process keeps its handle to each job it made, which finds
-//! a group whose leader ended too.
+//! runs. This process keeps its handle to each job it made until the
+//! [`Kept`] that `adopt` returned goes, which finds a group whose leader
+//! ended too.
 //!
 //! Windows has no `SIGTERM`. A soft stop sends Ctrl-Break to the group's
 //! console process group, which only a group [`own_group`] started on
@@ -31,6 +33,9 @@ use windows_sys::Win32::Foundation::{
     UNICODE_STRING, WAIT_TIMEOUT,
 };
 use windows_sys::Win32::System::Console::{GenerateConsoleCtrlEvent, CTRL_BREAK_EVENT};
+use windows_sys::Win32::System::Diagnostics::ToolHelp::{
+    CreateToolhelp32Snapshot, Thread32First, Thread32Next, TH32CS_SNAPTHREAD, THREADENTRY32,
+};
 use windows_sys::Win32::System::JobObjects::{
     AssignProcessToJobObject, CreateJobObjectW, JobObjectExtendedLimitInformation, OpenJobObjectW,
     SetInformationJobObject, TerminateJobObject, JOBOBJECT_EXTENDED_LIMIT_INFORMATION,
@@ -38,9 +43,10 @@ use windows_sys::Win32::System::JobObjects::{
 };
 use windows_sys::Win32::System::SystemServices::{JOB_OBJECT_QUERY, JOB_OBJECT_TERMINATE};
 use windows_sys::Win32::System::Threading::{
-    QueryFullProcessImageNameW, TerminateProcess, WaitForSingleObject, CREATE_BREAKAWAY_FROM_JOB,
-    CREATE_NEW_PROCESS_GROUP, DETACHED_PROCESS, PROCESS_NAME_WIN32,
-    PROCESS_QUERY_LIMITED_INFORMATION, PROCESS_SET_QUOTA, PROCESS_SYNCHRONIZE, PROCESS_TERMINATE,
+    OpenThread, QueryFullProcessImageNameW, ResumeThread, TerminateProcess, WaitForSingleObject,
+    CREATE_BREAKAWAY_FROM_JOB, CREATE_NEW_PROCESS_GROUP, CREATE_SUSPENDED, DETACHED_PROCESS,
+    PROCESS_NAME_WIN32, PROCESS_QUERY_LIMITED_INFORMATION, PROCESS_SET_QUOTA, PROCESS_SYNCHRONIZE,
+    PROCESS_TERMINATE, THREAD_SUSPEND_RESUME,
 };
 
 use super::Stop;
@@ -61,16 +67,21 @@ fn groups() -> std::sync::MutexGuard<'static, BTreeMap<u32, Group>> {
     GROUPS.lock().unwrap_or_else(PoisonError::into_inner)
 }
 
+/// The creation flags of a group's leader: a console process group of its
+/// own, so a Ctrl-Break reaches the group alone, and suspended until
+/// [`adopt`] has put it in its job.
+pub const GROUP_FLAGS: u32 = CREATE_NEW_PROCESS_GROUP | CREATE_SUSPENDED;
+
 pub fn own_group(command: &mut std::process::Command) -> &mut std::process::Command {
-    command.creation_flags(CREATE_NEW_PROCESS_GROUP)
+    command.creation_flags(GROUP_FLAGS)
 }
 
 pub fn own_group_tokio(command: &mut tokio::process::Command) -> &mut tokio::process::Command {
-    command.creation_flags(CREATE_NEW_PROCESS_GROUP)
+    command.creation_flags(GROUP_FLAGS)
 }
 
 /// The name of the job the process that started at `started` leads.
-fn job_name(leader: u32, started: u64) -> Vec<u16> {
+fn job_name(leader: u32, started: u64) -> io::Result<Vec<u16>> {
     win::wide(format!(r"Local\maxhq-group-{leader}-{started}"))
 }
 
@@ -90,17 +101,54 @@ fn open(pid: u32, access: u32) -> io::Result<OwnedHandle> {
     })
 }
 
+/// What this process keeps of a group it adopted: dropping it closes the
+/// job's handle, unless the ID leads another group by then.
+#[derive(Debug)]
+pub struct Kept {
+    leader: u32,
+    started: u64,
+}
+
+impl Drop for Kept {
+    fn drop(&mut self) {
+        let mut groups = groups();
+        if groups
+            .get(&self.leader)
+            .is_some_and(|group| group.started == self.started)
+        {
+            groups.remove(&self.leader);
+        }
+    }
+}
+
 #[allow(unsafe_code)]
-pub fn adopt(leader: u32) -> io::Result<()> {
+pub fn adopt(leader: u32) -> io::Result<Kept> {
     let process = open(
         leader,
         PROCESS_SET_QUOTA | PROCESS_TERMINATE | PROCESS_QUERY_LIMITED_INFORMATION,
     )?;
-    let started = win::started(win::raw(&process))?;
-    let name = job_name(leader, started);
+    let adopted = join_job(leader, &process).and_then(|kept| {
+        resume(leader)?;
+        Ok(kept)
+    });
+    if adopted.is_err() {
+        // Still suspended, so it ran nothing, and nothing it starts can be
+        // outside a job.
+        // SAFETY: the handle is open for the call.
+        unsafe { TerminateProcess(win::raw(&process), KILLED) };
+    }
+    adopted
+}
+
+/// Puts the process `process` names, which leads a group, in a job of its
+/// own that this process keeps until the [`Kept`] goes.
+#[allow(unsafe_code)]
+fn join_job(leader: u32, process: &OwnedHandle) -> io::Result<Kept> {
+    let started = win::started(process)?;
+    let name = job_name(leader, started)?;
     // SAFETY: `name` is NUL-terminated, and no attributes is the default
     // security, this user's.
-    let job = win::owned(unsafe { CreateJobObjectW(std::ptr::null(), name.as_ptr()) })?;
+    let job = unsafe { win::owned(CreateJobObjectW(std::ptr::null(), name.as_ptr())) }?;
     // What the group starts may leave it on purpose, as `setsid` lets a
     // process leave its group on Unix.
     // SAFETY: the struct is plain data, for which zero is valid.
@@ -118,9 +166,50 @@ pub fn adopt(leader: u32) -> io::Result<()> {
         )
     })?;
     // SAFETY: both handles are open for the call.
-    win::check(unsafe { AssignProcessToJobObject(win::raw(&job), win::raw(&process)) })?;
+    win::check(unsafe { AssignProcessToJobObject(win::raw(&job), win::raw(process)) })?;
     groups().insert(leader, Group { job, started });
+    Ok(Kept { leader, started })
+}
+
+/// Lets every thread of the process `pid` run. One that started suspended
+/// has one, and std doesn't hand its handle out yet. A thread that isn't
+/// suspended goes on as it was.
+#[allow(unsafe_code)]
+fn resume(pid: u32) -> io::Result<()> {
+    // SAFETY: the call takes no pointers, and its handle is owned here.
+    let snapshot = unsafe { win::owned(CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD, 0)) }?;
+    // SAFETY: the struct is plain data, for which zero is valid.
+    let mut entry: THREADENTRY32 = unsafe { std::mem::zeroed() };
+    entry.dwSize = u32::try_from(size_of::<THREADENTRY32>()).map_err(io::Error::other)?;
+    let mut resumed = 0;
+    // SAFETY: `entry` is the size its `dwSize` says.
+    let mut more = unsafe { Thread32First(win::raw(&snapshot), &mut entry) } != 0;
+    while more {
+        if entry.th32OwnerProcessID == pid {
+            // SAFETY: the call takes no pointers, and its handle is owned
+            // here.
+            let thread =
+                unsafe { win::owned(OpenThread(THREAD_SUSPEND_RESUME, 0, entry.th32ThreadID)) };
+            // SAFETY: the handle is open with the access the call needs.
+            if thread.is_ok_and(|thread| unsafe { ResumeThread(win::raw(&thread)) } != u32::MAX) {
+                resumed += 1;
+            }
+        }
+        // SAFETY: as for `Thread32First`.
+        more = unsafe { Thread32Next(win::raw(&snapshot), &mut entry) } != 0;
+    }
+    if resumed == 0 {
+        return Err(io::Error::other(format!(
+            "couldn't find process {pid}'s thread to start it"
+        )));
+    }
     Ok(())
+}
+
+/// Whether this process keeps a job for the group `leader` leads.
+#[cfg(test)]
+pub(super) fn kept(leader: u32) -> bool {
+    groups().contains_key(&leader)
 }
 
 /// The job of the group `leader` leads, and whether its leader still
@@ -138,10 +227,17 @@ fn job_of(leader: u32) -> io::Result<(OwnedHandle, bool)> {
 #[allow(unsafe_code)]
 pub(super) fn job_by_name(leader: u32) -> io::Result<(OwnedHandle, bool)> {
     let started = started(leader).ok_or_else(|| no_process(leader))?;
-    let name = job_name(leader, started);
-    // SAFETY: `name` is NUL-terminated.
-    let job = unsafe { OpenJobObjectW(JOB_OBJECT_TERMINATE | JOB_OBJECT_QUERY, 0, name.as_ptr()) };
-    let job = win::owned(job).map_err(|_| {
+    let name = job_name(leader, started)?;
+    // SAFETY: `name` is NUL-terminated, and the call's handle is owned
+    // here.
+    let job = unsafe {
+        win::owned(OpenJobObjectW(
+            JOB_OBJECT_TERMINATE | JOB_OBJECT_QUERY,
+            0,
+            name.as_ptr(),
+        ))
+    };
+    let job = job.map_err(|_| {
         io::Error::new(
             io::ErrorKind::NotFound,
             format!("process {leader} leads no group MaxHQ made"),
@@ -227,7 +323,7 @@ pub fn started(pid: u32) -> Option<u64> {
     if !still_running(&process) {
         return None;
     }
-    win::started(win::raw(&process)).ok()
+    win::started(&process).ok()
 }
 
 /// The longest path Windows gives a program, in UTF-16 units.
@@ -322,4 +418,14 @@ pub fn is_root() -> bool {
     win::own_token()
         .and_then(|token| win::elevated(&token))
         .unwrap_or(false)
+}
+
+pub const GENTLEST: Stop = Stop::Hard;
+
+pub fn own_ids() -> Option<(u32, u32)> {
+    None
+}
+
+pub fn user_id() -> Option<String> {
+    win::own_sid().ok().map(str::to_owned)
 }

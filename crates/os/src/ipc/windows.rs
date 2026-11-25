@@ -97,23 +97,29 @@ pub async fn accept(listener: &Listener) -> io::Result<Stream> {
 
 pub async fn connect(path: &Path) -> io::Result<Stream> {
     let name = super::pipe_name(path);
-    let deadline = Instant::now() + BUSY_WAIT;
-    let client = loop {
-        // The default quality of service is the identification level.
-        match ClientOptions::new().open(&name) {
-            Ok(client) => break client,
+    let client = open_pipe(&name, BUSY_WAIT).await?;
+    let pid = server_pid(&client)?;
+    served_by_this_user(&name, pid)?;
+    Ok(Stream::Client(client))
+}
+
+/// Opens the client end of the pipe `name`, waiting up to `wait` while
+/// every instance has a client. It opens at the default quality of
+/// service, the identification level, so the server can learn who this is
+/// but can't act as it. It doesn't check who serves the pipe.
+pub async fn open_pipe(name: &str, wait: Duration) -> io::Result<NamedPipeClient> {
+    let deadline = Instant::now() + wait;
+    loop {
+        match ClientOptions::new().open(name) {
             Err(err)
                 if err.raw_os_error() == Some(ERROR_PIPE_BUSY as i32)
                     && Instant::now() < deadline =>
             {
                 tokio::time::sleep(Duration::from_millis(20)).await;
             }
-            Err(err) => return Err(err),
+            opened => return opened,
         }
-    };
-    let pid = server_pid(&client)?;
-    served_by_this_user(&name, pid)?;
-    Ok(Stream::Client(client))
+    }
 }
 
 /// Refuses a pipe whose server, process `pid`, runs as another user.
@@ -249,8 +255,7 @@ struct Descriptor(PSECURITY_DESCRIPTOR);
 impl Descriptor {
     #[allow(unsafe_code)]
     fn for_this_user() -> io::Result<Self> {
-        let sid = win::sid_string(&win::own_user()?)?;
-        let sddl = win::wide(format!("D:P(A;;GA;;;{sid})"));
+        let sddl = win::wide(format!("D:P(A;;GA;;;{})", win::own_sid()?))?;
         let mut descriptor: PSECURITY_DESCRIPTOR = std::ptr::null_mut();
         // SAFETY: `sddl` is NUL-terminated, and the call writes one
         // pointer to a descriptor it allocated with LocalAlloc.

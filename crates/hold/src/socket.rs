@@ -22,7 +22,7 @@ use maxhq_os::ipc::{LocalListener, LocalStream};
 use maxhq_protocol::ids::SessionId;
 use tokio::task::AbortHandle;
 
-use crate::{files, sys};
+use crate::files;
 
 /// The longest socket path the OS takes, counting the closing zero byte.
 /// A pipe on Windows is named by a hash of the path, so any path fits.
@@ -163,7 +163,7 @@ fn take(path: &Path) -> io::Result<Option<File>> {
         // A holder that was ending may have removed the file after this
         // one opened it. Then the lock is on a file nobody else can see,
         // so try again with the file that's there now.
-        match sys::same_file(&lock, path) {
+        match fsmode::same_file(&lock, path) {
             Ok(true) => return Ok(Some(lock)),
             Ok(false) => {}
             Err(err) if err.kind() == io::ErrorKind::NotFound => {}

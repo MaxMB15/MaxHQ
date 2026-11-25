@@ -2,9 +2,8 @@
 // Copyright (c) 2026 Max Boksem
 
 use std::io;
-use std::os::windows::io::{AsRawHandle, FromRawHandle, OwnedHandle};
+use std::os::windows::io::OwnedHandle;
 
-use windows_sys::Win32::Foundation::INVALID_HANDLE_VALUE;
 use windows_sys::Win32::System::Power::{
     GetSystemPowerStatus, PowerClearRequest, PowerCreateRequest, PowerRequestSystemRequired,
     PowerSetRequest, SYSTEM_POWER_STATUS,
@@ -13,6 +12,8 @@ use windows_sys::Win32::System::SystemServices::POWER_REQUEST_CONTEXT_VERSION;
 use windows_sys::Win32::System::Threading::{
     POWER_REQUEST_CONTEXT_SIMPLE_STRING, REASON_CONTEXT, REASON_CONTEXT_0,
 };
+
+use crate::win;
 
 /// A power request that keeps the system required, cleared and closed
 /// when it's dropped.
@@ -25,7 +26,7 @@ pub struct Request {
 
 #[allow(unsafe_code)]
 pub fn take(reason: &str) -> io::Result<Request> {
-    let mut wide: Vec<u16> = reason.encode_utf16().chain(Some(0)).collect();
+    let mut wide = win::wide(reason)?;
     let context = REASON_CONTEXT {
         Version: POWER_REQUEST_CONTEXT_VERSION,
         Flags: POWER_REQUEST_CONTEXT_SIMPLE_STRING,
@@ -34,18 +35,11 @@ pub fn take(reason: &str) -> io::Result<Request> {
         },
     };
     // SAFETY: `context` names a string that ends in a 0 and outlives the
-    // call.
-    let handle = unsafe { PowerCreateRequest(&context) };
-    if handle.is_null() || handle == INVALID_HANDLE_VALUE {
-        return Err(io::Error::last_os_error());
-    }
-    // SAFETY: `handle` is a request this process just made and owns, so
-    // closing it once, when this drops, is right.
-    let handle = unsafe { OwnedHandle::from_raw_handle(handle) };
+    // call, and the request it makes is owned here, closed once when this
+    // drops.
+    let handle = unsafe { win::owned(PowerCreateRequest(&context)) }?;
     // SAFETY: `handle` is a power request that's open.
-    if unsafe { PowerSetRequest(handle.as_raw_handle(), PowerRequestSystemRequired) } == 0 {
-        return Err(io::Error::last_os_error());
-    }
+    win::check(unsafe { PowerSetRequest(win::raw(&handle), PowerRequestSystemRequired) })?;
     Ok(Request {
         handle,
         _reason: wide,
@@ -58,7 +52,7 @@ impl Drop for Request {
         // SAFETY: the handle is a power request that's open until the
         // OwnedHandle closes it after this. Closing it would end the
         // request too, so a failure here changes nothing.
-        unsafe { PowerClearRequest(self.handle.as_raw_handle(), PowerRequestSystemRequired) };
+        unsafe { PowerClearRequest(win::raw(&self.handle), PowerRequestSystemRequired) };
     }
 }
 
