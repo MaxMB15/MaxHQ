@@ -26,6 +26,10 @@ struct Fake {
     config: String,
     /// What ssh keeps from a host it hasn't met.
     met: String,
+    /// Whether the device runs `sh`.
+    sh: bool,
+    /// What the PowerShell probe prints, on a Windows PC.
+    windows: Option<String>,
     ran: Mutex<Vec<Ran>>,
 }
 
@@ -36,7 +40,18 @@ impl Fake {
             probe: "uname=Linux x86_64\nhome=/home/dev\nuser=dev\nsystemd=yes\nlinger=no\n".into(),
             config: String::new(),
             met: format!("devbox {KEY}\n"),
+            sh: true,
+            windows: None,
             ran: Mutex::new(Vec::new()),
+        }
+    }
+
+    /// A Windows PC whose OpenSSH Server starts commands through cmd.
+    fn windows(known: bool) -> Self {
+        Self {
+            sh: false,
+            windows: Some(WINDOWS_PROBE.into()),
+            ..Self::new(known)
         }
     }
 
@@ -49,6 +64,14 @@ impl Fake {
         self.ran()
             .into_iter()
             .filter(|ran| ran.program == "ssh" && ran.args.first().is_none_or(|arg| arg != "-G"))
+            .collect()
+    }
+
+    /// The PowerShell scripts the remote commands ran, decoded.
+    fn scripts(&self) -> Vec<String> {
+        self.remote()
+            .iter()
+            .filter_map(|command| script_of(command))
             .collect()
     }
 
@@ -104,11 +127,54 @@ impl Run for Fake {
                 std::fs::write(file, &self.met).unwrap();
                 ok("")
             }
+            ("ssh", _) if args.iter().any(|a| a == "sh -s") && !self.sh => Ok(Output {
+                ok: false,
+                stdout: String::new(),
+                stderr: "'sh' is not recognized as an internal or external command".into(),
+            }),
             ("ssh", _) if args.iter().any(|a| a == "sh -s") => ok(&self.probe),
+            ("ssh", _) if args.iter().any(|a| script_of(a).is_some()) => {
+                let Some(probe) = &self.windows else {
+                    return Ok(Output {
+                        ok: false,
+                        stdout: String::new(),
+                        stderr: "sh: 1: powershell: not found".into(),
+                    });
+                };
+                match args
+                    .iter()
+                    .any(|a| script_of(a).as_deref() == Some(windows::PROBE))
+                {
+                    true => ok(probe),
+                    false => ok(""),
+                }
+            }
             ("ssh", _) => ok(""),
             _ => Err(io::Error::other("unexpected program")),
         }
     }
+}
+
+/// What the PowerShell probe prints on a Windows PC.
+const WINDOWS_PROBE: &str = "os=Windows_NT\narch=AMD64\nhome=C:\\Users\\dev\n\
+     local=C:\\Users\\dev\\AppData\\Local\nuser=dev\nadmin=no\nshell=\n";
+
+/// The PowerShell command starts with.
+const POWERSHELL: &str = "powershell -NoProfile -NonInteractive -EncodedCommand ";
+
+/// The script a remote PowerShell command runs, decoded from its base64
+/// UTF-16LE.
+fn script_of(command: &str) -> Option<String> {
+    use base64::Engine;
+    let encoded = command.strip_prefix(POWERSHELL)?;
+    let bytes = base64::engine::general_purpose::STANDARD
+        .decode(encoded)
+        .ok()?;
+    let units: Vec<u16> = bytes
+        .chunks_exact(2)
+        .map(|pair| u16::from_le_bytes([pair[0], pair[1]]))
+        .collect();
+    String::from_utf16(&units).ok()
 }
 
 fn temp_paths() -> SetupPaths {
@@ -130,6 +196,17 @@ fn binary(paths: &SetupPaths) -> impl Fn(&str) -> Option<SetupBinary> {
         (target == "x86_64-unknown-linux-musl").then(|| SetupBinary {
             path: path.clone(),
             sha256: "ab".repeat(32),
+        })
+    }
+}
+
+/// The `maxd.exe` for a Windows PC on x86_64, and nothing else.
+fn windows_binary(paths: &SetupPaths) -> impl Fn(&str) -> Option<SetupBinary> {
+    let path = paths.key.with_file_name("maxd-x86_64-unknown-linux-musl");
+    move |target| {
+        (target == "x86_64-pc-windows-msvc").then(|| SetupBinary {
+            path: path.clone(),
+            sha256: "cd".repeat(32),
         })
     }
 }
@@ -929,4 +1006,308 @@ async fn nothing_is_pinned_when_your_known_hosts_has_no_ed25519_key() {
     );
     assert!(!paths.known_hosts.exists());
     let _ = std::fs::remove_dir_all(paths.key.parent().unwrap());
+}
+
+#[tokio::test]
+async fn a_windows_pc_is_set_up_through_powershell() {
+    let paths = temp_paths();
+    let fake = Fake::windows(true);
+    let confirms = Confirmations::default();
+    let (steps, step) = collect();
+    let prepared = Setup::new(&fake, &paths, "devbox")
+        .unwrap()
+        .prepare(windows_binary(&paths), &confirms, &step)
+        .await
+        .unwrap();
+    assert_eq!(
+        prepared,
+        Prepared {
+            host: "devbox".into(),
+            home: r"C:\Users\dev".into(),
+            target: "x86_64-pc-windows-msvc".into(),
+            host_keys: vec![KEY.into()],
+            host_keys_confirmed: true,
+            linger: false,
+        }
+    );
+    let line = r#"restrict,command="C:\Users\dev\AppData\Local\MaxHQ\bin\current\maxd.exe proxy" ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIFakeFakeFakeFakeFakeFakeFakeFakeFakeFake maxhq"#;
+    assert_eq!(
+        *steps.lock().unwrap(),
+        [
+            Step::HostKey,
+            Step::Probe,
+            Step::Install,
+            Step::Key { line: line.into() },
+        ]
+    );
+    // After `sh` fails, every step is one PowerShell word cmd passes on.
+    let remote = fake.remote();
+    assert_eq!(remote.len(), 5, "{remote:?}");
+    assert_eq!(remote[0], "sh -s");
+    for command in &remote[1..] {
+        let encoded = command.strip_prefix(POWERSHELL).unwrap();
+        assert!(encoded
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || "+/=".contains(c)));
+    }
+    let scripts = fake.scripts();
+    assert_eq!(scripts[0], windows::PROBE);
+    assert!(scripts[1].starts_with(&format!(
+        "$sum = '{}'\n$build = '{}'\n",
+        "cd".repeat(32),
+        "cd".repeat(8)
+    )));
+    assert!(scripts[1].contains("New-Item -ItemType Junction"));
+    assert!(scripts[2].starts_with("$list = @('service', 'install')\n"));
+    assert!(scripts[3].starts_with(
+        "$list = @('authorize-key', 'ssh-ed25519', \
+         'AAAAC3NzaC1lZDI1NTE5AAAAIFakeFakeFakeFakeFakeFakeFakeFakeFakeFake')\n"
+    ));
+    assert!(scripts[3].contains(r"'MaxHQ\bin\current\maxd.exe') @list"));
+    // The binary goes over stdin to the install script.
+    let stdin: Vec<_> = fake
+        .ssh()
+        .into_iter()
+        .skip(1)
+        .filter_map(|r| r.stdin)
+        .collect();
+    assert_eq!(stdin, [b"maxd"]);
+    let _ = std::fs::remove_dir_all(paths.key.parent().unwrap());
+}
+
+#[tokio::test]
+async fn a_windows_pc_takes_the_app_key_and_a_label_it_can_read() {
+    for (label, shown) in [
+        (
+            "MaxHQ on the team's\nMac",
+            "'MaxHQ on the team\u{2019}\u{2019}s Mac'",
+        ),
+        ("say \"hi\" C:\\", "'say \u{201D}hi\u{201D} C:'"),
+        ("", "'MaxHQ'"),
+        ("\\", "'MaxHQ'"),
+    ] {
+        let paths = temp_paths();
+        let fake = Fake::windows(true);
+        let confirms = Confirmations::default();
+        let (_, step) = collect();
+        let app_key = "B9sIh0gqNw8gm2y_XxV-Fa0e1lJ5nXcZ2rVf3pQb2kA";
+        Setup::new(&fake, &paths, "devbox")
+            .unwrap()
+            .with_app_key(app_key, label)
+            .unwrap()
+            .prepare(windows_binary(&paths), &confirms, &step)
+            .await
+            .unwrap();
+        let scripts = fake.scripts();
+        let add = scripts.last().unwrap();
+        assert!(
+            add.starts_with(&format!(
+                "$list = @('authorize-key', 'ssh-ed25519', \
+                 'AAAAC3NzaC1lZDI1NTE5AAAAIFakeFakeFakeFakeFakeFakeFakeFakeFakeFake', \
+                 '--app', '{app_key}', {shown})\n"
+            )),
+            "{label:?}: {add}"
+        );
+        let _ = std::fs::remove_dir_all(paths.key.parent().unwrap());
+    }
+}
+
+#[tokio::test]
+async fn a_windows_pc_on_its_build_isnt_sent_it_again() {
+    let paths = temp_paths();
+    let mut fake = Fake::windows(true);
+    let probe = format!("{WINDOWS_PROBE}build={}\n", "cd".repeat(8));
+    fake.windows = Some(probe);
+    let confirms = Confirmations::default();
+    let (_, step) = collect();
+    Setup::new(&fake, &paths, "devbox")
+        .unwrap()
+        .prepare(windows_binary(&paths), &confirms, &step)
+        .await
+        .unwrap();
+    assert_eq!(fake.remote().len(), 4);
+    // Only the `sh` probe had stdin.
+    assert!(fake.ssh().iter().skip(1).all(|r| r.stdin.is_none()));
+    let _ = std::fs::remove_dir_all(paths.key.parent().unwrap());
+}
+
+#[tokio::test]
+async fn git_bash_on_windows_still_gets_the_windows_setup() {
+    let paths = temp_paths();
+    let mut fake = Fake::windows(true);
+    fake.sh = true;
+    fake.probe = "uname=MINGW64_NT-10.0-19045 x86_64\nhome=/c/Users/dev\nuser=dev\n".into();
+    let confirms = Confirmations::default();
+    let (_, step) = collect();
+    let prepared = Setup::new(&fake, &paths, "devbox")
+        .unwrap()
+        .prepare(windows_binary(&paths), &confirms, &step)
+        .await
+        .unwrap();
+    assert_eq!(prepared.target, "x86_64-pc-windows-msvc");
+    assert_eq!(prepared.home, r"C:\Users\dev");
+    let _ = std::fs::remove_dir_all(paths.key.parent().unwrap());
+}
+
+#[tokio::test]
+async fn a_unix_device_whose_probe_fails_says_why() {
+    let paths = temp_paths();
+    let mut fake = Fake::new(true);
+    fake.sh = false;
+    let confirms = Confirmations::default();
+    let (_, step) = collect();
+    let error = Setup::new(&fake, &paths, "devbox")
+        .unwrap()
+        .prepare(binary(&paths), &confirms, &step)
+        .await
+        .unwrap_err();
+    assert!(
+        error.to_string().contains("'sh' is not recognized"),
+        "{error}"
+    );
+    // Nothing past the two probes ran.
+    assert_eq!(fake.remote().len(), 2);
+    let _ = std::fs::remove_dir_all(paths.key.parent().unwrap());
+}
+
+#[tokio::test]
+async fn a_windows_pc_with_a_shell_the_key_line_cant_use_stops_with_the_fix() {
+    for shell in [
+        r"C:\Program Files\Git\bin\bash.exe",
+        "C:\\msys64\\usr\\bin\\sh.exe",
+    ] {
+        let paths = temp_paths();
+        let mut fake = Fake::windows(true);
+        fake.windows = Some(WINDOWS_PROBE.replace("shell=\n", &format!("shell={shell}\n")));
+        let confirms = Confirmations::default();
+        let (_, step) = collect();
+        let error = Setup::new(&fake, &paths, "devbox")
+            .unwrap()
+            .prepare(windows_binary(&paths), &confirms, &step)
+            .await
+            .unwrap_err();
+        assert!(error.to_string().contains("Remove-ItemProperty"), "{error}");
+        // It stops before anything is installed.
+        assert_eq!(fake.remote().len(), 2);
+        let _ = std::fs::remove_dir_all(paths.key.parent().unwrap());
+    }
+}
+
+#[tokio::test]
+async fn a_windows_pc_on_an_arch_with_no_maxd_says_so() {
+    let paths = temp_paths();
+    let mut fake = Fake::windows(true);
+    fake.windows = Some(WINDOWS_PROBE.replace("arch=AMD64", "arch=x86"));
+    let confirms = Confirmations::default();
+    let (_, step) = collect();
+    let error = Setup::new(&fake, &paths, "devbox")
+        .unwrap()
+        .prepare(windows_binary(&paths), &confirms, &step)
+        .await
+        .unwrap_err();
+    assert_eq!(error.to_string(), "MaxHQ can't run on Windows on x86 yet");
+    let _ = std::fs::remove_dir_all(paths.key.parent().unwrap());
+}
+
+#[test]
+fn a_powershell_step_is_its_script_in_utf16_base64() {
+    let script = "'caf\u{e9}' | Out-Host\n";
+    let command = windows::powershell(script);
+    assert!(command.starts_with(POWERSHELL));
+    assert!(!command[POWERSHELL.len()..].contains(' '));
+    assert_eq!(script_of(&command).as_deref(), Some(script));
+    // `dir` in UTF-16LE, as PowerShell's own help shows it.
+    assert_eq!(windows::powershell("dir"), format!("{POWERSHELL}ZABpAHIA"));
+}
+
+#[test]
+fn powershell_literals_double_every_single_quote_it_reads() {
+    assert_eq!(windows::literal("plain"), "'plain'");
+    assert_eq!(windows::literal("it's"), "'it''s'");
+    assert_eq!(
+        windows::literal("\u{2018}a\u{2019} \u{201A}b\u{201B}"),
+        "'\u{2018}\u{2018}a\u{2019}\u{2019} \u{201A}\u{201A}b\u{201B}\u{201B}'"
+    );
+    // `$` and backticks mean nothing in single quotes.
+    assert_eq!(windows::literal("$env:X `n"), "'$env:X `n'");
+    assert_eq!(windows::literal(""), "''");
+}
+
+#[test]
+fn native_arguments_keep_what_windows_powershell_passes_whole() {
+    assert_eq!(windows::native_arg(r#"say "hi""#), "say \u{201D}hi\u{201D}");
+    assert_eq!(windows::native_arg(r"C:\dir\\"), r"C:\dir");
+    assert_eq!(windows::native_arg(r"a\b"), r"a\b");
+    assert_eq!(
+        windows::run_maxd(&["x y", "it's"]),
+        format!("$list = @('x y', 'it''s')\n{}", windows::RUN_MAXD)
+    );
+}
+
+#[test]
+fn the_windows_install_checks_the_sum_before_it_points_current_at_it() {
+    let script = windows::install(&"ab".repeat(32), &"ab".repeat(8));
+    assert!(script.starts_with(&format!(
+        "$sum = '{}'\n$build = '{}'\n",
+        "ab".repeat(32),
+        "ab".repeat(8)
+    )));
+    let check = script.find("Get-FileHash").unwrap();
+    let swap = script.find("Junction").unwrap();
+    assert!(check < swap);
+    for script in [windows::PROBE, windows::INSTALL, windows::RUN_MAXD] {
+        assert!(script.contains("MaxHQ"));
+        assert!(!script.contains("Set-ExecutionPolicy"));
+    }
+}
+
+#[test]
+fn only_a_windows_probe_gives_windows_facts() {
+    let facts = windows::facts(WINDOWS_PROBE).unwrap();
+    assert_eq!(facts["arch"], "AMD64");
+    assert_eq!(facts["local"], r"C:\Users\dev\AppData\Local");
+    assert_eq!(windows::facts("uname=Linux x86_64\nhome=/home/dev\n"), None);
+    assert_eq!(windows::facts("os=\n"), None);
+    assert_eq!(windows::facts(""), None);
+    for uname in [
+        "MINGW64_NT-10.0-19045 x86_64",
+        "MSYS_NT-10.0 x86_64",
+        "CYGWIN_NT-10.0 x86_64",
+    ] {
+        assert!(windows::posix_layer(uname), "{uname}");
+    }
+    for uname in ["Linux x86_64", "Darwin arm64", ""] {
+        assert!(!windows::posix_layer(uname), "{uname}");
+    }
+}
+
+#[test]
+fn windows_on_two_arches_has_a_target() {
+    assert_eq!(target_for_windows("AMD64"), Some("x86_64-pc-windows-msvc"));
+    assert_eq!(target_for_windows("amd64"), Some("x86_64-pc-windows-msvc"));
+    assert_eq!(target_for_windows("ARM64"), Some("aarch64-pc-windows-msvc"));
+    assert_eq!(target_for_windows("x86"), None);
+    assert_eq!(target_for_windows(""), None);
+}
+
+#[test]
+fn the_key_line_runs_under_cmd_and_powershell_only() {
+    let plain = r"C:\Users\dev\AppData\Local\MaxHQ\bin\current\maxd.exe";
+    let spaced = r"C:\Users\Dev User\AppData\Local\MaxHQ\bin\current\maxd.exe";
+    for shell in ["", " ", "cmd", r"C:\Windows\System32\cmd.exe", "CMD.EXE"] {
+        assert_eq!(shell_refusal(shell, spaced), None, "{shell}");
+    }
+    for shell in [
+        r"C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe",
+        r"C:\Program Files\PowerShell\7\pwsh.exe",
+    ] {
+        assert_eq!(shell_refusal(shell, plain), None, "{shell}");
+        let why = shell_refusal(shell, spaced).unwrap();
+        assert!(why.contains("has a space"), "{why}");
+    }
+    let why = shell_refusal(r"C:\Program Files\Git\bin\bash.exe", plain).unwrap();
+    assert!(why.starts_with(
+        r"OpenSSH on this PC runs commands through C:\Program Files\Git\bin\bash.exe"
+    ));
+    assert!(why.contains("Remove-ItemProperty -Path HKLM:\\SOFTWARE\\OpenSSH -Name DefaultShell"));
 }

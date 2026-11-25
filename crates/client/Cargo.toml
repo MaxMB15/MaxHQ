@@ -7,15 +7,15 @@ license.workspace = true
 publish.workspace = true
 
 # The phone builds with `russh` in place of the defaults. `system-ssh`
-# runs the system `ssh`, reads `ssh_config` and sets devices up, keeping
-# logins through openssh on Unix and through russh on Windows, where
-# openssh can't run;
+# runs the system `ssh`, reads `ssh_config` and sets devices up, Windows
+# PCs too, keeping logins through openssh on Unix and through russh on
+# Windows, where openssh can't run;
 # `tailscale` watches the tailnet; `russh` dials with a key the caller
 # gives and a pinned host key; `ws` dials a device's network access over
 # TLS pinned to its certificate.
 [features]
 default = ["system-ssh", "tailscale"]
-system-ssh = ["dep:openssh", "dep:sha2"]
+system-ssh = ["dep:base64", "dep:openssh", "dep:sha2"]
 tailscale = ["dep:base64", "dep:bytes", "dep:http-body-util", "dep:hyper", "dep:hyper-util"]
 russh = ["dep:russh"]
 ws = [

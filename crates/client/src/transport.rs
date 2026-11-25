@@ -37,7 +37,7 @@ pub(crate) mod ws;
 pub use phone::PhoneSsh;
 #[cfg(all(feature = "russh", feature = "ws"))]
 pub(crate) use reach::Both;
-#[cfg(all(test, feature = "russh"))]
+#[cfg(all(test, unix, feature = "russh"))]
 pub(crate) use reach::Io;
 #[cfg(feature = "ws")]
 pub use ws::{Ended, Headers, PhoneWs, Posted, WsRoute, SIGN_IN_ENDED};
@@ -354,6 +354,7 @@ fn shorten(line: &str) -> String {
 
 #[cfg(test)]
 mod tests {
+    #[cfg(unix)]
     use std::path::{Path, PathBuf};
 
     use super::*;
@@ -416,6 +417,7 @@ mod tests {
     }
 
     /// Where a program is on this machine's PATH.
+    #[cfg(unix)]
     fn find(program: &str) -> Option<PathBuf> {
         std::env::split_paths(&std::env::var_os("PATH")?)
             .map(|dir| dir.join(program))
