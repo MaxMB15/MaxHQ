@@ -24,6 +24,9 @@ use unix as imp;
 mod windows;
 #[cfg(windows)]
 use windows as imp;
+/// Windows only: a pipe's client end, waiting while every instance is busy.
+#[cfg(windows)]
+pub use windows::open_pipe;
 
 /// The endpoint, ready to take connections. Dropping it stops listening,
 /// but leaves a Unix socket's file for the caller to remove.
@@ -419,6 +422,36 @@ mod tests {
         let err = super::windows::served_by_this_user(r"\\.\pipe\maxhq-test", 4).unwrap_err();
         assert_eq!(err.kind(), io::ErrorKind::PermissionDenied, "{err}");
         super::windows::served_by_this_user(r"\\.\pipe\maxhq-test", std::process::id()).unwrap();
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn opening_a_pipe_waits_while_it_is_busy() {
+        use tokio::net::windows::named_pipe::ServerOptions;
+
+        let _forks = crate::forks();
+        crate::block_on(crate::within(async {
+            let name = pipe_name(&pipe_path("busy"));
+            let err = open_pipe(&name, std::time::Duration::from_secs(5))
+                .await
+                .unwrap_err();
+            assert_eq!(err.kind(), io::ErrorKind::NotFound, "{err}");
+
+            // One instance, and a client already holds it.
+            let server = ServerOptions::new()
+                .first_pipe_instance(true)
+                .max_instances(1)
+                .create(&name)
+                .unwrap();
+            let _first = open_pipe(&name, std::time::Duration::ZERO).await.unwrap();
+            server.connect().await.unwrap();
+            let started = std::time::Instant::now();
+            let wait = std::time::Duration::from_millis(200);
+            let err = open_pipe(&name, wait).await.unwrap_err();
+            let busy = windows_sys::Win32::Foundation::ERROR_PIPE_BUSY as i32;
+            assert_eq!(err.raw_os_error(), Some(busy), "{err}");
+            assert!(started.elapsed() >= wait);
+        }));
     }
 
     #[cfg(windows)]
