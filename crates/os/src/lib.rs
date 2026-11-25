@@ -32,9 +32,10 @@ pub(crate) fn unsupported(what: &str) -> std::io::Error {
     )
 }
 
-/// Held by the tests that start processes or make sockets. macOS marks a
-/// socket close-on-exec only after making it, so a child started between
-/// the two keeps it open, and a listener a test dropped would still answer.
+/// Held by the tests that start processes or make sockets. A child holds a
+/// copy of every socket until it starts its program or exits, and on macOS,
+/// which marks a socket close-on-exec only after making it, for good. While
+/// it does, a listener a test dropped would still answer.
 #[cfg(test)]
 pub(crate) fn forks() -> std::sync::MutexGuard<'static, ()> {
     static FORKS: std::sync::Mutex<()> = std::sync::Mutex::new(());
