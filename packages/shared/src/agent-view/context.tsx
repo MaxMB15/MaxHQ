@@ -12,7 +12,7 @@ import { createContext, type ReactNode, useContext } from "react";
 import type { ActionResult } from "../data/source";
 import type { AgentId, AttentionAnswer, AttentionId, Vendor } from "../bindings";
 import type { InlineRef } from "../pills/wire";
-import type { AgentKind } from "../status/agent-kind";
+import { type AgentKind, kindName } from "../status/agent-kind";
 import type { TimelineStore } from "../timeline/store";
 
 /** What the rows of one agent view share. */
@@ -21,6 +21,8 @@ export type RowContext = {
 	readonly vendor: Vendor;
 	/** What the agent shows as, Local for a local model; its vendor when not set. */
 	readonly kind?: AgentKind;
+	/** What the agent goes by, such as "OpenRouter" for a cloud service's; its kind's name when not set. */
+	readonly name?: string;
 	/** The agent's timeline, for rows that look at other items or the queue. */
 	readonly timeline: TimelineStore;
 	/** Set for a session in a terminal, which MaxHQ watches but can't answer. */
@@ -61,6 +63,10 @@ export const useRow = (): RowContext => {
 	return value;
 };
 
-/** What the rows' agent shows as, for its name in a card. */
+/** What the rows' agent shows as. */
 export const rowKind = (row: Pick<RowContext, "vendor" | "kind">): AgentKind =>
 	row.kind ?? row.vendor;
+
+/** What the rows' agent goes by, for its name in a card, such as "Codex" or "OpenRouter". */
+export const rowName = (row: Pick<RowContext, "vendor" | "kind" | "name">): string =>
+	row.name ?? kindName(rowKind(row));

@@ -469,6 +469,8 @@ impl Harness {
                 context: Some(65_536),
                 model: Some(LOCAL_MODEL.into()),
                 lean: true,
+                cloud: false,
+                max_outputs: Default::default(),
             },
         );
         id

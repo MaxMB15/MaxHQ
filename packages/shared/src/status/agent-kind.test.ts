@@ -8,13 +8,18 @@ import { account, agent } from "../test/build";
 
 import {
 	accountKind,
+	accountKindName,
+	accountMark,
 	AGENT_KINDS,
 	agentKind,
 	agentKindName,
+	agentMark,
+	cloudServerOf,
 	isLocalAccount,
 	isLocalAgent,
 	kindName,
 	ownKind,
+	type ServerName,
 } from "./agent-kind";
 
 const local = account({
@@ -66,6 +71,51 @@ describe("agentKind", () => {
 		expect(isLocalAgent(agent({ id: "e", vendor: "claude", account: max.id }), accounts)).toBe(
 			false
 		);
+	});
+});
+
+describe("cloud services", () => {
+	const cloud = account({
+		id: "acct-cloud",
+		vendor: "claude",
+		login: "model_server",
+		plan: null,
+		model_server: "srv-cloud",
+	});
+	const servers = new Map<string, ServerName>([
+		["srv-1", { label: "Ollama on devbox", cloud: false }],
+		["srv-cloud", { label: "OpenRouter", cloud: true }],
+	]);
+	const lookup = [...accounts, cloud];
+	const onCloud = agent({ id: "a", vendor: "claude", account: cloud.id });
+
+	it("names an agent on a cloud service after it, with a cloud, never Claude", () => {
+		expect(cloudServerOf(cloud, servers)?.label).toBe("OpenRouter");
+		expect(accountKindName(cloud, servers)).toBe("OpenRouter");
+		expect(accountMark(cloud, servers)).toBe("cloud");
+		expect(agentKindName(onCloud, lookup, servers)).toBe("OpenRouter");
+		expect(agentMark(onCloud, lookup, servers)).toBe("cloud");
+		// The logic still counts it as Local.
+		expect(agentKind(onCloud, lookup)).toBe("local");
+	});
+
+	it("keeps a server on your own hardware, and every vendor, as they were", () => {
+		const onHardware = agent({ id: "b", vendor: "claude", account: local.id });
+		expect(cloudServerOf(local, servers)).toBeUndefined();
+		expect(accountKindName(local, servers)).toBe("Local");
+		expect(agentKindName(onHardware, lookup, servers)).toBe("Local");
+		expect(agentMark(onHardware, lookup, servers)).toBe("local");
+		expect(accountKindName(max, servers)).toBe("Claude");
+		expect(accountMark(codex, servers)).toBe("codex");
+	});
+
+	it("shows a server from a maxd older than cloud servers as Local", () => {
+		const older = new Map<string, ServerName>([["srv-cloud", { label: "OpenRouter" }]]);
+		expect(cloudServerOf(cloud, older)).toBeUndefined();
+		expect(agentKindName(onCloud, lookup, older)).toBe("Local");
+		expect(agentMark(onCloud, lookup, older)).toBe("local");
+		// Without the servers at hand, too.
+		expect(agentKindName(onCloud, lookup)).toBe("Local");
 	});
 });
 

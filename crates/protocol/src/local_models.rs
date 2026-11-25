@@ -55,6 +55,14 @@ pub struct ModelServer {
     /// `maxd`'s secrets store and is never sent.
     #[serde(default)]
     pub token: bool,
+    /// Whether it's a hosted API rather than hardware you run: a known
+    /// cloud host, or a server added with the Cloud service switch on. A
+    /// cloud server's agents get every tool and the model's own output
+    /// limit, and show under the server's name rather than Local. Since
+    /// [`crate::message::CLOUD_SERVERS_SINCE`]; an older `maxd` sends none,
+    /// read as false.
+    #[serde(default)]
+    pub cloud: bool,
     /// What the last probe found, or none before the first.
     pub probe: Option<ServerProbe>,
     /// The models it serves. For a managed server, the model files ready
@@ -144,6 +152,11 @@ pub struct ServerModel {
     /// [`crate::message::LOCAL_MODELS_SINCE`]; an older client reads none.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub speed: Option<ModelSpeed>,
+    /// The most tokens it writes in one answer, when the server says and
+    /// it's below the context. Since
+    /// [`crate::message::CLOUD_SERVERS_SINCE`]; an older `maxd` sends none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_output: Option<u32>,
 }
 
 /// How fast a model ran, in whole tokens per second.
@@ -543,6 +556,11 @@ pub enum ModelAction {
         /// A token it wants, which `maxd` keeps in its secrets store.
         #[serde(default)]
         token: Option<Secret>,
+        /// Whether you marked it a cloud service. A known cloud host is one
+        /// either way. Since [`crate::message::CLOUD_SERVERS_SINCE`]; an
+        /// older client sends none, read as false.
+        #[serde(default)]
+        cloud: bool,
     },
     /// Probes a URL without adding it, to see what answers there before
     /// it's added. Answers
@@ -635,7 +653,7 @@ pub struct LocalRun {
 mod tests {
     use super::*;
     use crate::ids::IdempotencyKey;
-    use crate::message::{ActionOutcome, ClientMessage, LOCAL_MODELS_SINCE};
+    use crate::message::{ActionOutcome, ClientMessage, CLOUD_SERVERS_SINCE, LOCAL_MODELS_SINCE};
     use crate::state::{Entity, EntityKey};
 
     fn device() -> DeviceId {
@@ -664,6 +682,7 @@ mod tests {
             label: "Ollama on devbox".into(),
             base_url: Some("http://devbox:11434".into()),
             token: true,
+            cloud: false,
             probe: Some(ServerProbe {
                 at: Timestamp(1_000),
                 apis: ServerApis {
@@ -688,6 +707,7 @@ mod tests {
                     prompt_per_second: Some(1_180),
                     decode_per_second: Some(74),
                 }),
+                max_output: None,
             }],
         }
     }
@@ -818,6 +838,13 @@ mod tests {
                 label: "Ollama on devbox".into(),
                 url: "http://devbox:11434".into(),
                 token: Some(Secret::new("example-token".into())),
+                cloud: false,
+            },
+            ModelAction::AddServer {
+                label: "OpenRouter".into(),
+                url: "https://openrouter.ai/api".into(),
+                token: None,
+                cloud: true,
             },
             ModelAction::ProbeServer {
                 url: "http://devbox:11434".into(),
@@ -881,9 +908,49 @@ mod tests {
                 context: Some(32_768),
                 load: None,
                 speed: None,
+                max_output: Some(8_192),
             }],
+            cloud: true,
         };
         assert_eq!(round_trip(&probed), probed);
+    }
+
+    #[test]
+    fn a_server_from_before_cloud_servers_reads_as_local() {
+        assert_eq!(CLOUD_SERVERS_SINCE, 65);
+        // A server, a model and a probe from an older `maxd`, and an add
+        // from an older app, carry none of the cloud fields.
+        let mut json = serde_json::to_value(server()).unwrap();
+        json.as_object_mut().unwrap().remove("cloud");
+        let read: ModelServer = serde_json::from_value(json).unwrap();
+        assert!(!read.cloud);
+        assert_eq!(read.models[0].max_output, None);
+        let add: ModelAction = serde_json::from_value(serde_json::json!({
+            "action": "add_server",
+            "label": "devbox",
+            "url": "http://devbox:11434",
+        }))
+        .unwrap();
+        assert!(matches!(add, ModelAction::AddServer { cloud: false, .. }));
+        let probed: ActionOutcome = serde_json::from_value(serde_json::json!({
+            "status": "server_probed",
+            "flavor": "other",
+            "probe": { "at": 1, "apis": {}, "context": null, "error": null },
+            "models": [],
+        }))
+        .unwrap();
+        assert!(matches!(
+            probed,
+            ActionOutcome::ServerProbed { cloud: false, .. }
+        ));
+        // A model with no output limit writes none, and one with it reads back.
+        let json = serde_json::to_value(&server().models[0]).unwrap();
+        assert!(json.get("max_output").is_none());
+        let capped = ServerModel {
+            max_output: Some(32_000),
+            ..server().models.remove(0)
+        };
+        assert_eq!(round_trip(&capped), capped);
     }
 
     #[test]
@@ -908,6 +975,7 @@ mod tests {
                 label: "devbox".into(),
                 url: "http://devbox:11434".into(),
                 token: Some(Secret::new("example-token".into())),
+                cloud: false,
             },
         };
         assert!(!format!("{message:?}").contains("example-token"));

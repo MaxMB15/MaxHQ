@@ -28,7 +28,7 @@ import {
 	type LinkContext,
 	worstLook,
 } from "../status/connection";
-import { serverModelChoices } from "../local-models/models";
+import { entryOf, LOCAL_ENTRY, serverModelChoices } from "../local-models/models";
 import { AGENT_KINDS, accountKind, agentKind, isLocalAccount } from "../status/agent-kind";
 import { atLimit } from "../status/usage";
 import { claimNames } from "../ui/link-claim";
@@ -805,21 +805,34 @@ export const modelName = (view: ViewState, vendor: Vendor, model: string): strin
 export type Move = { readonly account: Account; readonly models: readonly ModelChoice[] };
 
 /**
+ * What an account's agents count as when moving: their kind, or for a
+ * cloud service its own account, since each is an agent of its own.
+ */
+export const moveKind = (view: ViewState, account: Account): string => {
+	const kind = accountKind(account);
+	if (kind !== "local") return kind;
+	const entry = entryOf(view, account);
+	return entry === LOCAL_ENTRY ? kind : `cloud:${entry}`;
+};
+
+/**
  * The accounts a held agent can move to, carrying its conversation over:
  * the other vendors signed in on its device. An ACP agent can also move
- * to another ACP agent, since each is a CLI of its own, and Local counts as
- * a vendor of its own.
+ * to another ACP agent, since each is a CLI of its own, and Local and each
+ * cloud service count as vendors of their own.
  */
 export const movesOf = (view: ViewState, agent: Agent): Move[] => {
 	const device = view.tables.workspace.get(agent.workspace)?.device;
 	if (agent.control !== "held" || agent.parent !== null || !device) return [];
-	const kind = agentKind(agent, view.tables.account);
+	const own = agent.account ? view.tables.account.get(agent.account) : undefined;
+	const kind =
+		own && isLocalAccount(own) ? moveKind(view, own) : agentKind(agent, view.tables.account);
 	return accounts(view)
 		.filter(
 			(a) =>
 				a.device === device &&
 				a.id !== agent.account &&
-				(accountKind(a) !== kind || a.vendor === "acp")
+				(moveKind(view, a) !== kind || a.vendor === "acp")
 		)
 		.map((account) => ({ account, models: modelsOf(view, account) }));
 };

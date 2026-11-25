@@ -1,13 +1,13 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026 Max Boksem
 
-//! Probing a model server: which models it lists, which APIs answer and
-//! its context size. A local agent is Claude Code, so a server without the
-//! Anthropic Messages API (`/v1/messages`) can't run one, and the probe
-//! says so. A server that wants a token gets it both ways servers read
-//! one: `Authorization: Bearer` and `x-api-key`.
+//! Probing a model server: which models it lists, which APIs answer, its
+//! context size and each model's output limit. A local agent is Claude
+//! Code, so a server without the Anthropic Messages API (`/v1/messages`)
+//! can't run one, and the probe says so. A server that wants a token gets
+//! it both ways servers read one: `Authorization: Bearer` and `x-api-key`.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::time::Duration;
 
 use maxhq_protocol::local_models::{
@@ -42,12 +42,15 @@ pub struct Found {
 }
 
 /// Probes the server at `base`. A managed server is only asked for the
-/// Messages API; it's llama-server, so chat and responses answer too.
+/// Messages API; it's llama-server, so chat and responses answer too. A
+/// cloud server is also asked for its OpenAI-style model list, which gives
+/// each model's output limit where the Anthropic-style one may not.
 pub async fn probe(
     base: &str,
     token: Option<&Secret>,
     catalog: &ModelCatalog,
     managed: bool,
+    cloud: bool,
 ) -> Found {
     let base = base.trim_end_matches('/');
     let at = Timestamp::now();
@@ -68,6 +71,7 @@ pub async fn probe(
                 id: id.to_owned(),
                 label: None,
                 context: None,
+                max_output: None,
             })
             .collect(),
         (Err(_), None) => Vec::new(),
@@ -171,6 +175,9 @@ pub async fn probe(
     let context = llama_ctx
         .and_then(|n| u32::try_from(n).ok())
         .or_else(|| models.first().and_then(|m| m.context));
+    if cloud && !models.is_empty() {
+        output_limits(base, token, &mut models).await;
+    }
     let models = models
         .into_iter()
         .map(|m| ServerModel {
@@ -179,6 +186,7 @@ pub async fn probe(
             context: m.context.or(context),
             load: None,
             speed: None,
+            max_output: m.max_output,
             id: m.id,
         })
         .collect();
@@ -221,6 +229,54 @@ struct Listed {
     label: Option<String>,
     /// The context the list gives it.
     context: Option<u32>,
+    /// The most it writes in one answer, where a list says and it's below
+    /// the context.
+    max_output: Option<u32>,
+}
+
+/// Fills in each model's output limit from a cloud server's OpenAI-style
+/// model list, which OpenRouter answers at the same path when the request
+/// has no `anthropic-version`. Its entries name a model without the
+/// Anthropic-style list's `anthropic/` and `[1m]`, and give the limit as
+/// `top_provider.max_completion_tokens`. Where both lists give one, the
+/// smaller wins. A list that fails leaves the limits as they are.
+async fn output_limits(base: &str, token: Option<&Secret>, models: &mut [Listed]) {
+    let url = format!("{base}/v1/models");
+    let Ok(page) = fetch(request(reqwest::Method::GET, &url, token, false)).await else {
+        return;
+    };
+    let entries = entries_of(&page);
+    let limits: HashMap<&str, u32> = entries
+        .iter()
+        .filter_map(|m| {
+            let id = m.get("id").and_then(Value::as_str)?;
+            let limit = m
+                .pointer("/top_provider/max_completion_tokens")
+                .and_then(Value::as_u64)
+                .and_then(|n| u32::try_from(n).ok())
+                .filter(|n| *n > 0)?;
+            Some((id, limit))
+        })
+        .collect();
+    for model in models {
+        let id = untagged(&model.id);
+        let found = limits.get(id).or_else(|| {
+            id.strip_prefix("anthropic/")
+                .and_then(|bare| limits.get(bare))
+        });
+        if let Some(&limit) = found {
+            model.max_output = Some(model.max_output.map_or(limit, |had| had.min(limit)));
+        }
+    }
+}
+
+/// A model's ID without a trailing tag in brackets, such as the `[1m]` an
+/// Anthropic-style list puts on a model with a 1M context.
+fn untagged(id: &str) -> &str {
+    match id.strip_suffix(']').and_then(|rest| rest.rfind('[')) {
+        Some(open) => &id[..open],
+        None => id,
+    }
 }
 
 /// Every entry of the server's model list. An OpenAI-style list comes
@@ -265,10 +321,12 @@ fn entries_of(page: &Value) -> Vec<Value> {
 }
 
 /// The models a list names, each once, with its name where the list gives
-/// one (the Anthropic Models API's `display_name`) and a context size where
-/// it gives one: vLLM's `max_model_len`, the Anthropic Models API's
-/// `max_input_tokens`, or `context_length`. llama-server's
-/// `meta.n_ctx_train` is the training size, so it's left out.
+/// one (the Anthropic Models API's `display_name`), a context size where it
+/// gives one (vLLM's `max_model_len`, the Anthropic Models API's
+/// `max_input_tokens`, or `context_length`), and the most a model writes in
+/// one answer where it gives that below the context (the Anthropic Models
+/// API's `max_tokens`). llama-server's `meta.n_ctx_train` is the training
+/// size, so it's left out.
 fn listed_models(list: &[Value]) -> Vec<Listed> {
     let mut seen = HashSet::new();
     list.iter()
@@ -287,10 +345,18 @@ fn listed_models(list: &[Value]) -> Vec<Listed> {
                 .iter()
                 .find_map(|k| m.get(*k).and_then(Value::as_u64))
                 .and_then(|n| u32::try_from(n).ok());
+            // A list that gives the whole context as `max_tokens` says
+            // nothing about one answer, so that's left out.
+            let max_output = m
+                .get("max_tokens")
+                .and_then(Value::as_u64)
+                .and_then(|n| u32::try_from(n).ok())
+                .filter(|n| *n > 0 && context.is_some_and(|c| *n < c));
             Some(Listed {
                 id: id.to_owned(),
                 label,
                 context,
+                max_output,
             })
         })
         .collect()
@@ -316,11 +382,20 @@ enum Fail {
     Refused(u16),
 }
 
-fn request(method: reqwest::Method, url: &str, token: Option<&Secret>) -> reqwest::RequestBuilder {
+/// A request to a server, with the token both ways and, when `anthropic`,
+/// the `anthropic-version` header that asks for the Anthropic API's shapes.
+fn request(
+    method: reqwest::Method,
+    url: &str,
+    token: Option<&Secret>,
+    anthropic: bool,
+) -> reqwest::RequestBuilder {
     let mut request = super::http()
         .request(method, url)
-        .header("accept", "application/json")
-        .header("anthropic-version", "2023-06-01");
+        .header("accept", "application/json");
+    if anthropic {
+        request = request.header("anthropic-version", "2023-06-01");
+    }
     if let Some(token) = token {
         request = request
             .bearer_auth(token.expose())
@@ -349,7 +424,12 @@ async fn get_with(
                 .finish(),
         );
     }
-    let answer = request(reqwest::Method::GET, &url, token)
+    fetch(request(reqwest::Method::GET, &url, token, true)).await
+}
+
+/// The JSON a GET answers.
+async fn fetch(request: reqwest::RequestBuilder) -> Result<Value, Fail> {
+    let answer = request
         .timeout(LOOK)
         .send()
         .await
@@ -362,7 +442,7 @@ async fn get_with(
 }
 
 async fn post(base: &str, path: &str, token: Option<&Secret>, body: &Value) -> Option<Value> {
-    let answer = request(reqwest::Method::POST, &format!("{base}{path}"), token)
+    let answer = request(reqwest::Method::POST, &format!("{base}{path}"), token, true)
         .timeout(TRY)
         .header("content-type", "application/json")
         .body(body.to_string())
@@ -405,7 +485,7 @@ mod tests {
             &json!({"default_generation_settings": {"n_ctx": 65536}}),
         );
         let token = Secret::new("sk-local".to_owned());
-        let found = probe(&fake.base, Some(&token), &catalog(), false).await;
+        let found = probe(&fake.base, Some(&token), &catalog(), false, false).await;
         assert_eq!(found.flavor, ServerFlavor::LlamaCpp);
         assert!(found.probe.apis.messages && found.probe.apis.chat && found.probe.apis.responses);
         assert_eq!(found.probe.context, Some(65_536));
@@ -432,7 +512,7 @@ mod tests {
             &json!({"data": [{"id": "gpt-oss-20b", "max_model_len": 131072, "owned_by": "vllm"}]}),
         );
         fake.json("POST /v1/chat/completions", 200, &json!({"choices": []}));
-        let found = probe(&fake.base, None, &catalog(), false).await;
+        let found = probe(&fake.base, None, &catalog(), false, false).await;
         assert_eq!(found.flavor, ServerFlavor::Vllm);
         assert!(!found.probe.apis.messages);
         assert!(found.probe.apis.chat);
@@ -474,7 +554,7 @@ mod tests {
             &json!({"type": "message", "content": [{"type": "text", "text": "H"}]}),
         );
         fake.json("POST /v1/chat/completions", 200, &json!({"choices": []}));
-        let found = probe(&fake.base, None, &catalog(), false).await;
+        let found = probe(&fake.base, None, &catalog(), false, false).await;
         assert_eq!(found.flavor, ServerFlavor::Ollama);
         assert!(found.probe.apis.messages);
         assert_eq!(found.probe.context, Some(32_768));
@@ -519,7 +599,7 @@ mod tests {
             &json!({"type": "message", "content": []}),
         );
         let token = Secret::new("sk-or-0123".to_owned());
-        let found = probe(&fake.base, Some(&token), &catalog(), false).await;
+        let found = probe(&fake.base, Some(&token), &catalog(), false, false).await;
         assert_eq!(found.probe.error, None);
         assert_eq!(found.flavor, ServerFlavor::Other);
         let models: Vec<(&str, &str, Option<u32>)> = found
@@ -548,6 +628,111 @@ mod tests {
         assert_eq!(paged.header("x-api-key"), Some("sk-or-0123"));
     }
 
+    /// A cloud server's two lists, as OpenRouter answers them: the
+    /// Anthropic-style one with `anthropic-version`, the OpenAI-style one
+    /// without.
+    fn cloud_lists(fake: &Fake) {
+        fake.json(
+            "/v1/models",
+            200,
+            &json!({
+                "data": [
+                    {"id": "anthropic/z-ai/glm-5.3-flash[1m]", "display_name": "Z.ai: GLM 5.3 Flash", "max_input_tokens": 1048576, "max_tokens": null},
+                    // A limit that's the whole context says nothing.
+                    {"id": "anthropic/whole", "max_input_tokens": 131072, "max_tokens": 131072},
+                    {"id": "anthropic/smaller", "max_input_tokens": 131072, "max_tokens": 8192},
+                    {"id": "anthropic/unlisted", "max_input_tokens": 65536},
+                ],
+                "has_more": false,
+            }),
+        );
+        fake.json(
+            "POST /v1/messages",
+            200,
+            &json!({"type": "message", "content": []}),
+        );
+    }
+
+    #[tokio::test]
+    async fn a_cloud_server_s_models_get_their_output_limits_from_both_lists() {
+        let fake = Fake::start().await;
+        cloud_lists(&fake);
+        fake.json(
+            "PLAIN /v1/models",
+            200,
+            &json!({
+                "data": [
+                    {"id": "z-ai/glm-5.3-flash", "context_length": 1048576, "top_provider": {"max_completion_tokens": 131072}},
+                    {"id": "whole", "top_provider": {"max_completion_tokens": 16384}},
+                    {"id": "smaller", "top_provider": {"max_completion_tokens": 32768}},
+                    {"id": "unlisted", "top_provider": {"max_completion_tokens": null}},
+                ],
+                "links": {"next": null},
+            }),
+        );
+        let token = Secret::new("sk-or-0123".to_owned());
+        let found = probe(&fake.base, Some(&token), &catalog(), false, true).await;
+        assert_eq!(found.probe.error, None);
+        let limits: Vec<(&str, Option<u32>)> = found
+            .models
+            .iter()
+            .map(|m| (m.id.as_str(), m.max_output))
+            .collect();
+        assert_eq!(
+            limits,
+            [
+                ("anthropic/z-ai/glm-5.3-flash[1m]", Some(131_072)),
+                ("anthropic/whole", Some(16_384)),
+                // Both lists give one, so the smaller.
+                ("anthropic/smaller", Some(8_192)),
+                ("anthropic/unlisted", None),
+            ]
+        );
+        let asked = fake.seen();
+        let plain: Vec<_> = asked
+            .iter()
+            .filter(|s| s.path == "/v1/models" && s.header("anthropic-version").is_none())
+            .collect();
+        assert_eq!(plain.len(), 1, "the OpenAI-style list is asked for once");
+        assert_eq!(plain[0].header("authorization"), Some("Bearer sk-or-0123"));
+    }
+
+    #[tokio::test]
+    async fn a_cloud_server_whose_openai_list_fails_still_probes() {
+        let fake = Fake::start().await;
+        cloud_lists(&fake);
+        fake.json("PLAIN /v1/models", 500, &json!({"error": "down"}));
+        let found = probe(&fake.base, None, &catalog(), false, true).await;
+        assert_eq!(found.probe.error, None);
+        assert!(found.probe.apis.messages);
+        let limits: Vec<Option<u32>> = found.models.iter().map(|m| m.max_output).collect();
+        // Only the Anthropic-style list's limit below the context is left.
+        assert_eq!(limits, [None, None, Some(8_192), None]);
+    }
+
+    #[tokio::test]
+    async fn a_server_you_run_isn_t_asked_for_the_openai_list() {
+        let fake = Fake::start().await;
+        cloud_lists(&fake);
+        let found = probe(&fake.base, None, &catalog(), false, false).await;
+        assert_eq!(found.models[2].max_output, Some(8_192));
+        assert!(fake
+            .seen()
+            .iter()
+            .filter(|s| s.path.starts_with("/v1/"))
+            .all(|s| s.header("anthropic-version").is_some()));
+    }
+
+    #[test]
+    fn a_model_s_tag_in_brackets_is_left_off_its_id() {
+        assert_eq!(
+            untagged("anthropic/z-ai/glm-5.3-flash[1m]"),
+            "anthropic/z-ai/glm-5.3-flash"
+        );
+        assert_eq!(untagged("qwen3.6:35b"), "qwen3.6:35b");
+        assert_eq!(untagged("odd]"), "odd]");
+    }
+
     #[tokio::test]
     async fn a_list_that_never_ends_stops_when_it_starts_over() {
         let fake = Fake::start().await;
@@ -563,7 +748,7 @@ mod tests {
             200,
             &json!({"type": "message", "content": []}),
         );
-        let found = probe(&fake.base, None, &catalog(), false).await;
+        let found = probe(&fake.base, None, &catalog(), false, false).await;
         assert_eq!(found.models.len(), 1);
         let pages = fake
             .seen()
@@ -577,7 +762,7 @@ mod tests {
     async fn a_server_that_wants_a_token_says_so() {
         let fake = Fake::start().await;
         fake.json("/v1/models", 401, &json!({"error": "unauthorized"}));
-        let found = probe(&fake.base, None, &catalog(), false).await;
+        let found = probe(&fake.base, None, &catalog(), false, false).await;
         assert!(found.probe.error.unwrap().contains("token"));
         assert!(found.models.is_empty());
     }
@@ -590,7 +775,7 @@ mod tests {
             fake.route(path, Route::Redirect(format!("{}{path}", elsewhere.base)));
         }
         let token = Secret::new("server-token-0123".to_owned());
-        let found = probe(&fake.base, Some(&token), &catalog(), false).await;
+        let found = probe(&fake.base, Some(&token), &catalog(), false, false).await;
         assert!(found.probe.error.unwrap().contains("another address"));
         assert!(
             elsewhere.seen().is_empty(),
@@ -603,7 +788,7 @@ mod tests {
         let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
         let base = format!("http://{}", listener.local_addr().unwrap());
         drop(listener);
-        let found = probe(&base, None, &catalog(), false).await;
+        let found = probe(&base, None, &catalog(), false, false).await;
         assert!(found.probe.error.unwrap().starts_with("Couldn't reach"));
     }
 }

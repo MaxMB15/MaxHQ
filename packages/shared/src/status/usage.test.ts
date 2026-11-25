@@ -303,6 +303,24 @@ describe("accountName", () => {
 	it("calls a local ACP agent by the name you gave it", () => {
 		expect(accountName({ vendor: "acp", label: "Gemini", plan: null })).toBe("Gemini");
 	});
+
+	it("calls a login on a cloud service by the service's name, and others on a server Local", () => {
+		const login = (model_server: string) =>
+			({
+				vendor: "claude",
+				label: "Some label",
+				plan: null,
+				login: "model_server",
+				model_server,
+			}) as const;
+		const servers = new Map([
+			["srv-cloud", { label: "OpenRouter", cloud: true }],
+			["srv-own", { label: "Ollama on devbox", cloud: false }],
+		]);
+		expect(accountName(login("srv-cloud"), servers)).toBe("OpenRouter");
+		expect(accountName(login("srv-own"), servers)).toBe("Local");
+		expect(accountName(login("srv-cloud"))).toBe("Local");
+	});
 });
 
 describe("meterRows", () => {

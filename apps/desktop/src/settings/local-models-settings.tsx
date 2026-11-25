@@ -289,7 +289,7 @@ const DeviceBody = ({ device, view }: { device: DeviceId; view: ViewState }) => 
 					sub={
 						why.local ??
 						translate(
-							"Local agents get only the tools they use most, so a small model has less to read and answers sooner."
+							"Local agents on your own servers get only the tools they use most, so a small model has less to read and answers sooner. Cloud services always get every tool."
 						)
 					}
 				>

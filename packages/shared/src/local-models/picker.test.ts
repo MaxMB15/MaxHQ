@@ -10,6 +10,8 @@ import {
 	LOADED_MODEL,
 	MAC_LOCAL,
 	OLLAMA_LOCAL,
+	OPENROUTER_ACCOUNT,
+	OPENROUTER_MODEL,
 } from "../data/mock-local-models";
 import { mockSource } from "../data/mock-source";
 import { DEVBOX, MAC } from "../data/mock-view";
@@ -39,13 +41,32 @@ const noLocalLogins = (entities: Entity[]): Entity[] =>
 	entities.filter((e) => !(e.entity === "account" && e.login === "model_server"));
 
 describe("the agent picker", () => {
-	it("lists Local once, last, as an agent of its own", async () => {
+	it("lists Local once, after the logins, then each cloud service as an agent of its own", async () => {
 		const view = await load();
 		const options = agentOptions(view, MAC, NOW);
-		expect(options.at(-1)).toMatchObject({ value: MAC_LOCAL, label: "Local" });
+		expect(options.at(-2)).toMatchObject({ value: MAC_LOCAL, label: "Local", mark: "local" });
+		expect(options.at(-1)).toMatchObject({
+			value: OPENROUTER_ACCOUNT,
+			label: "OpenRouter",
+			mark: "cloud",
+		});
 		expect(options.filter((o) => o.label === "Local")).toHaveLength(1);
-		expect(options.slice(0, -1).map((o) => o.label)).not.toContain("Local");
+		expect(options.slice(0, -2).map((o) => o.label)).not.toContain("Local");
+		expect(options.slice(0, -2).every((o) => o.mark !== undefined)).toBe(true);
 		expect(agentOptions(view, DEVBOX, NOW, OLLAMA_LOCAL).at(-1)?.value).toBe(OLLAMA_LOCAL);
+	});
+
+	it("keeps Local with its setup text when only a cloud service is set up", async () => {
+		const view = await load((entities) =>
+			entities.filter((e) => !(e.entity === "account" && e.id === MAC_LOCAL))
+		);
+		const options = agentOptions(view, MAC, NOW);
+		expect(options.at(-2)).toMatchObject({
+			value: LOCAL_SETUP_VALUE,
+			label: "Local",
+			detail: "Download a model in Settings first",
+		});
+		expect(options.at(-1)?.value).toBe(OPENROUTER_ACCOUNT);
 	});
 
 	it("still lists Local without a model, and leads to its setup", async () => {
@@ -55,6 +76,7 @@ describe("the agent picker", () => {
 			label: "Local",
 			detail: "Download a model in Settings first",
 			warn: true,
+			mark: "local",
 		});
 		expect(agentOptions(view, DEVBOX, NOW).at(-1)).toMatchObject({
 			value: LOCAL_SETUP_VALUE,
@@ -64,6 +86,29 @@ describe("the agent picker", () => {
 });
 
 describe("the local model picker", () => {
+	it("lists a cloud service's own models alone, which its search finds", async () => {
+		const view = await load();
+		const options = localPickerOptions(view, MAC, OPENROUTER_ACCOUNT);
+		expect(options.map((o) => [o.group, o.label])).toEqual([
+			["OpenRouter", "Z.ai: GLM 5.3 Flash"],
+			["OpenRouter", "DeepSeek: DeepSeek V3.2"],
+			["OpenRouter", "MoonshotAI: Kimi K2.5"],
+			["OpenRouter", "Qwen: Qwen3 Coder 480B A35B"],
+		]);
+		expect(modelChoice(options[0]!.value)).toEqual({
+			account: OPENROUTER_ACCOUNT,
+			model: localModelKey(OPENROUTER_ACCOUNT, OPENROUTER_MODEL),
+		});
+		expect(filterModelOptions(options, "glm").map((o) => o.label)).toEqual([
+			"Z.ai: GLM 5.3 Flash",
+		]);
+		expect(filterModelOptions(options, "z-ai/glm").map((o) => o.label)).toEqual([
+			"Z.ai: GLM 5.3 Flash",
+		]);
+		// Local's own list leaves it out.
+		expect(localPickerOptions(view, MAC).some((o) => o.group === "OpenRouter")).toBe(false);
+	});
+
 	it("groups the Mac's models under This Mac, each with its fit", async () => {
 		const view = await load();
 		const options = localPickerOptions(view, MAC);

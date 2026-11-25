@@ -49,7 +49,7 @@ import { formatContext } from "@maxhq/shared/status/format";
 import { deletableAgents } from "@maxhq/shared/ui/delete-agents";
 import { renameAgent } from "@maxhq/shared/ui/rename-agent";
 import { modelsOf, movesOf, startedByLine } from "@maxhq/shared/view/select";
-import { agentKind, kindName } from "@maxhq/shared/status/agent-kind";
+import { agentKind, agentMark, kindName } from "@maxhq/shared/status/agent-kind";
 import { accountName } from "@maxhq/shared/status/usage";
 
 import { failureOf } from "@maxhq/shared/agent-view/answer";
@@ -187,7 +187,8 @@ export const AgentHeader = ({ agent }: { agent: Agent }) => {
 			.length
 	);
 	const kind = agentKind(agent, view.tables.account);
-	const accountLabel = account ? accountName(account) : kindName(kind);
+	const mark = agentMark(agent, view.tables.account, view.tables.model_server);
+	const accountLabel = account ? accountName(account, view.tables.model_server) : kindName(kind);
 	const terminalLine =
 		agent.link.state === "down"
 			? translate("Ended in a terminal")
@@ -246,7 +247,7 @@ export const AgentHeader = ({ agent }: { agent: Agent }) => {
 					title={folded.has("account") ? accountLabel : undefined}
 					className="inline-flex h-[22px] shrink-0 items-center gap-[5px] rounded-md border border-track bg-secondary px-[7px] text-[11.5px] whitespace-nowrap text-terminal"
 				>
-					<VendorIcon kind={kind} />
+					<VendorIcon kind={mark} />
 					<span className={folded.has("account") ? "sr-only" : undefined}>
 						{accountLabel}
 					</span>

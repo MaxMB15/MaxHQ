@@ -224,6 +224,7 @@ async fn a_server_you_add_keeps_its_token_out_of_the_database_and_goes_away_whol
             label: "  ".into(),
             url: format!("{}/v1/", fake.base),
             token: Some(Secret::new("  sk-local \n".to_owned())),
+            cloud: false,
         })
         .await;
     let ActionOutcome::ModelServerAdded { server: id } = added else {
@@ -269,6 +270,7 @@ async fn a_server_you_add_keeps_its_token_out_of_the_database_and_goes_away_whol
     assert_eq!(login.model.as_deref(), Some("qwen3.6-35b-a3b@ud-q4_k_xl"));
     assert_eq!(login.context, Some(32_768));
     assert!(login.lean, "fewer tools by default");
+    assert!(!login.cloud && !server.cloud, "a server you run");
     let run = world.service.run_of(account_id, None, Some(1_000)).unwrap();
     assert_eq!(run.context_size, Some(32_768));
     assert_eq!(run.context_used, Some(1_000));
@@ -285,6 +287,7 @@ async fn a_server_you_add_keeps_its_token_out_of_the_database_and_goes_away_whol
             label: "again".into(),
             url: fake.base.clone(),
             token: None,
+            cloud: false,
         })
         .await;
     assert_eq!(refusal(&again), SAME_URL);
@@ -318,6 +321,7 @@ async fn a_probe_says_what_answers_and_keeps_nothing() {
         flavor,
         probe,
         models,
+        cloud,
     } = probed
     else {
         panic!("not probed: {probed:?}");
@@ -326,6 +330,8 @@ async fn a_probe_says_what_answers_and_keeps_nothing() {
     assert!(probe.apis.messages);
     assert_eq!(probe.error, None);
     assert_eq!(models[0].id, "qwen3.6-35b-a3b@ud-q4_k_xl");
+    // A server on 127.0.0.1 isn't a known cloud host.
+    assert!(!cloud);
     let asked = fake.seen();
     let messages = asked
         .iter()
@@ -367,6 +373,7 @@ async fn a_url_has_to_be_a_plain_server_and_this_macs_own_server_stays() {
                 label: String::new(),
                 url: url.into(),
                 token: None,
+                cloud: false,
             })
             .await;
         assert_eq!(refusal(&outcome), BAD_URL, "{url}");
@@ -567,6 +574,7 @@ async fn only_this_macs_own_server_loads_a_downloaded_model() {
             label: "GPU box".into(),
             url: fake.base.clone(),
             token: None,
+            cloud: false,
         })
         .await
     else {
@@ -662,6 +670,7 @@ async fn a_restart_keeps_the_servers_their_tokens_the_key_and_the_port() {
             label: "GPU box".into(),
             url: fake.base.clone(),
             token: Some(Secret::new("sk-kept".to_owned())),
+            cloud: false,
         })
         .await
     else {
@@ -686,6 +695,58 @@ async fn a_restart_keeps_the_servers_their_tokens_the_key_and_the_port() {
         port.to_string()
     );
     assert_eq!(*again.proxy.lock().unwrap(), Some(port));
+}
+
+#[tokio::test]
+async fn a_cloud_server_s_agents_get_every_tool_and_its_models_limits() {
+    let world = World::new(RuntimeSupport::UrlOnly).await;
+    let fake = model_server().await;
+    fake.json(
+        "PLAIN /v1/models",
+        200,
+        &json!({"data": [{"id": "qwen3.6-35b-a3b@ud-q4_k_xl", "top_provider": {"max_completion_tokens": 16384}}]}),
+    );
+    let ActionOutcome::ModelServerAdded { server: id } = world
+        .act(ModelAction::AddServer {
+            label: "Hosted".into(),
+            url: fake.base.clone(),
+            token: None,
+            cloud: true,
+        })
+        .await
+    else {
+        panic!("not added");
+    };
+    let server = world.server(id).unwrap();
+    assert!(server.cloud);
+    assert_eq!(server.models[0].max_output, Some(16_384));
+    let account = world.service.account_of(id);
+    let login = world.service.login(account).unwrap();
+    assert!(login.cloud);
+    assert!(!login.lean, "Fewer tools covers local servers only");
+    assert_eq!(
+        login.max_outputs.get("qwen3.6-35b-a3b@ud-q4_k_xl"),
+        Some(&16_384)
+    );
+    // The switch is kept.
+    assert!(world.restart().lock().servers[&id].cloud);
+
+    // A record from before the switch, on a known cloud host, is cloud
+    // with no migration.
+    {
+        let mut state = world.service.lock();
+        let kept = state.servers.get_mut(&id).unwrap();
+        kept.cloud = false;
+        kept.base_url = Some("https://openrouter.ai/api".into());
+    }
+    world.service.publish();
+    assert!(world.server(id).unwrap().cloud);
+    assert!(!world.service.login(account).unwrap().lean);
+    // And one elsewhere with the switch off is a server you run.
+    world.service.lock().servers.get_mut(&id).unwrap().base_url = Some(fake.base.clone());
+    world.service.publish();
+    assert!(!world.server(id).unwrap().cloud);
+    assert!(world.service.login(account).unwrap().lean);
 }
 
 /// Turns "Linked devices can use this Mac's models" on or off.
@@ -751,6 +812,7 @@ fn shared_mac(model: &str) -> SharedModels {
                 context: Some(32_768),
                 load: None,
                 speed: None,
+                max_output: None,
             }],
         },
     }

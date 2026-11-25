@@ -378,6 +378,7 @@ const Sheet = ({
 	const { busy, note, ran } = useStore(flow.store);
 	const { talking, plan, reach } = bar;
 	const device = useView((s) => (reach.device ? deviceName(s.view, reach.device) : t("the Mac")));
+	const servers = useView((s) => s.view.tables.model_server);
 	const scroller = useRef<ComponentRef<typeof ScrollView>>(null);
 	const blocked = busy || reach.off !== null;
 	// The Mac's maxd refuses a phone's confirm of Auto or Full access
@@ -391,7 +392,7 @@ const Sheet = ({
 				<View style={styles.handle} />
 				<View style={styles.head}>
 					<Text style={styles.title} numberOfLines={1}>
-						{dispatcherTitle(reach.account)}
+						{dispatcherTitle(reach.account, servers)}
 					</Text>
 					<Button
 						label={t("New conversation")}

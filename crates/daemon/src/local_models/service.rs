@@ -8,7 +8,7 @@
 //! like any other. So does each managed server a linked device shares,
 //! whose agents reach it over the `maxd` link through [`linked`].
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::io;
 use std::net::Ipv4Addr;
 use std::path::{Path, PathBuf};
@@ -37,7 +37,7 @@ use tokio::task::AbortHandle;
 
 use super::linked::{self, Linked, OverPeers};
 use super::runner::{self, Backend, Host, LoadProgress, Runner, Spec};
-use super::{catalog, download, hardware, probe, runtime};
+use super::{catalog, cloud, download, hardware, probe, runtime};
 use crate::db::Db;
 use crate::drive::ServerLogin;
 use crate::hub::Hub;
@@ -373,6 +373,7 @@ impl Service {
                 label: self.hub.device().name.clone(),
                 base_url: None,
                 token: false,
+                cloud: false,
                 probe: Some(ServerProbe {
                     at: state.tested_at,
                     apis: ServerApis {
@@ -396,6 +397,7 @@ impl Service {
                         context: Some(state.settings.context.min(ready.native_context)),
                         load: Some(self.runner.load_of(&ready.id)),
                         speed: self.runner.speed_of(&ready.id).whole(),
+                        max_output: None,
                     })
                     .collect(),
             };
@@ -418,7 +420,11 @@ impl Service {
                 &server.models,
                 &state.settings,
             )));
-            entities.push(Entity::ModelServer(server.clone()));
+            // Clients read the switch and the host check as one.
+            entities.push(Entity::ModelServer(ModelServer {
+                cloud: cloud::is_cloud(server),
+                ..server.clone()
+            }));
         }
         for shared in &state.linked {
             let linked = &shared.models;
@@ -538,6 +544,8 @@ impl Service {
                 context: Some(state.settings.context.min(ready.native_context)),
                 model: Some(ready.id.clone()),
                 lean: state.settings.fewer_tools,
+                cloud: false,
+                max_outputs: BTreeMap::new(),
             });
         }
         if let Some(linked) = self.linked_of(&state, account) {
@@ -556,6 +564,8 @@ impl Service {
                 context,
                 model,
                 lean: state.settings.fewer_tools,
+                cloud: false,
+                max_outputs: BTreeMap::new(),
             });
         }
         let server = state
@@ -574,12 +584,21 @@ impl Service {
             .and_then(|id| server.models.iter().find(|m| m.id == id))
             .and_then(|m| m.context)
             .or_else(|| server.probe.as_ref().and_then(|probe| probe.context));
+        // Fewer tools is for hardware you run. A cloud model takes every
+        // tool, and writes as long an answer as it allows.
+        let cloud = cloud::is_cloud(server);
         Some(ServerLogin {
             base_url,
             token: token.unwrap_or_else(|| Secret::new(NO_TOKEN.to_owned())),
             context,
             model,
-            lean: state.settings.fewer_tools,
+            lean: state.settings.fewer_tools && !cloud,
+            cloud,
+            max_outputs: server
+                .models
+                .iter()
+                .filter_map(|m| Some((m.id.clone(), m.max_output?)))
+                .collect(),
         })
     }
 
@@ -693,8 +712,13 @@ impl Service {
     /// Does `action`.
     pub async fn act(self: &Arc<Self>, action: ModelAction) -> ActionOutcome {
         let done = match action {
-            ModelAction::AddServer { label, url, token } => {
-                return self.add_server(&label, &url, token).await;
+            ModelAction::AddServer {
+                label,
+                url,
+                token,
+                cloud,
+            } => {
+                return self.add_server(&label, &url, token, cloud).await;
             }
             ModelAction::ProbeServer { url, token } => return self.probe_server(&url, token).await,
             ModelAction::TestServer { server } => self.test_server(server).await,
@@ -718,7 +742,14 @@ impl Service {
         }
     }
 
-    async fn add_server(&self, label: &str, url: &str, token: Option<Secret>) -> ActionOutcome {
+    /// Adds the server at `url`, marked a cloud service when `cloud`.
+    async fn add_server(
+        &self,
+        label: &str,
+        url: &str,
+        token: Option<Secret>,
+        cloud: bool,
+    ) -> ActionOutcome {
         let Some((base, host)) = base_url(url) else {
             return refused(BAD_URL);
         };
@@ -735,7 +766,8 @@ impl Service {
         };
         let token = clean(token);
         let id = ModelServerId::generate();
-        let found = probe::probe(&base, token.as_ref(), &catalog, false).await;
+        let probed_cloud = cloud || cloud::is_known_cloud(&base);
+        let found = probe::probe(&base, token.as_ref(), &catalog, false, probed_cloud).await;
         if let Some(token) = &token
             && let Err(err) = self.keys.write(&token_name(id), token.expose().as_bytes())
         {
@@ -755,6 +787,7 @@ impl Service {
             },
             base_url: Some(base),
             token: token.is_some(),
+            cloud,
             probe: Some(found.probe),
             models: found.models,
         };
@@ -773,11 +806,13 @@ impl Service {
             return refused(BAD_URL);
         };
         let catalog = self.lock().catalog.clone();
-        let found = probe::probe(&base, clean(token).as_ref(), &catalog, false).await;
+        let cloud = cloud::is_known_cloud(&base);
+        let found = probe::probe(&base, clean(token).as_ref(), &catalog, false, cloud).await;
         ActionOutcome::ServerProbed {
             flavor: found.flavor,
             probe: found.probe,
             models: found.models,
+            cloud,
         }
     }
 
@@ -788,13 +823,14 @@ impl Service {
             super::ran(self.account_of(id));
             return Ok(());
         }
-        let (base, catalog, has_token) = {
+        let (base, catalog, has_token, cloud) = {
             let state = self.lock();
             let server = state.servers.get(&id).ok_or(NO_SERVER)?;
             (
                 server.base_url.clone().ok_or(NO_SERVER)?,
                 state.catalog.clone(),
                 server.token,
+                cloud::is_cloud(server),
             )
         };
         let token = if has_token {
@@ -802,7 +838,7 @@ impl Service {
         } else {
             None
         };
-        let found = probe::probe(&base, token.as_ref(), &catalog, false).await;
+        let found = probe::probe(&base, token.as_ref(), &catalog, false, cloud).await;
         let server = {
             let mut state = self.lock();
             let server = state.servers.get_mut(&id).ok_or(NO_SERVER)?;

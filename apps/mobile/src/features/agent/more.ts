@@ -232,7 +232,10 @@ export const modelSheet = (
 	return {
 		title: t("Model"),
 		message: account
-			? t("Runs {{model}} on {{account}}.", { model: runs, account: accountName(account) })
+			? t("Runs {{model}} on {{account}}.", {
+					model: runs,
+					account: accountName(account, view.tables.model_server),
+				})
 			: t("Runs {{model}}.", { model: runs }),
 		choices: [
 			...models.map((choice) => ({
@@ -243,8 +246,10 @@ export const modelSheet = (
 				pick: () => pick(choice.id),
 			})),
 			...movesOf(view, agent).map((move) => ({
-				label: t("Move to {{account}}", { account: accountName(move.account) }),
-				pick: () => open(moveSheet(move, pick)),
+				label: t("Move to {{account}}", {
+					account: accountName(move.account, view.tables.model_server),
+				}),
+				pick: () => open(moveSheet(view, move, pick)),
 			})),
 		],
 	};
@@ -275,10 +280,13 @@ export const effortPick = (view: ViewState, agent: Agent): EffortPick => {
 
 /** The models of an account the agent can move to, taking its conversation along. */
 export const moveSheet = (
+	view: ViewState,
 	move: Move,
 	pick: (model: string, account?: AccountId) => void
 ): Sheet => ({
-	title: t("Move to {{account}}", { account: accountName(move.account) }),
+	title: t("Move to {{account}}", {
+		account: accountName(move.account, view.tables.model_server),
+	}),
 	message: t("The conversation moves with the agent."),
 	choices: moveModels(move).map((choice) => ({
 		label: choice.label,

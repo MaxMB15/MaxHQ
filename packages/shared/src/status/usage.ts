@@ -11,7 +11,14 @@
 
 import { t } from "../i18n";
 
-import { isLocalAccount, kindName, VENDOR_NAME } from "./agent-kind";
+import {
+	cloudServerOf,
+	isLocalAccount,
+	kindName,
+	type KindAccount,
+	type ServerLookup,
+	VENDOR_NAME,
+} from "./agent-kind";
 import { plural, formatPercent } from "./format";
 import { subscriptions } from "./subscriptions";
 import type { Account, Timestamp, UsageSpend, UsageWindow, Vendor } from "../bindings";
@@ -229,12 +236,17 @@ export { VENDOR_NAME };
  * The account's name as its plan reads, such as "Claude Max" or "Codex
  * Plus". Without a reported plan it falls back to the product alone, since
  * the app never guesses a tier. A local ACP agent goes by the name you gave
- * it, and a local model's account is Local, never Claude.
+ * it, and a local model's account is Local, never Claude, or its cloud
+ * service's name, such as "OpenRouter", when `servers` says it's one.
  */
 export const accountName = (
-	account: Pick<Account, "vendor" | "plan" | "label"> & Partial<Pick<Account, "login">>
+	account: Pick<Account, "vendor" | "plan" | "label"> & Partial<KindAccount>,
+	servers?: ServerLookup
 ): string => {
-	if (isLocalAccount(account)) return kindName("local");
+	if (isLocalAccount(account)) {
+		const server = cloudServerOf(account, servers);
+		return server?.label ?? kindName("local");
+	}
 	if (account.vendor === "acp") return account.label;
 	const plan = account.plan?.trim();
 	if (!plan) return VENDOR_NAME[account.vendor];

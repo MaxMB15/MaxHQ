@@ -39,12 +39,14 @@ import {
 	vendorHasMode,
 } from "../settings/permission";
 import {
+	cloudAccountOptions,
+	entryOf,
 	localAccountOption,
 	localModelOptions,
 	resolveLocal,
 	shownLocalModel,
 } from "../local-models/select";
-import { isLocalAccount } from "../status/agent-kind";
+import { accountKind, isLocalAccount, type KindMark } from "../status/agent-kind";
 import { formatClock, plural } from "../status/format";
 import type { Tone } from "../tasks/format";
 import { accountName, accountWindows, blockingWindow, type WindowView } from "../status/usage";
@@ -89,6 +91,8 @@ export type Option = {
 	readonly group?: string;
 	/** A login's own usage windows, drawn as bars on the right. */
 	readonly usage?: readonly WindowView[];
+	/** The mark an Agent entry shows, such as Codex's or a cloud service's. */
+	readonly mark?: KindMark;
 };
 
 /** The form's choices made consistent with the view. */
@@ -218,8 +222,9 @@ const whoOf = (view: ViewState, account: Account): string =>
 
 /**
  * The logins on a device, which pick the vendor too. The device's local
- * models come last as one Local entry, standing for `selected` when that's
- * one of its local accounts.
+ * models come next as one Local entry, standing for `selected` when that's
+ * one of its local accounts, and each cloud service it reaches last, as an
+ * entry of its own.
  */
 export const accountOptions = (
 	view: ViewState,
@@ -248,19 +253,22 @@ export const accountOptions = (
 					: `${CLI_NAME[account.vendor]}, ${whoOf(view, account)}`,
 				warn: blocked !== undefined,
 				usage: accountWindows(account),
+				mark: accountKind(account),
 			};
 		})
-		.concat(local ? [local] : []);
+		.concat(local ? [local] : [], cloudAccountOptions(view, device));
 };
 
 /**
  * The models a login offers, with its default marked. A local login offers
- * the models of every local login on its device, grouped by server, so
- * picking one can move to another server's login; `modelChoice` reads the
- * value back.
+ * the models of every local login under its Agent entry on its device,
+ * grouped by server, so picking one can move to another server's login;
+ * `modelChoice` reads the value back. A cloud service's login offers its
+ * own models alone.
  */
 export const modelOptions = (view: ViewState, account: Account | undefined): Option[] => {
-	if (account && isLocalAccount(account)) return localModelOptions(view, account.device);
+	if (account && isLocalAccount(account))
+		return localModelOptions(view, account.device, entryOf(view, account));
 	const models = modelsOf(view, account);
 	if (models.length === 0) {
 		return account?.vendor === "acp"

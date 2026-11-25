@@ -225,6 +225,8 @@ describe("the Local models page", () => {
 
 		const ollama = await group("Ollama on gpu-box");
 		expect(ollama.getByText(OLLAMA_URL)).toHaveClass("selectable");
+		// A server you run is no cloud service.
+		expect(ollama.queryByText("Cloud service")).toBeNull();
 		expect(ollama.getByText("Not encrypted on the network").parentElement).toHaveAttribute(
 			"title",
 			expect.stringMatching(/^Plain http to another machine/)
@@ -317,6 +319,41 @@ describe("the Local models page", () => {
 		);
 		expect(act).toHaveBeenCalledTimes(1);
 		expect(await devboxServers(source)).toBe(before);
+	});
+
+	it("turns Cloud service on when Test finds one, until you set it yourself", async () => {
+		const source = renderPage();
+		const act = vi.spyOn(source, "modelAction");
+		// The Mac's OpenRouter says it is a cloud service.
+		expect((await group("OpenRouter")).getByText("Cloud service")).toBeInTheDocument();
+
+		const form = await openForm();
+		const cloud = form.getByRole("switch", { name: "Cloud service" });
+		expect(form.getByText(/^A hosted API, not hardware you run\./)).toBeInTheDocument();
+		expect(cloud).not.toBeChecked();
+		const url = "https://openrouter.ai/api";
+		fireEvent.change(form.getByRole("textbox", { name: "URL" }), { target: { value: url } });
+		const test = form.getByRole("button", { name: "Test" });
+		fireEvent.click(test);
+		await form.findByRole("status", { name: "What the test found" });
+		expect(cloud).toBeChecked();
+
+		// Once you set it, a Test leaves it as you set it.
+		fireEvent.click(cloud);
+		expect(cloud).not.toBeChecked();
+		fireEvent.click(test);
+		await waitFor(() => expect(act).toHaveBeenCalledTimes(2));
+		await form.findByRole("status", { name: "What the test found" });
+		expect(cloud).not.toBeChecked();
+
+		fireEvent.click(cloud);
+		fireEvent.click(form.getByRole("button", { name: "Add" }));
+		await waitFor(() =>
+			expect(act).toHaveBeenLastCalledWith(
+				MAC,
+				expect.objectContaining({ action: "add_server", url, cloud: true })
+			)
+		);
 	});
 
 	it("says when the device's maxd is too old for local models", async () => {

@@ -6,13 +6,24 @@
 // leads to its Local models settings. Its models sit under their server,
 // "This Mac" for the Mac the app runs on, each with how well it fits; the
 // catalog models not downloaded yet follow, and a last row opens the setup.
+// Each cloud service the device reaches follows Local as an agent of its
+// own, named after it, with its own models alone.
 
 import { t } from "../i18n";
 
 import { estimate, recommendedFile, type Fit } from "./fit";
-import { catalogEntry, localAccountsOn, localModelsOf, serverOf, sharingOff } from "./models";
+import {
+	catalogEntry,
+	LOCAL_ENTRY,
+	localAccountsOn,
+	localModelsOf,
+	serverOf,
+	sharingOff,
+	type LocalEntry,
+} from "./models";
 import {
 	catalogRows,
+	cloudAccountOptions,
 	LOCAL_SETUP_VALUE,
 	localAccountOption,
 	localModelKey,
@@ -198,12 +209,13 @@ export const localKindOption = (
 				? t("Download a model in Settings first")
 				: t("Add a server URL in Settings first"),
 		warn: true,
+		mark: "local",
 	};
 };
 
 /**
  * The agent picker's entries for a device: its logins, then Local, which
- * always shows.
+ * always shows, then each cloud service it reaches.
  */
 export const agentOptions = (
 	view: ViewState,
@@ -218,6 +230,7 @@ export const agentOptions = (
 	return [
 		...accountOptions(view, device, now, selected).filter((o) => !local(o.value)),
 		localKindOption(view, device, selected),
+		...cloudAccountOptions(view, device),
 	];
 };
 
@@ -244,16 +257,22 @@ const notDownloaded = (view: ViewState, device: DeviceId): Option[] => {
 };
 
 /**
- * The model picker's entries for a local agent on a device: each server's
- * models under "This Mac" or the server's name, with a fit tag where it's
- * known; the catalog models not downloaded yet; and a row that opens the
- * Local models settings. A Mac whose switch keeps this device's agents off
- * its models shows them turned off, with a row that opens its settings. `modelChoice` reads a model's value back, and
- * `opensLocalSetup` the others.
+ * The model picker's entries for a local agent on a device under `entry`:
+ * each server's models under "This Mac" or the server's name, with a fit
+ * tag where it's known; the catalog models not downloaded yet; and a row
+ * that opens the Local models settings. A Mac whose switch keeps this
+ * device's agents off its models shows them turned off, with a row that
+ * opens its settings. A cloud service's entry lists its own models alone.
+ * `modelChoice` reads a model's value back, and `opensLocalSetup` the
+ * others.
  */
-export const localPickerOptions = (view: ViewState, device: DeviceId): Option[] => {
-	const listed = localModelOptions(view, device);
-	const accounts = localAccountsOn(view, device);
+export const localPickerOptions = (
+	view: ViewState,
+	device: DeviceId,
+	entry: LocalEntry = LOCAL_ENTRY
+): Option[] => {
+	const listed = localModelOptions(view, device, entry);
+	const accounts = localAccountsOn(view, device, entry);
 	const models = accounts.flatMap((account): Option[] => {
 		const server = serverOf(view, account);
 		if (!server) return [];
@@ -275,6 +294,7 @@ export const localPickerOptions = (view: ViewState, device: DeviceId): Option[] 
 			? [...rows, turnOnOption(view, server.device, group)]
 			: rows;
 	});
+	if (entry !== LOCAL_ENTRY) return models;
 	// The catalogs to offer: the device's own, and those of the Macs whose
 	// servers its local agents reach.
 	const catalogs = [

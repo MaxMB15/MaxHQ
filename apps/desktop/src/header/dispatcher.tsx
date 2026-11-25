@@ -360,6 +360,7 @@ export const DispatchBox = () => {
 	const mac = useView((s) => dispatcherDevice(s.view));
 	const pills = useView((s) => (mac ? takesAnswerPills(s.view, mac) : false));
 	const account = useDispatcherAccount();
+	const servers = useView((s) => s.view.tables.model_server);
 	const dispatcher = useView((s) => (mac ? s.view.tables.dispatcher.get(mac) : undefined));
 	const talking = useView((s) => talkingTo(s.view, state, dispatcher));
 	const plan = shownPlan(state, dispatcher);
@@ -464,7 +465,7 @@ export const DispatchBox = () => {
 					>
 						<div className="flex shrink-0 items-center gap-1 border-b border-sidebar-border py-1.5 pr-2 pl-4">
 							<span className="mr-auto truncate text-[12px] text-muted-foreground">
-								{dispatcherTitle(account)}
+								{dispatcherTitle(account, servers)}
 							</span>
 							<ChatButtons
 								panel={chats}

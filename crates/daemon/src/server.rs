@@ -3877,6 +3877,7 @@ pub(crate) mod tests {
                     label: "stolen".into(),
                     url: "http://gpu-box.example.com:11434".into(),
                     token: None,
+                    cloud: false,
                 },
             },
             ClientMessage::ModelAction {

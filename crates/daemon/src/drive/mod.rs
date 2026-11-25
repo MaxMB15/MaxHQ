@@ -13,6 +13,7 @@
 //! the timeline store numbers each new ID as it arrives.
 
 use std::any::Any;
+use std::collections::BTreeMap;
 use std::ffi::OsString;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
@@ -247,6 +248,13 @@ pub struct ServerLogin {
     pub model: Option<String>,
     /// Whether the agent gets the lean set of MaxHQ tools.
     pub lean: bool,
+    /// Whether the server is a hosted API rather than hardware you run,
+    /// whose agents write answers as long as the model allows.
+    pub cloud: bool,
+    /// The most each of the server's models writes in one answer, by model
+    /// ID, where the server says. An agent may run any of them, not only
+    /// `model`.
+    pub max_outputs: BTreeMap<String, u32>,
 }
 
 /// An attachment moved into the agent's folder, ready for the CLI.

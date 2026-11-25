@@ -41,7 +41,7 @@ export const DispatcherSection = () => {
 		choose(
 			t("Runs as"),
 			accounts.map((a) => ({
-				label: dispatcherAccountLabel(a),
+				label: dispatcherAccountLabel(a, view.tables.model_server),
 				pick: () => keepAccount(a.id),
 			}))
 		);
@@ -74,7 +74,9 @@ export const DispatcherSection = () => {
 				onPress={accounts.length > 1 ? pickAccount : undefined}
 			>
 				<Text style={styles.value} numberOfLines={1}>
-					{reach.account ? accountName(reach.account) : t("None")}
+					{reach.account
+						? accountName(reach.account, view.tables.model_server)
+						: t("None")}
 				</Text>
 			</CardRow>
 		</Card>

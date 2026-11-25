@@ -2,16 +2,22 @@
 // Copyright (c) 2026 Max Boksem
 
 // The agent kinds' marks and the small spinner the timeline uses. A local
-// agent gets a plain chip, never a vendor's mark.
+// agent gets a plain chip, never a vendor's mark, and one on a cloud
+// service a cloud.
 
 import type { ReactNode } from "react";
 
 import type { Agent } from "@maxhq/shared/bindings";
-import { agentKind, type AgentKind } from "@maxhq/shared/status/agent-kind";
+import {
+	agentKind,
+	agentMark,
+	type AgentKind,
+	type KindMark,
+} from "@maxhq/shared/status/agent-kind";
 import { useServicesIfAny } from "@/app/services";
 import { cn } from "@/lib/utils";
 
-const MARK: Record<AgentKind, ReactNode> = {
+const MARK: Record<KindMark, ReactNode> = {
 	claude: (
 		<path d="M12 3v6M12 15v6M3 12h6M15 12h6M5.6 5.6l4.3 4.3M14.1 14.1l4.3 4.3M18.4 5.6l-4.3 4.3M9.9 14.1l-4.3 4.3" />
 	),
@@ -34,19 +40,21 @@ const MARK: Record<AgentKind, ReactNode> = {
 			<path d="M12 3v4M9 13h.01M15 13h.01" />
 		</>
 	),
+	cloud: <path d="M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9Z" />,
 };
 
 /**
- * Claude's asterisk, Codex's hexagon, Cursor's pointer, Local's chip or
- * another agent's robot, drawn in the current color. Pass the kind from
- * `agentKind`, so a local agent never gets Claude's mark.
+ * Claude's asterisk, Codex's hexagon, Cursor's pointer, Local's chip, a
+ * cloud service's cloud or another agent's robot, drawn in the current
+ * color. Pass the mark from `agentMark` or the kind from `agentKind`, so a
+ * local agent never gets Claude's mark.
  */
 export const VendorIcon = ({
 	kind,
 	size = 12,
 	className,
 }: {
-	kind: AgentKind;
+	kind: KindMark;
 	size?: number;
 	className?: string;
 }) => (
@@ -77,7 +85,13 @@ type KindOf = Pick<Agent, "vendor" | "account" | "local">;
 export const useAgentKind = (agent: KindOf): AgentKind =>
 	agentKind(agent, useServicesIfAny()?.view.getState().view.tables.account ?? []);
 
-/** An agent's mark, from the kind `useAgentKind` finds. */
+/** The mark an agent shows, as `useAgentKind` finds its kind: a cloud for a cloud service's. */
+export const useAgentMark = (agent: KindOf): KindMark => {
+	const tables = useServicesIfAny()?.view.getState().view.tables;
+	return agentMark(agent, tables?.account ?? [], tables?.model_server);
+};
+
+/** An agent's mark, as `useAgentMark` finds it. */
 export const AgentIcon = ({
 	agent,
 	size,
@@ -86,7 +100,7 @@ export const AgentIcon = ({
 	agent: KindOf;
 	size?: number;
 	className?: string;
-}) => <VendorIcon kind={useAgentKind(agent)} size={size} className={className} />;
+}) => <VendorIcon kind={useAgentMark(agent)} size={size} className={className} />;
 
 /** A ring that turns while a step runs. */
 export const Spinner = ({ size = 12, className }: { size?: number; className?: string }) => (

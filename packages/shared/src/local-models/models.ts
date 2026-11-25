@@ -6,12 +6,15 @@
 // URL you gave, or another device's managed server reached over the maxd
 // link. The models to offer come from that server, named as the catalog
 // names them, and a device's default pick comes from its settings, else
-// the catalog's default model, else the first model ready.
+// the catalog's default model, else the first model ready. A cloud service,
+// such as OpenRouter, is a server URL too, but it shows as an agent of its
+// own rather than under Local, so each of its accounts is an entry apart.
 
 import { isLocalAccount } from "../status/agent-kind";
 import { all, type ViewState } from "../view/replica";
 import type {
 	Account,
+	AccountId,
 	CatalogModel,
 	DeviceId,
 	LocalModelSettings,
@@ -84,6 +87,35 @@ export const serverOf = (
 ): ModelServer | undefined =>
 	account.model_server ? view.tables.model_server.get(account.model_server) : undefined;
 
+/**
+ * Whether a server is a hosted API rather than hardware you run, as its
+ * `maxd` says. One from a `maxd` older than cloud servers says nothing and
+ * counts as Local.
+ */
+export const isCloudServer = (server: Pick<ModelServer, "cloud"> | undefined): boolean =>
+	server?.cloud === true;
+
+/** Whether a local account runs on a cloud service. */
+export const isCloudAccount = (
+	view: ViewState,
+	account: Pick<Account, "login" | "model_server">
+): boolean => isLocalAccount(account) && isCloudServer(serverOf(view, account));
+
+/** The Agent entry that stands for the local accounts on hardware you run. */
+export const LOCAL_ENTRY = "local";
+
+/**
+ * The Agent entry a local account shows under: Local, for hardware you run,
+ * or a cloud service's account, which is an entry of its own.
+ */
+export type LocalEntry = typeof LOCAL_ENTRY | AccountId;
+
+/** The Agent entry a local account shows under. */
+export const entryOf = (
+	view: ViewState,
+	account: Pick<Account, "id" | "login" | "model_server">
+): LocalEntry => (isCloudAccount(view, account) ? account.id : LOCAL_ENTRY);
+
 /** The catalog entry a server's model runs, from the catalog of the server's device. */
 export const catalogEntry = (
 	view: ViewState,
@@ -126,9 +158,13 @@ export const sharingOff = (
 /**
  * The local accounts on a device: the ones on its own servers first, a
  * managed one before URLs, then the ones that reach another device's
- * server, each by label.
+ * server, each by label. With `entry`, only those under that Agent entry.
  */
-export const localAccountsOn = (view: ViewState, device: DeviceId): Account[] => {
+export const localAccountsOn = (
+	view: ViewState,
+	device: DeviceId,
+	entry?: LocalEntry
+): Account[] => {
 	const rank = (account: Account): number => {
 		const server = serverOf(view, account);
 		if (!server) return 3;
@@ -136,7 +172,12 @@ export const localAccountsOn = (view: ViewState, device: DeviceId): Account[] =>
 		return server.kind.type === "managed" ? 0 : 1;
 	};
 	return all(view, "account")
-		.filter((a) => a.device === device && isLocalAccount(a))
+		.filter(
+			(a) =>
+				a.device === device &&
+				isLocalAccount(a) &&
+				(entry === undefined || entryOf(view, a) === entry)
+		)
 		.sort(
 			(a, b) =>
 				rank(a) - rank(b) || a.label.localeCompare(b.label) || a.id.localeCompare(b.id)
@@ -155,10 +196,11 @@ export type LocalPick = {
 
 /**
  * Every model a device's local agents can start on, by account and then as
- * the server lists them. A Mac's server whose switch is off has none.
+ * the server lists them, only under `entry` when given. A Mac's server
+ * whose switch is off has none.
  */
-export const localPicksOn = (view: ViewState, device: DeviceId): LocalPick[] =>
-	localAccountsOn(view, device).flatMap((account) => {
+export const localPicksOn = (view: ViewState, device: DeviceId, entry?: LocalEntry): LocalPick[] =>
+	localAccountsOn(view, device, entry).flatMap((account) => {
 		const server = serverOf(view, account);
 		if (!server || !usableServer(server) || sharingOff(view, device, server)) return [];
 		return server.models.map((model) => ({ account, server, model }));
@@ -167,9 +209,15 @@ export const localPicksOn = (view: ViewState, device: DeviceId): LocalPick[] =>
 /**
  * The model a new local agent on a device starts on: the device's default
  * while it's there, else the catalog's default model, else the first one.
+ * With `entry`, the one under that Agent entry, so a default on a cloud
+ * service leaves Local its own.
  */
-export const defaultLocalPick = (view: ViewState, device: DeviceId): LocalPick | null => {
-	const picks = localPicksOn(view, device);
+export const defaultLocalPick = (
+	view: ViewState,
+	device: DeviceId,
+	entry?: LocalEntry
+): LocalPick | null => {
+	const picks = localPicksOn(view, device, entry);
 	const wanted = view.tables.device_settings.get(device)?.local_models?.default_model;
 	return (
 		(wanted &&
@@ -189,7 +237,7 @@ export const serverModelChoices = (view: ViewState, account: Account): readonly 
 	if (account.models.length > 0) return account.models;
 	const server = serverOf(view, account);
 	if (!server) return [];
-	const pick = defaultLocalPick(view, account.device);
+	const pick = defaultLocalPick(view, account.device, entryOf(view, account));
 	const mine = pick?.account.id === account.id;
 	return server.models.map((model, index) => ({
 		id: model.id,
