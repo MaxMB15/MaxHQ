@@ -10,12 +10,11 @@
 use std::collections::BTreeMap;
 use std::fs;
 use std::io::{self, Read};
-use std::os::unix::ffi::OsStrExt;
-use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
 
 use maxhq_core::skills::ignored;
 use maxhq_core::skills::tree::{self, TreeError, MAX_BYTES, MAX_ENTRIES};
+use maxhq_os::fsmode;
 use maxhq_protocol::message::{EntryKind, ManifestEntry};
 use maxhq_protocol::skills::TreeHash;
 use maxhq_transfer::beneath::{Dir, FileType};
@@ -55,7 +54,7 @@ impl Held {
                 match name.into_string() {
                     Ok(name) => names.push(name),
                     Err(name) => {
-                        let shown = String::from_utf8_lossy(name.as_bytes()).into_owned();
+                        let shown = name.to_string_lossy().into_owned();
                         return Err(TreeError::BadPath(within(&folder, &shown)));
                     }
                 }
@@ -97,7 +96,8 @@ impl Held {
                                 reason: "it changed while it was read".into(),
                             });
                         }
-                        let executable = meta.permissions().mode() & 0o111 != 0;
+                        // As `tree::read` has it, so the trees match.
+                        let executable = fsmode::is_executable(Path::new(&path), &meta);
                         let sha = sha256_hex(&content);
                         entries.push(entry(
                             path.clone(),
@@ -137,7 +137,7 @@ impl Held {
                 EntryKind::File => {
                     fs::write(&target, self.file(&entry.path).unwrap_or_default())?;
                     let mode = if entry.executable { 0o755 } else { 0o644 };
-                    fs::set_permissions(&target, fs::Permissions::from_mode(mode))?;
+                    fsmode::set_mode(&target, mode)?;
                 }
                 // A link is refused when it's read.
                 EntryKind::Symlink { .. } => {}
@@ -185,10 +185,7 @@ fn sha256_hex(bytes: &[u8]) -> String {
 
 #[cfg(test)]
 mod tests {
-    use std::os::unix::fs::symlink;
-    use std::sync::mpsc;
-    use std::time::Duration;
-
+    use maxhq_core::fs_ext::symlink;
     use maxhq_core::skills::disk::DiskFs;
 
     use super::*;
@@ -198,11 +195,7 @@ mod tests {
         fs::create_dir_all(dir.join("scripts/inner")).unwrap();
         fs::write(dir.join("SKILL.md"), "---\nname: a\n---\nSteps.\n").unwrap();
         fs::write(dir.join("scripts/run.sh"), "echo hi\n").unwrap();
-        fs::set_permissions(
-            dir.join("scripts/run.sh"),
-            fs::Permissions::from_mode(0o755),
-        )
-        .unwrap();
+        fsmode::set_mode(&dir.join("scripts/run.sh"), 0o755).unwrap();
         fs::write(dir.join(".DS_Store"), "finder").unwrap();
     }
 
@@ -236,10 +229,10 @@ mod tests {
         assert_eq!(tree::of(&DiskFs, &to).unwrap(), read);
         let copied = fs::read_to_string(to.join("SKILL.md")).unwrap();
         assert_eq!(copied, "---\nname: a\n---\nSteps.\n");
-        let mode = fs::metadata(to.join("scripts/run.sh"))
-            .unwrap()
-            .permissions();
-        assert_eq!(mode.mode() & 0o777, 0o755);
+        if cfg!(unix) {
+            let mode = fsmode::mode_of(&fs::metadata(to.join("scripts/run.sh")).unwrap());
+            assert_eq!(mode & 0o777, 0o755);
+        }
     }
 
     #[test]
@@ -259,6 +252,8 @@ mod tests {
         }
     }
 
+    // Windows makes no pipe at a path in a folder.
+    #[cfg(unix)]
     #[test]
     fn a_pipe_is_refused_without_waiting_for_a_writer() {
         let dir = TempDir::new();
@@ -268,12 +263,12 @@ mod tests {
             .arg(folder.join("notes"))
             .status();
         assert!(made.unwrap().success());
-        let (tx, rx) = mpsc::channel();
+        let (tx, rx) = std::sync::mpsc::channel();
         std::thread::spawn(move || {
             let _ = tx.send(Held::at(&folder).map(drop));
         });
         let read = rx
-            .recv_timeout(Duration::from_secs(10))
+            .recv_timeout(std::time::Duration::from_secs(10))
             .expect("the read is still waiting on the pipe");
         assert!(matches!(read, Err(TreeError::Special(_))), "{read:?}");
     }

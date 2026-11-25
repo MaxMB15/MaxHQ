@@ -77,8 +77,8 @@ pub fn dir_all_with_mode(path: &Path, mode: u32) -> io::Result<()> {
 /// link's folder and spelled with `/`. Windows makes a folder's link when
 /// the target is a folder now, and needs Developer Mode or an
 /// administrator to make one at all; without either, the error says so.
-pub fn symlink(target: &Path, link: &Path) -> io::Result<()> {
-    imp::symlink(target, link)
+pub fn symlink(target: impl AsRef<Path>, link: impl AsRef<Path>) -> io::Result<()> {
+    imp::symlink(target.as_ref(), link.as_ref())
 }
 
 /// Removes the file or link at `path`. Windows keeps a link to a folder

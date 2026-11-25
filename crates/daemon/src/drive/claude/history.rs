@@ -964,10 +964,9 @@ mod tests {
         append(&elsewhere, &[reply("msg_elsewhere", "Not the agent's")]);
         let meta = session.dir.path().join("meta");
         fs::write(&meta, json!({"toolUseId": "toolu_meta"}).to_string()).unwrap();
-        maxhq_core::fs_ext::symlink(&meta, &session.subagents().join("agent-a2.meta.json"))
-            .unwrap();
+        maxhq_core::fs_ext::symlink(&meta, session.subagents().join("agent-a2.meta.json")).unwrap();
         session.meta("a1", "toolu_agent");
-        maxhq_core::fs_ext::symlink(&elsewhere, &session.subagents().join("agent-a1.jsonl"))
+        maxhq_core::fs_ext::symlink(&elsewhere, session.subagents().join("agent-a1.jsonl"))
             .unwrap();
         session.lead(&[call("msg_lead", "toolu_agent", "Agent")]);
         let mut history = session.history();

@@ -167,7 +167,7 @@ fn local_servers_are_kept_by_checkout() {
     let plain = dir.path().join("plain/sub");
     fs::create_dir_all(&plain).unwrap();
     fs::create_dir_all(dir.path().join("links")).unwrap();
-    fs_ext::symlink(&main, &dir.path().join("links/main")).unwrap();
+    fs_ext::symlink(&main, dir.path().join("links/main")).unwrap();
 
     let main_root = fs_ext::canonicalize(&main).unwrap();
     assert_eq!(project_root(&main), main_root);

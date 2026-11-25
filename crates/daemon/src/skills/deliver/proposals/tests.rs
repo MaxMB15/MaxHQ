@@ -5,6 +5,8 @@ use std::collections::HashMap;
 use std::sync::Mutex;
 use std::time::Duration;
 
+use maxhq_core::fs_ext;
+use maxhq_os::fsmode;
 use maxhq_protocol::guest::GuestProposalFile;
 use maxhq_protocol::ids::{BootId, DeviceId};
 use maxhq_protocol::model::{Device, DeviceSettings, Workspace};
@@ -347,7 +349,7 @@ async fn drift_and_a_scan_make_one_proposal_that_comes_back_after_a_restart() {
     };
     rig.delivery.ensure(&place).unwrap();
     let copy = repo.join(".maxhq/skills/git-flow");
-    fs::set_permissions(copy.join(SKILL_FILE), fs::Permissions::from_mode(0o644)).unwrap();
+    fsmode::set_mode(&copy.join(SKILL_FILE), 0o644).unwrap();
     write(&copy, "git-flow", "Changed in place");
     assert_eq!(rig.delivery.ensure(&place).unwrap().drift, ["git-flow"]);
     let [drift] = rig.proposals().try_into().unwrap();
@@ -572,7 +574,7 @@ async fn a_proposals_folder_that_became_a_link_isnt_read_or_emptied() {
         // The same folder, now reached through a link to outside the checkout.
         let outside = rig.dir.path().join("outside");
         fs::rename(repo.join(link), &outside).unwrap();
-        std::os::unix::fs::symlink(&outside, repo.join(link)).unwrap();
+        fs_ext::symlink(&outside, repo.join(link)).unwrap();
         let kept = if link == ".maxhq" {
             outside.join("proposals/mine/SKILL.md")
         } else {
@@ -609,7 +611,7 @@ async fn a_proposals_link_to_the_folder_above_doesnt_offer_a_sibling_checkout() 
     fs::create_dir_all(sibling.join(".git")).unwrap();
     fs::write(sibling.join(".git/HEAD"), "unpushed").unwrap();
     fs::create_dir_all(repo.join(".maxhq")).unwrap();
-    std::os::unix::fs::symlink("../..", repo.join(".maxhq/proposals")).unwrap();
+    fs_ext::symlink("../..", repo.join(".maxhq/proposals")).unwrap();
 
     rig.delivery.found(rig.project, &at, None);
 
@@ -626,13 +628,13 @@ fn the_open_refuses_a_link_that_turns_up_after_the_look() {
         assert!(open_checkout(&repo).is_ok(), "{link}");
         // The checkout itself may be reached through a link.
         let linked = dir.path().join("linked");
-        std::os::unix::fs::symlink(&repo, &linked).unwrap();
+        fs_ext::symlink(&repo, &linked).unwrap();
         assert!(open_checkout(&linked).is_ok(), "{link}");
 
         // A link put in after the look is refused by the open alone.
         let away = dir.path().join("away");
         fs::rename(repo.join(link), &away).unwrap();
-        std::os::unix::fs::symlink(&away, repo.join(link)).unwrap();
+        fs_ext::symlink(&away, repo.join(link)).unwrap();
         assert!(open_checkout(&repo).is_err(), "{link}");
     }
 }
@@ -649,7 +651,7 @@ async fn rejecting_a_proposal_whose_folder_is_a_link_removes_only_the_link() {
     write(&elsewhere, "mine", "Someone else's");
     let folder = repo.join(".maxhq/proposals/mine");
     fs::remove_dir_all(&folder).unwrap();
-    std::os::unix::fs::symlink(&elsewhere, &folder).unwrap();
+    fs_ext::symlink(&elsewhere, &folder).unwrap();
 
     rig.answer(proposal.id, ProposalAction::Reject, None)
         .await
@@ -658,6 +660,8 @@ async fn rejecting_a_proposal_whose_folder_is_a_link_removes_only_the_link() {
     assert!(elsewhere.join(SKILL_FILE).is_file());
 }
 
+// Windows makes no pipe at a path in a folder.
+#[cfg(unix)]
 #[tokio::test]
 async fn a_pipe_in_a_proposal_doesnt_hold_up_the_look() {
     let rig = Rig::new();
@@ -688,11 +692,7 @@ async fn the_diff_gives_each_changed_file_against_the_base() {
     write(&folder, "git-flow", "Two");
     fs::create_dir_all(folder.join("scripts")).unwrap();
     fs::write(folder.join("scripts/run.sh"), "echo hi\n").unwrap();
-    fs::set_permissions(
-        folder.join("scripts/run.sh"),
-        fs::Permissions::from_mode(0o755),
-    )
-    .unwrap();
+    fsmode::set_mode(&folder.join("scripts/run.sh"), 0o755).unwrap();
     rig.delivery.found(rig.project, &at, None);
     let [proposal] = rig.proposals().try_into().unwrap();
 
@@ -756,8 +756,11 @@ async fn a_containers_proposals_come_through_its_guest() {
         .proposals_dir(&at)
         .unwrap()
         .join("brand-new/scripts/go.sh");
-    let mode = fs::metadata(&mirrored).unwrap().permissions().mode();
-    assert_eq!(mode & 0o111, 0o111);
+    // Windows has no execute bits to keep.
+    if cfg!(unix) {
+        let mode = fsmode::mode_of(&fs::metadata(&mirrored).unwrap());
+        assert_eq!(mode & 0o111, 0o111);
+    }
 
     rig.answer(proposal.id, ProposalAction::Reject, None)
         .await
