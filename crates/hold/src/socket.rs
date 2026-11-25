@@ -11,31 +11,78 @@
 //! locked, since a holder that's ending removes it.
 
 use std::fs::{self, File, OpenOptions, TryLockError};
+use std::future::Future;
 use std::io;
-use std::os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt};
-use std::os::unix::net::UnixListener;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
+use std::time::Duration;
 
+use maxhq_os::fsmode;
+use maxhq_os::ipc::{LocalListener, LocalStream};
 use maxhq_protocol::ids::SessionId;
+use tokio::task::AbortHandle;
 
-use crate::files;
+use crate::{files, sys};
 
 /// The longest socket path the OS takes, counting the closing zero byte.
-pub(crate) const MAX_PATH: usize = if cfg!(target_os = "macos") { 104 } else { 108 };
+/// A pipe on Windows is named by a hash of the path, so any path fits.
+pub(crate) const MAX_PATH: Option<usize> = if cfg!(windows) {
+    None
+} else if cfg!(target_os = "macos") {
+    Some(104)
+} else {
+    Some(108)
+};
 
 /// How many names to try before giving up.
 const TRIES: usize = 100;
 
-/// A bound socket, removed with its lock file when dropped.
+/// How long to wait after a connection couldn't be taken.
+const ACCEPT_RETRY: Duration = Duration::from_millis(200);
+
+/// A bound socket, removed with its lock file when dropped. On Windows
+/// it's a named pipe, named after the path, which goes with the listener.
 pub(crate) struct Socket {
-    pub listener: UnixListener,
+    listener: Arc<LocalListener>,
     pub path: PathBuf,
     lock_path: PathBuf,
+    accepting: Option<AbortHandle>,
     _lock: File,
+}
+
+impl Socket {
+    /// Hands each connection to `serve` on a task of its own, until the
+    /// socket goes.
+    pub(crate) fn accept_each<F, Fut>(&mut self, serve: F)
+    where
+        F: Fn(LocalStream) -> Fut + Send + 'static,
+        Fut: Future<Output = ()> + Send + 'static,
+    {
+        let listener = self.listener.clone();
+        let task = tokio::spawn(async move {
+            loop {
+                match listener.accept().await {
+                    Ok(stream) => {
+                        tokio::spawn(serve(stream));
+                    }
+                    Err(err) => {
+                        eprintln!("couldn't accept a connection: {err}");
+                        tokio::time::sleep(ACCEPT_RETRY).await;
+                    }
+                }
+            }
+        });
+        if let Some(old) = self.accepting.replace(task.abort_handle()) {
+            old.abort();
+        }
+    }
 }
 
 impl Drop for Socket {
     fn drop(&mut self) {
+        if let Some(accepting) = self.accepting.take() {
+            accepting.abort();
+        }
         let _ = fs::remove_file(&self.path);
         let _ = fs::remove_file(&self.lock_path);
     }
@@ -47,7 +94,8 @@ pub(crate) fn short_name(session: &SessionId) -> String {
     hex[hex.len() - 12..].to_owned()
 }
 
-/// Binds a socket for `session` in `dir`, which must exist.
+/// Binds a socket for `session` in `dir`, which must exist. It's called
+/// on the runtime, which the listener belongs to.
 pub(crate) fn bind(dir: &Path, session: &SessionId) -> io::Result<Socket> {
     bind_named(dir, &short_name(session))
 }
@@ -61,13 +109,15 @@ pub(crate) fn bind_named(dir: &Path, base: &str) -> io::Result<Socket> {
             format!("{base}-{n}")
         };
         let path = dir.join(format!("{name}.sock"));
-        if path.as_os_str().len() >= MAX_PATH {
+        if let Some(max) = MAX_PATH
+            && path.as_os_str().len() >= max
+        {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidInput,
                 format!(
                     "the socket path {} is longer than the {} bytes the OS allows",
                     path.display(),
-                    MAX_PATH - 1
+                    max - 1
                 ),
             ));
         }
@@ -80,12 +130,14 @@ pub(crate) fn bind_named(dir: &Path, base: &str) -> io::Result<Socket> {
             Err(err) if err.kind() == io::ErrorKind::NotFound => {}
             Err(err) => return Err(err),
         }
-        let listener = UnixListener::bind(&path)?;
-        fs::set_permissions(&path, fs::Permissions::from_mode(0o600))?;
+        // Only this user can connect: the file is 0600 on Unix, and the
+        // pipe takes this user's clients alone on Windows.
+        let listener = Arc::new(LocalListener::bind(&path)?);
         return Ok(Socket {
             listener,
             path,
             lock_path,
+            accepting: None,
             _lock: lock,
         });
     }
@@ -98,12 +150,11 @@ pub(crate) fn bind_named(dir: &Path, base: &str) -> io::Result<Socket> {
 /// Locks the file at `path`, or `None` when someone else holds it.
 fn take(path: &Path) -> io::Result<Option<File>> {
     for _ in 0..TRIES {
-        let lock = OpenOptions::new()
-            .create(true)
-            .truncate(false)
-            .write(true)
-            .mode(0o600)
-            .open(path)?;
+        let lock = fsmode::set_open_mode(
+            OpenOptions::new().create(true).truncate(false).write(true),
+            0o600,
+        )
+        .open(path)?;
         match lock.try_lock() {
             Ok(()) => {}
             Err(TryLockError::WouldBlock) => return Ok(None),
@@ -112,12 +163,9 @@ fn take(path: &Path) -> io::Result<Option<File>> {
         // A holder that was ending may have removed the file after this
         // one opened it. Then the lock is on a file nobody else can see,
         // so try again with the file that's there now.
-        let locked = lock.metadata()?;
-        match fs::metadata(path) {
-            Ok(there) if there.ino() == locked.ino() && there.dev() == locked.dev() => {
-                return Ok(Some(lock));
-            }
-            Ok(_) => {}
+        match sys::same_file(&lock, path) {
+            Ok(true) => return Ok(Some(lock)),
+            Ok(false) => {}
             Err(err) if err.kind() == io::ErrorKind::NotFound => {}
             Err(err) => return Err(err),
         }
@@ -155,8 +203,8 @@ mod tests {
         assert_eq!(short_name(&session), "1234567890ab");
     }
 
-    #[test]
-    fn a_taken_name_moves_to_the_next_suffix() {
+    #[tokio::test]
+    async fn a_taken_name_moves_to_the_next_suffix() {
         let dir = dir();
         let session = SessionId::generate();
         let first = bind(&dir.0, &session).unwrap();
@@ -169,12 +217,13 @@ mod tests {
         assert!(third.path.ends_with(format!("{name}.sock")));
     }
 
-    #[test]
-    fn a_stale_socket_file_is_replaced() {
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn a_stale_socket_file_is_replaced() {
         let dir = dir();
         let session = SessionId::generate();
         let path = dir.0.join(format!("{}.sock", short_name(&session)));
-        drop(UnixListener::bind(&path).unwrap());
+        drop(std::os::unix::net::UnixListener::bind(&path).unwrap());
         assert!(path.exists());
         let socket = bind(&dir.0, &session).unwrap();
         assert_eq!(socket.path, path);

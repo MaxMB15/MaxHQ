@@ -6,18 +6,18 @@
 use std::ffi::OsString;
 use std::fs::{self, File, OpenOptions, TryLockError};
 use std::io::{self, Read, Seek, SeekFrom};
-use std::os::unix::ffi::{OsStrExt, OsStringExt};
-use std::os::unix::fs::OpenOptionsExt;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use maxhq_core::fs::{write_atomic, Atomic};
+use maxhq_os::fsmode;
 use maxhq_protocol::ids::SessionId;
 use maxhq_protocol::time::Timestamp;
-use serde::de::DeserializeOwned;
+use serde::de::{DeserializeOwned, Error as _};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 use crate::secret::{zero, Secret};
+use crate::sys;
 use crate::{Framing, Launch, Limits, RunAs};
 
 /// What to run, written before the holder starts.
@@ -60,7 +60,7 @@ impl Serialize for OsBytes {
         match self.0.to_str() {
             Some(text) => OsRepr::Text(text.to_owned()),
             None => OsRepr::Bytes {
-                bytes: self.0.as_bytes().to_vec(),
+                bytes: sys::os_bytes(&self.0).into_owned(),
             },
         }
         .serialize(serializer)
@@ -71,7 +71,8 @@ impl<'de> Deserialize<'de> for OsBytes {
     fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
         Ok(Self(match OsRepr::deserialize(deserializer)? {
             OsRepr::Text(text) => text.into(),
-            OsRepr::Bytes { bytes } => OsString::from_vec(bytes),
+            OsRepr::Bytes { bytes } => sys::os_from_bytes(bytes)
+                .ok_or_else(|| D::Error::custom("the bytes aren't a name this OS takes"))?,
         }))
     }
 }
@@ -188,6 +189,18 @@ pub(crate) struct HolderFile {
     pub child_pid: u32,
     pub socket: OsBytes,
     pub started_at: Timestamp,
+    /// When the holder's process started, as `maxhq_os::proc::started`
+    /// gives it, so a process that later gets its ID isn't taken for it.
+    /// Holders from before it leave it out.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub holder_started: Option<u64>,
+    /// The same for the program the holder runs.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub child_started: Option<u64>,
+    /// The holder couldn't leave its spawner's job on Windows, so ending
+    /// that job ends it too, and it won't outlive a `maxd` whose job goes.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub in_spawner_job: bool,
 }
 
 impl HolderFile {
@@ -232,11 +245,7 @@ pub(crate) fn remove_session(dir: &Path) -> io::Result<()> {
 
 /// Opens `path` for appending, making it readable only by this user.
 pub(crate) fn append(path: &Path) -> io::Result<File> {
-    OpenOptions::new()
-        .create(true)
-        .append(true)
-        .mode(0o600)
-        .open(path)
+    fsmode::set_open_mode(OpenOptions::new().create(true).append(true), 0o600).open(path)
 }
 
 /// Writes `value` as JSON, synced and renamed into place, so a reader sees
@@ -376,25 +385,39 @@ mod tests {
     fn os_strings_survive_json_whether_or_not_they_are_utf8() {
         let text = OsBytes(OsString::from("/usr/bin/claude"));
         assert_eq!(serde_json::to_string(&text).unwrap(), "\"/usr/bin/claude\"");
-        let bytes = OsBytes(OsString::from_vec(vec![b'a', 0xff, b'b']));
+        #[cfg(unix)]
+        let bytes = {
+            use std::os::unix::ffi::OsStringExt;
+            OsBytes(OsString::from_vec(vec![b'a', 0xff, b'b']))
+        };
+        #[cfg(windows)]
+        let bytes = {
+            use std::os::windows::ffi::OsStringExt;
+            OsBytes(OsString::from_wide(&[97, 0xD800, 98]))
+        };
         let json = serde_json::to_string(&bytes).unwrap();
+        #[cfg(unix)]
         assert_eq!(json, r#"{"bytes":[97,255,98]}"#);
+        #[cfg(windows)]
+        assert_eq!(json, r#"{"bytes":[97,237,160,128,98]}"#);
         let back: OsBytes = serde_json::from_str(&json).unwrap();
         assert_eq!(back, bytes);
     }
 
     #[test]
     fn the_key_file_is_private_and_a_missing_one_means_no_key() {
-        use std::os::unix::fs::PermissionsExt;
-
         let id = SessionId::generate().0.simple().to_string();
         let dir = std::env::temp_dir().join(format!("hold-key-{}", &id[20..]));
         private_dir_all(&dir).unwrap();
         assert!(read_key(&dir).unwrap().is_none());
         let key = crate::secret::new_key().unwrap();
         write_key(&dir, &key).unwrap();
-        let mode = fs::metadata(dir.join(KEY)).unwrap().permissions().mode();
-        assert_eq!(mode & 0o777, 0o600);
+        // Windows keeps the folder's own ACL, which `private_dir_all` set.
+        #[cfg(unix)]
+        assert_eq!(
+            fsmode::mode_of(&fs::metadata(dir.join(KEY)).unwrap()) & 0o777,
+            0o600
+        );
         assert_eq!(read_key(&dir).unwrap(), Some(key));
         fs::write(dir.join(KEY), [0xff]).unwrap();
         let err = read_key(&dir).unwrap_err();

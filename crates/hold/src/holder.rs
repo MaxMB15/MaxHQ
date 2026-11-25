@@ -5,14 +5,16 @@
 //!
 //! It starts in two steps. The first runs itself again with `--detached`
 //! and exits, so the second is nobody's child and can't be a process group
-//! leader. The second starts a new session with setsid, which takes it out
-//! of the spawner's process group and away from any terminal. On Linux it
-//! also becomes a child subreaper, so processes the CLI leaves behind come
-//! back to it rather than to init.
+//! leader. On Unix the second starts a new session with setsid, which takes
+//! it out of the spawner's process group and away from any terminal. On
+//! Linux it also becomes a child subreaper, so processes the CLI leaves
+//! behind come back to it rather than to init. On Windows the second step
+//! starts with no console, in a group of its own and out of the spawner's
+//! job when the job allows it, so ending `maxd` doesn't end it.
 //!
 //! The second step takes the session's lock, reads its key and the secret
 //! variables from stdin, binds its socket, starts the CLI in a process
-//! group of its own and prints `ready`. From then on its stdout and stderr
+//! group of its own, or a Job Object on Windows, and prints `ready`. From then on its stdout and stderr
 //! go to `holder.log`. A holder running as root can start the CLI as
 //! another user, as `user.rs` describes. It stays the CLI's parent and
 //! subreaper either way.
@@ -27,25 +29,21 @@
 //! CLI, a whole line at a time. Clients are tasks on a small runtime.
 
 use std::ffi::OsString;
-use std::fs::{self, File, OpenOptions, TryLockError};
+use std::fs::{File, OpenOptions, TryLockError};
 use std::future::Future;
 use std::io::{self, BufRead, BufReader, Read, Write};
-use std::os::fd::AsFd;
-use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
-use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::{ChildStderr, ChildStdin, ChildStdout, Command, ExitCode, Stdio};
 use std::sync::{mpsc as std_mpsc, Arc, Mutex, MutexGuard, PoisonError};
 use std::thread;
 use std::time::{Duration, Instant};
 
+use maxhq_os::fsmode;
+use maxhq_os::ipc::{self, LocalStream};
+use maxhq_os::proc;
 use maxhq_protocol::ids::SessionId;
 use maxhq_protocol::time::Timestamp;
-use rustix::process::{Pid, Signal, WaitOptions};
 use tokio::io::BufReader as AsyncBufReader;
-use tokio::net::unix::OwnedReadHalf;
-use tokio::net::UnixStream;
-use tokio::signal::unix::{signal, SignalKind};
 use tokio::sync::mpsc::error::TryRecvError;
 use tokio::sync::{mpsc, oneshot, watch};
 
@@ -58,8 +56,9 @@ use crate::pending::{self, Claim, Pending};
 use crate::secret::{self, Piped, Secret, Zeroed, PIPE_CAP};
 use crate::socket::{self, Socket};
 use crate::stderr::StderrLog;
-use crate::user;
+use crate::tree::{self, Sig, Tree};
 use crate::wire::{self, Failure, FromHolder, ToHolder};
+use crate::{sys, user};
 use crate::{ChildState, Exit, Framing, Limits, WriteOutcome};
 
 /// The flag the first step adds when it runs the second.
@@ -166,13 +165,10 @@ fn detach() -> ExitCode {
     };
     // Stdin goes down to the second step, which reads its key and the
     // secret variables from it.
-    let spawned = Command::new(&exe)
-        .args(std::env::args_os().skip(1))
-        .arg(DETACHED)
-        .spawn();
-    match spawned {
-        // Init or the nearest subreaper waits for it once this exits.
-        Ok(_second) => ExitCode::SUCCESS,
+    let mut second = Command::new(&exe);
+    second.args(std::env::args_os().skip(1)).arg(DETACHED);
+    match sys::spawn_second(&mut second) {
+        Ok(()) => ExitCode::SUCCESS,
         Err(err) => {
             eprintln!("couldn't run {}: {err}", exe.display());
             ExitCode::FAILURE
@@ -211,17 +207,10 @@ where
             return ExitCode::FAILURE;
         }
     };
-    if let Err(err) = rustix::process::setsid() {
-        eprintln!("couldn't start a new session: {err}");
+    if let Err(message) = sys::leave_session() {
+        eprintln!("{message}");
         return ExitCode::FAILURE;
     }
-    #[cfg(target_os = "linux")]
-    if let Err(err) = rustix::process::set_child_subreaper(Some(rustix::process::getpid())) {
-        eprintln!("couldn't become a child subreaper: {err}");
-    }
-    // The holder outlives whatever folder it was started in, so it keeps
-    // none of them busy.
-    let _ = std::env::set_current_dir("/");
     let runtime = match tokio::runtime::Builder::new_multi_thread()
         .worker_threads(2)
         .enable_all()
@@ -268,10 +257,6 @@ impl Started {
         let sockets = PathBuf::from(launch.sockets.0.clone());
         socket::make_dir(&sockets).map_err(at(&sockets))?;
         let socket = socket::bind(&sockets, &launch.session).map_err(at(&sockets))?;
-        socket
-            .listener
-            .set_nonblocking(true)
-            .map_err(at(&socket.path))?;
         let limits = launch.limits();
         let log = EventLog::create(dir, limits.rotate_at).map_err(at(dir))?;
         let stderr = StderrLog::create(&dir.join(STDERR), limits.stderr_cap).map_err(at(dir))?;
@@ -284,8 +269,8 @@ impl Started {
             .args(launch.args.iter().map(|arg| &arg.0))
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .process_group(0);
+            .stderr(Stdio::piped());
+        tree::prepare(&mut command);
         for key in &launch.env_remove {
             command.env_remove(&key.0);
         }
@@ -316,13 +301,8 @@ impl Started {
         else {
             return Err("the agent started without its pipes".into());
         };
-        let child_pid = i32::try_from(child.id())
-            .ok()
-            .and_then(Pid::from_raw)
-            .ok_or("the agent has no process ID")?;
-        // The holder reaps the CLI itself, so it can signal its group only
-        // while the ID still belongs to it.
-        drop(child);
+        let tree = Tree::adopt(child).map_err(|err| format!("couldn't start the agent: {err}"))?;
+        let child_pid = tree.pid();
 
         let (stdin_jobs, stdin_rx) = std_mpsc::channel();
         let holder = Arc::new(Holder {
@@ -332,7 +312,7 @@ impl Started {
             framing: launch.framing,
             limits,
             pid: std::process::id(),
-            child_pid,
+            tree,
             state: Mutex::new(State {
                 log,
                 tail: Tail::new(launch.memory_tail),
@@ -349,12 +329,15 @@ impl Started {
         });
         let record = HolderFile {
             holder_pid: holder.pid,
-            child_pid: child_pid.as_raw_nonzero().get().unsigned_abs(),
+            child_pid,
             socket: socket.path.as_path().into(),
             started_at: Timestamp::now(),
+            holder_started: proc::started(holder.pid),
+            child_started: proc::started(child_pid),
+            in_spawner_job: sys::in_spawner_job(),
         };
         if let Err(err) = files::write_json(&dir.join(HOLDER), &record) {
-            holder.signal_child(Signal::KILL);
+            holder.signal_child(Sig::Kill);
             return Err(format!("couldn't write {HOLDER}: {err}"));
         }
 
@@ -374,33 +357,9 @@ impl Started {
 
     async fn run(self) {
         let holder = self.holder;
-        match self
-            .socket
-            .listener
-            .try_clone()
-            .and_then(tokio::net::UnixListener::from_std)
-        {
-            Ok(listener) => {
-                let accepting = holder.clone();
-                tokio::spawn(async move {
-                    loop {
-                        match listener.accept().await {
-                            Ok((stream, _)) => {
-                                tokio::spawn(serve(accepting.clone(), stream));
-                            }
-                            Err(err) => {
-                                eprintln!("couldn't accept a connection: {err}");
-                                tokio::time::sleep(REAP_TICK).await;
-                            }
-                        }
-                    }
-                });
-            }
-            Err(err) => {
-                eprintln!("couldn't listen on {}: {err}", self.socket.path.display());
-                holder.quit();
-            }
-        }
+        let mut socket = self.socket;
+        let accepting = holder.clone();
+        socket.accept_each(move |stream| serve(accepting.clone(), stream));
         tokio::spawn(holder.clone().reap_loop());
         tokio::spawn(holder.clone().watch_signals());
 
@@ -424,7 +383,7 @@ impl Started {
             }
         }
         tokio::time::sleep(FLUSH_WAIT).await;
-        drop(self.socket);
+        drop(socket);
     }
 }
 
@@ -441,26 +400,20 @@ fn spawn_failure(program: &Path, cwd: &Path, err: &io::Error) -> String {
 
 /// Takes the session's lock, waiting a moment in case a client has it.
 pub(crate) fn take_lock(path: &Path) -> Result<File, String> {
-    let lock = OpenOptions::new()
-        .create(true)
-        .truncate(false)
-        .write(true)
-        .mode(0o600)
-        .open(path)
-        .map_err(|err| format!("couldn't open {}: {err}", path.display()))?;
+    let lock = fsmode::set_open_mode(
+        OpenOptions::new().create(true).truncate(false).write(true),
+        0o600,
+    )
+    .open(path)
+    .map_err(|err| format!("couldn't open {}: {err}", path.display()))?;
     let deadline = Instant::now() + LOCK_WAIT;
     loop {
         match lock.try_lock() {
             Ok(()) => {
                 // The folder may have been cleared away while this waited,
                 // and then the lock is on a file nobody else can see.
-                let locked = lock
-                    .metadata()
-                    .map_err(|err| format!("couldn't check {}: {err}", path.display()))?;
-                return match fs::metadata(path) {
-                    Ok(there) if there.ino() == locked.ino() && there.dev() == locked.dev() => {
-                        Ok(lock)
-                    }
+                return match sys::same_file(&lock, path) {
+                    Ok(true) => Ok(lock),
                     _ => Err(format!(
                         "{} went away as the holder started",
                         path.display()
@@ -487,10 +440,8 @@ pub(crate) fn read_stdin(keyed: bool, names: &[OsBytes]) -> Result<Piped, String
     if !keyed && names.is_empty() {
         return Ok((None, Vec::new()));
     }
-    let stdin = io::stdin()
-        .as_fd()
-        .try_clone_to_owned()
-        .map_err(|err| format!("couldn't read the secret variables: {err}"))?;
+    let stdin =
+        sys::stdin_file().map_err(|err| format!("couldn't read the secret variables: {err}"))?;
     // A thread does the reading, so a spawner that never writes can't hold
     // the holder up past the wait.
     let (done, read) = std_mpsc::channel();
@@ -499,7 +450,7 @@ pub(crate) fn read_stdin(keyed: bool, names: &[OsBytes]) -> Result<Piped, String
             .unwrap_or(u64::MAX)
             .saturating_add(1);
         let mut bytes = Zeroed(Vec::with_capacity(PIPE_CAP + 1));
-        let result = File::from(stdin).take(cap).read_to_end(&mut bytes.0);
+        let result = stdin.take(cap).read_to_end(&mut bytes.0);
         let _ = done.send(result.map(|_| bytes));
     });
     let bytes = match read.recv_timeout(SECRET_WAIT) {
@@ -525,10 +476,11 @@ pub(crate) fn read_stdin(keyed: bool, names: &[OsBytes]) -> Result<Piped, String
     Ok((key, secrets))
 }
 
-/// Points stdin at `/dev/null`, so nothing else reads the spawner's pipe.
+/// Points stdin at the null device, so nothing else reads the spawner's
+/// pipe.
 pub(crate) fn quiet_stdin() {
-    if let Ok(null) = File::open("/dev/null") {
-        let _ = rustix::stdio::dup2_stdin(&null);
+    if let Ok(null) = File::open(sys::NULL) {
+        sys::set_stdin(&null);
     }
 }
 
@@ -539,14 +491,10 @@ pub(crate) fn say_ready(dir: &Path) {
     let mut stdout = io::stdout();
     let _ = stdout.write_all(b"ready\n").and_then(|()| stdout.flush());
     match files::append(&dir.join(HOLDER_LOG)) {
-        Ok(log) => {
-            let _ = rustix::stdio::dup2_stdout(&log);
-            let _ = rustix::stdio::dup2_stderr(&log);
-        }
+        Ok(log) => sys::set_output(&log),
         Err(_) => {
-            if let Ok(null) = File::options().write(true).open("/dev/null") {
-                let _ = rustix::stdio::dup2_stdout(&null);
-                let _ = rustix::stdio::dup2_stderr(&null);
+            if let Ok(null) = File::options().write(true).open(sys::NULL) {
+                sys::set_output(&null);
             }
         }
     }
@@ -631,7 +579,7 @@ struct Holder {
     framing: Framing,
     limits: Limits,
     pid: u32,
-    child_pid: Pid,
+    tree: Tree,
     state: Mutex<State>,
     stderr: Mutex<StderrLog>,
     stdin: std_mpsc::Sender<StdinJob>,
@@ -751,41 +699,26 @@ impl Holder {
     /// reused.
     fn reap(&self) -> bool {
         let mut state = self.lock();
-        loop {
-            match rustix::process::wait(WaitOptions::NOHANG) {
-                Ok(Some((pid, status))) => {
-                    if pid == self.child_pid && matches!(state.phase, Phase::Running) {
-                        state.phase = Phase::Reaped {
-                            code: status.exit_status(),
-                            signal: status.terminating_signal(),
-                            at: Timestamp::now(),
-                        };
-                    }
-                }
-                Ok(None) => break,
-                Err(rustix::io::Errno::INTR) => {}
-                // No children left.
-                Err(_) => break,
-            }
+        if let Some(status) = self.tree.reap()
+            && matches!(state.phase, Phase::Running)
+        {
+            state.phase = Phase::Reaped {
+                code: status.code,
+                signal: status.signal,
+                at: Timestamp::now(),
+            };
         }
         !matches!(state.phase, Phase::Running)
     }
 
     async fn reap_loop(self: Arc<Self>) {
-        let mut sigchld = signal(SignalKind::child()).ok();
+        let mut reaper = self.tree.reaper();
         let mut tick = tokio::time::interval(REAP_TICK);
         let mut drain_until = None;
         loop {
-            match sigchld.as_mut() {
-                Some(sigchld) => {
-                    tokio::select! {
-                        _ = sigchld.recv() => {}
-                        _ = tick.tick() => {}
-                    }
-                }
-                None => {
-                    tick.tick().await;
-                }
+            tokio::select! {
+                () = reaper.next() => {}
+                _ = tick.tick() => {}
             }
             if !self.reap() || self.exited() {
                 continue;
@@ -830,20 +763,20 @@ impl Holder {
     }
 
     /// Signals the CLI's process group, or the CLI alone if it has left
-    /// the group, while it hasn't been reaped.
-    fn signal_child(&self, signal: Signal) {
+    /// the group, while it hasn't been reaped. Returns false when the
+    /// signal can't be sent, as a SIGTERM can't on Windows.
+    fn signal_child(&self, sig: Sig) -> bool {
         let state = self.lock();
         if !matches!(state.phase, Phase::Running) {
-            return;
+            return true;
         }
-        if rustix::process::kill_process_group(self.child_pid, signal).is_err() {
-            let _ = rustix::process::kill_process(self.child_pid, signal);
-        }
+        self.tree.signal(sig)
     }
 
     /// Ends the CLI: closes its stdin after the writes already queued, then
     /// sends SIGTERM to its group after `grace` and SIGKILL after another.
-    /// Returns once the exit is recorded.
+    /// Windows has no SIGTERM for it, so there the kill follows the first
+    /// wait. Returns once the exit is recorded.
     async fn stop(self: Arc<Self>, grace: Duration) {
         {
             let mut state = self.lock();
@@ -855,11 +788,10 @@ impl Holder {
         if self.wait_exit(Some(grace)).await {
             return;
         }
-        self.signal_child(Signal::TERM);
-        if self.wait_exit(Some(grace)).await {
+        if self.signal_child(Sig::Term) && self.wait_exit(Some(grace)).await {
             return;
         }
-        self.signal_child(Signal::KILL);
+        self.signal_child(Sig::Kill);
         self.wait_exit(None).await;
     }
 
@@ -892,21 +824,16 @@ impl Holder {
     }
 
     async fn watch_signals(self: Arc<Self>) {
-        let (Ok(mut term), Ok(mut int), Ok(mut hup)) = (
-            signal(SignalKind::terminate()),
-            signal(SignalKind::interrupt()),
-            signal(SignalKind::hangup()),
-        ) else {
-            eprintln!("couldn't watch for signals");
-            return;
+        let mut quit = match sys::Quit::watch() {
+            Ok(quit) => quit,
+            Err(err) => {
+                eprintln!("couldn't watch for signals: {err}");
+                return;
+            }
         };
         loop {
-            tokio::select! {
-                _ = term.recv() => self.quit(),
-                _ = int.recv() => self.quit(),
-                // The holder has no terminal, so a hangup means nothing.
-                _ = hup.recv() => {}
-            }
+            quit.next().await;
+            self.quit();
         }
     }
 
@@ -1006,7 +933,7 @@ impl Holder {
         let child = match &state.phase {
             Phase::Exited(exit) => ChildState::Exited(exit.clone()),
             _ => ChildState::Running {
-                pid: self.child_pid.as_raw_nonzero().get().unsigned_abs(),
+                pid: self.tree.pid(),
             },
         };
         let pending = state
@@ -1056,7 +983,7 @@ impl Holder {
 
 /// Serves one client: its hello, then every line after its cursor, then the
 /// exit, with replies to its requests in between.
-async fn serve(holder: Arc<Holder>, stream: UnixStream) {
+async fn serve(holder: Arc<Holder>, stream: LocalStream) {
     let (read, mut write) = stream.into_split();
     let mut read = AsyncBufReader::new(read);
     let mut buf = Vec::new();
@@ -1155,7 +1082,7 @@ async fn serve(holder: Arc<Holder>, stream: UnixStream) {
 /// Reads a client's requests and answers each in turn.
 async fn handle_requests(
     holder: Arc<Holder>,
-    read: AsyncBufReader<OwnedReadHalf>,
+    read: AsyncBufReader<ipc::ReadHalf>,
     replies: mpsc::Sender<FromHolder>,
 ) {
     let mut read = read;

@@ -197,6 +197,7 @@ pub(crate) async fn start(run: Run<'_>, dir: &Path, pipe: Zeroed) -> Result<(), 
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
+    crate::sys::hide_window(&mut command);
     let mut child = command.spawn().map_err(|source| SpawnError::Start {
         program: shown,
         source,
@@ -294,7 +295,7 @@ pub(crate) async fn resolve(detach: Detach) -> Result<Detach, SpawnError> {
     if !cfg!(target_os = "linux") {
         return Ok(Detach::Setsid);
     }
-    if rustix::process::geteuid().is_root() && systemd_reachable(false).await {
+    if maxhq_os::proc::is_root() && systemd_reachable(false).await {
         Ok(Detach::SystemScope)
     } else if systemd_reachable(true).await {
         Ok(Detach::UserScope)
