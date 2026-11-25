@@ -16,8 +16,8 @@
 
 use std::collections::BTreeMap;
 
-use base64::Engine;
 use maxhq_core::authorized_keys::{self, WINDOWS_MAXD};
+use maxhq_core::shell::powershell::{encoded, literal};
 
 use super::{parse_probe, stop, Prepared, Run, Setup, SetupBinary, SetupError, Step};
 
@@ -89,29 +89,15 @@ exit $LASTEXITCODE
 /// A remote command that runs `script` in Windows PowerShell from any
 /// shell OpenSSH starts it with.
 pub(super) fn powershell(script: &str) -> String {
-    let utf16: Vec<u8> = script.encode_utf16().flat_map(u16::to_le_bytes).collect();
-    let encoded = base64::engine::general_purpose::STANDARD.encode(utf16);
-    let command = format!("powershell -NoProfile -NonInteractive -EncodedCommand {encoded}");
+    let command = format!(
+        "powershell -NoProfile -NonInteractive -EncodedCommand {}",
+        encoded(script)
+    );
     debug_assert!(
         command.len() < CMD_LINE_MAX,
         "a setup step is too long for cmd"
     );
     command
-}
-
-/// `text` as a PowerShell literal in single quotes. PowerShell reads the
-/// curly single quotes as quotes too, so each of those is doubled as well.
-pub(super) fn literal(text: &str) -> String {
-    let mut quoted = String::with_capacity(text.len() + 2);
-    quoted.push('\'');
-    for c in text.chars() {
-        if matches!(c, '\'' | '\u{2018}' | '\u{2019}' | '\u{201A}' | '\u{201B}') {
-            quoted.push(c);
-        }
-        quoted.push(c);
-    }
-    quoted.push('\'');
-    quoted
 }
 
 /// `text` as an argument Windows PowerShell 5.1 passes to a program

@@ -164,7 +164,7 @@ const POWERSHELL: &str = "powershell -NoProfile -NonInteractive -EncodedCommand 
 
 /// The script a remote PowerShell command runs, decoded from its base64
 /// UTF-16LE.
-fn script_of(command: &str) -> Option<String> {
+pub(super) fn script_of(command: &str) -> Option<String> {
     use base64::Engine;
     let encoded = command.strip_prefix(POWERSHELL)?;
     let bytes = base64::engine::general_purpose::STANDARD
@@ -1220,19 +1220,6 @@ fn a_powershell_step_is_its_script_in_utf16_base64() {
     assert_eq!(script_of(&command).as_deref(), Some(script));
     // `dir` in UTF-16LE, as PowerShell's own help shows it.
     assert_eq!(windows::powershell("dir"), format!("{POWERSHELL}ZABpAHIA"));
-}
-
-#[test]
-fn powershell_literals_double_every_single_quote_it_reads() {
-    assert_eq!(windows::literal("plain"), "'plain'");
-    assert_eq!(windows::literal("it's"), "'it''s'");
-    assert_eq!(
-        windows::literal("\u{2018}a\u{2019} \u{201A}b\u{201B}"),
-        "'\u{2018}\u{2018}a\u{2019}\u{2019} \u{201A}\u{201A}b\u{201B}\u{201B}'"
-    );
-    // `$` and backticks mean nothing in single quotes.
-    assert_eq!(windows::literal("$env:X `n"), "'$env:X `n'");
-    assert_eq!(windows::literal(""), "''");
 }
 
 #[test]

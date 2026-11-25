@@ -11,8 +11,7 @@
 use std::io;
 use std::path::PathBuf;
 
-#[cfg(any(windows, test))]
-mod args;
+pub mod args;
 #[cfg(unix)]
 mod unix;
 #[cfg(unix)]
