@@ -209,9 +209,7 @@ impl MaxdLayout {
         if cfg!(windows) {
             return windows_app_dir().map(Self::windows);
         }
-        env::var_os("HOME")
-            .filter(|home| !home.is_empty())
-            .map(Self::new)
+        maxhq_os::home::home_dir().map(Self::new)
     }
 
     /// The link the service runs through: `~/.local/bin/maxd`, or the

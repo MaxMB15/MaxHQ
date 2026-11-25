@@ -450,8 +450,8 @@ mod tests {
     #[ignore = "runs this device's real claude"]
     async fn real_probe() {
         let claude = Cli::find().expect("claude on this device");
-        let home = std::env::var_os("HOME").expect("HOME");
-        let config = ConfigDir::default_in(Path::new(&home));
+        let home = maxhq_os::home::home_dir().expect("a home folder");
+        let config = ConfigDir::default_in(&home);
         let started = std::time::Instant::now();
         let usage = claude.probe(&config).await;
         println!("probe took {:?}: {usage:?}", started.elapsed());

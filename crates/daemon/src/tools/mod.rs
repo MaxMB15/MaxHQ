@@ -365,7 +365,8 @@ impl Tools {
         registry: Arc<dyn Registry>,
         search: Option<OsString>,
     ) -> Self {
-        let home = std::env::var("HOME").ok().filter(|home| !home.is_empty());
+        let home =
+            maxhq_os::home::home_dir().and_then(|home| home.into_os_string().into_string().ok());
         Self {
             hub,
             incus,

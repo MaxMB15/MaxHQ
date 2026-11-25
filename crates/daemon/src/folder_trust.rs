@@ -955,7 +955,7 @@ pub fn codex_paths(cwd: &Path, key: &str, here: bool) -> Vec<String> {
 
 /// Scans a folder on this device.
 pub fn scan_here(cwd: &Path, locked: &[String]) -> FolderScan {
-    let home = std::env::var_os("HOME").map(PathBuf::from);
+    let home = maxhq_os::home::home_dir();
     scan(cwd, home.as_deref(), locked, None)
 }
 

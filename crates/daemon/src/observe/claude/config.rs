@@ -61,8 +61,8 @@ impl ConfigDir {
 /// The config folders on this device that exist: `~/.claude` and every one
 /// in `MAXD_CLAUDE_CONFIG_DIRS`.
 pub fn config_dirs() -> Vec<ConfigDir> {
-    let Some(home) = std::env::var_os("HOME").map(PathBuf::from) else {
-        tracing::warn!("HOME is unset, so there's no Claude config folder to watch");
+    let Some(home) = maxhq_os::home::home_dir() else {
+        tracing::warn!("there's no home folder, so there's no Claude config folder to watch");
         return Vec::new();
     };
     let extra = std::env::var(DIRS_ENV).ok();
