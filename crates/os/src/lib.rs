@@ -8,6 +8,7 @@
 //! Where Windows can't do something yet, the call returns an error of kind
 //! [`std::io::ErrorKind::Unsupported`] that says what's missing.
 
+pub mod disk;
 pub mod fsmode;
 pub mod home;
 pub mod ipc;
