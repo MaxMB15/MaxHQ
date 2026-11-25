@@ -112,3 +112,32 @@ pub fn mode(path: &Path) -> Option<u32> {
         None
     }
 }
+
+/// Whether `path` itself, not what a link leads to, has the mark of a file
+/// from elsewhere, or `None` where the system has no such mark.
+pub fn marked(path: &Path) -> Option<bool> {
+    #[cfg(target_os = "macos")]
+    {
+        let mut value = [0u8; 256];
+        Some(rustix::fs::lgetxattr(path, "com.apple.quarantine", &mut value[..]).is_ok())
+    }
+    #[cfg(windows)]
+    {
+        use std::io::Read;
+        use std::os::windows::fs::OpenOptionsExt;
+        let mut stream = std::ffi::OsString::from(path.as_os_str());
+        stream.push(":Zone.Identifier");
+        let mut text = String::new();
+        let read = fs::OpenOptions::new()
+            .read(true)
+            .custom_flags(windows_sys::Win32::Storage::FileSystem::FILE_FLAG_OPEN_REPARSE_POINT)
+            .open(stream)
+            .and_then(|mut file| file.read_to_string(&mut text));
+        Some(read.is_ok() && text.contains("ZoneId=3"))
+    }
+    #[cfg(not(any(target_os = "macos", windows)))]
+    {
+        let _ = path;
+        None
+    }
+}

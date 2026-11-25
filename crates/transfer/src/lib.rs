@@ -20,6 +20,7 @@
 #![warn(missing_docs)]
 
 pub mod beneath;
+pub mod local;
 pub mod manifest;
 pub mod name;
 pub mod receive;

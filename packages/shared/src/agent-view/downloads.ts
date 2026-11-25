@@ -26,6 +26,8 @@ export type DownloadState =
 			readonly state: "done";
 			/** Where it landed on this device. */
 			readonly path: string;
+			/** The links in it this device couldn't make, by their paths inside it. */
+			readonly skippedLinks: readonly string[];
 	  }
 	| { readonly state: "failed"; readonly reason: string };
 
@@ -94,7 +96,7 @@ export const startDownload = async (
 	put(
 		key,
 		result.status === "ok"
-			? { state: "done", path: result.data.path }
+			? { state: "done", path: result.data.path, skippedLinks: result.data.skipped_links }
 			: { state: "failed", reason: errorText(result.error) }
 	);
 };

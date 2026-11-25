@@ -780,6 +780,8 @@
 	"Show {{name}} in Finder": "{{name}} in Finder anzeigen",
 	"Couldn't find {{baseName}} in Downloads.": "{{baseName}} wurde nicht in Downloads gefunden.",
 	"Retry downloading {{name}}": "Download von {{name}} erneut versuchen",
+	"Downloaded without {{count, number}} links this computer couldn't make: {{links}}_one": "Ohne {{count, number}} Link heruntergeladen, den dieser Computer nicht anlegen konnte: {{links}}",
+	"Downloaded without {{count, number}} links this computer couldn't make: {{links}}_other": "Ohne {{count, number}} Links heruntergeladen, die dieser Computer nicht anlegen konnte: {{links}}",
 	"Couldn't save {{what}}": "{{what}} konnte nicht gespeichert werden",
 	"the editor you used": "den verwendeten Editor",
 	"the default editor": "den Standardeditor",
