@@ -223,14 +223,14 @@ fn plain(arguments: &str) -> Result<(), String> {
 #[cfg(windows)]
 #[allow(unsafe_code)]
 fn elevated(arguments: &str) -> Result<(), String> {
-    use std::os::windows::ffi::OsStrExt;
     use windows_sys::Win32::UI::Shell::{ShellExecuteW, SE_ERR_ACCESSDENIED};
     use windows_sys::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL;
 
-    let wide = |text: &std::ffi::OsStr| text.encode_wide().chain(Some(0)).collect::<Vec<u16>>();
-    let verb = wide("runas".as_ref());
-    let program = wide(windows_powershell().as_os_str());
-    let arguments = wide(arguments.as_ref());
+    let wide =
+        |text: &std::ffi::OsStr| maxhq_os::win::wide(text).map_err(|error| error.to_string());
+    let verb = wide("runas".as_ref())?;
+    let program = wide(windows_powershell().as_os_str())?;
+    let arguments = wide(arguments.as_ref())?;
     // SAFETY: each string is null-terminated UTF-16 that outlives the
     // call, and a null window and folder are allowed.
     let result = unsafe {

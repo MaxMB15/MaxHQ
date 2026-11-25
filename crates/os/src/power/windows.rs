@@ -26,7 +26,7 @@ pub struct Request {
 
 #[allow(unsafe_code)]
 pub fn take(reason: &str) -> io::Result<Request> {
-    let mut wide: Vec<u16> = reason.encode_utf16().chain(Some(0)).collect();
+    let mut wide = win::wide(reason)?;
     let context = REASON_CONTEXT {
         Version: POWER_REQUEST_CONTEXT_VERSION,
         Flags: POWER_REQUEST_CONTEXT_SIMPLE_STRING,

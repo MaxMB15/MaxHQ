@@ -10,9 +10,10 @@
 //! the current user, where Windows finds the name a toast shows.
 
 #[cfg(windows)]
-use std::ffi::OsStr;
-#[cfg(windows)]
 use std::io;
+
+#[cfg(windows)]
+use maxhq_os::win::wide;
 
 /// The app's AppUserModelID: its identifier in `tauri.conf.json`, which
 /// the setups put on the Start menu shortcut.
@@ -41,20 +42,13 @@ fn app_id_key(id: &str) -> String {
     format!(r"Software\Classes\AppUserModelId\{id}")
 }
 
-/// `text` as a null-terminated UTF-16 string for Windows.
-#[cfg(windows)]
-fn wide(text: impl AsRef<OsStr>) -> Vec<u16> {
-    use std::os::windows::ffi::OsStrExt;
-    text.as_ref().encode_wide().chain(Some(0)).collect()
-}
-
 /// Sets the ID Windows groups this process's windows and toasts by.
 #[cfg(windows)]
 #[allow(unsafe_code)]
 fn set_process_id(id: &str) -> io::Result<()> {
     use windows_sys::Win32::UI::Shell::SetCurrentProcessExplicitAppUserModelID;
 
-    let id = wide(id);
+    let id = wide(id)?;
     // SAFETY: `id` is a null-terminated UTF-16 string that outlives the
     // call, and Windows copies it.
     let result = unsafe { SetCurrentProcessExplicitAppUserModelID(id.as_ptr()) };
@@ -70,9 +64,9 @@ fn set_process_id(id: &str) -> io::Result<()> {
 fn list_app_id(id: &str, name: &str) -> io::Result<()> {
     use windows_sys::Win32::System::Registry::{RegSetKeyValueW, HKEY_CURRENT_USER, REG_SZ};
 
-    let key = wide(app_id_key(id));
-    let value = wide("DisplayName");
-    let data = wide(name);
+    let key = wide(app_id_key(id))?;
+    let value = wide("DisplayName")?;
+    let data = wide(name)?;
     let bytes = u32::try_from(data.len() * 2)
         .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "the name is too long"))?;
     // SAFETY: the key, the value's name and its data are null-terminated

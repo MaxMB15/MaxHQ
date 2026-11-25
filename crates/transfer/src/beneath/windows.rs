@@ -21,10 +21,11 @@ use std::io;
 use std::mem::offset_of;
 use std::os::windows::ffi::{OsStrExt, OsStringExt};
 use std::os::windows::fs::{FileExt, OpenOptionsExt};
-use std::os::windows::io::{AsRawHandle, FromRawHandle, OwnedHandle};
+use std::os::windows::io::{AsRawHandle, OwnedHandle};
 use std::path::{Path, PathBuf};
 use std::ptr;
 
+use maxhq_os::win;
 use maxhq_protocol::message::ErrorCode;
 use windows_sys::Wdk::Foundation::OBJECT_ATTRIBUTES;
 use windows_sys::Wdk::Storage::FileSystem::{
@@ -173,7 +174,7 @@ fn nt_create(
     }
     // SAFETY: `NtCreateFile` succeeded, so `handle` is a new handle no one
     // else owns.
-    Ok(unsafe { OwnedHandle::from_raw_handle(handle) })
+    unsafe { win::owned(handle) }
 }
 
 fn nt_error(status: NTSTATUS) -> io::Error {
@@ -655,17 +656,13 @@ pub fn symlink(target: &str, dir: &Handle, name: &OsStr) -> io::Result<()> {
         ".maxhq-link-{:016x}",
         RandomState::new().hash_one((target, name))
     );
-    let link: Vec<u16> = folder
-        .join(&temp)
-        .as_os_str()
-        .encode_wide()
-        .chain([0])
-        .collect();
-    let to: Vec<u16> = target
-        .encode_utf16()
-        .map(|unit| if unit == SLASH { BACKSLASH } else { unit })
-        .chain([0])
-        .collect();
+    let link = win::wide(folder.join(&temp))?;
+    let to = win::ended(
+        target
+            .encode_utf16()
+            .map(|unit| if unit == SLASH { BACKSLASH } else { unit })
+            .collect(),
+    )?;
     let kind = if points_at_folder(&folder, target) {
         SYMBOLIC_LINK_FLAG_DIRECTORY
     } else {
@@ -998,6 +995,7 @@ pub fn cannot_link(err: &io::Error) -> bool {
 mod tests {
     use std::path::Path;
 
+    use maxhq_os::win;
     use maxhq_protocol::message::ErrorCode;
     use std::os::windows::fs::FileTypeExt;
     use windows_sys::Win32::Foundation::ERROR_PRIVILEGE_NOT_HELD;

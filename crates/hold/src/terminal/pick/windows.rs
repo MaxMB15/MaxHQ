@@ -1,11 +1,12 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026 Max Boksem
 
-use std::ffi::{OsStr, OsString};
-use std::os::windows::ffi::{OsStrExt, OsStringExt};
+use std::ffi::OsString;
+use std::os::windows::ffi::OsStringExt;
 use std::path::PathBuf;
 
 use maxhq_os::which;
+use maxhq_os::win::wide;
 use maxhq_protocol::model::WindowsShell;
 use windows_sys::Win32::Foundation::ERROR_SUCCESS;
 use windows_sys::Win32::System::Registry::{
@@ -74,16 +75,11 @@ fn windows_powershell() -> Option<PathBuf> {
         .or_else(|| which::find("powershell", &[]))
 }
 
-/// `text` as a wide string that ends in a zero.
-fn wide(text: &str) -> Vec<u16> {
-    OsStr::new(text).encode_wide().chain([0]).collect()
-}
-
 /// The string `value` under `key` in `root`, when it's there and plain
 /// text.
 #[allow(unsafe_code)]
 fn registry_string(root: HKEY, key: &str, value: &str) -> Option<OsString> {
-    let (key, value) = (wide(key), wide(value));
+    let (key, value) = (wide(key).ok()?, wide(value).ok()?);
     let mut size = 0u32;
     // SAFETY: the names end in a zero, a null buffer asks for the size
     // alone, and the call writes one u32.
