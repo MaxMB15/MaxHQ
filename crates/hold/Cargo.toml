@@ -25,12 +25,10 @@ libc.workspace = true
 rustix = { workspace = true, features = ["pty", "termios"] }
 
 # Toolhelp finds the thread to resume in a CLI that starts suspended, until
-# std's main_thread_handle is stable, and the registry says where Git for
-# Windows is.
+# std's main_thread_handle is stable.
 [target.'cfg(windows)'.dependencies]
 windows-sys = { workspace = true, features = [
     "Win32_System_Diagnostics_ToolHelp",
-    "Win32_System_Registry",
 ] }
 
 # The test binary also plays the holder, the fake agent CLI and the process
