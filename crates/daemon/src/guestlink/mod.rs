@@ -44,9 +44,6 @@ use crate::workspace::GuestLinks;
 
 pub(crate) use self::link::unexpected;
 pub use self::link::GuestSender;
-// The guest role sends through it, and builds on Unix alone.
-#[cfg(unix)]
-pub use self::wire::Outbox;
 
 mod holders;
 mod link;

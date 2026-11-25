@@ -52,7 +52,9 @@ mod tunnel;
 #[cfg(unix)]
 mod unsaved;
 #[cfg(target_os = "macos")]
-pub mod vm;
+mod vm;
+#[cfg(unix)]
+mod wire;
 #[cfg_attr(not(unix), allow(dead_code))]
 pub(crate) mod worktree;
 
@@ -60,39 +62,14 @@ pub(crate) mod worktree;
 mod tests;
 
 #[cfg(unix)]
-pub(crate) use crate::guestlink::Outbox;
-pub use role::{codex, git_credential, github_token, run, token_codex};
+pub(crate) use crate::guestlink::wire::Outbox;
 #[cfg(unix)]
-pub(crate) use role::{Files, Tunnels};
+pub(crate) use role::{main, Files, Tunnels};
 
-/// `maxd guest` and its helpers on Windows, where the guest role can't run.
+/// `maxd guest` on Windows, where the guest role can't run, so every
+/// subcommand says so.
 #[cfg(not(unix))]
-mod role {
-    use std::process::ExitCode;
-
-    /// Says the guest role can't run here.
-    fn not_here() -> ExitCode {
-        eprintln!("maxd guest runs inside a Linux container, not on Windows");
-        ExitCode::FAILURE
-    }
-
-    pub fn run(_test_host: bool) -> ExitCode {
-        not_here()
-    }
-
-    pub fn token_codex() -> ExitCode {
-        not_here()
-    }
-
-    pub fn codex(_command: &[&str]) -> ExitCode {
-        not_here()
-    }
-
-    pub fn git_credential(_action: &str) -> ExitCode {
-        not_here()
-    }
-
-    pub fn github_token() -> ExitCode {
-        not_here()
-    }
+pub fn main(_args: &[&str]) -> Option<std::process::ExitCode> {
+    eprintln!("maxd guest runs inside a Linux container, not on Windows");
+    Some(std::process::ExitCode::FAILURE)
 }

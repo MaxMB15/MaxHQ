@@ -282,3 +282,19 @@ pub fn git_credential(action: &str) -> ExitCode {
 pub fn github_token() -> ExitCode {
     helper::github_token(Path::new(AGENT_SOCKET))
 }
+
+/// `maxd guest` and its helpers, from the words after `guest`. None when
+/// they name no subcommand.
+pub fn main(args: &[&str]) -> Option<ExitCode> {
+    Some(match args {
+        [] => run(false),
+        ["--test-host"] => run(true),
+        #[cfg(target_os = "macos")]
+        ["--vm"] => super::vm::run(),
+        ["token", "codex"] => token_codex(),
+        ["codex", command @ ..] if !command.is_empty() => codex(command),
+        ["git-credential", action] => git_credential(action),
+        ["github-token"] => github_token(),
+        _ => return None,
+    })
+}

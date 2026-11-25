@@ -258,15 +258,9 @@ fn main() -> ExitCode {
             None => usage_error(),
         },
         ["mcp", "--key-file", path] => agents::mcp::run(Path::new(path)),
-        ["guest"] => guest::run(false),
-        ["guest", "--test-host"] => guest::run(true),
-        #[cfg(target_os = "macos")]
-        ["guest", "--vm"] => guest::vm::run(),
-        ["guest", "token", "codex"] => guest::token_codex(),
-        ["guest", "codex", command @ ..] if !command.is_empty() => guest::codex(command),
-        ["guest", "git-credential", action] => guest::git_credential(action),
-        ["guest", "github-token"] => guest::github_token(),
+        // The probe runs on the host, so it isn't the guest role's.
         ["guest", "probe", targets] => workspace::probe(Path::new(targets)),
+        ["guest", rest @ ..] => guest::main(rest).unwrap_or_else(usage_error),
         ["host", "check"] => host_check(),
         ["host", "apply"] => host_apply(),
         ["host", "apply", "--system"] => host_apply_system(false),

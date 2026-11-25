@@ -12,6 +12,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError, Weak};
 use std::time::{Duration, Instant, SystemTime};
 
+use maxhq_os::ipc::{self, LocalStream};
 use maxhq_protocol::frame::EncodeError;
 use maxhq_protocol::guest::{
     GuestToHost, HolderEvent, HostToGuest, TokenReply, TokenWant, GUEST_PROTOCOL_VERSION,
@@ -27,7 +28,6 @@ use tokio::sync::{mpsc, oneshot, watch, OwnedSemaphorePermit, Semaphore, Semapho
 
 use super::wire::{self, Abort, Outbox, Read, ReadError, Reader, SendError, TokenRate};
 use super::{socket_path, Shared};
-use crate::incus::socket;
 use crate::incus::InstanceName;
 use crate::secrets::same_repo;
 use crate::session::clock::BoxFuture;
@@ -739,11 +739,11 @@ async fn connect(
 ) -> Result<Attempt, String> {
     let config = &shared.config;
     let path = socket_path(&config.runtime, instance);
-    let stream = tokio::time::timeout(CONNECT_WAIT, socket::connect(&path))
+    let stream = tokio::time::timeout(CONNECT_WAIT, LocalStream::connect(&path))
         .await
         .map_err(|_| "the proxy socket didn't answer".to_owned())?
         .map_err(|err| format!("couldn't connect to {}: {err}", path.display()))?;
-    let (read, write) = socket::split(stream);
+    let (read, write) = stream.into_split();
     let (outbox, queue) = Outbox::new();
     let mut writer = Abort(tokio::spawn(wire::write_frames(write, queue)));
     let mut reader = Reader::new(read);
@@ -890,7 +890,7 @@ async fn upgrade(
 async fn serve(
     shared: &Shared,
     link: &Link,
-    reader: &mut Reader<socket::ReadHalf>,
+    reader: &mut Reader<ipc::ReadHalf>,
     writer: &mut Abort<io::Result<()>>,
     mut refresh: tokio::sync::watch::Receiver<u64>,
 ) -> String {

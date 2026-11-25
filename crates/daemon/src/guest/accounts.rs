@@ -176,7 +176,7 @@ mod tests {
     use maxhq_protocol::ids::SessionId;
 
     use super::*;
-    use crate::guestlink::wire;
+    use crate::guest::wire;
     use crate::testing::TempDir;
 
     /// Each name given away, with its user and group.

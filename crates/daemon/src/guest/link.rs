@@ -29,6 +29,10 @@ use tokio::sync::{mpsc, oneshot};
 use tokio::task::{AbortHandle, JoinSet};
 
 use super::accounts::Folders;
+use super::wire::{
+    chunks, ended_out, exit_out, framing_in, hello_out, line_out, outcome_out, CHUNK_BUDGET,
+    LINE_BUDGET,
+};
 use super::{lease, login_env, worktree, Files, Tunnels};
 use crate::drive::claude::own_mcp;
 use crate::folder_trust;
@@ -687,7 +691,7 @@ impl Relay {
         let holders = self.guest.holders.clone();
         let outbox = self.outbox.clone();
         self.tasks.spawn(async move {
-            let ended = wire::ended_out(holders.end(session, holder_pid).await);
+            let ended = ended_out(holders.end(session, holder_pid).await);
             let _ = outbox.send(&GuestToHost::EndResult { req, ended }).await;
         });
     }
@@ -935,7 +939,7 @@ fn holder_launch(guest: &Guest, launch: GuestLaunch) -> Result<Launch, SpawnErro
             .collect(),
         run_as,
         cwd: PathBuf::from(launch.cwd),
-        framing: wire::framing_in(launch.framing),
+        framing: framing_in(launch.framing),
     })
 }
 
@@ -969,10 +973,10 @@ async fn relay(
         let mut exited = false;
         while let Some(event) = events.next().await {
             let event = match event {
-                Event::Line(line) => HolderEvent::Line(wire::line_out(line)),
+                Event::Line(line) => HolderEvent::Line(line_out(line)),
                 Event::Exited(exit) => {
                     exited = true;
-                    HolderEvent::Exited(wire::exit_out(exit))
+                    HolderEvent::Exited(exit_out(exit))
                 }
             };
             match outbox.send(&GuestToHost::Holder { conn, event }).await {
@@ -994,7 +998,7 @@ async fn relay(
                     let outcome = writer
                         .write(line, answers)
                         .await
-                        .map(wire::outcome_out)
+                        .map(outcome_out)
                         .map_err(|err| err.to_string());
                     let _ = outbox
                         .send(&GuestToHost::WriteResult { req, outcome })
@@ -1036,11 +1040,11 @@ async fn send_hello(
     conn: u64,
     hello: &maxhq_hold::Hello,
 ) -> Result<(), SendError> {
-    let bare = wire::hello_out(hello);
+    let bare = hello_out(hello);
     let mut dropped = 0;
-    let runs = wire::chunks(
-        hello.pending.iter().cloned().map(wire::line_out).collect(),
-        wire::LINE_BUDGET,
+    let runs = chunks(
+        hello.pending.iter().cloned().map(line_out).collect(),
+        LINE_BUDGET,
         &mut dropped,
     );
     if dropped > 0 {
@@ -1124,7 +1128,7 @@ async fn history(guest: Arc<Guest>, outbox: Outbox, req: u64, reading: Reading) 
             }
         };
         let mut dropped = 0;
-        for run in wire::chunks(items, wire::CHUNK_BUDGET, &mut dropped) {
+        for run in chunks(items, CHUNK_BUDGET, &mut dropped) {
             let message = GuestToHost::HistoryItems { req, items: run };
             if outbox.send(&message).await.is_err() {
                 return;

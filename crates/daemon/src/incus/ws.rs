@@ -16,6 +16,7 @@ use hyper::header;
 use hyper::upgrade::Upgraded;
 use hyper::{Method, Request, StatusCode};
 use hyper_util::rt::TokioIo;
+use maxhq_os::ipc::LocalStream;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use uuid::Uuid;
 
@@ -66,7 +67,7 @@ pub type IncusSocket = WebSocket<TokioIo<Upgraded>>;
 /// Opens a WebSocket at `uri` on the Incus socket.
 pub async fn open(socket: &Path, uri: &str) -> Result<IncusSocket, IncusError> {
     let opening = async {
-        let stream = super::socket::connect(socket).await?;
+        let stream = LocalStream::connect(socket).await?;
         let (mut sender, connection) = http1::handshake(TokioIo::new(stream))
             .await
             .map_err(broken)?;
