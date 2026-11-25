@@ -13,9 +13,11 @@
 //! can install a command of the same name, as Cursor does with `code`. On
 //! Linux its app is the folder its package installs, or an AppImage. Then
 //! it's looked for on `PATH`, leaving out a command that leads into another
-//! editor's app. A workspace on this machine opens
+//! editor's app. On Windows its app is the folder its installer made, for
+//! you or for everyone. A workspace on this machine opens
 //! through the editor's command line, or its link when only the app is
-//! there. One on another device opens as a Remote-SSH link to it, and a
+//! there. On Windows it always opens through the link, since the command
+//! lines there are batch files that only `cmd` can run. One on another device opens as a Remote-SSH link to it, and a
 //! container's goes through MaxHQ's ssh alias for it.
 
 use std::path::{Path, PathBuf};
@@ -50,6 +52,10 @@ pub struct EditorDef {
     /// The folders its Linux packages install it in, under `/usr/share` or
     /// `/opt`.
     pub linux_folders: &'static [&'static str],
+    /// The folders its Windows installer puts it in, under
+    /// `%LOCALAPPDATA%\Programs` when it's installed for you and
+    /// `%ProgramFiles%` when it's for everyone.
+    pub windows_folders: &'static [&'static str],
     /// How the file name of its AppImage starts, in lower case, for an
     /// editor that ships one.
     pub appimage: Option<&'static str>,
@@ -78,6 +84,7 @@ pub const EDITORS: &[EditorDef] = &[
         launch: LaunchStyle::Goto,
         mac_app: "Cursor",
         linux_folders: &["cursor", "Cursor"],
+        windows_folders: &["cursor"],
         appimage: Some("cursor"),
         flatpak: None,
         remote_scheme: Some("cursor"),
@@ -90,6 +97,7 @@ pub const EDITORS: &[EditorDef] = &[
         launch: LaunchStyle::Goto,
         mac_app: "Visual Studio Code",
         linux_folders: &["code", "visual-studio-code"],
+        windows_folders: &["Microsoft VS Code"],
         appimage: None,
         flatpak: Some("com.visualstudio.code"),
         remote_scheme: Some("vscode"),
@@ -150,14 +158,20 @@ pub enum Layout {
     /// also comes as an AppImage, one file that is both app and command
     /// line.
     Linux,
+    /// Windows: each editor is a folder its installer names, such as
+    /// `Microsoft VS Code`, with its command line, a `.cmd` file, in `bin`
+    /// or `resources\app\bin`.
+    Windows,
 }
 
 impl Layout {
-    /// This system's. Linux has its own, and the rest look for apps as
-    /// macOS does until they get theirs.
+    /// This system's. Linux and Windows have their own, and the rest look
+    /// for apps as macOS does until they get theirs.
     fn here() -> Self {
         if cfg!(target_os = "linux") {
             Self::Linux
+        } else if cfg!(windows) {
+            Self::Windows
         } else {
             Self::MacApps
         }
@@ -172,6 +186,11 @@ impl Layout {
                 .iter()
                 .map(|&folder| folder.to_owned())
                 .collect(),
+            Self::Windows => editor
+                .windows_folders
+                .iter()
+                .map(|&folder| folder.to_owned())
+                .collect(),
         }
     }
 
@@ -179,17 +198,43 @@ impl Layout {
     fn bins(self) -> &'static [&'static str] {
         match self {
             Self::MacApps => &["Contents/Resources/app/bin"],
-            Self::Linux => &["bin", "resources/app/bin"],
+            Self::Linux | Self::Windows => &["bin", "resources/app/bin"],
         }
     }
 
+    /// The names `editor`'s command line goes by in its app's folder.
+    fn app_commands(self, editor: &EditorDef) -> Vec<String> {
+        editor
+            .commands
+            .iter()
+            .map(|&command| self.file_name(command))
+            .collect()
+    }
+
     /// The names `editor`'s command line goes by on `PATH`.
-    fn commands(self, editor: &EditorDef) -> Vec<&'static str> {
-        let mut commands = editor.commands.to_vec();
+    fn commands(self, editor: &EditorDef) -> Vec<String> {
+        let mut commands = self.app_commands(editor);
         if self == Self::Linux {
-            commands.extend(editor.flatpak);
+            commands.extend(editor.flatpak.map(str::to_owned));
         }
         commands
+    }
+
+    /// The file a command is in: `code.cmd` on Windows, where the editors
+    /// install their command lines as batch files.
+    fn file_name(self, command: &str) -> String {
+        match self {
+            Self::Windows => format!("{command}.cmd"),
+            Self::MacApps | Self::Linux => command.to_owned(),
+        }
+    }
+
+    /// Whether a workspace on this machine opens through the editor's link
+    /// even when its command line is there. On Windows the command line is
+    /// a batch file, which only `cmd` runs, with its own reading of the
+    /// arguments, so the link is the safer way in.
+    fn opens_by_link(self) -> bool {
+        self == Self::Windows
     }
 }
 
@@ -200,6 +245,14 @@ impl Places {
         let path = std::env::var_os("PATH")
             .map(|path| absolute_folders(&path))
             .unwrap_or_default();
+        if cfg!(windows) {
+            let folder = |name| {
+                std::env::var_os(name)
+                    .map(PathBuf::from)
+                    .filter(|dir| dir.is_absolute())
+            };
+            return Self::on_windows(path, folder("LOCALAPPDATA"), folder("ProgramFiles"));
+        }
         let home = std::env::var_os("HOME").map(PathBuf::from);
         let data_home = std::env::var_os("XDG_DATA_HOME")
             .map(PathBuf::from)
@@ -255,6 +308,27 @@ impl Places {
                     layout,
                 }
             }
+            Layout::Windows => Self::on_windows(path, None, None),
+        }
+    }
+
+    /// The places Windows looks in, after the folders on `PATH`: the
+    /// installs for you in `local_app_data\Programs`, then the ones for
+    /// everyone in `program_files`.
+    fn on_windows(
+        path: Vec<PathBuf>,
+        local_app_data: Option<PathBuf>,
+        program_files: Option<PathBuf>,
+    ) -> Self {
+        let apps = [
+            local_app_data.map(|dir| dir.join("Programs")),
+            program_files,
+        ];
+        Self {
+            path,
+            apps: apps.into_iter().flatten().collect(),
+            appimages: Vec::new(),
+            layout: Layout::Windows,
         }
     }
 
@@ -323,13 +397,14 @@ fn find(places: &Places) -> Vec<Found> {
         .iter()
         .filter_map(|editor| {
             let bundles = places.bundles(editor);
+            let commands = layout.app_commands(editor);
             let in_app = bundles.iter().find_map(|bundle| {
                 layout
                     .bins()
                     .iter()
                     .flat_map(|bin| {
                         let bin = bundle.join(bin);
-                        editor.commands.iter().map(move |command| bin.join(command))
+                        commands.iter().map(move |command| bin.join(command))
                     })
                     .find(|cli| runs(cli))
             });
@@ -393,7 +468,7 @@ fn in_other_app(editor: &EditorDef, cli: &Path, places: &Places) -> bool {
                     .ancestors()
                     .any(|dir| dir.file_name() == Some(app.as_ref()))
             }
-            Layout::Linux => {
+            Layout::Linux | Layout::Windows => {
                 let in_folder = places.bundles(other).iter().any(|bundle| {
                     target.starts_with(bundle.canonicalize().unwrap_or_else(|_| bundle.clone()))
                 });
@@ -471,14 +546,32 @@ fn reach(workspace: &Workspace, route: Option<Route>) -> Result<Reach, CommandEr
     }
 }
 
-/// `path` in the checkout at `root`. One that starts with `/` is taken as
-/// it is.
+/// `path` in the checkout at `root`. A full one is taken as it is.
 fn in_checkout(root: &str, path: Option<String>) -> String {
     match path {
         None => root.to_owned(),
-        Some(path) if path.starts_with('/') => path,
-        Some(path) => format!("{}/{path}", root.trim_end_matches('/')),
+        Some(path) if is_full_path(&path) => path,
+        Some(path) => format!("{}/{path}", root.trim_end_matches(['/', '\\'])),
     }
+}
+
+/// Whether `path` is a full path on the device that reported it, whichever
+/// system that is: `/src/w`, or on Windows `C:\src\w`, `C:/src/w` or a
+/// share's `\\server\w`. A path from another device can't be checked
+/// with this machine's rules.
+fn is_full_path(path: &str) -> bool {
+    path.starts_with('/') || path.starts_with("\\\\") || drive_letter(path).is_some()
+}
+
+/// The drive at the start of a full Windows path such as `C:\src`, with
+/// its colon.
+fn drive_letter(path: &str) -> Option<&str> {
+    let bytes = path.as_bytes();
+    let full = bytes.len() >= 3
+        && bytes[0].is_ascii_alphabetic()
+        && bytes[1] == b':'
+        && matches!(bytes[2], b'\\' | b'/');
+    full.then(|| &path[..2])
 }
 
 /// The arguments that open `path` at `at`, a line and column, in `editor`.
@@ -519,8 +612,14 @@ fn position(at: Option<(u32, u32)>) -> String {
         .unwrap_or_default()
 }
 
-/// An absolute path for a link, each part encoded.
+/// An absolute path for a link, each part encoded. A Windows path keeps
+/// its drive as it is and goes with forward slashes, as in `/C:/src/w`,
+/// the way the editors write it.
 fn encode_path(path: &str) -> String {
+    if let Some(drive) = drive_letter(path) {
+        let rest = path[drive.len()..].replace('\\', "/");
+        return format!("/{drive}{}", encode_path(&rest));
+    }
     let rooted = path.strip_prefix('/').unwrap_or(path);
     rooted
         .split('/')
@@ -606,16 +705,17 @@ impl<C: Connector> App<C> {
         let path = in_checkout(root, path);
         // A device reports the folder, and an editor's command line would read
         // anything but a full path as an option, such as one to install an extension.
-        if matches!(reach, Reach::Here) && !path.starts_with('/') {
+        if matches!(reach, Reach::Here) && !is_full_path(&path) {
             return Err(failed("This workspace's folder isn't a full path"));
         }
         let at = line.map(|line| (line, column.unwrap_or(1)));
         let scheme = found.editor.remote_scheme;
+        let by_link = self.editors.places.layout.opens_by_link() && scheme.is_some();
         let opening = match (reach, &found.cli, scheme) {
-            (Reach::Here, Some(cli), _) => self
+            (Reach::Here, Some(cli), _) if !by_link => self
                 .shell
                 .spawn_editor(cli.clone(), launch_args(found.editor, path, at)),
-            (Reach::Here, None, Some(scheme)) => self.shell.open_url(file_url(scheme, &path, at)),
+            (Reach::Here, _, Some(scheme)) => self.shell.open_url(file_url(scheme, &path, at)),
             (Reach::Ssh { host }, _, Some(scheme)) => self
                 .shell
                 .open_url(remote_url(scheme, &host, &path, file, at)),
@@ -642,11 +742,23 @@ pub(crate) mod tests {
     use crate::tests::{block_on, FakeShell, Opened};
     use maxhq_client::LinkEvent;
 
+    #[cfg(unix)]
     #[test]
     fn relative_folders_on_path_are_left_out() {
         assert_eq!(
             absolute_folders(std::ffi::OsStr::new("bin:/usr/bin:.::../up:/opt/bin")),
             [PathBuf::from("/usr/bin"), PathBuf::from("/opt/bin")]
+        );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn relative_folders_on_path_are_left_out() {
+        assert_eq!(
+            absolute_folders(std::ffi::OsStr::new(
+                r"bin;C:\Windows;.;;..\up;\tools;D:\tools"
+            )),
+            [PathBuf::from(r"C:\Windows"), PathBuf::from(r"D:\tools")]
         );
     }
 
@@ -707,6 +819,20 @@ pub(crate) mod tests {
                 apps: vec![self.0.join("usr/share"), self.0.join("opt")],
                 appimages: vec![self.0.join("home/Applications")],
                 layout: Layout::Linux,
+            }
+        }
+
+        /// Places laid out as on Windows: `bin` as the whole `PATH`, then
+        /// `Local/Programs` for the installs for you and `Program Files`
+        /// for the ones for everyone.
+        fn windows_places(&self) -> Places {
+            Places {
+                path: vec![self.0.join("bin")],
+                ..Places::on_windows(
+                    Vec::new(),
+                    Some(self.0.join("Local")),
+                    Some(self.0.join("Program Files")),
+                )
             }
         }
     }
@@ -1026,6 +1152,125 @@ pub(crate) mod tests {
         let image = elsewhere.program("Downloads/Cursor-1.7.2-x86_64.AppImage", true);
         elsewhere.link("bin/code", &image);
         assert!(ids(&find(&elsewhere.linux_places())).is_empty());
+    }
+
+    #[test]
+    fn windows_looks_in_the_installs_for_you_then_for_everyone() {
+        let local = PathBuf::from(r"C:\Users\<user>\AppData\Local");
+        let program_files = PathBuf::from(r"C:\Program Files");
+        let path = vec![PathBuf::from(r"C:\Windows\System32")];
+        let windows = Places::on_windows(
+            path.clone(),
+            Some(local.clone()),
+            Some(program_files.clone()),
+        );
+        assert_eq!(windows.path, path);
+        assert_eq!(windows.apps, [local.join("Programs"), program_files]);
+        assert!(windows.appimages.is_empty());
+        assert_eq!(windows.layout, Layout::Windows);
+        // Without the folders, it still looks on `PATH`.
+        assert!(Places::on_windows(path, None, None).apps.is_empty());
+    }
+
+    #[test]
+    fn on_windows_each_installer_s_cmd_file_is_found() {
+        let scratch = Scratch::new();
+        assert!(ids(&find(&scratch.windows_places())).is_empty());
+
+        // An install folder alone opens through its link.
+        fs::create_dir_all(scratch.0.join("Program Files/Microsoft VS Code")).unwrap();
+        assert_eq!(ids(&find(&scratch.windows_places())), [("vscode", None)]);
+
+        // A command without `.cmd` isn't Windows' command line.
+        scratch.program("bin/code", true);
+        assert_eq!(ids(&find(&scratch.windows_places())), [("vscode", None)]);
+        let on_path = scratch.program("bin/code.cmd", true);
+        assert_eq!(
+            ids(&find(&scratch.windows_places())),
+            [("vscode", Some(&*on_path))]
+        );
+        // The install for everyone keeps it in `bin`, and one for you comes
+        // first.
+        let everyone = scratch.program("Program Files/Microsoft VS Code/bin/code.cmd", true);
+        assert_eq!(
+            ids(&find(&scratch.windows_places())),
+            [("vscode", Some(&*everyone))]
+        );
+        let yours = scratch.program("Local/Programs/Microsoft VS Code/bin/code.cmd", true);
+        assert_eq!(
+            ids(&find(&scratch.windows_places())),
+            [("vscode", Some(&*yours))]
+        );
+        // Cursor keeps it deeper in.
+        let cursor = scratch.program("Local/Programs/cursor/resources/app/bin/cursor.cmd", true);
+        assert_eq!(
+            ids(&find(&scratch.windows_places())),
+            [("cursor", Some(&*cursor)), ("vscode", Some(&*yours))]
+        );
+    }
+
+    #[test]
+    fn on_windows_the_code_cmd_in_cursor_s_folder_is_not_vs_code() {
+        let scratch = Scratch::new();
+        // Cursor's installer puts its own folder on `PATH`, with a `code`
+        // beside its `cursor`.
+        let bin = "Local/Programs/cursor/resources/app/bin";
+        let cursor = scratch.program(&format!("{bin}/cursor.cmd"), true);
+        scratch.program(&format!("{bin}/code.cmd"), true);
+        let places = Places {
+            path: vec![scratch.0.join(bin)],
+            ..scratch.windows_places()
+        };
+        assert_eq!(ids(&find(&places)), [("cursor", Some(&*cursor))]);
+    }
+
+    #[test]
+    fn on_windows_a_workspace_here_opens_through_the_link() {
+        let scratch = Scratch::new();
+        scratch.program("Local/Programs/cursor/resources/app/bin/cursor.cmd", true);
+        scratch.program("Local/Programs/Microsoft VS Code/bin/code.cmd", true);
+        let (app, shell) = app_with(scratch.windows_places());
+        let w = WorkspaceId::derive("w");
+        block_on(app.open_in_editor("cursor", w, None, None, None)).unwrap();
+        block_on(app.open_in_editor("vscode", w, Some("a.rs".into()), Some(3), None)).unwrap();
+        assert_eq!(
+            *shell.1.lock().unwrap(),
+            [
+                Opened::Url("cursor://file/src/w".into()),
+                Opened::Url("vscode://file/src/w/a.rs:3:1".into()),
+            ]
+        );
+        assert!(shell.0.lock().unwrap().is_empty());
+    }
+
+    #[test]
+    fn a_windows_path_is_full_and_goes_into_links_with_its_drive() {
+        for path in [r"C:\src\w", "c:/src/w", r"\\server\w", "/src/w"] {
+            assert!(is_full_path(path), "{path}");
+        }
+        for path in ["C:", "C:src", "src/w", "--install-extension=x", ""] {
+            assert!(!is_full_path(path), "{path}");
+        }
+        assert_eq!(
+            in_checkout(r"C:\src\w\", Some("a/b.rs".into())),
+            r"C:\src\w/a/b.rs"
+        );
+        assert_eq!(
+            in_checkout(r"C:\src\w", Some(r"D:\x.rs".into())),
+            r"D:\x.rs"
+        );
+        assert_eq!(
+            file_url("vscode", r"C:\Users\dev\my app\a.rs", Some((3, 7))),
+            "vscode://file/C:/Users/dev/my%20app/a.rs:3:7"
+        );
+        assert_eq!(
+            file_url("cursor", r"C:\src\w/a/b.rs", None),
+            "cursor://file/C:/src/w/a/b.rs"
+        );
+        assert_eq!(
+            remote_url("vscode", "<pc>", r"C:\src\w", false, None),
+            "vscode://vscode-remote/ssh-remote+%3Cpc%3E/C:/src/w"
+        );
     }
 
     #[test]

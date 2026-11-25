@@ -172,8 +172,9 @@ export const commands = {
 	 */
 	sendTestNotification: () => typedError<null, NativeError>(__TAURI_INVOKE("send_test_notification")),
 	/**
-	 *  Opens this app's page under Notifications in System Settings. Linux and
-	 *  Windows have no settings page to link to.
+	 *  Opens this app's page under Notifications in System Settings, or the
+	 *  Notifications page of Windows Settings. Linux has no settings page to
+	 *  link to.
 	 */
 	openNotificationSettings: () => typedError<null, NativeError>(__TAURI_INVOKE("open_notification_settings")),
 	/**

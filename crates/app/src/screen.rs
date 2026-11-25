@@ -20,8 +20,8 @@ const SETTING: &str = "screen_on";
 
 /// What the system lists as the reason for the holds: Activity Monitor
 /// and `pmset -g assertions` on macOS, `systemd-inhibit --list` and the
-/// desktop on Linux.
-#[cfg(any(target_os = "macos", target_os = "linux"))]
+/// desktop on Linux, `powercfg /requests` on Windows.
+#[cfg(any(target_os = "macos", target_os = "linux", windows))]
 const REASON: &std::ffi::CStr = c"MaxHQ is keeping the screen on";
 
 /// The holds while it's on: one keeps the display on, the other keeps the
@@ -31,8 +31,12 @@ type Held = [maxhq_core::power::Assertion; 2];
 /// The desktop's and logind's holds. Dropping them lets go.
 #[cfg(target_os = "linux")]
 type Held = linux::Inhibitors;
+/// A power request that keeps the display on and the PC awake. Dropping
+/// it lets go.
+#[cfg(windows)]
+type Held = windows::PowerRequest;
 /// Other systems never hold anything.
-#[cfg(not(any(target_os = "macos", target_os = "linux")))]
+#[cfg(not(any(target_os = "macos", target_os = "linux", windows)))]
 type Held = std::convert::Infallible;
 
 /// Why the sun didn't change.
@@ -57,7 +61,7 @@ pub struct ScreenOn {
 
 impl ScreenOn {
     /// Whether this system can keep its screen on.
-    pub const SUPPORTED: bool = cfg!(any(target_os = "macos", target_os = "linux"));
+    pub const SUPPORTED: bool = cfg!(any(target_os = "macos", target_os = "linux", windows));
 
     /// Starts with the switch saved in `registry`, off when there's none.
     pub fn start(registry: &Registry) -> Self {
@@ -133,9 +137,11 @@ fn take() -> Result<Held, ScreenError> {
 
 #[cfg(target_os = "linux")]
 use linux::take;
+#[cfg(windows)]
+use windows::take;
 
 /// Other systems can't take anything.
-#[cfg(not(any(target_os = "macos", target_os = "linux")))]
+#[cfg(not(any(target_os = "macos", target_os = "linux", windows)))]
 fn take() -> Result<Held, ScreenError> {
     Err(ScreenError::Unsupported)
 }
@@ -337,13 +343,17 @@ mod linux {
     }
 }
 
+/// Windows keeps the screen on with a power request.
+#[cfg(windows)]
+mod windows;
+
 // Linux's tests sit in its own module, since a hold there needs a desktop
 // session to answer.
 #[cfg(all(test, not(target_os = "linux")))]
 mod tests {
     use super::*;
 
-    #[cfg(target_os = "macos")]
+    #[cfg(any(target_os = "macos", windows))]
     #[test]
     fn the_sun_holds_the_screen_and_comes_back_on_with_the_app() {
         let registry = Registry::in_memory().unwrap();
@@ -364,7 +374,7 @@ mod tests {
         assert!(!ScreenOn::start(&registry).is_on());
     }
 
-    #[cfg(not(any(target_os = "macos", target_os = "linux")))]
+    #[cfg(not(any(target_os = "macos", target_os = "linux", windows)))]
     #[test]
     fn other_systems_say_they_cant() {
         let registry = Registry::in_memory().unwrap();

@@ -8,7 +8,8 @@
 //! password into Terminal itself, so the app never sees it.
 //!
 //! On Linux the script opens in the first terminal [`terminal_command`]
-//! finds. Windows has no terminal here yet.
+//! finds. On Windows the line opens in PowerShell, with no file, as
+//! [`powershell`] says.
 
 use std::ffi::{OsStr, OsString};
 use std::io::Write;
@@ -52,11 +53,24 @@ pub fn write_command_file(dir: &Path, line: &str) -> std::io::Result<PathBuf> {
     Ok(path)
 }
 
-/// Opens Terminal on `line`, through a script in `dir`.
+#[cfg(any(windows, test))]
+mod powershell;
+
+/// Opens Terminal on `line`, through a script in `dir` off Windows.
 pub async fn open(dir: PathBuf, line: String) -> Result<(), String> {
-    if !cfg!(any(target_os = "macos", target_os = "linux")) {
-        return Err("A terminal opens only on macOS and Linux for now".to_owned());
+    #[cfg(windows)]
+    {
+        let _ = dir;
+        powershell::open(&line).await
     }
+    #[cfg(not(windows))]
+    open_script(dir, line).await
+}
+
+/// Opens Terminal, or the terminal found on Linux, on a script for `line`
+/// in `dir`.
+#[cfg_attr(windows, allow(dead_code))]
+async fn open_script(dir: PathBuf, line: String) -> Result<(), String> {
     let path = tokio::task::spawn_blocking(move || write_command_file(&dir, &line))
         .await
         .map_err(|error| error.to_string())?

@@ -31,7 +31,9 @@ env:
 # Linux only, so that code is compiled and tested but not linted. The
 # rust-windows job lints and tests the crates that build for Windows so far.
 # The desktop-linux job packs an unsigned debug bundle, so the Linux packaging
-# can't break unnoticed.
+# can't break unnoticed. The desktop-windows job does the same for the NSIS
+# setup and the MSI, then installs the app, starts it and keeps screenshots of
+# its window.
 jobs:
   # The pre-commit hook runs the same checks, but a commit made with
   # --no-verify skips them.
@@ -242,6 +244,130 @@ jobs:
       - name: Disk left
         if: always()
         run: df -h /
+
+  # Packs the Windows app the way a release does, as an unsigned debug
+  # build, installs it with its NSIS setup and starts it. The job waits for
+  # the window, keeps screenshots of it as the run's artifact, so a person
+  # can see the app drew, and fails if the app quits within a minute.
+  desktop-windows:
+    runs-on: windows-latest
+    timeout-minutes: 60
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up the frontend
+        uses: ./.github/actions/setup-frontend
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@686976e191b89faba57d3206551f0f330d8cb249 # stable
+        with:
+          toolchain: stable
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: ". -> target"
+          # Only branch pushes save, for the same reason as in the rust job.
+          save-if: ${{ github.event_name == 'push' }}
+
+      # As in desktop-linux: Tauri takes maxd from binaries/, named for the
+      # target, and puts it beside the app's program as maxd.exe.
+      - name: Build maxd
+        run: |
+          set -euo pipefail
+          cargo build -p maxd --locked
+          triple="$(rustc --print host-tuple)"
+          mkdir -p apps/desktop/src-tauri/binaries
+          cp target/debug/maxd.exe "apps/desktop/src-tauri/binaries/maxd-$triple.exe"
+
+      - name: Bundle the app
+        run: |
+          set -euo pipefail
+          pnpm --filter ./apps/desktop exec tauri build --debug --bundles nsis,msi \
+            --config '{"bundle":{"createUpdaterArtifacts":false,"externalBin":["binaries/maxd"]}}'
+          ls -l target/debug/bundle/nsis target/debug/bundle/msi
+
+      # The NSIS setup installs for the current user, into
+      # %LOCALAPPDATA%\MaxHQ, with maxd beside the app and the uninstaller
+      # the update rules look for. It puts nothing in data, the one folder
+      # there that deleting maxd's data erases.
+      - name: Install the app
+        shell: pwsh
+        run: |
+          $setup = Get-ChildItem target/debug/bundle/nsis -Filter *-setup.exe | Select-Object -First 1
+          if (-not $setup) { throw "The NSIS setup wasn't built." }
+          $install = Start-Process -FilePath $setup.FullName -ArgumentList '/S' -Wait -PassThru
+          if ($install.ExitCode -ne 0) { throw "The setup ended with $($install.ExitCode)." }
+          $dir = Join-Path $env:LOCALAPPDATA 'MaxHQ'
+          Get-ChildItem $dir | Format-Table Name, Length
+          foreach ($name in 'maxd.exe', 'uninstall.exe') {
+            if (-not (Test-Path (Join-Path $dir $name))) { throw "The setup put no $name beside the app." }
+          }
+          if (Test-Path (Join-Path $dir 'data')) { throw "The setup put files in data, which deleting maxd's data erases." }
+
+      # A GitHub runner has a desktop to draw on, so the window shows and a
+      # screenshot catches it. The first is taken once the page has had
+      # time to load, the second after the minute the app must last.
+      - name: Start the app
+        shell: pwsh
+        run: |
+          Add-Type -AssemblyName System.Windows.Forms, System.Drawing, Microsoft.VisualBasic
+          function Save-Screen([string] $name) {
+            $bounds = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
+            $bitmap = New-Object System.Drawing.Bitmap $bounds.Width, $bounds.Height
+            $graphics = [System.Drawing.Graphics]::FromImage($bitmap)
+            $graphics.CopyFromScreen($bounds.Location, [System.Drawing.Point]::Empty, $bounds.Size)
+            $bitmap.Save((Join-Path $PWD "smoke/$name"), [System.Drawing.Imaging.ImageFormat]::Png)
+            $graphics.Dispose()
+            $bitmap.Dispose()
+          }
+          New-Item -ItemType Directory -Force smoke | Out-Null
+          $dir = Join-Path $env:LOCALAPPDATA 'MaxHQ'
+          $exe = Get-ChildItem $dir -Filter *.exe |
+            Where-Object { $_.Name -notin 'maxd.exe', 'uninstall.exe' } |
+            Select-Object -First 1
+          if (-not $exe) { throw "The setup installed no app." }
+          # A debug build has a console, so what the app logs lands here.
+          $app = Start-Process -FilePath $exe.FullName -WorkingDirectory $dir -PassThru `
+            -RedirectStandardOutput (Join-Path $PWD 'smoke/app-out.log') `
+            -RedirectStandardError (Join-Path $PWD 'smoke/app-err.log')
+          # Holding the handle keeps the exit code readable once it quits.
+          $null = $app.Handle
+          $deadline = (Get-Date).AddMinutes(2)
+          while ((Get-Date) -lt $deadline -and -not $app.HasExited) {
+            $app.Refresh()
+            if ($app.MainWindowHandle -ne 0) { break }
+            Start-Sleep -Seconds 1
+          }
+          if ($app.HasExited) {
+            Save-Screen 'exited.png'
+            throw "The app quit before its window opened, with $($app.ExitCode)."
+          }
+          if ($app.MainWindowHandle -eq 0) {
+            Save-Screen 'no-window.png'
+            throw "The app opened no window within two minutes."
+          }
+          Write-Output "The window opened: $($app.MainWindowTitle)"
+          try { [void][Microsoft.VisualBasic.Interaction]::AppActivate($app.Id) } catch { }
+          Start-Sleep -Seconds 20
+          Save-Screen 'window.png'
+          Start-Sleep -Seconds 40
+          Save-Screen 'a-minute-later.png'
+          if ($app.HasExited) { throw "The app quit within a minute, with $($app.ExitCode)." }
+          Write-Output "The app still runs after a minute."
+          Stop-Process -Id $app.Id -Force
+
+      - name: Upload the screenshots
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: windows-app-screenshots
+          path: smoke/
+          if-no-files-found: warn
+          retention-days: 14
 
   frontend:
     runs-on: ubuntu-24.04

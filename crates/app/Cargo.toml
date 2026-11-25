@@ -26,6 +26,7 @@ futures.workspace = true
 getrandom.workspace = true
 maxhq-client.workspace = true
 maxhq-core.workspace = true
+maxhq-os.workspace = true
 maxhq-protocol.workspace = true
 qrcodegen = { workspace = true, optional = true }
 rusqlite.workspace = true
@@ -64,6 +65,8 @@ keyring = { workspace = true, features = ["sync-secret-service", "crypto-rust"] 
 
 [target.'cfg(windows)'.dependencies]
 keyring = { workspace = true, features = ["windows-native"] }
+# The power request that keeps the screen on.
+windows-sys.workspace = true
 
 [dev-dependencies]
 maxhq-core = { workspace = true, features = ["testing"] }

@@ -7,7 +7,8 @@
 //! shows at once. When you also ask for MaxHQ's data to go, the app deletes
 //! its own folders and key once nothing it runs would write there again.
 //! Where the service's `maxd` lives differs per system, and `os` holds
-//! that: macOS runs the bundled one, other systems a copy of it.
+//! that: macOS runs the bundled one, other systems a copy of it, which
+//! Windows keeps in its own folders.
 
 use std::io;
 use std::path::{Path, PathBuf};
@@ -22,11 +23,16 @@ mod macos;
 // Its copy-out is tested on the Mac too.
 #[cfg(any(not(target_os = "macos"), test))]
 mod other;
+// Its layout and its misplaced check are tested anywhere.
+#[cfg(any(windows, test))]
+mod windows;
 
 #[cfg(target_os = "macos")]
 use macos as os;
-#[cfg(not(target_os = "macos"))]
+#[cfg(not(any(target_os = "macos", windows)))]
 use other as os;
+#[cfg(windows)]
+use windows as os;
 
 impl<C: Connector> Devices<C> {
     /// Installs this machine's `maxd` as a login service with
@@ -35,7 +41,9 @@ impl<C: Connector> Devices<C> {
     /// a disk image or a copy macOS moved aside, since the service would
     /// point at a `maxd` that goes away. Off macOS the bundled `maxd` is
     /// first copied out to `~/.local/lib/maxhq/versions`, and the service
-    /// runs that copy through `~/.local/bin/maxd`.
+    /// runs that copy through `~/.local/bin/maxd`. On Windows the copy
+    /// goes to `%LOCALAPPDATA%\MaxHQ\versions`, and the service runs it
+    /// through the junction `bin\current` beside them.
     pub async fn start_local_maxd(&self) -> Result<(), CommandError> {
         self.start_local_maxd_in(crate::app_update::home()).await
     }
@@ -52,9 +60,10 @@ impl<C: Connector> Devices<C> {
     }
 
     /// The program this machine's service runs once the app installed
-    /// `maxd`, given the home folder: the bundled `maxd` on macOS and
+    /// `maxd`, given the home folder: the bundled `maxd` on macOS,
+    /// `bin\current\maxd.exe` in MaxHQ's folder on Windows and
     /// `~/.local/bin/maxd` elsewhere. `None` when this build has no `maxd`
-    /// or there's no home folder to copy one to.
+    /// or there's no folder to copy one to.
     pub(crate) fn local_maxd_program(&self, home: Option<&Path>) -> Option<PathBuf> {
         os::installed(self.maxd.as_deref()?, home)
     }

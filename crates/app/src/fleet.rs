@@ -285,7 +285,20 @@ impl Binaries for BinaryDirs {
 #[cfg(feature = "desktop")]
 fn resources_dir() -> Option<PathBuf> {
     let exe = std::env::current_exe().ok()?;
+    if cfg!(windows) {
+        return resources_on_windows(&exe, crate::app_update::WindowsApp::here(&exe));
+    }
     resources_of(&exe, cfg!(target_os = "linux"))
+}
+
+/// The resources folder of the Windows app `app` whose program is at
+/// `exe`: the program's own folder, where both installers put the app's
+/// resources and `maxd`. A build from the source tree has none, as on the
+/// other systems.
+#[cfg(feature = "desktop")]
+fn resources_on_windows(exe: &Path, app: crate::app_update::WindowsApp) -> Option<PathBuf> {
+    let dir = exe.parent()?;
+    (app.installed() && dir.is_dir()).then(|| dir.to_owned())
 }
 
 /// The resources folder of the app whose program is at `exe`. On macOS
@@ -308,8 +321,8 @@ fn resources_of(exe: &Path, linux: bool) -> Option<PathBuf> {
 /// It's made in the target folder, and still counts as the source tree.
 pub const DEV_BUNDLE: &str = "MaxHQ Dev.app";
 
-/// Whether this app runs from the source tree rather than a bundle, or on
-/// Linux an AppImage or package.
+/// Whether this app runs from the source tree rather than a bundle, on
+/// Linux an AppImage or package, or on Windows an install.
 #[cfg(feature = "desktop")]
 pub fn from_dev_tree() -> bool {
     let Ok(exe) = std::env::current_exe() else {
@@ -317,6 +330,8 @@ pub fn from_dev_tree() -> bool {
     };
     if cfg!(target_os = "linux") {
         !crate::app_update::LinuxApp::here(&exe).installed()
+    } else if cfg!(windows) {
+        !crate::app_update::WindowsApp::here(&exe).installed()
     } else {
         !in_bundle(&exe)
     }

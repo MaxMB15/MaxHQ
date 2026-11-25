@@ -13,7 +13,9 @@ pub(super) fn computer_name() -> String {
 /// What the label says when the system gives no name.
 #[cfg(target_os = "macos")]
 const FALLBACK: &str = "this Mac";
-#[cfg(not(target_os = "macos"))]
+#[cfg(windows)]
+const FALLBACK: &str = "this PC";
+#[cfg(not(any(target_os = "macos", windows)))]
 const FALLBACK: &str = "this computer";
 
 /// The Mac's name from System Settings, or its host name.
