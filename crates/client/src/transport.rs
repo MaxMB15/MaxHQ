@@ -20,9 +20,11 @@ use tokio::task::JoinHandle;
 use crate::pinned::PeerDial;
 use crate::ssh_config::SshConfig;
 
+#[cfg(any(windows, feature = "russh"))]
+mod channel;
 #[cfg(feature = "russh")]
 pub(crate) mod phone;
-#[cfg(any(feature = "russh", feature = "ws"))]
+#[cfg(any(windows, feature = "russh", feature = "ws"))]
 mod reach;
 #[cfg(feature = "system-ssh")]
 mod system;
@@ -86,6 +88,20 @@ const STDERR_TAIL: usize = 4096;
 const PROXY_COMMAND: &str =
     r#"sh -c 'PATH="$PATH:$HOME/.local/bin"; export PATH; exec maxd proxy'"#;
 
+/// What a Windows device runs to reach `maxd`, through cmd or PowerShell,
+/// which find it on the PATH that setting the device up adds it to. A
+/// transport uses it for a host once [`lacks_sh`] said the host's shell
+/// has no `sh`.
+#[cfg(feature = "system-ssh")]
+const WINDOWS_PROXY_COMMAND: &str = "maxd proxy";
+
+/// Whether `maxd proxy`'s stderr says the far side's shell has no `sh`, as
+/// cmd and PowerShell say on Windows. cmd names the program in quotes in
+/// every language, so the quotes are what this looks for.
+pub(crate) fn lacks_sh(stderr: &str) -> bool {
+    stderr.contains("'sh'") || stderr.contains("\"sh\"")
+}
+
 /// A boxed reading half.
 pub(crate) type Reader = Box<dyn AsyncRead + Send + Unpin>;
 
@@ -125,6 +141,14 @@ pub(crate) struct Rest {
 }
 
 impl Rest {
+    /// Whether the far side's shell had no `sh` to run the proxy command,
+    /// once [`Rest::closed_reason`] has read its stderr.
+    pub fn lacked_sh(&self) -> bool {
+        self.stderr
+            .as_ref()
+            .is_some_and(|tail| lacks_sh(&tail.text_now()))
+    }
+
     /// Why the far side closed before saying hello, read from its stderr.
     pub async fn closed_reason(&mut self) -> String {
         let Some(tail) = self.stderr.as_mut() else {
@@ -170,6 +194,11 @@ impl StderrTail {
         if let Some(reading) = self.reading.take() {
             let _ = tokio::time::timeout(Duration::from_secs(1), reading).await;
         }
+        self.text_now()
+    }
+
+    /// What stderr held so far.
+    fn text_now(&self) -> String {
         let text = self.text.lock().expect("stderr lock");
         String::from_utf8_lossy(&text).into_owned()
     }
@@ -232,6 +261,10 @@ pub(crate) trait Transport: Send + Sync + 'static {
     /// Drops the SSH master for a host after its connection went quiet,
     /// so the next dial logs in afresh.
     fn forget<'a>(&'a self, host: &'a str) -> BoxFuture<'a, ()>;
+
+    /// Starts `maxd` on `host` the Windows way from now on, after its
+    /// shell said it has no `sh`. Only the system's SSH tells hosts apart.
+    fn shell_is_windows(&self, _host: &str) {}
 
     /// Runs one fixed command on an SSH host over its master, logging in
     /// first if there's none. Only the system `ssh` runs commands.
@@ -296,7 +329,9 @@ pub(crate) fn proxy_failure(stderr: &str) -> String {
     if lower.contains("couldn't reach maxd") {
         "maxd isn't running".to_owned()
     } else if lower.contains("maxd")
-        && (lower.contains("not found") || lower.contains("unknown command"))
+        && (lower.contains("not found")
+            || lower.contains("unknown command")
+            || lower.contains("is not recognized"))
     {
         "maxd isn't installed on that device".to_owned()
     } else if let Some(line) = stderr.lines().map(str::trim).find(|line| !line.is_empty()) {
@@ -342,7 +377,32 @@ mod tests {
                 "{missing}"
             );
         }
+        assert_eq!(
+            proxy_failure(
+                "'maxd' is not recognized as an internal or external command,\r\noperable program or batch file.\r\n"
+            ),
+            "maxd isn't installed on that device"
+        );
         assert_eq!(proxy_failure(""), "maxd closed the connection");
+    }
+
+    #[test]
+    fn a_windows_shell_without_sh_is_noticed() {
+        for windows in [
+            "'sh' is not recognized as an internal or external command,\r\noperable program or batch file.\r\n",
+            "sh : The term 'sh' is not recognized as the name of a cmdlet, function, script file, or operable program.",
+            "Der Befehl \"sh\" ist entweder falsch geschrieben oder\r\nkonnte nicht gefunden werden.\r\n",
+        ] {
+            assert!(lacks_sh(windows), "{windows}");
+        }
+        for unix in [
+            "sh: 1: exec: maxd: not found",
+            "bash: line 1: maxd: command not found",
+            "maxd proxy: couldn't reach maxd at /run/user/1000/maxhq/maxd.sock",
+            "",
+        ] {
+            assert!(!lacks_sh(unix), "{unix}");
+        }
     }
 
     #[test]
@@ -361,6 +421,7 @@ mod tests {
     }
 
     /// Writes a `maxd` that prints where it was found and its arguments.
+    #[cfg(unix)]
     fn fake_maxd(dir: &Path, name: &str) {
         use std::os::unix::fs::PermissionsExt;
 
@@ -370,6 +431,7 @@ mod tests {
         std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
     }
 
+    #[cfg(unix)]
     #[test]
     fn login_shells_find_maxd_in_the_home_folder_after_the_system() {
         let root = std::env::temp_dir().join(format!("maxhq-proxy-{}", std::process::id()));

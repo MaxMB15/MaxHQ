@@ -53,7 +53,8 @@ mod terminals;
 mod transfer;
 mod transport;
 
-#[cfg(test)]
+// The link tests stand maxd up behind Unix sockets.
+#[cfg(all(test, unix))]
 mod tests;
 
 use std::collections::BTreeMap;

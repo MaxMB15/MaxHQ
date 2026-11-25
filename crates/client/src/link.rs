@@ -2021,13 +2021,39 @@ async fn try_route(
     terminals: Arc<Terminals>,
     known: Option<DeviceId>,
 ) -> Result<(Wire, ServerHello), Failure> {
-    let conn = shared.transport.dial(route, None, known).await?;
-    let mut wire = Wire::new(conn, transfers, forwards, terminals);
-    let hello = tokio::time::timeout(shared.timing.handshake, handshake(&mut wire, shared))
-        .await
-        .map_err(|_| no_hello(route))??;
-    same_device(known, route, &hello)?;
-    Ok((wire, hello))
+    let mut windows_tried = false;
+    loop {
+        let conn = shared.transport.dial(route, None, known).await?;
+        let mut wire = Wire::new(
+            conn,
+            Arc::clone(&transfers),
+            Arc::clone(&forwards),
+            Arc::clone(&terminals),
+        );
+        let hello =
+            match tokio::time::timeout(shared.timing.handshake, handshake(&mut wire, shared)).await
+            {
+                Ok(Ok(hello)) => hello,
+                Ok(Err(failure)) => {
+                    // A Windows device's shell has no `sh` to start the proxy
+                    // with, so its SSH routes start `maxd` the Windows way from
+                    // then on, this time too.
+                    if let Route::Ssh { host } = route
+                        && !windows_tried
+                        && wire.rest.lacked_sh()
+                    {
+                        debug!(%host, "the device's shell has no sh, so trying the Windows way");
+                        shared.transport.shell_is_windows(host);
+                        windows_tried = true;
+                        continue;
+                    }
+                    return Err(failure);
+                }
+                Err(_) => return Err(no_hello(route)),
+            };
+        same_device(known, route, &hello)?;
+        return Ok((wire, hello));
+    }
 }
 
 /// Refuses a hello from a device other than `known`, so a reused LAN
