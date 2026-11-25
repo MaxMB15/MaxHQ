@@ -53,6 +53,11 @@ pub struct Peer {
     pub elevated: bool,
 }
 
+/// Whether shutting a stream's writing side ends what the other end reads
+/// while this end still reads: a Unix socket's does, and a Windows pipe's
+/// only flushes, so the other end sees the end once the stream is dropped.
+pub const HALF_CLOSES: bool = cfg!(unix);
+
 /// What [`probe`] found at an endpoint's path.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Found {

@@ -17,13 +17,12 @@
 //! <pair>` do the same for a phone's key and a one-time pairing key.
 
 use std::ffi::OsStr;
-use std::io::{self, Read, Write};
-use std::net::Shutdown;
-use std::os::unix::net::UnixStream;
+use std::future::Future;
+use std::io;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Condvar, Mutex, MutexGuard, PoisonError};
-use std::thread;
+use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
+use maxhq_os::ipc::{self, LocalStream, ReadHalf, WriteHalf};
 use maxhq_protocol::agents::ClientRole;
 use maxhq_protocol::frame::{
     self, DecodeError, EncodeError, Frame, FrameDecoder, MAX_TUNNEL_CHUNK,
@@ -32,6 +31,8 @@ use maxhq_protocol::ids::{ClientId, DeviceId, PairId, PhoneId, StreamId, Workspa
 use maxhq_protocol::message::{ClientHello, ClientInfo, TunnelEnd};
 use maxhq_protocol::{ClientMessage, ProtocolRange, ServerMessage};
 use thiserror::Error;
+use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
+use tokio::sync::Notify;
 use uuid::Uuid;
 
 use crate::tunnel::STREAM_CREDIT;
@@ -165,34 +166,54 @@ fn canonical(text: &str) -> Option<Uuid> {
 }
 
 /// The socket at `path`.
-fn connect(path: &Path) -> Result<UnixStream, ProxyError> {
-    UnixStream::connect(path).map_err(|source| ProxyError::Connect {
-        path: path.into(),
-        source,
-    })
+async fn connect(path: &Path) -> Result<LocalStream, ProxyError> {
+    LocalStream::connect(path)
+        .await
+        .map_err(|source| ProxyError::Connect {
+            path: path.into(),
+            source,
+        })
+}
+
+/// Runs `carry` on a runtime of its own. A read of stdin can't be called
+/// off, so the runtime goes down without waiting for one, and the caller
+/// should exit.
+fn on_runtime(carry: impl Future<Output = Result<(), ProxyError>>) -> Result<(), ProxyError> {
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()?;
+    let carried = runtime.block_on(carry);
+    runtime.shutdown_background();
+    carried
 }
 
 /// Joins stdin and stdout to the socket at `path` until either side closes.
 pub fn run(path: &Path) -> Result<(), ProxyError> {
-    bridge(io::stdin(), io::stdout(), connect(path)?)?;
-    Ok(())
+    on_runtime(async {
+        let stream = connect(path).await?;
+        bridge(tokio::io::stdin(), tokio::io::stdout(), stream).await?;
+        Ok(())
+    })
 }
 
 /// Joins stdin and stdout to the socket at `path` after `first`, the frame
 /// that says which device, phone or pairing dialed.
 pub fn run_as(path: &Path, first: &ClientMessage) -> Result<(), ProxyError> {
-    first_bridge(io::stdin(), io::stdout(), connect(path)?, first)
+    on_runtime(async {
+        let stream = connect(path).await?;
+        first_bridge(tokio::io::stdin(), tokio::io::stdout(), stream, first).await
+    })
 }
 
 /// Writes `first`, then bridges.
-fn first_bridge(
-    input: impl Read + Send + 'static,
-    output: impl Write,
-    mut stream: UnixStream,
+async fn first_bridge(
+    input: impl AsyncRead + Unpin,
+    output: impl AsyncWrite + Unpin,
+    mut stream: LocalStream,
     message: &ClientMessage,
 ) -> Result<(), ProxyError> {
-    stream.write_all(&first_frame(message)?)?;
-    bridge(input, output, stream)?;
+    stream.write_all(&first_frame(message)?).await?;
+    bridge(input, output, stream).await?;
     Ok(())
 }
 
@@ -207,61 +228,65 @@ pub fn first_frame(message: &ClientMessage) -> Result<Vec<u8>, EncodeError> {
 /// Carries an SSH session with `workspace`'s guest on stdin and stdout,
 /// through the `maxd` at `path`, until the session ends.
 pub fn run_guest_ssh(path: &Path, workspace: WorkspaceId) -> Result<(), ProxyError> {
-    guest_ssh(io::stdin(), io::stdout(), connect(path)?, workspace)
+    on_runtime(async {
+        let stream = connect(path).await?;
+        guest_ssh(tokio::io::stdin(), tokio::io::stdout(), stream, workspace).await
+    })
 }
 
-/// Copies `input` to the socket on a thread of its own, and the socket to
-/// `output` on this one.
+/// Copies `input` to the socket and the socket to `output`, both at once.
 ///
 /// When `input` ends, the socket's sending side shuts, and `maxd` closes the
-/// connection once it has read the rest. When the socket closes, the bridge
-/// returns at once and leaves the input thread waiting, so the caller should
-/// exit rather than wait for it.
-pub fn bridge(
-    input: impl Read + Send + 'static,
-    output: impl Write,
-    stream: UnixStream,
+/// connection once it has read the rest, while its replies still come. A
+/// Windows pipe can't shut one side, so there the end of input ends the
+/// bridge, as a phone's end does through network access. When the socket
+/// closes, the bridge returns at once, and stops reading `input`.
+pub async fn bridge(
+    input: impl AsyncRead + Unpin,
+    output: impl AsyncWrite + Unpin,
+    stream: LocalStream,
 ) -> io::Result<()> {
-    let to_maxd = stream.try_clone()?;
-    thread::spawn(move || {
-        let copied = copy(input, &to_maxd);
+    let (from_maxd, mut to_maxd) = stream.into_split();
+    let sending = async {
+        let copied = copy(input, &mut to_maxd).await;
         // At the end of input only the sending side shuts, since replies
         // may still be on their way. After an error nothing more will come,
-        // so both shut and the bridge returns.
-        let how = if copied.is_ok() {
-            Shutdown::Write
-        } else {
-            Shutdown::Both
-        };
-        let _ = to_maxd.shutdown(how);
-    });
-    match copy(&stream, output) {
-        // The other end going away is how a proxy normally ends.
-        Err(err)
-            if matches!(
-                err.kind(),
-                io::ErrorKind::BrokenPipe | io::ErrorKind::ConnectionReset
-            ) =>
-        {
-            Ok(())
+        // so the bridge returns.
+        if copied.is_ok() && ipc::HALF_CLOSES {
+            let _ = to_maxd.shutdown().await;
+            std::future::pending::<()>().await;
         }
-        other => other,
+    };
+    tokio::select! {
+        () = sending => Ok(()),
+        copied = copy(from_maxd, output) => match copied {
+            // The other end going away is how a proxy normally ends.
+            Err(err)
+                if matches!(
+                    err.kind(),
+                    io::ErrorKind::BrokenPipe | io::ErrorKind::ConnectionReset
+                ) =>
+            {
+                Ok(())
+            }
+            other => other,
+        },
     }
 }
 
 /// Copies until `from` ends, flushing after every read so nothing waits in
 /// a buffer while the other side waits for it.
-fn copy(mut from: impl Read, mut to: impl Write) -> io::Result<()> {
+async fn copy(mut from: impl AsyncRead + Unpin, mut to: impl AsyncWrite + Unpin) -> io::Result<()> {
     let mut buf = vec![0; CHUNK];
     loop {
-        let n = match from.read(&mut buf) {
+        let n = match from.read(&mut buf).await {
             Ok(0) => return Ok(()),
             Ok(n) => n,
             Err(err) if err.kind() == io::ErrorKind::Interrupted => continue,
             Err(err) => return Err(err),
         };
-        to.write_all(&buf[..n])?;
-        to.flush()?;
+        to.write_all(&buf[..n]).await?;
+        to.flush().await?;
     }
 }
 
@@ -274,28 +299,31 @@ const GRANT_STEP: u64 = MAX_TUNNEL_CHUNK as u64;
 ///
 /// This end sends nothing until `maxd` says the stream opened. Then it may
 /// send [`STREAM_CREDIT`] bytes, and more as `maxd` grants. `maxd` may send
-/// as much, and more as this end writes its bytes out. As with
-/// [`bridge`], the input thread may still be waiting when this returns,
-/// so the caller should exit.
-pub fn guest_ssh(
-    input: impl Read + Send + 'static,
-    mut output: impl Write,
-    socket: UnixStream,
+/// as much, and more as this end writes its bytes out. Input goes out from
+/// a task of its own, which may still be waiting when this returns, so the
+/// caller should exit.
+pub async fn guest_ssh(
+    input: impl AsyncRead + Unpin + Send + 'static,
+    mut output: impl AsyncWrite + Unpin,
+    socket: LocalStream,
     workspace: WorkspaceId,
 ) -> Result<(), ProxyError> {
-    let writer = Writer(Arc::new(Mutex::new(socket.try_clone()?)));
-    let mut reader = Reader::new(socket);
-    writer.send(&ClientMessage::Hello(ClientHello {
-        protocol: ProtocolRange::OURS,
-        client: ClientInfo {
-            name: CLIENT.to_owned(),
-            version: env!("CARGO_PKG_VERSION").to_owned(),
-        },
-        client_id: ClientId::generate(),
-        role: ClientRole::App,
-    }))?;
+    let (read, write) = socket.into_split();
+    let writer = Writer(Arc::new(tokio::sync::Mutex::new(write)));
+    let mut reader = Reader::new(read);
+    writer
+        .send(&ClientMessage::Hello(ClientHello {
+            protocol: ProtocolRange::OURS,
+            client: ClientInfo {
+                name: CLIENT.to_owned(),
+                version: env!("CARGO_PKG_VERSION").to_owned(),
+            },
+            client_id: ClientId::generate(),
+            role: ClientRole::App,
+        }))
+        .await?;
     loop {
-        match reader.next()? {
+        match reader.next().await? {
             Incoming::Message(ServerMessage::Hello(hello)) => {
                 if !hello.capabilities.guest_ssh {
                     return Err(ProxyError::NoGuestSsh);
@@ -310,22 +338,35 @@ pub fn guest_ssh(
     }
 
     let stream = StreamId::generate();
-    writer.send(&ClientMessage::GuestSshOpen { stream, workspace })?;
+    writer
+        .send(&ClientMessage::GuestSshOpen { stream, workspace })
+        .await?;
     let credit = Arc::new(Credit::default());
+    // Told when reading input fails, which ends the session.
+    let failed = Arc::new(Notify::new());
     // Bytes `maxd` may still send, and bytes written out but not yet
     // granted back.
     let mut window = STREAM_CREDIT;
     let mut ungranted = 0;
-    // Taken by the input thread once the stream opens.
+    // Taken by the input task once the stream opens.
     let mut input = Some(input);
     loop {
-        match reader.next()? {
+        let incoming = tokio::select! {
+            incoming = reader.next() => incoming?,
+            () = failed.notified() => return Err(ProxyError::Closed),
+        };
+        match incoming {
             Incoming::Message(message) => match message {
                 ServerMessage::TunnelOpened { stream: id } if id == stream => {
                     if let Some(input) = input.take() {
                         credit.grant(STREAM_CREDIT);
-                        let (writer, credit) = (writer.clone(), credit.clone());
-                        thread::spawn(move || send_input(input, stream, &writer, &credit));
+                        let (writer, credit, failed) =
+                            (writer.clone(), credit.clone(), failed.clone());
+                        tokio::spawn(async move {
+                            if send_input(input, stream, &writer, &credit).await.is_err() {
+                                failed.notify_one();
+                            }
+                        });
                     }
                 }
                 ServerMessage::TunnelRefused {
@@ -355,26 +396,36 @@ pub fn guest_ssh(
             Incoming::Data { stream: id, data } if id == stream => {
                 let len = data.len() as u64;
                 if len > window {
-                    let _ = writer.send(&ClientMessage::TunnelClose {
-                        stream,
-                        how: TunnelEnd::Reset,
-                    });
+                    let _ = writer
+                        .send(&ClientMessage::TunnelClose {
+                            stream,
+                            how: TunnelEnd::Reset,
+                        })
+                        .await;
                     return Err(ProxyError::Overrun);
                 }
                 window -= len;
-                if let Err(err) = output.write_all(&data).and_then(|()| output.flush()) {
-                    let _ = writer.send(&ClientMessage::TunnelClose {
-                        stream,
-                        how: TunnelEnd::Reset,
-                    });
+                let written = match output.write_all(&data).await {
+                    Ok(()) => output.flush().await,
+                    Err(err) => Err(err),
+                };
+                if let Err(err) = written {
+                    let _ = writer
+                        .send(&ClientMessage::TunnelClose {
+                            stream,
+                            how: TunnelEnd::Reset,
+                        })
+                        .await;
                     return Err(err.into());
                 }
                 ungranted += len;
                 if ungranted >= GRANT_STEP {
-                    writer.send(&ClientMessage::TunnelCredit {
-                        stream,
-                        granted: ungranted,
-                    })?;
+                    writer
+                        .send(&ClientMessage::TunnelCredit {
+                            stream,
+                            granted: ungranted,
+                        })
+                        .await?;
                     window += ungranted;
                     ungranted = 0;
                 }
@@ -385,35 +436,44 @@ pub fn guest_ssh(
 }
 
 /// Sends `input` as `stream`'s bytes as credit allows, then says this
-/// end is done writing. A failed read resets the stream.
-fn send_input(mut input: impl Read, stream: StreamId, writer: &Writer, credit: &Credit) {
+/// end is done writing. A failed read resets the stream and fails, which
+/// ends the session.
+async fn send_input(
+    mut input: impl AsyncRead + Unpin,
+    stream: StreamId,
+    writer: &Writer,
+    credit: &Credit,
+) -> Result<(), ()> {
     let mut buf = vec![0; MAX_TUNNEL_CHUNK];
     loop {
-        let room = usize::try_from(credit.wait()).unwrap_or(usize::MAX);
-        let n = match input.read(&mut buf[..room.min(MAX_TUNNEL_CHUNK)]) {
+        let room = usize::try_from(credit.wait().await).unwrap_or(usize::MAX);
+        let n = match input.read(&mut buf[..room.min(MAX_TUNNEL_CHUNK)]).await {
             Ok(0) => {
-                let _ = writer.send(&ClientMessage::TunnelClose {
-                    stream,
-                    how: TunnelEnd::Write,
-                });
-                return;
+                let _ = writer
+                    .send(&ClientMessage::TunnelClose {
+                        stream,
+                        how: TunnelEnd::Write,
+                    })
+                    .await;
+                return Ok(());
             }
             Ok(n) => n,
             Err(err) if err.kind() == io::ErrorKind::Interrupted => continue,
             Err(_) => {
-                let _ = writer.send(&ClientMessage::TunnelClose {
-                    stream,
-                    how: TunnelEnd::Reset,
-                });
-                writer.shut();
-                return;
+                let _ = writer
+                    .send(&ClientMessage::TunnelClose {
+                        stream,
+                        how: TunnelEnd::Reset,
+                    })
+                    .await;
+                return Err(());
             }
         };
         credit.spend(n as u64);
         let mut frame = Vec::with_capacity(n + 32);
         frame::encode_tunnel_data(&mut frame, stream, &buf[..n]);
-        if writer.write(&frame).is_err() {
-            return;
+        if writer.write(&frame).await.is_err() {
+            return Ok(());
         }
     }
 }
@@ -422,7 +482,7 @@ fn send_input(mut input: impl Read, stream: StreamId, writer: &Writer, credit: &
 #[derive(Default)]
 struct Credit {
     left: Mutex<u64>,
-    more: Condvar,
+    more: Notify,
 }
 
 impl Credit {
@@ -433,12 +493,16 @@ impl Credit {
     }
 
     /// Waits until there's credit, and gives how much.
-    fn wait(&self) -> u64 {
-        let mut left = lock(&self.left);
-        while *left == 0 {
-            left = self.more.wait(left).unwrap_or_else(PoisonError::into_inner);
+    async fn wait(&self) -> u64 {
+        loop {
+            // Made before looking, so a grant in between still wakes it.
+            let more = self.more.notified();
+            let left = *lock(&self.left);
+            if left > 0 {
+                return left;
+            }
+            more.await;
         }
-        *left
     }
 
     fn spend(&self, n: u64) {
@@ -447,25 +511,22 @@ impl Credit {
     }
 }
 
-/// The socket's sending side, shared by the input thread and the reader,
+/// The socket's sending side, shared by the input task and the reader,
 /// so each frame goes out whole.
 #[derive(Clone)]
-struct Writer(Arc<Mutex<UnixStream>>);
+struct Writer(Arc<tokio::sync::Mutex<WriteHalf>>);
 
 impl Writer {
-    fn send(&self, message: &ClientMessage) -> Result<(), ProxyError> {
+    async fn send(&self, message: &ClientMessage) -> Result<(), ProxyError> {
         let mut out = Vec::new();
         frame::encode_message(&mut out, message)?;
-        Ok(self.write(&out)?)
+        Ok(self.write(&out).await?)
     }
 
-    fn write(&self, frame: &[u8]) -> io::Result<()> {
-        lock(&self.0).write_all(frame)
-    }
-
-    /// Shuts the socket both ways, so the reader stops too.
-    fn shut(&self) {
-        let _ = lock(&self.0).shutdown(Shutdown::Both);
+    async fn write(&self, frame: &[u8]) -> io::Result<()> {
+        let mut socket = self.0.lock().await;
+        socket.write_all(frame).await?;
+        socket.flush().await
     }
 }
 
@@ -477,13 +538,13 @@ enum Incoming {
 
 /// The socket's receiving side, read a frame at a time.
 struct Reader {
-    socket: UnixStream,
+    socket: ReadHalf,
     decoder: FrameDecoder,
     buf: Vec<u8>,
 }
 
 impl Reader {
-    fn new(socket: UnixStream) -> Self {
+    fn new(socket: ReadHalf) -> Self {
         Self {
             socket,
             decoder: FrameDecoder::new(),
@@ -492,8 +553,9 @@ impl Reader {
     }
 
     /// The next message or tunnel frame. Messages this build doesn't read
-    /// and other kinds of frame are skipped.
-    fn next(&mut self) -> Result<Incoming, ProxyError> {
+    /// and other kinds of frame are skipped. Called off between frames,
+    /// it loses nothing.
+    async fn next(&mut self) -> Result<Incoming, ProxyError> {
         loop {
             match self.decoder.next_frame() {
                 Ok(Some(Frame::Message(json))) => {
@@ -511,7 +573,7 @@ impl Reader {
                 Err(DecodeError::UnknownKind(_) | DecodeError::ShortHeader(_)) => continue,
                 Err(err) => return Err(err.into()),
             }
-            let n = match self.socket.read(&mut self.buf) {
+            let n = match self.socket.read(&mut self.buf).await {
                 Ok(0) => return Err(ProxyError::Closed),
                 Ok(n) => n,
                 Err(err) if err.kind() == io::ErrorKind::Interrupted => continue,
@@ -529,71 +591,90 @@ fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::mpsc;
     use std::time::Duration;
+    use tokio::io::{duplex, DuplexStream};
+    use tokio::task::JoinHandle;
 
-    // Long, since a loaded machine can leave a thread waiting for
-    // seconds. Only a failing test waits it out.
+    // Long, since a loaded machine can leave a task waiting for seconds.
+    // Only a failing test waits it out.
     const WAIT: Duration = Duration::from_secs(30);
 
-    /// Runs a bridge on a thread, with sockets standing in for stdin and
-    /// stdout. Returns maxd's end, the test's ends of stdin and stdout, and
-    /// a channel that gets the bridge's result.
-    fn start() -> (
-        UnixStream,
-        UnixStream,
-        UnixStream,
-        mpsc::Receiver<io::Result<()>>,
-    ) {
-        let (stream, maxd) = UnixStream::pair().unwrap();
-        let (input, stdin) = UnixStream::pair().unwrap();
-        let (output, stdout) = UnixStream::pair().unwrap();
-        let (done, result) = mpsc::channel();
-        thread::spawn(move || done.send(bridge(input, output, stream)));
-        for end in [&maxd, &stdin, &stdout] {
-            end.set_read_timeout(Some(WAIT)).unwrap();
-        }
-        (maxd, stdin, stdout, result)
+    /// `future`, or a failure once it's taken too long.
+    async fn soon<T>(future: impl Future<Output = T>) -> T {
+        tokio::time::timeout(WAIT, future)
+            .await
+            .expect("it happens in time")
     }
 
-    #[test]
-    fn bytes_flow_both_ways() {
-        let (mut maxd, mut stdin, mut stdout, result) = start();
-        stdin.write_all(b"hello").unwrap();
+    /// Runs a bridge in a task, with in-memory pipes standing in for stdin
+    /// and stdout. Returns maxd's end, the test's ends of stdin and stdout,
+    /// and the bridge's task.
+    fn start() -> (
+        LocalStream,
+        DuplexStream,
+        DuplexStream,
+        JoinHandle<io::Result<()>>,
+    ) {
+        let (stream, maxd) = ipc::pair().unwrap();
+        let (input, stdin) = duplex(CHUNK);
+        let (output, stdout) = duplex(CHUNK);
+        let bridged = tokio::spawn(bridge(input, output, stream));
+        (maxd, stdin, stdout, bridged)
+    }
+
+    #[tokio::test]
+    async fn bytes_flow_both_ways() {
+        let (mut maxd, mut stdin, mut stdout, bridged) = start();
+        stdin.write_all(b"hello").await.unwrap();
         let mut got = [0; 5];
-        maxd.read_exact(&mut got).unwrap();
+        soon(maxd.read_exact(&mut got)).await.unwrap();
         assert_eq!(&got, b"hello");
 
-        maxd.write_all(b"world").unwrap();
-        stdout.read_exact(&mut got).unwrap();
+        maxd.write_all(b"world").await.unwrap();
+        soon(stdout.read_exact(&mut got)).await.unwrap();
         assert_eq!(&got, b"world");
 
         drop(maxd);
-        result.recv_timeout(WAIT).unwrap().unwrap();
+        soon(bridged).await.unwrap().unwrap();
     }
 
-    #[test]
-    fn the_end_of_input_reaches_maxd_and_replies_still_arrive() {
-        let (mut maxd, mut stdin, mut stdout, result) = start();
-        stdin.write_all(b"ping").unwrap();
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn the_end_of_input_reaches_maxd_and_replies_still_arrive() {
+        let (mut maxd, mut stdin, mut stdout, bridged) = start();
+        stdin.write_all(b"ping").await.unwrap();
         drop(stdin);
         let mut got = Vec::new();
-        maxd.read_to_end(&mut got).unwrap();
+        soon(maxd.read_to_end(&mut got)).await.unwrap();
         assert_eq!(got, b"ping", "maxd reads to the end");
 
-        maxd.write_all(b"pong").unwrap();
+        maxd.write_all(b"pong").await.unwrap();
         drop(maxd);
-        result.recv_timeout(WAIT).unwrap().unwrap();
+        soon(bridged).await.unwrap().unwrap();
         let mut reply = Vec::new();
-        stdout.read_to_end(&mut reply).unwrap();
+        soon(stdout.read_to_end(&mut reply)).await.unwrap();
         assert_eq!(reply, b"pong");
     }
 
-    #[test]
-    fn maxd_closing_ends_the_proxy_while_input_is_open() {
-        let (maxd, _stdin, _stdout, result) = start();
+    /// A pipe can't shut one side, so the end of input ends the bridge,
+    /// and maxd reads the rest, then the end.
+    #[cfg(windows)]
+    #[tokio::test]
+    async fn the_end_of_input_ends_the_bridge_and_reaches_maxd() {
+        let (mut maxd, mut stdin, _stdout, bridged) = start();
+        stdin.write_all(b"ping").await.unwrap();
+        drop(stdin);
+        soon(bridged).await.unwrap().unwrap();
+        let mut got = Vec::new();
+        soon(maxd.read_to_end(&mut got)).await.unwrap();
+        assert_eq!(got, b"ping");
+    }
+
+    #[tokio::test]
+    async fn maxd_closing_ends_the_proxy_while_input_is_open() {
+        let (maxd, _stdin, _stdout, bridged) = start();
         drop(maxd);
-        result.recv_timeout(WAIT).unwrap().unwrap();
+        soon(bridged).await.unwrap().unwrap();
     }
 
     #[test]
@@ -727,32 +808,35 @@ mod tests {
         }
     }
 
-    #[test]
-    fn the_peer_frame_comes_before_the_clients_bytes() {
-        let device = DeviceId(Uuid::try_parse("0199a7c2-0000-7000-8000-0000000000aa").unwrap());
-        let (stream, mut maxd) = UnixStream::pair().unwrap();
-        let (input, mut stdin) = UnixStream::pair().unwrap();
-        let (output, _stdout) = UnixStream::pair().unwrap();
-        maxd.set_read_timeout(Some(WAIT)).unwrap();
-        thread::spawn(move || first_bridge(input, output, stream, &ClientMessage::Peer { device }));
-        stdin.write_all(b"hello").unwrap();
-        drop(stdin);
-        let mut got = Vec::new();
-        maxd.read_to_end(&mut got).unwrap();
+    /// The frame `bytes` start with, which must be a message.
+    fn first_message(bytes: &[u8]) -> ClientMessage {
         let mut decoder = FrameDecoder::new();
-        decoder.push(&got);
+        decoder.push(bytes);
         match decoder.next_frame().unwrap() {
-            Some(Frame::Message(text)) => assert_eq!(
-                serde_json::from_slice::<ClientMessage>(text).unwrap(),
-                ClientMessage::Peer { device }
-            ),
+            Some(Frame::Message(text)) => serde_json::from_slice(text).unwrap(),
             other => panic!("{other:?}"),
         }
+    }
+
+    #[tokio::test]
+    async fn the_peer_frame_comes_before_the_clients_bytes() {
+        let device = DeviceId(Uuid::try_parse("0199a7c2-0000-7000-8000-0000000000aa").unwrap());
+        let (stream, mut maxd) = ipc::pair().unwrap();
+        let (input, mut stdin) = duplex(CHUNK);
+        let (output, _stdout) = duplex(CHUNK);
+        tokio::spawn(async move {
+            first_bridge(input, output, stream, &ClientMessage::Peer { device }).await
+        });
+        stdin.write_all(b"hello").await.unwrap();
+        drop(stdin);
+        let mut got = Vec::new();
+        soon(maxd.read_to_end(&mut got)).await.unwrap();
+        assert_eq!(first_message(&got), ClientMessage::Peer { device });
         assert!(got.ends_with(b"hello"));
     }
 
-    #[test]
-    fn a_phone_or_pairing_frame_comes_first_and_names_only_a_plain_id() {
+    #[tokio::test]
+    async fn a_phone_or_pairing_frame_comes_first_and_names_only_a_plain_id() {
         let id = "0199a7c2-0000-7000-8000-0000000000bb";
         let uuid = Uuid::try_parse(id).unwrap();
         assert_eq!(phone(id), Some(PhoneId(uuid)));
@@ -765,32 +849,21 @@ mod tests {
             },
             ClientMessage::Pair { pair: PairId(uuid) },
         ] {
-            let (stream, mut maxd) = UnixStream::pair().unwrap();
-            let (input, stdin) = UnixStream::pair().unwrap();
-            let (output, _stdout) = UnixStream::pair().unwrap();
-            maxd.set_read_timeout(Some(WAIT)).unwrap();
+            let (stream, mut maxd) = ipc::pair().unwrap();
+            let (input, stdin) = duplex(CHUNK);
+            let (output, _stdout) = duplex(CHUNK);
             let sent = first.clone();
-            thread::spawn(move || first_bridge(input, output, stream, &sent));
+            tokio::spawn(async move { first_bridge(input, output, stream, &sent).await });
             drop(stdin);
             let mut got = Vec::new();
-            maxd.read_to_end(&mut got).unwrap();
-            let mut decoder = FrameDecoder::new();
-            decoder.push(&got);
-            match decoder.next_frame().unwrap() {
-                Some(Frame::Message(text)) => {
-                    assert_eq!(
-                        serde_json::from_slice::<ClientMessage>(text).unwrap(),
-                        first
-                    );
-                }
-                other => panic!("{other:?}"),
-            }
+            soon(maxd.read_to_end(&mut got)).await.unwrap();
+            assert_eq!(first_message(&got), first);
         }
     }
 
     /// The device end of a guest SSH proxy's socket.
     struct Maxd {
-        socket: UnixStream,
+        socket: LocalStream,
         decoder: FrameDecoder,
     }
 
@@ -804,8 +877,7 @@ mod tests {
     impl Maxd {
         /// The next thing the proxy sent, or none when nothing comes for
         /// `wait`.
-        fn within(&mut self, wait: Duration) -> Option<Sent> {
-            self.socket.set_read_timeout(Some(wait)).unwrap();
+        async fn within(&mut self, wait: Duration) -> Option<Sent> {
             let mut buf = vec![0; CHUNK];
             loop {
                 match self.decoder.next_frame().unwrap() {
@@ -818,49 +890,42 @@ mod tests {
                     Some(frame) => panic!("the proxy sent {frame:?}"),
                     None => {}
                 }
-                match self.socket.read(&mut buf) {
-                    Ok(0) => panic!("the proxy closed the socket"),
-                    Ok(n) => self.decoder.push(&buf[..n]),
-                    Err(err)
-                        if matches!(
-                            err.kind(),
-                            io::ErrorKind::WouldBlock | io::ErrorKind::TimedOut
-                        ) =>
-                    {
-                        return None;
-                    }
-                    Err(err) => panic!("{err}"),
+                match tokio::time::timeout(wait, self.socket.read(&mut buf)).await {
+                    Err(_) => return None,
+                    Ok(Ok(0)) => panic!("the proxy closed the socket"),
+                    Ok(Ok(n)) => self.decoder.push(&buf[..n]),
+                    Ok(Err(err)) => panic!("{err}"),
                 }
             }
         }
 
-        fn next(&mut self) -> Sent {
-            self.within(WAIT).expect("the proxy sends something")
+        async fn next(&mut self) -> Sent {
+            self.within(WAIT).await.expect("the proxy sends something")
         }
 
-        fn message(&mut self) -> ClientMessage {
-            match self.next() {
+        async fn message(&mut self) -> ClientMessage {
+            match self.next().await {
                 Sent::Message(message) => message,
                 sent => panic!("expected a message, got {sent:?}"),
             }
         }
 
-        fn send(&mut self, message: &ServerMessage) {
+        async fn send(&mut self, message: &ServerMessage) {
             let mut out = Vec::new();
             frame::encode_message(&mut out, message).unwrap();
-            self.socket.write_all(&out).unwrap();
+            self.socket.write_all(&out).await.unwrap();
         }
 
-        fn data(&mut self, stream: StreamId, bytes: &[u8]) {
+        async fn data(&mut self, stream: StreamId, bytes: &[u8]) {
             let mut out = Vec::new();
             frame::encode_tunnel_data(&mut out, stream, bytes);
-            self.socket.write_all(&out).unwrap();
+            self.socket.write_all(&out).await.unwrap();
         }
 
         /// Takes the hello and answers it, saying whether this device
         /// opens guest SSH sessions.
-        fn greet(&mut self, guest_ssh: bool) {
-            let ClientMessage::Hello(hello) = self.message() else {
+        async fn greet(&mut self, guest_ssh: bool) {
+            let ClientMessage::Hello(hello) = self.message().await else {
                 panic!("the proxy says hello first");
             };
             assert_eq!(hello.client.name, CLIENT);
@@ -879,12 +944,13 @@ mod tests {
                     target: None,
                     challenge: None,
                 },
-            ));
+            ))
+            .await;
         }
 
         /// Takes the session's open, and gives its stream.
-        fn opening(&mut self, workspace: WorkspaceId) -> StreamId {
-            match self.message() {
+        async fn opening(&mut self, workspace: WorkspaceId) -> StreamId {
+            match self.message().await {
                 ClientMessage::GuestSshOpen {
                     stream,
                     workspace: asked,
@@ -897,50 +963,48 @@ mod tests {
         }
     }
 
-    /// Runs a guest SSH proxy on a thread, with sockets standing in for
-    /// stdin and stdout. Returns maxd's end, the test's ends of stdin and
-    /// stdout, and a channel that gets the proxy's result.
+    /// Runs a guest SSH proxy in a task, with in-memory pipes standing in
+    /// for stdin and stdout. Returns maxd's end, the test's ends of stdin
+    /// and stdout, and the proxy's task.
     fn start_guest_ssh(
         workspace: WorkspaceId,
     ) -> (
         Maxd,
-        UnixStream,
-        UnixStream,
-        mpsc::Receiver<Result<(), ProxyError>>,
+        DuplexStream,
+        DuplexStream,
+        JoinHandle<Result<(), ProxyError>>,
     ) {
-        let (socket, maxd) = UnixStream::pair().unwrap();
-        let (input, stdin) = UnixStream::pair().unwrap();
-        let (output, stdout) = UnixStream::pair().unwrap();
-        let (done, result) = mpsc::channel();
-        thread::spawn(move || done.send(guest_ssh(input, output, socket, workspace)));
-        stdout.set_read_timeout(Some(WAIT)).unwrap();
+        let (socket, maxd) = ipc::pair().unwrap();
+        let (input, stdin) = duplex(CHUNK);
+        let (output, stdout) = duplex(CHUNK);
+        let carried = tokio::spawn(guest_ssh(input, output, socket, workspace));
         let maxd = Maxd {
             socket: maxd,
             decoder: FrameDecoder::new(),
         };
-        (maxd, stdin, stdout, result)
+        (maxd, stdin, stdout, carried)
     }
 
-    #[test]
-    fn a_guest_ssh_session_flows_both_ways_with_credit() {
+    #[tokio::test]
+    async fn a_guest_ssh_session_flows_both_ways_with_credit() {
         let workspace = WorkspaceId::derive("w");
-        let (mut maxd, mut stdin, stdout, result) = start_guest_ssh(workspace);
-        maxd.greet(true);
-        let stream = maxd.opening(workspace);
+        let (mut maxd, mut stdin, mut stdout, carried) = start_guest_ssh(workspace);
+        maxd.greet(true).await;
+        let stream = maxd.opening(workspace).await;
 
         // Nothing goes before the stream opens.
         let sent = STREAM_CREDIT as usize + 1000;
-        let writer = thread::spawn(move || {
-            stdin.write_all(&vec![7; sent]).unwrap();
+        let writer = tokio::spawn(async move {
+            stdin.write_all(&vec![7; sent]).await.unwrap();
             stdin
         });
-        assert!(maxd.within(Duration::from_millis(200)).is_none());
-        maxd.send(&ServerMessage::TunnelOpened { stream });
+        assert!(maxd.within(Duration::from_millis(200)).await.is_none());
+        maxd.send(&ServerMessage::TunnelOpened { stream }).await;
 
         // Then the stream's credit, and no more until more is granted.
         let mut got = 0;
         while got < STREAM_CREDIT as usize {
-            match maxd.next() {
+            match maxd.next().await {
                 Sent::Data(id, data) => {
                     assert_eq!(id, stream);
                     assert!(data.len() <= MAX_TUNNEL_CHUNK);
@@ -951,20 +1015,21 @@ mod tests {
             }
         }
         assert_eq!(got, STREAM_CREDIT as usize);
-        assert!(maxd.within(Duration::from_millis(200)).is_none());
+        assert!(maxd.within(Duration::from_millis(200)).await.is_none());
         maxd.send(&ServerMessage::TunnelCredit {
             stream,
             granted: 4096,
-        });
-        let Sent::Data(_, rest) = maxd.next() else {
+        })
+        .await;
+        let Sent::Data(_, rest) = maxd.next().await else {
             panic!("the rest comes once there's credit");
         };
         assert_eq!(rest.len(), 1000);
 
         // The end of input ends this end's half.
-        drop(writer.join().unwrap());
+        drop(soon(writer).await.unwrap());
         assert_eq!(
-            maxd.message(),
+            maxd.message().await,
             ClientMessage::TunnelClose {
                 stream,
                 how: TunnelEnd::Write
@@ -974,19 +1039,18 @@ mod tests {
         // The guest's bytes reach stdout, and earn maxd more credit.
         let reply: Vec<u8> = (0..2 * MAX_TUNNEL_CHUNK).map(|i| i as u8).collect();
         // Stdout is read as maxd writes, as ssh reads its ProxyCommand.
-        let reading = thread::spawn(move || {
-            let mut stdout = stdout;
+        let reading = tokio::spawn(async move {
             let mut out = vec![0; 2 * MAX_TUNNEL_CHUNK];
-            stdout.read_exact(&mut out).unwrap();
+            stdout.read_exact(&mut out).await.unwrap();
             out
         });
         for chunk in reply.chunks(MAX_TUNNEL_CHUNK) {
-            maxd.data(stream, chunk);
+            maxd.data(stream, chunk).await;
         }
-        assert_eq!(reading.join().unwrap(), reply);
+        assert_eq!(soon(reading).await.unwrap(), reply);
         let mut granted = 0;
         while granted < reply.len() as u64 {
-            match maxd.message() {
+            match maxd.message().await {
                 ClientMessage::TunnelCredit {
                     stream: id,
                     granted: more,
@@ -1003,31 +1067,33 @@ mod tests {
         maxd.send(&ServerMessage::TunnelClose {
             stream,
             how: TunnelEnd::Write,
-        });
-        result.recv_timeout(WAIT).unwrap().unwrap();
+        })
+        .await;
+        soon(carried).await.unwrap().unwrap();
     }
 
-    #[test]
-    fn a_refused_session_says_why() {
+    #[tokio::test]
+    async fn a_refused_session_says_why() {
         let workspace = WorkspaceId::derive("w");
-        let (mut maxd, _stdin, _stdout, result) = start_guest_ssh(workspace);
-        maxd.greet(true);
-        let stream = maxd.opening(workspace);
+        let (mut maxd, _stdin, _stdout, carried) = start_guest_ssh(workspace);
+        maxd.greet(true).await;
+        let stream = maxd.opening(workspace).await;
         maxd.send(&ServerMessage::TunnelRefused {
             stream,
             code: maxhq_protocol::message::ErrorCode::NoSuchWorkspace,
             message: "That workspace isn't running.".into(),
-        });
-        let err = result.recv_timeout(WAIT).unwrap().unwrap_err();
+        })
+        .await;
+        let err = soon(carried).await.unwrap().unwrap_err();
         assert_eq!(err.to_string(), "That workspace isn't running.");
     }
 
-    #[test]
-    fn a_device_without_guest_ssh_opens_nothing() {
+    #[tokio::test]
+    async fn a_device_without_guest_ssh_opens_nothing() {
         let workspace = WorkspaceId::derive("w");
-        let (mut maxd, _stdin, _stdout, result) = start_guest_ssh(workspace);
-        maxd.greet(false);
-        let err = result.recv_timeout(WAIT).unwrap().unwrap_err();
+        let (mut maxd, _stdin, _stdout, carried) = start_guest_ssh(workspace);
+        maxd.greet(false).await;
+        let err = soon(carried).await.unwrap().unwrap_err();
         assert!(matches!(err, ProxyError::NoGuestSsh), "{err}");
     }
 }
