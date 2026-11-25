@@ -30,6 +30,7 @@
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
+use maxhq_core::paths::BUILD_LEN;
 use maxhq_protocol::time::Timestamp;
 use serde::{Deserialize, Serialize};
 use specta::Type;
@@ -518,7 +519,7 @@ impl<C: Connector> App<C> {
         let bundled_build = tokio::task::spawn_blocking(move || {
             crate::fleet::sha256_file(&bundled_for_sum)
                 .ok()
-                .map(|sum| sum[..16.min(sum.len())].to_owned())
+                .map(|sum| sum[..BUILD_LEN.min(sum.len())].to_owned())
         })
         .await
         .ok()

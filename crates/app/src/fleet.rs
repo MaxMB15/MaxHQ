@@ -29,6 +29,7 @@ use std::time::Duration;
 #[cfg(feature = "desktop")]
 use std::time::Instant;
 
+use maxhq_core::paths::BUILD_LEN;
 use maxhq_protocol::ids::{AttachmentId, DeviceId, IdempotencyKey};
 use maxhq_protocol::link::LinkState;
 #[cfg(feature = "desktop")]
@@ -120,10 +121,10 @@ pub struct Binary {
 }
 
 impl Binary {
-    /// The build a `maxd` running from it reports: the first 16 hex
-    /// characters of its sha256.
+    /// The build a `maxd` running from it reports: the first
+    /// [`BUILD_LEN`] hex characters of its sha256.
     pub fn build(&self) -> &str {
-        &self.sha256[..16.min(self.sha256.len())]
+        &self.sha256[..BUILD_LEN.min(self.sha256.len())]
     }
 }
 

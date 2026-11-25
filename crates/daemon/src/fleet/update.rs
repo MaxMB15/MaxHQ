@@ -24,7 +24,7 @@ use maxhq_os::link::point;
 use serde::{Deserialize, Serialize};
 use tracing::{info, warn};
 
-use crate::identity::{self, BUILD_LEN};
+use crate::identity;
 use crate::service::{self, Manager, Runner};
 
 /// How long `<new> --build` may take. A binary's first run on macOS
@@ -264,7 +264,9 @@ pub async fn install_maxd(
     }
     .write(layout)?;
     point(&link, &layout.link_target(&build))?;
-    prune(layout, &[&build, &previous]);
+    for (version, err) in layout.prune(&[&build, &previous]) {
+        warn!(%err, %version, "couldn't remove an old maxd");
+    }
     info!(%build, %previous, "installed a new maxd");
     Ok(Installed::Flipped { build, previous })
 }
@@ -328,23 +330,6 @@ pub fn is_static_elf(path: &Path) -> bool {
         }
     }
     true
-}
-
-/// Removes every version folder except `keep`.
-fn prune(layout: &Layout, keep: &[&str]) {
-    let Ok(entries) = fs::read_dir(layout.versions()) else {
-        return;
-    };
-    for entry in entries.flatten() {
-        let name = entry.file_name();
-        let name = name.to_string_lossy();
-        if keep.contains(&name.as_ref()) || name.len() != BUILD_LEN {
-            continue;
-        }
-        if let Err(err) = fs::remove_dir_all(entry.path()) {
-            warn!(%err, version = %name, "couldn't remove an old maxd");
-        }
-    }
 }
 
 /// Installs `staged` over the guest binary at `guest`.

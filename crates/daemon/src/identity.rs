@@ -10,6 +10,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::OnceLock;
 
+use maxhq_core::paths::BUILD_LEN;
 use maxhq_protocol::ids::{BootId, DeviceId};
 use maxhq_protocol::model::Device;
 use thiserror::Error;
@@ -61,9 +62,6 @@ pub fn device(data_dir: &Path) -> Result<Device, IdentityError> {
 /// The Rust target this `maxd` was built for, such as
 /// `x86_64-unknown-linux-musl`.
 pub const TARGET: &str = env!("MAXD_TARGET");
-
-/// How many hex characters of the sha256 name a build.
-pub const BUILD_LEN: usize = 16;
 
 /// This build: the first 16 hex characters of the sha256 of the running
 /// executable. Two binaries from the same version differ here, so the app

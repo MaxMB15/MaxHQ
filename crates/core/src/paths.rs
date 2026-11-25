@@ -10,6 +10,8 @@
 //! those.
 
 use std::env;
+use std::fs;
+use std::io;
 use std::path::{Path, PathBuf};
 
 use directories::BaseDirs;
@@ -251,15 +253,54 @@ impl MaxdLayout {
     /// The build whose [`Self::link_target`] is `target`, if it's one of
     /// these versions.
     pub fn build_of_target(&self, target: &Path) -> Option<String> {
+        self.build_in(&self.versions(), target)
+    }
+
+    /// The build the link leads to now, if it leads into these versions.
+    /// Both sides are resolved first, so a home folder reached through a
+    /// symbolic link, or a verbatim Windows path, still matches.
+    pub fn linked_build(&self) -> Option<String> {
+        let target = fs::canonicalize(&self.link).ok()?;
+        let versions = fs::canonicalize(self.versions()).ok()?;
+        self.build_in(&versions, &target)
+    }
+
+    /// [`Self::build_of_target`], with the versions folder given.
+    fn build_in(&self, versions: &Path, target: &Path) -> Option<String> {
         let folder = if self.junction {
             target
         } else {
             target.parent()?
         };
-        if folder.parent()? != self.versions() {
+        if folder.parent()? != versions {
             return None;
         }
         folder.file_name()?.to_str().map(str::to_owned)
+    }
+
+    /// Removes every build but those in `keep`. Only folders named like a
+    /// build go, so anything else kept beside them stays. Returns the
+    /// builds it couldn't remove and why, for the caller to log: Windows
+    /// won't remove a program that still runs, and the next update tries
+    /// again.
+    pub fn prune(&self, keep: &[&str]) -> Vec<(String, io::Error)> {
+        let Ok(entries) = fs::read_dir(self.versions()) else {
+            return Vec::new();
+        };
+        let mut failed = Vec::new();
+        for entry in entries.flatten() {
+            let name = entry.file_name();
+            let Some(name) = name.to_str() else {
+                continue;
+            };
+            if !is_build(name) || keep.contains(&name) {
+                continue;
+            }
+            if let Err(error) = fs::remove_dir_all(entry.path()) {
+                failed.push((name.to_owned(), error));
+            }
+        }
+        failed
     }
 
     /// `update.json`, the record of the last update.
@@ -270,6 +311,21 @@ impl MaxdLayout {
 
 /// `maxd`'s file name on this system.
 pub const MAXD_PROGRAM: &str = if cfg!(windows) { "maxd.exe" } else { "maxd" };
+
+/// Where [`MaxdLayout::windows`] puts the program the service runs, under
+/// `%LOCALAPPDATA%`. It stays there as updates come, since an update moves
+/// the junction to the build it installs. Key lines and remote commands
+/// for a Windows device name it, as the device itself works it out.
+pub const WINDOWS_MAXD: &str = r"MaxHQ\bin\current\maxd.exe";
+
+/// How many hex characters of a binary's sha256 name its build, which is
+/// also its folder's name among the versions.
+pub const BUILD_LEN: usize = 16;
+
+/// Whether `name` is a build's: [`BUILD_LEN`] hex characters.
+fn is_build(name: &str) -> bool {
+    name.len() == BUILD_LEN && name.bytes().all(|b| b.is_ascii_hexdigit())
+}
 
 #[cfg(target_os = "linux")]
 fn linux_uid() -> Option<u32> {
@@ -401,6 +457,107 @@ mod tests {
         );
         assert_eq!(layout.build_of_target(&data.join("bin")), None);
         assert_eq!(layout.state(), data.join("update.json"));
+    }
+
+    #[test]
+    fn windows_maxd_is_the_program_of_the_windows_layout() {
+        let local = Path::new("C:/Users/<user>/AppData/Local");
+        let layout = MaxdLayout::windows(local.join("MaxHQ"));
+        // `maxd.exe` is the program's name only when this runs on Windows.
+        let program = layout.link().join("maxd.exe");
+        let parts: Vec<&str> = program
+            .strip_prefix(local)
+            .unwrap()
+            .iter()
+            .map(|part| part.to_str().unwrap())
+            .collect();
+        assert_eq!(parts.join("\\"), WINDOWS_MAXD);
+        if cfg!(windows) {
+            assert_eq!(layout.program(), program);
+        }
+    }
+
+    /// This system's layout in a folder of its own.
+    fn layout_in(dir: &Path) -> MaxdLayout {
+        if cfg!(windows) {
+            MaxdLayout::windows(dir)
+        } else {
+            MaxdLayout::new(dir)
+        }
+    }
+
+    /// Puts a build in `layout`, without pointing the link at it.
+    fn add_build(layout: &MaxdLayout, build: &str) {
+        let program = layout.version(build);
+        fs::create_dir_all(program.parent().unwrap()).unwrap();
+        fs::write(program, build).unwrap();
+    }
+
+    #[test]
+    fn the_linked_build_is_the_one_the_link_leads_to() {
+        let dir = crate::test_dir::TempDir::new("layout-linked");
+        let layout = layout_in(&dir.0);
+        let (one, two) = ("0123456789abcdef", "fedcba9876543210");
+        add_build(&layout, one);
+        add_build(&layout, two);
+        assert_eq!(layout.linked_build(), None, "there's no link yet");
+
+        fs::create_dir_all(layout.link().parent().unwrap()).unwrap();
+        maxhq_os::link::point(&layout.link(), &layout.link_target(one)).unwrap();
+        assert_eq!(layout.linked_build().as_deref(), Some(one));
+        assert_eq!(fs::read_to_string(layout.program()).unwrap(), one);
+        maxhq_os::link::point(&layout.link(), &layout.link_target(two)).unwrap();
+        assert_eq!(layout.linked_build().as_deref(), Some(two));
+
+        // A link that leads out of the versions names no build.
+        let elsewhere = dir.0.join("elsewhere");
+        fs::create_dir_all(&elsewhere).unwrap();
+        let target = if cfg!(windows) {
+            elsewhere.clone()
+        } else {
+            fs::write(elsewhere.join("maxd"), "").unwrap();
+            elsewhere.join("maxd")
+        };
+        maxhq_os::link::point(&layout.link(), &target).unwrap();
+        assert_eq!(layout.linked_build(), None);
+    }
+
+    #[test]
+    fn prune_keeps_what_it_is_told_and_what_isnt_a_build() {
+        let dir = crate::test_dir::TempDir::new("layout-prune");
+        let layout = layout_in(&dir.0);
+        let builds = ["0123456789abcdef", "fedcba9876543210", "00000000000000ff"];
+        for build in builds {
+            add_build(&layout, build);
+        }
+        // A folder that only looks like a build, and one that is no build.
+        let others = ["0123456789abcdeg", "notes"];
+        for other in others {
+            fs::create_dir_all(layout.versions().join(other)).unwrap();
+        }
+
+        let failed = layout.prune(&[builds[0], builds[2]]);
+        assert!(failed.is_empty(), "{failed:?}");
+        let mut left: Vec<String> = fs::read_dir(layout.versions())
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name().into_string().unwrap())
+            .collect();
+        left.sort();
+        assert_eq!(left, [builds[2], builds[0], others[0], others[1]]);
+
+        // Without a versions folder there's nothing to do.
+        let empty = layout_in(&dir.0.join("empty"));
+        assert!(empty.prune(&[]).is_empty());
+    }
+
+    #[test]
+    fn a_build_is_named_by_sixteen_hex_characters() {
+        assert!(is_build("0123456789abcdef"));
+        assert!(is_build("0123456789ABCDEF"));
+        assert!(!is_build("0123456789abcde"));
+        assert!(!is_build("0123456789abcdef0"));
+        assert!(!is_build("0123456789abcdeg"));
+        assert!(!is_build(".incoming-1-2"));
     }
 
     #[test]

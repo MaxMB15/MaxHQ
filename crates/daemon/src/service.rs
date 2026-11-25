@@ -315,7 +315,8 @@ impl Setup {
             what: "the maxd program",
             source,
         })?;
-        let exe = plain(stable_program(&MaxdLayout::windows(&app).program(), exe));
+        let exe =
+            maxhq_core::fs_ext::plain(stable_program(&MaxdLayout::windows(&app).program(), exe));
         Ok(Self {
             manager: Manager::TaskScheduler,
             config_home: home.join(".config"),
@@ -343,11 +344,14 @@ impl Setup {
     }
 
     /// MaxHQ's folder on Windows, which holds the logon task's file, the
-    /// launcher and `maxd`'s builds.
+    /// launcher and `maxd`'s builds: the one Windows has when the setup
+    /// names none. Only the logon task reads it, so off Windows a setup
+    /// without one has an empty path here.
     pub fn app_folder(&self) -> PathBuf {
         self.app
             .clone()
-            .unwrap_or_else(|| self.home.join("AppData").join("Local").join("MaxHQ"))
+            .or_else(maxhq_core::paths::windows_app_dir)
+            .unwrap_or_default()
     }
 
     /// `maxd`'s data folder, which on Windows holds the launcher's log.
@@ -431,21 +435,6 @@ fn stable_program(link: &Path, exe: PathBuf) -> PathBuf {
     match fs::canonicalize(link) {
         Ok(target) if target == exe => link.to_owned(),
         _ => exe,
-    }
-}
-
-/// `path` without the `\\?\` that a canonical Windows path starts with,
-/// when what follows is a drive's path, since Task Scheduler and the
-/// programs it starts read the plain form. Any other path is kept.
-fn plain(path: PathBuf) -> PathBuf {
-    let Some(rest) = path.to_str().and_then(|text| text.strip_prefix(r"\\?\")) else {
-        return path;
-    };
-    let bytes = rest.as_bytes();
-    if bytes.len() >= 3 && bytes[0].is_ascii_alphabetic() && bytes[1] == b':' && bytes[2] == b'\\' {
-        PathBuf::from(rest)
-    } else {
-        path
     }
 }
 
