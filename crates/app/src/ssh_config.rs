@@ -208,6 +208,9 @@ impl SshFiles {
         links.iter().find_map(|link| match &link.route {
             Route::Local => local_proxy(self.maxd.as_deref()?, workspace),
             Route::Ssh { host } => ssh_proxy(host, workspace),
+            // Containers run under Incus, which a distro set up as a
+            // device doesn't host.
+            Route::Wsl { .. } => None,
         })
     }
 

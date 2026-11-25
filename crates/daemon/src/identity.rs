@@ -54,6 +54,7 @@ pub fn device(data_dir: &Path) -> Result<Device, IdentityError> {
         workspace_host: None,
         build: build().map(str::to_owned),
         target: Some(TARGET.to_owned()),
+        wsl: None,
     })
 }
 

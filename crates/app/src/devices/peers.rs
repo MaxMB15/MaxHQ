@@ -711,7 +711,8 @@ fn ssh_device(merge: &crate::merge::Merge, id: LinkId) -> Option<(DeviceId, Stri
         Some(Entity::DeviceLink(link)) if matches!(link.state, LinkState::Connected { .. }) => {
             match &link.route {
                 Route::Ssh { host } => Some((link.device?, host.clone())),
-                Route::Local => None,
+                // A distro's own SSH server isn't one the app sets up.
+                Route::Local | Route::Wsl { .. } => None,
             }
         }
         _ => None,

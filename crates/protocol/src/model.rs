@@ -88,6 +88,23 @@ pub struct Device {
     /// out.
     #[serde(default)]
     pub target: Option<String>,
+    /// The WSL distros on a Windows device, each of which can be set up as
+    /// a device of its own. Unset on a device without WSL, and from a
+    /// `maxd` older than [`crate::message::WSL_SINCE`], which reads as
+    /// none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub wsl: Option<Vec<WslDistro>>,
+}
+
+/// A Linux distro WSL runs on a Windows device.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, Type, JsonSchema)]
+pub struct WslDistro {
+    /// Its name, as `wsl.exe -d` takes it, such as `Ubuntu`.
+    pub name: String,
+    /// Whether `wsl.exe` starts it when you name none.
+    pub default: bool,
+    /// The WSL version it runs under, 1 or 2, when `wsl.exe` said.
+    pub version: Option<u8>,
 }
 
 /// The networks and storage pools a device's Incus offers.

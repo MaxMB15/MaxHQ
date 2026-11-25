@@ -29,6 +29,8 @@ pub(crate) mod phone;
 #[cfg(any(windows, feature = "russh", feature = "ws"))]
 mod reach;
 #[cfg(feature = "system-ssh")]
+mod spawned;
+#[cfg(feature = "system-ssh")]
 mod system;
 #[cfg(feature = "ws")]
 pub(crate) mod ws;
@@ -413,6 +415,11 @@ mod tests {
         assert_eq!(
             PROXY_COMMAND,
             r#"sh -c 'PATH="$PATH:$HOME/.local/bin"; export PATH; exec maxd proxy'"#
+        );
+        // A WSL distro runs the same script, without a login shell.
+        assert_eq!(
+            PROXY_COMMAND,
+            format!("sh -c '{}'", crate::wsl::PROXY_SCRIPT)
         );
     }
 

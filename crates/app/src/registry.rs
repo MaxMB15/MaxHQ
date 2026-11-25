@@ -5,7 +5,9 @@
 //!
 //! Each device is one link, keyed by the [`LinkId`] it got when you added
 //! it. The `maxd` on this machine is always there as [`Route::Local`], and
-//! every other device is an SSH host. The phone has no `maxd` of its own,
+//! every other device is an SSH host, or a WSL distro kept in the same
+//! column as the word [`maxhq_client::wsl::route_word`] writes, so a
+//! database from before WSL reads the same. The phone has no `maxd` of its own,
 //! and its devices are the ones in the books it paired with, one per Mac
 //! (see [`Registry::set_phone_books`]).
 //!
@@ -278,10 +280,7 @@ impl Registry {
                 tracing::warn!(link, "skipping a device with a bad link ID");
                 continue;
             };
-            let route = match host {
-                Some(host) => Route::Ssh { host },
-                None => Route::Local,
-            };
+            let route = host.map_or(Route::Local, route_of);
             devices.push(LinkSpec {
                 id,
                 name,
@@ -302,7 +301,7 @@ impl Registry {
             .conn
             .prepare("SELECT host FROM route WHERE link = ?1 ORDER BY pos")?;
         let hosts = statement.query_map(params![link], |row| row.get::<_, String>(0))?;
-        hosts.map(|host| Ok(Route::Ssh { host: host? })).collect()
+        hosts.map(|host| Ok(route_of(host?))).collect()
     }
 
     fn last_good(&self, link: &str) -> Result<BTreeMap<String, Route>, RegistryError> {
@@ -314,7 +313,7 @@ impl Registry {
         })?;
         rows.map(|row| {
             let (net, host) = row?;
-            Ok((net, Route::Ssh { host }))
+            Ok((net, route_of(host)))
         })
         .collect()
     }
@@ -325,6 +324,11 @@ impl Registry {
     pub fn set_routes(&self, link: LinkId, hosts: &[String]) -> Result<LinkSpec, RegistryError> {
         if link == local_link() {
             return Err(RegistryError::Local);
+        }
+        if matches!(self.get(link)?.route, Route::Wsl { .. }) {
+            return Err(RegistryError::BadHost(
+                "a WSL distro is reached through its PC, so it has no other routes",
+            ));
         }
         let mut checked: Vec<&str> = Vec::with_capacity(hosts.len());
         for host in hosts {
@@ -409,10 +413,16 @@ impl Registry {
             .ok_or(RegistryError::NotFound)
     }
 
-    /// Adds an SSH host, named after the host until you rename it. Adding
-    /// a host that's already there returns the device you have.
+    /// Adds an SSH host, named after the host until you rename it, or a
+    /// WSL distro, written as [`maxhq_client::wsl::route_word`] writes it
+    /// and named after the distro. Adding one that's already there
+    /// returns the device you have.
     pub fn add(&self, host: &str) -> Result<LinkSpec, RegistryError> {
-        let host = check_host(host)?;
+        let wsl = maxhq_client::wsl::parse_route_word(host.trim());
+        let host = match wsl {
+            Some(_) => host.trim(),
+            None => check_host(host)?,
+        };
         let existing: Option<String> = self
             .conn
             .query_row(
@@ -426,10 +436,8 @@ impl Registry {
         }
         let device = LinkSpec {
             id: LinkId::generate(),
-            name: host.to_owned(),
-            route: Route::Ssh {
-                host: host.to_owned(),
-            },
+            name: wsl.map_or_else(|| host.to_owned(), |(distro, _)| distro),
+            route: route_of(host.to_owned()),
             fallbacks: Vec::new(),
             last_good: BTreeMap::new(),
         };
@@ -732,6 +740,12 @@ fn link_key(link: LinkId) -> String {
     link.to_string()
 }
 
+/// The route a device's host column holds: a WSL distro's word, or an
+/// SSH host.
+fn route_of(host: String) -> Route {
+    maxhq_client::wsl::route_of_word(&host).unwrap_or(Route::Ssh { host })
+}
+
 /// Checks that `host` is one SSH destination and returns it trimmed. A
 /// leading dash would read as an option to `ssh`, so it's refused.
 fn check_host(host: &str) -> Result<&str, RegistryError> {
@@ -747,6 +761,11 @@ fn check_host(host: &str) -> Result<&str, RegistryError> {
     if host.chars().any(|c| c.is_whitespace() || c.is_control()) {
         return Err(RegistryError::BadHost(
             "an SSH host is one word, with no spaces",
+        ));
+    }
+    if host.starts_with(maxhq_client::wsl::WORD) {
+        return Err(RegistryError::BadHost(
+            "a WSL distro is added from its PC's list, not as an SSH host",
         ));
     }
     if !maxhq_client::is_safe_destination(host) {
@@ -789,6 +808,46 @@ mod tests {
         let renamed = registry.rename(local_link(), "  Studio  ").unwrap();
         assert_eq!(renamed.name, "Studio");
         assert_eq!(registry.list().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn a_wsl_distro_is_a_device_of_its_own() {
+        let registry = Registry::in_memory().unwrap();
+        let here = registry.add("wsl:Ubuntu").unwrap();
+        assert_eq!(here.name, "Ubuntu");
+        let there = registry.add("wsl:Ubuntu@dev@pc").unwrap();
+        assert_eq!(there.name, "Ubuntu");
+        assert_ne!(here.id, there.id);
+        assert_eq!(registry.add("wsl:Ubuntu").unwrap().id, here.id);
+        assert_eq!(
+            hosts(&registry),
+            [
+                Route::Local,
+                Route::Wsl {
+                    distro: "Ubuntu".into(),
+                    via: None
+                },
+                Route::Wsl {
+                    distro: "Ubuntu".into(),
+                    via: Some("dev@pc".into())
+                },
+            ]
+        );
+        for bad in ["wsl:", "wsl:-d", "wsl:a b", "wsl:Ubuntu@-oProxy"] {
+            assert!(
+                matches!(registry.add(bad), Err(RegistryError::BadHost(_))),
+                "{bad}"
+            );
+        }
+        let ssh = registry.add("dev@devbox").unwrap();
+        assert!(matches!(
+            registry.set_routes(ssh.id, &["dev@devbox".into(), "wsl:Ubuntu".into()]),
+            Err(RegistryError::BadHost(_))
+        ));
+        assert!(matches!(
+            registry.set_routes(here.id, &["dev@devbox".into()]),
+            Err(RegistryError::BadHost(_))
+        ));
     }
 
     #[test]

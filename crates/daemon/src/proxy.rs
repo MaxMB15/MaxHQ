@@ -83,12 +83,15 @@ pub enum ProxyError {
 pub struct NotAProxy;
 
 /// What `maxd proxy` carries.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Mode {
     /// The protocol, byte for byte.
     Plain,
     /// One SSH session with a container workspace's guest.
     GuestSsh(WorkspaceId),
+    /// The protocol, byte for byte, to the `maxd` in this Windows
+    /// machine's WSL distro of that name, which `wsl.exe` starts.
+    Wsl(String),
 }
 
 /// The name a guest SSH proxy says hello with.
@@ -105,11 +108,15 @@ const COMMAND: &str = "maxd proxy";
 /// The flag that names a workspace.
 const GUEST_SSH: &str = " --guest-ssh ";
 
+/// The flag that names a WSL distro.
+const WSL: &str = " --wsl ";
+
 /// What a key whose forced command is `maxd proxy` lets through, from the
 /// command the client asked for, which sshd puts in SSH_ORIGINAL_COMMAND.
 /// No command is the plain proxy. A command must be exactly
-/// `maxd proxy`, or `maxd proxy --guest-ssh <workspace>`, either bare or
-/// in the wrapper a client adds. Nothing in it reaches a shell.
+/// `maxd proxy`, `maxd proxy --guest-ssh <workspace>` or `maxd proxy
+/// --wsl <distro>`, either bare or in the wrapper a client adds. Nothing
+/// in it reaches a shell: the distro goes to `wsl.exe` as one argument.
 pub fn forced(original: Option<&OsStr>) -> Result<Mode, NotAProxy> {
     let Some(original) = original.filter(|original| !original.is_empty()) else {
         return Ok(Mode::Plain);
@@ -123,6 +130,11 @@ pub fn forced(original: Option<&OsStr>) -> Result<Mode, NotAProxy> {
     if rest.is_empty() {
         return Ok(Mode::Plain);
     }
+    if let Some(distro) = rest.strip_prefix(WSL) {
+        return maxhq_client::wsl::is_distro_name(distro)
+            .then(|| Mode::Wsl(distro.to_owned()))
+            .ok_or(NotAProxy);
+    }
     rest.strip_prefix(GUEST_SSH)
         .and_then(workspace)
         .map(Mode::GuestSsh)
@@ -135,7 +147,7 @@ pub fn forced(original: Option<&OsStr>) -> Result<Mode, NotAProxy> {
 pub fn forced_peer(original: Option<&OsStr>) -> Result<(), NotAProxy> {
     match forced(original)? {
         Mode::Plain => Ok(()),
-        Mode::GuestSsh(_) => Err(NotAProxy),
+        Mode::GuestSsh(_) | Mode::Wsl(_) => Err(NotAProxy),
     }
 }
 
@@ -232,6 +244,36 @@ pub fn run_guest_ssh(path: &Path, workspace: WorkspaceId) -> Result<(), ProxyErr
         let stream = connect(path).await?;
         guest_ssh(tokio::io::stdin(), tokio::io::stdout(), stream, workspace).await
     })
+}
+
+/// Carries the protocol to the `maxd` in WSL distro `distro` on this
+/// Windows machine: `wsl.exe` starts `maxd proxy` there with this
+/// process's stdin, stdout and stderr, so its stderr says why it ended.
+pub fn run_wsl(distro: &str) -> Result<(), ProxyError> {
+    if !cfg!(windows) {
+        return Err(ProxyError::Refused("WSL runs only on Windows".to_owned()));
+    }
+    if !maxhq_client::wsl::is_distro_name(distro) {
+        return Err(ProxyError::Refused(
+            "that isn't a WSL distro's name".to_owned(),
+        ));
+    }
+    let mut command = std::process::Command::new(maxhq_client::wsl::PROGRAM);
+    command
+        .args(maxhq_client::wsl::proxy_args(distro))
+        .env_remove("SSH_ORIGINAL_COMMAND");
+    maxhq_os::launcher::without_window(&mut command);
+    let status = command.status().map_err(|err| match err.kind() {
+        io::ErrorKind::NotFound => ProxyError::Refused("WSL isn't installed on this PC".to_owned()),
+        _ => ProxyError::Io(err),
+    })?;
+    if status.success() {
+        Ok(())
+    } else {
+        Err(ProxyError::Refused(format!(
+            "maxd in {distro} stopped ({status})"
+        )))
+    }
 }
 
 /// Copies `input` to the socket and the socket to `output`, both at once.
@@ -712,10 +754,21 @@ mod tests {
             (Some(String::new()), Mode::Plain),
             (Some("maxd proxy".to_owned()), Mode::Plain),
             (Some(wrap("maxd proxy")), Mode::Plain),
-            (Some(format!("maxd proxy --guest-ssh {id}")), workspace),
+            (
+                Some(format!("maxd proxy --guest-ssh {id}")),
+                workspace.clone(),
+            ),
             (
                 Some(wrap(&format!("maxd proxy --guest-ssh {id}"))),
                 workspace,
+            ),
+            (
+                Some("maxd proxy --wsl Ubuntu-24.04".to_owned()),
+                Mode::Wsl("Ubuntu-24.04".to_owned()),
+            ),
+            (
+                Some(wrap("maxd proxy --wsl Debian")),
+                Mode::Wsl("Debian".to_owned()),
             ),
         ];
         for (original, mode) in passed {
@@ -747,6 +800,17 @@ mod tests {
             format!("maxd proxy --guest-ssh {id}\nid"),
             format!("maxd proxy --guest-ssh $(id){}", &id[5..]),
             format!("maxd proxy --guest-ssh `id`{}", &id[4..]),
+            "maxd proxy --wsl".to_owned(),
+            "maxd proxy --wsl ".to_owned(),
+            "maxd proxy --wsl  Ubuntu".to_owned(),
+            "maxd proxy --wsl Ubuntu ".to_owned(),
+            "maxd proxy --wsl -d".to_owned(),
+            "maxd proxy --wsl --help".to_owned(),
+            "maxd proxy --wsl Ubuntu --exec sh".to_owned(),
+            "maxd proxy --wsl Ubuntu; id".to_owned(),
+            "maxd proxy --wsl $(id)".to_owned(),
+            "maxd proxy --wsl Ubuntu\nid".to_owned(),
+            "maxd proxy --wsl=Ubuntu".to_owned(),
             "maxd proxy; id".to_owned(),
             "maxd proxy | sh".to_owned(),
             "maxd proxy\nid".to_owned(),
@@ -771,6 +835,15 @@ mod tests {
         assert_eq!(forced(Some(&not_text("maxd proxy "))), Err(NotAProxy));
     }
 
+    #[cfg(not(windows))]
+    #[test]
+    fn only_windows_carries_a_wsl_proxy() {
+        assert_eq!(
+            run_wsl("Ubuntu").unwrap_err().to_string(),
+            "WSL runs only on Windows"
+        );
+    }
+
     #[test]
     fn a_peer_key_passes_only_the_plain_proxy() {
         let id = "0199a7c2-0000-7000-8000-0000000000aa";
@@ -791,6 +864,8 @@ mod tests {
             format!("maxd proxy --guest-ssh {id}"),
             wrap(&format!("maxd proxy --guest-ssh {id}")),
             format!("maxd proxy --peer {id}"),
+            "maxd proxy --wsl Ubuntu".to_owned(),
+            wrap("maxd proxy --wsl Ubuntu"),
             "maxd proxy --peer".to_owned(),
             "maxd proxy ".to_owned(),
             "maxd run".to_owned(),

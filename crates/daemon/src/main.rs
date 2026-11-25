@@ -116,6 +116,7 @@ mod tunnel;
 mod usage;
 mod workflow;
 mod workspace;
+mod wsl;
 
 /// Set to anything to run `maxd` without its observers and usage checks,
 /// so tests of the binary see only what they make.
@@ -135,6 +136,9 @@ const USAGE: &str = "usage:
   maxd proxy --guest-ssh <workspace>
                            join stdin and stdout to a container's SSH, for
                            an editor's Remote-SSH
+  maxd proxy --wsl <distro>
+                           join stdin and stdout to the socket of the maxd
+                           in this PC's WSL distro, through wsl.exe
   maxd proxy --peer <device>
                            join stdin and stdout to the socket for another
                            device's maxd; that device's key runs this
@@ -231,6 +235,9 @@ fn main() -> ExitCode {
             Some(workspace) => proxy_with(proxy::Mode::GuestSsh(workspace)),
             None => usage_error(),
         },
+        ["proxy", "--wsl", distro] if maxhq_client::wsl::is_distro_name(distro) => {
+            proxy_with(proxy::Mode::Wsl((*distro).to_owned()))
+        }
         ["proxy", "--peer", device] => match proxy::device(device) {
             Some(device) => proxy_as(&ClientMessage::Peer { device }),
             None => usage_error(),
@@ -753,6 +760,7 @@ async fn serve() -> Result<Stopped, RunError> {
         spawn_task("the Claude usage check", usage::claude::run(hub.clone()));
         spawn_task("the Codex usage check", usage::codex::run(hub.clone()));
         spawn_task("the Cursor login check", usage::cursor::run(hub.clone()));
+        spawn_task("the WSL distro list", wsl::publish(hub.clone()));
     }
 
     let hooks_port = hooks::port(&data).map_err(|source| RunError::DataDir {
@@ -1253,6 +1261,15 @@ fn trust_app_key(key: &str, label: &str) -> Result<(), String> {
 
 /// `maxd proxy`, carrying what `mode` says.
 fn proxy_with(mode: proxy::Mode) -> ExitCode {
+    if let proxy::Mode::Wsl(distro) = &mode {
+        return match proxy::run_wsl(distro) {
+            Ok(()) => ExitCode::SUCCESS,
+            Err(err) => {
+                eprintln!("maxd proxy: {err}");
+                ExitCode::FAILURE
+            }
+        };
+    }
     let Some(socket) = paths::socket() else {
         eprintln!("maxd proxy: {}", RunError::NoSocket);
         return ExitCode::FAILURE;
@@ -1260,6 +1277,7 @@ fn proxy_with(mode: proxy::Mode) -> ExitCode {
     let carried = match mode {
         proxy::Mode::Plain => proxy::run(&socket),
         proxy::Mode::GuestSsh(workspace) => proxy::run_guest_ssh(&socket, workspace),
+        proxy::Mode::Wsl(_) => return ExitCode::FAILURE,
     };
     match carried {
         Ok(()) => ExitCode::SUCCESS,
