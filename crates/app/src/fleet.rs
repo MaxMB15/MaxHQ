@@ -280,13 +280,27 @@ impl Binaries for BinaryDirs {
     }
 }
 
-/// The bundle's `Resources` folder, beside `Contents/MacOS` where the app
-/// runs from. None outside a bundle.
+/// The folder the app's resources were installed in. None outside a
+/// bundle or package.
 #[cfg(feature = "desktop")]
 fn resources_dir() -> Option<PathBuf> {
     let exe = std::env::current_exe().ok()?;
-    let contents = exe.parent()?.parent()?;
-    let resources = contents.join("Resources");
+    resources_of(&exe, cfg!(target_os = "linux"))
+}
+
+/// The resources folder of the app whose program is at `exe`. On macOS
+/// it's the bundle's `Resources`, beside `Contents/MacOS`. On Linux it's
+/// `lib/MaxHQ` beside the program's `bin`, which a deb or rpm puts at
+/// `/usr/lib/MaxHQ` and an AppImage at `$APPDIR/usr/lib/MaxHQ`, as the
+/// shell's own resource folder finds it. None when it isn't there.
+#[cfg(feature = "desktop")]
+fn resources_of(exe: &Path, linux: bool) -> Option<PathBuf> {
+    let above = exe.parent()?.parent()?;
+    let resources = if linux {
+        above.join("lib/MaxHQ")
+    } else {
+        above.join("Resources")
+    };
     resources.is_dir().then_some(resources)
 }
 
@@ -294,13 +308,25 @@ fn resources_dir() -> Option<PathBuf> {
 /// It's made in the target folder, and still counts as the source tree.
 pub const DEV_BUNDLE: &str = "MaxHQ Dev.app";
 
-/// Whether this app runs from the source tree rather than a bundle.
+/// Whether this app runs from the source tree rather than a bundle, or on
+/// Linux an AppImage or package.
 #[cfg(feature = "desktop")]
 pub fn from_dev_tree() -> bool {
     let Ok(exe) = std::env::current_exe() else {
         return true;
     };
-    !exe.components().any(|part| {
+    if cfg!(target_os = "linux") {
+        !crate::app_update::LinuxApp::here(&exe).installed()
+    } else {
+        !in_bundle(&exe)
+    }
+}
+
+/// Whether `exe` runs from inside a bundle other than the one `pnpm dev`
+/// makes.
+#[cfg(feature = "desktop")]
+fn in_bundle(exe: &Path) -> bool {
+    exe.components().any(|part| {
         let part = part.as_os_str().to_string_lossy();
         part.ends_with(".app") && part != DEV_BUNDLE
     })

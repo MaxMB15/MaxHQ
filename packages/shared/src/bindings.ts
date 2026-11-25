@@ -7799,7 +7799,17 @@ export type NoUpdates =
  *  It's outside the Applications folder, where an update can't be sure
  *  to replace it.
  */
-"not_in_applications";
+"not_in_applications" | 
+/**
+ *  It was installed from a deb or rpm package, which its package
+ *  manager updates.
+ */
+"package" | 
+/**
+ *  It's an AppImage in a folder the app can't write to, so an update
+ *  can't replace it.
+ */
+"unwritable";
 
 /**  More about one node, asked for when you open it. */
 export type NodeDetail = {

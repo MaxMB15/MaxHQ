@@ -5,7 +5,7 @@
 //! and the commands that restart it. `maxd` restarts itself with them after
 //! an update, and the app restarts a device's `maxd` with them, which works
 //! however old that `maxd` is. The app also reads which `maxd` the
-//! LaunchAgent runs, from the file both of them know.
+//! LaunchAgent or the systemd unit runs, from the file both of them know.
 
 use std::path::{Path, PathBuf};
 
@@ -32,6 +32,47 @@ pub fn program_in(plist: &str) -> Option<PathBuf> {
         .replace("&gt;", ">")
         .replace("&amp;", "&");
     Some(PathBuf::from(program))
+}
+
+/// The systemd user unit `maxd service install` writes, under
+/// `config_home`: `$XDG_CONFIG_HOME`, or `~/.config` without one.
+pub fn unit_file(config_home: &Path) -> PathBuf {
+    config_home.join("systemd/user").join(UNIT)
+}
+
+/// The program a systemd `unit` runs: the first word of its `ExecStart=`,
+/// unquoted the way `maxd service install` quotes it. systemd reads `%%`
+/// and `$$` as one `%` and `$`, and a backslash keeps the next character.
+pub fn program_in_unit(unit: &str) -> Option<PathBuf> {
+    let line = unit
+        .lines()
+        .find_map(|line| line.trim().strip_prefix("ExecStart="))?
+        .trim_start();
+    let (quoted, line) = match line.strip_prefix('"') {
+        Some(rest) => (true, rest),
+        None => (false, line),
+    };
+    let mut program = String::new();
+    let mut chars = line.chars().peekable();
+    loop {
+        match chars.next() {
+            // An open quote with no end is no program.
+            None if quoted => return None,
+            None => break,
+            Some('"') if quoted => break,
+            Some(c) if !quoted && c.is_whitespace() => break,
+            Some('\\') => match chars.next()? {
+                'n' => program.push('\n'),
+                c => program.push(c),
+            },
+            Some(c @ ('%' | '$')) => {
+                chars.next_if_eq(&c);
+                program.push(c);
+            }
+            Some(c) => program.push(c),
+        }
+    }
+    (!program.is_empty()).then(|| PathBuf::from(program))
 }
 
 /// What starts and stops services on a system.
@@ -100,6 +141,27 @@ mod tests {
         let (program, args) = restart_command(Manager::Systemd, 1000);
         assert_eq!(program, "systemctl");
         assert_eq!(args, ["--user", "restart", "maxd.service"]);
+    }
+
+    #[test]
+    fn the_unit_names_the_program_it_runs() {
+        assert_eq!(
+            unit_file(Path::new("/home/someone/.config")),
+            Path::new("/home/someone/.config/systemd/user/maxd.service")
+        );
+        let unit =
+            "[Service]\nExecStart=\"/opt/max hq/100%%/$$bin/m\\\\d\\\"x\" run\nRestart=always\n";
+        assert_eq!(
+            program_in_unit(unit),
+            Some(PathBuf::from("/opt/max hq/100%/$bin/m\\d\"x"))
+        );
+        assert_eq!(
+            program_in_unit("ExecStart=/home/someone/.local/bin/maxd run\n"),
+            Some(PathBuf::from("/home/someone/.local/bin/maxd"))
+        );
+        assert_eq!(program_in_unit("ExecStart=\"/opt/maxd run\n"), None);
+        assert_eq!(program_in_unit("ExecStart=\n"), None);
+        assert_eq!(program_in_unit("[Service]\nRestart=always\n"), None);
     }
 
     #[test]

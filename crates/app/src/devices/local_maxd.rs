@@ -1,11 +1,13 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026 Max Boksem
 
-//! This Mac's own `maxd`, which ships inside the app. The app installs it
-//! as a login service with `maxd service install` and takes it out again
-//! with `maxd service uninstall`, then probes its link so the change shows
-//! at once. When you also ask for MaxHQ's data to go, the app deletes its
-//! own folders and key once nothing it runs would write there again.
+//! This machine's own `maxd`, which ships with the app. The app installs
+//! it as a login service with `maxd service install` and takes it out
+//! again with `maxd service uninstall`, then probes its link so the change
+//! shows at once. When you also ask for MaxHQ's data to go, the app deletes
+//! its own folders and key once nothing it runs would write there again.
+//! Where the service's `maxd` lives differs per system, and `os` holds
+//! that: macOS runs the bundled one, other systems a copy of it.
 
 use std::io;
 use std::path::{Path, PathBuf};
@@ -15,23 +17,58 @@ use super::{failed, lock, Connector, Devices};
 use crate::registry::{local_link, Registry};
 use crate::request::CommandError;
 
-/// Why the app won't install `maxd` from where it runs now.
-pub(crate) const MISPLACED: &str =
-    "Move MaxHQ to your Applications folder, open it from there, then start maxd again.";
+#[cfg(target_os = "macos")]
+mod macos;
+// Its copy-out is tested on the Mac too.
+#[cfg(any(not(target_os = "macos"), test))]
+mod other;
+
+#[cfg(target_os = "macos")]
+use macos as os;
+#[cfg(not(target_os = "macos"))]
+use other as os;
 
 impl<C: Connector> Devices<C> {
     /// Installs this machine's `maxd` as a login service with
     /// `maxd service install`, then probes its link so the app connects
     /// without waiting for the next retry. Refused while the app runs from
     /// a disk image or a copy macOS moved aside, since the service would
-    /// point at a `maxd` that goes away.
+    /// point at a `maxd` that goes away. Off macOS the bundled `maxd` is
+    /// first copied out to `~/.local/lib/maxhq/versions`, and the service
+    /// runs that copy through `~/.local/bin/maxd`.
     pub async fn start_local_maxd(&self) -> Result<(), CommandError> {
+        self.start_local_maxd_in(crate::app_update::home()).await
+    }
+
+    /// [`Self::start_local_maxd`], with the home folder the copy goes in.
+    async fn start_local_maxd_in(&self, home: Option<PathBuf>) -> Result<(), CommandError> {
         let maxd = self.bundled_maxd()?;
-        if misplaced(&maxd) {
-            return Err(failed(MISPLACED.to_owned()));
+        if let Some(reason) = os::misplaced(&maxd) {
+            return Err(failed(reason.to_owned()));
         }
-        self.run_maxd(maxd, vec!["service", "install"]).await?;
+        let program = self.place_maxd(maxd, home).await?;
+        self.run_maxd(program, vec!["service", "install"]).await?;
         self.refresh_links(Some(local_link()))
+    }
+
+    /// The program this machine's service runs once the app installed
+    /// `maxd`, given the home folder: the bundled `maxd` on macOS and
+    /// `~/.local/bin/maxd` elsewhere. `None` when this build has no `maxd`
+    /// or there's no home folder to copy one to.
+    pub(crate) fn local_maxd_program(&self, home: Option<&Path>) -> Option<PathBuf> {
+        os::installed(self.maxd.as_deref()?, home)
+    }
+
+    /// Moves this machine's service onto the bundled `maxd` and restarts
+    /// it. Off macOS that copies the new build out and points the link at
+    /// it first.
+    pub(crate) async fn update_local_maxd(
+        &self,
+        home: Option<PathBuf>,
+    ) -> Result<(), CommandError> {
+        let maxd = self.bundled_maxd()?;
+        self.place_maxd(maxd, home).await?;
+        self.restart_maxd(local_link()).await
     }
 
     /// Stops this machine's `maxd` and every agent it runs, and takes it
@@ -102,6 +139,22 @@ impl<C: Connector> Devices<C> {
             .ok_or_else(|| failed("This build can't find its maxd".to_owned()))
     }
 
+    /// Puts the bundled `maxd` where the service runs it, on a blocking
+    /// thread, and gives the program to run.
+    async fn place_maxd(
+        &self,
+        maxd: PathBuf,
+        home: Option<PathBuf>,
+    ) -> Result<PathBuf, CommandError> {
+        present(&maxd)?;
+        self.core
+            .runtime
+            .spawn_blocking(move || os::stage(&maxd, home.as_deref()))
+            .await
+            .map_err(|error| failed(format!("Copying maxd stopped: {error}")))?
+            .map_err(|error| failed(format!("Couldn't copy maxd out of the app: {error}")))
+    }
+
     /// Runs `maxd` with `args` on a blocking thread, and waits for it.
     async fn run_maxd(&self, maxd: PathBuf, args: Vec<&'static str>) -> Result<(), CommandError> {
         self.core
@@ -112,18 +165,17 @@ impl<C: Connector> Devices<C> {
     }
 }
 
-/// Whether `maxd` runs from somewhere a login service can't keep pointing
-/// at: a copy macOS moved aside because the app was opened where it was
-/// downloaded, or a disk image, which goes once you eject it.
-fn misplaced(maxd: &Path) -> bool {
-    crate::app_update::moved_aside(maxd).is_some()
+/// Fails unless there's a `maxd` at `maxd`.
+fn present(maxd: &Path) -> Result<(), CommandError> {
+    if maxd.is_file() {
+        return Ok(());
+    }
+    Err(failed(format!("There's no maxd at {}", maxd.display())))
 }
 
 /// Runs `maxd` with `args`. A failure gives what `maxd` wrote to stderr.
 fn run(maxd: &Path, args: &[&str]) -> Result<(), CommandError> {
-    if !maxd.is_file() {
-        return Err(failed(format!("There's no maxd at {}", maxd.display())));
-    }
+    present(maxd)?;
     let command = format!("maxd {}", args.join(" "));
     let output = Command::new(maxd)
         .args(args)
@@ -269,13 +321,24 @@ mod tests {
         }
     }
 
+    /// Where the service's `maxd` runs from, below the scratch folder,
+    /// with the scratch folder's `home` as the home folder: the bundled
+    /// one on macOS and the copy's link elsewhere.
+    const RUNS: &str = if cfg!(target_os = "macos") {
+        ""
+    } else {
+        "home/.local/bin"
+    };
+
     #[test]
     fn starting_the_local_maxd_runs_its_service_install() {
         let scratch = Scratch::new();
+        let home = Some(scratch.0.join("home"));
         std::fs::remove_file(scratch.maxd("")).unwrap();
         let h = harness(Registry::in_memory().unwrap(), Some(scratch.maxd("")));
+        let start = || block_on(h.devices.start_local_maxd_in(home.clone()));
         assert_eq!(
-            block_on(h.devices.start_local_maxd()),
+            start(),
             Err(failed(format!(
                 "There's no maxd at {}",
                 scratch.maxd("").display()
@@ -283,8 +346,8 @@ mod tests {
         );
 
         scratch.script("", r#"printf '%s ' "$@" > "$0.args""#);
-        block_on(h.devices.start_local_maxd()).unwrap();
-        assert_eq!(scratch.args("").as_deref(), Some("service install"));
+        start().unwrap();
+        assert_eq!(scratch.args(RUNS).as_deref(), Some("service install"));
         assert_eq!(
             h.fake.calls(),
             [(local_link(), Call::Refresh)],
@@ -293,14 +356,14 @@ mod tests {
 
         scratch.script("", "echo 'launchctl refused the service' >&2\nexit 3");
         assert_eq!(
-            block_on(h.devices.start_local_maxd()),
+            start(),
             Err(failed("launchctl refused the service".to_owned()))
         );
         assert!(h.fake.calls().is_empty());
 
         scratch.script("", "exit 4");
         assert_eq!(
-            block_on(h.devices.start_local_maxd()),
+            start(),
             Err(failed(
                 "maxd service install failed with exit status: 4".to_owned()
             ))
@@ -313,6 +376,7 @@ mod tests {
         );
     }
 
+    #[cfg(target_os = "macos")]
     #[test]
     fn a_copy_macos_moved_aside_or_a_disk_image_doesnt_install_maxd() {
         let inner = "AppTranslocation/0A1B/d/MaxHQ.app/Contents/MacOS";
@@ -320,7 +384,7 @@ mod tests {
         let h = harness(Registry::in_memory().unwrap(), Some(scratch.maxd(inner)));
         assert_eq!(
             block_on(h.devices.start_local_maxd()),
-            Err(failed(MISPLACED.to_owned()))
+            Err(failed(os::MISPLACED.to_owned()))
         );
         assert_eq!(scratch.args(inner), None, "maxd never ran");
         assert!(h.fake.calls().is_empty());
@@ -329,15 +393,40 @@ mod tests {
         block_on(h.devices.uninstall_local_maxd(false)).unwrap();
         assert_eq!(scratch.args(inner).as_deref(), Some("service uninstall"));
 
-        assert!(misplaced(Path::new(
-            "/Volumes/MaxHQ/MaxHQ.app/Contents/MacOS/maxd"
-        )));
-        assert!(!misplaced(Path::new(
-            "/Applications/MaxHQ.app/Contents/MacOS/maxd"
-        )));
-        assert!(!misplaced(Path::new(
+        let misplaced = |maxd: &str| os::misplaced(Path::new(maxd)).is_some();
+        assert!(misplaced("/Volumes/MaxHQ/MaxHQ.app/Contents/MacOS/maxd"));
+        assert!(!misplaced("/Applications/MaxHQ.app/Contents/MacOS/maxd"));
+        assert!(!misplaced(
             "/Users/someone/Applications/MaxHQ.app/Contents/MacOS/maxd"
-        )));
+        ));
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    #[test]
+    fn an_appimages_maxd_is_installed_from_a_copy_that_outlives_the_mount() {
+        let inner = ".mount_MaxHQ1/usr/bin";
+        let scratch = Scratch::under(inner);
+        let home = scratch.0.join("home");
+        let h = harness(Registry::in_memory().unwrap(), Some(scratch.maxd(inner)));
+        block_on(h.devices.start_local_maxd_in(Some(home.clone()))).unwrap();
+        assert_eq!(scratch.args(RUNS).as_deref(), Some("service install"));
+        assert_eq!(scratch.args(inner), None, "the mounted maxd never ran");
+        let link = home.join(".local/bin/maxd");
+        assert_eq!(
+            h.devices.local_maxd_program(Some(&home)),
+            Some(link.clone())
+        );
+        assert_eq!(h.devices.local_maxd_program(None), None);
+
+        // The next run mounts the AppImage elsewhere, and the service
+        // still has its maxd.
+        std::fs::remove_dir_all(scratch.0.join(".mount_MaxHQ1")).unwrap();
+        let status = Command::new(&link).arg("run").status().unwrap();
+        assert!(status.success());
+        assert_eq!(scratch.args(RUNS).as_deref(), Some("run"));
+
+        let none = harness(Registry::in_memory().unwrap(), None);
+        assert_eq!(none.devices.local_maxd_program(Some(&home)), None);
     }
 
     #[test]

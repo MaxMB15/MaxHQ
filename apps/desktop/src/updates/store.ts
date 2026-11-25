@@ -205,6 +205,14 @@ export const unavailableText = (reason: NoUpdates): string => {
 			return t(
 				"MaxHQ updates itself only from the Applications folder. Move it there to get updates."
 			);
+		case "package":
+			return t(
+				"MaxHQ was installed from a package, so it doesn't update itself. Get the new package from MaxHQ's releases page."
+			);
+		case "unwritable":
+			return t(
+				"MaxHQ can't replace its AppImage in this folder. Move the AppImage to a folder you can write to, like ~/Applications, to get updates."
+			);
 	}
 };
 

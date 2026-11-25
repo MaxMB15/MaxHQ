@@ -1146,6 +1146,8 @@
 	"MaxHQ is running from its disk image. Drag it to Applications and open it from there to get updates.": "MaxHQ s'exécute depuis son image disque. Faites-le glisser dans Applications et ouvrez-le depuis là pour recevoir les mises à jour.",
 	"macOS is running a temporary copy of MaxHQ, since it was opened where it was downloaded. Move it to Applications and open it from there to get updates.": "macOS exécute une copie temporaire de MaxHQ, car il a été ouvert là où il a été téléchargé. Déplacez-le dans Applications et ouvrez-le depuis là pour recevoir les mises à jour.",
 	"MaxHQ updates itself only from the Applications folder. Move it there to get updates.": "MaxHQ ne se met à jour que depuis le dossier Applications. Déplacez-le là pour recevoir les mises à jour.",
+	"MaxHQ was installed from a package, so it doesn't update itself. Get the new package from MaxHQ's releases page.": "MaxHQ a été installé depuis un paquet, il ne se met donc pas à jour seul. Téléchargez le nouveau paquet depuis la page des versions de MaxHQ.",
+	"MaxHQ can't replace its AppImage in this folder. Move the AppImage to a folder you can write to, like ~/Applications, to get updates.": "MaxHQ ne peut pas remplacer son AppImage dans ce dossier. Déplacez l'AppImage dans un dossier où vous pouvez écrire, comme ~/Applications, pour recevoir les mises à jour.",
 	"Terminals on {{name}}": "Terminaux sur {{name}}",
 	"Shell integration on by default": "Intégration du shell activée par défaut",
 	"Shell integration": "Intégration du shell",
