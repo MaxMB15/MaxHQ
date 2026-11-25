@@ -288,8 +288,6 @@ async fn a_committed_folder_lands_in_the_source_and_its_repo() {
 
 #[tokio::test]
 async fn a_commit_lands_what_was_hashed_and_leaves_it_editable() {
-    use std::os::unix::fs::PermissionsExt;
-
     let rig = Rig::on("macos");
     let personal = rig.library.personal().await.unwrap();
     let folder = rig.dir.path().join("new/mine");
@@ -313,8 +311,9 @@ async fn a_commit_lands_what_was_hashed_and_leaves_it_editable() {
         .path(&skill.tree)
         .unwrap()
         .join(SKILL_FILE);
-    assert!(fs::metadata(&kept).unwrap().permissions().readonly());
-    fs::set_permissions(&kept, fs::Permissions::from_mode(0o644)).unwrap();
+    // Windows has no modes to seal the store with.
+    assert!(cfg!(windows) || fs::metadata(&kept).unwrap().permissions().readonly());
+    maxhq_os::fsmode::set_mode(&kept, 0o644).unwrap();
     fs::write(&kept, "---\nname: mine\ndescription: Kept\n---\n").unwrap();
     rig.library
         .commit_folder(personal, "mine", &folder, "Again")

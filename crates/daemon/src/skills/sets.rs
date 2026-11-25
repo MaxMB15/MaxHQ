@@ -11,9 +11,9 @@
 use std::collections::BTreeMap;
 use std::fs;
 use std::io;
-use std::os::unix::fs::symlink;
 use std::path::Path;
 
+use maxhq_core::fs_ext;
 use maxhq_core::skills::lock;
 use maxhq_core::skills::pack::PACK_DIR;
 use maxhq_core::skills::store::TreeStore;
@@ -65,9 +65,10 @@ pub fn publish(store: &dyn TreeStore, root: &Path, skills: &SkillLock) -> Result
     let moved = fs::read_link(&current).ok().as_deref() != Some(Path::new(&target));
     if moved {
         let temp = root.join(format!(".{CURRENT}.{}.tmp", std::process::id()));
-        let _ = fs::remove_file(&temp);
-        symlink(&target, &temp).map_err(|err| failed("link the new skill set", err))?;
-        fs::rename(&temp, &current).map_err(|err| failed("swap in the new skill set", err))?;
+        let _ = fs_ext::remove_link(&temp);
+        fs_ext::symlink(&target, &temp).map_err(|err| failed("link the new skill set", err))?;
+        fs_ext::rename_link(&temp, &current)
+            .map_err(|err| failed("swap in the new skill set", err))?;
     }
     for entry in fs::read_dir(&sets).map_err(|err| failed("list the skill sets", err))? {
         let Ok(entry) = entry else { continue };
@@ -117,8 +118,6 @@ fn link_tree(from: &Path, to: &Path) -> io::Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use std::os::unix::fs::MetadataExt;
-
     use maxhq_core::skills::disk::DiskFs;
     use maxhq_core::skills::tree;
 
@@ -139,12 +138,16 @@ mod tests {
         );
         let copy = root.join(CURRENT).join("git-flow");
         assert_eq!(tree::of(&DiskFs, &copy).unwrap(), skills.skills[0].tree);
-        // A hard link into the store, not a copy.
-        let stored = store.path(&skills.skills[0].tree).unwrap().join("SKILL.md");
-        assert_eq!(
-            fs::metadata(copy.join("SKILL.md")).unwrap().ino(),
-            fs::metadata(stored).unwrap().ino()
-        );
+        // A hard link into the store, not a copy. Windows' std can't tell.
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::MetadataExt;
+            let stored = store.path(&skills.skills[0].tree).unwrap().join("SKILL.md");
+            assert_eq!(
+                fs::metadata(copy.join("SKILL.md")).unwrap().ino(),
+                fs::metadata(stored).unwrap().ino()
+            );
+        }
 
         assert!(!publish(&store, &root, &skills).unwrap());
 

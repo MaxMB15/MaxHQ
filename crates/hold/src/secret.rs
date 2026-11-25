@@ -16,9 +16,9 @@
 //! `holder.key`, so a client that starts later, such as `maxd` after a
 //! restart, can show it in its hello.
 
+use std::borrow::Cow;
 use std::ffi::OsString;
 use std::io;
-use std::os::unix::ffi::{OsStrExt, OsStringExt};
 
 use subtle::ConstantTimeEq;
 
@@ -79,11 +79,13 @@ pub(crate) fn encode(
     key: Option<&Secret>,
     secrets: &[(OsString, Secret)],
 ) -> Result<Zeroed, &'static str> {
-    let key = key.map(|key| (&[][..], key));
-    let secrets = secrets.iter().map(|(name, value)| (name.as_bytes(), value));
+    let key = key.map(|key| (Cow::Borrowed(&[][..]), key));
+    let secrets = secrets
+        .iter()
+        .map(|(name, value)| (crate::sys::os_bytes(name), value));
     let mut out = Zeroed(Vec::new());
     for (name, value) in key.into_iter().chain(secrets) {
-        for part in [name, value.expose().as_bytes()] {
+        for part in [&name[..], value.expose().as_bytes()] {
             let len = u32::try_from(part.len()).map_err(|_| "a secret variable is too long")?;
             out.0.extend_from_slice(&len.to_be_bytes());
             out.0.extend_from_slice(part);
@@ -110,10 +112,9 @@ pub(crate) fn decode(mut bytes: &[u8], keyed: bool) -> Result<Piped, &'static st
         let name = take(&mut bytes)?;
         let value = take(&mut bytes)?;
         let value = std::str::from_utf8(&value.0).map_err(|_| "a secret value isn't UTF-8")?;
-        entries.push((
-            OsString::from_vec(name.0.clone()),
-            Secret::new(value.to_owned()),
-        ));
+        let name = crate::sys::os_from_bytes(name.0.clone())
+            .ok_or("a secret variable's name on stdin isn't one this OS takes")?;
+        entries.push((name, Secret::new(value.to_owned())));
     }
     let key = if keyed {
         if entries.first().is_none_or(|(name, _)| !name.is_empty()) {

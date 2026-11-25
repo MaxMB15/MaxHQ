@@ -10,7 +10,7 @@
 //! those.
 
 use std::env;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use directories::BaseDirs;
 
@@ -64,8 +64,9 @@ impl Role {
 /// it's `$XDG_RUNTIME_DIR/maxhq/maxd.sock`, falling back to
 /// `/run/user/<uid>/maxhq/maxd.sock` when a service starts without the
 /// variable set. In a guest it's `/run/maxhq/maxd.sock`. On Windows it's
-/// `%LOCALAPPDATA%\MaxHQ\maxd.sock`, where no file is made: the path names
-/// the named pipe `maxhq_os::ipc` serves, so each user gets their own.
+/// `%LOCALAPPDATA%\MaxHQ\data\maxd.sock`, where no file is made: the path
+/// names the named pipe `maxhq_os::ipc` serves, so each user gets their
+/// own.
 pub fn socket() -> Option<PathBuf> {
     if let Some(path) = env::var_os(SOCKET_ENV) {
         return Some(path.into());
@@ -77,9 +78,11 @@ pub fn socket() -> Option<PathBuf> {
 ///
 /// On macOS it's `~/Library/Application Support/MaxHQ`, and on Linux
 /// `$XDG_DATA_HOME/maxhq`, which is usually `~/.local/share/maxhq`. On
-/// Windows it's `%LOCALAPPDATA%\MaxHQ`, the local folder rather than the
-/// roaming one, so a roaming profile never syncs the database. In a guest
-/// it's [`GUEST_DATA_DIR`].
+/// Windows it's `data` in [`windows_app_dir`], `%LOCALAPPDATA%\MaxHQ\data`:
+/// the local folder rather than the roaming one, so a roaming profile
+/// never syncs the database, and a folder of its own, so deleting the data
+/// leaves the app the per-user setup installed beside it. In a guest it's
+/// [`GUEST_DATA_DIR`].
 pub fn data_dir() -> Option<PathBuf> {
     data_dir_for(Role::from_env())
 }
@@ -88,14 +91,28 @@ fn data_dir_for(role: Role) -> Option<PathBuf> {
     if role == Role::Guest {
         return Some(GUEST_DATA_DIR.into());
     }
+    if cfg!(windows) {
+        return windows_app_dir().map(|dir| dir.join("data"));
+    }
     let base = BaseDirs::new()?;
     Some(if cfg!(target_os = "macos") {
         base.data_dir().join("MaxHQ")
-    } else if cfg!(windows) {
-        base.data_local_dir().join("MaxHQ")
     } else {
         base.data_dir().join("maxhq")
     })
+}
+
+/// MaxHQ's own folder on Windows, `%LOCALAPPDATA%\MaxHQ`. The per-user
+/// setup installs the app there, and it holds `maxd`'s builds, the
+/// junction its service runs ([`MaxdLayout::windows`]), the service's
+/// launcher and its logon task's file, with `maxd`'s data in `data`
+/// ([`data_dir`]). `None` off Windows, where those live under the home
+/// folder and the app elsewhere.
+pub fn windows_app_dir() -> Option<PathBuf> {
+    if !cfg!(windows) {
+        return None;
+    }
+    BaseDirs::new().map(|base| base.data_local_dir().join("MaxHQ"))
 }
 
 /// The folder with one folder per held agent session, named by its session
@@ -142,6 +159,120 @@ fn runtime_dir_for(role: Role) -> Option<PathBuf> {
     linux_uid().map(|uid| PathBuf::from(format!("/run/user/{uid}/maxhq")))
 }
 
+/// Where `maxd`'s builds live, and the link its service runs the current
+/// one through. An update copies a build into a folder of its own and
+/// moves the link, so nothing ever runs half of one, and a running build
+/// is never replaced.
+///
+/// - On Unix, under the home folder: `~/.local/lib/maxhq/versions/<build>/maxd`,
+///   and `~/.local/bin/maxd`, a symbolic link to the binary.
+/// - On Windows, in MaxHQ's folder, `%LOCALAPPDATA%\MaxHQ`
+///   ([`windows_app_dir`]), beside the data rather than in it:
+///   `versions\<build>\maxd.exe`, and `bin\current`, a junction to the
+///   build's folder, since a symbolic link there needs admin rights or
+///   developer mode. The service runs `bin\current\maxd.exe`.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct MaxdLayout {
+    /// The folder with `versions` and the update record.
+    lib: PathBuf,
+    /// The link the service runs through.
+    link: PathBuf,
+    /// Whether the link is a junction to a build's folder rather than a
+    /// symbolic link to its binary.
+    junction: bool,
+}
+
+impl MaxdLayout {
+    /// Unix's layout under the home folder `home`.
+    pub fn new(home: impl AsRef<Path>) -> Self {
+        let home = home.as_ref();
+        Self {
+            lib: home.join(".local/lib/maxhq"),
+            link: home.join(".local/bin").join(MAXD_PROGRAM),
+            junction: false,
+        }
+    }
+
+    /// Windows's layout in `app`, MaxHQ's folder.
+    pub fn windows(app: impl AsRef<Path>) -> Self {
+        let app = app.as_ref();
+        Self {
+            lib: app.to_owned(),
+            link: app.join("bin").join("current"),
+            junction: true,
+        }
+    }
+
+    /// This system's: Unix's under `HOME`, or Windows's in MaxHQ's folder.
+    /// `None` without either.
+    pub fn from_env() -> Option<Self> {
+        if cfg!(windows) {
+            return windows_app_dir().map(Self::windows);
+        }
+        env::var_os("HOME")
+            .filter(|home| !home.is_empty())
+            .map(Self::new)
+    }
+
+    /// The link the service runs through: `~/.local/bin/maxd`, or the
+    /// `bin\current` junction.
+    pub fn link(&self) -> PathBuf {
+        self.link.clone()
+    }
+
+    /// The program the service runs: the link itself on Unix, and
+    /// `maxd.exe` through the junction on Windows.
+    pub fn program(&self) -> PathBuf {
+        if self.junction {
+            self.link.join(MAXD_PROGRAM)
+        } else {
+            self.link.clone()
+        }
+    }
+
+    /// The folder with one folder per build.
+    pub fn versions(&self) -> PathBuf {
+        self.lib.join("versions")
+    }
+
+    /// The binary of `build`.
+    pub fn version(&self, build: &str) -> PathBuf {
+        self.versions().join(build).join(MAXD_PROGRAM)
+    }
+
+    /// What the link points at to run `build`: its binary, or on Windows
+    /// its folder.
+    pub fn link_target(&self, build: &str) -> PathBuf {
+        if self.junction {
+            self.versions().join(build)
+        } else {
+            self.version(build)
+        }
+    }
+
+    /// The build whose [`Self::link_target`] is `target`, if it's one of
+    /// these versions.
+    pub fn build_of_target(&self, target: &Path) -> Option<String> {
+        let folder = if self.junction {
+            target
+        } else {
+            target.parent()?
+        };
+        if folder.parent()? != self.versions() {
+            return None;
+        }
+        folder.file_name()?.to_str().map(str::to_owned)
+    }
+
+    /// `update.json`, the record of the last update.
+    pub fn state(&self) -> PathBuf {
+        self.lib.join("update.json")
+    }
+}
+
+/// `maxd`'s file name on this system.
+pub const MAXD_PROGRAM: &str = if cfg!(windows) { "maxd.exe" } else { "maxd" };
+
 #[cfg(target_os = "linux")]
 fn linux_uid() -> Option<u32> {
     use std::os::unix::fs::MetadataExt;
@@ -179,7 +310,26 @@ mod tests {
         let socket = socket().expect("a home folder");
         assert!(socket.ends_with("maxd.sock"));
         let data = data_dir().expect("a home folder");
-        assert!(data.ends_with("MaxHQ") || data.ends_with("maxhq"));
+        if cfg!(windows) {
+            assert!(data.ends_with(Path::new("MaxHQ").join("data")));
+        } else {
+            assert!(data.ends_with("MaxHQ") || data.ends_with("maxhq"));
+        }
+    }
+
+    #[test]
+    fn windows_keeps_the_data_apart_from_the_programs() {
+        if cfg!(windows) {
+            let app = windows_app_dir().expect("a local app data folder");
+            assert!(app.ends_with("MaxHQ"));
+            assert_eq!(data_dir(), Some(app.join("data")));
+            assert_eq!(runtime_dir(), data_dir());
+            let layout = MaxdLayout::from_env().unwrap();
+            assert!(!layout.versions().starts_with(data_dir().unwrap()));
+            assert!(!layout.link().starts_with(data_dir().unwrap()));
+        } else {
+            assert_eq!(windows_app_dir(), None);
+        }
     }
 
     #[test]
@@ -195,6 +345,74 @@ mod tests {
     fn the_link_temp_is_the_one_os_link_makes() {
         let temp = maxhq_os::link::temp_for(Path::new("/home/<user>/.local/bin/maxd"));
         assert_eq!(temp.file_name(), Some(MAXD_LINK_TEMP.as_ref()));
+    }
+
+    #[test]
+    fn unix_runs_the_build_through_a_link_to_its_binary() {
+        let layout = MaxdLayout::new("/home/<user>");
+        let link = Path::new("/home/<user>/.local/bin").join(MAXD_PROGRAM);
+        assert_eq!(layout.link(), link);
+        assert_eq!(layout.program(), link);
+        let versions = Path::new("/home/<user>/.local/lib/maxhq/versions");
+        assert_eq!(layout.versions(), versions);
+        assert_eq!(
+            layout.version("0123"),
+            versions.join("0123").join(MAXD_PROGRAM)
+        );
+        assert_eq!(layout.link_target("0123"), layout.version("0123"));
+        assert_eq!(
+            layout
+                .build_of_target(&layout.link_target("0123"))
+                .as_deref(),
+            Some("0123")
+        );
+        assert_eq!(layout.build_of_target(Path::new("/usr/bin/maxd")), None);
+        assert_eq!(
+            layout.state(),
+            Path::new("/home/<user>/.local/lib/maxhq/update.json")
+        );
+    }
+
+    #[test]
+    fn windows_runs_the_build_through_a_junction_to_its_folder() {
+        let data = Path::new("C:/Users/<user>/AppData/Local/MaxHQ");
+        let layout = MaxdLayout::windows(data);
+        assert_eq!(
+            layout.program(),
+            Path::new("C:/Users/<user>/AppData/Local/MaxHQ/bin/current").join(MAXD_PROGRAM)
+        );
+        assert_eq!(layout.link(), data.join("bin").join("current"));
+        assert_eq!(
+            layout.program(),
+            data.join("bin").join("current").join(MAXD_PROGRAM)
+        );
+        assert_eq!(layout.versions(), data.join("versions"));
+        assert_eq!(
+            layout.link_target("0123"),
+            data.join("versions").join("0123")
+        );
+        assert_eq!(
+            layout.version("0123"),
+            data.join("versions").join("0123").join(MAXD_PROGRAM)
+        );
+        assert_eq!(
+            layout
+                .build_of_target(&layout.link_target("0123"))
+                .as_deref(),
+            Some("0123")
+        );
+        assert_eq!(layout.build_of_target(&data.join("bin")), None);
+        assert_eq!(layout.state(), data.join("update.json"));
+    }
+
+    #[test]
+    fn this_system_has_its_layout() {
+        let layout = MaxdLayout::from_env().expect("a home folder");
+        if cfg!(windows) {
+            assert_eq!(layout, MaxdLayout::windows(windows_app_dir().unwrap()));
+        } else {
+            assert_eq!(layout.program(), layout.link());
+        }
     }
 
     #[test]

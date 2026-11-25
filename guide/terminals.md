@@ -189,7 +189,7 @@ The menu shows only on agents that take messages, on devices with terminals.
 <!-- id: terminals/shell-integration -->
 <!-- covers: settings/device/terminals -->
 
-Shell integration lets MaxHQ tell your commands apart in zsh, bash and fish. It's on by default, in the Terminals card on each device's tab in Settings.
+Shell integration lets MaxHQ tell your commands apart in zsh, bash and fish, and on Windows in Git Bash and PowerShell. It's on by default, in the Terminals card on each device's tab in Settings.
 
 1. Switch the sidebar to Devices and open the device.
 2. Find the Terminals card and turn Shell integration on or off.

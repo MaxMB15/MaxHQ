@@ -453,16 +453,14 @@ fn same_file(a: &Path, b: &Path) -> bool {
 }
 
 /// The program the service in `home` runs, if there's one: the systemd
-/// user unit's on Linux, the LaunchAgent's on macOS, and none yet on
-/// Windows, where the logon task isn't read. Until it is, the app leaves
-/// this PC's `maxd` on its build after an update, and Restart maxd moves
-/// it on.
+/// user unit's on Linux, the logon task's on Windows, which MaxHQ's folder
+/// holds whatever `home` is, and the LaunchAgent's elsewhere.
 pub fn service_program(home: &Path) -> Option<PathBuf> {
     if cfg!(target_os = "linux") {
         let xdg = std::env::var_os("XDG_CONFIG_HOME").map(PathBuf::from);
         unit_program(&config_home(home, xdg.as_deref()))
     } else if cfg!(windows) {
-        None
+        maxhq_core::service::task_program_here()
     } else {
         launch_agent_program(home)
     }

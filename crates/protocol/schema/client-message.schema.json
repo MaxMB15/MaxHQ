@@ -8760,6 +8760,24 @@
             "field",
             "value"
           ]
+        },
+        {
+          "description": "See [`DeviceSettings::windows_shell`].",
+          "type": "object",
+          "properties": {
+            "field": {
+              "type": "string",
+              "const": "windows_shell"
+            },
+            "value": {
+              "description": "What it becomes.",
+              "$ref": "#/$defs/WindowsShell"
+            }
+          },
+          "required": [
+            "field",
+            "value"
+          ]
         }
       ]
     },
@@ -8930,6 +8948,10 @@
           "items": {
             "$ref": "#/$defs/Tool"
           }
+        },
+        "windows_shell": {
+          "description": "The shell a Windows device's `maxd` starts for `!` commands and the\nterminal drawer. Other systems ignore it and start your login shell.\nA `maxd` from before [`crate::message::WINDOWS_SHELL_SINCE`] leaves\nit out, which reads as [`WindowsShell::Auto`].",
+          "$ref": "#/$defs/WindowsShell"
         },
         "workspace_network": {
           "description": "The Incus network new container workspaces join, one of\n[`WorkspaceHost::networks`].",
@@ -15691,6 +15713,31 @@
           "description": "Sunday.",
           "type": "string",
           "const": "sunday"
+        }
+      ]
+    },
+    "WindowsShell": {
+      "description": "The shell a Windows device starts for `!` commands and the terminal\ndrawer.",
+      "oneOf": [
+        {
+          "description": "Git Bash when Git for Windows is installed, else PowerShell 7, else\nWindows PowerShell 5.1.",
+          "type": "string",
+          "const": "auto"
+        },
+        {
+          "description": "Git Bash, from Git for Windows.",
+          "type": "string",
+          "const": "git_bash"
+        },
+        {
+          "description": "PowerShell 7, `pwsh.exe`.",
+          "type": "string",
+          "const": "pwsh"
+        },
+        {
+          "description": "Windows PowerShell 5.1, `powershell.exe`, which comes with Windows.",
+          "type": "string",
+          "const": "power_shell"
         }
       ]
     },

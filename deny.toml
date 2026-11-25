@@ -11,12 +11,18 @@
 
 [graph]
 # Check what the macOS, Linux, Windows and Android builds pull in, whichever
-# machine runs the check. The phone's core uses JNI only on Android.
+# machine runs the check, for every CPU the release builds: the apps for
+# x64 and arm64, and the static Linux maxd. The phone's core uses JNI only
+# on Android.
 targets = [
     "aarch64-apple-darwin",
     "x86_64-apple-darwin",
     "x86_64-unknown-linux-gnu",
+    "aarch64-unknown-linux-gnu",
+    "x86_64-unknown-linux-musl",
+    "aarch64-unknown-linux-musl",
     "x86_64-pc-windows-msvc",
+    "aarch64-pc-windows-msvc",
     "aarch64-linux-android",
     "x86_64-linux-android",
 ]

@@ -1,14 +1,20 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026 Max Boksem
 
-// Writes mobile.json, the manifest the iPhone app fetches from the newest
-// release to learn of a newer TestFlight build: the version, the build
-// number, the protocol range the build speaks, the release notes link and
-// the date. Given the release notes, it also adds a line naming the iPhone
-// build to them.
+// Writes mobile.json, the manifest the phone app fetches from the newest
+// release to learn of a newer build: the version, the iPhone's TestFlight
+// build number, the protocol range the build speaks, the release notes link
+// and the date. With --android-build, also the Android build's version code
+// and the link to the release's APK, which the phone installs from. Given
+// the release notes, it adds a line naming each phone build to them.
 //
 //   node scripts/release/mobile-json.mjs --version 0.2.0 --build 10702 \
-//     --repo <owner>/<repo> --out mobile.json [--notes-file <file>]
+//     --repo <owner>/<repo> --out mobile.json [--android-build 10702] \
+//     [--notes-file <file>]
+//
+// The APK is the release asset ANDROID_APK names. Leave --android-build out
+// when the release has none, such as when it wasn't signed: the phone then
+// keeps the Android build it has and offers the release's page.
 //
 // The protocol range comes from crates/protocol/src/lib.rs in the checkout,
 // which is the tag the iPhone build came from.
@@ -17,6 +23,10 @@ import { readFileSync, writeFileSync } from "node:fs";
 import { parseArgs } from "node:util";
 
 const SEMVER = /^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$/;
+
+// The release's APK and AAB, without a version like the DMGs.
+export const ANDROID_APK = "MaxHQ.apk";
+export const ANDROID_AAB = "MaxHQ.aab";
 const PROTOCOL_FILE = new URL("../../crates/protocol/src/lib.rs", import.meta.url);
 
 const constant = (text, name) => {
@@ -31,14 +41,30 @@ export const readProtocol = (text) => ({
 	oldest: constant(text, "OLDEST_PROTOCOL_VERSION"),
 });
 
-export const mobileJson = ({ version, build, protocol, repo, now = new Date() }) => {
-	if (!SEMVER.test(version)) throw new Error(`the version "${version}" isn't X.Y.Z`);
+const wholeBuild = (build) => {
 	if (!Number.isSafeInteger(build) || build < 1)
 		throw new Error(`the build "${build}" isn't a whole number above 0`);
+	return build;
+};
+
+// `androidBuild` is the Android build's version code, or undefined when the
+// release carries no APK.
+export const mobileJson = ({ version, build, protocol, repo, androidBuild, now = new Date() }) => {
+	if (!SEMVER.test(version)) throw new Error(`the version "${version}" isn't X.Y.Z`);
+	wholeBuild(build);
 	const { current, oldest } = protocol;
 	if (!Number.isSafeInteger(current) || !Number.isSafeInteger(oldest) || oldest > current)
 		throw new Error(`the protocol range ${oldest} to ${current} isn't valid`);
 	if (!/^[\w.-]+\/[\w.-]+$/.test(repo)) throw new Error(`"${repo}" isn't <owner>/<repo>`);
+	const android =
+		androidBuild === undefined
+			? {}
+			: {
+					android: {
+						build: wholeBuild(androidBuild),
+						apk_url: `https://github.com/${repo}/releases/download/v${version}/${ANDROID_APK}`,
+					},
+				};
 	return `${JSON.stringify(
 		{
 			version,
@@ -46,6 +72,7 @@ export const mobileJson = ({ version, build, protocol, repo, now = new Date() })
 			protocol: { current, oldest },
 			notes_url: `https://github.com/${repo}/releases/tag/v${version}`,
 			pub_date: now.toISOString().replace(/\.\d{3}Z$/, "Z"),
+			...android,
 		},
 		null,
 		2
@@ -55,13 +82,32 @@ export const mobileJson = ({ version, build, protocol, repo, now = new Date() })
 export const phoneLine = (version, build) =>
 	`iPhone: MaxHQ ${version} (build ${build}) is in TestFlight.`;
 
-// The notes with the iPhone line at the end, once, so a rerun adds nothing.
-export const withPhoneLine = (notes, version, build) => {
-	const line = phoneLine(version, build);
+export const androidLine = (version, build) =>
+	`Android: MaxHQ ${version} (build ${build}) is ${ANDROID_APK} on this release.`;
+
+// The notes with a line at the end, once, so a rerun adds nothing.
+export const withLine = (notes, line) => {
 	const trimmed = notes.trimEnd();
 	if (trimmed.split("\n").includes(line)) return `${trimmed}\n`;
 	return trimmed ? `${trimmed}\n\n${line}\n` : `${line}\n`;
 };
+
+export const withPhoneLine = (notes, version, build) => withLine(notes, phoneLine(version, build));
+
+// The lines phoneLine and androidLine write, for any version and build.
+const PHONE_LINES = [
+	/^iPhone: MaxHQ [0-9.]+ \(build [0-9]+\) is in TestFlight\.$/,
+	/^Android: MaxHQ [0-9.]+ \(build [0-9]+\) is MaxHQ\.apk on this release\.$/,
+];
+
+// The notes without those lines, which a rerun of the release finds in them,
+// so they stay out of the desktop app's What's new.
+export const withoutPhoneLines = (notes) =>
+	notes
+		.split("\n")
+		.filter((line) => !PHONE_LINES.some((pattern) => pattern.test(line.trimEnd())))
+		.join("\n")
+		.trimEnd();
 
 const main = () => {
 	const { values } = parseArgs({
@@ -70,27 +116,35 @@ const main = () => {
 			build: { type: "string" },
 			repo: { type: "string" },
 			out: { type: "string" },
+			"android-build": { type: "string" },
 			"notes-file": { type: "string" },
 		},
 	});
 	try {
 		if (!values.version || !values.build || !values.repo || !values.out)
 			throw new Error("--version, --build, --repo and --out are required");
-		if (!/^[0-9]+$/.test(values.build))
-			throw new Error(`"${values.build}" isn't a build number`);
-		const build = Number(values.build);
+		const number = (flag, text) => {
+			if (!/^[0-9]+$/.test(text)) throw new Error(`${flag} "${text}" isn't a build number`);
+			return Number(text);
+		};
+		const build = number("--build", values.build);
+		const androidBuild =
+			values["android-build"] === undefined
+				? undefined
+				: number("--android-build", values["android-build"]);
+		const { version, repo } = values;
 		const protocol = readProtocol(readFileSync(PROTOCOL_FILE, "utf8"));
-		const text = mobileJson({ version: values.version, build, protocol, repo: values.repo });
-		writeFileSync(values.out, text);
+		writeFileSync(values.out, mobileJson({ version, build, protocol, repo, androidBuild }));
 		const notesFile = values["notes-file"];
 		if (notesFile) {
-			writeFileSync(
-				notesFile,
-				withPhoneLine(readFileSync(notesFile, "utf8"), values.version, build)
-			);
+			let notes = withPhoneLine(readFileSync(notesFile, "utf8"), version, build);
+			if (androidBuild !== undefined)
+				notes = withLine(notes, androidLine(version, androidBuild));
+			writeFileSync(notesFile, notes);
 		}
+		const android = androidBuild === undefined ? "no Android build" : `Android ${androidBuild}`;
 		console.log(
-			`mobile.json for ${values.version} (${build}), protocol ${protocol.oldest} to ${protocol.current}`
+			`mobile.json for ${version} (${build}, ${android}), protocol ${protocol.oldest} to ${protocol.current}`
 		);
 	} catch (error) {
 		console.error(`mobile-json.mjs: ${error.message}`);

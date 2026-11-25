@@ -3,6 +3,8 @@
 
 import { describe, expect, it } from "vitest";
 
+import { t } from "../i18n";
+
 import type { ActionResult } from "../data/source";
 import { SYNC_GRACE_MS } from "../status/reach";
 import { agent, attention, entities, link, NOW, workspace } from "../test/build";
@@ -15,7 +17,9 @@ import {
 	denyAnswer,
 	denyFromButton,
 	handledNotifications,
+	PUSH_KINDS,
 	pushEnvironment,
+	pushKinds,
 	pushTarget,
 	pushToken,
 	pushUpdateNote,
@@ -54,6 +58,19 @@ describe("kinds", () => {
 	it("falls back to every kind when what was kept doesn't read", () => {
 		expect(readKinds("{")).toEqual(DEFAULT_KINDS);
 		expect(readKinds('"needs_input"')).toEqual(DEFAULT_KINDS);
+	});
+
+	it("tells an Android phone that Deny opens MaxHQ", () => {
+		const prompt = (kinds: typeof PUSH_KINDS) =>
+			kinds.find((each) => each.kind === "needs_input");
+		const plain =
+			"A permission, a question or a secret. Open it to answer. Deny also works from the lock screen.";
+		expect(prompt(PUSH_KINDS)?.detail).toBe(t(plain));
+		expect(prompt(pushKinds())?.detail).toBe(t(plain));
+		expect(prompt(pushKinds("android"))?.detail).toBe(
+			"A permission, a question or a secret. Open it to answer. Deny also works from the notification and opens MaxHQ once the phone is unlocked."
+		);
+		expect(pushKinds("android").map((each) => each.kind)).toEqual(DEFAULT_KINDS);
 	});
 
 	it("names the host from the build", () => {
@@ -140,6 +157,15 @@ describe("pushTarget", () => {
 			options: [],
 		});
 		expect(pushTarget({ aps })).toEqual({ agent: AGENT, attention: null, options: [] });
+	});
+
+	it("reads an Android push, whose agent comes under t", () => {
+		const clear = { e: ATTENTION, t: AGENT, k: "needs_input", a: "permission", n: "note" };
+		expect(pushTarget(clear)).toEqual({ agent: AGENT, attention: ATTENTION, options: [] });
+		expect(
+			pushTarget({ ...clear, m: { agent: AGENT, attention: ATTENTION, options: CLAUDE } })
+		).toEqual({ agent: AGENT, attention: ATTENTION, options: CLAUDE });
+		expect(pushTarget({ ...clear, t: "" })).toBeNull();
 	});
 
 	it("ignores a push that isn't MaxHQ's", () => {

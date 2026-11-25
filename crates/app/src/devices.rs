@@ -41,7 +41,7 @@ use std::time::Duration;
 use maxhq_client::forward::{ForwardError, LocalForward};
 use maxhq_client::media::Media;
 use maxhq_client::{
-    Client, Copied, LinkError, LinkEvent, LinkHandle, LinkSpec, TerminalSink, TransferError,
+    Client, Copied, LinkError, LinkEvent, LinkHandle, LinkSpec, Saved, TerminalSink, TransferError,
     TransferProgress,
 };
 use maxhq_protocol::attention::{AnswerOutcome, AttentionAnswer};
@@ -233,13 +233,14 @@ pub trait LinkControl: Send + Sync + 'static {
     ) -> impl Future<Output = Result<ActionOutcome, TransferError>> + Send;
 
     /// Fetches a file or folder an agent can see into the downloads folder,
-    /// and gives where it landed.
+    /// and gives where it landed, with the links this machine couldn't
+    /// make.
     fn download(
         &self,
         agent: AgentId,
         path: String,
         on_progress: OnProgress,
-    ) -> impl Future<Output = Result<PathBuf, TransferError>> + Send;
+    ) -> impl Future<Output = Result<Saved, TransferError>> + Send;
 
     /// Fetches a file or folder an agent can see into a staging folder on
     /// this machine, to hand on to a device.
@@ -474,7 +475,7 @@ impl LinkControl for LinkHandle {
         agent: AgentId,
         path: String,
         on_progress: OnProgress,
-    ) -> impl Future<Output = Result<PathBuf, TransferError>> + Send {
+    ) -> impl Future<Output = Result<Saved, TransferError>> + Send {
         LinkHandle::download(self, agent, path, move |progress| on_progress(progress))
     }
 
@@ -1256,14 +1257,15 @@ impl<C: Connector> Devices<C> {
     }
 
     /// Fetches a file or folder an agent can see into the downloads folder,
-    /// through a link to the agent's device, and gives where it landed.
-    /// `on_progress` hears how far it has got.
+    /// through a link to the agent's device, and gives where it landed,
+    /// with the links this machine couldn't make. `on_progress` hears how
+    /// far it has got.
     pub async fn download(
         &self,
         agent: AgentId,
         path: String,
         on_progress: OnProgress,
-    ) -> Result<PathBuf, CommandError> {
+    ) -> Result<Saved, CommandError> {
         let targets = self.core.view.read(|merge| agent_targets(merge, agent))?;
         self.core
             .request_through(targets, move |link| {
@@ -3575,7 +3577,7 @@ pub(crate) mod tests {
             agent: AgentId,
             path: String,
             on_progress: OnProgress,
-        ) -> impl Future<Output = Result<PathBuf, TransferError>> + Send {
+        ) -> impl Future<Output = Result<Saved, TransferError>> + Send {
             let started = self
                 .record
                 .lock()
@@ -3585,7 +3587,10 @@ pub(crate) mod tests {
             async move {
                 started?;
                 fake_transfer(&record, id, path.clone(), &on_progress).await?;
-                Ok(PathBuf::from("/downloads").join(path))
+                Ok(Saved {
+                    path: PathBuf::from("/downloads").join(path),
+                    skipped_links: Vec::new(),
+                })
             }
         }
 
@@ -4411,6 +4416,7 @@ pub(crate) mod tests {
             history_mib: 256,
             claude_setup_token: false,
             shell_integration: true,
+            windows_shell: Default::default(),
             read_other_agents: true,
             dispatcher_acts: true,
             chat_gap_minutes: 30,
@@ -4545,6 +4551,7 @@ pub(crate) mod tests {
                 history_mib: 256,
                 claude_setup_token: false,
                 shell_integration: true,
+                windows_shell: Default::default(),
                 read_other_agents: true,
                 dispatcher_acts: true,
                 chat_gap_minutes: 30,

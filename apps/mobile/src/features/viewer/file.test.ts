@@ -144,7 +144,7 @@ describe("saveText", () => {
 
 	it("says how far a download has got, or that it waits", () => {
 		expect(saveText(null)).toBeNull();
-		expect(saveText({ state: "done", path: "/downloads/a.zip" })).toBeNull();
+		expect(saveText({ state: "done", path: "/downloads/a.zip", skippedLinks: [] })).toBeNull();
 		expect(saveText(going)).toBe("Downloading");
 		expect(saveText({ ...going, sent: 1, total: 4 })).toBe("Downloading, 25%");
 		expect(saveText({ ...going, held: "paused" })).toBe("Paused, reconnecting");

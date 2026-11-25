@@ -11,10 +11,14 @@ use std::os::unix::ffi::OsStrExt;
 use std::os::unix::fs::OpenOptionsExt;
 use std::os::unix::process::CommandExt;
 use std::path::Path;
+use std::process::Stdio;
 
 use rustix::process::Pid;
 use rustix::termios::{LocalModes, Winsize};
 use tokio::io::unix::AsyncFd;
+
+use super::Failed;
+use crate::tree::Tree;
 
 /// Has the forked process lead a session of its own with the pty on its
 /// standard input as the session's terminal.
@@ -155,6 +159,42 @@ impl Master {
         foreground(self.0.get_ref())
     }
 }
+
+/// What a terminal holder's program runs on: the master of its pty.
+pub(crate) type Term = Master;
+
+/// Starts `command` leading a session of its own, with a new pty of
+/// `cols` by `rows` as its terminal.
+pub(crate) fn spawn(
+    mut command: std::process::Command,
+    cols: u16,
+    rows: u16,
+) -> Result<(Tree, Master), Failed> {
+    let (master, slave) = open(winsize(cols.into(), rows.into(), 0, 0)).map_err(Failed::Pty)?;
+    let master = Master::new(master).map_err(Failed::Pty)?;
+    let stdio = |slave: &OwnedFd| slave.try_clone().map(Stdio::from).map_err(Failed::Pty);
+    command
+        .stdin(stdio(&slave)?)
+        .stdout(stdio(&slave)?)
+        .stderr(Stdio::from(slave));
+    controlling_tty(&mut command);
+    let spawned = command.spawn();
+    // The program has the terminal's end now. The holder keeps none, so
+    // reading the master ends once the program and what it started let
+    // go of theirs.
+    drop(command);
+    let tree = spawned.and_then(Tree::adopt).map_err(Failed::Start)?;
+    Ok((tree, master))
+}
+
+/// Sets the window size to `cols` by `rows`.
+pub(crate) fn resize(master: &Master, cols: u16, rows: u16) {
+    master.resize(winsize(cols.into(), rows.into(), 0, 0));
+}
+
+/// Nothing to do: reading a master ends by itself once the program and
+/// what it started have closed their ends.
+pub(crate) fn hang_up(_master: &Master) {}
 
 #[cfg(test)]
 mod tests {

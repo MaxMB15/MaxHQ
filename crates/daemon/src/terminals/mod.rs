@@ -10,9 +10,10 @@
 //! current from a quiet link to its holder: whether it runs, its title and
 //! folder, whether it waits for a password and its size. It's busy while a
 //! program other than its shell holds the foreground and, for a drawer
-//! shell that marks its prompts and commands, as zsh, bash and fish do
-//! while the device's shell integration is on, from a command's start to
-//! its end. `maxd` keeps where each command's output starts and ends, and
+//! shell that marks its prompts and commands, as zsh, bash, fish and
+//! PowerShell do while the device's shell integration is on, from a
+//! command's start to its end. On Windows the device's setting picks the
+//! shell. `maxd` keeps where each command's output starts and ends, and
 //! whether its holder lets through only the shell's own marks. It sends
 //! each connection that attached the output from where that connection
 //! asked, and passes on what it types. What anyone types goes to the
@@ -46,6 +47,7 @@ use maxhq_hold::{
 use maxhq_protocol::frame::{self, MAX_TERMINAL_CHUNK};
 use maxhq_protocol::ids::{AgentId, DeviceId, IdempotencyKey, TerminalId};
 use maxhq_protocol::message::{ActionOutcome, ErrorCode, ServerMessage};
+use maxhq_protocol::model::WindowsShell;
 use maxhq_protocol::state::{Change, Entity, EntityKey};
 use maxhq_protocol::terminal::{SessionBlock, Terminal, TerminalKind, TerminalStatus};
 use maxhq_protocol::time::Timestamp;
@@ -246,6 +248,10 @@ struct Note {
     /// What you renamed it to.
     #[serde(default)]
     name: Option<String>,
+    /// The name of the shell it runs, for its title. A note from before it
+    /// was kept has none, and the title names the user's shell.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    shell: Option<String>,
     /// A session's blocks.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     session: Option<session::SessionNote>,
@@ -411,12 +417,8 @@ impl Open {
                     .filter(|title| !title.trim().is_empty())
             })
             .unwrap_or_else(|| match &self.note.kind {
-                TerminalKind::Shell | TerminalKind::Session => {
-                    maxhq_hold::login_shell().file_name().map_or_else(
-                        || "shell".to_owned(),
-                        |name| name.to_string_lossy().into_owned(),
-                    )
-                }
+                TerminalKind::Shell | TerminalKind::Session => (self.note.shell.clone())
+                    .unwrap_or_else(|| shell_name(&maxhq_hold::login_shell())),
                 TerminalKind::Run { command, .. } => command.clone(),
             });
     }
@@ -465,9 +467,24 @@ impl Open {
     }
 }
 
+/// What a title calls the shell `program`: its file's name, without
+/// `.exe` on Windows.
+fn shell_name(program: &Path) -> String {
+    let Some(name) = program.file_name() else {
+        return "shell".to_owned();
+    };
+    let name = name.to_string_lossy();
+    let stem = (cfg!(windows) && name.len() > 4)
+        .then(|| name.split_at_checked(name.len() - 4))
+        .flatten()
+        .filter(|(_, ext)| ext.eq_ignore_ascii_case(".exe"))
+        .map_or(&*name, |(stem, _)| stem);
+    stem.to_owned()
+}
+
 /// A folder as the device writes it, with `~` for the home folder.
 fn shown(path: &Path) -> String {
-    let home = std::env::var_os("HOME").map(PathBuf::from);
+    let home = maxhq_os::home::home_dir();
     match home
         .as_deref()
         .filter(|home| home.is_absolute())
@@ -715,16 +732,33 @@ impl Terminals {
         rows: u16,
     ) -> TermLaunch {
         let (cols, rows) = (cols.max(1), rows.max(1));
+        let shell = self.shell();
         let mut launch = match kind {
             TerminalKind::Shell | TerminalKind::Session => {
-                TermLaunch::shell(terminal, cwd, cols, rows)
+                TermLaunch::shell_in(terminal, shell, cwd, cols, rows)
             }
             TerminalKind::Run { command, .. } => {
-                TermLaunch::run(terminal, cwd, command, cols, rows)
+                TermLaunch::run_in(terminal, shell, cwd, command, cols, rows)
             }
         };
         self.tweak(&mut launch);
         launch
+    }
+
+    /// The shell a terminal runs: the user's on Unix, and on Windows the
+    /// one the device's setting picks, or the first installed when that one
+    /// isn't, which the log says.
+    fn shell(&self) -> PathBuf {
+        let choice = self.windows_shell();
+        let (program, fell_back) = TermLaunch::pick_shell(choice);
+        if fell_back {
+            warn!(
+                ?choice,
+                program = %program.display(),
+                "the chosen Windows shell isn't installed, so another starts"
+            );
+        }
+        program
     }
 
     #[cfg(test)]
@@ -781,6 +815,7 @@ impl Terminals {
             opener,
             moved: false,
             name: None,
+            shell: Some(shell_name(&launch.program)),
             session,
         };
         self.save(terminal, &note);
@@ -794,6 +829,16 @@ impl Terminals {
             self.inner.hub.get(&key),
             Some(Entity::DeviceSettings(settings)) if !settings.shell_integration
         )
+    }
+
+    /// The shell the device's setting picks on Windows, Auto until there's
+    /// a setting.
+    fn windows_shell(&self) -> WindowsShell {
+        let key = EntityKey::DeviceSettings(self.inner.device);
+        match self.inner.hub.get(&key) {
+            Some(Entity::DeviceSettings(settings)) => settings.windows_shell,
+            _ => WindowsShell::Auto,
+        }
     }
 
     /// Gives a drawer shell hooks that mark its prompts and commands,
@@ -1257,6 +1302,7 @@ impl Terminals {
             opener,
             moved: false,
             name: None,
+            shell: None,
             session: None,
         };
         let open = Open::new(note, None, self.inner.device, terminal);

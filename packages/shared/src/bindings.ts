@@ -38,7 +38,7 @@ export const NOTE_PILLS_SINCE = 28 as const;
 
 export const OLDEST_PROTOCOL_VERSION = 20 as const;
 
-export const PROTOCOL_VERSION = 61 as const;
+export const PROTOCOL_VERSION = 62 as const;
 
 export const RESET_CREDITS_SINCE = 58 as const;
 
@@ -57,6 +57,8 @@ export const TAKE_OVER_SINCE = 41 as const;
 export const TERMINALS_SINCE = 45 as const;
 
 export const VISUALS_SINCE = 39 as const;
+
+export const WINDOWS_SHELL_SINCE = 62 as const;
 
 /* Types */
 /**
@@ -4736,7 +4738,11 @@ value: number } |
 /**  See [`DeviceSettings::local_models`]. */
 { field: "local_models"; 
 /**  What it becomes. */
-value: LocalModelSettings };
+value: LocalModelSettings } | 
+/**  See [`DeviceSettings::windows_shell`]. */
+{ field: "windows_shell"; 
+/**  What it becomes. */
+value: WindowsShell };
 
 /**  Settings `maxd` keeps for its device. */
 export type DeviceSettings = {
@@ -4885,6 +4891,13 @@ export type DeviceSettings = {
 	 *  reads as the defaults.
 	 */
 	local_models?: LocalModelSettings,
+	/**
+	 *  The shell a Windows device's `maxd` starts for `!` commands and the
+	 *  terminal drawer. Other systems ignore it and start your login shell.
+	 *  A `maxd` from before [`crate::message::WINDOWS_SHELL_SINCE`] leaves
+	 *  it out, which reads as [`WindowsShell::Auto`].
+	 */
+	windows_shell?: WindowsShell,
 };
 
 /**  The tasks a device holds, and whether its webhooks can be reached. */
@@ -4999,6 +5012,12 @@ export type DispatcherChat = {
 export type Downloaded = {
 	/**  The file or folder on this machine, under `~/Downloads/MaxHQ`. */
 	path: string,
+	/**
+	 *  The links in it this machine couldn't make, by their paths inside
+	 *  it. Only Windows leaves any out, where neither Developer Mode nor
+	 *  an administrator lets it make links.
+	 */
+	skipped_links: string[],
 };
 
 /**  One edge of a run's shape: `to` needs `from`. */
@@ -12308,6 +12327,23 @@ export type Weekday =
 "saturday" | 
 /**  Sunday. */
 "sunday";
+
+/**
+ *  The shell a Windows device starts for `!` commands and the terminal
+ *  drawer.
+ */
+export type WindowsShell = 
+/**
+ *  Git Bash when Git for Windows is installed, else PowerShell 7, else
+ *  Windows PowerShell 5.1.
+ */
+"auto" | 
+/**  Git Bash, from Git for Windows. */
+"git_bash" | 
+/**  PowerShell 7, `pwsh.exe`. */
+"pwsh" | 
+/**  Windows PowerShell 5.1, `powershell.exe`, which comes with Windows. */
+"power_shell";
 
 /**  One workflow update, as a window's channel carries it. */
 export type WorkflowMessage = {

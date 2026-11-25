@@ -4,6 +4,7 @@
 use std::collections::{HashMap, VecDeque};
 use std::fs;
 
+use maxhq_core::fs_ext;
 use maxhq_core::skills::disk::DiskFs;
 use maxhq_core::skills::tree;
 use maxhq_protocol::guest::ScannedFile;
@@ -219,7 +220,7 @@ async fn a_checkout_says_which_link_stopped_its_skills() {
     let outside = setup.dir.path().join("outside");
     fs::create_dir_all(&outside).unwrap();
     let empty = || fs::read_dir(&outside).unwrap().count() == 0;
-    std::os::unix::fs::symlink(&outside, repo.join(".claude")).unwrap();
+    fs_ext::symlink(&outside, repo.join(".claude")).unwrap();
     setup
         .delivery
         .set_project(setup.project, setup.skills.clone())
@@ -238,7 +239,7 @@ async fn a_checkout_says_which_link_stopped_its_skills() {
     assert!(empty());
 
     // Once the link goes, the next apply lands there too.
-    fs::remove_file(repo.join(".claude")).unwrap();
+    fs_ext::remove_link(&repo.join(".claude")).unwrap();
     setup.delivery.clone().apply(setup.project).await.unwrap();
     assert!(setup.published().checkouts[0].outside.is_empty());
     assert!(repo
@@ -248,7 +249,7 @@ async fn a_checkout_says_which_link_stopped_its_skills() {
 
     // A link at MaxHQ's own folder stops all of it.
     let (_, second) = setup.folder("second");
-    std::os::unix::fs::symlink(&outside, second.join(".maxhq")).unwrap();
+    fs_ext::symlink(&outside, second.join(".maxhq")).unwrap();
     setup.delivery.clone().apply(setup.project).await.unwrap();
     let published = setup.published();
     let stopped = published
@@ -329,9 +330,7 @@ fn a_launch_restores_a_changed_copy_and_keeps_it_as_a_proposal() {
         .unwrap();
     assert!(setup.delivery.ensure(&place).unwrap().changed);
     let copy = repo.join(".maxhq/skills/git-flow/SKILL.md");
-    let mut modes = fs::metadata(&copy).unwrap().permissions();
-    std::os::unix::fs::PermissionsExt::set_mode(&mut modes, 0o644);
-    fs::set_permissions(&copy, modes).unwrap();
+    maxhq_os::fsmode::set_mode(&copy, 0o644).unwrap();
     fs::write(&copy, "---\nname: git-flow\ndescription: changed\n---\nnew").unwrap();
 
     let ensured = setup.delivery.ensure(&place).unwrap();
@@ -476,8 +475,7 @@ fn with_pack(setup: &Setup, exit: u8) -> SkillLock {
     let script = from.join("install.sh");
     let body = format!("#!/usr/bin/env bash\necho ran >> installed.txt\nexit {exit}\n");
     fs::write(&script, body).unwrap();
-    let mode = std::os::unix::fs::PermissionsExt::from_mode(0o755);
-    fs::set_permissions(&script, mode).unwrap();
+    maxhq_os::fsmode::set_mode(&script, 0o755).unwrap();
     let tree = tree::of(&DiskFs, &from).unwrap();
     setup.delivery.store.land(&tree, &from).unwrap();
     let mut skills = setup.skills.clone();

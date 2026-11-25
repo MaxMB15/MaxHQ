@@ -82,8 +82,9 @@ fn unreadable() -> io::Error {
 #[cfg(test)]
 mod tests {
     use std::fs;
-    use std::os::unix::fs::PermissionsExt;
     use std::path::PathBuf;
+
+    use maxhq_os::fsmode;
 
     use super::*;
 
@@ -92,7 +93,7 @@ mod tests {
     }
 
     fn mode(path: &std::path::Path) -> u32 {
-        fs::metadata(path).expect("meta").permissions().mode() & 0o777
+        fsmode::mode_of(&fs::metadata(path).expect("meta")) & 0o777
     }
 
     #[test]
@@ -102,8 +103,11 @@ mod tests {
         let public = public_key(&folder).expect("made");
         assert!(public.starts_with("ssh-ed25519 "), "{public}");
         assert_eq!(public.split_whitespace().count(), 2);
-        assert_eq!(mode(&dir.join("ssh")), 0o700);
-        assert_eq!(mode(&dir.join("ssh").join(KEY_FILE)), 0o600);
+        // Windows keeps no mode bits to check.
+        if cfg!(unix) {
+            assert_eq!(mode(&dir.join("ssh")), 0o700);
+            assert_eq!(mode(&dir.join("ssh").join(KEY_FILE)), 0o600);
+        }
         // The same key comes back, and no other file holds it.
         assert_eq!(public_key(&folder).expect("read"), public);
         let names: Vec<_> = fs::read_dir(dir.join("ssh"))

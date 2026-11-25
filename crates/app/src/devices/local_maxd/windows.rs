@@ -3,15 +3,18 @@
 
 //! On Windows the service runs a copy of the app's `maxd` too. An
 //! installer can't replace a program that runs, so an update would fail
-//! while the service ran the one beside the app. The copy goes to
-//! `%LOCALAPPDATA%\MaxHQ\versions\<build>`, and the logon task runs
-//! `%LOCALAPPDATA%\MaxHQ\bin\current\maxd.exe`, where `current` is a
-//! junction to the build's folder. Moving to a new build copies it out
+//! while the service ran the one beside the app. The copy goes where
+//! `maxd`'s own updates put builds, [`MaxdLayout::windows`] in MaxHQ's
+//! folder: `%LOCALAPPDATA%\MaxHQ\versions\<build>`, and the logon task
+//! runs `%LOCALAPPDATA%\MaxHQ\bin\current\maxd.exe`, where `current` is
+//! a junction to the build's folder. Moving to a new build copies it out
 //! and points the junction at it, and the old program keeps running from
 //! its own folder until the service restarts.
 
 use std::io;
 use std::path::{Path, PathBuf};
+
+use maxhq_core::paths::MaxdLayout;
 
 /// Why the app won't install `maxd` from where it runs now.
 #[cfg_attr(not(windows), allow(dead_code))]
@@ -33,63 +36,41 @@ fn misplaced_in(bundled: &Path, temp: &Path) -> Option<&'static str> {
 
 /// Copies `bundled` out to the versions in MaxHQ's folder and points the
 /// junction at it. Returns the program the service runs. The home folder
-/// plays no part: the folders are MaxHQ's local data folder.
+/// plays no part: the folders are in MaxHQ's local folder.
 #[cfg_attr(not(windows), allow(dead_code))]
 pub(super) fn stage(bundled: &Path, _home: Option<&Path>) -> io::Result<PathBuf> {
-    let root = root().ok_or_else(|| {
+    let layout = layout().ok_or_else(|| {
         io::Error::new(
             io::ErrorKind::NotFound,
             "Windows gave no local app data folder",
         )
     })?;
-    super::other::copy_out(bundled, &versions(&root), &link(&root))
+    copy_out(bundled, &layout)
 }
 
 /// The program the service runs once the app installed `maxd`:
 /// `bin\current\maxd.exe` in MaxHQ's folder.
 #[cfg_attr(not(windows), allow(dead_code))]
 pub(super) fn installed(_bundled: &Path, _home: Option<&Path>) -> Option<PathBuf> {
-    root().map(|root| program(&root))
+    layout().map(|layout| layout.program())
 }
 
-/// MaxHQ's local data folder, `%LOCALAPPDATA%\MaxHQ`, which `maxd` uses
-/// too.
+/// The layout in MaxHQ's folder, `%LOCALAPPDATA%\MaxHQ`.
 #[cfg_attr(not(windows), allow(dead_code))]
-fn root() -> Option<PathBuf> {
-    maxhq_core::paths::data_dir()
+fn layout() -> Option<MaxdLayout> {
+    maxhq_core::paths::windows_app_dir().map(MaxdLayout::windows)
 }
 
-/// The folder with one folder per build.
-fn versions(root: &Path) -> PathBuf {
-    root.join("versions")
-}
-
-/// The junction to the build the service runs.
-fn link(root: &Path) -> PathBuf {
-    root.join("bin").join("current")
-}
-
-/// The program the service runs, through the junction.
-fn program(root: &Path) -> PathBuf {
-    link(root).join(super::other::program())
+/// Copies `bundled` into `layout`'s versions and points its junction at
+/// the copy.
+#[cfg_attr(not(windows), allow(dead_code))]
+fn copy_out(bundled: &Path, layout: &MaxdLayout) -> io::Result<PathBuf> {
+    super::other::copy_out(bundled, &layout.versions(), &layout.link())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn the_service_runs_maxd_through_the_junction_beside_the_versions() {
-        let root = Path::new("MaxHQ");
-        assert_eq!(versions(root), root.join("versions"));
-        assert_eq!(link(root), root.join("bin").join("current"));
-        assert_eq!(
-            program(root),
-            root.join("bin")
-                .join("current")
-                .join(format!("maxd{}", std::env::consts::EXE_SUFFIX))
-        );
-    }
 
     #[test]
     fn a_maxd_opened_from_the_temp_folder_is_misplaced() {
@@ -134,18 +115,17 @@ mod tests {
             self.0.join("app").join("maxd.exe")
         }
 
-        fn root(&self) -> PathBuf {
-            self.0.join("MaxHQ")
+        fn layout(&self) -> MaxdLayout {
+            MaxdLayout::windows(self.0.join("MaxHQ"))
         }
 
         fn stage(&self) -> PathBuf {
-            let root = self.root();
-            super::super::other::copy_out(&self.bundled(), &versions(&root), &link(&root)).unwrap()
+            copy_out(&self.bundled(), &self.layout()).unwrap()
         }
 
         /// The builds under the versions folder, sorted.
         fn builds(&self) -> Vec<String> {
-            let mut names: Vec<String> = std::fs::read_dir(versions(&self.root()))
+            let mut names: Vec<String> = std::fs::read_dir(self.layout().versions())
                 .unwrap()
                 .map(|entry| entry.unwrap().file_name().into_string().unwrap())
                 .collect();
@@ -157,7 +137,7 @@ mod tests {
     #[cfg(windows)]
     impl Drop for Scratch {
         fn drop(&mut self) {
-            let _ = std::fs::remove_dir(link(&self.root()));
+            let _ = std::fs::remove_dir(self.layout().link());
             let _ = std::fs::remove_dir_all(&self.0);
         }
     }
@@ -166,9 +146,8 @@ mod tests {
     #[test]
     fn the_bundled_maxd_is_copied_out_and_the_junction_follows_each_build() {
         let scratch = Scratch::new();
-        let root = scratch.root();
         let program = scratch.stage();
-        assert_eq!(program, super::program(&root));
+        assert_eq!(program, scratch.layout().program());
         assert_eq!(std::fs::read_to_string(&program).unwrap(), "one");
         let [first] = scratch.builds().try_into().unwrap();
 

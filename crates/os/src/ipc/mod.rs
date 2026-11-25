@@ -53,6 +53,11 @@ pub struct Peer {
     pub elevated: bool,
 }
 
+/// Whether shutting a stream's writing side ends what the other end reads
+/// while this end still reads: a Unix socket's does, and a Windows pipe's
+/// only flushes, so the other end sees the end once the stream is dropped.
+pub const HALF_CLOSES: bool = cfg!(unix);
+
 /// What [`probe`] found at an endpoint's path.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Found {
@@ -108,6 +113,12 @@ pub fn pair() -> io::Result<(LocalStream, LocalStream)> {
 /// listens, and blocks until that answers.
 pub fn probe(path: &Path) -> io::Result<Found> {
     imp::probe(path)
+}
+
+/// Whether something accepts a connection at `path` now. On Unix it
+/// connects as a client would, following a link, which [`probe`] doesn't.
+pub fn answers(path: &Path) -> bool {
+    imp::answers(path)
 }
 
 /// The named pipe Windows serves the endpoint at `path` on:
@@ -251,8 +262,13 @@ mod tests {
             .unwrap()
             .unwrap();
         assert_eq!(found, Found::Listening);
+        let probed = path.clone();
+        assert!(tokio::task::spawn_blocking(move || answers(&probed))
+            .await
+            .unwrap());
         drop(listener);
         assert_eq!(probe(&path).unwrap(), Found::Stale);
+        assert!(!answers(&path));
         std::fs::remove_file(&path).unwrap();
         std::fs::write(&path, "not a socket").unwrap();
         assert_eq!(probe(&path).unwrap(), Found::Other);
@@ -327,6 +343,10 @@ mod tests {
             .unwrap()
             .unwrap();
         assert_eq!(found, Found::Listening);
+        let probed = path.clone();
+        assert!(tokio::task::spawn_blocking(move || answers(&probed))
+            .await
+            .unwrap());
 
         // A client's end closing is the server's end of file.
         drop(client);
@@ -350,7 +370,7 @@ mod tests {
             let accept = tokio::spawn(async move { listener.accept().await.unwrap() });
             let client = LocalStream::connect(&path).await.unwrap();
             let _server = accept.await.unwrap();
-            let sid = crate::win::sid_string(&crate::win::own_user().unwrap()).unwrap();
+            let me = crate::win::own_user().unwrap();
             // One entry, which lets this user in, inherited from nowhere:
             // no Everyone, no Administrators, no anonymous logon.
             let dacl = super::windows::dacl_of(&client.0).unwrap();
@@ -365,7 +385,10 @@ mod tests {
             };
             let fields: Vec<&str> = entry.split(';').collect();
             assert_eq!(fields.first(), Some(&"A"), "{dacl}");
-            assert_eq!(fields.last(), Some(&sid.as_str()), "{dacl}");
+            // SDDL writes a well-known user, as the local administrator a
+            // CI runner may run as, by two letters rather than its SID.
+            let user = fields.last().unwrap_or_else(|| panic!("{dacl}"));
+            assert_eq!(crate::win::sid_from_string(user).unwrap(), me, "{dacl}");
         })
         .await;
     }

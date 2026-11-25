@@ -6,7 +6,9 @@
 //! the administrators and the system can read, so the modes are no-ops
 //! there, and a program is a file whose extension `PATHEXT` names.
 //!
-//! An owner-only DACL for Windows files outside the profile is a follow-up.
+//! A file that holds a secret goes through [`private_file`], which on
+//! Windows gives it a DACL of its own that names only the user, so it
+//! stays theirs wherever it sits.
 
 use std::fs::{File, Metadata, OpenOptions};
 use std::io;
@@ -25,6 +27,13 @@ use windows as imp;
 /// (0700). A folder already there keeps its mode.
 pub fn private_dir_all(path: &Path) -> io::Result<()> {
     imp::private_dir_all(path)
+}
+
+/// Makes the folder `path` and any parents it lacks with the mode `mode`,
+/// less the umask. A folder already there keeps its mode. On Windows the
+/// mode is a no-op, as the module's notes say.
+pub fn dir_all_with_mode(path: &Path, mode: u32) -> io::Result<()> {
+    imp::dir_all_with_mode(path, mode)
 }
 
 /// Makes the folder `path` for this user alone (0700). Fails when it's
@@ -55,11 +64,32 @@ pub fn mode_of(meta: &Metadata) -> u32 {
     imp::mode_of(meta)
 }
 
+/// The user ID that owns what `meta` describes. Windows has no user IDs,
+/// so it's `None` there.
+pub fn owner_of(meta: &Metadata) -> Option<u32> {
+    imp::owner_of(meta)
+}
+
+/// Whether `a` and `b` are known to describe the same file: the same
+/// device and inode on Unix. Windows doesn't say through [`Metadata`], so
+/// it's false there.
+pub fn same_file(a: &Metadata, b: &Metadata) -> bool {
+    imp::same_file(a, b)
+}
+
 /// Whether the file `path`, whose metadata is `meta`, is a program you
 /// may run: a file with an execute bit on Unix, and a file whose
 /// extension `PATHEXT` names on Windows.
 pub fn is_executable(path: &Path, meta: &Metadata) -> bool {
     meta.is_file() && crate::which::host_runs(path, mode_of(meta))
+}
+
+/// Keeps the file `path` to this user alone, for a file that holds a
+/// secret: mode 0600 on Unix, and on Windows a protected DACL with one
+/// entry, full access for the user running this, so nothing the folder
+/// grants reaches it. Call it before the secret is written.
+pub fn private_file(path: &Path) -> io::Result<()> {
+    imp::private_file(path)
 }
 
 /// Opens without waiting for a FIFO's writer and without taking a
@@ -106,6 +136,27 @@ mod tests {
     }
 
     #[test]
+    fn a_folder_gets_its_mode_and_a_file_its_owner() {
+        let dir = temp("mode");
+        let nested = dir.join("a").join("b");
+        dir_all_with_mode(&nested, 0o755).unwrap();
+        dir_all_with_mode(&nested, 0o700).unwrap();
+        let meta = fs::metadata(&nested).unwrap();
+        if cfg!(unix) {
+            assert_eq!(mode_of(&meta) & 0o777, 0o755, "it keeps its first mode");
+            assert!(owner_of(&meta).is_some());
+        } else {
+            assert_eq!(owner_of(&meta), None);
+        }
+        let file = dir.join("file");
+        fs::write(&file, b"").unwrap();
+        let (one, two) = (fs::metadata(&file).unwrap(), fs::metadata(&file).unwrap());
+        assert_eq!(same_file(&one, &two), cfg!(unix));
+        assert!(!same_file(&one, &meta));
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
     fn a_private_file_is_this_users_alone() {
         let dir = temp("file");
         private_dir_all(&dir).unwrap();
@@ -119,6 +170,26 @@ mod tests {
         drop(file);
         let read = open_no_wait(OpenOptions::new().read(true)).open(&path);
         assert!(read.is_ok());
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn a_secret_file_is_kept_to_its_owner() {
+        let dir = temp("secret");
+        private_dir_all(&dir).unwrap();
+        let path = dir.join("key");
+        fs::write(&path, b"").unwrap();
+        set_mode(&path, 0o644).unwrap();
+        assert!(!imp::is_private(&path).unwrap(), "a plain file is shared");
+        private_file(&path).unwrap();
+        assert!(imp::is_private(&path).unwrap());
+        fs::write(&path, b"secret").unwrap();
+        assert_eq!(
+            fs::read(&path).unwrap(),
+            b"secret",
+            "the owner still reads it"
+        );
+        assert!(private_file(&dir.join("missing")).is_err());
         fs::remove_dir_all(&dir).unwrap();
     }
 

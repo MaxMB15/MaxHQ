@@ -84,7 +84,7 @@ pub fn load(folder: &Folder) -> io::Result<Tls> {
 
 #[cfg(test)]
 mod tests {
-    use std::os::unix::fs::PermissionsExt;
+    use maxhq_os::fsmode;
 
     use super::*;
     use crate::testing::TempDir;
@@ -97,10 +97,8 @@ mod tests {
         let again = load(&folder).unwrap();
         assert_eq!(first.pin, again.pin);
         assert_eq!(first.pin.len(), 43);
-        let mode = std::fs::metadata(dir.path().join("netaccess").join(FILE))
-            .unwrap()
-            .permissions()
-            .mode();
+        let mode =
+            fsmode::mode_of(&std::fs::metadata(dir.path().join("netaccess").join(FILE)).unwrap());
         assert_eq!(mode & 0o777, 0o600);
     }
 }

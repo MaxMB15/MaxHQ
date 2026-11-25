@@ -954,6 +954,7 @@
 	"Asks you a question": "Te hace una pregunta",
 	"Stopped on an error": "Detenido por un error",
 	"A permission, a question or a secret. Open it to answer. Deny also works from the lock screen.": "Un permiso, una pregunta o un dato secreto. Abre el agente para responder. También puedes denegar desde la pantalla de bloqueo.",
+	"A permission, a question or a secret. Open it to answer. Deny also works from the lock screen._android": "Un permiso, una pregunta o un dato secreto. Abre el agente para responder. También puedes denegar desde la notificación, y MaxHQ se abre cuando desbloqueas el teléfono.",
 	"An agent stopped on an error": "Un agente se ha detenido por un error",
 	"A turn ended while you were away": "Un turno ha terminado mientras estabas fuera",
 	"An agent waits for a usage limit to reset": "Un agente espera a que se restablezca un límite de uso",

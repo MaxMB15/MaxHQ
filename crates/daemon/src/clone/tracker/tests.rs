@@ -9,7 +9,6 @@
 //! The tracker, with a fake `git` that acts out a clone, and the real one
 //! cloning a bare repo over file://.
 
-use std::os::unix::fs::PermissionsExt;
 use std::process::Command as StdCommand;
 use std::time::Instant;
 
@@ -35,6 +34,7 @@ impl Recorder {
         self.0.lock().unwrap().clone()
     }
 
+    #[cfg(unix)]
     fn last_state(&self) -> Option<CloneState> {
         self.heard()
             .into_iter()
@@ -80,11 +80,13 @@ impl Sink for Recorder {
 }
 
 /// A tracker whose git runs `body` as a shell script, where `$5` is the
-/// folder's name.
+/// folder's name. Windows can't start a script by itself, so this and the
+/// tests that use it are Unix only.
+#[cfg(unix)]
 fn fake(dir: &Path, body: &str) -> (Arc<Tracker>, Arc<Recorder>) {
     let program = dir.join("git");
     fs::write(&program, format!("#!/bin/sh\n{body}\n")).unwrap();
-    fs::set_permissions(&program, fs::Permissions::from_mode(0o755)).unwrap();
+    maxhq_os::fsmode::set_mode(&program, 0o755).unwrap();
     tracker(program.into_os_string())
 }
 
@@ -125,6 +127,7 @@ async fn start(tracker: &Arc<Tracker>, parent: &str, url: &str) -> Result<Worksp
 const URL: &str = "https://example.com/owner/name.git";
 
 /// A fake clone that makes the checkout, says how far it got and waits.
+#[cfg(unix)]
 const HANGS: &str = r#"mkdir -p "$5/.git" && touch "$5/README.md"
 printf 'Receiving objects:  42%% (42/100)\r' >&2
 exec sleep 30"#;
@@ -279,6 +282,7 @@ fn only_a_partial_clone_is_discarded() {
     assert_eq!(discard(&spec("missing", false)), Ok(()));
 }
 
+#[cfg(unix)]
 #[tokio::test]
 async fn a_clone_shows_its_progress_until_it_stalls_and_cancel_takes_it_away() {
     let root = TempDir::new();
@@ -320,6 +324,7 @@ async fn a_clone_shows_its_progress_until_it_stalls_and_cancel_takes_it_away() {
     assert_eq!(tracker.retry(workspace).await, Err(UNKNOWN.to_owned()));
 }
 
+#[cfg(unix)]
 #[tokio::test]
 async fn a_url_cant_start_a_program_git_finds_by_its_name() {
     let root = TempDir::new();
@@ -330,7 +335,7 @@ async fn a_url_cant_start_a_program_git_finds_by_its_name() {
     let helper = helpers.join("git-remote-evil");
     let text = format!("#!/bin/sh\ntouch '{}'\nexit 1\n", ran.display());
     fs::write(&helper, text).unwrap();
-    fs::set_permissions(&helper, fs::Permissions::from_mode(0o755)).unwrap();
+    maxhq_os::fsmode::set_mode(&helper, 0o755).unwrap();
     let body = format!(
         "PATH='{}':\"$PATH\"\nexport PATH\nexec git \"$@\"",
         helpers.display()
@@ -344,6 +349,7 @@ async fn a_url_cant_start_a_program_git_finds_by_its_name() {
     assert!(!ran.exists());
 }
 
+#[cfg(unix)]
 #[tokio::test]
 async fn a_failed_clone_says_why_and_a_retry_starts_it_again() {
     let root = TempDir::new();
@@ -386,6 +392,7 @@ exit 128"#,
     assert_eq!(tracker.remove(workspace).await, Err(UNKNOWN.to_owned()));
 }
 
+#[cfg(unix)]
 #[tokio::test]
 async fn removing_a_running_clone_stops_it() {
     let root = TempDir::new();
@@ -401,6 +408,7 @@ async fn removing_a_running_clone_stops_it() {
     start(&tracker, &parent, URL).await.unwrap();
 }
 
+#[cfg(unix)]
 #[tokio::test]
 async fn an_empty_folder_that_was_there_stays_after_a_cancel() {
     let root = TempDir::new();
@@ -447,7 +455,13 @@ async fn git_clones_a_local_bare_repo() {
         root.path(),
         &["clone", "-q", "--bare", "source", "bare.git"],
     );
-    let url = format!("file://{}", root.path().join("bare.git").display());
+    // `file:///C:/...` on Windows, as `file:///tmp/...` on Unix.
+    let bare = maxhq_core::skills::path_text(&root.path().join("bare.git"));
+    let url = if bare.starts_with('/') {
+        format!("file://{bare}")
+    } else {
+        format!("file:///{bare}")
+    };
 
     let (tracker, sink) = tracker(OsString::from("git"));
     start(&tracker, &parent, &url).await.unwrap();

@@ -32,6 +32,7 @@ import type {
 	CredentialId,
 	Delta,
 	DeviceId,
+	Downloaded,
 	EditKind,
 	EditorChoice,
 	Editors,
@@ -178,9 +179,9 @@ export type TransferProgress = {
 	state: "uploading" | "waiting" | "paused" | "done" | "failed";
 };
 
-/** Where a download landed on this Mac, or why it didn't. */
+/** Where a download landed on this Mac, and the links it left out, or why it didn't. */
 export type DownloadResult =
-	{ status: "ok"; data: { path: string } } | { status: "error"; error: CommandError };
+	{ status: "ok"; data: Downloaded } | { status: "error"; error: CommandError };
 
 /**
  * A picture or video ready for the webview at `url`, or one larger than the

@@ -105,6 +105,7 @@ impl Host {
                 root: self.root().to_owned(),
                 data: None,
                 runtime: None,
+                app: None,
             }),
             find: Box::new(move |name| found.contains(name).then(|| PathBuf::from(name))),
         }

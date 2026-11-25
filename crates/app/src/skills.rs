@@ -429,6 +429,7 @@ mod tests {
             history_mib: 256,
             claude_setup_token: false,
             shell_integration: true,
+            windows_shell: Default::default(),
             read_other_agents: true,
             dispatcher_acts: true,
             chat_gap_minutes: 30,
