@@ -191,6 +191,10 @@ pub fn specta_builder() -> Builder<tauri::Wry> {
             maxhq_protocol::message::INPUT_MODES_SINCE,
         )
         .constant("FCM_SINCE", maxhq_protocol::message::FCM_SINCE)
+        .constant(
+            "WINDOWS_SHELL_SINCE",
+            maxhq_protocol::message::WINDOWS_SHELL_SINCE,
+        )
 }
 
 /// The exporter settings for the generated file.

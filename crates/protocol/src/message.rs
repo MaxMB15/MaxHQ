@@ -3136,6 +3136,12 @@ pub const SECRET_INPUT_SINCE: u32 = 60;
 /// send it either. Since protocol 61.
 pub const FCM_SINCE: u32 = 61;
 
+/// The protocol version whose `maxd` first keeps the shell a Windows device
+/// starts for `!` commands and the terminal drawer,
+/// [`DeviceSettingChange::WindowsShell`]. An older one picks it on its own,
+/// so the app hides the choice. Since protocol 62.
+pub const WINDOWS_SHELL_SINCE: u32 = 62;
+
 /// When [`ClientMessage::TakeOver`] stops the terminal's CLI.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, Type, JsonSchema)]
 #[serde(rename_all = "snake_case")]
@@ -4696,6 +4702,7 @@ mod tests {
                         history_mib: 256,
                         claude_setup_token: false,
                         shell_integration: true,
+                        windows_shell: Default::default(),
                         read_other_agents: true,
                         dispatcher_acts: true,
                         chat_gap_minutes: 30,
@@ -5911,6 +5918,16 @@ mod tests {
         );
         assert_eq!(shells.since(), SHELL_MARKS_SINCE);
         const { assert!(SHELL_MARKS_SINCE <= crate::PROTOCOL_VERSION) };
+        let windows = update(vec![DeviceSettingChange::WindowsShell {
+            value: crate::model::WindowsShell::Pwsh,
+        }]);
+        assert_eq!(
+            round_trip(&windows)["changes"][0],
+            json!({ "field": "windows_shell", "value": "pwsh" })
+        );
+        assert_eq!(windows.since(), WINDOWS_SHELL_SINCE);
+        assert!(!windows.reaches(Some(WINDOWS_SHELL_SINCE - 1)));
+        const { assert!(WINDOWS_SHELL_SINCE <= crate::PROTOCOL_VERSION) };
         let reads = update(vec![DeviceSettingChange::ReadOtherAgents { value: false }]);
         assert_eq!(
             round_trip(&reads)["changes"][0],
@@ -5947,6 +5964,7 @@ mod tests {
             history_mib: 256,
             claude_setup_token: false,
             shell_integration: true,
+            windows_shell: Default::default(),
             read_other_agents: true,
             dispatcher_acts: true,
             chat_gap_minutes: 30,
