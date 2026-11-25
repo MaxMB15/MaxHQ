@@ -125,7 +125,12 @@ pub fn absent(err: &io::Error) -> bool {
 }
 
 pub fn not_a_folder_now(err: &io::Error) -> bool {
-    absent(err)
+    // ERROR_STOPPED_ON_SYMLINK, what a folder opened beneath another says
+    // when it's a link or junction now, and ERROR_DELETE_PENDING, a name on
+    // its way out.
+    const STOPPED_ON_LINK: i32 = 681;
+    const DELETE_PENDING: i32 = 303;
+    absent(err) || matches!(err.raw_os_error(), Some(STOPPED_ON_LINK | DELETE_PENDING))
 }
 
 pub fn plain(path: PathBuf) -> PathBuf {

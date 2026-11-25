@@ -3681,12 +3681,14 @@ dependencies = [
 name = "maxhq-transfer"
 version = "0.1.7"
 dependencies = [
+ "maxhq-os",
  "maxhq-protocol",
  "maxhq-wire",
  "rustix",
  "sha2 0.10.9",
  "thiserror 2.0.21",
  "unicode-normalization",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]

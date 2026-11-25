@@ -8,14 +8,12 @@ use std::collections::{BTreeMap, HashSet};
 use std::ffi::OsStr;
 use std::fs::File;
 use std::io::{self, Read};
-use std::os::unix::fs::{FileExt, MetadataExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 
 use maxhq_protocol::message::{EntryKind, ErrorCode, ManifestEntry};
-use rustix::fs::{FileType, Mode, OFlags};
 use sha2::{Digest, Sha256};
 
-use crate::beneath::Dir;
+use crate::beneath::{self, Dir, FileType};
 use crate::manifest::{self, Layout};
 use crate::{name, Failure, MAX_BYTES, MAX_ENTRIES};
 
@@ -108,7 +106,7 @@ pub fn walk(chosen: &Path) -> Result<Walk, Failure> {
             kind: What::File,
             path: path.to_owned(),
             size: meta.len(),
-            executable: meta.permissions().mode() & 0o111 != 0,
+            executable: beneath::executable(&meta),
         });
     } else if meta.is_dir() {
         found.push(Found {
@@ -213,8 +211,8 @@ impl Held {
     /// Opens the file `name` in `parent`, a folder below this one.
     fn open_in(&self, parent: &Dir, name: &str) -> io::Result<File> {
         let file = parent.read_regular(name)?;
-        let meta = file.metadata()?;
-        if foreign(meta.nlink() > 1, meta.uid(), self.owner) {
+        let stat = beneath::stat_file(&file)?;
+        if foreign(stat.second_name(), stat.owner(), self.owner) {
             return Err(io::Error::new(
                 io::ErrorKind::PermissionDenied,
                 Why::Foreign.to_string(),
@@ -225,8 +223,8 @@ impl Held {
 }
 
 /// Whether a file is a second name for one `owner` doesn't own.
-fn foreign(second_name: bool, uid: u32, owner: Option<u32>) -> bool {
-    owner.is_some_and(|owner| second_name && uid != owner)
+fn foreign(second_name: bool, uid: Option<u32>, owner: Option<u32>) -> bool {
+    owner.is_some_and(|owner| second_name && uid != Some(owner))
 }
 
 /// [`walk`] for `parts` below the open folder `top`, kept open for the
@@ -249,7 +247,7 @@ pub fn walk_beneath(
             .top
             .dir(parent)
             .and_then(|parent| parent.stat(leaf))
-            .map(|stat| FileType::from_raw_mode(stat.st_mode))
+            .map(|stat| stat.kind())
             .map_err(io)?,
     };
     let mut found = Vec::new();
@@ -284,7 +282,7 @@ pub fn walk_beneath(
                 kind: What::File,
                 path: chosen,
                 size: meta.len(),
-                executable: meta.permissions().mode() & 0o111 != 0,
+                executable: beneath::executable(&meta),
             });
         }
         FileType::Symlink => return Err(bad("the path is a link, which MaxHQ won't follow")),
@@ -446,7 +444,7 @@ fn files_in(held: &Held, shown: &str, paths: &[String]) -> Result<Walk, Failure>
             Some(ManifestEntry {
                 path: String::new(),
                 kind: EntryKind::File,
-                executable: meta.permissions().mode() & 0o111 != 0,
+                executable: beneath::executable(&meta),
                 size: meta.len(),
                 sha256: Some(manifest::to_hex(&hash)),
             }),
@@ -575,7 +573,7 @@ fn gather(
         below.push(raw.clone());
         let path: PathBuf = below.iter().collect();
         let stat = dir.stat(&raw).map_err(fail)?;
-        let item = match FileType::from_raw_mode(stat.st_mode) {
+        let item = match stat.kind() {
             FileType::Directory => Found {
                 parts: parts.clone(),
                 kind: What::Dir,
@@ -584,22 +582,21 @@ fn gather(
                 executable: false,
             },
             FileType::RegularFile => {
-                if foreign(stat.st_nlink > 1, stat.st_uid, owner) {
+                if foreign(stat.second_name(), stat.owner(), owner) {
                     skipped.push(Skipped {
                         path: shown,
                         why: Why::Foreign,
                     });
                     continue;
                 }
-                let size = u64::try_from(stat.st_size).unwrap_or(u64::MAX);
+                let size = stat.size().unwrap_or(u64::MAX);
                 *total = total.saturating_add(size);
-                let run = Mode::XUSR | Mode::XGRP | Mode::XOTH;
                 Found {
                     parts: parts.clone(),
                     kind: What::File,
                     path,
                     size,
-                    executable: Mode::from_raw_mode(stat.st_mode).intersects(run),
+                    executable: stat.executable(),
                 }
             }
             FileType::Symlink => {
@@ -682,19 +679,9 @@ fn drop_outside_links(found: &mut Vec<Found>, skipped: &mut Vec<Skipped>) {
     });
 }
 
-/// Opens a file to read without following a link in its place.
-fn open_nofollow(path: &Path) -> io::Result<File> {
-    let fd = rustix::fs::open(
-        path,
-        OFlags::RDONLY | OFlags::NOFOLLOW | OFlags::CLOEXEC,
-        Mode::empty(),
-    )?;
-    Ok(File::from(fd))
-}
-
 /// The SHA-256 of a file's first `size` bytes, failing if it has fewer.
 fn hash_file(path: &Path, size: u64) -> io::Result<[u8; 32]> {
-    hash_open(open_nofollow(path)?, size)
+    hash_open(beneath::open_nofollow(path)?, size)
 }
 
 /// [`hash_file`] for a file already open.
@@ -781,11 +768,12 @@ impl Source {
                 out[start..].copy_from_slice(&bytes[from..from + take]);
             } else {
                 let file = self.file(index)?;
-                file.read_exact_at(&mut out[start..], within)
-                    .map_err(|err| match err.kind() {
-                        io::ErrorKind::UnexpectedEof => changed(),
-                        _ => err,
-                    })?;
+                beneath::read_exact_at(file, &mut out[start..], within).map_err(|err| match err
+                    .kind()
+                {
+                    io::ErrorKind::UnexpectedEof => changed(),
+                    _ => err,
+                })?;
             }
             at += take as u64;
         }
@@ -801,7 +789,7 @@ impl Source {
                 .ok_or_else(changed)?;
             let opened = match &self.held {
                 Some(held) => held.open(path)?,
-                None => open_nofollow(path)?,
+                None => beneath::open_nofollow(path)?,
             };
             self.open = Some((index, opened));
         }
@@ -934,9 +922,8 @@ impl Outgoing {
 mod tests {
     use super::*;
     use crate::receive::{sha256_hex, Receiver};
-    use crate::testing::TempDir;
+    use crate::testing::{self, TempDir};
     use crate::Room;
-    use std::os::unix::fs::symlink;
     use std::time::Instant;
 
     const ROOM: Room = Room {
@@ -948,7 +935,7 @@ mod tests {
     fn write(path: &Path, bytes: &[u8], mode: u32) {
         std::fs::create_dir_all(path.parent().unwrap()).unwrap();
         std::fs::write(path, bytes).unwrap();
-        std::fs::set_permissions(path, std::fs::Permissions::from_mode(mode)).unwrap();
+        maxhq_os::fsmode::set_mode(path, mode).unwrap();
     }
 
     fn paths(walk: &Walk) -> Vec<&str> {
@@ -1043,7 +1030,8 @@ mod tests {
             ]
         );
         let run = &walk.entries[3];
-        assert!(run.executable);
+        // Windows keeps no execute bit.
+        assert_eq!(run.executable, cfg!(unix));
         assert_eq!(
             run.sha256.as_deref(),
             Some(sha256_hex(b"#!/bin/sh\n").as_str())
@@ -1062,7 +1050,11 @@ mod tests {
         write(&root.join(".DS_Store"), b"junk", 0o644);
         write(&root.join(".gitignore"), b"target\n", 0o644);
         let fifo = root.join("pipe");
-        let made = std::process::Command::new("mkfifo").arg(&fifo).status();
+        let made = cfg!(unix)
+            && std::process::Command::new("mkfifo")
+                .arg(&fifo)
+                .status()
+                .is_ok_and(|status| status.success());
         let walk = walk(&root).unwrap();
         assert_eq!(paths(&walk), ["repo", "repo/.gitignore"]);
         let why: Vec<(&str, Why)> = walk
@@ -1072,7 +1064,7 @@ mod tests {
             .collect();
         assert!(why.contains(&("repo/.git", Why::Ignored)));
         assert!(why.contains(&("repo/.DS_Store", Why::Ignored)));
-        if made.is_ok_and(|status| status.success()) {
+        if made {
             assert!(why.contains(&("repo/pipe", Why::NotAFile)));
         }
     }
@@ -1084,10 +1076,12 @@ mod tests {
         write(&secret, b"private", 0o600);
         let root = temp.path().join("notes");
         write(&root.join("today.md"), b"hello", 0o644);
-        symlink("today.md", root.join("latest")).unwrap();
-        symlink(&secret, root.join("absolute")).unwrap();
-        symlink("../secret.txt", root.join("climbs")).unwrap();
-        symlink(temp.path(), root.join("folder")).unwrap();
+        if !testing::symlink("today.md", &root.join("latest")) {
+            return;
+        }
+        testing::symlink(&secret, &root.join("absolute"));
+        testing::symlink("../secret.txt", &root.join("climbs"));
+        testing::dir_link(temp.path(), &root.join("folder"));
         let walk = walk(&root).unwrap();
         assert_eq!(paths(&walk), ["notes", "notes/latest", "notes/today.md"]);
         assert_eq!(
@@ -1114,7 +1108,9 @@ mod tests {
         let real = temp.path().join("real.txt");
         write(&real, b"bytes", 0o644);
         let chosen = temp.path().join("alias.txt");
-        symlink(&real, &chosen).unwrap();
+        if !testing::symlink(&real, &chosen) {
+            return;
+        }
         let walk = walk(&chosen).unwrap();
         assert_eq!(walk.name, "alias.txt");
         assert_eq!(walk.entries[0].kind, EntryKind::File);
@@ -1141,7 +1137,7 @@ mod tests {
         write(&root.join("assets/big.bin"), &big, 0o644);
         write(&root.join("bin/serve"), b"#!/bin/sh\n", 0o755);
         write(&root.join("empty.txt"), b"", 0o644);
-        symlink("index.html", root.join("home.html")).unwrap();
+        let linked = testing::symlink("index.html", &root.join("home.html"));
         let walk = walk(&root).unwrap();
         let landing = temp.path().join("landing");
         let mut receiver = Receiver::open(&landing, &walk.entries, ROOM).unwrap();
@@ -1149,13 +1145,18 @@ mod tests {
         let site = landing.join("site");
         assert_eq!(std::fs::read(site.join("assets/big.bin")).unwrap(), big);
         assert_eq!(std::fs::read(site.join("empty.txt")).unwrap(), b"");
-        assert_eq!(
-            std::fs::read_link(site.join("home.html")).unwrap(),
-            Path::new("index.html")
-        );
-        let mode = |path: &Path| std::fs::metadata(path).unwrap().permissions().mode() & 0o7777;
-        assert_eq!(mode(&site.join("bin/serve")), 0o755);
-        assert_eq!(mode(&site.join("index.html")), 0o644);
+        if linked && receiver.skipped_links().is_empty() {
+            assert_eq!(
+                std::fs::read_link(site.join("home.html")).unwrap(),
+                Path::new("index.html")
+            );
+        }
+        if let Some(mode) = testing::mode(&site.join("bin/serve")) {
+            assert_eq!(mode, 0o755);
+        }
+        if let Some(mode) = testing::mode(&site.join("index.html")) {
+            assert_eq!(mode, 0o644);
+        }
     }
 
     #[test]
@@ -1314,8 +1315,8 @@ mod tests {
         write(&root.join(".env"), b"x", 0o644);
         write(&root.join(".git/config"), b"[core]\n", 0o644);
         write(&temp.path().join("outside/secret"), b"secret", 0o644);
-        symlink("/etc/hosts", root.join(".env.link")).unwrap();
-        symlink(temp.path().join("outside"), root.join("linked")).unwrap();
+        testing::symlink("/etc/hosts", &root.join(".env.link"));
+        testing::dir_link(&temp.path().join("outside"), &root.join("linked"));
         std::fs::create_dir_all(root.join("folder")).unwrap();
         for path in [
             ".env.link",
@@ -1355,8 +1356,8 @@ mod tests {
         write(&pick.join("a.txt"), b"alpha", 0o644);
         write(&pick.join("sub/run.sh"), b"#!/bin/sh\n", 0o755);
         write(&pick.join(".git/config"), b"x", 0o644);
-        symlink("../a.txt", pick.join("sub/inside")).unwrap();
-        symlink("/etc/hosts", pick.join("outside")).unwrap();
+        testing::symlink("../a.txt", &pick.join("sub").join("inside"));
+        testing::symlink("/etc/hosts", &pick.join("outside"));
         let plain = walk(&pick).unwrap();
         let held = beneath(dir.path(), None).unwrap();
         assert_eq!(held.entries(), plain.entries);
@@ -1374,7 +1375,7 @@ mod tests {
         write(&dir.path().join("secret/file"), b"other", 0o600);
         let held = beneath(dir.path(), None).unwrap();
         std::fs::rename(pick.join("sub"), pick.join("old")).unwrap();
-        symlink("../secret", pick.join("sub")).unwrap();
+        testing::symlink("../secret", &pick.join("sub"));
         assert!(held.source().read(0, 5).is_err());
     }
 
@@ -1386,7 +1387,7 @@ mod tests {
         write(&dir.path().join("secret"), b"other", 0o600);
         let held = beneath(dir.path(), None).unwrap();
         std::fs::remove_file(pick.join("file")).unwrap();
-        symlink("../secret", pick.join("file")).unwrap();
+        testing::symlink("../secret", &pick.join("file"));
         assert!(held.source().read(0, 5).is_err());
     }
 
@@ -1400,7 +1401,7 @@ mod tests {
         assert_eq!(held.reader().unwrap().read(0, 5).unwrap(), b"mine!");
         assert_eq!(held.reader().unwrap().read(0, 5).unwrap(), b"mine!");
         std::fs::remove_file(pick.join("file")).unwrap();
-        symlink("../secret", pick.join("file")).unwrap();
+        testing::symlink("../secret", &pick.join("file"));
         assert!(held.reader().unwrap().read(0, 5).is_err());
     }
 
@@ -1414,7 +1415,7 @@ mod tests {
         let held = walk_files_beneath(top, "pick", &["sub/file".to_owned()], None).unwrap();
         assert_eq!(held.entries().len(), 3);
         std::fs::rename(pick.join("sub"), pick.join("old")).unwrap();
-        symlink("../secret", pick.join("sub")).unwrap();
+        testing::symlink("../secret", &pick.join("sub"));
         assert!(held.source().read(0, 5).is_err());
     }
 
@@ -1422,13 +1423,17 @@ mod tests {
     fn a_walk_beneath_refuses_a_chosen_link() {
         let dir = TempDir::new();
         write(&dir.path().join("secret"), b"other", 0o600);
-        symlink("secret", dir.path().join("pick")).unwrap();
+        if !testing::symlink("secret", &dir.path().join("pick")) {
+            return;
+        }
         let failed = beneath(dir.path(), None).unwrap_err();
         assert_eq!(failed.code, ErrorCode::BadPath);
     }
 
+    #[cfg(unix)]
     #[test]
     fn a_second_name_for_someone_elses_file_isnt_sent() {
+        use std::os::unix::fs::MetadataExt;
         let dir = TempDir::new();
         let pick = dir.path().join("pick");
         write(&pick.join("plain"), b"plain", 0o644);
@@ -1463,6 +1468,7 @@ mod tests {
         assert!(held.source().read(0, 5).is_err());
     }
 
+    #[cfg(unix)]
     #[test]
     fn opening_a_pipe_to_read_doesnt_block() {
         let dir = TempDir::new();
