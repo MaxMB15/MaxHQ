@@ -76,8 +76,12 @@ const MAX_REPARSE: usize = 16 * 1024;
 struct Records([u8; MAX_REPARSE]);
 
 impl Records {
+    /// Zeroed on the heap in place. `Box::new` would build the 16 KB on
+    /// the stack first, which overflows the small stack a deep walk or
+    /// removal runs on.
     fn new() -> Box<Self> {
-        Box::new(Self([0; MAX_REPARSE]))
+        // SAFETY: all-zero bytes are a valid array of bytes.
+        unsafe { Box::<Self>::new_zeroed().assume_init() }
     }
 }
 const SYMLINK_FLAG_RELATIVE: u32 = 1;
