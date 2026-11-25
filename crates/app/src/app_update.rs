@@ -317,7 +317,8 @@ pub struct LocalFacts<'a> {
     /// The app runs from the source tree, where you restart `maxd` with
     /// Start maxd yourself.
     pub dev_tree: bool,
-    /// The program the LaunchAgent runs, if there is one.
+    /// The program the service runs, if there is one: the LaunchAgent on
+    /// macOS and the systemd user unit on Linux.
     pub service_runs: Option<&'a Path>,
     /// The program the service runs when the app installed `maxd`: the
     /// `maxd` beside the app on macOS, and the link to its copy elsewhere.
@@ -329,7 +330,7 @@ pub struct LocalFacts<'a> {
 }
 
 /// Whether to restart this Mac's `maxd` onto the build beside the app. Only
-/// when the LaunchAgent runs that very program, so an app that isn't the
+/// when its service runs that very program, so an app that isn't the
 /// one installing `maxd` leaves it be, and only once its `maxd` says which
 /// build it runs.
 pub fn local_maxd(facts: LocalFacts<'_>) -> LocalMaxd {
@@ -337,10 +338,10 @@ pub fn local_maxd(facts: LocalFacts<'_>) -> LocalMaxd {
         return LocalMaxd::Leave("the app runs from the source tree");
     }
     let Some(program) = facts.service_runs else {
-        return LocalMaxd::Leave("no LaunchAgent runs maxd");
+        return LocalMaxd::Leave("no service runs maxd");
     };
     if !same_file(program, facts.bundled) {
-        return LocalMaxd::Leave("the LaunchAgent runs another maxd");
+        return LocalMaxd::Leave("the service runs another maxd");
     }
     let Some(bundled_build) = facts.bundled_build else {
         return LocalMaxd::Leave("the bundled maxd couldn't be read");
@@ -410,7 +411,7 @@ pub(crate) fn home() -> Option<PathBuf> {
 
 impl<C: Connector> App<C> {
     /// Brings this Mac's `maxd` onto the build beside the app, once it says
-    /// hello, when the LaunchAgent runs that `maxd` and it runs another
+    /// hello, when its service runs that `maxd` and it runs another
     /// build: after an update, or after you put a new copy of the app in
     /// place by hand. It restarts the service the way Restart maxd does,
     /// and agents keep running across that. It decides once each start.
@@ -452,22 +453,22 @@ impl<C: Connector> App<C> {
             });
             match step {
                 LocalMaxd::Leave(why) => {
-                    tracing::debug!(why, "left this Mac's maxd as it is");
+                    tracing::debug!(why, "left the local maxd as it is");
                     return;
                 }
                 LocalMaxd::Restart => {
                     tracing::info!(
                         running = ?machine.and_then(|machine| machine.build),
                         bundled = ?bundled_build,
-                        "restarting this Mac's maxd onto the build beside the app"
+                        "restarting the local maxd onto the build beside the app"
                     );
                     if let Err(error) = self.devices.update_local_maxd(home.clone()).await {
-                        tracing::warn!(%error, "couldn't restart this Mac's maxd onto the new build");
+                        tracing::warn!(%error, "couldn't restart the local maxd onto the new build");
                     }
                     return;
                 }
                 LocalMaxd::Wait if tokio::time::Instant::now() >= deadline => {
-                    tracing::info!("this Mac's maxd didn't say hello, so it stays as it is");
+                    tracing::info!("the local maxd didn't say hello, so it stays as it is");
                     return;
                 }
                 LocalMaxd::Wait => tokio::time::sleep(LOCAL_MAXD_POLL).await,
@@ -565,7 +566,7 @@ mod tests {
     const BUNDLED: &str = "/Applications/MaxHQ.app/Contents/MacOS/maxd";
     const NEW: &str = "fedcba9876543210";
 
-    /// A released app whose LaunchAgent runs its own `maxd`, with this Mac
+    /// A released app whose service runs its own `maxd`, with this Mac
     /// as `machine`.
     fn released(machine: Option<&Machine>) -> LocalFacts<'_> {
         LocalFacts {
@@ -616,14 +617,14 @@ mod tests {
                 service_runs: Some(Path::new("/Users/someone/.cargo/bin/maxd")),
                 ..released(Some(&old))
             }),
-            LocalMaxd::Leave("the LaunchAgent runs another maxd")
+            LocalMaxd::Leave("the service runs another maxd")
         );
         assert_eq!(
             local_maxd(LocalFacts {
                 service_runs: None,
                 ..released(Some(&old))
             }),
-            LocalMaxd::Leave("no LaunchAgent runs maxd")
+            LocalMaxd::Leave("no service runs maxd")
         );
         assert_eq!(
             local_maxd(LocalFacts {
