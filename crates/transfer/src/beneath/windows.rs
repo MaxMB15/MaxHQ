@@ -69,6 +69,17 @@ const SHARE_ALL: u32 = FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE;
 
 const FSCTL_GET_REPARSE_POINT: u32 = 0x0009_00A8;
 const MAX_REPARSE: usize = 16 * 1024;
+
+/// What a listing or reparse call fills, read in place: 16 KB, the most a
+/// reparse point holds, 8-byte aligned as both kinds of record need.
+#[repr(align(8))]
+struct Records([u8; MAX_REPARSE]);
+
+impl Records {
+    fn new() -> Box<Self> {
+        Box::new(Self([0; MAX_REPARSE]))
+    }
+}
 const SYMLINK_FLAG_RELATIVE: u32 = 1;
 
 const TAG_SYMLINK: u32 = 0xA000_000C;
@@ -394,7 +405,10 @@ pub fn set_own_mode(_dir: &Handle, _mode: u32) -> io::Result<()> {
 /// itself.
 pub fn entries(dir: &Handle) -> io::Result<Vec<(OsString, Option<FileType>)>> {
     let listing = reopen(dir)?;
-    let mut buffer = vec![0u64; 2048];
+    // One buffer for the whole folder, however many calls it takes, and one
+    // for a name's units, so only the names returned are new allocations.
+    let mut buffer = Records::new();
+    let mut units = Vec::new();
     let mut names = Vec::new();
     let mut class = FileFullDirectoryRestartInfo;
     loop {
@@ -404,8 +418,8 @@ pub fn entries(dir: &Handle) -> io::Result<Vec<(OsString, Option<FileType>)>> {
             GetFileInformationByHandleEx(
                 listing.as_raw_handle(),
                 class,
-                buffer.as_mut_ptr().cast(),
-                (buffer.len() * 8) as u32,
+                buffer.0.as_mut_ptr().cast(),
+                MAX_REPARSE as u32,
             )
         };
         if ok == 0 {
@@ -417,8 +431,7 @@ pub fn entries(dir: &Handle) -> io::Result<Vec<(OsString, Option<FileType>)>> {
             }
         }
         class = FileFullDirectoryInfo;
-        let bytes: Vec<u8> = buffer.iter().flat_map(|word| word.to_ne_bytes()).collect();
-        read_listing(&bytes, &mut names)?;
+        read_listing(&buffer.0, &mut units, &mut names)?;
     }
     Ok(names)
 }
@@ -437,13 +450,20 @@ fn u16_at(bytes: &[u8], at: usize) -> io::Result<u16> {
     Ok(u16::from_ne_bytes([two[0], two[1]]))
 }
 
-fn units(bytes: &[u8]) -> Vec<u16> {
+/// Puts the UTF-16 units in `bytes` into `out`, replacing what it held.
+fn units_into(bytes: &[u8], out: &mut Vec<u16>) {
     let (pairs, _) = bytes.as_chunks::<2>();
-    pairs.iter().copied().map(u16::from_ne_bytes).collect()
+    out.clear();
+    out.extend(pairs.iter().copied().map(u16::from_ne_bytes));
 }
 
-/// Reads the `FILE_FULL_DIR_INFO` records one listing call left in `bytes`.
-fn read_listing(bytes: &[u8], names: &mut Vec<(OsString, Option<FileType>)>) -> io::Result<()> {
+/// Reads the `FILE_FULL_DIR_INFO` records one listing call left in `bytes`,
+/// with `units` as room for each name on its way to an `OsString`.
+fn read_listing(
+    bytes: &[u8],
+    units: &mut Vec<u16>,
+    names: &mut Vec<(OsString, Option<FileType>)>,
+) -> io::Result<()> {
     let mut at = 0;
     loop {
         let next = u32_at(bytes, at)?;
@@ -452,7 +472,8 @@ fn read_listing(bytes: &[u8], names: &mut Vec<(OsString, Option<FileType>)>) -> 
         let start = at + offset_of!(FILE_FULL_DIR_INFO, FileName);
         let length = usize::try_from(length).map_err(|_| bad_listing())?;
         let name = bytes.get(start..start + length).ok_or_else(bad_listing)?;
-        let name = OsString::from_wide(&units(name));
+        units_into(name, units);
+        let name = OsString::from_wide(units);
         if name != "." && name != ".." {
             let kind = if attrs & FILE_ATTRIBUTE_REPARSE_POINT != 0 {
                 None
@@ -723,7 +744,7 @@ fn points_at_folder(folder: &Path, target: &str) -> bool {
 /// path starting with `/`, so it never reads as inside.
 pub fn read_link(dir: &Handle, name: &OsStr) -> io::Result<OsString> {
     let handle = open_entry(dir, name, 0)?;
-    let mut buffer = vec![0u64; MAX_REPARSE / 8];
+    let mut buffer = Records::new();
     let mut got = 0u32;
     // SAFETY: the out buffer is writable for the length passed, `got` is a
     // live local, there's no in buffer, and the handle is open for
@@ -734,7 +755,7 @@ pub fn read_link(dir: &Handle, name: &OsStr) -> io::Result<OsString> {
             FSCTL_GET_REPARSE_POINT,
             ptr::null(),
             0,
-            buffer.as_mut_ptr().cast(),
+            buffer.0.as_mut_ptr().cast(),
             MAX_REPARSE as u32,
             &mut got,
             ptr::null_mut(),
@@ -743,13 +764,8 @@ pub fn read_link(dir: &Handle, name: &OsStr) -> io::Result<OsString> {
     if ok == 0 {
         return Err(io::Error::last_os_error());
     }
-    let got = usize::try_from(got).unwrap_or(MAX_REPARSE);
-    let bytes: Vec<u8> = buffer
-        .iter()
-        .flat_map(|word| word.to_ne_bytes())
-        .take(got)
-        .collect();
-    link_target(&bytes)
+    let got = usize::try_from(got).map_or(MAX_REPARSE, |got| got.min(MAX_REPARSE));
+    link_target(&buffer.0[..got])
 }
 
 /// The target in a `REPARSE_DATA_BUFFER`.
@@ -760,7 +776,9 @@ fn link_target(bytes: &[u8]) -> io::Result<OsString> {
         let start = base + usize::from(u16_at(bytes, 8)?);
         let length = usize::from(u16_at(bytes, 10)?);
         let raw = bytes.get(start..start + length).ok_or_else(bad_listing)?;
-        Ok(units(raw))
+        let mut target = Vec::with_capacity(length / 2);
+        units_into(raw, &mut target);
+        Ok(target)
     };
     match u32_at(bytes, 0).map_err(bad)? {
         TAG_SYMLINK => {
