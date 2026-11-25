@@ -181,23 +181,24 @@ pub struct Files {
     /// The 0700 folder with the device's key and the other devices' host
     /// keys, `~/.config/maxhq/ssh`.
     pub ssh: PathBuf,
-    /// The home folder, whose `.ssh/authorized_keys` lets other devices in
-    /// and whose `.local/bin/maxd` their key runs.
+    /// The home folder, whose `.local/bin/maxd` other devices' keys run on
+    /// Unix.
     pub home: PathBuf,
+    /// The `authorized_keys` that lets other devices in:
+    /// `.ssh/authorized_keys` in `home`, or the one Windows OpenSSH reads
+    /// for an administrator.
+    pub keys: PathBuf,
 }
 
 impl Files {
     /// The real places, or none without a home folder.
     pub fn system() -> Option<Self> {
-        let home = PathBuf::from(std::env::var_os("HOME")?);
+        let home = maxhq_os::home::home_dir()?;
         Some(Self {
             ssh: home.join(".config").join("maxhq").join("ssh"),
+            keys: authorized_keys::file_here(&home),
             home,
         })
-    }
-
-    fn authorized_keys(&self) -> PathBuf {
-        self.home.join(".ssh").join("authorized_keys")
     }
 }
 
@@ -431,24 +432,24 @@ impl Peers {
             return Err("That isn't an ed25519 public key.".into());
         };
         let home = self.0.files.home.display().to_string();
-        let line = authorized_keys::line(&home, &public_key, Some(&device.to_string()))?;
+        let line = authorized_keys::line_here(&home, &public_key, Some(&device.to_string()))?;
         // One key per device: a new one replaces the old.
-        let file = self.0.files.authorized_keys();
+        let file = &self.0.files.keys;
         let tag = authorized_keys::peer_tag(&device.to_string());
         let kept =
-            authorized_keys::remove(&file, &tag).and_then(|_| authorized_keys::add(&file, &line));
+            authorized_keys::remove(file, &tag).and_then(|_| authorized_keys::add(file, &line));
         kept.map(|_| {
             self.lock().cut.remove(&device);
             info!(%device, "let a device's key in");
         })
-        .map_err(|err| format!("Couldn't write authorized_keys: {err}"))
+        .map_err(|err| authorized_keys::add_failed(file, &line, &err))
     }
 
     /// Whether `key` is one `device` may log in with, as its lines in
     /// `authorized_keys` say.
     fn lets_in(&self, device: DeviceId, key: [u8; 32]) -> io::Result<bool> {
         let tag = authorized_keys::peer_tag(&device.to_string());
-        let keys = authorized_keys::keys_tagged(&self.0.files.authorized_keys(), &tag)?;
+        let keys = authorized_keys::keys_tagged(&self.0.files.keys, &tag)?;
         Ok(keys
             .iter()
             .any(|line| crate::sshkey::ed25519_key(line) == Some(key)))
@@ -460,7 +461,7 @@ impl Peers {
     /// a book leaves it out, what it started here stops.
     pub fn revoke(&self, device: DeviceId) -> Result<(), String> {
         let tag = authorized_keys::peer_tag(&device.to_string());
-        authorized_keys::remove(&self.0.files.authorized_keys(), &tag)
+        authorized_keys::remove(&self.0.files.keys, &tag)
             .map_err(|err| format!("Couldn't write authorized_keys: {err}"))?;
         let mut state = self.lock();
         state.cut.insert(device);

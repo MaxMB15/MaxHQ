@@ -8,10 +8,16 @@
 //!
 //! A change is written to a new file beside the old one and renamed over
 //! it, with the old file's mode, so a crash leaves one whole file.
+//!
+//! Windows OpenSSH runs a key's command through the account's shell,
+//! `cmd.exe /c` unless `DefaultShell` names another, where `~` means
+//! nothing. Its lines name `maxd.exe` by its full path, in quotes when the
+//! path has a space, and an Administrators member's keys are in
+//! [`windows_admin_file`] rather than their own folder.
 
 use std::fs;
 use std::io;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use maxhq_os::fsmode;
 
@@ -38,6 +44,150 @@ pub fn pair_tag(pair: &str) -> String {
     format!("{PAIR_TAG}{pair}")
 }
 
+/// Where `maxd.exe` stays under `%LOCALAPPDATA%` as updates come: the
+/// folder an update points at the build it installs.
+pub const WINDOWS_MAXD: &str = r"MaxHQ\bin\current\maxd.exe";
+
+/// Where Windows OpenSSH reads the keys of an Administrators member, under
+/// `%ProgramData%`. Only Administrators and SYSTEM may write it.
+pub const WINDOWS_ADMIN_KEYS: &str = r"ssh\administrators_authorized_keys";
+
+/// [`WINDOWS_ADMIN_KEYS`] under `program_data`.
+pub fn windows_admin_file(program_data: &Path) -> PathBuf {
+    program_data.join(WINDOWS_ADMIN_KEYS)
+}
+
+/// The `authorized_keys` this device's sshd reads for this account:
+/// `.ssh\authorized_keys` in `home`, or on Windows [`windows_admin_file`]
+/// for an Administrators member when `sshd_config` sends their keys there,
+/// as it does from install.
+pub fn file_here(home: &Path) -> PathBuf {
+    #[cfg(windows)]
+    if let Some(file) = windows_admin_file_here() {
+        return file;
+    }
+    home.join(".ssh").join("authorized_keys")
+}
+
+/// [`windows_admin_file`] when sshd reads this account's keys from it.
+#[cfg(windows)]
+fn windows_admin_file_here() -> Option<PathBuf> {
+    let program_data = PathBuf::from(std::env::var_os("ProgramData")?);
+    let config = fs::read_to_string(program_data.join("ssh").join("sshd_config")).ok();
+    (windows_admin_keys_apply(config.as_deref()) && windows_admin())
+        .then(|| windows_admin_file(&program_data))
+}
+
+/// Whether this account is in Administrators, from `whoami /groups`.
+#[cfg(windows)]
+fn windows_admin() -> bool {
+    let root =
+        std::env::var_os("SystemRoot").map_or_else(|| PathBuf::from(r"C:\Windows"), PathBuf::from);
+    std::process::Command::new(root.join("System32").join("whoami.exe"))
+        .args(["/groups", "/fo", "csv", "/nh"])
+        .stdin(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .output()
+        .is_ok_and(|out| {
+            out.status.success() && in_administrators(&String::from_utf8_lossy(&out.stdout))
+        })
+}
+
+/// Whether `whoami /groups /fo csv /nh` lists Administrators, `S-1-5-32-544`,
+/// enabled or for deny only. sshd's `Match Group` reads who's a member, not
+/// whether the process runs elevated.
+pub fn in_administrators(groups: &str) -> bool {
+    groups.contains("\"S-1-5-32-544\"")
+}
+
+/// Whether a Windows `sshd_config` reads Administrators' keys from
+/// [`WINDOWS_ADMIN_KEYS`]: a `Match Group` for `administrators` with an
+/// `AuthorizedKeysFile` naming it. A missing file counts, since sshd
+/// writes its default, which has that block, when it first starts.
+pub fn windows_admin_keys_apply(sshd_config: Option<&str>) -> bool {
+    let Some(config) = sshd_config else {
+        return true;
+    };
+    let mut admins = false;
+    for line in config.lines() {
+        let line = line.trim();
+        if line.starts_with('#') {
+            continue;
+        }
+        let mut words = line
+            .split(|c: char| c.is_whitespace() || c == '=')
+            .filter(|word| !word.is_empty());
+        let Some(keyword) = words.next() else {
+            continue;
+        };
+        if keyword.eq_ignore_ascii_case("match") {
+            let criteria: Vec<&str> = words.collect();
+            admins = criteria.windows(2).any(|pair| {
+                pair[0].eq_ignore_ascii_case("group")
+                    && pair[1]
+                        .split(',')
+                        .any(|group| group.eq_ignore_ascii_case("administrators"))
+            });
+        } else if admins && keyword.eq_ignore_ascii_case("authorizedkeysfile") {
+            let named = words.any(|file| {
+                file.to_ascii_lowercase()
+                    .trim_matches('"')
+                    .ends_with("administrators_authorized_keys")
+            });
+            if named {
+                return true;
+            }
+        }
+    }
+    false
+}
+
+/// What to say when `line` couldn't go in `file`. Only an elevated process
+/// may write [`windows_admin_file`], so for it this gives the PowerShell
+/// that adds the line, to run as administrator.
+pub fn add_failed(file: &Path, line: &str, err: &io::Error) -> String {
+    let admin = file
+        .to_string_lossy()
+        .to_ascii_lowercase()
+        .ends_with("administrators_authorized_keys");
+    if !admin || err.kind() != io::ErrorKind::PermissionDenied {
+        return format!("Couldn't write {}: {err}", file.display());
+    }
+    let quoted = |text: &str| format!("'{}'", text.replace('\'', "''"));
+    let path = quoted(&file.to_string_lossy());
+    format!(
+        "Windows OpenSSH reads an administrator's keys from {file}, which only an elevated \
+         process can change. Open PowerShell as administrator and run:\n\
+         Add-Content -Force -Path {path} -Value {value}\n\
+         icacls.exe {path} /inheritance:r /grant 'Administrators:F' /grant 'SYSTEM:F'",
+        file = file.display(),
+        value = quoted(line),
+    )
+}
+
+/// The stable `maxd.exe` on this Windows machine, or an error naming what
+/// it lacks.
+fn windows_maxd() -> Result<String, String> {
+    let base = std::env::var_os("LOCALAPPDATA")
+        .ok_or("LOCALAPPDATA isn't set, so the key line can't name maxd.exe")?;
+    let base = base.to_string_lossy();
+    Ok(format!(
+        "{}\\{WINDOWS_MAXD}",
+        base.trim_end_matches(['\\', '/'])
+    ))
+}
+
+/// The line [`line`] gives on Unix and [`windows_line`] on Windows, where
+/// `maxd.exe` is [`WINDOWS_MAXD`] under `%LOCALAPPDATA%` and `home` isn't
+/// read.
+pub fn line_here(home: &str, public_key: &str, peer: Option<&str>) -> Result<String, String> {
+    if cfg!(windows) {
+        windows_line(&windows_maxd()?, public_key, peer)
+    } else {
+        line(home, public_key, peer)
+    }
+}
+
 /// The line that lets `public_key` run only `maxd proxy` through the
 /// stable symlink in `home`, or `maxd proxy --peer <device>` for another
 /// device's key.
@@ -57,9 +207,51 @@ pub fn line(home: &str, public_key: &str, peer: Option<&str>) -> Result<String, 
     })
 }
 
+/// The line that lets `public_key` run only `"<maxd>" proxy`, or
+/// `"<maxd>" proxy --peer <device>` for another device's key, on Windows.
+/// `maxd` is the full path of `maxd.exe`, from a drive letter.
+///
+/// The path is quoted only when it has a space. Windows OpenSSH runs the
+/// command as `cmd.exe /c "<command>"`, and cmd keeps a quoted program
+/// with a space whole whether or not those outer quotes are there. A
+/// character cmd or PowerShell would read, such as `%`, `^`, `&` or `'`,
+/// is refused rather than escaped.
+pub fn windows_line(maxd: &str, public_key: &str, peer: Option<&str>) -> Result<String, String> {
+    let (kind, key) = key_parts(public_key, peer)?;
+    let command = windows_command(maxd, &peer.map(|device| format!("--peer {device}")))?;
+    let tag = match peer {
+        None => APP_TAG.to_owned(),
+        Some(device) => peer_tag(device),
+    };
+    Ok(format!("restrict,command=\"{command}\" {kind} {key} {tag}"))
+}
+
+/// `maxd proxy` with `flags` as a Windows key line's command, with the
+/// quotes around a program with a space escaped for `authorized_keys`.
+fn windows_command(maxd: &str, flags: &Option<String>) -> Result<String, String> {
+    let bytes = maxd.as_bytes();
+    let from_a_drive =
+        bytes.len() > 3 && bytes[0].is_ascii_alphabetic() && bytes[1] == b':' && bytes[2] == b'\\';
+    let odd = maxd
+        .chars()
+        .any(|c| c.is_control() || "\"%^&|<>!'`$()/;,=".contains(c));
+    if !from_a_drive || odd || maxd.contains("  ") || maxd.ends_with([' ', '\\']) {
+        return Err(format!("The path {maxd} can't go in a key line"));
+    }
+    let program = match maxd.contains(' ') {
+        true => format!("\\\"{maxd}\\\""),
+        false => maxd.to_owned(),
+    };
+    Ok(match flags {
+        Some(flags) => format!("{program} proxy {flags}"),
+        None => format!("{program} proxy"),
+    })
+}
+
 /// The line that lets a phone's `public_key` run only `maxd proxy --phone
 /// <phone>`, for a line you add by hand. The command starts at `~`, which
-/// the device's shell reads as your home folder.
+/// the device's shell reads as your home folder. On Windows it names
+/// [`WINDOWS_MAXD`] under `%LOCALAPPDATA%`.
 pub fn phone_line(public_key: &str, phone: &str) -> Result<String, String> {
     home_line(public_key, "--phone", phone, &phone_tag(phone))
 }
@@ -72,9 +264,11 @@ pub fn pair_line(public_key: &str, pair: &str) -> Result<String, String> {
 
 fn home_line(public_key: &str, flag: &str, name: &str, tag: &str) -> Result<String, String> {
     let (kind, key) = key_parts(public_key, Some(name))?;
-    Ok(format!(
-        "restrict,command=\"~/.local/bin/maxd proxy {flag} {name}\" {kind} {key} {tag}"
-    ))
+    let command = match cfg!(windows) {
+        true => windows_command(&windows_maxd()?, &Some(format!("{flag} {name}")))?,
+        false => format!("~/.local/bin/maxd proxy {flag} {name}"),
+    };
+    Ok(format!("restrict,command=\"{command}\" {kind} {key} {tag}"))
 }
 
 /// A public key's type and key, checked to be plain, with the name a
@@ -234,6 +428,176 @@ mod tests {
     }
 
     #[test]
+    fn a_windows_line_names_maxd_exe_by_its_full_path() {
+        let maxd = r"C:\Users\dev\AppData\Local\MaxHQ\bin\current\maxd.exe";
+        assert_eq!(
+            windows_line(maxd, KEY, None).as_deref(),
+            Ok(format!("restrict,command=\"{maxd} proxy\" {KEY} maxhq").as_str())
+        );
+        assert_eq!(
+            windows_line(maxd, KEY, Some("d1")).as_deref(),
+            Ok(format!("restrict,command=\"{maxd} proxy --peer d1\" {KEY} maxhq-peer-d1").as_str())
+        );
+    }
+
+    #[test]
+    fn a_windows_path_with_a_space_is_quoted_for_cmd() {
+        let maxd = r"C:\Users\Dev One\AppData\Local\MaxHQ\bin\current\maxd.exe";
+        // authorized_keys reads `\"` as a quote, so cmd sees
+        // `"C:\Users\Dev One\...\maxd.exe" proxy`.
+        assert_eq!(
+            windows_line(maxd, KEY, Some("d1")).as_deref(),
+            Ok(
+                format!(r#"restrict,command="\"{maxd}\" proxy --peer d1" {KEY} maxhq-peer-d1"#)
+                    .as_str()
+            )
+        );
+        assert_eq!(
+            windows_command(maxd, &Some("--phone p1".into())).as_deref(),
+            Ok(format!(r#"\"{maxd}\" proxy --phone p1"#).as_str())
+        );
+    }
+
+    #[test]
+    fn windows_paths_cmd_or_powershell_would_read_are_refused() {
+        for maxd in [
+            r"maxd.exe",
+            r"\\server\share\maxd.exe",
+            r"C:maxd.exe",
+            r"C:/Users/dev/maxd.exe",
+            r"C:\Users\100%\maxd.exe",
+            r"C:\Users\a^b\maxd.exe",
+            r"C:\Users\a&b\maxd.exe",
+            r"C:\Users\a|b\maxd.exe",
+            r"C:\Users\a>b\maxd.exe",
+            r"C:\Users\a!b\maxd.exe",
+            r#"C:\Users\a"b\maxd.exe"#,
+            r"C:\Users\o'neil\maxd.exe",
+            r"C:\Users\$env\maxd.exe",
+            r"C:\Users\a`b\maxd.exe",
+            r"C:\Program Files (x86)\maxd.exe",
+            "C:\\Users\\a\nb\\maxd.exe",
+            r"C:\Users\a  b\maxd.exe",
+            r"C:\Users\dev\ ",
+        ] {
+            assert!(windows_line(maxd, KEY, None).is_err(), "{maxd}");
+        }
+        let maxd = r"C:\Users\dev\maxd.exe";
+        assert!(windows_line(maxd, KEY, Some("d1 x")).is_err());
+        assert!(windows_line(maxd, "ssh-ed25519", None).is_err());
+    }
+
+    #[test]
+    fn a_windows_admins_keys_are_in_program_data() {
+        assert_eq!(
+            windows_admin_file(Path::new("/ProgramData")),
+            Path::new("/ProgramData").join(r"ssh\administrators_authorized_keys")
+        );
+    }
+
+    #[test]
+    fn administrators_are_read_from_whoami_by_their_sid() {
+        let groups = "\"Everyone\",\"Well-known group\",\"S-1-1-0\",\"Mandatory group\"\r\n\
+             \"BUILTIN\\Administrators\",\"Alias\",\"S-1-5-32-544\",\"Group used for deny only\"\r\n";
+        assert!(in_administrators(groups));
+        let user = "\"BUILTIN\\Users\",\"Alias\",\"S-1-5-32-545\",\"Mandatory group\"\r\n";
+        assert!(!in_administrators(user));
+        assert!(!in_administrators("\"S-1-5-32-5440\""));
+    }
+
+    #[test]
+    fn the_admin_file_counts_only_while_sshd_config_names_it() {
+        let shipped = "# This is the sshd server system-wide configuration file.\n\
+             AuthorizedKeysFile\t.ssh/authorized_keys\n\
+             Subsystem\tsftp\tsftp-server.exe\n\
+             Match Group administrators\n\
+             \x20      AuthorizedKeysFile __PROGRAMDATA__/ssh/administrators_authorized_keys\n";
+        assert!(windows_admin_keys_apply(Some(shipped)));
+        assert!(windows_admin_keys_apply(None));
+        let commented = shipped.replace("Match Group", "#Match Group").replace(
+            "       AuthorizedKeysFile __",
+            "#       AuthorizedKeysFile __",
+        );
+        assert!(!windows_admin_keys_apply(Some(&commented)));
+        let other_group = shipped.replace("Group administrators", "Group devs");
+        assert!(!windows_admin_keys_apply(Some(&other_group)));
+        let listed = "Match User x Group devs,Administrators\n\
+             AuthorizedKeysFile=\"__PROGRAMDATA__/ssh/administrators_authorized_keys\"\n";
+        assert!(windows_admin_keys_apply(Some(listed)));
+        // A block that ends before the file is named doesn't count.
+        let ended = "Match Group administrators\nMatch all\n\
+             AuthorizedKeysFile __PROGRAMDATA__/ssh/administrators_authorized_keys\n";
+        assert!(!windows_admin_keys_apply(Some(ended)));
+        assert!(!windows_admin_keys_apply(Some("")));
+    }
+
+    #[test]
+    fn a_refused_admin_file_gives_the_steps_that_add_the_line() {
+        let file = Path::new(r"C:\ProgramData\ssh\administrators_authorized_keys");
+        let line = r#"restrict,command="\"C:\Users\A B\maxd.exe\" proxy" ssh-ed25519 AAAA maxhq"#;
+        let denied = io::Error::from(io::ErrorKind::PermissionDenied);
+        let steps = add_failed(file, line, &denied);
+        assert!(steps.contains("as administrator"), "{steps}");
+        assert!(
+            steps.contains(&format!(
+                r"Add-Content -Force -Path 'C:\ProgramData\ssh\administrators_authorized_keys' -Value '{line}'"
+            )),
+            "{steps}"
+        );
+        assert!(
+            steps.contains(
+                r"icacls.exe 'C:\ProgramData\ssh\administrators_authorized_keys' /inheritance:r"
+            ),
+            "{steps}"
+        );
+        let quoted = add_failed(
+            Path::new(r"C:\Data's\administrators_authorized_keys"),
+            line,
+            &denied,
+        );
+        assert!(
+            quoted.contains(r"'C:\Data''s\administrators_authorized_keys'"),
+            "{quoted}"
+        );
+        // Any other failure, or file, is said as it is.
+        let other = add_failed(file, line, &io::Error::other("disk full"));
+        assert!(
+            other.starts_with("Couldn't write") && other.contains("disk full"),
+            "{other}"
+        );
+        let home = add_failed(Path::new("/home/dev/.ssh/authorized_keys"), line, &denied);
+        assert!(home.starts_with("Couldn't write"), "{home}");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn the_file_here_is_in_the_home_folder_off_windows() {
+        assert_eq!(
+            file_here(Path::new("/home/dev")),
+            Path::new("/home/dev/.ssh/authorized_keys")
+        );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn a_phone_line_on_windows_names_maxd_exe_under_local_app_data() {
+        let line = phone_line(KEY, "p1").expect("line");
+        assert!(line.contains(r"\MaxHQ\bin\current\maxd.exe"), "{line}");
+        assert!(line.contains(" proxy --phone p1\" "), "{line}");
+        assert!(line.ends_with(" maxhq-phone-p1"), "{line}");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_line_here_is_the_unix_one_off_windows() {
+        assert_eq!(
+            line_here("/home/dev", KEY, None),
+            line("/home/dev", KEY, None)
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
     fn a_phone_line_runs_only_maxd_proxy_for_that_phone() {
         let phone = "0b7e3c1a-4d2f-5e6a-8b9c-0d1e2f3a4b5c";
         assert_eq!(
@@ -333,6 +697,7 @@ mod tests {
             .is_empty());
     }
 
+    #[cfg(unix)]
     #[test]
     fn a_pair_line_runs_only_maxd_proxy_for_that_pairing_and_goes_with_the_rest() {
         let home = TempHome::new();
