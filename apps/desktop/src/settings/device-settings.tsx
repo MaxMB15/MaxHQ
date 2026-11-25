@@ -85,6 +85,7 @@ import { PhoneAddress } from "./phones-settings";
 import { failureOf, type Note } from "./result";
 import { deviceCardId } from "./store";
 import { Value } from "./value";
+import { WindowsShellRow } from "./windows-shell";
 import { t as translate, useI18n } from "@maxhq/shared/i18n";
 
 type Part =
@@ -102,6 +103,7 @@ type Part =
 	| "library"
 	| "network"
 	| "shell"
+	| "windows-shell"
 	| "reads"
 	| "artifacts"
 	| "tokens";
@@ -736,6 +738,14 @@ const Cards = ({
 							onCheckedChange={(on) => void save("shell", { shell_integration: on })}
 						/>
 					</Row>
+					<WindowsShellRow
+						view={view}
+						device={device}
+						why={why.offline}
+						value={shown.windows_shell}
+						note={noteFor("windows-shell")}
+						onSave={(shell) => void save("windows-shell", { windows_shell: shell })}
+					/>
 				</Section>
 			) : null}
 			{shows("setup-tokens") ? (
