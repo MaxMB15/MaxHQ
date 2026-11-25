@@ -5012,6 +5012,12 @@ export type DispatcherChat = {
 export type Downloaded = {
 	/**  The file or folder on this machine, under `~/Downloads/MaxHQ`. */
 	path: string,
+	/**
+	 *  The links in it this machine couldn't make, by their paths inside
+	 *  it. Only Windows leaves any out, where neither Developer Mode nor
+	 *  an administrator lets it make links.
+	 */
+	skipped_links: string[],
 };
 
 /**  One edge of a run's shape: `to` needs `from`. */

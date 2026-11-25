@@ -279,10 +279,11 @@ fn delete_data_deletes_maxds_data_but_not_the_apps() {
     install(&setup, &mut Fake::default()).unwrap();
     fill(&setup);
     let data = setup.data.clone().unwrap();
-    // A link in the data folder is removed, not followed.
+    // A link in the data folder is removed, not followed: a symlink, or a
+    // junction on Windows.
     let elsewhere = dir.path().join("elsewhere");
     write(&elsewhere.join("keep"), "yours");
-    std::os::unix::fs::symlink(&elsewhere, data.join("link")).unwrap();
+    maxhq_os::link::point(&data.join("link"), &elsewhere).unwrap();
 
     let mut fake = Fake::default().fail("pgrep", "");
     let mut holders = FakeHolders::default();

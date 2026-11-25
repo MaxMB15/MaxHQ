@@ -20,6 +20,7 @@
 //! the other end sees the end once this one is dropped.
 
 use std::ffi::c_void;
+use std::future::Future;
 use std::io;
 use std::os::windows::fs::OpenOptionsExt;
 use std::path::Path;
@@ -171,10 +172,26 @@ pub fn pair() -> io::Result<(Stream, Stream)> {
         NEXT.fetch_add(1, Ordering::Relaxed)
     );
     let server = create(&name, true)?;
-    // A server instance a client opened is connected: reads and writes
-    // work without waiting for the connection.
     let client = ClientOptions::new().open(&name)?;
+    // The client is connected, but the server end reads nothing until it
+    // has seen the connection, which it does at once now.
+    let connected = {
+        let connect = std::pin::pin!(server.connect());
+        connect.poll(&mut Context::from_waker(std::task::Waker::noop()))
+    };
+    match connected {
+        Poll::Ready(connected) => connected?,
+        Poll::Pending => {
+            return Err(io::Error::other(
+                "the pipe's server end didn't see its client connect",
+            ));
+        }
+    }
     Ok((Stream::Server(server), Stream::Client(client)))
+}
+
+pub fn answers(path: &Path) -> bool {
+    probe(path).is_ok_and(|found| found == Found::Listening)
 }
 
 pub fn probe(path: &Path) -> io::Result<Found> {

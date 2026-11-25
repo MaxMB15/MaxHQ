@@ -61,6 +61,10 @@ pub fn probe(path: &Path) -> io::Result<Found> {
     }
 }
 
+pub fn answers(path: &Path) -> bool {
+    std::os::unix::net::UnixStream::connect(path).is_ok()
+}
+
 /// The socket, for calls that read its peer's credentials, such as the
 /// audit token on macOS.
 impl AsFd for super::LocalStream {

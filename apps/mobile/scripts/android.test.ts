@@ -55,6 +55,13 @@ describe("releaseSteps", () => {
 		}
 	});
 
+	it("builds both from one Gradle run for the release workflow", () => {
+		expect(releaseSteps("both").map(line)).toEqual([
+			"expo prebuild --clean --platform android",
+			"./gradlew :app:assembleRelease :app:bundleRelease",
+		]);
+	});
+
 	it("names where each build lands", () => {
 		expect(releaseOutput("apk", false)).toBe(UNSIGNED_APK);
 		expect(releaseOutput("apk", true)).toBe(RELEASE_APK);

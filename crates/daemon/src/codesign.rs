@@ -14,7 +14,18 @@
 //! to that team, for the app's identifier, and the app runs with the
 //! hardened runtime. A `maxd` with no team, unsigned or off the Mac, has
 //! the check off.
+//!
+//! On Windows the check is off too, as on Linux, so a key beyond the first
+//! asks you. What a Windows connection proves is that its program runs as
+//! you, since the pipe's access list lets in your user alone. The admission
+//! card names the program it runs, from its image path, and whether it's
+//! `maxd`'s own. That says which file Windows started, but not that it's
+//! MaxHQ: any program of yours may replace a program in your folders, or
+//! run code inside one, as nothing like the hardened runtime keeps it out.
+//! Checking the app's Authenticode signature would mean something once the
+//! Windows app is signed.
 
+#[cfg(target_os = "macos")]
 use std::os::fd::AsFd;
 use std::path::PathBuf;
 
@@ -73,10 +84,20 @@ pub fn program(token: Option<Token>) -> Program {
     describe(token, Policy::for_this_maxd())
 }
 
+/// There's no signature to read on Windows, so only the path tells, and
+/// [`crate::admission`] finds that from the process.
+#[cfg(windows)]
+pub fn program(_token: Option<Token>) -> Program {
+    Program {
+        path: None,
+        signed: Signed::Unchecked,
+    }
+}
+
 /// `maxd`'s own program at `path`, for a connection from `maxd` itself.
 /// Whatever signed this `maxd` signed it, so the Security framework needn't
 /// look, which takes it seconds on a large program.
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", windows))]
 pub fn own(path: Option<PathBuf>) -> Program {
     let signed = match Policy::for_this_maxd() {
         Some(_) => Signed::Yours,
@@ -107,7 +128,7 @@ pub fn token(socket: &impl AsFd) -> Option<Token> {
 
 /// There's no audit token off the Mac.
 #[cfg(not(target_os = "macos"))]
-pub fn token(_socket: &impl AsFd) -> Option<Token> {
+pub fn token<S: ?Sized>(_socket: &S) -> Option<Token> {
     None
 }
 

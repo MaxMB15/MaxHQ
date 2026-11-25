@@ -16,9 +16,9 @@ use futures::future::BoxFuture;
 use maxhq_protocol::ids::DeviceId;
 use maxhq_protocol::link::Route;
 use openssh::{ControlPersist, KnownHosts, Session, SessionBuilder, Stdio};
-use tokio::net::UnixStream;
 use tracing::debug;
 
+use super::local::dial_local;
 use super::{
     shorten, Conn, DialError, Rest, StderrTail, Transport, CONNECT_TIMEOUT, LOGIN_TIMEOUT,
     PROXY_COMMAND,
@@ -165,23 +165,6 @@ impl Transport for Pinned {
 
     fn forget<'a>(&'a self, host: &'a str) -> BoxFuture<'a, ()> {
         Box::pin(self.masters.forget(host))
-    }
-}
-
-/// Connects to a `maxd` socket on this machine.
-pub(crate) async fn dial_local(socket: &Path) -> Result<Conn, DialError> {
-    match UnixStream::connect(socket).await {
-        Ok(stream) => {
-            let (reader, writer) = stream.into_split();
-            Ok(Conn::new(Box::new(reader), Box::new(writer)))
-        }
-        Err(err) => Err(DialError::refused(match err.kind() {
-            io::ErrorKind::NotFound | io::ErrorKind::ConnectionRefused => {
-                "maxd isn't running".to_owned()
-            }
-            io::ErrorKind::PermissionDenied => "maxd's socket belongs to someone else".to_owned(),
-            _ => format!("can't open maxd's socket: {err}"),
-        })),
     }
 }
 
@@ -495,12 +478,5 @@ mod tests {
             Some(PathBuf::from(format!("/Users/{}/ssh", "m".repeat(60)))),
         );
         assert!(long.masters.control_dir.is_none());
-    }
-
-    #[tokio::test]
-    async fn local_sockets_that_arent_there_mean_maxd_isnt_running() {
-        let path = std::env::temp_dir().join(format!("maxhq-missing-{}.sock", std::process::id()));
-        let err = dial_local(&path).await.err().unwrap();
-        assert_eq!(err, DialError::refused("maxd isn't running"));
     }
 }

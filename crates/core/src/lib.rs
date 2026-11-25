@@ -16,6 +16,7 @@ pub mod dpop;
 pub mod excerpt;
 pub mod find;
 pub mod fs;
+pub mod fs_ext;
 pub mod git;
 pub mod git_items;
 pub mod github_activity;

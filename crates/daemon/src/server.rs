@@ -4622,6 +4622,8 @@ pub(crate) mod tests {
         TestClient::greeted(&served.socket).await;
     }
 
+    /// A Windows pipe leaves no file behind.
+    #[cfg(unix)]
     #[tokio::test]
     async fn a_stale_socket_is_replaced_and_removed_on_drop() {
         let dir = TempDir::new();
@@ -4645,6 +4647,8 @@ pub(crate) mod tests {
         assert!(!socket.exists());
     }
 
+    /// A Windows pipe has no path on disk for a file to be in the way of.
+    #[cfg(unix)]
     #[tokio::test]
     async fn a_file_in_the_way_is_left_alone() {
         let dir = TempDir::new();

@@ -17,6 +17,7 @@ use std::time::Duration;
 
 use maxhq_core::paths;
 use maxhq_core::tools::{self, Mcp, Tool};
+use maxhq_os::ipc::LocalStream;
 use maxhq_protocol::agents::{ClientRole, ToolCall};
 use maxhq_protocol::frame::{self, Frame, FrameDecoder};
 use maxhq_protocol::ids::{ClientId, IdempotencyKey};
@@ -26,7 +27,6 @@ use serde_json::Value;
 use tokio::io::{
     AsyncBufRead, AsyncBufReadExt, AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, Lines,
 };
-use tokio::net::UnixStream;
 use tokio::time::Instant;
 
 /// `maxd mcp`. Serves until stdin closes, or `maxd` goes away and doesn't
@@ -55,7 +55,7 @@ pub fn run(key_file: &Path) -> ExitCode {
     };
     let served = runtime.block_on(async {
         let stdin = tokio::io::BufReader::new(tokio::io::stdin());
-        let connect = || UnixStream::connect(&socket);
+        let connect = || LocalStream::connect(&socket);
         serve(key, connect, stdin, tokio::io::stdout()).await
     });
     // The read of stdin can't be cancelled, and a runtime dropped the

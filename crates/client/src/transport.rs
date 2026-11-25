@@ -20,6 +20,9 @@ use tokio::task::JoinHandle;
 use crate::pinned::PeerDial;
 use crate::ssh_config::SshConfig;
 
+// The system transport dials it; the Windows desktop's transport will.
+#[cfg_attr(not(feature = "system-ssh"), allow(dead_code))]
+mod local;
 #[cfg(feature = "russh")]
 pub(crate) mod phone;
 #[cfg(any(feature = "russh", feature = "ws"))]

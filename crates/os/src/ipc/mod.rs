@@ -53,6 +53,11 @@ pub struct Peer {
     pub elevated: bool,
 }
 
+/// Whether shutting a stream's writing side ends what the other end reads
+/// while this end still reads: a Unix socket's does, and a Windows pipe's
+/// only flushes, so the other end sees the end once the stream is dropped.
+pub const HALF_CLOSES: bool = cfg!(unix);
+
 /// What [`probe`] found at an endpoint's path.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Found {
@@ -108,6 +113,12 @@ pub fn pair() -> io::Result<(LocalStream, LocalStream)> {
 /// listens, and blocks until that answers.
 pub fn probe(path: &Path) -> io::Result<Found> {
     imp::probe(path)
+}
+
+/// Whether something accepts a connection at `path` now. On Unix it
+/// connects as a client would, following a link, which [`probe`] doesn't.
+pub fn answers(path: &Path) -> bool {
+    imp::answers(path)
 }
 
 /// The named pipe Windows serves the endpoint at `path` on:
@@ -251,8 +262,13 @@ mod tests {
             .unwrap()
             .unwrap();
         assert_eq!(found, Found::Listening);
+        let probed = path.clone();
+        assert!(tokio::task::spawn_blocking(move || answers(&probed))
+            .await
+            .unwrap());
         drop(listener);
         assert_eq!(probe(&path).unwrap(), Found::Stale);
+        assert!(!answers(&path));
         std::fs::remove_file(&path).unwrap();
         std::fs::write(&path, "not a socket").unwrap();
         assert_eq!(probe(&path).unwrap(), Found::Other);
@@ -280,6 +296,11 @@ mod tests {
     #[cfg(windows)]
     #[tokio::test]
     async fn a_pipe_takes_connections_and_knows_its_peer() {
+        crate::within(take_connections()).await;
+    }
+
+    #[cfg(windows)]
+    async fn take_connections() {
         use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
         let path = pipe_path("listen");
@@ -322,30 +343,54 @@ mod tests {
             .unwrap()
             .unwrap();
         assert_eq!(found, Found::Listening);
+        let probed = path.clone();
+        assert!(tokio::task::spawn_blocking(move || answers(&probed))
+            .await
+            .unwrap());
 
         // A client's end closing is the server's end of file.
         drop(client);
         assert_eq!(read.read(&mut got).await.unwrap(), 0);
         drop((listener, read, write, other_read, other_write, second));
-        assert_eq!(probe(&path).unwrap(), Found::Nothing);
+        // Each end closes once Windows has cancelled what it was waiting
+        // for, which takes the runtime a turn or two.
+        let mut found = probe(&path).unwrap();
+        while found != Found::Nothing {
+            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+            found = probe(&path).unwrap();
+        }
     }
 
     #[cfg(windows)]
     #[tokio::test]
     async fn a_pipe_lets_in_this_user_alone() {
-        let path = pipe_path("dacl");
-        let listener = LocalListener::bind(&path).unwrap();
-        let accept = tokio::spawn(async move { listener.accept().await.unwrap() });
-        let client = LocalStream::connect(&path).await.unwrap();
-        let _server = accept.await.unwrap();
-        let sid = crate::win::sid_string(&crate::win::own_user().unwrap()).unwrap();
-        // One entry, this user's, inherited from nowhere: no Everyone,
-        // no Administrators, no anonymous logon.
-        let dacl = super::windows::dacl_of(&client.0).unwrap();
-        assert!(
-            [format!("D:P(A;;FA;;;{sid})"), format!("D:P(A;;GA;;;{sid})")].contains(&dacl),
-            "{dacl}"
-        );
+        crate::within(async {
+            let path = pipe_path("dacl");
+            let listener = LocalListener::bind(&path).unwrap();
+            let accept = tokio::spawn(async move { listener.accept().await.unwrap() });
+            let client = LocalStream::connect(&path).await.unwrap();
+            let _server = accept.await.unwrap();
+            let me = crate::win::own_user().unwrap();
+            // One entry, which lets this user in, inherited from nowhere:
+            // no Everyone, no Administrators, no anonymous logon.
+            let dacl = super::windows::dacl_of(&client.0).unwrap();
+            let (flags, entries) = dacl
+                .strip_prefix("D:")
+                .and_then(|rest| rest.split_once('('))
+                .unwrap_or_else(|| panic!("{dacl}"));
+            assert!(flags.starts_with('P'), "{dacl}");
+            let entries: Vec<&str> = entries.trim_end_matches(')').split(")(").collect();
+            let [entry] = entries[..] else {
+                panic!("{dacl}");
+            };
+            let fields: Vec<&str> = entry.split(';').collect();
+            assert_eq!(fields.first(), Some(&"A"), "{dacl}");
+            // SDDL writes a well-known user, as the local administrator a
+            // CI runner may run as, by two letters rather than its SID.
+            let user = fields.last().unwrap_or_else(|| panic!("{dacl}"));
+            assert_eq!(crate::win::sid_from_string(user).unwrap(), me, "{dacl}");
+        })
+        .await;
     }
 
     #[cfg(windows)]
@@ -381,17 +426,20 @@ mod tests {
     async fn a_pair_is_connected_both_ways() {
         use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
-        let (mut a, mut b) = pair().unwrap();
-        a.write_all(b"hi").await.unwrap();
-        let mut got = [0; 2];
-        b.read_exact(&mut got).await.unwrap();
-        assert_eq!(&got, b"hi");
-        b.write_all(b"yo").await.unwrap();
-        a.read_exact(&mut got).await.unwrap();
-        assert_eq!(&got, b"yo");
-        // No half-close: shutting down flushes, and dropping ends it.
-        a.shutdown().await.unwrap();
-        drop(a);
-        assert_eq!(b.read(&mut got).await.unwrap(), 0);
+        crate::within(async {
+            let (mut a, mut b) = pair().unwrap();
+            a.write_all(b"hi").await.unwrap();
+            let mut got = [0; 2];
+            b.read_exact(&mut got).await.unwrap();
+            assert_eq!(&got, b"hi");
+            b.write_all(b"yo").await.unwrap();
+            a.read_exact(&mut got).await.unwrap();
+            assert_eq!(&got, b"yo");
+            // No half-close: shutting down flushes, and dropping ends it.
+            a.shutdown().await.unwrap();
+            drop(a);
+            assert_eq!(b.read(&mut got).await.unwrap(), 0);
+        })
+        .await;
     }
 }

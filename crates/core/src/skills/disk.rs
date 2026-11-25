@@ -7,8 +7,9 @@ use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 
-use super::{Node, SkillFs};
+use super::{path_text, Node, SkillFs};
 use crate::fs::read_regular;
+use crate::fs_ext;
 
 /// The real disk.
 #[derive(Clone, Copy, Debug, Default)]
@@ -30,8 +31,9 @@ impl SkillFs for DiskFs {
         };
         let kind = meta.file_type();
         Ok(Some(if kind.is_symlink() {
+            // Written with `/`, as plans write a link's target.
             Node::Link {
-                target: fs::read_link(path)?.to_string_lossy().into_owned(),
+                target: path_text(&fs_ext::read_link(path)?),
             }
         } else if kind.is_dir() {
             Node::Dir
@@ -46,7 +48,7 @@ impl SkillFs for DiskFs {
     }
 
     fn real(&self, path: &Path) -> io::Result<Option<PathBuf>> {
-        there(fs::canonicalize(path))
+        there(fs_ext::canonicalize(path))
     }
 
     fn list(&self, path: &Path) -> io::Result<Vec<String>> {

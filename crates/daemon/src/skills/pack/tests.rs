@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026 Max Boksem
 
-use std::os::unix::fs::PermissionsExt;
+use maxhq_core::fs_ext;
+use maxhq_os::fsmode;
 
 use super::*;
 use crate::testing::TempDir;
@@ -13,7 +14,7 @@ fn fake(dir: &Path, name: &str, body: &str) -> (PathBuf, TreeHash) {
     fs::create_dir_all(from.join("scripts")).unwrap();
     let script = from.join(INSTALLER);
     fs::write(&script, format!("#!/usr/bin/env bash\nset -eu\n{body}\n")).unwrap();
-    fs::set_permissions(&script, fs::Permissions::from_mode(0o755)).unwrap();
+    fsmode::set_mode(&script, 0o755).unwrap();
     fs::write(from.join("scripts/df.sh"), "#!/bin/sh\n").unwrap();
     let tree = tree::of(&DiskFs, &from).unwrap();
     (from, tree)
@@ -73,11 +74,10 @@ fn a_pack_lands_and_installs_once_per_tree() {
         "ran pull=1\n"
     );
     let vendor = s.root.join(PACK_DIR);
-    let mode = fs::metadata(vendor.join(INSTALLER))
-        .unwrap()
-        .permissions()
-        .mode();
-    assert_eq!(mode & 0o777, 0o755);
+    let mode = fsmode::mode_of(&fs::metadata(vendor.join(INSTALLER)).unwrap());
+    if cfg!(unix) {
+        assert_eq!(mode & 0o777, 0o755);
+    }
     assert!(marker(&vendor).is_some());
     assert_eq!(
         noted(&s.logs(), &s.root).map(|note| note.marker.ran),
@@ -124,11 +124,11 @@ fn a_venv_changed_since_its_install_isnt_carried_over() {
             .unwrap();
         }),
         ("mode", |bin| {
-            fs::set_permissions(bin.join("python3"), fs::Permissions::from_mode(0o777)).unwrap();
+            fsmode::set_mode(&bin.join("python3"), 0o777).unwrap();
         }),
         ("link", |bin| {
-            fs::remove_file(bin.join("python")).unwrap();
-            std::os::unix::fs::symlink("/bin/sh", bin.join("python")).unwrap();
+            fs_ext::remove_link(&bin.join("python")).unwrap();
+            fs_ext::symlink("/bin/sh", bin.join("python")).unwrap();
         }),
         ("added", |bin| {
             fs::write(bin.join("activate"), "echo attacker > pwned.txt\n").unwrap();
@@ -137,10 +137,14 @@ fn a_venv_changed_since_its_install_isnt_carried_over() {
             let venv = bin.parent().unwrap();
             let elsewhere = venv.with_file_name("elsewhere");
             fs::rename(venv, &elsewhere).unwrap();
-            std::os::unix::fs::symlink(&elsewhere, venv).unwrap();
+            fs_ext::symlink(&elsewhere, venv).unwrap();
         }),
     ];
-    for (what, change) in changes {
+    // Windows has no modes to change.
+    for (what, change) in changes
+        .into_iter()
+        .filter(|(what, _)| cfg!(unix) || *what != "mode")
+    {
         let s = Setup::new();
         let (one, first) = fake(s.dir.path(), "one", MAKES_VENV);
         s.land(&one, &first, true, TIMEOUT);
@@ -166,7 +170,7 @@ fn the_venv_hash_sees_every_kind_of_change_and_refuses_odd_files() {
     assert_eq!(venv_hash(&vendor), None);
     fs::create_dir_all(&bin).unwrap();
     fs::write(bin.join("python3"), "one").unwrap();
-    std::os::unix::fs::symlink("python3", bin.join("python")).unwrap();
+    fs_ext::symlink("python3", bin.join("python")).unwrap();
     let first = venv_hash(&vendor).unwrap();
     assert_eq!(venv_hash(&vendor).as_ref(), Some(&first));
 
@@ -178,19 +182,24 @@ fn the_venv_hash_sees_every_kind_of_change_and_refuses_odd_files() {
     };
     fs::write(bin.join("python3"), "two").unwrap();
     check("bytes");
-    fs::set_permissions(bin.join("python3"), fs::Permissions::from_mode(0o755)).unwrap();
-    check("mode");
-    fs::remove_file(bin.join("python")).unwrap();
-    std::os::unix::fs::symlink("python3.12", bin.join("python")).unwrap();
+    if cfg!(unix) {
+        fsmode::set_mode(&bin.join("python3"), 0o755).unwrap();
+        check("mode");
+    }
+    fs_ext::remove_link(&bin.join("python")).unwrap();
+    fs_ext::symlink("python3.12", bin.join("python")).unwrap();
     check("link");
     fs::create_dir(bin.join("lib")).unwrap();
     check("folder");
     fs::rename(bin.join("lib"), bin.join("lib2")).unwrap();
     check("name");
 
-    let made = Command::new("mkfifo").arg(bin.join("pipe")).status();
-    assert!(made.unwrap().success());
-    assert_eq!(venv_hash(&vendor), None);
+    // Windows has no pipes on a disk.
+    if cfg!(unix) {
+        let made = Command::new("mkfifo").arg(bin.join("pipe")).status();
+        assert!(made.unwrap().success());
+        assert_eq!(venv_hash(&vendor), None);
+    }
 }
 
 /// Runs the python in the copy's `.venv` when it can, as devflow's
@@ -206,7 +215,7 @@ fn plant(vendor: &Path, tree: &TreeHash, ran: &str) {
     fs::create_dir_all(&bin).unwrap();
     let python = bin.join("python3");
     fs::write(&python, "#!/bin/sh\necho attacker > pwned.txt\n").unwrap();
-    fs::set_permissions(&python, fs::Permissions::from_mode(0o755)).unwrap();
+    fsmode::set_mode(&python, 0o755).unwrap();
     let tree = serde_json::to_string(tree).unwrap();
     fs::write(
         vendor.join(MARKER),
@@ -319,7 +328,7 @@ fn a_link_in_the_packs_place_is_replaced_and_what_it_leads_to_stays() {
         let elsewhere = s.dir.path().join("elsewhere");
         fs::create_dir_all(&elsewhere).unwrap();
         plant(&elsewhere, &TreeHash("other".into()), "failed");
-        std::os::unix::fs::symlink(&elsewhere, &vendor).unwrap();
+        fs_ext::symlink(&elsewhere, &vendor).unwrap();
         let (two, second) = fake(s.dir.path(), "two", &format!("{NOTE}\necho two"));
         assert_eq!(
             s.land(&two, &second, true, TIMEOUT),
@@ -362,7 +371,7 @@ fn a_pack_git_tracks_is_left_alone() {
     plant(&vendor, &TreeHash("other".into()), "pending");
     let monitor = s.dir.path().join("monitor");
     fs::write(&monitor, "#!/bin/sh\ntouch \"$0.ran\"\nexit 1\n").unwrap();
-    fs::set_permissions(&monitor, fs::Permissions::from_mode(0o755)).unwrap();
+    fsmode::set_mode(&monitor, 0o755).unwrap();
     git(&s.root, &["add", "-f", PACK_DIR]);
     git(&s.root, &["commit", "-q", "-m", "vendored"]);
     git(
@@ -464,6 +473,9 @@ ln -s ../../.devflow-vendor/skills/review .codex/skills/review
 ln -s ../../.devflow-vendor/agents/x.agent.md .github/agents/x.agent.md
 echo devflow > CLAUDE.md";
 
+// Git Bash's `ln -s` copies unless it's told to link, so the installer
+// leaves no links on Windows.
+#[cfg(unix)]
 #[test]
 fn removing_the_pack_takes_its_links_and_exclude_lines_and_nothing_else() {
     let s = Setup::new();
@@ -487,7 +499,7 @@ fn removing_the_pack_takes_its_links_and_exclude_lines_and_nothing_else() {
     fs::create_dir_all(s.root.join(".cursor/skills")).unwrap();
     let elsewhere = s.dir.path().join("elsewhere");
     fs::create_dir_all(&elsewhere).unwrap();
-    std::os::unix::fs::symlink(&elsewhere, s.root.join(".cursor/skills/other")).unwrap();
+    fs_ext::symlink(&elsewhere, s.root.join(".cursor/skills/other")).unwrap();
     fs::create_dir_all(s.root.join(".github/workflows")).unwrap();
     let mut exclude = "*.log\n/CLAUDE.md\n# MaxHQ skills\n/.maxhq/\n".to_owned();
     for line in pack::exclude_lines() {
@@ -533,6 +545,8 @@ fn a_copy_that_isnt_the_tree_is_never_installed() {
 }
 
 /// Who a container's installer runs as, with this test's user as the agent.
+/// Containers are Linux, so this and the tests that use it are Unix only.
+#[cfg(unix)]
 fn agent(s: &Setup) -> RunAs {
     let home = s.dir.path().join("home");
     // The installer runs on the fixed path a guest has. A Nix machine's bash
@@ -545,7 +559,7 @@ fn agent(s: &Setup) -> RunAs {
         .map(|dir| dir.join("bash"))
         .find(|bash| bash.is_file())
         .unwrap();
-    std::os::unix::fs::symlink(bash, bin.join("bash")).unwrap();
+    fs_ext::symlink(bash, bin.join("bash")).unwrap();
     RunAs {
         user: "agent".to_owned(),
         uid: rustix::process::getuid().as_raw(),
@@ -554,6 +568,7 @@ fn agent(s: &Setup) -> RunAs {
     }
 }
 
+#[cfg(unix)]
 #[test]
 fn a_containers_copy_is_never_in_the_checkout_while_root_walks_it() {
     use std::sync::atomic::{AtomicBool, Ordering};
@@ -610,6 +625,7 @@ fn a_containers_copy_is_never_in_the_checkout_while_root_walks_it() {
         .any(|name| name.ends_with(".copy")));
 }
 
+#[cfg(unix)]
 #[test]
 fn a_containers_copy_is_held_in_a_private_folder_of_maxds() {
     let s = Setup::new();
@@ -627,10 +643,11 @@ fn a_containers_copy_is_held_in_a_private_folder_of_maxds() {
     };
     let held = hold(&landing, &s.root.join(PACK_DIR)).unwrap();
     assert_eq!(held.parent(), Some(logs.as_path()));
-    let mode = fs::metadata(&held).unwrap().permissions().mode();
+    let mode = fsmode::mode_of(&fs::metadata(&held).unwrap());
     assert_eq!(mode & 0o777, 0o700);
 }
 
+#[cfg(unix)]
 #[test]
 fn a_venv_comes_over_after_the_copy_lands_in_a_container() {
     let s = Setup::new();
@@ -670,6 +687,7 @@ fn a_venv_comes_over_after_the_copy_lands_in_a_container() {
         .any(|entry| entry.file_name().to_string_lossy().ends_with(".old")));
 }
 
+#[cfg(unix)]
 #[test]
 fn a_fifo_at_the_markers_name_doesnt_hold_up_the_read() {
     let s = Setup::new();
@@ -703,9 +721,9 @@ fn only_a_small_regular_file_counts_as_the_marker() {
     // the same check.
     let elsewhere = s.dir.path().join("elsewhere.json");
     fs::write(&elsewhere, &text).unwrap();
-    std::os::unix::fs::symlink(&elsewhere, vendor.join(MARKER)).unwrap();
+    fs_ext::symlink(&elsewhere, vendor.join(MARKER)).unwrap();
     assert!(marker(&vendor).is_none());
-    fs::remove_file(vendor.join(MARKER)).unwrap();
+    fs_ext::remove_link(&vendor.join(MARKER)).unwrap();
 
     // Good JSON that runs past the limit.
     let long = format!("{text}{}", " ".repeat(MARKER_LIMIT as usize));
@@ -716,6 +734,8 @@ fn only_a_small_regular_file_counts_as_the_marker() {
     assert!(marker(&vendor).is_some());
 }
 
+// Git Bash's `ln -s` copies, so there's no link to test on Windows.
+#[cfg(unix)]
 #[test]
 fn an_installer_that_swaps_the_copy_for_a_link_gets_no_marker_through_it() {
     let s = Setup::new();

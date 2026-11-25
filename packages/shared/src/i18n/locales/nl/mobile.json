@@ -466,5 +466,8 @@
 	"“{{title}}” was deleted.": "\"{{title}}\" is verwijderd.",
 	"Runs at {{level}}.": "Draait op {{level}}.",
 	"{{level}} (default)": "{{level}} (standaard)",
-	"Couldn't change the effort level. {{reason}}": "Kon het inspanningsniveau niet wijzigen. {{reason}}"
+	"Couldn't change the effort level. {{reason}}": "Kon het inspanningsniveau niet wijzigen. {{reason}}",
+	"This build gets no pushes": "Deze build krijgt geen pushmeldingen",
+	"It was built without the signing that push needs.": "Hij is gebouwd zonder de ondertekening die push nodig heeft.",
+	"It was built without the signing that push needs._android": "Hij is gebouwd zonder het google-services.json-bestand van Firebase, dat push nodig heeft."
 }

@@ -560,7 +560,7 @@ fn version_names_the_protocol() {
 #[test]
 fn unknown_arguments_print_the_usage() {
     let world = World::new();
-    for args in [&[][..], &["serve"], &["service", "restart"]] {
+    for args in [&[][..], &["serve"], &["service", "reload"]] {
         let output = world.maxd(args).output().unwrap();
         assert_eq!(output.status.code(), Some(2), "{args:?}");
         assert!(stderr(&output).contains("maxd service install"));

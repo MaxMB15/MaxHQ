@@ -2,7 +2,7 @@
 // Copyright (c) 2026 Max Boksem
 
 //! What a card says about the program it's about: how it reached `maxd`
-//! and, on a Mac, which program it is.
+//! and, on a Mac or Windows, which program it is.
 
 use std::path::PathBuf;
 use std::sync::OnceLock;
@@ -49,7 +49,7 @@ pub struct Facts {
     pub transport: Transport,
     /// Whether its first frame named a paired phone.
     pub phone: bool,
-    /// On a Mac, the program that dialled the socket.
+    /// On a Mac or Windows, the program that dialled the socket.
     pub program: Option<codesign::Program>,
     /// When it first asked.
     pub asked_at: Timestamp,
@@ -64,14 +64,15 @@ impl Facts {
     /// the Security framework.
     pub fn find(caller: &Caller, apps: &[i32]) -> Self {
         let how = transport(caller.pid, caller.phone);
-        let local = cfg!(target_os = "macos") && how == Transport::Socket;
+        let local = cfg!(any(target_os = "macos", windows)) && how == Transport::Socket;
         Self {
             says: caller.says.clone(),
             transport: how,
             phone: caller.phone,
             program: if local { program(caller) } else { None },
             asked_at: caller.asked_at,
-            same_mac: local
+            same_mac: cfg!(target_os = "macos")
+                && local
                 && apps
                     .iter()
                     .any(|&app| transport(Some(app), false) == Transport::Socket),
@@ -80,8 +81,9 @@ impl Facts {
 }
 
 /// The program `caller` runs, from its token, or from its process when
-/// the token names none. A connection from `maxd` itself runs `maxd`.
-#[cfg(target_os = "macos")]
+/// the token names none, as it never does on Windows. A connection from
+/// `maxd` itself runs `maxd`.
+#[cfg(any(target_os = "macos", windows))]
 fn program(caller: &Caller) -> Option<codesign::Program> {
     if caller.pid.is_some_and(own) {
         return Some(codesign::own(own_exe().cloned()));
@@ -93,7 +95,7 @@ fn program(caller: &Caller) -> Option<codesign::Program> {
     Some(program)
 }
 
-#[cfg(not(target_os = "macos"))]
+#[cfg(not(any(target_os = "macos", windows)))]
 fn program(_caller: &Caller) -> Option<codesign::Program> {
     None
 }

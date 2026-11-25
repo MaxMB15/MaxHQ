@@ -24,6 +24,7 @@ use hyper::header::{
 use hyper::upgrade::Upgraded;
 use hyper::{Method, Request, Response, StatusCode};
 use hyper_util::rt::{TokioIo, TokioTimer};
+use maxhq_os::ipc::LocalStream;
 use maxhq_protocol::message::ActionOutcome;
 use maxhq_protocol::netaccess::{
     NetError, NetGrant, NetPair, NetPaired, NetRefusal, NetworkAccess, LINK_PATH, MAX_BODY,
@@ -34,7 +35,7 @@ use maxhq_protocol::ClientMessage;
 use serde::de::DeserializeOwned;
 use serde::Serialize;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::net::{TcpListener, UnixStream};
+use tokio::net::TcpListener;
 use tokio::sync::{broadcast, watch, Semaphore};
 use tokio::task::{JoinHandle, JoinSet};
 use tokio_rustls::TlsAcceptor;
@@ -514,7 +515,7 @@ async fn link(
         phone: session.phone,
     })
     .map_err(|_| NetError::Unavailable)?;
-    let mut maxd = UnixStream::connect(ctx.socket.as_path())
+    let mut maxd = LocalStream::connect(ctx.socket.as_path())
         .await
         .map_err(|_| NetError::Unavailable)?;
     maxd.write_all(&first)
@@ -553,7 +554,7 @@ async fn link(
 /// until either side closes, the session ends or the listener stops.
 async fn join(
     socket: WebSocketStream<TokioIo<Upgraded>>,
-    maxd: UnixStream,
+    maxd: LocalStream,
     session: maxhq_protocol::ids::PhoneSessionId,
     access: &Access,
     mut ended: broadcast::Receiver<maxhq_protocol::ids::PhoneSessionId>,

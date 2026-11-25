@@ -780,6 +780,8 @@
 	"Show {{name}} in Finder": "Show {{name}} in Finder",
 	"Couldn't find {{baseName}} in Downloads.": "Couldn't find {{baseName}} in Downloads.",
 	"Retry downloading {{name}}": "Retry downloading {{name}}",
+	"Downloaded without {{count, number}} links this computer couldn't make: {{links}}_one": "Downloaded without {{count, number}} link this computer couldn't make: {{links}}",
+	"Downloaded without {{count, number}} links this computer couldn't make: {{links}}_other": "Downloaded without {{count, number}} links this computer couldn't make: {{links}}",
 	"Couldn't save {{what}}": "Couldn't save {{what}}",
 	"the editor you used": "the editor you used",
 	"the default editor": "the default editor",
