@@ -24,7 +24,6 @@ import { useEffect, useState } from "react";
 import {
 	FlatList,
 	KeyboardAvoidingView,
-	Platform,
 	Pressable,
 	StyleSheet,
 	Text,
@@ -63,6 +62,7 @@ import { deviceName, type NeedsYouItem } from "@maxhq/shared/view/select";
 import { chipOf, projectRuns } from "@maxhq/shared/workflow/select";
 
 import type { ScreenProps } from "../../navigation";
+import { useBackPress } from "../../platform/back";
 import { useServices, useView } from "../../services";
 import { color, radius, size, tint, TOUCH } from "../../theme";
 import { Button } from "../../ui/Button";
@@ -272,6 +272,8 @@ export const InboxScreen = ({ navigation }: ScreenProps<"Inbox">) => {
 	const workingShelf = useInboxPrefs((prefs) => prefs.workingShelf);
 	const [query, setQuery] = useState("");
 	const [picked, setPicked] = useState<Picked | null>(null);
+	// Android's Back ends selecting rather than leaving the app.
+	useBackPress(picked !== null, () => setPicked(null));
 	const notices = noticesOf(services);
 	const insets = useSafeAreaInsets();
 	const [dialog] = useState(() => createRenameDialog(renamesOf(services)));
@@ -553,7 +555,8 @@ export const InboxScreen = ({ navigation }: ScreenProps<"Inbox">) => {
 	return (
 		<KeyboardAvoidingView
 			style={styles.screen}
-			behavior={Platform.OS === "ios" ? "padding" : undefined}
+			// Padding on Android too: it draws edge to edge, so the keyboard no longer shrinks the window.
+			behavior="padding"
 			keyboardVerticalOffset={-insets.bottom}
 		>
 			<Header

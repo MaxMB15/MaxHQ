@@ -14,7 +14,7 @@
 import { useI18n } from "@maxhq/shared/i18n";
 
 import { useMemo, useState } from "react";
-import { Platform, ScrollView, StyleSheet, Text, View } from "react-native";
+import { ScrollView, StyleSheet, Text, View } from "react-native";
 
 import { useNow } from "@maxhq/shared/lib/clock";
 import {
@@ -112,7 +112,7 @@ export const NewAgentScreen = ({ navigation, route }: ScreenProps<"NewAgent">) =
 		<View style={styles.screen}>
 			<Header
 				title={t("New agent")}
-				sheet={Platform.OS === "ios"}
+				sheet
 				back={{ label: t("Cancel"), onPress: () => navigation.goBack(), close: true }}
 			/>
 			<ScrollView

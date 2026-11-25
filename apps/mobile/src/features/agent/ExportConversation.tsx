@@ -10,15 +10,15 @@
 import { t, useI18n } from "@maxhq/shared/i18n";
 
 import * as Clipboard from "expo-clipboard";
-import { Directory, File, Paths } from "expo-file-system";
 import { useRef, useState } from "react";
-import { Alert, Platform, Share, StyleSheet, Text, View } from "react-native";
+import { Alert, StyleSheet, Text, View } from "react-native";
 
 import { viewNames } from "@maxhq/shared/agent-view/agent-tools";
 import type { Agent } from "@maxhq/shared/bindings";
 import { exportFileName } from "@maxhq/shared/timeline/export";
 import { conversationText } from "@maxhq/shared/timeline/whole";
 
+import { saveAs } from "../../platform/save";
 import { useServices } from "../../services";
 import { color, size } from "../../theme";
 import { Spinner } from "../../ui/Dot";
@@ -29,22 +29,6 @@ export type ExportTo = "file" | "copy";
 // The words of an error something threw.
 const said = (error: unknown): string =>
 	error instanceof Error && error.message ? error.message : t("It didn't load.");
-
-// Saves `text` as a Markdown file named `name`. Resolves to whether it
-// should say so, which the share sheet does on its own.
-const saveFile = async (name: string, text: string): Promise<boolean> => {
-	if (Platform.OS === "ios") {
-		const file = new File(Paths.cache, name);
-		await file.write(text);
-		await Share.share({ url: file.uri });
-		return false;
-	}
-	const folder = await Directory.pickDirectoryAsync().catch(() => null);
-	// Closed without picking one.
-	if (!folder) return false;
-	await folder.createFile(name, "text/markdown").write(text);
-	return true;
-};
 
 /**
  * Exports the agent's conversation: `loading` while the older pages load,
@@ -79,7 +63,8 @@ export const useConversationExport = (
 				return;
 			}
 			const name = exportFileName(agent.title, new Date());
-			if (await saveFile(name, text)) Alert.alert(t("Saved as Markdown"), name);
+			if (await saveAs(name, "text/markdown", { text }))
+				Alert.alert(t("Saved as Markdown"), name);
 		} catch (error) {
 			Alert.alert(t("Couldn't export"), said(error));
 		}

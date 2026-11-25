@@ -259,7 +259,8 @@ const AgentBody = ({
 	return (
 		<KeyboardAvoidingView
 			style={styles.screen}
-			behavior={Platform.OS === "ios" ? "padding" : undefined}
+			// Padding on Android too: it draws edge to edge, so the keyboard no longer shrinks the window.
+			behavior="padding"
 			keyboardVerticalOffset={0}
 		>
 			<Header

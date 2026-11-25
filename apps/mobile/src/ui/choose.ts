@@ -3,8 +3,9 @@
 
 // A short list of choices in the system's own sheet. Android's alert holds
 // three buttons at most, so it shows two choices at a time with More for
-// the rest, and leaves out the ones you can't pick. `confirm` asks before
-// something that can't be undone, and `answer` asks between two answers.
+// the rest, and leaves out the ones you can't pick. Back or a tap outside
+// closes it as Cancel would. `confirm` asks before something that can't be
+// undone, and `answer` asks between two answers.
 
 import { t } from "@maxhq/shared/i18n";
 
@@ -48,10 +49,15 @@ export const confirm = (
 	action: string,
 	run: () => void
 ): void =>
-	Alert.alert(question.title, question.detail, [
-		{ text: t("Cancel"), style: "cancel" },
-		{ text: action, style: "destructive", onPress: run },
-	]);
+	Alert.alert(
+		question.title,
+		question.detail,
+		[
+			{ text: t("Cancel"), style: "cancel" },
+			{ text: action, style: "destructive", onPress: run },
+		],
+		{ cancelable: true }
+	);
 
 /**
  * Asks `question` with its `other` answer and a red `action`, and gives
@@ -76,13 +82,18 @@ export const answer = (question: {
 	);
 
 const alertPage = (title: string, message: string | undefined, choices: readonly Choice[]) =>
-	Alert.alert(title, message, [
-		...choices.slice(0, 2).map((c) => ({
-			text: c.label,
-			style: c.destructive ? ("destructive" as const) : undefined,
-			onPress: c.pick,
-		})),
-		choices.length > 2
-			? { text: t("More"), onPress: () => alertPage(title, message, choices.slice(2)) }
-			: { text: t("Cancel"), style: "cancel" as const },
-	]);
+	Alert.alert(
+		title,
+		message,
+		[
+			...choices.slice(0, 2).map((c) => ({
+				text: c.label,
+				style: c.destructive ? ("destructive" as const) : undefined,
+				onPress: c.pick,
+			})),
+			choices.length > 2
+				? { text: t("More"), onPress: () => alertPage(title, message, choices.slice(2)) }
+				: { text: t("Cancel"), style: "cancel" as const },
+		],
+		{ cancelable: true }
+	);

@@ -15,9 +15,9 @@
 import { t, useI18n } from "@maxhq/shared/i18n";
 
 import * as Clipboard from "expo-clipboard";
-import { Directory, File, FileMode, Paths } from "expo-file-system";
+import { File, FileMode } from "expo-file-system";
 import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
-import { Alert, Image, Platform, ScrollView, Share, StyleSheet, Text, View } from "react-native";
+import { Alert, Image, ScrollView, StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { WebView } from "react-native-webview";
 
@@ -41,6 +41,8 @@ import { copyLabel, useCopyWith } from "@maxhq/shared/lib/copy";
 
 import { urlOf } from "../../data/native-source";
 import type { ScreenProps } from "../../navigation";
+import { OS, platform } from "../../platform";
+import { saveAs } from "../../platform/save";
 import { useServices, useView } from "../../services";
 import { color, size } from "../../theme";
 import { Button } from "../../ui/Button";
@@ -56,7 +58,7 @@ import { binaryNote, fileNote, headerSaveText, lookOf, mimeOf, noViewNote, saveT
 const said = (error: unknown): string => (error instanceof Error ? error.message : String(error));
 
 /** What Save or Share is called here. */
-const saveLabel = (): string => (Platform.OS === "ios" ? t("Share") : t("Save"));
+const saveLabel = (): string => (platform.savesByShare ? t("Share") : t("Save"));
 
 /**
  * Hands a copy of the file on, through the share sheet on iOS and into a
@@ -66,23 +68,9 @@ const saveLabel = (): string => (Platform.OS === "ios" ? t("Share") : t("Save"))
 const saveFile = async (url: string, path: string, owned = false): Promise<void> => {
 	const name = fileName(path);
 	try {
-		const file = new File(url);
-		if (Platform.OS === "ios") {
-			// Its own folder, so the copy takes the file's name without meeting the app's own files.
-			const folder = new Directory(Paths.cache, "shared");
-			folder.create({ intermediates: true, idempotent: true });
-			const copy = new File(folder, name);
-			if (owned) await file.move(copy, { overwrite: true });
-			else await file.copy(copy, { overwrite: true });
-			await Share.share({ url: copy.uri });
-			return;
+		if (await saveAs(name, mimeOf(path), { file: new File(url), owned })) {
+			Alert.alert(t("Saved"), name);
 		}
-		const folder = await Directory.pickDirectoryAsync().catch(() => null);
-		// Closed without picking one.
-		if (!folder) return;
-		await folder.createFile(name, mimeOf(path)).write(await file.bytes());
-		if (owned) file.delete();
-		Alert.alert(t("Saved"), name);
 	} catch (error) {
 		Alert.alert(t("Couldn't save {{what}}", { what: name }), said(error));
 	}
@@ -400,7 +388,7 @@ const Body = ({
 	}
 
 	const { url, size } = media;
-	switch (lookOf(path, Platform.OS)) {
+	switch (lookOf(path, OS)) {
 		case "markdown":
 			return <MarkdownFile key={url} agent={agent} path={path} url={url} size={size} />;
 		case "text":
@@ -411,7 +399,7 @@ const Body = ({
 			return <PdfFile key={url} path={path} url={url} />;
 		case "none":
 			return (
-				<Note text={noViewNote(path, size, Platform.OS)} saving={saving}>
+				<Note text={noViewNote(path, size, OS)} saving={saving}>
 					<SaveAction save={save} />
 				</Note>
 			);
@@ -446,10 +434,7 @@ export const FileScreen = ({ navigation, route }: ScreenProps<"File">) => {
 						ellipsizeMode="head"
 						style={styles.path}
 					>
-						{copyLabel(
-							copied,
-							headerSaveText(path, media, save.download, Platform.OS) ?? path
-						)}
+						{copyLabel(copied, headerSaveText(path, media, save.download, OS) ?? path)}
 					</Text>
 				}
 				back={{ label: t("Back"), onPress: () => navigation.goBack() }}

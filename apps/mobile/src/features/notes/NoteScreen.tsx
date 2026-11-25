@@ -25,10 +25,8 @@ import {
 import {
 	Alert,
 	AppState,
-	BackHandler,
 	FlatList,
 	KeyboardAvoidingView,
-	Platform,
 	Pressable,
 	ScrollView,
 	StyleSheet,
@@ -62,7 +60,8 @@ import {
 
 import type { ScreenProps } from "../../navigation";
 import { useServices, useView } from "../../services";
-import { color, size } from "../../theme";
+import { useBackPress } from "../../platform/back";
+import { color, font, size } from "../../theme";
 import { Button } from "../../ui/Button";
 import { choose, confirm } from "../../ui/choose";
 import { Header, IconButton } from "../../ui/Header";
@@ -226,14 +225,7 @@ const NoteBody = ({
 	}, [listing, source, device, project, note, state.base, historyTry]);
 
 	// Android's Back steps out of an old version and the history before it leaves the note.
-	useEffect(() => {
-		if (!listing) return;
-		const watch = BackHandler.addEventListener("hardwareBackPress", () => {
-			setShowing(stepBack);
-			return true;
-		});
-		return () => watch.remove();
-	}, [listing]);
+	useBackPress(listing, () => setShowing(stepBack));
 
 	const openHistory = () => {
 		void saving.flush();
@@ -383,7 +375,8 @@ const NoteBody = ({
 	return (
 		<KeyboardAvoidingView
 			style={styles.screen}
-			behavior={Platform.OS === "ios" ? "padding" : undefined}
+			// Padding on Android too: it draws edge to edge, so the keyboard no longer shrinks the window.
+			behavior="padding"
 		>
 			{header}
 			<ScrollView
@@ -603,7 +596,7 @@ const styles = StyleSheet.create({
 		color: color.foreground,
 		fontSize: size.body,
 		lineHeight: 20,
-		fontFamily: Platform.select({ ios: "Menlo", default: "monospace" }),
+		fontFamily: font.mono,
 		padding: 0,
 	},
 	empty: { color: color.mutedForeground, fontSize: size.small },
