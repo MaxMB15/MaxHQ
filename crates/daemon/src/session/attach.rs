@@ -17,7 +17,10 @@
 use std::ffi::{OsStr, OsString};
 use std::fs;
 use std::io;
+#[cfg(unix)]
 use std::os::unix::ffi::{OsStrExt, OsStringExt};
+#[cfg(windows)]
+use std::os::windows::ffi::{OsStrExt, OsStringExt};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime};
 
@@ -254,19 +257,42 @@ impl Attachments {
 fn clean_file_name(name: &OsStr) -> OsString {
     match name.to_str() {
         Some(text) => attached::clean_name(text).into_owned().into(),
-        None => OsString::from_vec(
-            name.as_bytes()
-                .iter()
-                .map(|&byte| {
-                    if byte < 0x20 || byte == 0x7f {
-                        b' '
-                    } else {
-                        byte
-                    }
-                })
-                .collect(),
-        ),
+        None => clean_raw_name(name),
     }
+}
+
+/// A name that isn't text with each control byte made a space.
+#[cfg(unix)]
+fn clean_raw_name(name: &OsStr) -> OsString {
+    OsString::from_vec(
+        name.as_bytes()
+            .iter()
+            .map(|&byte| {
+                if byte < 0x20 || byte == 0x7f {
+                    b' '
+                } else {
+                    byte
+                }
+            })
+            .collect(),
+    )
+}
+
+/// A name that isn't text, which on Windows is one with a lone surrogate,
+/// with each control unit made a space.
+#[cfg(windows)]
+fn clean_raw_name(name: &OsStr) -> OsString {
+    let units: Vec<u16> = name
+        .encode_wide()
+        .map(|unit| {
+            if unit < 0x20 || unit == 0x7f {
+                u16::from(b' ')
+            } else {
+                unit
+            }
+        })
+        .collect();
+    OsString::from_wide(&units)
 }
 
 /// Copies a folder, skipping links inside it, within `budget` bytes.
@@ -386,6 +412,8 @@ mod tests {
         assert_eq!(store(&dir).find(id).unwrap(), staged);
     }
 
+    // Windows makes links only with Developer Mode or as an administrator.
+    #[cfg(unix)]
     #[test]
     fn folders_are_copied_whole_without_their_links() {
         let dir = TempDir::new();
@@ -482,10 +510,24 @@ mod tests {
         let staged = store.stage(AttachmentId::generate(), &path).unwrap();
         assert_eq!(staged.name, "a b .png");
         assert_eq!(fs::read(&staged.path).unwrap(), b"png bytes");
+    }
 
+    #[cfg(unix)]
+    #[test]
+    fn a_name_that_isnt_text_is_cleaned_byte_by_byte() {
         assert_eq!(
             clean_file_name(OsStr::from_bytes(b"\xff\n.bin")),
             OsStr::from_bytes(b"\xff .bin")
+        );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn a_name_that_isnt_text_is_cleaned_unit_by_unit() {
+        let name = |units: &[u16]| OsString::from_wide(units);
+        assert_eq!(
+            clean_file_name(&name(&[0xd800, 0x0a, 0x2e])),
+            name(&[0xd800, 0x20, 0x2e])
         );
     }
 

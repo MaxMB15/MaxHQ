@@ -226,6 +226,7 @@ fn the_opener_sizes_a_terminal_until_someone_types_then_the_last_to_type_does() 
         opener: Opener::App,
         moved: false,
         name: None,
+        shell: None,
         session: None,
     };
     let mut open = Open::new(note, None, DeviceId::derive("host"), TerminalId::generate());
@@ -325,6 +326,7 @@ fn a_tab_says_whether_its_holder_keeps_to_the_shells_marks() {
         opener: Opener::App,
         moved: false,
         name: None,
+        shell: None,
         session: None,
     };
     // A holder from before protocol 47 doesn't say, so it reads false.
@@ -365,6 +367,7 @@ fn a_tab_says_whether_its_holder_answers_and_how_its_program_reads() {
         opener: Opener::App,
         moved: false,
         name: None,
+        shell: None,
         session: None,
     };
     let hello = |modes| TermHello {
@@ -584,6 +587,49 @@ async fn the_shell_integration_switch_decides_whether_shells_get_hooks() {
     let plain = zsh();
     assert_eq!(off.nonce, None);
     assert_eq!((off.args, off.env), (plain.args, plain.env));
+}
+
+#[tokio::test]
+async fn a_terminal_runs_the_shell_the_device_picks() {
+    let f = fixture();
+    let shell = || {
+        let launch = f.terminals.launch(
+            TerminalId::generate(),
+            &TerminalKind::Shell,
+            "/".into(),
+            80,
+            24,
+        );
+        launch.program
+    };
+    assert_eq!(f.terminals.windows_shell(), WindowsShell::Auto);
+    let key = EntityKey::DeviceSettings(f.hub.device().id);
+    let Some(Entity::DeviceSettings(settings)) = f.hub.get(&key) else {
+        panic!("a new hub has settings");
+    };
+    f.hub.apply([Change::Upsert {
+        value: Entity::DeviceSettings(maxhq_protocol::model::DeviceSettings {
+            windows_shell: WindowsShell::Pwsh,
+            ..settings
+        }),
+    }]);
+    assert_eq!(f.terminals.windows_shell(), WindowsShell::Pwsh);
+    if cfg!(unix) {
+        assert_eq!(
+            shell(),
+            maxhq_hold::login_shell(),
+            "Unix keeps the user's shell"
+        );
+    }
+}
+
+#[test]
+fn a_shells_title_is_its_name() {
+    assert_eq!(shell_name(Path::new("/bin/zsh")), "zsh");
+    assert_eq!(shell_name(Path::new("/opt/bash-5.2")), "bash-5.2");
+    let pwsh = shell_name(Path::new("pwsh.EXE"));
+    assert_eq!(pwsh, if cfg!(windows) { "pwsh" } else { "pwsh.EXE" });
+    assert_eq!(shell_name(Path::new("/")), "shell");
 }
 
 #[tokio::test]

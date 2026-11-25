@@ -1311,18 +1311,53 @@ fn keys_at_the_prompt_say_whether_a_line_waits() {
 #[test]
 fn a_cd_line_quotes_the_folder_for_its_shell() {
     let plain = Path::new("/srv/code/example-app");
-    assert_eq!(cd_line(plain, false), "cd -- /srv/code/example-app");
+    assert_eq!(
+        cd_line(plain, Dialect::Posix),
+        "cd -- /srv/code/example-app"
+    );
     let spaced = Path::new("/srv/it's here");
-    assert_eq!(cd_line(spaced, false), "cd -- '/srv/it'\\''s here'");
-    assert_eq!(cd_line(spaced, true), "cd -- '/srv/it\\'s here'");
+    assert_eq!(
+        cd_line(spaced, Dialect::Posix),
+        "cd -- '/srv/it'\\''s here'"
+    );
+    assert_eq!(cd_line(spaced, Dialect::Fish), "cd -- '/srv/it\\'s here'");
     assert_eq!(quote("a\\b", true), "'a\\\\b'");
     if let Some(home) = home() {
-        assert_eq!(cd_line(&home, false), "cd -- ~");
+        assert_eq!(cd_line(&home, Dialect::Posix), "cd -- ~");
         assert_eq!(
-            cd_line(&home.join("code/my app"), false),
+            cd_line(&home.join("code").join("my app"), Dialect::Posix),
             "cd -- ~/'code/my app'"
         );
     }
+}
+
+#[test]
+fn powershell_changes_folder_with_the_path_as_it_is() {
+    let path = Path::new(r"C:\Users\<user>\it's [here]");
+    assert_eq!(
+        cd_line(path, Dialect::PowerShell),
+        r"Set-Location -LiteralPath 'C:\Users\<user>\it''s [here]'"
+    );
+    if let Some(home) = home() {
+        let line = cd_line(&home, Dialect::PowerShell);
+        assert!(
+            !line.contains('~'),
+            "PowerShell's ~ is its provider's home: {line}"
+        );
+    }
+    let note = |fish, powershell| SessionNote {
+        fish,
+        powershell,
+        ..SessionNote::default()
+    };
+    assert_eq!(note(false, false).dialect(), Dialect::Posix);
+    assert_eq!(note(true, false).dialect(), Dialect::Fish);
+    assert_eq!(note(false, true).dialect(), Dialect::PowerShell);
+    // A note from before PowerShell keeps reading as it did.
+    let old: SessionNote = serde_json::from_str(r#"{"blocks":2,"fish":true}"#).unwrap();
+    assert_eq!(old.dialect(), Dialect::Fish);
+    let saved = serde_json::to_value(note(false, false)).unwrap();
+    assert!(saved.get("powershell").is_none(), "{saved}");
 }
 
 #[test]
@@ -1375,6 +1410,7 @@ fn session_open(blocks: u32, prompted: bool) -> Open {
         opener: Opener::App,
         moved: false,
         name: None,
+        shell: None,
         session: Some(SessionNote {
             blocks,
             prompted,

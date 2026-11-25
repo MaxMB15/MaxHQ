@@ -16,7 +16,6 @@
 use std::collections::HashSet;
 use std::fs;
 use std::io;
-use std::os::unix::fs::DirBuilderExt;
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
@@ -417,10 +416,7 @@ impl Manager {
 
     /// Writes a flag, replacing any the agent had.
     fn write_flag(&self, flag: &Flag) -> io::Result<()> {
-        fs::DirBuilder::new()
-            .recursive(true)
-            .mode(0o700)
-            .create(&self.resume_dir)?;
+        maxhq_os::fsmode::private_dir_all(&self.resume_dir)?;
         let path = self.flag_path(flag.agent);
         let text = serde_json::to_vec(flag).map_err(io::Error::other)?;
         write_atomic(&path, &text, Atomic::PLAIN)

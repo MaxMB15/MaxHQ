@@ -80,7 +80,11 @@ const NAMED_CHARS: usize = 60;
 const NO_FOLDER_GIVEN: &str = "Say which folder to go to.";
 const CONTROL_IN_FOLDER: &str =
     "A folder's name can't hold a line break or another control character.";
-const NO_MARKS: &str = "Sessions need a shell that reports its commands: zsh, bash or fish.";
+const NO_MARKS: &str = if cfg!(windows) {
+    "Sessions need a shell that reports its commands: Git Bash or PowerShell."
+} else {
+    "Sessions need a shell that reports its commands: zsh, bash or fish."
+};
 const SESSION_ENDED: &str = "The session ended. Try again.";
 const NO_FIRST_PROMPT: &str = "Your shell didn't report its commands, so the session closed.";
 const BUSY_UNNAMED: &str = "The session is busy. Wait for what runs in it to finish, or stop it.";
@@ -198,6 +202,10 @@ pub(super) struct SessionNote {
     /// Whether its shell is fish, which quotes differently.
     #[serde(default)]
     pub(super) fish: bool,
+    /// Whether its shell is PowerShell, which changes folder and quotes
+    /// its own way.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub(super) powershell: bool,
     /// The block that runs, until it's kept.
     #[serde(default)]
     pub(super) current: Option<BlockNote>,
@@ -525,8 +533,8 @@ impl Terminals {
                 _,
             ) => (command.clone(), command.clone(), *private),
             (SessionAsk::Cd { .. }, Some(target)) => {
-                let fish = self.with_session(terminal, |session| session.fish);
-                let line = cd_line(target, fish.unwrap_or(false));
+                let dialect = self.with_session(terminal, SessionNote::dialect);
+                let line = cd_line(target, dialect.unwrap_or(Dialect::Posix));
                 (line.clone(), line, false)
             }
             (SessionAsk::Cd { .. }, None) => {
@@ -588,9 +596,11 @@ impl Terminals {
             .program
             .file_name()
             .is_some_and(|name| name == "fish");
+        let powershell = launch.powershell();
         self.finish_ended_sessions(request.agent);
         let session = SessionNote {
             fish,
+            powershell,
             ..SessionNote::default()
         };
         let (entity, events) = self
@@ -1129,9 +1139,7 @@ impl Open {
 
 /// `maxd`'s home folder.
 fn home() -> Option<PathBuf> {
-    std::env::var_os("HOME")
-        .map(PathBuf::from)
-        .filter(|home| home.is_absolute())
+    maxhq_os::home::home_dir().filter(|home| home.is_absolute())
 }
 
 /// A folder the device writes with `~`, as a path.
@@ -1190,18 +1198,53 @@ fn tidy(path: &Path) -> PathBuf {
     tidied
 }
 
-/// The `cd` line that takes a shell to `path`, quoted for fish or for a
-/// POSIX shell.
-fn cd_line(path: &Path, fish: bool) -> String {
+/// How a session's shell reads the line that changes its folder.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Dialect {
+    Posix,
+    Fish,
+    PowerShell,
+}
+
+impl SessionNote {
+    fn dialect(&self) -> Dialect {
+        if self.powershell {
+            Dialect::PowerShell
+        } else if self.fish {
+            Dialect::Fish
+        } else {
+            Dialect::Posix
+        }
+    }
+}
+
+/// The line that takes a shell to `path`: `cd`, quoted for fish or for a
+/// POSIX shell, or PowerShell's `Set-Location`, which takes the path as it
+/// is. Git Bash gets the path with forward slashes, which it reads as
+/// Windows does.
+fn cd_line(path: &Path, dialect: Dialect) -> String {
+    if dialect == Dialect::PowerShell {
+        let path = TermLaunch::powershell_quoted(&path.to_string_lossy());
+        return format!("Set-Location -LiteralPath {path}");
+    }
+    let fish = dialect == Dialect::Fish;
+    let posix = |path: &Path| {
+        let path = path.to_string_lossy();
+        if cfg!(windows) {
+            path.replace('\\', "/")
+        } else {
+            path.into_owned()
+        }
+    };
     if let Some(home) = home()
         && let Ok(rest) = path.strip_prefix(&home)
     {
         if rest.as_os_str().is_empty() {
             return "cd -- ~".to_owned();
         }
-        return format!("cd -- ~/{}", quote(&rest.to_string_lossy(), fish));
+        return format!("cd -- ~/{}", quote(&posix(rest), fish));
     }
-    format!("cd -- {}", quote(&path.to_string_lossy(), fish))
+    format!("cd -- {}", quote(&posix(path), fish))
 }
 
 /// `word` as one word to the shell.

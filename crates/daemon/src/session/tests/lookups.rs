@@ -67,6 +67,9 @@ async fn what_the_path_search_finds_stages_from_the_folder_it_searched() {
     fs::write(h.folder.join("src/main.rs"), "fn main() {}").unwrap();
     let outside = h.dir.path().join("secret.txt");
     fs::write(&outside, "x").unwrap();
+    // Windows makes links only with Developer Mode or as an administrator,
+    // and a name that isn't there is refused all the same.
+    #[cfg(unix)]
     std::os::unix::fs::symlink(&outside, h.folder.join("link.txt")).unwrap();
     let (agent, _) = h.start_claude(None).await;
 
