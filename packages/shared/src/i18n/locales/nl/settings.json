@@ -1167,5 +1167,15 @@
 	"Remove {{rule}} on {{deviceName}}": "{{rule}} op {{deviceName}} verwijderen",
 	"Removed. Cursor agents running now keep it until they start again.": "Verwijderd. Cursor-agents die nu draaien houden de regel tot ze opnieuw starten.",
 	"Shell rules Cursor saved": "Shellregels die Cursor bewaarde",
-	"Update maxd on {{deviceName}} to see the rules Cursor saved there.": "Werk maxd bij op {{deviceName}} om de regels te zien die Cursor daar bewaarde."
+	"Update maxd on {{deviceName}} to see the rules Cursor saved there.": "Werk maxd bij op {{deviceName}} om de regels te zien die Cursor daar bewaarde.",
+	"Kind of server": "Soort server",
+	"Your own server": "Je eigen server",
+	"Sign in with OpenRouter": "Aanmelden met OpenRouter",
+	"Spending limit": "Uitgavenlimiet",
+	"OpenRouter stops this key at the limit": "OpenRouter stopt deze sleutel bij de limiet",
+	"Cancel the sign-in": "Het aanmelden annuleren",
+	"Or paste an API key": "Of plak een API-sleutel",
+	"Paste an API key": "Plak een API-sleutel",
+	"Get a key": "Sleutel aanmaken",
+	"Couldn't sign in with OpenRouter": "Kon niet aanmelden met OpenRouter"
 }

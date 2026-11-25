@@ -72,6 +72,23 @@ A cloud service that answers the Anthropic Messages API works the same way, with
 
 A plain http URL to another machine says Not encrypted on the network, because anyone in between can read your prompts and code. Use https, such as `https://gpu-box.example.com`, an SSH tunnel or a VPN to keep it private.
 
+## Sign in with OpenRouter
+<!-- id: local-models/openrouter -->
+<!-- covers: settings/local-models -->
+
+OpenRouter runs many cloud models behind one API key. MaxHQ can get that key for you, so you don't copy it by hand.
+
+1. On the Local models page, click Add server URL under Servers, then pick OpenRouter at the top of the form. Its URL, `https://openrouter.ai/api`, is set for you.
+2. Under Spending limit, type an amount in dollars, such as 25, or leave it empty for no limit. OpenRouter stops the key once it has spent that much.
+3. Click Sign in with OpenRouter. Your browser opens on OpenRouter, and the form says Finish signing in in your browser. Sign in there and allow MaxHQ. Cancel stops the sign-in.
+4. The device gets a server named OpenRouter with a key of its own, and its models show in the model picker.
+
+The device asks OpenRouter for the key and keeps it, and MaxHQ never shows it. On OpenRouter the key is named MaxHQ on, then the device's name, such as MaxHQ on devbox. To stop it, revoke it on OpenRouter's keys page. A device that has an OpenRouter server already gives that server the new key, and the form says so before you sign in.
+
+If the sign-in fails, the form says why, and Try again starts a new one. To paste a key instead, click Get a key to open OpenRouter's keys page, make a key there, paste it under API key, and click Test and Add. A device whose maxd is too old to sign in asks you to update it, and takes a pasted key meanwhile.
+
+The OpenRouter server's row has Sign in again. It runs the same sign-in with no spending limit and gives the server a new key. The server keeps its name and models, so agents on it keep working. The old key works until you revoke it on OpenRouter's keys page.
+
 ## Use this Mac's models from another device
 <!-- id: local-models/linked -->
 

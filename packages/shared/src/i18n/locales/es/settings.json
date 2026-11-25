@@ -1169,5 +1169,15 @@
 	"Remove {{rule}} on {{deviceName}}": "Quitar {{rule}} en {{deviceName}}",
 	"Removed. Cursor agents running now keep it until they start again.": "Quitada. Los agentes de Cursor en marcha la mantienen hasta que vuelvan a iniciarse.",
 	"Shell rules Cursor saved": "Reglas de shell que guardó Cursor",
-	"Update maxd on {{deviceName}} to see the rules Cursor saved there.": "Actualiza maxd en {{deviceName}} para ver las reglas que Cursor guardó allí."
+	"Update maxd on {{deviceName}} to see the rules Cursor saved there.": "Actualiza maxd en {{deviceName}} para ver las reglas que Cursor guardó allí.",
+	"Kind of server": "Tipo de servidor",
+	"Your own server": "Tu propio servidor",
+	"Sign in with OpenRouter": "Iniciar sesión con OpenRouter",
+	"Spending limit": "Límite de gasto",
+	"OpenRouter stops this key at the limit": "OpenRouter detiene esta clave al llegar al límite",
+	"Cancel the sign-in": "Cancelar el inicio de sesión",
+	"Or paste an API key": "O pega una clave API",
+	"Paste an API key": "Pega una clave API",
+	"Get a key": "Obtener una clave",
+	"Couldn't sign in with OpenRouter": "No se pudo iniciar sesión con OpenRouter"
 }
