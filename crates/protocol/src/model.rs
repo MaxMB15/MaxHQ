@@ -622,6 +622,14 @@ pub enum CredentialKind {
         /// The Apple developer team the key belongs to.
         team_id: String,
     },
+    /// The Firebase service account this device pushes to Android phones
+    /// with. Since protocol 61.
+    Fcm {
+        /// The Firebase project the account belongs to.
+        project_id: String,
+        /// The service account's email.
+        client_email: String,
+    },
 }
 
 /// Where a workspace lives.
@@ -1992,6 +2000,27 @@ mod tests {
         assert_eq!(
             serde_json::from_value::<CredentialKind>(value).unwrap(),
             user
+        );
+    }
+
+    #[test]
+    fn an_fcm_key_names_its_project_and_account() {
+        let fcm = CredentialKind::Fcm {
+            project_id: "<PROJECT_ID>".into(),
+            client_email: "pusher@example.invalid".into(),
+        };
+        let value = serde_json::to_value(&fcm).unwrap();
+        assert_eq!(
+            value,
+            json!({
+                "type": "fcm",
+                "project_id": "<PROJECT_ID>",
+                "client_email": "pusher@example.invalid",
+            })
+        );
+        assert_eq!(
+            serde_json::from_value::<CredentialKind>(value).unwrap(),
+            fcm
         );
     }
 
