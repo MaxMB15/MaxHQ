@@ -21,6 +21,7 @@ use std::process::{Child, ChildStdin, Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
 
+use rustix::process::{waitid, Pid, WaitId, WaitIdOptions};
 use tracing::{debug, warn};
 
 use super::supplies::{on_charger_in, SUPPLIES};
@@ -108,6 +109,7 @@ impl Inhibitor {
     fn watch(mut child: Child) -> Self {
         let stdin = child.stdin.take();
         let stderr = child.stderr.take();
+        let pid = Pid::from_child(&child);
         let child = Arc::new(Mutex::new(child));
         let shared = child.clone();
         let reader = std::thread::Builder::new()
@@ -118,6 +120,14 @@ impl Inhibitor {
                     // It only ends once the child and its `cat` are gone.
                     let _ = stderr.read_to_string(&mut written);
                 }
+                // Its stderr closes a moment before it can be reaped, so
+                // this waits for that moment. It leaves the child for
+                // `try_wait` and takes no lock, so a hold let go meanwhile
+                // reaps it instead.
+                let _ = waitid(
+                    WaitId::Pid(pid),
+                    WaitIdOptions::EXITED | WaitIdOptions::NOWAIT,
+                );
                 let status = shared
                     .lock()
                     .unwrap_or_else(PoisonError::into_inner)
