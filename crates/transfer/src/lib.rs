@@ -19,22 +19,31 @@
 
 #![warn(missing_docs)]
 
+// The disk side works through Unix calls, so it builds on Unix alone
+// until it has a Windows side. Names and manifests build everywhere.
+#[cfg(unix)]
 pub mod beneath;
 pub mod manifest;
 pub mod name;
+#[cfg(unix)]
 pub mod receive;
+#[cfg(unix)]
 pub mod remove;
+#[cfg(unix)]
 pub mod send;
 
-#[cfg(test)]
+#[cfg(all(test, unix))]
 mod testing;
 
 use std::io;
 
 use maxhq_protocol::message::ErrorCode;
 
+#[cfg(unix)]
 pub use receive::{Grant, Receiver};
+#[cfg(unix)]
 pub use remove::remove_tree;
+#[cfg(unix)]
 pub use send::{walk, Outgoing, Source, Walk};
 
 /// A gibibyte.
@@ -84,6 +93,7 @@ impl Failure {
 
     /// A failed disk operation, with a code that says whether the disk was
     /// full, a path broke a rule or something else went wrong.
+    #[cfg(unix)]
     pub fn io(err: &io::Error, entry: Option<u32>) -> Self {
         use rustix::io::Errno;
         let code = match err.raw_os_error().map(Errno::from_raw_os_error) {
@@ -123,6 +133,7 @@ impl Room {
 
     /// Refuses `incoming` more bytes if they'd leave less than this free on
     /// the disk under `dir`.
+    #[cfg(unix)]
     pub fn check(&self, dir: &beneath::Dir, incoming: u64) -> Result<(), Failure> {
         let (free, size) = dir.space().map_err(|err| Failure::io(&err, None))?;
         self.check_space(free, size, incoming)
@@ -219,7 +230,7 @@ pub fn human(bytes: u64) -> String {
     format!("{value:.1} {}", UNITS[unit])
 }
 
-#[cfg(test)]
+#[cfg(all(test, unix))]
 mod tests {
     use super::*;
     use crate::beneath::Dir;

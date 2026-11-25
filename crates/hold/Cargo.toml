@@ -10,16 +10,19 @@ publish.workspace = true
 base64.workspace = true
 futures.workspace = true
 getrandom.workspace = true
-libc.workspace = true
 maxhq-core.workspace = true
+maxhq-os.workspace = true
 maxhq-protocol.workspace = true
 maxhq-term.workspace = true
-rustix = { workspace = true, features = ["pty", "termios"] }
 serde.workspace = true
 serde_json.workspace = true
 subtle.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
+
+[target.'cfg(unix)'.dependencies]
+libc.workspace = true
+rustix = { workspace = true, features = ["pty", "termios"] }
 
 # The test binary also plays the holder, the fake agent CLI and the process
 # that spawns a holder, so it brings its own main.
