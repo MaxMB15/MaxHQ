@@ -28,8 +28,9 @@ env:
 # Every check runs on Linux. The rust-macos job also runs the Rust tests on
 # macOS, since the desktop app and the Mac's maxd run there and have code of
 # their own behind cfg(target_os = "macos"). Formatting and clippy run on
-# Linux only, so that code is compiled and tested but not linted. No job
-# builds the app's bundle until releases need a signed build.
+# Linux only, so that code is compiled and tested but not linted. The
+# rust-windows job lints and tests the crates that build for Windows so far.
+# No job builds the app's bundle until releases need a signed build.
 jobs:
   # The pre-commit hook runs the same checks, but a commit made with
   # --no-verify skips them.
@@ -127,6 +128,49 @@ jobs:
       - name: Disk left
         if: always()
         run: df -h /
+
+  # The crates that build for Windows so far, linted and tested on a
+  # GitHub-hosted Windows runner, since nothing else runs their Windows code.
+  # Each port stream adds its crates to CRATES once they compile there; the
+  # whole workspace goes in once maxd and the desktop crate build.
+  rust-windows:
+    runs-on: windows-latest
+    timeout-minutes: 45
+    env:
+      CRATES: -p maxhq-os -p maxhq-core -p maxhq-transfer -p maxhq-wire -p maxhq-protocol -p maxhq-term -p maxhq-workflow -p maxhq-fake-agent
+    defaults:
+      run:
+        # The same commands as on Linux, through the runner's Git Bash.
+        shell: bash
+    steps:
+      # .gitattributes keeps LF line endings in this checkout too.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@686976e191b89faba57d3206551f0f330d8cb249 # stable
+        with:
+          toolchain: stable
+          components: clippy
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: ". -> target"
+          # Only branch pushes save, for the same reason as in the rust job.
+          save-if: ${{ github.event_name == 'push' }}
+
+      # tauri::generate_context! needs frontendDist to exist, as in the rust
+      # job, for the day the desktop crate joins the list.
+      - name: Create an empty frontend build
+        run: mkdir -p apps/desktop/dist
+
+      # Clippy checks every target, so there's no separate cargo check.
+      # $CRATES is a list of flags, so it's left unquoted.
+      - name: Clippy
+        run: cargo clippy $CRATES --all-targets --locked -- -D warnings
+
+      - name: Test
+        run: cargo test $CRATES --locked
 
   frontend:
     runs-on: ubuntu-24.04
