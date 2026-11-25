@@ -138,6 +138,16 @@ fn windows_knows_an_absolute_folder() {
 }
 
 #[test]
+fn a_path_absolute_on_either_system_counts_anywhere() {
+    for path in ["/srv/app", r"C:\work", "c:/work", r"\\server\share"] {
+        assert!(absolute_anywhere(path), "{path}");
+    }
+    for path in ["work", "./work", r"\work", "C:work", "~/work", ""] {
+        assert!(!absolute_anywhere(path), "{path}");
+    }
+}
+
+#[test]
 fn windows_prefers_an_exe_in_the_same_folder() {
     let files = Files::windows()
         .program(r"C:\npm\codex.cmd")

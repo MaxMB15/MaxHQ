@@ -52,7 +52,8 @@ import {
 } from "@maxhq/shared/agent-view/answer";
 import { rowKind, useRow } from "@maxhq/shared/agent-view/context";
 import { SKIP_WORDS, wasDismissed } from "@maxhq/shared/agent-view/dismiss";
-import { baseName, isOpen } from "@maxhq/shared/agent-view/format";
+import { isOpen } from "@maxhq/shared/agent-view/format";
+import { nameOf } from "@maxhq/shared/folders/path";
 import { useKept } from "@maxhq/shared/agent-view/kept";
 import {
 	CodeTitle,
@@ -164,10 +165,10 @@ const Detail = ({ item }: { item: ItemOf<"approval"> }) => {
 				<span title={folder} className="truncate text-[11.5px] text-muted-foreground">
 					{device !== null
 						? translate("In {{baseName}} on {{device}}.", {
-								baseName: baseName(folder),
+								baseName: nameOf(folder),
 								device: device,
 							})
-						: translate("In {{baseName}}.", { baseName: baseName(folder) })}
+						: translate("In {{baseName}}.", { baseName: nameOf(folder) })}
 				</span>
 			) : null}
 			{saves !== null ? (

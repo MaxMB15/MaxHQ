@@ -49,6 +49,11 @@ pub fn owner_of(meta: &Metadata) -> Option<u32> {
     Some(meta.uid())
 }
 
+pub fn file_id(file: &File) -> io::Result<(u64, u64)> {
+    let meta = file.metadata()?;
+    Ok((meta.dev(), meta.ino()))
+}
+
 pub fn same_file(a: &Metadata, b: &Metadata) -> bool {
     (a.dev(), a.ino()) == (b.dev(), b.ino())
 }

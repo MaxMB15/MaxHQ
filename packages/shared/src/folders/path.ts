@@ -128,6 +128,9 @@ export const baseName = (path: string): string => {
 	return rest.slice(lastSeparator(rest, pathStyleOf(trimmed)) + 1);
 };
 
+/** The last name in `path`, or the whole path for a root or "", for a label. */
+export const nameOf = (path: string): string => baseName(path) || path;
+
 /** `name` inside `folder`, with the folder's own separator. */
 export const joinPath = (folder: string, name: string): string => {
 	const ends = pathStyleOf(folder) === "windows" ? /[\\/]$/u : /\/$/u;

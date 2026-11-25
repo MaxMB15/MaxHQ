@@ -55,6 +55,7 @@ set -eu
 
 ROOT=$(cd "$(dirname "$0")/../.." && pwd)
 RELEASE=$ROOT/scripts/release
+. "$RELEASE/lib.sh"
 . "$RELEASE/retry.sh"
 
 phase=all
@@ -95,21 +96,6 @@ while [ $# -gt 0 ]; do
 done
 
 note() { printf '==> %s\n' "$*"; }
-warn() {
-	if [ -n "${GITHUB_ACTIONS:-}" ]; then
-		echo "::warning::$*"
-	else
-		echo "warning: $*" >&2
-	fi
-}
-die() {
-	if [ -n "${GITHUB_ACTIONS:-}" ]; then
-		echo "::error::$*"
-	else
-		echo "package-macos.sh: $*" >&2
-	fi
-	exit 1
-}
 
 [ "$(uname -s)" = Darwin ] || die "this builds the Mac app, so it runs on macOS only"
 case "$(uname -m)" in
@@ -137,36 +123,8 @@ build() {
 		-u TAURI_SIGNING_PRIVATE_KEY_PASSWORD
 	(cd "$ROOT" && "$@" cargo build --release --locked -p maxd -p maxhq-vm)
 	# The updater archive is made in assemble, after the app is signed.
-	# The releases repository goes in at build time, so no tracked file names
-	# its owner.
-	config='{"bundle":{"createUpdaterArtifacts":false}'
-	if [ -n "${MAXHQ_RELEASES_REPO:-}" ]; then
-		case "$MAXHQ_RELEASES_REPO" in
-		*/*) ;;
-		*) die "MAXHQ_RELEASES_REPO is owner/name, not $MAXHQ_RELEASES_REPO" ;;
-		esac
-		updates=${MAXHQ_UPDATE_MANIFEST:-latest.json}
-		case "$updates" in
-		latest.json | latest-v[0-9].json) ;;
-		*) die "MAXHQ_UPDATE_MANIFEST is latest.json or latest-v<n>.json, not $updates" ;;
-		esac
-		endpoint=https://github.com/$MAXHQ_RELEASES_REPO/releases/latest/download/$updates
-		note "Updates come from $endpoint"
-		updater="\"endpoints\":[\"$endpoint\"]"
-		if [ -n "${MAXHQ_UPDATE_PUBKEY:-}" ]; then
-			case "$MAXHQ_UPDATE_PUBKEY" in
-			*[!A-Za-z0-9+/=]*) die "MAXHQ_UPDATE_PUBKEY isn't a base64 public key" ;;
-			esac
-			note "The updater trusts the public key in MAXHQ_UPDATE_PUBKEY"
-			updater="$updater,\"pubkey\":\"$MAXHQ_UPDATE_PUBKEY\""
-		fi
-		config="$config,\"plugins\":{\"updater\":{$updater}}"
-	elif [ -n "${MAXHQ_UPDATE_PUBKEY:-}" ]; then
-		die "MAXHQ_UPDATE_PUBKEY needs MAXHQ_RELEASES_REPO"
-	else
-		warn "MAXHQ_RELEASES_REPO isn't set, so this app can't look for updates"
-	fi
-	config="$config}"
+	# updater-config.mjs checks the updater's endpoint and key.
+	config=$(node "$RELEASE/updater-config.mjs") || exit 1
 	(cd "$ROOT" && "$@" pnpm --filter ./apps/desktop exec tauri build --bundles app --config "$config")
 	[ -d "$app" ] || die "tauri build made no $app"
 }
@@ -182,16 +140,7 @@ sign() {
 	fi
 }
 
-# Which update key signs: the current one, or the next one of a key change.
-case "${MAXHQ_UPDATE_KEY:-current}" in
-current) key_flag= ;;
-next) key_flag=--next ;;
-*) die "MAXHQ_UPDATE_KEY is current or next, not $MAXHQ_UPDATE_KEY" ;;
-esac
-bridge=${MAXHQ_BRIDGE:-}
-if [ "$bridge" = 1 ] && [ -n "$key_flag" ]; then
-	die "MAXHQ_BRIDGE=1 signs with the current key, so it can't go with MAXHQ_UPDATE_KEY=next"
-fi
+choose_update_key
 
 # Signs a file with the update key into <file>.sig. Arguments after the
 # file go to sign.mjs.
@@ -212,11 +161,7 @@ assemble() {
 		[ -f "$target_dir/release/$bin" ] || die "$target_dir/release/$bin doesn't exist; run the build phase first"
 	done
 	if [ "${MAXHQ_UNSIGNED_UPDATES:-}" != 1 ]; then
-		# shellcheck disable=SC2086 # $key_flag is empty or one flag
-		node "$RELEASE/sign.mjs" $key_flag --check || die "no usable update key; set MAXHQ_UNSIGNED_UPDATES=1 to build without one"
-		if [ "$bridge" = 1 ]; then
-			node "$RELEASE/sign.mjs" --next --check || die "MAXHQ_BRIDGE=1 needs the next update key"
-		fi
+		check_update_keys "no usable update key; set MAXHQ_UNSIGNED_UPDATES=1 to build without one"
 	fi
 	if [ "$notarize" = 1 ] && [ "$identity" = - ]; then
 		die "--notarize needs a Developer ID identity; Apple won't notarize ad hoc code"

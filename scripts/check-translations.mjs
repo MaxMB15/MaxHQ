@@ -20,27 +20,32 @@ export const translationErrors = (english, translated) =>
 			: [`${key}: interpolation differs`];
 	});
 
-const VARIANT = /^(.*)_(windows|linux|macos)(_(?:zero|one|two|few|many|other))?$/s;
+const VARIANT = /^(.*)_(windows|linux|macos|android|ios)(_(?:zero|one|two|few|many|other))?$/s;
 const OTHER_OS = { windows: "linux", linux: "windows" };
+const BASE_OS = { macos: "macOS", ios: "iOS" };
 
 /**
  * What's wrong with the system variants among a language's keys. A key
  * that names Windows or Linux (`key_windows`, `key_linux`, and with a
  * plural `key_windows_one`) needs the macOS text as its base key, its
- * sibling for the other system, and the base's arguments. macOS has no
- * variant: it reads the base key.
+ * sibling for the other system, and the base's arguments. A key that names
+ * Android (`key_android`) needs the iOS text as its base key and its
+ * arguments, and has no sibling. macOS and iOS have no variant: they read
+ * the base key.
  */
 export const variantErrors = (keys) =>
 	Object.entries(keys).flatMap(([key, value]) => {
 		const match = VARIANT.exec(key);
 		if (!match) return [];
 		const [, stem, os, plural = ""] = match;
-		if (os === "macos") return [`${key}: macOS reads the base key, so drop this variant`];
+		if (os in BASE_OS)
+			return [`${key}: ${BASE_OS[os]} reads the base key, so drop this variant`];
 		const base = stem + plural;
 		if (!(base in keys)) return [`${key}: no base key ${JSON.stringify(base)}`];
 		const errors = [];
-		const sibling = `${stem}_${OTHER_OS[os]}${plural}`;
-		if (!(sibling in keys)) errors.push(`${key}: missing ${JSON.stringify(sibling)}`);
+		const sibling = OTHER_OS[os] && `${stem}_${OTHER_OS[os]}${plural}`;
+		if (sibling && !(sibling in keys))
+			errors.push(`${key}: missing ${JSON.stringify(sibling)}`);
 		if (!plural && `${stem}_one` in keys && !(`${key}_one` in keys))
 			errors.push(`${key}: missing ${JSON.stringify(`${key}_one`)}`);
 		if (JSON.stringify(argumentsOf(value)) !== JSON.stringify(argumentsOf(keys[base])))

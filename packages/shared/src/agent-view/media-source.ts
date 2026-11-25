@@ -2,7 +2,7 @@
 // Copyright (c) 2026 Max Boksem
 // Portions copyright (c) 2026 T3 Tools Inc., see THIRD_PARTY_NOTICES
 
-import { baseName, isAbsolutePath } from "../folders/path";
+import { isAbsolutePath, nameOf } from "../folders/path";
 
 // Adapted from MIT-licensed code, see THIRD_PARTY_NOTICES: resolving a media
 // source and finding the pictures in Markdown, with the parts of the link,
@@ -123,9 +123,6 @@ export const stripSlashDrive = (path: string): string =>
  */
 export const isNetworkPath = (path: string): boolean => /^[\\/]{2}/.test(path);
 
-/** The last part of a path, without the separators after it. */
-export const fileBasename = (path: string): string => baseName(path) || path;
-
 /** A path without the `:line:column` an agent may write after it. */
 const withoutPosition = (path: string): string => {
 	const match = path.match(POSITION);
@@ -167,7 +164,7 @@ const typeOfUrl = (uri: string): string | null => {
 	const inline = /^data:((?:image|video|audio)\/[\w.+-]+)[;,]/i.exec(uri)?.[1];
 	if (inline) return inline.toLowerCase();
 	if (/^data:/i.test(uri)) return null;
-	return typeOfExtension(extensionOf(fileBasename(safeDecode(webPath(uri)))));
+	return typeOfExtension(extensionOf(nameOf(safeDecode(webPath(uri)))));
 };
 
 type Classified =
@@ -213,7 +210,7 @@ export const resolveMediaSource = (
 	if (classified.tag === "file") {
 		// A local path is decoded already, so a literal #, ? or % stays.
 		const path = withoutPosition(classified.path);
-		const name = fileBasename(path);
+		const name = nameOf(path);
 		const mime = typeOfExtension(extensionOf(name));
 		if (mime === null || mime.startsWith("audio/")) return null;
 		const kind = mime.startsWith("video/") ? "video" : "image";
@@ -226,7 +223,7 @@ export const resolveMediaSource = (
 	if (mime === null || mime.startsWith("audio/")) return null;
 	const kind = mime.startsWith("video/") ? "video" : "image";
 	if (inline && kind === "video") return null;
-	const name = inline ? "" : safeDecode(fileBasename(webPath(uri)));
+	const name = inline ? "" : safeDecode(nameOf(webPath(uri)));
 	return inline
 		? { kind, mime, name: kind, fragment: "", access: "inline", uri }
 		: {

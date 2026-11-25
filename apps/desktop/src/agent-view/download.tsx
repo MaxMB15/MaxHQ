@@ -22,7 +22,7 @@ import {
 import { cn } from "@/lib/utils";
 
 import { useRow } from "@maxhq/shared/agent-view/context";
-import { baseName } from "@maxhq/shared/agent-view/format";
+import { nameOf } from "@maxhq/shared/folders/path";
 import { Spinner } from "./icons";
 import { t as translate, useI18n } from "@maxhq/shared/i18n";
 
@@ -66,7 +66,7 @@ const unmadeText = (links: readonly string[]): string | null => {
  */
 export const DownloadButton = ({
 	path,
-	name = baseName(path),
+	name = nameOf(path),
 	className,
 }: {
 	path: string;
@@ -163,7 +163,7 @@ export const DownloadButton = ({
 									agent,
 									path,
 									translate("Couldn't find {{baseName}} in Downloads.", {
-										baseName: baseName(landed),
+										baseName: nameOf(landed),
 									})
 								)
 							);

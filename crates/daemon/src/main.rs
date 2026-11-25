@@ -1597,6 +1597,63 @@ mod testing {
         true
     }
 
+    /// The Unix path `path` as an absolute one on this system too: itself
+    /// on Unix, and on drive C: on Windows, where an absolute path starts
+    /// with a drive.
+    pub fn absolute(path: &str) -> String {
+        if cfg!(windows) {
+            format!("C:{path}")
+        } else {
+            path.to_owned()
+        }
+    }
+
+    /// `parts` joined as this system joins `PATH`.
+    pub fn path_of(parts: &[&str]) -> String {
+        std::env::join_paths(parts).unwrap().into_string().unwrap()
+    }
+
+    /// Writes the sh script `text` as the program `name` in `dir` and gives
+    /// the path that starts it, which on Unix is the script itself. Windows
+    /// starts no script by itself, so there it's `name.cmd` beside the
+    /// script, which hands it to Git Bash. A test with a fake program needs
+    /// Git for Windows there, as the CI runner has.
+    pub fn fake_program(dir: &Path, name: &str, text: &str) -> PathBuf {
+        fs::create_dir_all(dir).unwrap();
+        let script = dir.join(name);
+        fs::write(&script, text).unwrap();
+        maxhq_os::fsmode::set_mode(&script, 0o755).unwrap();
+        if cfg!(unix) {
+            return script;
+        }
+        let bash = crate::skills::bash::git_bash().expect("a fake program needs Git Bash");
+        // Git Bash reads a Windows path best with forward slashes. The
+        // launcher names no `%~dp0` path, so it isn't taken for an npm shim.
+        let script = script.to_string_lossy().replace('\\', "/");
+        let launcher = dir.join(format!("{name}.cmd"));
+        let line = format!("@\"{}\" \"{script}\" %*\r\n", bash.display());
+        fs::write(&launcher, line).unwrap();
+        launcher
+    }
+
+    /// The Unix tool `name`, for a test whose child must be one process:
+    /// on Windows the copy Git for Windows keeps beside its Git Bash, since
+    /// a fake program there is cmd.exe and Git Bash, and ending cmd.exe
+    /// leaves Git Bash running.
+    pub fn tool(name: &str) -> PathBuf {
+        let beside_bash = || {
+            let bash = crate::skills::bash::git_bash().ok()?;
+            let bin = bash.parent()?;
+            let file = format!("{name}.exe");
+            let usr = bin.parent()?.join("usr").join("bin").join(&file);
+            [bin.join(&file), usr]
+                .into_iter()
+                .find(|path| path.is_file())
+        };
+        let found = if cfg!(windows) { beside_bash() } else { None };
+        found.unwrap_or_else(|| PathBuf::from(name))
+    }
+
     /// `dir` as a relative path from where this test runs, the way a
     /// relative entry on `PATH` reads. The tests that use it make Unix
     /// programs.

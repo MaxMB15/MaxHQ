@@ -26,15 +26,14 @@ import { Empty } from "@/main-area/empty";
 import { SECONDARY } from "@/settings/controls";
 import { type RowContext, RowProvider } from "@maxhq/shared/agent-view/context";
 import { formatBytes } from "@maxhq/shared/agent-view/format";
-import { folderOf } from "@maxhq/shared/agent-view/link-target";
 import { loadMedia, useMedia } from "@maxhq/shared/agent-view/media";
 import {
 	extensionOf,
-	fileName,
 	showAnywayBlocked,
 	viewerKind,
 	viewerLimit,
 } from "@maxhq/shared/agent-view/viewer-files";
+import { nameOf, parentOf } from "@maxhq/shared/folders/path";
 import type { AgentId } from "@maxhq/shared/bindings";
 import type { Theme } from "@maxhq/shared/theme/theme";
 import { isRemoteDevice } from "@/ports";
@@ -103,7 +102,7 @@ const MarkdownFile = ({
 		<div className="h-full overflow-y-auto">
 			<RowProvider value={row}>
 				{/* Its links read from its own folder, as they would on a code host. */}
-				<LinkFolder value={folderOf(path)}>
+				<LinkFolder value={parentOf(path) ?? ""}>
 					<Markdown text={text} className="mx-auto max-w-[780px] px-8 py-6" />
 				</LinkFolder>
 			</RowProvider>
@@ -177,7 +176,7 @@ const HtmlFile = ({
 					<Empty>{t("Reading…")}</Empty>
 				) : (
 					<div className="h-full overflow-y-auto">
-						<VisualFrame html={text} title={fileName(path)} className="px-4 py-3" />
+						<VisualFrame html={text} title={nameOf(path)} className="px-4 py-3" />
 					</div>
 				)}
 			</div>
@@ -225,7 +224,7 @@ const FramedFile = ({
 				readBytes(url, size).then((bytes) => {
 					const open: OpenFile = {
 						type: "maxhq-viewer:open",
-						name: fileName(path),
+						name: nameOf(path),
 						extension: extensionOf(path),
 						bytes,
 						theme,
@@ -244,7 +243,7 @@ const FramedFile = ({
 				ref={frame}
 				src={src}
 				sandbox={FRAME_SANDBOX}
-				title={fileName(path)}
+				title={nameOf(path)}
 				className="absolute inset-0 size-full border-0 bg-background"
 			/>
 			{shown.state !== "shown" ? (
@@ -252,10 +251,10 @@ const FramedFile = ({
 					<Empty>
 						{shown.state === "failed"
 							? t("Couldn't show {{value1}}. {{why}}", {
-									value1: fileName(path),
+									value1: nameOf(path),
 									why: shown.why,
 								})
-							: t("Opening {{value1}}…", { value1: fileName(path) })}
+							: t("Opening {{value1}}…", { value1: nameOf(path) })}
 					</Empty>
 				</div>
 			) : null}
@@ -283,7 +282,7 @@ const PictureFile = ({
 	return (
 		<ZoomPicture
 			src={url}
-			alt={fileName(path)}
+			alt={nameOf(path)}
 			keys="focus"
 			onError={() => setFramed(true)}
 			className="size-full"
@@ -305,7 +304,7 @@ const Body = ({ agent, path }: { agent: AgentId; path: string }) => {
 	}, [source, agent, path, limit, anyway]);
 	const blocked = useView((s) => showAnywayBlocked(s.view, agent));
 	const theme = useTheme();
-	const name = fileName(path);
+	const name = nameOf(path);
 	switch (media?.state) {
 		case undefined:
 		case "loading":
@@ -431,10 +430,10 @@ export const FilePaneFor = ({ agent, path }: { agent: AgentId; path: string }) =
 	const workspace = useView((s) => s.view.tables.agent.get(agent)?.workspace);
 	const [failure, setFailure] = useState<string | null>(null);
 	return (
-		<section aria-label={fileName(path)} className="flex h-full min-h-0 flex-col bg-background">
+		<section aria-label={nameOf(path)} className="flex h-full min-h-0 flex-col bg-background">
 			<header className="flex h-10 shrink-0 items-center gap-2 border-b border-border px-3">
 				<span className="truncate text-[12.5px] font-[550] text-foreground">
-					{fileName(path)}
+					{nameOf(path)}
 				</span>
 				<span className="min-w-0 flex-1 truncate text-[11.5px] text-muted-foreground">
 					{path}

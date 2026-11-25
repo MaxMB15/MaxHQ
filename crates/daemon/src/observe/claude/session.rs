@@ -176,11 +176,12 @@ pub fn list(dir: &Path) -> Vec<Session> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::observe::claude::tests::{fixture, scratch};
+    use crate::observe::claude::tests::{fixture, read_fixture, scratch};
+    use crate::testing::absolute;
 
     fn session(file: &str) -> Session {
         let path = fixture("config/sessions").join(file);
-        Session::parse(&fs::read(path).unwrap()).expect("a valid session file")
+        Session::parse(&read_fixture(&path)).expect("a valid session file")
     }
 
     #[test]
@@ -188,7 +189,7 @@ mod tests {
         let busy = session("41001.json");
         assert_eq!(busy.pid, 41001);
         assert_eq!(busy.session_id, "6f1d2c3b-0a4e-4b8f-9c11-2d3e4f5a6b7c");
-        assert_eq!(busy.cwd, "/work/maxhq");
+        assert_eq!(busy.cwd, absolute("/work/maxhq"));
         assert_eq!(busy.started_at, Some(1_792_880_000_000));
         assert_eq!(busy.proc_start.as_deref(), Some("Sat Oct 24 22:13:20 2026"));
         assert_eq!(busy.name.as_deref(), Some("observer refactor"));
@@ -243,15 +244,15 @@ mod tests {
         let dir = scratch();
         let sessions = dir.join("sessions");
         fs::create_dir_all(&sessions).unwrap();
-        fs::copy(
-            fixture("config/sessions/41001.json"),
+        fs::write(
             sessions.join("41001.json"),
+            read_fixture(&fixture("config/sessions/41001.json")),
         )
         .unwrap();
         // Shaped like a session file, so reading it would show up here.
-        fs::copy(
-            fixture("config/sessions/41002.json"),
+        fs::write(
             sessions.join("41002.0badc0de.key"),
+            read_fixture(&fixture("config/sessions/41002.json")),
         )
         .unwrap();
         fs::write(sessions.join("41003.json"), "{\"pid\": 41003").unwrap();

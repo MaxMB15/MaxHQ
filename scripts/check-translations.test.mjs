@@ -82,3 +82,20 @@ test("needs the singular of a plural key's variants", () => {
 		]
 	);
 });
+test("checks an Android variant against its iOS base, with no sibling", () => {
+	assert.deepEqual(
+		variantErrors({
+			"Turn them on in iOS Settings.": "Turn them on in iOS Settings.",
+			"Turn them on in iOS Settings._android": "Turn them on in Android settings.",
+			"Open {{name}} in TestFlight": "Open {{name}} in TestFlight",
+			"Open {{name}} in TestFlight_android": "Download {{app}}",
+			"Files app_android": "your files",
+			Photos_ios: "Photos",
+		}),
+		[
+			"Open {{name}} in TestFlight_android: interpolation differs from the base key",
+			'Files app_android: no base key "Files app"',
+			"Photos_ios: iOS reads the base key, so drop this variant",
+		]
+	);
+});

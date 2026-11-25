@@ -6,6 +6,8 @@
 //! lstart= -p <pid>` prints it, so the same `ps` call both proves the PID
 //! runs and tells the session's process from a later one that reused the
 //! PID. `ps` only reads the process table and never signals anything.
+//! Windows has no `ps` of its own, and Git's takes other options, so there
+//! the system says which PIDs run and their start times go unchecked.
 
 use std::collections::HashMap;
 use std::io::ErrorKind;
@@ -30,7 +32,8 @@ pub struct Processes {
 
 impl Processes {
     /// Looks up `pids` with one `ps` call. A PID that `ps` rejects fails
-    /// the whole call, so then each one is asked about alone.
+    /// the whole call, so then each one is asked about alone. Windows skips
+    /// `ps`.
     pub fn lookup(pids: &[u32]) -> Self {
         let mut pids: Vec<u32> = pids.iter().copied().filter(|&pid| pid > 1).collect();
         pids.sort_unstable();
@@ -38,7 +41,8 @@ impl Processes {
         if pids.is_empty() {
             return Self::default();
         }
-        match run_ps(&pids) {
+        let listed = if cfg!(windows) { None } else { run_ps(&pids) };
+        match listed {
             Some(Ps::Listed(found)) => found,
             Some(Ps::Rejected) if pids.len() > 1 => {
                 let mut found = Self::default();
@@ -50,7 +54,7 @@ impl Processes {
                 found
             }
             Some(Ps::Rejected) => Self::default(),
-            None => Self::from_proc(&pids),
+            None => Self::without_ps(&pids),
         }
     }
 
@@ -78,16 +82,21 @@ impl Processes {
         }
     }
 
-    /// The fallback without `ps`, on Linux only: a PID runs while
-    /// `/proc/<pid>` exists. The start time goes unchecked.
-    fn from_proc(pids: &[u32]) -> Self {
-        if !cfg!(target_os = "linux") {
+    /// The fallback without `ps`: on Linux a PID runs while `/proc/<pid>`
+    /// exists, and on Windows while the system says it does. The start time
+    /// goes unchecked.
+    fn without_ps(pids: &[u32]) -> Self {
+        let runs: fn(&u32) -> bool = if cfg!(target_os = "linux") {
+            |pid| Path::new(&format!("/proc/{pid}")).exists()
+        } else if cfg!(windows) {
+            |&pid| maxhq_os::proc::alive(pid)
+        } else {
             tracing::warn!("can't run ps, so no Claude session counts as running");
             return Self::default();
-        }
+        };
         let started = pids
             .iter()
-            .filter(|pid| Path::new(&format!("/proc/{pid}")).exists())
+            .filter(|pid| runs(pid))
             .map(|&pid| (pid, None))
             .collect();
         Self { started }
@@ -175,11 +184,19 @@ mod tests {
     }
 
     #[test]
-    fn asks_ps_about_real_processes() {
+    fn finds_real_processes() {
         let me = std::process::id();
         let found = Processes::lookup(&[me, 1, 0]);
         assert!(found.runs(me, None));
         assert!(!found.runs(1, None), "PID 1 is never a session");
+    }
+
+    // Unix only: there `ps` gives start times, and Windows checks the PID alone.
+    #[cfg(unix)]
+    #[test]
+    fn ps_tells_a_reused_pid_by_its_start_time() {
+        let me = std::process::id();
+        let found = Processes::lookup(&[me]);
         let start = found
             .started
             .get(&me)

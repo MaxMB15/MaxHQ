@@ -22,44 +22,14 @@
 set -eu
 
 RELEASE=$(cd "$(dirname "$0")" && pwd)
-
-die() {
-	if [ -n "${GITHUB_ACTIONS:-}" ]; then
-		echo "::error::sign-desktop.sh: $*" >&2
-	else
-		echo "sign-desktop.sh: $*" >&2
-	fi
-	exit 1
-}
-
-warn() {
-	if [ -n "${GITHUB_ACTIONS:-}" ]; then
-		echo "::warning::$*"
-	else
-		echo "warning: $*"
-	fi
-}
+. "$RELEASE/lib.sh"
 
 [ $# -eq 1 ] || die "usage: sign-desktop.sh <dir>"
 dir=$1
 [ -d "$dir" ] || die "$dir isn't a folder"
 
-case "${MAXHQ_UPDATE_KEY:-current}" in
-current) key_flag= ;;
-next) key_flag=--next ;;
-*) die "MAXHQ_UPDATE_KEY is current or next, not $MAXHQ_UPDATE_KEY" ;;
-esac
-bridge=${MAXHQ_BRIDGE:-}
-if [ "$bridge" = 1 ] && [ -n "$key_flag" ]; then
-	die "MAXHQ_BRIDGE=1 signs with the current key, so it can't go with MAXHQ_UPDATE_KEY=next"
-fi
-
-# Fail before signing anything when a key doesn't read.
-# shellcheck disable=SC2086 # $key_flag is empty or one flag
-node "$RELEASE/sign.mjs" $key_flag --check || die "the update key doesn't read"
-if [ "$bridge" = 1 ]; then
-	node "$RELEASE/sign.mjs" --next --check || die "MAXHQ_BRIDGE=1 needs the next update key"
-fi
+choose_update_key
+check_update_keys "the update key doesn't read"
 
 version=$(node "$RELEASE/version.mjs" get)
 assets=$(node "$RELEASE/bundles.mjs" assets)

@@ -21,7 +21,8 @@ use windows_sys::Win32::Security::{
     PROTECTED_DACL_SECURITY_INFORMATION, PSID, TOKEN_QUERY, TOKEN_USER,
 };
 use windows_sys::Win32::Storage::FileSystem::{
-    FILE_ALL_ACCESS, FILE_FLAG_BACKUP_SEMANTICS, FILE_WRITE_ATTRIBUTES, READ_CONTROL, WRITE_DAC,
+    GetFileInformationByHandle, BY_HANDLE_FILE_INFORMATION, FILE_ALL_ACCESS,
+    FILE_FLAG_BACKUP_SEMANTICS, FILE_WRITE_ATTRIBUTES, READ_CONTROL, WRITE_DAC,
 };
 use windows_sys::Win32::System::Threading::{GetCurrentProcess, OpenProcessToken};
 
@@ -229,6 +230,15 @@ pub fn is_private(path: &Path) -> io::Result<bool> {
 
 pub fn owner_of(_meta: &Metadata) -> Option<u32> {
     None
+}
+
+#[allow(unsafe_code)]
+pub fn file_id(file: &File) -> io::Result<(u64, u64)> {
+    let mut info = BY_HANDLE_FILE_INFORMATION::default();
+    // SAFETY: the handle is open for the call, which only fills `info`.
+    crate::win::check(unsafe { GetFileInformationByHandle(crate::win::raw(file), &mut info) })?;
+    let index = (u64::from(info.nFileIndexHigh) << 32) | u64::from(info.nFileIndexLow);
+    Ok((u64::from(info.dwVolumeSerialNumber), index))
 }
 
 pub fn same_file(_a: &Metadata, _b: &Metadata) -> bool {

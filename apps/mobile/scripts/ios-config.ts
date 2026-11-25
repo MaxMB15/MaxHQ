@@ -57,6 +57,18 @@ export const parseIosLocal = (text: string): IosLocal => {
 	return { teamId, bundleId };
 };
 
+// The variables the release workflows keep the IDs in.
+export const IDS_ENV = { teamId: "IOS_TEAM_ID", bundleId: "IOS_BUNDLE_ID" } as const;
+
+// The local file's text from those variables, for `mobile.ts write-ids`,
+// checked as the builds read it.
+export const iosLocalFromEnv = (env: Record<string, string | undefined>): string => {
+	const ids = parseIosLocal(
+		JSON.stringify({ teamId: env[IDS_ENV.teamId], bundleId: env[IDS_ENV.bundleId] })
+	);
+	return `${JSON.stringify(ids, null, "\t")}\n`;
+};
+
 // The local file, or null when it isn't there.
 export const readIosLocal = (appDir: string): IosLocal | null => {
 	const file = join(appDir, "ios.local.json");

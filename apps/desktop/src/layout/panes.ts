@@ -18,7 +18,7 @@ import type { AddPanelPositionOptions, DockviewApi } from "dockview-react";
 import type { Services } from "@/app/services";
 import type { AgentId, NoteId, ProjectId, RunKey, TerminalId } from "@maxhq/shared/bindings";
 import { finishedTitle } from "@maxhq/shared/agent-view/finished";
-import { fileName } from "@maxhq/shared/agent-view/viewer-files";
+import { nameOf } from "@maxhq/shared/folders/path";
 import { tabTitle } from "@maxhq/shared/terminal/drawer";
 import { terminalById } from "@maxhq/shared/terminal/select";
 import { noteSummary } from "@maxhq/shared/view/notes";
@@ -351,7 +351,7 @@ export const panesOf = (services: Services): Panes => {
 					);
 				if (params.kind === "note")
 					return noteSummary(view(), params.project, params.note)?.title ?? t("Note");
-				if (params.kind === "file") return fileName(params.path);
+				if (params.kind === "file") return nameOf(params.path);
 				if (params.kind === "visual") return params.title || t("Visual");
 				if (params.kind === "terminal") {
 					const terminal = terminalById(view(), params.terminal);

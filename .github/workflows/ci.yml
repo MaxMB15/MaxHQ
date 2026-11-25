@@ -140,7 +140,7 @@ jobs:
     runs-on: windows-latest
     timeout-minutes: 45
     env:
-      CRATES: -p maxhq-os -p maxhq-core -p maxhq-transfer -p maxhq-wire -p maxhq-protocol -p maxhq-term -p maxhq-workflow -p maxhq-fake-agent -p maxhq-vm -p maxhq-hold -p maxhq-client -p maxhq-app -p maxhq-desktop
+      CRATES: -p maxhq-os -p maxhq-core -p maxhq-transfer -p maxhq-wire -p maxhq-protocol -p maxhq-term -p maxhq-workflow -p maxhq-fake-agent -p maxhq-vm -p maxhq-hold -p maxhq-client -p maxhq-app -p maxhq-desktop -p maxd
     defaults:
       run:
         # The same commands as on Linux, through the runner's Git Bash.
@@ -162,8 +162,7 @@ jobs:
           # Only branch pushes save, for the same reason as in the rust job.
           save-if: ${{ github.event_name == 'push' }}
 
-      # tauri::generate_context! needs frontendDist to exist, as in the rust
-      # job, for the day the desktop crate joins the list.
+      # tauri::generate_context! needs frontendDist to exist, as in the rust job.
       - name: Create an empty frontend build
         run: mkdir -p apps/desktop/dist
 
@@ -172,26 +171,8 @@ jobs:
       - name: Clippy
         run: cargo clippy $CRATES --all-targets --locked -- -D warnings
 
-      # maxd builds here, but many of its tests still give Unix paths as
-      # absolute ones or start sh scripts as fakes, so only its lint runs
-      # until they pass and it joins CRATES.
-      - name: Clippy (maxd)
-        run: cargo clippy -p maxd --all-targets --locked -- -D warnings
-
       - name: Test
         run: cargo test $CRATES --locked --no-fail-fast
-
-      # Temporary, until all of maxd's tests pass here and it joins CRATES:
-      # the modules whose tests pass on Windows so far. A filter matches
-      # anywhere in a test's name, so the session and local model tests
-      # it would also catch are skipped.
-      - name: Test (maxd, the modules that pass)
-        run: >-
-          cargo test -p maxd --locked --no-fail-fast --
-          transfer:: folders:: service:: moves:: folder_trust:: server::
-          admission:: skills:: phones:: leases:: clone:: workspace::
-          secrets:: power:: identity:: doctext:: diagnostics:: posix_path::
-          --skip session:: --skip local_models::
 
   # Packs the Linux app the way a release does, as an unsigned debug build,
   # so a change that breaks the AppImage, the .deb or the .rpm fails here
@@ -227,31 +208,27 @@ jobs:
           save-if: ${{ github.event_name == 'push' }}
 
       # The app carries its own maxd and installs it as this computer's
-      # service. Tauri takes it from binaries/, named for the target, and
-      # puts it beside the app's binary. Only a bundle passes that config,
-      # so plain cargo builds of the app need no maxd.
+      # service. Only a bundle passes that config, so plain cargo builds of
+      # the app need no maxd. maxd builds for the app's target, so the two
+      # share one target folder.
       - name: Build maxd
         run: |
           set -euo pipefail
-          cargo build -p maxd --locked
           triple="$(rustc --print host-tuple)"
-          mkdir -p apps/desktop/src-tauri/binaries
-          cp target/debug/maxd "apps/desktop/src-tauri/binaries/maxd-$triple"
+          echo "TARGET=$triple" >> "$GITHUB_ENV"
+          cargo build -p maxd --locked --target "$triple"
 
-      # APPIMAGE_EXTRACT_AND_RUN lets linuxdeploy run without mounting
-      # itself through FUSE.
+      # As the release's build-linux job packs it, as a debug build. Tauri
+      # takes maxd from binaries/, named for the target, and puts it beside
+      # the app's binary.
       - name: Bundle the app
-        env:
-          APPIMAGE_EXTRACT_AND_RUN: "1"
         run: |
-          set -euo pipefail
-          pnpm --filter ./apps/desktop exec tauri build --debug --bundles appimage,deb,rpm \
-            --config '{"bundle":{"createUpdaterArtifacts":false,"externalBin":["binaries/maxd"]}}'
-          ls -l target/debug/bundle/appimage target/debug/bundle/deb target/debug/bundle/rpm
+          node scripts/release/package-desktop.mjs --debug --target "$TARGET" \
+            --maxd "target/$TARGET/debug/maxd" --out out
 
       # The release's build-linux job runs the same check.
       - name: Check the packages
-        run: bash scripts/release/check-linux-packages.sh target/debug/bundle
+        run: bash scripts/release/check-linux-packages.sh "target/$TARGET/debug/bundle"
 
       - name: Disk left
         if: always()
@@ -285,22 +262,19 @@ jobs:
           # Only branch pushes save, for the same reason as in the rust job.
           save-if: ${{ github.event_name == 'push' }}
 
-      # As in desktop-linux: Tauri takes maxd from binaries/, named for the
-      # target, and puts it beside the app's program as maxd.exe.
       - name: Build maxd
         run: |
           set -euo pipefail
-          cargo build -p maxd --locked
           triple="$(rustc --print host-tuple)"
-          mkdir -p apps/desktop/src-tauri/binaries
-          cp target/debug/maxd.exe "apps/desktop/src-tauri/binaries/maxd-$triple.exe"
+          echo "TARGET=$triple" >> "$GITHUB_ENV"
+          cargo build -p maxd --locked --target "$triple"
 
+      # As in desktop-linux: Tauri takes maxd from binaries/, named for the
+      # target, and puts it beside the app's program as maxd.exe.
       - name: Bundle the app
         run: |
-          set -euo pipefail
-          pnpm --filter ./apps/desktop exec tauri build --debug --bundles nsis,msi \
-            --config '{"bundle":{"createUpdaterArtifacts":false,"externalBin":["binaries/maxd"]}}'
-          ls -l target/debug/bundle/nsis target/debug/bundle/msi
+          node scripts/release/package-desktop.mjs --debug --target "$TARGET" \
+            --maxd "target/$TARGET/debug/maxd.exe" --out out
 
       # The NSIS setup installs for the current user, into
       # %LOCALAPPDATA%\MaxHQ, with maxd beside the app and the uninstaller
@@ -309,7 +283,7 @@ jobs:
       - name: Install the app
         shell: pwsh
         run: |
-          $setup = Get-ChildItem target/debug/bundle/nsis -Filter *-setup.exe | Select-Object -First 1
+          $setup = Get-ChildItem out -Filter *-setup.exe | Select-Object -First 1
           if (-not $setup) { throw "The NSIS setup wasn't built." }
           $install = Start-Process -FilePath $setup.FullName -ArgumentList '/S' -Wait -PassThru
           if ($install.ExitCode -ne 0) { throw "The setup ended with $($install.ExitCode)." }

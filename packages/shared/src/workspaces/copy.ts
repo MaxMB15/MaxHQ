@@ -7,7 +7,14 @@
 // device's host, and the ignored files you tick follow it there.
 
 import { t } from "../i18n";
-import { isAbsolutePath, joinPath, parentOf as folderOf, trimSeparators } from "../folders/path";
+import {
+	folderNameProblem,
+	isAbsolutePath,
+	joinPath,
+	parentOf as folderOf,
+	pathStyleOf,
+	trimSeparators,
+} from "../folders/path";
 
 import type { DeviceId, ProjectId, Workspace, WorkspaceId } from "../bindings";
 import type { CopyTarget } from "../data/source";
@@ -198,13 +205,8 @@ export const planCopy = (
 					: t("Give the parent folder as a full path, starting with /."),
 		};
 	}
-	if (
-		!name ||
-		name === "." ||
-		name === ".." ||
-		name.includes("/") ||
-		(device.os === "windows" && name.includes("\\"))
-	) {
+	if (folderNameProblem(name, pathStyleOf(parent)) !== null) {
+		// The message names the clone's folder, so it keeps its own words.
 		return { ok: false, reason: t("Name the folder the clone goes in, with no slashes.") };
 	}
 	const path = join(parent, name);

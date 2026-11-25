@@ -84,9 +84,7 @@ jobs:
           IOS_TEAM_ID: ${{ vars.IOS_TEAM_ID || 'ABCDE12345' }}
           IOS_BUNDLE_ID: ${{ vars.IOS_BUNDLE_ID || 'com.example.maxhq' }}
         run: |
-          node -e 'const { IOS_TEAM_ID: teamId, IOS_BUNDLE_ID: bundleId } = process.env;
-            process.stdout.write(`${JSON.stringify({ teamId, bundleId }, null, "\t")}\n`);' \
-            > apps/mobile/ios.local.json
+          node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON apps/mobile/scripts/mobile.ts write-ids
 
       # The core in release, prebuild, the APK and the App Bundle.
       - name: Build
