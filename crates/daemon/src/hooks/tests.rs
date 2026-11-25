@@ -226,6 +226,7 @@ fn task(trigger: Trigger) -> Task {
         target: TaskTarget::Agent {
             device: DeviceId::derive("devbox"),
             agent: AgentId::derive("a"),
+            fresh: false,
         },
         enabled: true,
         permission: PermissionId::derive("p"),

@@ -874,6 +874,15 @@ impl CodexServer {
             refused(fx, key, "Codex started a thread without an ID.");
             return;
         };
+        // A thread started for an agent that had one is a fresh session
+        // a task asked for, which leaves the old thread behind.
+        let left = agent
+            .and_then(|agent| self.agents.get(&agent))
+            .filter(|old| **old != id)
+            .cloned();
+        if let Some(old) = left {
+            self.retire(&old, fx);
+        }
         let agent = agent.unwrap_or_else(|| names::agent(Vendor::Codex, &id));
         let effective = policy::effective_in(&result);
         let thread = self.register(&id, agent, seen.at);

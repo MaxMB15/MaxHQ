@@ -47,6 +47,7 @@ mod reads;
 mod recovery;
 mod recycle;
 mod rename;
+mod renew;
 mod requests;
 mod restart;
 mod revive;
@@ -833,7 +834,8 @@ struct Manager {
     /// folder.
     trust_restarts: HashSet<AgentId>,
     /// The ones of those with no transcript yet, which start anew rather
-    /// than resume.
+    /// than resume, and agents whose fresh session a task started and
+    /// whose CLI hasn't written one yet.
     trust_fresh: HashSet<AgentId>,
     /// Moves waiting for the agent they resume to be up.
     moved: HashMap<IdempotencyKey, moved::Done>,
@@ -882,6 +884,9 @@ struct Manager {
     after: HashMap<IdempotencyKey, (AgentId, After)>,
     /// The adopt in flight for each Codex agent.
     adopting: HashMap<AgentId, IdempotencyKey>,
+    /// Agents whose fresh session got a task's first message, which
+    /// hasn't started a turn yet, with the message's key.
+    renewing: HashMap<AgentId, IdempotencyKey>,
     /// Actions a driver took without a result yet, with their holder.
     routed: HashMap<IdempotencyKey, SessionId>,
 
@@ -996,6 +1001,7 @@ impl Manager {
             answering: HashMap::new(),
             after: HashMap::new(),
             adopting: HashMap::new(),
+            renewing: HashMap::new(),
             routed: HashMap::new(),
             work: VecDeque::new(),
             dirty: HashSet::new(),
@@ -1272,6 +1278,7 @@ impl Manager {
                 self.agent_moved(moved.agent, moved.from.as_ref(), &moved.to);
                 self.continue_at_limit(&moved);
                 self.take_over_moved(&moved);
+                self.fresh_moved(&moved);
                 self.inbox_moved(moved);
             }
             Input::TakenOver { agent, result } => self.taken_over(agent, result),
@@ -1388,6 +1395,7 @@ impl Manager {
         self.move_done(key, &outcome);
         self.dispatch_done(key, &outcome);
         self.chats_done(key, &outcome);
+        self.fresh_sent(key, &outcome);
         self.owner_words.done(key);
         let message = outcome.message(key);
         for conn in self.keys.finish(key, outcome) {

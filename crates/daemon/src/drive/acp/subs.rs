@@ -63,7 +63,7 @@ impl AcpSession {
         if !self.subs.iter().any(|sub| sub.call == call) {
             // A `toolCallId` can hold a newline, so the sub-agent's own ID
             // names its items.
-            let base = format!("{}:sub:{agent}", self.flavor.base());
+            let base = format!("{}:sub:{agent}", self.base);
             let mut stream = Stream::new(agent, &base);
             stream.begin(1);
             self.subs.push(Sub {

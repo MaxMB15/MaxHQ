@@ -39,6 +39,7 @@ import {
 import { zoneHint } from "@maxhq/shared/tasks/format";
 import {
 	draftHome,
+	freshBlock,
 	githubRepos,
 	homeOptions,
 	sleepWarning,
@@ -110,6 +111,8 @@ const Form = ({
 	const blocked = home !== null && !allowed;
 	const reach = home ? view.tables.device_tasks.get(home) : undefined;
 	const warning = sleepWarning(view, draft.kind, home);
+	// Why the runs can't start the agent fresh, if they can't.
+	const freshBlocked = draft.target === "agent" ? freshBlock(view, draft.agent, home) : null;
 	const repos = [...new Set(githubRepos(view).map((g) => g.repo))];
 	const hasSecret = savedHook?.signature?.has_secret === true;
 	// The agent the saved task reaches, which stays a choice even when it's
@@ -320,6 +323,22 @@ const Form = ({
 						disabled={saved !== null}
 					/>
 					{warning ? <Hint warn>{warning}</Hint> : null}
+					{/* One that's on still shows, so it can go off. */}
+					{draft.target === "agent" && (freshBlocked === null || draft.fresh) ? (
+						<Tick
+							label={t("Start a fresh session each run")}
+							note={
+								freshBlocked
+									? undefined
+									: t(
+											"Each run starts the agent on a new session in the same place, once its turn is over. The timeline keeps what came before."
+										)
+							}
+							value={draft.fresh}
+							onChange={(fresh) => edit({ fresh })}
+						/>
+					) : null}
+					{freshBlocked ? <Hint warn>{freshBlocked}</Hint> : null}
 					{draft.target === "new" ? (
 						<AgentPickers
 							view={view}

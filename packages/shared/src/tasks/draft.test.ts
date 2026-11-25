@@ -384,6 +384,26 @@ describe("editing a saved task", () => {
 			});
 		}
 	});
+
+	it("starts the agent fresh each run only when asked, and reads that back", () => {
+		expect(built({}).target).toEqual({ type: "agent", device: MAC, agent: "agent-release" });
+		const fresh = built({ fresh: true });
+		expect(fresh.target).toEqual({
+			type: "agent",
+			device: MAC,
+			agent: "agent-release",
+			fresh: true,
+		});
+		expect(taskToDraft(view, fresh).fresh).toBe(true);
+		expect(taskToDraft(view, saved("task-checklist")).fresh).toBe(false);
+		// A new agent starts fresh anyway, so the switch doesn't go with it.
+		const choices = {
+			...emptyDraft().choices,
+			project: "proj-atlas-maps",
+			account: DEVBOX_CODEX,
+		};
+		expect(built({ fresh: true, target: "new", choices }).target).not.toHaveProperty("fresh");
+	});
 });
 
 describe("the fields a prompt fills in", () => {

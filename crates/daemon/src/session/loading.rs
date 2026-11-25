@@ -22,7 +22,7 @@ use super::jobs::AT_ONCE;
 use super::places::source;
 use super::reads::read_history;
 use super::timeline::Timeline;
-use super::{is_queued, Input, Manager};
+use super::{Input, Manager};
 use crate::drive::Action;
 
 /// The timelines still to read after a restart, and what waits for them.
@@ -55,6 +55,8 @@ pub(super) enum Later {
     Reseed,
     /// Showing a `!` run as it was last kept.
     Run(ItemId),
+    /// Starting a task's fresh session.
+    Fresh,
 }
 
 impl Loading {
@@ -86,10 +88,7 @@ impl Manager {
                     || held.owed.is_some()
                     || held.resuming
                     || self.attention.values().any(|open| open.agent == id)
-                    || self
-                        .timelines
-                        .get(&id)
-                        .is_some_and(|timeline| timeline.kept().any(is_queued));
+                    || self.has_queued(id);
                 (pending, id)
             })
             .collect();
@@ -108,6 +107,13 @@ impl Manager {
         for (_, id) in agents {
             self.loading.waiting.insert(id, Vec::new());
             self.loading.queue.push_back(id);
+            if self
+                .held
+                .get(&id)
+                .is_some_and(|held| !held.fresh.is_empty())
+            {
+                self.wait_for(id, Later::Fresh);
+            }
         }
         self.next_loads();
     }
@@ -265,6 +271,7 @@ impl Manager {
             Later::FollowUp => self.follow_up(agent),
             Later::Reseed => self.reseed(agent),
             Later::Run(id) => self.show_run(agent, &id),
+            Later::Fresh => self.fresh_due(agent),
         }
     }
 

@@ -64,7 +64,12 @@ impl Harness {
 
     /// Answers the thread start for `agent` that the Codex app-server got
     /// after log entry `from`, as thread `thread`. Returns the app-server.
-    async fn codex_thread(&self, agent: AgentId, from: usize, thread: &str) -> SessionId {
+    pub(super) async fn codex_thread(
+        &self,
+        agent: AgentId,
+        from: usize,
+        thread: &str,
+    ) -> SessionId {
         eventually("the thread start", || {
             self.vendors.log()[from..]
                 .iter()
@@ -97,7 +102,7 @@ impl Harness {
     }
 
     /// The agent's timeline as a client opening it now sees it.
-    async fn items(&self, agent: AgentId) -> Vec<TimelineItem> {
+    pub(super) async fn items(&self, agent: AgentId) -> Vec<TimelineItem> {
         let mut viewer = Inbox::new(&self.sessions, ClientId::generate());
         viewer.send(ClientMessage::OpenTimeline {
             agent,

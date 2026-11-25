@@ -199,7 +199,7 @@ pub fn automated<'a>(
         .into_iter()
         .filter(|task| task.enabled)
         .filter_map(|task| match &task.target {
-            TaskTarget::Agent { device, agent } => Some((*device, *agent)),
+            TaskTarget::Agent { device, agent, .. } => Some((*device, *agent)),
             TaskTarget::New { .. } => None,
         })
 }
@@ -491,7 +491,11 @@ mod tests {
         };
         let (mac, devbox) = (DeviceId::derive("mac"), DeviceId::derive("devbox"));
         let (here, there) = (AgentId::derive("here"), AgentId::derive("there"));
-        let on = |device, agent| TaskTarget::Agent { device, agent };
+        let on = |device, agent| TaskTarget::Agent {
+            device,
+            agent,
+            fresh: false,
+        };
         let spec = maxhq_protocol::message::AgentSpec {
             vendor: Vendor::Claude,
             account: maxhq_protocol::ids::AccountId::derive("claude"),

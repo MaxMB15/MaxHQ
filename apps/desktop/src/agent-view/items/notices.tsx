@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026 Max Boksem
 
-// The quieter items: errors, compaction, a stopped turn, the line that
-// ends a turn, notices from the CLI, a move to another vendor, and anything
-// MaxHQ doesn't know how to show yet.
+// The quieter items: errors, compaction, a stopped turn, a fresh session,
+// the line that ends a turn, notices from the CLI, a move to another vendor,
+// and anything MaxHQ doesn't know how to show yet.
 
 import {
 	ArrowRight,
@@ -11,6 +11,7 @@ import {
 	CircleAlert,
 	CircleStop,
 	Info,
+	RotateCcw,
 	Shrink,
 	TriangleAlert,
 } from "lucide-react";
@@ -21,7 +22,12 @@ import { cn } from "@/lib/utils";
 import { openCliSignIn } from "@/settings/cli-sign-in";
 import { openSettings } from "@/settings/store";
 import type { AccountId } from "@maxhq/shared/bindings";
-import { handoffKinds, handoffTitle, isOpen } from "@maxhq/shared/agent-view/format";
+import {
+	handoffKinds,
+	handoffTitle,
+	isOpen,
+	newSessionLine,
+} from "@maxhq/shared/agent-view/format";
 import { signInAction } from "@maxhq/shared/settings/cli-sign-in";
 import type { AgentKind } from "@maxhq/shared/status/agent-kind";
 import { formatDuration, formatTokens } from "@maxhq/shared/status/format";
@@ -137,6 +143,16 @@ export const InterruptedRow = () => {
 	return (
 		<Divider icon={<CircleStop size={12} strokeWidth={1.9} aria-hidden />}>
 			{translate("You stopped this turn")}
+		</Divider>
+	);
+};
+
+/** Where a task's run started the agent on a fresh session. */
+export const NewSessionRow = () => {
+	useI18n();
+	return (
+		<Divider icon={<RotateCcw size={12} strokeWidth={1.9} aria-hidden />}>
+			{newSessionLine()}
 		</Divider>
 	);
 };

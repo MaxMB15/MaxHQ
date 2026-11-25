@@ -7,7 +7,7 @@ import { describe, expect, it, vi } from "vitest";
 import App from "@/App";
 import { mockSource } from "@/data/mock-source";
 import { openOwnView } from "@/test/settings";
-import type { Entity } from "@maxhq/shared/bindings";
+import { type Entity, FRESH_SESSIONS_SINCE } from "@maxhq/shared/bindings";
 import type { DataSource } from "@maxhq/shared/data/source";
 import { CURSOR, DEVBOX, MAC } from "@maxhq/shared/data/mock-view";
 import { FixedNow } from "@maxhq/shared/lib/clock";
@@ -256,6 +256,49 @@ describe("the task editor", () => {
 			})
 		);
 		expect(section("Mac").getByText("Nightly")).toBeInTheDocument();
+	});
+
+	it("starts the agent on a fresh session each run when ticked", async () => {
+		const source = renderApp();
+		const save = vi.spyOn(source, "saveTask");
+		await openTasks();
+		fireEvent.click(screen.getByRole("button", { name: "New task" }));
+		fireEvent.change(editor().getByRole("textbox", { name: "Name" }), {
+			target: { value: "Nightly" },
+		});
+		fireEvent.change(editor().getByRole("textbox", { name: "Prompt" }), {
+			target: { value: "Run the tests" },
+		});
+		await choose("New scheduled task", "Sends to", "Release checklist");
+		const fresh = editor().getByRole("checkbox", { name: "Start a fresh session each run" });
+		expect(fresh).not.toBeChecked();
+		fireEvent.click(fresh);
+		expect(fresh).toBeChecked();
+		fireEvent.click(editor().getByRole("button", { name: "Make task" }));
+		await waitFor(() =>
+			expect(screen.queryByRole("dialog", { name: "New scheduled task" })).toBeNull()
+		);
+		expect(save.mock.calls[0]?.[1].target).toEqual({
+			type: "agent",
+			device: "dev-mac",
+			agent: "agent-release",
+			fresh: true,
+		});
+	});
+
+	it("can't start a fresh session on an older maxd, and says to update it", async () => {
+		renderApp((e) =>
+			e.entity === "device_link" && e.device === MAC
+				? { ...e, protocol: FRESH_SESSIONS_SINCE - 1 }
+				: e
+		);
+		await openTasks();
+		fireEvent.click(screen.getByRole("button", { name: "New task" }));
+		await choose("New scheduled task", "Sends to", "Release checklist");
+		expect(
+			editor().getByRole("checkbox", { name: "Start a fresh session each run" })
+		).toHaveAttribute("aria-disabled", "true");
+		expect(editor().getByText(/runs an older maxd/)).toBeInTheDocument();
 	});
 
 	it("shows a new webhook's URL once, and sends the secret on its own", async () => {

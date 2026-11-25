@@ -307,7 +307,7 @@ impl Manager {
     /// The agent a task's runs reach, said for the card.
     fn reaches(&self, target: &TaskTarget, feed: AgentId) -> String {
         match target {
-            TaskTarget::Agent { device, agent } => {
+            TaskTarget::Agent { device, agent, .. } => {
                 let on = visible(&device_name(&self.hub, *device));
                 if self.lead_of(*agent) == feed {
                     format!("This agent, on {on}")

@@ -1437,5 +1437,7 @@
 	"go to the program": "vont au programme",
 	"Your keys go to the program. Click outside or press {{keyHint}} to give them back.": "Vos touches vont au programme. Cliquez à côté ou appuyez sur {{keyHint}} pour les rendre.",
 	"Click to give the program your keys": "Cliquez pour donner vos touches au programme",
-	"Click outside or press {{keyHint}} to give the keys back.": "Cliquez à côté ou appuyez sur {{keyHint}} pour rendre les touches."
+	"Click outside or press {{keyHint}} to give the keys back.": "Cliquez à côté ou appuyez sur {{keyHint}} pour rendre les touches.",
+	"Start a fresh session each run": "Démarrer une nouvelle session à chaque exécution",
+	"Each run starts the agent on a new session in the same place, once its turn is over. The timeline keeps what came before.": "Chaque exécution démarre l'agent sur une nouvelle session au même endroit, une fois son tour terminé. La chronologie garde ce qui précède."
 }

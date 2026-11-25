@@ -38,15 +38,22 @@ export const Tick = ({
 	label,
 	checked,
 	onChange,
+	disabled = false,
 }: {
 	label: string;
 	checked: boolean;
 	onChange: (on: boolean) => void;
+	disabled?: boolean;
 }) => {
 	useI18n();
 	return (
 		<label className="flex min-w-0 items-center gap-2 text-[12.5px] text-foreground">
-			<Checkbox aria-label={label} checked={checked} onCheckedChange={onChange} />
+			<Checkbox
+				aria-label={label}
+				checked={checked}
+				onCheckedChange={onChange}
+				disabled={disabled}
+			/>
 			<span className="truncate">{label}</span>
 		</label>
 	);

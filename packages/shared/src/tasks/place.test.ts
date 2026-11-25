@@ -3,7 +3,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import type { Entity } from "../bindings";
+import { type Entity, FRESH_SESSIONS_SINCE } from "../bindings";
 import { mockTasks } from "../data/mock-tasks";
 import { DEVBOX, MAC, mockEntities } from "../data/mock-view";
 import { NOW } from "../test/build";
@@ -15,6 +15,7 @@ import {
 	defaultHome,
 	deviceTasks,
 	draftHome,
+	freshBlock,
 	githubRepos,
 	homeOf,
 	keptByAutomation,
@@ -152,6 +153,37 @@ describe("the agents a task reaches", () => {
 			{ task: expect.objectContaining({ id: "task-deploy" }), home: MAC },
 		]);
 		expect(tasksTargeting(view, "agent-nobody")).toEqual([]);
+	});
+
+	it("starts an agent fresh only where both maxds can", () => {
+		// The release checklist runs on the Mac.
+		expect(freshBlock(view, "agent-release", DEVBOX)).toBeNull();
+		expect(freshBlock(view, null, DEVBOX)).toBeNull();
+		const atOld = (device: string) =>
+			viewWith((e): Entity =>
+				e.entity === "device_link" && e.device === device
+					? { ...e, protocol: FRESH_SESSIONS_SINCE - 1 }
+					: e
+			);
+		expect(freshBlock(atOld(MAC), "agent-release", DEVBOX)).toMatch(/older maxd/);
+		expect(freshBlock(atOld(DEVBOX), "agent-release", DEVBOX)).toMatch(/older maxd/);
+		expect(freshBlock(atOld(DEVBOX), "agent-release", MAC)).toBeNull();
+	});
+
+	it("leaves the dispatcher's session alone", () => {
+		const workspace = view.tables.agent.get("agent-release")?.workspace ?? "";
+		const dispatcher: Entity = {
+			entity: "dispatcher",
+			device: MAC,
+			workspace,
+			agent: null,
+			plan: null,
+		};
+		const withDispatcher = applySnapshot({
+			seq: 1,
+			entities: [...mockEntities(NOW), ...tasks, dispatcher],
+		});
+		expect(freshBlock(withDispatcher, "agent-release", MAC)).toMatch(/dispatcher/);
 	});
 
 	it("keeps an agent active while one of its tasks is enabled", () => {

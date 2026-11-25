@@ -72,6 +72,7 @@ fn away(agent: AgentId) -> TaskTarget {
     TaskTarget::Agent {
         device: DeviceId::derive("devbox"),
         agent,
+        fresh: false,
     }
 }
 
@@ -96,6 +97,7 @@ impl Harness {
         let target = TaskTarget::Agent {
             device: self.host.id,
             agent,
+            fresh: false,
         };
         (agent, session, target)
     }
@@ -134,18 +136,23 @@ impl Harness {
         self.act(|key| ClientMessage::SaveTask { key, task }).await
     }
 
-    async fn run_now(&mut self, task: TaskId) -> ActionOutcome {
+    pub(super) async fn run_now(&mut self, task: TaskId) -> ActionOutcome {
         self.act(|key| ClientMessage::RunTaskNow { key, task })
             .await
     }
 
     /// A task's runs, newest first.
-    fn runs(&self, task: TaskId) -> Vec<Run> {
+    pub(super) fn runs(&self, task: TaskId) -> Vec<Run> {
         self.db.runs(task).expect("the runs can be read")
     }
 
     /// Waits until a task has a run that `check` passes, and gives it.
-    async fn run_where(&self, task: TaskId, what: &str, check: impl Fn(&Run) -> bool) -> Run {
+    pub(super) async fn run_where(
+        &self,
+        task: TaskId,
+        what: &str,
+        check: impl Fn(&Run) -> bool,
+    ) -> Run {
         eventually(what, || self.runs(task).iter().any(&check)).await;
         self.runs(task).into_iter().find(check).unwrap()
     }
@@ -343,6 +350,7 @@ async fn a_fire_says_why_it_did_not_queue() {
     let away = TaskTarget::Agent {
         device: DeviceId::derive("devbox"),
         agent,
+        fresh: false,
     };
     let away = h.save(task("Away", hourly(), away)).await;
 
@@ -749,7 +757,8 @@ async fn an_agent_schedules_lists_runs_and_deletes_its_own_tasks() {
         made.target,
         TaskTarget::Agent {
             device: h.host.id,
-            agent: lead
+            agent: lead,
+            fresh: false
         }
     );
     assert!(
@@ -1160,7 +1169,8 @@ async fn an_agent_aims_a_task_at_itself_another_agent_or_a_new_agent() {
         me,
         Ok(TaskTarget::Agent {
             device: here,
-            agent: lead
+            agent: lead,
+            fresh: false
         })
     );
     let them = json!({"type": "agent", "agent": other});
@@ -1169,7 +1179,8 @@ async fn an_agent_aims_a_task_at_itself_another_agent_or_a_new_agent() {
         them,
         Ok(TaskTarget::Agent {
             device: here,
-            agent: other
+            agent: other,
+            fresh: false
         })
     );
 

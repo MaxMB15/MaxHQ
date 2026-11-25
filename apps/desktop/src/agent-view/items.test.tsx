@@ -261,6 +261,7 @@ const SAMPLES: Record<ItemBody["kind"], [ItemBody, string | RegExp, ItemStatus?]
 		"Context handoff pending",
 		"pending",
 	],
+	new_session: [{ kind: "new_session" }, "New session, for a scheduled task's run"],
 	agent_attachments: [
 		{
 			kind: "agent_attachments",

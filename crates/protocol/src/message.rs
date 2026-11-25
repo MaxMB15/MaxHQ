@@ -3103,6 +3103,13 @@ pub const INPUT_MODES_SINCE: u32 = 59;
 /// only the commands sent with `!`. Since protocol 60.
 pub const TYPED_BLOCKS_SINCE: u32 = 60;
 
+/// The protocol version whose `maxd` first starts a fresh vendor session
+/// for each run of a task that names an existing agent with `fresh`, and
+/// marks it with [`crate::timeline::ItemBody::NewSession`]. An older one
+/// queues the prompt as a message on the agent's session. Since protocol
+/// 64.
+pub const FRESH_SESSIONS_SINCE: u32 = 64;
+
 /// The protocol version whose `maxd` first reads a secret line, frame kind
 /// [`crate::frame::FrameKind::TerminalSecret`]: it sends the bytes as
 /// terminal input and records that a secret was sent, never the text. An

@@ -57,3 +57,50 @@ fn an_unknown_agent_has_nothing_to_release() {
     let run = Run::ready();
     assert!(!run.server.can_release(agent()));
 }
+
+#[test]
+fn a_fresh_session_leaves_the_old_thread_and_drops_its_late_lines() {
+    let mut run = Run::started(None);
+    run.feed_all(&fixture("turn-image.jsonl")[2..]);
+    run.take();
+
+    // A start for an agent that has a thread is a fresh session for it.
+    let fresh = "01a17276-ffff-7bb1-8561-9ac24632a961";
+    let Action::Start { place, spec, .. } = start(key(2), None) else {
+        unreachable!()
+    };
+    run.act(Action::Start {
+        key: key(2),
+        place,
+        spec,
+        first: None,
+        agent: Some(agent()),
+    });
+    assert_eq!(sent(&run.take(), "thread/start").len(), 1);
+    let started: Vec<String> = fixture_lines("turn-image.jsonl", 1, 2)
+        .iter()
+        .map(|line| line.replace(THREAD, fresh))
+        .collect();
+    run.feed_all(&started);
+    let fx = run.take();
+    assert_eq!(
+        fx.results,
+        [(key(2), ActionOutcome::Started { agent: agent() })]
+    );
+    assert_eq!(
+        sent_once(&fx, "thread/unsubscribe")["params"]["threadId"],
+        THREAD
+    );
+    assert_eq!(
+        agent_update(&fx, agent()).vendor_session_id.as_deref(),
+        Some(fresh)
+    );
+    assert!(!run.server.threads.contains_key(THREAD));
+
+    // A turn the old thread still reports reaches no one.
+    run.feed(&fixture_lines("turn-image.jsonl", 10, 10)[0]);
+    let fx = run.take();
+    assert!(fx.agents.is_empty(), "{:?}", fx.agents);
+    assert!(upserts(&fx).is_empty());
+    assert!(!run.server.strays.contains_key(THREAD));
+}

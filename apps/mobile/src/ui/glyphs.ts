@@ -43,6 +43,7 @@ export { default as MessageSquare } from "lucide-react-native/icons/message-squa
 export { default as Paperclip } from "lucide-react-native/icons/paperclip";
 export { default as Pencil } from "lucide-react-native/icons/pencil";
 export { default as RefreshCw } from "lucide-react-native/icons/refresh-cw";
+export { default as RotateCcw } from "lucide-react-native/icons/rotate-ccw";
 export { default as Search } from "lucide-react-native/icons/search";
 export { default as Shrink } from "lucide-react-native/icons/shrink";
 export { default as Sparkles } from "lucide-react-native/icons/sparkles";

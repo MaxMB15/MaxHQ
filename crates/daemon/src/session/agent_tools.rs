@@ -67,6 +67,9 @@ const NO_INSTALL_PLACE: &str =
 /// What a connection that hasn't signed in reads.
 const SIGN_IN: &str = "Sign in with an access key first.";
 
+/// What a fresh session asked for by anyone but a task reads.
+const FRESH_BY_TASK: &str = "Only a scheduled task starts a fresh session.";
+
 /// What a start with no place reads, from a caller with no workspace.
 pub(super) const NO_PLACE: &str = "Name a place for the agent: a workspace or a folder.";
 
@@ -1308,6 +1311,9 @@ impl Manager {
     /// Sends a message to an agent on this device. One another device sent
     /// was marked there, where its caller is known.
     fn send_agent(&mut self, reply: Reply, caller: Calling, message: Message) {
+        if message.fresh && !matches!(caller.actor, Actor::Task { .. }) {
+            return self.reply_now(reply, Err(FRESH_BY_TASK.to_owned()));
+        }
         let key = request_key(caller.actor, &message.request_id);
         let repeat = self.repeat(key);
         self.join(key, reply, Then::Done("Sent."));
@@ -1317,6 +1323,9 @@ impl Manager {
             } else {
                 self.marked(caller, &message.text)
             };
+            if message.fresh {
+                return self.send_fresh(key, message.agent, text);
+            }
             self.message(
                 NO_CONN,
                 ClientMessage::SendInput {

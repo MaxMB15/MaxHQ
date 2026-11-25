@@ -28,7 +28,11 @@ fn task(name: &str, enabled: bool, device: DeviceId, agent: AgentId) -> Task {
             events: vec!["issues".into()],
             rules: HookRules::default(),
         },
-        target: TaskTarget::Agent { device, agent },
+        target: TaskTarget::Agent {
+            device,
+            agent,
+            fresh: false,
+        },
         enabled,
         permission: PermissionId::derive("unused"),
         made_by: Maker::User,

@@ -50,6 +50,7 @@ const KINDS: Record<ItemBody["kind"], true> = {
 	turn_summary: true,
 	notice: true,
 	handoff: true,
+	new_session: true,
 	agent_attachments: true,
 	agent_opened_file: true,
 	agent_visual: true,

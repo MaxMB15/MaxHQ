@@ -192,6 +192,7 @@ impl Manager {
             let target = TaskTarget::Agent {
                 device: to.device,
                 agent,
+                fresh: false,
             };
             follow
                 .iter()
@@ -229,10 +230,7 @@ impl Manager {
     /// The tasks kept here that target `agent` on `from`, which follow it
     /// when it moves.
     pub(super) fn following(&self, from: DeviceId, agent: AgentId) -> Vec<Task> {
-        self.tasks_targeting(&TaskTarget::Agent {
-            device: from,
-            agent,
-        })
+        self.tasks_targeting(from, agent)
     }
 
     /// Runs the steps of a move from this device.
@@ -680,16 +678,14 @@ impl Manager {
 
     /// Points the tasks kept here that target `from` at `to`.
     fn retarget(&mut self, from: AgentAt, to: AgentAt) {
-        let old = TaskTarget::Agent {
-            device: from.device,
-            agent: from.agent,
-        };
-        for task in self.tasks_targeting(&old) {
+        for task in self.tasks_targeting(from.device, from.agent) {
             let id = task.id;
+            let fresh = matches!(task.target, TaskTarget::Agent { fresh: true, .. });
             let moved = Task {
                 target: TaskTarget::Agent {
                     device: to.device,
                     agent: to.agent,
+                    fresh,
                 },
                 ..task
             };

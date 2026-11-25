@@ -305,6 +305,7 @@ pub(crate) mod tests {
             target: TaskTarget::Agent {
                 device,
                 agent: AgentId::derive("a"),
+                fresh: false,
             },
             enabled: true,
             permission: user_permission(TaskId::derive(name)),
@@ -503,6 +504,7 @@ pub(crate) mod tests {
             target: TaskTarget::Agent {
                 device: DeviceId::derive("mac"),
                 agent: AgentId::derive("private"),
+                fresh: false,
             },
             ..task("made-up", "nl")
         };
@@ -593,6 +595,7 @@ pub(crate) mod tests {
             target: TaskTarget::Agent {
                 device: mac,
                 agent: AgentId::derive("private"),
+                fresh: false,
             },
             ..task.clone()
         };

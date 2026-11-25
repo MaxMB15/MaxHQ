@@ -297,7 +297,11 @@ mod tests {
             name: name.into(),
             prompt: "Look".into(),
             trigger: Trigger::Every { minutes: 60 },
-            target: TaskTarget::Agent { device, agent },
+            target: TaskTarget::Agent {
+                device,
+                agent,
+                fresh: false,
+            },
             enabled,
             permission: PermissionId::derive("p"),
             made_by: Maker::User,

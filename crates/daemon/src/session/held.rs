@@ -135,6 +135,31 @@ pub struct Held {
     /// Where the agent moved between devices, if it did.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub moved: Option<Box<Moved>>,
+    /// ACP only: how many fresh sessions tasks started for the agent. The
+    /// IDs of its items carry it, so a new session's turns don't take the
+    /// IDs of the old one's.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub epoch: u32,
+    /// The vendor session the last fresh session a task started left,
+    /// whose late news no longer counts for the agent.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub left: Option<String>,
+    /// The task runs that start a fresh session once the agent's turn
+    /// ends, oldest first.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub fresh: Vec<FreshRun>,
+}
+
+/// A task's run that waits to start the agent's fresh session.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FreshRun {
+    /// The prompt, as the new session's first message.
+    pub text: String,
+}
+
+/// Whether `count` is zero, so it's left out when stored.
+fn is_zero(count: &u32) -> bool {
+    *count == 0
 }
 
 /// A session an agent left when it moved to another vendor.
@@ -203,6 +228,9 @@ impl Held {
             cut_at_limit: false,
             limit_resets_at: None,
             moved: None,
+            epoch: 0,
+            left: None,
+            fresh: Vec::new(),
         }
     }
 
@@ -228,6 +256,7 @@ impl Held {
                 .clone()
                 .or_else(|| Some(self.agent.title.clone())),
             tools: None,
+            epoch: self.epoch,
         }
     }
 

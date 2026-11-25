@@ -399,6 +399,8 @@ export type TaskDraft = {
 	readonly target: "agent" | "new";
 	/** The agent an "agent" target reaches. */
 	readonly agent: AgentId | null;
+	/** Whether each run starts the agent on a fresh session, for an "agent" target. */
+	readonly fresh: boolean;
 	/** The new agent's device, login and place, as the new agent form picks them. */
 	readonly choices: Choices;
 };
@@ -473,6 +475,7 @@ export const emptyDraft = (zone: string = localZone()): TaskDraft => ({
 	events: new Set(),
 	target: "new",
 	agent: null,
+	fresh: false,
 	choices: emptyChoices(),
 });
 
@@ -543,6 +546,7 @@ export const taskToDraft = (view: ViewState, task: Task, zone: string = localZon
 		events: new Set(trigger.type === "github_events" ? trigger.events : []),
 		target: target.type,
 		agent: target.type === "agent" ? target.agent : null,
+		fresh: target.type === "agent" && target.fresh === true,
 		choices: spec
 			? {
 					...emptyChoices(workspace?.project ?? null),
@@ -697,7 +701,8 @@ export const targetFrom = (view: ViewState, draft: TaskDraft): TaskTarget | stri
 		const agent = draft.agent ? view.tables.agent.get(draft.agent) : undefined;
 		const device = agent ? view.tables.workspace.get(agent.workspace)?.device : undefined;
 		if (!agent || !device) return t("Pick the agent it sends the prompt to.");
-		return { type: "agent", device, agent: agent.id };
+		// Left out when off, as `maxd` writes it.
+		return { type: "agent", device, agent: agent.id, ...(draft.fresh ? { fresh: true } : {}) };
 	}
 	const plan = planStart(view, draft.choices);
 	const device = resolve(view, draft.choices).device;

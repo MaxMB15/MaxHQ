@@ -186,6 +186,10 @@ pub fn specta_builder() -> Builder<tauri::Wry> {
             "INPUT_MODES_SINCE",
             maxhq_protocol::message::INPUT_MODES_SINCE,
         )
+        .constant(
+            "FRESH_SESSIONS_SINCE",
+            maxhq_protocol::message::FRESH_SESSIONS_SINCE,
+        )
 }
 
 /// The exporter settings for the generated file.

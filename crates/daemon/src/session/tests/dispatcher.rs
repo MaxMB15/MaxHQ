@@ -712,7 +712,8 @@ async fn a_confirmed_plan_starts_an_idle_cursor_agent_and_a_task_aimed_at_it() {
         saved.target,
         TaskTarget::Agent {
             device: h.host.id,
-            agent
+            agent,
+            fresh: false
         }
     );
     let Trigger::GithubEvents {

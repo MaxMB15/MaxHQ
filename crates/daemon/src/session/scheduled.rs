@@ -19,7 +19,7 @@ use maxhq_core::tools::agents::{Message, Start, WAIT};
 use maxhq_core::tools::tasks::{Aim, Named, NewAgent, Schedule};
 use maxhq_core::tools::Call;
 use maxhq_protocol::agents::{Actor, AgentOrigin, Permission, ToolCall};
-use maxhq_protocol::ids::{IdempotencyKey, TaskId};
+use maxhq_protocol::ids::{AgentId, DeviceId, IdempotencyKey, TaskId};
 use maxhq_protocol::message::{ActionOutcome, AgentPlace, AgentSpec, ClientMessage, SendMode};
 use maxhq_protocol::model::Activity;
 use maxhq_protocol::state::{Change, Entity};
@@ -35,7 +35,7 @@ use tracing::warn;
 
 use super::agent_tools::{no_account, request_key, Calling, Reply, NO_PLACE};
 use super::idem::{Outcome, Seen};
-use super::{is_queued, refused, Input, Manager};
+use super::{refused, Input, Manager};
 use crate::db::Db;
 use crate::github_events::pollers::Problems;
 use crate::github_events::HookStates;
@@ -609,12 +609,17 @@ impl Manager {
             reads: false,
         };
         let call = match &found.target {
-            TaskTarget::Agent { device, agent } => Call::SendAgent(Message {
+            TaskTarget::Agent {
+                device,
+                agent,
+                fresh,
+            } => Call::SendAgent(Message {
                 request_id: request_id.clone(),
                 device: Some(*device),
                 agent: *agent,
                 text: prompt,
                 mode: SendMode::Queue,
+                fresh: *fresh,
             }),
             TaskTarget::New { device, spec } => Call::StartAgent(Start {
                 request_id: request_id.clone(),
@@ -723,10 +728,7 @@ impl Manager {
             return;
         };
         let activity = self.agent_now(agent).map(|agent| agent.activity);
-        let queued = self
-            .timelines
-            .get(&agent)
-            .is_some_and(|timeline| timeline.kept().any(is_queued));
+        let queued = self.has_queued(agent);
         let Some(active) = self.tasks.active.get_mut(&task) else {
             return;
         };
@@ -864,11 +866,7 @@ impl Manager {
                     continue;
                 }
             };
-            let queued = run.agent.is_some_and(|agent| {
-                self.timelines
-                    .get(&agent)
-                    .is_some_and(|timeline| timeline.kept().any(is_queued))
-            });
+            let queued = run.agent.is_some_and(|agent| self.has_queued(agent));
             self.store_run(&id, &run);
             let active = Active {
                 action: request_key(by, &id),
@@ -1166,17 +1164,23 @@ impl Manager {
             .ok_or_else(|| format!("There's no task here with id {task} you may change."))
     }
 
-    /// Who made a task, while it's here.
-    /// The tasks stored here whose runs reach `target`.
-    pub(super) fn tasks_targeting(&self, target: &TaskTarget) -> Vec<Task> {
+    /// The tasks stored here whose runs reach `agent` on `device`, fresh
+    /// sessions or not.
+    pub(super) fn tasks_targeting(&self, device: DeviceId, agent: AgentId) -> Vec<Task> {
         self.tasks
             .tasks
             .values()
-            .filter(|task| task.target == *target)
+            .filter(|task| {
+                matches!(
+                    task.target,
+                    TaskTarget::Agent { device: at, agent: id, .. } if at == device && id == agent
+                )
+            })
             .cloned()
             .collect()
     }
 
+    /// Who made a task, while it's here.
     pub(super) fn task_maker(&self, task: TaskId) -> Option<Maker> {
         self.tasks.tasks.get(&task).map(|task| task.made_by)
     }
@@ -1285,7 +1289,11 @@ impl Manager {
                 if device == self.device && self.is_dispatcher(agent) {
                     return Err(super::agent_tools::ONLY_THE_USER.into());
                 }
-                return Ok(TaskTarget::Agent { device, agent });
+                return Ok(TaskTarget::Agent {
+                    device,
+                    agent,
+                    fresh: false,
+                });
             }
             Aim::New(new) => new,
             Aim::Caller | Aim::LikeCaller => {
@@ -1298,6 +1306,7 @@ impl Manager {
                     return Ok(TaskTarget::Agent {
                         device: self.device,
                         agent: lead,
+                        fresh: false,
                     });
                 }
                 NewAgent {

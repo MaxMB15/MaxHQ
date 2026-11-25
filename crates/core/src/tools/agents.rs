@@ -96,6 +96,10 @@ pub struct Message {
     pub text: String,
     /// How it goes into a running turn.
     pub mode: SendMode,
+    /// Whether the agent starts a fresh vendor session for it once its
+    /// turn ends, for a task's run. Only a task sets it, and the agent
+    /// tool doesn't offer it.
+    pub fresh: bool,
 }
 
 impl Start {
@@ -152,6 +156,9 @@ impl Message {
         });
         if let Some(device) = self.device {
             args["device"] = json!(device.to_string());
+        }
+        if self.fresh {
+            args["fresh"] = json!(true);
         }
         args
     }
@@ -427,6 +434,7 @@ pub(super) fn parse(tool: Tool, arguments: &Value) -> Result<Call, String> {
             agent: id(&args, "agent")?.ok_or("Give an `agent`.")?,
             text: message(&args, "text")?,
             mode: named(&args, "mode")?.unwrap_or(SendMode::Queue),
+            fresh: flag(&args, "fresh")?.unwrap_or(false),
         }),
         Tool::WaitAgent => {
             let Some(Value::Array(list)) = args.get("agents") else {
@@ -618,10 +626,21 @@ mod tests {
             agent: AgentId::derive("agent"),
             text: "check the build".into(),
             mode: SendMode::Queue,
+            fresh: false,
         };
         assert_eq!(
             Tool::SendAgent.parse(&message.arguments()),
-            Ok(Call::SendAgent(message))
+            Ok(Call::SendAgent(message.clone()))
+        );
+        assert!(message.arguments().get("fresh").is_none());
+        let fresh = Message {
+            fresh: true,
+            ..message
+        };
+        assert_eq!(fresh.arguments()["fresh"], true);
+        assert_eq!(
+            Tool::SendAgent.parse(&fresh.arguments()),
+            Ok(Call::SendAgent(fresh))
         );
     }
 
