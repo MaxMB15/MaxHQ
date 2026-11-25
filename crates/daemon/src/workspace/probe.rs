@@ -329,11 +329,12 @@ mod tests {
         // The closed target is a socket that holds its port without
         // listening. A dropped listener's port could be taken by another
         // test or test run before the probe got there, and this one can't.
-        // Linux refuses a connect to it, and macOS lets it time out.
+        // Linux refuses a connect to it, and macOS lets it time out. So
+        // does Windows, which tries a refused connect again for seconds.
         let closed = TcpSocket::new_v4().unwrap();
         closed.bind("127.0.0.1:0".parse().unwrap()).unwrap();
         let closed_port = closed.local_addr().unwrap().port();
-        let closed_outcome = if cfg!(target_os = "macos") {
+        let closed_outcome = if cfg!(any(target_os = "macos", windows)) {
             Outcome::TimedOut
         } else {
             Outcome::Refused

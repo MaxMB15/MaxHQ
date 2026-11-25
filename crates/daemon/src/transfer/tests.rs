@@ -325,12 +325,16 @@ impl Container {
             .unwrap_or_else(|| PathBuf::from(path))
     }
 
-    /// What a path on this device is in the container.
+    /// What a path on this device is in the container, whose paths take
+    /// `/` whatever this device uses.
     fn inside(&self, path: &str) -> String {
         let attachments = self.root.path().join("attachments");
         let attachments = attachments.to_str().unwrap();
         match path.strip_prefix(attachments) {
-            Some(rest) => format!("{ATTACHMENTS_DIR}{rest}"),
+            Some(rest) => format!(
+                "{ATTACHMENTS_DIR}{}",
+                maxhq_core::skills::path_text(Path::new(rest))
+            ),
             None => path.to_owned(),
         }
     }
@@ -578,7 +582,7 @@ impl Rig {
             device: local.device,
             workspace: container.workspace,
             cwd: PathBuf::from(format!("{WORK_DIR}/repo")),
-            attachments: Path::new(ATTACHMENTS_DIR).join(boxed_agent.to_string()),
+            attachments: PathBuf::from(format!("{ATTACHMENTS_DIR}/{boxed_agent}")),
             host: PlaceHost::Guest {
                 workspace: container.workspace,
             },
@@ -1594,7 +1598,7 @@ async fn delivering_into_a_container_pushes_the_staged_copy() {
 
     // Another agent's message in the same container can't name it.
     let other = Place {
-        attachments: Path::new(ATTACHMENTS_DIR).join(AgentId::generate().to_string()),
+        attachments: PathBuf::from(format!("{ATTACHMENTS_DIR}/{}", AgentId::generate())),
         ..rig.boxed.clone()
     };
     assert!(matches!(
@@ -1660,6 +1664,8 @@ async fn an_uploaded_picture_keeps_its_preview_on_the_device() {
     assert_eq!(delivered[0].text, None);
 }
 
+// Needs T1's fake program helper: the container's document reader is sh.
+#[cfg(unix)]
 #[tokio::test]
 async fn an_upload_to_a_container_brings_back_its_preview_and_text() {
     let rig = Rig::new();
@@ -1689,6 +1695,8 @@ async fn an_upload_to_a_container_brings_back_its_preview_and_text() {
     assert_eq!(fs::read_to_string(local).unwrap(), "text of notes.docx");
 }
 
+// Needs T1's fake program helper: the container's document reader is sh.
+#[cfg(unix)]
 #[tokio::test]
 async fn delivering_a_document_into_a_container_has_its_guest_read_it() {
     let rig = Rig::new();
@@ -1779,7 +1787,8 @@ async fn a_guest_answers_a_begin_sent_again_after_its_job_ends() {
         .container
         .root
         .path()
-        .join("attachments/staged")
+        .join("attachments")
+        .join("staged")
         .join(transfer.to_string());
     assert_eq!(
         paths,
@@ -2207,6 +2216,8 @@ async fn a_deep_or_unreadable_leftover_doesnt_stop_a_quota_and_goes_when_removed
         at.make_dir("d", 0o755).unwrap();
         at = at.dir(&["d".to_owned()]).unwrap();
     }
+    // Windows can't remove a folder this test still holds open.
+    drop(at);
 
     let checked = disk::check_quota(root.clone(), root.join("incoming"), 1, 11).await;
     fsmode::set_mode(&shut, 0o755).unwrap();

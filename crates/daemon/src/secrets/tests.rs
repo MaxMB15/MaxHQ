@@ -73,6 +73,13 @@ const SEEN: &[&str] = &[
     "a sign-in through the CLI ended",
 ];
 
+/// The lines only the sign-in through a fake CLI logs. That walk needs T1's
+/// fake program helper to run on Windows, so only Unix hears them for now.
+const CLI_SEEN: &[&str] = &[
+    "started a sign-in through the CLI",
+    "a sign-in through the CLI ended",
+];
+
 #[tokio::test]
 async fn no_secret_reaches_the_log_or_the_hub() {
     let mut secrets = vec![
@@ -111,7 +118,11 @@ async fn no_secret_reaches_the_log_or_the_hub() {
                 "the hub published {what}"
             );
         }
-        if SEEN.iter().all(|line| log.contains(line)) {
+        if SEEN
+            .iter()
+            .filter(|line| cfg!(unix) || !CLI_SEEN.contains(line))
+            .all(|line| log.contains(line))
+        {
             return;
         }
     }

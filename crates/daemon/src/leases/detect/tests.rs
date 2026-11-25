@@ -432,6 +432,9 @@ async fn android_finds_the_sdk_maxhq_installed() {
     assert_eq!(sdk.root, PathBuf::from(studio));
 }
 
+// Unix only: a Linux host's PATH, which Windows splits at `;` and whose
+// `/opt/shims` isn't a full path there.
+#[cfg(unix)]
 #[tokio::test]
 async fn android_follows_an_adb_on_path_to_its_sdk() {
     let fake = with_sdk(Fake::linux(), "/opt/real-sdk")

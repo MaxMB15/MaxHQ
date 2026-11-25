@@ -18,7 +18,7 @@ pub mod uninstall;
 use std::ffi::OsStr;
 use std::fmt;
 use std::fs;
-#[cfg(any(unix, test))]
+#[cfg(unix)]
 use std::fs::File;
 use std::io;
 use std::path::{Path, PathBuf};
@@ -608,7 +608,7 @@ pub const LOG_LIMIT: u64 = 16 << 20;
 /// Moves the log at `path` to `<path>.1` once it's past `limit`, over the
 /// last one there, and gives a fresh file in its place. launchd opens the
 /// log once and never trims it, so only the file `writing` points at moves.
-#[cfg(any(unix, test))]
+#[cfg(unix)]
 pub fn rotate_log(path: &Path, writing: &File, limit: u64) -> io::Result<Option<File>> {
     let log = match fs::metadata(path) {
         Ok(log) => log,
@@ -1446,7 +1446,8 @@ mod tests {
                 "launchctl bootout gui/501/com.maxagenthq.maxd".to_owned(),
                 "launchctl print gui/501/com.maxagenthq.maxd".to_owned(),
                 "launchctl enable gui/501/com.maxagenthq.maxd".to_owned(),
-                format!("launchctl bootstrap gui/501 {}", file.display()),
+                // The same file, as the code spells it on this system.
+                format!("launchctl bootstrap gui/501 {}", setup.file().display()),
             ]
         );
         assert!(report[0].contains("Installed"));
@@ -1641,6 +1642,9 @@ mod tests {
         assert!(!status.running());
     }
 
+    // Unix only: launchd's log is the one rotated, and Windows can't tell
+    // two handles are the same file.
+    #[cfg(unix)]
     #[test]
     fn a_log_moves_aside_once_too_big_and_only_when_maxd_writes_it() {
         use std::io::Write;

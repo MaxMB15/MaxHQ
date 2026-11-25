@@ -261,13 +261,17 @@ mod tests {
         assert!(!on_charger_in(&unplugged.0));
         let plugged = Supplies::new(&[BATTERY, ("AC", &[("type", "Mains"), ("online", "1")])]);
         assert!(on_charger_in(&plugged.0));
+        // Linux names a USB-C port with a `:`, which Windows can't put in a
+        // file's name.
+        let port = if cfg!(windows) {
+            "ucsi-source-psy-USBC000-001"
+        } else {
+            "ucsi-source-psy-USBC000:001"
+        };
         let usb_c = Supplies::new(&[
             BATTERY,
             ("AC", &[("type", "Mains"), ("online", "0")]),
-            (
-                "ucsi-source-psy-USBC000:001",
-                &[("type", "USB"), ("online", "1")],
-            ),
+            (port, &[("type", "USB"), ("online", "1")]),
         ]);
         assert!(on_charger_in(&usb_c.0));
         let no_adapter_listed = Supplies::new(&[BATTERY]);
