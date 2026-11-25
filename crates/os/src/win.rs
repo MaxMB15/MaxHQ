@@ -120,13 +120,26 @@ pub fn user_of(token: &OwnedHandle) -> io::Result<Vec<u8>> {
     Ok(unsafe { std::slice::from_raw_parts(sid.cast::<u8>(), len) }.to_vec())
 }
 
-/// Whether `token` is elevated.
+/// Whether `token` is elevated. The class wants a buffer of exactly its
+/// struct's size, and refuses a bigger one with `ERROR_BAD_LENGTH`.
 #[allow(unsafe_code)]
 pub fn elevated(token: &OwnedHandle) -> io::Result<bool> {
-    let buffer = token_info(token, TokenElevation)?;
-    // SAFETY: TokenElevation writes a TOKEN_ELEVATION at the start of the
-    // buffer, which is aligned for it.
-    Ok(unsafe { (*buffer.as_ptr().cast::<TOKEN_ELEVATION>()).TokenIsElevated } != 0)
+    let mut elevation = TOKEN_ELEVATION { TokenIsElevated: 0 };
+    let capacity =
+        u32::try_from(std::mem::size_of::<TOKEN_ELEVATION>()).map_err(io::Error::other)?;
+    let mut size = 0u32;
+    // SAFETY: the buffer is one TOKEN_ELEVATION, `capacity` bytes, and the
+    // call writes at most that.
+    check(unsafe {
+        GetTokenInformation(
+            raw(token),
+            TokenElevation,
+            (&raw mut elevation).cast(),
+            capacity,
+            &mut size,
+        )
+    })?;
+    Ok(elevation.TokenIsElevated != 0)
 }
 
 /// The user this process runs as.
@@ -143,6 +156,29 @@ pub fn sid_string(sid: &[u8]) -> io::Result<String> {
     check(unsafe { ConvertSidToStringSidW(sid.as_ptr().cast_mut().cast(), &mut text) })?;
     // SAFETY: the call allocated `text` with LocalAlloc.
     Ok(unsafe { take_local_string(text) })
+}
+
+/// The SID a string names, as its bytes: the `S-1-5-…` form, or the two
+/// letters SDDL writes for a well-known one, such as `LA` for the local
+/// administrator.
+#[cfg(test)]
+#[allow(unsafe_code)]
+pub fn sid_from_string(text: &str) -> io::Result<Vec<u8>> {
+    use windows_sys::Win32::Security::Authorization::ConvertStringSidToSidW;
+
+    let wide = wide(text);
+    let mut sid: windows_sys::Win32::Security::PSID = std::ptr::null_mut();
+    // SAFETY: `wide` ends in a NUL, and the call writes one pointer to a
+    // SID it allocated with LocalAlloc.
+    check(unsafe { ConvertStringSidToSidW(wide.as_ptr(), &mut sid) })?;
+    // SAFETY: `sid` is a valid SID the call wrote.
+    let len = usize::try_from(unsafe { GetLengthSid(sid) }).map_err(io::Error::other);
+    // SAFETY: the SID is `len` bytes, copied before it's freed once.
+    let bytes =
+        len.map(|len| unsafe { std::slice::from_raw_parts(sid.cast::<u8>(), len) }.to_vec());
+    // SAFETY: the call allocated `sid` with LocalAlloc.
+    unsafe { LocalFree(sid) };
+    bytes
 }
 
 /// Copies a NUL-terminated string a call allocated with LocalAlloc, and

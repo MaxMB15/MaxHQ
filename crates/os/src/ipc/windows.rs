@@ -190,6 +190,10 @@ pub fn pair() -> io::Result<(Stream, Stream)> {
     Ok((Stream::Server(server), Stream::Client(client)))
 }
 
+pub fn answers(path: &Path) -> bool {
+    probe(path).is_ok_and(|found| found == Found::Listening)
+}
+
 pub fn probe(path: &Path) -> io::Result<Found> {
     let name = super::pipe_name(path);
     let opened = std::fs::OpenOptions::new()

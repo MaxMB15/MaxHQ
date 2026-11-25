@@ -12,6 +12,10 @@ pub fn private_dir_all(path: &Path) -> io::Result<()> {
     fs::DirBuilder::new().recursive(true).create(path)
 }
 
+pub fn dir_all_with_mode(path: &Path, _mode: u32) -> io::Result<()> {
+    fs::DirBuilder::new().recursive(true).create(path)
+}
+
 pub fn private_dir(path: &Path) -> io::Result<()> {
     fs::create_dir(path)
 }
@@ -37,6 +41,14 @@ pub fn mode_of(meta: &Metadata) -> u32 {
     } else {
         0o600
     }
+}
+
+pub fn owner_of(_meta: &Metadata) -> Option<u32> {
+    None
+}
+
+pub fn same_file(_a: &Metadata, _b: &Metadata) -> bool {
+    false
 }
 
 pub fn open_no_wait(options: &mut OpenOptions) -> &mut OpenOptions {

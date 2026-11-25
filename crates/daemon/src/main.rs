@@ -9,11 +9,11 @@
 //! winds agents down before the device restarts.
 
 use std::ffi::OsString;
-use std::fs::{DirBuilder, File, Permissions};
+#[cfg(unix)]
+use std::fs::File;
 use std::future::Future;
-use std::io::{self, IsTerminal, Read, Write};
-use std::os::fd::AsFd;
-use std::os::unix::fs::{DirBuilderExt, PermissionsExt};
+use std::io::{self, IsTerminal, Write};
+#[cfg(unix)]
 use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
@@ -22,6 +22,8 @@ use std::time::Duration;
 
 use maxhq_core::db::OpenError;
 use maxhq_core::paths;
+use maxhq_os::fsmode;
+use maxhq_os::stop::Stops;
 use maxhq_protocol::agents::ClientRole;
 use maxhq_protocol::frame::{self, Frame, FrameDecoder};
 use maxhq_protocol::ids::{ClientId, IdempotencyKey};
@@ -31,7 +33,6 @@ use maxhq_protocol::{
 };
 use thiserror::Error;
 use tokio::runtime::Runtime;
-use tokio::signal::unix::{signal, SignalKind};
 use tracing::{error, info, warn};
 use tracing_subscriber::EnvFilter;
 
@@ -147,6 +148,9 @@ const USAGE: &str = "usage:
                            it started, and remove the service; with
                            --delete-data, delete its data and logs too
   maxd service status      say whether maxd is installed and running
+  maxd service start       start maxd's service once it's installed
+  maxd service stop        stop maxd until you next log in
+  maxd service restart     stop maxd and start it again
   maxd mcp --key-file <path>
                            serve the agent tools on stdin and stdout, for
                            a tool outside MaxHQ, with the key in that file
@@ -175,6 +179,8 @@ const USAGE: &str = "usage:
   maxd update watch --build <build>
                            put the old maxd back if <build> never comes up;
                            an update starts this
+  maxd launch <program>    run <program> run and start it again; Windows's
+                           logon task runs this
   maxd --build             print this binary's build
   maxd --version
 
@@ -194,6 +200,23 @@ fn main() -> ExitCode {
         .is_some_and(|first| first == doctext::SUBCOMMAND)
     {
         return doctext::run(&args_os[1..]);
+    }
+    // The logon task's launcher, given maxd.exe's path, which needn't be
+    // UTF-8 either.
+    if args_os
+        .first()
+        .is_some_and(|first| first == maxhq_core::service::LAUNCH_SUBCOMMAND)
+    {
+        return match &args_os[1..] {
+            [program] => match service::task::launch(Path::new(program)) {
+                Ok(()) => ExitCode::SUCCESS,
+                Err(err) => {
+                    eprintln!("maxd launch: {err}");
+                    ExitCode::FAILURE
+                }
+            },
+            _ => usage_error(),
+        };
     }
     let args: Vec<String> = std::env::args().skip(1).collect();
     let args: Vec<&str> = args.iter().map(String::as_str).collect();
@@ -373,14 +396,15 @@ enum RunError {
         /// What went wrong.
         source: io::Error,
     },
-    /// The stop signals couldn't be caught.
+    /// The stop signals couldn't be caught, or on Windows the stop
+    /// endpoint served.
     #[error("couldn't listen for stop signals: {0}")]
     Signals(io::Error),
 }
 
-/// `maxd run`. Serves until SIGINT or SIGTERM, then removes the socket. On
-/// macOS it also stops once the app it came in has been deleted, and then
-/// uninstalls itself.
+/// `maxd run`. Serves until SIGINT or SIGTERM, or on Windows a request to
+/// its stop endpoint, then removes the socket. On macOS it also stops once
+/// the app it came in has been deleted, and then uninstalls itself.
 fn run() -> ExitCode {
     init_logging();
     rotate_log();
@@ -400,6 +424,10 @@ fn run() -> ExitCode {
     runtime.shutdown_timeout(SHUTDOWN_WAIT);
     match result {
         Ok(Stopped::Asked) => ExitCode::SUCCESS,
+        // 0 on Unix, where the service manager starts it again anyway.
+        Ok(Stopped::Restart) => {
+            ExitCode::from(u8::try_from(maxhq_core::service::RESTART_EXIT).unwrap_or(1))
+        }
         Ok(Stopped::AppDeleted) => {
             remove_self();
             ExitCode::SUCCESS
@@ -415,6 +443,7 @@ const OPEN_MAX: u64 = 10_240;
 /// Raises the soft limit on open files as far as the system lets it. launchd
 /// and systemd start `maxd` low, and every agent, link and client counts
 /// against it.
+#[cfg(unix)]
 fn raise_open_files() {
     use rustix::process::{getrlimit, setrlimit, Resource, Rlimit};
 
@@ -442,10 +471,17 @@ fn raise_open_files() {
     }
 }
 
+/// Windows has no such limit on handles.
+#[cfg(windows)]
+fn raise_open_files() {}
+
 /// Moves launchd's log of `maxd` aside once it's past
 /// [`service::LOG_LIMIT`], and sends what `maxd` writes to a fresh one.
 /// systemd's journal trims itself, and its output is no file.
+#[cfg(unix)]
 fn rotate_log() {
+    use std::os::fd::AsFd;
+
     let Some(home) = std::env::var_os("HOME").filter(|home| !home.is_empty()) else {
         return;
     };
@@ -463,6 +499,10 @@ fn rotate_log() {
         Err(err) => warn!(%err, "couldn't move the log aside"),
     }
 }
+
+/// On Windows the launcher moves the log aside before it starts `maxd`.
+#[cfg(windows)]
+fn rotate_log() {}
 
 /// Logs why `maxd run` stopped, for the service log.
 fn fail(err: &RunError) -> ExitCode {
@@ -495,15 +535,15 @@ fn init_logging() {
 /// an existing folder as it is. Failing to close it warns and carries on, as
 /// maxd can still run in a folder it doesn't own.
 fn private_data_dir(data: &Path) -> io::Result<()> {
-    DirBuilder::new().recursive(true).mode(0o700).create(data)?;
-    let mode = std::fs::metadata(data)?.permissions().mode() & 0o777;
+    fsmode::private_dir_all(data)?;
+    let mode = fsmode::mode_of(&std::fs::metadata(data)?) & 0o777;
     if mode & 0o077 != 0 {
         warn!(
             path = %data.display(),
             mode = %format!("{mode:o}"),
             "the data folder was open to others, so maxd closed it"
         );
-        if let Err(err) = std::fs::set_permissions(data, Permissions::from_mode(0o700)) {
+        if let Err(err) = fsmode::set_mode(data, 0o700) {
             warn!(path = %data.display(), %err, "couldn't close the data folder");
         }
     }
@@ -858,22 +898,27 @@ async fn serve() -> Result<Stopped, RunError> {
 
     let keys = app_keys::AppKeys::open(data.join(phones::DIR), hub.device().id);
     keys.publish_to(hub.clone());
-    let mut terminate = signal(SignalKind::terminate()).map_err(RunError::Signals)?;
-    let mut interrupt = signal(SignalKind::interrupt()).map_err(RunError::Signals)?;
+    let mut stops = Stops::listen(&socket).map_err(RunError::Signals)?;
     let (transfers, tunnels) = (linked.transfers, linked.tunnels);
     let stopped = tokio::select! {
         () = listener.serve(hub, db, sessions.clone(), transfers, tunnels, keys) => Stopped::Asked,
-        _ = terminate.recv() => {
-            info!("asked to stop");
-            Stopped::Asked
-        }
-        _ = interrupt.recv() => {
-            info!("interrupted");
-            Stopped::Asked
-        }
+        stopped = stops.next() => match stopped {
+            maxhq_os::stop::Stopped::Asked => {
+                info!("asked to stop");
+                Stopped::Asked
+            }
+            maxhq_os::stop::Stopped::Interrupted => {
+                info!("interrupted");
+                Stopped::Asked
+            }
+            maxhq_os::stop::Stopped::Restart => {
+                info!("asked to restart");
+                Stopped::Restart
+            }
+        },
         () = fleet::exit_requested() => {
             info!("restarting into an update");
-            Stopped::Asked
+            Stopped::Restart
         }
         () = service::app_watch::app_deleted() => {
             info!("the app maxd came in was deleted, so maxd stops and uninstalls itself");
@@ -890,8 +935,11 @@ async fn serve() -> Result<Stopped, RunError> {
 
 /// Why [`serve`] stopped.
 enum Stopped {
-    /// A signal, an update or the listener ended it.
+    /// A signal or the listener ended it.
     Asked,
+    /// An update, or a request to restart: what runs `maxd` starts it
+    /// again.
+    Restart,
     /// The app this `maxd` came in was deleted.
     AppDeleted,
 }
@@ -1215,7 +1263,8 @@ fn proxy_with(mode: proxy::Mode) -> ExitCode {
     }
 }
 
-/// `maxd service install`, `uninstall` or `status`.
+/// `maxd service install`, `uninstall`, `status`, `start`, `stop` or
+/// `restart`.
 fn service(action: Action) -> ExitCode {
     let setup = match Setup::from_env() {
         Ok(setup) => setup,
@@ -1224,6 +1273,9 @@ fn service(action: Action) -> ExitCode {
     let mut runner = System;
     let report = match action {
         Action::Install => service::install(&setup, &mut runner),
+        Action::Start => service::start(&setup, &mut runner),
+        Action::Stop => service::stop(&setup, &mut runner),
+        Action::Restart => service::restart(&setup, &mut runner),
         Action::Uninstall { delete_data } => {
             // Each line goes out as it's done, since ending agents and
             // stopping processes can take a while.
@@ -1377,6 +1429,7 @@ fn host_runtime() -> Result<Runtime, String> {
 /// waits until every held agent has wound down or the window closes. With
 /// no `maxd` running, nothing needs to wind down. `maxd` takes it only from
 /// root, which the shutdown unit runs it as.
+#[cfg(unix)]
 fn quiesce(window: Duration) -> ExitCode {
     let Some(socket) = paths::socket() else {
         eprintln!("maxd host quiesce: can't tell where maxd's socket is");
@@ -1405,7 +1458,7 @@ fn quiesce(window: Duration) -> ExitCode {
         }
         Ok(ActionOutcome::Refused { reason }) => {
             eprintln!("maxd host quiesce: {reason}");
-            if !rustix::process::geteuid().is_root() {
+            if !maxhq_os::proc::is_root() {
                 eprintln!(
                     "maxd host quiesce: maxd takes this only from root, as the shutdown unit runs \
                      it, or from the app"
@@ -1424,9 +1477,19 @@ fn quiesce(window: Duration) -> ExitCode {
     }
 }
 
+/// The shutdown unit that runs `maxd host quiesce` is Linux's.
+#[cfg(windows)]
+fn quiesce(_window: Duration) -> ExitCode {
+    eprintln!("maxd host quiesce: this is for Linux hosts, whose shutdown unit runs it");
+    ExitCode::FAILURE
+}
+
 /// Asks `maxd` to wind its agents down and waits for the answer, which
 /// comes when the window closes at the latest.
+#[cfg(unix)]
 fn wind_down(stream: &mut UnixStream, window: Duration) -> io::Result<ActionOutcome> {
+    use std::io::Read;
+
     // A minute past the window covers a busy loop.
     stream.set_read_timeout(Some(window + Duration::from_secs(60)))?;
     let key = IdempotencyKey::generate();
@@ -1487,12 +1550,19 @@ fn parse_window(text: &str) -> Option<Duration> {
 mod tests {
     use super::*;
 
+    #[cfg(unix)]
     fn mode(path: &Path) -> u32 {
+        use std::os::unix::fs::PermissionsExt;
+
         std::fs::metadata(path).unwrap().permissions().mode() & 0o777
     }
 
+    #[cfg(unix)]
     #[test]
     fn the_data_folder_is_private_however_it_got_there() {
+        use std::fs::Permissions;
+        use std::os::unix::fs::PermissionsExt;
+
         let dir = testing::TempDir::new();
 
         // A new folder, under folders that don't exist yet.
@@ -1514,6 +1584,7 @@ mod tests {
         assert_eq!(mode(&open), 0o700);
     }
 
+    #[cfg(unix)]
     #[test]
     fn maxd_raises_its_own_limit_on_open_files() {
         use rustix::process::{getrlimit, Resource};
