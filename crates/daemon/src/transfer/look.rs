@@ -232,7 +232,8 @@ fn unsupported(path: &str) -> String {
 #[cfg(test)]
 mod tests {
     use std::fs;
-    use std::os::unix::fs::symlink;
+
+    use maxhq_core::fs_ext::symlink;
 
     use super::*;
     use crate::testing::TempDir;
