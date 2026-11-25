@@ -16,6 +16,7 @@ import {
 	isPathText,
 	joinPath,
 	MAX_SUGGESTIONS,
+	nameOf,
 	namesOf,
 	parentOf,
 	pathStyleOf,
@@ -71,7 +72,12 @@ describe("path text", () => {
 		expect(parentOf("/srv")).toBe("/");
 		expect(parentOf("/")).toBeNull();
 		expect(parentOf("claude-agent")).toBeNull();
+		expect(parentOf("docs/plan.md")).toBe("docs");
 		expect(baseName("/Users/me/code/")).toBe("code");
+		expect(nameOf("/Users/me/code/")).toBe("code");
+		expect(nameOf("plan.md")).toBe("plan.md");
+		expect(nameOf("/")).toBe("/");
+		expect(nameOf("")).toBe("");
 		expect(joinPath("/", "srv")).toBe("/srv");
 		expect(joinPath("/srv", "app")).toBe("/srv/app");
 	});
@@ -120,6 +126,8 @@ describe("Windows paths", () => {
 		expect(baseName("\\\\nas\\share\\notes.md")).toBe("notes.md");
 		expect(baseName("C:\\")).toBe("");
 		expect(baseName("\\\\nas\\share")).toBe("");
+		expect(nameOf("C:\\Users\\me\\notes.md")).toBe("notes.md");
+		expect(nameOf("C:\\")).toBe("C:\\");
 		expect(joinPath("C:\\Users", "me")).toBe("C:\\Users\\me");
 		expect(joinPath("C:\\", "code")).toBe("C:\\code");
 		expect(joinPath("C:", "code")).toBe("C:\\code");

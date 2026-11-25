@@ -510,9 +510,6 @@ export const pickChoices = (
 	return { ...next, branch: "" };
 };
 
-/** Whether a path is absolute, on Unix or on Windows. */
-export const isAbsolute = isAbsolutePath;
-
 /** What starting would send, or why it can't start yet. */
 export type Plan =
 	| { readonly ok: true; readonly spec: AgentSpec }
@@ -533,7 +530,7 @@ export const planStart = (
 	const name = deviceName(view, r.device);
 	if (!connected(view, r.device))
 		return { ok: false, reason: t("{{name}} isn't connected", { name: name }) };
-	if (r.place === "folder" && !isAbsolute(r.path)) {
+	if (r.place === "folder" && !isAbsolutePath(r.path)) {
 		return { ok: false, reason: t("Type the folder's full path, starting with /") };
 	}
 	if (!r.account)

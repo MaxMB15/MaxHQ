@@ -21,7 +21,8 @@ import { type DownloadState, downloadPercent } from "@maxhq/shared/agent-view/do
 import { formatBytes } from "@maxhq/shared/agent-view/format";
 import type { Lines, Token } from "@maxhq/shared/agent-view/highlight";
 import { FULL_LIMIT, type MediaState } from "@maxhq/shared/agent-view/media";
-import { extensionOf, fileName, viewerKind } from "@maxhq/shared/agent-view/viewer-files";
+import { extensionOf, viewerKind } from "@maxhq/shared/agent-view/viewer-files";
+import { nameOf } from "@maxhq/shared/folders/path";
 import type { AgentId } from "@maxhq/shared/bindings";
 
 import type { Screens } from "../../navigation";
@@ -29,8 +30,8 @@ import type { Screens } from "../../navigation";
 /** How the phone draws a file. */
 export type FileLook = "markdown" | "text" | "image" | "pdf" | "none";
 
-/** How the phone draws the file at `path`, on iOS or another system. */
-export const lookOf = (path: string, os: string): FileLook => {
+/** How the phone draws the file at `path`, on a phone that `opensPdf` or not. */
+export const lookOf = (path: string, opensPdf: boolean): FileLook => {
 	switch (viewerKind(path)) {
 		case "markdown":
 			return "markdown";
@@ -40,7 +41,7 @@ export const lookOf = (path: string, os: string): FileLook => {
 		case "image":
 			return extensionOf(path) === "svg" ? "text" : "image";
 		case "pdf":
-			return os === "ios" ? "pdf" : "none";
+			return opensPdf ? "pdf" : "none";
 		default:
 			return "none";
 	}
@@ -75,7 +76,7 @@ export const fileNote = (
 	media: MediaState | null,
 	blocked: string | null
 ): FileNote | null => {
-	const name = fileName(path);
+	const name = nameOf(path);
 	switch (media?.state) {
 		case undefined:
 		case "loading":
@@ -126,11 +127,11 @@ export const fileNote = (
 
 /** What the screen says for a file it won't draw as text. */
 export const binaryNote = (path: string): string =>
-	t("{{name}} looks like a binary file, so it isn't shown as text.", { name: fileName(path) });
+	t("{{name}} looks like a binary file, so it isn't shown as text.", { name: nameOf(path) });
 
 /** What the screen says for a file the phone can't draw. */
-export const noViewNote = (path: string, size: number, os: string): string =>
-	viewerKind(path) === "pdf" && os !== "ios"
+export const noViewNote = (path: string, size: number, opensPdf: boolean): string =>
+	viewerKind(path) === "pdf" && !opensPdf
 		? t("Android can't show PDFs here. Save it to open it in another app.")
 		: t("Can't show this file here. It's {{size}}.", { size: formatBytes(size) });
 
@@ -147,8 +148,8 @@ export const saveText = (download: DownloadState | null): string | null => {
  * Whether a note stands in the file's place, as while it's read or when
  * the phone can't draw it. That note says how far Save has got.
  */
-export const noteInPlace = (path: string, media: MediaState | null, os: string): boolean =>
-	media?.state !== "ready" || lookOf(path, os) === "none";
+export const noteInPlace = (path: string, media: MediaState | null, opensPdf: boolean): boolean =>
+	media?.state !== "ready" || lookOf(path, opensPdf) === "none";
 
 /**
  * What the header says of Save under the file's name: how far it has got
@@ -159,8 +160,8 @@ export const headerSaveText = (
 	path: string,
 	media: MediaState | null,
 	download: DownloadState | null,
-	os: string
-): string | null => (noteInPlace(path, media, os) ? null : saveText(download));
+	opensPdf: boolean
+): string | null => (noteInPlace(path, media, opensPdf) ? null : saveText(download));
 
 /** Lines in each block of the list. */
 export const BLOCK = 200;

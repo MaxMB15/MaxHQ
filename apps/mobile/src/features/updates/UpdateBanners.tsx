@@ -16,7 +16,7 @@ import { useStore } from "zustand";
 
 import { PROTOCOL_VERSION } from "@maxhq/shared/bindings";
 
-import { OS, platform } from "../../platform";
+import { platform } from "../../platform";
 import { useAppActive, useView } from "../../services";
 import { color, radius, size, tint } from "../../theme";
 import { Button } from "../../ui/Button";
@@ -55,7 +55,9 @@ const Banner = ({
 export const UpdateBanners = () => {
 	const { t } = useI18n();
 
-	const offered = useStore(updates, (state) => offeredVersion(state, thisBuild, OS));
+	const offered = useStore(updates, (state) =>
+		offeredVersion(state, thisBuild, platform.updatesThrough)
+	);
 	const view = useView((s) => s.view);
 	const mismatched = useMemo(() => mismatches(view), [view]);
 	const active = useAppActive();
@@ -70,8 +72,8 @@ export const UpdateBanners = () => {
 					hue={color.primary}
 					text={color.foregroundStrong}
 					title={t("MaxHQ {{version}} is ready", { version: offered })}
-					body={t("Update in TestFlight", { context: platform.context })}
-					note={storeNote(OS) ?? undefined}
+					body={t("Update in TestFlight")}
+					note={storeNote(platform.updatesThrough) ?? undefined}
 				>
 					<Button label={t("Open")} small onPress={() => void openUpdate()} />
 					<Button
@@ -96,7 +98,7 @@ export const UpdateBanners = () => {
 						body={body}
 					>
 						<Button
-							label={t("Open TestFlight", { context: platform.context })}
+							label={t("Open TestFlight")}
 							small
 							onPress={() => void openUpdate()}
 						/>

@@ -502,9 +502,7 @@ jobs:
           IOS_TEAM_ID: ${{ vars.IOS_TEAM_ID }}
           IOS_BUNDLE_ID: ${{ vars.IOS_BUNDLE_ID }}
         run: |
-          node -e 'const { IOS_TEAM_ID: teamId, IOS_BUNDLE_ID: bundleId } = process.env;
-            process.stdout.write(`${JSON.stringify({ teamId, bundleId }, null, "\t")}\n`);' \
-            > apps/mobile/ios.local.json
+          node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON apps/mobile/scripts/mobile.ts write-ids
 
       # The core in release, prebuild and the archive. It checks that push
       # and the app group are in the archive's signature.
@@ -609,9 +607,7 @@ jobs:
           umask 077
           mkdir -p "$RUNNER_TEMP/asc"
           printf '%s\n' "$APPLE_APP_MANAGER_PRIVATE_KEY" > "$RUNNER_TEMP/asc/AuthKey_$APPLE_APP_MANAGER_KEY_ID.p8"
-          node -e 'const { IOS_TEAM_ID: teamId, IOS_BUNDLE_ID: bundleId } = process.env;
-            process.stdout.write(`${JSON.stringify({ teamId, bundleId }, null, "\t")}\n`);' \
-            > apps/mobile/ios.local.json
+          node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON apps/mobile/scripts/mobile.ts write-ids
 
       # Signed by Xcode through the API key. It checks that push and the app
       # group survived the export.
@@ -778,7 +774,7 @@ jobs:
           distribution: temurin
           java-version: 17
 
-      # Outside the checkout; sign-android.sh copies the two files in.
+      # Outside the checkout; mobile.ts android-sign copies the two files in.
       - name: Download the build
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
@@ -796,7 +792,8 @@ jobs:
           BUILD: ${{ needs.build-android.outputs.build }}
         run: |
           set -euo pipefail
-          sh scripts/release/sign-android.sh "$RUNNER_TEMP/android" "$RUNNER_TEMP/signed"
+          node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON apps/mobile/scripts/mobile.ts \
+            android-sign "$RUNNER_TEMP/android" "$RUNNER_TEMP/signed"
           if [[ -f "$RUNNER_TEMP/signed/MaxHQ.apk" ]]; then
             echo "MaxHQ $VERSION for Android, build $BUILD, signed."
             echo "build=$BUILD" >> "$GITHUB_OUTPUT"
@@ -905,13 +902,8 @@ jobs:
           gh release upload "v$VERSION" --repo "$GITHUB_REPOSITORY" --clobber "${assets[@]}"
 
       # The manifests the app's updater reads, each checked against the key
-      # its readers trust. Without a key change, only latest.json, as always.
-      # The bridge release writes latest.json for apps on the current key and
-      # latest-v2.json for the next. After it, latest-v2.json is the live one
-      # and latest.json stays at the bridge release, so an app that skipped
-      # the bridge still reaches it first. The Windows and Linux installers
-      # go only into the manifest this release's apps read, so latest.json
-      # stays the Mac's.
+      # its readers trust, as write-manifests.sh says. After the bridge
+      # release, latest.json stays as the release before this one has it.
       - name: Write and upload the update manifests
         env:
           GH_TOKEN: ${{ github.token }}
@@ -923,52 +915,17 @@ jobs:
         run: |
           set -euo pipefail
           gh release view "v$VERSION" --repo "$GITHUB_REPOSITORY" --json body --jq .body > notes.md
-          current=$(node -p 'require("./apps/desktop/src-tauri/tauri.conf.json").plugins.updater.pubkey')
-          signer=$current
-          if [[ "$SIGN_KEY" == next ]]; then signer=$NEXT_PUBKEY; fi
-          # manifest <name> <signature suffix> <public key>
-          manifest() {
-            local desktop=()
-            if [[ "$1" == "$UPDATE_MANIFEST" ]]; then
-              desktop=(--desktop-sigs desktop-sigs --sig-suffix "$2")
-            fi
-            node scripts/release/latest-json.mjs --version "$VERSION" --repo "$GITHUB_REPOSITORY" \
-              --notes-file notes.md --out "$1" --key "$3" \
-              --sig "aarch64=sigs/MaxHQ_${VERSION}_aarch64.app.tar.gz$2" \
-              --sig "x64=sigs/MaxHQ_${VERSION}_x64.app.tar.gz$2" "${desktop[@]}"
-            cat "$1"
-          }
-          case "$KEY_STATE" in
-            old)
-              manifest latest.json .sig "$signer"
-              set -- latest.json
-              ;;
-            bridge)
-              manifest latest.json .sig "$current"
-              manifest latest-v2.json .next.sig "$NEXT_PUBKEY"
-              set -- latest.json latest-v2.json
-              ;;
-            new)
-              manifest latest-v2.json .sig "$signer"
-              mkdir frozen
-              if ! gh release download "$PREVIOUS" --repo "$GITHUB_REPOSITORY" --pattern latest.json --dir frozen; then
-                echo "::error::$PREVIOUS has no latest.json to carry forward. .github/RELEASING.md says what to do."
-                exit 1
-              fi
-              if [[ "$(node -p 'require("./frozen/latest.json").version')" == "$VERSION" ]]; then
-                echo "::error::latest.json on $PREVIOUS already names $VERSION."
-                exit 1
-              fi
-              cp frozen/latest.json latest.json
-              echo "latest.json stays as $PREVIOUS has it."
-              set -- latest-v2.json latest.json
-              ;;
-            *)
-              echo "::error::prepare-release gave no update key state."
+          if [[ "$KEY_STATE" == new ]]; then
+            mkdir frozen
+            if ! gh release download "$PREVIOUS" --repo "$GITHUB_REPOSITORY" --pattern latest.json --dir frozen; then
+              echo "::error::$PREVIOUS has no latest.json to carry forward. .github/RELEASING.md says what to do."
               exit 1
-              ;;
-          esac
-          gh release upload "v$VERSION" --repo "$GITHUB_REPOSITORY" --clobber "$@"
+            fi
+            export FROZEN=frozen/latest.json
+          fi
+          sh scripts/release/write-manifests.sh notes.md sigs desktop-sigs . > manifest-files
+          mapfile -t manifests < manifest-files
+          gh release upload "v$VERSION" --repo "$GITHUB_REPOSITORY" --clobber "${manifests[@]}"
 
       # The catalog every maxd built above refreshes from, and its signature,
       # which maxd checks before it uses a refreshed catalog.

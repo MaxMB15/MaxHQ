@@ -15,15 +15,7 @@
 set -eu
 
 RELEASE=$(cd "$(dirname "$0")" && pwd)
-
-die() {
-	if [ -n "${GITHUB_ACTIONS:-}" ]; then
-		echo "::error::maxd-sums.sh: $*" >&2
-	else
-		echo "maxd-sums.sh: $*" >&2
-	fi
-	exit 1
-}
+. "$RELEASE/lib.sh"
 
 [ $# -eq 1 ] || die "usage: maxd-sums.sh <dir>"
 dir=$1
@@ -37,10 +29,8 @@ done
 for name in $(node "$RELEASE/bundles.mjs" maxd); do
 	if [ -f "$dir/$name" ]; then
 		names="$names $name"
-	elif [ -n "${GITHUB_ACTIONS:-}" ]; then
-		echo "::warning::$dir has no $name, so the release goes out without it." >&2
 	else
-		echo "warning: $dir has no $name, so the release goes out without it." >&2
+		warn "$dir has no $name, so the release goes out without it."
 	fi
 done
 

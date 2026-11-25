@@ -118,7 +118,7 @@ export const signingFiles = (dir: string) => ({
 	keyPassword: `${dir}/key-password`,
 });
 
-type SigningFiles = ReturnType<typeof signingFiles>;
+export type SigningFiles = ReturnType<typeof signingFiles>;
 
 /**
  * Signs the unsigned APK into RELEASE_APK. zipalign lines its native

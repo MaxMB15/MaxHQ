@@ -3,7 +3,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import { t } from "../i18n";
+import { setInterfaceOs, t } from "../i18n";
 
 import type { ActionResult } from "../data/source";
 import { SYNC_GRACE_MS } from "../status/reach";
@@ -19,7 +19,6 @@ import {
 	handledNotifications,
 	PUSH_KINDS,
 	pushEnvironment,
-	pushKinds,
 	pushTarget,
 	pushToken,
 	pushUpdateNote,
@@ -66,11 +65,14 @@ describe("kinds", () => {
 		const plain =
 			"A permission, a question or a secret. Open it to answer. Deny also works from the lock screen.";
 		expect(prompt(PUSH_KINDS)?.detail).toBe(t(plain));
-		expect(prompt(pushKinds())?.detail).toBe(t(plain));
-		expect(prompt(pushKinds("android"))?.detail).toBe(
-			"A permission, a question or a secret. Open it to answer. Deny also works from the notification and opens MaxHQ once the phone is unlocked."
-		);
-		expect(pushKinds("android").map((each) => each.kind)).toEqual(DEFAULT_KINDS);
+		setInterfaceOs("android");
+		try {
+			expect(prompt(PUSH_KINDS)?.detail).toBe(
+				"A permission, a question or a secret. Open it to answer. Deny also works from the notification and opens MaxHQ once the phone is unlocked."
+			);
+		} finally {
+			setInterfaceOs(null);
+		}
 	});
 
 	it("names the host from the build", () => {

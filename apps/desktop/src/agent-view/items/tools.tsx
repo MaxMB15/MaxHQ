@@ -46,15 +46,14 @@ import { AnsiLines, ansiLines } from "../ansi-text";
 import { DiffView } from "../diff-view";
 import { DownloadButton } from "../download";
 import {
-	baseName,
 	endedEarly as endedWord,
-	folderOf,
 	formatTook,
 	isOpen,
 	lineCount,
 	lineSpan,
 	tookOf,
 } from "@maxhq/shared/agent-view/format";
+import { nameOf, parentOf } from "@maxhq/shared/folders/path";
 import { useFold } from "@maxhq/shared/agent-view/find-context";
 import { useKept } from "@maxhq/shared/agent-view/kept";
 import { editLine, readLine } from "@maxhq/shared/agent-view/viewer-files";
@@ -350,10 +349,10 @@ export const OpenedFileRow = ({ item }: { item: ItemOf<"agent_opened_file"> }) =
 			verb={translate("Opened")}
 			target={
 				<>
-					<Target title={item.path}>{baseName(item.path)}</Target>
+					<Target title={item.path}>{nameOf(item.path)}</Target>
 					<span className="shrink-0">{translate("in")}</span>
-					<Target className="max-w-[50%] shrink" title={folderOf(item.path)}>
-						{folderOf(item.path)}
+					<Target className="max-w-[50%] shrink" title={parentOf(item.path) ?? "/"}>
+						{parentOf(item.path) ?? "/"}
 					</Target>
 				</>
 			}
