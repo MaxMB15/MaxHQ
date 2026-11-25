@@ -10,6 +10,7 @@ use std::fs::File;
 use std::io::{self, Read};
 use std::path::{Path, PathBuf};
 
+use maxhq_os::fsmode;
 use maxhq_protocol::message::{EntryKind, ErrorCode, ManifestEntry};
 use sha2::{Digest, Sha256};
 
@@ -768,7 +769,7 @@ impl Source {
                 out[start..].copy_from_slice(&bytes[from..from + take]);
             } else {
                 let file = self.file(index)?;
-                beneath::read_exact_at(file, &mut out[start..], within).map_err(|err| match err
+                fsmode::read_exact_at(file, &mut out[start..], within).map_err(|err| match err
                     .kind()
                 {
                     io::ErrorKind::UnexpectedEof => changed(),

@@ -28,11 +28,11 @@ use std::time::Duration;
 use futures::stream::{self, BoxStream, StreamExt};
 use hyper::body::Bytes;
 use hyper::Method;
+use maxhq_os::fsmode;
 use serde::Deserialize;
 use serde_json::{json, Value};
 use thiserror::Error;
 
-use crate::host::ids;
 use crate::recipe::{ExecOutput, AGENT, AGENT_HOME, AGENT_UID};
 use ws::{opcode, IncusSocket};
 
@@ -1061,7 +1061,9 @@ fn guest_device(socket: &std::path::Path) -> Result<Value, IncusError> {
         .parent()
         .ok_or_else(|| http::broken("the guest socket has no folder"))?;
     let owner = std::fs::metadata(folder)?;
-    let (uid, gid) = (ids::owner(&owner), ids::group(&owner));
+    let (uid, gid) = fsmode::owner_of(&owner)
+        .zip(fsmode::group_of(&owner))
+        .ok_or_else(|| http::broken("the guest socket's folder has no Unix owner"))?;
     Ok(json!({
         "type": "proxy",
         "bind": "host",

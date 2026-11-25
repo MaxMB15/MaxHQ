@@ -683,7 +683,7 @@ fn read_exclude(info: &Dir) -> io::Result<String> {
 
 /// Refuses a file with a second name, which could be someone else's.
 fn check_one_name(file: &fs::File) -> io::Result<()> {
-    if fs_ext::has_other_names(file)? {
+    if fsmode::has_other_names(file)? {
         return Err(io::Error::new(
             io::ErrorKind::InvalidInput,
             "the exclude file has another name",

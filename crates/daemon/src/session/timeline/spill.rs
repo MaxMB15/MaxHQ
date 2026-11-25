@@ -45,41 +45,14 @@ pub struct Spilled {
 }
 
 impl Spilled {
-    /// Reads the item back.
+    /// Reads the item back. Several threads may at once, and the file is
+    /// open to append, so a read that moves its cursor, as on Windows,
+    /// doesn't move where the next item is written.
     pub fn load(&self) -> io::Result<TimelineItem> {
         let mut bytes = vec![0; self.len as usize];
-        read_exact_at(&self.file, &mut bytes, self.at)?;
+        maxhq_os::fsmode::read_exact_at(&self.file, &mut bytes, self.at)?;
         Ok(serde_json::from_slice(&bytes)?)
     }
-}
-
-/// Fills `bytes` from `file` at `at`, which several threads may do at once.
-#[cfg(unix)]
-fn read_exact_at(file: &File, bytes: &mut [u8], at: u64) -> io::Result<()> {
-    use std::os::unix::fs::FileExt as _;
-
-    file.read_exact_at(bytes, at)
-}
-
-/// Fills `bytes` from `file` at `at`, which several threads may do at once.
-/// Each read names its offset, so moving the cursor, as Windows does, harms
-/// no other read, and a write appends wherever the cursor is.
-#[cfg(windows)]
-fn read_exact_at(file: &File, mut bytes: &mut [u8], mut at: u64) -> io::Result<()> {
-    use std::os::windows::fs::FileExt as _;
-
-    while !bytes.is_empty() {
-        match file.seek_read(bytes, at) {
-            Ok(0) => return Err(io::ErrorKind::UnexpectedEof.into()),
-            Ok(read) => {
-                bytes = &mut bytes[read..];
-                at += read as u64;
-            }
-            Err(err) if err.kind() == io::ErrorKind::Interrupted => {}
-            Err(err) => return Err(err),
-        }
-    }
-    Ok(())
 }
 
 /// One timeline's files of items.

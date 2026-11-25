@@ -28,7 +28,9 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::SystemTime;
 
+use maxhq_core::fs_ext;
 use maxhq_hold::RunAs;
+use maxhq_os::fsmode;
 use maxhq_protocol::guest::{
     GuestToHost, HostToGuest, Placement, ATTACHMENTS_DIR, MAX_MESSAGE_LEN, MAX_PICTURE_LEN,
 };
@@ -40,7 +42,6 @@ use maxhq_wire::Closed;
 use tracing::{debug, warn};
 
 use crate::doctext::Extractor;
-use crate::host::ids;
 use crate::session::attach::STALE_AFTER;
 use crate::session::clock::BoxFuture;
 use crate::sidecar::{self, Sidecars};
@@ -736,7 +737,7 @@ fn exists(path: &Path) -> bool {
 /// Whether the guest runs as root. Off Linux there's no `/proc`, which
 /// reads as not root.
 fn running_as_root() -> bool {
-    fs::metadata("/proc/self").is_ok_and(|meta| ids::owner(&meta) == 0)
+    fs::metadata("/proc/self").is_ok_and(|meta| fsmode::owner_of(&meta) == Some(0))
 }
 
 /// Gives `path` and everything beneath it to `user`, never following a
@@ -745,12 +746,12 @@ fn running_as_root() -> bool {
 /// that others can write to, isn't walked at all.
 fn give(path: &Path, user: &RunAs) -> io::Result<()> {
     let meta = fs::symlink_metadata(path)?;
-    if meta.is_dir() && ids::owner(&meta) == 0 && maxhq_os::fsmode::mode_of(&meta) & 0o022 == 0 {
+    if meta.is_dir() && fsmode::owner_of(&meta) == Some(0) && fsmode::mode_of(&meta) & 0o022 == 0 {
         for entry in fs::read_dir(path)? {
             give(&entry?.path(), user)?;
         }
     }
-    ids::give_link(path, user.uid, user.gid)
+    fs_ext::chown_link(path, user.uid, user.gid)
 }
 
 /// The one folder a staged upload holds at its top.

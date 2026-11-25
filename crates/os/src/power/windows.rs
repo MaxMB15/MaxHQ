@@ -6,9 +6,8 @@
 //! called it lives, and the power status for the charger.
 
 use std::io;
-use std::os::windows::io::{AsRawHandle, FromRawHandle, OwnedHandle};
+use std::os::windows::io::OwnedHandle;
 
-use windows_sys::Win32::Foundation::INVALID_HANDLE_VALUE;
 use windows_sys::Win32::System::Power::{
     GetSystemPowerStatus, PowerClearRequest, PowerCreateRequest, PowerRequestDisplayRequired,
     PowerRequestSystemRequired, PowerSetRequest, POWER_REQUEST_TYPE, SYSTEM_POWER_STATUS,
@@ -19,6 +18,7 @@ use windows_sys::Win32::System::Threading::{
 };
 
 use super::Keep;
+use crate::win;
 
 /// What a hold's request asks for. The display's keeps the display on
 /// and the PC out of idle sleep in one request.
@@ -46,7 +46,7 @@ pub const fn supports(_keep: Keep) -> bool {
 /// dropping the request clears what was set.
 #[allow(unsafe_code)]
 pub fn take(keep: Keep, reason: &str) -> io::Result<Hold> {
-    let mut wide: Vec<u16> = reason.encode_utf16().chain(Some(0)).collect();
+    let mut wide = win::wide(reason)?;
     let context = REASON_CONTEXT {
         Version: POWER_REQUEST_CONTEXT_VERSION,
         Flags: POWER_REQUEST_CONTEXT_SIMPLE_STRING,
@@ -55,14 +55,9 @@ pub fn take(keep: Keep, reason: &str) -> io::Result<Hold> {
         },
     };
     // SAFETY: `context` names a string that ends in a 0 and outlives the
-    // call.
-    let handle = unsafe { PowerCreateRequest(&context) };
-    if handle.is_null() || handle == INVALID_HANDLE_VALUE {
-        return Err(io::Error::last_os_error());
-    }
-    // SAFETY: `handle` is a request this process just made and owns, so
-    // closing it once, when this drops, is right.
-    let handle = unsafe { OwnedHandle::from_raw_handle(handle) };
+    // call, and the request it makes is owned here, closed once when this
+    // drops.
+    let handle = unsafe { win::owned(PowerCreateRequest(&context)) }?;
     let kinds = kinds(keep);
     let mut hold = Hold {
         handle,
@@ -71,9 +66,7 @@ pub fn take(keep: Keep, reason: &str) -> io::Result<Hold> {
     };
     for (count, &kind) in kinds.iter().enumerate() {
         // SAFETY: `handle` is a power request that's open.
-        if unsafe { PowerSetRequest(hold.handle.as_raw_handle(), kind) } == 0 {
-            return Err(io::Error::last_os_error());
-        }
+        win::check(unsafe { PowerSetRequest(win::raw(&hold.handle), kind) })?;
         hold.set = &kinds[..=count];
     }
     Ok(hold)
@@ -87,7 +80,7 @@ impl Drop for Hold {
             // OwnedHandle closes it after this, and `kind` was set on it.
             // Closing it would end the request too, so a failure here
             // changes nothing.
-            unsafe { PowerClearRequest(self.handle.as_raw_handle(), kind) };
+            unsafe { PowerClearRequest(win::raw(&self.handle), kind) };
         }
     }
 }

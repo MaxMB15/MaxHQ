@@ -42,9 +42,7 @@ pub async fn run(
     command.kill_on_drop(true);
     let mut child = crate::tools::retry_busy(|| std::future::ready(command.spawn())).await?;
     let pid = child.id();
-    if let Some(pid) = pid {
-        proc::adopt(pid)?;
-    }
+    let _group = pid.map(proc::adopt).transpose()?;
     let (out, err) = (Arc::<Mutex<Kept>>::default(), Arc::<Mutex<Kept>>::default());
     let readers = [
         tokio::spawn(keep(child.stdout.take(), out.clone(), cap)),

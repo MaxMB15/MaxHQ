@@ -13,7 +13,7 @@ const VALUE: &str = "BootId";
 
 #[allow(unsafe_code)]
 pub fn id() -> Option<String> {
-    let (key, value) = (wide(KEY), wide(VALUE));
+    let (key, value) = (wide(KEY).ok()?, wide(VALUE).ok()?);
     let mut count: u32 = 0;
     let mut size = u32::try_from(size_of::<u32>()).ok()?;
     // SAFETY: both names end in a 0, and `count` is a DWORD whose size

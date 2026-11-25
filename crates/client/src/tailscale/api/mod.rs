@@ -8,12 +8,12 @@
 //! listens on a named pipe under `ProtectedPrefix\Administrators`, a prefix
 //! only an administrator or the system can make pipes in, so whatever
 //! answers there is the service and not some program of the user's. The
-//! CLI is the fallback.
+//! CLI is the fallback. `unix` and `windows` hold what differs: where
+//! `tailscaled` listens and how to reach it, and where the CLI and the
+//! install live.
 
 use std::fmt;
 use std::io;
-#[cfg(unix)]
-use std::path::PathBuf;
 use std::process::Stdio;
 use std::time::Duration;
 
@@ -27,12 +27,19 @@ use hyper_util::rt::TokioIo;
 use thiserror::Error;
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::net::TcpStream;
-#[cfg(unix)]
-use tokio::net::UnixStream;
 use tokio::process::Command;
 use tokio::task::JoinHandle;
 
 use super::wire::Status;
+
+#[cfg(unix)]
+mod unix;
+#[cfg(unix)]
+use unix as imp;
+#[cfg(windows)]
+mod windows;
+#[cfg(windows)]
+use windows as imp;
 
 /// The `Host` header the LocalAPI checks for.
 const LOCALAPI_HOST: &str = "local-tailscaled.sock";
@@ -52,45 +59,6 @@ const MAC_APP: &str = "/Applications/Tailscale.app";
 /// What the App Store build's token file name starts with.
 const APP_STORE_TOKEN_MARKER: &str = ".tailscale.ipn.macos/sameuserproof-";
 
-/// `tailscaled` sockets: plain `tailscaled` on macOS, then Linux.
-#[cfg(unix)]
-const UNIX_SOCKETS: &[&str] = &[
-    "/var/run/tailscaled.socket",
-    "/var/run/tailscale/tailscaled.sock",
-    "/run/tailscale/tailscaled.sock",
-];
-
-/// Windows has no Unix sockets to look for.
-#[cfg(windows)]
-const UNIX_SOCKETS: &[&str] = &[];
-
-/// The pipe `tailscaled` serves the LocalAPI on, on Windows.
-#[cfg(windows)]
-const WINDOWS_PIPE: &str = r"\\.\pipe\ProtectedPrefix\Administrators\Tailscale\tailscaled";
-
-/// The CLI by absolute path, since an app opened from Finder doesn't get
-/// `/usr/local/bin` on its `PATH`.
-#[cfg(unix)]
-const CLIS: &[&str] = &[
-    "/usr/local/bin/tailscale",
-    "/opt/homebrew/bin/tailscale",
-    "/Applications/Tailscale.app/Contents/MacOS/Tailscale",
-    "/usr/bin/tailscale",
-];
-
-/// The CLI where Tailscale's installer puts it.
-#[cfg(windows)]
-const CLIS: &[&str] = &[r"C:\Program Files\Tailscale\tailscale.exe"];
-
-/// Paths whose presence means Tailscale is installed, even when it isn't
-/// running.
-#[cfg(unix)]
-const INSTALL_MARKERS: &[&str] = &[MAC_APP, "/Library/Tailscale", "/var/lib/tailscale"];
-
-/// The install folder and the service's state folder, on Windows.
-#[cfg(windows)]
-const INSTALL_MARKERS: &[&str] = &[r"C:\Program Files\Tailscale", r"C:\ProgramData\Tailscale"];
-
 /// Where the LocalAPI listens.
 #[derive(Clone, PartialEq, Eq)]
 pub(crate) enum Endpoint {
@@ -101,12 +69,8 @@ pub(crate) enum Endpoint {
         /// The password for Basic auth.
         token: String,
     },
-    /// A Unix socket, which needs no auth.
-    #[cfg(unix)]
-    Unix(PathBuf),
-    /// The Windows service's named pipe, which checks who connects itself.
-    #[cfg(windows)]
-    Pipe(&'static str),
+    /// `tailscaled`'s own socket or pipe, which needs no token.
+    Local(imp::Local),
 }
 
 impl fmt::Debug for Endpoint {
@@ -114,10 +78,7 @@ impl fmt::Debug for Endpoint {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Tcp { port, .. } => f.debug_struct("Tcp").field("port", port).finish(),
-            #[cfg(unix)]
-            Self::Unix(path) => f.debug_tuple("Unix").field(path).finish(),
-            #[cfg(windows)]
-            Self::Pipe(name) => f.debug_tuple("Pipe").field(name).finish(),
+            Self::Local(local) => local.fmt(f),
         }
     }
 }
@@ -147,7 +108,7 @@ pub(crate) enum ApiError {
 
 /// Whether Tailscale looks installed on this machine.
 pub(crate) async fn installed() -> bool {
-    for path in INSTALL_MARKERS.iter().chain(UNIX_SOCKETS).chain(CLIS) {
+    for path in imp::install_markers() {
         if tokio::fs::symlink_metadata(path).await.is_ok() {
             return true;
         }
@@ -167,26 +128,7 @@ pub(crate) async fn discover() -> Option<Endpoint> {
     {
         return Some(endpoint);
     }
-    local_endpoint().await
-}
-
-/// `tailscaled`'s own socket.
-#[cfg(unix)]
-async fn local_endpoint() -> Option<Endpoint> {
-    for path in UNIX_SOCKETS {
-        if tokio::fs::metadata(path).await.is_ok() {
-            return Some(Endpoint::Unix(PathBuf::from(path)));
-        }
-    }
-    None
-}
-
-/// The service's pipe, once Tailscale is installed. Looking for a pipe
-/// opens it, which takes one of the service's instances, so it's only
-/// opened to call it, and a call that finds nothing falls back to the CLI.
-#[cfg(windows)]
-async fn local_endpoint() -> Option<Endpoint> {
-    installed().await.then_some(Endpoint::Pipe(WINDOWS_PIPE))
+    imp::local_endpoint().await.map(Endpoint::Local)
 }
 
 /// The Standalone build: the port from the symlink, and the token from the
@@ -241,7 +183,7 @@ pub(crate) fn app_store_endpoint(line: &str) -> Option<Endpoint> {
 
 /// `tailscale status --json` from the first CLI that answers.
 pub(crate) async fn cli_status() -> Option<Status> {
-    for cli in CLIS {
+    for cli in imp::CLIS {
         let Some(output) = run_cli(cli, &["status", "--json"], REQUEST_TIMEOUT).await else {
             continue;
         };
@@ -255,14 +197,15 @@ pub(crate) async fn cli_status() -> Option<Status> {
 
 /// The first CLI this machine has, looked for without the runtime.
 pub(crate) fn find_cli_now() -> Option<&'static str> {
-    CLIS.iter()
+    imp::CLIS
+        .iter()
         .copied()
         .find(|cli| std::path::Path::new(cli).exists())
 }
 
 /// The first CLI this machine has.
 pub(crate) async fn find_cli() -> Option<&'static str> {
-    for cli in CLIS {
+    for cli in imp::CLIS {
         if tokio::fs::metadata(cli).await.is_ok() {
             return Some(cli);
         }
@@ -318,37 +261,7 @@ pub(crate) async fn get(endpoint: &Endpoint, path: &str) -> Result<ApiResponse, 
             let stream = TcpStream::connect(("127.0.0.1", *port)).await?;
             send(stream, path, Some(token)).await
         }
-        #[cfg(unix)]
-        Endpoint::Unix(socket) => {
-            let stream = UnixStream::connect(socket).await?;
-            send(stream, path, None).await
-        }
-        #[cfg(windows)]
-        Endpoint::Pipe(name) => send(open_pipe(name).await?, path, None).await,
-    }
-}
-
-/// How long to wait for a free instance of the service's pipe.
-#[cfg(windows)]
-const PIPE_BUSY_WAIT: Duration = Duration::from_secs(2);
-
-/// Opens the service's pipe, waiting while every instance is busy.
-#[cfg(windows)]
-async fn open_pipe(name: &str) -> io::Result<tokio::net::windows::named_pipe::NamedPipeClient> {
-    /// `ERROR_PIPE_BUSY`: every instance has a client.
-    const PIPE_BUSY: i32 = 231;
-
-    let deadline = tokio::time::Instant::now() + PIPE_BUSY_WAIT;
-    loop {
-        match tokio::net::windows::named_pipe::ClientOptions::new().open(name) {
-            Err(err)
-                if err.raw_os_error() == Some(PIPE_BUSY)
-                    && tokio::time::Instant::now() < deadline =>
-            {
-                tokio::time::sleep(Duration::from_millis(20)).await;
-            }
-            result => return result,
-        }
+        Endpoint::Local(local) => send(imp::connect(local).await?, path, None).await,
     }
 }
 

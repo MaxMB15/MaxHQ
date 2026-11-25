@@ -415,14 +415,15 @@ pub fn plan(env: &Env, spec: &HostSpec, runner: &mut dyn Runner) -> Result<Plan,
                 plan.surprises
                     .push(format!("{dir} is a file, not a folder"));
             }
-            Ok(meta) if super::ids::owner(&meta) != env.user.uid => plan.surprises.push(format!(
-                "{dir} belongs to uid {}, not {user}. Give it to {user} or name another folder.",
-                super::ids::owner(&meta)
-            )),
-            Ok(meta) if maxhq_os::fsmode::mode_of(&meta) & 0o077 != 0 => {
-                plan.steps.push(Step::run(&["chmod", "0700", dir]));
-            }
-            Ok(_) => {}
+            Ok(meta) => match maxhq_os::fsmode::owner_of(&meta) {
+                Some(uid) if uid != env.user.uid => plan.surprises.push(format!(
+                    "{dir} belongs to uid {uid}, not {user}. Give it to {user} or name another folder."
+                )),
+                _ if maxhq_os::fsmode::mode_of(&meta) & 0o077 != 0 => {
+                    plan.steps.push(Step::run(&["chmod", "0700", dir]));
+                }
+                _ => {}
+            },
         }
     }
 
@@ -619,7 +620,7 @@ fn run_step(env: &Env, step: &Step, runner: &mut dyn Runner) -> Result<(), Strin
             let dir = env.at(path);
             std::fs::create_dir_all(&dir)
                 .and_then(|()| maxhq_os::fsmode::set_mode(&dir, 0o700))
-                .and_then(|()| super::ids::give(&dir, env.user.uid, env.user.gid))
+                .and_then(|()| maxhq_core::fs_ext::chown(&dir, env.user.uid, env.user.gid))
                 .map_err(|err| format!("couldn't make {path}: {err}"))
         }
         Step::TrustKey {
@@ -769,8 +770,8 @@ pub fn apply(
 
 /// The service user's view of this host, for `--system` run through sudo.
 pub fn service_env(root: &Path) -> Result<Env, String> {
-    super::ids::own()?;
-    if !super::ids::root() {
+    maxhq_os::proc::own_ids().ok_or(super::NOT_HERE)?;
+    if !maxhq_os::proc::is_root() {
         return Err(
             "maxd host apply --system needs root. Run it as sudo maxd host apply --system."
                 .to_owned(),

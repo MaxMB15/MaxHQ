@@ -182,7 +182,7 @@ async fn a_holder_outlives_its_spawners_job(ctx: Ctx) {
     let mut spawner = start_spawner(&ctx, session, None);
     // It waits for a line before it starts anything, so all it starts is
     // in the job.
-    proc::adopt(spawner.id()).unwrap();
+    let _group = proc::adopt(spawner.id()).unwrap();
     assert_eq!(go(&mut spawner).await, "spawned");
     let record = read_json(&ctx.session_dir(session).join("holder.json"));
     proc::stop_group(spawner.id(), Stop::Hard).unwrap();

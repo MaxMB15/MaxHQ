@@ -507,7 +507,11 @@ fn below(roots: &[PathBuf], path: &str) -> Result<(PathBuf, Vec<String>), Failur
                     .to_owned(),
             ),
             Component::CurDir => {}
-            _ => return Err(bad("the path has a `..` part")),
+            Component::ParentDir => return Err(bad("the path has a `..` part")),
+            // Only Windows gets here: `\notes.txt` starts at the top of the
+            // current drive and `C:notes.txt` in that drive's current
+            // folder, so neither is a full path or one below a folder.
+            _ => return Err(bad("the path starts at a drive but isn't a full path")),
         }
     }
     Ok((root, parts))
@@ -533,4 +537,24 @@ pub async fn remove(dir: &Path) {
         Ok(())
     })
     .await;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_path_that_climbs_or_is_half_rooted_says_which() {
+        let roots = [std::env::temp_dir()];
+        let said = |path| below(&roots, path).unwrap_err().message;
+        assert_eq!(said("../notes.txt"), "the path has a `..` part");
+        assert_eq!(said("folder/../../notes.txt"), "the path has a `..` part");
+        #[cfg(windows)]
+        for path in [r"\notes.txt", "C:notes.txt"] {
+            assert_eq!(
+                said(path),
+                "the path starts at a drive but isn't a full path"
+            );
+        }
+    }
 }

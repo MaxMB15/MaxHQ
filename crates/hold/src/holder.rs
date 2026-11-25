@@ -419,7 +419,7 @@ pub(crate) fn take_lock(path: &Path) -> Result<File, String> {
             Ok(()) => {
                 // The folder may have been cleared away while this waited,
                 // and then the lock is on a file nobody else can see.
-                return match sys::same_file(&lock, path) {
+                return match fsmode::same_file(&lock, path) {
                     Ok(true) => Ok(lock),
                     _ => Err(format!(
                         "{} went away as the holder started",

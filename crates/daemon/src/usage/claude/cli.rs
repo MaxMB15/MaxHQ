@@ -8,13 +8,12 @@
 
 use std::collections::BTreeMap;
 use std::ffi::{OsStr, OsString};
-#[cfg(unix)]
-use std::os::unix::fs::{DirBuilderExt, MetadataExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::sync::{Mutex, PoisonError};
 use std::time::Duration;
 
+use maxhq_os::fsmode;
 use maxhq_protocol::model::{Usage, UsageSource};
 use maxhq_protocol::time::Timestamp;
 use serde_json::Value;
@@ -302,36 +301,22 @@ fn with_first(dir: &Path, path: Option<OsString>) -> Option<OsString> {
 /// reach it, so nobody else can plant files for `claude` to read there. A
 /// link or a folder another user owns is refused, and one that's open to
 /// others is closed.
-#[cfg(unix)]
+///
+/// Windows keeps a folder in the user's profile to that user, and has no
+/// Unix owner or mode to check, so there only a link in its place is
+/// refused.
 fn private_folder(dir: &Path) -> Result<(), String> {
     let failed = |error: std::io::Error| format!("couldn't use {}: {error}", dir.display());
-    std::fs::DirBuilder::new()
-        .recursive(true)
-        .mode(0o700)
-        .create(dir)
-        .map_err(failed)?;
+    fsmode::private_dir_all(dir).map_err(failed)?;
     let meta = std::fs::symlink_metadata(dir).map_err(failed)?;
     if !meta.is_dir() {
         return Err(format!("{} isn't a real folder", dir.display()));
     }
-    if meta.uid() != rustix::process::geteuid().as_raw() {
+    if fsmode::owned_by_other(&meta) {
         return Err(format!("{} belongs to another user", dir.display()));
     }
-    if meta.mode() & 0o777 != 0o700 {
-        std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o700)).map_err(failed)?;
-    }
-    Ok(())
-}
-
-/// Makes `dir` for `claude` to run in. Windows keeps a folder in the
-/// user's profile to that user, so only a link in its place is refused.
-#[cfg(not(unix))]
-fn private_folder(dir: &Path) -> Result<(), String> {
-    let failed = |error: std::io::Error| format!("couldn't use {}: {error}", dir.display());
-    maxhq_os::fsmode::private_dir_all(dir).map_err(failed)?;
-    let meta = std::fs::symlink_metadata(dir).map_err(failed)?;
-    if !meta.is_dir() {
-        return Err(format!("{} isn't a real folder", dir.display()));
+    if fsmode::mode_of(&meta) & 0o777 != 0o700 {
+        fsmode::set_mode(dir, 0o700).map_err(failed)?;
     }
     Ok(())
 }
@@ -412,6 +397,8 @@ fn shorten(reason: &str) -> String {
 #[cfg(test)]
 pub(crate) mod tests {
     use std::fs;
+    #[cfg(unix)]
+    use std::os::unix::fs::{MetadataExt, PermissionsExt};
 
     use super::*;
     use crate::observe::claude::tests::{fixture, scratch, Scratch};

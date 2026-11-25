@@ -2,12 +2,14 @@
 // Copyright (c) 2026 Max Boksem
 
 //! What the Windows halves share: handles to processes and their tokens,
-//! users' SIDs, and wide strings.
+//! users' SIDs, what a file is, and wide strings. Other crates that call Windows
+//! themselves use these too, so it's public, though not part of the API.
 
 use std::ffi::OsStr;
 use std::io;
 use std::os::windows::ffi::OsStrExt;
-use std::os::windows::io::{AsRawHandle, FromRawHandle, OwnedHandle};
+use std::os::windows::io::{AsHandle, AsRawHandle, BorrowedHandle, FromRawHandle, OwnedHandle};
+use std::sync::OnceLock;
 
 use windows_sys::Win32::Foundation::{LocalFree, FILETIME, HANDLE};
 use windows_sys::Win32::Security::Authorization::ConvertSidToStringSidW;
@@ -15,14 +17,33 @@ use windows_sys::Win32::Security::{
     GetLengthSid, GetTokenInformation, TokenElevation, TokenUser, TOKEN_ELEVATION,
     TOKEN_INFORMATION_CLASS, TOKEN_QUERY, TOKEN_USER,
 };
+use windows_sys::Win32::Storage::FileSystem::{
+    FileIdInfo, GetFileInformationByHandle, GetFileInformationByHandleEx,
+    BY_HANDLE_FILE_INFORMATION, FILE_ID_INFO,
+};
 use windows_sys::Win32::System::Threading::{
     GetCurrentProcess, GetProcessTimes, OpenProcess, OpenProcessToken,
     PROCESS_QUERY_LIMITED_INFORMATION,
 };
 
-/// `s` as UTF-16 with the NUL Windows wants at the end.
-pub fn wide(s: impl AsRef<OsStr>) -> Vec<u16> {
-    s.as_ref().encode_wide().chain(Some(0)).collect()
+/// `s` as UTF-16 with the NUL Windows wants at the end, refused if it
+/// holds a NUL already.
+pub fn wide(s: impl AsRef<OsStr>) -> io::Result<Vec<u16>> {
+    ended(s.as_ref().encode_wide().collect())
+}
+
+/// `units` with the NUL Windows wants at the end, refused if they hold one
+/// already: Windows would read only up to it, and act on a shorter name
+/// than the one asked for.
+pub fn ended(mut units: Vec<u16>) -> io::Result<Vec<u16>> {
+    if units.contains(&0) {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "a name, path or argument holds a NUL, which Windows reads as its end",
+        ));
+    }
+    units.push(0);
+    Ok(units)
 }
 
 /// The raw handle a call takes.
@@ -31,8 +52,13 @@ pub fn raw(handle: &impl AsRawHandle) -> HANDLE {
 }
 
 /// Takes charge of a handle a call returned, or the error it left.
+///
+/// # Safety
+///
+/// `handle` is null, `INVALID_HANDLE_VALUE`, or a handle a call just
+/// opened, which nothing else owns or closes.
 #[allow(unsafe_code)]
-pub fn owned(handle: HANDLE) -> io::Result<OwnedHandle> {
+pub unsafe fn owned(handle: HANDLE) -> io::Result<OwnedHandle> {
     if handle.is_null() || handle == windows_sys::Win32::Foundation::INVALID_HANDLE_VALUE {
         return Err(io::Error::last_os_error());
     }
@@ -53,31 +79,37 @@ pub fn check(ok: windows_sys::core::BOOL) -> io::Result<()> {
 /// Opens the process `pid` with `access`, or says why it can't.
 #[allow(unsafe_code)]
 pub fn open_process(pid: u32, access: u32) -> io::Result<OwnedHandle> {
-    // SAFETY: OpenProcess takes no pointers.
-    owned(unsafe { OpenProcess(access, 0, pid) })
+    // SAFETY: OpenProcess takes no pointers, and its handle is owned here.
+    unsafe { owned(OpenProcess(access, 0, pid)) }
 }
 
 /// The token of the process `process` names, for reading.
 #[allow(unsafe_code)]
-pub fn token_of(process: HANDLE) -> io::Result<OwnedHandle> {
+pub fn token_of(process: impl AsHandle) -> io::Result<OwnedHandle> {
     let mut token: HANDLE = std::ptr::null_mut();
-    // SAFETY: the call writes one handle to `token`.
-    check(unsafe { OpenProcessToken(process, TOKEN_QUERY, &mut token) })?;
-    owned(token)
+    // SAFETY: the process handle is open for the call, which writes one
+    // handle to `token`, owned here.
+    unsafe {
+        check(OpenProcessToken(
+            raw(&process.as_handle()),
+            TOKEN_QUERY,
+            &mut token,
+        ))?;
+        owned(token)
+    }
 }
 
 /// This process's token.
 #[allow(unsafe_code)]
 pub fn own_token() -> io::Result<OwnedHandle> {
-    // SAFETY: GetCurrentProcess returns a pseudo handle that needs no
-    // closing.
-    token_of(unsafe { GetCurrentProcess() })
+    // SAFETY: GetCurrentProcess returns a pseudo handle that is always
+    // open and needs no closing.
+    token_of(unsafe { BorrowedHandle::borrow_raw(GetCurrentProcess()) })
 }
 
 /// The token of process `pid`.
 pub fn token_of_pid(pid: u32) -> io::Result<OwnedHandle> {
-    let process = open_process(pid, PROCESS_QUERY_LIMITED_INFORMATION)?;
-    token_of(raw(&process))
+    token_of(open_process(pid, PROCESS_QUERY_LIMITED_INFORMATION)?)
 }
 
 /// What `class` says of `token`, in a buffer aligned for any struct the
@@ -142,16 +174,38 @@ pub fn elevated(token: &OwnedHandle) -> io::Result<bool> {
     Ok(elevation.TokenIsElevated != 0)
 }
 
-/// The user this process runs as.
-pub fn own_user() -> io::Result<Vec<u8>> {
-    user_of(&own_token()?)
+/// The user this process runs as, as its SID's bytes. A process keeps its
+/// user for life, so it's read once.
+pub fn own_user() -> io::Result<&'static [u8]> {
+    static USER: OnceLock<Vec<u8>> = OnceLock::new();
+    if let Some(user) = USER.get() {
+        return Ok(user);
+    }
+    let user = user_of(&own_token()?)?;
+    Ok(USER.get_or_init(|| user))
+}
+
+/// [`own_user`] in its `S-1-5-…` form, read once too.
+pub fn own_sid() -> io::Result<&'static str> {
+    static SID: OnceLock<String> = OnceLock::new();
+    if let Some(sid) = SID.get() {
+        return Ok(sid);
+    }
+    let sid = sid_string(own_user()?)?;
+    Ok(SID.get_or_init(|| sid))
 }
 
 /// A SID in its `S-1-5-…` form.
 #[allow(unsafe_code)]
 pub fn sid_string(sid: &[u8]) -> io::Result<String> {
+    // A SID is its revision, the count of its parts, a 6-byte authority and
+    // a 4-byte word per part, and the call reads as many as it says.
+    let whole = sid.len() >= 8 && sid.len() >= 8 + 4 * usize::from(sid[1]);
+    if !whole {
+        return Err(io::Error::new(io::ErrorKind::InvalidInput, "not a SID"));
+    }
     let mut text: *mut u16 = std::ptr::null_mut();
-    // SAFETY: `sid` holds a SID `user_of` copied, and the call writes one
+    // SAFETY: `sid` holds a whole SID, as checked, and the call writes one
     // pointer to a string it allocated with LocalAlloc.
     check(unsafe { ConvertSidToStringSidW(sid.as_ptr().cast_mut().cast(), &mut text) })?;
     // SAFETY: the call allocated `text` with LocalAlloc.
@@ -166,7 +220,7 @@ pub fn sid_string(sid: &[u8]) -> io::Result<String> {
 pub fn sid_from_string(text: &str) -> io::Result<Vec<u8>> {
     use windows_sys::Win32::Security::Authorization::ConvertStringSidToSidW;
 
-    let wide = wide(text);
+    let wide = wide(text)?;
     let mut sid: windows_sys::Win32::Security::PSID = std::ptr::null_mut();
     // SAFETY: `wide` ends in a NUL, and the call writes one pointer to a
     // SID it allocated with LocalAlloc.
@@ -201,13 +255,52 @@ pub unsafe fn take_local_string(text: *mut u16) -> String {
 /// When the process `process` names started, in 100 ns units since 1601:
 /// two processes with one ID differ in it.
 #[allow(unsafe_code)]
-pub fn started(process: HANDLE) -> io::Result<u64> {
+pub fn started(process: impl AsHandle) -> io::Result<u64> {
     let zero = FILETIME {
         dwLowDateTime: 0,
         dwHighDateTime: 0,
     };
     let (mut created, mut exited, mut kernel, mut user) = (zero, zero, zero, zero);
-    // SAFETY: the call writes one FILETIME to each.
+    let process = raw(&process.as_handle());
+    // SAFETY: the handle is open for the call, which writes one FILETIME
+    // to each.
     check(unsafe { GetProcessTimes(process, &mut created, &mut exited, &mut kernel, &mut user) })?;
     Ok(u64::from(created.dwHighDateTime) << 32 | u64::from(created.dwLowDateTime))
+}
+
+/// What `GetFileInformationByHandle` says of the open file `file`: its
+/// attributes, size, count of names and the volume it's on.
+#[allow(unsafe_code)]
+pub fn file_info(file: impl AsHandle) -> io::Result<BY_HANDLE_FILE_INFORMATION> {
+    let mut info = BY_HANDLE_FILE_INFORMATION::default();
+    // SAFETY: the handle is open for the call, which writes one struct.
+    check(unsafe { GetFileInformationByHandle(raw(&file.as_handle()), &mut info) })?;
+    Ok(info)
+}
+
+/// The open file `file`'s volume and its 128-bit ID there, which no other
+/// file on the volume has. ReFS IDs don't fit the 64-bit index
+/// [`file_info`] gives, so that's only for a volume that has no
+/// `FileIdInfo`, such as FAT, where the index is unique.
+#[allow(unsafe_code)]
+pub fn file_id(file: impl AsHandle) -> io::Result<(u64, u128)> {
+    let handle = file.as_handle();
+    let mut full = FILE_ID_INFO::default();
+    let size = u32::try_from(std::mem::size_of::<FILE_ID_INFO>()).map_err(io::Error::other)?;
+    // SAFETY: `full` is a FILE_ID_INFO of the size passed, and the handle
+    // is open for the call.
+    let got = unsafe {
+        GetFileInformationByHandleEx(raw(&handle), FileIdInfo, (&raw mut full).cast(), size)
+    };
+    if got != 0 {
+        return Ok((
+            full.VolumeSerialNumber,
+            u128::from_le_bytes(full.FileId.Identifier),
+        ));
+    }
+    let info = file_info(handle)?;
+    Ok((
+        u64::from(info.dwVolumeSerialNumber),
+        u128::from(info.nFileIndexHigh) << 32 | u128::from(info.nFileIndexLow),
+    ))
 }

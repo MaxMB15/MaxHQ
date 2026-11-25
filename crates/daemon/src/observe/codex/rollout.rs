@@ -52,7 +52,7 @@ pub struct Tail {
     /// The start of a line whose end isn't written yet.
     partial: Vec<u8>,
     /// Which file it is, to notice it being replaced.
-    identity: Option<(u64, u64)>,
+    identity: Option<maxhq_os::fsmode::FileId>,
 }
 
 /// What a tail read found.

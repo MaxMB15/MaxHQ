@@ -1,11 +1,9 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026 Max Boksem
 
-use std::fs::{self, File};
+use std::fs::File;
 use std::io;
 use std::os::fd::AsFd;
-use std::os::unix::fs::MetadataExt;
-use std::path::Path;
 use std::process::Command;
 
 /// The file that reads as empty and takes any write.
@@ -43,13 +41,6 @@ pub(crate) fn in_spawner_job() -> bool {
 /// Keeps a console window from showing for the holder, which Unix never
 /// shows.
 pub(crate) fn hide_window(_command: &mut tokio::process::Command) {}
-
-/// Whether `path` names the file `file` has open.
-pub(crate) fn same_file(file: &File, path: &Path) -> io::Result<bool> {
-    let open = file.metadata()?;
-    let there = fs::metadata(path)?;
-    Ok(there.ino() == open.ino() && there.dev() == open.dev())
-}
 
 /// A copy of the holder's stdin, to read from.
 pub(crate) fn stdin_file() -> io::Result<File> {

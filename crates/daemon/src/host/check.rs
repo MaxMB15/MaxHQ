@@ -365,15 +365,17 @@ fn data_dir(env: &Env, spec: &HostSpec) -> Option<HostItem> {
             want: "a folder".to_owned(),
             have: "a file".to_owned(),
         },
-        Ok(meta) if super::ids::owner(&meta) != env.user.uid => HostItemState::Drift {
-            want: format!("owned by {}", env.user.name),
-            have: format!("owned by uid {}", super::ids::owner(&meta)),
+        Ok(meta) => match maxhq_os::fsmode::owner_of(&meta) {
+            Some(uid) if uid != env.user.uid => HostItemState::Drift {
+                want: format!("owned by {}", env.user.name),
+                have: format!("owned by uid {uid}"),
+            },
+            _ if maxhq_os::fsmode::mode_of(&meta) & 0o077 != 0 => HostItemState::Drift {
+                want: "mode 0700".to_owned(),
+                have: format!("mode {:04o}", maxhq_os::fsmode::mode_of(&meta) & 0o7777),
+            },
+            _ => HostItemState::Ok,
         },
-        Ok(meta) if maxhq_os::fsmode::mode_of(&meta) & 0o077 != 0 => HostItemState::Drift {
-            want: "mode 0700".to_owned(),
-            have: format!("mode {:04o}", maxhq_os::fsmode::mode_of(&meta) & 0o7777),
-        },
-        Ok(_) => HostItemState::Ok,
     };
     Some(item(
         "data_dir",

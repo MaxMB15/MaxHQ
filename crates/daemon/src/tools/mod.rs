@@ -257,36 +257,12 @@ impl Probe for SystemProbe {
 }
 
 /// Whether this user can write in the folder `path`. A folder root owns
-/// isn't one to update in, even for root.
-#[cfg(unix)]
-#[allow(unsafe_code)]
+/// isn't one to update in, unless `maxd` runs as root.
 fn folder_writable(path: &Path) -> bool {
-    use std::os::unix::ffi::OsStrExt;
-    use std::os::unix::fs::MetadataExt;
-
-    let Ok(c) = std::ffi::CString::new(path.as_os_str().as_bytes()) else {
-        return false;
-    };
-    // SAFETY: `c` is a valid C string that outlives the call, and getuid
-    // can't fail.
-    let (writable, uid) = unsafe { (libc::access(c.as_ptr(), libc::W_OK) == 0, libc::getuid()) };
-    writable && std::fs::metadata(path).is_ok_and(|meta| meta.uid() != 0 || uid == 0)
-}
-
-/// Whether this user can write in the folder `path`. Windows keeps who may
-/// write in a folder's access list, so a file is made there and removed.
-#[cfg(not(unix))]
-fn folder_writable(path: &Path) -> bool {
-    let probe = path.join(format!(".maxhq-{}", uuid::Uuid::now_v7().simple()));
-    let made = std::fs::OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .open(&probe)
-        .is_ok();
-    if made {
-        let _ = std::fs::remove_file(&probe);
-    }
-    made
+    let root = maxhq_os::proc::own_ids().is_some_and(|(uid, _)| uid == 0);
+    maxhq_os::fsmode::writable_dir(path)
+        && std::fs::metadata(path)
+            .is_ok_and(|meta| maxhq_os::fsmode::owner_of(&meta) != Some(0) || root)
 }
 
 /// One CLI on the device, as last found.

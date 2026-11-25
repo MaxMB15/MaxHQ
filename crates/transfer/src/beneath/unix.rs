@@ -8,7 +8,6 @@ use std::fs::File;
 use std::io;
 use std::os::fd::OwnedFd;
 use std::os::unix::ffi::OsStringExt;
-use std::os::unix::fs::FileExt;
 use std::path::Path;
 
 use maxhq_protocol::message::ErrorCode;
@@ -278,14 +277,6 @@ pub fn remove_if_link(path: &Path) -> io::Result<bool> {
         return Ok(true);
     }
     Ok(false)
-}
-
-pub fn read_exact_at(file: &File, buf: &mut [u8], offset: u64) -> io::Result<()> {
-    FileExt::read_exact_at(file, buf, offset)
-}
-
-pub fn write_all_at(file: &File, buf: &[u8], offset: u64) -> io::Result<()> {
-    FileExt::write_all_at(file, buf, offset)
 }
 
 fn errno(err: &io::Error) -> Option<Errno> {
