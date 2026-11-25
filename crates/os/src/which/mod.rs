@@ -154,6 +154,14 @@ pub fn runnable(path: &Path) -> bool {
     fs::metadata(path).is_ok_and(|meta| crate::fsmode::is_executable(path, &meta))
 }
 
+/// Whether the text `path` is absolute by either system's rules: Unix's
+/// `/srv/app`, or Windows' `C:\work` or `\\server\share`. For a path that
+/// names a place on another device, whose system isn't known here; that
+/// device reads it again by its own rules.
+pub fn absolute_anywhere(path: &str) -> bool {
+    path.starts_with('/') || windows::is_absolute(Path::new(path))
+}
+
 /// [`runnable`] under `rules`, over `env` and `fs`.
 pub fn runnable_in(rules: Rules, path: &Path, env: &Env, fs: &impl Fs) -> bool {
     fs.file_mode(path)
