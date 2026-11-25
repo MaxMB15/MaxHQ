@@ -9,6 +9,8 @@ import { t } from "../i18n";
 
 import type { DeviceNode } from "../view/select";
 
+import { wslLabel } from "./wsl";
+
 /** Each operating system's name, by the name Rust gives it. */
 export const OS_NAME: Readonly<Record<string, string>> = {
 	linux: "Linux",
@@ -23,7 +25,11 @@ export const deviceChips = (node: DeviceNode): string[] => {
 	const chips: string[] = [];
 	if (network?.kind.type === "tailscale") chips.push(t("Needs Tailscale"));
 	chips.push(
-		link.route.type === "ssh" ? t("SSH as {{host}}", { host: link.route.host }) : t("This Mac")
+		link.route.type === "ssh"
+			? t("SSH as {{host}}", { host: link.route.host })
+			: link.route.type === "wsl"
+				? wslLabel(link.route, node.ctx.machine ?? link.route.via)
+				: t("This Mac")
 	);
 	if (device) {
 		chips.push(OS_NAME[device.os] ?? device.os);

@@ -135,6 +135,7 @@ fn a_big_log_is_moved_aside_when_the_program_starts() {
 
 #[test]
 fn a_maxd_that_serves_already_is_left_be() {
+    let _forks = crate::forks();
     let dir = folder("serves");
     let mut plan = plan(&dir, Vec::new());
     // Never started.
@@ -154,6 +155,7 @@ fn a_maxd_that_serves_already_is_left_be() {
 
 #[test]
 fn a_program_that_never_starts_is_given_up_on() {
+    let _forks = crate::forks();
     let dir = folder("missing");
     let mut plan = plan(&dir, Vec::new());
     plan.program = dir.join("missing");

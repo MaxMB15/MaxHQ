@@ -21,10 +21,12 @@ use maxhq_protocol::link::Route;
 use super::local::dial_local;
 #[cfg(any(unix, test))]
 use super::shorten;
+use super::spawned::dial_wsl;
 use super::{Conn, DialError, Transport, PROXY_COMMAND, WINDOWS_PROXY_COMMAND};
 use crate::pinned::Pins;
 use crate::setup::Output;
 use crate::ssh_config::{self, is_safe_destination, SshConfig};
+use crate::wsl;
 
 #[cfg(unix)]
 mod mux;
@@ -101,6 +103,18 @@ impl Transport for System {
                 Route::Ssh { host } => {
                     let command = self.windows.command(host);
                     self.masters.dial(host, config, None, command).await
+                }
+                Route::Wsl { distro, via: None } => dial_wsl(distro),
+                // The Windows machine's own `maxd` starts `wsl.exe`, since
+                // its shell is cmd or PowerShell.
+                Route::Wsl {
+                    distro,
+                    via: Some(host),
+                } => {
+                    let Some(command) = wsl::via_command(distro) else {
+                        return Err(DialError::refused("that isn't a WSL distro's name"));
+                    };
+                    self.masters.dial(host, config, None, &command).await
                 }
             }
         })

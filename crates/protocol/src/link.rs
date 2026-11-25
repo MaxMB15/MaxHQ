@@ -112,6 +112,31 @@ pub enum Route {
         /// `dev@devbox`.
         host: String,
     },
+    /// `maxd proxy` inside a WSL distro, started with `wsl.exe -d
+    /// <distro>` on this Windows machine, or with `ssh <via> maxd proxy
+    /// --wsl <distro>` on another one. `maxd` never sends a link, so no
+    /// older peer reads this.
+    Wsl {
+        /// The distro, as `wsl.exe -d` takes it, such as `Ubuntu`.
+        distro: String,
+        /// The SSH destination of the Windows machine it's on. Unset for
+        /// this machine.
+        via: Option<String>,
+    },
+}
+
+impl Route {
+    /// The SSH destination this route logs in to: its host, or the
+    /// Windows machine a WSL distro is on.
+    pub fn ssh_host(&self) -> Option<&str> {
+        match self {
+            Self::Local | Self::Wsl { via: None, .. } => None,
+            Self::Ssh { host }
+            | Self::Wsl {
+                via: Some(host), ..
+            } => Some(host),
+        }
+    }
 }
 
 /// An overlay network the client reaches devices through, such as a

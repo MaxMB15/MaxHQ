@@ -83,15 +83,24 @@ export const itemStatus = (item: HostItem): string => {
 /**
  * The line that runs a root command on `device` from a Mac terminal:
  * the command alone for the Mac itself, or through `ssh -t` along the
- * device's route, so sudo can ask for the password. None when there's
- * no route to the device.
+ * device's route, so sudo can ask for the password. A WSL distro's goes
+ * through `wsl.exe` on its PC. None when there's no route to the device.
  */
 export const terminalLine = (view: ViewState, device: DeviceId, command: string): string | null => {
 	const route = linkForDevice(view, device)?.route;
 	if (!route) return null;
-	return route.type === "local"
-		? command
-		: `ssh -t ${shellQuote(route.host)} ${shellQuote(command)}`;
+	switch (route.type) {
+		case "local":
+			return command;
+		case "ssh":
+			return `ssh -t ${shellQuote(route.host)} ${shellQuote(command)}`;
+		case "wsl": {
+			const line = `wsl.exe -d ${route.distro} -- ${command}`;
+			return route.via === null
+				? line
+				: `ssh -t ${shellQuote(route.via)} ${shellQuote(line)}`;
+		}
+	}
 };
 
 const fixView = (view: ViewState, device: DeviceId, fix: HostFix | null): FixView => {

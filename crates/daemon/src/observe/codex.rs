@@ -435,6 +435,7 @@ mod tests {
                 workspace_host: None,
                 build: None,
                 target: None,
+                wsl: None,
             },
             HashMap::new(),
         )

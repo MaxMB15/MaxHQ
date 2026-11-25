@@ -3142,6 +3142,12 @@ pub const FCM_SINCE: u32 = 61;
 /// so the app hides the choice. Since protocol 62.
 pub const WINDOWS_SHELL_SINCE: u32 = 62;
 
+/// The protocol version whose `maxd` on Windows first lists its WSL
+/// distros, [`crate::model::Device::wsl`], and carries a link into one
+/// with `maxd proxy --wsl <distro>`. An older one lists none, so the app
+/// offers no distro of it. Since protocol 63.
+pub const WSL_SINCE: u32 = 63;
+
 /// When [`ClientMessage::TakeOver`] stops the terminal's CLI.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, Type, JsonSchema)]
 #[serde(rename_all = "snake_case")]

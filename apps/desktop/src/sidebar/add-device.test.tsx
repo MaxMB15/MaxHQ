@@ -6,6 +6,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import App from "@/App";
 import { mockSource } from "@/data/mock-source";
+import type { SetupHost } from "@maxhq/shared/fleet/wire";
 import { FixedNow } from "@maxhq/shared/lib/clock";
 import { NOW } from "@maxhq/shared/test/build";
 import { createUiStore } from "@maxhq/shared/ui/store";
@@ -17,8 +18,9 @@ import { follow, phaseText, START } from "./add-device";
 // add up on a busy machine.
 const SLOW = { timeout: 5000 };
 
-const open = async () => {
+const open = async (hosts?: SetupHost[]) => {
 	const source = mockSource({ now: () => NOW, tick: false, stepMs: 1 });
+	if (hosts) vi.spyOn(source, "listSetupHosts").mockResolvedValue(hosts);
 	const ui = createUiStore();
 	ui.getState().setMode("devices");
 	render(
@@ -96,6 +98,32 @@ describe("the Add device wizard", () => {
 			await screen.findByText("You didn't trust the host key, so nothing ran")
 		).toBeVisible();
 		expect(screen.getByRole("button", { name: "Try again" })).toBeVisible();
+	});
+
+	it("offers a Windows device's WSL distros by name, and not one on WSL 1", async () => {
+		const distro = (name: string, version: number, isDefault: boolean): SetupHost => ({
+			host: `wsl:${name}@dev@pc`,
+			from: "wsl",
+			address: null,
+			link: null,
+			wsl: { distro: name, machine: "Desk PC", here: false, version, default: isDefault },
+		});
+		const { source, dialog } = await open([
+			distro("Ubuntu", 2, true),
+			distro("Legacy", 1, false),
+		]);
+		const setup = vi.spyOn(source, "setupDevice");
+		const ubuntu = await within(dialog).findByRole("radio", { name: /^Ubuntu/ });
+		expect(ubuntu).toHaveTextContent("WSL on Desk PC, the default distro");
+		const legacy = within(dialog).getByRole("radio", { name: /^Legacy/ });
+		expect(legacy).toBeDisabled();
+		expect(legacy).toHaveTextContent(
+			"WSL 1 can't run maxd. Move it to WSL 2 with wsl --set-version Legacy 2."
+		);
+		await pick(dialog, "Ubuntu");
+		expect(await screen.findByRole("heading", { name: "Logins for Ubuntu" })).toBeVisible();
+		fireEvent.click(screen.getByRole("button", { name: "Set up Ubuntu" }));
+		expect(setup).toHaveBeenCalledWith("wsl:Ubuntu@dev@pc", [], expect.any(Function));
 	});
 
 	it("shows the command a host needs to keep maxd running", async () => {
