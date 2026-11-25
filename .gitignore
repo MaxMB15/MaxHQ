@@ -5,6 +5,8 @@ target/
 # Build output
 dist/
 *.tsbuildinfo
+# The maxd a Linux bundle carries, copied in just before tauri build.
+apps/desktop/src-tauri/binaries/
 
 # IDE
 .vscode/
