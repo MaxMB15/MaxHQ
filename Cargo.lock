@@ -3560,6 +3560,7 @@ dependencies = [
  "objc2-user-notifications",
  "open",
  "png",
+ "rustix",
  "serde",
  "serde_json",
  "specta",
