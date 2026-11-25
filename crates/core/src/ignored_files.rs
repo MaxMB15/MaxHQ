@@ -165,10 +165,13 @@ mod tests {
         assert!(status.success());
     }
 
+    #[cfg(unix)]
     fn paths(found: &Ignored) -> Vec<&str> {
         found.files.iter().map(|file| file.path.as_str()).collect()
     }
 
+    // The test links a name with a Unix symlink.
+    #[cfg(unix)]
     #[test]
     fn lists_ignored_files_and_collapses_ignored_folders() {
         let Some(dir) = repo() else { return };

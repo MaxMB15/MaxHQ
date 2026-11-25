@@ -5,11 +5,12 @@
 //! is renamed over it, so a reader sees the old file or the new one and
 //! never half of either.
 
-use std::fs::{self, File, OpenOptions, Permissions};
+use std::fs::{self, File, OpenOptions};
 use std::io::{self, Read, Write};
-use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
 use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
+
+use maxhq_os::fsmode;
 
 /// Opens a regular file to read, following links. Anything else is refused:
 /// a repo can link a name to `/dev/zero`, a terminal or a pipe, where a read
@@ -21,10 +22,7 @@ pub fn open_regular(path: &Path) -> io::Result<File> {
     if !fs::metadata(path)?.is_file() {
         return Err(refused());
     }
-    let file = OpenOptions::new()
-        .read(true)
-        .custom_flags(libc::O_NONBLOCK | libc::O_NOCTTY)
-        .open(path)?;
+    let file = fsmode::open_no_wait(OpenOptions::new().read(true)).open(path)?;
     if !file.metadata()?.is_file() {
         return Err(refused());
     }
@@ -104,13 +102,11 @@ pub fn write_atomic(path: &Path, bytes: &[u8], how: Atomic) -> io::Result<()> {
         std::process::id()
     ));
     let written = (|| {
-        let mut file = OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .mode(how.mode)
-            .open(&temp)?;
+        let mut file =
+            fsmode::set_open_mode(OpenOptions::new().write(true).create_new(true), how.mode)
+                .open(&temp)?;
         if how.exact {
-            file.set_permissions(Permissions::from_mode(how.mode))?;
+            fsmode::set_file_mode(&file, how.mode)?;
         }
         file.write_all(bytes)?;
         if how.sync {
@@ -128,7 +124,7 @@ pub fn write_atomic(path: &Path, bytes: &[u8], how: Atomic) -> io::Result<()> {
             Some(folder) if !folder.as_os_str().is_empty() => folder,
             _ => Path::new("."),
         };
-        File::open(folder)?.sync_all()?;
+        fsmode::sync_dir(folder)?;
     }
     Ok(())
 }
@@ -139,7 +135,7 @@ mod tests {
     use crate::test_dir::TempDir;
 
     fn mode(path: &Path) -> u32 {
-        fs::metadata(path).unwrap().permissions().mode() & 0o777
+        fsmode::mode_of(&fs::metadata(path).unwrap()) & 0o777
     }
 
     fn names(dir: &Path) -> Vec<String> {
@@ -151,6 +147,8 @@ mod tests {
         names
     }
 
+    // Windows keeps no mode bits to check.
+    #[cfg(unix)]
     #[test]
     fn an_exact_mode_holds_whatever_the_umask() {
         let dir = TempDir::new("atomic");
@@ -177,7 +175,7 @@ mod tests {
         let dir = TempDir::new("atomic");
         let path = dir.0.join("config");
         fs::write(&path, b"old and longer").unwrap();
-        fs::set_permissions(&path, Permissions::from_mode(0o644)).unwrap();
+        fsmode::set_mode(&path, 0o644).unwrap();
         write_atomic(&path, b"new", Atomic::PRIVATE).unwrap();
         assert_eq!(fs::read(&path).unwrap(), b"new");
         assert_eq!(mode(&path), 0o600);
