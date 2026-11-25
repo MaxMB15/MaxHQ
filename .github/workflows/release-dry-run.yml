@@ -210,7 +210,8 @@ jobs:
             -storepass "$password" -keypass "$password" > /dev/null
           ANDROID_KEYSTORE_BASE64=$(base64 -w 0 "$keystore") \
             ANDROID_KEYSTORE_PASSWORD=$password ANDROID_KEY_ALIAS=upload ANDROID_KEY_PASSWORD=$password \
-            sh scripts/release/sign-android.sh "$RUNNER_TEMP/android" "$RELEASE"
+            node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON apps/mobile/scripts/mobile.ts \
+            android-sign "$RUNNER_TEMP/android" "$RELEASE"
           tools=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -n 1)
           "$tools/apksigner" verify --print-certs "$RELEASE/MaxHQ.apk" | grep 'CN=MaxHQ dry run'
 

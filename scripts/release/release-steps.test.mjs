@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026 Max Boksem
 
-// The shell steps the release and its dry run share: sign-desktop.sh,
-// maxd-sums.sh and sign-android.sh, run as the workflows run them, and
-// validate-release.sh, which checks a published release.
+// The steps the release and its dry run share: sign-desktop.sh,
+// maxd-sums.sh and `mobile.ts android-sign`, run as the workflows run them,
+// and validate-release.sh, which checks a published release.
 
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
@@ -13,7 +13,6 @@ import {
 	mkdirSync,
 	mkdtempSync,
 	readFileSync,
-	readdirSync,
 	rmSync,
 	writeFileSync,
 } from "node:fs";
@@ -47,6 +46,19 @@ const bare = (extra = {}) => {
 
 const sh = (script, args, env = bare()) =>
 	spawnSync("sh", [here(script), ...args], { encoding: "utf8", env });
+
+// apps/mobile/scripts/mobile.ts as the signing jobs run it: from the
+// checkout, on Node alone.
+const mobile = (args, env = bare()) =>
+	spawnSync(
+		process.execPath,
+		[
+			"--disable-warning=MODULE_TYPELESS_PACKAGE_JSON",
+			here("../../apps/mobile/scripts/mobile.ts"),
+			...args,
+		],
+		{ encoding: "utf8", env }
+	);
 
 const folder = (name) => {
 	const path = join(dir, name);
@@ -204,19 +216,19 @@ test("maxd-sums.sh sums the Linux maxd and each Windows one there", () => {
 	);
 });
 
-test("sign-android.sh leaves the build unsigned without a key and fails on half a key", () => {
+test("android-sign leaves the build unsigned without a key and fails on half a key", () => {
 	const build = folder("android");
 	const out = join(dir, "android-out");
-	const missing = sh("sign-android.sh", [build, out]);
+	const missing = mobile(["android-sign", build, out]);
 	assert.equal(missing.status, 1);
 	assert.match(missing.stderr, /has no app-release-unsigned.apk/);
+	assert.equal(mobile(["android-sign", build]).status, 1, "both folders are needed");
 
 	writeFileSync(join(build, "app-release-unsigned.apk"), "apk");
 	writeFileSync(join(build, "app-release.aab"), "aab");
 	const summary = join(dir, "summary.md");
-	const none = sh(
-		"sign-android.sh",
-		[build, out],
+	const none = mobile(
+		["android-sign", build, out],
 		bare({ GITHUB_ACTIONS: "true", GITHUB_STEP_SUMMARY: summary })
 	);
 	assert.equal(none.status, 0, none.stderr);
@@ -227,13 +239,13 @@ test("sign-android.sh leaves the build unsigned without a key and fails on half 
 	assert.match(readFileSync(summary, "utf8"), /### Android build unsigned/);
 	assert.ok(!existsSync(out), "nothing is written");
 
-	const half = sh("sign-android.sh", [build, out], bare({ ANDROID_KEY_ALIAS: "upload" }));
+	const half = mobile(["android-sign", build, out], bare({ ANDROID_KEY_ALIAS: "upload" }));
 	assert.equal(half.status, 1);
 	assert.match(
 		half.stderr,
-		/these aren't set: ANDROID_KEYSTORE_BASE64 ANDROID_KEYSTORE_PASSWORD ANDROID_KEY_PASSWORD\n/
+		/ANDROID_KEYSTORE_BASE64, ANDROID_KEYSTORE_PASSWORD, ANDROID_KEY_PASSWORD isn't set/
 	);
-	assert.ok(!existsSync(out) || readdirSync(out).length === 0, "nothing is signed");
+	assert.ok(!existsSync(out), "nothing is signed");
 });
 
 // validate-release.sh against the release make(base) gives, served from

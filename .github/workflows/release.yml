@@ -502,9 +502,7 @@ jobs:
           IOS_TEAM_ID: ${{ vars.IOS_TEAM_ID }}
           IOS_BUNDLE_ID: ${{ vars.IOS_BUNDLE_ID }}
         run: |
-          node -e 'const { IOS_TEAM_ID: teamId, IOS_BUNDLE_ID: bundleId } = process.env;
-            process.stdout.write(`${JSON.stringify({ teamId, bundleId }, null, "\t")}\n`);' \
-            > apps/mobile/ios.local.json
+          node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON apps/mobile/scripts/mobile.ts write-ids
 
       # The core in release, prebuild and the archive. It checks that push
       # and the app group are in the archive's signature.
@@ -609,9 +607,7 @@ jobs:
           umask 077
           mkdir -p "$RUNNER_TEMP/asc"
           printf '%s\n' "$APPLE_APP_MANAGER_PRIVATE_KEY" > "$RUNNER_TEMP/asc/AuthKey_$APPLE_APP_MANAGER_KEY_ID.p8"
-          node -e 'const { IOS_TEAM_ID: teamId, IOS_BUNDLE_ID: bundleId } = process.env;
-            process.stdout.write(`${JSON.stringify({ teamId, bundleId }, null, "\t")}\n`);' \
-            > apps/mobile/ios.local.json
+          node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON apps/mobile/scripts/mobile.ts write-ids
 
       # Signed by Xcode through the API key. It checks that push and the app
       # group survived the export.
@@ -778,7 +774,7 @@ jobs:
           distribution: temurin
           java-version: 17
 
-      # Outside the checkout; sign-android.sh copies the two files in.
+      # Outside the checkout; mobile.ts android-sign copies the two files in.
       - name: Download the build
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
@@ -796,7 +792,8 @@ jobs:
           BUILD: ${{ needs.build-android.outputs.build }}
         run: |
           set -euo pipefail
-          sh scripts/release/sign-android.sh "$RUNNER_TEMP/android" "$RUNNER_TEMP/signed"
+          node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON apps/mobile/scripts/mobile.ts \
+            android-sign "$RUNNER_TEMP/android" "$RUNNER_TEMP/signed"
           if [[ -f "$RUNNER_TEMP/signed/MaxHQ.apk" ]]; then
             echo "MaxHQ $VERSION for Android, build $BUILD, signed."
             echo "build=$BUILD" >> "$GITHUB_OUTPUT"
