@@ -28,8 +28,9 @@ env:
 # Every check runs on Linux. The rust-macos job also runs the Rust tests on
 # macOS, since the desktop app and the Mac's maxd run there and have code of
 # their own behind cfg(target_os = "macos"). Formatting and clippy run on
-# Linux only, so that code is compiled and tested but not linted. No job
-# builds the app's bundle until releases need a signed build.
+# Linux only, so that code is compiled and tested but not linted. The
+# desktop-linux job packs an unsigned debug bundle, so the Linux packaging
+# can't break unnoticed.
 jobs:
   # The pre-commit hook runs the same checks, but a commit made with
   # --no-verify skips them.
@@ -123,6 +124,98 @@ jobs:
 
       - name: Test
         run: cargo test --workspace --locked
+
+      - name: Disk left
+        if: always()
+        run: df -h /
+
+  # Packs the Linux app the way a release does, as an unsigned debug build,
+  # so a change that breaks the AppImage, the .deb or the .rpm fails here
+  # and not on a release tag. It runs on the oldest Ubuntu the release
+  # builds on, since the bundle needs that glibc.
+  desktop-linux:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install Linux dependencies
+        uses: ./.github/actions/install-linux-deps
+
+      # linuxdeploy, which makes the AppImage, needs file and libfuse2. rpm
+      # only reads the finished package's dependencies below.
+      - name: Install the bundle tools
+        run: sudo apt-get install -y --no-install-recommends file libfuse2 rpm
+
+      - name: Set up the frontend
+        uses: ./.github/actions/setup-frontend
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@686976e191b89faba57d3206551f0f330d8cb249 # stable
+        with:
+          toolchain: stable
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: ". -> target"
+          # Only branch pushes save, for the same reason as in the rust job.
+          save-if: ${{ github.event_name == 'push' }}
+
+      # The app carries its own maxd and installs it as this computer's
+      # service. Tauri takes it from binaries/, named for the target, and
+      # puts it beside the app's binary. Only a bundle passes that config,
+      # so plain cargo builds of the app need no maxd.
+      - name: Build maxd
+        run: |
+          set -euo pipefail
+          cargo build -p maxd --locked
+          triple="$(rustc --print host-tuple)"
+          mkdir -p apps/desktop/src-tauri/binaries
+          cp target/debug/maxd "apps/desktop/src-tauri/binaries/maxd-$triple"
+
+      # APPIMAGE_EXTRACT_AND_RUN lets linuxdeploy run without mounting
+      # itself through FUSE.
+      - name: Bundle the app
+        env:
+          APPIMAGE_EXTRACT_AND_RUN: "1"
+        run: |
+          set -euo pipefail
+          pnpm --filter ./apps/desktop exec tauri build --debug --bundles appimage,deb,rpm \
+            --config '{"bundle":{"createUpdaterArtifacts":false,"externalBin":["binaries/maxd"]}}'
+          ls -l target/debug/bundle/appimage target/debug/bundle/deb target/debug/bundle/rpm
+
+      # Each package must carry maxd and name WebKitGTK 4.1 and the SSH
+      # client, which the app needs to reach other devices. The desktop
+      # entry must be MaxHQ.desktop, the name the dock's launcher count is
+      # sent to, and name the window's class, so the dock puts the window
+      # under the app's icon.
+      - name: Check the packages
+        run: |
+          set -euo pipefail
+          deb=(target/debug/bundle/deb/*.deb)
+          rpm=(target/debug/bundle/rpm/*.rpm)
+          fail() { echo "::error::$1"; exit 1; }
+          echo "deb package: $(dpkg-deb --field "${deb[0]}" Package)"
+          depends="$(dpkg-deb --field "${deb[0]}" Depends)"
+          echo "deb depends: $depends"
+          for name in libwebkit2gtk-4.1-0 openssh-client; do
+            grep -qw -- "$name" <<<"$depends" || fail "The .deb doesn't depend on $name."
+          done
+          files="$(dpkg-deb --contents "${deb[0]}")"
+          grep -q '/usr/bin/maxd$' <<<"$files" || fail "The .deb has no maxd."
+          grep -q '/usr/share/applications/MaxHQ.desktop$' <<<"$files" ||
+            fail "The .deb has no MaxHQ.desktop."
+          entry="$(dpkg-deb --fsys-tarfile "${deb[0]}" | tar -xO ./usr/share/applications/MaxHQ.desktop)"
+          echo "$entry"
+          grep -q '^StartupWMClass=' <<<"$entry" || fail "MaxHQ.desktop names no window class."
+          requires="$(rpm -qpR "${rpm[0]}")"
+          echo "rpm requires: $requires"
+          for name in webkit2gtk4.1 openssh-clients; do
+            grep -qw -- "$name" <<<"$requires" || fail "The .rpm doesn't require $name."
+          done
+          files="$(rpm -qpl "${rpm[0]}")"
+          grep -qx '/usr/bin/maxd' <<<"$files" || fail "The .rpm has no maxd."
 
       - name: Disk left
         if: always()
