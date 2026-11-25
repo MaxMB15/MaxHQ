@@ -39,6 +39,7 @@ http-body-util = { workspace = true, optional = true }
 hyper = { workspace = true, optional = true }
 hyper-util = { workspace = true, optional = true }
 maxhq-core.workspace = true
+maxhq-os.workspace = true
 maxhq-protocol.workspace = true
 maxhq-transfer.workspace = true
 maxhq-wire.workspace = true

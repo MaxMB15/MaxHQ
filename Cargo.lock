@@ -3504,6 +3504,7 @@ dependencies = [
  "hyper",
  "hyper-util",
  "maxhq-core",
+ "maxhq-os",
  "maxhq-protocol",
  "maxhq-transfer",
  "maxhq-wire",
