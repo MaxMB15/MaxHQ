@@ -79,20 +79,100 @@ pub enum NoUpdates {
     Unwritable,
 }
 
-/// Whether the app whose program is at `exe` offers updates. `debug` says
-/// it's a debug build.
-pub fn offered(exe: &Path, debug: bool) -> Result<(), NoUpdates> {
-    if cfg!(target_os = "linux") {
-        offered_on_linux(&LinuxApp::here(exe), debug, takes_files)
-    } else if cfg!(windows) {
-        offered_on_windows(WindowsApp::here(exe), debug)
-    } else {
-        offered_on_macos(exe, debug)
+/// How a copy of the app was installed, and where its program is. The
+/// updater, the fleet and the shell all ask it, so they agree, and this
+/// app's is read once.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Install {
+    /// The app's program.
+    exe: PathBuf,
+    kind: InstallKind,
+}
+
+/// What put the app in place, by the kinds of install each system has.
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum InstallKind {
+    /// On macOS the program's path tells: the bundle it's in, and where
+    /// that bundle is.
+    Mac,
+    Linux(LinuxApp),
+    Windows(WindowsApp),
+}
+
+impl Install {
+    /// How the app whose program is at `exe` was installed, on the system
+    /// this runs on.
+    pub fn here(exe: &Path) -> Self {
+        let kind = if cfg!(target_os = "linux") {
+            InstallKind::Linux(LinuxApp::here(exe))
+        } else if cfg!(windows) {
+            InstallKind::Windows(WindowsApp::here(exe))
+        } else {
+            InstallKind::Mac
+        };
+        Self {
+            exe: exe.to_owned(),
+            kind,
+        }
+    }
+
+    /// How this running app was installed. None when the system can't say
+    /// where its program is.
+    pub fn this_app() -> Option<&'static Self> {
+        static THIS: std::sync::OnceLock<Option<Install>> = std::sync::OnceLock::new();
+        THIS.get_or_init(|| std::env::current_exe().ok().map(|exe| Self::here(&exe)))
+            .as_ref()
+    }
+
+    /// Whether this copy offers updates. `debug` says it's a debug build.
+    pub fn offers_updates(&self, debug: bool) -> Result<(), NoUpdates> {
+        match &self.kind {
+            InstallKind::Mac => offered_on_macos(&self.exe, debug),
+            InstallKind::Linux(app) => offered_on_linux(app, debug, takes_files),
+            InstallKind::Windows(app) => offered_on_windows(*app, debug),
+        }
+    }
+
+    /// Whether it runs from the source tree rather than a bundle, on Linux
+    /// an AppImage or package, or on Windows an install.
+    pub fn from_source(&self) -> bool {
+        match &self.kind {
+            InstallKind::Mac => !in_bundle(&self.exe),
+            InstallKind::Linux(app) => !app.installed(),
+            InstallKind::Windows(app) => !app.installed(),
+        }
+    }
+
+    /// The folder the app's resources were installed in, or none when it
+    /// isn't there. On macOS it's the bundle's `Resources`, beside
+    /// `Contents/MacOS`. On Linux it's `lib/MaxHQ` beside the program's
+    /// `bin`, which a deb or rpm puts at `/usr/lib/MaxHQ` and an AppImage at
+    /// `$APPDIR/usr/lib/MaxHQ`, as the shell's own resource folder finds
+    /// it. On Windows it's the program's own folder, where both installers
+    /// put the app's resources and `maxd`, and a build from the source tree
+    /// has none, as on the other systems.
+    pub fn resources(&self) -> Option<PathBuf> {
+        let dir = match &self.kind {
+            InstallKind::Mac => self.exe.parent()?.parent()?.join("Resources"),
+            InstallKind::Linux(_) => self.exe.parent()?.parent()?.join("lib/MaxHQ"),
+            InstallKind::Windows(app) if !app.installed() => return None,
+            InstallKind::Windows(_) => self.exe.parent()?.to_owned(),
+        };
+        dir.is_dir().then_some(dir)
     }
 }
 
-/// [`offered`] on macOS, where only a bundle in an Applications folder
-/// updates.
+/// Whether `exe` runs from inside a bundle other than the one `pnpm dev`
+/// makes.
+fn in_bundle(exe: &Path) -> bool {
+    exe.components().any(|part| {
+        let part = part.as_os_str().to_string_lossy();
+        part.ends_with(".app") && part != DEV_BUNDLE
+    })
+}
+
+/// [`Install::offers_updates`] on macOS, where only a bundle in an
+/// Applications folder updates.
 fn offered_on_macos(exe: &Path, debug: bool) -> Result<(), NoUpdates> {
     if debug {
         return Err(NoUpdates::FromSource);
@@ -149,7 +229,7 @@ impl LinuxApp {
     }
 
     /// How this app, whose program is at `exe`, was installed.
-    pub fn here(exe: &Path) -> Self {
+    fn here(exe: &Path) -> Self {
         let var = |name| {
             std::env::var_os(name)
                 .filter(|value| !value.is_empty())
@@ -164,7 +244,7 @@ impl LinuxApp {
     }
 }
 
-/// [`offered`] on Linux. `writable` says whether the app can make files in
+/// [`Install::offers_updates`] on Linux. `writable` says whether the app can make files in
 /// a folder, which the updater needs to swap the AppImage in it.
 fn offered_on_linux(
     app: &LinuxApp,
@@ -215,7 +295,7 @@ impl WindowsApp {
     }
 
     /// How this app, whose program is at `exe`, was installed.
-    pub fn here(exe: &Path) -> Self {
+    fn here(exe: &Path) -> Self {
         let uninstaller = exe.with_file_name(Self::UNINSTALLER).is_file();
         let program_files: Vec<PathBuf> = ["ProgramFiles", "ProgramW6432"]
             .into_iter()
@@ -251,7 +331,7 @@ pub fn windows_inside(path: &Path, dir: &Path) -> bool {
             .is_some_and(|rest| rest.starts_with('\\'))
 }
 
-/// [`offered`] on Windows, where either installer updates the copy it put
+/// [`Install::offers_updates`] on Windows, where either installer updates the copy it put
 /// in place.
 fn offered_on_windows(app: WindowsApp, debug: bool) -> Result<(), NoUpdates> {
     if debug || !app.installed() {
@@ -524,7 +604,7 @@ impl<C: Connector> App<C> {
         .await
         .ok()
         .flatten();
-        let dev_tree = crate::fleet::from_dev_tree();
+        let dev_tree = Install::this_app().is_none_or(Install::from_source);
         let deadline = tokio::time::Instant::now() + LOCAL_MAXD_WAIT;
         loop {
             let machine = self
@@ -902,6 +982,99 @@ mod tests {
         std::fs::write(dir.join(WindowsApp::UNINSTALLER), b"").unwrap();
         assert_eq!(WindowsApp::here(&exe), WindowsApp::Nsis);
         std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// An install of `kind` whose program is at `exe`.
+    fn install(exe: &Path, kind: InstallKind) -> Install {
+        Install {
+            exe: exe.to_owned(),
+            kind,
+        }
+    }
+
+    #[test]
+    fn the_resources_are_found_beside_the_program_on_each_system() {
+        let dir = std::env::temp_dir().join(format!("maxhq-resources-{}", DeviceId::generate()));
+        // A macOS bundle keeps them in `Contents/Resources`.
+        let contents = dir.join("MaxHQ.app/Contents");
+        std::fs::create_dir_all(contents.join("MacOS")).unwrap();
+        let mac = install(&contents.join("MacOS/maxhq-desktop"), InstallKind::Mac);
+        assert_eq!(mac.resources(), None);
+        std::fs::create_dir_all(contents.join("Resources")).unwrap();
+        assert_eq!(mac.resources(), Some(contents.join("Resources")));
+
+        // A deb, an rpm and an AppImage all keep them in `lib/MaxHQ` beside
+        // `bin`, under `/usr` or the AppImage's mount.
+        let usr = dir.join(".mount_MaxHQ1/usr");
+        std::fs::create_dir_all(usr.join("bin")).unwrap();
+        let exe = usr.join("bin/maxhq-desktop");
+        let linux = install(&exe, InstallKind::Linux(LinuxApp::Package));
+        assert_eq!(linux.resources(), None);
+        std::fs::create_dir_all(usr.join("lib/MaxHQ")).unwrap();
+        assert_eq!(linux.resources(), Some(usr.join("lib/MaxHQ")));
+        assert_eq!(install(&exe, InstallKind::Mac).resources(), None);
+        let root = install(
+            Path::new("/maxhq-desktop"),
+            InstallKind::Linux(LinuxApp::Loose),
+        );
+        assert_eq!(root.resources(), None);
+
+        // Both Windows installers keep them beside the program, and a build
+        // from the source tree has none.
+        let installed = dir.join("MaxHQ");
+        std::fs::create_dir_all(&installed).unwrap();
+        let exe = installed.join("MaxHQ.exe");
+        let windows = |app| install(&exe, InstallKind::Windows(app)).resources();
+        assert_eq!(windows(WindowsApp::Nsis), Some(installed.clone()));
+        assert_eq!(windows(WindowsApp::Msi), Some(installed.clone()));
+        assert_eq!(windows(WindowsApp::Loose), None);
+        let gone = install(
+            &dir.join("gone/MaxHQ.exe"),
+            InstallKind::Windows(WindowsApp::Nsis),
+        );
+        assert_eq!(gone.resources(), None);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn only_a_bundle_other_than_the_dev_one_counts_as_installed_on_macos() {
+        let mac = |exe: &str| install(Path::new(exe), InstallKind::Mac).from_source();
+        assert!(!mac("/Applications/MaxHQ.app/Contents/MacOS/maxhq-desktop"));
+        assert!(mac(
+            "/Users/someone/src/maxhq/target/debug/MaxHQ Dev.app/Contents/MacOS/maxhq-desktop"
+        ));
+        assert!(mac("/Users/someone/src/maxhq/target/debug/maxhq-desktop"));
+    }
+
+    #[test]
+    fn each_system_asks_its_own_install_whether_it_came_from_source() {
+        let exe = Path::new("/opt/MaxHQ/maxhq-desktop");
+        let linux = |app| install(exe, InstallKind::Linux(app));
+        assert!(linux(LinuxApp::Loose).from_source());
+        assert!(!linux(LinuxApp::Package).from_source());
+        let windows = |app| install(exe, InstallKind::Windows(app));
+        assert!(windows(WindowsApp::Loose).from_source());
+        assert!(!windows(WindowsApp::Msi).from_source());
+        assert_eq!(
+            windows(WindowsApp::Nsis).offers_updates(false),
+            Ok(()),
+            "an install offers the update its installer makes"
+        );
+        assert_eq!(
+            linux(LinuxApp::Package).offers_updates(false),
+            Err(NoUpdates::Package)
+        );
+        assert_eq!(
+            install(exe, InstallKind::Mac).offers_updates(false),
+            Err(NoUpdates::FromSource)
+        );
+    }
+
+    #[test]
+    fn this_app_is_read_once() {
+        let this = Install::this_app().expect("the test knows its program");
+        assert!(std::ptr::eq(this, Install::this_app().unwrap()));
+        assert_eq!(*this, Install::here(&std::env::current_exe().unwrap()));
     }
 
     #[test]

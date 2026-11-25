@@ -44,6 +44,8 @@ use serde::Serialize;
 use sha2::{Digest, Sha256};
 use specta::Type;
 
+#[cfg(feature = "desktop")]
+use crate::app_update::Install;
 use crate::devices::Connector;
 #[cfg(feature = "desktop")]
 use crate::devices::{Devices, OnProgress};
@@ -166,7 +168,7 @@ impl BinaryDirs {
     /// build from the source tree, the folder [`BIN_DIR_ENV`] names.
     pub fn for_app() -> Self {
         let mut dirs = Vec::new();
-        if let Some(resources) = resources_dir() {
+        if let Some(resources) = Install::this_app().and_then(Install::resources) {
             dirs.push(resources);
         }
         if cfg!(debug_assertions)
@@ -281,72 +283,9 @@ impl Binaries for BinaryDirs {
     }
 }
 
-/// The folder the app's resources were installed in. None outside a
-/// bundle or package.
-#[cfg(feature = "desktop")]
-fn resources_dir() -> Option<PathBuf> {
-    let exe = std::env::current_exe().ok()?;
-    if cfg!(windows) {
-        return resources_on_windows(&exe, crate::app_update::WindowsApp::here(&exe));
-    }
-    resources_of(&exe, cfg!(target_os = "linux"))
-}
-
-/// The resources folder of the Windows app `app` whose program is at
-/// `exe`: the program's own folder, where both installers put the app's
-/// resources and `maxd`. A build from the source tree has none, as on the
-/// other systems.
-#[cfg(feature = "desktop")]
-fn resources_on_windows(exe: &Path, app: crate::app_update::WindowsApp) -> Option<PathBuf> {
-    let dir = exe.parent()?;
-    (app.installed() && dir.is_dir()).then(|| dir.to_owned())
-}
-
-/// The resources folder of the app whose program is at `exe`. On macOS
-/// it's the bundle's `Resources`, beside `Contents/MacOS`. On Linux it's
-/// `lib/MaxHQ` beside the program's `bin`, which a deb or rpm puts at
-/// `/usr/lib/MaxHQ` and an AppImage at `$APPDIR/usr/lib/MaxHQ`, as the
-/// shell's own resource folder finds it. None when it isn't there.
-#[cfg(feature = "desktop")]
-fn resources_of(exe: &Path, linux: bool) -> Option<PathBuf> {
-    let above = exe.parent()?.parent()?;
-    let resources = if linux {
-        above.join("lib/MaxHQ")
-    } else {
-        above.join("Resources")
-    };
-    resources.is_dir().then_some(resources)
-}
-
 /// The bundle `pnpm dev` runs the app from, so Notification Center works.
 /// It's made in the target folder, and still counts as the source tree.
 pub const DEV_BUNDLE: &str = "MaxHQ Dev.app";
-
-/// Whether this app runs from the source tree rather than a bundle, on
-/// Linux an AppImage or package, or on Windows an install.
-#[cfg(feature = "desktop")]
-pub fn from_dev_tree() -> bool {
-    let Ok(exe) = std::env::current_exe() else {
-        return true;
-    };
-    if cfg!(target_os = "linux") {
-        !crate::app_update::LinuxApp::here(&exe).installed()
-    } else if cfg!(windows) {
-        !crate::app_update::WindowsApp::here(&exe).installed()
-    } else {
-        !in_bundle(&exe)
-    }
-}
-
-/// Whether `exe` runs from inside a bundle other than the one `pnpm dev`
-/// makes.
-#[cfg(feature = "desktop")]
-fn in_bundle(exe: &Path) -> bool {
-    exe.components().any(|part| {
-        let part = part.as_os_str().to_string_lossy();
-        part.ends_with(".app") && part != DEV_BUNDLE
-    })
-}
 
 /// The signed manifest in `dir`, when both it and its signature are there.
 /// The device checks them, so the app only carries them.
@@ -1016,7 +955,8 @@ impl<C: Connector> App<C> {
     ) {
         let only = (!devices.is_empty()).then_some(devices.as_slice());
         let machines = self.view.read(|merge| machines(merge, only));
-        let plan = plan(&machines, binaries, tools, from_dev_tree(), unsigned);
+        let from_source = Install::this_app().is_none_or(Install::from_source);
+        let plan = plan(&machines, binaries, tools, from_source, unsigned);
         let through = Through {
             devices: &self.devices,
             view: &self.view,
