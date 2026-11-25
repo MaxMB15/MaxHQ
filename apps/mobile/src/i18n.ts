@@ -7,9 +7,19 @@ import { File, Paths } from "expo-file-system";
 import { getLocales } from "expo-localization";
 import { AppState } from "react-native";
 
-import { configureLanguage, LANGUAGE_KEY, refreshLanguage } from "@maxhq/shared/i18n";
+import {
+	configureLanguage,
+	LANGUAGE_KEY,
+	refreshLanguage,
+	setInterfaceOs,
+} from "@maxhq/shared/i18n";
+
+import { OS } from "./platform";
 
 const kept = () => new File(Paths.document, "language.json");
+
+// Text that names iOS, such as "iOS Settings", takes its Android words there.
+setInterfaceOs(OS);
 
 configureLanguage({
 	read: () => {

@@ -35,7 +35,7 @@ use tokio::runtime::{Handle, Runtime};
 
 use crate::keys::{self, Key, KeyStore};
 use crate::net::{self, SignIns};
-use crate::{AppState, Network, Platform, ProgressListener, ViewListener};
+use crate::{AppState, Network, ProgressListener, ViewListener};
 
 /// The one window the phone's screens share, as a desktop window's label.
 /// Its timelines all go to one listener, as a desktop window's do.
@@ -95,8 +95,6 @@ pub struct Core {
     /// The app's caches folder, where the pickers copy what you pick, and
     /// so the one folder the phone uploads from.
     picks: PathBuf,
-    /// What the phone runs, which names it when you pair it under no name.
-    platform: Platform,
     /// Dropped last, once nothing on it holds the app.
     runtime: Runtime,
 }
@@ -123,12 +121,7 @@ impl Core {
     /// gone to the share sheet by then. The phone uploads
     /// only from the folder `cache` is in, the app's caches folder, where
     /// the pickers copy what you pick.
-    pub fn open(
-        dir: &Path,
-        cache: &Path,
-        platform: Platform,
-        store: Arc<dyn KeyStore>,
-    ) -> Result<Self, CommandError> {
+    pub fn open(dir: &Path, cache: &Path, store: Arc<dyn KeyStore>) -> Result<Self, CommandError> {
         std::fs::create_dir_all(dir)
             .map_err(|error| failed(format!("Couldn't make the phone's data folder: {error}")))?;
         // A folder that stays in backups still works, so the phone opens anyway.
@@ -200,7 +193,6 @@ impl Core {
         Ok(Self {
             shared,
             picks: cache.parent().unwrap_or(cache).to_owned(),
-            platform,
             runtime,
         })
     }
@@ -504,7 +496,9 @@ impl Core {
     /// [`phone::may_keep`] allows. A code with the device's network access
     /// pairs through it, and the phone keeps the token it gets. Else the
     /// phone logs in over SSH with the code's one-time key, which the
-    /// device swaps for the phone's own.
+    /// device swaps for the phone's own. The pairing screen names the
+    /// phone, with its system's name when you clear the field, and the
+    /// device refuses an empty name.
     pub fn pair(
         &self,
         code: &str,
@@ -513,10 +507,7 @@ impl Core {
         let shared = Arc::clone(&self.shared);
         let runtime = self.runtime.handle().clone();
         let code = PairCode::decode(code).map_err(failed);
-        let name = match name.trim() {
-            "" => self.platform.phone_name().to_owned(),
-            name => name.to_owned(),
-        };
+        let name = name.trim().to_owned();
         let books = self.books();
         self.run(async move {
             let code = code?;

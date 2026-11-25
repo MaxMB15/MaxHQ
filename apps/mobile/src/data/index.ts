@@ -9,11 +9,11 @@
 
 import { Paths } from "expo-file-system";
 import * as core from "maxhq-core";
-import { Platform } from "react-native";
 
 import { mockSource } from "@maxhq/shared/data/mock-source";
 import type { DataSource } from "@maxhq/shared/data/source";
 
+import { OS } from "../platform";
 import { nativeSource, pathOf, phoneCalls, type PhoneCalls } from "./native-source";
 
 /** The source this build uses, and the phone's own calls when it's the core. */
@@ -22,6 +22,6 @@ export const createSource = (): { source: DataSource; phone: PhoneCalls | null }
 	const dir = `${pathOf(Paths.document.uri)}/maxhq`;
 	const cache = `${pathOf(Paths.cache.uri)}/maxhq`;
 	const phone = phoneCalls(core);
-	phone.start(dir, cache, Platform.OS);
+	phone.start(dir, cache, OS);
 	return { source: nativeSource(core, cache), phone };
 };

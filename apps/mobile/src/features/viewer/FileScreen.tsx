@@ -41,7 +41,7 @@ import { copyLabel, useCopyWith } from "@maxhq/shared/lib/copy";
 
 import { urlOf } from "../../data/native-source";
 import type { ScreenProps } from "../../navigation";
-import { OS, platform } from "../../platform";
+import { platform } from "../../platform";
 import { saveAs } from "../../platform/save";
 import { useServices, useView } from "../../services";
 import { color, size } from "../../theme";
@@ -388,7 +388,7 @@ const Body = ({
 	}
 
 	const { url, size } = media;
-	switch (lookOf(path, OS)) {
+	switch (lookOf(path, platform.opensPdf)) {
 		case "markdown":
 			return <MarkdownFile key={url} agent={agent} path={path} url={url} size={size} />;
 		case "text":
@@ -399,7 +399,7 @@ const Body = ({
 			return <PdfFile key={url} path={path} url={url} />;
 		case "none":
 			return (
-				<Note text={noViewNote(path, size, OS)} saving={saving}>
+				<Note text={noViewNote(path, size, platform.opensPdf)} saving={saving}>
 					<SaveAction save={save} />
 				</Note>
 			);
@@ -434,7 +434,10 @@ export const FileScreen = ({ navigation, route }: ScreenProps<"File">) => {
 						ellipsizeMode="head"
 						style={styles.path}
 					>
-						{copyLabel(copied, headerSaveText(path, media, save.download, OS) ?? path)}
+						{copyLabel(
+							copied,
+							headerSaveText(path, media, save.download, platform.opensPdf) ?? path
+						)}
 					</Text>
 				}
 				back={{ label: t("Back"), onPress: () => navigation.goBack() }}

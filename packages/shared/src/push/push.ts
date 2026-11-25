@@ -37,11 +37,11 @@ export type PushKindInfo = {
 };
 
 /**
- * The switches, in the order settings shows them, in the words for the
- * phone's system: `context` is "android" for an Android phone, whose Deny
- * opens MaxHQ, and left out for an iPhone.
+ * The switches, in the order settings shows them. Each reads in the words
+ * for the interface's system, as `setInterfaceOs` set it: an Android
+ * phone's Deny opens MaxHQ, and the Mac shows an iPhone's words.
  */
-export const pushKinds = (context?: "android"): readonly PushKindInfo[] => [
+export const PUSH_KINDS: readonly PushKindInfo[] = [
 	{
 		kind: "needs_input",
 		get label() {
@@ -49,8 +49,7 @@ export const pushKinds = (context?: "android"): readonly PushKindInfo[] => [
 		},
 		get detail() {
 			return t(
-				"A permission, a question or a secret. Open it to answer. Deny also works from the lock screen.",
-				{ context }
+				"A permission, a question or a secret. Open it to answer. Deny also works from the lock screen."
 			);
 		},
 	},
@@ -82,9 +81,6 @@ export const pushKinds = (context?: "android"): readonly PushKindInfo[] => [
 		},
 	},
 ];
-
-/** The switches in an iPhone's words, as the Mac shows them too. */
-export const PUSH_KINDS: readonly PushKindInfo[] = pushKinds();
 
 /** Every kind is on until you turn one off, as on the Mac. */
 export const DEFAULT_KINDS: readonly PushKind[] = PUSH_KINDS.map((each) => each.kind);
