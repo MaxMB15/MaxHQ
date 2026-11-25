@@ -165,35 +165,50 @@ jobs:
           node scripts/release/sign.mjs --next --check --expect "$NEXT_PUBKEY"
           sh scripts/release/sign-desktop.sh "$RUNNER_TEMP/desktop"
 
-      # publish-latest-json's: the bridge release's two manifests, each
-      # checked against its key, and SHA256SUMS for the maxd binaries.
+      # publish-latest-json's: the bridge release's two manifests, written by
+      # the release's write-manifests.sh, and SHA256SUMS for the maxd
+      # binaries. The Macs' updater archives are stand-ins, signed with both
+      # keys as package-macos.sh signs them in the bridge release.
       - name: Write the manifests and SHA256SUMS
+        env:
+          KEY_STATE: bridge
+          SIGN_KEY: current
+          UPDATE_MANIFEST: latest-v2.json
         run: |
           set -euo pipefail
-          version=$(node scripts/release/version.mjs get)
-          mkdir -p "$RELEASE"
+          VERSION=$(node scripts/release/version.mjs get)
+          export VERSION
+          mkdir -p "$RELEASE" "$RUNNER_TEMP/mac"
           : > "$RELEASE/notes.md"
-          manifest() {
-            node scripts/release/latest-json.mjs --version "$version" --repo "$GITHUB_REPOSITORY" \
-              --notes-file "$RELEASE/notes.md" --out "$RELEASE/$1" --key "$3" \
-              --desktop-sigs "$RUNNER_TEMP/desktop" --sig-suffix "$2"
-            cat "$RELEASE/$1"
-          }
-          manifest latest.json .sig "$CURRENT_PUBKEY"
-          manifest latest-v2.json .next.sig "$NEXT_PUBKEY"
-          # Each Linux package's three platform keys must be in both.
-          for file in latest.json latest-v2.json; do
-            node -e '
-              const [file, ...names] = process.argv.slice(1);
-              const { platforms } = JSON.parse(require("fs").readFileSync(file, "utf8"));
-              const missing = names.filter((name) => !platforms[name]);
-              if (missing.length) {
-                console.log(`::error::${file} has no ${missing.join(", ")}.`);
-                process.exit(1);
-              }' "$RELEASE/$file" \
-              linux-x86_64 linux-x86_64-appimage linux-x86_64-deb linux-x86_64-rpm \
-              linux-aarch64 linux-aarch64-appimage linux-aarch64-deb linux-aarch64-rpm
+          for arch in aarch64 x64; do
+            archive="$RUNNER_TEMP/mac/MaxHQ_${VERSION}_${arch}.app.tar.gz"
+            echo "stand-in for the $arch updater archive" > "$archive"
+            node scripts/release/sign.mjs --app-version "$VERSION" "$archive"
+            node scripts/release/sign.mjs --next --app-version "$VERSION" --out "$archive.next.sig" "$archive"
           done
+          sh scripts/release/write-manifests.sh "$RELEASE/notes.md" "$RUNNER_TEMP/mac" \
+            "$RUNNER_TEMP/desktop" "$RELEASE" > /dev/null
+          # latest-v2.json has both Macs and every Linux package's platform
+          # keys, and latest.json only the Macs.
+          linux=$(node scripts/release/bundles.mjs platforms linux)
+          # shellcheck disable=SC2086 # one platform key per word
+          node -e '
+            const [dir, ...linux] = process.argv.slice(1);
+            const macs = ["darwin-aarch64", "darwin-x86_64"];
+            const platforms = (file) =>
+              Object.keys(JSON.parse(require("fs").readFileSync(`${dir}/${file}`, "utf8")).platforms);
+            let failed = false;
+            const check = (file, want, only) => {
+              const have = platforms(file);
+              const missing = want.filter((name) => !have.includes(name));
+              const extra = only ? have.filter((name) => !want.includes(name)) : [];
+              if (missing.length) console.log(`::error::${file} has no ${missing.join(", ")}.`);
+              if (extra.length) console.log(`::error::${file} has ${extra.join(", ")}, which only latest-v2.json gets.`);
+              failed ||= missing.length > 0 || extra.length > 0;
+            };
+            check("latest-v2.json", [...macs, ...linux], false);
+            check("latest.json", macs, true);
+            if (failed) process.exit(1);' "$RELEASE" $linux
           sh scripts/release/maxd-sums.sh "$RUNNER_TEMP/maxd" > "$RUNNER_TEMP/maxd-assets"
           while read -r name; do cp "$RUNNER_TEMP/maxd/$name" "$RELEASE/"; done < "$RUNNER_TEMP/maxd-assets"
 

@@ -2,8 +2,9 @@
 // Copyright (c) 2026 Max Boksem
 
 // The steps the release and its dry run share: sign-desktop.sh,
-// maxd-sums.sh and `mobile.ts android-sign`, run as the workflows run them,
-// and validate-release.sh, which checks a published release.
+// maxd-sums.sh, write-manifests.sh and `mobile.ts android-sign`, run as the
+// workflows run them, and validate-release.sh, which checks a published
+// release.
 
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
@@ -16,7 +17,7 @@ import { after, test } from "node:test";
 import { fileURLToPath } from "node:url";
 import { desktopAssets, maxdAsset } from "./bundles.mjs";
 import { latestJson, readDesktopSigs, signatureKeyId } from "./latest-json.mjs";
-import { readPublicKey } from "./sign.mjs";
+import { keyIdText, readPublicKey } from "./sign.mjs";
 import { repoVersion as version } from "./version.mjs";
 
 const here = (name) => fileURLToPath(new URL(name, import.meta.url));
@@ -228,6 +229,114 @@ test("maxd-sums.sh sums the Linux maxd and each Windows one there", () => {
 		names.map((name) => `${sha(name)}  ${name}\n`).join("")
 	);
 });
+
+test(
+	"write-manifests.sh writes each key state's manifests, the installers only in the app's",
+	{ skip: !haveTauri },
+	() => {
+		const current = throwaway("manifest-current");
+		const next = throwaway("manifest-next");
+		const keys = bare({
+			TAURI_SIGNING_PRIVATE_KEY_PATH: current.path,
+			TAURI_SIGNING_PRIVATE_KEY_NEXT_PATH: next.path,
+		});
+		const v = version();
+		// The Macs' archives and the Linux installers, signed as the bridge
+		// release signs them.
+		const mac = folder("manifest-mac");
+		for (const arch of ["aarch64", "x64"]) {
+			const archive = join(mac, `MaxHQ_${v}_${arch}.app.tar.gz`);
+			writeFileSync(archive, `archive ${arch}`);
+			execFileSync(process.execPath, [here("sign.mjs"), archive], { env: keys });
+			execFileSync(
+				process.execPath,
+				[here("sign.mjs"), "--next", "--out", `${archive}.next.sig`, archive],
+				{ env: keys }
+			);
+		}
+		const desktop = folder("manifest-desktop");
+		const linux = desktopAssets().filter(({ target }) => target.includes("-linux-"));
+		for (const { asset } of linux) writeFileSync(join(desktop, asset), `installer ${asset}`);
+		assert.equal(sh("sign-desktop.sh", [desktop], { ...keys, MAXHQ_BRIDGE: "1" }).status, 0);
+		const notes = join(dir, "manifest-notes.md");
+		writeFileSync(notes, "What's new\n");
+
+		const write = (name, env) => {
+			const out = join(dir, `manifests-${name}`);
+			const run = sh("write-manifests.sh", [notes, mac, desktop, out], {
+				...bare(),
+				VERSION: v,
+				GITHUB_REPOSITORY: "owner/MaxHQ",
+				CURRENT_PUBKEY: current.pub,
+				NEXT_PUBKEY: next.pub,
+				...env,
+			});
+			const read = (file) => JSON.parse(readFileSync(join(out, file), "utf8"));
+			return { run, out, read };
+		};
+		const macs = ["darwin-aarch64", "darwin-x86_64"];
+		const linuxKeys = linux.flatMap(({ platforms }) => platforms);
+		const signer = (manifest) =>
+			new Set(
+				Object.values(manifest.platforms).map(({ signature }) =>
+					keyIdText(signatureKeyId(signature))
+				)
+			);
+		const keyOf = (key) => new Set([keyIdText(readPublicKey(key.pub).keyId)]);
+
+		const old = write("old", { KEY_STATE: "old", UPDATE_MANIFEST: "latest.json" });
+		assert.equal(old.run.status, 0, old.run.stderr);
+		assert.deepEqual(old.run.stdout.trim().split("\n"), [join(old.out, "latest.json")]);
+		assert.deepEqual(
+			Object.keys(old.read("latest.json").platforms).sort(),
+			[...macs, ...linuxKeys].sort()
+		);
+		assert.deepEqual(signer(old.read("latest.json")), keyOf(current));
+		assert.equal(old.read("latest.json").notes, "What's new");
+
+		const bridge = write("bridge", { KEY_STATE: "bridge", UPDATE_MANIFEST: "latest-v2.json" });
+		assert.equal(bridge.run.status, 0, bridge.run.stderr);
+		assert.deepEqual(bridge.run.stdout.trim().split("\n"), [
+			join(bridge.out, "latest.json"),
+			join(bridge.out, "latest-v2.json"),
+		]);
+		assert.deepEqual(Object.keys(bridge.read("latest.json").platforms), macs);
+		assert.deepEqual(signer(bridge.read("latest.json")), keyOf(current));
+		assert.deepEqual(
+			Object.keys(bridge.read("latest-v2.json").platforms).sort(),
+			[...macs, ...linuxKeys].sort()
+		);
+		assert.deepEqual(signer(bridge.read("latest-v2.json")), keyOf(next));
+		assert.match(bridge.run.stderr, /"darwin-aarch64"/);
+
+		// After the change: latest.json is the release before's, as it is.
+		const frozen = join(dir, "manifest-frozen.json");
+		writeFileSync(frozen, `${JSON.stringify({ version: "0.0.1", platforms: {} })}\n`);
+		const after = { KEY_STATE: "new", UPDATE_MANIFEST: "latest-v2.json", FROZEN: frozen };
+		const done = write("new", after);
+		assert.equal(done.run.status, 0, done.run.stderr);
+		assert.deepEqual(done.run.stdout.trim().split("\n"), [
+			join(done.out, "latest-v2.json"),
+			join(done.out, "latest.json"),
+		]);
+		assert.equal(
+			readFileSync(join(done.out, "latest.json"), "utf8"),
+			readFileSync(frozen, "utf8")
+		);
+		assert.deepEqual(signer(done.read("latest-v2.json")), keyOf(current));
+		// Signed with the next key, every .sig must be by it.
+		const wrong = write("wrong", { ...after, SIGN_KEY: "next" });
+		assert.equal(wrong.run.status, 1);
+		assert.match(wrong.run.stderr, /signature is by key .*, not /);
+		writeFileSync(frozen, `${JSON.stringify({ version: v, platforms: {} })}\n`);
+		const again = write("again", { ...after, PREVIOUS: "v0.0.1" });
+		assert.equal(again.run.status, 1);
+		assert.match(again.run.stderr, new RegExp(`latest.json on v0.0.1 already names ${v}`));
+		const none = write("none", { UPDATE_MANIFEST: "latest.json" });
+		assert.equal(none.run.status, 1);
+		assert.match(none.run.stderr, /prepare-release gave no update key state/);
+	}
+);
 
 test("android-sign leaves the build unsigned without a key and fails on half a key", () => {
 	const build = folder("android");

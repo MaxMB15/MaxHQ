@@ -197,6 +197,17 @@ test("the bundles script lists the assets for the shell", () => {
 		"MaxHQ_aarch64.rpm",
 	]);
 	assert.equal(run("assets").stdout.trim().split("\n").length, 10);
+	assert.deepEqual(run("platforms", "linux").stdout.trim().split("\n"), [
+		"linux-x86_64",
+		"linux-x86_64-appimage",
+		"linux-x86_64-deb",
+		"linux-x86_64-rpm",
+		"linux-aarch64",
+		"linux-aarch64-appimage",
+		"linux-aarch64-deb",
+		"linux-aarch64-rpm",
+	]);
+	assert.equal(run("platforms").stdout.trim().split("\n").length, 14);
 	assert.deepEqual(run("maxd").stdout.trim().split("\n"), [
 		"maxd-x86_64-pc-windows-msvc",
 		"maxd-aarch64-pc-windows-msvc",
