@@ -952,6 +952,7 @@
 	"Asks you a question": "Stelt je een vraag",
 	"Stopped on an error": "Gestopt door een fout",
 	"A permission, a question or a secret. Open it to answer. Deny also works from the lock screen.": "Een machtiging, vraag of geheim. Open de agent om te antwoorden. Weigeren kan ook vanaf het vergrendelscherm.",
+	"A permission, a question or a secret. Open it to answer. Deny also works from the lock screen._android": "Een machtiging, vraag of geheim. Open de agent om te antwoorden. Weigeren kan ook vanuit de melding en opent MaxHQ zodra de telefoon ontgrendeld is.",
 	"An agent stopped on an error": "Een agent is gestopt door een fout",
 	"A turn ended while you were away": "Een beurt is beëindigd terwijl je weg was",
 	"An agent waits for a usage limit to reset": "Een agent wacht tot een gebruikslimiet wordt hersteld",

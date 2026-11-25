@@ -487,5 +487,8 @@
 	"{{number}} tokens of context_many": "{{number}} tokens de contexto",
 	"Runs at {{level}}.": "Funciona en {{level}}.",
 	"{{level}} (default)": "{{level}} (predeterminado)",
-	"Couldn't change the effort level. {{reason}}": "No se pudo cambiar el nivel de esfuerzo. {{reason}}"
+	"Couldn't change the effort level. {{reason}}": "No se pudo cambiar el nivel de esfuerzo. {{reason}}",
+	"This build gets no pushes": "Esta compilación no recibe notificaciones push",
+	"It was built without the signing that push needs.": "Se compiló sin la firma que necesitan las notificaciones push.",
+	"It was built without the signing that push needs._android": "Se compiló sin el archivo google-services.json de Firebase, que necesitan las notificaciones push."
 }

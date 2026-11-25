@@ -512,6 +512,7 @@
 	"Stopped on an error": "Stopped on an error",
 	"Needs input": "Needs input",
 	"A permission, a question or a secret. Open it to answer. Deny also works from the lock screen.": "A permission, a question or a secret. Open it to answer. Deny also works from the lock screen.",
+	"A permission, a question or a secret. Open it to answer. Deny also works from the lock screen._android": "A permission, a question or a secret. Open it to answer. Deny also works from the notification and opens MaxHQ once the phone is unlocked.",
 	"Error": "Error",
 	"An agent stopped on an error": "An agent stopped on an error",
 	"Finished": "Finished",

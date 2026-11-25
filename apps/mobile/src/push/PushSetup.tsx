@@ -3,13 +3,16 @@
 
 // Push on the phone: gives the token to the core, tells the core which
 // agent is on screen, and opens or answers what a push is about.
-// Allow and Deny answer in place, once Face ID unlocks the phone, through
-// the same first-answer-wins path as the card. iOS wakes the app in the
-// background for them, or starts it there when it wasn't running, so the
-// links come back up for the answer and go again after. One whose answer
-// can't reach the device leaves a note to open MaxHQ instead.
-// Notifications for the agent you open, and for prompts answered since,
-// leave Notification Center.
+// Deny answers in place, once the phone is unlocked, through the same
+// first-answer-wins path as the card. iOS wakes the app in the background
+// for it, or starts it there when it wasn't running, so the links come
+// back up for the answer and go again after. Android opens the app for
+// it, since an answer from the background needs a task the app doesn't
+// run. One whose answer can't reach the device leaves a note to open
+// MaxHQ instead. Notifications for the agent you open, and for prompts
+// answered since, leave the notification list. An Android phone's
+// pushes come through FCM and the push module, which hands the app the
+// same payload an iPhone's extension does.
 
 import { t, useI18n } from "@maxhq/shared/i18n";
 
@@ -41,7 +44,9 @@ import { SYNC_GRACE_MS } from "@maxhq/shared/status/reach";
 import type { Screens } from "../navigation";
 import type { PhoneCalls } from "../data/native-source";
 import { type Services, useServices } from "../services";
+import { platform } from "../platform";
 import { withBackgroundTime } from "./background";
+import { makeChannels, PROMPT_CHANNEL } from "./channels";
 import { pushStore } from "./kinds";
 import { checkPermission, pushTopic } from "./permission";
 
@@ -61,7 +66,10 @@ const openAgent = (target: PushTarget, tries = READY_TRIES) => {
 	}
 };
 
-/** What a notification carries: a push's user info, or a local note's data. */
+/**
+ * What a notification carries: an iPhone push's user info, or the data of
+ * a local note or of what the push module shows on Android.
+ */
 const payloadOf = (notification: Notifications.Notification): unknown => {
 	const { trigger, content } = notification.request;
 	const push =
@@ -84,9 +92,10 @@ const denyInPlace = async (services: Services, target: PushTarget) => {
 			: undefined;
 	const outcome = await denyFromButton(target, inView, (id, answer) => source.answer(id, answer));
 	if (outcome === "unreached") {
+		// Shown at once, on Android in the prompts' channel.
 		await Notifications.scheduleNotificationAsync({
 			content: { title: t(UNREACHED_TITLE), data: targetPayload(target) },
-			trigger: null,
+			trigger: { channelId: PROMPT_CHANNEL },
 		});
 	}
 	// Lets the links go again, as when the app leaves the screen.
@@ -180,13 +189,15 @@ const setUp = async (services: Services): Promise<() => void> => {
 			};
 		},
 	});
-	// Deny answers without opening the app, once the phone is unlocked.
+	await makeChannels();
+	// Deny answers once the phone is unlocked: on iOS without opening the
+	// app, and on Android by opening it, which the lock screen unlocks for.
 	await Notifications.setNotificationCategoryAsync(PERMISSION_CATEGORY, [
 		{
 			identifier: DENY_ACTION,
 			buttonTitle: t("Deny"),
 			options: {
-				opensAppToForeground: false,
+				opensAppToForeground: !platform.answersInBackground,
 				isAuthenticationRequired: true,
 				isDestructive: true,
 			},
@@ -207,7 +218,8 @@ const setUp = async (services: Services): Promise<() => void> => {
 	const environment = pushEnvironment(Constants.expoConfig?.extra?.appVariant);
 	const send = () => {
 		const { token, kinds } = pushStore.getState();
-		if (token) phone.pushToken(pushToken(token, topic, environment, kinds));
+		if (token)
+			phone.pushToken(pushToken(token, topic, environment, kinds, platform.pushService));
 	};
 	stops.push(pushStore.subscribe(send));
 	const renewed = Notifications.addPushTokenListener(({ data }) => {

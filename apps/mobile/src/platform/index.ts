@@ -6,6 +6,8 @@
 // React Native, so the theme and the tests can use it. The hooks and calls
 // that need React Native sit next to it in back.ts and save.ts.
 
+import type { PushService } from "@maxhq/shared/bindings";
+
 import { OS, type PhoneOs } from "./os";
 
 export { OS, type PhoneOs };
@@ -37,6 +39,16 @@ export type PlatformRules = {
 	 * system's name instead.
 	 */
 	readonly phoneName: string;
+	/** The service the phone's pushes come through: APNs on iOS, FCM on Android. */
+	readonly pushService: PushService;
+	/**
+	 * Whether Deny on a notification answers with the app left in the
+	 * background. iOS wakes it there for the answer. Android starts the
+	 * app's screen for it, which the lock screen unlocks for first.
+	 */
+	readonly answersInBackground: boolean;
+	/** Whether notifications sit in channels the app makes, one per push kind, as on Android. */
+	readonly notificationChannels: boolean;
 };
 
 export const rulesFor = (os: PhoneOs): PlatformRules =>
@@ -47,6 +59,9 @@ export const rulesFor = (os: PhoneOs): PlatformRules =>
 				savesByShare: true,
 				context: undefined,
 				phoneName: "iPhone",
+				pushService: "apns",
+				answersInBackground: true,
+				notificationChannels: false,
 			}
 		: {
 				monoFont: "monospace",
@@ -54,6 +69,9 @@ export const rulesFor = (os: PhoneOs): PlatformRules =>
 				savesByShare: false,
 				context: "android",
 				phoneName: "Android",
+				pushService: "fcm",
+				answersInBackground: false,
+				notificationChannels: true,
 			};
 
 /** The rules for the system this app runs on. */
