@@ -109,13 +109,13 @@ pub fn not_a_folder_now(err: &io::Error) -> bool {
 /// [`std::fs::canonicalize`] without the `\\?\` that Windows puts in
 /// front of every path it gives back, when the path means the same
 /// without it.
-pub fn canonicalize(path: &Path) -> io::Result<PathBuf> {
+pub fn canonicalize(path: impl AsRef<Path>) -> io::Result<PathBuf> {
     std::fs::canonicalize(path).map(plain)
 }
 
 /// [`std::fs::read_link`] without Windows' `\\?\` on an absolute target,
 /// as [`canonicalize`] does.
-pub fn read_link(path: &Path) -> io::Result<PathBuf> {
+pub fn read_link(path: impl AsRef<Path>) -> io::Result<PathBuf> {
     std::fs::read_link(path).map(plain)
 }
 

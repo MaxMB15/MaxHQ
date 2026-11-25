@@ -1,8 +1,6 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026 Max Boksem
 
-use std::os::unix::fs::symlink;
-
 use super::*;
 use crate::testing::TempDir;
 
@@ -13,9 +11,10 @@ fn write(path: &Path, text: &str) {
 
 fn link(path: &Path, target: &str) {
     fs::create_dir_all(path.parent().expect("a link has a folder")).expect("the folder is made");
-    symlink(target, path).expect("the link is made");
+    maxhq_core::fs_ext::symlink(Path::new(target), path).expect("the link is made");
 }
 
+#[cfg(unix)]
 fn pipe(path: &Path) {
     let made = std::process::Command::new("mkfifo")
         .arg(path)
@@ -26,7 +25,7 @@ fn pipe(path: &Path) {
 
 /// A folder with a repository in it, made by hand so no git runs here.
 fn repo(dir: &TempDir) -> PathBuf {
-    let root = fs::canonicalize(dir.path())
+    let root = maxhq_core::fs_ext::canonicalize(dir.path())
         .expect("it exists")
         .join("repo");
     fs::create_dir_all(root.join(".git")).expect("the folder is made");
@@ -183,6 +182,8 @@ fn nothing_under_claude_worktrees_is_read() {
     assert!(!second.failed);
 }
 
+// Windows makes no pipe at a path in a folder.
+#[cfg(unix)]
 #[test]
 fn a_pipe_counts_against_the_folder_rather_than_hanging_the_start() {
     let dir = TempDir::new();
@@ -291,7 +292,7 @@ fn a_subfolder_also_counts_the_levels_up_to_the_checkouts_root() {
 #[test]
 fn outside_git_the_key_is_the_folder_and_your_own_settings_dont_count() {
     let dir = TempDir::new();
-    let base = fs::canonicalize(dir.path()).expect("it exists");
+    let base = maxhq_core::fs_ext::canonicalize(dir.path()).expect("it exists");
     let home = base.join("home");
     let cwd = home.join("work");
     write(&home.join(".claude/settings.json"), r#"{"yours":1}"#);
@@ -346,7 +347,7 @@ fn a_file_above_the_work_folder_is_read_but_a_link_up_to_it_fails() {
     let root = repo(&dir);
     let above = root.parent().expect("it has one");
     write(&above.join(".mcp.json"), "above");
-    let work = fs::canonicalize(&root).expect("it's there");
+    let work = maxhq_core::fs_ext::canonicalize(&root).expect("it's there");
     let found = scan(&root, None, &[], Some(&work));
     assert!(!found.failed);
     assert!(names(&found).contains(&ABOVE));
