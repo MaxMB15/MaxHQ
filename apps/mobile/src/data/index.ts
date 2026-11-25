@@ -9,6 +9,7 @@
 
 import { Paths } from "expo-file-system";
 import * as core from "maxhq-core";
+import { Platform } from "react-native";
 
 import { mockSource } from "@maxhq/shared/data/mock-source";
 import type { DataSource } from "@maxhq/shared/data/source";
@@ -21,6 +22,6 @@ export const createSource = (): { source: DataSource; phone: PhoneCalls | null }
 	const dir = `${pathOf(Paths.document.uri)}/maxhq`;
 	const cache = `${pathOf(Paths.cache.uri)}/maxhq`;
 	const phone = phoneCalls(core);
-	phone.start(dir, cache);
+	phone.start(dir, cache, Platform.OS);
 	return { source: nativeSource(core, cache), phone };
 };

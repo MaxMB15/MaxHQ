@@ -823,7 +823,7 @@ mod phone_core {
     use maxhq_app::pair_code::PairCode;
     use maxhq_app::phone::book_link;
     use maxhq_app::request::{Request, Response};
-    use maxhq_mobile::{Core, KeyStore, MemoryStore};
+    use maxhq_mobile::{Core, KeyStore, MemoryStore, Platform};
     use maxhq_protocol::link::LinkState;
     use maxhq_protocol::netaccess::{PhoneNetwork, PhoneSession};
     use zeroize::Zeroizing;
@@ -933,7 +933,13 @@ mod phone_core {
 
         let store: Arc<dyn KeyStore> = Arc::new(MemoryStore::default());
         let data = TempDir::new();
-        let core = Core::open(data.path(), &data.path().join("cache"), Arc::clone(&store)).unwrap();
+        let core = Core::open(
+            data.path(),
+            &data.path().join("cache"),
+            Platform::Ios,
+            Arc::clone(&store),
+        )
+        .unwrap();
         let paired = core.pair(&code, "iPhone").await.unwrap();
         let phone = core.key().phone;
         assert_eq!(paired.phone, phone);

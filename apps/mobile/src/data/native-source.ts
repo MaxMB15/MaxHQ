@@ -13,6 +13,8 @@
 // downloads land in its downloads folder. Device setup and fleet updates
 // aren't on the phone yet, and say so.
 
+import type { PlatformOSType } from "react-native";
+
 import { t } from "@maxhq/shared/i18n";
 
 import type {
@@ -316,9 +318,14 @@ export const nativeSource = (bridge: Bridge, cache: string): DataSource => {
 
 /** The calls only the phone has: its life cycle, network and key. */
 export const phoneCalls = (bridge: Bridge) => ({
-	/** Opens the core on the app's data and cache folders. Safe to call again after a reload. */
-	start: (dir: string, cache: string) =>
-		orThrow(readReply<null>(bridge.start(dir, cache, "ios"))),
+	/**
+	 * Opens the core on the app's data and cache folders, for React Native's
+	 * `Platform.OS`, which the core refuses unless it's "ios" or "android".
+	 * The core keeps files on their way to a device in the cache folder's
+	 * staging folder. Safe to call again after a reload.
+	 */
+	start: (dir: string, cache: string, platform: PlatformOSType) =>
+		orThrow(readReply<null>(bridge.start(dir, cache, platform))),
 	/** Tells the core the app came to the screen or left it. */
 	appState: (state: AppState) => readReply<null>(bridge.appState(state)),
 	/** Tells the core the phone changed networks. */

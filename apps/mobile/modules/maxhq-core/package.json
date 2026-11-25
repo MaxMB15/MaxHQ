@@ -19,6 +19,9 @@
 			"modulesProvider": {
 				"MaxhqCore": "MaxhqCore"
 			}
+		},
+		"android": {
+			"javaPackageName": "dev.maxhq.core"
 		}
 	},
 	"dependencies": {

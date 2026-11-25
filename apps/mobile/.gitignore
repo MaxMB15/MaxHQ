@@ -11,6 +11,15 @@ expo-env.d.ts
 # The core's framework, which `pnpm mobile:core` builds.
 /modules/maxhq-core/*.xcframework
 
+# The core's Android libraries, which `pnpm mobile:android:core` copies in,
+# and what Gradle and CMake build from them.
+/modules/maxhq-core/android/src/main/jniLibs/
+/modules/maxhq-core/android/build/
+/modules/maxhq-core/android/.cxx/
+
+# Firebase's file for Android push, which holds the project's keys.
+/google-services.json
+
 # The Team ID and bundle ID for signing. ios.local.example.json shows the shape.
 /ios.local.json
 

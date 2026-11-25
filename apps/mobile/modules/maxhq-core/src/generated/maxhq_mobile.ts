@@ -709,7 +709,8 @@ export async function request(json: string, asyncOpts_?: { signal: AbortSignal }
 
 /**
  * Opens the core with the phone's data folder `dir` and cache folder
- * `cache`, with the phone's key from the Keychain. A JS reload starts
+ * `cache`, with the phone's keys from the system's store: the Keychain,
+ * or the Android Keystore through the app's Kotlin. A JS reload starts
  * again, which lets go of what the old page watched. Answers a reply with
  * `data: null`.
  */
@@ -1571,7 +1572,7 @@ function uniffiEnsureInitialized() {
 			"uniffi_maxhq_mobile_checksum_func_request"
 		);
 	}
-	if (nativeModule().ubrn_uniffi_maxhq_mobile_checksum_func_start() !== 31138) {
+	if (nativeModule().ubrn_uniffi_maxhq_mobile_checksum_func_start() !== 63981) {
 		throw new UniffiInternalError.ApiChecksumMismatch(
 			"uniffi_maxhq_mobile_checksum_func_start"
 		);

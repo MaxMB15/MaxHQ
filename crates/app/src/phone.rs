@@ -115,13 +115,14 @@ pub struct PhoneConnector {
 impl PhoneConnector {
     /// Starts the client on `runtime`, logging in over SSH with the
     /// ed25519 key made from `seed` and over the network with `sign_in`,
-    /// with downloads and media in their folders as on the Mac. Each
-    /// connection proves it holds that key to a device that asks.
+    /// with downloads, staging and media in their folders as on the Mac.
+    /// Each connection proves it holds that key to a device that asks.
     pub fn new(
         runtime: &tokio::runtime::Handle,
         seed: &[u8; 32],
         sign_in: SignIn,
         downloads: Option<std::path::PathBuf>,
+        staging: Option<std::path::PathBuf>,
         media: Option<std::path::PathBuf>,
     ) -> Self {
         let ssh = maxhq_client::PhoneSsh::new(seed);
@@ -136,6 +137,7 @@ impl PhoneConnector {
             runtime,
             || maxhq_client::Client::app(transport).proving(PhoneProver::naming(seed, naming)),
             downloads,
+            staging,
             media,
         );
         Self {

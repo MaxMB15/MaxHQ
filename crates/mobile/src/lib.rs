@@ -17,6 +17,8 @@
 //! where `error` is a [`CommandError`]. The calls reach React Native
 //! through UniFFI.
 
+#[cfg(target_os = "android")]
+mod android;
 mod backup;
 mod keys;
 mod net;
@@ -47,11 +49,24 @@ uniffi::setup_scaffolding!();
 /// What a call answers before [`start`].
 pub const NOT_STARTED: &str = "The phone core hasn't started.";
 
-/// The platform the app runs on, as [`start`] takes it: `"ios"`.
+/// The platform the app runs on, as [`start`] takes it: React Native's
+/// `Platform.OS`, `"ios"` or `"android"`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Platform {
     Ios,
+    Android,
+}
+
+impl Platform {
+    /// The name the phone pairs under when you clear the one the app
+    /// suggests.
+    pub fn phone_name(self) -> &'static str {
+        match self {
+            Platform::Ios => "iPhone",
+            Platform::Android => "Android phone",
+        }
+    }
 }
 
 /// Whether the app is on screen, as [`app_state`] takes it: `"active"` or
@@ -131,12 +146,13 @@ fn core() -> Result<&'static Core, CommandError> {
 }
 
 /// Opens the core with the phone's data folder `dir` and cache folder
-/// `cache`, with the phone's key from the Keychain. A JS reload starts
+/// `cache`, with the phone's keys from the system's store: the Keychain,
+/// or the Android Keystore through the app's Kotlin. A JS reload starts
 /// again, which lets go of what the old page watched. Answers a reply with
 /// `data: null`.
 #[uniffi::export]
 pub fn start(dir: String, cache: String, platform: String) -> String {
-    reply(word::<Platform>(&platform).and_then(|_| {
+    reply(word::<Platform>(&platform).and_then(|platform| {
         let _starting = STARTING.lock().unwrap_or_else(PoisonError::into_inner);
         if let Some(core) = CORE.get() {
             core.reloaded();
@@ -145,6 +161,7 @@ pub fn start(dir: String, cache: String, platform: String) -> String {
         let core = Core::open(
             std::path::Path::new(&dir),
             std::path::Path::new(&cache),
+            platform,
             keys::system()?.into(),
         )?;
         let _ = CORE.set(core);
@@ -519,6 +536,16 @@ mod tests {
     }
 
     #[test]
+    fn start_reads_the_platform_react_native_names() {
+        assert_eq!(word::<Platform>("ios").unwrap(), Platform::Ios);
+        assert_eq!(word::<Platform>("android").unwrap(), Platform::Android);
+        assert!(word::<Platform>("web").is_err());
+        assert!(word::<Platform>("Android").is_err());
+        assert_eq!(Platform::Ios.phone_name(), "iPhone");
+        assert_eq!(Platform::Android.phone_name(), "Android phone");
+    }
+
+    #[test]
     fn calls_before_the_core_starts_say_so() {
         let not_started = refused(NOT_STARTED);
         assert_eq!(
@@ -608,7 +635,7 @@ mod tests {
         for wrong in [
             parsed(app_state("asleep".into())),
             parsed(network_changed("satellite".into())),
-            parsed(start("/data".into(), "/cache".into(), "android".into())),
+            parsed(start("/data".into(), "/cache".into(), "web".into())),
             parsed(now(request(r#"{"kind":"no_such_kind"}"#.into()))),
             parsed(presence(r#"{"agent":"nobody"}"#.into())),
             parsed(forget_mac("nobody".into())),
@@ -781,7 +808,7 @@ mod tests {
         }
 
         fn open(&self, store: Arc<dyn KeyStore>) -> Core {
-            Core::open(&self.dir(), &self.cache(), store).unwrap()
+            Core::open(&self.dir(), &self.cache(), Platform::Ios, store).unwrap()
         }
     }
 

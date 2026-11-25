@@ -564,23 +564,28 @@ impl LinkControl for LinkHandle {
 /// Starts the Mac's client on `runtime`, as [`start_client`] does.
 #[cfg(feature = "desktop")]
 pub fn client(runtime: &Handle, downloads: Option<PathBuf>, media: Option<PathBuf>) -> Client {
-    start_client(runtime, Client::new, downloads, media)
+    start_client(runtime, Client::new, downloads, None, media)
 }
 
 /// Starts the client `make` gives on `runtime`, since it starts tasks.
-/// With `downloads`, files from devices land in that folder, and with
+/// With `downloads`, files from devices land in that folder, with
+/// `staging`, uploads are copied into that one before they go, and with
 /// `media`, the pictures and videos the timeline shows are kept in that
-/// one.
+/// one. Each left out keeps the user's usual folder.
 pub fn start_client(
     runtime: &Handle,
     make: impl FnOnce() -> Client,
     downloads: Option<PathBuf>,
+    staging: Option<PathBuf>,
     media: Option<PathBuf>,
 ) -> Client {
     let _entered = runtime.enter();
     let mut client = make();
     if let Some(folder) = downloads {
         client = client.downloading_into(folder);
+    }
+    if let Some(folder) = staging {
+        client = client.staging_in(folder);
     }
     if let Some(folder) = media {
         client = client.caching_media_in(folder);

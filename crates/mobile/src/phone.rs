@@ -35,7 +35,7 @@ use tokio::runtime::{Handle, Runtime};
 
 use crate::keys::{self, Key, KeyStore};
 use crate::net::{self, SignIns};
-use crate::{AppState, Network, ProgressListener, ViewListener};
+use crate::{AppState, Network, Platform, ProgressListener, ViewListener};
 
 /// The one window the phone's screens share, as a desktop window's label.
 /// Its timelines all go to one listener, as a desktop window's do.
@@ -95,6 +95,8 @@ pub struct Core {
     /// The app's caches folder, where the pickers copy what you pick, and
     /// so the one folder the phone uploads from.
     picks: PathBuf,
+    /// What the phone runs, which names it when you pair it under no name.
+    platform: Platform,
     /// Dropped last, once nothing on it holds the app.
     runtime: Runtime,
 }
@@ -114,13 +116,19 @@ struct Shared {
 impl Core {
     /// Opens the core on `dir`, with the phone's keys and tokens in
     /// `store`. The registry is `maxhq.db` there, and none of it goes into
-    /// the phone's backups. The media cache is `media` in `cache` and
-    /// downloads land in `downloads` there, which the system may empty
-    /// when space runs low. A picture it drops fetches again, and a
-    /// download has gone to the share sheet by then. The phone uploads
+    /// the phone's backups. The media cache is `media` in `cache`,
+    /// downloads land in `downloads` there and uploads are copied into
+    /// `staging` there before they go, which the system may empty when
+    /// space runs low. A picture it drops fetches again, and a download has
+    /// gone to the share sheet by then. The phone uploads
     /// only from the folder `cache` is in, the app's caches folder, where
     /// the pickers copy what you pick.
-    pub fn open(dir: &Path, cache: &Path, store: Arc<dyn KeyStore>) -> Result<Self, CommandError> {
+    pub fn open(
+        dir: &Path,
+        cache: &Path,
+        platform: Platform,
+        store: Arc<dyn KeyStore>,
+    ) -> Result<Self, CommandError> {
         std::fs::create_dir_all(dir)
             .map_err(|error| failed(format!("Couldn't make the phone's data folder: {error}")))?;
         // A folder that stays in backups still works, so the phone opens anyway.
@@ -153,6 +161,7 @@ impl Core {
             &seed,
             Box::new(move |device, mac, route, code| signing.route(device, mac, route, code)),
             Some(cache.join("downloads")),
+            Some(cache.join("staging")),
             Some(media),
         );
         let public_key = connector.public_key();
@@ -191,6 +200,7 @@ impl Core {
         Ok(Self {
             shared,
             picks: cache.parent().unwrap_or(cache).to_owned(),
+            platform,
             runtime,
         })
     }
@@ -504,7 +514,7 @@ impl Core {
         let runtime = self.runtime.handle().clone();
         let code = PairCode::decode(code).map_err(failed);
         let name = match name.trim() {
-            "" => "iPhone".to_owned(),
+            "" => self.platform.phone_name().to_owned(),
             name => name.to_owned(),
         };
         let books = self.books();
@@ -598,6 +608,7 @@ async fn pair_through(
     let client = maxhq_app::devices::start_client(
         runtime,
         || Client::app(Transport::Russh(ssh)).proving(PhoneProver::pairing(&code.seed)),
+        None,
         None,
         None,
     );
