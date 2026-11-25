@@ -594,7 +594,8 @@ pub fn start_client(
 }
 
 /// Where the `maxd` that ships with the app would be: beside the app's own
-/// binary, which in the bundle is `Contents/MacOS`. In a dev build that's
+/// binary, which in the bundle is `Contents/MacOS`, in a deb or rpm
+/// `/usr/bin` and in an AppImage `$APPDIR/usr/bin`. In a dev build that's
 /// the target folder, where Cargo puts `maxd` too.
 #[cfg(feature = "desktop")]
 pub fn bundled_maxd() -> Option<PathBuf> {

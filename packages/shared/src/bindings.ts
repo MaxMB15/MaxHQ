@@ -1405,6 +1405,16 @@ export type AttachmentKind =
 export type AttachmentPickerLabels = {
 	prompt: string,
 	message: string,
+	/**
+	 *  Where the picker can't take files and folders together, a question
+	 *  asks which first. This is its button for files, in English when
+	 *  it's left out.
+	 */
+	files?: string | null,
+	/**  The question's button for folders. */
+	folder?: string | null,
+	/**  The question's button that cancels. */
+	cancel?: string | null,
 };
 
 /**  A file or folder on the device, ready to send. */
@@ -6778,6 +6788,32 @@ export type KeepAwake =
 /**  Never. */
 "off";
 
+/**  Where the app key lives. */
+export type KeyHome = 
+/**  The Mac's Keychain. */
+"keychain" | 
+/**  The system keyring, on Linux and Windows. */
+"keyring" | 
+/**  A file only you can read, in the app's data folder. */
+"file" | 
+/**  Nowhere: the key lasts until the app quits. */
+"memory";
+
+/**  Where the app key lives, as the key dialog and Settings show it. */
+export type KeyHomeState = {
+	home: KeyHome,
+	/**
+	 *  Whether to ask where to keep the key: no keyring answered as the app
+	 *  opened, and you haven't chosen yet.
+	 */
+	ask: boolean,
+	/**
+	 *  The file the key goes in when you choose one. None when the app has
+	 *  no data folder.
+	 */
+	file: string | null,
+};
+
 /**  An access key, which lets a tool outside MaxHQ call the agent tools. */
 export type KeyId = string;
 
@@ -7831,7 +7867,17 @@ export type NoUpdates =
  *  It's outside the Applications folder, where an update can't be sure
  *  to replace it.
  */
-"not_in_applications";
+"not_in_applications" | 
+/**
+ *  It was installed from a deb or rpm package, which its package
+ *  manager updates.
+ */
+"package" | 
+/**
+ *  It's an AppImage in a folder the app can't write to, so an update
+ *  can't replace it.
+ */
+"unwritable";
 
 /**  More about one node, asked for when you open it. */
 export type NodeDetail = {
@@ -8062,7 +8108,7 @@ export type NoticePage = {
 	unread: number,
 };
 
-/**  What macOS lets this app do, as System Settings has it now. */
+/**  What the system lets this app do, as it has it now. */
 export type NotificationAccess = {
 	/**  Whether it shows notifications. */
 	permission: NotificationPermission,
@@ -8075,8 +8121,9 @@ export type NotificationAccess = {
 };
 
 /**
- *  Whether macOS lets this app show notifications. Off a Mac it's always
- *  `Unavailable`.
+ *  Whether this app's notifications show. On macOS that's up to System
+ *  Settings. On Linux they show when the desktop has a notification
+ *  server, and on Windows they always do.
  */
 export type NotificationPermission = 
 /**  macOS hasn't asked you yet. */
@@ -8086,8 +8133,8 @@ export type NotificationPermission =
 /**  They show. */
 "allowed" | 
 /**
- *  This build can't show any, because it doesn't run from an app
- *  bundle.
+ *  This build can't show any: on macOS because it doesn't run from an
+ *  app bundle, on Linux because no notification server answered.
  */
 "unavailable";
 

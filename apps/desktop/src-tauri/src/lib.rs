@@ -8,6 +8,8 @@
 
 pub mod bindings;
 mod commands;
+mod key_home;
+mod launch;
 mod native;
 mod notify;
 mod screen;
@@ -91,6 +93,8 @@ pub fn specta_builder() -> Builder<tauri::Wry> {
             commands::setup_device,
             commands::open_root_fix,
             commands::mask_output,
+            key_home::app_key_home,
+            key_home::keep_app_key_in,
             native::check_spelling,
             native::spelling_menu,
             native::pick_attachments,
@@ -205,8 +209,14 @@ pub fn run() {
         .init();
 
     let builder = specta_builder();
-    tauri::Builder::default()
-        .plugin(tauri_plugin_dialog::init())
+    let app = tauri::Builder::default();
+    // Opening the app again on Linux or Windows starts a second copy, which
+    // hands over to this one and ends. macOS starts one copy anyway.
+    #[cfg(any(target_os = "linux", windows))]
+    let app = app.plugin(tauri_plugin_single_instance::init(|app, _, _| {
+        bring_forward(app);
+    }));
+    app.plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .invoke_handler(native::invoke_handler(builder.invoke_handler()))
         .on_window_event(|window, event| {
@@ -247,8 +257,11 @@ pub fn run() {
             );
             app.manage(MediaFolder(media));
             // The key goes in before the first link opens, so every link
-            // proves it.
-            let app_key = app_keys::from_keychain(&registry);
+            // proves it. Off macOS it may wait for the keyring to answer,
+            // or come back to be kept in memory until you choose a home.
+            let app_key =
+                app_keys::from_system(&registry, app.path().app_local_data_dir().ok().as_deref());
+            app.manage(key_home::AppKey(app_key.clone()));
             if let Some(keys) = &app_key {
                 client = client.proving(Arc::new(keys.clone()));
             }
@@ -270,7 +283,7 @@ pub fn run() {
             app.manage(App::new(view, devices, desktop));
             keep_local_maxd_current(app.handle());
             updater::start(app.handle());
-            let data = app.path().app_data_dir().ok();
+            let data = app.path().app_local_data_dir().ok();
             let stopped = data.as_deref().is_some_and(hang_watch::noted);
             app.manage(HangWatch::new(stopped));
             open_main_window(app, stopped)?;
@@ -355,7 +368,7 @@ fn open_main_window(app: &tauri::App, stopped: bool) -> tauri::Result<()> {
 /// app runs on, and no editor opens a container.
 fn keep_ssh<C: devices::Connector>(app: &AppHandle, devices: &Devices<C>) {
     let path = app.path();
-    let kept = match (path.app_data_dir(), path.home_dir()) {
+    let kept = match (path.app_local_data_dir(), path.home_dir()) {
         (Ok(data), Ok(home)) => devices
             .keep_ssh(data.join("ssh"), home)
             .map_err(|error| error.to_string()),
@@ -369,10 +382,14 @@ fn keep_ssh<C: devices::Connector>(app: &AppHandle, devices: &Devices<C>) {
 /// Opens the device list in the app's data folder. If that fails, the app
 /// still runs on a list kept in memory, so this machine shows and anything
 /// you add lasts until you quit.
+///
+/// The app's data folder is its local one throughout. That's the same
+/// folder on macOS and Linux, and on Windows it keeps the database, keys
+/// and sockets out of the roaming profile, which copies to other PCs.
 fn open_registry(app: &AppHandle) -> Result<Registry, maxhq_core::db::OpenError> {
     let opened = app
         .path()
-        .app_data_dir()
+        .app_local_data_dir()
         .map_err(|error| error.to_string())
         .and_then(|dir| {
             std::fs::create_dir_all(&dir).map_err(|error| error.to_string())?;
@@ -542,15 +559,20 @@ fn watch_window(app: &AppHandle, data: Option<PathBuf>) {
 /// Brings the window forward and opens an agent's pane, for a click on a
 /// notification about it.
 fn focus_agent(app: &AppHandle, agent: AgentId) {
+    bring_forward(app);
+    if let Err(error) = (FocusAgent { agent }).emit(app) {
+        tracing::warn!(%error, "couldn't ask the webview to focus an agent");
+    }
+}
+
+/// Shows the main window and brings it to the front.
+fn bring_forward(app: &AppHandle) {
     if let Some(window) = app.get_webview_window("main") {
         // Each step can fail only once the window is closing, when there's
         // nothing to bring forward.
         let _ = window.unminimize();
         let _ = window.show();
         let _ = window.set_focus();
-    }
-    if let Err(error) = (FocusAgent { agent }).emit(app) {
-        tracing::warn!(%error, "couldn't ask the webview to focus an agent");
     }
 }
 
@@ -588,7 +610,7 @@ impl Shell for Desktop {
         let path = self.app.path();
         let identifier = self.app.config().identifier.as_str();
         let mut folders: Vec<PathBuf> = Vec::new();
-        for folder in [path.app_data_dir(), path.app_cache_dir()]
+        for folder in [path.app_local_data_dir(), path.app_cache_dir()]
             .into_iter()
             .flatten()
         {
@@ -627,12 +649,9 @@ impl Shell for Desktop {
 
 /// Opens `url` in the app its scheme belongs to, which is the default
 /// browser for a web page. `what` names it if it fails.
+#[cfg(target_os = "macos")]
 async fn open(url: String, what: &str) -> Result<(), String> {
-    let opener = if cfg!(target_os = "macos") {
-        "/usr/bin/open"
-    } else {
-        "xdg-open"
-    };
+    let opener = "/usr/bin/open";
     let status = tokio::process::Command::new(opener)
         .arg(&url)
         .status()
@@ -645,10 +664,20 @@ async fn open(url: String, what: &str) -> Result<(), String> {
     }
 }
 
+/// Opens `url` in the app its scheme belongs to, through `xdg-open` or the
+/// desktop's own opener on Linux and the shell on Windows, without waiting
+/// for that app. `what` names it if it fails.
+#[cfg(any(target_os = "linux", windows))]
+async fn open(url: String, what: &str) -> Result<(), String> {
+    launch::open(&url)
+        .await
+        .map_err(|error| format!("{what} didn't open: {error}"))
+}
+
 /// Starts an editor's command line. It hands the open to the editor and
 /// ends, and the runtime reaps it, so nothing waits on it here.
 async fn spawn_editor(program: PathBuf, args: Vec<String>) -> Result<(), String> {
-    tokio::process::Command::new(&program)
+    launch::command(&program)
         .args(&args)
         .stdin(Stdio::null())
         .stdout(Stdio::null())

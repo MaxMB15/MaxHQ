@@ -486,3 +486,207 @@ fn a_removed_device_stops_holding_a_rotation_up() {
     assert_eq!(keys.view().previous, None);
     assert_eq!(store.item().len(), 32);
 }
+
+/// A folder of its own under the system's temporary folder, removed after.
+struct Scratch(std::path::PathBuf);
+
+impl Scratch {
+    fn new() -> Self {
+        use std::sync::atomic::{AtomicU32, Ordering};
+        static NEXT: AtomicU32 = AtomicU32::new(0);
+        let dir = std::env::temp_dir().join(format!(
+            "maxhq-app-key-{}-{}",
+            std::process::id(),
+            NEXT.fetch_add(1, Ordering::Relaxed)
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        Self(dir)
+    }
+
+    fn file(&self) -> std::path::PathBuf {
+        self.0.join(store::FILE)
+    }
+}
+
+impl Drop for Scratch {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.0);
+    }
+}
+
+/// Keys opened as a computer whose keyring didn't answer, with the key
+/// file to offer in `scratch`.
+fn unkept(scratch: &Scratch, record: Option<Record>) -> AppKeys {
+    let place = Place {
+        store: Box::new(store::Nowhere),
+        home: KeyHome::Memory,
+        ask: true,
+        file: Some(scratch.file()),
+    };
+    AppKeys::open_in(place, record, LABEL.into()).unwrap()
+}
+
+#[test]
+fn the_key_file_once_there_or_chosen_wins_then_the_keyring_then_memory() {
+    let unasked = || -> bool { panic!("the keyring is asked only when it matters") };
+    assert_eq!(store::start(None, true, unasked), (KeyHome::File, false));
+    assert_eq!(
+        store::start(Some(KeyHome::File), false, unasked),
+        (KeyHome::File, false),
+        "a chosen file that went missing is made again"
+    );
+    assert_eq!(
+        store::start(Some(KeyHome::Memory), true, unasked),
+        (KeyHome::File, false)
+    );
+    assert_eq!(
+        store::start(None, false, || true),
+        (KeyHome::Keyring, false)
+    );
+    assert_eq!(
+        store::start(Some(KeyHome::Memory), false, || true),
+        (KeyHome::Keyring, false),
+        "Not now was about the file, so a keyring that answers takes the key"
+    );
+}
+
+#[test]
+fn with_no_keyring_the_app_asks_unless_you_said_not_now() {
+    assert_eq!(store::start(None, false, || false), (KeyHome::Memory, true));
+    assert_eq!(
+        store::start(Some(KeyHome::Keyring), false, || false),
+        (KeyHome::Memory, true),
+        "a keyring you moved back to that stopped answering asks again"
+    );
+    assert_eq!(
+        store::start(Some(KeyHome::Memory), false, || false),
+        (KeyHome::Memory, false)
+    );
+}
+
+// Windows has no mode bits, so the file's privacy is checked on Unix only.
+#[cfg(unix)]
+#[test]
+fn the_key_file_is_private_and_comes_back_whole() {
+    use std::os::unix::fs::PermissionsExt;
+    let scratch = Scratch::new();
+    let file = store::KeyFile::new(scratch.file());
+    assert_eq!(file.load(Key::App).unwrap(), None);
+    file.save(Key::App, &[7; 64]).unwrap();
+    let mode = std::fs::metadata(scratch.file())
+        .unwrap()
+        .permissions()
+        .mode();
+    assert_eq!(mode & 0o777, 0o600);
+    assert_eq!(file.load(Key::App).unwrap().unwrap().as_slice(), &[7; 64]);
+    assert!(
+        file.save(Key::Ssh, &[1; 32]).is_err(),
+        "only the app key goes here"
+    );
+    file.forget(Key::App).unwrap();
+    assert!(!scratch.file().exists());
+    file.forget(Key::App).unwrap();
+}
+
+#[test]
+fn a_key_with_nowhere_to_go_asks_and_lasts_until_quit() {
+    let scratch = Scratch::new();
+    let keys = unkept(&scratch, None);
+    assert!(!keys.view().kept);
+    assert_eq!(
+        keys.home(),
+        Some(KeyHomeState {
+            home: KeyHome::Memory,
+            ask: true,
+            file: Some(scratch.file().display().to_string()),
+        })
+    );
+    assert!(
+        keys.rotate().is_err(),
+        "a new key with nowhere to go would be lost"
+    );
+}
+
+#[test]
+fn choosing_the_file_moves_the_key_there_and_it_opens_from_there_after() {
+    let scratch = Scratch::new();
+    let keys = unkept(&scratch, None);
+    let public = keys.public_key();
+    keys.keep_in(KeyHome::File).unwrap();
+    let home = keys.home().unwrap();
+    assert_eq!((home.home, home.ask), (KeyHome::File, false));
+    assert!(keys.view().kept);
+
+    let file = store::KeyFile::new(scratch.file());
+    assert_eq!(
+        public_key(&seed_of(&file.load(Key::App).unwrap().unwrap())),
+        public
+    );
+    let again = AppKeys::open_in(
+        Place::only(Box::new(file), KeyHome::File),
+        None,
+        LABEL.into(),
+    )
+    .unwrap();
+    assert_eq!(again.public_key(), public);
+    assert_eq!(again.view().remade, None);
+}
+
+#[test]
+fn not_now_stops_the_asking_and_moves_nothing() {
+    let scratch = Scratch::new();
+    let keys = unkept(&scratch, None);
+    keys.keep_in(KeyHome::Memory).unwrap();
+    let home = keys.home().unwrap();
+    assert_eq!((home.home, home.ask), (KeyHome::Memory, false));
+    assert!(!scratch.file().exists());
+
+    keys.keep_in(KeyHome::File).unwrap();
+    assert!(
+        keys.keep_in(KeyHome::Memory).is_err(),
+        "a kept key doesn't go back to memory"
+    );
+}
+
+#[test]
+fn moving_back_takes_both_keys_of_a_rotation_and_empties_the_file() {
+    let scratch = Scratch::new();
+    let keys = unkept(&scratch, None);
+    keys.keep_in(KeyHome::File).unwrap();
+    keys.keep(Box::new(Kept::knowing(&[devbox()])));
+    keys.rotate().unwrap();
+
+    let ring = Shared::default();
+    keys.move_to(Box::new(ring.clone()), KeyHome::Keyring)
+        .unwrap();
+    assert_eq!(
+        ring.item().len(),
+        64,
+        "the new key and the one devices move off"
+    );
+    assert_eq!(public_key(&seed_of(&ring.item())), keys.public_key());
+    assert!(!scratch.file().exists());
+    assert_eq!(keys.home().unwrap().home, KeyHome::Keyring);
+}
+
+#[test]
+fn a_new_key_names_where_the_last_one_went() {
+    let store = Shared::default();
+    let (first, kept) = kept(&store, &[devbox()]);
+    store.forget(Key::App).unwrap();
+    let keys = open(store.clone(), Some(kept.record()));
+    assert_eq!(
+        keys.view().remade.as_deref(),
+        Some("MaxHQ made a new app key, since the Keychain lost the one before"),
+        "the Mac's reasons read as they did"
+    );
+    assert_eq!(keys.home(), None, "a Mac has one place for its key");
+
+    let scratch = Scratch::new();
+    let keys = unkept(&scratch, Some(kept.record()));
+    assert_eq!(
+        keys.view().remade.as_deref(),
+        Some("MaxHQ made a new app key, since no keyring answered to keep the one before")
+    );
+    assert_eq!(keys.view().previous, Some(first.public_key()));
+}

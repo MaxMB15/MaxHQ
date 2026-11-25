@@ -55,6 +55,16 @@ security-framework.workspace = true
 [target.'cfg(target_os = "android")'.dependencies]
 jni.workspace = true
 
+# Off Apple systems the desktop app's key lives in the system keyring: the
+# Secret Service on Linux and Credential Manager on Windows. D-Bus also keeps
+# the screen on under Linux.
+[target.'cfg(target_os = "linux")'.dependencies]
+dbus.workspace = true
+keyring = { workspace = true, features = ["sync-secret-service", "crypto-rust"] }
+
+[target.'cfg(windows)'.dependencies]
+keyring = { workspace = true, features = ["windows-native"] }
+
 [dev-dependencies]
 maxhq-core = { workspace = true, features = ["testing"] }
 
