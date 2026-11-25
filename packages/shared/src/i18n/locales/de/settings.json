@@ -1308,5 +1308,6 @@
 	"Firebase keys devices hold": "Firebase-Schlüssel auf Geräten",
 	"the Firebase key": "den Firebase-Schlüssel",
 	"No device holds a Firebase key yet.": "Noch kein Gerät hat einen Firebase-Schlüssel.",
-	"Couldn't send the Firebase key": "Firebase-Schlüssel konnte nicht gesendet werden"
+	"Couldn't send the Firebase key": "Firebase-Schlüssel konnte nicht gesendet werden",
+	"Agents on Windows run without a sandbox, but they still ask for permission as their mode says.": "Agents unter Windows laufen ohne Sandbox, fragen aber weiterhin um Erlaubnis, wie ihr Modus es vorsieht."
 }

@@ -1312,5 +1312,6 @@
 	"Firebase keys devices hold": "Claves de Firebase guardadas",
 	"the Firebase key": "la clave de Firebase",
 	"No device holds a Firebase key yet.": "Ningún dispositivo guarda una clave de Firebase todavía.",
-	"Couldn't send the Firebase key": "No se pudo enviar la clave de Firebase"
+	"Couldn't send the Firebase key": "No se pudo enviar la clave de Firebase",
+	"Agents on Windows run without a sandbox, but they still ask for permission as their mode says.": "En Windows, los agentes se ejecutan sin sandbox, pero siguen pidiendo permiso según su modo."
 }

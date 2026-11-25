@@ -82,6 +82,7 @@ import {
 } from "./controls";
 import { EffortDefaultRows } from "./effort-defaults";
 import { PhoneAddress } from "./phones-settings";
+import { NoSandboxNote } from "./no-sandbox-note";
 import { failureOf, type Note } from "./result";
 import { deviceCardId } from "./store";
 import { Value } from "./value";
@@ -466,6 +467,7 @@ const Cards = ({
 							disabled={!live}
 						/>
 					</Row>
+					<NoSandboxNote os={os} className="border-t border-sidebar-border px-4 py-2.5" />
 					<EffortDefaultRows
 						view={view}
 						device={device}
