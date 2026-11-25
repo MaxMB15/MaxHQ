@@ -3448,7 +3448,6 @@ name = "maxhq-app"
 version = "0.1.7"
 dependencies = [
  "base64 0.23.1",
- "dbus",
  "directories",
  "futures",
  "getrandom 0.4.3",
@@ -3475,7 +3474,6 @@ dependencies = [
  "tracing",
  "url",
  "uuid",
- "windows-sys 0.61.2",
  "zeroize",
 ]
 
@@ -3639,10 +3637,12 @@ dependencies = [
 name = "maxhq-os"
 version = "0.1.7"
 dependencies = [
+ "dbus",
  "libc",
  "rustix",
  "sha2 0.10.9",
  "tokio",
+ "tracing",
  "windows-sys 0.61.2",
 ]
 

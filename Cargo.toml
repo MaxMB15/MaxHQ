@@ -197,7 +197,8 @@ jsonschema = { version = "0.60", default-features = false }
 # features, so no kernel keyutils store, which forgets keys at reboot.
 keyring = { version = "3.6.3", default-features = false }
 # Keeps the screen on under Linux through the session's ScreenSaver service
-# and logind. Already in the build through tao.
+# and logind, in maxhq-os's `display` feature. Already in the build through
+# tao.
 dbus = "0.9.12"
 
 maxhq-os = { path = "crates/os" }

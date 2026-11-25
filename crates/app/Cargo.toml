@@ -26,7 +26,8 @@ futures.workspace = true
 getrandom.workspace = true
 maxhq-client.workspace = true
 maxhq-core.workspace = true
-maxhq-os.workspace = true
+# The display hold, which on Linux asks the screen saver and logind over D-Bus.
+maxhq-os = { workspace = true, features = ["display"] }
 maxhq-protocol.workspace = true
 qrcodegen = { workspace = true, optional = true }
 rusqlite.workspace = true
@@ -60,16 +61,12 @@ security-framework.workspace = true
 jni.workspace = true
 
 # Off Apple systems the desktop app's key lives in the system keyring: the
-# Secret Service on Linux and Credential Manager on Windows. D-Bus also keeps
-# the screen on under Linux.
+# Secret Service on Linux and Credential Manager on Windows.
 [target.'cfg(target_os = "linux")'.dependencies]
-dbus.workspace = true
 keyring = { workspace = true, features = ["sync-secret-service", "crypto-rust"] }
 
 [target.'cfg(windows)'.dependencies]
 keyring = { workspace = true, features = ["windows-native"] }
-# The power request that keeps the screen on.
-windows-sys.workspace = true
 
 [dev-dependencies]
 maxhq-core = { workspace = true, features = ["testing"] }
