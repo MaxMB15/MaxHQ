@@ -12,6 +12,7 @@ use std::path::Path;
 use std::process::{Command, Stdio};
 
 use maxhq_protocol::local_models::{DeviceHardware, GpuBudgetSource, GpuMemory, RuntimeSupport};
+use sysinfo::{CpuRefreshKind, MemoryRefreshKind, RefreshKind, System};
 
 const GIB: u64 = 1 << 30;
 
@@ -106,32 +107,24 @@ fn memory() -> u64 {
             .and_then(|v| v.parse().ok())
             .unwrap_or(0)
     } else {
-        std::fs::read_to_string("/proc/meminfo")
-            .ok()
-            .and_then(|text| meminfo_total(&text))
-            .unwrap_or(0)
+        System::new_with_specifics(
+            RefreshKind::nothing().with_memory(MemoryRefreshKind::nothing().with_ram()),
+        )
+        .total_memory()
     }
-}
-
-/// `MemTotal` from `/proc/meminfo`, in bytes.
-fn meminfo_total(text: &str) -> Option<u64> {
-    let line = text.lines().find(|l| l.starts_with("MemTotal:"))?;
-    let kib: u64 = line.split_whitespace().nth(1)?.parse().ok()?;
-    Some(kib * 1024)
 }
 
 fn chip() -> Option<String> {
     if cfg!(target_os = "macos") {
         sysctl("machdep.cpu.brand_string")
     } else {
-        std::fs::read_to_string("/proc/cpuinfo")
-            .ok()
-            .and_then(|text| {
-                text.lines()
-                    .find(|l| l.starts_with("model name"))
-                    .and_then(|l| l.split_once(':'))
-                    .map(|(_, name)| name.trim().to_owned())
-            })
+        let system =
+            System::new_with_specifics(RefreshKind::nothing().with_cpu(CpuRefreshKind::nothing()));
+        system
+            .cpus()
+            .first()
+            .map(|cpu| cpu.brand().trim().to_owned())
+            .filter(|brand| !brand.is_empty())
     }
 }
 
@@ -198,9 +191,8 @@ mod tests {
     }
 
     #[test]
-    fn linux_memory_comes_from_meminfo() {
-        let text = "MemTotal:       16303428 kB\nMemFree:         1234 kB\n";
-        assert_eq!(meminfo_total(text), Some(16_303_428 * 1024));
+    fn every_os_reads_its_memory_size() {
+        assert!(memory() > 0);
     }
 
     #[test]
