@@ -55,6 +55,7 @@ set -eu
 
 ROOT=$(cd "$(dirname "$0")/../.." && pwd)
 RELEASE=$ROOT/scripts/release
+. "$RELEASE/lib.sh"
 . "$RELEASE/retry.sh"
 
 phase=all
@@ -95,21 +96,6 @@ while [ $# -gt 0 ]; do
 done
 
 note() { printf '==> %s\n' "$*"; }
-warn() {
-	if [ -n "${GITHUB_ACTIONS:-}" ]; then
-		echo "::warning::$*"
-	else
-		echo "warning: $*" >&2
-	fi
-}
-die() {
-	if [ -n "${GITHUB_ACTIONS:-}" ]; then
-		echo "::error::$*"
-	else
-		echo "package-macos.sh: $*" >&2
-	fi
-	exit 1
-}
 
 [ "$(uname -s)" = Darwin ] || die "this builds the Mac app, so it runs on macOS only"
 case "$(uname -m)" in
@@ -182,16 +168,7 @@ sign() {
 	fi
 }
 
-# Which update key signs: the current one, or the next one of a key change.
-case "${MAXHQ_UPDATE_KEY:-current}" in
-current) key_flag= ;;
-next) key_flag=--next ;;
-*) die "MAXHQ_UPDATE_KEY is current or next, not $MAXHQ_UPDATE_KEY" ;;
-esac
-bridge=${MAXHQ_BRIDGE:-}
-if [ "$bridge" = 1 ] && [ -n "$key_flag" ]; then
-	die "MAXHQ_BRIDGE=1 signs with the current key, so it can't go with MAXHQ_UPDATE_KEY=next"
-fi
+choose_update_key
 
 # Signs a file with the update key into <file>.sig. Arguments after the
 # file go to sign.mjs.
@@ -212,11 +189,7 @@ assemble() {
 		[ -f "$target_dir/release/$bin" ] || die "$target_dir/release/$bin doesn't exist; run the build phase first"
 	done
 	if [ "${MAXHQ_UNSIGNED_UPDATES:-}" != 1 ]; then
-		# shellcheck disable=SC2086 # $key_flag is empty or one flag
-		node "$RELEASE/sign.mjs" $key_flag --check || die "no usable update key; set MAXHQ_UNSIGNED_UPDATES=1 to build without one"
-		if [ "$bridge" = 1 ]; then
-			node "$RELEASE/sign.mjs" --next --check || die "MAXHQ_BRIDGE=1 needs the next update key"
-		fi
+		check_update_keys "no usable update key; set MAXHQ_UNSIGNED_UPDATES=1 to build without one"
 	fi
 	if [ "$notarize" = 1 ] && [ "$identity" = - ]; then
 		die "--notarize needs a Developer ID identity; Apple won't notarize ad hoc code"

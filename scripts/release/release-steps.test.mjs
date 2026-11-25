@@ -8,14 +8,7 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { execFile, execFileSync, spawnSync } from "node:child_process";
-import {
-	existsSync,
-	mkdirSync,
-	mkdtempSync,
-	readFileSync,
-	rmSync,
-	writeFileSync,
-} from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -96,7 +89,7 @@ test(
 			new RegExp(`Signed ${linux.length} installers for ${version()}\\.`)
 		);
 		assert.match(
-			run.stdout,
+			run.stderr,
 			/warning: MaxHQ_x64-setup.exe isn't in .*, so it has no signature/
 		);
 		assert.ok(!existsSync(join(out, "MaxHQ_x64-setup.exe.sig")), "a stale .sig goes");
@@ -185,6 +178,26 @@ test("sign-desktop.sh fails without a key or an installer", { skip: !haveTauri }
 	);
 	assert.match(ci.stderr, /^::error::sign-desktop.sh: .*nowhere isn't a folder/);
 	assert.match(sh("sign-desktop.sh", []).stderr, /usage: sign-desktop.sh <dir>/);
+});
+
+test("lib.sh's die and warn name the script and annotate on GitHub Actions", () => {
+	const script = join(dir, "lib-user.sh");
+	writeFileSync(
+		script,
+		`. ${JSON.stringify(here("lib.sh"))}\nwarn "it's $1"\n[ "$1" = fine ] || die "$1 failed"\necho done\n`
+	);
+	const local = spawnSync("sh", [script, "broken"], { encoding: "utf8", env: bare() });
+	assert.equal(local.status, 1);
+	assert.equal(local.stdout, "");
+	assert.equal(local.stderr, "warning: it's broken\nlib-user.sh: broken failed\n");
+	const ci = spawnSync("sh", [script, "broken"], {
+		encoding: "utf8",
+		env: bare({ GITHUB_ACTIONS: "true" }),
+	});
+	assert.equal(ci.stderr, "::warning::it's broken\n::error::lib-user.sh: broken failed\n");
+	const fine = spawnSync("sh", [script, "fine"], { encoding: "utf8", env: bare() });
+	assert.equal(fine.status, 0);
+	assert.equal(fine.stdout, "done\n");
 });
 
 test("maxd-sums.sh sums the Linux maxd and each Windows one there", () => {
