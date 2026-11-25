@@ -5,7 +5,6 @@
 
 use std::fs;
 use std::io;
-use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 
 use super::{Node, SkillFs};
@@ -39,7 +38,7 @@ impl SkillFs for DiskFs {
         } else if kind.is_file() {
             Node::File {
                 size: meta.len(),
-                executable: meta.permissions().mode() & 0o111 != 0,
+                executable: maxhq_os::fsmode::is_executable(path, &meta),
             }
         } else {
             Node::Other
@@ -61,7 +60,8 @@ impl SkillFs for DiskFs {
     }
 }
 
-#[cfg(test)]
+// Pipes, devices and links, which these tests make, are Unix's.
+#[cfg(all(test, unix))]
 mod tests {
     use std::os::unix::fs::symlink;
 
@@ -136,7 +136,7 @@ mod tests {
         fs::write(skill.join("SKILL.md"), "---\nname: unslop\n---\n").unwrap();
         let run = skill.join("scripts").join("run.sh");
         fs::write(&run, "#!/bin/sh\n").unwrap();
-        fs::set_permissions(&run, fs::Permissions::from_mode(0o755)).unwrap();
+        maxhq_os::fsmode::set_mode(&run, 0o755).unwrap();
         symlink("unslop", dir.0.join("link")).unwrap();
         symlink("gone", dir.0.join("dangling")).unwrap();
 

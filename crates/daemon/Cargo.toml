@@ -18,9 +18,9 @@ hyper-util.workspace = true
 ignore.workspace = true
 image.workspace = true
 jiff.workspace = true
-maxhq-client = { workspace = true, features = ["system-ssh", "tailscale"] }
 maxhq-core.workspace = true
 maxhq-hold.workspace = true
+maxhq-os.workspace = true
 maxhq-protocol.workspace = true
 maxhq-term.workspace = true
 maxhq-workflow.workspace = true
@@ -60,8 +60,15 @@ core-foundation.workspace = true
 
 [target.'cfg(unix)'.dependencies]
 libc.workspace = true
+# The system `ssh`, so ~/.ssh/config behaves as in a terminal.
+maxhq-client = { workspace = true, features = ["system-ssh", "tailscale"] }
 # The guest's SSH shells, which run on a pty.
 rustix = { workspace = true, features = ["pty", "termios"] }
+
+# Windows has no system `ssh` openssh can drive, so remote devices go
+# through russh, the transport the phone uses.
+[target.'cfg(windows)'.dependencies]
+maxhq-client = { workspace = true, features = ["russh", "tailscale"] }
 
 [dev-dependencies]
 # The fake APNs in the push tests.

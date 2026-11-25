@@ -4,6 +4,7 @@
 [workspace]
 resolver = "3"
 members = [
+    "crates/os",
     "crates/protocol",
     "crates/core",
     "crates/term",
@@ -109,6 +110,24 @@ rustix = { version = "1.1", features = ["process", "stdio"] }
 # The user database and the calls rustix leaves out, for a holder that
 # starts its CLI as another user: getpwnam_r, getgrouplist and setgroups.
 libc = "0.2.191"
+# The Win32 calls behind maxhq-os on Windows: named pipes and their
+# security, Job Objects, ConPTY, files, process tokens and the network
+# and power state. Already in the build through tokio, mio and rustls.
+windows-sys = { version = "0.61.2", features = [
+    "Win32_Foundation",
+    "Win32_Security",
+    "Win32_Security_Authorization",
+    "Win32_System_Pipes",
+    "Win32_System_Threading",
+    "Win32_System_JobObjects",
+    "Win32_System_Console",
+    "Win32_Storage_FileSystem",
+    "Win32_System_IO",
+    "Win32_NetworkManagement_IpHelper",
+    "Win32_Networking_WinSock",
+    "Win32_System_Power",
+    "Win32_System_ProcessStatus",
+] }
 # Read the text out of the documents you attach: the XML inside Office,
 # OpenDocument and EPUB files, and the ZIP archives that hold it.
 quick-xml = "0.42"
@@ -174,6 +193,7 @@ serde_ignored = "0.1"
 # only. No network or file resolving: the schemas hold every definition.
 jsonschema = { version = "0.60", default-features = false }
 
+maxhq-os = { path = "crates/os" }
 maxhq-protocol = { path = "crates/protocol" }
 maxhq-core = { path = "crates/core" }
 maxhq-term = { path = "crates/term" }

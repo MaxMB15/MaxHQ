@@ -54,22 +54,7 @@ impl Files for Disk {
     }
 
     fn alive(&self, pid: u32) -> bool {
-        alive(pid)
-    }
-}
-
-fn alive(pid: u32) -> bool {
-    let Some(pid) = i32::try_from(pid)
-        .ok()
-        .and_then(rustix::process::Pid::from_raw)
-    else {
-        return false;
-    };
-    // Signal 0 only checks that the process exists, and one of another
-    // user's is there too.
-    match rustix::process::test_kill_process(pid) {
-        Ok(()) => true,
-        Err(err) => err == rustix::io::Errno::PERM,
+        maxhq_os::proc::alive(pid)
     }
 }
 

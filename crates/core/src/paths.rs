@@ -58,12 +58,14 @@ impl Role {
     }
 }
 
-/// The Unix socket `maxd` listens on.
+/// The local endpoint `maxd` listens on, a Unix socket at this path.
 ///
 /// On macOS it's `~/Library/Application Support/MaxHQ/maxd.sock`. On Linux
 /// it's `$XDG_RUNTIME_DIR/maxhq/maxd.sock`, falling back to
 /// `/run/user/<uid>/maxhq/maxd.sock` when a service starts without the
-/// variable set. In a guest it's `/run/maxhq/maxd.sock`.
+/// variable set. In a guest it's `/run/maxhq/maxd.sock`. On Windows it's
+/// `%LOCALAPPDATA%\MaxHQ\maxd.sock`, where no file is made: the path names
+/// the named pipe `maxhq_os::ipc` serves, so each user gets their own.
 pub fn socket() -> Option<PathBuf> {
     if let Some(path) = env::var_os(SOCKET_ENV) {
         return Some(path.into());
@@ -74,8 +76,10 @@ pub fn socket() -> Option<PathBuf> {
 /// The folder for `maxd`'s database and other files that outlive a restart.
 ///
 /// On macOS it's `~/Library/Application Support/MaxHQ`, and on Linux
-/// `$XDG_DATA_HOME/maxhq`, which is usually `~/.local/share/maxhq`. In a
-/// guest it's [`GUEST_DATA_DIR`].
+/// `$XDG_DATA_HOME/maxhq`, which is usually `~/.local/share/maxhq`. On
+/// Windows it's `%LOCALAPPDATA%\MaxHQ`, the local folder rather than the
+/// roaming one, so a roaming profile never syncs the database. In a guest
+/// it's [`GUEST_DATA_DIR`].
 pub fn data_dir() -> Option<PathBuf> {
     data_dir_for(Role::from_env())
 }
@@ -87,6 +91,8 @@ fn data_dir_for(role: Role) -> Option<PathBuf> {
     let base = BaseDirs::new()?;
     Some(if cfg!(target_os = "macos") {
         base.data_dir().join("MaxHQ")
+    } else if cfg!(windows) {
+        base.data_local_dir().join("MaxHQ")
     } else {
         base.data_dir().join("maxhq")
     })
@@ -116,9 +122,9 @@ pub fn hold_runtime_dir() -> Option<PathBuf> {
 
 /// The folder for sockets and other files that end with the session.
 ///
-/// On macOS it's [`data_dir`], since there's nothing better. On Linux it's
-/// `$XDG_RUNTIME_DIR/maxhq`, or `/run/user/<uid>/maxhq` without the
-/// variable. In a guest it's [`GUEST_RUNTIME_DIR`].
+/// On macOS and Windows it's [`data_dir`], since there's nothing better.
+/// On Linux it's `$XDG_RUNTIME_DIR/maxhq`, or `/run/user/<uid>/maxhq`
+/// without the variable. In a guest it's [`GUEST_RUNTIME_DIR`].
 pub fn runtime_dir() -> Option<PathBuf> {
     runtime_dir_for(Role::from_env())
 }
@@ -127,7 +133,7 @@ fn runtime_dir_for(role: Role) -> Option<PathBuf> {
     if role == Role::Guest {
         return Some(GUEST_RUNTIME_DIR.into());
     }
-    if cfg!(target_os = "macos") {
+    if cfg!(any(target_os = "macos", windows)) {
         return data_dir_for(role);
     }
     if let Some(dir) = BaseDirs::new().and_then(|base| base.runtime_dir().map(PathBuf::from)) {
@@ -150,6 +156,8 @@ fn linux_uid() -> Option<u32> {
 
 #[cfg(test)]
 mod tests {
+    use std::path::Path;
+
     use super::*;
 
     /// Linux's limit on a socket path, counting the closing zero byte.
@@ -181,6 +189,12 @@ mod tests {
         assert_eq!(records, data_dir().expect("a home folder").join("hold"));
         assert_eq!(sockets.parent(), socket().expect("a home folder").parent());
         assert_ne!(records, sockets);
+    }
+
+    #[test]
+    fn the_link_temp_is_the_one_os_link_makes() {
+        let temp = maxhq_os::link::temp_for(Path::new("/home/<user>/.local/bin/maxd"));
+        assert_eq!(temp.file_name(), Some(MAXD_LINK_TEMP.as_ref()));
     }
 
     #[test]

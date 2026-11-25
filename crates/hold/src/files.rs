@@ -4,10 +4,10 @@
 //! The files in a session's folder and the helpers that write them safely.
 
 use std::ffi::OsString;
-use std::fs::{self, DirBuilder, File, OpenOptions, TryLockError};
+use std::fs::{self, File, OpenOptions, TryLockError};
 use std::io::{self, Read, Seek, SeekFrom};
 use std::os::unix::ffi::{OsStrExt, OsStringExt};
-use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt};
+use std::os::unix::fs::OpenOptionsExt;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
@@ -212,15 +212,8 @@ pub(crate) fn session_dir(sessions: &Path, session: &SessionId) -> PathBuf {
     sessions.join(session.to_string())
 }
 
-/// Makes `path` and its parents, readable only by this user.
-pub(crate) fn private_dir_all(path: &Path) -> io::Result<()> {
-    DirBuilder::new().recursive(true).mode(0o700).create(path)
-}
-
-/// Makes `path`, readable only by this user, failing when it exists.
-pub(crate) fn private_dir(path: &Path) -> io::Result<()> {
-    DirBuilder::new().mode(0o700).create(path)
-}
+/// Folders readable only by this user.
+pub(crate) use maxhq_os::fsmode::{private_dir, private_dir_all};
 
 /// Deletes a session's folder. It's first moved to a hidden name, so a
 /// client still writing to it, such as one marking the exit seen, can't

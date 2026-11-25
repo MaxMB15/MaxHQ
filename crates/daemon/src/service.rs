@@ -172,16 +172,14 @@ impl Runner for System {
     }
 
     fn spawn(&mut self, program: &str, args: &[&str]) -> io::Result<()> {
-        use std::os::unix::process::CommandExt;
         // A group of its own, so it isn't stopped with this process.
-        Command::new(program)
-            .args(args)
-            .stdin(Stdio::null())
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .process_group(0)
-            .spawn()
-            .map(drop)
+        maxhq_os::proc::spawn_detached(
+            Command::new(program)
+                .args(args)
+                .stdin(Stdio::null())
+                .stdout(Stdio::null())
+                .stderr(Stdio::null()),
+        )
     }
 }
 
@@ -464,24 +462,20 @@ pub fn find_program(name: &str) -> Option<PathBuf> {
 /// usual install folder. A relative folder would depend on where `maxd`
 /// started.
 fn find_on(path: &OsStr, home: Option<&Path>, name: &str) -> Option<PathBuf> {
-    let usual = INSTALL_DIRS
+    use maxhq_os::which::{self, Env, Rules};
+
+    let usual: Vec<PathBuf> = INSTALL_DIRS
         .iter()
         .filter_map(|dir| match dir.strip_prefix("~/") {
             Some(rest) => home.map(|home| home.join(rest)),
             None => Some(PathBuf::from(dir)),
-        });
-    std::env::split_paths(path)
-        .chain(usual)
-        .filter(|dir| dir.is_absolute())
-        .map(|dir| dir.join(name))
-        .find(|file| is_executable(file))
-}
-
-/// Whether `file` is a file you may run.
-fn is_executable(file: &Path) -> bool {
-    use std::os::unix::fs::PermissionsExt;
-    file.metadata()
-        .is_ok_and(|meta| meta.is_file() && meta.permissions().mode() & 0o111 != 0)
+        })
+        .collect();
+    let env = Env {
+        path: Some(path.to_owned()),
+        ..Env::current()
+    };
+    which::find_in(Rules::HOST, name, &usual, &env, &which::Host)
 }
 
 /// Where launchd writes what `maxd` logs for the user at `home`.

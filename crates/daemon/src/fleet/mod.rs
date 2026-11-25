@@ -240,7 +240,7 @@ async fn install_maxd(
                 // Without a watcher there's no rollback, so put the old
                 // build back and refuse.
                 warn!(%err, "couldn't start the update watcher");
-                update::point(&layout.link(), &layout.version(&previous))?;
+                maxhq_os::link::point(&layout.link(), &layout.version(&previous))?;
                 return Err(Refusal::Io(format!(
                     "couldn't start the update watcher: {err}"
                 )));

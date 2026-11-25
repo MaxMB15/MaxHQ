@@ -133,33 +133,11 @@ pub(super) fn classify(
 }
 
 /// The program the process `pid` runs.
-#[cfg(target_os = "macos")]
-#[allow(unsafe_code)]
 fn exe_of(pid: i32) -> Option<PathBuf> {
-    use std::ffi::OsString;
-    use std::os::unix::ffi::OsStringExt;
-
-    let size = usize::try_from(libc::PROC_PIDPATHINFO_MAXSIZE).ok()?;
-    let mut path = vec![0u8; size];
-    let capacity = u32::try_from(path.len()).ok()?;
-    // SAFETY: the buffer is `capacity` bytes, and the call writes at most
-    // that many and says how many it wrote.
-    let len = unsafe { libc::proc_pidpath(pid, path.as_mut_ptr().cast(), capacity) };
-    let len = usize::try_from(len).ok().filter(|len| *len > 0)?;
-    path.truncate(len);
-    Some(normal(PathBuf::from(OsString::from_vec(path))))
-}
-
-#[cfg(target_os = "linux")]
-fn exe_of(pid: i32) -> Option<PathBuf> {
-    std::fs::read_link(format!("/proc/{pid}/exe"))
+    u32::try_from(pid)
         .ok()
+        .and_then(maxhq_os::proc::exe_of)
         .map(normal)
-}
-
-#[cfg(not(any(target_os = "macos", target_os = "linux")))]
-fn exe_of(_pid: i32) -> Option<PathBuf> {
-    None
 }
 
 /// `path` with links resolved, and without the mark Linux adds to a

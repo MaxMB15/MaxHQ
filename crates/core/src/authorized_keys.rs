@@ -11,8 +11,9 @@
 
 use std::fs;
 use std::io;
-use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
+
+use maxhq_os::fsmode;
 
 use crate::fs::Atomic;
 
@@ -170,23 +171,18 @@ fn read(path: &Path) -> io::Result<String> {
 /// renames it over `path`. The folder is made 0700 if it's missing.
 fn replace(path: &Path, text: &str) -> io::Result<()> {
     let mode = match fs::metadata(path) {
-        Ok(meta) => meta.permissions().mode() & 0o777,
+        Ok(meta) => fsmode::mode_of(&meta) & 0o777,
         Err(err) if err.kind() == io::ErrorKind::NotFound => 0o600,
         Err(err) => return Err(err),
     };
     if let Some(dir) = path.parent() {
-        use std::os::unix::fs::DirBuilderExt;
-        fs::DirBuilder::new()
-            .recursive(true)
-            .mode(0o700)
-            .create(dir)?;
+        fsmode::private_dir_all(dir)?;
     }
     crate::fs::write_atomic(path, text.as_bytes(), Atomic::exact(mode))
 }
 
 #[cfg(test)]
 mod tests {
-    use std::fs::Permissions;
     use std::path::PathBuf;
 
     use super::*;
@@ -213,8 +209,9 @@ mod tests {
         }
     }
 
+    #[cfg(unix)]
     fn mode(path: &Path) -> u32 {
-        fs::metadata(path).expect("meta").permissions().mode() & 0o777
+        fsmode::mode_of(&fs::metadata(path).expect("meta")) & 0o777
     }
 
     #[test]
@@ -260,6 +257,8 @@ mod tests {
         assert!(line("/home/dev", KEY, Some("d1\"")).is_err());
     }
 
+    // Windows keeps no mode bits to check.
+    #[cfg(unix)]
     #[test]
     fn a_line_goes_in_once_with_the_mode_kept_and_others_untouched() {
         let home = TempHome::new();
@@ -275,7 +274,7 @@ mod tests {
             format!("ssh-rsa AAAAown me@laptop\n{peer}\nssh-ed25519 AAAAother x"),
         )
         .expect("write");
-        fs::set_permissions(&file, Permissions::from_mode(0o640)).expect("chmod");
+        fsmode::set_mode(&file, 0o640).expect("chmod");
         assert!(!add(&file, &peer).expect("already there"));
         let app = line("/home/dev", KEY, None).expect("line");
         assert!(add(&file, &app).expect("adds"));

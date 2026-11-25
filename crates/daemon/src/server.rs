@@ -8,14 +8,15 @@
 //! lock file next to the socket first, so a second one exits with a clear
 //! message, and a socket file left by a crash is removed.
 
-use std::fs::{self, DirBuilder, File, OpenOptions, TryLockError};
+use std::fs::{self, File, OpenOptions, TryLockError};
 use std::io::{self, Read, Write};
-use std::os::unix::fs::{DirBuilderExt, FileTypeExt, OpenOptionsExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
 use maxhq_core::prove::Challenge;
+use maxhq_os::fsmode;
+use maxhq_os::ipc::{self, Found, LocalListener, LocalStream};
 use maxhq_protocol::agents::ClientRole;
 use maxhq_protocol::cursor_rules::CursorRuleCall;
 use maxhq_protocol::frame::{self, DecodeError, EncodeError, Frame, FrameDecoder};
@@ -34,8 +35,6 @@ use maxhq_protocol::{ClientMessage, ProtocolRange, ServerMessage};
 use maxhq_wire::{Queue, Sender};
 use thiserror::Error;
 use tokio::io::AsyncReadExt;
-use tokio::net::unix::OwnedReadHalf;
-use tokio::net::{UnixListener, UnixStream};
 use tokio::sync::broadcast::{self, error::RecvError};
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
@@ -126,7 +125,7 @@ fn already_running(path: &Path, pid: Option<u32>) -> String {
 
 /// The socket `maxd` serves on. Dropping it removes the socket file.
 pub struct Listener {
-    listener: UnixListener,
+    listener: LocalListener,
     path: PathBuf,
     /// Held for the life of the listener. The operating system releases it
     /// when the process ends, however it ends.
@@ -141,22 +140,20 @@ pub fn bind(path: &Path) -> Result<Listener, BindError> {
         move |source| BindError::Io { path, source }
     };
     if let Some(dir) = path.parent().filter(|dir| !dir.as_os_str().is_empty()) {
-        DirBuilder::new()
-            .recursive(true)
-            .mode(0o700)
-            .create(dir)
-            .map_err(io_at(dir))?;
+        fsmode::private_dir_all(dir).map_err(io_at(dir))?;
     }
 
     let lock_path = lock_path(path);
-    let mut lock = OpenOptions::new()
-        .read(true)
-        .write(true)
-        .create(true)
-        .truncate(false)
-        .mode(0o600)
-        .open(&lock_path)
-        .map_err(io_at(&lock_path))?;
+    let mut lock = fsmode::set_open_mode(
+        OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            .truncate(false),
+        0o600,
+    )
+    .open(&lock_path)
+    .map_err(io_at(&lock_path))?;
     match lock.try_lock() {
         Ok(()) => {}
         Err(TryLockError::WouldBlock) => {
@@ -177,21 +174,21 @@ pub fn bind(path: &Path) -> Result<Listener, BindError> {
     // Holding the lock means no other maxd started since, so a socket file
     // here was left by one that crashed. One still answering on it must be
     // a maxd from before the lock file, and it keeps the socket.
-    match fs::symlink_metadata(path) {
-        Ok(meta) if !meta.file_type().is_socket() => {
+    match ipc::probe(path) {
+        Ok(Found::Other) => {
             return Err(BindError::NotASocket { path: path.into() });
         }
-        Ok(_) => {
-            if std::os::unix::net::UnixStream::connect(path).is_ok() {
-                return Err(BindError::AlreadyRunning {
-                    path: path.into(),
-                    pid: None,
-                });
-            }
+        Ok(Found::Listening) => {
+            return Err(BindError::AlreadyRunning {
+                path: path.into(),
+                pid: None,
+            });
+        }
+        Ok(Found::Stale) => {
             fs::remove_file(path).map_err(io_at(path))?;
             info!(socket = %path.display(), "removed a stale socket left by an earlier maxd");
         }
-        Err(err) if err.kind() == io::ErrorKind::NotFound => {}
+        Ok(Found::Nothing) => {}
         Err(source) => {
             return Err(BindError::Io {
                 path: path.into(),
@@ -200,10 +197,7 @@ pub fn bind(path: &Path) -> Result<Listener, BindError> {
         }
     }
 
-    let std = std::os::unix::net::UnixListener::bind(path).map_err(io_at(path))?;
-    fs::set_permissions(path, fs::Permissions::from_mode(0o600)).map_err(io_at(path))?;
-    std.set_nonblocking(true).map_err(io_at(path))?;
-    let listener = UnixListener::from_std(std).map_err(io_at(path))?;
+    let listener = LocalListener::bind(path).map_err(io_at(path))?;
     Ok(Listener {
         listener,
         path: path.into(),
@@ -253,7 +247,7 @@ impl Listener {
     ) {
         loop {
             match self.listener.accept().await {
-                Ok((stream, _)) => {
+                Ok(stream) => {
                     let (hub, db, sessions) = (hub.clone(), db.clone(), sessions.clone());
                     let (transfers, tunnels) = (transfers.clone(), tunnels.clone());
                     let keys = keys.clone();
@@ -281,7 +275,7 @@ impl Drop for Listener {
 
 /// Serves one client until it disconnects or breaks the protocol.
 pub async fn serve_client(
-    stream: UnixStream,
+    stream: LocalStream,
     hub: Hub,
     db: Db,
     sessions: Sessions,
@@ -363,7 +357,7 @@ enum Incoming {
 
 /// One client's connection.
 struct Connection {
-    reader: OwnedReadHalf,
+    reader: ipc::ReadHalf,
     /// The writer's queues. Control messages go ahead of state, and state
     /// ahead of file data.
     wire: Sender,
@@ -449,7 +443,7 @@ struct Connection {
 impl Connection {
     /// A connection that hasn't said hello yet.
     fn new(
-        stream: UnixStream,
+        stream: LocalStream,
         hub: Hub,
         db: Db,
         sessions: Sessions,
@@ -463,8 +457,7 @@ impl Connection {
         let seat = admission::seat_for(&stream, &keys, caller);
         // A `maxd` that runs as root itself can't tell root from the
         // phones' and guests' connections it bridges, so none count.
-        let root = !rustix::process::geteuid().is_root()
-            && stream.peer_cred().is_ok_and(|cred| cred.uid() == 0);
+        let root = !maxhq_os::proc::is_root() && stream.peer().is_ok_and(|peer| peer.elevated);
         let challenge = Challenge::generate();
         if challenge.is_none() {
             warn!("no random bytes for a challenge, so this connection can't prove a key");
@@ -2265,14 +2258,14 @@ pub(crate) mod tests {
 
     /// The client side of the protocol, as plainly as possible.
     pub(super) struct TestClient {
-        stream: UnixStream,
+        stream: LocalStream,
         decoder: FrameDecoder,
     }
 
     impl TestClient {
         pub(super) async fn connect(socket: &Path) -> Self {
             Self {
-                stream: UnixStream::connect(socket).await.unwrap(),
+                stream: LocalStream::connect(socket).await.unwrap(),
                 decoder: FrameDecoder::new(),
             }
         }
@@ -4639,14 +4632,14 @@ pub(crate) mod tests {
 
         let listener = bind(&socket).unwrap();
         assert_eq!(
-            fs::metadata(&socket).unwrap().permissions().mode() & 0o777,
+            fsmode::mode_of(&fs::metadata(&socket).unwrap()) & 0o777,
             0o600
         );
         let accept = tokio::spawn(async move {
-            let (stream, _) = listener.listener.accept().await.unwrap();
+            let stream = listener.listener.accept().await.unwrap();
             (listener, stream)
         });
-        UnixStream::connect(&socket).await.unwrap();
+        LocalStream::connect(&socket).await.unwrap();
         let (listener, _) = accept.await.unwrap();
         drop(listener);
         assert!(!socket.exists());

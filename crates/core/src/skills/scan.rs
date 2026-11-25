@@ -862,6 +862,9 @@ mod tests {
         assert_eq!(found[0].mark, None);
     }
 
+    // A nested skill's prefix is its folder's path text, which a Windows
+    // host writes with `\`. What a Windows CLI expects there is open.
+    #[cfg(unix)]
     #[test]
     fn nested_and_added_skills_are_prefixed() {
         let mut fs = MemFs::new();
@@ -993,7 +996,11 @@ mod tests {
         assert_eq!(found[0].display_name.as_deref(), Some("Unslop"));
         assert_eq!(found[0].user_invocation_only, Some(true));
         assert_eq!(found[0].user_invocable, Some(false));
-        assert_eq!(found[0].path, "/home/me/.claude/skills/unslop/SKILL.md");
+        // As paths, since a Windows host joins with `\`.
+        assert_eq!(
+            Path::new(&found[0].path),
+            Path::new("/home/me/.claude/skills/unslop/SKILL.md")
+        );
     }
 
     #[test]

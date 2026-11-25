@@ -14,7 +14,7 @@ testing = []
 base64.workspace = true
 directories.workspace = true
 jiff.workspace = true
-libc.workspace = true
+maxhq-os.workspace = true
 maxhq-protocol.workspace = true
 maxhq-transfer.workspace = true
 pulldown-cmark.workspace = true
@@ -30,6 +30,9 @@ thiserror.workspace = true
 toml.workspace = true
 url.workspace = true
 uuid.workspace = true
+
+[target.'cfg(unix)'.dependencies]
+libc.workspace = true
 
 [dev-dependencies]
 futures.workspace = true
