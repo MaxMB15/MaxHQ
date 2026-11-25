@@ -34,7 +34,11 @@
 //!
 //! A flavor can name replies that are failures, so a turn that ends with
 //! one of them ends as an error, and can give each tool call a time limit,
-//! after which the turn is cancelled.
+//! after which the turn is cancelled. A flavor whose CLI keeps the
+//! context in a file, not in what it sends, gives a read of that file.
+//! The read runs off the loop after each turn and once a session loads,
+//! for a CLI on this machine only, as a container's files are out of
+//! reach.
 //!
 //! Models and modes come from the config options, or else from ACP v1's
 //! `models` and `modes`, which change through `session/set_model` and
@@ -78,8 +82,8 @@ use self::requests::Prompt;
 use self::rpc::{text, Ids, Incoming, RpcError, Wire};
 use self::subs::Sub;
 use crate::drive::{
-    commands, Action, ActionKey, AttentionChange, ChildExit, Driver, Effects, HeldLine, Login,
-    Place, PlaceHost, Write,
+    commands, Action, ActionKey, AttentionChange, ChildExit, Driver, Effects, HeldLine, Job,
+    JobDone, Login, Place, PlaceHost, Write,
 };
 
 /// What an exit reason keeps of stderr's last line.
@@ -138,7 +142,20 @@ pub trait Flavor: Send {
     fn reads_images(&self, _model: &str) -> bool {
         true
     }
+    /// A read of how full the session `session`'s context is, for a CLI
+    /// that keeps it in a file instead of sending it, or none for one
+    /// that doesn't.
+    fn context(&self, _session: &str) -> Option<ContextRead> {
+        None
+    }
 }
+
+/// A read of how full a session's context is, which gives none when it
+/// can't tell.
+pub type ContextRead = Box<dyn FnOnce() -> Option<ContextUsage> + Send>;
+
+/// What a read of the context gave, back from its job.
+struct ContextDone(Option<ContextUsage>);
 
 /// A CLI's own notification, as the driver reads it.
 #[derive(Clone, Debug, PartialEq)]
@@ -286,6 +303,19 @@ enum Picker {
     Legacy,
 }
 
+/// Where the read of the context stands.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+enum Reading {
+    /// No read is out.
+    #[default]
+    Idle,
+    /// A read is out.
+    Out,
+    /// A read is out, and a turn ended since it went, so another follows
+    /// it.
+    Again,
+}
+
 /// The turn `session/prompt` is running.
 #[derive(Debug)]
 struct Turn {
@@ -373,6 +403,8 @@ pub struct AcpSession {
     /// replayed first message doesn't replace.
     named: bool,
     context: Option<ContextUsage>,
+    /// Where the read of the context from the flavor's file stands.
+    reading: Reading,
     started_at: Timestamp,
     last_activity_at: Timestamp,
     link: AgentLink,
@@ -462,6 +494,7 @@ impl AcpSession {
             named: kept.title.is_some(),
             title: kept.title,
             context: None,
+            reading: Reading::Idle,
             started_at: now,
             last_activity_at: now,
             link: AgentLink::Unknown,
@@ -747,6 +780,8 @@ impl AcpSession {
                 self.last_user = false;
                 let items = history::fold(self.lead, replay);
                 fx.history.push((self.lead, items));
+                // The store has the context of the turns loaded.
+                self.read_context(fx);
                 self.options(&result, fx);
                 self.pick_model(fx);
                 if !self.pick_mode(fx) {
@@ -891,6 +926,7 @@ impl AcpSession {
                 }
             }
             // Not in the recording: no turn of 2026.10.22 sent usage.
+            // Cursor's context comes from its store (see `cursor::context`).
             "usage_update" => {
                 let used = update.get("used").and_then(Value::as_u64);
                 let size = update.get("size").and_then(Value::as_u64);
@@ -1131,13 +1167,39 @@ impl AcpSession {
         events::upsert(out, item);
     }
 
-    /// Tidies up after a turn and sends the next queued message.
+    /// Tidies up after a turn, reads the context, and sends the next
+    /// queued message.
     fn turn_over(&mut self, at: Timestamp, fx: &mut Effects) {
         self.deadlines.clear();
         self.drop_prompts(at, fx);
         self.subs_over(at, fx);
         self.touch(at);
+        self.read_context(fx);
         self.next_queued(fx);
+    }
+
+    /// Reads how full the lead's context is, off the loop, when the
+    /// flavor keeps it in a file. The file is where the CLI runs, so only
+    /// a CLI on this machine is read, not one in a container. One read is
+    /// out at a time, and a turn that ends meanwhile reads again after it.
+    fn read_context(&mut self, fx: &mut Effects) {
+        if self.place.host != PlaceHost::Local {
+            return;
+        }
+        if self.reading != Reading::Idle {
+            self.reading = Reading::Again;
+            return;
+        }
+        let Some(read) = self
+            .session_id
+            .as_deref()
+            .and_then(|session| self.flavor.context(session))
+        else {
+            return;
+        };
+        self.reading = Reading::Out;
+        fx.jobs
+            .push(Job::new(move || Box::new(ContextDone(read())) as JobDone));
     }
 
     /// A notice on its own, outside any tool call.
@@ -1540,6 +1602,23 @@ impl Driver for AcpSession {
 
     fn tick(&mut self, now: Instant, fx: &mut Effects) {
         self.timeouts(now, fx);
+        self.settle(fx);
+    }
+
+    /// A read of the context is back. One that gave nothing leaves the
+    /// context as it was.
+    fn job_done(&mut self, done: Option<JobDone>, fx: &mut Effects) {
+        let again = self.reading == Reading::Again;
+        self.reading = Reading::Idle;
+        let read = done
+            .and_then(|done| done.downcast::<ContextDone>().ok())
+            .and_then(|done| done.0);
+        if let Some(context) = read {
+            self.context = Some(context);
+        }
+        if again {
+            self.read_context(fx);
+        }
         self.settle(fx);
     }
 

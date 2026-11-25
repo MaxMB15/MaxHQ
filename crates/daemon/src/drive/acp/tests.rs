@@ -27,7 +27,9 @@ use maxhq_protocol::ids::{
     AccountId, AgentId, AttachmentId, AttentionId, ClientId, DeviceId, IdempotencyKey, WorkspaceId,
 };
 use maxhq_protocol::message::{ActionOutcome, SendMode};
-use maxhq_protocol::model::{Activity, Agent, CommandRule, EditKind, PermissionMode, Vendor};
+use maxhq_protocol::model::{
+    Activity, Agent, CommandRule, ContextUsage, EditKind, PermissionMode, Vendor,
+};
 use maxhq_protocol::time::Timestamp;
 use maxhq_protocol::timeline::{
     ApprovalKind, AttachmentKind, AttachmentRef, Delivery, ItemBody, ItemId, ItemStatus,
@@ -37,13 +39,15 @@ use maxhq_protocol::Secret;
 use serde_json::{json, Value};
 
 use super::history;
-use super::rpc::Ids;
-use super::{AcpSession, Flavor, Kept};
+use super::rpc::{Ids, RpcError};
+use super::{AcpSession, ContextRead, Ext, ExtPrompt, Failure, Flavor, Kept};
+use crate::drive::cursor::context::{self, testing as store};
 use crate::drive::cursor::{Cursor, TOOL_TIMEOUT};
 use crate::drive::{
-    Action, AttentionChange, ChildExit, Driver, Effects, HeldLine, Login, LoginAuth, Place,
+    Action, AttentionChange, ChildExit, Driver, Effects, HeldLine, Job, Login, LoginAuth, Place,
     PlaceHost, Staged,
 };
+use crate::testing::TempDir;
 
 const SESSION: &str = "00000000-0000-4000-8000-000000000001";
 
@@ -241,11 +245,22 @@ impl Run {
 
     /// A driver of `flavor` under `login`.
     fn of(flavor: Box<dyn Flavor>, login: &Login, kept: Kept, mode: PermissionMode) -> Self {
+        Self::at(flavor, login, &place(), kept, mode)
+    }
+
+    /// A driver of `flavor` under `login`, for an agent at `place`.
+    fn at(
+        flavor: Box<dyn Flavor>,
+        login: &Login,
+        place: &Place,
+        kept: Kept,
+        mode: PermissionMode,
+    ) -> Self {
         Self {
             session: AcpSession::with_ids(
                 flavor,
                 login,
-                &place(),
+                place,
                 lead(),
                 kept,
                 mode,
@@ -538,7 +553,7 @@ fn simple() {
     assert_eq!(reply.status, ItemStatus::Completed);
     let agent = last_agent(&fx, lead());
     assert_eq!(agent.activity, Activity::Idle);
-    // Cursor sends no usage.
+    // Cursor sends no usage, and its store is read after the turn.
     assert!(agent.context.is_none());
     assert_eq!(agent.title, "Just Ok");
 }
@@ -2927,4 +2942,264 @@ fn a_change_to_two_kinds_asks_as_any_other() {
         opened(&run.take()).pop().unwrap().kind,
         AttentionKind::Question
     );
+}
+
+// The context.
+
+/// Cursor, with the store of each session at one path.
+struct Stored {
+    cursor: Cursor,
+    store: PathBuf,
+}
+
+impl Stored {
+    fn at(store: &Path) -> Box<dyn Flavor> {
+        Box::new(Self {
+            cursor: Cursor,
+            store: store.to_owned(),
+        })
+    }
+}
+
+impl Flavor for Stored {
+    fn name(&self) -> &str {
+        self.cursor.name()
+    }
+    fn vendor(&self) -> Vendor {
+        self.cursor.vendor()
+    }
+    fn base(&self) -> &str {
+        self.cursor.base()
+    }
+    fn client_meta(&self) -> Value {
+        self.cursor.client_meta()
+    }
+    fn notification(&self, method: &str, params: &Value) -> Option<Ext> {
+        self.cursor.notification(method, params)
+    }
+    fn request(&self, method: &str, params: &Value) -> Option<ExtPrompt> {
+        self.cursor.request(method, params)
+    }
+    fn reply_failure(&self, reply: &str) -> Option<Failure> {
+        self.cursor.reply_failure(reply)
+    }
+    fn is_limit(&self, error: &RpcError) -> bool {
+        self.cursor.is_limit(error)
+    }
+    fn tool_timeout(&self) -> Option<Duration> {
+        self.cursor.tool_timeout()
+    }
+    fn auto_model(&self) -> Option<&str> {
+        self.cursor.auto_model()
+    }
+    fn modes_are_launch_flags(&self) -> bool {
+        self.cursor.modes_are_launch_flags()
+    }
+    fn authenticates(&self) -> bool {
+        self.cursor.authenticates()
+    }
+    fn context(&self, session: &str) -> Option<ContextRead> {
+        assert_eq!(session, SESSION);
+        let store = self.store.clone();
+        Some(Box::new(move || context::read(&store)))
+    }
+}
+
+/// A Cursor store at `path` whose latest root has `used` tokens of
+/// 200,000 in its context, kept open as the CLI keeps it.
+fn cursor_store(path: &Path, used: u64) -> rusqlite::Connection {
+    let root = store::root(3, used, 200_000);
+    store::write(
+        path,
+        true,
+        Some(&store::meta(&store::id(1))),
+        &[(&store::id(1), &root)],
+    )
+}
+
+/// Points the meta at the root `n`, in the store `cli` has open.
+fn point_at(cli: &rusqlite::Connection, n: u8) {
+    cli.execute(
+        "UPDATE meta SET value = ?1 WHERE key = '0'",
+        [store::meta(&store::id(n))],
+    )
+    .unwrap();
+}
+
+/// Adds a root `n` with `used` tokens to the store `cli` has open, and
+/// makes it the latest.
+fn new_root(cli: &rusqlite::Connection, n: u8, used: u64) {
+    let root = store::root(4, used, 200_000);
+    cli.execute(
+        "INSERT INTO blobs VALUES (?1, ?2)",
+        rusqlite::params![store::id(n), root],
+    )
+    .unwrap();
+    point_at(cli, n);
+}
+
+/// A context of `used` tokens of 200,000.
+fn filled(used: u32) -> Option<ContextUsage> {
+    Some(ContextUsage {
+        used_tokens: used,
+        window_tokens: 200_000,
+    })
+}
+
+/// Ready, with the store at `path`.
+fn ready_on(path: &Path) -> Run {
+    let mut run = Run::of(
+        Stored::at(path),
+        &login(),
+        Kept::default(),
+        PermissionMode::Ask,
+    );
+    run.connect();
+    run.feed_all(&handshake());
+    run.take();
+    run
+}
+
+/// A message whose turn ends at once.
+fn quick_turn(run: &mut Run, n: u128) {
+    run.act(send(key(n), "Go on", SendMode::Queue));
+    run.feed(r#"{"jsonrpc":"2.0","id":"$session/prompt","result":{"stopReason":"end_turn"}}"#);
+}
+
+/// Runs `jobs` as the manager does, and hands what each gave back to the
+/// driver.
+fn run_jobs(run: &mut Run, jobs: Vec<Job>) {
+    for job in jobs {
+        let done = job.run();
+        run.session.job_done(done, &mut run.fx);
+    }
+}
+
+/// Whether every state of the lead sent has `want` for its context.
+fn kept_context(fx: &Effects, want: Option<ContextUsage>) -> bool {
+    fx.agents.iter().all(|agent| agent.context == want)
+}
+
+#[test]
+fn a_turn_end_reads_the_context_from_cursors_store() {
+    let dir = TempDir::new();
+    let path = dir.path().join("store.db");
+    let _cli = cursor_store(&path, 41_000);
+    let mut run = ready_on(&path);
+    run.act(send(key(1), PROMPTS[0], SendMode::Queue));
+    run.feed_all(&live_turns()[0]);
+    let fx = run.take();
+    // The turn ends without waiting for the read.
+    let agent = last_agent(&fx, lead());
+    assert_eq!(agent.activity, Activity::Idle);
+    assert!(agent.context.is_none());
+    assert_eq!(fx.jobs.len(), 1);
+    run_jobs(&mut run, fx.jobs);
+    let fx = run.take();
+    assert_eq!(last_agent(&fx, lead()).context, filled(41_000));
+    assert!(fx.jobs.is_empty());
+}
+
+#[test]
+fn a_read_that_finds_nothing_keeps_the_context() {
+    let dir = TempDir::new();
+    let path = dir.path().join("store.db");
+    let cli = cursor_store(&path, 41_000);
+    let mut run = ready_on(&path);
+    quick_turn(&mut run, 1);
+    let jobs = run.take().jobs;
+    run_jobs(&mut run, jobs);
+    assert_eq!(last_agent(&run.take(), lead()).context, filled(41_000));
+    // The meta names a root the store doesn't have.
+    point_at(&cli, 7);
+    quick_turn(&mut run, 2);
+    let jobs = run.take().jobs;
+    assert_eq!(jobs.len(), 1);
+    run_jobs(&mut run, jobs);
+    assert!(kept_context(&run.take(), filled(41_000)));
+    // A job that failed gives nothing back.
+    quick_turn(&mut run, 3);
+    run.take();
+    run.session.job_done(None, &mut run.fx);
+    assert!(kept_context(&run.take(), filled(41_000)));
+    // The store comes right again.
+    new_root(&cli, 2, 52_000);
+    quick_turn(&mut run, 4);
+    let jobs = run.take().jobs;
+    run_jobs(&mut run, jobs);
+    assert_eq!(last_agent(&run.take(), lead()).context, filled(52_000));
+    // A store that is gone leaves it too.
+    drop(cli);
+    std::fs::remove_file(&path).unwrap();
+    quick_turn(&mut run, 5);
+    let jobs = run.take().jobs;
+    run_jobs(&mut run, jobs);
+    assert!(kept_context(&run.take(), filled(52_000)));
+}
+
+#[test]
+fn turns_that_end_during_a_read_read_once_more_after_it() {
+    let dir = TempDir::new();
+    let path = dir.path().join("store.db");
+    let cli = cursor_store(&path, 41_000);
+    let mut run = ready_on(&path);
+    quick_turn(&mut run, 1);
+    let first = run.take().jobs;
+    assert_eq!(first.len(), 1);
+    quick_turn(&mut run, 2);
+    quick_turn(&mut run, 3);
+    assert!(run.take().jobs.is_empty());
+    new_root(&cli, 2, 52_000);
+    run_jobs(&mut run, first);
+    let fx = run.take();
+    assert_eq!(last_agent(&fx, lead()).context, filled(52_000));
+    assert_eq!(fx.jobs.len(), 1);
+    run_jobs(&mut run, fx.jobs);
+    assert!(run.take().jobs.is_empty());
+    quick_turn(&mut run, 4);
+    assert_eq!(run.take().jobs.len(), 1);
+}
+
+#[test]
+fn a_loaded_session_reads_its_context() {
+    let dir = TempDir::new();
+    let path = dir.path().join("store.db");
+    let _cli = cursor_store(&path, 41_000);
+    let kept = Kept {
+        session: Some(SESSION.into()),
+        ..Kept::default()
+    };
+    let mut run = Run::of(Stored::at(&path), &login(), kept, PermissionMode::Ask);
+    run.connect();
+    run.feed_all(&recording("acp-load.jsonl"));
+    let fx = run.take();
+    assert_eq!(fx.jobs.len(), 1);
+    run_jobs(&mut run, fx.jobs);
+    assert_eq!(last_agent(&run.take(), lead()).context, filled(41_000));
+}
+
+#[test]
+fn a_cursor_agent_in_a_container_has_no_store_read() {
+    let dir = TempDir::new();
+    let path = dir.path().join("store.db");
+    let _cli = cursor_store(&path, 41_000);
+    let place = Place {
+        host: PlaceHost::Guest {
+            workspace: WorkspaceId::derive("ws"),
+        },
+        ..place()
+    };
+    let mut run = Run::at(
+        Stored::at(&path),
+        &login(),
+        &place,
+        Kept::default(),
+        PermissionMode::Ask,
+    );
+    run.connect();
+    run.feed_all(&handshake());
+    quick_turn(&mut run, 1);
+    let fx = run.take();
+    assert!(fx.jobs.is_empty());
+    assert!(last_agent(&fx, lead()).context.is_none());
 }
