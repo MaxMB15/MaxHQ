@@ -271,15 +271,127 @@ mod tests {
         assert_eq!(&got, b"hi");
     }
 
+    /// A path no other test or run uses, for a pipe of its own.
+    #[cfg(windows)]
+    fn pipe_path(test: &str) -> std::path::PathBuf {
+        std::env::temp_dir().join(format!("maxhq-os-{test}-{}.sock", std::process::id()))
+    }
+
     #[cfg(windows)]
     #[tokio::test]
-    async fn pipes_say_they_arent_built_yet() {
-        let path = std::env::temp_dir().join("maxd.sock");
+    async fn a_pipe_takes_connections_and_knows_its_peer() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+        let path = pipe_path("listen");
+        assert_eq!(probe(&path).unwrap(), Found::Nothing);
+        let listener = LocalListener::bind(&path).unwrap();
+        let accept = tokio::spawn(async move {
+            let one = listener.accept().await.unwrap();
+            let two = listener.accept().await.unwrap();
+            (listener, one, two)
+        });
+        let mut client = LocalStream::connect(&path).await.unwrap();
+        let mut second = LocalStream::connect(&path).await.unwrap();
+        let (listener, server, other) = accept.await.unwrap();
+
+        let me = Peer {
+            pid: Some(std::process::id()),
+            same_user: true,
+            elevated: crate::proc::is_root(),
+        };
+        assert_eq!(server.peer().unwrap(), me);
+        assert_eq!(client.peer().unwrap(), me);
+
+        let (mut read, mut write) = server.into_split();
+        client.write_all(b"ping").await.unwrap();
+        let mut got = [0; 4];
+        read.read_exact(&mut got).await.unwrap();
+        assert_eq!(&got, b"ping");
+        write.write_all(b"pong").await.unwrap();
+        client.read_exact(&mut got).await.unwrap();
+        assert_eq!(&got, b"pong");
+
+        let (mut other_read, other_write) = other.into_split();
+        second.write_all(b"two!").await.unwrap();
+        other_read.read_exact(&mut got).await.unwrap();
+        assert_eq!(&got, b"two!");
+
+        let probed = path.clone();
+        let found = tokio::task::spawn_blocking(move || probe(&probed))
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(found, Found::Listening);
+
+        // A client's end closing is the server's end of file.
+        drop(client);
+        assert_eq!(read.read(&mut got).await.unwrap(), 0);
+        drop((listener, read, write, other_read, other_write, second));
+        assert_eq!(probe(&path).unwrap(), Found::Nothing);
+    }
+
+    #[cfg(windows)]
+    #[tokio::test]
+    async fn a_pipe_lets_in_this_user_alone() {
+        let path = pipe_path("dacl");
+        let listener = LocalListener::bind(&path).unwrap();
+        let accept = tokio::spawn(async move { listener.accept().await.unwrap() });
+        let client = LocalStream::connect(&path).await.unwrap();
+        let _server = accept.await.unwrap();
+        let sid = crate::win::sid_string(&crate::win::own_user().unwrap()).unwrap();
+        // One entry, this user's, inherited from nowhere: no Everyone,
+        // no Administrators, no anonymous logon.
+        let dacl = super::windows::dacl_of(&client.0).unwrap();
+        assert!(
+            [format!("D:P(A;;FA;;;{sid})"), format!("D:P(A;;GA;;;{sid})")].contains(&dacl),
+            "{dacl}"
+        );
+    }
+
+    #[cfg(windows)]
+    #[tokio::test]
+    async fn a_pipe_name_someone_else_holds_is_refused() {
+        use tokio::net::windows::named_pipe::ServerOptions;
+
+        // A squatter got the name first, with the default DACL.
+        let path = pipe_path("squat");
+        let _squatter = ServerOptions::new().create(pipe_name(&path)).unwrap();
         let err = LocalListener::bind(&path).unwrap_err();
-        assert_eq!(err.kind(), io::ErrorKind::Unsupported);
-        let err = LocalStream::connect(&path).await.unwrap_err();
-        assert_eq!(err.kind(), io::ErrorKind::Unsupported);
-        assert_eq!(pair().unwrap_err().kind(), io::ErrorKind::Unsupported);
-        assert_eq!(probe(&path).unwrap_err().kind(), io::ErrorKind::Unsupported);
+        assert_eq!(err.kind(), io::ErrorKind::AddrInUse, "{err}");
+
+        // Two maxds don't serve one pipe either.
+        let path = pipe_path("twice");
+        let _first = LocalListener::bind(&path).unwrap();
+        let err = LocalListener::bind(&path).unwrap_err();
+        assert_eq!(err.kind(), io::ErrorKind::AddrInUse, "{err}");
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn a_server_of_another_user_is_refused() {
+        // The System process, which runs as SYSTEM: a client that found
+        // it serving the pipe goes no further.
+        let err = super::windows::served_by_this_user(r"\\.\pipe\maxhq-test", 4).unwrap_err();
+        assert_eq!(err.kind(), io::ErrorKind::PermissionDenied, "{err}");
+        super::windows::served_by_this_user(r"\\.\pipe\maxhq-test", std::process::id()).unwrap();
+    }
+
+    #[cfg(windows)]
+    #[tokio::test]
+    async fn a_pair_is_connected_both_ways() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+        let (mut a, mut b) = pair().unwrap();
+        a.write_all(b"hi").await.unwrap();
+        let mut got = [0; 2];
+        b.read_exact(&mut got).await.unwrap();
+        assert_eq!(&got, b"hi");
+        b.write_all(b"yo").await.unwrap();
+        a.read_exact(&mut got).await.unwrap();
+        assert_eq!(&got, b"yo");
+        // No half-close: shutting down flushes, and dropping ends it.
+        a.shutdown().await.unwrap();
+        drop(a);
+        assert_eq!(b.read(&mut got).await.unwrap(), 0);
     }
 }
