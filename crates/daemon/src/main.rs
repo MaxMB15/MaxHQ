@@ -447,13 +447,13 @@ fn run() -> ExitCode {
 /// the launcher moves the log aside before it starts `maxd`, so there's no
 /// launchd log here to move.
 fn rotate_log() {
-    let Some(home) = std::env::var_os("HOME").filter(|home| !home.is_empty()) else {
+    let Some(home) = maxhq_os::home::home_dir() else {
         return;
     };
     let Ok(writing) = maxhq_os::proc::stderr_file() else {
         return;
     };
-    let log = service::log_file(Path::new(&home));
+    let log = service::log_file(&home);
     match service::rotate_log(&log, &writing, service::LOG_LIMIT) {
         Ok(Some(fresh)) => {
             let _ = maxhq_os::proc::send_output_to(&fresh);
