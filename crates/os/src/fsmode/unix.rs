@@ -30,6 +30,16 @@ pub fn mode_of(meta: &Metadata) -> u32 {
     meta.permissions().mode()
 }
 
+pub fn private_file(path: &Path) -> io::Result<()> {
+    set_mode(path, 0o600)
+}
+
+/// Whether `path` is this user's alone, for the tests.
+#[cfg(test)]
+pub fn is_private(path: &Path) -> io::Result<bool> {
+    Ok(fs::metadata(path)?.permissions().mode() & 0o777 == 0o600)
+}
+
 pub fn open_no_wait(options: &mut OpenOptions) -> &mut OpenOptions {
     options.custom_flags(libc::O_NONBLOCK | libc::O_NOCTTY)
 }

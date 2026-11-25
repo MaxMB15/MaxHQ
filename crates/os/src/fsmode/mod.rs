@@ -6,7 +6,9 @@
 //! the administrators and the system can read, so the modes are no-ops
 //! there, and a program is a file whose extension `PATHEXT` names.
 //!
-//! An owner-only DACL for Windows files outside the profile is a follow-up.
+//! A file that holds a secret goes through [`private_file`], which on
+//! Windows gives it a DACL of its own that names only the user, so it
+//! stays theirs wherever it sits.
 
 use std::fs::{File, Metadata, OpenOptions};
 use std::io;
@@ -60,6 +62,14 @@ pub fn mode_of(meta: &Metadata) -> u32 {
 /// extension `PATHEXT` names on Windows.
 pub fn is_executable(path: &Path, meta: &Metadata) -> bool {
     meta.is_file() && crate::which::host_runs(path, mode_of(meta))
+}
+
+/// Keeps the file `path` to this user alone, for a file that holds a
+/// secret: mode 0600 on Unix, and on Windows a protected DACL with one
+/// entry, full access for the user running this, so nothing the folder
+/// grants reaches it. Call it before the secret is written.
+pub fn private_file(path: &Path) -> io::Result<()> {
+    imp::private_file(path)
 }
 
 /// Opens without waiting for a FIFO's writer and without taking a
@@ -119,6 +129,26 @@ mod tests {
         drop(file);
         let read = open_no_wait(OpenOptions::new().read(true)).open(&path);
         assert!(read.is_ok());
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn a_secret_file_is_kept_to_its_owner() {
+        let dir = temp("secret");
+        private_dir_all(&dir).unwrap();
+        let path = dir.join("key");
+        fs::write(&path, b"").unwrap();
+        set_mode(&path, 0o644).unwrap();
+        assert!(!imp::is_private(&path).unwrap(), "a plain file is shared");
+        private_file(&path).unwrap();
+        assert!(imp::is_private(&path).unwrap());
+        fs::write(&path, b"secret").unwrap();
+        assert_eq!(
+            fs::read(&path).unwrap(),
+            b"secret",
+            "the owner still reads it"
+        );
+        assert!(private_file(&dir.join("missing")).is_err());
         fs::remove_dir_all(&dir).unwrap();
     }
 
