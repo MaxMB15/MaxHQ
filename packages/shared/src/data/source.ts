@@ -639,6 +639,12 @@ export type DataSource = HelperCalls & {
 		teamId: string,
 		keyPath: string
 	) => Promise<ActionResult[]>;
+	/**
+	 * Sends the Firebase key that pushes to Android phones to each device,
+	 * one result for each. The backend reads the service account JSON at
+	 * `keyPath`, so the webview never holds it.
+	 */
+	readonly setFcmKey: (devices: DeviceId[], keyPath: string) => Promise<ActionResult[]>;
 	/** Makes a device forget a login or key it holds. */
 	readonly forgetCredential: (
 		device: DeviceId,

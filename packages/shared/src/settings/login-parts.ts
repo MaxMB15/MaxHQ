@@ -130,3 +130,10 @@ export const appLines = (app: Held<"github_app">): readonly [string, string] => 
 /** An APNs key's ID and team. */
 export const apnsLine = (key: Held<"apns">): string =>
 	t("Key {{key_id}}, team {{team_id}}.", { key_id: key.kind.key_id, team_id: key.kind.team_id });
+
+/** A Firebase key's project and the service account it signs in as. */
+export const fcmLine = (key: Held<"fcm">): string =>
+	t("Project {{project_id}}, as {{client_email}}.", {
+		project_id: key.kind.project_id,
+		client_email: key.kind.client_email,
+	});

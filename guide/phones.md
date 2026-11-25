@@ -61,16 +61,18 @@ When the phone reaches a device over SSH, it dials the same address the Mac uses
 
 ## Get pushes on the phone
 <!-- id: phones/pushes -->
-<!-- covers: settings/apns -->
+<!-- covers: settings/apns settings/fcm -->
 
-Each device pushes to your phone itself, with your own Apple APNs key. Until a device holds the key, it can't push to the phone.
+Each device pushes to your phone itself, with your own key: an Apple APNs key for an iPhone, a Firebase key for an Android phone. Until a device holds the key the phone needs, it can't push to the phone.
 
 1. On the Mac, open Settings, then Devices and phones, and find Phone pushes on the Phones tab.
 2. Fill in the Key ID and Team ID, choose the Private key file, tick the devices and send it under Send the key.
 3. Push keys devices hold lists which device holds which key.
 4. On the phone, turn on Notifications in MaxHQ's settings. iOS asks once.
 
-After pairing, the Phones card names any device without the key, with Add the key file. Every paired device sends pushes. What a push says is sealed to the phone's own key. See [Settings](settings.md).
+For an Android phone, send the Firebase key under Android pushes on the same tab instead: choose the Service account key file and send it under Send the Firebase key. Firebase keys devices hold lists which device holds it.
+
+After pairing, the Phones card names any device without the key that phone needs, with Add the key file. Every paired device sends pushes. What a push says is sealed to the phone's own key. See [Settings](settings.md).
 
 ## Choose which pushes arrive and answer them
 <!-- id: phones/notifications -->

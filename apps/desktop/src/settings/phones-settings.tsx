@@ -6,7 +6,8 @@
 // has each paired phone with the devices that let it in, a Remove, a New
 // code for the devices it hasn't signed in to over the network yet, and the
 // switch that lets it do everything, which asks first. Once a phone pairs,
-// a device without the APNs key says so, with the way to add it. A
+// a device without the key for the phone's platform says so, APNs for an
+// iPhone and Firebase for an Android phone, with the way to add it. A
 // device's own settings take the address the phone dials it at.
 
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -20,6 +21,7 @@ import type { DeviceId, PhoneDevice, PhoneId, PhonePairing } from "@maxhq/shared
 import { useNow } from "@maxhq/shared/lib/clock";
 import { awaitingSignIn, CODE_MINUTES } from "@maxhq/shared/settings/network-access";
 import {
+	type MissingPushKey,
 	type PairedPhone,
 	pairedPhones,
 	pairingDevice,
@@ -163,7 +165,7 @@ const AddPhone = ({ devices }: { devices: readonly PhoneDevice[] }) => {
 						<span role="status" className="selectable text-[12.5px] text-foreground">
 							{paired.name} {translate(" is paired.")}
 						</span>
-						<NoPushKey names={withoutPushKey(view, paired)} />
+						<NoPushKey missing={withoutPushKey(view, paired)} />
 					</div>
 				) : pairing && !expired ? (
 					<div className="flex items-end gap-4">
@@ -186,23 +188,42 @@ const AddPhone = ({ devices }: { devices: readonly PhoneDevice[] }) => {
 };
 
 /**
- * The devices a new phone paired with that hold no APNs key, which can't
- * push to it until they get one, with the way to the key's card.
+ * The devices a new phone paired with that hold no key for its platform,
+ * which can't push to it until they get one, with the way to the key's
+ * card. Before the phone sends its token the platform isn't known, so it
+ * names only the devices with neither key.
  */
-const NoPushKey = ({ names }: { names: readonly string[] }) => {
+const NoPushKey = ({ missing }: { missing: MissingPushKey }) => {
 	useI18n();
 	const services = useServices();
+	const { service, names } = missing;
 	if (names.length === 0) return null;
+	const args = { devices: formatList(names), count: names.length };
 	return (
 		<span className="flex flex-wrap items-center gap-2.5 text-xs text-muted-foreground">
-			{translate("{{devices}} has no APNs key yet, so it can't push to the phone.", {
-				devices: formatList(names),
-				count: names.length,
-			})}
+			{service === "fcm"
+				? translate(
+						"{{devices}} has no Firebase key yet, so it can't push to the phone.",
+						args
+					)
+				: service === "apns"
+					? translate(
+							"{{devices}} has no APNs key yet, so it can't push to the phone.",
+							args
+						)
+					: translate(
+							"{{devices}} has no push key yet, so it can't push to the phone.",
+							args
+						)}
 			<button
 				type="button"
 				className={SECONDARY}
-				onClick={() => showPlace(services, { kind: "phones", card: "apns" })}
+				onClick={() =>
+					showPlace(services, {
+						kind: "phones",
+						card: service === "fcm" ? "fcm" : "apns",
+					})
+				}
 			>
 				{translate("Add the key file")}
 			</button>

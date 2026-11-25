@@ -1590,5 +1590,9 @@
 	"In the terminal": "Dans le terminal",
 	"Waiting for keys": "En attente de touches",
 	"In the terminal · Open on the Mac": "Dans le terminal · Ouvrir sur le Mac",
-	"Waiting for keys · Open on the Mac": "En attente de touches · Ouvrir sur le Mac"
+	"Waiting for keys · Open on the Mac": "En attente de touches · Ouvrir sur le Mac",
+	"Update maxd on {{devices}} to get their pushes on this phone.": "Mets maxd à jour sur {{devices}} pour recevoir leurs notifications sur ce téléphone.",
+	"Update maxd on {{devices}} to get their pushes on this phone._many": "Mets maxd à jour sur {{devices}} pour recevoir leurs notifications sur ce téléphone.",
+	"Update maxd on {{devices}} to get their pushes on this phone._one": "Mets maxd à jour sur {{devices}} pour recevoir ses notifications sur ce téléphone.",
+	"Update maxd on {{devices}} to get their pushes on this phone._other": "Mets maxd à jour sur {{devices}} pour recevoir leurs notifications sur ce téléphone."
 }

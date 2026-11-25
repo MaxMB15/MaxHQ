@@ -65,8 +65,8 @@ export const DEVICE_CARDS = [
 
 export type DeviceCardId = (typeof DEVICE_CARDS)[number];
 
-/** The cards of the Phones tab. */
-export const PHONE_CARDS = ["phones", "apns"] as const;
+/** The cards of the Phones tab: the phones, then the APNs and Firebase keys. */
+export const PHONE_CARDS = ["phones", "apns", "fcm"] as const;
 
 export type PhoneCard = (typeof PHONE_CARDS)[number];
 

@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { APNS_LOGIN_TERMS } from "@/settings/apns-login";
 import { deviceCards } from "@/settings/device-settings";
+import { FCM_LOGIN_TERMS } from "@/settings/fcm-login";
 import { LOGIN_STEPS } from "@/settings/login-steps";
 import { LOGIN_TERMS, ownViews, PAGE } from "@/settings/page/cards";
 import { PHONES_TERMS } from "@/settings/phones-settings";
@@ -13,7 +14,7 @@ import { shortcutRows } from "@/shortcut-list/rows";
 import { PROJECT_SKILLS_TERMS } from "@/skills/skills-tab";
 import { LOGIN_VIEWS } from "@maxhq/shared/guide/settings-link";
 import { VIEWS } from "@maxhq/shared/guide/view-link";
-import { LOGIN_HINT } from "@maxhq/shared/settings/login-steps";
+import { FCM_STEPS, LOGIN_HINT } from "@maxhq/shared/settings/login-steps";
 import { device, entities, link } from "@maxhq/shared/test/build";
 import { applySnapshot } from "@maxhq/shared/view/replica";
 
@@ -65,7 +66,7 @@ const EVERY_CARD = applySnapshot({
 });
 
 /**
- * Every card of the Settings page, each login, the Phones tab's two cards,
+ * Every card of the Settings page, each login, the Phones tab's three cards,
  * the views of their own, a project's two tabs and every device card.
  */
 const appSettings = (): SettingsEntry[] => [
@@ -94,6 +95,13 @@ const appSettings = (): SettingsEntry[] => [
 		hint: LOGIN_HINT.apns,
 		terms: APNS_LOGIN_TERMS,
 		link: "maxhq://settings/apns",
+	},
+	{
+		id: "settings/fcm",
+		title: FCM_STEPS.title,
+		hint: FCM_STEPS.hint,
+		terms: FCM_LOGIN_TERMS,
+		link: "maxhq://settings/fcm",
 	},
 	...ownViews().map((own) => ({
 		id: `settings/${own.kind}`,
