@@ -20,7 +20,8 @@
 		"mobile:android:core": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/mobile.ts android-core",
 		"mobile:android:dev": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/mobile.ts android-dev",
 		"mobile:android:apk": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/mobile.ts android-apk",
-		"mobile:android:aab": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/mobile.ts android-aab"
+		"mobile:android:aab": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/mobile.ts android-aab",
+		"mobile:android:release": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/mobile.ts android-release"
 	},
 	"dependencies": {
 		"@formatjs/intl-getcanonicallocales": "^3.3.1",
