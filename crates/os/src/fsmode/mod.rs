@@ -9,6 +9,10 @@
 //! A file that holds a secret goes through [`private_file`], which on
 //! Windows gives it a DACL of its own that names only the user, so it
 //! stays theirs wherever it sits.
+//!
+//! It also holds what tells one file from another ([`file_id`]) and
+//! reads and writes at an offset ([`read_exact_at`]), which std spells
+//! differently on each OS.
 
 use std::fs::{File, Metadata, OpenOptions};
 use std::io;
@@ -95,6 +99,20 @@ pub fn same_file(file: &File, path: &Path) -> io::Result<bool> {
 /// someone else's.
 pub fn has_other_names(file: &File) -> io::Result<bool> {
     imp::has_other_names(file)
+}
+
+/// Fills `buf` from `file` at `offset`, which several threads may do at
+/// once. Each read names its offset, but on Windows it also moves the
+/// file's cursor, so a file that's written as well as read this way is
+/// opened to append, or written with [`write_all_at`].
+pub fn read_exact_at(file: &File, buf: &mut [u8], offset: u64) -> io::Result<()> {
+    imp::read_exact_at(file, buf, offset)
+}
+
+/// Writes all of `buf` to `file` at `offset`. On Windows it also moves the
+/// file's cursor, as [`read_exact_at`] says.
+pub fn write_all_at(file: &File, buf: &[u8], offset: u64) -> io::Result<()> {
+    imp::write_all_at(file, buf, offset)
 }
 
 /// Whether the file `path`, whose metadata is `meta`, is a program you
@@ -185,6 +203,30 @@ mod tests {
         } else {
             assert_eq!(owner_of(&meta), None);
         }
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn a_file_writes_and_reads_at_offsets() {
+        let dir = temp("offsets");
+        fs::create_dir_all(&dir).unwrap();
+        let file = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create_new(true)
+            .open(dir.join("part"))
+            .unwrap();
+        write_all_at(&file, b"world", 6).unwrap();
+        write_all_at(&file, b"hello ", 0).unwrap();
+        let mut out = [0u8; 5];
+        read_exact_at(&file, &mut out, 6).unwrap();
+        assert_eq!(&out, b"world");
+        read_exact_at(&file, &mut out, 0).unwrap();
+        assert_eq!(&out, b"hello");
+        let err = read_exact_at(&file, &mut out, 9).unwrap_err();
+        assert_eq!(err.kind(), io::ErrorKind::UnexpectedEof);
+        assert_eq!(file.metadata().unwrap().len(), 11);
+        drop(file);
         fs::remove_dir_all(&dir).unwrap();
     }
 

@@ -397,16 +397,6 @@ pub fn open_nofollow(path: &Path) -> io::Result<File> {
     imp::open_nofollow(path)
 }
 
-/// Fills `buf` from `file` at `offset`.
-pub fn read_exact_at(file: &File, buf: &mut [u8], offset: u64) -> io::Result<()> {
-    imp::read_exact_at(file, buf, offset)
-}
-
-/// Writes all of `buf` to `file` at `offset`.
-pub fn write_all_at(file: &File, buf: &[u8], offset: u64) -> io::Result<()> {
-    imp::write_all_at(file, buf, offset)
-}
-
 /// Whether a link couldn't be made on this disk or by this user, so a
 /// receiver skips it and says so. Never on Unix.
 pub fn cannot_link(err: &io::Error) -> bool {
@@ -424,6 +414,7 @@ mod tests {
     use super::*;
     use crate::testing::{self, TempDir};
     use crate::Failure;
+    use maxhq_os::fsmode;
 
     fn parts(path: &str) -> Vec<String> {
         path.split('/').map(str::to_owned).collect()
@@ -582,12 +573,12 @@ mod tests {
         let temp = TempDir::new();
         let root = Dir::create(temp.path()).unwrap();
         let file = root.open_file("part", true).unwrap();
-        write_all_at(&file, b"world", 6).unwrap();
-        write_all_at(&file, b"hello ", 0).unwrap();
+        fsmode::write_all_at(&file, b"world", 6).unwrap();
+        fsmode::write_all_at(&file, b"hello ", 0).unwrap();
         let mut out = [0u8; 5];
-        read_exact_at(&file, &mut out, 6).unwrap();
+        fsmode::read_exact_at(&file, &mut out, 6).unwrap();
         assert_eq!(&out, b"world");
-        let err = read_exact_at(&file, &mut out, 9).unwrap_err();
+        let err = fsmode::read_exact_at(&file, &mut out, 9).unwrap_err();
         assert_eq!(err.kind(), io::ErrorKind::UnexpectedEof);
         assert_eq!(root.file_size("part").unwrap(), Some(11));
         assert!(stat_file(&file).unwrap().same(&root.stat("part").unwrap()));

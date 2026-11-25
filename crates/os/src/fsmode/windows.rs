@@ -7,7 +7,7 @@
 
 use std::fs::{self, File, Metadata, OpenOptions};
 use std::io;
-use std::os::windows::fs::OpenOptionsExt;
+use std::os::windows::fs::{FileExt, OpenOptionsExt};
 use std::path::Path;
 use std::ptr;
 use std::time::SystemTime;
@@ -23,6 +23,46 @@ use windows_sys::Win32::Storage::FileSystem::{
 
 use super::FileId;
 use crate::win;
+
+pub fn read_exact_at(file: &File, mut buf: &mut [u8], mut offset: u64) -> io::Result<()> {
+    while !buf.is_empty() {
+        match file.seek_read(buf, offset) {
+            Ok(0) => {
+                return Err(io::Error::new(
+                    io::ErrorKind::UnexpectedEof,
+                    "failed to fill whole buffer",
+                ))
+            }
+            Ok(read) => {
+                buf = &mut buf[read..];
+                offset += read as u64;
+            }
+            Err(err) if err.kind() == io::ErrorKind::Interrupted => {}
+            Err(err) => return Err(err),
+        }
+    }
+    Ok(())
+}
+
+pub fn write_all_at(file: &File, mut buf: &[u8], mut offset: u64) -> io::Result<()> {
+    while !buf.is_empty() {
+        match file.seek_write(buf, offset) {
+            Ok(0) => {
+                return Err(io::Error::new(
+                    io::ErrorKind::WriteZero,
+                    "failed to write whole buffer",
+                ))
+            }
+            Ok(wrote) => {
+                buf = &buf[wrote..];
+                offset += wrote as u64;
+            }
+            Err(err) if err.kind() == io::ErrorKind::Interrupted => {}
+            Err(err) => return Err(err),
+        }
+    }
+    Ok(())
+}
 
 pub fn private_dir_all(path: &Path) -> io::Result<()> {
     fs::DirBuilder::new().recursive(true).create(path)

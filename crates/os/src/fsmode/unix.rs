@@ -3,11 +3,19 @@
 
 use std::fs::{self, DirBuilder, File, Metadata, OpenOptions, Permissions};
 use std::io;
-use std::os::unix::fs::{DirBuilderExt, MetadataExt, OpenOptionsExt, PermissionsExt};
+use std::os::unix::fs::{DirBuilderExt, FileExt, MetadataExt, OpenOptionsExt, PermissionsExt};
 use std::path::Path;
 use std::time::SystemTime;
 
 use super::FileId;
+
+pub fn read_exact_at(file: &File, buf: &mut [u8], offset: u64) -> io::Result<()> {
+    FileExt::read_exact_at(file, buf, offset)
+}
+
+pub fn write_all_at(file: &File, buf: &[u8], offset: u64) -> io::Result<()> {
+    FileExt::write_all_at(file, buf, offset)
+}
 
 pub fn private_dir_all(path: &Path) -> io::Result<()> {
     DirBuilder::new().recursive(true).mode(0o700).create(path)

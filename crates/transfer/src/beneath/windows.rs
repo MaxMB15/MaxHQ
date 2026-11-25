@@ -20,7 +20,7 @@ use std::hash::{BuildHasher, RandomState};
 use std::io;
 use std::mem::offset_of;
 use std::os::windows::ffi::{OsStrExt, OsStringExt};
-use std::os::windows::fs::{FileExt, OpenOptionsExt};
+use std::os::windows::fs::OpenOptionsExt;
 use std::os::windows::io::{AsHandle, AsRawHandle, OwnedHandle};
 use std::path::{Path, PathBuf};
 use std::ptr;
@@ -891,46 +891,6 @@ pub fn remove_if_link(path: &Path) -> io::Result<bool> {
     }
     set_disposition(&handle)?;
     Ok(true)
-}
-
-pub fn read_exact_at(file: &File, mut buf: &mut [u8], mut offset: u64) -> io::Result<()> {
-    while !buf.is_empty() {
-        match file.seek_read(buf, offset) {
-            Ok(0) => {
-                return Err(io::Error::new(
-                    io::ErrorKind::UnexpectedEof,
-                    "failed to fill whole buffer",
-                ))
-            }
-            Ok(read) => {
-                buf = &mut buf[read..];
-                offset += read as u64;
-            }
-            Err(err) if err.kind() == io::ErrorKind::Interrupted => {}
-            Err(err) => return Err(err),
-        }
-    }
-    Ok(())
-}
-
-pub fn write_all_at(file: &File, mut buf: &[u8], mut offset: u64) -> io::Result<()> {
-    while !buf.is_empty() {
-        match file.seek_write(buf, offset) {
-            Ok(0) => {
-                return Err(io::Error::new(
-                    io::ErrorKind::WriteZero,
-                    "failed to write whole buffer",
-                ))
-            }
-            Ok(wrote) => {
-                buf = &buf[wrote..];
-                offset += wrote as u64;
-            }
-            Err(err) if err.kind() == io::ErrorKind::Interrupted => {}
-            Err(err) => return Err(err),
-        }
-    }
-    Ok(())
 }
 
 pub fn code_of(err: &io::Error) -> ErrorCode {
