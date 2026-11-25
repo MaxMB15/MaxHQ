@@ -50,6 +50,11 @@ zeroize.workspace = true
 [target.'cfg(any(target_os = "ios", target_os = "macos"))'.dependencies]
 security-framework.workspace = true
 
+# On Android they're files the app's Kotlin seals under an Android Keystore
+# key, which Rust reaches over JNI.
+[target.'cfg(target_os = "android")'.dependencies]
+jni.workspace = true
+
 [dev-dependencies]
 maxhq-core = { workspace = true, features = ["testing"] }
 

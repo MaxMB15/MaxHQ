@@ -374,6 +374,13 @@ impl Client {
         self.placing(|places| places.downloads = folder)
     }
 
+    /// Copies uploads into `folder` before they go, and lands copies fetched
+    /// to hand on there, in place of the user's cache folder. Links opened
+    /// before this keep the folder they had.
+    pub fn staging_in(self, folder: PathBuf) -> Self {
+        self.placing(|places| places.staging = folder)
+    }
+
     /// Keeps pictures and videos for the timeline in `folder` in place of
     /// the user's cache folder. Links opened before this keep the folder
     /// they had.

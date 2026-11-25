@@ -8,7 +8,8 @@
 //! its notification extension can open a push. The Mac keeps its app key,
 //! the ed25519 seed it proves itself to each `maxd` with, in the login
 //! keychain, where only the app that made it reads it without a prompt.
-//! Tests keep them in memory.
+//! An Android phone keeps the same keys as files its Kotlin seals under an
+//! Android Keystore key, out of backups. Tests keep them in memory.
 
 use std::collections::BTreeMap;
 use std::sync::Mutex;
@@ -28,6 +29,29 @@ pub enum Key {
     /// The ed25519 seed the Mac app proves itself to each `maxd` with,
     /// followed by the one before it while devices move to a new one.
     App,
+}
+
+impl Key {
+    /// The name the key goes by in the system's store: its Keychain
+    /// account, or its file name on Android, where the push service reads
+    /// the push key by this name too.
+    pub fn account(self) -> String {
+        match self {
+            Key::Ssh => "ssh-ed25519".to_owned(),
+            Key::Push => "x25519".to_owned(),
+            Key::Token(device) => format!("token-{device}"),
+            Key::App => "ed25519".to_owned(),
+        }
+    }
+
+    /// What the key is, for an error.
+    pub fn what(self) -> &'static str {
+        match self {
+            Key::Ssh | Key::Push => "the phone's key",
+            Key::Token(_) => "a device's token",
+            Key::App => "this Mac's app key",
+        }
+    }
 }
 
 /// Where the app keeps its keys.
@@ -119,22 +143,11 @@ mod keychain {
     const NOT_FOUND: i32 = -25300;
 
     fn options(key: Key) -> PasswordOptions {
-        let (service, account) = match key {
-            Key::Ssh => (PHONE, "ssh-ed25519".to_owned()),
-            Key::Push => (PHONE, "x25519".to_owned()),
-            Key::Token(device) => (PHONE, format!("token-{device}")),
-            Key::App => (APP, "ed25519".to_owned()),
+        let service = match key {
+            Key::App => APP,
+            Key::Ssh | Key::Push | Key::Token(_) => PHONE,
         };
-        PasswordOptions::new_generic_password(service, &account)
-    }
-
-    /// What the key is, for an error.
-    fn what(key: Key) -> &'static str {
-        match key {
-            Key::Ssh | Key::Push => "the phone's key",
-            Key::Token(_) => "a device's token",
-            Key::App => "this Mac's app key",
-        }
+        PasswordOptions::new_generic_password(service, &key.account())
     }
 
     impl KeyStore for Keychain {
@@ -142,12 +155,12 @@ mod keychain {
             match generic_password(options(key)) {
                 Ok(seed) => Ok(Some(Zeroizing::new(seed))),
                 Err(error) if error.code() == NOT_FOUND => Ok(None),
-                Err(error) => Err(format!("Couldn't read {}: {error}", what(key))),
+                Err(error) => Err(format!("Couldn't read {}: {error}", key.what())),
             }
         }
 
         fn save(&self, key: Key, bytes: &[u8]) -> Result<(), String> {
-            let kept = |error| format!("Couldn't keep {}: {error}", what(key));
+            let kept = |error| format!("Couldn't keep {}: {error}", key.what());
             let mut options = options(key);
             if key != Key::App {
                 let access = SecAccessControl::create_with_protection(
@@ -164,13 +177,18 @@ mod keychain {
         fn forget(&self, key: Key) -> Result<(), String> {
             match delete_generic_password_options(options(key)) {
                 Err(error) if error.code() != NOT_FOUND => {
-                    Err(format!("Couldn't forget {}: {error}", what(key)))
+                    Err(format!("Couldn't forget {}: {error}", key.what()))
                 }
                 _ => Ok(()),
             }
         }
     }
 }
+
+#[cfg(target_os = "android")]
+mod android;
+#[cfg(target_os = "android")]
+pub use android::AndroidStore;
 
 #[cfg(test)]
 mod tests {
@@ -203,5 +221,22 @@ mod tests {
         assert_eq!(store.load(Key::App).unwrap().unwrap().as_slice(), &[9; 32]);
         store.forget(Key::App).unwrap();
         assert_eq!(store.load(Key::App).unwrap(), None);
+    }
+
+    /// The Keychain items and Android files keep these names, and the
+    /// Android push service reads the push key by its name, so they can't
+    /// change.
+    #[test]
+    fn each_key_keeps_its_account_name() {
+        let device = DeviceId::derive("devbox");
+        assert_eq!(Key::Ssh.account(), "ssh-ed25519");
+        assert_eq!(Key::Push.account(), "x25519");
+        assert_eq!(Key::App.account(), "ed25519");
+        assert_eq!(Key::Token(device).account(), format!("token-{device}"));
+        let token = Key::Token(device).account();
+        assert!(
+            token.chars().all(|c| c.is_ascii_alphanumeric() || c == '-'),
+            "{token} is a file name on Android"
+        );
     }
 }

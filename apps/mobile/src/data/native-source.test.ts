@@ -428,8 +428,10 @@ describe("phone calls", () => {
 
 	it("starts on the data and cache folders and passes the app's state and network on", () => {
 		const phone = phoneCalls(fake.bridge);
-		expect(phone.start("/data", "/cache")).toBeNull();
+		expect(phone.start("/data", "/cache", "ios")).toBeNull();
 		expect(fake.bridge.start).toHaveBeenCalledWith("/data", "/cache", "ios");
+		expect(phone.start("/data", "/cache", "android")).toBeNull();
+		expect(fake.bridge.start).toHaveBeenLastCalledWith("/data", "/cache", "android");
 		expect(phone.appState("background")).toEqual(OK);
 		expect(fake.bridge.appState).toHaveBeenCalledWith("background");
 		expect(phone.networkChanged("cellular")).toEqual(OK);
@@ -455,7 +457,9 @@ describe("phone calls", () => {
 	it("throws when the core doesn't start", () => {
 		const error = { kind: "failed", message: "The phone core hasn't started." };
 		fake.bridge.start = () => JSON.stringify({ status: "error", error });
-		expect(() => phoneCalls(fake.bridge).start("/data", "/cache")).toThrow(error.message);
+		expect(() => phoneCalls(fake.bridge).start("/data", "/cache", "ios")).toThrow(
+			error.message
+		);
 	});
 
 	it("reads the phone's key and adds a device by hand", () => {

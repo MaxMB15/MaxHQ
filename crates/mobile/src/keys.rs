@@ -3,8 +3,9 @@
 
 //! The phone's own keys: an ed25519 seed for SSH and an X25519 private key
 //! that devices seal pushes to, each made once and kept in the Keychain,
-//! on this phone only, readable after the first unlock so the app can
-//! reconnect in the background and the notification extension can open a
+//! or on Android under an Android Keystore key, on this phone only,
+//! readable after the first unlock so the app can reconnect in the
+//! background and the notification extension or push service can open a
 //! push. Next to them sits each device's token for network access, which
 //! only the app reads. Tests keep them in memory. The store itself lives
 //! in [`maxhq_app::keys`], which the Mac app's key shares.
@@ -70,11 +71,14 @@ pub fn push_public(private: &[u8; 32]) -> String {
     STANDARD.encode(MontgomeryPoint::mul_base_clamped(*private).to_bytes())
 }
 
-/// The Keychain, where the build has one.
+/// The system's store: the Keychain, or the Android Keystore through the
+/// app's Kotlin, where the build has one.
 pub(crate) fn system() -> Result<Box<dyn KeyStore>, maxhq_app::request::CommandError> {
     #[cfg(any(target_os = "ios", target_os = "macos"))]
     return Ok(Box::new(Keychain));
-    #[cfg(not(any(target_os = "ios", target_os = "macos")))]
+    #[cfg(target_os = "android")]
+    return Ok(Box::new(maxhq_app::keys::AndroidStore));
+    #[cfg(not(any(target_os = "ios", target_os = "macos", target_os = "android")))]
     Err(maxhq_app::request::CommandError::Failed {
         message: "This build has no Keychain for the phone's key".to_owned(),
     })

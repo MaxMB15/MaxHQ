@@ -144,6 +144,10 @@ core-foundation = "0.10"
 # The phone app's bridge to React Native, through its proc macros. At
 # 0.31, the version uniffi-bindgen-react-native is on.
 uniffi = { version = "=0.31.2", default-features = false }
+# The Android phone's keys, which Kotlin keeps under an Android Keystore
+# key, reached from Rust over JNI. Already in the lockfile through
+# rustls-platform-verifier.
+jni = { version = "=0.22.4", default-features = false }
 objc2 = "0.6"
 objc2-foundation = "0.3"
 objc2-user-notifications = "0.3"
