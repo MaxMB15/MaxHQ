@@ -1,0 +1,116 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Max Boksem
+
+# The phone app's Android release build: the Rust core for both ABIs, then
+# the APK and the App Bundle, unsigned, in an artifact named android-build.
+# release.yml calls it, and so does the dry run. It holds no secret and no
+# token it could write with; sign-android signs both with the upload key.
+
+name: Release Android
+
+on:
+  workflow_call:
+    inputs:
+      release:
+        description: A release build, which fails without the app's IDs instead of using stand-ins
+        type: boolean
+        default: false
+    outputs:
+      build:
+        description: The build number, which is the Android version code and the iPhone build's
+        value: ${{ jobs.build-android.outputs.build }}
+
+permissions: {}
+
+# A called workflow doesn't take its caller's env.
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: 0
+
+jobs:
+  build-android:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 75
+    permissions:
+      contents: read
+    outputs:
+      build: ${{ steps.number.outputs.build }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # The package is the iPhone app's bundle ID, so the release needs it
+      # before the long build. The dry run builds with stand-ins when the
+      # repository has no variables, as a fork's wouldn't.
+      - name: Check the app's IDs
+        env:
+          IOS_TEAM_ID: ${{ vars.IOS_TEAM_ID }}
+          IOS_BUNDLE_ID: ${{ vars.IOS_BUNDLE_ID }}
+          RELEASE: ${{ inputs.release }}
+        run: |
+          set -euo pipefail
+          missing=""
+          for name in IOS_TEAM_ID IOS_BUNDLE_ID; do
+            if [[ -z "${!name}" ]]; then missing="$missing $name"; fi
+          done
+          if [[ -n "$missing" && "$RELEASE" == true ]]; then
+            echo "::error::The Android build needs these, and .github/RELEASING.md says where each goes:$missing"
+            exit 1
+          fi
+          if [[ -n "$missing" ]]; then
+            echo "::notice::This dry run builds with stand-in IDs, since these aren't set:$missing"
+          fi
+
+      - name: Set up the frontend
+        uses: ./.github/actions/setup-frontend
+
+      - name: Set up the Android build
+        uses: ./.github/actions/setup-android
+
+      # The iPhone build's number for this run and attempt, so the version
+      # code only grows and Play never sees one twice.
+      - name: Number the build
+        id: number
+        run: |
+          set -euo pipefail
+          build=$(node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON apps/mobile/scripts/mobile.ts build-number)
+          echo "The Android version code is $build."
+          echo "build=$build" >> "$GITHUB_OUTPUT"
+
+      # git ignores ios.local.json, so the job writes it, as build-ios does.
+      - name: Write the app's IDs
+        env:
+          IOS_TEAM_ID: ${{ vars.IOS_TEAM_ID || 'ABCDE12345' }}
+          IOS_BUNDLE_ID: ${{ vars.IOS_BUNDLE_ID || 'com.example.maxhq' }}
+        run: |
+          node -e 'const { IOS_TEAM_ID: teamId, IOS_BUNDLE_ID: bundleId } = process.env;
+            process.stdout.write(`${JSON.stringify({ teamId, bundleId }, null, "\t")}\n`);' \
+            > apps/mobile/ios.local.json
+
+      # The core in release, prebuild, the APK and the App Bundle.
+      - name: Build
+        env:
+          MAXHQ_BUILD_NUMBER: ${{ steps.number.outputs.build }}
+          # Where the app looks for mobile.json, written into the build.
+          MAXHQ_RELEASES_REPO: ${{ github.repository }}
+        run: pnpm --filter maxhq-mobile mobile:android:release
+
+      - name: Stage
+        run: |
+          set -euo pipefail
+          outputs=apps/mobile/android/app/build/outputs
+          mkdir -p out
+          cp "$outputs/apk/release/app-release-unsigned.apk" "$outputs/bundle/release/app-release.aab" out/
+          ls -l out
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: android-build
+          path: out/
+          retention-days: 7
+          if-no-files-found: error
+
+      - name: Disk left
+        if: always()
+        run: df -h /

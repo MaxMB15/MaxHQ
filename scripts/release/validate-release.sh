@@ -4,13 +4,16 @@
 
 # Checks that a published release's downloads work: every URL in latest.json
 # and its .sig, the same for latest-v2.json when the release has one (after
-# a change of the update key), the versionless DMGs the README links to, the
-# Linux maxd binaries and SHA256SUMS, and the model catalog and its .sig.
+# a change of the update key), which lists the Windows and Linux installers
+# too, the versionless DMGs the README links to, SHA256SUMS and each maxd it
+# lists, both Linux ones among them, the model catalog and its .sig, and
+# mobile.json with the APK and App Bundle when it names an Android build.
 #
 #   sh scripts/release/validate-release.sh [<owner>/<repo>] [tag]
 #
 # The repo defaults to $GITHUB_REPOSITORY, then to the origin remote's. The
-# tag defaults to the latest release. Exits non-zero when a URL doesn't
+# tag defaults to the latest release. MAXHQ_RELEASE_BASE, for the tests,
+# replaces the release's download URL. Exits non-zero when a URL doesn't
 # answer 200.
 
 set -eu
@@ -20,7 +23,9 @@ if [ -z "$repo" ]; then
 	repo=$(git remote get-url origin | sed -E 's#^(git@github\.com:|https://github\.com/)##; s#\.git$##')
 fi
 tag=${2:-latest}
-if [ "$tag" = latest ]; then
+if [ -n "${MAXHQ_RELEASE_BASE:-}" ]; then
+	base=$MAXHQ_RELEASE_BASE
+elif [ "$tag" = latest ]; then
 	base=https://github.com/$repo/releases/latest/download
 else
 	base=https://github.com/$repo/releases/download/$tag
@@ -43,22 +48,29 @@ trap 'rm -f "$json"' EXIT
 
 # Checks one update manifest that answered 200 into $json.
 manifest() {
-	# One "platform url signature-length" line per platform.
+	# One "platforms url signed" line per download, since an installer's
+	# platform keys share its URL. signed is 0 when a signature is empty.
 	platforms=$(node -e '
 		const m = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8"));
 		console.error(`version ${m.version}`);
-		for (const [name, p] of Object.entries(m.platforms ?? {}))
-			console.log(`${name} ${p.url} ${(p.signature ?? "").length}`);
+		const urls = new Map();
+		for (const [name, p] of Object.entries(m.platforms ?? {})) {
+			const entry = urls.get(p.url) ?? { names: [], signed: 1 };
+			entry.names.push(name);
+			if (!(p.signature ?? "").length) entry.signed = 0;
+			urls.set(p.url, entry);
+		}
+		for (const [url, { names, signed }] of urls) console.log(`${names.join(",")} ${url} ${signed}`);
 	' "$json")
 	if [ -z "$platforms" ]; then
 		echo "FAIL: $1 lists no platforms"
 		exit 1
 	fi
-	while read -r platform url siglen; do
+	while read -r platform url signed; do
 		echo "--- $1, $platform"
-		check archive "$url"
+		check download "$url"
 		check .sig "$url.sig"
-		if [ "$siglen" = 0 ]; then
+		if [ "$signed" = 0 ]; then
 			echo "  signature in $1: empty"
 			failed=1
 		fi
@@ -86,11 +98,44 @@ else
 fi
 
 echo "--- downloads"
-for name in MaxHQ_aarch64.dmg MaxHQ_x64.dmg \
-	maxd-x86_64-unknown-linux-musl maxd-aarch64-unknown-linux-musl SHA256SUMS \
-	model-catalog.json model-catalog.json.sig; do
+for name in MaxHQ_aarch64.dmg MaxHQ_x64.dmg SHA256SUMS model-catalog.json model-catalog.json.sig; do
 	check "$name" "$base/$name"
 done
+
+# Each maxd SHA256SUMS lists: both Linux ones, and each Windows one that
+# built.
+echo "--- maxd"
+sums=$(curl -sfL "$base/SHA256SUMS" || true)
+for name in maxd-x86_64-unknown-linux-musl maxd-aarch64-unknown-linux-musl; do
+	if ! printf '%s\n' "$sums" | grep -Eq "^[0-9a-f]{64} [ *]$name\$"; then
+		echo "  SHA256SUMS: has no $name"
+		failed=1
+	fi
+done
+while read -r sum name; do
+	[ -n "$sum" ] || continue
+	check "${name#\*}" "$base/${name#\*}"
+done <<EOF
+$sums
+EOF
+
+# Releases from before the phone builds have no mobile.json.
+code=$(curl -sL -o "$json" -w '%{http_code}' "$base/mobile.json")
+if [ "$code" = 200 ]; then
+	apk=$(node -p 'JSON.parse(require("fs").readFileSync(process.argv[1], "utf8")).android?.apk_url ?? ""' "$json")
+	if [ -n "$apk" ]; then
+		echo "--- mobile.json, Android"
+		check MaxHQ.apk "$apk"
+		check MaxHQ.aab "$base/MaxHQ.aab"
+	else
+		echo "--- mobile.json: no Android build"
+	fi
+elif [ "$code" = 404 ]; then
+	echo "--- mobile.json: none"
+else
+	echo "--- mobile.json: HTTP $code"
+	failed=1
+fi
 
 if [ "$failed" = 0 ]; then
 	echo "=== all checks passed ==="

@@ -1,0 +1,76 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Max Boksem
+
+name: Set up the Android build
+description: >-
+  Free the disk space the phone app's Android build needs, then install Java
+  17, Rust with the core's two Android targets, cargo-ndk and the NDK
+  apps/mobile/scripts/native.ts pins. It keeps the runner's Android SDK,
+  which Gradle builds with. The CI build caches Gradle's downloads and the
+  Rust build; the release build caches nothing.
+
+inputs:
+  cache:
+    description: "'true' to cache Gradle's downloads and the Rust build"
+    default: "false"
+  save-cache:
+    description: "'true' to save those caches as well as restore them"
+    default: "false"
+
+runs:
+  using: composite
+  steps:
+    # The core's two builds and Gradle's take most of the runner's disk. The
+    # build never uses the runner's .NET, Haskell or CodeQL.
+    - name: Free disk space
+      shell: bash
+      run: |
+        sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/.ghcup /opt/hostedtoolcache/CodeQL
+        df -h /
+
+    # Gradle's downloads are cached under the versions that pick them: the
+    # lockfile for React Native's and Expo's, and the core module's build.
+    - name: Install Java
+      uses: actions/setup-java@77dd5b2ce225ea11469928ac317850245a74ae78 # v6.2.0
+      with:
+        distribution: temurin
+        java-version: 17
+        cache: ${{ inputs.cache == 'true' && 'gradle' || '' }}
+        cache-dependency-path: |
+          pnpm-lock.yaml
+          apps/mobile/modules/maxhq-core/android/build.gradle
+        cache-read-only: ${{ inputs.save-cache != 'true' }}
+
+    - name: Install Rust
+      uses: dtolnay/rust-toolchain@686976e191b89faba57d3206551f0f330d8cb249 # stable
+      with:
+        toolchain: stable
+        targets: aarch64-linux-android, x86_64-linux-android
+
+    - name: Rust cache
+      if: inputs.cache == 'true'
+      uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+      with:
+        workspaces: ". -> target"
+        save-if: ${{ inputs.save-cache == 'true' }}
+
+    # install-action has no build of cargo-ndk, so it builds here.
+    - name: Install cargo-ndk
+      shell: bash
+      run: cargo install --locked cargo-ndk@4.1.2
+
+    # The NDK native.ts pins, which the runner's SDK doesn't carry, read
+    # from its line there. The image accepted the SDK's licenses, so nothing
+    # asks. NDK_VERSION names it for the steps after.
+    - name: Install the NDK
+      shell: bash
+      run: |
+        set -euo pipefail
+        ndk=$(sed -n 's/^export const ANDROID_NDK_VERSION = "\([0-9.]*\)";$/\1/p' apps/mobile/scripts/native.ts)
+        if [[ -z "$ndk" ]]; then
+          echo "::error::apps/mobile/scripts/native.ts has no ANDROID_NDK_VERSION line this step reads."
+          exit 1
+        fi
+        "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --install "ndk;$ndk" < /dev/null > /dev/null
+        ls "$ANDROID_HOME/ndk/$ndk/source.properties"
+        echo "NDK_VERSION=$ndk" >> "$GITHUB_ENV"

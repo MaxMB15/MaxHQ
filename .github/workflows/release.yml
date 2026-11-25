@@ -10,18 +10,27 @@
 #                   ─> build-ios (iPhone archive)
 #                            ─> release-testflight ─> publish-latest-json ─> sync-dev
 #
+#   prepare-release ─> build-windows (x64, arm64) ─────┬─> sign-desktop ─┐
+#        linux-maxd ─> build-linux (x64, arm64) ───────┘                 ├─> publish-latest-json
+#   prepare-release ─> build-android (APK, App Bundle) ─> sign-android ──┘
+#
 # Building and signing run in separate jobs. The build jobs run every
 # dependency's build code, so they get no secret and no token they could
-# write with. The jobs that hold a key (sign-macos, release-testflight) run in
-# the macos-signing environment, which waits for a reviewer to approve each
-# job. They install no dependency and build nothing: they run Apple's tools
-# and the release scripts from their own checkout of the tag, which need
-# nothing but Node, and they run nothing from the build they sign.
+# write with. The jobs that hold a key (sign-macos, sign-desktop,
+# sign-android, release-testflight) run in the macos-signing environment,
+# which waits for a reviewer to approve each job. They install no dependency
+# and build nothing: they run the platform's signing tools and the release
+# scripts from their own checkout of the tag, which need nothing but Node,
+# and they run nothing from the build they sign.
 #
-# Nothing ships unless every build passes. release-testflight uploads the
-# iPhone build only once the Linux, Mac and iPhone builds have all succeeded,
-# and publish-latest-json publishes the draft only after that upload.
-# "Re-run failed jobs" finishes a release after a failed build or upload.
+# Nothing ships unless the Mac, iPhone and Linux maxd builds pass.
+# release-testflight uploads the iPhone build only once those have all
+# succeeded, and publish-latest-json publishes the draft only after that
+# upload. The Windows, Linux app and Android jobs hold none of that up:
+# publish-latest-json waits for them to finish and takes what they made, and
+# a platform whose job failed keeps the version it has. "Re-run failed jobs"
+# finishes a release after a failed build or upload, and puts in what a
+# failed Windows, Linux or Android job left out.
 #
 # The tag's message decides whether the draft is published at the end: a line
 # that reads exactly `Publish-Release: true` publishes it. The one-click
@@ -184,68 +193,15 @@ jobs:
               --draft --generate-notes --title "MaxHQ $TAG"
           fi
 
-  # A static maxd for each Linux CPU, built natively on each. The app copies
-  # it to Linux devices, and maxd checks it against maxd-release.json. These
-  # jobs get no secrets and no token they could write with.
+  # A static maxd for each Linux CPU, built natively on each, as artifacts
+  # named release-maxd-<target>. The Mac app and the Linux app carry it, and
+  # the release uploads it for Linux devices. release-linux-maxd.yml holds
+  # the jobs, which the dry run calls too.
   linux-maxd:
-    name: linux-maxd (${{ matrix.target }})
     needs: [prepare-release]
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - target: x86_64-unknown-linux-musl
-            runner: ubuntu-24.04
-          - target: aarch64-unknown-linux-musl
-            runner: ubuntu-24.04-arm
-    runs-on: ${{ matrix.runner }}
+    uses: ./.github/workflows/release-linux-maxd.yml
     permissions:
       contents: read
-    env:
-      TARGET: ${{ matrix.target }}
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-
-      # ring and the bundled SQLite compile C, which needs musl-gcc.
-      - name: Install musl tools
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends musl-tools
-
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@686976e191b89faba57d3206551f0f330d8cb249 # stable
-        with:
-          toolchain: stable
-          targets: ${{ matrix.target }}
-
-      - name: Build
-        env:
-          # Where maxd refreshes its model catalog, written in at build time.
-          MAXHQ_CATALOG_URL: https://github.com/${{ github.repository }}/releases/latest/download/model-catalog.json
-        run: cargo build --release --locked -p maxd --target "$TARGET"
-
-      # A dynamic binary would need the host's loader and libc.
-      - name: Check that it's static and runs
-        run: |
-          bin="target/$TARGET/release/maxd"
-          file "$bin"
-          file "$bin" | grep -Eq 'static(-pie)? linked|statically linked'
-          "$bin" --version
-
-      - name: Stage
-        run: |
-          mkdir -p out
-          cp "target/$TARGET/release/maxd" "out/maxd-$TARGET"
-          sha256sum "out/maxd-$TARGET"
-
-      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        with:
-          name: release-maxd-${{ matrix.target }}
-          path: out/maxd-${{ matrix.target }}
-          retention-days: 7
-          if-no-files-found: error
 
   # One build for each Mac CPU: maxd, maxd-vm and the unsigned app. It gets
   # no secret and no token it could write with, and hands the build to
@@ -691,11 +647,207 @@ jobs:
         if: always()
         run: rm -rf "$RUNNER_TEMP/asc"
 
-  # Uploads the Linux maxd, the update manifests, the model catalog and
-  # mobile.json once every build has passed and the iPhone build is in
-  # TestFlight, then publishes the draft when the tag asked for it.
+  # The Windows maxd and installers, unsigned, for x64 and arm64. A failed
+  # one holds up neither the Mac, the iPhone nor publish-latest-json.
+  # release-windows.yml holds the jobs, which the dry run calls too.
+  build-windows:
+    needs: [prepare-release]
+    uses: ./.github/workflows/release-windows.yml
+    permissions:
+      contents: read
+    with:
+      update-manifest: ${{ needs.prepare-release.outputs.update-manifest }}
+      update-pubkey: ${{ needs.prepare-release.outputs.next-pubkey }}
+
+  # The Linux app for x64 and arm64 as an AppImage, a .deb and an .rpm, with
+  # linux-maxd's static maxd in it. A failed one holds nothing up either.
+  build-linux:
+    needs: [prepare-release, linux-maxd]
+    uses: ./.github/workflows/release-linux.yml
+    permissions:
+      contents: read
+    with:
+      update-manifest: ${{ needs.prepare-release.outputs.update-manifest }}
+      update-pubkey: ${{ needs.prepare-release.outputs.next-pubkey }}
+
+  # The phone app's APK and App Bundle, unsigned, numbered as the iPhone
+  # build is. A failed one holds nothing up either.
+  build-android:
+    needs: [prepare-release]
+    uses: ./.github/workflows/release-android.yml
+    permissions:
+      contents: read
+    with:
+      release: true
+
+  # Signs each Windows and Linux installer for the app's updater, as
+  # sign-macos signs the Mac's archive, and uploads it with its .sig. It runs
+  # on whatever the builds made, so a failed build leaves out only its own
+  # installers. The update key lives in macos-signing, so a reviewer
+  # approves the job before it starts.
+  sign-desktop:
+    needs: [prepare-release, build-windows, build-linux]
+    if: ${{ !cancelled() && needs.prepare-release.result == 'success' }}
+    runs-on: ubuntu-24.04
+    environment: macos-signing
+    permissions:
+      contents: write
+    env:
+      VERSION: ${{ needs.prepare-release.outputs.version }}
+      KEY_STATE: ${{ needs.prepare-release.outputs.key-state }}
+      SIGN_KEY: ${{ needs.prepare-release.outputs.sign-key }}
+      NEXT_PUBKEY: ${{ needs.prepare-release.outputs.next-pubkey }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # Node only: no pnpm and no packages.
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+
+      # Outside the checkout, so nothing in the build can replace a script
+      # this job runs. A build that failed has no artifact here.
+      - name: Download the installers
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          pattern: desktop-build-*
+          merge-multiple: true
+          path: ${{ runner.temp }}/desktop
+
+      # As sign-macos checks them, before signing anything.
+      - name: Check the update keys
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          TAURI_SIGNING_PRIVATE_KEY_NEXT: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_NEXT }}
+          TAURI_SIGNING_PRIVATE_KEY_NEXT_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_NEXT_PASSWORD }}
+        run: |
+          set -euo pipefail
+          current=$(node -p 'require("./apps/desktop/src-tauri/tauri.conf.json").plugins.updater.pubkey')
+          if [[ "$SIGN_KEY" == current ]]; then
+            node scripts/release/sign.mjs --check --expect "$current"
+          fi
+          if [[ "$KEY_STATE" == bridge || "$SIGN_KEY" == next ]]; then
+            node scripts/release/sign.mjs --next --check --expect "$NEXT_PUBKEY"
+          fi
+
+      # <installer>.sig, and in the bridge release <installer>.next.sig too.
+      - name: Sign the installers
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          TAURI_SIGNING_PRIVATE_KEY_NEXT: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_NEXT }}
+          TAURI_SIGNING_PRIVATE_KEY_NEXT_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_NEXT_PASSWORD }}
+          MAXHQ_UPDATE_KEY: ${{ needs.prepare-release.outputs.sign-key }}
+          MAXHQ_BRIDGE: ${{ needs.prepare-release.outputs.key-state == 'bridge' && '1' || '' }}
+        run: sh scripts/release/sign-desktop.sh "$RUNNER_TEMP/desktop"
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: updater-sig-desktop
+          path: ${{ runner.temp }}/desktop/*.sig
+          retention-days: 7
+          if-no-files-found: error
+
+      # Each installer that was signed, and its .sig, as the Mac's archive.
+      - name: Upload to the draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          set --
+          for name in $(node scripts/release/bundles.mjs assets); do
+            file="$RUNNER_TEMP/desktop/$name"
+            if [[ -f "$file.sig" ]]; then set -- "$@" "$file" "$file.sig"; fi
+          done
+          gh release upload "v$VERSION" --repo "$GITHUB_REPOSITORY" --clobber "$@"
+
+  # Signs the APK and the App Bundle with the Android upload key and uploads
+  # both. With no key in macos-signing it says so and uploads nothing, so
+  # the release carries no Android build. The key lives in macos-signing,
+  # so a reviewer approves the job before it starts. It needs Node, the
+  # runner's Android SDK and a JDK, and installs no package.
+  sign-android:
+    needs: [prepare-release, build-android]
+    runs-on: ubuntu-24.04
+    environment: macos-signing
+    permissions:
+      contents: write
+    outputs:
+      build: ${{ steps.sign.outputs.build }}
+    env:
+      VERSION: ${{ needs.prepare-release.outputs.version }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+
+      # jarsigner, which signs the App Bundle.
+      - uses: actions/setup-java@77dd5b2ce225ea11469928ac317850245a74ae78 # v6.2.0
+        with:
+          distribution: temurin
+          java-version: 17
+
+      # Outside the checkout; sign-android.sh copies the two files in.
+      - name: Download the build
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: android-build
+          path: ${{ runner.temp }}/android
+
+      # build is set only when it signed, which publish-latest-json reads.
+      - name: Sign
+        id: sign
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          BUILD: ${{ needs.build-android.outputs.build }}
+        run: |
+          set -euo pipefail
+          sh scripts/release/sign-android.sh "$RUNNER_TEMP/android" "$RUNNER_TEMP/signed"
+          if [[ -f "$RUNNER_TEMP/signed/MaxHQ.apk" ]]; then
+            echo "MaxHQ $VERSION for Android, build $BUILD, signed."
+            echo "build=$BUILD" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Upload to the draft release
+        if: steps.sign.outputs.build != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release upload "v$VERSION" --repo "$GITHUB_REPOSITORY" --clobber \
+            "$RUNNER_TEMP/signed/MaxHQ.apk" "$RUNNER_TEMP/signed/MaxHQ.aab"
+
+  # Uploads maxd, the update manifests, the model catalog and mobile.json
+  # once the Mac, iPhone and Linux maxd builds have passed and the iPhone
+  # build is in TestFlight, then publishes the draft when the tag asked for
+  # it. It waits for the Windows, Linux app and Android jobs to finish, but
+  # not for them to pass: what they made goes in, and a platform whose job
+  # failed is left out until "Re-run failed jobs", which runs this job again.
   publish-latest-json:
-    needs: [prepare-release, linux-maxd, sign-macos, build-ios, release-testflight]
+    needs:
+      - prepare-release
+      - linux-maxd
+      - sign-macos
+      - build-ios
+      - release-testflight
+      - build-windows
+      - build-linux
+      - sign-desktop
+      - build-android
+      - sign-android
+    if: >-
+      ${{ !cancelled() && needs.prepare-release.result == 'success' &&
+      needs.linux-maxd.result == 'success' && needs.sign-macos.result == 'success' &&
+      needs.build-ios.result == 'success' && needs.release-testflight.result == 'success' }}
     runs-on: ubuntu-24.04
     permissions:
       contents: write
@@ -703,6 +855,8 @@ jobs:
       VERSION: ${{ needs.prepare-release.outputs.version }}
       PUBLISH: ${{ needs.prepare-release.outputs.publish }}
       IOS_BUILD: ${{ needs.build-ios.outputs.build }}
+      # Empty when the release carries no signed Android build.
+      ANDROID_BUILD: ${{ needs.sign-android.outputs.build }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -717,7 +871,15 @@ jobs:
         with:
           pattern: release-maxd-*
           merge-multiple: true
-          path: linux
+          path: maxd
+
+      # None when the Windows builds failed.
+      - name: Download the Windows maxd
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          pattern: windows-maxd-*
+          merge-multiple: true
+          path: maxd
 
       # By name, each from its sign-macos job.
       - name: Download the Apple silicon updater signatures
@@ -732,29 +894,40 @@ jobs:
           name: updater-sig-x64
           path: sigs
 
+      # A pattern, which finds nothing rather than failing when sign-desktop
+      # didn't run.
+      - name: Download the Windows and Linux updater signatures
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          pattern: updater-sig-desktop
+          merge-multiple: true
+          path: desktop-sigs
+
       - name: Download the signed model catalog
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
           name: model-catalog
           path: catalog
 
-      - name: Upload the Linux maxd and SHA256SUMS
+      # Both Linux maxd, each Windows maxd that built, and SHA256SUMS.
+      - name: Upload maxd and SHA256SUMS
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          cd linux
-          sha256sum maxd-x86_64-unknown-linux-musl maxd-aarch64-unknown-linux-musl > SHA256SUMS
-          cat SHA256SUMS
-          gh release upload "v$VERSION" --repo "$GITHUB_REPOSITORY" --clobber \
-            maxd-x86_64-unknown-linux-musl maxd-aarch64-unknown-linux-musl SHA256SUMS
+          sh scripts/release/maxd-sums.sh maxd > maxd-assets
+          mapfile -t assets < maxd-assets
+          cd maxd
+          gh release upload "v$VERSION" --repo "$GITHUB_REPOSITORY" --clobber "${assets[@]}"
 
       # The manifests the app's updater reads, each checked against the key
       # its readers trust. Without a key change, only latest.json, as always.
       # The bridge release writes latest.json for apps on the current key and
       # latest-v2.json for the next. After it, latest-v2.json is the live one
       # and latest.json stays at the bridge release, so an app that skipped
-      # the bridge still reaches it first.
+      # the bridge still reaches it first. The Windows and Linux installers
+      # go only into the manifest this release's apps read, so latest.json
+      # stays the Mac's.
       - name: Write and upload the update manifests
         env:
           GH_TOKEN: ${{ github.token }}
@@ -762,6 +935,7 @@ jobs:
           SIGN_KEY: ${{ needs.prepare-release.outputs.sign-key }}
           NEXT_PUBKEY: ${{ needs.prepare-release.outputs.next-pubkey }}
           PREVIOUS: ${{ needs.prepare-release.outputs.previous }}
+          UPDATE_MANIFEST: ${{ needs.prepare-release.outputs.update-manifest }}
         run: |
           set -euo pipefail
           gh release view "v$VERSION" --repo "$GITHUB_REPOSITORY" --json body --jq .body > notes.md
@@ -770,10 +944,14 @@ jobs:
           if [[ "$SIGN_KEY" == next ]]; then signer=$NEXT_PUBKEY; fi
           # manifest <name> <signature suffix> <public key>
           manifest() {
+            local desktop=()
+            if [[ "$1" == "$UPDATE_MANIFEST" ]]; then
+              desktop=(--desktop-sigs desktop-sigs --sig-suffix "$2")
+            fi
             node scripts/release/latest-json.mjs --version "$VERSION" --repo "$GITHUB_REPOSITORY" \
               --notes-file notes.md --out "$1" --key "$3" \
               --sig "aarch64=sigs/MaxHQ_${VERSION}_aarch64.app.tar.gz$2" \
-              --sig "x64=sigs/MaxHQ_${VERSION}_x64.app.tar.gz$2"
+              --sig "x64=sigs/MaxHQ_${VERSION}_x64.app.tar.gz$2" "${desktop[@]}"
             cat "$1"
           }
           case "$KEY_STATE" in
@@ -818,16 +996,19 @@ jobs:
           gh release upload "v$VERSION" --repo "$GITHUB_REPOSITORY" --clobber \
             catalog/model-catalog.json catalog/model-catalog.json.sig
 
-      # After the update manifests, so the line naming the iPhone build stays
-      # out of the Mac app's What's new.
+      # After the update manifests, so the lines naming the phone builds stay
+      # out of the desktop app's What's new. latest-json.mjs leaves them out
+      # when a rerun finds them in the notes.
       - name: Write and upload mobile.json
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           gh release view "v$VERSION" --repo "$GITHUB_REPOSITORY" --json body --jq .body > notes.md
+          android=()
+          if [[ -n "$ANDROID_BUILD" ]]; then android=(--android-build "$ANDROID_BUILD"); fi
           node scripts/release/mobile-json.mjs --version "$VERSION" --build "$IOS_BUILD" \
-            --repo "$GITHUB_REPOSITORY" --out mobile.json --notes-file notes.md
+            --repo "$GITHUB_REPOSITORY" --out mobile.json --notes-file notes.md "${android[@]}"
           cat mobile.json
           gh release upload "v$VERSION" --repo "$GITHUB_REPOSITORY" --clobber mobile.json
           gh release edit "v$VERSION" --repo "$GITHUB_REPOSITORY" --notes-file notes.md
