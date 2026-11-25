@@ -109,7 +109,7 @@ fn project() -> ProjectId {
 fn parent(root: &TempDir) -> (String, PathBuf) {
     let parent = root.path().join("src");
     fs::create_dir(&parent).unwrap();
-    let parent = parent.canonicalize().unwrap();
+    let parent = maxhq_core::fs_ext::canonicalize(&parent).unwrap();
     (parent.to_str().unwrap().to_owned(), parent)
 }
 

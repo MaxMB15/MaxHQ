@@ -751,7 +751,8 @@ impl Steps<'_> {
 fn delete(path: &Path) -> io::Result<bool> {
     let removed = match fs::symlink_metadata(path) {
         Ok(meta) if meta.is_dir() => fs::remove_dir_all(path),
-        Ok(_) => fs::remove_file(path),
+        // A junction or a folder's link on Windows needs its own removal.
+        Ok(_) => maxhq_core::fs_ext::remove_link(path),
         Err(err) => Err(err),
     };
     match removed {

@@ -6088,7 +6088,14 @@ pub(crate) mod tests {
             std::fs::read_to_string(&config).is_ok_and(|text| text.contains("Host mhq-web."))
         });
         let text = std::fs::read_to_string(&config).unwrap();
-        assert!(text.contains(" dev@devbox 'sh -c "));
+        // Windows' ssh reads the remote command by its own rules, in
+        // double quotes.
+        let remote = if cfg!(windows) {
+            " dev@devbox \"sh -c "
+        } else {
+            " dev@devbox 'sh -c "
+        };
+        assert!(text.contains(remote), "{text}");
         assert!(
             !home.join(".ssh").exists(),
             "your own config waits for a yes"

@@ -1320,5 +1320,6 @@
 	"Firebase keys devices hold": "Firebase keys devices hold",
 	"the Firebase key": "the Firebase key",
 	"No device holds a Firebase key yet.": "No device holds a Firebase key yet.",
-	"Couldn't send the Firebase key": "Couldn't send the Firebase key"
+	"Couldn't send the Firebase key": "Couldn't send the Firebase key",
+	"Agents on Windows run without a sandbox, but they still ask for permission as their mode says.": "Agents on Windows run without a sandbox, but they still ask for permission as their mode says."
 }

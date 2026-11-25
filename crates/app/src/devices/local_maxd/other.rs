@@ -9,6 +9,10 @@
 //! and the service runs `~/.local/bin/maxd`, a link to it. This machine's
 //! `maxd` and a server's then look the same, and moving to a new build is
 //! one more copy and a flip of the link.
+//!
+//! Windows lays the copies out under its own folders, in `windows.rs`,
+//! and links the build's folder with a junction rather than the program
+//! with a symbolic link.
 
 use std::fs;
 use std::io;
@@ -20,12 +24,14 @@ const BUILD_LEN: usize = 16;
 
 /// Nothing here depends on where the app runs, since the service runs the
 /// copy, so no place is the wrong one.
+#[cfg_attr(windows, allow(dead_code))]
 pub(super) fn misplaced(_bundled: &Path) -> Option<&'static str> {
     None
 }
 
 /// Copies `bundled` out to the versions under `home` and points
 /// `~/.local/bin/maxd` at the copy. Returns the program the service runs.
+#[cfg_attr(windows, allow(dead_code))]
 pub(super) fn stage(bundled: &Path, home: Option<&Path>) -> io::Result<PathBuf> {
     let home = home.ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "HOME isn't set"))?;
     copy_out(bundled, &versions(home), &link(home))
@@ -33,21 +39,24 @@ pub(super) fn stage(bundled: &Path, home: Option<&Path>) -> io::Result<PathBuf> 
 
 /// The program the service runs once the app installed `maxd`:
 /// `~/.local/bin/maxd`. `None` without a home folder.
+#[cfg_attr(windows, allow(dead_code))]
 pub(super) fn installed(_bundled: &Path, home: Option<&Path>) -> Option<PathBuf> {
     home.map(link)
 }
 
 /// `maxd`'s file name here.
-fn program() -> String {
+pub(super) fn program() -> String {
     format!("maxd{}", std::env::consts::EXE_SUFFIX)
 }
 
 /// `~/.local/bin/maxd`, the link the service runs.
+#[cfg_attr(windows, allow(dead_code))]
 fn link(home: &Path) -> PathBuf {
     home.join(".local/bin").join(program())
 }
 
 /// `~/.local/lib/maxhq/versions`, with one folder per build.
+#[cfg_attr(windows, allow(dead_code))]
 fn versions(home: &Path) -> PathBuf {
     home.join(".local/lib/maxhq/versions")
 }
@@ -55,11 +64,11 @@ fn versions(home: &Path) -> PathBuf {
 /// Copies `bundled` to `versions/<build>/maxd`, where the build is the
 /// first 16 hex characters of its sha256. The copy is made under a
 /// temporary name and renamed into place, so nothing ever runs half of
-/// one. On Unix it then points `link` at the copy and removes every build
-/// but this one and the one the link named before, which may still run
-/// until the service restarts. Returns what the service should run: the
-/// link on Unix, and the copy itself elsewhere, where the link step is
-/// left to that system.
+/// one. It then points `link` at the copy, on Windows at the copy's
+/// folder, and removes every build but this one and the one the link
+/// named before, which may still run until the service restarts. Returns
+/// what the service should run: the link on Unix, and `maxd.exe` through
+/// it on Windows.
 pub(crate) fn copy_out(bundled: &Path, versions: &Path, link: &Path) -> io::Result<PathBuf> {
     fs::create_dir_all(versions)?;
     let nonce = SystemTime::now()
@@ -82,8 +91,9 @@ fn place(bundled: &Path, temp: &Path, versions: &Path) -> io::Result<(String, Pa
     fs::copy(bundled, temp)?;
     make_executable(temp)?;
     // The service starts this file at the next login, so it has to be on
-    // the disk before its name is.
-    fs::File::open(temp)?.sync_all()?;
+    // the disk before its name is. Windows only flushes a file opened for
+    // writing.
+    fs::OpenOptions::new().write(true).open(temp)?.sync_all()?;
     let mut build = crate::fleet::sha256_file(temp)?;
     build.truncate(BUILD_LEN);
     let dir = versions.join(&build);
@@ -120,19 +130,40 @@ fn link_to(link: &Path, copy: &Path, versions: &Path, build: &str) -> io::Result
         fs::create_dir_all(dir)?;
     }
     point(link, copy)?;
-    let keep: Vec<&str> = [Some(build), previous.as_deref()]
-        .into_iter()
-        .flatten()
-        .collect();
-    prune(versions, &keep);
+    prune(versions, &kept(build, previous.as_deref()));
     Ok(link.to_owned())
 }
 
-/// Symbolic links need rights most accounts lack elsewhere, so the
-/// service runs the copy itself.
-#[cfg(not(unix))]
+/// Points the junction `link` at the folder of `copy` and removes the
+/// builds nothing runs any more. A symbolic link needs rights most
+/// accounts lack on Windows, but anyone can make a junction, which leads
+/// only to a folder, so the service runs `maxd.exe` through it. Windows
+/// won't delete a program that runs, nor its folder, and the build before
+/// stays anyway until the service restarts.
+#[cfg(windows)]
+fn link_to(link: &Path, copy: &Path, versions: &Path, build: &str) -> io::Result<PathBuf> {
+    let previous = linked_build(link, versions);
+    if let Some(dir) = link.parent() {
+        fs::create_dir_all(dir)?;
+    }
+    let folder = copy
+        .parent()
+        .ok_or_else(|| io::Error::other("the copy of maxd has no folder"))?;
+    maxhq_os::link::point(link, folder)?;
+    prune(versions, &kept(build, previous.as_deref()));
+    Ok(link.join(program()))
+}
+
+/// Where neither kind of link is made, the service runs the copy itself.
+#[cfg(not(any(unix, windows)))]
 fn link_to(_link: &Path, copy: &Path, _versions: &Path, _build: &str) -> io::Result<PathBuf> {
     Ok(copy.to_owned())
+}
+
+/// The builds to keep: the new one, and the one the link named before.
+#[cfg(any(unix, windows))]
+fn kept<'a>(build: &'a str, previous: Option<&'a str>) -> Vec<&'a str> {
+    [Some(build), previous].into_iter().flatten().collect()
 }
 
 /// Points `link` at `target` through a new link beside it and a rename,
@@ -146,12 +177,17 @@ fn point(link: &Path, target: &Path) -> io::Result<()> {
     fs::rename(&temp, link)
 }
 
-/// The build `link` leads to, when it leads into `versions`.
-#[cfg(unix)]
+/// The build `link` leads to, when it leads into `versions`: to the
+/// program in the build's folder on Unix, and to the folder on Windows.
+#[cfg(any(unix, windows))]
 fn linked_build(link: &Path, versions: &Path) -> Option<String> {
     let target = fs::canonicalize(link).ok()?;
     let versions = fs::canonicalize(versions).ok()?;
-    let dir = target.parent()?;
+    let dir = if cfg!(windows) {
+        target.as_path()
+    } else {
+        target.parent()?
+    };
     if dir.parent()? != versions {
         return None;
     }
@@ -160,7 +196,7 @@ fn linked_build(link: &Path, versions: &Path) -> Option<String> {
 
 /// Removes every build in `versions` but `keep`. Only folders named like
 /// a build go, so nothing else kept there is touched.
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 fn prune(versions: &Path, keep: &[&str]) {
     let Ok(entries) = fs::read_dir(versions) else {
         return;

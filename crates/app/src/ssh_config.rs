@@ -12,15 +12,15 @@
 //! at its top, which the app adds only once you say yes. It never changes
 //! any other line there.
 
-use std::fs::{self, DirBuilder, File};
+use std::fs::{self, File};
 use std::io::{self, Read};
-use std::os::unix::fs::{DirBuilderExt, MetadataExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Mutex, PoisonError};
 
 use maxhq_core::fs::{write_atomic, Atomic};
 use maxhq_core::shell::quoted;
+use maxhq_os::fsmode;
 use maxhq_protocol::ids::{DeviceId, WorkspaceId};
 use maxhq_protocol::link::Route;
 use maxhq_protocol::model::{ManagedWorkspace, Workspace, WorkspaceLocation, WorkspaceState};
@@ -122,16 +122,14 @@ impl SshFiles {
     /// made the first time. The folder's path goes into config lines, so
     /// one with a character ssh would read differently is refused.
     pub fn open(dir: PathBuf, home: PathBuf, maxd: Option<PathBuf>) -> io::Result<Self> {
-        let spelled = plain_path(&dir)
-            .ok_or_else(|| {
-                io::Error::new(
-                    io::ErrorKind::InvalidInput,
-                    "the SSH folder's path has characters ssh would read differently",
-                )
-            })?
-            .to_owned();
-        DirBuilder::new().recursive(true).mode(0o700).create(&dir)?;
-        fs::set_permissions(&dir, fs::Permissions::from_mode(0o700))?;
+        let spelled = plain_path(&dir).ok_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "the SSH folder's path has characters ssh would read differently",
+            )
+        })?;
+        fsmode::private_dir_all(&dir)?;
+        fsmode::set_mode(&dir, 0o700)?;
         let public_key = client_key(&dir.join(KEY))?;
         Ok(Self {
             dir,
@@ -297,19 +295,16 @@ impl SshFiles {
     /// points.
     fn add_include(&self) -> io::Result<()> {
         let ssh = self.home.join(".ssh");
-        DirBuilder::new()
-            .mode(0o700)
-            .create(&ssh)
-            .or_else(|error| {
-                if error.kind() == io::ErrorKind::AlreadyExists {
-                    Ok(())
-                } else {
-                    Err(error)
-                }
-            })?;
+        fsmode::private_dir(&ssh).or_else(|error| {
+            if error.kind() == io::ErrorKind::AlreadyExists {
+                Ok(())
+            } else {
+                Err(error)
+            }
+        })?;
         let target = self.config_target()?;
         let (text, mode) = match read_limited(&target, MAX_USER_CONFIG) {
-            Ok(text) => (text, fs::metadata(&target)?.mode() & 0o7777),
+            Ok(text) => (text, fsmode::mode_of(&fs::metadata(&target)?) & 0o7777),
             Err(error) if error.kind() == io::ErrorKind::NotFound => (String::new(), 0o600),
             Err(error) => return Err(error),
         };
@@ -344,7 +339,7 @@ impl SshFiles {
             .split_inclusive('\n')
             .filter(|each| each.trim() != line)
             .collect();
-        let mode = fs::metadata(&target)?.mode() & 0o7777;
+        let mode = fsmode::mode_of(&fs::metadata(&target)?) & 0o7777;
         write_atomic(&target, kept.as_bytes(), Atomic::exact(mode))
     }
 
@@ -474,22 +469,47 @@ fn ssh_proxy(host: &str, workspace: WorkspaceId) -> Option<String> {
     let remote = format!("{REMOTE_START}{workspace}{REMOTE_END}");
     Some(format!(
         "ssh -o BatchMode=yes -o ControlPath=none {host} {}",
-        quoted(&remote)
+        proxy_word(&remote)
     ))
 }
 
 /// The proxy for this machine's own `maxd`, which runs `maxd` itself.
 fn local_proxy(maxd: &Path, workspace: WorkspaceId) -> Option<String> {
     let maxd = plain_path(maxd)?;
-    Some(format!("{} proxy --guest-ssh {workspace}", quoted(maxd)))
+    Some(format!(
+        "{} proxy --guest-ssh {workspace}",
+        proxy_word(&maxd)
+    ))
+}
+
+/// `text` as one word of a `ProxyCommand`. On Unix ssh runs the command
+/// through `sh`, so it goes in single quotes. Windows' ssh starts it by
+/// Windows' own rules, which group words in double quotes and read `\"`
+/// as a quote inside them. Only for this module's own words, which hold no
+/// backslash and none of cmd's `&|<>^%`.
+fn proxy_word(text: &str) -> String {
+    if cfg!(windows) {
+        format!("\"{}\"", text.replace('"', "\\\""))
+    } else {
+        quoted(text)
+    }
 }
 
 /// `path` as text that reads the same inside double quotes in an ssh
 /// config and inside single quotes in a shell, with nothing ssh expands.
 /// None for a path that doesn't.
-fn plain_path(path: &Path) -> Option<&str> {
+fn plain_path(path: &Path) -> Option<String> {
     let text = path.to_str()?;
+    // ssh on Windows takes `/` between a path's folders too, so its `\`
+    // is spelled that way rather than read as an escape. A `\\?\` or
+    // network path isn't one it reads plainly.
+    let text = if cfg!(windows) {
+        text.replace('\\', "/")
+    } else {
+        text.to_owned()
+    };
     let plain = path.is_absolute()
+        && !(cfg!(windows) && text.starts_with("//"))
         && !text
             .chars()
             .any(|c| c.is_control() || matches!(c, '"' | '\'' | '\\' | '$' | '%' | '`'));
@@ -512,7 +532,7 @@ fn client_key(path: &Path) -> io::Result<String> {
             if key.algorithm() != Algorithm::Ed25519 || key.is_encrypted() {
                 return Err(unreadable_key());
             }
-            fs::set_permissions(path, fs::Permissions::from_mode(0o600))?;
+            fsmode::private_file(path)?;
             key
         }
         Err(error) if error.kind() == io::ErrorKind::NotFound => make_key(path)?,
@@ -669,12 +689,30 @@ mod tests {
         let dir = temp.0.join("Application Support/MaxHQ/ssh");
         let home = temp.0.join("home");
         fs::create_dir_all(&home).unwrap();
-        SshFiles::open(
-            dir,
-            home,
-            Some(PathBuf::from("/Applications/MaxHQ.app/maxd")),
-        )
-        .unwrap()
+        SshFiles::open(dir, home, Some(PathBuf::from(MAXD))).unwrap()
+    }
+
+    /// The app's own `maxd`, a path that's absolute on this OS.
+    const MAXD: &str = if cfg!(windows) {
+        "C:/Program Files/MaxHQ/maxd.exe"
+    } else {
+        "/Applications/MaxHQ.app/maxd"
+    };
+
+    /// The ssh word that runs `maxd proxy` for `id` on the host: in single
+    /// quotes for Unix's `sh`, in double quotes by Windows' rules.
+    fn remote_word(id: WorkspaceId) -> String {
+        if cfg!(windows) {
+            format!(
+                "\"sh -c 'PATH=\\\"$PATH:$HOME/.local/bin\\\"; export PATH; \
+                 exec maxd proxy --guest-ssh {id}'\""
+            )
+        } else {
+            format!(
+                "'sh -c '\\''PATH=\"$PATH:$HOME/.local/bin\"; export PATH; \
+                 exec maxd proxy --guest-ssh {id}'\\'''"
+            )
+        }
     }
 
     fn ssh_route() -> Route {
@@ -684,7 +722,7 @@ mod tests {
     }
 
     fn mode(path: &Path) -> u32 {
-        fs::metadata(path).unwrap().mode() & 0o777
+        fsmode::mode_of(&fs::metadata(path).unwrap()) & 0o777
     }
 
     #[test]
@@ -743,7 +781,7 @@ mod tests {
         let text = fs::read_to_string(&key).unwrap();
         assert!(text.starts_with("-----BEGIN OPENSSH PRIVATE KEY-----"));
 
-        fs::set_permissions(&key, fs::Permissions::from_mode(0o644)).unwrap();
+        fsmode::set_mode(&key, 0o644).unwrap();
         let again = SshFiles::open(files.dir.clone(), files.home.clone(), None).unwrap();
         assert_eq!(again.public_key(), files.public_key());
         assert_eq!(fs::read_to_string(&key).unwrap(), text);
@@ -796,15 +834,14 @@ mod tests {
             format!(
                 "Host mhq-{name}.{slug}.maxhq\n\
                  \x20 User agent\n\
-                 \x20 ProxyCommand ssh -o BatchMode=yes -o ControlPath=none dev@devbox \
-                 'sh -c '\\''PATH=\"$PATH:$HOME/.local/bin\"; export PATH; \
-                 exec maxd proxy --guest-ssh {id}'\\'''\n\
+                 \x20 ProxyCommand ssh -o BatchMode=yes -o ControlPath=none dev@devbox {}\n\
                  \x20 IdentityFile \"{dir}/id_ed25519\"\n\
                  \x20 IdentitiesOnly yes\n\
                  \x20 UserKnownHostsFile \"{dir}/known_hosts\"\n\
                  \x20 HostKeyAlias maxhq-{id}\n\
                  \x20 StrictHostKeyChecking yes\n\
-                 \x20 ForwardAgent no\n"
+                 \x20 ForwardAgent no\n",
+                remote_word(id)
             )
         };
         let config = fs::read_to_string(files.dir.join(CONFIG)).unwrap();
@@ -852,8 +889,12 @@ mod tests {
         let local = merge(Route::Local, true, vec![container("web")]);
         files.write_with(|| files.entries(&local)).unwrap();
         let id = WorkspaceId::derive("web");
-        let line =
-            format!("  ProxyCommand '/Applications/MaxHQ.app/maxd' proxy --guest-ssh {id}\n");
+        let maxd = if cfg!(windows) {
+            format!("\"{MAXD}\"")
+        } else {
+            format!("'{MAXD}'")
+        };
+        let line = format!("  ProxyCommand {maxd} proxy --guest-ssh {id}\n");
         assert!(fs::read_to_string(&config).unwrap().contains(&line));
 
         let old = merge(ssh_route(), false, vec![container("web")]);
@@ -941,16 +982,19 @@ mod tests {
         // An existing config keeps every line and its mode.
         let mine = "Host devbox\n  HostName devbox.example.com\n  User dev\r\n\nHost *\n  ServerAliveInterval 30";
         fs::write(&config, mine).unwrap();
-        fs::set_permissions(&config, fs::Permissions::from_mode(0o644)).unwrap();
+        fsmode::set_mode(&config, 0o644).unwrap();
+        let had = mode(&config);
         files.set_include(&entry, true).unwrap();
         files.set_include(&entry, true).unwrap();
         assert_eq!(
             fs::read_to_string(&config).unwrap(),
             format!("{line}\n{mine}")
         );
-        assert_eq!(mode(&config), 0o644);
+        assert_eq!(mode(&config), had);
     }
 
+    // Making a link on Windows needs Developer Mode.
+    #[cfg(unix)]
     #[test]
     fn a_config_that_links_elsewhere_changes_where_it_points() {
         let temp = TempDir::new();
@@ -961,7 +1005,7 @@ mod tests {
         fs::create_dir_all(&ssh).unwrap();
         let real = temp.0.join("dotfiles-ssh-config");
         fs::write(&real, "Host devbox\n").unwrap();
-        std::os::unix::fs::symlink(&real, ssh.join("config")).unwrap();
+        maxhq_core::fs_ext::symlink(&real, ssh.join("config")).unwrap();
         files.set_include(&entry, true).unwrap();
         assert!(fs::symlink_metadata(ssh.join("config"))
             .unwrap()
@@ -987,21 +1031,26 @@ mod tests {
         let config = ssh.join("config");
         let mine = "Host devbox\r\n  User dev\n\nHost *\n  ServerAliveInterval 30";
         fs::write(&config, mine).unwrap();
-        fs::set_permissions(&config, fs::Permissions::from_mode(0o644)).unwrap();
+        fsmode::set_mode(&config, 0o644).unwrap();
+        let had = mode(&config);
         files.set_include(&entry, true).unwrap();
         files.remove_include().unwrap();
         assert_eq!(fs::read_to_string(&config).unwrap(), mine);
-        assert_eq!(mode(&config), 0o644);
+        assert_eq!(mode(&config), had);
         files.remove_include().unwrap();
         assert_eq!(fs::read_to_string(&config).unwrap(), mine);
 
         // A config that links elsewhere changes where it points, and one
-        // that links to nothing is left alone.
+        // that links to nothing is left alone. Making a link on Windows
+        // needs Developer Mode.
+        if cfg!(windows) {
+            return;
+        }
         fs::remove_file(&config).unwrap();
         let real = temp.0.join("dotfiles-ssh-config");
         let line = files.include_line();
         fs::write(&real, format!("Host devbox\n  {line}  \nHost *\n")).unwrap();
-        std::os::unix::fs::symlink(&real, &config).unwrap();
+        maxhq_core::fs_ext::symlink(&real, &config).unwrap();
         files.remove_include().unwrap();
         assert!(fs::symlink_metadata(&config)
             .unwrap()

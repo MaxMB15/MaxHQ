@@ -1320,5 +1320,6 @@
 	"Firebase keys devices hold": "Firebase-sleutels op apparaten",
 	"the Firebase key": "de Firebase-sleutel",
 	"No device holds a Firebase key yet.": "Nog geen apparaat bewaart een Firebase-sleutel.",
-	"Couldn't send the Firebase key": "Kon de Firebase-sleutel niet verzenden"
+	"Couldn't send the Firebase key": "Kon de Firebase-sleutel niet verzenden",
+	"Agents on Windows run without a sandbox, but they still ask for permission as their mode says.": "Agents op Windows draaien zonder sandbox, maar vragen nog steeds om toestemming zoals hun modus aangeeft."
 }

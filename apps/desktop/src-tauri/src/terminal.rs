@@ -8,7 +8,8 @@
 //! password into Terminal itself, so the app never sees it.
 //!
 //! On Linux the script opens in the first terminal [`terminal_command`]
-//! finds. Windows has no terminal here yet.
+//! finds. On Windows the line opens in PowerShell, with no file, as
+//! [`powershell`] says.
 
 use std::ffi::{OsStr, OsString};
 use std::io::Write;
@@ -52,11 +53,24 @@ pub fn write_command_file(dir: &Path, line: &str) -> std::io::Result<PathBuf> {
     Ok(path)
 }
 
-/// Opens Terminal on `line`, through a script in `dir`.
+#[cfg(any(windows, test))]
+mod powershell;
+
+/// Opens Terminal on `line`, through a script in `dir` off Windows.
 pub async fn open(dir: PathBuf, line: String) -> Result<(), String> {
-    if !cfg!(any(target_os = "macos", target_os = "linux")) {
-        return Err("A terminal opens only on macOS and Linux for now".to_owned());
+    #[cfg(windows)]
+    {
+        let _ = dir;
+        powershell::open(&line).await
     }
+    #[cfg(not(windows))]
+    open_script(dir, line).await
+}
+
+/// Opens Terminal, or the terminal found on Linux, on a script for `line`
+/// in `dir`.
+#[cfg_attr(windows, allow(dead_code))]
+async fn open_script(dir: PathBuf, line: String) -> Result<(), String> {
     let path = tokio::task::spawn_blocking(move || write_command_file(&dir, &line))
         .await
         .map_err(|error| error.to_string())?
@@ -229,6 +243,9 @@ mod tests {
 
     const PATH: [&str; 2] = ["/usr/local/bin", "/usr/bin"];
 
+    // The Linux terminal search: `/usr/bin` isn't an absolute folder on
+    // Windows, so it's never searched there.
+    #[cfg(unix)]
     #[test]
     fn your_terminal_setting_comes_first_with_its_own_arguments() {
         assert_eq!(
@@ -245,6 +262,9 @@ mod tests {
         );
     }
 
+    // The Linux terminal search: `/usr/bin` isn't an absolute folder on
+    // Windows, so it's never searched there.
+    #[cfg(unix)]
     #[test]
     fn a_terminal_setting_it_doesnt_know_runs_the_script_as_xterm_would() {
         assert_eq!(
@@ -265,6 +285,9 @@ mod tests {
         );
     }
 
+    // The Linux terminal search: `/usr/bin` isn't an absolute folder on
+    // Windows, so it's never searched there.
+    #[cfg(unix)]
     #[test]
     fn without_a_usable_setting_the_list_decides_in_its_order() {
         let installed = [

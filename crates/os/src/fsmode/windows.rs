@@ -11,6 +11,7 @@ use std::os::windows::fs::OpenOptionsExt;
 use std::os::windows::io::{AsRawHandle, FromRawHandle, OwnedHandle};
 use std::path::Path;
 use std::ptr;
+use std::time::SystemTime;
 
 use windows_sys::Win32::Foundation::HANDLE;
 use windows_sys::Win32::Security::Authorization::{SetSecurityInfo, SE_FILE_OBJECT};
@@ -21,7 +22,7 @@ use windows_sys::Win32::Security::{
 };
 use windows_sys::Win32::Storage::FileSystem::{
     GetFileInformationByHandle, BY_HANDLE_FILE_INFORMATION, FILE_ALL_ACCESS,
-    FILE_FLAG_BACKUP_SEMANTICS, READ_CONTROL, WRITE_DAC,
+    FILE_FLAG_BACKUP_SEMANTICS, FILE_WRITE_ATTRIBUTES, READ_CONTROL, WRITE_DAC,
 };
 use windows_sys::Win32::System::Threading::{GetCurrentProcess, OpenProcessToken};
 
@@ -246,6 +247,16 @@ pub fn same_file(_a: &Metadata, _b: &Metadata) -> bool {
 
 pub fn open_no_wait(options: &mut OpenOptions) -> &mut OpenOptions {
     options
+}
+
+pub fn set_modified(path: &Path, at: SystemTime) -> io::Result<()> {
+    // Backup semantics opens a folder too, and the time takes only the
+    // right to write attributes.
+    OpenOptions::new()
+        .access_mode(FILE_WRITE_ATTRIBUTES)
+        .custom_flags(FILE_FLAG_BACKUP_SEMANTICS)
+        .open(path)?
+        .set_modified(at)
 }
 
 pub fn sync_dir(_path: &Path) -> io::Result<()> {

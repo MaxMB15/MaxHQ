@@ -19,6 +19,13 @@
 //! service there runs a copy of the bundled `maxd` through
 //! `~/.local/bin/maxd`, so moving it onto a new build copies the new one
 //! out and flips the link before the restart.
+//!
+//! On Windows the installer that put the app in place runs again for the
+//! update: the NSIS setup for one user, or the MSI for everyone on the PC.
+//! Each copy looks for the update built for its own installer, since the
+//! other would install a second app beside it. The service there runs a
+//! copy of the bundled `maxd` too, through a junction, because Windows
+//! won't let an installer replace a program that runs.
 
 use std::path::{Path, PathBuf};
 use std::time::Duration;
@@ -76,6 +83,8 @@ pub enum NoUpdates {
 pub fn offered(exe: &Path, debug: bool) -> Result<(), NoUpdates> {
     if cfg!(target_os = "linux") {
         offered_on_linux(&LinuxApp::here(exe), debug, takes_files)
+    } else if cfg!(windows) {
+        offered_on_windows(WindowsApp::here(exe), debug)
     } else {
         offered_on_macos(exe, debug)
     }
@@ -172,6 +181,82 @@ fn offered_on_linux(
         LinuxApp::Package => Err(NoUpdates::Package),
         LinuxApp::Loose => Err(NoUpdates::FromSource),
     }
+}
+
+/// How the app was installed on Windows.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WindowsApp {
+    /// The NSIS setup installed it for you, and left its uninstaller beside
+    /// the program.
+    Nsis,
+    /// The MSI installed it for everyone on the PC, under Program Files.
+    Msi,
+    /// Neither: a build from the source tree, or one copied somewhere by
+    /// hand.
+    Loose,
+}
+
+impl WindowsApp {
+    /// The name the NSIS setup gives its uninstaller, beside the program.
+    pub const UNINSTALLER: &'static str = "uninstall.exe";
+
+    /// How the app whose program is at `exe` was installed. `uninstaller`
+    /// says whether the NSIS setup's uninstaller is beside it, and
+    /// `program_files` are the folders an MSI installs into.
+    pub fn of(exe: &Path, uninstaller: bool, program_files: &[PathBuf]) -> Self {
+        if uninstaller {
+            Self::Nsis
+        } else if program_files.iter().any(|dir| windows_inside(exe, dir)) {
+            Self::Msi
+        } else {
+            Self::Loose
+        }
+    }
+
+    /// How this app, whose program is at `exe`, was installed.
+    pub fn here(exe: &Path) -> Self {
+        let uninstaller = exe.with_file_name(Self::UNINSTALLER).is_file();
+        let program_files: Vec<PathBuf> = ["ProgramFiles", "ProgramW6432"]
+            .into_iter()
+            .filter_map(std::env::var_os)
+            .filter(|dir| !dir.is_empty())
+            .map(PathBuf::from)
+            .collect();
+        Self::of(exe, uninstaller, &program_files)
+    }
+
+    /// Whether it was installed, rather than run from where it was built.
+    pub fn installed(self) -> bool {
+        self != Self::Loose
+    }
+}
+
+/// Whether `path` is inside `dir`, by Windows' rules: either slash parts
+/// folders, case doesn't matter and the `\\?\` prefix changes nothing.
+/// Plain text, so it reads the same on any system.
+pub fn windows_inside(path: &Path, dir: &Path) -> bool {
+    let fold = |path: &Path| {
+        let text = path.to_string_lossy().replace('/', "\\").to_lowercase();
+        match text.strip_prefix(r"\\?\") {
+            Some(rest) => rest.to_owned(),
+            None => text,
+        }
+    };
+    let dir = fold(dir);
+    let dir = dir.trim_end_matches('\\');
+    !dir.is_empty()
+        && fold(path)
+            .strip_prefix(dir)
+            .is_some_and(|rest| rest.starts_with('\\'))
+}
+
+/// [`offered`] on Windows, where either installer updates the copy it put
+/// in place.
+fn offered_on_windows(app: WindowsApp, debug: bool) -> Result<(), NoUpdates> {
+    if debug || !app.installed() {
+        return Err(NoUpdates::FromSource);
+    }
+    Ok(())
 }
 
 /// Whether the app can make files in `dir`, tried with a folder it makes
@@ -405,11 +490,10 @@ fn config_home(home: &Path, xdg: Option<&Path>) -> PathBuf {
     }
 }
 
-/// The home folder from `HOME`, if it's set.
+/// Your home folder: `HOME` on Unix, if it's set, and your profile
+/// folder on Windows.
 pub(crate) fn home() -> Option<PathBuf> {
-    std::env::var_os("HOME")
-        .filter(|home| !home.is_empty())
-        .map(PathBuf::from)
+    maxhq_os::home::home_dir()
 }
 
 impl<C: Connector> App<C> {
@@ -751,6 +835,75 @@ mod tests {
     }
 
     #[test]
+    fn on_windows_each_installer_updates_its_own_copy_and_a_build_does_not() {
+        let program_files = [
+            PathBuf::from(r"C:\Program Files"),
+            PathBuf::from(r"C:\Program Files\"),
+        ];
+        let nsis = Path::new(r"C:\Users\<user>\AppData\Local\MaxHQ\MaxHQ.exe");
+        let msi = Path::new(r"C:\Program Files\MaxHQ\MaxHQ.exe");
+        let built = Path::new(r"C:\src\maxhq\target\release\maxhq-desktop.exe");
+        assert_eq!(WindowsApp::of(nsis, true, &program_files), WindowsApp::Nsis);
+        assert_eq!(WindowsApp::of(msi, false, &program_files), WindowsApp::Msi);
+        // The NSIS setup's uninstaller tells, wherever it installed.
+        assert_eq!(WindowsApp::of(msi, true, &program_files), WindowsApp::Nsis);
+        // Case and slashes don't matter, but a folder named alike does.
+        let lower = Path::new("c:/program files/MaxHQ/MaxHQ.exe");
+        assert_eq!(
+            WindowsApp::of(lower, false, &program_files),
+            WindowsApp::Msi
+        );
+        let verbatim = Path::new(r"\\?\C:\Program Files\MaxHQ\MaxHQ.exe");
+        assert_eq!(
+            WindowsApp::of(verbatim, false, &program_files),
+            WindowsApp::Msi
+        );
+        assert!(!windows_inside(
+            Path::new(r"C:\Program Files"),
+            &program_files[0]
+        ));
+        let alike = Path::new(r"C:\Program Files Extra\MaxHQ\MaxHQ.exe");
+        assert_eq!(
+            WindowsApp::of(alike, false, &program_files),
+            WindowsApp::Loose
+        );
+        assert_eq!(
+            WindowsApp::of(built, false, &program_files),
+            WindowsApp::Loose
+        );
+        assert_eq!(WindowsApp::of(msi, false, &[]), WindowsApp::Loose);
+        assert_eq!(
+            WindowsApp::of(msi, false, &[PathBuf::new()]),
+            WindowsApp::Loose,
+            "an empty folder holds nothing"
+        );
+
+        assert_eq!(offered_on_windows(WindowsApp::Nsis, false), Ok(()));
+        assert_eq!(offered_on_windows(WindowsApp::Msi, false), Ok(()));
+        assert_eq!(
+            offered_on_windows(WindowsApp::Nsis, true),
+            Err(NoUpdates::FromSource)
+        );
+        assert_eq!(
+            offered_on_windows(WindowsApp::Loose, false),
+            Err(NoUpdates::FromSource)
+        );
+        assert!(WindowsApp::Msi.installed());
+        assert!(!WindowsApp::Loose.installed());
+    }
+
+    #[test]
+    fn the_nsis_uninstaller_beside_the_program_marks_its_install() {
+        let dir = std::env::temp_dir().join(format!("maxhq-nsis-{}", DeviceId::generate()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let exe = dir.join("MaxHQ.exe");
+        assert_eq!(WindowsApp::here(&exe), WindowsApp::Loose);
+        std::fs::write(dir.join(WindowsApp::UNINSTALLER), b"").unwrap();
+        assert_eq!(WindowsApp::here(&exe), WindowsApp::Nsis);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
     fn the_write_check_tells_a_folder_it_can_write_to_and_leaves_nothing() {
         let dir = std::env::temp_dir().join(format!(
             "maxhq-write-check-{}",
@@ -763,6 +916,9 @@ mod tests {
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
+    // systemd is Linux only, and its quoting reads the `\` in a Windows
+    // path as an escape.
+    #[cfg(unix)]
     #[test]
     fn the_systemd_unit_says_which_maxd_the_service_runs() {
         let dir = std::env::temp_dir().join(format!(

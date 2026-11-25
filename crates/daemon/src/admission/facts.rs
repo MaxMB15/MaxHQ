@@ -143,7 +143,7 @@ fn exe_of(pid: i32) -> Option<PathBuf> {
 }
 
 /// `path` with links resolved, and without the mark Linux adds to a
-/// program replaced while it runs, as an update does.
+/// program replaced while it runs, as an update does, or Windows' `\\?\`.
 fn normal(path: PathBuf) -> PathBuf {
     let path = match path
         .to_str()
@@ -152,7 +152,7 @@ fn normal(path: PathBuf) -> PathBuf {
         Some(path) => PathBuf::from(path),
         None => path,
     };
-    path.canonicalize().unwrap_or(path)
+    maxhq_core::fs_ext::canonicalize(&path).unwrap_or(path)
 }
 
 /// The program this `maxd` runs.

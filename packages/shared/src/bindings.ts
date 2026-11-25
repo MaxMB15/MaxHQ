@@ -8141,8 +8141,8 @@ export type NotificationAccess = {
 
 /**
  *  Whether this app's notifications show. On macOS that's up to System
- *  Settings. On Linux they show when the desktop has a notification
- *  server, and on Windows they always do.
+ *  Settings, and on Windows to Windows Settings. On Linux they show when
+ *  the desktop has a notification server.
  */
 export type NotificationPermission = 
 /**  macOS hasn't asked you yet. */

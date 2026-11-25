@@ -16,11 +16,12 @@ rustix.workspace = true
 
 [target.'cfg(windows)'.dependencies]
 # On top of the workspace's: a process's command line, junctions, the
-# job rights, and the adapters' addresses.
+# job rights, the adapters' addresses, and the boot count.
 windows-sys = { workspace = true, features = [
     "Wdk_System_Threading",
     "Win32_NetworkManagement_Ndis",
     "Win32_System_Ioctl",
+    "Win32_System_Registry",
     "Win32_System_SystemServices",
 ] }
 

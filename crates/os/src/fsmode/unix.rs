@@ -5,6 +5,7 @@ use std::fs::{self, DirBuilder, File, Metadata, OpenOptions, Permissions};
 use std::io;
 use std::os::unix::fs::{DirBuilderExt, MetadataExt, OpenOptionsExt, PermissionsExt};
 use std::path::Path;
+use std::time::SystemTime;
 
 pub fn private_dir_all(path: &Path) -> io::Result<()> {
     DirBuilder::new().recursive(true).mode(0o700).create(path)
@@ -59,6 +60,10 @@ pub fn same_file(a: &Metadata, b: &Metadata) -> bool {
 
 pub fn open_no_wait(options: &mut OpenOptions) -> &mut OpenOptions {
     options.custom_flags(libc::O_NONBLOCK | libc::O_NOCTTY)
+}
+
+pub fn set_modified(path: &Path, at: SystemTime) -> io::Result<()> {
+    File::open(path)?.set_modified(at)
 }
 
 pub fn sync_dir(path: &Path) -> io::Result<()> {

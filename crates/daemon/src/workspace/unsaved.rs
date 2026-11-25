@@ -557,13 +557,16 @@ mod tests {
         let global = dir.path().join("gitconfig");
         let ran = dir.path().join("global-filter-ran");
         let filter = dir.path().join("filter.sh");
+        // With `/` between the names, which sh and git's config read the
+        // same on Windows, where a `\` would start an escape.
+        let slashed = maxhq_core::skills::path_text;
         std::fs::write(
             &filter,
-            format!("#!/bin/sh\ntouch '{}'\ncat\n", ran.display()),
+            format!("#!/bin/sh\ntouch '{}'\ncat\n", slashed(&ran)),
         )
         .unwrap();
         maxhq_os::fsmode::set_mode(&filter, 0o755).unwrap();
-        let text = format!("[filter \"x\"]\n\tclean = {}\n", filter.display());
+        let text = format!("[filter \"x\"]\n\tclean = {}\n", slashed(&filter));
         std::fs::write(&global, text).unwrap();
         touched(&work);
         let output = Command::new("sh")

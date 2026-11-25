@@ -26,11 +26,11 @@ futures.workspace = true
 getrandom.workspace = true
 maxhq-client.workspace = true
 maxhq-core.workspace = true
+maxhq-os.workspace = true
 maxhq-protocol.workspace = true
 qrcodegen = { workspace = true, optional = true }
 rusqlite.workspace = true
 rusqlite_migration.workspace = true
-rustix = { workspace = true, optional = true }
 semver.workspace = true
 serde.workspace = true
 serde_json.workspace = true
@@ -44,6 +44,10 @@ tracing.workspace = true
 url.workspace = true
 uuid.workspace = true
 zeroize.workspace = true
+
+# Your user ID, for the service manager's session.
+[target.'cfg(unix)'.dependencies]
+rustix = { workspace = true, optional = true }
 
 # The apps' keys live in the Keychain: the phone's own, and the Mac app's key
 # it proves itself to each maxd with.
@@ -64,6 +68,8 @@ keyring = { workspace = true, features = ["sync-secret-service", "crypto-rust"] 
 
 [target.'cfg(windows)'.dependencies]
 keyring = { workspace = true, features = ["windows-native"] }
+# The power request that keeps the screen on.
+windows-sys.workspace = true
 
 [dev-dependencies]
 maxhq-core = { workspace = true, features = ["testing"] }

@@ -8,7 +8,7 @@
 
 use std::collections::{HashMap, HashSet};
 use std::ffi::OsString;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 
@@ -145,9 +145,10 @@ fn guest_path() -> String {
     )
 }
 
-/// The folder in a guest that an agent's attachments go to.
+/// The folder in a guest that an agent's attachments go to. It's a path in
+/// the container, so it takes `/` whatever this device uses.
 pub fn guest_attachments(name: &str) -> PathBuf {
-    Path::new(ATTACHMENTS_DIR).join(name)
+    PathBuf::from(format!("{ATTACHMENTS_DIR}/{name}"))
 }
 
 impl Manager {

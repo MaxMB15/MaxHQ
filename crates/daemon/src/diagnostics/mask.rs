@@ -349,10 +349,18 @@ mod tests {
     #[test]
     fn a_sample_never_holds_the_credential() {
         // `read` keeps the shell waiting on its stdin, so it has no child to
-        // leave behind when it's killed.
-        let mut child = Command::new("/bin/sh")
-            .args(["-c", "read line", "sh", "--token", "abc123"])
+        // leave behind when it's killed. On Windows `cmd /k` waits the same.
+        #[cfg(unix)]
+        let mut command = Command::new("/bin/sh");
+        #[cfg(unix)]
+        command.args(["-c", "read line", "sh", "--token", "abc123"]);
+        #[cfg(windows)]
+        let mut command = Command::new("cmd.exe");
+        #[cfg(windows)]
+        command.args(["/d", "/q", "/k", "rem", "--token", "abc123"]);
+        let mut child = command
             .stdin(Stdio::piped())
+            .stdout(Stdio::null())
             .spawn()
             .unwrap();
         let pid = child.id();

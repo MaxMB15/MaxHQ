@@ -13,6 +13,7 @@
 use std::fs::{File, Metadata, OpenOptions};
 use std::io;
 use std::path::Path;
+use std::time::SystemTime;
 
 #[cfg(unix)]
 mod unix;
@@ -107,6 +108,13 @@ pub fn open_no_wait(options: &mut OpenOptions) -> &mut OpenOptions {
     imp::open_no_wait(options)
 }
 
+/// Sets when the file or folder `path` last changed, following links.
+/// Windows opens a folder only by asking for one, so it can't go through
+/// `File::open` there.
+pub fn set_modified(path: &Path, at: SystemTime) -> io::Result<()> {
+    imp::set_modified(path, at)
+}
+
 /// Syncs the folder `path`, so a file just renamed into it survives a
 /// power cut. Windows can't sync a folder through a handle you may open,
 /// and NTFS journals the rename, so it's a no-op there.
@@ -125,6 +133,16 @@ mod tests {
             std::env::temp_dir().join(format!("maxhq-os-fsmode-{name}-{}", std::process::id()));
         let _ = fs::remove_dir_all(&dir);
         dir
+    }
+
+    #[test]
+    fn a_folder_takes_the_time_it_is_given() {
+        let dir = temp("time");
+        fs::create_dir_all(&dir).unwrap();
+        let at = SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(1_700_000_000);
+        set_modified(&dir, at).unwrap();
+        assert_eq!(fs::metadata(&dir).unwrap().modified().unwrap(), at);
+        fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]

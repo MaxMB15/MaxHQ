@@ -263,7 +263,10 @@ fn a_test_client_dialled_the_socket() {
     let facts = Facts::find(&caller, &[]);
     assert_eq!(facts.transport, Transport::Socket);
     assert!(!facts.same_mac);
-    assert_eq!(facts.program.is_some(), cfg!(target_os = "macos"));
+    assert_eq!(
+        facts.program.is_some(),
+        cfg!(any(target_os = "macos", windows))
+    );
 
     let nobody = super::facts::Caller {
         pid: None,

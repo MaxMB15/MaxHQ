@@ -9,8 +9,7 @@
 # the dry-run-release artifact.
 #
 # It runs on the cross-platform branches when a release file changes, and on
-# demand. The Windows builds may fail until the Windows port lands, so the
-# run stays green without them.
+# demand.
 
 name: Release dry run
 
@@ -46,7 +45,6 @@ jobs:
       contents: read
     with:
       update-manifest: latest-v2.json
-      may-fail: true
 
   build-linux:
     needs: [linux-maxd]
@@ -117,24 +115,20 @@ jobs:
           name: android-build
           path: ${{ runner.temp }}/android
 
-      # Every Linux package must be there. A missing Windows one is a
-      # warning, while the Windows port lands.
+      # Every Linux and Windows package must be there.
       - name: Check the installers
         run: |
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/desktop"
           ls -l "$RUNNER_TEMP/desktop"
           missing=0
-          for name in $(node scripts/release/bundles.mjs assets linux); do
-            if [[ ! -f "$RUNNER_TEMP/desktop/$name" ]]; then
-              echo "::error::The Linux build has no $name."
-              missing=1
-            fi
-          done
-          for name in $(node scripts/release/bundles.mjs assets windows); do
-            if [[ ! -f "$RUNNER_TEMP/desktop/$name" ]]; then
-              echo "::warning::The Windows build has no $name."
-            fi
+          for os in linux windows; do
+            for name in $(node scripts/release/bundles.mjs assets "$os"); do
+              if [[ ! -f "$RUNNER_TEMP/desktop/$name" ]]; then
+                echo "::error::The $os build has no $name."
+                missing=1
+              fi
+            done
           done
           exit "$missing"
 

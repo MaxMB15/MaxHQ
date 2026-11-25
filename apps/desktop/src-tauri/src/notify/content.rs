@@ -113,6 +113,72 @@ fn escape(text: &str) -> String {
     escaped
 }
 
+/// The group every toast of the app's is in, which taking them off screen
+/// goes by along with each one's tag.
+#[cfg(windows)]
+pub const TOAST_GROUP: &str = "maxhq";
+
+/// The longest tag Windows takes for a toast, in UTF-16 units.
+#[cfg(any(windows, test))]
+const LONGEST_TAG: usize = 64;
+
+/// The tag for the toast of the notification with `id`, which showing it
+/// again replaces and taking it off screen goes by: the ID itself, or a
+/// hash of it that stays the same from run to run where it's too long.
+#[cfg(any(windows, test))]
+pub fn toast_tag(id: &str) -> String {
+    if !id.is_empty() && id.encode_utf16().count() <= LONGEST_TAG {
+        return id.to_owned();
+    }
+    // FNV-1a, so the tag outlasts the process and a toast from an earlier
+    // run can still be taken off screen.
+    let hash = id.bytes().fold(0xcbf2_9ce4_8422_2325_u64, |hash, byte| {
+        (hash ^ u64::from(byte)).wrapping_mul(0x0100_0000_01b3)
+    });
+    format!("{hash:016x}")
+}
+
+/// The toast for `content`: the agent's title, what happened, and where
+/// the agent runs in the smaller line at the bottom. A prompt plays the
+/// toast's own sound and the rest are silent.
+#[cfg(any(windows, test))]
+pub fn toast_xml(content: &Content) -> String {
+    let mut xml = String::from(r#"<toast><visual><binding template="ToastGeneric">"#);
+    let mut text = |text: &str, attributes: &str| {
+        xml.push_str(&format!("<text{attributes}>{}</text>", xml_text(text)));
+    };
+    text(&content.summary, "");
+    text(&content.body, "");
+    if let Some(subtitle) = &content.subtitle {
+        text(subtitle, r#" placement="attribution""#);
+    }
+    xml.push_str("</binding></visual>");
+    if !content.sound {
+        xml.push_str(r#"<audio silent="true"/>"#);
+    }
+    xml.push_str("</toast>");
+    xml
+}
+
+/// `text` for an XML text node: the characters XML reads escaped, and the
+/// ones it can't hold at all left out, so an agent's text can't break the
+/// toast.
+#[cfg(any(windows, test))]
+fn xml_text(text: &str) -> String {
+    let mut escaped = String::with_capacity(text.len());
+    for each in text.chars() {
+        match each {
+            '&' => escaped.push_str("&amp;"),
+            '<' => escaped.push_str("&lt;"),
+            '>' => escaped.push_str("&gt;"),
+            '\t' | '\n' | '\r' => escaped.push(each),
+            each if each < ' ' || matches!(each, '\u{fffe}' | '\u{ffff}') => {}
+            other => escaped.push(other),
+        }
+    }
+    escaped
+}
+
 #[cfg(test)]
 mod tests {
     use maxhq_protocol::ids::AgentId;
@@ -183,5 +249,57 @@ mod tests {
         );
         // The summary is never markup.
         assert_eq!(content.summary, "Fix <the> merge");
+    }
+
+    fn toast(sound: bool, subtitle: Option<&str>) -> Content {
+        Content {
+            summary: "Fix <the> merge".into(),
+            subtitle: subtitle.map(Into::into),
+            body: "Needs your input & more".into(),
+            sound,
+            click: true,
+        }
+    }
+
+    #[test]
+    fn a_toast_shows_the_title_then_what_happened_then_where() {
+        assert_eq!(
+            toast_xml(&toast(true, Some("maxhq on <pc>"))),
+            concat!(
+                r#"<toast><visual><binding template="ToastGeneric">"#,
+                "<text>Fix &lt;the&gt; merge</text>",
+                "<text>Needs your input &amp; more</text>",
+                r#"<text placement="attribution">maxhq on &lt;pc&gt;</text>"#,
+                "</binding></visual></toast>"
+            )
+        );
+        assert_eq!(
+            toast_xml(&toast(false, None)),
+            concat!(
+                r#"<toast><visual><binding template="ToastGeneric">"#,
+                "<text>Fix &lt;the&gt; merge</text>",
+                "<text>Needs your input &amp; more</text>",
+                r#"</binding></visual><audio silent="true"/></toast>"#
+            )
+        );
+    }
+
+    #[test]
+    fn what_xml_cant_hold_is_left_out_of_a_toast() {
+        assert_eq!(xml_text("a\u{0}b\u{1b}[0m\tc\nd"), "ab[0m\tc\nd");
+        assert_eq!(xml_text("\u{fffe}é😀"), "é😀");
+    }
+
+    #[test]
+    fn a_toast_is_tagged_by_its_id_or_a_steady_hash_of_a_long_one() {
+        let id = "needs-input:0199a7c2-5f3e-7d10-8a4b-2c6e9f1d3b57";
+        assert_eq!(toast_tag(id), id);
+        let long = format!("inbox:{}", "x".repeat(80));
+        let tag = toast_tag(&long);
+        assert_eq!(tag.len(), 16);
+        assert_eq!(tag, toast_tag(&long), "the same every time");
+        assert_ne!(tag, toast_tag(&format!("{long}y")));
+        assert_eq!(toast_tag(""), "cbf29ce484222325");
+        assert_eq!(toast_tag(&"x".repeat(LONGEST_TAG)), "x".repeat(LONGEST_TAG));
     }
 }

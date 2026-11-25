@@ -11,9 +11,9 @@
 //! connection and waits there until it's clicked or closed. Taking one off
 //! screen goes by the id the server gave it.
 //!
-//! Windows shows toasts through `notify-rust`. A click and taking a toast
-//! off screen both need the app's own AUMID, which the Windows port adds,
-//! so for now toasts only show.
+//! On Windows they're toasts for the app's AppUserModelID, which report
+//! clicks while the app runs. What Windows Settings allows can change while
+//! the app runs, so the permission asks it each time.
 //!
 //! The work runs in order on a thread of its own, since each call into the
 //! server waits for its answer and the notifier calls the sender from async
@@ -75,7 +75,12 @@ impl Desktop {
             .await
             .ok()
             .and_then(|found| *found);
-        found.unwrap_or_default().permission()
+        let permission = found.unwrap_or_default().permission();
+        #[cfg(windows)]
+        if permission == NotificationPermission::Allowed {
+            return system::permission();
+        }
+        permission
     }
 
     fn send(&self, job: Job) {
@@ -452,54 +457,5 @@ mod linux {
     }
 }
 
-/// Toasts. The Windows port adds the app's AUMID, the click and taking a
-/// toast off screen.
 #[cfg(windows)]
-mod windows {
-    use maxhq_app::notify::Notification;
-
-    use super::{Abilities, Content, OnClick};
-
-    /// The sound a prompt plays: the toast's own.
-    const SOUND: &str = "Default";
-
-    /// The toasts the app has shown.
-    pub struct Screen;
-
-    impl Screen {
-        pub fn new(on_click: OnClick) -> Self {
-            // Nothing reports a click on a toast yet.
-            drop(on_click);
-            Self
-        }
-
-        /// Toasts always show, with a line for the subtitle. They don't
-        /// report clicks yet.
-        pub fn abilities(&mut self) -> Abilities {
-            Abilities {
-                shows: true,
-                clicks: false,
-                markup: false,
-                subtitle: true,
-            }
-        }
-
-        pub fn show(&mut self, notification: &Notification, content: &Content) {
-            let mut toast = notify_rust::Notification::new();
-            toast.summary(&content.summary).body(&content.body);
-            if let Some(subtitle) = &content.subtitle {
-                toast.subtitle(subtitle);
-            }
-            if content.sound {
-                toast.sound_name(SOUND);
-            }
-            if let Err(error) = toast.show() {
-                tracing::warn!(%error, id = notification.id, "Windows didn't show a toast");
-            }
-        }
-
-        pub fn remove(&mut self, _ids: &[String]) {}
-
-        pub fn remove_all(&mut self) {}
-    }
-}
+mod windows;

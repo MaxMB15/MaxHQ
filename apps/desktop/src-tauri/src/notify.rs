@@ -26,8 +26,8 @@ use tauri::State;
 use crate::native::NativeError;
 
 /// Whether this app's notifications show. On macOS that's up to System
-/// Settings. On Linux they show when the desktop has a notification
-/// server, and on Windows they always do.
+/// Settings, and on Windows to Windows Settings. On Linux they show when
+/// the desktop has a notification server.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Type)]
 #[serde(rename_all = "snake_case")]
 #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
@@ -195,14 +195,18 @@ pub async fn send_test_notification(
     Ok(())
 }
 
-/// Opens this app's page under Notifications in System Settings. Linux and
-/// Windows have no settings page to link to.
+/// Opens this app's page under Notifications in System Settings, or the
+/// Notifications page of Windows Settings. Linux has no settings page to
+/// link to.
 #[tauri::command]
 #[specta::specta]
 pub fn open_notification_settings() -> Result<(), NativeError> {
     #[cfg(target_os = "macos")]
     return macos::open_settings();
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(windows)]
+    return tauri_plugin_opener::open_url("ms-settings:notifications", None::<&str>)
+        .map_err(|error| NativeError::failed(format!("Couldn't open Windows Settings: {error}")));
+    #[cfg(not(any(target_os = "macos", windows)))]
     Err(NativeError::Unsupported {
         what: "System Settings".into(),
     })

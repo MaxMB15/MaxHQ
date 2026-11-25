@@ -162,16 +162,12 @@ fn write_file(path: &Path, text: &str) -> io::Result<()> {
     file.sync_all()
 }
 
-/// The boot this device is on. macOS reads `kern.bootsessionuuid` and
-/// Linux reads the kernel's boot ID. When neither works the value is
-/// "unknown", and the app can't tell when the device restarts.
+/// The boot this device is on. macOS reads `kern.bootsessionuuid`, Linux
+/// reads the kernel's boot ID and Windows its count of boots. When none
+/// works the value is "unknown", and the app can't tell when the device
+/// restarts.
 pub fn boot_id() -> BootId {
-    let raw = if cfg!(target_os = "macos") {
-        output("/usr/sbin/sysctl", &["-n", "kern.bootsessionuuid"])
-    } else {
-        fs::read_to_string("/proc/sys/kernel/random/boot_id").ok()
-    };
-    match raw.as_deref().and_then(clean) {
+    match maxhq_os::boot::id().as_deref().and_then(clean) {
         Some(id) => BootId(id),
         None => {
             tracing::warn!(

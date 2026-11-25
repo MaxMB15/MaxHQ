@@ -1325,5 +1325,6 @@
 	"Firebase keys devices hold": "Clés Firebase conservées",
 	"the Firebase key": "la clé Firebase",
 	"No device holds a Firebase key yet.": "Aucun appareil ne conserve de clé Firebase.",
-	"Couldn't send the Firebase key": "Impossible d'envoyer la clé Firebase"
+	"Couldn't send the Firebase key": "Impossible d'envoyer la clé Firebase",
+	"Agents on Windows run without a sandbox, but they still ask for permission as their mode says.": "Sous Windows, les agents s'exécutent sans bac à sable, mais demandent toujours une autorisation selon leur mode."
 }

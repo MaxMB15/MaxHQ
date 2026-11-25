@@ -568,7 +568,12 @@ fn agent_device_is_found_by_where_maxd_installed_it() {
     let dir = TempDir::new();
     let mut setup = setup(&dir, Manager::Launchd);
     setup.data = Some(PathBuf::from("/data/max.d+1"));
-    let pattern = r"/data/max\.d\+1/tools/agent-device/";
+    // The folder's own text, escaped, and Windows' `\` between its names.
+    let pattern = if cfg!(windows) {
+        r"/data/max\.d\+1\\tools\\agent-device/"
+    } else {
+        r"/data/max\.d\+1/tools/agent-device/"
+    };
     let mut fake = Fake::default()
         .answer_times("pgrep -U 501 -f -- /data", "", 1)
         .fail("pgrep", "");
@@ -706,7 +711,10 @@ fn the_ssh_connections_maxd_kept_open_are_closed() {
         changes(&fake),
         [format!(
             "ssh -S {} -O exit maxhq",
-            runtime.join(".ssh-connectionAbC123/master").display()
+            runtime
+                .join(".ssh-connectionAbC123")
+                .join("master")
+                .display()
         )]
     );
 }

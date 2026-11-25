@@ -47,6 +47,7 @@ import { CursorLogin } from "../cursor-login";
 import { GithubLogin } from "../github-login";
 import { LocalModelsSettingsPage } from "../local-models-settings";
 import { LOGIN_STEPS } from "../login-steps";
+import { AppNoSandboxNote } from "../no-sandbox-note";
 import { ProjectSettingsPage } from "../project-settings";
 import { ScheduledTasksSettingsPage } from "../scheduled-tasks-settings";
 import type { Span } from "../search";
@@ -467,7 +468,12 @@ const Page = memo(function Page({
 							{group === "devices" ? (
 								<DevicesGroup results={results} />
 							) : (
-								<GroupCards group={group} results={results} />
+								<>
+									{group === "permissions" && !results ? (
+										<AppNoSandboxNote />
+									) : null}
+									<GroupCards group={group} results={results} />
+								</>
 							)}
 						</GroupSection>
 					)

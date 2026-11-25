@@ -17,7 +17,7 @@ mod terminal;
 mod terminal_stream;
 mod updater;
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -211,6 +211,10 @@ pub fn run() {
             tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into()),
         )
         .init();
+    // Before any window opens, so Windows shows it as the Start menu's
+    // MaxHQ and hands that app's toast clicks to this process.
+    #[cfg(windows)]
+    native::windows::claim_app_id();
 
     let builder = specta_builder();
     let app = tauri::Builder::default();
@@ -605,11 +609,11 @@ impl Shell for Desktop {
         Box::pin(spawn_editor(program, args))
     }
 
-    /// The app's data and cache folders, and the MaxHQ folder it shares
-    /// with maxd, where the app's links keep their known hosts. maxd has
-    /// deleted the rest of that one by the time this runs. Each one goes
-    /// only when it's named for the app, so an odd path from the system
-    /// can't take anything else with it.
+    /// The app's data and cache folders, and the data folder it shares
+    /// with maxd, where the app's links keep their known hosts. By the time
+    /// this runs maxd's service has stopped and maxd has deleted the rest
+    /// of that one. Each one goes only when it's named for the app, so an
+    /// odd path from the system can't take anything else with it.
     fn app_data(&self) -> Vec<PathBuf> {
         let path = self.app.path();
         let identifier = self.app.config().identifier.as_str();
@@ -625,9 +629,7 @@ impl Shell for Desktop {
             }
         }
         if let Some(shared) = maxhq_core::paths::data_dir()
-            && shared
-                .file_name()
-                .is_some_and(|name| name == "MaxHQ" || name == "maxhq")
+            && shared_erasable(&shared, maxhq_core::paths::windows_app_dir().as_deref())
             && !folders.contains(&shared)
         {
             folders.push(shared);
@@ -689,4 +691,42 @@ async fn spawn_editor(program: PathBuf, args: Vec<String>) -> Result<(), String>
         .spawn()
         .map(drop)
         .map_err(|error| format!("The editor didn't start: {error}"))
+}
+
+/// Whether the app may erase `shared`, the data folder it shares with
+/// maxd. On Windows, where `windows_app` is MaxHQ's folder, that's only its
+/// `data` folder: the setup installs the app in MaxHQ's folder, and maxd's
+/// builds are there too. Elsewhere it's a folder named for MaxHQ.
+fn shared_erasable(shared: &Path, windows_app: Option<&Path>) -> bool {
+    match windows_app {
+        Some(app) => shared == app.join("data"),
+        None => shared
+            .file_name()
+            .is_some_and(|name| name == "MaxHQ" || name == "maxhq"),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn only_the_data_folder_goes_from_maxhqs_windows_folder() {
+        let app = Path::new("C:/Users/<user>/AppData/Local/MaxHQ");
+        assert!(shared_erasable(&app.join("data"), Some(app)));
+        assert!(!shared_erasable(app, Some(app)));
+        assert!(!shared_erasable(Path::new("C:/elsewhere/data"), Some(app)));
+    }
+
+    #[test]
+    fn elsewhere_the_shared_folder_goes_when_its_named_for_maxhq() {
+        let linux = Path::new("/home/<user>/.local/share/maxhq");
+        let mac = Path::new("/Users/<user>/Library/Application Support/MaxHQ");
+        assert!(shared_erasable(linux, None));
+        assert!(shared_erasable(mac, None));
+        assert!(!shared_erasable(
+            Path::new("/home/<user>/.local/share"),
+            None
+        ));
+    }
 }
