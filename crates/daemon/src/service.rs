@@ -578,11 +578,10 @@ pub fn find_program(name: &str) -> Option<PathBuf> {
 }
 
 /// The executable called `name`, from an absolute folder on `path` or a
-/// usual install folder. A relative folder would depend on where `maxd`
+/// usual install folder: [`INSTALL_DIRS`] on Unix, and the installers'
+/// folders on Windows. A relative folder would depend on where `maxd`
 /// started.
 fn find_on(path: &OsStr, home: Option<&Path>, name: &str) -> Option<PathBuf> {
-    use maxhq_os::which::{self, Env, Rules};
-
     let usual: Vec<PathBuf> = INSTALL_DIRS
         .iter()
         .filter_map(|dir| match dir.strip_prefix("~/") {
@@ -590,11 +589,7 @@ fn find_on(path: &OsStr, home: Option<&Path>, name: &str) -> Option<PathBuf> {
             None => Some(PathBuf::from(dir)),
         })
         .collect();
-    let env = Env {
-        path: Some(path.to_owned()),
-        ..Env::current()
-    };
-    which::find_in(Rules::HOST, name, &usual, &env, &which::Host)
+    crate::drive::programs::find(name, Some(path), &usual, crate::drive::programs::Cli::Other)
 }
 
 /// Where launchd writes what `maxd` logs for the user at `home`.

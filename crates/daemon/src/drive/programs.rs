@@ -16,7 +16,7 @@ use std::env;
 use std::ffi::{OsStr, OsString};
 use std::path::{Path, PathBuf};
 
-use maxhq_os::which::{self, Env, Fs, Rules};
+use maxhq_os::which::{self, Env, Rules};
 
 /// The CLIs with Windows install folders of their own.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -100,27 +100,13 @@ pub fn find(name: &str, path: Option<&OsStr>, unix: &[PathBuf], cli: Cli) -> Opt
         Rules::Unix => unix.to_vec(),
         Rules::Windows => WindowsFolders::current().of(cli),
     };
-    find_in(Rules::HOST, name, path, &extra, &which::Host)
-}
-
-/// [`find`] under `rules`, from `path` and then `extra`, over `fs`.
-pub fn find_in(
-    rules: Rules,
-    name: &str,
-    path: Option<&OsStr>,
-    extra: &[PathBuf],
-    fs: &impl Fs,
-) -> Option<PathBuf> {
-    let env = Env {
-        path: path.map(OsStr::to_owned),
-        pathext: env::var_os("PATHEXT"),
-    };
-    which::find_in(rules, name, extra, &env, fs)
-}
-
-/// Whether `path` is a program this user may run.
-pub fn runnable(path: &Path) -> bool {
-    which::runnable(path)
+    which::find_in(
+        Rules::HOST,
+        name,
+        &extra,
+        &Env::with_path(path),
+        &which::Host,
+    )
 }
 
 /// Readies `program` and `args` to start as this system starts them. On

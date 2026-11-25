@@ -7,7 +7,7 @@
 //! them touches a running session.
 
 use std::collections::BTreeMap;
-use std::ffi::{OsStr, OsString};
+use std::ffi::OsStr;
 #[cfg(unix)]
 use std::os::unix::fs::{DirBuilderExt, MetadataExt, PermissionsExt};
 use std::path::{Path, PathBuf};
@@ -25,6 +25,7 @@ use tokio::time::Instant;
 use super::windows::windows;
 use crate::drive::claude::entrypoint;
 use crate::drive::claude::find_claude;
+use crate::drive::programs;
 use crate::observe::claude::config::ConfigDir;
 
 /// How long a run of `claude` gets before it's stopped.
@@ -271,12 +272,9 @@ impl Cli {
         command.env(entrypoint::VAR, entrypoint::label(&config.path));
         // A `claude` that npm installed is a script that needs `node`,
         // which usually sits beside it.
-        if let Some(path) = self
-            .program
-            .parent()
-            .and_then(|dir| with_first(dir, std::env::var_os("PATH")))
-        {
-            command.env("PATH", path);
+        if let Some(dir) = self.program.parent() {
+            let path = std::env::var_os("PATH");
+            command.env("PATH", programs::path_with_first(dir, path.as_deref()));
         }
         command.kill_on_drop(true);
         command
@@ -289,13 +287,6 @@ impl Cli {
 fn inherited(key: &OsStr) -> bool {
     let key = key.to_string_lossy();
     key.starts_with("CLAUDE") || key.starts_with("ANTHROPIC")
-}
-
-/// `PATH` with `dir` first.
-fn with_first(dir: &Path, path: Option<OsString>) -> Option<OsString> {
-    let rest = path.unwrap_or_default();
-    let all = std::iter::once(dir.to_path_buf()).chain(std::env::split_paths(&rest));
-    std::env::join_paths(all).ok()
 }
 
 /// Makes `dir` for `claude` to run in, and checks that only this user can
@@ -411,6 +402,7 @@ fn shorten(reason: &str) -> String {
 
 #[cfg(test)]
 pub(crate) mod tests {
+    use std::ffi::OsString;
     use std::fs;
 
     use super::*;
