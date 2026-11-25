@@ -14,6 +14,10 @@
 //! nothing. Its lines name `maxd.exe` by its full path, in quotes when the
 //! path has a space, and an Administrators member's keys are in
 //! [`windows_admin_file`] rather than their own folder.
+//!
+//! The lines for any machine are built here; `unix` and `windows` hold
+//! what this device's own sshd reads: [`file_here`], [`line_here`] and the
+//! command a hand-added line runs.
 
 use std::fs;
 use std::io;
@@ -22,6 +26,17 @@ use std::path::{Path, PathBuf};
 use maxhq_os::fsmode;
 
 use crate::fs::Atomic;
+
+#[cfg(unix)]
+mod unix;
+#[cfg(unix)]
+use unix as imp;
+#[cfg(windows)]
+mod windows;
+#[cfg(windows)]
+use windows as imp;
+
+pub use imp::{file_here, line_here};
 
 /// The tag on the app's key line.
 pub const APP_TAG: &str = "maxhq";
@@ -57,40 +72,10 @@ pub fn windows_admin_file(program_data: &Path) -> PathBuf {
     program_data.join(WINDOWS_ADMIN_KEYS)
 }
 
-/// The `authorized_keys` this device's sshd reads for this account:
-/// `.ssh\authorized_keys` in `home`, or on Windows [`windows_admin_file`]
-/// for an Administrators member when `sshd_config` sends their keys there,
-/// as it does from install.
-pub fn file_here(home: &Path) -> PathBuf {
-    #[cfg(windows)]
-    if let Some(file) = windows_admin_file_here() {
-        return file;
-    }
+/// `.ssh/authorized_keys` in `home`, where sshd reads an account's keys
+/// unless it's told otherwise.
+fn in_home(home: &Path) -> PathBuf {
     home.join(".ssh").join("authorized_keys")
-}
-
-/// [`windows_admin_file`] when sshd reads this account's keys from it.
-#[cfg(windows)]
-fn windows_admin_file_here() -> Option<PathBuf> {
-    let program_data = PathBuf::from(std::env::var_os("ProgramData")?);
-    let config = fs::read_to_string(program_data.join("ssh").join("sshd_config")).ok();
-    (windows_admin_keys_apply(config.as_deref()) && windows_admin())
-        .then(|| windows_admin_file(&program_data))
-}
-
-/// Whether this account is in Administrators, from `whoami /groups`.
-#[cfg(windows)]
-fn windows_admin() -> bool {
-    let root =
-        std::env::var_os("SystemRoot").map_or_else(|| PathBuf::from(r"C:\Windows"), PathBuf::from);
-    std::process::Command::new(root.join("System32").join("whoami.exe"))
-        .args(["/groups", "/fo", "csv", "/nh"])
-        .stdin(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .output()
-        .is_ok_and(|out| {
-            out.status.success() && in_administrators(&String::from_utf8_lossy(&out.stdout))
-        })
 }
 
 /// Whether `whoami /groups /fo csv /nh` lists Administrators, `S-1-5-32-544`,
@@ -163,29 +148,6 @@ pub fn add_failed(file: &Path, line: &str, err: &io::Error) -> String {
         file = file.display(),
         value = quoted(line),
     )
-}
-
-/// The stable `maxd.exe` on this Windows machine, or an error naming what
-/// it lacks.
-fn windows_maxd() -> Result<String, String> {
-    let base = std::env::var_os("LOCALAPPDATA")
-        .ok_or("LOCALAPPDATA isn't set, so the key line can't name maxd.exe")?;
-    let base = base.to_string_lossy();
-    Ok(format!(
-        "{}\\{WINDOWS_MAXD}",
-        base.trim_end_matches(['\\', '/'])
-    ))
-}
-
-/// The line [`line`] gives on Unix and [`windows_line`] on Windows, where
-/// `maxd.exe` is [`WINDOWS_MAXD`] under `%LOCALAPPDATA%` and `home` isn't
-/// read.
-pub fn line_here(home: &str, public_key: &str, peer: Option<&str>) -> Result<String, String> {
-    if cfg!(windows) {
-        windows_line(&windows_maxd()?, public_key, peer)
-    } else {
-        line(home, public_key, peer)
-    }
 }
 
 /// The line that lets `public_key` run only `maxd proxy` through the
@@ -264,10 +226,7 @@ pub fn pair_line(public_key: &str, pair: &str) -> Result<String, String> {
 
 fn home_line(public_key: &str, flag: &str, name: &str, tag: &str) -> Result<String, String> {
     let (kind, key) = key_parts(public_key, Some(name))?;
-    let command = match cfg!(windows) {
-        true => windows_command(&windows_maxd()?, &Some(format!("{flag} {name}")))?,
-        false => format!("~/.local/bin/maxd proxy {flag} {name}"),
-    };
+    let command = imp::forced_command(&format!("{flag} {name}"))?;
     Ok(format!("restrict,command=\"{command}\" {kind} {key} {tag}"))
 }
 
@@ -381,7 +340,7 @@ mod tests {
 
     use super::*;
 
-    const KEY: &str = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIExample";
+    pub(super) const KEY: &str = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIExample";
 
     struct TempHome(PathBuf);
 
@@ -567,48 +526,6 @@ mod tests {
         );
         let home = add_failed(Path::new("/home/dev/.ssh/authorized_keys"), line, &denied);
         assert!(home.starts_with("Couldn't write"), "{home}");
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn the_file_here_is_in_the_home_folder_off_windows() {
-        assert_eq!(
-            file_here(Path::new("/home/dev")),
-            Path::new("/home/dev/.ssh/authorized_keys")
-        );
-    }
-
-    #[cfg(windows)]
-    #[test]
-    fn a_phone_line_on_windows_names_maxd_exe_under_local_app_data() {
-        let line = phone_line(KEY, "p1").expect("line");
-        assert!(line.contains(r"\MaxHQ\bin\current\maxd.exe"), "{line}");
-        assert!(line.contains(" proxy --phone p1\" "), "{line}");
-        assert!(line.ends_with(" maxhq-phone-p1"), "{line}");
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn a_line_here_is_the_unix_one_off_windows() {
-        assert_eq!(
-            line_here("/home/dev", KEY, None),
-            line("/home/dev", KEY, None)
-        );
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn a_phone_line_runs_only_maxd_proxy_for_that_phone() {
-        let phone = "0b7e3c1a-4d2f-5e6a-8b9c-0d1e2f3a4b5c";
-        assert_eq!(
-            phone_line(KEY, phone).as_deref(),
-            Ok(format!(
-                "restrict,command=\"~/.local/bin/maxd proxy --phone {phone}\" {KEY} maxhq-phone-{phone}"
-            )
-            .as_str())
-        );
-        assert!(phone_line(KEY, "p 1").is_err());
-        assert!(phone_line("ssh-ed25519", phone).is_err());
     }
 
     #[test]
