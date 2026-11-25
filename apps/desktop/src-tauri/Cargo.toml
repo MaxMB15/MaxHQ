@@ -22,6 +22,7 @@ tauri-build = { version = "2.7", features = [] }
 [dependencies]
 maxhq-app = { workspace = true, features = ["desktop"] }
 maxhq-core = { workspace = true }
+maxhq-os = { workspace = true }
 maxhq-protocol = { workspace = true }
 serde = { workspace = true }
 # The plugins block in tauri.conf.json is built into the app as JSON.
@@ -104,11 +105,8 @@ open = "5.4"
 
 # Windows shows its toasts through WinRT, for the app's AppUserModelID, so
 # it hears their clicks. windows-sys claims that ID, lists it for a build no
-# setup installed, and opens PowerShell as an administrator. base64 encodes
-# the script PowerShell runs, and maxhq-os finds PowerShell 7.
+# setup installed, and opens PowerShell as an administrator.
 [target.'cfg(windows)'.dependencies]
-base64 = { workspace = true }
-maxhq-os = { workspace = true }
 windows = { version = "0.62", features = [
     "Data_Xml_Dom",
     "Foundation",
@@ -119,10 +117,6 @@ windows-sys = { workspace = true, features = [
     "Win32_UI_Shell",
     "Win32_UI_WindowsAndMessaging",
 ] }
-
-# The PowerShell terminal's tests run everywhere.
-[dev-dependencies]
-base64 = { workspace = true }
 
 [lints]
 workspace = true

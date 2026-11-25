@@ -11,6 +11,8 @@
 //! A distro has no host key of its own to keep: the link reaches it
 //! through `wsl.exe`, on this machine or the Windows one.
 
+use maxhq_core::shell::powershell::literal;
+
 use super::windows::powershell;
 use super::{
     parse_probe, stop, Confirmations, Prepared, Run, Setup, SetupBinary, SetupError, Step,
@@ -131,53 +133,11 @@ pub fn over_ssh(distro: &str, script: &str) -> Option<String> {
 }
 
 /// The PowerShell script that runs `wsl.exe` with `args` on a Windows
-/// machine.
+/// machine, quoted into one command line that `wsl.exe` splits back into
+/// the same words.
 fn relay(args: &[String]) -> String {
-    format!(
-        "$line = {}\n{RELAY}",
-        super::windows::literal(&command_line(args))
-    )
-}
-
-/// `args` as one Windows command line, quoted so a program splits it back
-/// into the same words, as Rust's own `Command` does on Windows.
-fn command_line(args: &[String]) -> String {
-    args.iter()
-        .map(|arg| quote(arg))
-        .collect::<Vec<_>>()
-        .join(" ")
-}
-
-/// One argument for a Windows command line. One with no space, tab or
-/// quote goes as it is. Otherwise it goes in quotes, a quote in it after
-/// a backslash, and the backslashes before a quote or the closing one
-/// doubled.
-fn quote(arg: &str) -> String {
-    if !arg.is_empty() && !arg.contains([' ', '\t', '\n', '"']) {
-        return arg.to_owned();
-    }
-    let mut quoted = String::with_capacity(arg.len() + 2);
-    quoted.push('"');
-    let mut backslashes = 0;
-    for c in arg.chars() {
-        match c {
-            '\\' => backslashes += 1,
-            '"' => {
-                quoted.extend(std::iter::repeat_n('\\', backslashes * 2 + 1));
-                backslashes = 0;
-            }
-            _ => {
-                quoted.extend(std::iter::repeat_n('\\', backslashes));
-                backslashes = 0;
-            }
-        }
-        if c != '\\' {
-            quoted.push(c);
-        }
-    }
-    quoted.extend(std::iter::repeat_n('\\', backslashes * 2));
-    quoted.push('"');
-    quoted
+    let line = maxhq_os::proc::args::join_str(args.iter().map(String::as_str));
+    format!("$line = {}\n{RELAY}", literal(&line))
 }
 
 /// Why a distro without a systemd user session can't take `maxd`, and
@@ -200,6 +160,7 @@ pub(super) fn linger(distro: &str, user: &str) -> String {
 mod tests {
     use std::sync::Mutex;
 
+    use super::super::tests::script_of;
     use super::super::{Output, MAXD_LINK_TEMP};
     use super::*;
 
@@ -259,22 +220,6 @@ mod tests {
                 stderr: String::new(),
             })
         }
-    }
-
-    fn script_of(command: &str) -> Option<String> {
-        use base64::Engine;
-        let encoded =
-            command.strip_prefix("powershell -NoProfile -NonInteractive -EncodedCommand ")?;
-        let bytes = base64::engine::general_purpose::STANDARD
-            .decode(encoded)
-            .ok()?;
-        let units: Vec<u16> = bytes
-            .as_chunks::<2>()
-            .0
-            .iter()
-            .map(|pair| u16::from_le_bytes(*pair))
-            .collect();
-        String::from_utf16(&units).ok()
     }
 
     fn paths() -> SetupPaths {
@@ -420,16 +365,5 @@ mod tests {
         assert!(Setup::wsl(&fake, &paths, "-d", None).is_err());
         assert!(Setup::wsl(&fake, &paths, "Ubuntu", Some("-oProxyCommand=x")).is_err());
         let _ = std::fs::remove_dir_all(paths.key.parent().unwrap());
-    }
-
-    #[test]
-    fn arguments_split_back_into_the_same_words() {
-        let words =
-            |args: &[&str]| command_line(&args.iter().map(|a| (*a).to_owned()).collect::<Vec<_>>());
-        assert_eq!(words(&["-d", "Ubuntu"]), "-d Ubuntu");
-        assert_eq!(words(&["a b", ""]), "\"a b\" \"\"");
-        assert_eq!(words(&["say \"hi\""]), "\"say \\\"hi\\\"\"");
-        assert_eq!(words(&["C:\\dir\\ x\\"]), "\"C:\\dir\\ x\\\\\"");
-        assert_eq!(words(&["a\\\"b"]), "\"a\\\\\\\"b\"");
     }
 }

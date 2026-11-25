@@ -252,49 +252,14 @@ impl Drop for Attributes {
     }
 }
 
-/// Adds `arg` to a command line as a program built with the usual C
-/// runtime splits it back: quoted when it's empty or holds a blank or a
-/// quote, with the backslashes before a quote doubled.
-fn quote(arg: &OsStr, line: &mut Vec<u16>) {
-    const QUOTE: u16 = b'"' as u16;
-    const BACKSLASH: u16 = b'\\' as u16;
-    let arg: Vec<u16> = arg.encode_wide().collect();
-    let plain = !arg.is_empty()
-        && !arg
-            .iter()
-            .any(|&unit| matches!(unit, 0x20 | 0x09 | 0x0a | 0x0b | QUOTE));
-    if plain {
-        line.extend(arg);
-        return;
-    }
-    line.push(QUOTE);
-    let mut backslashes = 0;
-    for unit in arg {
-        if unit == BACKSLASH {
-            backslashes += 1;
-        } else {
-            if unit == QUOTE {
-                line.extend(std::iter::repeat_n(BACKSLASH, backslashes + 1));
-            }
-            backslashes = 0;
-        }
-        line.push(unit);
-    }
-    line.extend(std::iter::repeat_n(BACKSLASH, backslashes));
-    line.push(QUOTE);
-}
-
 /// The command line for `program` and `args`, ending in a zero.
 fn command_line<'a>(
-    program: &OsStr,
+    program: &'a OsStr,
     args: impl Iterator<Item = &'a OsStr>,
 ) -> io::Result<Vec<u16>> {
     let mut line = Vec::new();
-    quote(program, &mut line);
-    for arg in args {
-        line.push(u16::from(b' '));
-        quote(arg, &mut line);
-    }
+    let words = std::iter::once(program).chain(args);
+    maxhq_os::proc::args::join(words.map(OsStrExt::encode_wide), &mut line);
     ended(line)
 }
 
@@ -560,23 +525,15 @@ mod tests {
     }
 
     #[test]
-    fn arguments_are_quoted_as_the_runtime_splits_them() {
-        let line = |args: &[&str]| {
-            let mut line = Vec::new();
-            for (n, arg) in args.iter().enumerate() {
-                if n > 0 {
-                    line.push(u16::from(b' '));
-                }
-                quote(OsStr::new(arg), &mut line);
-            }
-            String::from_utf16(&line).unwrap()
-        };
-        assert_eq!(line(&["plain", ""]), r#"plain """#);
-        assert_eq!(line(&["two words"]), r#""two words""#);
-        assert_eq!(line(&[r#"say "hi""#]), r#""say \"hi\"""#);
-        assert_eq!(line(&[r"C:\a dir\"]), r#""C:\a dir\\""#);
-        assert_eq!(line(&[r"C:\plain\path"]), r"C:\plain\path");
-        assert_eq!(line(&[r#"a\"b"#]), r#""a\\\"b""#);
+    fn the_command_line_quotes_the_program_and_its_arguments() {
+        let words = [OsStr::new("two words"), OsStr::new("plain")];
+        let line = command_line(OsStr::new(r"C:\a dir\x.exe"), words.into_iter()).unwrap();
+        assert_eq!(
+            String::from_utf16(&line).unwrap(),
+            "\"C:\\a dir\\x.exe\" \"two words\" plain\0"
+        );
+        let zero = [OsStr::new("a\0b")];
+        assert!(command_line(OsStr::new("x"), zero.into_iter()).is_err());
     }
 
     #[test]

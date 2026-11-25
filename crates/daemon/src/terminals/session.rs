@@ -1224,7 +1224,7 @@ impl SessionNote {
 /// Windows does.
 fn cd_line(path: &Path, dialect: Dialect) -> String {
     if dialect == Dialect::PowerShell {
-        let path = TermLaunch::powershell_quoted(&path.to_string_lossy());
+        let path = maxhq_core::shell::powershell::literal(&path.to_string_lossy());
         return format!("Set-Location -LiteralPath {path}");
     }
     let fish = dialect == Dialect::Fish;

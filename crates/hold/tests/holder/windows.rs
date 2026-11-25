@@ -421,7 +421,7 @@ async fn a_powershell_marks_its_commands(ctx: &Ctx, program: PathBuf) {
     let mut watched = Seen::from(&watch);
     let cd = format!(
         "Set-Location -LiteralPath {}",
-        TermLaunch::powershell_quoted(&folder.to_string_lossy())
+        maxhq_core::shell::powershell::literal(&folder.to_string_lossy())
     );
     let typed = [
         "Write-Output \"nonce:$($null -eq $env:MAXHQ_SHELL_NONCE)\"",

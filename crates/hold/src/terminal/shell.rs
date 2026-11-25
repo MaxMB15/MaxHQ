@@ -198,21 +198,6 @@ fn powershell_run(command: &str) -> String {
     )
 }
 
-/// `text` in single quotes, as PowerShell reads them. PowerShell takes the
-/// curly quotes for one too, so each of them is doubled as well.
-pub(super) fn powershell_quoted(text: &str) -> String {
-    let mut quoted = String::with_capacity(text.len() + 2);
-    quoted.push('\'');
-    for c in text.chars() {
-        if matches!(c, '\'' | '\u{2018}' | '\u{2019}' | '\u{201a}' | '\u{201b}') {
-            quoted.push(c);
-        }
-        quoted.push(c);
-    }
-    quoted.push('\'');
-    quoted
-}
-
 /// Makes `launch`, a drawer shell, mark its prompts and commands when it's
 /// zsh, bash, fish or, on Windows, PowerShell, with the files in a folder
 /// under `dir`. Returns whether it will.
@@ -273,7 +258,7 @@ fn integrate_as(launch: &mut TermLaunch, dir: &Path, shell: Shell) -> io::Result
             let Some(file) = folder
                 .join("powershell.ps1")
                 .to_str()
-                .map(powershell_quoted)
+                .map(maxhq_core::shell::powershell::literal)
             else {
                 return Ok(false);
             };
@@ -642,16 +627,6 @@ mod tests {
         );
         assert_eq!(pwsh.nonce.as_ref().map(String::len), Some(32));
         fs::remove_dir_all(&dir).unwrap();
-    }
-
-    #[test]
-    fn powershell_reads_its_quotes_back_as_they_were() {
-        assert_eq!(powershell_quoted(r"C:\it's"), r"'C:\it''s'");
-        assert_eq!(
-            powershell_quoted("a\u{2019}b\u{2018}"),
-            "'a\u{2019}\u{2019}b\u{2018}\u{2018}'"
-        );
-        assert_eq!(powershell_quoted(""), "''");
     }
 
     #[test]

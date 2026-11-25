@@ -3,6 +3,8 @@
 
 use std::collections::HashMap;
 
+use maxhq_os::which::Fs;
+
 use super::*;
 
 /// Files by their Windows path: a mode and, for a shim, its text.
@@ -90,6 +92,17 @@ fn folders_windows_didnt_give_are_left_out() {
     assert!(WindowsFolders::default().of(Cli::Claude).is_empty());
 }
 
+/// `name` as Windows finds it on `path` and then in `extra`, over `files`.
+fn find_windows(name: &str, path: &OsStr, extra: &[PathBuf], files: &Files) -> Option<PathBuf> {
+    which::find_in(
+        Rules::Windows,
+        name,
+        extra,
+        &Env::with_path(Some(path)),
+        files,
+    )
+}
+
 #[test]
 fn windows_finds_the_exe_before_the_npm_shim() {
     let files = Files::default()
@@ -99,7 +112,7 @@ fn windows_finds_the_exe_before_the_npm_shim() {
     let path = OsString::from(r"C:\tools;C:\Users\me\AppData\Roaming\npm");
     // `codex` without an extension isn't a program on Windows.
     assert_eq!(
-        find_in(Rules::Windows, "codex", Some(&path), &[], &files),
+        find_windows("codex", &path, &[], &files),
         Some(PathBuf::from(r"C:\Users\me\AppData\Roaming\npm\codex.exe"))
     );
 }
@@ -109,12 +122,9 @@ fn windows_looks_in_the_install_folders_after_path() {
     let files = Files::default().with(r"C:\Users\me\AppData\Local\cursor-agent\agent.exe");
     let path = OsString::from(r"C:\Windows\System32");
     let extra = folders().of(Cli::Cursor);
+    assert_eq!(find_windows("cursor-agent", &path, &extra, &files), None);
     assert_eq!(
-        find_in(Rules::Windows, "cursor-agent", Some(&path), &extra, &files),
-        None
-    );
-    assert_eq!(
-        find_in(Rules::Windows, "agent", Some(&path), &extra, &files),
+        find_windows("agent", &path, &extra, &files),
         Some(PathBuf::from(
             r"C:\Users\me\AppData\Local\cursor-agent\agent.exe"
         ))
@@ -122,10 +132,7 @@ fn windows_looks_in_the_install_folders_after_path() {
     // A relative folder on PATH never counts.
     let relative = OsString::from(r"bin;.\tools");
     let files = files.with(r"bin\agent.exe");
-    assert_eq!(
-        find_in(Rules::Windows, "agent", Some(&relative), &[], &files),
-        None
-    );
+    assert_eq!(find_windows("agent", &relative, &[], &files), None);
 }
 
 #[test]

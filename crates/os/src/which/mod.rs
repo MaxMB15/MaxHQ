@@ -57,6 +57,15 @@ impl Env {
             pathext: std::env::var_os("PATHEXT"),
         }
     }
+
+    /// This process's environment with `path` as `PATH`, for a search on a
+    /// `PATH` the caller built or read from somewhere else.
+    pub fn with_path(path: Option<&OsStr>) -> Self {
+        Self {
+            path: path.map(OsStr::to_owned),
+            ..Self::current()
+        }
+    }
 }
 
 /// The files the search may look at.

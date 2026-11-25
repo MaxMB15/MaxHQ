@@ -1,14 +1,14 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026 Max Boksem
 
-//! Opens Terminal with one line to run, such as a host item's root fix.
-//! The line goes into a `.command` file in the app's cache folder, which
+//! Opens Terminal on a host item's root fix. The fix's line goes into a
+//! `.command` file in the app's cache folder, which
 //! Terminal runs in a new window and which removes itself as it starts.
 //! That needs no permission to control Terminal, and you type any
 //! password into Terminal itself, so the app never sees it.
 //!
 //! On Linux the script opens in the first terminal [`terminal_command`]
-//! finds. On Windows the line opens in PowerShell, with no file, as
+//! finds. On Windows the fix opens in PowerShell, with no file, as
 //! [`powershell`] says.
 
 use std::ffi::{OsStr, OsString};
@@ -16,6 +16,9 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::time::{SystemTime, UNIX_EPOCH};
+
+use maxhq_app::host_fix::RootFix;
+use maxhq_os::which::{self, Env, Fs, Rules};
 
 /// The script Terminal runs for `line`. Terminal on macOS keeps its window
 /// open once the line ends, so you can read what it printed. Terminals
@@ -56,15 +59,15 @@ pub fn write_command_file(dir: &Path, line: &str) -> std::io::Result<PathBuf> {
 #[cfg(any(windows, test))]
 mod powershell;
 
-/// Opens Terminal on `line`, through a script in `dir` off Windows.
-pub async fn open(dir: PathBuf, line: String) -> Result<(), String> {
+/// Opens Terminal on `fix`, through a script in `dir` off Windows.
+pub async fn open(dir: PathBuf, fix: RootFix) -> Result<(), String> {
     #[cfg(windows)]
     {
         let _ = dir;
-        powershell::open(&line).await
+        powershell::open(&fix).await
     }
     #[cfg(not(windows))]
-    open_script(dir, line).await
+    open_script(dir, fix.line()).await
 }
 
 /// Opens Terminal, or the terminal found on Linux, on a script for `line`
@@ -96,11 +99,15 @@ async fn open_script(dir: PathBuf, line: String) -> Result<(), String> {
 /// since some terminals run until you close their window, and the runtime
 /// reaps the process.
 fn open_found(path: PathBuf) -> Result<(), String> {
-    let folders: Vec<PathBuf> = std::env::var_os("PATH")
-        .map(|path| std::env::split_paths(&path).collect())
-        .unwrap_or_default();
     let terminal = std::env::var_os("TERMINAL");
-    let started = match terminal_command(terminal.as_deref(), &folders, &path, is_program) {
+    let found = terminal_command(
+        terminal.as_deref(),
+        &path,
+        Rules::HOST,
+        &Env::current(),
+        &which::Host,
+    );
+    let started = match found {
         Some(command) => crate::launch::command(&command[0])
             .args(&command[1..])
             .stdin(Stdio::null())
@@ -137,27 +144,24 @@ const RUN_ARGS: &[&str] = &["-e"];
 
 /// The command line that opens `script` in a terminal: `terminal`, the
 /// `$TERMINAL` setting, if it names a program by its name or path, else
-/// the first of [`TERMINALS`] in the `path` folders. A name is looked up
-/// in absolute folders only, so a relative entry can't pick a program
-/// from wherever the app started. `is_program` says whether a file is one
-/// you can run.
+/// the first of [`TERMINALS`] on `env`'s `PATH`, found by `rules` over
+/// `fs`. A name is looked up in absolute folders only, so a relative entry
+/// can't pick a program from wherever the app started.
 fn terminal_command(
     terminal: Option<&OsStr>,
-    path: &[PathBuf],
     script: &Path,
-    is_program: impl Fn(&Path) -> bool,
+    rules: Rules,
+    env: &Env,
+    fs: &impl Fs,
 ) -> Option<Vec<OsString>> {
     let find = |program: &Path| {
         if program
             .parent()
             .is_some_and(|parent| !parent.as_os_str().is_empty())
         {
-            return is_program(program).then(|| program.to_owned());
+            return which::runnable_in(rules, program, env, fs).then(|| program.to_owned());
         }
-        path.iter()
-            .filter(|folder| folder.is_absolute())
-            .map(|folder| folder.join(program))
-            .find(|candidate| is_program(candidate))
+        which::find_in(rules, program.to_str()?, &[], env, fs)
     };
     let set = terminal
         .filter(|terminal| !terminal.is_empty())
@@ -180,22 +184,6 @@ fn terminal_command(
     Some(command)
 }
 
-/// Whether `path` is a file you can run.
-fn is_program(path: &Path) -> bool {
-    let Ok(metadata) = std::fs::metadata(path) else {
-        return false;
-    };
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        metadata.is_file() && metadata.permissions().mode() & 0o111 != 0
-    }
-    #[cfg(not(unix))]
-    {
-        metadata.is_file()
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -214,38 +202,44 @@ mod tests {
 
     const SCRIPT: &str = "/home/<user>/.cache/maxhq/terminal/maxhq-1-2.command";
 
-    /// The command line found with `terminal` set and these `programs` in
-    /// the `path` folders.
-    fn found(terminal: Option<&str>, path: &[&str], programs: &[&str]) -> Option<Vec<String>> {
-        let folders: Vec<PathBuf> = path.iter().map(PathBuf::from).collect();
-        let is_program = |candidate: &Path| {
-            programs
-                .iter()
-                .any(|program| candidate == Path::new(program))
+    /// Files where only `programs` are there, each one you can run.
+    struct Programs<'a>(&'a [&'a str]);
+
+    impl Fs for Programs<'_> {
+        fn file_mode(&self, path: &Path) -> Option<u32> {
+            let there = self.0.iter().any(|program| path == Path::new(program));
+            there.then_some(0o755)
+        }
+
+        fn read_text(&self, _: &Path) -> Option<String> {
+            None
+        }
+    }
+
+    /// The command line Linux finds with `terminal` set and these
+    /// `programs` in the `path` folders. Its parts are paths, which compare
+    /// alike with either slash a Windows host may join one with.
+    fn found(terminal: Option<&str>, path: &[&str], programs: &[&str]) -> Option<Vec<PathBuf>> {
+        let env = Env {
+            path: Some(path.join(":").into()),
+            pathext: None,
         };
         terminal_command(
             terminal.map(OsStr::new),
-            &folders,
             Path::new(SCRIPT),
-            is_program,
+            Rules::Unix,
+            &env,
+            &Programs(programs),
         )
-        .map(|command| {
-            command
-                .into_iter()
-                .map(|part| part.into_string().unwrap())
-                .collect()
-        })
+        .map(|command| command.into_iter().map(PathBuf::from).collect())
     }
 
-    fn line(parts: &[&str]) -> Option<Vec<String>> {
-        Some(parts.iter().map(|part| (*part).to_owned()).collect())
+    fn line(parts: &[&str]) -> Option<Vec<PathBuf>> {
+        Some(parts.iter().map(PathBuf::from).collect())
     }
 
     const PATH: [&str; 2] = ["/usr/local/bin", "/usr/bin"];
 
-    // The Linux terminal search: `/usr/bin` isn't an absolute folder on
-    // Windows, so it's never searched there.
-    #[cfg(unix)]
     #[test]
     fn your_terminal_setting_comes_first_with_its_own_arguments() {
         assert_eq!(
@@ -262,9 +256,6 @@ mod tests {
         );
     }
 
-    // The Linux terminal search: `/usr/bin` isn't an absolute folder on
-    // Windows, so it's never searched there.
-    #[cfg(unix)]
     #[test]
     fn a_terminal_setting_it_doesnt_know_runs_the_script_as_xterm_would() {
         assert_eq!(
@@ -285,9 +276,6 @@ mod tests {
         );
     }
 
-    // The Linux terminal search: `/usr/bin` isn't an absolute folder on
-    // Windows, so it's never searched there.
-    #[cfg(unix)]
     #[test]
     fn without_a_usable_setting_the_list_decides_in_its_order() {
         let installed = [

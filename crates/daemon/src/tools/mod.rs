@@ -23,6 +23,7 @@ use std::time::Duration;
 
 use futures::future::BoxFuture;
 use futures::FutureExt;
+use maxhq_os::which;
 use maxhq_protocol::message::{ActionOutcome, ToolTarget};
 use maxhq_protocol::model::{Tool, WorkspaceLocation};
 use maxhq_protocol::state::{
@@ -482,12 +483,12 @@ impl Tools {
 
     fn find(&self, name: &str) -> Option<PathBuf> {
         match &self.search {
-            Some(search) => crate::drive::programs::find_in(
-                maxhq_os::which::Rules::HOST,
+            Some(search) => which::find_in(
+                which::Rules::HOST,
                 name,
-                Some(search),
                 &[],
-                &maxhq_os::which::Host,
+                &which::Env::with_path(Some(search)),
+                &which::Host,
             ),
             None => crate::service::find_program(name),
         }

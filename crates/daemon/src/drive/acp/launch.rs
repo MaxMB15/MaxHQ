@@ -33,7 +33,7 @@ pub fn launch(command: &AcpCommand, place: &Place) -> Launch {
 pub fn program(given: &str, path: Option<&OsStr>) -> Option<PathBuf> {
     let named = Path::new(given);
     if named.is_absolute() {
-        return programs::runnable(named).then(|| named.to_owned());
+        return maxhq_os::which::runnable(named).then(|| named.to_owned());
     }
     let separated = given.contains('/') || (cfg!(windows) && given.contains('\\'));
     if given.is_empty() || separated {

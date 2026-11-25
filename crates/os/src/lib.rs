@@ -12,6 +12,7 @@ pub mod boot;
 pub mod computer;
 pub mod disk;
 pub mod fsmode;
+pub mod git_bash;
 pub mod home;
 pub mod ipc;
 pub mod launcher;

@@ -1699,7 +1699,7 @@ mod testing {
         if cfg!(unix) {
             return script;
         }
-        let bash = crate::skills::bash::git_bash().expect("a fake program needs Git Bash");
+        let bash = maxhq_os::git_bash::find().expect("a fake program needs Git Bash");
         // Git Bash reads a Windows path best with forward slashes. The
         // launcher names no `%~dp0` path, so it isn't taken for an npm shim.
         let script = script.to_string_lossy().replace('\\', "/");
@@ -1715,7 +1715,7 @@ mod testing {
     /// leaves Git Bash running.
     pub fn tool(name: &str) -> PathBuf {
         let beside_bash = || {
-            let bash = crate::skills::bash::git_bash().ok()?;
+            let bash = maxhq_os::git_bash::find()?;
             let bin = bash.parent()?;
             let file = format!("{name}.exe");
             let usr = bin.parent()?.join("usr").join("bin").join(&file);

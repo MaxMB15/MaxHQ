@@ -363,3 +363,11 @@ fn the_host_finds_a_program_everyone_has() {
     assert!(runnable(&found), "{}", found.display());
     assert!(!runnable(&std::env::temp_dir()), "a folder is no program");
 }
+
+#[test]
+fn an_env_with_a_path_keeps_this_processs_pathext() {
+    let env = Env::with_path(Some(OsStr::new("/opt/x/bin")));
+    assert_eq!(env.path.as_deref(), Some(OsStr::new("/opt/x/bin")));
+    assert_eq!(env.pathext, Env::current().pathext);
+    assert_eq!(Env::with_path(None).path, None);
+}

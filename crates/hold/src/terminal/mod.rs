@@ -162,11 +162,6 @@ impl TermLaunch {
         shell::is_powershell(&self.program)
     }
 
-    /// `text` as one word in single quotes, as PowerShell reads them.
-    pub fn powershell_quoted(text: &str) -> String {
-        shell::powershell_quoted(text)
-    }
-
     fn new(
         terminal: TerminalId,
         program: PathBuf,

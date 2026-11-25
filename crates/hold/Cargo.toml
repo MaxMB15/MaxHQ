@@ -24,9 +24,8 @@ tokio.workspace = true
 libc.workspace = true
 rustix = { workspace = true, features = ["pty", "termios"] }
 
-# The registry says where Git for Windows is.
 [target.'cfg(windows)'.dependencies]
-windows-sys = { workspace = true, features = ["Win32_System_Registry"] }
+windows-sys.workspace = true
 
 # The test binary also plays the holder, the fake agent CLI and the process
 # that spawns a holder, so it brings its own main.

@@ -13,6 +13,7 @@ use std::future::Future;
 use std::net::Ipv4Addr;
 use std::time::Duration;
 
+use maxhq_core::xml;
 use maxhq_protocol::ids::{DeviceId, IdempotencyKey};
 use maxhq_protocol::message::ActionOutcome;
 use maxhq_protocol::secret::Secret;
@@ -388,8 +389,8 @@ impl Page {
             "<!doctype html><meta charset=\"utf-8\"><title>{title}</title>\
              <body style=\"font: 15px -apple-system, sans-serif; margin: 3em\">\
              <h1 style=\"font-size: 20px\">{title}</h1><p>{text}</p></body>",
-            title = escape(self.title),
-            text = escape(&self.text),
+            title = xml::escape(self.title),
+            text = xml::escape(&self.text),
         );
         let response = format!(
             "HTTP/1.1 {}\r\nContent-Type: text/html; charset=utf-8\r\n\
@@ -403,22 +404,6 @@ impl Page {
         };
         let _ = tokio::time::timeout(READ_TIMEOUT, sent).await;
     }
-}
-
-/// Text made safe to put in HTML.
-fn escape(text: &str) -> String {
-    let mut escaped = String::with_capacity(text.len());
-    for c in text.chars() {
-        match c {
-            '&' => escaped.push_str("&amp;"),
-            '<' => escaped.push_str("&lt;"),
-            '>' => escaped.push_str("&gt;"),
-            '"' => escaped.push_str("&quot;"),
-            '\'' => escaped.push_str("&#39;"),
-            c => escaped.push(c),
-        }
-    }
-    escaped
 }
 
 fn failed(message: String) -> CommandError {
@@ -718,13 +703,5 @@ mod tests {
             );
         }
         assert!(Expected::from_page(&page("state=s"), 0).is_err());
-    }
-
-    #[test]
-    fn pages_escape_what_they_show() {
-        assert_eq!(
-            escape("<b>\"Tom & Jerry's\"</b>"),
-            "&lt;b&gt;&quot;Tom &amp; Jerry&#39;s&quot;&lt;/b&gt;"
-        );
     }
 }

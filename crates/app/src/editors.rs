@@ -22,6 +22,7 @@
 
 use std::path::{Path, PathBuf};
 
+use maxhq_os::which;
 use maxhq_protocol::ids::WorkspaceId;
 use maxhq_protocol::link::Route;
 use maxhq_protocol::model::{Workspace, WorkspaceLocation};
@@ -33,6 +34,14 @@ use tokio::sync::OnceCell;
 use crate::devices::Connector;
 use crate::request::CommandError;
 use crate::{ssh_config, App};
+
+/// The files editors are looked for among. A test's places can be laid
+/// out for another system than the one it runs on, so tests look through
+/// their own.
+#[cfg(not(test))]
+use maxhq_os::which::Host as Files;
+#[cfg(test)]
+use tests::Files;
 
 /// An editor MaxHQ can open a workspace in.
 #[derive(Debug)]
@@ -236,6 +245,16 @@ impl Layout {
     fn opens_by_link(self) -> bool {
         self == Self::Windows
     }
+
+    /// Whether the file at `path` runs on this layout's system: by its
+    /// extension on Windows, and by its run bit elsewhere.
+    fn runs(self, path: &Path) -> bool {
+        let rules = match self {
+            Self::Windows => which::Rules::Windows,
+            Self::MacApps | Self::Linux => which::Rules::Unix,
+        };
+        which::runnable_in(rules, path, &which::Env::current(), &Files)
+    }
 }
 
 impl Places {
@@ -406,19 +425,17 @@ fn find(places: &Places) -> Vec<Found> {
                         let bin = bundle.join(bin);
                         commands.iter().map(move |command| bin.join(command))
                     })
-                    .find(|cli| runs(cli))
+                    .find(|cli| layout.runs(cli))
             });
-            let cli = in_app
-                .or_else(|| appimage(editor, &places.appimages))
-                .or_else(|| {
-                    layout.commands(editor).iter().find_map(|command| {
-                        places
-                            .path
-                            .iter()
-                            .map(|dir| dir.join(command))
-                            .find(|cli| runs(cli) && !in_other_app(editor, cli, places))
-                    })
-                });
+            let cli = in_app.or_else(|| appimage(editor, places)).or_else(|| {
+                layout.commands(editor).iter().find_map(|command| {
+                    places
+                        .path
+                        .iter()
+                        .map(|dir| dir.join(command))
+                        .find(|cli| layout.runs(cli) && !in_other_app(editor, cli, places))
+                })
+            });
             let installed = cli.is_some() || bundles.iter().any(|bundle| bundle.is_dir());
             installed.then_some(Found { editor, cli })
         })
@@ -430,16 +447,18 @@ fn app_name(editor: &EditorDef) -> String {
     format!("{}.app", editor.mac_app)
 }
 
-/// The newest of `editor`'s AppImages in `dirs`, by when each last
+/// The newest of `editor`'s AppImages in `places`, by when each last
 /// changed, since an update often leaves the old file beside the new one.
-fn appimage(editor: &EditorDef, dirs: &[PathBuf]) -> Option<PathBuf> {
+fn appimage(editor: &EditorDef, places: &Places) -> Option<PathBuf> {
     let prefix = editor.appimage?;
-    dirs.iter()
+    places
+        .appimages
+        .iter()
         .filter_map(|dir| std::fs::read_dir(dir).ok())
         .flatten()
         .filter_map(|entry| {
             let path = entry.ok()?.path();
-            (is_appimage_of(prefix, &path) && runs(&path)).then_some(path)
+            (is_appimage_of(prefix, &path) && places.layout.runs(&path)).then_some(path)
         })
         .max_by_key(|path| path.metadata().and_then(|meta| meta.modified()).ok())
 }
@@ -478,22 +497,6 @@ fn in_other_app(editor: &EditorDef, cli: &Path, places: &Places) -> bool {
                         .is_some_and(|prefix| is_appimage_of(prefix, &target))
             }
         })
-}
-
-/// Whether `path` is a program this machine can run.
-fn runs(path: &Path) -> bool {
-    let Ok(metadata) = path.metadata() else {
-        return false;
-    };
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        metadata.is_file() && metadata.permissions().mode() & 0o111 != 0
-    }
-    #[cfg(not(unix))]
-    {
-        metadata.is_file()
-    }
 }
 
 /// Whether the shell may open `url`: what a page's link may open, or a link
@@ -762,6 +765,7 @@ impl<C: Connector> App<C> {
 pub(crate) mod tests {
     use std::fs;
 
+    use maxhq_os::which::Fs;
     use maxhq_protocol::ids::{DeviceId, LinkId};
 
     use super::*;
@@ -801,7 +805,7 @@ pub(crate) mod tests {
 
         /// Puts a program at `path` under the folder, or a plain file when
         /// `runs` is false, and gives where it went. Windows has no run
-        /// bit, so there every file at a command's name runs.
+        /// bit, so there [`Files`] gives every file one.
         #[cfg_attr(not(unix), allow(unused_variables))]
         pub(crate) fn program(&self, path: &str, runs: bool) -> PathBuf {
             let program = self.0.join(path);
@@ -863,6 +867,22 @@ pub(crate) mod tests {
                     Some(self.0.join("Program Files")),
                 )
             }
+        }
+    }
+
+    /// The real files, except that on a system without run bits each file
+    /// has them, so the places laid out for macOS and Linux find their
+    /// programs there too. Windows' rules don't read the bits.
+    pub(crate) struct Files;
+
+    impl Fs for Files {
+        fn file_mode(&self, path: &Path) -> Option<u32> {
+            let mode = which::Host.file_mode(path)?;
+            Some(if cfg!(unix) { mode } else { mode | 0o111 })
+        }
+
+        fn read_text(&self, path: &Path) -> Option<String> {
+            which::Host.read_text(path)
         }
     }
 
