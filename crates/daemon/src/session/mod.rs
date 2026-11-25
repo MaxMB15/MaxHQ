@@ -564,6 +564,9 @@ enum Input {
     },
     /// A holder can't be reached, so its CLI counts as ended.
     Lost { session: SessionId },
+    /// A holder said its CLI ended, or was asked to stop it, a while ago.
+    /// It counts as lost if the exit still hasn't come.
+    ExitDue { session: SessionId },
     /// The manager made sure a holder it lost has ended, as far as it
     /// could. `exit` is how its CLI counts as having ended.
     Ended {
@@ -1223,6 +1226,7 @@ impl Manager {
                     self.lost(session);
                 }
             }
+            Input::ExitDue { session } => self.exit_due(session),
             Input::Ended {
                 session,
                 exit,

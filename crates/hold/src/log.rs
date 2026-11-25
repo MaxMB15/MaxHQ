@@ -93,7 +93,7 @@ impl EventLog {
             text,
         };
         if let Err(err) = self.write(&entry) {
-            eprintln!("couldn't record line {}: {err}", entry.seq);
+            note!("couldn't record line {}: {err}", entry.seq);
         }
         entry
     }

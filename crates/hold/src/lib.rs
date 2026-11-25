@@ -46,6 +46,10 @@
 //! starting new ones.
 
 #![warn(missing_docs)]
+// A holder's stderr is `holder.log`. `eprintln!` panics when it can't write
+// there, as on a full disk, which ends the thread or task that logged: a
+// reaper that dies that way never records its CLI's exit. Use `note!`.
+#![deny(clippy::print_stderr, clippy::print_stdout)]
 
 use std::ffi::OsString;
 use std::io;
@@ -70,6 +74,15 @@ pub use crate::terminal::{
     login_shell, Commands, Mark, Reached, RunOutput, ShellCommand, TermControl, TermEvent,
     TermExit, TermHello, TermLaunch, TermLink, TermModes, Terminals,
 };
+
+/// Writes a line to stderr, dropping it if the write fails rather than
+/// panicking as `eprintln!` does.
+macro_rules! note {
+    ($($arg:tt)*) => {{
+        use std::io::Write as _;
+        let _ = writeln!(std::io::stderr(), $($arg)*);
+    }};
+}
 
 mod client;
 mod end;

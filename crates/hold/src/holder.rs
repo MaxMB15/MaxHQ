@@ -149,7 +149,7 @@ pub fn run_holder(args: &[OsString]) -> ExitCode {
         [pty, _dir] if pty == PTY => detach(),
         [pty, dir, flag] if pty == PTY && flag == DETACHED => crate::terminal::hold(Path::new(dir)),
         _ => {
-            eprintln!("usage: maxd hold [--pty] <session or terminal folder>");
+            note!("usage: maxd hold [--pty] <session or terminal folder>");
             ExitCode::from(2)
         }
     }
@@ -160,7 +160,7 @@ fn detach() -> ExitCode {
     let exe = match std::env::current_exe() {
         Ok(exe) => exe,
         Err(err) => {
-            eprintln!("couldn't find this program: {err}");
+            note!("couldn't find this program: {err}");
             return ExitCode::FAILURE;
         }
     };
@@ -174,7 +174,7 @@ fn detach() -> ExitCode {
         // Init or the nearest subreaper waits for it once this exits.
         Ok(_second) => ExitCode::SUCCESS,
         Err(err) => {
-            eprintln!("couldn't run {}: {err}", exe.display());
+            note!("couldn't run {}: {err}", exe.display());
             ExitCode::FAILURE
         }
     }
@@ -189,7 +189,7 @@ fn hold(dir: &Path) -> ExitCode {
                 ExitCode::SUCCESS
             }
             Err(message) => {
-                eprintln!("{message}");
+                note!("{message}");
                 ExitCode::FAILURE
             }
         }
@@ -207,17 +207,17 @@ where
     let dir = match std::path::absolute(dir) {
         Ok(dir) => dir,
         Err(err) => {
-            eprintln!("couldn't resolve {}: {err}", dir.display());
+            note!("couldn't resolve {}: {err}", dir.display());
             return ExitCode::FAILURE;
         }
     };
     if let Err(err) = rustix::process::setsid() {
-        eprintln!("couldn't start a new session: {err}");
+        note!("couldn't start a new session: {err}");
         return ExitCode::FAILURE;
     }
     #[cfg(target_os = "linux")]
     if let Err(err) = rustix::process::set_child_subreaper(Some(rustix::process::getpid())) {
-        eprintln!("couldn't become a child subreaper: {err}");
+        note!("couldn't become a child subreaper: {err}");
     }
     // The holder outlives whatever folder it was started in, so it keeps
     // none of them busy.
@@ -229,7 +229,7 @@ where
     {
         Ok(runtime) => runtime,
         Err(err) => {
-            eprintln!("couldn't start the runtime: {err}");
+            note!("couldn't start the runtime: {err}");
             return ExitCode::FAILURE;
         }
     };
@@ -389,7 +389,7 @@ impl Started {
                                 tokio::spawn(serve(accepting.clone(), stream));
                             }
                             Err(err) => {
-                                eprintln!("couldn't accept a connection: {err}");
+                                note!("couldn't accept a connection: {err}");
                                 tokio::time::sleep(REAP_TICK).await;
                             }
                         }
@@ -397,7 +397,7 @@ impl Started {
                 });
             }
             Err(err) => {
-                eprintln!("couldn't listen on {}: {err}", self.socket.path.display());
+                note!("couldn't listen on {}: {err}", self.socket.path.display());
                 holder.quit();
             }
         }
@@ -554,7 +554,7 @@ pub(crate) fn say_ready(dir: &Path) {
 
 pub(crate) fn spawn_thread(name: &str, work: impl FnOnce() + Send + 'static) {
     if let Err(err) = thread::Builder::new().name(name.into()).spawn(work) {
-        eprintln!("couldn't start the {name} thread: {err}");
+        note!("couldn't start the {name} thread: {err}");
     }
 }
 
@@ -676,7 +676,7 @@ impl Holder {
     fn persist_pending(&self, state: &State) {
         let path = self.dir.join(PENDING);
         if let Err(err) = files::write_json(&path, &state.pending.to_file()) {
-            eprintln!("couldn't write {}: {err}", path.display());
+            note!("couldn't write {}: {err}", path.display());
         }
     }
 
@@ -695,12 +695,12 @@ impl Holder {
                         "maxhq: left out a line of {bytes} bytes from the agent's output, past the limit of {} bytes",
                         wire::MAX_LINE
                     );
-                    eprintln!("{marker}");
+                    note!("{marker}");
                     self.record(marker);
                 }
                 Err(err) if err.kind() == io::ErrorKind::Interrupted => {}
                 Err(err) => {
-                    eprintln!("stopped reading the agent's stdout: {err}");
+                    note!("stopped reading the agent's stdout: {err}");
                     break;
                 }
             }
@@ -735,7 +735,7 @@ impl Holder {
                 Ok(n) => self.stderr_log().append(&buf[..n]),
                 Err(err) if err.kind() == io::ErrorKind::Interrupted => {}
                 Err(err) => {
-                    eprintln!("stopped reading the agent's stderr: {err}");
+                    note!("stopped reading the agent's stderr: {err}");
                     break;
                 }
             }
@@ -819,7 +819,7 @@ impl Holder {
         };
         let path = self.dir.join(EXIT);
         if let Err(err) = files::write_json(&path, &exit) {
-            eprintln!("couldn't write {}: {err}", path.display());
+            note!("couldn't write {}: {err}", path.display());
         }
         if state.pending.clear() {
             self.persist_pending(&state);
@@ -897,7 +897,7 @@ impl Holder {
             signal(SignalKind::interrupt()),
             signal(SignalKind::hangup()),
         ) else {
-            eprintln!("couldn't watch for signals");
+            note!("couldn't watch for signals");
             return;
         };
         loop {
@@ -1043,7 +1043,7 @@ impl Holder {
         match LogReader::open(&self.dir) {
             Ok(reader) => Next::Disk(reader, skip_to),
             Err(err) => {
-                eprintln!("couldn't read the log for a replay: {err}");
+                note!("couldn't read the log for a replay: {err}");
                 Next::Lines(state.tail.after(cursor, BATCH))
             }
         }
@@ -1147,7 +1147,7 @@ async fn serve(holder: Arc<Holder>, stream: UnixStream) {
     if let Err(err) = served
         && err.kind() != io::ErrorKind::BrokenPipe
     {
-        eprintln!("a connection ended: {err}");
+        note!("a connection ended: {err}");
     }
     requests.abort();
 }

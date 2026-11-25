@@ -584,6 +584,7 @@ impl Manager {
         let failed = Written {
             already: false,
             failed: true,
+            ended: false,
         };
         for (_, action) in parked {
             self.result(action.key(), refused(reason), failed);
@@ -862,6 +863,7 @@ impl Manager {
         let failed = Written {
             already: false,
             failed: true,
+            ended: false,
         };
         for key in routed {
             self.result(

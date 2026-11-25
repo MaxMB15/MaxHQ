@@ -2936,6 +2936,28 @@ async fn a_holder_that_dies_before_its_cli_ends_the_cli_first() {
 }
 
 #[tokio::test]
+async fn a_holder_that_never_sends_its_clis_exit_counts_as_lost() {
+    let mut h = Harness::new();
+    let (agent, s1) = h.start_claude(None).await;
+    assert_eq!(h.send(agent, "hello").await, ActionOutcome::Done);
+    // The CLI died, but its holder never recorded it, so nothing says the
+    // turn ended. A write, like a Stop's cancel, finds the CLI gone.
+    h.holders.stall(s1);
+    let outcome = h.send(agent, "still there?").await;
+    assert!(
+        matches!(outcome, ActionOutcome::Refused { .. }),
+        "{outcome:?}"
+    );
+    // The holder is ended as lost, and the agent comes back on a new one.
+    eventually("the holder ended", || h.holders.ends(s1) == [Some(11_000)]).await;
+    eventually("a resumed holder", || h.holders.sessions().len() == 2).await;
+    assert_eq!(h.holders.overlaps(), 0);
+    let s2 = h.holders.last();
+    h.print(s2, "{}").await;
+    assert_eq!(h.agent(agent).session, Some(s2));
+}
+
+#[tokio::test]
 async fn a_lost_holder_that_cant_be_confirmed_ended_keeps_its_agent_down() {
     let mut h = Harness::new();
     let (agent, s1) = h.start_claude(None).await;

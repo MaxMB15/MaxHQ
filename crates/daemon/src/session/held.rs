@@ -425,6 +425,9 @@ pub struct Hold {
     pub jobs: usize,
     /// How the CLI ended, while that waits on the driver's jobs.
     pub exit: Option<ChildExit>,
+    /// Set while the manager waits for the exit of a CLI a write found
+    /// ended.
+    pub awaiting_exit: bool,
 }
 
 /// A reach or an end put off until the holder's guest link is up.
@@ -469,6 +472,7 @@ impl Hold {
             release: false,
             jobs: 0,
             exit: None,
+            awaiting_exit: false,
         }
     }
 }
@@ -719,6 +723,8 @@ pub struct Written {
     pub already: bool,
     /// A write didn't reach the CLI.
     pub failed: bool,
+    /// A write found the CLI ended.
+    pub ended: bool,
 }
 
 /// A key the manager makes for its own actions.
