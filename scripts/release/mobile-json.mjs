@@ -94,6 +94,21 @@ export const withLine = (notes, line) => {
 
 export const withPhoneLine = (notes, version, build) => withLine(notes, phoneLine(version, build));
 
+// The lines phoneLine and androidLine write, for any version and build.
+const PHONE_LINES = [
+	/^iPhone: MaxHQ [0-9.]+ \(build [0-9]+\) is in TestFlight\.$/,
+	/^Android: MaxHQ [0-9.]+ \(build [0-9]+\) is MaxHQ\.apk on this release\.$/,
+];
+
+// The notes without those lines, which a rerun of the release finds in them,
+// so they stay out of the desktop app's What's new.
+export const withoutPhoneLines = (notes) =>
+	notes
+		.split("\n")
+		.filter((line) => !PHONE_LINES.some((pattern) => pattern.test(line.trimEnd())))
+		.join("\n")
+		.trimEnd();
+
 const main = () => {
 	const { values } = parseArgs({
 		options: {

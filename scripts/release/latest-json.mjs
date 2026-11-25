@@ -18,11 +18,14 @@
 // is left out, so its platform keeps the version it has. With --key (base64,
 // as tauri.conf.json holds it), every signature must be made with that key,
 // so a key change can't put a signature into the manifest for the other key.
+// The notes lose the lines naming the phone builds, which mobile-json.mjs
+// adds after this runs and a rerun of the release finds.
 
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { parseArgs } from "node:util";
 import { desktopAssets } from "./bundles.mjs";
+import { withoutPhoneLines } from "./mobile-json.mjs";
 import { keyIdText, readPublicKey } from "./sign.mjs";
 
 // The release asset's arch, and the platform key the updater looks up.
@@ -149,7 +152,9 @@ const main = () => {
 					`${prefix}${values.out} has no ${asset}: its ${values["sig-suffix"]} isn't there.`
 				);
 		}
-		const notes = values["notes-file"] ? readFileSync(values["notes-file"], "utf8") : "";
+		const notes = values["notes-file"]
+			? withoutPhoneLines(readFileSync(values["notes-file"], "utf8"))
+			: "";
 		const { version, repo, key } = values;
 		const text = latestJson({ version, repo, notes, signatures, desktop, key });
 		writeFileSync(values.out, text);

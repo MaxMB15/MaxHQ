@@ -25,6 +25,7 @@ import {
 	readProtocol,
 	withLine,
 	withPhoneLine,
+	withoutPhoneLines,
 } from "./mobile-json.mjs";
 
 const a = "a".repeat(64);
@@ -407,6 +408,38 @@ test("the release notes name the Android build once, after the iPhone's", () => 
 	const both = withLine(withPhoneLine("* Fixes.\n", "0.2.0", 10702), line);
 	assert.equal(both, `* Fixes.\n\n${phoneLine("0.2.0", 10702)}\n\n${line}\n`);
 	assert.equal(withLine(withPhoneLine(both, "0.2.0", 10702), line), both);
+});
+
+test("the desktop manifests' notes leave out the phone builds' lines", () => {
+	const notes = withLine(
+		withPhoneLine("* Fixes.\n", "0.2.0", 10702),
+		androidLine("0.2.0", 10703)
+	);
+	assert.equal(withoutPhoneLines(notes), "* Fixes.");
+	const kept = "* iPhone: MaxHQ 0.2.0 (build 1) is in TestFlight.\nAndroid: MaxHQ is fixed.\n";
+	assert.equal(withoutPhoneLines(kept), kept.trimEnd());
+	const dir = mkdtempSync(join(tmpdir(), "maxhq-latest-notes-"));
+	try {
+		const notesFile = join(dir, "notes.md");
+		const sig = join(dir, "arm.sig");
+		const out = join(dir, "latest.json");
+		writeFileSync(notesFile, notes);
+		writeFileSync(sig, "c2lnLWFybQ==");
+		const script = fileURLToPath(new URL("./latest-json.mjs", import.meta.url));
+		const run = spawnSync(
+			process.execPath,
+			[
+				script,
+				...["--version", "0.2.0", "--repo", "owner/MaxHQ", "--sig", `aarch64=${sig}`],
+				...["--notes-file", notesFile, "--out", out],
+			],
+			{ encoding: "utf8" }
+		);
+		assert.equal(run.status, 0, run.stderr);
+		assert.equal(JSON.parse(readFileSync(out, "utf8")).notes, "* Fixes.");
+	} finally {
+		rmSync(dir, { recursive: true, force: true });
+	}
 });
 
 test("the mobile.json script reads the range and adds the notes line", () => {
