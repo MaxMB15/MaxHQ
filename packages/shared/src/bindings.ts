@@ -38,7 +38,7 @@ export const NOTE_PILLS_SINCE = 28 as const;
 
 export const OLDEST_PROTOCOL_VERSION = 20 as const;
 
-export const PROTOCOL_VERSION = 64 as const;
+export const PROTOCOL_VERSION = 65 as const;
 
 export const RESET_CREDITS_SINCE = 58 as const;
 

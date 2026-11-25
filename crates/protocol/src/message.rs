@@ -3110,6 +3110,12 @@ pub const TYPED_BLOCKS_SINCE: u32 = 60;
 /// 64.
 pub const FRESH_SESSIONS_SINCE: u32 = 64;
 
+/// The protocol version whose `maxd` first tells cloud model servers, such
+/// as OpenRouter, from hardware you run: [`crate::local_models::ModelServer::cloud`],
+/// a server's credits and its models' output limits, and Sign in with
+/// OpenRouter. An older one reads every server as local. Since protocol 65.
+pub const CLOUD_SERVERS_SINCE: u32 = 65;
+
 /// The protocol version whose `maxd` first reads a secret line, frame kind
 /// [`crate::frame::FrameKind::TerminalSecret`]: it sends the bytes as
 /// terminal input and records that a secret was sent, never the text. An
