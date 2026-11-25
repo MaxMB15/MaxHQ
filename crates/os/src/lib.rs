@@ -11,8 +11,10 @@
 pub mod fsmode;
 pub mod home;
 pub mod ipc;
+pub mod launcher;
 pub mod link;
 pub mod proc;
+pub mod stop;
 pub mod which;
 #[cfg(windows)]
 mod win;
@@ -46,4 +48,13 @@ pub(crate) fn block_on<F: std::future::Future>(test: F) -> F::Output {
         .build()
         .unwrap()
         .block_on(test)
+}
+
+/// Runs a test's steps, failing it when they take longer than they ever
+/// should, instead of hanging the run.
+#[cfg(all(test, windows))]
+pub(crate) async fn within<T>(steps: impl std::future::Future<Output = T>) -> T {
+    tokio::time::timeout(std::time::Duration::from_secs(30), steps)
+        .await
+        .expect("the test's steps took over 30 seconds")
 }

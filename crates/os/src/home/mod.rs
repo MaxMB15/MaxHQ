@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026 Max Boksem
 
-//! The user's home folder and name.
+//! The user's home folder, name and SID.
 
+use std::io;
 use std::path::PathBuf;
 
 #[cfg(unix)]
@@ -26,6 +27,12 @@ pub fn user_name() -> Option<String> {
     imp::user_name()
 }
 
+/// The user's security ID in its `S-1-5-…` form, which names them on
+/// Windows however their account is renamed. Unix has none.
+pub fn user_sid() -> io::Result<String> {
+    imp::user_sid()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -42,5 +49,19 @@ mod tests {
     #[test]
     fn this_user_has_a_name() {
         assert!(!user_name().expect("a user name").is_empty());
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn this_user_has_a_sid() {
+        let sid = user_sid().unwrap();
+        assert!(sid.starts_with("S-1-5-"), "{sid}");
+        assert_eq!(user_sid().unwrap(), sid);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn unix_users_have_no_sid() {
+        assert_eq!(user_sid().unwrap_err().kind(), io::ErrorKind::Unsupported);
     }
 }
