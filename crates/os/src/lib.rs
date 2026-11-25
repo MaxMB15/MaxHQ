@@ -11,8 +11,10 @@
 pub mod fsmode;
 pub mod home;
 pub mod ipc;
+pub mod launcher;
 pub mod link;
 pub mod proc;
+pub mod stop;
 pub mod which;
 #[cfg(windows)]
 mod win;
