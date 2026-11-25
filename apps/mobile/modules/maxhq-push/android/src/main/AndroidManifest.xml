@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- SPDX-License-Identifier: MIT -->
+<!-- Copyright (c) 2026 Max Boksem -->
+<!-- The namespace comes from build.gradle, as the Android Gradle Plugin asks.
+     The app's config removes expo-notifications' own messaging service, so
+     FCM hands every message to this one. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+  <application>
+    <service
+      android:name="dev.maxhq.push.PushService"
+      android:exported="false">
+      <intent-filter>
+        <action android:name="com.google.firebase.MESSAGING_EVENT" />
+      </intent-filter>
+    </service>
+  </application>
+</manifest>
