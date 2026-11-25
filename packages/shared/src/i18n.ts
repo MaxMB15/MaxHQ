@@ -24,6 +24,7 @@ import esShared from "./i18n/locales/es/shared.json";
 import esDesktop from "./i18n/locales/es/desktop.json";
 import esSettings from "./i18n/locales/es/settings.json";
 import esMobile from "./i18n/locales/es/mobile.json";
+import { wordingFor, type AppOs, type OsWording } from "./lib/os";
 
 export const LANGUAGES = ["en", "nl", "de", "fr", "es"] as const;
 export type Language = (typeof LANGUAGES)[number];
@@ -60,8 +61,21 @@ void i18n.use(initReactI18next).init({
 	},
 });
 
+let osWording: OsWording | undefined;
+
+/**
+ * Words the interface for the system the app runs on: text that names the
+ * Mac takes its `_windows` or `_linux` form there, and keeps its own on
+ * macOS and wherever this isn't set, such as the phone. A call that passes
+ * its own `context`, even an undefined one, such as text about another
+ * device, keeps it.
+ */
+export const setInterfaceOs = (os: AppOs | null): void => {
+	osWording = wordingFor(os);
+};
+
 export const t = (key: string, options?: TOptions): string => {
-	const values = Object.fromEntries(
+	const values: Record<string, unknown> = Object.fromEntries(
 		Object.entries(options ?? {}).map(([name, value]) => [
 			name,
 			name !== "count" && typeof value === "number" && !key.includes(`{{${name},`)
@@ -69,6 +83,7 @@ export const t = (key: string, options?: TOptions): string => {
 				: value,
 		])
 	);
+	if (osWording && !("context" in values)) values.context = osWording;
 	return String(i18n.t(key, values));
 };
 
