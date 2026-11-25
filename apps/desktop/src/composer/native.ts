@@ -9,6 +9,8 @@
 
 import { createContext, useContext } from "react";
 
+import { baseName } from "@maxhq/shared/folders/path";
+
 import type {
 	DropHandlers,
 	FileKind,
@@ -72,8 +74,8 @@ const IMAGE = /\.(png|jpe?g|gif|webp|heic|tiff?|bmp)$/i;
 
 /** Describes a path from its name alone, the way the browser build does. */
 export const guessPath = (path: string): PathInfo => {
-	const name = path.replace(/\/+$/, "").split("/").pop() || path;
-	const kind: FileKind = path.endsWith("/")
+	const name = baseName(path) || path;
+	const kind: FileKind = /[\\/]$/.test(path)
 		? "folder"
 		: /\.pdf$/i.test(name)
 			? "pdf"

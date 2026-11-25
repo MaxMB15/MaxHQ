@@ -11,6 +11,7 @@ import { formatDuration, plural } from "../status/format";
 import { localAgentLabel } from "../local-models/wording";
 import { kindName, type AgentKind } from "../status/agent-kind";
 import { artifactLine } from "./artifact-line";
+import { baseName as lastName, parentOf } from "../folders/path";
 
 /** Whether an item's status means it's still going. */
 export const isOpen = (status: ItemStatus): boolean =>
@@ -53,7 +54,7 @@ export const sentFilesLine = (count: number): string =>
 	count === 1 ? t("Sent you a file") : t("Sent you {{count}} files", { count: count });
 
 /** The last part of a path, such as "header.tsx". */
-export const baseName = (path: string): string => path.split("/").filter(Boolean).at(-1) ?? path;
+export const baseName = (path: string): string => lastName(path) || path;
 
 /**
  * What a file the agent opened for you reads as, such as "Opened plan.md at
@@ -74,10 +75,7 @@ export const visualLine = (item: { readonly title: string }): string =>
 	t("Showed {{title}}", { title: item.title.trim() || t("a visual") });
 
 /** The folder a path is in, or "/" for a file at the root. */
-export const folderOf = (path: string): string => {
-	const at = path.replace(/\/+$/, "").lastIndexOf("/");
-	return at > 0 ? path.slice(0, at) : "/";
-};
+export const folderOf = (path: string): string => parentOf(path) ?? "/";
 
 /** A line range in words, such as "31 lines" for "10-40" or "Line 12". */
 export const lineSpan = (lines: string | null): string | null => {

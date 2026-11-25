@@ -75,6 +75,18 @@ describe("crumbs and start", () => {
 		expect(crumbsOf("/")).toEqual([{ name: "/", path: "/" }]);
 	});
 
+	it("steps from a Windows drive or share down to the folder shown", () => {
+		expect(crumbsOf("C:\\Users\\me")).toEqual([
+			{ name: "C:", path: "C:\\" },
+			{ name: "Users", path: "C:\\Users" },
+			{ name: "me", path: "C:\\Users\\me" },
+		]);
+		expect(crumbsOf("\\\\nas\\share\\code")).toEqual([
+			{ name: "\\\\nas\\share", path: "\\\\nas\\share\\" },
+			{ name: "code", path: "\\\\nas\\share\\code" },
+		]);
+	});
+
 	it("opens at the field's path, or home for anything else", () => {
 		expect(startOf(" ~/code ")).toBe("~/code");
 		expect(startOf("/srv")).toBe("/srv");

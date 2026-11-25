@@ -39,6 +39,7 @@ import { projectsWithNotes } from "./note-heads";
 import { byPin } from "./pin-order";
 import { all, type EntityOf, type ViewState } from "./replica";
 
+import { baseName } from "../folders/path";
 /** Idle agents older than this fold into the "older" row (U-8). */
 export const FOLD_AFTER_MS = 24 * 60 * 60 * 1000;
 
@@ -663,8 +664,7 @@ export type DeviceGroup = {
 /** A workspace's short name: its container, or its folder's last part. */
 export const workspaceName = (workspace: Workspace): string => {
 	if (workspace.location.type === "container") return workspace.location.instance;
-	const parts = workspace.location.path.split("/").filter(Boolean);
-	return parts[parts.length - 1] ?? workspace.location.path;
+	return baseName(workspace.location.path) || workspace.location.path;
 };
 
 // The top-level agents a device page counts, leaving out a dispatcher's.
