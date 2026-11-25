@@ -29,6 +29,19 @@ describe("editorReach", () => {
 		).toEqual({ kind: "remote", host: "dev@devbox" });
 	});
 
+	it("opens a WSL distro on this PC through the editor's WSL support", () => {
+		const wsl = (via: string | null) =>
+			editorReach(
+				folder,
+				link({ id: "ubuntu", route: { type: "wsl", distro: "Ubuntu", via } })
+			);
+		expect(wsl(null)).toEqual({ kind: "wsl", distro: "Ubuntu" });
+		expect(wsl("dev@pc")).toEqual({
+			kind: "unavailable",
+			reason: "A WSL distro on another PC can't open in an editor from here yet",
+		});
+	});
+
 	it("says why a device with no link can't open", () => {
 		expect(editorReach(folder, undefined)).toEqual({
 			kind: "unavailable",

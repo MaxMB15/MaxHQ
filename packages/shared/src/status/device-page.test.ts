@@ -17,6 +17,18 @@ const view = applySnapshot({
 			link({ id: "box", name: "devbox", device: "dev-box", network: "tailnet" }),
 			link({ id: "mac", name: "Home Mac", device: "dev-mac", route: { type: "local" } }),
 			link({
+				id: "pc",
+				name: "Desk PC",
+				device: "dev-box",
+				route: { type: "ssh", host: "dev@pc" },
+			}),
+			link({
+				id: "ubuntu",
+				name: "Ubuntu",
+				device: "dev-box",
+				route: { type: "wsl", distro: "Ubuntu", via: "dev@pc" },
+			}),
+			link({
 				id: "gone",
 				device: "dev-box",
 				state: { state: "unreachable", reason: "timed out", last_seen: NOW - MIN },
@@ -31,6 +43,10 @@ describe("deviceChips", () => {
 	it("names the network, the route, the OS and maxd's version", () => {
 		expect(chips("box")).toEqual(["Needs Tailscale", "SSH as max@box", "Linux", "maxd 0.1.0"]);
 		expect(chips("mac")).toEqual(["This Mac", "macOS", "maxd 0.1.0"]);
+	});
+
+	it("names a WSL distro's Windows machine", () => {
+		expect(chips("ubuntu")[0]).toBe("WSL Ubuntu on Desk PC");
 	});
 
 	it("says the version is from when it was last seen", () => {

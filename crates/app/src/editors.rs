@@ -529,6 +529,8 @@ enum Reach {
     Here,
     /// Over ssh to `host`.
     Ssh { host: String },
+    /// In WSL distro `distro` on this Windows machine.
+    Wsl { distro: String },
 }
 
 /// Where `workspace` opens, given how this machine reaches its device.
@@ -542,6 +544,10 @@ fn reach(workspace: &Workspace, route: Option<Route>) -> Result<Reach, CommandEr
     match route {
         Some(Route::Local) => Ok(Reach::Here),
         Some(Route::Ssh { host }) => Ok(Reach::Ssh { host }),
+        Some(Route::Wsl { distro, via: None }) => Ok(Reach::Wsl { distro }),
+        Some(Route::Wsl { via: Some(_), .. }) => Err(failed(
+            "A WSL distro on another PC can't open in an editor from here yet",
+        )),
         None => Err(failed("No route to this device")),
     }
 }
@@ -597,10 +603,28 @@ fn file_url(scheme: &str, path: &str, at: Option<(u32, u32)>) -> String {
 /// port. A file needs a position for the editor to open it as one, so it
 /// gets the first line when it has none.
 fn remote_url(scheme: &str, host: &str, path: &str, file: bool, at: Option<(u32, u32)>) -> String {
+    let remote = format!("ssh-remote+{}", encode_component(host));
+    remote_link(scheme, &remote, path, file, at)
+}
+
+/// The link that opens `path` in WSL distro `distro` on this machine, as
+/// [`remote_url`] does over SSH.
+fn wsl_url(scheme: &str, distro: &str, path: &str, file: bool, at: Option<(u32, u32)>) -> String {
+    let remote = format!("wsl+{}", encode_component(distro));
+    remote_link(scheme, &remote, path, file, at)
+}
+
+/// The link that opens `path` on the editor's `remote`.
+fn remote_link(
+    scheme: &str,
+    remote: &str,
+    path: &str,
+    file: bool,
+    at: Option<(u32, u32)>,
+) -> String {
     let at = at.or(file.then_some((1, 1)));
     format!(
-        "{scheme}://vscode-remote/ssh-remote+{}{}{}",
-        encode_component(host),
+        "{scheme}://vscode-remote/{remote}{}{}",
         encode_path(path),
         position(at)
     )
@@ -719,6 +743,9 @@ impl<C: Connector> App<C> {
             (Reach::Ssh { host }, _, Some(scheme)) => self
                 .shell
                 .open_url(remote_url(scheme, &host, &path, file, at)),
+            (Reach::Wsl { distro }, _, Some(scheme)) => self
+                .shell
+                .open_url(wsl_url(scheme, &distro, &path, file, at)),
             (_, _, None) => {
                 return Err(CommandError::Failed {
                     message: format!("{} can't open this workspace", found.editor.label),
@@ -1320,6 +1347,10 @@ pub(crate) mod tests {
             "vscode://vscode-remote/ssh-remote+devbox/src/w/a.rs:12:4"
         );
         assert_eq!(
+            wsl_url("vscode", "Ubuntu-24.04", "/home/dev/w", false, None),
+            "vscode://vscode-remote/wsl+Ubuntu-24.04/home/dev/w"
+        );
+        assert_eq!(
             file_url("cursor", "/Users/dev/it's (new)/a?.rs", Some((2, 1))),
             "cursor://file/Users/dev/it's%20(new)/a%3F.rs:2:1"
         );
@@ -1422,6 +1453,26 @@ pub(crate) mod tests {
                 host: "dev@devbox".into()
             })
         );
+        assert_eq!(
+            reach(
+                &folder,
+                Some(Route::Wsl {
+                    distro: "Ubuntu".into(),
+                    via: None
+                })
+            ),
+            Ok(Reach::Wsl {
+                distro: "Ubuntu".into()
+            })
+        );
+        assert!(reach(
+            &folder,
+            Some(Route::Wsl {
+                distro: "Ubuntu".into(),
+                via: Some("dev@pc".into())
+            })
+        )
+        .is_err());
         assert_eq!(reach(&folder, None), Err(failed("No route to this device")));
     }
 

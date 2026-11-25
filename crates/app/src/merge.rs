@@ -1247,6 +1247,7 @@ pub(crate) mod tests {
             workspace_host: None,
             build: Some(build.into()),
             target: None,
+            wsl: None,
         })
     }
 

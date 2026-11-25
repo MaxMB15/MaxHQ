@@ -274,6 +274,37 @@ describe("linkChecks", () => {
 		expect(checks[6]?.detail).toBe("Unknown. 2 agents last seen here");
 	});
 
+	it("reaches a WSL distro on this PC through wsl.exe, with no network between", () => {
+		const wsl = (via: string | null) =>
+			linkChecks(
+				{
+					link: {
+						...nl({ state: "connected", since: NOW - MIN }),
+						network: null,
+						route: { type: "wsl", distro: "Ubuntu", via },
+					},
+					device: device({ id: "dev-nl" }),
+				},
+				NOW
+			);
+		const here = wsl(null);
+		expect(here.map((c) => [c.id, c.short])).toEqual([
+			["ssh", "WSL"],
+			["maxd", "maxd"],
+			["agents", "Agent"],
+		]);
+		expect(here[0]?.detail).toBe("Connected as devbox");
+		const there = wsl("dev@pc");
+		expect(there.map((c) => [c.id, c.short])).toEqual([
+			["net", "Net"],
+			["ping", "Ping"],
+			["ssh", "SSH"],
+			["maxd", "maxd"],
+			["agents", "Agent"],
+		]);
+		expect(there.find((c) => c.id === "ssh")?.detail).toBe("Connected as dev@pc");
+	});
+
 	it("passes every check on a connected device and counts its agents", () => {
 		const checks = linkChecks(
 			{

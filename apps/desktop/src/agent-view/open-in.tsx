@@ -187,6 +187,8 @@ const reachDetail = (reach: EditorReach): string | null => {
 			return null;
 		case "remote":
 			return translate("Over SSH to {{host}}", { host: reach.host });
+		case "wsl":
+			return translate("Through WSL in {{distro}}", { distro: reach.distro });
 		case "ask":
 			return translate("Over SSH to {{host}}, after one line of setup", { host: reach.host });
 		case "declined":

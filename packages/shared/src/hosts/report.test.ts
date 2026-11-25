@@ -6,7 +6,7 @@ import { describe, expect, it } from "vitest";
 import { ROOT_FIX } from "../data/mock-hosts";
 import { mockSource } from "../data/mock-source";
 import { DEVBOX, MAC } from "../data/mock-view";
-import { NOW } from "../test/build";
+import { entities, link, NOW } from "../test/build";
 import { applySnapshot } from "../view/replica";
 import {
 	fixableNow,
@@ -51,6 +51,22 @@ describe("host report", () => {
 		expect(terminalLine(view, "dev-gone", ROOT_FIX)).toBeNull();
 		const zram = hostGroups(view, hostReportOf(view, DEVBOX)!)[1]!.items[1]!;
 		expect(zram.fix).toEqual({ kind: "terminal", line: `ssh -t dev@devbox '${ROOT_FIX}'` });
+	});
+
+	it("runs a WSL distro's root fix through wsl.exe on its PC", () => {
+		const view = applySnapshot({
+			seq: 1,
+			entities: entities({
+				links: [
+					link({ id: "here", route: { type: "wsl", distro: "Ubuntu", via: null } }),
+					link({ id: "there", route: { type: "wsl", distro: "Debian", via: "dev@pc" } }),
+				],
+			}),
+		});
+		expect(terminalLine(view, "dev-here", ROOT_FIX)).toBe(`wsl.exe -d Ubuntu -- ${ROOT_FIX}`);
+		expect(terminalLine(view, "dev-there", ROOT_FIX)).toBe(
+			`ssh -t dev@pc 'wsl.exe -d Debian -- ${ROOT_FIX}'`
+		);
 	});
 
 	it("shows each root command once, with the items it fixes", async () => {

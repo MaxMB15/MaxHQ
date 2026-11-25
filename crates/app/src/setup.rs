@@ -63,6 +63,8 @@ pub fn confirm_host_key(setup: &str, ok: bool) -> bool {
 pub enum SetupHostFrom {
     SshConfig,
     Tailnet,
+    /// A WSL distro a Windows machine MaxHQ reaches lists.
+    Wsl,
 }
 
 /// A host setup offers.
@@ -74,10 +76,28 @@ pub struct SetupHost {
     pub address: Option<String>,
     /// The link that reaches it already, if any.
     pub link: Option<LinkId>,
+    /// The distro, for one from [`SetupHostFrom::Wsl`].
+    pub wsl: Option<SetupWsl>,
+}
+
+/// A WSL distro setup offers.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Type)]
+pub struct SetupWsl {
+    pub distro: String,
+    /// The name of the Windows machine it's on.
+    pub machine: String,
+    /// Whether that machine is this one.
+    pub here: bool,
+    /// Its WSL version, when `wsl.exe` said. WSL 1 runs no systemd, so
+    /// `maxd` can't run there.
+    pub version: Option<u8>,
+    /// Whether it's the machine's default distro.
+    pub default: bool,
 }
 
 /// The hosts in your SSH config, then the `tailnet` peers it doesn't
-/// name, each with the link that reaches it already.
+/// name, then the WSL distros of the Windows machines MaxHQ reaches, each
+/// with the link that reaches it already.
 pub fn list_hosts(merge: &Merge, tailnet: Vec<String>) -> Vec<SetupHost> {
     let config = ssh_config()
         .map(|text| prepare::config_hosts(&text))
@@ -100,14 +120,62 @@ pub fn list_hosts(merge: &Merge, tailnet: Vec<String>) -> Vec<SetupHost> {
             host,
             from,
             address: None,
+            wsl: None,
         });
+    }
+    hosts.extend(wsl_hosts(merge));
+    hosts
+}
+
+/// The distros each Windows device lists, as the words that set them up:
+/// through `wsl.exe` here for this machine's, and through the Windows
+/// machine's SSH host for another's. A distro set up as a device lists
+/// none of its own.
+fn wsl_hosts(merge: &Merge) -> Vec<SetupHost> {
+    let mut hosts = Vec::new();
+    for entity in merge.store().entities() {
+        let Entity::Device(device) = entity else {
+            continue;
+        };
+        let Some(distros) = &device.wsl else {
+            continue;
+        };
+        let Some(link) = crate::devices::best_link(merge, device.id) else {
+            continue;
+        };
+        let via = match &link.route {
+            Route::Local => None,
+            Route::Ssh { host } => Some(host.as_str()),
+            Route::Wsl { .. } => continue,
+        };
+        for distro in distros {
+            let host = maxhq_client::wsl::route_word(&distro.name, via);
+            hosts.push(SetupHost {
+                link: link_to(merge, &host),
+                host,
+                from: SetupHostFrom::Wsl,
+                address: None,
+                wsl: Some(SetupWsl {
+                    distro: distro.name.clone(),
+                    machine: device.name.clone(),
+                    here: via.is_none(),
+                    version: distro.version,
+                    default: distro.default,
+                }),
+            });
+        }
     }
     hosts
 }
 
-/// The link whose routes include `host`.
+/// The link whose routes include `host`, an SSH host or a WSL distro's
+/// word.
 fn link_to(merge: &Merge, host: &str) -> Option<LinkId> {
-    let is_host = |route: &Route| matches!(route, Route::Ssh { host: at } if at == host);
+    let is_host = |route: &Route| match route {
+        Route::Ssh { host: at } => at == host,
+        Route::Wsl { .. } => maxhq_client::wsl::word_of_route(route).as_deref() == Some(host),
+        Route::Local => false,
+    };
     merge.store().entities().find_map(|entity| match entity {
         Entity::DeviceLink(link)
             if is_host(&link.route) || link.routes.iter().any(|c| is_host(&c.route)) =>
@@ -374,7 +442,11 @@ impl<C: Connector> App<C> {
                     sha256: found.sha256,
                 })
         };
-        let mut setup = Setup::new(&System, &paths, &run.host).map_err(|error| error.0)?;
+        let setup = match maxhq_client::wsl::parse_route_word(&run.host) {
+            Some((distro, via)) => Setup::wsl(&System, &paths, &distro, via.as_deref()),
+            None => Setup::new(&System, &paths, &run.host),
+        };
+        let mut setup = setup.map_err(|error| error.0)?;
         // A device that trusts no app key yet takes this Mac's from setup,
         // so the app's first connection needs no card.
         if let Some((public_key, label)) = self.devices.app_key_for_setup() {
@@ -521,6 +593,60 @@ mod tests {
 
         merge.link_event(spec.id, link_state(&spec, connected()));
         assert_eq!(down_reason(&merge, spec.id), None);
+    }
+
+    #[test]
+    fn a_windows_device_offers_its_wsl_distros() {
+        use maxhq_client::LinkEvent;
+        use maxhq_protocol::ids::BootId;
+        use maxhq_protocol::model::{Device, WslDistro};
+
+        use crate::merge::tests::{connected, link_state, spec};
+
+        let pc = spec("pc");
+        let mut merge = Merge::new();
+        merge.add_link(&pc);
+        merge.link_event(pc.id, link_state(&pc, connected()));
+        let distro = |name: &str, default, version| WslDistro {
+            name: name.into(),
+            default,
+            version: Some(version),
+        };
+        let device = Device {
+            id: DeviceId::derive("pc"),
+            name: "Desk PC".into(),
+            os: "windows".into(),
+            boot_id: BootId("boot".into()),
+            maxd_version: "0.0.0".into(),
+            winding_down_until: None,
+            workspace_host: None,
+            build: None,
+            target: None,
+            wsl: Some(vec![distro("Ubuntu", true, 2), distro("Legacy", false, 1)]),
+        };
+        merge.link_event(pc.id, LinkEvent::Synced(vec![Entity::Device(device)]));
+
+        let offered = list_hosts(&merge, Vec::new());
+        let words: Vec<_> = offered.iter().map(|host| host.host.as_str()).collect();
+        assert_eq!(words, ["wsl:Ubuntu@pc", "wsl:Legacy@pc"]);
+        assert!(offered.iter().all(|host| host.from == SetupHostFrom::Wsl));
+        let ubuntu = offered[0].wsl.as_ref().unwrap();
+        assert_eq!(
+            (ubuntu.machine.as_str(), ubuntu.here, ubuntu.default),
+            ("Desk PC", false, true)
+        );
+        assert_eq!(offered[1].wsl.as_ref().unwrap().version, Some(1));
+        assert_eq!(offered[0].link, None);
+
+        let mut set_up = spec("Ubuntu");
+        set_up.route = Route::Wsl {
+            distro: "Ubuntu".into(),
+            via: Some("pc".into()),
+        };
+        merge.add_link(&set_up);
+        merge.link_event(set_up.id, link_state(&set_up, connected()));
+        let offered = list_hosts(&merge, Vec::new());
+        assert_eq!(offered[0].link, Some(set_up.id));
     }
 
     #[test]

@@ -38,7 +38,7 @@ export const NOTE_PILLS_SINCE = 28 as const;
 
 export const OLDEST_PROTOCOL_VERSION = 20 as const;
 
-export const PROTOCOL_VERSION = 62 as const;
+export const PROTOCOL_VERSION = 63 as const;
 
 export const RESET_CREDITS_SINCE = 58 as const;
 
@@ -4537,6 +4537,13 @@ export type Device = {
 	 *  out.
 	 */
 	target?: string | null,
+	/**
+	 *  The WSL distros on a Windows device, each of which can be set up as
+	 *  a device of its own. Unset on a device without WSL, and from a
+	 *  `maxd` older than [`crate::message::WSL_SINCE`], which reads as
+	 *  none.
+	 */
+	wsl?: WslDistro[] | null,
 };
 
 /**  A device's hardware, as far as it matters for running a model. */
@@ -10283,7 +10290,21 @@ export type Route =
  *  The SSH destination, as `~/.ssh/config` would take it, such as
  *  `dev@devbox`.
  */
-host: string };
+host: string } | 
+/**
+ *  `maxd proxy` inside a WSL distro, started with `wsl.exe -d
+ *  <distro>` on this Windows machine, or with `ssh <via> maxd proxy
+ *  --wsl <distro>` on another one. `maxd` never sends a link, so no
+ *  older peer reads this.
+ */
+{ type: "wsl"; 
+/**  The distro, as `wsl.exe -d` takes it, such as `Ubuntu`. */
+distro: string; 
+/**
+ *  The SSH destination of the Windows machine it's on. Unset for
+ *  this machine.
+ */
+via: string | null };
 
 /**  One of a device's routes. */
 export type RouteChoice = {
@@ -10880,10 +10901,14 @@ export type SetupHost = {
 	address: string | null,
 	/**  The link that reaches it already, if any. */
 	link: LinkId | null,
+	/**  The distro, for one from [`SetupHostFrom::Wsl`]. */
+	wsl: SetupWsl | null,
 };
 
 /**  Where a host setup offers came from. */
-export type SetupHostFrom = "ssh_config" | "tailnet";
+export type SetupHostFrom = "ssh_config" | "tailnet" | 
+/**  A WSL distro a Windows machine MaxHQ reaches lists. */
+"wsl";
 
 /**
  *  What a stage is doing. The wizard has the words for each, so none come
@@ -10922,6 +10947,22 @@ export type SetupSecret =
 
 /**  The stages of a setup, as the wizard shows them. */
 export type SetupStep = "pick" | "host_key" | "install" | "key" | "handshake" | "secrets";
+
+/**  A WSL distro setup offers. */
+export type SetupWsl = {
+	distro: string,
+	/**  The name of the Windows machine it's on. */
+	machine: string,
+	/**  Whether that machine is this one. */
+	here: boolean,
+	/**
+	 *  Its WSL version, when `wsl.exe` said. WSL 1 runs no systemd, so
+	 *  `maxd` can't run there.
+	 */
+	version: number | null,
+	/**  Whether it's the machine's default distro. */
+	default: boolean,
+};
 
 /**  What one window's panes show, as its page reports it. */
 export type Shown = {
@@ -12490,6 +12531,16 @@ of: number } |
 { state: "failed"; 
 /**  What went wrong, for a person to read. */
 reason: string };
+
+/**  A Linux distro WSL runs on a Windows device. */
+export type WslDistro = {
+	/**  Its name, as `wsl.exe -d` takes it, such as `Ubuntu`. */
+	name: string,
+	/**  Whether `wsl.exe` starts it when you name none. */
+	default: boolean,
+	/**  The WSL version it runs under, 1 or 2, when `wsl.exe` said. */
+	version: number | null,
+};
 
 /**
  *  An IANA time zone name, such as `Europe/Amsterdam`. The app takes it

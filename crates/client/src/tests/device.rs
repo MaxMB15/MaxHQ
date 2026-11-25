@@ -31,6 +31,7 @@ fn this_device(winding_down_until: Option<Timestamp>) -> ServerMessage {
             workspace_host: None,
             build: None,
             target: None,
+            wsl: None,
         })],
     })
 }

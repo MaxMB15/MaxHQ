@@ -52,6 +52,7 @@ mod tailscale;
 mod terminals;
 mod transfer;
 mod transport;
+pub mod wsl;
 
 // The link tests stand maxd up behind Unix sockets.
 #[cfg(all(test, unix))]

@@ -8,6 +8,8 @@
 //! device, even if it claims another device's ID when it says hello. On this
 //! Mac it's the command alone. Another device's goes through `ssh -t` along
 //! the route the app reaches it by, so sudo can ask for the password there.
+//! A WSL distro's goes through `wsl.exe`, which hands it to the distro's
+//! shell, on the PC it's on.
 
 use maxhq_core::shell::word;
 use maxhq_protocol::hosts::HostFix;
@@ -25,6 +27,13 @@ fn line_for(route: &Route, command: &str) -> String {
     match route {
         Route::Local => command.to_owned(),
         Route::Ssh { host } => format!("ssh -t {} {}", word(host), word(command)),
+        Route::Wsl { distro, via } => {
+            let line = format!("wsl.exe -d {distro} -- {command}");
+            match via {
+                None => line,
+                Some(host) => format!("ssh -t {} {}", word(host), word(&line)),
+            }
+        }
     }
 }
 
@@ -104,6 +113,18 @@ mod tests {
                 ROOT
             ),
             format!("ssh -t dev@devbox '{ROOT}'")
+        );
+        let wsl = |via: Option<&str>| Route::Wsl {
+            distro: "Ubuntu".into(),
+            via: via.map(str::to_owned),
+        };
+        assert_eq!(
+            line_for(&wsl(None), ROOT),
+            format!("wsl.exe -d Ubuntu -- {ROOT}")
+        );
+        assert_eq!(
+            line_for(&wsl(Some("dev@pc")), ROOT),
+            format!("ssh -t dev@pc 'wsl.exe -d Ubuntu -- {ROOT}'")
         );
     }
 

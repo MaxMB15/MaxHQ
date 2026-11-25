@@ -99,6 +99,12 @@ pub fn tie_children() -> io::Result<()> {
     imp::tie_children()
 }
 
+/// Starts `command` with a console that has no window, so a console
+/// program a windowed app starts flashes none. Nothing on Unix.
+pub fn without_window(command: &mut Command) {
+    imp::without_window(command);
+}
+
 /// Runs the plan's program until it stops for good, or another launcher
 /// runs it. See the module's notes.
 pub fn supervise(plan: &Plan) -> io::Result<()> {
@@ -229,7 +235,7 @@ fn start(plan: &Plan) -> io::Result<std::process::Child> {
         .stdin(Stdio::null())
         .stdout(log.try_clone()?)
         .stderr(log);
-    imp::without_window(&mut command);
+    without_window(&mut command);
     command.spawn()
 }
 

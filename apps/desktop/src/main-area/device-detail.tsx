@@ -36,6 +36,7 @@ import {
 } from "@maxhq/shared/status/device-page";
 import { formatDuration, formatWhen } from "@maxhq/shared/status/format";
 import { versionNote } from "@maxhq/shared/status/reach";
+import { wslCommand } from "@maxhq/shared/status/wsl";
 import { kindName, ownKind } from "@maxhq/shared/status/agent-kind";
 import { accountName } from "@maxhq/shared/status/usage";
 import { inboxOf } from "@maxhq/shared/view/inbox";
@@ -226,6 +227,16 @@ const Actions = ({ node }: { node: DeviceNode }) => {
 				<CopyButton
 					text={`ssh ${route.host}`}
 					label={t("Copy SSH command")}
+					icon={false}
+					className={cn(
+						button,
+						"gap-1.5 border border-input bg-secondary text-foreground hover:bg-accent"
+					)}
+				/>
+			) : route.type === "wsl" ? (
+				<CopyButton
+					text={wslCommand(route)}
+					label={t("Copy WSL command")}
 					icon={false}
 					className={cn(
 						button,
@@ -667,7 +678,7 @@ export const DeviceDetail = ({ node, view }: { node: DeviceNode; view: ViewState
 
 				<Restart link={link} live={live} winding={until !== null && until > now} />
 				{link.route.type === "local" ? <LocalMaxd link={link} /> : null}
-				{link.route.type === "ssh" ? <RemoveDevice link={link} /> : null}
+				{link.route.type !== "local" ? <RemoveDevice link={link} /> : null}
 
 				<section
 					aria-label={t("Agents on {{name}}", { name: link.name })}

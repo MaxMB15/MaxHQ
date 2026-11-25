@@ -7,7 +7,8 @@
 //!
 //! A Linux device runs each step in `sh`. A Windows PC, found when that
 //! fails or runs in a POSIX layer, runs them in PowerShell instead
-//! ([`windows`]).
+//! ([`windows`]). A WSL distro runs the Linux steps through `wsl.exe`
+//! ([`wsl`]).
 //!
 //! Nothing runs on the device before you confirm a host key ssh hasn't
 //! seen. Secrets never pass through here: the app sends them over the
@@ -33,8 +34,10 @@ use tokio::process::Command;
 use tokio::sync::oneshot;
 
 pub use windows::{shell_refusal, target_for_windows, SSHD_STEPS};
+pub use wsl::over_ssh as wsl_over_ssh;
 
 mod windows;
+mod wsl;
 
 /// How long a setup waits for you to confirm a host key.
 pub const CONFIRM_WITHIN: Duration = Duration::from_secs(10 * 60);
@@ -107,7 +110,10 @@ impl Run for System {
         args: Vec<String>,
         stdin: Option<Vec<u8>>,
     ) -> io::Result<Output> {
-        let mut child = Command::new(program)
+        let mut command = Command::new(program);
+        // A console program the app starts would open a window on Windows.
+        maxhq_os::launcher::without_window(command.as_std_mut());
+        let mut child = command
             .args(&args)
             .stdin(if stdin.is_some() {
                 Stdio::piped()
@@ -173,7 +179,8 @@ pub enum Step {
 /// What setup learned and did, for the app to finish with.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Prepared {
-    /// The SSH host.
+    /// The SSH host, or for a WSL distro its route as one word
+    /// ([`crate::wsl::route_word`]).
     pub host: String,
     /// The device's home folder.
     pub home: String,
@@ -323,7 +330,11 @@ fn remote(script: &str, args: &[&str]) -> String {
 pub struct Setup<'a, R: Run> {
     run: &'a R,
     paths: &'a SetupPaths,
+    /// The SSH host, or for a WSL distro the Windows machine it's on,
+    /// empty for this one.
     host: String,
+    /// The WSL distro, for a round that sets one up.
+    wsl: Option<String>,
     /// The ssh options that trust the host key you confirmed, when your
     /// own `known_hosts` didn't have it.
     trust: Vec<String>,
@@ -342,6 +353,7 @@ impl<'a, R: Run> Setup<'a, R> {
             run,
             paths,
             host: host.to_owned(),
+            wsl: None,
             trust: Vec::new(),
             app_key: None,
         })
@@ -377,6 +389,9 @@ impl<'a, R: Run> Setup<'a, R> {
         confirms: &Confirmations,
         step: &(dyn Fn(Step) + Sync),
     ) -> Result<Prepared, SetupError> {
+        if self.wsl.is_some() {
+            return self.prepare_wsl(binary, confirms, step).await;
+        }
         step(Step::HostKey);
         let (host_keys, host_keys_confirmed) = self.host_key(confirms, step).await?;
 
@@ -396,15 +411,30 @@ impl<'a, R: Run> Setup<'a, R> {
             return self.prepare_windows(facts, binary, step, keys).await;
         }
         let facts = parse_probe(&probe?);
+        self.prepare_linux(facts, binary, step, (host_keys, host_keys_confirmed))
+            .await
+    }
+
+    /// The rest of [`Setup::prepare`] on Linux, from its probe's facts.
+    async fn prepare_linux(
+        self,
+        facts: BTreeMap<String, String>,
+        binary: impl Fn(&str) -> Option<SetupBinary>,
+        step: &(dyn Fn(Step) + Sync),
+        (host_keys, host_keys_confirmed): (Vec<String>, bool),
+    ) -> Result<Prepared, SetupError> {
         let home = facts.get("home").cloned().unwrap_or_default();
         let uname = facts.get("uname").map_or("", String::as_str);
         let Some(target) = target_for(uname) else {
             return Err(stop(format!("MaxHQ can't run on {uname} yet")));
         };
         if facts.get("systemd").map(String::as_str) != Some("yes") {
-            return Err(stop(
-                "The device has no systemd user session, which maxd's service needs",
-            ));
+            return Err(stop(match &self.wsl {
+                Some(distro) => wsl::no_systemd(distro),
+                None => {
+                    "The device has no systemd user session, which maxd's service needs".to_owned()
+                }
+            }));
         }
         let binary = checked(binary(target), target)?;
 
@@ -413,17 +443,15 @@ impl<'a, R: Run> Setup<'a, R> {
         if facts.get("build").map(String::as_str) != Some(build) {
             let bytes = std::fs::read(&binary.path)
                 .map_err(|error| stop(format!("Reading maxd failed: {error}")))?;
-            self.ssh(
-                vec![remote(INSTALL, &[&binary.sha256, build, MAXD_LINK_TEMP])],
+            self.linux(
+                INSTALL,
+                &[&binary.sha256, build, MAXD_LINK_TEMP],
                 Some(bytes),
             )
             .await?;
         }
-        self.ssh(
-            vec![remote("\"$HOME/.local/bin/maxd\" service install", &[])],
-            None,
-        )
-        .await?;
+        self.linux("\"$HOME/.local/bin/maxd\" service install", &[], None)
+            .await?;
         let linger = facts.get("linger").map(String::as_str) == Some("yes");
         if !linger {
             let user = facts
@@ -431,23 +459,30 @@ impl<'a, R: Run> Setup<'a, R> {
                 .map(String::as_str)
                 .filter(|user| is_plain_user(user))
                 .unwrap_or("$USER");
-            step(Step::Linger {
-                command: format!("sudo loginctl enable-linger {user}"),
-            });
+            let command = match &self.wsl {
+                Some(distro) => wsl::linger(distro, user),
+                None => format!("sudo loginctl enable-linger {user}"),
+            };
+            step(Step::Linger { command });
         }
 
         let public = self.public_key()?;
         let line = authorized_line(&home, &public)?;
         let key = key_of(&public);
-        let add = match &self.app_key {
-            Some((app_key, label)) => remote(ADD_KEYS, &[&key, app_key, label]),
-            None => remote(ADD_KEY, &[&key]),
-        };
-        self.ssh(vec![add], None).await?;
+        match &self.app_key {
+            Some((app_key, label)) => self.linux(ADD_KEYS, &[&key, app_key, label], None).await,
+            None => self.linux(ADD_KEY, &[&key], None).await,
+        }?;
         step(Step::Key { line });
 
+        let host = match &self.wsl {
+            Some(distro) => {
+                crate::wsl::route_word(distro, (!self.host.is_empty()).then_some(&*self.host))
+            }
+            None => self.host,
+        };
         Ok(Prepared {
-            host: self.host,
+            host,
             home,
             target: target.to_owned(),
             host_keys,
@@ -552,6 +587,20 @@ impl<'a, R: Run> Setup<'a, R> {
             "StrictHostKeyChecking=yes".into(),
         ];
         Ok((keys, true))
+    }
+
+    /// Runs `script` in `sh` on the device with `args`, as `$1` onwards:
+    /// over your own login, or in the WSL distro.
+    async fn linux(
+        &self,
+        script: &str,
+        args: &[&str],
+        stdin: Option<Vec<u8>>,
+    ) -> Result<String, SetupError> {
+        match &self.wsl {
+            Some(distro) => self.in_distro(distro, script, args, stdin).await,
+            None => self.ssh(vec![remote(script, args)], stdin).await,
+        }
     }
 
     /// Runs a remote command over your own login.
