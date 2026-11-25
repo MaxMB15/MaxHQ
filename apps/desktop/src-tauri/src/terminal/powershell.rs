@@ -1,52 +1,50 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026 Max Boksem
 
-//! The terminal on Windows: a PowerShell window that runs the line, then
+//! The terminal on Windows: a PowerShell window that runs a root fix, then
 //! waits for Enter so you can read what it printed.
 //!
-//! A line for another device is `ssh -t <host> <command>`, worded for a
-//! POSIX shell, and `sudo` asks for the password on the other end. It
-//! opens without admin rights, in PowerShell 7 when it's installed and
-//! Windows PowerShell otherwise, and hands `ssh` its arguments on a
-//! command line built here, since Windows PowerShell passes quotes inside
-//! an argument on wrong. A line that runs on this PC needs an
-//! administrator, as a root fix does, so Windows PowerShell runs it
+//! A fix for another device runs `ssh -t <host> <command>`, and `sudo`
+//! asks for the password on the other end. It opens without admin rights,
+//! in PowerShell 7 when it's installed and Windows PowerShell otherwise,
+//! and hands `ssh` its arguments on a command line built here, since
+//! Windows PowerShell passes quotes inside an argument on wrong. A fix that
+//! runs on this PC needs an administrator, so Windows PowerShell runs it
 //! through the UAC prompt.
 //!
 //! The script goes to PowerShell encoded on its command line, so there's
 //! no file for anything to change before an elevated window runs it.
 
-use base64::engine::general_purpose::STANDARD;
-use base64::Engine;
+use maxhq_app::host_fix::RootFix;
+use maxhq_core::shell::powershell::{encoded, literal};
 
-/// What PowerShell runs for a line, and whether it needs an
-/// administrator.
+/// What PowerShell runs for a fix, and whether it needs an administrator.
 #[derive(Debug, PartialEq, Eq)]
 struct Plan {
     script: String,
     admin: bool,
 }
 
-/// The plan for `line`: `ssh` with the line's own arguments, or else the
-/// line as it is, as an administrator.
-fn plan(line: &str) -> Result<Plan, String> {
-    if line.starts_with("ssh ") {
-        let words =
-            posix_words(line).ok_or_else(|| format!("The line has a quote left open: {line}"))?;
-        let arguments: Vec<String> = words[1..].iter().map(|word| windows_arg(word)).collect();
-        let body = format!(
-            "Start-Process -FilePath 'ssh' -ArgumentList {} -NoNewWindow -Wait",
-            quote(&arguments.join(" "))
-        );
-        return Ok(Plan {
-            script: script(&body),
-            admin: false,
-        });
+/// The plan for `fix`: `ssh` to its host, or else its command as it is, as
+/// an administrator.
+fn plan(fix: &RootFix) -> Plan {
+    match &fix.host {
+        Some(host) => {
+            let arguments = maxhq_os::proc::args::join_str(["-t", host, &fix.command]);
+            let body = format!(
+                "Start-Process -FilePath 'ssh' -ArgumentList {} -NoNewWindow -Wait",
+                literal(&arguments)
+            );
+            Plan {
+                script: script(&body),
+                admin: false,
+            }
+        }
+        None => Plan {
+            script: script(&fix.command),
+            admin: true,
+        },
     }
-    Ok(Plan {
-        script: script(line),
-        admin: true,
-    })
 }
 
 /// The script for `body`. It runs `body` as a script block of its own, so
@@ -57,130 +55,29 @@ fn script(body: &str) -> String {
         "try {{ & ([scriptblock]::Create({})) }} catch {{ Write-Host $_ -ForegroundColor Red }}\n\
          Write-Host ''\n\
          Read-Host 'Press Enter to close this window' | Out-Null\n",
-        quote(body)
+        literal(body)
     )
-}
-
-/// `text` as a PowerShell string that holds it as it is: in single quotes,
-/// with each single quote doubled, curly ones too, since PowerShell reads
-/// those as quotes as well.
-fn quote(text: &str) -> String {
-    let mut quoted = String::with_capacity(text.len() + 2);
-    quoted.push('\'');
-    for each in text.chars() {
-        if matches!(
-            each,
-            '\'' | '\u{2018}' | '\u{2019}' | '\u{201a}' | '\u{201b}'
-        ) {
-            quoted.push(each);
-        }
-        quoted.push(each);
-    }
-    quoted.push('\'');
-    quoted
-}
-
-/// The words of `line` as a POSIX shell splits it: single quotes keep
-/// everything, double quotes keep all but a backslash before `"`, `\`, `$`
-/// or `` ` ``, and a backslash outside quotes keeps the next character.
-/// `None` when a quote is left open.
-fn posix_words(line: &str) -> Option<Vec<String>> {
-    let mut words = Vec::new();
-    let mut word: Option<String> = None;
-    let mut chars = line.chars();
-    while let Some(each) = chars.next() {
-        match each {
-            ' ' | '\t' | '\n' => words.extend(word.take()),
-            '\'' => {
-                let word = word.get_or_insert_default();
-                loop {
-                    match chars.next()? {
-                        '\'' => break,
-                        other => word.push(other),
-                    }
-                }
-            }
-            '"' => {
-                let word = word.get_or_insert_default();
-                loop {
-                    match chars.next()? {
-                        '"' => break,
-                        '\\' => match chars.next()? {
-                            kept @ ('"' | '\\' | '$' | '`') => word.push(kept),
-                            '\n' => {}
-                            other => {
-                                word.push('\\');
-                                word.push(other);
-                            }
-                        },
-                        other => word.push(other),
-                    }
-                }
-            }
-            '\\' => match chars.next() {
-                Some('\n') => {}
-                Some(other) => word.get_or_insert_default().push(other),
-                None => word.get_or_insert_default().push('\\'),
-            },
-            other => word.get_or_insert_default().push(other),
-        }
-    }
-    words.extend(word);
-    Some(words)
-}
-
-/// `arg` on a Windows command line, as a program built with Microsoft's C
-/// runtime reads it back: as it is when it has no space, tab or quote, and
-/// otherwise in double quotes, with a quote inside escaped and the
-/// backslashes before a quote, or before the closing one, doubled.
-fn windows_arg(arg: &str) -> String {
-    if !arg.is_empty() && !arg.contains([' ', '\t', '\n', '"']) {
-        return arg.to_owned();
-    }
-    let mut quoted = String::with_capacity(arg.len() + 2);
-    quoted.push('"');
-    let mut backslashes = 0;
-    for each in arg.chars() {
-        match each {
-            '\\' => backslashes += 1,
-            '"' => {
-                quoted.extend(std::iter::repeat_n('\\', backslashes * 2 + 1));
-                backslashes = 0;
-            }
-            _ => {
-                quoted.extend(std::iter::repeat_n('\\', backslashes));
-                backslashes = 0;
-            }
-        }
-        if each != '\\' {
-            quoted.push(each);
-        }
-    }
-    quoted.extend(std::iter::repeat_n('\\', backslashes * 2));
-    quoted.push('"');
-    quoted
 }
 
 /// The arguments that start PowerShell on `script`: without its logo or
 /// your profile, which could change what runs, with scripts allowed, since
 /// Windows refuses any script file the line runs by default, and the
-/// script encoded as PowerShell takes it, base64 of its UTF-16.
+/// script encoded as PowerShell takes it.
 fn arguments(script: &str) -> [String; 6] {
-    let bytes: Vec<u8> = script.encode_utf16().flat_map(u16::to_le_bytes).collect();
     [
         "-NoLogo".into(),
         "-NoProfile".into(),
         "-ExecutionPolicy".into(),
         "Bypass".into(),
         "-EncodedCommand".into(),
-        STANDARD.encode(bytes),
+        encoded(script),
     ]
 }
 
-/// Opens a PowerShell window on `line`.
+/// Opens a PowerShell window on `fix`.
 #[cfg(windows)]
-pub async fn open(line: &str) -> Result<(), String> {
-    let plan = plan(line)?;
+pub async fn open(fix: &RootFix) -> Result<(), String> {
+    let plan = plan(fix);
     let arguments = arguments(&plan.script).join(" ");
     let opened = tokio::task::spawn_blocking(move || {
         if plan.admin {
@@ -261,10 +158,16 @@ mod tests {
 
     const ROOT: &str = "sudo /home/<user>/.local/bin/maxd host apply --system";
 
+    fn fix(host: Option<&str>, command: &str) -> RootFix {
+        RootFix {
+            host: host.map(str::to_owned),
+            command: command.to_owned(),
+        }
+    }
+
     #[test]
-    fn a_line_for_another_device_runs_ssh_without_admin_rights() {
-        let line = format!("ssh -t 'devbox' '{ROOT}'");
-        let plan = plan(&line).unwrap();
+    fn a_fix_for_another_device_runs_ssh_without_admin_rights() {
+        let plan = plan(&fix(Some("devbox"), ROOT));
         assert!(!plan.admin);
         let body = format!(
             "Start-Process -FilePath 'ssh' -ArgumentList '-t devbox \"{ROOT}\"' -NoNewWindow -Wait"
@@ -273,16 +176,24 @@ mod tests {
     }
 
     #[test]
-    fn a_line_for_this_pc_runs_as_it_is_as_an_administrator() {
-        let line = "maxd host apply --system";
+    fn ssh_gets_each_argument_whole() {
+        // A double quote reaches ssh escaped for the C runtime, and the
+        // single quote is doubled in the PowerShell literal around it all.
+        let plan = plan(&fix(Some("dev@pc"), r#"echo "it's" \"#));
+        let body = r#"Start-Process -FilePath 'ssh' -ArgumentList '-t dev@pc "echo \"it''s\" \\"' -NoNewWindow -Wait"#;
+        assert_eq!(plan.script, script(body));
+    }
+
+    #[test]
+    fn a_fix_for_this_pc_runs_as_it_is_as_an_administrator() {
+        let command = "maxd host apply --system";
         assert_eq!(
-            plan(line),
-            Ok(Plan {
-                script: script(line),
+            plan(&fix(None, command)),
+            Plan {
+                script: script(command),
                 admin: true,
-            })
+            }
         );
-        assert!(plan("ssh -t 'devbox' 'open").is_err());
     }
 
     #[test]
@@ -296,45 +207,7 @@ mod tests {
     }
 
     #[test]
-    fn a_quoted_string_keeps_every_kind_of_quote() {
-        assert_eq!(quote("it's"), "'it''s'");
-        assert_eq!(quote("it\u{2019}s"), "'it\u{2019}\u{2019}s'");
-        assert_eq!(quote("$HOME `n \"x\""), "'$HOME `n \"x\"'");
-        assert_eq!(quote(""), "''");
-    }
-
-    #[test]
-    fn the_words_come_back_as_a_posix_shell_reads_them() {
-        let words = |line: &str| posix_words(line).map(|words| words.join("|"));
-        // As the host check words a command with a quote in it.
-        assert_eq!(
-            words(r"ssh -t 'devbox' 'echo '\''hi'\'''").as_deref(),
-            Some("ssh|-t|devbox|echo 'hi'")
-        );
-        assert_eq!(
-            words(r#"a "b \"c\" \x $d" e\ f  ''"#).as_deref(),
-            Some(r#"a|b "c" \x $d|e f|"#)
-        );
-        assert_eq!(words("  "), Some(String::new()));
-        assert_eq!(words("'open"), None);
-        assert_eq!(words("\"open"), None);
-    }
-
-    #[test]
-    fn an_argument_reads_back_as_it_was_on_a_windows_command_line() {
-        assert_eq!(windows_arg("plain"), "plain");
-        assert_eq!(windows_arg(r"C:\path\"), r"C:\path\");
-        assert_eq!(windows_arg(""), r#""""#);
-        assert_eq!(windows_arg("two words"), r#""two words""#);
-        assert_eq!(windows_arg(r#"say "hi""#), r#""say \"hi\"""#);
-        assert_eq!(windows_arg(r#"a\"b"#), r#""a\\\"b""#);
-        assert_eq!(windows_arg(r"end \"), r#""end \\""#);
-        assert_eq!(windows_arg(r"in\between x"), r#""in\between x""#);
-    }
-
-    #[test]
-    fn powershell_gets_the_script_as_base64_of_its_utf16() {
-        // What [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes(...)) gives.
+    fn powershell_gets_the_script_encoded() {
         assert_eq!(
             arguments("Write-Host é"),
             [

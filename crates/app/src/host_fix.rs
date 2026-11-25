@@ -1,15 +1,15 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026 Max Boksem
 
-//! The line a Mac terminal runs for a host item's root fix. The command
-//! comes from the device's own host report, never from the window, so a
-//! page can't have a terminal run anything else. The report and the route
-//! come from the same link, so what a device reports only ever runs on that
-//! device, even if it claims another device's ID when it says hello. On this
-//! Mac it's the command alone. Another device's goes through `ssh -t` along
-//! the route the app reaches it by, so sudo can ask for the password there.
-//! A WSL distro's goes through `wsl.exe`, which hands it to the distro's
-//! shell, on the PC it's on.
+//! What a terminal runs for a host item's root fix. The command comes from
+//! the device's own host report, never from the window, so a page can't
+//! have a terminal run anything else. The report and the route come from
+//! the same link, so what a device reports only ever runs on that device,
+//! even if it claims another device's ID when it says hello. On this
+//! machine it's the command alone. Another device's goes through `ssh -t`
+//! along the route the app reaches it by, so sudo can ask for the password
+//! there. A WSL distro's goes through `wsl.exe`, which hands it to the
+//! distro's shell, on the PC it's on.
 
 use maxhq_core::shell::word;
 use maxhq_protocol::hosts::HostFix;
@@ -21,26 +21,43 @@ use crate::devices::{best_link, Connector};
 use crate::request::CommandError;
 use crate::App;
 
-/// The line that runs `command` from this Mac on a device reached by
-/// `route`.
-fn line_for(route: &Route, command: &str) -> String {
-    match route {
-        Route::Local => command.to_owned(),
-        Route::Ssh { host } => format!("ssh -t {} {}", word(host), word(command)),
-        Route::Wsl { distro, via } => {
-            let line = format!("wsl.exe -d {distro} -- {command}");
-            match via {
-                None => line,
-                Some(host) => format!("ssh -t {} {}", word(host), word(&line)),
+/// A root fix to run: its command, and the host `ssh -t` runs it on, or
+/// none for this machine. Each terminal starts it its own way: a POSIX one
+/// runs [`RootFix::line`], and PowerShell hands `ssh` its arguments.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RootFix {
+    /// The SSH host the command runs on, or `None` for this machine.
+    pub host: Option<String>,
+    /// The command, for the shell where it runs.
+    pub command: String,
+}
+
+impl RootFix {
+    /// `command` on the device reached by `route`.
+    fn new(route: &Route, command: &str) -> Self {
+        let (host, command) = match route {
+            Route::Local => (None, command.to_owned()),
+            Route::Ssh { host } => (Some(host.clone()), command.to_owned()),
+            Route::Wsl { distro, via } => {
+                (via.clone(), format!("wsl.exe -d {distro} -- {command}"))
             }
+        };
+        Self { host, command }
+    }
+
+    /// The line a POSIX shell runs: the command here, or `ssh -t` with
+    /// the host and the command.
+    pub fn line(&self) -> String {
+        match &self.host {
+            None => self.command.clone(),
+            Some(host) => format!("ssh -t {} {}", word(host), word(&self.command)),
         }
     }
 }
 
 impl<C: Connector> App<C> {
-    /// The terminal line for the root fix of `item` in `device`'s host
-    /// report.
-    pub fn root_fix_line(&self, device: DeviceId, item: &str) -> Result<String, CommandError> {
+    /// The root fix of `item` in `device`'s host report.
+    pub fn root_fix(&self, device: DeviceId, item: &str) -> Result<RootFix, CommandError> {
         self.view.read(|merge| {
             let reported = best_link(merge, device).and_then(|link| {
                 let held = merge.held_by(link.id, &EntityKey::HostReport(device))?;
@@ -53,7 +70,9 @@ impl<C: Connector> App<C> {
             };
             match report.items.iter().find(|found| found.id == item) {
                 Some(found) => match &found.fix {
-                    Some(HostFix::RootCommand { command }) => Ok(line_for(&link.route, command)),
+                    Some(HostFix::RootCommand { command }) => {
+                        Ok(RootFix::new(&link.route, command))
+                    }
                     _ => Err(CommandError::Failed {
                         message: "This item has no command to run as root".to_owned(),
                     }),
@@ -102,6 +121,11 @@ mod tests {
         })
     }
 
+    /// The line for `command` on the device `route` reaches.
+    fn line_for(route: &Route, command: &str) -> String {
+        RootFix::new(route, command).line()
+    }
+
     #[test]
     fn a_root_fix_runs_alone_here_and_over_ssh_elsewhere() {
         assert_eq!(line_for(&Route::Local, ROOT), ROOT);
@@ -126,6 +150,13 @@ mod tests {
             line_for(&wsl(Some("dev@pc")), ROOT),
             format!("ssh -t dev@pc 'wsl.exe -d Ubuntu -- {ROOT}'")
         );
+        assert_eq!(
+            RootFix::new(&wsl(Some("dev@pc")), ROOT),
+            RootFix {
+                host: Some("dev@pc".into()),
+                command: format!("wsl.exe -d Ubuntu -- {ROOT}"),
+            }
+        );
     }
 
     #[test]
@@ -135,28 +166,26 @@ mod tests {
         h.report(nl.id, LinkEvent::Synced(vec![report("nl")]));
         let app = App::new(h.view.clone(), h.devices, FakeShell::default());
 
+        let line = |device: &str| {
+            app.root_fix(DeviceId::derive(device), "caps.parent")
+                .map(|fix| fix.line())
+        };
+        assert_eq!(line("mac"), Ok(ROOT.to_owned()));
+        assert_eq!(line("nl"), Ok(format!("ssh -t devbox '{ROOT}'")));
         assert_eq!(
-            app.root_fix_line(DeviceId::derive("mac"), "caps.parent"),
-            Ok(ROOT.to_owned())
-        );
-        assert_eq!(
-            app.root_fix_line(DeviceId::derive("nl"), "caps.parent"),
-            Ok(format!("ssh -t devbox '{ROOT}'"))
-        );
-        assert_eq!(
-            app.root_fix_line(DeviceId::derive("nl"), "tools.user.gh"),
+            app.root_fix(DeviceId::derive("nl"), "tools.user.gh"),
             Err(CommandError::Failed {
                 message: "This item has no command to run as root".into()
             })
         );
         assert_eq!(
-            app.root_fix_line(DeviceId::derive("nl"), "rm -rf"),
+            app.root_fix(DeviceId::derive("nl"), "rm -rf"),
             Err(CommandError::NotFound {
                 what: "This item".into()
             })
         );
         assert_eq!(
-            app.root_fix_line(DeviceId::derive("gone"), "caps.parent"),
+            app.root_fix(DeviceId::derive("gone"), "caps.parent"),
             Err(CommandError::NotFound {
                 what: "This device's host check".into()
             })
@@ -179,7 +208,8 @@ mod tests {
     /// The line for the Mac's root fix, once the reports are in.
     fn mac_line(h: crate::devices::tests::Harness) -> Result<String, CommandError> {
         let app = App::new(h.view.clone(), h.devices, FakeShell::default());
-        app.root_fix_line(DeviceId::derive("mac"), "caps.parent")
+        app.root_fix(DeviceId::derive("mac"), "caps.parent")
+            .map(|fix| fix.line())
     }
 
     fn no_report() -> Result<String, CommandError> {

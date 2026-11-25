@@ -22,6 +22,7 @@
 
 use std::path::{Path, PathBuf};
 
+use maxhq_os::which;
 use maxhq_protocol::ids::WorkspaceId;
 use maxhq_protocol::link::Route;
 use maxhq_protocol::model::{Workspace, WorkspaceLocation};
@@ -406,19 +407,18 @@ fn find(places: &Places) -> Vec<Found> {
                         let bin = bundle.join(bin);
                         commands.iter().map(move |command| bin.join(command))
                     })
-                    .find(|cli| runs(cli))
+                    .find(|cli| which::runnable(cli))
             });
-            let cli = in_app
-                .or_else(|| appimage(editor, &places.appimages))
-                .or_else(|| {
-                    layout.commands(editor).iter().find_map(|command| {
-                        places
-                            .path
-                            .iter()
-                            .map(|dir| dir.join(command))
-                            .find(|cli| runs(cli) && !in_other_app(editor, cli, places))
-                    })
-                });
+            let cli =
+                in_app
+                    .or_else(|| appimage(editor, &places.appimages))
+                    .or_else(|| {
+                        layout.commands(editor).iter().find_map(|command| {
+                            places.path.iter().map(|dir| dir.join(command)).find(|cli| {
+                                which::runnable(cli) && !in_other_app(editor, cli, places)
+                            })
+                        })
+                    });
             let installed = cli.is_some() || bundles.iter().any(|bundle| bundle.is_dir());
             installed.then_some(Found { editor, cli })
         })
@@ -439,7 +439,7 @@ fn appimage(editor: &EditorDef, dirs: &[PathBuf]) -> Option<PathBuf> {
         .flatten()
         .filter_map(|entry| {
             let path = entry.ok()?.path();
-            (is_appimage_of(prefix, &path) && runs(&path)).then_some(path)
+            (is_appimage_of(prefix, &path) && which::runnable(&path)).then_some(path)
         })
         .max_by_key(|path| path.metadata().and_then(|meta| meta.modified()).ok())
 }
@@ -478,22 +478,6 @@ fn in_other_app(editor: &EditorDef, cli: &Path, places: &Places) -> bool {
                         .is_some_and(|prefix| is_appimage_of(prefix, &target))
             }
         })
-}
-
-/// Whether `path` is a program this machine can run.
-fn runs(path: &Path) -> bool {
-    let Ok(metadata) = path.metadata() else {
-        return false;
-    };
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        metadata.is_file() && metadata.permissions().mode() & 0o111 != 0
-    }
-    #[cfg(not(unix))]
-    {
-        metadata.is_file()
-    }
 }
 
 /// Whether the shell may open `url`: what a page's link may open, or a link
