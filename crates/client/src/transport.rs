@@ -22,6 +22,8 @@ use crate::ssh_config::SshConfig;
 
 #[cfg(any(windows, feature = "russh"))]
 mod channel;
+#[cfg_attr(not(feature = "system-ssh"), allow(dead_code))]
+mod local;
 #[cfg(feature = "russh")]
 pub(crate) mod phone;
 #[cfg(any(windows, feature = "russh", feature = "ws"))]

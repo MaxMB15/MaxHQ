@@ -3,7 +3,7 @@
 
 use std::fs;
 use std::io;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 /// Points `link` at `target` through a symlink and a rename.
 pub fn point(link: &Path, target: &Path) -> io::Result<()> {
@@ -11,4 +11,8 @@ pub fn point(link: &Path, target: &Path) -> io::Result<()> {
     let _ = fs::remove_file(&temp);
     std::os::unix::fs::symlink(target, &temp)?;
     fs::rename(&temp, link)
+}
+
+pub fn resolve(link: &Path) -> io::Result<PathBuf> {
+    fs::read_link(link)
 }

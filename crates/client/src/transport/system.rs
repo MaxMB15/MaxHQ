@@ -10,15 +10,15 @@
 use std::collections::HashSet;
 use std::io;
 use std::net::IpAddr;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::{Mutex, PoisonError};
 use std::time::Duration;
 
 use futures::future::BoxFuture;
-use maxhq_os::ipc::LocalStream;
 use maxhq_protocol::ids::DeviceId;
 use maxhq_protocol::link::Route;
 
+use super::local::dial_local;
 use super::{shorten, Conn, DialError, Transport, PROXY_COMMAND, WINDOWS_PROXY_COMMAND};
 use crate::pinned::Pins;
 use crate::setup::Output;
@@ -208,24 +208,6 @@ impl Shells {
     }
 }
 
-/// Connects to a `maxd` socket on this machine, which on Windows is the
-/// named pipe the socket's path names.
-pub(crate) async fn dial_local(socket: &Path) -> Result<Conn, DialError> {
-    match LocalStream::connect(socket).await {
-        Ok(stream) => {
-            let (reader, writer) = stream.into_split();
-            Ok(Conn::new(Box::new(reader), Box::new(writer)))
-        }
-        Err(err) => Err(DialError::refused(match err.kind() {
-            io::ErrorKind::NotFound | io::ErrorKind::ConnectionRefused => {
-                "maxd isn't running".to_owned()
-            }
-            io::ErrorKind::PermissionDenied => "maxd's socket belongs to someone else".to_owned(),
-            _ => format!("can't open maxd's socket: {err}"),
-        })),
-    }
-}
-
 /// Reads ssh's stderr for why a login failed.
 pub(crate) fn ssh_reason(text: &str) -> DialError {
     let lower = text.to_ascii_lowercase();
@@ -319,12 +301,5 @@ mod tests {
         shells.note("dev@pc");
         assert_eq!(shells.command("dev@pc"), WINDOWS_PROXY_COMMAND);
         assert_eq!(shells.command("dev@devbox"), PROXY_COMMAND);
-    }
-
-    #[tokio::test]
-    async fn local_sockets_that_arent_there_mean_maxd_isnt_running() {
-        let path = std::env::temp_dir().join(format!("maxhq-missing-{}.sock", std::process::id()));
-        let err = dial_local(&path).await.err().unwrap();
-        assert_eq!(err, DialError::refused("maxd isn't running"));
     }
 }

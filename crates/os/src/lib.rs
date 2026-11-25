@@ -14,6 +14,8 @@ pub mod ipc;
 pub mod link;
 pub mod proc;
 pub mod which;
+#[cfg(windows)]
+mod win;
 
 /// The error a call returns on a system that can't make it yet.
 #[cfg_attr(unix, allow(dead_code))]
@@ -37,7 +39,7 @@ pub(crate) fn forks() -> std::sync::MutexGuard<'static, ()> {
 
 /// Runs `test` on a runtime of its own, for a test that holds [`forks`]
 /// across its awaits.
-#[cfg(all(test, unix))]
+#[cfg(test)]
 pub(crate) fn block_on<F: std::future::Future>(test: F) -> F::Output {
     tokio::runtime::Builder::new_current_thread()
         .enable_all()
