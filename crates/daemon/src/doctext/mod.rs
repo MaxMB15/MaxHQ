@@ -128,8 +128,6 @@ impl Extractor {
 
     /// The same, giving the child `timeout` in place of [`TIMEOUT`].
     #[cfg(test)]
-    // Its one test waits for T1's fake program helper on Windows.
-    #[cfg_attr(windows, allow(dead_code))]
     pub fn timeout(self, timeout: Duration) -> Self {
         Self { timeout, ..self }
     }
@@ -308,20 +306,24 @@ pub fn run(args: &[OsString]) -> ExitCode {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::testing::TempDir;
+    use crate::testing::{fake_program, tool, TempDir};
 
-    fn sh(script: &str) -> Extractor {
-        Extractor::with("/bin/sh", &["-c", script, "sh"])
+    /// An extractor that runs the sh script `body` on the document.
+    fn sh(dir: &TempDir, body: &str) -> Extractor {
+        let bin = dir.path().join("bin");
+        Extractor::with(
+            fake_program(&bin, "extract", &format!("#!/bin/sh\n{body}\n")),
+            &[],
+        )
     }
 
-    // Needs T1's fake program helper: the child here is an sh script.
-    #[cfg(unix)]
     #[test]
     fn saves_what_the_child_prints_beside_the_document() {
         let dir = TempDir::new();
         let doc = dir.path().join("notes.docx");
         fs::write(&doc, "words").unwrap();
-        let saved = sh("printf 'text of %s' \"$(basename \"$1\")\"").save(&doc);
+        // The name comes after the last `/`, or `\` on Windows.
+        let saved = sh(&dir, r#"printf 'text of %s' "${1##*[\\/]}""#).save(&doc);
         assert_eq!(
             saved.as_deref(),
             Some(dir.path().join("notes.docx.txt").as_path())
@@ -339,51 +341,47 @@ mod tests {
         let doc = dir.path().join("a.ODT");
         fs::write(&doc, "words").unwrap();
         fs::write(dir.path().join("a.ODT.txt"), "kept").unwrap();
-        assert!(sh("exit 1").save(&doc).is_some());
+        assert!(sh(&dir, "exit 1").save(&doc).is_some());
         assert_eq!(
             fs::read_to_string(dir.path().join("a.ODT.txt")).unwrap(),
             "kept"
         );
     }
 
-    // Needs T1's fake program helper: the child here is an sh script.
-    #[cfg(unix)]
     #[test]
     fn saves_nothing_when_the_child_fails_or_the_file_is_another_kind() {
         let dir = TempDir::new();
         let doc = dir.path().join("a.xlsx");
         fs::write(&doc, "words").unwrap();
         for script in ["echo half; exit 2", "echo half; exit 1"] {
-            assert_eq!(sh(script).save(&doc), None, "{script}");
+            assert_eq!(sh(&dir, script).save(&doc), None, "{script}");
             assert!(!text_path(&doc).exists(), "{script}");
         }
         let other = dir.path().join("a.md");
         fs::write(&other, "words").unwrap();
-        assert_eq!(sh("echo text").save(&other), None);
+        assert_eq!(sh(&dir, "echo text").save(&other), None);
         assert_eq!(Extractor::default().save(&doc), None);
     }
 
-    // Needs T1's fake program helper: the child here is an sh script.
-    #[cfg(unix)]
     #[test]
     fn ends_a_child_that_prints_too_much() {
         let dir = TempDir::new();
         let doc = dir.path().join("a.rtf");
         fs::write(&doc, "words").unwrap();
         let started = Instant::now();
-        assert_eq!(sh("yes").save(&doc), None);
+        // One process, so ending it closes its pipes on Windows too.
+        assert_eq!(Extractor::with(tool("yes"), &[]).save(&doc), None);
         assert!(started.elapsed() < TIMEOUT);
         assert!(!text_path(&doc).exists());
     }
 
-    // Needs T1's fake program helper: the child here is an sh script.
-    #[cfg(unix)]
     #[test]
     fn ends_a_child_that_takes_too_long() {
         let dir = TempDir::new();
         let doc = dir.path().join("a.epub");
         fs::write(&doc, "words").unwrap();
-        let slow = sh("echo early; exec sleep 30").timeout(Duration::from_millis(200));
+        // It prints the document, then waits for more forever.
+        let slow = Extractor::with(tool("tail"), &["-f"]).timeout(Duration::from_millis(200));
         let started = Instant::now();
         assert_eq!(slow.save(&doc), None);
         assert!(started.elapsed() < Duration::from_secs(10));
@@ -396,7 +394,7 @@ mod tests {
         let doc = dir.path().join("big.pptx");
         let file = fs::File::create(&doc).unwrap();
         file.set_len(INPUT_CAP + 1).unwrap();
-        assert_eq!(sh("echo text").save(&doc), None);
+        assert_eq!(sh(&dir, "echo text").save(&doc), None);
     }
 
     #[test]

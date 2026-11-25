@@ -78,6 +78,14 @@ pub fn same_file(a: &Metadata, b: &Metadata) -> bool {
     imp::same_file(a, b)
 }
 
+/// Which file the open `file` is, as a pair that's another one for every
+/// other file, so a file replaced under the same name tells apart: the
+/// device and inode on Unix, and the volume serial number and file index
+/// on Windows.
+pub fn file_id(file: &File) -> io::Result<(u64, u64)> {
+    imp::file_id(file)
+}
+
 /// Whether the file `path`, whose metadata is `meta`, is a program you
 /// may run: a file with an execute bit on Unix, and a file whose
 /// extension `PATHEXT` names on Windows.
@@ -171,6 +179,24 @@ mod tests {
         let (one, two) = (fs::metadata(&file).unwrap(), fs::metadata(&file).unwrap());
         assert_eq!(same_file(&one, &two), cfg!(unix));
         assert!(!same_file(&one, &meta));
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn a_file_keeps_its_id_and_a_replacement_has_another() {
+        let dir = temp("id");
+        fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("file");
+        fs::write(&path, b"one").unwrap();
+        let id = file_id(&File::open(&path).unwrap()).unwrap();
+        fs::write(&path, b"rewritten in place").unwrap();
+        assert_eq!(file_id(&File::open(&path).unwrap()).unwrap(), id);
+        let other = dir.join("other");
+        fs::write(&other, b"two").unwrap();
+        let other_id = file_id(&File::open(&other).unwrap()).unwrap();
+        assert_ne!(other_id, id);
+        fs::rename(&other, &path).unwrap();
+        assert_eq!(file_id(&File::open(&path).unwrap()).unwrap(), other_id);
         fs::remove_dir_all(&dir).unwrap();
     }
 

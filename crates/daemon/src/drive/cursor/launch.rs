@@ -192,6 +192,7 @@ fn find(path: Option<&OsStr>, home: Option<&Path>) -> Option<PathBuf> {
 mod tests {
     use super::*;
     use crate::drive::PlaceHost;
+    use crate::testing::{absolute, path_of};
     use maxhq_protocol::ids::{AccountId, DeviceId, WorkspaceId};
     use maxhq_protocol::Secret;
 
@@ -233,8 +234,8 @@ mod tests {
 
     fn host() -> Host {
         Host {
-            program: PathBuf::from("/home/me/.local/bin/cursor-agent"),
-            path: Some("/usr/bin:/bin".into()),
+            program: absolute("/home/me/.local/bin/cursor-agent").into(),
+            path: Some(path_of(&["/usr/bin", "/bin"]).into()),
             home: Some(PathBuf::from("/home/me")),
         }
     }
@@ -263,9 +264,10 @@ mod tests {
         );
         assert_eq!(launch.cwd, PathBuf::from("/work/repo"));
         assert_eq!(launch.framing, Framing::JsonRpc);
-        assert!(launch
-            .env
-            .contains(&("PATH".into(), "/home/me/.local/bin:/usr/bin:/bin".into())));
+        assert!(launch.env.contains(&(
+            "PATH".into(),
+            path_of(&[&absolute("/home/me/.local/bin"), "/usr/bin", "/bin"]).into()
+        )));
     }
 
     #[test]
@@ -342,7 +344,10 @@ mod tests {
         for (name, value) in [
             ("NO_OPEN_BROWSER", "1"),
             ("NO_COLOR", "1"),
-            ("PATH", "/home/me/.local/bin:/usr/bin:/bin"),
+            (
+                "PATH",
+                &*path_of(&[&absolute("/home/me/.local/bin"), "/usr/bin", "/bin"]),
+            ),
         ] {
             assert!(
                 launch.env.contains(&(name.into(), value.into())),

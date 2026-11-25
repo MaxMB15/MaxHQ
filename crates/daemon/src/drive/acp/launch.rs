@@ -119,6 +119,7 @@ pub(crate) fn path_first(program: &Path, path: Option<&OsStr>) -> Option<(OsStri
 mod tests {
     use super::*;
     use crate::drive::PlaceHost;
+    use crate::testing::{absolute, path_of};
     use maxhq_protocol::acp::{AcpAgent, AcpEnvValue};
     use maxhq_protocol::ids::{AcpAgentId, DeviceId, WorkspaceId};
     use maxhq_protocol::Secret;
@@ -161,8 +162,8 @@ mod tests {
 
     fn host() -> Host {
         Host {
-            program: PathBuf::from("/home/me/.local/bin/gemini"),
-            path: Some("/usr/bin:/bin".into()),
+            program: absolute("/home/me/.local/bin/gemini").into(),
+            path: Some(path_of(&["/usr/bin", "/bin"]).into()),
             inherited: vec![
                 "HOME".into(),
                 "ANTHROPIC_API_KEY".into(),
@@ -178,7 +179,7 @@ mod tests {
     #[test]
     fn the_arguments_go_as_given_with_the_programs_folder_on_path() {
         let launch = command_line(&host(), &command(&[], &[]), &place());
-        assert_eq!(launch.program, PathBuf::from("/home/me/.local/bin/gemini"));
+        assert_eq!(launch.program, host().program);
         assert_eq!(
             strings(&launch.args),
             ["--experimental-acp", "a b; rm -rf /"]
@@ -187,7 +188,10 @@ mod tests {
         assert_eq!(launch.framing, Framing::JsonRpc);
         assert_eq!(
             launch.env,
-            [("PATH".into(), "/home/me/.local/bin:/usr/bin:/bin".into())]
+            [(
+                "PATH".into(),
+                path_of(&[&absolute("/home/me/.local/bin"), "/usr/bin", "/bin"]).into()
+            )]
         );
     }
 

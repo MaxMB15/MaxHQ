@@ -51,7 +51,7 @@ pub struct Tail {
     offset: u64,
     /// The start of a line whose end isn't written yet.
     partial: Vec<u8>,
-    /// The file's device and inode, to notice it being replaced.
+    /// Which file it is, to notice it being replaced.
     identity: Option<(u64, u64)>,
 }
 
@@ -70,9 +70,8 @@ impl Tail {
     /// `each`. A line that isn't UTF-8 is skipped.
     pub fn read(&mut self, path: &Path, mut each: impl FnMut(Tailed<'_>)) -> io::Result<()> {
         let mut file = File::open(path)?;
-        let metadata = file.metadata()?;
-        let identity = identity(&metadata);
-        let len = metadata.len();
+        let len = file.metadata()?.len();
+        let identity = maxhq_os::fsmode::file_id(&file).ok();
         if identity != self.identity || len < self.offset {
             if self.offset > 0 || !self.partial.is_empty() {
                 each(Tailed::Restart);
@@ -108,19 +107,6 @@ impl Tail {
         self.partial = line;
         Ok(())
     }
-}
-
-/// The device and inode, which change when a file is replaced.
-#[cfg(unix)]
-fn identity(metadata: &std::fs::Metadata) -> Option<(u64, u64)> {
-    use std::os::unix::fs::MetadataExt;
-    Some((metadata.dev(), metadata.ino()))
-}
-
-/// No identity off Unix, so only a shorter file counts as replaced.
-#[cfg(not(unix))]
-fn identity(_metadata: &std::fs::Metadata) -> Option<(u64, u64)> {
-    None
 }
 
 /// Who started a session.

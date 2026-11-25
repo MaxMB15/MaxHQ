@@ -472,12 +472,26 @@ pub(crate) mod tests {
     use uuid::Uuid;
 
     use super::*;
+    use crate::testing::absolute;
 
     /// A file or folder under `tests/fixtures/claude`.
     pub(crate) fn fixture(path: &str) -> PathBuf {
         Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("tests/fixtures/claude")
             .join(path)
+    }
+
+    /// A fixture file's bytes. A JSON file's `/work/...` folders are made
+    /// absolute on this system too, as [`absolute`] makes them, since
+    /// Claude Code writes them so and the observer skips relative ones.
+    pub(crate) fn read_fixture(path: &Path) -> Vec<u8> {
+        let bytes = fs::read(path).unwrap();
+        if path.extension() != Some("json".as_ref()) {
+            return bytes;
+        }
+        let text = String::from_utf8(bytes).unwrap();
+        let work = format!("\"{}", absolute("/work/"));
+        text.replace("\"/work/", &work).into_bytes()
     }
 
     /// An empty folder that's removed when the test ends.
@@ -504,7 +518,8 @@ pub(crate) mod tests {
         Scratch(dir)
     }
 
-    /// Copies a folder tree, giving every file the modification time `at`.
+    /// Copies a folder tree as [`read_fixture`] reads its files, giving
+    /// every file the modification time `at`.
     pub(crate) fn copy_tree(from: &Path, to: &Path, at: SystemTime) {
         fs::create_dir_all(to).unwrap();
         for entry in fs::read_dir(from).unwrap().flatten() {
@@ -512,7 +527,7 @@ pub(crate) mod tests {
             if entry.file_type().unwrap().is_dir() {
                 copy_tree(&entry.path(), &target, at);
             } else {
-                fs::copy(entry.path(), &target).unwrap();
+                fs::write(&target, read_fixture(&entry.path())).unwrap();
                 File::options()
                     .write(true)
                     .open(&target)
@@ -641,7 +656,10 @@ pub(crate) mod tests {
             busy.account,
             Some(ConfigDir::custom(dir.join("claude")).account(device()))
         );
-        assert_eq!(busy.workspace, Fake::all().locate(Path::new("/work/maxhq")));
+        assert_eq!(
+            busy.workspace,
+            Fake::all().locate(Path::new(&absolute("/work/maxhq")))
+        );
         assert_eq!(
             busy.context,
             Some(ContextUsage {
@@ -739,7 +757,7 @@ pub(crate) mod tests {
         assert_eq!(nested.title, "Explore");
         assert_eq!(
             nested.workspace,
-            Fake::all().locate(Path::new("/work/maxhq-wt"))
+            Fake::all().locate(Path::new(&absolute("/work/maxhq-wt")))
         );
     }
 
@@ -951,7 +969,7 @@ pub(crate) mod tests {
         fs::create_dir_all(&moved).unwrap();
         fs::write(moved.join(format!("{LEAD}.jsonl")), "").unwrap();
         let session =
-            Session::parse(&fs::read(fixture("config/sessions/41001.json")).unwrap()).unwrap();
+            Session::parse(&read_fixture(&fixture("config/sessions/41001.json"))).unwrap();
         assert_eq!(
             find_transcript(&projects, &session),
             Some(moved.join(format!("{LEAD}.jsonl")))

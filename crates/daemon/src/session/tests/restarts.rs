@@ -360,11 +360,8 @@ async fn an_agent_starts_in_its_own_worktree_in_a_container() {
     let first: serde_json::Value =
         serde_json::from_str(&writes[0].0).expect("the first write is JSON");
     assert_eq!(first["send"], "Fix the build");
-    let path = Path::new(ATTACHMENTS_DIR)
-        .join(&id)
-        .join(attachment.id.to_string())
-        .join("shot.png");
-    assert_eq!(first["attachments"][0], path.display().to_string());
+    let path = format!("{ATTACHMENTS_DIR}/{id}/{}/shot.png", attachment.id);
+    assert_eq!(first["attachments"][0], path);
 
     // A-10: the records keep what a restart needs, and the workspace keeps
     // a summary.

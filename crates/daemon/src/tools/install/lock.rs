@@ -159,7 +159,7 @@ mod tests {
         held().remove(&mine);
         assert!(stale("not a pid"));
         assert!(stale("0"));
-        // PID 1 always runs.
-        assert!(!stale("1"));
+        // PID 1 always runs, and on Windows the System process, PID 4.
+        assert!(!stale(if cfg!(windows) { "4" } else { "1" }));
     }
 }

@@ -140,7 +140,7 @@ jobs:
     runs-on: windows-latest
     timeout-minutes: 45
     env:
-      CRATES: -p maxhq-os -p maxhq-core -p maxhq-transfer -p maxhq-wire -p maxhq-protocol -p maxhq-term -p maxhq-workflow -p maxhq-fake-agent -p maxhq-vm -p maxhq-hold -p maxhq-client -p maxhq-app -p maxhq-desktop
+      CRATES: -p maxhq-os -p maxhq-core -p maxhq-transfer -p maxhq-wire -p maxhq-protocol -p maxhq-term -p maxhq-workflow -p maxhq-fake-agent -p maxhq-vm -p maxhq-hold -p maxhq-client -p maxhq-app -p maxhq-desktop -p maxd
     defaults:
       run:
         # The same commands as on Linux, through the runner's Git Bash.
@@ -171,26 +171,8 @@ jobs:
       - name: Clippy
         run: cargo clippy $CRATES --all-targets --locked -- -D warnings
 
-      # maxd builds here, but many of its tests still give Unix paths as
-      # absolute ones or start sh scripts as fakes, so only its lint runs
-      # until they pass and it joins CRATES.
-      - name: Clippy (maxd)
-        run: cargo clippy -p maxd --all-targets --locked -- -D warnings
-
       - name: Test
         run: cargo test $CRATES --locked --no-fail-fast
-
-      # Temporary, until all of maxd's tests pass here and it joins CRATES:
-      # the modules whose tests pass on Windows so far. A filter matches
-      # anywhere in a test's name, so the session and local model tests
-      # it would also catch are skipped.
-      - name: Test (maxd, the modules that pass)
-        run: >-
-          cargo test -p maxd --locked --no-fail-fast --
-          transfer:: folders:: service:: moves:: folder_trust:: server::
-          admission:: skills:: phones:: leases:: clone:: workspace::
-          secrets:: power:: identity:: doctext:: diagnostics:: posix_path::
-          --skip session:: --skip local_models::
 
   # Packs the Linux app the way a release does, as an unsigned debug build,
   # so a change that breaks the AppImage, the .deb or the .rpm fails here

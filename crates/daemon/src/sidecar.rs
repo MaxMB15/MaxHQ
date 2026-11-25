@@ -182,7 +182,7 @@ fn names_of(name: &OsStr) -> [OsString; 3] {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::testing::TempDir;
+    use crate::testing::{fake_program, TempDir};
 
     fn picture(path: &Path) {
         image::RgbImage::from_pixel(40, 30, image::Rgb([200, 10, 10]))
@@ -209,8 +209,9 @@ mod tests {
         let dir = TempDir::new();
         let path = dir.path().join("a.docx");
         fs::write(&path, "words").unwrap();
-        let extractor = Extractor::with("/bin/sh", &["-c", "printf read", "sh"]);
-        let made = make(&path, None, &extractor);
+        let bin = TempDir::new();
+        let extract = fake_program(bin.path(), "extract", "#!/bin/sh\nprintf read\n");
+        let made = make(&path, None, &Extractor::with(extract, &[]));
         assert_eq!(made.thumbnail, None);
         let text = dir.path().join("a.docx.txt");
         assert_eq!(made.text.as_deref(), Some(text.as_path()));
