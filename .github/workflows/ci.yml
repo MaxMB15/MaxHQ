@@ -204,14 +204,16 @@ jobs:
           for name in libwebkit2gtk-4.1-0 openssh-client; do
             grep -qw -- "$name" <<<"$depends" || fail "The .deb doesn't depend on $name."
           done
-          files="$(dpkg-deb --contents "${deb[0]}")"
+          # The deb names its files from the root without a leading ./ or /,
+          # so the names are matched with those taken off.
+          files="$(dpkg-deb --fsys-tarfile "${deb[0]}" | tar -t | sed -E 's#^\.?/##')"
           echo "deb programs:"
-          grep '/usr/bin/' <<<"$files" || true
-          ls -l apps/desktop/src-tauri/binaries
-          grep -q '/usr/bin/maxd$' <<<"$files" || fail "The .deb has no maxd."
-          grep -q '/usr/share/applications/MaxHQ.desktop$' <<<"$files" ||
+          grep '^usr/bin/' <<<"$files" || true
+          grep -qx 'usr/bin/maxd' <<<"$files" || fail "The .deb has no maxd."
+          grep -qx 'usr/share/applications/MaxHQ.desktop' <<<"$files" ||
             fail "The .deb has no MaxHQ.desktop."
-          entry="$(dpkg-deb --fsys-tarfile "${deb[0]}" | tar -xO ./usr/share/applications/MaxHQ.desktop)"
+          entry="$(dpkg-deb --fsys-tarfile "${deb[0]}" |
+            tar -xO --wildcards '*usr/share/applications/MaxHQ.desktop')"
           echo "$entry"
           grep -q '^StartupWMClass=' <<<"$entry" || fail "MaxHQ.desktop names no window class."
           requires="$(rpm -qpR "${rpm[0]}")"
@@ -221,6 +223,10 @@ jobs:
           done
           files="$(rpm -qpl "${rpm[0]}")"
           grep -qx '/usr/bin/maxd' <<<"$files" || fail "The .rpm has no maxd."
+          # The app copies maxd out of the AppImage from beside its own
+          # program, so the AppImage must carry it there.
+          [ -x target/debug/bundle/appimage/MaxHQ.AppDir/usr/bin/maxd ] ||
+            fail "The AppImage has no maxd beside the app."
 
       - name: Disk left
         if: always()
