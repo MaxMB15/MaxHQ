@@ -9,8 +9,6 @@ import {
 	CODE_LIMIT,
 	editLine,
 	extensionOf,
-	fileName,
-	folderOf,
 	localFileLink,
 	readLine,
 	VIEWER_EXTENSIONS,
@@ -55,18 +53,9 @@ describe("viewer files", () => {
 		expect(viewerKind(path)).toBeNull();
 	});
 
-	it("reads a name and an extension from a path", () => {
-		expect(fileName("a/b/c.tar.gz")).toBe("c.tar.gz");
+	it("reads an extension from a path", () => {
 		expect(extensionOf("a/b/c.tar.gz")).toBe("gz");
 		expect(extensionOf("a/.env")).toBe("");
-	});
-
-	it("reads the folder a path's file is in", () => {
-		expect(folderOf("/work/docs/plan.md")).toBe("/work/docs");
-		expect(folderOf("docs/plan.md")).toBe("docs");
-		expect(folderOf("C:\\work\\plan.md")).toBe("C:\\work");
-		expect(folderOf("/plan.md")).toBe("/");
-		expect(folderOf("plan.md")).toBe("");
 	});
 
 	// The bytes come through the media cache, which only keeps what its

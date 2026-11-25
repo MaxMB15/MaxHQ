@@ -11,7 +11,7 @@ import { formatDuration, plural } from "../status/format";
 import { localAgentLabel } from "../local-models/wording";
 import { kindName, type AgentKind } from "../status/agent-kind";
 import { artifactLine } from "./artifact-line";
-import { baseName as lastName, parentOf } from "../folders/path";
+import { nameOf } from "../folders/path";
 
 /** Whether an item's status means it's still going. */
 export const isOpen = (status: ItemStatus): boolean =>
@@ -53,9 +53,6 @@ export const tookOf = (item: Pick<TimelineItem, "started_at" | "completed_at">):
 export const sentFilesLine = (count: number): string =>
 	count === 1 ? t("Sent you a file") : t("Sent you {{count}} files", { count: count });
 
-/** The last part of a path, such as "header.tsx". */
-export const baseName = (path: string): string => lastName(path) || path;
-
 /**
  * What a file the agent opened for you reads as, such as "Opened plan.md at
  * line 12". It names the file alone, so it suits a phone too.
@@ -65,7 +62,7 @@ export const openedLine = (item: {
 	readonly line?: number | null;
 }): string =>
 	t("Opened {{baseName_item_path}}{{item_line____null_____at_line___item_line}}", {
-		baseName_item_path: baseName(item.path),
+		baseName_item_path: nameOf(item.path),
 		item_line____null_____at_line___item_line:
 			item.line != null ? t(" at line {{value1}}", { value1: item.line }) : "",
 	});
@@ -73,9 +70,6 @@ export const openedLine = (item: {
 /** What a visual the agent showed reads as, such as "Showed Weekly usage". */
 export const visualLine = (item: { readonly title: string }): string =>
 	t("Showed {{title}}", { title: item.title.trim() || t("a visual") });
-
-/** The folder a path is in, or "/" for a file at the root. */
-export const folderOf = (path: string): string => parentOf(path) ?? "/";
 
 /** A line range in words, such as "31 lines" for "10-40" or "Line 12". */
 export const lineSpan = (lines: string | null): string | null => {

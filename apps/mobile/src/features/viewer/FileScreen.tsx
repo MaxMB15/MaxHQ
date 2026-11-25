@@ -30,12 +30,8 @@ import {
 	useDownload,
 } from "@maxhq/shared/agent-view/downloads";
 import { FULL_LIMIT, loadMedia, mediaLost, useMedia } from "@maxhq/shared/agent-view/media";
-import {
-	fileName,
-	folderOf,
-	showAnywayBlocked,
-	viewerLimit,
-} from "@maxhq/shared/agent-view/viewer-files";
+import { showAnywayBlocked, viewerLimit } from "@maxhq/shared/agent-view/viewer-files";
+import { nameOf, parentOf } from "@maxhq/shared/folders/path";
 import type { AgentId } from "@maxhq/shared/bindings";
 import { copyLabel, useCopyWith } from "@maxhq/shared/lib/copy";
 
@@ -66,7 +62,7 @@ const saveLabel = (): string => (platform.savesByShare ? t("Share") : t("Save"))
  * copies, and none of it stays behind.
  */
 const saveFile = async (url: string, path: string, owned = false): Promise<void> => {
-	const name = fileName(path);
+	const name = nameOf(path);
 	try {
 		if (await saveAs(name, mimeOf(path), { file: new File(url), owned })) {
 			Alert.alert(t("Saved"), name);
@@ -110,7 +106,7 @@ const useSave = (
 		// Forgotten either way, since the file moves on and a failure says why now.
 		cancelDownload(source, agent, path);
 		if (landed.state === "failed") {
-			Alert.alert(t("Couldn't save {{what}}", { what: fileName(path) }), landed.reason);
+			Alert.alert(t("Couldn't save {{what}}", { what: nameOf(path) }), landed.reason);
 			return;
 		}
 		await saveFile(urlOf(landed.path), path, true);
@@ -213,7 +209,7 @@ const TextFile = ({
 		return (
 			<Note
 				text={t("Couldn't read {{name}}. {{reason}}", {
-					name: fileName(path),
+					name: nameOf(path),
 					reason: read.failure,
 				})}
 			>
@@ -244,7 +240,7 @@ const MarkdownFile = ({
 		return (
 			<Note
 				text={t("Couldn't read {{name}}. {{reason}}", {
-					name: fileName(path),
+					name: nameOf(path),
 					reason: read.failure,
 				})}
 			>
@@ -257,7 +253,7 @@ const MarkdownFile = ({
 			style={styles.fill}
 			contentContainerStyle={[styles.page, { paddingBottom: insets.bottom + 24 }]}
 		>
-			<MarkdownText text={read.text} agent={agent} folder={folderOf(path)} />
+			<MarkdownText text={read.text} agent={agent} folder={parentOf(path) ?? ""} />
 		</ScrollView>
 	);
 };
@@ -267,7 +263,7 @@ const ImageFile = ({ agent, path, url }: { agent: AgentId; path: string; url: st
 	const { t } = useI18n();
 	const { source } = useServices();
 	const [box, setBox] = useState<{ width: number; height: number } | null>(null);
-	const name = fileName(path);
+	const name = nameOf(path);
 	return (
 		<View
 			style={styles.fill}
@@ -315,7 +311,7 @@ const stays = ({ url }: { url: string }) => url.startsWith("file:") || url.start
 const PdfFile = ({ path, url }: { path: string; url: string }) => {
 	const { t } = useI18n();
 	const [failed, setFailed] = useState(false);
-	if (failed) return <Note text={t("Couldn't show {{name}}.", { name: fileName(path) })} />;
+	if (failed) return <Note text={t("Couldn't show {{name}}.", { name: nameOf(path) })} />;
 	return (
 		<WebView
 			source={{ uri: url }}
@@ -411,7 +407,7 @@ export const FileScreen = ({ navigation, route }: ScreenProps<"File">) => {
 	const { t } = useI18n();
 	const { params } = route;
 	const { agent, path } = params;
-	const name = fileName(path);
+	const name = nameOf(path);
 	const media = useMedia(agent, path);
 	const url = media?.state === "ready" ? media.url : null;
 	const save = useSave(agent, path, url);

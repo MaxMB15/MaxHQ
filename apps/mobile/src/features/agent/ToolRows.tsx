@@ -29,15 +29,14 @@ import {
 } from "@maxhq/shared/agent-view/artifact-line";
 import { useFold } from "@maxhq/shared/agent-view/find-context";
 import {
-	baseName,
 	endedEarly as endedWord,
-	folderOf,
 	formatTook,
 	isOpen,
 	lineCount,
 	lineSpan,
 	tookOf,
 } from "@maxhq/shared/agent-view/format";
+import { nameOf, parentOf } from "@maxhq/shared/folders/path";
 import { useKept } from "@maxhq/shared/agent-view/kept";
 import { EDIT_VERBS, TOOL_VERBS, verbFor, WEB_VERBS } from "@maxhq/shared/agent-view/tool-line";
 import { editLine, readLine } from "@maxhq/shared/agent-view/viewer-files";
@@ -153,7 +152,7 @@ const useShowFile = (path: string, line: number | undefined, when: boolean): Sho
 	const route = when ? fileRoute(agent, path, line) : null;
 	return route
 		? {
-				label: t("Show {{name}}", { name: baseName(path) }),
+				label: t("Show {{name}}", { name: nameOf(path) }),
 				onPress: () => navigation.navigate("File", route),
 			}
 		: null;
@@ -533,10 +532,10 @@ export const OpenedFileRow = ({ item }: { item: ItemOf<"agent_opened_file"> }) =
 			target={
 				<>
 					<Target path most="50%">
-						{baseName(item.path)}
+						{nameOf(item.path)}
 					</Target>
 					<Text style={styles.verbless}>{t("in")}</Text>
-					<Target path>{folderOf(item.path)}</Target>
+					<Target path>{parentOf(item.path) ?? "/"}</Target>
 				</>
 			}
 			meta={

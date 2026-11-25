@@ -17,7 +17,8 @@ import { FlatList, ScrollView, StyleSheet, Text, useWindowDimensions, View } fro
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { colourable } from "@maxhq/shared/agent-view/code-text";
-import { extensionOf, fileName } from "@maxhq/shared/agent-view/viewer-files";
+import { extensionOf } from "@maxhq/shared/agent-view/viewer-files";
+import { nameOf } from "@maxhq/shared/folders/path";
 
 import { color, font, size, tint } from "../../theme";
 import { languageOf, type Lines, tokenStyle, useHighlight } from "../../ui/highlight";
@@ -189,7 +190,7 @@ export const CodeLines = ({
 					height.current = event.nativeEvent.layout.height;
 					setLaid(height.current > 0);
 				}}
-				accessibilityLabel={t("{{value1}}, read-only", { value1: fileName(path) })}
+				accessibilityLabel={t("{{value1}}, read-only", { value1: nameOf(path) })}
 			>
 				<FlatList
 					ref={list}

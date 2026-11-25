@@ -21,7 +21,8 @@ import { type DownloadState, downloadPercent } from "@maxhq/shared/agent-view/do
 import { formatBytes } from "@maxhq/shared/agent-view/format";
 import type { Lines, Token } from "@maxhq/shared/agent-view/highlight";
 import { FULL_LIMIT, type MediaState } from "@maxhq/shared/agent-view/media";
-import { extensionOf, fileName, viewerKind } from "@maxhq/shared/agent-view/viewer-files";
+import { extensionOf, viewerKind } from "@maxhq/shared/agent-view/viewer-files";
+import { nameOf } from "@maxhq/shared/folders/path";
 import type { AgentId } from "@maxhq/shared/bindings";
 
 import type { Screens } from "../../navigation";
@@ -75,7 +76,7 @@ export const fileNote = (
 	media: MediaState | null,
 	blocked: string | null
 ): FileNote | null => {
-	const name = fileName(path);
+	const name = nameOf(path);
 	switch (media?.state) {
 		case undefined:
 		case "loading":
@@ -126,7 +127,7 @@ export const fileNote = (
 
 /** What the screen says for a file it won't draw as text. */
 export const binaryNote = (path: string): string =>
-	t("{{name}} looks like a binary file, so it isn't shown as text.", { name: fileName(path) });
+	t("{{name}} looks like a binary file, so it isn't shown as text.", { name: nameOf(path) });
 
 /** What the screen says for a file the phone can't draw. */
 export const noViewNote = (path: string, size: number, opensPdf: boolean): string =>

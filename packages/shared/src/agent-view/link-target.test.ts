@@ -3,7 +3,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import { folderOf, headingSlug, linkTarget, pathFrom } from "./link-target";
+import { headingSlug, linkTarget, pathFrom } from "./link-target";
 
 const file = (path: string, line: number | null = null) => ({ kind: "file", path, line });
 const none = { kind: "none" };
@@ -91,12 +91,6 @@ describe("where a link goes", () => {
 });
 
 describe("a path read from a file's folder", () => {
-	it("finds the folder a file is in", () => {
-		expect(folderOf("docs/guide.md")).toBe("docs/");
-		expect(folderOf("/home/me/a.md")).toBe("/home/me/");
-		expect(folderOf("a.md")).toBe("");
-	});
-
 	it("joins a relative path to it, and keeps an absolute one", () => {
 		expect(pathFrom("docs/", "images/a.png")).toBe("docs/images/a.png");
 		expect(pathFrom("docs/", "../src/a.ts")).toBe("src/a.ts");
@@ -105,6 +99,14 @@ describe("a path read from a file's folder", () => {
 		expect(pathFrom("/home/me/", "../../../a.md")).toBe("/a.md");
 		expect(pathFrom("/home/me/", "/etc/hosts")).toBe("/etc/hosts");
 		expect(pathFrom("", "a.md")).toBe("a.md");
+		expect(pathFrom("/home/me", "a.md")).toBe("/home/me/a.md");
+	});
+
+	it("joins with a Windows folder's own separator, and stops at its drive", () => {
+		expect(pathFrom("C:\\work\\docs", "images/a.png")).toBe("C:\\work\\docs\\images\\a.png");
+		expect(pathFrom("C:\\work", "..\\..\\a.md")).toBe("C:\\a.md");
+		expect(pathFrom("docs", "..\\a.md")).toBe("a.md");
+		expect(pathFrom("C:\\work", "D:\\a.md")).toBe("D:\\a.md");
 	});
 });
 

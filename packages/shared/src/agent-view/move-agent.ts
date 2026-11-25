@@ -33,11 +33,11 @@ import { dispatcherDevice } from "../dispatch/reach";
 import {
 	accountOptions,
 	deviceOptions,
-	isAbsolute,
 	modelOptions,
 	type Option,
 	workspaceWhere,
 } from "../new-agent/spec";
+import { isAbsolutePath } from "../folders/path";
 import { resolveLocal, shownLocalModel } from "../local-models/select";
 import { agentMode, MODE_LABEL, movedModes, runnable, startingMode } from "../settings/permission";
 import { accountKind, agentKind, isLocalAccount, kindName } from "../status/agent-kind";
@@ -420,7 +420,7 @@ export const moveForm = (
 				? t("Sign in on {{device}} first.", { device: name })
 				: place === null
 					? t("Pick a folder on {{device}}.", { device: name })
-					: place === MOVE_FOLDER && !isAbsolute(path)
+					: place === MOVE_FOLDER && !isAbsolutePath(path)
 						? t("Type the folder's full path, starting with /")
 						: null);
 	const to: MoveTo | null =

@@ -17,7 +17,7 @@ import {
 	splitSearchAndHash,
 	stripSlashDrive,
 } from "./media-source";
-import { isAbsolutePath } from "../folders/path";
+import { isAbsolutePath, namesOf, rootOf, separatorOf } from "../folders/path";
 
 /** Where a link goes. */
 export type LinkTarget =
@@ -78,28 +78,21 @@ export const linkTarget = (href: string | null | undefined): LinkTarget => {
 	return fileAt(path, hash);
 };
 
-/** The folder a file is in, or "" for a bare name. */
-export const folderOf = (path: string): string => {
-	const at = Math.max(path.lastIndexOf("/"), path.lastIndexOf("\\"));
-	return at < 0 ? "" : path.slice(0, at + 1);
-};
-
 /**
  * A relative path read from `folder`, as a link in a Markdown file means
- * it. An absolute path, or one with no folder to read it from, stays.
+ * it, with the folder's separator. An absolute path, or one with no folder
+ * to read it from, stays. A `..` past a root such as `/` or `C:\` stops there.
  */
 export const pathFrom = (folder: string, path: string): string => {
 	if (folder.length === 0 || isAbsolutePath(path)) return path;
-	const parts = folder.replace(/[/\\]+$/, "").split(/[/\\]/);
-	const rooted = parts[0] === "";
+	const root = rootOf(folder);
+	const names = namesOf(folder);
 	for (const part of path.split(/[/\\]/)) {
 		if (part === "" || part === ".") continue;
-		const last = parts[parts.length - 1];
-		if (part === ".." && parts.length > 0 && last !== ".." && last !== "") parts.pop();
-		else if (part !== ".." || !rooted) parts.push(part);
+		if (part === ".." && names.length > 0 && names.at(-1) !== "..") names.pop();
+		else if (part !== ".." || root === "") names.push(part);
 	}
-	const joined = parts.join("/");
-	return rooted && !joined.startsWith("/") ? `/${joined}` : joined;
+	return root + names.join(separatorOf(folder));
 };
 
 /**

@@ -118,6 +118,17 @@ describe("copy targets", () => {
 		expect(reason(view, { kind: "container", device: "dev-mac" })).toBe("Mac has no Incus.");
 	});
 
+	it("reads a backslash in the folder's name by the parent's style", () => {
+		const view = viewOf();
+		expect(reason(view, { folder: "a\\b" })).toBeNull();
+		expect(reason(view, { parent: "C:\\code", folder: "a\\b" })).toBe(
+			"Name the folder the clone goes in, with no slashes."
+		);
+		expect(reason(view, { folder: ".." })).toBe(
+			"Name the folder the clone goes in, with no slashes."
+		);
+	});
+
 	it("won't clone over a folder that's already a workspace", () => {
 		const there: Entity = {
 			entity: "workspace",

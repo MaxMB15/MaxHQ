@@ -51,7 +51,7 @@ import { linkForDevice } from "@maxhq/shared/view/select";
 import { useRow } from "@maxhq/shared/agent-view/context";
 import { editorPrefsOf, setLast } from "./editor-prefs";
 import { MENU_KEY } from "./run-menu";
-import { baseName } from "@maxhq/shared/agent-view/format";
+import { nameOf } from "@maxhq/shared/folders/path";
 import { viewerKind } from "@maxhq/shared/agent-view/viewer-files";
 import { t as translate, useI18n } from "@maxhq/shared/i18n";
 
@@ -726,7 +726,7 @@ const ShowFileButton = ({ path, line }: { path: string; line?: number }) => {
 	const openIn = useOpenIn(workspace);
 	const [failure, setFailure] = useState<string | null>(null);
 	const { choose, dialog } = usePick(openIn, (_editor, why) => setFailure(why));
-	const name = baseName(path);
+	const name = nameOf(path);
 	const editors = openIn && !blocked(openIn.reach) ? openIn.editors : [];
 	return (
 		<>
@@ -811,7 +811,7 @@ const EditFileButton = ({ path, line }: { path: string; line?: number }) => {
 	if (!openIn?.preferred || blocked(openIn.reach)) return null;
 	const { preferred } = openIn;
 	const label = translate("Open {{baseName}} in {{label}}", {
-		baseName: baseName(path),
+		baseName: nameOf(path),
 		label: preferred.label,
 	});
 
