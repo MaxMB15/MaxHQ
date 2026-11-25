@@ -75,7 +75,7 @@ impl Content {
     pub fn new(notification: &Notification, abilities: Abilities) -> Self {
         let text = |text: &str| {
             if abilities.markup {
-                escape(text)
+                maxhq_core::xml::escape(text)
             } else {
                 text.to_owned()
             }
@@ -96,21 +96,6 @@ impl Content {
             click: abilities.clicks,
         }
     }
-}
-
-/// Escapes the characters the notification spec's body markup reads as
-/// markup, so an agent's text shows as written.
-fn escape(text: &str) -> String {
-    let mut escaped = String::with_capacity(text.len());
-    for each in text.chars() {
-        match each {
-            '&' => escaped.push_str("&amp;"),
-            '<' => escaped.push_str("&lt;"),
-            '>' => escaped.push_str("&gt;"),
-            other => escaped.push(other),
-        }
-    }
-    escaped
 }
 
 /// The group every toast of the app's is in, which taking them off screen
@@ -145,7 +130,10 @@ pub fn toast_tag(id: &str) -> String {
 pub fn toast_xml(content: &Content) -> String {
     let mut xml = String::from(r#"<toast><visual><binding template="ToastGeneric">"#);
     let mut text = |text: &str, attributes: &str| {
-        xml.push_str(&format!("<text{attributes}>{}</text>", xml_text(text)));
+        xml.push_str(&format!(
+            "<text{attributes}>{}</text>",
+            maxhq_core::xml::escape(text)
+        ));
     };
     text(&content.summary, "");
     text(&content.body, "");
@@ -158,25 +146,6 @@ pub fn toast_xml(content: &Content) -> String {
     }
     xml.push_str("</toast>");
     xml
-}
-
-/// `text` for an XML text node: the characters XML reads escaped, and the
-/// ones it can't hold at all left out, so an agent's text can't break the
-/// toast.
-#[cfg(any(windows, test))]
-fn xml_text(text: &str) -> String {
-    let mut escaped = String::with_capacity(text.len());
-    for each in text.chars() {
-        match each {
-            '&' => escaped.push_str("&amp;"),
-            '<' => escaped.push_str("&lt;"),
-            '>' => escaped.push_str("&gt;"),
-            '\t' | '\n' | '\r' => escaped.push(each),
-            each if each < ' ' || matches!(each, '\u{fffe}' | '\u{ffff}') => {}
-            other => escaped.push(other),
-        }
-    }
-    escaped
 }
 
 #[cfg(test)]
@@ -286,8 +255,11 @@ mod tests {
 
     #[test]
     fn what_xml_cant_hold_is_left_out_of_a_toast() {
-        assert_eq!(xml_text("a\u{0}b\u{1b}[0m\tc\nd"), "ab[0m\tc\nd");
-        assert_eq!(xml_text("\u{fffe}é😀"), "é😀");
+        let content = Content {
+            body: "a\u{0}b\u{1b}[0m \"c\"".into(),
+            ..toast(true, None)
+        };
+        assert!(toast_xml(&content).contains("<text>ab[0m &quot;c&quot;</text>"));
     }
 
     #[test]

@@ -47,3 +47,4 @@ pub mod store;
 mod test_dir;
 pub mod timeline_find;
 pub mod tools;
+pub mod xml;

@@ -137,9 +137,9 @@ pub fn task_file(app: &Path) -> PathBuf {
 /// running the task restarts `maxd`. It never times out, runs on battery,
 /// and starts again a minute after the launcher fails.
 pub fn task_xml(sid: &str, launcher: &Path, program: &Path) -> String {
-    let sid = xml_text(sid);
-    let command = xml_text(&launcher.to_string_lossy());
-    let arguments = xml_text(&format!(
+    let sid = crate::xml::escape(sid);
+    let command = crate::xml::escape(&launcher.to_string_lossy());
+    let arguments = crate::xml::escape(&format!(
         "{LAUNCH_SUBCOMMAND} \"{}\"",
         program.to_string_lossy()
     ));
@@ -223,7 +223,7 @@ pub fn task_file_text(bytes: &[u8]) -> Option<String> {
 pub fn program_in_task(xml: &str) -> Option<PathBuf> {
     let (_, rest) = xml.split_once("<Arguments>")?;
     let (arguments, _) = rest.split_once("</Arguments>")?;
-    let arguments = unxml(arguments);
+    let arguments = crate::xml::unescape(arguments);
     let quoted = arguments
         .strip_prefix(LAUNCH_SUBCOMMAND)?
         .trim_start()
@@ -243,23 +243,6 @@ pub fn task_program(app: &Path) -> Option<PathBuf> {
 /// folder. `None` off Windows, or when there's no task.
 pub fn task_program_here() -> Option<PathBuf> {
     crate::paths::windows_app_dir().and_then(|app| task_program(&app))
-}
-
-/// `text` with what XML reads as markup written as entities.
-fn xml_text(text: &str) -> String {
-    text.replace('&', "&amp;")
-        .replace('<', "&lt;")
-        .replace('>', "&gt;")
-        .replace('"', "&quot;")
-}
-
-/// The inverse of [`xml_text`], and of the entities Task Scheduler writes.
-fn unxml(text: &str) -> String {
-    text.replace("&lt;", "<")
-        .replace("&gt;", ">")
-        .replace("&quot;", "\"")
-        .replace("&apos;", "'")
-        .replace("&amp;", "&")
 }
 
 /// What starts and stops services on a system.
