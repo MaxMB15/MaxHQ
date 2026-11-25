@@ -3202,6 +3202,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "maxhq-os"
+version = "0.1.7"
+dependencies = [
+ "libc",
+ "rustix",
+ "sha2 0.10.9",
+ "tokio",
+ "windows-sys 0.61.2",
+]
+
+[[package]]
 name = "maxhq-protocol"
 version = "0.1.7"
 dependencies = [
