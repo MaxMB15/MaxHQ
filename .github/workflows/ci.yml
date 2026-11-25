@@ -138,7 +138,7 @@ jobs:
     runs-on: windows-latest
     timeout-minutes: 45
     env:
-      CRATES: -p maxhq-os -p maxhq-core -p maxhq-transfer -p maxhq-wire -p maxhq-protocol -p maxhq-term -p maxhq-workflow -p maxhq-fake-agent -p maxhq-vm -p maxhq-hold -p maxd -p maxhq-client
+      CRATES: -p maxhq-os -p maxhq-core -p maxhq-transfer -p maxhq-wire -p maxhq-protocol -p maxhq-term -p maxhq-workflow -p maxhq-fake-agent -p maxhq-vm -p maxhq-hold -p maxhq-client
     defaults:
       run:
         # The same commands as on Linux, through the runner's Git Bash.
@@ -169,6 +169,12 @@ jobs:
       # $CRATES is a list of flags, so it's left unquoted.
       - name: Clippy
         run: cargo clippy $CRATES --all-targets --locked -- -D warnings
+
+      # maxd builds here, but many of its tests still give Unix paths as
+      # absolute ones or start sh scripts as fakes, so only its lint runs
+      # until they pass and it joins CRATES.
+      - name: Clippy (maxd)
+        run: cargo clippy -p maxd --all-targets --locked -- -D warnings
 
       - name: Test
         run: cargo test $CRATES --locked --no-fail-fast
