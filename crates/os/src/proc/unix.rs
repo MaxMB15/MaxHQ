@@ -166,9 +166,15 @@ pub fn is_root() -> bool {
     rustix::process::geteuid().is_root()
 }
 
+pub const GENTLEST: Stop = Stop::Soft;
+
 pub fn own_ids() -> Option<(u32, u32)> {
     Some((
         rustix::process::getuid().as_raw(),
         rustix::process::getgid().as_raw(),
     ))
+}
+
+pub fn user_id() -> Option<String> {
+    Some(rustix::process::getuid().as_raw().to_string())
 }

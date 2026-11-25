@@ -420,6 +420,12 @@ pub fn is_root() -> bool {
         .unwrap_or(false)
 }
 
+pub const GENTLEST: Stop = Stop::Hard;
+
 pub fn own_ids() -> Option<(u32, u32)> {
     None
+}
+
+pub fn user_id() -> Option<String> {
+    win::own_sid().ok().map(str::to_owned)
 }

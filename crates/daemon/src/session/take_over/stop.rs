@@ -15,12 +15,10 @@ use std::path::Path;
 use std::thread;
 use std::time::{Duration, Instant};
 
-use maxhq_os::proc::Stop;
-#[cfg(unix)]
+use maxhq_os::proc::{self, Stop};
 use maxhq_protocol::processes::ProcessSignal;
 use sysinfo::{Pid, ProcessRefreshKind, ProcessStatus, ProcessesToUpdate, System, UpdateKind};
 
-#[cfg(unix)]
 use crate::ports::processes::send;
 
 /// How long the CLI gets to quit after SIGTERM.
@@ -57,21 +55,8 @@ const OTHER_USER: &str = "That CLI runs as another user, so MaxHQ won't stop it.
 
 /// Finds the process `pid` and checks it is `cli` running as you.
 pub fn find(pid: u32, cli: &str) -> Result<Process, String> {
-    check(look(pid).as_ref(), me().as_deref(), cli).map(|started| Process { pid, started })
-}
-
-/// The user `maxd` runs as.
-#[cfg(unix)]
-#[allow(clippy::unnecessary_wraps)]
-fn me() -> Option<String> {
-    Some(rustix::process::getuid().as_raw().to_string())
-}
-
-/// The user `maxd` runs as. Windows names it by the SID in a process's
-/// token, which the system reads for `maxd` as for any process.
-#[cfg(windows)]
-fn me() -> Option<String> {
-    look(std::process::id())?.uid
+    check(look(pid).as_ref(), proc::user_id().as_deref(), cli)
+        .map(|started| Process { pid, started })
 }
 
 /// Checks what the system says about a pid against the CLI MaxHQ looks for,
@@ -107,11 +92,13 @@ fn names(seen: &Seen, cli: &str) -> bool {
 
 /// Stops the process: SIGTERM, up to `grace` for it to quit, then SIGKILL.
 /// Done once it no longer runs, including when it had already quit.
+/// Windows has no SIGTERM to ask one process with, so there the first
+/// stop ends it at once, and the CLI gets no grace.
 pub fn stop(process: Process, grace: Duration) -> Result<(), String> {
     if !runs(process) {
         return Ok(());
     }
-    signal(process, Stop::Soft)?;
+    signal(process, Stop::GENTLEST)?;
     if quits_within(process, grace) {
         return Ok(());
     }
@@ -150,20 +137,12 @@ fn signal(process: Process, how: Stop) -> Result<(), String> {
 }
 
 /// SIGTERM for a soft stop and SIGKILL for a hard one, to `pid` alone.
-#[cfg(unix)]
 fn send_stop(pid: u32, how: Stop) -> Result<(), String> {
     let signal = match how {
         Stop::Soft => ProcessSignal::Term,
         Stop::Hard => ProcessSignal::Kill,
     };
     send(pid, signal)
-}
-
-/// Ends `pid` at once, whichever stop, since Windows has no SIGTERM to
-/// ask one process with. The CLI then gets no grace.
-#[cfg(windows)]
-fn send_stop(pid: u32, _how: Stop) -> Result<(), String> {
-    maxhq_os::proc::stop(pid, Stop::Hard).map_err(|err| format!("the CLI wasn't stopped: {err}"))
 }
 
 /// Whether the process still runs under its pid.
@@ -366,7 +345,7 @@ mod tests {
 
     #[test]
     fn maxd_knows_which_user_it_runs_as() {
-        let me = me().expect("the system says");
+        let me = proc::user_id().expect("the system says");
         let seen = look(std::process::id()).expect("maxd is there");
         assert_eq!(seen.uid.as_deref(), Some(me.as_str()));
     }

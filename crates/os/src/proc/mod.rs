@@ -31,6 +31,13 @@ pub enum Stop {
     Hard,
 }
 
+impl Stop {
+    /// The gentlest stop this OS sends one process: [`Stop::Soft`] on
+    /// Unix, and [`Stop::Hard`] on Windows, which can't ask one process
+    /// to end.
+    pub const GENTLEST: Self = imp::GENTLEST;
+}
+
 /// Starts a command's child in a group of its own, so [`stop_group`]
 /// reaches whatever it starts and a signal to this process's group
 /// doesn't reach it. Hand the child to [`adopt`] once it started: on
@@ -139,6 +146,12 @@ pub fn own_ids() -> Option<(u32, u32)> {
     imp::own_ids()
 }
 
+/// The user this process runs as, named the way a process list names a
+/// process's user: the real uid on Unix and the SID on Windows.
+pub fn user_id() -> Option<String> {
+    imp::user_id()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -183,6 +196,12 @@ mod tests {
     #[test]
     fn this_user_is_known() {
         assert_eq!(own_ids().is_some(), cfg!(unix));
+        let user = user_id().expect("this user");
+        if let Some((uid, _)) = own_ids() {
+            assert_eq!(user, uid.to_string());
+        } else {
+            assert!(user.starts_with("S-1-"), "{user}");
+        }
     }
 
     #[cfg(unix)]
@@ -339,6 +358,7 @@ mod tests {
             io::ErrorKind::Unsupported
         );
         assert!(alive(pid));
+        assert_eq!(Stop::GENTLEST, Stop::Hard, "the stop it can send");
         stop(pid, Stop::Hard).unwrap();
         assert_eq!(child.wait().unwrap().code(), Some(137));
         assert_eq!(
