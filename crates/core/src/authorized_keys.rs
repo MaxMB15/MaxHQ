@@ -153,7 +153,7 @@ pub fn add_failed(file: &Path, line: &str, err: &io::Error) -> String {
     if !admin || err.kind() != io::ErrorKind::PermissionDenied {
         return format!("Couldn't write {}: {err}", file.display());
     }
-    let quoted = |text: &str| format!("'{}'", text.replace('\'', "''"));
+    let quoted = crate::shell::powershell::literal;
     let path = quoted(&file.to_string_lossy());
     format!(
         "Windows OpenSSH reads an administrator's keys from {file}, which only an elevated \
