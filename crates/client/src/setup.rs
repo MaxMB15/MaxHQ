@@ -52,11 +52,14 @@ pub struct SetupPaths {
     pub scratch: PathBuf,
 }
 
-/// The one place the paths come from, so they can move in one edit:
-/// `~/Library/Application Support/MaxHQ/ssh/` on macOS.
+/// The one place the paths come from, so they can move in one edit: the
+/// `ssh` folder in this machine's `maxd` data folder, which is
+/// `~/Library/Application Support/MaxHQ/ssh/` on macOS and
+/// `~/.local/share/maxhq/ssh/` on Linux. Taking it from
+/// [`maxhq_core::paths::data_dir`] keeps the app reading the key the local
+/// `maxd` writes, whatever each OS calls the folder.
 pub fn paths() -> Option<SetupPaths> {
-    let dirs = directories::BaseDirs::new()?;
-    let ssh = dirs.data_dir().join("MaxHQ").join("ssh");
+    let ssh = maxhq_core::paths::data_dir()?.join("ssh");
     Some(SetupPaths {
         key: ssh.join("id_ed25519"),
         known_hosts: ssh.join("known_hosts"),
