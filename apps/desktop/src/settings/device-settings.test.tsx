@@ -1,13 +1,13 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026 Max Boksem
 
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 import App from "@/App";
 import { mockSource } from "@/data/mock-source";
 import type { DataSource } from "@maxhq/shared/data/source";
-import type { Entity, NetworkAccess } from "@maxhq/shared/bindings";
+import { type Entity, type NetworkAccess, WINDOWS_SHELL_SINCE } from "@maxhq/shared/bindings";
 import { MOCK_TEST_HOST_SETTINGS } from "@maxhq/shared/data/mock-test-hosts";
 import { NO_LIMIT_WARNING } from "@maxhq/shared/settings/memory";
 import { LOADED_MODEL, MAC_SERVER } from "@maxhq/shared/data/mock-local-models";
@@ -146,6 +146,7 @@ describe("device settings", () => {
 			network: {},
 			local_models: LOCAL_MODELS[MAC],
 			test_hosts: MOCK_TEST_HOST_SETTINGS[MAC],
+			windows_shell: "auto",
 		});
 		expect(await within(await section("Mac")).findByText("Saved")).toBeInTheDocument();
 		expect(await mode("Mac")).toHaveTextContent("Ask first");
@@ -179,6 +180,7 @@ describe("device settings", () => {
 			network: {},
 			local_models: LOCAL_MODELS[MAC],
 			test_hosts: MOCK_TEST_HOST_SETTINGS[MAC],
+			windows_shell: "auto",
 		});
 	});
 
@@ -236,6 +238,7 @@ describe("device settings", () => {
 			network: {},
 			local_models: LOCAL_MODELS[DEVBOX],
 			test_hosts: MOCK_TEST_HOST_SETTINGS[DEVBOX],
+			windows_shell: "auto",
 		});
 	});
 
@@ -307,6 +310,7 @@ describe("device settings", () => {
 			network: {},
 			local_models: LOCAL_MODELS[DEVBOX],
 			test_hosts: MOCK_TEST_HOST_SETTINGS[DEVBOX],
+			windows_shell: "auto",
 		});
 		expect(await within(section).findByText("Saved")).toBeInTheDocument();
 	});
@@ -345,6 +349,7 @@ describe("device settings", () => {
 			network: {},
 			local_models: LOCAL_MODELS[DEVBOX],
 			test_hosts: MOCK_TEST_HOST_SETTINGS[DEVBOX],
+			windows_shell: "auto",
 		});
 	});
 
@@ -397,6 +402,7 @@ describe("device settings", () => {
 			network: {},
 			local_models: LOCAL_MODELS[DEVBOX],
 			test_hosts: MOCK_TEST_HOST_SETTINGS[DEVBOX],
+			windows_shell: "auto",
 		});
 		expect(await within(section).findByText("Saved")).toBeInTheDocument();
 		expect(days).toHaveValue("14");
@@ -460,6 +466,7 @@ describe("device settings", () => {
 			network: {},
 			local_models: LOCAL_MODELS[MAC],
 			test_hosts: MOCK_TEST_HOST_SETTINGS[MAC],
+			windows_shell: "auto",
 		});
 		expect(await within(section).findByText("Saved")).toBeInTheDocument();
 		expect(within(section).getByRole("switch", { name: "Snooze at the limit" })).toBeChecked();
@@ -887,6 +894,98 @@ describe("terminals", () => {
 				"devbox's maxd is too old for this. Update it first."
 			)
 		).toBeInTheDocument();
+	});
+});
+
+describe("Windows shell", () => {
+	const terminals = (name: string) =>
+		screen.findByRole("region", { name: `Terminals on ${name}` });
+	const picker = async (name: string) =>
+		within(await terminals(name)).queryByRole("combobox", { name: /^Shell for terminals,/ });
+
+	// The mock source with devbox as a Windows device whose maxd speaks `protocol`.
+	const windows =
+		(protocol: number) =>
+		(source: DataSource): DataSource => ({
+			...source,
+			snapshot: async () => {
+				const snapshot = await source.snapshot();
+				const entities = snapshot.entities.map((e): Entity => {
+					if (e.entity === "device" && e.id === "dev-devbox")
+						return { ...e, os: "windows" };
+					if (e.entity === "device_link" && e.device === "dev-devbox")
+						return { ...e, protocol };
+					return e;
+				});
+				return { ...snapshot, entities };
+			},
+		});
+
+	it("shows on a Windows device, Automatic by default, with what it does", async () => {
+		await renderDevice("link-devbox", "connected", windows(WINDOWS_SHELL_SINCE));
+		expect(await picker("devbox")).toHaveTextContent("Automatic");
+		expect(
+			within(await terminals("devbox")).getByText(/^The shell that ! commands/)
+		).toBeInTheDocument();
+	});
+
+	it("names the shells Windows hooks into", async () => {
+		await renderDevice("link-devbox", "connected", windows(WINDOWS_SHELL_SINCE));
+		expect(
+			within(await terminals("devbox")).getByText(
+				/^MaxHQ adds hooks to Git Bash and PowerShell/
+			)
+		).toBeInTheDocument();
+	});
+
+	it("is found by Settings search on a Windows device only", async () => {
+		await renderDevice("link-devbox", "connected", windows(WINDOWS_SHELL_SINCE));
+		const dialog = await screen.findByRole("dialog", { name: "Settings" });
+		fireEvent.change(within(dialog).getByRole("searchbox", { name: "Search settings" }), {
+			target: { value: "shell for terminals" },
+		});
+		const hits = within(dialog)
+			.getAllByRole("button", { name: /Shell for terminals$/ })
+			.map((button) => button.textContent);
+		expect(hits).toEqual(["devboxShell for terminals"]);
+	});
+
+	it("saves the shell you pick, keeping the other settings", async () => {
+		const { source } = await renderDevice(
+			"link-devbox",
+			"connected",
+			windows(WINDOWS_SHELL_SINCE)
+		);
+		const save = vi.spyOn(source, "setDeviceSettings");
+		const found = await picker("devbox");
+		if (!found) throw new Error("No shell picker");
+		await choose(found, "Comes with Windows");
+
+		expect(save).toHaveBeenCalledWith(
+			expect.objectContaining({
+				device: "dev-devbox",
+				windows_shell: "power_shell",
+				shell_integration: true,
+			})
+		);
+		expect(await within(await terminals("devbox")).findByText("Saved")).toBeInTheDocument();
+		expect(await picker("devbox")).toHaveTextContent("Windows PowerShell 5.1");
+	});
+
+	it("stays hidden on a maxd from before the setting", async () => {
+		await renderDevice("link-devbox", "connected", windows(WINDOWS_SHELL_SINCE - 1));
+		await terminals("devbox");
+		expect(await picker("devbox")).toBeNull();
+	});
+
+	it("stays hidden on other systems", async () => {
+		await renderDevice("link-mac");
+		await terminals("Mac");
+		expect(await picker("Mac")).toBeNull();
+		cleanup();
+		await renderDevice("link-devbox");
+		await terminals("devbox");
+		expect(await picker("devbox")).toBeNull();
 	});
 });
 

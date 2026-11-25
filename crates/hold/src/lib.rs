@@ -85,7 +85,9 @@ mod secret;
 mod socket;
 mod spawn;
 mod stderr;
+mod sys;
 mod terminal;
+mod tree;
 mod user;
 mod wire;
 

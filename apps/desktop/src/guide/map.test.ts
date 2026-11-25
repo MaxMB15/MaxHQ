@@ -10,6 +10,7 @@ import { LOGIN_STEPS } from "@/settings/login-steps";
 import { LOGIN_TERMS, ownViews, PAGE } from "@/settings/page/cards";
 import { PHONES_TERMS } from "@/settings/phones-settings";
 import { PROJECT_TERMS } from "@/settings/project-settings";
+import { windowsShellTerms } from "@/settings/windows-shell";
 import { shortcutRows } from "@/shortcut-list/rows";
 import { PROJECT_SKILLS_TERMS } from "@/skills/skills-tab";
 import { LOGIN_VIEWS } from "@maxhq/shared/guide/settings-link";
@@ -122,10 +123,12 @@ const appSettings = (): SettingsEntry[] => [
 		terms: PROJECT_SKILLS_TERMS,
 		link: "maxhq://project/{project}/skills",
 	},
+	// A Mac has no shell to pick, so a Windows device's row joins its
+	// Terminals card here.
 	...deviceCards(EVERY_CARD, "mac").map(({ id, terms: [title, ...terms] }) => ({
 		id: `settings/device/${id}`,
 		title: title!,
-		terms,
+		terms: id === "terminals" ? [...terms, ...windowsShellTerms()] : terms,
 		link: `maxhq://device/{device}/${id}`,
 	})),
 ];

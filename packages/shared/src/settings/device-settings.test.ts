@@ -74,6 +74,7 @@ describe("sameDeviceFields", () => {
 		);
 		expect(sameDeviceFields(fields, { ...fields, codex_effort: "high" })).toBe(false);
 		expect(sameDeviceFields(fields, { ...fields, claude_artifacts: false })).toBe(false);
+		expect(sameDeviceFields(fields, { ...fields, windows_shell: "pwsh" })).toBe(false);
 	});
 });
 

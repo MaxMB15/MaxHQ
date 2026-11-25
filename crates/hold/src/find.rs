@@ -15,7 +15,6 @@
 use std::collections::BTreeMap;
 use std::fs::{self, OpenOptions, TryLockError};
 use std::io;
-use std::os::unix::fs::OpenOptionsExt;
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, PoisonError};
 use std::time::{Duration, SystemTime};
@@ -254,12 +253,11 @@ pub(crate) async fn ensure(holds: &Holds, launch: &Launch) -> Result<Ensured, Sp
 /// Removes a folder whose holder never started. Its lock is held all the
 /// while, so a holder that starts late finds the folder gone and gives up.
 fn discard(dir: &Path) -> io::Result<()> {
-    let lock = match OpenOptions::new()
-        .create(true)
-        .truncate(false)
-        .write(true)
-        .mode(0o600)
-        .open(dir.join(LOCK))
+    let lock = match maxhq_os::fsmode::set_open_mode(
+        OpenOptions::new().create(true).truncate(false).write(true),
+        0o600,
+    )
+    .open(dir.join(LOCK))
     {
         Ok(lock) => lock,
         Err(err) if err.kind() == io::ErrorKind::NotFound => return Ok(()),

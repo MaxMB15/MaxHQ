@@ -61,6 +61,7 @@ export const deviceSettingsOf = (view: ViewState, device: DeviceId): DeviceField
 		skill_library: kept?.skill_library ?? null,
 		network: kept?.network ?? {},
 		test_hosts: testHostSettingsOf(view, device),
+		windows_shell: kept?.windows_shell ?? "auto",
 	};
 };
 
@@ -83,6 +84,7 @@ export const sameDeviceFields = (a: DeviceFields, b: DeviceFields): boolean =>
 	a.history_mib === b.history_mib &&
 	a.claude_setup_token === b.claude_setup_token &&
 	a.shell_integration === b.shell_integration &&
+	a.windows_shell === b.windows_shell &&
 	a.read_other_agents === b.read_other_agents &&
 	a.claude_artifacts === b.claude_artifacts &&
 	a.dispatcher_acts === b.dispatcher_acts &&

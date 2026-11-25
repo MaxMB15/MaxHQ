@@ -8,11 +8,10 @@ use std::io;
 use std::path::Path;
 use std::time::Duration;
 
+use maxhq_os::ipc::{LocalStream, ReadHalf, WriteHalf};
 use maxhq_protocol::ids::TerminalId;
 use maxhq_protocol::time::Timestamp;
 use tokio::io::BufReader;
-use tokio::net::unix::{OwnedReadHalf, OwnedWriteHalf};
-use tokio::net::UnixStream;
 use tokio::sync::mpsc;
 use tokio::time::Instant;
 
@@ -231,7 +230,7 @@ async fn attempt(
             format!("the holder didn't {what} in time"),
         )
     };
-    let stream = tokio::time::timeout(ATTEMPT_WAIT, UnixStream::connect(path))
+    let stream = tokio::time::timeout(ATTEMPT_WAIT, LocalStream::connect(path))
         .await
         .map_err(|_| timed_out("take the connection"))??;
     let (read, mut write) = stream.into_split();
@@ -282,7 +281,7 @@ async fn attempt(
 
 /// Passes on what the holder says until it closes or `maxd` stops
 /// listening.
-async fn read_holder(mut read: BufReader<OwnedReadHalf>, events: mpsc::Sender<TermEvent>) {
+async fn read_holder(mut read: BufReader<ReadHalf>, events: mpsc::Sender<TermEvent>) {
     let mut buf = Vec::new();
     while let Ok(Some(message)) = wire::recv::<_, FromHolder>(&mut read, &mut buf).await {
         let event = match message {
@@ -303,7 +302,7 @@ async fn read_holder(mut read: BufReader<OwnedReadHalf>, events: mpsc::Sender<Te
 }
 
 /// Sends requests in order until `maxd` drops every control or detaches.
-async fn send_requests(mut write: OwnedWriteHalf, mut requests: mpsc::UnboundedReceiver<ToHolder>) {
+async fn send_requests(mut write: WriteHalf, mut requests: mpsc::UnboundedReceiver<ToHolder>) {
     while let Some(request) = requests.recv().await {
         let detach = matches!(request, ToHolder::Detach);
         if wire::send(&mut write, &request).await.is_err() || detach {
