@@ -59,6 +59,8 @@ export const LOCAL_MODELS_TERMS: readonly string[] = [
 	"Linked devices can use this Mac's models",
 	"Add server URL",
 	"Token, if the server asks for one",
+	"Sign in with OpenRouter",
+	"Spending limit",
 	"Local agent settings",
 	"Unload models after",
 	"KV cache",

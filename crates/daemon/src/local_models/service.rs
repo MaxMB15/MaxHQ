@@ -36,6 +36,7 @@ use tokio::sync::watch;
 use tokio::task::AbortHandle;
 
 use super::linked::{self, Linked, OverPeers};
+use super::openrouter::{self, SignIns, Signed};
 use super::runner::{self, Backend, Host, LoadProgress, Runner, Spec};
 use super::{catalog, cloud, credits, download, hardware, probe, runtime};
 use crate::db::Db;
@@ -111,6 +112,9 @@ pub struct Setup {
     pub files_from: String,
     /// Whether llama-server may be installed. Tests never install it.
     pub install_runtime: bool,
+    /// Where Sign in with OpenRouter goes, [`super::openrouter::ORIGIN`]. Tests
+    /// point it at a fake.
+    pub openrouter: String,
 }
 
 /// A download that runs now.
@@ -176,6 +180,8 @@ pub struct Service {
     /// are installed.
     shared: Mutex<Option<watch::Receiver<Vec<SharedModels>>>>,
     installing: tokio::sync::Mutex<()>,
+    /// The Sign in with OpenRouter rounds.
+    openrouter: SignIns,
     state: Mutex<State>,
 }
 
@@ -236,6 +242,7 @@ impl Service {
             linked: Mutex::new(None),
             shared: Mutex::new(None),
             installing: tokio::sync::Mutex::new(()),
+            openrouter: SignIns::new(&setup.openrouter),
             state: Mutex::new(state),
         }))
     }
@@ -726,6 +733,18 @@ impl Service {
                 return self.add_server(&label, &url, token, cloud).await;
             }
             ModelAction::ProbeServer { url, token } => return self.probe_server(&url, token).await,
+            ModelAction::BeginOpenRouterSignIn { label, limit_cents } => {
+                return self
+                    .openrouter
+                    .begin(&self.hub.device().name, label, limit_cents)
+                    .unwrap_or_else(|reason| ActionOutcome::Refused { reason });
+            }
+            ModelAction::FinishOpenRouterSignIn { sign_in, code } => {
+                return match self.openrouter.finish(sign_in, code).await {
+                    Ok(signed) => self.keep_openrouter_key(signed).await,
+                    Err(reason) => ActionOutcome::Refused { reason },
+                };
+            }
             ModelAction::TestServer { server } => self.test_server(server).await,
             ModelAction::RemoveServer { server } => self.remove_server(server),
             ModelAction::SetServerAdminKey { server, key } => {
@@ -809,6 +828,54 @@ impl Service {
         self.publish();
         self.read_credits_now(id).await;
         ActionOutcome::ModelServerAdded { server: id }
+    }
+
+    /// Keeps the key a Sign in with OpenRouter round made, on the device's
+    /// OpenRouter server, which keeps its ID and name, or else on a new one.
+    /// The server at the round's own URL comes first, then any other on
+    /// OpenRouter's host, as the app finds it. Either way its credits are
+    /// read again: the add reads them, and so does the test after an update.
+    async fn keep_openrouter_key(&self, signed: Signed) -> ActionOutcome {
+        let kept = {
+            let state = self.lock();
+            let external = || {
+                state
+                    .servers
+                    .values()
+                    .filter(|server| matches!(server.kind, ModelServerKind::External { .. }))
+            };
+            external()
+                .find(|server| server.base_url.as_deref() == Some(signed.base.as_str()))
+                .or_else(|| {
+                    external().find(|server| {
+                        server
+                            .base_url
+                            .as_deref()
+                            .is_some_and(openrouter::is_openrouter)
+                    })
+                })
+                .map(|server| server.id)
+        };
+        let Some(id) = kept else {
+            // A sign-in never shows the Cloud service switch: maxd marks
+            // OpenRouter a cloud service by its host.
+            return self
+                .add_server(&signed.label, &signed.base, Some(signed.key), false)
+                .await;
+        };
+        if let Err(err) = self
+            .keys
+            .write(&token_name(id), signed.key.expose().as_bytes())
+        {
+            return refused(&format!("Couldn't keep the server's token: {err}"));
+        }
+        if let Some(server) = self.lock().servers.get_mut(&id) {
+            server.token = true;
+        }
+        match self.test_server(id).await {
+            Ok(()) => ActionOutcome::ModelServerAdded { server: id },
+            Err(reason) => ActionOutcome::Refused { reason },
+        }
     }
 
     /// Probes a URL without adding it or keeping its token.

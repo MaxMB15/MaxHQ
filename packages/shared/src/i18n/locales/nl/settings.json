@@ -1173,5 +1173,15 @@
 	"Add admin key for your balance": "Beheerderssleutel toevoegen voor je saldo",
 	"Admin key": "Beheerderssleutel",
 	"Admin key added": "Beheerderssleutel toegevoegd",
-	"Make one on OpenRouter": "Maak er een aan op OpenRouter"
+	"Make one on OpenRouter": "Maak er een aan op OpenRouter",
+	"Kind of server": "Soort server",
+	"Your own server": "Je eigen server",
+	"Sign in with OpenRouter": "Aanmelden met OpenRouter",
+	"Spending limit": "Uitgavenlimiet",
+	"OpenRouter stops this key at the limit": "OpenRouter stopt deze sleutel bij de limiet",
+	"Cancel the sign-in": "Het aanmelden annuleren",
+	"Or paste an API key": "Of plak een API-sleutel",
+	"Paste an API key": "Plak een API-sleutel",
+	"Get a key": "Sleutel aanmaken",
+	"Couldn't sign in with OpenRouter": "Kon niet aanmelden met OpenRouter"
 }

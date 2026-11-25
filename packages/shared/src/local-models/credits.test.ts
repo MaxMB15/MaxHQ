@@ -19,7 +19,6 @@ import {
 	adminKeyWarning,
 	creditsShort,
 	creditsView,
-	isOpenRouterUrl,
 	offersAdminKey,
 	removeAdminKeyAction,
 	resetsText,
@@ -156,29 +155,6 @@ describe("where the credits show", () => {
 });
 
 describe("the admin key", () => {
-	it("knows OpenRouter's URLs, over https only", () => {
-		for (const url of [
-			"https://openrouter.ai/api",
-			"https://openrouter.ai/api/v1/",
-			"https://eu.openrouter.ai/api",
-			"HTTPS://OpenRouter.AI",
-		]) {
-			expect(isOpenRouterUrl(url), url).toBe(true);
-		}
-		for (const url of [
-			"http://openrouter.ai/api",
-			"https://openrouter.ai.example.com/api",
-			"https://notopenrouter.ai/api",
-			"https://example.com/openrouter.ai",
-			"openrouter.ai",
-			"",
-			null,
-			undefined,
-		]) {
-			expect(isOpenRouterUrl(url), String(url)).toBe(false);
-		}
-	});
-
 	it("is offered on an OpenRouter server with a token, from the version that keeps one", async () => {
 		const view = await load();
 		const server = (id: string) => view.tables.model_server.get(id)!;

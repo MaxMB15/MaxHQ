@@ -25,6 +25,7 @@ mod credits;
 mod download;
 mod hardware;
 pub(crate) mod linked;
+mod openrouter;
 mod probe;
 pub(crate) mod runner;
 mod runtime;
@@ -65,6 +66,7 @@ pub fn start(hub: Hub, db: Db, data: &Path, online: bool) {
         support: hardware::support(),
         files_from: download::HUGGING_FACE.to_owned(),
         install_runtime: true,
+        openrouter: openrouter::ORIGIN.to_owned(),
     };
     let service = match Service::new(hub, db, setup) {
         Ok(service) => service,

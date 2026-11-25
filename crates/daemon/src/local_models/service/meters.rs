@@ -16,8 +16,8 @@ use maxhq_protocol::model::Activity;
 use maxhq_protocol::secret::Secret;
 use maxhq_protocol::state::Entity;
 
-use super::super::cloud;
 use super::super::credits::{self, Failure};
+use super::super::openrouter;
 use super::{admin_name, token_name, Service, State, NO_SERVER};
 
 /// Why an admin key was refused for a server that isn't OpenRouter.
@@ -32,7 +32,7 @@ fn metered(server: &ModelServer) -> Option<&str> {
     server
         .base_url
         .as_deref()
-        .filter(|base| server.token && cloud::is_openrouter(base))
+        .filter(|base| server.token && openrouter::is_openrouter(base))
 }
 
 impl Service {
@@ -169,7 +169,7 @@ impl Service {
         let balance = match &key {
             Some(key) => {
                 let base = base
-                    .filter(|base| cloud::is_openrouter(base))
+                    .filter(|base| openrouter::is_openrouter(base))
                     .ok_or(NOT_OPENROUTER)?;
                 let balance =
                     credits::balance(&base, key)

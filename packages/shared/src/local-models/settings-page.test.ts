@@ -21,7 +21,7 @@ import { applySnapshot, type ViewState } from "../view/replica";
 
 import { LOCAL_MODEL_DEFAULTS } from "./models";
 import { FIT_TONE } from "./picker";
-import { catalogRows, type CatalogRow } from "./select";
+import { catalogRows, takesCloudServers, type CatalogRow } from "./select";
 import {
 	addedServerOf,
 	addServerAction,
@@ -47,7 +47,6 @@ import {
 	rowModelAction,
 	serverLabelFor,
 	serverUrlProblem,
-	takesCloudServers,
 	typedNotEncrypted,
 } from "./settings-page";
 import { fitLabel, gpuLimitText, runtimeSupportText } from "./wording";

@@ -124,6 +124,9 @@ pub struct App<C: Connector = Client> {
     shell: Box<dyn Shell>,
     #[cfg(feature = "desktop")]
     editors: Installed,
+    /// The Sign in with OpenRouter round that waits for the browser.
+    #[cfg(feature = "desktop")]
+    sign_ins: signin::Waiting,
 }
 
 impl<C: Connector> App<C> {
@@ -136,6 +139,8 @@ impl<C: Connector> App<C> {
             shell: Box::new(shell),
             #[cfg(feature = "desktop")]
             editors: Installed::new(Places::of_this_machine()),
+            #[cfg(feature = "desktop")]
+            sign_ins: signin::Waiting::default(),
         }
     }
 

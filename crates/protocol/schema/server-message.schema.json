@@ -891,7 +891,7 @@
           ]
         },
         {
-          "description": "A Sign in with ChatGPT round is waiting. Open `url` in the browser\nand listen on 127.0.0.1:`callback_port`.",
+          "description": "A sign-in round is waiting. Open `url` in the browser and listen on\nthis Mac at `callback_port`: on 127.0.0.1 for Sign in with ChatGPT,\nand on 127.0.0.1 and ::1 for Sign in with OpenRouter, whose page\nsends the browser to `localhost`.",
           "type": "object",
           "properties": {
             "callback_port": {
@@ -902,7 +902,7 @@
               "minimum": 0
             },
             "sign_in": {
-              "description": "The round, for [`ClientMessage::FinishChatGptSignIn`].",
+              "description": "The round, for [`ClientMessage::FinishChatGptSignIn`] or\n[`crate::local_models::ModelAction::FinishOpenRouterSignIn`].",
               "$ref": "#/$defs/SignInId"
             },
             "status": {

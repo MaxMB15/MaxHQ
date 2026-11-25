@@ -31,7 +31,8 @@ fn m4_max() -> DeviceHardware {
     }
 }
 
-/// A service in a scratch folder, whose model files come from a fake.
+/// A service in a scratch folder, whose model files come from a fake,
+/// which stands in for OpenRouter too.
 struct World {
     scratch: Scratch,
     hub: Hub,
@@ -74,6 +75,7 @@ impl World {
                 support,
                 files_from: files.base.clone(),
                 install_runtime: false,
+                openrouter: files.base.clone(),
             },
         )
         .unwrap();
@@ -305,6 +307,149 @@ async fn a_server_you_add_keeps_its_token_out_of_the_database_and_goes_away_whol
     assert!(world.db.model_servers().unwrap().is_empty());
     assert!(!token_file.exists());
     assert!(world.service.login(account_id).is_none());
+}
+
+/// Runs a Sign in with OpenRouter round whose code OpenRouter's fake
+/// trades for `key`.
+async fn sign_in_openrouter(world: &World, label: Option<&str>, key: &str) -> ActionOutcome {
+    world.files.json(
+        "POST /api/v1/auth/keys",
+        200,
+        &json!({"key": key, "user_id": "user-example"}),
+    );
+    let begun = world
+        .act(ModelAction::BeginOpenRouterSignIn {
+            label: label.map(str::to_owned),
+            limit_cents: Some(2_500),
+        })
+        .await;
+    let ActionOutcome::SignIn { sign_in, url, .. } = begun else {
+        panic!("no round: {begun:?}");
+    };
+    assert!(
+        url.starts_with(&format!("{}/auth?", world.files.base)),
+        "{url}"
+    );
+    assert!(url.contains("limit=25.00"), "{url}");
+    world
+        .act(ModelAction::FinishOpenRouterSignIn {
+            sign_in,
+            code: Secret::new("code-example".into()),
+        })
+        .await
+}
+
+#[tokio::test]
+async fn sign_in_with_openrouter_keeps_its_key_on_one_server() {
+    let world = World::new(RuntimeSupport::UrlOnly).await;
+    world.files.json(
+        "/api/v1/models",
+        200,
+        &json!({"data": [{"id": "z-ai/glm-5.3-flash", "name": "Z.ai: GLM 5.3 Flash"}]}),
+    );
+    world.files.json(
+        "/api/v1/key",
+        200,
+        &json!({"data": {"usage": 2.58, "usage_daily": 0.31, "usage_weekly": 1.2, "usage_monthly": 2.58, "limit": 10, "limit_remaining": 7.42, "limit_reset": "monthly"}}),
+    );
+    openrouter::fakes::add(&world.files.base);
+    let credit_reads = || {
+        world
+            .files
+            .seen()
+            .iter()
+            .filter(|seen| seen.path == "/api/v1/key")
+            .count()
+    };
+    let added = sign_in_openrouter(&world, None, "sk-or-v1-first").await;
+    let ActionOutcome::ModelServerAdded { server: id } = added else {
+        panic!("not added: {added:?}");
+    };
+    let server = world.server(id).unwrap();
+    assert_eq!(server.label, "OpenRouter");
+    let base = format!("{}/api", world.files.base);
+    assert_eq!(server.base_url.as_deref(), Some(base.as_str()));
+    assert!(server.token);
+    assert!(server.probe.is_some(), "tested once it's added");
+    let account = world.service.account_of(id);
+    assert_eq!(
+        world.service.login(account).unwrap().token.expose(),
+        "sk-or-v1-first"
+    );
+    let listed = world.files.seen();
+    let models = listed
+        .iter()
+        .rfind(|seen| seen.path == "/api/v1/models")
+        .unwrap();
+    assert_eq!(
+        models.header("authorization"),
+        Some("Bearer sk-or-v1-first")
+    );
+    // Its credits are read once it's added, as for a server you add.
+    let credits = world.server(id).unwrap().credits.unwrap();
+    assert_eq!(credits.used_cents, 258);
+    assert_eq!(credits.limit_cents, Some(1_000));
+    assert_eq!(credit_reads(), 1);
+
+    // Sign in again gives the same server the new key, and its name stays.
+    let again = sign_in_openrouter(&world, Some("Renamed"), "sk-or-v1-second").await;
+    assert_eq!(again, ActionOutcome::ModelServerAdded { server: id });
+    assert_eq!(world.server(id).unwrap().label, "OpenRouter");
+    assert_eq!(
+        world.service.login(account).unwrap().token.expose(),
+        "sk-or-v1-second"
+    );
+    // The new key's credits are read too.
+    assert_eq!(credit_reads(), 2);
+    let read = world
+        .files
+        .seen()
+        .into_iter()
+        .rfind(|seen| seen.path == "/api/v1/key")
+        .unwrap();
+    assert_eq!(read.header("authorization"), Some("Bearer sk-or-v1-second"));
+    let records = world.db.model_servers().unwrap();
+    assert_eq!(records.len(), 1);
+    assert!(!records[0].contains("sk-or-v1"), "{}", records[0]);
+
+    // A code OpenRouter refuses changes nothing.
+    world.files.json(
+        "POST /api/v1/auth/keys",
+        403,
+        &json!({"error": {"message": "Invalid code or code_verifier"}}),
+    );
+    let ActionOutcome::SignIn { sign_in, .. } = world
+        .act(ModelAction::BeginOpenRouterSignIn {
+            label: None,
+            limit_cents: None,
+        })
+        .await
+    else {
+        panic!("no round");
+    };
+    let refused = world
+        .act(ModelAction::FinishOpenRouterSignIn {
+            sign_in,
+            code: Secret::new("code-example".into()),
+        })
+        .await;
+    assert!(refusal(&refused).contains("10 minutes"));
+    assert_eq!(
+        world.service.login(account).unwrap().token.expose(),
+        "sk-or-v1-second"
+    );
+}
+
+#[tokio::test]
+async fn a_spending_limit_openrouter_cant_take_starts_no_round() {
+    let world = World::new(RuntimeSupport::UrlOnly).await;
+    let refused = world
+        .act(ModelAction::BeginOpenRouterSignIn {
+            label: None,
+            limit_cents: Some(0),
+        })
+        .await;
+    assert!(refusal(&refused).contains("spending limit"));
 }
 
 #[tokio::test]
@@ -952,7 +1097,7 @@ async fn open_router() -> Fake {
         200,
         &json!({"data": {"usage": 2.58, "usage_daily": 0.31, "usage_weekly": 1.2, "usage_monthly": 2.58, "limit": 10, "limit_remaining": 7.42, "limit_reset": "monthly"}}),
     );
-    cloud::fakes::add(&fake.base);
+    openrouter::fakes::add(&fake.base);
     fake
 }
 

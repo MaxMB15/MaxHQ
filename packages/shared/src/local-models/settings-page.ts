@@ -34,7 +34,6 @@ import {
 	urlParts,
 } from "./wording";
 import {
-	CLOUD_SERVERS_SINCE,
 	type DeviceHardware,
 	type DeviceId,
 	type KvCacheType,
@@ -50,7 +49,7 @@ import type { Option } from "../new-agent/spec";
 import { isThisMac } from "../settings/app-keys";
 import type { Tone } from "../tasks/format";
 import { all, type ViewState } from "../view/replica";
-import { deviceName, linkForDevice } from "../view/select";
+import { deviceName } from "../view/select";
 
 // Devices
 
@@ -460,15 +459,6 @@ export const addServerAction = (
 	token: token.trim() || null,
 	...(cloud ? { cloud: true } : {}),
 });
-
-/**
- * Whether a device's `maxd` knows cloud services, so the form offers the
- * Cloud service switch. An older one runs every server as Local.
- */
-export const takesCloudServers = (view: ViewState, device: DeviceId): boolean => {
-	const protocol = linkForDevice(view, device)?.protocol ?? null;
-	return protocol !== null && protocol >= CLOUD_SERVERS_SINCE;
-};
 
 /** What the Cloud service switch says. */
 export const cloudSwitchLabel = (): string => t("Cloud service");

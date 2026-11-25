@@ -8,9 +8,16 @@ import App from "@/App";
 import { ServicesProvider } from "@/app/services";
 import { mockSource } from "@/data/mock-source";
 import { openSettingsWindow } from "@/test/settings";
-import type { Entity } from "@maxhq/shared/bindings";
-import type { DataSource } from "@maxhq/shared/data/source";
-import { DOWNLOADING_MODEL, MAC_SERVER, OLLAMA_URL } from "@maxhq/shared/data/mock-local-models";
+import { CLOUD_SERVERS_SINCE, type Entity } from "@maxhq/shared/bindings";
+import type { ActionResult, DataSource } from "@maxhq/shared/data/source";
+import {
+	DEVBOX_OPENROUTER_SERVER,
+	DOWNLOADING_MODEL,
+	MAC_SERVER,
+	OLLAMA_URL,
+	OPENROUTER_SERVER,
+} from "@maxhq/shared/data/mock-local-models";
+import { OPENROUTER_URL } from "@maxhq/shared/local-models/openrouter";
 import { DEVBOX, MAC } from "@maxhq/shared/data/mock-view";
 import { FixedNow } from "@maxhq/shared/lib/clock";
 import { NOW } from "@maxhq/shared/test/build";
@@ -381,5 +388,256 @@ describe("the Local models page", () => {
 			await screen.findByText("devbox's maxd is too old for these. Update it first.")
 		).toBeInTheDocument();
 		expect(screen.queryByRole("region", { name: "Servers" })).toBeNull();
+	});
+});
+
+describe("OpenRouter in the Servers card", () => {
+	const openForm = async () => {
+		fireEvent.click(
+			within(await screen.findByRole("region", { name: "Servers" })).getByRole("button", {
+				name: "Add server URL",
+			})
+		);
+		return group("Add server URL");
+	};
+
+	/** The form, with OpenRouter chosen. */
+	const openOpenRouter = async () => {
+		const form = await openForm();
+		const kinds = within(form.getByRole("group", { name: "Kind of server" }));
+		expect(kinds.getByRole("button", { name: "Your own server" })).toHaveAttribute(
+			"aria-pressed",
+			"true"
+		);
+		fireEvent.click(kinds.getByRole("button", { name: "OpenRouter" }));
+		expect(kinds.getByRole("button", { name: "OpenRouter" })).toHaveAttribute(
+			"aria-pressed",
+			"true"
+		);
+		return form;
+	};
+
+	// The mock source with the Mac's maxd from before cloud servers.
+	const beforeSignIn = (source: DataSource): DataSource => ({
+		...source,
+		snapshot: async () => {
+			const snapshot = await source.snapshot();
+			const entities = snapshot.entities.map((e): Entity =>
+				e.entity === "device_link" && e.device === MAC
+					? { ...e, protocol: CLOUD_SERVERS_SINCE - 1 }
+					: e
+			);
+			return { ...snapshot, entities };
+		},
+	});
+
+	it("sets OpenRouter's URL and offers Sign in first, then a pasted key", async () => {
+		renderPage();
+		const form = await openOpenRouter();
+		expect(form.queryByRole("textbox", { name: "URL" })).toBeNull();
+		expect(form.queryByRole("textbox", { name: "Name" })).toBeNull();
+		expect(form.getByText(OPENROUTER_URL)).toHaveClass("selectable");
+		// The Mac has an OpenRouter server, which a sign-in gives a new key.
+		expect(
+			form.getByText("Signing in gives OpenRouter on this device a new key.")
+		).toBeInTheDocument();
+		// maxd knows OpenRouter is a cloud service, so there's no switch.
+		expect(form.queryByRole("switch", { name: "Cloud service" })).toBeNull();
+		expect(form.getByRole("textbox", { name: "Spending limit" })).toHaveValue("");
+		expect(form.getByText("OpenRouter stops this key at the limit")).toBeInTheDocument();
+		expect(form.getByRole("button", { name: "Sign in with OpenRouter" })).toBeEnabled();
+		expect(form.getByText("Or paste an API key")).toBeInTheDocument();
+		expect(form.getByRole("link", { name: "Get a key" })).toHaveAttribute(
+			"href",
+			"https://openrouter.ai/settings/keys"
+		);
+		expect(form.getByLabelText("API key")).toHaveAttribute("type", "password");
+		// Test and Add wait for a key.
+		expect(form.getByRole("button", { name: "Test" })).toBeDisabled();
+		expect(form.getByRole("button", { name: "Add" })).toBeDisabled();
+
+		// Back to your own server, with its fields empty.
+		fireEvent.click(form.getByRole("button", { name: "Your own server" }));
+		expect(form.getByRole("textbox", { name: "URL" })).toHaveValue("");
+		expect(form.queryByRole("button", { name: "Sign in with OpenRouter" })).toBeNull();
+		expect(form.getByRole("switch", { name: "Cloud service" })).not.toBeChecked();
+	});
+
+	it("says a limit it can't send, and keeps Sign in off", async () => {
+		renderPage();
+		const form = await openOpenRouter();
+		const limit = form.getByRole("textbox", { name: "Spending limit" });
+		fireEvent.change(limit, { target: { value: "ten" } });
+		expect(form.getByText("Type an amount in dollars, such as 25 or 12.50.")).toHaveClass(
+			"text-status-error-text"
+		);
+		expect(limit).toHaveAttribute("aria-invalid", "true");
+		expect(form.getByRole("button", { name: "Sign in with OpenRouter" })).toBeDisabled();
+		fireEvent.change(limit, { target: { value: "12.50" } });
+		expect(form.getByRole("button", { name: "Sign in with OpenRouter" })).toBeEnabled();
+	});
+
+	it("waits for the browser, says why a round failed, and closes once one works", async () => {
+		const source = renderPage();
+		const signIn = vi.spyOn(source, "signInOpenRouter");
+		const form = await openOpenRouter();
+		fireEvent.change(form.getByRole("textbox", { name: "Spending limit" }), {
+			target: { value: "$25" },
+		});
+		fireEvent.click(form.getByRole("button", { name: "Sign in with OpenRouter" }));
+		expect(signIn).toHaveBeenCalledWith(MAC, 2500);
+		expect(await form.findByText("Finish signing in in your browser")).toBeInTheDocument();
+		expect(form.getByRole("textbox", { name: "Spending limit" })).toBeDisabled();
+		expect(form.queryByRole("button", { name: "Sign in with OpenRouter" })).toBeNull();
+
+		// The sample's first round fails the way an expired code does.
+		expect(await form.findByText(/start the sign-in again\.$/)).toHaveClass(
+			"text-status-error-text"
+		);
+		fireEvent.click(form.getByRole("button", { name: "Try again" }));
+		await waitFor(() =>
+			expect(screen.queryByRole("group", { name: "Add server URL" })).toBeNull()
+		);
+		expect(signIn).toHaveBeenCalledTimes(2);
+		// The round gave the Mac's OpenRouter server its key, and added none.
+		expect((await group("OpenRouter")).getByText(OPENROUTER_URL)).toBeInTheDocument();
+		expect(screen.getAllByRole("group", { name: "OpenRouter" })).toHaveLength(1);
+	});
+
+	it("cancels a round that waits, and one whose form closes", async () => {
+		// A round that waits until it's cancelled, however slow the run is.
+		let stop: (() => void) | null = null;
+		const source = renderPage(
+			mock((s) => ({
+				...s,
+				signInOpenRouter: () =>
+					new Promise<ActionResult>((resolve) => {
+						stop = () =>
+							resolve({
+								status: "error",
+								error: { kind: "failed", message: "You cancelled the sign-in" },
+							});
+					}),
+				cancelSignIn: async () => {
+					stop?.();
+					return { status: "ok", data: null };
+				},
+			}))
+		);
+		const cancel = vi.spyOn(source, "cancelSignIn");
+		const form = await openOpenRouter();
+		fireEvent.click(form.getByRole("button", { name: "Sign in with OpenRouter" }));
+		fireEvent.click(await form.findByRole("button", { name: "Cancel the sign-in" }));
+		expect(cancel).toHaveBeenCalledTimes(1);
+		// A cancelled round says nothing and starts over.
+		expect(
+			await form.findByRole("button", { name: "Sign in with OpenRouter" })
+		).toBeInTheDocument();
+		expect(form.queryByText("Finish signing in in your browser")).toBeNull();
+		expect(form.queryByRole("status")).toBeNull();
+
+		fireEvent.click(form.getByRole("button", { name: "Sign in with OpenRouter" }));
+		await form.findByText("Finish signing in in your browser");
+		fireEvent.click(form.getByRole("button", { name: "Cancel" }));
+		await waitFor(() =>
+			expect(screen.queryByRole("group", { name: "Add server URL" })).toBeNull()
+		);
+		expect(cancel).toHaveBeenCalledTimes(2);
+	});
+
+	it("tests and adds a pasted key at OpenRouter's URL", async () => {
+		// devbox without its OpenRouter server.
+		const source = mock();
+		await source.modelAction(DEVBOX, {
+			action: "remove_server",
+			server: DEVBOX_OPENROUTER_SERVER,
+		});
+		renderPage(source);
+		const act = vi.spyOn(source, "modelAction");
+		await showDevbox();
+		const form = await openOpenRouter();
+		expect(form.queryByText(/a new key\.$/)).toBeNull();
+		const key = form.getByLabelText("API key") as HTMLInputElement;
+		fireEvent.change(key, { target: { value: "sk-or-v1-sample" } });
+		fireEvent.input(key);
+		fireEvent.click(form.getByRole("button", { name: "Test" }));
+		const found = within(await form.findByRole("status", { name: "What the test found" }));
+		expect(act).toHaveBeenCalledWith(DEVBOX, {
+			action: "probe_server",
+			url: OPENROUTER_URL,
+			token: "sk-or-v1-sample",
+		});
+		expect(found.getByText(/^Offers /)).toBeInTheDocument();
+		expect(found.getByText(/^Works with cloud agents/)).toBeInTheDocument();
+		expect(form.getByRole("button", { name: "Add" })).not.toHaveClass("bg-primary");
+
+		fireEvent.click(form.getByRole("button", { name: "Add" }));
+		await waitFor(() =>
+			expect(act).toHaveBeenLastCalledWith(DEVBOX, {
+				action: "add_server",
+				label: "OpenRouter",
+				url: OPENROUTER_URL,
+				token: "sk-or-v1-sample",
+			})
+		);
+		expect(key.value).toBe("");
+		expect(document.body.textContent).not.toContain("sk-or-v1-sample");
+		await waitFor(() =>
+			expect(screen.queryByRole("group", { name: "Add server URL" })).toBeNull()
+		);
+	});
+
+	it("offers an older maxd a pasted key only", async () => {
+		renderPage(mock(beforeSignIn));
+		const form = await openOpenRouter();
+		expect(
+			form.getByText("Update this device's maxd to sign in with OpenRouter.")
+		).toBeInTheDocument();
+		// It can't sign in, so it doesn't say a sign-in replaces the key.
+		expect(form.queryByText(/a new key\.$/)).toBeNull();
+		expect(form.queryByRole("button", { name: "Sign in with OpenRouter" })).toBeNull();
+		expect(form.queryByRole("textbox", { name: "Spending limit" })).toBeNull();
+		expect(form.getByText("Paste an API key")).toBeInTheDocument();
+		expect(form.getByRole("button", { name: "Add" })).toHaveClass("bg-primary");
+		// Nor does its OpenRouter server's row offer Sign in again.
+		const row = await group("OpenRouter");
+		expect(row.queryByRole("button", { name: "Sign in again" })).toBeNull();
+	});
+
+	it("signs the OpenRouter server's row in again, keeping the server", async () => {
+		const source = renderPage();
+		const signIn = vi.spyOn(source, "signInOpenRouter");
+		const row = await group("OpenRouter");
+		expect(row.getByText(OPENROUTER_URL)).toBeInTheDocument();
+		// Sign in again sits with the row's other buttons, its credits kept.
+		expect(row.getByRole("button", { name: "Test" })).toBeInTheDocument();
+		expect(row.getByRole("button", { name: "Remove" })).toBeInTheDocument();
+		expect(row.getByText(/\$7\.42 left of \$10\.00/)).toBeInTheDocument();
+		fireEvent.click(row.getByRole("button", { name: "Sign in again" }));
+		expect(signIn).toHaveBeenCalledWith(MAC, null);
+		expect(await row.findByText("Finish signing in in your browser")).toBeInTheDocument();
+		expect(await row.findByText(/start the sign-in again\.$/)).toBeInTheDocument();
+		fireEvent.click(row.getByRole("button", { name: "Sign in again" }));
+		expect(
+			await row.findByText(
+				"Signed in with a new key. You can revoke the old one on OpenRouter's keys page."
+			)
+		).toBeInTheDocument();
+		const servers = (await source.snapshot()).entities.filter(
+			(e) => e.entity === "model_server" && e.device === MAC
+		);
+		expect(servers.map((e) => e.entity === "model_server" && e.id)).toContain(
+			OPENROUTER_SERVER
+		);
+		expect(row.getByText(/\$7\.42 left of \$10\.00/)).toBeInTheDocument();
+		// The form says a sign-in gives that server a new key.
+		const form = await openOpenRouter();
+		expect(
+			form.getByText("Signing in gives OpenRouter on this device a new key.")
+		).toBeInTheDocument();
+		// Only OpenRouter's row offers Sign in again.
+		expect(
+			(await group("Run by MaxHQ")).queryByRole("button", { name: "Sign in again" })
+		).toBeNull();
 	});
 });

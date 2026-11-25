@@ -10,13 +10,16 @@
 // into the test or the add, and Add clears it; no state, log or note keeps
 // it, and a reply that echoes it shows `<secret>`. Plain http to another
 // machine is still allowed, with the risk named on the row and in the form.
-// A cloud server's row shows its credits, and OpenRouter's its admin key.
-// Under the managed server, a switch says whether linked devices' Local
-// agents may use its models over their maxd link. A Cloud service switch
-// in the form marks a hosted API, which follows what Test found until it's
-// touched.
+// The form's choice at the top picks your own server or OpenRouter, whose
+// URL is set and which signs in or takes a pasted key; its parts are in
+// local-models-openrouter. A Cloud service switch on your own server marks
+// a hosted API, which follows what Test found until it's touched; maxd
+// marks OpenRouter one by its host, so its choice has no switch. A cloud
+// server's row shows its credits, and OpenRouter's its admin key and Sign
+// in again. Under the managed server, a switch says whether linked
+// devices' Local agents may use its models over their maxd link.
 
-import { Fragment, useRef, useState } from "react";
+import { Fragment, type ReactNode, useRef, useState } from "react";
 
 import { useServices, useView } from "@/app/services";
 import { Switch } from "@/components/ui/switch";
@@ -25,7 +28,8 @@ import { Badge } from "@/tasks/activity";
 import type { DeviceId, ModelServer } from "@maxhq/shared/bindings";
 import type { ActionResult } from "@maxhq/shared/data/source";
 import { t as translate, useI18n } from "@maxhq/shared/i18n";
-import { serversOf } from "@maxhq/shared/local-models/select";
+import { OPENROUTER_LABEL, OPENROUTER_URL } from "@maxhq/shared/local-models/openrouter";
+import { serversOf, takesCloudServers } from "@maxhq/shared/local-models/select";
 import {
 	addedServerOf,
 	addServerAction,
@@ -40,7 +44,6 @@ import {
 	probeSummary,
 	removeServerQuestion,
 	serverUrlProblem,
-	takesCloudServers,
 	typedNotEncrypted,
 } from "@maxhq/shared/local-models/settings-page";
 import {
@@ -64,6 +67,12 @@ import {
 } from "./controls";
 import { useModelAction } from "./local-models-catalog";
 import { AdminKey, CreditsLine } from "./local-models-credits";
+import {
+	OpenRouterSignIn,
+	ServerChoice,
+	type ServerKind,
+	useSignInAgain,
+} from "./local-models-openrouter";
 import { SecretField } from "./login-parts";
 import { failureOf, type Note, scrub } from "./result";
 
@@ -158,6 +167,7 @@ const ExternalRow = ({
 	const { busy, note, send } = useModelAction(device);
 	const flavor = server.kind.type === "external" ? server.kind.flavor : null;
 	const off = disabled !== null || busy;
+	const again = useSignInAgain(device, server, off);
 	return (
 		<div
 			role="group"
@@ -184,11 +194,13 @@ const ExternalRow = ({
 				{server.token ? (
 					<span className="text-muted-foreground">{translate("Sends a token")}</span>
 				) : null}
+				{again.line}
 				<CreditsLine server={server} />
 				<AdminKey device={device} server={server} disabled={off} />
 			</div>
 			<div className="flex shrink-0 items-center gap-2.5">
 				<StatusNote note={note} />
+				{again.button}
 				<button
 					type="button"
 					className={SECONDARY}
@@ -209,32 +221,56 @@ const ExternalRow = ({
 	);
 };
 
+/** A server the form knows, such as OpenRouter's: its name and URL are set, and it asks only for a key. */
+type ServerPreset = {
+	readonly label: string;
+	readonly url: string;
+	/** The key field's name. */
+	readonly keyLabel: string;
+	/** Whether a sign-in above is the form's main button, so Add isn't. */
+	readonly signIn: boolean;
+};
+
 /**
- * The form that adds a server URL. Test asks the device what answers at the
- * URL and shows it, keeping nothing; Add saves the server, and Cancel closes
- * the form. Changing the URL or the token clears what the last Test found.
- * The Cloud service switch, shown when the device's maxd takes it, follows
- * what Test found until it's touched.
+ * The fields and buttons that add a server URL. Test asks the device what
+ * answers at the URL and shows it, keeping nothing; Add saves the server,
+ * and Cancel closes the form. Changing the URL or the token clears what the
+ * last Test found. The Cloud service switch, shown when the device's maxd
+ * takes it, follows what Test found until it's touched. With a preset,
+ * they ask only for the preset's key, which Test and Add need, and show no
+ * switch: maxd knows a preset's host.
  */
-const AddServerForm = ({ device, onClose }: { device: DeviceId; onClose: () => void }) => {
+const AddServerForm = ({
+	device,
+	onClose,
+	top,
+	preset,
+}: {
+	device: DeviceId;
+	onClose: () => void;
+	/** What goes above the fields, such as OpenRouter's sign-in. */
+	top?: ReactNode;
+	preset?: ServerPreset;
+}) => {
 	useI18n();
 	const services = useServices();
 	const { source } = services;
 	const token = useRef<HTMLInputElement>(null);
-	const [label, setLabel] = useState("");
-	const [url, setUrl] = useState("");
+	const [label, setLabel] = useState(preset?.label ?? "");
+	const [url, setUrl] = useState(preset?.url ?? "");
+	const [typed, setTyped] = useState(false);
 	const [found, setFound] = useState<ProbeFindings | null>(null);
 	const [busy, setBusy] = useState(false);
 	const [note, setNote] = useState<Note | null>(null);
 	const [cloud, setCloud] = useState(false);
 	const [cloudTouched, setCloudTouched] = useState(false);
-	const cloudSwitch = useView((s) => takesCloudServers(s.view, device));
+	const cloudSwitch = useView((s) => takesCloudServers(s.view, device)) && !preset;
 	// A known cloud host is one whatever the switch says, as maxd marks it.
 	const summary = found
 		? probeSummary({ probe: found.probe, cloud: found.cloud || (cloudSwitch && cloud) })
 		: null;
 	const problem = serverUrlProblem(url);
-	const ready = canAddServer(url) && !busy;
+	const ready = canAddServer(url) && !busy && (!preset || typed);
 
 	/** Sends one action, and says why it failed. */
 	const run = async (
@@ -280,6 +316,7 @@ const AddServerForm = ({ device, onClose }: { device: DeviceId; onClose: () => v
 		const input = token.current;
 		const secret = input?.value.trim() ?? "";
 		if (input) input.value = "";
+		setTyped(false);
 		const result = await run(
 			() =>
 				source.modelAction(
@@ -292,46 +329,48 @@ const AddServerForm = ({ device, onClose }: { device: DeviceId; onClose: () => v
 	};
 
 	return (
-		<div
-			role="group"
-			aria-label={translate("Add server URL")}
-			className="flex flex-col gap-3 border-t border-sidebar-border px-4 py-3"
-		>
-			<div className="grid grid-cols-2 gap-3">
-				<label className="flex flex-col gap-1.5">
-					<Label>{translate("Name")}</Label>
-					<input
-						aria-label={translate("Name")}
-						value={label}
-						placeholder={translate("Ollama on devbox")}
-						onChange={(e) => setLabel(e.target.value)}
-						spellCheck={false}
-						autoComplete="off"
-						className={FIELD}
-					/>
-				</label>
-				<label className="flex flex-col gap-1.5">
-					<Label>{translate("URL")}</Label>
-					<input
-						aria-label={translate("URL")}
-						value={url}
-						placeholder="http://devbox:11434"
-						onChange={(e) => {
-							setUrl(e.target.value);
-							setFound(null);
-						}}
-						spellCheck={false}
-						autoComplete="off"
-						autoCapitalize="off"
-						autoCorrect="off"
-						className={cn(FIELD, "font-mono text-xs")}
-					/>
-				</label>
-			</div>
+		<>
+			{top}
+			{preset ? null : (
+				<div className="grid grid-cols-2 gap-3">
+					<label className="flex flex-col gap-1.5">
+						<Label>{translate("Name")}</Label>
+						<input
+							aria-label={translate("Name")}
+							value={label}
+							placeholder={translate("Ollama on devbox")}
+							onChange={(e) => setLabel(e.target.value)}
+							spellCheck={false}
+							autoComplete="off"
+							className={FIELD}
+						/>
+					</label>
+					<label className="flex flex-col gap-1.5">
+						<Label>{translate("URL")}</Label>
+						<input
+							aria-label={translate("URL")}
+							value={url}
+							placeholder="http://devbox:11434"
+							onChange={(e) => {
+								setUrl(e.target.value);
+								setFound(null);
+							}}
+							spellCheck={false}
+							autoComplete="off"
+							autoCapitalize="off"
+							autoCorrect="off"
+							className={cn(FIELD, "font-mono text-xs")}
+						/>
+					</label>
+				</div>
+			)}
 			<SecretField
 				field={token}
-				onTyped={() => setFound(null)}
-				label={translate("Token, if the server asks for one")}
+				onTyped={(any) => {
+					setTyped(any);
+					setFound(null);
+				}}
+				label={preset?.keyLabel ?? translate("Token, if the server asks for one")}
 				placeholder={translate("Kept by maxd, never shown again")}
 			/>
 			{cloudSwitch ? (
@@ -396,13 +435,56 @@ const AddServerForm = ({ device, onClose }: { device: DeviceId; onClose: () => v
 				</button>
 				<button
 					type="button"
-					className={PRIMARY}
+					className={preset?.signIn ? SECONDARY : PRIMARY}
 					disabled={!ready}
 					onClick={() => void add()}
 				>
 					{translate("Add")}
 				</button>
 			</div>
+		</>
+	);
+};
+
+/**
+ * The form that adds a server, with the choice at its top: your own server
+ * at a URL, or OpenRouter, which signs in or takes a pasted key. Each
+ * choice starts with its fields empty.
+ */
+const AddServer = ({
+	device,
+	view,
+	onClose,
+}: {
+	device: DeviceId;
+	view: ViewState;
+	onClose: () => void;
+}) => {
+	useI18n();
+	const [kind, setKind] = useState<ServerKind>("own");
+	return (
+		<div
+			role="group"
+			aria-label={translate("Add server URL")}
+			className="flex flex-col gap-3 border-t border-sidebar-border px-4 py-3"
+		>
+			<ServerChoice value={kind} onChange={setKind} />
+			{kind === "own" ? (
+				<AddServerForm key={kind} device={device} onClose={onClose} />
+			) : (
+				<AddServerForm
+					key={kind}
+					device={device}
+					onClose={onClose}
+					preset={{
+						label: OPENROUTER_LABEL,
+						url: OPENROUTER_URL,
+						keyLabel: translate("API key"),
+						signIn: takesCloudServers(view, device),
+					}}
+					top={<OpenRouterSignIn device={device} view={view} onSignedIn={onClose} />}
+				/>
+			)}
 		</div>
 	);
 };
@@ -482,7 +564,7 @@ export const ServersSection = ({
 				</p>
 			) : null}
 			{adding && disabled === null ? (
-				<AddServerForm device={device} onClose={() => onAdding(false)} />
+				<AddServer device={device} view={view} onClose={() => onAdding(false)} />
 			) : (
 				<div className="flex items-center gap-2.5 border-t border-sidebar-border px-4 py-3">
 					<button

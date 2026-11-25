@@ -47,15 +47,16 @@ import {
 } from "../status/agent-kind";
 import { all, type ViewState } from "../view/replica";
 import { deviceName, linkForDevice } from "../view/select";
-import type {
-	Account,
-	AccountId,
-	Agent,
-	CatalogFile,
-	CatalogModel,
-	DeviceId,
-	ModelFile,
-	ModelServer,
+import {
+	CLOUD_SERVERS_SINCE,
+	type Account,
+	type AccountId,
+	type Agent,
+	type CatalogFile,
+	type CatalogModel,
+	type DeviceId,
+	type ModelFile,
+	type ModelServer,
 } from "../bindings";
 import type { DeviceFields } from "../settings/device-settings";
 
@@ -84,6 +85,16 @@ export {
 /** Whether a device's `maxd` runs local models: their servers, downloads and loads. */
 export const runsLocalModels = (view: ViewState, device: DeviceId): boolean =>
 	linkForDevice(view, device)?.capabilities?.local_models === true;
+
+/**
+ * Whether a device's `maxd` knows cloud services: the Cloud service switch,
+ * credits and admin keys, and Sign in with OpenRouter. An older one runs
+ * every server as Local.
+ */
+export const takesCloudServers = (view: ViewState, device: DeviceId): boolean => {
+	const protocol = linkForDevice(view, device)?.protocol ?? null;
+	return protocol !== null && protocol >= CLOUD_SERVERS_SINCE;
+};
 
 /** A device's local model settings, with the defaults filled in. */
 export const localSettingsOn = (view: ViewState, device: DeviceId): LocalSettings =>

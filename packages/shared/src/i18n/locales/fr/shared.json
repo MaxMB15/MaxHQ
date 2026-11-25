@@ -1609,5 +1609,12 @@
 	"{{left}} left of {{total}}": "{{left}} restants sur {{total}}",
 	"{{server}} · {{credits}}": "{{server}} · {{credits}}",
 	"{{spent}} spent": "{{spent}} dépensés",
-	"{{spent}} today": "{{spent}} aujourd'hui"
+	"{{spent}} today": "{{spent}} aujourd'hui",
+	"Type an amount in dollars, such as 25 or 12.50.": "Saisissez un montant en dollars, par exemple 25 ou 12,50.",
+	"Type an amount above 0, or leave it empty for no limit.": "Saisissez un montant supérieur à 0, ou laissez vide pour aucune limite.",
+	"OpenRouter takes a limit below one million dollars.": "OpenRouter accepte une limite inférieure à un million de dollars.",
+	"Finish signing in in your browser": "Terminez la connexion dans votre navigateur",
+	"Signing in gives {{server}} on this device a new key.": "La connexion donne une nouvelle clé à {{server}} sur cet appareil.",
+	"Signed in with a new key. You can revoke the old one on OpenRouter's keys page.": "Connecté avec une nouvelle clé. Vous pouvez révoquer l'ancienne sur la page des clés d'OpenRouter.",
+	"Update this device's maxd to sign in with OpenRouter.": "Mettez à jour maxd sur cet appareil pour vous connecter avec OpenRouter."
 }

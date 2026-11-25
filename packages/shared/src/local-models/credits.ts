@@ -12,7 +12,6 @@
 import { t } from "../i18n";
 
 import {
-	CLOUD_SERVERS_SINCE,
 	type DeviceId,
 	type ModelAction,
 	type ModelServer,
@@ -23,8 +22,8 @@ import {
 import { formatAgo, formatDollars, formatWhen } from "../status/format";
 import type { WindowView } from "../status/usage";
 import { all, type ViewState } from "../view/replica";
-import { linkForDevice } from "../view/select";
-import { urlParts } from "./wording";
+import { isOpenRouterUrl } from "./openrouter";
+import { takesCloudServers } from "./select";
 
 /** Where OpenRouter makes management keys, the admin keys MaxHQ reads the balance with. */
 export const ADMIN_KEYS_URL = "https://openrouter.ai/settings/management-keys";
@@ -187,14 +186,6 @@ export const serverCreditRows = (view: ViewState, now: Timestamp): ServerCredits
 export const creditsShort = (server: Pick<ModelServer, "credits">): string | null =>
 	server.credits ? creditsView(server.credits, server.credits.at).short : null;
 
-/** Whether `url` is OpenRouter's, on `openrouter.ai` or one of its subdomains over https. */
-export const isOpenRouterUrl = (url: string | null | undefined): boolean => {
-	const parts = url ? urlParts(url) : null;
-	if (parts?.scheme !== "https") return false;
-	const host = parts.host.replace(/\.+$/, "");
-	return host === "openrouter.ai" || host.endsWith(".openrouter.ai");
-};
-
 /**
  * Whether a server's row offers an admin key for the account's balance: an
  * OpenRouter server with a token, on a device whose `maxd` keeps one, from
@@ -207,12 +198,8 @@ export const offersAdminKey = (
 	server: Pick<ModelServer, "base_url" | "token" | "admin_key">
 ): boolean => {
 	if (server.admin_key) return true;
-	const protocol = linkForDevice(view, device)?.protocol ?? null;
 	return (
-		protocol !== null &&
-		protocol >= CLOUD_SERVERS_SINCE &&
-		server.token === true &&
-		isOpenRouterUrl(server.base_url)
+		takesCloudServers(view, device) && server.token === true && isOpenRouterUrl(server.base_url)
 	);
 };
 

@@ -31,7 +31,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use specta::Type;
 
-use crate::ids::{DeviceId, ModelServerId};
+use crate::ids::{DeviceId, ModelServerId, SignInId};
 use crate::secret::Secret;
 use crate::state::{ToolPhase, ToolState};
 use crate::time::Timestamp;
@@ -693,6 +693,33 @@ pub enum ModelAction {
         /// The model's ID on that server.
         model: String,
     },
+    /// Starts a Sign in with OpenRouter round, which makes an OpenRouter
+    /// key for this device. `maxd` keeps the round's PKCE verifier and
+    /// answers [`crate::message::ActionOutcome::SignIn`] with the page to
+    /// open and the port the app listens on. Since protocol 65
+    /// ([`crate::message::CLOUD_SERVERS_SINCE`]).
+    BeginOpenRouterSignIn {
+        /// The name a new OpenRouter server gets, or `OpenRouter` with none.
+        /// One the device has already keeps its name.
+        #[serde(default)]
+        label: Option<String>,
+        /// The key's spending limit in US cents, which OpenRouter enforces,
+        /// or none for no limit.
+        #[serde(default)]
+        limit_cents: Option<u32>,
+    },
+    /// Finishes a Sign in with OpenRouter round with the code the browser
+    /// brought back. `maxd` trades it for a key, keeps the key in its
+    /// secrets store, and adds the OpenRouter server, or gives the
+    /// device's OpenRouter server the new key, then tests it. Answers
+    /// [`crate::message::ActionOutcome::ModelServerAdded`] with that
+    /// server. Since protocol 65 ([`crate::message::CLOUD_SERVERS_SINCE`]).
+    FinishOpenRouterSignIn {
+        /// The round, from its `SignIn` answer.
+        sign_in: SignInId,
+        /// The code the callback brought.
+        code: Secret,
+    },
 }
 
 /// What a local agent's server is doing for it, in its live state.
@@ -1072,6 +1099,47 @@ mod tests {
             ..server().models.remove(0)
         };
         assert_eq!(round_trip(&capped), capped);
+    }
+
+    #[test]
+    fn open_router_sign_in_rounds_wait_for_cloud_servers() {
+        assert_eq!(CLOUD_SERVERS_SINCE, 65);
+        let sign_in = SignInId::generate();
+        let actions = [
+            ModelAction::BeginOpenRouterSignIn {
+                label: Some("OpenRouter".into()),
+                limit_cents: Some(2_500),
+            },
+            ModelAction::BeginOpenRouterSignIn {
+                label: None,
+                limit_cents: None,
+            },
+            ModelAction::FinishOpenRouterSignIn {
+                sign_in,
+                code: Secret::new("example-code".into()),
+            },
+        ];
+        for action in actions {
+            let message = ClientMessage::ModelAction {
+                key: IdempotencyKey::generate(),
+                action: action.clone(),
+            };
+            assert_eq!(round_trip(&message), message);
+            assert_eq!(message.since(), CLOUD_SERVERS_SINCE);
+            assert!(!message.reaches(Some(CLOUD_SERVERS_SINCE - 1)));
+            assert!(message.reaches(Some(CLOUD_SERVERS_SINCE)));
+        }
+        // A begin with nothing chosen reads without its optional fields.
+        let read: ModelAction =
+            serde_json::from_value(serde_json::json!({"action": "begin_open_router_sign_in"}))
+                .unwrap();
+        assert_eq!(
+            read,
+            ModelAction::BeginOpenRouterSignIn {
+                label: None,
+                limit_cents: None,
+            }
+        );
     }
 
     #[test]

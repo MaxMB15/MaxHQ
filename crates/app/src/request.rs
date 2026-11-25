@@ -387,6 +387,24 @@ pub enum Request {
     /// callback included. It gives up after 10 minutes.
     #[cfg(feature = "desktop")]
     SignInChatgpt { device: DeviceId },
+    /// Runs a whole Sign in with OpenRouter round for a device, browser
+    /// and callback included. The device makes a key, which never leaves
+    /// it, and keeps it on its OpenRouter server, a new one named `label`
+    /// when it has none. OpenRouter stops the key at `limit_cents` when one
+    /// is given. It gives up after 10 minutes, or at `cancel_sign_in`.
+    /// Needs a `maxd` on protocol 65 or later.
+    #[cfg(feature = "desktop")]
+    SignInOpenrouter {
+        device: DeviceId,
+        #[serde(default)]
+        label: Option<String>,
+        #[serde(default)]
+        limit_cents: Option<u32>,
+    },
+    /// Ends the Sign in with OpenRouter round that waits for the browser,
+    /// if one does.
+    #[cfg(feature = "desktop")]
+    CancelSignIn,
     /// Sends a GitHub App to each device, one result for each, in order.
     /// The app reads the private key at `key_path`, a file you picked or
     /// dropped, so a window never holds it. It keeps no copy once it's
@@ -1068,6 +1086,10 @@ pub enum Response {
     StoreCursorKey(Vec<ActionReply>),
     #[cfg(feature = "desktop")]
     SignInChatgpt(ActionOutcome),
+    #[cfg(feature = "desktop")]
+    SignInOpenrouter(ActionOutcome),
+    #[cfg(feature = "desktop")]
+    CancelSignIn,
     SetGithubApp(Vec<ActionReply>),
     CheckGithubApp(ActionOutcome),
     SetApnsKey(Vec<ActionReply>),
@@ -1290,6 +1312,10 @@ impl Request {
             Self::StoreCursorKey { .. } => "store_cursor_key",
             #[cfg(feature = "desktop")]
             Self::SignInChatgpt { .. } => "sign_in_chatgpt",
+            #[cfg(feature = "desktop")]
+            Self::SignInOpenrouter { .. } => "sign_in_openrouter",
+            #[cfg(feature = "desktop")]
+            Self::CancelSignIn => "cancel_sign_in",
             Self::SetGithubApp { .. } => "set_github_app",
             Self::CheckGithubApp { .. } => "check_github_app",
             Self::SetApnsKey { .. } => "set_apns_key",
@@ -1512,6 +1538,10 @@ impl Response {
             Self::StoreCursorKey(_) => "store_cursor_key",
             #[cfg(feature = "desktop")]
             Self::SignInChatgpt(_) => "sign_in_chatgpt",
+            #[cfg(feature = "desktop")]
+            Self::SignInOpenrouter(_) => "sign_in_openrouter",
+            #[cfg(feature = "desktop")]
+            Self::CancelSignIn => "cancel_sign_in",
             Self::SetGithubApp(_) => "set_github_app",
             Self::CheckGithubApp(_) => "check_github_app",
             Self::SetApnsKey(_) => "set_apns_key",
@@ -2111,6 +2141,26 @@ impl<C: Connector> App<C> {
             Request::SignInChatgpt { device } => {
                 let outcome = signin::sign_in_chatgpt(devices, &*self.shell, device).await?;
                 Response::SignInChatgpt(outcome)
+            }
+            #[cfg(feature = "desktop")]
+            Request::SignInOpenrouter {
+                device,
+                label,
+                limit_cents,
+            } => {
+                self.view
+                    .read(|merge| check_can(merge, device, Needs::LocalModels))?;
+                let kind = signin::Kind::OpenRouter { label, limit_cents };
+                let waiting = &self.sign_ins;
+                let outcome =
+                    signin::sign_in_openrouter(devices, &*self.shell, device, kind, waiting)
+                        .await?;
+                Response::SignInOpenrouter(outcome)
+            }
+            #[cfg(feature = "desktop")]
+            Request::CancelSignIn => {
+                self.sign_ins.cancel();
+                Response::CancelSignIn
             }
             Request::SetGithubApp {
                 devices: to,
@@ -3691,6 +3741,9 @@ mod tests {
                 "token": "test-not-a-real-key",
             }),
             json!({"kind": "sign_in_chatgpt", "device": mac}),
+            json!({"kind": "sign_in_openrouter", "device": mac, "label": null,
+                "limit_cents": 2500}),
+            json!({"kind": "cancel_sign_in"}),
             json!({
                 "kind": "set_github_app",
                 "devices": [mac],
@@ -4673,7 +4726,7 @@ mod tests {
                 }
             }
         }
-        assert_eq!(kinds.len() + mac_only.len(), 167);
+        assert_eq!(kinds.len() + mac_only.len(), 169);
         // The harness has no maxd to install or uninstall, no timeline open, no
         // listening port, no setup waiting on a host key, no GitHub
         // sign-in to merge with, no skill proposal, no link or card waiting
