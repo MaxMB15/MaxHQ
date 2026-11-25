@@ -8,22 +8,20 @@
 use std::fs::{self, File, Metadata, OpenOptions};
 use std::io;
 use std::os::windows::fs::OpenOptionsExt;
-use std::os::windows::io::{AsRawHandle, FromRawHandle, OwnedHandle};
 use std::path::Path;
 use std::ptr;
 use std::time::SystemTime;
 
-use windows_sys::Win32::Foundation::HANDLE;
 use windows_sys::Win32::Security::Authorization::{SetSecurityInfo, SE_FILE_OBJECT};
 use windows_sys::Win32::Security::{
-    AddAccessAllowedAce, GetLengthSid, GetTokenInformation, InitializeAcl, TokenUser,
-    ACCESS_ALLOWED_ACE, ACL, ACL_REVISION, DACL_SECURITY_INFORMATION,
-    PROTECTED_DACL_SECURITY_INFORMATION, PSID, TOKEN_QUERY, TOKEN_USER,
+    AddAccessAllowedAce, InitializeAcl, ACCESS_ALLOWED_ACE, ACL, ACL_REVISION,
+    DACL_SECURITY_INFORMATION, PROTECTED_DACL_SECURITY_INFORMATION, PSID,
 };
 use windows_sys::Win32::Storage::FileSystem::{
     FILE_ALL_ACCESS, FILE_FLAG_BACKUP_SEMANTICS, FILE_WRITE_ATTRIBUTES, READ_CONTROL, WRITE_DAC,
 };
-use windows_sys::Win32::System::Threading::{GetCurrentProcess, OpenProcessToken};
+
+use crate::win;
 
 pub fn private_dir_all(path: &Path) -> io::Result<()> {
     fs::DirBuilder::new().recursive(true).create(path)
@@ -72,10 +70,8 @@ fn open_for_dacl(path: &Path, access: u32) -> io::Result<File> {
 #[allow(unsafe_code)]
 pub fn private_file(path: &Path) -> io::Result<()> {
     let file = open_for_dacl(path, READ_CONTROL | WRITE_DAC)?;
-    let user = User::current()?;
-    let sid = user.sid();
-    // SAFETY: `sid` points into `user`, which lives to the end.
-    let sid_size = unsafe { GetLengthSid(sid) } as usize;
+    let sid = own_sid()?;
+    let sid_size = win::own_user()?.len();
     // One ACL header and one entry, whose SID starts at its last u32.
     let size = (size_of::<ACL>() + size_of::<ACCESS_ALLOWED_ACE>() - size_of::<u32>() + sid_size)
         .next_multiple_of(size_of::<u32>());
@@ -96,7 +92,7 @@ pub fn private_file(path: &Path) -> io::Result<()> {
     // folder grants.
     let status = unsafe {
         SetSecurityInfo(
-            file.as_raw_handle() as HANDLE,
+            win::raw(&file),
             SE_FILE_OBJECT,
             DACL_SECURITY_INFORMATION | PROTECTED_DACL_SECURITY_INFORMATION,
             ptr::null_mut(),
@@ -111,61 +107,10 @@ pub fn private_file(path: &Path) -> io::Result<()> {
     Ok(())
 }
 
-/// The user this process runs as, as its token names them.
-struct User {
-    /// The TOKEN_USER and the SID after it, in u64s so the pointer in it
-    /// is aligned.
-    buffer: Vec<u64>,
-}
-
-impl User {
-    #[allow(unsafe_code)]
-    fn current() -> io::Result<User> {
-        let mut token: HANDLE = ptr::null_mut();
-        // SAFETY: GetCurrentProcess returns a pseudo handle that needs no
-        // closing, and the call writes one handle to `token`.
-        if unsafe { OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &mut token) } == 0 {
-            return Err(io::Error::last_os_error());
-        }
-        // SAFETY: `token` is open and nothing else owns it.
-        let token = unsafe { OwnedHandle::from_raw_handle(token) };
-        let mut needed = 0u32;
-        // SAFETY: a null buffer of size 0 only asks for the size.
-        unsafe {
-            GetTokenInformation(
-                token.as_raw_handle() as HANDLE,
-                TokenUser,
-                ptr::null_mut(),
-                0,
-                &mut needed,
-            )
-        };
-        if (needed as usize) < size_of::<TOKEN_USER>() {
-            return Err(io::Error::last_os_error());
-        }
-        let mut buffer = vec![0u64; (needed as usize).div_ceil(size_of::<u64>())];
-        // SAFETY: `buffer` holds at least `needed` bytes.
-        let ok = unsafe {
-            GetTokenInformation(
-                token.as_raw_handle() as HANDLE,
-                TokenUser,
-                buffer.as_mut_ptr().cast(),
-                needed,
-                &mut needed,
-            )
-        };
-        if ok == 0 {
-            return Err(io::Error::last_os_error());
-        }
-        Ok(User { buffer })
-    }
-
-    /// The user's SID, valid while `self` is.
-    #[allow(unsafe_code)]
-    fn sid(&self) -> PSID {
-        // SAFETY: GetTokenInformation wrote a TOKEN_USER at the start.
-        unsafe { (*self.buffer.as_ptr().cast::<TOKEN_USER>()).User.Sid }
-    }
+/// The SID of the user this process runs as, for a call that takes one.
+/// It lives as long as the process.
+fn own_sid() -> io::Result<PSID> {
+    Ok(win::own_user()?.as_ptr().cast_mut().cast())
 }
 
 /// Whether `path`'s DACL is protected and holds one entry, for this user.
@@ -182,14 +127,14 @@ pub fn is_private(path: &Path) -> io::Result<bool> {
     const ALLOWED: u8 = 0;
 
     let file = open_for_dacl(path, READ_CONTROL)?;
-    let user = User::current()?;
+    let sid = own_sid()?;
     let mut dacl: *mut ACL = ptr::null_mut();
     let mut descriptor: PSECURITY_DESCRIPTOR = ptr::null_mut();
     // SAFETY: the handle was opened with READ_CONTROL; the call writes
     // `dacl`, which points into `descriptor`, freed below.
     let status = unsafe {
         GetSecurityInfo(
-            file.as_raw_handle() as HANDLE,
+            win::raw(&file),
             SE_FILE_OBJECT,
             DACL_SECURITY_INFORMATION,
             ptr::null_mut(),
@@ -220,7 +165,7 @@ pub fn is_private(path: &Path) -> io::Result<bool> {
             && sizes.AceCount == 1
             && GetAce(dacl, 0, (&raw mut ace).cast()) != 0
             && (*ace).Header.AceType == ALLOWED
-            && EqualSid((&raw mut (*ace).SidStart).cast(), user.sid()) != 0
+            && EqualSid((&raw mut (*ace).SidStart).cast(), sid) != 0
     };
     // SAFETY: GetSecurityInfo allocated `descriptor` with LocalAlloc.
     unsafe { LocalFree(descriptor) };

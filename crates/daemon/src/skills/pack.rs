@@ -519,9 +519,8 @@ fn install(landing: &Landing) -> Result<(), Vec<String>> {
     let mut child = command
         .spawn()
         .map_err(|err| vec![format!("couldn't start the installer: {err}")])?;
-    // Windows can't take charge of the group yet, so a stop there reaches
-    // bash alone.
-    let _ = proc::adopt(child.id());
+    let _group = proc::adopt(child.id())
+        .map_err(|err| vec![format!("couldn't start the installer: {err}")])?;
     let started = Instant::now();
     let status = loop {
         match child.try_wait() {

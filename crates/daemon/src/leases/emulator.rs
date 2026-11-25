@@ -274,11 +274,17 @@ impl Android for HostAndroid {
         let mut child = tokio::process::Command::from(run)
             .spawn()
             .map_err(|err| format!("The emulator couldn't start: {err}"))?;
-        if let Some(Err(err)) = child.id().map(maxhq_os::proc::adopt) {
-            let _ = child.start_kill();
-            return Err(format!("The emulator couldn't start: {err}"));
-        }
-        Ok(Arc::new(HostProcess(Mutex::new(child))))
+        let group = match child.id().map(maxhq_os::proc::adopt).transpose() {
+            Ok(group) => group,
+            Err(err) => {
+                let _ = child.start_kill();
+                return Err(format!("The emulator couldn't start: {err}"));
+            }
+        };
+        Ok(Arc::new(HostProcess {
+            child: Mutex::new(child),
+            _group: group,
+        }))
     }
 
     fn port_free(&self, port: u16) -> bool {
@@ -290,16 +296,20 @@ impl Android for HostAndroid {
     }
 }
 
-/// An emulator process on this device.
-struct HostProcess(Mutex<tokio::process::Child>);
+/// An emulator process on this device, and the group that stops the qemu
+/// it starts with it.
+struct HostProcess {
+    child: Mutex<tokio::process::Child>,
+    _group: Option<maxhq_os::proc::Group>,
+}
 
 impl Process for HostProcess {
     fn exited(&self) -> bool {
-        !matches!(lock(&self.0).try_wait(), Ok(None))
+        !matches!(lock(&self.child).try_wait(), Ok(None))
     }
 
     fn kill(&self) {
-        let mut child = lock(&self.0);
+        let mut child = lock(&self.child);
         if let Some(pid) = child.id() {
             let _ = maxhq_os::proc::stop_group(pid, maxhq_os::proc::Stop::Hard);
         }

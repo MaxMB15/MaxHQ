@@ -5,8 +5,8 @@
 //! outlives `maxd`, and what a process ID runs.
 //!
 //! A group is a process group on Unix. On Windows it's a Job Object that
-//! [`adopt`] puts the child in, since Windows has no process groups that
-//! a signal reaches.
+//! [`adopt`] puts the child in before it runs, since Windows has no
+//! process groups that a signal reaches.
 
 use std::io;
 use std::path::PathBuf;
@@ -33,7 +33,10 @@ pub enum Stop {
 
 /// Starts a command's child in a group of its own, so [`stop_group`]
 /// reaches whatever it starts and a signal to this process's group
-/// doesn't reach it. On Windows this sets the command's creation flags.
+/// doesn't reach it. Hand the child to [`adopt`] once it started: on
+/// Windows it starts suspended, and runs only once it's in its job. This
+/// sets the command's creation flags there, so a caller with flags of its
+/// own passes [`GROUP_FLAGS`] with them instead.
 pub trait GroupExt {
     /// Makes the child the leader of a new group.
     fn own_group(&mut self) -> &mut Self;
@@ -51,11 +54,30 @@ impl GroupExt for tokio::process::Command {
     }
 }
 
+/// The creation flags [`GroupExt::own_group`] sets, for a command that
+/// sets flags of its own too.
+#[cfg(windows)]
+pub use windows::GROUP_FLAGS;
+
+/// A group [`adopt`] took charge of. [`stop_group`] reaches the group
+/// while this is held. Dropping it leaves the group running and frees
+/// what this process kept to find it: a Job Object's handle on Windows,
+/// nothing on Unix.
+#[must_use = "the group can't be stopped once this is dropped"]
+#[derive(Debug)]
+pub struct Group {
+    _kept: imp::Kept,
+}
+
 /// Takes charge of the group `leader` leads, a child just started through
-/// [`GroupExt::own_group`], so [`stop_group`] can stop it later. Unix made
-/// the group as the child started, so this does nothing there.
-pub fn adopt(leader: u32) -> io::Result<()> {
-    imp::adopt(leader)
+/// [`GroupExt::own_group`], so [`stop_group`] can stop it while the
+/// [`Group`] is held. On Windows this puts the child in a job of its own
+/// and then lets it run, so nothing it starts is outside the job. Unix
+/// made the group as the child started, so this does nothing there.
+///
+/// On an error the child was stopped before it ran anything.
+pub fn adopt(leader: u32) -> io::Result<Group> {
+    imp::adopt(leader).map(|kept| Group { _kept: kept })
 }
 
 /// Stops every process in the group `leader` leads.
@@ -163,7 +185,7 @@ mod tests {
                 .spawn()
                 .unwrap();
             let pid = child.id().unwrap();
-            adopt(pid).unwrap();
+            let _group = adopt(pid).unwrap();
             assert_eq!(cmdline(pid).await.unwrap().as_deref(), Some("sleep 30"));
             stop_group(pid, Stop::Hard).unwrap();
             assert!(!child.wait().await.unwrap().success());
@@ -218,7 +240,7 @@ mod tests {
                 .spawn()
                 .unwrap();
             let pid = child.id().unwrap();
-            adopt(pid).unwrap();
+            let _group = adopt(pid).unwrap();
             let line = cmdline(pid).await.unwrap().unwrap();
             assert!(
                 line.ends_with("ping -n 30 127.0.0.1 > nul & ping -n 30 127.0.0.1 > nul"),
@@ -242,7 +264,7 @@ mod tests {
             .spawn()
             .unwrap();
         let pid = child.id();
-        adopt(pid).unwrap();
+        let _group = adopt(pid).unwrap();
         // As a maxd that started later finds it: by its name, not the
         // handle this process kept. This one still holds its own.
         let (job, runs) = super::imp::job_by_name(pid).unwrap();
@@ -250,6 +272,45 @@ mod tests {
         drop(job);
         stop_group(pid, Stop::Hard).unwrap();
         assert_eq!(child.wait().unwrap().code(), Some(137));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn a_child_runs_once_its_adopted() {
+        let _forks = crate::forks();
+        let mut child = std::process::Command::new("cmd")
+            .args(["/c", "exit 3"])
+            .own_group()
+            .spawn()
+            .unwrap();
+        // Suspended until it's in its job, so it hasn't ended yet however
+        // long this waits.
+        std::thread::sleep(std::time::Duration::from_millis(300));
+        assert!(child.try_wait().unwrap().is_none());
+        let group = adopt(child.id()).unwrap();
+        assert_eq!(child.wait().unwrap().code(), Some(3));
+        drop(group);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn dropping_a_group_frees_its_job() {
+        let _forks = crate::forks();
+        let mut child = std::process::Command::new("ping")
+            .args(["-n", "30", "127.0.0.1"])
+            .stdout(std::process::Stdio::null())
+            .own_group()
+            .spawn()
+            .unwrap();
+        let pid = child.id();
+        let group = adopt(pid).unwrap();
+        assert!(super::imp::kept(pid));
+        drop(group);
+        assert!(!super::imp::kept(pid));
+        // The group runs on without it.
+        assert!(alive(pid));
+        stop(pid, Stop::Hard).unwrap();
+        child.wait().unwrap();
     }
 
     #[cfg(windows)]

@@ -249,8 +249,7 @@ struct Descriptor(PSECURITY_DESCRIPTOR);
 impl Descriptor {
     #[allow(unsafe_code)]
     fn for_this_user() -> io::Result<Self> {
-        let sid = win::sid_string(&win::own_user()?)?;
-        let sddl = win::wide(format!("D:P(A;;GA;;;{sid})"));
+        let sddl = win::wide(format!("D:P(A;;GA;;;{})", win::own_sid()?))?;
         let mut descriptor: PSECURITY_DESCRIPTOR = std::ptr::null_mut();
         // SAFETY: `sddl` is NUL-terminated, and the call writes one
         // pointer to a descriptor it allocated with LocalAlloc.

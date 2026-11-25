@@ -17,8 +17,12 @@ pub fn own_group_tokio(command: &mut tokio::process::Command) -> &mut tokio::pro
     command.process_group(0)
 }
 
-pub fn adopt(_leader: u32) -> io::Result<()> {
-    Ok(())
+/// A process group needs nothing kept to reach it.
+#[derive(Debug)]
+pub struct Kept;
+
+pub fn adopt(_leader: u32) -> io::Result<Kept> {
+    Ok(Kept)
 }
 
 pub fn stop_group(leader: u32, how: Stop) -> io::Result<()> {

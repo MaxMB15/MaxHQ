@@ -19,8 +19,8 @@ use crate::win;
 #[allow(unsafe_code)]
 pub fn tie_children() -> io::Result<()> {
     // SAFETY: no attributes and no name make an unnamed job with the
-    // default security.
-    let job = win::owned(unsafe { CreateJobObjectW(std::ptr::null(), std::ptr::null()) })?;
+    // default security, whose handle is owned here.
+    let job = unsafe { win::owned(CreateJobObjectW(std::ptr::null(), std::ptr::null())) }?;
     // SAFETY: the struct is plain data, for which zero is valid.
     let mut limits: JOBOBJECT_EXTENDED_LIMIT_INFORMATION = unsafe { std::mem::zeroed() };
     limits.BasicLimitInformation.LimitFlags =
