@@ -465,10 +465,8 @@ fn u16_at(bytes: &[u8], at: usize) -> io::Result<u16> {
 }
 
 fn units(bytes: &[u8]) -> Vec<u16> {
-    bytes
-        .chunks_exact(2)
-        .map(|two| u16::from_ne_bytes([two[0], two[1]]))
-        .collect()
+    let (pairs, _) = bytes.as_chunks::<2>();
+    pairs.iter().copied().map(u16::from_ne_bytes).collect()
 }
 
 /// Reads the `FILE_FULL_DIR_INFO` records one listing call left in `bytes`.
