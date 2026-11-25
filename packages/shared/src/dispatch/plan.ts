@@ -30,7 +30,7 @@ import { labeledText } from "../pills/draft";
 import { agentMode, MODE_LABEL, movedMode, startingMode } from "../settings/permission";
 import { needsSwitch } from "../settings/phones";
 import { listInWords, plural, sentence } from "../status/format";
-import { agentKindName, isLocalAccount } from "../status/agent-kind";
+import { agentKindName, isLocalAccount, type ServerLookup } from "../status/agent-kind";
 import { accountName } from "../status/usage";
 import { FILTER_OPS } from "../tasks/draft";
 import { triggerLine } from "../tasks/format";
@@ -63,14 +63,19 @@ export const dispatcherAccount = (
 	return choices.find((a) => a.id === picked) ?? choices.find((a) => !isLocalAccount(a));
 };
 
-/** An account as the pick in settings names it, such as "Claude Max, octocat@example.com". */
-export const dispatcherAccountLabel = (account: Account): string =>
-	[accountName(account), account.email].filter(Boolean).join(", ");
+/**
+ * An account as the pick in settings names it, such as "Claude Max,
+ * octocat@example.com", or "OpenRouter" for a cloud service in `servers`.
+ */
+export const dispatcherAccountLabel = (account: Account, servers?: ServerLookup): string =>
+	[accountName(account, servers), account.email].filter(Boolean).join(", ");
 
 /** Over the dispatcher's conversation, such as "Dispatcher, as Claude Max". */
-export const dispatcherTitle = (account: Account | undefined): string =>
+export const dispatcherTitle = (account: Account | undefined, servers?: ServerLookup): string =>
 	account
-		? t("Dispatcher, as {{accountName_account}}", { accountName_account: accountName(account) })
+		? t("Dispatcher, as {{accountName_account}}", {
+				accountName_account: accountName(account, servers),
+			})
 		: t("Dispatcher");
 
 /** A project's name where it has the place, else the folder or container's own name. */
@@ -231,7 +236,7 @@ export const itemPhrase = (view: ViewState, item: PlanItem): string => {
 			const who =
 				spec.vendor === "acp"
 					? (view.tables.account.get(spec.account)?.label ?? "local")
-					: agentKindName(spec, view.tables.account);
+					: agentKindName(spec, view.tables.account, view.tables.model_server);
 			return t(
 				"a {{who}} agent in {{placeName_view__step_device__spec_place}} on {{deviceName_view__step_device}}{{access}}",
 				{
@@ -341,7 +346,11 @@ const targetLine = (view: ViewState, plan: Plan, target: PlanTarget): string => 
 	if (aim.type === "agent") return agentTitle(view, aim.agent);
 	const where = placeName(view, aim.device, aim.spec.place);
 	return t("A new {{VENDOR_NAME_aim_spec_vendor}} agent for each run, in {{where}}", {
-		VENDOR_NAME_aim_spec_vendor: agentKindName(aim.spec, view.tables.account),
+		VENDOR_NAME_aim_spec_vendor: agentKindName(
+			aim.spec,
+			view.tables.account,
+			view.tables.model_server
+		),
 		where: where,
 	});
 };
@@ -360,7 +369,9 @@ export const itemLines = (view: ViewState, plan: Plan, index: number): ItemLine[
 			return [
 				{
 					label: t("Account"),
-					value: account?.label ?? agentKindName(spec, view.tables.account),
+					value:
+						account?.label ??
+						agentKindName(spec, view.tables.account, view.tables.model_server),
 				},
 				{ label: t("Device"), value: deviceName(view, step.device) },
 				{ label: t("Where"), value: whereLine(view, step.device, spec.place) },
@@ -402,7 +413,9 @@ export const itemLines = (view: ViewState, plan: Plan, index: number): ItemLine[
 				{ label: t("To"), value: deviceName(view, to.device) },
 				{
 					label: t("Account"),
-					value: account ? dispatcherAccountLabel(account) : t("An account there"),
+					value: account
+						? dispatcherAccountLabel(account, view.tables.model_server)
+						: t("An account there"),
 				},
 				{ label: t("Model"), value: to.model ?? t("Default") },
 				{ label: t("Where"), value: whereLine(view, to.device, to.place) },

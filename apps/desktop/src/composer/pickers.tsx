@@ -16,6 +16,7 @@ import {
 	Bot,
 	Check,
 	ChevronDown,
+	Cloud,
 	Cpu,
 	Hexagon,
 	type LucideIcon,
@@ -49,17 +50,18 @@ import { Tooltip } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import { TONE } from "@/tasks/activity";
 import type { ModelTag } from "@maxhq/shared/local-models/picker";
-import { accountKind, type AgentKind } from "@maxhq/shared/status/agent-kind";
+import { accountKind, type AgentKind, type KindMark } from "@maxhq/shared/status/agent-kind";
 import { accountName } from "@maxhq/shared/status/usage";
 import type { Move } from "@maxhq/shared/view/select";
 import { t as translate, useI18n } from "@maxhq/shared/i18n";
 
-const MODEL_ICON: Record<AgentKind, LucideIcon> = {
+const MODEL_ICON: Record<KindMark, LucideIcon> = {
 	claude: Asterisk,
 	codex: Hexagon,
 	cursor: MousePointer2,
 	local: Cpu,
 	acp: Bot,
+	cloud: Cloud,
 };
 
 /** What the model picker shows for local models. `useLocalMenu` makes one. */
@@ -68,6 +70,8 @@ export type LocalMenu = {
 	readonly group: (account: Account) => string;
 	/** The tag beside a local account's model, such as a green "Fits", or null. */
 	readonly tag: (account: Account, model: string) => ModelTag | null;
+	/** The cloud service a local account runs on, such as "OpenRouter", or undefined. */
+	readonly cloud: (account: Account) => string | undefined;
 	/** Opens the Local models settings. */
 	readonly onSetup: () => void;
 };
@@ -249,7 +253,8 @@ export const GROUP_LABEL = "px-2 pt-[5px] pb-1 text-[11px] text-muted-foreground
 
 /**
  * A model under another account, which moves the agent there. A local
- * account's models name their server, such as "Move to Local, This Mac".
+ * account's models name their server, such as "Move to Local, This Mac",
+ * and a cloud service's the service alone, such as "Move to OpenRouter".
  */
 const MoveGroup = ({
 	move,
@@ -265,8 +270,9 @@ const MoveGroup = ({
 }) => {
 	useI18n();
 	const kind = accountKind(move.account);
-	const Icon = MODEL_ICON[kind];
-	const server = kind === "local" ? local?.group(move.account) : undefined;
+	const cloud = kind === "local" ? local?.cloud(move.account) : undefined;
+	const Icon = MODEL_ICON[cloud ? "cloud" : kind];
+	const server = kind === "local" && !cloud ? local?.group(move.account) : undefined;
 	return (
 		<Menu.Group>
 			<Menu.GroupLabel className={GROUP_LABEL}>
@@ -275,7 +281,7 @@ const MoveGroup = ({
 				) : (
 					<>
 						{translate("Move to ")}
-						{accountName(move.account)}
+						{cloud ?? accountName(move.account)}
 					</>
 				)}
 			</Menu.GroupLabel>
@@ -348,10 +354,15 @@ export const ModelPicker = ({
 }) => {
 	useI18n();
 	const [query, setQuery] = useState("");
-	const Icon = MODEL_ICON[kind];
 	const ownLocal = kind === "local" && account !== undefined ? local : undefined;
+	const ownCloud = ownLocal && account ? ownLocal.cloud(account) : undefined;
+	const Icon = MODEL_ICON[ownCloud ? "cloud" : kind];
+	// The way to the Local models settings shows with a model on hardware
+	// you run, not with a cloud service's alone.
+	const onHardware = (other: Account) =>
+		accountKind(other) === "local" && local?.cloud(other) === undefined;
 	const setup =
-		local && (ownLocal || moves.some((m) => accountKind(m.account) === "local"))
+		local && ((ownLocal && !ownCloud) || moves.some((m) => onHardware(m.account)))
 			? local.onSetup
 			: null;
 	const label = modelLabel(model, choices);

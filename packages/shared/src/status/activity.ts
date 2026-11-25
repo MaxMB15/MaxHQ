@@ -27,7 +27,7 @@ import {
 	showHidden,
 } from "./format";
 import { agentWait, idleExtra, jobsFact, jobsSentence, waitWords } from "./running";
-import { agentKind, isLocalAccount, kindName } from "./agent-kind";
+import { agentKind, agentKindName, isLocalAccount, type ServerLookup } from "./agent-kind";
 import { accountName, accountSummary, blockingWindow } from "./usage";
 
 /** How the activity dot looks. One per state, with a warm cache past its time shown as idle. */
@@ -132,6 +132,8 @@ export type ActivityContext = {
 	readonly account?: Account;
 	/** What a local agent goes by, such as "Local · Qwen3.6 35B A3B", in place of its account. */
 	readonly localLabel?: string;
+	/** The model servers, so an agent on a cloud service goes by its name. */
+	readonly servers?: ServerLookup;
 	/** The open prompt, while it needs input. */
 	readonly attention?: AttentionEvent;
 	/** Its sub-agents. */
@@ -148,7 +150,10 @@ const facts = (ctx: ActivityContext, warm?: string): Fact[] => {
 		out.push({ label: t("Context"), value: warm ? `${value}, ${warm}` : value });
 	}
 	if (ctx.account && isLocalAccount(ctx.account))
-		out.push({ label: t("Agent"), value: ctx.localLabel ?? accountName(ctx.account) });
+		out.push({
+			label: t("Agent"),
+			value: ctx.localLabel ?? accountName(ctx.account, ctx.servers),
+		});
 	else if (ctx.account) out.push({ label: t("Account"), value: accountSummary(ctx.account) });
 	return out;
 };
@@ -336,7 +341,8 @@ export const activityCard = (ctx: ActivityContext): HoverCard => {
 			const left = activity.warm_until - now;
 			if (left <= 0) return idleCard(ctx);
 			// Only Claude reports its cache; a local model's server doesn't.
-			const kind = agentKind(agent, ctx.account ? [ctx.account] : []);
+			const accounts = ctx.account ? [ctx.account] : [];
+			const kind = agentKind(agent, accounts);
 			const estimate = kind !== "claude";
 			const until = t("{{value1}}, in {{value2}}", {
 				value1: formatWhen(activity.warm_until, now),
@@ -349,7 +355,11 @@ export const activityCard = (ctx: ActivityContext): HoverCard => {
 							"The cache is probably warm until {{until}}. {{VENDOR_NAME_agent_vendor}} doesn't report its cache, so this is an estimate from when the last turn finished.",
 							{
 								until: until,
-								VENDOR_NAME_agent_vendor: kindName(kind),
+								VENDOR_NAME_agent_vendor: agentKindName(
+									agent,
+									accounts,
+									ctx.servers
+								),
 							}
 						)
 					: t(

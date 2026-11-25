@@ -40,7 +40,14 @@ import {
 } from "../new-agent/spec";
 import { resolveLocal, shownLocalModel } from "../local-models/select";
 import { agentMode, MODE_LABEL, movedModes, runnable, startingMode } from "../settings/permission";
-import { accountKind, agentKind, isLocalAccount, kindName } from "../status/agent-kind";
+import {
+	accountKind,
+	accountKindName,
+	agentKind,
+	agentKindName,
+	isLocalAccount,
+	kindName,
+} from "../status/agent-kind";
 import { tasksTargeting } from "../tasks/place";
 import { all, type ViewState } from "../view/replica";
 import {
@@ -122,6 +129,17 @@ export const missingVendors = (view: ViewState, device: DeviceId): SignInVendor[
 };
 
 /**
+ * What an agent or account goes by when moving, such as "Codex", "Local"
+ * or a cloud service's name, so the same service on another device counts
+ * as the same.
+ */
+const ownName = (view: ViewState, agent: Agent): string =>
+	agentKindName(agent, view.tables.account, view.tables.model_server);
+
+const accountKindNameIn = (view: ViewState, account: Account): string =>
+	accountKindName(account, view.tables.model_server);
+
+/**
  * The accounts on `device`, the agent's own kind first, then the vendors
  * not signed in there, turned off. The Local entry stands for `selected`
  * when that's one of the device's local accounts.
@@ -134,10 +152,10 @@ export const moveAccountOptions = (
 	selected: AccountId | null = null
 ): Option[] => {
 	const options = accountOptions(view, device, now, selected);
-	const kind = agentKind(agent, view.tables.account);
+	const kind = ownName(view, agent);
 	const own = (option: Option) => {
 		const account = view.tables.account.get(option.value);
-		return account !== undefined && accountKind(account) === kind;
+		return account !== undefined && accountKindNameIn(view, account) === kind;
 	};
 	const name = deviceName(view, device);
 	return [
@@ -358,10 +376,10 @@ export const moveLines = (
 			: t("Files and uncommitted changes stay on {{device}}.", { device: fromName }),
 		t("This agent stops and settles on {{device}}.", { device: fromName }),
 		...(inTurn(agent) ? [t("Its current turn stops.")] : []),
-		...(account && accountKind(account) !== agentKind(agent, view.tables.account)
+		...(account && accountKindNameIn(view, account) !== ownName(view, agent)
 			? [
 					t("It goes on with {{vendor}} on {{device}}.", {
-						vendor: kindName(accountKind(account)),
+						vendor: accountKindNameIn(view, account),
 						device: device === null ? "" : deviceName(view, device),
 					}),
 				]

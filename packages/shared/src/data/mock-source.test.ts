@@ -93,13 +93,20 @@ describe("mock source", () => {
 		}
 	});
 
-	it("has three local logins, none metered, two of them on the Mac's server", async () => {
-		const local = all(await load(), "account").filter(isLocalAccount);
+	it("has four local logins, none metered, two on the Mac's server and one on OpenRouter", async () => {
+		const view = await load();
+		const local = all(view, "account").filter(isLocalAccount);
 		expect(local.map((a) => [a.device, a.model_server]).sort()).toEqual([
 			[DEVBOX, "srv-devbox-ollama"],
 			[DEVBOX, "srv-mac-llama"],
 			[MAC, "srv-mac-llama"],
+			[MAC, "srv-mac-openrouter"],
 		]);
+		const openRouter = view.tables.model_server.get("srv-mac-openrouter");
+		expect(openRouter).toMatchObject({ label: "OpenRouter", cloud: true });
+		expect(openRouter?.models.find((m) => m.id === "z-ai/glm-5.3-flash")?.label).toBe(
+			"Z.ai: GLM 5.3 Flash"
+		);
 		for (const account of local) {
 			expect(account.vendor).toBe("claude");
 			expect(account.usage).toBeNull();

@@ -22,7 +22,7 @@ import { type RowContext, RowProvider } from "@maxhq/shared/agent-view/context";
 import { FindProvider } from "@maxhq/shared/agent-view/find-context";
 import { finishedTitle } from "@maxhq/shared/agent-view/finished";
 import { useI18n } from "@maxhq/shared/i18n";
-import { agentKind, kindName } from "@maxhq/shared/status/agent-kind";
+import { agentKind, agentKindName, agentMark, kindName } from "@maxhq/shared/status/agent-kind";
 import { accountName } from "@maxhq/shared/status/usage";
 
 import { FindBar } from "./find/bar";
@@ -51,7 +51,11 @@ export const FinishedView = ({ agent, lead }: { agent: AgentId; lead: Agent }) =
 	const find = useFind(agent, timeline, pane, target);
 	const title = finishedTitle(agent) ?? t("Sub-agent");
 	const kind = useView((s) => agentKind(lead, s.view.tables.account));
-	const accountLabel = account ? accountName(account) : kindName(kind);
+	const servers = useView((s) => s.view.tables.model_server);
+	const accounts = useView((s) => s.view.tables.account);
+	const mark = agentMark(lead, accounts, servers);
+	const name = agentKindName(lead, accounts, servers);
+	const accountLabel = account ? accountName(account, servers) : kindName(kind);
 
 	const answer = useCallback(
 		(attention: AttentionId, value: AttentionAnswer, refs?: readonly InlineRef[]) =>
@@ -68,6 +72,7 @@ export const FinishedView = ({ agent, lead }: { agent: AgentId; lead: Agent }) =
 			agent,
 			vendor: lead.vendor,
 			kind,
+			name,
 			timeline: timeline.store,
 			readOnly: true,
 			remote,
@@ -76,7 +81,7 @@ export const FinishedView = ({ agent, lead }: { agent: AgentId; lead: Agent }) =
 			shownSubAgent: null,
 			toggleSubAgents,
 		}),
-		[agent, lead.vendor, kind, timeline.store, remote, answer, toggleSubAgents]
+		[agent, lead.vendor, kind, name, timeline.store, remote, answer, toggleSubAgents]
 	);
 
 	return (
@@ -93,7 +98,7 @@ export const FinishedView = ({ agent, lead }: { agent: AgentId; lead: Agent }) =
 					{title}
 				</h1>
 				<span className="inline-flex h-[22px] shrink-0 items-center gap-[5px] rounded-md border border-track bg-secondary px-[7px] text-[11.5px] whitespace-nowrap text-terminal">
-					<VendorIcon kind={kind} />
+					<VendorIcon kind={mark} />
 					{accountLabel}
 				</span>
 				<span className="inline-flex h-[22px] min-w-12 shrink items-center rounded-md border border-dashed border-input px-[7px] text-[11.5px] whitespace-nowrap text-muted-foreground">

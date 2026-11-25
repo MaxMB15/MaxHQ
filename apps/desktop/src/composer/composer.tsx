@@ -88,7 +88,7 @@ import { messageFragment } from "@maxhq/shared/pills/sent";
 import type { TriggerKind } from "@maxhq/shared/pills/trigger";
 import type { TimelineStore } from "@maxhq/shared/timeline/store";
 import { localSpeed } from "@maxhq/shared/local-models/running";
-import { agentKind, kindName } from "@maxhq/shared/status/agent-kind";
+import { agentKind, agentKindName } from "@maxhq/shared/status/agent-kind";
 import { errorText } from "@maxhq/shared/timeline/store";
 import { draggedName } from "@maxhq/shared/ui/rows";
 import { noteCopyName, notePillBlocked, notesReach, shownTitle } from "@maxhq/shared/view/notes";
@@ -1318,7 +1318,13 @@ const ComposerBody = ({
 							<span className="truncate">
 								{translate(
 									"Anything you send now waits until {{value1}}'s next turn.",
-									{ value1: kindName(kind) }
+									{
+										value1: agentKindName(
+											agent,
+											view.tables.account,
+											view.tables.model_server
+										),
+									}
 								)}
 							</span>
 						</div>

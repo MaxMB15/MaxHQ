@@ -41,10 +41,14 @@ export const wasDismissed = (card: FeedCard): boolean =>
 
 /**
  * What a card says once its Dismiss went through, until maxd closes it as
- * dismissed: the agent's turn is on its way to a stop.
+ * dismissed: the agent's turn is on its way to a stop. `name` is what the
+ * agent goes by, such as "Claude" or "OpenRouter".
  */
-export const dismissSent = (kind: AgentKind): string =>
-	t("Dismissed. Stopping {{vendor}}'s turn.", { vendor: kindName(kind) });
+export const dismissSentBy = (name: string): string =>
+	t("Dismissed. Stopping {{vendor}}'s turn.", { vendor: name });
+
+/** `dismissSentBy` for an agent that goes by its kind's name. */
+export const dismissSent = (kind: AgentKind): string => dismissSentBy(kindName(kind));
 
 /** The words for Dismiss and Send now, in the interface's language. */
 export const SKIP_WORDS = {

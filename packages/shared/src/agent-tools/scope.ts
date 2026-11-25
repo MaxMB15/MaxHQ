@@ -242,7 +242,7 @@ export const accountChoices = (view: ViewState, draft: ScopeDraft): Choice<Accou
 		.map((a) => ({
 			value: a.id,
 			label: t("{{value1}} on {{value2}}", {
-				value1: accountName(a),
+				value1: accountName(a, view.tables.model_server),
 				value2: deviceName(view, a.device),
 			}),
 		}));

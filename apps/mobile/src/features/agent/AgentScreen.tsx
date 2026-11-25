@@ -45,7 +45,7 @@ import type { Agent, AgentId, AttentionId } from "@maxhq/shared/bindings";
 import { useNow } from "@maxhq/shared/lib/clock";
 import { ACTIVITY_LABEL, agentLook } from "@maxhq/shared/status/activity";
 import { formatClock } from "@maxhq/shared/status/format";
-import { VENDOR_NAME } from "@maxhq/shared/status/usage";
+import { agentKindName } from "@maxhq/shared/status/agent-kind";
 import {
 	type FeedAway,
 	feedAway,
@@ -207,7 +207,10 @@ const AgentBody = ({
 	const look = agentLook(agent, useNow(10_000));
 	const place = [
 		ACTIVITY_LABEL[look],
-		t("{{vendor}} on {{device}}", { vendor: VENDOR_NAME[agent.vendor], device }),
+		t("{{vendor}} on {{device}}", {
+			vendor: agentKindName(agent, view.tables.account, view.tables.model_server),
+			device,
+		}),
 		...(project ? [project] : []),
 	].join(", ");
 	const title = useShownTitle(agent);

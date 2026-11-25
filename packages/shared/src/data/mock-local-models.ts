@@ -64,9 +64,59 @@ export const DOWNLOADING_MODEL = "qwen3.8-27b";
 export const MAC_LOCAL_AGENT = "agent-local-parser";
 /** devbox's Local agent, on the Mac's server. */
 export const DEVBOX_LOCAL_AGENT = "agent-local-changelog";
+/** The cloud service the Mac reaches, OpenRouter. */
+export const OPENROUTER_SERVER = "srv-mac-openrouter";
+/** OpenRouter's URL, the one its Anthropic API answers at. */
+export const OPENROUTER_URL = "https://openrouter.ai/api";
+/** The Mac's account on OpenRouter. */
+export const OPENROUTER_ACCOUNT = "acct-local-mac-openrouter";
+/** The OpenRouter model the sample agent runs. */
+export const OPENROUTER_MODEL = "z-ai/glm-5.3-flash";
+/** The Mac's agent on OpenRouter. */
+export const OPENROUTER_AGENT = "agent-cloud-docs";
 
 /** The context size the sample servers load models with. */
 const CONTEXT = 65_536;
+
+/** Whether a URL's host is a cloud service the sample knows, as `maxd`'s list says. */
+const cloudHost = (url: UrlParts): boolean =>
+	url.host === "openrouter.ai" || url.host.endsWith(".openrouter.ai");
+
+/** The models OpenRouter offers in the sample, each with its context and output limit. */
+const cloudModels = (): ServerModel[] => [
+	{
+		id: OPENROUTER_MODEL,
+		label: "Z.ai: GLM 5.3 Flash",
+		catalog: null,
+		context: 200_000,
+		max_output: 131_072,
+		load: null,
+	},
+	{
+		id: "deepseek/deepseek-v3.2",
+		label: "DeepSeek: DeepSeek V3.2",
+		catalog: null,
+		context: 163_840,
+		max_output: 65_536,
+		load: null,
+	},
+	{
+		id: "moonshotai/kimi-k2.5",
+		label: "MoonshotAI: Kimi K2.5",
+		catalog: null,
+		context: 262_144,
+		max_output: null,
+		load: null,
+	},
+	{
+		id: "qwen/qwen3-coder",
+		label: "Qwen: Qwen3 Coder 480B A35B",
+		catalog: null,
+		context: 262_144,
+		max_output: 65_536,
+		load: null,
+	},
+];
 
 /** A made-up hex digest of `length` characters, plainly not a real one. */
 const digest = (n: number, length: 40 | 64): string =>
@@ -371,6 +421,22 @@ const servers = (now: Timestamp): ModelServer[] => [
 			},
 		],
 	},
+	{
+		id: OPENROUTER_SERVER,
+		device: MAC,
+		kind: { type: "external", flavor: "other" },
+		label: "OpenRouter",
+		base_url: OPENROUTER_URL,
+		token: true,
+		cloud: true,
+		probe: {
+			at: now - 30 * MIN,
+			apis: { messages: true, chat: true, responses: true },
+			context: null,
+			error: null,
+		},
+		models: cloudModels(),
+	},
 ];
 
 const localModels = (now: Timestamp): LocalModels[] => [
@@ -413,6 +479,7 @@ const accounts = (): Account[] => [
 	localAccount(MAC_LOCAL, MAC, "MacBook Pro", MAC_SERVER),
 	localAccount(DEVBOX_LOCAL, DEVBOX, "MacBook Pro", MAC_SERVER),
 	localAccount(OLLAMA_LOCAL, DEVBOX, "Ollama on gpu-box", OLLAMA_SERVER),
+	localAccount(OPENROUTER_ACCOUNT, MAC, "OpenRouter", OPENROUTER_SERVER),
 ];
 
 const agents = (now: Timestamp): Agent[] => [
@@ -454,11 +521,26 @@ const agents = (now: Timestamp): Agent[] => [
 		started_at: now - 2 * HOUR,
 		last_activity_at: now - 9 * MIN,
 	}),
+	seed(now, {
+		id: OPENROUTER_AGENT,
+		title: "Document the sync API",
+		workspace: "ws-mac-maxhq",
+		account: OPENROUTER_ACCOUNT,
+		model: OPENROUTER_MODEL,
+		control: "held",
+		pid: 52_877,
+		activity: { state: "busy" },
+		context: { used_tokens: 48_300, window_tokens: 200_000 },
+		local: { context_used: 48_300, context_size: 200_000 },
+		started_at: now - 40 * MIN,
+		last_activity_at: now - 5_000,
+	}),
 ];
 
 /**
- * Every local model entity in the sample view: the two servers, what each
- * device knows, the three local accounts and the two Local agents.
+ * Every local model entity in the sample view: the three servers, OpenRouter
+ * among them, what each device knows, the four local accounts and the three
+ * agents on them.
  */
 export const mockLocalEntities = (now: Timestamp): Entity[] => [
 	...servers(now).map((v) => ({ entity: "model_server" as const, ...v })),
@@ -608,11 +690,11 @@ export const mockLocalModels = (context: FleetContext): LocalModelCalls => {
 			}));
 			return;
 		}
-		const flavor = flavorOf(url);
+		const flavor = cloudHost(url) ? "other" : flavorOf(url);
 		editServer(id, () => ({
 			kind: { type: "external", flavor },
-			probe: probed(now(), flavor, flavor === "ollama" ? null : CONTEXT),
-			models: urlModels(flavor),
+			probe: probed(now(), flavor, flavor === "ollama" || cloudHost(url) ? null : CONTEXT),
+			models: cloudHost(url) ? cloudModels() : urlModels(flavor),
 		}));
 	};
 
@@ -659,7 +741,8 @@ export const mockLocalModels = (context: FleetContext): LocalModelCalls => {
 		device: DeviceId,
 		label: string,
 		url: string,
-		token: string | null | undefined
+		token: string | null | undefined,
+		cloud: boolean
 	): ActionResult => {
 		const parsed = serverUrl(url);
 		if (typeof parsed === "string") return refused(parsed);
@@ -672,6 +755,7 @@ export const mockLocalModels = (context: FleetContext): LocalModelCalls => {
 			label: label.trim() || (parsed.port ? `${parsed.host}:${parsed.port}` : parsed.host),
 			base_url: url.trim().replace(/\/+$/, ""),
 			token: Boolean(token),
+			cloud: cloud || cloudHost(parsed),
 			probe: null,
 			models: [],
 		};
@@ -688,23 +772,30 @@ export const mockLocalModels = (context: FleetContext): LocalModelCalls => {
 	const act = (device: DeviceId, action: ModelAction): ActionResult => {
 		switch (action.action) {
 			case "add_server":
-				return addServer(device, action.label, action.url, action.token);
+				return addServer(
+					device,
+					action.label,
+					action.url,
+					action.token,
+					action.cloud === true
+				);
 			case "probe_server": {
 				// What answers at a URL, keeping nothing.
 				const url = serverUrl(action.url);
 				if (typeof url === "string") return refused(url);
-				const flavor = url.host.endsWith(".invalid") ? "other" : flavorOf(url);
+				const cloud = cloudHost(url);
+				const flavor = url.host.endsWith(".invalid") || cloud ? "other" : flavorOf(url);
 				const probe: ServerProbe =
-					flavor === "other"
+					flavor === "other" && !cloud
 						? {
 								at: now(),
 								apis: {},
 								context: null,
 								error: `Nothing answered at ${action.url}`,
 							}
-						: probed(now(), flavor, flavor === "ollama" ? null : CONTEXT);
-				const models = flavor === "other" ? [] : urlModels(flavor);
-				return ok({ status: "server_probed", flavor, probe, models });
+						: probed(now(), flavor, flavor === "ollama" || cloud ? null : CONTEXT);
+				const models = cloud ? cloudModels() : flavor === "other" ? [] : urlModels(flavor);
+				return ok({ status: "server_probed", flavor, probe, models, cloud });
 			}
 			case "test_server": {
 				const server = serverOn(device, action.server);

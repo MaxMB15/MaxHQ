@@ -26,6 +26,7 @@ import { waitsForSkills } from "@maxhq/shared/skills/library";
 import { ACTIVITY_LABEL, agentLook } from "@maxhq/shared/status/activity";
 import { formatContext } from "@maxhq/shared/status/format";
 import { contextShare } from "@maxhq/shared/status/sub-agents";
+import { agentKindName } from "@maxhq/shared/status/agent-kind";
 import { accountName, VENDOR_NAME } from "@maxhq/shared/status/usage";
 import { deviceName, modelsOf, startedByLine } from "@maxhq/shared/view/select";
 
@@ -184,7 +185,10 @@ const Info = ({
 	const look = agentLook(agent, now);
 	const place = [
 		ACTIVITY_LABEL[look],
-		t("{{vendor}} on {{device}}", { vendor: VENDOR_NAME[agent.vendor], device }),
+		t("{{vendor}} on {{device}}", {
+			vendor: agentKindName(agent, view.tables.account, view.tables.model_server),
+			device,
+		}),
 		...(project ? [project] : []),
 	].join(", ");
 	const session = agent.vendor_session_id;
@@ -222,7 +226,9 @@ const Info = ({
 				<Card label={t("Details")}>
 					<CardRow first label={t("Account")}>
 						<Text style={styles.value} numberOfLines={1}>
-							{account ? accountName(account) : VENDOR_NAME[agent.vendor]}
+							{account
+								? accountName(account, view.tables.model_server)
+								: VENDOR_NAME[agent.vendor]}
 						</Text>
 					</CardRow>
 					{agent.model ? (

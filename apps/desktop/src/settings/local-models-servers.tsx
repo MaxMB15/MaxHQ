@@ -11,11 +11,13 @@
 // it, and a reply that echoes it shows `<secret>`. Plain http to another
 // machine is still allowed, with the risk named on the row and in the form.
 // Under the managed server, a switch says whether linked devices' Local
-// agents may use its models over their maxd link.
+// agents may use its models over their maxd link. A Cloud service switch
+// in the form marks a hosted API, which follows what Test found until it's
+// touched.
 
 import { Fragment, useRef, useState } from "react";
 
-import { useServices } from "@/app/services";
+import { useServices, useView } from "@/app/services";
 import { Switch } from "@/components/ui/switch";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/tasks/activity";
@@ -27,6 +29,8 @@ import {
 	addedServerOf,
 	addServerAction,
 	canAddServer,
+	cloudSwitchHelp,
+	cloudSwitchLabel,
 	managedServerView,
 	notEncryptedDetail,
 	probeFindings,
@@ -35,6 +39,7 @@ import {
 	probeSummary,
 	removeServerQuestion,
 	serverUrlProblem,
+	takesCloudServers,
 	typedNotEncrypted,
 } from "@maxhq/shared/local-models/settings-page";
 import {
@@ -171,6 +176,9 @@ const ExternalRow = ({
 					</span>
 				) : null}
 				<ProbeLine server={server} />
+				{server.cloud ? (
+					<span className="text-muted-foreground">{cloudSwitchLabel()}</span>
+				) : null}
 				{server.token ? (
 					<span className="text-muted-foreground">{translate("Sends a token")}</span>
 				) : null}
@@ -201,6 +209,8 @@ const ExternalRow = ({
  * The form that adds a server URL. Test asks the device what answers at the
  * URL and shows it, keeping nothing; Add saves the server, and Cancel closes
  * the form. Changing the URL or the token clears what the last Test found.
+ * The Cloud service switch, shown when the device's maxd takes it, follows
+ * what Test found until it's touched.
  */
 const AddServerForm = ({ device, onClose }: { device: DeviceId; onClose: () => void }) => {
 	useI18n();
@@ -212,6 +222,9 @@ const AddServerForm = ({ device, onClose }: { device: DeviceId; onClose: () => v
 	const [found, setFound] = useState<ProbeFindings | null>(null);
 	const [busy, setBusy] = useState(false);
 	const [note, setNote] = useState<Note | null>(null);
+	const [cloud, setCloud] = useState(false);
+	const [cloudTouched, setCloudTouched] = useState(false);
+	const cloudSwitch = useView((s) => takesCloudServers(s.view, device));
 	const problem = serverUrlProblem(url);
 	const ready = canAddServer(url) && !busy;
 
@@ -248,7 +261,10 @@ const AddServerForm = ({ device, onClose }: { device: DeviceId; onClose: () => v
 			() => source.modelAction(device, probeServerAction(url, secret)),
 			secret
 		);
-		if (result) setFound(probeFindings(services.view.getState().view, device, result));
+		if (!result) return;
+		const findings = probeFindings(services.view.getState().view, device, result);
+		setFound(findings);
+		if (!cloudTouched) setCloud(findings?.cloud ?? false);
 	};
 
 	/** Saves the server with the token typed, which it reads and clears. */
@@ -257,7 +273,11 @@ const AddServerForm = ({ device, onClose }: { device: DeviceId; onClose: () => v
 		const secret = input?.value.trim() ?? "";
 		if (input) input.value = "";
 		const result = await run(
-			() => source.modelAction(device, addServerAction(label, url, secret)),
+			() =>
+				source.modelAction(
+					device,
+					addServerAction(label, url, secret, cloudSwitch && cloud)
+				),
 			secret
 		);
 		if (result && addedServerOf(result)) onClose();
@@ -306,6 +326,19 @@ const AddServerForm = ({ device, onClose }: { device: DeviceId; onClose: () => v
 				label={translate("Token, if the server asks for one")}
 				placeholder={translate("Kept by maxd, never shown again")}
 			/>
+			{cloudSwitch ? (
+				<Row title={cloudSwitchLabel()} sub={cloudSwitchHelp()} className="border-t-0 p-0">
+					<Switch
+						aria-label={cloudSwitchLabel()}
+						checked={cloud}
+						disabled={busy}
+						onCheckedChange={(on) => {
+							setCloud(on);
+							setCloudTouched(true);
+						}}
+					/>
+				</Row>
+			) : null}
 			{problem ? <p className="text-xs text-status-error-text">{problem}</p> : null}
 			{typedNotEncrypted(url) ? (
 				<p className="flex flex-col gap-1 text-xs text-muted-foreground">

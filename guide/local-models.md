@@ -5,7 +5,7 @@ Copyright (c) 2026 Max Boksem
 
 # Local models
 
-Local agents run on a model on your own hardware or on a server you pick, not on a cloud account. This page covers starting one, what it shows while it works, and the Local models page in Settings.
+Local agents run on a model on your own hardware or on a server you pick, not on a cloud account. A cloud service such as OpenRouter runs them too, under its own name. This page covers starting one, what it shows while it works, and the Local models page in Settings.
 
 ## Local agents
 <!-- id: local-models/agents -->
@@ -68,9 +68,24 @@ A server such as Ollama, LM Studio, vLLM or llama.cpp that answers the Anthropic
 
 A server that doesn't answer the Anthropic Messages API can't run a Local agent, and Test says so. Each server's row has Test to check it again later, and Remove.
 
-A cloud service that answers the Anthropic Messages API works the same way, with its API key as the Token. For OpenRouter, the URL is `https://openrouter.ai/api`. Its list has hundreds of models, each under the name OpenRouter gives it, such as Z.ai: GLM 5.3 Flash. A server you added before this list was read whole shows only its first 20 models until you click Test on its row.
+A cloud service that answers the Anthropic Messages API, such as OpenRouter, is added the same way, with its API key as the Token. See Cloud services below.
 
 A plain http URL to another machine says Not encrypted on the network, because anyone in between can read your prompts and code. Use https, such as `https://gpu-box.example.com`, an SSH tunnel or a VPN to keep it private.
+
+## Cloud services
+<!-- id: local-models/cloud -->
+<!-- covers: settings/local-models -->
+
+A cloud service is a hosted API you add as a server, not hardware you run. For OpenRouter, the URL is `https://openrouter.ai/api` and the Token is its API key. Its list has hundreds of models, each under the name OpenRouter gives it, such as Z.ai: GLM 5.3 Flash. A server you added before this list was read whole shows only its first 20 models until you click Test on its row.
+
+- The Add server URL form has a Cloud service switch under Token. Test turns it on for a cloud service MaxHQ knows, such as OpenRouter, and off for anything else. Once you set it yourself, Test leaves it as you set it. A cloud service's row under Servers says Cloud service.
+- New agent lists each cloud service under Agent by its own name, such as OpenRouter, with a cloud icon. Local keeps the servers you run.
+- A cloud agent goes by the service and its model, such as OpenRouter · Z.ai: GLM 5.3 Flash, in the sidebar and the agent's header, with a cloud icon. It never shows as Claude and never counts toward Claude's usage.
+- To move an agent to a cloud service, open its Move menu and pick a model under Move to OpenRouter.
+- A Local agent on a server you run writes at most 4,096 tokens in one answer. A cloud agent writes up to 32,000, or the model's own limit when that is lower.
+- Fewer tools for local agents leaves cloud agents alone: they always get every tool.
+
+A device whose maxd is too old for cloud services doesn't show the switch, and runs every server as Local.
 
 ## Use this Mac's models from another device
 <!-- id: local-models/linked -->
@@ -84,10 +99,11 @@ A device linked to a Mac can run its Local agents on the models MaxHQ runs on th
 ## Fewer tools
 <!-- id: local-models/fewer-tools -->
 
-Every tool an agent has is described in each request, and a small model has a small context to spare. Fewer tools for local agents, on by default, gives Local agents less to read so they answer sooner.
+Every tool an agent has is described in each request, and a small model has a small context to spare. Fewer tools for local agents, on by default, gives Local agents on servers you run less to read so they answer sooner.
 
 - MaxHQ gives them only the tools they use most: sending files, opening a file, showing a visual, reading another agent and reading notes.
 - Claude Code's Workflow, ScheduleWakeup and ReportFindings tools are turned off too.
 - The dispatcher keeps all its tools when it runs on a local model.
+- Agents on a cloud service always get every tool. See Cloud services above.
 
 Turn it off on the Local models page, under Local agent settings, to give Local agents every tool.

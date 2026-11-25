@@ -9,13 +9,12 @@ import type { KeyboardEvent, ReactNode } from "react";
 
 import type { Timestamp } from "@maxhq/shared/bindings";
 import { cn } from "@/lib/utils";
-import { type AgentKind, kindName } from "@maxhq/shared/status/agent-kind";
 import { formatDuration, showHidden } from "@maxhq/shared/status/format";
 
 import { Elapsed } from "../elapsed";
 import { Spinner } from "../icons";
 import { ALREADY_ANSWERED, type SendState } from "@maxhq/shared/agent-view/answer";
-import { dismissSent } from "@maxhq/shared/agent-view/dismiss";
+import { dismissSentBy } from "@maxhq/shared/agent-view/dismiss";
 import { t as translate, useI18n } from "@maxhq/shared/i18n";
 
 /** Text with `backticks` drawn as code, and what it would hide spelled out. */
@@ -54,7 +53,7 @@ export const WaitingCard = ({
 	label,
 	icon,
 	title,
-	kind,
+	name,
 	since,
 	children,
 	onKeyDown,
@@ -62,7 +61,8 @@ export const WaitingCard = ({
 	label: string;
 	icon: ReactNode;
 	title: ReactNode;
-	kind: AgentKind;
+	/** What the agent goes by, as `rowName` says. */
+	name: string;
 	since: Timestamp | null;
 	children: ReactNode;
 	onKeyDown?: (event: KeyboardEvent<HTMLElement>) => void;
@@ -84,7 +84,7 @@ export const WaitingCard = ({
 					{title}
 				</h3>
 				<span className="shrink-0 pt-px text-[11.5px] leading-5 whitespace-nowrap text-status-ready-text tabular-nums">
-					{kindName(kind)} {translate(" is waiting")}
+					{name} {translate(" is waiting")}
 					{since !== null ? (
 						<>
 							, <Elapsed since={since} format={waited} />
@@ -176,11 +176,12 @@ export const SecondaryButton = ({
  */
 export const SendNote = ({
 	state,
-	kind,
+	name,
 	dismissed = false,
 }: {
 	state: SendState;
-	kind: AgentKind;
+	/** What the agent goes by, as `rowName` says. */
+	name: string;
 	dismissed?: boolean;
 }) => {
 	useI18n();
@@ -201,7 +202,7 @@ export const SendNote = ({
 	if (state.state === "sent" && dismissed) {
 		return (
 			<p role="status" className="text-[11.5px] text-muted-foreground">
-				{dismissSent(kind)}
+				{dismissSentBy(name)}
 			</p>
 		);
 	}
@@ -209,7 +210,7 @@ export const SendNote = ({
 		return (
 			<p role="status" className="text-[11.5px] text-status-ready-text">
 				{translate("Answer sent. Waiting for ")}
-				{kindName(kind)} {translate(" to pick it up.")}
+				{name} {translate(" to pick it up.")}
 			</p>
 		);
 	}

@@ -15,6 +15,10 @@ import {
 	MAC_SERVER,
 	OLLAMA_LOCAL,
 	OLLAMA_SERVER,
+	OPENROUTER_ACCOUNT,
+	OPENROUTER_AGENT,
+	OPENROUTER_MODEL,
+	OPENROUTER_SERVER,
 } from "../data/mock-local-models";
 import { mockSource } from "../data/mock-source";
 import { DEVBOX, MAC } from "../data/mock-view";
@@ -22,12 +26,14 @@ import { accountOptions } from "../new-agent/spec";
 import { deviceSettingsOf } from "../settings/device-settings";
 import { agent, NOW } from "../test/build";
 import { applySnapshot, type ViewState } from "../view/replica";
-import { modelsOf } from "../view/select";
+import { moveLines } from "../agent-view/move-agent";
+import { deviceName, modelsOf, moveKind, movesOf } from "../view/select";
 
 import {
 	agentCatalogModel,
 	agentKindLabel,
 	catalogRows,
+	cloudAccountOptions,
 	DEFAULT_CATALOG_MODEL,
 	defaultLocalPick,
 	downloadsOn,
@@ -49,7 +55,7 @@ import {
 	shownLocalModel,
 	withDefaultLocalModel,
 } from "./select";
-import { sameLocalSettings, sharingOff } from "./models";
+import { entryOf, LOCAL_ENTRY, sameLocalSettings, sharingOff } from "./models";
 
 const load = async (): Promise<ViewState> =>
 	applySnapshot(await mockSource({ now: () => NOW, tick: false }).snapshot());
@@ -63,7 +69,7 @@ const edited = async (edit: (entities: Entity[]) => Entity[]): Promise<ViewState
 describe("servers and models per device", () => {
 	it("lists each device's own servers, the managed one first", async () => {
 		const view = await load();
-		expect(serversOf(view, MAC).map((s) => s.id)).toEqual([MAC_SERVER]);
+		expect(serversOf(view, MAC).map((s) => s.id)).toEqual([MAC_SERVER, OPENROUTER_SERVER]);
 		expect(serversOf(view, DEVBOX).map((s) => s.id)).toEqual([OLLAMA_SERVER]);
 		expect(serverUsers(view, view.tables.model_server.get(MAC_SERVER)!)).toEqual([DEVBOX]);
 		expect(runsLocalModels(view, MAC)).toBe(true);
@@ -99,10 +105,18 @@ describe("servers and models per device", () => {
 
 	it("lists the local accounts own servers first, then the ones over the link", async () => {
 		const view = await load();
-		expect(localAccountsOn(view, MAC).map((a) => a.id)).toEqual([MAC_LOCAL]);
+		expect(localAccountsOn(view, MAC).map((a) => a.id)).toEqual([
+			MAC_LOCAL,
+			OPENROUTER_ACCOUNT,
+		]);
 		expect(localAccountsOn(view, DEVBOX).map((a) => a.id)).toEqual([
 			OLLAMA_LOCAL,
 			DEVBOX_LOCAL,
+		]);
+		// Under an Agent entry, only its own.
+		expect(localAccountsOn(view, MAC, LOCAL_ENTRY).map((a) => a.id)).toEqual([MAC_LOCAL]);
+		expect(localAccountsOn(view, MAC, OPENROUTER_ACCOUNT).map((a) => a.id)).toEqual([
+			OPENROUTER_ACCOUNT,
 		]);
 	});
 
@@ -195,15 +209,17 @@ describe("the default pick", () => {
 });
 
 describe("the Local entry in the agent picker", () => {
-	it("comes last among the device's logins, as Local with its default model", async () => {
+	it("comes after the device's logins, as Local with its default model, before cloud services", async () => {
 		const view = await load();
 		const options = accountOptions(view, MAC, NOW);
-		const local = options.at(-1)!;
+		const local = options.at(-2)!;
 		expect(local).toMatchObject({
 			value: MAC_LOCAL,
 			label: "Local",
 			detail: "Qwen3.6-35B-A3B on MacBook Pro",
+			mark: "local",
 		});
+		expect(options.at(-1)).toMatchObject({ value: OPENROUTER_ACCOUNT, label: "OpenRouter" });
 		expect(options.filter((o) => o.label === "Local")).toHaveLength(1);
 		expect(options.some((o) => o.label.includes("Claude") && o.value === MAC_LOCAL)).toBe(
 			false
@@ -254,6 +270,96 @@ describe("the Local entry in the agent picker", () => {
 			["ornith-1.5-9b@q4_k_m", false],
 		]);
 		expect(models.every((m) => (m.efforts ?? []).length === 0)).toBe(true);
+	});
+});
+
+describe("cloud services", () => {
+	/** The sample view with OpenRouter as a `maxd` older than cloud servers sends it. */
+	const older = () =>
+		edited((entities) =>
+			entities.map((e) => {
+				if (e.entity !== "model_server" || e.id !== OPENROUTER_SERVER) return e;
+				const rest = { ...e };
+				delete rest.cloud;
+				return rest;
+			})
+		);
+
+	it("gives each cloud service an Agent entry of its own, named after it", async () => {
+		const view = await load();
+		const openRouter = view.tables.account.get(OPENROUTER_ACCOUNT)!;
+		expect(entryOf(view, openRouter)).toBe(OPENROUTER_ACCOUNT);
+		expect(entryOf(view, view.tables.account.get(MAC_LOCAL)!)).toBe(LOCAL_ENTRY);
+		expect(cloudAccountOptions(view, MAC)).toEqual([
+			{
+				value: OPENROUTER_ACCOUNT,
+				label: "OpenRouter",
+				detail: "Z.ai: GLM 5.3 Flash",
+				warn: false,
+				mark: "cloud",
+			},
+		]);
+		expect(cloudAccountOptions(view, DEVBOX)).toEqual([]);
+		// The Local entry never stands for it.
+		expect(localAccountOption(view, MAC, OPENROUTER_ACCOUNT)?.value).toBe(MAC_LOCAL);
+	});
+
+	it("names an agent on a cloud service after it and its model", async () => {
+		const view = await load();
+		const running = view.tables.agent.get(OPENROUTER_AGENT)!;
+		expect(agentKindLabel(view, running)).toBe("OpenRouter · Z.ai: GLM 5.3 Flash");
+		expect(agentKindLabel(view, { ...running, model: null })).toBe("OpenRouter");
+	});
+
+	it("keeps a pick inside its own entry", async () => {
+		const view = await load();
+		const openRouter = view.tables.account.get(OPENROUTER_ACCOUNT)!;
+		const mac = view.tables.account.get(MAC_LOCAL)!;
+		const stays = resolveLocal(view, MAC, openRouter, localModelKey(MAC_LOCAL, LOADED_MODEL));
+		expect([stays.account.id, stays.model]).toEqual([OPENROUTER_ACCOUNT, OPENROUTER_MODEL]);
+		const back = resolveLocal(
+			view,
+			MAC,
+			mac,
+			localModelKey(OPENROUTER_ACCOUNT, OPENROUTER_MODEL)
+		);
+		expect([back.account.id, back.model]).toEqual([MAC_LOCAL, LOADED_MODEL]);
+		const picked = resolveLocal(
+			view,
+			MAC,
+			openRouter,
+			localModelKey(OPENROUTER_ACCOUNT, "qwen/qwen3-coder")
+		);
+		expect(picked.model).toBe("qwen/qwen3-coder");
+	});
+
+	it("lets Local and a cloud service move to each other, as agents of their own", async () => {
+		const view = await load();
+		const openRouter = view.tables.account.get(OPENROUTER_ACCOUNT)!;
+		const mac = view.tables.account.get(MAC_LOCAL)!;
+		expect(moveKind(view, openRouter)).toBe(`cloud:${OPENROUTER_ACCOUNT}`);
+		expect(moveKind(view, mac)).toBe("local");
+		const onCloud = view.tables.agent.get(OPENROUTER_AGENT)!;
+		const onMac = view.tables.agent.get(MAC_LOCAL_AGENT)!;
+		const to = (agent: typeof onCloud) => movesOf(view, agent).map((m) => m.account.id);
+		expect(to(onCloud)).toContain(MAC_LOCAL);
+		expect(to(onCloud)).not.toContain(OPENROUTER_ACCOUNT);
+		expect(to(onMac)).toContain(OPENROUTER_ACCOUNT);
+		expect(moveLines(view, onMac, MAC, openRouter)).toContain(
+			`It goes on with OpenRouter on ${deviceName(view, MAC)}.`
+		);
+	});
+
+	it("shows a server from a maxd older than cloud servers under Local", async () => {
+		const view = await older();
+		expect(cloudAccountOptions(view, MAC)).toEqual([]);
+		expect(localAccountsOn(view, MAC, LOCAL_ENTRY).map((a) => a.id)).toEqual([
+			MAC_LOCAL,
+			OPENROUTER_ACCOUNT,
+		]);
+		expect(agentKindLabel(view, view.tables.agent.get(OPENROUTER_AGENT)!)).toBe(
+			"Local · Z.ai: GLM 5.3 Flash"
+		);
 	});
 });
 

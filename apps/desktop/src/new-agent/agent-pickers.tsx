@@ -11,7 +11,7 @@ import {
 	localPickerOptions,
 	opensLocalSetup,
 } from "@maxhq/shared/local-models/picker";
-import { modelChoice } from "@maxhq/shared/local-models/select";
+import { entryOf, modelChoice } from "@maxhq/shared/local-models/select";
 import {
 	type Choices,
 	deviceOptions,
@@ -125,7 +125,7 @@ export const AgentPickers = ({
 					value={r.shownModel ?? ""}
 					options={
 						local && r.device
-							? localPickerOptions(view, r.device)
+							? localPickerOptions(view, r.device, entryOf(view, r.account!))
 							: modelOptions(view, r.account)
 					}
 					onChange={(model) => {

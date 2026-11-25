@@ -30,7 +30,13 @@ export const DISPATCHER_TERMS: readonly string[] = [
 ];
 
 // The tables the card reads.
-const KINDS: readonly EntityKind[] = ["device", "device_link", "device_settings", "account"];
+const KINDS: readonly EntityKind[] = [
+	"device",
+	"device_link",
+	"device_settings",
+	"account",
+	"model_server",
+];
 
 /** The Dispatcher card. */
 export const DispatcherSettingsPage = () => {
@@ -43,7 +49,7 @@ export const DispatcherSettingsPage = () => {
 		() =>
 			dispatcherAccounts(view, dispatcherDevice(view)).map((a) => ({
 				value: a.id,
-				label: dispatcherAccountLabel(a),
+				label: dispatcherAccountLabel(a, view.tables.model_server),
 			})),
 		[view]
 	);
