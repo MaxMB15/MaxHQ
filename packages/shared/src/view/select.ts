@@ -31,6 +31,7 @@ import {
 import { serverModelChoices } from "../local-models/models";
 import { AGENT_KINDS, accountKind, agentKind, isLocalAccount } from "../status/agent-kind";
 import { atLimit } from "../status/usage";
+import { wslMachine } from "../status/wsl";
 import { claimNames } from "../ui/link-claim";
 import { liveRunAgents } from "../workflow/select";
 
@@ -155,6 +156,7 @@ export const linkContext = (view: ViewState, link: DeviceLink): LinkContext => {
 		jumpHosts,
 		agents,
 		claimed: claimNames(view, link) ?? undefined,
+		machine: (link.route.type === "wsl" ? wslMachine(links, link.route) : null) ?? undefined,
 	};
 };
 

@@ -23,6 +23,7 @@ import { type ClaimNames, heldConnection } from "../ui/link-claim";
 
 import type { Check, CheckId, CheckState, Fact, HoverCard } from "./card";
 import { formatAgo, formatWhen, ordinal, plural, sentence } from "./format";
+import { wslLabel } from "./wsl";
 
 /** How the connection dot looks. */
 export type ConnectionLook =
@@ -92,6 +93,11 @@ export type LinkContext = {
 	readonly agents?: readonly Agent[];
 	/** The names in the question the link waits on, while it's held. */
 	readonly claimed?: ClaimNames;
+	/**
+	 * For a WSL distro on another Windows machine, that machine's name.
+	 * See `wslMachine`.
+	 */
+	readonly machine?: string;
 };
 
 // A device is never asleep: only its agents are.
@@ -117,8 +123,9 @@ export const networkAddress = (host: string): string | null => {
 	return match ? (match[1] ?? match[2] ?? null) : null;
 };
 
-const routeText = (link: DeviceLink): string => {
+const routeText = (link: DeviceLink, machine?: string): string => {
 	if (link.route.type === "local") return t("This Mac");
+	if (link.route.type === "wsl") return wslLabel(link.route, machine ?? link.route.via);
 	const address = networkAddress(link.route.host);
 	return address === null
 		? t("SSH as {{link_route_host}}", { link_route_host: link.route.host })
@@ -219,11 +226,19 @@ export const linkChecks = (ctx: LinkContext, now: Timestamp): Check[] => {
 	const { link, device, network, agents = [] } = ctx;
 	const name = link.name;
 	const local = link.route.type === "local";
-	const host = link.route.type === "ssh" ? link.route.host : name;
+	// A distro on this PC is reached through `wsl.exe`, with no network
+	// between, and one on another PC through SSH to that PC.
+	const wslHere = link.route.type === "wsl" && link.route.via === null;
+	const host =
+		link.route.type === "ssh"
+			? link.route.host
+			: link.route.type === "wsl"
+				? (link.route.via ?? name)
+				: name;
 	const state = link.state;
 	const checks: Check[] = [];
 
-	if (!local)
+	if (!local && !wslHere)
 		checks.push(
 			check("net", t("Net"), t("This Mac's network"), "unknown", t("Not checked yet"))
 		);
@@ -275,7 +290,8 @@ export const linkChecks = (ctx: LinkContext, now: Timestamp): Check[] => {
 		);
 	}
 
-	if (!local) checks.push(check("ping", t("Ping"), t("Ping"), "unknown", t("Not checked yet")));
+	if (!local && !wslHere)
+		checks.push(check("ping", t("Ping"), t("Ping"), "unknown", t("Not checked yet")));
 
 	let sshState: CheckState = "unknown";
 	let sshDetail = t("Not checked yet");
@@ -347,7 +363,8 @@ export const linkChecks = (ctx: LinkContext, now: Timestamp): Check[] => {
 					: maxdDetail;
 		checks.push(check("maxd", "maxd", "maxd", maxdLocal, detail));
 	} else {
-		checks.push(check("ssh", "SSH", "SSH", sshState, sshDetail));
+		const leg = wslHere ? "WSL" : "SSH";
+		checks.push(check("ssh", leg, leg, sshState, sshDetail));
 		checks.push(check("maxd", "maxd", "maxd", maxdState, maxdDetail));
 	}
 
@@ -413,7 +430,7 @@ export const deviceConnection = (ctx: LinkContext, now: Timestamp): Connection =
 	const held = heldConnection(link, ctx.claimed);
 	if (held) return held;
 	const name = link.name;
-	const facts: Fact[] = [{ label: t("Route"), value: routeText(link) }];
+	const facts: Fact[] = [{ label: t("Route"), value: routeText(link, ctx.machine) }];
 	if (link.via.length > 0) facts.push({ label: t("Through"), value: link.via.join(", ") });
 	const jump = brokenJumpHost(ctx);
 	let look = lookOfLink(link);

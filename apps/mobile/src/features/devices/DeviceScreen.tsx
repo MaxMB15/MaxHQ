@@ -28,6 +28,7 @@ import {
 } from "@maxhq/shared/status/device-page";
 import { formatDuration, formatWhen } from "@maxhq/shared/status/format";
 import { versionNote } from "@maxhq/shared/status/reach";
+import { wslCommand } from "@maxhq/shared/status/wsl";
 import { accountName, VENDOR_NAME } from "@maxhq/shared/status/usage";
 import { leasesOf } from "@maxhq/shared/test-hosts/hosts";
 import { openAdmissions } from "@maxhq/shared/ui/admission";
@@ -497,6 +498,11 @@ export const DeviceScreen = ({ navigation, route }: ScreenProps<"Device">) => {
 							<CopyTextButton
 								label={t("Copy SSH command")}
 								text={`ssh ${link.route.host}`}
+							/>
+						) : link.route.type === "wsl" ? (
+							<CopyTextButton
+								label={t("Copy WSL command")}
+								text={wslCommand(link.route)}
 							/>
 						) : null}
 					</Buttons>

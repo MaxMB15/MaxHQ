@@ -18,6 +18,8 @@ import type { EditorChoice } from "../data/source";
 export type EditorReach =
 	| { readonly kind: "local" }
 	| { readonly kind: "remote"; readonly host: string }
+	/** A WSL distro on this PC, which the editor opens through its WSL support. */
+	| { readonly kind: "wsl"; readonly distro: string }
 	/** A container whose alias needs the `Include` line, which `line` is. */
 	| { readonly kind: "ask"; readonly host: string; readonly line: string }
 	/** A container whose `Include` you said no to. `block` is its entry to copy. */
@@ -53,9 +55,21 @@ export const editorReach = (
 		}
 	}
 	if (!link) return { kind: "unavailable", reason: t("No route to this device") };
-	return link.route.type === "local"
-		? { kind: "local" }
-		: { kind: "remote", host: link.route.host };
+	switch (link.route.type) {
+		case "local":
+			return { kind: "local" };
+		case "ssh":
+			return { kind: "remote", host: link.route.host };
+		case "wsl":
+			return link.route.via === null
+				? { kind: "wsl", distro: link.route.distro }
+				: {
+						kind: "unavailable",
+						reason: t(
+							"A WSL distro on another PC can't open in an editor from here yet"
+						),
+					};
+	}
 };
 
 /**
