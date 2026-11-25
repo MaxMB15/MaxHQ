@@ -36,7 +36,7 @@ use maxhq_protocol::model::Vendor;
 use maxhq_protocol::skills::{EffectiveSkill, SkillMark, SkillPlace, TreeHash};
 
 use super::frontmatter::{self, CodexMeta, SkillDoc, CODEX_META};
-use super::{ignored, tree, Node, SkillFs, SKILLS_DIR, SKILL_FILE};
+use super::{ignored, path_text, tree, Node, SkillFs, SKILLS_DIR, SKILL_FILE};
 
 /// How deep the walk goes below a skills folder.
 pub const MAX_DEPTH: usize = 10;
@@ -479,7 +479,7 @@ impl Walk<'_> {
                 if matches!(self.fs.node(&skills), Ok(Some(_))) {
                     let prefix = child
                         .strip_prefix(&input.cwd)
-                        .map(|p| p.to_string_lossy().into_owned())
+                        .map(path_text)
                         .unwrap_or(name);
                     let root =
                         Root::new(skills, SkillPlace::Project, "nested", false).prefixed(prefix);
@@ -862,9 +862,6 @@ mod tests {
         assert_eq!(found[0].mark, None);
     }
 
-    // A nested skill's prefix is its folder's path text, which a Windows
-    // host writes with `\`. What a Windows CLI expects there is open.
-    #[cfg(unix)]
     #[test]
     fn nested_and_added_skills_are_prefixed() {
         let mut fs = MemFs::new();

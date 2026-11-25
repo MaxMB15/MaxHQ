@@ -324,8 +324,9 @@ fn refused(reason: impl Into<String>) -> ActionOutcome {
 
 #[cfg(test)]
 mod tests {
-    use std::os::unix::fs::symlink;
     use std::sync::mpsc;
+
+    use maxhq_core::fs_ext::symlink;
 
     use super::*;
     use crate::testing::TempDir;

@@ -19,31 +19,23 @@
 
 #![warn(missing_docs)]
 
-// The disk side works through Unix calls, so it builds on Unix alone
-// until it has a Windows side. Names and manifests build everywhere.
-#[cfg(unix)]
 pub mod beneath;
+pub mod local;
 pub mod manifest;
 pub mod name;
-#[cfg(unix)]
 pub mod receive;
-#[cfg(unix)]
 pub mod remove;
-#[cfg(unix)]
 pub mod send;
 
-#[cfg(all(test, unix))]
+#[cfg(test)]
 mod testing;
 
 use std::io;
 
 use maxhq_protocol::message::ErrorCode;
 
-#[cfg(unix)]
 pub use receive::{Grant, Receiver};
-#[cfg(unix)]
 pub use remove::remove_tree;
-#[cfg(unix)]
 pub use send::{walk, Outgoing, Source, Walk};
 
 /// A gibibyte.
@@ -93,15 +85,8 @@ impl Failure {
 
     /// A failed disk operation, with a code that says whether the disk was
     /// full, a path broke a rule or something else went wrong.
-    #[cfg(unix)]
     pub fn io(err: &io::Error, entry: Option<u32>) -> Self {
-        use rustix::io::Errno;
-        let code = match err.raw_os_error().map(Errno::from_raw_os_error) {
-            Some(Errno::NOSPC | Errno::DQUOT) => ErrorCode::NoSpace,
-            Some(Errno::LOOP | Errno::XDEV | Errno::NOTDIR | Errno::EXIST) => ErrorCode::BadPath,
-            _ => ErrorCode::Internal,
-        };
-        Self::new(code, entry, err.to_string())
+        Self::new(beneath::code_of(err), entry, err.to_string())
     }
 }
 
@@ -133,7 +118,6 @@ impl Room {
 
     /// Refuses `incoming` more bytes if they'd leave less than this free on
     /// the disk under `dir`.
-    #[cfg(unix)]
     pub fn check(&self, dir: &beneath::Dir, incoming: u64) -> Result<(), Failure> {
         let (free, size) = dir.space().map_err(|err| Failure::io(&err, None))?;
         self.check_space(free, size, incoming)
@@ -230,15 +214,16 @@ pub fn human(bytes: u64) -> String {
     format!("{value:.1} {}", UNITS[unit])
 }
 
-#[cfg(all(test, unix))]
+#[cfg(test)]
 mod tests {
     use super::*;
     use crate::beneath::Dir;
     use crate::testing::TempDir;
-    use std::os::unix::fs::PermissionsExt;
 
+    #[cfg(unix)]
     #[test]
     fn a_folder_count_passes_over_what_it_cant_read() {
+        use std::os::unix::fs::PermissionsExt;
         let dir = TempDir::new();
         std::fs::write(dir.path().join("kept"), [0; 10]).unwrap();
         let shut = dir.path().join("shut");
@@ -319,11 +304,26 @@ mod tests {
         assert_eq!(over.code, ErrorCode::QuotaExceeded);
     }
 
+    /// The system's codes for a full disk and for a link where none may be.
+    fn full_and_link() -> (i32, i32) {
+        #[cfg(unix)]
+        {
+            use rustix::io::Errno;
+            (Errno::NOSPC.raw_os_error(), Errno::LOOP.raw_os_error())
+        }
+        // ERROR_DISK_FULL and ERROR_STOPPED_ON_SYMLINK.
+        #[cfg(windows)]
+        {
+            (112, 681)
+        }
+    }
+
     #[test]
     fn disk_errors_map_to_codes() {
-        let full = io::Error::from_raw_os_error(rustix::io::Errno::NOSPC.raw_os_error());
+        let (full, link) = full_and_link();
+        let full = io::Error::from_raw_os_error(full);
         assert_eq!(Failure::io(&full, Some(2)).code, ErrorCode::NoSpace);
-        let link = io::Error::from_raw_os_error(rustix::io::Errno::LOOP.raw_os_error());
+        let link = io::Error::from_raw_os_error(link);
         assert_eq!(Failure::io(&link, None).code, ErrorCode::BadPath);
         let other = io::Error::other("odd");
         assert_eq!(Failure::io(&other, None).code, ErrorCode::Internal);

@@ -109,7 +109,7 @@ pub use crate::tailscale::{
     CliRun as TailscaleRun, FunnelNeeds as TailscaleFunnelNeeds,
 };
 pub use crate::terminals::TerminalSink;
-pub use crate::transfer::{Copied, TransferError, TransferProgress, TransferState};
+pub use crate::transfer::{Copied, Saved, TransferError, TransferProgress, TransferState};
 #[cfg(feature = "russh")]
 pub use crate::transport::PhoneSsh;
 pub use crate::transport::{phone_route_host, ws_route_host};
@@ -850,15 +850,16 @@ impl LinkHandle {
     }
 
     /// Fetches a file or folder an agent can see into `~/Downloads/MaxHQ`
-    /// and gives where it landed. It takes a free name there, and macOS
-    /// asks before it opens what came. It goes on through reconnects like
+    /// and gives where it landed, with the links in it this machine
+    /// couldn't make. It takes a free name there, and macOS and Windows
+    /// ask before they open what came. It goes on through reconnects like
     /// an upload.
     pub async fn download(
         &self,
         agent: AgentId,
         path: String,
         on_progress: impl Fn(TransferProgress) + Send + Sync,
-    ) -> Result<PathBuf, TransferError> {
+    ) -> Result<Saved, TransferError> {
         self.transfers.download(agent, path, &on_progress).await
     }
 

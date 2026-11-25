@@ -7,6 +7,7 @@
 //! nothing here takes yet are refused in the words here.
 
 pub mod apply;
+pub mod bash;
 pub mod deliver;
 pub mod globals;
 pub mod held;

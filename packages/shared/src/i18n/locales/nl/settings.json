@@ -780,6 +780,8 @@
 	"Show {{name}} in Finder": "{{name}} tonen in Finder",
 	"Couldn't find {{baseName}} in Downloads.": "Kon {{baseName}} niet vinden in Downloads.",
 	"Retry downloading {{name}}": "Downloaden van {{name}} opnieuw proberen",
+	"Downloaded without {{count, number}} links this computer couldn't make: {{links}}_one": "Gedownload zonder {{count, number}} link die deze computer niet kon maken: {{links}}",
+	"Downloaded without {{count, number}} links this computer couldn't make: {{links}}_other": "Gedownload zonder {{count, number}} links die deze computer niet kon maken: {{links}}",
 	"Couldn't save {{what}}": "Kon {{what}} niet opslaan",
 	"the editor you used": "de gebruikte editor",
 	"the default editor": "de standaardeditor",

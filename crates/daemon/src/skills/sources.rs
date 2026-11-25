@@ -199,8 +199,6 @@ fn shown(path: &str) -> &str {
 /// `scratch` and landed in `store`. Links, submodules and what git
 /// ignores are left out.
 pub fn pack(dir: &Path, scratch: &Path, store: &SkillStore) -> Result<Option<TreeHash>, String> {
-    use std::os::unix::fs::PermissionsExt;
-
     let listed = in_repo(dir, &["ls-tree", "-r", "-z", "HEAD"])?;
     let files: Vec<(&str, u32)> = listed
         .split('\0')
@@ -220,7 +218,7 @@ pub fn pack(dir: &Path, scratch: &Path, store: &SkillStore) -> Result<Option<Tre
         let to = scratch.join(path);
         fs::create_dir_all(to.parent().unwrap_or(scratch))?;
         fs::copy(dir.join(path), &to)?;
-        fs::set_permissions(&to, fs::Permissions::from_mode(*mode))
+        maxhq_os::fsmode::set_mode(&to, *mode)
     });
     let landed = built
         .map_err(|err| format!("couldn't copy the pack: {err}"))
@@ -320,7 +318,7 @@ pub(super) mod tests {
 
     #[test]
     fn a_pack_is_git_s_files_at_the_commit_with_their_modes() {
-        use std::os::unix::fs::PermissionsExt;
+        use maxhq_os::fsmode;
 
         let dir = TempDir::new();
         let root = repo(&dir.path().join("pack"), &[("alpha", "First")]);
@@ -330,8 +328,7 @@ pub(super) mod tests {
 
         fs::write(root.join(".gitignore"), ".venv/\n").unwrap();
         fs::write(root.join(pack::INSTALLER), "exit 0\n").unwrap();
-        let script = fs::Permissions::from_mode(0o755);
-        fs::set_permissions(root.join(pack::INSTALLER), script).unwrap();
+        fsmode::set_mode(&root.join(pack::INSTALLER), 0o755).unwrap();
         commit_all(&root, "installer");
         fs::create_dir_all(root.join(".venv")).unwrap();
         fs::write(root.join(".venv/local"), "state").unwrap();
@@ -339,11 +336,11 @@ pub(super) mod tests {
 
         let tree = pack(&root, &scratch, &store).unwrap().unwrap();
         let landed = store.path(&tree).unwrap();
-        let mode = fs::metadata(landed.join(pack::INSTALLER))
-            .unwrap()
-            .permissions()
-            .mode();
-        assert_eq!(mode & 0o111, 0o111);
+        // Windows has no execute bits to keep.
+        if cfg!(unix) {
+            let mode = fsmode::mode_of(&fs::metadata(landed.join(pack::INSTALLER)).unwrap());
+            assert_eq!(mode & 0o111, 0o111);
+        }
         assert!(landed.join("skills/alpha").join(SKILL_FILE).is_file());
         for left_out in [".git", ".venv", "untracked"] {
             assert!(!landed.join(left_out).exists(), "{left_out}");
@@ -420,7 +417,9 @@ pub(super) mod tests {
     }
 
     /// A PATH with a planted `git-remote-evil` first on it, and the file that
-    /// program leaves.
+    /// program leaves. The program is a shell script, so the tests that
+    /// plant it are Unix's.
+    #[cfg(unix)]
     fn planted_helper(dir: &Path) -> (String, PathBuf) {
         use std::os::unix::fs::PermissionsExt;
 
@@ -435,6 +434,7 @@ pub(super) mod tests {
         (format!("{}:{path}", helpers.display()), ran)
     }
 
+    #[cfg(unix)]
     #[test]
     fn a_clones_url_cant_start_a_program_git_finds_by_its_name() {
         let dir = TempDir::new();
@@ -445,6 +445,7 @@ pub(super) mod tests {
         assert!(!ran.exists());
     }
 
+    #[cfg(unix)]
     #[test]
     fn a_fetchs_remote_cant_start_a_program_git_finds_by_its_name() {
         let dir = TempDir::new();

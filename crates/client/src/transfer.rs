@@ -38,7 +38,7 @@ use maxhq_protocol::{ClientMessage, ServerMessage};
 use maxhq_transfer::manifest::{self, Layout};
 use maxhq_transfer::receive::sha256_hex;
 use maxhq_transfer::send::RESTARTS;
-use maxhq_transfer::{name, walk, Failure, Outgoing, Receiver, Room, Source, Walk};
+use maxhq_transfer::{local, name, walk, Failure, Outgoing, Receiver, Room, Source, Walk};
 use maxhq_wire::{Queue, Window};
 use serde::Serialize;
 use thiserror::Error;
@@ -75,10 +75,6 @@ const INCOMING: &str = ".incoming";
 
 /// How many names a download tries when others take them as it moves in.
 const SETTLE_TRIES: usize = 8;
-
-/// The mark macOS checks before it opens a file from elsewhere.
-#[cfg(target_os = "macos")]
-const QUARANTINE: &str = "com.apple.quarantine";
 
 /// How far one transfer got, for a progress bar.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
@@ -642,13 +638,14 @@ impl Transfers {
     }
 
     /// Fetches a file or folder an agent can see into the downloads folder
-    /// and gives where it landed.
+    /// and gives where it landed, with the links in it this machine
+    /// couldn't make.
     pub async fn download(
         &self,
         agent: AgentId,
         path: String,
         on_progress: &(dyn Fn(TransferProgress) + Send + Sync),
-    ) -> Result<PathBuf, TransferError> {
+    ) -> Result<Saved, TransferError> {
         let shown = name::download_name(&path);
         let begin = fetch_begin(agent, path, false);
         let fetched = self
@@ -825,6 +822,13 @@ impl Transfers {
                 // Every byte is in, so the device is done with it too.
                 ticket.over = true;
                 let from = root.join(&landed.top);
+                let skipped_links = landed.skipped_links.clone();
+                if !skipped_links.is_empty() {
+                    debug!(
+                        skipped = skipped_links.len(),
+                        "this machine couldn't make some links in a download"
+                    );
+                }
                 if let Some((to, size)) = cached.take() {
                     let folder = self.places.media.clone();
                     let name = blocking(move || {
@@ -836,15 +840,19 @@ impl Transfers {
                 if let Destination::Copy = into {
                     // The copy keeps its folder until it drops.
                     ticket.scratch = None;
-                    return Ok(Fetched::Copied(Copied::new(root, from)));
+                    let copied = Copied::new(root, from).skipping(skipped_links);
+                    return Ok(Fetched::Copied(copied));
                 }
                 let top = landed.top.clone();
                 let downloads = self.places.downloads.clone();
-                let saved = blocking(move || {
+                let path = blocking(move || {
                     settle(&from, &top, &downloads).map_err(|err| Failure::io(&err, None))
                 })
                 .await?;
-                return Ok(Fetched::Saved(saved));
+                return Ok(Fetched::Saved(Saved {
+                    path,
+                    skipped_links,
+                }));
             }
             let state = if sender.is_none() {
                 TransferState::Paused
@@ -1085,9 +1093,20 @@ enum Destination {
 
 /// Where a fetch landed.
 enum Fetched {
-    Saved(PathBuf),
+    Saved(Saved),
     Media(Media),
     Copied(Copied),
+}
+
+/// A download in the downloads folder.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Saved {
+    /// Where it went.
+    pub path: PathBuf,
+    /// The links in it this machine couldn't make, by their paths inside
+    /// it with `/` between parts. Only Windows leaves any out, where
+    /// neither Developer Mode nor an administrator lets it make links.
+    pub skipped_links: Vec<String>,
 }
 
 /// A file or folder fetched from a device to hand on, in a staging folder
@@ -1096,17 +1115,33 @@ enum Fetched {
 pub struct Copied {
     folder: PathBuf,
     path: PathBuf,
+    skipped_links: Vec<String>,
 }
 
 impl Copied {
     /// A copy at `path`, inside `folder`, which goes when it drops.
     pub fn new(folder: PathBuf, path: PathBuf) -> Self {
-        Self { folder, path }
+        Self {
+            folder,
+            path,
+            skipped_links: Vec::new(),
+        }
+    }
+
+    /// The copy without `links`, which this machine couldn't make.
+    fn skipping(mut self, links: Vec<String>) -> Self {
+        self.skipped_links = links;
+        self
     }
 
     /// Where the copy is, under its name on the device.
     pub fn path(&self) -> &Path {
         &self.path
+    }
+
+    /// The links the copy left out, as [`Saved::skipped_links`] says.
+    pub fn skipped_links(&self) -> &[String] {
+        &self.skipped_links
     }
 }
 
@@ -1155,9 +1190,16 @@ fn hit(to: &Path, size: u64) -> Option<String> {
 
 /// Moves a landed picture or video to its place in the cache, then makes
 /// room for it, and gives its name. A copy that landed there first has the
-/// same bytes, so either one does.
+/// same bytes, so either one does, and when it can't be replaced, as on
+/// Windows while the webview has it open, it stays.
 fn keep(from: &Path, to: &Path, folder: &Path) -> io::Result<String> {
-    std::fs::rename(from, to)?;
+    if let Err(err) = std::fs::rename(from, to) {
+        let size = std::fs::metadata(from)?.len();
+        if hit(to, size).is_none() {
+            return Err(err);
+        }
+        debug!(%err, "kept the copy already in the media cache");
+    }
     if let Err(err) = media::prune(folder, media::CACHE_LIMIT, to) {
         debug!(%err, "couldn't make room in the media cache");
     }
@@ -1356,6 +1398,8 @@ struct Landing {
     files: Files,
     /// The name of what was sent.
     top: String,
+    /// The links this machine couldn't make, by their paths inside `top`.
+    skipped_links: Vec<String>,
     written: u64,
     done: bool,
 }
@@ -1383,7 +1427,13 @@ impl Landing {
                 "a download holds one file or folder",
             )
         })?;
+        let skipped_links = receiver
+            .skipped_links()
+            .iter()
+            .map(|path| inside(path, &top))
+            .collect();
         Ok(Self {
+            skipped_links,
             written: receiver.written(),
             done: receiver.is_done(),
             receiver: Arc::new(Mutex::new(receiver)),
@@ -1411,6 +1461,15 @@ impl Landing {
         self.done = done;
         result
     }
+}
+
+/// A path in a manifest as a path inside `top`, the one file or folder in
+/// it.
+fn inside(path: &str, top: &str) -> String {
+    path.strip_prefix(top)
+        .and_then(|rest| rest.strip_prefix('/'))
+        .unwrap_or(path)
+        .to_owned()
 }
 
 /// One file's bytes as an upload of its own, with an extension from its
@@ -1501,7 +1560,9 @@ impl Count {
 
 /// Copies what they chose into `into`, under its own name, and walks the
 /// copy. The chosen item is followed if it's a link, as a walk does, and
-/// links inside are copied as links, so the walk judges them the same.
+/// links inside are copied as links, so the walk judges them the same. A
+/// link this machine can't make, as on Windows without Developer Mode,
+/// stays behind.
 fn stage(chosen: &Path, into: &Path, stop: &AtomicBool) -> Result<Walk, Failure> {
     let io = |err: io::Error| Failure::io(&err, None);
     let name = chosen
@@ -1556,8 +1617,9 @@ fn copy_dir(from: &Path, to: &Path, count: &mut Count, stop: &AtomicBool) -> Res
                 clone_file(&source, &copy).map_err(io)?;
             } else if kind.is_symlink() {
                 count.add(0)?;
-                let target = std::fs::read_link(&source).map_err(io)?;
-                std::os::unix::fs::symlink(target, &copy).map_err(io)?;
+                if !local::copy_link(&source, &copy).map_err(io)? {
+                    debug!(link = %source.display(), "couldn't copy a link for an upload");
+                }
             }
             // Devices, sockets and pipes stay behind, as the walk skips them.
         }
@@ -1580,7 +1642,8 @@ fn clone_file(from: &Path, to: &Path) -> io::Result<()> {
 }
 
 /// Moves a landed download into the downloads folder under the first free
-/// name, marks it as from elsewhere and gives where it went.
+/// name, marks it as from elsewhere, as macOS and Windows check, and gives
+/// where it went.
 fn settle(from: &Path, top: &str, downloads: &Path) -> io::Result<PathBuf> {
     let wanted = name::download_name(top);
     for _ in 0..SETTLE_TRIES {
@@ -1593,9 +1656,11 @@ fn settle(from: &Path, top: &str, downloads: &Path) -> io::Result<PathBuf> {
             .collect();
         let free = name::free_name(&wanted, |name| taken.contains(&fold(name)));
         let to = downloads.join(&free);
-        match rename_new(from, &to) {
+        match local::rename_new(from, &to) {
             Ok(()) => {
-                quarantine(&to);
+                if let Err(err) = local::mark_from_elsewhere(&to) {
+                    debug!(%err, "couldn't mark a download as from elsewhere");
+                }
                 return Ok(to);
             }
             Err(err) if err.kind() == io::ErrorKind::AlreadyExists => continue,
@@ -1612,59 +1677,6 @@ fn settle(from: &Path, top: &str, downloads: &Path) -> io::Result<PathBuf> {
 fn fold(name: &str) -> String {
     name::nfc(name).to_lowercase()
 }
-
-/// Renames `from` to `to`, failing if `to` is there already.
-fn rename_new(from: &Path, to: &Path) -> io::Result<()> {
-    use rustix::fs::{renameat_with, RenameFlags, CWD};
-    use rustix::io::Errno;
-    match renameat_with(CWD, from, CWD, to, RenameFlags::NOREPLACE) {
-        Ok(()) => Ok(()),
-        // Some disks can't refuse to replace, so look first there.
-        Err(Errno::INVAL | Errno::NOSYS | Errno::NOTSUP) => {
-            if to.symlink_metadata().is_ok() {
-                return Err(io::ErrorKind::AlreadyExists.into());
-            }
-            std::fs::rename(from, to)
-        }
-        Err(err) => Err(err.into()),
-    }
-}
-
-/// Marks a download and everything in it as from elsewhere, so macOS
-/// checks it before it opens. Links are left be.
-#[cfg(target_os = "macos")]
-fn quarantine(path: &Path) {
-    let seconds = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|since| since.as_secs())
-        .unwrap_or_default();
-    let value = format!("0081;{seconds:08x};MaxHQ;");
-    mark(path, value.as_bytes());
-}
-
-#[cfg(target_os = "macos")]
-fn mark(path: &Path, value: &[u8]) {
-    let Ok(meta) = std::fs::symlink_metadata(path) else {
-        return;
-    };
-    if meta.file_type().is_symlink() {
-        return;
-    }
-    if let Err(err) =
-        rustix::fs::lsetxattr(path, QUARANTINE, value, rustix::fs::XattrFlags::empty())
-    {
-        debug!(%err, "couldn't mark a download as from elsewhere");
-    }
-    if meta.is_dir() {
-        for item in std::fs::read_dir(path).into_iter().flatten().flatten() {
-            mark(&item.path(), value);
-        }
-    }
-}
-
-/// Only macOS has the mark.
-#[cfg(not(target_os = "macos"))]
-fn quarantine(_path: &Path) {}
 
 /// Removes a folder and what's in it, if it's there.
 fn remove(path: &Path) {
@@ -1721,5 +1733,13 @@ mod tests {
             .unwrap();
         maxhq_transfer::remove_tree(&dir).unwrap();
         assert_eq!(staged.unwrap_err().code, ErrorCode::TooLarge);
+    }
+
+    #[test]
+    fn a_skipped_link_is_named_inside_what_was_sent() {
+        assert_eq!(inside("site/docs/latest", "site"), "docs/latest");
+        // A name that only starts like the top isn't inside it.
+        assert_eq!(inside("sites/latest", "site"), "sites/latest");
+        assert_eq!(inside("site", "site"), "site");
     }
 }

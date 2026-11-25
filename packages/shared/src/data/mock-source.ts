@@ -1631,7 +1631,10 @@ export const mockSource = (options: MockOptions = {}): MockSource => {
 			if (!has("agent", agent))
 				return { status: "error", error: { kind: "not_found", what: `agent ${agent}` } };
 			onProgress(finished(nameOf(path), 0));
-			return { status: "ok", data: { path: `${DOWNLOADS}/${nameOf(path)}` } };
+			return {
+				status: "ok",
+				data: { path: `${DOWNLOADS}/${nameOf(path)}`, skipped_links: [] },
+			};
 		},
 		media: async (agent, path, limit, anyway, onProgress) => {
 			if (!has("agent", agent))

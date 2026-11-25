@@ -82,7 +82,7 @@ const fakeBridge = () => {
 		}),
 		uploadPasted: vi.fn(async () => json({ status: "ok", data: { status: "done" } })),
 		download: vi.fn(async () =>
-			json({ status: "ok", data: { path: "/cache/downloads/a.txt" } })
+			json({ status: "ok", data: { path: "/cache/downloads/a.txt", skipped_links: [] } })
 		),
 		attachFromAgent: vi.fn(async () => json({ status: "ok", data: { status: "done" } })),
 		copyProject: vi.fn(async () =>
@@ -249,7 +249,10 @@ describe("native source transfers", () => {
 	it("answers where a download landed", async () => {
 		await expect(
 			nativeSource(fake.bridge, CACHE).download("agent-1", "a.txt", () => undefined)
-		).resolves.toEqual({ status: "ok", data: { path: "/cache/downloads/a.txt" } });
+		).resolves.toEqual({
+			status: "ok",
+			data: { path: "/cache/downloads/a.txt", skipped_links: [] },
+		});
 	});
 
 	it("copies a project with the target and files as JSON, and throws why one can't go", async () => {

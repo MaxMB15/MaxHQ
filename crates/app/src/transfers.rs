@@ -104,6 +104,10 @@ impl From<maxhq_client::TransferState> for TransferState {
 pub struct Downloaded {
     /// The file or folder on this machine, under `~/Downloads/MaxHQ`.
     pub path: String,
+    /// The links in it this machine couldn't make, by their paths inside
+    /// it. Only Windows leaves any out, where neither Developer Mode nor
+    /// an administrator lets it make links.
+    pub skipped_links: Vec<String>,
 }
 
 /// A picture or video for the timeline, as the media cache has it.
@@ -239,7 +243,8 @@ impl<C: Connector> App<C> {
     ) -> Result<Downloaded, CommandError> {
         let landed = self.devices.download(agent, path, reporter(report)).await?;
         Ok(Downloaded {
-            path: landed.to_string_lossy().into_owned(),
+            path: landed.path.to_string_lossy().into_owned(),
+            skipped_links: landed.skipped_links,
         })
     }
 
@@ -416,6 +421,16 @@ pub async fn copy_project<C: Connector>(
     let copied = devices
         .copy_files(from, files, Arc::clone(&on_progress))
         .await?;
+    // Links this machine couldn't make don't go on, so they show with the
+    // files that failed.
+    let unmade: Vec<PlaceFailure> = copied
+        .skipped_links()
+        .iter()
+        .map(|path| PlaceFailure {
+            path: path.clone(),
+            reason: "this computer couldn't make the link".to_owned(),
+        })
+        .collect();
     let into = UploadTarget::Workspace { workspace };
     let uploaded = devices
         .upload(device, into, copied.path().to_owned(), on_progress)
@@ -432,11 +447,17 @@ pub async fn copy_project<C: Connector>(
         overwrite: false,
     };
     match devices.act(place).await? {
-        ActionOutcome::Placed { written, failed } => Ok(CopiedProject {
-            workspace,
+        ActionOutcome::Placed {
             written,
-            failed,
-        }),
+            mut failed,
+        } => {
+            failed.extend(unmade);
+            Ok(CopiedProject {
+                workspace,
+                written,
+                failed,
+            })
+        }
         other => Err(lookup_failed(other)),
     }
 }
@@ -653,7 +674,11 @@ mod tests {
             "dist/app.js".into(),
             reporter(report),
         ));
-        assert_eq!(landed, Ok(PathBuf::from("/downloads/dist/app.js")));
+        let landed = landed.map(|saved| (saved.path, saved.skipped_links));
+        assert_eq!(
+            landed,
+            Ok((PathBuf::from("/downloads/dist/app.js"), Vec::new()))
+        );
         assert_eq!(states(&heard), ["uploading", "done"]);
     }
 
