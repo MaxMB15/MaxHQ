@@ -77,7 +77,9 @@ impl MemFs {
 
     fn put(&mut self, path: &Path, node: Mem) -> &mut Self {
         let path = normalize(path);
-        assert!(path.is_absolute(), "a MemFs path is absolute");
+        // `has_root`, not `is_absolute`: Windows reads `/work` as rooted
+        // but not absolute, since it has no drive, and the tests use `/` paths.
+        assert!(path.has_root(), "a MemFs path starts at the root");
         let mut at = PathBuf::new();
         for part in path.parent().into_iter().flat_map(Path::components) {
             at.push(part);

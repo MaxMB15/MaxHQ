@@ -170,7 +170,7 @@ jobs:
         run: cargo clippy $CRATES --all-targets --locked -- -D warnings
 
       - name: Test
-        run: cargo test $CRATES --locked
+        run: cargo test $CRATES --locked --no-fail-fast
 
   frontend:
     runs-on: ubuntu-24.04
