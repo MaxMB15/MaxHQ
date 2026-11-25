@@ -22,6 +22,10 @@ pub fn chown_file(file: &File, uid: u32, gid: u32) -> io::Result<()> {
     std::os::unix::fs::fchown(file, Some(uid), Some(gid))
 }
 
+pub fn chown(path: &Path, uid: u32, gid: u32) -> io::Result<()> {
+    std::os::unix::fs::chown(path, Some(uid), Some(gid))
+}
+
 pub fn chown_link(path: &Path, uid: u32, gid: u32) -> io::Result<()> {
     std::os::unix::fs::lchown(path, Some(uid), Some(gid))
 }

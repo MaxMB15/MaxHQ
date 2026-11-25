@@ -59,6 +59,10 @@ pub fn owner_of(meta: &Metadata) -> Option<u32> {
     Some(meta.uid())
 }
 
+pub fn group_of(meta: &Metadata) -> Option<u32> {
+    Some(meta.gid())
+}
+
 fn id_of(meta: &Metadata) -> FileId {
     FileId {
         volume: meta.dev(),

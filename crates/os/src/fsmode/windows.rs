@@ -217,6 +217,10 @@ pub fn owner_of(_meta: &Metadata) -> Option<u32> {
     None
 }
 
+pub fn group_of(_meta: &Metadata) -> Option<u32> {
+    None
+}
+
 pub fn file_id(file: &File) -> io::Result<FileId> {
     let (volume, file) = win::file_id(file)?;
     Ok(FileId { volume, file })

@@ -53,6 +53,12 @@ pub fn chown_file(file: &File, uid: u32, gid: u32) -> io::Result<()> {
     imp::chown_file(file, uid, gid)
 }
 
+/// Gives what `path` names to the user `uid` and group `gid`, following
+/// a link to what it points at.
+pub fn chown(path: &Path, uid: u32, gid: u32) -> io::Result<()> {
+    imp::chown(path, uid, gid)
+}
+
 /// Gives what's at `path` to the user `uid` and group `gid`, the link
 /// itself when it's a link.
 pub fn chown_link(path: &Path, uid: u32, gid: u32) -> io::Result<()> {

@@ -75,6 +75,12 @@ pub fn owner_of(meta: &Metadata) -> Option<u32> {
     imp::owner_of(meta)
 }
 
+/// The group ID of what `meta` describes. Windows has no group IDs, so
+/// it's `None` there.
+pub fn group_of(meta: &Metadata) -> Option<u32> {
+    imp::group_of(meta)
+}
+
 /// What tells a file from every other on the machine: its device and
 /// inode on Unix, and its volume and 128-bit file ID on Windows. Two names
 /// or handles with one ID are one file, hard links included.
@@ -200,8 +206,10 @@ mod tests {
         if cfg!(unix) {
             assert_eq!(mode_of(&meta) & 0o777, 0o755, "it keeps its first mode");
             assert!(owner_of(&meta).is_some());
+            assert!(group_of(&meta).is_some());
         } else {
             assert_eq!(owner_of(&meta), None);
+            assert_eq!(group_of(&meta), None);
         }
         fs::remove_dir_all(&dir).unwrap();
     }

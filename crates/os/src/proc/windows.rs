@@ -419,3 +419,7 @@ pub fn is_root() -> bool {
         .and_then(|token| win::elevated(&token))
         .unwrap_or(false)
 }
+
+pub fn own_ids() -> Option<(u32, u32)> {
+    None
+}

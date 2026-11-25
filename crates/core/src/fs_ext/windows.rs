@@ -50,6 +50,10 @@ pub fn chown_file(_file: &File, _uid: u32, _gid: u32) -> io::Result<()> {
     Err(no_owners())
 }
 
+pub fn chown(_path: &Path, _uid: u32, _gid: u32) -> io::Result<()> {
+    Err(no_owners())
+}
+
 pub fn chown_link(_path: &Path, _uid: u32, _gid: u32) -> io::Result<()> {
     Err(no_owners())
 }

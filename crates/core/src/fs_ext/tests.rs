@@ -108,7 +108,8 @@ fn unix_owners_are_the_files_own() {
     let file = File::create(&path).unwrap();
     let meta = file.metadata().unwrap();
     let uid = maxhq_os::fsmode::owner_of(&meta).unwrap();
-    let gid = std::os::unix::fs::MetadataExt::gid(&meta);
+    let gid = maxhq_os::fsmode::group_of(&meta).unwrap();
     chown_file(&file, uid, gid).unwrap();
+    chown(&path, uid, gid).unwrap();
     chown_link(&path, uid, gid).unwrap();
 }

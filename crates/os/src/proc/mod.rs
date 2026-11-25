@@ -133,6 +133,12 @@ pub fn is_root() -> bool {
     imp::is_root()
 }
 
+/// This process's real user and group IDs. Windows has none, so it's
+/// `None` there.
+pub fn own_ids() -> Option<(u32, u32)> {
+    imp::own_ids()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -172,6 +178,11 @@ mod tests {
     fn root_is_known() {
         // Whatever the answer, asking doesn't fail.
         let _ = is_root();
+    }
+
+    #[test]
+    fn this_user_is_known() {
+        assert_eq!(own_ids().is_some(), cfg!(unix));
     }
 
     #[cfg(unix)]
