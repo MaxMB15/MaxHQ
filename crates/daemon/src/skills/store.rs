@@ -162,7 +162,7 @@ fn touch(dir: &Path) {
 }
 
 fn set_time(dir: &Path, at: SystemTime) {
-    if let Err(error) = fs::File::open(dir).and_then(|folder| folder.set_modified(at)) {
+    if let Err(error) = fsmode::set_modified(dir, at) {
         warn!(path = %dir.display(), %error, "couldn't mark a skill tree as kept");
     }
 }

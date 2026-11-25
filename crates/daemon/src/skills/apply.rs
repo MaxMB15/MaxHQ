@@ -70,17 +70,14 @@ pub struct Applied {
 
 impl Applied {
     /// The links that stopped skills landing in the checkout at `root`, as
-    /// paths in it.
+    /// paths in it with `/` on every OS.
     pub fn outside(&self, root: &Path) -> Vec<String> {
         self.clashes
             .iter()
             .filter_map(|clash| match clash {
-                Clash::Outside(link) => Some(
-                    link.strip_prefix(root)
-                        .unwrap_or(link)
-                        .display()
-                        .to_string(),
-                ),
+                Clash::Outside(link) => Some(maxhq_core::skills::path_text(
+                    link.strip_prefix(root).unwrap_or(link),
+                )),
                 _ => None,
             })
             .collect()

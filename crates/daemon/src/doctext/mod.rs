@@ -128,6 +128,8 @@ impl Extractor {
 
     /// The same, giving the child `timeout` in place of [`TIMEOUT`].
     #[cfg(test)]
+    // Its one test waits for T1's fake program helper on Windows.
+    #[cfg_attr(windows, allow(dead_code))]
     pub fn timeout(self, timeout: Duration) -> Self {
         Self { timeout, ..self }
     }
@@ -312,6 +314,8 @@ mod tests {
         Extractor::with("/bin/sh", &["-c", script, "sh"])
     }
 
+    // Needs T1's fake program helper: the child here is an sh script.
+    #[cfg(unix)]
     #[test]
     fn saves_what_the_child_prints_beside_the_document() {
         let dir = TempDir::new();
@@ -342,6 +346,8 @@ mod tests {
         );
     }
 
+    // Needs T1's fake program helper: the child here is an sh script.
+    #[cfg(unix)]
     #[test]
     fn saves_nothing_when_the_child_fails_or_the_file_is_another_kind() {
         let dir = TempDir::new();
@@ -357,6 +363,8 @@ mod tests {
         assert_eq!(Extractor::default().save(&doc), None);
     }
 
+    // Needs T1's fake program helper: the child here is an sh script.
+    #[cfg(unix)]
     #[test]
     fn ends_a_child_that_prints_too_much() {
         let dir = TempDir::new();
@@ -368,6 +376,8 @@ mod tests {
         assert!(!text_path(&doc).exists());
     }
 
+    // Needs T1's fake program helper: the child here is an sh script.
+    #[cfg(unix)]
     #[test]
     fn ends_a_child_that_takes_too_long() {
         let dir = TempDir::new();

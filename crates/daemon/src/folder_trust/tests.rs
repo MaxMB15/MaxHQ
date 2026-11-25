@@ -129,7 +129,8 @@ fn a_link_in_a_walked_folder_counts_by_its_text_and_isnt_followed() {
     let first = print(&scanned(&root));
     write(&root.join("big/secret"), "two");
     assert_eq!(first, print(&scanned(&root)), "the link stays unfollowed");
-    fs::remove_file(root.join(".claude/hooks/out")).expect("it goes");
+    // A link to a folder is a folder's own kind of link on Windows.
+    fs_ext::remove_link(&root.join(".claude/hooks/out")).expect("it goes");
     link(&root.join(".claude/hooks/out"), "../../big/secret");
     assert_ne!(first, print(&scanned(&root)));
 }

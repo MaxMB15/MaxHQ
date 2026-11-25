@@ -388,11 +388,9 @@ impl MacVm {
             Err(error) => Err(error),
         };
         remove(&staged)?;
-        let path = Path::new(GUEST_SHARE)
-            .join(UPLOADS)
-            .join(placed?)
-            .join(&name);
-        via_guest::install(&guest, on.lease, path.display().to_string()).await?;
+        // The guest is a Mac, so its path has `/` whatever this device uses.
+        let path = format!("{GUEST_SHARE}/{UPLOADS}/{}/{name}", placed?);
+        via_guest::install(&guest, on.lease, path).await?;
         Ok(match self.kind {
             TestKind::IosSimulator => format!("Installed {name} on the Simulator."),
             _ => format!("Copied {name} into the test user's home folder."),

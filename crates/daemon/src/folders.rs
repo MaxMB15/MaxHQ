@@ -46,7 +46,11 @@ const WAIT_TURN: Duration = Duration::from_millis(500);
 const MADE_KEPT: usize = 64;
 
 const OTHER_DEVICE: &str = "That folder is for another device.";
-const NOT_ABSOLUTE: &str = "Give the folder as a full path, starting with / or ~.";
+const NOT_ABSOLUTE: &str = if cfg!(windows) {
+    "Give the folder as a full path, starting with a drive such as C:\\ or with ~."
+} else {
+    "Give the folder as a full path, starting with / or ~."
+};
 const NO_HOME: &str = "maxd can't tell your home folder.";
 const TOO_LONG: &str = "That folder took too long to read.";
 const MAKE_TOO_LONG: &str = "Making that folder took too long.";
@@ -285,15 +289,17 @@ fn make_at(home: Option<&Path>, path: &str) -> Result<(), String> {
 /// `path` with a leading `~` as the home folder. Only an absolute path, or
 /// one from home, names a folder.
 fn expand(path: &str, home: Option<&Path>) -> Result<PathBuf, String> {
-    if path.starts_with('/') {
+    // On Windows a full path starts with its drive, as in `C:\`; `/` alone
+    // still lists, so it can say what a new folder there needs.
+    if path.starts_with('/') || Path::new(path).is_absolute() {
         return Ok(PathBuf::from(path));
     }
     let rest = match path.strip_prefix('~') {
-        Some(rest) if rest.is_empty() || rest.starts_with('/') => rest,
+        Some(rest) if rest.is_empty() || rest.starts_with(std::path::is_separator) => rest,
         _ => return Err(NOT_ABSOLUTE.to_owned()),
     };
     let home = home.ok_or(NO_HOME)?;
-    match rest.trim_start_matches('/') {
+    match rest.trim_start_matches(std::path::is_separator) {
         "" => Ok(home.to_path_buf()),
         rest => Ok(home.join(rest)),
     }
@@ -458,7 +464,7 @@ mod tests {
         let missing = read(me(), Some(home), "~/new/place", true, false, None).unwrap();
         assert!(!missing.exists);
         assert!(missing.entries.is_empty());
-        assert_eq!(missing.path, home.join("new/place").to_string_lossy());
+        assert_eq!(Path::new(&missing.path), home.join("new/place"));
         assert_eq!(missing.home.as_deref(), Some(&*home.to_string_lossy()));
         let file = read(me(), Some(home), "~/c.txt", true, false, None).unwrap();
         assert!(!file.exists);

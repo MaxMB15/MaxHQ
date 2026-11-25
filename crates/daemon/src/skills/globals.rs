@@ -726,7 +726,9 @@ mod tests {
         skill(&home.join(".claude/skills/git-flow"), "A new one.");
 
         let left = globals.undo().unwrap_err();
-        assert!(left.contains(".claude/skills/git-flow"), "{left}");
+        // The message names the folder on this device as it writes paths.
+        let in_way = home.join(".claude").join("skills").join("git-flow");
+        assert!(left.contains(&in_way.display().to_string()), "{left}");
         let backup = globals.data.join("backup/2026-10-26-073320");
         assert!(backup.join(".claude/skills/git-flow").is_dir());
         assert!(home.join(".codex/skills/unslop").is_dir());

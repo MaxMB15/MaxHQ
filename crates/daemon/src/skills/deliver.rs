@@ -223,11 +223,15 @@ pub fn restart_marked(path: &Path, needed: bool) {
 }
 
 /// The global skills folders in a container that an agent of `vendor`
-/// whose config folder is `config_dir` reads.
+/// whose config folder is `config_dir` reads. They're container paths, so
+/// they take `/` whatever this device uses.
 pub fn guest_homes(vendor: Vendor, config_dir: &Path) -> Vec<String> {
     let mut homes = vec![format!("{}/.agents/skills", crate::recipe::AGENT_HOME)];
     if vendor == Vendor::Claude {
-        homes.push(config_dir.join("skills").display().to_string());
+        homes.push(crate::posix_path::join(
+            &config_dir.to_string_lossy(),
+            "skills",
+        ));
     }
     homes
 }

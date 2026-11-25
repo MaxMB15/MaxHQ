@@ -154,7 +154,9 @@ pub fn bind(path: &Path) -> Result<Listener, BindError> {
     )
     .open(&lock_path)
     .map_err(io_at(&lock_path))?;
-    match lock.try_lock() {
+    // Not `try_lock`: on Windows it would bar the next maxd from reading
+    // the process ID written below.
+    match maxhq_os::lock::try_hold(&lock) {
         Ok(()) => {}
         Err(TryLockError::WouldBlock) => {
             return Err(BindError::AlreadyRunning {

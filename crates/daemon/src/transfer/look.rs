@@ -21,7 +21,7 @@ use tracing::debug;
 use super::disk;
 use super::push;
 use super::registry::Peer;
-use super::{guest_path, Event, FromGuest, Task, Transfers, STALL};
+use super::{guest_path, in_guest_folders, Event, FromGuest, Task, Transfers, STALL};
 use crate::drive::{Place, PlaceHost};
 use crate::session::holders::Looked;
 
@@ -51,8 +51,7 @@ impl Transfers {
     ) -> Result<Looked, String> {
         let said = |failure: Failure| format!("{path}: {}.", failure.message);
         let inside = guest_path(place, path).map_err(said)?;
-        let wanted = Path::new(&inside);
-        if !wanted.starts_with(&place.cwd) && !wanted.starts_with(&place.attachments) {
+        if !in_guest_folders(place, &inside) {
             return Err(format!(
                 "{path} is outside your folders. MaxHQ shows a file from outside them \
                  only for agents on the device itself, so copy it into your folder first."
@@ -253,7 +252,7 @@ mod tests {
         fs::write(cwd.join("main.exe"), "binary").unwrap();
         fs::write(elsewhere.join("chart.png"), "png").unwrap();
         symlink(cwd.join("docs/plan.md"), cwd.join("linked.md")).unwrap();
-        let outside = elsewhere.canonicalize().unwrap();
+        let outside = maxhq_core::fs_ext::canonicalize(&elsewhere).unwrap();
         (dir, vec![cwd, attachments], outside)
     }
 
