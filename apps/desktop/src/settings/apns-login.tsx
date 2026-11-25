@@ -16,20 +16,10 @@ import { cn } from "@/lib/utils";
 import { apnsLine } from "@maxhq/shared/settings/login-parts";
 import { isLive } from "@maxhq/shared/workspaces/state";
 
-import { FIELD, Label, PRIMARY, Section, StatusNote } from "./controls";
-import {
-	DeviceTicks,
-	HeldList,
-	KeyFileField,
-	type Outcome,
-	Outcomes,
-	TrashOffer,
-	useTicks,
-	useTrash,
-} from "./login-parts";
+import { FIELD, Label, Section } from "./controls";
+import { HeldList, KeySendForm, useKeySend } from "./login-parts";
 import { Steps } from "./login-steps";
 import { heldOf, pushTargets } from "./logins";
-import { failureOf, type Note } from "./result";
 import { t as translate, useI18n } from "@maxhq/shared/i18n";
 
 const IdField = ({
@@ -64,113 +54,43 @@ const IdField = ({
 const Send = () => {
 	useI18n();
 	const { source } = useServices();
-	const view = useView((s) => s.view);
-	const now = useNow(5000);
-	const targets = pushTargets(view, now);
 	const [keyId, setKeyId] = useState("");
 	const [teamId, setTeamId] = useState("");
-	const [keyPath, setKeyPath] = useState<string | null>(null);
-	const [ticked, setTicked] = useTicks(targets);
-	const [busy, setBusy] = useState(false);
-	const [outcomes, setOutcomes] = useState<Outcome[]>([]);
-	const [trash, setTrash, move] = useTrash(() => setKeyPath(null));
-	const [note, setNote] = useState<Note | null>(null);
-
-	const devices = [...ticked];
-	const ready =
-		keyId.trim() !== "" &&
-		teamId.trim() !== "" &&
-		keyPath !== null &&
-		devices.length > 0 &&
-		!busy;
-
-	const send = async () => {
-		if (!ready || keyPath === null) return;
-		setBusy(true);
-		setNote(null);
-		setOutcomes([]);
-		setTrash(null);
-		try {
-			const results = await source.setApnsKey(devices, keyId.trim(), teamId.trim(), keyPath);
-			const done = devices.map((device, i) => {
-				const result = results[i];
-				return {
-					device,
-					failure: result ? failureOf(result) : translate("The device didn't answer"),
-				};
-			});
-			setOutcomes(done);
-			if (done.every((o) => o.failure === null)) setTrash({ step: "offer", path: keyPath });
-		} catch (error) {
-			console.warn(translate("Couldn't send the APNs key"), error);
-			setNote({
-				text: translate("Couldn't send it. Check the file and try again."),
-				error: true,
-			});
-		} finally {
-			setBusy(false);
-		}
-	};
-
+	const sending = useKeySend({
+		targetsOf: pushTargets,
+		deliver:
+			keyId.trim() !== "" && teamId.trim() !== ""
+				? (devices, keyPath) =>
+						source.setApnsKey(devices, keyId.trim(), teamId.trim(), keyPath)
+				: null,
+		warning: translate("Couldn't send the APNs key"),
+	});
 	return (
-		<Section title={translate("Send the key")} hint={translate("To each device you tick")}>
-			<form
-				className="flex flex-col gap-4 px-4 py-3.5"
-				onSubmit={(e) => {
-					e.preventDefault();
-					void send();
-				}}
-			>
-				<div className="flex flex-wrap gap-4">
-					<IdField
-						label={translate("Key ID")}
-						value={keyId}
-						onChange={setKeyId}
-						placeholder={translate("From the key's page")}
-					/>
-					<IdField
-						label={translate("Team ID")}
-						value={teamId}
-						onChange={setTeamId}
-						placeholder={translate("From Membership details")}
-					/>
-				</div>
-
-				<KeyFileField
-					label={translate("Private key")}
-					path={keyPath}
-					onPath={setKeyPath}
-					onFailure={setNote}
-					empty={translate("Drop the AuthKey .p8 file here, or choose it")}
+		<KeySendForm
+			sending={sending}
+			title={translate("Send the key")}
+			file={{
+				label: translate("Private key"),
+				empty: translate("Drop the AuthKey .p8 file here, or choose it"),
+			}}
+			noTargets={translate("No device pushes to phones yet. Update its maxd first.")}
+			done={() => translate("It pushes to your phones with this key.")}
+		>
+			<div className="flex flex-wrap gap-4">
+				<IdField
+					label={translate("Key ID")}
+					value={keyId}
+					onChange={setKeyId}
+					placeholder={translate("From the key's page")}
 				/>
-
-				<DeviceTicks
-					targets={targets}
-					ticked={ticked}
-					onChange={setTicked}
-					disabled={busy}
-					label={translate("Devices")}
-					empty={translate("No device pushes to phones yet. Update its maxd first.")}
+				<IdField
+					label={translate("Team ID")}
+					value={teamId}
+					onChange={setTeamId}
+					placeholder={translate("From Membership details")}
 				/>
-
-				<div className="flex items-start gap-3">
-					<div className="flex min-w-0 flex-1 flex-col gap-2">
-						<StatusNote note={note} className="text-xs" />
-						<Outcomes
-							view={view}
-							outcomes={outcomes}
-							done={() => translate("It pushes to your phones with this key.")}
-						/>
-						{trash ? (
-							<TrashOffer trash={trash} onMove={() => void move(trash.path)} />
-						) : null}
-					</div>
-					<button type="submit" className={PRIMARY} disabled={!ready}>
-						{busy ? translate("Sending") : translate("Send")}
-					</button>
-				</div>
-			</form>
-		</Section>
+			</div>
+		</KeySendForm>
 	);
 };
 
