@@ -18,7 +18,7 @@ use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use maxhq_core::fs::{write_atomic, Atomic};
-use maxhq_core::paths::MAXD_LINK_TEMP;
+use maxhq_os::link::point;
 use serde::{Deserialize, Serialize};
 use tracing::{info, warn};
 
@@ -363,14 +363,6 @@ pub fn is_static_elf(path: &Path) -> bool {
     true
 }
 
-/// Points `link` at `target` through a symlink and a rename.
-pub fn point(link: &Path, target: &Path) -> io::Result<()> {
-    let temp = link.with_file_name(MAXD_LINK_TEMP);
-    let _ = fs::remove_file(&temp);
-    std::os::unix::fs::symlink(target, &temp)?;
-    fs::rename(&temp, link)
-}
-
 /// Removes every version folder except `keep`.
 fn prune(layout: &Layout, keep: &[&str]) {
     let Ok(entries) = fs::read_dir(layout.versions()) else {
@@ -547,15 +539,13 @@ pub fn start_watcher(previous: &Path, build: &str) -> io::Result<()> {
     } else {
         std::process::Command::new(previous)
     };
-    use std::os::unix::process::CommandExt;
     command
         .args(["update", "watch", "--build", build])
         .stdin(Stdio::null())
         .stdout(Stdio::null())
-        .stderr(Stdio::inherit())
-        .process_group(0);
+        .stderr(Stdio::inherit());
     // The child is never waited for. It lives on after this maxd exits.
-    command.spawn().map(drop)
+    maxhq_os::proc::spawn_detached(&mut command)
 }
 
 /// Seconds since 1970.

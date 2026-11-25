@@ -12,7 +12,6 @@
 //! and an ID that's still in use as a session ID isn't given to a new
 //! process. Anything that can't be confirmed is left alone.
 
-use std::io;
 use std::path::Path;
 use std::time::{Duration, Instant};
 
@@ -29,10 +28,6 @@ const KILL_WAIT: Duration = Duration::from_secs(2);
 
 /// How often to check whether a process has gone.
 const POLL: Duration = Duration::from_millis(50);
-
-/// How long `ps` has to answer.
-#[cfg(not(target_os = "linux"))]
-const PS_WAIT: Duration = Duration::from_secs(5);
 
 /// How [`Holds::end`] went.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -168,7 +163,7 @@ async fn confirm_holder(dir: &Path, pid: u32) -> Result<Pid, Ended> {
     let doubt = |why: String| unconfirmed(Some(pid), why);
     let target = to_pid(pid).ok_or_else(|| doubt(format!("{pid} isn't a process ID")))?;
     let leader = rustix::process::getsid(Some(target)).is_ok_and(|sid| sid == target);
-    let line = command_line(pid)
+    let line = maxhq_os::proc::cmdline(pid)
         .await
         .map_err(|err| doubt(format!("couldn't read process {pid}'s command line: {err}")))?;
     let wanted = format!("{} {DETACHED}", dir.display());
@@ -212,44 +207,4 @@ async fn wait_for(limit: Duration, mut done: impl FnMut() -> bool) -> bool {
         }
         tokio::time::sleep(POLL).await;
     }
-}
-
-/// Process `pid`'s arguments joined by spaces, or `None` when there's no
-/// such process.
-#[cfg(target_os = "linux")]
-async fn command_line(pid: u32) -> io::Result<Option<String>> {
-    match tokio::fs::read(format!("/proc/{pid}/cmdline")).await {
-        Ok(bytes) => {
-            let bytes = bytes.strip_suffix(&[0u8]).unwrap_or(&bytes[..]);
-            Ok(Some(String::from_utf8_lossy(bytes).replace('\0', " ")))
-        }
-        Err(err) if err.kind() == io::ErrorKind::NotFound => Ok(None),
-        Err(err) => Err(err),
-    }
-}
-
-/// Process `pid`'s arguments joined by spaces, or `None` when there's no
-/// such process.
-#[cfg(not(target_os = "linux"))]
-async fn command_line(pid: u32) -> io::Result<Option<String>> {
-    use std::process::Stdio;
-
-    let output = tokio::process::Command::new("/bin/ps")
-        .args(["-ww", "-o", "args=", "-p"])
-        .arg(pid.to_string())
-        .env("LC_ALL", "C")
-        .stdin(Stdio::null())
-        .stderr(Stdio::null())
-        .kill_on_drop(true)
-        .output();
-    let output = tokio::time::timeout(PS_WAIT, output)
-        .await
-        .map_err(|_| io::Error::new(io::ErrorKind::TimedOut, "ps didn't answer"))??;
-    let line = String::from_utf8_lossy(&output.stdout);
-    let line = line.trim_end_matches('\n');
-    // `ps` prints nothing and fails when there's no such process.
-    if line.is_empty() && !output.status.success() {
-        return Ok(None);
-    }
-    Ok(Some(line.to_owned()))
 }

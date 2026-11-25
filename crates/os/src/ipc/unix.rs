@@ -68,3 +68,10 @@ impl AsFd for super::LocalStream {
         self.0.as_fd()
     }
 }
+
+/// The read half's socket, for the same calls.
+impl AsFd for super::ReadHalf {
+    fn as_fd(&self) -> BorrowedFd<'_> {
+        self.0.as_ref().as_fd()
+    }
+}

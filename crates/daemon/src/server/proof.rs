@@ -200,7 +200,7 @@ impl Connection {
         let asker = if self.app.is_some() {
             Asker::App
         } else {
-            let now = codesign::token(self.reader.as_ref());
+            let now = codesign::token(&self.reader);
             Asker::Connection(codesign::check(self.caller, now).await)
         };
         let revoked = self.keys.removed();
