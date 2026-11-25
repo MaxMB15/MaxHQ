@@ -4,13 +4,14 @@
 //! The Claude Code config folders `maxd` watches. Each one holds one login,
 //! so each one is an account.
 
-use std::path::{Path, PathBuf};
+use std::path::{is_separator, Path, PathBuf};
 
 use maxhq_core::names;
 use maxhq_protocol::ids::{AccountId, DeviceId};
 use maxhq_protocol::model::Vendor;
 
-/// Names more config folders to watch beside `~/.claude`, colon separated.
+/// Names more config folders to watch beside `~/.claude`, separated the way
+/// this system separates `PATH`: by colons, or by semicolons on Windows.
 pub const DIRS_ENV: &str = "MAXD_CLAUDE_CONFIG_DIRS";
 
 /// One Claude Code config folder.
@@ -61,8 +62,8 @@ impl ConfigDir {
 /// The config folders on this device that exist: `~/.claude` and every one
 /// in `MAXD_CLAUDE_CONFIG_DIRS`.
 pub fn config_dirs() -> Vec<ConfigDir> {
-    let Some(home) = std::env::var_os("HOME").map(PathBuf::from) else {
-        tracing::warn!("HOME is unset, so there's no Claude config folder to watch");
+    let Some(home) = maxhq_os::home::home_dir() else {
+        tracing::warn!("there's no home folder, so there's no Claude config folder to watch");
         return Vec::new();
     };
     let extra = std::env::var(DIRS_ENV).ok();
@@ -77,13 +78,17 @@ pub fn config_dirs() -> Vec<ConfigDir> {
 /// folder, and relative paths are skipped.
 pub fn candidates(home: &Path, extra: Option<&str>) -> Vec<ConfigDir> {
     let mut dirs = vec![ConfigDir::default_in(home)];
-    for entry in extra.unwrap_or_default().split(':').map(str::trim) {
+    let entries = std::env::split_paths(extra.unwrap_or_default());
+    for entry in entries.map(|entry| entry.to_string_lossy().into_owned()) {
+        let entry = entry.trim();
         if entry.is_empty() {
             continue;
         }
         let path = match entry.strip_prefix('~') {
             Some("") => home.to_path_buf(),
-            Some(rest) if rest.starts_with('/') => home.join(rest.trim_start_matches('/')),
+            Some(rest) if rest.starts_with(is_separator) => {
+                home.join(rest.trim_start_matches(is_separator))
+            }
             _ => PathBuf::from(entry),
         };
         if !path.is_absolute() {
@@ -103,6 +108,7 @@ pub fn candidates(home: &Path, extra: Option<&str>) -> Vec<ConfigDir> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::testing::{absolute, path_of};
     use uuid::Uuid;
 
     #[test]
@@ -122,18 +128,25 @@ mod tests {
 
     #[test]
     fn extra_folders_come_after_the_default_once_each() {
-        let home = Path::new("/home/dev");
-        let dirs = candidates(
-            home,
-            Some("~/.claude-work: /srv/claude/ ::relative/dir:~/.claude:/srv/claude"),
-        );
+        let dev = absolute("/home/dev");
+        let srv = absolute("/srv/claude");
+        let home = Path::new(&dev);
+        let list = path_of(&[
+            "~/.claude-work",
+            &format!(" {srv}/ "),
+            "",
+            "relative/dir",
+            "~/.claude",
+            &srv,
+        ]);
+        let dirs = candidates(home, Some(&list));
         let paths: Vec<&Path> = dirs.iter().map(|dir| dir.path.as_path()).collect();
         assert_eq!(
             paths,
             [
-                Path::new("/home/dev/.claude"),
-                Path::new("/home/dev/.claude-work"),
-                Path::new("/srv/claude"),
+                &*home.join(".claude"),
+                &*home.join(".claude-work"),
+                Path::new(&srv),
             ]
         );
         assert!(dirs[0].default);
@@ -144,12 +157,17 @@ mod tests {
     #[test]
     fn each_folder_is_its_own_account() {
         let device = DeviceId(Uuid::from_u128(7));
-        let home = ConfigDir::default_in(Path::new("/home/dev"));
-        let work = ConfigDir::custom(PathBuf::from("/home/dev/.claude-work"));
+        let dev = Path::new("/home/dev");
+        let home = ConfigDir::default_in(dev);
+        let work = ConfigDir::custom(dev.join(".claude-work"));
         assert_ne!(home.account(device), work.account(device));
         assert_eq!(
             home.account(device),
-            names::account(device, Vendor::Claude, "/home/dev/.claude")
+            names::account(
+                device,
+                Vendor::Claude,
+                &dev.join(".claude").to_string_lossy()
+            )
         );
     }
 }
