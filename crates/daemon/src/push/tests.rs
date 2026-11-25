@@ -224,6 +224,7 @@ impl Harness {
                 push_public: STANDARD.encode(public(&phone_private(id))),
                 paired_at: Timestamp(1),
                 push: Vec::new(),
+                service: None,
                 everything: false,
             }));
         }

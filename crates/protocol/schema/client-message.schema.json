@@ -4452,6 +4452,39 @@
       ]
     },
     {
+      "description": "Gives the device the Firebase service account it pushes to Android\nphones with. The device keeps the key and never sends it back.\nSince protocol 61.",
+      "type": "object",
+      "properties": {
+        "client_email": {
+          "description": "The service account's email, which signs in to Google.",
+          "type": "string"
+        },
+        "key": {
+          "description": "Makes a resend after a dropped connection safe.",
+          "$ref": "#/$defs/IdempotencyKey"
+        },
+        "private_key": {
+          "description": "The account's RSA key, as the PKCS #8 PEM in the JSON file's\n`private_key`.",
+          "$ref": "#/$defs/Secret"
+        },
+        "project_id": {
+          "description": "The Firebase project the account belongs to, which names the\nFCM endpoint.",
+          "type": "string"
+        },
+        "type": {
+          "type": "string",
+          "const": "set_fcm_key"
+        }
+      },
+      "required": [
+        "type",
+        "key",
+        "project_id",
+        "client_email",
+        "private_key"
+      ]
+    },
+    {
       "description": "Takes the library over from the device that held it, with its\nsources under the same IDs. This device clones each git source\nitself and rebuilds the personal source from its skills' trees,\nwhich must be in its store already. A folder source stays in the\nlist with a problem, since its folder is on the other device. It's\npublished once this device's settings say it holds the library.",
       "type": "object",
       "properties": {
@@ -13499,12 +13532,27 @@
         }
       ]
     },
+    "PushService": {
+      "description": "The service a push goes through.",
+      "oneOf": [
+        {
+          "description": "Apple Push Notification service, for an iPhone.",
+          "type": "string",
+          "const": "apns"
+        },
+        {
+          "description": "Firebase Cloud Messaging, for an Android phone.",
+          "type": "string",
+          "const": "fcm"
+        }
+      ]
+    },
     "PushToken": {
       "description": "Where and what a device pushes to a phone. The phone sends it to every\ndevice it links to, and again when anything in it changes.",
       "type": "object",
       "properties": {
         "environment": {
-          "description": "Which APNs host the token belongs to.",
+          "description": "Which APNs host the token belongs to. FCM has one host, so an\nAndroid phone sends `production`, which is ignored.",
           "$ref": "#/$defs/PushEnvironment"
         },
         "kinds": {
@@ -13514,12 +13562,17 @@
             "$ref": "#/$defs/PushKind"
           }
         },
+        "service": {
+          "description": "The service that delivers to the token. A token from before there\nwas a choice is an APNs one.",
+          "$ref": "#/$defs/PushService",
+          "default": "apns"
+        },
         "token": {
-          "description": "The APNs device token, as hex.",
+          "description": "The device token: hex for APNs, the registration token as Firebase\ngave it for FCM.",
           "$ref": "#/$defs/Secret"
         },
         "topic": {
-          "description": "The app's bundle ID, which APNs takes as the topic, such as\n`com.example.maxhq`.",
+          "description": "The app's bundle ID, which APNs takes as the topic, such as\n`com.example.maxhq`. An Android phone sends its package name.",
           "type": "string"
         }
       },

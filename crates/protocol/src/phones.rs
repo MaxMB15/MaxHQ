@@ -40,6 +40,10 @@ pub struct Phone {
     /// The kinds this device pushes to the phone. Empty until the phone
     /// sends a token.
     pub push: Vec<PushKind>,
+    /// The service this device pushes to the phone through, which says
+    /// which key it needs. None until the phone sends a token.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub service: Option<PushService>,
     /// Whether the phone may do what only the Mac does here, short of
     /// letting other keys in. Only the Mac turns it on.
     #[serde(default)]

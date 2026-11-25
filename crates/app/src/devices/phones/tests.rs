@@ -106,6 +106,7 @@ fn phone_on(device: &str) -> Entity {
         push_public: STANDARD.encode([3; 32]),
         paired_at: Timestamp::now(),
         push: Vec::new(),
+        service: None,
         everything: false,
     })
 }
@@ -1032,6 +1033,7 @@ fn made_up_on(device: &str, names: &[&str]) -> Vec<Entity> {
             push_public: STANDARD.encode([3; 32]),
             paired_at: Timestamp::now(),
             push: Vec::new(),
+            service: None,
             everything: false,
         }),
         Entity::PhoneBook(PhoneBook { phone: id, ..book }),
