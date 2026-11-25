@@ -117,25 +117,7 @@ impl HostExec {
     }
 }
 
-/// Starts a process with `start`, trying again for a moment while Linux
-/// says its program is busy. A child that another thread forks while the
-/// program file is still open for writing holds it open until that child
-/// execs, and Linux won't run the file until then.
-pub async fn retry_busy<T, Fut>(mut start: impl FnMut() -> Fut) -> std::io::Result<T>
-where
-    Fut: Future<Output = std::io::Result<T>>,
-{
-    let mut busy = 0;
-    loop {
-        match start().await {
-            Err(err) if err.kind() == std::io::ErrorKind::ExecutableFileBusy && busy < 10 => {
-                busy += 1;
-                tokio::time::sleep(Duration::from_millis(20)).await;
-            }
-            started => return started,
-        }
-    }
-}
+pub use maxhq_os::proc::retry_busy;
 
 impl Exec for HostExec {
     fn run<'a>(

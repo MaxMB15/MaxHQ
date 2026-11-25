@@ -186,11 +186,12 @@ fn present(maxd: &Path) -> Result<(), CommandError> {
 fn run(maxd: &Path, args: &[&str]) -> Result<(), CommandError> {
     present(maxd)?;
     let command = format!("maxd {}", args.join(" "));
-    let output = Command::new(maxd)
-        .args(args)
-        .stdin(Stdio::null())
-        .output()
-        .map_err(|error| failed(format!("Couldn't run maxd: {error}")))?;
+    // The copy was just written, so a fork elsewhere in the app can still
+    // hold it open for a moment.
+    let output = maxhq_os::proc::retry_busy_blocking(|| {
+        Command::new(maxd).args(args).stdin(Stdio::null()).output()
+    })
+    .map_err(|error| failed(format!("Couldn't run maxd: {error}")))?;
     if output.status.success() {
         let report = String::from_utf8_lossy(&output.stdout);
         tracing::info!(%command, %report, "maxd ran its service command");

@@ -8,8 +8,10 @@
 //! [`adopt`] puts the child in before it runs, since Windows has no
 //! process groups that a signal reaches.
 
+use std::future::Future;
 use std::io;
 use std::path::PathBuf;
+use std::time::Duration;
 
 pub mod args;
 #[cfg(unix)]
@@ -171,9 +173,84 @@ pub fn send_output_to(file: &std::fs::File) -> io::Result<()> {
     imp::send_output_to(file)
 }
 
+/// How often a start is tried again while its program is busy, and how
+/// long apart.
+const BUSY_TRIES: u32 = 10;
+const BUSY_WAIT: Duration = Duration::from_millis(20);
+
+/// Starts a process with `start`, trying again for a moment while Linux
+/// says its program is busy. A child that another thread forks while the
+/// program file is still open for writing holds it open until that child
+/// execs, and Linux won't run the file until then.
+pub async fn retry_busy<T, Fut>(mut start: impl FnMut() -> Fut) -> io::Result<T>
+where
+    Fut: Future<Output = io::Result<T>>,
+{
+    let mut tries = 0;
+    loop {
+        match start().await {
+            Err(err) if busy(&err, &mut tries) => tokio::time::sleep(BUSY_WAIT).await,
+            started => return started,
+        }
+    }
+}
+
+/// [`retry_busy`] for a start that blocks the thread.
+pub fn retry_busy_blocking<T>(mut start: impl FnMut() -> io::Result<T>) -> io::Result<T> {
+    let mut tries = 0;
+    loop {
+        match start() {
+            Err(err) if busy(&err, &mut tries) => std::thread::sleep(BUSY_WAIT),
+            started => return started,
+        }
+    }
+}
+
+/// Whether a start that failed with `err` goes again, counting it in
+/// `tries`.
+fn busy(err: &io::Error, tries: &mut u32) -> bool {
+    let again = err.kind() == io::ErrorKind::ExecutableFileBusy && *tries < BUSY_TRIES;
+    *tries += u32::from(again);
+    again
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_busy_program_is_tried_again_for_a_while() {
+        let busy = || io::Error::from(io::ErrorKind::ExecutableFileBusy);
+        let mut calls = 0;
+        let started = retry_busy_blocking(|| {
+            calls += 1;
+            if calls < 3 {
+                Err(busy())
+            } else {
+                Ok(calls)
+            }
+        });
+        assert_eq!(started.unwrap(), 3);
+
+        calls = 0;
+        let started: io::Result<()> = retry_busy_blocking(|| {
+            calls += 1;
+            Err(busy())
+        });
+        assert_eq!(
+            started.unwrap_err().kind(),
+            io::ErrorKind::ExecutableFileBusy
+        );
+        assert_eq!(calls, BUSY_TRIES + 1);
+
+        calls = 0;
+        let started: io::Result<()> = retry_busy_blocking(|| {
+            calls += 1;
+            Err(io::ErrorKind::NotFound.into())
+        });
+        assert_eq!(started.unwrap_err().kind(), io::ErrorKind::NotFound);
+        assert_eq!(calls, 1, "only a busy program goes again");
+    }
 
     #[test]
     fn this_process_is_alive_and_runs_its_program() {
