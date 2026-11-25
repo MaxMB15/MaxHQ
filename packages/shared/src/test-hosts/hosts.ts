@@ -5,6 +5,7 @@
 // it hosts and how its settings stand, and the leases agents and keys hold.
 
 import { t } from "../i18n";
+import { wordingFor } from "../lib/os";
 
 import type {
 	Actor,
@@ -42,7 +43,8 @@ export const backendLabel = (backend: TestHostBackend): string =>
 	({
 		incus_test: t("Test container"),
 		mac_vm: t("Mac VM"),
-		mac_host: t("This Mac"),
+		// The Simulator's host is always a Mac, whichever system shows it.
+		mac_host: t("This Mac", { context: wordingFor("macos") }),
 		host_emulator: t("Emulator"),
 	})[backend];
 

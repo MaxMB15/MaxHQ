@@ -52,7 +52,8 @@ import {
 import {
 	type DeviceFields as Fields,
 	deviceSettingsOf,
-	KEEP_AWAKE_OPTIONS,
+	keepAwakeOptions,
+	keepsAwake,
 	nameOptions,
 	PLACEMENT_OPTIONS,
 	sameDeviceFields as same,
@@ -66,6 +67,7 @@ import { offersSkills, skillLibrary } from "@maxhq/shared/skills/library";
 import { kindLabel, offersTestHosts } from "@maxhq/shared/test-hosts/hosts";
 import { deviceLive, placesOn } from "@maxhq/shared/test-hosts/place";
 import { deviceName } from "@maxhq/shared/view/select";
+import { wordingFor } from "@maxhq/shared/lib/os";
 import { TestMachines } from "@/test-hosts/device-test-hosts";
 
 import { pickMode } from "./auto-consent";
@@ -193,7 +195,6 @@ export type DeviceCard = {
 /** The cards {@link DeviceSettings} shows for `device`, in order. */
 export const deviceCards = (view: ViewState, device: DeviceId): readonly DeviceCard[] => {
 	const record = view.tables.device.get(device);
-	const mac = record?.os === "macos";
 	const cards: DeviceCard[] = [
 		{
 			id: "connection",
@@ -234,7 +235,12 @@ export const deviceCards = (view: ViewState, device: DeviceId): readonly DeviceC
 				translate("Memory"),
 				translate("Recent items kept in memory per agent"),
 				translate("History kept per agent"),
-				...(mac ? [translate("Sleep"), translate("Keep this Mac awake")] : []),
+				...(keepsAwake(record?.os)
+					? [
+							translate("Sleep"),
+							translate("Keep this Mac awake", { context: wordingFor(record?.os) }),
+						]
+					: []),
 			],
 		},
 		{ id: "terminals", terms: [translate("Terminals"), translate("Shell integration")] },
@@ -412,8 +418,9 @@ const Cards = ({
 		live
 	);
 	const host = view.tables.device.get(device)?.workspace_host ?? null;
-	// Only a Mac sleeps under its `maxd`.
-	const mac = view.tables.device.get(device)?.os === "macos";
+	const os = view.tables.device.get(device)?.os;
+	// The Sleep card's words name this device's system, not the app's.
+	const wording = { context: wordingFor(os) };
 	// A maxd from before network access publishes none.
 	const access = view.tables.network_access.get(device);
 	const holder = skillLibrary(view)?.device ?? null;
@@ -673,18 +680,19 @@ const Cards = ({
 							/>
 						</Row>
 					</CardPart>
-					{mac ? (
+					{keepsAwake(os) ? (
 						<CardPart
 							title={translate("Sleep")}
 							label={translate("Sleep settings for {{name}}", { name: name })}
 							hint={translate("On the charger by default")}
 						>
 							<Row
-								title={translate("Keep this Mac awake")}
+								title={translate("Keep this Mac awake", wording)}
 								sub={
 									why.offline ??
 									translate(
-										"A sleeping Mac stops maxd, so your phone, webhooks and scheduled tasks can't reach it. The display still turns off. Closing the lid still sleeps the Mac."
+										"A sleeping Mac stops maxd, so your phone, webhooks and scheduled tasks can't reach it. The display still turns off. Closing the lid still sleeps the Mac.",
+										wording
 									)
 								}
 							>
@@ -692,7 +700,7 @@ const Cards = ({
 								<Picker
 									label={translate("Keep awake")}
 									value={shown.keep_awake}
-									options={KEEP_AWAKE_OPTIONS}
+									options={keepAwakeOptions(os)}
 									wrapDetails
 									onChange={(mode) =>
 										void save("awake", { keep_awake: mode as KeepAwake })

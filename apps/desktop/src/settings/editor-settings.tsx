@@ -13,6 +13,7 @@ import { useEditors } from "@/agent-view/open-in";
 import { type DefaultEditor, editorOptions, LAST_USED } from "@maxhq/shared/editor/open";
 import { Switch } from "@/components/ui/switch";
 import { commandEnter } from "@/composer/footer";
+import { useComposerNative } from "@/composer/native";
 import { setTypingPrefs, useTypingPrefs } from "@/composer/typing-prefs";
 import { BUSY_SEND_WORDS, type BusySend } from "@maxhq/shared/composer/send";
 
@@ -97,6 +98,9 @@ export const ComposerSettings = () => {
 	useI18n();
 	const services = useServices();
 	const { checkSpelling, correctSpelling, busySend } = useTypingPrefs();
+	// Only macOS fixes words as you type. Elsewhere the switch stays, off,
+	// with the reason.
+	const corrects = useComposerNative().hasNativeSpelling();
 	return (
 		<Section title={translate("Composer")}>
 			<Row
@@ -128,14 +132,18 @@ export const ComposerSettings = () => {
 			</Row>
 			<Row
 				title={translate("Correct spelling automatically")}
-				sub={translate(
-					"Let macOS fix words, curl quotes and expand text replacements as you type, by its own keyboard settings. Needs Check spelling."
-				)}
+				sub={
+					corrects
+						? translate(
+								"Let macOS fix words, curl quotes and expand text replacements as you type, by its own keyboard settings. Needs Check spelling."
+							)
+						: translate("Only on macOS, where the system fixes words as you type.")
+				}
 			>
 				<Switch
 					aria-label={translate("Correct spelling automatically")}
-					checked={checkSpelling && correctSpelling}
-					disabled={!checkSpelling}
+					checked={corrects && checkSpelling && correctSpelling}
+					disabled={!corrects || !checkSpelling}
 					onCheckedChange={(on) => setTypingPrefs(services, { correctSpelling: on })}
 				/>
 			</Row>

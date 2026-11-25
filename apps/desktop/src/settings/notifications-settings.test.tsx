@@ -4,7 +4,7 @@
 import type { InvokeArgs } from "@tauri-apps/api/core";
 import { clearMocks, mockIPC } from "@tauri-apps/api/mocks";
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { NotificationAccess, NotificationPrefs } from "@maxhq/shared/bindings";
 import { setBadgePrefs } from "@/native/dock-badge";
@@ -157,6 +157,26 @@ describe("the Notifications page", () => {
 
 describe("the badge card", () => {
 	const HIDDEN = /macOS hides the (Dock badge|count in the Dock)/;
+	// What macOS hides is a Mac's to say.
+	beforeEach(() => {
+		vi.spyOn(navigator, "userAgent", "get").mockReturnValue(
+			"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15"
+		);
+	});
+	afterEach(() => {
+		vi.restoreAllMocks();
+	});
+
+	it("leaves macOS's reasons out on Windows and Linux", async () => {
+		access = { permission: "denied", badge: false };
+		vi.spyOn(navigator, "userAgent", "get").mockReturnValue(
+			"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Edg/131.0.0.0"
+		);
+		await renderPage();
+		await screen.findByText("Notifications are turned off for MaxHQ in System Settings.");
+		expect(card("Badge").queryByText(HIDDEN)).toBeNull();
+		expect(card("Badge").queryByRole("button")).toBeNull();
+	});
 
 	it("says nothing more while macOS shows the badge", async () => {
 		await renderPage();
