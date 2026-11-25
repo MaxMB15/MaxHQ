@@ -86,7 +86,7 @@ where
     U: Copy + PartialEq + From<u8>,
     A: Iterator<Item = U> + Clone,
 {
-    let [quote, backslash] = [b'"', b'\\'].map(U::from);
+    let (quote, backslash) = (U::from(b'"'), U::from(b'\\'));
     let blanks = [b' ', b'\t', b'\n', 0x0b].map(U::from);
     let plain = arg.clone().next().is_some()
         && !arg
