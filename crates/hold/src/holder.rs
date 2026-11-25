@@ -391,7 +391,14 @@ impl Started {
 /// missing program does, whether `current_dir` or a user's `chdir` enters
 /// it, so the folder is checked before the program is named.
 fn spawn_failure(program: &Path, cwd: &Path, err: &io::Error) -> String {
-    if err.kind() == io::ErrorKind::NotFound && matches!(cwd.try_exists(), Ok(false)) {
+    // Windows calls a folder it can't start a process in an invalid
+    // directory name.
+    #[cfg(windows)]
+    let missing = err.kind() == io::ErrorKind::NotFound
+        || err.raw_os_error() == Some(windows_sys::Win32::Foundation::ERROR_DIRECTORY as i32);
+    #[cfg(unix)]
+    let missing = err.kind() == io::ErrorKind::NotFound;
+    if missing && matches!(cwd.try_exists(), Ok(false)) {
         format!("the folder {} is gone", cwd.display())
     } else {
         format!("couldn't start {}: {err}", program.display())

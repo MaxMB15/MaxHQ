@@ -239,6 +239,11 @@ pub(crate) fn remove_session(dir: &Path) -> io::Result<()> {
     match fs::rename(dir, &hidden) {
         Ok(()) => fs::remove_dir_all(&hidden),
         Err(err) if err.kind() == io::ErrorKind::NotFound => Ok(()),
+        // Windows won't move a folder while a file in it is open, as the
+        // holder's own logs are when it forgets its session. It still
+        // deletes them where they are.
+        #[cfg(windows)]
+        Err(err) if err.kind() == io::ErrorKind::PermissionDenied => fs::remove_dir_all(dir),
         Err(err) => Err(err),
     }
 }
