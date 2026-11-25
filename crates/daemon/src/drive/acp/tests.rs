@@ -1721,6 +1721,55 @@ fn a_tool_call_that_runs_too_long_cancels_the_turn() {
     assert!(!ids(&items_of(&fx)).contains(&"cursor:t1:interrupted".to_owned()));
 }
 
+#[test]
+fn a_working_sub_agent_keeps_its_task_call_alive() {
+    let mut run = Run::turning("Review the pull request");
+    run.feed_all(&fixture("subagent.jsonl")[..2]);
+    run.take();
+    // Nine of the Task call's ten minutes have gone by.
+    run.session
+        .deadlines
+        .insert("call-task".into(), Instant::now() + Duration::from_secs(60));
+    let before = Instant::now();
+    run.feed_all(&fixture("subagent.jsonl")[2..4]);
+    let fx = run.take();
+    assert!(fx.wake_at.is_some_and(|wake| wake >= before + TOOL_TIMEOUT));
+    run.session
+        .tick(Instant::now() + Duration::from_secs(120), &mut run.fx);
+    assert!(sent(&run.take(), "session/cancel").is_empty());
+    // A sub-agent that goes quiet still has its call stopped.
+    run.session.tick(
+        Instant::now() + TOOL_TIMEOUT + Duration::from_secs(1),
+        &mut run.fx,
+    );
+    sent_once(&run.take(), "session/cancel");
+}
+
+#[test]
+fn a_sub_agent_waiting_on_you_stops_its_task_calls_clock() {
+    let mut run = Run::turning("Review the pull request");
+    run.feed_all(&fixture("subagent.jsonl")[..3]);
+    run.take();
+    let lines: Vec<String> = fixture("permission.jsonl")
+        .into_iter()
+        .map(|line| line.replace(SESSION, "child-1"))
+        .collect();
+    run.feed_all(&lines);
+    assert_eq!(opened(&run.take()).len(), 1);
+    assert!(!run.session.deadlines.contains_key("call-task"));
+    // Its updates while the prompt waits don't start the clock again.
+    run.feed(
+        r#"{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"child-1","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"Waiting."}}}}"#,
+    );
+    run.take();
+    assert!(!run.session.deadlines.contains_key("call-task"));
+    run.session.tick(
+        Instant::now() + TOOL_TIMEOUT + Duration::from_secs(1),
+        &mut run.fx,
+    );
+    assert!(sent(&run.take(), "session/cancel").is_empty());
+}
+
 fn items_of(fx: &Effects) -> Vec<TimelineItem> {
     items(fx, lead())
 }
