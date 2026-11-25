@@ -235,15 +235,22 @@ pub fn remove_key(path: &Path) -> io::Result<()> {
     }
 }
 
-/// The `maxd` an MCP client runs: `~/.local/bin/maxd`, the link updates
-/// keep pointing at the newest build, or this program when there's no
-/// link. It's absolute, since no shell reads an MCP client's config.
+/// The `maxd` an MCP client runs: the path updates keep pointing at the
+/// newest build, or this program when it isn't there. That's the link
+/// `~/.local/bin/maxd` on Unix, and `maxd.exe` through the junction
+/// `%LOCALAPPDATA%\MaxHQ\bin\current` on Windows. It's absolute, since no
+/// shell reads an MCP client's config.
 pub fn maxd_program() -> PathBuf {
-    let link = std::env::var_os("HOME")
-        .filter(|home| !home.is_empty())
-        .map(|home| PathBuf::from(home).join(".local/bin/maxd"))
-        .filter(|link| fs::symlink_metadata(link).is_ok());
-    link.or_else(|| std::env::current_exe().ok())
+    let var = |name| std::env::var_os(name).filter(|value| !value.is_empty());
+    let stable = if cfg!(windows) {
+        var("LOCALAPPDATA")
+            .map(|local| PathBuf::from(local).join(maxhq_core::authorized_keys::WINDOWS_MAXD))
+    } else {
+        var("HOME").map(|home| PathBuf::from(home).join(".local/bin/maxd"))
+    };
+    stable
+        .filter(|path| fs::symlink_metadata(path).is_ok())
+        .or_else(|| std::env::current_exe().ok())
         .unwrap_or_else(|| PathBuf::from("maxd"))
 }
 
