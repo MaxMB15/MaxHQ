@@ -7,8 +7,10 @@ import type { ActionResult } from "../data/source";
 import { SYNC_GRACE_MS } from "../status/reach";
 import { agent, attention, entities, link, NOW, workspace } from "../test/build";
 import { applySnapshot } from "../view/replica";
+import { FCM_SINCE } from "../bindings";
 import {
 	answerFromButton,
+	awaitingPushUpdate,
 	DEFAULT_KINDS,
 	denyAnswer,
 	denyFromButton,
@@ -16,8 +18,10 @@ import {
 	pushEnvironment,
 	pushTarget,
 	pushToken,
+	pushUpdateNote,
 	readKinds,
 	switchKind,
+	takesPushes,
 	targetPayload,
 } from "./push";
 
@@ -63,7 +67,57 @@ describe("kinds", () => {
 			topic: "com.example.maxhq",
 			environment: "sandbox",
 			kinds: ["error"],
+			service: "apns",
 		});
+	});
+
+	it("says an Android phone's token is FCM's", () => {
+		expect(
+			pushToken("test-not-a-real:token", "com.example.maxhq", "production", [], "fcm")
+		).toEqual({
+			token: "test-not-a-real:token",
+			topic: "com.example.maxhq",
+			environment: "production",
+			kinds: [],
+			service: "fcm",
+		});
+	});
+});
+
+describe("pushes through FCM", () => {
+	const view = applySnapshot({
+		seq: 1,
+		entities: entities({
+			links: [
+				link({ id: "old", device: "dev-old", protocol: FCM_SINCE - 1 }),
+				link({ id: "new", device: "dev-new", protocol: FCM_SINCE }),
+				link({ id: "unknown", device: "dev-unknown" }),
+				link({ id: "older", device: "dev-older", protocol: 20 }),
+			],
+		}),
+	});
+
+	it("reach only a maxd that knows FCM, or one not heard from yet", () => {
+		expect(takesPushes(view, "dev-old", "fcm")).toBe(false);
+		expect(takesPushes(view, "dev-new", "fcm")).toBe(true);
+		expect(takesPushes(view, "dev-unknown", "fcm")).toBe(true);
+		expect(takesPushes(view, "dev-old", "apns")).toBe(true);
+	});
+
+	it("name the devices to update, and only for FCM", () => {
+		expect(awaitingPushUpdate(view, "fcm")).toEqual(["old", "older"]);
+		expect(awaitingPushUpdate(view, "apns")).toEqual([]);
+		expect(pushUpdateNote(view, "fcm")).toBe(
+			"Update maxd on old and older to get their pushes on this phone."
+		);
+		expect(pushUpdateNote(view, "apns")).toBeNull();
+		const one = applySnapshot({
+			seq: 1,
+			entities: entities({ links: [link({ id: "old", protocol: FCM_SINCE - 1 })] }),
+		});
+		expect(pushUpdateNote(one, "fcm")).toBe(
+			"Update maxd on old to get its pushes on this phone."
+		);
 	});
 });
 

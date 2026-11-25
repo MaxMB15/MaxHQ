@@ -76,6 +76,7 @@ const INDEX: SearchIndex = {
 	phones: [
 		{ card: "phones", title: "Phones", terms: ["Add phone"] },
 		{ card: "apns", title: "Phone pushes", terms: ["Push key"] },
+		{ card: "fcm", title: "Android pushes", terms: ["Service account key"] },
 	],
 };
 
@@ -150,7 +151,7 @@ describe("a device's hit", () => {
 				["dev-devbox", null],
 			])
 		);
-		expect([...results.phones]).toEqual(["phones", "apns"]);
+		expect([...results.phones]).toEqual(["phones", "apns", "fcm"]);
 	});
 
 	it("matches the name and a card's terms together", () => {
@@ -167,7 +168,8 @@ describe("a device's hit", () => {
 
 	it("shows Phones when only a phone card matched, and no tab when nothing did", () => {
 		expect(searchTab("dev-mac", search("push key"))).toBe("phones");
-		expect([...search("push key").phones]).toEqual(["apns"]);
+		expect([...search("push key").phones]).toEqual(["apns", "fcm"]);
+		expect([...search("service account").phones]).toEqual(["fcm"]);
 		expect(searchTab("dev-mac", search("spelling"))).toBeNull();
 	});
 });

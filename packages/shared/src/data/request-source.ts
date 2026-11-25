@@ -357,6 +357,8 @@ export const requestCalls = (ask: Ask): Omit<DataSource, PlatformCalls> => ({
 				key_path: keyPath,
 			})
 		),
+	setFcmKey: async (devices, keyPath) =>
+		orThrow(await ask({ kind: "set_fcm_key", devices, key_path: keyPath })),
 	forgetCredential: (device, credential) =>
 		ask({ kind: "forget_credential", device, credential }),
 	// The values go straight to the backend, and nothing here keeps them.

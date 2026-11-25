@@ -5,24 +5,29 @@
 // which kinds you want, what a push points at, and how a lock screen
 // button turns into an answer. A push comes as maxd writes it, with the
 // agent as its thread, the request under "e", and what the extension
-// opened under "m".
+// opened under "m". An iPhone's pushes go through APNs and an Android
+// phone's through FCM, which only a maxd from FCM_SINCE on knows.
 
-import { t } from "../i18n";
+import { formatList, t } from "../i18n";
 
-import type {
-	AgentId,
-	AttentionAnswer,
-	AttentionId,
-	AttentionOption,
-	PushEnvironment,
-	PushKind,
-	PushToken,
-	Timestamp,
+import {
+	type AgentId,
+	type AttentionAnswer,
+	type AttentionId,
+	type AttentionOption,
+	type DeviceId,
+	FCM_SINCE,
+	type PushEnvironment,
+	type PushKind,
+	type PushService,
+	type PushToken,
+	type Timestamp,
 } from "../bindings";
 import { approvalChoices } from "../agent-view/answer";
 import type { ActionResult } from "../data/source";
 import { agentSynced } from "../status/reach";
-import type { ViewState } from "../view/replica";
+import { all, type ViewState } from "../view/replica";
+import { deviceName, linkForDevice } from "../view/select";
 
 /** The switches, in the order settings shows them, with what each is for. */
 export const PUSH_KINDS: readonly {
@@ -96,13 +101,55 @@ export const pushEnvironment = (variant: unknown): PushEnvironment =>
 /**
  * What the phone gives the devices. It goes again when the token or the
  * kinds change, and the core gives it to each device as its link comes up.
+ * `service` is the one the token belongs to: FCM for an Android phone,
+ * where `topic` is the app's package name and `environment` goes unused.
  */
 export const pushToken = (
 	token: string,
 	topic: string,
 	environment: PushEnvironment,
-	kinds: readonly PushKind[]
-): PushToken => ({ token, topic, environment, kinds: [...kinds] });
+	kinds: readonly PushKind[],
+	service: PushService = "apns"
+): PushToken => ({ token, topic, environment, kinds: [...kinds], service });
+
+/**
+ * Whether `device`'s maxd takes a phone's token for `service`. One from
+ * before FCM_SINCE would refuse an Android phone's, so the core doesn't
+ * give it one. A device whose protocol isn't known yet counts as taking
+ * it, since the core gives it the token then.
+ */
+export const takesPushes = (view: ViewState, device: DeviceId, service: PushService): boolean => {
+	if (service !== "fcm") return true;
+	const protocol = linkForDevice(view, device)?.protocol ?? null;
+	return protocol === null || protocol >= FCM_SINCE;
+};
+
+/** The devices this phone's pushes through `service` wait on an update of, by name. */
+export const awaitingPushUpdate = (view: ViewState, service: PushService): string[] =>
+	[
+		...new Set(
+			all(view, "device_link").flatMap((link) =>
+				link.claim || link.device === null ? [] : [link.device]
+			)
+		),
+	]
+		.filter((device) => !takesPushes(view, device, service))
+		.map((device) => deviceName(view, device))
+		.sort((a, b) => a.localeCompare(b));
+
+/**
+ * What the phone says about the devices whose maxd is too old for its
+ * pushes through `service`, or null when every device takes them.
+ */
+export const pushUpdateNote = (view: ViewState, service: PushService): string | null => {
+	const names = awaitingPushUpdate(view, service);
+	return names.length === 0
+		? null
+		: t("Update maxd on {{devices}} to get their pushes on this phone.", {
+				devices: formatList(names),
+				count: names.length,
+			});
+};
 
 /** What a push points at. */
 export type PushTarget = {

@@ -63,6 +63,7 @@ type RemoteCalls = Pick<
 	| "setGithubApp"
 	| "checkGithubApp"
 	| "setApnsKey"
+	| "setFcmKey"
 	| "forgetCredential"
 	| "setAcpAgent"
 	| "deleteAcpAgent"
@@ -182,6 +183,7 @@ export const remoteCalls = (): RemoteCalls => ({
 	setGithubApp: each,
 	checkGithubApp: done,
 	setApnsKey: each,
+	setFcmKey: each,
 	forgetCredential: done,
 	setAcpAgent: done,
 	deleteAcpAgent: done,

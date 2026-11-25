@@ -40,6 +40,10 @@ pub struct Phone {
     /// The kinds this device pushes to the phone. Empty until the phone
     /// sends a token.
     pub push: Vec<PushKind>,
+    /// The service this device pushes to the phone through, which says
+    /// which key it needs. None until the phone sends a token.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub service: Option<PushService>,
     /// Whether the phone may do what only the Mac does here, short of
     /// letting other keys in. Only the Mac turns it on.
     #[serde(default)]
@@ -106,15 +110,32 @@ pub struct PhoneRoute {
 /// device it links to, and again when anything in it changes.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, Type, JsonSchema)]
 pub struct PushToken {
-    /// The APNs device token, as hex.
+    /// The device token: hex for APNs, the registration token as Firebase
+    /// gave it for FCM.
     pub token: Secret,
     /// The app's bundle ID, which APNs takes as the topic, such as
-    /// `com.example.maxhq`.
+    /// `com.example.maxhq`. An Android phone sends its package name.
     pub topic: String,
-    /// Which APNs host the token belongs to.
+    /// Which APNs host the token belongs to. FCM has one host, so an
+    /// Android phone sends `production`, which is ignored.
     pub environment: PushEnvironment,
     /// What the phone wants pushed. Empty turns pushes off.
     pub kinds: Vec<PushKind>,
+    /// The service that delivers to the token. A token from before there
+    /// was a choice is an APNs one.
+    #[serde(default)]
+    pub service: PushService,
+}
+
+/// The service a push goes through.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, Type, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum PushService {
+    /// Apple Push Notification service, for an iPhone.
+    #[default]
+    Apns,
+    /// Firebase Cloud Messaging, for an Android phone.
+    Fcm,
 }
 
 /// The APNs host a token belongs to.
@@ -221,13 +242,44 @@ mod tests {
             topic: "com.example.maxhq".into(),
             environment: PushEnvironment::Sandbox,
             kinds: vec![PushKind::NeedsInput, PushKind::Limit],
+            service: PushService::Apns,
         };
         let printed = format!("{token:?}");
         assert!(!printed.contains("test-not-a-real-token"), "{printed}");
         let value = serde_json::to_value(&token).unwrap();
         assert_eq!(value["environment"], json!("sandbox"));
         assert_eq!(value["kinds"], json!(["needs_input", "limit"]));
+        assert_eq!(value["service"], json!("apns"));
         assert_eq!(serde_json::from_value::<PushToken>(value).unwrap(), token);
+    }
+
+    #[test]
+    fn a_token_from_before_the_service_reads_as_apns() {
+        let token: PushToken = serde_json::from_value(json!({
+            "token": "00ff",
+            "topic": "com.example.maxhq",
+            "environment": "production",
+            "kinds": ["needs_input"],
+        }))
+        .unwrap();
+        assert_eq!(token.service, PushService::Apns);
+    }
+
+    #[test]
+    fn an_fcm_token_names_its_service() {
+        let token: PushToken = serde_json::from_value(json!({
+            "token": "test-registration:token_1",
+            "topic": "com.example.maxhq",
+            "environment": "production",
+            "kinds": ["needs_input"],
+            "service": "fcm",
+        }))
+        .unwrap();
+        assert_eq!(token.service, PushService::Fcm);
+        assert_eq!(
+            serde_json::to_value(&token).unwrap()["service"],
+            json!("fcm")
+        );
     }
 
     #[test]

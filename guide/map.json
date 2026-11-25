@@ -308,6 +308,17 @@
       "title": "Phone pushes"
     },
     {
+      "hint": "The Firebase key each device signs its pushes to Android phones with",
+      "id": "settings/fcm",
+      "link": "maxhq://settings/fcm",
+      "terms": [
+        "Send the Firebase key",
+        "Service account key",
+        "Firebase keys devices hold"
+      ],
+      "title": "Android pushes"
+    },
+    {
       "hint": "The skills projects pick from, and the ones every agent gets",
       "id": "settings/skills",
       "link": "maxhq://settings/skills",

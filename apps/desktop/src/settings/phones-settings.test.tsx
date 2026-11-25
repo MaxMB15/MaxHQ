@@ -4,14 +4,17 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
-import App from "@/App";
+import App, { Shell } from "@/App";
+import { type Services, ServicesProvider, useServices } from "@/app/services";
 import { mockSource } from "@/data/mock-source";
 import { openDeviceTab } from "@/test/settings";
-import type { DeviceId } from "@maxhq/shared/bindings";
+import type { Delta, DeviceId, PushService } from "@maxhq/shared/bindings";
 import { DEVBOX, MAC } from "@maxhq/shared/data/mock-view";
 import { FixedNow } from "@maxhq/shared/lib/clock";
 import { NOW } from "@maxhq/shared/test/build";
 import { createUiStore } from "@maxhq/shared/ui/store";
+
+import { settingsOf } from "./store";
 
 /** Opens the Phones page, with network access on for `networkOn`. */
 const openPhones = async (networkOn?: DeviceId) => {
@@ -171,4 +174,69 @@ describe("Phones settings", () => {
 		expect(save).toHaveBeenCalledExactlyOnceWith(DEVBOX, "devbox.example.net:2200");
 		expect(field).toHaveValue("devbox.example.net:2200");
 	});
+
+	it.each([
+		["fcm", "devbox has no Firebase key yet, so it can't push to the phone.", "fcm"],
+		["apns", "devbox has no APNs key yet, so it can't push to the phone.", "apns"],
+		[null, "devbox has no push key yet, so it can't push to the phone.", "apns"],
+	] as const)(
+		"names the key a phone that pushes through %s needs once it pairs, with the way to it",
+		async (service: PushService | null, warning, card) => {
+			const source = mockSource({ now: () => NOW, tick: false, scenario: "connected" });
+			// The view's own listener, so the test can send the phone that paired.
+			let deliver: ((delta: Delta) => void) | null = null;
+			const subscribe = source.subscribe.bind(source);
+			vi.spyOn(source, "subscribe").mockImplementation((onDelta) => {
+				deliver = onDelta;
+				return subscribe(onDelta);
+			});
+			const services: { current: Services | null } = { current: null };
+			const Grab = () => {
+				services.current = useServices();
+				return null;
+			};
+			render(
+				<FixedNow value={NOW}>
+					<ServicesProvider source={source} ui={createUiStore()}>
+						<Grab />
+						<Shell />
+					</ServicesProvider>
+				</FixedNow>
+			);
+			await screen.findAllByRole("button", { name: /devbox/ });
+			const dialog = await openDeviceTab("Phones");
+			const add = within(await within(dialog).findByRole("region", { name: "Add phone" }));
+			fireEvent.click(add.getByRole("button", { name: "Show the code" }));
+			await add.findByRole("img", { name: "Pairing code" });
+
+			const { seq } = await source.snapshot();
+			deliver!({
+				seq: seq + 1,
+				changes: [
+					{
+						op: "upsert",
+						value: {
+							entity: "phone",
+							id: "phone-new",
+							device: DEVBOX,
+							name: "Pixel",
+							ssh_public:
+								"ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIHRlc3Qtbm90LWEtcmVhbC1rZXk",
+							push_public: "dGVzdC1ub3QtYS1yZWFsLXB1c2gta2V5",
+							paired_at: NOW,
+							push: service ? ["needs_input"] : [],
+							service,
+							everything: false,
+						},
+					},
+				],
+			});
+			expect(await add.findByText(warning)).toBeInTheDocument();
+
+			const reveals: (string | null)[] = [];
+			settingsOf(services.current!).subscribe((state) => reveals.push(state.reveal));
+			fireEvent.click(add.getByRole("button", { name: "Add the key file" }));
+			expect(reveals).toContain(`device-card-${card}`);
+		}
+	);
 });

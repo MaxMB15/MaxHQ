@@ -17,7 +17,7 @@ import type { PageCard, SettingsGroup } from "@maxhq/shared/guide/settings-link"
 import { LOGIN_VIEWS } from "@maxhq/shared/guide/settings-link";
 import { t as translate } from "@maxhq/shared/i18n";
 import { accountDevices } from "@maxhq/shared/settings/accounts";
-import { LOGIN_HINT, type LoginPage } from "@maxhq/shared/settings/login-steps";
+import { FCM_STEPS, LOGIN_HINT, type LoginPage } from "@maxhq/shared/settings/login-steps";
 import { all, type ViewState } from "@maxhq/shared/view/replica";
 
 import {
@@ -34,6 +34,7 @@ import { APPEARANCE_TERMS, AppearanceSettingsPage } from "../appearance-settings
 import { CLAUDE_LOGIN_TERMS } from "../claude-login";
 import { CODEX_LOGIN_TERMS } from "../codex-login";
 import { CURSOR_LOGIN_TERMS } from "../cursor-login";
+import { FCM_LOGIN_TERMS } from "../fcm-login";
 import {
 	CLAUDE_ARTIFACTS_TERMS,
 	ClaudeArtifactsCard,
@@ -381,6 +382,11 @@ export const buildIndex = (view: ViewState): SearchIndex => {
 				card: "apns",
 				title: LOGIN_STEPS.apns.title,
 				terms: [LOGIN_HINT.apns, ...translated(APNS_LOGIN_TERMS)],
+			},
+			{
+				card: "fcm",
+				title: FCM_STEPS.title,
+				terms: [FCM_STEPS.hint, ...translated(FCM_LOGIN_TERMS)],
 			},
 		],
 	};

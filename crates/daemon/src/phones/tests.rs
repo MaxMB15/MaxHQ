@@ -181,6 +181,40 @@ fn a_pairing_key_works_once_and_gives_way_to_the_phones_own() {
     assert!(hub.get(&EntityKey::PhoneBook(phone)).is_some());
 }
 
+#[test]
+fn a_phones_token_says_what_this_device_pushes_and_through_which_service() {
+    let h = Harness::new();
+    let phone = h.paired(1);
+    let device = h.hub.device().id;
+    let published = |hub: &Hub| match hub.get(&EntityKey::Phone { phone, device }) {
+        Some(Entity::Phone(published)) => published,
+        other => panic!("{other:?}"),
+    };
+    assert_eq!(published(&h.hub).service, None, "unknown before a token");
+
+    h.phones.pushes(
+        phone,
+        vec![
+            PushKind::NeedsInput,
+            PushKind::Finished,
+            PushKind::NeedsInput,
+        ],
+        PushService::Fcm,
+    );
+    let mut kinds = vec![PushKind::NeedsInput, PushKind::Finished];
+    kinds.sort_unstable();
+    assert_eq!(published(&h.hub).push, kinds);
+    assert_eq!(published(&h.hub).service, Some(PushService::Fcm));
+
+    // Pairing again keeps it, and so does a restart.
+    assert_eq!(h.paired(1), phone);
+    assert_eq!(published(&h.hub).service, Some(PushService::Fcm));
+    let hub = hub_for("devbox");
+    let _again = open(&h.temp, &hub, &h.clock);
+    assert_eq!(published(&hub).service, Some(PushService::Fcm));
+    assert_eq!(published(&hub).push, kinds);
+}
+
 #[tokio::test]
 async fn a_pairing_nobody_uses_goes_after_ten_minutes() {
     let h = Harness::new();

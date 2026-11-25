@@ -3,7 +3,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import type { Entity } from "../bindings";
+import { type Entity, FCM_SINCE } from "../bindings";
 import { account, device, entities, link, MIN, NOW } from "../test/build";
 import { credential } from "../test/pulls";
 import { applySnapshot } from "../view/replica";
@@ -11,6 +11,7 @@ import { applySnapshot } from "../view/replica";
 import {
 	appTargets,
 	deviceFirst,
+	fcmTargets,
 	fileName,
 	folderAccounts,
 	heldOf,
@@ -139,6 +140,37 @@ describe("targets", () => {
 
 	it("lists only the devices that push to phones for the APNs key", () => {
 		expect(pushTargets(view(), NOW).map((t) => t.device)).toEqual(["dev-devbox"]);
+	});
+
+	it("blocks a device whose maxd doesn't know FCM from the Firebase key", () => {
+		const phones = { transfers: true, tunnels: true, workspaces: true, phones: true };
+		const at = (protocol: number | null) =>
+			applySnapshot({
+				seq: 1,
+				entities: entities({
+					links: [
+						link({
+							id: "devbox",
+							device: "dev-devbox",
+							capabilities: phones,
+							protocol,
+						}),
+					],
+					devices: [device({ id: "dev-devbox", name: "devbox" })],
+				}),
+			});
+		expect(fcmTargets(at(FCM_SINCE), NOW)).toEqual([
+			{ device: "dev-devbox", name: "devbox", live: true },
+		]);
+		expect(fcmTargets(at(null), NOW)[0]?.blocked).toBeUndefined();
+		expect(fcmTargets(at(FCM_SINCE - 1), NOW)).toEqual([
+			{
+				device: "dev-devbox",
+				name: "devbox",
+				live: true,
+				blocked: "devbox's maxd is too old for this. Update it first.",
+			},
+		]);
 	});
 });
 

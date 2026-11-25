@@ -295,3 +295,18 @@ The card's steps have links and copy buttons.
 
 - Push keys devices hold: a device holds one key, so sending another replaces it. Forget deletes it, and that device stops pushing.
 - What a push says is sealed to the phone's own key, so Apple can't read it.
+
+## Android pushes: the Firebase key
+<!-- id: settings/fcm -->
+<!-- covers: settings/fcm -->
+
+Android pushes, on the Phones tab under Devices and phones below Phone pushes, sends a Firebase service account key to each device, so it can push alerts to your Android phones through Firebase Cloud Messaging. One key works for every device and every Android phone. A device needs a `maxd` that knows Android pushes; an older one says to update it first.
+
+1. Open https://console.firebase.google.com, signed in to the Google account that owns the Firebase project the MaxHQ Android app is built with, and open that project.
+2. Click the gear beside Project Overview, choose Project settings, and open the Service accounts tab.
+3. Click Generate new private key, then Generate key. The browser saves a JSON file named like `<project>-firebase-adminsdk-<id>.json`. Firebase shows the key only this once.
+4. Under Send the Firebase key, choose or drop the JSON file as the Service account key, tick the devices that push to phones and click Send. Then Move to Trash removes the downloaded file. The Mac keeps no copy.
+
+- Firebase keys devices hold: each line names the key's project and service account. A device holds one Firebase key, so sending another replaces it. Forget deletes it, and that device stops pushing to Android phones.
+- To revoke the key itself, delete it under the service account's Keys in the Google Cloud console.
+- What a push says is sealed to the phone's own key, so Google can't read it.

@@ -1599,5 +1599,8 @@
 	"In the terminal": "In de terminal",
 	"Waiting for keys": "Wacht op toetsen",
 	"In the terminal · Open on the Mac": "In de terminal · Openen op de Mac",
-	"Waiting for keys · Open on the Mac": "Wacht op toetsen · Openen op de Mac"
+	"Waiting for keys · Open on the Mac": "Wacht op toetsen · Openen op de Mac",
+	"Update maxd on {{devices}} to get their pushes on this phone.": "Werk maxd bij op {{devices}} om hun pushberichten op deze telefoon te krijgen.",
+	"Update maxd on {{devices}} to get their pushes on this phone._one": "Werk maxd bij op {{devices}} om de pushberichten ervan op deze telefoon te krijgen.",
+	"Update maxd on {{devices}} to get their pushes on this phone._other": "Werk maxd bij op {{devices}} om hun pushberichten op deze telefoon te krijgen."
 }

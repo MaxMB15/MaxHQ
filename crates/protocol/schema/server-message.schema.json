@@ -4519,7 +4519,7 @@
           "default": false
         },
         "phones": {
-          "description": "Pairs phones and pushes to them, publishes `Phone` and `PhoneBook`,\nand takes the phone requests, first frames and `SetApnsKey`. A\n`maxd` from before it leaves this out, and reads as false.",
+          "description": "Pairs phones and pushes to them, publishes `Phone` and `PhoneBook`,\nand takes the phone requests, first frames, `SetApnsKey` and, since\nprotocol 61, `SetFcmKey`. A `maxd` from before it leaves this out,\nand reads as false.",
           "type": "boolean",
           "default": false
         },
@@ -5535,6 +5535,29 @@
             "type",
             "key_id",
             "team_id"
+          ]
+        },
+        {
+          "description": "The Firebase service account this device pushes to Android phones\nwith. Since protocol 61.",
+          "type": "object",
+          "properties": {
+            "client_email": {
+              "description": "The service account's email.",
+              "type": "string"
+            },
+            "project_id": {
+              "description": "The Firebase project the account belongs to.",
+              "type": "string"
+            },
+            "type": {
+              "type": "string",
+              "const": "fcm"
+            }
+          },
+          "required": [
+            "type",
+            "project_id",
+            "client_email"
           ]
         }
       ]
@@ -13928,6 +13951,17 @@
           "description": "The phone's X25519 key that pushes are encrypted to, as base64 of\nits 32 bytes.",
           "type": "string"
         },
+        "service": {
+          "description": "The service this device pushes to the phone through, which says\nwhich key it needs. None until the phone sends a token.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PushService"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "ssh_public": {
           "description": "The phone's own SSH key, as `ssh-ed25519 <base64>`.",
           "type": "string"
@@ -15636,6 +15670,21 @@
           "description": "An agent hit a usage limit.",
           "type": "string",
           "const": "limit"
+        }
+      ]
+    },
+    "PushService": {
+      "description": "The service a push goes through.",
+      "oneOf": [
+        {
+          "description": "Apple Push Notification service, for an iPhone.",
+          "type": "string",
+          "const": "apns"
+        },
+        {
+          "description": "Firebase Cloud Messaging, for an Android phone.",
+          "type": "string",
+          "const": "fcm"
         }
       ]
     },

@@ -31,7 +31,9 @@ use base64::Engine;
 use maxhq_core::authorized_keys;
 use maxhq_protocol::ids::{DeviceId, PairId, PhoneId};
 use maxhq_protocol::message::ActionOutcome;
-use maxhq_protocol::phones::{Phone, PhoneBook, PhoneBookEntry, PhoneMac, PushToken};
+use maxhq_protocol::phones::{
+    Phone, PhoneBook, PhoneBookEntry, PhoneMac, PushKind, PushService, PushToken,
+};
 use maxhq_protocol::state::{Change, Entity, EntityKey};
 use maxhq_protocol::Secret;
 use ring::rand::{SecureRandom, SystemRandom};
@@ -412,6 +414,7 @@ impl Phones {
                     .as_ref()
                     .map(|b| b.phone.push.clone())
                     .unwrap_or_default(),
+                service: before.as_ref().and_then(|b| b.phone.service),
                 everything: before.as_ref().is_some_and(|b| b.phone.everything),
             },
             book,
@@ -561,21 +564,29 @@ impl Phones {
     /// Answers `SetPushToken` from `phone`'s own connection, and says on
     /// the phone what this device now pushes to it.
     pub fn set_token(&self, phone: PhoneId, push: PushToken) -> ActionOutcome {
-        let mut kinds = push.kinds.clone();
+        let (kinds, service) = (push.kinds.clone(), push.service);
         let outcome = crate::push::set_token(phone, push);
-        if outcome != ActionOutcome::Done {
-            return outcome;
+        if outcome == ActionOutcome::Done {
+            self.pushes(phone, kinds, service);
         }
+        outcome
+    }
+
+    /// Says on `phone` that this device pushes `kinds` to it through
+    /// `service`, which tells the Mac which key it needs.
+    fn pushes(&self, phone: PhoneId, mut kinds: Vec<PushKind>, service: PushService) {
         kinds.sort_unstable();
         kinds.dedup();
+        let service = Some(service);
         let mut state = self.lock();
         let Some(kept) = state.phones.get_mut(&phone) else {
-            return outcome;
+            return;
         };
-        if kept.phone.push == kinds {
-            return outcome;
+        if kept.phone.push == kinds && kept.phone.service == service {
+            return;
         }
         kept.phone.push = kinds;
+        kept.phone.service = service;
         let phone = kept.phone.clone();
         if let Err(err) = save(&self.0.folder, &state.phones) {
             warn!(id = %phone.id, "couldn't keep what's pushed to a phone: {err}");
@@ -584,7 +595,6 @@ impl Phones {
         self.0.hub.apply([Change::Upsert {
             value: Entity::Phone(phone),
         }]);
-        outcome
     }
 }
 
