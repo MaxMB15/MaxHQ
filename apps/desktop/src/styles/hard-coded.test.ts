@@ -31,6 +31,9 @@ const ALLOWED: ReadonlyMap<string, string> = new Map([
 	["viewer.html", "the viewer frame's own tokens"],
 	// A scanner reads a code as black on white in either theme.
 	["src/settings/phones-settings.tsx", "the pairing QR code"],
+	// The count sits on the Windows taskbar, which follows the system's
+	// theme, not the app's, so it keeps the system's red disc.
+	["src/native/dock-badge.ts", "the taskbar overlay's count"],
 	// The code theme's colours, each mapped to a token.
 	["src/agent-view/highlight-worker.ts", "the code theme's colours"],
 ]);
