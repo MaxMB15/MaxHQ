@@ -25,8 +25,9 @@ export const DESKTOP_TARGETS = [
 // `<os>-<cpu>`.
 export const BUNDLES = { windows: ["nsis", "msi"], linux: ["appimage", "deb", "rpm"] };
 
-// The asset name after MaxHQ_<arch>, per bundle type.
-const SUFFIX = {
+// The asset name after MaxHQ_<arch>, per bundle type, which is also how
+// Tauri's file for it ends.
+export const SUFFIX = {
 	nsis: "-setup.exe",
 	msi: ".msi",
 	appimage: ".AppImage",

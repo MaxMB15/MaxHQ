@@ -7,11 +7,12 @@
 #
 #   bash scripts/release/check-linux-packages.sh <bundle dir>
 #
-# The bundle folder is target/debug/bundle or target/<triple>/release/bundle,
-# holding deb/, rpm/ and appimage/. Each package must carry maxd and name
-# WebKitGTK 4.1 and the SSH client, which the app needs to reach other
-# devices. Tauri adds WebKitGTK and GTK itself, as a deb package and as the
-# libraries an rpm needs, so tauri.linux.conf.json names only the SSH client.
+# The bundle folder is target/<triple>/debug/bundle or
+# target/<triple>/release/bundle, holding deb/, rpm/ and appimage/. Each
+# package must carry maxd and name WebKitGTK 4.1 and the SSH client, which
+# the app needs to reach other devices. Tauri adds WebKitGTK and GTK itself,
+# as a deb package and as the libraries an rpm needs, so
+# tauri.linux.conf.json names only the SSH client.
 # The desktop entry must be MaxHQ.desktop, the name the dock's launcher count
 # is sent to, and name the window's class, so the dock puts the window under
 # the app's icon. It needs dpkg-deb and rpm.

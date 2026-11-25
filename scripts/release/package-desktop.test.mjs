@@ -8,59 +8,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
-import {
-	buildEnv,
-	bundleOutputs,
-	endpoint,
-	holds,
-	sidecarName,
-	tauriConfig,
-} from "./package-desktop.mjs";
-
-const repo = { MAXHQ_RELEASES_REPO: "owner/MaxHQ" };
-
-test("the build config carries maxd and writes no updater artifacts", () => {
-	const { config, warning } = tauriConfig({});
-	assert.deepEqual(config, {
-		bundle: { createUpdaterArtifacts: false, externalBin: ["binaries/maxd"] },
-	});
-	assert.match(warning, /can't look for updates/);
-});
-
-test("the build config names the release's manifest and key, as the Mac's does", () => {
-	assert.deepEqual(tauriConfig(repo).config.plugins, {
-		updater: {
-			endpoints: ["https://github.com/owner/MaxHQ/releases/latest/download/latest.json"],
-		},
-	});
-	const change = tauriConfig({
-		...repo,
-		MAXHQ_UPDATE_MANIFEST: "latest-v2.json",
-		MAXHQ_UPDATE_PUBKEY: "dW50cnVzdGVk+/=",
-	});
-	assert.deepEqual(change.config.plugins.updater, {
-		endpoints: [endpoint("owner/MaxHQ", "latest-v2.json")],
-		pubkey: "dW50cnVzdGVk+/=",
-	});
-	assert.equal(change.warning, undefined);
-	assert.equal(
-		tauriConfig({ ...repo, MAXHQ_UPDATE_MANIFEST: "" }).config.plugins.updater.endpoints[0],
-		endpoint("owner/MaxHQ", "latest.json")
-	);
-});
-
-test("the build config refuses what package-macos.sh refuses", () => {
-	assert.throws(() => tauriConfig({ MAXHQ_RELEASES_REPO: "MaxHQ" }), /owner\/name, not MaxHQ/);
-	assert.throws(
-		() => tauriConfig({ ...repo, MAXHQ_UPDATE_MANIFEST: "mobile.json" }),
-		/latest.json or latest-v<n>.json, not mobile.json/
-	);
-	assert.throws(
-		() => tauriConfig({ ...repo, MAXHQ_UPDATE_PUBKEY: "a key" }),
-		/isn't a base64 public key/
-	);
-	assert.throws(() => tauriConfig({ MAXHQ_UPDATE_PUBKEY: "abc" }), /needs MAXHQ_RELEASES_REPO/);
-});
+import { buildEnv, bundleOutputs, holds, sidecarName } from "./package-desktop.mjs";
+import { endpoint } from "./updater-config.mjs";
 
 test("the sidecar is named for the target, with .exe on Windows", () => {
 	assert.equal(sidecarName("x86_64-pc-windows-msvc"), "maxd-x86_64-pc-windows-msvc.exe");
