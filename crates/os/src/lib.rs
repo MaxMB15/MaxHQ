@@ -8,11 +8,13 @@
 //! Where Windows can't do something yet, the call returns an error of kind
 //! [`std::io::ErrorKind::Unsupported`] that says what's missing.
 
+pub mod boot;
 pub mod fsmode;
 pub mod home;
 pub mod ipc;
 pub mod launcher;
 pub mod link;
+pub mod lock;
 pub mod net;
 pub mod power;
 pub mod proc;
