@@ -9,12 +9,8 @@
 //! winds agents down before the device restarts.
 
 use std::ffi::OsString;
-#[cfg(unix)]
-use std::fs::File;
 use std::future::Future;
 use std::io::{self, IsTerminal, Write};
-#[cfg(unix)]
-use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::sync::Arc;
@@ -23,19 +19,16 @@ use std::time::Duration;
 use maxhq_core::db::OpenError;
 use maxhq_core::paths;
 use maxhq_os::fsmode;
+use maxhq_os::ipc::LocalStream;
 use maxhq_os::stop::Stops;
-#[cfg(unix)]
 use maxhq_protocol::agents::ClientRole;
-#[cfg(unix)]
 use maxhq_protocol::frame::{self, Frame, FrameDecoder};
-#[cfg(unix)]
 use maxhq_protocol::ids::{ClientId, IdempotencyKey};
-#[cfg(unix)]
 use maxhq_protocol::message::{ActionOutcome, ClientHello, ClientInfo};
 use maxhq_protocol::{ClientMessage, OLDEST_PROTOCOL_VERSION, PROTOCOL_VERSION};
-#[cfg(unix)]
 use maxhq_protocol::{ProtocolRange, ServerMessage};
 use thiserror::Error;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::runtime::Runtime;
 use tracing::{error, info, warn};
 use tracing_subscriber::EnvFilter;
@@ -288,6 +281,10 @@ fn main() -> ExitCode {
                 ExitCode::FAILURE
             }
         },
+        ["host", "quiesce", "--window", _] if cfg!(windows) => {
+            eprintln!("maxd host quiesce: this is for Linux hosts, whose shutdown unit runs it");
+            ExitCode::FAILURE
+        }
         ["host", "quiesce", "--window", window] => match parse_window(window) {
             Some(window) => quiesce(window),
             None => usage_error(),
@@ -420,7 +417,9 @@ enum RunError {
 fn run() -> ExitCode {
     init_logging();
     rotate_log();
-    raise_open_files();
+    if let Err(err) = maxhq_os::proc::raise_open_files() {
+        warn!(%err, "couldn't raise the limit on open files");
+    }
     // The build is read from the program's file, so read it before an app
     // update can put a newer `maxd` there. Read later, a `maxd` still
     // running the old program would report the new build, and the app
@@ -448,74 +447,28 @@ fn run() -> ExitCode {
     }
 }
 
-/// How far macOS lets the soft limit on open files go, whatever the hard limit
-/// says.
-#[cfg(unix)]
-const OPEN_MAX: u64 = 10_240;
-
-/// Raises the soft limit on open files as far as the system lets it. launchd
-/// and systemd start `maxd` low, and every agent, link and client counts
-/// against it.
-#[cfg(unix)]
-fn raise_open_files() {
-    use rustix::process::{getrlimit, setrlimit, Resource, Rlimit};
-
-    let Rlimit { current, maximum } = getrlimit(Resource::Nofile);
-    if current == maximum {
-        return;
-    }
-    let raise = |to| {
-        setrlimit(
-            Resource::Nofile,
-            Rlimit {
-                current: to,
-                maximum,
-            },
-        )
-    };
-    if raise(maximum).is_ok() {
-        return;
-    }
-    let capped = maximum.map_or(OPEN_MAX, |hard| hard.min(OPEN_MAX));
-    if current.is_some_and(|soft| soft < capped)
-        && let Err(err) = raise(Some(capped))
-    {
-        warn!(%err, "couldn't raise the limit on open files");
-    }
-}
-
-/// Windows has no such limit on handles.
-#[cfg(windows)]
-fn raise_open_files() {}
-
 /// Moves launchd's log of `maxd` aside once it's past
 /// [`service::LOG_LIMIT`], and sends what `maxd` writes to a fresh one.
-/// systemd's journal trims itself, and its output is no file.
-#[cfg(unix)]
+/// systemd's journal trims itself, and its output is no file. On Windows
+/// the launcher moves the log aside before it starts `maxd`, so there's no
+/// launchd log here to move.
 fn rotate_log() {
-    use std::os::fd::AsFd;
-
     let Some(home) = std::env::var_os("HOME").filter(|home| !home.is_empty()) else {
         return;
     };
-    let Ok(writing) = io::stderr().as_fd().try_clone_to_owned() else {
+    let Ok(writing) = maxhq_os::proc::stderr_file() else {
         return;
     };
     let log = service::log_file(Path::new(&home));
-    match service::rotate_log(&log, &File::from(writing), service::LOG_LIMIT) {
+    match service::rotate_log(&log, &writing, service::LOG_LIMIT) {
         Ok(Some(fresh)) => {
-            let _ = rustix::stdio::dup2_stdout(&fresh);
-            let _ = rustix::stdio::dup2_stderr(&fresh);
+            let _ = maxhq_os::proc::send_output_to(&fresh);
             info!("started a new log, with the last one beside it");
         }
         Ok(None) => {}
         Err(err) => warn!(%err, "couldn't move the log aside"),
     }
 }
-
-/// On Windows the launcher moves the log aside before it starts `maxd`.
-#[cfg(windows)]
-fn rotate_log() {}
 
 /// Logs why `maxd run` stopped, for the service log.
 fn fail(err: &RunError) -> ExitCode {
@@ -1444,34 +1397,23 @@ fn host_apply_system(yes: bool) -> ExitCode {
 /// waits until every held agent has wound down or the window closes. With
 /// no `maxd` running, nothing needs to wind down. `maxd` takes it only from
 /// root, which the shutdown unit runs it as.
-#[cfg(unix)]
 fn quiesce(window: Duration) -> ExitCode {
     let Some(socket) = paths::socket() else {
         eprintln!("maxd host quiesce: can't tell where maxd's socket is");
         return ExitCode::FAILURE;
     };
-    let mut stream = match UnixStream::connect(&socket) {
-        Ok(stream) => stream,
-        Err(err)
-            if matches!(
-                err.kind(),
-                io::ErrorKind::NotFound | io::ErrorKind::ConnectionRefused
-            ) =>
-        {
+    let asked = maxhq_os::rt::block_on(quiesce_at(&socket, window))
+        .unwrap_or_else(|err| Err(format!("couldn't start: {err}")));
+    match asked {
+        Ok(None) => {
             println!("maxd isn't running, so no agents need to wind down");
-            return ExitCode::SUCCESS;
+            ExitCode::SUCCESS
         }
-        Err(err) => {
-            eprintln!("maxd host quiesce: couldn't reach maxd: {err}");
-            return ExitCode::FAILURE;
-        }
-    };
-    match wind_down(&mut stream, window) {
-        Ok(ActionOutcome::Done) => {
+        Ok(Some(ActionOutcome::Done)) => {
             println!("the agents have wound down");
             ExitCode::SUCCESS
         }
-        Ok(ActionOutcome::Refused { reason }) => {
+        Ok(Some(ActionOutcome::Refused { reason })) => {
             eprintln!("maxd host quiesce: {reason}");
             if !maxhq_os::proc::is_root() {
                 eprintln!(
@@ -1481,7 +1423,7 @@ fn quiesce(window: Duration) -> ExitCode {
             }
             ExitCode::FAILURE
         }
-        Ok(other) => {
+        Ok(Some(other)) => {
             eprintln!("maxd host quiesce: maxd answered {other:?}");
             ExitCode::FAILURE
         }
@@ -1492,21 +1434,32 @@ fn quiesce(window: Duration) -> ExitCode {
     }
 }
 
-/// The shutdown unit that runs `maxd host quiesce` is Linux's.
-#[cfg(windows)]
-fn quiesce(_window: Duration) -> ExitCode {
-    eprintln!("maxd host quiesce: this is for Linux hosts, whose shutdown unit runs it");
-    ExitCode::FAILURE
+/// Asks the `maxd` at `socket` to wind its agents down, and gives its
+/// answer, or none when no `maxd` runs there.
+async fn quiesce_at(socket: &Path, window: Duration) -> Result<Option<ActionOutcome>, String> {
+    let mut stream = match LocalStream::connect(socket).await {
+        Ok(stream) => stream,
+        Err(err)
+            if matches!(
+                err.kind(),
+                io::ErrorKind::NotFound | io::ErrorKind::ConnectionRefused
+            ) =>
+        {
+            return Ok(None);
+        }
+        Err(err) => return Err(format!("couldn't reach maxd: {err}")),
+    };
+    wind_down(&mut stream, window)
+        .await
+        .map(Some)
+        .map_err(|err| err.to_string())
 }
 
 /// Asks `maxd` to wind its agents down and waits for the answer, which
 /// comes when the window closes at the latest.
-#[cfg(unix)]
-fn wind_down(stream: &mut UnixStream, window: Duration) -> io::Result<ActionOutcome> {
-    use std::io::Read;
-
+async fn wind_down(stream: &mut LocalStream, window: Duration) -> io::Result<ActionOutcome> {
     // A minute past the window covers a busy loop.
-    stream.set_read_timeout(Some(window + Duration::from_secs(60)))?;
+    let patience = window + Duration::from_secs(60);
     let key = IdempotencyKey::generate();
     let hello = ClientMessage::Hello(ClientHello {
         protocol: ProtocolRange::OURS,
@@ -1525,7 +1478,7 @@ fn wind_down(stream: &mut UnixStream, window: Duration) -> io::Result<ActionOutc
     for message in [hello, ask] {
         frame::encode_message(&mut out, &message).map_err(io::Error::other)?;
     }
-    stream.write_all(&out)?;
+    stream.write_all(&out).await?;
     let mut decoder = FrameDecoder::new();
     let mut buf = [0; 8192];
     loop {
@@ -1542,7 +1495,9 @@ fn wind_down(stream: &mut UnixStream, window: Duration) -> io::Result<ActionOutc
                 return Ok(outcome);
             }
         }
-        let read = stream.read(&mut buf)?;
+        let read = tokio::time::timeout(patience, stream.read(&mut buf))
+            .await
+            .map_err(|_| io::Error::new(io::ErrorKind::TimedOut, "maxd didn't answer in time"))??;
         if read == 0 {
             return Err(io::Error::new(
                 io::ErrorKind::UnexpectedEof,
@@ -1597,17 +1552,6 @@ mod tests {
         // And again at the next start.
         private_data_dir(&open).unwrap();
         assert_eq!(mode(&open), 0o700);
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn maxd_raises_its_own_limit_on_open_files() {
-        use rustix::process::{getrlimit, Resource};
-
-        raise_open_files();
-        let limit = getrlimit(Resource::Nofile);
-        let wanted = limit.maximum.map_or(OPEN_MAX, |hard| hard.min(OPEN_MAX));
-        assert!(limit.current.is_none_or(|soft| soft >= wanted), "{limit:?}");
     }
 
     #[test]

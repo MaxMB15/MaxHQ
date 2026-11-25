@@ -161,3 +161,64 @@ pub async fn cmdline(pid: u32) -> io::Result<Option<String>> {
 pub fn is_root() -> bool {
     rustix::process::geteuid().is_root()
 }
+
+/// How far macOS lets the soft limit on open files go, whatever the hard
+/// limit says.
+const OPEN_MAX: u64 = 10_240;
+
+pub fn raise_open_files() -> io::Result<()> {
+    use rustix::process::{getrlimit, setrlimit, Resource, Rlimit};
+
+    let Rlimit { current, maximum } = getrlimit(Resource::Nofile);
+    if current == maximum {
+        return Ok(());
+    }
+    let raise = |to| {
+        setrlimit(
+            Resource::Nofile,
+            Rlimit {
+                current: to,
+                maximum,
+            },
+        )
+    };
+    if raise(maximum).is_ok() {
+        return Ok(());
+    }
+    let capped = maximum.map_or(OPEN_MAX, |hard| hard.min(OPEN_MAX));
+    if current.is_some_and(|soft| soft < capped) {
+        raise(Some(capped))?;
+    }
+    Ok(())
+}
+
+pub fn stderr_file() -> io::Result<std::fs::File> {
+    use std::os::fd::AsFd;
+
+    io::stderr()
+        .as_fd()
+        .try_clone_to_owned()
+        .map(std::fs::File::from)
+}
+
+pub fn send_output_to(file: &std::fs::File) -> io::Result<()> {
+    // Each is tried, so a failure with stdout still moves stderr.
+    let stdout = rustix::stdio::dup2_stdout(file);
+    let stderr = rustix::stdio::dup2_stderr(file);
+    stdout.and(stderr).map_err(io::Error::from)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_limit_on_open_files_is_raised() {
+        use rustix::process::{getrlimit, Resource};
+
+        raise_open_files().unwrap();
+        let limit = getrlimit(Resource::Nofile);
+        let wanted = limit.maximum.map_or(OPEN_MAX, |hard| hard.min(OPEN_MAX));
+        assert!(limit.current.is_none_or(|soft| soft >= wanted), "{limit:?}");
+    }
+}

@@ -688,13 +688,11 @@ async fn an_upload_to_a_workspace_relays_through_its_guest() {
 #[tokio::test(flavor = "multi_thread")]
 async fn quiesce_from_maxds_own_user_is_refused_on_the_socket() {
     let rig = Rig::new();
-    let socket = rig.socket.clone();
-    let outcome = within(tokio::task::spawn_blocking(move || {
-        let mut stream = std::os::unix::net::UnixStream::connect(socket)?;
-        crate::wind_down(&mut stream, Duration::from_secs(60))
-    }))
+    let outcome = within(async {
+        let mut stream = maxhq_os::ipc::LocalStream::connect(&rig.socket).await?;
+        crate::wind_down(&mut stream, Duration::from_secs(60)).await
+    })
     .await
-    .unwrap()
     .unwrap();
     // It proves nothing, so only root, as the shutdown unit runs it, may,
     // and only to a maxd that doesn't run as root. This one runs as the

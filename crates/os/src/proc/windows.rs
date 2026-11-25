@@ -323,3 +323,22 @@ pub fn is_root() -> bool {
         .and_then(|token| win::elevated(&token))
         .unwrap_or(false)
 }
+
+pub fn raise_open_files() -> io::Result<()> {
+    Ok(())
+}
+
+pub fn stderr_file() -> io::Result<std::fs::File> {
+    use std::os::windows::io::AsHandle;
+
+    io::stderr()
+        .as_handle()
+        .try_clone_to_owned()
+        .map(std::fs::File::from)
+}
+
+pub fn send_output_to(_file: &std::fs::File) -> io::Result<()> {
+    Err(crate::unsupported(
+        "pointing this process's output at a file",
+    ))
+}
