@@ -773,7 +773,9 @@ pub(crate) mod tests {
         }
 
         /// Puts a program at `path` under the folder, or a plain file when
-        /// `runs` is false, and gives where it went.
+        /// `runs` is false, and gives where it went. Windows has no run
+        /// bit, so there every file at a command's name runs.
+        #[cfg_attr(not(unix), allow(unused_variables))]
         pub(crate) fn program(&self, path: &str, runs: bool) -> PathBuf {
             let program = self.0.join(path);
             fs::create_dir_all(program.parent().unwrap()).unwrap();
@@ -872,9 +874,12 @@ pub(crate) mod tests {
         );
         assert_eq!(ids(&find(&scratch.places())), [("cursor", Some(&*in_apps))]);
 
-        // A file that doesn't run isn't a command line.
-        scratch.program("bin/code", false);
-        assert_eq!(ids(&find(&scratch.places())), [("cursor", Some(&*in_apps))]);
+        // A file that doesn't run isn't a command line. Windows has no run
+        // bit to leave off.
+        if cfg!(unix) {
+            scratch.program("bin/code", false);
+            assert_eq!(ids(&find(&scratch.places())), [("cursor", Some(&*in_apps))]);
+        }
         let code = scratch.program(
             "Applications/Visual Studio Code.app/Contents/Resources/app/bin/code",
             true,

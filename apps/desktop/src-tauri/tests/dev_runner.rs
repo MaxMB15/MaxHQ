@@ -3,6 +3,8 @@
 
 //! Runs `scripts/dev-app.sh`, Cargo's runner for `pnpm dev`, against fake
 //! binaries: shell scripts that write where they ran from and with what.
+//! The runner is a sh script, and `pnpm dev` on Windows doesn't use it.
+#![cfg(unix)]
 
 use std::fs;
 use std::os::unix::fs::PermissionsExt;
