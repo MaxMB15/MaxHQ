@@ -10,7 +10,7 @@ import { watchTheme } from "./app/theme";
 import { watchWindowScroll } from "./app/window-scroll";
 import { ComposerNativeProvider } from "./composer";
 import * as native from "./native";
-import { watchContextMenu } from "./native/context-guard";
+import { watchContextMenu, watchReloadKeys } from "./native/context-guard";
 import { appOs } from "./native/platform";
 import "./styles/globals.css";
 
@@ -22,6 +22,7 @@ setInterfaceOs(appOs());
 watchTheme();
 watchLanguage();
 watchContextMenu();
+watchReloadKeys();
 watchWindowScroll();
 
 createRoot(document.getElementById("root")!).render(

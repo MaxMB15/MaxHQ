@@ -8,9 +8,13 @@
 // is left alone. Anywhere else nothing shows. In a development build,
 // holding Option on the right-click lets the webview's menu through, for
 // Inspect Element.
+//
+// Its reload keys stay out too: off a Mac, F5 and Control-R would reload
+// the page and drop the whole app. A development build keeps them, where
+// they reload the frontend.
 
 import { contextMenu } from "./menu";
-import { inApp } from "./platform";
+import { inApp, onMac } from "./platform";
 
 /** Whether a point lands on a range's text. */
 export const onText = (range: Range, x: number, y: number): boolean =>
@@ -59,4 +63,26 @@ export const watchContextMenu = (dev = import.meta.env.DEV): (() => void) => {
 	const listener = (event: MouseEvent) => guardContextMenu(event, dev);
 	window.addEventListener("contextmenu", listener);
 	return () => window.removeEventListener("contextmenu", listener);
+};
+
+/** Whether a key reloads the webview's page, as F5 and Control-R do off a Mac. */
+export const reloadsPage = (event: Pick<KeyboardEvent, "key" | "code" | "ctrlKey" | "metaKey">) =>
+	!onMac() && (event.key === "F5" || (event.ctrlKey && !event.metaKey && event.code === "KeyR"));
+
+/**
+ * Keeps a reload key from reloading the page. A key something already
+ * took, such as Control-R in a terminal's shell, is left alone.
+ */
+export const guardReloadKey = (event: KeyboardEvent): void => {
+	if (!event.defaultPrevented && reloadsPage(event)) event.preventDefault();
+};
+
+/**
+ * Starts guarding the reload keys in a release build, inside the app only.
+ * Returns the call that stops it.
+ */
+export const watchReloadKeys = (dev = import.meta.env.DEV): (() => void) => {
+	if (!inApp() || dev) return () => {};
+	window.addEventListener("keydown", guardReloadKey);
+	return () => window.removeEventListener("keydown", guardReloadKey);
 };

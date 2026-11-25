@@ -11,6 +11,7 @@ import { Settings } from "lucide-react";
 import { useEffect } from "react";
 
 import { useServices } from "@/app/services";
+import { ariaKeys, holdsCommand, SHORTCUTS } from "@/layout/shortcuts";
 import { onMac } from "@/native/platform";
 import { t as translate, useI18n } from "@maxhq/shared/i18n";
 
@@ -25,8 +26,7 @@ export const SettingsButton = () => {
 
 	useEffect(() => {
 		const onKey = (e: KeyboardEvent) => {
-			const command = onMac() ? e.metaKey && !e.ctrlKey : e.ctrlKey && !e.metaKey;
-			if (e.key !== "," || !command || e.shiftKey || e.altKey || e.repeat) return;
+			if (e.key !== "," || !holdsCommand(e) || e.shiftKey || e.altKey || e.repeat) return;
 			e.preventDefault();
 			if (!settingsOf(services).getState().open) openSettings(services);
 		};
@@ -46,7 +46,7 @@ export const SettingsButton = () => {
 			<button
 				type="button"
 				aria-label={translate("Settings")}
-				aria-keyshortcuts={onMac() ? "Meta+," : "Control+,"}
+				aria-keyshortcuts={ariaKeys(SHORTCUTS.settings)}
 				title={onMac() ? translate("Settings ⌘,") : translate("Settings Ctrl+,")}
 				onClick={() => openSettings(services)}
 				className="grid size-[30px] place-items-center rounded-[7px] text-secondary-foreground hover:bg-secondary"

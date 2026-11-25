@@ -605,7 +605,7 @@ describe("on a device with sessions", () => {
 		expect(chip()).toHaveTextContent("~/code/example-app");
 		expect(chip().parentElement).toHaveTextContent(/^~\/code\/example-appon Mac$/);
 		expect(chip().closest(".shell-where")?.nextElementSibling).toHaveTextContent(
-			`↩ run⌥↩ fresh shell!! private${keyHint(SHORTCUTS.terminal)} full terminal`
+			`Enter runAlt+Enter fresh shell!! private${keyHint(SHORTCUTS.terminal)} full terminal`
 		);
 		expect(screen.queryByText(/^Runs in/)).toBeNull();
 		expect(screen.queryByText(/^Agent shell · /)).toBeNull();
