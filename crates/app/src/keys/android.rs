@@ -27,9 +27,9 @@ static KEYS: OnceLock<Global<JClass<'static>>> = OnceLock::new();
 pub struct AndroidStore;
 
 impl AndroidStore {
-    /// Finds `MaxhqKeys` through `vm`. The core's `JNI_OnLoad` calls it on
-    /// the thread that loads the library, the one place a lookup sees the
-    /// app's own classes.
+    /// Finds `MaxhqKeys` through `vm`. The core calls it from the
+    /// library's `JNI_OnLoad`, on the thread that loads the library, the
+    /// one place a lookup sees the app's own classes.
     pub fn attach(vm: &JavaVM) -> Result<(), String> {
         let keys = vm
             .attach_current_thread(|env| {

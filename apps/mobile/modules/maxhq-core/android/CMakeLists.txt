@@ -44,10 +44,11 @@ set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Werror")
 # Set linker flags for 16KB page size alignment (required for Android 15+)
 set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -Wl,-z,max-page-size=16384")
 
-# The core's JNI_OnLoad, which hands the key store to Rust, sits in the
-# static library. Nothing here calls it, so the linker would leave it out;
-# -u keeps it, and the VM calls it as the module loads the library.
-set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -Wl,-u,JNI_OnLoad")
+# The Rust core's symbols stay inside this library. Nothing outside it
+# calls them, and exported they'd take a third of the library's size in
+# its symbol table and send every call between them through the PLT.
+# JNI_OnLoad, which the VM looks for, is cpp-adapter.cpp's.
+set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -Wl,--exclude-libs,libmaxhq_mobile.a")
 
 cmake_path(
   SET MY_RUST_LIB

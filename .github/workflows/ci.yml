@@ -222,8 +222,8 @@ jobs:
       - name: Build the debug APK
         run: pnpm --filter ./apps/mobile mobile:android:apk --dev
 
-      # The core's JNI_OnLoad hands the key store to Rust. The library keeps
-      # it only because the module's CMake build asks the linker to.
+      # The module's JNI_OnLoad hands the key store to the core, and the
+      # core's own symbols stay inside the library, as its CMake build asks.
       - name: Check the APK carries the core for both ABIs
         run: |
           apk=apps/mobile/android/app/build/outputs/apk/debug/app-debug.apk
@@ -231,7 +231,12 @@ jobs:
           dir=$(mktemp -d)
           for abi in arm64-v8a x86_64; do
             unzip -q "$apk" "lib/$abi/libmaxhq-core.so" -d "$dir"
-            "$nm" -D --defined-only "$dir/lib/$abi/libmaxhq-core.so" | grep -q " JNI_OnLoad$"
+            "$nm" -D --defined-only "$dir/lib/$abi/libmaxhq-core.so" > "$dir/$abi.syms"
+            grep -q " JNI_OnLoad$" "$dir/$abi.syms"
+            if grep -q " maxhq_mobile_on_load$" "$dir/$abi.syms"; then
+              echo "lib/$abi/libmaxhq-core.so exports the core's own symbols"
+              exit 1
+            fi
           done
           ls -l "$apk"
 
