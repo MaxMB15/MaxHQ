@@ -9,7 +9,7 @@
 import { useI18n } from "@maxhq/shared/i18n";
 
 import { memo } from "react";
-import { Platform, ScrollView, StyleSheet, Text, View } from "react-native";
+import { ScrollView, StyleSheet, Text, View } from "react-native";
 
 import { type LicenceAsk, pendingLicences, toolName } from "@maxhq/shared/hosts/tools";
 
@@ -69,10 +69,9 @@ export const LicencesScreen = ({ navigation, route }: ScreenProps<"Licences">) =
 	const close = () => navigation.goBack();
 	return (
 		<View style={styles.screen}>
-			{/* On iOS the modal is a sheet below the status bar; elsewhere it fills the screen. */}
 			<Header
 				title={t("Licences to accept")}
-				sheet={Platform.OS === "ios"}
+				sheet
 				back={{ label: t("Close"), onPress: close, close: true }}
 			/>
 			<ScrollView contentContainerStyle={styles.content}>

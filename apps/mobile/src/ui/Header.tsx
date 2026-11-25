@@ -4,12 +4,14 @@
 // A screen's compact header, as the desktop's pane headers: a back or close
 // button, the title with a line under it, and icon buttons on the right.
 // The first screen shows a bigger title and no back. It sits under the
-// status bar, or at the top of a sheet, which has none.
+// status bar, or at the top of a sheet, which has none on iOS. Android
+// shows a sheet full screen, under the status bar like any other screen.
 
 import type { ReactNode } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
+import { platform } from "../platform";
 import { color, size, TOUCH } from "../theme";
 import { Chevron, Close } from "./Icon";
 
@@ -50,12 +52,17 @@ export const Header = ({
 	/** The button on the left, and what it's for. */
 	back?: { readonly label: string; readonly onPress: () => void; readonly close?: boolean };
 	right?: ReactNode;
-	/** Set on a sheet, which starts below the status bar. */
+	/** Set on a sheet or a modal screen, which starts below the status bar on iOS. */
 	sheet?: boolean;
 }) => {
 	const insets = useSafeAreaInsets();
 	return (
-		<View style={[styles.bar, { paddingTop: sheet ? 0 : insets.top }]}>
+		<View
+			style={[
+				styles.bar,
+				{ paddingTop: sheet && platform.sheetsBelowStatusBar ? 0 : insets.top },
+			]}
+		>
 			<View style={[styles.row, !back && styles.first]}>
 				{back ? (
 					<IconButton label={back.label} onPress={back.onPress}>

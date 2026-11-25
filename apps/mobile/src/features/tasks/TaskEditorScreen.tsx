@@ -14,7 +14,7 @@
 import { useI18n } from "@maxhq/shared/i18n";
 
 import { type ReactNode, useState } from "react";
-import { Platform, ScrollView, StyleSheet, Text, View } from "react-native";
+import { ScrollView, StyleSheet, Text, View } from "react-native";
 
 import type { DeviceId, Task, Weekday } from "@maxhq/shared/bindings";
 import { useNow } from "@maxhq/shared/lib/clock";
@@ -386,7 +386,7 @@ export const TaskEditorScreen = ({ navigation, route }: ScreenProps<"TaskEditor"
 	const header = (title: string, done?: boolean) => (
 		<Header
 			title={title}
-			sheet={Platform.OS === "ios"}
+			sheet
 			back={{ label: done ? t("Close") : t("Cancel"), onPress: close, close: true }}
 		/>
 	);

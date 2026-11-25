@@ -14,13 +14,14 @@ import { useI18n } from "@maxhq/shared/i18n";
 import { CameraView, useCameraPermissions } from "expo-camera";
 import * as Haptics from "expo-haptics";
 import { useMemo, useRef, useState } from "react";
-import { Linking, Platform, ScrollView, StyleSheet, Text, View } from "react-native";
+import { Linking, ScrollView, StyleSheet, Text, View } from "react-native";
 
 import type { PhoneBook } from "@maxhq/shared/bindings";
 import { describe } from "@maxhq/shared/data/request-source";
 
 import type { PairedMac, PhoneCalls } from "../../data/native-source";
 import type { ScreenProps } from "../../navigation";
+import { platform } from "../../platform";
 import { askToNotify } from "../../push/permission";
 import { useServices } from "../../services";
 import { color, radius, size, tint } from "../../theme";
@@ -47,7 +48,7 @@ export const ScanScreen = ({ navigation, route }: ScreenProps<"Scan">) => {
 
 	const { phone } = useServices();
 	const [permission, askPermission] = useCameraPermissions();
-	const [name, setName] = useState("iPhone");
+	const [name, setName] = useState(platform.phoneName);
 	const [pasted, setPasted] = useState("");
 	const [step, setStep] = useState<Step>({ step: "ready" });
 	const [hint, setHint] = useState<string | null>(null);
@@ -61,11 +62,10 @@ export const ScanScreen = ({ navigation, route }: ScreenProps<"Scan">) => {
 	// A code reads many times a second, so only the first one pairs.
 	const busy = useRef(false);
 	const { macs } = useMacs();
-	// On iOS the modal is a sheet below the status bar; elsewhere it fills the screen.
 	const header = (
 		<Header
 			title={t("Pair")}
-			sheet={Platform.OS === "ios"}
+			sheet
 			back={{ label: t("Close"), onPress: () => navigation.goBack(), close: true }}
 		/>
 	);
@@ -108,7 +108,7 @@ export const ScanScreen = ({ navigation, route }: ScreenProps<"Scan">) => {
 		busy.current = true;
 		setHint(null);
 		setStep({ step: "pairing" });
-		const result = await phone.pair(code, name.trim() || "iPhone");
+		const result = await phone.pair(code, name.trim() || platform.phoneName);
 		setStep(
 			result.status === "ok"
 				? { step: "paired", book: result.data }
@@ -224,7 +224,7 @@ export const ScanScreen = ({ navigation, route }: ScreenProps<"Scan">) => {
 					value={name}
 					onChangeText={setName}
 					editable={step.step !== "pairing"}
-					placeholder="iPhone"
+					placeholder={platform.phoneName}
 					accessibilityLabel={t("This phone's name")}
 				/>
 				{step.step === "pairing" ? <Text style={styles.body}>{t("Pairing")}</Text> : null}

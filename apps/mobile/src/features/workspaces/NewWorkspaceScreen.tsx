@@ -11,7 +11,7 @@
 import { formatNumber, useI18n } from "@maxhq/shared/i18n";
 
 import { useState } from "react";
-import { Platform, ScrollView, StyleSheet, Text, View } from "react-native";
+import { ScrollView, StyleSheet, Text, View } from "react-native";
 
 import type { DeviceId, WorkspaceId } from "@maxhq/shared/bindings";
 import { failureOf } from "@maxhq/shared/data/failure";
@@ -311,10 +311,9 @@ export const NewWorkspaceScreen = ({ navigation, route }: ScreenProps<"NewWorksp
 	const close = () => navigation.goBack();
 	return (
 		<View style={styles.screen}>
-			{/* On iOS the modal is a sheet below the status bar; elsewhere it fills the screen. */}
 			<Header
 				title={t("New workspace")}
-				sheet={Platform.OS === "ios"}
+				sheet
 				back={{ label: t("Close"), onPress: close, close: true }}
 			/>
 			{made ? (

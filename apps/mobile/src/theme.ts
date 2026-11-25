@@ -6,6 +6,8 @@
 
 import type { CodeColor } from "@maxhq/shared/agent-view/highlight";
 
+import { platform } from "./platform";
+
 export const color = {
 	background: "#0f1217",
 	foreground: "#e8ecf2",
@@ -63,9 +65,10 @@ export const tint = (hex: string, alpha: number): string => {
 };
 
 // The desktop names Instrument Sans and JetBrains Mono but bundles neither
-// yet, so it shows the system font and Menlo, as the phone does. Undefined
-// is the system font.
-export const font = { sans: undefined, mono: "Menlo" } as const;
+// yet, so it shows the system font and Menlo, as the phone does on iOS.
+// Android has no Menlo and takes its own monospace. Undefined is the system
+// font.
+export const font = { sans: undefined, mono: platform.monoFont } as const;
 
 /** Text sizes, as the desktop's compact panes. */
 export const size = {

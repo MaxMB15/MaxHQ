@@ -13,7 +13,6 @@ import { t, useI18n } from "@maxhq/shared/i18n";
 import { type ComponentRef, type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import {
 	Animated,
-	BackHandler,
 	Keyboard,
 	LayoutAnimation,
 	PanResponder,
@@ -62,6 +61,7 @@ import { feedIndexOf } from "@maxhq/shared/timeline/output";
 import { useTimeline } from "@maxhq/shared/timeline/use-timeline";
 import { attentionOf, deviceName } from "@maxhq/shared/view/select";
 
+import { useBackPress } from "../../platform/back";
 import { type Services, useServices, useView } from "../../services";
 import { color, radius, size, tint, TOUCH } from "../../theme";
 import { Button } from "../../ui/Button";
@@ -188,14 +188,7 @@ export const Dispatcher = ({
 	}, [slide, open]);
 
 	// Android's back closes the sheet first.
-	useEffect(() => {
-		if (!open) return;
-		const sub = BackHandler.addEventListener("hardwareBackPress", () => {
-			setOpen(false);
-			return true;
-		});
-		return () => sub.remove();
-	}, [open]);
+	useBackPress(open, () => setOpen(false));
 
 	const send = () => {
 		if (!bar.canSend) return;

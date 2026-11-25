@@ -15,7 +15,7 @@
 import { formatNumber, useI18n } from "@maxhq/shared/i18n";
 
 import { useEffect, useState } from "react";
-import { Platform, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 
 import { formatBytes } from "@maxhq/shared/agent-view/format";
 import type { DeviceId } from "@maxhq/shared/bindings";
@@ -573,10 +573,9 @@ export const CopyProjectScreen = ({ navigation, route }: ScreenProps<"CopyProjec
 	const close = () => navigation.goBack();
 	return (
 		<View style={styles.screen}>
-			{/* On iOS the modal is a sheet below the status bar; elsewhere it fills the screen. */}
 			<Header
 				title={t("Copy to another device")}
-				sheet={Platform.OS === "ios"}
+				sheet
 				back={{ label: t("Close"), onPress: close, close: true }}
 			/>
 			<Form request={route.params ?? {}} close={close} />
