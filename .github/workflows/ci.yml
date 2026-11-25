@@ -186,10 +186,12 @@ jobs:
           ls -l target/debug/bundle/appimage target/debug/bundle/deb target/debug/bundle/rpm
 
       # Each package must carry maxd and name WebKitGTK 4.1 and the SSH
-      # client, which the app needs to reach other devices. The desktop
-      # entry must be MaxHQ.desktop, the name the dock's launcher count is
-      # sent to, and name the window's class, so the dock puts the window
-      # under the app's icon.
+      # client, which the app needs to reach other devices. Tauri adds
+      # WebKitGTK and GTK itself, as a deb package and as the libraries an
+      # rpm needs, so tauri.linux.conf.json names only the SSH client. The
+      # desktop entry must be MaxHQ.desktop, the name the dock's launcher
+      # count is sent to, and name the window's class, so the dock puts the
+      # window under the app's icon.
       - name: Check the packages
         run: |
           set -euo pipefail
@@ -203,6 +205,9 @@ jobs:
             grep -qw -- "$name" <<<"$depends" || fail "The .deb doesn't depend on $name."
           done
           files="$(dpkg-deb --contents "${deb[0]}")"
+          echo "deb programs:"
+          grep '/usr/bin/' <<<"$files" || true
+          ls -l apps/desktop/src-tauri/binaries
           grep -q '/usr/bin/maxd$' <<<"$files" || fail "The .deb has no maxd."
           grep -q '/usr/share/applications/MaxHQ.desktop$' <<<"$files" ||
             fail "The .deb has no MaxHQ.desktop."
@@ -211,8 +216,8 @@ jobs:
           grep -q '^StartupWMClass=' <<<"$entry" || fail "MaxHQ.desktop names no window class."
           requires="$(rpm -qpR "${rpm[0]}")"
           echo "rpm requires: $requires"
-          for name in webkit2gtk4.1 openssh-clients; do
-            grep -qw -- "$name" <<<"$requires" || fail "The .rpm doesn't require $name."
+          for name in 'libwebkit2gtk-4.1.so.0()(64bit)' openssh-clients; do
+            grep -qF -- "$name" <<<"$requires" || fail "The .rpm doesn't require $name."
           done
           files="$(rpm -qpl "${rpm[0]}")"
           grep -qx '/usr/bin/maxd' <<<"$files" || fail "The .rpm has no maxd."

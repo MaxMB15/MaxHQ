@@ -27,12 +27,12 @@
 		],
 		"linux": {
 			"deb": {
-				"depends": ["libwebkit2gtk-4.1-0", "libgtk-3-0", "openssh-client"],
+				"depends": ["openssh-client"],
 				"recommends": ["libunity9"],
 				"section": "devel"
 			},
 			"rpm": {
-				"depends": ["webkit2gtk4.1", "gtk3", "openssh-clients"]
+				"depends": ["openssh-clients"]
 			},
 			"appimage": {
 				"bundleMediaFramework": false
