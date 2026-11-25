@@ -466,5 +466,8 @@
 	"“{{title}}” was deleted.": "„{{title}}“ wurde gelöscht.",
 	"Runs at {{level}}.": "Läuft mit {{level}}.",
 	"{{level}} (default)": "{{level}} (Standard)",
-	"Couldn't change the effort level. {{reason}}": "Die Aufwandsstufe konnte nicht geändert werden. {{reason}}"
+	"Couldn't change the effort level. {{reason}}": "Die Aufwandsstufe konnte nicht geändert werden. {{reason}}",
+	"This build gets no pushes": "Dieser Build bekommt keine Push-Mitteilungen",
+	"It was built without the signing that push needs.": "Er wurde ohne die Signierung gebaut, die Push braucht.",
+	"It was built without the signing that push needs._android": "Er wurde ohne die google-services.json von Firebase gebaut, die Push braucht."
 }
