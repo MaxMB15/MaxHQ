@@ -27,7 +27,7 @@ use std::time::Duration;
 
 use maxhq_core::authorized_keys;
 use maxhq_core::fs::{write_atomic, Atomic};
-use maxhq_core::paths::MAXD_LINK_TEMP;
+use maxhq_core::paths::{BUILD_LEN, MAXD_LINK_TEMP};
 use maxhq_protocol::agents::PeerRoute;
 use tokio::io::AsyncWriteExt;
 use tokio::process::Command;
@@ -439,7 +439,7 @@ impl<'a, R: Run> Setup<'a, R> {
         let binary = checked(binary(target), target)?;
 
         step(Step::Install);
-        let build = &binary.sha256[..16];
+        let build = &binary.sha256[..BUILD_LEN];
         if facts.get("build").map(String::as_str) != Some(build) {
             let bytes = std::fs::read(&binary.path)
                 .map_err(|error| stop(format!("Reading maxd failed: {error}")))?;

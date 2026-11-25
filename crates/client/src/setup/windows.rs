@@ -17,7 +17,8 @@
 use std::collections::BTreeMap;
 
 use base64::Engine;
-use maxhq_core::authorized_keys::{self, WINDOWS_MAXD};
+use maxhq_core::authorized_keys;
+use maxhq_core::paths::{BUILD_LEN, WINDOWS_MAXD};
 
 use super::{parse_probe, stop, Prepared, Run, Setup, SetupBinary, SetupError, Step};
 
@@ -227,7 +228,7 @@ impl<R: Run> Setup<'_, R> {
         let binary = super::checked(binary(target), target)?;
 
         step(Step::Install);
-        let build = &binary.sha256[..16];
+        let build = &binary.sha256[..BUILD_LEN];
         if fact("build") != build {
             let bytes = std::fs::read(&binary.path)
                 .map_err(|error| stop(format!("Reading maxd failed: {error}")))?;

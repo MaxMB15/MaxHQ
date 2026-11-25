@@ -5,7 +5,6 @@
 //! `schtasks` and fake processes, so they run on any system.
 
 use std::fs;
-use std::path::PathBuf;
 
 use maxhq_core::service::{program_in_task, task_file_text, task_name};
 
@@ -340,25 +339,7 @@ fn the_windows_setup_keeps_the_task_beside_the_data_and_the_log_in_it() {
     let mut bare = setup.clone();
     bare.app = None;
     bare.data = None;
-    let local = setup.home.join("AppData").join("Local").join("MaxHQ");
+    let local = maxhq_core::paths::windows_app_dir().unwrap_or_default();
     assert_eq!(bare.app_folder(), local);
     assert_eq!(bare.data_folder(), local.join("data"));
-}
-
-#[test]
-fn a_verbatim_drive_path_reads_plainly() {
-    use super::super::plain;
-    assert_eq!(
-        plain(PathBuf::from(r"\\?\C:\Users\me\maxd.exe")),
-        PathBuf::from(r"C:\Users\me\maxd.exe")
-    );
-    // A share's verbatim path has no plain form of the same kind.
-    assert_eq!(
-        plain(PathBuf::from(r"\\?\UNC\server\share\maxd.exe")),
-        PathBuf::from(r"\\?\UNC\server\share\maxd.exe")
-    );
-    assert_eq!(
-        plain(PathBuf::from("/usr/bin/maxd")),
-        PathBuf::from("/usr/bin/maxd")
-    );
 }

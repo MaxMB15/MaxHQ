@@ -241,14 +241,8 @@ pub fn remove_key(path: &Path) -> io::Result<()> {
 /// `%LOCALAPPDATA%\MaxHQ\bin\current` on Windows. It's absolute, since no
 /// shell reads an MCP client's config.
 pub fn maxd_program() -> PathBuf {
-    let var = |name| std::env::var_os(name).filter(|value| !value.is_empty());
-    let stable = if cfg!(windows) {
-        var("LOCALAPPDATA")
-            .map(|local| PathBuf::from(local).join(maxhq_core::authorized_keys::WINDOWS_MAXD))
-    } else {
-        var("HOME").map(|home| PathBuf::from(home).join(".local/bin/maxd"))
-    };
-    stable
+    maxhq_core::paths::MaxdLayout::from_env()
+        .map(|layout| layout.program())
         .filter(|path| fs::symlink_metadata(path).is_ok())
         .or_else(|| std::env::current_exe().ok())
         .unwrap_or_else(|| PathBuf::from("maxd"))

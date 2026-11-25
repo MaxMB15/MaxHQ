@@ -1065,7 +1065,10 @@ async fn a_windows_pc_is_set_up_through_powershell() {
         "$list = @('authorize-key', 'ssh-ed25519', \
          'AAAAC3NzaC1lZDI1NTE5AAAAIFakeFakeFakeFakeFakeFakeFakeFakeFakeFake')\n"
     ));
-    assert!(scripts[3].contains(r"'MaxHQ\bin\current\maxd.exe') @list"));
+    // The probe and the steps run the maxd the key line names.
+    let maxd = maxhq_core::paths::WINDOWS_MAXD;
+    assert!(windows::PROBE.contains(&format!("'{maxd}'\n")));
+    assert!(scripts[3].contains(&format!("'{maxd}') @list")));
     // The binary goes over stdin to the install script.
     let stdin: Vec<_> = fake
         .ssh()

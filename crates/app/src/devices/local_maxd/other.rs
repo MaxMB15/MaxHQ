@@ -19,8 +19,7 @@ use std::io;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-/// How many hex characters of a binary's sha256 name its build.
-const BUILD_LEN: usize = 16;
+use maxhq_core::paths::{MaxdLayout, BUILD_LEN};
 
 /// Nothing here depends on where the app runs, since the service runs the
 /// copy, so no place is the wrong one.
@@ -34,60 +33,58 @@ pub(super) fn misplaced(_bundled: &Path) -> Option<&'static str> {
 #[cfg_attr(windows, allow(dead_code))]
 pub(super) fn stage(bundled: &Path, home: Option<&Path>) -> io::Result<PathBuf> {
     let home = home.ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "HOME isn't set"))?;
-    copy_out(bundled, &versions(home), &link(home))
+    copy_out(bundled, &MaxdLayout::new(home))
 }
 
 /// The program the service runs once the app installed `maxd`:
 /// `~/.local/bin/maxd`. `None` without a home folder.
 #[cfg_attr(windows, allow(dead_code))]
 pub(super) fn installed(_bundled: &Path, home: Option<&Path>) -> Option<PathBuf> {
-    home.map(link)
+    home.map(|home| MaxdLayout::new(home).program())
 }
 
-/// `maxd`'s file name here.
-pub(super) fn program() -> String {
-    format!("maxd{}", std::env::consts::EXE_SUFFIX)
-}
-
-/// `~/.local/bin/maxd`, the link the service runs.
-#[cfg_attr(windows, allow(dead_code))]
-fn link(home: &Path) -> PathBuf {
-    home.join(".local/bin").join(program())
-}
-
-/// `~/.local/lib/maxhq/versions`, with one folder per build.
-#[cfg_attr(windows, allow(dead_code))]
-fn versions(home: &Path) -> PathBuf {
-    home.join(".local/lib/maxhq/versions")
-}
-
-/// Copies `bundled` to `versions/<build>/maxd`, where the build is the
-/// first 16 hex characters of its sha256. The copy is made under a
-/// temporary name and renamed into place, so nothing ever runs half of
-/// one. It then points `link` at the copy, on Windows at the copy's
-/// folder, and removes every build but this one and the one the link
-/// named before, which may still run until the service restarts. Returns
-/// what the service should run: the link on Unix, and `maxd.exe` through
-/// it on Windows.
-pub(crate) fn copy_out(bundled: &Path, versions: &Path, link: &Path) -> io::Result<PathBuf> {
-    fs::create_dir_all(versions)?;
+/// Copies `bundled` into `layout`'s versions, as `versions/<build>/maxd`
+/// where the build is the first 16 hex characters of its sha256. The copy
+/// is made under a temporary name and renamed into place, so nothing ever
+/// runs half of one. It then points the layout's link at the copy, on
+/// Windows a junction at the copy's folder, and removes every build but
+/// this one and the one the link named before, which may still run until
+/// the service restarts. Windows won't delete a program that runs, nor
+/// its folder. Returns what the service should run: the link on Unix, and
+/// `maxd.exe` through it on Windows.
+pub(super) fn copy_out(bundled: &Path, layout: &MaxdLayout) -> io::Result<PathBuf> {
+    let versions = layout.versions();
+    fs::create_dir_all(&versions)?;
     let nonce = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
         .as_nanos();
     let temp = versions.join(format!(".incoming-{}-{nonce}", std::process::id()));
-    let placed = place(bundled, &temp, versions);
+    let placed = place(bundled, &temp, layout);
     if placed.is_err() {
         let _ = fs::remove_file(&temp);
     }
-    let (build, copy) = placed?;
-    link_to(link, &copy, versions, &build)
+    let build = placed?;
+
+    let previous = layout.linked_build();
+    let link = layout.link();
+    if let Some(dir) = link.parent() {
+        fs::create_dir_all(dir)?;
+    }
+    maxhq_os::link::point(&link, &layout.link_target(&build))?;
+    let keep: Vec<&str> = [Some(build.as_str()), previous.as_deref()]
+        .into_iter()
+        .flatten()
+        .collect();
+    for (build, error) in layout.prune(&keep) {
+        tracing::warn!(%error, build, "couldn't remove an old copy of maxd");
+    }
+    Ok(layout.program())
 }
 
 /// Copies `bundled` to `temp`, makes it executable, and renames it into
-/// the folder of its build under `versions`. Returns the build and the
-/// copy.
-fn place(bundled: &Path, temp: &Path, versions: &Path) -> io::Result<(String, PathBuf)> {
+/// the folder of its build in `layout`. Returns the build.
+fn place(bundled: &Path, temp: &Path, layout: &MaxdLayout) -> io::Result<String> {
     fs::copy(bundled, temp)?;
     make_executable(temp)?;
     // The service starts this file at the next login, so it has to be on
@@ -96,17 +93,18 @@ fn place(bundled: &Path, temp: &Path, versions: &Path) -> io::Result<(String, Pa
     fs::OpenOptions::new().write(true).open(temp)?.sync_all()?;
     let mut build = crate::fleet::sha256_file(temp)?;
     build.truncate(BUILD_LEN);
-    let dir = versions.join(&build);
-    let copy = dir.join(program());
+    let copy = layout.version(&build);
     // A build's folder is named after what's in it, so one that's there
     // already holds this very file, and it may be running.
     if copy.is_file() {
         fs::remove_file(temp)?;
-        return Ok((build, copy));
+        return Ok(build);
     }
-    fs::create_dir_all(&dir)?;
+    if let Some(dir) = copy.parent() {
+        fs::create_dir_all(dir)?;
+    }
     fs::rename(temp, &copy)?;
-    Ok((build, copy))
+    Ok(build)
 }
 
 /// Lets everyone run `path` and only its owner change it.
@@ -120,100 +118,6 @@ fn make_executable(path: &Path) -> io::Result<()> {
 #[cfg(not(unix))]
 fn make_executable(_path: &Path) -> io::Result<()> {
     Ok(())
-}
-
-/// Points `link` at `copy` and removes the builds nothing runs any more.
-#[cfg(unix)]
-fn link_to(link: &Path, copy: &Path, versions: &Path, build: &str) -> io::Result<PathBuf> {
-    let previous = linked_build(link, versions);
-    if let Some(dir) = link.parent() {
-        fs::create_dir_all(dir)?;
-    }
-    point(link, copy)?;
-    prune(versions, &kept(build, previous.as_deref()));
-    Ok(link.to_owned())
-}
-
-/// Points the junction `link` at the folder of `copy` and removes the
-/// builds nothing runs any more. A symbolic link needs rights most
-/// accounts lack on Windows, but anyone can make a junction, which leads
-/// only to a folder, so the service runs `maxd.exe` through it. Windows
-/// won't delete a program that runs, nor its folder, and the build before
-/// stays anyway until the service restarts.
-#[cfg(windows)]
-fn link_to(link: &Path, copy: &Path, versions: &Path, build: &str) -> io::Result<PathBuf> {
-    let previous = linked_build(link, versions);
-    if let Some(dir) = link.parent() {
-        fs::create_dir_all(dir)?;
-    }
-    let folder = copy
-        .parent()
-        .ok_or_else(|| io::Error::other("the copy of maxd has no folder"))?;
-    maxhq_os::link::point(link, folder)?;
-    prune(versions, &kept(build, previous.as_deref()));
-    Ok(link.join(program()))
-}
-
-/// Where neither kind of link is made, the service runs the copy itself.
-#[cfg(not(any(unix, windows)))]
-fn link_to(_link: &Path, copy: &Path, _versions: &Path, _build: &str) -> io::Result<PathBuf> {
-    Ok(copy.to_owned())
-}
-
-/// The builds to keep: the new one, and the one the link named before.
-#[cfg(any(unix, windows))]
-fn kept<'a>(build: &'a str, previous: Option<&'a str>) -> Vec<&'a str> {
-    [Some(build), previous].into_iter().flatten().collect()
-}
-
-/// Points `link` at `target` through a new link beside it and a rename,
-/// so the service never finds it missing. Setup and maxd's own updates
-/// flip it through the same temporary name.
-#[cfg(unix)]
-fn point(link: &Path, target: &Path) -> io::Result<()> {
-    let temp = link.with_file_name(maxhq_core::paths::MAXD_LINK_TEMP);
-    let _ = fs::remove_file(&temp);
-    std::os::unix::fs::symlink(target, &temp)?;
-    fs::rename(&temp, link)
-}
-
-/// The build `link` leads to, when it leads into `versions`: to the
-/// program in the build's folder on Unix, and to the folder on Windows.
-#[cfg(any(unix, windows))]
-fn linked_build(link: &Path, versions: &Path) -> Option<String> {
-    let target = fs::canonicalize(link).ok()?;
-    let versions = fs::canonicalize(versions).ok()?;
-    let dir = if cfg!(windows) {
-        target.as_path()
-    } else {
-        target.parent()?
-    };
-    if dir.parent()? != versions {
-        return None;
-    }
-    dir.file_name()?.to_str().map(str::to_owned)
-}
-
-/// Removes every build in `versions` but `keep`. Only folders named like
-/// a build go, so nothing else kept there is touched.
-#[cfg(any(unix, windows))]
-fn prune(versions: &Path, keep: &[&str]) {
-    let Ok(entries) = fs::read_dir(versions) else {
-        return;
-    };
-    for entry in entries.flatten() {
-        let name = entry.file_name();
-        let Some(name) = name.to_str() else {
-            continue;
-        };
-        let is_build = name.len() == BUILD_LEN && name.bytes().all(|b| b.is_ascii_hexdigit());
-        if !is_build || keep.contains(&name) {
-            continue;
-        }
-        if let Err(error) = fs::remove_dir_all(entry.path()) {
-            tracing::warn!(%error, build = name, "couldn't remove an old copy of maxd");
-        }
-    }
 }
 
 #[cfg(all(test, unix))]
@@ -255,7 +159,7 @@ mod tests {
         }
 
         fn versions(&self) -> PathBuf {
-            versions(&self.home())
+            MaxdLayout::new(self.home()).versions()
         }
 
         /// The builds under the versions folder, sorted.
@@ -330,7 +234,7 @@ mod tests {
     fn a_new_build_flips_the_link_and_keeps_only_the_one_before() {
         let scratch = Scratch::new();
         let home = scratch.home();
-        let link = link(&home);
+        let link = MaxdLayout::new(&home).link();
         let one = scratch.build();
         stage(&scratch.bundled(), Some(&home)).unwrap();
         // Folders that aren't builds stay, whatever happens to the builds.
@@ -374,7 +278,7 @@ mod tests {
     fn a_plain_file_at_the_link_is_replaced_and_a_missing_maxd_copies_nothing() {
         let scratch = Scratch::new();
         let home = scratch.home();
-        let link = link(&home);
+        let link = MaxdLayout::new(&home).link();
         fs::create_dir_all(link.parent().unwrap()).unwrap();
         fs::write(&link, "#!/bin/sh\necho old\n").unwrap();
         stage(&scratch.bundled(), Some(&home)).unwrap();

@@ -19,12 +19,12 @@ fn key(n: u8) -> String {
         .unwrap()
 }
 
-/// The `maxd` a key's forced command runs: from `~` on Unix, and under
-/// `%LOCALAPPDATA%` on Windows, whose shell doesn't read `~`.
+/// The `maxd` a key's forced command runs: from `~` on Unix, and the one
+/// the service runs on Windows, whose shell doesn't read `~`.
 fn maxd() -> String {
     if cfg!(windows) {
-        let base = std::env::var("LOCALAPPDATA").unwrap();
-        format!("{base}\\{}", maxhq_core::authorized_keys::WINDOWS_MAXD)
+        let layout = maxhq_core::paths::MaxdLayout::from_env().unwrap();
+        layout.program().to_string_lossy().into_owned()
     } else {
         "~/.local/bin/maxd".to_owned()
     }
