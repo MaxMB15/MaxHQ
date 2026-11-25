@@ -442,6 +442,7 @@ fn run() -> ExitCode {
 
 /// How far macOS lets the soft limit on open files go, whatever the hard limit
 /// says.
+#[cfg(unix)]
 const OPEN_MAX: u64 = 10_240;
 
 /// Raises the soft limit on open files as far as the system lets it. launchd
@@ -1651,7 +1652,9 @@ mod testing {
     }
 
     /// `dir` as a relative path from where this test runs, the way a
-    /// relative entry on `PATH` reads.
+    /// relative entry on `PATH` reads. The tests that use it make Unix
+    /// programs.
+    #[cfg(unix)]
     pub fn from_here(dir: &Path) -> PathBuf {
         let here = fs::canonicalize(std::env::current_dir().unwrap()).unwrap();
         let dir = fs::canonicalize(dir).unwrap();

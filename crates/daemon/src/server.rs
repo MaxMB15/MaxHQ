@@ -2107,9 +2107,10 @@ pub(crate) mod tests {
         TransferId, WorkspaceId,
     };
     use maxhq_protocol::message::{ClientInfo, UploadTarget, SHOW_ANYWAY_SINCE};
+    #[cfg(unix)]
+    use maxhq_protocol::model::WorkspaceState;
     use maxhq_protocol::model::{
         Activity, Agent, AgentLink, Control, Device, Vendor, Workspace, WorkspaceLocation,
-        WorkspaceState,
     };
     use maxhq_protocol::state::{Change, Entity, EntityKey, Replica};
     use maxhq_protocol::time::Timestamp;
@@ -2937,6 +2938,7 @@ pub(crate) mod tests {
     }
 
     /// The managed state a change gives `workspace`, if it's one of its.
+    #[cfg(unix)]
     fn workspace_state(change: &Change, workspace: WorkspaceId) -> Option<&WorkspaceState> {
         match change {
             Change::Upsert {
@@ -2948,7 +2950,9 @@ pub(crate) mod tests {
 
     // The manager the workspace requests answer through is global, so this
     // is the one test that installs it. A multi-thread runtime runs the
-    // fake Incus while the connection waits.
+    // fake Incus while the connection waits. The fake serves on a Unix
+    // socket.
+    #[cfg(unix)]
     #[tokio::test(flavor = "multi_thread")]
     async fn deltas_and_pongs_go_on_while_a_stop_waits() {
         let installed = workspace::install_slow_stop(Duration::from_secs(1)).await;

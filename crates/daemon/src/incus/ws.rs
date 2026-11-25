@@ -172,7 +172,7 @@ impl<S: AsyncRead + AsyncWrite + Unpin> WebSocket<S> {
     }
 
     /// The stream underneath, for a test that plays the server.
-    #[cfg(test)]
+    #[cfg(all(test, unix))]
     pub fn into_inner(self) -> S {
         self.stream
     }

@@ -17,6 +17,8 @@
 //! to the server in `ssh.rs`, whose host key the guest makes at first
 //! start.
 
+// Outside the tests, Windows uses only the checkout's git from these.
+#[cfg_attr(not(unix), allow(dead_code))]
 pub mod files;
 // The guest role serves as root inside a Linux container or a macOS VM,
 // over Unix sockets, ptys and user switches, so it builds on Unix alone.
@@ -51,6 +53,7 @@ mod tunnel;
 mod unsaved;
 #[cfg(target_os = "macos")]
 pub mod vm;
+#[cfg_attr(not(unix), allow(dead_code))]
 pub(crate) mod worktree;
 
 #[cfg(all(test, unix))]

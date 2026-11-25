@@ -961,6 +961,8 @@ pub fn scan_here(cwd: &Path, locked: &[String]) -> FolderScan {
 }
 
 /// Scans a folder for the host, from inside a guest, which reads as root.
+/// The guest runs on Unix alone.
+#[cfg_attr(not(unix), allow(dead_code))]
 pub fn scan_in_guest(cwd: &Path, home: &Path, locked: &[String], work: &Path) -> FolderScan {
     let work = fs_ext::canonicalize(work).unwrap_or_else(|_| work.to_owned());
     fit(scan(cwd, Some(home), locked, Some(&work)), GUEST_REPLY)

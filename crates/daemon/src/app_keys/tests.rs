@@ -2,8 +2,9 @@
 // Copyright (c) 2026 Max Boksem
 
 use std::fs;
-use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
+
+use maxhq_os::fsmode;
 
 use maxhq_protocol::admission::AppKeyOrigin;
 use maxhq_protocol::ids::DeviceId;
@@ -18,7 +19,7 @@ fn store(temp: &TempDir) -> AppKeys {
 }
 
 fn mode(path: &Path) -> u32 {
-    fs::metadata(path).unwrap().permissions().mode() & 0o777
+    fsmode::mode_of(&fs::metadata(path).unwrap()) & 0o777
 }
 
 #[test]

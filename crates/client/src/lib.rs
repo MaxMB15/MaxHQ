@@ -439,7 +439,7 @@ impl Client {
     }
 
     /// The same client with links on `timing`, so tests needn't wait.
-    #[cfg(all(test, any(feature = "russh", feature = "ws")))]
+    #[cfg(all(test, unix, any(feature = "russh", feature = "ws")))]
     fn timed(mut self, timing: Timing) -> Self {
         self.shared = Arc::new(Shared {
             timing,

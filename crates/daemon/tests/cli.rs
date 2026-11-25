@@ -4,6 +4,8 @@
 //! Runs the built `maxd` binary against a socket, home folder and data
 //! folder in a temp dir. Nothing here touches the real socket or installs a
 //! service.
+// They reach maxd over its Unix socket.
+#![cfg(unix)]
 
 use std::collections::BTreeMap;
 use std::fs::{self, File, TryLockError};

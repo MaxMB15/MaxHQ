@@ -272,6 +272,9 @@ echo stopped >> "$CODEX_HOME/stops.log"
         root: PathBuf,
     }
 
+    // The tests that read what it was sent run its sh script, on Unix
+    // alone.
+    #[cfg_attr(not(unix), allow(dead_code))]
     impl FakeHome {
         /// Sets one up under a name unique to this test.
         pub fn new(name: &str) -> Self {

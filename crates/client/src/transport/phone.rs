@@ -96,7 +96,7 @@ impl PhoneSsh {
     }
 
     /// Reaches hosts through `connect` in place of TCP.
-    #[cfg(test)]
+    #[cfg(all(test, unix))]
     pub(crate) fn connecting_with(mut self, connect: Connect) -> Self {
         self.connect = connect;
         self

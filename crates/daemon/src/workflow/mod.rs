@@ -12,6 +12,9 @@ mod disk;
 pub mod env;
 mod facts;
 mod follow;
+// The guest's half, which follows the runs in a container, runs on Unix
+// alone.
+#[cfg_attr(not(unix), allow(dead_code))]
 pub mod guest;
 mod notes;
 

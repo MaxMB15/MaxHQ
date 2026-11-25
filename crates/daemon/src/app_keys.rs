@@ -12,7 +12,6 @@
 
 use std::fs::OpenOptions;
 use std::io;
-use std::os::unix::fs::OpenOptionsExt;
 use std::path::PathBuf;
 use std::sync::{Arc, OnceLock, Weak};
 
@@ -237,13 +236,10 @@ impl AppKeys {
     /// whether it changed them, and changed keys are written back whole.
     fn change<T>(&self, f: impl FnOnce(&mut Vec<AppKey>) -> (T, bool)) -> io::Result<T> {
         let folder = Folder::open(self.0.folder.clone())?;
-        let lock = OpenOptions::new()
-            .read(true)
-            .write(true)
-            .create(true)
-            .truncate(false)
-            .mode(0o600)
-            .open(self.0.folder.join(LOCK))?;
+        let mut options = OpenOptions::new();
+        options.read(true).write(true).create(true).truncate(false);
+        let lock =
+            maxhq_os::fsmode::set_open_mode(&mut options, 0o600).open(self.0.folder.join(LOCK))?;
         lock.lock()?;
         let mut keys = match folder.read(FILE)? {
             Some(text) => serde_json::from_str::<Vec<AppKey>>(text.expose()).map_err(|err| {

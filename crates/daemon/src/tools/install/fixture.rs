@@ -10,8 +10,10 @@ use std::sync::Mutex;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
 
-/// How a fixture route answers.
+/// How a fixture route answers. The tests that cut a body short run on
+/// Unix alone.
 #[derive(Clone)]
+#[cfg_attr(not(unix), allow(dead_code))]
 pub(crate) enum Answer {
     /// The whole body.
     Body(Vec<u8>),
