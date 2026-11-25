@@ -123,19 +123,12 @@ pub fn adopt(leader: u32) -> io::Result<()> {
     Ok(())
 }
 
-/// When the process `pid` started, if it runs.
-fn running(pid: u32) -> Option<u64> {
-    open(pid, PROCESS_QUERY_LIMITED_INFORMATION)
-        .and_then(|process| win::started(win::raw(&process)))
-        .ok()
-}
-
 /// The job of the group `leader` leads, and whether its leader still
 /// runs, or [`no_process`] when there's none to find.
 fn job_of(leader: u32) -> io::Result<(OwnedHandle, bool)> {
     if let Some(group) = groups().get(&leader) {
         let job = group.job.try_clone()?;
-        return Ok((job, running(leader) == Some(group.started)));
+        return Ok((job, started(leader) == Some(group.started)));
     }
     job_by_name(leader)
 }
@@ -144,7 +137,7 @@ fn job_of(leader: u32) -> io::Result<(OwnedHandle, bool)> {
 /// running leader gives.
 #[allow(unsafe_code)]
 pub(super) fn job_by_name(leader: u32) -> io::Result<(OwnedHandle, bool)> {
-    let started = running(leader).ok_or_else(|| no_process(leader))?;
+    let started = started(leader).ok_or_else(|| no_process(leader))?;
     let name = job_name(leader, started);
     // SAFETY: `name` is NUL-terminated.
     let job = unsafe { OpenJobObjectW(JOB_OBJECT_TERMINATE | JOB_OBJECT_QUERY, 0, name.as_ptr()) };
@@ -212,20 +205,28 @@ pub fn spawn_detached(command: &mut std::process::Command) -> io::Result<()> {
     }
 }
 
-#[allow(unsafe_code)]
 pub fn alive(pid: u32) -> bool {
     match win::open_process(pid, PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_SYNCHRONIZE) {
-        // A process that ended stays openable while a handle to it is
-        // open, and is signalled.
-        // SAFETY: the handle is open for the call, which only reads it.
-        Ok(process) => unsafe { WaitForSingleObject(win::raw(&process), 0) == WAIT_TIMEOUT },
+        Ok(process) => still_running(&process),
         // A process of another user's or an elevated one is there too.
         Err(err) => err.raw_os_error() == Some(ERROR_ACCESS_DENIED as i32),
     }
 }
 
+/// Whether the process `process` names still runs. One that ended stays
+/// openable while any handle to it is open, and is signalled.
+#[allow(unsafe_code)]
+fn still_running(process: &OwnedHandle) -> bool {
+    // SAFETY: the handle is open for the call, which only reads it.
+    unsafe { WaitForSingleObject(win::raw(process), 0) == WAIT_TIMEOUT }
+}
+
 pub fn started(pid: u32) -> Option<u64> {
-    let process = win::open_process(pid, PROCESS_QUERY_LIMITED_INFORMATION).ok()?;
+    let process =
+        win::open_process(pid, PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_SYNCHRONIZE).ok()?;
+    if !still_running(&process) {
+        return None;
+    }
     win::started(win::raw(&process)).ok()
 }
 

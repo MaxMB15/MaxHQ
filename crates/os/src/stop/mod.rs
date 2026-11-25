@@ -158,16 +158,19 @@ mod tests {
     #[cfg(windows)]
     #[tokio::test]
     async fn a_request_over_the_endpoint_stops_or_restarts() {
-        for (request, expected) in [
-            (Request::Stop, Stopped::Asked),
-            (Request::Restart, Stopped::Restart),
-        ] {
-            let path = socket(&format!("{request:?}"));
-            let mut stops = Stops::listen(&path).unwrap();
-            let asked = tokio::spawn(async move { ask(&path, request).await });
-            assert_eq!(stops.next().await, expected);
-            assert_eq!(asked.await.unwrap().unwrap(), std::process::id());
-        }
+        crate::within(async {
+            for (request, expected) in [
+                (Request::Stop, Stopped::Asked),
+                (Request::Restart, Stopped::Restart),
+            ] {
+                let path = socket(&format!("{request:?}"));
+                let mut stops = Stops::listen(&path).unwrap();
+                let asked = tokio::spawn(async move { ask(&path, request).await });
+                assert_eq!(stops.next().await, expected);
+                assert_eq!(asked.await.unwrap().unwrap(), std::process::id());
+            }
+        })
+        .await;
     }
 
     #[cfg(windows)]
@@ -175,21 +178,24 @@ mod tests {
     async fn a_line_it_doesnt_know_is_ignored() {
         use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
-        let path = socket("unknown");
-        let mut stops = Stops::listen(&path).unwrap();
-        let client = endpoint(&path);
-        let asked = tokio::spawn(async move {
-            let mut stream = crate::ipc::LocalStream::connect(&client).await.unwrap();
-            stream.write_all(b"reboot\n").await.unwrap();
-            // The endpoint drops it unanswered, which reads as the end or
-            // as a broken pipe.
-            let mut answer = Vec::new();
-            let _ = stream.read_to_end(&mut answer).await;
-            assert!(answer.is_empty(), "{answer:?}");
-            ask(&path, Request::Stop).await
-        });
-        assert_eq!(stops.next().await, Stopped::Asked);
-        asked.await.unwrap().unwrap();
+        crate::within(async {
+            let path = socket("unknown");
+            let mut stops = Stops::listen(&path).unwrap();
+            let client = endpoint(&path);
+            let asked = tokio::spawn(async move {
+                let mut stream = crate::ipc::LocalStream::connect(&client).await.unwrap();
+                stream.write_all(b"reboot\n").await.unwrap();
+                // The endpoint drops it unanswered, which reads as the end
+                // or as a broken pipe.
+                let mut answer = Vec::new();
+                let _ = stream.read_to_end(&mut answer).await;
+                assert!(answer.is_empty(), "{answer:?}");
+                ask(&path, Request::Stop).await
+            });
+            assert_eq!(stops.next().await, Stopped::Asked);
+            asked.await.unwrap().unwrap();
+        })
+        .await;
     }
 
     #[cfg(windows)]
