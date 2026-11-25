@@ -132,15 +132,14 @@ jobs:
         if: always()
         run: df -h /
 
-  # The crates that build for Windows so far, linted and tested on a
-  # GitHub-hosted Windows runner, since nothing else runs their Windows code.
-  # Each port stream adds its crates to CRATES once they compile there; the
-  # whole workspace goes in once maxd and the desktop crate build.
+  # The workspace linted and tested on a GitHub-hosted Windows runner, since
+  # nothing else runs its Windows code. The phone core is left out, since no
+  # phone runs Windows.
   rust-windows:
     runs-on: windows-latest
     timeout-minutes: 45
     env:
-      CRATES: -p maxhq-os -p maxhq-core -p maxhq-transfer -p maxhq-wire -p maxhq-protocol -p maxhq-term -p maxhq-workflow -p maxhq-fake-agent -p maxhq-vm -p maxhq-hold -p maxhq-client -p maxhq-app -p maxhq-desktop -p maxd
+      CRATES: --workspace --exclude maxhq-mobile
     defaults:
       run:
         # The same commands as on Linux, through the runner's Git Bash.
