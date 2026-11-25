@@ -734,6 +734,26 @@ fn the_resources_are_found_beside_the_program_on_each_system() {
     assert_eq!(resources_of(&linux, true), Some(usr.join("lib/MaxHQ")));
     assert_eq!(resources_of(&linux, false), None);
     assert_eq!(resources_of(Path::new("/maxhq-desktop"), true), None);
+
+    // Both Windows installers keep them beside the program, and a build
+    // from the source tree has none.
+    use crate::app_update::WindowsApp;
+    let installed = dir.join("MaxHQ");
+    std::fs::create_dir_all(&installed).unwrap();
+    let windows = installed.join("MaxHQ.exe");
+    assert_eq!(
+        resources_on_windows(&windows, WindowsApp::Nsis),
+        Some(installed.clone())
+    );
+    assert_eq!(
+        resources_on_windows(&windows, WindowsApp::Msi),
+        Some(installed.clone())
+    );
+    assert_eq!(resources_on_windows(&windows, WindowsApp::Loose), None);
+    assert_eq!(
+        resources_on_windows(&dir.join("gone/MaxHQ.exe"), WindowsApp::Nsis),
+        None
+    );
     std::fs::remove_dir_all(&dir).unwrap();
 }
 

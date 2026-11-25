@@ -3470,6 +3470,7 @@ dependencies = [
  "keyring",
  "maxhq-client",
  "maxhq-core",
+ "maxhq-os",
  "maxhq-protocol",
  "qrcodegen",
  "rusqlite",
