@@ -12,7 +12,8 @@
 //! [`Offered`], and the ones that read a file refuse any other path, so a
 //! script in the page can't read your disk through them.
 //!
-//! On other platforms the commands answer with nothing to give, or with
+//! Linux and Windows share one implementation over cross-platform crates.
+//! What they don't have yet answers with nothing to give, or with
 //! [`NativeError::Unsupported`] where an empty answer would mislead.
 
 mod describe;
@@ -26,10 +27,10 @@ mod macos;
 #[cfg(target_os = "macos")]
 use macos as platform;
 
-#[cfg(not(target_os = "macos"))]
-mod other;
-#[cfg(not(target_os = "macos"))]
-use other as platform;
+#[cfg(any(target_os = "linux", windows))]
+mod portable;
+#[cfg(any(target_os = "linux", windows))]
+use portable as platform;
 
 use std::path::{Path, PathBuf};
 
@@ -59,9 +60,27 @@ pub struct SpellingMenuLabels {
 
 /// The interface labels on the attachment picker.
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
+#[cfg_attr(
+    target_os = "macos",
+    allow(dead_code, reason = "macOS picks files and folders in one panel")
+)]
 pub struct AttachmentPickerLabels {
     pub prompt: String,
     pub message: String,
+    /// Where the picker can't take files and folders together, a question
+    /// asks which first. This is its button for files, in English when
+    /// it's left out.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[specta(optional)]
+    pub files: Option<String>,
+    /// The question's button for folders.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[specta(optional)]
+    pub folder: Option<String>,
+    /// The question's button that cancels.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[specta(optional)]
+    pub cancel: Option<String>,
 }
 
 /// A word the spell checker doesn't know.
