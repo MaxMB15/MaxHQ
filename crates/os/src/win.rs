@@ -2,7 +2,7 @@
 // Copyright (c) 2026 Max Boksem
 
 //! What the Windows halves share: handles to processes and their tokens,
-//! users' SIDs, and wide strings. Other crates that call Windows
+//! users' SIDs, what a file is, and wide strings. Other crates that call Windows
 //! themselves use these too, so it's public, though not part of the API.
 
 use std::ffi::OsStr;
@@ -16,6 +16,10 @@ use windows_sys::Win32::Security::Authorization::ConvertSidToStringSidW;
 use windows_sys::Win32::Security::{
     GetLengthSid, GetTokenInformation, TokenElevation, TokenUser, TOKEN_ELEVATION,
     TOKEN_INFORMATION_CLASS, TOKEN_QUERY, TOKEN_USER,
+};
+use windows_sys::Win32::Storage::FileSystem::{
+    FileIdInfo, GetFileInformationByHandle, GetFileInformationByHandleEx,
+    BY_HANDLE_FILE_INFORMATION, FILE_ID_INFO,
 };
 use windows_sys::Win32::System::Threading::{
     GetCurrentProcess, GetProcessTimes, OpenProcess, OpenProcessToken,
@@ -262,4 +266,41 @@ pub fn started(process: impl AsHandle) -> io::Result<u64> {
     // to each.
     check(unsafe { GetProcessTimes(process, &mut created, &mut exited, &mut kernel, &mut user) })?;
     Ok(u64::from(created.dwHighDateTime) << 32 | u64::from(created.dwLowDateTime))
+}
+
+/// What `GetFileInformationByHandle` says of the open file `file`: its
+/// attributes, size, count of names and the volume it's on.
+#[allow(unsafe_code)]
+pub fn file_info(file: impl AsHandle) -> io::Result<BY_HANDLE_FILE_INFORMATION> {
+    let mut info = BY_HANDLE_FILE_INFORMATION::default();
+    // SAFETY: the handle is open for the call, which writes one struct.
+    check(unsafe { GetFileInformationByHandle(raw(&file.as_handle()), &mut info) })?;
+    Ok(info)
+}
+
+/// The open file `file`'s volume and its 128-bit ID there, which no other
+/// file on the volume has. ReFS IDs don't fit the 64-bit index
+/// [`file_info`] gives, so that's only for a volume that has no
+/// `FileIdInfo`, such as FAT, where the index is unique.
+#[allow(unsafe_code)]
+pub fn file_id(file: impl AsHandle) -> io::Result<(u64, u128)> {
+    let handle = file.as_handle();
+    let mut full = FILE_ID_INFO::default();
+    let size = u32::try_from(std::mem::size_of::<FILE_ID_INFO>()).map_err(io::Error::other)?;
+    // SAFETY: `full` is a FILE_ID_INFO of the size passed, and the handle
+    // is open for the call.
+    let got = unsafe {
+        GetFileInformationByHandleEx(raw(&handle), FileIdInfo, (&raw mut full).cast(), size)
+    };
+    if got != 0 {
+        return Ok((
+            full.VolumeSerialNumber,
+            u128::from_le_bytes(full.FileId.Identifier),
+        ));
+    }
+    let info = file_info(handle)?;
+    Ok((
+        u64::from(info.dwVolumeSerialNumber),
+        u128::from(info.nFileIndexHigh) << 32 | u128::from(info.nFileIndexLow),
+    ))
 }

@@ -21,6 +21,7 @@ use windows_sys::Win32::Storage::FileSystem::{
     FILE_ALL_ACCESS, FILE_FLAG_BACKUP_SEMANTICS, FILE_WRITE_ATTRIBUTES, READ_CONTROL, WRITE_DAC,
 };
 
+use super::FileId;
 use crate::win;
 
 pub fn private_dir_all(path: &Path) -> io::Result<()> {
@@ -176,8 +177,24 @@ pub fn owner_of(_meta: &Metadata) -> Option<u32> {
     None
 }
 
-pub fn same_file(_a: &Metadata, _b: &Metadata) -> bool {
-    false
+pub fn file_id(file: &File) -> io::Result<FileId> {
+    let (volume, file) = win::file_id(file)?;
+    Ok(FileId { volume, file })
+}
+
+pub fn id_at(path: &Path) -> io::Result<FileId> {
+    // No access at all is enough to ask what a file is, and keeps a writer
+    // or a lock from getting in the way. Backup semantics opens a folder
+    // too.
+    let there = OpenOptions::new()
+        .access_mode(0)
+        .custom_flags(FILE_FLAG_BACKUP_SEMANTICS)
+        .open(path)?;
+    file_id(&there)
+}
+
+pub fn has_other_names(file: &File) -> io::Result<bool> {
+    Ok(win::file_info(file)?.nNumberOfLinks > 1)
 }
 
 pub fn open_no_wait(options: &mut OpenOptions) -> &mut OpenOptions {

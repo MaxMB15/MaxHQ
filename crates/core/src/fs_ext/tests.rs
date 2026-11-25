@@ -90,19 +90,6 @@ fn a_new_file_refuses_a_link_in_its_place() {
 }
 
 #[test]
-fn folders_are_made_with_their_parents() {
-    let dir = TempDir::new("fs-ext-dirs");
-    let deep = dir.0.join("a/b/c");
-    dir_all_with_mode(&deep, 0o711).unwrap();
-    dir_all_with_mode(&deep, 0o711).unwrap();
-    assert!(deep.is_dir());
-    let mode = maxhq_os::fsmode::mode_of(&fs::metadata(&deep).unwrap()) & 0o777;
-    if cfg!(unix) {
-        assert_eq!(mode, 0o711);
-    }
-}
-
-#[test]
 fn a_canonical_path_is_one_the_os_opens() {
     let dir = TempDir::new("fs-ext-canonical");
     let file = dir.0.join("here.txt");
@@ -120,60 +107,8 @@ fn unix_owners_are_the_files_own() {
     let path = dir.0.join("mine");
     let file = File::create(&path).unwrap();
     let meta = file.metadata().unwrap();
-    let uid = uid_of(&meta).unwrap();
+    let uid = maxhq_os::fsmode::owner_of(&meta).unwrap();
     let gid = std::os::unix::fs::MetadataExt::gid(&meta);
     chown_file(&file, uid, gid).unwrap();
     chown_link(&path, uid, gid).unwrap();
-    assert!(!has_other_names(&file).unwrap());
-    fs::hard_link(&path, dir.0.join("again")).unwrap();
-    assert!(has_other_names(&file).unwrap());
-}
-
-#[test]
-fn a_verbatim_path_loses_its_prefix_only_when_it_means_the_same() {
-    let plain = |text: &str| unverbatim(text);
-    assert_eq!(plain(r"\\?\C:\Users\dev"), Some(r"C:\Users\dev".into()));
-    assert_eq!(plain(r"\\?\C:\"), Some(r"C:\".into()));
-    assert_eq!(plain(r"\\?\d:\work\x.txt"), Some(r"d:\work\x.txt".into()));
-    assert_eq!(
-        plain(r"\\?\UNC\server\share\folder"),
-        Some(r"\\server\share\folder".into())
-    );
-    assert_eq!(
-        plain(r"\\?\UNC\server\share"),
-        Some(r"\\server\share".into())
-    );
-    // Not verbatim, or not a drive or share.
-    assert_eq!(plain(r"C:\Users"), None);
-    assert_eq!(plain(r"\\?\Volume{0123}\x"), None);
-    assert_eq!(plain(r"\\?\GLOBALROOT\Device\x"), None);
-    assert_eq!(plain(r"\\?\UNC\server"), None);
-    assert_eq!(plain(r"\\?\UNC\\share"), None);
-    // Parts the plain form reads another way.
-    for odd in [
-        r"\\?\C:\a\.\b",
-        r"\\?\C:\a\..\b",
-        r"\\?\C:\trailing.",
-        r"\\?\C:\space \x",
-        r"\\?\C:\file:stream",
-        r"\\?\C:\NUL",
-        r"\\?\C:\dir\con.txt",
-        r"\\?\C:\COM1",
-        r"\\?\C:\lpt9.log",
-        r"\\?\C:\COM¹",
-        r"\\?\C:\a\\b",
-        r"\\?\C:\a/b",
-    ] {
-        assert_eq!(plain(odd), None, "{odd}");
-    }
-    for fine in [
-        r"\\?\C:\CONFIG",
-        r"\\?\C:\COM10",
-        r"\\?\C:\nully",
-        r"\\?\C:\.git",
-    ] {
-        assert!(plain(fine).is_some(), "{fine}");
-    }
-    let long = format!(r"\\?\C:\{}", "a".repeat(300));
-    assert_eq!(plain(&long), None);
 }

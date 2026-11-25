@@ -21,7 +21,7 @@ use std::io;
 use std::mem::offset_of;
 use std::os::windows::ffi::{OsStrExt, OsStringExt};
 use std::os::windows::fs::{FileExt, OpenOptionsExt};
-use std::os::windows::io::{AsRawHandle, OwnedHandle};
+use std::os::windows::io::{AsHandle, AsRawHandle, OwnedHandle};
 use std::path::{Path, PathBuf};
 use std::ptr;
 
@@ -49,11 +49,10 @@ use windows_sys::Win32::Foundation::{
 };
 use windows_sys::Win32::Storage::FileSystem::{
     CreateSymbolicLinkW, FileAttributeTagInfo, FileFullDirectoryInfo, FileFullDirectoryRestartInfo,
-    FileIdInfo, GetFileInformationByHandle, GetFileInformationByHandleEx,
-    GetFinalPathNameByHandleW, BY_HANDLE_FILE_INFORMATION, DELETE, FILE_ATTRIBUTE_DIRECTORY,
+    GetFileInformationByHandleEx, GetFinalPathNameByHandleW, DELETE, FILE_ATTRIBUTE_DIRECTORY,
     FILE_ATTRIBUTE_NORMAL, FILE_ATTRIBUTE_REPARSE_POINT, FILE_ATTRIBUTE_TAG_INFO,
     FILE_FLAG_BACKUP_SEMANTICS, FILE_FLAG_OPEN_REPARSE_POINT, FILE_FULL_DIR_INFO,
-    FILE_GENERIC_READ, FILE_GENERIC_WRITE, FILE_ID_INFO, FILE_LIST_DIRECTORY, FILE_NAME_NORMALIZED,
+    FILE_GENERIC_READ, FILE_GENERIC_WRITE, FILE_LIST_DIRECTORY, FILE_NAME_NORMALIZED,
     FILE_READ_ATTRIBUTES, FILE_RENAME_INFO, FILE_SHARE_DELETE, FILE_SHARE_READ, FILE_SHARE_WRITE,
     FILE_TRAVERSE, SYMBOLIC_LINK_FLAG_ALLOW_UNPRIVILEGED_CREATE, SYMBOLIC_LINK_FLAG_DIRECTORY,
     SYNCHRONIZE, VOLUME_NAME_DOS,
@@ -272,48 +271,21 @@ impl Stat {
     }
 }
 
-fn stat_of(handle: &impl AsRawHandle) -> io::Result<Stat> {
-    let raw = handle.as_raw_handle();
-    let mut info = BY_HANDLE_FILE_INFORMATION::default();
-    // SAFETY: `info` is the struct the call fills, and the handle is open.
-    if unsafe { GetFileInformationByHandle(raw, &mut info) } == 0 {
-        return Err(io::Error::last_os_error());
-    }
+fn stat_of(handle: &impl AsHandle) -> io::Result<Stat> {
+    let handle = handle.as_handle();
+    let info = win::file_info(handle)?;
     let attrs = info.dwFileAttributes;
     let tag = if attrs & FILE_ATTRIBUTE_REPARSE_POINT != 0 {
-        tag_info(handle)?.1
+        tag_info(&handle)?.1
     } else {
         0
-    };
-    let mut full = FILE_ID_INFO::default();
-    // SAFETY: `full` is a FILE_ID_INFO of the size passed, and the handle is
-    // open.
-    let got = unsafe {
-        GetFileInformationByHandleEx(
-            raw,
-            FileIdInfo,
-            (&raw mut full).cast(),
-            size_of::<FILE_ID_INFO>() as u32,
-        )
-    };
-    // ReFS ids don't fit the 64 bits the older call gives.
-    let id = if got != 0 {
-        (
-            full.VolumeSerialNumber,
-            u128::from_le_bytes(full.FileId.Identifier),
-        )
-    } else {
-        (
-            u64::from(info.dwVolumeSerialNumber),
-            (u128::from(info.nFileIndexHigh) << 32) | u128::from(info.nFileIndexLow),
-        )
     };
     Ok(Stat {
         attrs,
         tag,
         size: (u64::from(info.nFileSizeHigh) << 32) | u64::from(info.nFileSizeLow),
         links: info.nNumberOfLinks,
-        id,
+        id: win::file_id(handle)?,
     })
 }
 
@@ -995,7 +967,6 @@ pub fn cannot_link(err: &io::Error) -> bool {
 mod tests {
     use std::path::Path;
 
-    use maxhq_os::win;
     use maxhq_protocol::message::ErrorCode;
     use std::os::windows::fs::FileTypeExt;
     use windows_sys::Win32::Foundation::ERROR_PRIVILEGE_NOT_HELD;

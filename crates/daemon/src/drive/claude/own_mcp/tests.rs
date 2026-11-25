@@ -206,7 +206,7 @@ fn a_config_that_is_not_yours_or_not_a_file_is_refused() {
     let dir = TempDir::new();
     let config = dir.path().join(".claude.json");
     put(&config, &json!({ "mcpServers": { "a": server("user") } }));
-    let uid = fs_ext::uid_of(&fs::metadata(&config).unwrap()).unwrap();
+    let uid = fsmode::owner_of(&fs::metadata(&config).unwrap()).unwrap();
     assert_eq!(
         names(&servers(&config, dir.path(), Some(uid)).unwrap()),
         ["a"]

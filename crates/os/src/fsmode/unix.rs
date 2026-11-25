@@ -7,6 +7,8 @@ use std::os::unix::fs::{DirBuilderExt, MetadataExt, OpenOptionsExt, PermissionsE
 use std::path::Path;
 use std::time::SystemTime;
 
+use super::FileId;
+
 pub fn private_dir_all(path: &Path) -> io::Result<()> {
     DirBuilder::new().recursive(true).mode(0o700).create(path)
 }
@@ -49,8 +51,23 @@ pub fn owner_of(meta: &Metadata) -> Option<u32> {
     Some(meta.uid())
 }
 
-pub fn same_file(a: &Metadata, b: &Metadata) -> bool {
-    (a.dev(), a.ino()) == (b.dev(), b.ino())
+fn id_of(meta: &Metadata) -> FileId {
+    FileId {
+        volume: meta.dev(),
+        file: u128::from(meta.ino()),
+    }
+}
+
+pub fn file_id(file: &File) -> io::Result<FileId> {
+    file.metadata().map(|meta| id_of(&meta))
+}
+
+pub fn id_at(path: &Path) -> io::Result<FileId> {
+    fs::metadata(path).map(|meta| id_of(&meta))
+}
+
+pub fn has_other_names(file: &File) -> io::Result<bool> {
+    Ok(file.metadata()?.nlink() > 1)
 }
 
 pub fn open_no_wait(options: &mut OpenOptions) -> &mut OpenOptions {

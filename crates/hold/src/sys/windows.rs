@@ -3,19 +3,14 @@
 
 use std::borrow::Cow;
 use std::ffi::{OsStr, OsString};
-use std::fs::{File, OpenOptions};
+use std::fs::File;
 use std::io;
 use std::os::windows::ffi::{OsStrExt, OsStringExt};
-use std::os::windows::fs::OpenOptionsExt;
-use std::os::windows::io::{AsHandle, AsRawHandle, IntoRawHandle};
-use std::path::Path;
+use std::os::windows::io::{AsHandle, IntoRawHandle};
 use std::process::Command;
 
 use windows_sys::Win32::Foundation::{
     CloseHandle, SetHandleInformation, HANDLE, HANDLE_FLAG_INHERIT, INVALID_HANDLE_VALUE,
-};
-use windows_sys::Win32::Storage::FileSystem::{
-    GetFileInformationByHandle, BY_HANDLE_FILE_INFORMATION,
 };
 use windows_sys::Win32::System::Console::{
     GetStdHandle, SetStdHandle, STD_ERROR_HANDLE, STD_HANDLE, STD_INPUT_HANDLE, STD_OUTPUT_HANDLE,
@@ -75,31 +70,6 @@ pub(crate) fn in_spawner_job() -> bool {
 /// `maxd` has no console of its own.
 pub(crate) fn hide_window(command: &mut tokio::process::Command) {
     command.creation_flags(CREATE_NO_WINDOW);
-}
-
-#[allow(unsafe_code)]
-fn identity(file: &File) -> io::Result<(u32, u32, u32)> {
-    // SAFETY: the struct is plain data, for which zero is valid.
-    let mut info: BY_HANDLE_FILE_INFORMATION = unsafe { std::mem::zeroed() };
-    // SAFETY: the handle is open for the call, which writes one struct.
-    let read = unsafe { GetFileInformationByHandle(file.as_raw_handle(), &mut info) };
-    if read == 0 {
-        return Err(io::Error::last_os_error());
-    }
-    Ok((
-        info.dwVolumeSerialNumber,
-        info.nFileIndexHigh,
-        info.nFileIndexLow,
-    ))
-}
-
-/// Whether `path` names the file `file` has open: the same volume and the
-/// same file on it.
-pub(crate) fn same_file(file: &File, path: &Path) -> io::Result<bool> {
-    // No access at all is enough to ask what a file is, and keeps a
-    // writer or a lock from getting in the way.
-    let there = OpenOptions::new().access_mode(0).open(path)?;
-    Ok(identity(&there)? == identity(file)?)
 }
 
 /// A copy of the holder's stdin, to read from.

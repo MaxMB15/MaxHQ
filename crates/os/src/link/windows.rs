@@ -66,14 +66,9 @@ pub fn point(link: &Path, target: &Path) -> io::Result<()> {
 }
 
 pub fn resolve(link: &Path) -> io::Result<PathBuf> {
-    let target = fs::read_link(link)?;
     // A junction names its target as `\??\C:\…`, which comes back as
-    // `\\?\C:\…`: the folder [`point`] was given, as it was given.
-    let text = target.to_string_lossy();
-    Ok(match text.strip_prefix(r"\\?\") {
-        Some(rest) if rest.as_bytes().get(1) == Some(&b':') => PathBuf::from(rest),
-        _ => target,
-    })
+    // `\\?\C:\…`. Without the prefix it's the folder [`point`] was given.
+    fs::read_link(link).map(crate::path::plain)
 }
 
 /// Makes a junction at `path`, a name nothing has, with `data`.

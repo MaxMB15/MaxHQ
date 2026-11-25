@@ -615,8 +615,7 @@ pub fn rotate_log(path: &Path, writing: &File, limit: u64) -> io::Result<Option<
         Err(err) if err.kind() == io::ErrorKind::NotFound => return Ok(None),
         Err(err) => return Err(err),
     };
-    let ours = writing.metadata()?;
-    if !fsmode::same_file(&log, &ours) || log.len() <= limit {
+    if log.len() <= limit || !fsmode::same_file(writing, path)? {
         return Ok(None);
     }
     let mut last = path.as_os_str().to_owned();
@@ -1642,8 +1641,7 @@ mod tests {
         assert!(!status.running());
     }
 
-    // Unix only: launchd's log is the one rotated, and Windows can't tell
-    // two handles are the same file.
+    // Unix only: launchd's log is the one rotated.
     #[cfg(unix)]
     #[test]
     fn a_log_moves_aside_once_too_big_and_only_when_maxd_writes_it() {

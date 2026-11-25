@@ -16,6 +16,7 @@ pub mod launcher;
 pub mod link;
 pub mod lock;
 pub mod net;
+pub mod path;
 pub mod power;
 pub mod proc;
 pub mod stop;

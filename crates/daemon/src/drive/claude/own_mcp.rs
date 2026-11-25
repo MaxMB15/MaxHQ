@@ -217,7 +217,7 @@ fn read(path: &Path, owner: Option<u32>) -> io::Result<Option<Config>> {
     }
     // Read as root for the agent's user, a link to a file of root's would
     // hand that file to the agent.
-    if owner.is_some_and(|uid| fs_ext::uid_of(&meta) != Some(uid)) {
+    if owner.is_some_and(|uid| fsmode::owner_of(&meta) != Some(uid)) {
         return Err(io::Error::other("the config belongs to another user"));
     }
     let mut bytes = Vec::new();
@@ -254,7 +254,7 @@ fn write(
     owner: Option<(u32, u32)>,
 ) -> io::Result<PathBuf> {
     // The CLI may run as another user, who has to reach its own file.
-    fs_ext::dir_all_with_mode(&folders.files, 0o711)?;
+    fsmode::dir_all_with_mode(&folders.files, 0o711)?;
     sweep(folders, session);
     let path = file_of(folders, session);
     match fs::remove_file(&path) {

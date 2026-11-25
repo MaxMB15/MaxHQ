@@ -71,11 +71,30 @@ pub fn owner_of(meta: &Metadata) -> Option<u32> {
     imp::owner_of(meta)
 }
 
-/// Whether `a` and `b` are known to describe the same file: the same
-/// device and inode on Unix. Windows doesn't say through [`Metadata`], so
-/// it's false there.
-pub fn same_file(a: &Metadata, b: &Metadata) -> bool {
-    imp::same_file(a, b)
+/// What tells a file from every other on the machine: its device and
+/// inode on Unix, and its volume and 128-bit file ID on Windows. Two names
+/// or handles with one ID are one file, hard links included.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct FileId {
+    volume: u64,
+    file: u128,
+}
+
+/// The ID of the open `file`.
+pub fn file_id(file: &File) -> io::Result<FileId> {
+    imp::file_id(file)
+}
+
+/// Whether `path`, following links, still names the file `file` has
+/// open, and not one made in its place.
+pub fn same_file(file: &File, path: &Path) -> io::Result<bool> {
+    Ok(imp::id_at(path)? == file_id(file)?)
+}
+
+/// Whether the open `file` has a second name, a hard link that could be
+/// someone else's.
+pub fn has_other_names(file: &File) -> io::Result<bool> {
+    imp::has_other_names(file)
 }
 
 /// Whether the file `path`, whose metadata is `meta`, is a program you
@@ -166,11 +185,36 @@ mod tests {
         } else {
             assert_eq!(owner_of(&meta), None);
         }
-        let file = dir.join("file");
-        fs::write(&file, b"").unwrap();
-        let (one, two) = (fs::metadata(&file).unwrap(), fs::metadata(&file).unwrap());
-        assert_eq!(same_file(&one, &two), cfg!(unix));
-        assert!(!same_file(&one, &meta));
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn a_file_is_known_by_its_id_under_any_name() {
+        let dir = temp("same");
+        fs::create_dir_all(&dir).unwrap();
+        let (path, other) = (dir.join("file"), dir.join("other"));
+        fs::write(&path, b"").unwrap();
+        fs::write(&other, b"").unwrap();
+        let file = File::open(&path).unwrap();
+        assert_eq!(
+            file_id(&file).unwrap(),
+            file_id(&File::open(&path).unwrap()).unwrap()
+        );
+        assert!(same_file(&file, &path).unwrap());
+        assert!(!same_file(&file, &other).unwrap());
+        assert!(!has_other_names(&file).unwrap());
+
+        let again = dir.join("again");
+        fs::hard_link(&path, &again).unwrap();
+        assert!(
+            same_file(&file, &again).unwrap(),
+            "a hard link is the same file"
+        );
+        assert!(has_other_names(&file).unwrap());
+
+        let gone = same_file(&file, &dir.join("gone")).unwrap_err();
+        assert_eq!(gone.kind(), io::ErrorKind::NotFound);
+        drop(file);
         fs::remove_dir_all(&dir).unwrap();
     }
 
