@@ -6866,6 +6866,11 @@
           "description": "What a [`ModelAction::ProbeServer`] found at a URL it didn't add.",
           "type": "object",
           "properties": {
+            "cloud": {
+              "description": "Whether the URL is a known cloud host, which the Add server\nform's Cloud service switch follows until you change it. Since\n[`CLOUD_SERVERS_SINCE`]; an older `maxd` sends none, read as\nfalse.",
+              "type": "boolean",
+              "default": false
+            },
             "flavor": {
               "description": "What kind of server answered.",
               "$ref": "#/$defs/ServerFlavor"
@@ -10938,6 +10943,11 @@
               "type": "string",
               "const": "add_server"
             },
+            "cloud": {
+              "description": "Whether you marked it a cloud service. A known cloud host is one\neither way. Since [`crate::message::CLOUD_SERVERS_SINCE`]; an\nolder client sends none, read as false.",
+              "type": "boolean",
+              "default": false
+            },
             "label": {
               "description": "Your name for it.",
               "type": "string"
@@ -13939,6 +13949,15 @@
               "type": "null"
             }
           ]
+        },
+        "max_output": {
+          "description": "The most tokens it writes in one answer, when the server says and\nit's below the context. Since\n[`crate::message::CLOUD_SERVERS_SINCE`]; an older `maxd` sends none.",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint32",
+          "minimum": 0
         },
         "speed": {
           "description": "How fast a managed server ran it in its last turn, so a local agent\non another device shows its speed line too. Since\n[`crate::message::LOCAL_MODELS_SINCE`]; an older client reads none.",

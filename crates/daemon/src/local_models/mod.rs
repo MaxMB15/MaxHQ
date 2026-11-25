@@ -20,6 +20,7 @@ use crate::drive::ServerLogin;
 use crate::hub::Hub;
 
 mod catalog;
+mod cloud;
 mod download;
 mod hardware;
 pub(crate) mod linked;

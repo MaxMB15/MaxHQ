@@ -89,7 +89,8 @@ impl Fake {
         fake
     }
 
-    /// Answers `path` (with the method first for a POST, as `POST /x`).
+    /// Answers `path` (with the method first for a POST, as `POST /x`, or
+    /// `PLAIN /x` for a GET without `anthropic-version`).
     pub fn route(&self, path: &str, route: Route) {
         self.routes
             .lock()
@@ -159,12 +160,17 @@ impl Fake {
         } else {
             format!("{method} {path}")
         };
-        let route = self
-            .routes
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .get(&key)
-            .cloned();
+        // A GET without `anthropic-version` takes `PLAIN <path>` when
+        // there's one, as OpenRouter answers its OpenAI-style list then.
+        let plain = (method == "GET" && seen.header("anthropic-version").is_none())
+            .then(|| format!("PLAIN {path}"));
+        let route = {
+            let routes = self.routes.lock().unwrap_or_else(PoisonError::into_inner);
+            plain
+                .and_then(|plain| routes.get(&plain))
+                .or_else(|| routes.get(&key))
+                .cloned()
+        };
         match route {
             None => {
                 let _ = stream

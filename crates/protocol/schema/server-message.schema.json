@@ -2170,6 +2170,11 @@
           "description": "What a [`ModelAction::ProbeServer`] found at a URL it didn't add.",
           "type": "object",
           "properties": {
+            "cloud": {
+              "description": "Whether the URL is a known cloud host, which the Add server\nform's Cloud service switch follows until you change it. Since\n[`CLOUD_SERVERS_SINCE`]; an older `maxd` sends none, read as\nfalse.",
+              "type": "boolean",
+              "default": false
+            },
             "flavor": {
               "description": "What kind of server answered.",
               "$ref": "#/$defs/ServerFlavor"
@@ -11945,6 +11950,11 @@
             "null"
           ]
         },
+        "cloud": {
+          "description": "Whether it's a hosted API rather than hardware you run: a known\ncloud host, or a server added with the Cloud service switch on. A\ncloud server's agents get every tool and the model's own output\nlimit, and show under the server's name rather than Local. Since\n[`crate::message::CLOUD_SERVERS_SINCE`]; an older `maxd` sends none,\nread as false.",
+          "type": "boolean",
+          "default": false
+        },
         "device": {
           "description": "The device whose `maxd` runs or reaches it. Agents on other devices\nreach a managed server through this device's `maxd` link.",
           "$ref": "#/$defs/DeviceId"
@@ -16587,6 +16597,15 @@
               "type": "null"
             }
           ]
+        },
+        "max_output": {
+          "description": "The most tokens it writes in one answer, when the server says and\nit's below the context. Since\n[`crate::message::CLOUD_SERVERS_SINCE`]; an older `maxd` sends none.",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint32",
+          "minimum": 0
         },
         "speed": {
           "description": "How fast a managed server ran it in its last turn, so a local agent\non another device shows its speed line too. Since\n[`crate::message::LOCAL_MODELS_SINCE`]; an older client reads none.",

@@ -222,6 +222,23 @@ pub(super) fn login_command(host: &Host, login: &Login) -> Launch {
 /// spare Claude Code's own 32,000 for one answer.
 const LOCAL_OUTPUT_TOKENS: u32 = 4096;
 
+/// The most a cloud agent writes in one answer: Claude Code's own default,
+/// or the model's limit when that's lower. A hosted model's context has
+/// room for it, and a longer answer seldom helps a coding turn.
+const CLOUD_OUTPUT_TOKENS: u32 = 32_000;
+
+/// The output cap of an agent on `server` running `model`.
+fn output_tokens(server: &ServerLogin, model: Option<&str>) -> u32 {
+    if !server.cloud {
+        return LOCAL_OUTPUT_TOKENS;
+    }
+    model
+        .and_then(|model| server.max_outputs.get(model))
+        .map_or(CLOUD_OUTPUT_TOKENS, |limit| {
+            (*limit).min(CLOUD_OUTPUT_TOKENS)
+        })
+}
+
 /// The variables that point Claude Code at a model server instead of
 /// Anthropic, with `model` for every model it would pick on its own, and
 /// the server's context size so it compacts before the server overflows.
@@ -237,7 +254,7 @@ fn server_env(server: &ServerLogin, model: Option<&str>) -> Vec<(OsString, OsStr
         ),
         (
             "CLAUDE_CODE_MAX_OUTPUT_TOKENS".into(),
-            LOCAL_OUTPUT_TOKENS.to_string().into(),
+            output_tokens(server, model).to_string().into(),
         ),
     ];
     if let Some(context) = server.context {
@@ -359,6 +376,7 @@ mod tests {
     use super::*;
     use maxhq_protocol::ids::{AccountId, DeviceId, WorkspaceId};
     use maxhq_protocol::Secret;
+    use std::collections::BTreeMap;
 
     #[test]
     fn a_relative_folder_on_path_is_never_claude() {
@@ -789,8 +807,55 @@ mod tests {
                 context,
                 model: model.map(str::to_owned),
                 lean: true,
+                cloud: false,
+                max_outputs: BTreeMap::from([("qwen3.6-35b-a3b@ud-q4_k_xl".to_owned(), 65_536)]),
             })),
         }
+    }
+
+    /// The output cap a launch under `login` running `model` sets.
+    fn output_cap(login: &Login, model: Option<&str>) -> Option<String> {
+        let launch = command(
+            &host(),
+            login,
+            &place(),
+            Uuid::from_u128(1),
+            false,
+            model,
+            PermissionMode::Ask,
+        );
+        env_value(&launch, "CLAUDE_CODE_MAX_OUTPUT_TOKENS").map(str::to_owned)
+    }
+
+    #[test]
+    fn a_cloud_agent_writes_up_to_its_model_s_limit_capped_at_claude_code_s_own() {
+        let local = server_login(Some("qwen3.6-35b-a3b@ud-q4_k_xl"), Some(65_536));
+        // Hardware you run keeps the small cap, whatever the model says.
+        assert_eq!(output_cap(&local, None).as_deref(), Some("4096"));
+        let LoginAuth::ModelServer(server) = &local.auth else {
+            unreachable!()
+        };
+        let cloud = Login {
+            auth: LoginAuth::ModelServer(std::sync::Arc::new(ServerLogin {
+                base_url: "https://openrouter.ai/api".into(),
+                cloud: true,
+                lean: false,
+                model: Some("z-ai/glm-5.3-flash".into()),
+                max_outputs: BTreeMap::from([
+                    ("z-ai/glm-5.3-flash".to_owned(), 131_072),
+                    ("small".to_owned(), 8_192),
+                ]),
+                ..ServerLogin::clone(server)
+            })),
+            ..local.clone()
+        };
+        // A limit above Claude Code's own default is capped there.
+        assert_eq!(output_cap(&cloud, None).as_deref(), Some("32000"));
+        // The model the agent runs counts, not the server's pick.
+        assert_eq!(output_cap(&cloud, Some("small")).as_deref(), Some("8192"));
+        // A model that says nothing gets the default.
+        assert_eq!(output_cap(&cloud, Some("quiet")).as_deref(), Some("32000"));
+        assert_eq!(CLOUD_OUTPUT_TOKENS, 32_000);
     }
 
     #[test]

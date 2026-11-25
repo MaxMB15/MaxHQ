@@ -3616,6 +3616,12 @@ pub enum ActionOutcome {
         probe: ServerProbe,
         /// The models it serves.
         models: Vec<ServerModel>,
+        /// Whether the URL is a known cloud host, which the Add server
+        /// form's Cloud service switch follows until you change it. Since
+        /// [`CLOUD_SERVERS_SINCE`]; an older `maxd` sends none, read as
+        /// false.
+        #[serde(default)]
+        cloud: bool,
     },
 
     /// An outcome from a newer `maxd`. The action went through, and what
