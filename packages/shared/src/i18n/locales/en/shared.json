@@ -1549,5 +1549,19 @@
 	"Waiting for keys · Open on the Mac": "Waiting for keys · Open on the Mac",
 	"New session, for a scheduled task's run": "New session, for a scheduled task's run",
 	"The dispatcher keeps its session, so it can't start a fresh one.": "The dispatcher keeps its session, so it can't start a fresh one.",
-	"{{device}} runs an older maxd that can't start a fresh session. Update it to turn this on.": "{{device}} runs an older maxd that can't start a fresh session. Update it to turn this on."
+	"{{device}} runs an older maxd that can't start a fresh session. Update it to turn this on.": "{{device}} runs an older maxd that can't start a fresh session. Update it to turn this on.",
+	"An admin key can create and delete keys on your OpenRouter account. MaxHQ keeps it on this device and uses it only to read your balance.": "An admin key can create and delete keys on your OpenRouter account. MaxHQ keeps it on this device and uses it only to read your balance.",
+	"Checked {{ago}}.": "Checked {{ago}}.",
+	"Resets daily": "Resets daily",
+	"Resets monthly": "Resets monthly",
+	"Resets weekly": "Resets weekly",
+	"Resets: {{when}}": "Resets: {{when}}",
+	"This key": "This key",
+	"This key: {{spent}}": "This key: {{spent}}",
+	"{{error}} These figures are from {{when}}.": "{{error}} These figures are from {{when}}.",
+	"{{left}} left": "{{left}} left",
+	"{{left}} left of {{total}}": "{{left}} left of {{total}}",
+	"{{server}} · {{credits}}": "{{server}} · {{credits}}",
+	"{{spent}} spent": "{{spent}} spent",
+	"{{spent}} today": "{{spent}} today"
 }

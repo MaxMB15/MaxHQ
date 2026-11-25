@@ -7,9 +7,12 @@
 //! The switch is kept on the server's record and the host check runs fresh
 //! each time, so a server added before either existed turns cloud with no
 //! migration. A cloud server's agents get every tool and the model's own
-//! output limit.
+//! output limit. OpenRouter, one of them, also meters what each key spends.
 
 use maxhq_protocol::local_models::{ModelServer, ModelServerKind};
+
+/// OpenRouter's host.
+const OPENROUTER: &str = "openrouter.ai";
 
 /// The hosts known to serve the Anthropic Messages API as a hosted service,
 /// each matched with its subdomains. Each is the domain of a base URL its
@@ -24,7 +27,7 @@ use maxhq_protocol::local_models::{ModelServer, ModelServerKind};
 /// - `minimax.io` and `minimax.cn`: MiniMax, `https://api.minimax.io/anthropic`
 ///   and `https://api.minimax.cn/anthropic`.
 const KNOWN_HOSTS: &[&str] = &[
-    "openrouter.ai",
+    OPENROUTER,
     "z.ai",
     "bigmodel.cn",
     "deepseek.com",
@@ -38,22 +41,37 @@ const KNOWN_HOSTS: &[&str] = &[
 /// [`KNOWN_HOSTS`] or a subdomain of one. Plain http never is, since no
 /// hosted service answers there.
 pub(crate) fn is_known_cloud(base_url: &str) -> bool {
-    let Ok(parsed) = url::Url::parse(base_url.trim()) else {
-        return false;
-    };
+    https_host(base_url).is_some_and(|host| KNOWN_HOSTS.iter().any(|known| on(&host, known)))
+}
+
+/// Whether the server at `base_url` is OpenRouter, so its credits can be
+/// read: https, on `openrouter.ai` or a subdomain of it.
+pub(crate) fn is_openrouter(base_url: &str) -> bool {
+    #[cfg(test)]
+    if fakes::has(base_url) {
+        return true;
+    }
+    https_host(base_url).is_some_and(|host| on(&host, OPENROUTER))
+}
+
+/// The domain an https base URL points at, in lowercase.
+fn https_host(base_url: &str) -> Option<String> {
+    let parsed = url::Url::parse(base_url.trim()).ok()?;
     if parsed.scheme() != "https" {
-        return false;
+        return None;
     }
     let Some(url::Host::Domain(host)) = parsed.host() else {
-        return false;
+        return None;
     };
-    let host = host.trim_end_matches('.').to_ascii_lowercase();
-    KNOWN_HOSTS.iter().any(|known| {
-        host == *known
-            || host
-                .strip_suffix(known)
-                .is_some_and(|rest| rest.ends_with('.'))
-    })
+    Some(host.trim_end_matches('.').to_ascii_lowercase())
+}
+
+/// Whether `host` is `known` or a subdomain of it.
+fn on(host: &str, known: &str) -> bool {
+    host == known
+        || host
+            .strip_suffix(known)
+            .is_some_and(|rest| rest.ends_with('.'))
 }
 
 /// Whether a server is cloud: a URL you marked a cloud service, or one on a
@@ -61,6 +79,37 @@ pub(crate) fn is_known_cloud(base_url: &str) -> bool {
 pub(crate) fn is_cloud(server: &ModelServer) -> bool {
     matches!(server.kind, ModelServerKind::External { .. })
         && (server.cloud || server.base_url.as_deref().is_some_and(is_known_cloud))
+}
+
+/// Local fakes that tests treat as OpenRouter. Nothing else can add one.
+#[cfg(test)]
+pub mod fakes {
+    use std::sync::{Mutex, PoisonError};
+
+    static FAKES: Mutex<Vec<String>> = Mutex::new(Vec::new());
+
+    /// Treats the server at `base`, a local fake, as OpenRouter.
+    pub fn add(base: &str) {
+        let origin = url::Url::parse(base)
+            .unwrap()
+            .origin()
+            .ascii_serialization();
+        FAKES
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .push(origin);
+    }
+
+    pub(super) fn has(base: &str) -> bool {
+        let Ok(url) = url::Url::parse(base.trim()) else {
+            return false;
+        };
+        let origin = url.origin().ascii_serialization();
+        FAKES
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .contains(&origin)
+    }
 }
 
 #[cfg(test)]
@@ -106,6 +155,19 @@ mod tests {
         }
     }
 
+    #[test]
+    fn only_openrouter_over_https_is_openrouter() {
+        assert!(is_openrouter("https://openrouter.ai/api"));
+        assert!(is_openrouter("https://eu.openrouter.ai/api"));
+        assert!(is_openrouter("https://OpenRouter.AI/api"));
+        assert!(!is_openrouter("http://openrouter.ai/api"));
+        assert!(!is_openrouter("https://openrouter.ai.example.com/api"));
+        assert!(!is_openrouter("https://notopenrouter.ai/api"));
+        assert!(!is_openrouter("https://api.z.ai/api/anthropic"));
+        assert!(!is_openrouter("http://127.0.0.1:11434"));
+        assert!(!is_openrouter("not a url"));
+    }
+
     fn server(kind: ModelServerKind, url: Option<&str>, cloud: bool) -> ModelServer {
         ModelServer {
             id: ModelServerId::derive("server:example"),
@@ -115,8 +177,10 @@ mod tests {
             base_url: url.map(str::to_owned),
             token: false,
             cloud,
+            admin_key: false,
             probe: None,
             models: vec![],
+            credits: None,
         }
     }
 

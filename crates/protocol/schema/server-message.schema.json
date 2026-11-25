@@ -11943,6 +11943,10 @@
       "description": "A model server a device's `maxd` runs or reaches.",
       "type": "object",
       "properties": {
+        "admin_key": {
+          "description": "Whether `maxd` holds an admin key for it, which reads the account's\nbalance on OpenRouter. The key itself stays in `maxd`'s secrets\nstore and is never sent. Since\n[`crate::message::CLOUD_SERVERS_SINCE`].",
+          "type": "boolean"
+        },
         "base_url": {
           "description": "Where it answers, such as `http://devbox:11434`. None for a managed\nserver, which listens on a loopback port `maxd` picks each start.",
           "type": [
@@ -11954,6 +11958,17 @@
           "description": "Whether it's a hosted API rather than hardware you run: a known\ncloud host, or a server added with the Cloud service switch on. A\ncloud server's agents get every tool and the model's own output\nlimit, and show under the server's name rather than Local. Since\n[`crate::message::CLOUD_SERVERS_SINCE`]; an older `maxd` sends none,\nread as false.",
           "type": "boolean",
           "default": false
+        },
+        "credits": {
+          "description": "What the server's key has spent, for a server that meters it, such\nas OpenRouter. None for one that doesn't, or before the first read.\nSince [`crate::message::CLOUD_SERVERS_SINCE`]; an older client\nreads none.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ServerCredits"
+            },
+            {
+              "type": "null"
+            }
+          ]
         },
         "device": {
           "description": "The device whose `maxd` runs or reaches it. Agents on other devices\nreach a managed server through this device's `maxd` link.",
@@ -16463,6 +16478,112 @@
           "default": false
         }
       }
+    },
+    "ServerCredits": {
+      "description": "What a model server's key has spent and has left, in whole US cents,\nas the server's own key endpoint reports it. It covers the one key\n`maxd` holds, plus the account's balance when `maxd` holds an admin key\nfor the server.",
+      "type": "object",
+      "properties": {
+        "at": {
+          "description": "When the figures were read.",
+          "$ref": "#/$defs/Timestamp"
+        },
+        "balance_cents": {
+          "description": "What's left on the account: what was bought less what was used,\nnever below zero. None without an admin key.",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint32",
+          "default": null,
+          "minimum": 0
+        },
+        "bought_cents": {
+          "description": "What the account bought in all. None without an admin key.",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint32",
+          "default": null,
+          "minimum": 0
+        },
+        "error": {
+          "description": "Why the last read failed, for a person to read. The figures are the\nlast good ones then. None when the last read worked.",
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null
+        },
+        "limit_cents": {
+          "description": "The key's spending limit. None for a key without one.",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint32",
+          "default": null,
+          "minimum": 0
+        },
+        "month_cents": {
+          "description": "What it spent this month, when the server says.",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint32",
+          "default": null,
+          "minimum": 0
+        },
+        "remaining_cents": {
+          "description": "What's left under the limit. None for a key without one.",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint32",
+          "default": null,
+          "minimum": 0
+        },
+        "resets": {
+          "description": "How often the limit starts over, as the server names it, such as\n`monthly`. None for a limit that never resets.",
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null
+        },
+        "today_cents": {
+          "description": "What it spent today, when the server says.",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint32",
+          "default": null,
+          "minimum": 0
+        },
+        "used_cents": {
+          "description": "What the key has spent in all.",
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "week_cents": {
+          "description": "What it spent this week, when the server says.",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint32",
+          "default": null,
+          "minimum": 0
+        }
+      },
+      "required": [
+        "at",
+        "used_cents"
+      ]
     },
     "ServerFlavor": {
       "description": "What kind of server answers at a URL.",

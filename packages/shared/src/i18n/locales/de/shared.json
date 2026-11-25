@@ -1549,5 +1549,19 @@
 	"Waiting for keys · Open on the Mac": "Wartet auf Tasten · Auf dem Mac öffnen",
 	"New session, for a scheduled task's run": "Neue Sitzung, für einen Lauf einer geplanten Aufgabe",
 	"The dispatcher keeps its session, so it can't start a fresh one.": "Der Dispatcher behält seine Sitzung und kann daher keine neue starten.",
-	"{{device}} runs an older maxd that can't start a fresh session. Update it to turn this on.": "{{device}} hat ein älteres maxd, das keine neue Sitzung starten kann. Aktualisiere es, um das einzuschalten."
+	"{{device}} runs an older maxd that can't start a fresh session. Update it to turn this on.": "{{device}} hat ein älteres maxd, das keine neue Sitzung starten kann. Aktualisiere es, um das einzuschalten.",
+	"An admin key can create and delete keys on your OpenRouter account. MaxHQ keeps it on this device and uses it only to read your balance.": "Ein Admin-Schlüssel kann Schlüssel in deinem OpenRouter-Konto erstellen und löschen. MaxHQ speichert ihn auf diesem Gerät und nutzt ihn nur, um dein Guthaben zu lesen.",
+	"Checked {{ago}}.": "Geprüft {{ago}}.",
+	"Resets daily": "Startet täglich neu",
+	"Resets monthly": "Startet monatlich neu",
+	"Resets weekly": "Startet wöchentlich neu",
+	"Resets: {{when}}": "Startet neu: {{when}}",
+	"This key": "Dieser Schlüssel",
+	"This key: {{spent}}": "Dieser Schlüssel: {{spent}}",
+	"{{error}} These figures are from {{when}}.": "{{error}} Diese Zahlen sind von {{when}}.",
+	"{{left}} left": "noch {{left}}",
+	"{{left}} left of {{total}}": "noch {{left}} von {{total}}",
+	"{{server}} · {{credits}}": "{{server}} · {{credits}}",
+	"{{spent}} spent": "{{spent}} ausgegeben",
+	"{{spent}} today": "{{spent}} heute"
 }

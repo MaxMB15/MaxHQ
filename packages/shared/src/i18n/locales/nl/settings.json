@@ -1169,5 +1169,9 @@
 	"Remove {{rule}} on {{deviceName}}": "{{rule}} op {{deviceName}} verwijderen",
 	"Removed. Cursor agents running now keep it until they start again.": "Verwijderd. Cursor-agents die nu draaien houden de regel tot ze opnieuw starten.",
 	"Shell rules Cursor saved": "Shellregels die Cursor bewaarde",
-	"Update maxd on {{deviceName}} to see the rules Cursor saved there.": "Werk maxd bij op {{deviceName}} om de regels te zien die Cursor daar bewaarde."
+	"Update maxd on {{deviceName}} to see the rules Cursor saved there.": "Werk maxd bij op {{deviceName}} om de regels te zien die Cursor daar bewaarde.",
+	"Add admin key for your balance": "Beheerderssleutel toevoegen voor je saldo",
+	"Admin key": "Beheerderssleutel",
+	"Admin key added": "Beheerderssleutel toegevoegd",
+	"Make one on OpenRouter": "Maak er een aan op OpenRouter"
 }

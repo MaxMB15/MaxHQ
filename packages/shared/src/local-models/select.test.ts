@@ -7,6 +7,8 @@ import type { Entity } from "../bindings";
 import {
 	DEVBOX_LOCAL,
 	DEVBOX_LOCAL_AGENT,
+	DEVBOX_OPENROUTER_ACCOUNT,
+	DEVBOX_OPENROUTER_SERVER,
 	DOWNLOADING_MODEL,
 	LOADED_CATALOG_MODEL,
 	LOADED_MODEL,
@@ -70,7 +72,10 @@ describe("servers and models per device", () => {
 	it("lists each device's own servers, the managed one first", async () => {
 		const view = await load();
 		expect(serversOf(view, MAC).map((s) => s.id)).toEqual([MAC_SERVER, OPENROUTER_SERVER]);
-		expect(serversOf(view, DEVBOX).map((s) => s.id)).toEqual([OLLAMA_SERVER]);
+		expect(serversOf(view, DEVBOX).map((s) => s.id)).toEqual([
+			OLLAMA_SERVER,
+			DEVBOX_OPENROUTER_SERVER,
+		]);
 		expect(serverUsers(view, view.tables.model_server.get(MAC_SERVER)!)).toEqual([DEVBOX]);
 		expect(runsLocalModels(view, MAC)).toBe(true);
 	});
@@ -111,6 +116,7 @@ describe("servers and models per device", () => {
 		]);
 		expect(localAccountsOn(view, DEVBOX).map((a) => a.id)).toEqual([
 			OLLAMA_LOCAL,
+			DEVBOX_OPENROUTER_ACCOUNT,
 			DEVBOX_LOCAL,
 		]);
 		// Under an Agent entry, only its own.
@@ -252,6 +258,10 @@ describe("the Local entry in the agent picker", () => {
 		expect(options.map((o) => [o.group, o.label])).toEqual([
 			["Ollama on gpu-box (not encrypted)", "qwen3-coder:30b"],
 			["Ollama on gpu-box (not encrypted)", "gpt-oss-20b"],
+			["OpenRouter on devbox", "Z.ai: GLM 5.3 Flash"],
+			["OpenRouter on devbox", "DeepSeek: DeepSeek V3.2"],
+			["OpenRouter on devbox", "MoonshotAI: Kimi K2.5"],
+			["OpenRouter on devbox", "Qwen: Qwen3 Coder 480B A35B"],
 			["MacBook Pro", "Qwen3.6-35B-A3B"],
 			["MacBook Pro", "gpt-oss-20b"],
 			["MacBook Pro", "Ornith-1.5-9B"],
@@ -299,7 +309,15 @@ describe("cloud services", () => {
 				mark: "cloud",
 			},
 		]);
-		expect(cloudAccountOptions(view, DEVBOX)).toEqual([]);
+		expect(cloudAccountOptions(view, DEVBOX)).toEqual([
+			{
+				value: DEVBOX_OPENROUTER_ACCOUNT,
+				label: "OpenRouter on devbox",
+				detail: "Z.ai: GLM 5.3 Flash",
+				warn: false,
+				mark: "cloud",
+			},
+		]);
 		// The Local entry never stands for it.
 		expect(localAccountOption(view, MAC, OPENROUTER_ACCOUNT)?.value).toBe(MAC_LOCAL);
 	});

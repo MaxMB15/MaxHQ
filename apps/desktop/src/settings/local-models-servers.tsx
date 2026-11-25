@@ -10,6 +10,7 @@
 // into the test or the add, and Add clears it; no state, log or note keeps
 // it, and a reply that echoes it shows `<secret>`. Plain http to another
 // machine is still allowed, with the risk named on the row and in the form.
+// A cloud server's row shows its credits, and OpenRouter's its admin key.
 // Under the managed server, a switch says whether linked devices' Local
 // agents may use its models over their maxd link. A Cloud service switch
 // in the form marks a hosted API, which follows what Test found until it's
@@ -62,6 +63,7 @@ import {
 	StatusNote,
 } from "./controls";
 import { useModelAction } from "./local-models-catalog";
+import { AdminKey, CreditsLine } from "./local-models-credits";
 import { SecretField } from "./login-parts";
 import { failureOf, type Note, scrub } from "./result";
 
@@ -182,6 +184,8 @@ const ExternalRow = ({
 				{server.token ? (
 					<span className="text-muted-foreground">{translate("Sends a token")}</span>
 				) : null}
+				<CreditsLine server={server} />
+				<AdminKey device={device} server={server} disabled={off} />
 			</div>
 			<div className="flex shrink-0 items-center gap-2.5">
 				<StatusNote note={note} />

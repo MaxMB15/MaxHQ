@@ -4,10 +4,14 @@
 // The local models of the sample data. The Mac runs its own model server
 // with Qwen3.6-35B-A3B loaded and a Local agent on it. devbox has no GPU, so
 // it reaches the Mac's server over the maxd link, where a Local agent of its
-// own runs, and an Ollama server at a URL on another box. The catalog offers
-// six models, and the Mac is downloading one of them. Each call changes the
-// sample entities the way `maxd` would publish the change, and a device
-// whose link doesn't offer local models is refused the way the app does.
+// own runs, and an Ollama server at a URL on another box. Both reach
+// OpenRouter, a cloud service, with a key of their own: the Mac's key has a
+// $10.00 monthly limit and an agent at work on it, and devbox's last credits
+// read failed, so its figures are older. The catalog offers six models, and
+// the Mac is downloading one of them. Each
+// call changes the sample entities the way `maxd` would publish the change,
+// and a device whose link doesn't offer local models is refused the way the
+// app does.
 
 import type {
 	Account,
@@ -29,6 +33,7 @@ import type {
 	ServerProbe,
 	Timestamp,
 } from "../bindings";
+import { isOpenRouterUrl } from "../local-models/credits";
 import { managedModelId } from "../local-models/models";
 import { urlParts, type UrlParts } from "../local-models/wording";
 import type { FleetContext } from "./mock-fleet";
@@ -64,12 +69,16 @@ export const DOWNLOADING_MODEL = "qwen3.8-27b";
 export const MAC_LOCAL_AGENT = "agent-local-parser";
 /** devbox's Local agent, on the Mac's server. */
 export const DEVBOX_LOCAL_AGENT = "agent-local-changelog";
-/** The cloud service the Mac reaches, OpenRouter. */
+/** The cloud service the Mac reaches, OpenRouter, whose key has a monthly limit. */
 export const OPENROUTER_SERVER = "srv-mac-openrouter";
+/** devbox's OpenRouter server, whose last credits read failed. */
+export const DEVBOX_OPENROUTER_SERVER = "srv-devbox-openrouter";
 /** OpenRouter's URL, the one its Anthropic API answers at. */
 export const OPENROUTER_URL = "https://openrouter.ai/api";
 /** The Mac's account on OpenRouter. */
 export const OPENROUTER_ACCOUNT = "acct-local-mac-openrouter";
+/** devbox's account on OpenRouter. */
+export const DEVBOX_OPENROUTER_ACCOUNT = "acct-local-devbox-openrouter";
 /** The OpenRouter model the sample agent runs. */
 export const OPENROUTER_MODEL = "z-ai/glm-5.3-flash";
 /** The Mac's agent on OpenRouter. */
@@ -78,9 +87,11 @@ export const OPENROUTER_AGENT = "agent-cloud-docs";
 /** The context size the sample servers load models with. */
 const CONTEXT = 65_536;
 
-/** Whether a URL's host is a cloud service the sample knows, as `maxd`'s list says. */
-const cloudHost = (url: UrlParts): boolean =>
-	url.host === "openrouter.ai" || url.host.endsWith(".openrouter.ai");
+/**
+ * Whether a URL is a cloud service the sample knows, as `maxd`'s list says:
+ * OpenRouter, the only one the sample reaches.
+ */
+const cloudHost = isOpenRouterUrl;
 
 /** The models OpenRouter offers in the sample, each with its context and output limit. */
 const cloudModels = (): ServerModel[] => [
@@ -429,15 +440,52 @@ const servers = (now: Timestamp): ModelServer[] => [
 		base_url: OPENROUTER_URL,
 		token: true,
 		cloud: true,
+		admin_key: false,
 		probe: {
-			at: now - 30 * MIN,
+			at: now - 4 * MIN,
 			apis: { messages: true, chat: true, responses: true },
 			context: null,
 			error: null,
 		},
 		models: cloudModels(),
+		credits: {
+			at: now - 4 * MIN,
+			used_cents: 258,
+			today_cents: 31,
+			week_cents: 120,
+			month_cents: 258,
+			limit_cents: 1_000,
+			remaining_cents: 742,
+			resets: "monthly",
+		},
+	},
+	{
+		id: DEVBOX_OPENROUTER_SERVER,
+		device: DEVBOX,
+		kind: { type: "external", flavor: "other" },
+		label: "OpenRouter on devbox",
+		base_url: OPENROUTER_URL,
+		token: true,
+		cloud: true,
+		admin_key: false,
+		probe: {
+			at: now - 5 * HOUR,
+			apis: { messages: true, chat: true, responses: true },
+			context: null,
+			error: null,
+		},
+		models: cloudModels(),
+		credits: {
+			at: now - 5 * HOUR,
+			used_cents: 412,
+			today_cents: 0,
+			error: "Couldn't reach OpenRouter: the connection timed out.",
+		},
 	},
 ];
+
+/** The account's balance the sample admin key reads: $20.00 bought, $14.84 left. */
+const OPENROUTER_BALANCE = { balance_cents: 1_484, bought_cents: 2_000 } as const;
 
 const localModels = (now: Timestamp): LocalModels[] => [
 	{
@@ -480,6 +528,12 @@ const accounts = (): Account[] => [
 	localAccount(DEVBOX_LOCAL, DEVBOX, "MacBook Pro", MAC_SERVER),
 	localAccount(OLLAMA_LOCAL, DEVBOX, "Ollama on gpu-box", OLLAMA_SERVER),
 	localAccount(OPENROUTER_ACCOUNT, MAC, "OpenRouter", OPENROUTER_SERVER),
+	localAccount(
+		DEVBOX_OPENROUTER_ACCOUNT,
+		DEVBOX,
+		"OpenRouter on devbox",
+		DEVBOX_OPENROUTER_SERVER
+	),
 ];
 
 const agents = (now: Timestamp): Agent[] => [
@@ -538,9 +592,9 @@ const agents = (now: Timestamp): Agent[] => [
 ];
 
 /**
- * Every local model entity in the sample view: the three servers, OpenRouter
- * among them, what each device knows, the four local accounts and the three
- * agents on them.
+ * Every local model entity in the sample view: the four servers, OpenRouter
+ * on the Mac and on devbox among them, what each device knows, the five
+ * local accounts and the three agents on them.
  */
 export const mockLocalEntities = (now: Timestamp): Entity[] => [
 	...servers(now).map((v) => ({ entity: "model_server" as const, ...v })),
@@ -690,11 +744,12 @@ export const mockLocalModels = (context: FleetContext): LocalModelCalls => {
 			}));
 			return;
 		}
-		const flavor = cloudHost(url) ? "other" : flavorOf(url);
+		const cloud = cloudHost(found.base_url);
+		const flavor = cloud ? "other" : flavorOf(url);
 		editServer(id, () => ({
 			kind: { type: "external", flavor },
-			probe: probed(now(), flavor, flavor === "ollama" || cloudHost(url) ? null : CONTEXT),
-			models: cloudHost(url) ? cloudModels() : urlModels(flavor),
+			probe: probed(now(), flavor, flavor === "ollama" || cloud ? null : CONTEXT),
+			models: cloud ? cloudModels() : urlModels(flavor),
 		}));
 	};
 
@@ -755,7 +810,7 @@ export const mockLocalModels = (context: FleetContext): LocalModelCalls => {
 			label: label.trim() || (parsed.port ? `${parsed.host}:${parsed.port}` : parsed.host),
 			base_url: url.trim().replace(/\/+$/, ""),
 			token: Boolean(token),
-			cloud: cloud || cloudHost(parsed),
+			cloud: cloud || cloudHost(url),
 			probe: null,
 			models: [],
 		};
@@ -783,7 +838,7 @@ export const mockLocalModels = (context: FleetContext): LocalModelCalls => {
 				// What answers at a URL, keeping nothing.
 				const url = serverUrl(action.url);
 				if (typeof url === "string") return refused(url);
-				const cloud = cloudHost(url);
+				const cloud = cloudHost(action.url);
 				const flavor = url.host.endsWith(".invalid") || cloud ? "other" : flavorOf(url);
 				const probe: ServerProbe =
 					flavor === "other" && !cloud
@@ -820,6 +875,30 @@ export const mockLocalModels = (context: FleetContext): LocalModelCalls => {
 							!(e.entity === "account" && e.model_server === server.id)
 					)
 				);
+				return DONE;
+			}
+			case "set_server_admin_key": {
+				// A key starting "bad" plays one OpenRouter turns down; any other
+				// reads the sample balance.
+				const server = serverOn(device, action.server);
+				if (!server) return gone("That server");
+				if (!isOpenRouterUrl(server.base_url)) {
+					return refused("Only an OpenRouter server takes an admin key.");
+				}
+				const key = action.key?.trim() ?? "";
+				if (key.startsWith("bad")) {
+					return refused(
+						"OpenRouter didn't accept this admin key. Use a management key from your OpenRouter settings."
+					);
+				}
+				// Checking the key reads the credits afresh; removing it drops the balance.
+				const read = key
+					? { ...OPENROUTER_BALANCE, at: now(), error: null }
+					: { balance_cents: null, bought_cents: null };
+				editServer(server.id, (s) => ({
+					admin_key: key !== "",
+					credits: s.credits && { ...s.credits, ...read },
+				}));
 				return DONE;
 			}
 			case "download": {

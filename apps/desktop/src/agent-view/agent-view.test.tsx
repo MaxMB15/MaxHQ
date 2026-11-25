@@ -206,7 +206,7 @@ describe("agent header", () => {
 			.getAllByText(/^Move to /)
 			.map((label) => label.textContent);
 		// devbox's logins aren't on the agent's device. Local is a kind of its
-		// own, and a cloud service goes by its name.
+		// own, one group per server, and a cloud service goes by its name.
 		expect(groups).toEqual([
 			"Move to Codex Pro",
 			"Move to Cursor Pro",

@@ -3,8 +3,9 @@
 
 // Plan usage, as the desktop's usage popover shows it: each Claude and
 // Codex login with its windows, how much of each is used and when it
-// resets, and Cursor's month once a Mac turns Cursor usage on. Pulling
-// the list down checks usage now.
+// resets, and Cursor's month once a Mac turns Cursor usage on. Below them,
+// a cloud model server with credits, such as OpenRouter, shows what's
+// left. Pulling the list down checks usage now.
 
 import { useI18n } from "@maxhq/shared/i18n";
 
@@ -13,6 +14,7 @@ import { ScrollView, StyleSheet, Text, View } from "react-native";
 
 import type { Timestamp } from "@maxhq/shared/bindings";
 import { useNow } from "@maxhq/shared/lib/clock";
+import { type CreditsView, serverCreditRows } from "@maxhq/shared/local-models/credits";
 import { formatAgo, formatPercent } from "@maxhq/shared/status/format";
 import { resetCreditsLine } from "@maxhq/shared/status/reset-credits";
 import {
@@ -51,6 +53,7 @@ export const UsageScreen = ({ navigation }: ScreenProps<"Usage">) => {
 	const view = useView((s) => s.view);
 	const now = useNow(10_000);
 	const list = usagePlans(view);
+	const credited = serverCreditRows(view, now);
 	const checked = newestUsageCheck(view);
 	const [failure, setFailure] = useState<string | null>(null);
 	const refreshControl = usePullToRefresh(() => {
@@ -80,7 +83,12 @@ export const UsageScreen = ({ navigation }: ScreenProps<"Usage">) => {
 						{failure}
 					</Text>
 				) : null}
-				{list.length > 0 ? (
+				{list.length === 0 ? (
+					<Text style={styles.summary}>
+						{t("No Claude or Codex login found on your devices yet.")}
+					</Text>
+				) : null}
+				{list.length > 0 || credited.length > 0 ? (
 					<Card label={t("Plan usage")}>
 						{list.map((plan, i) => (
 							<AccountSection
@@ -91,12 +99,16 @@ export const UsageScreen = ({ navigation }: ScreenProps<"Usage">) => {
 								first={i === 0}
 							/>
 						))}
+						{credited.map(({ server, view: credits }, i) => (
+							<CreditsSection
+								key={server.id}
+								name={server.label}
+								credits={credits}
+								first={list.length === 0 && i === 0}
+							/>
+						))}
 					</Card>
-				) : (
-					<Text style={styles.summary}>
-						{t("No Claude or Codex login found on your devices yet.")}
-					</Text>
-				)}
+				) : null}
 			</ScrollView>
 		</View>
 	);
@@ -137,6 +149,60 @@ const AccountSection = ({
 			{note ? <Text style={[styles.note, styles.busyText]}>{note}</Text> : null}
 			{banked ? <Text style={styles.note}>{banked}</Text> : null}
 			{failureNote ? <Text style={styles.note}>{failureNote}</Text> : null}
+		</View>
+	);
+};
+
+/**
+ * A cloud model server's credits, named after the server. After a failed
+ * read the last figures show dimmed, with why under them.
+ */
+const CreditsSection = ({
+	name,
+	credits,
+	first,
+}: {
+	name: string;
+	credits: CreditsView;
+	first: boolean;
+}) => {
+	useI18n();
+	return (
+		<View style={[styles.account, !first && styles.line]}>
+			<View style={[styles.credits, credits.stale && styles.stale]}>
+				<View style={styles.head}>
+					<Text style={styles.name} numberOfLines={1}>
+						{name}
+					</Text>
+					<Text style={styles.status} numberOfLines={1}>
+						{credits.status}
+					</Text>
+				</View>
+				{credits.bars.map(({ window: w, text }) => (
+					<View
+						key={w.label}
+						style={styles.window}
+						accessible
+						accessibilityLabel={[w.label, text].join(", ")}
+					>
+						<Text style={styles.windowLabel} numberOfLines={1}>
+							{w.label}
+						</Text>
+						{w.percent === null ? (
+							<View style={styles.bar} />
+						) : (
+							<Bar percent={w.percent} full={w.usedUp} style={styles.bar} />
+						)}
+						<Text style={[styles.percent, w.usedUp && styles.usedUp]}>
+							{w.percent === null ? "" : formatPercent(w.percent)}
+						</Text>
+						<Text style={[styles.reset, styles.creditsText]} numberOfLines={1}>
+							{text}
+						</Text>
+					</View>
+				))}
+			</View>
+			{credits.stale ? <Text style={styles.note}>{credits.title}</Text> : null}
 		</View>
 	);
 };
@@ -199,4 +265,7 @@ const styles = StyleSheet.create({
 	usedUp: { color: color.busy },
 	reset: { width: 108, color: color.mutedForeground, fontSize: size.tiny },
 	note: { color: color.mutedForeground, fontSize: size.pill },
+	credits: { gap: 8 },
+	stale: { opacity: 0.55 },
+	creditsText: { width: 128 },
 });

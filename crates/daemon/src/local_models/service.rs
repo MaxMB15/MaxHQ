@@ -37,7 +37,7 @@ use tokio::task::AbortHandle;
 
 use super::linked::{self, Linked, OverPeers};
 use super::runner::{self, Backend, Host, LoadProgress, Runner, Spec};
-use super::{catalog, cloud, download, hardware, probe, runtime};
+use super::{catalog, cloud, credits, download, hardware, probe, runtime};
 use crate::db::Db;
 use crate::drive::ServerLogin;
 use crate::hub::Hub;
@@ -149,6 +149,8 @@ struct State {
     linked: Vec<SharedModels>,
     /// When this device last asked them to keep its agents' models.
     held_at: Option<Instant>,
+    /// The credits of each server that meters them, kept in memory only.
+    credits: HashMap<ModelServerId, credits::Meter>,
 }
 
 /// The local models service of one `maxd`.
@@ -213,6 +215,7 @@ impl Service {
             runs: 0,
             linked: Vec::new(),
             held_at: None,
+            credits: HashMap::new(),
         };
         Ok(Arc::new_cyclic(|weak: &Weak<Self>| Self {
             runner: Runner::new(Arc::new(Link(weak.clone())), key.clone()),
@@ -374,6 +377,7 @@ impl Service {
                 base_url: None,
                 token: false,
                 cloud: false,
+                admin_key: false,
                 probe: Some(ServerProbe {
                     at: state.tested_at,
                     apis: ServerApis {
@@ -400,6 +404,7 @@ impl Service {
                         max_output: None,
                     })
                     .collect(),
+                credits: None,
             };
             if !server.models.is_empty() {
                 entities.push(Entity::Account(self.account(
@@ -423,7 +428,7 @@ impl Service {
             // Clients read the switch and the host check as one.
             entities.push(Entity::ModelServer(ModelServer {
                 cloud: cloud::is_cloud(server),
-                ..server.clone()
+                ..Self::with_credits(state, server)
             }));
         }
         for shared in &state.linked {
@@ -723,6 +728,9 @@ impl Service {
             ModelAction::ProbeServer { url, token } => return self.probe_server(&url, token).await,
             ModelAction::TestServer { server } => self.test_server(server).await,
             ModelAction::RemoveServer { server } => self.remove_server(server),
+            ModelAction::SetServerAdminKey { server, key } => {
+                self.set_admin_key(server, clean(key)).await
+            }
             ModelAction::Download { model, file } | ModelAction::ResumeDownload { model, file } => {
                 self.download(&model, &file)
             }
@@ -788,8 +796,10 @@ impl Service {
             base_url: Some(base),
             token: token.is_some(),
             cloud,
+            admin_key: false,
             probe: Some(found.probe),
             models: found.models,
+            credits: None,
         };
         if let Err(reason) = self.save(&server) {
             let _ = self.keys.remove(&token_name(id));
@@ -797,6 +807,7 @@ impl Service {
         }
         self.lock().servers.insert(id, server);
         self.publish();
+        self.read_credits_now(id).await;
         ActionOutcome::ModelServerAdded { server: id }
     }
 
@@ -851,6 +862,7 @@ impl Service {
         };
         self.save(&server)?;
         self.publish();
+        self.read_credits_now(id).await;
         super::ran(self.account_of(id));
         Ok(())
     }
@@ -867,6 +879,9 @@ impl Service {
         }
         if let Err(err) = self.keys.remove(&token_name(id)) {
             tracing::warn!(%err, "couldn't delete a model server's token");
+        }
+        if let Err(err) = self.keys.remove(&admin_name(id)) {
+            tracing::warn!(%err, "couldn't delete a model server's admin key");
         }
         self.publish();
         Ok(())
@@ -1180,6 +1195,7 @@ impl Service {
             self.ran_all();
         }
         self.hold_linked();
+        self.read_due_credits();
     }
 
     /// The managed servers other devices share with this one now, as the
@@ -1477,6 +1493,12 @@ fn token_name(server: ModelServerId) -> String {
     format!("server-{server}")
 }
 
+/// The keys file of a server's admin key, which reads its account's
+/// balance.
+fn admin_name(server: ModelServerId) -> String {
+    format!("server-{server}-admin")
+}
+
 /// A file's size, when it's a file.
 fn size(path: &Path) -> Option<u64> {
     std::fs::metadata(path)
@@ -1523,5 +1545,6 @@ fn refused(reason: &str) -> ActionOutcome {
     }
 }
 
+mod meters;
 #[cfg(test)]
 mod tests;

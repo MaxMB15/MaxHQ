@@ -473,6 +473,11 @@ impl Manager {
         if from.as_ref().is_some_and(in_turn) && !in_turn(&to) {
             self.consider(agent, true);
             self.turn_ended_for_skills(agent);
+            if let Some(held) = self.held.get(&agent)
+                && held.login == maxhq_protocol::model::LoginKind::ModelServer
+            {
+                crate::local_models::turn_ended(held.account);
+            }
         }
     }
 

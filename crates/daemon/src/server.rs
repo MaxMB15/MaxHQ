@@ -879,6 +879,7 @@ impl Connection {
                         action: ModelAction::AddServer { .. }
                             | ModelAction::ProbeServer { .. }
                             | ModelAction::RemoveServer { .. }
+                            | ModelAction::SetServerAdminKey { .. }
                             | ModelAction::Download { .. }
                             | ModelAction::ResumeDownload { .. }
                             | ModelAction::DeleteModel { .. },
@@ -3891,6 +3892,14 @@ pub(crate) mod tests {
                 key: key("model-remove"),
                 action: ModelAction::RemoveServer {
                     server: ModelServerId::derive("server"),
+                },
+            },
+            // So is an admin key, which reads the account's balance.
+            ClientMessage::ModelAction {
+                key: key("model-admin-key"),
+                action: ModelAction::SetServerAdminKey {
+                    server: ModelServerId::derive("server"),
+                    key: Some(Secret::new("sk-or-v1-admin".into())),
                 },
             },
             ClientMessage::ModelAction {

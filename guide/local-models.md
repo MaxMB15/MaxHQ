@@ -10,7 +10,7 @@ Local agents run on a model on your own hardware or on a server you pick, not on
 ## Local agents
 <!-- id: local-models/agents -->
 
-A Local agent has no sign-in, no quota and no usage meter. The usage popover leaves it out.
+A Local agent has no sign-in, no quota and no usage meter. The usage popover leaves it out, apart from the credits of a cloud server such as OpenRouter; see Credits on OpenRouter below.
 
 1. Open New agent and pick Local under Agent.
 2. Pick its model under Model. Models are grouped by the server that runs them, with This Mac for the models MaxHQ runs on the Mac you're on. Each one says whether it fits the device. A model you haven't downloaded yet says Not downloaded, and picking it opens Settings to download it.
@@ -86,6 +86,29 @@ A cloud service is a hosted API you add as a server, not hardware you run. For O
 - Fewer tools for local agents leaves cloud agents alone: they always get every tool.
 
 A device whose maxd is too old for cloud services doesn't show the switch, and runs every server as Local.
+
+## Credits on OpenRouter
+<!-- id: local-models/credits -->
+
+For an OpenRouter server, MaxHQ shows what its key has spent and, for a key with a limit, what's left of it. maxd reads them from OpenRouter with the server's Token, so they're that key's figures.
+
+- **Plan usage**, the usage popover, has a row for each such server below your accounts, under the server's name. Usage on the phone shows the same rows. A key with a limit shows a bar, such as "$7.42 left of $10.00", and when the limit starts over, such as Resets monthly. A key without a limit shows what it spent, such as "$2.58 spent" and "$0.31 today".
+- The server's row on the Local models page shows the same in one line.
+- The model picker adds the main figure to the server's name, such as "OpenRouter · $7.42 left".
+
+maxd reads the figures when it starts, when you click Test or add the server, after a turn on the server ends but at most once a minute, and every 15 minutes while an agent on it has run in the last hour. Hover the figures to see when they were read. When a read fails, the last figures stay, dimmed, and the tooltip says why. When OpenRouter asks it to slow down, maxd waits longer each time, up to an hour.
+
+When the key reaches its limit, or the account runs out of credits, the agent's turn fails and says which, and what to do on OpenRouter.
+
+A key's figures don't include your account's balance. To see it, add an admin key, which OpenRouter calls a management key:
+
+1. On the Local models page, click Add admin key for your balance on the OpenRouter server's row.
+2. Click Make one on OpenRouter to create a management key in your OpenRouter settings, and paste it under Admin key.
+3. Click Add. maxd checks the key by reading the balance, keeps it and never shows it again.
+
+The balance then leads, such as "$14.84 left of $20.00" of all the credits you bought, with what the server's key spent second, such as "This key: $2.58".
+
+An admin key can create and delete keys on your OpenRouter account. MaxHQ keeps it on the device that has the server and uses it only to read your balance. To take it out, click Remove beside Admin key added on the server's row. Remove only takes it out of MaxHQ, so delete the key on OpenRouter too once you no longer need it.
 
 ## Use this Mac's models from another device
 <!-- id: local-models/linked -->

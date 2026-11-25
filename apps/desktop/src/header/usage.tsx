@@ -9,7 +9,8 @@
 // reads as used up, and a used-up week leaves nothing in the 5-hour window.
 // Cursor shows its month meters once a Mac turns Cursor usage on, and a
 // link to its dashboard otherwise. A Codex account says how many resets it
-// has banked, and Use reset spends one once you confirm.
+// has banked, and Use reset spends one once you confirm. Below the accounts,
+// a cloud model server with credits, such as OpenRouter, shows what's left.
 
 import { useI18n } from "@maxhq/shared/i18n";
 
@@ -23,6 +24,7 @@ import { Popover, PopoverPopup, PopoverTitle, PopoverTrigger } from "@/component
 import type { Account, Agent, Timestamp } from "@maxhq/shared/bindings";
 import { useNow } from "@maxhq/shared/lib/clock";
 import { cn } from "@/lib/utils";
+import { type CreditsView, serverCreditRows } from "@maxhq/shared/local-models/credits";
 import { formatAgo, formatContext, formatPercent } from "@maxhq/shared/status/format";
 import {
 	canUseReset,
@@ -371,6 +373,65 @@ export const AccountSection = ({
 	);
 };
 
+/**
+ * A cloud model server's credits, below the accounts, named after the
+ * server. After a failed read the last figures show dimmed, with why in the
+ * tooltip.
+ */
+const CreditsSection = ({ name, credits }: { name: string; credits: CreditsView }) => {
+	useI18n();
+	return (
+		<section
+			aria-label={name}
+			title={credits.title}
+			data-stale={credits.stale || undefined}
+			className={cn(
+				"flex flex-col gap-2 border-b border-track px-3.5 pt-2.5 pb-3",
+				credits.stale && "opacity-55"
+			)}
+		>
+			<div className="flex items-baseline justify-between gap-2">
+				<span className="truncate text-[12.5px] font-semibold text-foreground">{name}</span>
+				<span className="shrink-0 text-[11.5px] text-muted-foreground">
+					{credits.status}
+				</span>
+			</div>
+			<div className={ROW_GRID}>
+				{credits.bars.map(({ window: w, text }) => (
+					<div key={w.label} className="contents">
+						<span>{w.label}</span>
+						{w.percent === null ? (
+							<span />
+						) : (
+							<Bar
+								percent={w.percent}
+								full={w.usedUp}
+								className="h-[5px] rounded-[3px]"
+							/>
+						)}
+						<span
+							className={cn(
+								"text-right tabular-nums",
+								w.usedUp && "text-status-busy"
+							)}
+						>
+							{w.percent === null ? "" : formatPercent(w.percent)}
+						</span>
+						<span
+							className={cn(
+								"truncate",
+								w.usedUp ? "text-status-busy-text" : "text-muted-foreground"
+							)}
+						>
+							{text}
+						</span>
+					</div>
+				))}
+			</div>
+		</section>
+	);
+};
+
 const FullestContexts = ({ agents }: { agents: readonly Agent[] }) => {
 	const { t } = useI18n();
 
@@ -476,6 +537,9 @@ const UsageDetails = ({ view }: { view: ViewState }) => {
 					{t("No Claude, Codex or Cursor login found on your devices yet.")}
 				</p>
 			) : null}
+			{serverCreditRows(view, now).map(({ server, view: credits }) => (
+				<CreditsSection key={server.id} name={server.label} credits={credits} />
+			))}
 			<FullestContexts agents={fullestContexts(view, 3)} />
 		</>
 	);

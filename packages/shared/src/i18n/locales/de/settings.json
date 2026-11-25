@@ -1169,5 +1169,9 @@
 	"Remove {{rule}} on {{deviceName}}": "{{rule}} auf {{deviceName}} entfernen",
 	"Removed. Cursor agents running now keep it until they start again.": "Entfernt. Laufende Cursor-Agents behalten die Regel, bis sie neu starten.",
 	"Shell rules Cursor saved": "Von Cursor gespeicherte Shell-Regeln",
-	"Update maxd on {{deviceName}} to see the rules Cursor saved there.": "Aktualisiere maxd auf {{deviceName}}, um die dort von Cursor gespeicherten Regeln zu sehen."
+	"Update maxd on {{deviceName}} to see the rules Cursor saved there.": "Aktualisiere maxd auf {{deviceName}}, um die dort von Cursor gespeicherten Regeln zu sehen.",
+	"Add admin key for your balance": "Admin-Schlüssel für dein Guthaben hinzufügen",
+	"Admin key": "Admin-Schlüssel",
+	"Admin key added": "Admin-Schlüssel hinzugefügt",
+	"Make one on OpenRouter": "Auf OpenRouter erstellen"
 }

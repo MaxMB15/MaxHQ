@@ -12,6 +12,7 @@ import {
 	MAC_SERVER,
 	mockCatalog,
 	OLLAMA_SERVER,
+	OPENROUTER_SERVER,
 } from "./mock-local-models";
 import { mockSource } from "./mock-source";
 import { DEVBOX, MAC } from "./mock-view";
@@ -59,6 +60,30 @@ describe("mock local models", () => {
 			probe: { apis: { messages: false } },
 		});
 		expect([...after.tables.account.values()].some((a) => a.model_server === id)).toBe(true);
+	});
+
+	it("keeps an OpenRouter admin key it accepts, reads the balance and removes it", async () => {
+		const mock = source();
+		const set = (key: string | null, server = OPENROUTER_SERVER) =>
+			mock.modelAction(MAC, { action: "set_server_admin_key", server, key });
+		const credits = async () => (await view(mock)).tables.model_server.get(OPENROUTER_SERVER)!;
+		expect(await set("bad-key")).toMatchObject({ data: { status: "refused" } });
+		const refused = await credits();
+		expect(refused.admin_key).toBe(false);
+		expect(refused.credits?.balance_cents).toBeUndefined();
+		expect(await set("sk-or-v1-example", MAC_SERVER)).toMatchObject({
+			data: { status: "refused", reason: "Only an OpenRouter server takes an admin key." },
+		});
+		expect(await set("sk-or-v1-example")).toMatchObject({ data: { status: "done" } });
+		expect(await credits()).toMatchObject({
+			admin_key: true,
+			credits: { balance_cents: 1_484, bought_cents: 2_000, used_cents: 258 },
+		});
+		expect(await set(null)).toMatchObject({ data: { status: "done" } });
+		expect(await credits()).toMatchObject({
+			admin_key: false,
+			credits: { balance_cents: null, bought_cents: null, used_cents: 258 },
+		});
 	});
 
 	it("probes a URL without adding it", async () => {

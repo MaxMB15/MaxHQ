@@ -1721,6 +1721,34 @@ fn an_api_error_without_a_limit_shows_its_text() {
 }
 
 #[test]
+fn a_turn_openrouter_turned_down_over_money_says_what_to_do() {
+    let mut run = mid_turn();
+    let said = r#"API Error: 403 {"error":{"message":"Key limit exceeded","code":403,"metadata":{"limit_source":"openrouter_key_limit"}}}"#;
+    run.feed(line(json!({
+        "type": "assistant",
+        "uuid": "api-key",
+        "parent_tool_use_id": null,
+        "error": "rate_limit",
+        "isApiErrorMessage": true,
+        "message": {"id": "msg_key", "role": "assistant", "model": "<synthetic>", "content": [{"type": "text", "text": said}]},
+    })));
+    assert!(matches!(
+        &run.screen.item("claude:api-key").body,
+        ItemBody::Error { message, sign_in: None, .. }
+            if message.starts_with("This OpenRouter key reached its spending limit.")
+    ));
+    let said =
+        r#"API Error: 402 {"error":{"code":402,"metadata":{"limit_source":"openrouter_credits"}}}"#;
+    let outcome = json!({"is_error": true, "terminal_reason": "api_error", "api_error_status": 402, "result": said});
+    run.feed(result("res-credits", outcome));
+    assert!(matches!(
+        &run.screen.item("claude:res-credits:error").body,
+        ItemBody::Error { message, .. }
+            if message.starts_with("Your OpenRouter account is out of credits.")
+    ));
+}
+
+#[test]
 fn a_retry_shows_once_and_goes_when_the_api_answers() {
     let mut run = mid_turn();
     let first = json!({"uuid": "retry-1", "attempt": 1, "max_retries": 10, "retry_delay_ms": 1500, "error_status": 529});
