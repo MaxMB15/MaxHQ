@@ -159,7 +159,7 @@ jobs:
 
   # The phone app's Android build: the Rust core for both ABIs through
   # cargo-ndk, the debug APK, and the JVM tests of the key store's file
-  # format. It needs the runner's Android SDK, so unlike the rust job it
+  # format and of how the phone opens a push. It needs the runner's Android SDK, so unlike the rust job it
   # keeps it, and adds the NDK the core is pinned to.
   android:
     runs-on: ubuntu-24.04
@@ -191,6 +191,7 @@ jobs:
           cache-dependency-path: |
             pnpm-lock.yaml
             apps/mobile/modules/maxhq-core/android/build.gradle
+            apps/mobile/modules/maxhq-push/android/build.gradle
           # Only branch pushes save, as with the Rust caches.
           cache-read-only: ${{ github.event_name != 'push' }}
 
@@ -241,12 +242,13 @@ jobs:
           ls -l "$apk"
 
       # Gradle reads the app's config as it starts, so the variant is set.
-      - name: Test the key store's file format
+      # The push module's tests open maxd's push vectors.
+      - name: Test the key store's file format and the push module
         working-directory: apps/mobile/android
         env:
           APP_VARIANT: development
           EXPO_NO_GIT_STATUS: "1"
-        run: ./gradlew :maxhq-core:testDebugUnitTest
+        run: ./gradlew :maxhq-core:testDebugUnitTest :maxhq-push:testDebugUnitTest
 
       - name: Disk left
         if: always()
