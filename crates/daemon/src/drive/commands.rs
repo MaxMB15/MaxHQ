@@ -429,14 +429,8 @@ impl Folders {
             inside,
             data: all_data,
             local,
-            syntax: Syntax::HOST,
+            syntax: if local { Syntax::HOST } else { Syntax::Sh },
         }
-    }
-
-    /// The folders, with lines read by `syntax`'s rules.
-    pub fn read_as(mut self, syntax: Syntax) -> Self {
-        self.syntax = syntax;
-        self
     }
 
     /// Where a line starts out.
@@ -3226,7 +3220,14 @@ mod tests {
 
     /// The folders, read as sh reads a line on every system.
     fn folders() -> Folders {
-        Folders::new(Path::new("/work/ws"), Path::new("/data/attached"), false).read_as(Syntax::Sh)
+        Folders::new(Path::new("/work/ws"), Path::new("/data/attached"), false)
+    }
+
+    #[test]
+    fn a_place_elsewhere_reads_lines_as_sh_does() {
+        assert_eq!(folders().syntax, Syntax::Sh);
+        let here = Folders::new(Path::new("/work/ws"), Path::new("/data/attached"), true);
+        assert_eq!(here.syntax, Syntax::HOST);
     }
 
     /// [`super::split`] as sh reads a line.
@@ -5069,7 +5070,10 @@ mod tests {
 
     /// The folders, read as PowerShell and `cmd.exe` read a line.
     fn windows() -> Folders {
-        folders().read_as(Syntax::Windows)
+        Folders {
+            syntax: Syntax::Windows,
+            ..folders()
+        }
     }
 
     fn windows_words(line: &str) -> Result<Vec<Part>, Refusal> {
