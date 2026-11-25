@@ -27,7 +27,7 @@ use super::*;
 use crate::doctext::Extractor;
 use crate::guest::files::{self, Files, Out, WORK_DIR};
 use crate::session::holders::{AgentFiles, DeliverError};
-use crate::testing::TempDir;
+use crate::testing::{fake_program, TempDir};
 
 mod pull;
 
@@ -289,6 +289,14 @@ struct Container {
 impl Container {
     fn new(room: Room, quota: u64) -> Arc<Self> {
         let root = TempDir::new();
+        // The name comes after the last `/`, or `\` on Windows.
+        let reader = fake_program(
+            &root.path().join("bin"),
+            "read",
+            r#"#!/bin/sh
+printf 'text of %s' "${1##*[\\/]}"
+"#,
+        );
         let files = Files::with_extractor(
             files::Config {
                 attachments: root.path().join("attachments"),
@@ -296,7 +304,7 @@ impl Container {
                 room,
                 quota,
             },
-            Extractor::with("/bin/sh", &["-c", "printf 'text of %s' \"${1##*/}\"", "sh"]),
+            Extractor::with(reader, &[]),
         );
         Arc::new(Self {
             workspace: WorkspaceId::generate(),
@@ -1664,8 +1672,6 @@ async fn an_uploaded_picture_keeps_its_preview_on_the_device() {
     assert_eq!(delivered[0].text, None);
 }
 
-// Needs T1's fake program helper: the container's document reader is sh.
-#[cfg(unix)]
 #[tokio::test]
 async fn an_upload_to_a_container_brings_back_its_preview_and_text() {
     let rig = Rig::new();
@@ -1695,8 +1701,6 @@ async fn an_upload_to_a_container_brings_back_its_preview_and_text() {
     assert_eq!(fs::read_to_string(local).unwrap(), "text of notes.docx");
 }
 
-// Needs T1's fake program helper: the container's document reader is sh.
-#[cfg(unix)]
 #[tokio::test]
 async fn delivering_a_document_into_a_container_has_its_guest_read_it() {
     let rig = Rig::new();

@@ -1691,6 +1691,24 @@ mod testing {
         launcher
     }
 
+    /// The Unix tool `name`, for a test whose child must be one process:
+    /// on Windows the copy Git for Windows keeps beside its Git Bash, since
+    /// a fake program there is cmd.exe and Git Bash, and ending cmd.exe
+    /// leaves Git Bash running.
+    pub fn tool(name: &str) -> PathBuf {
+        let beside_bash = || {
+            let bash = crate::skills::bash::git_bash().ok()?;
+            let bin = bash.parent()?;
+            let file = format!("{name}.exe");
+            let usr = bin.parent()?.join("usr").join("bin").join(&file);
+            [bin.join(&file), usr]
+                .into_iter()
+                .find(|path| path.is_file())
+        };
+        let found = if cfg!(windows) { beside_bash() } else { None };
+        found.unwrap_or_else(|| PathBuf::from(name))
+    }
+
     /// `dir` as a relative path from where this test runs, the way a
     /// relative entry on `PATH` reads. The tests that use it make Unix
     /// programs.

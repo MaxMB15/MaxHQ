@@ -1998,7 +1998,7 @@ async fn attachments_are_staged_then_moved_when_sent() {
     fs::create_dir_all(&old).unwrap();
     fs::write(old.join("file"), "x").unwrap();
     let day_ago = SystemTime::now() - Duration::from_secs(25 * 60 * 60);
-    fs::File::open(&old).unwrap().set_modified(day_ago).unwrap();
+    maxhq_os::fsmode::set_modified(&old, day_ago).unwrap();
     let fresh = staged.join("fresh");
     fs::create_dir_all(&fresh).unwrap();
     h.restart().await;

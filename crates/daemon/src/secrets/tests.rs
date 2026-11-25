@@ -73,13 +73,6 @@ const SEEN: &[&str] = &[
     "a sign-in through the CLI ended",
 ];
 
-/// The lines only the sign-in through a fake CLI logs. That walk needs T1's
-/// fake program helper to run on Windows, so only Unix hears them for now.
-const CLI_SEEN: &[&str] = &[
-    "started a sign-in through the CLI",
-    "a sign-in through the CLI ended",
-];
-
 #[tokio::test]
 async fn no_secret_reaches_the_log_or_the_hub() {
     let mut secrets = vec![
@@ -118,11 +111,7 @@ async fn no_secret_reaches_the_log_or_the_hub() {
                 "the hub published {what}"
             );
         }
-        if SEEN
-            .iter()
-            .filter(|line| cfg!(unix) || !CLI_SEEN.contains(line))
-            .all(|line| log.contains(line))
-        {
+        if SEEN.iter().all(|line| log.contains(line)) {
             return;
         }
     }
@@ -254,7 +243,6 @@ async fn walk(apns: &str) -> (String, String) {
 
     // A login signed in again through a fake CLI, whose link and code are
     // both secrets.
-    #[cfg(unix)]
     cli_sign_in(&secrets, &temp, origin).await;
 
     // All read back, then forgotten.
@@ -282,17 +270,14 @@ async fn walk(apns: &str) -> (String, String) {
 
 /// Signs in through a fake Claude CLI, an sh script, which prints a link
 /// and reads the code.
-#[cfg(unix)]
 async fn cli_sign_in(secrets: &Secrets, temp: &TempDir, origin: AccountId) {
     use maxhq_protocol::message::CliLoginState;
 
     use super::cli_login::Flow;
     use crate::drive::{Framing, Launch};
 
-    let cli = temp.path().join("claude");
     let script = "#!/bin/sh\necho 'visit: https://claude.example/test-code-link'\nread code\n[ \"$code\" = test-code-pasted ]\n";
-    fs::write(&cli, script).unwrap();
-    maxhq_os::fsmode::set_mode(&cli, 0o755).unwrap();
+    let cli = crate::testing::fake_program(temp.path(), "claude", script);
     let launch = Launch {
         program: cli,
         args: Vec::new(),
