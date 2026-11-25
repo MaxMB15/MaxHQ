@@ -179,6 +179,15 @@ jobs:
       - name: Test
         run: cargo test $CRATES --locked --no-fail-fast
 
+      # Temporary, until all of maxd's tests pass here and it joins CRATES:
+      # the modules whose tests pass on Windows so far.
+      - name: Test (maxd, the modules that pass)
+        run: >-
+          cargo test -p maxd --locked --no-fail-fast --
+          transfer:: folders:: service:: moves:: folder_trust:: server::
+          admission:: skills:: phones:: leases:: clone:: workspace::
+          secrets:: power:: identity:: doctext:: diagnostics:: posix_path::
+
   # Packs the Linux app the way a release does, as an unsigned debug build,
   # so a change that breaks the AppImage, the .deb or the .rpm fails here
   # and not on a release tag. It runs on the oldest Ubuntu the release
