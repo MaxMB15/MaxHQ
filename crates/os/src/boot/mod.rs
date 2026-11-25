@@ -25,6 +25,8 @@ mod tests {
 
     #[test]
     fn the_boot_is_readable_and_stays_put() {
+        // macOS asks sysctl, a child process.
+        let _forks = crate::forks();
         let boot = id().expect("the boot ID is readable here");
         assert!(!boot.trim().is_empty());
         assert_eq!(id(), Some(boot));
