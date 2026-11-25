@@ -783,15 +783,21 @@ fn command(item: &Value) -> ItemBody {
     }
 }
 
-/// Whether `program` is a shell that takes a script after `-c`.
+/// Whether `program` is a shell that takes a script after `-c`, Git
+/// Bash's `bash.exe` included.
 fn is_shell(program: &str) -> bool {
-    let name = program.rsplit('/').next().unwrap_or(program);
+    let name = program.rsplit(['/', '\\']).next().unwrap_or(program);
+    let name = name.strip_suffix(".exe").unwrap_or(name);
     matches!(name, "sh" | "bash" | "zsh" | "dash" | "fish")
 }
 
 /// The script in `/bin/zsh -lc 'script'`, which is how Codex runs every
-/// command, or the line as it is.
+/// command, or in `pwsh.exe -NoProfile -Command 'script'` and
+/// `cmd.exe /c script` on Windows, or the line as it is.
 pub fn unwrap_shell(line: &str) -> String {
+    if let Some(script) = maxhq_core::shell::windows_script(line) {
+        return script;
+    }
     let Some((program, rest)) = line.split_once(' ') else {
         return line.to_owned();
     };
@@ -826,6 +832,9 @@ fn join_argv(argv: &[&str]) -> String {
         && matches!(*flag, "-c" | "-lc")
     {
         return (*script).to_owned();
+    }
+    if let Some(script) = maxhq_core::shell::windows_script_argv(argv) {
+        return script;
     }
     argv.iter()
         .map(|arg| {
@@ -1113,6 +1122,34 @@ mod tests {
         assert_eq!(unwrap_shell("ls -la"), "ls -la");
         assert_eq!(join_argv(&["/bin/zsh", "-lc", "sleep 30"]), "sleep 30");
         assert_eq!(join_argv(&["rg", "two words"]), "rg 'two words'");
+    }
+
+    #[test]
+    fn windows_shell_wrappers_come_off() {
+        assert_eq!(
+            unwrap_shell(
+                r"'C:\Program Files\PowerShell\7\pwsh.exe' -NoProfile -Command 'Get-ChildItem src'"
+            ),
+            "Get-ChildItem src"
+        );
+        assert_eq!(
+            unwrap_shell(r#"C:\Windows\system32\cmd.exe /c "dir /b""#),
+            "dir /b"
+        );
+        assert_eq!(unwrap_shell(r"C:\Git\bin\bash.exe -lc 'ls -la'"), "ls -la");
+        assert_eq!(
+            join_argv(&[
+                r"C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe",
+                "-Command",
+                "git status"
+            ]),
+            "git status"
+        );
+        assert_eq!(join_argv(&["bash.exe", "-c", "sleep 30"]), "sleep 30");
+        assert_eq!(
+            unwrap_shell("pwsh.exe -File build.ps1"),
+            "pwsh.exe -File build.ps1"
+        );
     }
 
     #[test]

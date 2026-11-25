@@ -69,13 +69,18 @@ pub fn changes_pulls(command: &str) -> bool {
 }
 
 /// The script a command runs, out of a `sh -c` wrapper such as Codex's
-/// `/bin/zsh -lc '...'`. The wrapper's argument may be quoted in pieces.
+/// `/bin/zsh -lc '...'`, or a PowerShell or cmd one on Windows. The
+/// wrapper's argument may be quoted in pieces.
 fn unwrap_shell(command: &str) -> String {
+    if let Some(script) = crate::shell::windows_script(command) {
+        return script;
+    }
     let trimmed = command.trim_start();
     let Some((shell, rest)) = trimmed.split_once(char::is_whitespace) else {
         return command.to_owned();
     };
-    let shell = shell.rsplit('/').next().unwrap_or(shell);
+    let shell = shell.rsplit(['/', '\\']).next().unwrap_or(shell);
+    let shell = shell.strip_suffix(".exe").unwrap_or(shell);
     let rest = rest.trim_start();
     let Some((flag, wrapped)) = rest.split_once(char::is_whitespace) else {
         return command.to_owned();
@@ -408,12 +413,27 @@ mod tests {
     }
 
     #[test]
+    fn a_powershell_or_cmd_wrapper_is_unwrapped() {
+        let output = "https://github.com/owner/repo/pull/7\n";
+        for command in [
+            "pwsh.exe -NoProfile -Command 'gh pr create --fill'",
+            r#"C:\Windows\System32\cmd.exe /c "gh pr create --fill""#,
+        ] {
+            assert_eq!(numbers(command, output), [7], "{command}");
+        }
+        assert!(numbers("pwsh.exe -Command 'echo \"gh pr create\"'", output).is_empty());
+    }
+
+    #[test]
     fn a_push_merge_or_close_changes_prs() {
         for command in [
             "git push -u origin fix",
             "/bin/zsh -lc 'cargo test && git push'",
             "gh pr merge 12 --squash",
             "gh pr close 12",
+            r"'C:\Program Files\PowerShell\7\pwsh.exe' -NoProfile -Command 'cargo test; git push'",
+            r#"C:\Windows\system32\cmd.exe /d /s /c "git push origin fix""#,
+            r"C:\Git\bin\bash.exe -lc 'git push'",
         ] {
             assert!(changes_pulls(command), "{command}");
         }
