@@ -208,7 +208,10 @@ mod tests {
                     "GDK_PIXBUF_MODULE_FILE",
                     "/tmp/.mount_MaxHQab12/usr/lib/gdk-pixbuf-2.0/2.10.0/loaders.cache"
                 ),
-                ("GIO_MODULE_DIR", "/tmp/.mount_MaxHQab12/usr/lib/gio/modules"),
+                (
+                    "GIO_MODULE_DIR",
+                    "/tmp/.mount_MaxHQab12/usr/lib/gio/modules"
+                ),
             ]),
             [
                 ("GTK_DATA_PREFIX".into(), None),
@@ -220,16 +223,14 @@ mod tests {
 
     #[test]
     fn everything_else_stays_as_it_was() {
-        assert!(
-            changes(&[
-                ("DISPLAY", ":0"),
-                ("HOME", "/home/<user>"),
-                ("PATH", "/usr/bin::/bin"),
-                // A folder whose name only starts like the mount's.
-                ("FOLDER", "/tmp/.mount_MaxHQab123/x"),
-                ("TERMINAL", "kitty"),
-            ])
-            .is_empty()
-        );
+        assert!(changes(&[
+            ("DISPLAY", ":0"),
+            ("HOME", "/home/<user>"),
+            ("PATH", "/usr/bin::/bin"),
+            // A folder whose name only starts like the mount's.
+            ("FOLDER", "/tmp/.mount_MaxHQab123/x"),
+            ("TERMINAL", "kitty"),
+        ])
+        .is_empty());
     }
 }

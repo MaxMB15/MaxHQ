@@ -22,15 +22,17 @@ targets = [
 [licenses]
 # Every license here lets an MIT-licensed app ship the code. Most ask only
 # that the app carry their notice. MPL-2.0 also asks that the source of its
-# own files stay available, which crates.io does for an unchanged crate. LGPL
-# isn't here, since P-6 allows it only for a library the macOS app links
-# dynamically, and no Rust crate links that way.
+# own files stay available, which crates.io does for an unchanged crate.
+# BSL-1.0, which the Windows clipboard crates use, doesn't even ask for the
+# notice in a built app. LGPL isn't here, since P-6 allows it only for a
+# library the macOS app links dynamically, and no Rust crate links that way.
 allow = [
     "0BSD",
     "Apache-2.0",
     "Apache-2.0 WITH LLVM-exception",
     "BSD-2-Clause",
     "BSD-3-Clause",
+    "BSL-1.0",
     "BlueOak-1.0.0",
     "CC-BY-4.0",
     "ISC",

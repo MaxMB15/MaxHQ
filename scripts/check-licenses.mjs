@@ -14,6 +14,7 @@ const allowed = new Set([
 	"Apache-2.0 WITH LLVM-exception",
 	"BSD-2-Clause",
 	"BSD-3-Clause",
+	"BSL-1.0",
 	"BlueOak-1.0.0",
 	"CC-BY-4.0",
 	"ISC",
