@@ -2,9 +2,9 @@
 // Copyright (c) 2026 Max Boksem
 
 //! `maxd`, the daemon on every device. `maxd run` watches the agents here
-//! and serves what it sees on a Unix socket, `maxd proxy` carries that
-//! socket over SSH, and `maxd service` keeps `maxd run` going in your login
-//! session. `maxd hold` keeps one agent running for `maxd`, which starts it.
+//! and serves what it sees on a local socket, a Unix socket or on Windows
+//! a named pipe, `maxd proxy` carries that socket over SSH, and `maxd
+//! service` keeps `maxd run` going in your login session. `maxd hold` keeps one agent running for `maxd`, which starts it.
 //! `maxd guest` runs inside a container workspace, and `maxd host quiesce`
 //! winds agents down before the device restarts.
 
