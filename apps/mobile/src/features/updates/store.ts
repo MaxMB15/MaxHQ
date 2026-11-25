@@ -13,7 +13,7 @@ import { File, Paths } from "expo-file-system";
 import { Alert, Linking } from "react-native";
 import { createStore } from "zustand";
 
-import { OS, platform } from "../../platform";
+import { platform } from "../../platform";
 import {
 	afterCheck,
 	type CheckOutcome,
@@ -37,13 +37,13 @@ const extra = (key: string): string | null => {
 };
 
 /**
- * The build number: the iPhone's, or Android's version code, which is the
- * same number on the same release. An Android build whose config names no
+ * The build number: the iPhone's for TestFlight, or the APK's version code,
+ * which is the same number on the same release. An APK whose config names no
  * version code falls back to the iPhone's.
  */
 const buildNumber = (): number | null => {
 	const value =
-		OS === "ios"
+		platform.updatesThrough === "testflight"
 			? config?.ios?.buildNumber
 			: (config?.android?.versionCode ?? config?.ios?.buildNumber);
 	const number = Number(value);
@@ -147,7 +147,7 @@ export const dismiss = (version: string) => keep({ dismissed: version });
  * none opens.
  */
 export const openUpdate = async (): Promise<void> => {
-	for (const url of updateLinks(OS, thisBuild, updates.getState().newest)) {
+	for (const url of updateLinks(platform.updatesThrough, thisBuild, updates.getState().newest)) {
 		try {
 			await Linking.openURL(url);
 			return;
@@ -155,5 +155,5 @@ export const openUpdate = async (): Promise<void> => {
 			// The next link.
 		}
 	}
-	Alert.alert(t("Couldn't open TestFlight.", { context: platform.context }));
+	Alert.alert(t("Couldn't open TestFlight."));
 };

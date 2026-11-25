@@ -104,7 +104,8 @@ pub struct FileId {
     file: u128,
 }
 
-/// The ID of the open `file`.
+/// The ID of the open `file`. A file put in its place under the same name
+/// has another.
 pub fn file_id(file: &File) -> io::Result<FileId> {
     imp::file_id(file)
 }
@@ -296,6 +297,24 @@ mod tests {
         let gone = same_file(&file, &dir.join("gone")).unwrap_err();
         assert_eq!(gone.kind(), io::ErrorKind::NotFound);
         drop(file);
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn a_file_keeps_its_id_and_a_replacement_has_another() {
+        let dir = temp("id");
+        fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("file");
+        fs::write(&path, b"one").unwrap();
+        let id = file_id(&File::open(&path).unwrap()).unwrap();
+        fs::write(&path, b"rewritten in place").unwrap();
+        assert_eq!(file_id(&File::open(&path).unwrap()).unwrap(), id);
+        let other = dir.join("other");
+        fs::write(&other, b"two").unwrap();
+        let other_id = file_id(&File::open(&other).unwrap()).unwrap();
+        assert_ne!(other_id, id);
+        fs::rename(&other, &path).unwrap();
+        assert_eq!(file_id(&File::open(&path).unwrap()).unwrap(), other_id);
         fs::remove_dir_all(&dir).unwrap();
     }
 

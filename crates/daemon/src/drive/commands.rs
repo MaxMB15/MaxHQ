@@ -403,8 +403,9 @@ const MOST_LINKS: usize = 32;
 
 impl Folders {
     /// The folders `cwd` and `attachments`. `local` says they're on this
-    /// machine, so that a path resolves here, links and all. Elsewhere only
-    /// its words count.
+    /// machine, so that a path resolves here, links and all. Elsewhere,
+    /// in a container, only its words count, read as a Linux shell reads
+    /// them whatever this machine runs.
     pub fn new(cwd: &Path, attachments: &Path, local: bool) -> Self {
         Self::with_data(cwd, attachments, local, data_folders())
     }
@@ -420,8 +421,16 @@ impl Folders {
         };
         let mut inside = vec![cwd.to_owned(), attachments.to_owned()];
         inside.extend(resolved(&inside));
-        // A relative folder would hold nothing the check can place.
-        inside.retain(|folder| folder.is_absolute());
+        // A relative folder would hold nothing the check can place. A
+        // container's `/work/ws` has a root but no drive, so on Windows it
+        // isn't absolute, though it is where it lives.
+        inside.retain(|folder| {
+            if local {
+                folder.is_absolute()
+            } else {
+                folder.has_root()
+            }
+        });
         let mut all_data = data.clone();
         all_data.extend(resolved(&data));
         Self {
@@ -429,7 +438,7 @@ impl Folders {
             inside,
             data: all_data,
             local,
-            syntax: Syntax::HOST,
+            syntax: if local { Syntax::HOST } else { Syntax::Sh },
         }
     }
 

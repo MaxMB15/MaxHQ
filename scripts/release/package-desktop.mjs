@@ -6,20 +6,19 @@
 // workflow runs it in a build job that holds no secret; sign-desktop then
 // signs each installer for the updater, in a job that runs nothing built.
 //
-//   node scripts/release/package-desktop.mjs --target <triple> \
+//   node scripts/release/package-desktop.mjs [--debug] --target <triple> \
 //     --maxd <file> --out <dir>
 //
 // --target is one of bundles.mjs's targets, and decides the installers: NSIS
 // and MSI on Windows, AppImage, deb and rpm on Linux. --maxd is the maxd the
 // app carries and runs as this computer's service: Tauri takes it from
 // binaries/maxd-<triple> and puts it beside the app's program. --out gets
-// the installers, named as bundles.mjs has them.
+// the installers, named as bundles.mjs has them. --debug makes the unsigned
+// debug build CI's desktop-linux and desktop-windows jobs pack and check.
 //
-// The environment is package-macos.sh's: MAXHQ_RELEASES_REPO (owner/name)
-// writes releases/latest/download/<manifest> into the updater's endpoints,
-// MAXHQ_UPDATE_MANIFEST names that manifest (default latest.json), and
-// MAXHQ_UPDATE_PUBKEY replaces tauri.conf.json's key during a key change.
-// No signing key reaches the build, which runs every package's scripts.
+// The environment is package-macos.sh's, read by updater-config.mjs: the
+// updater's endpoint and key. No signing key reaches the build, which runs
+// every package's scripts.
 //
 // Phase 1: the installers carry no fleet manifest or Linux maxd for other
 // devices, so these apps can't add or update other devices with a signed
@@ -43,42 +42,11 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
-import { assetName, targetInfo } from "./bundles.mjs";
+import { SUFFIX, assetName, targetInfo } from "./bundles.mjs";
+import { tauriConfig } from "./updater-config.mjs";
 
 const ROOT = fileURLToPath(new URL("../..", import.meta.url));
 const DESKTOP = join(ROOT, "apps/desktop");
-
-// The tauri build --config that package-macos.sh writes, with the maxd
-// sidecar, and the warning to print when there's one. The updater signs no
-// installer here: sign-desktop does, with sign.mjs.
-export const tauriConfig = (env) => {
-	const config = { bundle: { createUpdaterArtifacts: false, externalBin: ["binaries/maxd"] } };
-	const repo = env.MAXHQ_RELEASES_REPO;
-	const pubkey = env.MAXHQ_UPDATE_PUBKEY;
-	if (!repo) {
-		if (pubkey) throw new Error("MAXHQ_UPDATE_PUBKEY needs MAXHQ_RELEASES_REPO");
-		return {
-			config,
-			warning: "MAXHQ_RELEASES_REPO isn't set, so this app can't look for updates",
-		};
-	}
-	if (!repo.includes("/")) throw new Error(`MAXHQ_RELEASES_REPO is owner/name, not ${repo}`);
-	const manifest = env.MAXHQ_UPDATE_MANIFEST || "latest.json";
-	if (!/^latest(-v[0-9])?\.json$/.test(manifest))
-		throw new Error(
-			`MAXHQ_UPDATE_MANIFEST is latest.json or latest-v<n>.json, not ${manifest}`
-		);
-	const updater = { endpoints: [endpoint(repo, manifest)] };
-	if (pubkey) {
-		if (!/^[A-Za-z0-9+/=]+$/.test(pubkey))
-			throw new Error("MAXHQ_UPDATE_PUBKEY isn't a base64 public key");
-		updater.pubkey = pubkey;
-	}
-	return { config: { ...config, plugins: { updater } } };
-};
-
-export const endpoint = (repo, manifest) =>
-	`https://github.com/${repo}/releases/latest/download/${manifest}`;
 
 // The name Tauri looks for the sidecar under, in src-tauri/binaries.
 export const sidecarName = (target) =>
@@ -100,15 +68,8 @@ export const buildEnv = (env, os) => {
 // Each bundle type's file in its folder under the bundle folder, as Tauri
 // names it: nsis/MaxHQ_<version>_x64-setup.exe, msi/MaxHQ_<version>_x64_en-US.msi,
 // appimage/MaxHQ_<version>_amd64.AppImage, deb/MaxHQ_<version>_amd64.deb and
-// rpm/MaxHQ-<version>-1.x86_64.rpm. Exactly one each, or the build is wrong.
-const EXTENSION = {
-	nsis: "-setup.exe",
-	msi: ".msi",
-	appimage: ".AppImage",
-	deb: ".deb",
-	rpm: ".rpm",
-};
-
+// rpm/MaxHQ-<version>-1.x86_64.rpm, each ending as its release asset does.
+// Exactly one each, or the build is wrong.
 export const bundleOutputs = (bundleDir, bundles) =>
 	Object.fromEntries(
 		bundles.map((bundle) => {
@@ -116,12 +77,12 @@ export const bundleOutputs = (bundleDir, bundles) =>
 			const files = existsSync(dir)
 				? readdirSync(dir).filter(
 						(name) =>
-							name.endsWith(EXTENSION[bundle]) && statSync(join(dir, name)).isFile()
+							name.endsWith(SUFFIX[bundle]) && statSync(join(dir, name)).isFile()
 					)
 				: [];
 			if (files.length !== 1)
 				throw new Error(
-					`${dir} has ${files.length === 0 ? "no" : files.length} *${EXTENSION[bundle]}, not one`
+					`${dir} has ${files.length === 0 ? "no" : files.length} *${SUFFIX[bundle]}, not one`
 				);
 			return [bundle, join(dir, files[0])];
 		})
@@ -148,6 +109,7 @@ const main = () => {
 			target: { type: "string" },
 			maxd: { type: "string" },
 			out: { type: "string" },
+			debug: { type: "boolean", default: false },
 		},
 	});
 	try {
@@ -155,11 +117,13 @@ const main = () => {
 			throw new Error("--target, --maxd and --out are required");
 		const { target, os, arch, bundles } = targetInfo(values.target);
 		if (!existsSync(values.maxd)) throw new Error(`there's no maxd at ${values.maxd}`);
-		const { config, warning } = tauriConfig(process.env);
-		if (warning) warn(warning);
+		const { config, notes, warning } = tauriConfig(process.env, {
+			externalBin: ["binaries/maxd"],
+		});
+		for (const text of notes) note(text);
+		// A debug build is for CI's checks, which ship nothing to update.
+		if (warning) (values.debug ? note : warn)(warning);
 		const updater = config.plugins?.updater;
-		if (updater) note(`Updates come from ${updater.endpoints[0]}`);
-		if (updater?.pubkey) note("The updater trusts the public key in MAXHQ_UPDATE_PUBKEY");
 
 		const sidecar = join(DESKTOP, "src-tauri/binaries", sidecarName(target));
 		mkdirSync(dirname(sidecar), { recursive: true });
@@ -167,8 +131,8 @@ const main = () => {
 		chmodSync(sidecar, 0o755);
 
 		const targetDir = process.env.CARGO_TARGET_DIR || join(ROOT, "target");
-		const release = join(targetDir, target, "release");
-		const bundleDir = join(release, "bundle");
+		const profile = join(targetDir, target, values.debug ? "debug" : "release");
+		const bundleDir = join(profile, "bundle");
 		for (const bundle of bundles)
 			rmSync(join(bundleDir, bundle), { recursive: true, force: true });
 
@@ -179,6 +143,7 @@ const main = () => {
 			note(`Building MaxHQ for ${target}: ${bundles.join(", ")}`);
 			const args = [
 				"build",
+				...(values.debug ? ["--debug"] : []),
 				"--target",
 				target,
 				"--bundles",
@@ -200,7 +165,7 @@ const main = () => {
 		}
 
 		// The program holds the updater's endpoint and key, as the Mac's does.
-		const program = join(release, os === "windows" ? "maxhq-desktop.exe" : "maxhq-desktop");
+		const program = join(profile, os === "windows" ? "maxhq-desktop.exe" : "maxhq-desktop");
 		if (updater && !holds(program, updater.endpoints[0]))
 			throw new Error(`${program} has no update endpoint ${updater.endpoints[0]}`);
 		if (updater?.pubkey && !holds(program, updater.pubkey))

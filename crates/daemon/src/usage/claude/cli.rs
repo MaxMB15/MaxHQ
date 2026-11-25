@@ -412,8 +412,6 @@ pub(crate) mod tests {
     /// for `auth status` and runs `probe` as a shell script for anything
     /// else. The script sees `$REPLY_FILE`, the fixture's probe reply.
     pub(crate) fn fake_claude(bin: &Path, auth: &str, probe: &str) -> Cli {
-        fs::create_dir_all(bin).unwrap();
-        let program = bin.join("claude");
         // The real one exits 1 when logged out.
         let status = if auth.contains("logged-out") { 1 } else { 0 };
         let script = format!(
@@ -427,12 +425,7 @@ pub(crate) mod tests {
             reply = fixture("cli/probe-reply.json").display(),
             auth = fixture(auth).display(),
         );
-        fs::write(&program, script).unwrap();
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            fs::set_permissions(&program, fs::Permissions::from_mode(0o755)).unwrap();
-        }
+        let program = crate::testing::fake_program(bin, "claude", &script);
         Cli::new(program, Duration::from_secs(5), bin.join("probe-folder"))
     }
 
@@ -603,11 +596,16 @@ cat > /dev/null
         // Not runnable, so it's passed over.
         fs::write(bin.join("claude"), "").unwrap();
         let installed = fake_claude(&home.join(".local/bin"), "cli/auth-status.json", FAILS);
-        let path = std::env::join_paths([dir.join("empty"), bin]).unwrap();
-        assert_eq!(
-            find_claude(Some(&path), Some(&home), Some(OsStr::new("max"))),
-            Some(installed.program.clone())
-        );
+        // Windows looks in its own install folders under the user's real
+        // profile, not under the `home` given here.
+        #[cfg(unix)]
+        {
+            let path = std::env::join_paths([dir.join("empty"), bin]).unwrap();
+            assert_eq!(
+                find_claude(Some(&path), Some(&home), Some(OsStr::new("max"))),
+                Some(installed.program.clone())
+            );
+        }
         let first = std::env::join_paths([home.join(".local/bin")]).unwrap();
         assert_eq!(
             find_claude(Some(&first), None, None),

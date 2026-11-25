@@ -58,17 +58,6 @@ pub enum Platform {
     Android,
 }
 
-impl Platform {
-    /// The name the phone pairs under when you clear the one the app
-    /// suggests.
-    pub fn phone_name(self) -> &'static str {
-        match self {
-            Platform::Ios => "iPhone",
-            Platform::Android => "Android phone",
-        }
-    }
-}
-
 /// Whether the app is on screen, as [`app_state`] takes it: `"active"` or
 /// `"background"`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize)]
@@ -152,7 +141,7 @@ fn core() -> Result<&'static Core, CommandError> {
 /// `data: null`.
 #[uniffi::export]
 pub fn start(dir: String, cache: String, platform: String) -> String {
-    reply(word::<Platform>(&platform).and_then(|platform| {
+    reply(word::<Platform>(&platform).and_then(|_| {
         let _starting = STARTING.lock().unwrap_or_else(PoisonError::into_inner);
         if let Some(core) = CORE.get() {
             core.reloaded();
@@ -161,7 +150,6 @@ pub fn start(dir: String, cache: String, platform: String) -> String {
         let core = Core::open(
             std::path::Path::new(&dir),
             std::path::Path::new(&cache),
-            platform,
             keys::system()?.into(),
         )?;
         let _ = CORE.set(core);
@@ -541,8 +529,6 @@ mod tests {
         assert_eq!(word::<Platform>("android").unwrap(), Platform::Android);
         assert!(word::<Platform>("web").is_err());
         assert!(word::<Platform>("Android").is_err());
-        assert_eq!(Platform::Ios.phone_name(), "iPhone");
-        assert_eq!(Platform::Android.phone_name(), "Android phone");
     }
 
     #[test]
@@ -808,7 +794,7 @@ mod tests {
         }
 
         fn open(&self, store: Arc<dyn KeyStore>) -> Core {
-            Core::open(&self.dir(), &self.cache(), Platform::Ios, store).unwrap()
+            Core::open(&self.dir(), &self.cache(), store).unwrap()
         }
     }
 

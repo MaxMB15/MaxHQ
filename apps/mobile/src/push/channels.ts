@@ -10,7 +10,7 @@
 import * as Notifications from "expo-notifications";
 
 import type { PushKind } from "@maxhq/shared/bindings";
-import { pushKinds } from "@maxhq/shared/push/push";
+import { PUSH_KINDS } from "@maxhq/shared/push/push";
 
 import { platform } from "../platform";
 
@@ -25,7 +25,7 @@ export const PROMPT_CHANNEL: PushKind = "needs_input";
 export const makeChannels = async (): Promise<void> => {
 	if (!platform.notificationChannels) return;
 	await Promise.all(
-		pushKinds(platform.context).map(({ kind, label, detail }) =>
+		PUSH_KINDS.map(({ kind, label, detail }) =>
 			Notifications.setNotificationChannelAsync(kind, {
 				name: label,
 				description: detail,

@@ -149,6 +149,13 @@ describe("wording for the system the app runs on", () => {
 			"Show log.txt in its folder"
 		);
 	});
+	it("says Android where the phone's text names iOS, and keeps iOS's", () => {
+		setInterfaceOs("ios");
+		expect(t("Turn them on in iOS Settings.")).toBe("Turn them on in iOS Settings.");
+		setInterfaceOs("android");
+		expect(t("Turn them on in iOS Settings.")).toBe("Turn them on in Android settings.");
+		expect(t("Keep this Mac awake")).toBe("Keep this Mac awake");
+	});
 	it("leaves text without a variant as it is", () => {
 		setInterfaceOs("windows");
 		expect(t("Close")).toBe(t("Close", { context: undefined }));

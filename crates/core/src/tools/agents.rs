@@ -526,13 +526,16 @@ pub(super) fn move_to(args: &Map<String, Value>) -> Result<MoveTo, String> {
 }
 
 /// Where a new agent runs: a `workspace` or a `folder`, or none for the
-/// caller's own workspace.
+/// caller's own workspace. The folder may be on a device that runs Unix or
+/// Windows, so either's absolute path passes here.
 pub(super) fn place(args: &Map<String, Value>) -> Result<Option<AgentPlace>, String> {
     Ok(
         match (id::<WorkspaceId>(args, "workspace")?, text(args, "folder")?) {
             (Some(_), Some(_)) => return Err("Give a workspace or a folder, not both.".into()),
             (Some(workspace), None) => Some(AgentPlace::Workspace { workspace }),
-            (None, Some(path)) if path.starts_with('/') => Some(AgentPlace::Folder { path }),
+            (None, Some(path)) if maxhq_os::which::absolute_anywhere(&path) => {
+                Some(AgentPlace::Folder { path })
+            }
             (None, Some(_)) => return Err("`folder` must be an absolute path.".into()),
             (None, None) => None,
         },
@@ -649,6 +652,18 @@ mod tests {
                 path: "/work/app".into()
             })
         );
+    }
+
+    #[test]
+    fn a_folder_on_a_windows_device_is_absolute_too() {
+        for path in [r"C:\work\app", r"\\server\work"] {
+            let Ok(Call::StartAgent(start)) = Tool::StartAgent.parse(&json!({
+                "request_id": "r1", "task": "t", "vendor": "codex", "folder": path,
+            })) else {
+                panic!("{path} parses");
+            };
+            assert_eq!(start.place, Some(AgentPlace::Folder { path: path.into() }));
+        }
     }
 
     #[test]

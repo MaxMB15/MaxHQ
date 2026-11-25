@@ -19,7 +19,7 @@ pub(crate) use app_server::tests::FakeHome;
 
 use std::collections::HashMap;
 use std::ffi::OsStr;
-use std::path::{Path, PathBuf};
+use std::path::{is_separator, Path, PathBuf};
 use std::sync::LazyLock;
 
 use maxhq_core::names;
@@ -31,7 +31,8 @@ use tokio::task::JoinSet;
 use crate::hub::Hub;
 use limits::Reading;
 
-/// More `CODEX_HOME` folders to watch besides `~/.codex`, colon separated.
+/// More `CODEX_HOME` folders to watch besides `~/.codex`, separated the way
+/// this system separates `PATH`: by colons, or by semicolons on Windows.
 pub const HOMES_ENV: &str = "MAXD_CODEX_HOMES";
 
 /// One `CODEX_HOME`, which holds one login.
@@ -76,12 +77,17 @@ pub fn homes_from(user_home: Option<&Path>, extra: Option<&OsStr>) -> Vec<Home> 
     let extra = extra
         .and_then(OsStr::to_str)
         .into_iter()
-        .flat_map(|list| list.split(':'))
-        .map(str::trim)
+        .flat_map(std::env::split_paths)
+        .map(|entry| entry.to_string_lossy().trim().to_owned())
         .filter(|entry| !entry.is_empty())
-        .filter_map(|entry| match entry.strip_prefix("~/") {
-            Some(rest) => user_home.map(|home| home.join(rest)),
-            None => Some(PathBuf::from(entry)),
+        .filter_map(|entry| {
+            let in_home = entry
+                .strip_prefix('~')
+                .filter(|rest| rest.starts_with(is_separator));
+            match in_home {
+                Some(rest) => user_home.map(|home| home.join(&rest[1..])),
+                None => Some(PathBuf::from(&entry)),
+            }
         });
     let mut homes: Vec<Home> = Vec::new();
     for dir in default.into_iter().chain(extra) {
@@ -164,11 +170,14 @@ mod tests {
             std::fs::create_dir_all(user.join(dir)).unwrap();
         }
         let spare = user.join("spare");
-        let list = format!(
-            "~/work-codex: {}/ :relative/codex:/no/such/folder::{}",
-            spare.display(),
-            user.join(".codex").display()
-        );
+        let list = crate::testing::path_of(&[
+            "~/work-codex",
+            &format!(" {}/ ", spare.display()),
+            "relative/codex",
+            "/no/such/folder",
+            "",
+            &user.join(".codex").display().to_string(),
+        ]);
         let homes = homes_from(Some(&user), Some(OsStr::new(&list)));
         let dirs: Vec<&Path> = homes.iter().map(|home| home.dir.as_path()).collect();
         assert_eq!(

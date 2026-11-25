@@ -47,7 +47,7 @@ use super::holders::{
 use super::vendors::{History, Vendors, Wired};
 use crate::drive::{
     self, acp, cursor, local, Action, ActionKey, AttentionChange, ChildExit, Driver, Effects,
-    Framing, HeldLine, Login, Place, Staged, ToolCall, ToolDone, ToolResult, Write,
+    Framing, HeldLine, Login, Place, PlaceHost, Staged, ToolCall, ToolDone, ToolResult, Write,
 };
 use crate::power::{should_hold, Power};
 use crate::recipe;
@@ -1780,10 +1780,19 @@ impl AgentFiles for FakeFiles {
             let Some(mut attachment) = self.attachments.find(id) else {
                 return Box::pin(async move { Err(DeliverError::Missing(id)) });
             };
-            let path = place
-                .attachments
-                .join(id.to_string())
-                .join(&attachment.name);
+            let path = match place.host {
+                // A container's path takes `/` whatever this device uses,
+                // as the guest that reports it writes it.
+                PlaceHost::Guest { .. } => {
+                    let folder = place.attachments.to_string_lossy();
+                    let folder = crate::posix_path::join(&folder, &id.to_string());
+                    PathBuf::from(crate::posix_path::join(&folder, &attachment.name))
+                }
+                PlaceHost::Local => place
+                    .attachments
+                    .join(id.to_string())
+                    .join(&attachment.name),
+            };
             attachment.path = path.display().to_string();
             let _ = std::fs::remove_dir_all(self.root.join("staged").join(id.to_string()));
             let staged = Staged {

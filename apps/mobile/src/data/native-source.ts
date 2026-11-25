@@ -13,8 +13,6 @@
 // downloads land in its downloads folder. Device setup and fleet updates
 // aren't on the phone yet, and say so.
 
-import type { PlatformOSType } from "react-native";
-
 import { t } from "@maxhq/shared/i18n";
 
 import type {
@@ -45,6 +43,8 @@ import {
 } from "@maxhq/shared/data/request-source";
 import type { DataSource, Unsubscribe } from "@maxhq/shared/data/source";
 import type { PhoneNetwork } from "@maxhq/shared/status/phone-network";
+
+import type { PhoneOs } from "../platform";
 
 /** Gets the view's changes, each call a JSON array of `Delta` oldest first. */
 export type ViewListener = { changed: (deltas: string) => void };
@@ -319,12 +319,12 @@ export const nativeSource = (bridge: Bridge, cache: string): DataSource => {
 /** The calls only the phone has: its life cycle, network and key. */
 export const phoneCalls = (bridge: Bridge) => ({
 	/**
-	 * Opens the core on the app's data and cache folders, for React Native's
-	 * `Platform.OS`, which the core refuses unless it's "ios" or "android".
-	 * The core keeps files on their way to a device in the cache folder's
+	 * Opens the core on the app's data and cache folders, for the phone's
+	 * system, which the core refuses unless it's "ios" or "android". The
+	 * core keeps files on their way to a device in the cache folder's
 	 * staging folder. Safe to call again after a reload.
 	 */
-	start: (dir: string, cache: string, platform: PlatformOSType) =>
+	start: (dir: string, cache: string, platform: PhoneOs) =>
 		orThrow(readReply<null>(bridge.start(dir, cache, platform))),
 	/** Tells the core the app came to the screen or left it. */
 	appState: (state: AppState) => readReply<null>(bridge.appState(state)),

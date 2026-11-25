@@ -10,7 +10,7 @@ import { useI18n } from "@maxhq/shared/i18n";
 import { Linking } from "react-native";
 import { useStore } from "zustand";
 
-import { pushKinds, pushUpdateNote, switchKind } from "@maxhq/shared/push/push";
+import { PUSH_KINDS, pushUpdateNote, switchKind } from "@maxhq/shared/push/push";
 
 import { platform } from "../platform";
 import { useView } from "../services";
@@ -28,7 +28,7 @@ const PermissionRow = () => {
 		return (
 			<CardRow
 				label={t("Notifications are off for MaxHQ")}
-				note={t("Turn them on in iOS Settings.", { context: platform.context })}
+				note={t("Turn them on in iOS Settings.")}
 			>
 				<Button
 					label={t("Open Settings")}
@@ -40,10 +40,7 @@ const PermissionRow = () => {
 	}
 	if (status === "undetermined") {
 		return (
-			<CardRow
-				label={t("Notifications aren't on yet")}
-				note={t("iOS asks once.", { context: platform.context })}
-			>
+			<CardRow label={t("Notifications aren't on yet")} note={t("iOS asks once.")}>
 				<Button label={t("Turn on")} small onPress={askToNotify} />
 			</CardRow>
 		);
@@ -59,9 +56,7 @@ const BuildRow = () => {
 	return (
 		<CardRow
 			label={t("This build gets no pushes")}
-			note={t("It was built without the signing that push needs.", {
-				context: platform.context,
-			})}
+			note={t("It was built without the signing that push needs.")}
 		/>
 	);
 };
@@ -76,9 +71,6 @@ const UpdateRow = () => {
 	return note ? <CardRow label={note} /> : null;
 };
 
-// Each label and detail reads in the language in use when it's shown.
-const SWITCHES = pushKinds(platform.context);
-
 export const PushSection = () => {
 	const { t } = useI18n();
 
@@ -91,7 +83,7 @@ export const PushSection = () => {
 			<BuildRow />
 			<PermissionRow />
 			<UpdateRow />
-			{SWITCHES.map(({ kind, label, detail }) => (
+			{PUSH_KINDS.map(({ kind, label, detail }) => (
 				<CardRow key={kind} label={label} note={detail}>
 					<Toggle
 						label={label}

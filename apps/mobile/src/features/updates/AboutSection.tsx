@@ -14,7 +14,7 @@ import { useStore } from "zustand";
 
 import { useNow } from "@maxhq/shared/lib/clock";
 
-import { OS, platform } from "../../platform";
+import { platform } from "../../platform";
 import { color, size } from "../../theme";
 import { Button } from "../../ui/Button";
 import { Card, CardRow } from "../../ui/Card";
@@ -28,16 +28,19 @@ export const AboutSection = () => {
 	const state = useStore(updates);
 	const now = useNow(30_000);
 	const { version, build, repo } = thisBuild;
-	const newest = newestFor(state.newest, OS)?.version;
-	const newer = hasNewer(state.newest, thisBuild, OS);
+	const newest = newestFor(state.newest, platform.updatesThrough)?.version;
+	const newer = hasNewer(state.newest, thisBuild, platform.updatesThrough);
 	return (
 		<Card title={t("About")}>
-			<CardRow label={t("Version")} note={storeNote(OS) ?? undefined}>
+			<CardRow label={t("Version")} note={storeNote(platform.updatesThrough) ?? undefined}>
 				<Text style={styles.value} numberOfLines={1}>
 					{build ? `${version ?? "?"} (${build})` : (version ?? "?")}
 				</Text>
 			</CardRow>
-			<CardRow label={t("Newest")} note={newestNote(state, repo, now, OS)}>
+			<CardRow
+				label={t("Newest")}
+				note={newestNote(state, repo, now, platform.updatesThrough)}
+			>
 				{newest ? (
 					<Text style={styles.value} numberOfLines={1}>
 						{newest}
@@ -45,7 +48,7 @@ export const AboutSection = () => {
 				) : null}
 				{newer ? (
 					<Button
-						label={t("Update in TestFlight", { context: platform.context })}
+						label={t("Update in TestFlight")}
 						tone="link"
 						small
 						onPress={() => void openUpdate()}

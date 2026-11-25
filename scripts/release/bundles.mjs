@@ -25,8 +25,9 @@ export const DESKTOP_TARGETS = [
 // `<os>-<cpu>`.
 export const BUNDLES = { windows: ["nsis", "msi"], linux: ["appimage", "deb", "rpm"] };
 
-// The asset name after MaxHQ_<arch>, per bundle type.
-const SUFFIX = {
+// The asset name after MaxHQ_<arch>, per bundle type, which is also how
+// Tauri's file for it ends.
+export const SUFFIX = {
 	nsis: "-setup.exe",
 	msi: ".msi",
 	appimage: ".AppImage",
@@ -68,18 +69,22 @@ export const targetInfo = (target) => {
 	return { ...info, bundles: BUNDLES[info.os] };
 };
 
-// Prints a list for the shell: `assets [<os>]` the installer names, one per
-// line, and `maxd` the Windows maxd asset names.
+// Prints a list for the shell, one per line: `assets [<os>]` the installer
+// names, `platforms [<os>]` the updater platform keys they fill, and `maxd`
+// the Windows maxd asset names.
 const main = () => {
 	const [what, os] = process.argv.slice(2);
+	const mine = (target) => !os || targetInfo(target).os === os;
 	if (what === "assets") {
-		for (const { asset, target } of desktopAssets())
-			if (!os || targetInfo(target).os === os) console.log(asset);
+		for (const { asset, target } of desktopAssets()) if (mine(target)) console.log(asset);
+	} else if (what === "platforms") {
+		for (const { platforms, target } of desktopAssets())
+			if (mine(target)) for (const platform of platforms) console.log(platform);
 	} else if (what === "maxd") {
 		for (const { target, os: system } of DESKTOP_TARGETS)
 			if (system === "windows") console.log(maxdAsset(target));
 	} else {
-		console.error("usage: bundles.mjs assets [windows|linux] | maxd");
+		console.error("usage: bundles.mjs assets|platforms [windows|linux] | maxd");
 		process.exit(2);
 	}
 };

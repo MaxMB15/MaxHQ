@@ -54,7 +54,7 @@ import { accountName } from "@maxhq/shared/status/usage";
 
 import { failureOf } from "@maxhq/shared/agent-view/answer";
 import { picksModel } from "@maxhq/shared/agent-view/controls";
-import { baseName } from "@maxhq/shared/agent-view/format";
+import { nameOf } from "@maxhq/shared/folders/path";
 import { foldedAt, headerNeeds } from "@maxhq/shared/agent-view/header-fit";
 import { canMove, moveBlocked } from "@maxhq/shared/agent-view/move-agent";
 import { AgentMenu } from "./header-menu";
@@ -342,7 +342,7 @@ export const AgentHeader = ({ agent }: { agent: Agent }) => {
 						>
 							<Folder size={12} strokeWidth={2} aria-hidden className="shrink-0" />
 							<span className={folded.has("folder") ? "sr-only" : "truncate"}>
-								{baseName(location.path)}
+								{nameOf(location.path)}
 							</span>
 						</span>
 					) : null}

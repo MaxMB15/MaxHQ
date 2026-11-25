@@ -23,17 +23,8 @@ import { sentence } from "@maxhq/shared/status/format";
 import type { ViewState } from "@maxhq/shared/view/replica";
 import { isLive } from "@maxhq/shared/workspaces/state";
 
-import { FIELD, Label, PRIMARY, SECONDARY, Section, StatusNote } from "./controls";
-import {
-	DeviceTicks,
-	HeldList,
-	KeyFileField,
-	type Outcome,
-	Outcomes,
-	TrashOffer,
-	useTicks,
-	useTrash,
-} from "./login-parts";
+import { FIELD, Label, SECONDARY, Section, StatusNote } from "./controls";
+import { HeldList, KeySendForm, useKeySend } from "./login-parts";
 import { Steps } from "./login-steps";
 import { MergeAsYou } from "./github-sign-in";
 import { appTargets, heldOf, parseAppId, reachText } from "./logins";
@@ -89,114 +80,46 @@ const CheckAgain = ({ device, live }: { device: DeviceId; live: boolean }) => {
 const Send = () => {
 	useI18n();
 	const { source } = useServices();
-	const view = useView((s) => s.view);
-	const now = useNow(5000);
-	const targets = appTargets(view, now);
 	const [appId, setAppId] = useState("");
-	const [keyPath, setKeyPath] = useState<string | null>(null);
-	const [ticked, setTicked] = useTicks(targets);
-	const [busy, setBusy] = useState(false);
-	const [outcomes, setOutcomes] = useState<Outcome[]>([]);
-	const [trash, setTrash, move] = useTrash(() => setKeyPath(null));
-	const [note, setNote] = useState<Note | null>(null);
-
 	const id = parseAppId(appId);
-	const devices = [...ticked];
-	const ready = id !== null && keyPath !== null && devices.length > 0 && !busy;
-
-	const send = async () => {
-		if (!ready || id === null || keyPath === null) return;
-		setBusy(true);
-		setNote(null);
-		setOutcomes([]);
-		setTrash(null);
-		try {
-			const results = await source.setGithubApp(devices, id, keyPath);
-			const done = devices.map((device, i) => {
-				const result = results[i];
-				return {
-					device,
-					failure: result ? failureOf(result) : translate("The device didn't answer"),
-				};
-			});
-			setOutcomes(done);
-			if (done.every((o) => o.failure === null)) setTrash({ step: "offer", path: keyPath });
-		} catch (error) {
-			console.warn(translate("Couldn't send the GitHub App"), error);
-			setNote({
-				text: translate("Couldn't send it. Check the file and try again."),
-				error: true,
-			});
-		} finally {
-			setBusy(false);
-		}
-	};
-
+	const sending = useKeySend({
+		targetsOf: appTargets,
+		deliver:
+			id === null ? null : (devices, keyPath) => source.setGithubApp(devices, id, keyPath),
+		warning: translate("Couldn't send the GitHub App"),
+	});
 	return (
-		<Section title={translate("Send the App")} hint={translate("To each device you tick")}>
-			<form
-				className="flex flex-col gap-4 px-4 py-3.5"
-				onSubmit={(e) => {
-					e.preventDefault();
-					void send();
-				}}
-			>
-				<label className="flex flex-col gap-1.5">
-					<Label>{translate("App ID")}</Label>
-					<input
-						aria-label={translate("App ID")}
-						value={appId}
-						onChange={(e) => setAppId(e.target.value)}
-						inputMode="numeric"
-						placeholder={translate("From the top of the App's page")}
-						spellCheck={false}
-						autoComplete="off"
-						className={cn(FIELD, "w-[220px] font-mono text-xs")}
-					/>
-					{appId.trim() !== "" && id === null ? (
-						<span className="text-[11.5px] text-status-error-text">
-							{translate("The App ID is a number, such as 1234567.")}
-						</span>
-					) : null}
-				</label>
-
-				<KeyFileField
-					label={translate("Private key")}
-					path={keyPath}
-					onPath={setKeyPath}
-					onFailure={setNote}
-					empty={translate("Drop the .private-key.pem file here, or choose it")}
+		<KeySendForm
+			sending={sending}
+			title={translate("Send the App")}
+			file={{
+				label: translate("Private key"),
+				empty: translate("Drop the .private-key.pem file here, or choose it"),
+			}}
+			noTargets={translate(
+				"MaxHQ doesn't know any device yet, so there's nowhere to send it."
+			)}
+			done={(device) => reachOn(sending.view, device)}
+		>
+			<label className="flex flex-col gap-1.5">
+				<Label>{translate("App ID")}</Label>
+				<input
+					aria-label={translate("App ID")}
+					value={appId}
+					onChange={(e) => setAppId(e.target.value)}
+					inputMode="numeric"
+					placeholder={translate("From the top of the App's page")}
+					spellCheck={false}
+					autoComplete="off"
+					className={cn(FIELD, "w-[220px] font-mono text-xs")}
 				/>
-
-				<DeviceTicks
-					targets={targets}
-					ticked={ticked}
-					onChange={setTicked}
-					disabled={busy}
-					label={translate("Devices")}
-					empty={translate(
-						"MaxHQ doesn't know any device yet, so there's nowhere to send it."
-					)}
-				/>
-
-				<div className="flex items-start gap-3">
-					<div className="flex min-w-0 flex-1 flex-col gap-2">
-						<StatusNote note={note} className="text-xs" />
-						<Outcomes
-							view={view}
-							outcomes={outcomes}
-							done={(device) => reachOn(view, device)}
-						/>
-						{trash ? (
-							<TrashOffer trash={trash} onMove={() => void move(trash.path)} />
-						) : null}
-					</div>
-					<button type="submit" className={PRIMARY} disabled={!ready}>
-						{busy ? translate("Sending") : translate("Send")}
-					</button>
-				</div>
-			</form>
-		</Section>
+				{appId.trim() !== "" && id === null ? (
+					<span className="text-[11.5px] text-status-error-text">
+						{translate("The App ID is a number, such as 1234567.")}
+					</span>
+				) : null}
+			</label>
+		</KeySendForm>
 	);
 };
 

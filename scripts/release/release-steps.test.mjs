@@ -1,22 +1,15 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026 Max Boksem
 
-// The shell steps the release and its dry run share: sign-desktop.sh,
-// maxd-sums.sh and sign-android.sh, run as the workflows run them, and
-// validate-release.sh, which checks a published release.
+// The steps the release and its dry run share: sign-desktop.sh,
+// maxd-sums.sh, write-manifests.sh and `mobile.ts android-sign`, run as the
+// workflows run them, and validate-release.sh, which checks a published
+// release.
 
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { execFile, execFileSync, spawnSync } from "node:child_process";
-import {
-	existsSync,
-	mkdirSync,
-	mkdtempSync,
-	readFileSync,
-	readdirSync,
-	rmSync,
-	writeFileSync,
-} from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -24,7 +17,7 @@ import { after, test } from "node:test";
 import { fileURLToPath } from "node:url";
 import { desktopAssets, maxdAsset } from "./bundles.mjs";
 import { latestJson, readDesktopSigs, signatureKeyId } from "./latest-json.mjs";
-import { readPublicKey } from "./sign.mjs";
+import { keyIdText, readPublicKey } from "./sign.mjs";
 import { repoVersion as version } from "./version.mjs";
 
 const here = (name) => fileURLToPath(new URL(name, import.meta.url));
@@ -47,6 +40,19 @@ const bare = (extra = {}) => {
 
 const sh = (script, args, env = bare()) =>
 	spawnSync("sh", [here(script), ...args], { encoding: "utf8", env });
+
+// apps/mobile/scripts/mobile.ts as the signing jobs run it: from the
+// checkout, on Node alone.
+const mobile = (args, env = bare()) =>
+	spawnSync(
+		process.execPath,
+		[
+			"--disable-warning=MODULE_TYPELESS_PACKAGE_JSON",
+			here("../../apps/mobile/scripts/mobile.ts"),
+			...args,
+		],
+		{ encoding: "utf8", env }
+	);
 
 const folder = (name) => {
 	const path = join(dir, name);
@@ -84,7 +90,7 @@ test(
 			new RegExp(`Signed ${linux.length} installers for ${version()}\\.`)
 		);
 		assert.match(
-			run.stdout,
+			run.stderr,
 			/warning: MaxHQ_x64-setup.exe isn't in .*, so it has no signature/
 		);
 		assert.ok(!existsSync(join(out, "MaxHQ_x64-setup.exe.sig")), "a stale .sig goes");
@@ -175,6 +181,26 @@ test("sign-desktop.sh fails without a key or an installer", { skip: !haveTauri }
 	assert.match(sh("sign-desktop.sh", []).stderr, /usage: sign-desktop.sh <dir>/);
 });
 
+test("lib.sh's die and warn name the script and annotate on GitHub Actions", () => {
+	const script = join(dir, "lib-user.sh");
+	writeFileSync(
+		script,
+		`. ${JSON.stringify(here("lib.sh"))}\nwarn "it's $1"\n[ "$1" = fine ] || die "$1 failed"\necho done\n`
+	);
+	const local = spawnSync("sh", [script, "broken"], { encoding: "utf8", env: bare() });
+	assert.equal(local.status, 1);
+	assert.equal(local.stdout, "");
+	assert.equal(local.stderr, "warning: it's broken\nlib-user.sh: broken failed\n");
+	const ci = spawnSync("sh", [script, "broken"], {
+		encoding: "utf8",
+		env: bare({ GITHUB_ACTIONS: "true" }),
+	});
+	assert.equal(ci.stderr, "::warning::it's broken\n::error::lib-user.sh: broken failed\n");
+	const fine = spawnSync("sh", [script, "fine"], { encoding: "utf8", env: bare() });
+	assert.equal(fine.status, 0);
+	assert.equal(fine.stdout, "done\n");
+});
+
 test("maxd-sums.sh sums the Linux maxd and each Windows one there", () => {
 	const out = folder("maxd");
 	const put = (name) => writeFileSync(join(out, name), `binary ${name}`);
@@ -204,19 +230,127 @@ test("maxd-sums.sh sums the Linux maxd and each Windows one there", () => {
 	);
 });
 
-test("sign-android.sh leaves the build unsigned without a key and fails on half a key", () => {
+test(
+	"write-manifests.sh writes each key state's manifests, the installers only in the app's",
+	{ skip: !haveTauri },
+	() => {
+		const current = throwaway("manifest-current");
+		const next = throwaway("manifest-next");
+		const keys = bare({
+			TAURI_SIGNING_PRIVATE_KEY_PATH: current.path,
+			TAURI_SIGNING_PRIVATE_KEY_NEXT_PATH: next.path,
+		});
+		const v = version();
+		// The Macs' archives and the Linux installers, signed as the bridge
+		// release signs them.
+		const mac = folder("manifest-mac");
+		for (const arch of ["aarch64", "x64"]) {
+			const archive = join(mac, `MaxHQ_${v}_${arch}.app.tar.gz`);
+			writeFileSync(archive, `archive ${arch}`);
+			execFileSync(process.execPath, [here("sign.mjs"), archive], { env: keys });
+			execFileSync(
+				process.execPath,
+				[here("sign.mjs"), "--next", "--out", `${archive}.next.sig`, archive],
+				{ env: keys }
+			);
+		}
+		const desktop = folder("manifest-desktop");
+		const linux = desktopAssets().filter(({ target }) => target.includes("-linux-"));
+		for (const { asset } of linux) writeFileSync(join(desktop, asset), `installer ${asset}`);
+		assert.equal(sh("sign-desktop.sh", [desktop], { ...keys, MAXHQ_BRIDGE: "1" }).status, 0);
+		const notes = join(dir, "manifest-notes.md");
+		writeFileSync(notes, "What's new\n");
+
+		const write = (name, env) => {
+			const out = join(dir, `manifests-${name}`);
+			const run = sh("write-manifests.sh", [notes, mac, desktop, out], {
+				...bare(),
+				VERSION: v,
+				GITHUB_REPOSITORY: "owner/MaxHQ",
+				CURRENT_PUBKEY: current.pub,
+				NEXT_PUBKEY: next.pub,
+				...env,
+			});
+			const read = (file) => JSON.parse(readFileSync(join(out, file), "utf8"));
+			return { run, out, read };
+		};
+		const macs = ["darwin-aarch64", "darwin-x86_64"];
+		const linuxKeys = linux.flatMap(({ platforms }) => platforms);
+		const signer = (manifest) =>
+			new Set(
+				Object.values(manifest.platforms).map(({ signature }) =>
+					keyIdText(signatureKeyId(signature))
+				)
+			);
+		const keyOf = (key) => new Set([keyIdText(readPublicKey(key.pub).keyId)]);
+
+		const old = write("old", { KEY_STATE: "old", UPDATE_MANIFEST: "latest.json" });
+		assert.equal(old.run.status, 0, old.run.stderr);
+		assert.deepEqual(old.run.stdout.trim().split("\n"), [join(old.out, "latest.json")]);
+		assert.deepEqual(
+			Object.keys(old.read("latest.json").platforms).sort(),
+			[...macs, ...linuxKeys].sort()
+		);
+		assert.deepEqual(signer(old.read("latest.json")), keyOf(current));
+		assert.equal(old.read("latest.json").notes, "What's new");
+
+		const bridge = write("bridge", { KEY_STATE: "bridge", UPDATE_MANIFEST: "latest-v2.json" });
+		assert.equal(bridge.run.status, 0, bridge.run.stderr);
+		assert.deepEqual(bridge.run.stdout.trim().split("\n"), [
+			join(bridge.out, "latest.json"),
+			join(bridge.out, "latest-v2.json"),
+		]);
+		assert.deepEqual(Object.keys(bridge.read("latest.json").platforms), macs);
+		assert.deepEqual(signer(bridge.read("latest.json")), keyOf(current));
+		assert.deepEqual(
+			Object.keys(bridge.read("latest-v2.json").platforms).sort(),
+			[...macs, ...linuxKeys].sort()
+		);
+		assert.deepEqual(signer(bridge.read("latest-v2.json")), keyOf(next));
+		assert.match(bridge.run.stderr, /"darwin-aarch64"/);
+
+		// After the change: latest.json is the release before's, as it is.
+		const frozen = join(dir, "manifest-frozen.json");
+		writeFileSync(frozen, `${JSON.stringify({ version: "0.0.1", platforms: {} })}\n`);
+		const after = { KEY_STATE: "new", UPDATE_MANIFEST: "latest-v2.json", FROZEN: frozen };
+		const done = write("new", after);
+		assert.equal(done.run.status, 0, done.run.stderr);
+		assert.deepEqual(done.run.stdout.trim().split("\n"), [
+			join(done.out, "latest-v2.json"),
+			join(done.out, "latest.json"),
+		]);
+		assert.equal(
+			readFileSync(join(done.out, "latest.json"), "utf8"),
+			readFileSync(frozen, "utf8")
+		);
+		assert.deepEqual(signer(done.read("latest-v2.json")), keyOf(current));
+		// Signed with the next key, every .sig must be by it.
+		const wrong = write("wrong", { ...after, SIGN_KEY: "next" });
+		assert.equal(wrong.run.status, 1);
+		assert.match(wrong.run.stderr, /signature is by key .*, not /);
+		writeFileSync(frozen, `${JSON.stringify({ version: v, platforms: {} })}\n`);
+		const again = write("again", { ...after, PREVIOUS: "v0.0.1" });
+		assert.equal(again.run.status, 1);
+		assert.match(again.run.stderr, new RegExp(`latest.json on v0.0.1 already names ${v}`));
+		const none = write("none", { UPDATE_MANIFEST: "latest.json" });
+		assert.equal(none.run.status, 1);
+		assert.match(none.run.stderr, /prepare-release gave no update key state/);
+	}
+);
+
+test("android-sign leaves the build unsigned without a key and fails on half a key", () => {
 	const build = folder("android");
 	const out = join(dir, "android-out");
-	const missing = sh("sign-android.sh", [build, out]);
+	const missing = mobile(["android-sign", build, out]);
 	assert.equal(missing.status, 1);
 	assert.match(missing.stderr, /has no app-release-unsigned.apk/);
+	assert.equal(mobile(["android-sign", build]).status, 1, "both folders are needed");
 
 	writeFileSync(join(build, "app-release-unsigned.apk"), "apk");
 	writeFileSync(join(build, "app-release.aab"), "aab");
 	const summary = join(dir, "summary.md");
-	const none = sh(
-		"sign-android.sh",
-		[build, out],
+	const none = mobile(
+		["android-sign", build, out],
 		bare({ GITHUB_ACTIONS: "true", GITHUB_STEP_SUMMARY: summary })
 	);
 	assert.equal(none.status, 0, none.stderr);
@@ -227,13 +361,13 @@ test("sign-android.sh leaves the build unsigned without a key and fails on half 
 	assert.match(readFileSync(summary, "utf8"), /### Android build unsigned/);
 	assert.ok(!existsSync(out), "nothing is written");
 
-	const half = sh("sign-android.sh", [build, out], bare({ ANDROID_KEY_ALIAS: "upload" }));
+	const half = mobile(["android-sign", build, out], bare({ ANDROID_KEY_ALIAS: "upload" }));
 	assert.equal(half.status, 1);
 	assert.match(
 		half.stderr,
-		/these aren't set: ANDROID_KEYSTORE_BASE64 ANDROID_KEYSTORE_PASSWORD ANDROID_KEY_PASSWORD\n/
+		/ANDROID_KEYSTORE_BASE64, ANDROID_KEYSTORE_PASSWORD, ANDROID_KEY_PASSWORD isn't set/
 	);
-	assert.ok(!existsSync(out) || readdirSync(out).length === 0, "nothing is signed");
+	assert.ok(!existsSync(out), "nothing is signed");
 });
 
 // validate-release.sh against the release make(base) gives, served from

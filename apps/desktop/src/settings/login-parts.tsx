@@ -2,17 +2,18 @@
 // Copyright (c) 2026 Max Boksem
 
 // The parts the login pages share: the devices to tick, the pasted secret
-// and its send, the key file picked or dropped and the offer to move it to
-// the Trash, how each device took the login, and the list of what each
-// device holds with Forget and any buttons a page adds.
+// and its send, the key file picked or dropped with its send and the offer
+// to move it to the Trash, how each device took the login, and the list of
+// what each device holds with Forget and any buttons a page adds.
 
 import { type ReactNode, type RefObject, useRef, useState } from "react";
 
-import { useServices } from "@/app/services";
+import { useServices, useView } from "@/app/services";
 import { CopyIcon } from "@/components/copy-field";
 import { Checkbox } from "@/components/ui/checkbox";
 import type { CredentialKind, DeviceId, Timestamp } from "@maxhq/shared/bindings";
 import type { ActionResult } from "@maxhq/shared/data/source";
+import { useNow } from "@maxhq/shared/lib/clock";
 import { cn } from "@/lib/utils";
 import { moveToTrash, pickAttachments, useDropTarget } from "@/native";
 import { forgetNote, type Outcome, outcomesOf, useTicks } from "@maxhq/shared/settings/login-parts";
@@ -20,9 +21,18 @@ import { formatAgo, sentence } from "@maxhq/shared/status/format";
 import { deviceName } from "@maxhq/shared/view/select";
 import type { ViewState } from "@maxhq/shared/view/replica";
 
-import { ConfirmButton, ErrorCopy, FIELD, Label, PRIMARY, SECONDARY, StatusNote } from "./controls";
+import {
+	ConfirmButton,
+	ErrorCopy,
+	FIELD,
+	Label,
+	PRIMARY,
+	SECONDARY,
+	Section,
+	StatusNote,
+} from "./controls";
 import { fileName, type Held, type Target, usable, withoutWhitespace } from "./logins";
-import { type Note, scrub } from "./result";
+import { failureOf, type Note, scrub } from "./result";
 import { t as translate, useI18n } from "@maxhq/shared/i18n";
 
 export { type Outcome, useTicks };
@@ -283,6 +293,176 @@ export const TrashOffer = ({ trash, onMove }: { trash: Trash; onMove: () => void
 				</div>
 			);
 	}
+};
+
+/** A key file sent to the ticked devices, with how it went. */
+export type KeySend = {
+	readonly view: ViewState;
+	readonly targets: readonly Target[];
+	readonly ticked: ReadonlySet<DeviceId>;
+	readonly setTicked: (ticked: ReadonlySet<DeviceId>) => void;
+	readonly keyPath: string | null;
+	readonly setKeyPath: (path: string) => void;
+	readonly busy: boolean;
+	/** Whether the file, a ticked device and the page's own fields are there. */
+	readonly ready: boolean;
+	readonly outcomes: readonly Outcome[];
+	readonly trash: Trash | null;
+	readonly move: (path: string) => Promise<void>;
+	readonly note: Note | null;
+	readonly setNote: (note: Note | null) => void;
+	/**
+	 * Sends the file's path to the ticked devices, and once every one has
+	 * the key offers to move the file to the Trash.
+	 */
+	readonly send: () => Promise<void>;
+};
+
+/**
+ * The state behind a key file sent to devices. `targetsOf` lists the
+ * devices that can take it, and `deliver` hands the source the ticked
+ * devices and the file's path, or is null until the page's own fields are
+ * filled in. `warning` is what the console says when the send fails as a
+ * whole.
+ */
+export const useKeySend = ({
+	targetsOf,
+	deliver,
+	warning,
+}: {
+	targetsOf: (view: ViewState, now: Timestamp) => Target[];
+	deliver: ((devices: DeviceId[], keyPath: string) => Promise<ActionResult[]>) | null;
+	warning: string;
+}): KeySend => {
+	const view = useView((s) => s.view);
+	const now = useNow(5000);
+	const targets = targetsOf(view, now);
+	const [keyPath, setKeyPath] = useState<string | null>(null);
+	const [ticked, setTicked] = useTicks(targets);
+	const [busy, setBusy] = useState(false);
+	const [outcomes, setOutcomes] = useState<Outcome[]>([]);
+	const [trash, setTrash, move] = useTrash(() => setKeyPath(null));
+	const [note, setNote] = useState<Note | null>(null);
+
+	const devices = [...ticked];
+	const ready = deliver !== null && keyPath !== null && devices.length > 0 && !busy;
+
+	const send = async () => {
+		if (!ready || deliver === null || keyPath === null) return;
+		setBusy(true);
+		setNote(null);
+		setOutcomes([]);
+		setTrash(null);
+		try {
+			const results = await deliver(devices, keyPath);
+			const done = devices.map((device, i) => {
+				const result = results[i];
+				return {
+					device,
+					failure: result ? failureOf(result) : translate("The device didn't answer"),
+				};
+			});
+			setOutcomes(done);
+			if (done.every((o) => o.failure === null)) setTrash({ step: "offer", path: keyPath });
+		} catch (error) {
+			console.warn(warning, error);
+			setNote({
+				text: translate("Couldn't send it. Check the file and try again."),
+				error: true,
+			});
+		} finally {
+			setBusy(false);
+		}
+	};
+
+	return {
+		view,
+		targets,
+		ticked,
+		setTicked,
+		keyPath,
+		setKeyPath,
+		busy,
+		ready,
+		outcomes,
+		trash,
+		move,
+		note,
+		setNote,
+		send,
+	};
+};
+
+/**
+ * The card that sends a key file: the page's own fields (`children`), the
+ * file, the devices to tick, and how the send went beside Send.
+ */
+export const KeySendForm = ({
+	sending,
+	title,
+	file,
+	noTargets,
+	done,
+	children,
+}: {
+	sending: KeySend;
+	title: string;
+	/** The file field's label, and what it says before a file is in it. */
+	file: { readonly label: string; readonly empty: string };
+	/** What shows when there's no device to send to. */
+	noTargets: string;
+	/** What a device that took the key shows. */
+	done: (device: DeviceId) => ReactNode;
+	children?: ReactNode;
+}) => {
+	useI18n();
+	const { view, targets, ticked, keyPath, busy, ready, outcomes, trash, note } = sending;
+	return (
+		<Section title={title} hint={translate("To each device you tick")}>
+			<form
+				className="flex flex-col gap-4 px-4 py-3.5"
+				onSubmit={(e) => {
+					e.preventDefault();
+					void sending.send();
+				}}
+			>
+				{children}
+
+				<KeyFileField
+					label={file.label}
+					path={keyPath}
+					onPath={sending.setKeyPath}
+					onFailure={sending.setNote}
+					empty={file.empty}
+				/>
+
+				<DeviceTicks
+					targets={targets}
+					ticked={ticked}
+					onChange={sending.setTicked}
+					disabled={busy}
+					label={translate("Devices")}
+					empty={noTargets}
+				/>
+
+				<div className="flex items-start gap-3">
+					<div className="flex min-w-0 flex-1 flex-col gap-2">
+						<StatusNote note={note} className="text-xs" />
+						<Outcomes view={view} outcomes={outcomes} done={done} />
+						{trash ? (
+							<TrashOffer
+								trash={trash}
+								onMove={() => void sending.move(trash.path)}
+							/>
+						) : null}
+					</div>
+					<button type="submit" className={PRIMARY} disabled={!ready}>
+						{busy ? translate("Sending") : translate("Send")}
+					</button>
+				</div>
+			</form>
+		</Section>
+	);
 };
 
 /** A secret pasted into a field and sent to devices, with how it went. */

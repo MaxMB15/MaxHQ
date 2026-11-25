@@ -346,6 +346,7 @@ pub fn find_claude(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::testing::{absolute, path_of};
     use maxhq_protocol::ids::{AccountId, DeviceId, WorkspaceId};
     use maxhq_protocol::Secret;
     use std::fs;
@@ -387,9 +388,9 @@ mod tests {
 
     fn host() -> Host {
         Host {
-            program: PathBuf::from("/home/me/.local/bin/claude"),
+            program: absolute("/home/me/.local/bin/claude").into(),
             home: Some(PathBuf::from("/home/me")),
-            path: Some("/usr/bin:/bin".into()),
+            path: Some(path_of(&["/usr/bin", "/bin"]).into()),
             inherited: vec![
                 "HOME".into(),
                 "CLAUDECODE".into(),
@@ -450,7 +451,7 @@ mod tests {
             Some("haiku"),
             PermissionMode::AcceptEdits,
         );
-        assert_eq!(launch.program, PathBuf::from("/home/me/.local/bin/claude"));
+        assert_eq!(launch.program, host().program);
         assert_eq!(
             strings(&launch.args),
             [
@@ -671,9 +672,10 @@ mod tests {
             None,
             PermissionMode::Ask,
         );
-        assert!(launch
-            .env
-            .contains(&("PATH".into(), "/home/me/.local/bin:/usr/bin:/bin".into())));
+        assert!(launch.env.contains(&(
+            "PATH".into(),
+            path_of(&[&absolute("/home/me/.local/bin"), "/usr/bin", "/bin"]).into()
+        )));
     }
 
     /// A token account's login, as the secret store serves it.
@@ -744,7 +746,7 @@ mod tests {
     #[test]
     fn signs_in_again_to_the_sessions_folder_with_its_variables() {
         let other = login_command(&host(), &login("/home/me/.claude-work"));
-        assert_eq!(other.program, PathBuf::from("/home/me/.local/bin/claude"));
+        assert_eq!(other.program, host().program);
         assert_eq!(strings(&other.args), ["auth", "login"]);
         assert_eq!(other.cwd, PathBuf::from("/home/me/.claude-work"));
         assert_eq!(
@@ -753,7 +755,11 @@ mod tests {
         );
         assert_eq!(
             env_value(&other, "PATH"),
-            Some("/home/me/.local/bin:/usr/bin:/bin")
+            Some(&*path_of(&[
+                &absolute("/home/me/.local/bin"),
+                "/usr/bin",
+                "/bin"
+            ]))
         );
         let removed = strings(&other.env_remove);
         for name in [

@@ -475,7 +475,7 @@ fn refused(reason: impl Into<String>) -> ActionOutcome {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::testing::TempDir;
+    use crate::testing::{absolute, TempDir};
 
     /// What Cursor writes: two-space JSON and a newline.
     const CURSOR: &str = r#"{
@@ -510,6 +510,14 @@ mod tests {
         (home, path)
     }
 
+    /// `~` then `parts`, as [`shown`] writes a path in the home folder.
+    fn tilde(parts: &[&str]) -> String {
+        let path = parts
+            .iter()
+            .fold(PathBuf::from("~"), |path, part| path.join(part));
+        path.display().to_string()
+    }
+
     fn list_in(home: &Path) -> Result<CursorRules, String> {
         run(&CursorRuleCall::List, None, None, Some(home))
     }
@@ -530,26 +538,29 @@ mod tests {
 
     #[test]
     fn cursor_s_folder_is_the_one_its_cli_finds() {
-        let home = Path::new("/home/dev");
+        let home = PathBuf::from(absolute("/home/dev"));
+        let home = home.as_path();
         let path = |dir: Option<&str>, xdg: Option<&str>, home: Option<&Path>| {
             config_path(dir.map(Into::into), xdg.map(Into::into), home)
         };
+        let at = |path: &str| Ok(PathBuf::from(absolute(path)));
         assert_eq!(
             path(None, None, Some(home)),
-            Ok(PathBuf::from("/home/dev/.cursor/cli-config.json"))
+            at("/home/dev/.cursor/cli-config.json")
+        );
+        let xdg = absolute("/home/dev/.config");
+        assert_eq!(
+            path(None, Some(&xdg), Some(home)),
+            at("/home/dev/.config/cursor/cli-config.json")
         );
         assert_eq!(
-            path(None, Some("/home/dev/.config"), Some(home)),
-            Ok(PathBuf::from("/home/dev/.config/cursor/cli-config.json"))
-        );
-        assert_eq!(
-            path(Some("/srv/cursor"), Some("/home/dev/.config"), Some(home)),
-            Ok(PathBuf::from("/srv/cursor/cli-config.json"))
+            path(Some(&absolute("/srv/cursor")), Some(&xdg), Some(home)),
+            at("/srv/cursor/cli-config.json")
         );
         // A blank one counts as not set, as it does for Cursor.
         assert_eq!(
             path(Some("  "), Some(""), Some(home)),
-            Ok(PathBuf::from("/home/dev/.cursor/cli-config.json"))
+            at("/home/dev/.cursor/cli-config.json")
         );
         assert_eq!(path(None, None, None), Err(NO_HOME.to_owned()));
         assert_eq!(
@@ -557,8 +568,8 @@ mod tests {
             Err(RELATIVE.to_owned())
         );
         assert_eq!(
-            shown(Path::new("/home/dev/.cursor/cli-config.json"), Some(home)),
-            "~/.cursor/cli-config.json"
+            shown(&home.join(".cursor").join(FILE), Some(home)),
+            tilde(&[".cursor", FILE])
         );
         assert_eq!(
             shown(Path::new("/srv/cursor/cli-config.json"), Some(home)),
@@ -572,7 +583,7 @@ mod tests {
         assert_eq!(
             list_in(home.path()),
             Ok(CursorRules {
-                path: "~/.cursor/cli-config.json".into(),
+                path: tilde(&[".cursor", FILE]),
                 rules: vec![
                     "Shell(git status)".into(),
                     "Shell(pnpm test)".into(),
@@ -586,7 +597,7 @@ mod tests {
     fn a_file_that_isn_t_there_has_no_rules_and_stays_away() {
         let home = TempDir::new();
         let none = CursorRules {
-            path: "~/.cursor/cli-config.json".into(),
+            path: tilde(&[".cursor", FILE]),
             rules: Vec::new(),
         };
         assert_eq!(list_in(home.path()), Ok(none.clone()));
@@ -670,7 +681,10 @@ mod tests {
         let refused = remove_in(home.path(), "Read(src/**)").unwrap_err();
         assert_eq!(
             refused,
-            "maxd removes only Shell(...) rules from ~/.cursor/cli-config.json."
+            format!(
+                "maxd removes only Shell(...) rules from {}.",
+                tilde(&[".cursor", FILE])
+            )
         );
         assert_eq!(fs::read_to_string(&path).unwrap(), CURSOR);
     }
@@ -698,7 +712,7 @@ mod tests {
             let refused = remove_in(home.path(), "Shell(ls)").unwrap_err();
             assert!(refused.contains(reason), "{text}: {refused}");
             assert!(
-                refused.starts_with("~/.cursor/cli-config.json "),
+                refused.starts_with(&format!("{} ", tilde(&[".cursor", FILE]))),
                 "{refused}"
             );
             assert_eq!(fs::read_to_string(&path).unwrap(), text);
@@ -763,7 +777,7 @@ mod tests {
             Some(home.path()),
         )
         .unwrap();
-        assert_eq!(listed.path, "~/elsewhere/cli-config.json");
+        assert_eq!(listed.path, tilde(&["elsewhere", FILE]));
         assert_eq!(listed.rules.len(), 3);
     }
 

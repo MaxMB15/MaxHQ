@@ -561,15 +561,26 @@ async fn a_shell_that_marks_its_commands_is_busy_from_start_to_end_or_while_the_
 #[tokio::test]
 async fn the_shell_integration_switch_decides_whether_shells_get_hooks() {
     let f = fixture();
+    // A shell the drawer marks: zsh, or PowerShell on Windows, which has
+    // no zsh to mark.
     let zsh = || {
         let mut launch = TermLaunch::shell(TerminalId::generate(), "/".into(), 80, 24);
-        launch.program = "/bin/zsh".into();
+        launch.program = if cfg!(windows) {
+            "pwsh.exe"
+        } else {
+            "/bin/zsh"
+        }
+        .into();
         launch
     };
     let mut on = zsh();
     assert!(f.terminals.integrate(&mut on));
     assert!(on.nonce.is_some());
-    assert!(on.env.iter().any(|(key, _)| key == "ZDOTDIR"));
+    if cfg!(windows) {
+        assert!(on.args.iter().any(|arg| arg == "-Command"));
+    } else {
+        assert!(on.env.iter().any(|(key, _)| key == "ZDOTDIR"));
+    }
     let key = EntityKey::DeviceSettings(f.hub.device().id);
     let Some(Entity::DeviceSettings(settings)) = f.hub.get(&key) else {
         panic!("a new hub has settings");

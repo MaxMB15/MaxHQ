@@ -29,8 +29,9 @@ describe("osOfUserAgent", () => {
 });
 
 describe("wordingFor", () => {
-	it("keeps macOS and unknown systems on the text as written", () => {
+	it("keeps macOS, iOS and unknown systems on the text as written", () => {
 		expect(wordingFor("macos")).toBeUndefined();
+		expect(wordingFor("ios")).toBeUndefined();
 		expect(wordingFor(null)).toBeUndefined();
 		expect(wordingFor(undefined)).toBeUndefined();
 		expect(wordingFor("")).toBeUndefined();
@@ -39,5 +40,8 @@ describe("wordingFor", () => {
 		expect(wordingFor("windows")).toBe("windows");
 		expect(wordingFor("linux")).toBe("linux");
 		expect(wordingFor("freebsd")).toBe("linux");
+	});
+	it("gives Android its own wording", () => {
+		expect(wordingFor("android")).toBe("android");
 	});
 });
