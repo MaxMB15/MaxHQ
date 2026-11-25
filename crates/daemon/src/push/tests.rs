@@ -22,7 +22,7 @@ use maxhq_protocol::message::ActionOutcome;
 use maxhq_protocol::model::{
     Activity, Agent, AgentLink, Control, Vendor, Workspace, WorkspaceLocation,
 };
-use maxhq_protocol::phones::{Phone, PushEnvironment, PushKind, PushToken};
+use maxhq_protocol::phones::{Phone, PushEnvironment, PushKind, PushService, PushToken};
 use maxhq_protocol::state::{Change, Entity, EntityKey};
 use maxhq_protocol::time::Timestamp;
 use maxhq_protocol::Secret;
@@ -33,9 +33,12 @@ use tokio::sync::mpsc;
 use super::seal::{open, public};
 use super::*;
 use crate::secrets::apns::test_p8;
+use crate::secrets::fcm::test_pem;
 use crate::secrets::testing::hub_for;
 use crate::session::clock::FakeClock;
 use crate::testing::TempDir;
+
+mod fcm;
 
 /// What the fake got.
 #[derive(Debug)]
@@ -136,6 +139,9 @@ struct Harness {
     push: Push,
     fake: Fake,
     key: Arc<ApnsKey>,
+    /// The local FCM and Google token endpoint.
+    fcm: fcm::FcmFake,
+    fcm_key: Arc<FcmKey>,
 }
 
 fn phone_private(phone: PhoneId) -> [u8; 32] {
@@ -165,6 +171,7 @@ fn token(hex: &str, kinds: &[PushKind]) -> PushToken {
         topic: "com.example.maxhq".into(),
         environment: PushEnvironment::Sandbox,
         kinds: kinds.to_vec(),
+        service: PushService::Apns,
     }
 }
 
@@ -181,14 +188,20 @@ impl Harness {
         let hub = hub_for("devbox");
         let clock = Arc::new(FakeClock::new());
         let fake = Fake::start().await;
+        let fcm = fcm::FcmFake::start().await;
         let key = Arc::new(ApnsKey::parse("ABC123DEFG", "TEAM123456", &test_p8()).unwrap());
-        let held = key.clone();
+        let fcm_key = Arc::new(FcmKey::parse(fcm::PROJECT, fcm::EMAIL, &test_pem()).unwrap());
+        let (held, firebase) = (key.clone(), fcm_key.clone());
         let push = Push::open(
             hub.clone(),
             Folder::open(temp.path().join(DIR)).unwrap(),
             clock.clone(),
-            Apns::at(fake.url.clone()),
-            Arc::new(move || Some(held.clone())),
+            Services {
+                apns: Apns::at(fake.url.clone()),
+                apns_key: Arc::new(move || Some(held.clone())),
+                fcm: Fcm::at(&fcm.url),
+                fcm_key: Arc::new(move || Some(firebase.clone())),
+            },
         );
         let device = hub.device().id;
         let mut entities = vec![Entity::Workspace(Workspace {
@@ -222,6 +235,8 @@ impl Harness {
             push,
             fake,
             key,
+            fcm,
+            fcm_key,
         }
     }
 
@@ -602,8 +617,12 @@ async fn push_drops_a_token_apns_calls_gone() {
         h.hub.clone(),
         Folder::open(h._temp.path().join(DIR)).unwrap(),
         h.clock.clone(),
-        Apns::at(h.fake.url.clone()),
-        Arc::new(|| None),
+        Services {
+            apns: Apns::at(h.fake.url.clone()),
+            apns_key: Arc::new(|| None),
+            fcm: Fcm::at(&h.fcm.url),
+            fcm_key: Arc::new(|| None),
+        },
     );
     let state = again.lock();
     assert!(state.tokens.get(phone("phone-a")).is_none());
@@ -660,7 +679,8 @@ async fn push_stays_under_four_kilobytes() {
     let outgoing = watch.due();
     assert_eq!(outgoing.len(), 2);
     for out in &outgoing {
-        assert!(out.payload.len() < 4_096, "{} bytes", out.payload.len());
+        let body = out.body();
+        assert!(body.len() < 4_096, "{} bytes", body.len());
     }
     h.push.send(outgoing.into_iter().next().unwrap()).await;
     let got = h.fake.take();

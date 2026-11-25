@@ -858,6 +858,7 @@ impl Connection {
                     | ClientMessage::SetHookSecret { .. }
                     | ClientMessage::SetHookAddress { .. }
                     | ClientMessage::SetApnsKey { .. }
+                    | ClientMessage::SetFcmKey { .. }
                     | ClientMessage::InstallUpdate { .. }
                     | ClientMessage::InstallTool { .. }
                     | ClientMessage::UpdateTools { .. }
@@ -1313,6 +1314,16 @@ impl Connection {
                 private_key,
             } => {
                 let set = move || secrets::set_apns_key(&key_id, &team_id, private_key);
+                self.answer_when(key, tokio::task::spawn_blocking(set));
+                Ok(())
+            }
+            ClientMessage::SetFcmKey {
+                key,
+                project_id,
+                client_email,
+                private_key,
+            } => {
+                let set = move || secrets::set_fcm_key(&project_id, &client_email, private_key);
                 self.answer_when(key, tokio::task::spawn_blocking(set));
                 Ok(())
             }
@@ -2550,7 +2561,9 @@ pub(crate) mod tests {
     #[tokio::test]
     async fn a_phone_pairs_once_through_its_one_time_key_and_then_has_its_own() {
         use base64::Engine;
-        use maxhq_protocol::phones::{PhoneBookEntry, PhoneRoute, PushEnvironment, PushToken};
+        use maxhq_protocol::phones::{
+            PhoneBookEntry, PhoneRoute, PushEnvironment, PushService, PushToken,
+        };
         use russh::keys::ssh_key::private::Ed25519Keypair;
         use russh::keys::ssh_key::PublicKey;
 
@@ -2664,6 +2677,7 @@ pub(crate) mod tests {
             topic: "com.example.maxhq".into(),
             environment: PushEnvironment::Sandbox,
             kinds: Vec::new(),
+            service: PushService::Apns,
         };
         app.send(&ClientMessage::SetPushToken {
             key: IdempotencyKey::derive("token-app"),
@@ -3824,6 +3838,12 @@ pub(crate) mod tests {
                 key: key("apns"),
                 key_id: "key".into(),
                 team_id: "team".into(),
+                private_key: secret(),
+            },
+            ClientMessage::SetFcmKey {
+                key: key("fcm"),
+                project_id: "project".into(),
+                client_email: "pusher@example.invalid".into(),
                 private_key: secret(),
             },
             ClientMessage::InstallUpdate {

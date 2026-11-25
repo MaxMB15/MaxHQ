@@ -1022,14 +1022,21 @@ fn start_push(hub: &Hub, data: &Path) {
             return;
         }
     };
+    let fcm = match push::Fcm::new() {
+        Ok(fcm) => fcm,
+        Err(err) => {
+            error!("can't push to phones: {err}");
+            return;
+        }
+    };
     let clock = Arc::new(session::clock::SystemClock);
-    let push = push::Push::open(
-        hub.clone(),
-        folder,
-        clock,
+    let services = push::Services {
         apns,
-        Arc::new(secrets::apns_key),
-    );
+        apns_key: Arc::new(secrets::apns_key),
+        fcm,
+        fcm_key: Arc::new(secrets::fcm_key),
+    };
+    let push = push::Push::open(hub.clone(), folder, clock, services);
     push::install(push.clone());
     spawn_task("the phone pushes", push.watch());
 }

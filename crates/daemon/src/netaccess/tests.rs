@@ -24,7 +24,7 @@ use maxhq_protocol::netaccess::{
     NetError, NetGrant, NetPair, NetPaired, NetRefusal, NetToken, NetworkAccess, CODE_FOR,
     LINK_PATH, MAX_LINK_MESSAGE, PAIR_PATH, TOKEN_FOR, TOKEN_PATH,
 };
-use maxhq_protocol::phones::{PhoneBookEntry, PushEnvironment, PushToken};
+use maxhq_protocol::phones::{PhoneBookEntry, PushEnvironment, PushService, PushToken};
 use maxhq_protocol::state::{Change, Entity, EntityKey};
 use maxhq_protocol::{ClientMessage, ProtocolRange, Secret, ServerMessage};
 use rustls::client::danger::{HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier};
@@ -645,6 +645,7 @@ async fn a_phone_pairs_trades_a_code_and_links_until_its_session_ends() {
                 topic: "com.example.maxhq".into(),
                 environment: PushEnvironment::Sandbox,
                 kinds: Vec::new(),
+                service: PushService::Apns,
             },
         },
     )
