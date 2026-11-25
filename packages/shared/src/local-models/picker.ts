@@ -29,6 +29,7 @@ import {
 	linkedDevicesLabel,
 	notEncrypted,
 } from "./wording";
+import { matchesModel } from "../agent-view/model-search";
 import type { Account, DeviceId, ModelServer, ServerModel } from "../bindings";
 import { accountOptions, type Option } from "../new-agent/spec";
 import { isThisMac } from "../settings/app-keys";
@@ -121,6 +122,38 @@ export const opensLocalSetup = (
 	const device = value.slice(LOCAL_SETUP_VALUE.length + 1).split(SETUP_BAR)[0];
 	return { device: device || fallback };
 };
+
+/**
+ * The model a model picker's row names, which its search matches besides
+ * the row's name: a local model's ID, the catalog model a row not
+ * downloaded yet stands for, or the value itself. A row that only opens
+ * the settings names none.
+ */
+export const optionModel = (value: string): string => {
+	const local = parseLocalModelKey(value);
+	if (local) return local.model;
+	if (value === LOCAL_SETUP_VALUE) return "";
+	if (!value.startsWith(LOCAL_SETUP_VALUE + SETUP_BAR)) return value;
+	const rest = value.slice(LOCAL_SETUP_VALUE.length + 1);
+	const bar = rest.indexOf(SETUP_BAR);
+	return bar < 0 ? "" : rest.slice(bar + 1);
+};
+
+/**
+ * The model picker's rows that `query` matches, by name or by model, as
+ * `matchesModel` says. The last row, which opens the Local models
+ * settings, stays.
+ */
+export const filterModelOptions = (options: readonly Option[], query: string): Option[] =>
+	options.filter(
+		(o) =>
+			o.value === LOCAL_SETUP_VALUE ||
+			matchesModel({ label: o.label, id: optionModel(o.value) }, query)
+	);
+
+/** How many models a model picker's rows list, for `showsModelSearch`: all but the setup row. */
+export const modelOptionCount = (options: readonly Option[]): number =>
+	options.filter((o) => o.value !== LOCAL_SETUP_VALUE).length;
 
 /**
  * The row under a Mac's models when its switch keeps this device's agents

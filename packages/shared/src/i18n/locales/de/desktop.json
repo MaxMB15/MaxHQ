@@ -1419,5 +1419,7 @@
 	"Click to give the program your keys": "Klicke, um dem Programm deine Tasten zu geben",
 	"Click outside or press {{keyHint}} to give the keys back.": "Klicke daneben oder drücke {{keyHint}}, um die Tasten zurückzugeben.",
 	"Start a fresh session each run": "Bei jedem Lauf eine neue Sitzung starten",
-	"Each run starts the agent on a new session in the same place, once its turn is over. The timeline keeps what came before.": "Jeder Lauf startet den Agent in einer neuen Sitzung am selben Ort, sobald seine Runde vorbei ist. Die Zeitleiste behält, was davor war."
+	"Each run starts the agent on a new session in the same place, once its turn is over. The timeline keeps what came before.": "Jeder Lauf startet den Agent in einer neuen Sitzung am selben Ort, sobald seine Runde vorbei ist. Die Zeitleiste behält, was davor war.",
+	"Search models": "Modelle suchen",
+	"No models match": "Keine passenden Modelle"
 }

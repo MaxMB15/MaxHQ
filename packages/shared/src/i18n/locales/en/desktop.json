@@ -1419,5 +1419,7 @@
 	"Click to give the program your keys": "Click to give the program your keys",
 	"Click outside or press {{keyHint}} to give the keys back.": "Click outside or press {{keyHint}} to give the keys back.",
 	"Start a fresh session each run": "Start a fresh session each run",
-	"Each run starts the agent on a new session in the same place, once its turn is over. The timeline keeps what came before.": "Each run starts the agent on a new session in the same place, once its turn is over. The timeline keeps what came before."
+	"Each run starts the agent on a new session in the same place, once its turn is over. The timeline keeps what came before.": "Each run starts the agent on a new session in the same place, once its turn is over. The timeline keeps what came before.",
+	"Search models": "Search models",
+	"No models match": "No models match"
 }

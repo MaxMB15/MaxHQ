@@ -16,7 +16,15 @@ import { DEVBOX, MAC } from "../data/mock-view";
 import { NOW } from "../test/build";
 import { applySnapshot, type ViewState } from "../view/replica";
 
-import { agentOptions, localPickerOptions, localModelTag, opensLocalSetup } from "./picker";
+import {
+	agentOptions,
+	filterModelOptions,
+	localPickerOptions,
+	localModelTag,
+	modelOptionCount,
+	opensLocalSetup,
+	optionModel,
+} from "./picker";
 import { defaultLocalPick, localPicksOn } from "./models";
 import { LOCAL_SETUP_VALUE, localModelKey, modelChoice } from "./select";
 
@@ -156,5 +164,37 @@ describe("picked values", () => {
 		expect(opensLocalSetup(model, MAC)).toBeNull();
 		expect(modelChoice(model)).toEqual({ account: MAC_LOCAL, model });
 		expect(opensLocalSetup(MAC_LOCAL, MAC)).toBeNull();
+	});
+});
+
+describe("the model search", () => {
+	it("narrows the rows by name or model ID, keeping the setup row", async () => {
+		const view = await load();
+		const options = localPickerOptions(view, MAC);
+		const labels = (query: string) => filterModelOptions(options, query).map((o) => o.label);
+		expect(labels("qwen 27b")).toEqual(["Qwen3.8-27B", "Set up local models…"]);
+		// A local model's ID, past its account in the value.
+		expect(labels("ud-q4_k_xl")).toEqual(["Qwen3.6-35B-A3B", "Set up local models…"]);
+		expect(labels("nothing like it")).toEqual(["Set up local models…"]);
+		expect(labels("")).toEqual(options.map((o) => o.label));
+	});
+
+	it("counts every row but the setup row", async () => {
+		const view = await load();
+		const options = localPickerOptions(view, MAC);
+		expect(modelOptionCount(options)).toBe(options.length - 1);
+		expect(modelOptionCount([{ value: "opus", label: "Opus 4.8" }])).toBe(1);
+	});
+
+	it("reads the model out of each kind of row", () => {
+		expect(optionModel(localModelKey(MAC_LOCAL, LOADED_MODEL))).toBe(LOADED_MODEL);
+		expect(optionModel(`${LOCAL_SETUP_VALUE}|${DEVBOX}|${DOWNLOADING_MODEL}`)).toBe(
+			DOWNLOADING_MODEL
+		);
+		expect(optionModel(`${LOCAL_SETUP_VALUE}|${MAC}`)).toBe("");
+		expect(optionModel(LOCAL_SETUP_VALUE)).toBe("");
+		expect(optionModel("anthropic/z-ai/glm-5.3-flash[1m]")).toBe(
+			"anthropic/z-ai/glm-5.3-flash[1m]"
+		);
 	});
 });

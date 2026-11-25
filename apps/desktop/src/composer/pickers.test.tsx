@@ -146,6 +146,168 @@ describe("ModelPicker", () => {
 	});
 });
 
+// An OpenRouter login lists hundreds of models; twenty is enough for the field.
+const routed = account({
+	id: "acc-router",
+	plan: null,
+	label: "OpenRouter",
+	models: [
+		{ id: "anthropic/z-ai/glm-5.3-flash[1m]", label: "Z.ai: GLM 5.3 Flash", default: false },
+		{ id: "anthropic/z-ai/glm-5.3", label: "Z.ai: GLM 5.3", default: false },
+		{ id: "anthropic/openai/gpt-5.5", label: "OpenAI: GPT-5.5", default: true },
+		...Array.from({ length: 17 }, (_, i) => ({
+			id: `anthropic/vendor/model-${i}`,
+			label: `Vendor: Model ${i}`,
+			default: false,
+		})),
+	],
+});
+
+const searchField = () => screen.getByRole("searchbox", { name: "Search models" });
+
+// The menu focuses its field a frame after the click that opens it.
+const openSearch = async () => {
+	const menu = await openMenu(/^Model/);
+	await vi.waitFor(() => expect(searchField()).toHaveFocus());
+	return menu;
+};
+
+describe("ModelPicker with a long list", () => {
+	const renderRouted = (
+		onPick = vi.fn(),
+		moves: Parameters<typeof ModelPicker>[0]["moves"] = []
+	) =>
+		render(
+			<ModelPicker
+				kind="claude"
+				model="anthropic/openai/gpt-5.5"
+				account={routed}
+				choices={routed.models}
+				moves={moves}
+				onPick={onPick}
+			/>
+		);
+
+	it("gets a search field that narrows the models by every word typed", async () => {
+		const onPick = vi.fn();
+		renderRouted(onPick);
+		const menu = await openSearch();
+		expect(within(menu).getAllByRole("menuitemradio")).toHaveLength(20);
+		const field = searchField();
+
+		fireEvent.change(field, { target: { value: "glm 5.3 flash" } });
+		const left = within(menu).getAllByRole("menuitemradio");
+		expect(left.map((item) => item.textContent)).toEqual(["Z.ai: GLM 5.3 Flash"]);
+
+		// By its ID too.
+		fireEvent.change(field, { target: { value: "glm-5.3" } });
+		expect(within(menu).getAllByRole("menuitemradio")).toHaveLength(2);
+
+		fireEvent.click(within(menu).getByRole("menuitemradio", { name: "Z.ai: GLM 5.3 Flash" }));
+		expect(onPick).toHaveBeenCalledWith("anthropic/z-ai/glm-5.3-flash[1m]");
+	});
+
+	it("keeps the tick on the model it runs while it matches", async () => {
+		renderRouted();
+		const menu = await openSearch();
+		fireEvent.change(searchField(), { target: { value: "gpt" } });
+		expect(within(menu).getByRole("menuitemradio", { name: /GPT-5\.5/ })).toHaveAttribute(
+			"aria-checked",
+			"true"
+		);
+	});
+
+	it("says when no model matches, and hides the groups", async () => {
+		renderRouted();
+		const menu = await openSearch();
+		fireEvent.change(searchField(), { target: { value: "nothing like it" } });
+		expect(screen.getByRole("status")).toHaveTextContent("No models match");
+		expect(within(menu).queryByRole("menuitemradio")).not.toBeInTheDocument();
+		expect(within(menu).queryByText("Model, OpenRouter")).not.toBeInTheDocument();
+	});
+
+	it("filters the groups that move the agent, and leaves out one with no match", async () => {
+		const codex = account({
+			id: "acc-codex",
+			vendor: "codex",
+			plan: "plus",
+			models: [
+				{ id: "gpt-5.5", label: "GPT-5.5", default: true },
+				{ id: "gpt-5.5-mini", label: "GPT-5.5 mini", default: false },
+			],
+		});
+		const cursor = account({ id: "acc-cursor", vendor: "cursor", plan: "pro" });
+		renderRouted(vi.fn(), [
+			{ account: codex, models: codex.models },
+			{ account: cursor, models: [] },
+		]);
+		const menu = await openSearch();
+		expect(within(menu).getByRole("group", { name: "Move to Cursor Pro" })).toBeInTheDocument();
+
+		fireEvent.change(searchField(), { target: { value: "gpt mini" } });
+		expect(within(menu).queryByRole("menuitemradio")).not.toBeInTheDocument();
+		expect(within(menu).queryByText("Model, OpenRouter")).not.toBeInTheDocument();
+		const toCodex = within(menu).getByRole("group", { name: "Move to Codex Plus" });
+		expect(
+			within(toCodex)
+				.getAllByRole("menuitem")
+				.map((i) => i.textContent)
+		).toEqual(["GPT-5.5 mini"]);
+		expect(within(menu).queryByRole("group", { name: "Move to Cursor Pro" })).toBeNull();
+	});
+
+	it("keeps the menu open while you type, and Esc closes it and clears the field", async () => {
+		renderRouted();
+		const menu = await openSearch();
+		const field = searchField();
+		// A letter would jump to a matching item in a plain menu.
+		fireEvent.keyDown(field, { key: "v" });
+		fireEvent.change(field, { target: { value: "v" } });
+		expect(menu).toBeInTheDocument();
+		expect(field).toHaveValue("v");
+
+		fireEvent.keyDown(field, { key: "Escape" });
+		await vi.waitFor(() => expect(screen.queryByRole("menu")).not.toBeInTheDocument());
+
+		await openSearch();
+		expect(searchField()).toHaveValue("");
+		expect(screen.getAllByRole("menuitemradio")).toHaveLength(20);
+	});
+
+	it("moves into the list with the arrows and picks with Enter", async () => {
+		const onPick = vi.fn();
+		renderRouted(onPick);
+		const menu = await openSearch();
+		const field = searchField();
+		fireEvent.change(field, { target: { value: "z.ai" } });
+		fireEvent.keyDown(field, { key: "ArrowDown" });
+		await vi.waitFor(() =>
+			expect(
+				within(menu).getByRole("menuitemradio", { name: "Z.ai: GLM 5.3 Flash" })
+			).toHaveAttribute("data-highlighted")
+		);
+		expect(field).toHaveFocus();
+		fireEvent.keyDown(field, { key: "ArrowDown" });
+		fireEvent.keyDown(field, { key: "Enter" });
+		expect(onPick).toHaveBeenCalledWith("anthropic/z-ai/glm-5.3");
+	});
+
+	it("shows no field for a short list", async () => {
+		render(
+			<ModelPicker
+				kind="claude"
+				model="opus"
+				account={claude}
+				choices={claude.models}
+				onPick={vi.fn()}
+			/>
+		);
+		await openMenu(/^Model/);
+		expect(screen.queryByRole("searchbox")).not.toBeInTheDocument();
+		expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+	});
+});
+
 describe("PermissionPicker", () => {
 	it("picks a mode", async () => {
 		const onPick = vi.fn();

@@ -120,6 +120,7 @@ const Form = ({ agent, onDone }: { agent: Agent; onDone: () => void }) => {
 				/>
 				<Picker
 					label={translate("Model")}
+					models
 					value={form.model}
 					options={form.models}
 					onChange={(model) => pick({ model })}

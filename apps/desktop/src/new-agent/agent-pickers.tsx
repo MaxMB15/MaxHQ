@@ -121,6 +121,7 @@ export const AgentPickers = ({
 				/>
 				<Picker
 					label={translate("Model")}
+					models
 					value={r.shownModel ?? ""}
 					options={
 						local && r.device

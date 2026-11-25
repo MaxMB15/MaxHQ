@@ -1419,5 +1419,7 @@
 	"Click to give the program your keys": "Klik om het programma je toetsen te geven",
 	"Click outside or press {{keyHint}} to give the keys back.": "Klik ernaast of druk op {{keyHint}} om de toetsen terug te geven.",
 	"Start a fresh session each run": "Start bij elke uitvoering een nieuwe sessie",
-	"Each run starts the agent on a new session in the same place, once its turn is over. The timeline keeps what came before.": "Elke uitvoering start de agent op een nieuwe sessie op dezelfde plek, zodra zijn beurt voorbij is. De tijdlijn bewaart wat ervoor kwam."
+	"Each run starts the agent on a new session in the same place, once its turn is over. The timeline keeps what came before.": "Elke uitvoering start de agent op een nieuwe sessie op dezelfde plek, zodra zijn beurt voorbij is. De tijdlijn bewaart wat ervoor kwam.",
+	"Search models": "Modellen zoeken",
+	"No models match": "Geen modellen gevonden"
 }
