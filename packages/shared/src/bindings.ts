@@ -8,6 +8,8 @@ export const ARTIFACTS_SINCE = 55 as const;
 
 export const CLI_LOGIN_SINCE = 35 as const;
 
+export const CLOUD_SERVERS_SINCE = 65 as const;
+
 export const CURSOR_LOGIN_SINCE = 36 as const;
 
 export const DEPTH = 3 as const;
@@ -247,11 +249,16 @@ reason: string }) & { agent?: never; answer?: never; at?: never; attachment?: ne
 /**  The new workspace, which shows its progress. */
 workspace: WorkspaceId }) & { agent?: never; answer?: never; at?: never; attachment?: never; block?: never; book?: never; branches?: never; buckets?: never; callback_port?: never; check?: never; checks?: never; code?: never; command?: never; comments?: never; containers?: never; default_branch?: never; deliveries?: never; departure?: never; detail?: never; diff?: never; error?: never; excerpt?: never; expires_at?: never; failed?: never; files?: never; find?: never; flavor?: never; forward?: never; hashes?: never; hook_url?: never; host_key?: never; id?: never; image?: never; item?: never; keys?: never; list?: never; listing?: never; mac?: never; matches?: never; merged?: never; models?: never; more?: never; outcome?: never; page?: never; pair?: never; paste?: never; path?: never; permission?: never; permissions?: never; phone?: never; plan?: never; probe?: never; public_key?: never; pull?: never; pulls?: never; queued?: never; reason?: never; results?: never; revoked?: never; rules?: never; runs?: never; search?: never; seed?: never; server?: never; sign_in?: never; skills?: never; snapshots?: never; state?: never; stored?: never; task?: never; terminal?: never; top?: never; trees?: never; truncated?: never; url?: never; user_code?: never; verification_uri?: never; version?: never; versions?: never; written?: never } | 
 /**
- *  A Sign in with ChatGPT round is waiting. Open `url` in the browser
- *  and listen on 127.0.0.1:`callback_port`.
+ *  A sign-in round is waiting. Open `url` in the browser and listen on
+ *  this Mac at `callback_port`: on 127.0.0.1 for Sign in with ChatGPT,
+ *  and on 127.0.0.1 and ::1 for Sign in with OpenRouter, whose page
+ *  sends the browser to `localhost`.
  */
 ({ status: "sign_in"; 
-/**  The round, for [`ClientMessage::FinishChatGptSignIn`]. */
+/**
+ *  The round, for [`ClientMessage::FinishChatGptSignIn`] or
+ *  [`crate::local_models::ModelAction::FinishOpenRouterSignIn`].
+ */
 sign_in: SignInId; 
 /**  The page to open. */
 url: string; 
@@ -7344,7 +7351,38 @@ model: string } |
 /**  The server. */
 server: ModelServerId; 
 /**  The model's ID on that server. */
-model: string };
+model: string } | 
+/**
+ *  Starts a Sign in with OpenRouter round, which makes an OpenRouter
+ *  key for this device. `maxd` keeps the round's PKCE verifier and
+ *  answers [`crate::message::ActionOutcome::SignIn`] with the page to
+ *  open and the port the app listens on. Since protocol 65
+ *  ([`crate::message::CLOUD_SERVERS_SINCE`]).
+ */
+{ action: "begin_open_router_sign_in"; 
+/**
+ *  The name a new OpenRouter server gets, or `OpenRouter` with none.
+ *  One the device has already keeps its name.
+ */
+label?: string | null; 
+/**
+ *  The key's spending limit in US cents, which OpenRouter enforces,
+ *  or none for no limit.
+ */
+limit_cents?: number | null } | 
+/**
+ *  Finishes a Sign in with OpenRouter round with the code the browser
+ *  brought back. `maxd` trades it for a key, keeps the key in its
+ *  secrets store, and adds the OpenRouter server, or gives the
+ *  device's OpenRouter server the new key, then tests it. Answers
+ *  [`crate::message::ActionOutcome::ModelServerAdded`] with that
+ *  server. Since protocol 65 ([`crate::message::CLOUD_SERVERS_SINCE`]).
+ */
+{ action: "finish_open_router_sign_in"; 
+/**  The round, from its `SignIn` answer. */
+sign_in: SignInId; 
+/**  The code the callback brought. */
+code: Secret };
 
 /**  The curated models a device offers. */
 export type ModelCatalog = {
@@ -9687,6 +9725,20 @@ export type Request =
  */
 { kind: "sign_in_chatgpt"; device: DeviceId } | 
 /**
+ *  Runs a whole Sign in with OpenRouter round for a device, browser
+ *  and callback included. The device makes a key, which never leaves
+ *  it, and keeps it on its OpenRouter server, a new one named `label`
+ *  when it has none. OpenRouter stops the key at `limit_cents` when one
+ *  is given. It gives up after 10 minutes, or at `cancel_sign_in`.
+ *  Needs a `maxd` on protocol 65 or later.
+ */
+{ kind: "sign_in_openrouter"; device: DeviceId; label?: string | null; limit_cents?: number | null } | 
+/**
+ *  Ends the Sign in with OpenRouter round that waits for the browser,
+ *  if one does.
+ */
+{ kind: "cancel_sign_in" } | 
+/**
  *  Sends a GitHub App to each device, one result for each, in order.
  *  The app reads the private key at `key_path`, a file you picked or
  *  dropped, so a window never holds it. It keeps no copy once it's
@@ -10128,7 +10180,7 @@ export type Response = { kind: "app_info"; value: AppInfo } | { kind: "view_snap
 	state: SshIncludeState,
 } } | { kind: "setup_ssh_include"; value: {
 	state: SshIncludeState,
-} } | { kind: "list_ignored_files"; value: IgnoredFiles } | { kind: "clone_cancel"; value: ActionOutcome } | { kind: "clone_retry"; value: ActionOutcome } | { kind: "clone_remove"; value: ActionOutcome } | { kind: "list_editors"; value: Editors } | { kind: "open_in_editor" } | { kind: "set_project_settings"; value: ActionOutcome } | { kind: "set_project_hidden"; value: ActionOutcome } | { kind: "remove_command_rule"; value: ActionOutcome } | { kind: "remove_allowed_edit"; value: ActionOutcome } | { kind: "git_identity"; value: GitIdentity } | { kind: "wind_down"; value: ActionOutcome } | { kind: "store_claude_token"; value: ActionReply[] } | { kind: "store_cursor_key"; value: ActionReply[] } | { kind: "sign_in_chatgpt"; value: ActionOutcome } | { kind: "set_github_app"; value: ActionReply[] } | { kind: "check_github_app"; value: ActionOutcome } | { kind: "set_apns_key"; value: ActionReply[] } | { kind: "forget_credential"; value: ActionOutcome } | { kind: "set_acp_agent"; value: ActionOutcome } | { kind: "delete_acp_agent"; value: ActionOutcome } | { kind: "list_pulls"; value: ActionOutcome } | { kind: "list_branches"; value: ActionOutcome } | { kind: "get_pull"; value: ActionOutcome } | { kind: "pull_files"; value: ActionOutcome } | { kind: "pull_comments"; value: ActionOutcome } | { kind: "pull_checks"; value: ActionOutcome } | { kind: "pull_action"; value: ActionOutcome } | { kind: "pulls_due"; value: ActionOutcome } | { kind: "link_pull"; value: ActionOutcome } | { kind: "unlink_pull"; value: ActionOutcome } | { kind: "begin_github_sign_in"; value: ActionOutcome } | { kind: "cancel_github_sign_in"; value: ActionOutcome } | { kind: "check_github_sign_in"; value: ActionOutcome } | { kind: "begin_cli_login"; value: ActionOutcome } | { kind: "finish_cli_login"; value: ActionOutcome } | { kind: "check_cli_login"; value: ActionOutcome } | { kind: "cancel_cli_login"; value: ActionOutcome } | { kind: "read_load"; value: DeviceLoad[] } | { kind: "read_diagnostics"; value: ActionOutcome } | { kind: "update_tools"; value: ActionOutcome } | { kind: "confirm_host_key" } | { kind: "set_routes" } | { kind: "answer_link_claim" } | { kind: "ask_link_claim_again" } | { kind: "forget_link_identity" } | { kind: "link_claim_details"; value: LinkClaimDetails } | { kind: "list_setup_hosts"; value: SetupHost[] } | { kind: "list_permissions"; value: Permission[] } | { kind: "grant_permission"; value: ActionOutcome } | { kind: "revoke_permission"; value: ActionOutcome } | { kind: "mint_key"; value: ActionOutcome } | { kind: "list_keys"; value: AccessKey[] } | { kind: "list_device_links"; value: PeerLink[] } | { kind: "set_device_link" } | { kind: "list_phone_devices"; value: PhoneDevice[] } | { kind: "begin_phone_pair"; value: PhonePairing } | { kind: "remove_phone" } | 
+} } | { kind: "list_ignored_files"; value: IgnoredFiles } | { kind: "clone_cancel"; value: ActionOutcome } | { kind: "clone_retry"; value: ActionOutcome } | { kind: "clone_remove"; value: ActionOutcome } | { kind: "list_editors"; value: Editors } | { kind: "open_in_editor" } | { kind: "set_project_settings"; value: ActionOutcome } | { kind: "set_project_hidden"; value: ActionOutcome } | { kind: "remove_command_rule"; value: ActionOutcome } | { kind: "remove_allowed_edit"; value: ActionOutcome } | { kind: "git_identity"; value: GitIdentity } | { kind: "wind_down"; value: ActionOutcome } | { kind: "store_claude_token"; value: ActionReply[] } | { kind: "store_cursor_key"; value: ActionReply[] } | { kind: "sign_in_chatgpt"; value: ActionOutcome } | { kind: "sign_in_openrouter"; value: ActionOutcome } | { kind: "cancel_sign_in" } | { kind: "set_github_app"; value: ActionReply[] } | { kind: "check_github_app"; value: ActionOutcome } | { kind: "set_apns_key"; value: ActionReply[] } | { kind: "forget_credential"; value: ActionOutcome } | { kind: "set_acp_agent"; value: ActionOutcome } | { kind: "delete_acp_agent"; value: ActionOutcome } | { kind: "list_pulls"; value: ActionOutcome } | { kind: "list_branches"; value: ActionOutcome } | { kind: "get_pull"; value: ActionOutcome } | { kind: "pull_files"; value: ActionOutcome } | { kind: "pull_comments"; value: ActionOutcome } | { kind: "pull_checks"; value: ActionOutcome } | { kind: "pull_action"; value: ActionOutcome } | { kind: "pulls_due"; value: ActionOutcome } | { kind: "link_pull"; value: ActionOutcome } | { kind: "unlink_pull"; value: ActionOutcome } | { kind: "begin_github_sign_in"; value: ActionOutcome } | { kind: "cancel_github_sign_in"; value: ActionOutcome } | { kind: "check_github_sign_in"; value: ActionOutcome } | { kind: "begin_cli_login"; value: ActionOutcome } | { kind: "finish_cli_login"; value: ActionOutcome } | { kind: "check_cli_login"; value: ActionOutcome } | { kind: "cancel_cli_login"; value: ActionOutcome } | { kind: "read_load"; value: DeviceLoad[] } | { kind: "read_diagnostics"; value: ActionOutcome } | { kind: "update_tools"; value: ActionOutcome } | { kind: "confirm_host_key" } | { kind: "set_routes" } | { kind: "answer_link_claim" } | { kind: "ask_link_claim_again" } | { kind: "forget_link_identity" } | { kind: "link_claim_details"; value: LinkClaimDetails } | { kind: "list_setup_hosts"; value: SetupHost[] } | { kind: "list_permissions"; value: Permission[] } | { kind: "grant_permission"; value: ActionOutcome } | { kind: "revoke_permission"; value: ActionOutcome } | { kind: "mint_key"; value: ActionOutcome } | { kind: "list_keys"; value: AccessKey[] } | { kind: "list_device_links"; value: PeerLink[] } | { kind: "set_device_link" } | { kind: "list_phone_devices"; value: PhoneDevice[] } | { kind: "begin_phone_pair"; value: PhonePairing } | { kind: "remove_phone" } | 
 /**  The devices that didn't take the switch, by name. */
 { kind: "set_phone_everything"; value: string[] } | 
 /**  The devices that didn't get a new code, by name. */

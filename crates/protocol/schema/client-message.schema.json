@@ -5587,7 +5587,7 @@
           ]
         },
         {
-          "description": "A Sign in with ChatGPT round is waiting. Open `url` in the browser\nand listen on 127.0.0.1:`callback_port`.",
+          "description": "A sign-in round is waiting. Open `url` in the browser and listen on\nthis Mac at `callback_port`: on 127.0.0.1 for Sign in with ChatGPT,\nand on 127.0.0.1 and ::1 for Sign in with OpenRouter, whose page\nsends the browser to `localhost`.",
           "type": "object",
           "properties": {
             "callback_port": {
@@ -5598,7 +5598,7 @@
               "minimum": 0
             },
             "sign_in": {
-              "description": "The round, for [`ClientMessage::FinishChatGptSignIn`].",
+              "description": "The round, for [`ClientMessage::FinishChatGptSignIn`] or\n[`crate::local_models::ModelAction::FinishOpenRouterSignIn`].",
               "$ref": "#/$defs/SignInId"
             },
             "status": {
@@ -11167,6 +11167,60 @@
             "action",
             "server",
             "model"
+          ]
+        },
+        {
+          "description": "Starts a Sign in with OpenRouter round, which makes an OpenRouter\nkey for this device. `maxd` keeps the round's PKCE verifier and\nanswers [`crate::message::ActionOutcome::SignIn`] with the page to\nopen and the port the app listens on. Since protocol 65\n([`crate::message::CLOUD_SERVERS_SINCE`]).",
+          "type": "object",
+          "properties": {
+            "action": {
+              "type": "string",
+              "const": "begin_open_router_sign_in"
+            },
+            "label": {
+              "description": "The name a new OpenRouter server gets, or `OpenRouter` with none.\nOne the device has already keeps its name.",
+              "type": [
+                "string",
+                "null"
+              ],
+              "default": null
+            },
+            "limit_cents": {
+              "description": "The key's spending limit in US cents, which OpenRouter enforces,\nor none for no limit.",
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "uint32",
+              "default": null,
+              "minimum": 0
+            }
+          },
+          "required": [
+            "action"
+          ]
+        },
+        {
+          "description": "Finishes a Sign in with OpenRouter round with the code the browser\nbrought back. `maxd` trades it for a key, keeps the key in its\nsecrets store, and adds the OpenRouter server, or gives the\ndevice's OpenRouter server the new key, then tests it. Answers\n[`crate::message::ActionOutcome::ModelServerAdded`] with that\nserver. Since protocol 65 ([`crate::message::CLOUD_SERVERS_SINCE`]).",
+          "type": "object",
+          "properties": {
+            "action": {
+              "type": "string",
+              "const": "finish_open_router_sign_in"
+            },
+            "code": {
+              "description": "The code the callback brought.",
+              "$ref": "#/$defs/Secret"
+            },
+            "sign_in": {
+              "description": "The round, from its `SignIn` answer.",
+              "$ref": "#/$defs/SignInId"
+            }
+          },
+          "required": [
+            "action",
+            "sign_in",
+            "code"
           ]
         }
       ]

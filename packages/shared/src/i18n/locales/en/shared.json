@@ -1549,5 +1549,12 @@
 	"Waiting for keys · Open on the Mac": "Waiting for keys · Open on the Mac",
 	"New session, for a scheduled task's run": "New session, for a scheduled task's run",
 	"The dispatcher keeps its session, so it can't start a fresh one.": "The dispatcher keeps its session, so it can't start a fresh one.",
-	"{{device}} runs an older maxd that can't start a fresh session. Update it to turn this on.": "{{device}} runs an older maxd that can't start a fresh session. Update it to turn this on."
+	"{{device}} runs an older maxd that can't start a fresh session. Update it to turn this on.": "{{device}} runs an older maxd that can't start a fresh session. Update it to turn this on.",
+	"Type an amount in dollars, such as 25 or 12.50.": "Type an amount in dollars, such as 25 or 12.50.",
+	"Type an amount above 0, or leave it empty for no limit.": "Type an amount above 0, or leave it empty for no limit.",
+	"OpenRouter takes a limit below one million dollars.": "OpenRouter takes a limit below one million dollars.",
+	"Finish signing in in your browser": "Finish signing in in your browser",
+	"Signing in gives {{server}} on this device a new key.": "Signing in gives {{server}} on this device a new key.",
+	"Signed in with a new key. You can revoke the old one on OpenRouter's keys page.": "Signed in with a new key. You can revoke the old one on OpenRouter's keys page.",
+	"Update this device's maxd to sign in with OpenRouter.": "Update this device's maxd to sign in with OpenRouter."
 }

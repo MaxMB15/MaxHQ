@@ -47,6 +47,7 @@ pub(crate) mod files;
 mod github;
 mod hooks;
 pub(crate) mod http;
+pub(crate) mod pkce;
 #[cfg(test)]
 pub(crate) mod testing;
 #[cfg(test)]

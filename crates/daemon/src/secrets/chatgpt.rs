@@ -23,14 +23,10 @@
 //! the refresh token, then clears the session, and keeps the host ID and
 //! the client registration for the next sign-in.
 
-use std::collections::HashMap;
 use std::io;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Mutex, MutexGuard, PoisonError};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
-use base64::engine::general_purpose::URL_SAFE_NO_PAD;
-use base64::Engine;
 use maxhq_core::names;
 use maxhq_protocol::guest::TokenReply;
 use maxhq_protocol::ids::{AccountId, CredentialId, DeviceId, SignInId};
@@ -38,7 +34,6 @@ use maxhq_protocol::message::ActionOutcome;
 use maxhq_protocol::model::{Account, Credential, CredentialKind, LoginKind, Vendor};
 use maxhq_protocol::time::Timestamp;
 use maxhq_protocol::Secret;
-use ring::digest::{digest, SHA256};
 use ring::rand::{SecureRandom, SystemRandom};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -48,6 +43,7 @@ use zeroize::Zeroizing;
 
 use self::oauth::{Grant, TokenError, Tokens, RESOURCE};
 pub use self::oauth::{Issuer, OPENAI_ISSUER};
+use super::pkce::{self, Rounds};
 use super::{files, login_account, refused, Secrets, CHATGPT_FILE};
 use crate::observe::claude::time::parse_iso8601;
 use crate::recipe::accounts::codex_folder;
@@ -68,14 +64,8 @@ const SCOPES: &str =
     "openid profile email offline_access resource.invoke chatgpt.tokens.use.direct";
 /// The scope that lets Codex run on the ChatGPT plan.
 const PLAN_SCOPE: &str = "chatgpt.tokens.use.direct";
-/// How long a round waits for its callback, as long as the app listens.
-const ROUND_LIMIT: Duration = Duration::from_secs(10 * 60);
-/// The most rounds waiting at once. A new one drops the oldest.
-const MAX_ROUNDS: usize = 4;
 /// An access token is renewed once it has less than this left.
 const RENEW_MARGIN_MS: u64 = 60_000;
-/// The callback port is picked from the dynamic range.
-const FIRST_PORT: u16 = 49_152;
 
 /// Why a callback can't finish a round, said the same way each time.
 const INCOMPLETE: &str = "The Codex sign-in didn't finish registering this device. Start it again.";
@@ -90,7 +80,7 @@ pub struct ChatGpt {
     /// What [`CHATGPT_FILE`] holds. Each renewal holds this lock, so a
     /// session's renewals go one at a time.
     saved: tokio::sync::Mutex<Saved>,
-    rounds: Mutex<HashMap<SignInId, Round>>,
+    rounds: Rounds<Round>,
     /// Whether there's a session with plan usage, for checks that can't
     /// wait on the lock.
     usable: AtomicBool,
@@ -148,7 +138,6 @@ struct Round {
     redirect_uri: String,
     /// The client it signs in through, when the device has registered one.
     registered: Option<String>,
-    until: Instant,
 }
 
 impl ChatGpt {
@@ -169,13 +158,9 @@ impl ChatGpt {
         Self {
             issuer,
             saved: tokio::sync::Mutex::new(saved),
-            rounds: Mutex::new(HashMap::new()),
+            rounds: Rounds::default(),
             usable: AtomicBool::new(usable),
         }
-    }
-
-    fn rounds(&self) -> MutexGuard<'_, HashMap<SignInId, Round>> {
-        self.rounds.lock().unwrap_or_else(PoisonError::into_inner)
     }
 }
 
@@ -198,13 +183,6 @@ fn issued(client_id: &str) -> bool {
                 .bytes()
                 .all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')
     })
-}
-
-/// `len` random bytes in base64url.
-fn random(rng: &SystemRandom, len: usize) -> Option<String> {
-    let mut bytes = Zeroizing::new(vec![0; len]);
-    rng.fill(&mut bytes).ok()?;
-    Some(URL_SAFE_NO_PAD.encode(&*bytes))
 }
 
 /// When `earliest_refresh_at` says, in Unix seconds or ISO 8601.
@@ -270,18 +248,16 @@ impl Secrets {
             }
         };
         let rng = SystemRandom::new();
-        let mut port = [0; 2];
-        let (Some(state), Some(nonce), Some(verifier), Ok(())) = (
-            random(&rng, 32),
-            random(&rng, 32),
-            random(&rng, 64),
-            rng.fill(&mut port),
+        let (Some(state), Some(nonce), Some(verifier), Some(port)) = (
+            pkce::random(&rng, 32),
+            pkce::random(&rng, 32),
+            pkce::random(&rng, 64),
+            pkce::callback_port(&rng),
         ) else {
             return refused("This device couldn't start a sign-in.");
         };
-        let port = FIRST_PORT + u16::from_be_bytes(port) % (u16::MAX - FIRST_PORT + 1);
         let redirect_uri = format!("http://127.0.0.1:{port}/auth/callback");
-        let challenge = URL_SAFE_NO_PAD.encode(digest(&SHA256, verifier.as_bytes()));
+        let challenge = pkce::challenge(&verifier);
 
         let mut saved = chatgpt.saved.lock().await;
         let host_id = match &saved.host_id {
@@ -340,28 +316,13 @@ impl Secrets {
         }
         drop(saved);
 
-        let sign_in = SignInId::generate();
-        let now = Instant::now();
-        let mut rounds = chatgpt.rounds();
-        rounds.retain(|_, round| round.until > now);
-        while rounds.len() >= MAX_ROUNDS {
-            let oldest = rounds
-                .iter()
-                .min_by_key(|(_, round)| round.until)
-                .map(|(id, _)| *id);
-            oldest.map(|id| rounds.remove(&id));
-        }
-        rounds.insert(
-            sign_in,
-            Round {
-                state,
-                nonce: Secret::new(nonce),
-                verifier: Secret::new(verifier),
-                redirect_uri,
-                registered,
-                until: now + ROUND_LIMIT,
-            },
-        );
+        let sign_in = chatgpt.rounds.start(Round {
+            state,
+            nonce: Secret::new(nonce),
+            verifier: Secret::new(verifier),
+            redirect_uri,
+            registered,
+        });
         info!(%sign_in, "started a ChatGPT sign-in");
         ActionOutcome::SignIn {
             sign_in,
@@ -380,8 +341,7 @@ impl Secrets {
         client_id: Option<String>,
     ) -> ActionOutcome {
         let chatgpt = self.chatgpt();
-        let round = chatgpt.rounds().remove(&sign_in);
-        let Some(round) = round.filter(|round| round.until > Instant::now()) else {
+        let Some(round) = chatgpt.rounds.take(sign_in) else {
             return refused("That sign-in ended. Start it again.");
         };
         if round.state != state {

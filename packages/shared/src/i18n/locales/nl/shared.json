@@ -1549,5 +1549,12 @@
 	"Waiting for keys · Open on the Mac": "Wacht op toetsen · Openen op de Mac",
 	"New session, for a scheduled task's run": "Nieuwe sessie, voor een uitvoering van een geplande taak",
 	"The dispatcher keeps its session, so it can't start a fresh one.": "De dispatcher houdt zijn sessie, dus hij kan geen nieuwe starten.",
-	"{{device}} runs an older maxd that can't start a fresh session. Update it to turn this on.": "{{device}} draait een oudere maxd die geen nieuwe sessie kan starten. Werk deze bij om dit aan te zetten."
+	"{{device}} runs an older maxd that can't start a fresh session. Update it to turn this on.": "{{device}} draait een oudere maxd die geen nieuwe sessie kan starten. Werk deze bij om dit aan te zetten.",
+	"Type an amount in dollars, such as 25 or 12.50.": "Typ een bedrag in dollars, zoals 25 of 12,50.",
+	"Type an amount above 0, or leave it empty for no limit.": "Typ een bedrag boven 0, of laat het leeg voor geen limiet.",
+	"OpenRouter takes a limit below one million dollars.": "OpenRouter neemt een limiet onder een miljoen dollar.",
+	"Finish signing in in your browser": "Rond het aanmelden af in je browser",
+	"Signing in gives {{server}} on this device a new key.": "Aanmelden geeft {{server}} op dit apparaat een nieuwe sleutel.",
+	"Signed in with a new key. You can revoke the old one on OpenRouter's keys page.": "Aangemeld met een nieuwe sleutel. Je kunt de oude intrekken op de sleutelpagina van OpenRouter.",
+	"Update this device's maxd to sign in with OpenRouter.": "Werk maxd op dit apparaat bij om je aan te melden met OpenRouter."
 }

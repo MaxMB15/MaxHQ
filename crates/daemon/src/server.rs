@@ -881,7 +881,9 @@ impl Connection {
                             | ModelAction::RemoveServer { .. }
                             | ModelAction::Download { .. }
                             | ModelAction::ResumeDownload { .. }
-                            | ModelAction::DeleteModel { .. },
+                            | ModelAction::DeleteModel { .. }
+                            | ModelAction::BeginOpenRouterSignIn { .. }
+                            | ModelAction::FinishOpenRouterSignIn { .. },
                         ..
                     }
             )
@@ -3912,6 +3914,22 @@ pub(crate) mod tests {
                 action: ModelAction::ResumeDownload {
                     model: "qwen3.6-35b-a3b".into(),
                     file: "Qwen3.6-35B-A3B-UD-Q4_K_XL.gguf".into(),
+                },
+            },
+            // A Sign in with OpenRouter round makes a key that spends
+            // money, so it's the Mac's too.
+            ClientMessage::ModelAction {
+                key: key("model-openrouter-begin"),
+                action: ModelAction::BeginOpenRouterSignIn {
+                    label: None,
+                    limit_cents: None,
+                },
+            },
+            ClientMessage::ModelAction {
+                key: key("model-openrouter-finish"),
+                action: ModelAction::FinishOpenRouterSignIn {
+                    sign_in: SignInId::derive("round"),
+                    code: Secret::new("code-example".into()),
                 },
             },
             // Nor does it let an agent act without asking.

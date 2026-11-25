@@ -190,6 +190,10 @@ pub fn specta_builder() -> Builder<tauri::Wry> {
             "FRESH_SESSIONS_SINCE",
             maxhq_protocol::message::FRESH_SESSIONS_SINCE,
         )
+        .constant(
+            "CLOUD_SERVERS_SINCE",
+            maxhq_protocol::message::CLOUD_SERVERS_SINCE,
+        )
 }
 
 /// The exporter settings for the generated file.

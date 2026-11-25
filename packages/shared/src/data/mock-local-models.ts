@@ -8,6 +8,7 @@
 // six models, and the Mac is downloading one of them. Each call changes the
 // sample entities the way `maxd` would publish the change, and a device
 // whose link doesn't offer local models is refused the way the app does.
+// No device has OpenRouter until a sample Sign in with OpenRouter adds it.
 
 import type {
 	Account,
@@ -30,10 +31,16 @@ import type {
 	Timestamp,
 } from "../bindings";
 import { managedModelId } from "../local-models/models";
+import {
+	isOpenRouter,
+	MAX_LIMIT_CENTS,
+	OPENROUTER_LABEL,
+	OPENROUTER_URL,
+} from "../local-models/openrouter";
 import { urlParts, type UrlParts } from "../local-models/wording";
 import type { FleetContext } from "./mock-fleet";
 import { DEVBOX, MAC, seed } from "./mock-view";
-import type { ActionResult, DataSource } from "./source";
+import type { ActionResult, CommandResult, DataSource } from "./source";
 
 const MIN = 60_000;
 const HOUR = 60 * MIN;
@@ -54,6 +61,8 @@ export const MAC_LOCAL = "acct-local-mac";
 export const DEVBOX_LOCAL = "acct-local-devbox-mac";
 /** devbox's local account on the Ollama server. */
 export const OLLAMA_LOCAL = "acct-local-devbox-ollama";
+/** A model OpenRouter's server lists once a sample sign-in added it. */
+export const OPENROUTER_MODEL = "z-ai/glm-5.3-flash";
 /** The catalog model the Mac has loaded, the catalog's default. */
 export const LOADED_CATALOG_MODEL = "qwen3.6-35b-a3b";
 /** Its ID on the Mac's managed server, from the file it loaded. */
@@ -327,6 +336,21 @@ const probed = (at: Timestamp, flavor: ServerFlavor, context: number | null): Se
 	error: null,
 });
 
+/** A few of the models OpenRouter lists, with the names and contexts it gives them. */
+const openRouterModels = (): ServerModel[] =>
+	[
+		[OPENROUTER_MODEL, "Z.ai: GLM 5.3 Flash"],
+		["z-ai/glm-5.3", "Z.ai: GLM 5.3"],
+		["deepseek/deepseek-v4.1-flash", "DeepSeek: DeepSeek V4.1 Flash"],
+		["moonshotai/kimi-k3", "MoonshotAI: Kimi K3"],
+	].map(([id, label]) => ({
+		id: id!,
+		label: label!,
+		catalog: null,
+		context: 1_048_576,
+		load: null,
+	}));
+
 const servers = (now: Timestamp): ModelServer[] => [
 	{
 		id: MAC_SERVER,
@@ -468,7 +492,9 @@ export const mockLocalEntities = (now: Timestamp): Entity[] => [
 ];
 
 /** The calls this module answers. */
-export type LocalModelCalls = Pick<DataSource, "modelAction">;
+export type LocalModelCalls = Pick<DataSource, "modelAction" | "signInOpenRouter" | "cancelSignIn">;
+
+const OK: CommandResult = { status: "ok", data: null };
 
 const DONE: ActionResult = { status: "ok", data: { status: "done" } };
 
@@ -486,6 +512,8 @@ const pause = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve,
 /** The local model calls with nothing behind them, refused the way an older `maxd` does. */
 export const noLocalModels: LocalModelCalls = {
 	modelAction: async () => refused("This device doesn't offer it yet."),
+	signInOpenRouter: async () => refused("This device doesn't offer it yet."),
+	cancelSignIn: async () => OK,
 };
 
 /** What kind of server answers at a URL, from its port, as a probe would find it. */
@@ -597,6 +625,14 @@ export const mockLocalModels = (context: FleetContext): LocalModelCalls => {
 		if (found?.entity !== "model_server" || !found.base_url) return;
 		const url = urlParts(found.base_url);
 		if (!url) return;
+		if (isOpenRouter(found)) {
+			editServer(id, () => ({
+				kind: { type: "external", flavor: "other" },
+				probe: probed(now(), "other", null),
+				models: openRouterModels(),
+			}));
+			return;
+		}
 		if (url.host.endsWith(".invalid")) {
 			editServer(id, () => ({
 				probe: {
@@ -693,6 +729,20 @@ export const mockLocalModels = (context: FleetContext): LocalModelCalls => {
 				// What answers at a URL, keeping nothing.
 				const url = serverUrl(action.url);
 				if (typeof url === "string") return refused(url);
+				if (
+					isOpenRouter({
+						kind: { type: "external", flavor: "other" },
+						base_url: action.url,
+					})
+				) {
+					const probe = probed(now(), "other", null);
+					return ok({
+						status: "server_probed",
+						flavor: "other",
+						probe,
+						models: openRouterModels(),
+					});
+				}
 				const flavor = url.host.endsWith(".invalid") ? "other" : flavorOf(url);
 				const probe: ServerProbe =
 					flavor === "other"
@@ -841,10 +891,72 @@ export const mockLocalModels = (context: FleetContext): LocalModelCalls => {
 				setLoad(server.id, action.model, { state: "unloaded" });
 				return DONE;
 			}
+			case "begin_open_router_sign_in":
+			case "finish_open_router_sign_in":
+				// The app sends these around the browser, which the sample
+				// has none of: its round is signInOpenRouter below.
+				return refused("The sample signs in with OpenRouter in one step.");
 		}
+	};
+
+	// Sign in with OpenRouter can't open a browser here, so a round waits a
+	// few steps as if you were signing in. The first round fails the way a
+	// code OpenRouter didn't take does, so the failure shows, and the next
+	// gives the device a key: its OpenRouter server keeps its ID and gets
+	// the key, or a new one is added. Cancel ends the round that waits, and
+	// a newer round ends an older one, as the app's do.
+	let rounds = 0;
+	let stop: ((why: string) => void) | null = null;
+
+	/** Waits `ms`, or less when the round is stopped, with why. */
+	const browser = (ms: number) =>
+		new Promise<string | null>((resolve) => {
+			stop?.("A newer sign-in took this one's place");
+			const timer = setTimeout(() => {
+				stop = null;
+				resolve(null);
+			}, ms);
+			stop = (why) => {
+				clearTimeout(timer);
+				stop = null;
+				resolve(why);
+			};
+		});
+
+	const signInOpenRouter = async (
+		device: DeviceId,
+		limitCents: number | null
+	): Promise<ActionResult> => {
+		const lacking = lacks(device);
+		if (lacking) return lacking;
+		if (limitCents !== null && (limitCents < 1 || limitCents > MAX_LIMIT_CENTS)) {
+			return refused("OpenRouter takes a limit from $0.01 up to $999,999.99.");
+		}
+		const stopped = await browser(4 * stepMs);
+		if (stopped) return { status: "error", error: { kind: "failed", message: stopped } };
+		rounds += 1;
+		if (rounds === 1) {
+			return refused(
+				"OpenRouter didn't take the sign-in's code. It lasts 10 minutes, so start the sign-in again."
+			);
+		}
+		const kept = all().find(
+			(e) => e.entity === "model_server" && e.device === device && isOpenRouter(e)
+		);
+		if (kept?.entity !== "model_server") {
+			return addServer(device, OPENROUTER_LABEL, OPENROUTER_URL, "sample-key");
+		}
+		editServer(kept.id, () => ({ token: true }));
+		void probe(kept.id);
+		return ok({ status: "model_server_added", server: kept.id });
 	};
 
 	return {
 		modelAction: async (device, action) => lacks(device) ?? act(device, action),
+		signInOpenRouter,
+		cancelSignIn: async () => {
+			stop?.("You cancelled the sign-in");
+			return OK;
+		},
 	};
 };

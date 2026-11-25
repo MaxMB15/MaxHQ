@@ -1593,5 +1593,12 @@
 	"Waiting for keys · Open on the Mac": "En attente de touches · Ouvrir sur le Mac",
 	"New session, for a scheduled task's run": "Nouvelle session, pour l'exécution d'une tâche planifiée",
 	"The dispatcher keeps its session, so it can't start a fresh one.": "Le dispatcher garde sa session, il ne peut donc pas en démarrer une nouvelle.",
-	"{{device}} runs an older maxd that can't start a fresh session. Update it to turn this on.": "{{device}} a une version plus ancienne de maxd qui ne peut pas démarrer de nouvelle session. Mets-la à jour pour activer cette option."
+	"{{device}} runs an older maxd that can't start a fresh session. Update it to turn this on.": "{{device}} a une version plus ancienne de maxd qui ne peut pas démarrer de nouvelle session. Mets-la à jour pour activer cette option.",
+	"Type an amount in dollars, such as 25 or 12.50.": "Saisissez un montant en dollars, par exemple 25 ou 12,50.",
+	"Type an amount above 0, or leave it empty for no limit.": "Saisissez un montant supérieur à 0, ou laissez vide pour aucune limite.",
+	"OpenRouter takes a limit below one million dollars.": "OpenRouter accepte une limite inférieure à un million de dollars.",
+	"Finish signing in in your browser": "Terminez la connexion dans votre navigateur",
+	"Signing in gives {{server}} on this device a new key.": "La connexion donne une nouvelle clé à {{server}} sur cet appareil.",
+	"Signed in with a new key. You can revoke the old one on OpenRouter's keys page.": "Connecté avec une nouvelle clé. Vous pouvez révoquer l'ancienne sur la page des clés d'OpenRouter.",
+	"Update this device's maxd to sign in with OpenRouter.": "Mettez à jour maxd sur cet appareil pour vous connecter avec OpenRouter."
 }

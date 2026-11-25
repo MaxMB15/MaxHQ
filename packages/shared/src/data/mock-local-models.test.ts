@@ -12,6 +12,7 @@ import {
 	MAC_SERVER,
 	mockCatalog,
 	OLLAMA_SERVER,
+	OPENROUTER_MODEL,
 } from "./mock-local-models";
 import { mockSource } from "./mock-source";
 import { DEVBOX, MAC } from "./mock-view";
@@ -181,6 +182,85 @@ describe("mock local models", () => {
 				action: "load",
 				server: OLLAMA_SERVER,
 				model: "gpt-oss:20b",
+			})
+		).toMatchObject({ data: { status: "refused" } });
+	});
+});
+
+describe("the sample's Sign in with OpenRouter", () => {
+	it("waits, fails the first round, adds OpenRouter, then gives the same server a new key", async () => {
+		vi.useFakeTimers();
+		const mock = source();
+		let settled = false;
+		const first = mock.signInOpenRouter(MAC, null).finally(() => (settled = true));
+		await vi.advanceTimersByTimeAsync(30);
+		expect(settled).toBe(false);
+		await vi.runAllTimersAsync();
+		expect(await first).toMatchObject({
+			status: "ok",
+			data: { status: "refused", reason: expect.stringMatching(/lasts 10 minutes/) },
+		});
+		const round = async () => {
+			const result = mock.signInOpenRouter(MAC, 2500);
+			await vi.runAllTimersAsync();
+			return result;
+		};
+		const before = (await view(mock)).tables.model_server.size;
+		const added = await round();
+		expect(added).toMatchObject({ status: "ok", data: { status: "model_server_added" } });
+		const id =
+			added.status === "ok" && added.data.status === "model_server_added"
+				? added.data.server
+				: "";
+		const after = await view(mock);
+		expect(after.tables.model_server.size).toBe(before + 1);
+		expect(after.tables.model_server.get(id)).toMatchObject({
+			device: MAC,
+			label: "OpenRouter",
+			base_url: "https://openrouter.ai/api",
+			token: true,
+			models: expect.arrayContaining([expect.objectContaining({ id: OPENROUTER_MODEL })]),
+		});
+		expect(await round()).toEqual({
+			status: "ok",
+			data: { status: "model_server_added", server: id },
+		});
+		expect((await view(mock)).tables.model_server.size).toBe(before + 1);
+	});
+
+	it("ends the round that waits on Cancel, or when a newer one starts", async () => {
+		vi.useFakeTimers();
+		const mock = source();
+		const cancelled = mock.signInOpenRouter(MAC, null);
+		expect(await mock.cancelSignIn()).toEqual({ status: "ok", data: null });
+		expect(await cancelled).toEqual({
+			status: "error",
+			error: { kind: "failed", message: "You cancelled the sign-in" },
+		});
+		const older = mock.signInOpenRouter(MAC, null);
+		const newer = mock.signInOpenRouter(MAC, null);
+		expect(await older).toEqual({
+			status: "error",
+			error: { kind: "failed", message: "A newer sign-in took this one's place" },
+		});
+		await vi.runAllTimersAsync();
+		// Neither stopped round counted, so the newer one is the first to fail.
+		expect(await newer).toMatchObject({ data: { status: "refused" } });
+		// Cancel with nothing waiting does nothing.
+		expect(await mock.cancelSignIn()).toEqual({ status: "ok", data: null });
+	});
+
+	it("refuses a limit OpenRouter doesn't take, and the app's own steps", async () => {
+		const mock = source();
+		expect(await mock.signInOpenRouter(MAC, 0)).toMatchObject({ data: { status: "refused" } });
+		expect(await mock.signInOpenRouter(MAC, 100_000_000)).toMatchObject({
+			data: { status: "refused" },
+		});
+		expect(
+			await mock.modelAction(MAC, {
+				action: "begin_open_router_sign_in",
+				label: null,
+				limit_cents: null,
 			})
 		).toMatchObject({ data: { status: "refused" } });
 	});

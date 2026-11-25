@@ -275,6 +275,11 @@ export const ACTIONS: Case[] = [
 		{ kind: "sign_in_chatgpt", device: "device-1" },
 	],
 	[
+		"signInOpenRouter",
+		(s) => s.signInOpenRouter("device-1", 2500),
+		{ kind: "sign_in_openrouter", device: "device-1", label: null, limit_cents: 2500 },
+	],
+	[
 		"checkGithubApp",
 		(s) => s.checkGithubApp("device-1"),
 		{ kind: "check_github_app", device: "device-1" },
@@ -779,6 +784,7 @@ export const UNITS: Case[] = [
 	["restartMaxd", (s) => s.restartMaxd("link-1"), { kind: "restart_maxd", link: "link-1" }],
 	["removeDevice", (s) => s.removeDevice("link-1"), { kind: "remove_device", link: "link-1" }],
 	["startLocalMaxd", (s) => s.startLocalMaxd(), { kind: "start_local_maxd" }],
+	["cancelSignIn", (s) => s.cancelSignIn(), { kind: "cancel_sign_in" }],
 	[
 		"uninstallLocalMaxd",
 		(s) => s.uninstallLocalMaxd(true),

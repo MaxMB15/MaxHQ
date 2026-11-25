@@ -2401,6 +2401,12 @@ impl ClientMessage {
             Self::CursorRules { .. } => CURSOR_RULES_SINCE,
             Self::UseResetCredit { .. } => RESET_CREDITS_SINCE,
             Self::ActOnChat { .. } => DISPATCHER_CHATS_SINCE,
+            Self::ModelAction {
+                action:
+                    ModelAction::BeginOpenRouterSignIn { .. }
+                    | ModelAction::FinishOpenRouterSignIn { .. },
+                ..
+            } => CLOUD_SERVERS_SINCE,
             Self::ModelAction { .. } => LOCAL_MODELS_SINCE,
             _ => OLDEST_PROTOCOL_VERSION,
         }
@@ -3206,10 +3212,13 @@ pub enum ActionOutcome {
         /// The new workspace, which shows its progress.
         workspace: WorkspaceId,
     },
-    /// A Sign in with ChatGPT round is waiting. Open `url` in the browser
-    /// and listen on 127.0.0.1:`callback_port`.
+    /// A sign-in round is waiting. Open `url` in the browser and listen on
+    /// this Mac at `callback_port`: on 127.0.0.1 for Sign in with ChatGPT,
+    /// and on 127.0.0.1 and ::1 for Sign in with OpenRouter, whose page
+    /// sends the browser to `localhost`.
     SignIn {
-        /// The round, for [`ClientMessage::FinishChatGptSignIn`].
+        /// The round, for [`ClientMessage::FinishChatGptSignIn`] or
+        /// [`crate::local_models::ModelAction::FinishOpenRouterSignIn`].
         sign_in: SignInId,
         /// The page to open.
         url: String,
