@@ -107,6 +107,26 @@ mod tests {
     }
 
     #[test]
+    fn the_window_on_windows_is_the_main_one_with_a_native_title_bar() {
+        let read = |text: &str| serde_json::from_str::<serde_json::Value>(text).unwrap();
+        let main = read(include_str!("../../tauri.conf.json"));
+        let windows = read(include_str!("../../tauri.windows.conf.json"));
+        let mut window = main["app"]["windows"][0].as_object().unwrap().clone();
+        for mac in ["titleBarStyle", "hiddenTitle", "trafficLightPosition"] {
+            assert!(window.remove(mac).is_some(), "{mac} is the Mac's");
+        }
+        assert_eq!(
+            windows["app"]["windows"],
+            serde_json::json!([window]),
+            "the window matches the main config's, less the Mac's title bar"
+        );
+        assert_eq!(
+            windows["bundle"]["windows"]["nsis"]["installMode"], "currentUser",
+            "the NSIS setup installs for you, without an administrator"
+        );
+    }
+
+    #[test]
     fn the_id_is_listed_under_the_current_users_classes() {
         assert_eq!(
             app_id_key(APP_ID),
