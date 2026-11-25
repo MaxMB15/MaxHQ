@@ -102,9 +102,27 @@ trash = "5.4"
 dbus = { workspace = true }
 open = "5.4"
 
-# Windows shows its toasts through notify-rust.
+# Windows shows its toasts through WinRT, for the app's AppUserModelID, so
+# it hears their clicks. windows-sys claims that ID, lists it for a build no
+# setup installed, and opens PowerShell as an administrator. base64 encodes
+# the script PowerShell runs, and maxhq-os finds PowerShell 7.
 [target.'cfg(windows)'.dependencies]
-notify-rust = { version = "4.19", default-features = false }
+base64 = { workspace = true }
+maxhq-os = { workspace = true }
+windows = { version = "0.62", features = [
+    "Data_Xml_Dom",
+    "Foundation",
+    "UI_Notifications",
+] }
+windows-sys = { workspace = true, features = [
+    "Win32_System_Registry",
+    "Win32_UI_Shell",
+    "Win32_UI_WindowsAndMessaging",
+] }
+
+# The PowerShell terminal's tests run everywhere.
+[dev-dependencies]
+base64 = { workspace = true }
 
 [lints]
 workspace = true

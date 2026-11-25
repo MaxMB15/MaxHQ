@@ -29,6 +29,8 @@ use macos as platform;
 
 #[cfg(any(target_os = "linux", windows))]
 mod portable;
+#[cfg(any(windows, test))]
+pub mod windows;
 #[cfg(any(target_os = "linux", windows))]
 use portable as platform;
 

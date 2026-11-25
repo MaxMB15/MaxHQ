@@ -232,10 +232,16 @@ impl WindowsApp {
 }
 
 /// Whether `path` is inside `dir`, by Windows' rules: either slash parts
-/// folders and case doesn't matter. Plain text, so it reads the same on
-/// any system.
-fn windows_inside(path: &Path, dir: &Path) -> bool {
-    let fold = |path: &Path| path.to_string_lossy().replace('/', "\\").to_lowercase();
+/// folders, case doesn't matter and the `\\?\` prefix changes nothing.
+/// Plain text, so it reads the same on any system.
+pub fn windows_inside(path: &Path, dir: &Path) -> bool {
+    let fold = |path: &Path| {
+        let text = path.to_string_lossy().replace('/', "\\").to_lowercase();
+        match text.strip_prefix(r"\\?\") {
+            Some(rest) => rest.to_owned(),
+            None => text,
+        }
+    };
     let dir = fold(dir);
     let dir = dir.trim_end_matches('\\');
     !dir.is_empty()
@@ -849,6 +855,15 @@ mod tests {
             WindowsApp::of(lower, false, &program_files),
             WindowsApp::Msi
         );
+        let verbatim = Path::new(r"\\?\C:\Program Files\MaxHQ\MaxHQ.exe");
+        assert_eq!(
+            WindowsApp::of(verbatim, false, &program_files),
+            WindowsApp::Msi
+        );
+        assert!(!windows_inside(
+            Path::new(r"C:\Program Files"),
+            &program_files[0]
+        ));
         let alike = Path::new(r"C:\Program Files Extra\MaxHQ\MaxHQ.exe");
         assert_eq!(
             WindowsApp::of(alike, false, &program_files),

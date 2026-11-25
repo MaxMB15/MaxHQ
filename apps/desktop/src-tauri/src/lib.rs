@@ -17,7 +17,7 @@ mod terminal;
 mod terminal_stream;
 mod updater;
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -207,6 +207,10 @@ pub fn run() {
             tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into()),
         )
         .init();
+    // Before any window opens, so Windows shows it as the Start menu's
+    // MaxHQ and hands that app's toast clicks to this process.
+    #[cfg(windows)]
+    native::windows::claim_app_id();
 
     let builder = specta_builder();
     let app = tauri::Builder::default();
@@ -605,7 +609,9 @@ impl Shell for Desktop {
     /// with maxd, where the app's links keep their known hosts. maxd has
     /// deleted the rest of that one by the time this runs. Each one goes
     /// only when it's named for the app, so an odd path from the system
-    /// can't take anything else with it.
+    /// can't take anything else with it. When the app runs from inside the
+    /// shared folder, as the Windows setup installs it, only the known
+    /// hosts go from there.
     fn app_data(&self) -> Vec<PathBuf> {
         let path = self.app.path();
         let identifier = self.app.config().identifier.as_str();
@@ -624,9 +630,11 @@ impl Shell for Desktop {
             && shared
                 .file_name()
                 .is_some_and(|name| name == "MaxHQ" || name == "maxhq")
-            && !folders.contains(&shared)
         {
-            folders.push(shared);
+            let shared = shared_to_erase(shared, std::env::current_exe().ok().as_deref());
+            if !folders.contains(&shared) {
+                folders.push(shared);
+            }
         }
         folders
     }
@@ -685,4 +693,41 @@ async fn spawn_editor(program: PathBuf, args: Vec<String>) -> Result<(), String>
         .spawn()
         .map(drop)
         .map_err(|error| format!("The editor didn't start: {error}"))
+}
+
+/// What the app erases of the folder it shares with maxd: all of it, or
+/// only its `ssh` folder when the app's program `exe` runs from inside,
+/// so the app doesn't delete itself. The Windows setup installs the app
+/// in `%LOCALAPPDATA%\MaxHQ`, the folder maxd keeps its data in there.
+fn shared_to_erase(shared: PathBuf, exe: Option<&Path>) -> PathBuf {
+    let inside = exe.is_some_and(|exe| {
+        if cfg!(windows) {
+            maxhq_app::app_update::windows_inside(exe, &shared)
+        } else {
+            exe.starts_with(&shared)
+        }
+    });
+    if inside {
+        shared.join("ssh")
+    } else {
+        shared
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_shared_folder_goes_unless_the_app_runs_from_it() {
+        let shared = PathBuf::from("/home/<user>/.local/share/maxhq");
+        let elsewhere = Path::new("/usr/bin/maxhq");
+        assert_eq!(shared_to_erase(shared.clone(), Some(elsewhere)), shared);
+        assert_eq!(shared_to_erase(shared.clone(), None), shared);
+        let inside = shared.join("MaxHQ");
+        assert_eq!(
+            shared_to_erase(shared.clone(), Some(&inside)),
+            shared.join("ssh")
+        );
+    }
 }

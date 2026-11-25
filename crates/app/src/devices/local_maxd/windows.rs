@@ -28,14 +28,7 @@ pub(super) fn misplaced(bundled: &Path) -> Option<&'static str> {
 
 /// [`misplaced`], with the temp folder given.
 fn misplaced_in(bundled: &Path, temp: &Path) -> Option<&'static str> {
-    let fold = |path: &Path| path.to_string_lossy().replace('/', "\\").to_lowercase();
-    let temp = fold(temp);
-    let temp = temp.trim_end_matches('\\');
-    let inside = !temp.is_empty()
-        && fold(bundled)
-            .strip_prefix(temp)
-            .is_some_and(|rest| rest.starts_with('\\'));
-    inside.then_some(MISPLACED)
+    crate::app_update::windows_inside(bundled, temp).then_some(MISPLACED)
 }
 
 /// Copies `bundled` out to the versions in MaxHQ's folder and points the
