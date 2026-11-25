@@ -9,11 +9,10 @@
 
 use std::env;
 use std::ffi::{OsStr, OsString};
-use std::fs;
-use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 
 use crate::drive::local::AcpCommand;
+use crate::drive::programs::{self, Cli};
 use crate::drive::{claude, codex, cursor, Framing, Launch, Place};
 
 /// How to run `command` for an agent in `place`.
@@ -29,21 +28,18 @@ pub fn launch(command: &AcpCommand, place: &Place) -> Launch {
 }
 
 /// The program `given` names: an absolute path that runs, or a name found
-/// in an absolute folder on `path`. None for anything else, such as a
-/// relative path.
+/// in an absolute folder on `path`, and on Windows in the usual install
+/// folders. None for anything else, such as a relative path.
 pub fn program(given: &str, path: Option<&OsStr>) -> Option<PathBuf> {
     let named = Path::new(given);
     if named.is_absolute() {
-        return runnable(named).then(|| named.to_owned());
+        return programs::runnable(named).then(|| named.to_owned());
     }
-    if given.is_empty() || given.contains('/') {
+    let separated = given.contains('/') || (cfg!(windows) && given.contains('\\'));
+    if given.is_empty() || separated {
         return None;
     }
-    path.into_iter()
-        .flat_map(env::split_paths)
-        .filter(|dir| dir.is_absolute())
-        .map(|dir| dir.join(given))
-        .find(|candidate| runnable(candidate))
+    programs::find(given, path, &[], Cli::Other)
 }
 
 /// What `launch` reads from `maxd`'s own process, kept apart so tests can
@@ -116,24 +112,13 @@ fn claude_family(name: &OsStr) -> bool {
 /// siblings finds them. None for a program with no absolute folder.
 pub(crate) fn path_first(program: &Path, path: Option<&OsStr>) -> Option<(OsString, OsString)> {
     let dir = program.parent().filter(|dir| dir.is_absolute())?;
-    let mut first = OsString::from(dir);
-    if let Some(rest) = path.filter(|rest| !rest.is_empty()) {
-        first.push(":");
-        first.push(rest);
-    }
-    Some(("PATH".into(), first))
-}
-
-/// Whether `path` is a file someone may run.
-pub(crate) fn runnable(path: &Path) -> bool {
-    fs::metadata(path).is_ok_and(|meta| meta.is_file() && meta.permissions().mode() & 0o111 != 0)
+    Some(("PATH".into(), programs::path_with_first(dir, path)))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::drive::PlaceHost;
-    use crate::testing::TempDir;
     use maxhq_protocol::acp::{AcpAgent, AcpEnvValue};
     use maxhq_protocol::ids::{AcpAgentId, DeviceId, WorkspaceId};
     use maxhq_protocol::Secret;
@@ -257,8 +242,12 @@ mod tests {
     }
 
     #[test]
+    #[cfg(unix)]
     fn a_program_is_an_absolute_path_or_a_name_on_path() {
-        let dir = TempDir::new();
+        use std::fs;
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = crate::testing::TempDir::new();
         let bin = dir.path().join("agent");
         fs::write(&bin, "#!/bin/sh\n").unwrap();
         fs::set_permissions(&bin, fs::Permissions::from_mode(0o755)).unwrap();

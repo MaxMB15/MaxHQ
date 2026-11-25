@@ -8,6 +8,7 @@
 
 use std::collections::BTreeMap;
 use std::ffi::{OsStr, OsString};
+#[cfg(unix)]
 use std::os::unix::fs::{DirBuilderExt, MetadataExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
@@ -23,6 +24,7 @@ use tokio::time::Instant;
 
 use super::windows::windows;
 use crate::drive::claude::entrypoint;
+use crate::drive::claude::find_claude;
 use crate::observe::claude::config::ConfigDir;
 
 /// How long a run of `claude` gets before it's stopped.
@@ -68,24 +70,6 @@ const REQUEST: &str = concat!(
     r#""request":{"subtype":"get_usage","skip_behaviors":true}}"#,
     "\n"
 );
-
-/// Where installers put `claude` under the home folder, for when `PATH`
-/// doesn't name it. A daemon that launchd or systemd starts gets a short
-/// `PATH` that misses most of these.
-const HOME_PLACES: [&str; 5] = [
-    ".local/bin/claude",
-    ".claude/local/claude",
-    ".bun/bin/claude",
-    ".npm-global/bin/claude",
-    ".nix-profile/bin/claude",
-];
-
-/// Where package managers put `claude` outside the home folder.
-const SYSTEM_PLACES: [&str; 3] = [
-    "/opt/homebrew/bin/claude",
-    "/usr/local/bin/claude",
-    "/run/current-system/sw/bin/claude",
-];
 
 /// The longest failure reason kept, in characters.
 const REASON_CHARS: usize = 200;
@@ -180,10 +164,10 @@ impl Cli {
 
     /// The `claude` on this device, if there is one.
     pub fn find() -> Option<Self> {
-        let home = std::env::var_os("HOME").map(PathBuf::from);
-        let user = std::env::var("USER").ok();
+        let home = maxhq_os::home::home_dir();
+        let user = std::env::var_os("USER");
         let path = std::env::var_os("PATH");
-        let program = find_in(path.as_deref(), home.as_deref(), user.as_deref())?;
+        let program = find_claude(path.as_deref(), home.as_deref(), user.as_deref())?;
         let folder = maxhq_core::paths::data_dir()?.join(PROBE_FOLDER);
         Some(Self::new(program, TIMEOUT, folder))
     }
@@ -272,7 +256,10 @@ impl Cli {
     /// MaxHQ named as the app that runs it. Dropping it stops the process
     /// it started.
     fn command(&self, config: &ConfigDir) -> Command {
-        let mut command = Command::new(&self.program);
+        // On Windows an npm shim starts what it names, without cmd.exe.
+        let found = maxhq_os::which::launch(&self.program);
+        let mut command = Command::new(&found.program);
+        command.args(&found.args);
         for (key, _) in std::env::vars_os() {
             if inherited(&key) {
                 command.env_remove(&key);
@@ -315,6 +302,7 @@ fn with_first(dir: &Path, path: Option<OsString>) -> Option<OsString> {
 /// reach it, so nobody else can plant files for `claude` to read there. A
 /// link or a folder another user owns is refused, and one that's open to
 /// others is closed.
+#[cfg(unix)]
 fn private_folder(dir: &Path) -> Result<(), String> {
     let failed = |error: std::io::Error| format!("couldn't use {}: {error}", dir.display());
     std::fs::DirBuilder::new()
@@ -335,42 +323,17 @@ fn private_folder(dir: &Path) -> Result<(), String> {
     Ok(())
 }
 
-/// The first `claude` in `path`, then under `home`, then in the places
-/// package managers use.
-fn find_in(path: Option<&OsStr>, home: Option<&Path>, user: Option<&str>) -> Option<PathBuf> {
-    let on_path = path
-        .into_iter()
-        .flat_map(std::env::split_paths)
-        .filter(|dir| dir.is_absolute())
-        .map(|dir| dir.join("claude"));
-    let in_home = home
-        .into_iter()
-        .flat_map(|home| HOME_PLACES.map(|place| home.join(place)));
-    // Home Manager on NixOS links each user's packages here.
-    let per_user =
-        user.map(|user| PathBuf::from(format!("/etc/profiles/per-user/{user}/bin/claude")));
-    let system = SYSTEM_PLACES.into_iter().map(PathBuf::from);
-    on_path
-        .chain(in_home)
-        .chain(per_user)
-        .chain(system)
-        .find(|candidate| runnable(candidate))
-}
-
-/// Whether `path` is a file this user may run.
-fn runnable(path: &Path) -> bool {
-    let Ok(metadata) = std::fs::metadata(path) else {
-        return false;
-    };
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        metadata.is_file() && metadata.permissions().mode() & 0o111 != 0
+/// Makes `dir` for `claude` to run in. Windows keeps a folder in the
+/// user's profile to that user, so only a link in its place is refused.
+#[cfg(not(unix))]
+fn private_folder(dir: &Path) -> Result<(), String> {
+    let failed = |error: std::io::Error| format!("couldn't use {}: {error}", dir.display());
+    maxhq_os::fsmode::private_dir_all(dir).map_err(failed)?;
+    let meta = std::fs::symlink_metadata(dir).map_err(failed)?;
+    if !meta.is_dir() {
+        return Err(format!("{} isn't a real folder", dir.display()));
     }
-    #[cfg(not(unix))]
-    {
-        metadata.is_file()
-    }
+    Ok(())
 }
 
 /// Reads what `claude auth status --json` prints. It exits 1 when logged
@@ -655,11 +618,14 @@ cat > /dev/null
         let installed = fake_claude(&home.join(".local/bin"), "cli/auth-status.json", FAILS);
         let path = std::env::join_paths([dir.join("empty"), bin]).unwrap();
         assert_eq!(
-            find_in(Some(&path), Some(&home), Some("max")),
+            find_claude(Some(&path), Some(&home), Some(OsStr::new("max"))),
             Some(installed.program.clone())
         );
         let first = std::env::join_paths([home.join(".local/bin")]).unwrap();
-        assert_eq!(find_in(Some(&first), None, None), Some(installed.program));
+        assert_eq!(
+            find_claude(Some(&first), None, None),
+            Some(installed.program)
+        );
     }
 
     #[test]
@@ -727,6 +693,7 @@ cat > /dev/null
 
     /// A `claude` that leaves a mark in `dir` as soon as it runs, for
     /// `auth status` or the probe alike.
+    #[cfg(unix)]
     fn marking_claude(dir: &Path) -> (Cli, PathBuf) {
         fs::create_dir_all(dir).unwrap();
         let mark = dir.join("ran");
@@ -741,6 +708,7 @@ cat > /dev/null
         (cli, mark)
     }
 
+    #[cfg(unix)]
     #[tokio::test]
     async fn claude_never_runs_from_a_folder_someone_planted() {
         let dir = scratch();
@@ -783,6 +751,7 @@ cat > /dev/null
         assert!(!mark.exists(), "claude ran from a folder it shouldn't have");
     }
 
+    #[cfg(unix)]
     #[tokio::test]
     async fn the_folder_claude_runs_in_is_private() {
         let dir = scratch();

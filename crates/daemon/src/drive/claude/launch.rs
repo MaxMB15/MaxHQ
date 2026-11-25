@@ -6,8 +6,6 @@
 
 use std::env;
 use std::ffi::{OsStr, OsString};
-use std::fs;
-use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 
 use maxhq_core::tools::dispatch;
@@ -17,22 +15,23 @@ use uuid::Uuid;
 use super::artifacts;
 use super::entrypoint;
 use super::wire::mode_name;
+use crate::drive::programs::{self, Cli};
 use crate::drive::{Framing, Launch, Login, LoginAuth, Place, PlaceHost, ServerLogin};
 
 /// Where installers put `claude` under the home folder, tried after `PATH`.
 const HOME_PLACES: &[&str] = &[
-    ".local/bin/claude",
-    ".claude/local/claude",
-    ".bun/bin/claude",
-    ".npm-global/bin/claude",
-    ".nix-profile/bin/claude",
+    ".local/bin",
+    ".claude/local",
+    ".bun/bin",
+    ".npm-global/bin",
+    ".nix-profile/bin",
 ];
 
 /// System-wide places for `claude`, tried last.
 const SYSTEM_PLACES: &[&str] = &[
-    "/opt/homebrew/bin/claude",
-    "/usr/local/bin/claude",
-    "/run/current-system/sw/bin/claude",
+    "/opt/homebrew/bin",
+    "/usr/local/bin",
+    "/run/current-system/sw/bin",
 ];
 
 /// Variables the CLI must not inherit from `maxd`. `NODE_OPTIONS` could
@@ -123,10 +122,10 @@ impl Host {
     /// What `maxd`'s own process gives, with `entrypoint` as the name the
     /// CLI gives for the app running it.
     fn here(entrypoint: String) -> Self {
-        let home = env::var_os("HOME").map(PathBuf::from);
+        let home = maxhq_os::home::home_dir();
         let path = env::var_os("PATH");
         let user = env::var_os("USER");
-        let program = find(path.as_deref(), home.as_deref(), user.as_deref())
+        let program = find_claude(path.as_deref(), home.as_deref(), user.as_deref())
             .unwrap_or_else(|| PathBuf::from("claude"));
         Self {
             program,
@@ -279,12 +278,10 @@ fn under(
     env.push(("CLAUDE_CODE_EMIT_SESSION_STATE_EVENTS".into(), "1".into()));
     env.push(("CLAUDE_CODE_STARTUP_FAILURE_RESULTS".into(), "1".into()));
     if let Some(dir) = host.program.parent().filter(|dir| dir.is_absolute()) {
-        let mut path = OsString::from(dir);
-        if let Some(rest) = host.path.as_deref().filter(|rest| !rest.is_empty()) {
-            path.push(":");
-            path.push(rest);
-        }
-        env.push(("PATH".into(), path));
+        env.push((
+            "PATH".into(),
+            programs::path_with_first(dir, host.path.as_deref()),
+        ));
     }
 
     // A setup-token login gets its token on the holder's pipe, and only
@@ -324,34 +321,26 @@ fn under(
     }
 }
 
-/// Finds `claude` on `PATH`, then where installers put it. The same search
-/// as the usage reader's.
-fn find(path: Option<&OsStr>, home: Option<&Path>, user: Option<&OsStr>) -> Option<PathBuf> {
-    let on_path = path
-        .into_iter()
-        .flat_map(env::split_paths)
-        .filter(|dir| dir.is_absolute())
-        .map(|dir| dir.join("claude"));
+/// Finds `claude` on `PATH`, then where installers put it: under `home`,
+/// in Home Manager's folder for `user` on NixOS, then system-wide. Windows
+/// has its own install folders. The usage reader searches the same way.
+pub fn find_claude(
+    path: Option<&OsStr>,
+    home: Option<&Path>,
+    user: Option<&OsStr>,
+) -> Option<PathBuf> {
     let in_home = home
         .into_iter()
         .flat_map(|home| HOME_PLACES.iter().map(move |place| home.join(place)));
     let per_user = user.map(|user| {
         let mut path = OsString::from("/etc/profiles/per-user/");
         path.push(user);
-        path.push("/bin/claude");
+        path.push("/bin");
         PathBuf::from(path)
     });
     let system = SYSTEM_PLACES.iter().map(PathBuf::from);
-    on_path
-        .chain(in_home)
-        .chain(per_user)
-        .chain(system)
-        .find(|candidate| runnable(candidate))
-}
-
-/// Whether `path` is a file someone may run.
-fn runnable(path: &Path) -> bool {
-    fs::metadata(path).is_ok_and(|meta| meta.is_file() && meta.permissions().mode() & 0o111 != 0)
+    let unix: Vec<PathBuf> = in_home.chain(per_user).chain(system).collect();
+    programs::find("claude", path, &unix, Cli::Claude)
 }
 
 #[cfg(test)]
@@ -359,15 +348,19 @@ mod tests {
     use super::*;
     use maxhq_protocol::ids::{AccountId, DeviceId, WorkspaceId};
     use maxhq_protocol::Secret;
+    use std::fs;
 
     #[test]
+    #[cfg(unix)]
     fn a_relative_folder_on_path_is_never_claude() {
+        use std::os::unix::fs::PermissionsExt;
+
         let dir = crate::testing::TempDir::new();
         let program = dir.path().join("claude");
         fs::write(&program, "#!/bin/sh\n").unwrap();
         fs::set_permissions(&program, fs::Permissions::from_mode(0o755)).unwrap();
         let relative = crate::testing::from_here(dir.path());
-        let found = find(Some(relative.as_os_str()), None, None);
+        let found = find_claude(Some(relative.as_os_str()), None, None);
         assert!(!found.is_some_and(|program| program.is_relative()));
     }
 
