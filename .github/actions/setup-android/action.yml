@@ -29,7 +29,8 @@ runs:
         df -h /
 
     # Gradle's downloads are cached under the versions that pick them: the
-    # lockfile for React Native's and Expo's, and the core module's build.
+    # lockfile for React Native's and Expo's, and the core and push modules'
+    # builds.
     - name: Install Java
       uses: actions/setup-java@77dd5b2ce225ea11469928ac317850245a74ae78 # v6.2.0
       with:
@@ -39,6 +40,7 @@ runs:
         cache-dependency-path: |
           pnpm-lock.yaml
           apps/mobile/modules/maxhq-core/android/build.gradle
+          apps/mobile/modules/maxhq-push/android/build.gradle
         cache-read-only: ${{ inputs.save-cache != 'true' }}
 
     - name: Install Rust

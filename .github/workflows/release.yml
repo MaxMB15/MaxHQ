@@ -333,15 +333,7 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
           TAURI_SIGNING_PRIVATE_KEY_NEXT: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_NEXT }}
           TAURI_SIGNING_PRIVATE_KEY_NEXT_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_NEXT_PASSWORD }}
-        run: |
-          set -euo pipefail
-          current=$(node -p 'require("./apps/desktop/src-tauri/tauri.conf.json").plugins.updater.pubkey')
-          if [[ "$SIGN_KEY" == current ]]; then
-            node scripts/release/sign.mjs --check --expect "$current"
-          fi
-          if [[ "$KEY_STATE" == bridge || "$SIGN_KEY" == next ]]; then
-            node scripts/release/sign.mjs --next --check --expect "$NEXT_PUBKEY"
-          fi
+        run: sh scripts/release/check-update-keys.sh
 
       - name: Set up Developer ID signing
         id: apple
@@ -723,15 +715,7 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
           TAURI_SIGNING_PRIVATE_KEY_NEXT: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_NEXT }}
           TAURI_SIGNING_PRIVATE_KEY_NEXT_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_NEXT_PASSWORD }}
-        run: |
-          set -euo pipefail
-          current=$(node -p 'require("./apps/desktop/src-tauri/tauri.conf.json").plugins.updater.pubkey')
-          if [[ "$SIGN_KEY" == current ]]; then
-            node scripts/release/sign.mjs --check --expect "$current"
-          fi
-          if [[ "$KEY_STATE" == bridge || "$SIGN_KEY" == next ]]; then
-            node scripts/release/sign.mjs --next --check --expect "$NEXT_PUBKEY"
-          fi
+        run: sh scripts/release/check-update-keys.sh
 
       # <installer>.sig, and in the bridge release <installer>.next.sig too.
       - name: Sign the installers
