@@ -30,7 +30,8 @@ impl Files {
         if self.windows {
             path.to_lowercase().replace('/', "\\")
         } else {
-            path.into_owned()
+            // A Windows host joins with `\`, even under Unix rules.
+            path.replace('\\', "/")
         }
     }
 

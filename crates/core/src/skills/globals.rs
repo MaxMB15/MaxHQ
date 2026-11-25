@@ -489,8 +489,14 @@ mod tests {
         fs
     }
 
-    fn paths(taken: &[Taken]) -> Vec<&str> {
-        taken.iter().map(|t| t.path.to_str().unwrap()).collect()
+    /// `path` with `/` between its parts, as the tests spell them: a
+    /// Windows host joins with `\`.
+    fn slash(path: &Path) -> String {
+        path.to_string_lossy().replace('\\', "/")
+    }
+
+    fn paths(taken: &[Taken]) -> Vec<String> {
+        taken.iter().map(|t| slash(&t.path)).collect()
     }
 
     fn propose() -> TreeHash {
@@ -511,10 +517,14 @@ mod tests {
         );
         assert_eq!(paths(&tidy.backups), ["/home/dev/.codex/skills/unslop"]);
         let unslop = tidy.moves[0].tree.clone().unwrap();
-        let links: Vec<(&str, PathBuf)> = tidy
+        let links: Vec<(String, PathBuf)> = tidy
             .links
             .iter()
-            .map(|l| (l.path.to_str().unwrap(), l.target.clone()))
+            .map(|l| (slash(&l.path), l.target.clone()))
+            .collect();
+        let links: Vec<(&str, PathBuf)> = links
+            .iter()
+            .map(|(path, target)| (path.as_str(), target.clone()))
             .collect();
         let at = |tree: &TreeHash| Path::new(STORE).join(&tree.0);
         assert_eq!(
@@ -562,14 +572,16 @@ mod tests {
         fs.link("/home/dev/.agents/skills/propose-skill-change", &old);
         fs.file("/home/dev/.agents/skills/unslop", "a file, not a skill");
         let tidy = plan(&fs, &input(Some(propose())));
-        assert!(paths(&tidy.backups).contains(&"/home/dev/.agents/skills/propose-skill-change"));
-        let linked: Vec<&str> = tidy
-            .links
+        assert!(paths(&tidy.backups)
             .iter()
-            .map(|l| l.path.to_str().unwrap())
-            .collect();
-        assert!(linked.contains(&"/home/dev/.agents/skills/propose-skill-change"));
-        assert!(!linked.contains(&"/home/dev/.agents/skills/unslop"));
+            .any(|p| p == "/home/dev/.agents/skills/propose-skill-change"));
+        let linked: Vec<String> = tidy.links.iter().map(|l| slash(&l.path)).collect();
+        assert!(linked
+            .iter()
+            .any(|p| p == "/home/dev/.agents/skills/propose-skill-change"));
+        assert!(!linked
+            .iter()
+            .any(|p| p == "/home/dev/.agents/skills/unslop"));
         assert!(!paths(&tidy.moves).iter().any(|p| p.contains("not-a-skill")));
         assert!(!paths(&tidy.moves).iter().any(|p| p.contains("synced")));
     }
@@ -644,6 +656,9 @@ mod tests {
         assert_ne!(shown.hash, plan(&fs, &input(Some(propose()))).hash());
     }
 
+    // A pick matches the plan's own path text, which a Windows host writes
+    // with `\`, so this test's `/` picks only match on Unix.
+    #[cfg(unix)]
     #[test]
     fn copies_that_differ_wait_for_a_pick() {
         let mut fs = today();
@@ -677,9 +692,15 @@ mod tests {
         assert!(tidy.conflicts.is_empty());
         // The same tree as the pick goes into the library too.
         let moved = paths(&tidy.moves);
-        assert!(moved.contains(&"/home/dev/.claude/skills/grill-me"));
-        assert!(moved.contains(&"/home/dev/.codex/skills/grill-me"));
-        assert!(paths(&tidy.backups).contains(&"/home/dev/.agents/skills/grill-me"));
+        assert!(moved
+            .iter()
+            .any(|p| p == "/home/dev/.claude/skills/grill-me"));
+        assert!(moved
+            .iter()
+            .any(|p| p == "/home/dev/.codex/skills/grill-me"));
+        assert!(paths(&tidy.backups)
+            .iter()
+            .any(|p| p == "/home/dev/.agents/skills/grill-me"));
     }
 
     #[test]

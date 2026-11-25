@@ -203,7 +203,7 @@ fn split_paths(rules: Rules, path: &OsStr) -> Vec<PathBuf> {
 
 fn is_absolute(rules: Rules, dir: &Path) -> bool {
     match rules {
-        Rules::Unix => dir.is_absolute(),
+        Rules::Unix => unix::is_absolute(dir),
         Rules::Windows => windows::is_absolute(dir),
     }
 }
