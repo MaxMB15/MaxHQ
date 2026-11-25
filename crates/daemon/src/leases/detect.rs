@@ -460,8 +460,15 @@ impl<S: System> Look<'_, S> {
     }
 
     /// The Android emulator on this device: the SDK, a system image for
-    /// its CPU, /dev/kvm on Linux, and Node.
+    /// its CPU, /dev/kvm on Linux, and Node. Not on Windows yet.
     async fn emulator(&mut self) -> Result<Ready, String> {
+        if self.system.os() == "windows" {
+            return Err(
+                "Android emulator test hosts aren't on Windows yet. Use a Mac or a \
+                        Linux device for them."
+                    .into(),
+            );
+        }
         let root = self.android_sdk()?;
         let abi = match self.system.arch() {
             "aarch64" => "arm64-v8a",

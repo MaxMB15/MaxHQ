@@ -16,7 +16,7 @@ use std::time::Duration;
 use serde::Serialize;
 use serde_json::{json, Value};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader, Lines};
-use tokio::process::{Child, ChildStdin, ChildStdout, Command};
+use tokio::process::{Child, ChildStdin, ChildStdout};
 
 /// How long one request may take. A cold start answers `initialize` in
 /// under a second, and the limits in a quarter of one.
@@ -111,7 +111,7 @@ impl AppServer {
     /// Starts `program app-server` for the login in `home` and completes
     /// the opening exchange.
     pub async fn start(program: &Path, home: &Path) -> Result<Self, Error> {
-        let mut child = Command::new(program)
+        let mut child = crate::drive::programs::command(program)
             .arg("app-server")
             .env("CODEX_HOME", home)
             .stdin(Stdio::piped())

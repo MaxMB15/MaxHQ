@@ -247,7 +247,7 @@ pub fn failure_message(ran: &Ran) -> String {
 
 /// Runs `binary --version` and reads it.
 pub async fn read_version(def: &Def, binary: &Path) -> Option<String> {
-    let output = tokio::process::Command::new(binary)
+    let output = crate::drive::programs::command(binary)
         .args(def.version_args)
         .stdin(Stdio::null())
         .kill_on_drop(true)

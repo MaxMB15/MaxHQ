@@ -188,7 +188,7 @@ fn arguments(path: &str, etag: Option<&str>) -> Vec<String> {
 /// `program` with `args`, its environment cleared of tokens, and nothing
 /// to read.
 fn command(program: &Path, args: &[String]) -> Command {
-    let mut command = Command::new(program);
+    let mut command = crate::drive::programs::command(program);
     command
         .args(args)
         .stdin(Stdio::null())

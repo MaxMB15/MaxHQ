@@ -256,3 +256,50 @@ fn path_puts_the_programs_folder_first_with_the_systems_separator() {
         "/opt/bin"
     );
 }
+
+#[test]
+fn a_bare_name_on_windows_is_found_through_pathext_and_looked_through() {
+    let npm = r"C:\Program Files\nodejs\npm.cmd";
+    let launch = |found: &Path| which::Launch {
+        program: PathBuf::from(r"C:\Program Files\nodejs\node.exe"),
+        args: vec![OsString::from(format!("{}.js", found.display()))],
+    };
+    let found = launch_of_in(
+        Rules::Windows,
+        OsStr::new("npm"),
+        |name| (name == "npm").then(|| PathBuf::from(npm)),
+        launch,
+    );
+    assert_eq!(
+        found.program,
+        Path::new(r"C:\Program Files\nodejs\node.exe")
+    );
+    assert_eq!(found.args, [format!("{npm}.js")].map(OsString::from));
+
+    // A path isn't searched for, and a name that isn't found stays as it is.
+    let given = launch_of_in(
+        Rules::Windows,
+        OsStr::new(r"C:\tools\git.exe"),
+        |_| panic!("searched for a path"),
+        |found: &Path| which::Launch::direct(found),
+    );
+    assert_eq!(given, which::Launch::direct(r"C:\tools\git.exe"));
+    let missing = launch_of_in(
+        Rules::Windows,
+        OsStr::new("gh"),
+        |_| None,
+        |found: &Path| which::Launch::direct(found),
+    );
+    assert_eq!(missing, which::Launch::direct("gh"));
+}
+
+#[test]
+fn unix_starts_a_bare_name_as_it_is() {
+    let found = launch_of_in(
+        Rules::Unix,
+        OsStr::new("npm"),
+        |_| panic!("searched on Unix"),
+        |_| panic!("looked through on Unix"),
+    );
+    assert_eq!(found, which::Launch::direct("npm"));
+}

@@ -113,7 +113,7 @@ impl HostExec {
                 "MaxHQ doesn't run {name} on the device"
             )));
         }
-        Ok(tokio::process::Command::new(program))
+        Ok(crate::drive::programs::command(program))
     }
 }
 
@@ -254,7 +254,7 @@ impl Probe for SystemProbe {
     }
 
     fn output(&self, program: &str, args: &[&str]) -> Option<String> {
-        let output = std::process::Command::new(program)
+        let output = crate::drive::programs::std_command(program)
             .args(args)
             .stdin(std::process::Stdio::null())
             .stderr(std::process::Stdio::null())
@@ -489,9 +489,13 @@ impl Tools {
 
     fn find(&self, name: &str) -> Option<PathBuf> {
         match &self.search {
-            Some(search) => std::env::split_paths(search)
-                .map(|dir| dir.join(name))
-                .find(|file| file.is_file()),
+            Some(search) => crate::drive::programs::find_in(
+                maxhq_os::which::Rules::HOST,
+                name,
+                Some(search),
+                &[],
+                &maxhq_os::which::Host,
+            ),
             None => crate::service::find_program(name),
         }
     }

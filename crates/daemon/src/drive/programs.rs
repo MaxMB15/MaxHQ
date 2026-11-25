@@ -137,6 +137,51 @@ pub fn ready(program: &mut PathBuf, args: &mut Vec<OsString>) -> Result<(), Stri
     }
 }
 
+/// How to start `program`, a path or a bare name, as this system starts
+/// it. Unix starts it as it is and searches `PATH` for a bare name itself.
+/// Windows finds a bare name through `PATHEXT`, which the standard library
+/// doesn't, so `npm` is `npm.cmd`, and then looks through an npm shim.
+pub fn launch_of(program: &OsStr) -> which::Launch {
+    launch_of_in(
+        Rules::HOST,
+        program,
+        |name| which::find(name, &[]),
+        which::launch,
+    )
+}
+
+/// [`launch_of`] under `rules`, with `find` for a bare name and `launch` to
+/// look through what it found.
+fn launch_of_in(
+    rules: Rules,
+    program: &OsStr,
+    find: impl FnOnce(&str) -> Option<PathBuf>,
+    launch: impl FnOnce(&Path) -> which::Launch,
+) -> which::Launch {
+    let given = Path::new(program);
+    if rules == Rules::Unix {
+        return which::Launch::direct(given);
+    }
+    let text = program.to_string_lossy();
+    let bare = !text.contains(['\\', '/', ':']);
+    let found = match bare {
+        true => find(&text).unwrap_or_else(|| given.to_owned()),
+        false => given.to_owned(),
+    };
+    launch(&found)
+}
+
+/// A command that starts `program`, for the caller to add its own
+/// arguments to. See [`launch_of`].
+pub fn command(program: impl AsRef<OsStr>) -> tokio::process::Command {
+    tokio::process::Command::from(std_command(program))
+}
+
+/// [`command`] for the standard library's process.
+pub fn std_command(program: impl AsRef<OsStr>) -> std::process::Command {
+    launch_of(program.as_ref()).command()
+}
+
 /// Points `program` at `found`, what it starts, with `found`'s arguments
 /// before `args`.
 fn resolve_to(program: &mut PathBuf, args: &mut Vec<OsString>, found: which::Launch) {

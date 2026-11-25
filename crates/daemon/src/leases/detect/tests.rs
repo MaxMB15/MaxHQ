@@ -534,6 +534,12 @@ async fn android_on_linux_needs_a_kvm_it_can_open() {
     assert!(closed.starts_with("maxd can't open /dev/kvm."), "{closed}");
     assert!(android(fake().file("/dev/kvm")).await.is_ok());
 
+    // Windows has none yet, whatever it has installed.
+    let windows = Fake::new("windows", "x86_64").env("ANDROID_HOME", root);
+    let windows = with_sdk(windows, root).node("22.0.0");
+    let refused = android(windows).await.unwrap_err();
+    assert!(refused.contains("aren't on Windows yet"), "{refused}");
+
     // A Mac has no /dev/kvm, and the emulator needs none there.
     let mac = with_sdk(Fake::mac().env("ANDROID_HOME", root), root).node("22.0.0");
     assert!(android(mac).await.is_ok());
