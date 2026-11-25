@@ -89,6 +89,8 @@
 	"Warming up": "Wird aufgewärmt",
 	"Works with Local agents": "Funktioniert mit Lokal-Agents",
 	"Works with Local agents, {{context}} tokens of context": "Funktioniert mit Lokal-Agents, {{context}} Kontext-Tokens",
+	"Works with cloud agents": "Funktioniert mit Cloud-Agents",
+	"Works with cloud agents, {{context}} tokens of context": "Funktioniert mit Cloud-Agents, {{context}} Kontext-Tokens",
 	"Writes {{value}} tokens/s": "Schreibt {{value}} Tokens/s",
 	"a move of {{agent}} to {{device}}{{access}}": "eine Verschiebung von {{agent}} nach {{device}}{{access}}",
 	"an agent": "einen Agenten",

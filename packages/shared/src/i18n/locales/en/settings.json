@@ -108,7 +108,7 @@
 	"Add argument": "Add argument",
 	"Sends a token": "Sends a token",
 	"Cloud service": "Cloud service",
-	"A hosted API, not hardware you run. No output cap, and every tool.": "A hosted API, not hardware you run. No output cap, and every tool.",
+	"A hosted API, not hardware you run. A higher output cap, and every tool.": "A hosted API, not hardware you run. A higher output cap, and every tool.",
 	"Servers": "Servers",
 	"Testing": "Testing",
 	"The dispatcher changes settings, agents and tasks without asking first. It still asks before deleting, stopping a busy agent, granting permissions, turning on a task that waits for approval, or starting an agent in a mode above this device's default that you didn't name.": "The dispatcher changes settings, agents and tasks without asking first. It still asks before deleting, stopping a busy agent, granting permissions, turning on a task that waits for approval, or starting an agent in a mode above this device's default that you didn't name.",

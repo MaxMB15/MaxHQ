@@ -102,6 +102,8 @@
 	"Warming up": "Warming up",
 	"Works with Local agents": "Works with Local agents",
 	"Works with Local agents, {{context}} tokens of context": "Works with Local agents, {{context}} tokens of context",
+	"Works with cloud agents": "Works with cloud agents",
+	"Works with cloud agents, {{context}} tokens of context": "Works with cloud agents, {{context}} tokens of context",
 	"Writes {{value}} tokens/s": "Writes {{value}} tokens/s",
 	"a move of {{agent}} to {{device}}{{access}}": "a move of {{agent}} to {{device}}{{access}}",
 	"macOS lets the GPU use about {{budget}} of this Mac's {{ram}}, and keeps the rest for your apps. A model has to fit in that. MaxHQ doesn't raise the limit: raising it can leave macOS short of memory and freeze the Mac.": "macOS lets the GPU use about {{budget}} of this Mac's {{ram}}, and keeps the rest for your apps. A model has to fit in that. MaxHQ doesn't raise the limit: raising it can leave macOS short of memory and freeze the Mac.",

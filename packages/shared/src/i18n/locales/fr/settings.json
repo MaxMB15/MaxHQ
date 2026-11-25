@@ -108,7 +108,7 @@
 	"Add argument": "Ajouter un argument",
 	"Sends a token": "Envoie un jeton",
 	"Cloud service": "Service cloud",
-	"A hosted API, not hardware you run. No output cap, and every tool.": "Une API hébergée, pas du matériel que vous faites tourner. Pas de plafond de sortie, et tous les outils.",
+	"A hosted API, not hardware you run. A higher output cap, and every tool.": "Une API hébergée, pas du matériel que vous faites tourner. Un plafond de sortie plus haut, et tous les outils.",
 	"Servers": "Serveurs",
 	"Testing": "Test en cours",
 	"The dispatcher changes settings, agents and tasks without asking first. It still asks before deleting, stopping a busy agent, granting permissions, turning on a task that waits for approval, or starting an agent in a mode above this device's default that you didn't name.": "Le dispatcher modifie les réglages, les agents et les tâches sans demander d'abord. Il demande toujours avant de supprimer, d'arrêter un agent occupé, d'accorder des autorisations, d'activer une tâche qui attend une approbation, ou de démarrer un agent dans un mode supérieur au mode par défaut de cet appareil que vous n'avez pas nommé.",

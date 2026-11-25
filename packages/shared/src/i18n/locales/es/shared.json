@@ -89,6 +89,8 @@
 	"Warming up": "Calentando",
 	"Works with Local agents": "Funciona con agentes Local",
 	"Works with Local agents, {{context}} tokens of context": "Funciona con agentes Local, {{context}} tokens de contexto",
+	"Works with cloud agents": "Funciona con agentes en la nube",
+	"Works with cloud agents, {{context}} tokens of context": "Funciona con agentes en la nube, {{context}} tokens de contexto",
 	"Writes {{value}} tokens/s": "Escribe {{value}} tokens/s",
 	"a move of {{agent}} to {{device}}{{access}}": "un traslado de {{agent}} a {{device}}{{access}}",
 	"an agent": "un agente",

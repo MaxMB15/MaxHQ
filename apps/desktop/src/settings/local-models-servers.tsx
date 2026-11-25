@@ -68,7 +68,7 @@ import { SecretField } from "./login-parts";
 import { failureOf, type Note, scrub } from "./result";
 
 /** A server's last test, in red when it failed. */
-const ProbeLine = ({ server }: { server: Pick<ModelServer, "probe"> }) => {
+const ProbeLine = ({ server }: { server: Pick<ModelServer, "probe" | "cloud"> }) => {
 	useI18n();
 	const probe = probeSummary(server);
 	return (
@@ -229,6 +229,10 @@ const AddServerForm = ({ device, onClose }: { device: DeviceId; onClose: () => v
 	const [cloud, setCloud] = useState(false);
 	const [cloudTouched, setCloudTouched] = useState(false);
 	const cloudSwitch = useView((s) => takesCloudServers(s.view, device));
+	// A known cloud host is one whatever the switch says, as maxd marks it.
+	const summary = found
+		? probeSummary({ probe: found.probe, cloud: found.cloud || (cloudSwitch && cloud) })
+		: null;
 	const problem = serverUrlProblem(url);
 	const ready = canAddServer(url) && !busy;
 
@@ -352,7 +356,7 @@ const AddServerForm = ({ device, onClose }: { device: DeviceId; onClose: () => v
 			) : null}
 			{busy && !found ? (
 				<p className="text-xs text-muted-foreground">{translate("Testing")}</p>
-			) : found ? (
+			) : found && summary ? (
 				<div
 					role="status"
 					aria-label={translate("What the test found")}
@@ -364,12 +368,12 @@ const AddServerForm = ({ device, onClose }: { device: DeviceId; onClose: () => v
 						) : null}
 						<span
 							className={cn(
-								found.summary.ok === false
+								summary.ok === false
 									? "text-status-error-text"
 									: "text-muted-foreground"
 							)}
 						>
-							{found.summary.text}
+							{summary.text}
 						</span>
 					</span>
 					{found.models ? (

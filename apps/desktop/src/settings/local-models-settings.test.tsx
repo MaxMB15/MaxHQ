@@ -324,8 +324,11 @@ describe("the Local models page", () => {
 	it("turns Cloud service on when Test finds one, until you set it yourself", async () => {
 		const source = renderPage();
 		const act = vi.spyOn(source, "modelAction");
-		// The Mac's OpenRouter says it is a cloud service.
-		expect((await group("OpenRouter")).getByText("Cloud service")).toBeInTheDocument();
+		// The Mac's OpenRouter says it is a cloud service, for cloud agents.
+		const row = await group("OpenRouter");
+		expect(row.getByText("Cloud service")).toBeInTheDocument();
+		expect(row.getByText(/^Works with cloud agents/)).toBeInTheDocument();
+		expect(row.queryByText(/Local agents/)).toBeNull();
 
 		const form = await openForm();
 		const cloud = form.getByRole("switch", { name: "Cloud service" });
@@ -335,8 +338,9 @@ describe("the Local models page", () => {
 		fireEvent.change(form.getByRole("textbox", { name: "URL" }), { target: { value: url } });
 		const test = form.getByRole("button", { name: "Test" });
 		fireEvent.click(test);
-		await form.findByRole("status", { name: "What the test found" });
+		const found = within(await form.findByRole("status", { name: "What the test found" }));
 		expect(cloud).toBeChecked();
+		expect(found.getByText(/^Works with cloud agents/)).toBeInTheDocument();
 
 		// Once you set it, a Test leaves it as you set it.
 		fireEvent.click(cloud);
@@ -354,6 +358,20 @@ describe("the Local models page", () => {
 				expect.objectContaining({ action: "add_server", url, cloud: true })
 			)
 		);
+	});
+
+	it("words the Test result for cloud agents while Cloud service is on", async () => {
+		renderPage();
+		const form = await openForm();
+		fireEvent.change(form.getByRole("textbox", { name: "URL" }), {
+			target: { value: "http://lab-box.example.com:11434" },
+		});
+		fireEvent.click(form.getByRole("button", { name: "Test" }));
+		const found = within(await form.findByRole("status", { name: "What the test found" }));
+		expect(found.getByText(/^Works with Local agents/)).toBeInTheDocument();
+		fireEvent.click(form.getByRole("switch", { name: "Cloud service" }));
+		expect(found.getByText(/^Works with cloud agents/)).toBeInTheDocument();
+		expect(found.queryByText(/Local agents/)).toBeNull();
 	});
 
 	it("says when the device's maxd is too old for local models", async () => {

@@ -89,6 +89,8 @@
 	"Warming up": "Opwarmen",
 	"Works with Local agents": "Werkt met Lokaal-agents",
 	"Works with Local agents, {{context}} tokens of context": "Werkt met Lokaal-agents, {{context}} contexttokens",
+	"Works with cloud agents": "Werkt met cloud-agents",
+	"Works with cloud agents, {{context}} tokens of context": "Werkt met cloud-agents, {{context}} contexttokens",
 	"Writes {{value}} tokens/s": "Schrijft {{value}} tokens/s",
 	"a move of {{agent}} to {{device}}{{access}}": "een verplaatsing van {{agent}} naar {{device}}{{access}}",
 	"an agent": "een agent",

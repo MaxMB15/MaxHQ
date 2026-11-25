@@ -338,6 +338,13 @@ describe("the servers", () => {
 			text: "Works with Local agents, 65,536 tokens of context",
 			ok: true,
 		});
+		expect(probeSummary({ ...ollama, cloud: true })).toEqual({
+			text: "Works with cloud agents",
+			ok: true,
+		});
+		expect(
+			probeSummary({ ...view.tables.model_server.get(MAC_SERVER)!, cloud: true }).text
+		).toBe("Works with cloud agents, 65,536 tokens of context");
 		expect(probeSummary({ probe: null })).toEqual({ text: "Not tested yet", ok: null });
 		expect(probeSummary({ probe: { ...ollama.probe!, apis: { chat: true } } }).ok).toBe(false);
 		expect(probeSummary({ probe: { ...ollama.probe!, error: "Nothing answered" } })).toEqual({

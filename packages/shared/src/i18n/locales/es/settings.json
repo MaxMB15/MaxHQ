@@ -108,7 +108,7 @@
 	"Add argument": "Añadir argumento",
 	"Sends a token": "Envía un token",
 	"Cloud service": "Servicio en la nube",
-	"A hosted API, not hardware you run. No output cap, and every tool.": "Una API alojada, no hardware que ejecutas tú. Sin límite de salida, y todas las herramientas.",
+	"A hosted API, not hardware you run. A higher output cap, and every tool.": "Una API alojada, no hardware que ejecutas tú. Un límite de salida más alto, y todas las herramientas.",
 	"Servers": "Servidores",
 	"Testing": "Probando",
 	"The dispatcher changes settings, agents and tasks without asking first. It still asks before deleting, stopping a busy agent, granting permissions, turning on a task that waits for approval, or starting an agent in a mode above this device's default that you didn't name.": "El coordinador cambia ajustes, agentes y tareas sin preguntar antes. Sigue preguntando antes de eliminar, detener un agente ocupado, conceder permisos, activar una tarea que espera aprobación o iniciar un agente en un modo por encima del predeterminado de este dispositivo que no nombraste.",
