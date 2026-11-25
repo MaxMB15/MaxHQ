@@ -68,6 +68,8 @@ A server such as Ollama, LM Studio, vLLM or llama.cpp that answers the Anthropic
 
 A server that doesn't answer the Anthropic Messages API can't run a Local agent, and Test says so. Each server's row has Test to check it again later, and Remove.
 
+A cloud service that answers the Anthropic Messages API works the same way, with its API key as the Token. For OpenRouter, the URL is `https://openrouter.ai/api`. Its list has hundreds of models, each under the name OpenRouter gives it, such as Z.ai: GLM 5.3 Flash. A server you added before this list was read whole shows only its first 20 models until you click Test on its row.
+
 A plain http URL to another machine says Not encrypted on the network, because anyone in between can read your prompts and code. Use https, such as `https://gpu-box.example.com`, an SSH tunnel or a VPN to keep it private.
 
 ## Use this Mac's models from another device
