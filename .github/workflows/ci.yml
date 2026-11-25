@@ -182,7 +182,7 @@ jobs:
       # Temporary: the maxd modules being made to pass on Windows.
       - name: Test (maxd, in progress)
         if: ${{ !cancelled() }}
-        run: 'cargo test -p maxd --locked --no-fail-fast -- session:: drive:: usage:: observe:: tools::install local_models sidecar terminals'
+        run: "cargo test -p maxd --locked --no-fail-fast -- session:: drive:: usage:: observe:: tools::install local_models sidecar terminals"
 
   # Packs the Linux app the way a release does, as an unsigned debug build,
   # so a change that breaks the AppImage, the .deb or the .rpm fails here

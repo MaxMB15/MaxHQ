@@ -1080,7 +1080,9 @@ fn a_session_continues_only_while_no_cli_runs_it() {
     assert!(can_continue(config.path(), SESSION));
     let sessions = config.path().join("sessions");
     fs::create_dir_all(&sessions).expect("a sessions folder");
-    let running = json!({"pid": std::process::id(), "sessionId": SESSION, "cwd": CWD});
+    // A session file names an absolute folder, which on Windows has a drive.
+    let cwd = crate::testing::absolute(CWD);
+    let running = json!({"pid": std::process::id(), "sessionId": SESSION, "cwd": cwd});
     fs::write(sessions.join("1.json"), running.to_string()).expect("a session file");
     assert!(!can_continue(config.path(), SESSION));
     assert!(can_continue(
