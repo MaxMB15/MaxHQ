@@ -24,10 +24,6 @@ on:
         description: The update key the app trusts during a key change; empty keeps tauri.conf.json's
         type: string
         default: ""
-      may-fail:
-        description: Let a failed build pass, for the dry run while the Windows port lands
-        type: boolean
-        default: false
 
 permissions: {}
 
@@ -50,7 +46,6 @@ jobs:
           - target: aarch64-pc-windows-msvc
             runner: windows-11-arm
     runs-on: ${{ matrix.runner }}
-    continue-on-error: ${{ inputs.may-fail }}
     timeout-minutes: 60
     permissions:
       contents: read
@@ -111,7 +106,6 @@ jobs:
           - target: aarch64-pc-windows-msvc
             runner: windows-11-arm
     runs-on: ${{ matrix.runner }}
-    continue-on-error: ${{ inputs.may-fail }}
     timeout-minutes: 90
     permissions:
       contents: read
