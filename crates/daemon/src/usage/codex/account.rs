@@ -295,8 +295,7 @@ fn login(read: &Value) -> Result<(Option<String>, Option<String>), Error> {
     Ok((text("email"), text("planType")))
 }
 
-// The fake app-server is an sh script.
-#[cfg(all(test, unix))]
+#[cfg(test)]
 mod tests {
     use super::super::app_server::tests::FakeHome;
     use super::*;

@@ -228,8 +228,7 @@ fn refused(reason: &str) -> ActionOutcome {
     }
 }
 
-// The fake app-server is an sh script.
-#[cfg(all(test, unix))]
+#[cfg(test)]
 mod tests {
     use super::super::app_server::tests::FakeHome;
     use super::*;
