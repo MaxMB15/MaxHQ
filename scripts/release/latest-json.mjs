@@ -3,19 +3,26 @@
 
 // Writes latest.json, the static manifest the app's updater fetches from the
 // newest release: the version, its notes, and for each Mac the updater
-// archive's URL and the contents of its .sig.
+// archive's URL and the contents of its .sig. With --desktop-sigs, also each
+// Windows and Linux installer whose .sig is in that folder.
 //
 //   node scripts/release/latest-json.mjs --version 0.2.0 --repo <owner>/<repo> \
 //     --sig aarch64=<file.sig> --sig x64=<file.sig> [--notes-file <file>] \
-//     [--key <public key>] --out latest.json
+//     [--desktop-sigs <dir> [--sig-suffix .next.sig]] [--key <public key>] \
+//     --out latest.json
 //
 // The archives are named MaxHQ_<version>_<arch>.app.tar.gz, arch being
-// aarch64 or x64 as the release assets have it. With --key (base64, as
-// tauri.conf.json holds it), every signature must be made with that key, so a
-// key change can't put a signature into the manifest for the other key.
+// aarch64 or x64 as the release assets have it. The installers are named as
+// bundles.mjs has them, and their signatures are <asset><suffix> in the
+// folder, .sig unless --sig-suffix says otherwise. An installer without one
+// is left out, so its platform keeps the version it has. With --key (base64,
+// as tauri.conf.json holds it), every signature must be made with that key,
+// so a key change can't put a signature into the manifest for the other key.
 
-import { readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import { parseArgs } from "node:util";
+import { desktopAssets } from "./bundles.mjs";
 import { keyIdText, readPublicKey } from "./sign.mjs";
 
 // The release asset's arch, and the platform key the updater looks up.
@@ -35,26 +42,51 @@ export const signatureKeyId = (signature) => {
 	return box.subarray(2, 10);
 };
 
-export const latestJson = ({ version, repo, notes = "", signatures, key, now = new Date() }) => {
+// Each signature, checked: not empty, and made with the key when one's given.
+const checked = (name, signature, keyId) => {
+	if (!signature.trim()) throw new Error(`the ${name} signature is empty`);
+	if (keyId) {
+		const signer = signatureKeyId(signature);
+		if (!signer.equals(keyId))
+			throw new Error(
+				`the ${name} signature is by key ${keyIdText(signer)}, not ${keyIdText(keyId)}`
+			);
+	}
+	return signature.trim();
+};
+
+// `signatures` holds each Mac's by arch, `desktop` each installer's by asset
+// name. The desktop entries follow the Mac's, in bundles.mjs's order.
+export const latestJson = ({
+	version,
+	repo,
+	notes = "",
+	signatures,
+	desktop = {},
+	key,
+	now = new Date(),
+}) => {
 	if (!SEMVER.test(version)) throw new Error(`the version "${version}" isn't X.Y.Z`);
 	if (!/^[\w.-]+\/[\w.-]+$/.test(repo)) throw new Error(`"${repo}" isn't <owner>/<repo>`);
 	const keyId = key === undefined ? null : readPublicKey(key).keyId;
+	const download = (name) => `https://github.com/${repo}/releases/download/v${version}/${name}`;
 	const platforms = {};
 	for (const [arch, signature] of Object.entries(signatures)) {
 		const platform = PLATFORMS[arch];
 		if (!platform) throw new Error(`the arch is aarch64 or x64, not "${arch}"`);
-		if (!signature.trim()) throw new Error(`the ${arch} signature is empty`);
-		if (keyId) {
-			const signer = signatureKeyId(signature);
-			if (!signer.equals(keyId))
-				throw new Error(
-					`the ${arch} signature is by key ${keyIdText(signer)}, not ${keyIdText(keyId)}`
-				);
-		}
 		platforms[platform] = {
-			signature: signature.trim(),
-			url: `https://github.com/${repo}/releases/download/v${version}/${archiveName(version, arch)}`,
+			signature: checked(arch, signature, keyId),
+			url: download(archiveName(version, arch)),
 		};
+	}
+	const assets = desktopAssets();
+	for (const name of Object.keys(desktop))
+		if (!assets.some(({ asset }) => asset === name))
+			throw new Error(`"${name}" isn't one of the desktop installers`);
+	for (const { asset, platforms: keys } of assets) {
+		if (!(asset in desktop)) continue;
+		const signature = checked(asset, desktop[asset], keyId);
+		for (const platform of keys) platforms[platform] = { signature, url: download(asset) };
 	}
 	if (Object.keys(platforms).length === 0) throw new Error("no signatures given");
 	return `${JSON.stringify(
@@ -69,6 +101,19 @@ export const latestJson = ({ version, repo, notes = "", signatures, key, now = n
 	)}\n`;
 };
 
+// The installer signatures in a folder: those present, and the names of the
+// installers that have none.
+export const readDesktopSigs = (dir, suffix = ".sig") => {
+	const found = {};
+	const missing = [];
+	for (const { asset } of desktopAssets()) {
+		const file = join(dir, `${asset}${suffix}`);
+		if (existsSync(file)) found[asset] = readFileSync(file, "utf8");
+		else missing.push(asset);
+	}
+	return { found, missing };
+};
+
 const main = () => {
 	const { values } = parseArgs({
 		options: {
@@ -76,6 +121,8 @@ const main = () => {
 			repo: { type: "string" },
 			sig: { type: "string", multiple: true, default: [] },
 			"notes-file": { type: "string" },
+			"desktop-sigs": { type: "string" },
+			"sig-suffix": { type: "string", default: ".sig" },
 			key: { type: "string" },
 			out: { type: "string" },
 		},
@@ -89,11 +136,25 @@ const main = () => {
 			if (at < 1) throw new Error(`"${pair}" isn't arch=file`);
 			signatures[pair.slice(0, at)] = readFileSync(pair.slice(at + 1), "utf8");
 		}
+		let desktop = {};
+		if (values["desktop-sigs"]) {
+			const { found, missing } = readDesktopSigs(
+				values["desktop-sigs"],
+				values["sig-suffix"]
+			);
+			desktop = found;
+			const prefix = process.env.GITHUB_ACTIONS ? "::warning::" : "latest-json.mjs: ";
+			for (const asset of missing)
+				console.log(
+					`${prefix}${values.out} has no ${asset}: its ${values["sig-suffix"]} isn't there.`
+				);
+		}
 		const notes = values["notes-file"] ? readFileSync(values["notes-file"], "utf8") : "";
 		const { version, repo, key } = values;
-		const text = latestJson({ version, repo, notes, signatures, key });
+		const text = latestJson({ version, repo, notes, signatures, desktop, key });
 		writeFileSync(values.out, text);
-		console.log(`${values.out} for ${version}: ${Object.keys(signatures).join(", ")}`);
+		const names = [...Object.keys(signatures), ...Object.keys(desktop)];
+		console.log(`${values.out} for ${version}: ${names.join(", ")}`);
 	} catch (error) {
 		console.error(`latest-json.mjs: ${error.message}`);
 		process.exit(1);

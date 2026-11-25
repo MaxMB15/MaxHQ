@@ -2,9 +2,10 @@
 // Copyright (c) 2026 Max Boksem
 
 // The Android steps behind `pnpm mobile:android:dev`, `mobile:android:apk`
-// and `mobile:android:aab`, as plain lists of commands like native.ts's, so
-// the tests and --dry-run read them without running anything.
-// scripts/mobile.ts runs them.
+// and `mobile:android:aab`, and the release workflow's `android-release` and
+// `android-sign`, as plain lists of commands like native.ts's, so the tests
+// and --dry-run read them without running anything. scripts/mobile.ts runs
+// them.
 //
 // Gradle builds the app from the project `expo prebuild` writes in
 // android/. A dev build is signed with the debug key prebuild puts there.
@@ -15,6 +16,9 @@
 import { ANDROID_NDK_VERSION, expo, expoEnv, type Step } from "./native.ts";
 
 type Variant = "development" | "production";
+
+/** A release build: the APK, the App Bundle, or both from one Gradle run. */
+export type ReleaseKind = "apk" | "aab" | "both";
 
 // What Gradle writes, from the app's folder.
 export const DEBUG_APK = "android/app/build/outputs/apk/debug/app-debug.apk";
@@ -29,12 +33,18 @@ const prebuild = (variant: Variant) =>
 // Gradle reads the app's config again as it builds, so it gets the same
 // variant prebuild had. Only the app's project builds: its tasks build the
 // modules it links, and the modules' own outputs aren't needed.
-const gradle = (task: string, variant: Variant): Step => ({
+const gradle = (tasks: string[], variant: Variant): Step => ({
 	cmd: "./gradlew",
-	args: [`:app:${task}`],
+	args: tasks.map((task) => `:app:${task}`),
 	env: expoEnv(variant, false),
 	cwd: "android",
 });
+
+const RELEASE_TASKS: Record<ReleaseKind, string[]> = {
+	apk: ["assembleRelease"],
+	aab: ["bundleRelease"],
+	both: ["assembleRelease", "bundleRelease"],
+};
 
 /**
  * The debug APK of the development variant, signed with the debug key. It
@@ -42,13 +52,16 @@ const gradle = (task: string, variant: Variant): Step => ({
  */
 export const devApkSteps = (): Step[] => [
 	prebuild("development"),
-	gradle("assembleDebug", "development"),
+	gradle(["assembleDebug"], "development"),
 ];
 
-/** The production app as an APK or an App Bundle, unsigned. */
-export const releaseSteps = (kind: "apk" | "aab"): Step[] => [
+/**
+ * The production app as an APK, an App Bundle or both, unsigned. Both build
+ * in one Gradle run, so the native code compiles once for the two.
+ */
+export const releaseSteps = (kind: ReleaseKind): Step[] => [
 	prebuild("production"),
-	gradle(kind === "apk" ? "assembleRelease" : "bundleRelease", "production"),
+	gradle(RELEASE_TASKS[kind], "production"),
 ];
 
 /** Where an unsigned release build lands, and where its signed copy goes. */
