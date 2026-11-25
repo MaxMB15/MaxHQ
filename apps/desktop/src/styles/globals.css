@@ -382,6 +382,24 @@
 	--media: #000000;
 
 	--radius: 8px;
+
+	/* The fonts, the bundled names first and then the system's own. These
+	   are a Mac's, and Windows and Linux name theirs below. */
+	--sans-stack:
+		"Instrument Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+	--mono-stack: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
+}
+
+:root[data-os="windows"] {
+	--sans-stack: "Instrument Sans", "Segoe UI", system-ui, sans-serif;
+	--mono-stack: "JetBrains Mono", "Cascadia Mono", Consolas, monospace;
+}
+
+/* Linux takes the desktop's own fonts through fontconfig, with DejaVu, which
+   nearly every distribution ships, before the generic names. */
+:root[data-os="linux"] {
+	--sans-stack: "Instrument Sans", system-ui, "DejaVu Sans", sans-serif;
+	--mono-stack: "JetBrains Mono", "DejaVu Sans Mono", "Liberation Mono", monospace;
 }
 
 /* While the theme switches, nothing eases from one look to the other. */
@@ -466,10 +484,10 @@
 	--radius-lg: calc(var(--radius) + 2px);
 
 	/* Instrument Sans and JetBrains Mono get bundled with the first real
-	   panes in M1. Until then the system fonts stand in. */
-	--font-sans:
-		"Instrument Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
-	--font-mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
+	   panes in M1. Until then each system's fonts stand in, from the stacks
+	   above. */
+	--font-sans: var(--sans-stack);
+	--font-mono: var(--mono-stack);
 }
 
 @layer base {
@@ -494,6 +512,38 @@
 
 	:focus-visible {
 		@apply outline-2 outline-offset-2 outline-ring;
+	}
+
+	/* A Mac lays a thin scrollbar over what scrolls and hides it again.
+	   Windows and Linux draw a wide one beside it, which these thin to the
+	   app's own thumb: WebView2 through the standard properties, WebKitGTK
+	   through its own. A box that hides its scrollbar still does. */
+	:root[data-os="windows"] {
+		scrollbar-color: var(--scrollbar-thumb) transparent;
+	}
+
+	:root[data-os="windows"] * {
+		scrollbar-width: thin;
+	}
+
+	:root[data-os="linux"] ::-webkit-scrollbar {
+		width: 10px;
+		height: 10px;
+		background: transparent;
+	}
+
+	:root[data-os="linux"] ::-webkit-scrollbar-thumb {
+		border: 2px solid transparent;
+		border-radius: 999px;
+		background: var(--scrollbar-thumb) padding-box;
+	}
+
+	:root[data-os="linux"] ::-webkit-scrollbar-thumb:hover {
+		background-color: var(--scrollbar-thumb-hover);
+	}
+
+	:root[data-os="linux"] ::-webkit-scrollbar-corner {
+		background: transparent;
 	}
 }
 
