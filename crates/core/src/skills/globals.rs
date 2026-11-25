@@ -544,7 +544,8 @@ mod tests {
         );
         let shown = tidy.plan();
         assert_eq!(shown.hash, tidy.hash());
-        assert_eq!(shown.backups, ["/home/dev/.codex/skills/unslop"]);
+        let backups: Vec<String> = shown.backups.iter().map(|p| slash(Path::new(p))).collect();
+        assert_eq!(backups, ["/home/dev/.codex/skills/unslop"]);
         assert_eq!(shown.links.len(), 4);
     }
 
