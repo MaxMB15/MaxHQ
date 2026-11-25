@@ -24,8 +24,9 @@ use std::time::{Duration, Instant};
 
 use maxhq_protocol::ids::SessionId;
 
-use crate::files::{self, HolderFile, HOLDER};
-use crate::Holds;
+use crate::files::{self, HolderFile, EXIT, HOLDER};
+use crate::holder::DETACHED;
+use crate::{Exit, Holds};
 
 #[cfg(unix)]
 mod unix;
@@ -75,10 +76,42 @@ pub(crate) async fn end(
         Err(err) => return unconfirmed(holder_pid, format!("couldn't find its folder: {err}")),
     };
     let dir = files::session_dir(&sessions, &session);
-    if let Err(ended) = imp::end_holder(&dir, holder_pid, grace).await {
+    if let Err(ended) = end_holder(&dir, holder_pid, grace).await {
         return ended;
     }
-    imp::end_cli(&dir, grace).await
+    if exit_recorded(&dir) {
+        return Ended::Gone;
+    }
+    match read_holder(&dir) {
+        Ok(Some(record)) => imp::end_cli(&record, grace).await,
+        // The CLI never started.
+        Ok(None) => Ended::Gone,
+        Err(ended) => ended,
+    }
+}
+
+/// Ends the session's holder if it still runs, once its record names the
+/// process `expected` says it is.
+async fn end_holder(dir: &Path, expected: Option<u32>, grace: Duration) -> Result<(), Ended> {
+    if !alive(dir, expected)? {
+        return Ok(());
+    }
+    let record = read_holder(dir)?.ok_or_else(|| {
+        unconfirmed(
+            expected,
+            "its holder runs but hasn't recorded its process ID",
+        )
+    })?;
+    let pid = record.holder_pid;
+    if let Some(expected) = expected
+        && expected != pid
+    {
+        return Err(unconfirmed(
+            Some(pid),
+            format!("its holder said it was process {expected}, but its record says {pid}"),
+        ));
+    }
+    imp::end_holder(dir, &record, grace).await
 }
 
 /// Whether the session's holder runs.
@@ -90,6 +123,37 @@ pub(super) fn alive(dir: &Path, pid: Option<u32>) -> Result<bool, Ended> {
 pub(super) fn read_holder(dir: &Path) -> Result<Option<HolderFile>, Ended> {
     files::read_json(&dir.join(HOLDER))
         .map_err(|err| unconfirmed(None, format!("couldn't read {HOLDER}: {err}")))
+}
+
+/// Whether the holder recorded how the CLI ended, which it does once it
+/// has reaped it. A client that found the holder dead records an exit
+/// without either, though the CLI may still run.
+pub(super) fn exit_recorded(dir: &Path) -> bool {
+    matches!(
+        files::read_json::<Exit>(&dir.join(EXIT)),
+        Ok(Some(exit)) if exit.code.is_some() || exit.signal.is_some()
+    )
+}
+
+/// Whether process `pid` runs `maxd hold` on `dir`: its command line ends
+/// with the folder and `--detached`.
+pub(super) async fn runs_holder(dir: &Path, pid: u32) -> Result<bool, Ended> {
+    let line = maxhq_os::proc::cmdline(pid).await.map_err(|err| {
+        unconfirmed(
+            Some(pid),
+            format!("couldn't read process {pid}'s command line: {err}"),
+        )
+    })?;
+    let wanted = format!("{} {DETACHED}", dir.display());
+    Ok(line.is_some_and(|line| line.ends_with(&wanted)))
+}
+
+/// Why process `pid`, which holds the lock, isn't taken for the holder.
+pub(super) fn not_its_holder(pid: u32) -> Ended {
+    unconfirmed(
+        Some(pid),
+        format!("process {pid} holds its lock but doesn't look like its holder"),
+    )
 }
 
 /// Waits up to `limit` for `done`. Returns whether it came.

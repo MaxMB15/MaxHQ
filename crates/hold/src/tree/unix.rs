@@ -78,21 +78,25 @@ impl Tree {
         ended
     }
 
-    /// Signals the program's group, or the program alone if it has left
-    /// the group. Returns whether the signal could be sent, which on Unix
-    /// it always can.
+    /// Signals the program's group, as [`signal_tree`] does.
     pub(crate) fn signal(&self, sig: Sig) -> bool {
-        let signal = signal_of(sig);
-        if rustix::process::kill_process_group(self.pid, signal).is_err() {
-            let _ = rustix::process::kill_process(self.pid, signal);
-        }
-        true
+        signal_tree(self.pid, sig)
     }
 
     /// What wakes the reaper: SIGCHLD.
     pub(crate) fn reaper(&self) -> Reaper {
         Reaper(signal(SignalKind::child()).ok())
     }
+}
+
+/// Signals the group `pid` leads, or `pid` alone if it has left the group.
+/// Returns whether the signal could be sent, which on Unix it always can.
+pub(crate) fn signal_tree(pid: Pid, sig: Sig) -> bool {
+    let signal = signal_of(sig);
+    if rustix::process::kill_process_group(pid, signal).is_err() {
+        let _ = rustix::process::kill_process(pid, signal);
+    }
+    true
 }
 
 /// Signals another group, such as a terminal's foreground one.

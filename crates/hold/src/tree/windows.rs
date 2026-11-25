@@ -89,20 +89,9 @@ impl Tree {
         })
     }
 
-    /// Kills the job, or the program alone if that fails. Returns false
-    /// for a hangup or a SIGTERM, which Windows can't send to a program
-    /// with no console the holder shares, so the caller goes on without
-    /// waiting for it.
+    /// Kills the job, as [`signal_tree`] does.
     pub(crate) fn signal(&self, sig: Sig) -> bool {
-        match sig {
-            Sig::Hangup | Sig::Term => false,
-            Sig::Kill => {
-                if proc::stop_group(self.pid, Stop::Hard).is_err() {
-                    let _ = proc::stop(self.pid, Stop::Hard);
-                }
-                true
-            }
-        }
+        signal_tree(self.pid, sig)
     }
 
     /// What wakes the reaper: a thread that waits for the program to end.
@@ -119,6 +108,22 @@ impl Tree {
             let _ = ended.send(());
         });
         Reaper(Some(wait))
+    }
+}
+
+/// Kills the job of the program `pid`, or the program alone if that fails.
+/// Returns false for a hangup or a SIGTERM, which Windows can't send to a
+/// program with no console the holder shares, so the caller goes on
+/// without waiting for it.
+pub(crate) fn signal_tree(pid: u32, sig: Sig) -> bool {
+    match sig {
+        Sig::Hangup | Sig::Term => false,
+        Sig::Kill => {
+            if proc::stop_group(pid, Stop::Hard).is_err() {
+                let _ = proc::stop(pid, Stop::Hard);
+            }
+            true
+        }
     }
 }
 

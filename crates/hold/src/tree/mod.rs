@@ -23,7 +23,7 @@ mod windows;
 #[cfg(windows)]
 use windows as imp;
 
-pub(crate) use imp::{prepare, signal_group, Group, Tree};
+pub(crate) use imp::{prepare, signal_group, signal_tree, Group, Tree};
 
 /// How the program ended.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
