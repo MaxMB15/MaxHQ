@@ -28,9 +28,7 @@ pub fn claim_app_id() {
     if let Err(error) = set_process_id(APP_ID) {
         tracing::warn!(%error, "Windows didn't take the app's ID, so toasts may not show");
     }
-    let installed = std::env::current_exe().map_or(true, |exe| {
-        maxhq_app::app_update::WindowsApp::here(&exe).installed()
-    });
+    let installed = maxhq_app::app_update::Install::this_app().is_none_or(|app| !app.from_source());
     if !installed && let Err(error) = list_app_id(APP_ID, NAME) {
         tracing::warn!(%error, "couldn't list the app's ID, so toasts may not show");
     }

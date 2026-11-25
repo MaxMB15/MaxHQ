@@ -18,7 +18,6 @@
 //! session is forgotten, or when a later start finds the session gone.
 
 use std::collections::HashSet;
-use std::env;
 use std::ffi::OsString;
 use std::fs::{self, OpenOptions};
 use std::io::{self, Read, Write};
@@ -89,7 +88,7 @@ pub async fn add(launch: &mut Launch) {
     };
     let home = match &launch.run_as {
         Some(user) => Some(user.home.clone()),
-        None => env::var_os("HOME").map(PathBuf::from),
+        None => maxhq_os::home::home_dir(),
     };
     if let Some(home) = home {
         fill(launch, folders, &home).await;

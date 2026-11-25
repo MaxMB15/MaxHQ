@@ -7,9 +7,9 @@
 use std::fs;
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
 use std::sync::OnceLock;
 
+use maxhq_core::paths::BUILD_LEN;
 use maxhq_protocol::ids::{BootId, DeviceId};
 use maxhq_protocol::model::Device;
 use thiserror::Error;
@@ -61,9 +61,6 @@ pub fn device(data_dir: &Path) -> Result<Device, IdentityError> {
 /// The Rust target this `maxd` was built for, such as
 /// `x86_64-unknown-linux-musl`.
 pub const TARGET: &str = env!("MAXD_TARGET");
-
-/// How many hex characters of the sha256 name a build.
-pub const BUILD_LEN: usize = 16;
 
 /// This build: the first 16 hex characters of the sha256 of the running
 /// executable. Two binaries from the same version differ here, so the app
@@ -182,44 +179,13 @@ pub fn boot_id() -> BootId {
 /// The name the app shows: the computer name on macOS, which is the one
 /// you set in System Settings, and the host name elsewhere.
 pub fn device_name() -> String {
-    let computer = if cfg!(target_os = "macos") {
-        output("/usr/sbin/scutil", &["--get", "ComputerName"])
-    } else {
-        None
-    };
-    computer
-        .as_deref()
-        .and_then(clean)
-        .or_else(host_name)
-        .unwrap_or_else(|| UNKNOWN.into())
+    maxhq_os::computer::name().unwrap_or_else(|| UNKNOWN.into())
 }
 
-/// The host name, from the kernel or the `hostname` command.
-fn host_name() -> Option<String> {
-    fs::read_to_string("/proc/sys/kernel/hostname")
-        .ok()
-        .or_else(|| output("hostname", &[]))
-        .as_deref()
-        .and_then(clean)
-}
-
-/// Trims what a command printed, or none when it printed nothing.
+/// Trims what the system gave, or none when it gave nothing.
 fn clean(raw: &str) -> Option<String> {
     let trimmed = raw.trim();
     (!trimmed.is_empty()).then(|| trimmed.to_owned())
-}
-
-/// What a command printed when it succeeded.
-fn output(program: &str, args: &[&str]) -> Option<String> {
-    let out = Command::new(program)
-        .args(args)
-        .stdin(Stdio::null())
-        .stderr(Stdio::null())
-        .output()
-        .ok()?;
-    out.status
-        .success()
-        .then(|| String::from_utf8_lossy(&out.stdout).into_owned())
 }
 
 #[cfg(test)]

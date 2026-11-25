@@ -9,6 +9,7 @@
 //! [`std::io::ErrorKind::Unsupported`] that says what's missing.
 
 pub mod boot;
+pub mod computer;
 pub mod disk;
 pub mod fsmode;
 pub mod home;

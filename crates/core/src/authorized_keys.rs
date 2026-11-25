@@ -22,6 +22,7 @@ use std::path::{Path, PathBuf};
 use maxhq_os::fsmode;
 
 use crate::fs::Atomic;
+use crate::paths::MaxdLayout;
 
 /// The tag on the app's key line.
 pub const APP_TAG: &str = "maxhq";
@@ -43,10 +44,6 @@ pub const PAIR_TAG: &str = "maxhq-pair-";
 pub fn pair_tag(pair: &str) -> String {
     format!("{PAIR_TAG}{pair}")
 }
-
-/// Where `maxd.exe` stays under `%LOCALAPPDATA%` as updates come: the
-/// folder an update points at the build it installs.
-pub const WINDOWS_MAXD: &str = r"MaxHQ\bin\current\maxd.exe";
 
 /// Where Windows OpenSSH reads the keys of an Administrators member, under
 /// `%ProgramData%`. Only Administrators and SYSTEM may write it.
@@ -165,21 +162,17 @@ pub fn add_failed(file: &Path, line: &str, err: &io::Error) -> String {
     )
 }
 
-/// The stable `maxd.exe` on this Windows machine, or an error naming what
-/// it lacks.
+/// The stable `maxd.exe` on this Windows machine, the one its service
+/// runs, or an error naming what it lacks.
 fn windows_maxd() -> Result<String, String> {
-    let base = std::env::var_os("LOCALAPPDATA")
+    let layout = MaxdLayout::from_env()
         .ok_or("LOCALAPPDATA isn't set, so the key line can't name maxd.exe")?;
-    let base = base.to_string_lossy();
-    Ok(format!(
-        "{}\\{WINDOWS_MAXD}",
-        base.trim_end_matches(['\\', '/'])
-    ))
+    Ok(layout.program().to_string_lossy().into_owned())
 }
 
 /// The line [`line`] gives on Unix and [`windows_line`] on Windows, where
-/// `maxd.exe` is [`WINDOWS_MAXD`] under `%LOCALAPPDATA%` and `home` isn't
-/// read.
+/// `maxd.exe` is [`WINDOWS_MAXD`](crate::paths::WINDOWS_MAXD) under
+/// `%LOCALAPPDATA%` and `home` isn't read.
 pub fn line_here(home: &str, public_key: &str, peer: Option<&str>) -> Result<String, String> {
     if cfg!(windows) {
         windows_line(&windows_maxd()?, public_key, peer)
@@ -251,7 +244,7 @@ fn windows_command(maxd: &str, flags: &Option<String>) -> Result<String, String>
 /// The line that lets a phone's `public_key` run only `maxd proxy --phone
 /// <phone>`, for a line you add by hand. The command starts at `~`, which
 /// the device's shell reads as your home folder. On Windows it names
-/// [`WINDOWS_MAXD`] under `%LOCALAPPDATA%`.
+/// [`WINDOWS_MAXD`](crate::paths::WINDOWS_MAXD) under `%LOCALAPPDATA%`.
 pub fn phone_line(public_key: &str, phone: &str) -> Result<String, String> {
     home_line(public_key, "--phone", phone, &phone_tag(phone))
 }

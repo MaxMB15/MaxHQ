@@ -331,7 +331,10 @@ pub fn remote_restart_command() -> String {
 /// and the device's own `maxd` finds its logon task, whose name holds a
 /// SID the app doesn't know.
 pub fn remote_restart_command_windows() -> String {
-    r#"cmd /c "%LOCALAPPDATA%\MaxHQ\bin\current\maxd.exe" service restart"#.to_owned()
+    format!(
+        r#"cmd /c "%LOCALAPPDATA%\{}" service restart"#,
+        crate::paths::WINDOWS_MAXD
+    )
 }
 
 #[cfg(test)]

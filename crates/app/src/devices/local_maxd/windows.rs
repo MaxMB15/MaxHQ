@@ -16,6 +16,8 @@ use std::path::{Path, PathBuf};
 
 use maxhq_core::paths::MaxdLayout;
 
+use super::other::copy_out;
+
 /// Why the app won't install `maxd` from where it runs now.
 #[cfg_attr(not(windows), allow(dead_code))]
 pub(super) const MISPLACED: &str =
@@ -59,13 +61,6 @@ pub(super) fn installed(_bundled: &Path, _home: Option<&Path>) -> Option<PathBuf
 #[cfg_attr(not(windows), allow(dead_code))]
 fn layout() -> Option<MaxdLayout> {
     maxhq_core::paths::windows_app_dir().map(MaxdLayout::windows)
-}
-
-/// Copies `bundled` into `layout`'s versions and points its junction at
-/// the copy.
-#[cfg_attr(not(windows), allow(dead_code))]
-fn copy_out(bundled: &Path, layout: &MaxdLayout) -> io::Result<PathBuf> {
-    super::other::copy_out(bundled, &layout.versions(), &layout.link())
 }
 
 #[cfg(test)]

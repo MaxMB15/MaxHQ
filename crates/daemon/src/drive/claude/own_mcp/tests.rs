@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026 Max Boksem
 
+use std::env;
 use std::fs::File;
 use std::io::{BufRead, BufReader};
 use std::net::TcpListener;
