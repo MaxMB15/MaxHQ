@@ -49,9 +49,19 @@ impl Here {
     pub fn now() -> Self {
         Self {
             manager: Manager::here(),
-            uid: rustix::process::getuid().as_raw(),
+            uid: user_id(),
         }
     }
+}
+
+/// Your user ID on Unix. Windows names no launchd or systemd session by
+/// one, so it's 0 there.
+fn user_id() -> u32 {
+    #[cfg(unix)]
+    let uid = rustix::process::getuid().as_raw();
+    #[cfg(not(unix))]
+    let uid = 0;
+    uid
 }
 
 /// Restarts the `maxd` that `route` reaches, and waits for the service
