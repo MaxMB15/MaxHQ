@@ -5,7 +5,7 @@
 //! that the original changed, when the old scripts' reboot fires, and the
 //! checklist for after the last move.
 
-use std::path::{Component, Path};
+use std::path::Path;
 
 use maxhq_protocol::hosts::{MoveLook, MovePlan, MoveStep, PlannedStep};
 use maxhq_protocol::model::Vendor;
@@ -14,6 +14,7 @@ use maxhq_protocol::time::Timestamp;
 use super::record::Found;
 use crate::incus::moves::MOVE_SNAPSHOT;
 use crate::observe::incus::look::SESSION_PATH;
+use crate::posix_path;
 use crate::recipe::WORK;
 use crate::workspace::Repo;
 
@@ -47,9 +48,11 @@ pub const CHECKLIST: [&str; 9] = [
 /// Where the original keeps the repo, which is where the old scripts kept
 /// it. A session in the home folder itself says nothing about the repo.
 pub fn repo_path(found: &Found) -> Option<String> {
-    if let Some(cwd) = found.cwd.as_deref().filter(|cwd| {
-        plain_path(cwd) && in_home(cwd).is_some_and(|inside| inside.components().next().is_some())
-    }) {
+    if let Some(cwd) = found
+        .cwd
+        .as_deref()
+        .filter(|cwd| plain_path(cwd) && in_home(cwd).is_some_and(|inside| !inside.is_empty()))
+    {
         return Some(cwd.to_owned());
     }
     repo_name(found).map(|name| format!("{HOME}/{name}"))
@@ -68,27 +71,28 @@ fn repo_name(found: &Found) -> Option<&str> {
 pub fn copy_path(found: &Found) -> Option<String> {
     let path = repo_path(found)?;
     let inside = in_home(&path)?;
-    if inside.starts_with(WORK_NAME) {
+    if inside.first() == Some(&WORK_NAME) {
         return Some(path);
     }
-    Some(Path::new(WORK).join(inside).display().to_string())
+    Some(format!("{WORK}/{}", inside.join("/")))
 }
 
 /// The folder in the agent's home that holds the repo.
 pub fn top_folder(found: &Found) -> Option<String> {
     let path = repo_path(found)?;
-    let first = in_home(&path)?.components().next()?;
-    first.as_os_str().to_str().map(str::to_owned)
+    in_home(&path)?.first().map(|first| (*first).to_owned())
 }
 
-fn in_home(path: &str) -> Option<&Path> {
-    Path::new(path).strip_prefix(HOME).ok()
+/// The parts of a container path below the agent's home, or none when it
+/// isn't there.
+fn in_home(path: &str) -> Option<Vec<&str>> {
+    posix_path::below(path, HOME)
 }
 
-/// Whether a folder the original names is absolute with no `..` in it.
+/// Whether a folder the original names is absolute with no `..` in it. It
+/// names a folder in a container, so Linux's rules judge it.
 pub fn plain_path(path: &str) -> bool {
-    let path = Path::new(path);
-    path.is_absolute() && !path.components().any(|part| part == Component::ParentDir)
+    posix_path::is_absolute(path) && !posix_path::climbs(path)
 }
 
 /// Whether a session ID the original names can go in a path.
@@ -374,6 +378,23 @@ mod tests {
             Some("/home/agent/work/widgets")
         );
         assert_eq!(top_folder(&found).as_deref(), Some("work"));
+    }
+
+    #[test]
+    fn a_container_path_is_read_as_linux_reads_it() {
+        let in_cwd = |cwd: &str| Found {
+            cwd: Some(cwd.into()),
+            ..Found::default()
+        };
+        // A backslash is part of a Linux name, not a separator.
+        assert_eq!(
+            copy_path(&in_cwd(r"/home/agent/odd\name")).as_deref(),
+            Some(r"/home/agent/work/odd\name")
+        );
+        assert_eq!(top_folder(&in_cwd("/home/agentx/widgets")), None);
+        assert!(!plain_path("/home/agent/../root"));
+        assert!(!plain_path("home/agent/widgets"));
+        assert!(plain_path("/home/agent/widgets"));
     }
 
     #[test]

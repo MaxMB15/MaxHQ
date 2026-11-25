@@ -86,6 +86,7 @@ mod observe;
 mod peers;
 mod phones;
 mod ports;
+mod posix_path;
 mod power;
 mod proxy;
 // The PR requests and tools refuse until the watcher and handlers read

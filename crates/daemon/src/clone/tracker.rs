@@ -455,9 +455,12 @@ fn progress(state: &CloneState) -> CloneProgress {
 fn destination(parent: &str, name: &str) -> Result<PathBuf, String> {
     let parent = Path::new(parent.trim());
     let plain = parent.is_absolute()
-        && parent
-            .components()
-            .all(|part| matches!(part, Component::RootDir | Component::Normal(_)));
+        && parent.components().all(|part| {
+            matches!(
+                part,
+                Component::Prefix(_) | Component::RootDir | Component::Normal(_)
+            )
+        });
     if !plain || parent.as_os_str().as_encoded_bytes().contains(&0) {
         return Err("Choose the folder to clone into by its full path.".to_owned());
     }
@@ -471,8 +474,7 @@ fn destination(parent: &str, name: &str) -> Result<PathBuf, String> {
     }
     fs::create_dir_all(parent)
         .map_err(|err| format!("Couldn't make {}: {err}", parent.display()))?;
-    let parent = parent
-        .canonicalize()
+    let parent = maxhq_core::fs_ext::canonicalize(parent)
         .map_err(|err| format!("Couldn't open {}: {err}", parent.display()))?;
     if parent.to_str().is_none() {
         return Err("The folder to clone into has a path that isn't UTF-8.".to_owned());

@@ -30,6 +30,7 @@ use std::str::Chars;
 use std::time::Duration;
 
 use maxhq_core::fs_ext::{self, absent, open_regular};
+use maxhq_core::skills::path_text;
 use maxhq_protocol::attention::{AttentionEvent, AttentionKind};
 use maxhq_protocol::guest::{FolderScan, ScannedFile, ShownFile};
 use maxhq_protocol::ids::{AgentId, AttentionId, ClientId, WorkspaceId};
@@ -223,10 +224,7 @@ pub fn scan(
     // your home. Above those it still reads MCP files.
     for (up, level) in cwd.ancestors().enumerate() {
         let prefix = match &found {
-            Some((root, _)) => level
-                .strip_prefix(root)
-                .ok()
-                .map(|from_root| from_root.display().to_string()),
+            Some((root, _)) => level.strip_prefix(root).ok().map(path_text),
             None if home.is_some_and(|home| home.starts_with(level) && home != level) => None,
             None => Some("../".repeat(up).trim_end_matches('/').to_owned()),
         };
@@ -464,7 +462,8 @@ impl Walk<'_> {
             let Ok(from_root) = plain.strip_prefix(&self.root) else {
                 continue;
             };
-            let from_root = from_root.display().to_string();
+            // With `/` on every OS, as the walk names what it finds.
+            let from_root = path_text(from_root);
             first.get_or_insert_with(|| from_root.clone());
             let Ok(meta) = fs::metadata(&path) else {
                 continue;
