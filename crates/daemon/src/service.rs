@@ -2,28 +2,32 @@
 // Copyright (c) 2026 Max Boksem
 
 //! `maxd service`, which runs `maxd` in your login session: a LaunchAgent on
-//! macOS and a systemd user unit on Linux. On NixOS the module writes the
-//! unit, and install leaves it to the module.
+//! macOS, a systemd user unit on Linux and a logon task of your own on
+//! Windows ([`task`]). On NixOS the module writes the unit, and install
+//! leaves it to the module.
 //!
-//! Every call to `launchctl`, `systemctl` and `loginctl` goes through a
-//! [`Runner`], so tests check what would run without loading anything.
-//! [`uninstall`] takes the rest of `maxd` off the device too, and
-//! [`app_watch`] has a `maxd` whose app was deleted uninstall itself.
+//! Every call to `launchctl`, `systemctl`, `loginctl` and `schtasks` goes
+//! through a [`Runner`], so tests check what would run without loading
+//! anything. [`uninstall`] takes the rest of `maxd` off the device too,
+//! and [`app_watch`] has a `maxd` whose app was deleted uninstall itself.
 
 pub mod app_watch;
+pub mod task;
 pub mod uninstall;
 
 use std::ffi::OsStr;
 use std::fmt;
-use std::fs::{self, DirBuilder, File};
+use std::fs::{self, File};
 use std::io;
-use std::os::unix::fs::{DirBuilderExt, MetadataExt, OpenOptionsExt};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::thread;
 use std::time::Duration;
 
 use maxhq_core::fs::{write_atomic, Atomic};
+use maxhq_core::paths::MaxdLayout;
+use maxhq_core::service::{launcher_log, launcher_program, restart_command, task_file, task_xml};
+use maxhq_os::fsmode;
 use thiserror::Error;
 
 pub use maxhq_core::service::{launch_agent_file, Manager, LABEL, UNIT};
@@ -73,6 +77,12 @@ pub enum Action {
     },
     /// Say whether it's installed and running.
     Status,
+    /// Start the installed service.
+    Start,
+    /// Stop the service until you next log in.
+    Stop,
+    /// Stop the service and start it again.
+    Restart,
 }
 
 impl Action {
@@ -82,6 +92,9 @@ impl Action {
             "install" => Some(Self::Install),
             "uninstall" => Some(Self::Uninstall { delete_data: false }),
             "status" => Some(Self::Status),
+            "start" => Some(Self::Start),
+            "stop" => Some(Self::Stop),
+            "restart" => Some(Self::Restart),
             _ => None,
         }
     }
@@ -90,8 +103,8 @@ impl Action {
 /// Why a service action failed.
 #[derive(Debug, Error)]
 pub enum ServiceError {
-    /// This system has neither launchd nor systemd.
-    #[error("maxd service supports macOS and Linux, not {0}")]
+    /// This system has no service manager `maxd` knows.
+    #[error("maxd service supports macOS, Linux and Windows, not {0}")]
     Unsupported(&'static str),
     /// `HOME` isn't set.
     #[error("HOME isn't set, so there's nowhere to put the service file")]
@@ -130,6 +143,9 @@ pub enum ServiceError {
     /// Uninstall did what it could, but these were left.
     #[error("uninstall didn't finish: {}", .0.join("; "))]
     Unfinished(Vec<String>),
+    /// Start or restart found no service to run.
+    #[error("maxd's service isn't installed, as {} is missing. Run `maxd service install` first", .0.display())]
+    NotInstalled(PathBuf),
 }
 
 /// How a command ended.
@@ -212,6 +228,10 @@ pub struct Setup {
     /// The folder for `maxd`'s socket and the other files that last until
     /// logout. On macOS it's the data folder.
     pub runtime: Option<PathBuf>,
+    /// On Windows, MaxHQ's folder, with the logon task's file, its
+    /// launcher and `maxd`'s builds, and the data folder inside. `None`
+    /// elsewhere.
+    pub app: Option<PathBuf>,
 }
 
 impl Setup {
@@ -240,6 +260,9 @@ impl Setup {
     /// Reads this system, with `exe` giving this program's path.
     fn read(exe: impl FnOnce() -> io::Result<PathBuf>) -> Result<Self, ServiceError> {
         let manager = Manager::here().ok_or(ServiceError::Unsupported(std::env::consts::OS))?;
+        if manager == Manager::TaskScheduler {
+            return Self::read_windows(exe);
+        }
         let home = std::env::var_os("HOME")
             .filter(|home| !home.is_empty())
             .map(PathBuf::from)
@@ -270,15 +293,66 @@ impl Setup {
             root: PathBuf::from("/"),
             data: maxhq_core::paths::data_dir(),
             runtime: maxhq_core::paths::runtime_dir(),
+            app: None,
         })
     }
 
-    /// The service file.
+    /// Reads Windows: your profile folder, MaxHQ's folder, `maxd`'s data
+    /// folder and this program's path. The task runs as you without
+    /// elevation, so an admin may install it for themselves, and it needs
+    /// no `PATH` of its own: Windows gives a logon task yours.
+    fn read_windows(exe: impl FnOnce() -> io::Result<PathBuf>) -> Result<Self, ServiceError> {
+        let home = maxhq_os::home::home_dir().ok_or(ServiceError::NoHome)?;
+        let missing = || ServiceError::Lookup {
+            what: "MaxHQ's folder",
+            source: io::Error::other("Windows gave no local app data folder"),
+        };
+        let app = maxhq_core::paths::windows_app_dir().ok_or_else(missing)?;
+        let data = maxhq_core::paths::data_dir().ok_or_else(missing)?;
+        let exe = exe().map_err(|source| ServiceError::Lookup {
+            what: "the maxd program",
+            source,
+        })?;
+        let exe = plain(stable_program(&MaxdLayout::windows(&app).program(), exe));
+        Ok(Self {
+            manager: Manager::TaskScheduler,
+            config_home: home.join(".config"),
+            uid: 0,
+            exe,
+            path: String::new(),
+            left_out: Vec::new(),
+            socket: maxhq_core::paths::socket(),
+            root: PathBuf::from("/"),
+            data: Some(data),
+            runtime: maxhq_core::paths::runtime_dir(),
+            app: Some(app),
+            home,
+        })
+    }
+
+    /// The service file. On Windows it's the copy of the logon task that
+    /// install registered.
     pub fn file(&self) -> PathBuf {
         match self.manager {
             Manager::Launchd => launch_agent_file(&self.home),
             Manager::Systemd => self.config_home.join("systemd/user").join(UNIT),
+            Manager::TaskScheduler => task_file(&self.app_folder()),
         }
+    }
+
+    /// MaxHQ's folder on Windows, which holds the logon task's file, the
+    /// launcher and `maxd`'s builds.
+    pub fn app_folder(&self) -> PathBuf {
+        self.app
+            .clone()
+            .unwrap_or_else(|| self.home.join("AppData").join("Local").join("MaxHQ"))
+    }
+
+    /// `maxd`'s data folder, which on Windows holds the launcher's log.
+    pub fn data_folder(&self) -> PathBuf {
+        self.data
+            .clone()
+            .unwrap_or_else(|| self.app_folder().join("data"))
     }
 
     /// True when the NixOS module's unit is there, so the module owns
@@ -297,18 +371,38 @@ impl Setup {
         )
     }
 
-    /// Where launchd writes what `maxd` logs. systemd keeps it in the
-    /// journal instead.
+    /// Where launchd, or on Windows the launcher, writes what `maxd` logs.
+    /// systemd keeps it in the journal instead.
     pub fn log_file(&self) -> PathBuf {
-        log_file(&self.home)
+        match self.manager {
+            Manager::TaskScheduler => launcher_log(&self.data_folder()),
+            Manager::Launchd | Manager::Systemd => log_file(&self.home),
+        }
     }
 
-    /// What goes in the service file.
+    /// What goes in the service file. On Windows it names your user, which
+    /// is read now.
     pub fn contents(&self) -> String {
         match self.manager {
             Manager::Launchd => plist(&self.exe, &self.path, &self.log_file()),
             Manager::Systemd => systemd_unit(&self.exe, &self.path),
+            Manager::TaskScheduler => {
+                self.task_contents(&maxhq_os::home::user_sid().unwrap_or_default())
+            }
         }
+    }
+
+    /// The logon task for the user with the security ID `sid`: the
+    /// launcher in MaxHQ's folder, running this setup's `maxd`.
+    pub fn task_contents(&self, sid: &str) -> String {
+        task_xml(sid, &launcher_program(&self.app_folder()), &self.exe)
+    }
+
+    /// Whether launchd knows the service, loaded in your session.
+    fn loaded(&self, runner: &mut dyn Runner) -> bool {
+        runner
+            .run("launchctl", &["print", &self.target()])
+            .is_ok_and(|ran| ran.success)
     }
 
     /// launchd's name for your login session.
@@ -326,10 +420,30 @@ impl Setup {
 /// running the newest version after an update flips that link. Any other
 /// `exe` is kept as it is.
 pub fn stable_exe(home: &Path, exe: PathBuf) -> PathBuf {
-    let link = home.join(".local/bin/maxd");
-    match fs::canonicalize(&link) {
-        Ok(target) if target == exe => link,
+    stable_program(&home.join(".local/bin/maxd"), exe)
+}
+
+/// `link` when it leads to `exe`, which is canonical, and `exe` otherwise.
+/// On Windows `link` is `maxd.exe` through the `bin\current` junction.
+fn stable_program(link: &Path, exe: PathBuf) -> PathBuf {
+    match fs::canonicalize(link) {
+        Ok(target) if target == exe => link.to_owned(),
         _ => exe,
+    }
+}
+
+/// `path` without the `\\?\` that a canonical Windows path starts with,
+/// when what follows is a drive's path, since Task Scheduler and the
+/// programs it starts read the plain form. Any other path is kept.
+fn plain(path: PathBuf) -> PathBuf {
+    let Some(rest) = path.to_str().and_then(|text| text.strip_prefix(r"\\?\")) else {
+        return path;
+    };
+    let bytes = rest.as_bytes();
+    if bytes.len() >= 3 && bytes[0].is_ascii_alphabetic() && bytes[1] == b':' && bytes[2] == b'\\' {
+        PathBuf::from(rest)
+    } else {
+        path
     }
 }
 
@@ -413,8 +527,11 @@ fn project_folder(dir: &Path, home: &Path, locked: &dyn Fn(&Path) -> bool) -> bo
 fn only_root_changes(dir: &Path) -> bool {
     dir.is_absolute()
         && dir.ancestors().all(|up| {
-            up.symlink_metadata()
-                .is_ok_and(|meta| root_only(meta.uid(), meta.mode(), meta.file_type().is_symlink()))
+            up.symlink_metadata().is_ok_and(|meta| {
+                fsmode::owner_of(&meta).is_some_and(|owner| {
+                    root_only(owner, fsmode::mode_of(&meta), meta.file_type().is_symlink())
+                })
+            })
         })
 }
 
@@ -496,16 +613,13 @@ pub fn rotate_log(path: &Path, writing: &File, limit: u64) -> io::Result<Option<
         Err(err) => return Err(err),
     };
     let ours = writing.metadata()?;
-    if (log.dev(), log.ino()) != (ours.dev(), ours.ino()) || log.len() <= limit {
+    if !fsmode::same_file(&log, &ours) || log.len() <= limit {
         return Ok(None);
     }
     let mut last = path.as_os_str().to_owned();
     last.push(".1");
     fs::rename(path, last)?;
-    File::options()
-        .create(true)
-        .append(true)
-        .mode(0o600)
+    fsmode::set_open_mode(File::options().create(true).append(true), 0o600)
         .open(path)
         .map(Some)
 }
@@ -653,9 +767,89 @@ pub fn install(setup: &Setup, runner: &mut dyn Runner) -> Result<Vec<String>, Se
                 );
             }
         }
+        Manager::TaskScheduler => report = task::install(setup, runner)?,
     }
     report.extend(setup.left_out_note());
     Ok(report)
+}
+
+/// Starts the installed service, which then runs until you log out, and
+/// again when you next log in. Where it runs already, that's left alone.
+/// Returns what to tell you.
+pub fn start(setup: &Setup, runner: &mut dyn Runner) -> Result<Vec<String>, ServiceError> {
+    match setup.manager {
+        Manager::Launchd => {
+            let target = setup.target();
+            if setup.loaded(runner) {
+                // Without -k, a running maxd is left as it is.
+                must(runner, "launchctl", &["kickstart", &target])?;
+            } else {
+                let file = setup.file();
+                if !file.exists() {
+                    return Err(ServiceError::NotInstalled(file));
+                }
+                let _ = runner.run("launchctl", &["enable", &target]);
+                let file_arg = file.to_string_lossy();
+                retry(
+                    runner,
+                    "launchctl",
+                    &["bootstrap", &setup.domain(), &file_arg],
+                )?;
+            }
+        }
+        Manager::Systemd => {
+            must(runner, "systemctl", &["--user", "start", UNIT])?;
+        }
+        Manager::TaskScheduler => {
+            if !task::start(setup, runner)? {
+                return Ok(vec!["maxd is running already.".into()]);
+            }
+        }
+    }
+    Ok(vec!["Started maxd.".into()])
+}
+
+/// Stops the service, and with it `maxd`, until you next log in or start
+/// it. The agents its holders keep go on running. Returns what to tell
+/// you.
+pub fn stop(setup: &Setup, runner: &mut dyn Runner) -> Result<Vec<String>, ServiceError> {
+    let stopped = match setup.manager {
+        Manager::Launchd => {
+            let target = setup.target();
+            let loaded = setup.loaded(runner);
+            if loaded {
+                let _ = runner.run("launchctl", &["bootout", &target]);
+                wait_unloaded(runner, &target, GONE_TRIES, GONE_PAUSE)?;
+            }
+            loaded
+        }
+        Manager::Systemd => {
+            must(runner, "systemctl", &["--user", "stop", UNIT])?;
+            true
+        }
+        Manager::TaskScheduler => task::stop(setup, runner)?,
+    };
+    Ok(vec![if stopped {
+        "Stopped maxd. It starts again when you next log in, or with `maxd service start`.".into()
+    } else {
+        "maxd wasn't running.".into()
+    }])
+}
+
+/// Stops the service and starts it again, or starts one that's stopped.
+/// Returns what to tell you.
+pub fn restart(setup: &Setup, runner: &mut dyn Runner) -> Result<Vec<String>, ServiceError> {
+    match setup.manager {
+        Manager::Launchd if !setup.loaded(runner) => return start(setup, runner),
+        // The new launcher hands over to the one that runs maxd.
+        Manager::TaskScheduler => task::run(setup, runner)?,
+        manager => {
+            let (program, args) = restart_command(manager, setup.uid);
+            let args: Vec<&str> = args.iter().map(String::as_str).collect();
+            must(runner, program, &args)?;
+        }
+    }
+    Ok(vec!["Restarted maxd.".into()])
 }
 
 /// What install says where the NixOS module owns maxd's unit, and how to
@@ -746,9 +940,10 @@ pub fn status(setup: &Setup, runner: &mut dyn Runner) -> Result<Status, ServiceE
             }
             parse_systemctl_show(&ran.stdout)
         }
+        Manager::TaskScheduler => task::state(setup, runner),
     };
     let socket = setup.socket.as_ref().map(|path| {
-        let answers = std::os::unix::net::UnixStream::connect(path).is_ok();
+        let answers = maxhq_os::ipc::answers(path);
         (path.clone(), answers)
     });
     Ok(Status {
@@ -868,14 +1063,10 @@ fn command_error(program: &str, args: &[&str], detail: &str) -> ServiceError {
 
 /// Makes `dir` and any folders above it that are missing.
 fn make_dir(dir: &Path, mode: u32) -> Result<(), ServiceError> {
-    DirBuilder::new()
-        .recursive(true)
-        .mode(mode)
-        .create(dir)
-        .map_err(|source| ServiceError::Io {
-            path: dir.into(),
-            source,
-        })
+    fsmode::dir_all_with_mode(dir, mode).map_err(|source| ServiceError::Io {
+        path: dir.into(),
+        source,
+    })
 }
 
 /// Writes the file whole, so the service manager never reads half of one.
@@ -994,6 +1185,7 @@ mod tests {
             root: dir.path().to_owned(),
             data: Some(home.join("Library/Application Support/MaxHQ")),
             runtime: Some(dir.path().join("run/maxhq")),
+            app: None,
             home,
         }
     }
@@ -1047,6 +1239,8 @@ mod tests {
         assert!(text.contains("WantedBy=default.target\n"));
     }
 
+    // The service's PATH is a Unix unit's.
+    #[cfg(unix)]
     #[test]
     fn the_service_path_keeps_yours_and_adds_the_usual_places() {
         let (path, left_out) = service_path(
@@ -1063,6 +1257,8 @@ mod tests {
             .starts_with("/h/.local/bin:"));
     }
 
+    // The service's PATH is a Unix unit's.
+    #[cfg(unix)]
     #[test]
     fn the_service_path_keeps_a_clone_only_root_can_change() {
         let dir = TempDir::new();
@@ -1104,6 +1300,8 @@ mod tests {
         assert_eq!(left_out, [shared.to_str().unwrap(), link.to_str().unwrap()]);
     }
 
+    // The service's PATH is a Unix unit's.
+    #[cfg(unix)]
     #[test]
     fn only_root_changes_a_folder_root_owns_all_the_way_up() {
         use std::os::unix::fs::PermissionsExt;
@@ -1128,6 +1326,8 @@ mod tests {
         assert!(!only_root_changes(&open));
     }
 
+    // The service's PATH is a Unix unit's.
+    #[cfg(unix)]
     #[test]
     fn the_service_path_leaves_out_what_a_project_decides() {
         let dir = TempDir::new();
@@ -1190,6 +1390,8 @@ mod tests {
         assert!(!tool_clone(Path::new("/opt/flutter"), Path::new("/h")));
     }
 
+    // The service's PATH is a Unix unit's.
+    #[cfg(unix)]
     #[test]
     fn a_relative_folder_on_path_finds_no_program() {
         use std::os::unix::fs::PermissionsExt;

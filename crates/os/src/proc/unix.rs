@@ -81,6 +81,33 @@ pub fn exe_of(pid: u32) -> Option<PathBuf> {
     Some(PathBuf::from(OsString::from_vec(path)))
 }
 
+#[cfg(target_os = "macos")]
+#[allow(unsafe_code)]
+pub fn started(pid: u32) -> Option<u64> {
+    let pid = i32::try_from(pid).ok()?;
+    // SAFETY: the struct is plain data, for which zero is valid.
+    let mut info: libc::proc_bsdinfo = unsafe { std::mem::zeroed() };
+    let size = i32::try_from(size_of::<libc::proc_bsdinfo>()).ok()?;
+    // SAFETY: `info` is `size` bytes, the struct the flavor names.
+    let written =
+        unsafe { libc::proc_pidinfo(pid, libc::PROC_PIDTBSDINFO, 0, (&raw mut info).cast(), size) };
+    (written == size).then(|| info.pbi_start_tvsec * 1_000_000 + info.pbi_start_tvusec)
+}
+
+/// In clock ticks since boot: the 22nd field of `/proc/<pid>/stat`, the
+/// 20th after the command's name, which ends at the last `)`.
+#[cfg(target_os = "linux")]
+pub fn started(pid: u32) -> Option<u64> {
+    let stat = std::fs::read_to_string(format!("/proc/{pid}/stat")).ok()?;
+    let (_, fields) = stat.rsplit_once(')')?;
+    fields.split_whitespace().nth(19)?.parse().ok()
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "linux")))]
+pub fn started(_pid: u32) -> Option<u64> {
+    None
+}
+
 #[cfg(target_os = "linux")]
 pub fn exe_of(pid: u32) -> Option<PathBuf> {
     std::fs::read_link(format!("/proc/{pid}/exe")).ok()

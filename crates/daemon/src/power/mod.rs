@@ -4,9 +4,9 @@
 //! Keeping the device awake, per decision A-11. A sleeping machine stops
 //! `maxd`, so the device's settings say when it holds the system awake: an
 //! IOKit assertion that stops idle sleep on a Mac, a logind inhibitor on
-//! Linux. The display still turns off, and closing the lid still sleeps
-//! the machine. Other systems don't sleep under an agent, so there it does
-//! nothing.
+//! Linux, a power request on Windows. The display still turns off, and
+//! closing the lid still sleeps the machine. Other systems don't sleep
+//! under an agent, so there it does nothing.
 //!
 //! When to hold is decided here, once. Each system's module only takes the
 //! hold and says whether the machine runs on the charger.
@@ -21,11 +21,15 @@ use maxhq_protocol::model::KeepAwake;
 mod linux;
 #[cfg(target_os = "macos")]
 mod macos;
+#[cfg(windows)]
+mod windows;
 
 #[cfg(target_os = "linux")]
 use linux as platform;
 #[cfg(target_os = "macos")]
 use macos as platform;
+#[cfg(windows)]
+use windows as platform;
 
 /// Holds the device awake when its mode says to.
 pub trait Power: Send + Sync {
@@ -39,7 +43,7 @@ pub trait Power: Send + Sync {
 
 /// Whether to hold the device awake in this mode.
 #[cfg_attr(
-    all(not(any(target_os = "macos", target_os = "linux")), not(test)),
+    all(not(any(target_os = "macos", target_os = "linux", windows)), not(test)),
     allow(dead_code)
 )]
 pub fn should_hold(mode: KeepAwake, busy: bool, on_charger: bool) -> bool {
@@ -53,11 +57,11 @@ pub fn should_hold(mode: KeepAwake, busy: bool, on_charger: bool) -> bool {
 
 /// The power control for this system.
 pub fn system() -> Arc<dyn Power> {
-    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    #[cfg(any(target_os = "macos", target_os = "linux", windows))]
     {
         awake::Awake::start(platform::holder())
     }
-    #[cfg(not(any(target_os = "macos", target_os = "linux")))]
+    #[cfg(not(any(target_os = "macos", target_os = "linux", windows)))]
     {
         Arc::new(NoPower)
     }
@@ -65,7 +69,7 @@ pub fn system() -> Arc<dyn Power> {
 
 /// Power control that does nothing.
 #[cfg_attr(
-    all(any(target_os = "macos", target_os = "linux"), not(test)),
+    all(any(target_os = "macos", target_os = "linux", windows), not(test)),
     allow(dead_code)
 )]
 pub struct NoPower;
@@ -78,7 +82,7 @@ impl Power for NoPower {
 
 /// The hold and the charger check every system that can hold itself awake
 /// shares. The tests build it everywhere, against a fake system.
-#[cfg(any(target_os = "macos", target_os = "linux", test))]
+#[cfg(any(target_os = "macos", target_os = "linux", windows, test))]
 mod awake {
     use std::sync::{Arc, Mutex, PoisonError};
     use std::time::Duration;
@@ -141,7 +145,7 @@ mod awake {
 
         /// A control that keeps checking the charger while the mode needs it.
         #[cfg_attr(
-            all(test, not(any(target_os = "macos", target_os = "linux"))),
+            all(test, not(any(target_os = "macos", target_os = "linux", windows))),
             allow(dead_code)
         )]
         pub(super) fn start(holder: H) -> Arc<Self> {
