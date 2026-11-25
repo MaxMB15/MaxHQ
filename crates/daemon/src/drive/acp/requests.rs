@@ -82,6 +82,8 @@ pub struct Prompt {
     pub item: TimelineItem,
     /// The tool call it's for.
     pub call: Option<String>,
+    /// The agent that asks: the lead or one of its sub-agents.
+    pub agent: AgentId,
 }
 
 /// What a prompt asks.
@@ -213,6 +215,11 @@ impl AcpSession {
         if let Some(call) = &call {
             self.deadlines.remove(call);
         }
+        // A sub-agent that waits on you stops the clock of the lead's call
+        // that runs it. Its next update starts it again.
+        if let Some(sub) = self.subs.iter().find(|sub| sub.agent == agent && !sub.done) {
+            self.deadlines.remove(&sub.call);
+        }
         self.pending.insert(key.clone());
         let mut out = Out::new();
         events::upsert(&mut out, item.clone());
@@ -226,6 +233,7 @@ impl AcpSession {
                 kind,
                 item,
                 call,
+                agent,
             },
         );
     }

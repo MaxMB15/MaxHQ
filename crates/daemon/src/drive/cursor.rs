@@ -7,8 +7,10 @@
 //! ordinary replies (see [`failures`]). Some of its models can't read
 //! images (see [`images`]). Each tool call gets [`TOOL_TIMEOUT`], as
 //! Cursor's tools can hang. Full access is the process's sandbox flag,
-//! which lasts for its life.
+//! which lasts for its life. The CLI sends no usage, so the context comes
+//! from the store it keeps for each session (see [`context`]).
 
+pub(crate) mod context;
 mod failures;
 mod images;
 mod launch;
@@ -25,7 +27,7 @@ use maxhq_protocol::model::{PermissionMode, Vendor};
 use serde_json::{json, Value};
 
 use crate::drive::acp::rpc::RpcError;
-use crate::drive::acp::{AcpSession, Ext, ExtPrompt, Failure, Flavor, Kept};
+use crate::drive::acp::{AcpSession, ContextRead, Ext, ExtPrompt, Failure, Flavor, Kept};
 use crate::drive::{Driver, Login, Place};
 
 pub use launch::{launch, login_launch, program, API_KEY, AUTH_TOKEN};
@@ -111,6 +113,10 @@ impl Flavor for Cursor {
 
     fn stop_reason(&self, stderr: &str) -> Option<String> {
         launch::refused_flag(stderr)
+    }
+
+    fn context(&self, session: &str) -> Option<ContextRead> {
+        context::reader(session)
     }
 
     fn is_limit(&self, error: &RpcError) -> bool {

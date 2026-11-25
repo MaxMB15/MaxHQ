@@ -91,10 +91,19 @@ fn run(
     }
 }
 
-/// Where the Cursor CLI keeps its settings, found as it finds them: in
-/// `dir` (`CURSOR_CONFIG_DIR`) when that's set, else in `cursor` under
-/// `xdg` (`XDG_CONFIG_HOME`), else in `.cursor` in the home folder.
+/// Where the Cursor CLI keeps its settings, in its config folder.
 fn config_path(
+    dir: Option<OsString>,
+    xdg: Option<OsString>,
+    home: Option<&Path>,
+) -> Result<PathBuf, String> {
+    Ok(config_dir(dir, xdg, home)?.join(FILE))
+}
+
+/// The Cursor CLI's config folder, found as it finds it: `dir`
+/// (`CURSOR_CONFIG_DIR`) when that's set, else `cursor` under `xdg`
+/// (`XDG_CONFIG_HOME`), else `.cursor` in the home folder.
+pub(super) fn config_dir(
     dir: Option<OsString>,
     xdg: Option<OsString>,
     home: Option<&Path>,
@@ -115,7 +124,7 @@ fn config_path(
     if !dir.is_absolute() {
         return Err(RELATIVE.to_owned());
     }
-    Ok(dir.join(FILE))
+    Ok(dir)
 }
 
 /// `path` with `~` for the home folder it's in.

@@ -10,6 +10,8 @@
 //! A sub-agent ends when the flavor says it ended, when its tool call
 //! ends, or when the lead's turn does.
 
+use std::time::Instant;
+
 use maxhq_core::names;
 use maxhq_protocol::ids::AgentId;
 use maxhq_protocol::model::{Activity, Agent, Control};
@@ -151,6 +153,7 @@ impl AcpSession {
         let sub = &mut self.subs[index];
         sub.session.get_or_insert_with(|| session.to_owned());
         sub.last_activity_at = at;
+        let alive = (!sub.done).then(|| (sub.call.clone(), sub.agent));
         sub.stream.quiet = quiet;
         let mut out = Out::new();
         match kind {
@@ -171,6 +174,25 @@ impl AcpSession {
         }
         sub.stream.quiet = false;
         fx.timeline.extend(out);
+        if let Some((call, agent)) = alive {
+            self.sub_alive(&call, agent);
+        }
+    }
+
+    /// A sub-agent did something, so the lead's tool call that runs it
+    /// hasn't hung: that call's clock restarts. Its clock stays stopped
+    /// while a prompt from the sub-agent waits on you, as a lead's call's
+    /// does for its own prompt.
+    fn sub_alive(&mut self, call: &str, agent: AgentId) {
+        let waiting = self.prompts.values().any(|prompt| prompt.agent == agent);
+        if let Some(timeout) = self.flavor.tool_timeout()
+            && self.turn.is_some()
+            && !waiting
+            && !self.quiet_waiting(call)
+        {
+            self.deadlines
+                .insert(call.to_owned(), Instant::now() + timeout);
+        }
     }
 
     /// The lead's tool call `call` ended, which ends its sub-agent.
