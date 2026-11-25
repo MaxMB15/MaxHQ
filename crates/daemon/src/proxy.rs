@@ -677,6 +677,25 @@ mod tests {
         soon(bridged).await.unwrap().unwrap();
     }
 
+    /// `text` and then what can't be text: a byte that isn't UTF-8, or on
+    /// Windows half a UTF-16 pair.
+    fn not_text(text: &str) -> std::ffi::OsString {
+        #[cfg(unix)]
+        {
+            use std::os::unix::ffi::OsStringExt;
+            let mut bytes = text.as_bytes().to_vec();
+            bytes.push(0xff);
+            std::ffi::OsString::from_vec(bytes)
+        }
+        #[cfg(windows)]
+        {
+            use std::os::windows::ffi::OsStringExt;
+            let mut wide: Vec<u16> = text.encode_utf16().collect();
+            wide.push(0xd800);
+            std::ffi::OsString::from_wide(&wide)
+        }
+    }
+
     #[test]
     fn a_missing_socket_says_where_it_looked() {
         let err = run(Path::new("/nonexistent/maxd.sock")).unwrap_err();
@@ -749,9 +768,7 @@ mod tests {
                 "{original:?}"
             );
         }
-        use std::os::unix::ffi::OsStrExt;
-        let bytes = OsStr::from_bytes(b"maxd proxy \xff");
-        assert_eq!(forced(Some(bytes)), Err(NotAProxy));
+        assert_eq!(forced(Some(&not_text("maxd proxy "))), Err(NotAProxy));
     }
 
     #[test]

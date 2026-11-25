@@ -24,13 +24,17 @@ use maxhq_core::db::OpenError;
 use maxhq_core::paths;
 use maxhq_os::fsmode;
 use maxhq_os::stop::Stops;
+#[cfg(unix)]
 use maxhq_protocol::agents::ClientRole;
+#[cfg(unix)]
 use maxhq_protocol::frame::{self, Frame, FrameDecoder};
+#[cfg(unix)]
 use maxhq_protocol::ids::{ClientId, IdempotencyKey};
+#[cfg(unix)]
 use maxhq_protocol::message::{ActionOutcome, ClientHello, ClientInfo};
-use maxhq_protocol::{
-    ClientMessage, ProtocolRange, ServerMessage, OLDEST_PROTOCOL_VERSION, PROTOCOL_VERSION,
-};
+use maxhq_protocol::{ClientMessage, OLDEST_PROTOCOL_VERSION, PROTOCOL_VERSION};
+#[cfg(unix)]
+use maxhq_protocol::{ProtocolRange, ServerMessage};
 use thiserror::Error;
 use tokio::runtime::Runtime;
 use tracing::{error, info, warn};

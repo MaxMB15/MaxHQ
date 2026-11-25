@@ -524,5 +524,6 @@ fn now_secs() -> u64 {
         .as_secs()
 }
 
-#[cfg(test)]
+// The tests run shell scripts as the builds.
+#[cfg(all(test, unix))]
 mod tests;

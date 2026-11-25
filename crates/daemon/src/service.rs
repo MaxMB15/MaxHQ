@@ -1239,6 +1239,8 @@ mod tests {
         assert!(text.contains("WantedBy=default.target\n"));
     }
 
+    // The service's PATH is a Unix unit's.
+    #[cfg(unix)]
     #[test]
     fn the_service_path_keeps_yours_and_adds_the_usual_places() {
         let (path, left_out) = service_path(
@@ -1255,6 +1257,8 @@ mod tests {
             .starts_with("/h/.local/bin:"));
     }
 
+    // The service's PATH is a Unix unit's.
+    #[cfg(unix)]
     #[test]
     fn the_service_path_keeps_a_clone_only_root_can_change() {
         let dir = TempDir::new();
@@ -1296,6 +1300,8 @@ mod tests {
         assert_eq!(left_out, [shared.to_str().unwrap(), link.to_str().unwrap()]);
     }
 
+    // The service's PATH is a Unix unit's.
+    #[cfg(unix)]
     #[test]
     fn only_root_changes_a_folder_root_owns_all_the_way_up() {
         use std::os::unix::fs::PermissionsExt;
@@ -1320,6 +1326,8 @@ mod tests {
         assert!(!only_root_changes(&open));
     }
 
+    // The service's PATH is a Unix unit's.
+    #[cfg(unix)]
     #[test]
     fn the_service_path_leaves_out_what_a_project_decides() {
         let dir = TempDir::new();
@@ -1382,6 +1390,8 @@ mod tests {
         assert!(!tool_clone(Path::new("/opt/flutter"), Path::new("/h")));
     }
 
+    // The service's PATH is a Unix unit's.
+    #[cfg(unix)]
     #[test]
     fn a_relative_folder_on_path_finds_no_program() {
         use std::os::unix::fs::PermissionsExt;
