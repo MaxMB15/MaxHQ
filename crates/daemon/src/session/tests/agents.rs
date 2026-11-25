@@ -1088,7 +1088,8 @@ async fn a_cursor_agent_calls_the_agent_tools_as_itself_with_its_session_key() {
     let file = h
         .dir
         .path()
-        .join("keys/agents")
+        .join("keys")
+        .join("agents")
         .join(format!("{agent}.key"));
     let tools = h.vendors.acp_kept()[0]
         .tools
@@ -1248,7 +1249,7 @@ async fn an_install_reads_the_app_from_the_agent_folder() {
     };
     assert_eq!(source, &h.folder.canonicalize().unwrap().join("App.apk"));
 
-    let outside = json!({"lease": lease, "path": "/etc/hosts"});
+    let outside = json!({"lease": lease, "path": crate::testing::absolute("/etc/hosts")});
     let refused = h.call(session, lead, "i2", "lease_install", outside).await;
     assert!(refused.unwrap_err().contains("outside"));
     assert_eq!(h.fakes.leases.calls().len(), 1, "a refused path stays here");
