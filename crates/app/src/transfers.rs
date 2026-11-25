@@ -823,8 +823,10 @@ mod tests {
             panic!("expected a stage by path, got {stage:?}");
         };
         assert_eq!(*staged, local.id);
+        // The copy is a path on this machine, so it's compared as one.
+        let copy = std::path::Path::new(path);
         assert!(
-            path.starts_with("/copies/") && path.ends_with("/home.png"),
+            copy.starts_with("/copies") && copy.ends_with("home.png"),
             "{path}"
         );
         assert_eq!(states(&heard), ["uploading", "done"]);

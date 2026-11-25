@@ -179,6 +179,8 @@ mod tests {
         );
     }
 
+    // An AppImage's lists are split at `:`, and Windows splits them at `;`.
+    #[cfg(unix)]
     #[test]
     fn a_list_keeps_the_folders_outside_the_mount() {
         assert_eq!(

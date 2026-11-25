@@ -91,8 +91,9 @@ fn place(bundled: &Path, temp: &Path, versions: &Path) -> io::Result<(String, Pa
     fs::copy(bundled, temp)?;
     make_executable(temp)?;
     // The service starts this file at the next login, so it has to be on
-    // the disk before its name is.
-    fs::File::open(temp)?.sync_all()?;
+    // the disk before its name is. Windows only flushes a file opened for
+    // writing.
+    fs::OpenOptions::new().write(true).open(temp)?.sync_all()?;
     let mut build = crate::fleet::sha256_file(temp)?;
     build.truncate(BUILD_LEN);
     let dir = versions.join(&build);

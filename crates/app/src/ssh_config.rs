@@ -689,12 +689,30 @@ mod tests {
         let dir = temp.0.join("Application Support/MaxHQ/ssh");
         let home = temp.0.join("home");
         fs::create_dir_all(&home).unwrap();
-        SshFiles::open(
-            dir,
-            home,
-            Some(PathBuf::from("/Applications/MaxHQ.app/maxd")),
-        )
-        .unwrap()
+        SshFiles::open(dir, home, Some(PathBuf::from(MAXD))).unwrap()
+    }
+
+    /// The app's own `maxd`, a path that's absolute on this OS.
+    const MAXD: &str = if cfg!(windows) {
+        "C:/Program Files/MaxHQ/maxd.exe"
+    } else {
+        "/Applications/MaxHQ.app/maxd"
+    };
+
+    /// The ssh word that runs `maxd proxy` for `id` on the host: in single
+    /// quotes for Unix's `sh`, in double quotes by Windows' rules.
+    fn remote_word(id: WorkspaceId) -> String {
+        if cfg!(windows) {
+            format!(
+                "\"sh -c 'PATH=\\\"$PATH:$HOME/.local/bin\\\"; export PATH; \
+                 exec maxd proxy --guest-ssh {id}'\""
+            )
+        } else {
+            format!(
+                "'sh -c '\\''PATH=\"$PATH:$HOME/.local/bin\"; export PATH; \
+                 exec maxd proxy --guest-ssh {id}'\\'''"
+            )
+        }
     }
 
     fn ssh_route() -> Route {
@@ -816,15 +834,14 @@ mod tests {
             format!(
                 "Host mhq-{name}.{slug}.maxhq\n\
                  \x20 User agent\n\
-                 \x20 ProxyCommand ssh -o BatchMode=yes -o ControlPath=none dev@devbox \
-                 'sh -c '\\''PATH=\"$PATH:$HOME/.local/bin\"; export PATH; \
-                 exec maxd proxy --guest-ssh {id}'\\'''\n\
+                 \x20 ProxyCommand ssh -o BatchMode=yes -o ControlPath=none dev@devbox {}\n\
                  \x20 IdentityFile \"{dir}/id_ed25519\"\n\
                  \x20 IdentitiesOnly yes\n\
                  \x20 UserKnownHostsFile \"{dir}/known_hosts\"\n\
                  \x20 HostKeyAlias maxhq-{id}\n\
                  \x20 StrictHostKeyChecking yes\n\
-                 \x20 ForwardAgent no\n"
+                 \x20 ForwardAgent no\n",
+                remote_word(id)
             )
         };
         let config = fs::read_to_string(files.dir.join(CONFIG)).unwrap();
@@ -872,8 +889,12 @@ mod tests {
         let local = merge(Route::Local, true, vec![container("web")]);
         files.write_with(|| files.entries(&local)).unwrap();
         let id = WorkspaceId::derive("web");
-        let line =
-            format!("  ProxyCommand '/Applications/MaxHQ.app/maxd' proxy --guest-ssh {id}\n");
+        let maxd = if cfg!(windows) {
+            format!("\"{MAXD}\"")
+        } else {
+            format!("'{MAXD}'")
+        };
+        let line = format!("  ProxyCommand {maxd} proxy --guest-ssh {id}\n");
         assert!(fs::read_to_string(&config).unwrap().contains(&line));
 
         let old = merge(ssh_route(), false, vec![container("web")]);

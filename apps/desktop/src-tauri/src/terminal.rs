@@ -243,6 +243,9 @@ mod tests {
 
     const PATH: [&str; 2] = ["/usr/local/bin", "/usr/bin"];
 
+    // The Linux terminal search: `/usr/bin` isn't an absolute folder on
+    // Windows, so it's never searched there.
+    #[cfg(unix)]
     #[test]
     fn your_terminal_setting_comes_first_with_its_own_arguments() {
         assert_eq!(
@@ -259,6 +262,9 @@ mod tests {
         );
     }
 
+    // The Linux terminal search: `/usr/bin` isn't an absolute folder on
+    // Windows, so it's never searched there.
+    #[cfg(unix)]
     #[test]
     fn a_terminal_setting_it_doesnt_know_runs_the_script_as_xterm_would() {
         assert_eq!(
@@ -279,6 +285,9 @@ mod tests {
         );
     }
 
+    // The Linux terminal search: `/usr/bin` isn't an absolute folder on
+    // Windows, so it's never searched there.
+    #[cfg(unix)]
     #[test]
     fn without_a_usable_setting_the_list_decides_in_its_order() {
         let installed = [

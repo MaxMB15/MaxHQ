@@ -916,6 +916,9 @@ mod tests {
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
+    // systemd is Linux only, and its quoting reads the `\` in a Windows
+    // path as an escape.
+    #[cfg(unix)]
     #[test]
     fn the_systemd_unit_says_which_maxd_the_service_runs() {
         let dir = std::env::temp_dir().join(format!(
