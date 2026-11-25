@@ -28,6 +28,7 @@ import { accountDevices } from "@maxhq/shared/settings/accounts";
 import { deviceLive } from "@maxhq/shared/test-hosts/place";
 import type { EntityKind, ViewState } from "@maxhq/shared/view/replica";
 
+import { AppKeyHomeRow } from "./app-key-home";
 import { ConfirmButton, Part, Row, Section, StatusNote } from "./controls";
 import { failureOf, type Note } from "./result";
 import { t as translate, useI18n } from "@maxhq/shared/i18n";
@@ -149,6 +150,7 @@ const DeviceKeys = ({
 				</Row>
 			) : null}
 			{kept ? <Row title={kept} /> : null}
+			{here ? <AppKeyHomeRow /> : null}
 		</Part>
 	);
 };

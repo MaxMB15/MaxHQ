@@ -6756,6 +6756,32 @@ export type KeyRefusal = {
 	reason: string,
 	/**
 	 *  Whether the device trusted this Mac's key before, so it no longer
+/**  Where the app key lives. */
+export type KeyHome = 
+/**  The Mac's Keychain. */
+"keychain" | 
+/**  The system keyring, on Linux and Windows. */
+"keyring" | 
+/**  A file only you can read, in the app's data folder. */
+"file" | 
+/**  Nowhere: the key lasts until the app quits. */
+"memory";
+
+/**  Where the app key lives, as the key dialog and Settings show it. */
+export type KeyHomeState = {
+	home: KeyHome,
+	/**
+	 *  Whether to ask where to keep the key: no keyring answered as the app
+	 *  opened, and you haven't chosen yet.
+	 */
+	ask: boolean,
+	/**
+	 *  The file the key goes in when you choose one. None when the app has
+	 *  no data folder.
+	 */
+	file: string | null,
+};
+
 	 *  does.
 	 */
 	trusted_before: boolean,

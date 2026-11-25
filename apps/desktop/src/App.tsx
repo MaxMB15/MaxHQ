@@ -24,6 +24,7 @@ import { ShortcutSheet } from "@/shortcut-list/sheet";
 import { SidebarFrame } from "@/sidebar/frame";
 import { Sidebar } from "@/sidebar/sidebar";
 import { cn } from "@/lib/utils";
+import { AppKeyHomePrompt } from "@/settings/app-key-home";
 import { CliSignInHost } from "@/settings/cli-sign-in";
 import { SlideOutFor } from "@/workflow/containers";
 import type { UiStore } from "@maxhq/shared/ui/store";
@@ -87,6 +88,7 @@ export const Shell = () => {
 			<CliSignInHost />
 			<ConfirmHost />
 			<UpdatePrompt />
+			<AppKeyHomePrompt />
 		</div>
 	);
 };
