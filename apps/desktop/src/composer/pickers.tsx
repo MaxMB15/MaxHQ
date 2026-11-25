@@ -7,7 +7,8 @@
 // draws the model picker too, as a smaller chip that opens downward. In a
 // narrow footer the permission picker folds to its icon and the model's
 // name gets cut short, and their tooltips and accessible names keep the
-// full text.
+// full text. A long list of models, such as an OpenRouter login's, gets a
+// search field at the top of its menu.
 
 import { Menu } from "@base-ui/react/menu";
 import {
@@ -22,7 +23,7 @@ import {
 	Settings2,
 	Shield,
 } from "lucide-react";
-import { Fragment, type ReactNode } from "react";
+import { Fragment, type ReactNode, useState } from "react";
 
 import {
 	currentModel,
@@ -34,6 +35,7 @@ import {
 	permissionNote,
 	runningMode,
 } from "@maxhq/shared/agent-view/controls";
+import { filterModels, showsModelSearch } from "@maxhq/shared/agent-view/model-search";
 import type {
 	Account,
 	AccountId,
@@ -120,12 +122,30 @@ export const FOLDED: Record<PickerFold, string> = {
 // The model's name cut short where it can't be changed, without the chevron.
 const CUT_PLAIN = "min-w-[calc(4ch+33px)] shrink";
 
+/**
+ * A search field at the top of a picker's menu, which narrows its items as
+ * you type. The menu filters nothing itself: the picker leaves out what
+ * doesn't match. Closing the menu empties the field.
+ */
+export type PickerSearch = {
+	readonly query: string;
+	readonly onQuery: (query: string) => void;
+	/** The field's name, which it shows until you type. */
+	readonly label: string;
+	/** What shows under the field when nothing matches, or null. */
+	readonly empty: ReactNode;
+};
+
+const SEARCH_FIELD =
+	"mb-[5px] h-7 w-full shrink-0 rounded-[6px] border border-input bg-card px-2 text-[12.5px] text-foreground outline-none placeholder:text-muted-foreground focus:border-ring";
+
 export const Picker = ({
 	label,
 	trigger,
 	place = "footer",
 	fold = null,
 	tip = null,
+	search = null,
 	children,
 }: {
 	/** Its accessible name, which says what the trigger shows in full. */
@@ -135,10 +155,12 @@ export const Picker = ({
 	fold?: PickerFold | null;
 	/** What its tooltip says, or null for none. */
 	tip?: ReactNode;
+	/** A search field at the top of its menu, or null for none. */
+	search?: PickerSearch | null;
 	children: ReactNode;
 }) => {
 	useI18n();
-	return (
+	const menu = (
 		<Menu.Root>
 			<Tooltip content={tip}>
 				<Menu.Trigger
@@ -165,17 +187,50 @@ export const Picker = ({
 					sideOffset={6}
 					className="z-[130]"
 				>
-					<Menu.Popup
-						className={cn(
-							MENU_POPUP,
-							"max-h-[min(420px,var(--available-height))] overflow-y-auto"
-						)}
-					>
-						{children}
-					</Menu.Popup>
+					{search ? (
+						// The menu keeps its height while you type, so the field
+						// stays put above a list that opens upward.
+						<Menu.Popup
+							className={cn(
+								MENU_POPUP,
+								"flex h-[min(420px,var(--available-height))] flex-col"
+							)}
+						>
+							<Menu.Input
+								aria-label={search.label}
+								placeholder={search.label}
+								spellCheck={false}
+								autoComplete="off"
+								className={SEARCH_FIELD}
+							/>
+							{search.empty}
+							<Menu.List className="min-h-0 flex-1 overflow-y-auto">
+								{children}
+							</Menu.List>
+						</Menu.Popup>
+					) : (
+						<Menu.Popup
+							className={cn(
+								MENU_POPUP,
+								"max-h-[min(420px,var(--available-height))] overflow-y-auto"
+							)}
+						>
+							{children}
+						</Menu.Popup>
+					)}
 				</Menu.Positioner>
 			</Menu.Portal>
 		</Menu.Root>
+	);
+	// Base UI's filtering takes the keys a plain menu would use to jump to an
+	// item as you type, and moves the highlight with the arrows while the
+	// field keeps focus. `filter={null}` leaves the matching to the picker.
+	return search ? (
+		<Menu.FilterProvider filter={null} value={search.query} onValueChange={search.onQuery}>
+			{menu}
+		</Menu.FilterProvider>
+	) : (
+		menu
 	);
 };
 
@@ -198,10 +253,13 @@ export const GROUP_LABEL = "px-2 pt-[5px] pb-1 text-[11px] text-muted-foreground
  */
 const MoveGroup = ({
 	move,
+	models,
 	local,
 	onPick,
 }: {
 	move: Move;
+	/** The models it lists, `moveModels` or those a search left. */
+	models: readonly Pick<ModelChoice, "id" | "label">[];
 	local: LocalMenu | undefined;
 	onPick: (model: string, account: AccountId) => void;
 }) => {
@@ -221,7 +279,7 @@ const MoveGroup = ({
 					</>
 				)}
 			</Menu.GroupLabel>
-			{moveModels(move).map((choice) => (
+			{models.map((choice) => (
 				<Menu.Item
 					key={choice.id}
 					className={MENU_ITEM}
@@ -238,12 +296,15 @@ const MoveGroup = ({
 	);
 };
 
-/** The item that opens the Local models settings, after a separator. */
-const SetupItem = ({ onSetup }: { onSetup: () => void }) => {
+/**
+ * The item that opens the Local models settings, after a separator when
+ * `apart`, with items above it.
+ */
+const SetupItem = ({ onSetup, apart }: { onSetup: () => void; apart: boolean }) => {
 	useI18n();
 	return (
 		<>
-			<Menu.Separator className="mx-1 my-[5px] h-px bg-border" />
+			{apart && <Menu.Separator className="mx-1 my-[5px] h-px bg-border" />}
 			<Menu.Item className={MENU_ITEM} onClick={onSetup}>
 				<Settings2 aria-hidden className="size-3 text-muted-foreground" strokeWidth={2.4} />
 				<span className="flex-1 text-[12.5px]">{translate("Set up local models…")}</span>
@@ -259,7 +320,10 @@ const SetupItem = ({ onSetup }: { onSetup: () => void }) => {
  * Without a list to pick from, or with `onPick` left out, it only names
  * the model. `folded`, in a narrow footer, cuts its name short. `local`
  * lists a local agent's models under their server with a fit tag, and adds
- * a last item that opens the Local models settings.
+ * a last item that opens the Local models settings. Past a dozen models in
+ * all, as `showsModelSearch` says, a search field narrows every group to
+ * the models whose name or ID has each word typed, as `filterModels` says,
+ * and leaves out a group with none.
  */
 export const ModelPicker = ({
 	kind,
@@ -283,6 +347,7 @@ export const ModelPicker = ({
 	onPick?: (model: string, account?: AccountId) => void;
 }) => {
 	useI18n();
+	const [query, setQuery] = useState("");
 	const Icon = MODEL_ICON[kind];
 	const ownLocal = kind === "local" && account !== undefined ? local : undefined;
 	const setup =
@@ -331,6 +396,17 @@ export const ModelPicker = ({
 		);
 	}
 	const current = currentModel(model, choices);
+	const groups = moves.map((move) => ({ move, models: moveModels(move) }));
+	const searching = showsModelSearch(
+		groups.reduce((count, group) => count + group.models.length, choices.length)
+	);
+	const ownShown = searching ? filterModels(choices, query) : choices;
+	const movesShown = searching
+		? groups
+				.map((group) => ({ ...group, models: filterModels(group.models, query) }))
+				.filter((group) => group.models.length > 0)
+		: groups;
+	const none = ownShown.length === 0 && movesShown.length === 0;
 	return (
 		<Picker
 			label={translate("Model: {{label}}", { label: label })}
@@ -338,8 +414,25 @@ export const ModelPicker = ({
 			place={place}
 			fold={cut ? "shrink" : null}
 			tip={tip}
+			search={
+				searching
+					? {
+							query,
+							onQuery: setQuery,
+							label: translate("Search models"),
+							empty: none ? (
+								<p
+									role="status"
+									className="px-2 py-3 text-[12px] text-muted-foreground"
+								>
+									{translate("No models match")}
+								</p>
+							) : null,
+						}
+					: null
+			}
 		>
-			{choices.length > 0 && (
+			{ownShown.length > 0 && (
 				<Menu.RadioGroup
 					value={current}
 					onValueChange={(value: string) => {
@@ -356,7 +449,7 @@ export const ModelPicker = ({
 							</>
 						)}
 					</Menu.GroupLabel>
-					{choices.map((choice) => (
+					{ownShown.map((choice) => (
 						<Menu.RadioItem key={choice.id} value={choice.id} className={MENU_ITEM}>
 							<span className="flex-1 text-[12.5px] font-[550] [[data-checked]_&]:font-semibold">
 								{choice.label}
@@ -372,15 +465,15 @@ export const ModelPicker = ({
 					))}
 				</Menu.RadioGroup>
 			)}
-			{moves.map((move, at) => (
+			{movesShown.map(({ move, models }, at) => (
 				<Fragment key={move.account.id}>
-					{(choices.length > 0 || at > 0) && (
+					{(ownShown.length > 0 || at > 0) && (
 						<Menu.Separator className="mx-1 my-[5px] h-px bg-border" />
 					)}
-					<MoveGroup move={move} local={local} onPick={onPick} />
+					<MoveGroup move={move} models={models} local={local} onPick={onPick} />
 				</Fragment>
 			))}
-			{setup && <SetupItem onSetup={setup} />}
+			{setup && <SetupItem onSetup={setup} apart={!none} />}
 		</Picker>
 	);
 };
