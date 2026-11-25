@@ -244,6 +244,8 @@ mod tests {
             at.make_dir("d", 0o755).unwrap();
             at = at.dir(&["d".to_owned()]).unwrap();
         }
+        // Windows can't remove a folder this process still holds open.
+        drop(at);
         let counted = folder_bytes(dir.path());
         remove_tree(dir.path().join("d")).unwrap();
         assert_eq!(counted.unwrap(), 10);

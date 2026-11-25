@@ -1292,7 +1292,8 @@ mod tests {
             ]
         );
         assert_eq!(walk.name, "checkout");
-        assert!(walk.entries[5].executable);
+        // Windows has no exec bit to read.
+        assert_eq!(walk.entries[5].executable, cfg!(unix));
         manifest::check(&walk.entries).unwrap();
 
         let landing = temp.path().join("landing");
