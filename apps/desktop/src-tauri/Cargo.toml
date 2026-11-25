@@ -96,12 +96,14 @@ tauri-plugin-single-instance = "2.5"
 trash = "5.4"
 
 # Linux talks to the notification server over the libdbus tao already
-# links, so it hears every click and close. open gives the openers a link
-# or file goes to as commands the app can start outside an AppImage's
+# links, so it hears every click and close, and rustix waits on that
+# connection and the notification queue at once. open gives the openers a
+# link or file goes to as commands the app can start outside an AppImage's
 # environment, and the opener plugin already uses it.
 [target.'cfg(target_os = "linux")'.dependencies]
 dbus = { workspace = true }
 open = "5.4"
+rustix = { workspace = true, features = ["event"] }
 
 # Windows shows its toasts through WinRT, for the app's AppUserModelID, so
 # it hears their clicks. windows-sys claims that ID, lists it for a build no

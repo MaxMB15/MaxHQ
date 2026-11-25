@@ -31,6 +31,10 @@ use crate::native::windows::APP_ID;
 /// agents than wait at once.
 const HELD: usize = 64;
 
+/// Windows reports a toast's clicks on threads of its own, so the thread
+/// waits on its queue alone.
+pub use std::sync::mpsc::{channel as jobs, Receiver as Queue, Sender as Jobs};
+
 /// The toasts the app has shown.
 pub struct Screen {
     on_click: Arc<dyn Fn(AgentId) + Send + Sync>,
@@ -50,6 +54,11 @@ impl Screen {
             notifier,
             held: VecDeque::new(),
         }
+    }
+
+    /// The next job, or none once the app lets go of the queue.
+    pub fn next<T>(&mut self, queue: &Queue<T>) -> Option<T> {
+        queue.recv().ok()
     }
 
     /// Toasts show when Windows gave a notifier, with a line for the

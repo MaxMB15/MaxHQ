@@ -17,12 +17,12 @@
 //! <pair>` do the same for a phone's key and a one-time pairing key.
 
 use std::ffi::OsStr;
-use std::future::Future;
 use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
 use maxhq_os::ipc::{self, LocalStream, ReadHalf, WriteHalf};
+use maxhq_os::rt::block_on;
 use maxhq_protocol::agents::ClientRole;
 use maxhq_protocol::frame::{
     self, DecodeError, EncodeError, Frame, FrameDecoder, MAX_TUNNEL_CHUNK,
@@ -187,34 +187,24 @@ async fn connect(path: &Path) -> Result<LocalStream, ProxyError> {
         })
 }
 
-/// Runs `carry` on a runtime of its own. A read of stdin can't be called
-/// off, so the runtime goes down without waiting for one, and the caller
-/// should exit.
-fn on_runtime(carry: impl Future<Output = Result<(), ProxyError>>) -> Result<(), ProxyError> {
-    let runtime = tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()?;
-    let carried = runtime.block_on(carry);
-    runtime.shutdown_background();
-    carried
-}
-
 /// Joins stdin and stdout to the socket at `path` until either side closes.
 pub fn run(path: &Path) -> Result<(), ProxyError> {
-    on_runtime(async {
+    // A read of stdin can't be called off, so the runtime goes down
+    // without waiting for one, and the caller should exit.
+    block_on(async {
         let stream = connect(path).await?;
         bridge(tokio::io::stdin(), tokio::io::stdout(), stream).await?;
         Ok(())
-    })
+    })?
 }
 
 /// Joins stdin and stdout to the socket at `path` after `first`, the frame
 /// that says which device, phone or pairing dialed.
 pub fn run_as(path: &Path, first: &ClientMessage) -> Result<(), ProxyError> {
-    on_runtime(async {
+    block_on(async {
         let stream = connect(path).await?;
         first_bridge(tokio::io::stdin(), tokio::io::stdout(), stream, first).await
-    })
+    })?
 }
 
 /// Writes `first`, then bridges.
@@ -240,10 +230,10 @@ pub fn first_frame(message: &ClientMessage) -> Result<Vec<u8>, EncodeError> {
 /// Carries an SSH session with `workspace`'s guest on stdin and stdout,
 /// through the `maxd` at `path`, until the session ends.
 pub fn run_guest_ssh(path: &Path, workspace: WorkspaceId) -> Result<(), ProxyError> {
-    on_runtime(async {
+    block_on(async {
         let stream = connect(path).await?;
         guest_ssh(tokio::io::stdin(), tokio::io::stdout(), stream, workspace).await
-    })
+    })?
 }
 
 /// Carries the protocol to the `maxd` in WSL distro `distro` on this
@@ -633,6 +623,7 @@ fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::future::Future;
     use std::time::Duration;
     use tokio::io::{duplex, DuplexStream};
     use tokio::task::JoinHandle;

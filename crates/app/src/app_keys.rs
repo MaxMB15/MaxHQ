@@ -228,10 +228,12 @@ impl AppKeys {
             home,
             ask,
             file,
+            read,
         } = place;
         let place = home.name();
         let mut record = record.unwrap_or_default();
-        let (current, previous, remade) = match store.load(Key::App) {
+        let read = read.unwrap_or_else(|| store.load(Key::App));
+        let (current, previous, remade) = match read {
             Ok(Some(bytes)) if bytes.len() == 32 => (Some(seed_of(&bytes)), None, None),
             Ok(Some(bytes)) if bytes.len() == 64 => (
                 Some(seed_of(&bytes[..32])),

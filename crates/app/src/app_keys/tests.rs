@@ -522,8 +522,30 @@ fn unkept(scratch: &Scratch, record: Option<Record>) -> AppKeys {
         home: KeyHome::Memory,
         ask: true,
         file: Some(scratch.file()),
+        read: None,
     };
     AppKeys::open_in(place, record, LABEL.into()).unwrap()
+}
+
+#[test]
+fn the_key_the_keyring_gave_when_asked_is_the_one_that_opens() {
+    let store = Shared::default();
+    store.save(Key::App, &[7; 32]).unwrap();
+    let read = store.load(Key::App);
+    let place = Place {
+        // A second read would fail, so the keys open only from the first.
+        store: Box::new(Broken {
+            read: true,
+            write: false,
+        }),
+        home: KeyHome::Keyring,
+        ask: false,
+        file: None,
+        read: Some(read),
+    };
+    let keys = AppKeys::open_in(place, None, LABEL.into()).unwrap();
+    assert_eq!(keys.view().remade, None);
+    assert_eq!(keys.public_key(), public_key(&[7; 32]));
 }
 
 #[test]

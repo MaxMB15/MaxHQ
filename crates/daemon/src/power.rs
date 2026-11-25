@@ -2,34 +2,25 @@
 // Copyright (c) 2026 Max Boksem
 
 //! Keeping the device awake, per decision A-11. A sleeping machine stops
-//! `maxd`, so the device's settings say when it holds the system awake: an
-//! IOKit assertion that stops idle sleep on a Mac, a logind inhibitor on
-//! Linux, a power request on Windows. The display still turns off, and
-//! closing the lid still sleeps the machine. Other systems don't sleep
-//! under an agent, so there it does nothing.
+//! `maxd`, so the device's settings say when it holds the system awake,
+//! through `maxhq_os::power`: an IOKit assertion that stops idle sleep on a
+//! Mac, a logind inhibitor on Linux, a power request on Windows. The
+//! display still turns off, and closing the lid still sleeps the machine.
+//! Other systems don't sleep under an agent, so there it does nothing.
 //!
-//! When to hold is decided here, once. Each system's module only takes the
-//! hold and says whether the machine runs on the charger.
+//! When to hold is decided here, once, and so is what each system calls
+//! the hold.
 
+use std::io;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::time::Duration;
 
+use maxhq_os::power::{self, Keep};
 use maxhq_protocol::model::KeepAwake;
+use tracing::{debug, warn};
 
-// Linux's module also builds in every test run, so its reading of the
-// power supplies is tested on any system.
-#[cfg(any(target_os = "linux", test))]
-mod linux;
-#[cfg(target_os = "macos")]
-mod macos;
-#[cfg(windows)]
-mod windows;
-
-#[cfg(target_os = "linux")]
-use linux as platform;
-#[cfg(target_os = "macos")]
-use macos as platform;
-#[cfg(windows)]
-use windows as platform;
+use self::awake::Holder;
 
 /// Holds the device awake when its mode says to.
 pub trait Power: Send + Sync {
@@ -42,10 +33,6 @@ pub trait Power: Send + Sync {
 }
 
 /// Whether to hold the device awake in this mode.
-#[cfg_attr(
-    all(not(any(target_os = "macos", target_os = "linux", windows)), not(test)),
-    allow(dead_code)
-)]
 pub fn should_hold(mode: KeepAwake, busy: bool, on_charger: bool) -> bool {
     match mode {
         KeepAwake::Charger => on_charger || busy,
@@ -57,21 +44,14 @@ pub fn should_hold(mode: KeepAwake, busy: bool, on_charger: bool) -> bool {
 
 /// The power control for this system.
 pub fn system() -> Arc<dyn Power> {
-    #[cfg(any(target_os = "macos", target_os = "linux", windows))]
-    {
-        awake::Awake::start(platform::holder())
-    }
-    #[cfg(not(any(target_os = "macos", target_os = "linux", windows)))]
-    {
+    if Keep::System.supported() {
+        awake::Awake::start(System)
+    } else {
         Arc::new(NoPower)
     }
 }
 
 /// Power control that does nothing.
-#[cfg_attr(
-    all(any(target_os = "macos", target_os = "linux", windows), not(test)),
-    allow(dead_code)
-)]
 pub struct NoPower;
 
 impl Power for NoPower {
@@ -80,9 +60,86 @@ impl Power for NoPower {
     fn set_busy(&self, _busy: bool) {}
 }
 
-/// The hold and the charger check every system that can hold itself awake
-/// shares. The tests build it everywhere, against a fake system.
-#[cfg(any(target_os = "macos", target_os = "linux", windows, test))]
+/// What the system lists as the hold's reason, and what the logs call the
+/// machine and say when the system refuses: Activity Monitor and `pmset
+/// -g assertions` on a Mac, `systemd-inhibit --list` on Linux, `powercfg
+/// /requests` on Windows.
+struct Words {
+    reason: &'static str,
+    machine: &'static str,
+    refused: &'static str,
+    /// Whether only the first refusal is a warning. Linux refuses the same
+    /// way on every try where `systemd-inhibit` is missing, and later ones
+    /// only show in the debug log.
+    warn_once: bool,
+}
+
+#[cfg(target_os = "macos")]
+const WORDS: Words = Words {
+    reason: "MaxHQ is keeping this Mac awake",
+    machine: "the Mac",
+    refused: "macOS refused to keep the Mac awake",
+    warn_once: false,
+};
+#[cfg(windows)]
+const WORDS: Words = Words {
+    reason: "MaxHQ is keeping this PC awake",
+    machine: "the PC",
+    refused: "Windows refused to keep the PC awake",
+    warn_once: false,
+};
+#[cfg(not(any(target_os = "macos", windows)))]
+const WORDS: Words = Words {
+    reason: "MaxHQ is keeping this computer awake",
+    machine: "this computer",
+    refused: "Linux refused to keep this computer awake",
+    warn_once: true,
+};
+
+/// The system's own hold.
+struct System;
+
+impl Holder for System {
+    type Hold = power::Awake;
+    const MACHINE: &'static str = WORDS.machine;
+    const CHECK_EVERY: Duration = Duration::from_secs(15);
+
+    /// Takes the hold, or none when the system refuses.
+    fn take(&self) -> Option<power::Awake> {
+        match power::Awake::take(Keep::System, WORDS.reason) {
+            Ok(held) => {
+                debug!("keeping {} awake", WORDS.machine);
+                Some(held)
+            }
+            Err(error) => {
+                refused(&error);
+                None
+            }
+        }
+    }
+
+    /// A status the system won't give reads as on battery, so the charger
+    /// mode holds only while an agent works.
+    fn on_charger(&self) -> bool {
+        power::on_charger().unwrap_or_else(|error| {
+            debug!(%error, "couldn't read {}'s power status", WORDS.machine);
+            false
+        })
+    }
+}
+
+/// Logs that the system wouldn't hold.
+fn refused(error: &io::Error) {
+    static WARNED: AtomicBool = AtomicBool::new(false);
+    if WORDS.warn_once && WARNED.swap(true, Ordering::Relaxed) {
+        debug!(%error, "{}", WORDS.refused);
+    } else {
+        warn!(%error, "{}", WORDS.refused);
+    }
+}
+
+/// The hold and the charger check, which the tests also run against a
+/// fake system.
 mod awake {
     use std::sync::{Arc, Mutex, PoisonError};
     use std::time::Duration;
@@ -144,10 +201,6 @@ mod awake {
         }
 
         /// A control that keeps checking the charger while the mode needs it.
-        #[cfg_attr(
-            all(test, not(any(target_os = "macos", target_os = "linux", windows))),
-            allow(dead_code)
-        )]
         pub(super) fn start(holder: H) -> Arc<Self> {
             let awake = Arc::new(Self::new(holder));
             let weak = Arc::downgrade(&awake);
@@ -351,5 +404,20 @@ mod tests {
         mode.send_replace(KeepAwake::Charger);
         task.await.unwrap();
         assert_eq!(checks.load(Ordering::Relaxed), 4);
+    }
+
+    // A Linux machine may have no `systemd-inhibit`, as in a container, so
+    // the real hold is tested on macOS and Windows.
+    #[cfg(any(target_os = "macos", windows))]
+    #[test]
+    fn the_system_is_held_while_an_agent_works_and_let_go() {
+        let held = |awake: &Awake<System>| awake.state.lock().unwrap().held.is_some();
+        let awake = Awake::new(System);
+        awake.set_mode(KeepAwake::Working);
+        assert!(!held(&awake));
+        awake.set_busy(true);
+        assert!(held(&awake));
+        awake.set_busy(false);
+        assert!(!held(&awake));
     }
 }

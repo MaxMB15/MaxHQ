@@ -11,7 +11,6 @@
 
 pub(crate) mod http;
 pub mod moves;
-pub(crate) mod socket;
 mod ws;
 
 // The fake serves on a Unix socket, as Incus does.

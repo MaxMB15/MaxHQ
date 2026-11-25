@@ -151,6 +151,26 @@ pub fn user_id() -> Option<String> {
     imp::user_id()
 }
 
+/// Raises this process's soft limit on open files as far as the system
+/// lets it. launchd and systemd start `maxd` low, and every agent, link and
+/// client counts against it. Windows has no such limit on handles.
+pub fn raise_open_files() -> io::Result<()> {
+    imp::raise_open_files()
+}
+
+/// What this process's stderr writes to, as a file of its own, such as the
+/// log a service manager opened for it.
+pub fn stderr_file() -> io::Result<std::fs::File> {
+    imp::stderr_file()
+}
+
+/// Points this process's stdout and stderr at `file`, so what it writes
+/// from now on goes there. On Windows, whose launcher hands `maxd` its log,
+/// it's unsupported.
+pub fn send_output_to(file: &std::fs::File) -> io::Result<()> {
+    imp::send_output_to(file)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

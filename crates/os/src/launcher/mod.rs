@@ -187,10 +187,7 @@ fn after(exit: Option<i32>, ran: Duration, pause: Duration, plan: &Plan) -> Next
 /// Asks the `maxd` that serves to restart, and waits for its launcher to
 /// start it again. False when there's none to, or it never asked.
 fn hand_over(plan: &Plan) -> bool {
-    let asked = tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-        .and_then(|runtime| runtime.block_on(stop::ask(&plan.socket, Request::Restart)));
+    let asked = crate::rt::block_on(stop::ask(&plan.socket, Request::Restart)).and_then(|pid| pid);
     let pid = match asked {
         Ok(pid) => pid,
         Err(err) => {

@@ -6,6 +6,12 @@ edition.workspace = true
 license.workspace = true
 publish.workspace = true
 
+[features]
+# Holds the display on under Linux through the desktop's screen saver and
+# logind, over D-Bus. The app turns it on. `maxd` leaves it off, so it never
+# links libdbus, which a container may not have.
+display = ["dep:dbus"]
+
 [dependencies]
 sha2.workspace = true
 tokio.workspace = true
@@ -13,6 +19,12 @@ tokio.workspace = true
 [target.'cfg(unix)'.dependencies]
 libc.workspace = true
 rustix = { workspace = true, features = ["fs"] }
+
+# Linux's holds log the failures no caller sees: a `systemd-inhibit` that
+# fails after it started, and a D-Bus service that took no hold.
+[target.'cfg(target_os = "linux")'.dependencies]
+dbus = { workspace = true, optional = true }
+tracing.workspace = true
 
 [target.'cfg(windows)'.dependencies]
 # On top of the workspace's: a process's command line and threads,

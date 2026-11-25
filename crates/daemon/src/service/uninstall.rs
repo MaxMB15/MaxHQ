@@ -95,18 +95,15 @@ impl Holders for SystemHolders {
         if sessions.is_empty() {
             return Ending::default();
         }
-        let runtime = match tokio::runtime::Builder::new_current_thread()
-            .enable_all()
-            .build()
-        {
-            Ok(runtime) => runtime,
-            Err(err) => return left(format!("couldn't end the agents maxd ran: {err}")),
-        };
         let ends = sessions
             .into_iter()
             .map(|session| end_held(&holds, session));
+        let ended = match maxhq_os::rt::block_on(futures::future::join_all(ends)) {
+            Ok(ended) => ended,
+            Err(err) => return left(format!("couldn't end the agents maxd ran: {err}")),
+        };
         let mut ending = Ending::default();
-        for (ran, still) in runtime.block_on(futures::future::join_all(ends)) {
+        for (ran, still) in ended {
             ending.ended += usize::from(ran && still.is_none());
             ending.left.extend(still);
         }

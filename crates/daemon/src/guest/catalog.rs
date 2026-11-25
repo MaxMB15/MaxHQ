@@ -83,11 +83,8 @@ fn argv(
 fn refresh(socket: &Path, client: &Client, url: &str, path: &Path) -> Result<(), String> {
     let (token, _) =
         ask_at(socket, &AgentWant::Codex).map_err(|reason| format!("no token: {reason}"))?;
-    let runtime = tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-        .map_err(|err| format!("couldn't start the runtime: {err}"))?;
-    let body = runtime.block_on(fetch(client, url, token.expose()))?;
+    let body = maxhq_os::rt::block_on(fetch(client, url, token.expose()))
+        .map_err(|err| format!("couldn't start the runtime: {err}"))??;
     check(&body)?;
     // Written whole, so Codex never reads half of one.
     write_atomic(path, &body, Atomic::PRIVATE)

@@ -22,6 +22,7 @@ pub mod net;
 pub mod path;
 pub mod power;
 pub mod proc;
+pub mod rt;
 pub mod stop;
 pub mod which;
 #[cfg(windows)]
