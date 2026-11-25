@@ -191,13 +191,29 @@ describe("NoteEditor", () => {
 		expect(hidden()).toEqual(["# "]);
 	});
 
-	it("opens a link on a Command-click", () => {
+	it("opens a link on a Command-click on a Mac", () => {
+		vi.spyOn(navigator, "userAgent", "get").mockReturnValue(
+			"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)"
+		);
 		const open = vi.spyOn(window, "open").mockReturnValue(null);
 		const text = "see [site](https://example.com) now";
 		const { editor, textbox } = renderNote(text);
 		const link = posAt(text, 6);
 		editor.view.posAtCoords = () => ({ pos: link, inside: -1 });
 		fireEvent.mouseDown(textbox, { metaKey: true, button: 0 });
+		expect(open).toHaveBeenCalledWith("https://example.com", "_blank", "noreferrer");
+		vi.restoreAllMocks();
+	});
+
+	it("opens a link on a Control-click off a Mac, and not on the Windows key", () => {
+		const open = vi.spyOn(window, "open").mockReturnValue(null);
+		const text = "see [site](https://example.com) now";
+		const { editor, textbox } = renderNote(text);
+		const link = posAt(text, 6);
+		editor.view.posAtCoords = () => ({ pos: link, inside: -1 });
+		fireEvent.mouseDown(textbox, { metaKey: true, button: 0 });
+		expect(open).not.toHaveBeenCalled();
+		fireEvent.mouseDown(textbox, { ctrlKey: true, button: 0 });
 		expect(open).toHaveBeenCalledWith("https://example.com", "_blank", "noreferrer");
 		open.mockRestore();
 	});
