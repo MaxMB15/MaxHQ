@@ -205,11 +205,13 @@ describe("agent header", () => {
 		const groups = within(menu)
 			.getAllByText(/^Move to /)
 			.map((label) => label.textContent);
-		// devbox's logins aren't on the agent's device. Local is a kind of its own.
+		// devbox's logins aren't on the agent's device. Local is a kind of its
+		// own, one group per server, with OpenRouter's credits.
 		expect(groups).toEqual([
 			"Move to Codex Pro",
 			"Move to Cursor Pro",
 			"Move to Local, This Mac",
+			"Move to Local, OpenRouter · $7.42 left",
 			"Move to Gemini",
 		]);
 		const codex = within(menu).getByRole("group", { name: "Move to Codex Pro" });

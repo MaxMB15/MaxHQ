@@ -55,6 +55,12 @@ pub struct ModelServer {
     /// `maxd`'s secrets store and is never sent.
     #[serde(default)]
     pub token: bool,
+    /// Whether `maxd` holds an admin key for it, which reads the account's
+    /// balance on OpenRouter. The key itself stays in `maxd`'s secrets
+    /// store and is never sent. Since
+    /// [`crate::message::CLOUD_SERVERS_SINCE`].
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub admin_key: bool,
     /// What the last probe found, or none before the first.
     pub probe: Option<ServerProbe>,
     /// The models it serves. For a managed server, the model files ready
@@ -63,6 +69,54 @@ pub struct ModelServer {
     #[serde(deserialize_with = "crate::tolerant::list")]
     #[specta(type = Vec<ServerModel>)]
     pub models: Vec<ServerModel>,
+    /// What the server's key has spent, for a server that meters it, such
+    /// as OpenRouter. None for one that doesn't, or before the first read.
+    /// Since [`crate::message::CLOUD_SERVERS_SINCE`]; an older client
+    /// reads none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub credits: Option<ServerCredits>,
+}
+
+/// What a model server's key has spent and has left, in whole US cents,
+/// as the server's own key endpoint reports it. It covers the one key
+/// `maxd` holds, plus the account's balance when `maxd` holds an admin key
+/// for the server.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, Type, JsonSchema)]
+pub struct ServerCredits {
+    /// When the figures were read.
+    pub at: Timestamp,
+    /// What the key has spent in all.
+    pub used_cents: u32,
+    /// What it spent today, when the server says.
+    #[serde(default)]
+    pub today_cents: Option<u32>,
+    /// What it spent this week, when the server says.
+    #[serde(default)]
+    pub week_cents: Option<u32>,
+    /// What it spent this month, when the server says.
+    #[serde(default)]
+    pub month_cents: Option<u32>,
+    /// The key's spending limit. None for a key without one.
+    #[serde(default)]
+    pub limit_cents: Option<u32>,
+    /// What's left under the limit. None for a key without one.
+    #[serde(default)]
+    pub remaining_cents: Option<u32>,
+    /// How often the limit starts over, as the server names it, such as
+    /// `monthly`. None for a limit that never resets.
+    #[serde(default)]
+    pub resets: Option<String>,
+    /// What's left on the account: what was bought less what was used,
+    /// never below zero. None without an admin key.
+    #[serde(default)]
+    pub balance_cents: Option<u32>,
+    /// What the account bought in all. None without an admin key.
+    #[serde(default)]
+    pub bought_cents: Option<u32>,
+    /// Why the last read failed, for a person to read. The figures are the
+    /// last good ones then. None when the last read worked.
+    #[serde(default)]
+    pub error: Option<String>,
 }
 
 /// Whether `maxd` runs a server or reaches it at a URL.
@@ -559,11 +613,23 @@ pub enum ModelAction {
         /// The server.
         server: ModelServerId,
     },
-    /// Removes a server URL, with its account and token. A managed server
-    /// can't be removed.
+    /// Removes a server URL, with its account, token and admin key. A
+    /// managed server can't be removed.
     RemoveServer {
         /// The server.
         server: ModelServerId,
+    },
+    /// Keeps an admin key for an OpenRouter server, after one read of the
+    /// account's balance with it, or removes the one kept. It answers
+    /// [`crate::message::ActionOutcome::Done`], or `Refused` with why,
+    /// such as a key OpenRouter turned down, of which `maxd` keeps
+    /// nothing. Since [`crate::message::CLOUD_SERVERS_SINCE`].
+    SetServerAdminKey {
+        /// The server.
+        server: ModelServerId,
+        /// The admin key, or None to remove the one kept.
+        #[serde(default)]
+        key: Option<Secret>,
     },
     /// Downloads one file of a catalog model.
     Download {
@@ -635,7 +701,7 @@ pub struct LocalRun {
 mod tests {
     use super::*;
     use crate::ids::IdempotencyKey;
-    use crate::message::{ActionOutcome, ClientMessage, LOCAL_MODELS_SINCE};
+    use crate::message::{ActionOutcome, ClientMessage, CLOUD_SERVERS_SINCE, LOCAL_MODELS_SINCE};
     use crate::state::{Entity, EntityKey};
 
     fn device() -> DeviceId {
@@ -664,6 +730,7 @@ mod tests {
             label: "Ollama on devbox".into(),
             base_url: Some("http://devbox:11434".into()),
             token: true,
+            admin_key: true,
             probe: Some(ServerProbe {
                 at: Timestamp(1_000),
                 apis: ServerApis {
@@ -689,6 +756,19 @@ mod tests {
                     decode_per_second: Some(74),
                 }),
             }],
+            credits: Some(ServerCredits {
+                at: Timestamp(1_100),
+                used_cents: 258,
+                today_cents: Some(31),
+                week_cents: Some(120),
+                month_cents: Some(258),
+                limit_cents: Some(1_000),
+                remaining_cents: Some(742),
+                resets: Some("monthly".into()),
+                balance_cents: Some(742),
+                bought_cents: Some(1_000),
+                error: None,
+            }),
         }
     }
 
@@ -793,6 +873,47 @@ mod tests {
             .push(serde_json::json!({ "id": "x", "load": { "state": "newer" } }));
         let read: ModelServer = serde_json::from_value(json).unwrap();
         assert_eq!(read.models.len(), 1);
+    }
+
+    #[test]
+    fn a_server_without_credits_writes_none_and_reads_as_before() {
+        let json = serde_json::to_value(ModelServer {
+            admin_key: false,
+            credits: None,
+            ..server()
+        })
+        .unwrap();
+        assert!(json.get("credits").is_none());
+        assert!(json.get("admin_key").is_none());
+        // A server from before cloud servers reads with no credits.
+        let read: ModelServer = serde_json::from_value(json).unwrap();
+        assert_eq!(read.credits, None);
+        assert!(!read.admin_key);
+        // Figures left out read as unknown.
+        let credits: ServerCredits =
+            serde_json::from_value(serde_json::json!({"at": 5, "used_cents": 12})).unwrap();
+        assert_eq!(credits.used_cents, 12);
+        assert_eq!(credits.limit_cents, None);
+        assert_eq!(credits.balance_cents, None);
+        assert_eq!(credits.error, None);
+    }
+
+    #[test]
+    fn an_admin_key_is_set_since_cloud_servers_and_stays_out_of_logs() {
+        assert_eq!(CLOUD_SERVERS_SINCE, 65);
+        let id = ModelServerId::derive("server:example");
+        for key in [Some(Secret::new("sk-or-v1-admin".into())), None] {
+            let message = ClientMessage::ModelAction {
+                key: IdempotencyKey::derive("admin"),
+                action: ModelAction::SetServerAdminKey { server: id, key },
+            };
+            assert_eq!(round_trip(&message), message);
+            assert_eq!(message.since(), CLOUD_SERVERS_SINCE);
+            assert!(!format!("{message:?}").contains("sk-or-v1-admin"));
+        }
+        let json = serde_json::to_value(server()).unwrap();
+        assert_eq!(json["admin_key"], true);
+        assert_eq!(json["credits"]["balance_cents"], 742);
     }
 
     #[test]

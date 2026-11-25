@@ -8,6 +8,8 @@ export const ARTIFACTS_SINCE = 55 as const;
 
 export const CLI_LOGIN_SINCE = 35 as const;
 
+export const CLOUD_SERVERS_SINCE = 65 as const;
+
 export const CURSOR_LOGIN_SINCE = 36 as const;
 
 export const DEPTH = 3 as const;
@@ -7297,12 +7299,24 @@ token?: Secret | null } |
 /**  The server. */
 server: ModelServerId } | 
 /**
- *  Removes a server URL, with its account and token. A managed server
- *  can't be removed.
+ *  Removes a server URL, with its account, token and admin key. A
+ *  managed server can't be removed.
  */
 { action: "remove_server"; 
 /**  The server. */
 server: ModelServerId } | 
+/**
+ *  Keeps an admin key for an OpenRouter server, after one read of the
+ *  account's balance with it, or removes the one kept. It answers
+ *  [`crate::message::ActionOutcome::Done`], or `Refused` with why,
+ *  such as a key OpenRouter turned down, of which `maxd` keeps
+ *  nothing. Since [`crate::message::CLOUD_SERVERS_SINCE`].
+ */
+{ action: "set_server_admin_key"; 
+/**  The server. */
+server: ModelServerId; 
+/**  The admin key, or None to remove the one kept. */
+key?: Secret | null } | 
 /**  Downloads one file of a catalog model. */
 { action: "download"; 
 /**  The catalog model's ID. */
@@ -7493,6 +7507,13 @@ export type ModelServer = {
 	 *  `maxd`'s secrets store and is never sent.
 	 */
 	token?: boolean,
+	/**
+	 *  Whether `maxd` holds an admin key for it, which reads the account's
+	 *  balance on OpenRouter. The key itself stays in `maxd`'s secrets
+	 *  store and is never sent. Since
+	 *  [`crate::message::CLOUD_SERVERS_SINCE`].
+	 */
+	admin_key?: boolean,
 	/**  What the last probe found, or none before the first. */
 	probe: ServerProbe | null,
 	/**
@@ -7501,6 +7522,13 @@ export type ModelServer = {
 	 *  build can't read is left out.
 	 */
 	models: ServerModel[],
+	/**
+	 *  What the server's key has spent, for a server that meters it, such
+	 *  as OpenRouter. None for one that doesn't, or before the first read.
+	 *  Since [`crate::message::CLOUD_SERVERS_SINCE`]; an older client
+	 *  reads none.
+	 */
+	credits?: ServerCredits | null,
 };
 
 /**
@@ -10400,6 +10428,46 @@ export type ServerApis = {
 	chat?: boolean,
 	/**  `/v1/responses`. */
 	responses?: boolean,
+};
+
+/**
+ *  What a model server's key has spent and has left, in whole US cents,
+ *  as the server's own key endpoint reports it. It covers the one key
+ *  `maxd` holds, plus the account's balance when `maxd` holds an admin key
+ *  for the server.
+ */
+export type ServerCredits = {
+	/**  When the figures were read. */
+	at: Timestamp,
+	/**  What the key has spent in all. */
+	used_cents: number,
+	/**  What it spent today, when the server says. */
+	today_cents?: number | null,
+	/**  What it spent this week, when the server says. */
+	week_cents?: number | null,
+	/**  What it spent this month, when the server says. */
+	month_cents?: number | null,
+	/**  The key's spending limit. None for a key without one. */
+	limit_cents?: number | null,
+	/**  What's left under the limit. None for a key without one. */
+	remaining_cents?: number | null,
+	/**
+	 *  How often the limit starts over, as the server names it, such as
+	 *  `monthly`. None for a limit that never resets.
+	 */
+	resets?: string | null,
+	/**
+	 *  What's left on the account: what was bought less what was used,
+	 *  never below zero. None without an admin key.
+	 */
+	balance_cents?: number | null,
+	/**  What the account bought in all. None without an admin key. */
+	bought_cents?: number | null,
+	/**
+	 *  Why the last read failed, for a person to read. The figures are the
+	 *  last good ones then. None when the last read worked.
+	 */
+	error?: string | null,
 };
 
 /**  What kind of server answers at a URL. */

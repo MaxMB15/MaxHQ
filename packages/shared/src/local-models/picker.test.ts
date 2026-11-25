@@ -8,8 +8,12 @@ import {
 	DEVBOX_LOCAL,
 	DOWNLOADING_MODEL,
 	LOADED_MODEL,
+	DEVBOX_OPENROUTER_SERVER,
 	MAC_LOCAL,
+	MAC_SERVER,
 	OLLAMA_LOCAL,
+	OLLAMA_SERVER,
+	OPENROUTER_SERVER,
 } from "../data/mock-local-models";
 import { mockSource } from "../data/mock-source";
 import { DEVBOX, MAC } from "../data/mock-view";
@@ -24,6 +28,7 @@ import {
 	modelOptionCount,
 	opensLocalSetup,
 	optionModel,
+	serverHeading,
 } from "./picker";
 import { defaultLocalPick, localPicksOn } from "./models";
 import { LOCAL_SETUP_VALUE, localModelKey, modelChoice } from "./select";
@@ -64,6 +69,15 @@ describe("the agent picker", () => {
 });
 
 describe("the local model picker", () => {
+	it("heads a server with credits with its main figure", async () => {
+		const view = await load();
+		const heading = (id: string) => serverHeading(view, view.tables.model_server.get(id)!);
+		expect(heading(OPENROUTER_SERVER)).toBe("OpenRouter · $7.42 left");
+		expect(heading(DEVBOX_OPENROUTER_SERVER)).toBe("OpenRouter on devbox · $4.12 spent");
+		expect(heading(MAC_SERVER)).toBe("This Mac");
+		expect(heading(OLLAMA_SERVER)).toBe("Ollama on gpu-box (not encrypted)");
+	});
+
 	it("groups the Mac's models under This Mac, each with its fit", async () => {
 		const view = await load();
 		const options = localPickerOptions(view, MAC);
@@ -74,6 +88,9 @@ describe("the local model picker", () => {
 			["This Mac", "Ornith-1.5-35B-A3B", "Not downloaded"],
 			["This Mac", "Qwen3.8-27B", "Not downloaded"],
 			["This Mac", "Qwen3-Coder-Next-80B-A3B", "Not downloaded"],
+			["OpenRouter · $7.42 left", "Z.ai: GLM 5.3 Flash", undefined],
+			["OpenRouter · $7.42 left", "Qwen: Qwen3 Coder 480B A35B", undefined],
+			["OpenRouter · $7.42 left", "OpenAI: gpt-oss-120b", undefined],
 			[undefined, "Set up local models…", undefined],
 		]);
 		expect(options[0]).toMatchObject({

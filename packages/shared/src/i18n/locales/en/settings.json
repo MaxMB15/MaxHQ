@@ -1167,5 +1167,9 @@
 	"Remove {{rule}} on {{deviceName}}": "Remove {{rule}} on {{deviceName}}",
 	"Removed. Cursor agents running now keep it until they start again.": "Removed. Cursor agents running now keep it until they start again.",
 	"Shell rules Cursor saved": "Shell rules Cursor saved",
-	"Update maxd on {{deviceName}} to see the rules Cursor saved there.": "Update maxd on {{deviceName}} to see the rules Cursor saved there."
+	"Update maxd on {{deviceName}} to see the rules Cursor saved there.": "Update maxd on {{deviceName}} to see the rules Cursor saved there.",
+	"Add admin key for your balance": "Add admin key for your balance",
+	"Admin key": "Admin key",
+	"Admin key added": "Admin key added",
+	"Make one on OpenRouter": "Make one on OpenRouter"
 }

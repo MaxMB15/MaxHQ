@@ -4,11 +4,13 @@
 // The Local entries in the desktop's agent and model pickers. Local is an
 // agent of its own and always shows, so a device with no model ready yet
 // leads to its Local models settings. Its models sit under their server,
-// "This Mac" for the Mac the app runs on, each with how well it fits; the
-// catalog models not downloaded yet follow, and a last row opens the setup.
+// "This Mac" for the Mac the app runs on, each with how well it fits, and a
+// cloud server's heading carries its credits; the catalog models not
+// downloaded yet follow, and a last row opens the setup.
 
 import { t } from "../i18n";
 
+import { creditsShort } from "./credits";
 import { estimate, recommendedFile, type Fit } from "./fit";
 import { catalogEntry, localAccountsOn, localModelsOf, serverOf, sharingOff } from "./models";
 import {
@@ -103,6 +105,17 @@ const deviceGroup = (view: ViewState, device: DeviceId): string =>
 export const serverGroup = (view: ViewState, server: ModelServer): string => {
 	const name = server.kind.type === "managed" ? deviceGroup(view, server.device) : server.label;
 	return notEncrypted(server) ? t("{{server}} (not encrypted)", { server: name }) : name;
+};
+
+/**
+ * A server's heading in the model pickers: its group, as `serverGroup`
+ * says, with the main figure of its credits when it has them, such as
+ * "OpenRouter · $7.42 left".
+ */
+export const serverHeading = (view: ViewState, server: ModelServer): string => {
+	const group = serverGroup(view, server);
+	const credits = creditsShort(server);
+	return credits ? t("{{server}} · {{credits}}", { server: group, credits }) : group;
 };
 
 /** The separator in a value that opens the Local models settings. */
@@ -257,7 +270,7 @@ export const localPickerOptions = (view: ViewState, device: DeviceId): Option[] 
 	const models = accounts.flatMap((account): Option[] => {
 		const server = serverOf(view, account);
 		if (!server) return [];
-		const group = serverGroup(view, server);
+		const group = serverHeading(view, server);
 		const prefix = localModelKey(account.id, "");
 		const rows = listed
 			.filter((option) => option.value.startsWith(prefix))
@@ -288,5 +301,9 @@ export const localPickerOptions = (view: ViewState, device: DeviceId): Option[] 
 				.map((server) => server!.device),
 		]),
 	];
-	return [...models, ...catalogs.flatMap((d) => notDownloaded(view, d)), localSetupOption()];
+	const rows = [...models, ...catalogs.flatMap((d) => notDownloaded(view, d))];
+	// The models not downloaded join their server's group, so a server at a
+	// URL listed between them doesn't split it.
+	const groups = [...new Set(rows.map((row) => row.group))];
+	return [...groups.flatMap((g) => rows.filter((row) => row.group === g)), localSetupOption()];
 };

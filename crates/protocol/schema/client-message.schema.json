@@ -11014,12 +11014,42 @@
           ]
         },
         {
-          "description": "Removes a server URL, with its account and token. A managed server\ncan't be removed.",
+          "description": "Removes a server URL, with its account, token and admin key. A\nmanaged server can't be removed.",
           "type": "object",
           "properties": {
             "action": {
               "type": "string",
               "const": "remove_server"
+            },
+            "server": {
+              "description": "The server.",
+              "$ref": "#/$defs/ModelServerId"
+            }
+          },
+          "required": [
+            "action",
+            "server"
+          ]
+        },
+        {
+          "description": "Keeps an admin key for an OpenRouter server, after one read of the\naccount's balance with it, or removes the one kept. It answers\n[`crate::message::ActionOutcome::Done`], or `Refused` with why,\nsuch as a key OpenRouter turned down, of which `maxd` keeps\nnothing. Since [`crate::message::CLOUD_SERVERS_SINCE`].",
+          "type": "object",
+          "properties": {
+            "action": {
+              "type": "string",
+              "const": "set_server_admin_key"
+            },
+            "key": {
+              "description": "The admin key, or None to remove the one kept.",
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/Secret"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
             },
             "server": {
               "description": "The server.",

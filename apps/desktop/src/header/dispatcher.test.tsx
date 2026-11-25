@@ -278,10 +278,12 @@ describe("the dispatcher settings", () => {
 		const picker = screen.getByRole("combobox", { name: /^Runs as, Claude/ });
 		fireEvent.click(picker);
 		const options = await screen.findAllByRole("option");
-		// A local model comes last, and only runs it when you pick it.
+		// The local logins come last, the Mac's own server's and OpenRouter's,
+		// and only run it when you pick one.
 		expect(options.map((o) => o.textContent)).toEqual([
 			expect.stringMatching(/^Claude/),
 			expect.stringMatching(/^Codex/),
+			"Local",
 			"Local",
 		]);
 		const codex = options[1]!;

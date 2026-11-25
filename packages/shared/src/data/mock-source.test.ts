@@ -93,12 +93,14 @@ describe("mock source", () => {
 		}
 	});
 
-	it("has three local logins, none metered, two of them on the Mac's server", async () => {
+	it("has five local logins, none metered, two of them on the Mac's server", async () => {
 		const local = all(await load(), "account").filter(isLocalAccount);
 		expect(local.map((a) => [a.device, a.model_server]).sort()).toEqual([
 			[DEVBOX, "srv-devbox-ollama"],
+			[DEVBOX, "srv-devbox-openrouter"],
 			[DEVBOX, "srv-mac-llama"],
 			[MAC, "srv-mac-llama"],
+			[MAC, "srv-mac-openrouter"],
 		]);
 		for (const account of local) {
 			expect(account.vendor).toBe("claude");

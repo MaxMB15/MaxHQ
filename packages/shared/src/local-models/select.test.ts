@@ -7,6 +7,8 @@ import type { Entity } from "../bindings";
 import {
 	DEVBOX_LOCAL,
 	DEVBOX_LOCAL_AGENT,
+	DEVBOX_OPENROUTER_LOCAL,
+	DEVBOX_OPENROUTER_SERVER,
 	DOWNLOADING_MODEL,
 	LOADED_CATALOG_MODEL,
 	LOADED_MODEL,
@@ -15,6 +17,8 @@ import {
 	MAC_SERVER,
 	OLLAMA_LOCAL,
 	OLLAMA_SERVER,
+	OPENROUTER_LOCAL,
+	OPENROUTER_SERVER,
 } from "../data/mock-local-models";
 import { mockSource } from "../data/mock-source";
 import { DEVBOX, MAC } from "../data/mock-view";
@@ -63,8 +67,11 @@ const edited = async (edit: (entities: Entity[]) => Entity[]): Promise<ViewState
 describe("servers and models per device", () => {
 	it("lists each device's own servers, the managed one first", async () => {
 		const view = await load();
-		expect(serversOf(view, MAC).map((s) => s.id)).toEqual([MAC_SERVER]);
-		expect(serversOf(view, DEVBOX).map((s) => s.id)).toEqual([OLLAMA_SERVER]);
+		expect(serversOf(view, MAC).map((s) => s.id)).toEqual([MAC_SERVER, OPENROUTER_SERVER]);
+		expect(serversOf(view, DEVBOX).map((s) => s.id)).toEqual([
+			OLLAMA_SERVER,
+			DEVBOX_OPENROUTER_SERVER,
+		]);
 		expect(serverUsers(view, view.tables.model_server.get(MAC_SERVER)!)).toEqual([DEVBOX]);
 		expect(runsLocalModels(view, MAC)).toBe(true);
 	});
@@ -99,9 +106,10 @@ describe("servers and models per device", () => {
 
 	it("lists the local accounts own servers first, then the ones over the link", async () => {
 		const view = await load();
-		expect(localAccountsOn(view, MAC).map((a) => a.id)).toEqual([MAC_LOCAL]);
+		expect(localAccountsOn(view, MAC).map((a) => a.id)).toEqual([MAC_LOCAL, OPENROUTER_LOCAL]);
 		expect(localAccountsOn(view, DEVBOX).map((a) => a.id)).toEqual([
 			OLLAMA_LOCAL,
+			DEVBOX_OPENROUTER_LOCAL,
 			DEVBOX_LOCAL,
 		]);
 	});
@@ -236,6 +244,9 @@ describe("the Local entry in the agent picker", () => {
 		expect(options.map((o) => [o.group, o.label])).toEqual([
 			["Ollama on gpu-box (not encrypted)", "qwen3-coder:30b"],
 			["Ollama on gpu-box (not encrypted)", "gpt-oss-20b"],
+			["OpenRouter on devbox", "Z.ai: GLM 5.3 Flash"],
+			["OpenRouter on devbox", "Qwen: Qwen3 Coder 480B A35B"],
+			["OpenRouter on devbox", "OpenAI: gpt-oss-120b"],
 			["MacBook Pro", "Qwen3.6-35B-A3B"],
 			["MacBook Pro", "gpt-oss-20b"],
 			["MacBook Pro", "Ornith-1.5-9B"],

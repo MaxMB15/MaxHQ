@@ -642,7 +642,8 @@ impl Convo {
 
     /// An `assistant` line the CLI wrote for a failed API call. A usage
     /// limit becomes a wait for the reset, anything else an error, which
-    /// names the account when its login ran out.
+    /// names the account when its login ran out. One OpenRouter turned
+    /// down over money says so in plain words.
     fn api_error(&mut self, line: &Value, owner: &Owner, at: Timestamp) {
         let Some(uuid) = text(line, "uuid") else {
             return;
@@ -652,7 +653,13 @@ impl Convo {
             .and_then(|message| message.get("content"))
             .map(content_text)
             .unwrap_or_default();
-        let body = if text(line, "error") == Some("rate_limit") {
+        let body = if let Some(plain) = crate::local_models::turned_down(&message) {
+            ItemBody::Error {
+                message: plain.to_owned(),
+                retrying: false,
+                sign_in: None,
+            }
+        } else if text(line, "error") == Some("rate_limit") {
             ItemBody::LimitWait {
                 account: self.account,
                 resets_at: self.resets_at.or_else(|| limit_reset(&message)),

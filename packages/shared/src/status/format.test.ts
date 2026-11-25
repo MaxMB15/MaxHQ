@@ -48,6 +48,9 @@ describe("format", () => {
 		expect(formatDollars(1240)).toBe("$12.40");
 		expect(formatDollars(5000)).toBe("$50");
 		expect(formatDollars(5)).toBe("$0.05");
+		// Credits keep the cents on whole dollars.
+		expect(formatDollars(1000, true)).toBe("$10.00");
+		expect(formatDollars(742, true)).toBe("$7.42");
 	});
 
 	it("writes context and lists in words", () => {

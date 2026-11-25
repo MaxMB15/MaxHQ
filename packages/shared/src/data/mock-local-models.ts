@@ -4,10 +4,13 @@
 // The local models of the sample data. The Mac runs its own model server
 // with Qwen3.6-35B-A3B loaded and a Local agent on it. devbox has no GPU, so
 // it reaches the Mac's server over the maxd link, where a Local agent of its
-// own runs, and an Ollama server at a URL on another box. The catalog offers
-// six models, and the Mac is downloading one of them. Each call changes the
-// sample entities the way `maxd` would publish the change, and a device
-// whose link doesn't offer local models is refused the way the app does.
+// own runs, and an Ollama server at a URL on another box. Both reach
+// OpenRouter with a key of their own: the Mac's key has a $10.00 monthly
+// limit, and devbox's last read failed, so its figures are older. The
+// catalog offers six models, and the Mac is downloading one of them. Each
+// call changes the sample entities the way `maxd` would publish the change,
+// and a device whose link doesn't offer local models is refused the way the
+// app does.
 
 import type {
 	Account,
@@ -29,6 +32,7 @@ import type {
 	ServerProbe,
 	Timestamp,
 } from "../bindings";
+import { isOpenRouterUrl } from "../local-models/credits";
 import { managedModelId } from "../local-models/models";
 import { urlParts, type UrlParts } from "../local-models/wording";
 import type { FleetContext } from "./mock-fleet";
@@ -54,6 +58,18 @@ export const MAC_LOCAL = "acct-local-mac";
 export const DEVBOX_LOCAL = "acct-local-devbox-mac";
 /** devbox's local account on the Ollama server. */
 export const OLLAMA_LOCAL = "acct-local-devbox-ollama";
+/** The Mac's OpenRouter server, whose key has a monthly limit. */
+export const OPENROUTER_SERVER = "srv-mac-openrouter";
+/** devbox's OpenRouter server, whose last credits read failed. */
+export const DEVBOX_OPENROUTER_SERVER = "srv-devbox-openrouter";
+/** OpenRouter's API, as a server URL. */
+export const OPENROUTER_URL = "https://openrouter.ai/api";
+/** The Mac's local account on OpenRouter. */
+export const OPENROUTER_LOCAL = "acct-local-mac-openrouter";
+/** devbox's local account on OpenRouter. */
+export const DEVBOX_OPENROUTER_LOCAL = "acct-local-devbox-openrouter";
+/** The model OpenRouter's picker leads with in the sample data. */
+export const OPENROUTER_MODEL = "z-ai/glm-5.3-flash";
 /** The catalog model the Mac has loaded, the catalog's default. */
 export const LOADED_CATALOG_MODEL = "qwen3.6-35b-a3b";
 /** Its ID on the Mac's managed server, from the file it loaded. */
@@ -371,7 +387,73 @@ const servers = (now: Timestamp): ModelServer[] => [
 			},
 		],
 	},
+	{
+		id: OPENROUTER_SERVER,
+		device: MAC,
+		kind: { type: "external", flavor: "other" },
+		label: "OpenRouter",
+		base_url: OPENROUTER_URL,
+		token: true,
+		admin_key: false,
+		probe: probed(now - 4 * MIN, "other", null),
+		models: openRouterModels(),
+		credits: {
+			at: now - 4 * MIN,
+			used_cents: 258,
+			today_cents: 31,
+			week_cents: 120,
+			month_cents: 258,
+			limit_cents: 1_000,
+			remaining_cents: 742,
+			resets: "monthly",
+		},
+	},
+	{
+		id: DEVBOX_OPENROUTER_SERVER,
+		device: DEVBOX,
+		kind: { type: "external", flavor: "other" },
+		label: "OpenRouter on devbox",
+		base_url: OPENROUTER_URL,
+		token: true,
+		admin_key: false,
+		probe: probed(now - 5 * HOUR, "other", null),
+		models: openRouterModels(),
+		credits: {
+			at: now - 5 * HOUR,
+			used_cents: 412,
+			today_cents: 0,
+			error: "Couldn't reach OpenRouter: the connection timed out.",
+		},
+	},
 ];
+
+/** What OpenRouter's model list offers in the sample data, a few of its many. */
+const openRouterModels = (): ServerModel[] => [
+	{
+		id: OPENROUTER_MODEL,
+		label: "Z.ai: GLM 5.3 Flash",
+		catalog: null,
+		context: 202_752,
+		load: null,
+	},
+	{
+		id: "qwen/qwen3-coder",
+		label: "Qwen: Qwen3 Coder 480B A35B",
+		catalog: null,
+		context: 262_144,
+		load: null,
+	},
+	{
+		id: "openai/gpt-oss-120b",
+		label: "OpenAI: gpt-oss-120b",
+		catalog: null,
+		context: 131_072,
+		load: null,
+	},
+];
+
+/** The account's balance the sample admin key reads: $20.00 bought, $14.84 left. */
+const OPENROUTER_BALANCE = { balance_cents: 1_484, bought_cents: 2_000 } as const;
 
 const localModels = (now: Timestamp): LocalModels[] => [
 	{
@@ -413,6 +495,8 @@ const accounts = (): Account[] => [
 	localAccount(MAC_LOCAL, MAC, "MacBook Pro", MAC_SERVER),
 	localAccount(DEVBOX_LOCAL, DEVBOX, "MacBook Pro", MAC_SERVER),
 	localAccount(OLLAMA_LOCAL, DEVBOX, "Ollama on gpu-box", OLLAMA_SERVER),
+	localAccount(OPENROUTER_LOCAL, MAC, "OpenRouter", OPENROUTER_SERVER),
+	localAccount(DEVBOX_OPENROUTER_LOCAL, DEVBOX, "OpenRouter on devbox", DEVBOX_OPENROUTER_SERVER),
 ];
 
 const agents = (now: Timestamp): Agent[] => [
@@ -457,8 +541,8 @@ const agents = (now: Timestamp): Agent[] => [
 ];
 
 /**
- * Every local model entity in the sample view: the two servers, what each
- * device knows, the three local accounts and the two Local agents.
+ * Every local model entity in the sample view: the four servers, what each
+ * device knows, the five local accounts and the two Local agents.
  */
 export const mockLocalEntities = (now: Timestamp): Entity[] => [
 	...servers(now).map((v) => ({ entity: "model_server" as const, ...v })),
@@ -729,6 +813,30 @@ export const mockLocalModels = (context: FleetContext): LocalModelCalls => {
 							!(e.entity === "account" && e.model_server === server.id)
 					)
 				);
+				return DONE;
+			}
+			case "set_server_admin_key": {
+				// A key starting "bad" plays one OpenRouter turns down; any other
+				// reads the sample balance.
+				const server = serverOn(device, action.server);
+				if (!server) return gone("That server");
+				if (!isOpenRouterUrl(server.base_url)) {
+					return refused("Only an OpenRouter server takes an admin key.");
+				}
+				const key = action.key?.trim() ?? "";
+				if (key.startsWith("bad")) {
+					return refused(
+						"OpenRouter didn't accept this admin key. Use a management key from your OpenRouter settings."
+					);
+				}
+				// Checking the key reads the credits afresh; removing it drops the balance.
+				const read = key
+					? { ...OPENROUTER_BALANCE, at: now(), error: null }
+					: { balance_cents: null, bought_cents: null };
+				editServer(server.id, (s) => ({
+					admin_key: key !== "",
+					credits: s.credits && { ...s.credits, ...read },
+				}));
 				return DONE;
 			}
 			case "download": {

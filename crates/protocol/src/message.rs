@@ -2401,6 +2401,10 @@ impl ClientMessage {
             Self::CursorRules { .. } => CURSOR_RULES_SINCE,
             Self::UseResetCredit { .. } => RESET_CREDITS_SINCE,
             Self::ActOnChat { .. } => DISPATCHER_CHATS_SINCE,
+            Self::ModelAction {
+                action: ModelAction::SetServerAdminKey { .. },
+                ..
+            } => CLOUD_SERVERS_SINCE,
             Self::ModelAction { .. } => LOCAL_MODELS_SINCE,
             _ => OLDEST_PROTOCOL_VERSION,
         }
