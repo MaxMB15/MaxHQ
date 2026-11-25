@@ -20,9 +20,12 @@ use crate::drive::ServerLogin;
 use crate::hub::Hub;
 
 mod catalog;
+mod cloud;
+mod credits;
 mod download;
 mod hardware;
 pub(crate) mod linked;
+mod openrouter;
 mod probe;
 pub(crate) mod runner;
 mod runtime;
@@ -30,6 +33,7 @@ mod service;
 #[cfg(test)]
 pub(crate) mod tests;
 
+pub use credits::turned_down;
 use service::{Service, Setup};
 
 /// The service's folder under `maxd`'s data folder.
@@ -62,6 +66,7 @@ pub fn start(hub: Hub, db: Db, data: &Path, online: bool) {
         support: hardware::support(),
         files_from: download::HUGGING_FACE.to_owned(),
         install_runtime: true,
+        openrouter: openrouter::ORIGIN.to_owned(),
     };
     let service = match Service::new(hub, db, setup) {
         Ok(service) => service,
@@ -86,6 +91,14 @@ pub fn on_run(f: impl Fn(AccountId) + Send + Sync + 'static) {
 fn ran(account: AccountId) {
     if let Some(f) = ON_RUN.get() {
         f(account);
+    }
+}
+
+/// Notes that a turn of a local agent on `account` ended, so its server's
+/// credits are read again soon, when it meters them.
+pub fn turn_ended(account: AccountId) {
+    if let Some(service) = SERVICE.get() {
+        service.turn_ended(account);
     }
 }
 

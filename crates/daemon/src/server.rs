@@ -879,9 +879,12 @@ impl Connection {
                         action: ModelAction::AddServer { .. }
                             | ModelAction::ProbeServer { .. }
                             | ModelAction::RemoveServer { .. }
+                            | ModelAction::SetServerAdminKey { .. }
                             | ModelAction::Download { .. }
                             | ModelAction::ResumeDownload { .. }
-                            | ModelAction::DeleteModel { .. },
+                            | ModelAction::DeleteModel { .. }
+                            | ModelAction::BeginOpenRouterSignIn { .. }
+                            | ModelAction::FinishOpenRouterSignIn { .. },
                         ..
                     }
             )
@@ -3877,6 +3880,7 @@ pub(crate) mod tests {
                     label: "stolen".into(),
                     url: "http://gpu-box.example.com:11434".into(),
                     token: None,
+                    cloud: false,
                 },
             },
             ClientMessage::ModelAction {
@@ -3890,6 +3894,14 @@ pub(crate) mod tests {
                 key: key("model-remove"),
                 action: ModelAction::RemoveServer {
                     server: ModelServerId::derive("server"),
+                },
+            },
+            // So is an admin key, which reads the account's balance.
+            ClientMessage::ModelAction {
+                key: key("model-admin-key"),
+                action: ModelAction::SetServerAdminKey {
+                    server: ModelServerId::derive("server"),
+                    key: Some(Secret::new("sk-or-v1-admin".into())),
                 },
             },
             ClientMessage::ModelAction {
@@ -3912,6 +3924,22 @@ pub(crate) mod tests {
                 action: ModelAction::ResumeDownload {
                     model: "qwen3.6-35b-a3b".into(),
                     file: "Qwen3.6-35B-A3B-UD-Q4_K_XL.gguf".into(),
+                },
+            },
+            // A Sign in with OpenRouter round makes a key that spends
+            // money, so it's the Mac's too.
+            ClientMessage::ModelAction {
+                key: key("model-openrouter-begin"),
+                action: ModelAction::BeginOpenRouterSignIn {
+                    label: None,
+                    limit_cents: None,
+                },
+            },
+            ClientMessage::ModelAction {
+                key: key("model-openrouter-finish"),
+                action: ModelAction::FinishOpenRouterSignIn {
+                    sign_in: SignInId::derive("round"),
+                    code: Secret::new("code-example".into()),
                 },
             },
             // Nor does it let an agent act without asking.

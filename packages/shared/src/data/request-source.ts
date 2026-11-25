@@ -22,6 +22,7 @@ import {
 	type WorkflowUpdate,
 } from "../bindings";
 import { folderCalls } from "../folders/requests";
+import { openRouterCalls } from "../local-models/openrouter";
 import { noticeCalls } from "../notices/requests";
 import { cursorRuleCalls } from "../settings/cursor-rules";
 import { resetCreditCalls } from "../status/reset-credits";
@@ -255,6 +256,7 @@ export const requestCalls = (ask: Ask): Omit<DataSource, PlatformCalls> => ({
 	...noticeCalls(ask),
 	...cursorRuleCalls(ask),
 	...resetCreditCalls(ask),
+	...openRouterCalls(ask),
 	appInfo: async () => orThrow(await ask({ kind: "app_info" })),
 	snapshot: async () => orThrow(await ask({ kind: "view_snapshot" })),
 	markSeen: (agent) => ask({ kind: "mark_seen", agent }),

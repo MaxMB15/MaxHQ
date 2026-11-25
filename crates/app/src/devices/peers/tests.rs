@@ -585,7 +585,10 @@ fn managed_on_mac(load: ModelLoad) -> Entity {
         label: "Mac".into(),
         base_url: None,
         token: false,
+        cloud: false,
+        admin_key: false,
         probe: None,
+        credits: None,
         models: vec![ServerModel {
             id: "qwen@q4".into(),
             label: "Qwen".into(),
@@ -596,6 +599,7 @@ fn managed_on_mac(load: ModelLoad) -> Entity {
                 prompt_per_second: Some(900),
                 decode_per_second: Some(40),
             }),
+            max_output: None,
         }],
     })
 }

@@ -295,7 +295,7 @@ const AgentLine = memo(function AgentLine({
 	const account = agent.account ? view.tables.account.get(agent.account) : undefined;
 	const where = [
 		workspace?.location.type === "container" ? workspace.location.instance : undefined,
-		account ? accountName(account) : VENDOR_NAME[agent.vendor],
+		account ? accountName(account, view.tables.model_server) : VENDOR_NAME[agent.vendor],
 	]
 		.filter(Boolean)
 		.join(", ");

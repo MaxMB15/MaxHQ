@@ -6,7 +6,8 @@
 // models grouped by server, and a local agent's name, "Local · <model>".
 // The picker sends a local model as one value that names both the account
 // that reaches the server and the model, so one Local entry can offer every
-// server's models.
+// server's models. A cloud service gets an entry of its own instead, named
+// after it, and its agents go by "<service> · <model>".
 
 import { t } from "../i18n";
 
@@ -14,6 +15,8 @@ import {
 	catalogEntry,
 	catalogIdOf,
 	defaultLocalPick,
+	entryOf,
+	LOCAL_ENTRY,
 	localAccountsOn,
 	localModelsOf,
 	localSettingsOf,
@@ -21,11 +24,13 @@ import {
 	serverOf,
 	sharingOff,
 	usableServer,
+	type LocalEntry,
 	type LocalPick,
 	type LocalSettings,
 } from "./models";
 import { estimate, recommendedFile, type Estimate } from "./fit";
 import {
+	cloudAgentLabel,
 	localAgentLabel,
 	loadText,
 	notEncrypted,
@@ -33,18 +38,25 @@ import {
 	serverProblemText,
 	sharingOffText,
 } from "./wording";
-import { agentKind, kindName, type AccountLookup } from "../status/agent-kind";
+import {
+	agentCloudServer,
+	agentKind,
+	kindName,
+	type AccountLookup,
+	type KindMark,
+} from "../status/agent-kind";
 import { all, type ViewState } from "../view/replica";
 import { deviceName, linkForDevice } from "../view/select";
-import type {
-	Account,
-	AccountId,
-	Agent,
-	CatalogFile,
-	CatalogModel,
-	DeviceId,
-	ModelFile,
-	ModelServer,
+import {
+	CLOUD_SERVERS_SINCE,
+	type Account,
+	type AccountId,
+	type Agent,
+	type CatalogFile,
+	type CatalogModel,
+	type DeviceId,
+	type ModelFile,
+	type ModelServer,
 } from "../bindings";
 import type { DeviceFields } from "../settings/device-settings";
 
@@ -52,6 +64,10 @@ export {
 	catalogIdOf,
 	DEFAULT_CATALOG_MODEL,
 	defaultLocalPick,
+	entryOf,
+	isCloudAccount,
+	isCloudServer,
+	LOCAL_ENTRY,
 	localAccountsOn,
 	localModelsOf,
 	localPicksOn,
@@ -61,6 +77,7 @@ export {
 	serverOf,
 	sharingOff,
 	usableServer,
+	type LocalEntry,
 	type LocalPick,
 	type LocalSettings,
 } from "./models";
@@ -68,6 +85,16 @@ export {
 /** Whether a device's `maxd` runs local models: their servers, downloads and loads. */
 export const runsLocalModels = (view: ViewState, device: DeviceId): boolean =>
 	linkForDevice(view, device)?.capabilities?.local_models === true;
+
+/**
+ * Whether a device's `maxd` knows cloud services: the Cloud service switch,
+ * credits and admin keys, and Sign in with OpenRouter. An older one runs
+ * every server as Local.
+ */
+export const takesCloudServers = (view: ViewState, device: DeviceId): boolean => {
+	const protocol = linkForDevice(view, device)?.protocol ?? null;
+	return protocol !== null && protocol >= CLOUD_SERVERS_SINCE;
+};
 
 /** A device's local model settings, with the defaults filled in. */
 export const localSettingsOn = (view: ViewState, device: DeviceId): LocalSettings =>
@@ -184,9 +211,11 @@ export const modelChoice = (
 
 /**
  * The local account and model a picked value lands on: the picked model
- * while its account is a local account on the device and it lists it, else
- * `account`'s own model when it lists it, else the device's default pick
- * when it's on `account`, else `account`'s first model.
+ * while its account is a local account under the same Agent entry on the
+ * device and it lists it, else `account`'s own model when it lists it,
+ * else the device's default pick when it's on `account`, else `account`'s
+ * first model. A Local model picked before you picked a cloud service, or
+ * the other way round, so stays with the entry you picked.
  */
 export const resolveLocal = (
 	view: ViewState,
@@ -197,13 +226,14 @@ export const resolveLocal = (
 	const listed = (a: Account, model: string): boolean =>
 		serverOf(view, a)?.models.some((m) => m.id === model) === true ||
 		a.models.some((m) => m.id === model);
+	const entry = entryOf(view, account);
 	const picked = parseLocalModelKey(wanted);
 	if (picked) {
-		const other = localAccountsOn(view, device).find((a) => a.id === picked.account);
+		const other = localAccountsOn(view, device, entry).find((a) => a.id === picked.account);
 		if (other && listed(other, picked.model)) return { account: other, model: picked.model };
 	}
 	if (wanted && !picked && listed(account, wanted)) return { account, model: wanted };
-	const pick = defaultLocalPick(view, device);
+	const pick = defaultLocalPick(view, device, entry);
 	if (pick?.account.id === account.id) return { account, model: pick.model.id };
 	const first = serverOf(view, account)?.models[0]?.id ?? account.models[0]?.id ?? null;
 	return { account, model: first };
@@ -222,6 +252,7 @@ type PickerOption = {
 	readonly tag?: string;
 	readonly disabled?: boolean;
 	readonly group?: string;
+	readonly mark?: KindMark;
 };
 
 /** The value of the Local entry on a device that has no local model yet. */
@@ -229,17 +260,18 @@ export const LOCAL_SETUP_VALUE = "local-setup";
 
 /**
  * The Local entry in the agent picker, or null when the device has no
- * local models. It stands for every local account on the device; its value
- * is `selected` when that's one of them, else the default pick's account.
- * A Mac that could run models but has none ready gets a turned-off entry
- * that says to set one up.
+ * local models. It stands for every local account on the device on
+ * hardware you run, not a cloud service's; its value is `selected` when
+ * that's one of them, else the default pick's account. A Mac that could
+ * run models but has none ready gets a turned-off entry that says to set
+ * one up.
  */
 export const localAccountOption = (
 	view: ViewState,
 	device: DeviceId,
 	selected: AccountId | null = null
 ): PickerOption | null => {
-	const accounts = localAccountsOn(view, device);
+	const accounts = localAccountsOn(view, device, LOCAL_ENTRY);
 	if (accounts.length === 0) {
 		const local = localModelsOf(view, device);
 		if (!local || local.runtime.support !== "managed" || !runsLocalModels(view, device))
@@ -249,9 +281,10 @@ export const localAccountOption = (
 			label: kindName("local"),
 			detail: t("Download a model in Settings first"),
 			disabled: true,
+			mark: "local",
 		};
 	}
-	const pick = defaultLocalPick(view, device);
+	const pick = defaultLocalPick(view, device, LOCAL_ENTRY);
 	const value =
 		accounts.find((a) => a.id === selected)?.id ?? pick?.account.id ?? accounts[0]!.id;
 	return {
@@ -264,18 +297,52 @@ export const localAccountOption = (
 				})
 			: t("No model ready yet"),
 		warn: pick === null,
+		mark: "local",
 	};
 };
 
 /**
- * The models every local account on a device offers, grouped by server,
- * each value naming its account and model. A server that can't run a Local
- * agent shows its models turned off, with why, as does a Mac's server whose
- * switch keeps the device's agents off it.
+ * The agent picker's entry for each cloud service a device reaches, named
+ * after the service, by name. Each stands for its own account, and says
+ * the model a new agent starts on, or why it can't start one.
  */
-export const localModelOptions = (view: ViewState, device: DeviceId): PickerOption[] => {
-	const pick = defaultLocalPick(view, device);
-	return localAccountsOn(view, device).flatMap((account): PickerOption[] => {
+export const cloudAccountOptions = (view: ViewState, device: DeviceId): PickerOption[] =>
+	localAccountsOn(view, device)
+		.filter((account) => entryOf(view, account) !== LOCAL_ENTRY)
+		.flatMap((account): PickerOption[] => {
+			const server = serverOf(view, account);
+			if (!server) return [];
+			const pick = defaultLocalPick(view, device, account.id);
+			const problem =
+				serverProblemText(server) ??
+				(server.models.length === 0 ? t("This server lists no models") : null);
+			return [
+				{
+					value: account.id,
+					label: server.label,
+					detail:
+						problem ??
+						(pick ? serverModelName(view, pick.server, pick.model) : undefined),
+					warn: problem !== null,
+					mark: "cloud",
+				},
+			];
+		})
+		.sort((a, b) => a.label.localeCompare(b.label));
+
+/**
+ * The models every local account on a device offers, grouped by server,
+ * each value naming its account and model, only under `entry` when given.
+ * A server that can't run a Local agent shows its models turned off, with
+ * why, as does a Mac's server whose switch keeps the device's agents off it.
+ */
+export const localModelOptions = (
+	view: ViewState,
+	device: DeviceId,
+	entry?: LocalEntry
+): PickerOption[] => {
+	const pick = defaultLocalPick(view, device, entry);
+	return localAccountsOn(view, device, entry).flatMap((account): PickerOption[] => {
 		const server = serverOf(view, account);
 		if (!server) return [];
 		const off = sharingOff(view, device, server);
@@ -338,14 +405,20 @@ export const localModelName = (
 
 /**
  * What an agent goes by wherever it shows: "Local · <model>" for a local
- * agent, else its vendor's name, such as "Codex".
+ * agent, "<service> · <model>" for one on a cloud service, such as
+ * "OpenRouter · Z.ai: GLM 5.3 Flash", else its vendor's name, such as
+ * "Codex".
  */
 export const agentKindLabel = (
 	view: ViewState,
 	agent: Pick<Agent, "vendor" | "account" | "local" | "model">
 ): string => {
-	const kind = agentKind(agent, view.tables.account as AccountLookup);
-	return kind === "local" ? localAgentLabel(localModelName(view, agent)) : kindName(kind);
+	const accounts = view.tables.account as AccountLookup;
+	const kind = agentKind(agent, accounts);
+	if (kind !== "local") return kindName(kind);
+	const cloud = agentCloudServer(agent, accounts, view.tables.model_server);
+	const model = localModelName(view, agent);
+	return cloud ? cloudAgentLabel(cloud.label, model) : localAgentLabel(model);
 };
 
 /** The catalog entry a local agent's model runs, when it's a catalog model. */

@@ -130,4 +130,19 @@ describe("the dispatcher's account", () => {
 		expect(dispatcherTitle(codex)).toBe("Dispatcher, as Codex Plus");
 		expect(dispatcherTitle(undefined)).toBe("Dispatcher");
 	});
+
+	it("names a cloud service's account after the service", () => {
+		const cloud = account({
+			id: "cloud",
+			vendor: "claude",
+			email: null,
+			login: "model_server",
+			plan: null,
+			model_server: "srv-cloud",
+		});
+		const servers = new Map([["srv-cloud", { label: "OpenRouter", cloud: true }]]);
+		expect(dispatcherAccountLabel(cloud, servers)).toBe("OpenRouter");
+		expect(dispatcherTitle(cloud, servers)).toBe("Dispatcher, as OpenRouter");
+		expect(dispatcherTitle(cloud)).toBe("Dispatcher, as Local");
+	});
 });

@@ -41,6 +41,7 @@ export const AgentActivityDot = ({
 					agent,
 					account: agent.account ? view.tables.account.get(agent.account) : undefined,
 					localLabel: agentKindLabel(view, agent),
+					servers: view.tables.model_server,
 					attention: attentionOf(view, agent),
 					children: childrenOf(view, agent.id),
 					now: at,

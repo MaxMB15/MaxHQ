@@ -37,7 +37,6 @@ import {
 	typedFor,
 } from "@maxhq/shared/pills/answer";
 import { askTitle, showHidden } from "@maxhq/shared/status/format";
-import { kindName } from "@maxhq/shared/status/agent-kind";
 import { deviceName } from "@maxhq/shared/view/select";
 
 import { LinkedLines } from "../page-link";
@@ -50,7 +49,7 @@ import {
 	mainAnswer,
 	useSend,
 } from "@maxhq/shared/agent-view/answer";
-import { rowKind, useRow } from "@maxhq/shared/agent-view/context";
+import { rowName, useRow } from "@maxhq/shared/agent-view/context";
 import { SKIP_WORDS, wasDismissed } from "@maxhq/shared/agent-view/dismiss";
 import { baseName, isOpen } from "@maxhq/shared/agent-view/format";
 import { useKept } from "@maxhq/shared/agent-view/kept";
@@ -190,7 +189,7 @@ const Detail = ({ item }: { item: ItemOf<"approval"> }) => {
 const LiveApproval = ({ item }: { item: ItemOf<"approval"> }) => {
 	useI18n();
 	const { agent, vendor, readOnly, answer } = useRow();
-	const kind = rowKind(useRow());
+	const name = rowName(useRow());
 	const [reason, setReason] = useKept<Typed>(`deny:${item.attention}`, NOTHING_TYPED);
 	const place = useAnswerPlace(agent);
 	// A maxd too old for pills gets each one as its words.
@@ -227,7 +226,7 @@ const LiveApproval = ({ item }: { item: ItemOf<"approval"> }) => {
 				label={label}
 				icon={KIND_ICON[item.approval_kind](15)}
 				title={<CodeTitle text={askTitle(item.title)} />}
-				kind={kind}
+				name={name}
 				since={item.started_at}
 			>
 				{why}
@@ -256,7 +255,7 @@ const LiveApproval = ({ item }: { item: ItemOf<"approval"> }) => {
 			label={label}
 			icon={KIND_ICON[item.approval_kind](15)}
 			title={<CodeTitle text={askTitle(item.title)} />}
-			kind={kind}
+			name={name}
 			since={item.started_at}
 			onKeyDown={(event) => {
 				// Enter on the card itself picks the main option, as the hint on its button says.
@@ -326,7 +325,7 @@ const LiveApproval = ({ item }: { item: ItemOf<"approval"> }) => {
 					</>
 				) : null}
 			</div>
-			<SendNote state={state} kind={kind} />
+			<SendNote state={state} name={name} />
 			{deny ? (
 				<p className="text-[11.5px] text-muted-foreground">
 					{vendor === "codex"
@@ -335,7 +334,7 @@ const LiveApproval = ({ item }: { item: ItemOf<"approval"> }) => {
 							})
 						: translate(
 								"{{label}} sends your reason to {{value2}} and the turn continues.",
-								{ label: deny.label, value2: kindName(kind) }
+								{ label: deny.label, value2: name }
 							)}
 				</p>
 			) : null}

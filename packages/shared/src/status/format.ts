@@ -104,12 +104,15 @@ export const formatFullWhen = (at: Timestamp): string =>
 		hourCycle: "h23",
 	});
 
-/** US cents as dollars, such as "$12.40" or "$50". */
-export const formatDollars = (cents: number): string =>
+/**
+ * US cents as dollars, such as "$12.40" or "$50". With `always`, whole
+ * dollars keep their cents too, such as "$50.00".
+ */
+export const formatDollars = (cents: number, always = false): string =>
 	formatNumber(cents / 100, {
 		style: "currency",
 		currency: "USD",
-		minimumFractionDigits: cents % 100 === 0 ? 0 : 2,
+		minimumFractionDigits: always || cents % 100 !== 0 ? 2 : 0,
 		maximumFractionDigits: 2,
 	});
 

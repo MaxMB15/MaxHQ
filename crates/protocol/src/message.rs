@@ -2401,6 +2401,13 @@ impl ClientMessage {
             Self::CursorRules { .. } => CURSOR_RULES_SINCE,
             Self::UseResetCredit { .. } => RESET_CREDITS_SINCE,
             Self::ActOnChat { .. } => DISPATCHER_CHATS_SINCE,
+            Self::ModelAction {
+                action:
+                    ModelAction::SetServerAdminKey { .. }
+                    | ModelAction::BeginOpenRouterSignIn { .. }
+                    | ModelAction::FinishOpenRouterSignIn { .. },
+                ..
+            } => CLOUD_SERVERS_SINCE,
             Self::ModelAction { .. } => LOCAL_MODELS_SINCE,
             _ => OLDEST_PROTOCOL_VERSION,
         }
@@ -3110,6 +3117,12 @@ pub const TYPED_BLOCKS_SINCE: u32 = 60;
 /// 64.
 pub const FRESH_SESSIONS_SINCE: u32 = 64;
 
+/// The protocol version whose `maxd` first tells cloud model servers, such
+/// as OpenRouter, from hardware you run: [`crate::local_models::ModelServer::cloud`],
+/// a server's credits and its models' output limits, and Sign in with
+/// OpenRouter. An older one reads every server as local. Since protocol 65.
+pub const CLOUD_SERVERS_SINCE: u32 = 65;
+
 /// The protocol version whose `maxd` first reads a secret line, frame kind
 /// [`crate::frame::FrameKind::TerminalSecret`]: it sends the bytes as
 /// terminal input and records that a secret was sent, never the text. An
@@ -3200,10 +3213,13 @@ pub enum ActionOutcome {
         /// The new workspace, which shows its progress.
         workspace: WorkspaceId,
     },
-    /// A Sign in with ChatGPT round is waiting. Open `url` in the browser
-    /// and listen on 127.0.0.1:`callback_port`.
+    /// A sign-in round is waiting. Open `url` in the browser and listen on
+    /// this Mac at `callback_port`: on 127.0.0.1 for Sign in with ChatGPT,
+    /// and on 127.0.0.1 and ::1 for Sign in with OpenRouter, whose page
+    /// sends the browser to `localhost`.
     SignIn {
-        /// The round, for [`ClientMessage::FinishChatGptSignIn`].
+        /// The round, for [`ClientMessage::FinishChatGptSignIn`] or
+        /// [`crate::local_models::ModelAction::FinishOpenRouterSignIn`].
         sign_in: SignInId,
         /// The page to open.
         url: String,
@@ -3610,6 +3626,12 @@ pub enum ActionOutcome {
         probe: ServerProbe,
         /// The models it serves.
         models: Vec<ServerModel>,
+        /// Whether the URL is a known cloud host, which the Add server
+        /// form's Cloud service switch follows until you change it. Since
+        /// [`CLOUD_SERVERS_SINCE`]; an older `maxd` sends none, read as
+        /// false.
+        #[serde(default)]
+        cloud: bool,
     },
 
     /// An outcome from a newer `maxd`. The action went through, and what

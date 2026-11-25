@@ -8,7 +8,7 @@
 //! like any other. So does each managed server a linked device shares,
 //! whose agents reach it over the `maxd` link through [`linked`].
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::io;
 use std::net::Ipv4Addr;
 use std::path::{Path, PathBuf};
@@ -36,8 +36,9 @@ use tokio::sync::watch;
 use tokio::task::AbortHandle;
 
 use super::linked::{self, Linked, OverPeers};
+use super::openrouter::{self, SignIns, Signed};
 use super::runner::{self, Backend, Host, LoadProgress, Runner, Spec};
-use super::{catalog, download, hardware, probe, runtime};
+use super::{catalog, cloud, credits, download, hardware, probe, runtime};
 use crate::db::Db;
 use crate::drive::ServerLogin;
 use crate::hub::Hub;
@@ -111,6 +112,9 @@ pub struct Setup {
     pub files_from: String,
     /// Whether llama-server may be installed. Tests never install it.
     pub install_runtime: bool,
+    /// Where Sign in with OpenRouter goes, [`super::openrouter::ORIGIN`]. Tests
+    /// point it at a fake.
+    pub openrouter: String,
 }
 
 /// A download that runs now.
@@ -149,6 +153,8 @@ struct State {
     linked: Vec<SharedModels>,
     /// When this device last asked them to keep its agents' models.
     held_at: Option<Instant>,
+    /// The credits of each server that meters them, kept in memory only.
+    credits: HashMap<ModelServerId, credits::Meter>,
 }
 
 /// The local models service of one `maxd`.
@@ -174,6 +180,8 @@ pub struct Service {
     /// are installed.
     shared: Mutex<Option<watch::Receiver<Vec<SharedModels>>>>,
     installing: tokio::sync::Mutex<()>,
+    /// The Sign in with OpenRouter rounds.
+    openrouter: SignIns,
     state: Mutex<State>,
 }
 
@@ -213,6 +221,7 @@ impl Service {
             runs: 0,
             linked: Vec::new(),
             held_at: None,
+            credits: HashMap::new(),
         };
         Ok(Arc::new_cyclic(|weak: &Weak<Self>| Self {
             runner: Runner::new(Arc::new(Link(weak.clone())), key.clone()),
@@ -233,6 +242,7 @@ impl Service {
             linked: Mutex::new(None),
             shared: Mutex::new(None),
             installing: tokio::sync::Mutex::new(()),
+            openrouter: SignIns::new(&setup.openrouter),
             state: Mutex::new(state),
         }))
     }
@@ -373,6 +383,8 @@ impl Service {
                 label: self.hub.device().name.clone(),
                 base_url: None,
                 token: false,
+                cloud: false,
+                admin_key: false,
                 probe: Some(ServerProbe {
                     at: state.tested_at,
                     apis: ServerApis {
@@ -396,8 +408,10 @@ impl Service {
                         context: Some(state.settings.context.min(ready.native_context)),
                         load: Some(self.runner.load_of(&ready.id)),
                         speed: self.runner.speed_of(&ready.id).whole(),
+                        max_output: None,
                     })
                     .collect(),
+                credits: None,
             };
             if !server.models.is_empty() {
                 entities.push(Entity::Account(self.account(
@@ -418,7 +432,11 @@ impl Service {
                 &server.models,
                 &state.settings,
             )));
-            entities.push(Entity::ModelServer(server.clone()));
+            // Clients read the switch and the host check as one.
+            entities.push(Entity::ModelServer(ModelServer {
+                cloud: cloud::is_cloud(server),
+                ..Self::with_credits(state, server)
+            }));
         }
         for shared in &state.linked {
             let linked = &shared.models;
@@ -538,6 +556,8 @@ impl Service {
                 context: Some(state.settings.context.min(ready.native_context)),
                 model: Some(ready.id.clone()),
                 lean: state.settings.fewer_tools,
+                cloud: false,
+                max_outputs: BTreeMap::new(),
             });
         }
         if let Some(linked) = self.linked_of(&state, account) {
@@ -556,6 +576,8 @@ impl Service {
                 context,
                 model,
                 lean: state.settings.fewer_tools,
+                cloud: false,
+                max_outputs: BTreeMap::new(),
             });
         }
         let server = state
@@ -574,12 +596,21 @@ impl Service {
             .and_then(|id| server.models.iter().find(|m| m.id == id))
             .and_then(|m| m.context)
             .or_else(|| server.probe.as_ref().and_then(|probe| probe.context));
+        // Fewer tools is for hardware you run. A cloud model takes every
+        // tool, and writes as long an answer as it allows.
+        let cloud = cloud::is_cloud(server);
         Some(ServerLogin {
             base_url,
             token: token.unwrap_or_else(|| Secret::new(NO_TOKEN.to_owned())),
             context,
             model,
-            lean: state.settings.fewer_tools,
+            lean: state.settings.fewer_tools && !cloud,
+            cloud,
+            max_outputs: server
+                .models
+                .iter()
+                .filter_map(|m| Some((m.id.clone(), m.max_output?)))
+                .collect(),
         })
     }
 
@@ -693,12 +724,32 @@ impl Service {
     /// Does `action`.
     pub async fn act(self: &Arc<Self>, action: ModelAction) -> ActionOutcome {
         let done = match action {
-            ModelAction::AddServer { label, url, token } => {
-                return self.add_server(&label, &url, token).await;
+            ModelAction::AddServer {
+                label,
+                url,
+                token,
+                cloud,
+            } => {
+                return self.add_server(&label, &url, token, cloud).await;
             }
             ModelAction::ProbeServer { url, token } => return self.probe_server(&url, token).await,
+            ModelAction::BeginOpenRouterSignIn { label, limit_cents } => {
+                return self
+                    .openrouter
+                    .begin(&self.hub.device().name, label, limit_cents)
+                    .unwrap_or_else(|reason| ActionOutcome::Refused { reason });
+            }
+            ModelAction::FinishOpenRouterSignIn { sign_in, code } => {
+                return match self.openrouter.finish(sign_in, code).await {
+                    Ok(signed) => self.keep_openrouter_key(signed).await,
+                    Err(reason) => ActionOutcome::Refused { reason },
+                };
+            }
             ModelAction::TestServer { server } => self.test_server(server).await,
             ModelAction::RemoveServer { server } => self.remove_server(server),
+            ModelAction::SetServerAdminKey { server, key } => {
+                self.set_admin_key(server, clean(key)).await
+            }
             ModelAction::Download { model, file } | ModelAction::ResumeDownload { model, file } => {
                 self.download(&model, &file)
             }
@@ -718,7 +769,14 @@ impl Service {
         }
     }
 
-    async fn add_server(&self, label: &str, url: &str, token: Option<Secret>) -> ActionOutcome {
+    /// Adds the server at `url`, marked a cloud service when `cloud`.
+    async fn add_server(
+        &self,
+        label: &str,
+        url: &str,
+        token: Option<Secret>,
+        cloud: bool,
+    ) -> ActionOutcome {
         let Some((base, host)) = base_url(url) else {
             return refused(BAD_URL);
         };
@@ -735,7 +793,8 @@ impl Service {
         };
         let token = clean(token);
         let id = ModelServerId::generate();
-        let found = probe::probe(&base, token.as_ref(), &catalog, false).await;
+        let probed_cloud = cloud || cloud::is_known_cloud(&base);
+        let found = probe::probe(&base, token.as_ref(), &catalog, false, probed_cloud).await;
         if let Some(token) = &token
             && let Err(err) = self.keys.write(&token_name(id), token.expose().as_bytes())
         {
@@ -755,8 +814,11 @@ impl Service {
             },
             base_url: Some(base),
             token: token.is_some(),
+            cloud,
+            admin_key: false,
             probe: Some(found.probe),
             models: found.models,
+            credits: None,
         };
         if let Err(reason) = self.save(&server) {
             let _ = self.keys.remove(&token_name(id));
@@ -764,7 +826,56 @@ impl Service {
         }
         self.lock().servers.insert(id, server);
         self.publish();
+        self.read_credits_now(id).await;
         ActionOutcome::ModelServerAdded { server: id }
+    }
+
+    /// Keeps the key a Sign in with OpenRouter round made, on the device's
+    /// OpenRouter server, which keeps its ID and name, or else on a new one.
+    /// The server at the round's own URL comes first, then any other on
+    /// OpenRouter's host, as the app finds it. Either way its credits are
+    /// read again: the add reads them, and so does the test after an update.
+    async fn keep_openrouter_key(&self, signed: Signed) -> ActionOutcome {
+        let kept = {
+            let state = self.lock();
+            let external = || {
+                state
+                    .servers
+                    .values()
+                    .filter(|server| matches!(server.kind, ModelServerKind::External { .. }))
+            };
+            external()
+                .find(|server| server.base_url.as_deref() == Some(signed.base.as_str()))
+                .or_else(|| {
+                    external().find(|server| {
+                        server
+                            .base_url
+                            .as_deref()
+                            .is_some_and(openrouter::is_openrouter)
+                    })
+                })
+                .map(|server| server.id)
+        };
+        let Some(id) = kept else {
+            // A sign-in never shows the Cloud service switch: maxd marks
+            // OpenRouter a cloud service by its host.
+            return self
+                .add_server(&signed.label, &signed.base, Some(signed.key), false)
+                .await;
+        };
+        if let Err(err) = self
+            .keys
+            .write(&token_name(id), signed.key.expose().as_bytes())
+        {
+            return refused(&format!("Couldn't keep the server's token: {err}"));
+        }
+        if let Some(server) = self.lock().servers.get_mut(&id) {
+            server.token = true;
+        }
+        match self.test_server(id).await {
+            Ok(()) => ActionOutcome::ModelServerAdded { server: id },
+            Err(reason) => ActionOutcome::Refused { reason },
+        }
     }
 
     /// Probes a URL without adding it or keeping its token.
@@ -773,11 +884,13 @@ impl Service {
             return refused(BAD_URL);
         };
         let catalog = self.lock().catalog.clone();
-        let found = probe::probe(&base, clean(token).as_ref(), &catalog, false).await;
+        let cloud = cloud::is_known_cloud(&base);
+        let found = probe::probe(&base, clean(token).as_ref(), &catalog, false, cloud).await;
         ActionOutcome::ServerProbed {
             flavor: found.flavor,
             probe: found.probe,
             models: found.models,
+            cloud,
         }
     }
 
@@ -788,13 +901,14 @@ impl Service {
             super::ran(self.account_of(id));
             return Ok(());
         }
-        let (base, catalog, has_token) = {
+        let (base, catalog, has_token, cloud) = {
             let state = self.lock();
             let server = state.servers.get(&id).ok_or(NO_SERVER)?;
             (
                 server.base_url.clone().ok_or(NO_SERVER)?,
                 state.catalog.clone(),
                 server.token,
+                cloud::is_cloud(server),
             )
         };
         let token = if has_token {
@@ -802,7 +916,7 @@ impl Service {
         } else {
             None
         };
-        let found = probe::probe(&base, token.as_ref(), &catalog, false).await;
+        let found = probe::probe(&base, token.as_ref(), &catalog, false, cloud).await;
         let server = {
             let mut state = self.lock();
             let server = state.servers.get_mut(&id).ok_or(NO_SERVER)?;
@@ -815,6 +929,7 @@ impl Service {
         };
         self.save(&server)?;
         self.publish();
+        self.read_credits_now(id).await;
         super::ran(self.account_of(id));
         Ok(())
     }
@@ -831,6 +946,9 @@ impl Service {
         }
         if let Err(err) = self.keys.remove(&token_name(id)) {
             tracing::warn!(%err, "couldn't delete a model server's token");
+        }
+        if let Err(err) = self.keys.remove(&admin_name(id)) {
+            tracing::warn!(%err, "couldn't delete a model server's admin key");
         }
         self.publish();
         Ok(())
@@ -1144,6 +1262,7 @@ impl Service {
             self.ran_all();
         }
         self.hold_linked();
+        self.read_due_credits();
     }
 
     /// The managed servers other devices share with this one now, as the
@@ -1441,6 +1560,12 @@ fn token_name(server: ModelServerId) -> String {
     format!("server-{server}")
 }
 
+/// The keys file of a server's admin key, which reads its account's
+/// balance.
+fn admin_name(server: ModelServerId) -> String {
+    format!("server-{server}-admin")
+}
+
 /// A file's size, when it's a file.
 fn size(path: &Path) -> Option<u64> {
     std::fs::metadata(path)
@@ -1487,5 +1612,6 @@ fn refused(reason: &str) -> ActionOutcome {
     }
 }
 
+mod meters;
 #[cfg(test)]
 mod tests;

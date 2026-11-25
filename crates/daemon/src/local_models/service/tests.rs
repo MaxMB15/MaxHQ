@@ -31,7 +31,8 @@ fn m4_max() -> DeviceHardware {
     }
 }
 
-/// A service in a scratch folder, whose model files come from a fake.
+/// A service in a scratch folder, whose model files come from a fake,
+/// which stands in for OpenRouter too.
 struct World {
     scratch: Scratch,
     hub: Hub,
@@ -74,6 +75,7 @@ impl World {
                 support,
                 files_from: files.base.clone(),
                 install_runtime: false,
+                openrouter: files.base.clone(),
             },
         )
         .unwrap();
@@ -224,6 +226,7 @@ async fn a_server_you_add_keeps_its_token_out_of_the_database_and_goes_away_whol
             label: "  ".into(),
             url: format!("{}/v1/", fake.base),
             token: Some(Secret::new("  sk-local \n".to_owned())),
+            cloud: false,
         })
         .await;
     let ActionOutcome::ModelServerAdded { server: id } = added else {
@@ -269,6 +272,7 @@ async fn a_server_you_add_keeps_its_token_out_of_the_database_and_goes_away_whol
     assert_eq!(login.model.as_deref(), Some("qwen3.6-35b-a3b@ud-q4_k_xl"));
     assert_eq!(login.context, Some(32_768));
     assert!(login.lean, "fewer tools by default");
+    assert!(!login.cloud && !server.cloud, "a server you run");
     let run = world.service.run_of(account_id, None, Some(1_000)).unwrap();
     assert_eq!(run.context_size, Some(32_768));
     assert_eq!(run.context_used, Some(1_000));
@@ -285,6 +289,7 @@ async fn a_server_you_add_keeps_its_token_out_of_the_database_and_goes_away_whol
             label: "again".into(),
             url: fake.base.clone(),
             token: None,
+            cloud: false,
         })
         .await;
     assert_eq!(refusal(&again), SAME_URL);
@@ -304,6 +309,149 @@ async fn a_server_you_add_keeps_its_token_out_of_the_database_and_goes_away_whol
     assert!(world.service.login(account_id).is_none());
 }
 
+/// Runs a Sign in with OpenRouter round whose code OpenRouter's fake
+/// trades for `key`.
+async fn sign_in_openrouter(world: &World, label: Option<&str>, key: &str) -> ActionOutcome {
+    world.files.json(
+        "POST /api/v1/auth/keys",
+        200,
+        &json!({"key": key, "user_id": "user-example"}),
+    );
+    let begun = world
+        .act(ModelAction::BeginOpenRouterSignIn {
+            label: label.map(str::to_owned),
+            limit_cents: Some(2_500),
+        })
+        .await;
+    let ActionOutcome::SignIn { sign_in, url, .. } = begun else {
+        panic!("no round: {begun:?}");
+    };
+    assert!(
+        url.starts_with(&format!("{}/auth?", world.files.base)),
+        "{url}"
+    );
+    assert!(url.contains("limit=25.00"), "{url}");
+    world
+        .act(ModelAction::FinishOpenRouterSignIn {
+            sign_in,
+            code: Secret::new("code-example".into()),
+        })
+        .await
+}
+
+#[tokio::test]
+async fn sign_in_with_openrouter_keeps_its_key_on_one_server() {
+    let world = World::new(RuntimeSupport::UrlOnly).await;
+    world.files.json(
+        "/api/v1/models",
+        200,
+        &json!({"data": [{"id": "z-ai/glm-5.3-flash", "name": "Z.ai: GLM 5.3 Flash"}]}),
+    );
+    world.files.json(
+        "/api/v1/key",
+        200,
+        &json!({"data": {"usage": 2.58, "usage_daily": 0.31, "usage_weekly": 1.2, "usage_monthly": 2.58, "limit": 10, "limit_remaining": 7.42, "limit_reset": "monthly"}}),
+    );
+    openrouter::fakes::add(&world.files.base);
+    let credit_reads = || {
+        world
+            .files
+            .seen()
+            .iter()
+            .filter(|seen| seen.path == "/api/v1/key")
+            .count()
+    };
+    let added = sign_in_openrouter(&world, None, "sk-or-v1-first").await;
+    let ActionOutcome::ModelServerAdded { server: id } = added else {
+        panic!("not added: {added:?}");
+    };
+    let server = world.server(id).unwrap();
+    assert_eq!(server.label, "OpenRouter");
+    let base = format!("{}/api", world.files.base);
+    assert_eq!(server.base_url.as_deref(), Some(base.as_str()));
+    assert!(server.token);
+    assert!(server.probe.is_some(), "tested once it's added");
+    let account = world.service.account_of(id);
+    assert_eq!(
+        world.service.login(account).unwrap().token.expose(),
+        "sk-or-v1-first"
+    );
+    let listed = world.files.seen();
+    let models = listed
+        .iter()
+        .rfind(|seen| seen.path == "/api/v1/models")
+        .unwrap();
+    assert_eq!(
+        models.header("authorization"),
+        Some("Bearer sk-or-v1-first")
+    );
+    // Its credits are read once it's added, as for a server you add.
+    let credits = world.server(id).unwrap().credits.unwrap();
+    assert_eq!(credits.used_cents, 258);
+    assert_eq!(credits.limit_cents, Some(1_000));
+    assert_eq!(credit_reads(), 1);
+
+    // Sign in again gives the same server the new key, and its name stays.
+    let again = sign_in_openrouter(&world, Some("Renamed"), "sk-or-v1-second").await;
+    assert_eq!(again, ActionOutcome::ModelServerAdded { server: id });
+    assert_eq!(world.server(id).unwrap().label, "OpenRouter");
+    assert_eq!(
+        world.service.login(account).unwrap().token.expose(),
+        "sk-or-v1-second"
+    );
+    // The new key's credits are read too.
+    assert_eq!(credit_reads(), 2);
+    let read = world
+        .files
+        .seen()
+        .into_iter()
+        .rfind(|seen| seen.path == "/api/v1/key")
+        .unwrap();
+    assert_eq!(read.header("authorization"), Some("Bearer sk-or-v1-second"));
+    let records = world.db.model_servers().unwrap();
+    assert_eq!(records.len(), 1);
+    assert!(!records[0].contains("sk-or-v1"), "{}", records[0]);
+
+    // A code OpenRouter refuses changes nothing.
+    world.files.json(
+        "POST /api/v1/auth/keys",
+        403,
+        &json!({"error": {"message": "Invalid code or code_verifier"}}),
+    );
+    let ActionOutcome::SignIn { sign_in, .. } = world
+        .act(ModelAction::BeginOpenRouterSignIn {
+            label: None,
+            limit_cents: None,
+        })
+        .await
+    else {
+        panic!("no round");
+    };
+    let refused = world
+        .act(ModelAction::FinishOpenRouterSignIn {
+            sign_in,
+            code: Secret::new("code-example".into()),
+        })
+        .await;
+    assert!(refusal(&refused).contains("10 minutes"));
+    assert_eq!(
+        world.service.login(account).unwrap().token.expose(),
+        "sk-or-v1-second"
+    );
+}
+
+#[tokio::test]
+async fn a_spending_limit_openrouter_cant_take_starts_no_round() {
+    let world = World::new(RuntimeSupport::UrlOnly).await;
+    let refused = world
+        .act(ModelAction::BeginOpenRouterSignIn {
+            label: None,
+            limit_cents: Some(0),
+        })
+        .await;
+    assert!(refusal(&refused).contains("spending limit"));
+}
+
 #[tokio::test]
 async fn a_probe_says_what_answers_and_keeps_nothing() {
     let world = World::new(RuntimeSupport::UrlOnly).await;
@@ -318,6 +466,7 @@ async fn a_probe_says_what_answers_and_keeps_nothing() {
         flavor,
         probe,
         models,
+        cloud,
     } = probed
     else {
         panic!("not probed: {probed:?}");
@@ -326,6 +475,8 @@ async fn a_probe_says_what_answers_and_keeps_nothing() {
     assert!(probe.apis.messages);
     assert_eq!(probe.error, None);
     assert_eq!(models[0].id, "qwen3.6-35b-a3b@ud-q4_k_xl");
+    // A server on 127.0.0.1 isn't a known cloud host.
+    assert!(!cloud);
     let asked = fake.seen();
     let messages = asked
         .iter()
@@ -367,6 +518,7 @@ async fn a_url_has_to_be_a_plain_server_and_this_macs_own_server_stays() {
                 label: String::new(),
                 url: url.into(),
                 token: None,
+                cloud: false,
             })
             .await;
         assert_eq!(refusal(&outcome), BAD_URL, "{url}");
@@ -567,6 +719,7 @@ async fn only_this_macs_own_server_loads_a_downloaded_model() {
             label: "GPU box".into(),
             url: fake.base.clone(),
             token: None,
+            cloud: false,
         })
         .await
     else {
@@ -662,6 +815,7 @@ async fn a_restart_keeps_the_servers_their_tokens_the_key_and_the_port() {
             label: "GPU box".into(),
             url: fake.base.clone(),
             token: Some(Secret::new("sk-kept".to_owned())),
+            cloud: false,
         })
         .await
     else {
@@ -686,6 +840,58 @@ async fn a_restart_keeps_the_servers_their_tokens_the_key_and_the_port() {
         port.to_string()
     );
     assert_eq!(*again.proxy.lock().unwrap(), Some(port));
+}
+
+#[tokio::test]
+async fn a_cloud_server_s_agents_get_every_tool_and_its_models_limits() {
+    let world = World::new(RuntimeSupport::UrlOnly).await;
+    let fake = model_server().await;
+    fake.json(
+        "PLAIN /v1/models",
+        200,
+        &json!({"data": [{"id": "qwen3.6-35b-a3b@ud-q4_k_xl", "top_provider": {"max_completion_tokens": 16384}}]}),
+    );
+    let ActionOutcome::ModelServerAdded { server: id } = world
+        .act(ModelAction::AddServer {
+            label: "Hosted".into(),
+            url: fake.base.clone(),
+            token: None,
+            cloud: true,
+        })
+        .await
+    else {
+        panic!("not added");
+    };
+    let server = world.server(id).unwrap();
+    assert!(server.cloud);
+    assert_eq!(server.models[0].max_output, Some(16_384));
+    let account = world.service.account_of(id);
+    let login = world.service.login(account).unwrap();
+    assert!(login.cloud);
+    assert!(!login.lean, "Fewer tools covers local servers only");
+    assert_eq!(
+        login.max_outputs.get("qwen3.6-35b-a3b@ud-q4_k_xl"),
+        Some(&16_384)
+    );
+    // The switch is kept.
+    assert!(world.restart().lock().servers[&id].cloud);
+
+    // A record from before the switch, on a known cloud host, is cloud
+    // with no migration.
+    {
+        let mut state = world.service.lock();
+        let kept = state.servers.get_mut(&id).unwrap();
+        kept.cloud = false;
+        kept.base_url = Some("https://openrouter.ai/api".into());
+    }
+    world.service.publish();
+    assert!(world.server(id).unwrap().cloud);
+    assert!(!world.service.login(account).unwrap().lean);
+    // And one elsewhere with the switch off is a server you run.
+    world.service.lock().servers.get_mut(&id).unwrap().base_url = Some(fake.base.clone());
+    world.service.publish();
+    assert!(!world.server(id).unwrap().cloud);
+    assert!(world.service.login(account).unwrap().lean);
 }
 
 /// Turns "Linked devices can use this Mac's models" on or off.
@@ -751,6 +957,7 @@ fn shared_mac(model: &str) -> SharedModels {
                 context: Some(32_768),
                 load: None,
                 speed: None,
+                max_output: None,
             }],
         },
     }
@@ -879,4 +1086,290 @@ async fn the_linked_listener_keeps_its_port_and_its_own_key() {
     assert_eq!(listener.local_addr().unwrap().port(), address.port());
     assert_eq!(*again.linked.lock().unwrap(), Some(address.port()));
     assert_eq!(*again.proxy.lock().unwrap(), None);
+}
+
+/// A fake OpenRouter: a server that runs local agents and answers for its
+/// key's credits, with a $10 monthly limit.
+async fn open_router() -> Fake {
+    let fake = model_server().await;
+    fake.json(
+        "/v1/key",
+        200,
+        &json!({"data": {"usage": 2.58, "usage_daily": 0.31, "usage_weekly": 1.2, "usage_monthly": 2.58, "limit": 10, "limit_remaining": 7.42, "limit_reset": "monthly"}}),
+    );
+    openrouter::fakes::add(&fake.base);
+    fake
+}
+
+/// How many times the fake was asked for its key's credits.
+fn credit_reads(fake: &Fake) -> usize {
+    fake.seen()
+        .iter()
+        .filter(|seen| seen.path == "/v1/key")
+        .count()
+}
+
+#[tokio::test]
+async fn an_openrouter_key_s_credits_show_on_its_server_and_a_failed_read_keeps_them() {
+    let world = World::new(RuntimeSupport::UrlOnly).await;
+    let fake = open_router().await;
+    let added = world
+        .act(ModelAction::AddServer {
+            label: "OpenRouter".into(),
+            url: fake.base.clone(),
+            token: Some(Secret::new("sk-or-v1-example".to_owned())),
+            cloud: false,
+        })
+        .await;
+    let ActionOutcome::ModelServerAdded { server: id } = added else {
+        panic!("not added: {added:?}");
+    };
+    let shown = world.server(id).unwrap().credits.unwrap();
+    assert_eq!(shown.used_cents, 258);
+    assert_eq!(shown.today_cents, Some(31));
+    assert_eq!(shown.limit_cents, Some(1_000));
+    assert_eq!(shown.remaining_cents, Some(742));
+    assert_eq!(shown.resets.as_deref(), Some("monthly"));
+    assert_eq!(shown.error, None);
+    let asked = fake.seen();
+    let read = asked.iter().find(|seen| seen.path == "/v1/key").unwrap();
+    assert_eq!(
+        read.header("authorization"),
+        Some("Bearer sk-or-v1-example")
+    );
+    assert_eq!(credit_reads(&fake), 1, "read once, right after it's added");
+    let records = world.db.model_servers().unwrap();
+    assert!(!records[0].contains("used_cents"), "kept in memory only");
+
+    // A turn's end within the minute reads nothing yet.
+    world.service.turn_ended(world.service.account_of(id));
+    world.service.read_due_credits();
+    assert_eq!(credit_reads(&fake), 1);
+
+    // A Test reads again, and a failure keeps the figures with why.
+    fake.json("/v1/key", 500, &json!({}));
+    let tested = world.act(ModelAction::TestServer { server: id }).await;
+    assert_eq!(tested, ActionOutcome::Done);
+    assert_eq!(credit_reads(&fake), 2);
+    let shown = world.server(id).unwrap().credits.unwrap();
+    assert_eq!(shown.used_cents, 258);
+    assert!(shown.error.unwrap().contains("500"));
+
+    // After a 429 even a Test waits.
+    fake.json("/v1/key", 429, &json!({}));
+    world.act(ModelAction::TestServer { server: id }).await;
+    world.act(ModelAction::TestServer { server: id }).await;
+    assert_eq!(credit_reads(&fake), 3);
+    let shown = world.server(id).unwrap().credits.unwrap();
+    assert!(shown.error.unwrap().contains("wait"));
+
+    // A restarted maxd reads them once it has the server.
+    fake.json(
+        "/v1/key",
+        200,
+        &json!({"data": {"usage": 3.1, "limit": null, "limit_remaining": null}}),
+    );
+    let again = world.restart();
+    assert_eq!(
+        world.server(id).unwrap().credits,
+        None,
+        "none before a read"
+    );
+    again.read_due_credits();
+    let deadline = Instant::now() + Duration::from_secs(10);
+    let shown = loop {
+        if let Some(shown) = world.server(id).and_then(|server| server.credits) {
+            break shown;
+        }
+        assert!(Instant::now() < deadline, "the credits never showed");
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    };
+    assert_eq!(shown.used_cents, 310);
+    assert_eq!(shown.limit_cents, None);
+    assert_eq!(credit_reads(&fake), 4);
+}
+
+#[tokio::test]
+async fn only_an_openrouter_server_with_a_token_has_its_credits_read() {
+    let world = World::new(RuntimeSupport::UrlOnly).await;
+    let other = model_server().await;
+    other.json("/v1/key", 200, &json!({"data": {"usage": 1}}));
+    let tokenless = open_router().await;
+    for (fake, token) in [
+        (&other, Some(Secret::new("sk-local".to_owned()))),
+        (&tokenless, None),
+    ] {
+        let added = world
+            .act(ModelAction::AddServer {
+                label: String::new(),
+                url: fake.base.clone(),
+                token,
+                cloud: false,
+            })
+            .await;
+        let ActionOutcome::ModelServerAdded { server: id } = added else {
+            panic!("not added: {added:?}");
+        };
+        world.act(ModelAction::TestServer { server: id }).await;
+        world.service.read_due_credits();
+        assert_eq!(world.server(id).unwrap().credits, None);
+        assert_eq!(credit_reads(fake), 0);
+    }
+}
+
+/// How many times the fake was asked for the account's balance.
+fn balance_reads(fake: &Fake) -> usize {
+    fake.seen()
+        .iter()
+        .filter(|seen| seen.path == "/v1/credits")
+        .count()
+}
+
+/// Adds the fake OpenRouter with its token, and answers its ID.
+async fn add_open_router(world: &World, fake: &Fake) -> ModelServerId {
+    let added = world
+        .act(ModelAction::AddServer {
+            label: "OpenRouter".into(),
+            url: fake.base.clone(),
+            token: Some(Secret::new("sk-or-v1-example".to_owned())),
+            cloud: false,
+        })
+        .await;
+    let ActionOutcome::ModelServerAdded { server } = added else {
+        panic!("not added: {added:?}");
+    };
+    server
+}
+
+fn set_admin_key(server: ModelServerId, key: Option<&str>) -> ModelAction {
+    ModelAction::SetServerAdminKey {
+        server,
+        key: key.map(|key| Secret::new(key.to_owned())),
+    }
+}
+
+#[tokio::test]
+async fn an_admin_key_shows_the_account_s_balance_until_it_s_removed() {
+    let world = World::new(RuntimeSupport::UrlOnly).await;
+    let fake = open_router().await;
+    fake.json(
+        "/v1/credits",
+        200,
+        &json!({"data": {"total_credits": 10, "total_usage": 2.58}}),
+    );
+    let id = add_open_router(&world, &fake).await;
+    assert_eq!(balance_reads(&fake), 0, "no admin key, no balance read");
+
+    let set = world
+        .act(set_admin_key(id, Some("  sk-or-v1-admin \n")))
+        .await;
+    assert_eq!(set, ActionOutcome::Done);
+    assert_eq!(balance_reads(&fake), 1, "checked once");
+    let server = world.server(id).unwrap();
+    assert!(server.admin_key);
+    let shown = server.credits.unwrap();
+    assert_eq!(shown.balance_cents, Some(742));
+    assert_eq!(shown.bought_cents, Some(1_000));
+    assert_eq!(shown.used_cents, 258);
+    let kept = world.service.keys.read(&admin_name(id)).unwrap().unwrap();
+    assert_eq!(kept.expose(), "sk-or-v1-admin");
+    let record = &world.db.model_servers().unwrap()[0];
+    assert!(!record.contains("sk-or-v1-admin"));
+
+    // Later reads take the balance too, with the admin key.
+    fake.json(
+        "/v1/credits",
+        200,
+        &json!({"data": {"total_credits": 10, "total_usage": 3}}),
+    );
+    world.act(ModelAction::TestServer { server: id }).await;
+    assert_eq!(balance_reads(&fake), 2);
+    let asked = fake.seen();
+    let read = asked
+        .iter()
+        .rfind(|seen| seen.path == "/v1/credits")
+        .unwrap();
+    assert_eq!(read.header("authorization"), Some("Bearer sk-or-v1-admin"));
+    let shown = world.server(id).unwrap().credits.unwrap();
+    assert_eq!(shown.balance_cents, Some(700));
+
+    // A restart keeps the admin key.
+    let again = world.restart();
+    assert!(world.server(id).unwrap().admin_key);
+    drop(again);
+
+    // Remove takes it away, and the balance with it.
+    let removed = world.act(set_admin_key(id, None)).await;
+    assert_eq!(removed, ActionOutcome::Done);
+    let server = world.server(id).unwrap();
+    assert!(!server.admin_key);
+    assert_eq!(server.credits.unwrap().balance_cents, None);
+    assert_eq!(world.service.keys.read(&admin_name(id)).unwrap(), None);
+}
+
+#[tokio::test]
+async fn an_admin_key_openrouter_turns_down_is_refused_and_not_kept() {
+    let world = World::new(RuntimeSupport::UrlOnly).await;
+    let fake = open_router().await;
+    fake.json(
+        "/v1/credits",
+        403,
+        &json!({"error": {"code": 403, "message": "Only management keys can perform this operation."}}),
+    );
+    let id = add_open_router(&world, &fake).await;
+    let set = world.act(set_admin_key(id, Some("sk-or-v1-normal"))).await;
+    let ActionOutcome::Refused { reason } = set else {
+        panic!("kept a key OpenRouter turned down: {set:?}");
+    };
+    assert!(reason.contains("admin key"), "{reason}");
+    assert!(!reason.contains("sk-or"));
+    assert!(!world.server(id).unwrap().admin_key);
+    assert_eq!(world.service.keys.read(&admin_name(id)).unwrap(), None);
+
+    // A 429 refuses it too, and asks to try again.
+    fake.json("/v1/credits", 429, &json!({}));
+    let set = world.act(set_admin_key(id, Some("sk-or-v1-admin"))).await;
+    let ActionOutcome::Refused { reason } = set else {
+        panic!("kept an unchecked key: {set:?}");
+    };
+    assert!(reason.contains("Try again"), "{reason}");
+    assert_eq!(world.service.keys.read(&admin_name(id)).unwrap(), None);
+
+    // A server that isn't OpenRouter takes none, and asks nothing.
+    let other = model_server().await;
+    let added = world
+        .act(ModelAction::AddServer {
+            label: String::new(),
+            url: other.base.clone(),
+            token: Some(Secret::new("sk-local".to_owned())),
+            cloud: false,
+        })
+        .await;
+    let ActionOutcome::ModelServerAdded { server: local } = added else {
+        panic!("not added: {added:?}");
+    };
+    let set = world
+        .act(set_admin_key(local, Some("sk-or-v1-admin")))
+        .await;
+    assert!(matches!(set, ActionOutcome::Refused { .. }), "{set:?}");
+    assert_eq!(balance_reads(&other), 0);
+}
+
+#[tokio::test]
+async fn removing_a_server_removes_its_admin_key() {
+    let world = World::new(RuntimeSupport::UrlOnly).await;
+    let fake = open_router().await;
+    fake.json(
+        "/v1/credits",
+        200,
+        &json!({"data": {"total_credits": 10, "total_usage": 2.58}}),
+    );
+    let id = add_open_router(&world, &fake).await;
+    let set = world.act(set_admin_key(id, Some("sk-or-v1-admin"))).await;
+    assert_eq!(set, ActionOutcome::Done);
+    assert!(world.service.keys.read(&admin_name(id)).unwrap().is_some());
+    let removed = world.act(ModelAction::RemoveServer { server: id }).await;
+    assert_eq!(removed, ActionOutcome::Done);
+    assert_eq!(world.service.keys.read(&admin_name(id)).unwrap(), None);
+    assert_eq!(world.service.keys.read(&token_name(id)).unwrap(), None);
 }

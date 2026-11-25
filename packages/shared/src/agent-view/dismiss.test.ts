@@ -9,7 +9,14 @@ import { timelineItem } from "../timeline/build";
 import type { FeedCard } from "../timeline/output";
 import { applySnapshot } from "../view/replica";
 
-import { dismissBlocked, dismissSent, SKIP_WORDS, takesDismiss, wasDismissed } from "./dismiss";
+import {
+	dismissBlocked,
+	dismissSent,
+	dismissSentBy,
+	SKIP_WORDS,
+	takesDismiss,
+	wasDismissed,
+} from "./dismiss";
 
 const VIEW = applySnapshot({
 	seq: 1,
@@ -96,6 +103,7 @@ describe("dismissSent", () => {
 	it("says the card was dismissed and whose turn stops, not that an answer went", () => {
 		expect(dismissSent("claude")).toBe("Dismissed. Stopping Claude's turn.");
 		expect(dismissSent("codex")).toBe("Dismissed. Stopping Codex's turn.");
+		expect(dismissSentBy("OpenRouter")).toBe("Dismissed. Stopping OpenRouter's turn.");
 	});
 });
 

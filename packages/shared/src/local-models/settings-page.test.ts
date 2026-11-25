@@ -3,7 +3,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import type { Entity, ModelFile, ModelLoad } from "../bindings";
+import { CLOUD_SERVERS_SINCE, type Entity, type ModelFile, type ModelLoad } from "../bindings";
 import {
 	DOWNLOADING_MODEL,
 	LLAMA_CPP_VERSION,
@@ -14,13 +14,14 @@ import {
 	OLLAMA_URL,
 } from "../data/mock-local-models";
 import { mockSource } from "../data/mock-source";
+import type { ActionResult } from "../data/source";
 import { DEVBOX, MAC } from "../data/mock-view";
 import { NOW } from "../test/build";
 import { applySnapshot, type ViewState } from "../view/replica";
 
 import { LOCAL_MODEL_DEFAULTS } from "./models";
 import { FIT_TONE } from "./picker";
-import { catalogRows, type CatalogRow } from "./select";
+import { catalogRows, takesCloudServers, type CatalogRow } from "./select";
 import {
 	addedServerOf,
 	addServerAction,
@@ -40,6 +41,8 @@ import {
 	pageDevice,
 	pickOf,
 	pickValue,
+	probeFindings,
+	probeServerAction,
 	probeSummary,
 	rowModelAction,
 	serverLabelFor,
@@ -334,6 +337,13 @@ describe("the servers", () => {
 			text: "Works with Local agents, 65,536 tokens of context",
 			ok: true,
 		});
+		expect(probeSummary({ ...ollama, cloud: true })).toEqual({
+			text: "Works with cloud agents",
+			ok: true,
+		});
+		expect(
+			probeSummary({ ...view.tables.model_server.get(MAC_SERVER)!, cloud: true }).text
+		).toBe("Works with cloud agents, 65,536 tokens of context");
 		expect(probeSummary({ probe: null })).toEqual({ text: "Not tested yet", ok: null });
 		expect(probeSummary({ probe: { ...ollama.probe!, apis: { chat: true } } }).ok).toBe(false);
 		expect(probeSummary({ probe: { ...ollama.probe!, error: "Nothing answered" } })).toEqual({
@@ -368,6 +378,58 @@ describe("the form that adds a server", () => {
 			addedServerOf({ status: "ok", data: { status: "model_server_added", server: "srv-1" } })
 		).toBe("srv-1");
 		expect(addedServerOf({ status: "ok", data: { status: "done" } })).toBeNull();
+	});
+
+	it("marks a cloud service only when the switch is on", () => {
+		const url = "https://openrouter.ai/api";
+		expect(addServerAction("OpenRouter", url, "", true)).toEqual({
+			action: "add_server",
+			label: "OpenRouter",
+			url,
+			token: null,
+			cloud: true,
+		});
+		expect(addServerAction("OpenRouter", url, "")).not.toHaveProperty("cloud");
+		expect(addServerAction("OpenRouter", url, "", false)).not.toHaveProperty("cloud");
+	});
+
+	it("says what Test found about a cloud service, and nothing from an older maxd", async () => {
+		const source = mockSource({ now: () => NOW, tick: false });
+		const view = applySnapshot(await source.snapshot());
+		const cloud = await source.modelAction(
+			MAC,
+			probeServerAction("https://openrouter.ai/api", "")
+		);
+		expect(probeFindings(view, MAC, cloud)).toMatchObject({
+			cloud: true,
+			models: expect.stringContaining("Z.ai: GLM 5.3 Flash"),
+		});
+		const own = await source.modelAction(MAC, probeServerAction(OLLAMA_URL, ""));
+		expect(probeFindings(view, MAC, own)?.cloud).toBe(false);
+		const older: ActionResult = {
+			status: "ok",
+			data: {
+				status: "server_probed",
+				flavor: "other",
+				probe: { at: NOW, apis: { messages: true }, context: null, error: null },
+				models: [],
+			},
+		};
+		expect(probeFindings(view, MAC, older)?.cloud).toBe(false);
+	});
+
+	it("offers the Cloud service switch only on a maxd that takes it", async () => {
+		const view = await load();
+		expect(takesCloudServers(view, MAC)).toBe(true);
+		expect(takesCloudServers(view, "dev-gone")).toBe(false);
+		const older = await edited((entities) =>
+			entities.map((e) =>
+				e.entity === "device_link" && e.device === MAC
+					? { ...e, protocol: CLOUD_SERVERS_SINCE - 1 }
+					: e
+			)
+		);
+		expect(takesCloudServers(older, MAC)).toBe(false);
 	});
 });
 

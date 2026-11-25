@@ -2,14 +2,16 @@
 // Copyright (c) 2026 Max Boksem
 
 // A chip that names what it picks and shows the pick, and opens a list of
-// options with a second line each, as on the selector board. A model
-// picker with a long list, such as an OpenRouter login's, opens a list
-// with a search field on top instead.
+// options with a second line each, as on the selector board. An Agent
+// entry shows its mark, such as Codex's hexagon or a cloud service's cloud.
+// A model picker with a long list, such as an OpenRouter login's, opens a
+// list with a search field on top instead.
 
 import { Combobox } from "@base-ui/react/combobox";
 import { Select } from "@base-ui/react/select";
 import { Fragment, type ReactNode, useMemo, useState } from "react";
 
+import { VendorIcon } from "@/agent-view/icons";
 import { Bar } from "@/header/usage";
 import { cn } from "@/lib/utils";
 import { TONE } from "@/tasks/activity";
@@ -163,7 +165,7 @@ const OptionRows = ({
 	});
 };
 
-/** One option's row: its name, given as `name`, its second line, usage and tag. */
+/** One option's row: its mark, its name, given as `name`, its second line, usage and tag. */
 const OptionBody = ({
 	option,
 	name,
@@ -176,6 +178,13 @@ const OptionBody = ({
 	useI18n();
 	return (
 		<>
+			{option.mark ? (
+				<VendorIcon
+					kind={option.mark}
+					size={13}
+					className="self-start mt-[3px] text-muted-foreground"
+				/>
+			) : null}
 			<span className="flex min-w-0 flex-1 flex-col gap-px">
 				{name}
 				{option.detail ? (
@@ -240,6 +249,7 @@ export const Picker = ({
 		);
 	}
 	const shown = shownLabel(options, value);
+	const mark = options.find((o) => o.value === value)?.mark;
 	return (
 		<Select.Root
 			value={value}
@@ -254,6 +264,7 @@ export const Picker = ({
 				className={cn(TRIGGER, className)}
 			>
 				<span className="shrink-0 text-muted-foreground">{label}</span>
+				{mark ? <VendorIcon kind={mark} className="text-foreground" /> : null}
 				<Select.Value className="min-w-0 truncate font-[550] text-foreground">
 					{() => shown}
 				</Select.Value>

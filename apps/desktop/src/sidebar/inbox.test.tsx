@@ -202,6 +202,7 @@ describe("picking agents", () => {
 			expect.stringMatching(/^Write the release notes/),
 			expect.stringMatching(/^Build a signed bundle/),
 			expect.stringMatching(/^Tidy old claude\.ai pages/),
+			expect.stringMatching(/^Document the sync API/),
 			expect.stringMatching(/^Show the release plan/),
 			expect.stringMatching(/^M1 observe milestone/),
 			expect.stringMatching(/^Usage meter popover/),

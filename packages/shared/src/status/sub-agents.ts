@@ -19,7 +19,9 @@ import { accountName } from "./usage";
 /** The list's second line, such as "Claude Max on devbox, 4 sub-agents". */
 export const subAgentsSubtitle = (view: ViewState, lead: Agent, count: number): string => {
 	const account = lead.account ? view.tables.account.get(lead.account) : undefined;
-	const login = account ? accountName(account) : kindName(ownKind(lead));
+	const login = account
+		? accountName(account, view.tables.model_server)
+		: kindName(ownKind(lead));
 	const workspace = view.tables.workspace.get(lead.workspace);
 	const where = workspace
 		? t(" on {{value1}}", { value1: deviceName(view, workspace.device) })

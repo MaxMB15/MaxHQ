@@ -33,15 +33,16 @@ import {
 	serverProblemText,
 	urlParts,
 } from "./wording";
-import type {
-	DeviceHardware,
-	DeviceId,
-	KvCacheType,
-	LocalModels,
-	ModelAction,
-	ModelServer,
-	ModelServerId,
-	ServerModel,
+import {
+	type DeviceHardware,
+	type DeviceId,
+	type KvCacheType,
+	type LocalModels,
+	type ModelAction,
+	type ModelServer,
+	type ModelServerId,
+	type ServerModel,
+	type ServerProbe,
 } from "../bindings";
 import type { ActionResult } from "../data/source";
 import type { Option } from "../new-agent/spec";
@@ -382,17 +383,27 @@ export const managedServerView = (view: ViewState, server: ModelServer): Managed
 /** A server's last test in words, and whether it passed; null before any test. */
 export type ProbeSummary = { readonly text: string; readonly ok: boolean | null };
 
-/** What a server's last test found: that it works, and its context, or why it can't run a Local agent. */
-export const probeSummary = (server: Pick<ModelServer, "probe">): ProbeSummary => {
+/**
+ * What a server's last test found: that it works, and its context, or why
+ * it can't run an agent. A cloud service runs cloud agents, not Local ones.
+ */
+export const probeSummary = (server: Pick<ModelServer, "probe" | "cloud">): ProbeSummary => {
 	const probe = server.probe;
 	if (!probe) return { text: t("Not tested yet"), ok: null };
 	const problem = serverProblemText(server);
 	if (problem) return { text: problem, ok: false };
+	const context = probe.context ? formatNumber(probe.context) : null;
+	if (server.cloud) {
+		return {
+			text: context
+				? t("Works with cloud agents, {{context}} tokens of context", { context })
+				: t("Works with cloud agents"),
+			ok: true,
+		};
+	}
 	return {
-		text: probe.context
-			? t("Works with Local agents, {{context}} tokens of context", {
-					context: formatNumber(probe.context),
-				})
+		text: context
+			? t("Works with Local agents, {{context}} tokens of context", { context })
 			: t("Works with Local agents"),
 		ok: true,
 	};
@@ -432,13 +443,29 @@ export const notEncryptedDetail = (): string =>
 export const serverLabelFor = (label: string, url: string): string =>
 	label.trim() || urlParts(url.trim())?.host || url.trim();
 
-/** What the form sends to add a server, with the token when one was typed. */
-export const addServerAction = (label: string, url: string, token: string): ModelAction => ({
+/**
+ * What the form sends to add a server, with the token when one was typed,
+ * marked a cloud service when `cloud`.
+ */
+export const addServerAction = (
+	label: string,
+	url: string,
+	token: string,
+	cloud = false
+): ModelAction => ({
 	action: "add_server",
 	label: serverLabelFor(label, url),
 	url: url.trim(),
 	token: token.trim() || null,
+	...(cloud ? { cloud: true } : {}),
 });
+
+/** What the Cloud service switch says. */
+export const cloudSwitchLabel = (): string => t("Cloud service");
+
+/** What the Cloud service switch does, under its name. */
+export const cloudSwitchHelp = (): string =>
+	t("A hosted API, not hardware you run. A higher output cap, and every tool.");
 
 /** The server an add made, from its reply. */
 export const addedServerOf = (result: ActionResult): ModelServerId | null =>
@@ -460,10 +487,12 @@ export const probeServerAction = (url: string, token: string): ModelAction => ({
 export type ProbeFindings = {
 	/** What kind of server answered, such as "Ollama", or null when nothing did. */
 	readonly flavor: string | null;
-	/** Whether it can run a Local agent, with its context, or why not. */
-	readonly summary: ProbeSummary;
+	/** What it found, which `probeSummary` puts in words for the kind of server. */
+	readonly probe: ServerProbe;
 	/** The models it offers, such as "Offers gpt-oss-20b, Qwen3", or null when nothing answered. */
 	readonly models: string | null;
+	/** Whether the URL is a known cloud host, which the Cloud service switch follows. */
+	readonly cloud: boolean;
 };
 
 /** What a Test found, from its reply; null for another reply. */
@@ -473,17 +502,18 @@ export const probeFindings = (
 	result: ActionResult
 ): ProbeFindings | null => {
 	if (result.status !== "ok" || result.data.status !== "server_probed") return null;
-	const { flavor, probe, models } = result.data;
+	const { flavor, probe, models, cloud } = result.data;
 	const answered = probe.error === null;
 	const names = models.map((m) => serverModelName(view, { device }, m));
 	return {
 		flavor: answered ? flavorName(flavor) : null,
-		summary: probeSummary({ probe }),
+		probe,
 		models: !answered
 			? null
 			: names.length > 0
 				? t("Offers {{models}}", { models: names.join(", ") })
 				: t("This server lists no models"),
+		cloud: cloud === true,
 	};
 };
 

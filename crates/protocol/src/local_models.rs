@@ -31,7 +31,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use specta::Type;
 
-use crate::ids::{DeviceId, ModelServerId};
+use crate::ids::{DeviceId, ModelServerId, SignInId};
 use crate::secret::Secret;
 use crate::state::{ToolPhase, ToolState};
 use crate::time::Timestamp;
@@ -55,6 +55,20 @@ pub struct ModelServer {
     /// `maxd`'s secrets store and is never sent.
     #[serde(default)]
     pub token: bool,
+    /// Whether it's a hosted API rather than hardware you run: a known
+    /// cloud host, or a server added with the Cloud service switch on. A
+    /// cloud server's agents get every tool and the model's own output
+    /// limit, and show under the server's name rather than Local. Since
+    /// [`crate::message::CLOUD_SERVERS_SINCE`]; an older `maxd` sends none,
+    /// read as false.
+    #[serde(default)]
+    pub cloud: bool,
+    /// Whether `maxd` holds an admin key for it, which reads the account's
+    /// balance on OpenRouter. The key itself stays in `maxd`'s secrets
+    /// store and is never sent. Since
+    /// [`crate::message::CLOUD_SERVERS_SINCE`].
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub admin_key: bool,
     /// What the last probe found, or none before the first.
     pub probe: Option<ServerProbe>,
     /// The models it serves. For a managed server, the model files ready
@@ -63,6 +77,54 @@ pub struct ModelServer {
     #[serde(deserialize_with = "crate::tolerant::list")]
     #[specta(type = Vec<ServerModel>)]
     pub models: Vec<ServerModel>,
+    /// What the server's key has spent, for a server that meters it, such
+    /// as OpenRouter. None for one that doesn't, or before the first read.
+    /// Since [`crate::message::CLOUD_SERVERS_SINCE`]; an older client
+    /// reads none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub credits: Option<ServerCredits>,
+}
+
+/// What a model server's key has spent and has left, in whole US cents,
+/// as the server's own key endpoint reports it. It covers the one key
+/// `maxd` holds, plus the account's balance when `maxd` holds an admin key
+/// for the server.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, Type, JsonSchema)]
+pub struct ServerCredits {
+    /// When the figures were read.
+    pub at: Timestamp,
+    /// What the key has spent in all.
+    pub used_cents: u32,
+    /// What it spent today, when the server says.
+    #[serde(default)]
+    pub today_cents: Option<u32>,
+    /// What it spent this week, when the server says.
+    #[serde(default)]
+    pub week_cents: Option<u32>,
+    /// What it spent this month, when the server says.
+    #[serde(default)]
+    pub month_cents: Option<u32>,
+    /// The key's spending limit. None for a key without one.
+    #[serde(default)]
+    pub limit_cents: Option<u32>,
+    /// What's left under the limit. None for a key without one.
+    #[serde(default)]
+    pub remaining_cents: Option<u32>,
+    /// How often the limit starts over, as the server names it, such as
+    /// `monthly`. None for a limit that never resets.
+    #[serde(default)]
+    pub resets: Option<String>,
+    /// What's left on the account: what was bought less what was used,
+    /// never below zero. None without an admin key.
+    #[serde(default)]
+    pub balance_cents: Option<u32>,
+    /// What the account bought in all. None without an admin key.
+    #[serde(default)]
+    pub bought_cents: Option<u32>,
+    /// Why the last read failed, for a person to read. The figures are the
+    /// last good ones then. None when the last read worked.
+    #[serde(default)]
+    pub error: Option<String>,
 }
 
 /// Whether `maxd` runs a server or reaches it at a URL.
@@ -144,6 +206,11 @@ pub struct ServerModel {
     /// [`crate::message::LOCAL_MODELS_SINCE`]; an older client reads none.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub speed: Option<ModelSpeed>,
+    /// The most tokens it writes in one answer, when the server says and
+    /// it's below the context. Since
+    /// [`crate::message::CLOUD_SERVERS_SINCE`]; an older `maxd` sends none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_output: Option<u32>,
 }
 
 /// How fast a model ran, in whole tokens per second.
@@ -543,6 +610,11 @@ pub enum ModelAction {
         /// A token it wants, which `maxd` keeps in its secrets store.
         #[serde(default)]
         token: Option<Secret>,
+        /// Whether you marked it a cloud service. A known cloud host is one
+        /// either way. Since [`crate::message::CLOUD_SERVERS_SINCE`]; an
+        /// older client sends none, read as false.
+        #[serde(default)]
+        cloud: bool,
     },
     /// Probes a URL without adding it, to see what answers there before
     /// it's added. Answers
@@ -559,11 +631,23 @@ pub enum ModelAction {
         /// The server.
         server: ModelServerId,
     },
-    /// Removes a server URL, with its account and token. A managed server
-    /// can't be removed.
+    /// Removes a server URL, with its account, token and admin key. A
+    /// managed server can't be removed.
     RemoveServer {
         /// The server.
         server: ModelServerId,
+    },
+    /// Keeps an admin key for an OpenRouter server, after one read of the
+    /// account's balance with it, or removes the one kept. It answers
+    /// [`crate::message::ActionOutcome::Done`], or `Refused` with why,
+    /// such as a key OpenRouter turned down, of which `maxd` keeps
+    /// nothing. Since [`crate::message::CLOUD_SERVERS_SINCE`].
+    SetServerAdminKey {
+        /// The server.
+        server: ModelServerId,
+        /// The admin key, or None to remove the one kept.
+        #[serde(default)]
+        key: Option<Secret>,
     },
     /// Downloads one file of a catalog model.
     Download {
@@ -609,6 +693,33 @@ pub enum ModelAction {
         /// The model's ID on that server.
         model: String,
     },
+    /// Starts a Sign in with OpenRouter round, which makes an OpenRouter
+    /// key for this device. `maxd` keeps the round's PKCE verifier and
+    /// answers [`crate::message::ActionOutcome::SignIn`] with the page to
+    /// open and the port the app listens on. Since protocol 65
+    /// ([`crate::message::CLOUD_SERVERS_SINCE`]).
+    BeginOpenRouterSignIn {
+        /// The name a new OpenRouter server gets, or `OpenRouter` with none.
+        /// One the device has already keeps its name.
+        #[serde(default)]
+        label: Option<String>,
+        /// The key's spending limit in US cents, which OpenRouter enforces,
+        /// or none for no limit.
+        #[serde(default)]
+        limit_cents: Option<u32>,
+    },
+    /// Finishes a Sign in with OpenRouter round with the code the browser
+    /// brought back. `maxd` trades it for a key, keeps the key in its
+    /// secrets store, and adds the OpenRouter server, or gives the
+    /// device's OpenRouter server the new key, then tests it. Answers
+    /// [`crate::message::ActionOutcome::ModelServerAdded`] with that
+    /// server. Since protocol 65 ([`crate::message::CLOUD_SERVERS_SINCE`]).
+    FinishOpenRouterSignIn {
+        /// The round, from its `SignIn` answer.
+        sign_in: SignInId,
+        /// The code the callback brought.
+        code: Secret,
+    },
 }
 
 /// What a local agent's server is doing for it, in its live state.
@@ -635,7 +746,7 @@ pub struct LocalRun {
 mod tests {
     use super::*;
     use crate::ids::IdempotencyKey;
-    use crate::message::{ActionOutcome, ClientMessage, LOCAL_MODELS_SINCE};
+    use crate::message::{ActionOutcome, ClientMessage, CLOUD_SERVERS_SINCE, LOCAL_MODELS_SINCE};
     use crate::state::{Entity, EntityKey};
 
     fn device() -> DeviceId {
@@ -664,6 +775,8 @@ mod tests {
             label: "Ollama on devbox".into(),
             base_url: Some("http://devbox:11434".into()),
             token: true,
+            cloud: false,
+            admin_key: true,
             probe: Some(ServerProbe {
                 at: Timestamp(1_000),
                 apis: ServerApis {
@@ -688,7 +801,21 @@ mod tests {
                     prompt_per_second: Some(1_180),
                     decode_per_second: Some(74),
                 }),
+                max_output: None,
             }],
+            credits: Some(ServerCredits {
+                at: Timestamp(1_100),
+                used_cents: 258,
+                today_cents: Some(31),
+                week_cents: Some(120),
+                month_cents: Some(258),
+                limit_cents: Some(1_000),
+                remaining_cents: Some(742),
+                resets: Some("monthly".into()),
+                balance_cents: Some(742),
+                bought_cents: Some(1_000),
+                error: None,
+            }),
         }
     }
 
@@ -796,6 +923,47 @@ mod tests {
     }
 
     #[test]
+    fn a_server_without_credits_writes_none_and_reads_as_before() {
+        let json = serde_json::to_value(ModelServer {
+            admin_key: false,
+            credits: None,
+            ..server()
+        })
+        .unwrap();
+        assert!(json.get("credits").is_none());
+        assert!(json.get("admin_key").is_none());
+        // A server from before cloud servers reads with no credits.
+        let read: ModelServer = serde_json::from_value(json).unwrap();
+        assert_eq!(read.credits, None);
+        assert!(!read.admin_key);
+        // Figures left out read as unknown.
+        let credits: ServerCredits =
+            serde_json::from_value(serde_json::json!({"at": 5, "used_cents": 12})).unwrap();
+        assert_eq!(credits.used_cents, 12);
+        assert_eq!(credits.limit_cents, None);
+        assert_eq!(credits.balance_cents, None);
+        assert_eq!(credits.error, None);
+    }
+
+    #[test]
+    fn an_admin_key_is_set_since_cloud_servers_and_stays_out_of_logs() {
+        assert_eq!(CLOUD_SERVERS_SINCE, 65);
+        let id = ModelServerId::derive("server:example");
+        for key in [Some(Secret::new("sk-or-v1-admin".into())), None] {
+            let message = ClientMessage::ModelAction {
+                key: IdempotencyKey::derive("admin"),
+                action: ModelAction::SetServerAdminKey { server: id, key },
+            };
+            assert_eq!(round_trip(&message), message);
+            assert_eq!(message.since(), CLOUD_SERVERS_SINCE);
+            assert!(!format!("{message:?}").contains("sk-or-v1-admin"));
+        }
+        let json = serde_json::to_value(server()).unwrap();
+        assert_eq!(json["admin_key"], true);
+        assert_eq!(json["credits"]["balance_cents"], 742);
+    }
+
+    #[test]
     fn settings_default_to_the_owner_picks() {
         let read: LocalModelSettings = serde_json::from_str("{}").unwrap();
         assert_eq!(read, LocalModelSettings::default());
@@ -818,6 +986,13 @@ mod tests {
                 label: "Ollama on devbox".into(),
                 url: "http://devbox:11434".into(),
                 token: Some(Secret::new("example-token".into())),
+                cloud: false,
+            },
+            ModelAction::AddServer {
+                label: "OpenRouter".into(),
+                url: "https://openrouter.ai/api".into(),
+                token: None,
+                cloud: true,
             },
             ModelAction::ProbeServer {
                 url: "http://devbox:11434".into(),
@@ -881,9 +1056,90 @@ mod tests {
                 context: Some(32_768),
                 load: None,
                 speed: None,
+                max_output: Some(8_192),
             }],
+            cloud: true,
         };
         assert_eq!(round_trip(&probed), probed);
+    }
+
+    #[test]
+    fn a_server_from_before_cloud_servers_reads_as_local() {
+        assert_eq!(CLOUD_SERVERS_SINCE, 65);
+        // A server, a model and a probe from an older `maxd`, and an add
+        // from an older app, carry none of the cloud fields.
+        let mut json = serde_json::to_value(server()).unwrap();
+        json.as_object_mut().unwrap().remove("cloud");
+        let read: ModelServer = serde_json::from_value(json).unwrap();
+        assert!(!read.cloud);
+        assert_eq!(read.models[0].max_output, None);
+        let add: ModelAction = serde_json::from_value(serde_json::json!({
+            "action": "add_server",
+            "label": "devbox",
+            "url": "http://devbox:11434",
+        }))
+        .unwrap();
+        assert!(matches!(add, ModelAction::AddServer { cloud: false, .. }));
+        let probed: ActionOutcome = serde_json::from_value(serde_json::json!({
+            "status": "server_probed",
+            "flavor": "other",
+            "probe": { "at": 1, "apis": {}, "context": null, "error": null },
+            "models": [],
+        }))
+        .unwrap();
+        assert!(matches!(
+            probed,
+            ActionOutcome::ServerProbed { cloud: false, .. }
+        ));
+        // A model with no output limit writes none, and one with it reads back.
+        let json = serde_json::to_value(&server().models[0]).unwrap();
+        assert!(json.get("max_output").is_none());
+        let capped = ServerModel {
+            max_output: Some(32_000),
+            ..server().models.remove(0)
+        };
+        assert_eq!(round_trip(&capped), capped);
+    }
+
+    #[test]
+    fn open_router_sign_in_rounds_wait_for_cloud_servers() {
+        assert_eq!(CLOUD_SERVERS_SINCE, 65);
+        let sign_in = SignInId::generate();
+        let actions = [
+            ModelAction::BeginOpenRouterSignIn {
+                label: Some("OpenRouter".into()),
+                limit_cents: Some(2_500),
+            },
+            ModelAction::BeginOpenRouterSignIn {
+                label: None,
+                limit_cents: None,
+            },
+            ModelAction::FinishOpenRouterSignIn {
+                sign_in,
+                code: Secret::new("example-code".into()),
+            },
+        ];
+        for action in actions {
+            let message = ClientMessage::ModelAction {
+                key: IdempotencyKey::generate(),
+                action: action.clone(),
+            };
+            assert_eq!(round_trip(&message), message);
+            assert_eq!(message.since(), CLOUD_SERVERS_SINCE);
+            assert!(!message.reaches(Some(CLOUD_SERVERS_SINCE - 1)));
+            assert!(message.reaches(Some(CLOUD_SERVERS_SINCE)));
+        }
+        // A begin with nothing chosen reads without its optional fields.
+        let read: ModelAction =
+            serde_json::from_value(serde_json::json!({"action": "begin_open_router_sign_in"}))
+                .unwrap();
+        assert_eq!(
+            read,
+            ModelAction::BeginOpenRouterSignIn {
+                label: None,
+                limit_cents: None,
+            }
+        );
     }
 
     #[test]
@@ -908,6 +1164,7 @@ mod tests {
                 label: "devbox".into(),
                 url: "http://devbox:11434".into(),
                 token: Some(Secret::new("example-token".into())),
+                cloud: false,
             },
         };
         assert!(!format!("{message:?}").contains("example-token"));

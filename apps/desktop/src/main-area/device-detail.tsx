@@ -255,7 +255,7 @@ const AgentLine = ({
 	const account = agent.account ? view.tables.account.get(agent.account) : undefined;
 	const where = [
 		workspace?.location.type === "container" ? workspace.location.instance : undefined,
-		account ? accountName(account) : kindName(ownKind(agent)),
+		account ? accountName(account, view.tables.model_server) : kindName(ownKind(agent)),
 	]
 		.filter(Boolean)
 		.join(", ");

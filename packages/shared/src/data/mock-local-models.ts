@@ -4,10 +4,15 @@
 // The local models of the sample data. The Mac runs its own model server
 // with Qwen3.6-35B-A3B loaded and a Local agent on it. devbox has no GPU, so
 // it reaches the Mac's server over the maxd link, where a Local agent of its
-// own runs, and an Ollama server at a URL on another box. The catalog offers
-// six models, and the Mac is downloading one of them. Each call changes the
-// sample entities the way `maxd` would publish the change, and a device
-// whose link doesn't offer local models is refused the way the app does.
+// own runs, and an Ollama server at a URL on another box. Both reach
+// OpenRouter, a cloud service, with a key of their own: the Mac's key has a
+// $10.00 monthly limit and an agent at work on it, and devbox's last credits
+// read failed, so its figures are older. A sample Sign in with OpenRouter
+// gives the device's OpenRouter server a new key, or adds one where none
+// is. The catalog offers six models, and the Mac is downloading one of
+// them. Each call changes the sample entities the way `maxd` would publish
+// the change, and a device whose link doesn't offer local models is
+// refused the way the app does.
 
 import type {
 	Account,
@@ -30,10 +35,17 @@ import type {
 	Timestamp,
 } from "../bindings";
 import { managedModelId } from "../local-models/models";
+import {
+	isOpenRouter,
+	isOpenRouterUrl,
+	MAX_LIMIT_CENTS,
+	OPENROUTER_LABEL,
+	OPENROUTER_URL,
+} from "../local-models/openrouter";
 import { urlParts, type UrlParts } from "../local-models/wording";
 import type { FleetContext } from "./mock-fleet";
 import { DEVBOX, MAC, seed } from "./mock-view";
-import type { ActionResult, DataSource } from "./source";
+import type { ActionResult, CommandResult, DataSource } from "./source";
 
 const MIN = 60_000;
 const HOUR = 60 * MIN;
@@ -64,9 +76,63 @@ export const DOWNLOADING_MODEL = "qwen3.8-27b";
 export const MAC_LOCAL_AGENT = "agent-local-parser";
 /** devbox's Local agent, on the Mac's server. */
 export const DEVBOX_LOCAL_AGENT = "agent-local-changelog";
+/** The cloud service the Mac reaches, OpenRouter, whose key has a monthly limit. */
+export const OPENROUTER_SERVER = "srv-mac-openrouter";
+/** devbox's OpenRouter server, whose last credits read failed. */
+export const DEVBOX_OPENROUTER_SERVER = "srv-devbox-openrouter";
+/** The Mac's account on OpenRouter. */
+export const OPENROUTER_ACCOUNT = "acct-local-mac-openrouter";
+/** devbox's account on OpenRouter. */
+export const DEVBOX_OPENROUTER_ACCOUNT = "acct-local-devbox-openrouter";
+/** The OpenRouter model the sample agent runs. */
+export const OPENROUTER_MODEL = "z-ai/glm-5.3-flash";
+/** The Mac's agent on OpenRouter. */
+export const OPENROUTER_AGENT = "agent-cloud-docs";
 
 /** The context size the sample servers load models with. */
 const CONTEXT = 65_536;
+
+/**
+ * Whether a URL is a cloud service the sample knows, as `maxd`'s list says:
+ * OpenRouter, the only one the sample reaches.
+ */
+const cloudHost = isOpenRouterUrl;
+
+/** The models OpenRouter offers in the sample, each with its context and output limit. */
+const cloudModels = (): ServerModel[] => [
+	{
+		id: OPENROUTER_MODEL,
+		label: "Z.ai: GLM 5.3 Flash",
+		catalog: null,
+		context: 200_000,
+		max_output: 131_072,
+		load: null,
+	},
+	{
+		id: "deepseek/deepseek-v3.2",
+		label: "DeepSeek: DeepSeek V3.2",
+		catalog: null,
+		context: 163_840,
+		max_output: 65_536,
+		load: null,
+	},
+	{
+		id: "moonshotai/kimi-k2.5",
+		label: "MoonshotAI: Kimi K2.5",
+		catalog: null,
+		context: 262_144,
+		max_output: null,
+		load: null,
+	},
+	{
+		id: "qwen/qwen3-coder",
+		label: "Qwen: Qwen3 Coder 480B A35B",
+		catalog: null,
+		context: 262_144,
+		max_output: 65_536,
+		load: null,
+	},
+];
 
 /** A made-up hex digest of `length` characters, plainly not a real one. */
 const digest = (n: number, length: 40 | 64): string =>
@@ -371,7 +437,60 @@ const servers = (now: Timestamp): ModelServer[] => [
 			},
 		],
 	},
+	{
+		id: OPENROUTER_SERVER,
+		device: MAC,
+		kind: { type: "external", flavor: "other" },
+		label: "OpenRouter",
+		base_url: OPENROUTER_URL,
+		token: true,
+		cloud: true,
+		admin_key: false,
+		probe: {
+			at: now - 4 * MIN,
+			apis: { messages: true, chat: true, responses: true },
+			context: null,
+			error: null,
+		},
+		models: cloudModels(),
+		credits: {
+			at: now - 4 * MIN,
+			used_cents: 258,
+			today_cents: 31,
+			week_cents: 120,
+			month_cents: 258,
+			limit_cents: 1_000,
+			remaining_cents: 742,
+			resets: "monthly",
+		},
+	},
+	{
+		id: DEVBOX_OPENROUTER_SERVER,
+		device: DEVBOX,
+		kind: { type: "external", flavor: "other" },
+		label: "OpenRouter on devbox",
+		base_url: OPENROUTER_URL,
+		token: true,
+		cloud: true,
+		admin_key: false,
+		probe: {
+			at: now - 5 * HOUR,
+			apis: { messages: true, chat: true, responses: true },
+			context: null,
+			error: null,
+		},
+		models: cloudModels(),
+		credits: {
+			at: now - 5 * HOUR,
+			used_cents: 412,
+			today_cents: 0,
+			error: "Couldn't reach OpenRouter: the connection timed out.",
+		},
+	},
 ];
+
+/** The account's balance the sample admin key reads: $20.00 bought, $14.84 left. */
+const OPENROUTER_BALANCE = { balance_cents: 1_484, bought_cents: 2_000 } as const;
 
 const localModels = (now: Timestamp): LocalModels[] => [
 	{
@@ -413,6 +532,13 @@ const accounts = (): Account[] => [
 	localAccount(MAC_LOCAL, MAC, "MacBook Pro", MAC_SERVER),
 	localAccount(DEVBOX_LOCAL, DEVBOX, "MacBook Pro", MAC_SERVER),
 	localAccount(OLLAMA_LOCAL, DEVBOX, "Ollama on gpu-box", OLLAMA_SERVER),
+	localAccount(OPENROUTER_ACCOUNT, MAC, "OpenRouter", OPENROUTER_SERVER),
+	localAccount(
+		DEVBOX_OPENROUTER_ACCOUNT,
+		DEVBOX,
+		"OpenRouter on devbox",
+		DEVBOX_OPENROUTER_SERVER
+	),
 ];
 
 const agents = (now: Timestamp): Agent[] => [
@@ -454,11 +580,26 @@ const agents = (now: Timestamp): Agent[] => [
 		started_at: now - 2 * HOUR,
 		last_activity_at: now - 9 * MIN,
 	}),
+	seed(now, {
+		id: OPENROUTER_AGENT,
+		title: "Document the sync API",
+		workspace: "ws-mac-maxhq",
+		account: OPENROUTER_ACCOUNT,
+		model: OPENROUTER_MODEL,
+		control: "held",
+		pid: 52_877,
+		activity: { state: "busy" },
+		context: { used_tokens: 48_300, window_tokens: 200_000 },
+		local: { context_used: 48_300, context_size: 200_000 },
+		started_at: now - 40 * MIN,
+		last_activity_at: now - 5_000,
+	}),
 ];
 
 /**
- * Every local model entity in the sample view: the two servers, what each
- * device knows, the three local accounts and the two Local agents.
+ * Every local model entity in the sample view: the four servers, OpenRouter
+ * on the Mac and on devbox among them, what each device knows, the five
+ * local accounts and the three agents on them.
  */
 export const mockLocalEntities = (now: Timestamp): Entity[] => [
 	...servers(now).map((v) => ({ entity: "model_server" as const, ...v })),
@@ -468,7 +609,9 @@ export const mockLocalEntities = (now: Timestamp): Entity[] => [
 ];
 
 /** The calls this module answers. */
-export type LocalModelCalls = Pick<DataSource, "modelAction">;
+export type LocalModelCalls = Pick<DataSource, "modelAction" | "signInOpenRouter" | "cancelSignIn">;
+
+const OK: CommandResult = { status: "ok", data: null };
 
 const DONE: ActionResult = { status: "ok", data: { status: "done" } };
 
@@ -486,6 +629,8 @@ const pause = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve,
 /** The local model calls with nothing behind them, refused the way an older `maxd` does. */
 export const noLocalModels: LocalModelCalls = {
 	modelAction: async () => refused("This device doesn't offer it yet."),
+	signInOpenRouter: async () => refused("This device doesn't offer it yet."),
+	cancelSignIn: async () => OK,
 };
 
 /** What kind of server answers at a URL, from its port, as a probe would find it. */
@@ -608,11 +753,12 @@ export const mockLocalModels = (context: FleetContext): LocalModelCalls => {
 			}));
 			return;
 		}
-		const flavor = flavorOf(url);
+		const cloud = cloudHost(found.base_url);
+		const flavor = cloud ? "other" : flavorOf(url);
 		editServer(id, () => ({
 			kind: { type: "external", flavor },
-			probe: probed(now(), flavor, flavor === "ollama" ? null : CONTEXT),
-			models: urlModels(flavor),
+			probe: probed(now(), flavor, flavor === "ollama" || cloud ? null : CONTEXT),
+			models: cloud ? cloudModels() : urlModels(flavor),
 		}));
 	};
 
@@ -659,7 +805,8 @@ export const mockLocalModels = (context: FleetContext): LocalModelCalls => {
 		device: DeviceId,
 		label: string,
 		url: string,
-		token: string | null | undefined
+		token: string | null | undefined,
+		cloud: boolean
 	): ActionResult => {
 		const parsed = serverUrl(url);
 		if (typeof parsed === "string") return refused(parsed);
@@ -672,6 +819,7 @@ export const mockLocalModels = (context: FleetContext): LocalModelCalls => {
 			label: label.trim() || (parsed.port ? `${parsed.host}:${parsed.port}` : parsed.host),
 			base_url: url.trim().replace(/\/+$/, ""),
 			token: Boolean(token),
+			cloud: cloud || cloudHost(url),
 			probe: null,
 			models: [],
 		};
@@ -688,23 +836,30 @@ export const mockLocalModels = (context: FleetContext): LocalModelCalls => {
 	const act = (device: DeviceId, action: ModelAction): ActionResult => {
 		switch (action.action) {
 			case "add_server":
-				return addServer(device, action.label, action.url, action.token);
+				return addServer(
+					device,
+					action.label,
+					action.url,
+					action.token,
+					action.cloud === true
+				);
 			case "probe_server": {
 				// What answers at a URL, keeping nothing.
 				const url = serverUrl(action.url);
 				if (typeof url === "string") return refused(url);
-				const flavor = url.host.endsWith(".invalid") ? "other" : flavorOf(url);
+				const cloud = cloudHost(action.url);
+				const flavor = url.host.endsWith(".invalid") || cloud ? "other" : flavorOf(url);
 				const probe: ServerProbe =
-					flavor === "other"
+					flavor === "other" && !cloud
 						? {
 								at: now(),
 								apis: {},
 								context: null,
 								error: `Nothing answered at ${action.url}`,
 							}
-						: probed(now(), flavor, flavor === "ollama" ? null : CONTEXT);
-				const models = flavor === "other" ? [] : urlModels(flavor);
-				return ok({ status: "server_probed", flavor, probe, models });
+						: probed(now(), flavor, flavor === "ollama" || cloud ? null : CONTEXT);
+				const models = cloud ? cloudModels() : flavor === "other" ? [] : urlModels(flavor);
+				return ok({ status: "server_probed", flavor, probe, models, cloud });
 			}
 			case "test_server": {
 				const server = serverOn(device, action.server);
@@ -729,6 +884,30 @@ export const mockLocalModels = (context: FleetContext): LocalModelCalls => {
 							!(e.entity === "account" && e.model_server === server.id)
 					)
 				);
+				return DONE;
+			}
+			case "set_server_admin_key": {
+				// A key starting "bad" plays one OpenRouter turns down; any other
+				// reads the sample balance.
+				const server = serverOn(device, action.server);
+				if (!server) return gone("That server");
+				if (!isOpenRouterUrl(server.base_url)) {
+					return refused("Only an OpenRouter server takes an admin key.");
+				}
+				const key = action.key?.trim() ?? "";
+				if (key.startsWith("bad")) {
+					return refused(
+						"OpenRouter didn't accept this admin key. Use a management key from your OpenRouter settings."
+					);
+				}
+				// Checking the key reads the credits afresh; removing it drops the balance.
+				const read = key
+					? { ...OPENROUTER_BALANCE, at: now(), error: null }
+					: { balance_cents: null, bought_cents: null };
+				editServer(server.id, (s) => ({
+					admin_key: key !== "",
+					credits: s.credits && { ...s.credits, ...read },
+				}));
 				return DONE;
 			}
 			case "download": {
@@ -841,10 +1020,95 @@ export const mockLocalModels = (context: FleetContext): LocalModelCalls => {
 				setLoad(server.id, action.model, { state: "unloaded" });
 				return DONE;
 			}
+			case "begin_open_router_sign_in":
+			case "finish_open_router_sign_in":
+				// The app sends these around the browser, which the sample
+				// has none of: its round is signInOpenRouter below.
+				return refused("The sample signs in with OpenRouter in one step.");
 		}
+	};
+
+	// Sign in with OpenRouter can't open a browser here, so a round waits a
+	// few steps as if you were signing in. The first round fails the way a
+	// code OpenRouter didn't take does, so the failure shows, and the next
+	// gives the device a key: its OpenRouter server keeps its ID and its
+	// credits, read afresh, and gets the key, or a new one is added with the
+	// new key's credits. Cancel ends the round that waits, and a newer round
+	// ends an older one, as the app's do.
+	let rounds = 0;
+	let stop: ((why: string) => void) | null = null;
+
+	/** Waits `ms`, or less when the round is stopped, with why. */
+	const browser = (ms: number) =>
+		new Promise<string | null>((resolve) => {
+			stop?.("A newer sign-in took this one's place");
+			const timer = setTimeout(() => {
+				stop = null;
+				resolve(null);
+			}, ms);
+			stop = (why) => {
+				clearTimeout(timer);
+				stop = null;
+				resolve(why);
+			};
+		});
+
+	const signInOpenRouter = async (
+		device: DeviceId,
+		limitCents: number | null
+	): Promise<ActionResult> => {
+		const lacking = lacks(device);
+		if (lacking) return lacking;
+		if (limitCents !== null && (limitCents < 1 || limitCents > MAX_LIMIT_CENTS)) {
+			return refused("OpenRouter takes a limit from $0.01 up to $999,999.99.");
+		}
+		const stopped = await browser(4 * stepMs);
+		if (stopped) return { status: "error", error: { kind: "failed", message: stopped } };
+		rounds += 1;
+		if (rounds === 1) {
+			return refused(
+				"OpenRouter didn't take the sign-in's code. It lasts 10 minutes, so start the sign-in again."
+			);
+		}
+		const kept = all().find(
+			(e) => e.entity === "model_server" && e.device === device && isOpenRouter(e)
+		);
+		if (kept?.entity !== "model_server") {
+			// maxd marks OpenRouter a cloud service by its host, and reads the
+			// new key's credits as it adds the server.
+			const result = addServer(device, OPENROUTER_LABEL, OPENROUTER_URL, "sample-key", false);
+			if (result.status === "ok" && result.data.status === "model_server_added") {
+				editServer(result.data.server, () => ({
+					credits: {
+						at: now(),
+						used_cents: 0,
+						today_cents: 0,
+						week_cents: 0,
+						month_cents: 0,
+						limit_cents: limitCents,
+						remaining_cents: limitCents,
+						resets: null,
+						error: null,
+					},
+				}));
+			}
+			return result;
+		}
+		// The test after the new key reads the credits again.
+		editServer(kept.id, (s) => ({
+			token: true,
+			credits: s.credits && { ...s.credits, at: now(), error: null },
+		}));
+		void probe(kept.id);
+		return ok({ status: "model_server_added", server: kept.id });
 	};
 
 	return {
 		modelAction: async (device, action) => lacks(device) ?? act(device, action),
+		signInOpenRouter,
+		cancelSignIn: async () => {
+			stop?.("You cancelled the sign-in");
+			return OK;
+		},
 	};
 };

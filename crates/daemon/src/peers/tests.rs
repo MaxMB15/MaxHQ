@@ -1676,6 +1676,7 @@ impl Sharing {
                 context: Some(32_768),
                 load: None,
                 speed: None,
+                max_output: None,
             }],
         });
         devbox.peers.set_book(book).unwrap();

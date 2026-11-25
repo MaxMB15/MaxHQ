@@ -4,15 +4,28 @@
 // The Local entries in the desktop's agent and model pickers. Local is an
 // agent of its own and always shows, so a device with no model ready yet
 // leads to its Local models settings. Its models sit under their server,
-// "This Mac" for the Mac the app runs on, each with how well it fits; the
-// catalog models not downloaded yet follow, and a last row opens the setup.
+// "This Mac" for the Mac the app runs on, each with how well it fits, and a
+// cloud server's heading carries its credits; the catalog models not
+// downloaded yet follow, and a last row opens the setup. Each cloud service
+// the device reaches follows Local as an agent of its own, named after it,
+// with its own models alone.
 
 import { t } from "../i18n";
 
+import { creditsShort } from "./credits";
 import { estimate, recommendedFile, type Fit } from "./fit";
-import { catalogEntry, localAccountsOn, localModelsOf, serverOf, sharingOff } from "./models";
+import {
+	catalogEntry,
+	LOCAL_ENTRY,
+	localAccountsOn,
+	localModelsOf,
+	serverOf,
+	sharingOff,
+	type LocalEntry,
+} from "./models";
 import {
 	catalogRows,
+	cloudAccountOptions,
 	LOCAL_SETUP_VALUE,
 	localAccountOption,
 	localModelKey,
@@ -103,6 +116,17 @@ const deviceGroup = (view: ViewState, device: DeviceId): string =>
 export const serverGroup = (view: ViewState, server: ModelServer): string => {
 	const name = server.kind.type === "managed" ? deviceGroup(view, server.device) : server.label;
 	return notEncrypted(server) ? t("{{server}} (not encrypted)", { server: name }) : name;
+};
+
+/**
+ * A server's heading in the model pickers: its group, as `serverGroup`
+ * says, with the main figure of its credits when it has them, such as
+ * "OpenRouter · $7.42 left".
+ */
+export const serverHeading = (view: ViewState, server: ModelServer): string => {
+	const group = serverGroup(view, server);
+	const credits = creditsShort(server);
+	return credits ? t("{{server}} · {{credits}}", { server: group, credits }) : group;
 };
 
 /** The separator in a value that opens the Local models settings. */
@@ -198,12 +222,13 @@ export const localKindOption = (
 				? t("Download a model in Settings first")
 				: t("Add a server URL in Settings first"),
 		warn: true,
+		mark: "local",
 	};
 };
 
 /**
  * The agent picker's entries for a device: its logins, then Local, which
- * always shows.
+ * always shows, then each cloud service it reaches.
  */
 export const agentOptions = (
 	view: ViewState,
@@ -218,6 +243,7 @@ export const agentOptions = (
 	return [
 		...accountOptions(view, device, now, selected).filter((o) => !local(o.value)),
 		localKindOption(view, device, selected),
+		...cloudAccountOptions(view, device),
 	];
 };
 
@@ -244,20 +270,26 @@ const notDownloaded = (view: ViewState, device: DeviceId): Option[] => {
 };
 
 /**
- * The model picker's entries for a local agent on a device: each server's
- * models under "This Mac" or the server's name, with a fit tag where it's
- * known; the catalog models not downloaded yet; and a row that opens the
- * Local models settings. A Mac whose switch keeps this device's agents off
- * its models shows them turned off, with a row that opens its settings. `modelChoice` reads a model's value back, and
- * `opensLocalSetup` the others.
+ * The model picker's entries for a local agent on a device under `entry`:
+ * each server's models under "This Mac" or the server's name, with a fit
+ * tag where it's known; the catalog models not downloaded yet; and a row
+ * that opens the Local models settings. A Mac whose switch keeps this
+ * device's agents off its models shows them turned off, with a row that
+ * opens its settings. A cloud service's entry lists its own models alone.
+ * `modelChoice` reads a model's value back, and `opensLocalSetup` the
+ * others.
  */
-export const localPickerOptions = (view: ViewState, device: DeviceId): Option[] => {
-	const listed = localModelOptions(view, device);
-	const accounts = localAccountsOn(view, device);
+export const localPickerOptions = (
+	view: ViewState,
+	device: DeviceId,
+	entry: LocalEntry = LOCAL_ENTRY
+): Option[] => {
+	const listed = localModelOptions(view, device, entry);
+	const accounts = localAccountsOn(view, device, entry);
 	const models = accounts.flatMap((account): Option[] => {
 		const server = serverOf(view, account);
 		if (!server) return [];
-		const group = serverGroup(view, server);
+		const group = serverHeading(view, server);
 		const prefix = localModelKey(account.id, "");
 		const rows = listed
 			.filter((option) => option.value.startsWith(prefix))
@@ -275,6 +307,7 @@ export const localPickerOptions = (view: ViewState, device: DeviceId): Option[] 
 			? [...rows, turnOnOption(view, server.device, group)]
 			: rows;
 	});
+	if (entry !== LOCAL_ENTRY) return models;
 	// The catalogs to offer: the device's own, and those of the Macs whose
 	// servers its local agents reach.
 	const catalogs = [
@@ -288,5 +321,9 @@ export const localPickerOptions = (view: ViewState, device: DeviceId): Option[] 
 				.map((server) => server!.device),
 		]),
 	];
-	return [...models, ...catalogs.flatMap((d) => notDownloaded(view, d)), localSetupOption()];
+	const rows = [...models, ...catalogs.flatMap((d) => notDownloaded(view, d))];
+	// The models not downloaded join their server's group, so a server at a
+	// URL listed between them doesn't split it.
+	const groups = [...new Set(rows.map((row) => row.group))];
+	return [...groups.flatMap((g) => rows.filter((row) => row.group === g)), localSetupOption()];
 };

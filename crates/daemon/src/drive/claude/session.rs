@@ -1030,7 +1030,8 @@ fn fresh_convo(login: &Login, place: &Place, agent: AgentId) -> Convo {
 }
 
 /// What went wrong in a turn, from its `result` line. A turn cut short by
-/// an interrupt or a steer isn't an error.
+/// an interrupt or a steer isn't an error. One OpenRouter turned down over
+/// money says so in plain words.
 fn failure(line: &Value) -> Option<String> {
     if let Some(reason) = text(line, "startup_failure_reason") {
         return Some(format!("Claude Code couldn't start: {}", clip(reason, 200)));
@@ -1061,7 +1062,7 @@ fn failure(line: &Value) -> Option<String> {
             Some("error_max_budget_usd") => "The turn hit its spending limit.".to_owned(),
             _ => "The turn failed.".to_owned(),
         });
-    Some(said)
+    Some(crate::local_models::turned_down(&said).map_or(said, str::to_owned))
 }
 
 /// Whether an `assistant` line is a reply from the API. The CLI writes its

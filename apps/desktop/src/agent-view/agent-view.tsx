@@ -46,7 +46,7 @@ import { TimelineQuotes } from "./quotes";
 import { MovedBanner, movedAway } from "./moved-banner";
 import { canResume, ResumeBanner } from "./resume-banner";
 import { needsSignIn } from "@maxhq/shared/settings/acp-agents";
-import { agentKind } from "@maxhq/shared/status/agent-kind";
+import { agentKind, agentKindName } from "@maxhq/shared/status/agent-kind";
 import { slideLead, spotOf } from "@maxhq/shared/ui/store";
 import { TimelineList } from "./timeline-list";
 import { useAutoOpen } from "./auto-open";
@@ -61,6 +61,9 @@ export const AgentView = ({ agent }: { agent: Agent }) => {
 	const device = useView((s) => s.view.tables.workspace.get(agent.workspace)?.device);
 	const remote = useView((s) => (device ? isRemoteDevice(s.view, device) : false));
 	const kind = useView((s) => agentKind(agent, s.view.tables.account));
+	const name = useView((s) =>
+		agentKindName(agent, s.view.tables.account, s.view.tables.model_server)
+	);
 	// So the pane can show the history once the sub-agent finishes.
 	useKeepSubAgent(
 		agent,
@@ -100,6 +103,7 @@ export const AgentView = ({ agent }: { agent: Agent }) => {
 			agent: agent.id,
 			vendor: agent.vendor,
 			kind,
+			name,
 			timeline: timeline.store,
 			readOnly: observed,
 			remote,
@@ -112,6 +116,7 @@ export const AgentView = ({ agent }: { agent: Agent }) => {
 			agent.id,
 			agent.vendor,
 			kind,
+			name,
 			timeline.store,
 			observed,
 			remote,

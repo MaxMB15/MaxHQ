@@ -121,6 +121,7 @@ import type {
 } from "../fleet/wire";
 import { DEPTH } from "../bindings";
 import type { FolderCalls } from "../folders/requests";
+import type { OpenRouterCalls } from "../local-models/openrouter";
 import type { CursorRuleCalls } from "../settings/cursor-rules";
 import type { ResetCreditCalls } from "../status/reset-credits";
 import type { NoticeCalls } from "../notices/requests";
@@ -340,15 +341,16 @@ export type MockControls = {
 
 /**
  * The calls that live with their own helpers: the terminal's, the
- * session's, the folders', the notices', Cursor's rules' and the banked
- * resets'.
+ * session's, the folders', the notices', Cursor's rules', the banked
+ * resets' and Sign in with OpenRouter's.
  */
 type HelperCalls = TerminalCalls &
 	SessionCalls &
 	FolderCalls &
 	NoticeCalls &
 	CursorRuleCalls &
-	ResetCreditCalls;
+	ResetCreditCalls &
+	OpenRouterCalls;
 
 /**
  * One place the view comes from, with the commands that act on it. The

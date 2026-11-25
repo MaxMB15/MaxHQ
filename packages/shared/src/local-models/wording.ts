@@ -280,3 +280,10 @@ export const scoreSourceText = (score: Pick<ModelScore, "source" | "date">): str
 /** A local agent as it's named everywhere: "Local · <model>". */
 export const localAgentLabel = (model: string | null): string =>
 	model ? t("Local · {{model}}", { model }) : t("Local");
+
+/**
+ * An agent on a cloud service as it's named everywhere, "<service> ·
+ * <model>", such as "OpenRouter · Z.ai: GLM 5.3 Flash".
+ */
+export const cloudAgentLabel = (server: string, model: string | null): string =>
+	model ? `${server} · ${model}` : server;
