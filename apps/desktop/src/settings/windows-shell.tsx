@@ -19,6 +19,9 @@ import { Picker } from "@/new-agent/picker";
 import { Row, StatusNote } from "./controls";
 import type { Note } from "./result";
 
+/** What Settings search finds the row by, on a device that shows it. */
+export const windowsShellTerms = (): string[] => [translate("Shell for terminals")];
+
 export const WindowsShellRow = ({
 	view,
 	device,

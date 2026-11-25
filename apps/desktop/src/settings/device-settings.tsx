@@ -63,6 +63,7 @@ import { knowsClaudeArtifacts } from "@maxhq/shared/settings/claude-artifacts";
 import { knowsReadRights } from "@maxhq/shared/settings/read-rights";
 import { knowsSetupTokens, setupTokenQuestion } from "@maxhq/shared/settings/setup-tokens";
 import { knowsShellIntegration } from "@maxhq/shared/settings/shell-integration";
+import { picksWindowsShell } from "@maxhq/shared/settings/windows-shell";
 import { offersSkills, skillLibrary } from "@maxhq/shared/skills/library";
 import { kindLabel, offersTestHosts } from "@maxhq/shared/test-hosts/hosts";
 import { deviceLive, placesOn } from "@maxhq/shared/test-hosts/place";
@@ -85,7 +86,7 @@ import { PhoneAddress } from "./phones-settings";
 import { failureOf, type Note } from "./result";
 import { deviceCardId } from "./store";
 import { Value } from "./value";
-import { WindowsShellRow } from "./windows-shell";
+import { WindowsShellRow, windowsShellTerms } from "./windows-shell";
 import { t as translate, useI18n } from "@maxhq/shared/i18n";
 
 type Part =
@@ -245,7 +246,14 @@ export const deviceCards = (view: ViewState, device: DeviceId): readonly DeviceC
 					: []),
 			],
 		},
-		{ id: "terminals", terms: [translate("Terminals"), translate("Shell integration")] },
+		{
+			id: "terminals",
+			terms: [
+				translate("Terminals"),
+				translate("Shell integration"),
+				...(picksWindowsShell(view, device) ? windowsShellTerms() : []),
+			],
+		},
 		{
 			id: "setup-tokens",
 			terms: [translate("Claude setup-tokens"), translate("Take setup-tokens")],
@@ -421,7 +429,8 @@ const Cards = ({
 	);
 	const host = view.tables.device.get(device)?.workspace_host ?? null;
 	const os = view.tables.device.get(device)?.os;
-	// The Sleep card's words name this device's system, not the app's.
+	// The Sleep card's and the Terminals card's words name this device's
+	// system, not the app's.
 	const wording = { context: wordingFor(os) };
 	// A maxd from before network access publishes none.
 	const access = view.tables.network_access.get(device);
@@ -726,7 +735,8 @@ const Cards = ({
 						sub={
 							why.shell ??
 							translate(
-								"MaxHQ adds hooks to zsh, bash and fish so it can tell commands apart. Off starts shells exactly as your startup files say. Applies to terminals opened after the change."
+								"MaxHQ adds hooks to zsh, bash and fish so it can tell commands apart. Off starts shells exactly as your startup files say. Applies to terminals opened after the change.",
+								wording
 							)
 						}
 					>

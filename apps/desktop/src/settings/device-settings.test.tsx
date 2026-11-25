@@ -929,6 +929,27 @@ describe("Windows shell", () => {
 		).toBeInTheDocument();
 	});
 
+	it("names the shells Windows hooks into", async () => {
+		await renderDevice("link-devbox", "connected", windows(WINDOWS_SHELL_SINCE));
+		expect(
+			within(await terminals("devbox")).getByText(
+				/^MaxHQ adds hooks to Git Bash and PowerShell/
+			)
+		).toBeInTheDocument();
+	});
+
+	it("is found by Settings search on a Windows device only", async () => {
+		await renderDevice("link-devbox", "connected", windows(WINDOWS_SHELL_SINCE));
+		const dialog = await screen.findByRole("dialog", { name: "Settings" });
+		fireEvent.change(within(dialog).getByRole("searchbox", { name: "Search settings" }), {
+			target: { value: "shell for terminals" },
+		});
+		const hits = within(dialog)
+			.getAllByRole("button", { name: /Shell for terminals$/ })
+			.map((button) => button.textContent);
+		expect(hits).toEqual(["devboxShell for terminals"]);
+	});
+
 	it("saves the shell you pick, keeping the other settings", async () => {
 		const { source } = await renderDevice(
 			"link-devbox",

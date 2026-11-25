@@ -517,7 +517,8 @@
       "id": "settings/device/terminals",
       "link": "maxhq://device/{device}/terminals",
       "terms": [
-        "Shell integration"
+        "Shell integration",
+        "Shell for terminals"
       ],
       "title": "Terminals"
     },

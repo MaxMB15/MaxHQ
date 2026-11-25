@@ -1265,6 +1265,8 @@
 	"Shell integration on by default": "Shell integration on by default",
 	"Shell integration": "Shell integration",
 	"MaxHQ adds hooks to zsh, bash and fish so it can tell commands apart. Off starts shells exactly as your startup files say. Applies to terminals opened after the change.": "MaxHQ adds hooks to zsh, bash and fish so it can tell commands apart. Off starts shells exactly as your startup files say. Applies to terminals opened after the change.",
+	"MaxHQ adds hooks to zsh, bash and fish so it can tell commands apart. Off starts shells exactly as your startup files say. Applies to terminals opened after the change._windows": "MaxHQ adds hooks to Git Bash and PowerShell so it can tell commands apart. Off starts shells exactly as your startup files say. Applies to terminals opened after the change.",
+	"MaxHQ adds hooks to zsh, bash and fish so it can tell commands apart. Off starts shells exactly as your startup files say. Applies to terminals opened after the change._linux": "MaxHQ adds hooks to zsh, bash and fish so it can tell commands apart. Off starts shells exactly as your startup files say. Applies to terminals opened after the change.",
 	"Shell for terminals": "Shell for terminals",
 	"The shell that ! commands and new terminals start. A shell you pick that isn't installed falls back to the automatic order. Applies to terminals opened after the change.": "The shell that ! commands and new terminals start. A shell you pick that isn't installed falls back to the automatic order. Applies to terminals opened after the change.",
 	"Git Bash when installed, else PowerShell 7, else Windows PowerShell 5.1": "Git Bash when installed, else PowerShell 7, else Windows PowerShell 5.1",
