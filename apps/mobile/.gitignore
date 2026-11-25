@@ -26,3 +26,6 @@ expo-env.d.ts
 # What `swift test` builds for the push extension.
 /targets/push/.build/
 /targets/push/.swiftpm/
+
+# What Gradle builds of the push module.
+/modules/maxhq-push/android/build/

@@ -168,8 +168,6 @@ fn save(db: &Db, folder: &Path) {
 mod tests {
     use std::collections::HashMap;
     use std::fs;
-    use std::os::unix::fs::PermissionsExt;
-    use std::time::{Duration, Instant};
 
     use maxhq_core::names;
     use maxhq_protocol::ids::BootId;
@@ -207,7 +205,10 @@ mod tests {
     }
 
     /// Waits until `check` holds.
+    #[cfg(unix)]
     async fn until(what: &str, check: impl Fn() -> bool) {
+        use std::time::{Duration, Instant};
+
         let start = Instant::now();
         while !check() {
             assert!(
@@ -218,6 +219,8 @@ mod tests {
         }
     }
 
+    // The fake git is a shell script, which Windows can't start by itself.
+    #[cfg(unix)]
     #[tokio::test]
     async fn a_clone_shows_in_the_hub_and_its_folder_survives_a_restart() {
         let dir = TempDir::new();
@@ -226,7 +229,7 @@ mod tests {
         let hub = hub();
         let git = parent.join("git");
         fs::write(&git, "#!/bin/sh\nmkdir -p \"$5/.git\"\n").unwrap();
-        fs::set_permissions(&git, fs::Permissions::from_mode(0o755)).unwrap();
+        maxhq_os::fsmode::set_mode(&git, 0o755).unwrap();
         let sink = Arc::new(Shown {
             hub: hub.clone(),
             db: db.clone(),

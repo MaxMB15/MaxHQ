@@ -1,0 +1,40 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026 Max Boksem
+
+// The phone's FCM receiver. Expo's module plugin applies Kotlin and the
+// SDK versions the app builds with, as it does for expo-notifications,
+// whose messaging service this one extends.
+
+plugins {
+  id "com.android.library"
+  id "expo-module-gradle-plugin"
+}
+
+// Expo's plugin names a package by these, though this one is never published.
+group = "dev.maxhq"
+version = "0.0.0"
+
+android {
+  namespace "dev.maxhq.push"
+
+  testOptions {
+    unitTests.all {
+      // The vectors maxd's seal is checked against, so both ends agree.
+      systemProperty "pushVectors", file("../../../../../crates/daemon/fixtures/push-vectors.json").absolutePath
+    }
+  }
+}
+
+dependencies {
+  // A project or a prebuilt package, whichever the app builds with.
+  implementation expoModule.getExpoDependency("expo-notifications")
+  // The version expo-notifications builds against.
+  implementation "com.google.firebase:firebase-messaging:25.0.1"
+  implementation project(":maxhq-core")
+  // X25519 and ChaCha20-Poly1305 for API 24 on, where Android has neither.
+  implementation "com.google.crypto.tink:tink-android:1.24.0"
+
+  testImplementation "junit:junit:4.13.2"
+  // Android's own org.json is a stub on the JVM.
+  testImplementation "org.json:json:20260814"
+}

@@ -138,7 +138,7 @@ jobs:
     runs-on: windows-latest
     timeout-minutes: 45
     env:
-      CRATES: -p maxhq-os -p maxhq-core -p maxhq-transfer -p maxhq-wire -p maxhq-protocol -p maxhq-term -p maxhq-workflow -p maxhq-fake-agent
+      CRATES: -p maxhq-os -p maxhq-core -p maxhq-transfer -p maxhq-wire -p maxhq-protocol -p maxhq-term -p maxhq-workflow -p maxhq-fake-agent -p maxhq-vm -p maxhq-hold
     defaults:
       run:
         # The same commands as on Linux, through the runner's Git Bash.
@@ -229,48 +229,9 @@ jobs:
             --config '{"bundle":{"createUpdaterArtifacts":false,"externalBin":["binaries/maxd"]}}'
           ls -l target/debug/bundle/appimage target/debug/bundle/deb target/debug/bundle/rpm
 
-      # Each package must carry maxd and name WebKitGTK 4.1 and the SSH
-      # client, which the app needs to reach other devices. Tauri adds
-      # WebKitGTK and GTK itself, as a deb package and as the libraries an
-      # rpm needs, so tauri.linux.conf.json names only the SSH client. The
-      # desktop entry must be MaxHQ.desktop, the name the dock's launcher
-      # count is sent to, and name the window's class, so the dock puts the
-      # window under the app's icon.
+      # The release's build-linux job runs the same check.
       - name: Check the packages
-        run: |
-          set -euo pipefail
-          deb=(target/debug/bundle/deb/*.deb)
-          rpm=(target/debug/bundle/rpm/*.rpm)
-          fail() { echo "::error::$1"; exit 1; }
-          echo "deb package: $(dpkg-deb --field "${deb[0]}" Package)"
-          depends="$(dpkg-deb --field "${deb[0]}" Depends)"
-          echo "deb depends: $depends"
-          for name in libwebkit2gtk-4.1-0 openssh-client; do
-            grep -qw -- "$name" <<<"$depends" || fail "The .deb doesn't depend on $name."
-          done
-          # The deb names its files from the root without a leading ./ or /,
-          # so the names are matched with those taken off.
-          files="$(dpkg-deb --fsys-tarfile "${deb[0]}" | tar -t | sed -E 's#^\.?/##')"
-          echo "deb programs:"
-          grep '^usr/bin/' <<<"$files" || true
-          grep -qx 'usr/bin/maxd' <<<"$files" || fail "The .deb has no maxd."
-          grep -qx 'usr/share/applications/MaxHQ.desktop' <<<"$files" ||
-            fail "The .deb has no MaxHQ.desktop."
-          entry="$(dpkg-deb --fsys-tarfile "${deb[0]}" |
-            tar -xO --wildcards '*usr/share/applications/MaxHQ.desktop')"
-          echo "$entry"
-          grep -q '^StartupWMClass=' <<<"$entry" || fail "MaxHQ.desktop names no window class."
-          requires="$(rpm -qpR "${rpm[0]}")"
-          echo "rpm requires: $requires"
-          for name in 'libwebkit2gtk-4.1.so.0()(64bit)' openssh-clients; do
-            grep -qF -- "$name" <<<"$requires" || fail "The .rpm doesn't require $name."
-          done
-          files="$(rpm -qpl "${rpm[0]}")"
-          grep -qx '/usr/bin/maxd' <<<"$files" || fail "The .rpm has no maxd."
-          # The app copies maxd out of the AppImage from beside its own
-          # program, so the AppImage must carry it there.
-          [ -x target/debug/bundle/appimage/MaxHQ.AppDir/usr/bin/maxd ] ||
-            fail "The AppImage has no maxd beside the app."
+        run: bash scripts/release/check-linux-packages.sh target/debug/bundle
 
       - name: Disk left
         if: always()
@@ -307,63 +268,24 @@ jobs:
 
   # The phone app's Android build: the Rust core for both ABIs through
   # cargo-ndk, the debug APK, and the JVM tests of the key store's file
-  # format. It needs the runner's Android SDK, so unlike the rust job it
+  # format and of how the phone opens a push. It needs the runner's Android SDK, so unlike the rust job it
   # keeps it, and adds the NDK the core is pinned to.
   android:
     runs-on: ubuntu-24.04
-    env:
-      # The NDK scripts/native.ts pins, which the runner's SDK doesn't carry.
-      NDK_VERSION: 30.0.16248370
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      # The core's two debug builds and Gradle's build take most of the
-      # runner's disk. This job never uses the runner's .NET, Haskell or
-      # CodeQL.
-      - name: Free disk space
-        run: |
-          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/.ghcup /opt/hostedtoolcache/CodeQL
-          df -h /
+      # Frees disk and installs Java, Rust for Android, cargo-ndk and the
+      # NDK native.ts pins, which it names in NDK_VERSION. Only branch
+      # pushes save the caches, as in the rust job.
+      - name: Set up the Android build
+        uses: ./.github/actions/setup-android
+        with:
+          cache: "true"
+          save-cache: ${{ github.event_name == 'push' }}
 
       - name: Set up the frontend
         uses: ./.github/actions/setup-frontend
-
-      # Gradle's downloads are cached under the versions that pick them: the
-      # lockfile for React Native's and Expo's, and the core module's build.
-      - name: Install Java
-        uses: actions/setup-java@77dd5b2ce225ea11469928ac317850245a74ae78 # v6.2.0
-        with:
-          distribution: temurin
-          java-version: 17
-          cache: gradle
-          cache-dependency-path: |
-            pnpm-lock.yaml
-            apps/mobile/modules/maxhq-core/android/build.gradle
-          # Only branch pushes save, as with the Rust caches.
-          cache-read-only: ${{ github.event_name != 'push' }}
-
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@686976e191b89faba57d3206551f0f330d8cb249 # stable
-        with:
-          toolchain: stable
-          targets: aarch64-linux-android, x86_64-linux-android
-
-      - name: Rust cache
-        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
-        with:
-          workspaces: ". -> target"
-          # Only branch pushes save, for the same reason as in the rust job.
-          save-if: ${{ github.event_name == 'push' }}
-
-      # install-action has no build of cargo-ndk, so it builds here.
-      - name: Install cargo-ndk
-        run: cargo install --locked cargo-ndk@4.1.2
-
-      # The image accepted the SDK's licenses, so nothing asks.
-      - name: Install the NDK
-        run: |
-          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --install "ndk;$NDK_VERSION" < /dev/null > /dev/null
-          ls "$ANDROID_HOME/ndk/$NDK_VERSION/source.properties"
 
       # mobile.ts builds the core for both ABIs, prebuilds the development
       # app and builds its debug APK, signed with the debug key.
@@ -389,12 +311,13 @@ jobs:
           ls -l "$apk"
 
       # Gradle reads the app's config as it starts, so the variant is set.
-      - name: Test the key store's file format
+      # The push module's tests open maxd's push vectors.
+      - name: Test the key store's file format and the push module
         working-directory: apps/mobile/android
         env:
           APP_VARIANT: development
           EXPO_NO_GIT_STATUS: "1"
-        run: ./gradlew :maxhq-core:testDebugUnitTest
+        run: ./gradlew :maxhq-core:testDebugUnitTest :maxhq-push:testDebugUnitTest
 
       - name: Disk left
         if: always()

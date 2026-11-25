@@ -16,7 +16,6 @@
 use std::collections::{HashMap, HashSet};
 use std::fs::{self, File};
 use std::io::{self, BufRead, BufReader, Read, Seek, SeekFrom};
-use std::os::unix::fs::OpenOptionsExt;
 use std::path::{Path, PathBuf};
 
 use maxhq_protocol::ids::{AccountId, AgentId};
@@ -264,17 +263,7 @@ fn hand_on(line: &[u8], each: &mut impl FnMut(&Value, &[u8])) {
 /// anything else that isn't a regular file is refused, and a pipe can't
 /// block the open.
 fn open_regular(path: &Path) -> io::Result<File> {
-    let file = fs::OpenOptions::new()
-        .read(true)
-        .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
-        .open(path)?;
-    if !file.metadata()?.is_file() {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidInput,
-            "not a regular file",
-        ));
-    }
-    Ok(file)
+    maxhq_core::fs_ext::open_regular(path, false)
 }
 
 /// The whole lines in the last `cap` bytes of the file at `path`.
@@ -937,6 +926,7 @@ mod tests {
     }
 
     /// Runs `read` on a thread of its own and fails if it doesn't come back.
+    #[cfg(unix)]
     fn returns<T: Send + 'static>(read: impl FnOnce() -> T + Send + 'static) -> T {
         let (done, back) = std::sync::mpsc::channel();
         std::thread::spawn(move || done.send(read()));
@@ -944,11 +934,14 @@ mod tests {
             .expect("the read blocked")
     }
 
+    #[cfg(unix)]
     fn pipe(path: &Path) {
         let made = std::process::Command::new("mkfifo").arg(path).status();
         assert!(made.unwrap().success());
     }
 
+    // Windows makes no pipe at a path in a folder.
+    #[cfg(unix)]
     #[test]
     fn a_pipe_planted_as_a_transcript_or_meta_file_doesnt_block_a_read() {
         let session = Session::new();
@@ -971,9 +964,10 @@ mod tests {
         append(&elsewhere, &[reply("msg_elsewhere", "Not the agent's")]);
         let meta = session.dir.path().join("meta");
         fs::write(&meta, json!({"toolUseId": "toolu_meta"}).to_string()).unwrap();
-        std::os::unix::fs::symlink(&meta, session.subagents().join("agent-a2.meta.json")).unwrap();
+        maxhq_core::fs_ext::symlink(&meta, session.subagents().join("agent-a2.meta.json")).unwrap();
         session.meta("a1", "toolu_agent");
-        std::os::unix::fs::symlink(&elsewhere, session.subagents().join("agent-a1.jsonl")).unwrap();
+        maxhq_core::fs_ext::symlink(&elsewhere, session.subagents().join("agent-a1.jsonl"))
+            .unwrap();
         session.lead(&[call("msg_lead", "toolu_agent", "Agent")]);
         let mut history = session.history();
         let items = history.read().unwrap();

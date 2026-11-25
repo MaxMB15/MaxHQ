@@ -113,7 +113,8 @@ impl Missing {
     }
 }
 
-#[cfg(test)]
+// The tests link programs with symlinks, and only a Mac watches.
+#[cfg(all(test, unix))]
 mod tests {
     use super::*;
     use crate::service::plist;

@@ -21,7 +21,7 @@ use std::path::{Path, PathBuf};
 
 use maxhq_protocol::skills::{GlobalsConflict, GlobalsJoin, GlobalsPlan, TreeHash};
 
-use super::{ignored, link_points_at, sha256_hex, tree, Node, SkillFs, SKILL_FILE};
+use super::{ignored, link_points_at, path_text, sha256_hex, tree, Node, SkillFs, SKILL_FILE};
 
 /// The device's global skill folders, as `maxd` finds them.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -133,7 +133,7 @@ impl Tidy {
     /// with no pick stays. A path that isn't a copy in a conflict, or two
     /// picks for one skill, is refused.
     pub fn pick(&mut self, picks: &[String]) -> Result<(), String> {
-        let is = |taken: &Taken, pick: &String| taken.path.as_os_str() == pick.as_str();
+        let is = |taken: &Taken, pick: &String| path_text(&taken.path) == *pick;
         if let Some(stray) = picks.iter().find(|pick| {
             !self
                 .conflicts
@@ -181,7 +181,7 @@ impl Tidy {
     pub fn hash(&self) -> String {
         let mut text = String::new();
         let mut line = |kind: &str, path: &Path, what: &str| {
-            text.push_str(&format!("{kind}\0{}\0{what}\n", path.display()));
+            text.push_str(&format!("{kind}\0{}\0{what}\n", path_text(path)));
         };
         let tree = |taken: &Taken| taken.tree.as_ref().map_or("-".to_owned(), |t| t.0.clone());
         for taken in &self.moves {
@@ -191,7 +191,7 @@ impl Tidy {
             line("backup", &taken.path, &tree(taken));
         }
         for link in &self.links {
-            line("link", &link.path, &link.target.to_string_lossy());
+            line("link", &link.path, &path_text(&link.target));
         }
         for join in &self.joins {
             for taken in &join.taken {
@@ -212,19 +212,14 @@ impl Tidy {
 
     /// The plan the app shows.
     pub fn plan(&self) -> GlobalsPlan {
-        let paths = |taken: &[Taken]| {
-            taken
-                .iter()
-                .map(|t| t.path.to_string_lossy().into_owned())
-                .collect()
-        };
+        let paths = |taken: &[Taken]| taken.iter().map(|t| path_text(&t.path)).collect();
         GlobalsPlan {
             hash: self.hash(),
             moves: paths(&self.moves),
             links: self
                 .links
                 .iter()
-                .map(|link| link.path.to_string_lossy().into_owned())
+                .map(|link| path_text(&link.path))
                 .collect(),
             backups: paths(&self.backups),
             joins: self
@@ -657,9 +652,6 @@ mod tests {
         assert_ne!(shown.hash, plan(&fs, &input(Some(propose()))).hash());
     }
 
-    // A pick matches the plan's own path text, which a Windows host writes
-    // with `\`, so this test's `/` picks only match on Unix.
-    #[cfg(unix)]
     #[test]
     fn copies_that_differ_wait_for_a_pick() {
         let mut fs = today();

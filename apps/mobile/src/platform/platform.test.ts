@@ -16,16 +16,22 @@ describe("the platform rules", () => {
 			savesByShare: true,
 			context: undefined,
 			phoneName: "iPhone",
+			pushService: "apns",
+			answersInBackground: true,
+			notificationChannels: false,
 		});
 	});
 
-	it("gives Android its own font, full-screen sheets, folder saves and words", () => {
+	it("gives Android its own font, full-screen sheets, folder saves, words and pushes", () => {
 		expect(rulesFor("android")).toEqual({
 			monoFont: "monospace",
 			sheetsBelowStatusBar: false,
 			savesByShare: false,
 			context: "android",
 			phoneName: "Android",
+			pushService: "fcm",
+			answersInBackground: false,
+			notificationChannels: true,
 		});
 	});
 

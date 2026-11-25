@@ -697,6 +697,8 @@ async fn a_download_lands_under_a_free_name_marked_as_from_elsewhere() {
     );
 
     let saved = saved.unwrap();
+    assert!(saved.skipped_links.is_empty());
+    let saved = saved.path;
     assert_eq!(saved, downloads.join("report 3.txt"));
     assert_eq!(std::fs::read(&saved).unwrap(), bytes);
     #[cfg(target_os = "macos")]
@@ -751,7 +753,7 @@ async fn a_download_lands_in_the_folder_the_client_was_given() {
         }
     );
 
-    let saved = saved.unwrap();
+    let saved = saved.unwrap().path;
     assert_eq!(saved, folder.join("notes.txt"));
     assert_eq!(std::fs::read(&saved).unwrap(), bytes);
     assert!(!dir.join("Downloads/MaxHQ/notes.txt").exists());

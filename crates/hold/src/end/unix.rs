@@ -1,76 +1,24 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026 Max Boksem
 
-//! Ending a holder that can't be reached, so a new one never runs beside
-//! it.
-//!
-//! A process is only signalled once it's confirmed as the session's own.
-//! The holder is confirmed by its lock, which goes with its process, by
-//! `holder.json`, by leading a session of its own and by its command line,
-//! which ends with the session's folder and `--detached`. Its CLI is
-//! confirmed by leading its own process group inside the holder's session,
-//! and an ID that's still in use as a session ID isn't given to a new
-//! process. Anything that can't be confirmed is left alone.
-
 use std::path::Path;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
-use maxhq_protocol::ids::SessionId;
 use rustix::io::Errno;
 use rustix::process::{Pid, Signal};
 
-use crate::files::{self, HolderFile, EXIT, HOLDER};
+use super::{alive, read_holder, unconfirmed, wait_for, Ended, KILL_WAIT};
+use crate::files::{self, EXIT};
 use crate::holder::DETACHED;
-use crate::{Exit, Holds};
-
-/// How long a holder or CLI has to go once it gets SIGKILL.
-const KILL_WAIT: Duration = Duration::from_secs(2);
-
-/// How often to check whether a process has gone.
-const POLL: Duration = Duration::from_millis(50);
-
-/// How [`Holds::end`] went.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum Ended {
-    /// Neither the holder nor its CLI runs any more.
-    Gone,
-    /// Something may still run for the session, but it couldn't be
-    /// confirmed as the session's own, so it was left alone.
-    Unconfirmed {
-        /// The process that may still run, when known.
-        pid: Option<u32>,
-        /// Why it couldn't be confirmed or ended.
-        reason: String,
-    },
-}
-
-fn unconfirmed(pid: Option<u32>, reason: impl Into<String>) -> Ended {
-    Ended::Unconfirmed {
-        pid,
-        reason: reason.into(),
-    }
-}
-
-pub(crate) async fn end(
-    holds: &Holds,
-    session: SessionId,
-    holder_pid: Option<u32>,
-    grace: Duration,
-) -> Ended {
-    let sessions = match std::path::absolute(&holds.dirs.sessions) {
-        Ok(sessions) => sessions,
-        Err(err) => return unconfirmed(holder_pid, format!("couldn't find its folder: {err}")),
-    };
-    let dir = files::session_dir(&sessions, &session);
-    if let Err(ended) = end_holder(&dir, holder_pid, grace).await {
-        return ended;
-    }
-    end_cli(&dir, grace).await
-}
+use crate::Exit;
 
 /// Ends the session's holder if it still runs. A holder that gets SIGTERM
 /// stops its CLI and records the exit before it goes.
-async fn end_holder(dir: &Path, expected: Option<u32>, grace: Duration) -> Result<(), Ended> {
+pub(super) async fn end_holder(
+    dir: &Path,
+    expected: Option<u32>,
+    grace: Duration,
+) -> Result<(), Ended> {
     if !alive(dir, expected)? {
         return Ok(());
     }
@@ -108,7 +56,7 @@ async fn end_holder(dir: &Path, expected: Option<u32>, grace: Duration) -> Resul
 }
 
 /// Ends the CLI a dead holder left behind, if it still runs.
-async fn end_cli(dir: &Path, grace: Duration) -> Ended {
+pub(super) async fn end_cli(dir: &Path, grace: Duration) -> Ended {
     // The holder records how the CLI ended once it has reaped it. A client
     // that found the holder dead records an exit without either, though the
     // CLI may still run.
@@ -141,17 +89,6 @@ async fn end_cli(dir: &Path, grace: Duration) -> Ended {
         Some(pid),
         format!("its CLI, process {pid}, didn't end, even after SIGKILL"),
     )
-}
-
-/// Whether the session's holder runs.
-fn alive(dir: &Path, pid: Option<u32>) -> Result<bool, Ended> {
-    files::holder_alive(dir)
-        .map_err(|err| unconfirmed(pid, format!("couldn't check its holder's lock: {err}")))
-}
-
-fn read_holder(dir: &Path) -> Result<Option<HolderFile>, Ended> {
-    files::read_json(&dir.join(HOLDER))
-        .map_err(|err| unconfirmed(None, format!("couldn't read {HOLDER}: {err}")))
 }
 
 fn to_pid(pid: u32) -> Option<Pid> {
@@ -193,18 +130,4 @@ fn cli(pid: u32, holder: u32) -> Result<Option<Pid>, String> {
         Err(err) => return Err(format!("couldn't check process {pid}: {err}")),
     };
     Ok((group == target && sid == session).then_some(target))
-}
-
-/// Waits up to `limit` for `done`. Returns whether it came.
-async fn wait_for(limit: Duration, mut done: impl FnMut() -> bool) -> bool {
-    let deadline = Instant::now() + limit;
-    loop {
-        if done() {
-            return true;
-        }
-        if Instant::now() >= deadline {
-            return false;
-        }
-        tokio::time::sleep(POLL).await;
-    }
 }

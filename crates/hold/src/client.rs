@@ -19,11 +19,10 @@ use std::task::{Context, Poll};
 use std::time::Duration;
 
 use futures::Stream;
+use maxhq_os::ipc::{LocalStream, ReadHalf, WriteHalf};
 use maxhq_protocol::ids::SessionId;
 use maxhq_protocol::time::Timestamp;
 use tokio::io::BufReader;
-use tokio::net::unix::{OwnedReadHalf, OwnedWriteHalf};
-use tokio::net::UnixStream;
 use tokio::sync::{mpsc, oneshot};
 use tokio::time::Instant;
 
@@ -289,7 +288,7 @@ pub(crate) async fn attempt(
     path: &Path,
     session: SessionId,
     after: Option<u64>,
-) -> Result<(BufReader<OwnedReadHalf>, OwnedWriteHalf, Hello), ConnectError> {
+) -> Result<(BufReader<ReadHalf>, WriteHalf, Hello), ConnectError> {
     let key = files::read_key(dir)?;
     let timed_out = |what: &str| {
         ConnectError::Io(io::Error::new(
@@ -297,7 +296,7 @@ pub(crate) async fn attempt(
             format!("the holder didn't {what} in time"),
         ))
     };
-    let stream = tokio::time::timeout(ATTEMPT_WAIT, UnixStream::connect(path))
+    let stream = tokio::time::timeout(ATTEMPT_WAIT, LocalStream::connect(path))
         .await
         .map_err(|_| timed_out("take the connection"))??;
     let (read, mut write) = stream.into_split();
@@ -348,8 +347,8 @@ pub(crate) async fn attempt(
 /// A connection to a running holder.
 fn live(
     dir: PathBuf,
-    read: BufReader<OwnedReadHalf>,
-    write: OwnedWriteHalf,
+    read: BufReader<ReadHalf>,
+    write: WriteHalf,
     hello: Hello,
     after: Option<u64>,
 ) -> Connection {
@@ -385,7 +384,7 @@ fn live(
     }
 }
 
-async fn send_requests(mut write: OwnedWriteHalf, mut requests: mpsc::UnboundedReceiver<ToHolder>) {
+async fn send_requests(mut write: WriteHalf, mut requests: mpsc::UnboundedReceiver<ToHolder>) {
     while let Some(request) = requests.recv().await {
         if wire::send(&mut write, &request).await.is_err() {
             return;
@@ -396,7 +395,7 @@ async fn send_requests(mut write: OwnedWriteHalf, mut requests: mpsc::UnboundedR
 /// Passes lines and the exit on, and replies to whoever asked. When the
 /// holder dies first, the rest comes from its files.
 async fn read_holder(
-    mut read: BufReader<OwnedReadHalf>,
+    mut read: BufReader<ReadHalf>,
     events: mpsc::UnboundedSender<Event>,
     waiters: Waiters,
     dir: PathBuf,

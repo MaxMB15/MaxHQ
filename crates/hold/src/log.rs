@@ -69,8 +69,7 @@ pub(crate) struct EventLog {
 impl EventLog {
     /// Starts an empty log in `dir`.
     pub fn create(dir: &Path, rotate_at: u64) -> io::Result<Self> {
-        let file = files::append(&dir.join(EVENTS))?;
-        file.set_len(0)?;
+        let file = files::append_empty(&dir.join(EVENTS))?;
         Ok(Self {
             dir: dir.to_owned(),
             file,

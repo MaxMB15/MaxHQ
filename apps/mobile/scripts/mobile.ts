@@ -24,6 +24,12 @@
 //                                     variables hold a key (see android.ts);
 //                                     --dev builds the debug APK instead
 //   android-aab                       as android-apk, as an App Bundle
+//   android-release                   the release workflow's Android build:
+//                                     the core in release, then the APK and
+//                                     the App Bundle, unsigned, with no key
+//   android-sign                      the release workflow's signing job:
+//                                     those two, from the build job, signed
+//                                     with the ANDROID_KEY* variables' key
 //   build-number                      prints the release workflow's build
 //                                     number for this run and attempt
 //   archive                           the release workflow's build: the core
@@ -34,10 +40,11 @@
 //                                     with the API key
 //
 // With MAXHQ_BUILD_NUMBER set, as the release workflow sets it, testflight
-// numbers the build with it and leaves native-build.json alone. archive
-// needs that number. archive and export each check that the app's signature
-// still carries push and the app group. export runs without the packages
-// installed, so it loads nothing but Node's own modules.
+// numbers the build with it and leaves native-build.json alone. archive and
+// android-release need that number, which is also the Android version code.
+// archive and export each check that the app's signature still carries push
+// and the app group. export and android-sign run without the packages
+// installed, so they load nothing but Node's own modules.
 //
 // --dry-run prints the commands instead of running them and writes nothing.
 
@@ -61,6 +68,8 @@ import {
 	devInstallStep,
 	newestBuildTools,
 	onlyAndroidPhone,
+	RELEASE_AAB,
+	RELEASE_APK,
 	releaseOutput,
 	releaseSteps,
 	signAabSteps,
@@ -69,6 +78,7 @@ import {
 	signingFiles,
 	signingFromEnv,
 	type Signing,
+	UNSIGNED_APK,
 } from "./android.ts";
 import { type IosLocal, MISSING_LOCAL, readIosLocal } from "./ios-config.ts";
 import {
@@ -471,6 +481,59 @@ const androidRelease = (kind: "apk" | "aab") => {
 	);
 };
 
+// The release workflow's Android build job. No key reaches it, since it
+// runs every package's scripts: the APK and the App Bundle come out
+// unsigned, and android-sign signs them in a job that runs nothing built.
+const androidReleaseBuild = () => {
+	const numbered = process.env[BUILD_NUMBER_ENV];
+	if (!numbered)
+		fail(`android-release is for the release workflow, which sets ${BUILD_NUMBER_ENV}.`);
+	const names = Object.values(SIGNING_ENV);
+	if (names.some((name) => process.env[name]))
+		fail(
+			`android-release builds unsigned and takes no upload key; leave ${names.join(", ")} unset.`
+		);
+	// The package is the iPhone's bundle ID, so a release never goes out as
+	// the placeholder app.config.ts falls back to.
+	if (!readIosLocal(appDir)) fail(MISSING_LOCAL);
+	releaseExtra(process.env);
+	const buildNumber = resolveBuildNumber({ buildNumber: 1, lastUpload: null }, numbered);
+	setUpAndroid();
+	run(coreSteps(true, "android"));
+	console.log(`Build ${buildNumber}, numbered by ${BUILD_NUMBER_ENV}.`);
+	run(releaseSteps("both"));
+	if (!dryRun)
+		console.log(
+			`Build ${buildNumber} is unsigned in apps/mobile/${UNSIGNED_APK} and apps/mobile/${RELEASE_AAB}.`
+		);
+};
+
+// The release workflow's Android signing job: the build job's APK and App
+// Bundle, put back where Gradle wrote them, signed with the upload key. It
+// needs the SDK's build-tools and the JDK, and no packages or NDK.
+const androidSign = () => {
+	const signing =
+		takeSigning() ??
+		fail(
+			`android-sign signs with the upload key, which ${Object.values(SIGNING_ENV).join(", ")} hold.`
+		);
+	const { sdk } = androidEnv(process.env);
+	for (const file of [UNSIGNED_APK, RELEASE_AAB])
+		if (!dryRun && !existsSync(join(appDir, file)))
+			fail(`There's no build at apps/mobile/${file}.`);
+	const hide = (steps: Step[]) => steps.map((step) => ({ ...step, hide: [signing.alias] }));
+	signWith(signing, (dir) =>
+		hide([
+			...signApkSteps(buildTools(sdk), signingFiles(dir), signing.alias),
+			...signAabSteps(jarsigner(), signingFiles(dir), signing.alias),
+		])
+	);
+	if (!dryRun)
+		console.log(
+			`Signed with the upload key: apps/mobile/${RELEASE_APK} and apps/mobile/${RELEASE_AAB}.`
+		);
+};
+
 const main = async () => {
 	switch (command) {
 		case "core":
@@ -492,6 +555,10 @@ const main = async () => {
 			return androidRelease("apk");
 		case "android-aab":
 			return androidRelease("aab");
+		case "android-release":
+			return androidReleaseBuild();
+		case "android-sign":
+			return androidSign();
 		case "archive":
 			return archive();
 		case "export":
@@ -505,7 +572,7 @@ const main = async () => {
 			);
 		default:
 			fail(
-				"Usage: mobile.ts core|dev|testflight|install|check|build-number|archive|export|android-core|android-dev|android-apk|android-aab [--dry-run]"
+				"Usage: mobile.ts core|dev|testflight|install|check|build-number|archive|export|android-core|android-dev|android-apk|android-aab|android-release|android-sign [--dry-run]"
 			);
 	}
 };

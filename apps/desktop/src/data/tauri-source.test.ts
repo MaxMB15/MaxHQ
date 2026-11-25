@@ -404,7 +404,10 @@ describe("tauri source", () => {
 	});
 
 	it("downloads with a progress channel and gives where the file landed", async () => {
-		const landed = { status: "ok", data: { path: "/Users/max/Downloads/MaxHQ/a.txt" } };
+		const landed = {
+			status: "ok",
+			data: { path: "/Users/max/Downloads/MaxHQ/a.txt", skipped_links: [] },
+		};
 		commands.download.mockResolvedValue(landed);
 		const heard: TransferProgress[] = [];
 		await expect(

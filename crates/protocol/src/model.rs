@@ -1153,6 +1153,12 @@ pub struct DeviceSettings {
     /// reads as the defaults.
     #[serde(default)]
     pub local_models: Box<LocalModelSettings>,
+    /// The shell a Windows device's `maxd` starts for `!` commands and the
+    /// terminal drawer. Other systems ignore it and start your login shell.
+    /// A `maxd` from before [`crate::message::WINDOWS_SHELL_SINCE`] leaves
+    /// it out, which reads as [`WindowsShell::Auto`].
+    #[serde(default, skip_serializing_if = "WindowsShell::is_auto")]
+    pub windows_shell: WindowsShell,
 }
 
 impl DeviceSettings {
@@ -1190,6 +1196,7 @@ impl DeviceSettings {
             chat_gap_minutes,
             claude_artifacts,
             local_models,
+            windows_shell,
         } = self;
         let differs = |same: &dyn Fn(&Self) -> bool| old.is_none_or(|old| !same(old));
         let mut changes = Vec::new();
@@ -1317,6 +1324,11 @@ impl DeviceSettings {
                 value: local_models.clone(),
             });
         }
+        if differs(&|old| old.windows_shell == *windows_shell) {
+            changes.push(Change::WindowsShell {
+                value: *windows_shell,
+            });
+        }
         changes
     }
 
@@ -1353,6 +1365,7 @@ impl DeviceSettings {
             DeviceSettingChange::ClaudeArtifacts { value } => self.claude_artifacts = value,
             DeviceSettingChange::ChatGapMinutes { value } => self.chat_gap_minutes = value,
             DeviceSettingChange::LocalModels { value } => self.local_models = value,
+            DeviceSettingChange::WindowsShell { value } => self.windows_shell = value,
         }
     }
 
@@ -1427,6 +1440,7 @@ impl DeviceSettingChange {
             Self::ClaudeArtifacts { .. } => crate::message::ARTIFACTS_SINCE,
             Self::ChatGapMinutes { .. } => crate::message::DISPATCHER_CHATS_SINCE,
             Self::LocalModels { .. } => crate::message::LOCAL_MODELS_SINCE,
+            Self::WindowsShell { .. } => crate::message::WINDOWS_SHELL_SINCE,
             _ => 26,
         }
     }
@@ -1580,6 +1594,11 @@ pub enum DeviceSettingChange {
         /// What it becomes.
         value: Box<LocalModelSettings>,
     },
+    /// See [`DeviceSettings::windows_shell`].
+    WindowsShell {
+        /// What it becomes.
+        value: WindowsShell,
+    },
 }
 
 /// How readily new agents go to a device when you don't pick one.
@@ -1610,6 +1629,33 @@ pub enum KeepAwake {
     Working,
     /// Never.
     Off,
+}
+
+/// The shell a Windows device starts for `!` commands and the terminal
+/// drawer.
+#[derive(
+    Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize, Type, JsonSchema,
+)]
+#[serde(rename_all = "snake_case")]
+pub enum WindowsShell {
+    /// Git Bash when Git for Windows is installed, else PowerShell 7, else
+    /// Windows PowerShell 5.1.
+    #[default]
+    Auto,
+    /// Git Bash, from Git for Windows.
+    GitBash,
+    /// PowerShell 7, `pwsh.exe`.
+    Pwsh,
+    /// Windows PowerShell 5.1, `powershell.exe`, which comes with Windows.
+    PowerShell,
+}
+
+impl WindowsShell {
+    /// Whether it leaves the pick to `maxd`.
+    #[must_use]
+    pub fn is_auto(&self) -> bool {
+        *self == Self::Auto
+    }
 }
 
 /// An agent CLI that MaxHQ can update.
@@ -2198,6 +2244,22 @@ mod tests {
         assert_eq!(settings.history_bytes(), Some(4 << 30));
         let clamped = settings.clamped();
         assert_eq!((clamped.memory_items, clamped.history_mib), (4096, 4096));
+    }
+
+    #[test]
+    fn windows_shell_round_trips() {
+        for (shell, text) in [
+            (WindowsShell::Auto, "auto"),
+            (WindowsShell::GitBash, "git_bash"),
+            (WindowsShell::Pwsh, "pwsh"),
+            (WindowsShell::PowerShell, "power_shell"),
+        ] {
+            assert_eq!(serde_json::to_value(shell).unwrap(), json!(text));
+            assert_eq!(
+                serde_json::from_value::<WindowsShell>(json!(text)).unwrap(),
+                shell
+            );
+        }
     }
 
     #[test]

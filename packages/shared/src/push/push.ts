@@ -29,12 +29,19 @@ import { agentSynced } from "../status/reach";
 import { all, type ViewState } from "../view/replica";
 import { deviceName, linkForDevice } from "../view/select";
 
-/** The switches, in the order settings shows them, with what each is for. */
-export const PUSH_KINDS: readonly {
+/** A switch for one kind of push, with what it's for. */
+export type PushKindInfo = {
 	readonly kind: PushKind;
 	readonly label: string;
 	readonly detail: string;
-}[] = [
+};
+
+/**
+ * The switches, in the order settings shows them, in the words for the
+ * phone's system: `context` is "android" for an Android phone, whose Deny
+ * opens MaxHQ, and left out for an iPhone.
+ */
+export const pushKinds = (context?: "android"): readonly PushKindInfo[] => [
 	{
 		kind: "needs_input",
 		get label() {
@@ -42,7 +49,8 @@ export const PUSH_KINDS: readonly {
 		},
 		get detail() {
 			return t(
-				"A permission, a question or a secret. Open it to answer. Deny also works from the lock screen."
+				"A permission, a question or a secret. Open it to answer. Deny also works from the lock screen.",
+				{ context }
 			);
 		},
 	},
@@ -74,6 +82,9 @@ export const PUSH_KINDS: readonly {
 		},
 	},
 ];
+
+/** The switches in an iPhone's words, as the Mac shows them too. */
+export const PUSH_KINDS: readonly PushKindInfo[] = pushKinds();
 
 /** Every kind is on until you turn one off, as on the Mac. */
 export const DEFAULT_KINDS: readonly PushKind[] = PUSH_KINDS.map((each) => each.kind);
@@ -178,12 +189,13 @@ const optionList = (value: unknown): AttentionOption[] =>
 
 /**
  * What a push's payload points at, or null for one that isn't MaxHQ's.
- * What the extension opened comes first, then what maxd sent in the clear.
+ * What the extension opened comes first, then what maxd sent in the clear:
+ * the agent is an iPhone push's thread and under "t" on Android.
  */
 export const pushTarget = (payload: unknown): PushTarget | null => {
 	const push = record(payload);
 	const opened = record(push.m);
-	const agent = text(opened.agent) ?? text(record(push.aps)["thread-id"]);
+	const agent = text(opened.agent) ?? text(record(push.aps)["thread-id"]) ?? text(push.t);
 	if (!agent) return null;
 	return {
 		agent,

@@ -9,7 +9,8 @@
 //   node scripts/release/maxd-release.mjs --version 0.2.0 --out <file> \
 //     maxd-aarch64-apple-darwin=<path> maxd-x86_64-unknown-linux-musl=<path> …
 //
-// Hash the Mac's maxd after codesign, since signing changes its bytes.
+// Hash the Mac's maxd after codesign, since signing changes its bytes. The
+// Windows maxd's key has no .exe, as maxd looks it up by its target alone.
 
 import { createHash } from "node:crypto";
 import { readFileSync, writeFileSync } from "node:fs";
@@ -20,6 +21,8 @@ export const TARGETS = [
 	"x86_64-apple-darwin",
 	"aarch64-unknown-linux-musl",
 	"x86_64-unknown-linux-musl",
+	"aarch64-pc-windows-msvc",
+	"x86_64-pc-windows-msvc",
 ];
 
 const SEMVER = /^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$/;
