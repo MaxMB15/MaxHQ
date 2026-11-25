@@ -302,7 +302,8 @@ pub async fn update(
     Ok(version)
 }
 
-#[cfg(test)]
+// The fake CLIs are sh scripts.
+#[cfg(all(test, unix))]
 mod tests {
     use std::fs;
     use std::os::unix::fs::PermissionsExt;

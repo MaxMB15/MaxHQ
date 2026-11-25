@@ -16,7 +16,6 @@
 
 use std::fs;
 use std::io::Write;
-use std::os::unix::fs::OpenOptionsExt;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
@@ -162,10 +161,9 @@ fn endpoint(state: &Path, file: &DaemonFile) -> Result<Endpoint, String> {
 /// moves it into place.
 fn write_private(path: &Path, text: &str) -> std::io::Result<()> {
     let temporary = path.with_extension(format!("{}.new", uuid::Uuid::now_v7().simple()));
-    let written = fs::OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .mode(0o600)
+    let mut options = fs::OpenOptions::new();
+    options.write(true).create_new(true);
+    let written = maxhq_os::fsmode::set_open_mode(&mut options, 0o600)
         .open(&temporary)
         .and_then(|mut file| file.write_all(text.as_bytes()))
         .and_then(|()| fs::rename(&temporary, path));

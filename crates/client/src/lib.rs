@@ -425,7 +425,7 @@ impl Client {
 
     /// Has links name the network with `netkey` in place of reading the
     /// default gateway, which is how tests pick the network.
-    #[cfg(test)]
+    #[cfg(all(test, unix))]
     fn on_network(mut self, key: Option<&str>) -> Self {
         let key = key.map(str::to_owned);
         self.shared = Arc::new(Shared {

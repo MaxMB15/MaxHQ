@@ -72,26 +72,39 @@ struct Clock {
 }
 
 impl Clock {
-    #[allow(unsafe_code)]
     fn now() -> Self {
-        // SAFETY: sysconf only reads a setting.
-        let (hz, page) = unsafe {
-            (
-                libc::sysconf(libc::_SC_CLK_TCK),
-                libc::sysconf(libc::_SC_PAGESIZE),
-            )
-        };
-        let positive = |value: libc::c_long| u64::try_from(value).ok().filter(|value| *value > 0);
+        let (hz, page) = ticks_and_page();
         Self {
             now_ms: boot_ms(),
-            hz: positive(hz).unwrap_or(100),
-            page: positive(page).unwrap_or(4096),
+            hz: hz.unwrap_or(100),
+            page: page.unwrap_or(4096),
         }
     }
 
     fn ms(&self, ticks: u64) -> u64 {
         ticks.saturating_mul(1000) / self.hz
     }
+}
+
+/// The clock ticks a second and the bytes a page that `stat` counts in.
+#[cfg(unix)]
+#[allow(unsafe_code)]
+fn ticks_and_page() -> (Option<u64>, Option<u64>) {
+    // SAFETY: sysconf only reads a setting.
+    let (hz, page) = unsafe {
+        (
+            libc::sysconf(libc::_SC_CLK_TCK),
+            libc::sysconf(libc::_SC_PAGESIZE),
+        )
+    };
+    let positive = |value: libc::c_long| u64::try_from(value).ok().filter(|value| *value > 0);
+    (positive(hz), positive(page))
+}
+
+/// Only Linux has a `/proc` to read, so elsewhere the usual counts do.
+#[cfg(not(unix))]
+fn ticks_and_page() -> (Option<u64>, Option<u64>) {
+    (None, None)
 }
 
 /// Milliseconds since boot, counting suspend, as `stat` counts start
@@ -409,7 +422,9 @@ fn socket_inode(link: &str) -> Option<u64> {
         .ok()
 }
 
-#[cfg(test)]
+// The tests build a fake /proc, whose links Windows makes only for an
+// administrator.
+#[cfg(all(test, unix))]
 mod tests {
     use std::os::unix::fs::symlink;
 

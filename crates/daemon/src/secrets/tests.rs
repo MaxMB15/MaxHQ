@@ -7,23 +7,20 @@
 
 use std::fs;
 use std::io;
-use std::os::unix::fs::PermissionsExt;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use maxhq_protocol::ids::AccountId;
-use maxhq_protocol::message::{ActionOutcome, CliLoginState};
+use maxhq_protocol::message::ActionOutcome;
 use maxhq_protocol::state::Entity;
 use maxhq_protocol::Secret;
 
 use super::chatgpt::fake::{Fake as ChatGptFake, Spoil};
-use super::cli_login::Flow;
 use super::github::fake::{Fake, Install, APP_ID, DEVICE_CODE, TOKEN_PREFIX};
 use super::testing::{
     app_key, pem, token_hub, Clock, CLAUDE_TOKEN, EC_PKCS8, RSA_PKCS1, RSA_SHA256,
 };
 use super::{claude_token_file, Credentials, Secrets, DIR};
-use crate::drive::{Framing, Launch};
 use crate::session::clock::FakeClock;
 use crate::testing::TempDir;
 
@@ -246,30 +243,8 @@ async fn walk(apns: &str) -> (String, String) {
 
     // A login signed in again through a fake CLI, whose link and code are
     // both secrets.
-    let cli = temp.path().join("claude");
-    let script = "#!/bin/sh\necho 'visit: https://claude.example/test-code-link'\nread code\n[ \"$code\" = test-code-pasted ]\n";
-    fs::write(&cli, script).unwrap();
-    fs::set_permissions(&cli, fs::Permissions::from_mode(0o755)).unwrap();
-    let launch = Launch {
-        program: cli,
-        args: Vec::new(),
-        env: Vec::new(),
-        env_remove: Vec::new(),
-        cwd: temp.path().to_owned(),
-        framing: Framing::ClaudeStreamJson,
-        secret_env: Vec::new(),
-        run_as: None,
-    };
-    let rounds = &secrets.inner.cli_login;
-    let ActionOutcome::CliLogin { sign_in, .. } = rounds.start(origin, &launch, Flow::Claude).await
-    else {
-        panic!("no sign-in began");
-    };
-    let code = Secret::new("test-code-pasted".into());
-    let signed_in = ActionOutcome::CliLoginState {
-        state: CliLoginState::SignedIn,
-    };
-    assert_eq!(rounds.finish(sign_in, code).await, signed_in);
+    #[cfg(unix)]
+    cli_sign_in(&secrets, &temp, origin).await;
 
     // All read back, then forgotten.
     let again = open();
@@ -292,4 +267,39 @@ async fn walk(apns: &str) -> (String, String) {
     }
 
     (log.text(), serde_json::to_string(&entities).unwrap())
+}
+
+/// Signs in through a fake Claude CLI, an sh script, which prints a link
+/// and reads the code.
+#[cfg(unix)]
+async fn cli_sign_in(secrets: &Secrets, temp: &TempDir, origin: AccountId) {
+    use maxhq_protocol::message::CliLoginState;
+
+    use super::cli_login::Flow;
+    use crate::drive::{Framing, Launch};
+
+    let cli = temp.path().join("claude");
+    let script = "#!/bin/sh\necho 'visit: https://claude.example/test-code-link'\nread code\n[ \"$code\" = test-code-pasted ]\n";
+    fs::write(&cli, script).unwrap();
+    maxhq_os::fsmode::set_mode(&cli, 0o755).unwrap();
+    let launch = Launch {
+        program: cli,
+        args: Vec::new(),
+        env: Vec::new(),
+        env_remove: Vec::new(),
+        cwd: temp.path().to_owned(),
+        framing: Framing::ClaudeStreamJson,
+        secret_env: Vec::new(),
+        run_as: None,
+    };
+    let rounds = &secrets.inner.cli_login;
+    let ActionOutcome::CliLogin { sign_in, .. } = rounds.start(origin, &launch, Flow::Claude).await
+    else {
+        panic!("no sign-in began");
+    };
+    let code = Secret::new("test-code-pasted".into());
+    let signed_in = ActionOutcome::CliLoginState {
+        state: CliLoginState::SignedIn,
+    };
+    assert_eq!(rounds.finish(sign_in, code).await, signed_in);
 }

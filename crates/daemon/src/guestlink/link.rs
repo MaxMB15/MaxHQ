@@ -23,12 +23,11 @@ use maxhq_protocol::message::TunnelEnd;
 use maxhq_protocol::model::Vendor;
 use maxhq_protocol::timeline::TimelineItem;
 use thiserror::Error;
-use tokio::net::unix::OwnedReadHalf;
-use tokio::net::UnixStream;
 use tokio::sync::{mpsc, oneshot, watch, OwnedSemaphorePermit, Semaphore, SemaphorePermit};
 
 use super::wire::{self, Abort, Outbox, Read, ReadError, Reader, SendError, TokenRate};
 use super::{socket_path, Shared};
+use crate::incus::socket;
 use crate::incus::InstanceName;
 use crate::secrets::same_repo;
 use crate::session::clock::BoxFuture;
@@ -740,11 +739,11 @@ async fn connect(
 ) -> Result<Attempt, String> {
     let config = &shared.config;
     let path = socket_path(&config.runtime, instance);
-    let stream = tokio::time::timeout(CONNECT_WAIT, UnixStream::connect(&path))
+    let stream = tokio::time::timeout(CONNECT_WAIT, socket::connect(&path))
         .await
         .map_err(|_| "the proxy socket didn't answer".to_owned())?
         .map_err(|err| format!("couldn't connect to {}: {err}", path.display()))?;
-    let (read, write) = stream.into_split();
+    let (read, write) = socket::split(stream);
     let (outbox, queue) = Outbox::new();
     let mut writer = Abort(tokio::spawn(wire::write_frames(write, queue)));
     let mut reader = Reader::new(read);
@@ -891,7 +890,7 @@ async fn upgrade(
 async fn serve(
     shared: &Shared,
     link: &Link,
-    reader: &mut Reader<OwnedReadHalf>,
+    reader: &mut Reader<socket::ReadHalf>,
     writer: &mut Abort<io::Result<()>>,
     mut refresh: tokio::sync::watch::Receiver<u64>,
 ) -> String {

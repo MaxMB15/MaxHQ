@@ -291,12 +291,11 @@ mod tests {
 
     impl Planted {
         fn new(root: &Path) -> Self {
-            use std::os::unix::fs::PermissionsExt;
             let program = root.join("planted.sh");
             let ran = root.join("ran");
             let text = format!("#!/bin/sh\ntouch '{}'\nexit 1\n", ran.display());
             std::fs::write(&program, text).unwrap();
-            std::fs::set_permissions(&program, std::fs::Permissions::from_mode(0o755)).unwrap();
+            maxhq_os::fsmode::set_mode(&program, 0o755).unwrap();
             Self { program, ran }
         }
 
@@ -563,10 +562,7 @@ mod tests {
             format!("#!/bin/sh\ntouch '{}'\ncat\n", ran.display()),
         )
         .unwrap();
-        {
-            use std::os::unix::fs::PermissionsExt;
-            std::fs::set_permissions(&filter, std::fs::Permissions::from_mode(0o755)).unwrap();
-        }
+        maxhq_os::fsmode::set_mode(&filter, 0o755).unwrap();
         let text = format!("[filter \"x\"]\n\tclean = {}\n", filter.display());
         std::fs::write(&global, text).unwrap();
         touched(&work);

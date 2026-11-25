@@ -275,14 +275,13 @@ echo stopped >> "$CODEX_HOME/stops.log"
     impl FakeHome {
         /// Sets one up under a name unique to this test.
         pub fn new(name: &str) -> Self {
-            use std::os::unix::fs::PermissionsExt;
             let root = std::env::temp_dir().join(format!("maxd-{name}-{}", std::process::id()));
             let _ = std::fs::remove_dir_all(&root);
             let home = root.join("codex-home");
             std::fs::create_dir_all(&home).unwrap();
             let program = root.join("codex");
             std::fs::write(&program, FAKE).unwrap();
-            std::fs::set_permissions(&program, std::fs::Permissions::from_mode(0o755)).unwrap();
+            maxhq_os::fsmode::set_mode(&program, 0o755).unwrap();
             let fake = Self {
                 home,
                 program,
@@ -343,6 +342,8 @@ echo stopped >> "$CODEX_HOME/stops.log"
         }
     }
 
+    // The fake app-server is an sh script.
+    #[cfg(unix)]
     #[tokio::test]
     async fn the_exchange_uses_only_read_methods() {
         let fake = FakeHome::new("codex-exchange");
@@ -403,6 +404,8 @@ echo stopped >> "$CODEX_HOME/stops.log"
         assert_eq!(requests[4]["params"], json!({ "cursor": "2" }));
     }
 
+    // The fake app-server is an sh script.
+    #[cfg(unix)]
     #[tokio::test]
     async fn errors_say_whether_to_restart() {
         let fake = FakeHome::new("codex-exchange-errors");
@@ -437,6 +440,8 @@ echo stopped >> "$CODEX_HOME/stops.log"
         assert!(matches!(error, Error::Spawn(_)), "{error}");
     }
 
+    // The fake app-server is an sh script.
+    #[cfg(unix)]
     #[tokio::test]
     async fn a_stop_waits_for_the_app_server_to_exit() {
         let fake = FakeHome::new("codex-exchange-stop");

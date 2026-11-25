@@ -31,17 +31,20 @@ pub async fn run(
     timeout: Duration,
     cap: usize,
 ) -> io::Result<RunOutput> {
-    use std::os::unix::process::CommandExt;
+    use maxhq_os::proc::{self, GroupExt, Stop};
 
     command
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
-        .process_group(0);
+        .own_group();
     let mut command = tokio::process::Command::from(command);
     command.kill_on_drop(true);
     let mut child = crate::tools::retry_busy(|| std::future::ready(command.spawn())).await?;
     let pid = child.id();
+    if let Some(pid) = pid {
+        proc::adopt(pid)?;
+    }
     let (out, err) = (Arc::<Mutex<Kept>>::default(), Arc::<Mutex<Kept>>::default());
     let readers = [
         tokio::spawn(keep(child.stdout.take(), out.clone(), cap)),
@@ -50,8 +53,8 @@ pub async fn run(
     let (exit_code, timed_out) = match tokio::time::timeout(timeout, child.wait()).await {
         Ok(status) => (status?.code(), false),
         Err(_) => {
-            if let Some(pid) = pid.and_then(|pid| rustix::process::Pid::from_raw(pid as i32)) {
-                let _ = rustix::process::kill_process_group(pid, rustix::process::Signal::KILL);
+            if let Some(pid) = pid {
+                let _ = proc::stop_group(pid, Stop::Hard);
             }
             let _ = child.kill().await;
             (None, true)

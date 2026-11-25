@@ -13,10 +13,12 @@
 
 mod apply;
 mod check;
+pub(crate) mod ids;
 mod render;
 pub mod system;
 
-#[cfg(test)]
+// Host setup runs on Linux and macOS, and its tests use the fake Incus.
+#[cfg(all(test, unix))]
 mod tests;
 
 use std::path::{Path, PathBuf};
@@ -184,8 +186,7 @@ impl Env {
     pub fn this_device() -> Result<Self, String> {
         let root = PathBuf::from("/");
         let os = Os::read(&root);
-        let uid = rustix::process::getuid().as_raw();
-        let gid = rustix::process::getgid().as_raw();
+        let (uid, gid) = ids::own()?;
         let home = std::env::var_os("HOME")
             .filter(|home| !home.is_empty())
             .map(PathBuf::from)

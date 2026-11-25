@@ -308,7 +308,8 @@ fn list(items: &[&str]) -> String {
     }
 }
 
-#[cfg(test)]
+// The fake Incus serves on a Unix socket.
+#[cfg(all(test, unix))]
 mod tests {
     use std::sync::Arc;
 

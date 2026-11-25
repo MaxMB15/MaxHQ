@@ -23,7 +23,8 @@ mod probe;
 mod repo;
 mod snapshots;
 mod test_host;
-#[cfg(test)]
+// The tests run the manager against the fake Incus, on a Unix socket.
+#[cfg(all(test, unix))]
 mod tests;
 mod unsaved;
 
@@ -52,7 +53,7 @@ pub use keys::key::WORKSPACE as WORKSPACE_KEY;
 pub use manager::{Config, Manager};
 pub use moved::mover;
 pub(crate) use repo::Repo;
-#[cfg(test)]
+#[cfg(all(test, unix))]
 pub(crate) use tests::install_slow_stop;
 
 use crate::incus::InstanceName;

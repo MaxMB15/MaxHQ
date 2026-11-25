@@ -11,7 +11,6 @@ mod store;
 use std::fs;
 use std::future::Future;
 use std::io;
-use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::pin::Pin;
 
@@ -270,7 +269,7 @@ pub fn read_key(path: &Path) -> io::Result<Secret> {
             path.display()
         )));
     }
-    if meta.permissions().mode() & 0o077 != 0 {
+    if maxhq_os::fsmode::mode_of(&meta) & 0o077 != 0 {
         return Err(io::Error::other(format!(
             "others can read {}. Run chmod 600 on it",
             path.display()
@@ -301,7 +300,10 @@ mod tests {
     }
 
     #[test]
+    #[cfg(unix)]
     fn a_key_file_is_private_and_a_wide_one_is_refused() {
+        use std::os::unix::fs::PermissionsExt;
+
         let dir = std::env::temp_dir().join(format!("maxd-keys-{}", uuid::Uuid::now_v7()));
         let text = Secret::new("mhq_x_y".into());
         let path = write_key(&dir, "ci bot/1", &text).expect("it writes");

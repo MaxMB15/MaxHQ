@@ -540,6 +540,7 @@ impl TestBackend for MacHost {
     }
 }
 
-#[cfg(test)]
+// The fake agent-device is an sh script.
+#[cfg(all(test, unix))]
 #[path = "mac_host/tests.rs"]
 mod tests;

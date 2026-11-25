@@ -224,16 +224,14 @@ fn link_tools(root: &str, dir: &str) -> std::io::Result<()> {
     std::fs::create_dir_all(&tools)?;
     let latest = tools.join("latest");
     let target = PathBuf::from(format!("{dir}/current"));
-    if std::fs::read_link(&latest).ok().as_ref() == Some(&target) {
+    if maxhq_os::link::resolve(&latest).ok().as_ref() == Some(&target) {
         return Ok(());
     }
-    let new = tools.join(".latest.new");
-    let _ = std::fs::remove_file(&new);
-    std::os::unix::fs::symlink(&target, &new)?;
-    if latest.is_dir() && !latest.is_symlink() {
+    // A folder an earlier install left there, not a link, goes first.
+    if latest.is_dir() && maxhq_os::link::resolve(&latest).is_err() {
         std::fs::remove_dir_all(&latest)?;
     }
-    std::fs::rename(&new, &latest)
+    maxhq_os::link::point(&latest, &target)
 }
 
 /// The first of [`Sdk::javas`] new enough for the command-line tools, or
@@ -304,5 +302,6 @@ async fn quick(program: &Path, args: &[&str]) -> Option<String> {
     Some(text)
 }
 
-#[cfg(test)]
+// The fake SDK tools are sh scripts.
+#[cfg(all(test, unix))]
 mod tests;

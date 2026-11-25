@@ -17,7 +17,6 @@ use hyper::upgrade::Upgraded;
 use hyper::{Method, Request, StatusCode};
 use hyper_util::rt::TokioIo;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
-use tokio::net::UnixStream;
 use uuid::Uuid;
 
 use super::http::{broken, TIMEOUT};
@@ -67,7 +66,7 @@ pub type IncusSocket = WebSocket<TokioIo<Upgraded>>;
 /// Opens a WebSocket at `uri` on the Incus socket.
 pub async fn open(socket: &Path, uri: &str) -> Result<IncusSocket, IncusError> {
     let opening = async {
-        let stream = UnixStream::connect(socket).await?;
+        let stream = super::socket::connect(socket).await?;
         let (mut sender, connection) = http1::handshake(TokioIo::new(stream))
             .await
             .map_err(broken)?;

@@ -143,11 +143,7 @@ fn stale(owner: &str) -> bool {
     if pid as u32 == std::process::id() {
         return !held().contains(owner);
     }
-    #[allow(unsafe_code)]
-    // SAFETY: signal 0 only checks that the process exists.
-    let alive = unsafe { libc::kill(pid, 0) } == 0
-        || std::io::Error::last_os_error().raw_os_error() == Some(libc::EPERM);
-    !alive
+    !maxhq_os::proc::alive(pid as u32)
 }
 
 #[cfg(test)]

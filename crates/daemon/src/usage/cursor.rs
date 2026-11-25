@@ -359,7 +359,8 @@ async fn call(program: &Path, what: &str) -> Result<Value, String> {
     serde_json::from_slice(&output.stdout).map_err(|err| format!("`{what}` printed no JSON: {err}"))
 }
 
-#[cfg(test)]
+// The fake CLI is an sh script.
+#[cfg(all(test, unix))]
 mod tests {
     use std::collections::VecDeque;
     use std::fs;

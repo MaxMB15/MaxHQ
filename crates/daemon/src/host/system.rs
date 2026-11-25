@@ -10,7 +10,6 @@
 //! surprise stops it before any change. Each step leaves the host as the
 //! step says however often it runs, and a second run plans nothing.
 
-use std::os::unix::fs::{MetadataExt, PermissionsExt};
 use std::path::Path;
 
 use maxhq_core::host_spec::HostSpec;
@@ -416,11 +415,11 @@ pub fn plan(env: &Env, spec: &HostSpec, runner: &mut dyn Runner) -> Result<Plan,
                 plan.surprises
                     .push(format!("{dir} is a file, not a folder"));
             }
-            Ok(meta) if meta.uid() != env.user.uid => plan.surprises.push(format!(
+            Ok(meta) if super::ids::owner(&meta) != env.user.uid => plan.surprises.push(format!(
                 "{dir} belongs to uid {}, not {user}. Give it to {user} or name another folder.",
-                meta.uid()
+                super::ids::owner(&meta)
             )),
-            Ok(meta) if meta.mode() & 0o077 != 0 => {
+            Ok(meta) if maxhq_os::fsmode::mode_of(&meta) & 0o077 != 0 => {
                 plan.steps.push(Step::run(&["chmod", "0700", dir]));
             }
             Ok(_) => {}
@@ -619,12 +618,8 @@ fn run_step(env: &Env, step: &Step, runner: &mut dyn Runner) -> Result<(), Strin
         Step::MakeDir { path } => {
             let dir = env.at(path);
             std::fs::create_dir_all(&dir)
-                .and_then(|()| {
-                    std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o700))
-                })
-                .and_then(|()| {
-                    std::os::unix::fs::chown(&dir, Some(env.user.uid), Some(env.user.gid))
-                })
+                .and_then(|()| maxhq_os::fsmode::set_mode(&dir, 0o700))
+                .and_then(|()| super::ids::give(&dir, env.user.uid, env.user.gid))
                 .map_err(|err| format!("couldn't make {path}: {err}"))
         }
         Step::TrustKey {
@@ -671,7 +666,7 @@ fn trust_key(
         ));
     }
     let to = env.at(path);
-    std::fs::set_permissions(env.at(download), std::fs::Permissions::from_mode(0o644))
+    maxhq_os::fsmode::set_mode(&env.at(download), 0o644)
         .and_then(|()| std::fs::rename(env.at(download), &to))
         .map_err(|err| format!("couldn't put the key at {path}: {err}"))
 }
@@ -714,7 +709,7 @@ fn write_file(path: &Path, text: &str) -> std::io::Result<()> {
     let mut temp = path.as_os_str().to_owned();
     temp.push(".maxd-new");
     std::fs::write(&temp, text)?;
-    std::fs::set_permissions(&temp, std::fs::Permissions::from_mode(0o644))?;
+    maxhq_os::fsmode::set_mode(Path::new(&temp), 0o644)?;
     std::fs::rename(&temp, path)
 }
 
@@ -774,7 +769,8 @@ pub fn apply(
 
 /// The service user's view of this host, for `--system` run through sudo.
 pub fn service_env(root: &Path) -> Result<Env, String> {
-    if !rustix::process::geteuid().is_root() {
+    super::ids::own()?;
+    if !super::ids::root() {
         return Err(
             "maxd host apply --system needs root. Run it as sudo maxd host apply --system."
                 .to_owned(),

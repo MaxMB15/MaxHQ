@@ -19,9 +19,9 @@ use hyper_util::rt::TokioIo;
 use maxhq_protocol::time::Timestamp;
 use serde::Deserialize;
 use thiserror::Error;
-use tokio::net::UnixStream;
 
 use super::time;
+use crate::incus::socket;
 
 /// How long one request may take, so a wedged container can't hold up the
 /// rest.
@@ -302,7 +302,7 @@ fn through_a_file(error: &[u8]) -> bool {
 /// `Sec-WebSocket-Key` nonce.
 pub async fn open_events(socket: &Path, key: &str) -> Result<TokioIo<Upgraded>, ApiError> {
     let opening = async {
-        let stream = UnixStream::connect(socket).await?;
+        let stream = socket::connect(socket).await?;
         let (mut sender, connection) = http1::handshake(TokioIo::new(stream)).await?;
         tokio::spawn(async move {
             if let Err(error) = connection.with_upgrades().await {
@@ -335,7 +335,7 @@ pub async fn open_events(socket: &Path, key: &str) -> Result<TokioIo<Upgraded>, 
 /// Opens an HTTP/1.1 connection to the socket and drives it in the
 /// background.
 async fn connect(socket: &Path) -> Result<SendRequest<Empty<Bytes>>, ApiError> {
-    let stream = UnixStream::connect(socket).await?;
+    let stream = socket::connect(socket).await?;
     let (sender, connection) = http1::handshake(TokioIo::new(stream)).await?;
     tokio::spawn(async move {
         if let Err(error) = connection.await {
@@ -370,7 +370,8 @@ fn version(headers: &HeaderMap) -> Version {
     }
 }
 
-#[cfg(test)]
+// The fake Incus serves on a Unix socket.
+#[cfg(all(test, unix))]
 mod tests {
     use super::super::fake::{FakeFile, FakeIncus, State};
     use super::*;

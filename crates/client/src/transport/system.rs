@@ -19,7 +19,9 @@ use maxhq_protocol::ids::DeviceId;
 use maxhq_protocol::link::Route;
 
 use super::local::dial_local;
-use super::{shorten, Conn, DialError, Transport, PROXY_COMMAND, WINDOWS_PROXY_COMMAND};
+#[cfg(any(unix, test))]
+use super::shorten;
+use super::{Conn, DialError, Transport, PROXY_COMMAND, WINDOWS_PROXY_COMMAND};
 use crate::pinned::Pins;
 use crate::setup::Output;
 use crate::ssh_config::{self, is_safe_destination, SshConfig};
@@ -208,7 +210,9 @@ impl Shells {
     }
 }
 
-/// Reads ssh's stderr for why a login failed.
+/// Reads OpenSSH's stderr for why a login failed. Only the OpenSSH path
+/// on Unix has that stderr to read.
+#[cfg(any(unix, test))]
 pub(crate) fn ssh_reason(text: &str) -> DialError {
     let lower = text.to_ascii_lowercase();
     let has = |needle: &str| lower.contains(needle);
