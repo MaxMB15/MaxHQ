@@ -374,13 +374,21 @@ export type SharingSwitch = {
 };
 
 /** Whether linked devices' Local agents may use the managed server's models. */
-const SharingRow = ({ sharing, disabled }: { sharing: SharingSwitch; disabled: string | null }) => {
+const SharingRow = ({
+	sharing,
+	disabled,
+	os,
+}: {
+	sharing: SharingSwitch;
+	disabled: string | null;
+	os: string | undefined;
+}) => {
 	useI18n();
 	return (
-		<Row title={linkedDevicesLabel()} sub={disabled ?? linkedDevicesHelp()}>
+		<Row title={linkedDevicesLabel(os)} sub={disabled ?? linkedDevicesHelp()}>
 			<StatusNote note={sharing.note} />
 			<Switch
-				aria-label={linkedDevicesLabel()}
+				aria-label={linkedDevicesLabel(os)}
 				checked={sharing.on}
 				disabled={disabled !== null}
 				onCheckedChange={sharing.onChange}
@@ -424,7 +432,13 @@ export const ServersSection = ({
 							server={server}
 							disabled={disabled}
 						/>
-						{sharing ? <SharingRow sharing={sharing} disabled={disabled} /> : null}
+						{sharing ? (
+							<SharingRow
+								sharing={sharing}
+								disabled={disabled}
+								os={view.tables.device.get(device)?.os}
+							/>
+						) : null}
 					</Fragment>
 				) : (
 					<ExternalRow

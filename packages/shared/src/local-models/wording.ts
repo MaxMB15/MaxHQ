@@ -5,6 +5,7 @@
 // where a model file or a load stands, and the notes on a server row.
 
 import { formatNumber, t } from "../i18n";
+import { wordingFor } from "../lib/os";
 
 import { GIB, type Fit, type Range } from "./fit";
 import type {
@@ -194,8 +195,13 @@ export const serverProblemText = (server: Pick<ModelServer, "probe">): string | 
 	return null;
 };
 
-/** The switch on a Mac's Local models page that lets its linked devices use its models. */
-export const linkedDevicesLabel = (): string => t("Linked devices can use this Mac's models");
+/**
+ * The switch on a device's Local models page that lets its linked devices
+ * use its models, worded for that device's system (`os`, as the device
+ * table has it).
+ */
+export const linkedDevicesLabel = (os: string | null | undefined): string =>
+	t("Linked devices can use this Mac's models", { context: wordingFor(os) });
 
 /** What that switch allows, in one line. */
 export const linkedDevicesHelp = (): string =>

@@ -29,7 +29,14 @@ import {
 	sameRepoFolder,
 } from "@maxhq/shared/folders/drop";
 import { usePathField } from "@maxhq/shared/folders/field";
-import { expandHome, parentOf, pickText, type PathWants } from "@maxhq/shared/folders/path";
+import {
+	expandHome,
+	isAbsolutePath,
+	parentOf,
+	pickText,
+	trimSeparators,
+	type PathWants,
+} from "@maxhq/shared/folders/path";
 import { browseWay, supportsFolders } from "@maxhq/shared/folders/select";
 import { t as translate, useI18n } from "@maxhq/shared/i18n";
 import { isThisMac } from "@maxhq/shared/settings/app-keys";
@@ -50,9 +57,6 @@ const DROP_OK = "border-dashed border-primary bg-primary/10";
 const DROP_BAD = "border-dashed border-status-error bg-status-error/5";
 
 const SMALL = cn(SECONDARY, "h-[26px] px-2.5 text-[12px]");
-
-/** A path with no slash at its end, as describePaths may give a folder. */
-const trimmed = (path: string) => path.replace(/\/+$/u, "") || "/";
 
 /** A drop, and the device's field it landed on. */
 type Landed = { readonly device: DeviceId; readonly dropped: Dropped };
@@ -179,7 +183,7 @@ export const PathField = ({
 	const nativeStart = (): string | null => {
 		const at = expandHome(startOf(field.text), field.home);
 		const folder = wants === "file" ? parentOf(at) : at;
-		return folder?.startsWith("/") ? folder : null;
+		return folder && isAbsolutePath(folder) ? folder : null;
 	};
 
 	const browse = () => {
@@ -206,7 +210,7 @@ export const PathField = ({
 		}
 		setUnread(null);
 		const dropped: Dropped = {
-			path: trimmed(info?.path ?? first),
+			path: trimSeparators(info?.path ?? first),
 			folder: info?.kind === "folder",
 		};
 		const out = dropOutcome(dropped, wants, here, field.home);

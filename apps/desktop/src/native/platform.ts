@@ -1,15 +1,26 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026 Max Boksem
 
-// Where the page runs, read when asked so a test can change it.
-
 import { isTauri } from "@tauri-apps/api/core";
+import { osOfUserAgent, type AppOs } from "@maxhq/shared/lib/os";
 
-/** Whether the page runs inside the app, rather than in a browser. */
+export type { AppOs } from "@maxhq/shared/lib/os";
+
 export const inApp = (): boolean => isTauri();
 
-/** Whether the page runs on macOS. */
-export const onMac = (): boolean => navigator.userAgent.includes("Mac");
+let read: { readonly agent: string; readonly os: AppOs } | null = null;
 
-/** Whether the page runs on Windows. */
-export const onWindows = (): boolean => navigator.userAgent.includes("Windows");
+/**
+ * The system the app runs on, read from the web view's user agent: right
+ * away and the same on every call, so the first frame is already drawn for
+ * it. The only place the app asks which system it's on.
+ */
+export const appOs = (): AppOs => {
+	const agent = navigator.userAgent;
+	if (read?.agent !== agent) read = { agent, os: osOfUserAgent(agent) };
+	return read.os;
+};
+
+export const onMac = (): boolean => appOs() === "macos";
+export const onWindows = (): boolean => appOs() === "windows";
+export const onLinux = (): boolean => appOs() === "linux";

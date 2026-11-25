@@ -19,7 +19,10 @@ import {
 	folderNameProblem,
 	isPathText,
 	joinPath,
+	namesOf,
 	parentOf,
+	pathStyleOf,
+	rootOf,
 	type PathWants,
 } from "./path";
 import type { FolderCalls, ListOptions } from "./requests";
@@ -27,13 +30,15 @@ import type { FolderCalls, ListOptions } from "./requests";
 /** One step of the breadcrumb: a name, and the folder it opens. */
 export type Crumb = { readonly name: string; readonly path: string };
 
-/** The breadcrumb for a full path, from `/` down to its last name. */
+/** The breadcrumb for a full path, from its root, such as `/` or `C:`, down to its last name. */
 export const crumbsOf = (path: string): Crumb[] => {
-	const names = path.split("/").filter(Boolean);
-	return [
-		{ name: "/", path: "/" },
-		...names.map((name, i) => ({ name, path: `/${names.slice(0, i + 1).join("/")}` })),
+	const root = rootOf(path) || "/";
+	const crumbs: Crumb[] = [
+		{ name: root === "/" ? root : root.replace(/[\\/]$/u, ""), path: root },
 	];
+	for (const name of namesOf(path))
+		crumbs.push({ name, path: joinPath(crumbs[crumbs.length - 1]!.path, name) });
+	return crumbs;
 };
 
 /** Where the browser opens: what the field holds when it's a path, else home. */
@@ -209,7 +214,7 @@ export const useFolderBrowser = ({
 			if (shown !== null) load(shown, show, selected);
 		},
 		make: async (name) => {
-			const problem = folderNameProblem(name);
+			const problem = folderNameProblem(name, shown === null ? "posix" : pathStyleOf(shown));
 			if (problem !== null) return problem;
 			if (shown === null) return t("Wait for the folder to load.");
 			const folder = joinPath(shown, name.trim());

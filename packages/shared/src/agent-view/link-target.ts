@@ -12,12 +12,12 @@
 import {
 	fileUrlPath,
 	isNetworkPath,
-	isWindowsAbsolute,
 	normalizeDestination,
 	safeDecode,
 	splitSearchAndHash,
 	stripSlashDrive,
 } from "./media-source";
+import { isAbsolutePath } from "../folders/path";
 
 /** Where a link goes. */
 export type LinkTarget =
@@ -70,7 +70,7 @@ export const linkTarget = (href: string | null | undefined): LinkTarget => {
 		return path === null ? NONE : fileAt(path, hash);
 	}
 	const path = stripSlashDrive(safeDecode(splitSearchAndHash(target).path));
-	if (path.startsWith("/") || isWindowsAbsolute(path)) return fileAt(path, hash);
+	if (isAbsolutePath(path)) return fileAt(path, hash);
 	if (path.startsWith("~")) return NONE;
 	// `windows.rs:12` looks like a scheme, so a link counts as one only
 	// when it's still one without its line.
@@ -89,7 +89,7 @@ export const folderOf = (path: string): string => {
  * it. An absolute path, or one with no folder to read it from, stays.
  */
 export const pathFrom = (folder: string, path: string): string => {
-	if (folder.length === 0 || path.startsWith("/") || isWindowsAbsolute(path)) return path;
+	if (folder.length === 0 || isAbsolutePath(path)) return path;
 	const parts = folder.replace(/[/\\]+$/, "").split(/[/\\]/);
 	const rooted = parts[0] === "";
 	for (const part of path.split(/[/\\]/)) {

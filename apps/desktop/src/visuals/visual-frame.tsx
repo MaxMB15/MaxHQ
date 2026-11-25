@@ -57,8 +57,6 @@ const guard = hangGuard("visual");
 
 export type { VisualError };
 
-const MONO_FALLBACK = '"JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace';
-
 // The theme's values as the app has them now. A font the app sets only
 // through its styles falls back to what the page shows.
 const themeVariables = (): Record<string, string> => {
@@ -69,7 +67,7 @@ const themeVariables = (): Record<string, string> => {
 		if (value) values[name] = value;
 	}
 	values["--font-sans"] ||= getComputedStyle(document.body).fontFamily;
-	values["--font-mono"] ||= MONO_FALLBACK;
+	values["--font-mono"] ||= styles.getPropertyValue("--mono-stack").trim() || "monospace";
 	return values;
 };
 

@@ -12,6 +12,7 @@ import { useEffect, useState } from "react";
 import { t } from "@maxhq/shared/i18n";
 
 import type { FileKind, PathInfo, SavedExport } from "@maxhq/shared/bindings";
+import { guessPath } from "@/composer/native";
 import { commands } from "@/data/tauri-commands";
 
 import { invokeBytes, unwrap } from "./failure";
@@ -90,27 +91,12 @@ export const pickPath = (
 ): Promise<string | null> =>
 	inApp() ? unwrap(commands.pickPath(title, start, file)) : Promise.resolve(null);
 
-const IMAGE = /\.(png|jpe?g|gif|webp|heic|tiff?|bmp)$/i;
-
-/** A description from the name alone, for the browser build. */
-const guess = (path: string): PathInfo => {
-	const name = path.replace(/\/+$/, "").split("/").pop() || path;
-	const kind: FileKind = path.endsWith("/")
-		? "folder"
-		: /\.pdf$/i.test(name)
-			? "pdf"
-			: IMAGE.test(name)
-				? "image"
-				: "file";
-	return { path, name, kind, size: null, mime: null };
-};
-
 /**
  * Describes dropped, pasted or picked paths for their chips, in the same
  * order. Outside the app it guesses from the names.
  */
 export const describePaths = (paths: readonly string[]): Promise<PathInfo[]> =>
-	inApp() ? unwrap(commands.describePaths([...paths])) : Promise.resolve(paths.map(guess));
+	inApp() ? unwrap(commands.describePaths([...paths])) : Promise.resolve(paths.map(guessPath));
 
 /**
  * A thumbnail of a dropped, pasted or picked path as a PNG at most `size`

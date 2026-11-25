@@ -9,6 +9,7 @@ import { t } from "../i18n";
 
 import type { SkillLibrary, SourceKind, SourceTrust } from "../bindings";
 
+import { isAbsolutePath, trimSeparators } from "../folders/path";
 /** What you typed into the form. */
 export type SourceDraft = {
 	readonly name: string;
@@ -36,7 +37,7 @@ const OWNER_REPO = /^[\w.-]+\/[\w.-]+$/u;
 /** Where a source's skills come from, from what you typed. */
 export const originOf = (where: string): SourceKind | null => {
 	const text = where.trim();
-	if (text.startsWith("/")) return { kind: "local", path: text.replace(/\/+$/u, "") || "/" };
+	if (isAbsolutePath(text)) return { kind: "local", path: trimSeparators(text) };
 	if (OWNER_REPO.test(text)) return { kind: "git", url: `https://github.com/${text}` };
 	if (/^(https?|ssh|git):\/\//u.test(text) || /^[\w.-]+@[\w.-]+:/u.test(text)) {
 		return { kind: "git", url: text };

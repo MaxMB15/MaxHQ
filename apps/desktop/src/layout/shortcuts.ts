@@ -9,6 +9,11 @@
 // pane is Shift+W and not W, and maximizing is Shift+M and not M. Undo is
 // the one exception: it undoes an inbox change only while its notice shows
 // and no text field has focus, so the composer keeps its own undo.
+//
+// Off a Mac, a terminal and a card holding your keys keep Control and a
+// letter for the program, as terminals do, so Control-D still ends input
+// and Control-R still searches. The shortcuts reach past them with Shift
+// added, the way a terminal passes on Control and Shift.
 
 import { openNextWaiting } from "@/app/open-agent";
 import type { Services } from "@/app/services";
@@ -66,8 +71,9 @@ export const SHORTCUTS = {
 	find: { label: "F", code: "KeyF" },
 	sidebar: { label: "B", code: "KeyB" },
 	filter: { label: "F", code: "KeyF", alt: true },
-	// Shown only here: the new-agent form listens for its own key.
+	// Shown only here: the new-agent form and the gear listen for their own keys.
 	newAgent: { label: "N", code: "KeyN" },
+	settings: { label: ",", code: "Comma" },
 	stop: { label: ".", code: "Period" },
 	shortcuts: { label: "/", code: "Slash" },
 	terminal: { label: "`", code: "Backquote", control: true },
@@ -86,6 +92,23 @@ export const keyHint = (s: Shortcut): string =>
 		? `${s.alt ? "⌥" : ""}${s.shift ? "⇧" : ""}${s.control ? "⌃" : "⌘"}${s.label}`
 		: `Ctrl+${s.alt ? "Alt+" : ""}${s.shift ? "Shift+" : ""}${s.label}`;
 
+/** A key as a Mac writes it and as other systems do, such as ⏎ and Enter. */
+export type KeyName = { readonly mac: string; readonly other: string };
+
+/** What a key without Command holds. */
+export type Mods = { readonly control?: boolean; readonly alt?: boolean; readonly shift?: boolean };
+
+/**
+ * How a hint writes a key that holds no Command, such as ⌥↩ or ⌃C on a Mac
+ * and Alt+Enter or Ctrl+C elsewhere. A string is the same on every system.
+ */
+export const plainHint = (key: KeyName | string, mods: Mods = {}): string => {
+	const name = typeof key === "string" ? key : onMac() ? key.mac : key.other;
+	return onMac()
+		? `${mods.control ? "⌃" : ""}${mods.alt ? "⌥" : ""}${mods.shift ? "⇧" : ""}${name}`
+		: `${mods.control ? "Ctrl+" : ""}${mods.alt ? "Alt+" : ""}${mods.shift ? "Shift+" : ""}${name}`;
+};
+
 /** A shortcut in the form `aria-keyshortcuts` takes. */
 export const ariaKeys = (s: Shortcut): string =>
 	`${onMac() && !s.control ? "Meta" : "Control"}+${s.alt ? "Alt+" : ""}${s.shift ? "Shift+" : ""}${s.label}`;
@@ -100,10 +123,16 @@ export const holdsCommand = (e: {
 	readonly ctrlKey: boolean;
 }): boolean => (onMac() ? e.metaKey && !e.ctrlKey : e.ctrlKey && !e.metaKey);
 
+/** What a shortcut reads from a key press. */
+export type Press = Pick<
+	KeyboardEvent,
+	"key" | "code" | "ctrlKey" | "metaKey" | "altKey" | "shiftKey" | "repeat"
+>;
+
 // Letters go by the letter they type, so Command and D means the key marked
 // D on any Latin layout. A layout that types no Latin letter goes by where
 // the key sits, and so do the other keys.
-const matches = (e: KeyboardEvent, s: Shortcut): boolean => {
+const matches = (e: Press, s: Shortcut): boolean => {
 	const held = s.control ? e.ctrlKey && !e.metaKey : holdsCommand(e);
 	if (!held || !!s.shift !== e.shiftKey || !!s.alt !== e.altKey) return false;
 	const typed = e.key.toLowerCase();
@@ -114,7 +143,7 @@ const matches = (e: KeyboardEvent, s: Shortcut): boolean => {
 };
 
 // Command and a digit from 1 to 9, which shows that tab.
-const tabPlace = (e: KeyboardEvent): number | null => {
+const tabPlace = (e: Press): number | null => {
 	if (!holdsCommand(e) || e.shiftKey || e.altKey) return null;
 	const match = /^Digit([1-9])$/.exec(e.code);
 	return match ? Number(match[1]) : null;
@@ -138,7 +167,7 @@ const typing = (): boolean => {
 // What a key press does, or null when it isn't a shortcut. Holding a key
 // down moves focus or tabs on, and does the rest only once. A command that
 // returns true moves focus to the composer of the pane it showed.
-const commandFor = (services: Services, e: KeyboardEvent): (() => boolean) | null => {
+const commandFor = (services: Services, e: Press): (() => boolean) | null => {
 	const panes = panesOf(services);
 	const once = (run: () => boolean) => (e.repeat ? () => false : run);
 	// Runs without moving focus.
@@ -187,6 +216,28 @@ const commandFor = (services: Services, e: KeyboardEvent): (() => boolean) | nul
 	return null;
 };
 
+/** Whether focus is where Control and a letter go to a program: a terminal or a card holding your keys. */
+export const keepsControl = (at: Element | null): boolean =>
+	inTerminal(at) || !!at?.closest('[data-keys="held"]');
+
+/**
+ * The key press a shortcut reads, with Shift taken off when it holds
+ * Control and Shift where a program keeps Control off a Mac. Null when
+ * there's no other reading.
+ */
+export const throughProgram = (e: Press, at: Element | null): Press | null =>
+	!onMac() && e.ctrlKey && e.shiftKey && !e.metaKey && keepsControl(at)
+		? {
+				key: e.key,
+				code: e.code,
+				ctrlKey: true,
+				metaKey: false,
+				altKey: e.altKey,
+				shiftKey: false,
+				repeat: e.repeat,
+			}
+		: null;
+
 /**
  * Listens for the pane shortcuts across the window, and returns a call that
  * stops. A key the composer or an open dialog already took is left alone.
@@ -195,7 +246,8 @@ export const watchShortcuts = (services: Services): (() => void) => {
 	const onKey = (e: KeyboardEvent) => {
 		if (e.defaultPrevented || e.isComposing) return;
 		if (e.target instanceof Element && e.target.closest('[role="dialog"]')) return;
-		const command = commandFor(services, e);
+		const through = throughProgram(e, document.activeElement);
+		const command = commandFor(services, e) ?? (through ? commandFor(services, through) : null);
 		if (!command) return;
 		e.preventDefault();
 		if (command()) focusComposer(services);

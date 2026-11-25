@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const menu = vi.hoisted(() => ({ contextMenu: vi.fn(() => true) }));
 vi.mock("./menu", () => menu);
 
-import { guardContextMenu } from "./context-guard";
+import { guardContextMenu, guardReloadKey, watchReloadKeys } from "./context-guard";
 
 const rightClick = (target: Element, init: MouseEventInit = {}) => {
 	const event = new MouseEvent("contextmenu", {
@@ -72,5 +72,53 @@ describe("the right-click guard", () => {
 		const event = new MouseEvent("contextmenu", { cancelable: true, altKey: true });
 		guardContextMenu(event, true);
 		expect(event.defaultPrevented).toBe(false);
+	});
+});
+
+describe("the reload keys", () => {
+	const press = (init: KeyboardEventInit) => {
+		const event = new KeyboardEvent("keydown", { bubbles: true, cancelable: true, ...init });
+		document.body.dispatchEvent(event);
+		return event;
+	};
+
+	beforeEach(() => {
+		window.addEventListener("keydown", guardReloadKey);
+	});
+
+	afterEach(() => {
+		window.removeEventListener("keydown", guardReloadKey);
+		vi.restoreAllMocks();
+	});
+
+	it("keeps F5 and Control-R from reloading the page off a Mac", () => {
+		expect(press({ key: "F5", code: "F5" }).defaultPrevented).toBe(true);
+		expect(press({ key: "r", code: "KeyR", ctrlKey: true }).defaultPrevented).toBe(true);
+		expect(
+			press({ key: "R", code: "KeyR", ctrlKey: true, shiftKey: true }).defaultPrevented
+		).toBe(true);
+		expect(press({ key: "r", code: "KeyR" }).defaultPrevented).toBe(false);
+	});
+
+	it("leaves a key something took, and a Mac's keys, alone", () => {
+		const took = (event: KeyboardEvent) => event.preventDefault();
+		document.body.addEventListener("keydown", took);
+		const event = new KeyboardEvent("keydown", { key: "F5", bubbles: true, cancelable: true });
+		vi.spyOn(event, "preventDefault");
+		document.body.dispatchEvent(event);
+		expect(event.preventDefault).toHaveBeenCalledTimes(1);
+		document.body.removeEventListener("keydown", took);
+
+		vi.spyOn(navigator, "userAgent", "get").mockReturnValue(
+			"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)"
+		);
+		expect(press({ key: "F5", code: "F5" }).defaultPrevented).toBe(false);
+	});
+
+	it("keeps them in a development build and outside the app", () => {
+		const add = vi.spyOn(window, "addEventListener");
+		watchReloadKeys(true)();
+		watchReloadKeys(false)();
+		expect(add).not.toHaveBeenCalledWith("keydown", guardReloadKey);
 	});
 });

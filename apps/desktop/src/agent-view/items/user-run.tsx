@@ -72,6 +72,7 @@ import { MENU_ITEM, MENU_POPUP } from "@/composer/pickers";
 import { quoteInbox } from "@maxhq/shared/pills/quote-inbox";
 import { askedHere, firstAskHere, opensPanelNow, runSize, startRun } from "@/composer/run-command";
 import { useTypingPrefs } from "@/composer/typing-prefs";
+import { plainHint } from "@/layout/shortcuts";
 import { withParts } from "@/lib/parts";
 import { cn } from "@/lib/utils";
 import { agreedSend } from "@/settings/auto-consent";
@@ -251,7 +252,7 @@ export const StopButton = ({ onStop, hint }: { onStop: () => void; hint: boolean
 			{t("Stop")}
 			{hint ? (
 				<kbd aria-hidden className={KBD}>
-					⌃C
+					{plainHint("C", { control: true })}
 				</kbd>
 			) : null}
 		</button>

@@ -2,6 +2,8 @@
 // Copyright (c) 2026 Max Boksem
 // Portions copyright (c) 2026 T3 Tools Inc., see THIRD_PARTY_NOTICES
 
+import { baseName, isAbsolutePath } from "../folders/path";
+
 // Adapted from MIT-licensed code, see THIRD_PARTY_NOTICES: resolving a media
 // source and finding the pictures in Markdown, with the parts of the link,
 // file link, path, media preview and video helpers they use. MaxHQ has no
@@ -114,9 +116,6 @@ export const splitSearchAndHash = (value: string): { path: string; hash: string 
 export const stripSlashDrive = (path: string): string =>
 	SLASH_DRIVE.test(path) ? path.slice(1) : path;
 
-export const isWindowsAbsolute = (path: string): boolean =>
-	path.startsWith("\\\\") || /^[a-zA-Z]:([/\\]|$)/.test(path);
-
 /**
  * Two leading separators name a share on another machine, and Windows signs
  * in to it with the user's credentials, so a path an agent wrote never
@@ -125,12 +124,7 @@ export const isWindowsAbsolute = (path: string): boolean =>
 export const isNetworkPath = (path: string): boolean => /^[\\/]{2}/.test(path);
 
 /** The last part of a path, without the separators after it. */
-export const fileBasename = (path: string): string => {
-	const trimmed = path.replace(/[/\\]+$/, "");
-	if (trimmed.length === 0) return path;
-	const at = Math.max(trimmed.lastIndexOf("/"), trimmed.lastIndexOf("\\"));
-	return at >= 0 ? trimmed.slice(at + 1) : trimmed;
-};
+export const fileBasename = (path: string): string => baseName(path) || path;
 
 /** A path without the `:line:column` an agent may write after it. */
 const withoutPosition = (path: string): string => {
@@ -196,7 +190,7 @@ const classify = (value: string): Classified | null => {
 	}
 	const path = stripSlashDrive(safeDecode(splitSearchAndHash(source).path));
 	if (path.length === 0) return null;
-	if (path.startsWith("/") || isWindowsAbsolute(path)) return onDevice(path);
+	if (isAbsolutePath(path)) return onDevice(path);
 	if (SCHEME.test(path) || path.startsWith("~/") || path.startsWith("~\\")) return null;
 	return { tag: "file", path };
 };

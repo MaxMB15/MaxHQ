@@ -51,6 +51,7 @@ import { accountName, accountWindows, blockingWindow, type WindowView } from "..
 import { all, type ViewState } from "../view/replica";
 import { deviceName, linkForDevice, modelsOf } from "../view/select";
 
+import { isAbsolutePath } from "../folders/path";
 /** What you picked in the form. Unset fields take their default. */
 export type Choices = {
 	/** A project's checkout, or any folder on a device. */
@@ -510,8 +511,7 @@ export const pickChoices = (
 };
 
 /** Whether a path is absolute, on Unix or on Windows. */
-export const isAbsolute = (path: string): boolean =>
-	path.startsWith("/") || /^[A-Za-z]:[\\/]/.test(path);
+export const isAbsolute = isAbsolutePath;
 
 /** What starting would send, or why it can't start yet. */
 export type Plan =

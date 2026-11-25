@@ -294,7 +294,7 @@ describe("a running command", () => {
 			maxRows: 24,
 			interactive: false,
 		});
-		expect(button(card, "Stop")).toHaveTextContent("Stop⌃C");
+		expect(button(card, "Stop")).toHaveTextContent("StopCtrl+C");
 		expect(button(card, "Open in terminal")).toBeInTheDocument();
 		expect(
 			within(card).getByPlaceholderText("Type to send input to the command")
@@ -319,7 +319,7 @@ describe("a running command", () => {
 			fireEvent.click(button(card, "Stop"));
 			await waitFor(() => expect(interruptTerminal).toHaveBeenCalledWith("t1"));
 			// Stop stays Stop, and another press types Control-C again.
-			expect(button(card, "Stop")).toHaveTextContent("Stop⌃C");
+			expect(button(card, "Stop")).toHaveTextContent("StopCtrl+C");
 			fireEvent.click(button(card, "Stop"));
 			await waitFor(() => expect(interruptTerminal).toHaveBeenCalledTimes(2));
 			expect(within(card).queryByRole("button", { name: "Force stop" })).toBeNull();

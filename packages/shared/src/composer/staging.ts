@@ -26,6 +26,7 @@ import type { ViewState } from "../view/replica";
 import { linkForDevice } from "../view/select";
 import { type Counted, overLimit } from "./limits";
 
+import { baseName } from "../folders/path";
 /** The most a phone sends of one file as its bytes, as maxd takes it in one message. */
 export const MAX_PHONE_FILE = MAX_INLINE_ATTACHMENT;
 
@@ -119,10 +120,7 @@ export type Staging = StoreApi<StagingState>;
 export const kindOfMime = (mime: string): AttachmentKind =>
 	mime.startsWith("image/") ? "image" : mime === "application/pdf" ? "pdf" : "file";
 
-const nameOfPath = (path: string): string => {
-	const parts = path.replace(/\/+$/, "").split("/");
-	return parts.at(-1) || path;
-};
+const nameOfPath = (path: string): string => baseName(path) || path;
 
 let made = 0;
 

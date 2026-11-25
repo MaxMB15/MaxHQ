@@ -223,6 +223,16 @@ describe("the keys a picker takes", () => {
 		expect(pickerKey({ ...NONE, key: "1", ctrlKey: true }, false)).toBeNull();
 	});
 
+	it("leaves Control and Shift to the app's shortcuts off a Mac, and sends them on a Mac", () => {
+		const both = { ...NONE, key: "J", ctrlKey: true, shiftKey: true };
+		expect(pickerKey(both, false)).toBeNull();
+		vi.spyOn(navigator, "userAgent", "get").mockReturnValue(
+			"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)"
+		);
+		expect(pickerKey(both, false)).toBe("\x0a");
+		vi.restoreAllMocks();
+	});
+
 	it("leaves Command, Option and keys with long names to the app", () => {
 		expect(pickerKey({ ...NONE, key: "k", metaKey: true }, false)).toBeNull();
 		expect(pickerKey({ ...NONE, key: "ArrowUp", altKey: true }, false)).toBeNull();
