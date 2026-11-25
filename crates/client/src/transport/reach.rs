@@ -4,27 +4,36 @@
 //! What the phone's two ways in share: the routes each may dial, reaching
 //! a host's port, and the stagger. A link with several routes starts the
 //! next one [`STAGGER`] after the last if it hasn't answered, so a dead LAN
-//! address doesn't cost a full timeout.
+//! address doesn't cost a full timeout. The russh logins on Windows reach
+//! ports the same way.
 
+#[cfg(any(feature = "russh", feature = "ws"))]
 use std::collections::HashMap;
 use std::io;
 #[cfg(all(feature = "russh", feature = "ws"))]
 use std::net::IpAddr;
-use std::sync::{Arc, PoisonError, RwLock};
+use std::sync::Arc;
+#[cfg(any(feature = "russh", feature = "ws"))]
+use std::sync::{PoisonError, RwLock};
 use std::time::Duration;
 
 use futures::future::BoxFuture;
+#[cfg(any(feature = "russh", feature = "ws"))]
 use maxhq_protocol::ids::DeviceId;
+#[cfg(any(feature = "russh", feature = "ws"))]
 use maxhq_protocol::link::Route;
 use tokio::io::{AsyncRead, AsyncWrite};
 
+use super::DialError;
+#[cfg(any(feature = "russh", feature = "ws"))]
+use super::CONNECT_TIMEOUT;
 #[cfg(all(feature = "russh", feature = "ws"))]
 use super::{Conn, PhoneSsh, PhoneWs, Transport};
-use super::{DialError, CONNECT_TIMEOUT};
 #[cfg(all(feature = "russh", feature = "ws"))]
 use crate::ssh_config::SshConfig;
 
 /// How long a route gets to answer before the next one starts too.
+#[cfg(any(feature = "russh", feature = "ws"))]
 pub(crate) const STAGGER: Duration = Duration::from_millis(300);
 
 /// A byte stream to a device's port.
@@ -52,20 +61,24 @@ pub(crate) fn tcp() -> Connect {
 /// names each. Two networks can have the same private address, so a route
 /// alone never picks a login. Clones share them, so the caller can keep one
 /// to add devices as the books change.
+#[cfg(any(feature = "russh", feature = "ws"))]
 pub(crate) struct Logins<T>(Arc<RwLock<HashMap<(DeviceId, String), T>>>);
 
+#[cfg(any(feature = "russh", feature = "ws"))]
 impl<T> Clone for Logins<T> {
     fn clone(&self) -> Self {
         Self(Arc::clone(&self.0))
     }
 }
 
+#[cfg(any(feature = "russh", feature = "ws"))]
 impl<T> Default for Logins<T> {
     fn default() -> Self {
         Self(Arc::default())
     }
 }
 
+#[cfg(any(feature = "russh", feature = "ws"))]
 impl<T: Clone> Logins<T> {
     /// The login for the route `name` to `device`, or a refusal when there's
     /// none or the link doesn't know its device yet.
@@ -130,13 +143,25 @@ pub(crate) struct Reasons {
 }
 
 /// Reaches `host:port` through `connect`, within [`CONNECT_TIMEOUT`].
+#[cfg(any(feature = "russh", feature = "ws"))]
 pub(crate) async fn open(
     connect: &Connect,
     host: &str,
     port: u16,
     reasons: &Reasons,
 ) -> Result<Box<dyn Io>, DialError> {
-    match tokio::time::timeout(CONNECT_TIMEOUT, connect(host, port)).await {
+    open_within(connect, host, port, reasons, CONNECT_TIMEOUT).await
+}
+
+/// [`open`], within `timeout`.
+pub(crate) async fn open_within(
+    connect: &Connect,
+    host: &str,
+    port: u16,
+    reasons: &Reasons,
+    timeout: Duration,
+) -> Result<Box<dyn Io>, DialError> {
+    match tokio::time::timeout(timeout, connect(host, port)).await {
         Ok(Ok(stream)) => Ok(stream),
         Ok(Err(err)) => Err(io_failure(&err, reasons)),
         Err(_) => Err(DialError::down(reasons.timed_out)),

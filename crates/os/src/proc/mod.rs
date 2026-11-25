@@ -11,6 +11,8 @@
 use std::io;
 use std::path::PathBuf;
 
+#[cfg(any(windows, test))]
+mod args;
 #[cfg(unix)]
 mod unix;
 #[cfg(unix)]
@@ -57,11 +59,17 @@ pub fn adopt(leader: u32) -> io::Result<()> {
 }
 
 /// Stops every process in the group `leader` leads.
+///
+/// On Windows a soft stop is a Ctrl-Break to the group, which only a
+/// group started through [`GroupExt::own_group`] on this process's
+/// console gets, and only while its leader runs. Otherwise the call
+/// fails, so the caller can stop the group hard.
 pub fn stop_group(leader: u32, how: Stop) -> io::Result<()> {
     imp::stop_group(leader, how)
 }
 
-/// Stops the process `pid` alone.
+/// Stops the process `pid` alone. Windows can't ask one process to end,
+/// so a soft stop fails there with [`io::ErrorKind::Unsupported`].
 pub fn stop(pid: u32, how: Stop) -> io::Result<()> {
     imp::stop(pid, how)
 }
@@ -75,6 +83,13 @@ pub fn spawn_detached(command: &mut std::process::Command) -> io::Result<()> {
 /// Whether a process `pid` is there, including one of another user's.
 pub fn alive(pid: u32) -> bool {
     imp::alive(pid)
+}
+
+/// When the process `pid` started, as a number that only compares: a
+/// process that later gets the same ID has another. `None` when there's
+/// no such process, or the system doesn't say.
+pub fn started(pid: u32) -> Option<u64> {
+    imp::started(pid)
 }
 
 /// The program the process `pid` runs, as the system names it. Links
@@ -155,17 +170,132 @@ mod tests {
         });
     }
 
+    #[test]
+    fn a_start_time_tells_processes_apart() {
+        let _forks = crate::forks();
+        let me = started(std::process::id());
+        if cfg!(any(windows, target_os = "linux", target_os = "macos")) {
+            assert!(me.is_some());
+        }
+        assert_eq!(started(std::process::id()), me);
+        let mut child = if cfg!(windows) {
+            let mut command = std::process::Command::new("ping");
+            command.args(["-n", "30", "127.0.0.1"]);
+            command
+        } else {
+            let mut command = std::process::Command::new("sleep");
+            command.arg("30");
+            command
+        }
+        .stdout(std::process::Stdio::null())
+        .spawn()
+        .unwrap();
+        let theirs = started(child.id());
+        assert_eq!(theirs.is_some(), me.is_some());
+        if me.is_some() {
+            assert!(theirs >= me);
+        }
+        let pid = child.id();
+        child.kill().unwrap();
+        child.wait().unwrap();
+        // Windows keeps an ended process while a handle to it is open.
+        drop(child);
+        assert_eq!(started(pid), None);
+    }
+
     #[cfg(windows)]
     #[test]
-    fn groups_say_they_arent_built_yet() {
-        let me = std::process::id();
-        for err in [
-            adopt(me).unwrap_err(),
-            stop_group(me, Stop::Soft).unwrap_err(),
-            stop(me, Stop::Hard).unwrap_err(),
-        ] {
-            assert_eq!(err.kind(), io::ErrorKind::Unsupported);
-        }
+    fn a_job_stops_the_whole_tree() {
+        let _forks = crate::forks();
+        crate::block_on(async {
+            // cmd starts a ping of its own, which lands in the job too.
+            let mut child = tokio::process::Command::new("cmd")
+                .args([
+                    "/c",
+                    "ping -n 30 127.0.0.1 > nul & ping -n 30 127.0.0.1 > nul",
+                ])
+                .own_group()
+                .spawn()
+                .unwrap();
+            let pid = child.id().unwrap();
+            adopt(pid).unwrap();
+            let line = cmdline(pid).await.unwrap().unwrap();
+            assert!(
+                line.ends_with("ping -n 30 127.0.0.1 > nul & ping -n 30 127.0.0.1 > nul"),
+                "{line}"
+            );
+            stop_group(pid, Stop::Hard).unwrap();
+            let status = child.wait().await.unwrap();
+            assert_eq!(status.code(), Some(137));
+            assert!(stop_group(pid, Stop::Hard).is_err());
+        });
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn a_group_found_by_name_stops_too() {
+        let _forks = crate::forks();
+        let mut child = std::process::Command::new("ping")
+            .args(["-n", "30", "127.0.0.1"])
+            .stdout(std::process::Stdio::null())
+            .own_group()
+            .spawn()
+            .unwrap();
+        let pid = child.id();
+        adopt(pid).unwrap();
+        // As a maxd that started later finds it: by its name, not the
+        // handle this process kept. This one still holds its own.
+        let (job, runs) = super::imp::job_by_name(pid).unwrap();
+        assert!(runs);
+        drop(job);
+        stop_group(pid, Stop::Hard).unwrap();
+        assert_eq!(child.wait().unwrap().code(), Some(137));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn one_process_stops_hard_but_not_soft() {
+        let _forks = crate::forks();
+        let mut child = std::process::Command::new("ping")
+            .args(["-n", "30", "127.0.0.1"])
+            .stdout(std::process::Stdio::null())
+            .spawn()
+            .unwrap();
+        let pid = child.id();
+        assert_eq!(
+            stop(pid, Stop::Soft).unwrap_err().kind(),
+            io::ErrorKind::Unsupported
+        );
+        assert!(alive(pid));
+        stop(pid, Stop::Hard).unwrap();
+        assert_eq!(child.wait().unwrap().code(), Some(137));
+        assert_eq!(
+            stop(u32::MAX - 3, Stop::Hard).unwrap_err().kind(),
+            io::ErrorKind::NotFound
+        );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn a_command_line_comes_back_as_its_arguments() {
+        let _forks = crate::forks();
+        let dir = std::env::temp_dir().join("maxhq os args");
+        let mut child = std::process::Command::new("ping")
+            .args(["-n", "30"])
+            .arg(&dir)
+            .arg("127.0.0.1")
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .spawn()
+            .unwrap();
+        let line = crate::block_on(cmdline(child.id())).unwrap().unwrap();
+        let _ = child.kill();
+        let _ = child.wait();
+        assert!(
+            line.ends_with(&format!("-n 30 {} 127.0.0.1", dir.display())),
+            "{line}"
+        );
+        assert_eq!(crate::block_on(cmdline(u32::MAX - 3)).unwrap(), None);
     }
 
     #[cfg(windows)]

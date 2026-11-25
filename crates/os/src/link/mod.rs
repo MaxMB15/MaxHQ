@@ -34,8 +34,7 @@ pub fn point(link: &Path, target: &Path) -> io::Result<()> {
 
 /// What `link` points at.
 pub fn resolve(link: &Path) -> io::Result<PathBuf> {
-    // Reads a symlink on either system, and a junction on Windows.
-    std::fs::read_link(link)
+    imp::resolve(link)
 }
 
 #[cfg(test)]
@@ -70,8 +69,43 @@ mod tests {
 
     #[cfg(windows)]
     #[test]
-    fn point_says_it_isnt_built_yet() {
-        let err = point(Path::new(r"C:\nowhere\maxd"), Path::new(r"C:\nowhere\v1")).unwrap_err();
-        assert_eq!(err.kind(), io::ErrorKind::Unsupported);
+    fn point_moves_a_junction_to_a_new_folder() {
+        let dir = std::env::temp_dir().join(format!("maxhq-os-link-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        for name in ["one", "two"] {
+            std::fs::create_dir_all(dir.join(name)).unwrap();
+            std::fs::write(dir.join(name).join("maxd.exe"), name).unwrap();
+        }
+        let link = dir.join("current");
+        point(&link, &dir.join("one")).unwrap();
+        assert_eq!(resolve(&link).unwrap(), dir.join("one"));
+        // A program open through the link stays the one it opened.
+        let mut open = std::fs::File::open(link.join("maxd.exe")).unwrap();
+
+        // A temp folder a crash left is cleared away.
+        std::fs::create_dir(temp_for(&link)).unwrap();
+        point(&link, &dir.join("two")).unwrap();
+        assert_eq!(resolve(&link).unwrap(), dir.join("two"));
+        assert_eq!(
+            std::fs::read_to_string(link.join("maxd.exe")).unwrap(),
+            "two"
+        );
+        assert!(!temp_for(&link).exists());
+        let mut was = String::new();
+        std::io::Read::read_to_string(&mut open, &mut was).unwrap();
+        assert_eq!(was, "one");
+        drop(open);
+
+        // A file can't be linked, and a folder that isn't a junction
+        // isn't replaced.
+        let err = point(&link, &dir.join("one").join("maxd.exe")).unwrap_err();
+        assert_eq!(err.kind(), io::ErrorKind::InvalidInput, "{err}");
+        let err = point(&dir.join("one"), &dir.join("two")).unwrap_err();
+        assert_eq!(err.kind(), io::ErrorKind::AlreadyExists, "{err}");
+
+        // Removing the junction leaves its folder.
+        std::fs::remove_dir(&link).unwrap();
+        assert!(dir.join("two").join("maxd.exe").exists());
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 }
