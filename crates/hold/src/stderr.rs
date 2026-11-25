@@ -28,8 +28,7 @@ pub(crate) struct StderrLog {
 impl StderrLog {
     /// Starts an empty log at `path` that keeps at most `cap` bytes.
     pub fn create(path: &Path, cap: u64) -> io::Result<Self> {
-        let file = files::append(path)?;
-        file.set_len(0)?;
+        let file = files::append_empty(path)?;
         Ok(Self {
             path: path.to_owned(),
             file: Some(file),

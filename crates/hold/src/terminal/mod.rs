@@ -561,6 +561,9 @@ mod tests {
     fn a_run_is_an_interactive_login_shell_with_the_command() {
         let terminal = TerminalId::generate();
         let launch = TermLaunch::run(terminal, "/tmp".into(), "ls -la", 80, 24);
+        // Windows starts the shell the automatic order finds, each with its
+        // own arguments, which the shell module's tests cover.
+        #[cfg(unix)]
         assert_eq!(
             launch.args,
             [
@@ -568,10 +571,15 @@ mod tests {
                 r"printf '\033]7346;maxhq-run\007'; export PAGER=cat GIT_PAGER=cat; ls -la".into()
             ]
         );
+        #[cfg(windows)]
+        assert_eq!(launch.args, shell::run_args(&launch.program, "ls -la"));
         assert!(launch.run);
         assert!(launch.program.is_absolute());
         let shell = TermLaunch::shell(terminal, "/tmp".into(), 80, 24);
+        #[cfg(unix)]
         assert_eq!(shell.args, [OsString::from("-l")]);
+        #[cfg(windows)]
+        assert_eq!(shell.args, super::shell::start_args(&shell.program));
         assert!(!shell.run);
         for launch in [&launch, &shell] {
             let env: Vec<_> = launch.env.iter().map(|(key, _)| key.clone()).collect();

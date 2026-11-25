@@ -248,6 +248,18 @@ pub(crate) fn append(path: &Path) -> io::Result<File> {
     fsmode::set_open_mode(OpenOptions::new().create(true).append(true), 0o600).open(path)
 }
 
+/// Empties `path`, or makes it empty, then opens it for appending as
+/// [`append`] does. Windows won't let a handle that only appends cut a file
+/// short, so the file is emptied through one that writes.
+pub(crate) fn append_empty(path: &Path) -> io::Result<File> {
+    fsmode::set_open_mode(
+        OpenOptions::new().create(true).write(true).truncate(true),
+        0o600,
+    )
+    .open(path)?;
+    append(path)
+}
+
 /// Writes `value` as JSON, synced and renamed into place, so a reader sees
 /// the old file or the new one and the new one survives a power cut once
 /// this returns.

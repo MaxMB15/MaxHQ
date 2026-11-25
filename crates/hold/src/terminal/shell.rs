@@ -447,12 +447,15 @@ mod tests {
         std::env::temp_dir().join(format!("hold-{name}-{}", &id[20..]))
     }
 
+    #[cfg(unix)]
     fn env<'a>(launch: &'a TermLaunch, key: &str) -> Option<&'a OsString> {
         (launch.env.iter())
             .find(|(name, _)| name == key)
             .map(|(_, value)| value)
     }
 
+    // zsh and fish are Unix's, and Windows takes a bash as Git Bash.
+    #[cfg(unix)]
     #[test]
     fn each_shell_starts_with_its_files_and_a_nonce() {
         let dir = scratch("shell");

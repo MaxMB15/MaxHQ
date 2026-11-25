@@ -1048,10 +1048,12 @@ mod tests {
         };
         assert_eq!(cwd.as_deref(), Some("/start"));
 
-        // A shell with no marks says its folder whenever it likes.
+        // A shell with no marks says its folder whenever it likes. The
+        // folders have longer names than a letter, which Windows reads as
+        // Git Bash's name for a drive.
         let mut plain = state(None);
-        plain.keep(format!("{}{}", mark("A"), folder("/a")).as_bytes());
-        plain.keep(format!("{}{}", mark("C"), folder("/b")).as_bytes());
-        assert_eq!(plain.cwd.as_deref(), Some("/b"));
+        plain.keep(format!("{}{}", mark("A"), folder("/first")).as_bytes());
+        plain.keep(format!("{}{}", mark("C"), folder("/second")).as_bytes());
+        assert_eq!(plain.cwd.as_deref(), Some("/second"));
     }
 }
