@@ -348,7 +348,7 @@ impl Manager {
     }
 
     /// Ends the marker of a move with `status`.
-    fn settle_marker(&mut self, lead: AgentId, marker: &ItemId, status: ItemStatus) {
+    pub(super) fn settle_marker(&mut self, lead: AgentId, marker: &ItemId, status: ItemStatus) {
         let item = self
             .timelines
             .get(&lead)
@@ -364,7 +364,7 @@ impl Manager {
 
     /// Stores the items from before the agent's moves, which no vendor's
     /// history has.
-    fn keep_earlier(&self, lead: AgentId) {
+    pub(super) fn keep_earlier(&self, lead: AgentId) {
         let Some(timeline) = self.timelines.get(&lead) else {
             return;
         };

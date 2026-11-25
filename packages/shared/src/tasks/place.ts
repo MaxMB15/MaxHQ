@@ -3,16 +3,23 @@
 
 // Where tasks live: which devices run them, the device a new task's home
 // defaults to, the repos a GitHub events task can watch, the agents a task
-// can send its prompt to, and the tasks that reach one agent, which keep it
-// from auto-settling while one is enabled. A device
-// whose `maxd` predates scheduled tasks shows none of it.
+// can send its prompt to, whether its runs can start one on a fresh
+// session, and the tasks that reach one agent, which keep it from
+// auto-settling while one is enabled. A device whose `maxd` predates
+// scheduled tasks shows none of it.
 
 import { t } from "../i18n";
 
-import type { AgentId, DeviceId, DeviceTasks, Task } from "../bindings";
+import {
+	type AgentId,
+	type DeviceId,
+	type DeviceTasks,
+	FRESH_SESSIONS_SINCE,
+	type Task,
+} from "../bindings";
 import type { Option } from "../new-agent/spec";
 import { all, type ViewState } from "../view/replica";
-import { deviceName, linkForDevice } from "../view/select";
+import { deviceName, dispatcherHomes, linkForDevice } from "../view/select";
 import { type TaskDraft, targetFrom, type TriggerKind } from "./draft";
 
 /** Whether a device's `maxd` runs scheduled tasks. */
@@ -156,6 +163,35 @@ export const targetValue = (draft: Pick<TaskDraft, "target" | "agent">): string 
 /** The change to the draft that picking `value` from `targetOptions` makes. */
 export const targetPatch = (value: string): Partial<TaskDraft> =>
 	value === NEW_AGENT ? { target: "new" } : { target: "agent", agent: value };
+
+/**
+ * Why a task's runs can't start `agent` on a fresh session, or null when
+ * they can: the dispatcher keeps its session, and the task's home and the
+ * agent's device both need a `maxd` that knows the switch. An older one
+ * queues each run as a message instead.
+ */
+export const freshBlock = (
+	view: ViewState,
+	agent: AgentId | null,
+	home: DeviceId | null
+): string | null => {
+	const held = agent ? view.tables.agent.get(agent) : undefined;
+	if (!held) return null;
+	if (dispatcherHomes(view).has(held.workspace) && !held.origin)
+		return t("The dispatcher keeps its session, so it can't start a fresh one.");
+	const device = view.tables.workspace.get(held.workspace)?.device;
+	const old = [home, device].find((d): d is DeviceId => {
+		if (!d) return false;
+		const protocol = linkForDevice(view, d)?.protocol ?? null;
+		return protocol !== null && protocol < FRESH_SESSIONS_SINCE;
+	});
+	return old
+		? t(
+				"{{device}} runs an older maxd that can't start a fresh session. Update it to turn this on.",
+				{ device: deviceName(view, old) }
+			)
+		: null;
+};
 
 /** A task with the device it lives on. */
 export type HomedTask = { readonly task: Task; readonly home: DeviceId };

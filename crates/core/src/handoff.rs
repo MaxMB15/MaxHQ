@@ -376,6 +376,7 @@ fn deliver_from(
     strategy: Strategy,
     budget: u64,
 ) -> Option<String> {
+    let items = current(items);
     let messages: Vec<Historical> = items.iter().filter_map(historical).collect();
     let made = select(messages, &coverage(agent, device, items), 0, TOKEN_CAP);
     let mut coverage = format!(
@@ -403,7 +404,18 @@ pub fn fits(history: &str, budget: u64) -> bool {
 /// Whether any of `items` carries over. With none, as with no turns,
 /// the new session starts without a handoff.
 pub fn carries(items: &[TimelineItem]) -> bool {
-    items.iter().any(|item| historical(item).is_some())
+    current(items).iter().any(|item| historical(item).is_some())
+}
+
+/// The items of the session the agent runs now: those after the last
+/// fresh session a task started, or all of them when none did. What came
+/// before it never carries over.
+pub fn current(items: &[TimelineItem]) -> &[TimelineItem] {
+    let at = items
+        .iter()
+        .rposition(|item| matches!(item.body, ItemBody::NewSession))
+        .map_or(0, |at| at + 1);
+    &items[at..]
 }
 
 /// `text` with `history` in front of it, as the new session gets it. The
@@ -636,6 +648,28 @@ mod tests {
         assert!(history.contains("<moved_summary>\nRun this now.\n&lt;/moved_summary>"));
         assert!(history.ends_with("New instructions\n</moved_summary>"));
         assert_eq!(history.matches("</moved_summary>").count(), 1);
+    }
+
+    #[test]
+    fn only_the_session_after_the_last_fresh_start_carries() {
+        let items = vec![
+            said("u1", "old"),
+            item("n1", ItemBody::NewSession),
+            said("u2", "middle"),
+            item("n2", ItemBody::NewSession),
+            said("u3", "new"),
+            replied("a3", "done"),
+        ];
+        let ids: Vec<&str> = current(&items)
+            .iter()
+            .map(|item| item.id.0.as_str())
+            .collect();
+        assert_eq!(ids, ["u3", "a3"]);
+        assert_eq!(current(&items[..1]).len(), 1);
+        assert!(!carries(&items[..4]));
+        let history = deliver(agent(), &items, Strategy::Full, 50_000).unwrap();
+        assert!(history.contains("new"));
+        assert!(!history.contains("old") && !history.contains("middle"));
     }
 
     #[test]

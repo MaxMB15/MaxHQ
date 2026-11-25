@@ -593,6 +593,7 @@ fn steps_of(body: &ItemBody, status: ItemStatus) -> Vec<String> {
                 name(to_vendor, *to_local)
             ))
         }
+        ItemBody::NewSession => line("Started a fresh session for a task's run.".to_owned()),
         ItemBody::UserMessage { .. }
         | ItemBody::AssistantMessage { .. }
         | ItemBody::Plan { .. }

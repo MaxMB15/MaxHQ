@@ -14,6 +14,7 @@ import {
 	ErrorRow,
 	HandoffRow,
 	InterruptedRow,
+	NewSessionRow,
 	NoticeRow,
 	TurnSummaryRow,
 	UnknownRow,
@@ -55,6 +56,7 @@ export const estimateHeight = (kind: Kind): number => {
 		case "turn_summary":
 		case "notice":
 		case "handoff":
+		case "new_session":
 		case "user_run":
 		case "unknown":
 			return 24;
@@ -111,6 +113,8 @@ export const ItemBodyView = ({ item }: { item: TimelineItem }) => {
 			return <NoticeRow item={item} />;
 		case "handoff":
 			return <HandoffRow item={item} />;
+		case "new_session":
+			return <NewSessionRow />;
 		case "agent_attachments":
 			return <AgentAttachments item={item} />;
 		case "agent_opened_file":

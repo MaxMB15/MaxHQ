@@ -557,8 +557,11 @@ impl Manager {
             self.strays.insert(id, agent);
             return;
         };
-        // A late word from the vendor the agent moved away from.
-        if agent.vendor != held.vendor() {
+        // A late word from the vendor the agent moved away from, or from
+        // the session a task's fresh start left.
+        if agent.vendor != held.vendor()
+            || (held.left.is_some() && agent.vendor_session_id == held.left)
+        {
             return;
         }
         // The CLI can change its own mode, as Claude does when it leaves
@@ -580,7 +583,7 @@ impl Manager {
     }
 
     /// An agent a driver says no longer exists.
-    fn gone(&mut self, agent: AgentId) {
+    pub(super) fn gone(&mut self, agent: AgentId) {
         self.strays.remove(&agent);
         if let Some(lead) = self.parents.remove(&agent) {
             self.subs.remove(&agent);
@@ -759,6 +762,7 @@ impl Manager {
                         self.save(lead);
                         self.publish(lead);
                     }
+                    self.fresh_due(lead);
                 }
                 Internal::Owed(lead) => {
                     if ok && let Some(held) = self.held.get_mut(&lead) {

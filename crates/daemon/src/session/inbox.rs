@@ -222,11 +222,17 @@ impl Manager {
         }
     }
 
-    /// Whether a message you sent still waits for the agent.
+    /// Whether a message you sent still waits for the agent, or a task's
+    /// run waits to start a fresh session for it or just started one.
     pub(super) fn has_queued(&self, agent: AgentId) -> bool {
-        self.timelines
+        self.held
             .get(&agent)
-            .is_some_and(|timeline| timeline.kept().any(is_queued))
+            .is_some_and(|held| !held.fresh.is_empty())
+            || self.renewing.contains_key(&agent)
+            || self
+                .timelines
+                .get(&agent)
+                .is_some_and(|timeline| timeline.kept().any(is_queued))
     }
 
     /// Stores an agent's inbox and shows it. An inbox that didn't change

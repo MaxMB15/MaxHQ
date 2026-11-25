@@ -31,6 +31,7 @@ import {
 	ErrorRow,
 	HandoffRow,
 	InterruptedRow,
+	NewSessionRow,
 	NoticeRow,
 	TurnSummaryRow,
 	UnknownRow,
@@ -112,6 +113,8 @@ const Body = ({ item }: { item: TimelineItem }) => {
 			return <NoticeRow item={item} />;
 		case "handoff":
 			return <HandoffRow item={item} />;
+		case "new_session":
+			return <NewSessionRow />;
 		case "agent_attachments":
 			return <AgentAttachments item={item} />;
 		case "agent_opened_file":

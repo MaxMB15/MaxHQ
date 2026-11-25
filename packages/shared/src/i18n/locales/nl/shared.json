@@ -1546,5 +1546,8 @@
 	"In the terminal": "In de terminal",
 	"Waiting for keys": "Wacht op toetsen",
 	"In the terminal · Open on the Mac": "In de terminal · Openen op de Mac",
-	"Waiting for keys · Open on the Mac": "Wacht op toetsen · Openen op de Mac"
+	"Waiting for keys · Open on the Mac": "Wacht op toetsen · Openen op de Mac",
+	"New session, for a scheduled task's run": "Nieuwe sessie, voor een uitvoering van een geplande taak",
+	"The dispatcher keeps its session, so it can't start a fresh one.": "De dispatcher houdt zijn sessie, dus hij kan geen nieuwe starten.",
+	"{{device}} runs an older maxd that can't start a fresh session. Update it to turn this on.": "{{device}} draait een oudere maxd die geen nieuwe sessie kan starten. Werk deze bij om dit aan te zetten."
 }

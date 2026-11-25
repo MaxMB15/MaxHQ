@@ -1024,6 +1024,7 @@ impl Manager {
                     model: info.model.clone(),
                     title: info.asked_title.clone(),
                     tools: self.agent_mcp(id, tools_key.as_ref()),
+                    epoch: 0,
                 };
                 (Cli::Acp { vendor, kept }, String::new())
             }

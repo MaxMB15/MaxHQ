@@ -222,6 +222,7 @@ fn task(name: &str, repo: &str, events: &[&str]) -> Task {
         target: TaskTarget::Agent {
             device: DeviceId::derive("d"),
             agent: AgentId::derive("a"),
+            fresh: false,
         },
         enabled: true,
         permission: PermissionId::derive("p"),

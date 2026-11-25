@@ -176,6 +176,7 @@ async fn an_agent_moves_with_a_summary_its_name_and_its_tasks() {
     let target = TaskTarget::Agent {
         device: here,
         agent: old,
+        fresh: false,
     };
     let nightly = mac.save(task("nightly", hourly(), target)).await;
 
@@ -230,6 +231,7 @@ async fn an_agent_moves_with_a_summary_its_name_and_its_tasks() {
         TaskTarget::Agent {
             device: devbox.host.id,
             agent: new,
+            fresh: false,
         }
     );
     let kept = devbox.db.permissions().expect("permissions can be read");
@@ -245,6 +247,7 @@ async fn an_agent_on_another_device_moves_here_and_its_device_gives_back_the_tas
     let away = TaskTarget::Agent {
         device: devbox.host.id,
         agent: old,
+        fresh: false,
     };
     let nightly = mac.save(task("nightly", hourly(), away)).await;
     let copy = maxhq_core::agents::task_permission(&nightly, mac.host.id);
@@ -266,6 +269,7 @@ async fn an_agent_on_another_device_moves_here_and_its_device_gives_back_the_tas
         Some(TaskTarget::Agent {
             device: mac.host.id,
             agent: new,
+            fresh: false,
         })
     );
     let kept = devbox.db.permissions().expect("permissions can be read");
@@ -356,6 +360,7 @@ async fn a_start_that_fails_leaves_the_old_agent_stopped_and_unmarked() {
     let target = TaskTarget::Agent {
         device: here,
         agent: old,
+        fresh: false,
     };
     let nightly = mac.save(task("nightly", hourly(), target.clone())).await;
     devbox.holders.fail_spawns(1);
@@ -401,6 +406,7 @@ async fn a_tools_move_waits_for_your_approval_and_says_what_it_will_do() {
     let target = TaskTarget::Agent {
         device: mac.host.id,
         agent: old,
+        fresh: false,
     };
     mac.save(task("nightly", hourly(), target)).await;
     let (lead, session) = mac.start_claude(Some("Lead")).await;

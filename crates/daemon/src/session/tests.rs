@@ -65,6 +65,7 @@ mod dispatcher_chats;
 mod dispatcher_guards;
 mod finds;
 mod folders;
+mod fresh;
 mod idle;
 mod inbox;
 mod limits;

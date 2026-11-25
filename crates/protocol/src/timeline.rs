@@ -328,6 +328,11 @@ pub enum ItemBody {
         #[serde(default, skip_serializing_if = "std::ops::Not::not")]
         to_local: bool,
     },
+    /// The agent started a fresh vendor session here, with the same vendor,
+    /// model and permission, for a task's run. What comes before it stays
+    /// in the timeline, but the agent no longer has it in its context. An
+    /// older app shows nothing for it. Since protocol 64.
+    NewSession,
     /// Files the agent sent you with MaxHQ's send tool, from copies MaxHQ
     /// keeps in its attachments folder.
     AgentAttachments {
@@ -1094,6 +1099,7 @@ mod tests {
                 from_local: false,
                 to_local: true,
             },
+            ItemBody::NewSession,
             ItemBody::AgentAttachments {
                 text: "Here's the plot".into(),
                 attachments: vec![attachment.clone()],

@@ -146,6 +146,10 @@ export const conversationMarkdown = (
 				blocks.push(`*${handoffLine(item)}*`);
 				if (item.status !== "cancelled") vendor = handoffKinds(item).to;
 				break;
+			case "new_session":
+				flushSteps();
+				blocks.push("*New session, for a scheduled task's run*");
+				break;
 			default: {
 				const lines = toolLines(item, names);
 				if (lines.length === 0) break;

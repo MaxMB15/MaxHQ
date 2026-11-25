@@ -230,6 +230,9 @@ export const handoffLine = (item: Extract<TimelineItem, { kind: "handoff" }>): s
 	});
 };
 
+/** The marker where a task's run started the agent on a fresh session. */
+export const newSessionLine = (): string => t("New session, for a scheduled task's run");
+
 /** Where one stands among `count`, counting from one, such as "2 / 5". */
 export const placeLabel = (index: number, count: number): string =>
 	t("{{at}} / {{total}}", { at: index + 1, total: count });

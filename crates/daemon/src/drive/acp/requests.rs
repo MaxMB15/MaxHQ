@@ -160,7 +160,7 @@ impl AcpSession {
                     .and_then(Value::as_str)
             })
             .unwrap_or_default();
-        let base = self.flavor.base();
+        let base = &self.base;
         let attention = AttentionId::derive(&format!("{base}:{}:{call}:{key}", self.lead));
         if let Some(prompt) = self.prompts.get_mut(&attention) {
             prompt.id = id;

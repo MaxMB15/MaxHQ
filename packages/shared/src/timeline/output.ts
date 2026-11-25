@@ -14,6 +14,7 @@ import { artifactWords } from "../agent-view/tool-line";
 import {
 	gapAbove,
 	handoffLine,
+	newSessionLine,
 	openedLine,
 	sentFilesLine,
 	toolTarget,
@@ -99,6 +100,8 @@ const lineOf = (item: TimelineItem): Omit<OutputLine, "id"> | null => {
 			return { speaker: "note", text: t("Interrupted") };
 		case "handoff":
 			return { speaker: "note", text: handoffLine(item) };
+		case "new_session":
+			return { speaker: "note", text: newSessionLine() };
 		case "agent_opened_file":
 			return { speaker: "tool", text: openedLine(item) };
 		case "agent_visual":

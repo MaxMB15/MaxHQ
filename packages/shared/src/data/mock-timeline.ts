@@ -770,6 +770,8 @@ const usagePopover = (now: Timestamp): TimelineItem[] => {
 	);
 	s.add({ kind: "interrupted" });
 	s.add(summary(48 * SEC, 87_000));
+	// A task's run that starts the agent on a fresh session.
+	s.add({ kind: "new_session" });
 	s.turn(MIN);
 	s.add(you("Show me the popover notes."));
 	s.add(opened(`${MAXHQ_FOLDER}/docs/usage-popover.md`, 12));
@@ -1016,6 +1018,7 @@ const hdrToneMapping = (now: Timestamp): TimelineItem[] => {
 	});
 	s.add({ kind: "unknown", native_kind: "mcp_startup_update" });
 	s.add({ kind: "interrupted" });
+	s.add({ kind: "new_session" });
 	s.add(opened(`${COMET_FOLDER}/docs/hdr-tone-mapping.md`));
 	s.add(visual("Tone curve by mode", "visual-tone-curve-by-mode.html", 8_120));
 	s.add(ranByYou("cargo fmt --check", COMET_FOLDER, "Diff in src/tone.rs at line 88", 1, 1_900), {

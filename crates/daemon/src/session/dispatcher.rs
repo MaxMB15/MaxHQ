@@ -183,6 +183,7 @@ pub(super) fn plan_message(
                     Some(PlanOutcome::Started { agent }) => TaskTarget::Agent {
                         device,
                         agent: *agent,
+                        fresh: false,
                     },
                     _ => return Err(format!("Item {item} didn't start an agent.")),
                 },
@@ -746,6 +747,7 @@ impl Manager {
                         target: TaskTarget::Agent {
                             device: self.plan_device(device)?,
                             agent: self.running_agent(agent)?,
+                            fresh: false,
                         },
                     },
                     Aim::Item(item) => PlanTarget::Item { item },

@@ -22,6 +22,8 @@ export const FINISHED_SUB_AGENTS_SINCE = 44 as const;
 
 export const FOLDERS_SINCE = 46 as const;
 
+export const FRESH_SESSIONS_SINCE = 64 as const;
+
 export const INPUT_MODES_SINCE = 59 as const;
 
 export const MAX_INLINE_ATTACHMENT = 8388608 as const;
@@ -36,7 +38,7 @@ export const NOTE_PILLS_SINCE = 28 as const;
 
 export const OLDEST_PROTOCOL_VERSION = 20 as const;
 
-export const PROTOCOL_VERSION = 60 as const;
+export const PROTOCOL_VERSION = 64 as const;
 
 export const RESET_CREDITS_SINCE = 58 as const;
 
@@ -6557,6 +6559,13 @@ from_local?: boolean;
  */
 to_local?: boolean } | 
 /**
+ *  The agent started a fresh vendor session here, with the same vendor,
+ *  model and permission, for a task's run. What comes before it stays
+ *  in the timeline, but the agent no longer has it in its context. An
+ *  older app shows nothing for it. Since protocol 64.
+ */
+{ kind: "new_session" } | 
+/**
  *  Files the agent sent you with MaxHQ's send tool, from copies MaxHQ
  *  keeps in its attachments folder.
  */
@@ -11199,7 +11208,14 @@ export type TaskTarget =
 /**  The device the agent is on. */
 device: DeviceId; 
 /**  The agent. */
-agent: AgentId } | 
+agent: AgentId; 
+/**
+ *  Whether each run starts the agent on a fresh vendor session in
+ *  the same place, so its context doesn't grow from run to run. The
+ *  run waits for a turn to end first. Since protocol 64; an older
+ *  peer leaving it out reads as `false`, a queued message.
+ */
+fresh?: boolean } | 
 /**  A new agent for each run, with the prompt as its first message. */
 { type: "new"; 
 /**  The device it starts on. */

@@ -65,6 +65,33 @@ impl CodexServer {
         }
     }
 
+    /// Forgets the thread `id` and the threads it spawned, once a task
+    /// started a fresh session for their agent, and lets the app-server
+    /// let go of them. Their late news is dropped, so the agent shows only
+    /// its new thread.
+    pub(super) fn retire(&mut self, id: &str, fx: &mut Effects) {
+        let family: Vec<(String, bool)> = self
+            .family(id)
+            .map(|thread| (thread.id.clone(), thread.loaded))
+            .collect();
+        for (thread, loaded) in family {
+            self.threads.remove(&thread);
+            self.strays.remove(&thread);
+            if loaded {
+                let call = Call::Release {
+                    thread: thread.clone(),
+                };
+                self.rpc.send(
+                    "thread/unsubscribe",
+                    json!({ "threadId": thread }),
+                    call,
+                    fx,
+                );
+            }
+            self.retired.insert(thread);
+        }
+    }
+
     /// The thread `id` and the threads it spawned.
     fn family<'a>(&'a self, id: &'a str) -> impl Iterator<Item = &'a Thread> + 'a {
         self.threads

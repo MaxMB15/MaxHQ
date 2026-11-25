@@ -11,6 +11,7 @@ import { useI18n } from "@maxhq/shared/i18n";
 import { Dialog } from "@base-ui/react/dialog";
 import { useState } from "react";
 
+import { Tick } from "@/agent-tools/scope-fields";
 import { useServices, useView } from "@/app/services";
 import { Switch } from "@/components/ui/switch";
 import { useFieldTyping } from "@/composer/typing-prefs";
@@ -35,6 +36,7 @@ import {
 } from "@maxhq/shared/tasks/draft";
 import {
 	draftHome,
+	freshBlock,
 	githubRepos,
 	homeOptions,
 	sleepWarning,
@@ -92,6 +94,8 @@ const Form = ({
 	const home = picked ?? draftHome(view, draft);
 	const reach = home ? view.tables.device_tasks.get(home) : undefined;
 	const warning = sleepWarning(view, draft.kind, home);
+	// Why the runs can't start the agent fresh, if they can't.
+	const blocked = draft.target === "agent" ? freshBlock(view, draft.agent, home) : null;
 	const repos = [...new Set(githubRepos(view).map((g) => g.repo))];
 	const hasSecret = savedHook?.signature?.has_secret === true;
 	// The agent the saved task reaches, which stays a choice even when it's
@@ -345,6 +349,28 @@ const Form = ({
 					<span className="selectable text-[11.5px] text-status-busy-text">
 						{warning}
 					</span>
+				) : null}
+				{draft.target === "agent" ? (
+					<div className="flex flex-col gap-1">
+						<Tick
+							label={t("Start a fresh session each run")}
+							checked={draft.fresh}
+							onChange={(fresh) => edit({ fresh })}
+							// One that's on can still go off.
+							disabled={blocked !== null && !draft.fresh}
+						/>
+						<span
+							className={cn(
+								"selectable text-[11.5px]",
+								blocked ? "text-status-busy-text" : "text-muted-foreground"
+							)}
+						>
+							{blocked ??
+								t(
+									"Each run starts the agent on a new session in the same place, once its turn is over. The timeline keeps what came before."
+								)}
+						</span>
+					</div>
 				) : null}
 				{draft.target === "new" ? (
 					<AgentPickers

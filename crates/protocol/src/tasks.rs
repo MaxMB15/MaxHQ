@@ -140,6 +140,12 @@ pub enum TaskTarget {
         device: DeviceId,
         /// The agent.
         agent: AgentId,
+        /// Whether each run starts the agent on a fresh vendor session in
+        /// the same place, so its context doesn't grow from run to run. The
+        /// run waits for a turn to end first. Since protocol 64; an older
+        /// peer leaving it out reads as `false`, a queued message.
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        fresh: bool,
     },
     /// A new agent for each run, with the prompt as its first message.
     New {
@@ -578,6 +584,7 @@ mod tests {
             target: TaskTarget::Agent {
                 device: DeviceId::derive("d"),
                 agent: AgentId::derive("a"),
+                fresh: false,
             },
             enabled: true,
             permission: PermissionId::derive("p"),
@@ -596,5 +603,34 @@ mod tests {
         );
         let back: Task = serde_json::from_value(json).expect("it reads back");
         assert_eq!(back, task);
+    }
+
+    #[test]
+    fn a_fresh_session_target_round_trips_and_an_older_one_reads_as_queued() {
+        let (device, agent) = (DeviceId::derive("d"), AgentId::derive("a"));
+        let fresh = TaskTarget::Agent {
+            device,
+            agent,
+            fresh: true,
+        };
+        let json = serde_json::to_value(&fresh).expect("it serializes");
+        assert_eq!(json["fresh"], true);
+        let back: TaskTarget = serde_json::from_value(json).expect("it reads back");
+        assert_eq!(back, fresh);
+
+        let queued = TaskTarget::Agent {
+            device,
+            agent,
+            fresh: false,
+        };
+        let json = serde_json::to_value(&queued).expect("it serializes");
+        assert!(json.get("fresh").is_none(), "{json}");
+        let older = serde_json::json!({
+            "type": "agent",
+            "device": device,
+            "agent": agent,
+        });
+        let back: TaskTarget = serde_json::from_value(older).expect("it reads back");
+        assert_eq!(back, queued);
     }
 }

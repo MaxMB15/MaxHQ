@@ -310,6 +310,8 @@ pub struct CodexServer {
     sends_shown: HashSet<String>,
     /// Lines for threads the driver doesn't know yet.
     strays: HashMap<String, Kept>,
+    /// Threads a fresh session left, whose lines are dropped.
+    retired: HashSet<String>,
     /// Models read so far from a paged list.
     models: Vec<ModelChoice>,
     /// The whole model list as last read, for each model's default effort.
@@ -356,6 +358,7 @@ impl CodexServer {
             tool_calls: HashMap::new(),
             sends_shown: HashSet::new(),
             strays: HashMap::new(),
+            retired: HashSet::new(),
             models: Vec::new(),
             catalog: Vec::new(),
             usage: None,
@@ -565,6 +568,9 @@ impl CodexServer {
         let Some(id) = params.get("threadId").and_then(Value::as_str) else {
             return false;
         };
+        if self.retired.contains(id) {
+            return true;
+        }
         if let Some(thread) = self.threads.get_mut(id) {
             if thread.resuming {
                 thread.keep(text, method, params, seen);

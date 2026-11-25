@@ -14781,6 +14781,10 @@
               "description": "The device the agent is on.",
               "$ref": "#/$defs/DeviceId"
             },
+            "fresh": {
+              "description": "Whether each run starts the agent on a fresh vendor session in\nthe same place, so its context doesn't grow from run to run. The\nrun waits for a turn to end first. Since protocol 64; an older\npeer leaving it out reads as `false`, a queued message.",
+              "type": "boolean"
+            },
             "type": {
               "type": "string",
               "const": "agent"

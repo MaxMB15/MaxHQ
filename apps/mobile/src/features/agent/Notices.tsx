@@ -1,16 +1,16 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026 Max Boksem
 
-// The quieter items: errors, compaction, a stopped turn, the line that ends a
-// turn, notices from the CLI, a move to another vendor, and anything MaxHQ
-// doesn't know how to show yet.
+// The quieter items: errors, compaction, a stopped turn, a fresh session, the
+// line that ends a turn, notices from the CLI, a move to another vendor, and
+// anything MaxHQ doesn't know how to show yet.
 
 import { useI18n } from "@maxhq/shared/i18n";
 
 import type { ReactNode } from "react";
 import { StyleSheet, Text, View } from "react-native";
 
-import { handoffEnd, handoffTitle, isOpen } from "@maxhq/shared/agent-view/format";
+import { handoffEnd, handoffTitle, isOpen, newSessionLine } from "@maxhq/shared/agent-view/format";
 import type { TimelineItem, Vendor } from "@maxhq/shared/bindings";
 import { formatDuration, formatTokens } from "@maxhq/shared/status/format";
 import { modelName } from "@maxhq/shared/view/select";
@@ -23,6 +23,7 @@ import {
 	CircleAlert,
 	CircleStop,
 	Info,
+	RotateCcw,
 	Shrink,
 	TriangleAlert,
 } from "../../ui/glyphs";
@@ -91,6 +92,12 @@ export const CompactionRow = ({ item }: { item: ItemOf<"compaction"> }) => {
 export const InterruptedRow = () => {
 	const { t } = useI18n();
 	return <Divider icon={<CircleStop {...SMALL} />}>{t("You stopped this turn")}</Divider>;
+};
+
+/** Where a task's run started the agent on a fresh session. */
+export const NewSessionRow = () => {
+	useI18n();
+	return <Divider icon={<RotateCcw {...SMALL} />}>{newSessionLine()}</Divider>;
 };
 
 /** The line that ends a turn. */

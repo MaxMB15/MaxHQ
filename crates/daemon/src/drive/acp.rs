@@ -228,6 +228,9 @@ pub struct Kept {
     /// The `maxd mcp` that serves the agent tools, which each session
     /// request names. None leaves the CLI without them.
     pub tools: Option<McpCommand>,
+    /// How many fresh sessions tasks started for the agent, which its
+    /// item IDs carry after the first.
+    pub epoch: u32,
 }
 
 /// How far the process has come.
@@ -298,6 +301,9 @@ struct Turn {
 /// The driver for one agent.
 pub struct AcpSession {
     flavor: Box<dyn Flavor>,
+    /// What the stream's item IDs start with: the flavor's base, and the
+    /// agent's epoch once a task started a fresh session.
+    base: String,
     login: Login,
     place: Place,
     lead: AgentId,
@@ -418,9 +424,14 @@ impl AcpSession {
     ) -> Self {
         let now = Timestamp::now();
         let launched_full = flavor.modes_are_launch_flags() && mode == PermissionMode::FullAccess;
-        let stream = Stream::new(agent, flavor.base());
+        let base = match kept.epoch {
+            0 => flavor.base().to_owned(),
+            epoch => format!("{}.{epoch}", flavor.base()),
+        };
+        let stream = Stream::new(agent, &base);
         Self {
             flavor,
+            base,
             login: login.clone(),
             place: place.clone(),
             lead: agent,
@@ -689,7 +700,7 @@ impl AcpSession {
     /// from the first, so the stream does too.
     fn start_load(&mut self) {
         self.loading = Some(Vec::new());
-        self.stream = Stream::new(self.lead, self.flavor.base());
+        self.stream = Stream::new(self.lead, &self.base);
         self.open = false;
         self.last_user = false;
     }
@@ -765,7 +776,7 @@ impl AcpSession {
                 // The CLI may have lost the session. A new one keeps the
                 // agent going, without the earlier conversation.
                 self.loading = None;
-                self.stream = Stream::new(self.lead, self.flavor.base());
+                self.stream = Stream::new(self.lead, &self.base);
                 self.open = false;
                 self.session_id = None;
                 self.notice(

@@ -1590,5 +1590,8 @@
 	"In the terminal": "En la terminal",
 	"Waiting for keys": "Esperando teclas",
 	"In the terminal · Open on the Mac": "En la terminal · Abrir en el Mac",
-	"Waiting for keys · Open on the Mac": "Esperando teclas · Abrir en el Mac"
+	"Waiting for keys · Open on the Mac": "Esperando teclas · Abrir en el Mac",
+	"New session, for a scheduled task's run": "Nueva sesión, para la ejecución de una tarea programada",
+	"The dispatcher keeps its session, so it can't start a fresh one.": "El dispatcher conserva su sesión, así que no puede iniciar una nueva.",
+	"{{device}} runs an older maxd that can't start a fresh session. Update it to turn this on.": "{{device}} tiene una versión antigua de maxd que no puede iniciar una sesión nueva. Actualízala para activar esta opción."
 }
