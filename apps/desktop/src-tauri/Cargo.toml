@@ -83,5 +83,17 @@ objc2-quick-look-thumbnailing = { workspace = true, features = [
 ] }
 objc2-user-notifications = { workspace = true }
 
+# Off macOS one implementation serves Linux and Windows: notify-rust for
+# notifications (over the libdbus tao already links on Linux), arboard for
+# the clipboard, trash for the Trash, the opener plugin to open and reveal
+# files, and the single-instance plugin, which macOS doesn't need since it
+# starts one copy of an app anyway.
+[target.'cfg(any(target_os = "linux", windows))'.dependencies]
+arboard = { version = "3.7", default-features = false, features = ["image-data"] }
+notify-rust = { version = "4.19", default-features = false, features = ["d"] }
+tauri-plugin-opener = "2.7"
+tauri-plugin-single-instance = "2.5"
+trash = "5.4"
+
 [lints]
 workspace = true
