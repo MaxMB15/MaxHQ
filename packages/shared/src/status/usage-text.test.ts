@@ -5,7 +5,7 @@ import { describe, expect, it } from "vitest";
 
 import type { DeviceSettings, UsageWindow } from "../bindings";
 import { mockSource } from "../data/mock-source";
-import { CLAUDE, CODEX, CURSOR, DEVBOX_CLAUDE, DEVBOX_CODEX, MAC } from "../data/mock-view";
+import { CLAUDE, CODEX, CURSOR, DEVBOX, DEVBOX_CLAUDE, DEVBOX_CODEX, MAC } from "../data/mock-view";
 import { account, agent, entities, MIN, NOW } from "../test/build";
 import { applySnapshot, type ViewState } from "../view/replica";
 import { subscriptions } from "./subscriptions";
@@ -246,5 +246,29 @@ describe("planNote", () => {
 		const view = await load();
 		const [plan] = subscriptions([account({ id: "c" })]);
 		expect(planNote(view, plan!, NOW)).toBe("Not checked yet.");
+	});
+
+	it("names a Cursor API key only while its email isn't known", async () => {
+		const view = await load();
+		const cli = view.tables.account.get(CURSOR)!;
+		const key = account({
+			id: "cursor-key",
+			device: DEVBOX,
+			vendor: "cursor",
+			label: "API key",
+			login: "cursor_api_key",
+			config_dir: "/home/agent/.cursor",
+			email: null,
+			plan: null,
+		});
+		const [alone] = subscriptions([key]);
+		expect(planNote(view, alone!, NOW)).toBe(
+			"Signed in on devbox with an API key. Its month shows with a Mac's Cursor login."
+		);
+		const [joined, ...rest] = subscriptions([cli, { ...key, email: cli.email }]);
+		expect(rest).toEqual([]);
+		expect(joined!.logins).toHaveLength(2);
+		const [own] = subscriptions([cli]);
+		expect(planNote(view, joined!, NOW)).toBe(planNote(view, own!, NOW));
 	});
 });

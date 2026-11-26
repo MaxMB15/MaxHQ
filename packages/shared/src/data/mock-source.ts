@@ -1196,6 +1196,10 @@ export const mockSource = (options: MockOptions = {}): MockSource => {
 			if (!has("device", device)) return missing(`device ${device}`);
 			const account = `acct-cursor-${device}`;
 			const name = label.trim() || "API key";
+			// maxd asks Cursor whose the key is. Here it's the Mac login's.
+			const mac = [...current.values()].find(
+				(e) => e.entity === "account" && e.vendor === "cursor" && e.device === MAC
+			);
 			hold(
 				{
 					id: `cred-cursor-${device}`,
@@ -1204,7 +1208,10 @@ export const mockSource = (options: MockOptions = {}): MockSource => {
 					stored_at: now(),
 					problem: null,
 				},
-				loginAccount(account, device, "cursor", name, null)
+				{
+					...loginAccount(account, device, "cursor", name, null),
+					email: mac?.entity === "account" ? mac.email : null,
+				}
 			);
 			return DONE;
 		});
