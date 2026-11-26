@@ -57,6 +57,14 @@ patchedDependencies:
 # swaps the code that would load it for a stub. The Noto Sans SC font (OFL-1.1)
 # is a fallback the PDF renderer only fetches over the network, which the
 # viewer frame can't reach.
+#
+# Two packages still ask for versions with known security problems. Mermaid 11
+# and micromark-extension-math ask for KaTeX 0.16, from before the trust fix in
+# 0.18.2 (GHSA-238p-pmpm-9mq7). Both only call renderToString, which 0.19 keeps.
+# @expo/fingerprint asks for minimatch 10, from before the fix in 11.0.1
+# (GHSA-g3hv-75wg-m249). It only uses the Minimatch class, which 11 keeps.
 overrides:
   occt-import-js: "-"
   "@fontsource-variable/noto-sans-sc": "-"
+  "katex@<0.18.2": "^0.19.1"
+  "@expo/fingerprint>minimatch": "^11.0.9"
