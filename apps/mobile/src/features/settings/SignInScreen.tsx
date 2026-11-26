@@ -4,14 +4,15 @@
 // One login's page, as the desktop's Settings has one for each: Claude,
 // Codex and Cursor in workspaces, the GitHub App, and phone pushes. Opened
 // for one device, such as from Sign in again on its error, the page puts
-// what that device holds first.
+// what that device holds first. OpenRouter has no page here: its sign-in
+// waits for a browser on the Mac, and its key goes in a form there.
 
 import { useI18n } from "@maxhq/shared/i18n";
 
 import { ScrollView, StyleSheet, Text, View } from "react-native";
 
 import type { DeviceId } from "@maxhq/shared/bindings";
-import { LOGIN_HINT, LOGIN_STEPS, type LoginPage } from "@maxhq/shared/settings/login-steps";
+import { LOGIN_HINT, LOGIN_STEPS, type PhoneLoginPage } from "@maxhq/shared/settings/login-steps";
 
 import type { ScreenProps } from "../../navigation";
 import { color, size } from "../../theme";
@@ -23,7 +24,7 @@ import { CodexLogin } from "./login-codex";
 import { CursorLogin } from "./login-cursor";
 import { GithubLogin } from "./login-github";
 
-const Page = ({ login, device }: { login: LoginPage; device?: DeviceId }) => {
+const Page = ({ login, device }: { login: PhoneLoginPage; device?: DeviceId }) => {
 	switch (login) {
 		case "claude":
 			return <ClaudeLogin device={device} />;

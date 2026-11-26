@@ -1185,5 +1185,19 @@
 	"Or paste an API key": "O pega una clave API",
 	"Paste an API key": "Pega una clave API",
 	"Get a key": "Obtener una clave",
-	"Couldn't sign in with OpenRouter": "No se pudo iniciar sesión con OpenRouter"
+	"Couldn't sign in with OpenRouter": "No se pudo iniciar sesión con OpenRouter",
+	"OpenRouter": "OpenRouter",
+	"A pay-as-you-go key for cloud models such as GLM": "Una clave de pago por uso para modelos en la nube como GLM",
+	"Pick the device under Device. Each device that runs agents on OpenRouter gets a key of its own.": "Elige el dispositivo en Dispositivo. Cada dispositivo que ejecuta agentes en OpenRouter recibe su propia clave.",
+	"Under Spending limit, type an amount in dollars, or leave it empty for no limit. OpenRouter stops the key once it has spent that much.": "En Límite de gasto, escribe una cantidad en dólares, o déjalo vacío para no poner límite. OpenRouter detiene la clave en cuanto ha gastado esa cantidad.",
+	"Click Sign in with OpenRouter. The device's `maxd` starts the sign-in and keeps its PKCE verifier. The app listens on 127.0.0.1 and opens your browser.": "Haz clic en Iniciar sesión con OpenRouter. `maxd` en el dispositivo inicia el inicio de sesión y guarda su verificador PKCE. La app escucha en 127.0.0.1 y abre tu navegador.",
+	"Sign in on OpenRouter and allow MaxHQ. The app passes the code to the device, which trades it for a key named `MaxHQ on <device>`.": "Inicia sesión en OpenRouter y autoriza a MaxHQ. La app pasa el código al dispositivo, que lo cambia por una clave llamada `MaxHQ on <device>`.",
+	"The device adds a server named OpenRouter, or gives its OpenRouter server the new key. Its models show in the model picker.": "El dispositivo añade un servidor llamado OpenRouter, o da la clave nueva a su servidor de OpenRouter. Sus modelos aparecen en el selector de modelos.",
+	"The device keeps the key in a 0600 file next to its other server tokens, and never shows it or sends it back. Revoke it at `https://openrouter.ai/settings/keys`.": "El dispositivo guarda la clave en un archivo 0600 junto a sus otros tokens de servidor, y nunca la muestra ni la devuelve. Revócala en `https://openrouter.ai/settings/keys`.",
+	"Sign in again gives the server a new key and keeps its name and models, so agents on it keep working. The old key works until you revoke it.": "Volver a iniciar sesión da al servidor una clave nueva y mantiene su nombre y modelos, así que sus agentes siguen funcionando. La clave antigua funciona hasta que la revoques.",
+	"To paste a key instead, make one at `https://openrouter.ai/settings/keys`, paste it under API key, and click Add.": "Para pegar una clave en su lugar, crea una en `https://openrouter.ai/settings/keys`, pégala en Clave API y haz clic en Añadir.",
+	"Not set up": "Sin configurar",
+	"Models in Local models": "Modelos en Modelos locales",
+	"Link a device to sign in with OpenRouter on it.": "Vincula un dispositivo para iniciar sesión con OpenRouter en él.",
+	"OpenRouter on {{name}}": "OpenRouter en {{name}}"
 }

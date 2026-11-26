@@ -1183,5 +1183,19 @@
 	"Or paste an API key": "Or paste an API key",
 	"Paste an API key": "Paste an API key",
 	"Get a key": "Get a key",
-	"Couldn't sign in with OpenRouter": "Couldn't sign in with OpenRouter"
+	"Couldn't sign in with OpenRouter": "Couldn't sign in with OpenRouter",
+	"OpenRouter": "OpenRouter",
+	"A pay-as-you-go key for cloud models such as GLM": "A pay-as-you-go key for cloud models such as GLM",
+	"Pick the device under Device. Each device that runs agents on OpenRouter gets a key of its own.": "Pick the device under Device. Each device that runs agents on OpenRouter gets a key of its own.",
+	"Under Spending limit, type an amount in dollars, or leave it empty for no limit. OpenRouter stops the key once it has spent that much.": "Under Spending limit, type an amount in dollars, or leave it empty for no limit. OpenRouter stops the key once it has spent that much.",
+	"Click Sign in with OpenRouter. The device's `maxd` starts the sign-in and keeps its PKCE verifier. The app listens on 127.0.0.1 and opens your browser.": "Click Sign in with OpenRouter. The device's `maxd` starts the sign-in and keeps its PKCE verifier. The app listens on 127.0.0.1 and opens your browser.",
+	"Sign in on OpenRouter and allow MaxHQ. The app passes the code to the device, which trades it for a key named `MaxHQ on <device>`.": "Sign in on OpenRouter and allow MaxHQ. The app passes the code to the device, which trades it for a key named `MaxHQ on <device>`.",
+	"The device adds a server named OpenRouter, or gives its OpenRouter server the new key. Its models show in the model picker.": "The device adds a server named OpenRouter, or gives its OpenRouter server the new key. Its models show in the model picker.",
+	"The device keeps the key in a 0600 file next to its other server tokens, and never shows it or sends it back. Revoke it at `https://openrouter.ai/settings/keys`.": "The device keeps the key in a 0600 file next to its other server tokens, and never shows it or sends it back. Revoke it at `https://openrouter.ai/settings/keys`.",
+	"Sign in again gives the server a new key and keeps its name and models, so agents on it keep working. The old key works until you revoke it.": "Sign in again gives the server a new key and keeps its name and models, so agents on it keep working. The old key works until you revoke it.",
+	"To paste a key instead, make one at `https://openrouter.ai/settings/keys`, paste it under API key, and click Add.": "To paste a key instead, make one at `https://openrouter.ai/settings/keys`, paste it under API key, and click Add.",
+	"Not set up": "Not set up",
+	"Models in Local models": "Models in Local models",
+	"Link a device to sign in with OpenRouter on it.": "Link a device to sign in with OpenRouter on it.",
+	"OpenRouter on {{name}}": "OpenRouter on {{name}}"
 }

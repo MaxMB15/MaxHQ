@@ -54,6 +54,7 @@ import {
 import { GITHUB_LOGIN_TERMS } from "../github-login";
 import { LOCAL_MODELS_TERMS } from "../local-models-settings";
 import { LOGIN_STEPS } from "../login-steps";
+import { OPENROUTER_LOGIN_TERMS } from "../openrouter-login";
 import { NOTIFICATIONS_TERMS, NotificationsSettingsPage } from "../notifications-settings";
 import { PHONES_TERMS } from "../phones-settings";
 import { PORT_PROMPTS_TERMS, PortPromptsSection } from "../port-prompts-settings";
@@ -319,6 +320,7 @@ export const LOGIN_TERMS: Record<LoginPage, readonly string[]> = {
 	claude: CLAUDE_LOGIN_TERMS,
 	codex: CODEX_LOGIN_TERMS,
 	cursor: CURSOR_LOGIN_TERMS,
+	openrouter: OPENROUTER_LOGIN_TERMS,
 	github: GITHUB_LOGIN_TERMS,
 	apns: APNS_LOGIN_TERMS,
 };

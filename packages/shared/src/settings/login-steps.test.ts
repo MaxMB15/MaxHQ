@@ -3,7 +3,14 @@
 
 import { describe, expect, it } from "vitest";
 
-import { LOGIN_HINT, LOGIN_PAGES, LOGIN_STEPS, spanKind, stepParts } from "./login-steps";
+import {
+	LOGIN_HINT,
+	LOGIN_PAGES,
+	LOGIN_STEPS,
+	PHONE_LOGIN_PAGES,
+	spanKind,
+	stepParts,
+} from "./login-steps";
 
 describe("spanKind", () => {
 	it("links a whole web address", () => {
@@ -66,5 +73,13 @@ describe("LOGIN_STEPS", () => {
 				expect(line, line).not.toMatch(/\b[A-Z]-\d+\b/);
 			}
 		}
+	});
+});
+
+describe("PHONE_LOGIN_PAGES", () => {
+	it("leaves out OpenRouter, whose sign-in and key form are on the Mac", () => {
+		expect(LOGIN_PAGES).toContain("openrouter");
+		expect(PHONE_LOGIN_PAGES).not.toContain("openrouter");
+		expect(PHONE_LOGIN_PAGES).toEqual(LOGIN_PAGES.filter((login) => login !== "openrouter"));
 	});
 });

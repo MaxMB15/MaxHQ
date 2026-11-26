@@ -47,6 +47,7 @@ import { CursorLogin } from "../cursor-login";
 import { GithubLogin } from "../github-login";
 import { LocalModelsSettingsPage } from "../local-models-settings";
 import { LOGIN_STEPS } from "../login-steps";
+import { OpenRouterLogin } from "../openrouter-login";
 import { ProjectSettingsPage } from "../project-settings";
 import { ScheduledTasksSettingsPage } from "../scheduled-tasks-settings";
 import type { Span } from "../search";
@@ -554,6 +555,7 @@ const DetailBody = ({ detail }: { detail: SettingsDetail }) => {
 				{detail.login === "claude" ? <ClaudeLogin device={device} /> : null}
 				{detail.login === "codex" ? <CodexLogin /> : null}
 				{detail.login === "cursor" ? <CursorLogin device={device} /> : null}
+				{detail.login === "openrouter" ? <OpenRouterLogin device={device} /> : null}
 				{detail.login === "github" ? <GithubLogin /> : null}
 			</>
 		);

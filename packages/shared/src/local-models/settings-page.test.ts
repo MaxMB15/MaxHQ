@@ -11,6 +11,7 @@ import {
 	LOADED_MODEL,
 	MAC_SERVER,
 	OLLAMA_SERVER,
+	OPENROUTER_SERVER,
 	OLLAMA_URL,
 } from "../data/mock-local-models";
 import { mockSource } from "../data/mock-source";
@@ -37,6 +38,7 @@ import {
 	localDeviceOptions,
 	managedServerView,
 	modelRow,
+	openRouterPageDevice,
 	parseIdleMinutes,
 	pageDevice,
 	pickOf,
@@ -107,6 +109,23 @@ describe("the device the page opens on", () => {
 			entities.filter((e) => !(e.entity === "device_link" && e.device === MAC))
 		);
 		expect(defaultLocalDevice(noMac)).toBe(DEVBOX);
+	});
+
+	it("opens OpenRouter in Accounts on the first device with a server", async () => {
+		const view = await load();
+		expect(openRouterPageDevice(view, DEVBOX)).toBe(DEVBOX);
+		expect(openRouterPageDevice(view, null)).toBe(MAC);
+
+		const devboxOnly = await edited((entities) =>
+			entities.filter((e) => !(e.entity === "model_server" && e.id === OPENROUTER_SERVER))
+		);
+		expect(openRouterPageDevice(devboxOnly, undefined)).toBe(DEVBOX);
+		expect(openRouterPageDevice(devboxOnly, "dev-gone")).toBe(DEVBOX);
+
+		const none = await edited((entities) =>
+			entities.filter((e) => !(e.entity === "model_server" && e.cloud === true))
+		);
+		expect(openRouterPageDevice(none, null)).toBe(MAC);
 	});
 
 	it("says when a device's maxd is too old for local models", async () => {

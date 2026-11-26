@@ -107,7 +107,7 @@ OpenRouter runs many cloud models behind one API key. MaxHQ can get that key for
 
 The device asks OpenRouter for the key and keeps it, and MaxHQ never shows it. On OpenRouter the key is named MaxHQ on, then the device's name, such as MaxHQ on devbox. To stop it, revoke it on OpenRouter's keys page. A device that has an OpenRouter server already gives that server the new key, and the form says so before you sign in.
 
-If the sign-in fails, the form says why, and Try again starts a new one. To paste a key instead, click Get a key to open OpenRouter's keys page, make a key there, paste it under API key, and click Test and Add. A device whose maxd is too old to sign in asks you to update it, and takes a pasted key meanwhile.
+The same form is on the OpenRouter page in Settings, under Accounts, next to each device's key. If the sign-in fails, the form says why, and Try again starts a new one. To paste a key instead, click Get a key to open OpenRouter's keys page, make a key there, paste it under API key, and click Test and Add. A device whose maxd is too old to sign in asks you to update it, and takes a pasted key meanwhile.
 
 The OpenRouter server's row has Sign in again. It runs the same sign-in with no spending limit and gives the server a new key. The server keeps its name and models, so agents on it keep working. The old key works until you revoke it on OpenRouter's keys page.
 

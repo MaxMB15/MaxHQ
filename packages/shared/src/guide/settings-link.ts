@@ -73,7 +73,13 @@ export type PhoneCard = (typeof PHONE_CARDS)[number];
 /** The logins that open as views of their own. The Apple push key is on the Phones tab. */
 export type LoginView = Exclude<LoginPage, "apns">;
 
-export const LOGIN_VIEWS: readonly LoginView[] = ["claude", "codex", "cursor", "github"];
+export const LOGIN_VIEWS: readonly LoginView[] = [
+	"claude",
+	"codex",
+	"cursor",
+	"openrouter",
+	"github",
+];
 
 /** A project's tabs in Settings. */
 export type SettingsProjectTab = "general" | "skills";
@@ -166,6 +172,7 @@ export const settingsPlace = (name: string | null): SettingsPlace | null => {
 	if (name === null) return null;
 	const old = Object.hasOwn(OLD_SETTINGS_PAGES, name) ? OLD_SETTINGS_PAGES[name] : undefined;
 	if (old) return old;
+	if (isIn(LOGIN_VIEWS, name)) return { kind: "login", login: name };
 	if (isIn(PAGE_CARDS, name) || isIn(SETTINGS_GROUPS, name)) return page(name);
 	if (isIn(DEVICE_CARDS, name)) return thisMac(name);
 	if (isIn(PHONE_CARDS, name)) return { kind: "phones", card: name };

@@ -1183,5 +1183,19 @@
 	"Or paste an API key": "Of plak een API-sleutel",
 	"Paste an API key": "Plak een API-sleutel",
 	"Get a key": "Sleutel aanmaken",
-	"Couldn't sign in with OpenRouter": "Kon niet aanmelden met OpenRouter"
+	"Couldn't sign in with OpenRouter": "Kon niet aanmelden met OpenRouter",
+	"OpenRouter": "OpenRouter",
+	"A pay-as-you-go key for cloud models such as GLM": "Een sleutel met betalen naar gebruik voor cloudmodellen zoals GLM",
+	"Pick the device under Device. Each device that runs agents on OpenRouter gets a key of its own.": "Kies het apparaat onder Apparaat. Elk apparaat dat agents op OpenRouter draait, krijgt een eigen sleutel.",
+	"Under Spending limit, type an amount in dollars, or leave it empty for no limit. OpenRouter stops the key once it has spent that much.": "Typ onder Uitgavenlimiet een bedrag in dollars, of laat het leeg voor geen limiet. OpenRouter stopt de sleutel zodra die zoveel heeft uitgegeven.",
+	"Click Sign in with OpenRouter. The device's `maxd` starts the sign-in and keeps its PKCE verifier. The app listens on 127.0.0.1 and opens your browser.": "Klik op Aanmelden met OpenRouter. `maxd` op het apparaat start de aanmelding en bewaart de PKCE-verifier. De app luistert op 127.0.0.1 en opent je browser.",
+	"Sign in on OpenRouter and allow MaxHQ. The app passes the code to the device, which trades it for a key named `MaxHQ on <device>`.": "Meld je aan bij OpenRouter en sta MaxHQ toe. De app geeft de code door aan het apparaat, dat hem inruilt voor een sleutel met de naam `MaxHQ on <device>`.",
+	"The device adds a server named OpenRouter, or gives its OpenRouter server the new key. Its models show in the model picker.": "Het apparaat voegt een server met de naam OpenRouter toe, of geeft zijn OpenRouter-server de nieuwe sleutel. De modellen verschijnen in de modelkiezer.",
+	"The device keeps the key in a 0600 file next to its other server tokens, and never shows it or sends it back. Revoke it at `https://openrouter.ai/settings/keys`.": "Het apparaat bewaart de sleutel in een 0600-bestand naast zijn andere servertokens, en toont of verstuurt hem nooit. Trek hem in op `https://openrouter.ai/settings/keys`.",
+	"Sign in again gives the server a new key and keeps its name and models, so agents on it keep working. The old key works until you revoke it.": "Opnieuw aanmelden geeft de server een nieuwe sleutel en houdt de naam en modellen, zodat agents erop blijven werken. De oude sleutel werkt tot je hem intrekt.",
+	"To paste a key instead, make one at `https://openrouter.ai/settings/keys`, paste it under API key, and click Add.": "Wil je liever een sleutel plakken, maak er dan een op `https://openrouter.ai/settings/keys`, plak hem onder API-sleutel en klik op Toevoegen.",
+	"Not set up": "Niet ingesteld",
+	"Models in Local models": "Modellen in Lokale modellen",
+	"Link a device to sign in with OpenRouter on it.": "Koppel een apparaat om je er met OpenRouter op aan te melden.",
+	"OpenRouter on {{name}}": "OpenRouter op {{name}}"
 }

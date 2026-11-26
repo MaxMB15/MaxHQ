@@ -15,6 +15,7 @@ import type {
 	TaskId,
 	WorkspaceId,
 } from "@maxhq/shared/bindings";
+import type { PhoneLoginPage } from "@maxhq/shared/settings/login-steps";
 import { runName } from "@maxhq/shared/workflow/select";
 
 /** The screens and what each takes. */
@@ -55,9 +56,9 @@ export type Screens = {
 	SettingsPage: {
 		readonly page: "agent-list" | "composer" | "notifications" | "dispatcher" | "agent-tools";
 	};
-	/** A login's page, with `device` first when it's given. */
+	/** A login's page, with `device` first when it's given. OpenRouter has none here. */
 	SignIn: {
-		readonly login: "claude" | "codex" | "cursor" | "github" | "apns";
+		readonly login: PhoneLoginPage;
 		readonly device?: DeviceId;
 	};
 	/** One device's settings. */
