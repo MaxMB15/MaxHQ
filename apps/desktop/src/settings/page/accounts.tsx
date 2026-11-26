@@ -4,35 +4,50 @@
 // The accounts table: a row for each login agents use, a column for each
 // linked device that says whether it's signed in there, and a button that
 // opens the login's own view, with the first device to sign in on filled
-// in when one isn't.
+// in when one isn't. OpenRouter's cells give its key's credits after
+// Signed in, from the device's OpenRouter server.
 
 import { useServices, useViewOf } from "@/app/services";
 import { cn } from "@/lib/utils";
 import type { EntityKind } from "@maxhq/shared/view/replica";
 import { t as translate, useI18n } from "@maxhq/shared/i18n";
-import { type AccountCell, accountDevices, accountRows } from "@maxhq/shared/settings/accounts";
+import {
+	type AccountCell,
+	accountCellText,
+	accountDevices,
+	accountRows,
+} from "@maxhq/shared/settings/accounts";
 
 import { SECONDARY, Section } from "../controls";
 import { showPlace } from "../store";
 
-const KINDS: readonly EntityKind[] = ["device_link", "device_tools", "account", "credential"];
+const KINDS: readonly EntityKind[] = [
+	"device_link",
+	"device_tools",
+	"account",
+	"credential",
+	"model_server",
+];
 
 /** The table's labels, for the settings search. */
 export const ACCOUNTS_TERMS: readonly string[] = [
 	"Claude",
 	"Codex",
 	"Cursor",
+	"OpenRouter",
 	"GitHub",
 	"Signed in",
 	"Not signed in",
 	"Not installed",
+	"Not set up",
 	"Manage",
 ];
 
-const CELL: Record<AccountCell, { readonly text: string; readonly className: string }> = {
-	signed_in: { text: "Signed in", className: "text-status-ready-text" },
-	signed_out: { text: "Not signed in", className: "text-muted-foreground" },
-	not_installed: { text: "Not installed", className: "text-subtle-foreground" },
+const CELL: Record<AccountCell, string> = {
+	signed_in: "text-status-ready-text",
+	signed_out: "text-muted-foreground",
+	not_installed: "text-subtle-foreground",
+	not_set_up: "text-subtle-foreground",
 };
 
 /** The Logins card with its table. */
@@ -85,12 +100,14 @@ export const AccountsCard = () => {
 								{row.cells.map((cell, at) => (
 									<td
 										key={devices[at]!.device}
-										className={cn(
-											"px-4 py-2 whitespace-nowrap",
-											CELL[cell].className
-										)}
+										className={cn("px-4 py-2 whitespace-nowrap", CELL[cell])}
 									>
-										{translate(CELL[cell].text)}
+										{accountCellText(cell)}
+										{row.notes[at] ? (
+											<span className="text-muted-foreground">
+												{` · ${row.notes[at]}`}
+											</span>
+										) : null}
 									</td>
 								))}
 								<td className="px-4 py-2 text-right">

@@ -16,7 +16,7 @@ import { ScrollView, Share, StyleSheet, Text, View } from "react-native";
 
 import { describe } from "@maxhq/shared/data/request-source";
 import { useNow } from "@maxhq/shared/lib/clock";
-import { LOGIN_HINT, LOGIN_PAGES, LOGIN_STEPS } from "@maxhq/shared/settings/login-steps";
+import { LOGIN_HINT, LOGIN_STEPS, PHONE_LOGIN_PAGES } from "@maxhq/shared/settings/login-steps";
 import { deviceReach } from "@maxhq/shared/status/reach";
 import { all, type ViewState } from "@maxhq/shared/view/replica";
 
@@ -67,12 +67,15 @@ const AppCard = ({ navigation }: { navigation: Navigation }) => {
 	);
 };
 
-/** The rows that open each login's page. */
+/**
+ * The rows that open each login's page. OpenRouter stays on the Mac, whose
+ * app runs its browser sign-in and has the form for its key.
+ */
 const LoginsCard = ({ navigation }: { navigation: Navigation }) => {
 	const { t } = useI18n();
 	return (
 		<Card title={t("Logins")}>
-			{LOGIN_PAGES.map((login, i) => (
+			{PHONE_LOGIN_PAGES.map((login, i) => (
 				<CardRow
 					key={login}
 					first={i === 0}

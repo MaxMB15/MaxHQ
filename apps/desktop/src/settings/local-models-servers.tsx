@@ -17,7 +17,9 @@
 // marks OpenRouter one by its host, so its choice has no switch. A cloud
 // server's row shows its credits, and OpenRouter's its admin key and Sign
 // in again. Under the managed server, a switch says whether linked
-// devices' Local agents may use its models over their maxd link.
+// devices' Local agents may use its models over their maxd link. The
+// OpenRouter page in Accounts shows the same server row and OpenRouter's
+// form, from here.
 
 import { Fragment, type ReactNode, useRef, useState } from "react";
 
@@ -154,7 +156,7 @@ const ManagedRow = ({
 };
 
 /** A server URL the device reaches, with what answers there, its last test, Test and Remove. */
-const ExternalRow = ({
+export const ExternalRow = ({
 	device,
 	server,
 	disabled,
@@ -234,8 +236,8 @@ type ServerPreset = {
 /**
  * The fields and buttons that add a server URL. Test asks the device what
  * answers at the URL and shows it, keeping nothing; Add saves the server,
- * and Cancel closes the form. Changing the URL or the token clears what the
- * last Test found. The Cloud service switch, shown when the device's maxd
+ * and Cancel, there when the form can close, closes it. Changing the URL
+ * or the token clears what the last Test found. The Cloud service switch, shown when the device's maxd
  * takes it, follows what Test found until it's touched. With a preset,
  * they ask only for the preset's key, which Test and Add need, and show no
  * switch: maxd knows a preset's host.
@@ -247,7 +249,8 @@ const AddServerForm = ({
 	preset,
 }: {
 	device: DeviceId;
-	onClose: () => void;
+	/** Closes the form, after Add or on Cancel. Without it, the form has no Cancel. */
+	onClose?: () => void;
 	/** What goes above the fields, such as OpenRouter's sign-in. */
 	top?: ReactNode;
 	preset?: ServerPreset;
@@ -325,7 +328,7 @@ const AddServerForm = ({
 				),
 			secret
 		);
-		if (result && addedServerOf(result)) onClose();
+		if (result && addedServerOf(result)) onClose?.();
 	};
 
 	return (
@@ -422,9 +425,11 @@ const AddServerForm = ({
 			) : null}
 			<div className="flex items-center justify-end gap-2.5">
 				<StatusNote note={note} className="mr-auto" />
-				<button type="button" className={SECONDARY} disabled={busy} onClick={onClose}>
-					{translate("Cancel")}
-				</button>
+				{onClose ? (
+					<button type="button" className={SECONDARY} disabled={busy} onClick={onClose}>
+						{translate("Cancel")}
+					</button>
+				) : null}
 				<button
 					type="button"
 					className={SECONDARY}
@@ -445,6 +450,37 @@ const AddServerForm = ({
 		</>
 	);
 };
+
+/** Nothing to do once OpenRouter's form signed in, on a page that shows the server in its place. */
+const STAY = () => {};
+
+/**
+ * OpenRouter's form: Sign in with OpenRouter with a spending limit, or a
+ * pasted key, with Get a key. A device whose maxd is too old to sign in
+ * takes a pasted key only. Its URL and name are set.
+ */
+export const OpenRouterForm = ({
+	device,
+	view,
+	onClose,
+}: {
+	device: DeviceId;
+	view: ViewState;
+	/** Closes the form once the device has the key, and on Cancel. */
+	onClose?: () => void;
+}) => (
+	<AddServerForm
+		device={device}
+		onClose={onClose}
+		preset={{
+			label: OPENROUTER_LABEL,
+			url: OPENROUTER_URL,
+			keyLabel: translate("API key"),
+			signIn: takesCloudServers(view, device),
+		}}
+		top={<OpenRouterSignIn device={device} view={view} onSignedIn={onClose ?? STAY} />}
+	/>
+);
 
 /**
  * The form that adds a server, with the choice at its top: your own server
@@ -472,18 +508,7 @@ const AddServer = ({
 			{kind === "own" ? (
 				<AddServerForm key={kind} device={device} onClose={onClose} />
 			) : (
-				<AddServerForm
-					key={kind}
-					device={device}
-					onClose={onClose}
-					preset={{
-						label: OPENROUTER_LABEL,
-						url: OPENROUTER_URL,
-						keyLabel: translate("API key"),
-						signIn: takesCloudServers(view, device),
-					}}
-					top={<OpenRouterSignIn device={device} view={view} onSignedIn={onClose} />}
-				/>
+				<OpenRouterForm key={kind} device={device} view={view} onClose={onClose} />
 			)}
 		</div>
 	);

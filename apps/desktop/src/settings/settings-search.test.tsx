@@ -256,6 +256,20 @@ describe("the settings search", () => {
 		expect(screen.getByRole("dialog", { name: "Settings" })).toBeInTheDocument();
 	});
 
+	it("finds OpenRouter in Accounts, and opens its page", async () => {
+		const { nav, dialog, field } = await openSettings();
+		search(field, "openrouter");
+		const hit = within(nav).getByRole("button", { name: /^OpenRouter/ });
+		expect(marks(hit)).toContain("OpenRouter");
+		expect(within(nav).getByRole("button", { name: /^Logins/ })).toBeInTheDocument();
+
+		fireEvent.click(hit);
+		expect(
+			await within(dialog).findByRole("region", { name: "OpenRouter on Mac" })
+		).toBeInTheDocument();
+		expect(within(dialog).getByRole("button", { name: "Back" })).toBeInTheDocument();
+	});
+
 	it("takes Command-F to the field while the settings are open", async () => {
 		vi.spyOn(navigator, "userAgent", "get").mockReturnValue(
 			"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)"

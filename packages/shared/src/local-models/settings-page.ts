@@ -20,6 +20,7 @@ import {
 	type LocalPick,
 	type LocalSettings,
 } from "./models";
+import { openRouterServerOf } from "./openrouter";
 import { serverGroup } from "./picker";
 import { type CatalogRow, runsLocalModels, serversOf, serverUsers } from "./select";
 import {
@@ -95,6 +96,20 @@ export const pageDevice = (
 	wanted: DeviceId | null | undefined
 ): DeviceId | null =>
 	wanted && localDevices(view).includes(wanted) ? wanted : defaultLocalDevice(view);
+
+/**
+ * The device the OpenRouter page in Accounts shows: the one asked for while
+ * the view has it, else the first with an OpenRouter server, else the one
+ * the Local models page opens on.
+ */
+export const openRouterPageDevice = (
+	view: ViewState,
+	wanted: DeviceId | null | undefined
+): DeviceId | null => {
+	const devices = localDevices(view);
+	if (wanted && devices.includes(wanted)) return wanted;
+	return devices.find((d) => openRouterServerOf(view, d)) ?? defaultLocalDevice(view);
+};
 
 /** Whether the page can say anything about a device's local models yet. */
 export type DeviceState =

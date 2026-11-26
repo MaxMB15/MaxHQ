@@ -126,10 +126,12 @@
         "Claude",
         "Codex",
         "Cursor",
+        "OpenRouter",
         "GitHub",
         "Signed in",
         "Not signed in",
         "Not installed",
+        "Not set up",
         "Manage"
       ],
       "title": "Logins"
@@ -264,6 +266,23 @@
         "Shell rules Cursor saved"
       ],
       "title": "Cursor in workspaces"
+    },
+    {
+      "hint": "A pay-as-you-go key for cloud models such as GLM",
+      "id": "settings/openrouter",
+      "link": "maxhq://settings/openrouter",
+      "terms": [
+        "Device",
+        "Sign in with OpenRouter",
+        "Spending limit",
+        "API key",
+        "Get a key",
+        "Sign in again",
+        "Admin key",
+        "Models in Local models",
+        "Not set up"
+      ],
+      "title": "OpenRouter"
     },
     {
       "hint": "The App for pushes from workspaces and # lookups, and the repos it reaches",

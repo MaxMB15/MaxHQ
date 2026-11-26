@@ -9,10 +9,28 @@
 import { t } from "../i18n";
 
 /** A login's page in Settings, Accounts. */
-export type LoginPage = "claude" | "codex" | "cursor" | "github" | "apns";
+export type LoginPage = "claude" | "codex" | "cursor" | "openrouter" | "github" | "apns";
 
 /** The logins, in the order Settings lists them. */
-export const LOGIN_PAGES: readonly LoginPage[] = ["claude", "codex", "cursor", "github", "apns"];
+export const LOGIN_PAGES: readonly LoginPage[] = [
+	"claude",
+	"codex",
+	"cursor",
+	"openrouter",
+	"github",
+	"apns",
+];
+
+/**
+ * The logins the phone has a page for: all but OpenRouter, whose sign-in
+ * waits for the browser on the Mac and whose key goes in Add server there.
+ */
+export type PhoneLoginPage = Exclude<LoginPage, "openrouter">;
+
+/** The phone's logins, in the order Settings lists them. */
+export const PHONE_LOGIN_PAGES: readonly PhoneLoginPage[] = LOGIN_PAGES.filter(
+	(login): login is PhoneLoginPage => login !== "openrouter"
+);
 
 /** One login's steps, with what comes before and after them. */
 export type LoginSteps = {
@@ -119,6 +137,44 @@ export const LOGIN_STEPS: Record<LoginPage, LoginSteps> = {
 				),
 				t(
 					"Cursor shows no usage meters in MaxHQ. Manage usage opens the Cursor dashboard."
+				),
+			];
+		},
+	},
+	openrouter: {
+		get title() {
+			return t("OpenRouter");
+		},
+		before: [],
+		get steps() {
+			return [
+				t(
+					"Pick the device under Device. Each device that runs agents on OpenRouter gets a key of its own."
+				),
+				t(
+					"Under Spending limit, type an amount in dollars, or leave it empty for no limit. OpenRouter stops the key once it has spent that much."
+				),
+				t(
+					"Click Sign in with OpenRouter. The device's `maxd` starts the sign-in and keeps its PKCE verifier. The app listens on 127.0.0.1 and opens your browser."
+				),
+				t(
+					"Sign in on OpenRouter and allow MaxHQ. The app passes the code to the device, which trades it for a key named `MaxHQ on <device>`."
+				),
+				t(
+					"The device adds a server named OpenRouter, or gives its OpenRouter server the new key. Its models show in the model picker."
+				),
+			];
+		},
+		get after() {
+			return [
+				t(
+					"The device keeps the key in a 0600 file next to its other server tokens, and never shows it or sends it back. Revoke it at `https://openrouter.ai/settings/keys`."
+				),
+				t(
+					"Sign in again gives the server a new key and keeps its name and models, so agents on it keep working. The old key works until you revoke it."
+				),
+				t(
+					"To paste a key instead, make one at `https://openrouter.ai/settings/keys`, paste it under API key, and click Add."
 				),
 			];
 		},
@@ -234,6 +290,9 @@ export const LOGIN_HINT: Record<LoginPage, string> = {
 	},
 	get cursor() {
 		return t("The Mac's own Cursor login, and an API key for Cursor in containers");
+	},
+	get openrouter() {
+		return t("A pay-as-you-go key for cloud models such as GLM");
 	},
 	get github() {
 		return t("The App for pushes from workspaces and # lookups, and the repos it reaches");

@@ -78,9 +78,10 @@ The Dispatcher card, under Chat and agents, picks which Claude or Codex account 
 <!-- id: settings/accounts -->
 <!-- covers: settings/accounts settings/cursor-usage -->
 
-The Accounts group has a table with a row for each login agents use, Claude, Codex, Cursor and GitHub, and a column for each linked device.
+The Accounts group has a table with a row for each login agents use, Claude, Codex, Cursor, OpenRouter and GitHub, and a column for each linked device.
 
 - Each cell says Signed in, Not signed in or Not installed, for that login on that device.
+- OpenRouter's cells say Not set up for a device without an OpenRouter server. After Signed in they add the key's credits, such as Signed in · $7.42 left. Its button offers Sign in only for a device whose server has no key, or while no device is signed in, since one device's key often covers your cloud agents.
 - Manage opens the login's own view, with its steps and what each device holds. When a device still needs a sign in, the button says Sign in on that device's name, such as Sign in on devbox, and opens the view with that device picked.
 - The Apple push key is on the Phones tab under Devices and phones.
 - Cursor usage, below the table: a row for each Mac with Enable Cursor usage, off by default. One Mac covers the whole account. macOS asks once to let maxd read the Cursor CLI's saved login from the Keychain. maxd then asks Cursor for this month's usage through an endpoint Cursor doesn't document, so it may stop working.
@@ -250,6 +251,19 @@ On the Mac, Cursor agents run as the Cursor CLI's own login. For containers, sen
 - Keys devices hold: a device holds one key, so sending another replaces it. Forget deletes it on the device.
 - Shell rules Cursor saved: Always allow in an earlier MaxHQ also saved the rule in Cursor's own settings, and Cursor then runs commands that start with those words without asking MaxHQ, in every project on that device. Each device with Cursor lists them. Remove makes Cursor ask again; agents already running keep the rule until they start again. MaxHQ now keeps Always allow rules itself.
 - Cursor usage, under Accounts, can show the account's usage. Manage usage opens the Cursor dashboard.
+
+## OpenRouter: a pay-as-you-go key for cloud models
+<!-- id: settings/openrouter -->
+<!-- covers: settings/openrouter -->
+
+OpenRouter gives a device a pay-as-you-go key for cloud models such as GLM. Each device that runs agents on OpenRouter has a key of its own. Open it from the OpenRouter row under Accounts. It's the same OpenRouter as on the Local models page, see [Local models](local-models.md).
+
+- Device: pick the device at the top of the page. The line under it says whether that device is signed in, with its credits, or Not set up.
+- Without an OpenRouter server, the page has OpenRouter's form. Type a Spending limit in dollars or leave it empty, then click Sign in with OpenRouter and finish in your browser. Or click Get a key, make one on OpenRouter's keys page, paste it under API key, and click Add.
+- With an OpenRouter server, the page has its row: the URL, its credits, Admin key for the account's balance, Sign in again, Test and Remove. Below it are the number of models and Models in Local models, which opens that device on the Local models page.
+- A device whose maxd is too old to sign in asks you to update it, and takes a pasted key meanwhile.
+- The device keeps the key and never sends it back. To stop it, revoke it on OpenRouter's keys page.
+- OpenRouter isn't on the phone. Sign in from the Mac.
 
 ## GitHub App: pushes and # lookups
 <!-- id: settings/github -->
