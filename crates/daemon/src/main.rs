@@ -553,6 +553,10 @@ async fn serve() -> Result<Stopped, RunError> {
     })?;
     secrets::install(secrets.clone());
     spawn_task("the GitHub App check", secrets.clone().run());
+    spawn_task(
+        "the Cursor API key check",
+        secrets.clone().check_cursor_key(),
+    );
     start_push(&hub, &data);
     spawn_task(
         "the notification log",

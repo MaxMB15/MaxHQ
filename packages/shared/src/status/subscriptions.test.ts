@@ -54,6 +54,28 @@ describe("subscriptions", () => {
 		expect(ids([codex, signIn])).toEqual([["codex", ["codex", "sign-in"]]]);
 	});
 
+	it("shows a Cursor API key with the Mac's CLI login on the same email", () => {
+		const cli = account({ id: "cli", vendor: "cursor", plan: "pro" });
+		const key = account({
+			id: "key",
+			vendor: "cursor",
+			device: "devbox",
+			login: "cursor_api_key",
+			config_dir: "/home/agent/.cursor",
+			email: "Someone@Example.com",
+			plan: null,
+		});
+		expect(ids([cli, key])).toEqual([["cli", ["cli", "key"]]]);
+		const [plan] = subscriptions([key, cli]);
+		expect(plan!.account.id).toBe("cli");
+		expect(plan!.account.plan).toBe("pro");
+		expect(plan!.borrowed).toBe(false);
+		// Until Cursor says whose the key is, it stands alone.
+		const [, unknown] = subscriptions([cli, { ...key, email: null }]);
+		expect(unknown!.logins.map((a) => a.id)).toEqual(["key"]);
+		expect(unknown!.borrowed).toBe(true);
+	});
+
 	it("shows the same login on two devices once, with the newest reading", () => {
 		const server = account({
 			id: "server",
